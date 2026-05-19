@@ -1,0 +1,13 @@
+{
+  "name": "MeshRouteCore",
+  "version": "0.1.0",
+  "description": "dv_dual_sf protocol port — wire codecs, routing, MAC, beacon, join state machines.",
+  "keywords": "lora, mesh, dv_dual_sf",
+  "license": "BSD-3-Clause",
+  "frameworks": ["arduino", "*"],
+  "platforms": ["nordicnrf52", "espressif32", "native"],
+  "build": {
+    "srcDir": ".",
+    "srcFilter": ["+<*.cpp>", "+<*.h>"]
+  }
+}

@@ -1,0 +1,30 @@
+# PlatformIO
+.pio/
+.pioenvs/
+.piolibdeps/
+.vscode/
+
+# Native build artifacts
+build/
+*.o
+*.a
+*.so
+*.dylib
+
+# Tooling
+.cache/
+compile_commands.json
+.clangd/
+.ccls-cache/
+
+# IDE
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# NDJSON dumps from sim runs
+*_events.ndjson
+
+# Local config overrides
+platformio.local.ini

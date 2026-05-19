@@ -1,0 +1,78 @@
+// MeshRoute — test_protocol_constants.cpp
+//
+// Pins the C++ PROTOCOL constants table to the same values as the
+// Lua model's `PROTOCOL = {...}` block (spec/dv_dual_sf.lua).
+// If you change one side, the other MUST change in the same commit.
+
+#include "doctest.h"
+
+#include "protocol_constants.h"
+
+namespace P = meshroute::protocol;
+
+TEST_CASE("Q4 conversion roundtrip") {
+    // Integer dB values convert exactly.
+    CHECK(P::db_to_q4(5.0f)  == 80);
+    CHECK(P::db_to_q4(12.0f) == 192);
+    CHECK(P::db_to_q4(40.0f) == 640);
+    CHECK(P::db_to_q4(80.0f) == 1280);
+    CHECK(P::db_to_q4(0.0f)  == 0);
+    CHECK(P::db_to_q4(-20.0f) == -320);
+
+    // Round-trip: q4_to_db(db_to_q4(x)) == x when x is exactly representable.
+    CHECK(P::q4_to_db(P::db_to_q4(5.0f)) == doctest::Approx(5.0f));
+    CHECK(P::q4_to_db(P::db_to_q4(-15.0f)) == doctest::Approx(-15.0f));
+
+    // Q4 5/16 = 0.3125 — matches Lua alpha quantization.
+    CHECK(P::q4_to_db(5) == doctest::Approx(0.3125f));
+}
+
+TEST_CASE("Q4 saturation") {
+    CHECK(P::db_to_q4(10000.0f) == P::q4_max);
+    CHECK(P::db_to_q4(-10000.0f) == P::q4_min);
+}
+
+TEST_CASE("SF demod thresholds match Lua's SF_DEMOD_THRESHOLD table") {
+    // Lua reference: SF5 = -40, SF6 = -80, SF7 = -120, ..., SF12 = -320.
+    CHECK(P::sf_demod_threshold_q4_table[5]  == -40);
+    CHECK(P::sf_demod_threshold_q4_table[6]  == -80);
+    CHECK(P::sf_demod_threshold_q4_table[7]  == -120);
+    CHECK(P::sf_demod_threshold_q4_table[8]  == -160);
+    CHECK(P::sf_demod_threshold_q4_table[9]  == -200);
+    CHECK(P::sf_demod_threshold_q4_table[10] == -240);
+    CHECK(P::sf_demod_threshold_q4_table[11] == -280);
+    CHECK(P::sf_demod_threshold_q4_table[12] == -320);
+}
+
+TEST_CASE("Peer-liveness penalties match the Lua PROTOCOL values") {
+    CHECK(P::peer_suspect_penalty_q4 == 192);   // 12.0 dB
+    CHECK(P::peer_silent_penalty_q4  == 640);   // 40.0 dB
+    CHECK(P::peer_dead_penalty_q4    == 1280);  // 80.0 dB
+}
+
+TEST_CASE("Bounded-state caps match the Lua PROTOCOL values") {
+    CHECK(P::cap_seen_origins              == 256);
+    CHECK(P::cap_q_queried                 == 128);
+    CHECK(P::cap_q_responded_to            == 128);
+    CHECK(P::cap_deferred_sends            == 32);
+    CHECK(P::cap_gateway_deferred_handoffs == 32);
+    CHECK(P::cap_id_bind                   == 256);
+}
+
+TEST_CASE("Frame overhead math matches the Lua DATA constants") {
+    CHECK(P::data_hdr_len              == 8);
+    CHECK(P::data_inner_overhead       == 6);
+    CHECK(P::lora_max_frame_bytes      == 255);
+    CHECK(P::max_payload_bytes_hard_cap == 241);  // 255 - 8 - 6
+}
+
+TEST_CASE("Compile-time RF plan flags match the project_band_choice memory") {
+    // These come from platformio.ini common.build_flags. If they ever
+    // drift from project-band-choice's locked plan, this test fails.
+    CHECK(LORA_FREQ_HZ        == 869462500);   // 869.4625 MHz
+    CHECK(LORA_BW_HZ          == 125000);
+    CHECK(LORA_SF             == 8);
+    CHECK(LORA_CR             == 5);
+    CHECK(LORA_DUTY_CYCLE_PCT == 10);
+    CHECK(LORA_PREAMBLE_SYM   == 16);
+}

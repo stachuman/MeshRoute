@@ -1,0 +1,1 @@
+../../lora-universal-simulator/scenarios/dv_dual_sf.lua
