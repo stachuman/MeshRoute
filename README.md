@@ -26,4 +26,9 @@
 
   The protocol design is ready, and the first firmware builds are expected soon. More details will be shared as the implementation becomes available.
 
+  ## Who Wrote It?
 
+  My name is Stanislaw Kozicki, and I am the author of the MeshRoute protocol.
+
+  During development I use automated tools to support implementation, analysis, and iteration. To be clear, the protocol design and engineering decisions are
+  reviewed by me at every step. I have over 25 years of software development experience, and MeshRoute is developed with that level of scrutiny and care.
