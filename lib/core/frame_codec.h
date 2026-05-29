@@ -30,72 +30,70 @@
 namespace meshroute {
 
 // -----------------------------------------------------------------------------
-// BCN — periodic beacon frame  (cmd-nibble 0x0)   [C5 — codec NOT yet ported]
+// BCN — periodic beacon frame (cmd-nibble 0x0) — ROADMAP §10.3
 // -----------------------------------------------------------------------------
-// §10 cmd-nibble layout (ROADMAP §10.3): byte 0 is the SHORT cmd code, never the
-// legacy ASCII 'B' (0x42) — C++ frames carry no tag byte.
-//   byte 0     : cmd=0x0(4 hi) | leaf_id(4 lo)        [1-byte layer-filter dispatch]
+//   byte 0     : cmd=0x0(7..4) | leaf_id(3..0)        [short cmd code, never 'B']
 //   byte 1     : src (8-bit node_id)
-//   byte 2     : has_schedule(1)|self_gateway(1)|is_mobile(1)|has_seen_bitmap(1)|has_ext(1)|n_entries(3)
-//   byte 3     : n_entries(hi bits) | rsv             (or dropped — see SHORTEN below)
-//   bytes 4-7  : key_hash32 (LE u32)
-//   [schedule block, if has_schedule]
-//   route entries × n_entries  (4 B each in the current Lua: dest|next|score_bucket+gw|hops(full byte))
-//   [seen_bitmap (32 B), if has_seen_bitmap]
-//   [ext: 1-byte length + payload, if has_ext]
+//   byte 2     : has_schedule(b7)|self_gateway(b6)|is_mobile(b5)|has_seen_bitmap(b4)|has_ext(b3)|n_entries_lo(b2..0)
+//   byte 3     : n_entries_hi(b7..5) | rsv(b4..0)     [n_entries = lo3 | hi3<<3, 0..63]
+//   bytes 4-7  : key_hash32 (LITTLE-ENDIAN u32)
+//   body: [schedule if has_schedule] -> n_entries x 4-B entry -> [32-B seen-bitmap] -> [ext_len + ext bytes]
 //
-// SHORTEN-vs-Lua (a standing goal — shrink frames wherever functionality is not
-// lost): at C5, pursue ROADMAP §10.6 — order the optional sections BEFORE the
-// route entries so n_entries is derivable from frame_len, dropping it (−1 B/BCN).
-//
-// NOTE: the structs below are iteration-1 placeholders and are STALE (they assume
-// 3-B entries / 3-bit hops; the current Lua uses 4-B entries with a full hops
-// byte). They get redesigned to the §10 layout when the BCN codec lands (C5).
+// C5 scope: header + 4-B entries + schedule block + 32-B seen-bitmap implemented;
+// the ext-TLV block is OPAQUE (ext_len + raw bytes) — the 4 TLV body codecs land
+// with the channel/gateway/liveness iterations. n_entries kept (§10.6 drop deferred).
 
+// Route entry (4 B): dest | next | score_bucket(4 hi)|rsv(3)|is_gateway(b0) | hops(full byte).
 struct beacon_entry {
     uint8_t dest;
     uint8_t next;
-    uint8_t score_bucket;  // 4-bit
-    uint8_t hops_wire;     // 3-bit (hops - 1)
+    uint8_t score_bucket;   // 4-bit
     bool    is_gateway;
+    uint8_t hops;           // full byte (1..255)
+};
+
+// Schedule record (4 B): b0 = layer_id(4 hi)|(routing_sf-5)(b3..1)|period_unit_5s(b0);
+//   b1 = duration_100ms; b2 = offset_100ms (re-stamped at TX by the RUNTIME, not the
+//   codec); b3 = period_units (×1000 ms if period_unit_5s==0, ×5000 ms if ==1).
+struct schedule_record {
+    uint8_t layer_id;       // 4-bit
+    uint8_t routing_sf;     // 5..12 (wire stores sf-5, 3 bits)
+    bool    period_unit_5s;
+    uint8_t duration_100ms;
+    uint8_t offset_100ms;
+    uint8_t period_units;
 };
 
 struct beacon_in {
     uint8_t  leaf_id;
-    bool     has_schedule;
     bool     self_gateway;
     bool     is_mobile;
-    bool     req_sync;
     uint8_t  src;
     uint32_t key_hash32;
-    std::span<const beacon_entry> entries;  // caller-provided storage
-    // Optional blocks deferred to iteration 2: schedule_block, seen_bitmap, ext_payload.
+    uint8_t  gateway_spread_nibble;                  // schedule herd-spread (0..15)
+    std::span<const schedule_record> schedule;       // empty -> has_schedule=0 (<=15)
+    std::span<const beacon_entry>    entries;        // <=63
+    std::span<const uint8_t> seen_bitmap;            // empty -> has_seen_bitmap=0; else exactly 32 B (else pack->0)
+    std::span<const uint8_t> ext;                    // empty -> has_ext=0; else opaque payload (<=255)
 };
-
-// Encode a beacon into `out`. Returns bytes written, or 0 on failure
-// (buffer too small or beacon_max_bytes exceeded).
+// Bytes written, or 0 on bad input (schedule>15 / entries>63 / ext>255) or short out.
 size_t pack_beacon(const beacon_in& in, std::span<uint8_t> out);
 
 struct beacon_out {
-    uint8_t  leaf_id;
-    bool     has_schedule;
-    bool     self_gateway;
-    bool     is_mobile;
-    bool     req_sync;
-    uint8_t  src;
-    uint32_t key_hash32;
-    bool     has_seen_bitmap;
-    bool     has_ext;
-    uint8_t  n_entries;
-    // Caller iterates entries via parse_beacon_entry(frame, idx, &entry).
-    // Total parsed frame length:
-    size_t   frame_len;
+    uint8_t  leaf_id; bool self_gateway; bool is_mobile; uint8_t src; uint32_t key_hash32;
+    bool     has_schedule; uint8_t gateway_spread_nibble; uint8_t schedule_count;
+    uint8_t  n_entries; bool has_seen_bitmap; bool has_ext;
+    // byte offsets into `frame` for the accessors:
+    size_t   schedule_off; size_t entries_off; size_t seen_off; size_t ext_off; size_t ext_len; size_t frame_len;
 };
-
 std::optional<beacon_out> parse_beacon(std::span<const uint8_t> frame);
-std::optional<beacon_entry> parse_beacon_entry(std::span<const uint8_t> frame,
-                                                const beacon_out& bcn,
-                                                uint8_t index);
+// i-th route entry (i < n_entries) / schedule record (i < schedule_count); nullopt if out of range.
+std::optional<beacon_entry>    parse_beacon_entry   (std::span<const uint8_t> frame, const beacon_out& bcn, uint8_t i);
+std::optional<schedule_record> parse_beacon_schedule(std::span<const uint8_t> frame, const beacon_out& bcn, uint8_t i);
+// 32-byte seen-bitmap span (empty if !has_seen_bitmap). bit `id`: byte id/8, mask 1<<(id%8).
+std::span<const uint8_t> beacon_seen_bitmap(std::span<const uint8_t> frame, const beacon_out& bcn);
+// opaque ext payload span (empty if !has_ext).
+std::span<const uint8_t> beacon_ext(std::span<const uint8_t> frame, const beacon_out& bcn);
 
 // -----------------------------------------------------------------------------
 // CTS — clear-to-send (cmd-nibble 0x2, 3 B) — ROADMAP §10.3
@@ -225,5 +223,48 @@ struct f_out { uint8_t leaf_id; uint8_t origin; bool is_reply; uint8_t dst_id;
                uint8_t ttl_or_next_hop; uint8_t hops; };
 size_t pack_f(const f_in& in, std::span<uint8_t> out);            // 6; 0 on short buf
 std::optional<f_out> parse_f(std::span<const uint8_t> frame);     // nullopt: len<6 / cmd
+
+// -----------------------------------------------------------------------------
+// J — join family (cmd-nibble 0x9) — ROADMAP §10.3. OTAA-style join + short-id
+// lease. 4 opcodes, exact length per opcode. All multi-byte fields LITTLE-ENDIAN.
+// -----------------------------------------------------------------------------
+//   byte 0 : cmd=0x9(7..4) | leaf_id(3..0)
+//   byte 1 : gateway_capable(bit 7) | is_mobile(bit 6) | opcode(bits 5..4) | rsv(3..0)
+//            [reading A — RTS-byte5-consistent; §10.3 wording was ambiguous]
+//   [opcode-specific body]
+// Opcode values are NON-sequential: DISCOVER=0, CLAIM=1, DENY=2, OFFER=3.
+enum class j_opcode : uint8_t { discover = 0, claim = 1, deny = 2, offer = 3 };
+constexpr uint8_t J_DENY_CONFLICT = 1, J_DENY_PENDING_CLAIM = 2, J_DENY_OWN_ID_DEFENSE = 3;
+
+// DISCOVER (6 B): key_hash32(LE).
+struct j_discover_in { uint8_t leaf_id; bool gateway_capable; bool is_mobile; uint32_t key_hash32; };
+// OFFER (8 B): responder_node_id, responder_key_hash32(LE), data_sf_bitmap.
+struct j_offer_in    { uint8_t leaf_id; bool gateway_capable; bool is_mobile;
+                       uint8_t responder_node_id; uint32_t responder_key_hash32; uint8_t data_sf_bitmap; };
+// CLAIM (11 B): key_hash32(LE), proposed_node_id, lease_age_seconds(u16 LE), claim_epoch, nonce.
+struct j_claim_in    { uint8_t leaf_id; bool gateway_capable; bool is_mobile; uint32_t key_hash32;
+                       uint8_t proposed_node_id; uint16_t lease_age_seconds; uint8_t claim_epoch; uint8_t nonce; };
+// DENY (15 B): denied_node_id, owner_key_hash32(LE), claimant_key_hash32(LE),
+//              owner_lease_age_seconds(u16 LE), owner_claim_epoch, reason.
+struct j_deny_in     { uint8_t leaf_id; bool gateway_capable; bool is_mobile; uint8_t denied_node_id;
+                       uint32_t owner_key_hash32; uint32_t claimant_key_hash32;
+                       uint16_t owner_lease_age_seconds; uint8_t owner_claim_epoch; uint8_t reason; };
+size_t pack_j_discover(const j_discover_in& in, std::span<uint8_t> out);   // 6
+size_t pack_j_offer   (const j_offer_in&    in, std::span<uint8_t> out);   // 8
+size_t pack_j_claim   (const j_claim_in&    in, std::span<uint8_t> out);   // 11
+size_t pack_j_deny    (const j_deny_in&     in, std::span<uint8_t> out);   // 15
+
+// One parse returns opcode + the superset of fields (only the opcode's are
+// meaningful — mirrors the Lua parse_j single-table). nullopt on wrong cmd or
+// wrong EXACT length for the opcode.
+struct j_out {
+    uint8_t  leaf_id; bool gateway_capable; bool is_mobile; uint8_t opcode;
+    uint32_t key_hash32;                                                       // DISCOVER, CLAIM
+    uint8_t  responder_node_id; uint32_t responder_key_hash32; uint8_t data_sf_bitmap;  // OFFER
+    uint8_t  proposed_node_id; uint16_t lease_age_seconds; uint8_t claim_epoch; uint8_t nonce;  // CLAIM
+    uint8_t  denied_node_id; uint32_t owner_key_hash32; uint32_t claimant_key_hash32;
+    uint16_t owner_lease_age_seconds; uint8_t owner_claim_epoch; uint8_t reason;            // DENY
+};
+std::optional<j_out> parse_j(std::span<const uint8_t> frame);
 
 }  // namespace meshroute
