@@ -1,13 +1,13 @@
 // MeshRoute — frame_codec.h
 //
 // Wire-format codecs for the dv_dual_sf protocol's frame types.
-// Each function mirrors a `pack_*` / `parse_*` pair in spec/dv_dual_sf.lua
-// and produces byte-for-byte identical output for a given input.
+// Each function mirrors a `pack_*` / `parse_*` pair in dv_dual_sf.lua for FIELD
+// MEANING; the C++ wire DIVERGES from the Lua tag-byte wire by design (cmd-nibble,
+// shorter frames) — NOT byte-for-byte identical.
 //
-// Status: CTS + ACK implemented in the §10 cmd-nibble layout (codec track C1).
-// BCN below is still the iteration-1 stub documenting the STALE pre-§10 tag-byte
-// layout — it migrates to §10 when its codec lands (C5). RTS/NACK/Q (C2),
-// H/F (C3), J (C4), DATA (C6) follow.
+// Status: §10 cmd-nibble codec track C0–C6 COMPLETE — BCN(0x0), RTS(0x1), CTS(0x2),
+// DATA(0x3), ACK(0x4), NACK(0x5), Q(0x6), H(0x7), F(0x8), J(0x9). The layout docs
+// below are the §10 cmd-nibble form (not the legacy tag-byte stubs).
 //
 // Wire authority: byte positions = ROADMAP §10.3 (cmd-nibble v2); field meaning
 // = the Lua pack_*/parse_* code. Shared primitives live in wire.h.
@@ -55,6 +55,10 @@ struct beacon_entry {
 // Schedule record (4 B): b0 = layer_id(4 hi)|(routing_sf-5)(b3..1)|period_unit_5s(b0);
 //   b1 = duration_100ms; b2 = offset_100ms (re-stamped at TX by the RUNTIME, not the
 //   codec); b3 = period_units (×1000 ms if period_unit_5s==0, ×5000 ms if ==1).
+// CALLER (runtime) CONTRACT: duration_100ms and period_units are floored to [1,255]
+// during the runtime's ms→units conversion (mirroring Lua pack_schedule_record:1628/
+// 1646) — the codec packs them VERBATIM, exactly as it does offset_100ms. A 0 reaching
+// pack_beacon is a runtime conversion bug; the codec does not mask it (so it surfaces).
 struct schedule_record {
     uint8_t layer_id;       // 4-bit
     uint8_t routing_sf;     // 5..12 (wire stores sf-5, 3 bits)
@@ -266,5 +270,70 @@ struct j_out {
     uint16_t owner_lease_age_seconds; uint8_t owner_claim_epoch; uint8_t reason;            // DENY
 };
 std::optional<j_out> parse_j(std::span<const uint8_t> frame);
+
+// -----------------------------------------------------------------------------
+// DATA — data plane frame (cmd-nibble 0x3, 18+n B) — ROADMAP §10.3
+// -----------------------------------------------------------------------------
+//   byte 0     : cmd=0x3(7..4) | addr_len(3..1) | rsv(0)    [addr_len 0 this phase]
+//   byte 1     : flags(7..4) | rsv(3..0)
+//   byte 2     : next (next-hop short-id)
+//   byte 3     : dst  (final dest short-id; present because addr_len==0)
+//   byte 4     : hops_remaining(7..3, 5-bit 0..31) | committed_hops(2..0, 3-bit 0..7)
+//   byte 5     : prev_fwd_rt_hops (soft hop-gradient)
+//   bytes 6-7  : ctr (16-bit, LITTLE-endian)
+//   bytes 8-13 : visited[6] (fixed 6 slots, one short-id each, 0=empty, no length prefix)
+//   bytes 14.. : inner  (OPAQUE ciphertext slot, n bytes — crypto is a behaviour layer)
+//   last 4     : MAC    (OPAQUE 4-byte trailer)
+// The inner sub-layouts (NORMAL / channel-M) are exposed by SEPARATE optional helpers
+// the behaviour layer calls per payload_type_m — the mandatory parse keeps inner+MAC
+// opaque (mirrors the BCN ext-block seam). Gateway-envelope / hash-bind / E2E-ACK body
+// ride inside the (encrypted) inner and are deferred to the behaviour iterations.
+// ENDIANNESS: ctr is LITTLE-endian; the channel-M channel_msg_id is BIG-endian.
+
+inline constexpr size_t DATA_HDR_LEN     = 14;
+inline constexpr size_t DATA_MAC_LEN     = 4;
+inline constexpr size_t DATA_VISITED_LEN = 6;
+enum DataFlag : uint8_t {            // Lua flag VALUES (packed into byte1 high nibble)
+    DATA_FLAG_PAYLOAD_TYPE_M = 0x01, DATA_FLAG_PRIORITY    = 0x02,
+    DATA_FLAG_E2E_IS_ACK     = 0x04, DATA_FLAG_E2E_ACK_REQ = 0x08,
+};
+
+struct data_in {
+    uint8_t  addr_len;          // 0 this phase (pack returns 0 if != 0)
+    uint8_t  flags;             // OR of DataFlag
+    uint8_t  next;
+    uint8_t  dst;
+    uint8_t  hops_remaining = 31;  // saturated 0..31; DEFAULT 31 = no TTL enforcement
+                                   // (faithful to Lua pack_data 'hb.remaining or 31');
+                                   // a 0 here is the wire code for TTL-exhausted -> drop.
+    uint8_t  committed_hops;    // saturated 0..7
+    uint8_t  prev_fwd_rt_hops;
+    uint16_t ctr;               // packed LITTLE-endian
+    std::span<const uint8_t> visited;  // empty -> 6 zero bytes; else exactly 6 (else pack->0)
+    std::span<const uint8_t> inner;    // opaque ciphertext slot (0..max)
+    std::span<const uint8_t> mac;      // empty -> 4 zero bytes; else exactly 4 (else pack->0)
+};
+// Bytes written, or 0 on bad input (addr_len!=0 / visited size / mac size) or short out.
+size_t pack_data(const data_in& in, std::span<uint8_t> out);
+
+struct data_out {
+    uint8_t  addr_len, flags;
+    bool     e2e_ack_req, e2e_is_ack, priority, payload_type_m;
+    uint8_t  next, dst, hops_remaining, committed_hops, prev_fwd_rt_hops;
+    uint16_t ctr;               // full 16-bit LE
+    uint8_t  ctr_lo4;           // derived ctr & 0x0F (CTS/ACK/NACK hop-match convenience)
+    size_t   visited_off, inner_off, inner_len, mac_off, frame_len;
+};
+std::optional<data_out> parse_data(std::span<const uint8_t> frame);   // nullopt: len<18 / cmd / addr_len!=0
+std::span<const uint8_t> data_visited(std::span<const uint8_t> frame, const data_out& d);  // 6 B
+std::span<const uint8_t> data_inner  (std::span<const uint8_t> frame, const data_out& d);  // opaque, inner_len B
+std::span<const uint8_t> data_mac    (std::span<const uint8_t> frame, const data_out& d);  // 4 B
+
+// OPTIONAL inner helpers (behaviour layer; dispatched by data_out.payload_type_m):
+struct data_unicast_inner { uint8_t origin; std::span<const uint8_t> body; };       // NORMAL: src_addr_len must=0
+std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> inner);
+struct data_m_inner { uint32_t channel_msg_id; uint8_t channel_id; uint8_t flavor;  // channel_msg_id BIG-endian
+                      std::span<const uint8_t> body; };
+std::optional<data_m_inner> parse_m_inner(std::span<const uint8_t> inner);
 
 }  // namespace meshroute

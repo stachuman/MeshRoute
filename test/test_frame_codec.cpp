@@ -596,7 +596,9 @@ TEST_CASE("BCN — schedule multi-record + both period units round-trip") {
     const schedule_record recs[] = {
         {1, 7,  false, 10, 0, 30},    // ×1000 ms
         {3, 9,  true,  20, 5, 12},    // ×5000 ms
-        {5, 12, false, 40, 9, 250},
+        {5, 12, false, 40, 9, 250},   // routing_sf top edge: wire (sf-5)=7
+        {2, 5,  false, 11, 1, 7},     // routing_sf bottom edge: wire (sf-5)=0 floor
+        {4, 6,  true,  12, 2, 9},     // sf=6: wire (sf-5)=1 — catches a single-step shift
     };
     beacon_in in{};
     in.leaf_id = 6; in.src = 0x44; in.key_hash32 = 0xCAFEBABE;
@@ -604,16 +606,16 @@ TEST_CASE("BCN — schedule multi-record + both period units round-trip") {
     in.schedule = recs; in.seen_bitmap = {};
     std::array<uint8_t, 64> buf{};
     size_t n = pack_beacon(in, buf);
-    CHECK(n == size_t(8 + 1 + 3 * 4));
+    CHECK(n == size_t(8 + 1 + 5 * 4));
     std::span<const uint8_t> fr(buf.data(), n);
     auto o = parse_beacon(fr);
     CHECK(o.has_value());
     if (o) {
         CHECK(o->has_schedule);
         CHECK(o->gateway_spread_nibble == 0xB);
-        CHECK(o->schedule_count == 3);
+        CHECK(o->schedule_count == 5);
         bool all = true;
-        for (uint8_t i = 0; i < 3; ++i) {
+        for (uint8_t i = 0; i < 5; ++i) {
             auto s = parse_beacon_schedule(fr, *o, i);
             if (!s || s->layer_id != recs[i].layer_id || s->routing_sf != recs[i].routing_sf ||
                 s->period_unit_5s != recs[i].period_unit_5s || s->duration_100ms != recs[i].duration_100ms ||
@@ -636,6 +638,8 @@ TEST_CASE("BCN — all sections combined round-trip") {
     std::array<uint8_t, 96> buf{};
     size_t n = pack_beacon(in, buf);
     CHECK(n == size_t(8 + (1 + 4) + (2 * 4) + 32 + (1 + 2)));   // 56
+    CHECK(buf[2] == 0xFA);   // has_schedule|self_gw|is_mobile|seen_bm|ext | n_lo(2) = 0xF8|0x02
+    CHECK(buf[3] == 0x00);   // n_entries_hi = 0
     std::span<const uint8_t> fr(buf.data(), n);
     auto o = parse_beacon(fr);
     CHECK(o.has_value());
@@ -656,6 +660,67 @@ TEST_CASE("BCN — all sections combined round-trip") {
         auto x = beacon_ext(fr, *o);
         CHECK(x.size() == 2);
         if (x.size() == 2) { CHECK(x[0] == 0xAA); CHECK(x[1] == 0xBB); }
+    }
+}
+
+TEST_CASE("BCN — byte2 flag bit isolation (each flag toggles exactly its bit)") {
+    const beacon_entry ents[] = {{0x05, 0x07, 0xC, false, 2}};   // 1 entry, no flags -> byte2 = 0x01
+    auto pack_with = [&](bool sched, bool gw, bool mob, bool bm_on, bool ext_on,
+                         std::array<uint8_t, 64>& out) -> size_t {
+        const schedule_record recs[] = {{2, 8, false, 30, 15, 60}};
+        std::array<uint8_t, 32> bm{};
+        const uint8_t ex[] = {0xAA};
+        beacon_in in{};
+        in.self_gateway = gw; in.is_mobile = mob;
+        if (sched)  in.schedule = recs;
+        in.entries = ents;
+        if (bm_on)  in.seen_bitmap = bm;
+        if (ext_on) in.ext = ex;
+        return pack_beacon(in, out);   // recs/bm/ex outlive this call
+    };
+    std::array<uint8_t, 64> base{}, b_sched{}, b_gw{}, b_mob{}, b_bm{}, b_ext{};
+    CHECK(pack_with(false, false, false, false, false, base)    > 0);
+    CHECK(pack_with(true,  false, false, false, false, b_sched) > 0);
+    CHECK(pack_with(false, true,  false, false, false, b_gw)    > 0);
+    CHECK(pack_with(false, false, true,  false, false, b_mob)   > 0);
+    CHECK(pack_with(false, false, false, true,  false, b_bm)    > 0);
+    CHECK(pack_with(false, false, false, false, true,  b_ext)   > 0);
+    CHECK(base[2] == 0x01);                         // 1 entry, every flag clear
+    CHECK((base[2] ^ b_sched[2]) == 0x80);          // has_schedule    = bit 7
+    CHECK((base[2] ^ b_gw[2])    == 0x40);          // self_gateway    = bit 6
+    CHECK((base[2] ^ b_mob[2])   == 0x20);          // is_mobile       = bit 5
+    CHECK((base[2] ^ b_bm[2])    == 0x10);          // has_seen_bitmap = bit 4
+    CHECK((base[2] ^ b_ext[2])   == 0x08);          // has_ext         = bit 3
+}
+
+TEST_CASE("BCN — entry extremes (hops=255, bucket=0xF) + entry rsv bits ignored on parse") {
+    const beacon_entry ents[] = {{0xFE, 0xFD, 0xF, true, 255}};
+    beacon_in in{};
+    in.leaf_id = 1; in.src = 2; in.key_hash32 = 0xDEADBEEF;
+    in.entries = ents; in.seen_bitmap = {};
+    std::array<uint8_t, 16> buf{};
+    size_t n = pack_beacon(in, buf);
+    CHECK(n == 12);
+    std::span<const uint8_t> fr(buf.data(), n);
+    auto o = parse_beacon(fr);
+    CHECK(o.has_value());
+    if (o) {
+        auto e = parse_beacon_entry(fr, *o, 0);
+        CHECK(e.has_value());
+        if (e) { CHECK(e->dest == 0xFE); CHECK(e->next == 0xFD);
+                 CHECK(e->score_bucket == 0xF); CHECK(e->is_gateway); CHECK(e->hops == 255); }
+        // forge the entry's rsv bits (byte2 bits 1..3) -> parse must mask them off
+        std::array<uint8_t, 12> forged{};
+        for (size_t i = 0; i < n; ++i) forged[i] = buf[i];
+        forged[8 + 2] |= 0x0E;
+        std::span<const uint8_t> ff(forged.data(), n);
+        auto o2 = parse_beacon(ff);
+        CHECK(o2.has_value());
+        if (o2) {
+            auto e2 = parse_beacon_entry(ff, *o2, 0);
+            CHECK(e2.has_value());
+            if (e2) { CHECK(e2->score_bucket == 0xF); CHECK(e2->is_gateway); }
+        }
     }
 }
 
@@ -697,4 +762,276 @@ TEST_CASE("BCN — reject: wrong cmd / truncation / trailing / over-cap") {
     CHECK(pack_beacon(oc, big) == 0);                                          // entries > 63
     beacon_in os{}; os.schedule = std::span<const schedule_record>(too_many_sched.data(), 16);
     CHECK(pack_beacon(os, big) == 0);                                          // schedule > 15
+
+    std::array<uint8_t, 16> bm16{};
+    std::array<uint8_t, 33> bm33{};
+    beacon_in ob16{}; ob16.seen_bitmap = bm16;
+    CHECK(pack_beacon(ob16, big) == 0);                                        // seen_bitmap size 16 != 32
+    beacon_in ob33{}; ob33.seen_bitmap = bm33;
+    CHECK(pack_beacon(ob33, big) == 0);                                        // seen_bitmap size 33 != 32
+
+    std::array<uint8_t, 256> ext256{};
+    beacon_in oe{}; oe.ext = ext256;
+    CHECK(pack_beacon(oe, big) == 0);                                          // ext > 255
+    std::array<uint8_t, 255> ext255{};
+    beacon_in oe255{}; oe255.leaf_id = 1; oe255.src = 2; oe255.ext = ext255;
+    CHECK(pack_beacon(oe255, big) == size_t(8 + 1 + 255));                     // 255-B ext boundary packs
+}
+
+// -----------------------------------------------------------------------------
+// DATA — cmd 0x3 (C6). 14-B §10 header + opaque inner + opaque 4-B MAC.
+// Golden hex hand-derived from §10.3; field meaning matches the Lua data plane.
+// -----------------------------------------------------------------------------
+TEST_CASE("DATA — golden NORMAL (header + visited + inner + MAC)") {
+    const uint8_t vis[]   = {0x05, 0x09, 0, 0, 0, 0};
+    const uint8_t inner[] = {0x00, 0x07, 0xAA, 0xBB};   // src_addr_len=0, origin=7, body=AA BB
+    const uint8_t mac[]   = {0, 0, 0, 0};
+    data_in in{};
+    in.addr_len = 0; in.flags = 0; in.next = 0x0B; in.dst = 0x0C;
+    in.hops_remaining = 10; in.committed_hops = 2; in.prev_fwd_rt_hops = 3;
+    in.ctr = 0x1234; in.visited = vis; in.inner = inner; in.mac = mac;
+    std::array<uint8_t, 32> buf{};
+    size_t n = pack_data(in, buf);
+    CHECK(n == 22);
+    const uint8_t ex[] = {0x30, 0x00, 0x0B, 0x0C, 0x52, 0x03, 0x34, 0x12,
+                          0x05, 0x09, 0x00, 0x00, 0x00, 0x00,
+                          0x00, 0x07, 0xAA, 0xBB, 0x00, 0x00, 0x00, 0x00};
+    for (int i = 0; i < 22; ++i) CHECK(buf[i] == ex[i]);
+
+    std::span<const uint8_t> fr(buf.data(), n);
+    auto o = parse_data(fr);
+    CHECK(o.has_value());
+    if (o) {
+        CHECK(o->addr_len == 0);
+        CHECK(o->flags == 0);
+        CHECK_FALSE(o->payload_type_m);
+        CHECK(o->next == 0x0B); CHECK(o->dst == 0x0C);
+        CHECK(o->hops_remaining == 10); CHECK(o->committed_hops == 2);
+        CHECK(o->prev_fwd_rt_hops == 3);
+        CHECK(o->ctr == 0x1234); CHECK(o->ctr_lo4 == 0x4);
+        CHECK(o->inner_len == 4);
+        CHECK(o->frame_len == 22);
+        auto v = data_visited(fr, *o);
+        CHECK(v.size() == 6);
+        if (v.size() == 6) { CHECK(v[0] == 0x05); CHECK(v[1] == 0x09); CHECK(v[2] == 0x00); }
+        auto inr = data_inner(fr, *o);
+        CHECK(inr.size() == 4);
+        auto mc = data_mac(fr, *o);
+        CHECK(mc.size() == 4);
+        if (mc.size() == 4) CHECK(mc[0] == 0x00);
+        auto u = parse_unicast_inner(inr);
+        CHECK(u.has_value());
+        if (u) { CHECK(u->origin == 7); CHECK(u->body.size() == 2);
+                 if (u->body.size() == 2) { CHECK(u->body[0] == 0xAA); CHECK(u->body[1] == 0xBB); } }
+    }
+}
+
+TEST_CASE("DATA — golden M / channel (payload_type_m, channel_msg_id BE)") {
+    const uint8_t inner[] = {0x07, 0xAB, 0xCD, 0xEF, 0x02, 0x01, 0x99};   // msgid BE | chan | flavor | body
+    data_in in{};
+    in.flags = DATA_FLAG_PAYLOAD_TYPE_M; in.next = 0x0B; in.dst = 0xFF;
+    in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0;
+    in.ctr = 0x0001; in.visited = {}; in.inner = inner; in.mac = {};
+    std::array<uint8_t, 32> buf{};
+    size_t n = pack_data(in, buf);
+    CHECK(n == 25);
+    const uint8_t ex[] = {0x30, 0x10, 0x0B, 0xFF, 0xF8, 0x00, 0x01, 0x00,
+                          0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                          0x07, 0xAB, 0xCD, 0xEF, 0x02, 0x01, 0x99, 0x00, 0x00, 0x00, 0x00};
+    for (int i = 0; i < 25; ++i) CHECK(buf[i] == ex[i]);
+
+    std::span<const uint8_t> fr(buf.data(), n);
+    auto o = parse_data(fr);
+    CHECK(o.has_value());
+    if (o) {
+        CHECK(o->payload_type_m);
+        CHECK(o->flags == DATA_FLAG_PAYLOAD_TYPE_M);
+        CHECK(o->dst == 0xFF);
+        CHECK(o->hops_remaining == 31); CHECK(o->committed_hops == 0);
+        CHECK(o->ctr == 0x0001);
+        CHECK(o->inner_len == 7);
+        auto m = parse_m_inner(data_inner(fr, *o));
+        CHECK(m.has_value());
+        if (m) { CHECK(m->channel_msg_id == 0x07ABCDEF); CHECK(m->channel_id == 0x02);
+                 CHECK(m->flavor == 0x01); CHECK(m->body.size() == 1);
+                 if (m->body.size() == 1) CHECK(m->body[0] == 0x99); }
+    }
+}
+
+TEST_CASE("DATA — round-trip across fields (flags, visited, ctr, inner, hops)") {
+    for (uint8_t flags : {uint8_t(0), uint8_t(DATA_FLAG_E2E_ACK_REQ),
+                          uint8_t(DATA_FLAG_E2E_IS_ACK | DATA_FLAG_PRIORITY), uint8_t(0x0F)})
+        for (uint16_t ctr : {uint16_t(0), uint16_t(0x1234), uint16_t(0xFFFF)})
+            for (uint8_t hr : {uint8_t(0), uint8_t(31)})
+                for (size_t inlen : {size_t(0), size_t(1), size_t(40)}) {
+                    std::array<uint8_t, 6> vis{1, 2, 3, 4, 5, 6};
+                    std::array<uint8_t, 40> inner{};
+                    for (size_t i = 0; i < inlen; ++i) inner[i] = uint8_t(0x10 + i);
+                    std::array<uint8_t, 4> mac{0xDE, 0xAD, 0xBE, 0xEF};
+                    data_in in{};
+                    in.flags = flags; in.next = 0x21; in.dst = 0x22;
+                    in.hops_remaining = hr; in.committed_hops = 5; in.prev_fwd_rt_hops = 9;
+                    in.ctr = ctr; in.visited = vis;
+                    in.inner = std::span<const uint8_t>(inner.data(), inlen); in.mac = mac;
+                    std::array<uint8_t, 64> buf{};
+                    size_t n = pack_data(in, buf);
+                    CHECK(n == 18 + inlen);
+                    std::span<const uint8_t> fr(buf.data(), n);
+                    auto o = parse_data(fr);
+                    CHECK(o.has_value());
+                    if (o) {
+                        CHECK(o->flags == (flags & 0x0F));
+                        CHECK(o->e2e_ack_req    == ((flags & DATA_FLAG_E2E_ACK_REQ)    != 0));
+                        CHECK(o->e2e_is_ack     == ((flags & DATA_FLAG_E2E_IS_ACK)     != 0));
+                        CHECK(o->priority       == ((flags & DATA_FLAG_PRIORITY)       != 0));
+                        CHECK(o->payload_type_m == ((flags & DATA_FLAG_PAYLOAD_TYPE_M) != 0));
+                        CHECK(o->ctr == ctr);
+                        CHECK(o->ctr_lo4 == (ctr & 0x0F));
+                        CHECK(o->hops_remaining == hr);
+                        CHECK(o->committed_hops == 5);
+                        CHECK(o->prev_fwd_rt_hops == 9);
+                        CHECK(o->inner_len == inlen);
+                        auto v = data_visited(fr, *o);
+                        bool vok = v.size() == 6;
+                        for (uint8_t i = 0; i < 6 && vok; ++i) vok = v[i] == uint8_t(i + 1);
+                        CHECK(vok);
+                        auto inr = data_inner(fr, *o);
+                        bool iok = inr.size() == inlen;
+                        for (size_t i = 0; i < inlen && iok; ++i) iok = inr[i] == uint8_t(0x10 + i);
+                        CHECK(iok);
+                        auto mc = data_mac(fr, *o);
+                        CHECK(mc.size() == 4);
+                        if (mc.size() == 4) { CHECK(mc[0] == 0xDE); CHECK(mc[3] == 0xEF); }
+                    }
+                }
+}
+
+TEST_CASE("DATA — hop_budget saturates (matches Lua math.min, not a wrap)") {
+    data_in in{};
+    in.next = 1; in.dst = 2; in.hops_remaining = 40; in.committed_hops = 9;
+    in.visited = {}; in.inner = {}; in.mac = {};
+    std::array<uint8_t, 24> buf{};
+    size_t n = pack_data(in, buf);
+    CHECK(n == 18);
+    CHECK(buf[4] == 0xFF);   // (31<<3)|7 = 0xF8|0x07 — saturated, not 40&0x1f / 9&0x07
+    std::span<const uint8_t> fr(buf.data(), n);
+    auto o = parse_data(fr);
+    CHECK(o.has_value());
+    if (o) { CHECK(o->hops_remaining == 31); CHECK(o->committed_hops == 7); }
+}
+
+TEST_CASE("DATA — byte1 flag bit isolation (each flag toggles exactly its bit)") {
+    auto pack_flags = [](uint8_t flags, std::array<uint8_t, 24>& out) -> size_t {
+        data_in in{};
+        in.next = 1; in.dst = 2; in.flags = flags;
+        in.visited = {}; in.inner = {}; in.mac = {};
+        return pack_data(in, out);
+    };
+    std::array<uint8_t, 24> base{}, ack_req{}, is_ack{}, prio{}, m{};
+    CHECK(pack_flags(0, base) == 18);
+    CHECK(pack_flags(DATA_FLAG_E2E_ACK_REQ,    ack_req) == 18);
+    CHECK(pack_flags(DATA_FLAG_E2E_IS_ACK,     is_ack)  == 18);
+    CHECK(pack_flags(DATA_FLAG_PRIORITY,       prio)    == 18);
+    CHECK(pack_flags(DATA_FLAG_PAYLOAD_TYPE_M, m)       == 18);
+    CHECK(base[1] == 0x00);
+    CHECK((base[1] ^ ack_req[1]) == 0x80);   // E2E_ACK_REQ    -> bit 7
+    CHECK((base[1] ^ is_ack[1])  == 0x40);   // E2E_IS_ACK     -> bit 6
+    CHECK((base[1] ^ prio[1])    == 0x20);   // PRIORITY       -> bit 5
+    CHECK((base[1] ^ m[1])       == 0x10);   // PAYLOAD_TYPE_M -> bit 4
+}
+
+TEST_CASE("DATA — reject: wrong cmd / <18 / addr_len!=0 / bad span sizes; 18-B min accepts") {
+    const uint8_t vis[] = {1, 2, 3, 4, 5, 6};
+    const uint8_t inner[] = {0x00, 0x07, 0xAA};
+    const uint8_t mac[] = {0, 0, 0, 0};
+    data_in in{};
+    in.next = 0x0B; in.dst = 0x0C; in.hops_remaining = 5;
+    in.ctr = 0x1234; in.visited = vis; in.inner = inner; in.mac = mac;
+    std::array<uint8_t, 32> buf{};
+    size_t n = pack_data(in, buf);
+    CHECK(n == 21);   // 14 + 3 + 4
+
+    std::array<uint8_t, 21> w2{};
+    for (int i = 0; i < 21; ++i) w2[i] = buf[i];
+    w2[0] = wire::cmd_byte(wire::Cmd::B, 0);
+    CHECK_FALSE(parse_data(w2).has_value());                                   // wrong cmd
+    CHECK_FALSE(parse_data(std::span<const uint8_t>(buf.data(), 17)).has_value()); // < 18
+
+    std::array<uint8_t, 21> al{};
+    for (int i = 0; i < 21; ++i) al[i] = buf[i];
+    al[0] = static_cast<uint8_t>(al[0] | 0x02);   // addr_len=1 in byte0 bits 3..1
+    CHECK_FALSE(parse_data(al).has_value());                                   // addr_len != 0
+    std::array<uint8_t, 21> al7{};
+    for (int i = 0; i < 21; ++i) al7[i] = buf[i];
+    al7[0] = static_cast<uint8_t>(wire::cmd_byte(wire::Cmd::D, 0) | (0x07 << 1));  // addr_len=7
+    CHECK_FALSE(parse_data(al7).has_value());                                  // 3-bit addr_len field
+    std::array<uint8_t, 21> rsv{};
+    for (int i = 0; i < 21; ++i) rsv[i] = buf[i];
+    rsv[0] = static_cast<uint8_t>(rsv[0] | 0x01);   // byte0 bit 0 is rsv
+    auto ro = parse_data(rsv);
+    CHECK(ro.has_value());                                                     // rsv bit 0 ignored on parse
+    if (ro) CHECK(ro->addr_len == 0);
+
+    // 18-byte minimal (empty inner) parses — DATA has no inner length prefix
+    data_in mn{}; mn.next = 1; mn.dst = 2; mn.visited = {}; mn.inner = {}; mn.mac = {};
+    std::array<uint8_t, 18> mbuf{};
+    CHECK(pack_data(mn, mbuf) == 18);
+    auto mo = parse_data(mbuf);
+    CHECK(mo.has_value());
+    if (mo) { CHECK(mo->inner_len == 0); CHECK(data_inner(mbuf, *mo).empty()); }
+
+    data_in bad_al = in; bad_al.addr_len = 1;
+    CHECK(pack_data(bad_al, buf) == 0);                                        // addr_len != 0
+    std::array<uint8_t, 5> vis5{};
+    data_in bad_vis = in; bad_vis.visited = vis5;
+    CHECK(pack_data(bad_vis, buf) == 0);                                       // visited size 5 != 6
+    std::array<uint8_t, 3> mac3{};
+    data_in bad_mac = in; bad_mac.mac = mac3;
+    CHECK(pack_data(bad_mac, buf) == 0);                                       // mac size 3 != 4
+}
+
+TEST_CASE("DATA — endianness guard (ctr LE, channel_msg_id BE)") {
+    data_in in{};
+    in.next = 1; in.dst = 2; in.ctr = 0xBEEF;
+    in.visited = {}; in.inner = {}; in.mac = {};
+    std::array<uint8_t, 24> buf{};
+    size_t n = pack_data(in, buf);
+    CHECK(n == 18);
+    CHECK(buf[6] == 0xEF);   // ctr LE: low byte first
+    CHECK(buf[7] == 0xBE);
+    const uint8_t m_inner[] = {0x12, 0x34, 0x56, 0x78, 0x00, 0x00};
+    auto m = parse_m_inner(m_inner);
+    CHECK(m.has_value());
+    if (m) CHECK(m->channel_msg_id == 0x12345678);   // MSB-first (BE)
+}
+
+TEST_CASE("DATA — inner helpers: reject malformed + accept minimum (empty body)") {
+    const uint8_t too_short_uni[] = {0x00};         // < 2
+    CHECK_FALSE(parse_unicast_inner(too_short_uni).has_value());
+    const uint8_t bad_srcaddr[] = {0x01, 0x07};     // src_addr_len != 0
+    CHECK_FALSE(parse_unicast_inner(bad_srcaddr).has_value());
+    const uint8_t too_short_m[] = {0x01, 0x02, 0x03, 0x04, 0x05};   // < 6
+    CHECK_FALSE(parse_m_inner(too_short_m).has_value());
+
+    // minimum-accept boundaries: empty body
+    const uint8_t min_uni[] = {0x00, 0x07};         // src_addr_len=0, origin=7, body empty
+    auto u = parse_unicast_inner(min_uni);
+    CHECK(u.has_value());
+    if (u) { CHECK(u->origin == 7); CHECK(u->body.size() == 0); }
+    const uint8_t min_m[] = {0x00, 0x00, 0x00, 0x01, 0x02, 0x03};   // msgid BE | chan | flavor, body empty
+    auto m = parse_m_inner(min_m);
+    CHECK(m.has_value());
+    if (m) { CHECK(m->channel_msg_id == 0x00000001); CHECK(m->channel_id == 0x02);
+             CHECK(m->flavor == 0x03); CHECK(m->body.size() == 0); }
+}
+
+TEST_CASE("DATA — default hops_remaining is 31 (no TTL enforcement, Lua 'or 31')") {
+    data_in in{};   // default-constructed: hops_remaining must default to 31, not 0
+    in.next = 1; in.dst = 2; in.visited = {}; in.inner = {}; in.mac = {};
+    std::array<uint8_t, 18> buf{};
+    CHECK(pack_data(in, buf) == 18);
+    CHECK(buf[4] == 0xF8);   // hops_remaining 31 (<<3) | committed 0 — NOT 0x00 (TTL exhausted)
+    auto o = parse_data(buf);
+    CHECK(o.has_value());
+    if (o) { CHECK(o->hops_remaining == 31); CHECK(o->committed_hops == 0); }
 }

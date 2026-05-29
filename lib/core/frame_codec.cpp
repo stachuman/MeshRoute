@@ -1,8 +1,8 @@
 // MeshRoute — frame_codec.cpp
 //
-// §10 cmd-nibble wire codecs (codec track C1–C5). Implemented: BCN (0x0),
-// CTS (0x2), ACK (0x4), RTS (0x1), NACK (0x5), Q (0x6), H (0x7), F (0x8),
-// J (0x9). Remaining: DATA (0x3) — C6.
+// §10 cmd-nibble wire codecs (codec track C1–C6, COMPLETE). Implemented: BCN
+// (0x0), RTS (0x1), CTS (0x2), DATA (0x3), ACK (0x4), NACK (0x5), Q (0x6),
+// H (0x7), F (0x8), J (0x9) — every §10.1 primary command code.
 //
 // Wire authority: byte positions = ROADMAP §10.3. The C++ wire DIVERGES from the
 // Lua tag-byte wire by design (cmd-nibble, shorter frames) — NOT byte-for-byte.
@@ -512,6 +512,93 @@ std::optional<j_out> parse_j(std::span<const uint8_t> frame) {
     }
     if (!r.ok()) return std::nullopt;
     return o;
+}
+
+// -----------------------------------------------------------------------------
+// DATA — cmd=0x3, 18+n B (ROADMAP §10.3). See frame_codec.h for layout.
+// -----------------------------------------------------------------------------
+size_t pack_data(const data_in& in, std::span<uint8_t> out) {
+    if (in.addr_len != 0) return 0;                               // hierarchy deferred this phase
+    const bool vis_zero = in.visited.empty();
+    const bool mac_zero = in.mac.empty();
+    if (!vis_zero && in.visited.size() != DATA_VISITED_LEN) return 0;
+    if (!mac_zero && in.mac.size()     != DATA_MAC_LEN)     return 0;
+
+    const uint8_t hr = in.hops_remaining > 31 ? 31 : in.hops_remaining;   // saturate (matches Lua math.min)
+    const uint8_t ch = in.committed_hops > 7  ? 7  : in.committed_hops;
+
+    wire::Writer w(out);
+    w.u8(wire::cmd_byte(wire::Cmd::D, static_cast<uint8_t>((in.addr_len & 0x07) << 1)));  // addr_len b3..1, rsv b0
+    w.u8(static_cast<uint8_t>((in.flags & 0x0F) << 4));           // flags high nibble | rsv low
+    w.u8(in.next);
+    w.u8(in.dst);
+    w.u8(static_cast<uint8_t>(((hr & 0x1F) << 3) | (ch & 0x07)));
+    w.u8(in.prev_fwd_rt_hops);
+    w.u16_le(in.ctr);
+    if (vis_zero) { for (int i = 0; i < (int)DATA_VISITED_LEN; ++i) w.u8(0); }
+    else          { for (uint8_t b : in.visited) w.u8(b); }
+    for (uint8_t b : in.inner) w.u8(b);                           // opaque ciphertext slot
+    if (mac_zero) { for (int i = 0; i < (int)DATA_MAC_LEN; ++i) w.u8(0); }
+    else          { for (uint8_t b : in.mac) w.u8(b); }           // opaque 4-B trailer
+    return w.ok() ? w.size() : 0;
+}
+
+std::optional<data_out> parse_data(std::span<const uint8_t> frame) {
+    if (frame.size() < DATA_HDR_LEN + DATA_MAC_LEN) return std::nullopt;   // < 18
+    if (wire::cmd_of(frame[0]) != wire::Cmd::D) return std::nullopt;
+
+    data_out o{};
+    o.addr_len = static_cast<uint8_t>((frame[0] >> 1) & 0x07);    // byte0 bits 3..1
+    if (o.addr_len != 0) return std::nullopt;                     // hierarchy deferred
+    o.flags          = static_cast<uint8_t>((frame[1] >> 4) & 0x0F);
+    o.e2e_ack_req    = (o.flags & DATA_FLAG_E2E_ACK_REQ)    != 0;
+    o.e2e_is_ack     = (o.flags & DATA_FLAG_E2E_IS_ACK)     != 0;
+    o.priority       = (o.flags & DATA_FLAG_PRIORITY)       != 0;
+    o.payload_type_m = (o.flags & DATA_FLAG_PAYLOAD_TYPE_M) != 0;
+    o.next             = frame[2];
+    o.dst              = frame[3];
+    o.hops_remaining   = static_cast<uint8_t>((frame[4] >> 3) & 0x1F);
+    o.committed_hops   = static_cast<uint8_t>(frame[4] & 0x07);
+    o.prev_fwd_rt_hops = frame[5];
+    { wire::Reader r(frame.subspan(6, 2)); o.ctr = r.u16_le(); }
+    o.ctr_lo4     = static_cast<uint8_t>(o.ctr & 0x0F);           // derived hop-match convenience
+    o.visited_off = 8;
+    o.inner_off   = DATA_HDR_LEN;                                 // 14
+    o.inner_len   = frame.size() - DATA_HDR_LEN - DATA_MAC_LEN;   // size>=18 guaranteed above
+    o.mac_off     = frame.size() - DATA_MAC_LEN;
+    o.frame_len   = frame.size();
+    return o;
+}
+
+std::span<const uint8_t> data_visited(std::span<const uint8_t> frame, const data_out& d) {
+    if (d.visited_off + DATA_VISITED_LEN > frame.size()) return {};
+    return frame.subspan(d.visited_off, DATA_VISITED_LEN);
+}
+std::span<const uint8_t> data_inner(std::span<const uint8_t> frame, const data_out& d) {
+    if (d.inner_off + d.inner_len > frame.size()) return {};
+    return frame.subspan(d.inner_off, d.inner_len);
+}
+std::span<const uint8_t> data_mac(std::span<const uint8_t> frame, const data_out& d) {
+    if (d.mac_off + DATA_MAC_LEN > frame.size()) return {};
+    return frame.subspan(d.mac_off, DATA_MAC_LEN);
+}
+
+std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> inner) {
+    if (inner.size() < 2) return std::nullopt;                    // src_addr_len + origin
+    if (inner[0] != 0) return std::nullopt;                       // src_addr_len must be 0 this phase
+    data_unicast_inner u{};
+    u.origin = inner[1];
+    u.body   = inner.subspan(2);
+    return u;
+}
+std::optional<data_m_inner> parse_m_inner(std::span<const uint8_t> inner) {
+    if (inner.size() < 6) return std::nullopt;                    // channel_msg_id(4) + channel_id + flavor
+    data_m_inner m{};
+    { wire::Reader r(inner.subspan(0, 4)); m.channel_msg_id = r.u32_be(); }   // BIG-endian
+    m.channel_id = inner[4];
+    m.flavor     = inner[5];
+    m.body       = inner.subspan(6);
+    return m;
 }
 
 }  // namespace meshroute
