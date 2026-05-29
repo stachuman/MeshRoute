@@ -32,6 +32,19 @@ TEST_CASE("airtime_ms — SF12/BW125/CR4/5 slow leg (low-data-rate-optimize acti
     CHECK(airtime_ms(12, 125000, 5, 16, 64) == 3055);
 }
 
+TEST_CASE("airtime_ms — SF5/SF6 low-SF framing (SX126x §6.1.4: 6.25 sync, +36)") {
+    // SF5/SF6 use the SX126x datasheet §6.1.4 special-case (added 2026-05-29 to
+    // BOTH the Lua and this port). Values match RadioLib SX126x::calculateTimeOnAir:
+    //   airtime_ms(5, 125000, 5, 16,  0) =  9   (RadioLib  9024 us)
+    //   airtime_ms(5, 125000, 5, 16, 16) = 17   (RadioLib 17984 us)
+    //   airtime_ms(6, 125000, 5, 16, 16) = 30   (RadioLib 30848 us)
+    //   airtime_ms(6, 125000, 5, 16, 50) = 61   (RadioLib 61568 us; was 60 pre-fix)
+    CHECK(airtime_ms(5, 125000, 5, 16,  0) ==  9);
+    CHECK(airtime_ms(5, 125000, 5, 16, 16) == 17);
+    CHECK(airtime_ms(6, 125000, 5, 16, 16) == 30);
+    CHECK(airtime_ms(6, 125000, 5, 16, 50) == 61);
+}
+
 TEST_CASE("airtime_ms — SF8/BW125 default RF plan, full beacon") {
     namespace P = meshroute::protocol;
     // Maximum-size beacon at our default RF plan.
@@ -66,13 +79,15 @@ TEST_CASE("airtime_ms — duty-cycle math from project_band_choice") {
 // Lua reference regeneration helper. Paste into a lua5.4 prompt:
 //
 //   function airtime_ms(sf, bw_hz, cr, preamble_sym, len_bytes)
-//     local t_sym = (2 ^ sf) / (bw_hz / 1000)
-//     local t_pre = (preamble_sym + 4.25) * t_sym
-//     local de    = (t_sym >= 16) and 1 or 0
-//     local num   = 8 * len_bytes - 4 * sf + 44
-//     local den   = 4 * (sf - 2 * de)
+//     local t_sym  = (2 ^ sf) / (bw_hz / 1000)
+//     local low_sf = (sf == 5 or sf == 6)               -- SX126x §6.1.4
+//     local t_pre  = (preamble_sym + (low_sf and 6.25 or 4.25)) * t_sym
+//     local de     = (t_sym >= 16) and 1 or 0
+//     local num    = 8 * len_bytes - 4 * sf + (low_sf and 36 or 44)
+//     local den    = 4 * (sf - 2 * de)
 //     local pay_sym = 8 + math.max(math.ceil(num / den) * cr, 0)
 //     return math.floor(t_pre + pay_sym * t_sym)
 //   end
 //   print(airtime_ms(8, 125000, 5, 16, 151))   -- → 457
+//   print(airtime_ms(6, 125000, 5, 16,  50))   -- → 61  (was 60 pre-fix)
 // ----------------------------------------------------------------------------

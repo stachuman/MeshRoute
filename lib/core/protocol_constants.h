@@ -120,7 +120,7 @@ inline constexpr uint32_t seen_origin_ttl_ms = 30000;
 
 // ---- Hop budget (§7.6) -----------------------------------------------------
 inline constexpr uint8_t hop_budget_slack       = 3;
-inline constexpr uint8_t hop_budget_max_initial = 15;   // 4-bit wire max
+inline constexpr uint8_t hop_budget_max_initial = 31;   // 5-bit field (hops_remaining); Lua dv_dual_sf.lua:1073
 
 // ---- Bounded-state caps (§11.1) --------------------------------------------
 inline constexpr uint16_t cap_seen_origins              = 256;
@@ -149,11 +149,14 @@ inline constexpr uint32_t join_j_rate_limit_window_ms   = 300000;
 inline constexpr uint8_t  join_j_max_per_window         = 6;
 
 // ---- Wire-format frame overhead (matches Lua DATA_HDR_LEN + DATA_INNER_OVERHEAD) ----
-inline constexpr uint8_t  data_hdr_len       = 8;
+// Lua CODE is authoritative: DATA_HDR_LEN = 8 + VISITED_LEN(6) = 14 (dv_dual_sf.lua:2904-2905);
+// DATA_INNER_OVERHEAD = 2 + MAC_LEN(4) = 6 (:2908); hard cap = 255-14-6 = 235 (:8637).
+// (A stale Lua COMMENT at :8632-8633 reads "DATA_HDR_LEN=8 ... 241" — ignore it; trust the code.)
+inline constexpr uint8_t  data_hdr_len        = 14;
 inline constexpr uint8_t  data_inner_overhead = 6;
 inline constexpr uint8_t  lora_max_frame_bytes = 255;  // SX126x/SX127x 8-bit length register
 inline constexpr uint8_t  max_payload_bytes_hard_cap =
-    lora_max_frame_bytes - data_hdr_len - data_inner_overhead;  // = 241
+    lora_max_frame_bytes - data_hdr_len - data_inner_overhead;  // = 235
 
 // ---- SF demod thresholds (Q4 dB, mirrors SF_DEMOD_THRESHOLD in Lua) -------
 // SF5 = -2.5 dB → -40 Q4; SF12 = -20.0 dB → -320 Q4.

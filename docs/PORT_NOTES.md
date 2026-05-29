@@ -1,5 +1,12 @@
 # Port progress + iteration plan
 
+> ⚠️ **SUPERSEDED 2026-05-28 by `docs/PORT_PLAN.md`.** This file was
+> written at scaffold time; its "byte-for-byte against Lua" codec
+> criteria and from-scratch HAL plan are out of date (the C++ port
+> targets the ROADMAP §10 cmd-nibble wire, and the HAL is reused from
+> MeshCore). Kept for history. **Read `PORT_PLAN.md` for the current
+> plan.**
+
 ## How to read this doc
 
 `spec/dv_dual_sf.lua` is the firmware model — the authoritative

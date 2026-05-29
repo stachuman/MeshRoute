@@ -22,6 +22,28 @@
   reliable, and practical communication medium for enthusiasts, amateur radio operators, experimenters, early adopters, and people looking for resilient emergency
   communication.
 
+  ## MeshRoute Principles
+
+  The main weakness of many existing LoRa mesh solutions is the lack of deliberate routing. Flood-based communication is simple and robust at small scale, but in
+  dense networks it quickly overuses shared airtime and overloads individual nodes.
+
+  MeshRoute takes a different approach: it builds and maintains routing knowledge, but does so lazily and carefully. This matters because LoRa networks operate
+  under severe bandwidth limits, and nodes cannot be assumed to be permanently available. Devices may go offline, move, lose power, change link quality, or join the
+  network later.
+
+  The protocol is therefore designed around a lightweight, self-adapting routing table. Routes are learned gradually, refreshed only when useful, and adjusted as
+  physical conditions change, such as SNR degradation, duty-cycle pressure, node disappearance, or topology changes.
+
+  MeshRoute splits the network into layers. A local layer can contain up to roughly 250 nodes and operates with its own control spreading factor and one or more
+  data spreading factors. Control traffic and data traffic can therefore be tuned separately, allowing the network to balance reach, airtime cost, and reliability.
+
+  Layers can be connected through gateways. A gateway may participate in more than one layer and forward traffic between them according to an explicitly defined
+  layer path. This makes it possible to scale beyond a single local mesh without turning the entire network into one large flood domain.
+
+  Inside a single layer, communication can use a node’s short local ID, short public-key hash, or full public identity depending on context. Across layers, messages
+  are addressed using the destination public identity together with a defined path through gateway-connected layers.
+
+
   ## Can I Use It Now?
 
   The protocol design is ready, and the first firmware builds are expected soon. More details will be shared as the implementation becomes available.

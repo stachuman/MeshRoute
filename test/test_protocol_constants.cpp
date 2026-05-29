@@ -60,10 +60,19 @@ TEST_CASE("Bounded-state caps match the Lua PROTOCOL values") {
 }
 
 TEST_CASE("Frame overhead math matches the Lua DATA constants") {
-    CHECK(P::data_hdr_len              == 8);
+    // Lua code: DATA_HDR_LEN = 8 + VISITED_LEN(6) = 14 (dv_dual_sf.lua:2905);
+    // DATA_INNER_OVERHEAD = 6 (:2908); hard cap = 255 - 14 - 6 = 235 (:8637).
+    CHECK(P::data_hdr_len              == 14);
     CHECK(P::data_inner_overhead       == 6);
     CHECK(P::lora_max_frame_bytes      == 255);
-    CHECK(P::max_payload_bytes_hard_cap == 241);  // 255 - 8 - 6
+    CHECK(P::max_payload_bytes_hard_cap == 235);  // 255 - 14 - 6
+}
+
+TEST_CASE("Hop-budget constants match the Lua PROTOCOL values") {
+    // Lua code dv_dual_sf.lua:1072-1073 — hops_remaining is a 5-bit DATA field, max 31.
+    // (A stale inline comment at :7338 says "(15)"; the table value at :1073 is authoritative.)
+    CHECK(P::hop_budget_slack       == 3);
+    CHECK(P::hop_budget_max_initial == 31);
 }
 
 TEST_CASE("Compile-time RF plan flags match the project_band_choice memory") {
