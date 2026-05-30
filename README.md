@@ -5,6 +5,8 @@
   The core idea is to create a fully decentralized and scalable network that treats radio resources as scarce, valuable, and worth protecting. MeshRoute aims to
   minimize unnecessary transmissions while keeping communication practical in real-world, dense deployments.
 
+  > 📖 **New here? [How MeshRoute works →](docs/how-it-works.md)** — a short, diagram-led walkthrough of how a message actually travels.
+
   ## Why MeshRoute?
 
   MeshRoute was born out of frustration with the way existing LoRa mesh solutions struggle as interest and network density grow.
