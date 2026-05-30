@@ -67,6 +67,12 @@ inline constexpr uint32_t rt_aging_check_period_ms  = 60000;
 inline constexpr uint32_t next_hop_live_ttl_ms      = 1200000;
 inline constexpr int16_t  route_snr_conservatism_q4 = 0;
 inline constexpr int16_t  snr_ewma_alpha_q4         = 5;   // 0.3 ≈ 5/16
+// Routing-table bounded caps (R1). The Lua rt is an unbounded table; the port
+// is fixed-size, no-heap. MAX_RT_CANDIDATES=3 (K), dv_hop_cap=16 (carried-route
+// combined-hops ceiling). cap_routes bounds the distinct-dest count held in rt[].
+inline constexpr uint8_t  max_rt_candidates = 3;
+inline constexpr uint8_t  dv_hop_cap        = 16;
+inline constexpr uint16_t cap_routes        = 64;
 
 // ---- Peer liveness (suspect/silent/dead tiers) -----------------------------
 inline constexpr uint8_t  peer_suspect_rts_timeouts    = 2;

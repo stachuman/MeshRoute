@@ -4,7 +4,10 @@
 **Track:** codec track, after C4 (J). MeshRoute-only; `pio test -e native`.
 The largest codec — variable-length, 4 sub-blocks. Layout verified against
 `dv_dual_sf.lua` pack_beacon/parse_beacon (+ helpers) and §10.3. **Gate to R1
-(beacon emit)** — the first `dm_delivery`-measured behaviour milestone.
+(beacon emit)** — the first behaviour milestone. (R1 is gated on route-table
+CONVERGENCE + beacon-event parity, NOT `dm_delivery` — beacon emit produces none of
+the RTS/CTS/DATA/ACK events `dm_delivery_breakdown` keys on; `dm_delivery` is the R3
+gate. See `2026-05-29-r1-beacon-emit-design.md` §0.)
 
 ---
 
