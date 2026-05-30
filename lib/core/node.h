@@ -13,6 +13,7 @@
 // and 2026-05-30-r2-route-hardening-design.md.
 #pragma once
 #include "hal.h"
+#include "command.h"
 #include "protocol_constants.h"
 #include <cstddef>
 #include <cstdint>
@@ -23,6 +24,7 @@ namespace meshroute {
 
 // POD; no heap, no JSON. Only the T/F-class knobs the Lua on_init reads.
 // PROTOCOL constants stay in protocol_constants.h (hardcoded on device).
+// TODO: Node config should also store name - which can be then exchanged through higher level (app level) - along with the public key
 struct NodeConfig {
     bool     is_gateway          = false;
     bool     is_mobile           = false;
@@ -113,7 +115,8 @@ public:
     void on_timer(uint32_t timer_id);                                    // dispatch on Node-owned id
     void on_radio_busy(const BusyInfo& info);                            // deferred-TX retry/giveup
     void on_preamble_detected(uint64_t time_ms);                         // SX1262 IRQ / throttle witness
-    void on_command(const char* cmd, char* out_reply, size_t reply_cap); // status written to out_reply
+    CmdResult on_command(const Command& c);                              // the typed app<->firmware seam
+    bool      next_push(Push& out);                                      // drain the async push ring (CMD_SYNC_NEXT)
 
 private:
     // Node-owned timer-id namespace (Hal::after re-arm-by-id, cap 64). Reserve
@@ -154,7 +157,8 @@ private:
     void     maybe_exit_discovery(const char* reason);            // :7517
 
     // ---- R3 data plane (MAC: RTS-CTS-DATA-ACK) -----------------------------
-    void     do_send(uint8_t dst, const uint8_t* body, uint8_t body_len);  // on_command "send"
+    uint16_t do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags);  // returns the ctr
+    void     enqueue_push(const Push& p);                                  // append to the bounded ring
     void     become_free();                                       // dv_dual_sf.lua:7433 (FIFO single-drain)
     void     issue_send(const TxItem& item);                      // :7018 pending_tx + RTS
     void     handle_rts (const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'R' -> CTS
@@ -201,6 +205,9 @@ private:
     std::map<uint8_t, uint16_t>  _peer_send_counter;   // next_ctr per dst
     std::map<uint32_t, LastAcked> _last_acked_from;    // key (src<<24|dst<<16|ctr_lo<<8|len)
     std::map<uint32_t, uint64_t>  _seen_origins;       // key (origin<<24|dst<<16|ctr) -> expiry_ms
+    // async push ring (the app channel; drained via next_push, drop-oldest on overflow)
+    Push     _push_ring[protocol::cap_push_ring];
+    uint8_t  _push_head = 0, _push_count = 0;
 };
 
 }  // namespace meshroute

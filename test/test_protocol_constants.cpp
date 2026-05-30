@@ -78,8 +78,10 @@ TEST_CASE("Hop-budget constants match the Lua PROTOCOL values") {
 TEST_CASE("Compile-time RF plan flags match the project_band_choice memory") {
     // These come from platformio.ini common.build_flags. If they ever
     // drift from project-band-choice's locked plan, this test fails.
-    CHECK(LORA_FREQ_HZ        == 869462500);   // 869.4625 MHz
-    CHECK(LORA_BW_HZ          == 125000);
+    // Units match CustomSX1262::std_init: LORA_FREQ in MHz, LORA_BW in kHz.
+    CHECK(LORA_FREQ           == 869.4625);    // MHz (std_init bring-up + banners)
+    CHECK(LORA_BW             == 125.0);       // kHz
+    CHECK(LORA_TX_POWER       == 22);          // dBm (cap to g3 ERP limit)
     CHECK(LORA_SF             == 8);
     CHECK(LORA_CR             == 5);
     CHECK(LORA_DUTY_CYCLE_PCT == 10);

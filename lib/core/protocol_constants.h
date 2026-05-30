@@ -141,6 +141,10 @@ inline constexpr uint16_t cap_id_bind                   = 256;
 // ---- Identity binding ------------------------------------------------------
 inline constexpr uint32_t id_bind_ttl_ms = 172800000;   // 48 h
 
+// ---- Command interface (the app<->firmware seam) ---------------------------
+inline constexpr uint8_t gw_env_max_hops = 4;    // GW_ENV_MAX_HOPS (send_layer hop path)
+inline constexpr uint8_t cap_push_ring   = 16;   // async push ring (MeshCore OFFLINE_QUEUE_SIZE)
+
 // ---- Gateway scheduling ----------------------------------------------------
 inline constexpr uint16_t gateway_schedule_guard_ms = 100;
 

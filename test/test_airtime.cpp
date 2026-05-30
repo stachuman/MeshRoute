@@ -49,7 +49,7 @@ TEST_CASE("airtime_ms — SF8/BW125 default RF plan, full beacon") {
     namespace P = meshroute::protocol;
     // Maximum-size beacon at our default RF plan.
     // From Lua: airtime_ms(8, 125000, 5, 16, 151) = 457
-    CHECK(airtime_ms(LORA_SF, LORA_BW_HZ, LORA_CR,
+    CHECK(airtime_ms(LORA_SF, (uint32_t)(LORA_BW * 1000), LORA_CR,
                       P::preamble_sym, P::beacon_max_bytes) == 457);
 }
 
@@ -69,7 +69,7 @@ TEST_CASE("airtime_ms — duty-cycle math from project_band_choice") {
     // before hitting EXHAUSTED. Sanity check on the airtime arithmetic.
     constexpr uint32_t window_ms = 3600 * 1000;
     constexpr uint32_t budget_ms = window_ms / 10;   // 10% = 360 000 ms
-    const uint32_t bcn_ms = airtime_ms(LORA_SF, LORA_BW_HZ, LORA_CR,
+    const uint32_t bcn_ms = airtime_ms(LORA_SF, (uint32_t)(LORA_BW * 1000), LORA_CR,
                                        meshroute::protocol::preamble_sym, 151);
     const uint32_t max_bcns_per_hour = budget_ms / bcn_ms;
     CHECK(max_bcns_per_hour >= 700);   // sanity floor

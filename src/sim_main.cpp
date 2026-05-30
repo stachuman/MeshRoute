@@ -16,9 +16,9 @@ static void print_protocol_summary() {
     namespace P = meshroute::protocol;
     std::printf("MeshRoute v0.1 — protocol summary\n");
     std::printf("  Protocol version       : %d\n", PROTOCOL_VERSION);
-    std::printf("  RF plan (compile-time) : %.4f MHz / SF%d / BW%d Hz / CR4/%d / duty %d%%\n",
-                LORA_FREQ_HZ / 1e6,
-                LORA_SF, LORA_BW_HZ, LORA_CR, LORA_DUTY_CYCLE_PCT);
+    std::printf("  RF plan (compile-time) : %.4f MHz / SF%d / BW%.1f kHz / CR4/%d / duty %d%%\n",
+                (double)LORA_FREQ,
+                LORA_SF, (double)LORA_BW, LORA_CR, LORA_DUTY_CYCLE_PCT);
     std::printf("  Preamble symbols       : %u\n", P::preamble_sym);
     std::printf("  SF margin (Q4)         : %d  (%.4f dB)\n",
                 P::sf_margin_q4, P::q4_to_db(P::sf_margin_q4));

@@ -1,0 +1,29 @@
+MeshCore — vendored PHY glue (unmodified)
+=========================================
+
+Origin           : https://github.com/ripplebiz/MeshCore
+License          : MIT (see license.txt) — Copyright (c) 2025 Scott Powell / rippleradios.com
+MESHCORE_VERSION : 51dfbb2f6361e437f181a91e4a784f60bbc09aa8
+Vendored on      : 2026-05-30
+
+Vendored files (BYTE-IDENTICAL — DO NOT EDIT; editing breaks byte-identity
+with upstream and the `git diff` re-sync audit):
+
+  lib/meshcore/src/helpers/radiolib/CustomSX1262.h   (CustomSX1262 : RadioLib::SX1262 + std_init)
+  lib/meshcore/src/helpers/radiolib/SX126xReset.h    (SX126x reset helper)
+
+Also vendored from the same commit (xiao_sx1262 board build only):
+
+  boards/seeed-xiao-afruitnrf52-nrf52840.json        (MeshCore custom XIAO board def)
+  boards/nrf52840_s140_v7.ld                         (S140 v7.3.0 link script)
+  variants/Seeed_XIAO_nRF52840/variant.h             (Seeed XIAO pin map / Arduino variant;
+  variants/Seeed_XIAO_nRF52840/variant.cpp            the Adafruit BSP ships no XIAO variant.
+                                                      Dir renamed from MeshCore's variants/xiao_nrf52/
+                                                      to match the board JSON's "variant" name.)
+
+Scope of reuse: the SX1262 PHY ONLY. MeshRoute does NOT vendor or use
+MeshCore's Dispatcher / Packet / Identity / mesh stack — the MAC, routing and
+duty-cycle logic are MeshRoute's own (the C++ port of dv_dual_sf.lua).
+
+Re-sync: tools/vendor_meshcore.sh <path-to-MeshCore-checkout>
+After a re-sync, `git diff` shows exactly what upstream changed.

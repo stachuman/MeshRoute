@@ -1,0 +1,15 @@
+{
+  "name": "meshcore",
+  "version": "0.0.0+51dfbb2f",
+  "description": "Vendored MeshCore SX1262 PHY glue (CustomSX1262 + SX126xReset), byte-identical. PHY only; not the mesh stack. See NOTICE. Device builds only — excluded from the native env via lib_ignore=meshcore.",
+  "keywords": ["lora", "sx1262", "radiolib", "phy"],
+  "license": "MIT",
+  "homepage": "https://github.com/ripplebiz/MeshCore",
+  "headers": "helpers/radiolib/CustomSX1262.h",
+  "dependencies": {
+    "jgromes/RadioLib": "^7.6.0"
+  },
+  "build": {
+    "flags": ["-I src"]
+  }
+}

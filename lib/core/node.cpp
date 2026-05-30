@@ -572,12 +572,13 @@ uint32_t Node::airtime_routing_ms(uint16_t len) const {
 // so the retry rand RANGE matches the Lua and the lua-vs-meshroute streams stay aligned.
 uint32_t Node::retry_jitter_ms() const { return 3 * airtime_routing_ms(8); }
 
-void Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len) {
+uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags) {
     const uint16_t ctr = next_ctr(dst);
     TxItem item{};
     item.origin = _node_id; item.dst = dst; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
+    item.flags = flags;     // E2E/PRIORITY ride the wire; their behaviour (ack-track/budget) is a later iteration
     item.inner[0] = 0x00; item.inner[1] = _node_id;      // src_addr_len=0 | origin | body
-    for (uint8_t i = 0; i < body_len; ++i) item.inner[2 + i] = body[i];
+    if (body) for (uint8_t i = 0; i < body_len; ++i) item.inner[2 + i] = body[i];
     item.inner_len = static_cast<uint8_t>(2 + body_len);
     if (_tx_queue_n < kTxQueueCap) _tx_queue[_tx_queue_n++] = item;
     EventField f[] = {
@@ -588,6 +589,7 @@ void Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len) {
     };
     _hal.emit("tx_enqueue", f, 4);                       // dm_delivery record-creation key (fid==origin)
     become_free();
+    return ctr;
 }
 
 void Node::become_free() {
@@ -814,6 +816,9 @@ void Node::do_post_ack() {
             { .key = "payload", .type = EventField::T::str, .s = body },     // dm_delivery keys (dst, payload)
         };
         _hal.emit("delivered", f, 4);
+        Push pu{}; pu.kind = PushKind::msg_recv; pu.origin = pa.origin; pu.dst = pa.dst; pu.ctr = pa.ctr;
+        pu.body_len = blen; for (uint8_t i = 0; i < blen; ++i) pu.body[i] = static_cast<uint8_t>(body[i]);
+        enqueue_push(pu);                                // app channel: the inbound message
         become_free();
     } else {
         TxItem it{};
@@ -838,6 +843,7 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = static_cast<uint8_t>(meta.src_hint) },
                        { .key = "ctr",  .type = EventField::T::i64, .i = _pending_tx->ctr } };
     _hal.emit("ack_rx", f, 2);
+    { Push pu{}; pu.kind = PushKind::send_acked; pu.dst = _pending_tx->dst; pu.ctr = _pending_tx->ctr; enqueue_push(pu); }
     _pending_tx.reset();
     become_free();
 }
@@ -875,6 +881,7 @@ void Node::rts_timeout_fire() {
         EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = _pending_tx->dst },
                            { .key = "ctr", .type = EventField::T::i64, .i = _pending_tx->ctr } };
         _hal.emit("rts_giveup", f, 2);
+        { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = _pending_tx->dst; pu.ctr = _pending_tx->ctr; enqueue_push(pu); }
         _pending_tx.reset();
         become_free();
     }
@@ -891,6 +898,7 @@ void Node::ack_timeout_fire() {
         EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = _pending_tx->dst },
                            { .key = "ctr", .type = EventField::T::i64, .i = _pending_tx->ctr } };
         _hal.emit("data_ack_giveup", f, 2);
+        { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = _pending_tx->dst; pu.ctr = _pending_tx->ctr; enqueue_push(pu); }
         _pending_tx.reset();
         become_free();
     }
@@ -903,27 +911,37 @@ void Node::pending_rx_expiry_fire() {
     become_free();
 }
 
-void Node::on_command(const char* cmd, char* out_reply, size_t reply_cap) {
-    if (out_reply && reply_cap > 0) out_reply[0] = '\0';
-    if (!cmd) return;
-    // "send <numeric-dst> <body>" — the host (SimController) name-resolves to id (Q1=b).
-    const char* p = cmd;
-    if (!(p[0] == 's' && p[1] == 'e' && p[2] == 'n' && p[3] == 'd' && p[4] == ' ')) return;
-    p += 5;
-    while (*p == ' ') ++p;
-    if (*p < '0' || *p > '9') return;
-    unsigned dst = 0;
-    while (*p >= '0' && *p <= '9') { dst = dst * 10 + static_cast<unsigned>(*p - '0'); ++p; }
-    if (dst > 254) return;
-    while (*p == ' ') ++p;
-    const char* body = p;
-    size_t blen = 0;
-    while (body[blen] != '\0') ++blen;
-    if (blen == 0) return;
-    const size_t cap = protocol::max_payload_bytes_hard_cap - 2;          // inner = 2 + body
-    if (blen > cap) blen = cap;
-    do_send(static_cast<uint8_t>(dst), reinterpret_cast<const uint8_t*>(body), static_cast<uint8_t>(blen));
-    if (out_reply && reply_cap > 2) { out_reply[0] = 'O'; out_reply[1] = 'K'; out_reply[2] = '\0'; }
+// ---- the typed command seam (the app<->firmware entrypoint) -----------------
+CmdResult Node::on_command(const Command& c) {
+    switch (c.kind) {
+        case CmdKind::send: {
+            const uint16_t ctr = do_send(c.u.send.dst_id, c.body, c.body_len, c.u.send.flags);
+            return CmdResult{ CmdCode::queued, ctr, _tx_queue_n };
+        }
+        case CmdKind::send_layer:    // cross-layer  -> R7
+        case CmdKind::send_channel:  // channel      -> R5
+        case CmdKind::join:          // address-assign -> later
+        default:
+            return CmdResult{ CmdCode::err_unsupported, 0, _tx_queue_n };
+    }
+}
+
+void Node::enqueue_push(const Push& p) {
+    if (_push_count >= protocol::cap_push_ring) {        // full -> drop-oldest (MeshCore offline queue)
+        _push_head = static_cast<uint8_t>((_push_head + 1) % protocol::cap_push_ring);
+        --_push_count;
+    }
+    const uint8_t tail = static_cast<uint8_t>((_push_head + _push_count) % protocol::cap_push_ring);
+    _push_ring[tail] = p;
+    ++_push_count;
+}
+
+bool Node::next_push(Push& out) {
+    if (_push_count == 0) return false;
+    out = _push_ring[_push_head];
+    _push_head = static_cast<uint8_t>((_push_head + 1) % protocol::cap_push_ring);
+    --_push_count;
+    return true;
 }
 
 // ---- callbacks deferred to later R-iterations -------------------------------
