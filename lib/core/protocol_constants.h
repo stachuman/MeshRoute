@@ -64,6 +64,8 @@ inline constexpr uint32_t req_sync_retry_ms     = 30000;
 
 // ---- Routing (DV) ----------------------------------------------------------
 inline constexpr uint32_t rt_aging_check_period_ms  = 60000;
+inline constexpr uint32_t rt_aging_ttl_neighbor_ms  = 2700000;   // 45 min (hops<=1)   dv_dual_sf.lua:8783
+inline constexpr uint32_t rt_aging_ttl_remote_ms    = 10800000;  //  3 h  (hops>=2)   dv_dual_sf.lua:8784
 inline constexpr uint32_t next_hop_live_ttl_ms      = 1200000;
 inline constexpr int16_t  route_snr_conservatism_q4 = 0;
 inline constexpr int16_t  snr_ewma_alpha_q4         = 5;   // 0.3 ≈ 5/16

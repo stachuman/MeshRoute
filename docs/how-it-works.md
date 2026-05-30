@@ -76,18 +76,6 @@ The **RTS** ("I have data for you — ready?") and **CTS** ("yes — and here is
 "Listen first" is real carrier sensing (signal-strength / channel-activity detection). As a node's airtime budget drains, it moves through throttle **tiers** that make it back off more and more. And a receiver that cannot take the message right now does not drop it silently — it replies with a **NACK** carrying a short "try again in N ms," so the sender backs off cleanly instead of hammering a busy neighbour.
 </details>
 
-  <details>
-  <summary><b>↓ deeper — what if the ACK goes missing?</b></summary>
-
-  If the DATA lands but its ACK is lost on the way back, the sender cannot tell the hop succeeded, so it retries — and the receiver
-  could end up holding two copies. The recovery rides on the next handshake: the receiver remembers what it just delivered, so when
-  the sender re-sends its RTS it answers with a CTS flagged **"already received"** — *stop, I have it* — and the sender drops the
-  message instead of resending. If even that confirmation is missed and the sender eventually reroutes through an alternate hop, a
-  second copy can start travelling; that is harmless, because the **duplicate guard** recognises the repeat where the copies
-  converge and keeps just one.
-
-  </details>
-
 
 ### 3. Pick the spreading factor
 
@@ -110,6 +98,18 @@ Now the **DATA** goes out on the agreed SF, and Bob replies with an **ACK** — 
 
 Every message carries a **hop budget** (a TTL) so it cannot wander forever, and a small **"visited" list** in the frame so it cannot loop back on itself. If a next hop goes quiet, the sender does not give up — it **falls back to one of its alternate routes** for that destination and tries again.
 </details>
+
+  <details>
+  <summary><b>↓ deeper — what if the ACK goes missing?</b></summary>
+
+  If the DATA lands but its ACK is lost on the way back, the sender cannot tell the hop succeeded, so it retries — and the receiver
+  could end up holding two copies. The recovery rides on the next handshake: the receiver remembers what it just delivered, so when
+  the sender re-sends its RTS it answers with a CTS flagged **"already received"** — *stop, I have it* — and the sender drops the
+  message instead of resending. If even that confirmation is missed and the sender eventually reroutes through an alternate hop, a
+  second copy can start travelling; that is harmless, because the **duplicate guard** recognises the repeat where the copies
+  converge and keeps just one.
+
+  </details>
 
 ### 5. Cross into another layer
 
