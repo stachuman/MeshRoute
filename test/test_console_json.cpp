@@ -40,3 +40,15 @@ TEST_CASE("write_event — type + typed EventField k/v") {
     size_t n = write_event(b, sizeof b, "cts_rx", f, 2);
     CHECK(std::string(b, n) == "{\"ev\":\"cts_rx\",\"from\":5,\"snr\":7.25}\n");
 }
+
+TEST_CASE("write_push — msg_recv carries escaped body; acked/failed carry dst+ctr") {
+    char b[300];
+    Push m{}; m.kind = PushKind::msg_recv; m.origin = 3; m.ctr = 7;
+    const char* body = "hi\"x"; m.body_len = 4; std::memcpy(m.body, body, 4);
+    size_t n = write_push(b, sizeof b, m);
+    CHECK(std::string(b, n) == "{\"ev\":\"msg_recv\",\"origin\":3,\"ctr\":7,\"body\":\"hi\\\"x\"}\n");
+
+    Push a{}; a.kind = PushKind::send_acked; a.dst = 5; a.ctr = 7;
+    n = write_push(b, sizeof b, a);
+    CHECK(std::string(b, n) == "{\"ev\":\"send_acked\",\"dst\":5,\"ctr\":7}\n");
+}

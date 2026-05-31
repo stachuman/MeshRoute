@@ -82,5 +82,19 @@ size_t write_event(char* buf, size_t cap, const char* type, const EventField* f,
     j.ch('}');
     return j.finish();
 }
+size_t write_push(char* buf, size_t cap, const Push& p) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\""); j.lit(pushkind_name(p.kind)); j.ch('"');
+    if (p.kind == PushKind::msg_recv) {
+        j.lit(",\"origin\":"); j.u32(p.origin);
+        j.lit(",\"ctr\":");    j.u32(p.ctr);
+        j.lit(",\"body\":");   j.str(reinterpret_cast<const char*>(p.body), p.body_len);
+    } else {  // send_acked / send_failed
+        j.lit(",\"dst\":"); j.u32(p.dst);
+        j.lit(",\"ctr\":"); j.u32(p.ctr);
+    }
+    j.ch('}');
+    return j.finish();
+}
 
 }  // namespace meshroute::console
