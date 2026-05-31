@@ -120,6 +120,7 @@ struct DeferredSend {                // a send with no route yet — held until 
 struct PendingRx {                   // the receiver state awaiting DATA (one per node)
     uint8_t  from = 0, dst = 0, ctr_lo = 0, chosen_data_sf = 0, payload_len = 0;
     uint64_t set_at_ms = 0;
+    uint64_t expiry_ms = 0;          // absolute DATA-wait expiry (for the BUSY_RX NACK busy_for calc)
 };
 struct PostAck {                     // deferred deliver/forward after the ACK airtime
     bool     pending = false;
@@ -167,6 +168,7 @@ private:
     // Cascade-to-alt / no-route defer plane.
     static constexpr uint32_t kDeferredDrainTimerId    = 11;  // periodic 1s drain of _deferred (TTL giveup)
     static constexpr uint32_t kCascadeRequeueTimerId   = 12;  // backoff before re-draining a requeued flight
+    static constexpr uint32_t kNackWaitTimerId         = 13;  // NACK BUSY_RX wait-same-hop one-shot
 
     // ---- beacon emit / ingest ----------------------------------------------
     void emit_beacon(const char* kind);                            // "periodic" | "triggered"
@@ -200,6 +202,8 @@ private:
     void     handle_cts (const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'C' -> DATA
     void     handle_data(const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'D' -> deliver/forward + ACK
     void     handle_ack (const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'K' -> done
+    void     handle_nack(const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'N' -> blind+wait / cascade
+    bool     is_blind(uint8_t next_hop) const;                           // _blind_until active? (lazy-prune on read)
     void     do_data_tx();                                        // kCtsToDataGapTimerId fire
     void     do_post_ack();                                       // kPostAckTimerId fire (deliver|forward)
     void     start_rts_timeout();
@@ -257,6 +261,11 @@ private:
     std::map<uint8_t, uint16_t>  _peer_send_counter;   // next_ctr per dst
     std::map<uint32_t, LastAcked> _last_acked_from;    // key (src<<24|dst<<16|ctr_lo<<8|len)
     std::map<uint32_t, uint64_t>  _seen_origins;       // key (origin<<24|dst<<16|ctr) -> expiry_ms
+    std::map<uint32_t, uint8_t>   _seen_origin_from;   // same key -> the prev-hop (LOOP_DUP discriminator)
+    std::map<uint8_t, uint64_t>   _blind_until;        // next_hop -> absolute_ms it's deaf-on-routing (F1)
+    // NACK BUSY_RX wait-same-hop: the captured ctr_lo the kNackWaitTimerId re-RTSes for.
+    uint8_t                      _nack_wait_ctr_lo = 0;
+    bool                         _nack_wait_pending = false;
     // async push ring (the app channel; drained via next_push, drop-oldest on overflow)
     Push     _push_ring[protocol::cap_push_ring];
     uint8_t  _push_head = 0, _push_count = 0;

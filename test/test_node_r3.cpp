@@ -23,7 +23,7 @@ namespace {
 
 struct Ev { std::string type; int to = -1; int dst = -1; bool dup = false;
             bool has_payload = false; std::string payload; int depth = -1; int ctr = -1;
-            int next = -1; int requeue_count = -1; };
+            int next = -1; int requeue_count = -1; int reason = -1; int from = -1; };
 
 class TestHal : public Hal {
 public:
@@ -51,6 +51,8 @@ public:
             else if (std::strcmp(f[i].key, "depth") == 0) e.depth = static_cast<int>(f[i].i);
             else if (std::strcmp(f[i].key, "ctr") == 0)   e.ctr   = static_cast<int>(f[i].i);
             else if (std::strcmp(f[i].key, "next") == 0)  e.next  = static_cast<int>(f[i].i);
+            else if (std::strcmp(f[i].key, "from") == 0)  e.from  = static_cast<int>(f[i].i);
+            else if (std::strcmp(f[i].key, "reason") == 0) e.reason = static_cast<int>(f[i].i);
             else if (std::strcmp(f[i].key, "requeue_count") == 0) e.requeue_count = static_cast<int>(f[i].i);
             else if (std::strcmp(f[i].key, "payload") == 0 && f[i].s) { e.has_payload = true; e.payload = f[i].s; }
         }
@@ -69,6 +71,13 @@ constexpr uint32_t kPostAckTimerId       = 9;
 constexpr uint32_t kRetryBackoffTimerId  = 10;
 constexpr uint32_t kDeferredDrainTimerId = 11;
 constexpr uint32_t kCascadeRequeueTimerId = 12;
+constexpr uint32_t kNackWaitTimerId      = 13;
+
+static size_t mk_nack(uint8_t to, uint8_t ctr_lo, uint8_t reason, uint8_t payload,
+                      std::array<uint8_t, 8>& b) {
+    nack_in in{}; in.reason = reason; in.ctr_lo = ctr_lo; in.payload = payload; in.to = to;
+    return pack_nack(in, std::span<uint8_t>(b.data(), b.size()));
+}
 
 // Pack a 1-entry beacon from `src` advertising route {dest via next, hops} (so a
 // receiver installs a candidate to `dest` whose next-hop is `src`). Distinct
@@ -443,6 +452,113 @@ TEST_CASE("defer — TTL-FIRST beats route-exists: past-TTL held send gives up e
     node.on_recv(bb.data(), n, m2);                     // route to 5 now exists, but TTL already passed
     CHECK(hal.count("send_deferred_giveup") == 1);      // TTL-first -> giveup
     CHECK(hal.count("rts_tx") == 0);                    // did NOT fly despite the fresh route
+}
+
+// ---- NACK plane (BUSY_RX + LOOP_DUP) ---------------------------------------
+TEST_CASE("nack — BUSY_RX emit: a 2nd-flight RTS into a busy receiver gets a NACK") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t,16> rb{};
+    const size_t rn = mk_rts(/*src=*/2, /*next=*/1, /*dst=*/9, /*ctr_lo=*/5, /*plen=*/10, rb);
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
+    hal._now = 1000; node.on_recv(rb.data(), rn, m2);   // flight A -> CTS + pending_rx
+    CHECK(hal.count("cts_tx") >= 1);
+    const size_t rn2 = mk_rts(/*src=*/3, /*next=*/1, /*dst=*/8, /*ctr_lo=*/7, /*plen=*/10, rb);
+    RxMeta m3{8.0f,-80.0f,0,static_cast<int8_t>(3)};
+    hal._now = 1100; node.on_recv(rb.data(), rn2, m3);  // flight B (different) -> BUSY_RX NACK to 3
+    const Ev* nk = hal.last("nack_tx"); CHECK(nk != nullptr);
+    if (nk) { CHECK(nk->to == 3); CHECK(nk->reason == 0); }
+}
+
+TEST_CASE("nack — a busy SENDER (pending_tx) stays SILENT (no NACK)") {
+    TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
+    send_cmd(*node, 5, "hi");                            // pending_tx via 2
+    std::array<uint8_t,16> rb{};
+    const size_t rn = mk_rts(3, 1, 8, 7, 10, rb); RxMeta m3{8.0f,-80.0f,0,static_cast<int8_t>(3)};
+    node->on_recv(rb.data(), rn, m3);
+    CHECK(hal.count("nack_tx") == 0);                   // SILENT while sending (busy_for would lie)
+    CHECK(hal.count("rts_drop_pending_tx") == 1);
+    delete node;
+}
+
+TEST_CASE("nack — BUSY_RX recovery (short busy): mark blind + nack_wait re-RTS SAME hop, ONE new draw") {
+    TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
+    send_cmd(*node, 5, "hi");                            // pending_tx via 2, ctr_lo=1
+    const int rts_before = hal.count("rts_tx");
+    const int rand_before = hal.rand_calls;
+    std::array<uint8_t,8> nb{};
+    const size_t nn = mk_nack(/*to=*/1, /*ctr_lo=*/1, /*reason=*/0, /*payload=*/10, nb);  // busy 160ms <= 2000
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)}; node->on_recv(nb.data(), nn, m2);
+    CHECK(hal.count("nack_rx") == 1);
+    CHECK(hal.count("blind_observed") == 1);            // via 2 marked blind
+    CHECK(hal.count("tx_requeued") == 0);               // short busy -> wait, NOT requeue
+    CHECK(hal.rand_calls - rand_before == 1);           // N1: exactly ONE new draw
+    node->on_timer(kNackWaitTimerId);                   // wait elapsed -> re-RTS SAME hop
+    CHECK(hal.count("rts_tx") == rts_before + 1);
+    const Ev* r = hal.last("rts_tx"); if (r) CHECK(r->next == 2);   // same hop (BUSY_RX never path-switches)
+    delete node;
+}
+
+TEST_CASE("nack — BUSY_RX recovery (long busy): blind + requeue, the re-issue SKIPS the blind hop") {
+    TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14},{3,2,14}});  // via2 primary, via3 alt
+    send_cmd(*node, 5, "hi");                            // pending_tx via 2
+    std::array<uint8_t,8> nb{};
+    const size_t nn = mk_nack(1, 1, 0, /*payload=*/200, nb);   // busy 3200ms > 2000 -> requeue
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)}; node->on_recv(nb.data(), nn, m2);
+    CHECK(hal.count("blind_observed") == 1);            // via 2 blind
+    CHECK(hal.count("tx_requeued") == 1);               // long busy -> requeue (next_attempt=0 -> re-issues now)
+    const Ev* r = hal.last("rts_tx"); CHECK(r != nullptr);
+    if (r) CHECK(r->next == 3);                          // is_blind(2) -> the re-issue picks via 3, not the blind via 2
+    delete node;
+}
+
+TEST_CASE("nack — LOOP_DUP recovery: cascade to the alternate (NO new draw)") {
+    TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14},{4,2,14}});  // via2 primary, via4 alt
+    send_cmd(*node, 5, "hi");                            // pending_tx via 2
+    const int rand_before = hal.rand_calls;
+    std::array<uint8_t,8> nb{};
+    const size_t nn = mk_nack(1, 1, /*reason=*/3, /*payload=*/9, nb);   // LOOP_DUP
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)}; node->on_recv(nb.data(), nn, m2);
+    CHECK(hal.count("path_cascade") == 1);
+    CHECK(hal.count("tx_loop_alt") == 1);
+    const Ev* r = hal.last("rts_tx"); if (r) CHECK(r->next == 4);   // cascaded to via 4
+    CHECK(hal.rand_calls - rand_before == 0);           // the LOOP_DUP re-RTS draws NO jitter
+    delete node;
+}
+
+TEST_CASE("nack — LOOP_DUP miss: DIRECT giveup, NOT requeue (Lua dv:10588)") {
+    TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});   // only via 2
+    send_cmd(*node, 5, "hi");
+    std::array<uint8_t,8> nb{};
+    const size_t nn = mk_nack(1, 1, 3, 9, nb); RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
+    node->on_recv(nb.data(), nn, m2);
+    CHECK(hal.count("path_cascade_exhausted") == 1);
+    CHECK(hal.count("rts_giveup") == 1);
+    CHECK(hal.count("cascade_requeue") == 0);           // DIRECT giveup, NOT a requeue
+    delete node;
+}
+
+TEST_CASE("nack — LOOP_DUP emit: same flight via a different prev-hop NACKs the sender") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t,64> bb{};                        // merge(1) needs a route to dst=5 to forward
+    const size_t bn = mk_beacon_route(/*src=*/7, /*dest=*/5, /*next=*/9, /*hops=*/1, /*score=*/14, bb);
+    RxMeta m7{12.0f,-70.0f,0,static_cast<int8_t>(7)}; node.on_recv(bb.data(), bn, m7);
+    std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
+    // copy 1 via b1=2: RTS+DATA (origin0,dst5,ctr10) -> ACK + record seen_origin_from=2 + (forward pending)
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
+    hal._now = 1000; { const size_t rn = mk_rts(2,1,5,10,10,rb); node.on_recv(rb.data(), rn, m2); }
+    hal._now = 1100; { const size_t dn = mk_data(1,5,10,0,"x",db); node.on_recv(db.data(), dn, m2); }
+    CHECK(hal.count("ack_tx") >= 1);
+    // copy 2 via b2=3: SAME (origin,dst,ctr) -> prev-hop 3 != recorded 2 -> LOOP_DUP NACK to 3, NO ACK
+    RxMeta m3{8.0f,-80.0f,0,static_cast<int8_t>(3)};
+    const int ack_before = hal.count("ack_tx");
+    hal._now = 1200; { const size_t rn = mk_rts(3,1,5,10,10,rb); node.on_recv(rb.data(), rn, m3); }
+    hal._now = 1300; { const size_t dn = mk_data(1,5,10,0,"x",db); node.on_recv(db.data(), dn, m3); }
+    const Ev* nk = hal.last("nack_tx"); CHECK(nk != nullptr);
+    if (nk) { CHECK(nk->to == 3); CHECK(nk->reason == 3); }
+    CHECK(hal.count("dup_drop") >= 1);
+    CHECK(hal.count("ack_tx") == ack_before);           // the looped dup was NOT re-ACKed
 }
 
 TEST_CASE("cascade — equal-score candidates keep INSERTION order (Lua-faithful, NO id tie-break)") {

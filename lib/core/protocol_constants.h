@@ -124,6 +124,14 @@ inline constexpr uint16_t sync_response_suppress_window_ms         = 12000;
 // ---- Defer / dedup ---------------------------------------------------------
 inline constexpr uint32_t send_defer_ttl_ms = 30000;
 inline constexpr uint32_t send_defer_drain_period_ms = 1000;   // periodic _deferred drain / TTL giveup
+
+// ---- NACK plane ------------------------------------------------------------
+inline constexpr uint8_t  nack_reason_busy_rx    = 0;          // receiver busy with a DIFFERENT flight
+inline constexpr uint8_t  nack_reason_budget     = 1;          // (deferred -> R4 duty tiers)
+inline constexpr uint8_t  nack_reason_hop_budget = 2;          // (deferred -> hop-budget milestone)
+inline constexpr uint8_t  nack_reason_loop_dup   = 3;          // same flight via a different prev-hop (loop)
+inline constexpr uint16_t nack_busy_quantum_ms   = 16;         // busy_for_ms = payload*16 (dv:2280)
+inline constexpr uint16_t nack_wait_threshold_ms = 2000;       // <= -> wait-same-hop, > -> requeue (dv:10656)
 inline constexpr uint16_t last_acked_ttl_ms = 10000;
 inline constexpr uint32_t seen_origin_ttl_ms = 30000;
 
