@@ -107,7 +107,7 @@ void Node::on_recv(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // unicast, beacon OR data) — the throttle reads this to suppress the next beacon (dv:9164). No rand.
     _last_rx_routing_sf_ms = _hal.now();
     switch (wire::cmd_of(bytes[0])) {
-        case wire::Cmd::B: _last_rx_bcn_ms = _hal.now(); ingest_beacon(bytes, len, meta); break;   // R1/R2 beacon (+max-idle witness dv:9559)
+        case wire::Cmd::B: ingest_beacon(bytes, len, meta); break;   // R1/R2 beacon (+max-idle witness set INSIDE, post-guards)
         case wire::Cmd::R: handle_rts (bytes, len, meta); break;     // R3 RTS  -> CTS
         case wire::Cmd::C: handle_cts (bytes, len, meta); break;     // R3 CTS  -> DATA
         case wire::Cmd::D: handle_data(bytes, len, meta); break;     // R3 DATA -> deliver/forward + ACK

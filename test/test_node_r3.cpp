@@ -1241,3 +1241,27 @@ TEST_CASE("R4.3 triggered-beacon min-interval — 2nd draw ONLY in steady_state 
         delete node;
     }
 }
+
+// review #00: the max-idle witness (_last_rx_bcn_ms) must be set AFTER the leaf guard, so a FOREIGN-leaf
+// beacon does NOT count as a routing-refresh — else the B+C skip_clean (and hence the silence-jitter draw)
+// desyncs from the Lua on multi-leaf channels. The routing-SF witness (channel-busy) IS set for all frames.
+TEST_CASE("R4.3 max-idle witness ignores a foreign-leaf beacon (set after the leaf guard)") {
+    TestHal hal; Node node(hal, /*id=*/1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    cfg.quiet_threshold_ms = 30000; cfg.beacon_max_idle_ms = 30000;   // small max_idle -> override eligible
+    node.on_init(cfg);
+    hal._now = 100000;                                        // past max_idle, no prior beacon (since_tx = inf)
+    // a well-formed beacon stamped leaf_id=1 (FOREIGN): rejected at the leaf guard -> must NOT set _last_rx_bcn_ms.
+    std::array<uint8_t,64> bb{};
+    beacon_entry e{}; e.dest = 200; e.next = 201; e.score_bucket = 12; e.is_gateway = false; e.hops = 2;
+    beacon_in bin{}; bin.leaf_id = 1; bin.src = 9; bin.key_hash32 = 0x1234;
+    bin.entries = std::span<const beacon_entry>(&e, 1);
+    const size_t bn = pack_beacon(bin, std::span<uint8_t>(bb.data(), bb.size()));
+    RxMeta m9{12.0f,-70.0f,0,9}; node.on_recv(bb.data(), bn, m9);
+    CHECK(hal.count("beacon_rx") == 0);                       // foreign leaf rejected (returns before the bcn witness)
+    // periodic fire: the max-idle B+C sees since_bcn_rx = inf (the foreign beacon was NOT counted) + dirty_n=0
+    // -> NOT skip_clean -> force_idle. (With the bug, the foreign beacon would set since_bcn_rx=0 -> skip_clean.)
+    node.on_timer(kBeaconTimerId);
+    CHECK(hal.count("beacon_max_idle_force") == 1);
+    CHECK(hal.count("beacon_max_idle_skip_clean") == 0);
+}

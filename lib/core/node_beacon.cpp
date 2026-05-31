@@ -48,6 +48,10 @@ int16_t Node::route_score_from_snr(int16_t snr_q4) const {
 }
 
 void Node::emit_beacon(const char* kind) {
+    // Half-duplex busy skip (Lua send_beacon_page dv:7585): never beacon mid data-exchange. periodic_beacon_fire
+    // already guards this, but the TRIGGERED path (kTriggeredBeaconTimerId) reaches here directly — without this
+    // the C++ would TX a triggered beacon while busy where the Lua skips, diverging beacon timing (review #02).
+    if (_pending_tx || _pending_rx) { _hal.log("beacon_tx skipped (busy in data exchange)"); return; }
     // R4.3 budget-aware skip (dv:7595): at tier >= CRITICAL a BCN is a luxury — preserve the remaining duty
     // budget for forwards already queued. Neighbours keep us via passive last_seen from any frame we send.
     // (compute_budget_tier is draw-free; HEALTHY in every gate, so this is gate-inert.)
@@ -148,6 +152,10 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (b.leaf_id != _cfg.leaf_id) return;                // single-layer filter (R1)
     if (b.src == _node_id) return;                        // ignore our own echo
 
+    // R4.3 max-idle witness — set AFTER the parse/leaf/self-echo guards (Lua dv:9559), NOT at the on_recv
+    // dispatch top: a foreign-leaf or unparseable B-frame must NOT update it, or the max-idle B+C (and hence
+    // the silence-jitter draw) desyncs from the Lua on multi-leaf channels (review #00).
+    _last_rx_bcn_ms = _hal.now();
     {   // beacon_rx — one per received beacon (the gate asserts src)
         EventField f[] = { { .key = "src", .type = EventField::T::i64, .i = static_cast<int64_t>(b.src) } };
         _hal.emit("beacon_rx", f, 1);
