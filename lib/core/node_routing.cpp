@@ -29,47 +29,136 @@ RtEntry* Node::rt_insert(uint8_t dest) {
     return &_rt[pos];
 }
 
-bool Node::route_strictly_better(const RtCandidate& a, const RtCandidate& b) const {
-    // effective_score == score until R4 (budget/suspect penalties are 0).
-    const int16_t av = a.score;
-    const int16_t bv = b.score;
+// R4.2 tier penalty table [tier][viable_alts], Q4 dB (Lua dv:3843-3848). tier 0 = no penalty.
+// Demote harder when MORE viable alternatives exist (somewhere else to route).
+static constexpr int16_t kTierScorePenaltyQ4[4][3] = {
+    {   0,   0,   0 },   // HEALTHY
+    {  16,  64, 112 },   // STRAINED
+    { 112, 224, 336 },   // CRITICAL
+    { 128, 240, 400 },   // EXHAUSTED
+};
+
+uint8_t Node::get_neighbor_tier(uint8_t node_id) const {
+    auto it = _neighbor_budget_tier.find(node_id);
+    if (it == _neighbor_budget_tier.end() || it->second == 0) return 0;
+    auto sit = _neighbor_budget_tier_set_at.find(node_id);
+    const uint64_t set_at = (sit != _neighbor_budget_tier_set_at.end()) ? sit->second : 0;
+    if (_hal.now() - set_at >= protocol::neighbor_budget_tier_ttl_ms) {   // TTL expired -> lazy prune (dv:3863-3868)
+        _neighbor_budget_tier.erase(it);
+        if (sit != _neighbor_budget_tier_set_at.end()) _neighbor_budget_tier_set_at.erase(sit);
+        return 0;
+    }
+    return it->second;
+}
+
+int16_t Node::budget_penalty_q4(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const {
+    const uint8_t tier = get_neighbor_tier(c.next_hop);
+    if (tier == 0) return 0;                              // HEALTHY -> no penalty
+    uint8_t viable_alts = 0;                              // OTHER candidates, RAW score >= floor (dv:3874-3884), cap 2
+    for (uint8_t i = 0; i < n; ++i) {
+        if (cands[i].next_hop != c.next_hop && cands[i].score >= _routing_snr_floor_q4) {
+            if (++viable_alts >= 2) { viable_alts = 2; break; }
+        }
+    }
+    const uint8_t t = (tier > 3) ? 3 : tier;
+    return kTierScorePenaltyQ4[t][viable_alts];
+}
+
+int16_t Node::effective_score(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const {
+    return static_cast<int16_t>(c.score - budget_penalty_q4(c, cands, n));   // suspect penalty deferred (0)
+}
+
+bool Node::route_strictly_better(const RtCandidate& a, const RtCandidate& b,
+                                 const RtCandidate* cands, uint8_t n) const {
+    const int16_t av = effective_score(a, cands, n);     // R4.2: penalty-adjusted; == score for HEALTHY next_hops
+    const int16_t bv = effective_score(b, cands, n);
     const bool a_viable = av >= _routing_snr_floor_q4;
     const bool b_viable = bv >= _routing_snr_floor_q4;
-    if (a_viable != b_viable) return a_viable;            // viable beats non-viable
-    if (a_viable) {                                       // both viable: hops-asc, score-desc
+    if (a_viable != b_viable) return a_viable;            // viable beats non-viable (a penalty CAN flip viability)
+    if (a_viable) {                                       // both viable: hops-asc, eff-score-desc
         if (a.hops != b.hops) return a.hops < b.hops;
         if (av != bv)         return av > bv;
-    } else {                                              // both non-viable: score-desc, hops-asc
+    } else {                                              // both non-viable: eff-score-desc, hops-asc
         if (av != bv)         return av > bv;
         if (a.hops != b.hops) return a.hops < b.hops;
     }
-    // True tie (same viability/hops/score) -> NOT strictly better, matching the Lua
-    // route_strictly_better (dv_dual_sf.lua:4227-4245), which has NO id tie-break: on
-    // a tie both less(a,b) and less(b,a) are false, so the stable insertion sort
-    // (sort_candidates) + rt_merge keep INSERTION order. An ascending-next_hop tie-break
-    // here would DIVERGE from the Lua reference (and leak into rt_merge's full-table
-    // eviction, changing the stored candidate set on a tie), so we faithfully preserve
-    // insertion order. (The cascade gate uses well-separated SNRs so ties never decide.)
+    // True tie -> NOT strictly better, matching the Lua route_strictly_better (dv:4227-4245), which
+    // has NO id tie-break: on a tie both less(a,b) and less(b,a) are false, so the stable insertion
+    // sort + rt_merge keep INSERTION order. An ascending-next_hop tie-break would DIVERGE (and leak
+    // into rt_merge's full-table eviction). (The gates use well-separated SNRs so ties never decide.)
     return false;
 }
 
 void Node::sort_candidates(RtEntry& e) {
-    // Lua comparator (dv_dual_sf.lua:4248-4252):
-    //   less(a,b) = strictly_better(a,b) or (not strictly_better(b,a) and score(a) > score(b))
-    // Insertion sort (n <= K = 3), stable, deterministic.
+    // Lua comparator (dv:4248-4252):
+    //   less(a,b) = strictly_better(a,b) or (not strictly_better(b,a) and eff_score(a) > eff_score(b))
+    // viable_alts is a SET property (order-invariant); snapshot the candidate set so the penalty
+    // context stays stable through the in-place shift — matching the Lua's swap-based table.sort,
+    // which never exposes a transient duplicate to the comparator. Insertion sort (n <= K = 3), stable.
+    RtCandidate snap[protocol::max_rt_candidates];
+    for (uint8_t i = 0; i < e.n; ++i) snap[i] = e.candidates[i];
     for (uint8_t i = 1; i < e.n; ++i) {
         RtCandidate key = e.candidates[i];
         int j = static_cast<int>(i) - 1;
         while (j >= 0) {
             const RtCandidate& cur = e.candidates[j];
-            const bool key_less = route_strictly_better(key, cur) ||
-                                  (!route_strictly_better(cur, key) && key.score > cur.score);
+            const bool key_less = route_strictly_better(key, cur, snap, e.n) ||
+                                  (!route_strictly_better(cur, key, snap, e.n) &&
+                                   effective_score(key, snap, e.n) > effective_score(cur, snap, e.n));
             if (!key_less) break;
             e.candidates[j + 1] = e.candidates[j];
             --j;
         }
         e.candidates[j + 1] = key;
     }
+}
+
+// R4.2: re-sort every rt entry that routes via `node_id` (>1 candidate) under the new tier penalty;
+// a primary change marks the entry dirty (unless local_only) + emits rt_penalty_rerank. One triggered
+// beacon if anything moved on a non-local mark. Lua dv:4255-4318.
+int Node::resort_routes_for_neighbor_penalty(uint8_t node_id, const char* source, bool local_only) {
+    int changed = 0;
+    for (uint8_t e = 0; e < _rt_count; ++e) {
+        RtEntry& entry = _rt[e];
+        if (entry.n < 2) continue;                       // single candidate can't rerank
+        bool affected = false;
+        for (uint8_t i = 0; i < entry.n; ++i)
+            if (entry.candidates[i].next_hop == node_id) { affected = true; break; }
+        if (!affected) continue;
+        const uint8_t old_primary = entry.candidates[0].next_hop;
+        sort_candidates(entry);                          // penalty-aware re-sort
+        const uint8_t new_primary = entry.candidates[0].next_hop;
+        if (new_primary != old_primary) {
+            if (!local_only) entry.dirty = true;
+            ++changed;
+            EventField f[] = { { .key = "dest",      .type = EventField::T::i64, .i = entry.dest },
+                               { .key = "from_next",  .type = EventField::T::i64, .i = old_primary },
+                               { .key = "to_next",    .type = EventField::T::i64, .i = new_primary },
+                               { .key = "penalized",  .type = EventField::T::i64, .i = node_id },
+                               { .key = "reason",     .type = EventField::T::str, .s = source ? source : "neighbor_penalty" } };
+            _hal.emit("rt_penalty_rerank", f, 5);
+        }
+    }
+    if (changed > 0 && !local_only) schedule_triggered_beacon();   // re-advertise the new primaries
+    return changed;
+}
+
+// R4.2: record neighbour `node_id`'s budget tier (max-merge, TTL-stamped) + rerank affected routes.
+// Two callers: the BUDGET NACK react (reverse, local_only=false) and the ACK budget_hint (forward,
+// local_only=true). Lua dv:4320-4342.
+int Node::mark_neighbor_budget_tier(uint8_t node_id, uint8_t tier, const char* source, bool local_only) {
+    if (tier == 0) return 0;                             // <= HEALTHY -> nothing to mark
+    const uint8_t current = get_neighbor_tier(node_id);  // (also lazy-prunes an expired mark)
+    if (current > tier) return 0;                        // max-merge: never downgrade a worse mark
+    _neighbor_budget_tier[node_id]        = tier;
+    _neighbor_budget_tier_set_at[node_id] = _hal.now();
+    const int reranked = resort_routes_for_neighbor_penalty(node_id, source, local_only);
+    EventField f[] = { { .key = "node",     .type = EventField::T::i64, .i = node_id },
+                       { .key = "tier",     .type = EventField::T::i64, .i = tier },
+                       { .key = "source",   .type = EventField::T::str, .s = source ? source : "unknown" },
+                       { .key = "reranked", .type = EventField::T::i64, .i = reranked } };
+    _hal.emit("neighbor_budget_mark", f, 4);
+    return reranked;
 }
 
 Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand) {
@@ -86,7 +175,7 @@ Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand) {
     // Match-by-next_hop: refresh in place if cand strictly better.
     for (uint8_t i = 0; i < entry->n; ++i) {
         if (entry->candidates[i].next_hop == cand.next_hop) {
-            if (route_strictly_better(cand, entry->candidates[i])) {
+            if (route_strictly_better(cand, entry->candidates[i], entry->candidates, entry->n)) {
                 const bool was_primary = (i == 0);
                 entry->candidates[i] = cand;
                 sort_candidates(*entry);
@@ -114,7 +203,7 @@ Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand) {
 
     // Full table: replace the worst (last) only if cand strictly beats it.
     RtCandidate& worst = entry->candidates[entry->n - 1];
-    if (!route_strictly_better(cand, worst)) return MergeAction::none;
+    if (!route_strictly_better(cand, worst, entry->candidates, entry->n)) return MergeAction::none;
     worst = cand;
     sort_candidates(*entry);
     if (entry->candidates[0].next_hop == cand.next_hop) { entry->dirty = true; return MergeAction::promote; }

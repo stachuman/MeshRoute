@@ -41,7 +41,8 @@ public:
     }
     void     set_rx_sf(int) override {}
     uint64_t channel_busy_until() override { return 0; }
-    uint64_t airtime_used_ms(uint64_t) override { return 0; }
+    uint64_t _airtime_used = 0;   // R4.0: scriptable rolling-window airtime for compute_budget_tier
+    uint64_t airtime_used_ms(uint64_t) override { return _airtime_used; }
     uint64_t oldest_tx_end_ms() override { return 0; }
     uint64_t now() override { return _now; }
     bool     after(uint32_t, uint32_t) override { return true; }
@@ -82,6 +83,7 @@ constexpr uint32_t kRetryBackoffTimerId  = 10;
 constexpr uint32_t kDeferredDrainTimerId = 11;
 constexpr uint32_t kCascadeRequeueTimerId = 12;
 constexpr uint32_t kNackWaitTimerId      = 13;
+constexpr uint32_t kTriggeredBeaconTimerId = 3;   // R4.2: rerank re-advertises via a triggered beacon
 
 static size_t mk_nack(uint8_t to, uint8_t ctr_lo, uint8_t reason, uint8_t payload,
                       std::array<uint8_t, 8>& b) {
@@ -153,6 +155,10 @@ static size_t mk_beacon(uint8_t src, std::array<uint8_t, 64>& b) {
 static size_t mk_cts(uint8_t to, uint8_t ctr_lo, uint8_t data_sf, std::array<uint8_t, 8>& b) {
     cts_in in{}; in.ctr_lo = ctr_lo; in.chosen_data_sf = data_sf; in.already_received = false; in.to = to;
     return pack_cts(in, std::span<uint8_t>(b.data(), b.size()));
+}
+static size_t mk_ack_hint(uint8_t to, uint8_t ctr_lo, uint8_t budget_hint, std::array<uint8_t, 8>& b) {
+    ack_in in{}; in.ctr_lo = ctr_lo; in.budget_hint = budget_hint; in.snr_bucket = 0; in.to = to;
+    return pack_ack(in, std::span<uint8_t>(b.data(), b.size()));
 }
 static size_t mk_ack(uint8_t to, uint8_t ctr_lo, std::array<uint8_t, 8>& b) {
     ack_in in{}; in.ctr_lo = ctr_lo; in.budget_hint = 0; in.snr_bucket = 0; in.to = to;
@@ -774,4 +780,351 @@ TEST_CASE("hop_budget — a forwarded flight keeps its budget across a BUSY_RX l
     node.on_timer(kCtsToDataGapTimerId);                       // -> forwarded DATA tx
     auto pd = parse_tx_data(hal.last_tx("DATA")); CHECK(pd.has_value());
     if (pd) { CHECK(pd->hops_remaining == 3); CHECK(pd->committed_hops == 2); }   // budget survived the requeue
+}
+
+// ---- R4.0 + R4.1 — duty-cycle budget tier + BUDGET NACK (reason 1) ----------
+static Node* mk_budget_node(TestHal& hal, double duty_cycle, uint32_t window_ms) {
+    Node* node = new Node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    cfg.duty_cycle = duty_cycle; cfg.duty_cycle_window_ms = window_ms;
+    node->on_init(cfg);
+    return node;
+}
+
+TEST_CASE("R4.0 budget tier — thresholds 50/80/95 + disabled = HEALTHY (Lua dv:3560-3571)") {
+    using BT = Node::BudgetTier;
+    TestHal hal;
+    // window 1000ms, duty 0.10 -> budget = floor(0.10*1000) = 100ms. pct = 100*used/100 = used.
+    Node* node = mk_budget_node(hal, /*duty=*/0.10, /*window=*/1000);
+    const int rand0 = hal.rand_calls;
+    hal._airtime_used = 0;   CHECK(node->compute_budget_tier() == BT::healthy);    // 0%
+    hal._airtime_used = 49;  CHECK(node->compute_budget_tier() == BT::healthy);    // 49% < 50
+    hal._airtime_used = 50;  CHECK(node->compute_budget_tier() == BT::strained);   // 50% -> STRAINED
+    hal._airtime_used = 79;  CHECK(node->compute_budget_tier() == BT::strained);   // 79% < 80
+    hal._airtime_used = 80;  CHECK(node->compute_budget_tier() == BT::critical);   // 80% -> CRITICAL
+    hal._airtime_used = 94;  CHECK(node->compute_budget_tier() == BT::critical);   // 94% < 95
+    hal._airtime_used = 95;  CHECK(node->compute_budget_tier() == BT::exhausted);  // 95% -> EXHAUSTED
+    hal._airtime_used = 200; CHECK(node->compute_budget_tier() == BT::exhausted);  // >100%
+    CHECK(hal.rand_calls - rand0 == 0);   // pure, no draws
+    delete node;
+    // duty_cycle <= 0 -> disabled -> always HEALTHY even at saturation
+    TestHal hal2; Node* off = mk_budget_node(hal2, /*duty=*/0.0, /*window=*/1000);
+    hal2._airtime_used = 1000000; CHECK(off->compute_budget_tier() == BT::healthy);
+    delete off;
+    // plumb-proof (review #12): the r6 gate values (0.1, 1h) derive a NON-ZERO budget (360000ms),
+    // so the tier crosses HEALTHY->STRAINED at 50% (180000ms) — not a silent disabled no-op.
+    TestHal hal3; Node* r6 = mk_budget_node(hal3, /*duty=*/0.1, /*window=*/3600000);
+    hal3._airtime_used = 179999; CHECK(r6->compute_budget_tier() == BT::healthy);    // 49.99% < 50
+    hal3._airtime_used = 180000; CHECK(r6->compute_budget_tier() == BT::strained);   // 50% of 360000ms
+    delete r6;
+}
+
+TEST_CASE("R4.1 budget NACK emit — receiver >=CRITICAL refuses an RTS with reason=1 (tier in high nibble)") {
+    std::array<uint8_t,16> rb{};
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
+    // HEALTHY (10%) -> normal CTS, NO budget NACK
+    {
+        TestHal hal; Node* node = mk_budget_node(hal, /*duty=*/0.10, /*window=*/1000);   // budget 100ms
+        hal._airtime_used = 10;
+        const size_t rn = mk_rts(/*src=*/2,/*next=*/1,/*dst=*/9,/*ctr_lo=*/5,/*plen=*/10, rb);
+        node->on_recv(rb.data(), rn, m2);
+        CHECK(hal.count("cts_tx") == 1);
+        CHECK(hal.count("nack_tx") == 0);
+        delete node;
+    }
+    // CRITICAL (85%) on a FRESH node (no stale pending_rx that would BUSY_RX first) -> BUDGET NACK
+    // reason=1, tier=2 in the high nibble, NO CTS.
+    {
+        TestHal hal; Node* node = mk_budget_node(hal, /*duty=*/0.10, /*window=*/1000);
+        hal._airtime_used = 85;
+        const size_t rn = mk_rts(/*src=*/3,/*next=*/1,/*dst=*/8,/*ctr_lo=*/6,/*plen=*/10, rb);
+        RxMeta m3{8.0f,-80.0f,0,static_cast<int8_t>(3)}; node->on_recv(rb.data(), rn, m3);
+        const Ev* nk = hal.last("nack_tx"); CHECK(nk != nullptr);
+        if (nk) { CHECK(nk->to == 3); CHECK(nk->reason == protocol::nack_reason_budget); }
+        CHECK(hal.count("cts_tx") == 0);   // NO CTS on the refused RTS
+        {   // the REAL emitted NACK bytes carry tier=CRITICAL(2) in the high nibble
+            auto pn = parse_nack(std::span<const uint8_t>(hal.last_tx("NACK")->bytes.data(),
+                                                          hal.last_tx("NACK")->bytes.size()));
+            CHECK(pn.has_value());
+            if (pn) { CHECK(pn->reason == protocol::nack_reason_budget);
+                      CHECK(((pn->payload >> 4) & 0x0f) == 2); }
+        }
+        delete node;
+    }
+}
+
+TEST_CASE("R4.1 budget NACK react — sender blinds the next hop (tier-scaled) + requeues, no draws") {
+    TestHal hal;
+    Node* node = mk_sender_with_routes(hal, {{2,1,14},{3,2,14}});   // via2 primary, via3 alt
+    hal._now = 1000;
+    send_cmd(*node, 5, "hi");                                       // pending_tx via 2, ctr_lo=1
+    CHECK(!node->is_blind(2));
+    const int rand_before = hal.rand_calls;
+    std::array<uint8_t,8> nb{};
+    // BUDGET NACK reason=1, tier=CRITICAL(2) -> blind via2 for budget_blind_critical_ms, requeue.
+    const size_t nn = mk_nack(/*to=*/1, /*ctr_lo=*/1, /*reason=*/protocol::nack_reason_budget,
+                              /*payload=*/(2 << 4), nb);
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)}; node->on_recv(nb.data(), nn, m2);
+    CHECK(hal.count("blind_observed") == 1);
+    CHECK(node->is_blind(2));                                       // via2 now blind
+    { const Ev* nr = hal.last("nack_rx"); CHECK(nr != nullptr);
+      if (nr) { CHECK(nr->reason == protocol::nack_reason_budget); } }
+    CHECK(hal.count("cascade_requeue") == 1);                       // requeued via the helper (caps not hit)
+    CHECK(hal.rand_calls - rand_before == 0);                      // DRAW-FREE
+    // drain the backoff (requeue_count=1 -> backoff 5000): the re-issue skips the blind via2 -> via3
+    hal._now = 6000; node->on_timer(kCascadeRequeueTimerId);
+    CHECK(node->is_blind(2));                                       // still blind at 6000 (window 180000)
+    { const Ev* r = hal.last("rts_tx"); CHECK(r != nullptr);
+      if (r) CHECK(r->next == 3); }
+    delete node;
+}
+
+TEST_CASE("R4.1 budget NACK react — tier-scaled blind window (STRAINED < CRITICAL < EXHAUSTED)") {
+    // EXHAUSTED(3) gets the longest window; probe is_blind just past the strained window to show
+    // EXHAUSTED still blind there while a STRAINED-tier blind would have lapsed.
+    {
+        TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
+        send_cmd(*node, 5, "hi");
+        std::array<uint8_t,8> nb{};
+        const size_t nn = mk_nack(1, 1, protocol::nack_reason_budget, (3 << 4), nb);   // EXHAUSTED
+        RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)}; node->on_recv(nb.data(), nn, m2);
+        hal._now = protocol::budget_blind_strained_ms + 1;        // past the STRAINED window
+        CHECK(node->is_blind(2));                                 // EXHAUSTED window is longer -> still blind
+        hal._now = protocol::budget_blind_exhausted_ms + 1;       // past the EXHAUSTED window
+        CHECK(!node->is_blind(2));
+        delete node;
+    }
+    {
+        TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
+        send_cmd(*node, 5, "hi");
+        std::array<uint8_t,8> nb{};
+        const size_t nn = mk_nack(1, 1, protocol::nack_reason_budget, (1 << 4), nb);   // STRAINED
+        RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)}; node->on_recv(nb.data(), nn, m2);
+        hal._now = protocol::budget_blind_strained_ms + 1;        // past the STRAINED window
+        CHECK(!node->is_blind(2));                                // STRAINED window already lapsed
+        delete node;
+    }
+}
+
+// ---- R4.2 — persistent neighbor tier mark + route penalty + ACK budget_hint ----
+TEST_CASE("R4.2 tier mark — max-merge (no downgrade) + tier-0 no-op + TTL lazy-prune") {
+    TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
+    hal._now = 1000;
+    CHECK(node->get_neighbor_tier(2) == 0);                       // unmarked
+    node->mark_neighbor_budget_tier(2, /*CRITICAL*/2, "test", true);
+    CHECK(node->get_neighbor_tier(2) == 2);
+    node->mark_neighbor_budget_tier(2, /*STRAINED*/1, "test", true);   // lower -> max-merge keeps CRITICAL (dv:4323)
+    CHECK(node->get_neighbor_tier(2) == 2);
+    node->mark_neighbor_budget_tier(2, /*EXHAUSTED*/3, "test", true);  // higher -> upgrades
+    CHECK(node->get_neighbor_tier(2) == 3);
+    node->mark_neighbor_budget_tier(2, /*HEALTHY*/0, "test", true);    // tier 0 -> no-op
+    CHECK(node->get_neighbor_tier(2) == 3);
+    hal._now = 1000 + protocol::neighbor_budget_tier_ttl_ms;      // >= TTL from the last set -> lazy prune on read
+    CHECK(node->get_neighbor_tier(2) == 0);
+    delete node;
+}
+
+TEST_CASE("R4.2 route demotion — marking a CRITICAL primary reranks it below the viable alt") {
+    TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14},{3,1,14}});  // via2,via3 EQUAL -> via2 primary
+    node->on_timer(kTriggeredBeaconTimerId);                      // flush any pending triggered beacon
+    const int rb = hal.rand_calls;
+    const int reranked = node->mark_neighbor_budget_tier(2, /*CRITICAL*/2, "nack_budget", /*local_only=*/false);
+    CHECK(reranked == 1);                                         // the primary moved
+    CHECK(hal.rand_calls - rb == 1);                             // !local_only + primary moved -> ONE triggered-beacon draw
+    CHECK(node->get_neighbor_tier(2) == 2);
+    CHECK(hal.count("rt_penalty_rerank") == 1);
+    CHECK(hal.count("neighbor_budget_mark") == 1);
+    send_cmd(*node, 5, "x");                                      // now routes via the alt (via2 demoted, NOT blind)
+    const Ev* r = hal.last("rts_tx"); CHECK(r != nullptr);
+    if (r) CHECK(r->next == 3);
+    delete node;
+}
+
+TEST_CASE("R4.2 BUDGET NACK reaction reranks the route; demotion OUTLIVES the blind window") {
+    TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14},{3,1,14}});  // equal -> via2 primary
+    node->on_timer(kTriggeredBeaconTimerId);
+    hal._now = 1000;
+    send_cmd(*node, 5, "hi");                                     // RTS to via2
+    { const Ev* r = hal.last("rts_tx"); if (r) CHECK(r->next == 2); }
+    std::array<uint8_t,8> nb{};
+    const size_t nn = mk_nack(1, 1, protocol::nack_reason_budget, (2 << 4), nb);   // CRITICAL from via2
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)}; node->on_recv(nb.data(), nn, m2);
+    CHECK(hal.count("neighbor_budget_mark") == 1);               // the react marked via2 ...
+    CHECK(hal.count("rt_penalty_rerank") == 1);                 // ... and reranked the route
+    CHECK(node->get_neighbor_tier(2) == 2);
+    // route demotion (tier TTL 300000) OUTLIVES the short blind window (CRITICAL 180000): past the
+    // blind but within the TTL, via2 is no longer blind yet still tier-marked -> route stays demoted.
+    hal._now = 1000 + protocol::budget_blind_critical_ms + 1;
+    CHECK(!node->is_blind(2));
+    CHECK(node->get_neighbor_tier(2) == 2);
+    delete node;
+}
+
+TEST_CASE("R4.2 ACK budget_hint — STRAINED forwarder's ACK carries the tier; sender marks it (local_only, no draw)") {
+    std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
+    // EMIT: a STRAINED forwarder (60%) still CTSes (only >=CRITICAL refuses) and ACKs with budget_hint=STRAINED.
+    {
+        TestHal hal; Node node(hal, 1, 0xABCD);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+        cfg.duty_cycle = 0.10; cfg.duty_cycle_window_ms = 1000;   // budget 100ms
+        node.on_init(cfg);
+        hal._airtime_used = 60;                                   // 60% -> STRAINED (CTSes, doesn't refuse)
+        RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
+        const size_t rn = mk_rts(/*src=*/2,/*next=*/1,/*dst=*/1,/*ctr_lo=*/3,/*plen=*/10, rb);  // dst=self -> deliver path
+        node.on_recv(rb.data(), rn, m2);
+        CHECK(hal.count("cts_tx") == 1);                          // STRAINED still CTSes
+        const size_t dn = mk_data_hb(1, 1, 3, 0, /*hops_remaining=*/5, /*committed=*/0, "x", db);
+        node.on_recv(db.data(), dn, m2);
+        auto pk = parse_ack(std::span<const uint8_t>(hal.last_tx("ACK")->bytes.data(),
+                                                     hal.last_tx("ACK")->bytes.size()));
+        CHECK(pk.has_value());
+        if (pk) CHECK(pk->budget_hint == 1);                     // STRAINED in the ACK (min(CRITICAL, tier))
+    }
+    // CONSUME: a sender receiving an ACK with budget_hint=STRAINED marks the next-hop (local_only -> NO beacon/draw).
+    {
+        TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
+        node->on_timer(kTriggeredBeaconTimerId);
+        send_cmd(*node, 5, "hi");                                 // RTS to via2
+        std::array<uint8_t,8> cb{};
+        const size_t cn = mk_cts(1, 1, 7, cb);
+        RxMeta m2{12.0f,-70.0f,0,static_cast<int8_t>(2)}; node->on_recv(cb.data(), cn, m2);
+        node->on_timer(kCtsToDataGapTimerId);                    // DATA tx -> awaiting_ack
+        const int rb2 = hal.rand_calls;
+        std::array<uint8_t,8> ab{};
+        const size_t an = mk_ack_hint(/*to=*/1, /*ctr_lo=*/1, /*budget_hint=*/1, ab);   // ACK from via2, STRAINED
+        node->on_recv(ab.data(), an, m2);
+        CHECK(node->get_neighbor_tier(2) == 1);                  // marked from the ACK
+        CHECK(hal.rand_calls - rb2 == 0);                        // local_only -> NO triggered-beacon draw
+        delete node;
+    }
+}
+
+// review #07: a node STRAINED at RTS-time (so it CTSes, doesn't refuse) that climbs to EXHAUSTED by
+// DATA-time -> the forward ACK hint must CAP at CRITICAL(2), not carry EXHAUSTED(3). Drive the mid-flight
+// tier climb by bumping the scripted airtime between the RTS and the DATA.
+TEST_CASE("R4.2 ACK budget_hint — EXHAUSTED at DATA-time caps the forward hint at CRITICAL") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    cfg.duty_cycle = 0.10; cfg.duty_cycle_window_ms = 1000;       // budget 100ms
+    node.on_init(cfg);
+    std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
+    hal._airtime_used = 60;                                       // STRAINED at RTS -> CTSes (no refuse)
+    const size_t rn = mk_rts(/*src=*/2,/*next=*/1,/*dst=*/1,/*ctr_lo=*/3,/*plen=*/10, rb);
+    node.on_recv(rb.data(), rn, m2);
+    CHECK(hal.count("cts_tx") == 1);
+    hal._airtime_used = 200;                                      // climbed to EXHAUSTED by DATA-time
+    const size_t dn = mk_data_hb(1, 1, 3, 0, /*hops_remaining=*/5, /*committed=*/0, "x", db);
+    node.on_recv(db.data(), dn, m2);
+    auto pk = parse_ack(std::span<const uint8_t>(hal.last_tx("ACK")->bytes.data(),
+                                                 hal.last_tx("ACK")->bytes.size()));
+    CHECK(pk.has_value());
+    if (pk) CHECK(pk->budget_hint == 2);                         // min(CRITICAL, EXHAUSTED) = CRITICAL(2)
+}
+
+// ---- R4.4 — originator anti-spam (1st-hop statistical rate-limit) ----
+TEST_CASE("R4.4 compute_originator_metric — distinct ctr_lo, 10s dedup, window prune, apparent=max(0,rts-cts)") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    int app; uint32_t air; uint8_t rts, cts;
+    // 3 distinct-ctr_lo RTSes from sender 9 (air 10 each) -> rts=3
+    hal._now = 1000;
+    node.track_originator_observation(9, /*rts*/0, 1, 10);
+    node.track_originator_observation(9, /*rts*/0, 2, 10);
+    node.track_originator_observation(9, /*rts*/0, 3, 10);
+    // a RETRY of ctr_lo=1 within the 10s dedup window -> NOT a new event, air NOT re-added
+    hal._now = 5000;
+    node.track_originator_observation(9, /*rts*/0, 1, 10);
+    node.compute_originator_metric(9, app, air, rts, cts);
+    CHECK(rts == 3); CHECK(cts == 0); CHECK(app == 3); CHECK(air == 30);   // dedup: still 3 events, 30ms
+    // one CTS from 9 -> cts=1 -> apparent = 3-1 = 2
+    node.track_originator_observation(9, /*cts*/1, 1, 10);
+    node.compute_originator_metric(9, app, air, rts, cts);
+    CHECK(rts == 3); CHECK(cts == 1); CHECK(app == 2); CHECK(air == 40);
+    // advance past the window (300000) from the ctr_lo=2/3 events (t=1000) but the ctr_lo=1 rts was
+    // refreshed to t=5000 and the cts to now; prune drops the t=1000 events.
+    hal._now = 1000 + protocol::originator_window_ms + 1;   // 301001: t=1000 events pruned, t=5000 kept
+    node.track_originator_observation(9, /*rts*/0, 4, 10);  // triggers a prune + adds ctr_lo=4
+    node.compute_originator_metric(9, app, air, rts, cts);
+    CHECK(rts == 2);   // ctr_lo=1 (refreshed to 5000) + ctr_lo=4; the t=1000 ctr_lo=2,3 pruned
+    CHECK(app == 1);   // rts 2 - cts 1 (the cts at now is kept) ... apparent = max(0, 2-1) = 1
+}
+
+TEST_CASE("R4.4 throttle drop — a 1st-hop originator-flooder's RTS is silently dropped; a forwarder isn't") {
+    std::array<uint8_t,16> rb{};
+    // SPAMMER: 7 distinct-ctr_lo RTSes from sender 9 OVERHEARD (to next=99, not us) -> apparent=7 > 6.
+    {
+        TestHal hal; Node node(hal, 1, 0xABCD);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+        RxMeta m9{8.0f,-80.0f,0,static_cast<int8_t>(9)};
+        for (uint8_t i = 0; i < 7; ++i) {                       // overheard (next=99) -> tracked, no CTS
+            const size_t rn = mk_rts(/*src=*/9,/*next=*/99,/*dst=*/8,/*ctr_lo=*/i,/*plen=*/10, rb);
+            node.on_recv(rb.data(), rn, m9);
+        }
+        CHECK(hal.count("cts_tx") == 0);                        // none addressed to us
+        // now an RTS from 9 addressed to US -> apparent (8 after tracking this one) > 6 -> DROP
+        const size_t rn = mk_rts(/*src=*/9,/*next=*/1,/*dst=*/8,/*ctr_lo=*/7,/*plen=*/10, rb);
+        node.on_recv(rb.data(), rn, m9);
+        CHECK(hal.count("rts_drop_originator_throttle") == 1);
+        CHECK(hal.count("cts_tx") == 0);                        // silently dropped, NO CTS
+        CHECK(hal.count("nack_tx") == 0);                       // and NO NACK
+    }
+    // FORWARDER: equal RTS+CTS from sender 9 -> apparent ~= 0 -> an RTS to us is CTSed normally.
+    {
+        TestHal hal; Node node(hal, 1, 0xABCD);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+        RxMeta m9{8.0f,-80.0f,0,static_cast<int8_t>(9)};
+        std::array<uint8_t,8> cb{};
+        for (uint8_t i = 0; i < 7; ++i) {                       // 7 RTS + 7 CTS overheard from 9 -> apparent 0
+            const size_t rn = mk_rts(/*src=*/9,/*next=*/99,/*dst=*/8,/*ctr_lo=*/i,/*plen=*/10, rb);
+            node.on_recv(rb.data(), rn, m9);
+            const size_t cn = mk_cts(/*to=*/99, /*ctr_lo=*/i, /*data_sf=*/7, cb);
+            node.on_recv(cb.data(), cn, m9);                    // overheard CTS from 9
+        }
+        const size_t rn = mk_rts(/*src=*/9,/*next=*/1,/*dst=*/8,/*ctr_lo=*/7,/*plen=*/10, rb);
+        node.on_recv(rb.data(), rn, m9);
+        CHECK(hal.count("rts_drop_originator_throttle") == 0);  // forwarder NOT throttled
+        CHECK(hal.count("cts_tx") == 1);                        // CTSed normally
+    }
+}
+
+TEST_CASE("R4.4 airtime backstop — over the 25%-budget airtime cap drops even when apparent <= max") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    cfg.duty_cycle = 0.001; cfg.duty_cycle_window_ms = 10000;   // budget 10ms -> airtime cap floor(0.25*10)=2ms
+    node.on_init(cfg);
+    std::array<uint8_t,16> rb{};
+    RxMeta m9{8.0f,-80.0f,0,static_cast<int8_t>(9)};
+    const size_t ov = mk_rts(/*src=*/9,/*next=*/99,/*dst=*/8,/*ctr_lo=*/0,/*plen=*/10, rb);
+    node.on_recv(rb.data(), ov, m9);                            // 1 overheard RTS (airtime >> 2ms cap)
+    const size_t rn = mk_rts(/*src=*/9,/*next=*/1,/*dst=*/8,/*ctr_lo=*/1,/*plen=*/10, rb);
+    node.on_recv(rb.data(), rn, m9);                            // apparent=2 (<6) but total_air > 2ms cap
+    CHECK(hal.count("rts_drop_originator_throttle") == 1);      // dropped via the airtime backstop
+    CHECK(hal.count("cts_tx") == 0);
+}
+
+// review #00/#01: with duty DISABLED (budget 0) the airtime backstop must be OFF (no airtime share to
+// enforce) — NOT a 0 cap that drops every RTS. The COUNT threshold stays active. Guard fixed in BOTH engines.
+TEST_CASE("R4.4 airtime backstop OFF when duty disabled (budget 0); count threshold still drops a flooder") {
+    std::array<uint8_t,16> rb{};
+    RxMeta m9{8.0f,-80.0f,0,9};
+    // (a) duty=0: an overheard + an addressed RTS (apparent 2 < 6, airtime >> any cap) -> NOT dropped, CTSed.
+    {
+        TestHal hal; Node node(hal, 1, 0xABCD);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;   // duty_cycle = 0 (disabled)
+        node.on_init(cfg);
+        const size_t ov = mk_rts(9,99,8,0,10,rb); node.on_recv(rb.data(), ov, m9);
+        const size_t rn = mk_rts(9, 1,8,1,10,rb); node.on_recv(rb.data(), rn, m9);
+        CHECK(hal.count("rts_drop_originator_throttle") == 0);  // budget 0 -> airtime backstop SKIPPED
+        CHECK(hal.count("cts_tx") == 1);
+    }
+    // (b) duty=0 still drops a COUNT flooder (apparent > 6) — the count path is budget-independent.
+    {
+        TestHal hal; Node node(hal, 1, 0xABCD);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;   // duty_cycle = 0
+        node.on_init(cfg);
+        for (uint8_t i = 0; i < 7; ++i) { const size_t n = mk_rts(9,99,8,i,10,rb); node.on_recv(rb.data(), n, m9); }
+        const size_t rn = mk_rts(9, 1, 8, 7, 10, rb); node.on_recv(rb.data(), rn, m9);
+        CHECK(hal.count("rts_drop_originator_throttle") == 1);  // count threshold fires regardless of budget
+    }
 }

@@ -33,6 +33,11 @@ void Node::on_init(const NodeConfig& cfg) {
     _routing_snr_floor_q4 = static_cast<int16_t>(demod + protocol::sf_margin_q4);
     _hal.set_rx_sf(_cfg.routing_sf);                       // listen on routing SF
 
+    // R4.0 duty-cycle budget = floor(duty_cycle * window) (Lua dv:8497). 0 => disabled (HEALTHY).
+    _duty_cycle_budget_ms = (_cfg.duty_cycle > 0.0)
+        ? static_cast<uint64_t>(_cfg.duty_cycle * _cfg.duty_cycle_window_ms)
+        : 0;
+
     // Discovery window: boot in fast-cadence / full-page mode until we have heard
     // enough of the mesh or a bounded timeout expires (dv_dual_sf.lua:8399-8401).
     _discovery_started_ms   = _hal.now();

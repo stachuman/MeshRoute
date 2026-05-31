@@ -29,7 +29,9 @@ struct TxParams {                 // sentinel = use the radio default (RF plan S
     const char* info  = nullptr;  // static-literal telemetry; device may ignore
 };
 
-struct RxMeta { float snr_db; float rssi_dbm; uint64_t recv_ms; int8_t src_hint = -1; };
+// src_hint: the PHY sender's node_id, or -1 = "no hint". int16_t (NOT int8_t) so node ids 128..254 don't
+// alias into the negative-sentinel range (the R4.4 `src_hint >= 0` guard + the uint8_t casts depend on it).
+struct RxMeta { float snr_db; float rssi_dbm; uint64_t recv_ms; int16_t src_hint = -1; };
 
 struct BusyInfo { BusyReason reason; uint16_t tag; int16_t sf; uint64_t busy_until_ms; };
 

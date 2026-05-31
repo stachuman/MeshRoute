@@ -148,12 +148,72 @@ void Node::tx_rts_retry() {
     start_rts_timeout();
 }
 
+// R4.0: route-free duty-cycle tier from the rolling airtime window (Lua dv:3560-3571).
+// Integer pct is tier-identical to the Lua float at the {50,80,95} integer thresholds.
+Node::BudgetTier Node::compute_budget_tier() const {
+    if (_cfg.duty_cycle <= 0.0 || _duty_cycle_budget_ms == 0) return BudgetTier::healthy;  // disabled
+    const uint64_t used = _hal.airtime_used_ms(_cfg.duty_cycle_window_ms);
+    const uint64_t pct  = (100ull * used) / _duty_cycle_budget_ms;
+    if (pct >= protocol::budget_exhausted_pct) return BudgetTier::exhausted;
+    if (pct >= protocol::budget_critical_pct)  return BudgetTier::critical;
+    if (pct >= protocol::budget_strained_pct)  return BudgetTier::strained;
+    return BudgetTier::healthy;
+}
+
+// R4.4 anti-spam ledger append (dv:3205-3239). Prune events older than the window; DEDUP — refresh the
+// FIRST same-kind+ctr_lo event within the retry window instead of appending (a retry is not a new
+// origination). Insertion-ordered vector so the dedup-first matches the Lua ipairs scan. Draw-free.
+void Node::track_originator_observation(uint8_t sender, uint8_t kind, uint8_t ctr_lo, uint32_t air) {
+    const uint64_t now    = _hal.now();
+    const uint64_t cutoff = (now >= protocol::originator_window_ms) ? (now - protocol::originator_window_ms) : 0;
+    auto& events = _per_sender_originator[sender];
+    std::vector<OrigEvent> kept;
+    bool dedup_hit = false;
+    for (auto& ev : events) {
+        if (ev.t < cutoff) continue;                      // prune expired
+        if (!dedup_hit && ev.kind == kind && ev.ctr_lo == ctr_lo
+            && (now - ev.t) < protocol::originator_retry_dedup_ms) {
+            ev.t = now;                                    // retry -> refresh, don't add a new event
+            dedup_hit = true;
+        }
+        kept.push_back(ev);
+    }
+    if (!dedup_hit) kept.push_back(OrigEvent{ now, kind, ctr_lo, air });
+    events = std::move(kept);
+}
+
+// R4.4 sliding-window metric (dv:3247-3277). DISTINCT ctr_lo per kind (ctr_lo is 4-bit -> a 16-bit mask),
+// cumulative airtime. apparent = max(0, rts - cts). Const (read-only). Draw-free.
+void Node::compute_originator_metric(uint8_t sender, int& apparent, uint32_t& total_air,
+                                     uint8_t& rts, uint8_t& cts) const {
+    apparent = 0; total_air = 0; rts = 0; cts = 0;
+    auto it = _per_sender_originator.find(sender);
+    if (it == _per_sender_originator.end()) return;
+    const uint64_t now    = _hal.now();
+    const uint64_t cutoff = (now >= protocol::originator_window_ms) ? (now - protocol::originator_window_ms) : 0;
+    uint16_t rts_seen = 0, cts_seen = 0;                  // distinct-ctr_lo masks (bit per 4-bit ctr_lo)
+    for (const auto& ev : it->second) {
+        if (ev.t < cutoff) continue;
+        total_air += ev.air;
+        const uint16_t bit = static_cast<uint16_t>(1u << (ev.ctr_lo & 0x0f));
+        if      (ev.kind == 0) { if (!(rts_seen & bit)) { rts_seen |= bit; ++rts; } }
+        else if (ev.kind == 1) { if (!(cts_seen & bit)) { cts_seen |= bit; ++cts; } }
+    }
+    const int a = static_cast<int>(rts) - static_cast<int>(cts);
+    apparent = (a < 0) ? 0 : a;
+}
+
 void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
-    (void)meta;
     auto pr = parse_rts(std::span<const uint8_t>(bytes, len));
     if (!pr) return;
     const rts_out& r = *pr;
     if (r.leaf_id != _cfg.leaf_id) return;
+    // R4.4 anti-spam: track this RTS in the sender's window even when it's NOT addressed to us (we
+    // overhear routing-SF broadcasts) so all 1st-hop neighbours accumulate evidence. Gateway cross-layer
+    // relays (RTS_FLAG_RELAY) are exempt — not a 1st-hop origination (dv:9709-9712).
+    if (meta.src_hint >= 0 && !(r.rts_flags & RTS_FLAG_RELAY))
+        track_originator_observation(static_cast<uint8_t>(meta.src_hint), /*kind=rts*/0, r.ctr_lo,
+                                     static_cast<uint32_t>(airtime_routing_ms(static_cast<int>(len))));
     if (r.next != _node_id) return;                      // not addressed to us as next-hop
     { EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = r.src },
                          { .key = "dst",  .type = EventField::T::i64, .i = r.dst } };
@@ -218,6 +278,55 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         return;
     }
 
+    // R4.4 anti-spam DROP (dv:9990-10012): if this sender looks like a 1st-hop originator-flooder
+    // (apparent_origination > max, OR overheard airtime > 25% of our budget), silently drop the RTS —
+    // no CTS, no NACK. Relay forwards are exempt. A legit forwarder has rts~=cts -> apparent~=0.
+    if (meta.src_hint >= 0 && !(r.rts_flags & RTS_FLAG_RELAY)) {
+        int app_orig; uint32_t total_air; uint8_t rts_n, cts_n;
+        compute_originator_metric(static_cast<uint8_t>(meta.src_hint), app_orig, total_air, rts_n, cts_n);
+        // airtime cap = floor(0.25 * budget) (Lua dv:9993-9994). The airtime BACKSTOP is gated on a real
+        // budget: with duty disabled (budget 0) there is no airtime SHARE to enforce, so skip it — matching
+        // the duty-disabled guard the Lua's sibling consumers have (compute_budget_tier dv:3561, check_duty_cycle
+        // dv:3574) but the originator drop ORIGINALLY lacked (a Lua oversight — fixed in BOTH engines, dv:9995).
+        // The COUNT threshold (apparent > max) is budget-independent and ALWAYS active.
+        const uint32_t airtime_cap = static_cast<uint32_t>(
+            static_cast<double>(protocol::originator_airtime_share) * _duty_cycle_budget_ms);   // floor
+        const bool over_count   = app_orig > static_cast<int>(_cfg.originator_max_per_window);
+        const bool over_airtime = (_duty_cycle_budget_ms > 0) && (total_air > airtime_cap);
+        if (over_count || over_airtime) {
+            EventField f[] = { { .key = "from",      .type = EventField::T::i64, .i = static_cast<uint8_t>(meta.src_hint) },
+                               { .key = "ctr_lo",    .type = EventField::T::i64, .i = r.ctr_lo },
+                               { .key = "apparent_origination", .type = EventField::T::i64, .i = app_orig },
+                               { .key = "airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(total_air) },
+                               { .key = "rts_count", .type = EventField::T::i64, .i = rts_n },
+                               { .key = "cts_count", .type = EventField::T::i64, .i = cts_n },
+                               { .key = "threshold_count",      .type = EventField::T::i64, .i = _cfg.originator_max_per_window },
+                               { .key = "threshold_airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(airtime_cap) },
+                               { .key = "window_ms",            .type = EventField::T::i64, .i = protocol::originator_window_ms } };
+            _hal.emit("rts_drop_originator_throttle", f, 9);
+            return;                                       // silent drop (no CTS, no NACK)
+        }
+    }
+    // R4.1 budget-aware NACK (Lua dv:10016-10044): if OUR duty budget is >=CRITICAL we likely
+    // can't carry this flight to completion (CTS+DATA-RX are free but the ACK + any forward cost
+    // budget), so refuse early with a BUDGET NACK -> the sender reroutes via the blind machinery
+    // instead of a full RTS-CTS-DATA-ACK that stalls mid-cycle. We still pay the small NACK
+    // airtime but save the CTS+ACK round-trip. STRAINED still CTSes.
+    const BudgetTier my_tier = compute_budget_tier();
+    if (my_tier >= BudgetTier::critical) {
+        nack_in nin{}; nin.reason = protocol::nack_reason_budget; nin.ctr_lo = r.ctr_lo;
+        nin.payload = static_cast<uint8_t>((static_cast<uint8_t>(my_tier) & 0x0f) << 4);   // tier HIGH nibble
+        nin.to = r.src;
+        uint8_t nbuf[4]; const size_t nl = pack_nack(nin, std::span<uint8_t>(nbuf, 4));
+        TxParams np; np.sf = static_cast<int16_t>(_cfg.routing_sf); np.label = "NACK";
+        _hal.tx(nbuf, nl, np);
+        EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = r.src },
+                           { .key = "reason", .type = EventField::T::i64, .i = protocol::nack_reason_budget },
+                           { .key = "tier",   .type = EventField::T::i64, .i = static_cast<uint8_t>(my_tier) } };
+        _hal.emit("nack_tx", f, 3);
+        return;                                          // NO CTS, NO pending_rx
+    }
+
     const uint8_t sf = select_data_sf(r.sf_index);
     PendingRx prx{}; prx.from = r.src; prx.dst = r.dst; prx.ctr_lo = r.ctr_lo;
     prx.chosen_data_sf = sf; prx.payload_len = r.payload_len; prx.set_at_ms = _hal.now();
@@ -237,6 +346,11 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto pc = parse_cts(std::span<const uint8_t>(bytes, len));
     if (!pc) return;
     const cts_out& c = *pc;
+    // R4.4 anti-spam: track this CTS in the sender's window (overheard, addressed to us or not). CTS is
+    // the forwarder fingerprint — a legit forwarder emits ~1 CTS per inbound flight (dv:10115).
+    if (meta.src_hint >= 0)
+        track_originator_observation(static_cast<uint8_t>(meta.src_hint), /*kind=cts*/1, c.ctr_lo,
+                                     static_cast<uint32_t>(airtime_routing_ms(static_cast<int>(len))));
     if (c.to != _node_id) return;
     if (!_pending_tx || !_pending_tx->awaiting_cts || _pending_tx->ctr_lo != c.ctr_lo) return;
     if (static_cast<uint8_t>(meta.src_hint) != _pending_tx->next) return;
@@ -389,9 +503,14 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             return;
         }
     }
-    // ACK on routing_sf (2-bit SNR bucket; budget_hint=0 in R3). Fires for a fresh DATA
-    // and for a same-prev-hop dup (the lost-ACK re-ACK recovery).
-    ack_in ain{}; ain.ctr_lo = d.ctr_lo4; ain.budget_hint = 0;
+    // ACK on routing_sf (2-bit SNR bucket). R4.2: piggyback OUR budget tier, capped at CRITICAL (the
+    // protocol caps the forward hint at CRITICAL per Lua dv:11054 — a node already >=CRITICAL refuses
+    // the RTS with a BUDGET NACK and rarely ACKs; EXHAUSTED is the reverse-NACK's concern). So the
+    // sender learns our congestion in the FORWARD direction. Fires for a fresh DATA and a same-prev-hop dup.
+    const BudgetTier my_tier = compute_budget_tier();
+    const uint8_t hint = (static_cast<uint8_t>(my_tier) > static_cast<uint8_t>(BudgetTier::critical))
+                         ? static_cast<uint8_t>(BudgetTier::critical) : static_cast<uint8_t>(my_tier);
+    ack_in ain{}; ain.ctr_lo = d.ctr_lo4; ain.budget_hint = hint;
     ain.snr_bucket = bucket_of_snr_2b(protocol::db_to_q4(meta.snr_db)); ain.to = from;
     uint8_t abuf[3]; const size_t al = pack_ack(ain, std::span<uint8_t>(abuf, 3));
     TxParams ap; ap.sf = static_cast<int16_t>(_cfg.routing_sf); ap.label = "ACK";
@@ -461,12 +580,24 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     const ack_out& k = *pk;
     if (k.to != _node_id) return;
     if (!_pending_tx || !_pending_tx->awaiting_ack || _pending_tx->ctr_lo != k.ctr_lo) return;
-    if (static_cast<uint8_t>(meta.src_hint) != _pending_tx->next) return;
+    if (meta.src_hint < 0 || static_cast<uint8_t>(meta.src_hint) != _pending_tx->next) return;  // (matches NACK gate + Lua dv:10300)
     _hal.cancel(kAckTimeoutTimerId);
     _hal.cancel(kRetryBackoffTimerId);                   // drop a stale retry armed by a just-fired ack_timeout
-    EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = static_cast<uint8_t>(meta.src_hint) },
-                       { .key = "ctr",  .type = EventField::T::i64, .i = _pending_tx->ctr } };
-    _hal.emit("ack_rx", f, 2);
+    // R4.2: consume the ACK's piggybacked budget_hint -> learn the next-hop's tier in the FORWARD
+    // direction (the NACK only covers the reverse). local_only=true: rerank routes but DON'T dirty /
+    // schedule a beacon (so NO triggered-beacon draw on the forward path). Lua dv:10341-10344.
+    int ack_budget_reranked = 0;
+    if (k.budget_hint > static_cast<uint8_t>(BudgetTier::healthy)) {
+        const uint8_t tier = (k.budget_hint > static_cast<uint8_t>(BudgetTier::critical))
+                             ? static_cast<uint8_t>(BudgetTier::critical) : k.budget_hint;
+        ack_budget_reranked = mark_neighbor_budget_tier(static_cast<uint8_t>(meta.src_hint),
+                                                        tier, "ack_budget", /*local_only=*/true);
+    }
+    EventField f[] = { { .key = "from",     .type = EventField::T::i64, .i = static_cast<uint8_t>(meta.src_hint) },
+                       { .key = "ctr",      .type = EventField::T::i64, .i = _pending_tx->ctr },
+                       { .key = "budget_hint",     .type = EventField::T::i64, .i = k.budget_hint },
+                       { .key = "budget_reranked", .type = EventField::T::i64, .i = ack_budget_reranked } };
+    _hal.emit("ack_rx", f, 4);
     { Push pu{}; pu.kind = PushKind::send_acked; pu.dst = _pending_tx->dst; pu.ctr = _pending_tx->ctr; enqueue_push(pu); }
     _pending_tx.reset();
     become_free();
@@ -600,9 +731,40 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         return;
     }
 
-    // BUDGET(1): reaction DEFERRED (R4 duty tiers), never emitted this milestone.
-    // Defensive: restore awaiting_cts + re-arm so an unexpected NACK doesn't strand
-    // the flight (the timeouts were cancelled above).
+    if (n.reason == protocol::nack_reason_budget) {
+        // R4.1 (Lua dv:10406-10453): the next hop refused on its own duty budget. Blind it for a
+        // tier-scaled window + requeue the flight (the re-issue skips the now-blind hop via
+        // pick_next_cascade_hop -> alt, or originator-defer / forwarder-drop). The blind window is
+        // short-term "don't try right now"; the routing-grade persistent demotion is R4.2.
+        const uint8_t tier = static_cast<uint8_t>((n.payload >> 4) & 0x0f);                // inline decode
+        uint32_t blind_ms = protocol::budget_blind_critical_ms;                            // tier==CRITICAL default
+        if      (tier >= static_cast<uint8_t>(BudgetTier::exhausted)) blind_ms = protocol::budget_blind_exhausted_ms;
+        else if (tier <= static_cast<uint8_t>(BudgetTier::strained))  blind_ms = protocol::budget_blind_strained_ms;
+        const uint64_t until = _hal.now() + blind_ms;                                      // max-merge (dv:10416-10422)
+        auto bit = _blind_until.find(pt.next);
+        if (bit == _blind_until.end() || until > bit->second) {
+            _blind_until[pt.next] = until;
+            EventField bf[] = { { .key = "next", .type = EventField::T::i64, .i = pt.next } };
+            _hal.emit("blind_observed", bf, 1);
+        }
+        // R4.2: record the persistent neighbor tier (routing-grade demotion beyond the blind window)
+        // + rerank affected routes. local_only=false -> dirty + a triggered beacon if a primary moved.
+        // Reads pt.next BEFORE try_cascade_requeue resets _pending_tx.
+        const int reranked = mark_neighbor_budget_tier(pt.next, tier, "nack_budget", /*local_only=*/false);
+        EventField rf[] = { { .key = "from",     .type = EventField::T::i64, .i = pt.next },
+                            { .key = "reason",   .type = EventField::T::i64, .i = protocol::nack_reason_budget },
+                            { .key = "tier",     .type = EventField::T::i64, .i = tier },
+                            { .key = "reranked", .type = EventField::T::i64, .i = reranked } };
+        _hal.emit("nack_rx", rf, 4);
+        // requeue-or-giveup: the helper does both legs (caps -> exhausted+giveup+drop, else
+        // requeue@backoff) + _pending_tx.reset() + become_free()/timer (dv:10449-10467). The caps
+        // giveup event is "rts_giveup" (Lua dv:10462; "budget_low" is the trigger, not the name).
+        try_cascade_requeue(pt, "rts_giveup");
+        return;
+    }
+
+    // BUDGET tier > CRITICAL etc. all handled above. Any other (future) reason: defensive restore
+    // of awaiting_cts + re-arm so an unexpected NACK doesn't strand the flight (timeouts cancelled above).
     pt.awaiting_cts = true;
     start_rts_timeout();
 }

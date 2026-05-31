@@ -19,10 +19,14 @@ void Node::mark_tried(PendingTx& pt, uint8_t hop) {
 }
 
 // The minimal selectable filter (dv_dual_sf.lua:3990-4042): skip the upstream hop
-// (no loop-back) + skip already-tried hops this flight. is_blind/suspect/freshness/
-// mobile-transit are stubbed (empty-table no-ops until the NACK/budget plane), and
-// with effective_score==score there is no gradient yet, so allow_uphill is inert —
-// the two-pass SHAPE is kept so that plane plugs in without a re-shape.
+// (no loop-back) + skip already-tried hops this flight + skip blind peers. suspect/
+// freshness/mobile-transit are stubbed (empty-table no-ops). Post-R4.2 the budget
+// penalty CAN create an effective_score gradient (so candidates[] may be demoted),
+// but the candidate WALK here is order-only; allow_uphill's two-pass SHAPE is kept.
+// NOTE (review #01, deferred): the Lua pick_next_cascade_hop calls refresh_route_order
+// FIRST (re-sort + maybe a triggered-beacon draw) to catch a tier change since the last
+// sort; this C++ reads the already-(mark-time)-sorted _rt. Gate-inert (no tier in gates);
+// the gap is a TTL-expiry-between-mark-and-cascade edge -> cascade-refresh follow-up.
 bool Node::is_blind(uint8_t next_hop) const {
     // A peer is "blind" (deaf on routing_sf, busy in its data_sf RX window) until
     // _blind_until[next_hop]. Pure const read; expired entries read as not-blind (the
@@ -45,7 +49,8 @@ uint8_t Node::pick_next_cascade_hop(const PendingTx& pt) const {
     for (uint8_t i = 0; i < _rt_count; ++i) if (_rt[i].dest == pt.dst) { e = &_rt[i]; break; }
     if (e == nullptr) return 0;
     // Two-pass (dv:5430-5450): pass 1 gradient-respecting, pass 2 uphill fallback.
-    // candidates[] is kept sorted by route_strictly_better (+ next_hop tie-break).
+    // candidates[] is kept sorted by route_strictly_better (stable: ties keep insertion
+    // order, NO id tie-break — see node_routing.cpp route_strictly_better).
     for (int pass = 0; pass < 2; ++pass) {
         const bool allow_uphill = (pass == 1);
         for (uint8_t i = 0; i < e->n; ++i)

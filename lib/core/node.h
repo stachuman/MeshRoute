@@ -18,6 +18,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <map>
+#include <vector>
 #include <optional>
 
 namespace meshroute {
@@ -53,11 +54,19 @@ struct NodeConfig {
     uint32_t radio_bw_hz = 250000;
     uint8_t  radio_cr    = 5;
     uint8_t  data_sf     = 12;       // preferred data SF (CTS picks it for sf_index=ANY)
+    // R4.0 duty-cycle budget. Default OFF (0.0) so every prior gate stays HEALTHY/inert; a
+    // budget scenario sets duty_cycle explicitly. budget_ms = floor(duty_cycle*window) at on_init.
+    // (Lua default is 0.01; we default OFF — see spec §2. Lua dv:8495-8497.)
+    double   duty_cycle           = 0.0;        // fraction of the window we may transmit; <=0 = disabled
+                                                // (double, NOT float: floor(0.01*window) must match the Lua's
+                                                //  double exactly — float 0.01f*3.6e6 floors to 35999, not 36000)
+    uint32_t duty_cycle_window_ms = 3600000;    // rolling airtime window (1 h)
+    uint16_t originator_max_per_window = 6;      // R4.4 anti-spam: apparent_origination drop threshold (T-class)
 };
 
 // One route candidate (DV). Mirrors the Lua rt[dest].candidates[i] fields
-// (dv_dual_sf.lua:9646-9654). score is Q4 dB. Budget/suspect penalties are 0
-// until later R-iterations, so effective_score == score in R1.
+// (dv_dual_sf.lua:9646-9654). score is Q4 dB. effective_score = score − budget_penalty
+// (R4.2; == score for a HEALTHY-tier next_hop) − suspect_penalty (0, deferred plane).
 struct RtCandidate {
     uint8_t  next_hop         = 0;
     int16_t  score            = 0;   // Q4 dB
@@ -163,6 +172,20 @@ public:
     // node.cpp definition comment). Pure, const, no side effects.
     uint32_t  retry_jitter_ms() const;                                   // 3*airtime(routing, RTS_LEN=8)
 
+    // R4.0 duty-cycle budget tier (route-free; from the rolling airtime window). Lua dv:3555-3571.
+    // Public for the tier-table unit test (the emit only observes >=CRITICAL, so the HEALTHY/STRAINED
+    // boundary needs a direct call). Pure, const.
+    enum class BudgetTier : uint8_t { healthy = 0, strained = 1, critical = 2, exhausted = 3 };
+    BudgetTier compute_budget_tier() const;                              // HEALTHY when duty_cycle<=0 (disabled)
+    bool       is_blind(uint8_t next_hop) const;                         // _blind_until active? (read-only; bounded by neighbour count)
+    uint8_t    get_neighbor_tier(uint8_t node_id) const;                 // R4.2 tier read (TTL-expiring lazy-prune); public for tests
+    int        mark_neighbor_budget_tier(uint8_t node_id, uint8_t tier, const char* source, bool local_only); // :4320; public for tests
+    // R4.4 originator anti-spam (dv:3205-3277). track = ledger append (prune+dedup-first); compute = the
+    // sliding-window metric. kind: 0=rts, 1=cts. Draw-free. Public for tests.
+    void       track_originator_observation(uint8_t sender, uint8_t kind, uint8_t ctr_lo, uint32_t air);
+    void       compute_originator_metric(uint8_t sender, int& apparent, uint32_t& total_air,
+                                         uint8_t& rts, uint8_t& cts) const;
+
 private:
     // Node-owned timer-id namespace (Hal::after re-arm-by-id, cap 64). Reserve
     // 4+ for the R3 RTS/CTS/ACK timers.
@@ -194,7 +217,14 @@ private:
     void        rt_remove(uint8_t idx);                            // R2: drop _rt[idx], keep sort
     MergeAction rt_merge(uint8_t dest, const RtCandidate& cand);   // dv_dual_sf.lua:4484
     void        sort_candidates(RtEntry& e);
-    bool        route_strictly_better(const RtCandidate& a, const RtCandidate& b) const;  // :4227
+    // route_strictly_better/effective_score take the candidate LIST (cands,n) as context so the
+    // R4.2 budget penalty can count viable alternatives (Lua signature (a,b,viab,candidates)). The
+    // penalty is 0 for every HEALTHY-tier next_hop, so effective_score == score until a tier is marked.
+    bool        route_strictly_better(const RtCandidate& a, const RtCandidate& b,
+                                      const RtCandidate* cands, uint8_t n) const;  // :4227
+    int16_t     effective_score(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const; // :4050
+    int16_t     budget_penalty_q4(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const; // :3887
+    int         resort_routes_for_neighbor_penalty(uint8_t node_id, const char* source, bool local_only);      // :4255
     void        maybe_emit_rt_full();
 
     // ---- R2 route-plane hardening ------------------------------------------
@@ -216,7 +246,6 @@ private:
     void     handle_data(const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'D' -> deliver/forward + ACK
     void     handle_ack (const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'K' -> done
     void     handle_nack(const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'N' -> blind+wait / cascade
-    bool     is_blind(uint8_t next_hop) const;                           // _blind_until active? (read-only; map bounded by neighbour count)
     void     do_data_tx();                                        // kCtsToDataGapTimerId fire
     void     do_post_ack();                                       // kPostAckTimerId fire (deliver|forward)
     void     start_rts_timeout();
@@ -259,6 +288,7 @@ private:
     uint16_t _discovery_bcn_rx_count = 0;
     bool     _triggered_beacon_pending = false;  // coalesce: gates BEFORE the rand draw
     uint64_t _last_beacon_tx_ms = 0;
+    uint64_t _duty_cycle_budget_ms = 0;          // R4.0: floor(duty_cycle*window), derived in on_init; 0 = disabled
     // R3 data-plane state (single flight per node)
     static constexpr uint8_t kTxQueueCap = 8;
     TxItem                   _tx_queue[kTxQueueCap];
@@ -276,6 +306,14 @@ private:
     std::map<uint32_t, uint64_t>  _seen_origins;       // key (origin<<24|dst<<16|ctr) -> expiry_ms
     std::map<uint32_t, uint8_t>   _seen_origin_from;   // same key -> the prev-hop (LOOP_DUP discriminator)
     std::map<uint8_t, uint64_t>   _blind_until;        // next_hop -> absolute_ms it's deaf-on-routing (F1)
+    // R4.2 persistent neighbor budget tier (routing-grade demotion beyond the short blind window).
+    // mutable: get_neighbor_tier lazy-prunes the TTL-expired entry on read, like the Lua (dv:3863-3868).
+    mutable std::map<uint8_t, uint8_t>  _neighbor_budget_tier;       // next_hop -> tier (1..3); absent/0 = HEALTHY
+    mutable std::map<uint8_t, uint64_t> _neighbor_budget_tier_set_at; // next_hop -> absolute_ms the mark was set
+    // R4.4 originator anti-spam: per-sender sliding-window ledger of overheard RTS/CTS (insertion-ordered
+    // vector so the dedup-FIRST refresh matches the Lua ipairs scan). kind: 0=rts, 1=cts.
+    struct OrigEvent { uint64_t t; uint8_t kind; uint8_t ctr_lo; uint32_t air; };
+    std::map<uint8_t, std::vector<OrigEvent>> _per_sender_originator;  // sender_id -> events in the window
     // NACK BUSY_RX wait-same-hop: the captured ctr_lo the kNackWaitTimerId re-RTSes for.
     uint8_t                      _nack_wait_ctr_lo = 0;
     bool                         _nack_wait_pending = false;
