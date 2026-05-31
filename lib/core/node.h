@@ -62,6 +62,7 @@ struct NodeConfig {
                                                 //  double exactly — float 0.01f*3.6e6 floors to 35999, not 36000)
     uint32_t duty_cycle_window_ms = 3600000;    // rolling airtime window (1 h)
     uint16_t originator_max_per_window = 6;      // R4.4 anti-spam: apparent_origination drop threshold (T-class)
+    uint32_t beacon_silence_jitter_ms  = 10000;  // R4.3 adaptive-throttle deferred-TX spread (dv:921)
 };
 
 // One route candidate (DV). Mirrors the Lua rt[dest].candidates[i] fields
@@ -179,6 +180,7 @@ public:
     BudgetTier compute_budget_tier() const;                              // HEALTHY when duty_cycle<=0 (disabled)
     bool       is_blind(uint8_t next_hop) const;                         // _blind_until active? (read-only; bounded by neighbour count)
     uint8_t    get_neighbor_tier(uint8_t node_id) const;                 // R4.2 tier read (TTL-expiring lazy-prune); public for tests
+    void       schedule_triggered_beacon();                             // R4.3 trigger jitter + min-interval defer; public for tests
     int        mark_neighbor_budget_tier(uint8_t node_id, uint8_t tier, const char* source, bool local_only); // :4320; public for tests
     // R4.4 originator anti-spam (dv:3205-3277). track = ledger append (prune+dedup-first); compute = the
     // sliding-window metric. kind: 0=rts, 1=cts. Draw-free. Public for tests.
@@ -204,9 +206,13 @@ private:
     static constexpr uint32_t kDeferredDrainTimerId    = 11;  // periodic 1s drain of _deferred (TTL giveup)
     static constexpr uint32_t kCascadeRequeueTimerId   = 12;  // backoff before re-draining a requeued flight
     static constexpr uint32_t kNackWaitTimerId         = 13;  // NACK BUSY_RX wait-same-hop one-shot
+    static constexpr uint32_t kBeaconJitterTimerId     = 14;  // R4.3 silence-jitter deferred periodic beacon
 
     // ---- beacon emit / ingest ----------------------------------------------
     void emit_beacon(const char* kind);                            // "periodic" | "triggered"
+    void periodic_beacon_fire();                                   // R4.3 throttle body (dv:7695-7851)
+    void deferred_beacon_jitter_fire();                            // R4.3 post-silence-jitter re-check (dv:7801-7849)
+    bool beacon_max_idle_force(uint64_t now, bool emit_events);    // R4.3 max-idle B+C override (dv:7734-7784)
     void ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta);
     int16_t route_score_from_snr(int16_t snr_q4) const;            // dv_dual_sf.lua:3053
 
@@ -231,7 +237,6 @@ private:
     void     age_out_stale_routes();                               // dv_dual_sf.lua:5249
     uint32_t ttl_for_hops(uint8_t hops) const;                     // hops<=1 neighbor else remote
     void     rt_prune_cycle(uint8_t dest, uint8_t sender);         // 3-cycle prune  :5193
-    void     schedule_triggered_beacon();                          // single-draw (rate-limit -> R4)  :7877
     bool     in_discovery() const { return _discovery_mode; }
     void     maybe_exit_discovery(const char* reason);            // :7517
 
@@ -289,6 +294,9 @@ private:
     bool     _triggered_beacon_pending = false;  // coalesce: gates BEFORE the rand draw
     uint64_t _last_beacon_tx_ms = 0;
     uint64_t _duty_cycle_budget_ms = 0;          // R4.0: floor(duty_cycle*window), derived in on_init; 0 = disabled
+    // R4.3 adaptive-throttle witnesses (channel-busy detector). Pure timestamps, no rand.
+    uint64_t _last_rx_routing_sf_ms = 0;         // any successful decode OR preamble-detect (dv:9164/12231); 0 = never
+    uint64_t _last_rx_bcn_ms        = 0;         // last beacon ingest (the max-idle B+C filter; dv:9559)
     // R3 data-plane state (single flight per node)
     static constexpr uint8_t kTxQueueCap = 8;
     TxItem                   _tx_queue[kTxQueueCap];

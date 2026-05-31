@@ -59,7 +59,8 @@ void Node::on_init(const NodeConfig& cfg) {
 void Node::on_timer(uint32_t timer_id) {
     switch (timer_id) {
     case kBeaconTimerId: {
-        emit_beacon("periodic");      // re-checks discovery at its top (may exit it)
+        periodic_beacon_fire();       // R4.3 throttle body (may emit now, skip, or defer to kBeaconJitterTimerId)
+        maybe_exit_discovery("timer");// UNCONDITIONAL before the re-arm (dv:7858) so the period reflects the state
         // Re-arm ±20% jitter [0.8P, 1.2P] inclusive (dv_dual_sf.lua:7858-7864).
         // Period reflects the (possibly just-exited) discovery state. Integer
         // floor division; +1 makes hi inclusive (rand_range is [lo,hi)).
@@ -70,6 +71,7 @@ void Node::on_timer(uint32_t timer_id) {
         (void)_hal.after(static_cast<uint32_t>(_hal.rand_range(lo, hi + 1)), kBeaconTimerId);
         break;
     }
+    case kBeaconJitterTimerId: deferred_beacon_jitter_fire(); break;   // R4.3 post-jitter re-check + emit
     case kAgingTimerId:
         age_out_stale_routes();
         (void)_hal.after(_cfg.rt_aging_check_period_ms, kAgingTimerId);
@@ -101,8 +103,11 @@ void Node::on_timer(uint32_t timer_id) {
 
 void Node::on_recv(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (len < 1) return;
+    // R4.3 channel-busy witness: ANY successful decode means the channel was busy now (broadcast OR
+    // unicast, beacon OR data) — the throttle reads this to suppress the next beacon (dv:9164). No rand.
+    _last_rx_routing_sf_ms = _hal.now();
     switch (wire::cmd_of(bytes[0])) {
-        case wire::Cmd::B: ingest_beacon(bytes, len, meta); break;   // R1/R2 beacon
+        case wire::Cmd::B: _last_rx_bcn_ms = _hal.now(); ingest_beacon(bytes, len, meta); break;   // R1/R2 beacon (+max-idle witness dv:9559)
         case wire::Cmd::R: handle_rts (bytes, len, meta); break;     // R3 RTS  -> CTS
         case wire::Cmd::C: handle_cts (bytes, len, meta); break;     // R3 CTS  -> DATA
         case wire::Cmd::D: handle_data(bytes, len, meta); break;     // R3 DATA -> deliver/forward + ACK
@@ -148,6 +153,9 @@ bool Node::next_push(Push& out) {
 
 // ---- callbacks deferred to later R-iterations -------------------------------
 void Node::on_radio_busy(const BusyInfo& info)     { (void)info; }       // R4 (LBT defer)
-void Node::on_preamble_detected(uint64_t time_ms)  { (void)time_ms; }    // R4 (throttle witness)
+// SX1262 PreambleDetected IRQ: the channel is busy with someone at our SF NOW, even if the packet
+// won't decode. Feeds the throttle's channel-busy witness so beacon_fire's quiet check sees real
+// activity, not the decode-success-biased view (dv:12219-12232). Pure timestamp, no rand.
+void Node::on_preamble_detected(uint64_t time_ms)  { _last_rx_routing_sf_ms = time_ms; }
 
 }  // namespace meshroute

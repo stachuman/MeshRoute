@@ -48,6 +48,15 @@ int16_t Node::route_score_from_snr(int16_t snr_q4) const {
 }
 
 void Node::emit_beacon(const char* kind) {
+    // R4.3 budget-aware skip (dv:7595): at tier >= CRITICAL a BCN is a luxury — preserve the remaining duty
+    // budget for forwards already queued. Neighbours keep us via passive last_seen from any frame we send.
+    // (compute_budget_tier is draw-free; HEALTHY in every gate, so this is gate-inert.)
+    if (compute_budget_tier() >= BudgetTier::critical) {
+        EventField f[] = { { .key = "tier", .type = EventField::T::i64, .i = static_cast<uint8_t>(compute_budget_tier()) },
+                           { .key = "kind", .type = EventField::T::str, .s = kind } };
+        _hal.emit("beacon_skipped_budget", f, 2);
+        return;
+    }
     maybe_exit_discovery("before_bcn");
     // Steady state sends dirty-only differential beacons; discovery sends full
     // pages (dv_dual_sf.lua:7606: dirty_only = not(in_discovery or kind=="sync")).
@@ -220,16 +229,106 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     maybe_emit_rt_full();
 }
 
+// R4.3 max-idle B+C override (dv:7734-7784). If we've been silent >= max_idle, force a beacon UNLESS the
+// B+C filter says a neighbour is carrying the refresh load (recent BCN-rx) AND we have nothing new (dirty=0).
+// Returns force_idle. emit_events=false on the post-jitter re-check (the Lua recomputes silently, dv:7814-7834).
+static int64_t or_neg1(uint64_t v) { return (v == UINT64_MAX) ? -1 : static_cast<int64_t>(v); }
+bool Node::beacon_max_idle_force(uint64_t now, bool emit_events) {
+    if (_cfg.beacon_max_idle_ms == 0) return false;
+    const uint64_t since_tx = (_last_beacon_tx_ms != 0) ? (now - _last_beacon_tx_ms) : UINT64_MAX;
+    if (since_tx < _cfg.beacon_max_idle_ms) return false;                 // not silent long enough
+    const uint64_t since_bcn_rx = (_last_rx_bcn_ms != 0) ? (now - _last_rx_bcn_ms) : UINT64_MAX;
+    const uint64_t defer_window = _cfg.beacon_max_idle_ms / 3;
+    uint8_t dirty_n = 0;
+    for (uint8_t i = 0; i < _rt_count; ++i) if (_rt[i].dirty) ++dirty_n;
+    const bool skip_clean = (dirty_n == 0 && since_bcn_rx < defer_window); // (B+C) neighbour fresh AND nothing new
+    if (emit_events) {
+        if (skip_clean) {
+            EventField f[] = { { .key = "since_tx_ms",     .type = EventField::T::i64, .i = or_neg1(since_tx) },
+                               { .key = "since_bcn_rx_ms", .type = EventField::T::i64, .i = or_neg1(since_bcn_rx) },
+                               { .key = "defer_window_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(defer_window) },
+                               { .key = "dirty_n",         .type = EventField::T::i64, .i = 0 } };
+            _hal.emit("beacon_max_idle_skip_clean", f, 4);
+        } else {
+            EventField f[] = { { .key = "since_tx_ms",     .type = EventField::T::i64, .i = or_neg1(since_tx) },
+                               { .key = "max_idle_ms",     .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.beacon_max_idle_ms) },
+                               { .key = "since_bcn_rx_ms", .type = EventField::T::i64, .i = or_neg1(since_bcn_rx) },
+                               { .key = "dirty_n",         .type = EventField::T::i64, .i = dirty_n } };
+            _hal.emit("beacon_max_idle_force", f, 4);
+        }
+    }
+    return !skip_clean;                                                   // skip_clean -> fall through (throttle skips)
+}
+
+// R4.3 throttle body (dv:7695-7851) — replaces the unconditional emit_beacon("periodic"). The quiet<=0 fast
+// path keeps the pre-R4.3 behaviour byte-identical (NO silence-jitter draw); the gate suppresses a beacon when
+// the channel is busy; on a quiet channel a silence-jitter draw spreads the TX to combat thundering herds.
+void Node::periodic_beacon_fire() {
+    if (_cfg.join_required) return;                          // unjoined: no address, can't beacon (dv:7696)
+    if (_pending_tx || _pending_rx) return;                  // busy in a data exchange (dv:7699)
+    if (_cfg.quiet_threshold_ms == 0) { emit_beacon("periodic"); return; }   // FAST PATH (dv:7704) — NO draw
+    const uint64_t now = _hal.now();
+    const uint64_t since_rx = (_last_rx_routing_sf_ms != 0) ? (now - _last_rx_routing_sf_ms) : UINT64_MAX;
+    const bool force_idle = beacon_max_idle_force(now, /*emit_events=*/true);
+    if (since_rx < _cfg.quiet_threshold_ms && !force_idle) {  // channel busy -> skip, NO draw (dv:7785)
+        EventField f[] = { { .key = "since_rx_ms",  .type = EventField::T::i64, .i = static_cast<int64_t>(since_rx) },
+                           { .key = "threshold_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.quiet_threshold_ms) },
+                           { .key = "stage",        .type = EventField::T::str, .s = "pre_jitter" } };
+        _hal.emit("beacon_skipped_busy", f, 3);
+        return;
+    }
+    // gate passed -> draw the silence-jitter (dv:7795). jitter==0 -> send now; else defer + re-check.
+    const int jitter = (_cfg.beacon_silence_jitter_ms > 0)
+                       ? _hal.rand_range(0, static_cast<int>(_cfg.beacon_silence_jitter_ms) + 1)
+                       : 0;
+    if (jitter == 0) emit_beacon("periodic");
+    else (void)_hal.after(static_cast<uint32_t>(jitter), kBeaconJitterTimerId);
+}
+
+// R4.3 post-silence-jitter re-check (dv:7801-7849). A neighbour may have beaconed during our jitter window;
+// if the channel went busy AND the max-idle override doesn't force us, stand down (they won the race). NO draw.
+void Node::deferred_beacon_jitter_fire() {
+    if (_pending_tx || _pending_rx) return;                  // busy in a data exchange (dv:7802)
+    const uint64_t now = _hal.now();
+    const uint64_t since = (_last_rx_routing_sf_ms != 0) ? (now - _last_rx_routing_sf_ms) : UINT64_MAX;
+    const bool force_idle_post = beacon_max_idle_force(now, /*emit_events=*/false);   // recompute SILENTLY (dv:7814)
+    if (since < _cfg.quiet_threshold_ms && !force_idle_post) {
+        EventField f[] = { { .key = "since_rx_ms",  .type = EventField::T::i64, .i = static_cast<int64_t>(since) },
+                           { .key = "threshold_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.quiet_threshold_ms) },
+                           { .key = "stage",        .type = EventField::T::str, .s = "post_jitter" } };
+        _hal.emit("beacon_skipped_busy", f, 3);
+        return;
+    }
+    emit_beacon("periodic");
+}
+
 void Node::schedule_triggered_beacon() {
     if (_cfg.is_mobile) return;                            // mobiles never trigger (dv_dual_sf.lua:7878)
     if (_triggered_beacon_pending) return;                // coalesce BEFORE the rand draw
     _triggered_beacon_pending = true;
-    // Single jittered one-shot. The steady-state min-interval rate-limit defer
-    // (dv_dual_sf.lua:7894, a conditional 2nd rand draw) is deferred to R4 with
-    // the throttle plane (decision Q3=b) — removing the 2nd-draw determinism hazard.
-    const int delay = _hal.rand_range(protocol::beacon_trigger_jitter_min_ms,
-                                      protocol::beacon_trigger_jitter_max_ms + 1);
-    (void)_hal.after(static_cast<uint32_t>(delay), kTriggeredBeaconTimerId);
+    const int lo = protocol::beacon_trigger_jitter_min_ms;
+    const int hi = protocol::beacon_trigger_jitter_max_ms;
+    uint32_t delay = static_cast<uint32_t>(_hal.rand_range(lo, hi + 1));   // 1st draw (the trigger jitter)
+    // R4.3 steady-state min-interval defer (dv:7890-7902): if this triggered beacon would land sooner than
+    // min_interval after our last beacon, push it past `earliest` + a FRESH jitter (the conditional 2nd draw).
+    // Fires ONLY in steady_state (now >= boot_grace) — under boot grace it NEVER draws (every gate runs <120s),
+    // so the gate streams stay byte-identical; the 2nd draw is matched draw-for-draw with the Lua in steady state.
+    const uint64_t now = _hal.now();
+    const bool steady_state = !in_discovery()
+        && (now - _discovery_started_ms >= protocol::beacon_boot_grace_ms);
+    if (steady_state && protocol::beacon_trigger_min_interval_ms > 0 && _last_beacon_tx_ms != 0) {
+        const uint64_t earliest = _last_beacon_tx_ms + protocol::beacon_trigger_min_interval_ms;
+        if (now + delay < earliest) {
+            const uint32_t old_delay = delay;
+            delay = static_cast<uint32_t>((earliest - now) + _hal.rand_range(lo, hi + 1));   // 2nd draw
+            EventField f[] = { { .key = "min_interval_ms",   .type = EventField::T::i64, .i = protocol::beacon_trigger_min_interval_ms },
+                               { .key = "old_delay_ms",      .type = EventField::T::i64, .i = old_delay },
+                               { .key = "delay_ms",          .type = EventField::T::i64, .i = delay },
+                               { .key = "since_last_bcn_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(now - _last_beacon_tx_ms) } };
+            _hal.emit("beacon_trigger_deferred", f, 4);
+        }
+    }
+    (void)_hal.after(delay, kTriggeredBeaconTimerId);
 }
 
 void Node::maybe_exit_discovery(const char* reason) {

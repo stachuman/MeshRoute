@@ -84,6 +84,8 @@ constexpr uint32_t kDeferredDrainTimerId = 11;
 constexpr uint32_t kCascadeRequeueTimerId = 12;
 constexpr uint32_t kNackWaitTimerId      = 13;
 constexpr uint32_t kTriggeredBeaconTimerId = 3;   // R4.2: rerank re-advertises via a triggered beacon
+constexpr uint32_t kBeaconTimerId        = 1;     // R4.3 periodic beacon fire
+constexpr uint32_t kBeaconJitterTimerId  = 14;    // R4.3 silence-jitter deferred beacon
 
 static size_t mk_nack(uint8_t to, uint8_t ctr_lo, uint8_t reason, uint8_t payload,
                       std::array<uint8_t, 8>& b) {
@@ -1126,5 +1128,116 @@ TEST_CASE("R4.4 airtime backstop OFF when duty disabled (budget 0); count thresh
         for (uint8_t i = 0; i < 7; ++i) { const size_t n = mk_rts(9,99,8,i,10,rb); node.on_recv(rb.data(), n, m9); }
         const size_t rn = mk_rts(9, 1, 8, 7, 10, rb); node.on_recv(rb.data(), rn, m9);
         CHECK(hal.count("rts_drop_originator_throttle") == 1);  // count threshold fires regardless of budget
+    }
+}
+
+// ---- R4.3 — adaptive beacon throttle + silence-jitter (THE determinism golden) ----
+static Node* mk_throttle_node(TestHal& hal, uint32_t quiet_ms, uint32_t max_idle_ms) {
+    Node* node = new Node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    cfg.quiet_threshold_ms = quiet_ms; cfg.beacon_max_idle_ms = max_idle_ms;
+    node->on_init(cfg);
+    return node;
+}
+
+TEST_CASE("R4.3 rand-order golden — silence-jitter draws ONLY when throttled+gate-passed (gates stay byte-identical)") {
+    // (a) quiet=0 (the fast path EVERY existing gate uses): a periodic fire draws EXACTLY 1 (the re-arm),
+    //     NOT 2 — proves NO silence-jitter draw is added, so the gate streams are unperturbed.
+    {
+        TestHal hal; Node* node = mk_throttle_node(hal, /*quiet=*/0, /*max_idle=*/0);
+        hal._now = 5000;
+        const int rb = hal.rand_calls;
+        node->on_timer(kBeaconTimerId);
+        CHECK(hal.rand_calls - rb == 1);                  // re-arm only
+        CHECK(hal.count("beacon_tx") >= 1);               // fast path emits
+        delete node;
+    }
+    // (b) quiet>0, channel QUIET (since_rx=inf >= quiet -> gate passes): draws 2 (silence-jitter + re-arm).
+    {
+        TestHal hal; Node* node = mk_throttle_node(hal, /*quiet=*/30000, /*max_idle=*/0);
+        hal._now = 200000;                                // no prior RX -> since_rx = inf -> gate passes
+        const int rb = hal.rand_calls;
+        node->on_timer(kBeaconTimerId);
+        CHECK(hal.rand_calls - rb == 2);                  // silence-jitter THEN re-arm
+        delete node;
+    }
+    // (c) quiet>0, channel BUSY (fresh witness, since_rx=0 < quiet -> gate fails): draws 1 (re-arm only),
+    //     emits beacon_skipped_busy, NO beacon, NO silence-jitter draw.
+    {
+        TestHal hal; Node* node = mk_throttle_node(hal, /*quiet=*/30000, /*max_idle=*/0);
+        hal._now = 200000;
+        std::array<uint8_t,16> rb_{}; RxMeta m2{8.0f,-80.0f,0,2};
+        const size_t rn = mk_rts(2,99,8,0,10,rb_); node->on_recv(rb_.data(), rn, m2);   // a decode -> witness fresh
+        const int beacons_before = hal.count("beacon_tx");
+        const int rb = hal.rand_calls;
+        node->on_timer(kBeaconTimerId);
+        CHECK(hal.rand_calls - rb == 1);                  // re-arm only (gate failed -> no silence-jitter draw)
+        CHECK(hal.count("beacon_skipped_busy") == 1);
+        CHECK(hal.count("beacon_tx") == beacons_before);  // suppressed
+        delete node;
+    }
+}
+
+TEST_CASE("R4.3 witness — on_preamble_detected AND a decode both make the channel look busy (gate suppresses)") {
+    // on_preamble_detected sets the witness even without a decode -> the next quiet>0 fire suppresses.
+    TestHal hal; Node* node = mk_throttle_node(hal, /*quiet=*/30000, /*max_idle=*/0);
+    hal._now = 200000;
+    node->on_preamble_detected(200000);                   // channel busy NOW (IRQ, no decode)
+    const int rb = hal.rand_calls;
+    node->on_timer(kBeaconTimerId);
+    CHECK(hal.rand_calls - rb == 1);                      // gate failed (since_rx=0) -> no silence-jitter draw
+    CHECK(hal.count("beacon_skipped_busy") == 1);
+    delete node;
+}
+
+TEST_CASE("R4.3 deferred jitter re-check — busy during the jitter window stands down; quiet emits") {
+    // STAND DOWN: a decode lands during the jitter window -> the deferred fire skips (post_jitter).
+    {
+        TestHal hal; Node* node = mk_throttle_node(hal, /*quiet=*/30000, /*max_idle=*/0);
+        hal._now = 200000;
+        std::array<uint8_t,16> rb_{}; RxMeta m2{8.0f,-80.0f,0,2};
+        const size_t rn = mk_rts(2,99,8,0,10,rb_); node->on_recv(rb_.data(), rn, m2);   // fresh witness
+        const int beacons_before = hal.count("beacon_tx");
+        node->on_timer(kBeaconJitterTimerId);             // deferred re-check: channel busy -> stand down
+        CHECK(hal.count("beacon_skipped_busy") == 1);     // stage=post_jitter
+        CHECK(hal.count("beacon_tx") == beacons_before);
+        delete node;
+    }
+    // EMIT: still quiet at the deferred fire -> beacon goes out.
+    {
+        TestHal hal; Node* node = mk_throttle_node(hal, /*quiet=*/30000, /*max_idle=*/0);
+        hal._now = 200000;                                // no RX -> since=inf -> still quiet
+        const int beacons_before = hal.count("beacon_tx");
+        node->on_timer(kBeaconJitterTimerId);
+        CHECK(hal.count("beacon_tx") == beacons_before + 1);   // emitted
+        delete node;
+    }
+}
+
+// The R4.2 #00 port: schedule_triggered_beacon draws a SECOND jitter (min-interval defer) ONLY in
+// steady_state (now >= boot_grace 120000). Under boot grace it NEVER draws the 2nd -> every <120s gate
+// stays byte-identical. (This is what lifts the R4.2 ">120s draw-for-draw" guard.)
+TEST_CASE("R4.3 triggered-beacon min-interval — 2nd draw ONLY in steady_state (>120000ms)") {
+    // (steady) past boot grace + a recent beacon within min_interval -> 2 draws (jitter + min-interval defer).
+    {
+        TestHal hal; Node* node = mk_throttle_node(hal, /*quiet=*/0, /*max_idle=*/0);   // quiet=0: clean beacon
+        hal._now = 190000; node->on_timer(kBeaconTimerId);    // emit -> _last_beacon_tx_ms=190000, discovery exits
+        hal._now = 200000;                                    // 200000 - boot(0) >= 120000 -> steady
+        const int rb = hal.rand_calls;
+        node->schedule_triggered_beacon();
+        CHECK(hal.rand_calls - rb == 2);                      // trigger jitter + min-interval 2nd draw
+        CHECK(hal.count("beacon_trigger_deferred") == 1);
+        delete node;
+    }
+    // (under boot grace) now < 120000 -> steady_state false -> 1 draw, NO defer.
+    {
+        TestHal hal; Node* node = mk_throttle_node(hal, /*quiet=*/0, /*max_idle=*/0);
+        hal._now = 50000; node->on_timer(kBeaconTimerId);     // emit at 50000 (discovery exits on timeout)
+        hal._now = 100000;                                    // 100000 - 0 < 120000 -> NOT steady
+        const int rb = hal.rand_calls;
+        node->schedule_triggered_beacon();
+        CHECK(hal.rand_calls - rb == 1);                      // jitter only, NO min-interval draw
+        CHECK(hal.count("beacon_trigger_deferred") == 0);
+        delete node;
     }
 }
