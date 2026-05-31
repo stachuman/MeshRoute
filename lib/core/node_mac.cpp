@@ -90,6 +90,10 @@ void Node::become_free() {
 }
 
 void Node::issue_send(const TxItem& item) {
+    // A new flight is going live -> drop any stale BUSY_RX nack-wait left armed for a
+    // torn-down prior flight, so its timer can't spuriously re-RTS this one on a 4-bit
+    // ctr_lo collision (issue_send is the only choke point that installs a new _pending_tx).
+    clear_nack_wait();
     // Build the flight first so pick_next_cascade_hop sees previous_hop (forwarders
     // must not loop back upstream) + the empty alts_tried set.
     PendingTx pt{};
@@ -102,6 +106,7 @@ void Node::issue_send(const TxItem& item) {
     pt.alts_tried_n = 0;
     pt.previous_hop = item.previous_hop; pt.has_previous_hop = item.is_forward;
     pt.requeue_count = item.requeue_count; pt.enqueue_time_ms = item.enqueue_time_ms;
+    pt.fwd_remaining = item.fwd_remaining; pt.fwd_committed = item.fwd_committed;   // hop budget (forwarder)
 
     const uint8_t first = pick_next_cascade_hop(pt);     // first SELECTABLE candidate (skips previous_hop)
     if (first == 0) {
@@ -249,11 +254,30 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 void Node::do_data_tx() {
     if (!_pending_tx || _pending_tx->awaiting_ack || _pending_tx->chosen_data_sf == 0) return;
     PendingTx& pt = *_pending_tx;
+    // Hop budget (§7.6). An ORIGINATOR derives the initial budget from its route:
+    // remaining = min(31, rt_hops + slack); a FORWARDER carries the already-decremented
+    // values (threaded from handle_data). prev_fwd_rt_hops is ALWAYS re-stamped to
+    // self's own rt[dst].hops (never inherited). Pure arithmetic — no rand.
+    RtEntry* rte = rt_find(pt.dst);
+    const bool have_rt = (rte != nullptr && rte->n > 0);
+    uint8_t hb_remaining, hb_committed, hb_prev_fwd;
+    if (pt.has_previous_hop) {                            // forwarder: inherit, re-stamp prev (fallback 0)
+        hb_remaining = pt.fwd_remaining;
+        hb_committed = pt.fwd_committed;
+        hb_prev_fwd  = have_rt ? rte->candidates[0].hops : 0;
+    } else {                                              // originator: budget from rt (fallback rt_hops=1)
+        const uint8_t rt_hops = have_rt ? rte->candidates[0].hops : 1;
+        const int rem = static_cast<int>(rt_hops) + protocol::hop_budget_slack;
+        hb_remaining = static_cast<uint8_t>(rem > protocol::hop_budget_max_initial
+                                            ? protocol::hop_budget_max_initial : rem);
+        hb_committed = 0;
+        hb_prev_fwd  = rt_hops;
+    }
     const uint8_t mac[4] = { 0, 0, 0, 0 };
     data_in din{};
     din.addr_len = 0; din.flags = pt.flags; din.next = pt.next; din.dst = pt.dst;
-    din.hops_remaining = protocol::hop_budget_max_initial; din.committed_hops = 0;
-    din.prev_fwd_rt_hops = 0; din.ctr = pt.ctr;
+    din.hops_remaining = hb_remaining; din.committed_hops = hb_committed;
+    din.prev_fwd_rt_hops = hb_prev_fwd; din.ctr = pt.ctr;
     din.visited = {};                                    // empty -> 6 zero bytes
     din.inner = std::span<const uint8_t>(pt.inner, pt.inner_len);
     din.mac   = std::span<const uint8_t>(mac, 4);
@@ -295,12 +319,51 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         { if ((nowm - it->second.t_ms) >= protocol::last_acked_ttl_ms) it = _last_acked_from.erase(it); else ++it; }
     if (_last_acked_from.size() < protocol::cap_seen_origins)                  // bounded (reuse the 256 cap)
         _last_acked_from[lakey] = LastAcked{ rx_sf, nowm };
-    // origin from the DATA inner; seen-origin dedup. Computed BEFORE the ACK so a
-    // LOOP_DUP NACKs INSTEAD of re-ACKing.
+    // origin from the DATA inner. Computed BEFORE the ACK so HOP_BUDGET/LOOP_DUP can
+    // NACK INSTEAD of re-ACKing (the ACK would clear the sender's pending_tx early).
     auto inner = data_inner(std::span<const uint8_t>(bytes, len), d);
     auto ui = parse_unicast_inner(inner);
     const uint8_t origin = ui ? ui->origin : from;
     const uint32_t sokey = (uint32_t(origin) << 24) | (uint32_t(d.dst) << 16) | d.ctr;
+    // HOP_BUDGET enforcement FIRST (dv:10918-10964), BEFORE the dedup AND the ACK so the
+    // NACK fires IN LIEU OF the ACK. A FORWARDER (d.dst != self) decrements the TTL; if the
+    // decremented value went negative (the frame arrived with hops_remaining==0 at a
+    // non-destination), the budget is exhausted -> NACK the sender (terminal) instead of
+    // forwarding. The destination is exempt. Lua runs this check ABOVE the loop-dup dedup,
+    // so a budget-exhausted frame ALWAYS HOP_BUDGET-NACKs (terminal + rt-bump self-heal)
+    // regardless of dup status.
+    const int     hb_new_remaining = static_cast<int>(d.hops_remaining) - 1;
+    const uint8_t hb_new_committed = (d.committed_hops >= 7) ? 7
+                                     : static_cast<uint8_t>(d.committed_hops + 1);
+    if (d.dst != _node_id && hb_new_remaining < 0) {
+        { EventField ef[] = { { .key = "origin", .type = EventField::T::i64, .i = origin },
+                              { .key = "dst",    .type = EventField::T::i64, .i = d.dst },
+                              { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr } };
+          _hal.emit("hop_budget_exceeded", ef, 3); }
+        // Record (origin,dst,ctr) so a LATER non-exhausted arrival of the SAME flight via
+        // a DIFFERENT prev-hop is caught as LOOP_DUP (not accepted+forwarded) — dv:10933-10940.
+        // prune-expired + cap, mirroring the pass-path write below.
+        for (auto it = _seen_origins.begin(); it != _seen_origins.end(); )
+            { if (it->second <= nowm) { _seen_origin_from.erase(it->first); it = _seen_origins.erase(it); } else ++it; }
+        if (_seen_origins.size() < protocol::cap_seen_origins) {
+            _seen_origins[sokey] = nowm + protocol::seen_origin_ttl_ms;
+            _seen_origin_from[sokey] = from;
+        }
+        nack_in nin{}; nin.reason = protocol::nack_reason_hop_budget; nin.ctr_lo = d.ctr_lo4;
+        nin.payload = static_cast<uint8_t>((hb_new_committed & 0x0f) << 4);   // committed in the HIGH nibble
+        nin.to = from;
+        uint8_t nbuf[4]; const size_t nl = pack_nack(nin, std::span<uint8_t>(nbuf, 4));
+        TxParams np; np.sf = static_cast<int16_t>(_cfg.routing_sf); np.label = "NACK";
+        _hal.tx(nbuf, nl, np);
+        EventField nf[] = { { .key = "to",     .type = EventField::T::i64, .i = from },
+                            { .key = "reason", .type = EventField::T::i64, .i = protocol::nack_reason_hop_budget },
+                            { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr } };
+        _hal.emit("nack_tx", nf, 3);
+        become_free();
+        return;
+    }
+    // Origin-level dedup (dv:10966+), AFTER HOP_BUDGET. A same-prev-hop dup is normal
+    // lost-ACK recovery (ACK-only below); a DIFFERENT prev-hop means a mesh loop -> NACK.
     auto so = _seen_origins.find(sokey);
     const bool live_dup = (so != _seen_origins.end() && so->second > nowm);
     if (live_dup) {
@@ -351,6 +414,8 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     _post_ack.inner_len = static_cast<uint8_t>(inner.size() <= protocol::max_payload_bytes_hard_cap
                                                ? inner.size() : protocol::max_payload_bytes_hard_cap);
     for (uint8_t i = 0; i < _post_ack.inner_len; ++i) _post_ack.inner[i] = inner[i];
+    _post_ack.fwd_remaining = static_cast<uint8_t>(hb_new_remaining);   // >=0 here (exhaustion returned above)
+    _post_ack.fwd_committed = hb_new_committed;                         // carried into the forward TxItem
     (void)_hal.after(airtime_routing_ms(3) + 1, kPostAckTimerId);
 }
 
@@ -381,6 +446,7 @@ void Node::do_post_ack() {
         it.flags = pa.flags; it.is_forward = true; it.previous_hop = pa.previous_hop;
         it.inner_len = pa.inner_len;
         for (uint8_t i = 0; i < pa.inner_len; ++i) it.inner[i] = pa.inner[i];
+        it.fwd_remaining = pa.fwd_remaining; it.fwd_committed = pa.fwd_committed;   // carry the decremented budget
         it.enqueue_time_ms = _hal.now();                 // fresh hop attempt (dv:11391): the cascade-requeue
                                                          // total-age window starts when THIS hop accepts the
                                                          // forward — else it defaults 0 and the cap mis-fires.
@@ -478,21 +544,65 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             it.inner_len = pt.inner_len;
             for (uint8_t i = 0; i < pt.inner_len; ++i) it.inner[i] = pt.inner[i];
             it.is_forward = pt.has_previous_hop; it.previous_hop = pt.previous_hop;
+            it.fwd_remaining = pt.fwd_remaining; it.fwd_committed = pt.fwd_committed;   // carry hop budget (forwarder)
             it.requeue_count = pt.requeue_count; it.enqueue_time_ms = pt.enqueue_time_ms;   // VERBATIM (no ++/backoff)
             it.next_attempt_ms = 0;
             EventField tf[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
                                 { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
             _hal.emit("tx_requeued", tf, 2);
-            if (_tx_queue_n < kTxQueueCap) _tx_queue[_tx_queue_n++] = it;
+            if (_tx_queue_n < kTxQueueCap) {
+                _tx_queue[_tx_queue_n++] = it;
+            } else {                                              // queue full -> can't requeue; give up loudly
+                EventField gf[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
+                                    { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
+                _hal.emit("path_cascade_exhausted", gf, 2);
+                _hal.emit("rts_giveup", gf, 2);
+                { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
+            }
             _pending_tx.reset();
             become_free();
         }
         return;
     }
 
-    // BUDGET(1)/HOP_BUDGET(2): reactions DEFERRED (R4 / hop-budget), never emitted this
-    // milestone. Defensive: restore awaiting_cts + re-arm so an unexpected NACK doesn't
-    // strand the flight (the timeouts were cancelled above).
+    if (n.reason == protocol::nack_reason_hop_budget) {
+        // TERMINAL (dv:10487): the route was longer than the budget assumed. Bump
+        // rt[dst].hops UPWARD so a FUTURE send (new ctr) budgets correctly, then DROP
+        // (no retry/cascade — a same-ctr retry would recompute the same too-small
+        // budget). committed (the NACK payload high nibble) is a lower bound on the
+        // true distance. This bump feeds do_data_tx's initial-budget computation.
+        const uint8_t committed = static_cast<uint8_t>((n.payload >> 4) & 0x0f);
+        RtEntry* e = rt_find(pt.dst);
+        if (e != nullptr && e->n > 0) {
+            const int want = (committed + 1 > e->candidates[0].hops) ? (committed + 1)
+                                                                     : e->candidates[0].hops;
+            const uint8_t new_hops = static_cast<uint8_t>(want > 15 ? 15 : want);   // 4-bit DV field clamp
+            if (new_hops != e->candidates[0].hops) {
+                e->candidates[0].hops = new_hops;
+                EventField uf[] = { { .key = "dest", .type = EventField::T::i64, .i = pt.dst },
+                                    { .key = "next", .type = EventField::T::i64, .i = e->candidates[0].next_hop },
+                                    { .key = "hops", .type = EventField::T::i64, .i = new_hops },
+                                    { .key = "slot", .type = EventField::T::str, .s = "hop_budget_nack" } };
+                _hal.emit("rt_update", uf, 4);
+            }
+        }
+        { EventField rf[] = { { .key = "from",      .type = EventField::T::i64, .i = pt.next },
+                              { .key = "reason",    .type = EventField::T::i64, .i = protocol::nack_reason_hop_budget },
+                              { .key = "committed", .type = EventField::T::i64, .i = committed } };
+          _hal.emit("nack_rx", rf, 3); }
+        EventField gf[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
+                            { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
+        _hal.emit("path_cascade_exhausted", gf, 2);
+        _hal.emit("rts_giveup", gf, 2);
+        { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
+        _pending_tx.reset();
+        become_free();
+        return;
+    }
+
+    // BUDGET(1): reaction DEFERRED (R4 duty tiers), never emitted this milestone.
+    // Defensive: restore awaiting_cts + re-arm so an unexpected NACK doesn't strand
+    // the flight (the timeouts were cancelled above).
     pt.awaiting_cts = true;
     start_rts_timeout();
 }

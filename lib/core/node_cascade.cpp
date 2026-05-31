@@ -119,6 +119,7 @@ void Node::try_cascade_requeue(const PendingTx& pt, const char* giveup_event) {
     it.inner_len = pt.inner_len;
     for (uint8_t i = 0; i < pt.inner_len; ++i) it.inner[i] = pt.inner[i];
     it.is_forward = pt.has_previous_hop; it.previous_hop = pt.previous_hop;
+    it.fwd_remaining = pt.fwd_remaining; it.fwd_committed = pt.fwd_committed;   // carry hop budget across the requeue
     it.requeue_count = static_cast<uint8_t>(pt.requeue_count + 1);
     it.enqueue_time_ms = pt.enqueue_time_ms;             // PRESERVE the original first-enqueue time
     // The queue ITSELF enforces the backoff: next_attempt_ms gates the dequeue

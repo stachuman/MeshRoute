@@ -92,6 +92,10 @@ struct TxItem {                      // a queued message awaiting a flight
     uint8_t  requeue_count = 0;
     uint64_t enqueue_time_ms = 0;
     uint64_t next_attempt_ms = 0;
+    // Hop-budget carried forward on a relayed item (a forwarder's already-decremented
+    // values; originators recompute from rt). Ignored unless is_forward.
+    uint8_t  fwd_remaining = 0;
+    uint8_t  fwd_committed = 0;
 };
 struct PendingTx {                   // the in-flight sender state (one per node)
     uint8_t  origin = 0, dst = 0, next = 0, ctr_lo = 0;
@@ -112,6 +116,10 @@ struct PendingTx {                   // the in-flight sender state (one per node
     uint8_t  alts_tried_n = 0;
     uint8_t  requeue_count = 0;
     uint64_t enqueue_time_ms = 0;
+    // Hop-budget for a forwarded flight (inherited from the received DATA, already
+    // decremented in handle_data). For an originator, do_data_tx recomputes from rt.
+    uint8_t  fwd_remaining = 0;
+    uint8_t  fwd_committed = 0;
 };
 struct DeferredSend {                // a send with no route yet — held until one appears (or TTL)
     TxItem   item;
@@ -130,6 +138,10 @@ struct PostAck {                     // deferred deliver/forward after the ACK a
     uint8_t  flags = 0;
     uint8_t  inner[protocol::max_payload_bytes_hard_cap] = {};
     uint8_t  inner_len = 0;
+    // Hop-budget for the forward (the decremented values from handle_data); copied
+    // into the forward TxItem in do_post_ack.
+    uint8_t  fwd_remaining = 0;
+    uint8_t  fwd_committed = 0;
 };
 struct LastAcked { uint8_t chosen_data_sf = 0; uint64_t t_ms = 0; };
 
@@ -198,12 +210,13 @@ private:
     void     enqueue_push(const Push& p);                                  // append to the bounded ring
     void     become_free();                                       // dv_dual_sf.lua:7433 (FIFO single-drain)
     void     issue_send(const TxItem& item);                      // :7018 pending_tx + RTS
+    void     clear_nack_wait() { _hal.cancel(kNackWaitTimerId); _nack_wait_pending = false; }   // drop a stale BUSY_RX wait
     void     handle_rts (const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'R' -> CTS
     void     handle_cts (const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'C' -> DATA
     void     handle_data(const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'D' -> deliver/forward + ACK
     void     handle_ack (const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'K' -> done
     void     handle_nack(const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'N' -> blind+wait / cascade
-    bool     is_blind(uint8_t next_hop) const;                           // _blind_until active? (lazy-prune on read)
+    bool     is_blind(uint8_t next_hop) const;                           // _blind_until active? (read-only; map bounded by neighbour count)
     void     do_data_tx();                                        // kCtsToDataGapTimerId fire
     void     do_post_ack();                                       // kPostAckTimerId fire (deliver|forward)
     void     start_rts_timeout();

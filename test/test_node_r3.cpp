@@ -25,13 +25,20 @@ struct Ev { std::string type; int to = -1; int dst = -1; bool dup = false;
             bool has_payload = false; std::string payload; int depth = -1; int ctr = -1;
             int next = -1; int requeue_count = -1; int reason = -1; int from = -1; };
 
+struct TxFrame { std::string label; std::vector<uint8_t> bytes; };
+
 class TestHal : public Hal {
 public:
     uint64_t _now = 0;
     std::vector<Ev> events;
+    std::vector<TxFrame> tx_frames;   // captured TX bytes (to parse DATA hop-budget fields)
     int rand_calls = 0;          // guards the cascade #1 determinism risk: no EXTRA draws
 
-    TxResult tx(const uint8_t*, size_t, const TxParams&) override { return TxResult::ok; }
+    TxResult tx(const uint8_t* b, size_t n, const TxParams& p) override {
+        TxFrame f; f.label = p.label ? p.label : "";
+        f.bytes.assign(b, b + n); tx_frames.push_back(std::move(f));
+        return TxResult::ok;
+    }
     void     set_rx_sf(int) override {}
     uint64_t channel_busy_until() override { return 0; }
     uint64_t airtime_used_ms(uint64_t) override { return 0; }
@@ -62,6 +69,9 @@ public:
 
     int count(const char* t) const { int n = 0; for (const auto& e : events) if (e.type == t) ++n; return n; }
     const Ev* last(const char* t) const { const Ev* r = nullptr; for (const auto& e : events) if (e.type == t) r = &e; return r; }
+    const TxFrame* last_tx(const char* label) const {
+        const TxFrame* r = nullptr; for (const auto& f : tx_frames) if (f.label == label) r = &f; return r;
+    }
 };
 
 constexpr uint32_t kRtsTimeoutTimerId    = 4;   // mirror node.h's private constants
@@ -115,6 +125,19 @@ static size_t mk_data(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origin,
     const uint8_t mac[4] = { 0, 0, 0, 0 };
     data_in in{}; in.addr_len = 0; in.flags = 0; in.next = next; in.dst = dst;
     in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
+    in.visited = {}; in.inner = std::span<const uint8_t>(inner.data(), 2 + bl);
+    in.mac = std::span<const uint8_t>(mac, 4);
+    return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
+}
+// DATA with explicit hop-budget fields (for the HOP_BUDGET enforcement tests).
+static size_t mk_data_hb(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origin,
+                         uint8_t hops_remaining, uint8_t committed,
+                         const char* body, std::array<uint8_t, 64>& b) {
+    std::array<uint8_t, 32> inner{}; inner[0] = 0; inner[1] = origin;
+    uint8_t bl = 0; while (body[bl]) { inner[2 + bl] = static_cast<uint8_t>(body[bl]); ++bl; }
+    const uint8_t mac[4] = { 0, 0, 0, 0 };
+    data_in in{}; in.addr_len = 0; in.flags = 0; in.next = next; in.dst = dst;
+    in.hops_remaining = hops_remaining; in.committed_hops = committed; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
     in.visited = {}; in.inner = std::span<const uint8_t>(inner.data(), 2 + bl);
     in.mac = std::span<const uint8_t>(mac, 4);
     return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
@@ -579,4 +602,176 @@ TEST_CASE("cascade — equal-score candidates keep INSERTION order (Lua-faithful
     // (route_strictly_better returns false on a tie). An id tie-break would wrongly
     // pick via 4 and DIVERGE from the Lua reference.
     if (r) CHECK(r->next == 9);
+}
+
+// ---- HOP_BUDGET enforcement ------------------------------------------------
+static std::optional<data_out> parse_tx_data(const TxFrame* d) {
+    if (!d) return std::nullopt;
+    return parse_data(std::span<const uint8_t>(d->bytes.data(), d->bytes.size()));
+}
+
+TEST_CASE("hop_budget — originator initial budget = min(31, rt_hops + slack)") {
+    TestHal hal;
+    Node* node = mk_sender_with_routes(hal, {{2,2,14}});   // candidate to 5 via 2: hops = 2+1 = 3
+    send_cmd(*node, 5, "hi");                               // pending_tx via 2, ctr_lo=1
+    std::array<uint8_t,8> cb{};
+    const size_t cn = mk_cts(/*to=*/1, /*ctr_lo=*/1, /*data_sf=*/7, cb);
+    RxMeta m2{12.0f,-70.0f,0,static_cast<int8_t>(2)}; node->on_recv(cb.data(), cn, m2);
+    const int rand_before = hal.rand_calls;                // the budget block is pure arithmetic ...
+    node->on_timer(kCtsToDataGapTimerId);                  // -> DATA tx
+    CHECK(hal.rand_calls - rand_before == 0);              // ... no new draw (determinism golden, review #16)
+    auto pd = parse_tx_data(hal.last_tx("DATA")); CHECK(pd.has_value());
+    if (pd) {
+        CHECK(pd->hops_remaining   == 6);                  // min(31, 3 + slack(3))
+        CHECK(pd->committed_hops   == 0);
+        CHECK(pd->prev_fwd_rt_hops == 3);                  // self's rt[5].hops, re-stamped
+    }
+    delete node;
+}
+
+TEST_CASE("hop_budget — forwarder with hops_remaining==0 NACKs HOP_BUDGET (no ACK, no forward)") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t,64> bb{}; const size_t bn = mk_beacon_route(7, 5, 9, 1, 14, bb);
+    RxMeta m7{12.0f,-70.0f,0,static_cast<int8_t>(7)}; node.on_recv(bb.data(), bn, m7);   // route to 5
+    std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
+    const size_t rn = mk_rts(2, 1, 5, 3, 10, rb); node.on_recv(rb.data(), rn, m2);       // CTS + pending_rx
+    const int ack_before = hal.count("ack_tx"), data_before = hal.count("data_tx");
+    const size_t dn = mk_data_hb(/*next=*/1, /*dst=*/5, /*ctr=*/3, /*origin=*/7,
+                                 /*hops_remaining=*/0, /*committed=*/2, "x", db);
+    node.on_recv(db.data(), dn, m2);
+    CHECK(hal.count("hop_budget_exceeded") == 1);
+    const Ev* nk = hal.last("nack_tx"); CHECK(nk != nullptr);
+    if (nk) { CHECK(nk->to == 2); CHECK(nk->reason == 2); }
+    CHECK(hal.count("ack_tx") == ack_before);              // NO ACK (NACK in lieu of)
+    node.on_timer(kPostAckTimerId);                        // (nothing armed)
+    CHECK(hal.count("data_tx") == data_before);            // NO forward
+}
+
+TEST_CASE("hop_budget — destination is EXEMPT: hops_remaining==0 AT the dst delivers, no NACK") {
+    TestHal hal; Node node(hal, 5, 0xABCD);                // self == the destination
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
+    const size_t rn = mk_rts(2, 5, 5, 3, 10, rb); node.on_recv(rb.data(), rn, m2);
+    const size_t dn = mk_data_hb(/*next=*/5, /*dst=*/5, /*ctr=*/3, /*origin=*/7, 0, 0, "hi", db);
+    node.on_recv(db.data(), dn, m2);
+    CHECK(hal.count("ack_tx")  == 1);
+    CHECK(hal.count("nack_tx") == 0);                      // dest exempt
+    node.on_timer(kPostAckTimerId);
+    CHECK(hal.count("delivered") == 1);
+}
+
+TEST_CASE("hop_budget — forwarder decrements: arriving remaining=2 forwards with remaining=1") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t,64> bb{}; const size_t bn = mk_beacon_route(7, 5, 9, 1, 14, bb);   // route to 5 via 7
+    RxMeta m7{12.0f,-70.0f,0,static_cast<int8_t>(7)}; node.on_recv(bb.data(), bn, m7);
+    std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
+    const size_t rn = mk_rts(2, 1, 5, 3, 10, rb); node.on_recv(rb.data(), rn, m2);
+    const size_t dn = mk_data_hb(1, 5, 3, 7, /*hops_remaining=*/2, /*committed=*/1, "x", db);
+    node.on_recv(db.data(), dn, m2);                       // pass -> ACK + forward queued
+    CHECK(hal.count("ack_tx") == 1);
+    node.on_timer(kPostAckTimerId);                        // do_post_ack -> forward TxItem -> issue_send -> RTS to 7
+    std::array<uint8_t,8> cb{};
+    const size_t cn = mk_cts(1, 3, 7, cb);                 // CTS from 7 for the forward (ctr_lo=3)
+    node.on_recv(cb.data(), cn, m7);
+    node.on_timer(kCtsToDataGapTimerId);                   // -> forwarded DATA tx
+    auto pd = parse_tx_data(hal.last_tx("DATA")); CHECK(pd.has_value());
+    if (pd) { CHECK(pd->hops_remaining == 1); CHECK(pd->committed_hops == 2);   // decremented (2->1, committed 1->2)
+              CHECK(pd->prev_fwd_rt_hops == 2); }   // re-stamped to self's rt[5].hops (beacon hops 1 + 1)
+}
+
+TEST_CASE("hop_budget — sender NACK recovery: terminal giveup + rt.hops bump feeds the NEXT budget") {
+    TestHal hal;
+    Node* node = mk_sender_with_routes(hal, {{2,2,14}});   // candidate to 5 via 2, hops = 3
+    send_cmd(*node, 5, "hi");                               // flight 1 (ctr_lo=1) via 2
+    const int rand_before = hal.rand_calls;
+    std::array<uint8_t,8> nb{};
+    const size_t nn = mk_nack(/*to=*/1, /*ctr_lo=*/1, /*reason=*/2, /*payload=*/(4 << 4), nb);  // committed=4
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)}; node->on_recv(nb.data(), nn, m2);
+    CHECK(hal.count("rts_giveup")   == 1);                  // TERMINAL giveup
+    CHECK(hal.count("path_cascade") == 0);                  // NO cascade
+    CHECK(hal.rand_calls - rand_before == 0);               // NO rand on the HOP_BUDGET path
+    // the rt.hops bump (3 -> max(3, committed+1=5) = 5) feeds the NEXT send: min(31, 5+3) = 8.
+    send_cmd(*node, 5, "hi2");                              // flight 2 (ctr_lo=2)
+    std::array<uint8_t,8> cb{};
+    const size_t cn = mk_cts(1, 2, 7, cb); node->on_recv(cb.data(), cn, m2);
+    node->on_timer(kCtsToDataGapTimerId);
+    auto pd = parse_tx_data(hal.last_tx("DATA")); CHECK(pd.has_value());
+    if (pd) CHECK(pd->hops_remaining == 8);                // reflects the bumped rt.hops = 5
+    delete node;
+}
+
+// Locks the handle_data REORDER + the exhaustion-path seen_origins write (review #04/#05/#10):
+// Lua runs HOP_BUDGET ABOVE the loop-dup dedup AND records (origin,dst,ctr) on exhaustion, so a
+// LATER non-exhausted arrival of the SAME flight via a DIFFERENT prev-hop is caught as LOOP_DUP
+// (not accepted+forwarded). Before the fix the C++ ran dedup first and skipped the write.
+TEST_CASE("hop_budget — an exhausted frame records seen_origins so a later diff-prev-hop arrival is LOOP_DUP") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t,64> bb{}; const size_t bn = mk_beacon_route(7, 5, 9, 1, 14, bb);   // route to 5 (could forward)
+    RxMeta m7{12.0f,-70.0f,0,static_cast<int8_t>(7)}; node.on_recv(bb.data(), bn, m7);
+    std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
+    // copy 1 via prev-hop 2: arrives EXHAUSTED (hops_remaining==0) -> HOP_BUDGET NACK + records
+    // seen_origin_from[(origin0,dst5,ctr3)] = 2.
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
+    hal._now = 1000; { const size_t rn = mk_rts(2,1,5,3,10,rb); node.on_recv(rb.data(), rn, m2); }
+    hal._now = 1100; { const size_t dn = mk_data_hb(1,5,3,0,/*hops_remaining=*/0,/*committed=*/2,"x",db);
+                       node.on_recv(db.data(), dn, m2); }
+    CHECK(hal.count("hop_budget_exceeded") == 1);
+    {   // the REAL emitted NACK bytes carry reason=hop_budget + committed in the HIGH nibble (review #03)
+        auto pn = parse_nack(std::span<const uint8_t>(hal.last_tx("NACK")->bytes.data(),
+                                                      hal.last_tx("NACK")->bytes.size()));
+        CHECK(pn.has_value());
+        if (pn) { CHECK(pn->reason == protocol::nack_reason_hop_budget);
+                  CHECK(((pn->payload >> 4) & 0x0f) == 3); }   // committed 2 -> +1 -> 3
+    }
+    const int ack_after_copy1 = hal.count("ack_tx");
+    // copy 2 via prev-hop 3: SAME (origin,dst,ctr) but NOT exhausted -> HOP_BUDGET passes, then the
+    // dedup finds prior_from 2 != 3 -> LOOP_DUP NACK to 3, NO ACK.
+    RxMeta m3{8.0f,-80.0f,0,static_cast<int8_t>(3)};
+    hal._now = 1200; { const size_t rn = mk_rts(3,1,5,3,10,rb); node.on_recv(rb.data(), rn, m3); }
+    hal._now = 1300; { const size_t dn = mk_data_hb(1,5,3,0,/*hops_remaining=*/5,/*committed=*/1,"x",db);
+                       node.on_recv(db.data(), dn, m3); }
+    const Ev* nk2 = hal.last("nack_tx"); CHECK(nk2 != nullptr);
+    if (nk2) { CHECK(nk2->to == 3); CHECK(nk2->reason == protocol::nack_reason_loop_dup); }   // LOOP_DUP, not HOP_BUDGET
+    CHECK(hal.count("dup_drop") >= 1);
+    CHECK(hal.count("ack_tx") == ack_after_copy1);            // the looped dup was NOT ACKed
+}
+
+// Locks the requeue budget-threading fix (review #00): a FORWARDED flight that hits a long-busy
+// BUSY_RX NACK must keep its inherited hop budget across the requeue. Before the fix the rebuilt
+// TxItem zeroed fwd_remaining, so the re-issued DATA carried hops_remaining=0 and the NEXT hop
+// terminally HOP_BUDGET-killed an in-transit message that had ample budget.
+TEST_CASE("hop_budget — a forwarded flight keeps its budget across a BUSY_RX long-busy requeue") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t,64> bb{};
+    { const size_t n = mk_beacon_route(7, 5, 9, 1, 14, bb);     // route to 5 via 7 (primary, score 14)
+      RxMeta m7{12.0f,-70.0f,0,static_cast<int8_t>(7)}; node.on_recv(bb.data(), n, m7); }
+    { const size_t n = mk_beacon_route(8, 5, 9, 1, 13, bb);     // route to 5 via 8 (alt, score 13)
+      RxMeta m8{12.0f,-70.0f,0,static_cast<int8_t>(8)}; node.on_recv(bb.data(), n, m8); }
+    std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
+    // become a forwarder: DATA from prev-hop 2 (origin0,dst5,ctr4) arriving remaining=4 -> decrement
+    // to fwd_remaining=3, ACK, forward queued.
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
+    const size_t rn = mk_rts(2,1,5,4,10,rb); node.on_recv(rb.data(), rn, m2);
+    const size_t dn = mk_data_hb(1,5,4,0,/*hops_remaining=*/4,/*committed=*/1,"x",db);
+    node.on_recv(db.data(), dn, m2);
+    node.on_timer(kPostAckTimerId);                            // do_post_ack -> forward via 7 (RTS to 7)
+    { const Ev* r = hal.last("rts_tx"); CHECK(r != nullptr); if (r) CHECK(r->next == 7); }
+    // long-busy BUSY_RX NACK from 7 (busy 3200ms > 2000) -> mark 7 blind + requeue the forward.
+    std::array<uint8_t,8> nb{}; const size_t nn = mk_nack(/*to=*/1, /*ctr_lo=*/4, /*reason=*/0, /*payload=*/200, nb);
+    RxMeta m7n{8.0f,-80.0f,0,static_cast<int8_t>(7)}; node.on_recv(nb.data(), nn, m7n);
+    CHECK(hal.count("tx_requeued") == 1);
+    { const Ev* r = hal.last("rts_tx"); CHECK(r != nullptr); if (r) CHECK(r->next == 8); }   // re-issued via the alt
+    // CTS from 8 -> forwarded DATA must STILL carry the inherited budget (3), not 0.
+    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(/*to=*/1, /*ctr_lo=*/4, /*data_sf=*/7, cb);
+    RxMeta m8c{12.0f,-70.0f,0,static_cast<int8_t>(8)}; node.on_recv(cb.data(), cn, m8c);
+    node.on_timer(kCtsToDataGapTimerId);                       // -> forwarded DATA tx
+    auto pd = parse_tx_data(hal.last_tx("DATA")); CHECK(pd.has_value());
+    if (pd) { CHECK(pd->hops_remaining == 3); CHECK(pd->committed_hops == 2); }   // budget survived the requeue
 }
