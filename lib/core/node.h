@@ -25,6 +25,11 @@ namespace meshroute {
 // POD; no heap, no JSON. Only the T/F-class knobs the Lua on_init reads.
 // PROTOCOL constants stay in protocol_constants.h (hardcoded on device).
 // TODO: Node config should also store name - which can be then exchanged through higher level (app level) - along with the public key
+// TODO: Each layer (leaf) has its crypt key - shared during join operation. This key is used to crypt portion of BCN - why?
+// TODO: It is to prevent joining leaf without a proper join process AND possibly - to make private leafs
+// TODO: To discuss hot wo implement / what technology
+// TODO: Versions - in JOIN one byte - it shows only wire compatibility, not the full version. If same - it doesn't mean - it is the same version
+// TODO: it means - it is wire compatible
 struct NodeConfig {
     bool     is_gateway          = false;
     bool     is_mobile           = false;
@@ -79,6 +84,14 @@ struct TxItem {                      // a queued message awaiting a flight
     uint8_t  inner_len = 0;
     bool     is_forward = false;     // true => previous_hop valid (a relayed item)
     uint8_t  previous_hop = 0;
+    // Cascade-requeue meta (the Lua queue_meta): requeue_count drives the
+    // exponential backoff cap; enqueue_time_ms is the ORIGINAL first-enqueue
+    // time, preserved across every requeue so the total-age cap is honest;
+    // next_attempt_ms gates the dequeue so the backoff can't be skipped by a
+    // concurrent become_free (the queue itself enforces the hold).
+    uint8_t  requeue_count = 0;
+    uint64_t enqueue_time_ms = 0;
+    uint64_t next_attempt_ms = 0;
 };
 struct PendingTx {                   // the in-flight sender state (one per node)
     uint8_t  origin = 0, dst = 0, next = 0, ctr_lo = 0;
@@ -90,6 +103,19 @@ struct PendingTx {                   // the in-flight sender state (one per node
     uint8_t  retries_left = 0;
     bool     awaiting_cts = false;
     bool     awaiting_ack = false;
+    // Cascade-to-alt state: which next-hops this flight has already tried (so the
+    // walk never re-picks them), the upstream hop to avoid looping back to, and
+    // the requeue meta threaded from the TxItem.
+    uint8_t  previous_hop = 0;
+    bool     has_previous_hop = false;
+    uint8_t  alts_tried[protocol::max_rt_candidates] = {};
+    uint8_t  alts_tried_n = 0;
+    uint8_t  requeue_count = 0;
+    uint64_t enqueue_time_ms = 0;
+};
+struct DeferredSend {                // a send with no route yet — held until one appears (or TTL)
+    TxItem   item;
+    uint64_t deferred_at_ms = 0;     // for the send_defer_ttl giveup (TTL checked FIRST on drain)
 };
 struct PendingRx {                   // the receiver state awaiting DATA (one per node)
     uint8_t  from = 0, dst = 0, ctr_lo = 0, chosen_data_sf = 0, payload_len = 0;
@@ -118,6 +144,12 @@ public:
     CmdResult on_command(const Command& c);                              // the typed app<->firmware seam
     bool      next_push(Push& out);                                      // drain the async push ring (CMD_SYNC_NEXT)
 
+    // Exposed for the R3.x determinism golden test. The retry-jitter RANGE is a
+    // cross-engine alignment contract: 3*airtime_routing(RTS_LEN=8) must equal
+    // the Lua's, or the lua-vs-meshroute forced-retry streams de-align (see the
+    // node.cpp definition comment). Pure, const, no side effects.
+    uint32_t  retry_jitter_ms() const;                                   // 3*airtime(routing, RTS_LEN=8)
+
 private:
     // Node-owned timer-id namespace (Hal::after re-arm-by-id, cap 64). Reserve
     // 4+ for the R3 RTS/CTS/ACK timers.
@@ -132,6 +164,9 @@ private:
     static constexpr uint32_t kQueueWakeupTimerId      = 8;   // become_free: not-ready re-arm
     static constexpr uint32_t kPostAckTimerId          = 9;   // receiver: ACK-air -> deliver/forward
     static constexpr uint32_t kRetryBackoffTimerId     = 10;  // sender: jittered RTS retry
+    // Cascade-to-alt / no-route defer plane.
+    static constexpr uint32_t kDeferredDrainTimerId    = 11;  // periodic 1s drain of _deferred (TTL giveup)
+    static constexpr uint32_t kCascadeRequeueTimerId   = 12;  // backoff before re-draining a requeued flight
 
     // ---- beacon emit / ingest ----------------------------------------------
     void emit_beacon(const char* kind);                            // "periodic" | "triggered"
@@ -174,10 +209,22 @@ private:
     void     ack_timeout_fire();                                  // :6546
     void     pending_rx_expiry_fire();                            // :6699
     void     tx_rts_retry();                                      // re-pack SAME-ctr_lo RTS
+    // ---- cascade-to-alt walk + no-route defer+Q ----------------------------
+    uint8_t  pick_next_cascade_hop(const PendingTx& pt) const;    // two-pass walk :5430; 0 = none
+    bool     next_hop_selectable(const RtCandidate& c, const PendingTx& pt,
+                                 bool allow_uphill) const;        // minimal filter :3990
+    void     cascade_to_alt(const char* trigger);                 // on giveup: switch hop or requeue :6456
+    void     try_cascade_requeue(const PendingTx& pt, const char* giveup_event);  // exhaustion -> requeue/giveup :6190
+    uint32_t requeue_backoff_ms(uint8_t requeue_count) const;     // pure base*2^(n-1) capped :6209
+    uint8_t  effective_rts_max_retries(uint8_t requeue_count) const;  // max(0, max-requeue_count) :3119
+    void     defer_send(const TxItem& item);                      // no route yet -> hold (originator) :5545
+    void     try_drain_deferred();                                // TTL-first, route-exists drain :6765
+    bool     alt_tried(const PendingTx& pt, uint8_t hop) const;
+    void     mark_tried(PendingTx& pt, uint8_t hop);
     uint16_t next_ctr(uint8_t dst);                               // per-(self,dst) counter (NOT rand)
     uint8_t  select_data_sf(uint8_t rts_sf_index) const;          // PURE :3027
     uint32_t airtime_routing_ms(uint16_t len) const;             // floor-exact, for timeout sizing
-    uint32_t retry_jitter_ms() const;                            // 3*airtime(routing, RTS_LEN)
+    // retry_jitter_ms() is declared in the public section (R3.x golden test).
 
     Hal&     _hal;
     uint8_t  _node_id;            // reassignable via _hal.set_protocol_id (join/lease)
@@ -202,6 +249,11 @@ private:
     std::optional<PendingTx> _pending_tx;
     std::optional<PendingRx> _pending_rx;
     PostAck                  _post_ack;
+    // No-route defer queue (insertion-order array; drained TTL-first on a beacon
+    // route-change or the 1s periodic timer). _drain_armed gates the periodic timer.
+    DeferredSend             _deferred[protocol::cap_deferred_sends];
+    uint8_t                  _deferred_n = 0;
+    bool                     _drain_armed = false;
     std::map<uint8_t, uint16_t>  _peer_send_counter;   // next_ctr per dst
     std::map<uint32_t, LastAcked> _last_acked_from;    // key (src<<24|dst<<16|ctr_lo<<8|len)
     std::map<uint32_t, uint64_t>  _seen_origins;       // key (origin<<24|dst<<16|ctr) -> expiry_ms

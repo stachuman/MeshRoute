@@ -63,6 +63,19 @@ TEST_CASE("airtime_ms — wider BW = shorter airtime") {
     CHECK(airtime_ms(8, 500000, 5, 16, 100) ==  81);
 }
 
+TEST_CASE("airtime_ms — RTS_LEN=8 timing constant pins the retry-jitter range (R3.x)") {
+    // The retry-jitter RANGE = 3 * airtime_ms(routing_sf, bw, cr, 16, RTS_LEN=8)
+    // is a cross-engine determinism contract: it MUST equal the Lua's so the
+    // lua-vs-meshroute forced-retry mt19937 streams stay aligned (node.cpp
+    // retry_jitter_ms / the dv_dual_sf.lua:8626 timing constant — RTS_LEN=8 is
+    // the LUA wire length, deliberately NOT the 7-byte C++ RTS wire). Golden
+    // values regenerated from the Lua reference (see the helper at the bottom).
+    // If a future "8 -> 7" wire change touches this, these fail loudly here.
+    CHECK(airtime_ms(7, 125000, 5, 16, 8) ==  44);   // jitter range [0,132]
+    CHECK(airtime_ms(8, 125000, 5, 16, 8) ==  88);   // jitter range [0,264] (SF8 default)
+    CHECK(airtime_ms(9, 125000, 5, 16, 8) == 156);   // jitter range [0,468]
+}
+
 TEST_CASE("airtime_ms — duty-cycle math from project_band_choice") {
     // PROTOCOL.duty 10% at 1-hour window = 360 000 ms TX budget.
     // A 457 ms BCN at our default plan can be sent at most ~787 times/hour

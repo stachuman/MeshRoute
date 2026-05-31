@@ -123,6 +123,7 @@ inline constexpr uint16_t sync_response_suppress_window_ms         = 12000;
 
 // ---- Defer / dedup ---------------------------------------------------------
 inline constexpr uint32_t send_defer_ttl_ms = 30000;
+inline constexpr uint32_t send_defer_drain_period_ms = 1000;   // periodic _deferred drain / TTL giveup
 inline constexpr uint16_t last_acked_ttl_ms = 10000;
 inline constexpr uint32_t seen_origin_ttl_ms = 30000;
 

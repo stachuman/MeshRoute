@@ -113,6 +113,8 @@ void Node::on_timer(uint32_t timer_id) {
     case kQueueWakeupTimerId:     become_free();           break;
     case kPostAckTimerId:         do_post_ack();           break;
     case kRetryBackoffTimerId:    tx_rts_retry();          break;
+    case kDeferredDrainTimerId:   try_drain_deferred();    break;   // periodic no-route drain / TTL giveup
+    case kCascadeRequeueTimerId:  become_free();           break;   // backoff elapsed -> drain the requeued flight
     default:
         break;
     }
@@ -296,7 +298,10 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // change, then convergence telemetry. (rt_prune_cycle fires its own coalesced
     // triggered beacon when it mutates.)
     maybe_exit_discovery(rt_changed ? "rt_update" : "beacon_rx");
-    if (rt_changed) schedule_triggered_beacon();
+    if (rt_changed) {
+        schedule_triggered_beacon();
+        if (_deferred_n > 0) try_drain_deferred();        // a new route may unblock a deferred send
+    }
     maybe_emit_rt_full();
 }
 
@@ -322,21 +327,27 @@ RtEntry* Node::rt_insert(uint8_t dest) {
 }
 
 bool Node::route_strictly_better(const RtCandidate& a, const RtCandidate& b) const {
-    // effective_score == score in R1 (budget/suspect penalties are 0).
+    // effective_score == score until R4 (budget/suspect penalties are 0).
     const int16_t av = a.score;
     const int16_t bv = b.score;
     const bool a_viable = av >= _routing_snr_floor_q4;
     const bool b_viable = bv >= _routing_snr_floor_q4;
-    if (a_viable && !b_viable) return true;
-    if (b_viable && !a_viable) return false;
-    if (a_viable && b_viable) {                           // both viable: hops-first
-        if (a.hops < b.hops) return true;
-        if (a.hops > b.hops) return false;
-        return av > bv;
+    if (a_viable != b_viable) return a_viable;            // viable beats non-viable
+    if (a_viable) {                                       // both viable: hops-asc, score-desc
+        if (a.hops != b.hops) return a.hops < b.hops;
+        if (av != bv)         return av > bv;
+    } else {                                              // both non-viable: score-desc, hops-asc
+        if (av != bv)         return av > bv;
+        if (a.hops != b.hops) return a.hops < b.hops;
     }
-    if (av > bv) return true;                             // both non-viable: score-first
-    if (av < bv) return false;
-    return a.hops < b.hops;
+    // True tie (same viability/hops/score) -> NOT strictly better, matching the Lua
+    // route_strictly_better (dv_dual_sf.lua:4227-4245), which has NO id tie-break: on
+    // a tie both less(a,b) and less(b,a) are false, so the stable insertion sort
+    // (sort_candidates) + rt_merge keep INSERTION order. An ascending-next_hop tie-break
+    // here would DIVERGE from the Lua reference (and leak into rt_merge's full-table
+    // eviction, changing the stored candidate set on a tie), so we faithfully preserve
+    // insertion order. (The cascade gate uses well-separated SNRs so ties never decide.)
+    return false;
 }
 
 void Node::sort_candidates(RtEntry& e) {
@@ -580,6 +591,7 @@ uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8
     item.inner[0] = 0x00; item.inner[1] = _node_id;      // src_addr_len=0 | origin | body
     if (body) for (uint8_t i = 0; i < body_len; ++i) item.inner[2 + i] = body[i];
     item.inner_len = static_cast<uint8_t>(2 + body_len);
+    item.enqueue_time_ms = _hal.now();                   // first-enqueue time (cascade-requeue total-age cap)
     if (_tx_queue_n < kTxQueueCap) _tx_queue[_tx_queue_n++] = item;
     EventField f[] = {
         { .key = "origin", .type = EventField::T::i64, .i = item.origin },
@@ -595,26 +607,56 @@ uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8
 void Node::become_free() {
     if (_pending_tx || _pending_rx) return;              // half-duplex serialize
     if (_tx_queue_n == 0) return;
-    TxItem item = _tx_queue[0];                           // FIFO head (minimal: no priority/requeue ordering)
-    for (uint8_t i = 1; i < _tx_queue_n; ++i) _tx_queue[i - 1] = _tx_queue[i];
+    // Drain the FIRST item whose backoff has elapsed (next_attempt_ms <= now). The
+    // Lua scans (not head-only) so a fresh send isn't blocked behind a backing-off
+    // cascade-requeue, and the next_attempt_ms gate means a concurrent become_free
+    // can't skip a requeue's backoff. Items with next_attempt_ms==0 are always ready,
+    // so a queue without requeues behaves as plain FIFO.
+    const uint64_t now = _hal.now();
+    uint8_t  pick = _tx_queue_n;                          // sentinel = none ready
+    uint64_t soonest = UINT64_MAX;
+    for (uint8_t i = 0; i < _tx_queue_n; ++i) {
+        if (_tx_queue[i].next_attempt_ms <= now) { pick = i; break; }
+        if (_tx_queue[i].next_attempt_ms < soonest) soonest = _tx_queue[i].next_attempt_ms;
+    }
+    if (pick == _tx_queue_n) {                            // none ready -> wake at the soonest backoff
+        (void)_hal.after(static_cast<uint32_t>(soonest - now), kQueueWakeupTimerId);
+        return;
+    }
+    TxItem item = _tx_queue[pick];
+    for (uint8_t i = pick + 1; i < _tx_queue_n; ++i) _tx_queue[i - 1] = _tx_queue[i];
     --_tx_queue_n;
     issue_send(item);
 }
 
 void Node::issue_send(const TxItem& item) {
-    RtEntry* e = rt_find(item.dst);
-    if (e == nullptr || e->n == 0) {                     // minimal: drop (the defer+Q drain is a later R)
-        EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = item.dst } };
-        _hal.emit("send_no_route", f, 1);
-        return;
-    }
+    // Build the flight first so pick_next_cascade_hop sees previous_hop (forwarders
+    // must not loop back upstream) + the empty alts_tried set.
     PendingTx pt{};
-    pt.origin = item.origin; pt.dst = item.dst; pt.next = e->candidates[0].next_hop;
+    pt.origin = item.origin; pt.dst = item.dst;
     pt.ctr_lo = item.ctr_lo; pt.ctr = item.ctr; pt.flags = item.flags;
     pt.inner_len = item.inner_len;
     for (uint8_t i = 0; i < item.inner_len; ++i) pt.inner[i] = item.inner[i];
-    pt.chosen_data_sf = 0; pt.retries_left = protocol::rts_max_retries;
+    pt.chosen_data_sf = 0; pt.retries_left = effective_rts_max_retries(item.requeue_count);
     pt.awaiting_cts = true; pt.awaiting_ack = false;
+    pt.alts_tried_n = 0;
+    pt.previous_hop = item.previous_hop; pt.has_previous_hop = item.is_forward;
+    pt.requeue_count = item.requeue_count; pt.enqueue_time_ms = item.enqueue_time_ms;
+
+    const uint8_t first = pick_next_cascade_hop(pt);     // first SELECTABLE candidate (skips previous_hop)
+    if (first == 0) {
+        // No usable route yet. A FORWARDER drops (dv_dual_sf.lua:7041-7048 — it
+        // can't hold someone else's transit); an ORIGINATOR defers the message
+        // until a beacon installs a route or the defer-TTL expires (dv:7049-7052).
+        if (item.is_forward) {
+            EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = item.dst } };
+            _hal.emit("send_no_route", f, 1);
+        } else {
+            defer_send(item);
+        }
+        return;
+    }
+    pt.next = first;
     _pending_tx = pt;
     tx_rts_retry();                                      // packs+emits the RTS + start_rts_timeout
 }
@@ -826,6 +868,9 @@ void Node::do_post_ack() {
         it.flags = pa.flags; it.is_forward = true; it.previous_hop = pa.previous_hop;
         it.inner_len = pa.inner_len;
         for (uint8_t i = 0; i < pa.inner_len; ++i) it.inner[i] = pa.inner[i];
+        it.enqueue_time_ms = _hal.now();                 // fresh hop attempt (dv:11391): the cascade-requeue
+                                                         // total-age window starts when THIS hop accepts the
+                                                         // forward — else it defaults 0 and the cap mis-fires.
         if (_tx_queue_n < kTxQueueCap) _tx_queue[_tx_queue_n++] = it;
         become_free();
     }
@@ -870,6 +915,187 @@ void Node::start_pending_rx_expiry(uint8_t payload_len) {
     (void)_hal.after(t, kPendingRxExpiryTimerId);
 }
 
+// ---- cascade-to-alt walk + no-route defer+Q --------------------------------
+bool Node::alt_tried(const PendingTx& pt, uint8_t hop) const {
+    for (uint8_t i = 0; i < pt.alts_tried_n; ++i) if (pt.alts_tried[i] == hop) return true;
+    return false;
+}
+void Node::mark_tried(PendingTx& pt, uint8_t hop) {
+    if (alt_tried(pt, hop)) return;
+    if (pt.alts_tried_n < protocol::max_rt_candidates) pt.alts_tried[pt.alts_tried_n++] = hop;
+}
+
+// The minimal selectable filter (dv_dual_sf.lua:3990-4042): skip the upstream hop
+// (no loop-back) + skip already-tried hops this flight. is_blind/suspect/freshness/
+// mobile-transit are stubbed (empty-table no-ops until the NACK/budget plane), and
+// with effective_score==score there is no gradient yet, so allow_uphill is inert —
+// the two-pass SHAPE is kept so that plane plugs in without a re-shape.
+bool Node::next_hop_selectable(const RtCandidate& c, const PendingTx& pt, bool allow_uphill) const {
+    (void)allow_uphill;
+    if (c.next_hop == 0) return false;
+    if (pt.has_previous_hop && c.next_hop == pt.previous_hop) return false;   // dv:3992
+    if (alt_tried(pt, c.next_hop)) return false;                             // dv:4006
+    return true;
+}
+
+uint8_t Node::pick_next_cascade_hop(const PendingTx& pt) const {
+    const RtEntry* e = nullptr;                          // const lookup (rt_find is non-const)
+    for (uint8_t i = 0; i < _rt_count; ++i) if (_rt[i].dest == pt.dst) { e = &_rt[i]; break; }
+    if (e == nullptr) return 0;
+    // Two-pass (dv:5430-5450): pass 1 gradient-respecting, pass 2 uphill fallback.
+    // candidates[] is kept sorted by route_strictly_better (+ next_hop tie-break).
+    for (int pass = 0; pass < 2; ++pass) {
+        const bool allow_uphill = (pass == 1);
+        for (uint8_t i = 0; i < e->n; ++i)
+            if (next_hop_selectable(e->candidates[i], pt, allow_uphill)) return e->candidates[i].next_hop;
+    }
+    return 0;
+}
+
+uint32_t Node::requeue_backoff_ms(uint8_t requeue_count) const {
+    // PURE base*2^(n-1) capped — NO rand (dv:6209-6213). n>=1.
+    uint32_t b = protocol::cascade_requeue_base_ms;
+    for (uint8_t i = 1; i < requeue_count; ++i) {
+        b <<= 1;
+        if (b >= protocol::cascade_requeue_backoff_cap_ms) { b = protocol::cascade_requeue_backoff_cap_ms; break; }
+    }
+    return b;
+}
+
+uint8_t Node::effective_rts_max_retries(uint8_t requeue_count) const {
+    // A requeued flight gets FEWER same-hop retries (dv:3119) — critical for
+    // determinism: a flat budget would fire extra retry-jitter draws on a
+    // requeued flight and de-align the lua/meshroute mt19937 streams.
+    const int n = static_cast<int>(protocol::rts_max_retries) - static_cast<int>(requeue_count);
+    return n < 0 ? 0 : static_cast<uint8_t>(n);
+}
+
+// On a flight giving up on its current next-hop (RTS- or ACK-timeout exhausted the
+// same-hop retries): mark it tried, walk to the next candidate and re-RTS there with
+// NO jitter draw (dv:6478 — adding a rand here de-aligns the lua/meshroute streams).
+// When no untried candidate remains, hand off to try_cascade_requeue.
+void Node::cascade_to_alt(const char* giveup_event) {
+    if (!_pending_tx) return;
+    PendingTx& pt = *_pending_tx;
+    const uint8_t from_next = pt.next;               // the hop that just failed (capture before overwrite)
+    mark_tried(pt, pt.next);
+    const uint8_t alt = pick_next_cascade_hop(pt);
+    if (alt != 0) {
+        EventField f[] = { { .key = "origin",   .type = EventField::T::i64, .i = pt.origin },
+                           { .key = "dst",      .type = EventField::T::i64, .i = pt.dst },
+                           { .key = "ctr",      .type = EventField::T::i64, .i = pt.ctr },
+                           { .key = "from_next", .type = EventField::T::i64, .i = from_next },
+                           { .key = "next",     .type = EventField::T::i64, .i = alt } };
+        _hal.emit("path_cascade", f, 5);
+        pt.next = alt;
+        pt.retries_left = effective_rts_max_retries(pt.requeue_count);   // requeue-aware budget on the alt
+        tx_rts_retry();                                  // re-RTS on the alt — NO jitter (re-arms kRtsTimeoutTimerId)
+    } else {
+        try_cascade_requeue(pt, giveup_event);           // all candidates tried
+    }
+}
+
+// All candidates exhausted: requeue the flight onto _tx_queue with a pure
+// exponential backoff (held idle until kCascadeRequeueTimerId fires), or — once the
+// requeue-count / total-age caps are hit — a true giveup (dv:6159-6213).
+void Node::try_cascade_requeue(const PendingTx& pt, const char* giveup_event) {
+    const uint64_t now = _hal.now();
+    const bool count_done = pt.requeue_count >= protocol::cascade_requeue_max;
+    const bool age_done   = (now - pt.enqueue_time_ms) >= protocol::cascade_requeue_total_max_ms;
+    EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
+                       { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
+    if (count_done || age_done || _tx_queue_n >= kTxQueueCap) {
+        _hal.emit("path_cascade_exhausted", f, 2);
+        _hal.emit(giveup_event, f, 2);
+        { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
+        _pending_tx.reset();
+        become_free();
+        return;
+    }
+    TxItem it{};
+    it.origin = pt.origin; it.dst = pt.dst; it.ctr = pt.ctr; it.ctr_lo = pt.ctr_lo; it.flags = pt.flags;
+    it.inner_len = pt.inner_len;
+    for (uint8_t i = 0; i < pt.inner_len; ++i) it.inner[i] = pt.inner[i];
+    it.is_forward = pt.has_previous_hop; it.previous_hop = pt.previous_hop;
+    it.requeue_count = static_cast<uint8_t>(pt.requeue_count + 1);
+    it.enqueue_time_ms = pt.enqueue_time_ms;             // PRESERVE the original first-enqueue time
+    // The queue ITSELF enforces the backoff: next_attempt_ms gates the dequeue
+    // (become_free scans for the first ready item), so a concurrent become_free
+    // can't skip the hold. The timer is just the wakeup at the ready time.
+    it.next_attempt_ms = now + requeue_backoff_ms(it.requeue_count);
+    { EventField rf[] = { f[0], f[1],
+        { .key = "requeue_count", .type = EventField::T::i64, .i = it.requeue_count } };
+      _hal.emit("cascade_requeue", rf, 3); }
+    _tx_queue[_tx_queue_n++] = it;                       // tail; held by next_attempt_ms until the backoff
+    _pending_tx.reset();
+    (void)_hal.after(requeue_backoff_ms(it.requeue_count), kCascadeRequeueTimerId);
+}
+
+// An ORIGINATOR send with no usable route yet: hold it until a beacon installs a
+// route (drain-on-rt_changed) or the periodic 1s drain ages it out by send_defer_ttl.
+void Node::defer_send(const TxItem& item) {
+    if (_deferred_n >= protocol::cap_deferred_sends) {   // full -> REFUSE the NEW send (Lua table_cap_hit
+        EventField cf[] = {                              // dv:5549-5553), NOT drop-oldest. Complete the
+            { .key = "dst", .type = EventField::T::i64, .i = item.dst },   // app future so it never hangs.
+            { .key = "ctr", .type = EventField::T::i64, .i = item.ctr } };
+        _hal.emit("send_deferred_refused", cf, 2);
+        { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = item.dst; pu.ctr = item.ctr; enqueue_push(pu); }
+        return;
+    }
+    DeferredSend d{}; d.item = item; d.deferred_at_ms = _hal.now();
+    _deferred[_deferred_n++] = d;
+    EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = item.dst },
+                       { .key = "ctr", .type = EventField::T::i64, .i = item.ctr } };
+    _hal.emit("send_deferred", f, 2);
+    if (!_drain_armed) {                                 // arm the periodic TTL-giveup drain
+        _drain_armed = true;
+        (void)_hal.after(protocol::send_defer_drain_period_ms, kDeferredDrainTimerId);
+    }
+}
+
+void Node::try_drain_deferred() {
+    const uint64_t now = _hal.now();
+    TxItem   drained[protocol::cap_deferred_sends];      // route appeared -> fly (oldest first)
+    uint8_t  drained_n = 0;
+    uint8_t  w = 0;                                       // compaction write cursor (insertion order kept)
+    for (uint8_t r = 0; r < _deferred_n; ++r) {
+        DeferredSend d = _deferred[r];
+        EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = d.item.dst },
+                           { .key = "ctr", .type = EventField::T::i64, .i = d.item.ctr } };
+        // TTL FIRST (the defer_ttl_route_exists_trap fix, dv:6775-6782): age out a
+        // held send BEFORE checking route-exists, else a flapping route never lets
+        // it expire (the s12 477-defer infinite loop).
+        if ((now - d.deferred_at_ms) >= protocol::send_defer_ttl_ms) {
+            _hal.emit("send_deferred_giveup", f, 2);
+            { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = d.item.dst; pu.ctr = d.item.ctr; enqueue_push(pu); }
+            continue;                                    // drop (don't keep)
+        }
+        RtEntry* e = rt_find(d.item.dst);
+        if (e != nullptr && e->n > 0) {
+            drained[drained_n++] = d.item;               // route appeared -> drain to the queue HEAD below
+            continue;
+        }
+        _deferred[w++] = d;                              // still no route + not expired -> keep
+    }
+    _deferred_n = w;
+    if (drained_n > 0) {
+        // Re-queue drained items to the HEAD of _tx_queue (oldest first), ahead of
+        // newer queued messages — the Lua re-queues to head (dv:6843-6886). Overflow
+        // past kTxQueueCap is dropped (a rare edge; same as the original tail path).
+        TxItem nq[kTxQueueCap]; uint8_t n = 0;
+        for (uint8_t i = 0; i < drained_n && n < kTxQueueCap; ++i) nq[n++] = drained[i];
+        for (uint8_t i = 0; i < _tx_queue_n && n < kTxQueueCap; ++i) nq[n++] = _tx_queue[i];
+        for (uint8_t i = 0; i < n; ++i) _tx_queue[i] = nq[i];
+        _tx_queue_n = n;
+    }
+    become_free();                                       // service anything just re-queued (no-op if a flight is live)
+    if (_deferred_n > 0) {                               // re-arm while items remain
+        (void)_hal.after(protocol::send_defer_drain_period_ms, kDeferredDrainTimerId);
+    } else {
+        _drain_armed = false;
+    }
+}
+
 void Node::rts_timeout_fire() {
     if (!_pending_tx || !_pending_tx->awaiting_cts) return;          // stale (CTS already matched)
     if (_pending_rx) { (void)_hal.after(protocol::rts_busy_retry_ms, kRtsTimeoutTimerId); return; }
@@ -878,12 +1104,7 @@ void Node::rts_timeout_fire() {
         const int jit = _hal.rand_range(0, static_cast<int>(retry_jitter_ms()) + 1);   // RNG site #1
         (void)_hal.after(static_cast<uint32_t>(jit), kRetryBackoffTimerId);
     } else {
-        EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = _pending_tx->dst },
-                           { .key = "ctr", .type = EventField::T::i64, .i = _pending_tx->ctr } };
-        _hal.emit("rts_giveup", f, 2);
-        { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = _pending_tx->dst; pu.ctr = _pending_tx->ctr; enqueue_push(pu); }
-        _pending_tx.reset();
-        become_free();
+        cascade_to_alt("rts_giveup");                    // same-hop exhausted -> walk to an alternate
     }
 }
 void Node::ack_timeout_fire() {
@@ -895,12 +1116,7 @@ void Node::ack_timeout_fire() {
         const int jit = _hal.rand_range(0, static_cast<int>(retry_jitter_ms()) + 1);   // RNG site #2
         (void)_hal.after(static_cast<uint32_t>(jit), kRetryBackoffTimerId);
     } else {
-        EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = _pending_tx->dst },
-                           { .key = "ctr", .type = EventField::T::i64, .i = _pending_tx->ctr } };
-        _hal.emit("data_ack_giveup", f, 2);
-        { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = _pending_tx->dst; pu.ctr = _pending_tx->ctr; enqueue_push(pu); }
-        _pending_tx.reset();
-        become_free();
+        cascade_to_alt("data_ack_giveup");               // same-hop exhausted -> walk to an alternate
     }
 }
 void Node::pending_rx_expiry_fire() {
