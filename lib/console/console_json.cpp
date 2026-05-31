@@ -96,5 +96,44 @@ size_t write_push(char* buf, size_t cap, const Push& p) {
     j.ch('}');
     return j.finish();
 }
+size_t write_log(char* buf, size_t cap, const char* msg) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"log\":"); j.str(msg ? msg : "", msg ? std::strlen(msg) : 0); j.ch('}');
+    return j.finish();
+}
+size_t write_err(char* buf, size_t cap, const char* code, const char* msg) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"err\":"); j.str(code, std::strlen(code));
+    if (msg) { j.lit(",\"msg\":"); j.str(msg, std::strlen(msg)); }
+    j.ch('}');
+    return j.finish();
+}
+static void key_hex32(JsonBuf& j, uint32_t key) {
+    char t[16]; std::snprintf(t, sizeof t, "\"%08x\"", key); j.lit(t);
+}
+size_t write_ready(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* mode) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"ready\",\"id\":"); j.u32(id);
+    j.lit(",\"key\":"); key_hex32(j, key);
+    j.lit(",\"leaf_id\":"); j.u32(c.leaf_id);
+    j.lit(",\"mode\":"); j.str(mode, std::strlen(mode));
+    j.lit(",\"gateway\":"); j.lit(c.is_gateway ? "true" : "false");
+    j.lit(",\"routing_sf\":"); j.u32(c.routing_sf);
+    j.lit(",\"data_sf\":"); j.u32(c.data_sf);
+    j.ch('}');
+    return j.finish();
+}
+size_t write_status(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* state) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"status\",\"id\":"); j.u32(id);
+    j.lit(",\"key\":"); key_hex32(j, key);
+    j.lit(",\"state\":"); j.str(state, std::strlen(state));
+    j.lit(",\"leaf_id\":"); j.u32(c.leaf_id);
+    j.lit(",\"gateway\":"); j.lit(c.is_gateway ? "true" : "false");
+    j.lit(",\"routing_sf\":"); j.u32(c.routing_sf);
+    j.lit(",\"data_sf\":"); j.u32(c.data_sf);
+    j.ch('}');
+    return j.finish();
+}
 
 }  // namespace meshroute::console
