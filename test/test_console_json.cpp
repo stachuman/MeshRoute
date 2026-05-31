@@ -5,7 +5,8 @@
 #include <cstring>
 #include <string>
 
-using namespace meshroute::console;
+using namespace meshroute;            // CmdResult, CmdCode, EventField, Push, NodeConfig
+using namespace meshroute::console;   // JsonBuf, write_*
 
 TEST_CASE("JsonBuf — primitives, escaping, overflow latch") {
     char b[64];
@@ -20,4 +21,22 @@ TEST_CASE("JsonBuf — primitives, escaping, overflow latch") {
         CHECK(j.finish() == 0);
         CHECK(j.overflow);
     }
+}
+
+TEST_CASE("write_ack — CmdResult → ack JSON") {
+    char b[96];
+    size_t n = write_ack(b, sizeof b, CmdResult{CmdCode::queued, 7, 1});
+    CHECK(std::string(b, n) == "{\"ack\":\"queued\",\"ctr\":7,\"qd\":1}\n");
+    n = write_ack(b, sizeof b, CmdResult{CmdCode::err_unknown_dst, 0, 0});
+    CHECK(std::string(b, n) == "{\"ack\":\"err_unknown_dst\",\"ctr\":0,\"qd\":0}\n");
+}
+
+TEST_CASE("write_event — type + typed EventField k/v") {
+    char b[128];
+    EventField f[2] = {
+        { "from", EventField::T::i64, 5, 0,    nullptr, false },
+        { "snr",  EventField::T::f64, 0, 7.25, nullptr, false },
+    };
+    size_t n = write_event(b, sizeof b, "cts_rx", f, 2);
+    CHECK(std::string(b, n) == "{\"ev\":\"cts_rx\",\"from\":5,\"snr\":7.25}\n");
 }

@@ -39,4 +39,48 @@ size_t JsonBuf::finish() {
     return pos;
 }
 
+const char* cmdcode_name(CmdCode c) {
+    switch (c) {
+        case CmdCode::queued:              return "queued";
+        case CmdCode::err_unknown_dst:     return "err_unknown_dst";
+        case CmdCode::err_too_large:       return "err_too_large";
+        case CmdCode::err_no_gateway:      return "err_no_gateway";
+        case CmdCode::err_priority_capped: return "err_priority_capped";
+        case CmdCode::err_no_binding:      return "err_no_binding";
+        case CmdCode::err_unsupported:     return "err_unsupported";
+    }
+    return "err_unknown";
+}
+const char* pushkind_name(PushKind k) {
+    switch (k) {
+        case PushKind::msg_recv:    return "msg_recv";
+        case PushKind::send_acked:  return "send_acked";
+        case PushKind::send_failed: return "send_failed";
+    }
+    return "unknown";
+}
+size_t write_ack(char* buf, size_t cap, const CmdResult& r) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ack\":\""); j.lit(cmdcode_name(r.code)); j.ch('"');
+    j.lit(",\"ctr\":"); j.u32(r.ctr);
+    j.lit(",\"qd\":");  j.u32(r.queue_depth);
+    j.ch('}');
+    return j.finish();
+}
+size_t write_event(char* buf, size_t cap, const char* type, const EventField* f, size_t n) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\""); j.lit(type); j.ch('"');
+    for (size_t i = 0; i < n; ++i) {
+        j.ch(','); j.key(f[i].key);
+        switch (f[i].type) {
+            case EventField::T::i64:     j.i64(f[i].i); break;
+            case EventField::T::f64:     j.f64(f[i].f); break;
+            case EventField::T::str:     j.str(f[i].s ? f[i].s : "", f[i].s ? std::strlen(f[i].s) : 0); break;
+            case EventField::T::boolean: j.lit(f[i].b ? "true" : "false"); break;
+        }
+    }
+    j.ch('}');
+    return j.finish();
+}
+
 }  // namespace meshroute::console
