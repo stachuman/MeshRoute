@@ -1,4 +1,5 @@
 // MeshRoute — test_node_r2.cpp
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // R2 route-plane hardening: the 3-cycle prune (rt_prune_cycle), which the
 // line-topology scenario gate (t85) cannot exercise (0 rt_prune confirmed). The

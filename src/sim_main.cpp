@@ -1,4 +1,5 @@
 // MeshRoute — sim_main.cpp
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // Native build's entry point. Iteration 1 just prints the protocol-
 // constants summary so we can confirm the build wires together.

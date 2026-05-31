@@ -1,4 +1,5 @@
 // MeshRoute — lib/hal/iclock.h
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // The testability seam for the DEVICE Hal backend. The device Hal's now() reads
 // an IClock; on hardware that is ArduinoClock(millis()), in a native unit test

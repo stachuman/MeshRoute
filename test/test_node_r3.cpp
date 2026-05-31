@@ -1,4 +1,5 @@
 // MeshRoute — test_node_r3.cpp
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // R3 data plane: the RECEIVER flight (RTS->CTS->DATA->delivered) and the
 // last_acked dedup TTL gate — paths the idle/lossless scenario gates (t86/t87)

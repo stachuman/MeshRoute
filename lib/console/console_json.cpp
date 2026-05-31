@@ -1,4 +1,5 @@
 // MeshRoute — lib/console/console_json.cpp
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 #include "console_json.h"
 #include <cstdio>
 #include <cstring>

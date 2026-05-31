@@ -1,4 +1,5 @@
 // MeshRoute — lib/console/console_parse.h
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // Heap-free console line parsers shared by the device console and the sim's
 // FirmwareNode. hal.h discipline: no std::string/heap, C++17-includable.

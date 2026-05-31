@@ -1,4 +1,5 @@
 // MeshRoute — test_protocol_constants.cpp
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // Pins the C++ PROTOCOL constants table to the same values as the
 // Lua model's `PROTOCOL = {...}` block (spec/dv_dual_sf.lua).

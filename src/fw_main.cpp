@@ -1,4 +1,5 @@
 // MeshRoute — fw_main.cpp
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // Firmware entry point for board builds (xiao_sx1262, heltec_v3). H0 scope:
 // the smallest device main that PROVES the vendored MeshCore PHY header

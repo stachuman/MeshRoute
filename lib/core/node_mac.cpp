@@ -1,4 +1,5 @@
 // MeshRoute — lib/core/node_mac.cpp  (R3 MAC data plane — TX / send path)
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // The sender side of the RTS-CTS-DATA-ACK handshake: the send queue drain
 // (become_free), flight issue + RTS (re)transmit, the DATA transmit with the

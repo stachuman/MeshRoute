@@ -1,4 +1,5 @@
 // MeshRoute — lib/core/node_routing.cpp  (DV route table + R2 route-plane hardening)
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // Node methods for the bounded distance-vector route table: find/insert/remove,
 // the merge + sort + strictly-better comparator, the rt_full telemetry, and the R2

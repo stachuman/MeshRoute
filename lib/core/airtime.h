@@ -1,4 +1,5 @@
 // MeshRoute — airtime.h
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // LoRa-PHY airtime calculation. Direct port of `airtime_ms()` in
 // spec/dv_dual_sf.lua (line ~2931). The math follows the Semtech

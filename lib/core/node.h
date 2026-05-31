@@ -1,4 +1,5 @@
 // MeshRoute — lib/core/node.h
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // The protocol node. Depends ONLY on hal.h (no Arduino/RadioLib/sol/json), so
 // it runs unchanged on both HAL backends: FirmwareNode in the simulator and the

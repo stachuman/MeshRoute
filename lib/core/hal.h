@@ -1,4 +1,5 @@
 // MeshRoute — lib/core/hal.h
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // Host contract for meshroute::Node. Implemented by FirmwareNode (sim backend,
 // in lora-universal-simulator) and the MeshCore-PHY device backend (XIAO

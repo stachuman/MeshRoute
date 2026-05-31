@@ -1,4 +1,5 @@
 // MeshRoute — test_airtime.cpp
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // Differential test: every (sf, bw, cr, len) tuple here was captured
 // from the Lua reference (spec/dv_dual_sf.lua::airtime_ms) and pins

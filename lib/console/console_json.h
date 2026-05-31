@@ -1,4 +1,5 @@
 // MeshRoute — lib/console/console_json.h
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // Bounded, heap-free NDJSON line writers shared by the device console and the
 // sim's FirmwareNode (one serializer, two backends — schema cannot drift).

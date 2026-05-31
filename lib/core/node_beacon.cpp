@@ -1,4 +1,5 @@
 // MeshRoute — lib/core/node_beacon.cpp  (R1/R2 beacon emit + ingest)
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // Node methods for the §10 BCN plane: periodic/triggered beacon emit (dirty-only
 // differential pages), beacon ingest + DV merge, the discovery fast-cadence exit,

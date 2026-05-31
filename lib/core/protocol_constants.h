@@ -1,4 +1,5 @@
 // MeshRoute — protocol_constants.h
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // One-to-one port of the PROTOCOL = {...} block in spec/dv_dual_sf.lua.
 // These are production-fixed (audit class "P", see

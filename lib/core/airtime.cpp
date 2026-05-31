@@ -1,4 +1,5 @@
 // MeshRoute — airtime.cpp
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 // Implementation note: keep this file numerically identical to
 // the Lua reference. The test/test_airtime.cpp suite pins a dozen
 // (sf, bw, cr, len) combinations against values captured from the

@@ -1,4 +1,5 @@
 // MeshRoute — lib/core/node.cpp  (Node spine: construction, lifecycle, dispatch)
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // The Node's glue: construction, on_init lifecycle, the on_timer / on_recv
 // dispatchers that route to the subsystem handlers, the typed command seam, and

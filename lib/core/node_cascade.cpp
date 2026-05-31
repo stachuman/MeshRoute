@@ -1,4 +1,5 @@
 // MeshRoute — lib/core/node_cascade.cpp  (cascade-to-alt walk + no-route defer queue)
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // When a flight gives up on its current next-hop: the selectable filter + two-pass
 // cascade walk to an alternate, the requeue-with-backoff on exhaustion, the

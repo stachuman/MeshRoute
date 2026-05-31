@@ -1,4 +1,5 @@
 // MeshRoute — lib/console/console_parse.cpp
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 #include "console_parse.h"
 #include <cstring>
 

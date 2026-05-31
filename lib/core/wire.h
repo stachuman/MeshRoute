@@ -1,4 +1,5 @@
 // MeshRoute — lib/core/wire.h
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // C0: shared wire primitives for the §10 cmd-nibble frame format. Header-only,
 // no heap, no exceptions. Internal to the codec layer (meshroute_core, C++20) —

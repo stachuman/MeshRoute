@@ -1,4 +1,5 @@
 // MeshRoute — lib/hal/airtime_ledger.h
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // The sliding-window airtime log behind the device Hal's airtime_used_ms() /
 // oldest_tx_end_ms(). THE algorithm must be identical to the sim's

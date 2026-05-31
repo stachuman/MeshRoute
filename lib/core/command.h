@@ -1,4 +1,5 @@
 // MeshRoute — lib/core/command.h
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // The app<->firmware command seam. TYPED, bounded, no-heap, transport-agnostic —
 // the message path is NOT string-parsed (that is the MeshCore anti-pattern; their

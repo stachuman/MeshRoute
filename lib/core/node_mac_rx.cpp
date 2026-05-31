@@ -1,4 +1,5 @@
 // MeshRoute — lib/core/node_mac_rx.cpp  (R3/R4 MAC data plane — RX frame handlers)
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // The receive side of the RTS-CTS-DATA-ACK-NACK handshake: what we do when each
 // frame type arrives. Includes the R4 anti-spam originator drop + budget-aware

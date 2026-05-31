@@ -1,4 +1,5 @@
 // MeshRoute — lib/core/node_budget.cpp  (R4 duty-cycle budget + anti-spam metric plane)
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // The route-free duty-cycle tier from the rolling airtime window (compute_budget_tier),
 // and the R4.4 originator anti-spam ledger: per-sender observation tracking with

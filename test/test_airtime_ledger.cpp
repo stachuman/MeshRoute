@@ -1,4 +1,5 @@
 // MeshRoute — test_airtime_ledger.cpp
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // Native verification of the device Hal's airtime ledger (H0). The algorithm
 // MUST match the sim's FirmwareNode::airtimeUsedInWindow so device == sim.

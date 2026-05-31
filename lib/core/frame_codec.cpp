@@ -1,4 +1,5 @@
 // MeshRoute — frame_codec.cpp
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // §10 cmd-nibble wire codecs (codec track C1–C6, COMPLETE). Implemented: BCN
 // (0x0), RTS (0x1), CTS (0x2), DATA (0x3), ACK (0x4), NACK (0x5), Q (0x6),

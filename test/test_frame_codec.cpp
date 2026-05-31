@@ -1,4 +1,5 @@
 // MeshRoute — test_frame_codec.cpp
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // Pins the §10 cmd-nibble wire codecs (C1: CTS, ACK) + the C0 wire primitives.
 // Byte positions are from ROADMAP §10.3; the golden-hex vectors are hand-derived

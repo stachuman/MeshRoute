@@ -1,4 +1,5 @@
 // MeshRoute — frame_codec.h
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
 // Wire-format codecs for the dv_dual_sf protocol's frame types.
 // Each function mirrors a `pack_*` / `parse_*` pair in dv_dual_sf.lua for FIELD
