@@ -26,3 +26,15 @@ TEST_CASE("parse_command — errors") {
     CHECK(parse_command("send 999 hi", 11, c) == ParseErr::bad_args); // dst > 254
     CHECK(parse_command("", 0, c) == ParseErr::empty);
 }
+
+TEST_CASE("parse_cfg — keys map to NodeConfig/id/key") {
+    NodeConfig c{}; uint8_t id = 0; uint32_t key = 0;
+    auto P = [&](const char* l) { return parse_cfg(l, std::strlen(l), c, id, key); };
+    CHECK(P("cfg id 3") == CfgErr::ok);           CHECK(id == 3);
+    CHECK(P("cfg routing_sf 9") == CfgErr::ok);   CHECK(c.routing_sf == 9);
+    CHECK(P("cfg data_sf 12") == CfgErr::ok);     CHECK(c.data_sf == 12);
+    CHECK(P("cfg gateway 1") == CfgErr::ok);      CHECK(c.is_gateway == true);
+    CHECK(P("cfg key a1b2c3d4") == CfgErr::ok);   CHECK(key == 0xa1b2c3d4u);
+    CHECK(P("cfg routing_sf 99") == CfgErr::bad_value);  // SF out of 5..12
+    CHECK(P("cfg nope 1") == CfgErr::unknown_key);
+}

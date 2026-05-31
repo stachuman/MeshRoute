@@ -60,4 +60,57 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
     return ParseErr::ok;
 }
 
+namespace {
+bool parse_hex32_tok(const Tok& t, uint32_t& out) {
+    if (t.n == 0 || t.n > 8) return false;
+    uint32_t v = 0;
+    for (size_t i = 0; i < t.n; ++i) {
+        char c = t.s[i]; uint32_t d;
+        if (c >= '0' && c <= '9')      d = static_cast<uint32_t>(c - '0');
+        else if (c >= 'a' && c <= 'f') d = 10u + static_cast<uint32_t>(c - 'a');
+        else if (c >= 'A' && c <= 'F') d = 10u + static_cast<uint32_t>(c - 'A');
+        else return false;
+        v = (v << 4) | d;
+    }
+    out = v;
+    return true;
+}
+}  // namespace
+
+CfgErr parse_cfg(const char* line, size_t len, NodeConfig& cfg,
+                 uint8_t& node_id, uint32_t& key_hash32) {
+    Scan s{ line, line + len };
+    Tok verb = token(s);
+    if (!tok_eq(verb, "cfg")) return CfgErr::unknown_key;  // only cfg lines reach here
+    Tok key = token(s);
+    Tok val = token(s);
+
+    uint32_t u = 0;
+    if (tok_eq(key, "id")) {
+        if (!parse_u32_tok(val, 254, u)) return CfgErr::bad_value;
+        node_id = static_cast<uint8_t>(u);
+    } else if (tok_eq(key, "key")) {
+        if (!parse_hex32_tok(val, key_hash32)) return CfgErr::bad_value;
+    } else if (tok_eq(key, "routing_sf")) {
+        if (!parse_u32_tok(val, 12, u) || u < 5) return CfgErr::bad_value;
+        cfg.routing_sf = static_cast<uint8_t>(u);
+    } else if (tok_eq(key, "data_sf")) {
+        if (!parse_u32_tok(val, 12, u) || u < 5) return CfgErr::bad_value;
+        cfg.data_sf = static_cast<uint8_t>(u);
+    } else if (tok_eq(key, "gateway")) {
+        if (tok_eq(val, "1") || tok_eq(val, "true")) cfg.is_gateway = true;
+        else if (tok_eq(val, "0") || tok_eq(val, "false")) cfg.is_gateway = false;
+        else return CfgErr::bad_value;
+    } else if (tok_eq(key, "beacon_period_ms")) {
+        if (!parse_u32_tok(val, 0xFFFFFFFFu, u)) return CfgErr::bad_value;
+        cfg.beacon_period_ms = u;
+    } else if (tok_eq(key, "leaf_id")) {
+        if (!parse_u32_tok(val, 254, u)) return CfgErr::bad_value;
+        cfg.leaf_id = static_cast<uint8_t>(u);
+    } else {
+        return CfgErr::unknown_key;
+    }
+    return CfgErr::ok;
+}
+
 }  // namespace meshroute::console
