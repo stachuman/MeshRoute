@@ -110,6 +110,8 @@ void Node::on_timer(uint32_t timer_id) {
             DeferredLbt& d = _deferred_lbt[timer_id - kLbtDeferTimerId];
             if (d.pending) { d.pending = false;
                 lbt_complete(d.buf, d.len, d.sf, static_cast<LbtKind>(d.kind), d.rts_ctr_lo); }
+        } else if (timer_id >= kRadioBusyRetryTimerId && timer_id < kRadioBusyRetryTimerId + kRetrySlots) {
+            retry_stashed(static_cast<uint8_t>(timer_id - kRadioBusyRetryTimerId));   // R4.5b stash re-issue
         }
         break;
     }
@@ -166,7 +168,53 @@ bool Node::next_push(Push& out) {
 }
 
 // ---- callbacks deferred to later R-iterations -------------------------------
-void Node::on_radio_busy(const BusyInfo& info)     { (void)info; }       // R4 (LBT defer)
+// R4.5b: the sim's LBT/half-duplex safety-net fires this when a handed TX hits a busy channel (the firmware
+// LBT defers the INITIATING TXs first, so this catches the residual + the non-LBT responses). info.tag is the
+// frame-type the firmware tagged the TX with. RTS -> the already-armed rts_timeout re-RTSes (we must NOT clear
+// awaiting_cts here — see below); DATA -> clear awaiting_ack + cancel the ack-timeout; then re-issue the stashed
+// retry-eligible frame (CTS/DATA/ACK/NACK) up to TX_DEFER_MAX_RETRIES. Lua dv:12081-12215. NEVER fires in the gates
+// (lbt_enabled=false + healthy duty) -> inert.
+void Node::on_radio_busy(const BusyInfo& info) {
+    const FrameTag tag = static_cast<FrameTag>(info.tag);
+    { EventField f[] = { { .key = "reason",        .type = EventField::T::i64, .i = static_cast<uint8_t>(info.reason) },
+                         { .key = "busy_until_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(info.busy_until_ms) } };
+      _hal.emit("radio_busy", f, 2); }
+    if (tag == FrameTag::rts && _pending_tx) {                      // RTS blocked: rts_timeout retries (dv:12089)
+        // PORT DIVERGENCE (deliberate): Lua dv:12091 clears awaiting_cts here, but Lua's rts_timeout_fire does NOT
+        // gate on it (it captures ctr_lo in the timer closure). OUR rts_timeout_fire uses awaiting_cts AS the
+        // staleness key (the fixed timer id can't carry ctr_lo), so clearing it makes the already-armed timeout bail
+        // -> the blocked RTS would never retry (carol stranded on r7_lbt_busy_diff). The RTS never hit the air, so
+        // the node legitimately still awaits a CTS that won't come; leaving awaiting_cts=true lets the armed
+        // rts_timeout fire + re-RTS, matching Lua's NET behaviour. Every other awaiting_cts=false transition cancels
+        // kRtsTimeoutTimerId first (handle_cts:173, handle_nack:389), so the guard stays sound for those paths.
+        EventField f[] = { { .key = "next", .type = EventField::T::i64, .i = _pending_tx->next },
+                           { .key = "ctr",  .type = EventField::T::i64, .i = _pending_tx->ctr } };
+        _hal.emit("rts_tx_blocked", f, 2);
+    }
+    if (tag == FrameTag::data && _pending_tx) {                     // DATA blocked: stash retry re-issues (dv:12109)
+        _pending_tx->awaiting_ack = false;
+        _hal.cancel(kAckTimeoutTimerId);
+        EventField f[] = { { .key = "next", .type = EventField::T::i64, .i = _pending_tx->next },
+                           { .key = "ctr",  .type = EventField::T::i64, .i = _pending_tx->ctr } };
+        _hal.emit("data_tx_blocked", f, 2);
+    }
+    const int slot = retry_slot_of(tag);
+    if (slot < 0) return;                                          // RTS/beacon: not stash-retried
+    TxStashSlot& s = _tx_stash[slot];
+    if (!s.valid) return;                                          // stash cleared by a newer same-tag TX
+    if (s.retries_left == 0) {                                     // exhausted -> give up (dv:12190)
+        EventField f[] = { { .key = "tag", .type = EventField::T::i64, .i = info.tag } };
+        _hal.emit("tx_giveup", f, 1);
+        s.valid = false;
+        return;
+    }
+    --s.retries_left;
+    const uint64_t now  = _hal.now();
+    const uint64_t wait = (info.busy_until_ms > now) ? (info.busy_until_ms - now) : 0;
+    const uint32_t delay = static_cast<uint32_t>(wait) + 2 +                                  // +2 guard (dv:12204)
+                           static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(_lbt_backoff_ms) + 1));   // DRAW
+    (void)_hal.after(delay, kRadioBusyRetryTimerId + slot);
+}
 // SX1262 PreambleDetected IRQ: the channel is busy with someone at our SF NOW, even if the packet
 // won't decode. Feeds the throttle's channel-busy witness so beacon_fire's quiet check sees real
 // activity, not the decode-success-biased view (dv:12219-12232). Pure timestamp, no rand.

@@ -191,9 +191,9 @@ void Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind ki
             return;
         }
     }
-    TxParams p; p.sf = sf;
-    p.label = (kind == LbtKind::rts) ? "RTS" : (kind == LbtKind::nack) ? "NACK" : "BCN";
-    _hal.tx(bytes, len, p);
+    const FrameTag tag = (kind == LbtKind::rts)  ? FrameTag::rts
+                       : (kind == LbtKind::nack) ? FrameTag::nack : FrameTag::beacon;
+    tx_with_retry(bytes, len, sf, tag);                               // R4.5b: stash (NACK) + tag the frame
     if (kind == LbtKind::rts) start_rts_timeout();                     // after_tx: CTS-wait starts when the RTS is on air
 }
 
@@ -230,9 +230,64 @@ bool Node::tx_flood(const uint8_t* bytes, size_t len, int16_t sf) {
             return true;
         }
     }
-    TxParams p; p.sf = sf; p.label = "BCN";
+    TxParams p; p.sf = sf; p.label = "BCN"; p.tag = static_cast<uint16_t>(FrameTag::beacon);  // tag the immediate beacon too (the deferred path tags via lbt_complete) — else a blocked clear-channel beacon reaches on_radio_busy mislabelled tag=0(rts)
     _hal.tx(bytes, len, p);
     return true;
+}
+
+// R4.5b: FrameTag -> the human label for telemetry/TxParams.
+const char* Node::label_of_frame(FrameTag t) {
+    switch (t) { case FrameTag::rts: return "RTS"; case FrameTag::cts: return "CTS";
+                 case FrameTag::data: return "DATA"; case FrameTag::ack: return "ACK";
+                 case FrameTag::nack: return "NACK"; default: return "BCN"; }
+}
+int Node::retry_slot_of(FrameTag tag) {
+    // PORT DIVERGENCE (deliberate, non-goal): Lua keys its stash by string label and has SEPARATE retry-eligible
+    // labels "CTS" vs "CTS-dup" (and "K-dup", "Q") — dv:3073-3081. We collapse the dup variants into the base slot
+    // (CTS-dup -> cts slot 0), so a fresh CTS and a dup-CTS share one slot (a 2nd overwrites the 1st's retry budget).
+    // Benign: these CTS variants target the same flight + a lost CTS retry is recovered by the peer's rts_timeout
+    // re-RTS; and it is gate-inert (on_radio_busy never fires at lbt_enabled=false). A byte-faithful CTS-dup/K-dup/Q
+    // split is a documented R-future non-goal ([[r4.5b spec §7]]).
+    switch (tag) { case FrameTag::cts: return 0; case FrameTag::data: return 1;
+                   case FrameTag::ack: return 2; case FrameTag::nack: return 3;
+                   default: return -1; }                            // rts/beacon NOT retry-eligible
+}
+
+// R4.5b central TX (Lua tx_with_retry dv:3599-3639): STASH the retry-eligible frame so on_radio_busy can re-issue
+// it on a busy channel, then hand to the radio tagged with the frame type (the sim echoes the tag back). RTS and
+// beacon are not retry-eligible (slot -1). (The Lua duty pre-check at dv:3622 is the response-duty defer — DEFERRED;
+// it is draw-free + gate-inert at healthy duty, tracked in the R4.5b spec non-goals.)
+void Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag tag) {
+    const int slot = retry_slot_of(tag);
+    if (slot >= 0) {
+        TxStashSlot& s = _tx_stash[slot];
+        s.valid = true; s.sf = sf; s.retries_left = protocol::tx_defer_max_retries;
+        s.ctr_lo = _pending_tx ? _pending_tx->ctr_lo : 0;   // READ only for the DATA slot (retry_stashed re-arm guard); for CTS/ACK/NACK this records the forwarder's OWN outbound flight + is never consulted
+        s.len = static_cast<uint16_t>(len < sizeof(s.buf) ? len : sizeof(s.buf));
+        for (uint16_t i = 0; i < s.len; ++i) s.buf[i] = bytes[i];
+    }
+    TxParams p; p.sf = sf; p.label = label_of_frame(tag); p.tag = static_cast<uint16_t>(tag);
+    _hal.tx(bytes, len, p);
+}
+
+// R4.5b: re-issue a stashed frame (kRadioBusyRetryTimerId+slot fire). Re-uses the SAME tag so a repeat block
+// lands back on the same stash slot (retries_left already decremented in on_radio_busy).
+void Node::retry_stashed(uint8_t slot) {
+    if (slot >= kRetrySlots) return;
+    TxStashSlot& s = _tx_stash[slot];
+    if (!s.valid) return;
+    static const FrameTag kSlotTag[kRetrySlots] = { FrameTag::cts, FrameTag::data, FrameTag::ack, FrameTag::nack };
+    const FrameTag tag = kSlotTag[slot];
+    TxParams p; p.sf = s.sf; p.label = label_of_frame(tag); p.tag = static_cast<uint16_t>(tag);
+    _hal.tx(s.buf, s.len, p);
+    // DATA re-issue: re-arm the ACK wait the on_radio_busy block cleared, exactly as the Lua DATA on_handed does
+    // (dv:10270-10278) — fires on the initial tx AND on the stash retry. Without this the re-sent DATA flies but the
+    // sender stays !awaiting_ack with no ack-timeout, so the returning ACK is dropped + the flight never recovers.
+    // Guarded on the pending flight (ctr_lo) so a retry against a since-replaced flight does NOT re-arm.
+    if (tag == FrameTag::data && _pending_tx && _pending_tx->ctr_lo == s.ctr_lo) {
+        _pending_tx->awaiting_ack = true;
+        start_ack_timeout();
+    }
 }
 
 void Node::do_data_tx() {
@@ -268,8 +323,7 @@ void Node::do_data_tx() {
     uint8_t buf[protocol::lora_max_frame_bytes];
     const size_t dlen = pack_data(din, std::span<uint8_t>(buf, sizeof(buf)));
     if (dlen == 0) { _hal.log("DATA pack failed"); return; }
-    TxParams p; p.sf = static_cast<int16_t>(pt.chosen_data_sf); p.label = "DATA";
-    _hal.tx(buf, dlen, p);                               // DATA on the chosen data SF; RX stays routing_sf
+    tx_with_retry(buf, dlen, static_cast<int16_t>(pt.chosen_data_sf), FrameTag::data);   // R4.5b: stash for on_radio_busy retry
     EventField f[] = {
         { .key = "dst",  .type = EventField::T::i64, .i = pt.dst },
         { .key = "next", .type = EventField::T::i64, .i = pt.next },

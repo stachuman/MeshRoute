@@ -214,6 +214,7 @@ private:
     static constexpr uint32_t kNackWaitTimerId         = 13;  // NACK BUSY_RX wait-same-hop one-shot
     static constexpr uint32_t kBeaconJitterTimerId     = 14;  // R4.3 silence-jitter deferred periodic beacon
     static constexpr uint32_t kLbtDeferTimerId         = 15;  // R4.5 LBT deferred-TX re-fire; BASE of a 4-slot range [15..18]
+    static constexpr uint32_t kRadioBusyRetryTimerId   = 19;  // R4.5b on_radio_busy stash re-issue; BASE of a 4-slot range [19..22]
 
     // ---- beacon emit / ingest ----------------------------------------------
     void emit_beacon(const char* kind);                            // "periodic" | "triggered"
@@ -271,11 +272,19 @@ private:
     // defer at busy_until + rand(0,lbt_backoff+1) (dv:3680); tx_flood wraps a beacon (LBT + max-defer DROP +
     // duty pre-check, dv:3765); lbt_complete runs the deferred TX (+ the RTS staleness check + start_rts_timeout).
     enum class LbtKind : uint8_t { rts = 0, nack = 1, flood = 2 };
+    // R4.5b frame-type tag (echoed by the sim in on_radio_busy; identifies a blocked TX heap-free).
+    enum class FrameTag : uint16_t { rts = 0, cts = 1, data = 2, ack = 3, nack = 4, beacon = 5 };
     void     tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint8_t rts_ctr_lo);
     bool     tx_flood(const uint8_t* bytes, size_t len, int16_t sf);   // false = dropped/skipped (no TX)
     void     lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint8_t rts_ctr_lo);
     bool     schedule_lbt_defer(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind,   // free-slot stash
                                 uint8_t rts_ctr_lo, uint32_t delay);   // false = ring full (dropped)
+    // R4.5b: the central TX helper (Lua tx_with_retry dv:3599) — stash the retry-eligible frame + set the
+    // frame-type tag + duty pre-check + _hal.tx. Every TX except the beacon routes through it.
+    void     tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag tag);
+    void     retry_stashed(uint8_t slot);                          // re-issue a stashed frame (kRadioBusyRetryTimerId+slot)
+    static int retry_slot_of(FrameTag tag);                        // FrameTag -> stash slot (0..3) or -1 (not eligible)
+    static const char* label_of_frame(FrameTag tag);              // FrameTag -> "RTS"/"CTS"/...
     // ---- cascade-to-alt walk + no-route defer+Q ----------------------------
     uint8_t  pick_next_cascade_hop(const PendingTx& pt) const;    // two-pass walk :5430; 0 = none
     bool     next_hop_selectable(const RtCandidate& c, const PendingTx& pt,
@@ -323,6 +332,14 @@ private:
     struct DeferredLbt { bool pending = false; uint8_t kind = 0; uint8_t len = 0; int16_t sf = 0;
                          uint8_t rts_ctr_lo = 0; uint8_t buf[protocol::beacon_max_bytes] = {}; };
     DeferredLbt _deferred_lbt[kLbtSlots];
+    // R4.5b on_radio_busy retry: a per-frame-type tag (echoed by the sim) lets on_radio_busy identify a blocked
+    // TX (heap-free, no string label). The retry-eligible frames (CTS/DATA/ACK/NACK; RTS/beacon are NOT) are
+    // STASHED so a busy-channel block re-issues them up to TX_DEFER_MAX_RETRIES. tx_stash keyed by the retry slot.
+    static constexpr uint8_t kRetrySlots = 4;   // cts, data, ack, nack
+    struct TxStashSlot { bool valid = false; uint16_t len = 0; int16_t sf = 0; uint8_t retries_left = 0;
+                         uint8_t ctr_lo = 0;   // DATA slot: the pending_tx flight this DATA belongs to (re-arm guard, dv:10271)
+                         uint8_t buf[protocol::lora_max_frame_bytes] = {}; };
+    TxStashSlot _tx_stash[kRetrySlots];
     // R3 data-plane state (single flight per node)
     static constexpr uint8_t kTxQueueCap = 8;
     TxItem                   _tx_queue[kTxQueueCap];

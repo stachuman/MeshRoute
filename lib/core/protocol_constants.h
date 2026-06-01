@@ -51,6 +51,7 @@ inline constexpr uint16_t beacon_max_bytes               = 151;
 inline constexpr uint16_t beacon_trigger_jitter_min_ms   = 2000;
 inline constexpr uint16_t beacon_trigger_jitter_max_ms   = 10000;
 inline constexpr uint32_t beacon_trigger_min_interval_ms = 120000;
+inline constexpr uint8_t  tx_defer_max_retries           = 3;       // R4.5b on_radio_busy stash retries (dv:3082)
 inline constexpr uint32_t quiet_threshold_ms             = 30000;
 inline constexpr uint16_t beacon_silence_jitter_ms       = 10000;
 inline constexpr uint32_t seen_bitmap_ttl_ms             = 1800000;

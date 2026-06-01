@@ -50,8 +50,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         cts_in cin{}; cin.ctr_lo = r.ctr_lo; cin.chosen_data_sf = la->second.chosen_data_sf;
         cin.already_received = true; cin.to = r.src;
         uint8_t cbuf[3]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, 3));
-        TxParams cp; cp.sf = static_cast<int16_t>(_cfg.routing_sf); cp.label = "CTS";
-        _hal.tx(cbuf, cl, cp);
+        tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b
         EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
                            { .key = "dup", .type = EventField::T::boolean, .b = true } };
         _hal.emit("cts_tx", f, 2);
@@ -64,8 +63,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         cts_in cin{}; cin.ctr_lo = r.ctr_lo; cin.chosen_data_sf = _pending_rx->chosen_data_sf;
         cin.already_received = false; cin.to = r.src;
         uint8_t cbuf[3]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, 3));
-        TxParams cp; cp.sf = static_cast<int16_t>(_cfg.routing_sf); cp.label = "CTS";
-        _hal.tx(cbuf, cl, cp);
+        tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b
         EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
                            { .key = "dup", .type = EventField::T::boolean, .b = true } };
         _hal.emit("cts_tx", f, 2);
@@ -153,8 +151,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     start_pending_rx_expiry(r.payload_len);
     cts_in cin{}; cin.ctr_lo = r.ctr_lo; cin.chosen_data_sf = sf; cin.already_received = false; cin.to = r.src;
     uint8_t cbuf[3]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, 3));
-    TxParams cp; cp.sf = static_cast<int16_t>(_cfg.routing_sf); cp.label = "CTS";
-    _hal.tx(cbuf, cl, cp);                               // CTS on routing_sf
+    tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b: stash + tag the CTS
     { EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
                          { .key = "sf", .type = EventField::T::i64, .i = sf } };
       _hal.emit("cts_tx", f, 2); }
@@ -241,8 +238,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         nin.payload = static_cast<uint8_t>((hb_new_committed & 0x0f) << 4);   // committed in the HIGH nibble
         nin.to = from;
         uint8_t nbuf[4]; const size_t nl = pack_nack(nin, std::span<uint8_t>(nbuf, 4));
-        TxParams np; np.sf = static_cast<int16_t>(_cfg.routing_sf); np.label = "NACK";
-        _hal.tx(nbuf, nl, np);
+        tx_with_retry(nbuf, nl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::nack);   // R4.5b (HOP_BUDGET NACK)
         EventField nf[] = { { .key = "to",     .type = EventField::T::i64, .i = from },
                             { .key = "reason", .type = EventField::T::i64, .i = protocol::nack_reason_hop_budget },
                             { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr } };
@@ -263,8 +259,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             nack_in nin{}; nin.reason = protocol::nack_reason_loop_dup; nin.ctr_lo = d.ctr_lo4;
             nin.payload = sof->second; nin.to = from;
             uint8_t nbuf[4]; const size_t nl = pack_nack(nin, std::span<uint8_t>(nbuf, 4));
-            TxParams np; np.sf = static_cast<int16_t>(_cfg.routing_sf); np.label = "NACK";
-            _hal.tx(nbuf, nl, np);
+            tx_with_retry(nbuf, nl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::nack);   // R4.5b (LOOP_DUP NACK)
             EventField nf[] = { { .key = "to",     .type = EventField::T::i64, .i = from },
                                 { .key = "reason", .type = EventField::T::i64, .i = protocol::nack_reason_loop_dup },
                                 { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr } };
@@ -287,8 +282,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     ack_in ain{}; ain.ctr_lo = d.ctr_lo4; ain.budget_hint = hint;
     ain.snr_bucket = bucket_of_snr_2b(protocol::db_to_q4(meta.snr_db)); ain.to = from;
     uint8_t abuf[3]; const size_t al = pack_ack(ain, std::span<uint8_t>(abuf, 3));
-    TxParams ap; ap.sf = static_cast<int16_t>(_cfg.routing_sf); ap.label = "ACK";
-    _hal.tx(abuf, al, ap);
+    tx_with_retry(abuf, al, static_cast<int16_t>(_cfg.routing_sf), FrameTag::ack);   // R4.5b: stash + tag the ACK
     { EventField f[] = { { .key = "to",  .type = EventField::T::i64, .i = from },
                          { .key = "ctr", .type = EventField::T::i64, .i = d.ctr } };
       _hal.emit("ack_tx", f, 2); }

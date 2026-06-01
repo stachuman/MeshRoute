@@ -89,6 +89,7 @@ constexpr uint32_t kTriggeredBeaconTimerId = 3;   // R4.2: rerank re-advertises 
 constexpr uint32_t kBeaconTimerId        = 1;     // R4.3 periodic beacon fire
 constexpr uint32_t kBeaconJitterTimerId  = 14;    // R4.3 silence-jitter deferred beacon
 constexpr uint32_t kLbtDeferTimerId      = 15;    // R4.5 LBT busy-channel deferred TX
+constexpr uint32_t kRadioBusyRetryTimerId = 19;   // R4.5b on_radio_busy stash-retry (slot base)
 
 static size_t mk_nack(uint8_t to, uint8_t ctr_lo, uint8_t reason, uint8_t payload,
                       std::array<uint8_t, 8>& b) {
@@ -1360,4 +1361,72 @@ TEST_CASE("R4.5 LBT ring — two concurrent deferred NACKs BOTH reach the radio 
     node.on_timer(kLbtDeferTimerId + 1);
     int nack_tx = 0; for (const auto& f : hal.tx_frames) if (f.label == "NACK") ++nack_tx;
     CHECK(nack_tx == 2);
+}
+
+// ---- R4.5b — on_radio_busy stash retry (the busy-channel response retry) ----
+TEST_CASE("R4.5b on_radio_busy — a blocked DATA clears awaiting_ack + retries from the stash (3x, one draw each) then gives up") {
+    TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
+    send_cmd(*node, 5, "hi");                                  // RTS
+    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(1, 1, 7, cb);
+    RxMeta m2{12.0f,-70.0f,0,static_cast<int8_t>(2)}; node->on_recv(cb.data(), cn, m2);
+    node->on_timer(kCtsToDataGapTimerId);                     // DATA tx -> awaiting_ack + DATA stashed
+    CHECK(hal.last_tx("DATA") != nullptr);
+    // a blocked DATA (the sim's safety-net couldn't send it): on_radio_busy(tag=DATA=2).
+    meshroute::BusyInfo bi{meshroute::BusyReason::channel_busy, /*tag=DATA*/2, /*sf=*/7, /*busy_until=*/0};
+    const int rb = hal.rand_calls;
+    node->on_radio_busy(bi);                                  // retry #1 (retries 3->2)
+    CHECK(hal.count("data_tx_blocked") == 1);
+    CHECK(hal.rand_calls - rb == 1);                          // ONE retry-jitter draw
+    node->on_timer(kRadioBusyRetryTimerId + 1);              // slot 1 = DATA -> re-issue
+    int data_n = 0; for (const auto& f : hal.tx_frames) if (f.label == "DATA") ++data_n;
+    CHECK(data_n == 2);                                       // original + the retry
+    // exhaust the remaining retries -> giveup on the 4th block.
+    node->on_radio_busy(bi);                                  // retry #2 (2->1)
+    node->on_radio_busy(bi);                                  // retry #3 (1->0)
+    const int rb2 = hal.rand_calls;
+    node->on_radio_busy(bi);                                  // retries_left==0 -> giveup, NO draw
+    CHECK(hal.count("tx_giveup") == 1);
+    CHECK(hal.rand_calls - rb2 == 0);
+    delete node;
+}
+
+TEST_CASE("R4.5b on_radio_busy — a DATA retry re-arms the ACK wait (port divergence: Lua on_handed re-arms, ours must too)") {
+    // Regression guard: Lua's DATA on_handed (dv:10270-10278) sets awaiting_ack + start_ack_timeout, and the stash
+    // retry re-fires on_handed. OUR retry_stashed re-sends the bytes only; without the explicit DATA re-arm the
+    // re-sent DATA flies but the sender stays !awaiting_ack with no ack-timeout -> the returning ACK is dropped +
+    // the flight never completes. Assert a matching ACK is ACCEPTED after the retry (only possible if re-armed).
+    TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
+    send_cmd(*node, 5, "hi");                                  // RTS
+    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(1, 1, 7, cb);
+    RxMeta m2{12.0f,-70.0f,0,static_cast<int8_t>(2)}; node->on_recv(cb.data(), cn, m2);
+    node->on_timer(kCtsToDataGapTimerId);                     // DATA tx -> awaiting_ack + DATA stashed
+    meshroute::BusyInfo bi{meshroute::BusyReason::channel_busy, /*tag=DATA*/2, /*sf=*/7, /*busy_until=*/0};
+    node->on_radio_busy(bi);                                  // clears awaiting_ack + cancels ack-timeout
+    node->on_timer(kRadioBusyRetryTimerId + 1);              // retry: re-tx DATA + RE-ARM awaiting_ack + ack-timeout
+    std::array<uint8_t,8> ab{}; const size_t an = mk_ack(1, 1, ab);
+    RxMeta m3{12.0f,-70.0f,0,static_cast<int8_t>(2)}; node->on_recv(ab.data(), an, m3);
+    CHECK(hal.count("ack_rx") == 1);                          // re-armed -> the ACK completes the flight
+    delete node;
+}
+
+TEST_CASE("R4.5b on_radio_busy — a blocked RTS re-RTSes via the already-armed rts_timeout (port divergence fix)") {
+    // Regression guard: Lua dv:12091 clears awaiting_cts on a blocked RTS, but its rts_timeout_fire ignores
+    // awaiting_cts (captures ctr_lo) and retries. OUR rts_timeout_fire uses awaiting_cts as the staleness key, so
+    // on_radio_busy(RTS) must NOT clear it — else the armed timeout bails and the blocked RTS is stranded forever.
+    TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
+    send_cmd(*node, 5, "hi");                                  // RTS -> awaiting_cts + rts_timeout armed
+    int rts0 = 0; for (const auto& f : hal.tx_frames) if (f.label == "RTS") ++rts0;
+    CHECK(rts0 == 1);
+    meshroute::BusyInfo bi{meshroute::BusyReason::channel_busy, /*tag=RTS*/0, /*sf=*/7, /*busy_until=*/0};
+    const int rb = hal.rand_calls;
+    node->on_radio_busy(bi);
+    CHECK(hal.count("rts_tx_blocked") == 1);
+    CHECK(hal.count("tx_giveup") == 0);                       // RTS is NOT stash-retried
+    CHECK(hal.rand_calls - rb == 0);                          // on_radio_busy itself takes no retry draw for an RTS
+    // the armed rts_timeout must still fire + drive a re-RTS (proves awaiting_cts was left intact).
+    node->on_timer(kRtsTimeoutTimerId);                       // -> rts_timeout_fire -> retries_left-- + backoff draw
+    node->on_timer(kRetryBackoffTimerId);                     // -> re-RTS
+    int rts1 = 0; for (const auto& f : hal.tx_frames) if (f.label == "RTS") ++rts1;
+    CHECK(rts1 == 2);                                         // the blocked RTS was actually retried
+    delete node;
 }
