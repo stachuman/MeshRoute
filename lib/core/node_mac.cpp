@@ -131,15 +131,108 @@ void Node::tx_rts_retry() {
     uint8_t buf[9];
     const size_t l = pack_rts(rin, std::span<uint8_t>(buf, sizeof(buf)));
     if (l == 0) { _hal.log("RTS pack failed"); return; }
-    TxParams p; p.sf = static_cast<int16_t>(_cfg.routing_sf); p.label = "RTS";
-    _hal.tx(buf, l, p);                                  // RX stays on routing_sf
     EventField f[] = {
         { .key = "dst",  .type = EventField::T::i64, .i = pt.dst },
         { .key = "next", .type = EventField::T::i64, .i = pt.next },
         { .key = "ctr",  .type = EventField::T::i64, .i = pt.ctr },
     };
-    _hal.emit("rts_tx", f, 3);
-    start_rts_timeout();
+    _hal.emit("rts_tx", f, 3);                           // emit at the call site (before the LBT defer, dv-faithful)
+    // R4.5: the actual TX + start_rts_timeout go through the LBT wrapper (defer if the channel is busy). RX stays
+    // on routing_sf. lbt_enabled=false (every gate) -> straight TX + timeout, byte-identical.
+    tx_initiating(buf, l, static_cast<int16_t>(_cfg.routing_sf), LbtKind::rts, pt.ctr_lo);
+}
+
+// R4.5 LBT: hand an INITIATING frame to the radio, but if the channel is busy (and lbt_enabled) defer the real
+// TX past busy_until + rand(0,lbt_backoff+1) — the ONE LBT draw, ONLY when busy (dv:3693-3706). lbt_enabled=false
+// (every gate) -> straight to lbt_complete -> byte-identical, NO draw.
+void Node::tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint8_t rts_ctr_lo) {
+    if (_cfg.lbt_enabled) {
+        const uint64_t now = _hal.now();
+        const uint64_t busy_until = _hal.channel_busy_until();
+        if (busy_until > now) {
+            const uint32_t wait  = static_cast<uint32_t>(busy_until - now);
+            const uint32_t delay = wait + static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(_lbt_backoff_ms) + 1));
+            EventField f[] = { { .key = "kind",          .type = EventField::T::str, .s = "initiating" },
+                               { .key = "defer_ms",      .type = EventField::T::i64, .i = delay },
+                               { .key = "busy_until_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(busy_until) } };
+            _hal.emit("tx_lbt_defer", f, 3);
+            schedule_lbt_defer(bytes, len, sf, kind, rts_ctr_lo, delay);
+            return;
+        }
+    }
+    lbt_complete(bytes, len, sf, kind, rts_ctr_lo);
+}
+
+// Stash a busy-channel deferred TX in a free ring slot + arm its own timer (kLbtDeferTimerId + slot), so
+// concurrent defers each fire independently (Lua per-closure semantics). false = ring full (rare; >4 defers).
+bool Node::schedule_lbt_defer(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind,
+                              uint8_t rts_ctr_lo, uint32_t delay) {
+    for (uint8_t s = 0; s < kLbtSlots; ++s) {
+        if (_deferred_lbt[s].pending) continue;
+        DeferredLbt& d = _deferred_lbt[s];
+        d.pending = true; d.kind = static_cast<uint8_t>(kind); d.sf = sf; d.rts_ctr_lo = rts_ctr_lo;
+        d.len = static_cast<uint8_t>(len < sizeof(d.buf) ? len : sizeof(d.buf));
+        for (uint8_t i = 0; i < d.len; ++i) d.buf[i] = bytes[i];
+        (void)_hal.after(delay, kLbtDeferTimerId + s);
+        return true;
+    }
+    EventField f[] = { { .key = "kind", .type = EventField::T::i64, .i = static_cast<uint8_t>(kind) } };
+    _hal.emit("tx_lbt_defer_dropped", f, 1);                            // ring full -> drop loudly
+    return false;
+}
+
+// The actual TX (immediate clear-channel path OR the kLbtDeferTimerId re-fire). RTS: the __pending_tx_ref
+// staleness check (cancel a stale deferred RTS, dv:3708) + start_rts_timeout (the after_tx). NACK/flood: just TX.
+void Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint8_t rts_ctr_lo) {
+    if (kind == LbtKind::rts) {
+        if (!_pending_tx || _pending_tx->ctr_lo != rts_ctr_lo) {        // flight changed while we waited
+            EventField f[] = { { .key = "reason", .type = EventField::T::str, .s = "pending_tx_changed" } };
+            _hal.emit("rts_tx_cancelled_stale", f, 1);
+            return;
+        }
+    }
+    TxParams p; p.sf = sf;
+    p.label = (kind == LbtKind::rts) ? "RTS" : (kind == LbtKind::nack) ? "NACK" : "BCN";
+    _hal.tx(bytes, len, p);
+    if (kind == LbtKind::rts) start_rts_timeout();                     // after_tx: CTS-wait starts when the RTS is on air
+}
+
+// R4.5 FLOOD TX (beacon, dv:3765-3814). Duty pre-check (skip if it would breach budget), then LBT: drop the page
+// if the channel is busy longer than flood_lbt_max_defer_ms, else defer past busy_until + a backoff, else TX now.
+bool Node::tx_flood(const uint8_t* bytes, size_t len, int16_t sf) {
+    if (_duty_cycle_budget_ms > 0) {                                   // duty pre-check (dv:7781) — only when enabled
+        const uint64_t airtime = airtime_routing_ms(static_cast<int>(len));
+        const uint64_t used    = _hal.airtime_used_ms(_cfg.duty_cycle_window_ms);
+        if (used + airtime > _duty_cycle_budget_ms) {
+            EventField f[] = { { .key = "airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(airtime) },
+                               { .key = "source",     .type = EventField::T::str, .s = "tx_flood" } };
+            _hal.emit("duty_cycle_blocked", f, 2);
+            return false;
+        }
+    }
+    if (_cfg.lbt_enabled) {
+        const uint64_t now = _hal.now();
+        const uint64_t busy_until = _hal.channel_busy_until();
+        const int64_t  wait = static_cast<int64_t>(busy_until) - static_cast<int64_t>(now);
+        if (wait > static_cast<int64_t>(_flood_lbt_max_defer_ms)) {    // busy too long -> drop the page (dv:3796)
+            EventField f[] = { { .key = "busy_for_ms", .type = EventField::T::i64, .i = wait } };
+            _hal.emit("tx_flood_skipped", f, 1);
+            return false;
+        }
+        if (wait > 0) {
+            const uint32_t delay = static_cast<uint32_t>(wait) +
+                                   static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(_lbt_backoff_ms) + 1));
+            EventField f[] = { { .key = "kind",          .type = EventField::T::str, .s = "flood" },
+                               { .key = "defer_ms",      .type = EventField::T::i64, .i = delay },
+                               { .key = "busy_until_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(busy_until) } };
+            _hal.emit("tx_lbt_defer", f, 3);
+            schedule_lbt_defer(bytes, len, sf, LbtKind::flood, 0, delay);
+            return true;
+        }
+    }
+    TxParams p; p.sf = sf; p.label = "BCN";
+    _hal.tx(bytes, len, p);
+    return true;
 }
 
 void Node::do_data_tx() {

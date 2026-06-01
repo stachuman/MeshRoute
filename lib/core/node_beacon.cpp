@@ -122,7 +122,7 @@ void Node::emit_beacon(const char* kind) {
     TxParams p;
     p.sf    = static_cast<int16_t>(_cfg.routing_sf);
     p.label = "BCN";
-    const TxResult r = _hal.tx(buf, len, p);
+    const bool sent = tx_flood(buf, len, p.sf);          // R4.5 FLOOD LBT + duty pre-check (was a raw _hal.tx)
     _last_beacon_tx_ms = _hal.now();
 
     // Clear dirty ONLY on the dirty entries that landed in THIS beacon — overflow
@@ -134,7 +134,7 @@ void Node::emit_beacon(const char* kind) {
         { .key = "rt_total",   .type = EventField::T::i64, .i = static_cast<int64_t>(_rt_count) },
         { .key = "routing_sf", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.routing_sf) },
         { .key = "kind",       .type = EventField::T::str, .s = kind },
-        { .key = "result",     .type = EventField::T::i64, .i = static_cast<int64_t>(static_cast<int>(r)) },
+        { .key = "result",     .type = EventField::T::i64, .i = sent ? 0 : 2 },   // 0=sent/deferred, 2=dropped (LBT/duty)
     };
     _hal.emit("beacon_tx", f, 5);
 

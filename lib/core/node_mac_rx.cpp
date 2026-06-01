@@ -85,12 +85,11 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         nack_in nin{}; nin.reason = protocol::nack_reason_busy_rx; nin.ctr_lo = r.ctr_lo;
         nin.payload = static_cast<uint8_t>(q > 255 ? 255 : q); nin.to = r.src;
         uint8_t nbuf[4]; const size_t nl = pack_nack(nin, std::span<uint8_t>(nbuf, 4));
-        TxParams np; np.sf = static_cast<int16_t>(_cfg.routing_sf); np.label = "NACK";
-        _hal.tx(nbuf, nl, np);
         EventField f[] = { { .key = "to",      .type = EventField::T::i64, .i = r.src },
                            { .key = "reason",  .type = EventField::T::i64, .i = protocol::nack_reason_busy_rx },
                            { .key = "busy_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(busy_for) } };
         _hal.emit("nack_tx", f, 3);
+        tx_initiating(nbuf, nl, static_cast<int16_t>(_cfg.routing_sf), LbtKind::nack, 0);   // R4.5 LBT (handle_rts NACK, dv:9953)
         return;
     }
     if (_pending_tx) {                                   // sending our own -> silent (no NACK)
@@ -139,12 +138,11 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         nin.payload = static_cast<uint8_t>((static_cast<uint8_t>(my_tier) & 0x0f) << 4);   // tier HIGH nibble
         nin.to = r.src;
         uint8_t nbuf[4]; const size_t nl = pack_nack(nin, std::span<uint8_t>(nbuf, 4));
-        TxParams np; np.sf = static_cast<int16_t>(_cfg.routing_sf); np.label = "NACK";
-        _hal.tx(nbuf, nl, np);
         EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = r.src },
                            { .key = "reason", .type = EventField::T::i64, .i = protocol::nack_reason_budget },
                            { .key = "tier",   .type = EventField::T::i64, .i = static_cast<uint8_t>(my_tier) } };
         _hal.emit("nack_tx", f, 3);
+        tx_initiating(nbuf, nl, static_cast<int16_t>(_cfg.routing_sf), LbtKind::nack, 0);   // R4.5 LBT (handle_rts NACK, dv:10043)
         return;                                          // NO CTS, NO pending_rx
     }
 

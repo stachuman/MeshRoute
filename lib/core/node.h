@@ -64,6 +64,11 @@ struct NodeConfig {
     uint32_t duty_cycle_window_ms = 3600000;    // rolling airtime window (1 h)
     uint16_t originator_max_per_window = 6;      // R4.4 anti-spam: apparent_origination drop threshold (T-class)
     uint32_t beacon_silence_jitter_ms  = 10000;  // R4.3 adaptive-throttle deferred-TX spread (dv:921)
+    // R4.5 listen-before-talk. lbt_enabled default true (Lua dv:8625). The two delays default to 0 = "derive
+    // in on_init" (lbt_backoff_ms = max(1, retry_jitter_ms/2); flood_lbt_max_defer_ms = airtime(beacon_max_bytes)).
+    bool     lbt_enabled               = true;
+    uint32_t lbt_backoff_ms            = 0;       // 0 => derive
+    uint32_t flood_lbt_max_defer_ms    = 0;       // 0 => derive
 };
 
 // One route candidate (DV). Mirrors the Lua rt[dest].candidates[i] fields
@@ -208,6 +213,7 @@ private:
     static constexpr uint32_t kCascadeRequeueTimerId   = 12;  // backoff before re-draining a requeued flight
     static constexpr uint32_t kNackWaitTimerId         = 13;  // NACK BUSY_RX wait-same-hop one-shot
     static constexpr uint32_t kBeaconJitterTimerId     = 14;  // R4.3 silence-jitter deferred periodic beacon
+    static constexpr uint32_t kLbtDeferTimerId         = 15;  // R4.5 LBT deferred-TX re-fire; BASE of a 4-slot range [15..18]
 
     // ---- beacon emit / ingest ----------------------------------------------
     void emit_beacon(const char* kind);                            // "periodic" | "triggered"
@@ -261,6 +267,15 @@ private:
     void     ack_timeout_fire();                                  // :6546
     void     pending_rx_expiry_fire();                            // :6699
     void     tx_rts_retry();                                      // re-pack SAME-ctr_lo RTS
+    // R4.5 listen-before-talk. tx_initiating wraps an INITIATING TX (RTS/handle_rts NACK) — LBT pre-check,
+    // defer at busy_until + rand(0,lbt_backoff+1) (dv:3680); tx_flood wraps a beacon (LBT + max-defer DROP +
+    // duty pre-check, dv:3765); lbt_complete runs the deferred TX (+ the RTS staleness check + start_rts_timeout).
+    enum class LbtKind : uint8_t { rts = 0, nack = 1, flood = 2 };
+    void     tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint8_t rts_ctr_lo);
+    bool     tx_flood(const uint8_t* bytes, size_t len, int16_t sf);   // false = dropped/skipped (no TX)
+    void     lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint8_t rts_ctr_lo);
+    bool     schedule_lbt_defer(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind,   // free-slot stash
+                                uint8_t rts_ctr_lo, uint32_t delay);   // false = ring full (dropped)
     // ---- cascade-to-alt walk + no-route defer+Q ----------------------------
     uint8_t  pick_next_cascade_hop(const PendingTx& pt) const;    // two-pass walk :5430; 0 = none
     bool     next_hop_selectable(const RtCandidate& c, const PendingTx& pt,
@@ -298,6 +313,16 @@ private:
     // R4.3 adaptive-throttle witnesses (channel-busy detector). Pure timestamps, no rand.
     uint64_t _last_rx_routing_sf_ms = 0;         // any successful decode OR preamble-detect (dv:9164/12231); 0 = never
     uint64_t _last_rx_bcn_ms        = 0;         // last beacon ingest (the max-idle B+C filter; dv:9559)
+    // R4.5 LBT: derived delays (on_init) + a small RING of deferred-TX slots. The Lua uses independent
+    // per-defer closures (dv:3704/3808), so two concurrent busy-channel defers BOTH fire — a single stash
+    // would drop the first + desync the rand stream. Each slot has its own timer id (kLbtDeferTimerId+slot).
+    // buf holds a full beacon (beacon_max_bytes=151) — a smaller buf would TRUNCATE a deferred page (review #04).
+    uint32_t _lbt_backoff_ms        = 0;
+    uint32_t _flood_lbt_max_defer_ms = 0;
+    static constexpr uint8_t kLbtSlots = 4;
+    struct DeferredLbt { bool pending = false; uint8_t kind = 0; uint8_t len = 0; int16_t sf = 0;
+                         uint8_t rts_ctr_lo = 0; uint8_t buf[protocol::beacon_max_bytes] = {}; };
+    DeferredLbt _deferred_lbt[kLbtSlots];
     // R3 data-plane state (single flight per node)
     static constexpr uint8_t kTxQueueCap = 8;
     TxItem                   _tx_queue[kTxQueueCap];

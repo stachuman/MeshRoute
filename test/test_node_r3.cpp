@@ -41,7 +41,8 @@ public:
         return TxResult::ok;
     }
     void     set_rx_sf(int) override {}
-    uint64_t channel_busy_until() override { return 0; }
+    uint64_t _channel_busy_until = 0;   // R4.5: scriptable LBT busy horizon
+    uint64_t channel_busy_until() override { return _channel_busy_until; }
     uint64_t _airtime_used = 0;   // R4.0: scriptable rolling-window airtime for compute_budget_tier
     uint64_t airtime_used_ms(uint64_t) override { return _airtime_used; }
     uint64_t oldest_tx_end_ms() override { return 0; }
@@ -87,6 +88,7 @@ constexpr uint32_t kNackWaitTimerId      = 13;
 constexpr uint32_t kTriggeredBeaconTimerId = 3;   // R4.2: rerank re-advertises via a triggered beacon
 constexpr uint32_t kBeaconTimerId        = 1;     // R4.3 periodic beacon fire
 constexpr uint32_t kBeaconJitterTimerId  = 14;    // R4.3 silence-jitter deferred beacon
+constexpr uint32_t kLbtDeferTimerId      = 15;    // R4.5 LBT busy-channel deferred TX
 
 static size_t mk_nack(uint8_t to, uint8_t ctr_lo, uint8_t reason, uint8_t payload,
                       std::array<uint8_t, 8>& b) {
@@ -1265,4 +1267,97 @@ TEST_CASE("R4.3 max-idle witness ignores a foreign-leaf beacon (set after the le
     node.on_timer(kBeaconTimerId);
     CHECK(hal.count("beacon_max_idle_force") == 1);
     CHECK(hal.count("beacon_max_idle_skip_clean") == 0);
+}
+
+// ---- R4.5 — LBT (listen-before-talk) pre-checks (THE rand-order golden) ----
+static Node* mk_lbt_node(TestHal& hal, bool lbt_enabled, std::vector<std::array<uint8_t,3>> vias) {
+    Node* node = new Node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    cfg.lbt_enabled = lbt_enabled;
+    node->on_init(cfg);
+    std::array<uint8_t,64> bb{};
+    for (auto& v : vias) {
+        RxMeta m{12.0f,-70.0f,0,static_cast<int8_t>(v[0])};
+        const size_t n = mk_beacon_route(v[0], 5, 9, v[1], v[2], bb);
+        node->on_recv(bb.data(), n, m);
+    }
+    return node;
+}
+
+TEST_CASE("R4.5 rand-order golden — LBT draws ONLY when enabled + channel busy; the deferred re-fire draws nothing") {
+    // (a) lbt_enabled=false (every gate): RTS goes straight out even on a busy channel — NO LBT draw.
+    {
+        TestHal hal; Node* node = mk_lbt_node(hal, /*lbt_enabled=*/false, {{2,1,14}});
+        hal._now = 1000; hal._channel_busy_until = 99999;       // busy, but LBT disabled
+        const int rb = hal.rand_calls;
+        send_cmd(*node, 5, "hi");
+        CHECK(hal.rand_calls - rb == 0);                        // disabled -> NO LBT draw
+        CHECK(hal.last_tx("RTS") != nullptr);                   // RTS went straight to radio
+        delete node;
+    }
+    // (b) lbt_enabled=true but channel IDLE: no defer, NO draw.
+    {
+        TestHal hal; Node* node = mk_lbt_node(hal, /*lbt_enabled=*/true, {{2,1,14}});
+        hal._now = 1000; hal._channel_busy_until = 0;
+        const int rb = hal.rand_calls;
+        send_cmd(*node, 5, "hi");
+        CHECK(hal.rand_calls - rb == 0);                        // idle -> NO LBT draw
+        CHECK(hal.last_tx("RTS") != nullptr);
+        delete node;
+    }
+    // (c) lbt_enabled=true + channel BUSY: ONE LBT draw + tx_lbt_defer, the RTS HELD; the deferred re-fire
+    //     sends it with NO further draw (the __lbt_done once-guard).
+    {
+        TestHal hal; Node* node = mk_lbt_node(hal, /*lbt_enabled=*/true, {{2,1,14}});
+        hal._now = 1000; hal._channel_busy_until = 5000;        // busy until 5000
+        const int rb = hal.rand_calls;
+        send_cmd(*node, 5, "hi");
+        CHECK(hal.rand_calls - rb == 1);                        // ONE LBT backoff draw
+        CHECK(hal.count("tx_lbt_defer") == 1);
+        CHECK(hal.last_tx("RTS") == nullptr);                   // HELD — not on radio yet
+        const int rb2 = hal.rand_calls;
+        hal._now = 5000; hal._channel_busy_until = 0;           // channel cleared
+        node->on_timer(kLbtDeferTimerId);
+        CHECK(hal.rand_calls - rb2 == 0);                       // deferred re-fire: NO further draw
+        CHECK(hal.last_tx("RTS") != nullptr);                   // now on radio
+        delete node;
+    }
+}
+
+TEST_CASE("R4.5 tx_flood — a beacon is DROPPED when the channel is busy longer than flood_lbt_max_defer_ms") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    cfg.lbt_enabled = true; cfg.quiet_threshold_ms = 0;        // quiet=0 fast path -> emit_beacon -> tx_flood
+    node.on_init(cfg);
+    hal._now = 1000; hal._channel_busy_until = 10000000;       // busy WAY past flood_lbt_max_defer
+    const int rb = hal.rand_calls;
+    node.on_timer(kBeaconTimerId);
+    CHECK(hal.count("tx_flood_skipped") == 1);                 // page dropped
+    CHECK(hal.last_tx("BCN") == nullptr);                      // nothing on radio
+    CHECK(hal.rand_calls - rb == 1);                           // only the periodic re-arm draw (NO LBT defer draw)
+}
+
+// review #00/#02/#03: TWO concurrent LBT defers must BOTH fire — a single stash would clobber the first
+// (drop it + desync the rand stream). The ring gives each defer its own slot + timer (Lua per-closure semantics).
+TEST_CASE("R4.5 LBT ring — two concurrent deferred NACKs BOTH reach the radio (no single-stash clobber)") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = true;
+    node.on_init(cfg);
+    std::array<uint8_t,16> rb{};
+    hal._now = 1000; hal._channel_busy_until = 0;
+    // make the node BUSY receiving (pending_rx) so further RTSes get BUSY_RX NACKs.
+    { const size_t rn = mk_rts(2,1,9,5,10,rb); RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)}; node.on_recv(rb.data(), rn, m2); }
+    CHECK(hal.count("cts_tx") >= 1);
+    // busy channel + two more RTSes from DIFFERENT senders -> two BUSY_RX NACKs, both LBT-deferred (slots 0,1).
+    hal._channel_busy_until = 5000;
+    { const size_t rn = mk_rts(3,1,8,6,10,rb); RxMeta m3{8.0f,-80.0f,0,static_cast<int8_t>(3)}; node.on_recv(rb.data(), rn, m3); }
+    { const size_t rn = mk_rts(4,1,8,7,10,rb); RxMeta m4{8.0f,-80.0f,0,static_cast<int8_t>(4)}; node.on_recv(rb.data(), rn, m4); }
+    CHECK(hal.count("tx_lbt_defer") == 2);                     // both deferred (distinct slots, NOT clobbered)
+    CHECK(hal.count("tx_lbt_defer_dropped") == 0);
+    // fire both slot timers -> BOTH NACKs go to the radio (single stash would send only one).
+    hal._now = 5000; hal._channel_busy_until = 0;
+    node.on_timer(kLbtDeferTimerId + 0);
+    node.on_timer(kLbtDeferTimerId + 1);
+    int nack_tx = 0; for (const auto& f : hal.tx_frames) if (f.label == "NACK") ++nack_tx;
+    CHECK(nack_tx == 2);
 }

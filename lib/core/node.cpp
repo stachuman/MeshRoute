@@ -39,6 +39,13 @@ void Node::on_init(const NodeConfig& cfg) {
         ? static_cast<uint64_t>(_cfg.duty_cycle * _cfg.duty_cycle_window_ms)
         : 0;
 
+    // R4.5 LBT delays (Lua dv:8628-8632). 0-config => derive: backoff = max(1, retry_jitter/2); the flood
+    // max-defer = one full-size beacon's airtime. (retry_jitter_ms() is the same RTS_LEN=8 timing constant.)
+    _lbt_backoff_ms = (_cfg.lbt_backoff_ms > 0) ? _cfg.lbt_backoff_ms
+                      : (retry_jitter_ms() / 2 > 1 ? retry_jitter_ms() / 2 : 1);
+    _flood_lbt_max_defer_ms = (_cfg.flood_lbt_max_defer_ms > 0) ? _cfg.flood_lbt_max_defer_ms
+                              : airtime_routing_ms(protocol::beacon_max_bytes);
+
     // Discovery window: boot in fast-cadence / full-page mode until we have heard
     // enough of the mesh or a bounded timeout expires (dv_dual_sf.lua:8399-8401).
     _discovery_started_ms   = _hal.now();
@@ -98,6 +105,12 @@ void Node::on_timer(uint32_t timer_id) {
         }
         break;
     default:
+        // R4.5 LBT deferred-TX slots occupy the id range [kLbtDeferTimerId, +kLbtSlots) — each fires its own slot.
+        if (timer_id >= kLbtDeferTimerId && timer_id < kLbtDeferTimerId + kLbtSlots) {
+            DeferredLbt& d = _deferred_lbt[timer_id - kLbtDeferTimerId];
+            if (d.pending) { d.pending = false;
+                lbt_complete(d.buf, d.len, d.sf, static_cast<LbtKind>(d.kind), d.rts_ctr_lo); }
+        }
         break;
     }
 }
