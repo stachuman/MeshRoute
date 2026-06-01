@@ -24,10 +24,9 @@ void Node::mark_tried(PendingTx& pt, uint8_t hop) {
 // freshness/mobile-transit are stubbed (empty-table no-ops). Post-R4.2 the budget
 // penalty CAN create an effective_score gradient (so candidates[] may be demoted),
 // but the candidate WALK here is order-only; allow_uphill's two-pass SHAPE is kept.
-// NOTE (review #01, deferred): the Lua pick_next_cascade_hop calls refresh_route_order
-// FIRST (re-sort + maybe a triggered-beacon draw) to catch a tier change since the last
-// sort; this C++ reads the already-(mark-time)-sorted _rt. Gate-inert (no tier in gates);
-// the gap is a TTL-expiry-between-mark-and-cascade edge -> cascade-refresh follow-up.
+// (review #01, FIXED cleanup #B): pick_next_cascade_hop now calls refresh_route_order FIRST (node_cascade.cpp:48),
+// matching the Lua — re-sort + the conditional triggered-beacon draw, catching a tier change (TTL-expiry) since the
+// mark-time sort. Gate-inert (no tier change in a gate -> the re-sort keeps the primary -> no draw).
 bool Node::is_blind(uint8_t next_hop) const {
     // A peer is "blind" (deaf on routing_sf, busy in its data_sf RX window) until
     // _blind_until[next_hop]. Pure const read; expired entries read as not-blind (the
@@ -45,9 +44,9 @@ bool Node::next_hop_selectable(const RtCandidate& c, const PendingTx& pt, bool a
     return true;
 }
 
-uint8_t Node::pick_next_cascade_hop(const PendingTx& pt) const {
-    const RtEntry* e = nullptr;                          // const lookup (rt_find is non-const)
-    for (uint8_t i = 0; i < _rt_count; ++i) if (_rt[i].dest == pt.dst) { e = &_rt[i]; break; }
+uint8_t Node::pick_next_cascade_hop(const PendingTx& pt) {
+    // Cleanup #B (dv:5434): refresh the route order FIRST — catch a tier change since the last sort before walking.
+    RtEntry* e = refresh_route_order(pt.dst, "cascade_order");
     if (e == nullptr) return 0;
     // Two-pass (dv:5430-5450): pass 1 gradient-respecting, pass 2 uphill fallback.
     // candidates[] is kept sorted by route_strictly_better (stable: ties keep insertion

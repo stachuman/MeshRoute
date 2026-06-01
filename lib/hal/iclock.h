@@ -27,12 +27,26 @@ public:
     uint64_t now_ms() override { return now; }
 };
 
+// Accumulate a 32-bit millis() into a MONOTONIC 64-bit epoch, handling the ~49-day wrap (H-track fix).
+// `last` = previous raw millis, `high` = accumulated wraps (multiples of 2^32). Pure + native-testable.
+// Must be called often enough to catch each wrap (the device loop runs every few ms — trivially satisfied).
+// Without this, at wrap now() jumps back to 0: the airtime ledger evicts everything (duty resets) and every
+// armed after() deadline (now+delay) becomes far-future -> the MAC freezes for ~49 days on an always-on node.
+inline uint64_t accumulate_millis_wrap(uint32_t m, uint32_t& last, uint64_t& high) {
+    if (m < last) high += (static_cast<uint64_t>(1) << 32);   // millis() wrapped past 2^32
+    last = m;
+    return high + m;
+}
+
 #if defined(ARDUINO)
-// Device clock. NB: millis() is 32-bit and wraps ~49 days; long-run wrap handling
-// is deferred (H-track follow-up) — fine for bring-up / bench tests.
+// Device clock — millis() over the 64-bit wrap-accumulating epoch (the sim's VirtualClock is already true 64-bit,
+// so this brings device == sim time semantics).
 class ArduinoClock : public IClock {
 public:
-    uint64_t now_ms() override { return static_cast<uint64_t>(::millis()); }
+    uint64_t now_ms() override { return accumulate_millis_wrap(static_cast<uint32_t>(::millis()), _last, _high); }
+private:
+    uint32_t _last = 0;
+    uint64_t _high = 0;
 };
 #endif
 

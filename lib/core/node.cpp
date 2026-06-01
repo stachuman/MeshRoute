@@ -79,7 +79,6 @@ void Node::on_timer(uint32_t timer_id) {
         (void)_hal.after(static_cast<uint32_t>(_hal.rand_range(lo, hi + 1)), kBeaconTimerId);
         break;
     }
-    case kBeaconJitterTimerId: deferred_beacon_jitter_fire(); break;   // R4.3 post-jitter re-check + emit
     case kAgingTimerId:
         age_out_stale_routes();
         (void)_hal.after(_cfg.rt_aging_check_period_ms, kAgingTimerId);
@@ -98,6 +97,7 @@ void Node::on_timer(uint32_t timer_id) {
     case kRetryBackoffTimerId:    tx_rts_retry();          break;
     case kDeferredDrainTimerId:   try_drain_deferred();    break;   // periodic no-route drain / TTL giveup
     case kCascadeRequeueTimerId:  become_free();           break;   // backoff elapsed -> drain the requeued flight
+    case kRtsDutyDeferTimerId:    rts_duty_defer_fire();   break;   // #A redo: over-budget RTS duty-defer re-check/hand
     case kNackWaitTimerId:                                          // BUSY_RX wait elapsed -> re-RTS SAME hop
         if (_nack_wait_pending) {
             _nack_wait_pending = false;
@@ -109,9 +109,13 @@ void Node::on_timer(uint32_t timer_id) {
         if (timer_id >= kLbtDeferTimerId && timer_id < kLbtDeferTimerId + kLbtSlots) {
             DeferredLbt& d = _deferred_lbt[timer_id - kLbtDeferTimerId];
             if (d.pending) { d.pending = false;
-                lbt_complete(d.buf, d.len, d.sf, static_cast<LbtKind>(d.kind), d.rts_ctr_lo); }
+                lbt_complete(d.buf, d.len, d.sf, static_cast<LbtKind>(d.kind), d.rts_flight_gen); }
         } else if (timer_id >= kRadioBusyRetryTimerId && timer_id < kRadioBusyRetryTimerId + kRetrySlots) {
             retry_stashed(static_cast<uint8_t>(timer_id - kRadioBusyRetryTimerId));   // R4.5b stash re-issue
+        } else if (timer_id >= kDutyDeferTimerId && timer_id < kDutyDeferTimerId + kRetrySlots) {
+            duty_defer_fire(static_cast<uint8_t>(timer_id - kDutyDeferTimerId));      // #2 duty-defer re-run
+        } else if (timer_id >= kBeaconJitterTimerId && timer_id < kBeaconJitterTimerId + kBeaconJitterSlots) {
+            deferred_beacon_jitter_fire(static_cast<uint8_t>(timer_id - kBeaconJitterTimerId));   // #D ring slot
         }
         break;
     }
@@ -206,6 +210,15 @@ void Node::on_radio_busy(const BusyInfo& info) {
         EventField f[] = { { .key = "tag", .type = EventField::T::i64, .i = info.tag } };
         _hal.emit("tx_giveup", f, 1);
         s.valid = false;
+        // SHARED-BUG FIX (#1, both engines): a DATA giveup STRANDS the flight — the DATA branch above cleared
+        // awaiting_ack + cancelled the ack-timeout (and rts_timeout is moot), so _pending_tx would sit forever with
+        // no recovery timer and become_free() is blocked behind it -> the whole TX queue stalls. Release the flight
+        // (mirror the DATA-M giveup, dv:12151) so the queue drains. Only DATA: a CTS/ACK/NACK giveup is a
+        // receiver-side response whose pending_rx is freed by pending_rx_expiry; _pending_tx may be unrelated.
+        if (tag == FrameTag::data && _pending_tx && _pending_tx->ctr_lo == s.ctr_lo) {
+            _pending_tx.reset();
+            become_free();
+        }
         return;
     }
     --s.retries_left;

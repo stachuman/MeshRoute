@@ -144,6 +144,30 @@ int Node::resort_routes_for_neighbor_penalty(uint8_t node_id, const char* source
     return changed;
 }
 
+// Cleanup #B (Lua refresh_route_order dv:4455): re-sort ONE dest's candidates right before a cascade/issue pick, so a
+// tier change since the last sort (a TTL-expiry between the mark-time re-sort and the cascade) is caught. Returns the
+// entry (NEVER null for an existing dest, even <2 candidates — callers walk it; the Lua's <2->nil is its issue_send
+// `or entry` fallback, which our pick-based callers don't need). A primary change dirties + emits + schedules ONE
+// triggered beacon (the conditional draw), exactly like resort_routes_for_neighbor_penalty. Gate-inert: no tier change
+// in a gate -> the re-sort keeps the primary -> no draw -> byte-identical.
+RtEntry* Node::refresh_route_order(uint8_t dst, const char* reason) {
+    RtEntry* e = rt_find(dst);
+    if (e == nullptr || e->n < 2) return e;              // <2 candidates: nothing to re-rank
+    const uint8_t old_primary = e->candidates[0].next_hop;
+    sort_candidates(*e);                                 // penalty-aware re-sort (draw-free)
+    const uint8_t new_primary = e->candidates[0].next_hop;
+    if (new_primary != old_primary) {
+        e->dirty = true;
+        EventField f[] = { { .key = "dest",      .type = EventField::T::i64, .i = e->dest },
+                           { .key = "from_next",  .type = EventField::T::i64, .i = old_primary },
+                           { .key = "to_next",    .type = EventField::T::i64, .i = new_primary },
+                           { .key = "reason",     .type = EventField::T::str, .s = reason ? reason : "refresh_route_order" } };
+        _hal.emit("rt_penalty_rerank", f, 4);
+        schedule_triggered_beacon();                     // re-advertise + the conditional rand draw (matches the Lua)
+    }
+    return e;
+}
+
 // R4.2: record neighbour `node_id`'s budget tier (max-merge, TTL-stamped) + rerank affected routes.
 // Two callers: the BUDGET NACK react (reverse, local_only=false) and the ACK budget_hint (forward,
 // local_only=true). Lua dv:4320-4342.

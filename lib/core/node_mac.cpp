@@ -116,6 +116,7 @@ void Node::issue_send(const TxItem& item) {
         return;
     }
     pt.next = first;
+    pt.flight_gen = ++_flight_gen;                       // #A redo: a NEW flight identity (cascade_to_alt keeps it; a requeue re-installs here -> new gen)
     _pending_tx = pt;
     tx_rts_retry();                                      // packs+emits the RTS + start_rts_timeout
 }
@@ -139,13 +140,13 @@ void Node::tx_rts_retry() {
     _hal.emit("rts_tx", f, 3);                           // emit at the call site (before the LBT defer, dv-faithful)
     // R4.5: the actual TX + start_rts_timeout go through the LBT wrapper (defer if the channel is busy). RX stays
     // on routing_sf. lbt_enabled=false (every gate) -> straight TX + timeout, byte-identical.
-    tx_initiating(buf, l, static_cast<int16_t>(_cfg.routing_sf), LbtKind::rts, pt.ctr_lo);
+    tx_initiating(buf, l, static_cast<int16_t>(_cfg.routing_sf), LbtKind::rts, pt.flight_gen);
 }
 
 // R4.5 LBT: hand an INITIATING frame to the radio, but if the channel is busy (and lbt_enabled) defer the real
 // TX past busy_until + rand(0,lbt_backoff+1) — the ONE LBT draw, ONLY when busy (dv:3693-3706). lbt_enabled=false
 // (every gate) -> straight to lbt_complete -> byte-identical, NO draw.
-void Node::tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint8_t rts_ctr_lo) {
+void Node::tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen) {
     if (_cfg.lbt_enabled) {
         const uint64_t now = _hal.now();
         const uint64_t busy_until = _hal.channel_busy_until();
@@ -156,21 +157,21 @@ void Node::tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind k
                                { .key = "defer_ms",      .type = EventField::T::i64, .i = delay },
                                { .key = "busy_until_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(busy_until) } };
             _hal.emit("tx_lbt_defer", f, 3);
-            schedule_lbt_defer(bytes, len, sf, kind, rts_ctr_lo, delay);
+            schedule_lbt_defer(bytes, len, sf, kind, rts_flight_gen, delay);
             return;
         }
     }
-    lbt_complete(bytes, len, sf, kind, rts_ctr_lo);
+    lbt_complete(bytes, len, sf, kind, rts_flight_gen);
 }
 
 // Stash a busy-channel deferred TX in a free ring slot + arm its own timer (kLbtDeferTimerId + slot), so
 // concurrent defers each fire independently (Lua per-closure semantics). false = ring full (rare; >4 defers).
 bool Node::schedule_lbt_defer(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind,
-                              uint8_t rts_ctr_lo, uint32_t delay) {
+                              uint32_t rts_flight_gen, uint32_t delay) {
     for (uint8_t s = 0; s < kLbtSlots; ++s) {
         if (_deferred_lbt[s].pending) continue;
         DeferredLbt& d = _deferred_lbt[s];
-        d.pending = true; d.kind = static_cast<uint8_t>(kind); d.sf = sf; d.rts_ctr_lo = rts_ctr_lo;
+        d.pending = true; d.kind = static_cast<uint8_t>(kind); d.sf = sf; d.rts_flight_gen = rts_flight_gen;
         d.len = static_cast<uint8_t>(len < sizeof(d.buf) ? len : sizeof(d.buf));
         for (uint8_t i = 0; i < d.len; ++i) d.buf[i] = bytes[i];
         (void)_hal.after(delay, kLbtDeferTimerId + s);
@@ -181,13 +182,31 @@ bool Node::schedule_lbt_defer(const uint8_t* bytes, size_t len, int16_t sf, LbtK
     return false;
 }
 
-// The actual TX (immediate clear-channel path OR the kLbtDeferTimerId re-fire). RTS: the __pending_tx_ref
-// staleness check (cancel a stale deferred RTS, dv:3708) + start_rts_timeout (the after_tx). NACK/flood: just TX.
-void Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint8_t rts_ctr_lo) {
+// The actual TX (immediate clear-channel path OR the kLbtDeferTimerId re-fire). RTS: the flight-gen staleness check
+// (cancel a stale deferred RTS, dv:3708/3712) + the #A duty pre-check (defer over-budget) + start_rts_timeout (the
+// after_tx). NACK/flood: just TX.
+void Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen) {
     if (kind == LbtKind::rts) {
-        if (!_pending_tx || _pending_tx->ctr_lo != rts_ctr_lo) {        // flight changed while we waited
+        if (!_pending_tx || _pending_tx->flight_gen != rts_flight_gen) {  // flight changed while we waited (flight_gen = object-identity, not the 4-bit ctr_lo)
             EventField f[] = { { .key = "reason", .type = EventField::T::str, .s = "pending_tx_changed" } };
             _hal.emit("rts_tx_cancelled_stale", f, 1);
+            return;
+        }
+        // Cleanup #A (redo): duty pre-check the RTS (the #2 slot<0 residual). Over budget -> defer in the DEDICATED
+        // _rts_duty_defer slot (NOT the shared LBT ring — that reuse was net-worse, review wgvbtirmu) + arm the
+        // re-check timer + return (NOT handed; start_rts_timeout armed on the eventual send by rts_duty_defer_fire).
+        // The ~1h wait is SAFE now: flight_gen staleness is exact. Draw-free; gate-inert (healthy duty never defers).
+        uint32_t wait = 0;
+        if (duty_over_budget(len, sf, &wait)) {
+            EventField f[] = { { .key = "label",   .type = EventField::T::str, .s = "RTS" },
+                               { .key = "wait_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(wait) },
+                               { .key = "source",  .type = EventField::T::str, .s = "lbt_complete" } };
+            _hal.emit("duty_cycle_blocked", f, 3);
+            RtsDutyDefer& d = _rts_duty_defer;
+            d.pending = true; d.sf = sf; d.flight_gen = rts_flight_gen;
+            d.len = static_cast<uint16_t>(len < sizeof(d.buf) ? len : sizeof(d.buf));
+            for (uint16_t i = 0; i < d.len; ++i) d.buf[i] = bytes[i];
+            (void)_hal.after(wait, kRtsDutyDeferTimerId);
             return;
         }
     }
@@ -195,6 +214,30 @@ void Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind ki
                        : (kind == LbtKind::nack) ? FrameTag::nack : FrameTag::beacon;
     tx_with_retry(bytes, len, sf, tag);                               // R4.5b: stash (NACK) + tag the frame
     if (kind == LbtKind::rts) start_rts_timeout();                     // after_tx: CTS-wait starts when the RTS is on air
+}
+
+// Cleanup #A redo: the RTS duty-defer timer fired. Drop if the flight is gone/replaced (flight_gen = the Lua
+// __pending_tx_ref object-identity, dv:3712); re-defer if still over budget; else hand the RTS + DRIFT: arm
+// start_rts_timeout (a CTS-wait) — the Lua's duty-defer DROPS after_tx and stalls (asymmetric vs its own LBT-defer
+// which keeps it); the C++ is more robust. Deliberate documented divergence ([[feedback_port_wire_divergence]] #0).
+void Node::rts_duty_defer_fire() {
+    RtsDutyDefer& d = _rts_duty_defer;
+    if (!d.pending) return;
+    if (!_pending_tx || _pending_tx->flight_gen != d.flight_gen) {       // the flight this RTS belonged to is gone
+        d.pending = false;
+        EventField f[] = { { .key = "reason", .type = EventField::T::str, .s = "pending_tx_changed" } };
+        _hal.emit("rts_tx_cancelled_stale", f, 1);
+        return;
+    }
+    uint32_t wait = 0;
+    if (duty_over_budget(d.len, d.sf, &wait)) {                          // still over budget -> re-defer (re-check later)
+        (void)_hal.after(wait, kRtsDutyDeferTimerId);
+        return;
+    }
+    d.pending = false;
+    TxParams p; p.sf = d.sf; p.label = "RTS"; p.tag = static_cast<uint16_t>(FrameTag::rts);
+    _hal.tx(d.buf, d.len, p);
+    start_rts_timeout();                                                 // the DRIFT — arm the CTS-wait the Lua drops
 }
 
 // R4.5 FLOOD TX (beacon, dv:3765-3814). Duty pre-check (skip if it would breach budget), then LBT: drop the page
@@ -253,11 +296,29 @@ int Node::retry_slot_of(FrameTag tag) {
                    default: return -1; }                            // rts/beacon NOT retry-eligible
 }
 
+// check_duty_cycle (Lua dv:3573-3593): true if a `len`-byte TX at `sf` would breach the duty budget; *wait_ms = the
+// earliest moment a fresh TX could fit (oldest in-window entry ages out), floored to 1. Disabled (budget 0) -> false.
+// Pure airtime/timestamp arithmetic — NO rand. Used by tx_with_retry (#2 duty pre-check, retry-eligible frames only).
+bool Node::duty_over_budget(size_t len, int16_t sf, uint32_t* wait_ms) {
+    if (_duty_cycle_budget_ms == 0) return false;
+    const uint64_t airtime = airtime_ms(sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym,
+                                        static_cast<uint16_t>(len));
+    const uint64_t used = _hal.airtime_used_ms(_cfg.duty_cycle_window_ms);
+    if (used + airtime <= _duty_cycle_budget_ms) return false;
+    const uint64_t oldest = _hal.oldest_tx_end_ms();
+    const uint64_t now    = _hal.now();
+    uint32_t w = (oldest > 0 && oldest + _cfg.duty_cycle_window_ms > now)
+                 ? static_cast<uint32_t>(oldest + _cfg.duty_cycle_window_ms - now)
+                 : static_cast<uint32_t>(_cfg.duty_cycle_window_ms);
+    if (w < 1) w = 1;                                                  // guarantee forward progress (dv:3590)
+    if (wait_ms) *wait_ms = w;
+    return true;
+}
+
 // R4.5b central TX (Lua tx_with_retry dv:3599-3639): STASH the retry-eligible frame so on_radio_busy can re-issue
 // it on a busy channel, then hand to the radio tagged with the frame type (the sim echoes the tag back). RTS and
-// beacon are not retry-eligible (slot -1). (The Lua duty pre-check at dv:3622 is the response-duty defer — DEFERRED;
-// it is draw-free + gate-inert at healthy duty, tracked in the R4.5b spec non-goals.)
-void Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag tag) {
+// beacon are not retry-eligible (slot -1).
+bool Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag tag) {
     const int slot = retry_slot_of(tag);
     if (slot >= 0) {
         TxStashSlot& s = _tx_stash[slot];
@@ -266,8 +327,46 @@ void Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag 
         s.len = static_cast<uint16_t>(len < sizeof(s.buf) ? len : sizeof(s.buf));
         for (uint16_t i = 0; i < s.len; ++i) s.buf[i] = bytes[i];
     }
+    // SHARED-BUG FIX (#2): duty pre-check (Lua dv:3615-3635). Over budget -> emit duty_cycle_blocked + DEFER via a
+    // timer (re-run tx_with_retry from the stash) instead of handing to the radio — else the sim's duty hard-block
+    // bounces it via on_radio_busy, consuming a stash retry + an LBT draw per bounce (the Lua re-defers with fresh
+    // retries). DRAW-FREE; gate-inert at healthy duty (the check passes -> _hal.tx, byte-identical). Scoped to the
+    // retry-eligible frames (slot>=0): only they have a stash to re-run from, and only they hit the stash-retry
+    // accounting the bug is about. slot<0 (RTS/beacon) keep their own recovery (rts_timeout / tx_flood's own duty
+    // pre-check dv:7781), so they are NOT deferred here.
+    uint32_t wait = 0;
+    if (slot >= 0 && duty_over_budget(len, sf, &wait)) {
+        EventField f[] = { { .key = "label",   .type = EventField::T::str, .s = label_of_frame(tag) },
+                           { .key = "wait_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(wait) },
+                           { .key = "source",  .type = EventField::T::str, .s = "tx_with_retry" } };
+        _hal.emit("duty_cycle_blocked", f, 3);
+        (void)_hal.after(wait, kDutyDeferTimerId + static_cast<uint32_t>(slot));
+        return false;                                                  // NOT handed to the radio (caller must not arm post-tx state)
+    }
     TxParams p; p.sf = sf; p.label = label_of_frame(tag); p.tag = static_cast<uint16_t>(tag);
     _hal.tx(bytes, len, p);
+    return true;                                                      // handed
+}
+
+// SHARED-BUG FIX (#2): the duty-defer timer (kDutyDeferTimerId+slot) fired — re-run tx_with_retry from the stashed
+// frame (re-checks duty + re-stashes fresh retries, faithful to the Lua `self:after(wait, tx_with_retry)` re-run).
+void Node::duty_defer_fire(uint8_t slot) {
+    if (slot >= kRetrySlots) return;
+    TxStashSlot& s = _tx_stash[slot];
+    if (!s.valid) return;
+    static const FrameTag kSlotTag[kRetrySlots] = { FrameTag::cts, FrameTag::data, FrameTag::ack, FrameTag::nack };
+    const FrameTag tag = kSlotTag[slot];
+    // DATA staleness guard (review #6): if the flight moved on during the duty wait (ACK/NACK/implicit-ack replaced
+    // _pending_tx), do NOT re-transmit the stale DATA / re-stash with a mismatched ctr_lo. Mirrors retry_stashed +
+    // the Lua m_broadcast retry guard (dv:12172). CTS/ACK/NACK are idempotent responses -> no flight guard.
+    if (tag == FrameTag::data && (!_pending_tx || _pending_tx->ctr_lo != s.ctr_lo)) return;
+    const bool handed = tx_with_retry(s.buf, s.len, s.sf, tag);       // re-runs the duty pre-check (re-defers if still over budget)
+    // DATA re-hand: re-arm the ACK wait do_data_tx skipped at defer-time (the DATA now hit the air). Anchored to the
+    // actual send time, matching the Lua deferred re-run replaying on_handed (dv:3633 -> 3637 -> 10274-10278).
+    if (handed && tag == FrameTag::data && _pending_tx && _pending_tx->ctr_lo == s.ctr_lo) {
+        _pending_tx->awaiting_ack = true;
+        start_ack_timeout();
+    }
 }
 
 // R4.5b: re-issue a stashed frame (kRadioBusyRetryTimerId+slot fire). Re-uses the SAME tag so a repeat block
@@ -323,15 +422,18 @@ void Node::do_data_tx() {
     uint8_t buf[protocol::lora_max_frame_bytes];
     const size_t dlen = pack_data(din, std::span<uint8_t>(buf, sizeof(buf)));
     if (dlen == 0) { _hal.log("DATA pack failed"); return; }
-    tx_with_retry(buf, dlen, static_cast<int16_t>(pt.chosen_data_sf), FrameTag::data);   // R4.5b: stash for on_radio_busy retry
+    const bool handed = tx_with_retry(buf, dlen, static_cast<int16_t>(pt.chosen_data_sf), FrameTag::data);   // R4.5b stash; #2 may duty-defer
     EventField f[] = {
         { .key = "dst",  .type = EventField::T::i64, .i = pt.dst },
         { .key = "next", .type = EventField::T::i64, .i = pt.next },
         { .key = "ctr",  .type = EventField::T::i64, .i = pt.ctr },
     };
-    _hal.emit("data_tx", f, 3);
-    pt.awaiting_ack = true;
-    start_ack_timeout();
+    _hal.emit("data_tx", f, 3);                                       // emitted regardless (Lua emits it before tx_with_retry, dv:10251)
+    // Arm the ACK wait ONLY if the DATA actually hit the air — mirrors the Lua DATA on_handed (dv:10270-10279, fires only
+    // on real self:tx) + the not-handed clear (dv:10281-10283). #2's duty defer returns handed=false: arming a short
+    // ack-timeout on an un-sent DATA would fire before the (long) duty wait, draw a rand + tear the flight down.
+    if (handed) { pt.awaiting_ack = true; start_ack_timeout(); }
+    else        { pt.awaiting_ack = false; }
 }
 
 void Node::start_rts_timeout() {

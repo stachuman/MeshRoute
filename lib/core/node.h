@@ -136,6 +136,10 @@ struct PendingTx {                   // the in-flight sender state (one per node
     // decremented in handle_data). For an originator, do_data_tx recomputes from rt.
     uint8_t  fwd_remaining = 0;
     uint8_t  fwd_committed = 0;
+    // Monotonic flight identity (bumped on each new pending_tx at issue_send). The C++ equivalent of the Lua's
+    // object-identity guard `__pending_tx_ref` (dv:3712) — an exact staleness key for a deferred RTS, replacing the
+    // 4-bit ctr_lo proxy that wraps every 16 sends (cleanup #A redo). cascade_to_alt mutates in place (same gen).
+    uint32_t flight_gen = 0;
 };
 struct DeferredSend {                // a send with no route yet — held until one appears (or TTL)
     TxItem   item;
@@ -212,14 +216,18 @@ private:
     static constexpr uint32_t kDeferredDrainTimerId    = 11;  // periodic 1s drain of _deferred (TTL giveup)
     static constexpr uint32_t kCascadeRequeueTimerId   = 12;  // backoff before re-draining a requeued flight
     static constexpr uint32_t kNackWaitTimerId         = 13;  // NACK BUSY_RX wait-same-hop one-shot
-    static constexpr uint32_t kBeaconJitterTimerId     = 14;  // R4.3 silence-jitter deferred periodic beacon
+    static constexpr uint32_t kBeaconJitterTimerId     = 27;  // R4.3 silence-jitter deferred periodic beacon; BASE of a 4-slot ring [27..30] (cleanup #D: two defers in one jitter window must BOTH fire, dv per-closure)
+    static constexpr uint8_t  kBeaconJitterSlots       = 4;
+    static constexpr uint32_t kRtsDutyDeferTimerId     = 31;  // cleanup #A redo: over-budget RTS duty-defer re-check/hand
     static constexpr uint32_t kLbtDeferTimerId         = 15;  // R4.5 LBT deferred-TX re-fire; BASE of a 4-slot range [15..18]
     static constexpr uint32_t kRadioBusyRetryTimerId   = 19;  // R4.5b on_radio_busy stash re-issue; BASE of a 4-slot range [19..22]
+    static constexpr uint32_t kDutyDeferTimerId        = 23;  // tx_with_retry duty-cycle pre-check defer; BASE of a 4-slot range [23..26]
 
     // ---- beacon emit / ingest ----------------------------------------------
     void emit_beacon(const char* kind);                            // "periodic" | "triggered"
     void periodic_beacon_fire();                                   // R4.3 throttle body (dv:7695-7851)
-    void deferred_beacon_jitter_fire();                            // R4.3 post-silence-jitter re-check (dv:7801-7849)
+    void deferred_beacon_jitter_fire(uint8_t slot);                // R4.3 post-silence-jitter re-check (dv:7801-7849); #D ring slot
+    bool _beacon_jitter_pending[kBeaconJitterSlots] = {};          // #D: which ring slots have a deferred periodic beacon armed
     bool beacon_max_idle_force(uint64_t now, bool emit_events);    // R4.3 max-idle B+C override (dv:7734-7784)
     void ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta);
     int16_t route_score_from_snr(int16_t snr_q4) const;            // dv_dual_sf.lua:3053
@@ -239,6 +247,7 @@ private:
     int16_t     effective_score(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const; // :4050
     int16_t     budget_penalty_q4(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const; // :3887
     int         resort_routes_for_neighbor_penalty(uint8_t node_id, const char* source, bool local_only);      // :4255
+    RtEntry*    refresh_route_order(uint8_t dst, const char* reason);   // re-sort ONE dest's candidates (catch a tier change since the last sort), dv:4455
     void        maybe_emit_rt_full();
 
     // ---- R2 route-plane hardening ------------------------------------------
@@ -274,19 +283,22 @@ private:
     enum class LbtKind : uint8_t { rts = 0, nack = 1, flood = 2 };
     // R4.5b frame-type tag (echoed by the sim in on_radio_busy; identifies a blocked TX heap-free).
     enum class FrameTag : uint16_t { rts = 0, cts = 1, data = 2, ack = 3, nack = 4, beacon = 5 };
-    void     tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint8_t rts_ctr_lo);
+    void     tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen);
+    void     rts_duty_defer_fire();                                // cleanup #A redo: re-check duty + hand the deferred RTS (or re-defer / drop-if-stale)
     bool     tx_flood(const uint8_t* bytes, size_t len, int16_t sf);   // false = dropped/skipped (no TX)
-    void     lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint8_t rts_ctr_lo);
+    void     lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen);
     bool     schedule_lbt_defer(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind,   // free-slot stash
-                                uint8_t rts_ctr_lo, uint32_t delay);   // false = ring full (dropped)
+                                uint32_t rts_flight_gen, uint32_t delay);   // false = ring full (dropped)
     // R4.5b: the central TX helper (Lua tx_with_retry dv:3599) — stash the retry-eligible frame + set the
     // frame-type tag + duty pre-check + _hal.tx. Every TX except the beacon routes through it.
-    void     tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag tag);
+    bool     tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag tag);   // returns handed (false on a duty defer)
     void     retry_stashed(uint8_t slot);                          // re-issue a stashed frame (kRadioBusyRetryTimerId+slot)
+    void     duty_defer_fire(uint8_t slot);                        // re-run tx_with_retry from the stash after a duty defer (kDutyDeferTimerId+slot)
+    bool     duty_over_budget(size_t len, int16_t sf, uint32_t* wait_ms);   // check_duty_cycle dv:3573; *wait_ms = defer time when over budget
     static int retry_slot_of(FrameTag tag);                        // FrameTag -> stash slot (0..3) or -1 (not eligible)
     static const char* label_of_frame(FrameTag tag);              // FrameTag -> "RTS"/"CTS"/...
     // ---- cascade-to-alt walk + no-route defer+Q ----------------------------
-    uint8_t  pick_next_cascade_hop(const PendingTx& pt) const;    // two-pass walk :5430; 0 = none
+    uint8_t  pick_next_cascade_hop(const PendingTx& pt);          // two-pass walk :5430; 0 = none (NON-const: refreshes the route order first)
     bool     next_hop_selectable(const RtCandidate& c, const PendingTx& pt,
                                  bool allow_uphill) const;        // minimal filter :3990
     void     cascade_to_alt(const char* trigger);                 // on giveup: switch hop or requeue :6456
@@ -330,8 +342,16 @@ private:
     uint32_t _flood_lbt_max_defer_ms = 0;
     static constexpr uint8_t kLbtSlots = 4;
     struct DeferredLbt { bool pending = false; uint8_t kind = 0; uint8_t len = 0; int16_t sf = 0;
-                         uint8_t rts_ctr_lo = 0; uint8_t buf[protocol::beacon_max_bytes] = {}; };
+                         uint32_t rts_flight_gen = 0;   // RTS staleness key (flight_gen, not the old 4-bit ctr_lo proxy)
+                         uint8_t buf[protocol::beacon_max_bytes] = {}; };
     DeferredLbt _deferred_lbt[kLbtSlots];
+    // Cleanup #A redo: an over-budget RTS is duty-deferred in a DEDICATED slot (NOT the shared LBT ring — that reuse
+    // was net-worse, review wgvbtirmu). One slot: there is only ever one pending_tx/flight. flight_gen staleness makes
+    // the long (~1h) duty wait safe. kRtsDutyDeferTimerId fires rts_duty_defer_fire (re-check duty / hand / re-defer).
+    uint32_t _flight_gen = 0;     // monotonic; bumped per new pending_tx (issue_send)
+    struct RtsDutyDefer { bool pending = false; uint16_t len = 0; int16_t sf = 0; uint32_t flight_gen = 0;
+                          uint8_t buf[16] = {}; };   // RTS pack is <=9 B (RTS_LEN 8 + M-broadcast 2)
+    RtsDutyDefer _rts_duty_defer;
     // R4.5b on_radio_busy retry: a per-frame-type tag (echoed by the sim) lets on_radio_busy identify a blocked
     // TX (heap-free, no string label). The retry-eligible frames (CTS/DATA/ACK/NACK; RTS/beacon are NOT) are
     // STASHED so a busy-channel block re-issues them up to TX_DEFER_MAX_RETRIES. tx_stash keyed by the retry slot.

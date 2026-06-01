@@ -290,13 +290,21 @@ void Node::periodic_beacon_fire() {
     const int jitter = (_cfg.beacon_silence_jitter_ms > 0)
                        ? _hal.rand_range(0, static_cast<int>(_cfg.beacon_silence_jitter_ms) + 1)
                        : 0;
-    if (jitter == 0) emit_beacon("periodic");
-    else (void)_hal.after(static_cast<uint32_t>(jitter), kBeaconJitterTimerId);
+    if (jitter == 0) { emit_beacon("periodic"); return; }
+    // #D: arm a FREE ring slot (not the single kBeaconJitterTimerId) so a 2nd periodic defer landing in the same
+    // jitter window doesn't REPLACE the first — both fire, matching the Lua's per-`after` closures (dv:7799). The
+    // jitter draw above already happened (draw-count unchanged); only the lost-beacon edge is fixed. Ring full (>4
+    // defers stacked, period << jitter — absurd in steady state) -> fall back to slot 0 (the old replace behaviour).
+    uint8_t slot = 0;
+    for (uint8_t s = 0; s < kBeaconJitterSlots; ++s) { if (!_beacon_jitter_pending[s]) { slot = s; break; } }
+    _beacon_jitter_pending[slot] = true;
+    (void)_hal.after(static_cast<uint32_t>(jitter), kBeaconJitterTimerId + slot);
 }
 
 // R4.3 post-silence-jitter re-check (dv:7801-7849). A neighbour may have beaconed during our jitter window;
 // if the channel went busy AND the max-idle override doesn't force us, stand down (they won the race). NO draw.
-void Node::deferred_beacon_jitter_fire() {
+void Node::deferred_beacon_jitter_fire(uint8_t slot) {
+    if (slot < kBeaconJitterSlots) _beacon_jitter_pending[slot] = false;   // #D: free the ring slot
     if (_pending_tx || _pending_rx) return;                  // busy in a data exchange (dv:7802)
     const uint64_t now = _hal.now();
     const uint64_t since = (_last_rx_routing_sf_ms != 0) ? (now - _last_rx_routing_sf_ms) : UINT64_MAX;

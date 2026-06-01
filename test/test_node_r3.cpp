@@ -50,7 +50,8 @@ public:
     bool     after(uint32_t, uint32_t) override { return true; }
     void     cancel(uint32_t) override {}
     void     set_protocol_id(int) override {}
-    int      rand_range(int lo, int) override { ++rand_calls; return lo; }
+    int      _rand_ret = -1;   // opt-in scriptable rand (>=0 overrides the default `return lo`; -1 = default)
+    int      rand_range(int lo, int) override { ++rand_calls; return _rand_ret >= 0 ? _rand_ret : lo; }
     void     emit(const char* type, const EventField* f, size_t n) override {
         Ev e; e.type = type;
         for (size_t i = 0; i < n; ++i) {
@@ -87,9 +88,11 @@ constexpr uint32_t kCascadeRequeueTimerId = 12;
 constexpr uint32_t kNackWaitTimerId      = 13;
 constexpr uint32_t kTriggeredBeaconTimerId = 3;   // R4.2: rerank re-advertises via a triggered beacon
 constexpr uint32_t kBeaconTimerId        = 1;     // R4.3 periodic beacon fire
-constexpr uint32_t kBeaconJitterTimerId  = 14;    // R4.3 silence-jitter deferred beacon
+constexpr uint32_t kBeaconJitterTimerId  = 27;    // R4.3 silence-jitter deferred beacon (#D ring base [27..30])
 constexpr uint32_t kLbtDeferTimerId      = 15;    // R4.5 LBT busy-channel deferred TX
 constexpr uint32_t kRadioBusyRetryTimerId = 19;   // R4.5b on_radio_busy stash-retry (slot base)
+constexpr uint32_t kDutyDeferTimerId      = 23;   // #2 tx_with_retry duty-defer re-run (slot base)
+constexpr uint32_t kRtsDutyDeferTimerId   = 31;   // #A redo: over-budget RTS duty-defer re-check/hand
 
 static size_t mk_nack(uint8_t to, uint8_t ctr_lo, uint8_t reason, uint8_t payload,
                       std::array<uint8_t, 8>& b) {
@@ -841,8 +844,11 @@ TEST_CASE("R4.1 budget NACK emit — receiver >=CRITICAL refuses an RTS with rea
     // CRITICAL (85%) on a FRESH node (no stale pending_rx that would BUSY_RX first) -> BUDGET NACK
     // reason=1, tier=2 in the high nibble, NO CTS.
     {
-        TestHal hal; Node* node = mk_budget_node(hal, /*duty=*/0.10, /*window=*/1000);
-        hal._airtime_used = 85;
+        // Budget 10000ms (window 100000 @ 10%): pct still 85% -> CRITICAL, but realistic enough that the ~36ms NACK
+        // FITS the budget (8500+36 <= 10000) so tx_with_retry's duty pre-check (#2) doesn't defer it. A tiny 100ms
+        // budget would faithfully duty-DEFER the NACK (the Lua does too) — production 1%/1h budgets fit it easily.
+        TestHal hal; Node* node = mk_budget_node(hal, /*duty=*/0.10, /*window=*/100000);
+        hal._airtime_used = 8500;
         const size_t rn = mk_rts(/*src=*/3,/*next=*/1,/*dst=*/8,/*ctr_lo=*/6,/*plen=*/10, rb);
         RxMeta m3{8.0f,-80.0f,0,static_cast<int8_t>(3)}; node->on_recv(rb.data(), rn, m3);
         const Ev* nk = hal.last("nack_tx"); CHECK(nk != nullptr);
@@ -1011,15 +1017,15 @@ TEST_CASE("R4.2 ACK budget_hint — STRAINED forwarder's ACK carries the tier; s
 TEST_CASE("R4.2 ACK budget_hint — EXHAUSTED at DATA-time caps the forward hint at CRITICAL") {
     TestHal hal; Node node(hal, 1, 0xABCD);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
-    cfg.duty_cycle = 0.10; cfg.duty_cycle_window_ms = 1000;       // budget 100ms
+    cfg.duty_cycle = 0.10; cfg.duty_cycle_window_ms = 100000;     // budget 10000ms (realistic — the CTS/ACK fit it)
     node.on_init(cfg);
     std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
     RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
-    hal._airtime_used = 60;                                       // STRAINED at RTS -> CTSes (no refuse)
+    hal._airtime_used = 6000;                                     // 60% STRAINED at RTS -> CTSes (no refuse)
     const size_t rn = mk_rts(/*src=*/2,/*next=*/1,/*dst=*/1,/*ctr_lo=*/3,/*plen=*/10, rb);
     node.on_recv(rb.data(), rn, m2);
     CHECK(hal.count("cts_tx") == 1);
-    hal._airtime_used = 200;                                      // climbed to EXHAUSTED by DATA-time
+    hal._airtime_used = 9600;                                     // 96% EXHAUSTED by DATA-time (ACK still fits: 9600+air <= 10000)
     const size_t dn = mk_data_hb(1, 1, 3, 0, /*hops_remaining=*/5, /*committed=*/0, "x", db);
     node.on_recv(db.data(), dn, m2);
     auto pk = parse_ack(std::span<const uint8_t>(hal.last_tx("ACK")->bytes.data(),
@@ -1218,6 +1224,23 @@ TEST_CASE("R4.3 deferred jitter re-check — busy during the jitter window stand
     }
 }
 
+TEST_CASE("Cleanup #D — two periodic beacon defers in one jitter window BOTH fire (ring, not single-timer replace)") {
+    // Pre-#D: the 2nd periodic defer's after(kBeaconJitterTimerId) REPLACED the 1st -> only 1 beacon fired where the
+    // Lua's per-`after` closures fire both. Ring fix: each defer takes a free slot [27..30]. Draws are unchanged (each
+    // periodic fire still draws its silence-jitter); only the lost-beacon edge is closed.
+    TestHal hal; Node* node = mk_throttle_node(hal, /*quiet=*/30000, /*max_idle=*/0);
+    hal._now = 200000;                                        // no RX -> since_rx=inf -> quiet (both fires defer)
+    hal._rand_ret = 5;                                        // jitter=5 (>0) so periodic_beacon_fire DEFERS, not emit-now
+    const int b0 = hal.count("beacon_tx");
+    node->on_timer(kBeaconTimerId);                          // periodic fire #1 -> defer ring slot 0
+    node->on_timer(kBeaconTimerId);                          // periodic fire #2 -> defer ring slot 1 (NOT a replace)
+    CHECK(hal.count("beacon_tx") == b0);                     // both deferred, nothing on air yet
+    node->on_timer(kBeaconJitterTimerId + 0);               // slot 0 fires
+    node->on_timer(kBeaconJitterTimerId + 1);               // slot 1 fires
+    CHECK(hal.count("beacon_tx") == b0 + 2);                // BOTH deferred beacons emitted (pre-#D: only 1)
+    delete node;
+}
+
 // The R4.2 #00 port: schedule_triggered_beacon draws a SECOND jitter (min-interval defer) ONLY in
 // steady_state (now >= boot_grace 120000). Under boot grace it NEVER draws the 2nd -> every <120s gate
 // stays byte-identical. (This is what lifts the R4.2 ">120s draw-for-draw" guard.)
@@ -1408,6 +1431,107 @@ TEST_CASE("R4.5b on_radio_busy — a DATA retry re-arms the ACK wait (port diver
     CHECK(hal.count("ack_rx") == 1);                          // re-armed -> the ACK completes the flight
     delete node;
 }
+
+// ---- shared-Lua-bug fixes (project_meshroute_shared_lua_bugs) ----
+TEST_CASE("Shared-bug #1 — a DATA giveup releases the stranded flight so the TX queue drains") {
+    // Pre-fix: on_radio_busy(DATA) cleared awaiting_ack + cancelled the ack-timeout; the exhausted-stash giveup then
+    // returned with _pending_tx STILL set + no recovery timer, so become_free() was blocked behind a dead flight and
+    // a queued 2nd message never sent. Fix: the DATA giveup resets pending_tx + become_free (mirror DATA-M dv:12151).
+    TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
+    send_cmd(*node, 5, "a");                                  // msg1 -> RTS
+    send_cmd(*node, 5, "b");                                  // msg2 -> queued behind msg1
+    int rts0 = 0; for (const auto& f : hal.tx_frames) if (f.label == "RTS") ++rts0;
+    CHECK(rts0 == 1);                                         // only msg1 has RTSed
+    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(1, 1, 7, cb);
+    RxMeta m2{12.0f,-70.0f,0,static_cast<int8_t>(2)}; node->on_recv(cb.data(), cn, m2);
+    node->on_timer(kCtsToDataGapTimerId);                     // msg1 -> DATA tx (awaiting_ack + DATA stashed)
+    meshroute::BusyInfo bi{meshroute::BusyReason::channel_busy, /*tag=DATA*/2, /*sf=*/7, /*busy_until=*/0};
+    node->on_radio_busy(bi); node->on_radio_busy(bi); node->on_radio_busy(bi);   // 3 retries (3->0)
+    node->on_radio_busy(bi);                                  // retries exhausted -> giveup + release the flight
+    CHECK(hal.count("tx_giveup") == 1);
+    int rts1 = 0; for (const auto& f : hal.tx_frames) if (f.label == "RTS") ++rts1;
+    CHECK(rts1 == 2);                                         // msg2 drained + RTSed (the queue was NOT stranded)
+    const Ev* r2 = hal.last("rts_tx"); CHECK(r2 != nullptr);
+    if (r2) CHECK(r2->ctr == 2);                              // the 2nd RTS is msg2
+    delete node;
+}
+
+TEST_CASE("Shared-bug #2 — tx_with_retry duty pre-check defers an over-budget DATA, then re-issues when budget frees") {
+    // Lua tx_with_retry (dv:3615-3635) duty-pre-checks + self-defers an over-budget frame; ours used to always
+    // _hal.tx -> the sim's duty hard-block bounced it via on_radio_busy, consuming a stash retry per bounce. Fix:
+    // the duty pre-check defers (no _hal.tx) + a timer re-runs tx_with_retry from the stash. Draw-free.
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    cfg.duty_cycle = 0.10; cfg.duty_cycle_window_ms = 100000;   // budget 10000ms
+    node.on_init(cfg);
+    std::array<uint8_t,64> bb{}; RxMeta mb{12.0f,-70.0f,0,static_cast<int8_t>(2)};
+    const size_t bn = mk_beacon_route(/*src=*/2,/*dest=*/5,/*next=*/9,/*hops=*/1,/*score=*/14, bb);
+    node.on_recv(bb.data(), bn, mb);                           // route to 5 via 2
+    hal._airtime_used = 0;                                     // RTS/CTS fit
+    send_cmd(node, 5, "hi");                                   // -> RTS (slot<0, NOT duty-pre-checked here)
+    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(1, 1, 7, cb);
+    RxMeta m2{12.0f,-70.0f,0,static_cast<int8_t>(2)};
+    hal._airtime_used = 9990;                                  // near budget -> the DATA (slot>=0) won't fit
+    node.on_recv(cb.data(), cn, m2);
+    const int rb = hal.rand_calls;
+    node.on_timer(kCtsToDataGapTimerId);                      // do_data_tx -> tx_with_retry(DATA) -> OVER budget -> defer
+    CHECK(hal.count("duty_cycle_blocked") == 1);
+    int data0 = 0; for (const auto& f : hal.tx_frames) if (f.label == "DATA") ++data0;
+    CHECK(data0 == 0);                                        // DATA NOT handed to the radio (deferred)
+    CHECK(hal.rand_calls - rb == 0);                          // the duty defer is DRAW-FREE
+    // review #1/#9: a duty-deferred DATA must NOT arm awaiting_ack (the Lua clears it, dv:10281-10283). If it did, the
+    // short ack-timeout would fire before the long duty wait + draw a rand + re-RTS. Prove the ACK wait is disarmed by
+    // firing a stray ack-timeout: it must no-op (zero draws, no re-RTS) — the bug the original test masked.
+    int rtsBefore = 0; for (const auto& f : hal.tx_frames) if (f.label == "RTS") ++rtsBefore;
+    const int rb2 = hal.rand_calls;
+    node.on_timer(kAckTimeoutTimerId);                        // would draw + re-RTS if awaiting_ack were wrongly armed
+    CHECK(hal.rand_calls - rb2 == 0);                         // NO spurious draw -> awaiting_ack was false on the defer
+    int rtsAfter = 0; for (const auto& f : hal.tx_frames) if (f.label == "RTS") ++rtsAfter;
+    CHECK(rtsAfter == rtsBefore);                             // NO spurious re-RTS from a premature ack-timeout
+    hal._airtime_used = 0;                                     // budget frees
+    node.on_timer(kDutyDeferTimerId + 1);                     // duty_defer_fire(DATA slot) -> tx_with_retry -> now fits
+    int data1 = 0; for (const auto& f : hal.tx_frames) if (f.label == "DATA") ++data1;
+    CHECK(data1 == 1);                                        // DATA re-issued after the budget freed
+    // the re-issue RE-ARMS the ACK wait (anchored to the real send), so a matching ACK now completes the flight
+    std::array<uint8_t,8> ab{}; const size_t an = mk_ack(1, 1, ab);
+    node.on_recv(ab.data(), an, m2);
+    CHECK(hal.count("ack_rx") == 1);                          // re-armed on the re-hand -> ACK accepted
+}
+
+TEST_CASE("Cleanup #A (redo) — over-budget RTS duty-deferred in the dedicated slot (flight_gen-safe), re-checks, then hands when budget frees") {
+    // The #2 duty pre-check is slot>=0 only; #A duty-checks the RTS in lbt_complete + defers it in a DEDICATED slot
+    // (not the shared LBT ring — that reuse was net-worse, review wgvbtirmu), flight_gen-keyed so the long wait is
+    // safe. Draw-free; gate-inert. (start_rts_timeout is armed on the hand — the deliberate drift; not separately
+    // assertable with the no-op TestHal::after.)
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    cfg.duty_cycle = 0.10; cfg.duty_cycle_window_ms = 100000;   // budget 10000ms
+    node.on_init(cfg);
+    std::array<uint8_t,64> bb{}; RxMeta mb{12.0f,-70.0f,0,static_cast<int8_t>(2)};
+    const size_t bn = mk_beacon_route(2,5,9,1,14,bb); node.on_recv(bb.data(),bn,mb);
+    hal._airtime_used = 9990;                                   // near budget -> the RTS won't fit
+    const int rb = hal.rand_calls;
+    send_cmd(node, 5, "hi");                                    // RTS -> lbt_complete -> OVER budget -> dedicated duty defer
+    int rts = 0; for (const auto& f : hal.tx_frames) if (f.label == "RTS") ++rts;
+    CHECK(rts == 0);                                            // NOT handed (deferred, not sim-bounced)
+    CHECK(hal.count("duty_cycle_blocked") >= 1);
+    CHECK(hal.rand_calls - rb == 0);                            // the defer is DRAW-FREE
+    node.on_timer(kRtsDutyDeferTimerId);                       // STILL over budget -> re-defer (re-check), not handed
+    rts = 0; for (const auto& f : hal.tx_frames) if (f.label == "RTS") ++rts;
+    CHECK(rts == 0);                                           // re-deferred, still off air
+    hal._airtime_used = 0;                                      // budget frees
+    node.on_timer(kRtsDutyDeferTimerId);                      // now fits -> hand the RTS (+ arm the CTS-wait)
+    rts = 0; for (const auto& f : hal.tx_frames) if (f.label == "RTS") ++rts;
+    CHECK(rts == 1);                                           // handed once the budget freed
+    CHECK(hal.rand_calls - rb == 0);                           // the whole defer/re-defer/hand path is DRAW-FREE
+}
+
+// Cleanup #B (pick_next_cascade_hop now refresh_route_order-s first, dv:5434) is exercised by the r5_cascade
+// differential gate (which drives pick_next_cascade_hop through cascade_to_alt) and reuses the sort_candidates +
+// resort_routes_for_neighbor_penalty machinery covered by the R4.2 demotion tests above ("route demotion — marking a
+// CRITICAL primary reranks it below the viable alt"). A standalone catch-up-flip unit test is impractical: the
+// snr/advertised bucketing collapses controlled candidate scores into one bucket (equal -> a stable re-sort can't
+// flip back) or drops the weak candidate below the viability floor. (Review #12, LOW — covered, not separately tested.)
 
 TEST_CASE("R4.5b on_radio_busy — a blocked RTS re-RTSes via the already-armed rts_timeout (port divergence fix)") {
     // Regression guard: Lua dv:12091 clears awaiting_cts on a blocked RTS, but its rts_timeout_fire ignores
