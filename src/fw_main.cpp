@@ -43,6 +43,7 @@ static meshroute::DeviceHal    g_hal(g_clock, g_iradio);
 static meshroute::Node         g_node(g_hal, MESHROUTE_NODE_ID, MESHROUTE_KEY_HASH32, "node");
 
 static uint8_t g_rxbuf[P::max_payload_bytes_hard_cap + 32];
+static bool    g_radio_ok = false;   // SX1262 std_init result — surfaced in the heartbeat below
 
 void setup() {
     Serial.begin(115200);
@@ -67,6 +68,7 @@ void setup() {
     bool ok = g_radio.std_init();
 #endif
     Serial.print(F("  radio     = ")); Serial.println(ok ? F("OK") : F("INIT FAILED"));
+    g_radio_ok = ok;
     if (ok) g_iradio.begin();
 
     // Tell the Hal the operating point so its airtime ledger matches the Node's own airtime math.
@@ -142,4 +144,16 @@ void loop() {
 
     // 4) Console input -> commands.
     service_console();
+
+    // 5) Heartbeat — bring-up liveness so the console is never silent (a lone node prints nothing
+    //    otherwise, and the one-time boot banner is lost across the USB re-enumeration on reset).
+    //    Console-only, no protocol effect. duty_ms climbing over time = the node is TX'ing beacons.
+    static uint64_t s_last_hb = 0;
+    if (now - s_last_hb >= 2000) {
+        s_last_hb = now;
+        Serial.print(F("[hb] t="));    Serial.print((uint32_t)(now / 1000));
+        Serial.print(F("s radio="));   Serial.print(g_radio_ok ? F("OK") : F("FAIL"));
+        Serial.print(F(" duty_ms="));  Serial.print((uint32_t)g_hal.airtime_used_ms(3600000));
+        Serial.println();
+    }
 }
