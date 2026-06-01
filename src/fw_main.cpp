@@ -139,11 +139,17 @@ void loop() {
     if (g_iradio.take_preamble()) g_node.on_preamble_detected(now);
 
     // 2) Timers: fire every elapsed Node timer (beacons, RTS/ACK timeouts, retries, the duty/LBT defers).
-    for (int id; (id = g_hal.pop_due_timer()) >= 0; ) g_node.on_timer((uint32_t)id);
+    // TEMP TRACE: [T<id> before on_timer, ] after — the last unclosed [T<id> = the timer whose handler hung.
+    for (int id; (id = g_hal.pop_due_timer()) >= 0; ) {
+        Serial.print(F("[T")); Serial.print(id);
+        g_node.on_timer((uint32_t)id);
+        Serial.print(F("]"));
+    }
 
     // 3) App pushes: surface deliveries / ACKs over the console.
     meshroute::Push pu{};
     while (g_node.next_push(pu)) {
+        Serial.print(F("P"));   // TEMP TRACE: a flood of P = next_push() spinning
         switch (pu.kind) {
             case meshroute::PushKind::msg_recv:
                 Serial.print(F("RECV from=")); Serial.print(pu.origin); Serial.print(F(": "));
@@ -163,7 +169,7 @@ void loop() {
     //    otherwise, and the one-time boot banner is lost across the USB re-enumeration on reset).
     //    Console-only, no protocol effect. duty_ms climbing over time = the node is TX'ing beacons.
     static uint64_t s_last_hb = 0;
-    if (now - s_last_hb >= 10000) {
+    if (now - s_last_hb >= 5000) {
         s_last_hb = now;
         Serial.print(F("[hb] t="));    Serial.print((uint32_t)(now / 1000));
         Serial.print(F("s radio="));   Serial.print(g_radio_ok ? F("OK") : F("FAIL"));

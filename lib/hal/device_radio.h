@@ -25,13 +25,17 @@ public:
 
     TxResult transmit(const uint8_t* b, size_t n,
                       int16_t sf, int32_t bw_hz, int8_t cr, int8_t pw, int16_t pre) override {
+        Serial.print(F("X(")); Serial.print((unsigned)n); Serial.print(F("/")); Serial.print(sf);  // TEMP TRACE
         if (sf  > 0)    _radio.setSpreadingFactor(static_cast<uint8_t>(sf));
         if (bw_hz > 0)  _radio.setBandwidth(static_cast<float>(bw_hz) / 1000.0f);   // RadioLib wants kHz
         if (cr  > 0)    _radio.setCodingRate(static_cast<uint8_t>(cr));
         if (pw  > -100) _radio.setOutputPower(static_cast<int8_t>(pw));
         if (pre > 0)    _radio.setPreambleLength(static_cast<uint16_t>(pre));
+        Serial.print(F("t"));                                                      // TEMP TRACE: entering blocking TX
         const int16_t st = _radio.transmit(const_cast<uint8_t*>(b), n);            // blocking TX
+        Serial.print(F(")")); Serial.print(st);                                    // TEMP TRACE: TX returned (st code)
         _radio.startReceive();                                                     // back to listening
+        Serial.print(F("R"));                                                      // TEMP TRACE: RX re-armed
         _pre_seen = false;
         return st == RADIOLIB_ERR_NONE ? TxResult::ok : TxResult::radio_error;
     }
