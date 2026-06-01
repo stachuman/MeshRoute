@@ -11,7 +11,10 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
-#include "hal.h"   // TxResult, RxMeta
+// Relative (not "hal.h"): this is a lib/hal file reaching into lib/core, and a bare "hal.h" can
+// collide with a framework header of the same name on some toolchains' search order (Windows nRF52
+// resolved it to the wrong hal.h -> 'TxResult does not name a type'). The ../ is unambiguous.
+#include "../core/hal.h"   // TxResult, RxMeta
 
 namespace meshroute {
 

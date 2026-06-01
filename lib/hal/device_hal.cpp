@@ -1,7 +1,8 @@
 // MeshRoute — lib/hal/device_hal.cpp  (H3)
 #include "device_hal.h"
 
-#include "airtime.h"   // lib/core — the SAME airtime_ms formula the Node uses (device ledger == Node math)
+#include "../core/airtime.h"   // lib/core (relative — see device_hal.h); SAME airtime_ms formula the
+                               // Node uses, so the device duty ledger == Node math == Lua.
 
 namespace meshroute {
 

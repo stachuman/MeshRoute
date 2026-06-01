@@ -11,7 +11,8 @@
 // NATIVE-TESTABLE: device_hal.cpp has NO RadioLib/Arduino — only IClock + IRadio. The real
 // CustomSX1262-backed IRadio is the device-only TU; native tests inject a FakeClock + MockRadio.
 #pragma once
-#include "hal.h"
+#include "../core/hal.h"   // relative: a bare "hal.h" collides with a framework header on some
+                           // search orders (Windows nRF52); the ../ is unambiguous. See iradio.h.
 #include "iclock.h"
 #include "iradio.h"
 #include "timer_wheel.h"
