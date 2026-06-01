@@ -48,6 +48,9 @@ static bool    g_radio_ok = false;   // SX1262 std_init result — surfaced in t
 void setup() {
     Serial.begin(115200);
     while (!Serial && millis() < 3000) { /* wait for USB CDC, but don't block forever */ }
+    delay(2000);   // Settle: the USB-CDC port re-enumerates on every reset, and the host serial
+                   // monitor reattaches AFTER that — so without a pause the one-time boot banner
+                   // prints into the void. 2 s lets the monitor catch up before we print it.
 
     Serial.println(F("MeshRoute firmware v0.1 — boot"));
     Serial.print(F("  node id   = ")); Serial.println(MESHROUTE_NODE_ID);
@@ -84,6 +87,11 @@ void setup() {
     cfg.duty_cycle            = (double)LORA_DUTY_CYCLE_PCT / 100.0;
     cfg.duty_cycle_window_ms  = 3600000;                        // 1 h (ETSI)
     cfg.peer_count            = 0;                              // no sim:nodes() on device -> no rt_full telemetry
+    // KEEP false. Device LBT routes channel_busy() -> RadioLib scanChannel(), which spins on the DIO1
+    // CAD-done IRQ with NO timeout — if that IRQ never asserts the whole loop() freezes (the beacon-timer
+    // hang). Every native gate + the sim run lbt_enabled=false; the duty-cycle pre-check regulates airtime.
+    // Re-enable ONLY after Sx1262Radio::channel_busy() (device_radio.h) is made bounded/non-blocking.
+    cfg.lbt_enabled           = false;
     g_node.on_init(cfg);
     Serial.println(F("  node      = up (beaconing). Type: send <id> <text>"));
 }
@@ -119,6 +127,12 @@ void loop() {
     // 1) RX: drain received frames into the Node (+ the preamble-detect throttle/LBT witness).
     size_t len = 0; float snr = 0, rssi = 0;
     while (g_iradio.poll_rx(g_rxbuf, sizeof(g_rxbuf), len, snr, rssi)) {
+        // Bring-up visibility: a frame physically arrived (proves the two radios hear each other).
+        // Only fires on an actual RX, so it's low-noise. cmd nibble = high 4 bits of byte 0 (§10 wire).
+        Serial.print(F("[rx] len="));  Serial.print((unsigned)len);
+        Serial.print(F(" cmd="));      Serial.print(len ? (g_rxbuf[0] >> 4) : 0);
+        Serial.print(F(" snr="));      Serial.print(snr, 1);
+        Serial.print(F(" rssi="));     Serial.println(rssi, 0);
         meshroute::RxMeta meta{ snr, rssi, now, /*src_hint=*/(int16_t)-1 };   // LoRa carries no PHY src; Node derives it
         g_node.on_recv(g_rxbuf, len, meta);
     }
@@ -149,7 +163,7 @@ void loop() {
     //    otherwise, and the one-time boot banner is lost across the USB re-enumeration on reset).
     //    Console-only, no protocol effect. duty_ms climbing over time = the node is TX'ing beacons.
     static uint64_t s_last_hb = 0;
-    if (now - s_last_hb >= 2000) {
+    if (now - s_last_hb >= 10000) {
         s_last_hb = now;
         Serial.print(F("[hb] t="));    Serial.print((uint32_t)(now / 1000));
         Serial.print(F("s radio="));   Serial.print(g_radio_ok ? F("OK") : F("FAIL"));
