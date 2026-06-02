@@ -55,6 +55,8 @@ struct NodeConfig {
     uint32_t radio_bw_hz = 250000;
     uint8_t  radio_cr    = 5;
     uint8_t  data_sf     = 12;       // preferred data SF (CTS picks it for sf_index=ANY)
+    uint8_t  dv_hop_cap  = protocol::dv_hop_cap;  // DV route hop cap + F RREQ TTL. Network-wide: set via the J join
+                                                  // frame (Slice 3); static config is the bootstrap/fallback. Default 16.
     // R4.0 duty-cycle budget. Default OFF (0.0) so every prior gate stays HEALTHY/inert; a
     // budget scenario sets duty_cycle explicitly. budget_ms = floor(duty_cycle*window) at on_init.
     // (Lua default is 0.01; we default OFF — see spec §2. Lua dv:8495-8497.)

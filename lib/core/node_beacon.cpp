@@ -211,7 +211,7 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         const int16_t rx_score_q4    = route_score_from_snr(meta_snr_q4);
         const int16_t combined_score = (rx_score_q4 < entry_score_q4) ? rx_score_q4 : entry_score_q4;
         const int     combined_hops  = static_cast<int>(e.hops) + 1;
-        if (combined_hops > protocol::dv_hop_cap) continue;
+        if (combined_hops > _cfg.dv_hop_cap) continue;
 
         RtCandidate cand{};
         cand.next_hop         = b.src;

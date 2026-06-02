@@ -129,3 +129,28 @@ TEST_CASE("R2 prune — a DIRECT candidate (hops==1, n2_hop==0) is NOT pruned by
     node.on_recv(b2.data(), n2, meta);
     CHECK_FALSE(hal.sawDest("rt_prune", 3));   // direct candidate spared by the hops>1 guard
 }
+
+TEST_CASE("R2 dv_hop_cap is config-driven (configurable, default 16)") {
+    // The carried-route DV cap must come from cfg.dv_hop_cap, not a hardcoded constant.
+    // Tighten the cap to 2: a carried route at combined_hops=3 must be rejected.
+    TestHal hal;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.peer_count = 0;
+    cfg.dv_hop_cap = 2;
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    // entry hops=1 -> combined_hops=2 == cap -> adopted (control)
+    std::array<uint8_t, 64> b1{};
+    const size_t n1 = make_beacon(/*src=*/3, /*dest=*/5, /*next=*/9, /*hops=*/1, b1);
+    CHECK(n1 > 0);
+    hal._now = 1000; node.on_recv(b1.data(), n1, meta);
+    CHECK(hal.sawDest("rt_update", 5));            // combined_hops 2 <= cap 2
+
+    // entry hops=2 -> combined_hops=3 > cap 2 -> rejected
+    std::array<uint8_t, 64> b2{};
+    const size_t n2 = make_beacon(/*src=*/4, /*dest=*/6, /*next=*/9, /*hops=*/2, b2);
+    CHECK(n2 > 0);
+    hal._now = 2000; node.on_recv(b2.data(), n2, meta);
+    CHECK_FALSE(hal.sawDest("rt_update", 6));       // combined_hops 3 > cap 2 -> not installed
+}
