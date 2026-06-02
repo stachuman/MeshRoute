@@ -163,7 +163,12 @@ void Node::defer_send(const TxItem& item) {
 
 void Node::try_drain_deferred() {
     const uint64_t now = _hal.now();
-    TxItem   drained[protocol::cap_deferred_sends];      // route appeared -> fly (oldest first)
+    // STATIC, not stack: drained[32] + nq[8] of TxItem (~272 B each) = ~11 KB, which overflows the
+    // nRF52840's ~8 KB app stack (under the SoftDevice) and FREEZES the device the moment this drain
+    // first runs after a send defers — invisible to the native tests/gates (MB stack). try_drain_deferred
+    // is non-reentrant (no recursion, single-threaded on device AND in the sim), so one shared copy is
+    // safe: each call fully writes [0,n) before it reads it, so no stale carry-over across calls/nodes.
+    static TxItem drained[protocol::cap_deferred_sends]; // route appeared -> fly (oldest first)
     uint8_t  drained_n = 0;
     uint8_t  w = 0;                                       // compaction write cursor (insertion order kept)
     for (uint8_t r = 0; r < _deferred_n; ++r) {
@@ -190,7 +195,7 @@ void Node::try_drain_deferred() {
         // Re-queue drained items to the HEAD of _tx_queue (oldest first), ahead of
         // newer queued messages — the Lua re-queues to head (dv:6843-6886). Overflow
         // past kTxQueueCap is dropped (a rare edge; same as the original tail path).
-        TxItem nq[kTxQueueCap]; uint8_t n = 0;
+        static TxItem nq[kTxQueueCap]; uint8_t n = 0;    // STATIC (see drained above) — keep off the stack
         for (uint8_t i = 0; i < drained_n && n < kTxQueueCap; ++i) nq[n++] = drained[i];
         for (uint8_t i = 0; i < _tx_queue_n && n < kTxQueueCap; ++i) nq[n++] = _tx_queue[i];
         for (uint8_t i = 0; i < n; ++i) _tx_queue[i] = nq[i];
