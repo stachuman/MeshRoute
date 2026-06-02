@@ -55,29 +55,29 @@ TEST_CASE("wire — Writer/Reader LE/BE round-trip + bounds") {
 }
 
 TEST_CASE("CTS — round-trip across the field ranges") {
-    for (uint8_t ctr : {0, 5, 15})
-        for (uint8_t sf : {5, 7, 8, 12})
-            for (bool ar : {false, true})
-                for (uint8_t to : {0, 1, 255}) {
+    for (uint8_t sf : {5, 7, 8, 12})
+        for (bool ar : {false, true})
+            for (uint8_t tx : {0, 3, 254})
+                for (uint8_t rx : {0, 1, 255}) {
                     std::array<uint8_t, 3> buf{};
-                    cts_in in{ctr, sf, ar, to};
+                    cts_in in{sf, ar, tx, rx};
                     CHECK(pack_cts(in, buf) == 3);
                     auto out = parse_cts(buf);
                     CHECK(out.has_value());
                     if (out) {
-                        CHECK(out->ctr_lo == ctr);
                         CHECK(out->chosen_data_sf == sf);
                         CHECK(out->already_received == ar);
-                        CHECK(out->to == to);
+                        CHECK(out->tx_id == tx);
+                        CHECK(out->rx_id == rx);
                     }
                 }
 }
 
 TEST_CASE("CTS — golden hex (§10.3)") {
     std::array<uint8_t, 3> buf{};
-    CHECK(pack_cts({0x5, 8, true, 0x2A}, buf) == 3);
-    CHECK(buf[0] == 0x25);  CHECK(buf[1] == 0x70);  CHECK(buf[2] == 0x2A);
-    CHECK(pack_cts({0x0, 5, false, 0xFF}, buf) == 3);
+    CHECK(pack_cts({8, true, 0x11, 0x2A}, buf) == 3);   // sf=8 -> sf3=3; flags=(3<<1)|1=0x7
+    CHECK(buf[0] == 0x27);  CHECK(buf[1] == 0x11);  CHECK(buf[2] == 0x2A);
+    CHECK(pack_cts({5, false, 0x00, 0xFF}, buf) == 3);  // sf=5 -> sf3=0; flags=0
     CHECK(buf[0] == 0x20);  CHECK(buf[1] == 0x00);  CHECK(buf[2] == 0xFF);
 }
 
@@ -118,28 +118,28 @@ TEST_CASE("ACK — budget_hint SATURATES at 3 (matches Lua pack_ack, not a wrap)
 
 TEST_CASE("CTS/ACK — robustness: reject wrong cmd / wrong length / bad input") {
     std::array<uint8_t, 3> cts{};
-    CHECK(pack_cts({1, 7, false, 2}, cts) == 3);
+    CHECK(pack_cts({7, false, 1, 2}, cts) == 3);
     CHECK_FALSE(parse_ack(cts).has_value());            // CTS bytes, wrong cmd for ACK
 
     std::array<uint8_t, 2> shortbuf{0x20, 0x00};
     CHECK_FALSE(parse_cts(shortbuf).has_value());        // len != 3
-    std::array<uint8_t, 4> longbuf{0x25, 0x70, 0x2A, 0x00};
+    std::array<uint8_t, 4> longbuf{0x27, 0x11, 0x2A, 0x00};
     CHECK_FALSE(parse_cts(longbuf).has_value());         // len != 3
 
     std::array<uint8_t, 2> tiny{};
-    CHECK(pack_cts({1, 7, false, 2}, tiny) == 0);        // out span too small
+    CHECK(pack_cts({7, false, 1, 2}, tiny) == 0);        // out span too small
     std::array<uint8_t, 3> b{};
-    CHECK(pack_cts({1, 13, false, 2}, b) == 0);          // sf > 12
-    CHECK(pack_cts({1, 4,  false, 2}, b) == 0);          // sf < 5
+    CHECK(pack_cts({13, false, 1, 2}, b) == 0);          // sf > 12
+    CHECK(pack_cts({4,  false, 1, 2}, b) == 0);          // sf < 5
 }
 
-TEST_CASE("CTS — field isolation: already_received toggles only byte1 bit 4") {
+TEST_CASE("CTS — field isolation: already_received toggles only byte0 bit 0") {
     std::array<uint8_t, 3> a{}, b{};
-    CHECK(pack_cts({0x5, 8, false, 0x2A}, a) == 3);
-    CHECK(pack_cts({0x5, 8, true,  0x2A}, b) == 3);
-    CHECK(a[0] == b[0]);
-    CHECK((a[1] ^ b[1]) == 0x10);   // only bit 4 differs
-    CHECK(a[2] == b[2]);
+    CHECK(pack_cts({8, false, 0x11, 0x2A}, a) == 3);
+    CHECK(pack_cts({8, true,  0x11, 0x2A}, b) == 3);
+    CHECK((a[0] ^ b[0]) == 0x01);   // already_received is bit 0 of the flags nibble
+    CHECK(a[1] == b[1]);            // tx_id unchanged
+    CHECK(a[2] == b[2]);            // rx_id unchanged
 }
 
 // ===== C2: RTS / NACK / Q (§10 cmd-nibble; RTS byte-5 reading A) =============

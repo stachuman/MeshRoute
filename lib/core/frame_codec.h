@@ -103,13 +103,16 @@ std::span<const uint8_t> beacon_ext(std::span<const uint8_t> frame, const beacon
 // -----------------------------------------------------------------------------
 // CTS — clear-to-send (cmd-nibble 0x2, 3 B) — ROADMAP §10.3
 // -----------------------------------------------------------------------------
-//   byte 0 : cmd=0x2(4 hi) | ctr_lo(4 lo)
-//   byte 1 : (sf-5)(3 hi) | already_received(1) | rsv(4 lo)
-//   byte 2 : to(8)
-// ctr_lo = low 4 bits of the DATA ctr (hop match); chosen_data_sf in 5..12;
-// already_received short-circuits a resend whose ACK was lost; to = requester id.
-struct cts_in  { uint8_t ctr_lo; uint8_t chosen_data_sf; bool already_received; uint8_t to; };
-struct cts_out { uint8_t ctr_lo; uint8_t chosen_data_sf; bool already_received; uint8_t to; };
+//   byte 0 : cmd=0x2(4 hi) | (sf-5)(3) | already_received(1)   [flags in the low nibble]
+//   byte 1 : tx_id(8) — CTS sender (the forwarder clearing the requester)
+//   byte 2 : rx_id(8) — intended requester id (the RTS sender being cleared)
+// ctr_lo DROPPED vs the legacy CTS: tx_id+rx_id pin the flight under single-slot
+// stop-and-wait, and tx_id (not ctr_lo) disambiguates cascade alts; tx_id also makes
+// the CTS addressable/attributable on metal (no PHY-sender god-view). The Lua mirror is
+// 4 B (literal 'C' tag); the cmd-nibble packs cmd+flags into byte 0. sf in 5..12;
+// already_received short-circuits a resend whose ACK was lost.
+struct cts_in  { uint8_t chosen_data_sf; bool already_received; uint8_t tx_id; uint8_t rx_id; };
+struct cts_out { uint8_t chosen_data_sf; bool already_received; uint8_t tx_id; uint8_t rx_id; };
 // Returns 3 on success; 0 on bad input (sf outside 5..12) or out span < 3.
 size_t pack_cts(const cts_in& in, std::span<uint8_t> out);
 // nullopt on wrong cmd nibble or len != 3.

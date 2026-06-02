@@ -437,7 +437,7 @@ void Node::do_data_tx() {
 }
 
 void Node::start_rts_timeout() {
-    const uint32_t base = airtime_routing_ms(8) + airtime_routing_ms(3);   // Lua RTS_LEN=8 + CTS (timing matches Lua)
+    const uint32_t base = airtime_routing_ms(8) + airtime_routing_ms(4);   // Lua RTS_LEN=8 + CTS_LEN=4 (timing matches Lua)
     const uint8_t  attempt = static_cast<uint8_t>(protocol::rts_max_retries -
                               (_pending_tx ? _pending_tx->retries_left : 0));
     const uint32_t shift = attempt < 2 ? attempt : 2;                       // x2 backoff, cap x4
@@ -453,7 +453,7 @@ void Node::start_ack_timeout() {
 void Node::start_pending_rx_expiry(uint8_t payload_len) {
     const uint8_t  sf  = _pending_rx ? _pending_rx->chosen_data_sf : _cfg.data_sf;
     const uint16_t len = static_cast<uint16_t>(14 + payload_len);
-    const uint32_t t = airtime_routing_ms(3) + protocol::cts_to_data_gap_ms +
+    const uint32_t t = airtime_routing_ms(4) /*CTS_LEN=4*/ + protocol::cts_to_data_gap_ms +
                        airtime_ms(sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym, len) + 2;
     if (_pending_rx) _pending_rx->expiry_ms = _hal.now() + t;   // for the BUSY_RX NACK busy_for calc
     (void)_hal.after(t, kPendingRxExpiryTimerId);

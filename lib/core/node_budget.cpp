@@ -24,8 +24,9 @@ Node::BudgetTier Node::compute_budget_tier() const {
 }
 
 // R4.4 anti-spam ledger append (dv:3205-3239). Prune events older than the window; DEDUP — refresh the
-// FIRST same-kind+ctr_lo event within the retry window instead of appending (a retry is not a new
-// origination). Insertion-ordered so the dedup-first matches the Lua ipairs scan. Draw-free.
+// FIRST same-kind+dedup-key event within the retry window instead of appending (a retry is not a new
+// origination). The `ctr_lo` slot is the per-kind dedup key: ctr_lo for RTS, rx_id for CTS (CTS dropped
+// ctr_lo). Insertion-ordered so the dedup-first matches the Lua ipairs scan. Draw-free.
 // FIXED RING (no per-frame heap): prune+dedup compact IN PLACE; on overflow evict the oldest. See node.h.
 void Node::track_originator_observation(uint8_t sender, uint8_t kind, uint8_t ctr_lo, uint32_t air) {
     const uint64_t now    = _hal.now();
@@ -59,8 +60,9 @@ void Node::track_originator_observation(uint8_t sender, uint8_t kind, uint8_t ct
     }
 }
 
-// R4.4 sliding-window metric (dv:3247-3277). DISTINCT ctr_lo per kind (ctr_lo is 4-bit -> a 16-bit mask),
-// cumulative airtime. apparent = max(0, rts - cts). Const (read-only). Draw-free.
+// R4.4 sliding-window metric (dv:3263-3293). DISTINCT dedup-key per kind, cumulative airtime.
+// apparent = max(0, rts - cts). Dedup key: RTS uses ctr_lo (4-bit -> 16-bit mask); CTS uses rx_id (the
+// cleared requester, 0..254 -> 256-bit mask) since CTS dropped ctr_lo. Const (read-only). Draw-free.
 void Node::compute_originator_metric(uint8_t sender, int& apparent, uint32_t& total_air,
                                      uint8_t& rts, uint8_t& cts) const {
     apparent = 0; total_air = 0; rts = 0; cts = 0;
@@ -68,15 +70,20 @@ void Node::compute_originator_metric(uint8_t sender, int& apparent, uint32_t& to
     if (it == _per_sender_originator.end()) return;
     const uint64_t now    = _hal.now();
     const uint64_t cutoff = (now >= protocol::originator_window_ms) ? (now - protocol::originator_window_ms) : 0;
-    uint16_t rts_seen = 0, cts_seen = 0;                  // distinct-ctr_lo masks (bit per 4-bit ctr_lo)
+    uint16_t rts_seen = 0;                 // RTS: distinct 4-bit ctr_lo
+    uint8_t  cts_seen[32] = {};            // CTS: distinct rx_id (0..254) — dedup key is rx_id, not ctr_lo
     const OrigRing& r = it->second;
     for (uint8_t i = 0; i < r.count; ++i) {
         const OrigEvent& ev = r.ev[i];
         if (ev.t < cutoff) continue;
         total_air += ev.air;
-        const uint16_t bit = static_cast<uint16_t>(1u << (ev.ctr_lo & 0x0f));
-        if      (ev.kind == 0) { if (!(rts_seen & bit)) { rts_seen |= bit; ++rts; } }
-        else if (ev.kind == 1) { if (!(cts_seen & bit)) { cts_seen |= bit; ++cts; } }
+        const uint8_t key = ev.ctr_lo;     // dedup-key slot: ctr_lo for RTS, rx_id for CTS
+        if (ev.kind == 0) {
+            const uint16_t bit = static_cast<uint16_t>(1u << (key & 0x0f));
+            if (!(rts_seen & bit)) { rts_seen |= bit; ++rts; }
+        } else if (ev.kind == 1) {
+            if (!(cts_seen[key >> 3] & (1u << (key & 7)))) { cts_seen[key >> 3] |= static_cast<uint8_t>(1u << (key & 7)); ++cts; }
+        }
     }
     const int a = static_cast<int>(rts) - static_cast<int>(cts);
     apparent = (a < 0) ? 0 : a;

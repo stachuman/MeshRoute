@@ -170,10 +170,11 @@ size_t pack_cts(const cts_in& in, std::span<uint8_t> out) {
     if (in.chosen_data_sf < 5 || in.chosen_data_sf > 12) return 0;
     if (out.size() < 3) return 0;
     wire::Writer w(out);
-    w.u8(wire::cmd_byte(wire::Cmd::C, static_cast<uint8_t>(in.ctr_lo & 0x0F)));
     const uint8_t sf3 = static_cast<uint8_t>((in.chosen_data_sf - 5) & 0x07);
-    w.u8(static_cast<uint8_t>((sf3 << 5) | (in.already_received ? 0x10 : 0x00)));
-    w.u8(in.to);
+    // flags in the cmd byte's low nibble: (sf-5)(3) | already_received(1) — mirrors the Lua flags byte.
+    w.u8(wire::cmd_byte(wire::Cmd::C, static_cast<uint8_t>((sf3 << 1) | (in.already_received ? 0x01 : 0x00))));
+    w.u8(in.tx_id);
+    w.u8(in.rx_id);
     return w.ok() ? w.size() : 0;
 }
 
@@ -182,14 +183,15 @@ std::optional<cts_out> parse_cts(std::span<const uint8_t> frame) {
     wire::Reader r(frame);
     const uint8_t b0 = r.u8();
     if (wire::cmd_of(b0) != wire::Cmd::C) return std::nullopt;
-    const uint8_t b1 = r.u8();
-    const uint8_t to = r.u8();
+    const uint8_t tx_id = r.u8();
+    const uint8_t rx_id = r.u8();
     if (!r.ok()) return std::nullopt;
+    const uint8_t flags = wire::flags_of(b0);          // (sf-5)(3) | already_received(1)
     cts_out o{};
-    o.ctr_lo           = wire::flags_of(b0);
-    o.chosen_data_sf   = static_cast<uint8_t>(((b1 >> 5) & 0x07) + 5);
-    o.already_received = (b1 & 0x10) != 0;
-    o.to               = to;
+    o.chosen_data_sf   = static_cast<uint8_t>(((flags >> 1) & 0x07) + 5);
+    o.already_received = (flags & 0x01) != 0;
+    o.tx_id            = tx_id;
+    o.rx_id            = rx_id;
     return o;
 }
 

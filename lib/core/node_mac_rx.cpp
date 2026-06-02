@@ -47,8 +47,8 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (la != _last_acked_from.end() && (_hal.now() - la->second.t_ms) < protocol::last_acked_ttl_ms) {
         // Fresh within the 10s TTL (dv_dual_sf.lua:9861) — the TTL gate is what stops a
         // stale 4-bit ctr_lo alias from false-positiving on slow sustained traffic.
-        cts_in cin{}; cin.ctr_lo = r.ctr_lo; cin.chosen_data_sf = la->second.chosen_data_sf;
-        cin.already_received = true; cin.to = r.src;
+        cts_in cin{}; cin.chosen_data_sf = la->second.chosen_data_sf;
+        cin.already_received = true; cin.tx_id = _node_id; cin.rx_id = r.src;
         uint8_t cbuf[3]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, 3));
         tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b
         EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
@@ -60,8 +60,8 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // the expiry (dv_dual_sf.lua:218 CTS-dup) so the sender's retry gets a fresh CTS.
     if (_pending_rx && _pending_rx->from == r.src && _pending_rx->dst == r.dst &&
         _pending_rx->ctr_lo == r.ctr_lo) {
-        cts_in cin{}; cin.ctr_lo = r.ctr_lo; cin.chosen_data_sf = _pending_rx->chosen_data_sf;
-        cin.already_received = false; cin.to = r.src;
+        cts_in cin{}; cin.chosen_data_sf = _pending_rx->chosen_data_sf;
+        cin.already_received = false; cin.tx_id = _node_id; cin.rx_id = r.src;
         uint8_t cbuf[3]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, 3));
         tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b
         EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
@@ -149,7 +149,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     prx.chosen_data_sf = sf; prx.payload_len = r.payload_len; prx.set_at_ms = _hal.now();
     _pending_rx = prx;
     start_pending_rx_expiry(r.payload_len);
-    cts_in cin{}; cin.ctr_lo = r.ctr_lo; cin.chosen_data_sf = sf; cin.already_received = false; cin.to = r.src;
+    cts_in cin{}; cin.chosen_data_sf = sf; cin.already_received = false; cin.tx_id = _node_id; cin.rx_id = r.src;
     uint8_t cbuf[3]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, 3));
     tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b: stash + tag the CTS
     { EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
@@ -162,18 +162,19 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto pc = parse_cts(std::span<const uint8_t>(bytes, len));
     if (!pc) return;
     const cts_out& c = *pc;
-    // R4.4 anti-spam: track this CTS in the sender's window (overheard, addressed to us or not). CTS is
-    // the forwarder fingerprint — a legit forwarder emits ~1 CTS per inbound flight (dv:10115).
-    if (meta.src_hint >= 0)
-        track_originator_observation(static_cast<uint8_t>(meta.src_hint), /*kind=cts*/1, c.ctr_lo,
-                                     static_cast<uint32_t>(airtime_routing_ms(static_cast<int>(len))));
-    if (c.to != _node_id) return;
-    if (!_pending_tx || !_pending_tx->awaiting_cts || _pending_tx->ctr_lo != c.ctr_lo) return;
-    // src-less by design: a CTS addressed to me with my ctr_lo can only come from the next-hop I just
-    // RTS'd, so to+ctr_lo already identifies it. The src_hint==next cross-check is SIM-ONLY (real LoRa
-    // carries no PHY source; the device sets src_hint=-1), so gate it on availability — exactly like the
-    // NACK handler below already does — otherwise every CTS is dropped on metal and the handshake loops.
-    if (meta.src_hint >= 0 && static_cast<uint8_t>(meta.src_hint) != _pending_tx->next) return;
+    // R4.4 anti-spam: track this CTS in the CTS sender's (c.tx_id) window (overheard, addressed to us or
+    // not). CTS is the forwarder fingerprint — a legit forwarder emits ~1 CTS per inbound flight (dv:10149).
+    // Unconditional now: tx_id is on the wire (no PHY-sender god-view). Dedup key is rx_id (the cleared
+    // requester), not the dropped ctr_lo. Timing uses Lua CTS_LEN=4, not the 3-B C++ wire.
+    (void)meta;
+    track_originator_observation(c.tx_id, /*kind=cts*/1, /*dedup_key=*/c.rx_id,
+                                 static_cast<uint32_t>(airtime_routing_ms(4)));
+    if (c.rx_id != _node_id) return;
+    if (!_pending_tx || !_pending_tx->awaiting_cts) return;   // ctr_lo flight-match dropped: rx_id==me + tx_id==next (below) pin the flight
+    // Cascade disambiguation: the CTS now carries its sender (tx_id), so accept only the CTS from the
+    // next-hop we RTS'd. Wire-backed (no PHY-sender god-view) — this is what distinguishes the primary
+    // next-hop's CTS from an alt's when both answer the same RTS (cascade-to-alt). dv:10195.
+    if (c.tx_id != _pending_tx->next) return;
     _hal.cancel(kRtsTimeoutTimerId);                     // else it fires same-tick and burns a retry
     _hal.cancel(kRetryBackoffTimerId);                   // drop a stale retry armed by a just-fired rts_timeout
     _pending_tx->awaiting_cts = false;

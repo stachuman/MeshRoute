@@ -161,8 +161,8 @@ static size_t mk_beacon(uint8_t src, std::array<uint8_t, 64>& b) {
     in.entries = std::span<const beacon_entry>(&e, 1);
     return pack_beacon(in, std::span<uint8_t>(b.data(), b.size()));
 }
-static size_t mk_cts(uint8_t to, uint8_t ctr_lo, uint8_t data_sf, std::array<uint8_t, 8>& b) {
-    cts_in in{}; in.ctr_lo = ctr_lo; in.chosen_data_sf = data_sf; in.already_received = false; in.to = to;
+static size_t mk_cts(uint8_t rx_id, uint8_t tx_id, uint8_t data_sf, std::array<uint8_t, 8>& b) {
+    cts_in in{}; in.chosen_data_sf = data_sf; in.already_received = false; in.tx_id = tx_id; in.rx_id = rx_id;
     return pack_cts(in, std::span<uint8_t>(b.data(), b.size()));
 }
 static size_t mk_ack_hint(uint8_t to, uint8_t ctr_lo, uint8_t budget_hint, std::array<uint8_t, 8>& b) {
@@ -274,7 +274,7 @@ TEST_CASE("R3.x concurrency — 2nd send waits behind the in-flight one until be
     // until the ACK lands and become_free re-drains.
     RxMeta bob{ 8.0f, -80.0f, 0, static_cast<int8_t>(2) };
     std::array<uint8_t, 8> cb{};
-    const size_t cn = mk_cts(/*to=*/1, /*ctr_lo=*/1, /*data_sf=*/12, cb);
+    const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/2, /*data_sf=*/12, cb);
     CHECK(cn > 0);
     hal._now = 2100; node.on_recv(cb.data(), cn, bob);
     CHECK(hal.count("cts_rx") == 1);
@@ -409,7 +409,7 @@ TEST_CASE("cascade — ACK-timeout resets the flight (re-RTS) before walking") {
     send_cmd(*node, 5, "hi");                           // RTS to via 2
     RxMeta m2{12.0f, -70.0f, 0, static_cast<int8_t>(2)};
     std::array<uint8_t,8> cb{};
-    const size_t cn = mk_cts(/*to=*/1, /*ctr_lo=*/1, /*data_sf=*/7, cb);
+    const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/2, /*data_sf=*/7, cb);
     node->on_recv(cb.data(), cn, m2);                   // CTS -> gap timer
     node->on_timer(kCtsToDataGapTimerId);               // -> DATA tx (awaiting_ack)
     CHECK(hal.count("data_tx") == 1);
@@ -427,7 +427,7 @@ TEST_CASE("cascade — ACK-timeout exhaustion walks to the alternate (Risk #5 fu
     send_cmd(*node, 5, "hi");
     RxMeta m2{12.0f, -70.0f, 0, static_cast<int8_t>(2)};
     std::array<uint8_t,8> cb{};
-    const size_t cn = mk_cts(/*to=*/1, /*ctr_lo=*/1, /*data_sf=*/7, cb);
+    const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/2, /*data_sf=*/7, cb);
     node->on_recv(cb.data(), cn, m2);
     node->on_timer(kCtsToDataGapTimerId);               // -> DATA (awaiting_ack, retries_left=3)
     CHECK(hal.count("data_tx") == 1);
@@ -630,7 +630,7 @@ TEST_CASE("hop_budget — originator initial budget = min(31, rt_hops + slack)")
     Node* node = mk_sender_with_routes(hal, {{2,2,14}});   // candidate to 5 via 2: hops = 2+1 = 3
     send_cmd(*node, 5, "hi");                               // pending_tx via 2, ctr_lo=1
     std::array<uint8_t,8> cb{};
-    const size_t cn = mk_cts(/*to=*/1, /*ctr_lo=*/1, /*data_sf=*/7, cb);
+    const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/2, /*data_sf=*/7, cb);
     RxMeta m2{12.0f,-70.0f,0,static_cast<int8_t>(2)}; node->on_recv(cb.data(), cn, m2);
     const int rand_before = hal.rand_calls;                // the budget block is pure arithmetic ...
     node->on_timer(kCtsToDataGapTimerId);                  // -> DATA tx
@@ -691,7 +691,7 @@ TEST_CASE("hop_budget — forwarder decrements: arriving remaining=2 forwards wi
     CHECK(hal.count("ack_tx") == 1);
     node.on_timer(kPostAckTimerId);                        // do_post_ack -> forward TxItem -> issue_send -> RTS to 7
     std::array<uint8_t,8> cb{};
-    const size_t cn = mk_cts(1, 3, 7, cb);                 // CTS from 7 for the forward (ctr_lo=3)
+    const size_t cn = mk_cts(1, 7, 7, cb);                 // CTS from 7 for the forward (tx_id=7)
     node.on_recv(cb.data(), cn, m7);
     node.on_timer(kCtsToDataGapTimerId);                   // -> forwarded DATA tx
     auto pd = parse_tx_data(hal.last_tx("DATA")); CHECK(pd.has_value());
@@ -784,7 +784,7 @@ TEST_CASE("hop_budget — a forwarded flight keeps its budget across a BUSY_RX l
     CHECK(hal.count("tx_requeued") == 1);
     { const Ev* r = hal.last("rts_tx"); CHECK(r != nullptr); if (r) CHECK(r->next == 8); }   // re-issued via the alt
     // CTS from 8 -> forwarded DATA must STILL carry the inherited budget (3), not 0.
-    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(/*to=*/1, /*ctr_lo=*/4, /*data_sf=*/7, cb);
+    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/8, /*data_sf=*/7, cb);
     RxMeta m8c{12.0f,-70.0f,0,static_cast<int8_t>(8)}; node.on_recv(cb.data(), cn, m8c);
     node.on_timer(kCtsToDataGapTimerId);                       // -> forwarded DATA tx
     auto pd = parse_tx_data(hal.last_tx("DATA")); CHECK(pd.has_value());
@@ -998,7 +998,7 @@ TEST_CASE("R4.2 ACK budget_hint — STRAINED forwarder's ACK carries the tier; s
         node->on_timer(kTriggeredBeaconTimerId);
         send_cmd(*node, 5, "hi");                                 // RTS to via2
         std::array<uint8_t,8> cb{};
-        const size_t cn = mk_cts(1, 1, 7, cb);
+        const size_t cn = mk_cts(1, 2, 7, cb);
         RxMeta m2{12.0f,-70.0f,0,static_cast<int8_t>(2)}; node->on_recv(cb.data(), cn, m2);
         node->on_timer(kCtsToDataGapTimerId);                    // DATA tx -> awaiting_ack
         const int rb2 = hal.rand_calls;
@@ -1107,10 +1107,12 @@ TEST_CASE("R4.4 throttle drop — a 1st-hop originator-flooder's RTS is silently
         NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
         RxMeta m9{8.0f,-80.0f,0,static_cast<int8_t>(9)};
         std::array<uint8_t,8> cb{};
-        for (uint8_t i = 0; i < 7; ++i) {                       // 7 RTS + 7 CTS overheard from 9 -> apparent 0
+        for (uint8_t i = 0; i < 7; ++i) {                       // 7 RTS + 7 CTS (distinct rx) from 9 -> apparent ~0
             const size_t rn = mk_rts(/*src=*/9,/*next=*/99,/*dst=*/8,/*ctr_lo=*/i,/*plen=*/10, rb);
             node.on_recv(rb.data(), rn, m9);
-            const size_t cn = mk_cts(/*to=*/99, /*ctr_lo=*/i, /*data_sf=*/7, cb);
+            // distinct rx_id per flight: CTS dedups by rx_id now, so a balanced forwarder serves
+            // distinct upstreams -> cts == rts. (Same-rx repeats would merge — the coarser-count tradeoff.)
+            const size_t cn = mk_cts(/*rx_id=*/static_cast<uint8_t>(101 + i), /*tx_id=*/9, /*data_sf=*/7, cb);
             node.on_recv(cb.data(), cn, m9);                    // overheard CTS from 9
         }
         const size_t rn = mk_rts(/*src=*/9,/*next=*/1,/*dst=*/8,/*ctr_lo=*/7,/*plen=*/10, rb);
@@ -1410,7 +1412,7 @@ TEST_CASE("R4.5 LBT ring — two concurrent deferred NACKs BOTH reach the radio 
 TEST_CASE("R4.5b on_radio_busy — a blocked DATA clears awaiting_ack + retries from the stash (3x, one draw each) then gives up") {
     TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
     send_cmd(*node, 5, "hi");                                  // RTS
-    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(1, 1, 7, cb);
+    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(1, 2, 7, cb);
     RxMeta m2{12.0f,-70.0f,0,static_cast<int8_t>(2)}; node->on_recv(cb.data(), cn, m2);
     node->on_timer(kCtsToDataGapTimerId);                     // DATA tx -> awaiting_ack + DATA stashed
     CHECK(hal.last_tx("DATA") != nullptr);
@@ -1440,7 +1442,7 @@ TEST_CASE("R4.5b on_radio_busy — a DATA retry re-arms the ACK wait (port diver
     // the flight never completes. Assert a matching ACK is ACCEPTED after the retry (only possible if re-armed).
     TestHal hal; Node* node = mk_sender_with_routes(hal, {{2,1,14}});
     send_cmd(*node, 5, "hi");                                  // RTS
-    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(1, 1, 7, cb);
+    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(1, 2, 7, cb);
     RxMeta m2{12.0f,-70.0f,0,static_cast<int8_t>(2)}; node->on_recv(cb.data(), cn, m2);
     node->on_timer(kCtsToDataGapTimerId);                     // DATA tx -> awaiting_ack + DATA stashed
     meshroute::BusyInfo bi{meshroute::BusyReason::channel_busy, /*tag=DATA*/2, /*sf=*/7, /*busy_until=*/0};
@@ -1462,7 +1464,7 @@ TEST_CASE("Shared-bug #1 — a DATA giveup releases the stranded flight so the T
     send_cmd(*node, 5, "b");                                  // msg2 -> queued behind msg1
     int rts0 = 0; for (const auto& f : hal.tx_frames) if (f.label == "RTS") ++rts0;
     CHECK(rts0 == 1);                                         // only msg1 has RTSed
-    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(1, 1, 7, cb);
+    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(1, 2, 7, cb);
     RxMeta m2{12.0f,-70.0f,0,static_cast<int8_t>(2)}; node->on_recv(cb.data(), cn, m2);
     node->on_timer(kCtsToDataGapTimerId);                     // msg1 -> DATA tx (awaiting_ack + DATA stashed)
     meshroute::BusyInfo bi{meshroute::BusyReason::channel_busy, /*tag=DATA*/2, /*sf=*/7, /*busy_until=*/0};
@@ -1489,7 +1491,7 @@ TEST_CASE("Shared-bug #2 — tx_with_retry duty pre-check defers an over-budget 
     node.on_recv(bb.data(), bn, mb);                           // route to 5 via 2
     hal._airtime_used = 0;                                     // RTS/CTS fit
     send_cmd(node, 5, "hi");                                   // -> RTS (slot<0, NOT duty-pre-checked here)
-    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(1, 1, 7, cb);
+    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(1, 2, 7, cb);
     RxMeta m2{12.0f,-70.0f,0,static_cast<int8_t>(2)};
     hal._airtime_used = 9990;                                  // near budget -> the DATA (slot>=0) won't fit
     node.on_recv(cb.data(), cn, m2);
