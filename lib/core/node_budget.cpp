@@ -9,9 +9,6 @@
 // Part of the Node class (declared in node.h); split out of node_mac.cpp for readability.
 #include "node.h"
 
-#include <vector>
-#include <utility>
-
 namespace meshroute {
 
 // R4.0: route-free duty-cycle tier from the rolling airtime window (Lua dv:3560-3571).
@@ -28,24 +25,38 @@ Node::BudgetTier Node::compute_budget_tier() const {
 
 // R4.4 anti-spam ledger append (dv:3205-3239). Prune events older than the window; DEDUP — refresh the
 // FIRST same-kind+ctr_lo event within the retry window instead of appending (a retry is not a new
-// origination). Insertion-ordered vector so the dedup-first matches the Lua ipairs scan. Draw-free.
+// origination). Insertion-ordered so the dedup-first matches the Lua ipairs scan. Draw-free.
+// FIXED RING (no per-frame heap): prune+dedup compact IN PLACE; on overflow evict the oldest. See node.h.
 void Node::track_originator_observation(uint8_t sender, uint8_t kind, uint8_t ctr_lo, uint32_t air) {
     const uint64_t now    = _hal.now();
     const uint64_t cutoff = (now >= protocol::originator_window_ms) ? (now - protocol::originator_window_ms) : 0;
-    auto& events = _per_sender_originator[sender];
-    std::vector<OrigEvent> kept;
+    OrigRing& r = _per_sender_originator[sender];
+
+    // Prune expired + dedup-first, compacting survivors to the front in insertion order. w <= i throughout,
+    // so writing r.ev[w] never clobbers an unread r.ev[i].
+    uint8_t w = 0;
     bool dedup_hit = false;
-    for (auto& ev : events) {
-        if (ev.t < cutoff) continue;                      // prune expired
-        if (!dedup_hit && ev.kind == kind && ev.ctr_lo == ctr_lo
-            && (now - ev.t) < protocol::originator_retry_dedup_ms) {
-            ev.t = now;                                    // retry -> refresh, don't add a new event
+    for (uint8_t i = 0; i < r.count; ++i) {
+        if (r.ev[i].t < cutoff) continue;                 // prune expired
+        if (!dedup_hit && r.ev[i].kind == kind && r.ev[i].ctr_lo == ctr_lo
+            && (now - r.ev[i].t) < protocol::originator_retry_dedup_ms) {
+            r.ev[i].t = now;                               // retry -> refresh, don't add a new event
             dedup_hit = true;
         }
-        kept.push_back(ev);
+        r.ev[w++] = r.ev[i];                              // keep
     }
-    if (!dedup_hit) kept.push_back(OrigEvent{ now, kind, ctr_lo, air });
-    events = std::move(kept);
+    r.count = w;
+
+    if (!dedup_hit) {
+        if (r.count < protocol::cap_originator_events) {
+            r.ev[r.count++] = OrigEvent{ now, kind, ctr_lo, air };
+        } else {
+            // Ring full: a sender with >cap non-deduped events in the window is spamming — drop the OLDEST
+            // and keep the most recent, which preserves the anti-spam signal (recent rts/cts/air).
+            for (uint8_t i = 1; i < r.count; ++i) r.ev[i - 1] = r.ev[i];
+            r.ev[r.count - 1] = OrigEvent{ now, kind, ctr_lo, air };
+        }
+    }
 }
 
 // R4.4 sliding-window metric (dv:3247-3277). DISTINCT ctr_lo per kind (ctr_lo is 4-bit -> a 16-bit mask),
@@ -58,7 +69,9 @@ void Node::compute_originator_metric(uint8_t sender, int& apparent, uint32_t& to
     const uint64_t now    = _hal.now();
     const uint64_t cutoff = (now >= protocol::originator_window_ms) ? (now - protocol::originator_window_ms) : 0;
     uint16_t rts_seen = 0, cts_seen = 0;                  // distinct-ctr_lo masks (bit per 4-bit ctr_lo)
-    for (const auto& ev : it->second) {
+    const OrigRing& r = it->second;
+    for (uint8_t i = 0; i < r.count; ++i) {
+        const OrigEvent& ev = r.ev[i];
         if (ev.t < cutoff) continue;
         total_air += ev.air;
         const uint16_t bit = static_cast<uint16_t>(1u << (ev.ctr_lo & 0x0f));

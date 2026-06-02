@@ -381,10 +381,15 @@ private:
     // mutable: get_neighbor_tier lazy-prunes the TTL-expired entry on read, like the Lua (dv:3863-3868).
     mutable std::map<uint8_t, uint8_t>  _neighbor_budget_tier;       // next_hop -> tier (1..3); absent/0 = HEALTHY
     mutable std::map<uint8_t, uint64_t> _neighbor_budget_tier_set_at; // next_hop -> absolute_ms the mark was set
-    // R4.4 originator anti-spam: per-sender sliding-window ledger of overheard RTS/CTS (insertion-ordered
-    // vector so the dedup-FIRST refresh matches the Lua ipairs scan). kind: 0=rts, 1=cts.
+    // R4.4 originator anti-spam: per-sender sliding-window ledger of overheard RTS/CTS. kind: 0=rts, 1=cts.
+    // FIXED RING (not a std::vector) — the old map-of-vectors rebuilt a vector on every overheard frame
+    // (alloc/free per frame), which fragments the nRF52 heap; this keeps the events in a fixed in-struct
+    // array (no per-frame heap), evicting the oldest on overflow. Insertion-ordered so the dedup-FIRST
+    // refresh still matches the Lua ipairs scan. The std::map (sender -> ring) stays — its node alloc is
+    // once per NEW sender (bounded by neighbours), not per frame (the accepted determinism relaxation).
     struct OrigEvent { uint64_t t; uint8_t kind; uint8_t ctr_lo; uint32_t air; };
-    std::map<uint8_t, std::vector<OrigEvent>> _per_sender_originator;  // sender_id -> events in the window
+    struct OrigRing  { OrigEvent ev[protocol::cap_originator_events]; uint8_t count = 0; };
+    std::map<uint8_t, OrigRing> _per_sender_originator;  // sender_id -> recent events (fixed ring)
     // NACK BUSY_RX wait-same-hop: the captured ctr_lo the kNackWaitTimerId re-RTSes for.
     uint8_t                      _nack_wait_ctr_lo = 0;
     bool                         _nack_wait_pending = false;

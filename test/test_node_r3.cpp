@@ -1062,6 +1062,26 @@ TEST_CASE("R4.4 compute_originator_metric — distinct ctr_lo, 10s dedup, window
     CHECK(app == 1);   // rts 2 - cts 1 (the cts at now is kept) ... apparent = max(0, 2-1) = 1
 }
 
+TEST_CASE("R4.4 originator ledger — fixed ring caps at cap_originator_events, evicts oldest, metric stays correct") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    // Overflow the heap-free ring: cap+8 RTSes from sender 9, ctr_lo cycling 0..15, 1s apart. Same ctr_lo
+    // recurs every 16s (> the 10s dedup window) so NONE dedup -> cap+8 distinct events, all inside the
+    // 5-min window (no prune). The ring must cap at N and evict the oldest 8, not grow unboundedly.
+    const int N = protocol::cap_originator_events;
+    const int over = 8;
+    for (int i = 0; i < N + over; ++i) {
+        hal._now = 1000 + (uint64_t)i * 1000;
+        node.track_originator_observation(9, /*rts*/0, (uint8_t)(i % 16), 10);
+    }
+    int app; uint32_t air; uint8_t rts, cts;
+    node.compute_originator_metric(9, app, air, rts, cts);
+    CHECK(rts == 16);                     // the retained recent N events still cover all 16 distinct ctr_lo
+    CHECK(cts == 0);
+    CHECK(app == 16);
+    CHECK(air == (uint32_t)(N * 10));     // capped at N (oldest `over` evicted) — NOT (N+over)*10 = no unbounded growth
+}
+
 TEST_CASE("R4.4 throttle drop — a 1st-hop originator-flooder's RTS is silently dropped; a forwarder isn't") {
     std::array<uint8_t,16> rb{};
     // SPAMMER: 7 distinct-ctr_lo RTSes from sender 9 OVERHEARD (to next=99, not us) -> apparent=7 > 6.

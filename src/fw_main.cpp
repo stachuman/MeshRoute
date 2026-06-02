@@ -141,7 +141,7 @@ void loop() {
     // 2) Timers: fire every elapsed Node timer (beacons, RTS/ACK timeouts, retries, the duty/LBT defers).
     // TEMP TRACE: [T<id> before on_timer, ] after — the last unclosed [T<id> = the timer whose handler hung.
     for (int id; (id = g_hal.pop_due_timer()) >= 0; ) {
-        Serial.print(F("[T")); Serial.print(id);
+        Serial.print(F("[T")); Serial.print(id); Serial.flush();   // flush: a hung handler still shows [T<id>
         g_node.on_timer((uint32_t)id);
         Serial.print(F("]"));
     }

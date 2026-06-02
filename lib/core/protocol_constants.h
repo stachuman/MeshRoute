@@ -104,6 +104,11 @@ inline constexpr uint32_t neighbor_budget_tier_ttl_ms  = 300000;
 inline constexpr uint32_t originator_window_ms        = 300000;
 inline constexpr float    originator_airtime_share    = 0.25f;
 inline constexpr uint16_t originator_retry_dedup_ms   = 10000;
+// Per-sender fixed-ring depth for the originator ledger (heap-free; evict-oldest on overflow). The metric
+// counts DISTINCT ctr_lo (16 per kind, 2 kinds = 32 ceiling), so 64 is 2x headroom: eviction only triggers
+// under genuine spam (>64 non-deduped events in the 5-min window), never in normal traffic. C++-only — the
+// Lua baseline keeps an unbounded table (no embedded heap concern there).
+inline constexpr uint16_t cap_originator_events       = 64;
 
 // ---- Cascade-requeue -------------------------------------------------------
 inline constexpr uint8_t  cascade_requeue_max            = 3;
