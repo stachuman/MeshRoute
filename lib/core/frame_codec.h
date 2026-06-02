@@ -214,7 +214,7 @@ size_t pack_h(const h_in& in, std::span<uint8_t> out);            // 7; 0 on sho
 std::optional<h_out> parse_h(std::span<const uint8_t> frame);     // nullopt: len<7 / cmd
 
 // -----------------------------------------------------------------------------
-// F — route-find RREQ/RREP flood (cmd-nibble 0x8, 6 B) — ROADMAP §10.3
+// F — route-find RREQ/RREP flood (cmd-nibble 0x8, 7 B) — ROADMAP §10.3
 // -----------------------------------------------------------------------------
 //   byte 0 : cmd=0x8(7..4) | leaf_id(3..0)
 //   byte 1 : origin              (querier node_id; PRESERVED across forwards)
@@ -224,13 +224,17 @@ std::optional<h_out> parse_h(std::span<const uint8_t> frame);     // nullopt: le
 //            The codec surfaces it verbatim; the handler interprets by is_reply.
 //            NEVER clamp/validate it (it's a node address when is_reply=1).
 //   byte 5 : hops
+//   byte 6 : relay  — immediate forwarder's node_id. Reverse/forward path learning
+//            takes next_hop FROM THIS, not the PHY sender (metal has no src_hint);
+//            every (re)transmitter stamps its own id. Deliberate divergence from the
+//            Lua F wire (which used god-view meta.src) — metal-correct, decision (b).
 // NB: is_reply is at bit 7 here (the Lua had it at byte2 bit 0) — re-placed, not bit-copied.
 struct f_in  { uint8_t leaf_id; uint8_t origin; bool is_reply; uint8_t dst_id;
-               uint8_t ttl_or_next_hop; uint8_t hops; };
+               uint8_t ttl_or_next_hop; uint8_t hops; uint8_t relay; };
 struct f_out { uint8_t leaf_id; uint8_t origin; bool is_reply; uint8_t dst_id;
-               uint8_t ttl_or_next_hop; uint8_t hops; };
-size_t pack_f(const f_in& in, std::span<uint8_t> out);            // 6; 0 on short buf
-std::optional<f_out> parse_f(std::span<const uint8_t> frame);     // nullopt: len<6 / cmd
+               uint8_t ttl_or_next_hop; uint8_t hops; uint8_t relay; };
+size_t pack_f(const f_in& in, std::span<uint8_t> out);            // 7; 0 on short buf
+std::optional<f_out> parse_f(std::span<const uint8_t> frame);     // nullopt: len<7 / cmd
 
 // -----------------------------------------------------------------------------
 // J — join family (cmd-nibble 0x9) — ROADMAP §10.3. OTAA-style join + short-id

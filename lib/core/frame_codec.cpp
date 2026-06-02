@@ -383,10 +383,11 @@ std::optional<h_out> parse_h(std::span<const uint8_t> frame) {
 }
 
 // -----------------------------------------------------------------------------
-// F — cmd 0x8, 6 B. is_reply at byte2 bit 7; byte4 raw/by-flag (NOT interpreted).
+// F — cmd 0x8, 7 B. is_reply at byte2 bit 7; byte4 raw/by-flag (NOT interpreted);
+// byte6 = relay (immediate forwarder) for metal-correct reverse/forward path learning.
 // -----------------------------------------------------------------------------
 size_t pack_f(const f_in& in, std::span<uint8_t> out) {
-    if (out.size() < 6) return 0;
+    if (out.size() < 7) return 0;
     wire::Writer w(out);
     w.u8(wire::cmd_byte(wire::Cmd::F, static_cast<uint8_t>(in.leaf_id & 0x0F)));
     w.u8(in.origin);
@@ -394,11 +395,12 @@ size_t pack_f(const f_in& in, std::span<uint8_t> out) {
     w.u8(in.dst_id);
     w.u8(in.ttl_or_next_hop);              // raw dual byte (ttl | next_hop)
     w.u8(in.hops);
+    w.u8(in.relay);                        // byte 6: immediate forwarder's node_id
     return w.ok() ? w.size() : 0;
 }
 
 std::optional<f_out> parse_f(std::span<const uint8_t> frame) {
-    if (frame.size() < 6) return std::nullopt;
+    if (frame.size() < 7) return std::nullopt;
     wire::Reader r(frame);
     const uint8_t b0 = r.u8();
     if (wire::cmd_of(b0) != wire::Cmd::F) return std::nullopt;
@@ -409,6 +411,7 @@ std::optional<f_out> parse_f(std::span<const uint8_t> frame) {
     o.dst_id          = r.u8();
     o.ttl_or_next_hop = r.u8();            // raw; handler interprets by is_reply
     o.hops            = r.u8();
+    o.relay           = r.u8();            // byte 6: immediate forwarder
     if (!r.ok()) return std::nullopt;
     o.is_reply = (b2 & 0x80) != 0;
     return o;

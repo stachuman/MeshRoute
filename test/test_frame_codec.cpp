@@ -298,32 +298,33 @@ TEST_CASE("F — RREQ/RREP round-trip + golden + is_reply isolation + reject") {
             for (bool rep : {false, true})
                 for (uint8_t b4 : {0, 9, 255})
                     for (uint8_t hops : {0, 4, 255}) {
-                        std::array<uint8_t, 6> buf{};
-                        CHECK(pack_f({leaf, origin, rep, 0x2A, b4, hops}, buf) == 6);
+                        std::array<uint8_t, 7> buf{};
+                        CHECK(pack_f({leaf, origin, rep, 0x2A, b4, hops, /*relay=*/0x55}, buf) == 7);
                         auto o = parse_f(buf);
                         CHECK(o.has_value());
                         if (o) {
                             CHECK(o->leaf_id == leaf); CHECK(o->origin == origin);
                             CHECK(o->is_reply == rep); CHECK(o->dst_id == 0x2A);
                             CHECK(o->ttl_or_next_hop == b4); CHECK(o->hops == hops);
+                            CHECK(o->relay == 0x55);
                         }
                     }
-    std::array<uint8_t, 6> rreq{}, rrep{};
-    CHECK(pack_f({3, 0x11, false, 0x2A, 8, 0}, rreq) == 6);   // RREQ: byte4 = ttl 8
-    const uint8_t exq[] = {0x83, 0x11, 0x00, 0x2A, 0x08, 0x00};
-    for (int i = 0; i < 6; ++i) CHECK(rreq[i] == exq[i]);
-    CHECK(pack_f({3, 0x11, true, 0x2A, 9, 4}, rrep) == 6);    // RREP: byte4 = next_hop 9
-    const uint8_t exr[] = {0x83, 0x11, 0x80, 0x2A, 0x09, 0x04};
-    for (int i = 0; i < 6; ++i) CHECK(rrep[i] == exr[i]);
+    std::array<uint8_t, 7> rreq{}, rrep{};
+    CHECK(pack_f({3, 0x11, false, 0x2A, 8, 0, /*relay=*/0x07}, rreq) == 7);   // RREQ: byte4 = ttl 8, byte6 = relay 7
+    const uint8_t exq[] = {0x83, 0x11, 0x00, 0x2A, 0x08, 0x00, 0x07};
+    for (int i = 0; i < 7; ++i) CHECK(rreq[i] == exq[i]);
+    CHECK(pack_f({3, 0x11, true, 0x2A, 9, 4, /*relay=*/0x07}, rrep) == 7);    // RREP: byte4 = next_hop 9
+    const uint8_t exr[] = {0x83, 0x11, 0x80, 0x2A, 0x09, 0x04, 0x07};
+    for (int i = 0; i < 7; ++i) CHECK(rrep[i] == exr[i]);
     // is_reply isolation: same everything else → only byte2 bit 7 flips.
-    std::array<uint8_t, 6> a{}, b{};
-    CHECK(pack_f({3, 0x11, false, 0x2A, 8, 4}, a) == 6);
-    CHECK(pack_f({3, 0x11, true,  0x2A, 8, 4}, b) == 6);
+    std::array<uint8_t, 7> a{}, b{};
+    CHECK(pack_f({3, 0x11, false, 0x2A, 8, 4, /*relay=*/0x07}, a) == 7);
+    CHECK(pack_f({3, 0x11, true,  0x2A, 8, 4, /*relay=*/0x07}, b) == 7);
     CHECK((a[2] ^ b[2]) == 0x80);
     CHECK(a[0] == b[0]); CHECK(a[1] == b[1]); CHECK(a[3] == b[3]);
-    CHECK(a[4] == b[4]); CHECK(a[5] == b[5]);
-    std::array<uint8_t, 5> sh{0x83, 0x11, 0x00, 0x2A, 0x08};
-    CHECK_FALSE(parse_f(sh).has_value());                 // len < 6
+    CHECK(a[4] == b[4]); CHECK(a[5] == b[5]); CHECK(a[6] == b[6]);
+    std::array<uint8_t, 6> sh{0x83, 0x11, 0x00, 0x2A, 0x08, 0x00};
+    CHECK_FALSE(parse_f(sh).has_value());                 // len < 7
 }
 
 // ===== C4: J join family (§10 cmd-nibble 0x9; byte1 reading A) ===============
