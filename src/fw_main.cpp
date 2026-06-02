@@ -139,17 +139,11 @@ void loop() {
     if (g_iradio.take_preamble()) g_node.on_preamble_detected(now);
 
     // 2) Timers: fire every elapsed Node timer (beacons, RTS/ACK timeouts, retries, the duty/LBT defers).
-    // TEMP TRACE: [T<id> before on_timer, ] after — the last unclosed [T<id> = the timer whose handler hung.
-    for (int id; (id = g_hal.pop_due_timer()) >= 0; ) {
-        Serial.print(F("[T")); Serial.print(id); Serial.flush();   // flush: a hung handler still shows [T<id>
-        g_node.on_timer((uint32_t)id);
-        Serial.print(F("]"));
-    }
+    for (int id; (id = g_hal.pop_due_timer()) >= 0; ) g_node.on_timer((uint32_t)id);
 
     // 3) App pushes: surface deliveries / ACKs over the console.
     meshroute::Push pu{};
     while (g_node.next_push(pu)) {
-        Serial.print(F("P"));   // TEMP TRACE: a flood of P = next_push() spinning
         switch (pu.kind) {
             case meshroute::PushKind::msg_recv:
                 Serial.print(F("RECV from=")); Serial.print(pu.origin); Serial.print(F(": "));
@@ -174,6 +168,7 @@ void loop() {
         Serial.print(F("[hb] t="));    Serial.print((uint32_t)(now / 1000));
         Serial.print(F("s radio="));   Serial.print(g_radio_ok ? F("OK") : F("FAIL"));
         Serial.print(F(" duty_ms="));  Serial.print((uint32_t)g_hal.airtime_used_ms(3600000));
+        Serial.print(F(" isr="));      Serial.print(g_iradio.isr_count());   // RX DEBUG: DIO1 ISR fires
         Serial.println();
     }
 }

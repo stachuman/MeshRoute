@@ -31,7 +31,8 @@ namespace meshroute {
 // DIO1 ISR target. Set in the interrupt, drained in poll_rx. Internal linkage — device_radio.h is
 // included only by fw_main.cpp (the single device TU), so there is exactly one flag + one ISR.
 static volatile bool s_dio1_fired = false;
-static void sx1262_dio1_isr() { s_dio1_fired = true; }
+static volatile uint32_t s_isr_count = 0;   // RX DEBUG: total DIO1 ISR fires (TX-done + RX). 0 => ISR never attached.
+static void sx1262_dio1_isr() { s_dio1_fired = true; ++s_isr_count; }
 
 // DIO1 wakes on the default RX set (RX_DONE + header/crc/timeout) AND PREAMBLE_DETECTED (the witness).
 // Portable RADIOLIB_IRQ_* flags: RADIOLIB_IRQ_RX_DEFAULT_FLAGS is a (1<<idx) mask; PREAMBLE_DETECTED is idx.
@@ -50,17 +51,13 @@ public:
 
     TxResult transmit(const uint8_t* b, size_t n,
                       int16_t sf, int32_t bw_hz, int8_t cr, int8_t pw, int16_t pre) override {
-        Serial.print(F("X(")); Serial.print((unsigned)n); Serial.print(F("/")); Serial.print(sf); Serial.flush();
         if (sf  > 0)    _radio.setSpreadingFactor(static_cast<uint8_t>(sf));
         if (bw_hz > 0)  _radio.setBandwidth(static_cast<float>(bw_hz) / 1000.0f);   // RadioLib wants kHz
         if (cr  > 0)    _radio.setCodingRate(static_cast<uint8_t>(cr));
         if (pw  > -100) _radio.setOutputPower(static_cast<int8_t>(pw));
         if (pre > 0)    _radio.setPreambleLength(static_cast<uint16_t>(pre));
-        Serial.print(F("t")); Serial.flush();                                      // TEMP TRACE: entering blocking TX
         const int16_t st = _radio.transmit(const_cast<uint8_t*>(b), n);            // blocking TX
-        Serial.print(F(")")); Serial.print(st);                                    // TEMP TRACE: TX returned (st code)
         arm_rx();                                                                  // re-arm continuous RX (clears the TX-done flag)
-        Serial.print(F("R"));                                                      // TEMP TRACE: RX re-armed
         return st == RADIOLIB_ERR_NONE ? TxResult::ok : TxResult::radio_error;
     }
 
@@ -80,6 +77,7 @@ public:
         if (!s_dio1_fired) return false;             // nothing since last drain — skip the SPI read
         s_dio1_fired = false;
         const uint16_t irq = _radio.getIrqFlags();   // RAW SX126X_IRQ_* bits
+        Serial.print(F("[irq=")); Serial.print(irq, HEX); Serial.print(F("]"));   // RX DEBUG: flags on each RX-side fire
         const bool pre = (irq & SX126X_IRQ_PREAMBLE_DETECTED) != 0;
         if (pre && !_pre_seen) { _preamble = true; _pre_seen = true; }   // rising edge -> witness
         if ((irq & RADIOLIB_SX126X_IRQ_RX_DONE) == 0) {
@@ -101,6 +99,8 @@ public:
 
     // The loop drains this each iteration -> Node::on_preamble_detected(now).
     bool take_preamble() { const bool f = _preamble; _preamble = false; return f; }
+
+    uint32_t isr_count() const { return s_isr_count; }   // RX DEBUG: surfaced in the heartbeat
 
 private:
     // Arm DIO1 + continuous RX (RX_TIMEOUT_INF) on the masked IRQ set; clear the stale ISR flag + edge.
