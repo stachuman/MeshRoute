@@ -1576,3 +1576,115 @@ TEST_CASE("R4.5b on_radio_busy — a blocked RTS re-RTSes via the already-armed 
     CHECK(rts1 == 2);                                         // the blocked RTS was actually retried
     delete node;
 }
+
+// ===== F route discovery (RREQ/RREP) — node_route_discovery.cpp =====
+// F floods TX with the beacon tag, so the tests identify RREQ/RREP by parse_f + is_reply.
+
+TEST_CASE("F RREQ addressed to us -> reverse path + RREP toward the forwarder") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/5, /*key_hash32=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.peer_count = 0;
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    f_in in{}; in.leaf_id = 0; in.origin = 10; in.is_reply = false;
+    in.dst_id = 5; in.ttl_or_next_hop = 4; in.hops = 2; in.relay = 3;   // origin 10 seeks us(5); forwarder 3
+    uint8_t buf[8]; const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
+    CHECK(n == 7);
+    hal._now = 1000; node.on_recv(buf, n, meta);
+
+    bool saw_rev = false; for (const auto& e : hal.events) if (e.type == "rt_update" && e.dst == 10) saw_rev = true;
+    CHECK(saw_rev);                                          // reverse route to the origin installed
+
+    bool saw_rrep = false; f_out rrep{};
+    for (const auto& tf : hal.tx_frames) {
+        auto p = parse_f(std::span<const uint8_t>(tf.bytes.data(), tf.bytes.size()));
+        if (p && p->is_reply) { saw_rrep = true; rrep = *p; }
+    }
+    CHECK(saw_rrep);
+    if (saw_rrep) {
+        CHECK(rrep.origin == 10); CHECK(rrep.dst_id == 5);
+        CHECK(rrep.ttl_or_next_hop == 3);                    // unicast back to the immediate forwarder
+        CHECK(rrep.relay == 5);                              // we stamped ourselves as the relay
+    }
+}
+
+TEST_CASE("F RREQ relayed (no route) -> reverse path + ttl-decremented rebroadcast + flood dedup") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/5, /*key_hash32=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.peer_count = 0;
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    f_in in{}; in.leaf_id = 0; in.origin = 10; in.is_reply = false;
+    in.dst_id = 20; in.ttl_or_next_hop = 4; in.hops = 1; in.relay = 3;
+    uint8_t buf[8]; const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
+    hal._now = 1000; node.on_recv(buf, n, meta);
+
+    bool saw_rev = false; for (const auto& e : hal.events) if (e.type == "rt_update" && e.dst == 10) saw_rev = true;
+    CHECK(saw_rev);
+
+    auto count_rreq = [&]() { int c = 0; for (const auto& tf : hal.tx_frames) {
+        auto p = parse_f(std::span<const uint8_t>(tf.bytes.data(), tf.bytes.size())); if (p && !p->is_reply) ++c; } return c; };
+    CHECK(count_rreq() == 1);                                // one rebroadcast
+    f_out fwd{}; for (const auto& tf : hal.tx_frames) {
+        auto p = parse_f(std::span<const uint8_t>(tf.bytes.data(), tf.bytes.size())); if (p && !p->is_reply) fwd = *p; }
+    CHECK(fwd.origin == 10); CHECK(fwd.dst_id == 20);
+    CHECK(fwd.ttl_or_next_hop == 3);                         // ttl 4 -> 3
+    CHECK(fwd.hops == 2);                                    // hops 1 -> 2
+    CHECK(fwd.relay == 5);                                   // we are the new forwarder
+
+    hal._now = 2000; node.on_recv(buf, n, meta);             // SAME (origin,dst) again
+    CHECK(count_rreq() == 1);                                // deduped: no second rebroadcast
+}
+
+TEST_CASE("F RREP addressed to the origin -> forward path + rrep_arrived") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/10, /*key_hash32=*/0xABCD);  // we are the origin
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.peer_count = 0;
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    f_in in{}; in.leaf_id = 0; in.origin = 10; in.is_reply = true;
+    in.dst_id = 20; in.ttl_or_next_hop = 10; in.hops = 2; in.relay = 7;   // addressed to us(10); forwarder 7 toward dst
+    uint8_t buf[8]; const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
+    hal._now = 1000; node.on_recv(buf, n, meta);
+
+    bool saw_fwd = false; for (const auto& e : hal.events) if (e.type == "rt_update" && e.dst == 20) saw_fwd = true;
+    CHECK(saw_fwd);                                          // forward route to dst installed
+    CHECK(hal.count("rrep_arrived") == 1);
+}
+
+TEST_CASE("F RREP relayed (not the origin) -> forward path + RREP onward along reverse path") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/5, /*key_hash32=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.peer_count = 0;
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    // Lay a reverse route to origin 10 (via 3) first, so the RREP can route onward.
+    { f_in q{}; q.leaf_id = 0; q.origin = 10; q.is_reply = false; q.dst_id = 99;
+      q.ttl_or_next_hop = 4; q.hops = 1; q.relay = 3;
+      uint8_t qb[8]; const size_t qn = pack_f(q, std::span<uint8_t>(qb, sizeof(qb)));
+      hal._now = 1000; node.on_recv(qb, qn, meta); }
+    const size_t tx_before = hal.tx_frames.size();
+
+    f_in in{}; in.leaf_id = 0; in.origin = 10; in.is_reply = true;
+    in.dst_id = 20; in.ttl_or_next_hop = 5; in.hops = 2; in.relay = 7;    // addressed to us(5)
+    uint8_t buf[8]; const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
+    hal._now = 2000; node.on_recv(buf, n, meta);
+
+    bool saw_fwd = false; for (const auto& e : hal.events) if (e.type == "rt_update" && e.dst == 20) saw_fwd = true;
+    CHECK(saw_fwd);
+    bool saw_onward = false; f_out rr{};
+    for (size_t i = tx_before; i < hal.tx_frames.size(); ++i) {
+        auto p = parse_f(std::span<const uint8_t>(hal.tx_frames[i].bytes.data(), hal.tx_frames[i].bytes.size()));
+        if (p && p->is_reply) { saw_onward = true; rr = *p; }
+    }
+    CHECK(saw_onward);
+    if (saw_onward) {
+        CHECK(rr.origin == 10); CHECK(rr.dst_id == 20);
+        CHECK(rr.ttl_or_next_hop == 3);                      // toward origin via the reverse next-hop (3)
+        CHECK(rr.relay == 5);
+    }
+}
