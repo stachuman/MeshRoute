@@ -169,7 +169,11 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                      static_cast<uint32_t>(airtime_routing_ms(static_cast<int>(len))));
     if (c.to != _node_id) return;
     if (!_pending_tx || !_pending_tx->awaiting_cts || _pending_tx->ctr_lo != c.ctr_lo) return;
-    if (static_cast<uint8_t>(meta.src_hint) != _pending_tx->next) return;
+    // src-less by design: a CTS addressed to me with my ctr_lo can only come from the next-hop I just
+    // RTS'd, so to+ctr_lo already identifies it. The src_hint==next cross-check is SIM-ONLY (real LoRa
+    // carries no PHY source; the device sets src_hint=-1), so gate it on availability — exactly like the
+    // NACK handler below already does — otherwise every CTS is dropped on metal and the handshake loops.
+    if (meta.src_hint >= 0 && static_cast<uint8_t>(meta.src_hint) != _pending_tx->next) return;
     _hal.cancel(kRtsTimeoutTimerId);                     // else it fires same-tick and burns a retry
     _hal.cancel(kRetryBackoffTimerId);                   // drop a stale retry armed by a just-fired rts_timeout
     _pending_tx->awaiting_cts = false;
@@ -348,7 +352,10 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     const ack_out& k = *pk;
     if (k.to != _node_id) return;
     if (!_pending_tx || !_pending_tx->awaiting_ack || _pending_tx->ctr_lo != k.ctr_lo) return;
-    if (meta.src_hint < 0 || static_cast<uint8_t>(meta.src_hint) != _pending_tx->next) return;  // (matches NACK gate + Lua dv:10300)
+    // src-less by design (see handle_cts): to+ctr_lo already identifies the ACK as our next-hop's. The
+    // src_hint cross-check is SIM-ONLY, so gate it on availability rather than REJECTING when absent — the
+    // old `src_hint < 0 ||` dropped EVERY ack on metal (device src_hint=-1), so the DM never completed.
+    if (meta.src_hint >= 0 && static_cast<uint8_t>(meta.src_hint) != _pending_tx->next) return;  // (cf. NACK gate, Lua dv:10300)
     _hal.cancel(kAckTimeoutTimerId);
     _hal.cancel(kRetryBackoffTimerId);                   // drop a stale retry armed by a just-fired ack_timeout
     // R4.2: consume the ACK's piggybacked budget_hint -> learn the next-hop's tier in the FORWARD
@@ -358,7 +365,8 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (k.budget_hint > static_cast<uint8_t>(BudgetTier::healthy)) {
         const uint8_t tier = (k.budget_hint > static_cast<uint8_t>(BudgetTier::critical))
                              ? static_cast<uint8_t>(BudgetTier::critical) : k.budget_hint;
-        ack_budget_reranked = mark_neighbor_budget_tier(static_cast<uint8_t>(meta.src_hint),
+        // the ACK is from our next-hop (matched above) — use that, not src_hint (sim-only / -1 on device).
+        ack_budget_reranked = mark_neighbor_budget_tier(_pending_tx->next,
                                                         tier, "ack_budget", /*local_only=*/true);
     }
     EventField f[] = { { .key = "from",     .type = EventField::T::i64, .i = static_cast<uint8_t>(meta.src_hint) },

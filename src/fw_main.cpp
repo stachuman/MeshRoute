@@ -168,7 +168,6 @@ void loop() {
         Serial.print(F("[hb] t="));    Serial.print((uint32_t)(now / 1000));
         Serial.print(F("s radio="));   Serial.print(g_radio_ok ? F("OK") : F("FAIL"));
         Serial.print(F(" duty_ms="));  Serial.print((uint32_t)g_hal.airtime_used_ms(3600000));
-        Serial.print(F(" isr="));      Serial.print(g_iradio.isr_count());   // RX DEBUG: DIO1 ISR fires
         Serial.println();
     }
 }
