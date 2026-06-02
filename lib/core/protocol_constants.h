@@ -205,4 +205,20 @@ inline constexpr int16_t sf_demod_threshold_q4_table[13] = {
     /* SF12 */ -320,
 };
 
+// Pick the fastest (lowest) SF in `sf_bitmap` (bit = sf) whose demod floor + margin clears
+// `rx_snr_q4`; if none clear it, the most-robust (highest) SF present; 0 if the bitmap is empty.
+// Mirrors Lua select_data_sf (dv_dual_sf.lua:3043). Pure / draw-free.
+inline uint8_t select_data_sf_for_snr(int16_t rx_snr_q4, uint16_t sf_bitmap, int16_t margin_q4) {
+    for (uint8_t sf = 5; sf <= 12; ++sf) {            // ascending: fastest SF with SNR headroom
+        if ((sf_bitmap & (1u << sf)) &&
+            rx_snr_q4 >= sf_demod_threshold_q4_table[sf] + margin_q4) {
+            return sf;
+        }
+    }
+    for (uint8_t sf = 12; sf >= 5; --sf) {            // none meet margin: most-robust available
+        if (sf_bitmap & (1u << sf)) return sf;
+    }
+    return 0;                                         // empty bitmap
+}
+
 }  // namespace meshroute::protocol

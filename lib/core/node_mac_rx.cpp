@@ -35,6 +35,8 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (meta.src_hint >= 0 && !(r.rts_flags & RTS_FLAG_RELAY))
         track_originator_observation(static_cast<uint8_t>(meta.src_hint), /*kind=rts*/0, r.ctr_lo,
                                      static_cast<uint32_t>(airtime_routing_ms(static_cast<int>(len))));
+    // Learn the RTS sender as a 1-hop neighbour — any RTS, overheard or addressed (Lua learn_rx_source).
+    if (learn_direct_neighbor(r.src, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
     if (r.next != _node_id) return;                      // not addressed to us as next-hop
     { EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = r.src },
                          { .key = "dst",  .type = EventField::T::i64, .i = r.dst } };
@@ -144,7 +146,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         return;                                          // NO CTS, NO pending_rx
     }
 
-    const uint8_t sf = select_data_sf(r.sf_index);
+    const uint8_t sf = select_data_sf(r.sf_index, protocol::db_to_q4(meta.snr_db));
     PendingRx prx{}; prx.from = r.src; prx.dst = r.dst; prx.ctr_lo = r.ctr_lo;
     prx.chosen_data_sf = sf; prx.payload_len = r.payload_len; prx.set_at_ms = _hal.now();
     _pending_rx = prx;
@@ -166,7 +168,6 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // not). CTS is the forwarder fingerprint — a legit forwarder emits ~1 CTS per inbound flight (dv:10149).
     // Unconditional now: tx_id is on the wire (no PHY-sender god-view). Dedup key is rx_id (the cleared
     // requester), not the dropped ctr_lo. Timing uses Lua CTS_LEN=4, not the 3-B C++ wire.
-    (void)meta;
     track_originator_observation(c.tx_id, /*kind=cts*/1, /*dedup_key=*/c.rx_id,
                                  static_cast<uint32_t>(airtime_routing_ms(4)));
     if (c.rx_id != _node_id) return;
@@ -175,6 +176,8 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // next-hop we RTS'd. Wire-backed (no PHY-sender god-view) — this is what distinguishes the primary
     // next-hop's CTS from an alt's when both answer the same RTS (cascade-to-alt). dv:10195.
     if (c.tx_id != _pending_tx->next) return;
+    // Learn the CTS sender (= our next-hop) as a 1-hop neighbour (Lua learn_rx_source / cts_frame).
+    if (learn_direct_neighbor(c.tx_id, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
     _hal.cancel(kRtsTimeoutTimerId);                     // else it fires same-tick and burns a retry
     _hal.cancel(kRetryBackoffTimerId);                   // drop a stale retry armed by a just-fired rts_timeout
     _pending_tx->awaiting_cts = false;
@@ -211,6 +214,8 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                          { .key = "from",   .type = EventField::T::i64, .i = from },
                          { .key = "dst",    .type = EventField::T::i64, .i = d.dst } };
       _hal.emit("data_rx", f, 5); }
+    // Learn the DATA prev-hop as a 1-hop neighbour (Lua learn_rx_source / data_frame).
+    if (learn_direct_neighbor(from, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
     const uint8_t rx_sf = _pending_rx->chosen_data_sf;
     const uint8_t pl    = _pending_rx->payload_len;
     _hal.cancel(kPendingRxExpiryTimerId);
@@ -371,6 +376,8 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (meta.src_hint >= 0 && static_cast<uint8_t>(meta.src_hint) != _pending_tx->next) return;  // (cf. NACK gate, Lua dv:10300)
     _hal.cancel(kAckTimeoutTimerId);
     _hal.cancel(kRetryBackoffTimerId);                   // drop a stale retry armed by a just-fired ack_timeout
+    // Learn the ACK sender (= our next-hop) as a 1-hop neighbour (Lua learn_rx_source / ack_frame).
+    if (learn_direct_neighbor(_pending_tx->next, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
     // R4.2: consume the ACK's piggybacked budget_hint -> learn the next-hop's tier in the FORWARD
     // direction (the NACK only covers the reverse). local_only=true: rerank routes but DON'T dirty /
     // schedule a beacon (so NO triggered-beacon draw on the forward path). Lua dv:10341-10344.
@@ -409,6 +416,8 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         _hal.emit("nack_drop_unexpected_src", f, 1);
         return;
     }
+    // Learn the NACK sender (= our next-hop) as a 1-hop neighbour (Lua learn_rx_source / nack_frame).
+    if (learn_direct_neighbor(_pending_tx->next, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
     _hal.cancel(kRtsTimeoutTimerId);                                // faster than the timeout (dv:10390)
     _hal.cancel(kAckTimeoutTimerId);
     _pending_tx->awaiting_cts = false; _pending_tx->awaiting_ack = false;

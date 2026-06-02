@@ -48,6 +48,30 @@ int16_t Node::route_score_from_snr(int16_t snr_q4) const {
     return static_cast<int16_t>(snr_q4 - protocol::route_snr_conservatism_q4);
 }
 
+// Direct (hops=1) route to a received frame's immediate sender — the C++ learn_rx_source.
+// Mirrors the Lua learn_direct_from_frame: build a direct candidate from (sender, rx SNR),
+// merge it, emit rt_update. Returns true on a real change so the caller fires the triggered
+// beacon. The C++ has no id-bind/dest-seen/liveness plane, so those Lua sub-actions are absent.
+bool Node::learn_direct_neighbor(uint8_t sender, int16_t snr_q4, bool is_gw) {
+    if (sender == 0xFF || sender == _node_id) return false;   // unknown/reserved id, or self
+    RtCandidate cand{};
+    cand.next_hop         = sender;
+    cand.score            = route_score_from_snr(snr_q4);
+    cand.hops             = 1;
+    cand.is_gateway       = is_gw;
+    cand.last_seen_ms     = _hal.now();
+    cand.learned_layer_id = _cfg.leaf_id;
+    const MergeAction a = rt_merge(sender, cand);
+    if (a == MergeAction::new_dest || a == MergeAction::promote ||
+        a == MergeAction::primary_refresh) {
+        emit_rt_update(_hal, sender, sender, cand.score, 1, "primary");
+        return true;
+    } else if (a == MergeAction::alt_install) {
+        emit_rt_update(_hal, sender, sender, cand.score, 1, "alt");
+    }
+    return false;
+}
+
 void Node::emit_beacon(const char* kind) {
     // Half-duplex busy skip (Lua send_beacon_page dv:7585): never beacon mid data-exchange. periodic_beacon_fire
     // already guards this, but the TRIGGERED path (kTriggeredBeaconTimerId) reaches here directly — without this
@@ -167,31 +191,10 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     const int16_t  meta_snr_q4 = protocol::db_to_q4(meta.snr_db);
     bool rt_changed = false;                              // any new/promote this beacon → triggered re-beacon
 
-    // Direct route via the beacon sender, hops=1 (dv_dual_sf.lua:9584-9618).
-    {
-        RtCandidate cand{};
-        cand.next_hop         = b.src;
-        cand.score            = route_score_from_snr(meta_snr_q4);
-        cand.hops             = 1;
-        cand.is_gateway       = b.self_gateway;
-        cand.last_seen_ms     = now;
-        cand.learned_layer_id = _cfg.leaf_id;
-        const MergeAction a = rt_merge(b.src, cand);
-        // For a DIRECT route, primary_refresh (a known neighbour re-heard at a
-        // strictly-better SNR) is a real change: the Lua learn_direct_from_frame
-        // pre-learner emits rt_update + fires the triggered beacon on it
-        // (dv_dual_sf.lua:7553-7564 + the learned_direct_pre rt_changed at :9611).
-        // Without this, the missing schedule_triggered_beacon rand draw desyncs
-        // the mt19937 vs the Lua on fluctuating-SNR links. (The carried-DV block
-        // below omits primary_refresh — that matches the Lua entry loop :9656.)
-        if (a == MergeAction::new_dest || a == MergeAction::promote ||
-            a == MergeAction::primary_refresh) {
-            emit_rt_update(_hal, b.src, b.src, cand.score, 1, "primary");
-            rt_changed = true;
-        } else if (a == MergeAction::alt_install) {
-            emit_rt_update(_hal, b.src, b.src, cand.score, 1, "alt");
-        }
-    }
+    // Direct route via the beacon sender, hops=1 (dv_dual_sf.lua:9584-9618). A DIRECT-route
+    // promote/primary_refresh counts as a change (re-beacon) — the carried-DV merge below omits
+    // primary_refresh (matches the Lua entry loop :9656).
+    if (learn_direct_neighbor(b.src, meta_snr_q4, b.self_gateway)) rt_changed = true;
 
     // DV merge: each carried entry is a route via the sender (dv_dual_sf.lua:9620-9678).
     for (uint8_t i = 0; i < b.n_entries; ++i) {

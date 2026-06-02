@@ -39,7 +39,7 @@ struct NodeConfig {
     bool     req_sync_on_boot    = true;
     bool     seen_bitmap_enabled = true;
     uint8_t  routing_sf          = 7;
-    uint16_t allowed_sf_bitmap   = (1u << 12);   // dv_dual_sf sf_set_to_bitmap
+    uint16_t allowed_sf_bitmap   = 0;            // allowed DATA-SF set (bit=sf), from config allowed_data_sfs; 0 = use data_sf
     uint32_t beacon_period_ms    = 900000;
     uint32_t beacon_max_idle_ms  = 900000;
     uint8_t  req_sync_min_routes = 8;
@@ -231,6 +231,12 @@ private:
     bool beacon_max_idle_force(uint64_t now, bool emit_events);    // R4.3 max-idle B+C override (dv:7734-7784)
     void ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta);
     int16_t route_score_from_snr(int16_t snr_q4) const;            // dv_dual_sf.lua:3053
+    // Direct (hops=1) neighbour learning from a received frame's immediate sender — the C++
+    // learn_rx_source / learn_direct_from_frame. Returns true on a real change (new/promote/
+    // refresh) so the caller can fire the triggered beacon. sender must be a real id (0..254);
+    // 0xFF (unknown/reserved) and self are no-ops. C++ has no id-bind/dest-seen/liveness plane,
+    // so (unlike the Lua) those sub-actions are absent.
+    bool    learn_direct_neighbor(uint8_t sender, int16_t snr_q4, bool is_gw);
 
     // ---- route table (DV merge) --------------------------------------------
     enum class MergeAction : uint8_t { none, new_dest, primary_refresh, promote, alt_install };
@@ -310,7 +316,7 @@ private:
     bool     alt_tried(const PendingTx& pt, uint8_t hop) const;
     void     mark_tried(PendingTx& pt, uint8_t hop);
     uint16_t next_ctr(uint8_t dst);                               // per-(self,dst) counter (NOT rand)
-    uint8_t  select_data_sf(uint8_t rts_sf_index) const;          // PURE :3027
+    uint8_t  select_data_sf(uint8_t rts_sf_index, int16_t rx_snr_q4) const;  // adaptive DATA SF, Lua :3043+:3027
     uint32_t airtime_routing_ms(uint16_t len) const;             // floor-exact, for timeout sizing
     // retry_jitter_ms() is declared in the public section (R3.x golden test).
 

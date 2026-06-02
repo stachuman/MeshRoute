@@ -45,6 +45,39 @@ TEST_CASE("SF demod thresholds match Lua's SF_DEMOD_THRESHOLD table") {
     CHECK(P::sf_demod_threshold_q4_table[12] == -320);
 }
 
+TEST_CASE("select_data_sf_for_snr mirrors Lua select_data_sf (dv:3043)") {
+    constexpr uint16_t SF79 = (1u << 7) | (1u << 9);   // allowed_data_sfs = {7, 9}
+    constexpr int16_t  M    = P::sf_margin_q4;          // 80 Q4 = 5.0 dB
+    // floor+margin (Q4): SF7 = -120+80 = -40 ; SF9 = -200+80 = -120
+
+    SUBCASE("good link -> fastest SF") {
+        CHECK(P::select_data_sf_for_snr(0,    SF79, M) == 7);   //   0 >= -40 -> SF7
+        CHECK(P::select_data_sf_for_snr(-40,  SF79, M) == 7);   // -40 >= -40 -> SF7 (boundary)
+    }
+    SUBCASE("weak link -> robust SF (the s18 case)") {
+        CHECK(P::select_data_sf_for_snr(-41,  SF79, M) == 9);   // below SF7 margin -> SF9
+        CHECK(P::select_data_sf_for_snr(-50,  SF79, M) == 9);
+        CHECK(P::select_data_sf_for_snr(-120, SF79, M) == 9);   // -120 >= -120 -> SF9 (boundary)
+    }
+    SUBCASE("below all margins -> most-robust available") {
+        CHECK(P::select_data_sf_for_snr(-130, SF79, M) == 9);   // descending fallback -> highest present
+        CHECK(P::select_data_sf_for_snr(-300, SF79, M) == 9);
+    }
+    SUBCASE("singleton bitmap -> that SF regardless of SNR") {
+        CHECK(P::select_data_sf_for_snr(0,    (1u << 12), M) == 12);
+        CHECK(P::select_data_sf_for_snr(-300, (1u << 12), M) == 12);
+    }
+    SUBCASE("full set {7..12} picks by SNR") {
+        constexpr uint16_t FULL = (1u<<7)|(1u<<8)|(1u<<9)|(1u<<10)|(1u<<11)|(1u<<12);
+        CHECK(P::select_data_sf_for_snr(-90,   FULL, M) == 9);  // SF7(-40),SF8(-80) fail; SF9(-120) ok
+        CHECK(P::select_data_sf_for_snr(0,     FULL, M) == 7);  // fastest
+        CHECK(P::select_data_sf_for_snr(-1000, FULL, M) == 12); // most robust
+    }
+    SUBCASE("empty bitmap -> 0 sentinel") {
+        CHECK(P::select_data_sf_for_snr(0, 0, M) == 0);
+    }
+}
+
 TEST_CASE("Peer-liveness penalties match the Lua PROTOCOL values") {
     CHECK(P::peer_suspect_penalty_q4 == 192);   // 12.0 dB
     CHECK(P::peer_silent_penalty_q4  == 640);   // 40.0 dB

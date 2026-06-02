@@ -23,11 +23,21 @@ uint16_t Node::next_ctr(uint8_t dst) {
     return c;
 }
 
-uint8_t Node::select_data_sf(uint8_t rts_sf_index) const {
-    // sf_index=3 (ANY) -> our preferred data SF. 0..2 (pinned) deferred — the R3
-    // gate uses ANY=3 (decision Q4). PURE (no rand) — dv_dual_sf.lua:3027.
-    (void)rts_sf_index;
-    return _cfg.data_sf;
+uint8_t Node::select_data_sf(uint8_t rts_sf_index, int16_t rx_snr_q4) const {
+    // Adaptive DATA-SF: resolve the requester's sf_index to a candidate SF set, then pick the fastest
+    // SF the link SNR supports (Lua sf_index_to_bitmap :3027 + select_data_sf :3043). ANY(3) -> our full
+    // allowed_sf_bitmap; pinned 0..2 -> that singleton (M-broadcast / forced SF). allowed_sf_bitmap==0
+    // means "unconfigured" -> the single preferred data_sf (legacy single-SF nodes). PURE (no rand).
+    uint16_t bitmap = _cfg.allowed_sf_bitmap;
+    if (bitmap == 0) bitmap = static_cast<uint16_t>(1u << _cfg.data_sf);
+    if (rts_sf_index != 3 /*ANY*/) {                          // pinned: the index-th allowed SF
+        uint16_t pin = 0; uint8_t seen = 0;
+        for (uint8_t sf = 5; sf <= 12; ++sf)
+            if (bitmap & (1u << sf)) { if (seen++ == rts_sf_index) { pin = static_cast<uint16_t>(1u << sf); break; } }
+        if (pin) bitmap = pin;                                // out-of-range index -> keep full set (Lua :3035)
+    }
+    const uint8_t sf = protocol::select_data_sf_for_snr(rx_snr_q4, bitmap, protocol::sf_margin_q4);
+    return (sf != 0) ? sf : _cfg.data_sf;
 }
 
 uint32_t Node::airtime_routing_ms(uint16_t len) const {
