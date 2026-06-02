@@ -199,9 +199,18 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // dedup/loop keys are corrupt, so the DM never completes.
     const uint8_t from = (meta.src_hint >= 0) ? static_cast<uint8_t>(meta.src_hint)
                                               : _pending_rx->from;
-    { EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = from },
-                         { .key = "dst",  .type = EventField::T::i64, .i = d.dst } };
-      _hal.emit("data_rx", f, 2); }
+    // Parse the inner up-front so data_rx carries the (origin, ctr) message key — telemetry
+    // parity with the Lua data_rx (dv:10911), which the analysis tools key delivery on. origin
+    // is also needed below (BEFORE the ACK) so HOP_BUDGET/LOOP_DUP can NACK instead of re-ACKing.
+    auto inner = data_inner(std::span<const uint8_t>(bytes, len), d);
+    auto ui = parse_unicast_inner(inner);
+    const uint8_t origin = ui ? ui->origin : from;
+    { EventField f[] = { { .key = "origin", .type = EventField::T::i64, .i = origin },
+                         { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr },
+                         { .key = "ctr_lo", .type = EventField::T::i64, .i = d.ctr_lo4 },
+                         { .key = "from",   .type = EventField::T::i64, .i = from },
+                         { .key = "dst",    .type = EventField::T::i64, .i = d.dst } };
+      _hal.emit("data_rx", f, 5); }
     const uint8_t rx_sf = _pending_rx->chosen_data_sf;
     const uint8_t pl    = _pending_rx->payload_len;
     _hal.cancel(kPendingRxExpiryTimerId);
@@ -215,11 +224,8 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         { if ((nowm - it->second.t_ms) >= protocol::last_acked_ttl_ms) it = _last_acked_from.erase(it); else ++it; }
     if (_last_acked_from.size() < protocol::cap_seen_origins)                  // bounded (reuse the 256 cap)
         _last_acked_from[lakey] = LastAcked{ rx_sf, nowm };
-    // origin from the DATA inner. Computed BEFORE the ACK so HOP_BUDGET/LOOP_DUP can
-    // NACK INSTEAD of re-ACKing (the ACK would clear the sender's pending_tx early).
-    auto inner = data_inner(std::span<const uint8_t>(bytes, len), d);
-    auto ui = parse_unicast_inner(inner);
-    const uint8_t origin = ui ? ui->origin : from;
+    // origin/inner parsed up-front (above) so data_rx carries the key; origin is read here
+    // BEFORE the ACK so HOP_BUDGET/LOOP_DUP can NACK instead of re-ACKing.
     const uint32_t sokey = (uint32_t(origin) << 24) | (uint32_t(d.dst) << 16) | d.ctr;
     // HOP_BUDGET enforcement FIRST (dv:10918-10964), BEFORE the dedup AND the ACK so the
     // NACK fires IN LIEU OF the ACK. A FORWARDER (d.dst != self) decrements the TTL; if the
@@ -377,10 +383,12 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                                         tier, "ack_budget", /*local_only=*/true);
     }
     EventField f[] = { { .key = "from",     .type = EventField::T::i64, .i = _pending_tx->next },   // ACK is from our next-hop (src_hint=-1 on metal)
+                       { .key = "origin",   .type = EventField::T::i64, .i = _pending_tx->origin },
+                       { .key = "dst",      .type = EventField::T::i64, .i = _pending_tx->dst },
                        { .key = "ctr",      .type = EventField::T::i64, .i = _pending_tx->ctr },
                        { .key = "budget_hint",     .type = EventField::T::i64, .i = k.budget_hint },
                        { .key = "budget_reranked", .type = EventField::T::i64, .i = ack_budget_reranked } };
-    _hal.emit("ack_rx", f, 4);
+    _hal.emit("ack_rx", f, 6);
     { Push pu{}; pu.kind = PushKind::send_acked; pu.dst = _pending_tx->dst; pu.ctr = _pending_tx->ctr; enqueue_push(pu); }
     _pending_tx.reset();
     become_free();
