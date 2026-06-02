@@ -333,6 +333,15 @@ void Node::do_post_ack() {
     const PostAck pa = _post_ack;
     _post_ack.pending = false;
     if (!pa.is_forward) {
+        if (pa.flags & DATA_FLAG_E2E_IS_ACK) {           // an end-to-end ACK for a DM we originated -> confirm, not deliver
+            const uint16_t acked = (pa.inner_len >= 4)
+                                   ? static_cast<uint16_t>(pa.inner[2] | (pa.inner[3] << 8)) : 0;
+            EventField ef[] = { { .key = "from", .type = EventField::T::i64, .i = pa.origin },
+                                { .key = "ctr",  .type = EventField::T::i64, .i = acked } };
+            _hal.emit("e2e_ack_rx", ef, 2);
+            become_free();
+            return;
+        }
         // deliver: body = inner[2..] (skip src_addr_len + origin), null-terminated for the event.
         char body[protocol::max_payload_bytes_hard_cap + 1];
         const uint8_t blen = (pa.inner_len > 2) ? static_cast<uint8_t>(pa.inner_len - 2) : 0;
@@ -348,6 +357,8 @@ void Node::do_post_ack() {
         Push pu{}; pu.kind = PushKind::msg_recv; pu.origin = pa.origin; pu.dst = pa.dst; pu.ctr = pa.ctr;
         pu.body_len = blen; for (uint8_t i = 0; i < blen; ++i) pu.body[i] = static_cast<uint8_t>(body[i]);
         enqueue_push(pu);                                // app channel: the inbound message
+        // E2E ACK requested -> reply to the DM's origin with the acked ctr (routes home on the F reverse path).
+        if (pa.flags & DATA_FLAG_E2E_ACK_REQ) send_e2e_ack(pa.origin, pa.ctr);
         become_free();
     } else {
         TxItem it{};

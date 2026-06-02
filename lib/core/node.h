@@ -275,6 +275,8 @@ private:
 
     // ---- R3 data plane (MAC: RTS-CTS-DATA-ACK) -----------------------------
     uint16_t do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags);  // returns the ctr
+    uint16_t enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, const char* tx_event);
+    void     send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr);          // E2E ACK reply (E2E_IS_ACK; e2e_ack_tx)
     void     enqueue_push(const Push& p);                                  // append to the bounded ring
     void     become_free();                                       // dv_dual_sf.lua:7433 (FIFO single-drain)
     void     issue_send(const TxItem& item);                      // :7018 pending_tx + RTS

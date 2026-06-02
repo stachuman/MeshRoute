@@ -153,6 +153,18 @@ static size_t mk_data_hb(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origin
     in.mac = std::span<const uint8_t>(mac, 4);
     return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
 }
+// DATA with explicit flags + a raw body (may contain 0 bytes) — for the E2E ACK tests.
+static size_t mk_data_e2e(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origin, uint8_t flags,
+                          const uint8_t* body, uint8_t body_len, std::array<uint8_t, 64>& b) {
+    std::array<uint8_t, 32> inner{}; inner[0] = 0; inner[1] = origin;
+    for (uint8_t i = 0; i < body_len; ++i) inner[2 + i] = body[i];
+    const uint8_t mac[4] = { 0, 0, 0, 0 };
+    data_in in{}; in.addr_len = 0; in.flags = flags; in.next = next; in.dst = dst;
+    in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
+    in.visited = {}; in.inner = std::span<const uint8_t>(inner.data(), 2 + body_len);
+    in.mac = std::span<const uint8_t>(mac, 4);
+    return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
+}
 // Minimal beacon FROM `src` (one throwaway entry) — installs a DIRECT hops=1
 // route to `src` on the receiver, so a send to `src` has a usable next hop.
 static size_t mk_beacon(uint8_t src, std::array<uint8_t, 64>& b) {
@@ -1687,4 +1699,49 @@ TEST_CASE("F RREP relayed (not the origin) -> forward path + RREP onward along r
         CHECK(rr.ttl_or_next_hop == 3);                      // toward origin via the reverse next-hop (3)
         CHECK(rr.relay == 5);
     }
+}
+
+// ===== E2E ACK (send_e2e) — do_post_ack hooks =====
+
+TEST_CASE("E2E ACK — destination of an E2E_ACK_REQ DATA replies with an ack to the origin") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    node.on_init(cfg);
+    RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+
+    std::array<uint8_t, 16> rb{};
+    const size_t rn = mk_rts(/*src=*/1, /*next=*/2, /*dst=*/2, /*ctr_lo=*/5, /*plen=*/15, rb);
+    hal._now = 1000; node.on_recv(rb.data(), rn, meta);
+
+    std::array<uint8_t, 64> db{};
+    const uint8_t body[2] = { 'h', 'i' };
+    const size_t dn = mk_data_e2e(/*next=*/2, /*dst=*/2, /*ctr=*/0x0005, /*origin=*/0,
+                                  DATA_FLAG_E2E_ACK_REQ, body, 2, db);
+    hal._now = 2000; node.on_recv(db.data(), dn, meta);
+    node.on_timer(kPostAckTimerId);                          // deliver -> E2E ack reply
+    CHECK(hal.count("delivered")  == 1);                     // the DM still delivers to the app
+    CHECK(hal.count("e2e_ack_tx") == 1);                     // and we send an end-to-end ack to the origin
+    CHECK(hal.count("tx_enqueue") == 0);                     // the ack is NOT an app DM (dm_delivery honesty)
+}
+
+TEST_CASE("E2E ACK — origin of an E2E_IS_ACK DATA confirms (no app delivery)") {
+    TestHal hal; Node node(hal, /*id=*/0, /*key=*/0xABCD);   // we are the origin being acked
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    node.on_init(cfg);
+    RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+
+    std::array<uint8_t, 16> rb{};
+    const size_t rn = mk_rts(/*src=*/1, /*next=*/0, /*dst=*/0, /*ctr_lo=*/9, /*plen=*/4, rb);
+    hal._now = 1000; node.on_recv(rb.data(), rn, meta);
+
+    std::array<uint8_t, 64> db{};
+    const uint8_t acked[2] = { 5, 0 };                       // acked ctr = 5 (LE)
+    const size_t dn = mk_data_e2e(/*next=*/0, /*dst=*/0, /*ctr=*/0x0009, /*origin=*/2,
+                                  DATA_FLAG_E2E_IS_ACK, acked, 2, db);
+    hal._now = 2000; node.on_recv(db.data(), dn, meta);
+    node.on_timer(kPostAckTimerId);
+    const Ev* ack = hal.last("e2e_ack_rx");
+    CHECK(ack != nullptr);
+    if (ack) { CHECK(ack->from == 2); CHECK(ack->ctr == 5); }  // confirmed the DM we originated (ctr=5)
+    CHECK(hal.count("delivered") == 0);                      // an E2E ack is NOT delivered as a message
 }

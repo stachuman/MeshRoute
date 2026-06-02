@@ -47,11 +47,14 @@ uint32_t Node::airtime_routing_ms(uint16_t len) const {
 // so the retry rand RANGE matches the Lua and the lua-vs-meshroute streams stay aligned.
 uint32_t Node::retry_jitter_ms() const { return 3 * airtime_routing_ms(8); }
 
-uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags) {
+// Build + enqueue an app DATA. `tx_event` separates an app send ("tx_enqueue", the dm_delivery
+// record-creation key) from an internal protocol DATA like the E2E ack ("e2e_ack_tx") that must NOT
+// be counted as an app DM.
+uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, const char* tx_event) {
     const uint16_t ctr = next_ctr(dst);
     TxItem item{};
     item.origin = _node_id; item.dst = dst; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
-    item.flags = flags;     // E2E/PRIORITY ride the wire; their behaviour (ack-track/budget) is a later iteration
+    item.flags = flags;
     item.inner[0] = 0x00; item.inner[1] = _node_id;      // src_addr_len=0 | origin | body
     if (body) for (uint8_t i = 0; i < body_len; ++i) item.inner[2 + i] = body[i];
     item.inner_len = static_cast<uint8_t>(2 + body_len);
@@ -63,9 +66,22 @@ uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8
         { .key = "ctr",    .type = EventField::T::i64, .i = item.ctr },
         { .key = "depth",  .type = EventField::T::i64, .i = _tx_queue_n },
     };
-    _hal.emit("tx_enqueue", f, 4);                       // dm_delivery record-creation key (fid==origin)
+    _hal.emit(tx_event, f, 4);
     become_free();
     return ctr;
+}
+
+// E2E/PRIORITY ride the wire via `flags`; the E2E ACK behaviour lives in do_post_ack + send_e2e_ack.
+uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags) {
+    return enqueue_data(dst, body, body_len, flags, "tx_enqueue");   // app DM (dm_delivery record key)
+}
+
+// End-to-end ACK: a tiny DATA back to the DM's origin carrying the acked ctr (E2E_IS_ACK). Emits
+// e2e_ack_tx (NOT tx_enqueue) so dm_delivery doesn't miscount the ack as an app DM; it routes home
+// on the reverse path the F discovery already laid toward the origin.
+void Node::send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr) {
+    const uint8_t body[2] = { static_cast<uint8_t>(acked_ctr & 0xFF), static_cast<uint8_t>(acked_ctr >> 8) };
+    (void)enqueue_data(to_origin, body, 2, DATA_FLAG_E2E_IS_ACK, "e2e_ack_tx");
 }
 
 void Node::become_free() {
