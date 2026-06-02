@@ -178,7 +178,7 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     _hal.cancel(kRetryBackoffTimerId);                   // drop a stale retry armed by a just-fired rts_timeout
     _pending_tx->awaiting_cts = false;
     _pending_tx->chosen_data_sf = c.chosen_data_sf;
-    { EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = static_cast<uint8_t>(meta.src_hint) },
+    { EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = _pending_tx->next },   // CTS is from our next-hop (src_hint=-1 on metal)
                          { .key = "sf",   .type = EventField::T::i64, .i = c.chosen_data_sf } };
       _hal.emit("cts_rx", f, 2); }
     if (c.already_received) { _pending_tx.reset(); become_free(); return; }   // already delivered upstream
@@ -191,7 +191,13 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     const data_out& d = *pd;
     if (d.next != _node_id) return;
     if (!_pending_rx || _pending_rx->ctr_lo != d.ctr_lo4) return;
-    const uint8_t from = static_cast<uint8_t>(meta.src_hint);
+    // The DATA's link sender = whoever we CTS'd (_pending_rx->from, set in handle_rts).
+    // src_hint is the SIM oracle (real LoRa carries no PHY source; the device sets -1),
+    // so use it only when present, else fall back to our pending-RX contract — else
+    // from=0xFF on metal -> the ACK + HOP_BUDGET/LOOP_DUP NACKs target node 255 and the
+    // dedup/loop keys are corrupt, so the DM never completes.
+    const uint8_t from = (meta.src_hint >= 0) ? static_cast<uint8_t>(meta.src_hint)
+                                              : _pending_rx->from;
     { EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = from },
                          { .key = "dst",  .type = EventField::T::i64, .i = d.dst } };
       _hal.emit("data_rx", f, 2); }
@@ -369,7 +375,7 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         ack_budget_reranked = mark_neighbor_budget_tier(_pending_tx->next,
                                                         tier, "ack_budget", /*local_only=*/true);
     }
-    EventField f[] = { { .key = "from",     .type = EventField::T::i64, .i = static_cast<uint8_t>(meta.src_hint) },
+    EventField f[] = { { .key = "from",     .type = EventField::T::i64, .i = _pending_tx->next },   // ACK is from our next-hop (src_hint=-1 on metal)
                        { .key = "ctr",      .type = EventField::T::i64, .i = _pending_tx->ctr },
                        { .key = "budget_hint",     .type = EventField::T::i64, .i = k.budget_hint },
                        { .key = "budget_reranked", .type = EventField::T::i64, .i = ack_budget_reranked } };

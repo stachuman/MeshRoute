@@ -22,6 +22,10 @@ namespace meshroute {
 Node::Node(Hal& hal, uint8_t node_id, uint32_t key_hash32, const char* name)
     : _hal(hal), _node_id(node_id), _key_hash32(key_hash32) {
     (void)name;  // sim-debug only; the node identifies by node_id / key_hash32
+    // 0xFF is RESERVED — never a valid node id. It is the "unknown PHY source"
+    // sentinel: RxMeta.src_hint=-1 casts to 0xFF, and real LoRa carries no link
+    // source. The console `cfg id` already caps at 254; this guards the ctor too.
+    if (node_id == 0xFF) _hal.panic("node_id 0xFF is reserved (invalid)");
 }
 
 void Node::on_init(const NodeConfig& cfg) {
