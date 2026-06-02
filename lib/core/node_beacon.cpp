@@ -48,6 +48,21 @@ int16_t Node::route_score_from_snr(int16_t snr_q4) const {
     return static_cast<int16_t>(snr_q4 - protocol::route_snr_conservatism_q4);
 }
 
+// Install a multi-hop route to `dest` via `via` (the immediate forwarder), hops as given — the F
+// reverse/forward-path learner. Like learn_direct_neighbor but multi-hop, and it does NOT fire a
+// triggered beacon (the F path relies on the periodic dirty-beacon to re-advertise).
+void Node::learn_route_via(uint8_t dest, uint8_t via, uint8_t hops, int16_t snr_q4) {
+    if (dest == 0xFF || dest == _node_id || via == 0xFF) return;
+    RtCandidate cand{};
+    cand.next_hop = via; cand.score = route_score_from_snr(snr_q4); cand.hops = hops;
+    cand.is_gateway = false; cand.last_seen_ms = _hal.now(); cand.learned_layer_id = _cfg.leaf_id;
+    const MergeAction a = rt_merge(dest, cand);
+    if (a == MergeAction::new_dest || a == MergeAction::promote || a == MergeAction::primary_refresh)
+        emit_rt_update(_hal, dest, via, cand.score, hops, "primary");
+    else if (a == MergeAction::alt_install)
+        emit_rt_update(_hal, dest, via, cand.score, hops, "alt");
+}
+
 // Direct (hops=1) route to a received frame's immediate sender — the C++ learn_rx_source.
 // Mirrors the Lua learn_direct_from_frame: build a direct candidate from (sender, rx SNR),
 // merge it, emit rt_update. Returns true on a real change so the caller fires the triggered

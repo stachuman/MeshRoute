@@ -239,6 +239,14 @@ private:
     // 0xFF (unknown/reserved) and self are no-ops. C++ has no id-bind/dest-seen/liveness plane,
     // so (unlike the Lua) those sub-actions are absent.
     bool    learn_direct_neighbor(uint8_t sender, int16_t snr_q4, bool is_gw);
+    void    learn_route_via(uint8_t dest, uint8_t via, uint8_t hops, int16_t snr_q4);  // multi-hop install (F path)
+    // F route discovery (AODV RREQ/RREP) — node_route_discovery.cpp.
+    void    handle_f(const uint8_t* bytes, size_t len, const RxMeta& meta);
+    void    emit_route_request(uint8_t dst, uint8_t ttl);
+    void    send_route_reply(uint8_t origin, uint8_t dst, uint8_t hops_to_dst);
+    bool    rreq_seen_recently(uint8_t origin, uint8_t dst);
+    void    mark_rreq_seen(uint8_t origin, uint8_t dst);
+    bool    rreq_rate_ok(uint8_t dst, uint8_t ttl);
 
     // ---- route table (DV merge) --------------------------------------------
     enum class MergeAction : uint8_t { none, new_dest, primary_refresh, promote, alt_install };
@@ -380,6 +388,13 @@ private:
     DeferredSend             _deferred[protocol::cap_deferred_sends];
     uint8_t                  _deferred_n = 0;
     bool                     _drain_armed = false;
+    // F route-discovery dedup state (Lua route_request_seen / route_request_last).
+    struct RReqSeen { uint8_t origin; uint8_t dst; uint64_t t_ms; };   // relay flood-dedup
+    struct RReqLast { uint8_t dst; uint8_t ttl; uint64_t t_ms; };      // per-dst origination rate-limit
+    RReqSeen _rreq_seen[protocol::cap_route_request_seen] = {};
+    uint8_t  _rreq_seen_n = 0;
+    RReqLast _rreq_last[protocol::cap_route_request_last] = {};
+    uint8_t  _rreq_last_n = 0;
     std::map<uint8_t, uint16_t>  _peer_send_counter;   // next_ctr per dst
     std::map<uint32_t, LastAcked> _last_acked_from;    // key (src<<24|dst<<16|ctr_lo<<8|len)
     std::map<uint32_t, uint64_t>  _seen_origins;       // key (origin<<24|dst<<16|ctr) -> expiry_ms

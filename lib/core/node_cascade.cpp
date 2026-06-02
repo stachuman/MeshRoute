@@ -155,6 +155,7 @@ void Node::defer_send(const TxItem& item) {
     EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = item.dst },
                        { .key = "ctr", .type = EventField::T::i64, .i = item.ctr } };
     _hal.emit("send_deferred", f, 2);
+    emit_route_request(item.dst, 1);                     // ask for a route: cheap ttl=1 probe (Lua emit_route_request)
     if (!_drain_armed) {                                 // arm the periodic TTL-giveup drain
         _drain_armed = true;
         (void)_hal.after(protocol::send_defer_drain_period_ms, kDeferredDrainTimerId);
@@ -188,6 +189,7 @@ void Node::try_drain_deferred() {
             drained[drained_n++] = d.item;               // route appeared -> drain to the queue HEAD below
             continue;
         }
+        emit_route_request(d.item.dst, _cfg.dv_hop_cap); // still no route -> requery at full radius (rate-limited)
         _deferred[w++] = d;                              // still no route + not expired -> keep
     }
     _deferred_n = w;

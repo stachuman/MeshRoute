@@ -76,7 +76,13 @@ inline constexpr int16_t  snr_ewma_alpha_q4         = 5;   // 0.3 ≈ 5/16
 // combined-hops ceiling). cap_routes bounds the distinct-dest count held in rt[].
 inline constexpr uint8_t  max_rt_candidates = 3;
 inline constexpr uint8_t  dv_hop_cap        = 16;
-inline constexpr uint16_t cap_routes        = 64;
+inline constexpr uint16_t cap_routes        = 254;   // max leaf size: 255 valid 8-bit ids (0xFF rsv) - self
+
+// ---- F route-discovery (AODV-style RREQ/RREP, §3.7b) -----------------------
+inline constexpr uint8_t  cap_route_request_seen    = 64;     // relay flood-dedup ring (origin|dst)
+inline constexpr uint8_t  cap_route_request_last    = 128;    // per-dst origination rate-limit ring
+inline constexpr uint32_t route_request_seen_ttl_ms = 10000;  // flood-dedup + requery window
+inline constexpr uint16_t route_reply_jitter_ms     = 400;    // RREP de-storm backoff (Phase B)
 
 // ---- Peer liveness (suspect/silent/dead tiers) -----------------------------
 inline constexpr uint8_t  peer_suspect_rts_timeouts    = 2;
