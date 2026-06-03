@@ -24,6 +24,8 @@
 
 namespace meshroute {
 
+struct data_m_inner;   // frame_codec.h — fwd-decl so the channel ingest seam doesn't pull the codec into node.h
+
 // POD; no heap, no JSON. Only the T/F-class knobs the Lua on_init reads.
 // PROTOCOL constants stay in protocol_constants.h (hardcoded on device).
 // TODO: Node config should also store name - which can be then exchanged through higher level (app level) - along with the public key
@@ -216,6 +218,18 @@ public:
     uint8_t           rt_count()       const { return _rt_count; }
     const RtEntry&    rt_at(uint8_t i) const { return _rt[i]; }   // 0..rt_count()-1; candidates[0] is the primary
     bool              has_pending_tx() const { return _pending_tx.has_value(); }
+    // ---- channel-plane inspection (public, like rt_count) + the two seams tests drive directly ----
+    uint16_t          channel_buffer_count() const { return _channel_buffer_n; }
+    bool              channel_has(uint32_t id) const { return channel_buffer_find(id) >= 0; }
+    bool              channel_entry_dirty(uint32_t id) const { const int i = channel_buffer_find(id); return i >= 0 && _channel_buffer[i].dirty; }
+    bool              channel_payload_eq(uint32_t id, const uint8_t* p, uint16_t len) const {
+        const int i = channel_buffer_find(id);
+        if (i < 0 || _channel_buffer[i].payload_len != len) return false;
+        for (uint16_t k = 0; k < len; ++k) if (_channel_buffer[i].payload[k] != p[k]) return false;
+        return true;
+    }
+    static uint32_t   channel_msg_id_mint(uint8_t origin, uint32_t key_hash32, uint8_t ctr);   // origin<<24|(kh&0xffff)<<8|ctr (dv:2239)
+    void    ingest_channel_m(const data_m_inner& m, uint8_t next, uint8_t dst, uint8_t from);  // DATA-M merge (dv:10942); public for tests
 
 private:
     // Node-owned timer-id namespace (Hal::after re-arm-by-id, cap 64). Reserve
@@ -275,6 +289,31 @@ private:
     void    sync_response_fire(uint8_t slot);                      // kSyncResponseTimerId+slot: emit_beacon("sync") unless suppressed
     bool    q_responded_recently(uint8_t opcode, uint8_t src, uint8_t dest);  // q_responded_to dedup (ttl q_respond_ttl_ms)
     void    mark_q_responded(uint8_t opcode, uint8_t src, uint8_t dest);      // refresh/append (evict-oldest; dv:11778)
+    // Channel-message gossip plane (ROADMAP §3) — node_channel.cpp. Phase 1: buffer + origination + DATA-M ingest.
+    // Single-layer; gateways skip (Principle 11). seen_by is a 256-bit bitmap (neighbour id -> bit) so the
+    // safe-eviction cover-check is O(neighbours). Struct defs here so they precede both the decls + the state.
+    struct ChannelEntry {
+        uint32_t id;                 // channel_msg_id: origin<<24 | (key_hash32&0xffff)<<8 | ctr
+        uint8_t  channel_id;
+        uint8_t  flavor;
+        uint8_t  origin;             // == (id >> 24): the minting node
+        bool     dirty;              // advertise in the BCN digest until bcn_ad_count hits K (Phase 2)
+        uint8_t  bcn_ad_count;
+        uint64_t received_at;
+        uint8_t  seen_by[32];        // 256-bit set of neighbours known to hold this msg (eviction safety)
+        uint16_t payload_len;
+        uint8_t  payload[protocol::channel_msg_max_payload_bytes];
+    };
+    struct ChannelOriginEvent  { uint32_t id; uint64_t t_ms; };
+    struct ChannelOriginLedger { ChannelOriginEvent ev[protocol::channel_origin_max_per_window]; uint8_t n = 0; };
+    struct ChannelPullPending  { bool active; uint32_t id; uint8_t target; uint64_t requested_at; uint64_t fire_at; };
+    int     channel_buffer_find(uint32_t id) const;                // index of the entry, or -1 (dv:3426)
+    bool    channel_mark_seen_by(uint32_t id, uint8_t neighbour);  // set seen_by bit; true if newly set (dv:3434)
+    bool    channel_origin_admit(uint8_t origin, uint32_t msg_id); // per-origin distinct-count anti-spam (dv:3456)
+    int     channel_buffer_pick_eviction(bool* safe) const;        // oldest-all-seen else oldest; index (dv:3485)
+    void    channel_buffer_add(const ChannelEntry& e);             // insert; evict if full (dv:3511)
+    void    cancel_channel_pull(uint32_t id, uint8_t overheard_from); // promiscuous-overhear pull cancel (dv:11006)
+    uint16_t do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t body_len);  // send_channel origination (dv:12126)
 
     // ---- route table (DV merge) --------------------------------------------
     enum class MergeAction : uint8_t { none, new_dest, primary_refresh, promote, alt_install };
@@ -437,6 +476,14 @@ private:
     struct SyncPending { bool active; bool suppressed; uint8_t requester; bool requester_mobile;
                          uint64_t requested_at; uint64_t fire_at; };
     SyncPending _sync_pending[protocol::cap_sync_response_pending] = {};
+    // Channel-message gossip plane state (node_channel.cpp; struct defs are above the channel method decls).
+    // _channel_buffer is the FIFO gossip store (oldest at [0]). _per_origin_channel is the anti-spam ledger
+    // (map of FIXED arrays; per-origin events bounded by the 20-distinct cap). _channel_pull_pending is the
+    // bounded pending-pull ring (scheduling/timers land in Phase 2 — Phase 1 only cancels on overhear).
+    ChannelEntry _channel_buffer[protocol::cap_channel_buffer];
+    uint16_t     _channel_buffer_n = 0;
+    std::map<uint8_t, ChannelOriginLedger> _per_origin_channel;   // origin -> windowed distinct-id ledger
+    ChannelPullPending _channel_pull_pending[protocol::cap_channel_pull_pending] = {};
     std::map<uint8_t, uint16_t>  _peer_send_counter;   // next_ctr per dst
     std::map<uint32_t, LastAcked> _last_acked_from;    // key (src<<24|dst<<16|ctr_lo<<8|len)
     std::map<uint32_t, uint64_t>  _seen_origins;       // key (origin<<24|dst<<16|ctr) -> expiry_ms

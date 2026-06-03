@@ -33,7 +33,11 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // overhear routing-SF broadcasts) so all 1st-hop neighbours accumulate evidence. Gateway cross-layer
     // relays (RTS_FLAG_RELAY) are exempt — not a 1st-hop origination (dv:9709-9712). Keyed on the decoded
     // RTS src (frame-derived, metal-correct), NOT meta.src_hint (the sim PHY oracle, -1 on hardware).
-    if (!(r.rts_flags & RTS_FLAG_RELAY))
+    // M_BROADCAST RTS (a channel-gossip re-broadcast) is exempt too — a holder relaying a channel msg
+    // is not a DM originator; counting it would DM-throttle honest gossipers (Lua dv:9709 `elseif
+    // r.m_broadcast`). The become_free self-cap already exempts M_BROADCAST (Inc 4); this is the
+    // RTS-observation half. Draw-free + inert until M_BROADCAST RTS flows (Phase 2 channel responder).
+    if (!(r.rts_flags & RTS_FLAG_RELAY) && !r.m_broadcast)
         track_originator_observation(r.src, /*kind=rts*/0, r.ctr_lo,
                                      static_cast<uint32_t>(airtime_routing_ms(static_cast<int>(len))));
     // Learn the RTS sender as a 1-hop neighbour — any RTS, overheard or addressed (Lua learn_rx_source).
@@ -241,6 +245,11 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
       _hal.emit("data_rx", f, 6); }
     // Learn the DATA prev-hop as a 1-hop neighbour (Lua learn_rx_source / data_frame).
     if (learn_direct_neighbor(from, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
+    // ROADMAP §3: a channel M-payload DATA is merged into the local gossip buffer (admit + buffer) as a
+    // side-effect; the DATA itself still ACKs + delivers/forwards below. Phase 1 covers the ADDRESSED case
+    // (we're the pull target / a forwarder); promiscuous overhear (the RX-retune ARM) lands in Phase 2.
+    // Inert in every MAC gate (payload_type_m is never set without channel traffic). (Lua dv:10942.)
+    if (d.payload_type_m) { auto m = parse_m_inner(inner); if (m) ingest_channel_m(*m, d.next, d.dst, from); }
     const uint8_t rx_sf = _pending_rx->chosen_data_sf;
     const uint8_t pl    = _pending_rx->payload_len;
     _hal.cancel(kPendingRxExpiryTimerId);

@@ -77,7 +77,7 @@ _PATTERNS = [
     ("routes_end", re.compile(r"^\[routes\]\s+end")),
     ("cfg",      re.compile(r"^\[cfg\]\s+(?P<kv>.*)$")),
     ("status",   re.compile(r"^\[status\]\s+(?P<kv>.*)$")),
-    ("banner",   re.compile(r"^(MeshRoute firmware|\s+(node id|freq|sf/bw/cr|tx power|board|radio|node)\s*=)")),
+    ("banner",   re.compile(r"^(MeshRoute firmware|\s+(node id|freq|sf/bw/cr|tx power|board|radio|node|config)\s*=)")),
 ]
 
 

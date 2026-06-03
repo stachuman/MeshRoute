@@ -170,8 +170,15 @@ CmdResult Node::on_command(const Command& c) {
             const uint16_t ctr = do_send(c.u.send.dst_id, c.body, c.body_len, c.u.send.flags);
             return CmdResult{ CmdCode::queued, ctr, _tx_queue_n };
         }
+        case CmdKind::send_channel: {                         // ROADMAP §3 channel gossip (single-layer)
+            if (_node_id == 0)                                // unprovisioned: must join / cfg set node_id
+                return CmdResult{ CmdCode::err_unprovisioned, 0, _tx_queue_n };
+            if (c.body_len > protocol::channel_msg_max_payload_bytes)
+                return CmdResult{ CmdCode::err_too_large, 0, _tx_queue_n };
+            const uint16_t ctr = do_send_channel(c.u.channel.channel_id, c.body, c.body_len);
+            return CmdResult{ CmdCode::queued, ctr, _tx_queue_n };   // buffered dirty -> advertised next BCN -> pulled
+        }
         case CmdKind::send_layer:    // cross-layer  -> R7
-        case CmdKind::send_channel:  // channel      -> R5
         case CmdKind::join:          // address-assign -> later
         default:
             return CmdResult{ CmdCode::err_unsupported, 0, _tx_queue_n };
