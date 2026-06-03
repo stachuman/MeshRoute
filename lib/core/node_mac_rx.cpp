@@ -31,9 +31,10 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (r.leaf_id != _cfg.leaf_id) return;
     // R4.4 anti-spam: track this RTS in the sender's window even when it's NOT addressed to us (we
     // overhear routing-SF broadcasts) so all 1st-hop neighbours accumulate evidence. Gateway cross-layer
-    // relays (RTS_FLAG_RELAY) are exempt — not a 1st-hop origination (dv:9709-9712).
-    if (meta.src_hint >= 0 && !(r.rts_flags & RTS_FLAG_RELAY))
-        track_originator_observation(static_cast<uint8_t>(meta.src_hint), /*kind=rts*/0, r.ctr_lo,
+    // relays (RTS_FLAG_RELAY) are exempt — not a 1st-hop origination (dv:9709-9712). Keyed on the decoded
+    // RTS src (frame-derived, metal-correct), NOT meta.src_hint (the sim PHY oracle, -1 on hardware).
+    if (!(r.rts_flags & RTS_FLAG_RELAY))
+        track_originator_observation(r.src, /*kind=rts*/0, r.ctr_lo,
                                      static_cast<uint32_t>(airtime_routing_ms(static_cast<int>(len))));
     // Learn the RTS sender as a 1-hop neighbour — any RTS, overheard or addressed (Lua learn_rx_source).
     if (learn_direct_neighbor(r.src, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
@@ -98,23 +99,36 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         return;
     }
 
-    // R4.4 anti-spam DROP (dv:9990-10012): if this sender looks like a 1st-hop originator-flooder
-    // (apparent_origination > max, OR overheard airtime > 25% of our budget), silently drop the RTS —
-    // no CTS, no NACK. Relay forwards are exempt. A legit forwarder has rts~=cts -> apparent~=0.
-    if (meta.src_hint >= 0 && !(r.rts_flags & RTS_FLAG_RELAY)) {
+    // R4.4 anti-spam DROP (Inc 1+2): if this sender's overheard airtime over the window exceeds
+    // originator_airtime_share of our duty budget, silently drop the RTS — no CTS, no NACK. Relay
+    // forwards are exempt. Keyed on the decoded RTS src (frame-derived, metal-correct — NOT src_hint,
+    // which is -1 on hardware). The airtime BACKSTOP is gated on a real budget: with duty disabled
+    // (budget 0) there is no SHARE to enforce, so skip it (matches compute_budget_tier / check_duty_cycle).
+    // R-C apparent-origination COUNT clause REMOVED (Inc 1): a missed CTS makes a forwarder look like an
+    // originator -> 168 false-drops on s18; the airtime backstop is the robust half (honesty- and
+    // CTS-loss-independent). app_orig/rts/cts kept as info-only emit fields.
+    if (!(r.rts_flags & RTS_FLAG_RELAY)) {
         int app_orig; uint32_t total_air; uint8_t rts_n, cts_n;
-        compute_originator_metric(static_cast<uint8_t>(meta.src_hint), app_orig, total_air, rts_n, cts_n);
-        // airtime cap = floor(0.25 * budget) (Lua dv:9993-9994). The airtime BACKSTOP is gated on a real
-        // budget: with duty disabled (budget 0) there is no airtime SHARE to enforce, so skip it — matching
-        // the duty-disabled guard the Lua's sibling consumers have (compute_budget_tier dv:3561, check_duty_cycle
-        // dv:3574) but the originator drop ORIGINALLY lacked (a Lua oversight — fixed in BOTH engines, dv:9995).
-        // The COUNT threshold (apparent > max) is budget-independent and ALWAYS active.
+        compute_originator_metric(r.src, app_orig, total_air, rts_n, cts_n);
         const uint32_t airtime_cap = static_cast<uint32_t>(
             static_cast<double>(protocol::originator_airtime_share) * _duty_cycle_budget_ms);   // floor
-        const bool over_count   = app_orig > static_cast<int>(_cfg.originator_max_per_window);
         const bool over_airtime = (_duty_cycle_budget_ms > 0) && (total_air > airtime_cap);
-        if (over_count || over_airtime) {
-            EventField f[] = { { .key = "from",      .type = EventField::T::i64, .i = static_cast<uint8_t>(meta.src_hint) },
+        // WARN band (Inc 2): airtime in [warn_fraction x cap, cap) -> flag, don't drop. Inc 3 carries this
+        // to the sender in the ACK warn bit so an honest node backs off before the hard cap. Emitted here
+        // for calibration (how close legit traffic comes to the cap).
+        const uint32_t airtime_warn = static_cast<uint32_t>(
+            static_cast<double>(protocol::originator_airtime_warn_fraction) * airtime_cap);
+        if (_duty_cycle_budget_ms > 0 && !over_airtime && total_air > airtime_warn) {
+            EventField wf[] = { { .key = "from",      .type = EventField::T::i64, .i = r.src },
+                                { .key = "ctr_lo",    .type = EventField::T::i64, .i = r.ctr_lo },
+                                { .key = "airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(total_air) },
+                                { .key = "warn_airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(airtime_warn) },
+                                { .key = "threshold_airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(airtime_cap) },
+                                { .key = "window_ms", .type = EventField::T::i64, .i = protocol::originator_window_ms } };
+            _hal.emit("rts_originator_airtime_warn", wf, 6);
+        }
+        if (over_airtime) {
+            EventField f[] = { { .key = "from",      .type = EventField::T::i64, .i = r.src },
                                { .key = "ctr_lo",    .type = EventField::T::i64, .i = r.ctr_lo },
                                { .key = "apparent_origination", .type = EventField::T::i64, .i = app_orig },
                                { .key = "airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(total_air) },
@@ -195,6 +209,16 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     const data_out& d = *pd;
     if (d.next != _node_id) return;
     if (!_pending_rx || _pending_rx->ctr_lo != d.ctr_lo4) return;
+    // Inc 2 anti-spam: record this inbound DATA's airtime in the sender's window — the dominant
+    // airtime a sender imposes on us (RTS-only never approached the cap). Keyed on _pending_rx->from
+    // (== this hop's RTS src, so RTS+DATA accumulate in one entry; frame-derived, metal-correct) and
+    // costed at the chosen data SF over the whole frame.
+    track_originator_observation(_pending_rx->from, /*kind=data*/2, d.ctr_lo4,
+        airtime_ms(_pending_rx->chosen_data_sf, _cfg.radio_bw_hz, _cfg.radio_cr,
+                   protocol::preamble_sym, static_cast<uint16_t>(len)));
+    int oa_app_; uint32_t orig_air; uint8_t oa_rts_, oa_cts_;   // sender's windowed airtime AFTER this DATA (calibration)
+    compute_originator_metric(_pending_rx->from, oa_app_, orig_air, oa_rts_, oa_cts_);
+    (void)oa_app_; (void)oa_rts_; (void)oa_cts_;
     // The DATA's link sender = whoever we CTS'd (_pending_rx->from, set in handle_rts).
     // src_hint is the SIM oracle (real LoRa carries no PHY source; the device sets -1),
     // so use it only when present, else fall back to our pending-RX contract — else
@@ -212,8 +236,9 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                          { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr },
                          { .key = "ctr_lo", .type = EventField::T::i64, .i = d.ctr_lo4 },
                          { .key = "from",   .type = EventField::T::i64, .i = from },
-                         { .key = "dst",    .type = EventField::T::i64, .i = d.dst } };
-      _hal.emit("data_rx", f, 5); }
+                         { .key = "dst",    .type = EventField::T::i64, .i = d.dst },
+                         { .key = "orig_airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(orig_air) } };
+      _hal.emit("data_rx", f, 6); }
     // Learn the DATA prev-hop as a 1-hop neighbour (Lua learn_rx_source / data_frame).
     if (learn_direct_neighbor(from, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
     const uint8_t rx_sf = _pending_rx->chosen_data_sf;
@@ -303,11 +328,20 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                          ? static_cast<uint8_t>(BudgetTier::critical) : static_cast<uint8_t>(my_tier);
     ack_in ain{}; ain.ctr_lo = d.ctr_lo4; ain.budget_hint = hint;
     ain.snr_bucket = bucket_of_snr_2b(protocol::db_to_q4(meta.snr_db)); ain.to = from;
+    // Inc 3: warn the sender (via the ACK warn bit) when its observed airtime is in the warn band — the
+    // soft sender-side precursor to the hard drop. orig_air = this sender's windowed airtime (post-DATA,
+    // computed above for the data_rx diagnostic). cap = share x budget; warn at warn_fraction x cap.
+    const uint32_t airtime_cap_a = static_cast<uint32_t>(
+        static_cast<double>(protocol::originator_airtime_share) * _duty_cycle_budget_ms);
+    ain.warn = (_duty_cycle_budget_ms > 0) &&
+               (orig_air > static_cast<uint32_t>(
+                   static_cast<double>(protocol::originator_airtime_warn_fraction) * airtime_cap_a));
     uint8_t abuf[3]; const size_t al = pack_ack(ain, std::span<uint8_t>(abuf, 3));
     tx_with_retry(abuf, al, static_cast<int16_t>(_cfg.routing_sf), FrameTag::ack);   // R4.5b: stash + tag the ACK
     { EventField f[] = { { .key = "to",  .type = EventField::T::i64, .i = from },
-                         { .key = "ctr", .type = EventField::T::i64, .i = d.ctr } };
-      _hal.emit("ack_tx", f, 2); }
+                         { .key = "ctr", .type = EventField::T::i64, .i = d.ctr },
+                         { .key = "airtime_warn", .type = EventField::T::i64, .i = ain.warn ? 1 : 0 } };
+      _hal.emit("ack_tx", f, 3); }
     if (live_dup) { become_free(); return; }                                        // same prev-hop dup -> ACK only
     for (auto it = _seen_origins.begin(); it != _seen_origins.end(); )              // prune expired (30s TTL)
         { if (it->second <= nowm) { _seen_origin_from.erase(it->first); it = _seen_origins.erase(it); } else ++it; }
@@ -400,13 +434,24 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         ack_budget_reranked = mark_neighbor_budget_tier(_pending_tx->next,
                                                         tier, "ack_budget", /*local_only=*/true);
     }
+    // Inc 3: a warn'd ACK means our next-hop considers us near its airtime cap. Honest back-off — park new
+    // DM originations until the warn window expires (the hard receiver-side drop is the backstop). The
+    // window self-clears: as our airtime ages out of the neighbour's window it stops setting the bit.
+    if (k.warn) {
+        _ack_warn_until = _hal.now() + protocol::originator_ack_warn_backoff_ms;
+        EventField wf[] = { { .key = "from",   .type = EventField::T::i64, .i = _pending_tx->next },
+                            { .key = "ctr_lo", .type = EventField::T::i64, .i = k.ctr_lo },
+                            { .key = "backoff_until_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_ack_warn_until) } };
+        _hal.emit("originator_warned_by_ack", wf, 3);
+    }
     EventField f[] = { { .key = "from",     .type = EventField::T::i64, .i = _pending_tx->next },   // ACK is from our next-hop (src_hint=-1 on metal)
                        { .key = "origin",   .type = EventField::T::i64, .i = _pending_tx->origin },
                        { .key = "dst",      .type = EventField::T::i64, .i = _pending_tx->dst },
                        { .key = "ctr",      .type = EventField::T::i64, .i = _pending_tx->ctr },
                        { .key = "budget_hint",     .type = EventField::T::i64, .i = k.budget_hint },
-                       { .key = "budget_reranked", .type = EventField::T::i64, .i = ack_budget_reranked } };
-    _hal.emit("ack_rx", f, 6);
+                       { .key = "budget_reranked", .type = EventField::T::i64, .i = ack_budget_reranked },
+                       { .key = "airtime_warn",    .type = EventField::T::i64, .i = k.warn ? 1 : 0 } };
+    _hal.emit("ack_rx", f, 7);
     { Push pu{}; pu.kind = PushKind::send_acked; pu.dst = _pending_tx->dst; pu.ctr = _pending_tx->ctr; enqueue_push(pu); }
     _pending_tx.reset();
     become_free();

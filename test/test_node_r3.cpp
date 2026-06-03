@@ -1094,50 +1094,33 @@ TEST_CASE("R4.4 originator ledger — fixed ring caps at cap_originator_events, 
     CHECK(air == (uint32_t)(N * 10));     // capped at N (oldest `over` evicted) — NOT (N+over)*10 = no unbounded growth
 }
 
-TEST_CASE("R4.4 throttle drop — a 1st-hop originator-flooder's RTS is silently dropped; a forwarder isn't") {
+TEST_CASE("R4.4 airtime backstop — a sender UNDER the airtime cap is NOT throttled (no false-positive)") {
+    // Post-Inc-1 the throttle is airtime-only: the R-C apparent-origination COUNT clause was removed (a
+    // missed CTS made a forwarder look like an originator -> false-drops, 168 on s18). The backstop is
+    // honesty-independent — it caps a heavy NEIGHBOUR's airtime regardless of originate-vs-forward — so
+    // the old "balanced forwarder (rts~=cts) is exempt" distinction no longer applies (a heavy forwarder
+    // IS capped). What MUST hold instead, and is the no-false-positive guarantee: a sender whose overheard
+    // airtime stays under the cap is never throttled (mirrors s18 dormancy — heaviest legit << cap).
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    cfg.duty_cycle = 0.04; cfg.duty_cycle_window_ms = 300000;   // budget 12000ms -> airtime cap 3000ms
+    node.on_init(cfg);
     std::array<uint8_t,16> rb{};
-    // SPAMMER: 7 distinct-ctr_lo RTSes from sender 9 OVERHEARD (to next=99, not us) -> apparent=7 > 6.
-    {
-        TestHal hal; Node node(hal, 1, 0xABCD);
-        NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
-        RxMeta m9{8.0f,-80.0f,0,static_cast<int8_t>(9)};
-        for (uint8_t i = 0; i < 7; ++i) {                       // overheard (next=99) -> tracked, no CTS
-            const size_t rn = mk_rts(/*src=*/9,/*next=*/99,/*dst=*/8,/*ctr_lo=*/i,/*plen=*/10, rb);
-            node.on_recv(rb.data(), rn, m9);
-        }
-        CHECK(hal.count("cts_tx") == 0);                        // none addressed to us
-        // now an RTS from 9 addressed to US -> apparent (8 after tracking this one) > 6 -> DROP
-        const size_t rn = mk_rts(/*src=*/9,/*next=*/1,/*dst=*/8,/*ctr_lo=*/7,/*plen=*/10, rb);
-        node.on_recv(rb.data(), rn, m9);
-        CHECK(hal.count("rts_drop_originator_throttle") == 1);
-        CHECK(hal.count("cts_tx") == 0);                        // silently dropped, NO CTS
-        CHECK(hal.count("nack_tx") == 0);                       // and NO NACK
+    RxMeta m9{8.0f,-80.0f,0,static_cast<int8_t>(9)};
+    for (uint8_t i = 0; i < 5; ++i) {                           // 5 overheard RTSes from 9 (each ~tens of ms)
+        const size_t n = mk_rts(/*src=*/9,/*next=*/99,/*dst=*/8,/*ctr_lo=*/i,/*plen=*/10, rb);
+        node.on_recv(rb.data(), n, m9);
     }
-    // FORWARDER: equal RTS+CTS from sender 9 -> apparent ~= 0 -> an RTS to us is CTSed normally.
-    {
-        TestHal hal; Node node(hal, 1, 0xABCD);
-        NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
-        RxMeta m9{8.0f,-80.0f,0,static_cast<int8_t>(9)};
-        std::array<uint8_t,8> cb{};
-        for (uint8_t i = 0; i < 7; ++i) {                       // 7 RTS + 7 CTS (distinct rx) from 9 -> apparent ~0
-            const size_t rn = mk_rts(/*src=*/9,/*next=*/99,/*dst=*/8,/*ctr_lo=*/i,/*plen=*/10, rb);
-            node.on_recv(rb.data(), rn, m9);
-            // distinct rx_id per flight: CTS dedups by rx_id now, so a balanced forwarder serves
-            // distinct upstreams -> cts == rts. (Same-rx repeats would merge — the coarser-count tradeoff.)
-            const size_t cn = mk_cts(/*rx_id=*/static_cast<uint8_t>(101 + i), /*tx_id=*/9, /*data_sf=*/7, cb);
-            node.on_recv(cb.data(), cn, m9);                    // overheard CTS from 9
-        }
-        const size_t rn = mk_rts(/*src=*/9,/*next=*/1,/*dst=*/8,/*ctr_lo=*/7,/*plen=*/10, rb);
-        node.on_recv(rb.data(), rn, m9);
-        CHECK(hal.count("rts_drop_originator_throttle") == 0);  // forwarder NOT throttled
-        CHECK(hal.count("cts_tx") == 1);                        // CTSed normally
-    }
+    const size_t rn = mk_rts(/*src=*/9,/*next=*/1,/*dst=*/8,/*ctr_lo=*/5,/*plen=*/10, rb);
+    node.on_recv(rb.data(), rn, m9);                            // addressed to us — total airtime << 3000ms cap
+    CHECK(hal.count("rts_drop_originator_throttle") == 0);      // under cap -> NOT throttled
+    CHECK(hal.count("cts_tx") == 1);                            // CTSed normally
 }
 
 TEST_CASE("R4.4 airtime backstop — over the 25%-budget airtime cap drops even when apparent <= max") {
     TestHal hal; Node node(hal, 1, 0xABCD);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
-    cfg.duty_cycle = 0.001; cfg.duty_cycle_window_ms = 10000;   // budget 10ms -> airtime cap floor(0.25*10)=2ms
+    cfg.duty_cycle = 0.001; cfg.duty_cycle_window_ms = 10000;   // budget 10ms -> airtime cap floor(0.35*10)=3ms
     node.on_init(cfg);
     std::array<uint8_t,16> rb{};
     RxMeta m9{8.0f,-80.0f,0,static_cast<int8_t>(9)};
@@ -1150,29 +1133,85 @@ TEST_CASE("R4.4 airtime backstop — over the 25%-budget airtime cap drops even 
 }
 
 // review #00/#01: with duty DISABLED (budget 0) the airtime backstop must be OFF (no airtime share to
-// enforce) — NOT a 0 cap that drops every RTS. The COUNT threshold stays active. Guard fixed in BOTH engines.
-TEST_CASE("R4.4 airtime backstop OFF when duty disabled (budget 0); count threshold still drops a flooder") {
+// enforce) — NOT a 0 cap that drops every RTS. Post-Inc-1 there is NO count fallback, so budget 0 means
+// NO throttle at all. Guard fixed in BOTH engines.
+TEST_CASE("R4.4 airtime backstop OFF when duty disabled (budget 0) -> no throttle (no count fallback)") {
     std::array<uint8_t,16> rb{};
     RxMeta m9{8.0f,-80.0f,0,9};
-    // (a) duty=0: an overheard + an addressed RTS (apparent 2 < 6, airtime >> any cap) -> NOT dropped, CTSed.
-    {
-        TestHal hal; Node node(hal, 1, 0xABCD);
-        NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;   // duty_cycle = 0 (disabled)
-        node.on_init(cfg);
-        const size_t ov = mk_rts(9,99,8,0,10,rb); node.on_recv(rb.data(), ov, m9);
-        const size_t rn = mk_rts(9, 1,8,1,10,rb); node.on_recv(rb.data(), rn, m9);
-        CHECK(hal.count("rts_drop_originator_throttle") == 0);  // budget 0 -> airtime backstop SKIPPED
-        CHECK(hal.count("cts_tx") == 1);
-    }
-    // (b) duty=0 still drops a COUNT flooder (apparent > 6) — the count path is budget-independent.
-    {
-        TestHal hal; Node node(hal, 1, 0xABCD);
-        NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;   // duty_cycle = 0
-        node.on_init(cfg);
-        for (uint8_t i = 0; i < 7; ++i) { const size_t n = mk_rts(9,99,8,i,10,rb); node.on_recv(rb.data(), n, m9); }
-        const size_t rn = mk_rts(9, 1, 8, 7, 10, rb); node.on_recv(rb.data(), rn, m9);
-        CHECK(hal.count("rts_drop_originator_throttle") == 1);  // count threshold fires regardless of budget
-    }
+    // duty=0: an overheard + an addressed RTS (airtime >> any cap) -> NOT dropped (backstop skipped), CTSed.
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;   // duty_cycle = 0 (disabled)
+    node.on_init(cfg);
+    const size_t ov = mk_rts(9,99,8,0,10,rb); node.on_recv(rb.data(), ov, m9);
+    const size_t rn = mk_rts(9, 1,8,1,10,rb); node.on_recv(rb.data(), rn, m9);
+    CHECK(hal.count("rts_drop_originator_throttle") == 0);  // budget 0 -> backstop SKIPPED, no count fallback
+    CHECK(hal.count("cts_tx") == 1);
+}
+
+TEST_CASE("R4.4 Inc 2 — DATA airtime feeds the ledger (kind=data) + warn band fires below the drop cap") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    cfg.duty_cycle = 0.02; cfg.duty_cycle_window_ms = 300000;   // budget 6000ms -> cap 2100ms, warn 1680ms (share 0.35)
+    node.on_init(cfg);
+    // DATA airtime (kind=2) feeds total_air just like RTS/CTS — that's what gives the backstop teeth
+    // (RTS-only airtime never approached the cap). 1800ms lands in the [1680,2100) warn band.
+    node.track_originator_observation(9, /*kind=data*/2, /*ctr_lo=*/0, /*air=*/1800);
+    int app; uint32_t air; uint8_t rts, cts;
+    node.compute_originator_metric(9, app, air, rts, cts);
+    CHECK(air == 1800);   // DATA airtime counted
+    CHECK(rts == 0);      // kind=data is neither rts...
+    CHECK(cts == 0);      // ...nor cts (no false apparent-origination)
+    // An addressed RTS from 9: total_air (1300 + the RTS's own airtime, still < 1500) is in the warn band
+    // -> rts_originator_airtime_warn, but NOT over the cap -> CTSed, not dropped.
+    std::array<uint8_t,16> rb{};
+    RxMeta m9{8.0f,-80.0f,0,static_cast<int8_t>(9)};
+    const size_t rn = mk_rts(/*src=*/9,/*next=*/1,/*dst=*/8,/*ctr_lo=*/1,/*plen=*/10, rb);
+    node.on_recv(rb.data(), rn, m9);
+    CHECK(hal.count("rts_originator_airtime_warn") == 1);   // warn band hit
+    CHECK(hal.count("rts_drop_originator_throttle") == 0);  // under cap -> not dropped
+    CHECK(hal.count("cts_tx") == 1);                        // warn does not block the CTS
+}
+
+TEST_CASE("DM Inc 3 — ACK warn bit round-trips through pack/parse (byte1 rsv nibble, ACK stays 3 B)") {
+    uint8_t buf[3];
+    // warn=true: fits the byte1 rsv nibble with NO growth; all other fields survive.
+    { ack_in in{}; in.ctr_lo = 5; in.budget_hint = 2; in.snr_bucket = 1; in.to = 42; in.warn = true;
+      const size_t n = pack_ack(in, std::span<uint8_t>(buf, 3));
+      CHECK(n == 3);                                        // 3 B — no growth (vs the Lua's 4 B)
+      auto out = parse_ack(std::span<const uint8_t>(buf, 3));
+      CHECK(out.has_value());
+      const ack_out o = out.value_or(ack_out{});
+      CHECK(o.warn == true);
+      CHECK(o.ctr_lo == 5);
+      CHECK(o.budget_hint == 2);
+      CHECK(o.snr_bucket == 1);
+      CHECK(o.to == 42); }
+    // warn=false round-trips too (bit 0 clear).
+    { ack_in in{}; in.ctr_lo = 5; in.budget_hint = 2; in.snr_bucket = 1; in.to = 42; in.warn = false;
+      pack_ack(in, std::span<uint8_t>(buf, 3));
+      auto out = parse_ack(std::span<const uint8_t>(buf, 3));
+      CHECK(out.has_value());
+      CHECK(out.value_or(ack_out{}).warn == false); }
+}
+
+TEST_CASE("R4.4 Inc 4 self-cap — an over-cap own origination is deferred (under-cap proceeds)") {
+    // Over cap: pre-load the own-origination ledger to the cap, then originate once more -> deferred at
+    // become_free (BEFORE issue_send), so no RTS goes out. (Pre-loading avoids driving N full flights.)
+    { TestHal hal; Node node(hal, 1, 0xABCD);
+      NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+      cfg.originator_self_cap_per_window = 3; node.on_init(cfg);
+      node.self_originate_observe(); node.self_originate_observe(); node.self_originate_observe();  // count = 3 = cap
+      uint64_t oldest; CHECK(node.self_originate_count(&oldest) == 3);
+      send_cmd(node, /*dst=*/8, "hi");
+      CHECK(hal.count("originator_self_defer") == 1);   // over cap -> deferred at the self-cap gate
+      CHECK(hal.count("rts_tx") == 0); }                // not transmitted (deferred before issue_send)
+    // Under cap: 2 < 3 -> NOT deferred; the origination proceeds past the self-cap gate.
+    { TestHal hal; Node node(hal, 1, 0xABCD);
+      NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+      cfg.originator_self_cap_per_window = 3; node.on_init(cfg);
+      node.self_originate_observe(); node.self_originate_observe();   // count = 2 < cap
+      send_cmd(node, /*dst=*/8, "hi");
+      CHECK(hal.count("originator_self_defer") == 0); }  // under cap -> not deferred
 }
 
 // ---- R4.3 — adaptive beacon throttle + silence-jitter (THE determinism golden) ----

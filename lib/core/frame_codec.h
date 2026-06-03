@@ -122,12 +122,14 @@ std::optional<cts_out> parse_cts(std::span<const uint8_t> frame);
 // ACK — (cmd-nibble 0x4, 3 B) — ROADMAP §10.3
 // -----------------------------------------------------------------------------
 //   byte 0 : cmd=0x4(4 hi) | ctr_lo(4 lo)
-//   byte 1 : budget_hint(2 hi) | snr_bucket(2) | rsv(4 lo)
+//   byte 1 : budget_hint(2 hi) | snr_bucket(2) | rsv(3) | AIRTIME_WARN(bit 0)
 //   byte 2 : to(8)
 // budget_hint / snr_bucket are the already-computed 2-bit fields; the
 // snr_q4 -> bucket mapping is protocol-layer (wired when ACK is used at R3).
-struct ack_in  { uint8_t ctr_lo; uint8_t budget_hint; uint8_t snr_bucket; uint8_t to; };
-struct ack_out { uint8_t ctr_lo; uint8_t budget_hint; uint8_t snr_bucket; uint8_t to; };
+// warn (DM Inc 3): "you're near my airtime cap" — rides the byte1 rsv nibble, NO size change. The C++
+// cmd-nibble has the room the Lua ACK lacked, so the Lua GREW to 4 B while this stays 3 B.
+struct ack_in  { uint8_t ctr_lo; uint8_t budget_hint; uint8_t snr_bucket; uint8_t to; bool warn = false; };
+struct ack_out { uint8_t ctr_lo; uint8_t budget_hint; uint8_t snr_bucket; uint8_t to; bool warn = false; };
 size_t pack_ack(const ack_in& in, std::span<uint8_t> out);
 std::optional<ack_out> parse_ack(std::span<const uint8_t> frame);
 

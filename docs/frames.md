@@ -100,10 +100,12 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 | Byte | Field | Description |
 |------|-------|-------------|
 | 0 | cmd \| ctr_lo | bits 7..4 = `0x4`; bits 3..0 = ctr_lo |
-| 1 | budget_hint \| snr_bucket | b7..6 = budget_hint (2-bit) · b5..4 = snr_bucket (2-bit) · b3..0 rsv |
+| 1 | budget_hint \| snr_bucket \| warn | b7..6 = budget_hint (2-bit) · b5..4 = snr_bucket (2-bit) · b3..1 rsv · b0 = `AIRTIME_WARN` |
 | 2 | to | addressed recipient node_id |
 
 `ctr_lo` is retained (unlike CTS): the long ACK window with no sender field needs it to reject stale ACKs.
+
+`AIRTIME_WARN` (b0): set by the receiver when this sender's overheard airtime is in the anti-spam warn band (≥ `originator_airtime_warn_fraction` × the per-sender airtime cap, i.e. 0.8 × 0.25 × duty budget). The sender then parks new DM originations for `originator_ack_warn_backoff_ms`. The bit rides the spare rsv nibble, so the **C++ cmd-nibble ACK stays 3 B**; the Lua's literal-`K`-tag ACK has no spare byte-1 bits and **grows to 4 B** (a 4th flags byte) to carry the same warn — the standard Lua-verbose / C++-compact wire split.
 
 ---
 

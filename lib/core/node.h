@@ -65,6 +65,7 @@ struct NodeConfig {
                                                 //  double exactly — float 0.01f*3.6e6 floors to 35999, not 36000)
     uint32_t duty_cycle_window_ms = 3600000;    // rolling airtime window (1 h)
     uint16_t originator_max_per_window = 6;      // R4.4 anti-spam: apparent_origination drop threshold (T-class)
+    uint16_t originator_self_cap_per_window = 20; // Inc 4 self-cap: max OWN originations/window before defer (calibrated > s18 heaviest 7; SEPARATE from the above so tests setting that low don't false-defer)
     uint32_t beacon_silence_jitter_ms  = 10000;  // R4.3 adaptive-throttle deferred-TX spread (dv:921)
     // R4.5 listen-before-talk. lbt_enabled default true (Lua dv:8625). The two delays default to 0 = "derive
     // in on_init" (lbt_backoff_ms = max(1, retry_jitter_ms/2); flood_lbt_max_defer_ms = airtime(beacon_max_bytes)).
@@ -199,6 +200,9 @@ public:
     void       track_originator_observation(uint8_t sender, uint8_t kind, uint8_t ctr_lo, uint32_t air);
     void       compute_originator_metric(uint8_t sender, int& apparent, uint32_t& total_air,
                                          uint8_t& rts, uint8_t& cts) const;
+    // Inc 4 self-cap: our OWN origination sliding-window ledger (DM; + channel when R5 lands). Public for tests.
+    void       self_originate_observe();                          // record one own origination (prune + append)
+    uint8_t    self_originate_count(uint64_t* oldest_in_window = nullptr) const;  // count in window; opt. oldest
 
 private:
     // Node-owned timer-id namespace (Hal::after re-arm-by-id, cap 64). Reserve
@@ -415,6 +419,9 @@ private:
     struct OrigEvent { uint64_t t; uint8_t kind; uint8_t ctr_lo; uint32_t air; };
     struct OrigRing  { OrigEvent ev[protocol::cap_originator_events]; uint8_t count = 0; };
     std::map<uint8_t, OrigRing> _per_sender_originator;  // sender_id -> recent events (fixed ring)
+    uint64_t _ack_warn_until = 0;   // DM Inc 3: park new DM originations until this ms (set by a warn'd ACK)
+    uint64_t _own_orig_events[protocol::cap_originator_events] = {};  // Inc 4 self-cap: own-origination timestamps (in-window)
+    uint8_t  _own_orig_count = 0;
     // NACK BUSY_RX wait-same-hop: the captured ctr_lo the kNackWaitTimerId re-RTSes for.
     uint8_t                      _nack_wait_ctr_lo = 0;
     bool                         _nack_wait_pending = false;

@@ -108,7 +108,9 @@ inline constexpr uint32_t neighbor_budget_tier_ttl_ms  = 300000;
 
 // ---- Anti-spam (P-class only; originator_max_per_window is T) --------------
 inline constexpr uint32_t originator_window_ms        = 300000;
-inline constexpr float    originator_airtime_share    = 0.25f;
+inline constexpr float    originator_airtime_share    = 0.35f;  // 0.25->0.35: C++ delivers more -> higher per-sender airtime (s18 heaviest hit 77% of the old cap / 96% of the warn) -> bumped for headroom
+inline constexpr float    originator_airtime_warn_fraction = 0.8f;  // WARN (no drop) at 0.8x drop cap; Inc 3 carries it in the ACK warn bit
+inline constexpr uint32_t originator_ack_warn_backoff_ms = 10000;   // DM Inc 3: park new DM originations this long after a warn'd ACK
 inline constexpr uint16_t originator_retry_dedup_ms   = 10000;
 // Per-sender fixed-ring depth for the originator ledger (heap-free; evict-oldest on overflow). The metric
 // counts DISTINCT ctr_lo (16 per kind, 2 kinds = 32 ceiling), so 64 is 2x headroom: eviction only triggers

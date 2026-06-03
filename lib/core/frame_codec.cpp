@@ -206,7 +206,7 @@ size_t pack_ack(const ack_in& in, std::span<uint8_t> out) {
     // inherently 0..3 from the mapping, so its & 0x03 matches the Lua's no-op.
     const uint8_t bh = in.budget_hint > 3 ? 3 : in.budget_hint;
     w.u8(wire::cmd_byte(wire::Cmd::K, static_cast<uint8_t>(in.ctr_lo & 0x0F)));
-    w.u8(static_cast<uint8_t>((bh << 6) | ((in.snr_bucket & 0x03) << 4)));
+    w.u8(static_cast<uint8_t>((bh << 6) | ((in.snr_bucket & 0x03) << 4) | (in.warn ? 0x01 : 0)));  // bit0 = AIRTIME_WARN (Inc 3)
     w.u8(in.to);
     return w.ok() ? w.size() : 0;
 }
@@ -224,6 +224,7 @@ std::optional<ack_out> parse_ack(std::span<const uint8_t> frame) {
     o.budget_hint = static_cast<uint8_t>((b1 >> 6) & 0x03);
     o.snr_bucket  = static_cast<uint8_t>((b1 >> 4) & 0x03);
     o.to          = to;
+    o.warn        = (b1 & 0x01) != 0;   // DM Inc 3 airtime warn (byte1 rsv-nibble bit 0)
     return o;
 }
 

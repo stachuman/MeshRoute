@@ -55,6 +55,10 @@ DEFAULT_BAUD = 115200
 # USB VIDs that a MeshRoute board enumerates as (Seeed XIAO nRF52840 = 0x2886; Adafruit nRF52 = 0x239A).
 KNOWN_VIDS = {0x2886, 0x239A, 0x303A}  # Seeed, Adafruit, Espressif (Heltec)
 
+# §10 cmd nibble (byte0 high 4 bits) -> name, for decoding [rx]/[tx] frames on the wire.
+CMD_NAMES = {0: "B/beacon", 1: "R/RTS", 2: "C/CTS", 3: "D/DATA", 4: "K/ACK",
+             5: "N/NACK", 6: "Q", 7: "H", 8: "F/RREQ", 9: "J/join", 15: "EXT"}
+
 # --------------------------------------------------------------------------------------------------
 # Pure line parsers — classify one console line into (kind, fields dict). No I/O; --selftest covers it.
 # --------------------------------------------------------------------------------------------------
@@ -87,17 +91,48 @@ def _kv(s):
     return out
 
 
+# Bring-up debug lines print WITHOUT a trailing newline (device_radio.h), so they glom onto the front
+# of the next line: `[rxdone irq=12][rx] len=12 ...`, `[pre][pre][hb] t=...`. Strip + capture them so the
+# real line still classifies. (If those debug prints are removed from the firmware, this just no-ops.)
+_PRE = re.compile(r"^\[pre\]")
+_RXDONE = re.compile(r"^\[rxdone irq=(?P<irq>[0-9A-Fa-f]+)\]")
+
+
 def parse_line(line):
-    """line -> (kind, fields). kind='other' if nothing matches."""
+    """line -> (kind, fields). Leading [pre]/[rxdone irq=..] debug prefixes are stripped and kept as
+    fields pre=<count>, irq=<hex>. kind='other' if nothing matches; 'pre' for a bare preamble marker."""
     line = line.rstrip("\r\n")
+    pre, irq = 0, None
+    while line:
+        m = _PRE.match(line)
+        if m:
+            pre += 1
+            line = line[m.end():]
+            continue
+        m = _RXDONE.match(line)
+        if m:
+            irq = m.group("irq")
+            line = line[m.end():]
+            continue
+        break
+
+    def _tag(kind, fields):
+        if irq is not None:
+            fields["irq"] = irq
+        if pre:
+            fields["pre"] = pre
+        return kind, fields
+
+    if not line:
+        return _tag("pre", {}) if pre else ("other", {"raw": ""})
     for kind, pat in _PATTERNS:
         m = pat.match(line)
         if m:
             fields = m.groupdict()
             if "kv" in fields:
                 fields = _kv(fields["kv"])
-            return kind, fields
-    return "other", {"raw": line}
+            return _tag(kind, fields)
+    return _tag("other", {"raw": line})
 
 
 # --------------------------------------------------------------------------------------------------
@@ -252,9 +287,14 @@ def pretty(line):
     if kind == "hb":
         return f"  · alive {f['t']}s  radio={f['radio']}  duty={f['duty']}ms"
     if kind == "rx":
-        return f"  «rx  cmd={f['cmd']} len={f['len']} snr={f['snr']} rssi={f['rssi']}"
+        name = CMD_NAMES.get(int(f["cmd"]), "?")
+        irq = f"  irq=0x{f['irq']}" if "irq" in f else ""
+        return f"  «rx  cmd={f['cmd']} {name:8s} len={f['len']} snr={f['snr']} rssi={f['rssi']}{irq}"
     if kind == "tx":
-        return f"  »tx  cmd={f['cmd']} len={f['len']}"
+        name = CMD_NAMES.get(int(f["cmd"]), "?")
+        return f"  »tx  cmd={f['cmd']} {name:8s} len={f['len']}"
+    if kind == "pre":
+        return f"  ·· preamble x{f.get('pre', 1)}"
     if kind == "recv":
         return f"  ★ RECV from {f['from']}: {f['text']}"
     if kind == "acked":
@@ -397,6 +437,8 @@ def selftest():
     samples = {
         "[hb] t=15s radio=OK duty_ms=88":                       ("hb", {"t": "15", "radio": "OK", "duty": "88"}),
         "[rx] len=12 cmd=0 snr=14.2 rssi=-30":                  ("rx", {"len": "12", "cmd": "0", "snr": "14.2", "rssi": "-30"}),
+        "[rxdone irq=12][rx] len=7 cmd=2 snr=13.5 rssi=-0":     ("rx", {"len": "7", "cmd": "2", "irq": "12"}),
+        "[pre][pre][hb] t=20s radio=OK duty_ms=176":           ("hb", {"t": "20", "pre": 2}),
         "[tx] cmd=1 len=7":                                     ("tx", {"cmd": "1", "len": "7"}),
         "RECV from=1: hello world":                             ("recv", {"from": "1", "text": "hello world"}),
         "ACKED ctr=3":                                          ("acked", {"ctr": "3"}),

@@ -59,6 +59,17 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     if (body) for (uint8_t i = 0; i < body_len; ++i) item.inner[2 + i] = body[i];
     item.inner_len = static_cast<uint8_t>(2 + body_len);
     item.enqueue_time_ms = _hal.now();                   // first-enqueue time (cascade-requeue total-age cap)
+    // Inc 3 back-off: a warn'd ACK (a downstream neighbour says we're near its airtime cap) parks new DM
+    // originations until the warn window expires, relieving that neighbour. The hard receiver-side airtime
+    // drop is the backstop; this is the polite sender-side half. next_attempt_ms gates the dequeue.
+    if (_ack_warn_until > _hal.now()) {
+        item.next_attempt_ms = _ack_warn_until;
+        EventField bf[] = { { .key = "origin", .type = EventField::T::i64, .i = item.origin },
+                            { .key = "dst",    .type = EventField::T::i64, .i = item.dst },
+                            { .key = "ctr",    .type = EventField::T::i64, .i = item.ctr },
+                            { .key = "until_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_ack_warn_until) } };
+        _hal.emit("origination_backoff_ack_warn", bf, 4);
+    }
     if (_tx_queue_n < kTxQueueCap) _tx_queue[_tx_queue_n++] = item;
     EventField f[] = {
         { .key = "origin", .type = EventField::T::i64, .i = item.origin },
@@ -102,6 +113,31 @@ void Node::become_free() {
     if (pick == _tx_queue_n) {                            // none ready -> wake at the soonest backoff
         (void)_hal.after(static_cast<uint32_t>(soonest - now), kQueueWakeupTimerId);
         return;
+    }
+    // Inc 4 self-cap (enforcing): cap our OWN DM originations per window. Checked here at transmit time —
+    // become_free serializes sends, so the count never exceeds the cap (no enqueue-race overshoot). Exempt:
+    // forwards (is_forward — we stay a good relay) and channel broadcasts (M_BROADCAST, when R5 lands —
+    // governed by the per-origin channel COUNT plane). Defer-in-place (bump next_attempt_ms) until the
+    // oldest origination ages out, then re-pick; the receiver-side airtime backstop is the hard floor.
+    if (_tx_queue[pick].origin == _node_id && !_tx_queue[pick].is_forward
+        && !(_tx_queue[pick].flags & DATA_FLAG_PAYLOAD_TYPE_M)) {
+        uint64_t oldest = now;
+        const uint8_t own = self_originate_count(&oldest);
+        if (own >= _cfg.originator_self_cap_per_window) {
+            uint64_t until = oldest + protocol::originator_window_ms;
+            if (until <= now) until = now + 1;
+            _tx_queue[pick].next_attempt_ms = until;          // defer in place
+            EventField f[] = { { .key = "origin",    .type = EventField::T::i64, .i = _tx_queue[pick].origin },
+                               { .key = "dst",       .type = EventField::T::i64, .i = _tx_queue[pick].dst },
+                               { .key = "ctr",       .type = EventField::T::i64, .i = _tx_queue[pick].ctr },
+                               { .key = "own_count", .type = EventField::T::i64, .i = own },
+                               { .key = "cap",       .type = EventField::T::i64, .i = _cfg.originator_self_cap_per_window },
+                               { .key = "until_ms",  .type = EventField::T::i64, .i = static_cast<int64_t>(until) } };
+            _hal.emit("originator_self_defer", f, 6);
+            become_free();                                    // re-pick (skips the now-deferred item)
+            return;
+        }
+        self_originate_observe();                             // admitted -> record
     }
     TxItem item = _tx_queue[pick];
     for (uint8_t i = pick + 1; i < _tx_queue_n; ++i) _tx_queue[i - 1] = _tx_queue[i];
