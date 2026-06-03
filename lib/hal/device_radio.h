@@ -32,6 +32,7 @@ public:
 
     TxResult transmit(const uint8_t* b, size_t n,
                       int16_t sf, int32_t bw_hz, int8_t cr, int8_t pw, int16_t pre) override {
+        ++_tx_count;
         // TX DEBUG: mirror of the [rx] line — the OTHER half of the handshake. cmd nibble = byte0 high 4 bits.
         Serial.print(F("[tx] cmd=")); Serial.print(n ? (b[0] >> 4) : 0); Serial.print(F(" len=")); Serial.println((unsigned)n);
         if (sf  > 0)    _radio.setSpreadingFactor(static_cast<uint8_t>(sf));
@@ -82,8 +83,11 @@ public:
     // The loop drains this each iteration -> Node::on_preamble_detected(now).
     bool take_preamble() { const bool f = _preamble; _preamble = false; return f; }
 
+    uint32_t tx_count() const { return _tx_count; }   // status diagnostic (frames transmitted)
+
 private:
     CustomSX1262& _radio;
+    uint32_t _tx_count = 0;   // frames transmitted (status diagnostic)
     bool _preamble = false;   // latched preamble event (drained by take_preamble)
     bool _pre_seen = false;   // edge-detect: preamble already latched this RX cycle
 };

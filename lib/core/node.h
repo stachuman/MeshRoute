@@ -42,7 +42,9 @@ struct NodeConfig {
     uint16_t allowed_sf_bitmap   = 0;            // allowed DATA-SF set (bit=sf), from config allowed_data_sfs; 0 = use data_sf
     uint32_t beacon_period_ms    = 900000;
     uint32_t beacon_max_idle_ms  = 900000;
-    uint8_t  req_sync_min_routes = 8;
+    uint8_t  req_sync_min_routes = 8;            // originator: stop REQ_SYNC once rt reaches this (Lua dv:8039)
+    bool     sync_response_enabled    = true;    // responder: answer an overheard REQ_SYNC with a jittered full-table beacon (Lua dv:8936)
+    uint8_t  sync_response_min_routes = 0;       // responder gate (Lua nil -> 0: respond even when route-starved, dv:8067)
     uint32_t quiet_threshold_ms  = 30000;        // beacon throttle gate; <=0 = unthrottled (R1 fast path)
     uint8_t  leaf_id             = 0;            // layer id (single-layer R1 = 0)
     uint16_t peer_count          = 0;            // host-set (N-1); 0 = no rt_full emit (sim telemetry)
@@ -173,6 +175,9 @@ public:
     Node(Hal& hal, uint8_t node_id, uint32_t key_hash32, const char* name = nullptr);
 
     void on_init(const NodeConfig& cfg);                                 // cfg borrowed
+    // Reassign identity post-construct (device boots id=0 then loads it from NV; the join runtime sets it
+    // too). 0 = unprovisioned (do_send is refused). 0xFF is reserved and ignored.
+    void set_identity(uint8_t node_id, uint32_t key_hash32);
     void on_recv(const uint8_t* bytes, size_t len, const RxMeta& meta);  // bytes valid during call only
     void on_timer(uint32_t timer_id);                                    // dispatch on Node-owned id
     void on_radio_busy(const BusyInfo& info);                            // deferred-TX retry/giveup
@@ -204,6 +209,14 @@ public:
     void       self_originate_observe();                          // record one own origination (prune + append)
     uint8_t    self_originate_count(uint64_t* oldest_in_window = nullptr) const;  // count in window; opt. oldest
 
+    // ---- device-console diagnostics: const LIVE reads consumed by fw_main's routes/cfg/status seam.
+    uint8_t           node_id()        const { return _node_id; }
+    uint32_t          key_hash32()     const { return _key_hash32; }
+    const NodeConfig& config()         const { return _cfg; }
+    uint8_t           rt_count()       const { return _rt_count; }
+    const RtEntry&    rt_at(uint8_t i) const { return _rt[i]; }   // 0..rt_count()-1; candidates[0] is the primary
+    bool              has_pending_tx() const { return _pending_tx.has_value(); }
+
 private:
     // Node-owned timer-id namespace (Hal::after re-arm-by-id, cap 64). Reserve
     // 4+ for the R3 RTS/CTS/ACK timers.
@@ -222,12 +235,15 @@ private:
     static constexpr uint32_t kDeferredDrainTimerId    = 11;  // periodic 1s drain of _deferred (TTL giveup)
     static constexpr uint32_t kCascadeRequeueTimerId   = 12;  // backoff before re-draining a requeued flight
     static constexpr uint32_t kNackWaitTimerId         = 13;  // NACK BUSY_RX wait-same-hop one-shot
+    static constexpr uint32_t kReqSyncTimerId          = 14;  // REQ_SYNC boot loop: re-arm every req_sync_retry_ms while discovery+route-starved (dv:9167)
     static constexpr uint32_t kBeaconJitterTimerId     = 27;  // R4.3 silence-jitter deferred periodic beacon; BASE of a 4-slot ring [27..30] (cleanup #D: two defers in one jitter window must BOTH fire, dv per-closure)
     static constexpr uint8_t  kBeaconJitterSlots       = 4;
     static constexpr uint32_t kRtsDutyDeferTimerId     = 31;  // cleanup #A redo: over-budget RTS duty-defer re-check/hand
     static constexpr uint32_t kLbtDeferTimerId         = 15;  // R4.5 LBT deferred-TX re-fire; BASE of a 4-slot range [15..18]
     static constexpr uint32_t kRadioBusyRetryTimerId   = 19;  // R4.5b on_radio_busy stash re-issue; BASE of a 4-slot range [19..22]
     static constexpr uint32_t kDutyDeferTimerId        = 23;  // tx_with_retry duty-cycle pre-check defer; BASE of a 4-slot range [23..26]
+    static constexpr uint32_t kSyncResponseTimerId     = 32;  // REQ_SYNC jittered response fire; BASE of a kSyncRespSlots ring [32..47] (one slot per pending requester)
+    static constexpr uint8_t  kSyncRespSlots           = protocol::cap_sync_response_pending;
 
     // ---- beacon emit / ingest ----------------------------------------------
     void emit_beacon(const char* kind);                            // "periodic" | "triggered"
@@ -251,6 +267,14 @@ private:
     bool    rreq_seen_recently(uint8_t origin, uint8_t dst);
     void    mark_rreq_seen(uint8_t origin, uint8_t dst);
     bool    rreq_rate_ok(uint8_t dst, uint8_t ttl);
+    // Q REQ_SYNC plane (boot route-bootstrap) — node_query.cpp.
+    void    req_sync_loop_fire();                                  // kReqSyncTimerId: send + re-arm while discovery+starved (dv:9167)
+    void    send_req_sync_q(const char* reason);                   // broadcast a REQ_SYNC Q (no draw; dv:8032)
+    void    handle_q(const uint8_t* bytes, size_t len, const RxMeta& meta);   // Q RX dispatch (dv:11767)
+    void    schedule_sync_response(uint8_t requester, bool requester_mobile); // jittered full-table reply (the backoff DRAW; dv:8064)
+    void    sync_response_fire(uint8_t slot);                      // kSyncResponseTimerId+slot: emit_beacon("sync") unless suppressed
+    bool    q_responded_recently(uint8_t opcode, uint8_t src, uint8_t dest);  // q_responded_to dedup (ttl q_respond_ttl_ms)
+    void    mark_q_responded(uint8_t opcode, uint8_t src, uint8_t dest);      // refresh/append (evict-oldest; dv:11778)
 
     // ---- route table (DV merge) --------------------------------------------
     enum class MergeAction : uint8_t { none, new_dest, primary_refresh, promote, alt_install };
@@ -401,6 +425,18 @@ private:
     uint8_t  _rreq_seen_n = 0;
     RReqLast _rreq_last[protocol::cap_route_request_last] = {};
     uint8_t  _rreq_last_n = 0;
+    // Q REQ_SYNC plane state (node_query.cpp). _last_req_sync_tx_ms rate-limits the originator (dv:8035);
+    // _q_responded is the responder dedup ring (key opcode|src|dest, ttl q_respond_ttl_ms) — Lua refuses on
+    // cap-full, we evict-oldest (matches the F-dedup idiom; equivalent below cap, robust for a long-running
+    // device). _sync_pending is the bounded jitter-response ring (Lua: an unbounded table of after()-closures;
+    // one slot per requester, fired by kSyncResponseTimerId+slot).
+    uint64_t _last_req_sync_tx_ms = 0;
+    struct QResponded { uint8_t opcode; uint8_t src; uint8_t dest; uint64_t t_ms; };
+    QResponded _q_responded[protocol::cap_q_responded_to] = {};
+    uint8_t    _q_responded_n = 0;
+    struct SyncPending { bool active; bool suppressed; uint8_t requester; bool requester_mobile;
+                         uint64_t requested_at; uint64_t fire_at; };
+    SyncPending _sync_pending[protocol::cap_sync_response_pending] = {};
     std::map<uint8_t, uint16_t>  _peer_send_counter;   // next_ctr per dst
     std::map<uint32_t, LastAcked> _last_acked_from;    // key (src<<24|dst<<16|ctr_lo<<8|len)
     std::map<uint32_t, uint64_t>  _seen_origins;       // key (origin<<24|dst<<16|ctr) -> expiry_ms

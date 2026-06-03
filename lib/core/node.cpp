@@ -28,6 +28,15 @@ Node::Node(Hal& hal, uint8_t node_id, uint32_t key_hash32, const char* name)
     if (node_id == 0xFF) _hal.panic("node_id 0xFF is reserved (invalid)");
 }
 
+// Reassign identity post-construct: the device boots id=0 then loads it from NV; the join runtime sets
+// it too. 0 stays unprovisioned (do_send refused). 0xFF is reserved -> ignored.
+void Node::set_identity(uint8_t node_id, uint32_t key_hash32) {
+    if (node_id == 0xFF) return;
+    _node_id    = node_id;
+    _key_hash32 = key_hash32;
+    _hal.set_protocol_id(node_id);   // keep the Hal short-id in sync (addressing / join)
+}
+
 void Node::on_init(const NodeConfig& cfg) {
     _cfg = cfg;
     // Lua: (SF_DEMOD_THRESHOLD[routing_sf] or -240) + sf_margin_q4 (dv_dual_sf.lua:8386).
@@ -64,6 +73,11 @@ void Node::on_init(const NodeConfig& cfg) {
     (void)_hal.after(static_cast<uint32_t>(_hal.rand_range(0, first_period)), kBeaconTimerId);
     // Periodic route-aging sweep (dv_dual_sf.lua:9080-9086).
     (void)_hal.after(_cfg.rt_aging_check_period_ms, kAgingTimerId);
+    // REQ_SYNC bootstrap (dv_dual_sf.lua:9166-9175): after a listen window, broadcast a REQ_SYNC Q
+    // while still in discovery + route-starved, so a sparse joiner pulls neighbours' tables instead
+    // of waiting out the slow periodic-beacon rotation. The loop (kReqSyncTimerId) re-arms itself.
+    if (_cfg.req_sync_on_boot && in_discovery())
+        (void)_hal.after(protocol::req_sync_listen_ms, kReqSyncTimerId);
 }
 
 // ---- dispatch (timer ids -> subsystem handlers; RX cmd-nibble -> handlers) --
@@ -100,6 +114,7 @@ void Node::on_timer(uint32_t timer_id) {
     case kPostAckTimerId:         do_post_ack();           break;
     case kRetryBackoffTimerId:    tx_rts_retry();          break;
     case kDeferredDrainTimerId:   try_drain_deferred();    break;   // periodic no-route drain / TTL giveup
+    case kReqSyncTimerId:         req_sync_loop_fire();    break;   // REQ_SYNC boot loop: send + re-arm while starved
     case kCascadeRequeueTimerId:  become_free();           break;   // backoff elapsed -> drain the requeued flight
     case kRtsDutyDeferTimerId:    rts_duty_defer_fire();   break;   // #A redo: over-budget RTS duty-defer re-check/hand
     case kNackWaitTimerId:                                          // BUSY_RX wait elapsed -> re-RTS SAME hop
@@ -120,6 +135,8 @@ void Node::on_timer(uint32_t timer_id) {
             duty_defer_fire(static_cast<uint8_t>(timer_id - kDutyDeferTimerId));      // #2 duty-defer re-run
         } else if (timer_id >= kBeaconJitterTimerId && timer_id < kBeaconJitterTimerId + kBeaconJitterSlots) {
             deferred_beacon_jitter_fire(static_cast<uint8_t>(timer_id - kBeaconJitterTimerId));   // #D ring slot
+        } else if (timer_id >= kSyncResponseTimerId && timer_id < kSyncResponseTimerId + kSyncRespSlots) {
+            sync_response_fire(static_cast<uint8_t>(timer_id - kSyncResponseTimerId));            // REQ_SYNC jittered reply ring slot
         }
         break;
     }
@@ -138,6 +155,7 @@ void Node::on_recv(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         case wire::Cmd::K: handle_ack (bytes, len, meta); break;     // R3 ACK  -> done
         case wire::Cmd::N: handle_nack(bytes, len, meta); break;     // NACK -> blind+wait / cascade
         case wire::Cmd::F: handle_f  (bytes, len, meta); break;     // F route-find RREQ/RREP flood
+        case wire::Cmd::Q: handle_q  (bytes, len, meta); break;     // Q REQ_SYNC route-bootstrap (-> jittered sync beacon)
         default: break;                                              // rest ignored
     }
 }
@@ -147,6 +165,8 @@ void Node::on_recv(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 CmdResult Node::on_command(const Command& c) {
     switch (c.kind) {
         case CmdKind::send: {
+            if (_node_id == 0)                                    // unprovisioned: must join / cfg set node_id
+                return CmdResult{ CmdCode::err_unprovisioned, 0, _tx_queue_n };
             const uint16_t ctr = do_send(c.u.send.dst_id, c.body, c.body_len, c.u.send.flags);
             return CmdResult{ CmdCode::queued, ctr, _tx_queue_n };
         }

@@ -11,6 +11,7 @@
 #include "frame_codec.h"
 
 #include <span>
+#include <cstring>    // strcmp — kind=="sync" full-table gate
 
 namespace meshroute {
 
@@ -104,8 +105,9 @@ void Node::emit_beacon(const char* kind) {
     maybe_exit_discovery("before_bcn");
     // Steady state sends dirty-only differential beacons; discovery sends full
     // pages (dv_dual_sf.lua:7606: dirty_only = not(in_discovery or kind=="sync")).
-    // (The kind=="sync" term rides with the R5 req_sync plane — TODO.)
-    const bool dirty_only = !in_discovery();
+    // A "sync" beacon (the REQ_SYNC jittered reply) ALWAYS sends the full table so the
+    // route-starved requester catches up in one page (node_query.cpp:sync_response_fire).
+    const bool dirty_only = !in_discovery() && std::strcmp(kind, "sync") != 0;
 
     // A MOBILE node advertises ZERO route entries (identity-only beacon) — never
     // used as transit (dv_dual_sf.lua:1716-1721).
@@ -204,6 +206,21 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 
     const uint64_t now         = _hal.now();
     const int16_t  meta_snr_q4 = protocol::db_to_q4(meta.snr_db);
+
+    // REQ_SYNC de-storm (dv_dual_sf.lua:9699-9709): a USEFUL overheard beacon means a neighbour is
+    // already advertising routes to the requester, so cancel any pending jittered sync-response still
+    // inside its suppress window — our reply would be redundant. Draw-free. DIVERGENCE: the Lua's
+    // useful_bcn = (#entries>0) or (seen_bits>1); we don't extract the seen-bitmap popcount (the codec
+    // keeps it opaque), so a present seen-bitmap counts as useful (slightly looser, no draw impact).
+    if ((b.n_entries > 0) || b.has_seen_bitmap) {
+        for (uint8_t i = 0; i < protocol::cap_sync_response_pending; ++i) {
+            SyncPending& p = _sync_pending[i];
+            if (p.active && !p.suppressed && now <= p.fire_at
+                && (now - p.requested_at) <= protocol::sync_response_suppress_window_ms)
+                p.suppressed = true;
+        }
+    }
+
     bool rt_changed = false;                              // any new/promote this beacon → triggered re-beacon
 
     // Direct route via the beacon sender, hops=1 (dv_dual_sf.lua:9584-9618). A DIRECT-route

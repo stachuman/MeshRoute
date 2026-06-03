@@ -158,6 +158,7 @@ inline constexpr uint8_t hop_budget_max_initial = 31;   // 5-bit field (hops_rem
 inline constexpr uint16_t cap_seen_origins              = 256;
 inline constexpr uint16_t cap_q_queried                 = 128;
 inline constexpr uint16_t cap_q_responded_to            = 128;
+inline constexpr uint8_t  cap_sync_response_pending     = 16;   // device ring of concurrent pending REQ_SYNC responses (Lua: unbounded table)
 inline constexpr uint16_t cap_deferred_sends            = 32;
 inline constexpr uint16_t cap_gateway_deferred_handoffs = 32;
 inline constexpr uint16_t cap_id_bind                   = 256;

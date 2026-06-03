@@ -43,7 +43,8 @@ struct Command {
 
 // ---- synchronous result (the token; matches MeshCore RESP_CODE_*) ----
 enum class CmdCode : uint8_t { queued, err_unknown_dst, err_too_large,
-                               err_no_gateway, err_priority_capped, err_no_binding, err_unsupported };
+                               err_no_gateway, err_priority_capped, err_no_binding, err_unsupported,
+                               err_unprovisioned };   // node_id==0: must join or `cfg set node_id` first
 struct CmdResult { CmdCode code = CmdCode::queued; uint16_t ctr = 0; uint8_t queue_depth = 0; };
 
 // ---- async push channel (delivery/ACK/inbound; matches MeshCore PUSH_CODE_*) ----
