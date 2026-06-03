@@ -42,6 +42,30 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                      static_cast<uint32_t>(airtime_routing_ms(static_cast<int>(len))));
     // Learn the RTS sender as a 1-hop neighbour — any RTS, overheard or addressed (Lua learn_rx_source).
     if (learn_direct_neighbor(r.src, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
+    // ROADMAP §3: an M_BROADCAST RTS is a fire-and-forget channel re-broadcast (no CTS). ANY node that hears
+    // it and LACKS the msg (by the id low-16) retunes RX to the advertised SF to catch the DATA-M — not just
+    // the addressed puller. The retune-back timer restores routing_sf. Holders + gateways skip. (dv:2081/9940.)
+    if (r.m_broadcast) {
+        if (!_cfg.is_gateway && !channel_have_id_lo16(r.m_payload_id_lo16)) {
+            const uint8_t data_sf = select_data_sf(r.sf_index, protocol::db_to_q4(meta.snr_db));
+            _hal.set_rx_sf(data_sf);
+            // Stay on the data SF until the DATA-M lands: gap (RTS->DATA) + the FULL DATA-frame airtime
+            // (r.payload_len is the inner+MAC; +13 covers the DATA header) + margin. Sizing only the inner
+            // retunes back ~one header's airtime too early -> the DATA-M is dropped (drop_sf_mismatch).
+            const uint32_t back = protocol::cts_to_data_gap_ms
+                + airtime_ms(data_sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym,
+                             static_cast<uint16_t>(r.payload_len + 13)) + 30;
+            (void)_hal.after(back, kOverhearRetuneTimerId);
+            EventField f[] = { { .key = "id_lo16",        .type = EventField::T::i64,     .i = r.m_payload_id_lo16 },
+                               { .key = "sender",         .type = EventField::T::i64,     .i = r.src },
+                               { .key = "target",         .type = EventField::T::i64,     .i = r.next },
+                               { .key = "chosen_data_sf", .type = EventField::T::i64,     .i = data_sf },          // advertised SF we retuned to (t69)
+                               { .key = "guard_ms",       .type = EventField::T::i64,     .i = static_cast<int64_t>(back) },
+                               { .key = "addressed",      .type = EventField::T::boolean, .b = (r.next == _node_id) } };
+            _hal.emit("channel_overhear_armed", f, 6);
+        }
+        return;                                          // M_BROADCAST RTS never CTSes
+    }
     if (r.next != _node_id) return;                      // not addressed to us as next-hop
     { EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = r.src },
                          { .key = "dst",  .type = EventField::T::i64, .i = r.dst } };
@@ -211,6 +235,18 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto pd = parse_data(std::span<const uint8_t>(bytes, len));
     if (!pd) return;
     const data_out& d = *pd;
+    // ROADMAP §3: a channel M-payload DATA is a 1-hop fire-and-forget broadcast — EVERY node that retuned to
+    // the data SF (the overhear ARM) buffers it promiscuously, regardless of `next`, BEFORE the addressed-check
+    // (dv:10942). No CTS/ACK/forward; the overhear retune-back timer restores routing_sf.
+    if (d.payload_type_m) {
+        const auto m_inner = data_inner(std::span<const uint8_t>(bytes, len), d);
+        const auto m = parse_m_inner(m_inner);
+        if (m) {
+            const uint8_t from = (meta.src_hint >= 0) ? static_cast<uint8_t>(meta.src_hint) : 0xFF;
+            ingest_channel_m(*m, d.next, d.dst, from);
+        }
+        return;
+    }
     if (d.next != _node_id) return;
     if (!_pending_rx || _pending_rx->ctr_lo != d.ctr_lo4) return;
     // Inc 2 anti-spam: record this inbound DATA's airtime in the sender's window — the dominant
@@ -245,11 +281,6 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
       _hal.emit("data_rx", f, 6); }
     // Learn the DATA prev-hop as a 1-hop neighbour (Lua learn_rx_source / data_frame).
     if (learn_direct_neighbor(from, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
-    // ROADMAP §3: a channel M-payload DATA is merged into the local gossip buffer (admit + buffer) as a
-    // side-effect; the DATA itself still ACKs + delivers/forwards below. Phase 1 covers the ADDRESSED case
-    // (we're the pull target / a forwarder); promiscuous overhear (the RX-retune ARM) lands in Phase 2.
-    // Inert in every MAC gate (payload_type_m is never set without channel traffic). (Lua dv:10942.)
-    if (d.payload_type_m) { auto m = parse_m_inner(inner); if (m) ingest_channel_m(*m, d.next, d.dst, from); }
     const uint8_t rx_sf = _pending_rx->chosen_data_sf;
     const uint8_t pl    = _pending_rx->payload_len;
     _hal.cancel(kPendingRxExpiryTimerId);

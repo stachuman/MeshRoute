@@ -13,6 +13,7 @@
 #include "frame_codec.h"
 
 #include "wire.h"
+#include "protocol_constants.h"   // bcn_ext_type_channel_digest + channel_dirty_max_per_bcn (channel-digest TLV)
 
 namespace meshroute {
 
@@ -161,6 +162,41 @@ std::span<const uint8_t> beacon_ext(std::span<const uint8_t> frame, const beacon
     if (!bcn.has_ext) return {};
     if (bcn.ext_off + 1 + bcn.ext_len > frame.size()) return {};
     return frame.subspan(bcn.ext_off + 1, bcn.ext_len);
+}
+
+// BCN channel-digest ext-TLV (dv:1426 build / 1965 parse): [type<<4 | body_len][count][N × id (4B BE)].
+size_t pack_channel_digest_tlv(const uint32_t* ids, uint8_t count, std::span<uint8_t> out) {
+    if (count > protocol::channel_dirty_max_per_bcn) count = protocol::channel_dirty_max_per_bcn;  // 4-bit len caps body<=13
+    const uint8_t body_len = static_cast<uint8_t>(1 + 4 * count);
+    wire::Writer w(out);
+    w.u8(static_cast<uint8_t>((protocol::bcn_ext_type_channel_digest << 4) | (body_len & 0x0f)));
+    w.u8(count);
+    for (uint8_t i = 0; i < count; ++i) w.u32_be(ids[i]);
+    return w.ok() ? w.size() : 0;
+}
+// Scan the ext block for the type-3 TLV; extract up to `max` ids. Skips other TLV types (forward-compat).
+uint8_t parse_channel_digest_tlv(std::span<const uint8_t> ext, uint32_t* ids_out, uint8_t max) {
+    size_t o = 0;
+    while (o < ext.size()) {
+        const uint8_t type = static_cast<uint8_t>(ext[o] >> 4);
+        const uint8_t blen = static_cast<uint8_t>(ext[o] & 0x0f);
+        if (o + 1 + blen > ext.size()) break;                       // truncated TLV -> stop
+        if (type == protocol::bcn_ext_type_channel_digest) {
+            const std::span<const uint8_t> body = ext.subspan(o + 1, blen);
+            if (body.empty()) return 0;
+            const uint8_t count = body[0];
+            uint8_t n = 0;
+            for (uint8_t i = 0; i < count && n < max; ++i) {
+                const size_t off = 1 + 4 * static_cast<size_t>(i);
+                if (off + 4 > body.size()) break;                   // body too short for the claimed count
+                ids_out[n++] = (uint32_t(body[off]) << 24) | (uint32_t(body[off + 1]) << 16)
+                             | (uint32_t(body[off + 2]) << 8) | uint32_t(body[off + 3]);
+            }
+            return n;
+        }
+        o += 1u + blen;                                             // skip other TLV types
+    }
+    return 0;
 }
 
 // -----------------------------------------------------------------------------

@@ -100,6 +100,12 @@ std::span<const uint8_t> beacon_seen_bitmap(std::span<const uint8_t> frame, cons
 // opaque ext payload span (empty if !has_ext).
 std::span<const uint8_t> beacon_ext(std::span<const uint8_t> frame, const beacon_out& bcn);
 
+// BCN channel-digest ext-TLV (type 3, dv:1426/1965). Wire: [type<<4 | body_len][count(1B)][count × channel_msg_id
+// (4B BE)], body_len = 1+4*count. count is capped at channel_dirty_max_per_bcn (3) so body_len<=13 fits the 4-bit
+// length nibble. TLV-framed so the digest coexists with future ext TLVs (parse skips other types).
+size_t  pack_channel_digest_tlv(const uint32_t* ids, uint8_t count, std::span<uint8_t> out);    // bytes written, or 0
+uint8_t parse_channel_digest_tlv(std::span<const uint8_t> ext, uint32_t* ids_out, uint8_t max); // ids found (0 if no type-3 TLV)
+
 // -----------------------------------------------------------------------------
 // CTS — clear-to-send (cmd-nibble 0x2, 3 B) — ROADMAP §10.3
 // -----------------------------------------------------------------------------

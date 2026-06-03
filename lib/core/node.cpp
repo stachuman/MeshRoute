@@ -115,6 +115,10 @@ void Node::on_timer(uint32_t timer_id) {
     case kRetryBackoffTimerId:    tx_rts_retry();          break;
     case kDeferredDrainTimerId:   try_drain_deferred();    break;   // periodic no-route drain / TTL giveup
     case kReqSyncTimerId:         req_sync_loop_fire();    break;   // REQ_SYNC boot loop: send + re-arm while starved
+    case kMBcastClearTimerId:                                       // M-broadcast fire-and-forget: clear the flight (no ACK)
+        if (_pending_tx && _pending_tx->m_broadcast) { _pending_tx.reset(); become_free(); }
+        break;
+    case kOverhearRetuneTimerId:  _hal.set_rx_sf(_cfg.routing_sf);  break;   // overhear ARM: retune RX back to routing_sf
     case kCascadeRequeueTimerId:  become_free();           break;   // backoff elapsed -> drain the requeued flight
     case kRtsDutyDeferTimerId:    rts_duty_defer_fire();   break;   // #A redo: over-budget RTS duty-defer re-check/hand
     case kNackWaitTimerId:                                          // BUSY_RX wait elapsed -> re-RTS SAME hop
@@ -137,6 +141,8 @@ void Node::on_timer(uint32_t timer_id) {
             deferred_beacon_jitter_fire(static_cast<uint8_t>(timer_id - kBeaconJitterTimerId));   // #D ring slot
         } else if (timer_id >= kSyncResponseTimerId && timer_id < kSyncResponseTimerId + kSyncRespSlots) {
             sync_response_fire(static_cast<uint8_t>(timer_id - kSyncResponseTimerId));            // REQ_SYNC jittered reply ring slot
+        } else if (timer_id >= kChannelPullTimerId && timer_id < kChannelPullTimerId + kChannelPullSlots) {
+            channel_pull_fire(static_cast<uint8_t>(timer_id - kChannelPullTimerId));             // channel CHANNEL_PULL jittered fire
         }
         break;
     }

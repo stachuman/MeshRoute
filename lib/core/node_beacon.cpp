@@ -154,7 +154,12 @@ void Node::emit_beacon(const char* kind) {
     in.src          = _node_id;
     in.key_hash32   = _key_hash32;
     in.entries      = std::span<const beacon_entry>(entries, n);
-    // schedule / seen_bitmap / ext left empty → codec derives has_*=0.
+    // schedule / seen_bitmap left empty → codec derives has_*=0.
+    // ROADMAP §3: advertise our dirty channel msgs in the BCN digest ext-TLV (gateways skip — Principle 11).
+    // build_channel_digest_ext is draw-free; its ad_count/dirty side effects track per built beacon (dv:1453).
+    uint8_t ext_buf[16]; size_t ext_n = 0;
+    if (!_cfg.is_gateway) ext_n = build_channel_digest_ext(ext_buf, sizeof(ext_buf));
+    in.ext = std::span<const uint8_t>(ext_buf, ext_n);
 
     uint8_t buf[protocol::beacon_max_bytes];
     const size_t len = pack_beacon(in, std::span<uint8_t>(buf, sizeof(buf)));
@@ -198,9 +203,19 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // dispatch top: a foreign-leaf or unparseable B-frame must NOT update it, or the max-idle B+C (and hence
     // the silence-jitter draw) desyncs from the Lua on multi-leaf channels (review #00).
     _last_rx_bcn_ms = _hal.now();
+    // Parse the channel-digest ext-TLV ONCE (draw-free) so beacon_rx can report how many ids the beacon
+    // carries (dv:9614 `channel_digest_ids = #b.channel_digest_ids or 0`); reused by the reaction below.
+    // Reported for ALL nodes (even gateways); only the process_channel_digest reaction is gateway-gated.
+    uint32_t dids[protocol::channel_dirty_max_per_bcn];
+    uint8_t  dn = 0;
+    if (b.has_ext) {
+        const auto ext = beacon_ext(std::span<const uint8_t>(bytes, len), b);
+        dn = parse_channel_digest_tlv(ext, dids, protocol::channel_dirty_max_per_bcn);
+    }
     {   // beacon_rx — one per received beacon (the gate asserts src)
-        EventField f[] = { { .key = "src", .type = EventField::T::i64, .i = static_cast<int64_t>(b.src) } };
-        _hal.emit("beacon_rx", f, 1);
+        EventField f[] = { { .key = "src",                .type = EventField::T::i64, .i = static_cast<int64_t>(b.src) },
+                           { .key = "channel_digest_ids", .type = EventField::T::i64, .i = dn } };
+        _hal.emit("beacon_rx", f, 2);
     }
     if (in_discovery()) ++_discovery_bcn_rx_count;        // dv_dual_sf.lua:9560-9562
 
@@ -265,6 +280,10 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // dv_dual_sf.lua:9680-9684 order: discovery re-check, triggered re-beacon on
     // change, then convergence telemetry. (rt_prune_cycle fires its own coalesced
     // triggered beacon when it mutates.)
+    // ROADMAP §3 channel gossip: react to a CHANNEL_DIGEST ext-TLV. Placed BEFORE the triggered-beacon
+    // trigger below so the pull-jitter DRAW precedes the triggered-beacon draw, matching the Lua stream
+    // (dv:9617 calls process_channel_digest before the triggered re-beacon). Gateways skip (Principle 11).
+    if (dn && !_cfg.is_gateway) process_channel_digest(b.src, dids, dn);  // dids/dn parsed above (before beacon_rx); gateways skip (Principle 11)
     maybe_exit_discovery(rt_changed ? "rt_update" : "beacon_rx");
     if (rt_changed) {
         schedule_triggered_beacon();

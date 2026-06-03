@@ -176,6 +176,8 @@ inline constexpr uint16_t channel_pull_jitter_ms        = 5000;   // pull backof
 inline constexpr uint8_t  cap_channel_pulls_per_bcn_cycle = 3;    // new pulls/digest (dv:1022) [Phase 2]
 inline constexpr uint8_t  channel_dirty_max_advertisements = 3;   // K: clear dirty after K ads (dv:1034) [Phase 2]
 inline constexpr uint8_t  cap_channel_pull_pending      = 8;      // bounded pending-pull ring (Lua: unbounded table)
+inline constexpr uint8_t  bcn_ext_type_channel_digest  = 3;      // BCN ext-TLV type for the channel digest (dv:1248)
+inline constexpr uint8_t  cap_channel_pull_recent      = 32;     // bounded re-pull dedup ring (Lua: unbounded map)
 // channel_msg_id flavor (encryption variant; crypto deferred — all plaintext v1, dv:2229-2231)
 inline constexpr uint8_t  channel_flavor_public  = 0;
 inline constexpr uint8_t  channel_flavor_group   = 1;

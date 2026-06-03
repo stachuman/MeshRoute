@@ -99,8 +99,16 @@ void Node::handle_q(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         schedule_sync_response(q.src, q.mobile);
         return;
     }
-    // CHANNEL_PULL (opcode 3) needs the channel-buffer plane (not ported); any other opcode is
-    // unknown. Both fall through to a silent no-op (a non-target node ignores a PULL on the wire too).
+    if (q.opcode == static_cast<uint8_t>(q_opcode::channel_pull)) {
+        uint32_t ids[16]; uint8_t nids = 0;                       // pulls carry few ids (usually 1); cap the parse
+        for (uint8_t i = 0; i < q.channel_id_count && nids < 16; ++i) {
+            const auto cid = parse_q_channel_id(std::span<const uint8_t>(bytes, len), q, i);
+            if (cid) ids[nids++] = *cid;
+        }
+        handle_channel_pull(q.src, q.dest, ids, nids);
+        return;
+    }
+    // Any other opcode is unknown -> silent.
 }
 
 // ---- jittered full-table response (Lua schedule_sync_response dv:8064; the ONLY draw) ----------

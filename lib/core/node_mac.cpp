@@ -145,6 +145,54 @@ void Node::become_free() {
     issue_send(item);
 }
 
+// ---- M-broadcast (channel gossip) fire-and-forget tx (dv:6997/7044/7389) ----------------------
+// chosen_data_sf = max(allowed_sf_bitmap) — largest SF = most robust = most receivers decode it.
+uint8_t Node::max_data_sf() const {
+    const uint16_t bitmap = _cfg.allowed_sf_bitmap;
+    if (bitmap == 0) return _cfg.data_sf;                        // no allowed set -> the preferred data SF
+    for (uint8_t sf = 12; sf >= 5; --sf) if (bitmap & (1u << sf)) return sf;
+    return _cfg.data_sf;
+}
+// The RTS sf_index that pins that max SF (its rank in the ascending allowed set) so a receiver resolves it
+// via select_data_sf — no CTS needed to communicate the choice. (Assumes <=3 allowed SFs, like the Lua.)
+uint8_t Node::max_data_sf_index() const {
+    const uint16_t bitmap = _cfg.allowed_sf_bitmap;
+    if (bitmap == 0) return 3;                                   // ANY (receiver picks) — no pinned singleton
+    uint8_t count = 0;
+    for (uint8_t sf = 5; sf <= 12; ++sf) if (bitmap & (1u << sf)) ++count;
+    return static_cast<uint8_t>(count - 1);                     // ascending -> the highest SF is the last index
+}
+// Set up the fire-and-forget flight on the just-installed _pending_tx, then fire the RTS. No CTS wait
+// (the SF is in the RTS), no ACK wait (failures recover via the next BCN-digest cascade).
+void Node::issue_m_broadcast() {
+    if (!_pending_tx) return;
+    PendingTx& pt = *_pending_tx;
+    pt.m_broadcast = true; pt.awaiting_cts = false; pt.awaiting_ack = false;
+    pt.chosen_data_sf = max_data_sf();                          // sender picks the SF; advertised in the RTS
+    tx_m_broadcast_rts();
+}
+// Pack + TX the M_BROADCAST RTS (sf_index pinned to the max SF + the channel_msg_id low-16), then arm
+// the RTS->DATA gap directly (kCtsToDataGapTimerId -> do_data_tx) — skipping the CTS round-trip.
+void Node::tx_m_broadcast_rts() {
+    if (!_pending_tx) return;
+    PendingTx& pt = *_pending_tx;
+    rts_in rin{};
+    rin.leaf_id = _cfg.leaf_id; rin.src = _node_id; rin.next = pt.next; rin.ctr_lo = pt.ctr_lo;
+    rin.dst = pt.dst; rin.sf_index = max_data_sf_index(); rin.rts_flags = RTS_FLAG_M_BROADCAST;
+    rin.payload_len = static_cast<uint8_t>(pt.inner_len + 4 /*MAC_LEN*/);
+    rin.m_payload_id_lo16 = static_cast<uint16_t>((pt.inner[2] << 8) | pt.inner[3]);   // low-16 of the BE id
+    uint8_t buf[11];                                            // RTS(8) + id_lo16(2)
+    const size_t l = pack_rts(rin, std::span<uint8_t>(buf, sizeof(buf)));
+    if (l == 0) { _hal.log("M-broadcast RTS pack failed"); return; }
+    EventField f[] = { { .key = "dst",  .type = EventField::T::i64, .i = pt.dst },
+                       { .key = "next", .type = EventField::T::i64, .i = pt.next },
+                       { .key = "ctr",  .type = EventField::T::i64, .i = pt.ctr } };
+    _hal.emit("rts_tx", f, 3);
+    tx_initiating(buf, l, static_cast<int16_t>(_cfg.routing_sf), LbtKind::rts, pt.flight_gen);
+    const uint32_t gap = airtime_routing_ms(10 /*RTS_LEN 8 + id_lo16 2*/) + protocol::cts_to_data_gap_ms;
+    (void)_hal.after(gap, kCtsToDataGapTimerId);               // RTS->DATA gap fires do_data_tx (no CTS)
+}
+
 void Node::issue_send(const TxItem& item) {
     // A new flight is going live -> drop any stale BUSY_RX nack-wait left armed for a
     // torn-down prior flight, so its timer can't spuriously re-RTS this one on a 4-bit
@@ -180,6 +228,7 @@ void Node::issue_send(const TxItem& item) {
     pt.next = first;
     pt.flight_gen = ++_flight_gen;                       // #A redo: a NEW flight identity (cascade_to_alt keeps it; a requeue re-installs here -> new gen)
     _pending_tx = pt;
+    if (item.flags & DATA_FLAG_PAYLOAD_TYPE_M) { issue_m_broadcast(); return; }   // channel gossip: fire-and-forget broadcast
     tx_rts_retry();                                      // packs+emits the RTS + start_rts_timeout
 }
 
@@ -189,7 +238,7 @@ void Node::tx_rts_retry() {
     pt.awaiting_cts = true; pt.awaiting_ack = false; pt.chosen_data_sf = 0;
     rts_in rin{};
     rin.leaf_id = _cfg.leaf_id; rin.src = _node_id; rin.next = pt.next; rin.ctr_lo = pt.ctr_lo;
-    rin.dst = pt.dst; rin.sf_index = 3 /*ANY*/; rin.rts_flags = 0;
+    rin.dst = pt.dst; rin.sf_index = 3 /*ANY*/; rin.rts_flags = 0;   // DM RTS; the M-broadcast RTS is tx_m_broadcast_rts
     rin.payload_len = static_cast<uint8_t>(pt.inner_len + 4 /*MAC_LEN*/); rin.m_payload_id_lo16 = 0;
     uint8_t buf[9];
     const size_t l = pack_rts(rin, std::span<uint8_t>(buf, sizeof(buf)));
@@ -486,16 +535,23 @@ void Node::do_data_tx() {
     if (dlen == 0) { _hal.log("DATA pack failed"); return; }
     const bool handed = tx_with_retry(buf, dlen, static_cast<int16_t>(pt.chosen_data_sf), FrameTag::data);   // R4.5b stash; #2 may duty-defer
     EventField f[] = {
-        { .key = "dst",  .type = EventField::T::i64, .i = pt.dst },
-        { .key = "next", .type = EventField::T::i64, .i = pt.next },
-        { .key = "ctr",  .type = EventField::T::i64, .i = pt.ctr },
+        { .key = "dst",         .type = EventField::T::i64,  .i = pt.dst },
+        { .key = "next",        .type = EventField::T::i64,  .i = pt.next },
+        { .key = "ctr",         .type = EventField::T::i64,  .i = pt.ctr },
+        { .key = "sf",          .type = EventField::T::i64,  .i = pt.chosen_data_sf },     // the SF this DATA went out on (M-broadcast pins max_data_sf; t69)
+        { .key = "m_broadcast", .type = EventField::T::boolean, .b = pt.m_broadcast },     // channel-gossip fire-and-forget broadcast (no ACK)
     };
-    _hal.emit("data_tx", f, 3);                                       // emitted regardless (Lua emits it before tx_with_retry, dv:10251)
+    _hal.emit("data_tx", f, 5);                                       // emitted regardless (Lua emits it before tx_with_retry, dv:10251)
     // Arm the ACK wait ONLY if the DATA actually hit the air — mirrors the Lua DATA on_handed (dv:10270-10279, fires only
     // on real self:tx) + the not-handed clear (dv:10281-10283). #2's duty defer returns handed=false: arming a short
     // ack-timeout on an un-sent DATA would fire before the (long) duty wait, draw a rand + tear the flight down.
-    if (handed) { pt.awaiting_ack = true; start_ack_timeout(); }
-    else        { pt.awaiting_ack = false; }
+    if (handed) {
+        if (pt.m_broadcast) {                                            // fire-and-forget: no ACK; clear after the DATA airtime
+            const uint32_t data_air = airtime_ms(pt.chosen_data_sf, _cfg.radio_bw_hz, _cfg.radio_cr,
+                                                 protocol::preamble_sym, static_cast<uint16_t>(dlen));
+            (void)_hal.after(data_air + 5, kMBcastClearTimerId);
+        } else { pt.awaiting_ack = true; start_ack_timeout(); }
+    } else { pt.awaiting_ack = false; }
 }
 
 void Node::start_rts_timeout() {

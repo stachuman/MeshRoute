@@ -47,6 +47,13 @@ bool Node::channel_mark_seen_by(uint32_t id, uint8_t neighbour) {
     if (i < 0) return false;
     return seen_set(_channel_buffer[i].seen_by, neighbour);
 }
+// Do we hold a channel msg whose id low-16 == lo? The M_BROADCAST RTS carries only the low 16 of the
+// channel_msg_id; an overhearer uses this to SKIP the retune when it (probably) already has the msg (dv:2081).
+bool Node::channel_have_id_lo16(uint16_t lo) const {
+    for (uint16_t i = 0; i < _channel_buffer_n; ++i)
+        if (static_cast<uint16_t>(_channel_buffer[i].id & 0xffff) == lo) return true;
+    return false;
+}
 
 // ---- per-origin anti-spam admission (dv:3456). Distinct-id count over a sliding window; a repeat
 //      id REFRESHES (not re-counts) so a heavily re-gossiped legit msg can't false-throttle its
@@ -152,6 +159,13 @@ void Node::ingest_channel_m(const data_m_inner& m, uint8_t next, uint8_t dst, ui
                            { .key = "source",     .type = EventField::T::str, .s = src },
                            { .key = "from",       .type = EventField::T::i64, .i = from } };
         _hal.emit("channel_msg_received", f, 4);
+        if (next != _node_id) {                               // overheard (not addressed to us) -> the analyzer's cascade-overlap signal (dv:11001)
+            EventField fo[] = { { .key = "id",          .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
+                                { .key = "channel_id",  .type = EventField::T::i64, .i = m.channel_id },
+                                { .key = "from",        .type = EventField::T::i64, .i = from },
+                                { .key = "intended_to", .type = EventField::T::i64, .i = next } };
+            _hal.emit("channel_msg_overheard", fo, 4);
+        }
         cancel_channel_pull(id, from);                        // we got it -> drop any pending pull for it
     } else {                                                   // ALREADY HAVE IT -> just track the holder
         channel_mark_seen_by(id, from);
@@ -180,6 +194,197 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
                        { .key = "source",     .type = EventField::T::str, .s = "self_originate" } };
     _hal.emit("channel_msg_received", f, 3);
     return c;
+}
+
+// =============================================================================
+// Phase 2 — digest gossip + the jittered pull. The ONLY rand draw in the channel
+// plane is process_channel_digest's pull jitter, at the Lua's exact gate-order
+// (after the have/cap/recent gates, before storage) so the streams stay aligned.
+// =============================================================================
+
+// build_channel_digest_ext (dv:1426): walk the buffer NEWEST-first, advertise up to
+// channel_dirty_max_per_bcn DIRTY ids, increment each picked entry's bcn_ad_count, and retire it
+// (dirty=false) once it has been advertised channel_dirty_max_advertisements times (the s12 holder
+// load-bound). Writes the ext-TLV bytes into `out`; returns the byte count (0 = nothing to advertise).
+// DRAW-FREE — fires on every beacon build (the side effects track per-beacon, matching the Lua).
+size_t Node::build_channel_digest_ext(uint8_t* out, size_t cap) {
+    uint32_t ids[protocol::channel_dirty_max_per_bcn];
+    uint8_t  count = 0;
+    for (int i = static_cast<int>(_channel_buffer_n) - 1; i >= 0 && count < protocol::channel_dirty_max_per_bcn; --i) {
+        ChannelEntry& e = _channel_buffer[static_cast<uint16_t>(i)];
+        if (!e.dirty) continue;
+        ids[count++] = e.id;
+        if (++e.bcn_ad_count >= _cfg.channel_dirty_max_advertisements) {   // K: per-node override (Lua k_max = node.channel_dirty_max_advertisements or 3)
+            e.dirty = false;                                       // retire from advertising (still answers pulls)
+            EventField f[] = { { .key = "id",         .type = EventField::T::i64, .i = static_cast<int64_t>(e.id) },
+                               { .key = "channel_id", .type = EventField::T::i64, .i = e.channel_id },
+                               { .key = "ad_count",   .type = EventField::T::i64, .i = e.bcn_ad_count },
+                               { .key = "threshold",  .type = EventField::T::i64, .i = _cfg.channel_dirty_max_advertisements } };
+            _hal.emit("channel_dirty_cleared", f, 4);
+        }
+    }
+    if (count == 0) return 0;
+    return pack_channel_digest_tlv(ids, count, std::span<uint8_t>(out, cap));
+}
+
+// re-pull dedup ring (Lua channel_pull_recent map). recently = a pull for `id` fired within the window.
+bool Node::channel_pull_recently(uint32_t id) const {
+    const uint64_t now = _hal.now();
+    for (uint8_t i = 0; i < _channel_pull_recent_n; ++i)
+        if (_channel_pull_recent[i].id == id)
+            return (now - _channel_pull_recent[i].t_ms) < protocol::channel_pull_window_ms;
+    return false;
+}
+void Node::channel_pull_mark(uint32_t id) {
+    const uint64_t now = _hal.now();
+    for (uint8_t i = 0; i < _channel_pull_recent_n; ++i)
+        if (_channel_pull_recent[i].id == id) { _channel_pull_recent[i].t_ms = now; return; }
+    if (_channel_pull_recent_n < protocol::cap_channel_pull_recent) {
+        _channel_pull_recent[_channel_pull_recent_n++] = { id, now };
+    } else {                                                       // ring full -> evict the oldest
+        uint8_t o = 0;
+        for (uint8_t i = 1; i < _channel_pull_recent_n; ++i) if (_channel_pull_recent[i].t_ms < _channel_pull_recent[o].t_ms) o = i;
+        _channel_pull_recent[o] = { id, now };
+    }
+}
+
+// process_channel_digest (dv:3546): for each advertised id — if we HAVE it, mark the advertiser as a
+// holder (eviction safety); else (capped at cap_channel_pulls_per_bcn_cycle/beacon, skipping ids pulled
+// within the window) schedule a JITTERED pull. THE DRAW is rand(0, jitter+1) at the Lua's gate-order
+// (dv:3568: after the recent gate, before storage). Gateways skip the entire plane (Principle 11).
+void Node::process_channel_digest(uint8_t src, const uint32_t* ids, uint8_t count) {
+    if (_cfg.is_gateway) return;
+    const uint64_t now = _hal.now();
+    uint8_t scheduled = 0;
+    for (uint8_t k = 0; k < count; ++k) {
+        const uint32_t id = ids[k];
+        if (channel_buffer_find(id) >= 0) {                       // already have it -> track the holder
+            channel_mark_seen_by(id, src);
+            continue;
+        }
+        if (scheduled >= protocol::cap_channel_pulls_per_bcn_cycle) continue;   // per-beacon pull cap
+        if (channel_pull_recently(id)) continue;                  // recent-window gate (BEFORE the draw)
+        // THE DRAW (dv:3568) — rand(0, channel_pull_jitter_ms+1). Made here regardless of slot availability
+        // (the Lua always draws + stores into an unbounded map), so the stream stays aligned.
+        const uint32_t jitter = static_cast<uint32_t>(_hal.rand_range(0, protocol::channel_pull_jitter_ms + 1));
+        ++scheduled;
+        // one pending slot per id: reuse the id's live slot (overwrite/re-arm), else a free slot.
+        int slot = -1;
+        for (uint8_t s = 0; s < protocol::cap_channel_pull_pending; ++s)
+            if (_channel_pull_pending[s].active && _channel_pull_pending[s].id == id) { slot = s; break; }
+        if (slot < 0)
+            for (uint8_t s = 0; s < protocol::cap_channel_pull_pending; ++s)
+                if (!_channel_pull_pending[s].active) { slot = static_cast<int>(s); break; }
+        if (slot < 0) {                                           // ring full (Lua unbounded) — drop after the draw
+            EventField f[] = { { .key = "id", .type = EventField::T::i64, .i = static_cast<int64_t>(id) } };
+            _hal.emit("channel_pull_drop_full", f, 1);
+            continue;
+        }
+        _channel_pull_pending[slot] = { /*active*/true, id, src, /*requested_at*/now, /*fire_at*/now + jitter };
+        EventField f[] = { { .key = "id",       .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
+                           { .key = "target",   .type = EventField::T::i64, .i = src },
+                           { .key = "delay_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(jitter) } };
+        _hal.emit("channel_pull_scheduled", f, 3);
+        (void)_hal.after(jitter, kChannelPullTimerId + static_cast<uint32_t>(slot));
+    }
+}
+
+// channel_pull_fire (the dv:3573 after()-closure): if the msg arrived via overhear before the jitter
+// fired, suppress; else broadcast a CHANNEL_PULL Q for {id} to the advertiser + record the recent pull.
+void Node::channel_pull_fire(uint8_t slot) {
+    if (slot >= protocol::cap_channel_pull_pending) return;
+    ChannelPullPending& p = _channel_pull_pending[slot];
+    if (!p.active) return;
+    p.active = false;
+    const uint32_t id = p.id; const uint8_t target = p.target;
+    if (channel_buffer_find(id) >= 0) {                           // got it via promiscuous overhear -> stand down
+        EventField f[] = { { .key = "id",             .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
+                           { .key = "overheard_from", .type = EventField::T::str, .s = "promiscuous_receive" } };
+        _hal.emit("channel_pull_suppressed", f, 2);
+        return;
+    }
+    q_in in{};
+    in.leaf_id = _cfg.leaf_id; in.src = _node_id; in.dest = target;
+    in.opcode = q_opcode::channel_pull; in.mobile = _cfg.is_mobile;
+    in.channel_ids = std::span<const uint32_t>(&id, 1);
+    uint8_t buf[16];
+    const size_t n = pack_q(in, std::span<uint8_t>(buf, sizeof(buf)));
+    if (n == 0) return;
+    EventField f[] = { { .key = "id",      .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
+                       { .key = "target",  .type = EventField::T::i64, .i = target },
+                       { .key = "trigger", .type = EventField::T::str, .s = "bcn_digest" } };  // only trigger today: a BCN digest advertised an unknown id (dv:3600)
+    _hal.emit("channel_pull_sent", f, 3);
+    tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
+    channel_pull_mark(id);                                        // dedup re-pulls for the window
+}
+
+// =============================================================================
+// Phase 2c — the CHANNEL_PULL responder + M-broadcast tx. DRAW-FREE.
+// =============================================================================
+
+// id of an M-payload TxItem/PendingTx inner (first 4 bytes, BE channel_msg_id).
+static inline uint32_t m_inner_id(const uint8_t* inner) {
+    return (static_cast<uint32_t>(inner[0]) << 24) | (static_cast<uint32_t>(inner[1]) << 16)
+         | (static_cast<uint32_t>(inner[2]) << 8)  |  static_cast<uint32_t>(inner[3]);
+}
+// Is an M-payload for `id` already in flight or queued? (the s12 pull-storm dedup, dv:11850-11867)
+bool Node::channel_m_in_flight(uint32_t id) const {
+    if (_pending_tx && (_pending_tx->flags & DATA_FLAG_PAYLOAD_TYPE_M)
+        && _pending_tx->inner_len >= 4 && m_inner_id(_pending_tx->inner) == id) return true;
+    for (uint8_t i = 0; i < _tx_queue_n; ++i)
+        if ((_tx_queue[i].flags & DATA_FLAG_PAYLOAD_TYPE_M)
+            && _tx_queue[i].inner_len >= 4 && m_inner_id(_tx_queue[i].inner) == id) return true;
+    return false;
+}
+
+// Build an M-payload DATA (id|channel_id|flavor|body) and enqueue it as a unicast to the puller — it
+// rides the normal DATA path, but the RTS carries RTS_FLAG_M_BROADCAST so overhearers can catch it
+// (dv:11875-11894). The originator is US (the re-broadcaster), per the Lua.
+void Node::enqueue_channel_m(uint8_t target, const ChannelEntry& e) {
+    if (_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (the puller can re-pull)
+    TxItem item{};
+    item.origin = _node_id; item.dst = target;
+    item.ctr    = next_ctr(target); item.ctr_lo = static_cast<uint8_t>(item.ctr & 0x0F);
+    item.flags  = DATA_FLAG_PAYLOAD_TYPE_M;
+    item.inner[0] = static_cast<uint8_t>(e.id >> 24); item.inner[1] = static_cast<uint8_t>(e.id >> 16);
+    item.inner[2] = static_cast<uint8_t>(e.id >> 8);  item.inner[3] = static_cast<uint8_t>(e.id);
+    item.inner[4] = e.channel_id; item.inner[5] = e.flavor;
+    for (uint16_t k = 0; k < e.payload_len; ++k) item.inner[6 + k] = e.payload[k];
+    item.inner_len = static_cast<uint8_t>(6 + e.payload_len);
+    item.enqueue_time_ms = _hal.now();
+    _tx_queue[_tx_queue_n++] = item;
+    EventField f[] = { { .key = "id", .type = EventField::T::i64, .i = static_cast<int64_t>(e.id) },
+                       { .key = "to", .type = EventField::T::i64, .i = target } };
+    _hal.emit("channel_broadcast_tx", f, 2);
+}
+
+// CHANNEL_PULL responder (dv:11821): cancel my own pending pulls for the requested ids (a peer is
+// pulling them — overhear dedup), then — if WE are the addressed target — re-broadcast each held id as
+// an M-payload (skipping ids already in flight/queue). Gateways: a pull is a unicast Q to a specific
+// dest; a gateway only answers a pull addressed to IT (it forwarded the original DATA but holds no
+// buffer, so channel_buffer_find misses -> it answers nothing). No explicit is_gateway gate needed.
+void Node::handle_channel_pull(uint8_t src, uint8_t dest, const uint32_t* ids, uint8_t count) {
+    for (uint8_t i = 0; i < count; ++i) cancel_channel_pull(ids[i], src);   // overhear: cancel my pending pulls
+    if (dest != _node_id) return;                                // only the addressed target serves the pull
+    bool any = false;
+    for (uint8_t i = 0; i < count; ++i) {
+        const int e = channel_buffer_find(ids[i]);
+        if (e < 0) continue;                                     // we don't hold it
+        if (!channel_m_in_flight(ids[i])) { enqueue_channel_m(src, _channel_buffer[e]); any = true; }
+        else {
+            EventField f[] = { { .key = "id", .type = EventField::T::i64, .i = static_cast<int64_t>(ids[i]) },
+                               { .key = "requester", .type = EventField::T::i64, .i = src } };
+            _hal.emit("channel_broadcast_deduped", f, 2);        // an existing M-tx already satisfies this id
+        }
+        channel_mark_seen_by(ids[i], src);                       // the requester expects to receive it
+    }
+    { EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = src } };
+      _hal.emit("channel_pull_received", f, 1); }
+    if (any) {
+        EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = src } };  // we held >=1 requested id and re-broadcast it to the puller (dv:11910)
+        _hal.emit("channel_msg_pulled", f, 1);
+        become_free();                                           // kick the queue to start the M-broadcast
+    }
 }
 
 }  // namespace meshroute

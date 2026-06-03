@@ -47,6 +47,7 @@ struct NodeConfig {
     uint8_t  req_sync_min_routes = 8;            // originator: stop REQ_SYNC once rt reaches this (Lua dv:8039)
     bool     sync_response_enabled    = true;    // responder: answer an overheard REQ_SYNC with a jittered full-table beacon (Lua dv:8936)
     uint8_t  sync_response_min_routes = 0;       // responder gate (Lua nil -> 0: respond even when route-starved, dv:8067)
+    uint8_t  channel_dirty_max_advertisements = protocol::channel_dirty_max_advertisements;  // K: retire a dirty channel id after this many BCN digests (Lua node.channel_dirty_max_advertisements or 3); per-node so a gate can shrink it
     uint32_t quiet_threshold_ms  = 30000;        // beacon throttle gate; <=0 = unthrottled (R1 fast path)
     uint8_t  leaf_id             = 0;            // layer id (single-layer R1 = 0)
     uint16_t peer_count          = 0;            // host-set (N-1); 0 = no rt_full emit (sim telemetry)
@@ -127,6 +128,7 @@ struct PendingTx {                   // the in-flight sender state (one per node
     uint8_t  inner[protocol::max_payload_bytes_hard_cap] = {};
     uint8_t  inner_len = 0;
     uint8_t  chosen_data_sf = 0;     // 0 = unset until the CTS arrives
+    bool     m_broadcast    = false; // channel M-payload: fire-and-forget (no CTS/ACK); chosen_data_sf set at issue
     uint8_t  retries_left = 0;
     bool     awaiting_cts = false;
     bool     awaiting_ack = false;
@@ -258,6 +260,10 @@ private:
     static constexpr uint32_t kDutyDeferTimerId        = 23;  // tx_with_retry duty-cycle pre-check defer; BASE of a 4-slot range [23..26]
     static constexpr uint32_t kSyncResponseTimerId     = 32;  // REQ_SYNC jittered response fire; BASE of a kSyncRespSlots ring [32..47] (one slot per pending requester)
     static constexpr uint8_t  kSyncRespSlots           = protocol::cap_sync_response_pending;
+    static constexpr uint32_t kChannelPullTimerId      = 48;  // channel CHANNEL_PULL jittered fire; BASE of a kChannelPullSlots ring [48..55]
+    static constexpr uint8_t  kChannelPullSlots        = protocol::cap_channel_pull_pending;
+    static constexpr uint32_t kMBcastClearTimerId      = 56;  // M-broadcast fire-and-forget: clear pending_tx after the DATA-M airtime (no ACK)
+    static constexpr uint32_t kOverhearRetuneTimerId   = 57;  // overhear ARM: retune RX back to routing_sf after the DATA-M window
 
     // ---- beacon emit / ingest ----------------------------------------------
     void emit_beacon(const char* kind);                            // "periodic" | "triggered"
@@ -307,6 +313,7 @@ private:
     struct ChannelOriginEvent  { uint32_t id; uint64_t t_ms; };
     struct ChannelOriginLedger { ChannelOriginEvent ev[protocol::channel_origin_max_per_window]; uint8_t n = 0; };
     struct ChannelPullPending  { bool active; uint32_t id; uint8_t target; uint64_t requested_at; uint64_t fire_at; };
+    struct ChannelPullRecent   { uint32_t id; uint64_t t_ms; };    // re-pull dedup (Lua channel_pull_recent)
     int     channel_buffer_find(uint32_t id) const;                // index of the entry, or -1 (dv:3426)
     bool    channel_mark_seen_by(uint32_t id, uint8_t neighbour);  // set seen_by bit; true if newly set (dv:3434)
     bool    channel_origin_admit(uint8_t origin, uint32_t msg_id); // per-origin distinct-count anti-spam (dv:3456)
@@ -314,6 +321,22 @@ private:
     void    channel_buffer_add(const ChannelEntry& e);             // insert; evict if full (dv:3511)
     void    cancel_channel_pull(uint32_t id, uint8_t overheard_from); // promiscuous-overhear pull cancel (dv:11006)
     uint16_t do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t body_len);  // send_channel origination (dv:12126)
+    // Phase 2: digest emit/ingest + the jittered pull (THE draw).
+    size_t  build_channel_digest_ext(uint8_t* out, size_t cap);    // dirty ids -> BCN ext-TLV; ad_count++/retire (dv:1426)
+    void    process_channel_digest(uint8_t src, const uint32_t* ids, uint8_t count);  // diff -> mark/schedule pull (dv:3546)
+    void    channel_pull_fire(uint8_t slot);                       // kChannelPullTimerId+slot: re-check overhear -> tx the pull
+    bool    channel_pull_recently(uint32_t id) const;             // re-pull dedup window (dv:3567)
+    void    channel_pull_mark(uint32_t id);                        // record a fired pull (channel_pull_recent)
+    // Phase 2c: the CHANNEL_PULL responder + M-broadcast tx.
+    void    handle_channel_pull(uint8_t src, uint8_t dest, const uint32_t* ids, uint8_t count);  // dv:11821
+    void    enqueue_channel_m(uint8_t target, const ChannelEntry& e);  // M-inner DATA -> tx_queue (dv:11875)
+    bool    channel_m_in_flight(uint32_t id) const;              // an M-payload for `id` already pending/queued (dv:11850 dedup)
+    bool    channel_have_id_lo16(uint16_t lo) const;             // do we hold a channel msg whose id low-16 == lo? (overhear skip, dv:2081)
+    // M-broadcast fire-and-forget tx (no CTS/ACK; chosen_data_sf = max allowed; dv:6997/7044).
+    void    issue_m_broadcast();                                  // set up the m_broadcast flight from _pending_tx + fire the RTS
+    void    tx_m_broadcast_rts();                                 // pack+tx the M_BROADCAST RTS + arm the RTS->DATA gap (no CTS wait)
+    uint8_t max_data_sf() const;                                  // highest SF in allowed_sf_bitmap (largest = most robust)
+    uint8_t max_data_sf_index() const;                            // its index in the ascending allowed set (the RTS sf_index)
 
     // ---- route table (DV merge) --------------------------------------------
     enum class MergeAction : uint8_t { none, new_dest, primary_refresh, promote, alt_install };
@@ -484,6 +507,8 @@ private:
     uint16_t     _channel_buffer_n = 0;
     std::map<uint8_t, ChannelOriginLedger> _per_origin_channel;   // origin -> windowed distinct-id ledger
     ChannelPullPending _channel_pull_pending[protocol::cap_channel_pull_pending] = {};
+    ChannelPullRecent  _channel_pull_recent[protocol::cap_channel_pull_recent] = {};
+    uint8_t            _channel_pull_recent_n = 0;
     std::map<uint8_t, uint16_t>  _peer_send_counter;   // next_ctr per dst
     std::map<uint32_t, LastAcked> _last_acked_from;    // key (src<<24|dst<<16|ctr_lo<<8|len)
     std::map<uint32_t, uint64_t>  _seen_origins;       // key (origin<<24|dst<<16|ctr) -> expiry_ms
