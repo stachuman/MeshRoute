@@ -52,6 +52,8 @@ struct NodeConfig {
     uint8_t  channel_origin_max_per_window = protocol::channel_origin_max_per_window; // per-origin distinct-msg cap (Lua node.channel_origin_max_per_window or 20); a gate tightens it
     uint32_t channel_origin_window_ms     = protocol::channel_origin_window_ms;      // sliding window for the per-origin cap (Lua node.channel_origin_window_ms)
     uint8_t  cap_route_request_last        = protocol::cap_route_request_last;        // per-dst RREQ rate-limit table cap (Lua node.cap_route_request_last); full -> refuse new dsts (table_cap_hit). Shrinkable; array stays sized at the protocol max.
+    uint16_t cap_id_bind                   = protocol::cap_id_bind;                    // hash-locate binding table cap (Lua node.cap_id_bind); full -> refuse new node_ids (table_cap_hit). Shrinkable; a gate sets it to 2.
+    uint32_t id_bind_ttl_ms                = protocol::id_bind_ttl_ms;                 // hash-locate binding TTL (Lua node.id_bind_ttl_ms, 48h); a gate shrinks it to exercise aging
     uint32_t quiet_threshold_ms  = 30000;        // beacon throttle gate; <=0 = unthrottled (R1 fast path)
     uint8_t  leaf_id             = 0;            // layer id (single-layer R1 = 0)
     uint16_t peer_count          = 0;            // host-set (N-1); 0 = no rt_full emit (sim telemetry)
@@ -204,6 +206,11 @@ public:
     // boundary needs a direct call). Pure, const.
     enum class BudgetTier : uint8_t { healthy = 0, strained = 1, critical = 2, exhausted = 3 };
     BudgetTier compute_budget_tier() const;                              // HEALTHY when duty_cycle<=0 (disabled)
+    // id_bind binding provenance + trust. source = WHERE it came from; confidence = whether it may OVERWRITE
+    // a conflicting binding. authoritative (self / owner-confirmed hash-bind) overwrites + wins the
+    // dedup-by-hash; claimed (beacon / cached / snooped) refuses a same-id conflict.
+    enum class IdBindSource : uint8_t { self = 0, bcn = 1, h_query = 2, h_relay = 3 };
+    enum class IdBindConf   : uint8_t { claimed = 0, authoritative = 1 };
     bool       is_blind(uint8_t next_hop) const;                         // _blind_until active? (read-only; bounded by neighbour count)
     uint8_t    get_neighbor_tier(uint8_t node_id) const;                 // R4.2 tier read (TTL-expiring lazy-prune); public for tests
     void       schedule_triggered_beacon();                             // R4.3 trigger jitter + min-interval defer; public for tests
@@ -227,6 +234,9 @@ public:
     // ---- channel-plane inspection (public, like rt_count) + the two seams tests drive directly ----
     uint16_t          channel_buffer_count() const { return _channel_buffer_n; }
     bool              channel_has(uint32_t id) const { return channel_buffer_find(id) >= 0; }
+    // ---- id_bind (hash-locate substrate) inspection: tests + the H resolver drive these.
+    uint16_t          id_bind_count() const { return _id_bind_n; }
+    int               id_bind_find_by_hash(uint32_t key_hash32);   // -> node_id, or -1 (skips expired); ages on access
     bool              channel_entry_dirty(uint32_t id) const { const int i = channel_buffer_find(id); return i >= 0 && _channel_buffer[i].dirty; }
     bool              channel_payload_eq(uint32_t id, const uint8_t* p, uint16_t len) const {
         const int i = channel_buffer_find(id);
@@ -291,6 +301,12 @@ private:
     bool    rreq_seen_recently(uint8_t origin, uint8_t dst);
     void    mark_rreq_seen(uint8_t origin, uint8_t dst);
     bool    rreq_rate_ok(uint8_t dst, uint8_t ttl);
+    // Hash-locate (H) plane — node_hashlocate.cpp. id_bind = the key_hash32->node_id binding table, the
+    // substrate the H resolver answers from (Lua dv:4677+). Populated by beacons (every BCN carries the
+    // sender's key_hash32) + self + hash-bind responses.
+    bool    id_bind_set(uint8_t node_id, uint32_t key_hash32, IdBindSource source, IdBindConf confidence); // insert/update; dedup-by-hash; authoritative overwrites a conflict, claimed refuses
+    uint8_t id_bind_evict_other_hash_holders(uint32_t key_hash32, uint8_t keep_node_id);   // rejoin self-heal: one hash -> one node_id
+    void    id_bind_age_out();                                    // drop expired (TTL); emit id_bind_aged
     // Q REQ_SYNC plane (boot route-bootstrap) — node_query.cpp.
     void    req_sync_loop_fire();                                  // kReqSyncTimerId: send + re-arm while discovery+starved (dv:9167)
     void    send_req_sync_q(const char* reason);                   // broadcast a REQ_SYNC Q (no draw; dv:8032)
@@ -491,6 +507,12 @@ private:
     uint8_t  _rreq_seen_n = 0;
     RReqLast _rreq_last[protocol::cap_route_request_last] = {};
     uint8_t  _rreq_last_n = 0;
+    // Hash-locate id_bind table (Lua dv:4677): key_hash32 -> node_id, beacon-populated. Bounded array
+    // (array sized at the protocol max; _cfg.cap_id_bind gates additions). One timestamp: id_bind_set
+    // always carries the key, so last_seen == last_key_seen (the plain-refresh split lands with C.2).
+    struct IdBind { uint32_t key_hash32; uint64_t last_seen_ms; uint8_t node_id; uint8_t source; uint8_t confidence; };
+    IdBind   _id_bind[protocol::cap_id_bind] = {};
+    uint16_t _id_bind_n = 0;
     // Q REQ_SYNC plane state (node_query.cpp). _last_req_sync_tx_ms rate-limits the originator (dv:8035);
     // _q_responded is the responder dedup ring (key opcode|src|dest, ttl q_respond_ttl_ms) — Lua refuses on
     // cap-full, we evict-oldest (matches the F-dedup idiom; equivalent below cap, robust for a long-running

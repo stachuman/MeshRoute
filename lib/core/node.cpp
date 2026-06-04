@@ -35,6 +35,7 @@ void Node::set_identity(uint8_t node_id, uint32_t key_hash32) {
     _node_id    = node_id;
     _key_hash32 = key_hash32;
     _hal.set_protocol_id(node_id);   // keep the Hal short-id in sync (addressing / join)
+    id_bind_set(_node_id, _key_hash32, IdBindSource::self, IdBindConf::authoritative);   // re-seed our own binding (authoritative) under the new identity
 }
 
 void Node::on_init(const NodeConfig& cfg) {
@@ -78,6 +79,9 @@ void Node::on_init(const NodeConfig& cfg) {
     // of waiting out the slow periodic-beacon rotation. The loop (kReqSyncTimerId) re-arms itself.
     if (_cfg.req_sync_on_boot && in_discovery())
         (void)_hal.after(protocol::req_sync_listen_ms, kReqSyncTimerId);
+    // Hash-locate A0: seed our OWN binding (authenticated) so we resolve self-directed H queries (Lua
+    // dv:9072). node_id 0 is unprovisioned (no identity yet) — set_identity re-seeds after a join/cfg.
+    if (_node_id != 0) id_bind_set(_node_id, _key_hash32, IdBindSource::self, IdBindConf::authoritative);
 }
 
 // ---- dispatch (timer ids -> subsystem handlers; RX cmd-nibble -> handlers) --
@@ -99,6 +103,7 @@ void Node::on_timer(uint32_t timer_id) {
     }
     case kAgingTimerId:
         age_out_stale_routes();
+        id_bind_age_out();            // hash-locate A0: drop expired bindings on the same periodic sweep
         (void)_hal.after(_cfg.rt_aging_check_period_ms, kAgingTimerId);
         break;
     case kTriggeredBeaconTimerId:

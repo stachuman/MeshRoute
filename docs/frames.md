@@ -18,7 +18,7 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 | 0x4 | ACK  | 3 B | acknowledgement |
 | 0x5 | NACK | 4 B | negative acknowledgement |
 | 0x6 | Q    | 4 B (+ pull body) | query (REQ_SYNC / CHANNEL_PULL) |
-| 0x7 | H    | 7 B | hash-locate flood |
+| 0x7 | H    | 8 B | hash-locate flood (soft/hard) |
 | 0x8 | F    | 7 B | route-find RREQ/RREP flood |
 | 0x9 | J    | 6 / 8 / 11 / 15 B | join family |
 
@@ -30,13 +30,14 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 
 Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` route entries, an optional 32-byte seen-bitmap, and an optional ext block.
 
-| Byte | Field | Description |
-|------|-------|-------------|
-| 0 | cmd \| leaf_id | bits 7..4 = `0x0`; bits 3..0 = leaf_id |
-| 1 | src | sender node_id |
-| 2 | flags \| n_entries_lo | b7 has_schedule · b6 self_gateway · b5 is_mobile · b4 has_seen_bitmap · b3 has_ext · b2..0 = n_entries low 3 bits |
-| 3 | n_entries_hi | b7..5 = n_entries high 3 bits (`n_entries = lo \| hi<<3`, 0..63); b4..0 rsv |
-| 4..7 | key_hash32 | 32-bit identity hash (**LE**) |
+| Byte | Field                 | Description                                                                                                       |
+| ---- | --------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| 0    | cmd \| leaf_id        | bits 7..4 = `0x0`; bits 3..0 = leaf_id                                                                            |
+| 1    | src                   | sender node_id                                                                                                    |
+| 2    | flags \| n_entries_lo | b7 has_schedule · b6 self_gateway · b5 is_mobile · b4 has_seen_bitmap · b3 has_ext · b2..0 = n_entries low 3 bits |
+| 3    | n_entries_hi          | b7..5 = n_entries high 3 bits (`n_entries = lo \| hi<<3`, 0..63); b4..0 rsv                                       |
+| 4..7 | key_hash32            | 32-bit identity hash (**LE**)                                                                                     |
+|      |                       |                                                                                                                   |
 
 **Body order:** `[schedule record(s) if has_schedule]` → `n_entries × route entry (4 B)` → `[32-B seen-bitmap if has_seen_bitmap]` → `[ext_len (1 B) + ext payload if has_ext]`.
 
@@ -89,7 +90,7 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 | Byte | Field | Description |
 |------|-------|-------------|
 | 0 | cmd \| addr_len | bits 7..4 = `0x3`; b3..1 = addr_len (0 this phase); b0 rsv |
-| 1 | flags | high nibble (b7..4); low nibble rsv |
+| 1 | flags | high nibble (b7..4) type/E2E flags; low nibble (b3..0): `HASH_BIND`(b0) + rsv |
 | 2 | next | next-hop short-id |
 | 3 | dst | final destination short-id |
 | 4 | hops_remaining \| committed_hops | b7..3 = hops_remaining (5-bit, 0..31) · b2..0 = committed_hops (3-bit, 0..7) |
@@ -100,6 +101,8 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 | last 4 | MAC | opaque 4-byte trailer |
 
 **flags (byte 1 high nibble):** `PAYLOAD_TYPE_M = 0x1`, `PRIORITY = 0x2`, `E2E_IS_ACK = 0x4`, `E2E_ACK_REQ = 0x8`.
+
+**`HASH_BIND` (byte 1 low nibble, b0):** marks the inner as a public *hash-bind response* (H's reply) — **this is how a node knows it may read an otherwise-opaque DATA inner**: any relay or receiver reads it to learn/cache the `key_hash32→node_id` binding (cache-on-pass), and it is **not** end-to-end encrypted. (A *by-hash* DATA additionally carries the intended `key_hash32` in its inner so the recipient can verify it reached the right node — mismatch triggers a hard-H redirect; see H.)
 `hops_remaining = 0` on the wire means TTL-exhausted (drop). The inner/MAC stay opaque at the frame layer.
 
 ---
@@ -152,9 +155,9 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 
 ---
 
-## H — hash-locate flood · cmd 0x7 · 7 B
+## H — hash-locate flood · cmd 0x7 · 8 B
 
-**Use** — a gateway floods H (multi-hop TTL — the *only* forwardable control query) to resolve an identity `key_hash32` to a node in a target layer; `origin` is preserved so the answer can route home. **Reply** — the resolver routes the hash→short-id binding back to `origin`.
+**Use** — flood to resolve an identity `key_hash32` to its current `node_id`; `origin` is preserved so the answer routes home. **Soft** (default): any node answers from its own hash *or* its `id_bind` cache — fast, may be stale. **Hard** (flag b0): owner-only — skip caches and flood until the owner itself answers (authoritative). Start soft; escalate to hard on a verify-on-use mismatch. **Reply** — a *hash-bind response* (a DATA carrying the binding — see below) routed to `origin`; an authoritative (owner) reply overwrites stale caches along its path.
 
 | Byte | Field | Description |
 |------|-------|-------------|
@@ -162,6 +165,9 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 | 1 | origin | querier node_id, preserved across forwards |
 | 2..5 | key_hash32 | identity hash being located (**LE**) |
 | 6 | ttl | decremented per forward; 0 = drop |
+| 7 | flags | b0 = `HARD` (owner-only resolve, ignore caches); b7..1 rsv |
+
+**Hash-bind response** (H's reply): rides inside a routed **DATA** to `origin`, marked by the `HASH_BIND` DATA flag — that flag is how any relay/receiver knows it may read the otherwise-opaque inner and cache it (see DATA). Body (10 B): `\x1fH1` magic (3) · `flags`(1, b0 = `AUTHORITATIVE` — owner-answered vs cached) · `target_layer`(1) · `node_id`(1) · `key_hash32`(4 **LE**).
 
 ---
 
