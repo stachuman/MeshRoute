@@ -7,6 +7,12 @@
 > MeshCore). Kept for history. **Read `PORT_PLAN.md` for the current
 > plan.**
 
+
+Implementation notes added during porting:
+1. DATE frame - byte 0 of payload becomes flag
+2. Add handling of node names (as payload)
+3. Join process - HOW to prevent that node join leaf without proper join? Proposal - BCN is crypted with leaf key - which node can learn only during join process?
+
 ## How to read this doc
 
 `spec/dv_dual_sf.lua` is the firmware model — the authoritative

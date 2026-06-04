@@ -90,20 +90,21 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 | Byte | Field | Description |
 |------|-------|-------------|
 | 0 | cmd \| addr_len | bits 7..4 = `0x3`; b3..1 = addr_len (0 this phase); b0 rsv |
-| 1 | flags | high nibble (b7..4) type/E2E flags; low nibble (b3..0): `HASH_BIND`(b0) + rsv |
+| 1 | flags | high nibble (b7..4); low nibble rsv |
 | 2 | next | next-hop short-id |
 | 3 | dst | final destination short-id |
 | 4 | hops_remaining \| committed_hops | b7..3 = hops_remaining (5-bit, 0..31) · b2..0 = committed_hops (3-bit, 0..7) |
 | 5 | prev_fwd_rt_hops | soft hop-gradient hint |
 | 6..7 | ctr | 16-bit message counter (**LE**) |
 | 8..13 | visited[6] | 6 fixed slots, one short-id each (0 = empty, no length prefix) |
-| 14.. | inner | opaque ciphertext slot, n bytes |
+| 14.. | inner | cleartext payload-flags byte + body (encrypted iff `CRYPTED`), n bytes — see below |
 | last 4 | MAC | opaque 4-byte trailer |
 
 **flags (byte 1 high nibble):** `PAYLOAD_TYPE_M = 0x1`, `PRIORITY = 0x2`, `E2E_IS_ACK = 0x4`, `E2E_ACK_REQ = 0x8`.
 
-**`HASH_BIND` (byte 1 low nibble, b0):** marks the inner as a public *hash-bind response* (H's reply) — **this is how a node knows it may read an otherwise-opaque DATA inner**: any relay or receiver reads it to learn/cache the `key_hash32→node_id` binding (cache-on-pass), and it is **not** end-to-end encrypted. (A *by-hash* DATA additionally carries the intended `key_hash32` in its inner so the recipient can verify it reached the right node — mismatch triggers a hard-H redirect; see H.)
-`hops_remaining = 0` on the wire means TTL-exhausted (drop). The inner/MAC stay opaque at the frame layer.
+**Inner payload-flags (inner byte 0, always cleartext):** the inner begins with a flags byte that *types* the payload so a relay/receiver can act on it without decoding the body — `CROSS_LAYER`(b0, gateway envelope; the next byte is the cross-layer address length, then the path), `H_ANSWER`(b1, a public *hash-bind response* — relays read & cache the `key_hash32→node_id` binding, cache-on-pass), `AUTHORITATIVE`(b2, on an H-answer: owner-answered ⇒ overwrite vs cached ⇒ hint), `CRYPTED`(b3, the body after the prefix is encrypted), b7..4 rsv. **Invariant:** the flags byte and the cross-layer path are *always cleartext*; only the type-specific body is encrypted, and only when `CRYPTED` is set — so public payloads (H-answers, cross-layer routing) stay readable to forwarders while user content is sealed. This is how a node knows it may, and can, read an otherwise-opaque inner. (A *by-hash* DM also carries the intended `key_hash32` so the recipient can verify-on-use; mismatch → hard-H redirect — see H.)
+
+`hops_remaining = 0` on the wire means TTL-exhausted (drop). The MAC stays opaque.
 
 ---
 
@@ -167,7 +168,7 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 | 6 | ttl | decremented per forward; 0 = drop |
 | 7 | flags | b0 = `HARD` (owner-only resolve, ignore caches); b7..1 rsv |
 
-**Hash-bind response** (H's reply): rides inside a routed **DATA** to `origin`, marked by the `HASH_BIND` DATA flag — that flag is how any relay/receiver knows it may read the otherwise-opaque inner and cache it (see DATA). Body (10 B): `\x1fH1` magic (3) · `flags`(1, b0 = `AUTHORITATIVE` — owner-answered vs cached) · `target_layer`(1) · `node_id`(1) · `key_hash32`(4 **LE**).
+**Hash-bind response** (H's reply): a routed **DATA** to `origin`, typed by the `H_ANSWER` inner payload-flag (inner byte 0; `CRYPTED`=0, so relays read & cache it — see DATA). Body: `target_layer`(1) · `node_id`(1) · `key_hash32`(4 **LE**) — **no magic** (the `H_ANSWER` flag types it; supersedes the Lua `\x1fH1`); the *authoritative* bit rides the payload-flags byte (b2).
 
 ---
 

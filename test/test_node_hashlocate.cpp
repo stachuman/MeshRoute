@@ -23,15 +23,17 @@ using namespace meshroute;
 
 namespace {
 
-struct Ev { std::string type; int64_t node = -1; int64_t key_hash32 = -1;
+struct Ev { std::string type; int64_t node = -1; int64_t key_hash32 = -1; int64_t ttl = -1;
+            bool authoritative = false; bool has_auth = false;
             std::string source, table, action; };
 
 class TestHal : public Hal {
 public:
     uint64_t _now = 0;
     std::vector<Ev> events;
+    std::vector<std::vector<uint8_t>> tx_frames;          // captured TX bytes (the H forward)
 
-    TxResult tx(const uint8_t*, size_t, const TxParams&) override { return TxResult::ok; }
+    TxResult tx(const uint8_t* b, size_t n, const TxParams&) override { tx_frames.emplace_back(b, b + n); return TxResult::ok; }
     void     set_rx_sf(int) override {}
     uint64_t channel_busy_until() override { return 0; }
     uint64_t airtime_used_ms(uint64_t) override { return 0; }
@@ -48,6 +50,9 @@ public:
             if (fl.type == EventField::T::i64) {
                 if (!std::strcmp(fl.key, "node"))            e.node = fl.i;
                 else if (!std::strcmp(fl.key, "key_hash32")) e.key_hash32 = fl.i;
+                else if (!std::strcmp(fl.key, "ttl"))        e.ttl = fl.i;
+            } else if (fl.type == EventField::T::boolean) {
+                if (!std::strcmp(fl.key, "authoritative")) { e.authoritative = fl.b; e.has_auth = true; }
             } else if (fl.type == EventField::T::str) {
                 if (!std::strcmp(fl.key, "source"))      e.source = fl.s ? fl.s : "";
                 else if (!std::strcmp(fl.key, "table"))  e.table  = fl.s ? fl.s : "";
@@ -69,6 +74,17 @@ static size_t make_beacon(uint8_t src, uint32_t key_hash32, std::array<uint8_t, 
     in.leaf_id = 0; in.src = src; in.key_hash32 = key_hash32;
     in.entries = std::span<const beacon_entry>();
     return pack_beacon(in, std::span<uint8_t>(buf.data(), buf.size()));
+}
+
+// An H query (hash-locate flood) from `origin` for `key_hash32` with `ttl`.
+static size_t make_h(uint8_t origin, uint32_t key_hash32, uint8_t ttl, std::array<uint8_t, 16>& buf) {
+    h_in in{}; in.leaf_id = 0; in.origin = origin; in.key_hash32 = key_hash32; in.ttl = ttl;
+    return pack_h(in, std::span<uint8_t>(buf.data(), buf.size()));
+}
+
+const Ev* find_ev(const std::vector<Ev>& evs, const char* type) {
+    for (const auto& e : evs) if (e.type == type) return &e;
+    return nullptr;
 }
 
 }  // namespace
@@ -155,7 +171,9 @@ TEST_CASE("A0 id_bind — a rehome (same hash, new node_id) evicts the stale id 
     CHECK(node.id_bind_count() == 1);                    // the stale (3 -> DEAD) was evicted, not left to rot
 }
 
-TEST_CASE("A0 id_bind — a CLAIMED conflict (same id, different hash) is refused") {
+TEST_CASE("A0 id_bind — an authoritative beacon re-key overwrites the same id's binding") {
+    // A beacon is a FIRST-HAND (authoritative) assertion, so a node re-keying (same id, new hash) OVERWRITES,
+    // not refuses. (The claimed -> refuse path needs a second-hand source = h_relay; it's covered at Phase C.)
     TestHal hal;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0xABCD);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
@@ -164,13 +182,12 @@ TEST_CASE("A0 id_bind — a CLAIMED conflict (same id, different hash) is refuse
     auto feed = [&](uint8_t src, uint32_t h) {
         std::array<uint8_t, 64> b{}; const size_t n = make_beacon(src, h, b); node.on_recv(b.data(), n, meta);
     };
-    feed(3, 0x00001111);                                 // id 3 -> hash 1111 (claimed, via beacon)
-    feed(3, 0x00002222);                                 // id 3 now claims a DIFFERENT hash (claimed) -> REFUSE
-    CHECK(node.id_bind_find_by_hash(0x00001111) == 3);   // the known binding is kept
-    CHECK(node.id_bind_find_by_hash(0x00002222) == -1);  // the conflicting claim was refused
-    bool conflict = false;
-    for (const auto& e : hal.events) if (e.type == "addr_conflict_observed" && e.node == 3) conflict = true;
-    CHECK(conflict);
+    feed(3, 0x00001111);                                 // id 3 -> hash 1111
+    CHECK(node.id_bind_find_by_hash(0x00001111) == 3);
+    feed(3, 0x00002222);                                 // id 3 re-keys -> NEW hash; authoritative beacon OVERWRITES
+    CHECK(node.id_bind_find_by_hash(0x00002222) == 3);   // the new binding wins
+    CHECK(node.id_bind_find_by_hash(0x00001111) == -1);  // the old hash for id 3 is gone
+    CHECK(node.id_bind_count() == 1);
 }
 
 TEST_CASE("A0 id_bind — an AUTHORITATIVE source overwrites a conflicting claimed binding") {
@@ -186,4 +203,94 @@ TEST_CASE("A0 id_bind — an AUTHORITATIVE source overwrites a conflicting claim
     node.set_identity(3, 0x0000CAFE);
     CHECK(node.id_bind_find_by_hash(0x0000CAFE) == 3);   // authoritative 3 -> CAFE wins
     CHECK(node.id_bind_find_by_hash(0x0000F00D) == -1);  // the stale claimed hash for id 3 is gone
+}
+
+// ---- Phase A: the handle_h flood + resolve handler ------------------------------------------------
+
+TEST_CASE("A handle_h — own hash resolves (HARD/authoritative) and SUPPRESSES the forward") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000DEAD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    hal.tx_frames.clear();
+
+    std::array<uint8_t, 16> q{}; const size_t n = make_h(/*origin=*/9, /*hash=*/0x0000DEAD, /*ttl=*/4, q);
+    node.on_recv(q.data(), n, meta);
+
+    const Ev* r = find_ev(hal.events, "h_resolved");
+    CHECK(r != nullptr);
+    if (r) { CHECK(r->node == 5); CHECK((r->has_auth && r->authoritative)); }   // we ARE the owner -> hard
+    CHECK(find_ev(hal.events, "h_forward") == nullptr);  // SUPPRESSED
+    CHECK(hal.tx_frames.empty());                        // nothing re-broadcast
+}
+
+TEST_CASE("A handle_h — WARM CASE: a node that cached the owner's beacon answers; the flood stops") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000BBBB);   // B (a relay), not the owner
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    // B heard owner C's (id 7) beacon -> cached (7 -> CCCC) authoritative.
+    std::array<uint8_t, 64> bcn{}; const size_t bn = make_beacon(/*src=*/7, /*hash=*/0x0000CCCC, bcn);
+    node.on_recv(bcn.data(), bn, meta);
+    hal.tx_frames.clear();
+
+    // A's (id 9) query for C's hash reaches B. B knows it -> answers, does NOT forward.
+    std::array<uint8_t, 16> q{}; const size_t n = make_h(/*origin=*/9, /*hash=*/0x0000CCCC, /*ttl=*/4, q);
+    node.on_recv(q.data(), n, meta);
+
+    const Ev* r = find_ev(hal.events, "h_resolved");
+    CHECK(r != nullptr);
+    if (r) CHECK(r->node == 7);                          // resolved to the owner from the cached binding
+    CHECK(find_ev(hal.events, "h_forward") == nullptr);  // the flood STOPS here — never reaches C
+    CHECK(hal.tx_frames.empty());
+}
+
+TEST_CASE("A handle_h — unknown hash FORWARDS with TTL-1 (deduped on a re-flood)") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000BBBB);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    hal.tx_frames.clear();
+
+    std::array<uint8_t, 16> q{}; const size_t n = make_h(/*origin=*/9, /*hash=*/0x0000FACE, /*ttl=*/4, q);
+    node.on_recv(q.data(), n, meta);
+
+    const Ev* fwd = find_ev(hal.events, "h_forward");
+    CHECK(fwd != nullptr);
+    if (fwd) CHECK(fwd->ttl == 3);                       // TTL decremented
+    CHECK(hal.tx_frames.size() == 1);
+    if (!hal.tx_frames.empty()) {
+        auto pf = parse_h(std::span<const uint8_t>(hal.tx_frames[0].data(), hal.tx_frames[0].size()));
+        CHECK(pf.has_value());
+        if (pf) { CHECK(pf->origin == 9); CHECK(pf->key_hash32 == 0x0000FACE); CHECK(pf->ttl == 3); }
+    }
+
+    // Re-flood of the SAME (origin, hash) -> deduped, no second forward.
+    node.on_recv(q.data(), n, meta);
+    CHECK(hal.tx_frames.size() == 1);
+}
+
+TEST_CASE("A handle_h — TTL exhausted (ttl=0) does NOT forward; own-query echo is ignored") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000BBBB);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    hal.tx_frames.clear();
+
+    std::array<uint8_t, 16> q0{}; const size_t n0 = make_h(/*origin=*/9, /*hash=*/0x0000FACE, /*ttl=*/0, q0);
+    node.on_recv(q0.data(), n0, meta);
+    CHECK(find_ev(hal.events, "h_rx") != nullptr);       // seen
+    CHECK(find_ev(hal.events, "h_forward") == nullptr);  // but TTL exhausted -> no forward
+    CHECK(hal.tx_frames.empty());
+
+    hal.events.clear();
+    std::array<uint8_t, 16> qself{}; const size_t ns = make_h(/*origin=*/5, /*hash=*/0x0000FACE, /*ttl=*/4, qself);
+    node.on_recv(qself.data(), ns, meta);                // origin == self -> our own query echoed
+    CHECK(find_ev(hal.events, "h_rx") == nullptr);       // ignored entirely
+    CHECK(hal.tx_frames.empty());
 }

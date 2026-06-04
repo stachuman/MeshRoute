@@ -209,7 +209,7 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // Hash-locate A0 (Lua dv:9577): every BCN carries the sender's key_hash32 — learn the binding so we can
     // later answer an H query for this node WITHOUT the flood reaching the owner. (parse_beacon already
     // decodes b.key_hash32; this is the "stop discarding the received one" the review called for.)
-    id_bind_set(b.src, b.key_hash32, IdBindSource::bcn, IdBindConf::claimed);   // a beacon is a CLAIM, not proof
+    id_bind_set(b.src, b.key_hash32, IdBindSource::bcn, IdBindConf::authoritative);   // the owner's own beacon = FIRST-HAND assertion of its key_hash32 (authoritative); a relayed/snooped binding is the claimed second-hand one
     // Parse the channel-digest ext-TLV ONCE (draw-free) so beacon_rx can report how many ids the beacon
     // carries (dv:9614 `channel_digest_ids = #b.channel_digest_ids or 0`); reused by the reaction below.
     // Reported for ALL nodes (even gateways); only the process_channel_digest reaction is gateway-gated.

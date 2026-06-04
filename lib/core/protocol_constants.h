@@ -162,6 +162,10 @@ inline constexpr uint8_t  cap_sync_response_pending     = 16;   // device ring o
 inline constexpr uint16_t cap_deferred_sends            = 32;
 inline constexpr uint16_t cap_gateway_deferred_handoffs = 32;
 inline constexpr uint16_t cap_id_bind                   = 256;
+// H hash-locate flood (dv:1160-1162): per-(origin,hash) relay dedup + the originator's initial TTL.
+inline constexpr uint8_t  hash_query_max_ttl            = 16;
+inline constexpr uint32_t hash_query_seen_ttl_ms        = 10000;   // ~2x q_query_ttl_ms
+inline constexpr uint8_t  cap_hash_query_seen           = 64;
 
 // ---- Channel-message gossip plane (ROADMAP §3) -----------------------------
 // Single-layer only — gateways skip the whole plane (Principle 11). Phase 1 = the

@@ -92,24 +92,32 @@ Handler on `Cmd::H` (mirror Lua dv:11628-11671, with the variant split):
 
 ## Phase B — hash-bind response (+ authoritative flag)
 
-- **Body:** `HASH_BIND_MAGIC "\x1fH1"`(3) + **flags(1)** + `target_layer`(1) + `node_id`(1) +
-  `key_hash32`(4 LE) = **10 B**. `flags` bit 0 = **AUTHORITATIVE** (owner answered via
-  `matches_self`) vs cache-answered. (The Lua body is 9 B, dv:2509 — we add the flags byte.)
+- **B's first move: make the payload-flags byte the *universal* inner prefix** (the DATA payload's
+  first byte holds the flags — and `CRYPTED` applies to user DMs too, so they carry it as well).
+  Every inner leads with it: a normal unicast becomes `[payload-flags][origin][body]` (a +1-byte
+  DM-inner change — its tests update), an H-answer is
+  `[payload-flags(H_ANSWER)][target_layer][node_id][key_hash32]`. Build it as a **reusable inner
+  codec** (cross-layer + by-hash reuse it). **Exception:** channel-M keeps its header
+  `PAYLOAD_TYPE_M` flag + current inner — a relay reads the prefix only when `PAYLOAD_TYPE_M` is clear.
+- **Carried in a routed DATA, typed by the `H_ANSWER` inner payload-flag — no magic, no separate
+  flags byte.** (The `\x1fH1` magic the Lua/early draft used is **removed**; `H_ANSWER` types it.)
+  Inner = **payload-flags byte** (`CROSS_LAYER`=b0, `H_ANSWER`=b1, `AUTHORITATIVE`=b2, `CRYPTED`=b3
+  — here `H_ANSWER`=1, `AUTHORITATIVE`=`matches_self`, `CRYPTED`=0) + body `target_layer`(1) ·
+  `node_id`(1) · `key_hash32`(4 LE).
 - `send_hash_bind_response(to_origin, authoritative, target_layer, node_id, key_hash32)`:
   enqueue a routed DATA to the origin (dv:5877); emit `hash_bind_response_enqueued{authoritative}`.
-- **Readability contract (load-bearing for cache-on-pass):** the body must be
-  **forwarder-readable — NOT e2e-encrypted.** The binding is public routing/identity info, so
-  carry it in a snoopable position (mirror channel-M `parse_m_inner`). If DATA inner later goes
-  e2e-encrypted by default, exempt the hash-bind response or cache-on-pass silently dies.
+- **CRYPTED invariant (load-bearing for cache-on-pass):** the payload-flags byte and the binding
+  body are **cleartext** (`CRYPTED`=0), so any relay can read + cache them; `CRYPTED` seals only
+  end-user content, never this. (See `frames.md` DATA + memory `data-inner-payload-flags`.)
 
 ## Phase C — consume + cache-on-pass (confidence-aware)
 
 - **C.1 destination consume** (origin/querier, Lua dv:11398): `id_bind_set(node_id, hash,
   source=h_query, confidence = authoritative ? authoritative : claimed)`; drain any parked
   send-by-hash; emit `q_hash_binding_rx{authoritative}`. Terminal.
-- **C.2 cache-on-pass (forwarders) — beyond the Lua:** when a node *relays* a DATA and peeks a
-  hash-bind body, it **also** `id_bind_set(node_id, hash, source=h_relay, confidence per the
-  flag)` then forwards normally (does not consume). An **authoritative** response thus
+- **C.2 cache-on-pass (forwarders) — beyond the Lua:** when a node *relays* a DATA it reads the
+  cleartext inner payload-flags byte; if `H_ANSWER` is set it **also** `id_bind_set(node_id, hash,
+  source=h_relay, confidence per the `AUTHORITATIVE` bit)` then forwards normally (does not consume). An **authoritative** response thus
   **overwrites stale bindings on every hop of the return path** — this is your "authoritative
   answer cached by every node." A soft (cache-answered) response writes `claimed` and obeys
   the freshness/dedup rules. Emit `id_bind_set` with the right `source`/`confidence`.
@@ -154,8 +162,9 @@ path/local caches now resolve A→`id_9` (authoritative overwrite); exactly one 
 | Frame | Change | Why |
 |---|---|---|
 | **H query** | re-add the 1-byte flags field the C++ dropped (Lua reserved it, dv:2448); H 7→8 B; **bit 0 = HARD** | soft/hard variant |
-| **hash-bind response body** | add a flags byte; **bit 0 = AUTHORITATIVE**; 9→10 B | owner-answered vs cached |
-| **DATA (by-hash)** | a by-hash unicast inner variant carrying `target_hash` (4 B) | verify-on-use |
+| **DATA inner — payload-flags byte** | inner byte 0, cleartext: `CROSS_LAYER`=b0, `H_ANSWER`=b1, `AUTHORITATIVE`=b2, `CRYPTED`=b3 | types the inner so relays act/cache without decoding the body |
+| **hash-bind response** | typed by the `H_ANSWER` flag — **no `\x1fH1` magic, no separate flags byte**; body = `target_layer + node_id + key_hash32` | H reply; magic redundant |
+| **DATA (by-hash)** | a by-hash unicast inner carrying `target_hash` (4 B) | verify-on-use |
 
 ## Emit parity (match Lua names; new ones marked)
 
