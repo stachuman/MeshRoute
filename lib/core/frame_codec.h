@@ -360,7 +360,7 @@ std::span<const uint8_t> data_inner  (std::span<const uint8_t> frame, const data
 std::span<const uint8_t> data_mac    (std::span<const uint8_t> frame, const data_out& d);  // 4 B
 
 // OPTIONAL inner helpers (behaviour layer; dispatched by data_out.payload_type_m):
-struct data_unicast_inner { uint8_t origin; std::span<const uint8_t> body; };       // NORMAL: src_addr_len must=0
+struct data_unicast_inner { uint8_t origin; std::span<const uint8_t> body; };       // NORMAL unicast inner: [payload-flags=0][origin][body]
 std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> inner);
 struct data_m_inner { uint32_t channel_msg_id; uint8_t channel_id; uint8_t flavor;  // channel_msg_id BIG-endian
                       std::span<const uint8_t> body; };

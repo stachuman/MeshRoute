@@ -439,7 +439,7 @@ void Node::do_post_ack() {
             become_free();
             return;
         }
-        // deliver: body = inner[2..] (skip src_addr_len + origin), null-terminated for the event.
+        // deliver: body = inner[2..] (skip payload-flags + origin), null-terminated for the event.
         char body[protocol::max_payload_bytes_hard_cap + 1];
         const uint8_t blen = (pa.inner_len > 2) ? static_cast<uint8_t>(pa.inner_len - 2) : 0;
         for (uint8_t i = 0; i < blen; ++i) body[i] = static_cast<char>(pa.inner[2 + i]);

@@ -629,8 +629,8 @@ std::span<const uint8_t> data_mac(std::span<const uint8_t> frame, const data_out
 }
 
 std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> inner) {
-    if (inner.size() < 2) return std::nullopt;                    // src_addr_len + origin
-    if (inner[0] != 0) return std::nullopt;                       // src_addr_len must be 0 this phase
+    if (inner.size() < 2) return std::nullopt;                    // payload-flags + origin
+    if (inner[0] != 0) return std::nullopt;                       // payload-flags: 0 for a plaintext unicast (H_ANSWER/CROSS_LAYER are other inner types; CRYPTED awaits the decrypt layer)
     data_unicast_inner u{};
     u.origin = inner[1];
     u.body   = inner.subspan(2);

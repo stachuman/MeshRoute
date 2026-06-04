@@ -105,7 +105,7 @@ struct RtEntry {
 };
 
 // ---- R3 data-plane state (MAC) ---------------------------------------------
-// inner = src_addr_len(1)|origin(1)|body — the DATA C6 inner (parse_unicast_inner).
+// inner = payload-flags(1)|origin(1)|body — the DATA unicast inner (parse_unicast_inner).
 struct TxItem {                      // a queued message awaiting a flight
     uint8_t  origin = 0, dst = 0, ctr_lo = 0;
     uint16_t ctr = 0;
