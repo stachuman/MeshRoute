@@ -104,6 +104,7 @@ void Node::on_timer(uint32_t timer_id) {
     case kAgingTimerId:
         age_out_stale_routes();
         id_bind_age_out();            // hash-locate A0: drop expired bindings on the same periodic sweep
+        age_out_parked_sends();       // hash-locate D: give up on DMs whose hash never resolved
         (void)_hal.after(_cfg.rt_aging_check_period_ms, kAgingTimerId);
         break;
     case kTriggeredBeaconTimerId:
@@ -179,6 +180,12 @@ CmdResult Node::on_command(const Command& c) {
         case CmdKind::send: {
             if (_node_id == 0)                                    // unprovisioned: must join / cfg set node_id
                 return CmdResult{ CmdCode::err_unprovisioned, 0, _tx_queue_n };
+            if (c.body_len > protocol::dm_max_body_bytes)         // body + the 2-B inner prefix must fit inner[] (no OOB)
+                return CmdResult{ CmdCode::err_too_large, 0, _tx_queue_n };
+            if (c.u.send.dst_hash != 0) {                         // address-by-hash (hash-locate): resolve, then send
+                const uint16_t ctr = send_by_hash(c.u.send.dst_hash, c.body, c.body_len, c.u.send.flags);
+                return CmdResult{ CmdCode::queued, ctr, _tx_queue_n };
+            }
             const uint16_t ctr = do_send(c.u.send.dst_id, c.body, c.body_len, c.u.send.flags);
             return CmdResult{ CmdCode::queued, ctr, _tx_queue_n };
         }

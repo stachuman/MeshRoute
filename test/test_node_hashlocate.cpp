@@ -101,6 +101,14 @@ int count_h_tx(const std::vector<std::vector<uint8_t>>& frames) {
     return c;
 }
 
+constexpr uint32_t kAgingTimerId = 2;                     // mirrors Node's private aging-sweep timer id
+
+// Drive a send-by-hash app command (CmdKind::send with dst_hash set, the address-by-hash path).
+static CmdResult send_by_hash_cmd(Node& node, uint32_t dst_hash, const uint8_t* body, uint8_t body_len) {
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_hash = dst_hash; c.body = body; c.body_len = body_len;
+    return node.on_command(c);
+}
+
 }  // namespace
 
 TEST_CASE("A0 id_bind — a heard beacon binds the sender's key_hash32 -> node_id") {
@@ -434,4 +442,229 @@ TEST_CASE("B receive — the origin consumes an H_ANSWER DATA and parses the bin
         CHECK(rx->key_hash32 == 0x0000BBBB);
         CHECK((rx->has_auth && rx->authoritative));
     }
+}
+
+// ---- Phase C: consume (C.1) + cache-on-pass (C.2) -------------------------------------------------
+
+TEST_CASE("C.1 consume — the origin caches the resolved binding (h_query, confidence from the answer)") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/9, /*key_hash32=*/0x00009999);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
+    node.on_init(cfg);
+    CHECK(node.id_bind_find_by_hash(0x0000BBBB) == -1);  // unknown before the answer
+
+    std::array<uint8_t, 7> inner{};
+    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 2; hb.key_hash32 = 0x0000BBBB; hb.authoritative = true;
+    const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in));
+
+    CHECK(node.id_bind_find_by_hash(0x0000BBBB) == 2);   // cached -> now resolvable from id_bind
+    Node::IdBindConf conf = Node::IdBindConf::claimed;
+    node.id_bind_find_by_hash(0x0000BBBB, &conf);
+    CHECK(conf == Node::IdBindConf::authoritative);      // owner answer (AUTHORITATIVE) -> cached authoritative
+}
+
+TEST_CASE("C.2 cache-on-pass — a forwarder snoops a relayed answer (h_relay) and becomes a future resolver") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000BBBB);   // a relay — neither querier nor owner
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
+    node.on_init(cfg);
+    hal.events.clear();
+
+    std::array<uint8_t, 7> inner{};
+    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 7; hb.key_hash32 = 0x0000CCCC; hb.authoritative = true;
+    const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
+    node.on_hash_bind_snoop(inner.data(), static_cast<uint8_t>(in));
+
+    CHECK(node.id_bind_find_by_hash(0x0000CCCC) == 7);   // snooped in transit -> a future resolver (floods shrink)
+    CHECK(find_ev(hal.events, "hash_bind_snooped") != nullptr);
+}
+
+TEST_CASE("C — a CLAIMED (soft) snoop does NOT override an authoritative binding (the deferred A0 refuse)") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000BBBB);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    std::array<uint8_t, 64> bcn{}; const size_t bn = make_beacon(/*src=*/3, /*hash=*/0x00001111, bcn);
+    node.on_recv(bcn.data(), bn, meta);                  // authoritative (first-hand beacon): 3 -> 1111
+    hal.events.clear();
+
+    // A SOFT (non-authoritative) snooped answer claims id 3 -> a DIFFERENT hash -> CLAIMED conflict -> REFUSE.
+    std::array<uint8_t, 7> inner{};
+    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 3; hb.key_hash32 = 0x00002222; hb.authoritative = false;
+    const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
+    node.on_hash_bind_snoop(inner.data(), static_cast<uint8_t>(in));
+
+    CHECK(node.id_bind_find_by_hash(0x00001111) == 3);   // the authoritative binding is kept
+    CHECK(node.id_bind_find_by_hash(0x00002222) == -1);  // the claimed conflict refused
+    bool conflict = false;
+    for (const auto& e : hal.events) if (e.type == "addr_conflict_observed" && e.node == 3) conflict = true;
+    CHECK(conflict);
+}
+
+// ---- Phase D: send-by-hash (immediate / park+flood / verify-on-use / drain / give-up) -------------
+
+TEST_CASE("D send-by-hash — an AUTHORITATIVE binding sends immediately (no park, no H flood)") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    std::array<uint8_t, 64> bcn{}; const size_t bn = make_beacon(/*src=*/7, /*hash=*/0x0000CCCC, bcn);
+    node.on_recv(bcn.data(), bn, meta);                  // authoritative (first-hand beacon): 7 -> CCCC
+    hal.events.clear();
+
+    const uint8_t body[] = { 'h', 'i' };
+    const CmdResult r = send_by_hash_cmd(node, /*dst_hash=*/0x0000CCCC, body, sizeof(body));
+
+    CHECK(r.code == CmdCode::queued);
+    CHECK(r.ctr != 0);                                   // resolved -> sent now -> a real ctr
+    CHECK(find_ev(hal.events, "send_parked_for_hash") == nullptr);  // NOT parked
+    CHECK(find_ev(hal.events, "h_tx") == nullptr);                  // and NO flood originated
+}
+
+TEST_CASE("D send-by-hash — an UNKNOWN hash parks the DM and floods a SOFT H query") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    hal.events.clear();
+
+    const uint8_t body[] = { 'y', 'o' };
+    const CmdResult r = send_by_hash_cmd(node, /*dst_hash=*/0x0000EEEE, body, sizeof(body));
+
+    CHECK(r.code == CmdCode::queued);
+    CHECK(r.ctr == 0);                                   // not sent yet — resolving
+    const Ev* parked = find_ev(hal.events, "send_parked_for_hash");
+    CHECK(parked != nullptr);
+    if (parked) CHECK(parked->key_hash32 == 0x0000EEEE);
+    const Ev* q = find_ev(hal.events, "h_tx");
+    CHECK(q != nullptr);
+    if (q) { CHECK(q->key_hash32 == 0x0000EEEE); CHECK((q->has_hard && q->hard == false)); }  // unknown -> SOFT
+    CHECK(count_h_tx(hal.tx_frames) == 1);               // the flood actually went on air
+}
+
+TEST_CASE("D send-by-hash — a SOFT (claimed) binding parks + floods a HARD query (verify-on-use)") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    // Seed a CLAIMED binding via a soft (non-authoritative) snooped answer: DDDD -> node 4.
+    std::array<uint8_t, 7> inner{};
+    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 4; hb.key_hash32 = 0x0000DDDD; hb.authoritative = false;
+    const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
+    node.on_hash_bind_snoop(inner.data(), static_cast<uint8_t>(in));
+    Node::IdBindConf conf = Node::IdBindConf::authoritative;
+    CHECK(node.id_bind_find_by_hash(0x0000DDDD, &conf) == 4);
+    CHECK(conf == Node::IdBindConf::claimed);            // soft -> claimed (not trusted to send blind)
+    hal.events.clear();
+
+    const uint8_t body[] = { '?' };
+    const CmdResult r = send_by_hash_cmd(node, /*dst_hash=*/0x0000DDDD, body, sizeof(body));
+
+    CHECK(r.ctr == 0);                                   // a soft binding is NOT trusted -> verify first
+    CHECK(find_ev(hal.events, "send_parked_for_hash") != nullptr);
+    const Ev* q = find_ev(hal.events, "h_tx");
+    CHECK(q != nullptr);
+    if (q) { CHECK(q->key_hash32 == 0x0000DDDD); CHECK((q->has_hard && q->hard == true)); }  // HARD verify-on-use
+}
+
+TEST_CASE("D drain — a hash-bind answer resolves the parked DM and flies it (send_hash_resolved)") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    const uint8_t body[] = { 'h', 'i' };
+    send_by_hash_cmd(node, /*dst_hash=*/0x0000EEEE, body, sizeof(body));   // unknown -> parked
+    hal.events.clear();
+
+    // The owner's answer arrives: EEEE -> node 6 (authoritative).
+    std::array<uint8_t, 7> inner{};
+    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 6; hb.key_hash32 = 0x0000EEEE; hb.authoritative = true;
+    const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in));
+
+    const Ev* res = find_ev(hal.events, "send_hash_resolved");
+    CHECK(res != nullptr);
+    if (res) { CHECK(res->key_hash32 == 0x0000EEEE); CHECK(res->node == 6); }  // flown to the resolved id
+
+    // The parked DM has drained — a second identical answer resolves NOTHING (no re-send).
+    hal.events.clear();
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in));
+    CHECK(find_ev(hal.events, "send_hash_resolved") == nullptr);
+}
+
+TEST_CASE("D give-up — a parked DM whose hash never resolves is dropped on the aging sweep") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    const uint8_t body[] = { 'x' };
+    send_by_hash_cmd(node, /*dst_hash=*/0x0000EEEE, body, sizeof(body));   // unknown -> parked
+    hal.events.clear();
+
+    hal._now = protocol::send_defer_ttl_ms + 1;          // past the give-up window
+    node.on_timer(kAgingTimerId);                        // the periodic sweep
+    CHECK(find_ev(hal.events, "send_hash_giveup") != nullptr);
+
+    // ...and it's gone — a late answer drains nothing.
+    hal.events.clear();
+    std::array<uint8_t, 7> inner{};
+    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 6; hb.key_hash32 = 0x0000EEEE; hb.authoritative = true;
+    const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in));
+    CHECK(find_ev(hal.events, "send_hash_resolved") == nullptr);
+}
+
+TEST_CASE("D send-by-hash — an oversized body is refused (err_too_large), never parked (no inner[] overrun)") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    hal.events.clear();
+    std::array<uint8_t, 240> big{};
+    for (auto& b : big) b = 'x';
+
+    // body of dm_max_body_bytes + 1 (234) would overrun TxItem.inner[] at enqueue_data's inner[2+i].
+    Command over{}; over.kind = CmdKind::send; over.u.send.dst_hash = 0x0000EEEE;
+    over.body = big.data(); over.body_len = static_cast<uint8_t>(protocol::dm_max_body_bytes + 1);
+    const CmdResult ro = node.on_command(over);
+    CHECK(ro.code == CmdCode::err_too_large);
+    CHECK(find_ev(hal.events, "send_parked_for_hash") == nullptr);   // refused BEFORE park
+    CHECK(find_ev(hal.events, "h_tx") == nullptr);
+
+    // the SAME bound guards the direct send-by-id path (the latent pre-D overflow).
+    Command over_id{}; over_id.kind = CmdKind::send; over_id.u.send.dst_id = 2;
+    over_id.body = big.data(); over_id.body_len = static_cast<uint8_t>(protocol::dm_max_body_bytes + 1);
+    CHECK(node.on_command(over_id).code == CmdCode::err_too_large);
+
+    // and the exact cap (233) is accepted (unknown hash -> parks).
+    Command ok{}; ok.kind = CmdKind::send; ok.u.send.dst_hash = 0x0000EEEE;
+    ok.body = big.data(); ok.body_len = protocol::dm_max_body_bytes;
+    CHECK(node.on_command(ok).code == CmdCode::queued);
+}
+
+TEST_CASE("D re-drain — a beacon that installs the authoritative binding flies a stranded parked DM") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    const uint8_t body[] = { 'h', 'i' };
+    send_by_hash_cmd(node, /*dst_hash=*/0x0000B3B3, body, sizeof(body));   // unknown -> parked; the H answer is "lost" (never delivered)
+    hal.events.clear();
+
+    // bob's periodic beacon arrives carrying his key_hash32 -> AUTHORITATIVE binding -> re-drain on the beacon tick.
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    std::array<uint8_t, 64> bcn{}; const size_t bn = make_beacon(/*src=*/7, /*hash=*/0x0000B3B3, bcn);
+    node.on_recv(bcn.data(), bn, meta);
+
+    const Ev* res = find_ev(hal.events, "send_hash_resolved");
+    CHECK(res != nullptr);
+    if (res) { CHECK(res->key_hash32 == 0x0000B3B3); CHECK(res->node == 7); }   // flown to the beacon-bound id
+
+    // the parked DM has drained — a second beacon (still authoritative) resolves nothing more (no double-send).
+    hal.events.clear();
+    node.on_recv(bcn.data(), bn, meta);
+    CHECK(find_ev(hal.events, "send_hash_resolved") == nullptr);
 }

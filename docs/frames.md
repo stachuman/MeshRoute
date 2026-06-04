@@ -104,6 +104,8 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 
 **Inner payload-flags (inner byte 0, always cleartext):** the inner begins with a flags byte that *types* the payload so a relay/receiver can act on it without decoding the body — `CROSS_LAYER`(b0, gateway envelope; the next byte is the cross-layer address length, then the path), `H_ANSWER`(b1, a public *hash-bind response* — relays read & cache the `key_hash32→node_id` binding, cache-on-pass), `AUTHORITATIVE`(b2, on an H-answer: owner-answered ⇒ overwrite vs cached ⇒ hint), `CRYPTED`(b3, the body after the prefix is encrypted), b7..4 rsv. **Invariant:** the flags byte and the cross-layer path are *always cleartext*; only the type-specific body is encrypted, and only when `CRYPTED` is set — so public payloads (H-answers, cross-layer routing) stay readable to forwarders while user content is sealed. This is how a node knows it may, and can, read an otherwise-opaque inner. (A *by-hash* DM also carries the intended `key_hash32` so the recipient can verify-on-use; mismatch → hard-H redirect — see H.)
 
+**Normal DM inner** (after the payload-flags byte): `origin`(1 B — the sender's node_id) · message body. `origin` is **always present** (the destination needs it to attribute/reply) and lives in the *encryptable* body, so with `CRYPTED` set the **sender is hidden** — known only to the destination that decrypts; relays and eavesdroppers see the cleartext `dst` and the `visited` relay path, never the originator. (`visited[]` is zero on origination, so it leaks no sender either.)
+
 `hops_remaining = 0` on the wire means TTL-exhausted (drop). The MAC stays opaque.
 
 ---

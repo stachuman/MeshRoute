@@ -459,6 +459,8 @@ void Node::do_post_ack() {
         if (pa.flags & DATA_FLAG_E2E_ACK_REQ) send_e2e_ack(pa.origin, pa.ctr);
         become_free();
     } else {
+        // C.2 cache-on-pass: a relayed hash-bind answer is cleartext -> snoop the binding before forwarding.
+        if (pa.inner_len >= 1 && (pa.inner[0] & PAYLOAD_FLAG_H_ANSWER)) on_hash_bind_snoop(pa.inner, pa.inner_len);
         TxItem it{};
         it.origin = pa.origin; it.dst = pa.dst; it.ctr = pa.ctr; it.ctr_lo = pa.ctr_lo;
         it.flags = pa.flags; it.is_forward = true; it.previous_hop = pa.previous_hop;

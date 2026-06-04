@@ -264,14 +264,147 @@ void Node::send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint
 void Node::on_hash_bind_response(const uint8_t* inner, uint8_t inner_len) {
     auto hb = parse_hash_bind_inner(std::span<const uint8_t>(inner, inner_len));
     if (!hb) return;
+    // C.1 destination consume: WE asked -> source h_query; the answer's AUTHORITATIVE flag carries the
+    // confidence (an owner answer is authoritative, a cache-relayed soft answer is claimed -> verify-on-use).
+    id_bind_set(hb->node_id, hb->key_hash32, IdBindSource::h_query,
+                hb->authoritative ? IdBindConf::authoritative : IdBindConf::claimed);
     MR_TELEMETRY(
         EventField f[] = { { .key = "node",          .type = EventField::T::i64,     .i = hb->node_id },
                            { .key = "key_hash32",    .type = EventField::T::i64,     .i = static_cast<int64_t>(hb->key_hash32) },
                            { .key = "target_layer",  .type = EventField::T::i64,     .i = hb->target_layer },
                            { .key = "authoritative", .type = EventField::T::boolean, .b = hb->authoritative } };
         _hal.emit("hash_bind_rx", f, 4); );
-    // Phase C: id_bind_set(hb->node_id, hb->key_hash32, IdBindSource::h_query,
-    //                      hb->authoritative ? IdBindConf::authoritative : IdBindConf::claimed); + drain parked send-by-hash.
+    drain_parked_sends(hb->key_hash32, hb->node_id);   // D: a parked send-by-hash for this hash can now fly to the resolved id
+}
+
+// C.2 cache-on-pass (NEW, beyond the Lua's gateway-only caching): a RELAYED hash-bind answer is
+// forwarder-readable (CLEARTEXT) — snoop the binding so every node on the return path becomes a future
+// resolver and repeat H floods shrink (measured in the Phase D multi-node sim). source = h_relay (snooped,
+// distinct from the asked h_query); confidence rides the answer's AUTHORITATIVE flag. We do NOT consume —
+// do_post_ack still forwards the DATA. Deliberate, measurable divergence (gate: flood reach trends down).
+void Node::on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len) {
+    auto hb = parse_hash_bind_inner(std::span<const uint8_t>(inner, inner_len));
+    if (!hb) return;
+    id_bind_set(hb->node_id, hb->key_hash32, IdBindSource::h_relay,
+                hb->authoritative ? IdBindConf::authoritative : IdBindConf::claimed);
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "node",          .type = EventField::T::i64,     .i = hb->node_id },
+                           { .key = "key_hash32",    .type = EventField::T::i64,     .i = static_cast<int64_t>(hb->key_hash32) },
+                           { .key = "authoritative", .type = EventField::T::boolean, .b = hb->authoritative } };
+        _hal.emit("hash_bind_snooped", f, 3); );
+}
+
+// =============================================================================
+// Phase D — the send-by-hash trigger + verify-on-use. Address a DM by the target's
+// stable key_hash32: send now if we hold an AUTHORITATIVE binding; else park the DM
+// + flood an H query (a SOFT cached binding is HARD-verified before use) and fly it
+// when the hash-bind answer resolves the id.
+// =============================================================================
+
+// on_command(send) routes here when dst_hash != 0 (the deferred "address by key_hash32"). Returns the DM ctr
+// if sent immediately, else 0 (parked/resolving — the ctr is assigned when the binding arrives).
+uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags) {
+    IdBindConf conf = IdBindConf::claimed;
+    const int id = id_bind_find_by_hash(key_hash32, &conf);
+    if (id >= 0 && conf == IdBindConf::authoritative)            // confident binding -> send NOW
+        return do_send(static_cast<uint8_t>(id), body, body_len, flags);
+    // SOFT cached binding -> HARD verify-on-use (reach the owner for a correction); UNKNOWN -> SOFT flood.
+    park_send(key_hash32, body, body_len, flags);
+    emit_hash_query(key_hash32, /*hard=*/(id >= 0));
+    return 0;
+}
+
+// Originate an H flood for key_hash32 (Lua send_hash_query dv:5625). hard = the verify-on-use escalation.
+void Node::emit_hash_query(uint32_t key_hash32, bool hard) {
+    if (key_hash32 == 0 || key_hash32 == _key_hash32) return;    // nothing to locate (degenerate / it's us)
+    h_in in{};
+    in.leaf_id = _cfg.leaf_id; in.origin = _node_id; in.key_hash32 = key_hash32;
+    in.ttl = protocol::hash_query_max_ttl; in.hard = hard;
+    uint8_t buf[8];
+    const size_t n = pack_h(in, std::span<uint8_t>(buf, sizeof(buf)));
+    if (n == 0) return;
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64,     .i = static_cast<int64_t>(key_hash32) },
+                           { .key = "ttl",        .type = EventField::T::i64,     .i = protocol::hash_query_max_ttl },
+                           { .key = "hard",       .type = EventField::T::boolean, .b = hard } };
+        _hal.emit("h_tx", f, 3); );                              // the originate (dv:5625)
+    tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
+}
+
+void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags) {
+    if (_parked_sends_n >= protocol::cap_parked_sends) return;   // full -> drop (the app can retry)
+    ParkedSend& p = _parked_sends[_parked_sends_n++];
+    p.key_hash32 = key_hash32; p.flags = flags; p.parked_at_ms = _hal.now();
+    // Clamp to the DM body cap (NOT the 235-B inner buffer): drain_parked_sends -> do_send -> enqueue_data
+    // writes body at inner[2+i], so a >233 body would overrun inner[]. on_command already rejects oversize
+    // (err_too_large) — this is defense-in-depth so a parked body can never exceed the deliverable size.
+    p.body_len = (body_len > protocol::dm_max_body_bytes) ? protocol::dm_max_body_bytes : body_len;
+    for (uint8_t i = 0; i < p.body_len; ++i) p.body[i] = body[i];
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) } };
+        _hal.emit("send_parked_for_hash", f, 1); );
+}
+
+// A binding for key_hash32 just resolved -> fly every parked DM for it to resolved_id (the verify-on-use redirect:
+// the id comes from the hash-bind ANSWER, so a stale soft binding is corrected here).
+void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id) {
+    uint8_t w = 0;
+    for (uint8_t r = 0; r < _parked_sends_n; ++r) {
+        const ParkedSend p = _parked_sends[r];
+        if (p.key_hash32 == key_hash32) {
+            MR_TELEMETRY(
+                EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) },
+                                   { .key = "node",       .type = EventField::T::i64, .i = resolved_id } };
+                _hal.emit("send_hash_resolved", f, 2); );
+            do_send(resolved_id, p.body, p.body_len, p.flags);   // load-bearing (OUTSIDE the wrap): fly the held DM
+            continue;                                            // drop the parked entry
+        }
+        _parked_sends[w++] = p;
+    }
+    _parked_sends_n = w;
+}
+
+// Re-drain parked sends whose hash has SINCE gained an AUTHORITATIVE binding from a source other than the
+// hash-bind answer we floods-and-waits for — typically the owner's periodic beacon arriving after the one H
+// answer was lost. The hash-keyed analog of try_drain_deferred (which re-drains route-blocked sends on each
+// beacon): it keeps a parked DM from aging out to send_hash_giveup when the node already holds everything it
+// needs to deliver. Only AUTHORITATIVE bindings fire — a claimed (second-hand) binding still wants verify-on-use.
+void Node::drain_resolved_parked_sends() {
+    if (_parked_sends_n == 0) return;
+    uint8_t w = 0;
+    for (uint8_t r = 0; r < _parked_sends_n; ++r) {
+        const ParkedSend p = _parked_sends[r];
+        IdBindConf conf = IdBindConf::claimed;
+        const int id = id_bind_find_by_hash(p.key_hash32, &conf);
+        if (id >= 0 && conf == IdBindConf::authoritative) {
+            MR_TELEMETRY(
+                EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(p.key_hash32) },
+                                   { .key = "node",       .type = EventField::T::i64, .i = id } };
+                _hal.emit("send_hash_resolved", f, 2); );
+            do_send(static_cast<uint8_t>(id), p.body, p.body_len, p.flags);   // load-bearing (OUTSIDE the wrap)
+            continue;                                            // drop the parked entry
+        }
+        _parked_sends[w++] = p;
+    }
+    _parked_sends_n = w;
+}
+
+// Give up on parked sends whose hash never resolved (periodic, on kAgingTimerId). send_defer_ttl_ms window.
+void Node::age_out_parked_sends() {
+    if (_parked_sends_n == 0) return;
+    const uint64_t now = _hal.now();
+    uint8_t w = 0;
+    for (uint8_t r = 0; r < _parked_sends_n; ++r) {
+        const ParkedSend p = _parked_sends[r];
+        if ((now - p.parked_at_ms) >= protocol::send_defer_ttl_ms) {
+            MR_TELEMETRY(
+                EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(p.key_hash32) } };
+                _hal.emit("send_hash_giveup", f, 1); );
+            continue;                                            // drop (the hash didn't resolve in time)
+        }
+        _parked_sends[w++] = p;
+    }
+    _parked_sends_n = w;
 }
 
 }  // namespace meshroute

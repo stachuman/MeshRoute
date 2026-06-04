@@ -208,7 +208,7 @@ std::optional<uint32_t> parse_q_channel_id(std::span<const uint8_t> frame,
                                            const q_out& q, uint8_t index);
 
 // -----------------------------------------------------------------------------
-// H — hash-locate flood (cmd-nibble 0x7, 7 B) — ROADMAP §10.3 / §10.6
+// H — hash-locate flood (cmd-nibble 0x7, 8 B; 7 B legacy → soft) — ROADMAP §10.3 / §10.6
 // -----------------------------------------------------------------------------
 // §10.6 flag byte DROPPED (lossless: the flags nibble was hard-zero on pack and
 // never read on parse; leaf_id relocates into the cmd byte). Forwardable TTL flood.

@@ -237,7 +237,8 @@ public:
     // ---- id_bind (hash-locate substrate) inspection: tests + the H resolver drive these.
     uint16_t          id_bind_count() const { return _id_bind_n; }
     int               id_bind_find_by_hash(uint32_t key_hash32, IdBindConf* conf_out = nullptr);   // -> node_id, or -1 (skips expired); opt. out: the binding's confidence (soft/hard resolve)
-    void              on_hash_bind_response(const uint8_t* inner, uint8_t inner_len);   // origin consumed an H_ANSWER DATA: parse the binding (B); cache + drain (C). public = the deliver seam + the test driver
+    void              on_hash_bind_response(const uint8_t* inner, uint8_t inner_len);   // C.1: the origin consumed an H_ANSWER DATA -> cache (h_query) + drain. public = the deliver seam + test driver
+    void              on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len);      // C.2: a forwarder snooped an H_ANSWER in transit -> cache-on-pass (h_relay). public = the relay seam + test driver
     bool              channel_entry_dirty(uint32_t id) const { const int i = channel_buffer_find(id); return i >= 0 && _channel_buffer[i].dirty; }
     bool              channel_payload_eq(uint32_t id, const uint8_t* p, uint16_t len) const {
         const int i = channel_buffer_find(id);
@@ -312,6 +313,13 @@ private:
     bool    hash_query_seen_recently(uint8_t origin, uint32_t key_hash32, bool hard);    // per-(origin,hash,VARIANT) dedup — a hard query isn't suppressed by a prior soft's seen-entry
     void    mark_hash_query_seen(uint8_t origin, uint32_t key_hash32, bool hard);
     void    send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, uint32_t key_hash32, bool authoritative); // B: routed DATA(H_ANSWER inner) home
+    // D — send-by-hash trigger (the deferred "address by key_hash32") + verify-on-use.
+    uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags); // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify)
+    void    emit_hash_query(uint32_t key_hash32, bool hard);     // originate an H flood for key_hash32 (hard = verify-on-use)
+    void    park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags);
+    void    drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id);   // a binding arrived -> fly the parked DMs to it
+    void    drain_resolved_parked_sends();                       // beacon-tick re-drain: any parked hash now authoritatively bound
+    void    age_out_parked_sends();                              // give up on parked sends past send_defer_ttl_ms
     // Q REQ_SYNC plane (boot route-bootstrap) — node_query.cpp.
     void    req_sync_loop_fire();                                  // kReqSyncTimerId: send + re-arm while discovery+starved (dv:9167)
     void    send_req_sync_q(const char* reason);                   // broadcast a REQ_SYNC Q (no draw; dv:8032)
@@ -522,6 +530,11 @@ private:
     struct HashQuerySeen { uint8_t origin; uint32_t key_hash32; uint64_t t_ms; bool hard; };
     HashQuerySeen _hash_query_seen[protocol::cap_hash_query_seen] = {};
     uint8_t       _hash_query_seen_n = 0;
+    // send-by-hash DMs parked awaiting a hash-bind resolution (D); drained by on_hash_bind_response, aged on the timer.
+    struct ParkedSend { uint32_t key_hash32; uint64_t parked_at_ms; uint8_t flags; uint8_t body_len;
+                        uint8_t body[protocol::max_payload_bytes_hard_cap]; };
+    ParkedSend _parked_sends[protocol::cap_parked_sends] = {};
+    uint8_t    _parked_sends_n = 0;
     // Q REQ_SYNC plane state (node_query.cpp). _last_req_sync_tx_ms rate-limits the originator (dv:8035);
     // _q_responded is the responder dedup ring (key opcode|src|dest, ttl q_respond_ttl_ms) — Lua refuses on
     // cap-full, we evict-oldest (matches the F-dedup idiom; equivalent below cap, robust for a long-running

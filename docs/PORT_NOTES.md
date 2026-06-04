@@ -12,6 +12,8 @@ Implementation notes added during porting:
 1. DATE frame - byte 0 of payload becomes flag
 2. Add handling of node names (as payload)
 3. Join process - HOW to prevent that node join leaf without proper join? Proposal - BCN is crypted with leaf key - which node can learn only during join process?
+4. Join process - query needs to carry wire version - to check if I'm compatible with given leaf and I can talk. Note - wire version is NOT node version (more advanced version can keep wire version same!)
+5. 
 
 ## How to read this doc
 

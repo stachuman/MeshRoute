@@ -296,6 +296,7 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         schedule_triggered_beacon();
         if (_deferred_n > 0) try_drain_deferred();        // a new route may unblock a deferred send
     }
+    drain_resolved_parked_sends();                        // this beacon may have installed the authoritative binding a parked send-by-hash awaits (no-op if none parked)
     maybe_emit_rt_full();
 }
 

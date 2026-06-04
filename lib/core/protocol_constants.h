@@ -166,6 +166,7 @@ inline constexpr uint16_t cap_id_bind                   = 256;
 inline constexpr uint8_t  hash_query_max_ttl            = 16;
 inline constexpr uint32_t hash_query_seen_ttl_ms        = 10000;   // ~2x q_query_ttl_ms
 inline constexpr uint8_t  cap_hash_query_seen           = 64;
+inline constexpr uint8_t  cap_parked_sends              = 8;       // send-by-hash DMs parked awaiting a hash-bind
 
 // ---- Channel-message gossip plane (ROADMAP §3) -----------------------------
 // Single-layer only — gateways skip the whole plane (Principle 11). Phase 1 = the
@@ -217,7 +218,11 @@ inline constexpr uint8_t  data_hdr_len        = 14;
 inline constexpr uint8_t  data_inner_overhead = 6;
 inline constexpr uint8_t  lora_max_frame_bytes = 255;  // SX126x/SX127x 8-bit length register
 inline constexpr uint8_t  max_payload_bytes_hard_cap =
-    lora_max_frame_bytes - data_hdr_len - data_inner_overhead;  // = 235
+    lora_max_frame_bytes - data_hdr_len - data_inner_overhead;  // = 235 (the TxItem.inner[] buffer size)
+// A normal DM inner is [payload-flags][origin][body...] (enqueue_data writes body at inner[2+i]), so the
+// app body must fit in the inner buffer MINUS that 2-byte prefix — 233. Exceeding it overruns inner[].
+inline constexpr uint8_t  dm_inner_prefix_bytes = 2;                                      // [payload-flags][origin]
+inline constexpr uint8_t  dm_max_body_bytes = max_payload_bytes_hard_cap - dm_inner_prefix_bytes;  // = 233
 
 // ---- SF demod thresholds (Q4 dB, mirrors SF_DEMOD_THRESHOLD in Lua) -------
 // SF5 = -2.5 dB → -40 Q4; SF12 = -20.0 dB → -320 Q4.
