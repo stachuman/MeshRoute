@@ -56,20 +56,22 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                 + airtime_ms(data_sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym,
                              static_cast<uint16_t>(r.payload_len + 13)) + 30;
             (void)_hal.after(back, kOverhearRetuneTimerId);
-            EventField f[] = { { .key = "id_lo16",        .type = EventField::T::i64,     .i = r.m_payload_id_lo16 },
-                               { .key = "sender",         .type = EventField::T::i64,     .i = r.src },
-                               { .key = "target",         .type = EventField::T::i64,     .i = r.next },
-                               { .key = "chosen_data_sf", .type = EventField::T::i64,     .i = data_sf },          // advertised SF we retuned to (t69)
-                               { .key = "guard_ms",       .type = EventField::T::i64,     .i = static_cast<int64_t>(back) },
-                               { .key = "addressed",      .type = EventField::T::boolean, .b = (r.next == _node_id) } };
-            _hal.emit("channel_overhear_armed", f, 6);
+            MR_TELEMETRY(
+                EventField f[] = { { .key = "id_lo16",        .type = EventField::T::i64,     .i = r.m_payload_id_lo16 },
+                                   { .key = "sender",         .type = EventField::T::i64,     .i = r.src },
+                                   { .key = "target",         .type = EventField::T::i64,     .i = r.next },
+                                   { .key = "chosen_data_sf", .type = EventField::T::i64,     .i = data_sf },          // advertised SF we retuned to (t69)
+                                   { .key = "guard_ms",       .type = EventField::T::i64,     .i = static_cast<int64_t>(back) },
+                                   { .key = "addressed",      .type = EventField::T::boolean, .b = (r.next == _node_id) } };
+                _hal.emit("channel_overhear_armed", f, 6); );
         }
         return;                                          // M_BROADCAST RTS never CTSes
     }
     if (r.next != _node_id) return;                      // not addressed to us as next-hop
-    { EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = r.src },
-                         { .key = "dst",  .type = EventField::T::i64, .i = r.dst } };
-      _hal.emit("rts_rx", f, 2); }
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = r.src },
+                           { .key = "dst",  .type = EventField::T::i64, .i = r.dst } };
+        _hal.emit("rts_rx", f, 2); );
 
     // last_acked dedup: a retried RTS after we already delivered -> CTS already_received, no re-deliver.
     const uint32_t lakey = (uint32_t(r.src) << 24) | (uint32_t(r.dst) << 16) |
@@ -82,9 +84,10 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         cin.already_received = true; cin.tx_id = _node_id; cin.rx_id = r.src;
         uint8_t cbuf[3]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, 3));
         tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b
-        EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
-                           { .key = "dup", .type = EventField::T::boolean, .b = true } };
-        _hal.emit("cts_tx", f, 2);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
+                               { .key = "dup", .type = EventField::T::boolean, .b = true } };
+            _hal.emit("cts_tx", f, 2); );
         return;
     }
     // A retried RTS for the SAME flight while we still await its DATA -> re-CTS + restart
@@ -95,9 +98,10 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         cin.already_received = false; cin.tx_id = _node_id; cin.rx_id = r.src;
         uint8_t cbuf[3]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, 3));
         tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b
-        EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
-                           { .key = "dup", .type = EventField::T::boolean, .b = true } };
-        _hal.emit("cts_tx", f, 2);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
+                               { .key = "dup", .type = EventField::T::boolean, .b = true } };
+            _hal.emit("cts_tx", f, 2); );
         start_pending_rx_expiry(_pending_rx->payload_len);
         return;
     }
@@ -114,16 +118,18 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         nack_in nin{}; nin.reason = protocol::nack_reason_busy_rx; nin.ctr_lo = r.ctr_lo;
         nin.payload = static_cast<uint8_t>(q > 255 ? 255 : q); nin.to = r.src;
         uint8_t nbuf[4]; const size_t nl = pack_nack(nin, std::span<uint8_t>(nbuf, 4));
-        EventField f[] = { { .key = "to",      .type = EventField::T::i64, .i = r.src },
-                           { .key = "reason",  .type = EventField::T::i64, .i = protocol::nack_reason_busy_rx },
-                           { .key = "busy_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(busy_for) } };
-        _hal.emit("nack_tx", f, 3);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "to",      .type = EventField::T::i64, .i = r.src },
+                               { .key = "reason",  .type = EventField::T::i64, .i = protocol::nack_reason_busy_rx },
+                               { .key = "busy_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(busy_for) } };
+            _hal.emit("nack_tx", f, 3); );
         tx_initiating(nbuf, nl, static_cast<int16_t>(_cfg.routing_sf), LbtKind::nack, 0);   // R4.5 LBT (handle_rts NACK, dv:9953)
         return;
     }
     if (_pending_tx) {                                   // sending our own -> silent (no NACK)
-        EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = r.src } };
-        _hal.emit("rts_drop_pending_tx", f, 1);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = r.src } };
+            _hal.emit("rts_drop_pending_tx", f, 1); );
         return;
     }
 
@@ -147,25 +153,27 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         const uint32_t airtime_warn = static_cast<uint32_t>(
             static_cast<double>(protocol::originator_airtime_warn_fraction) * airtime_cap);
         if (_duty_cycle_budget_ms > 0 && !over_airtime && total_air > airtime_warn) {
-            EventField wf[] = { { .key = "from",      .type = EventField::T::i64, .i = r.src },
-                                { .key = "ctr_lo",    .type = EventField::T::i64, .i = r.ctr_lo },
-                                { .key = "airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(total_air) },
-                                { .key = "warn_airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(airtime_warn) },
-                                { .key = "threshold_airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(airtime_cap) },
-                                { .key = "window_ms", .type = EventField::T::i64, .i = protocol::originator_window_ms } };
-            _hal.emit("rts_originator_airtime_warn", wf, 6);
+            MR_TELEMETRY(
+                EventField wf[] = { { .key = "from",      .type = EventField::T::i64, .i = r.src },
+                                    { .key = "ctr_lo",    .type = EventField::T::i64, .i = r.ctr_lo },
+                                    { .key = "airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(total_air) },
+                                    { .key = "warn_airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(airtime_warn) },
+                                    { .key = "threshold_airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(airtime_cap) },
+                                    { .key = "window_ms", .type = EventField::T::i64, .i = protocol::originator_window_ms } };
+                _hal.emit("rts_originator_airtime_warn", wf, 6); );
         }
         if (over_airtime) {
-            EventField f[] = { { .key = "from",      .type = EventField::T::i64, .i = r.src },
-                               { .key = "ctr_lo",    .type = EventField::T::i64, .i = r.ctr_lo },
-                               { .key = "apparent_origination", .type = EventField::T::i64, .i = app_orig },
-                               { .key = "airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(total_air) },
-                               { .key = "rts_count", .type = EventField::T::i64, .i = rts_n },
-                               { .key = "cts_count", .type = EventField::T::i64, .i = cts_n },
-                               { .key = "threshold_count",      .type = EventField::T::i64, .i = _cfg.originator_max_per_window },
-                               { .key = "threshold_airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(airtime_cap) },
-                               { .key = "window_ms",            .type = EventField::T::i64, .i = protocol::originator_window_ms } };
-            _hal.emit("rts_drop_originator_throttle", f, 9);
+            MR_TELEMETRY(
+                EventField f[] = { { .key = "from",      .type = EventField::T::i64, .i = r.src },
+                                   { .key = "ctr_lo",    .type = EventField::T::i64, .i = r.ctr_lo },
+                                   { .key = "apparent_origination", .type = EventField::T::i64, .i = app_orig },
+                                   { .key = "airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(total_air) },
+                                   { .key = "rts_count", .type = EventField::T::i64, .i = rts_n },
+                                   { .key = "cts_count", .type = EventField::T::i64, .i = cts_n },
+                                   { .key = "threshold_count",      .type = EventField::T::i64, .i = _cfg.originator_max_per_window },
+                                   { .key = "threshold_airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(airtime_cap) },
+                                   { .key = "window_ms",            .type = EventField::T::i64, .i = protocol::originator_window_ms } };
+                _hal.emit("rts_drop_originator_throttle", f, 9); );
             return;                                       // silent drop (no CTS, no NACK)
         }
     }
@@ -180,10 +188,11 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         nin.payload = static_cast<uint8_t>((static_cast<uint8_t>(my_tier) & 0x0f) << 4);   // tier HIGH nibble
         nin.to = r.src;
         uint8_t nbuf[4]; const size_t nl = pack_nack(nin, std::span<uint8_t>(nbuf, 4));
-        EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = r.src },
-                           { .key = "reason", .type = EventField::T::i64, .i = protocol::nack_reason_budget },
-                           { .key = "tier",   .type = EventField::T::i64, .i = static_cast<uint8_t>(my_tier) } };
-        _hal.emit("nack_tx", f, 3);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = r.src },
+                               { .key = "reason", .type = EventField::T::i64, .i = protocol::nack_reason_budget },
+                               { .key = "tier",   .type = EventField::T::i64, .i = static_cast<uint8_t>(my_tier) } };
+            _hal.emit("nack_tx", f, 3); );
         tx_initiating(nbuf, nl, static_cast<int16_t>(_cfg.routing_sf), LbtKind::nack, 0);   // R4.5 LBT (handle_rts NACK, dv:10043)
         return;                                          // NO CTS, NO pending_rx
     }
@@ -196,9 +205,10 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     cts_in cin{}; cin.chosen_data_sf = sf; cin.already_received = false; cin.tx_id = _node_id; cin.rx_id = r.src;
     uint8_t cbuf[3]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, 3));
     tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b: stash + tag the CTS
-    { EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
-                         { .key = "sf", .type = EventField::T::i64, .i = sf } };
-      _hal.emit("cts_tx", f, 2); }
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
+                           { .key = "sf", .type = EventField::T::i64, .i = sf } };
+        _hal.emit("cts_tx", f, 2); );
     _hal.set_rx_sf(sf);                                  // NOW retune RX to hear the DATA on the data SF
 }
 
@@ -224,9 +234,10 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     _hal.cancel(kRetryBackoffTimerId);                   // drop a stale retry armed by a just-fired rts_timeout
     _pending_tx->awaiting_cts = false;
     _pending_tx->chosen_data_sf = c.chosen_data_sf;
-    { EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = _pending_tx->next },   // CTS is from our next-hop (src_hint=-1 on metal)
-                         { .key = "sf",   .type = EventField::T::i64, .i = c.chosen_data_sf } };
-      _hal.emit("cts_rx", f, 2); }
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = _pending_tx->next },   // CTS is from our next-hop (src_hint=-1 on metal)
+                           { .key = "sf",   .type = EventField::T::i64, .i = c.chosen_data_sf } };
+        _hal.emit("cts_rx", f, 2); );
     if (c.already_received) { _pending_tx.reset(); become_free(); return; }   // already delivered upstream
     (void)_hal.after(protocol::cts_to_data_gap_ms, kCtsToDataGapTimerId);     // fixed 5ms gap (NOT rand)
 }
@@ -272,13 +283,14 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto inner = data_inner(std::span<const uint8_t>(bytes, len), d);
     auto ui = parse_unicast_inner(inner);
     const uint8_t origin = ui ? ui->origin : from;
-    { EventField f[] = { { .key = "origin", .type = EventField::T::i64, .i = origin },
-                         { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr },
-                         { .key = "ctr_lo", .type = EventField::T::i64, .i = d.ctr_lo4 },
-                         { .key = "from",   .type = EventField::T::i64, .i = from },
-                         { .key = "dst",    .type = EventField::T::i64, .i = d.dst },
-                         { .key = "orig_airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(orig_air) } };
-      _hal.emit("data_rx", f, 6); }
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "origin", .type = EventField::T::i64, .i = origin },
+                           { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr },
+                           { .key = "ctr_lo", .type = EventField::T::i64, .i = d.ctr_lo4 },
+                           { .key = "from",   .type = EventField::T::i64, .i = from },
+                           { .key = "dst",    .type = EventField::T::i64, .i = d.dst },
+                           { .key = "orig_airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(orig_air) } };
+        _hal.emit("data_rx", f, 6); );
     // Learn the DATA prev-hop as a 1-hop neighbour (Lua learn_rx_source / data_frame).
     if (learn_direct_neighbor(from, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
     const uint8_t rx_sf = _pending_rx->chosen_data_sf;
@@ -308,10 +320,11 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     const uint8_t hb_new_committed = (d.committed_hops >= 7) ? 7
                                      : static_cast<uint8_t>(d.committed_hops + 1);
     if (d.dst != _node_id && hb_new_remaining < 0) {
-        { EventField ef[] = { { .key = "origin", .type = EventField::T::i64, .i = origin },
-                              { .key = "dst",    .type = EventField::T::i64, .i = d.dst },
-                              { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr } };
-          _hal.emit("hop_budget_exceeded", ef, 3); }
+        MR_TELEMETRY(
+            EventField ef[] = { { .key = "origin", .type = EventField::T::i64, .i = origin },
+                                { .key = "dst",    .type = EventField::T::i64, .i = d.dst },
+                                { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr } };
+            _hal.emit("hop_budget_exceeded", ef, 3); );
         // Record (origin,dst,ctr) so a LATER non-exhausted arrival of the SAME flight via
         // a DIFFERENT prev-hop is caught as LOOP_DUP (not accepted+forwarded) — dv:10933-10940.
         // prune-expired + cap, mirroring the pass-path write below.
@@ -326,10 +339,11 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         nin.to = from;
         uint8_t nbuf[4]; const size_t nl = pack_nack(nin, std::span<uint8_t>(nbuf, 4));
         tx_with_retry(nbuf, nl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::nack);   // R4.5b (HOP_BUDGET NACK)
-        EventField nf[] = { { .key = "to",     .type = EventField::T::i64, .i = from },
-                            { .key = "reason", .type = EventField::T::i64, .i = protocol::nack_reason_hop_budget },
-                            { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr } };
-        _hal.emit("nack_tx", nf, 3);
+        MR_TELEMETRY(
+            EventField nf[] = { { .key = "to",     .type = EventField::T::i64, .i = from },
+                                { .key = "reason", .type = EventField::T::i64, .i = protocol::nack_reason_hop_budget },
+                                { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr } };
+            _hal.emit("nack_tx", nf, 3); );
         become_free();
         return;
     }
@@ -347,14 +361,16 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             nin.payload = sof->second; nin.to = from;
             uint8_t nbuf[4]; const size_t nl = pack_nack(nin, std::span<uint8_t>(nbuf, 4));
             tx_with_retry(nbuf, nl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::nack);   // R4.5b (LOOP_DUP NACK)
-            EventField nf[] = { { .key = "to",     .type = EventField::T::i64, .i = from },
-                                { .key = "reason", .type = EventField::T::i64, .i = protocol::nack_reason_loop_dup },
-                                { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr } };
-            _hal.emit("nack_tx", nf, 3);
-            { EventField df[] = { { .key = "origin", .type = EventField::T::i64, .i = origin },
-                                  { .key = "dst",    .type = EventField::T::i64, .i = d.dst },
-                                  { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr } };
-              _hal.emit("dup_drop", df, 3); }
+            MR_TELEMETRY(
+                EventField nf[] = { { .key = "to",     .type = EventField::T::i64, .i = from },
+                                    { .key = "reason", .type = EventField::T::i64, .i = protocol::nack_reason_loop_dup },
+                                    { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr } };
+                _hal.emit("nack_tx", nf, 3); );
+            MR_TELEMETRY(
+                EventField df[] = { { .key = "origin", .type = EventField::T::i64, .i = origin },
+                                    { .key = "dst",    .type = EventField::T::i64, .i = d.dst },
+                                    { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr } };
+                _hal.emit("dup_drop", df, 3); );
             become_free();
             return;
         }
@@ -378,10 +394,11 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                    static_cast<double>(protocol::originator_airtime_warn_fraction) * airtime_cap_a));
     uint8_t abuf[3]; const size_t al = pack_ack(ain, std::span<uint8_t>(abuf, 3));
     tx_with_retry(abuf, al, static_cast<int16_t>(_cfg.routing_sf), FrameTag::ack);   // R4.5b: stash + tag the ACK
-    { EventField f[] = { { .key = "to",  .type = EventField::T::i64, .i = from },
-                         { .key = "ctr", .type = EventField::T::i64, .i = d.ctr },
-                         { .key = "airtime_warn", .type = EventField::T::i64, .i = ain.warn ? 1 : 0 } };
-      _hal.emit("ack_tx", f, 3); }
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "to",  .type = EventField::T::i64, .i = from },
+                           { .key = "ctr", .type = EventField::T::i64, .i = d.ctr },
+                           { .key = "airtime_warn", .type = EventField::T::i64, .i = ain.warn ? 1 : 0 } };
+        _hal.emit("ack_tx", f, 3); );
     if (live_dup) { become_free(); return; }                                        // same prev-hop dup -> ACK only
     for (auto it = _seen_origins.begin(); it != _seen_origins.end(); )              // prune expired (30s TTL)
         { if (it->second <= nowm) { _seen_origin_from.erase(it->first); it = _seen_origins.erase(it); } else ++it; }
@@ -408,11 +425,12 @@ void Node::do_post_ack() {
     _post_ack.pending = false;
     if (!pa.is_forward) {
         if (pa.flags & DATA_FLAG_E2E_IS_ACK) {           // an end-to-end ACK for a DM we originated -> confirm, not deliver
-            const uint16_t acked = (pa.inner_len >= 4)
-                                   ? static_cast<uint16_t>(pa.inner[2] | (pa.inner[3] << 8)) : 0;
-            EventField ef[] = { { .key = "from", .type = EventField::T::i64, .i = pa.origin },
-                                { .key = "ctr",  .type = EventField::T::i64, .i = acked } };
-            _hal.emit("e2e_ack_rx", ef, 2);
+            MR_TELEMETRY(
+                const uint16_t acked = (pa.inner_len >= 4)
+                                       ? static_cast<uint16_t>(pa.inner[2] | (pa.inner[3] << 8)) : 0;
+                EventField ef[] = { { .key = "from", .type = EventField::T::i64, .i = pa.origin },
+                                    { .key = "ctr",  .type = EventField::T::i64, .i = acked } };
+                _hal.emit("e2e_ack_rx", ef, 2); );
             become_free();
             return;
         }
@@ -421,13 +439,14 @@ void Node::do_post_ack() {
         const uint8_t blen = (pa.inner_len > 2) ? static_cast<uint8_t>(pa.inner_len - 2) : 0;
         for (uint8_t i = 0; i < blen; ++i) body[i] = static_cast<char>(pa.inner[2 + i]);
         body[blen] = '\0';
-        EventField f[] = {
-            { .key = "origin",  .type = EventField::T::i64, .i = pa.origin },
-            { .key = "dst",     .type = EventField::T::i64, .i = pa.dst },
-            { .key = "ctr",     .type = EventField::T::i64, .i = pa.ctr },
-            { .key = "payload", .type = EventField::T::str, .s = body },     // dm_delivery keys (dst, payload)
-        };
-        _hal.emit("delivered", f, 4);
+        MR_TELEMETRY(
+            EventField f[] = {
+                { .key = "origin",  .type = EventField::T::i64, .i = pa.origin },
+                { .key = "dst",     .type = EventField::T::i64, .i = pa.dst },
+                { .key = "ctr",     .type = EventField::T::i64, .i = pa.ctr },
+                { .key = "payload", .type = EventField::T::str, .s = body },     // dm_delivery keys (dst, payload)
+            };
+            _hal.emit("delivered", f, 4); );
         Push pu{}; pu.kind = PushKind::msg_recv; pu.origin = pa.origin; pu.dst = pa.dst; pu.ctr = pa.ctr;
         pu.body_len = blen; for (uint8_t i = 0; i < blen; ++i) pu.body[i] = static_cast<uint8_t>(body[i]);
         enqueue_push(pu);                                // app channel: the inbound message
@@ -466,7 +485,7 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // R4.2: consume the ACK's piggybacked budget_hint -> learn the next-hop's tier in the FORWARD
     // direction (the NACK only covers the reverse). local_only=true: rerank routes but DON'T dirty /
     // schedule a beacon (so NO triggered-beacon draw on the forward path). Lua dv:10341-10344.
-    int ack_budget_reranked = 0;
+    [[maybe_unused]] int ack_budget_reranked = 0;
     if (k.budget_hint > static_cast<uint8_t>(BudgetTier::healthy)) {
         const uint8_t tier = (k.budget_hint > static_cast<uint8_t>(BudgetTier::critical))
                              ? static_cast<uint8_t>(BudgetTier::critical) : k.budget_hint;
@@ -479,19 +498,21 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // window self-clears: as our airtime ages out of the neighbour's window it stops setting the bit.
     if (k.warn) {
         _ack_warn_until = _hal.now() + protocol::originator_ack_warn_backoff_ms;
-        EventField wf[] = { { .key = "from",   .type = EventField::T::i64, .i = _pending_tx->next },
-                            { .key = "ctr_lo", .type = EventField::T::i64, .i = k.ctr_lo },
-                            { .key = "backoff_until_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_ack_warn_until) } };
-        _hal.emit("originator_warned_by_ack", wf, 3);
+        MR_TELEMETRY(
+            EventField wf[] = { { .key = "from",   .type = EventField::T::i64, .i = _pending_tx->next },
+                                { .key = "ctr_lo", .type = EventField::T::i64, .i = k.ctr_lo },
+                                { .key = "backoff_until_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_ack_warn_until) } };
+            _hal.emit("originator_warned_by_ack", wf, 3); );
     }
-    EventField f[] = { { .key = "from",     .type = EventField::T::i64, .i = _pending_tx->next },   // ACK is from our next-hop (src_hint=-1 on metal)
-                       { .key = "origin",   .type = EventField::T::i64, .i = _pending_tx->origin },
-                       { .key = "dst",      .type = EventField::T::i64, .i = _pending_tx->dst },
-                       { .key = "ctr",      .type = EventField::T::i64, .i = _pending_tx->ctr },
-                       { .key = "budget_hint",     .type = EventField::T::i64, .i = k.budget_hint },
-                       { .key = "budget_reranked", .type = EventField::T::i64, .i = ack_budget_reranked },
-                       { .key = "airtime_warn",    .type = EventField::T::i64, .i = k.warn ? 1 : 0 } };
-    _hal.emit("ack_rx", f, 7);
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "from",     .type = EventField::T::i64, .i = _pending_tx->next },   // ACK is from our next-hop (src_hint=-1 on metal)
+                           { .key = "origin",   .type = EventField::T::i64, .i = _pending_tx->origin },
+                           { .key = "dst",      .type = EventField::T::i64, .i = _pending_tx->dst },
+                           { .key = "ctr",      .type = EventField::T::i64, .i = _pending_tx->ctr },
+                           { .key = "budget_hint",     .type = EventField::T::i64, .i = k.budget_hint },
+                           { .key = "budget_reranked", .type = EventField::T::i64, .i = ack_budget_reranked },
+                           { .key = "airtime_warn",    .type = EventField::T::i64, .i = k.warn ? 1 : 0 } };
+        _hal.emit("ack_rx", f, 7); );
     { Push pu{}; pu.kind = PushKind::send_acked; pu.dst = _pending_tx->dst; pu.ctr = _pending_tx->ctr; enqueue_push(pu); }
     _pending_tx.reset();
     become_free();
@@ -508,8 +529,9 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (!_pending_tx) return;                                       // no flight to react on
     if (_pending_tx->ctr_lo != n.ctr_lo) return;                    // stale (different flight)
     if (meta.src_hint >= 0 && static_cast<uint8_t>(meta.src_hint) != _pending_tx->next) {
-        EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = static_cast<uint8_t>(meta.src_hint) } };
-        _hal.emit("nack_drop_unexpected_src", f, 1);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = static_cast<uint8_t>(meta.src_hint) } };
+            _hal.emit("nack_drop_unexpected_src", f, 1); );
         return;
     }
     // Learn the NACK sender (= our next-hop) as a 1-hop neighbour (Lua learn_rx_source / nack_frame).
@@ -520,25 +542,27 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     PendingTx& pt = *_pending_tx;
 
     if (n.reason == protocol::nack_reason_loop_dup) {
-        const uint8_t from_next = pt.next;
+        [[maybe_unused]] const uint8_t from_next = pt.next;
         mark_tried(pt, pt.next);
         const uint8_t alt = pick_next_cascade_hop(pt);
         if (alt != 0) {                                            // cascade to an alt (NO jitter)
-            EventField f[] = { { .key = "origin",   .type = EventField::T::i64, .i = pt.origin },
-                               { .key = "dst",      .type = EventField::T::i64, .i = pt.dst },
-                               { .key = "ctr",      .type = EventField::T::i64, .i = pt.ctr },
-                               { .key = "from_next", .type = EventField::T::i64, .i = from_next },
-                               { .key = "next",     .type = EventField::T::i64, .i = alt } };
-            _hal.emit("path_cascade", f, 5);
-            _hal.emit("tx_loop_alt", f, 5);
+            MR_TELEMETRY(
+                EventField f[] = { { .key = "origin",   .type = EventField::T::i64, .i = pt.origin },
+                                   { .key = "dst",      .type = EventField::T::i64, .i = pt.dst },
+                                   { .key = "ctr",      .type = EventField::T::i64, .i = pt.ctr },
+                                   { .key = "from_next", .type = EventField::T::i64, .i = from_next },
+                                   { .key = "next",     .type = EventField::T::i64, .i = alt } };
+                _hal.emit("path_cascade", f, 5);
+                _hal.emit("tx_loop_alt", f, 5); );
             pt.next = alt;
             pt.retries_left = effective_rts_max_retries(pt.requeue_count);
             tx_rts_retry();
         } else {                                                  // LOOP_DUP miss -> DIRECT giveup (NOT requeue, dv:10588)
-            EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
-                               { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
-            _hal.emit("path_cascade_exhausted", f, 2);
-            _hal.emit("rts_giveup", f, 2);
+            MR_TELEMETRY(
+                EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
+                                   { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
+                _hal.emit("path_cascade_exhausted", f, 2);
+                _hal.emit("rts_giveup", f, 2); );
             { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
             _pending_tx.reset();
             become_free();
@@ -549,16 +573,18 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (n.reason == protocol::nack_reason_busy_rx) {
         const uint64_t now = _hal.now();
         const uint64_t busy_for = static_cast<uint64_t>(n.payload) * protocol::nack_busy_quantum_ms;
-        { EventField rf[] = { { .key = "from",   .type = EventField::T::i64, .i = pt.next },
-                              { .key = "reason", .type = EventField::T::i64, .i = protocol::nack_reason_busy_rx },
-                              { .key = "busy_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(busy_for) } };
-          _hal.emit("nack_rx", rf, 3); }
+        MR_TELEMETRY(
+            EventField rf[] = { { .key = "from",   .type = EventField::T::i64, .i = pt.next },
+                                { .key = "reason", .type = EventField::T::i64, .i = protocol::nack_reason_busy_rx },
+                                { .key = "busy_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(busy_for) } };
+            _hal.emit("nack_rx", rf, 3); );
         if (busy_for > 0) {                                        // mark the peer blind, max-merge (dv:10627)
             const uint64_t until = now + busy_for;
             auto bit = _blind_until.find(pt.next);
             _blind_until[pt.next] = (bit != _blind_until.end() && bit->second > until) ? bit->second : until;
-            EventField bf[] = { { .key = "next", .type = EventField::T::i64, .i = pt.next } };
-            _hal.emit("blind_observed", bf, 1);
+            MR_TELEMETRY(
+                EventField bf[] = { { .key = "next", .type = EventField::T::i64, .i = pt.next } };
+                _hal.emit("blind_observed", bf, 1); );
         }
         if (busy_for <= protocol::nack_wait_threshold_ms) {        // short busy -> wait SAME hop
             const int jit = _hal.rand_range(0, static_cast<int>(retry_jitter_ms()) + 1);   // N1 (the only new draw)
@@ -574,16 +600,18 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             it.fwd_remaining = pt.fwd_remaining; it.fwd_committed = pt.fwd_committed;   // carry hop budget (forwarder)
             it.requeue_count = pt.requeue_count; it.enqueue_time_ms = pt.enqueue_time_ms;   // VERBATIM (no ++/backoff)
             it.next_attempt_ms = 0;
-            EventField tf[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
-                                { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
-            _hal.emit("tx_requeued", tf, 2);
+            MR_TELEMETRY(
+                EventField tf[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
+                                    { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
+                _hal.emit("tx_requeued", tf, 2); );
             if (_tx_queue_n < kTxQueueCap) {
                 _tx_queue[_tx_queue_n++] = it;
             } else {                                              // queue full -> can't requeue; give up loudly
-                EventField gf[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
-                                    { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
-                _hal.emit("path_cascade_exhausted", gf, 2);
-                _hal.emit("rts_giveup", gf, 2);
+                MR_TELEMETRY(
+                    EventField gf[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
+                                        { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
+                    _hal.emit("path_cascade_exhausted", gf, 2);
+                    _hal.emit("rts_giveup", gf, 2); );
                 { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
             }
             _pending_tx.reset();
@@ -606,21 +634,24 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             const uint8_t new_hops = static_cast<uint8_t>(want > 15 ? 15 : want);   // 4-bit DV field clamp
             if (new_hops != e->candidates[0].hops) {
                 e->candidates[0].hops = new_hops;
-                EventField uf[] = { { .key = "dest", .type = EventField::T::i64, .i = pt.dst },
-                                    { .key = "next", .type = EventField::T::i64, .i = e->candidates[0].next_hop },
-                                    { .key = "hops", .type = EventField::T::i64, .i = new_hops },
-                                    { .key = "slot", .type = EventField::T::str, .s = "hop_budget_nack" } };
-                _hal.emit("rt_update", uf, 4);
+                MR_TELEMETRY(
+                    EventField uf[] = { { .key = "dest", .type = EventField::T::i64, .i = pt.dst },
+                                        { .key = "next", .type = EventField::T::i64, .i = e->candidates[0].next_hop },
+                                        { .key = "hops", .type = EventField::T::i64, .i = new_hops },
+                                        { .key = "slot", .type = EventField::T::str, .s = "hop_budget_nack" } };
+                    _hal.emit("rt_update", uf, 4); );
             }
         }
-        { EventField rf[] = { { .key = "from",      .type = EventField::T::i64, .i = pt.next },
-                              { .key = "reason",    .type = EventField::T::i64, .i = protocol::nack_reason_hop_budget },
-                              { .key = "committed", .type = EventField::T::i64, .i = committed } };
-          _hal.emit("nack_rx", rf, 3); }
-        EventField gf[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
-                            { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
-        _hal.emit("path_cascade_exhausted", gf, 2);
-        _hal.emit("rts_giveup", gf, 2);
+        MR_TELEMETRY(
+            EventField rf[] = { { .key = "from",      .type = EventField::T::i64, .i = pt.next },
+                                { .key = "reason",    .type = EventField::T::i64, .i = protocol::nack_reason_hop_budget },
+                                { .key = "committed", .type = EventField::T::i64, .i = committed } };
+            _hal.emit("nack_rx", rf, 3); );
+        MR_TELEMETRY(
+            EventField gf[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
+                                { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
+            _hal.emit("path_cascade_exhausted", gf, 2);
+            _hal.emit("rts_giveup", gf, 2); );
         { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
         _pending_tx.reset();
         become_free();
@@ -640,18 +671,20 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         auto bit = _blind_until.find(pt.next);
         if (bit == _blind_until.end() || until > bit->second) {
             _blind_until[pt.next] = until;
-            EventField bf[] = { { .key = "next", .type = EventField::T::i64, .i = pt.next } };
-            _hal.emit("blind_observed", bf, 1);
+            MR_TELEMETRY(
+                EventField bf[] = { { .key = "next", .type = EventField::T::i64, .i = pt.next } };
+                _hal.emit("blind_observed", bf, 1); );
         }
         // R4.2: record the persistent neighbor tier (routing-grade demotion beyond the blind window)
         // + rerank affected routes. local_only=false -> dirty + a triggered beacon if a primary moved.
         // Reads pt.next BEFORE try_cascade_requeue resets _pending_tx.
-        const int reranked = mark_neighbor_budget_tier(pt.next, tier, "nack_budget", /*local_only=*/false);
-        EventField rf[] = { { .key = "from",     .type = EventField::T::i64, .i = pt.next },
-                            { .key = "reason",   .type = EventField::T::i64, .i = protocol::nack_reason_budget },
-                            { .key = "tier",     .type = EventField::T::i64, .i = tier },
-                            { .key = "reranked", .type = EventField::T::i64, .i = reranked } };
-        _hal.emit("nack_rx", rf, 4);
+        [[maybe_unused]] const int reranked = mark_neighbor_budget_tier(pt.next, tier, "nack_budget", /*local_only=*/false);
+        MR_TELEMETRY(
+            EventField rf[] = { { .key = "from",     .type = EventField::T::i64, .i = pt.next },
+                                { .key = "reason",   .type = EventField::T::i64, .i = protocol::nack_reason_budget },
+                                { .key = "tier",     .type = EventField::T::i64, .i = tier },
+                                { .key = "reranked", .type = EventField::T::i64, .i = reranked } };
+            _hal.emit("nack_rx", rf, 4); );
         // requeue-or-giveup: the helper does both legs (caps -> exhausted+giveup+drop, else
         // requeue@backoff) + _pending_tx.reset() + become_free()/timer (dv:10449-10467). The caps
         // giveup event is "rts_giveup" (Lua dv:10462; "budget_low" is the trigger, not the name).

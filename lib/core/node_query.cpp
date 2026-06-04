@@ -63,10 +63,11 @@ void Node::send_req_sync_q(const char* reason) {
     uint8_t buf[8];
     const size_t n = pack_q(in, std::span<uint8_t>(buf, sizeof(buf)));
     if (n == 0) return;
-    EventField f[] = { { .key = "opcode",           .type = EventField::T::i64, .i = static_cast<uint8_t>(q_opcode::req_sync) },
-                       { .key = "rt_total",         .type = EventField::T::i64, .i = _rt_count },
-                       { .key = "requester_mobile", .type = EventField::T::i64, .i = _cfg.is_mobile ? 1 : 0 } };
-    _hal.emit("q_tx", f, 3);
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "opcode",           .type = EventField::T::i64, .i = static_cast<uint8_t>(q_opcode::req_sync) },
+                           { .key = "rt_total",         .type = EventField::T::i64, .i = _rt_count },
+                           { .key = "requester_mobile", .type = EventField::T::i64, .i = _cfg.is_mobile ? 1 : 0 } };
+        _hal.emit("q_tx", f, 3); );
     tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
 }
 
@@ -90,11 +91,12 @@ void Node::handle_q(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (q.src == _node_id) return;                               // loop guard — never answer ourselves
     if (q_responded_recently(q.opcode, q.src, q.dest)) return;   // recently answered this query -> skip
     mark_q_responded(q.opcode, q.src, q.dest);
-    { EventField f[] = { { .key = "from",             .type = EventField::T::i64, .i = q.src },
-                         { .key = "dest",             .type = EventField::T::i64, .i = q.dest },
-                         { .key = "opcode",           .type = EventField::T::i64, .i = q.opcode },
-                         { .key = "requester_mobile", .type = EventField::T::i64, .i = q.mobile ? 1 : 0 } };
-      _hal.emit("q_rx", f, 4); }
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "from",             .type = EventField::T::i64, .i = q.src },
+                           { .key = "dest",             .type = EventField::T::i64, .i = q.dest },
+                           { .key = "opcode",           .type = EventField::T::i64, .i = q.opcode },
+                           { .key = "requester_mobile", .type = EventField::T::i64, .i = q.mobile ? 1 : 0 } };
+        _hal.emit("q_rx", f, 4); );
     if (q.opcode == static_cast<uint8_t>(q_opcode::req_sync)) {
         schedule_sync_response(q.src, q.mobile);
         return;
@@ -116,10 +118,11 @@ void Node::schedule_sync_response(uint8_t requester, bool requester_mobile) {
     if (!_cfg.sync_response_enabled) return;
     const uint8_t route_n = _rt_count;
     if (route_n < _cfg.sync_response_min_routes) {              // route-starved responder skip (inert at default min=0)
-        EventField f[] = { { .key = "joiner",   .type = EventField::T::i64, .i = requester },
-                           { .key = "reason",   .type = EventField::T::str, .s = "rt_small" },
-                           { .key = "rt_total", .type = EventField::T::i64, .i = route_n } };
-        _hal.emit("sync_response_skip", f, 3);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "joiner",   .type = EventField::T::i64, .i = requester },
+                               { .key = "reason",   .type = EventField::T::str, .s = "rt_small" },
+                               { .key = "rt_total", .type = EventField::T::i64, .i = route_n } };
+            _hal.emit("sync_response_skip", f, 3); );
         return;
     }
     // One pending response per requester (Lua sync_response_pending[key]) — BEFORE the draw.
@@ -136,18 +139,20 @@ void Node::schedule_sync_response(uint8_t requester, bool requester_mobile) {
     for (uint8_t i = 0; i < protocol::cap_sync_response_pending; ++i)
         if (!_sync_pending[i].active) { slot = static_cast<int>(i); break; }
     if (slot < 0) {                                            // ring full (device cap; Lua unbounded) — drop AFTER the draw
-        EventField f[] = { { .key = "joiner", .type = EventField::T::i64, .i = requester } };
-        _hal.emit("sync_response_drop_full", f, 1);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "joiner", .type = EventField::T::i64, .i = requester } };
+            _hal.emit("sync_response_drop_full", f, 1); );
         return;
     }
     const uint64_t now = _hal.now();
     _sync_pending[slot] = { .active = true, .suppressed = false, .requester = requester,
                             .requester_mobile = requester_mobile, .requested_at = now, .fire_at = now + delay };
-    EventField f[] = { { .key = "joiner",            .type = EventField::T::i64, .i = requester },
-                       { .key = "delay_ms",         .type = EventField::T::i64, .i = static_cast<int64_t>(delay) },
-                       { .key = "rt_total",         .type = EventField::T::i64, .i = route_n },
-                       { .key = "requester_mobile", .type = EventField::T::i64, .i = requester_mobile ? 1 : 0 } };
-    _hal.emit("sync_response_scheduled", f, 4);
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "joiner",            .type = EventField::T::i64, .i = requester },
+                           { .key = "delay_ms",         .type = EventField::T::i64, .i = static_cast<int64_t>(delay) },
+                           { .key = "rt_total",         .type = EventField::T::i64, .i = route_n },
+                           { .key = "requester_mobile", .type = EventField::T::i64, .i = requester_mobile ? 1 : 0 } };
+        _hal.emit("sync_response_scheduled", f, 4); );
     (void)_hal.after(delay, kSyncResponseTimerId + static_cast<uint32_t>(slot));
 }
 
@@ -158,14 +163,16 @@ void Node::sync_response_fire(uint8_t slot) {
     if (!p.active) return;                                     // already fired / never armed
     p.active = false;
     if (p.suppressed) {                                        // a useful beacon was overheard in-window -> stand down
-        EventField f[] = { { .key = "joiner", .type = EventField::T::i64, .i = p.requester },
-                           { .key = "reason", .type = EventField::T::str, .s = "heard_useful_bcn" } };
-        _hal.emit("sync_response_suppressed", f, 2);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "joiner", .type = EventField::T::i64, .i = p.requester },
+                               { .key = "reason", .type = EventField::T::str, .s = "heard_useful_bcn" } };
+            _hal.emit("sync_response_suppressed", f, 2); );
         return;
     }
-    EventField f[] = { { .key = "joiner",   .type = EventField::T::i64, .i = p.requester },
-                       { .key = "rt_total", .type = EventField::T::i64, .i = _rt_count } };
-    _hal.emit("sync_response_tx", f, 2);
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "joiner",   .type = EventField::T::i64, .i = p.requester },
+                           { .key = "rt_total", .type = EventField::T::i64, .i = _rt_count } };
+        _hal.emit("sync_response_tx", f, 2); );
     emit_beacon("sync");                                       // full-table page (dirty_only=false for kind=="sync")
 }
 

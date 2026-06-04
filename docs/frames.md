@@ -25,6 +25,9 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 ---
 
 ## BCN — beacon · cmd 0x0 · variable
+
+**Use** — broadcast periodically (and on a change, jittered) on the routing SF; advertises DV routes, identity, schedule, seen-set, and a channel digest. **Reply** — none; neighbours merge the routes, and an unseen digest id triggers a `Q:CHANNEL_PULL`.
+
 Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` route entries, an optional 32-byte seen-bitmap, and an optional ext block.
 
 | Byte | Field | Description |
@@ -47,6 +50,8 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 
 ## RTS — request-to-send · cmd 0x1 · 7 B (9 B if M_BROADCAST)
 
+**Use** — reserve the single TX slot with the chosen `next` hop before DATA (after listen-before-talk + a budget check). **Reply** — **CTS** to proceed, or **NACK** if refused. The M_BROADCAST variant (channel re-broadcast) expects *no* CTS — overhearers retune to the data SF to catch the DATA.
+
 | Byte | Field | Description |
 |------|-------|-------------|
 | 0 | cmd \| leaf_id | bits 7..4 = `0x1`; bits 3..0 = leaf_id |
@@ -65,6 +70,8 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 
 ## CTS — clear-to-send · cmd 0x2 · 3 B
 
+**Use** — the next hop's grant of an RTS; names `chosen_data_sf`, and `already_received` aborts a needless resend (lost-ACK recovery). **Reply** — the sender's **DATA** follows (the CTS is not itself acked).
+
 | Byte | Field | Description |
 |------|-------|-------------|
 | 0 | cmd \| flags | bits 7..4 = `0x2`; b3..1 = `(chosen_data_sf − 5)`; b0 = `already_received` |
@@ -76,6 +83,8 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 ---
 
 ## DATA — data plane · cmd 0x3 · 18+n B
+
+**Use** — the payload, sent on the granted SF after a CTS, then relayed hop-by-hop (each hop re-runs RTS/CTS/DATA). **Reply** — **ACK** from the next hop, else **NACK**; with `E2E_ACK_REQ` the final destination returns an end-to-end ACK (a DATA with `E2E_IS_ACK`).
 
 | Byte | Field | Description |
 |------|-------|-------------|
@@ -97,6 +106,8 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 
 ## ACK — acknowledgement · cmd 0x4 · 3 B
 
+**Use** — the next hop confirms a DATA landed, ending the stop-and-wait flight; also carries `budget_hint`, `snr_bucket`, and the anti-spam `AIRTIME_WARN`. **Reply** — none.
+
 | Byte | Field | Description |
 |------|-------|-------------|
 | 0 | cmd \| ctr_lo | bits 7..4 = `0x4`; bits 3..0 = ctr_lo |
@@ -111,6 +122,8 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 
 ## NACK — negative acknowledgement · cmd 0x5 · 4 B
 
+**Use** — a receiver declines an RTS/DATA it can't take, with a `reason` and a retry-after `payload`. **Reply** — the sender backs off (`BUSY_RX`/`BUDGET`), reroutes (`HOP_BUDGET`), or drops (`LOOP_DUP`).
+
 | Byte | Field | Description |
 |------|-------|-------------|
 | 0 | cmd \| reason | bits 7..4 = `0x5`; bits 3..0 = reason |
@@ -123,6 +136,8 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 ---
 
 ## Q — query · cmd 0x6 · 4 B (+ CHANNEL_PULL body)
+
+**Use** — a 1-hop query. `REQ_SYNC` (dest `0xFF`): a (re)joining or mobile node asks neighbours to beacon now. `CHANNEL_PULL`: request the channel msgs whose ids a BCN digest showed missing. **Reply** — `REQ_SYNC` → a **BCN**; `CHANNEL_PULL` → the holder re-broadcasts each msg as **DATA (M_BROADCAST)**.
 
 | Byte | Field | Description |
 |------|-------|-------------|
@@ -139,6 +154,8 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 
 ## H — hash-locate flood · cmd 0x7 · 7 B
 
+**Use** — a gateway floods H (multi-hop TTL — the *only* forwardable control query) to resolve an identity `key_hash32` to a node in a target layer; `origin` is preserved so the answer can route home. **Reply** — the resolver routes the hash→short-id binding back to `origin`.
+
 | Byte | Field | Description |
 |------|-------|-------------|
 | 0 | cmd \| leaf_id | bits 7..4 = `0x7`; bits 3..0 = leaf_id |
@@ -149,6 +166,8 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 ---
 
 ## F — route-find RREQ/RREP flood · cmd 0x8 · 7 B
+
+**Use** — on-demand route discovery (AODV) when the table has no route: an **RREQ** (`is_reply=0`) floods toward `dst_id`. **Reply** — an **RREP** (`is_reply=1`) from the destination (or a node that already has a route), routed back to `origin`; `relay` is the next-hop that path-learning records.
 
 | Byte | Field           | Description                                                                                                |
 | ---- | --------------- | ---------------------------------------------------------------------------------------------------------- |
@@ -164,6 +183,9 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 ---
 
 ## J — join family · cmd 0x9 · 6 / 8 / 11 / 15 B
+
+**Use** — OTAA-style join: a new node claims a layer short-id with no central authority. **Flow** — **DISCOVER** (broadcast) → **OFFER** (a responder proposes terms) → **CLAIM** (claims a `proposed_node_id`) → **DENY** (on conflict, with `reason`) or the claim stands.
+
 Shared 2-byte header; body and length depend on opcode. All multi-byte fields **LE**.
 
 | Byte | Field | Description |

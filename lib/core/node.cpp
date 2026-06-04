@@ -218,9 +218,10 @@ bool Node::next_push(Push& out) {
 // (lbt_enabled=false + healthy duty) -> inert.
 void Node::on_radio_busy(const BusyInfo& info) {
     const FrameTag tag = static_cast<FrameTag>(info.tag);
-    { EventField f[] = { { .key = "reason",        .type = EventField::T::i64, .i = static_cast<uint8_t>(info.reason) },
-                         { .key = "busy_until_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(info.busy_until_ms) } };
-      _hal.emit("radio_busy", f, 2); }
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "reason",        .type = EventField::T::i64, .i = static_cast<uint8_t>(info.reason) },
+                           { .key = "busy_until_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(info.busy_until_ms) } };
+        _hal.emit("radio_busy", f, 2); );
     if (tag == FrameTag::rts && _pending_tx) {                      // RTS blocked: rts_timeout retries (dv:12089)
         // PORT DIVERGENCE (deliberate): Lua dv:12091 clears awaiting_cts here, but Lua's rts_timeout_fire does NOT
         // gate on it (it captures ctr_lo in the timer closure). OUR rts_timeout_fire uses awaiting_cts AS the
@@ -229,24 +230,27 @@ void Node::on_radio_busy(const BusyInfo& info) {
         // the node legitimately still awaits a CTS that won't come; leaving awaiting_cts=true lets the armed
         // rts_timeout fire + re-RTS, matching Lua's NET behaviour. Every other awaiting_cts=false transition cancels
         // kRtsTimeoutTimerId first (handle_cts:173, handle_nack:389), so the guard stays sound for those paths.
-        EventField f[] = { { .key = "next", .type = EventField::T::i64, .i = _pending_tx->next },
-                           { .key = "ctr",  .type = EventField::T::i64, .i = _pending_tx->ctr } };
-        _hal.emit("rts_tx_blocked", f, 2);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "next", .type = EventField::T::i64, .i = _pending_tx->next },
+                               { .key = "ctr",  .type = EventField::T::i64, .i = _pending_tx->ctr } };
+            _hal.emit("rts_tx_blocked", f, 2); );
     }
     if (tag == FrameTag::data && _pending_tx) {                     // DATA blocked: stash retry re-issues (dv:12109)
         _pending_tx->awaiting_ack = false;
         _hal.cancel(kAckTimeoutTimerId);
-        EventField f[] = { { .key = "next", .type = EventField::T::i64, .i = _pending_tx->next },
-                           { .key = "ctr",  .type = EventField::T::i64, .i = _pending_tx->ctr } };
-        _hal.emit("data_tx_blocked", f, 2);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "next", .type = EventField::T::i64, .i = _pending_tx->next },
+                               { .key = "ctr",  .type = EventField::T::i64, .i = _pending_tx->ctr } };
+            _hal.emit("data_tx_blocked", f, 2); );
     }
     const int slot = retry_slot_of(tag);
     if (slot < 0) return;                                          // RTS/beacon: not stash-retried
     TxStashSlot& s = _tx_stash[slot];
     if (!s.valid) return;                                          // stash cleared by a newer same-tag TX
     if (s.retries_left == 0) {                                     // exhausted -> give up (dv:12190)
-        EventField f[] = { { .key = "tag", .type = EventField::T::i64, .i = info.tag } };
-        _hal.emit("tx_giveup", f, 1);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "tag", .type = EventField::T::i64, .i = info.tag } };
+            _hal.emit("tx_giveup", f, 1); );
         s.valid = false;
         // SHARED-BUG FIX (#1, both engines): a DATA giveup STRANDS the flight — the DATA branch above cleared
         // awaiting_ack + cancelled the ack-timeout (and rts_timeout is moot), so _pending_tx would sit forever with

@@ -117,7 +117,7 @@ void Node::sort_candidates(RtEntry& e) {
 // R4.2: re-sort every rt entry that routes via `node_id` (>1 candidate) under the new tier penalty;
 // a primary change marks the entry dirty (unless local_only) + emits rt_penalty_rerank. One triggered
 // beacon if anything moved on a non-local mark. Lua dv:4255-4318.
-int Node::resort_routes_for_neighbor_penalty(uint8_t node_id, const char* source, bool local_only) {
+int Node::resort_routes_for_neighbor_penalty(uint8_t node_id, [[maybe_unused]] const char* source, bool local_only) {
     int changed = 0;
     for (uint8_t e = 0; e < _rt_count; ++e) {
         RtEntry& entry = _rt[e];
@@ -132,12 +132,13 @@ int Node::resort_routes_for_neighbor_penalty(uint8_t node_id, const char* source
         if (new_primary != old_primary) {
             if (!local_only) entry.dirty = true;
             ++changed;
-            EventField f[] = { { .key = "dest",      .type = EventField::T::i64, .i = entry.dest },
-                               { .key = "from_next",  .type = EventField::T::i64, .i = old_primary },
-                               { .key = "to_next",    .type = EventField::T::i64, .i = new_primary },
-                               { .key = "penalized",  .type = EventField::T::i64, .i = node_id },
-                               { .key = "reason",     .type = EventField::T::str, .s = source ? source : "neighbor_penalty" } };
-            _hal.emit("rt_penalty_rerank", f, 5);
+            MR_TELEMETRY(
+                EventField f[] = { { .key = "dest",      .type = EventField::T::i64, .i = entry.dest },
+                                   { .key = "from_next",  .type = EventField::T::i64, .i = old_primary },
+                                   { .key = "to_next",    .type = EventField::T::i64, .i = new_primary },
+                                   { .key = "penalized",  .type = EventField::T::i64, .i = node_id },
+                                   { .key = "reason",     .type = EventField::T::str, .s = source ? source : "neighbor_penalty" } };
+                _hal.emit("rt_penalty_rerank", f, 5); );
         }
     }
     if (changed > 0 && !local_only) schedule_triggered_beacon();   // re-advertise the new primaries
@@ -150,7 +151,7 @@ int Node::resort_routes_for_neighbor_penalty(uint8_t node_id, const char* source
 // `or entry` fallback, which our pick-based callers don't need). A primary change dirties + emits + schedules ONE
 // triggered beacon (the conditional draw), exactly like resort_routes_for_neighbor_penalty. Gate-inert: no tier change
 // in a gate -> the re-sort keeps the primary -> no draw -> byte-identical.
-RtEntry* Node::refresh_route_order(uint8_t dst, const char* reason) {
+RtEntry* Node::refresh_route_order(uint8_t dst, [[maybe_unused]] const char* reason) {
     RtEntry* e = rt_find(dst);
     if (e == nullptr || e->n < 2) return e;              // <2 candidates: nothing to re-rank
     const uint8_t old_primary = e->candidates[0].next_hop;
@@ -158,11 +159,12 @@ RtEntry* Node::refresh_route_order(uint8_t dst, const char* reason) {
     const uint8_t new_primary = e->candidates[0].next_hop;
     if (new_primary != old_primary) {
         e->dirty = true;
-        EventField f[] = { { .key = "dest",      .type = EventField::T::i64, .i = e->dest },
-                           { .key = "from_next",  .type = EventField::T::i64, .i = old_primary },
-                           { .key = "to_next",    .type = EventField::T::i64, .i = new_primary },
-                           { .key = "reason",     .type = EventField::T::str, .s = reason ? reason : "refresh_route_order" } };
-        _hal.emit("rt_penalty_rerank", f, 4);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "dest",      .type = EventField::T::i64, .i = e->dest },
+                               { .key = "from_next",  .type = EventField::T::i64, .i = old_primary },
+                               { .key = "to_next",    .type = EventField::T::i64, .i = new_primary },
+                               { .key = "reason",     .type = EventField::T::str, .s = reason ? reason : "refresh_route_order" } };
+            _hal.emit("rt_penalty_rerank", f, 4); );
         schedule_triggered_beacon();                     // re-advertise + the conditional rand draw (matches the Lua)
     }
     return e;
@@ -178,11 +180,12 @@ int Node::mark_neighbor_budget_tier(uint8_t node_id, uint8_t tier, const char* s
     _neighbor_budget_tier[node_id]        = tier;
     _neighbor_budget_tier_set_at[node_id] = _hal.now();
     const int reranked = resort_routes_for_neighbor_penalty(node_id, source, local_only);
-    EventField f[] = { { .key = "node",     .type = EventField::T::i64, .i = node_id },
-                       { .key = "tier",     .type = EventField::T::i64, .i = tier },
-                       { .key = "source",   .type = EventField::T::str, .s = source ? source : "unknown" },
-                       { .key = "reranked", .type = EventField::T::i64, .i = reranked } };
-    _hal.emit("neighbor_budget_mark", f, 4);
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "node",     .type = EventField::T::i64, .i = node_id },
+                           { .key = "tier",     .type = EventField::T::i64, .i = tier },
+                           { .key = "source",   .type = EventField::T::str, .s = source ? source : "unknown" },
+                           { .key = "reranked", .type = EventField::T::i64, .i = reranked } };
+        _hal.emit("neighbor_budget_mark", f, 4); );
     return reranked;
 }
 
@@ -238,8 +241,9 @@ Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand) {
 void Node::maybe_emit_rt_full() {
     if (_rt_full_emitted || _cfg.peer_count == 0) return;   // peer_count 0 = sim telemetry off
     if (_rt_count >= _cfg.peer_count) {
-        EventField f[] = { { .key = "peers", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.peer_count) } };
-        _hal.emit("rt_full", f, 1);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "peers", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.peer_count) } };
+            _hal.emit("rt_full", f, 1); );
         _rt_full_emitted = true;
     }
 }
@@ -277,13 +281,14 @@ void Node::age_out_stale_routes() {
             if (expired) {
                 any_evicted = true;
                 if (r == 0) primary_evicted = true;
-                EventField f[] = {
-                    { .key = "dest", .type = EventField::T::i64, .i = static_cast<int64_t>(e.dest) },
-                    { .key = "slot", .type = EventField::T::str, .s = (r == 0 ? "primary" : "alt") },
-                    { .key = "next", .type = EventField::T::i64, .i = static_cast<int64_t>(c.next_hop) },
-                    { .key = "hops", .type = EventField::T::i64, .i = static_cast<int64_t>(c.hops) },
-                };
-                _hal.emit("rt_aged", f, 4);
+                MR_TELEMETRY(
+                    EventField f[] = {
+                        { .key = "dest", .type = EventField::T::i64, .i = static_cast<int64_t>(e.dest) },
+                        { .key = "slot", .type = EventField::T::str, .s = (r == 0 ? "primary" : "alt") },
+                        { .key = "next", .type = EventField::T::i64, .i = static_cast<int64_t>(c.next_hop) },
+                        { .key = "hops", .type = EventField::T::i64, .i = static_cast<int64_t>(c.hops) },
+                    };
+                    _hal.emit("rt_aged", f, 4); );
             } else {
                 if (w != r) e.candidates[w] = e.candidates[r];
                 ++w;
@@ -315,12 +320,13 @@ void Node::rt_prune_cycle(uint8_t dest, uint8_t sender) {
         if (c.hops > 1 && c.n2_hop == sender) {
             mutated = true;
             if (r == 0) primary_pruned = true;
-            EventField f[] = {
-                { .key = "dest",   .type = EventField::T::i64, .i = static_cast<int64_t>(dest) },
-                { .key = "via",    .type = EventField::T::i64, .i = static_cast<int64_t>(c.next_hop) },
-                { .key = "sender", .type = EventField::T::i64, .i = static_cast<int64_t>(sender) },
-            };
-            _hal.emit("rt_prune", f, 3);
+            MR_TELEMETRY(
+                EventField f[] = {
+                    { .key = "dest",   .type = EventField::T::i64, .i = static_cast<int64_t>(dest) },
+                    { .key = "via",    .type = EventField::T::i64, .i = static_cast<int64_t>(c.next_hop) },
+                    { .key = "sender", .type = EventField::T::i64, .i = static_cast<int64_t>(sender) },
+                };
+                _hal.emit("rt_prune", f, 3); );
         } else {
             if (w != r) e->candidates[w] = e->candidates[r];
             ++w;

@@ -74,12 +74,13 @@ bool Node::channel_origin_admit(uint8_t origin, uint32_t msg_id) {
     L.n = k;
     if (dup) return true;                                       // repeat id -> refreshed + admitted, not re-counted
     if (L.n >= _cfg.channel_origin_max_per_window) {            // over cap -> drop the frame entirely
-        EventField f[] = { { .key = "origin",    .type = EventField::T::i64, .i = origin },
-                           { .key = "msg_id",    .type = EventField::T::i64, .i = static_cast<int64_t>(msg_id) },
-                           { .key = "count",     .type = EventField::T::i64, .i = L.n },
-                           { .key = "threshold", .type = EventField::T::i64, .i = _cfg.channel_origin_max_per_window },
-                           { .key = "window_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.channel_origin_window_ms) } };
-        _hal.emit("channel_drop_originator_throttle", f, 5);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "origin",    .type = EventField::T::i64, .i = origin },
+                               { .key = "msg_id",    .type = EventField::T::i64, .i = static_cast<int64_t>(msg_id) },
+                               { .key = "count",     .type = EventField::T::i64, .i = L.n },
+                               { .key = "threshold", .type = EventField::T::i64, .i = _cfg.channel_origin_max_per_window },
+                               { .key = "window_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.channel_origin_window_ms) } };
+            _hal.emit("channel_drop_originator_throttle", f, 5); );
         return false;
     }
     if (L.n < _cfg.channel_origin_max_per_window) L.ev[L.n++] = { msg_id, now };   // record the new distinct id
@@ -109,14 +110,15 @@ void Node::channel_buffer_add(const ChannelEntry& e) {
         bool safe = false;
         const int idx = channel_buffer_pick_eviction(&safe);
         if (idx >= 0) {
-            const uint32_t evicted_id = _channel_buffer[idx].id;
+            [[maybe_unused]] const uint32_t evicted_id = _channel_buffer[idx].id;
             // remove [idx], shift the tail down to keep insertion order (oldest at [0])
             const uint16_t tail = static_cast<uint16_t>(_channel_buffer_n - idx - 1);
             if (tail) std::memmove(&_channel_buffer[idx], &_channel_buffer[idx + 1], tail * sizeof(ChannelEntry));
             --_channel_buffer_n;
-            EventField f[] = { { .key = "id",   .type = EventField::T::i64, .i = static_cast<int64_t>(evicted_id) },
-                               { .key = "mode", .type = EventField::T::str, .s = safe ? "safe" : "fallback" } };
-            _hal.emit("channel_msg_evicted", f, 2);
+            MR_TELEMETRY(
+                EventField f[] = { { .key = "id",   .type = EventField::T::i64, .i = static_cast<int64_t>(evicted_id) },
+                                   { .key = "mode", .type = EventField::T::str, .s = safe ? "safe" : "fallback" } };
+                _hal.emit("channel_msg_evicted", f, 2); );
         }
     }
     _channel_buffer[_channel_buffer_n++] = e;
@@ -124,20 +126,22 @@ void Node::channel_buffer_add(const ChannelEntry& e) {
 
 // ---- promiscuous-overhear pull cancel (dv:11006). Phase 1: the ring is empty (scheduling is Phase 2),
 //      so this is a no-op today; wired now so the ingest path is complete. -------------------------
-void Node::cancel_channel_pull(uint32_t id, uint8_t overheard_from, bool peer_q) {
+void Node::cancel_channel_pull(uint32_t id, [[maybe_unused]] uint8_t overheard_from, bool peer_q) {
     for (uint8_t i = 0; i < protocol::cap_channel_pull_pending; ++i) {
         ChannelPullPending& p = _channel_pull_pending[i];
         if (p.active && p.id == id) {
             p.active = false;
             if (peer_q) {   // a peer's Q already pulled this id -> stand down so we don't double-pull (dv:11831)
-                EventField f[] = { { .key = "id",            .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
-                                   { .key = "overheard_from", .type = EventField::T::str, .s = "peer_q" },
-                                   { .key = "peer",          .type = EventField::T::i64, .i = overheard_from } };
-                _hal.emit("channel_pull_suppressed", f, 3);
+                MR_TELEMETRY(
+                    EventField f[] = { { .key = "id",            .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
+                                       { .key = "overheard_from", .type = EventField::T::str, .s = "peer_q" },
+                                       { .key = "peer",          .type = EventField::T::i64, .i = overheard_from } };
+                    _hal.emit("channel_pull_suppressed", f, 3); );
             } else {        // we received the msg (overheard M-broadcast) -> drop the now-moot pull (dv:11006)
-                EventField f[] = { { .key = "id",            .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
-                                   { .key = "overheard_from", .type = EventField::T::i64, .i = overheard_from } };
-                _hal.emit("channel_pull_suppressed", f, 2);
+                MR_TELEMETRY(
+                    EventField f[] = { { .key = "id",            .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
+                                       { .key = "overheard_from", .type = EventField::T::i64, .i = overheard_from } };
+                    _hal.emit("channel_pull_suppressed", f, 2); );
             }
         }
     }
@@ -146,7 +150,7 @@ void Node::cancel_channel_pull(uint32_t id, uint8_t overheard_from, bool peer_q)
 // ---- DATA-M ingestion (dv:10942): admit (gateways included) -> if !gateway, merge into the buffer
 //      (new -> add+dirty+seen_by+cancel-pull; existing -> mark seen_by). The caller (handle_data)
 //      handles the ACK / forward of the underlying DATA frame; this is the gossip side-effect. -----
-void Node::ingest_channel_m(const data_m_inner& m, uint8_t next, uint8_t dst, uint8_t from) {
+void Node::ingest_channel_m(const data_m_inner& m, uint8_t next, [[maybe_unused]] uint8_t dst, uint8_t from) {
     const uint32_t id     = m.channel_msg_id;
     const uint8_t  origin = static_cast<uint8_t>((id >> 24) & 0xff);    // the minter (dv:2912)
     if (!channel_origin_admit(origin, id)) return;             // over per-origin budget -> drop (not buffered/forwarded by caller)
@@ -161,26 +165,29 @@ void Node::ingest_channel_m(const data_m_inner& m, uint8_t next, uint8_t dst, ui
                                               ? protocol::channel_msg_max_payload_bytes : m.body.size());
         if (e.payload_len) std::memcpy(e.payload, m.body.data(), e.payload_len);
         channel_buffer_add(e);
-        const char* src = (next == _node_id && dst == _node_id) ? "pull_target"
-                        : (next == _node_id)                    ? "forwarder" : "overheard";
-        EventField f[] = { { .key = "id",         .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
-                           { .key = "channel_id", .type = EventField::T::i64, .i = m.channel_id },
-                           { .key = "source",     .type = EventField::T::str, .s = src },
-                           { .key = "from",       .type = EventField::T::i64, .i = from } };
-        _hal.emit("channel_msg_received", f, 4);
+        MR_TELEMETRY(
+            const char* src = (next == _node_id && dst == _node_id) ? "pull_target"
+                            : (next == _node_id)                    ? "forwarder" : "overheard";
+            EventField f[] = { { .key = "id",         .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
+                               { .key = "channel_id", .type = EventField::T::i64, .i = m.channel_id },
+                               { .key = "source",     .type = EventField::T::str, .s = src },
+                               { .key = "from",       .type = EventField::T::i64, .i = from } };
+            _hal.emit("channel_msg_received", f, 4); );
         if (next != _node_id) {                               // overheard (not addressed to us) -> the analyzer's cascade-overlap signal (dv:11001)
-            EventField fo[] = { { .key = "id",          .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
-                                { .key = "channel_id",  .type = EventField::T::i64, .i = m.channel_id },
-                                { .key = "from",        .type = EventField::T::i64, .i = from },
-                                { .key = "intended_to", .type = EventField::T::i64, .i = next } };
-            _hal.emit("channel_msg_overheard", fo, 4);
+            MR_TELEMETRY(
+                EventField fo[] = { { .key = "id",          .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
+                                    { .key = "channel_id",  .type = EventField::T::i64, .i = m.channel_id },
+                                    { .key = "from",        .type = EventField::T::i64, .i = from },
+                                    { .key = "intended_to", .type = EventField::T::i64, .i = next } };
+                _hal.emit("channel_msg_overheard", fo, 4); );
         }
         cancel_channel_pull(id, from);                        // we got it -> drop any pending pull for it
     } else {                                                   // ALREADY HAVE IT -> just track the holder
         channel_mark_seen_by(id, from);
-        EventField f[] = { { .key = "id",   .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
-                           { .key = "from", .type = EventField::T::i64, .i = from } };
-        _hal.emit("channel_msg_already_present", f, 2);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "id",   .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
+                               { .key = "from", .type = EventField::T::i64, .i = from } };
+            _hal.emit("channel_msg_already_present", f, 2); );
     }
 }
 
@@ -198,10 +205,11 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
     if (e.payload_len) std::memcpy(e.payload, body, e.payload_len);
     channel_buffer_add(e);
     self_originate_observe();                                  // Inc 4: channels share the DM self-cap ledger
-    EventField f[] = { { .key = "id",         .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
-                       { .key = "channel_id", .type = EventField::T::i64, .i = channel_id },
-                       { .key = "source",     .type = EventField::T::str, .s = "self_originate" } };
-    _hal.emit("channel_msg_received", f, 3);
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "id",         .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
+                           { .key = "channel_id", .type = EventField::T::i64, .i = channel_id },
+                           { .key = "source",     .type = EventField::T::str, .s = "self_originate" } };
+        _hal.emit("channel_msg_received", f, 3); );
     return c;
 }
 
@@ -225,11 +233,12 @@ size_t Node::build_channel_digest_ext(uint8_t* out, size_t cap) {
         ids[count++] = e.id;
         if (++e.bcn_ad_count >= _cfg.channel_dirty_max_advertisements) {   // K: per-node override (Lua k_max = node.channel_dirty_max_advertisements or 3)
             e.dirty = false;                                       // retire from advertising (still answers pulls)
-            EventField f[] = { { .key = "id",         .type = EventField::T::i64, .i = static_cast<int64_t>(e.id) },
-                               { .key = "channel_id", .type = EventField::T::i64, .i = e.channel_id },
-                               { .key = "ad_count",   .type = EventField::T::i64, .i = e.bcn_ad_count },
-                               { .key = "threshold",  .type = EventField::T::i64, .i = _cfg.channel_dirty_max_advertisements } };
-            _hal.emit("channel_dirty_cleared", f, 4);
+            MR_TELEMETRY(
+                EventField f[] = { { .key = "id",         .type = EventField::T::i64, .i = static_cast<int64_t>(e.id) },
+                                   { .key = "channel_id", .type = EventField::T::i64, .i = e.channel_id },
+                                   { .key = "ad_count",   .type = EventField::T::i64, .i = e.bcn_ad_count },
+                                   { .key = "threshold",  .type = EventField::T::i64, .i = _cfg.channel_dirty_max_advertisements } };
+                _hal.emit("channel_dirty_cleared", f, 4); );
         }
     }
     if (count == 0) return 0;
@@ -285,15 +294,17 @@ void Node::process_channel_digest(uint8_t src, const uint32_t* ids, uint8_t coun
             for (uint8_t s = 0; s < protocol::cap_channel_pull_pending; ++s)
                 if (!_channel_pull_pending[s].active) { slot = static_cast<int>(s); break; }
         if (slot < 0) {                                           // ring full (Lua unbounded) — drop after the draw
-            EventField f[] = { { .key = "id", .type = EventField::T::i64, .i = static_cast<int64_t>(id) } };
-            _hal.emit("channel_pull_drop_full", f, 1);
+            MR_TELEMETRY(
+                EventField f[] = { { .key = "id", .type = EventField::T::i64, .i = static_cast<int64_t>(id) } };
+                _hal.emit("channel_pull_drop_full", f, 1); );
             continue;
         }
         _channel_pull_pending[slot] = { /*active*/true, id, src, /*requested_at*/now, /*fire_at*/now + jitter };
-        EventField f[] = { { .key = "id",       .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
-                           { .key = "target",   .type = EventField::T::i64, .i = src },
-                           { .key = "delay_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(jitter) } };
-        _hal.emit("channel_pull_scheduled", f, 3);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "id",       .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
+                               { .key = "target",   .type = EventField::T::i64, .i = src },
+                               { .key = "delay_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(jitter) } };
+            _hal.emit("channel_pull_scheduled", f, 3); );
         (void)_hal.after(jitter, kChannelPullTimerId + static_cast<uint32_t>(slot));
     }
 }
@@ -307,9 +318,10 @@ void Node::channel_pull_fire(uint8_t slot) {
     p.active = false;
     const uint32_t id = p.id; const uint8_t target = p.target;
     if (channel_buffer_find(id) >= 0) {                           // got it via promiscuous overhear -> stand down
-        EventField f[] = { { .key = "id",             .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
-                           { .key = "overheard_from", .type = EventField::T::str, .s = "promiscuous_receive" } };
-        _hal.emit("channel_pull_suppressed", f, 2);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "id",             .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
+                               { .key = "overheard_from", .type = EventField::T::str, .s = "promiscuous_receive" } };
+            _hal.emit("channel_pull_suppressed", f, 2); );
         return;
     }
     q_in in{};
@@ -319,10 +331,11 @@ void Node::channel_pull_fire(uint8_t slot) {
     uint8_t buf[16];
     const size_t n = pack_q(in, std::span<uint8_t>(buf, sizeof(buf)));
     if (n == 0) return;
-    EventField f[] = { { .key = "id",      .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
-                       { .key = "target",  .type = EventField::T::i64, .i = target },
-                       { .key = "trigger", .type = EventField::T::str, .s = "bcn_digest" } };  // only trigger today: a BCN digest advertised an unknown id (dv:3600)
-    _hal.emit("channel_pull_sent", f, 3);
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "id",      .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
+                           { .key = "target",  .type = EventField::T::i64, .i = target },
+                           { .key = "trigger", .type = EventField::T::str, .s = "bcn_digest" } };  // only trigger today: a BCN digest advertised an unknown id (dv:3600)
+        _hal.emit("channel_pull_sent", f, 3); );
     tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
     channel_pull_mark(id);                                        // dedup re-pulls for the window
 }
@@ -362,9 +375,10 @@ void Node::enqueue_channel_m(uint8_t target, const ChannelEntry& e) {
     item.inner_len = static_cast<uint8_t>(6 + e.payload_len);
     item.enqueue_time_ms = _hal.now();
     _tx_queue[_tx_queue_n++] = item;
-    EventField f[] = { { .key = "id", .type = EventField::T::i64, .i = static_cast<int64_t>(e.id) },
-                       { .key = "to", .type = EventField::T::i64, .i = target } };
-    _hal.emit("channel_broadcast_tx", f, 2);
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "id", .type = EventField::T::i64, .i = static_cast<int64_t>(e.id) },
+                           { .key = "to", .type = EventField::T::i64, .i = target } };
+        _hal.emit("channel_broadcast_tx", f, 2); );
 }
 
 // CHANNEL_PULL responder (dv:11821): cancel my own pending pulls for the requested ids (a peer is
@@ -381,17 +395,20 @@ void Node::handle_channel_pull(uint8_t src, uint8_t dest, const uint32_t* ids, u
         if (e < 0) continue;                                     // we don't hold it
         if (!channel_m_in_flight(ids[i])) { enqueue_channel_m(src, _channel_buffer[e]); any = true; }
         else {
-            EventField f[] = { { .key = "id", .type = EventField::T::i64, .i = static_cast<int64_t>(ids[i]) },
-                               { .key = "requester", .type = EventField::T::i64, .i = src } };
-            _hal.emit("channel_broadcast_deduped", f, 2);        // an existing M-tx already satisfies this id
+            MR_TELEMETRY(
+                EventField f[] = { { .key = "id", .type = EventField::T::i64, .i = static_cast<int64_t>(ids[i]) },
+                                   { .key = "requester", .type = EventField::T::i64, .i = src } };
+                _hal.emit("channel_broadcast_deduped", f, 2); );      // an existing M-tx already satisfies this id
         }
         channel_mark_seen_by(ids[i], src);                       // the requester expects to receive it
     }
-    { EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = src } };
-      _hal.emit("channel_pull_received", f, 1); }
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = src } };
+        _hal.emit("channel_pull_received", f, 1); );
     if (any) {
-        EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = src } };  // we held >=1 requested id and re-broadcast it to the puller (dv:11910)
-        _hal.emit("channel_msg_pulled", f, 1);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = src } };  // we held >=1 requested id and re-broadcast it to the puller (dv:11910)
+            _hal.emit("channel_msg_pulled", f, 1); );
         become_free();                                           // kick the queue to start the M-broadcast
     }
 }

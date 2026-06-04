@@ -84,16 +84,17 @@ uint8_t Node::effective_rts_max_retries(uint8_t requeue_count) const {
 void Node::cascade_to_alt(const char* giveup_event) {
     if (!_pending_tx) return;
     PendingTx& pt = *_pending_tx;
-    const uint8_t from_next = pt.next;               // the hop that just failed (capture before overwrite)
+    [[maybe_unused]] const uint8_t from_next = pt.next;   // the hop that just failed (capture before overwrite)
     mark_tried(pt, pt.next);
     const uint8_t alt = pick_next_cascade_hop(pt);
     if (alt != 0) {
-        EventField f[] = { { .key = "origin",   .type = EventField::T::i64, .i = pt.origin },
-                           { .key = "dst",      .type = EventField::T::i64, .i = pt.dst },
-                           { .key = "ctr",      .type = EventField::T::i64, .i = pt.ctr },
-                           { .key = "from_next", .type = EventField::T::i64, .i = from_next },
-                           { .key = "next",     .type = EventField::T::i64, .i = alt } };
-        _hal.emit("path_cascade", f, 5);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "origin",   .type = EventField::T::i64, .i = pt.origin },
+                               { .key = "dst",      .type = EventField::T::i64, .i = pt.dst },
+                               { .key = "ctr",      .type = EventField::T::i64, .i = pt.ctr },
+                               { .key = "from_next", .type = EventField::T::i64, .i = from_next },
+                               { .key = "next",     .type = EventField::T::i64, .i = alt } };
+            _hal.emit("path_cascade", f, 5); );
         pt.next = alt;
         pt.retries_left = effective_rts_max_retries(pt.requeue_count);   // requeue-aware budget on the alt
         tx_rts_retry();                                  // re-RTS on the alt — NO jitter (re-arms kRtsTimeoutTimerId)
@@ -105,15 +106,16 @@ void Node::cascade_to_alt(const char* giveup_event) {
 // All candidates exhausted: requeue the flight onto _tx_queue with a pure
 // exponential backoff (held idle until kCascadeRequeueTimerId fires), or — once the
 // requeue-count / total-age caps are hit — a true giveup (dv:6159-6213).
-void Node::try_cascade_requeue(const PendingTx& pt, const char* giveup_event) {
+void Node::try_cascade_requeue(const PendingTx& pt, [[maybe_unused]] const char* giveup_event) {
     const uint64_t now = _hal.now();
     const bool count_done = pt.requeue_count >= protocol::cascade_requeue_max;
     const bool age_done   = (now - pt.enqueue_time_ms) >= protocol::cascade_requeue_total_max_ms;
-    EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
-                       { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
     if (count_done || age_done || _tx_queue_n >= kTxQueueCap) {
-        _hal.emit("path_cascade_exhausted", f, 2);
-        _hal.emit(giveup_event, f, 2);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
+                               { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
+            _hal.emit("path_cascade_exhausted", f, 2);
+            _hal.emit(giveup_event, f, 2); );
         { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
         _pending_tx.reset();
         become_free();
@@ -131,9 +133,11 @@ void Node::try_cascade_requeue(const PendingTx& pt, const char* giveup_event) {
     // (become_free scans for the first ready item), so a concurrent become_free
     // can't skip the hold. The timer is just the wakeup at the ready time.
     it.next_attempt_ms = now + requeue_backoff_ms(it.requeue_count);
-    { EventField rf[] = { f[0], f[1],
-        { .key = "requeue_count", .type = EventField::T::i64, .i = it.requeue_count } };
-      _hal.emit("cascade_requeue", rf, 3); }
+    MR_TELEMETRY(
+        EventField rf[] = { { .key = "dst",           .type = EventField::T::i64, .i = it.dst },
+                            { .key = "ctr",           .type = EventField::T::i64, .i = it.ctr },
+                            { .key = "requeue_count", .type = EventField::T::i64, .i = it.requeue_count } };
+        _hal.emit("cascade_requeue", rf, 3); );
     _tx_queue[_tx_queue_n++] = it;                       // tail; held by next_attempt_ms until the backoff
     _pending_tx.reset();
     (void)_hal.after(requeue_backoff_ms(it.requeue_count), kCascadeRequeueTimerId);
@@ -143,18 +147,20 @@ void Node::try_cascade_requeue(const PendingTx& pt, const char* giveup_event) {
 // route (drain-on-rt_changed) or the periodic 1s drain ages it out by send_defer_ttl.
 void Node::defer_send(const TxItem& item) {
     if (_deferred_n >= protocol::cap_deferred_sends) {   // full -> REFUSE the NEW send (Lua table_cap_hit
-        EventField cf[] = {                              // dv:5549-5553), NOT drop-oldest. Complete the
-            { .key = "dst", .type = EventField::T::i64, .i = item.dst },   // app future so it never hangs.
-            { .key = "ctr", .type = EventField::T::i64, .i = item.ctr } };
-        _hal.emit("send_deferred_refused", cf, 2);
+        MR_TELEMETRY(
+            EventField cf[] = {                          // dv:5549-5553), NOT drop-oldest. Complete the
+                { .key = "dst", .type = EventField::T::i64, .i = item.dst },   // app future so it never hangs.
+                { .key = "ctr", .type = EventField::T::i64, .i = item.ctr } };
+            _hal.emit("send_deferred_refused", cf, 2); );
         { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = item.dst; pu.ctr = item.ctr; enqueue_push(pu); }
         return;
     }
     DeferredSend d{}; d.item = item; d.deferred_at_ms = _hal.now();
     _deferred[_deferred_n++] = d;
-    EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = item.dst },
-                       { .key = "ctr", .type = EventField::T::i64, .i = item.ctr } };
-    _hal.emit("send_deferred", f, 2);
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = item.dst },
+                           { .key = "ctr", .type = EventField::T::i64, .i = item.ctr } };
+        _hal.emit("send_deferred", f, 2); );
     emit_route_request(item.dst, 1);                     // ask for a route: cheap ttl=1 probe (Lua emit_route_request)
     if (!_drain_armed) {                                 // arm the periodic TTL-giveup drain
         _drain_armed = true;
@@ -174,23 +180,25 @@ void Node::try_drain_deferred() {
     uint8_t  w = 0;                                       // compaction write cursor (insertion order kept)
     for (uint8_t r = 0; r < _deferred_n; ++r) {
         DeferredSend d = _deferred[r];
-        EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = d.item.dst },
-                           { .key = "ctr", .type = EventField::T::i64, .i = d.item.ctr } };
         // TTL FIRST (the defer_ttl_route_exists_trap fix, dv:6775-6782): age out a
         // held send BEFORE checking route-exists, else a flapping route never lets
         // it expire (the s12 477-defer infinite loop).
         if ((now - d.deferred_at_ms) >= protocol::send_defer_ttl_ms) {
-            _hal.emit("send_deferred_giveup", f, 2);
+            MR_TELEMETRY(
+                EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = d.item.dst },
+                                   { .key = "ctr", .type = EventField::T::i64, .i = d.item.ctr } };
+                _hal.emit("send_deferred_giveup", f, 2); );
             { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = d.item.dst; pu.ctr = d.item.ctr; enqueue_push(pu); }
             continue;                                    // drop (don't keep)
         }
         RtEntry* e = rt_find(d.item.dst);
         if (e != nullptr && e->n > 0) {
-            { EventField sf[] = { { .key = "origin",    .type = EventField::T::i64, .i = d.item.origin },
-                                  { .key = "dst",       .type = EventField::T::i64, .i = d.item.dst },
-                                  { .key = "ctr",       .type = EventField::T::i64, .i = d.item.ctr },
-                                  { .key = "waited_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(now - d.deferred_at_ms) } };
-              _hal.emit("send_drained", sf, 4); }        // route appeared (dv:6953) — the held send flies
+            MR_TELEMETRY(
+                EventField sf[] = { { .key = "origin",    .type = EventField::T::i64, .i = d.item.origin },
+                                    { .key = "dst",       .type = EventField::T::i64, .i = d.item.dst },
+                                    { .key = "ctr",       .type = EventField::T::i64, .i = d.item.ctr },
+                                    { .key = "waited_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(now - d.deferred_at_ms) } };
+                _hal.emit("send_drained", sf, 4); );      // route appeared (dv:6953) — the held send flies
             drained[drained_n++] = d.item;               // route appeared -> drain to the queue HEAD below
             continue;
         }
@@ -243,7 +251,7 @@ void Node::pending_rx_expiry_fire() {
     if (!_pending_rx) return;
     _hal.set_rx_sf(_cfg.routing_sf);
     _pending_rx.reset();
-    _hal.emit("data_rx_timeout", nullptr, 0);
+    MR_TELEMETRY( _hal.emit("data_rx_timeout", nullptr, 0); );
     become_free();
 }
 

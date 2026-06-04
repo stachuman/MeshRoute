@@ -50,7 +50,7 @@ uint32_t Node::retry_jitter_ms() const { return 3 * airtime_routing_ms(8); }
 // Build + enqueue an app DATA. `tx_event` separates an app send ("tx_enqueue", the dm_delivery
 // record-creation key) from an internal protocol DATA like the E2E ack ("e2e_ack_tx") that must NOT
 // be counted as an app DM.
-uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, const char* tx_event) {
+uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, [[maybe_unused]] const char* tx_event) {
     const uint16_t ctr = next_ctr(dst);
     TxItem item{};
     item.origin = _node_id; item.dst = dst; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
@@ -64,20 +64,22 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     // drop is the backstop; this is the polite sender-side half. next_attempt_ms gates the dequeue.
     if (_ack_warn_until > _hal.now()) {
         item.next_attempt_ms = _ack_warn_until;
+        MR_TELEMETRY(
         EventField bf[] = { { .key = "origin", .type = EventField::T::i64, .i = item.origin },
                             { .key = "dst",    .type = EventField::T::i64, .i = item.dst },
                             { .key = "ctr",    .type = EventField::T::i64, .i = item.ctr },
                             { .key = "until_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_ack_warn_until) } };
-        _hal.emit("origination_backoff_ack_warn", bf, 4);
+        _hal.emit("origination_backoff_ack_warn", bf, 4); );
     }
     if (_tx_queue_n < kTxQueueCap) _tx_queue[_tx_queue_n++] = item;
+    MR_TELEMETRY(
     EventField f[] = {
         { .key = "origin", .type = EventField::T::i64, .i = item.origin },
         { .key = "dst",    .type = EventField::T::i64, .i = item.dst },
         { .key = "ctr",    .type = EventField::T::i64, .i = item.ctr },
         { .key = "depth",  .type = EventField::T::i64, .i = _tx_queue_n },
     };
-    _hal.emit(tx_event, f, 4);
+    _hal.emit(tx_event, f, 4); );
     become_free();
     return ctr;
 }
@@ -127,13 +129,14 @@ void Node::become_free() {
             uint64_t until = oldest + protocol::originator_window_ms;
             if (until <= now) until = now + 1;
             _tx_queue[pick].next_attempt_ms = until;          // defer in place
+            MR_TELEMETRY(
             EventField f[] = { { .key = "origin",    .type = EventField::T::i64, .i = _tx_queue[pick].origin },
                                { .key = "dst",       .type = EventField::T::i64, .i = _tx_queue[pick].dst },
                                { .key = "ctr",       .type = EventField::T::i64, .i = _tx_queue[pick].ctr },
                                { .key = "own_count", .type = EventField::T::i64, .i = own },
                                { .key = "cap",       .type = EventField::T::i64, .i = _cfg.originator_self_cap_per_window },
                                { .key = "until_ms",  .type = EventField::T::i64, .i = static_cast<int64_t>(until) } };
-            _hal.emit("originator_self_defer", f, 6);
+            _hal.emit("originator_self_defer", f, 6); );
             become_free();                                    // re-pick (skips the now-deferred item)
             return;
         }
@@ -184,10 +187,11 @@ void Node::tx_m_broadcast_rts() {
     uint8_t buf[11];                                            // RTS(8) + id_lo16(2)
     const size_t l = pack_rts(rin, std::span<uint8_t>(buf, sizeof(buf)));
     if (l == 0) { _hal.log("M-broadcast RTS pack failed"); return; }
+    MR_TELEMETRY(
     EventField f[] = { { .key = "dst",  .type = EventField::T::i64, .i = pt.dst },
                        { .key = "next", .type = EventField::T::i64, .i = pt.next },
                        { .key = "ctr",  .type = EventField::T::i64, .i = pt.ctr } };
-    _hal.emit("rts_tx", f, 3);
+    _hal.emit("rts_tx", f, 3); );
     tx_initiating(buf, l, static_cast<int16_t>(_cfg.routing_sf), LbtKind::rts, pt.flight_gen);
     // The RTS->DATA gap is armed in start_rts_timeout (the actual-TX hand-off, after any LBT/duty defer = the
     // Lua's on_handed, dv:7032) — NOT here at issue. Arming at issue desyncs the DATA when the RTS is deferred:
@@ -220,8 +224,9 @@ void Node::issue_send(const TxItem& item) {
         // can't hold someone else's transit); an ORIGINATOR defers the message
         // until a beacon installs a route or the defer-TTL expires (dv:7049-7052).
         if (item.is_forward) {
+            MR_TELEMETRY(
             EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = item.dst } };
-            _hal.emit("send_no_route", f, 1);
+            _hal.emit("send_no_route", f, 1); );
         } else {
             defer_send(item);
         }
@@ -245,12 +250,13 @@ void Node::tx_rts_retry() {
     uint8_t buf[9];
     const size_t l = pack_rts(rin, std::span<uint8_t>(buf, sizeof(buf)));
     if (l == 0) { _hal.log("RTS pack failed"); return; }
+    MR_TELEMETRY(
     EventField f[] = {
         { .key = "dst",  .type = EventField::T::i64, .i = pt.dst },
         { .key = "next", .type = EventField::T::i64, .i = pt.next },
         { .key = "ctr",  .type = EventField::T::i64, .i = pt.ctr },
     };
-    _hal.emit("rts_tx", f, 3);                           // emit at the call site (before the LBT defer, dv-faithful)
+    _hal.emit("rts_tx", f, 3); );                        // emit at the call site (before the LBT defer, dv-faithful)
     // R4.5: the actual TX + start_rts_timeout go through the LBT wrapper (defer if the channel is busy). RX stays
     // on routing_sf. lbt_enabled=false (every gate) -> straight TX + timeout, byte-identical.
     tx_initiating(buf, l, static_cast<int16_t>(_cfg.routing_sf), LbtKind::rts, pt.flight_gen);
@@ -266,10 +272,11 @@ void Node::tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind k
         if (busy_until > now) {
             const uint32_t wait  = static_cast<uint32_t>(busy_until - now);
             const uint32_t delay = wait + static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(_lbt_backoff_ms) + 1));
+            MR_TELEMETRY(
             EventField f[] = { { .key = "kind",          .type = EventField::T::str, .s = "initiating" },
                                { .key = "defer_ms",      .type = EventField::T::i64, .i = delay },
                                { .key = "busy_until_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(busy_until) } };
-            _hal.emit("tx_lbt_defer", f, 3);
+            _hal.emit("tx_lbt_defer", f, 3); );
             schedule_lbt_defer(bytes, len, sf, kind, rts_flight_gen, delay);
             return;
         }
@@ -290,8 +297,9 @@ bool Node::schedule_lbt_defer(const uint8_t* bytes, size_t len, int16_t sf, LbtK
         (void)_hal.after(delay, kLbtDeferTimerId + s);
         return true;
     }
+    MR_TELEMETRY(
     EventField f[] = { { .key = "kind", .type = EventField::T::i64, .i = static_cast<uint8_t>(kind) } };
-    _hal.emit("tx_lbt_defer_dropped", f, 1);                            // ring full -> drop loudly
+    _hal.emit("tx_lbt_defer_dropped", f, 1); );                         // ring full -> drop loudly
     return false;
 }
 
@@ -301,8 +309,9 @@ bool Node::schedule_lbt_defer(const uint8_t* bytes, size_t len, int16_t sf, LbtK
 void Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen) {
     if (kind == LbtKind::rts) {
         if (!_pending_tx || _pending_tx->flight_gen != rts_flight_gen) {  // flight changed while we waited (flight_gen = object-identity, not the 4-bit ctr_lo)
+            MR_TELEMETRY(
             EventField f[] = { { .key = "reason", .type = EventField::T::str, .s = "pending_tx_changed" } };
-            _hal.emit("rts_tx_cancelled_stale", f, 1);
+            _hal.emit("rts_tx_cancelled_stale", f, 1); );
             return;
         }
         // Cleanup #A (redo): duty pre-check the RTS (the #2 slot<0 residual). Over budget -> defer in the DEDICATED
@@ -311,10 +320,11 @@ void Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind ki
         // The ~1h wait is SAFE now: flight_gen staleness is exact. Draw-free; gate-inert (healthy duty never defers).
         uint32_t wait = 0;
         if (duty_over_budget(len, sf, &wait)) {
+            MR_TELEMETRY(
             EventField f[] = { { .key = "label",   .type = EventField::T::str, .s = "RTS" },
                                { .key = "wait_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(wait) },
                                { .key = "source",  .type = EventField::T::str, .s = "lbt_complete" } };
-            _hal.emit("duty_cycle_blocked", f, 3);
+            _hal.emit("duty_cycle_blocked", f, 3); );
             RtsDutyDefer& d = _rts_duty_defer;
             d.pending = true; d.sf = sf; d.flight_gen = rts_flight_gen;
             d.len = static_cast<uint16_t>(len < sizeof(d.buf) ? len : sizeof(d.buf));
@@ -338,8 +348,9 @@ void Node::rts_duty_defer_fire() {
     if (!d.pending) return;
     if (!_pending_tx || _pending_tx->flight_gen != d.flight_gen) {       // the flight this RTS belonged to is gone
         d.pending = false;
+        MR_TELEMETRY(
         EventField f[] = { { .key = "reason", .type = EventField::T::str, .s = "pending_tx_changed" } };
-        _hal.emit("rts_tx_cancelled_stale", f, 1);
+        _hal.emit("rts_tx_cancelled_stale", f, 1); );
         return;
     }
     uint32_t wait = 0;
@@ -360,9 +371,10 @@ bool Node::tx_flood(const uint8_t* bytes, size_t len, int16_t sf) {
         const uint64_t airtime = airtime_routing_ms(static_cast<int>(len));
         const uint64_t used    = _hal.airtime_used_ms(_cfg.duty_cycle_window_ms);
         if (used + airtime > _duty_cycle_budget_ms) {
+            MR_TELEMETRY(
             EventField f[] = { { .key = "airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(airtime) },
                                { .key = "source",     .type = EventField::T::str, .s = "tx_flood" } };
-            _hal.emit("duty_cycle_blocked", f, 2);
+            _hal.emit("duty_cycle_blocked", f, 2); );
             return false;
         }
     }
@@ -371,17 +383,19 @@ bool Node::tx_flood(const uint8_t* bytes, size_t len, int16_t sf) {
         const uint64_t busy_until = _hal.channel_busy_until();
         const int64_t  wait = static_cast<int64_t>(busy_until) - static_cast<int64_t>(now);
         if (wait > static_cast<int64_t>(_flood_lbt_max_defer_ms)) {    // busy too long -> drop the page (dv:3796)
+            MR_TELEMETRY(
             EventField f[] = { { .key = "busy_for_ms", .type = EventField::T::i64, .i = wait } };
-            _hal.emit("tx_flood_skipped", f, 1);
+            _hal.emit("tx_flood_skipped", f, 1); );
             return false;
         }
         if (wait > 0) {
             const uint32_t delay = static_cast<uint32_t>(wait) +
                                    static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(_lbt_backoff_ms) + 1));
+            MR_TELEMETRY(
             EventField f[] = { { .key = "kind",          .type = EventField::T::str, .s = "flood" },
                                { .key = "defer_ms",      .type = EventField::T::i64, .i = delay },
                                { .key = "busy_until_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(busy_until) } };
-            _hal.emit("tx_lbt_defer", f, 3);
+            _hal.emit("tx_lbt_defer", f, 3); );
             schedule_lbt_defer(bytes, len, sf, LbtKind::flood, 0, delay);
             return true;
         }
@@ -449,10 +463,11 @@ bool Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag 
     // pre-check dv:7781), so they are NOT deferred here.
     uint32_t wait = 0;
     if (slot >= 0 && duty_over_budget(len, sf, &wait)) {
+        MR_TELEMETRY(
         EventField f[] = { { .key = "label",   .type = EventField::T::str, .s = label_of_frame(tag) },
                            { .key = "wait_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(wait) },
                            { .key = "source",  .type = EventField::T::str, .s = "tx_with_retry" } };
-        _hal.emit("duty_cycle_blocked", f, 3);
+        _hal.emit("duty_cycle_blocked", f, 3); );
         (void)_hal.after(wait, kDutyDeferTimerId + static_cast<uint32_t>(slot));
         return false;                                                  // NOT handed to the radio (caller must not arm post-tx state)
     }
@@ -536,6 +551,7 @@ void Node::do_data_tx() {
     const size_t dlen = pack_data(din, std::span<uint8_t>(buf, sizeof(buf)));
     if (dlen == 0) { _hal.log("DATA pack failed"); return; }
     const bool handed = tx_with_retry(buf, dlen, static_cast<int16_t>(pt.chosen_data_sf), FrameTag::data);   // R4.5b stash; #2 may duty-defer
+    MR_TELEMETRY(
     EventField f[] = {
         { .key = "dst",         .type = EventField::T::i64,  .i = pt.dst },
         { .key = "next",        .type = EventField::T::i64,  .i = pt.next },
@@ -543,7 +559,7 @@ void Node::do_data_tx() {
         { .key = "sf",          .type = EventField::T::i64,  .i = pt.chosen_data_sf },     // the SF this DATA went out on (M-broadcast pins max_data_sf; t69)
         { .key = "m_broadcast", .type = EventField::T::boolean, .b = pt.m_broadcast },     // channel-gossip fire-and-forget broadcast (no ACK)
     };
-    _hal.emit("data_tx", f, 5);                                       // emitted regardless (Lua emits it before tx_with_retry, dv:10251)
+    _hal.emit("data_tx", f, 5); );                                    // emitted regardless (Lua emits it before tx_with_retry, dv:10251)
     // Arm the ACK wait ONLY if the DATA actually hit the air — mirrors the Lua DATA on_handed (dv:10270-10279, fires only
     // on real self:tx) + the not-handed clear (dv:10281-10283). #2's duty defer returns handed=false: arming a short
     // ack-timeout on an un-sent DATA would fire before the (long) duty wait, draw a rand + tear the flight down.

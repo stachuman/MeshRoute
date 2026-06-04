@@ -97,9 +97,10 @@ void Node::emit_beacon(const char* kind) {
     // budget for forwards already queued. Neighbours keep us via passive last_seen from any frame we send.
     // (compute_budget_tier is draw-free; HEALTHY in every gate, so this is gate-inert.)
     if (compute_budget_tier() >= BudgetTier::critical) {
-        EventField f[] = { { .key = "tier", .type = EventField::T::i64, .i = static_cast<uint8_t>(compute_budget_tier()) },
-                           { .key = "kind", .type = EventField::T::str, .s = kind } };
-        _hal.emit("beacon_skipped_budget", f, 2);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "tier", .type = EventField::T::i64, .i = static_cast<uint8_t>(compute_budget_tier()) },
+                               { .key = "kind", .type = EventField::T::str, .s = kind } };
+            _hal.emit("beacon_skipped_budget", f, 2); );
         return;
     }
     maybe_exit_discovery("before_bcn");
@@ -168,28 +169,30 @@ void Node::emit_beacon(const char* kind) {
     TxParams p;
     p.sf    = static_cast<int16_t>(_cfg.routing_sf);
     p.label = "BCN";
-    const bool sent = tx_flood(buf, len, p.sf);          // R4.5 FLOOD LBT + duty pre-check (was a raw _hal.tx)
+    [[maybe_unused]] const bool sent = tx_flood(buf, len, p.sf);   // R4.5 FLOOD LBT + duty pre-check (was a raw _hal.tx)
     _last_beacon_tx_ms = _hal.now();
 
     // Clear dirty ONLY on the dirty entries that landed in THIS beacon — overflow
     // dirty routes stay dirty for the next one (dv_dual_sf.lua:1832-1836).
     for (uint8_t k = 0; k < dirty_n; ++k) _rt[pack_idx[k]].dirty = false;
 
-    EventField f[] = {
-        { .key = "n_entries",  .type = EventField::T::i64, .i = static_cast<int64_t>(n) },
-        { .key = "rt_total",   .type = EventField::T::i64, .i = static_cast<int64_t>(_rt_count) },
-        { .key = "routing_sf", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.routing_sf) },
-        { .key = "kind",       .type = EventField::T::str, .s = kind },
-        { .key = "result",     .type = EventField::T::i64, .i = sent ? 0 : 2 },   // 0=sent/deferred, 2=dropped (LBT/duty)
-    };
-    _hal.emit("beacon_tx", f, 5);
+    MR_TELEMETRY(
+        EventField f[] = {
+            { .key = "n_entries",  .type = EventField::T::i64, .i = static_cast<int64_t>(n) },
+            { .key = "rt_total",   .type = EventField::T::i64, .i = static_cast<int64_t>(_rt_count) },
+            { .key = "routing_sf", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.routing_sf) },
+            { .key = "kind",       .type = EventField::T::str, .s = kind },
+            { .key = "result",     .type = EventField::T::i64, .i = sent ? 0 : 2 },   // 0=sent/deferred, 2=dropped (LBT/duty)
+        };
+        _hal.emit("beacon_tx", f, 5); );
 
-    EventField g[] = {
-        { .key = "dirty_n",     .type = EventField::T::i64, .i = static_cast<int64_t>(dirty_n) },
-        { .key = "stable_n",    .type = EventField::T::i64, .i = static_cast<int64_t>(stable_n) },
-        { .key = "total_dirty", .type = EventField::T::i64, .i = static_cast<int64_t>(total_dirty) },
-    };
-    _hal.emit("beacon_diff_breakdown", g, 3);
+    MR_TELEMETRY(
+        EventField g[] = {
+            { .key = "dirty_n",     .type = EventField::T::i64, .i = static_cast<int64_t>(dirty_n) },
+            { .key = "stable_n",    .type = EventField::T::i64, .i = static_cast<int64_t>(stable_n) },
+            { .key = "total_dirty", .type = EventField::T::i64, .i = static_cast<int64_t>(total_dirty) },
+        };
+        _hal.emit("beacon_diff_breakdown", g, 3); );
 }
 
 void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
@@ -212,11 +215,11 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         const auto ext = beacon_ext(std::span<const uint8_t>(bytes, len), b);
         dn = parse_channel_digest_tlv(ext, dids, protocol::channel_dirty_max_per_bcn);
     }
-    {   // beacon_rx — one per received beacon (the gate asserts src)
+    // beacon_rx — one per received beacon (the gate asserts src)
+    MR_TELEMETRY(
         EventField f[] = { { .key = "src",                .type = EventField::T::i64, .i = static_cast<int64_t>(b.src) },
                            { .key = "channel_digest_ids", .type = EventField::T::i64, .i = dn } };
-        _hal.emit("beacon_rx", f, 2);
-    }
+        _hal.emit("beacon_rx", f, 2); );
     if (in_discovery()) ++_discovery_bcn_rx_count;        // dv_dual_sf.lua:9560-9562
 
     const uint64_t now         = _hal.now();
@@ -295,7 +298,7 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 // R4.3 max-idle B+C override (dv:7734-7784). If we've been silent >= max_idle, force a beacon UNLESS the
 // B+C filter says a neighbour is carrying the refresh load (recent BCN-rx) AND we have nothing new (dirty=0).
 // Returns force_idle. emit_events=false on the post-jitter re-check (the Lua recomputes silently, dv:7814-7834).
-static int64_t or_neg1(uint64_t v) { return (v == UINT64_MAX) ? -1 : static_cast<int64_t>(v); }
+[[maybe_unused]] static int64_t or_neg1(uint64_t v) { return (v == UINT64_MAX) ? -1 : static_cast<int64_t>(v); }
 bool Node::beacon_max_idle_force(uint64_t now, bool emit_events) {
     if (_cfg.beacon_max_idle_ms == 0) return false;
     const uint64_t since_tx = (_last_beacon_tx_ms != 0) ? (now - _last_beacon_tx_ms) : UINT64_MAX;
@@ -307,17 +310,19 @@ bool Node::beacon_max_idle_force(uint64_t now, bool emit_events) {
     const bool skip_clean = (dirty_n == 0 && since_bcn_rx < defer_window); // (B+C) neighbour fresh AND nothing new
     if (emit_events) {
         if (skip_clean) {
-            EventField f[] = { { .key = "since_tx_ms",     .type = EventField::T::i64, .i = or_neg1(since_tx) },
-                               { .key = "since_bcn_rx_ms", .type = EventField::T::i64, .i = or_neg1(since_bcn_rx) },
-                               { .key = "defer_window_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(defer_window) },
-                               { .key = "dirty_n",         .type = EventField::T::i64, .i = 0 } };
-            _hal.emit("beacon_max_idle_skip_clean", f, 4);
+            MR_TELEMETRY(
+                EventField f[] = { { .key = "since_tx_ms",     .type = EventField::T::i64, .i = or_neg1(since_tx) },
+                                   { .key = "since_bcn_rx_ms", .type = EventField::T::i64, .i = or_neg1(since_bcn_rx) },
+                                   { .key = "defer_window_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(defer_window) },
+                                   { .key = "dirty_n",         .type = EventField::T::i64, .i = 0 } };
+                _hal.emit("beacon_max_idle_skip_clean", f, 4); );
         } else {
-            EventField f[] = { { .key = "since_tx_ms",     .type = EventField::T::i64, .i = or_neg1(since_tx) },
-                               { .key = "max_idle_ms",     .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.beacon_max_idle_ms) },
-                               { .key = "since_bcn_rx_ms", .type = EventField::T::i64, .i = or_neg1(since_bcn_rx) },
-                               { .key = "dirty_n",         .type = EventField::T::i64, .i = dirty_n } };
-            _hal.emit("beacon_max_idle_force", f, 4);
+            MR_TELEMETRY(
+                EventField f[] = { { .key = "since_tx_ms",     .type = EventField::T::i64, .i = or_neg1(since_tx) },
+                                   { .key = "max_idle_ms",     .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.beacon_max_idle_ms) },
+                                   { .key = "since_bcn_rx_ms", .type = EventField::T::i64, .i = or_neg1(since_bcn_rx) },
+                                   { .key = "dirty_n",         .type = EventField::T::i64, .i = dirty_n } };
+                _hal.emit("beacon_max_idle_force", f, 4); );
         }
     }
     return !skip_clean;                                                   // skip_clean -> fall through (throttle skips)
@@ -334,10 +339,11 @@ void Node::periodic_beacon_fire() {
     const uint64_t since_rx = (_last_rx_routing_sf_ms != 0) ? (now - _last_rx_routing_sf_ms) : UINT64_MAX;
     const bool force_idle = beacon_max_idle_force(now, /*emit_events=*/true);
     if (since_rx < _cfg.quiet_threshold_ms && !force_idle) {  // channel busy -> skip, NO draw (dv:7785)
-        EventField f[] = { { .key = "since_rx_ms",  .type = EventField::T::i64, .i = static_cast<int64_t>(since_rx) },
-                           { .key = "threshold_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.quiet_threshold_ms) },
-                           { .key = "stage",        .type = EventField::T::str, .s = "pre_jitter" } };
-        _hal.emit("beacon_skipped_busy", f, 3);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "since_rx_ms",  .type = EventField::T::i64, .i = static_cast<int64_t>(since_rx) },
+                               { .key = "threshold_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.quiet_threshold_ms) },
+                               { .key = "stage",        .type = EventField::T::str, .s = "pre_jitter" } };
+            _hal.emit("beacon_skipped_busy", f, 3); );
         return;
     }
     // gate passed -> draw the silence-jitter (dv:7795). jitter==0 -> send now; else defer + re-check.
@@ -364,10 +370,11 @@ void Node::deferred_beacon_jitter_fire(uint8_t slot) {
     const uint64_t since = (_last_rx_routing_sf_ms != 0) ? (now - _last_rx_routing_sf_ms) : UINT64_MAX;
     const bool force_idle_post = beacon_max_idle_force(now, /*emit_events=*/false);   // recompute SILENTLY (dv:7814)
     if (since < _cfg.quiet_threshold_ms && !force_idle_post) {
-        EventField f[] = { { .key = "since_rx_ms",  .type = EventField::T::i64, .i = static_cast<int64_t>(since) },
-                           { .key = "threshold_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.quiet_threshold_ms) },
-                           { .key = "stage",        .type = EventField::T::str, .s = "post_jitter" } };
-        _hal.emit("beacon_skipped_busy", f, 3);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "since_rx_ms",  .type = EventField::T::i64, .i = static_cast<int64_t>(since) },
+                               { .key = "threshold_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.quiet_threshold_ms) },
+                               { .key = "stage",        .type = EventField::T::str, .s = "post_jitter" } };
+            _hal.emit("beacon_skipped_busy", f, 3); );
         return;
     }
     emit_beacon("periodic");
@@ -390,32 +397,34 @@ void Node::schedule_triggered_beacon() {
     if (steady_state && protocol::beacon_trigger_min_interval_ms > 0 && _last_beacon_tx_ms != 0) {
         const uint64_t earliest = _last_beacon_tx_ms + protocol::beacon_trigger_min_interval_ms;
         if (now + delay < earliest) {
-            const uint32_t old_delay = delay;
+            [[maybe_unused]] const uint32_t old_delay = delay;
             delay = static_cast<uint32_t>((earliest - now) + _hal.rand_range(lo, hi + 1));   // 2nd draw
-            EventField f[] = { { .key = "min_interval_ms",   .type = EventField::T::i64, .i = protocol::beacon_trigger_min_interval_ms },
-                               { .key = "old_delay_ms",      .type = EventField::T::i64, .i = old_delay },
-                               { .key = "delay_ms",          .type = EventField::T::i64, .i = delay },
-                               { .key = "since_last_bcn_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(now - _last_beacon_tx_ms) } };
-            _hal.emit("beacon_trigger_deferred", f, 4);
+            MR_TELEMETRY(
+                EventField f[] = { { .key = "min_interval_ms",   .type = EventField::T::i64, .i = protocol::beacon_trigger_min_interval_ms },
+                                   { .key = "old_delay_ms",      .type = EventField::T::i64, .i = old_delay },
+                                   { .key = "delay_ms",          .type = EventField::T::i64, .i = delay },
+                                   { .key = "since_last_bcn_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(now - _last_beacon_tx_ms) } };
+                _hal.emit("beacon_trigger_deferred", f, 4); );
         }
     }
     (void)_hal.after(delay, kTriggeredBeaconTimerId);
 }
 
-void Node::maybe_exit_discovery(const char* reason) {
+void Node::maybe_exit_discovery([[maybe_unused]] const char* reason) {
     if (!_discovery_mode) return;
     const uint64_t now = _hal.now();
     const bool timed_out = (_discovery_until_ms > 0) && (now >= _discovery_until_ms);
     if (_discovery_bcn_rx_count >= protocol::discovery_min_bcn_rx ||
         _rt_count >= protocol::discovery_min_routes || timed_out) {
         _discovery_mode = false;
-        EventField f[] = {
-            { .key = "reason",     .type = EventField::T::str, .s = reason },
-            { .key = "heard_bcn",  .type = EventField::T::i64, .i = static_cast<int64_t>(_discovery_bcn_rx_count) },
-            { .key = "rt_total",   .type = EventField::T::i64, .i = static_cast<int64_t>(_rt_count) },
-            { .key = "elapsed_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(now - _discovery_started_ms) },
-        };
-        _hal.emit("bcn_discovery_exit", f, 4);
+        MR_TELEMETRY(
+            EventField f[] = {
+                { .key = "reason",     .type = EventField::T::str, .s = reason },
+                { .key = "heard_bcn",  .type = EventField::T::i64, .i = static_cast<int64_t>(_discovery_bcn_rx_count) },
+                { .key = "rt_total",   .type = EventField::T::i64, .i = static_cast<int64_t>(_rt_count) },
+                { .key = "elapsed_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(now - _discovery_started_ms) },
+            };
+            _hal.emit("bcn_discovery_exit", f, 4); );
     }
 }
 
