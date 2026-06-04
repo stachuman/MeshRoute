@@ -237,6 +237,7 @@ public:
     // ---- id_bind (hash-locate substrate) inspection: tests + the H resolver drive these.
     uint16_t          id_bind_count() const { return _id_bind_n; }
     int               id_bind_find_by_hash(uint32_t key_hash32, IdBindConf* conf_out = nullptr);   // -> node_id, or -1 (skips expired); opt. out: the binding's confidence (soft/hard resolve)
+    void              on_hash_bind_response(const uint8_t* inner, uint8_t inner_len);   // origin consumed an H_ANSWER DATA: parse the binding (B); cache + drain (C). public = the deliver seam + the test driver
     bool              channel_entry_dirty(uint32_t id) const { const int i = channel_buffer_find(id); return i >= 0 && _channel_buffer[i].dirty; }
     bool              channel_payload_eq(uint32_t id, const uint8_t* p, uint16_t len) const {
         const int i = channel_buffer_find(id);
@@ -308,8 +309,9 @@ private:
     uint8_t id_bind_evict_other_hash_holders(uint32_t key_hash32, uint8_t keep_node_id);   // rejoin self-heal: one hash -> one node_id
     void    id_bind_age_out();                                    // drop expired (TTL); emit id_bind_aged
     void    handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta);   // H flood: resolve (own-hash OR id_bind) + suppress, else forward TTL-1
-    bool    hash_query_seen_recently(uint8_t origin, uint32_t key_hash32);    // per-(origin,hash) flood dedup
-    void    mark_hash_query_seen(uint8_t origin, uint32_t key_hash32);
+    bool    hash_query_seen_recently(uint8_t origin, uint32_t key_hash32, bool hard);    // per-(origin,hash,VARIANT) dedup — a hard query isn't suppressed by a prior soft's seen-entry
+    void    mark_hash_query_seen(uint8_t origin, uint32_t key_hash32, bool hard);
+    void    send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, uint32_t key_hash32, bool authoritative); // B: routed DATA(H_ANSWER inner) home
     // Q REQ_SYNC plane (boot route-bootstrap) — node_query.cpp.
     void    req_sync_loop_fire();                                  // kReqSyncTimerId: send + re-arm while discovery+starved (dv:9167)
     void    send_req_sync_q(const char* reason);                   // broadcast a REQ_SYNC Q (no draw; dv:8032)
@@ -517,7 +519,7 @@ private:
     IdBind   _id_bind[protocol::cap_id_bind] = {};
     uint16_t _id_bind_n = 0;
     // H hash-locate flood dedup (Lua hash_query_seen): per-(origin,key_hash32), hash_query_seen_ttl_ms window.
-    struct HashQuerySeen { uint8_t origin; uint32_t key_hash32; uint64_t t_ms; };
+    struct HashQuerySeen { uint8_t origin; uint32_t key_hash32; uint64_t t_ms; bool hard; };
     HashQuerySeen _hash_query_seen[protocol::cap_hash_query_seen] = {};
     uint8_t       _hash_query_seen_n = 0;
     // Q REQ_SYNC plane state (node_query.cpp). _last_req_sync_tx_ms rate-limits the originator (dv:8035);

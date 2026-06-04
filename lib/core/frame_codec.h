@@ -216,10 +216,13 @@ std::optional<uint32_t> parse_q_channel_id(std::span<const uint8_t> frame,
 //   byte 1   : origin            (querier node_id; PRESERVED across forwards)
 //   bytes 2-5: key_hash32 (LITTLE-ENDIAN)
 //   byte 6   : ttl               (decremented per forward; 0 = drop)
-struct h_in  { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; };
-struct h_out { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; };
-size_t pack_h(const h_in& in, std::span<uint8_t> out);            // 7; 0 on short buf
-std::optional<h_out> parse_h(std::span<const uint8_t> frame);     // nullopt: len<7 / cmd
+//   byte 7   : H flags — bit 0 = HARD (skip the id_bind cache; resolve own-hash only -> reach the OWNER for
+//              an authoritative correction; the verify-on-use escalation). soft (default) consults the cache.
+enum HFlag : uint8_t { H_FLAG_HARD = 0x01 };
+struct h_in  { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; };
+struct h_out { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; };
+size_t pack_h(const h_in& in, std::span<uint8_t> out);            // 8; 0 on short buf
+std::optional<h_out> parse_h(std::span<const uint8_t> frame);     // nullopt: len<7 / cmd; hard from byte 7 if present
 
 // -----------------------------------------------------------------------------
 // F — route-find RREQ/RREP flood (cmd-nibble 0x8, 7 B) — ROADMAP §10.3
@@ -315,6 +318,16 @@ enum DataFlag : uint8_t {            // Lua flag VALUES (packed into byte1 high 
     DATA_FLAG_E2E_IS_ACK     = 0x04, DATA_FLAG_E2E_ACK_REQ = 0x08,
 };
 
+// Payload-flags byte = the UNIVERSAL first byte of a normal DATA inner (it reuses the always-zero
+// src_addr_len slot — +0 wire). Locked positions (frames.md): CROSS_LAYER b0 (hierarchical addressing,
+// deferred — the address length follows), H_ANSWER b1 (the inner is a hash-bind answer), AUTHORITATIVE
+// b2 (the answer is the owner's, not cached), CRYPTED b3 (inner body encrypted, deferred). b4..b7 reserved.
+// channel-M is the legacy exception — typed by the DATA-header DATA_FLAG_PAYLOAD_TYPE_M, no payload-flags byte.
+enum PayloadFlag : uint8_t {
+    PAYLOAD_FLAG_CROSS_LAYER   = 0x01, PAYLOAD_FLAG_H_ANSWER = 0x02,
+    PAYLOAD_FLAG_AUTHORITATIVE = 0x04, PAYLOAD_FLAG_CRYPTED  = 0x08,
+};
+
 struct data_in {
     uint8_t  addr_len;          // 0 this phase (pack returns 0 if != 0)
     uint8_t  flags;             // OR of DataFlag
@@ -352,5 +365,12 @@ std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> i
 struct data_m_inner { uint32_t channel_msg_id; uint8_t channel_id; uint8_t flavor;  // channel_msg_id BIG-endian
                       std::span<const uint8_t> body; };
 std::optional<data_m_inner> parse_m_inner(std::span<const uint8_t> inner);
+
+// Hash-bind answer inner (H §3.7a): [payload-flags(H_ANSWER + opt AUTHORITATIVE)][target_layer][node_id]
+// [key_hash32 LE] = 7 B. CLEARTEXT (CRYPTED=0) so relays can cache-on-pass. parse returns nullopt unless
+// byte 0 has H_ANSWER set; key_hash32 is LITTLE-endian (matches pack_h / the beacon).
+struct hash_bind_inner { uint8_t target_layer; uint8_t node_id; uint32_t key_hash32; bool authoritative; };
+size_t pack_hash_bind_inner(const hash_bind_inner& in, std::span<uint8_t> out);          // 7; 0 on short buf
+std::optional<hash_bind_inner> parse_hash_bind_inner(std::span<const uint8_t> inner);    // nullopt: <7 B / no H_ANSWER
 
 }  // namespace meshroute

@@ -393,15 +393,16 @@ std::optional<uint32_t> parse_q_channel_id(std::span<const uint8_t> frame,
 }
 
 // -----------------------------------------------------------------------------
-// H — cmd 0x7, 7 B (§10.6 flag byte dropped, lossless). key_hash32 LE.
+// H — cmd 0x7, 8 B (§3.7a). key_hash32 LE; byte 7 = H flags (bit 0 = HARD: skip the cache, reach the owner).
 // -----------------------------------------------------------------------------
 size_t pack_h(const h_in& in, std::span<uint8_t> out) {
-    if (out.size() < 7) return 0;
+    if (out.size() < 8) return 0;
     wire::Writer w(out);
     w.u8(wire::cmd_byte(wire::Cmd::H, static_cast<uint8_t>(in.leaf_id & 0x0F)));
     w.u8(in.origin);
     w.u32_le(in.key_hash32);
     w.u8(in.ttl);                          // u8: config caps ttl <= 16
+    w.u8(in.hard ? H_FLAG_HARD : 0);       // byte 7: H flags
     return w.ok() ? w.size() : 0;
 }
 
@@ -416,6 +417,7 @@ std::optional<h_out> parse_h(std::span<const uint8_t> frame) {
     o.key_hash32 = r.u32_le();
     o.ttl        = r.u8();
     if (!r.ok()) return std::nullopt;
+    o.hard = (frame.size() >= 8) && (frame[7] & H_FLAG_HARD);   // lenient: a 7-B frame parses as soft
     return o;
 }
 
@@ -642,6 +644,26 @@ std::optional<data_m_inner> parse_m_inner(std::span<const uint8_t> inner) {
     m.flavor     = inner[5];
     m.body       = inner.subspan(6);
     return m;
+}
+
+size_t pack_hash_bind_inner(const hash_bind_inner& in, std::span<uint8_t> out) {
+    if (out.size() < 7) return 0;
+    wire::Writer w(out);
+    w.u8(static_cast<uint8_t>(PAYLOAD_FLAG_H_ANSWER | (in.authoritative ? PAYLOAD_FLAG_AUTHORITATIVE : 0)));
+    w.u8(in.target_layer);
+    w.u8(in.node_id);
+    w.u32_le(in.key_hash32);                                      // LITTLE-endian (matches pack_h / beacon)
+    return w.ok() ? w.size() : 0;
+}
+std::optional<hash_bind_inner> parse_hash_bind_inner(std::span<const uint8_t> inner) {
+    if (inner.size() < 7) return std::nullopt;
+    if (!(inner[0] & PAYLOAD_FLAG_H_ANSWER)) return std::nullopt; // not a hash-bind answer
+    hash_bind_inner o{};
+    o.target_layer = inner[1];
+    o.node_id      = inner[2];
+    { wire::Reader r(inner.subspan(3, 4)); o.key_hash32 = r.u32_le(); }
+    o.authoritative = (inner[0] & PAYLOAD_FLAG_AUTHORITATIVE) != 0;
+    return o;
 }
 
 }  // namespace meshroute

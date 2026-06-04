@@ -271,21 +271,23 @@ TEST_CASE("H — round-trip (key_hash32 LE) + golden + reject") {
     for (uint8_t leaf : {0, 3, 15})
         for (uint8_t origin : {0, 42, 255})
             for (uint32_t kh : {0u, 0xDEADBEEFu, 0xFFFFFFFFu})
-                for (uint8_t ttl : {0, 1, 16, 255}) {
-                    std::array<uint8_t, 7> buf{};
-                    CHECK(pack_h({leaf, origin, kh, ttl}, buf) == 7);
-                    auto o = parse_h(buf);
-                    CHECK(o.has_value());
-                    if (o) {
-                        CHECK(o->leaf_id == leaf);   CHECK(o->origin == origin);
-                        CHECK(o->key_hash32 == kh);  CHECK(o->ttl == ttl);
+                for (uint8_t ttl : {0, 1, 16, 255})
+                    for (bool hard : {false, true}) {
+                        std::array<uint8_t, 8> buf{};
+                        CHECK(pack_h({leaf, origin, kh, ttl, hard}, buf) == 8);
+                        auto o = parse_h(buf);
+                        CHECK(o.has_value());
+                        if (o) {
+                            CHECK(o->leaf_id == leaf);   CHECK(o->origin == origin);
+                            CHECK(o->key_hash32 == kh);  CHECK(o->ttl == ttl);
+                            CHECK(o->hard == hard);      // byte 7 H flags
+                        }
                     }
-                }
-    std::array<uint8_t, 7> buf{};
-    CHECK(pack_h({3, 0x2A, 0xDEADBEEFu, 0x10}, buf) == 7);
-    const uint8_t ex[] = {0x73, 0x2A, 0xEF, 0xBE, 0xAD, 0xDE, 0x10};   // key_hash32 LITTLE-ENDIAN
-    for (int i = 0; i < 7; ++i) CHECK(buf[i] == ex[i]);
-    std::array<uint8_t, 6> sh{0x73, 0x2A, 0xEF, 0xBE, 0xAD, 0xDE};
+    std::array<uint8_t, 8> buf{};
+    CHECK(pack_h({3, 0x2A, 0xDEADBEEFu, 0x10, /*hard=*/true}, buf) == 8);
+    const uint8_t ex[] = {0x73, 0x2A, 0xEF, 0xBE, 0xAD, 0xDE, 0x10, 0x01};   // key_hash32 LE; byte 7 = flags (HARD)
+    for (int i = 0; i < 8; ++i) CHECK(buf[i] == ex[i]);
+    std::array<uint8_t, 5> sh{0x73, 0x2A, 0xEF, 0xBE, 0xAD};
     CHECK_FALSE(parse_h(sh).has_value());                 // len < 7
     std::array<uint8_t, 4> nack{};
     CHECK(pack_nack({0, 0, 0, 0}, nack) == 4);

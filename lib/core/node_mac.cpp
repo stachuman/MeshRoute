@@ -55,7 +55,7 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     TxItem item{};
     item.origin = _node_id; item.dst = dst; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
     item.flags = flags;
-    item.inner[0] = 0x00; item.inner[1] = _node_id;      // src_addr_len=0 | origin | body
+    item.inner[0] = 0x00; item.inner[1] = _node_id;      // payload-flags=0 (plaintext DM, no H_ANSWER) | origin | body
     if (body) for (uint8_t i = 0; i < body_len; ++i) item.inner[2 + i] = body[i];
     item.inner_len = static_cast<uint8_t>(2 + body_len);
     item.enqueue_time_ms = _hal.now();                   // first-enqueue time (cascade-requeue total-age cap)

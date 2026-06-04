@@ -94,8 +94,8 @@ Handler on `Cmd::H` (mirror Lua dv:11628-11671, with the variant split):
 
 - **B's first move: make the payload-flags byte the *universal* inner prefix** (the DATA payload's
   first byte holds the flags — and `CRYPTED` applies to user DMs too, so they carry it as well).
-  Every inner leads with it: a normal unicast becomes `[payload-flags][origin][body]` (a +1-byte
-  DM-inner change — its tests update), an H-answer is
+  Every inner leads with it: a normal unicast becomes `[payload-flags][origin][body]` (**+0 wire** — repurposes
+  the always-0 `src_addr_len` byte 0; tests update for the field rename), an H-answer is
   `[payload-flags(H_ANSWER)][target_layer][node_id][key_hash32]`. Build it as a **reusable inner
   codec** (cross-layer + by-hash reuse it). **Exception:** channel-M keeps its header
   `PAYLOAD_TYPE_M` flag + current inner — a relay reads the prefix only when `PAYLOAD_TYPE_M` is clear.
@@ -186,11 +186,15 @@ path/local caches now resolve A→`id_9` (authoritative overwrite); exactly one 
 
 ## Verify per phase (gates)
 
-- Each phase: doctests (codec/table/dedup) + a meshroute scenario; `pio test -e native` + the
-  `lus` sweep; outcome-compare to the Lua — **not** mt19937 lockstep.
-- A0.1: a beacon for a rejoined hash evicts the stale id; `find_by_hash` returns exactly the
-  fresh id.
-- A: warm soft short-circuit (neighbour answers, flood never reaches owner — assert no `h_rx`
-  at owner); hard H **ignores** a cached binding and reaches the owner.
-- D: the rejoin e2e above. Add an efficiency assertion (t88-style): after the authoritative
-  overwrite propagates, repeat by-hash sends resolve correctly with **no** further redirects.
+- Each phase: doctests (codec/table/dedup/handler) + `pio test -e native` + the `lus` sweep
+  (regression); outcome-compare to the Lua — **not** mt19937 lockstep. The **live multi-node H
+  sims need the originate-trigger (Phase D)** — so A/B are gated by doctests, not live floods.
+- A0.1: a beacon for a rejoined hash evicts the stale id; `find_by_hash` returns exactly the fresh id.
+- A (doctest): feed an H frame — **soft** resolves from own-hash *or* cache and suppresses the
+  forward; **hard** ignores the cache and forwards; variant-aware dedup.
+- B (doctest + units): payload-flags + H-answer round-trip (and a normal DM still round-trips with
+  the prefix); **send** — `send_hash_bind_response` enqueues a DATA whose inner has `H_ANSWER`+binding;
+  **receive** — feed an `H_ANSWER` DATA → the origin detects + parses the binding.
+- D (live sims): warm short-circuit (neighbour answers, flood never reaches owner — no `h_rx` at
+  owner); hard H reaches the owner; the rejoin redirect e2e; an efficiency assertion (t88-style):
+  after the authoritative overwrite propagates, repeat by-hash sends resolve with **no** further redirects.

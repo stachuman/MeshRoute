@@ -138,27 +138,28 @@ void Node::id_bind_age_out() {
 // already holds the binding answers + STOPS the flood; the flood is the fallback.
 // =============================================================================
 
-// per-(origin, key_hash32) flood dedup (Lua hash_query_seen; hash_query_seen_ttl_ms window). Mirrors rreq_seen.
-bool Node::hash_query_seen_recently(uint8_t origin, uint32_t key_hash32) {
+// per-(origin, key_hash32, VARIANT) flood dedup (Lua hash_query_seen; hash_query_seen_ttl_ms window). Keying on
+// `hard` is load-bearing: a HARD query (verify-on-use) must NOT be suppressed by a prior SOFT's seen-entry, or
+// the escalation that reaches the owner is silently swallowed. Mirrors rreq_seen.
+bool Node::hash_query_seen_recently(uint8_t origin, uint32_t key_hash32, bool hard) {
     const uint64_t now    = _hal.now();
     const uint64_t cutoff = (now >= protocol::hash_query_seen_ttl_ms) ? now - protocol::hash_query_seen_ttl_ms : 0;
     for (uint8_t i = 0; i < _hash_query_seen_n; ++i)
         if (_hash_query_seen[i].origin == origin && _hash_query_seen[i].key_hash32 == key_hash32
-            && _hash_query_seen[i].t_ms >= cutoff) return true;
+            && _hash_query_seen[i].hard == hard && _hash_query_seen[i].t_ms >= cutoff) return true;
     return false;
 }
-void Node::mark_hash_query_seen(uint8_t origin, uint32_t key_hash32) {
+void Node::mark_hash_query_seen(uint8_t origin, uint32_t key_hash32, bool hard) {
     const uint64_t now = _hal.now();
     for (uint8_t i = 0; i < _hash_query_seen_n; ++i)
-        if (_hash_query_seen[i].origin == origin && _hash_query_seen[i].key_hash32 == key_hash32) {
-            _hash_query_seen[i].t_ms = now; return;
-        }
+        if (_hash_query_seen[i].origin == origin && _hash_query_seen[i].key_hash32 == key_hash32
+            && _hash_query_seen[i].hard == hard) { _hash_query_seen[i].t_ms = now; return; }
     if (_hash_query_seen_n < protocol::cap_hash_query_seen) {
-        _hash_query_seen[_hash_query_seen_n++] = { origin, key_hash32, now };
+        _hash_query_seen[_hash_query_seen_n++] = { origin, key_hash32, now, hard };
     } else {                                              // ring full -> evict the oldest
         uint8_t o = 0;
         for (uint8_t i = 1; i < _hash_query_seen_n; ++i) if (_hash_query_seen[i].t_ms < _hash_query_seen[o].t_ms) o = i;
-        _hash_query_seen[o] = { origin, key_hash32, now };
+        _hash_query_seen[o] = { origin, key_hash32, now, hard };
     }
 }
 
@@ -174,23 +175,26 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (h.leaf_id != _cfg.leaf_id) return;                 // foreign-layer (dv:11635)
     if (h.origin == _node_id) return;                      // our own query echoed back (dv:11637)
     MR_TELEMETRY(
-        EventField f[] = { { .key = "origin",     .type = EventField::T::i64, .i = h.origin },
-                           { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(h.key_hash32) },
-                           { .key = "ttl",        .type = EventField::T::i64, .i = h.ttl } };
-        _hal.emit("h_rx", f, 3); );                        // dv:11638
+        EventField f[] = { { .key = "origin",     .type = EventField::T::i64,     .i = h.origin },
+                           { .key = "key_hash32", .type = EventField::T::i64,     .i = static_cast<int64_t>(h.key_hash32) },
+                           { .key = "ttl",        .type = EventField::T::i64,     .i = h.ttl },
+                           { .key = "hard",       .type = EventField::T::boolean, .b = h.hard } };
+        _hal.emit("h_rx", f, 4); );                        // dv:11638
 
-    // Resolve (dv:11641): own hash = HARD (we ARE the owner); else a cached binding carries its own
-    // confidence (a beacon = authoritative/first-hand; a snooped hash-bind = claimed/second-hand, Phase C).
-    int node_id = -1; [[maybe_unused]] bool authoritative = false;   // [[maybe_unused]]: telemetry-only until Phase B passes it to the response
-    if (h.key_hash32 == _key_hash32) { node_id = _node_id; authoritative = true; }
-    else {
+    // Resolve. SOFT query (default): own-hash OR any cached binding answers ("anyone who knows"). HARD query
+    // (verify-on-use, dv §3.7a): resolve ONLY via own-hash — SKIP the cache so it reaches the OWNER for an
+    // authoritative correction. A cached binding carries its own confidence (beacon = authoritative/first-hand;
+    // snooped hash-bind = claimed/second-hand, Phase C).
+    int node_id = -1; bool authoritative = false;
+    if (h.key_hash32 == _key_hash32) { node_id = _node_id; authoritative = true; }   // own-hash: resolves either variant
+    else if (!h.hard) {                                                              // HARD skips the cache -> flood to the owner
         IdBindConf conf = IdBindConf::claimed;
         const int found = id_bind_find_by_hash(h.key_hash32, &conf);
         if (found >= 0) { node_id = found; authoritative = (conf == IdBindConf::authoritative); }
     }
 
     if (node_id >= 0) {                                    // RESOLVER path (dv:11644) — answer + SUPPRESS the forward
-        mark_hash_query_seen(h.origin, h.key_hash32);      // mark BEFORE replying so a re-flood doesn't double-answer (dv:11647)
+        mark_hash_query_seen(h.origin, h.key_hash32, h.hard);   // mark BEFORE replying so a re-flood doesn't double-answer (dv:11647)
         MR_TELEMETRY(
             EventField f[] = { { .key = "origin",        .type = EventField::T::i64,     .i = h.origin },
                                { .key = "key_hash32",    .type = EventField::T::i64,     .i = static_cast<int64_t>(h.key_hash32) },
@@ -198,25 +202,76 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                { .key = "target_layer",  .type = EventField::T::i64,     .i = _cfg.leaf_id },
                                { .key = "authoritative", .type = EventField::T::boolean, .b = authoritative } };
             _hal.emit("h_resolved", f, 5); );              // dv:11649
-        // Phase B: send_hash_bind_response(h.origin, _cfg.leaf_id, node_id, h.key_hash32, authoritative);
+        send_hash_bind_response(h.origin, _cfg.leaf_id, static_cast<uint8_t>(node_id), h.key_hash32, authoritative);
         return;                                            // SUPPRESS — the whole point: the flood stops here
     }
 
-    // FORWARD path (dv:11655): we don't know it -> re-broadcast once, deduped, until TTL runs out.
-    if (hash_query_seen_recently(h.origin, h.key_hash32)) return;   // flood dedup (dv:11656)
-    mark_hash_query_seen(h.origin, h.key_hash32);                   // (dv:11657)
+    // FORWARD path (dv:11655): we don't know it (or it's a HARD query and we're not the owner) -> re-broadcast
+    // once, deduped per variant, until TTL runs out.
+    if (hash_query_seen_recently(h.origin, h.key_hash32, h.hard)) return;   // flood dedup (dv:11656)
+    mark_hash_query_seen(h.origin, h.key_hash32, h.hard);                   // (dv:11657)
     if (h.ttl == 0) return;                                         // TTL exhausted (dv:11658)
     MR_TELEMETRY(
-        EventField f[] = { { .key = "origin",     .type = EventField::T::i64, .i = h.origin },
-                           { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(h.key_hash32) },
-                           { .key = "ttl",        .type = EventField::T::i64, .i = static_cast<int64_t>(h.ttl - 1) } };
-        _hal.emit("h_forward", f, 3); );                   // dv:11661
+        EventField f[] = { { .key = "origin",     .type = EventField::T::i64,     .i = h.origin },
+                           { .key = "key_hash32", .type = EventField::T::i64,     .i = static_cast<int64_t>(h.key_hash32) },
+                           { .key = "ttl",        .type = EventField::T::i64,     .i = static_cast<int64_t>(h.ttl - 1) },
+                           { .key = "hard",       .type = EventField::T::boolean, .b = h.hard } };
+        _hal.emit("h_forward", f, 4); );                   // dv:11661
     h_in fwd{};
     fwd.leaf_id = _cfg.leaf_id; fwd.origin = h.origin; fwd.key_hash32 = h.key_hash32;
-    fwd.ttl = static_cast<uint8_t>(h.ttl - 1);
+    fwd.ttl = static_cast<uint8_t>(h.ttl - 1); fwd.hard = h.hard;   // preserve the variant across forwards
     uint8_t buf[8];
     const size_t n = pack_h(fwd, std::span<uint8_t>(buf, sizeof(buf)));
     if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
+}
+
+// =============================================================================
+// Phase B — the hash-bind RESPONSE (a routed DATA with the H_ANSWER inner) + the
+// origin's receive (parse here; cache + drain the parked send-by-hash is Phase C).
+// =============================================================================
+
+// Enqueue a normal DATA carrying the H_ANSWER inner, addressed to the H-query origin; it routes home
+// hop-by-hop on the existing rt[origin] (the H flood lays no reverse path). AUTHORITATIVE = the resolver
+// answered as the owner (matches_self), not from a cached binding. (Lua send_hash_bind_response dv:5877.)
+void Node::send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id,
+                                   uint32_t key_hash32, bool authoritative) {
+    if (_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (the querier can re-flood)
+    hash_bind_inner hb{};
+    hb.target_layer = target_layer; hb.node_id = node_id; hb.key_hash32 = key_hash32; hb.authoritative = authoritative;
+    uint8_t inner[7];
+    const size_t n = pack_hash_bind_inner(hb, std::span<uint8_t>(inner, sizeof(inner)));
+    if (n == 0) return;
+    TxItem item{};
+    item.origin = _node_id; item.dst = to_origin;
+    item.ctr = next_ctr(to_origin); item.ctr_lo = static_cast<uint8_t>(item.ctr & 0x0F);
+    item.flags = 0;                                              // NORMAL DATA — typed by the H_ANSWER payload-flag, NOT payload_type_m
+    for (size_t i = 0; i < n; ++i) item.inner[i] = inner[i];
+    item.inner_len = static_cast<uint8_t>(n);
+    item.enqueue_time_ms = _hal.now();
+    _tx_queue[_tx_queue_n++] = item;
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "to",            .type = EventField::T::i64,     .i = to_origin },
+                           { .key = "node",          .type = EventField::T::i64,     .i = node_id },
+                           { .key = "key_hash32",    .type = EventField::T::i64,     .i = static_cast<int64_t>(key_hash32) },
+                           { .key = "authoritative", .type = EventField::T::boolean, .b = authoritative } };
+        _hal.emit("hash_bind_response_enqueued", f, 4); );        // dv:5897
+    become_free();                                               // kick the queue to route the answer home
+}
+
+// The querier received a DATA whose inner is a hash-bind answer (handle_data routed it here off the
+// H_ANSWER payload-flag). Phase B: parse + emit. Phase C will id_bind_set(h_query, conf) + drain the
+// parked send-by-hash. DELIBERATELY does NOT deliver as a DM (it is routing/identity info, not user content).
+void Node::on_hash_bind_response(const uint8_t* inner, uint8_t inner_len) {
+    auto hb = parse_hash_bind_inner(std::span<const uint8_t>(inner, inner_len));
+    if (!hb) return;
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "node",          .type = EventField::T::i64,     .i = hb->node_id },
+                           { .key = "key_hash32",    .type = EventField::T::i64,     .i = static_cast<int64_t>(hb->key_hash32) },
+                           { .key = "target_layer",  .type = EventField::T::i64,     .i = hb->target_layer },
+                           { .key = "authoritative", .type = EventField::T::boolean, .b = hb->authoritative } };
+        _hal.emit("hash_bind_rx", f, 4); );
+    // Phase C: id_bind_set(hb->node_id, hb->key_hash32, IdBindSource::h_query,
+    //                      hb->authoritative ? IdBindConf::authoritative : IdBindConf::claimed); + drain parked send-by-hash.
 }
 
 }  // namespace meshroute

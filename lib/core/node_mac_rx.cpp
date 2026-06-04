@@ -424,6 +424,11 @@ void Node::do_post_ack() {
     const PostAck pa = _post_ack;
     _post_ack.pending = false;
     if (!pa.is_forward) {
+        if (pa.inner_len >= 1 && (pa.inner[0] & PAYLOAD_FLAG_H_ANSWER)) {   // a hash-bind answer for us -> consume (routing info, NOT a DM)
+            on_hash_bind_response(pa.inner, pa.inner_len);
+            become_free();
+            return;
+        }
         if (pa.flags & DATA_FLAG_E2E_IS_ACK) {           // an end-to-end ACK for a DM we originated -> confirm, not deliver
             MR_TELEMETRY(
                 const uint16_t acked = (pa.inner_len >= 4)
