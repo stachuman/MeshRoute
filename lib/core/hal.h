@@ -48,6 +48,18 @@ struct EventField {
     bool        b = false;
 };
 
+// MR_TELEMETRY(...) — wrap a diagnostic emit block (EventField array + _hal.emit) so the DEVICE build
+// strips it ENTIRELY. With MESHROUTE_NO_TELEMETRY (set in the xiao/heltec envs, NOT native/sim) the
+// preprocessor removes the body — no event-name/key string literals in flash, no array construction,
+// no virtual call. ONLY wrap pure telemetry: never put load-bearing logic (returns, state writes,
+// tx_initiating) inside MR_TELEMETRY, or it vanishes on metal. The variadic form swallows the commas
+// in the EventField designated-initializers.
+#ifdef MESHROUTE_NO_TELEMETRY
+  #define MR_TELEMETRY(...) do {} while (0)
+#else
+  #define MR_TELEMETRY(...) do { __VA_ARGS__ } while (0)
+#endif
+
 class Hal {
 public:
     virtual ~Hal() = default;

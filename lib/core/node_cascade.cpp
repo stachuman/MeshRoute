@@ -186,6 +186,11 @@ void Node::try_drain_deferred() {
         }
         RtEntry* e = rt_find(d.item.dst);
         if (e != nullptr && e->n > 0) {
+            { EventField sf[] = { { .key = "origin",    .type = EventField::T::i64, .i = d.item.origin },
+                                  { .key = "dst",       .type = EventField::T::i64, .i = d.item.dst },
+                                  { .key = "ctr",       .type = EventField::T::i64, .i = d.item.ctr },
+                                  { .key = "waited_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(now - d.deferred_at_ms) } };
+              _hal.emit("send_drained", sf, 4); }        // route appeared (dv:6953) — the held send flies
             drained[drained_n++] = d.item;               // route appeared -> drain to the queue HEAD below
             continue;
         }

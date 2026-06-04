@@ -12,6 +12,8 @@
 #include "node.h"
 #include "frame_codec.h"
 
+#include <cstdio>   // snprintf for the table_cap_hit "dst:N" key (Lua parity)
+
 namespace meshroute {
 
 // Relay-side flood dedup (Lua route_request_seen; key origin|dst; route_request_seen_ttl_ms window).
@@ -46,13 +48,21 @@ bool Node::rreq_rate_ok(uint8_t dst, uint8_t ttl) {
         if (!window_open && !escalate) return false;      // recent + same/lower ttl -> suppress
         _rreq_last[i].t_ms = now; _rreq_last[i].ttl = ttl; return true;
     }
-    if (_rreq_last_n < protocol::cap_route_request_last) {
-        _rreq_last[_rreq_last_n++] = { dst, ttl, now };
-    } else {
-        uint8_t o = 0;
-        for (uint8_t i = 1; i < _rreq_last_n; ++i) if (_rreq_last[i].t_ms < _rreq_last[o].t_ms) o = i;
-        _rreq_last[o] = { dst, ttl, now };
+    // NEW dst. Full table -> REFUSE the new dst (Lua route_request_last cap, table_cap_hit "refuse"),
+    // NOT evict-oldest: a bounded in-flight-discovery budget is back-pressure, not LRU churn.
+    if (_rreq_last_n >= _cfg.cap_route_request_last) {
+        MR_TELEMETRY(
+            char keybuf[12]; std::snprintf(keybuf, sizeof(keybuf), "dst:%u", static_cast<unsigned>(dst));
+            EventField f[] = { { .key = "table",  .type = EventField::T::str, .s = "route_request_last" },
+                               { .key = "cap",    .type = EventField::T::i64, .i = _cfg.cap_route_request_last },
+                               { .key = "size",   .type = EventField::T::i64, .i = _rreq_last_n },
+                               { .key = "action", .type = EventField::T::str, .s = "refuse" },
+                               { .key = "key",    .type = EventField::T::str, .s = keybuf } };
+            _hal.emit("table_cap_hit", f, 5);
+        );
+        return false;
     }
+    _rreq_last[_rreq_last_n++] = { dst, ttl, now };
     return true;
 }
 
@@ -66,9 +76,12 @@ void Node::emit_route_request(uint8_t dst, uint8_t ttl) {
     uint8_t buf[8];
     const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
     if (n == 0) return;
-    EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = dst },
-                       { .key = "ttl", .type = EventField::T::i64, .i = ttl } };
-    _hal.emit("rreq", f, 2);
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "dst",    .type = EventField::T::i64, .i = dst },
+                           { .key = "ttl",    .type = EventField::T::i64, .i = ttl },
+                           { .key = "reason", .type = EventField::T::str, .s = "no_route" } };   // both call sites are no-route triggers (Lua dv:5689/6920 pass "no_route")
+        _hal.emit("r_tx", f, 3);
+    );
     tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
 }
 
@@ -76,8 +89,10 @@ void Node::emit_route_request(uint8_t dst, uint8_t ttl) {
 void Node::send_route_reply(uint8_t origin, uint8_t dst, uint8_t hops_to_dst) {
     RtEntry* e = rt_find(origin);
     if (e == nullptr || e->n == 0) {
-        EventField f[] = { { .key = "origin", .type = EventField::T::i64, .i = origin } };
-        _hal.emit("rrep_drop_no_reverse", f, 1);
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "origin", .type = EventField::T::i64, .i = origin } };
+            _hal.emit("rrep_drop_no_reverse", f, 1);
+        );
         return;
     }
     const uint8_t next_hop = e->candidates[0].next_hop;
@@ -87,10 +102,12 @@ void Node::send_route_reply(uint8_t origin, uint8_t dst, uint8_t hops_to_dst) {
     uint8_t buf[8];
     const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
     if (n == 0) return;
-    EventField f[] = { { .key = "origin", .type = EventField::T::i64, .i = origin },
-                       { .key = "dst",    .type = EventField::T::i64, .i = dst },
-                       { .key = "next",   .type = EventField::T::i64, .i = next_hop } };
-    _hal.emit("rrep", f, 3);
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "origin", .type = EventField::T::i64, .i = origin },
+                           { .key = "dst",    .type = EventField::T::i64, .i = dst },
+                           { .key = "next",   .type = EventField::T::i64, .i = next_hop } };
+        _hal.emit("rrep", f, 3);
+    );
     tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
 }
 
@@ -106,13 +123,37 @@ void Node::handle_f(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 
     if (!f.is_reply) {                                     // ----------------- RREQ -----------------
         if (f.origin == _node_id) return;                  // our own flood, heard back
+        MR_TELEMETRY(
+            EventField f2[] = { { .key = "origin", .type = EventField::T::i64, .i = f.origin },
+                                { .key = "dst",    .type = EventField::T::i64, .i = f.dst_id },
+                                { .key = "ttl",    .type = EventField::T::i64, .i = f.ttl_or_next_hop },
+                                { .key = "hops",   .type = EventField::T::i64, .i = f.hops } };
+            _hal.emit("rreq_rx", f2, 4); );                                            // dv:11689
         learn_route_via(f.origin, prev, static_cast<uint8_t>(f.hops + 1), snr_q4);     // reverse path
-        if (f.dst_id == _node_id) { send_route_reply(f.origin, _node_id, 0); return; } // we are the target
+        if (f.dst_id == _node_id) {                                                    // we are the target
+            MR_TELEMETRY(
+                EventField f2[] = { { .key = "origin", .type = EventField::T::i64, .i = f.origin } };
+                _hal.emit("rreq_resolved_self", f2, 1); );                             // dv:11705
+            send_route_reply(f.origin, _node_id, 0); return;
+        }
         RtEntry* de = rt_find(f.dst_id);                                               // cached route -> answer
-        if (de != nullptr && de->n > 0) { send_route_reply(f.origin, f.dst_id, de->candidates[0].hops); return; }
+        if (de != nullptr && de->n > 0) {
+            MR_TELEMETRY(
+                EventField f2[] = { { .key = "origin", .type = EventField::T::i64, .i = f.origin },
+                                    { .key = "dst",    .type = EventField::T::i64, .i = f.dst_id },
+                                    { .key = "hops",   .type = EventField::T::i64, .i = de->candidates[0].hops } };
+                _hal.emit("rreq_resolved_cached", f2, 3); );                           // dv:11715
+            send_route_reply(f.origin, f.dst_id, de->candidates[0].hops); return;
+        }
         if (rreq_seen_recently(f.origin, f.dst_id)) return;                            // flood dedup
         mark_rreq_seen(f.origin, f.dst_id);
         if (f.ttl_or_next_hop == 0) return;                                            // TTL exhausted
+        MR_TELEMETRY(
+            EventField f2[] = { { .key = "origin", .type = EventField::T::i64, .i = f.origin },
+                                { .key = "dst",    .type = EventField::T::i64, .i = f.dst_id },
+                                { .key = "ttl",    .type = EventField::T::i64, .i = static_cast<int64_t>(f.ttl_or_next_hop - 1) },
+                                { .key = "hops",   .type = EventField::T::i64, .i = static_cast<int64_t>(f.hops + 1) } };
+            _hal.emit("rreq_forward", f2, 4); );                                       // dv:11728
         f_in fwd{};
         fwd.leaf_id = _cfg.leaf_id; fwd.origin = f.origin; fwd.is_reply = false;
         fwd.dst_id  = f.dst_id; fwd.ttl_or_next_hop = static_cast<uint8_t>(f.ttl_or_next_hop - 1);
@@ -122,10 +163,16 @@ void Node::handle_f(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
     } else {                                               // ----------------- RREP -----------------
         if (f.ttl_or_next_hop != _node_id) return;         // unicast: only the addressed next-hop acts
+        MR_TELEMETRY(
+            EventField f2[] = { { .key = "origin", .type = EventField::T::i64, .i = f.origin },
+                                { .key = "dst",    .type = EventField::T::i64, .i = f.dst_id },
+                                { .key = "hops",   .type = EventField::T::i64, .i = f.hops } };
+            _hal.emit("rrep_rx", f2, 3); );                                            // dv:11743
         learn_route_via(f.dst_id, prev, static_cast<uint8_t>(f.hops + 1), snr_q4);     // forward path
         if (f.origin == _node_id) {                        // we asked -> the route to dst is now installed
-            EventField ev[] = { { .key = "dst", .type = EventField::T::i64, .i = f.dst_id } };
-            _hal.emit("rrep_arrived", ev, 1);              // the armed 1s deferred-send drain flies the send
+            MR_TELEMETRY(
+                EventField ev[] = { { .key = "dst", .type = EventField::T::i64, .i = f.dst_id } };
+                _hal.emit("rrep_arrived", ev, 1); );       // the armed 1s deferred-send drain flies the send
             return;
         }
         send_route_reply(f.origin, f.dst_id, static_cast<uint8_t>(f.hops + 1));        // relay onward

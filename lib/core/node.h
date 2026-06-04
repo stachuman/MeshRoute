@@ -51,6 +51,7 @@ struct NodeConfig {
     uint32_t channel_pull_jitter_ms       = protocol::channel_pull_jitter_ms;        // digest-pull backoff range rand(0,J) (Lua node.channel_pull_jitter_ms); a gate shrinks it to pin pull order
     uint8_t  channel_origin_max_per_window = protocol::channel_origin_max_per_window; // per-origin distinct-msg cap (Lua node.channel_origin_max_per_window or 20); a gate tightens it
     uint32_t channel_origin_window_ms     = protocol::channel_origin_window_ms;      // sliding window for the per-origin cap (Lua node.channel_origin_window_ms)
+    uint8_t  cap_route_request_last        = protocol::cap_route_request_last;        // per-dst RREQ rate-limit table cap (Lua node.cap_route_request_last); full -> refuse new dsts (table_cap_hit). Shrinkable; array stays sized at the protocol max.
     uint32_t quiet_threshold_ms  = 30000;        // beacon throttle gate; <=0 = unthrottled (R1 fast path)
     uint8_t  leaf_id             = 0;            // layer id (single-layer R1 = 0)
     uint16_t peer_count          = 0;            // host-set (N-1); 0 = no rt_full emit (sim telemetry)
