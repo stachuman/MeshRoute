@@ -45,6 +45,7 @@ static uint8_t  g_rxbuf[P::max_payload_bytes_hard_cap + 32];
 static bool     g_radio_ok = false;   // SX1262 std_init result — surfaced in the heartbeat below
 static uint32_t g_rx_count = 0;       // frames received (status diagnostic)
 static double   g_freq_mhz = LORA_FREQ;   // live operating freq (compile default; Slice-2 NV will override at boot)
+static int8_t   g_tx_power = LORA_TX_POWER;   // live TX power (dBm); NV `cfg set tx_power` overrides at boot
 
 // ---- device-console diagnostics (host tool: tools/meshroute_client.py) ---------------------------
 // Print the live routing table in the meshroute_client `routes` wire format.
@@ -83,6 +84,7 @@ static void dump_cfg() {
     Serial.print(F(" sf_list="));        print_sf_list(c.allowed_sf_bitmap);
     Serial.print(F(" bw="));             Serial.print(c.radio_bw_hz);
     Serial.print(F(" cr="));             Serial.print(c.radio_cr);
+    Serial.print(F(" tx_power="));       Serial.print((int)g_tx_power);
     Serial.print(F(" duty="));           Serial.print(c.duty_cycle, 3);
     Serial.print(F(" lbt="));            Serial.print(c.lbt_enabled ? 1 : 0);
     Serial.print(F(" beacon_ms="));      Serial.println(c.beacon_period_ms);
@@ -119,6 +121,7 @@ static void handle_cfg_set(const char* args) {
     meshroute::NodeConfig nc = g_node.config();      // start from the live config, override one key
     double  freq    = g_freq_mhz;
     uint8_t node_id = g_node.node_id();              // preserve identity across other `cfg set`s
+    int8_t  tx_power = g_tx_power;                    // preserve TX power across other `cfg set`s
     bool known = true;
     if      (!strcmp(key, "node_id")) {
         const int v = atoi(val);
@@ -126,7 +129,8 @@ static void handle_cfg_set(const char* args) {
         node_id = (uint8_t)v;
     }
     else if (!strcmp(key, "freq"))       freq = atof(val);
-    else if (!strcmp(key, "routing_sf")) nc.routing_sf = (uint8_t)atoi(val);
+    else if (!strcmp(key, "routing_sf") ||
+             !strcmp(key, "control_sf")) nc.routing_sf = (uint8_t)atoi(val);   // "control_sf" = the banner's name for it
     else if (!strcmp(key, "data_sf"))    nc.data_sf = (uint8_t)atoi(val);
     else if (!strcmp(key, "sf_list"))    nc.allowed_sf_bitmap = parse_sf_list(val);
     else if (!strcmp(key, "bw"))         nc.radio_bw_hz = (uint32_t)atol(val);
@@ -134,6 +138,11 @@ static void handle_cfg_set(const char* args) {
     else if (!strcmp(key, "duty"))       nc.duty_cycle = atof(val);
     else if (!strcmp(key, "lbt"))        nc.lbt_enabled = atoi(val) != 0;
     else if (!strcmp(key, "beacon_ms"))  nc.beacon_period_ms = (uint32_t)atol(val);
+    else if (!strcmp(key, "tx_power")) {
+        const int v = atoi(val);
+        if (v < -9 || v > 22) { Serial.println(F("> cfg err bad_value (tx_power -9..22 dBm)")); return; }
+        tx_power = (int8_t)v;
+    }
     else known = false;
     if (!known) { Serial.print(F("> cfg err unknown_key ")); Serial.println(key); return; }
 
@@ -143,6 +152,7 @@ static void handle_cfg_set(const char* args) {
     b.duty = nc.duty_cycle;       b.allowed_sf_bitmap = nc.allowed_sf_bitmap;
     b.routing_sf = nc.routing_sf; b.data_sf = nc.data_sf;       b.cr = nc.radio_cr;  b.lbt = nc.lbt_enabled ? 1 : 0;
     b.node_id = node_id;
+    b.tx_power = tx_power;
     if (mrnv::save(b)) {
         Serial.print(F("> cfg ")); Serial.print(key); Serial.print('='); Serial.print(val);
         Serial.println(F(" ok (reboot to apply)"));
@@ -181,7 +191,6 @@ void setup() {
     Serial.print(F("  freq      = ")); Serial.print((double)LORA_FREQ, 4); Serial.println(F(" MHz"));
     Serial.print(F("  sf/bw/cr  = ")); Serial.print(LORA_SF); Serial.print(F("/"));
     Serial.print((double)LORA_BW, 1); Serial.print(F("/4/")); Serial.println(LORA_CR);
-    Serial.print(F("  tx power  = ")); Serial.print(LORA_TX_POWER); Serial.println(F(" dBm"));
 #ifdef BOARD_XIAO_WIO_SX1262
     Serial.println(F("  board     = XIAO nRF52840 + Wio-SX1262"));
 #elif defined(BOARD_HELTEC_V3)
@@ -220,11 +229,18 @@ void setup() {
         cfg.radio_bw_hz       = nv.bw_hz;        cfg.radio_cr     = nv.cr;
         cfg.duty_cycle        = nv.duty;         cfg.lbt_enabled  = nv.lbt != 0;
         cfg.beacon_period_ms  = nv.beacon_ms;
+        g_tx_power            = (nv.version >= 3) ? nv.tx_power : (int8_t)LORA_TX_POWER;   // v2 blob had no tx_power -> keep the default
         Serial.println(F("  config    = loaded from NV"));
     }
     g_node.set_identity(node_id, key_for(node_id));             // 0 stays unprovisioned -> do_send refused
     Serial.print(F("  node id   = ")); Serial.print(node_id);
     Serial.println(node_id == 0 ? F("  (UNPROVISIONED: cfg set node_id <1..254> + reboot, or join)") : F(""));
+    Serial.print(F("  control sf= ")); Serial.print(cfg.routing_sf); Serial.println(F("  (RTS/CTS/ACK + beacons)"));
+    Serial.print(F("  data sf   = "));
+    if (cfg.allowed_sf_bitmap) { print_sf_list(cfg.allowed_sf_bitmap); Serial.println(F("  (receiver picks the fastest by SNR)")); }
+    else                       { Serial.print(cfg.data_sf);           Serial.println(F("  (fixed — no sf_list configured)")); }
+
+    Serial.print(F("  tx power  = ")); Serial.print((int)g_tx_power); Serial.println(F(" dBm"));
 
     // Apply the operating point to the radio (freq/SF/BW/CR), re-arm RX, and match the Hal airtime ledger.
     if (ok) {
@@ -236,7 +252,7 @@ void setup() {
     }
     g_hal.configure(/*sf=*/(int16_t)cfg.routing_sf, /*bw_hz=*/(int32_t)cfg.radio_bw_hz,
                     /*cr=*/(int8_t)cfg.radio_cr, /*preamble=*/(int16_t)P::preamble_sym,
-                    /*power=*/(int8_t)LORA_TX_POWER, /*channel_busy_hold_ms=*/100);
+                    /*power=*/g_tx_power, /*channel_busy_hold_ms=*/100);
     g_hal.seed_rng((uint32_t)millis() ^ (g_node.key_hash32() * 2654435761u));
 
     g_node.on_init(cfg);

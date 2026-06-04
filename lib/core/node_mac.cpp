@@ -598,8 +598,16 @@ void Node::start_ack_timeout() {
 void Node::start_pending_rx_expiry(uint8_t payload_len) {
     const uint8_t  sf  = _pending_rx ? _pending_rx->chosen_data_sf : _cfg.data_sf;
     const uint16_t len = static_cast<uint16_t>(14 + payload_len);
+    // +2: the original ideal-timing margin — this is ALL the sim uses, so s18 contention is unchanged.
+    // On top, _hal.rx_window_slop_ms(sf) is the REAL hardware slop airtime_ms can't see, bench-measured
+    // across SF5..SF12 as ~30 ms SPI reconfig/mode-switch (SF-flat) + ~1 symbol RX_DONE demod lag
+    // (scales with SF; airtime verified vs the chip via [txair]: SF12 model 2564 == measured 2571). It's
+    // a HAL hook so it's ZERO on the idealized sim (a fat shared margin inflated BUSY_RX busy_for +
+    // over-held pending_rx on lost DATA -> 96%->69% s18 collapse) and metal-real on the device (else the
+    // receiver hops back to routing before the slow DATA's RX_DONE and aborts it).
     const uint32_t t = airtime_routing_ms(4) /*CTS_LEN=4*/ + protocol::cts_to_data_gap_ms +
-                       airtime_ms(sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym, len) + 2;
+                       airtime_ms(sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym, len)
+                       + 2 + _hal.rx_window_slop_ms(sf);
     if (_pending_rx) _pending_rx->expiry_ms = _hal.now() + t;   // for the BUSY_RX NACK busy_for calc
     (void)_hal.after(t, kPendingRxExpiryTimerId);
 }

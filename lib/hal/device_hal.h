@@ -30,6 +30,12 @@ public:
     uint64_t channel_busy_until() override;             // CAD busy -> now + busy_hold; else 0
     uint64_t airtime_used_ms(uint64_t window_ms) override;
     uint64_t oldest_tx_end_ms() override;
+    // Metal RX-window slop (bench-measured, SX1262): ~1-symbol RX_DONE demod lag (scales w/ SF) + ~30 ms
+    // SPI reconfig/mode-switch (SF-flat) + ~20 ms safety. Sizes the data-SF window to the real DATA
+    // RX_DONE across SF5..SF12 — airtime_ms alone falls ~1 symbol + ~30 ms short on hardware.
+    uint32_t rx_window_slop_ms(int sf) const override {
+        return ((1u << sf) * 1000u) / static_cast<uint32_t>(_def_bw) + 1 /*~1 symbol*/ + 50 /*~30ms reconfig + ~20ms safety*/;
+    }
 
     // ---- Hal time/timers ----
     uint64_t now() override { return _clock.now_ms(); }

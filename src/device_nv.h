@@ -29,10 +29,11 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     uint8_t  cr;
     uint8_t  lbt;
     uint8_t  node_id;          // 0 = unprovisioned (no sends until join / `cfg set node_id`)
-    uint8_t  _pad2;
+    int8_t   tx_power;         // dBm (repurposed _pad2); SX1262 range -9..22. `cfg set tx_power`
 };
 constexpr uint32_t kMagic   = 0x4D524331u;   // 'MRC1'
-constexpr uint16_t kVersion = 2;             // bumped: node_id added to the blob
+constexpr uint16_t kVersion = 3;             // tx_power (was _pad2); load() ALSO accepts v2 (identical
+                                             // layout) + defaults tx_power, so the bump preserves config
 
 }  // namespace mrnv
 
@@ -49,7 +50,7 @@ inline bool load(Blob& out) {
     if (!f.open("/mrcfg", FILE_O_READ)) return false;
     const int n = f.read(reinterpret_cast<uint8_t*>(&out), sizeof(out));
     f.close();
-    return n == static_cast<int>(sizeof(out)) && out.magic == kMagic && out.version == kVersion;
+    return n == static_cast<int>(sizeof(out)) && out.magic == kMagic && (out.version == kVersion || out.version == 2);
 }
 inline bool save(const Blob& b) {
     using namespace Adafruit_LittleFS_Namespace;
@@ -70,7 +71,7 @@ inline bool load(Blob& out) {
     if (!p.begin("mr", /*readOnly=*/true)) return false;
     const size_t n = p.getBytes("cfg", &out, sizeof(out));
     p.end();
-    return n == sizeof(out) && out.magic == kMagic && out.version == kVersion;
+    return n == sizeof(out) && out.magic == kMagic && (out.version == kVersion || out.version == 2);
 }
 inline bool save(const Blob& b) {
     Preferences p;

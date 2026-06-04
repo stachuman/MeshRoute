@@ -70,6 +70,11 @@ public:
     virtual uint64_t channel_busy_until() = 0;         // LBT busy_until ms, or 0
     virtual uint64_t airtime_used_ms(uint64_t window_ms) = 0;
     virtual uint64_t oldest_tx_end_ms() = 0;           // duty-cycle headroom calc
+    // Extra data-SF RX-window slack the airtime model can't predict: real-radio reconfig/mode-switch +
+    // RX_DONE demod lag (bench-measured on the SX1262). 0 on the idealized sim (no s18 regression); the
+    // device HAL returns the measured slop so the window covers the slow DATA's real RX_DONE. Non-pure:
+    // sim Hals (FirmwareNode) inherit 0 with no change needed.
+    virtual uint32_t rx_window_slop_ms(int sf) const { (void)sf; return 0; }
 
     // ---- time / timers — one-shot, caller-allocated ids, (re)arm-by-id, cap 64
     virtual uint64_t now() = 0;

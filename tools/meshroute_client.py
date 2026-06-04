@@ -22,7 +22,7 @@
 #   routes  -> [routes] n=<k>
 #              [route] dest=<id> next=<id> hops=<n> score=<q4> gw=<0|1> layer=<id> age_ms=<n>
 #              [routes] end
-#   cfg     -> [cfg] node_id=<id> freq=<MHz> routing_sf=<n> data_sf=<n> sf_list=<csv> bw=<hz> cr=<n> \
+#   cfg     -> [cfg] node_id=<id> freq=<MHz> routing_sf=<n> data_sf=<n> sf_list=<csv> tx_power <db> bw=<hz> cr=<n> \
 #                    duty=<f> lbt=<0|1> beacon_ms=<n>
 #   cfg set <key> <val> -> > cfg <key>=<val> ok   |   > cfg err <reason>
 #   status  -> [status] uptime_ms=<n> rx=<n> tx=<n> duty_ms=<n> routes=<n> pending=<0|1>
@@ -65,7 +65,9 @@ CMD_NAMES = {0: "B/beacon", 1: "R/RTS", 2: "C/CTS", 3: "D/DATA", 4: "K/ACK",
 _PATTERNS = [
     ("hb",       re.compile(r"^\[hb\]\s+t=(?P<t>\d+)s\s+radio=(?P<radio>\w+)\s+duty_ms=(?P<duty>\d+)")),
     ("rx",       re.compile(r"^\[rx\]\s+len=(?P<len>\d+)\s+cmd=(?P<cmd>\d+)\s+snr=(?P<snr>[-\d.]+)\s+rssi=(?P<rssi>[-\d.]+)")),
-    ("tx",       re.compile(r"^\[tx\]\s+cmd=(?P<cmd>\d+)\s+len=(?P<len>\d+)")),
+    ("tx",       re.compile(r"^\[tx\]\s+cmd=(?P<cmd>\d+)\s+len=(?P<len>\d+)(?:\s+sf=(?P<sf>\d+))?(?:\s+t=(?P<t>\d+))?")),
+    ("rxsf",     re.compile(r"^\[rxsf=(?P<sf>\d+)(?:\s+t=(?P<t>\d+))?\]")),
+    ("rxbad",    re.compile(r"^\[rxbad st=(?P<st>-?\d+)(?:\s+t=(?P<t>\d+))?\]")),
     ("recv",     re.compile(r"^RECV from=(?P<from>\d+):\s?(?P<text>.*)$")),
     ("acked",    re.compile(r"^ACKED ctr=(?P<ctr>\d+)")),
     ("failed",   re.compile(r"^FAILED ctr=(?P<ctr>\d+)")),
@@ -94,24 +96,32 @@ def _kv(s):
 # Bring-up debug lines print WITHOUT a trailing newline (device_radio.h), so they glom onto the front
 # of the next line: `[rxdone irq=12][rx] len=12 ...`, `[pre][pre][hb] t=...`. Strip + capture them so the
 # real line still classifies. (If those debug prints are removed from the firmware, this just no-ops.)
-_PRE = re.compile(r"^\[pre\]")
-_RXDONE = re.compile(r"^\[rxdone irq=(?P<irq>[0-9A-Fa-f]+)\]")
+_PRE = re.compile(r"^\[pre(?:\s+sf=(?P<pre_sf>\d+))?(?:\s+t=(?P<pre_t>\d+))?\]")
+_RXDONE = re.compile(r"^\[rxdone irq=(?P<irq>[0-9A-Fa-f]+)(?:\s+sf=(?P<rx_sf>\d+))?(?:\s+t=(?P<rx_t>\d+))?\]")
 
 
 def parse_line(line):
     """line -> (kind, fields). Leading [pre]/[rxdone irq=..] debug prefixes are stripped and kept as
     fields pre=<count>, irq=<hex>. kind='other' if nothing matches; 'pre' for a bare preamble marker."""
     line = line.rstrip("\r\n")
-    pre, irq = 0, None
+    pre, irq, sf, t = 0, None, None, None
     while line:
         m = _PRE.match(line)
         if m:
             pre += 1
+            if m.group("pre_sf"):
+                sf = m.group("pre_sf")
+            if m.group("pre_t"):
+                t = m.group("pre_t")
             line = line[m.end():]
             continue
         m = _RXDONE.match(line)
         if m:
             irq = m.group("irq")
+            if m.group("rx_sf"):
+                sf = m.group("rx_sf")
+            if m.group("rx_t"):
+                t = m.group("rx_t")
             line = line[m.end():]
             continue
         break
@@ -119,6 +129,10 @@ def parse_line(line):
     def _tag(kind, fields):
         if irq is not None:
             fields["irq"] = irq
+        if sf is not None and "sf" not in fields:
+            fields["sf"] = sf
+        if t is not None and "t" not in fields:
+            fields["t"] = t
         if pre:
             fields["pre"] = pre
         return kind, fields
@@ -288,13 +302,25 @@ def pretty(line):
         return f"  · alive {f['t']}s  radio={f['radio']}  duty={f['duty']}ms"
     if kind == "rx":
         name = CMD_NAMES.get(int(f["cmd"]), "?")
+        sf  = f"  sf={f['sf']}" if "sf" in f else ""
         irq = f"  irq=0x{f['irq']}" if "irq" in f else ""
-        return f"  «rx  cmd={f['cmd']} {name:8s} len={f['len']} snr={f['snr']} rssi={f['rssi']}{irq}"
+        t   = f"  t={f['t']}ms" if "t" in f else ""
+        return f"  «rx  cmd={f['cmd']} {name:8s} len={f['len']}{sf} snr={f['snr']} rssi={f['rssi']}{irq}{t}"
     if kind == "tx":
         name = CMD_NAMES.get(int(f["cmd"]), "?")
-        return f"  »tx  cmd={f['cmd']} {name:8s} len={f['len']}"
+        sf  = f"  sf={f['sf']}" if "sf" in f else ""
+        t   = f"  t={f['t']}ms" if "t" in f else ""
+        return f"  »tx  cmd={f['cmd']} {name:8s} len={f['len']}{sf}{t}"
+    if kind == "rxsf":
+        t = f"  t={f['t']}ms" if "t" in f else ""
+        return f"  ↻ rx-sf → {f['sf']}        (RX now tuned to SF{f['sf']}){t}"
+    if kind == "rxbad":
+        t = f"  t={f['t']}ms" if "t" in f else ""
+        return f"  ✗ rx-bad st={f['st']}      (frame arrived, decode failed){t}"
     if kind == "pre":
-        return f"  ·· preamble x{f.get('pre', 1)}"
+        sf = f" sf={f['sf']}" if "sf" in f else ""
+        t  = f"  t={f['t']}ms" if "t" in f else ""
+        return f"  ·· preamble{sf} x{f.get('pre', 1)}{t}"
     if kind == "recv":
         return f"  ★ RECV from {f['from']}: {f['text']}"
     if kind == "acked":
@@ -367,7 +393,20 @@ def cmd_repl(args):
 
 def cmd_send(args):
     with MeshRouteClient(_resolve_port(args), args.baud) as c:
-        r = c.send_message(args.dst, " ".join(args.text))
+        text = " ".join(args.text)
+        if args.monitor:
+            # One connection, go live BEFORE the send -> the RTS/CTS/DATA/ACK (+ [txair]/[win-left] probes)
+            # are captured with no reconnect gap (and no second-process board reset on port re-open).
+            c._on_line = lambda ln: print(pretty(ln), flush=True)
+            c.send_line(f"send {args.dst} {text}")
+            print(f"sent '{text}' to {args.dst} -> monitoring {c.port} @ {c.baud}  (Ctrl+C to quit)", flush=True)
+            try:
+                while True:
+                    time.sleep(0.5)
+            except KeyboardInterrupt:
+                print()
+            return
+        r = c.send_message(args.dst, text)
         if not r:
             print("no response (timeout)")
         elif r[0] == "parse_err":
@@ -392,10 +431,34 @@ def cmd_routes(args):
                   f"{r.get('score',''):>6} {r.get('gw',''):>2} {r.get('layer',''):>5} {r.get('age_ms',''):>8}")
 
 
+# Valid `cfg set <key> <value>` keys — mirror fw_main.cpp handle_cfg_set. Persisted to NV, applied on reboot.
+CFG_KEYS = {
+    "node_id":    "1..254 node address (0 = unprovisioned)",
+    "freq":       "frequency MHz, e.g. 868.0",
+    "control_sf": "control-plane SF 5..12 (RTS/CTS/ACK/beacons)",
+    "routing_sf": "same as control_sf (the internal name)",
+    "data_sf":    "fixed data SF 5..12 (used only when sf_list is empty)",
+    "sf_list":    "allowed data SFs, comma list e.g. 5,7 (receiver picks by SNR)",
+    "tx_power":   "TX output power dBm, -9..22",
+    "bw":         "bandwidth Hz, e.g. 125000",
+    "cr":         "coding-rate denominator 5..8 (4/5 .. 4/8)",
+    "duty":       "duty-cycle fraction, e.g. 0.01",
+    "lbt":        "listen-before-talk, 0 or 1",
+    "beacon_ms":  "beacon period, ms",
+}
+
+
 def cmd_cfg(args):
+    if args.keys:
+        print("cfg keys  (cfg --set <key> <value>; saved to NV, applied on reboot):")
+        for k, d in CFG_KEYS.items():
+            print(f"  {k:11s} {d}")
+        return
     with MeshRouteClient(_resolve_port(args), args.baud) as c:
         if args.set:
             key, value = args.set
+            if key not in CFG_KEYS:
+                print(f"  note: '{key}' is not a known key. Valid: {', '.join(CFG_KEYS)}")
             r = c.set_config(key, value)
             if not r:
                 print("no response (timeout)")
@@ -440,6 +503,13 @@ def selftest():
         "[rxdone irq=12][rx] len=7 cmd=2 snr=13.5 rssi=-0":     ("rx", {"len": "7", "cmd": "2", "irq": "12"}),
         "[pre][pre][hb] t=20s radio=OK duty_ms=176":           ("hb", {"t": "20", "pre": 2}),
         "[tx] cmd=1 len=7":                                     ("tx", {"cmd": "1", "len": "7"}),
+        "[tx] cmd=3 len=24 sf=5":                               ("tx", {"cmd": "3", "len": "24", "sf": "5"}),
+        "[rxdone irq=12 sf=5][rx] len=24 cmd=3 snr=13.5 rssi=-13": ("rx", {"cmd": "3", "len": "24", "irq": "12", "sf": "5"}),
+        "[pre sf=5][hb] t=20s radio=OK duty_ms=176":           ("hb", {"t": "20", "pre": 1, "sf": "5"}),
+        "[rxsf=5]":                                            ("rxsf", {"sf": "5"}),
+        "[rxbad st=-7]":                                       ("rxbad", {"st": "-7"}),
+        "[rxsf=7 t=999]":                                      ("rxsf", {"sf": "7", "t": "999"}),
+        "[rxdone irq=12 sf=7 t=999][rx] len=24 cmd=3 snr=13.5 rssi=-13": ("rx", {"cmd": "3", "irq": "12", "sf": "7", "t": "999"}),
         "RECV from=1: hello world":                             ("recv", {"from": "1", "text": "hello world"}),
         "ACKED ctr=3":                                          ("acked", {"ctr": "3"}),
         "FAILED ctr=3":                                         ("failed", {"ctr": "3"}),
@@ -482,10 +552,13 @@ def main(argv=None):
     ps = sub.add_parser("send", help="send a DM: send <dst> <text...>")
     ps.add_argument("dst", type=int)
     ps.add_argument("text", nargs="+")
+    ps.add_argument("-m", "--monitor", action="store_true",
+                    help="after sending, keep streaming on the SAME connection (captures the RTS/CTS/DATA/ACK + [txair]/[win-left]); Ctrl+C to quit")
     ps.set_defaults(func=cmd_send)
 
-    pc = sub.add_parser("cfg", help="get config, or `cfg --set <key> <value>`")
+    pc = sub.add_parser("cfg", help="get config; `cfg --set <key> <value>`; `cfg --keys` to list keys")
     pc.add_argument("--set", nargs=2, metavar=("KEY", "VALUE"))
+    pc.add_argument("--keys", action="store_true", help="list the valid config keys + descriptions (no device needed)")
     pc.set_defaults(func=cmd_cfg)
 
     pr = sub.add_parser("raw", help="send a raw line + print the response window")
