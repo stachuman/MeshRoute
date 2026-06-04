@@ -48,6 +48,9 @@ struct NodeConfig {
     bool     sync_response_enabled    = true;    // responder: answer an overheard REQ_SYNC with a jittered full-table beacon (Lua dv:8936)
     uint8_t  sync_response_min_routes = 0;       // responder gate (Lua nil -> 0: respond even when route-starved, dv:8067)
     uint8_t  channel_dirty_max_advertisements = protocol::channel_dirty_max_advertisements;  // K: retire a dirty channel id after this many BCN digests (Lua node.channel_dirty_max_advertisements or 3); per-node so a gate can shrink it
+    uint32_t channel_pull_jitter_ms       = protocol::channel_pull_jitter_ms;        // digest-pull backoff range rand(0,J) (Lua node.channel_pull_jitter_ms); a gate shrinks it to pin pull order
+    uint8_t  channel_origin_max_per_window = protocol::channel_origin_max_per_window; // per-origin distinct-msg cap (Lua node.channel_origin_max_per_window or 20); a gate tightens it
+    uint32_t channel_origin_window_ms     = protocol::channel_origin_window_ms;      // sliding window for the per-origin cap (Lua node.channel_origin_window_ms)
     uint32_t quiet_threshold_ms  = 30000;        // beacon throttle gate; <=0 = unthrottled (R1 fast path)
     uint8_t  leaf_id             = 0;            // layer id (single-layer R1 = 0)
     uint16_t peer_count          = 0;            // host-set (N-1); 0 = no rt_full emit (sim telemetry)
@@ -319,7 +322,7 @@ private:
     bool    channel_origin_admit(uint8_t origin, uint32_t msg_id); // per-origin distinct-count anti-spam (dv:3456)
     int     channel_buffer_pick_eviction(bool* safe) const;        // oldest-all-seen else oldest; index (dv:3485)
     void    channel_buffer_add(const ChannelEntry& e);             // insert; evict if full (dv:3511)
-    void    cancel_channel_pull(uint32_t id, uint8_t overheard_from); // promiscuous-overhear pull cancel (dv:11006)
+    void    cancel_channel_pull(uint32_t id, uint8_t overheard_from, bool peer_q = false); // pull cancel: peer_q=true -> a peer's Q pulled it (dv:11831); else we received it (dv:11006)
     uint16_t do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t body_len);  // send_channel origination (dv:12126)
     // Phase 2: digest emit/ingest + the jittered pull (THE draw).
     size_t  build_channel_digest_ext(uint8_t* out, size_t cap);    // dirty ids -> BCN ext-TLV; ad_count++/retire (dv:1426)

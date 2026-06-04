@@ -61,7 +61,7 @@ bool Node::channel_have_id_lo16(uint16_t lo) const {
 bool Node::channel_origin_admit(uint8_t origin, uint32_t msg_id) {
     if (origin == _node_id) return true;                        // self bypasses
     const uint64_t now    = _hal.now();
-    const uint64_t cutoff = (now >= protocol::channel_origin_window_ms) ? now - protocol::channel_origin_window_ms : 0;
+    const uint64_t cutoff = (now >= _cfg.channel_origin_window_ms) ? now - _cfg.channel_origin_window_ms : 0;
     ChannelOriginLedger& L = _per_origin_channel[origin];       // map insert-on-miss (default-constructed n=0)
     // Prune in place (keep in-window), refreshing the matching id; events are unique-id (dups refresh),
     // so the kept count IS the distinct count (matching the Lua's `seen` set).
@@ -73,14 +73,16 @@ bool Node::channel_origin_admit(uint8_t origin, uint32_t msg_id) {
     }
     L.n = k;
     if (dup) return true;                                       // repeat id -> refreshed + admitted, not re-counted
-    if (L.n >= protocol::channel_origin_max_per_window) {       // over cap -> drop the frame entirely
-        EventField f[] = { { .key = "origin", .type = EventField::T::i64, .i = origin },
-                           { .key = "msg_id", .type = EventField::T::i64, .i = static_cast<int64_t>(msg_id) },
-                           { .key = "count",  .type = EventField::T::i64, .i = L.n } };
-        _hal.emit("channel_drop_originator_throttle", f, 3);
+    if (L.n >= _cfg.channel_origin_max_per_window) {            // over cap -> drop the frame entirely
+        EventField f[] = { { .key = "origin",    .type = EventField::T::i64, .i = origin },
+                           { .key = "msg_id",    .type = EventField::T::i64, .i = static_cast<int64_t>(msg_id) },
+                           { .key = "count",     .type = EventField::T::i64, .i = L.n },
+                           { .key = "threshold", .type = EventField::T::i64, .i = _cfg.channel_origin_max_per_window },
+                           { .key = "window_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.channel_origin_window_ms) } };
+        _hal.emit("channel_drop_originator_throttle", f, 5);
         return false;
     }
-    if (L.n < protocol::channel_origin_max_per_window) L.ev[L.n++] = { msg_id, now };   // record the new distinct id
+    if (L.n < _cfg.channel_origin_max_per_window) L.ev[L.n++] = { msg_id, now };   // record the new distinct id
     return true;
 }
 
@@ -122,14 +124,21 @@ void Node::channel_buffer_add(const ChannelEntry& e) {
 
 // ---- promiscuous-overhear pull cancel (dv:11006). Phase 1: the ring is empty (scheduling is Phase 2),
 //      so this is a no-op today; wired now so the ingest path is complete. -------------------------
-void Node::cancel_channel_pull(uint32_t id, uint8_t overheard_from) {
+void Node::cancel_channel_pull(uint32_t id, uint8_t overheard_from, bool peer_q) {
     for (uint8_t i = 0; i < protocol::cap_channel_pull_pending; ++i) {
         ChannelPullPending& p = _channel_pull_pending[i];
         if (p.active && p.id == id) {
             p.active = false;
-            EventField f[] = { { .key = "id",            .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
-                               { .key = "overheard_from", .type = EventField::T::i64, .i = overheard_from } };
-            _hal.emit("channel_pull_suppressed", f, 2);
+            if (peer_q) {   // a peer's Q already pulled this id -> stand down so we don't double-pull (dv:11831)
+                EventField f[] = { { .key = "id",            .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
+                                   { .key = "overheard_from", .type = EventField::T::str, .s = "peer_q" },
+                                   { .key = "peer",          .type = EventField::T::i64, .i = overheard_from } };
+                _hal.emit("channel_pull_suppressed", f, 3);
+            } else {        // we received the msg (overheard M-broadcast) -> drop the now-moot pull (dv:11006)
+                EventField f[] = { { .key = "id",            .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
+                                   { .key = "overheard_from", .type = EventField::T::i64, .i = overheard_from } };
+                _hal.emit("channel_pull_suppressed", f, 2);
+            }
         }
     }
 }
@@ -266,7 +275,7 @@ void Node::process_channel_digest(uint8_t src, const uint32_t* ids, uint8_t coun
         if (channel_pull_recently(id)) continue;                  // recent-window gate (BEFORE the draw)
         // THE DRAW (dv:3568) — rand(0, channel_pull_jitter_ms+1). Made here regardless of slot availability
         // (the Lua always draws + stores into an unbounded map), so the stream stays aligned.
-        const uint32_t jitter = static_cast<uint32_t>(_hal.rand_range(0, protocol::channel_pull_jitter_ms + 1));
+        const uint32_t jitter = static_cast<uint32_t>(_hal.rand_range(0, static_cast<int32_t>(_cfg.channel_pull_jitter_ms) + 1));
         ++scheduled;
         // one pending slot per id: reuse the id's live slot (overwrite/re-arm), else a free slot.
         int slot = -1;
@@ -364,7 +373,7 @@ void Node::enqueue_channel_m(uint8_t target, const ChannelEntry& e) {
 // dest; a gateway only answers a pull addressed to IT (it forwarded the original DATA but holds no
 // buffer, so channel_buffer_find misses -> it answers nothing). No explicit is_gateway gate needed.
 void Node::handle_channel_pull(uint8_t src, uint8_t dest, const uint32_t* ids, uint8_t count) {
-    for (uint8_t i = 0; i < count; ++i) cancel_channel_pull(ids[i], src);   // overhear: cancel my pending pulls
+    for (uint8_t i = 0; i < count; ++i) cancel_channel_pull(ids[i], src, /*peer_q=*/true);   // a peer pulled these -> cancel my pending pulls (dv:11831)
     if (dest != _node_id) return;                                // only the addressed target serves the pull
     bool any = false;
     for (uint8_t i = 0; i < count; ++i) {

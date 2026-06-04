@@ -189,8 +189,10 @@ void Node::tx_m_broadcast_rts() {
                        { .key = "ctr",  .type = EventField::T::i64, .i = pt.ctr } };
     _hal.emit("rts_tx", f, 3);
     tx_initiating(buf, l, static_cast<int16_t>(_cfg.routing_sf), LbtKind::rts, pt.flight_gen);
-    const uint32_t gap = airtime_routing_ms(10 /*RTS_LEN 8 + id_lo16 2*/) + protocol::cts_to_data_gap_ms;
-    (void)_hal.after(gap, kCtsToDataGapTimerId);               // RTS->DATA gap fires do_data_tx (no CTS)
+    // The RTS->DATA gap is armed in start_rts_timeout (the actual-TX hand-off, after any LBT/duty defer = the
+    // Lua's on_handed, dv:7032) — NOT here at issue. Arming at issue desyncs the DATA when the RTS is deferred:
+    // it fires while the RTS is still on air (self_tx_in_flight -> data_tx_blocked) and BEFORE overhearers
+    // receive the full RTS + retune to the data SF, so they're never on the SF when the DATA-M lands.
 }
 
 void Node::issue_send(const TxItem& item) {
@@ -555,6 +557,15 @@ void Node::do_data_tx() {
 }
 
 void Node::start_rts_timeout() {
+    // M-broadcast (fire-and-forget): there is no CTS to wait for. start_rts_timeout is called at the RTS
+    // hand-off in EVERY path (lbt_complete:327 + rts_duty_defer_fire:351) = the Lua's on_handed (dv:7032),
+    // so anchor the RTS->DATA gap to the ACTUAL TX here. The DATA then fires cts_to_data_gap_ms AFTER the
+    // RTS clears the air, which is exactly when overhearers have received the RTS + retuned to the data SF.
+    if (_pending_tx && _pending_tx->m_broadcast) {
+        const uint32_t gap = airtime_routing_ms(9 /*M_BROADCAST RTS = 7 base + id_lo16(2)*/) + protocol::cts_to_data_gap_ms;
+        (void)_hal.after(gap, kCtsToDataGapTimerId);                       // RTS->DATA gap fires do_data_tx (no CTS)
+        return;
+    }
     const uint32_t base = airtime_routing_ms(8) + airtime_routing_ms(4);   // Lua RTS_LEN=8 + CTS_LEN=4 (timing matches Lua)
     const uint8_t  attempt = static_cast<uint8_t>(protocol::rts_max_retries -
                               (_pending_tx ? _pending_tx->retries_left : 0));

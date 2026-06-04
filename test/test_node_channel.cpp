@@ -31,17 +31,22 @@ struct Ev { std::string type; int64_t id = -1; int origin = -1; int count = -1; 
 class TestHal : public Hal {
 public:
     uint64_t _now = 0;
+    int      _rand_ret = -1;          // >=0 overrides rand_range (else returns lo)
+    int      rand_calls = 0;
     std::vector<Ev> events;
-    TxResult tx(const uint8_t*, size_t, const TxParams&) override { return TxResult::ok; }
-    void     set_rx_sf(int) override {}
+    std::vector<std::vector<uint8_t>> tx_frames;          // captured TX bytes
+    std::vector<std::pair<uint32_t,uint32_t>> timers;     // (timer_id, delay)
+    int      last_rx_sf = -1;
+    TxResult tx(const uint8_t* b, size_t n, const TxParams&) override { tx_frames.emplace_back(b, b + n); return TxResult::ok; }
+    void     set_rx_sf(int sf) override { last_rx_sf = sf; }
     uint64_t channel_busy_until() override { return 0; }
     uint64_t airtime_used_ms(uint64_t) override { return 0; }
     uint64_t oldest_tx_end_ms() override { return 0; }
     uint64_t now() override { return _now; }
-    bool     after(uint32_t, uint32_t) override { return true; }
+    bool     after(uint32_t delay, uint32_t id) override { timers.push_back({ id, delay }); return true; }
     void     cancel(uint32_t) override {}
     void     set_protocol_id(int) override {}
-    int      rand_range(int lo, int) override { return lo; }
+    int      rand_range(int lo, int) override { ++rand_calls; return _rand_ret >= 0 ? _rand_ret : lo; }
     void     emit(const char* type, const EventField* f, size_t n) override {
         Ev e; e.type = type;
         for (size_t i = 0; i < n; ++i) {
@@ -56,6 +61,13 @@ public:
     }
     void     log(const char*) override {}
     int count(const char* t) const { int n = 0; for (const auto& e : events) if (e.type == t) ++n; return n; }
+    const Ev* last(const char* t) const { const Ev* r = nullptr; for (const auto& e : events) if (e.type == t) r = &e; return r; }
+    bool armed(uint32_t id) const { for (const auto& t : timers) if (t.first == id) return true; return false; }
+    const std::vector<uint8_t>* last_tx_cmd(uint8_t cmd) const {
+        const std::vector<uint8_t>* r = nullptr;
+        for (const auto& f : tx_frames) if (!f.empty() && (f[0] >> 4) == cmd) r = &f;
+        return r;
+    }
 };
 
 static NodeConfig basic_cfg() { NodeConfig c; c.routing_sf = 7; c.leaf_id = 0; return c; }
@@ -78,6 +90,44 @@ static size_t mk_beacon(uint8_t src, std::array<uint8_t,64>& b) {
     return pack_beacon(in, std::span<uint8_t>(b.data(), b.size()));
 }
 static RxMeta meta_at(uint64_t t) { RxMeta m{}; m.snr_db = 9.0f; m.rssi_dbm = -70.0f; m.recv_ms = t; m.src_hint = -1; return m; }
+// A beacon from `src` carrying a CHANNEL_DIGEST ext-TLV advertising `ids`.
+static size_t mk_beacon_digest(uint8_t src, const uint32_t* ids, uint8_t count, std::array<uint8_t,64>& b) {
+    uint8_t ext[16];
+    const size_t en = pack_channel_digest_tlv(ids, count, std::span<uint8_t>(ext, sizeof(ext)));
+    beacon_in in{}; in.leaf_id = 0; in.src = src; in.key_hash32 = 0x1000u + src;
+    in.entries = std::span<const beacon_entry>();
+    in.ext = std::span<const uint8_t>(ext, en);
+    return pack_beacon(in, std::span<uint8_t>(b.data(), b.size()));
+}
+// A CHANNEL_PULL Q from `src` to `dest` requesting `ids`.
+static size_t mk_q_pull(uint8_t src, uint8_t dest, const uint32_t* ids, uint8_t count, std::array<uint8_t,32>& b) {
+    q_in in{}; in.leaf_id = 0; in.src = src; in.dest = dest; in.opcode = q_opcode::channel_pull; in.mobile = false;
+    in.channel_ids = std::span<const uint32_t>(ids, count);
+    return pack_q(in, std::span<uint8_t>(b.data(), b.size()));
+}
+// An M_BROADCAST RTS from `src` (next/dst = the puller) advertising `id` at sf_index, with id_lo16.
+static size_t mk_m_broadcast_rts(uint8_t src, uint8_t next, uint8_t dst, uint32_t id, uint8_t sf_index,
+                                 std::array<uint8_t,16>& b) {
+    rts_in in{}; in.leaf_id = 0; in.src = src; in.next = next; in.ctr_lo = static_cast<uint8_t>(id & 0x0F);
+    in.dst = dst; in.sf_index = sf_index; in.rts_flags = RTS_FLAG_M_BROADCAST;
+    in.payload_len = 8; in.m_payload_id_lo16 = static_cast<uint16_t>(id & 0xFFFF);
+    return pack_rts(in, std::span<uint8_t>(b.data(), b.size()));
+}
+// A DATA-M frame (payload_type_m) carrying the M-inner id|channel_id|flavor|body, addressed to `next`/`dst`.
+static size_t mk_data_m(uint8_t next, uint8_t dst, uint32_t id, uint8_t ch, std::array<uint8_t,64>& b) {
+    uint8_t inner[8] = { static_cast<uint8_t>(id >> 24), static_cast<uint8_t>(id >> 16),
+                         static_cast<uint8_t>(id >> 8),  static_cast<uint8_t>(id), ch, /*flavor*/0, 'h', 'i' };
+    const uint8_t mac[4] = { 0, 0, 0, 0 };
+    data_in in{}; in.addr_len = 0; in.flags = DATA_FLAG_PAYLOAD_TYPE_M; in.next = next; in.dst = dst;
+    in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = static_cast<uint16_t>(id & 0xFF);
+    in.visited = {}; in.inner = std::span<const uint8_t>(inner, 8); in.mac = std::span<const uint8_t>(mac, 4);
+    return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
+}
+constexpr uint32_t kBeaconTimerId       = 1;
+constexpr uint32_t kCtsToDataGapTimerId = 7;
+constexpr uint32_t kChannelPullTimerId  = 48;
+constexpr uint32_t kMBcastClearTimerId  = 56;
+constexpr uint32_t kOverhearRetuneTimerId = 57;
 
 }  // namespace
 
@@ -209,4 +259,195 @@ TEST_CASE("buffer eviction (safe): an entry seen by ALL 1-hop neighbours is evic
     CHECK(node.channel_has(ids[0]));                                // the oldest SURVIVED (would die under fallback)
     const Ev* ev = nullptr; for (const auto& e : hal.events) if (e.type == "channel_msg_evicted") ev = &e;
     CHECK(ev); if (ev) CHECK(ev->mode == "safe");
+}
+
+TEST_CASE("BCN channel-digest ext-TLV: pack/parse round-trip, count cap, multi-TLV coexistence, bounds") {
+    const uint32_t ids[3] = { 0x05BEEF42u, 0xFF1234ABu, 0x01FFFFFFu };
+    uint8_t buf[16] = {};
+    const size_t n = pack_channel_digest_tlv(ids, 3, std::span<uint8_t>(buf, sizeof(buf)));
+    CHECK(n == 1 + 1 + 12);                                         // header + count + 3*4B
+    CHECK((buf[0] >> 4) == protocol::bcn_ext_type_channel_digest);
+    CHECK((buf[0] & 0x0f) == 1 + 4 * 3);                            // body_len nibble = 13
+    CHECK(buf[1] == 3);
+    uint32_t out[3] = {};
+    CHECK(parse_channel_digest_tlv(std::span<const uint8_t>(buf, n), out, 3) == 3);
+    CHECK(out[0] == ids[0]); CHECK(out[1] == ids[1]); CHECK(out[2] == ids[2]);
+    // count caps at channel_dirty_max_per_bcn (asking 5 packs 3 -> body_len fits the 4-bit nibble)
+    const uint32_t five[5] = { 1, 2, 3, 4, 5 };
+    pack_channel_digest_tlv(five, 5, std::span<uint8_t>(buf, sizeof(buf)));
+    CHECK(buf[1] == protocol::channel_dirty_max_per_bcn);
+    // coexistence: a foreign type-7 TLV (2-byte body) before the digest -> parse skips it
+    uint8_t multi[24] = {}; multi[0] = static_cast<uint8_t>((7 << 4) | 2); multi[1] = 0xAA; multi[2] = 0xBB;
+    const size_t dn = pack_channel_digest_tlv(ids, 1, std::span<uint8_t>(multi + 3, sizeof(multi) - 3));
+    uint32_t out2[3] = {};
+    CHECK(parse_channel_digest_tlv(std::span<const uint8_t>(multi, 3 + dn), out2, 3) == 1);
+    CHECK(out2[0] == ids[0]);
+    // bounds: too-small out -> 0; empty ext -> 0 ids
+    uint8_t tiny[3];
+    CHECK(pack_channel_digest_tlv(ids, 3, std::span<uint8_t>(tiny, sizeof(tiny))) == 0);
+    CHECK(parse_channel_digest_tlv(std::span<const uint8_t>(), out, 3) == 0);
+}
+
+TEST_CASE("digest emit: a dirty entry is advertised in the BCN digest TLV; retires after K=3 ads") {
+    TestHal hal; Node node(hal, 3, 0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); cfg.quiet_threshold_ms = 0;          // fast beacon path (no throttle/jitter)
+    node.on_init(cfg);
+    const CmdResult r = send_channel(node, 7, "hi");
+    const uint32_t id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
+    node.on_timer(kBeaconTimerId);                                     // beacon #1
+    const auto* bcn = hal.last_tx_cmd(0x0); CHECK(bcn);
+    if (bcn) {
+        auto pb = parse_beacon(std::span<const uint8_t>(bcn->data(), bcn->size())); CHECK(pb.has_value());
+        if (pb) {
+            const auto ext = beacon_ext(std::span<const uint8_t>(bcn->data(), bcn->size()), *pb);
+            uint32_t out[3] = {}; CHECK(parse_channel_digest_tlv(ext, out, 3) == 1); CHECK(out[0] == id);
+        }
+    }
+    CHECK(node.channel_entry_dirty(id));                               // still dirty after 1 ad
+    node.on_timer(kBeaconTimerId); node.on_timer(kBeaconTimerId);      // #2, #3 -> ad_count hits K=3
+    CHECK(!node.channel_entry_dirty(id));                             // retired from advertising (still buffered)
+    CHECK(node.channel_has(id));
+    CHECK(hal.count("channel_dirty_cleared") == 1);
+}
+
+TEST_CASE("digest ingest -> jittered pull: a missing id schedules (the DRAW) then fires a CHANNEL_PULL Q") {
+    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    hal._now = 100; hal._rand_ret = 1234;                            // the pull jitter draw
+    const uint32_t X = (uint32_t(9) << 24) | 0x123456u;              // origin 9 -> node 2 lacks it
+    std::array<uint8_t,64> bb{};
+    const size_t bn = mk_beacon_digest(50, &X, 1, bb);
+    node.on_recv(bb.data(), bn, meta_at(100));
+    CHECK(hal.count("channel_pull_scheduled") == 1);
+    const Ev* sch = hal.last("channel_pull_scheduled"); CHECK(sch);
+    if (sch) { CHECK(sch->id == static_cast<int64_t>(X)); }
+    CHECK(hal.armed(kChannelPullTimerId));                            // slot 0
+    node.on_timer(kChannelPullTimerId);                              // fire the pull
+    CHECK(hal.count("channel_pull_sent") == 1);
+    CHECK(hal.last_tx_cmd(0x6) != nullptr);                          // a CHANNEL_PULL Q went out
+}
+
+TEST_CASE("digest ingest -> have it: a known id is NOT pulled (mark seen_by instead)") {
+    TestHal hal; Node node(hal, 3, 0x1234ABCDu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    const CmdResult r = send_channel(node, 7, "mine");
+    const uint32_t id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
+    std::array<uint8_t,64> bb{};
+    const size_t bn = mk_beacon_digest(50, &id, 1, bb);              // 50 advertises the id WE hold
+    node.on_recv(bb.data(), bn, meta_at(200));
+    CHECK(hal.count("channel_pull_scheduled") == 0);
+    CHECK(!hal.armed(kChannelPullTimerId));
+}
+
+TEST_CASE("digest ingest -> recent dedup: a 2nd digest for the same id within the window does not re-pull") {
+    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    hal._now = 100;
+    const uint32_t X = (uint32_t(9) << 24) | 0x55u;
+    std::array<uint8_t,64> bb{};
+    size_t bn = mk_beacon_digest(50, &X, 1, bb); node.on_recv(bb.data(), bn, meta_at(100));
+    node.on_timer(kChannelPullTimerId);                              // fire -> channel_pull_recent[X] set
+    CHECK(hal.count("channel_pull_sent") == 1);
+    hal._now = 200;                                                  // within channel_pull_window_ms (60s)
+    bn = mk_beacon_digest(50, &X, 1, bb); node.on_recv(bb.data(), bn, meta_at(200));
+    CHECK(hal.count("channel_pull_scheduled") == 1);                 // unchanged -> recent gate blocked the re-pull
+}
+
+TEST_CASE("pull overhear-cancel: receiving the msg before the jitter fires suppresses the pull") {
+    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    hal._now = 100; hal._rand_ret = 2000;
+    const uint32_t X = (uint32_t(9) << 24) | 0x77u;
+    std::array<uint8_t,64> bb{};
+    const size_t bn = mk_beacon_digest(50, &X, 1, bb); node.on_recv(bb.data(), bn, meta_at(100));
+    CHECK(hal.count("channel_pull_scheduled") == 1);
+    const uint8_t body[] = { 'z' };                                  // the msg arrives via DATA-M before the jitter
+    node.ingest_channel_m(mk_m(X, 7, 0, body, 1), 2, 2, 50);
+    CHECK(hal.count("channel_pull_suppressed") == 1);                // cancel_channel_pull fired
+    node.on_timer(kChannelPullTimerId);                             // the now-inactive slot -> no tx
+    CHECK(hal.count("channel_pull_sent") == 0);
+    CHECK(hal.last_tx_cmd(0x6) == nullptr);
+}
+
+TEST_CASE("CHANNEL_PULL responder: a held id is re-broadcast as an M-payload with the M_BROADCAST RTS") {
+    TestHal hal; Node node(hal, 3, 0x1234ABCDu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    const CmdResult r = send_channel(node, 7, "channel-data");
+    const uint32_t id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
+    std::array<uint8_t,32> qb{};
+    const size_t qn = mk_q_pull(/*src=*/5, /*dest=*/3, &id, 1, qb);   // peer 5 pulls the id FROM us (dest=3)
+    node.on_recv(qb.data(), qn, meta_at(100));
+    CHECK(hal.count("channel_pull_received") == 1);
+    CHECK(hal.count("channel_broadcast_tx") == 1);                    // an M-payload was enqueued
+    const auto* rts = hal.last_tx_cmd(0x1);                           // the M-payload flight starts -> RTS (cmd 0x1)
+    CHECK(rts);
+    if (rts) {
+        auto pr = parse_rts(std::span<const uint8_t>(rts->data(), rts->size()));
+        CHECK(pr.has_value());
+        if (pr) { CHECK(pr->m_broadcast); CHECK(pr->dst == 5); }      // flagged M_BROADCAST; unicast to the puller (5)
+    }
+}
+
+TEST_CASE("CHANNEL_PULL responder: a pull addressed to someone else is not served; in-flight dedup holds") {
+    TestHal hal; Node node(hal, 3, 0x1234ABCDu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    const CmdResult r = send_channel(node, 7, "x");
+    const uint32_t id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
+    std::array<uint8_t,32> qb{};
+    // pull addressed to node 9 (not us) -> we cancel pending pulls but do NOT serve it
+    size_t qn = mk_q_pull(5, /*dest=*/9, &id, 1, qb);
+    node.on_recv(qb.data(), qn, meta_at(100));
+    CHECK(hal.count("channel_broadcast_tx") == 0);
+    // a pull addressed to us, but for an id we don't hold -> nothing broadcast
+    const uint32_t unknown = (uint32_t(8) << 24) | 0x11u;
+    qn = mk_q_pull(5, /*dest=*/3, &unknown, 1, qb);
+    node.on_recv(qb.data(), qn, meta_at(200));
+    CHECK(hal.count("channel_broadcast_tx") == 0);
+}
+
+TEST_CASE("overhear ARM: an M_BROADCAST RTS for a LACKED id retunes RX to the advertised data SF") {
+    TestHal hal; Node node(hal, 2, 0xBEEFu);
+    NodeConfig cfg = basic_cfg(); cfg.allowed_sf_bitmap = (1u << 9); node.on_init(cfg);   // single data SF = 9
+    const uint32_t id = (uint32_t(9) << 24) | 0x1234u;                                    // origin 9 -> we lack it
+    std::array<uint8_t,16> rb{};
+    const size_t rn = mk_m_broadcast_rts(/*src=*/5, /*next=*/7, /*dst=*/7, id, /*sf_index=*/0, rb);  // not addressed to us
+    node.on_recv(rb.data(), rn, meta_at(100));
+    CHECK(hal.count("channel_overhear_armed") == 1);
+    CHECK(hal.last_rx_sf == 9);                                  // retuned to the advertised SF (max allowed = 9)
+    CHECK(hal.armed(kOverhearRetuneTimerId));                    // retune-back armed
+    node.on_timer(kOverhearRetuneTimerId);                       // ... fires -> back to routing_sf
+    CHECK(hal.last_rx_sf == cfg.routing_sf);
+}
+
+TEST_CASE("overhear ARM: an M_BROADCAST RTS for a HELD id does NOT retune (id_lo16 skip)") {
+    TestHal hal; Node node(hal, 3, 0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); cfg.allowed_sf_bitmap = (1u << 9); node.on_init(cfg);
+    const CmdResult r = send_channel(node, 7, "mine");
+    const uint32_t id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
+    std::array<uint8_t,16> rb{};
+    const size_t rn = mk_m_broadcast_rts(5, 7, 7, id, 0, rb);    // advertises an id we HOLD
+    node.on_recv(rb.data(), rn, meta_at(100));
+    CHECK(hal.count("channel_overhear_armed") == 0);            // skipped (we have it)
+    CHECK(hal.last_rx_sf == cfg.routing_sf);                    // never left routing_sf
+}
+
+TEST_CASE("M-broadcast fire-and-forget: pull -> RTS(M_BROADCAST) -> (gap) DATA-M -> clear, no CTS/ACK") {
+    TestHal hal; Node node(hal, 3, 0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); cfg.allowed_sf_bitmap = (1u << 9); node.on_init(cfg);
+    const CmdResult r = send_channel(node, 7, "data");
+    const uint32_t id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
+    std::array<uint8_t,32> qb{};
+    node.on_recv(qb.data(), mk_q_pull(/*src=*/5, /*dest=*/3, &id, 1, qb), meta_at(100));   // 5 pulls from us
+    const auto* rts = hal.last_tx_cmd(0x1); CHECK(rts);                 // M_BROADCAST RTS
+    if (rts) { auto pr = parse_rts(std::span<const uint8_t>(rts->data(), rts->size())); CHECK(pr); if (pr) CHECK(pr->m_broadcast); }
+    CHECK(hal.armed(kCtsToDataGapTimerId));                            // RTS->DATA gap (no CTS wait)
+    node.on_timer(kCtsToDataGapTimerId);                              // gap fires -> DATA-M
+    CHECK(hal.last_tx_cmd(0x3) != nullptr);                           // DATA frame went out
+    CHECK(hal.armed(kMBcastClearTimerId));                            // clear armed (no ACK wait)
+    CHECK(node.has_pending_tx());
+    node.on_timer(kMBcastClearTimerId);                              // clear fires
+    CHECK(!node.has_pending_tx());
+}
+
+TEST_CASE("promiscuous M-ingest: an overheard DATA-M (next != us) is buffered before the addressed-check") {
+    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    const uint32_t id = (uint32_t(9) << 24) | 0xABu;
+    std::array<uint8_t,64> db{};
+    const size_t dn = mk_data_m(/*next=*/7, /*dst=*/7, id, /*ch=*/5, db);   // addressed to 7; we overhear it
+    node.on_recv(db.data(), dn, meta_at(100));
+    CHECK(node.channel_has(id));                                       // buffered promiscuously
 }
