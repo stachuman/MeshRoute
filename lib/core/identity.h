@@ -11,9 +11,15 @@
 // interoperable with stock Ed25519 tooling (fine while identity stays internal).
 //
 // Platform-neutral: depends only on monocypher (vendored, lib/monocypher). The
-// device HW-RNG + /mrid NV seam and the sim seed seam (Slice A2) live in the
-// backends, NOT here. `name` (§1.3) is app-level metadata, not a crypto concern,
-// so it is NOT part of this module.
+// callers of this module live in the BACKENDS, not here, and are SEPARATE slices:
+//   - Slice A2 (DONE) = the SIM seam — the simulator's SimController derives
+//     key_hash32 from a per-node seed via identity_from_seed (lora-universal-
+//     simulator/orchestrator/runtime/SimController.cpp). This module is exercised
+//     there, NOT in MeshRoute's own src/ yet.
+//   - Device wiring (NOT done) = HW-RNG seed -> /mrid NV -> identity_from_seed in
+//     fw_main + `regen` / `cfg set name`. Until that lands, fw_main still uses the
+//     key_for(id) placeholder, so on metal this module compiles unused.
+// `name` (§1.3) is app-level metadata, not a crypto concern, so it is NOT here.
 #pragma once
 #include <cstdint>
 #include <cstddef>

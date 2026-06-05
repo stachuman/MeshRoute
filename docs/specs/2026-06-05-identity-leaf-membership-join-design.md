@@ -404,13 +404,19 @@ our own identity row. (A conflict between two *other* nodes still resolves norma
    the device HW-RNG seam + `/mrid` NV + `cfg set name` / `regen` + native doctest (keygen
    determinism, `key_hash32`, **ECDH known-answer vector** (§2 [xcheck]), not just the
    round-trip). **Self-contained — touches no sim/scenario, asserts only in its own doctest.**
-2. **Slice A2 — sim identity seam + scenario migration (a SCOPED BREAKING CHANGE, NOT in A):**
-   retire the literal-`key_hash32` injection at `node.cpp:36`/`set_identity` and feed
-   `FirmwareNode` a per-node **seed** instead, so the sim runs the same `key_hash32 = ed_pub[:4]`
-   derivation. **This changes every sim node's `key_hash32` from its current literal (e.g.
-   `0xAAAAAAAA`)**, so every scenario/test asserting a specific `key_hash32` — the H-plane
-   suite especially — must be migrated. Explicitly sequenced **before E2E**, **not** bundled
-   into "ready now."
+2. **Slice A2 — sim identity seam.** A sim node may carry an identity **`seed`**; the harness
+   derives `key_hash32 = ed_pub[:4]` via `lib/core/identity` (the SAME derivation as the device)
+   and feeds the derived value to **both** engines. **AS BUILT (2026-06-05, capability only):**
+   `lib/core/identity.cpp` + monocypher wired into the sim's `meshroute_core` (CMake `LANGUAGES C CXX`);
+   `JsonConfig` parses `seed` (crypto-agnostic); `SimController` derives into a mutable
+   `_resolved_key_hash32` (const `_cfg` untouched) consumed by both the `FirmwareNode` ctor and the
+   Lua `registerNode` — **single source ⇒ both engines get the identical value** (verified: Lua-alice
+   and meshroute-bob both see `0xf2e6f8d4` for `seed={1..32}`, the lib/core golden). Gate
+   `test/t90_identity_seed_derivation.json`. The **literal `key_hash32` stays as a transitional
+   fallback** — existing scenarios are UNCHANGED (full t-suite 79/85, no new regressions).
+   **DEFERRED (user: "do not fix all scenarios"):** the bulk `key_hash32`→`seed` migration of the
+   46 legacy scenarios + 38 value-asserting ones, and removing the literal path (the "no literal
+   path remains" end state). New/E2E scenarios use `seed` now.
 3. **E2E DATA crypto** — depends on A2 + (7.1) `id_bind` pubkey resolution.
 4. **node_id auto-assignment design pass** (§5.3) — the critical deep dive, before join.
 5. **R6 join + beacon fingerprint** — `lineage_id`/`epoch`/`config_hash` in the beacon,
