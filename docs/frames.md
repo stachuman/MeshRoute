@@ -270,18 +270,22 @@ Inner with `CRYPTED` (payload-flags b3) set:
     field; decrement + drop-at-<0 (`:319-322`) bounds every loop. No infinite loops.
   - **LOOP_DUP — LOST for CRYPTED.** The early cross-path dup→NACK→cascade-to-alt is
     origin-keyed; a looping crypted DM then circulates until TTL kills it (airtime cost,
-    not a safety bug). **NB:** `visited[6]` is currently **inert** (packed as 6 zero bytes,
-    `node_mac.cpp:547`; no forward-path reader) — it is *not* a loop guard today.
+    not a safety bug). **NB (premise to VERIFY):** `visited[6]` *appears* inert today
+    (grep-indicated — packed as 6 zero bytes `node_mac.cpp:547`, no forward-path reader
+    found), contradicting an earlier note. **Confirm by code audit before relying on it.**
   - **`from`-fallback is UNSAFE — do not use it.** `origin = ui ? ui->origin : from`
     (`:285`) plus a CRYPTED-unaware `parse_unicast_inner` would read ciphertext as `origin`;
     forcing `from` makes `sokey` per-hop (LOOP_DUP dies) **and** can false-collide two
     crypted flights sharing `(from,dst,ctr)` → a wrong re-ACK/drop (missed delivery).
-- **[DECIDED — activate `visited[]` as the loop guard].** Restore cross-path loop
-  detection **origin-independently, +0 wire** (the 6 bytes are already spent): on forward,
-  NACK/drop if `_node_id ∈ visited[]`, else append `_node_id`. Uniform for crypted +
-  plaintext; **supersedes** the origin-keyed `sokey` LOOP_DUP. `last_acked` (`:302`, `from`-keyed)
-  still separates retry from loop; `hops_remaining` is the >6-hop backstop.
-- **[MUST-FIX before/with CRYPTED] code changes (none are optional):**
+- **[PROPOSED — pending code verification + user ratification; belongs to the E2E/CRYPTED
+  slice, not identity/leaf/join] activate `visited[]` as the loop guard.** Restore cross-path
+  loop detection **origin-independently, +0 wire** (the 6 bytes are already spent): on forward,
+  NACK/drop if `_node_id ∈ visited[]`, else append `_node_id`. Uniform for crypted + plaintext;
+  would **supersede** the origin-keyed `sokey` LOOP_DUP. `last_acked` (`:302`, `from`-keyed)
+  still separates retry from loop; `hops_remaining` is the >6-hop backstop. *This changes
+  data-plane loop safety — do not implement until the `visited`-inert premise is confirmed
+  and the change is ratified.*
+- **[IF CRYPTED is built] required code changes (conditional on that slice):**
   1. `parse_unicast_inner` becomes **CRYPTED-aware** — when payload-flags has `CRYPTED`,
      return *origin-unknown* (do NOT read ciphertext byte 1 as `origin`).
   2. Relay **skips** the `sokey` origin dedup for CRYPTED — **no `from` fallback**.
@@ -322,8 +326,11 @@ Inner with `CRYPTED` (payload-flags b3) set:
 - **DAD reuses the EXISTING `CLAIM` / `DENY`** — no new fields:
   - `CLAIM` already carries `key_hash32 + proposed_node_id + lease_age_seconds + claim_epoch + nonce`.
   - `DENY` already carries the `OWN_ID_DEFENSE` reason (the objection).
-  - **Tiebreak (decided):** `lease_age_seconds` DESC → `claim_epoch` → `key_hash32` ASC
-    (lower yields). The wire already supports this richer seniority tiebreak.
+  - **Tiebreak — see the canonical rule in the design §5.3 step 4:** static, wire-carried
+    `claim_epoch` (symmetric, established-holder bias) → `key_hash32` final (lower yields).
+    **Live `lease_age_seconds` is NOT a primary key** (time-varying → asymmetric eval →
+    mutual-yield/keep flapping); it stays informational. `CLAIM`/`DENY` already carry the
+    static fields, so no new fields are needed.
 - **OFFER:** its `data_sf_bitmap` / id-assignment role is superseded by P4 (Q config pull)
   + DAD self-assignment; retain the opcode, narrow its use (or drop — sim-evaluate).
 

@@ -77,7 +77,10 @@ is per-node beacon signatures (§7); nothing here precludes it, but we are expli
   `identity` derivation as the device, so `key_hash32 = ed_pub[:4]` in both. No literal
   `key_hash32` path remains — sim and device cannot diverge on identity, and the sim
   keeps determinism by fixing the seed per node in the scenario JSON. (Sim seeds stay
-  small/explicit; the HW-RNG path is device-only.)
+  small/explicit; the HW-RNG path is device-only.) **This replacement is a SCOPED BREAKING
+  CHANGE (Slice A2, §8): it changes every sim node's `key_hash32` from its literal, so the
+  H-plane suite and any `key_hash32`-asserting scenario migrate with it — it is NOT part of
+  the zero-disruption Slice A.**
 
 ### 1.5 Console surface
 - `cfg set name <str>` — set the node name.
@@ -252,7 +255,8 @@ No authority, no leader, no handoff, no recovery state machine.
 ### 5.3 node_id auto-assignment (CRITICAL — dedicated design pass pending)
 **Why it's critical:** the leaf is joined by amateurs who don't understand the
 mechanism. Assignment must be **zero-touch and self-healing**, over **lossy links** and
-**partitions**, into a space of only **253 ids** (`0x00` and `0xFF` reserved).
+**partitions**, into a space of **254 usable ids** (`0x01`–`0xFE`; `0x00` = the unprovisioned
+sentinel, `0xFF` reserved — `node.cpp:28` panics on it).
 
 **Agreed direction — Duplicate-Address-Detection + heal (SLAAC/AODV-style):**
 1. **Candidate:** reuse the NV-remembered id if present; else a first guess derived from
@@ -265,8 +269,19 @@ mechanism. Assignment must be **zero-touch and self-healing**, over **lossy link
 4. **Heal (the real guarantee):** probes are lost, nodes sleep, partitions merge — so a
    same-id / different-`key_hash32` conflict *will* still occur. The detector is a beacon
    whose `src == _node_id` but whose `key_hash32 != _key_hash32` (someone is beaconing as
-   me) → emit `addr_conflict_observed` → a **deterministic tiebreak** (lower `key_hash32`
-   yields) makes exactly **one** side **renumber once** to a free slot and re-announce.
+   me) → emit `addr_conflict_observed` → the **DAD tiebreak (THE one canonical rule, §9 and
+   frames.md P5 reference this)** makes exactly **one** side **renumber once** to a free slot
+   and re-announce:
+   > **Static, symmetric comparison only** — both sides read the same wire-carried values
+   > and reach the same verdict: an established-holder bias via the **static, wire-carried
+   > `claim_epoch`** (the holder with the senior claim keeps the id), then the **`key_hash32`
+   > as the final deterministic tiebreak** (lower `key_hash32` yields). **Live
+   > `lease_age_seconds` is NOT a primary key** — it is time-varying and evaluated
+   > asymmetrically by each side, which can produce mutual-yield/mutual-keep flapping; it
+   > stays informational at most. (The exact `claim_epoch` seniority direction is finalized
+   > in this §5.3 dedicated pass; the *structure* — static primary → `key_hash32` final, no
+   > live `lease_age` — is fixed.)
+
    Stable comparison ⇒ no flapping; upper layers re-bind by `key_hash32`.
    - **[xcheck] Detection requires a beacon-guard fix — see §5.5.** Today
      `node_beacon.cpp:203` drops *any* beacon with `src == _node_id` as a self-echo, which
@@ -277,7 +292,7 @@ mechanism. Assignment must be **zero-touch and self-healing**, over **lossy link
      `one-hash→one-id` eviction (that is the *rejoin* healer, a different path).
 
 **Hard points to nail in the dedicated pass:**
-- **253-slot space.** Birthday collisions get likely past ~16 nodes, so **healing — not
+- **254-slot space.** Birthday collisions get likely past ~16 nodes, so **healing — not
   probing — is the correctness guarantee** (probing only cuts churn). This also **bounds
   leaf size**; define exhaustion behavior (refuse join / "leaf full").
 - **Lossy / asleep / partition:** DAD alone is insufficient; the beacon-driven heal is
@@ -375,28 +390,35 @@ our own identity row. (A conflict between two *other* nodes still resolves norma
    wire format will be revised to carry this leaf header.
 5. **X25519 secret derivation — handled in Slice A** (EdDSA scalar from seed; proven by a
    **known-answer-vector doctest** (§2 [xcheck]), not merely the A·B==B·A round-trip).
-6. **[xcheck] Identity source seam — DECIDED:** the 32-byte seed is the single identity
-   source on both backends; the sim injects a per-node seed in scenario JSON and runs the
-   device derivation (no literal `key_hash32` path). §1.4.
+6. **[xcheck] Identity source seam — DECIDED (design), lands in Slice A2:** the 32-byte seed
+   is the single identity source on both backends; the sim injects a per-node seed and runs
+   the device derivation (no literal `key_hash32` path). A **scoped breaking change** (incl.
+   H-suite migration), **separate from the zero-disruption Slice A**. §1.4 / §8.2.
 
 ---
 
 ## 8. Sequencing (slices)
 
-1. **Slice A — Identity + DM keypair (NOW, independent of everything else):**
+1. **Slice A — pure identity module (NOW, genuinely zero-disruption):**
    `lib/core/identity.{h,cpp}` (seed → Ed25519/X25519, `key_hash32 = ed_pub[:4]`, name) +
-   HW-RNG seam (device) **and the sim seed seam** (§1.4 [xcheck]: `FirmwareNode` derives
-   `key_hash32` from a config seed, retiring the literal-`key_hash32` injection at
-   `node.cpp:36`) + `/mrid` NV + `cfg set name` / `regen` + native doctest (keygen
+   the device HW-RNG seam + `/mrid` NV + `cfg set name` / `regen` + native doctest (keygen
    determinism, `key_hash32`, **ECDH known-answer vector** (§2 [xcheck]), not just the
-   round-trip).
-2. **E2E DATA crypto** — depends on (7.1) `id_bind` pubkey resolution.
-3. **node_id auto-assignment design pass** (§5.3) — the critical deep dive, before join.
-4. **R6 join + beacon fingerprint** — `lineage_id`/`epoch`/`config_hash` in the beacon,
+   round-trip). **Self-contained — touches no sim/scenario, asserts only in its own doctest.**
+2. **Slice A2 — sim identity seam + scenario migration (a SCOPED BREAKING CHANGE, NOT in A):**
+   retire the literal-`key_hash32` injection at `node.cpp:36`/`set_identity` and feed
+   `FirmwareNode` a per-node **seed** instead, so the sim runs the same `key_hash32 = ed_pub[:4]`
+   derivation. **This changes every sim node's `key_hash32` from its current literal (e.g.
+   `0xAAAAAAAA`)**, so every scenario/test asserting a specific `key_hash32` — the H-plane
+   suite especially — must be migrated. Explicitly sequenced **before E2E**, **not** bundled
+   into "ready now."
+3. **E2E DATA crypto** — depends on A2 + (7.1) `id_bind` pubkey resolution.
+4. **node_id auto-assignment design pass** (§5.3) — the critical deep dive, before join.
+5. **R6 join + beacon fingerprint** — `lineage_id`/`epoch`/`config_hash` in the beacon,
    peering filter, config pull/adopt, node_id auto-assignment.
-5. **Dynamic config write path** — additive on top of (4): operator-gated `epoch` bump.
+6. **Dynamic config write path** — additive on top of (5): operator-gated `epoch` bump.
 
-Slice A does not depend on 2–5 and proceeds immediately.
+**Slice A alone is "ready now"** — it depends on nothing and disrupts no scenario. A2 (the
+sim seam + migration) and 3–6 follow.
 
 ---
 
@@ -415,22 +437,28 @@ Byte-level layouts live in **`docs/frames.md` → "Proposed changes (DRAFT 2026-
 | **Q** (P4) | new `CONFIG_PULL` subtype + a routed-DATA config-transfer (`PAYLOAD_FLAG_CONFIG`). | join / config change | new body ~20–40 B |
 | **J** (P5) | add `wire_version`; DAD = existing `CLAIM`/`DENY`. | rare | +0 B (rsv) or +1 B/opcode |
 
-**Decisions settled (this review):**
+**Decisions settled (this review — in scope for identity/leaf/join):**
 - **Keep `J DISCOVER`** (active solicit) alongside passive beacon-listen — **re-evaluate in simulation**.
-- **DAD tiebreak = `lease_age_seconds` DESC → `claim_epoch` → `key_hash32` ASC** (the wire already carries these; richer than pure-`key_hash32`).
-- **CRYPTED encrypts `origin` too** (metadata privacy). Code-grounded impact (frames.md P2
-  [RECONCILE]): **anti-spam is UNAFFECTED** (it keys on the immediate prev-hop `from`, never
-  `origin` — metal-correct); **loop *safety* is UNAFFECTED** (`hops_remaining` TTL, cleartext);
-  only the origin-keyed **LOOP_DUP** early-dup detector is lost, and `visited[6]` is **inert
-  today** (not a guard, contrary to an earlier note).
-- **DECIDED — activate `visited[]` as the loop guard** (NACK/drop if `_node_id ∈ visited[]`,
-  else append self): restores cross-path loop detection origin-independently, **+0 wire**,
-  uniform for crypted + plaintext; supersedes the origin-keyed `sokey` LOOP_DUP. **No `from`
-  fallback** (unsafe — false-collisions → dropped delivery).
-- **MUST-FIX before/with CRYPTED** (frames.md P2): `parse_unicast_inner` CRYPTED-aware
-  (origin-unknown), relay **skips** origin dedup for CRYPTED, **activate `visited[]`**,
-  dm_delivery tolerant of origin-unknown. Anti-spam + HOP_BUDGET need no change.
+- **DAD tiebreak — the one canonical rule is §5.3 step 4** (static, wire-carried `claim_epoch`
+  → `key_hash32` final; live `lease_age` is *not* a primary key). §9 does not redefine it.
 - **Leaf header is a BCN *header* field** (before entries), not a trailing ext-TLV.
+
+**Forward-references to a future E2E / CRYPTED slice — PROPOSED, pending code verification +
+user ratification (NOT decided here).** These surfaced only because `origin`-privacy was
+raised; they are **data-plane** changes that belong to the E2E slice, not this identity/leaf/
+join design, and one rests on a code reading still to be confirmed:
+- **CRYPTED encrypts `origin` too** (metadata privacy). Impact *as read from the code so far*
+  (frames.md P2): anti-spam appears UNAFFECTED (keyed on the prev-hop `from`); loop *safety*
+  appears UNAFFECTED (`hops_remaining` TTL); only the origin-keyed **LOOP_DUP** early-dup is
+  lost. **Premise to verify:** that `visited[6]` is inert today (grep-indicated, contradicts
+  an earlier note — confirm before relying on it).
+- **PROPOSED — activate `visited[]` as the loop guard** to restore cross-path detection
+  origin-independently (+0 wire), superseding the `sokey` LOOP_DUP; **no `from` fallback**
+  (unsafe). *This changes data-plane loop safety — do not treat as decided until verified +
+  ratified in the E2E slice.*
+- **If CRYPTED is built, the required code changes** (frames.md P2 MUST-FIX): CRYPTED-aware
+  `parse_unicast_inner`, relay skips origin dedup, activate `visited[]`, dm_delivery tolerant
+  of origin-unknown.
 
 **Still open (record before the relevant slice):**
 - CRYPTED **nonce**: derive (recommended, +0 B) vs carry 24 B.
