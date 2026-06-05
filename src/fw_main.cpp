@@ -21,17 +21,19 @@
 #include "device_radio.h"
 #include "device_hal.h"
 #include "node.h"
+#include "identity.h"
 #include "command.h"
 #include "console_parse.h"
 #include "device_nv.h"
+#include "device_rng.h"
 #include <string.h>
 #include <stdlib.h>
 
 namespace P = meshroute::protocol;
 
-// ---- node identity: from NV (`cfg set node_id`) or the join runtime — NOT the build. 0 = unprovisioned
-//      (do_send refused; only join). key_hash32 is derived from the id until the join runtime assigns one.
-static constexpr uint32_t key_for(uint8_t id) { return 0x4D455300u | id; }   // "MES\0" | id
+// ---- node identity. key_hash32 = ed_pub[:4], DERIVED from a 32-byte master seed persisted in `/mrid`
+//      (HW-RNG on first boot; `regen` to rotate). node_id is the disposable short address (NV `cfg set
+//      node_id` / join); 0 = unprovisioned (do_send refused). The seed/keys live in g_identity, set in setup().
 
 // LoRa sync word — the PHY-level filter that keeps alien same-freq/SF/BW traffic out: the SX1262 only
 // raises RxDone for frames carrying THIS word. Distinct from MeshCore (0x12 PRIVATE, what std_init sets),
@@ -44,7 +46,8 @@ static CustomSX1262            g_radio(&g_mod);
 static meshroute::ArduinoClock g_clock;
 static meshroute::Sx1262Radio  g_iradio(g_radio);
 static meshroute::DeviceHal    g_hal(g_clock, g_iradio);
-static meshroute::Node         g_node(g_hal, /*node_id=*/0, key_for(0), "node");   // real id set in setup() from NV
+static meshroute::Node         g_node(g_hal, /*node_id=*/0, /*key_hash32=*/0, "node");   // identity set in setup() from /mrid
+static meshroute::Identity     g_identity{};                                            // seed -> Ed25519/X25519 + key_hash32
 
 static uint8_t  g_rxbuf[P::max_payload_bytes_hard_cap + 32];
 static bool     g_radio_ok = false;   // SX1262 std_init result — surfaced in the heartbeat below
@@ -132,6 +135,34 @@ static void apply_radio_live(const mrnv::Blob& b, bool reconfig) {
     g_node.set_radio_cfg((uint8_t)b.routing_sf, (uint32_t)b.bw_hz, (uint8_t)b.cr);
 }
 
+// Print the node's key_hash32 (hex, from g_identity) + name (from /mrid). Shared by boot, `status`, `regen`.
+static void print_identity(const mrnv::IdBlob& idb) {
+    char hx[9];
+    snprintf(hx, sizeof hx, "%08lX", (unsigned long)g_identity.key_hash32);
+    Serial.print(F("  key_hash32= 0x")); Serial.print(hx);
+    if (idb.name_len > 0 && idb.name_len <= sizeof idb.name) {
+        Serial.print(F("  name=\""));
+        for (uint16_t i = 0; i < idb.name_len; ++i) Serial.print(idb.name[i]);
+        Serial.print(F("\""));
+    }
+    Serial.println();
+}
+
+// `regen` — mint a NEW identity (fresh HW-RNG seed) -> persist /mrid -> re-derive -> re-seed the node's
+// self binding. Keeps `name` + `node_id` (the short address is independent of the keypair). The new
+// key_hash32 propagates on the next beacon; peers re-bind by it (the old one ages out of their id_bind).
+static void do_regen() {
+    mrnv::IdBlob idb{};
+    mrnv::load_id(idb);                                          // preserve the existing name (if any)
+    mrrng::fill(idb.seed, sizeof idb.seed);
+    idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
+    if (!mrnv::save_id(idb)) { Serial.println(F("> regen err nv_save_failed")); return; }
+    meshroute::identity_from_seed(g_identity, idb.seed);
+    g_node.set_identity(g_node.node_id(), g_identity.key_hash32);
+    Serial.print(F("> regen ok"));
+    print_identity(idb);
+}
+
 // `cfg set <key> <value>` — ACCUMULATES onto the pending NV blob (so several sets + ONE reboot works), then
 // applies: RADIO knobs (freq/routing_sf|control_sf/bw/cr/tx_power) take effect LIVE; node_id + the MAC knobs
 // (data_sf/sf_list/duty/lbt/beacon_ms) need a reboot (live they'd re-init the running Node). `args` past "cfg set ".
@@ -141,6 +172,17 @@ static void handle_cfg_set(const char* args) {
     key[k] = '\0';
     const char* val = (args[k] == ' ') ? (args + k + 1) : (args + k);
     if (!*val) { Serial.println(F("> cfg err bad_args")); return; }
+
+    // `name` lives in the IDENTITY record (/mrid), NOT the config blob — handle it separately + early.
+    if (!strcmp(key, "name")) {
+        mrnv::IdBlob idb{};
+        if (!mrnv::load_id(idb)) memcpy(idb.seed, g_identity.seed, sizeof idb.seed);  // keep the RUNNING seed
+        size_t l = strlen(val); if (l > sizeof idb.name) l = sizeof idb.name;
+        memcpy(idb.name, val, l); idb.name_len = (uint16_t)l;
+        idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
+        Serial.println(mrnv::save_id(idb) ? F("> cfg ok name (saved to /mrid)") : F("> cfg err nv_save_failed"));
+        return;
+    }
 
     // Base = the PENDING NV blob so consecutive sets ACCUMULATE (else each snapshot reverts the others).
     mrnv::Blob b{};
@@ -195,6 +237,7 @@ static bool service_debug(const char* line, size_t len) {
     if (len == 6 && !strncmp(line, "routes", 6))   { dump_routes(); return true; }
     if (len == 6 && !strncmp(line, "status", 6))   { dump_status(); return true; }
     if (len == 6 && !strncmp(line, "reboot", 6))   { do_reboot();   return true; }
+    if (len == 5 && !strncmp(line, "regen", 5))    { do_regen();    return true; }
     if (len >  8 && !strncmp(line, "cfg set ", 8)) { handle_cfg_set(line + 8); return true; }
     if (len == 3 && !strncmp(line, "cfg", 3))      { dump_cfg();    return true; }
     return false;
@@ -252,7 +295,19 @@ void setup() {
         g_tx_power            = (nv.version >= 3) ? nv.tx_power : (int8_t)LORA_TX_POWER;   // v2 blob had no tx_power -> keep the default
         Serial.println(F("  config    = loaded from NV"));
     }
-    g_node.set_identity(node_id, key_for(node_id));             // 0 stays unprovisioned -> do_send refused
+    // Identity (/mrid): load the 32-byte master seed, or mint one from the HW-RNG on first boot.
+    mrnv::IdBlob idb{};
+    if (mrnv::load_id(idb)) {
+        Serial.println(F("  identity  = loaded from NV (/mrid)"));
+    } else {
+        mrrng::fill(idb.seed, sizeof idb.seed);                 // first boot -> generate a fresh seed
+        idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion; idb.name_len = 0;
+        Serial.println(mrnv::save_id(idb) ? F("  identity  = generated (first boot -> /mrid)")
+                                          : F("  identity  = generated (first boot, NV SAVE FAILED — volatile)"));
+    }
+    meshroute::identity_from_seed(g_identity, idb.seed);        // key_hash32 = ed_pub[:4]
+    g_node.set_identity(node_id, g_identity.key_hash32);        // node_id 0 stays unprovisioned -> do_send refused
+    print_identity(idb);                                        // key_hash32 (hex) + name
     Serial.print(F("  node id   = ")); Serial.print(node_id);
     Serial.println(node_id == 0 ? F("  (UNPROVISIONED: cfg set node_id <1..254> + reboot, or join)") : F(""));
     Serial.print(F("  control sf= ")); Serial.print(cfg.routing_sf); Serial.println(F("  (RTS/CTS/ACK + beacons)"));

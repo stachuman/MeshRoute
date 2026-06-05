@@ -64,12 +64,21 @@ is per-node beacon signatures (§7); nothing here precludes it, but we are expli
   the wire hot path). Settable via `cfg set name`.
 
 ### 1.4 Storage & lifecycle
-- Separate NV record **`/mrid`**: `{ magic, version, seed[32], ed_pub[32], name[] }`.
-  The config blob `/mrcfg` is untouched by this.
-- **First boot:** if `/mrid` absent → generate seed from **hardware RNG**
-  (nRF52 `NRF_RNG` / ESP32 `esp_random()` / native deterministic PRNG), derive, persist.
-- **`generate_new_identity()`**: mint a fresh seed → new keypair → new `key_hash32`.
-  Console `regen` command. (Rotating identity = new node identity; bindings re-seed.)
+- Separate NV record **`/mrid`**: `{ magic, version, name_len, seed[32], name[32] }`.
+  The config blob `/mrcfg` is untouched by this. **AS BUILT (device, 2026-06-05):**
+  `ed_pub` is **not** stored — the seed is the single source of truth, so boot DERIVES
+  `ed_pub`/`key_hash32`/`x_*` via `identity_from_seed` (a stored pubkey could never disagree
+  with the seed). `src/device_nv.h` `IdBlob` + `load_id`/`save_id` (LittleFS `/mrid` / NVS key `id`).
+- **First boot:** if `/mrid` absent → generate seed from **hardware RNG** (`src/device_rng.h`:
+  nRF52 `NRF_RNG` / ESP32 `esp_random()`), derive, persist. **DONE** — `fw_main` boot now
+  loads-or-mints `/mrid` and calls `set_identity(node_id, g_identity.key_hash32)`, retiring the
+  `key_for(id)` placeholder. (HW-RNG + flash are bench-verified by the user; the crypto is now
+  genuinely linked into the firmware — XIAO Flash 169→201 KB.)
+- **`regen`**: mint a fresh seed → new keypair → new `key_hash32`, persisted, node re-seeds its
+  self-binding (keeps name + node_id). Console `regen` command — **DONE** (`do_regen`).
+- **§1.4 PARITY NOW COMPLETE:** both backends derive `key_hash32 = ed_pub[:4]` via the same
+  `identity_from_seed` — the sim from a scenario seed (Slice A2), the device from the `/mrid`
+  HW-RNG seed (this slice). Only the seed *source* differs (determinism vs randomness), by design.
 - **[xcheck] The seed is the single identity source on BOTH backends.** Today the sim
   injects `key_hash32` as a literal via node config (`node.cpp:36`; scenarios pass e.g.
   `0xAAAAAAAA`). That seam is replaced: a sim node config carries the **32-byte seed**
@@ -82,9 +91,9 @@ is per-node beacon signatures (§7); nothing here precludes it, but we are expli
   H-plane suite and any `key_hash32`-asserting scenario migrate with it — it is NOT part of
   the zero-disruption Slice A.**
 
-### 1.5 Console surface
-- `cfg set name <str>` — set the node name.
-- `regen` — generate a new identity (new keypair).
+### 1.5 Console surface — **DONE** (`fw_main`, device console)
+- `cfg set name <str>` — set the node name (persisted to `/mrid`, separate from the `/mrcfg` config blob).
+- `regen` — generate a new identity (new keypair). Boot + `regen` print `key_hash32` (hex) + name.
 
 ---
 
