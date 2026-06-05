@@ -7,6 +7,8 @@
 
   > 📖 **New here? [How MeshRoute works →](docs/how-it-works.md)** — a short, diagram-led walkthrough of how a message actually travels.
 
+  > 📖 **Do you want to start from details? [Frame details →](docs/frames.md)** — comprehensive walk-through frames used in protocol (protocol rules will come soon).
+
   ## Why MeshRoute?
 
   MeshRoute was born out of frustration with the way existing LoRa mesh solutions struggle as interest and network density grow.
@@ -48,7 +50,7 @@
 
   ## Can I Use It Now?
 
-  The protocol design is ready, and the first firmware builds are expected soon. More details will be shared as the implementation becomes available.
+  The protocol design is ready, and the first firmware builds are undergoing local tests. More details will be shared as the implementation becomes available.
 
   ## Who Wrote It?
 

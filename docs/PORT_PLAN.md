@@ -3,8 +3,57 @@
 > **This supersedes `PORT_NOTES.md`.** PORT_NOTES was written when the
 > scaffold was first laid down; three things have changed since and
 > invalidate parts of it (see "What changed" below). This document is
-> the current authoritative plan. It is a **proposal for review** — the
-> open decisions in §8 need sign-off before any C++ is written.
+> the current authoritative plan. The §8 open decisions are **signed off**
+> and the plan is **in execution** — see the **Status** section below for
+> where the port actually stands; the iteration tables in §4 are annotated
+> with what's done.
+
+---
+
+Implementation notes added during porting:
+1. DATE frame - byte 0 of payload becomes flag
+2. Add handling of node names (as payload)
+3. Join process - HOW to prevent that node join leaf without proper join? Proposal - BCN is crypted with leaf key - which node can learn only during join process?
+4. Join process - query needs to carry wire version - to check if I'm compatible with given leaf and I can talk. Note - wire version is NOT node version (more advanced version can keep wire version same!)
+
+Discovery
+1. At the moment req_sync_min_routes is 8 - that is not correct - constantly Q frames are sent
+
+---
+
+## Status — where the port stands (2026-06-05)
+
+**The stable same-layer core is DONE and FLASHABLE.** XIAO nRF52840 + Heltec
+v3 builds are green; on metal the node beacons and `send <id> <text>` delivers
+a DM. The original §4 tracks (annotated there too):
+
+| Track | State |
+|---|---|
+| Codec **C0–C6** — all 10 §10 cmd-nibble frames | ✅ done (J = codec only; its runtime is R6) |
+| HAL **H0–H3** — timer wheel, `Sx1262Radio`, `device_hal` (RX polled; the PreambleDetected IRQ was tried + reverted on metal) | ✅ done — **flashable** |
+| Sim-integration **S0–S3** — `FirmwareNode` in-loop beside `ScriptedNode` + the lua-vs-meshroute differential harness | ✅ done |
+| Behaviour **R1–R5** — beacon emit, DV routing (K=3, prune), MAC RTS/CTS/DATA/ACK/NACK, throttle/triggered/cascade/LBT, Q REQ_SYNC + channel gossip (M-broadcast) | ✅ done |
+| **Hash-locate plane (H, A0–D)** — `id_bind` table, soft/hard resolve, hash-bind response, cache-on-pass, send-by-hash + park/verify-on-use *(a workstream added after the §4 table was written)* | ✅ done |
+| **R6 Join** state machine | ⏳ **codec-only** — `on_recv` has no `J` case, `on_command(join)` → `err_unsupported`, no handshake/lease/NV/crypt-key. **← NEXT** |
+| **R7 Gateway / cross-layer** (multi-leaf) | ❌ absent — the deferred production driver (and the consumer of the H plane's deferred cross-layer trigger) |
+| **R8 Mobile + asymmetric** | ❌ not started |
+| **App layer** — inbox persistence, known-nodes directory, channel subscriptions, per-leaf crypto | ❌ net-new, not started |
+| **D0** first on-metal frame (BCN + DM) | ✅ done |
+| **D1** two-board over-the-air round-trip | ⏳ bench-pending (on-metal, yours) |
+
+**Verification baseline (this is the regression bar):** native doctests
+**205/205**; the **6 MAC differential gates** (lua-vs-meshroute, `--band 0`,
+via `test/run_tests.sh`) PASS; **channel 6/6 + discovery 2/2** both engines;
+the live hash-locate gate `test/t89_hashlocate_warm_shortcircuit.json` PASS;
+both device builds green; on-device the telemetry emits are stripped via the
+`MR_TELEMETRY` macro (`-DMESHROUTE_NO_TELEMETRY`). Full sim t-suite is 78/84 —
+the 6 fails are pre-existing **Lua-engine** scenarios (join/gateway/long-chain),
+not C++ regressions.
+
+**Immediate next: Join (R6)** — the deferral condition ("land routing/MAC/
+discovery first") is now met; see §9 (re-pointed). The per-leaf crypt key +
+the J wire-version byte (the notes at the top of this file) are an open design
+question — land join *plaintext* first, decide crypto separately.
 
 ---
 
@@ -192,6 +241,11 @@ Codecs are pure functions (no HAL), so the **codec track** and the
 | C5 | **Beacon** | the hard one: schedule block + route entries + 32 B seen-bitmap + ext TLVs + differential (dirty-first) emission |
 | C6 | DATA | 14+n+4 header + 3 inner layouts (normal / E2E-ACK / M) + GW-envelope & hash-bind sub-formats |
 
+**Status (2026-06-05): C0–C6 all ✅ done.** The DATA inner reframed to the
+universal `[payload-flags][origin][body]` prefix (the always-zero `src_addr_len`
+slot); H grew to 8 B (the HARD-query flag); the hash-bind sub-format landed with
+the H plane. `J` codecs are done but the J *runtime* is R6.
+
 (Order is reversed vs PORT_NOTES, which started at BCN — we de-risk the
 new codec+test harness on a 3-byte frame before the most complex one.)
 
@@ -203,6 +257,13 @@ new codec+test harness on a 3-byte frame before the most complex one.)
 | H2 | PreambleDetected DIO IRQ | bench-verified on XIAO (later, on-device) |
 | H3 | Radio facade matching our HAL (`tx(opts)`, `set_rx_sf`, `channel_busy_until`, duty ledger) | drives a raw frame on the native stub |
 
+**Status (2026-06-05): H0–H3 all ✅ done — the device backend is flashable.**
+`fw_main` runs the real node loop (not the heartbeat skeleton); `Sx1262Radio` +
+`device_hal` + the `after()`/`cancel()` timer wheel are on metal. RX reverted
+to polling (the PreambleDetected IRQ didn't fire reliably on the XIAO — see the
+device bring-up notes). A device NV (flash KV) store is still TODO — needed when
+R6 join lands lease/claim-epoch persistence (§Open questions).
+
 ### Sim-integration track — run the firmware in-loop in `lora-universal-simulator` (§2.1)
 | It | Scope | Success criterion |
 |---|---|---|
@@ -210,6 +271,12 @@ new codec+test harness on a 3-byte frame before the most complex one.)
 | S1 | `engine` per-node config field + `FirmwareNode` skeleton | `engine:"meshroute"` node constructs, runs `loop()`, draws timers/rng/airtime from the host (reuse ScriptedNode machinery) |
 | S2 | `meshroute::Hal` interface + sim backend wiring | a `lib/core` node TXes/RXes a raw frame through the sim's `SimRadio`; static-linked (no dlopen yet) |
 | S3 | Differential harness | `engine:"lua"` vs `engine:"meshroute"` on a scenario → NDJSON diff tool; repurpose `mixed_firmware_validation` sweep |
+
+**Status (2026-06-05): S0–S3 all ✅ done.** `FirmwareNode` runs in-loop beside
+`ScriptedNode`; the differential gates (`tools/dm_diff.py` / `dm_diff_band.py`)
+diff lua-vs-meshroute delivery per scenario. The seam mirrors SimController's
+injected `_sim_*` config keys (`duty_cycle` etc.) — `bw`/`cr`/`warmup` is a known
+latent differential gap to watch.
 
 ### Behaviour track (depends on codecs + the sim-integration track)
 | It | Scope | Success criterion |
@@ -219,11 +286,18 @@ new codec+test harness on a 3-byte frame before the most complex one.)
 | R3 | MAC RTS-CTS-DATA-ACK | t01 equivalent |
 | R4 | Throttle + triggered beacons / F1 blind window / cascade requeue | t29/t42/t14/t20/t26 equivalents |
 | R5 | Q frames / REQ_SYNC / channel gossip | t30/t39/t65-69 equivalents |
+| **R5.5** | **Hash-locate (H) plane** — id_bind table, soft/hard resolve, hash-bind response, cache-on-pass, send-by-hash + verify-on-use *(not in the original plan; added 2026-06-04)* | t89 + the 6 MAC gates green |
 | R6 | Join state machine | t46-t60 equivalents |
 | R7 | **(follow-on) Gateway + cross-layer** | s09/s10 — see scope note §5 |
 | R8 | Mobile + asymmetric | s07/s08 |
 | D0 | First on-device: one BCN over the air on XIAO | — |
 | D1 | Two-board RTS-CTS-DATA-ACK between two XIAOs | — |
+
+**Status (2026-06-05): R1–R5 + R5.5 ✅ done; D0 ✅ done (BCN + DM on metal).**
+**R6 (join) is the NEXT step — currently codec-only** (`on_recv` J case absent,
+`on_command(join)` → `err_unsupported`, no handshake/state machine/lease/NV).
+**R7 gateway/cross-layer + R8 mobile/asymmetric = not started.** D1 (two-board
+over-the-air) is bench-pending on real hardware (yours). See §9 for the R6 plan.
 
 ---
 
@@ -241,6 +315,10 @@ Recommendation: target the **stable same-layer core** for the first
 working firmware (sim-integration S0-S3 + behaviour R1-R6 + device
 D0-D1). Treat **gateway/cross-layer (R7) as a follow-on** — porting it
 now inherits a moving target.
+
+**Status (2026-06-05):** achieved except **R6 join** (codec-only, the next
+step) and **D1** (two-board bench, on-metal). S0–S3 + R1–R5 + the H plane +
+D0 are done. R7 gateway/cross-layer remains the follow-on as planned.
 
 ---
 
@@ -293,11 +371,31 @@ duty / EU868 g3, preamble 16 sym.
 
 ---
 
-## 9. Immediate next step (after sign-off)
+## 9. Immediate next step — Join (R6)
 
-The **wire-decision spike** (small): derive the §10 cmd-nibble hex for
-all 10 frames from §10.3 + the authoritative Lua field semantics, and
-check SF8 symbol-bucket airtime-neutrality across every frame (especially
-H/F) so we know whether bit-identical NDJSON parity survives or whether
-level-(b) testing is "behavioural within noise." Output: a per-frame hex
-worksheet + the parity verdict. Then codec track C0/C1.
+*(The original §9 — the wire-decision spike + codec C0/C1 — is long done;
+the whole codec/HAL/sim/behaviour stack through R5.5 has landed. See Status.)*
+
+The same-layer core is done and flashable, so the **deferral on join is
+lifted** (it was "land routing/MAC/discovery first"). Join is the foundational
+unblocker: a device with `_node_id == 0` is refused at the `on_command` gate, so
+it can't self-provision in the field. Sliced to de-risk the L-effort:
+
+- **Slice A** (~100–150 LOC, no crypto): `on_recv` `J` dispatcher + `handle_j`
+  for `DISCOVER`/`OFFER` only + `on_command(CmdKind::join)` to trigger discovery
+  + a sim scenario proving the DISCOVER→OFFER exchange (and the responder's
+  `id_bind` write). Validates the design before the stateful dance.
+- **Slice B**: the `CLAIM`/`DENY` state machine + `addr_conflict` tie-break
+  (lease-age + claim-epoch + forced-rejoin) — the conflict-recovery heart.
+- **Slice C**: NV (flash KV) lease persistence via a `device_nv` seam, so a
+  rebooted node keeps its `adopted_at_ms` + `claim_epoch` tie-break authority.
+
+**Decide before coding (open design Q — the notes at the top of this file):**
+the **per-leaf crypt key** (encrypt part of the BCN so un-joined nodes can't
+learn the topology / to make private leafs) and the **1-byte J wire-version**.
+Recommendation: land join **plaintext** first; treat the crypt-key (responder-
+generates-in-OFFER vs pre-shared vs DH-at-join) as a separate design pass.
+
+**Other big rocks after R6:** R7 gateway/cross-layer (the multi-leaf deployment
+multiplier + the H plane's deferred consumer), then the app layer (inbox /
+known-nodes directory / subscriptions).

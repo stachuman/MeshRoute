@@ -433,24 +433,24 @@ def cmd_routes(args):
 
 # Valid `cfg set <key> <value>` keys — mirror fw_main.cpp handle_cfg_set. Persisted to NV, applied on reboot.
 CFG_KEYS = {
-    "node_id":    "1..254 node address (0 = unprovisioned)",
-    "freq":       "frequency MHz, e.g. 868.0",
-    "control_sf": "control-plane SF 5..12 (RTS/CTS/ACK/beacons)",
-    "routing_sf": "same as control_sf (the internal name)",
-    "data_sf":    "fixed data SF 5..12 (used only when sf_list is empty)",
-    "sf_list":    "allowed data SFs, comma list e.g. 5,7 (receiver picks by SNR)",
-    "tx_power":   "TX output power dBm, -9..22",
-    "bw":         "bandwidth Hz, e.g. 125000",
-    "cr":         "coding-rate denominator 5..8 (4/5 .. 4/8)",
-    "duty":       "duty-cycle fraction, e.g. 0.01",
-    "lbt":        "listen-before-talk, 0 or 1",
-    "beacon_ms":  "beacon period, ms",
+    "node_id":    "1..254 node address (0 = unprovisioned)  [reboot]",
+    "freq":       "frequency MHz, e.g. 868.0  [live]",
+    "control_sf": "control-plane SF 5..12 (RTS/CTS/ACK/beacons)  [live]",
+    "routing_sf": "same as control_sf (the internal name)  [live]",
+    "data_sf":    "fixed data SF 5..12 (used when sf_list empty)  [reboot]",
+    "sf_list":    "allowed data SFs, comma list e.g. 5,7  [reboot]",
+    "tx_power":   "TX output power dBm, -9..22  [live]",
+    "bw":         "bandwidth Hz, e.g. 125000  [live]",
+    "cr":         "coding-rate denominator 5..8 (4/5 .. 4/8)  [live]",
+    "duty":       "duty-cycle fraction, e.g. 0.01  [reboot]",
+    "lbt":        "listen-before-talk, 0 or 1  [reboot]",
+    "beacon_ms":  "beacon period, ms  [reboot]",
 }
 
 
 def cmd_cfg(args):
     if args.keys:
-        print("cfg keys  (cfg --set <key> <value>; saved to NV, applied on reboot):")
+        print("cfg keys  (cfg --set <key> <value>; saved to NV; [live]=applies now, [reboot]=on reboot):")
         for k, d in CFG_KEYS.items():
             print(f"  {k:11s} {d}")
         return

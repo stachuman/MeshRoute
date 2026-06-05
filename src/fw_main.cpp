@@ -33,6 +33,11 @@ namespace P = meshroute::protocol;
 //      (do_send refused; only join). key_hash32 is derived from the id until the join runtime assigns one.
 static constexpr uint32_t key_for(uint8_t id) { return 0x4D455300u | id; }   // "MES\0" | id
 
+// LoRa sync word — the PHY-level filter that keeps alien same-freq/SF/BW traffic out: the SX1262 only
+// raises RxDone for frames carrying THIS word. Distinct from MeshCore (0x12 PRIVATE, what std_init sets),
+// Meshtastic (0x2B) and LoRaWAN (0x34), so their frames are dropped in the radio before any MAC parse.
+static constexpr uint8_t MESHROUTE_SYNC_WORD = 0x4D;   // 'M'
+
 // ---- the device stack (global ctor order = declaration order; refs bind to already-built objects) ----
 static Module                  g_mod(LORA_PIN_NSS, LORA_PIN_DIO1, LORA_PIN_RST, LORA_PIN_BUSY);
 static CustomSX1262            g_radio(&g_mod);
@@ -110,7 +115,26 @@ static uint16_t parse_sf_list(const char* s) {
     return bm;
 }
 
-// `cfg set <key> <value>` — validate, persist to NV, apply on the NEXT boot. `args` is past "cfg set ".
+// Apply the RADIO operating point from the (just-saved) NV blob LIVE — no reboot. `reconfig` re-tunes the
+// radio (freq/SF/BW/CR changed); a tx_power-only change skips the re-tune (it's set per-TX via the Hal).
+static void apply_radio_live(const mrnv::Blob& b, bool reconfig) {
+    g_freq_mhz = b.freq_mhz;
+    g_tx_power = b.tx_power;
+    if (reconfig && g_radio_ok) {
+        g_radio.standby();                                         // SX1262: RF/modulation params latch in STANDBY
+        g_radio.setFrequency((float)b.freq_mhz);
+        g_radio.setBandwidth((float)b.bw_hz / 1000.0f);
+        g_radio.setCodingRate((uint8_t)b.cr);
+        g_iradio.set_rx_sf((int)b.routing_sf);                     // setSpreadingFactor + re-arm RX (+ _rx_sf)
+    }
+    g_hal.configure(/*sf=*/(int16_t)b.routing_sf, /*bw_hz=*/(int32_t)b.bw_hz, /*cr=*/(int8_t)b.cr,
+                    /*preamble=*/(int16_t)P::preamble_sym, /*power=*/(int8_t)b.tx_power, /*busy_hold=*/100);
+    g_node.set_radio_cfg((uint8_t)b.routing_sf, (uint32_t)b.bw_hz, (uint8_t)b.cr);
+}
+
+// `cfg set <key> <value>` — ACCUMULATES onto the pending NV blob (so several sets + ONE reboot works), then
+// applies: RADIO knobs (freq/routing_sf|control_sf/bw/cr/tx_power) take effect LIVE; node_id + the MAC knobs
+// (data_sf/sf_list/duty/lbt/beacon_ms) need a reboot (live they'd re-init the running Node). `args` past "cfg set ".
 static void handle_cfg_set(const char* args) {
     char key[20]; size_t k = 0;
     while (args[k] && args[k] != ' ' && k < sizeof(key) - 1) { key[k] = args[k]; ++k; }
@@ -118,47 +142,43 @@ static void handle_cfg_set(const char* args) {
     const char* val = (args[k] == ' ') ? (args + k + 1) : (args + k);
     if (!*val) { Serial.println(F("> cfg err bad_args")); return; }
 
-    meshroute::NodeConfig nc = g_node.config();      // start from the live config, override one key
-    double  freq    = g_freq_mhz;
-    uint8_t node_id = g_node.node_id();              // preserve identity across other `cfg set`s
-    int8_t  tx_power = g_tx_power;                    // preserve TX power across other `cfg set`s
-    bool known = true;
+    // Base = the PENDING NV blob so consecutive sets ACCUMULATE (else each snapshot reverts the others).
+    mrnv::Blob b{};
+    if (!mrnv::load(b)) {                                  // nothing persisted yet -> seed from the live config
+        const meshroute::NodeConfig& nc = g_node.config();
+        b.freq_mhz = g_freq_mhz;        b.bw_hz = nc.radio_bw_hz;       b.beacon_ms = nc.beacon_period_ms;
+        b.duty = nc.duty_cycle;         b.allowed_sf_bitmap = nc.allowed_sf_bitmap;
+        b.routing_sf = nc.routing_sf;   b.data_sf = nc.data_sf;         b.cr = nc.radio_cr;
+        b.lbt = nc.lbt_enabled ? 1 : 0; b.node_id = g_node.node_id();   b.tx_power = g_tx_power;
+    }
+    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;    // (re)stamp -> also upgrades a loaded v2 blob to v3
+
+    bool live = true, reconfig = false;                    // live = apply now; reconfig = radio needs a re-tune
     if      (!strcmp(key, "node_id")) {
         const int v = atoi(val);
         if (v < 0 || v > 254) { Serial.println(F("> cfg err bad_value (node_id 0..254; 0=unprovisioned)")); return; }
-        node_id = (uint8_t)v;
+        b.node_id = (uint8_t)v; live = false;
     }
-    else if (!strcmp(key, "freq"))       freq = atof(val);
-    else if (!strcmp(key, "routing_sf") ||
-             !strcmp(key, "control_sf")) nc.routing_sf = (uint8_t)atoi(val);   // "control_sf" = the banner's name for it
-    else if (!strcmp(key, "data_sf"))    nc.data_sf = (uint8_t)atoi(val);
-    else if (!strcmp(key, "sf_list"))    nc.allowed_sf_bitmap = parse_sf_list(val);
-    else if (!strcmp(key, "bw"))         nc.radio_bw_hz = (uint32_t)atol(val);
-    else if (!strcmp(key, "cr"))         nc.radio_cr = (uint8_t)atoi(val);
-    else if (!strcmp(key, "duty"))       nc.duty_cycle = atof(val);
-    else if (!strcmp(key, "lbt"))        nc.lbt_enabled = atoi(val) != 0;
-    else if (!strcmp(key, "beacon_ms"))  nc.beacon_period_ms = (uint32_t)atol(val);
+    else if (!strcmp(key, "freq"))                                     { b.freq_mhz = atof(val);                reconfig = true; }
+    else if (!strcmp(key, "routing_sf") || !strcmp(key, "control_sf")) { b.routing_sf = (uint8_t)atoi(val);    reconfig = true; }
+    else if (!strcmp(key, "bw"))                                       { b.bw_hz = (uint32_t)atol(val);        reconfig = true; }
+    else if (!strcmp(key, "cr"))                                       { b.cr = (uint8_t)atoi(val);            reconfig = true; }
     else if (!strcmp(key, "tx_power")) {
         const int v = atoi(val);
         if (v < -9 || v > 22) { Serial.println(F("> cfg err bad_value (tx_power -9..22 dBm)")); return; }
-        tx_power = (int8_t)v;
+        b.tx_power = (int8_t)v;                                        // live, but no radio re-tune
     }
-    else known = false;
-    if (!known) { Serial.print(F("> cfg err unknown_key ")); Serial.println(key); return; }
+    else if (!strcmp(key, "data_sf"))    { b.data_sf = (uint8_t)atoi(val);            live = false; }
+    else if (!strcmp(key, "sf_list"))    { b.allowed_sf_bitmap = parse_sf_list(val);  live = false; }
+    else if (!strcmp(key, "duty"))       { b.duty = atof(val);                        live = false; }
+    else if (!strcmp(key, "lbt"))        { b.lbt = atoi(val) != 0;                    live = false; }
+    else if (!strcmp(key, "beacon_ms"))  { b.beacon_ms = (uint32_t)atol(val);         live = false; }
+    else { Serial.print(F("> cfg err unknown_key ")); Serial.println(key); return; }
 
-    mrnv::Blob b{};
-    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
-    b.freq_mhz = freq;            b.bw_hz = nc.radio_bw_hz;     b.beacon_ms = nc.beacon_period_ms;
-    b.duty = nc.duty_cycle;       b.allowed_sf_bitmap = nc.allowed_sf_bitmap;
-    b.routing_sf = nc.routing_sf; b.data_sf = nc.data_sf;       b.cr = nc.radio_cr;  b.lbt = nc.lbt_enabled ? 1 : 0;
-    b.node_id = node_id;
-    b.tx_power = tx_power;
-    if (mrnv::save(b)) {
-        Serial.print(F("> cfg ")); Serial.print(key); Serial.print('='); Serial.print(val);
-        Serial.println(F(" ok (reboot to apply)"));
-    } else {
-        Serial.println(F("> cfg err nv_save_failed"));
-    }
+    if (!mrnv::save(b)) { Serial.println(F("> cfg err nv_save_failed")); return; }
+    if (live) apply_radio_live(b, reconfig);
+    Serial.print(F("> cfg ")); Serial.print(key); Serial.print('='); Serial.print(val);
+    Serial.println(live ? F(" ok (applied live)") : F(" ok (reboot to apply)"));
 }
 
 static void do_reboot() {
@@ -248,7 +268,9 @@ void setup() {
         g_radio.setSpreadingFactor((uint8_t)cfg.routing_sf);
         g_radio.setBandwidth((float)cfg.radio_bw_hz / 1000.0f);
         g_radio.setCodingRate((uint8_t)cfg.radio_cr);
+        g_radio.setSyncWord(MESHROUTE_SYNC_WORD);               // override std_init's PRIVATE (0x12): reject alien protocols at the PHY
         g_iradio.begin();                                       // (re)arm continuous RX on the applied SF
+
     }
     g_hal.configure(/*sf=*/(int16_t)cfg.routing_sf, /*bw_hz=*/(int32_t)cfg.radio_bw_hz,
                     /*cr=*/(int8_t)cfg.radio_cr, /*preamble=*/(int16_t)P::preamble_sym,
@@ -330,11 +352,11 @@ void loop() {
     //    otherwise, and the one-time boot banner is lost across the USB re-enumeration on reset).
     //    Console-only, no protocol effect. duty_ms climbing over time = the node is TX'ing beacons.
     static uint64_t s_last_hb = 0;
-    if (now - s_last_hb >= 5000) {
+    /*if (now - s_last_hb >= 5000) {
         s_last_hb = now;
         Serial.print(F("[hb] t="));    Serial.print((uint32_t)(now / 1000));
         Serial.print(F("s radio="));   Serial.print(g_radio_ok ? F("OK") : F("FAIL"));
         Serial.print(F(" duty_ms="));  Serial.print((uint32_t)g_hal.airtime_used_ms(3600000));
         Serial.println();
-    }
+    }*/
 }

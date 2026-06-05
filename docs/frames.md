@@ -213,3 +213,128 @@ Shared 2-byte header; body and length depend on opcode. All multi-byte fields **
 
 **DENY (15 B):** byte 2 = `denied_node_id` · bytes 3..6 = `owner_key_hash32` · bytes 7..10 = `claimant_key_hash32` · bytes 11..12 = `owner_lease_age_seconds` (u16) · byte 13 = `owner_claim_epoch` · byte 14 = `reason`.
 DENY **reason:** `1 = CONFLICT`, `2 = PENDING_CLAIM`, `3 = OWN_ID_DEFENSE`.
+
+---
+
+# Proposed changes — identity / leaf-membership / join (DRAFT 2026-06-05)
+
+Source design: `docs/specs/2026-06-05-identity-leaf-membership-join-design.md`
+(honest-node threat model — no beacon auth, no group key; opt-in DM E2E only).
+These are **proposals**, not yet implemented. Byte positions are the proposal; the
+implemented sections above remain authoritative until a change lands.
+
+## P1. BCN — +10 B leaf header (every beacon)
+
+Carry the leaf-instance fingerprint so a same-`leaf_id` node with divergent config
+self-isolates (design §3). Placed **as a fixed header field, before the schedule and
+route entries**, so the 151 B page truncates route entries — never the leaf header.
+
+| Byte | Field | Description |
+|------|-------|-------------|
+| 8..11 | `lineage_id` | 4 B, **LE**. Minted once at leaf creation; immutable; disambiguates 4-bit `leaf_id` collisions. |
+| 12..13 | `epoch` | 2 B, **LE**. LWW config version; bumped only on a deliberate operator write. |
+| 14..17 | `config_hash` | 4 B. `truncate(BLAKE2b(canonical(data_sf_list ‖ leaf_name ‖ duty_cycle)), 4)`. |
+
+Presence flag: reuse a BCN byte-3 rsv bit as `has_leaf` (b4) for a staged rollout, **or**
+make it mandatory at the wire flag-day. `key_hash32` (bytes 4..7) is already present, so
+the DAD `(node_id, key_hash32)` pair rides every beacon for free. Cost ≈ +26 ms at SF8.
+
+## P2. DATA — CRYPTED inner (opt-in DM E2E) + the origin-privacy reconciliation
+
+Inner with `CRYPTED` (payload-flags b3) set:
+
+```
+[ payload-flags : 1 B, cleartext ]
+[ AEAD-sealed:  origin(1) ‖ body(n)   ]   <- XChaCha20-Poly1305 ciphertext
+[ Poly1305 tag : 16 B ]
+```
+
+- **`origin` moves INSIDE the sealed region** (design §2 / frames.md DATA note already
+  commits to this): with `CRYPTED` the **sender is hidden** — only the destination that
+  decrypts learns it; relays/eavesdroppers see only the cleartext `dst` + `visited[]`.
+- **Nonce (decide):** XChaCha20 needs 24 B. **(a) derive** `nonce = truncate(BLAKE2b(
+  sender_key_hash32 ‖ dst ‖ ctr ‖ epoch), 24)` → **+0 B on air** (recommended; uniqueness
+  rests on `ctr` being per-(origin,dst) monotonic), or **(b) carry** 24 B.
+- **Tag vs the legacy 4 B MAC trailer (decide):** the 16 B Poly1305 tag is the integrity
+  for CRYPTED payloads; the existing 4 B frame MAC trailer is then redundant for CRYPTED
+  frames — fold it (tag only) or keep both. Recommend: tag is the inner trailer; the 4 B
+  MAC stays as the frame-level slot for non-CRYPTED frames.
+- **[RECONCILE — code-grounded 2026-06-05; what `origin`-encryption actually touches].**
+  Only **one** relay mechanism reads the inner `origin`: the cross-path **LOOP_DUP**
+  detector `sokey = (origin<<24)|(dst<<16)|ctr` (`node_mac_rx.cpp:311,352`). The others do
+  **not**:
+  - **Anti-spam — UNAFFECTED.** `track_originator_observation` / `compute_originator_metric`
+    key on the **immediate prev-hop** `_pending_rx->from` (`:267,271`), never on `origin`
+    (metal-correct — a relay can't see the true origin on LoRa). Zero change.
+  - **HOP_BUDGET / loop *safety* — UNAFFECTED.** `hops_remaining` is a cleartext header
+    field; decrement + drop-at-<0 (`:319-322`) bounds every loop. No infinite loops.
+  - **LOOP_DUP — LOST for CRYPTED.** The early cross-path dup→NACK→cascade-to-alt is
+    origin-keyed; a looping crypted DM then circulates until TTL kills it (airtime cost,
+    not a safety bug). **NB:** `visited[6]` is currently **inert** (packed as 6 zero bytes,
+    `node_mac.cpp:547`; no forward-path reader) — it is *not* a loop guard today.
+  - **`from`-fallback is UNSAFE — do not use it.** `origin = ui ? ui->origin : from`
+    (`:285`) plus a CRYPTED-unaware `parse_unicast_inner` would read ciphertext as `origin`;
+    forcing `from` makes `sokey` per-hop (LOOP_DUP dies) **and** can false-collide two
+    crypted flights sharing `(from,dst,ctr)` → a wrong re-ACK/drop (missed delivery).
+- **[DECIDED — activate `visited[]` as the loop guard].** Restore cross-path loop
+  detection **origin-independently, +0 wire** (the 6 bytes are already spent): on forward,
+  NACK/drop if `_node_id ∈ visited[]`, else append `_node_id`. Uniform for crypted +
+  plaintext; **supersedes** the origin-keyed `sokey` LOOP_DUP. `last_acked` (`:302`, `from`-keyed)
+  still separates retry from loop; `hops_remaining` is the >6-hop backstop.
+- **[MUST-FIX before/with CRYPTED] code changes (none are optional):**
+  1. `parse_unicast_inner` becomes **CRYPTED-aware** — when payload-flags has `CRYPTED`,
+     return *origin-unknown* (do NOT read ciphertext byte 1 as `origin`).
+  2. Relay **skips** the `sokey` origin dedup for CRYPTED — **no `from` fallback**.
+  3. **Activate `visited[]`** (append-self + self-presence NACK) on the forward path.
+  4. dm_delivery / telemetry that key on `origin` must tolerate origin-unknown for CRYPTED.
+  Anti-spam and HOP_BUDGET need **no** change.
+- **e2e-ACK caveat:** the e2e-ACK routes back to `origin` (its `dst` = origin, cleartext),
+  so the sender↔dst pairing still leaks on the ACK — full metadata privacy would need the
+  ACK hidden too (out of scope here).
+
+## P3. H + hash-bind — return the full pubkey (for DM E2E key resolution)
+
+- **H query** byte 7 flags: `HARD` = b0 (exists). Add **`WANT_PUBKEY` = b1**. Pubkey
+  resolution MUST use a **HARD** query (authoritative owner key, design §5.5).
+- **Hash-bind answer** (a DATA inner, `H_ANSWER`): when answered to a `WANT_PUBKEY` query
+  by a node holding the pubkey, append `ed_pub`(32) and type it with a new payload-flag
+  **`PAYLOAD_FLAG_PUBKEY` = 0x10 (b4)**:
+
+  `[payload-flags(H_ANSWER | opt AUTHORITATIVE | PUBKEY)] target_layer(1) node_id(1) key_hash32(4 LE) ed_pub(32)` = **39 B** (unicast, on-demand — not on the beacon).
+
+## P4. Q — CONFIG_PULL subtype + config-transfer (join/config-sync)
+
+- New **`CONFIG_PULL`** Q subtype (alongside `REQ_SYNC` / `CHANNEL_PULL`): body
+  `lineage_id(4 LE) ‖ epoch(2 LE)` = "send me the config for this lineage/epoch."
+- **Config-transfer carrier** (was under-specified): a routed **DATA** to the puller, typed
+  by a new payload-flag **`PAYLOAD_FLAG_CONFIG` = 0x20 (b5)**, body:
+  `lineage_id(4) ‖ epoch(2) ‖ data_sf_list(len ‖ bytes) ‖ leaf_name(len ‖ utf8) ‖ duty_cycle(2)`.
+  Any node at that epoch can serve it (durable; survives the originator leaving).
+
+## P5. J — wire-version + DAD mapping (mostly already on the wire)
+
+- **Wire version (decide):** carry a `wire_version` so peers reject incompatible frames
+  (design §5.4 + the in-code TODO). **(a)** steal J byte-1 `rsv` (b3..0) as a 4-bit version
+  (16 values, **+0 B**), or **(b)** a full byte 2 (+1 B per opcode: 6/8/11/15 → 7/9/12/16).
+  Recommend (a) — wire-compat is coarse-grained.
+- **DISCOVER kept** (active solicit; the design defaults to passive beacon-listen but keeps
+  DISCOVER — **re-evaluate during simulations**).
+- **DAD reuses the EXISTING `CLAIM` / `DENY`** — no new fields:
+  - `CLAIM` already carries `key_hash32 + proposed_node_id + lease_age_seconds + claim_epoch + nonce`.
+  - `DENY` already carries the `OWN_ID_DEFENSE` reason (the objection).
+  - **Tiebreak (decided):** `lease_age_seconds` DESC → `claim_epoch` → `key_hash32` ASC
+    (lower yields). The wire already supports this richer seniority tiebreak.
+- **OFFER:** its `data_sf_bitmap` / id-assignment role is superseded by P4 (Q config pull)
+  + DAD self-assignment; retain the opcode, narrow its use (or drop — sim-evaluate).
+
+## Frequency / cost summary
+
+| Change | When | On-air cost |
+|---|---|---|
+| P1 leaf header | every beacon | **+10 B** (the only hot-path cost) |
+| P2 CRYPTED inner | opt-in DM | +16 B (derived nonce) … +40 B (carried) |
+| P3 pubkey answer | on-demand, unicast | +32 B on the answer only |
+| P4 config pull/transfer | join / config change | new subtype + ~20–40 B body |
+| P5 J wire-version | rare | +0 B (rsv bits) or +1 B/opcode |
+
+No genuinely new frame is required — DAD reuses J `CLAIM`/`DENY`.

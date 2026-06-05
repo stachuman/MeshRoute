@@ -1,0 +1,9 @@
+{
+  "name": "Monocypher",
+  "version": "4.0.2",
+  "description": "Vendored Monocypher 4.0.2 — EdDSA(curve25519+BLAKE2b) + X25519 + BLAKE2b + ChaCha20-Poly1305 + Argon2. Pure C, zero platform deps (builds native/nRF52/ESP32 alike). Used by lib/core/identity for the node keypair. DO NOT EDIT — re-vendor from github.com/LoupVaillant/Monocypher @ 4.0.2.",
+  "keywords": ["crypto", "ed25519", "x25519"],
+  "license": "CC0-1.0",
+  "frameworks": "*",
+  "platforms": "*"
+}

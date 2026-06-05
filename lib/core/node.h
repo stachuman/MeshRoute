@@ -228,6 +228,12 @@ public:
     uint8_t           node_id()        const { return _node_id; }
     uint32_t          key_hash32()     const { return _key_hash32; }
     const NodeConfig& config()         const { return _cfg; }
+    // Live `cfg set` of the radio knobs (control SF / BW / CR) — updates the config the MAC + airtime read,
+    // WITHOUT re-initing the Node (routes / in-flight flight survive). LBT-derived delays are cached at
+    // on_init and go stale on a live change, but LBT is off by default and needs a reboot to enable.
+    void set_radio_cfg(uint8_t routing_sf, uint32_t bw_hz, uint8_t cr) {
+        _cfg.routing_sf = routing_sf; _cfg.radio_bw_hz = bw_hz; _cfg.radio_cr = cr;
+    }
     uint8_t           rt_count()       const { return _rt_count; }
     const RtEntry&    rt_at(uint8_t i) const { return _rt[i]; }   // 0..rt_count()-1; candidates[0] is the primary
     bool              has_pending_tx() const { return _pending_tx.has_value(); }

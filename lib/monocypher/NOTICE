@@ -1,0 +1,16 @@
+Monocypher — vendored crypto library
+=====================================
+
+Source : https://github.com/LoupVaillant/Monocypher
+Version: 4.0.2
+Files  : src/monocypher.c, src/monocypher.h  (fetched verbatim, unmodified)
+License: dual CC0-1.0 / BSD-2-Clause (see the header of each source file)
+
+DO NOT EDIT these files. To update, re-fetch the two files from the upstream
+tag, e.g.:
+  curl -fsSL https://raw.githubusercontent.com/LoupVaillant/Monocypher/<TAG>/src/monocypher.c -o lib/monocypher/src/monocypher.c
+  curl -fsSL https://raw.githubusercontent.com/LoupVaillant/Monocypher/<TAG>/src/monocypher.h -o lib/monocypher/src/monocypher.h
+
+Used by MeshRoute (lib/core/identity) for the node Ed25519/X25519 identity keypair.
+Note: monocypher's crypto_eddsa_* is curve25519+BLAKE2b (NOT RFC-8032 SHA-512). For
+RFC-8032 interop, vendor src/optional/monocypher-ed25519.{c,h} as well.
