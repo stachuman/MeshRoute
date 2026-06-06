@@ -261,7 +261,8 @@ No authority, no leader, no handoff, no recovery state machine.
      word (`0x4D`) + the `leaf_id`/lineage filter + treating any wire bump as a flag-day.
      Carrying the version in the beacon header is a possible future hardening (not now).
 
-### 5.3 node_id auto-assignment (CRITICAL — dedicated design pass pending)
+### 5.3 node_id auto-assignment (CRITICAL — **dedicated pass DONE: `docs/specs/2026-06-05-node-id-auto-assignment-design.md`**)
+*(That spec is authoritative for the algorithm/tiebreak/convergence; this section is the summary.)*
 **Why it's critical:** the leaf is joined by amateurs who don't understand the
 mechanism. Assignment must be **zero-touch and self-healing**, over **lossy links** and
 **partitions**, into a space of **254 usable ids** (`0x01`–`0xFE`; `0x00` = the unprovisioned
@@ -390,8 +391,10 @@ our own identity row. (A conflict between two *other* nodes still resolves norma
    (§5.3 + §5.5: DAD + self-heal + NV, `key_hash32` = stable identity, reuses the H plane's
    `id_bind`/confidence model). **[xcheck] The pass MUST land the `node_beacon.cpp:203`
    self-echo-guard fix** (narrow to `src==me && hash==mine`) — without it the collision is
-   undetectable (§5.3 step 4 / §5.5). Full allocation / tiebreak / exhaustion / convergence
-   design is the next deep dive, **before** the join slice.
+   undetectable (§5.3 step 4 / §5.5). **DONE 2026-06-05:** the full allocation / tiebreak /
+   exhaustion / convergence design is `docs/specs/2026-06-05-node-id-auto-assignment-design.md`
+   (key result: tiebreak = static `claim_epoch → key_hash32`; live `lease_age` dropped — its stale
+   wire snapshot is provably non-convergent). Ready for the port slice (prereq = the guard fix).
 3. **Leaf-defining fields — LOCKED (§3.4):** `data_sf_list` (order-significant, not
    sorted) + `leaf_name` + `duty_cycle`.
 4. **Beacon format change — ACCEPTED:** +10 B (`lineage_id` 4 / `epoch` 2 /

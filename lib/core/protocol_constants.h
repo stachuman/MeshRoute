@@ -59,7 +59,7 @@ inline constexpr uint32_t seen_bitmap_ttl_ms             = 1800000;
 // ---- Boot / discovery ------------------------------------------------------
 inline constexpr uint32_t discovery_ms          = 60000;
 inline constexpr uint8_t  discovery_min_bcn_rx  = 3;
-inline constexpr uint8_t  discovery_min_routes  = 8;
+inline constexpr uint8_t  discovery_min_routes  = 4;
 inline constexpr uint32_t beacon_boot_grace_ms  = 120000;
 inline constexpr uint16_t req_sync_listen_ms    = 8000;
 inline constexpr uint32_t req_sync_retry_ms     = 30000;
