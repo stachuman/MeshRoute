@@ -7,10 +7,10 @@
 //   docs/specs/2026-06-05-node-id-auto-assignment-design.md
 //
 // Mirrors the Lua join cluster (dv_dual_sf.lua join_choose_candidate_id / join_start_claim / handle_j
-// CLAIM+DENY / forced_rejoin) with ONE deliberate, signed-off divergence: the TIEBREAK is static
-// claim_epoch -> key_hash32 (NOT the Lua's lease_age-first, which is provably non-convergent under wire
-// staleness — spec §6). lease_age stays on the wire as telemetry. DISCOVER/OFFER are deferred (the
-// design's join is beacon-listen + Q config-pull + DAD); this slice is the CLAIM/heal core.
+// CLAIM+DENY / forced_rejoin) with ONE deliberate, signed-off divergence: the tiebreak is KEY-ONLY
+// (lower key_hash32 wins) — the Lua's lease_age-first is non-convergent under wire staleness (§6), and
+// claim_epoch is now vestigial (kept on the wire/NV, no longer consulted). DISCOVER/OFFER are deferred
+// (the design's join is beacon-listen + Q config-pull + DAD); this slice is the CLAIM/heal core.
 #include "node.h"
 #include "frame_codec.h"
 
@@ -315,13 +315,14 @@ void Node::l2c_handle_misdelivery(const PostAck& pa, uint32_t want_hash) {
     IdBindConf conf = IdBindConf::claimed;
     const int rid = id_bind_find_by_hash(want_hash, &conf);
     if (rid >= 0 && conf == IdBindConf::authoritative && static_cast<uint8_t>(rid) != _node_id) {
-        l2c_enqueue_forward(static_cast<uint8_t>(rid), pa.origin, pa.ctr, pa.ctr_lo, pa.flags, pa.inner, pa.inner_len);
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "origin", .type = EventField::T::i64, .i = pa.origin },
-                               { .key = "ctr",    .type = EventField::T::i64, .i = pa.ctr },
-                               { .key = "to",     .type = EventField::T::i64, .i = rid } };
-            _hal.emit("l2c_redirect_forward", f, 3); );
-        return;                                                           // l2c_enqueue_forward kicked the queue
+        if (l2c_enqueue_forward(static_cast<uint8_t>(rid), pa.origin, pa.ctr, pa.ctr_lo, pa.flags, pa.inner, pa.inner_len)) {
+            MR_TELEMETRY(
+                EventField f[] = { { .key = "origin", .type = EventField::T::i64, .i = pa.origin },
+                                   { .key = "ctr",    .type = EventField::T::i64, .i = pa.ctr },
+                                   { .key = "to",     .type = EventField::T::i64, .i = rid } };
+                _hal.emit("l2c_redirect_forward", f, 3); );              // success only (queue-full already emitted the drop)
+        }
+        return;                                                           // l2c_enqueue_forward always kicks the queue (success or drop)
     }
     if (l2c_redirected_recently(want_hash)) {                            // suppress only the PARK+flood path (anti-flood)
         MR_TELEMETRY(
@@ -340,10 +341,13 @@ void Node::l2c_handle_misdelivery(const PostAck& pa, uint32_t want_hash) {
 }
 
 // Build + enqueue a fresh routing leg that carries an EXISTING DM (origin/ctr/inner preserved) to `to_id`. It
-// is an ORIGINATOR-style leg (is_forward=false): do_data_tx re-budgets the hop count from OUR rt to `to_id`
-// (NOT the inbound DM's remainder) and applies no previous_hop exclusion — the redirect goes to a DIFFERENT
-// destination, so neither the old budget nor the old upstream-loop guard applies. Identity rides in
-// origin/ctr/inner. Returns false (and emits) if the tx queue is full so the drop is never silent.
+// keeps FORWARDER semantics (is_forward=true): a no-route transit DM is DROPPED, NOT deferred — a relay must
+// not hold (or surface a local `send_failed` for) someone else's DM. But the redirect goes to a DIFFERENT
+// destination than the inbound DM, so (a) `previous_hop=0` removes the upstream-loop exclusion (a re-targeted
+// leg may legitimately route back through the inbound hop) and (b) the hop budget is FRESHLY DERIVED from OUR
+// route to `to_id` — never inherited from the inbound DM's remainder, which is irrelevant and (for a DM that
+// arrived at us exhausted) would underflow to the 31-hop max. Identity rides in origin/ctr/inner. ALWAYS kicks
+// the queue (`become_free`) so the half-duplex serializer can't stall; returns false (and emits) on queue-full.
 bool Node::l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint8_t ctr_lo, uint8_t flags,
                                const uint8_t* inner, uint8_t inner_len) {
     if (_tx_queue_n >= kTxQueueCap) {
@@ -352,11 +356,18 @@ bool Node::l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint
                                { .key = "origin", .type = EventField::T::i64, .i = origin },
                                { .key = "ctr",    .type = EventField::T::i64, .i = ctr } };
             _hal.emit("l2c_redirect_dropped_queue_full", f, 3); );
+        become_free();                                                    // keep the queue serviced even on drop (codebase contract)
         return false;
     }
     TxItem it{};
     it.origin = origin; it.dst = to_id; it.ctr = ctr; it.ctr_lo = ctr_lo; it.flags = flags;
-    it.is_forward = false;                                                // originator-style: fresh rt-derived budget, no prev-hop exclusion
+    it.is_forward = true;                                                 // forwarder: drop (not defer/push) a no-route transit DM
+    it.previous_hop = 0;                                                  // re-targeted leg: no upstream-loop exclusion (node 0 is the no-op sentinel)
+    RtEntry* rte = rt_find(to_id);                                        // FRESH budget from our route to the owner
+    const uint8_t rt_hops = (rte && rte->n > 0) ? rte->candidates[0].hops : 1;
+    const int rem = static_cast<int>(rt_hops) + protocol::hop_budget_slack;
+    it.fwd_remaining = static_cast<uint8_t>(rem > protocol::hop_budget_max_initial ? protocol::hop_budget_max_initial : rem);
+    it.fwd_committed = 0;
     it.inner_len = (inner_len > protocol::max_payload_bytes_hard_cap) ? protocol::max_payload_bytes_hard_cap : inner_len;
     for (uint8_t i = 0; i < it.inner_len; ++i) it.inner[i] = inner[i];
     it.enqueue_time_ms = _hal.now();

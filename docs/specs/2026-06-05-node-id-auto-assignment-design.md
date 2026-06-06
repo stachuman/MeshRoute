@@ -198,10 +198,15 @@ The guarantee is **NOT "every collision, anywhere."** What converges:
      spurious-churn risk of an immediate yield. In the real-collision case the redirect can't deliver anyway
      (resolves to self), so the heal is exactly what unblocks delivery once the loser renumbers.
 
-  Hardening (from the adversarial review): the redirect leg is built **originator-style** (`is_forward=false`)
-  so its hop budget is **re-derived from our route to the owner**, never inherited from the inbound DM (whose
-  remainder is irrelevant and, for a DM that arrived at us *exhausted*, would underflow to the 31-hop max). Only
-  the **PARK + HARD-`H` flood** path is anti-flood-gated (`_l2c_redirect` ring, one flood per `want_hash` per 30 s);
+  Hardening (from two adversarial review passes): the redirect leg keeps **forwarder semantics**
+  (`is_forward=true` — a no-route transit DM is DROPPED, never deferred or surfaced as a *local* `send_failed`,
+  since a relay must not hold or report someone else's DM) but with `previous_hop=0` (no upstream-loop exclusion
+  for a re-targeted leg) and a hop budget **freshly derived from our route to the owner** — never inherited from
+  the inbound DM (whose remainder is irrelevant and, for a DM that arrived at us *exhausted*, would underflow to
+  the 31-hop max). `l2c_enqueue_forward` always kicks the queue (`become_free`, even on a full-queue drop) so the
+  half-duplex serializer can't stall, returns a bool, and callers emit the `l2c_redirect_forward` success only on
+  a true return (a queue-full drop keeps the parked entry for the next drain/age-out). Only the **PARK + HARD-`H`
+  flood** path is anti-flood-gated (`_l2c_redirect` ring, one flood per `want_hash` per 30 s);
   the **immediate-forward** path is floodless (a unicast forward) so it is **not** gated — every queued DM reaches
   the owner. A self-binding guard in `id_bind_set` (`addr_conflict_self_defended`) stops the colliding `H` answer
   (`want_hash→our id`) from overwriting our own identity binding; `key_hash_of_id` (the send-side `DST_HASH` stamp)

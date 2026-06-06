@@ -28,12 +28,9 @@ struct data_m_inner;   // frame_codec.h — fwd-decl so the channel ingest seam 
 
 // POD; no heap, no JSON. Only the T/F-class knobs the Lua on_init reads.
 // PROTOCOL constants stay in protocol_constants.h (hardcoded on device).
-// TODO: Node config should also store name - which can be then exchanged through higher level (app level) - along with the public key
-// TODO: Each layer (leaf) has its crypt key - shared during join operation. This key is used to crypt portion of BCN - why?
-// TODO: It is to prevent joining leaf without a proper join process AND possibly - to make private leafs
-// TODO: To discuss hot wo implement / what technology
-// TODO: Versions - in JOIN one byte - it shows only wire compatibility, not the full version. If same - it doesn't mean - it is the same version
-// TODO: it means - it is wire compatible
+// Leaf-membership / identity / join is DESIGN-RESOLVED — see docs/specs/2026-06-05-identity-leaf-membership-join-design.md:
+// name lives in the identity record; NO BCN crypt key (fingerprint gate, honest-node); DM-only crypto; JOIN carries a
+// 1-byte wire-version (wire-compat, not node version). The leaf-config half is implemented in R6 (PORT_PLAN §9).
 struct NodeConfig {
     bool     is_gateway          = false;
     bool     is_mobile           = false;
@@ -243,7 +240,7 @@ public:
     // ---- id_bind (hash-locate substrate) inspection: tests + the H resolver drive these.
     uint16_t          id_bind_count() const { return _id_bind_n; }
     bool              joined()        const { return _joined; }        // DAD: adopted a node_id (test/app accessor)
-    bool              key_hash_of_id(uint8_t id, uint32_t& out) const;  // id_bind reverse lookup (authoritative-preferred); false = unknown (DST_HASH omitted). Public for the send-path test.
+    bool              key_hash_of_id(uint8_t id, uint32_t& out) const;  // id_bind reverse lookup (AUTHORITATIVE-only); false = unknown/claimed-only (DST_HASH omitted). Public for the send-path test.
     uint8_t           claim_epoch()   const { return _claim_epoch; }
     void              restore_join_state(uint8_t claim_epoch, bool joined) { _claim_epoch = claim_epoch; _joined = joined; }  // boot: reload persisted DAD state (NV)
     // §6 DAD tiebreak (pure): higher claim_epoch wins; tie -> lower key_hash32 wins. Public for the convergence test.

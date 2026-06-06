@@ -436,16 +436,4 @@ void loop() {
 
     // 4b) Persist the DAD lease state if it changed this iteration (adopt / epoch bump / forced rejoin).
     persist_join_if_changed();
-
-    // 5) Heartbeat — bring-up liveness so the console is never silent (a lone node prints nothing
-    //    otherwise, and the one-time boot banner is lost across the USB re-enumeration on reset).
-    //    Console-only, no protocol effect. duty_ms climbing over time = the node is TX'ing beacons.
-    static uint64_t s_last_hb = 0;
-    /*if (now - s_last_hb >= 5000) {
-        s_last_hb = now;
-        Serial.print(F("[hb] t="));    Serial.print((uint32_t)(now / 1000));
-        Serial.print(F("s radio="));   Serial.print(g_radio_ok ? F("OK") : F("FAIL"));
-        Serial.print(F(" duty_ms="));  Serial.print((uint32_t)g_hal.airtime_used_ms(3600000));
-        Serial.println();
-    }*/
 }

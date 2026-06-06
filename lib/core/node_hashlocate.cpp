@@ -441,14 +441,21 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id) {
                     // would corrupt a sibling parked entry processed later in this same loop. The DM is dropped
                     // (forwarding-to-self loops); the sender's retry recovers it once the heal converges.
                     heal = true;
-                } else {
+                } else if (l2c_enqueue_forward(resolved_id, p.origin, p.ctr, p.ctr_lo, p.flags, p.body, p.body_len)) {
                     MR_TELEMETRY(
                         EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = resolved_id },
                                            { .key = "origin", .type = EventField::T::i64, .i = p.origin },
                                            { .key = "ctr",    .type = EventField::T::i64, .i = p.ctr } };
                         _hal.emit("l2c_redirect_forward", f, 3); );      // recipient moved (stale binding) -> forward, no heal
-                    l2c_enqueue_forward(resolved_id, p.origin, p.ctr, p.ctr_lo, p.flags, p.body, p.body_len);
+                } else {
+                    _parked_sends[w++] = p;                          // queue full -> KEEP parked, retry next drain/age-out
                 }
+            } else if (resolved_id == _node_id) {
+                // A plain send-by-hash that resolves to OUR OWN id: the app addressed its own key, or a same-id
+                // collision aliased it to us. Do NOT do_send-to-self (a self-addressed DM); give it up.
+                MR_TELEMETRY(
+                    EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) } };
+                    _hal.emit("send_hash_giveup", f, 1); );
             } else {
                 MR_TELEMETRY(
                     EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) },
@@ -456,7 +463,7 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id) {
                     _hal.emit("send_hash_resolved", f, 2); );
                 do_send(resolved_id, p.body, p.body_len, p.flags);   // load-bearing (OUTSIDE the wrap): fly the held DM
             }
-            continue;                                            // drop the parked entry
+            continue;                                            // matched entry handled (forwarded / healed / kept-above / given up)
         }
         _parked_sends[w++] = p;
     }
@@ -478,13 +485,16 @@ void Node::drain_resolved_parked_sends() {
         const int id = id_bind_find_by_hash(p.key_hash32, &conf);
         if (id >= 0 && conf == IdBindConf::authoritative && static_cast<uint8_t>(id) != _node_id) {
             if (p.is_redirect) {
-                MR_TELEMETRY(
-                    EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = id },
-                                       { .key = "origin", .type = EventField::T::i64, .i = p.origin },
-                                       { .key = "ctr",    .type = EventField::T::i64, .i = p.ctr } };
-                    _hal.emit("l2c_redirect_forward", f, 3); );
-                l2c_enqueue_forward(static_cast<uint8_t>(id), p.origin, p.ctr, p.ctr_lo, p.flags,
-                                    p.body, p.body_len);
+                if (l2c_enqueue_forward(static_cast<uint8_t>(id), p.origin, p.ctr, p.ctr_lo, p.flags, p.body, p.body_len)) {
+                    MR_TELEMETRY(
+                        EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = id },
+                                           { .key = "origin", .type = EventField::T::i64, .i = p.origin },
+                                           { .key = "ctr",    .type = EventField::T::i64, .i = p.ctr } };
+                        _hal.emit("l2c_redirect_forward", f, 3); );
+                } else {
+                    _parked_sends[w++] = p;                          // queue full -> KEEP parked for the next beacon/age-out
+                    continue;
+                }
             } else {
                 MR_TELEMETRY(
                     EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(p.key_hash32) },
@@ -492,7 +502,7 @@ void Node::drain_resolved_parked_sends() {
                     _hal.emit("send_hash_resolved", f, 2); );
                 do_send(static_cast<uint8_t>(id), p.body, p.body_len, p.flags);   // load-bearing (OUTSIDE the wrap)
             }
-            continue;                                            // drop the parked entry
+            continue;                                            // drop the parked entry (forwarded / sent)
         }
         _parked_sends[w++] = p;
     }

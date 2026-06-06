@@ -256,7 +256,7 @@ std::optional<f_out> parse_f(std::span<const uint8_t> frame);     // nullopt: le
 //            [reading A — RTS-byte5-consistent; §10.3 wording was ambiguous]
 //   [opcode-specific body]
 // Opcode values are NON-sequential: DISCOVER=0, CLAIM=1, DENY=2, OFFER=3.
-// TODO: Join frame needs to hold also firmware version - so nodes can respond with information whether minimum requirements are met
+// R6: JOIN will carry a 1-byte wire_version (wire-compat gate, NOT node version) — PORT_PLAN §9 / identity spec §5.
 enum class j_opcode : uint8_t { discover = 0, claim = 1, deny = 2, offer = 3 };
 constexpr uint8_t J_DENY_CONFLICT = 1, J_DENY_PENDING_CLAIM = 2, J_DENY_OWN_ID_DEFENSE = 3, J_DENY_MEDIATED = 4;  // 4 = third-party shared-neighbour heal (L2a)
 
