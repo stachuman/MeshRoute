@@ -24,6 +24,7 @@ using namespace meshroute;
 namespace {
 
 constexpr uint32_t kJoinClaimGuardTimerId = 58;   // mirrors Node's private DAD guard timer id
+constexpr uint32_t kJoinListenTimerId     = 60;   // claim-after-listen window (L1)
 
 struct Ev { std::string type; int64_t node = -1; int64_t proposed = -1; int64_t denied = -1;
             int64_t claim_epoch = -1; int64_t prior = -1; int64_t their_epoch = -1;
@@ -99,16 +100,17 @@ int count_j_deny(const std::vector<std::vector<uint8_t>>& frames) {
 
 }  // namespace
 
-TEST_CASE("join §6 tiebreak — higher claim_epoch wins; tie -> lower key_hash32 wins") {
-    // higher epoch wins regardless of key
-    CHECK(Node::join_tiebreak_wins(2, 0xFFFFFFFF, 1, 0x00000000) == true);
-    CHECK(Node::join_tiebreak_wins(1, 0x00000000, 2, 0xFFFFFFFF) == false);
-    // equal epoch -> lower key wins
-    CHECK(Node::join_tiebreak_wins(3, 0x00001111, 3, 0x00002222) == true);
-    CHECK(Node::join_tiebreak_wins(3, 0x00002222, 3, 0x00001111) == false);
-    // it is a strict total order (never both-win for distinct keys)
-    CHECK(Node::join_tiebreak_wins(3, 0x00001111, 3, 0x00002222)
-          != Node::join_tiebreak_wins(3, 0x00002222, 3, 0x00001111));
+TEST_CASE("join §6 tiebreak — KEY-ONLY: lower key_hash32 wins; claim_epoch ignored (vestigial)") {
+    // lower key wins, higher key yields
+    CHECK(Node::join_tiebreak_wins(0, 0x00001111, 0, 0x00002222) == true);
+    CHECK(Node::join_tiebreak_wins(0, 0x00002222, 0, 0x00001111) == false);
+    // epoch is IGNORED — a higher epoch does NOT rescue a higher key (and vice-versa). This consistency
+    // is what lets a third-party mediator (L2a, no epoch) agree with the direct heal.
+    CHECK(Node::join_tiebreak_wins(9, 0x00002222, 1, 0x00001111) == false);   // higher epoch, higher key -> still lose
+    CHECK(Node::join_tiebreak_wins(1, 0x00001111, 9, 0x00002222) == true);    // lower epoch, lower key -> still win
+    // strict total order (never both-win for distinct keys)
+    CHECK(Node::join_tiebreak_wins(0, 0x00001111, 0, 0x00002222)
+          != Node::join_tiebreak_wins(0, 0x00002222, 0, 0x00001111));
 }
 
 TEST_CASE("join — an unprovisioned node claims the lowest free id and ADOPTS when unopposed") {
@@ -120,10 +122,11 @@ TEST_CASE("join — an unprovisioned node claims the lowest free id and ADOPTS w
 
     Command c{}; c.kind = CmdKind::join;
     CHECK(node.on_command(c).code == CmdCode::queued);
+    node.on_timer(kJoinListenTimerId);                          // claim-after-listen: the listen window fires the claim
 
     const Ev* sent = hal.find("join_claim_sent");
     CHECK(sent != nullptr);
-    if (sent) { CHECK(sent->proposed == 1); CHECK(sent->claim_epoch == 1); }   // lowest free id, epoch bumped 0->1
+    if (sent) { CHECK(sent->proposed == 1); CHECK(sent->claim_epoch == 0); }   // lowest free id; claim_epoch vestigial (not bumped)
     // a J_CLAIM went on air
     bool claim_tx = false;
     for (const auto& f : hal.tx_frames) { auto p = parse_j(std::span<const uint8_t>(f.data(), f.size()));
@@ -141,7 +144,7 @@ TEST_CASE("join — an objection during the guard window denies the id (no adopt
     TestHal hal;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000A1A1);
     node.on_init(join_cfg());
-    Command c{}; c.kind = CmdKind::join; node.on_command(c);     // claims id 1
+    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinListenTimerId);  // claims id 1
     hal.events.clear();
 
     // a different node beacons as id 1 (a conflicting binding appears mid-guard)
@@ -160,7 +163,7 @@ TEST_CASE("join handle_j CLAIM — a claim for OUR adopted id is denied (OWN_ID_
     TestHal hal;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000A1A1);
     node.on_init(join_cfg());
-    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinClaimGuardTimerId);  // adopt id 1
+    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);  // adopt id 1
     CHECK(node.joined());
     hal.events.clear(); hal.tx_frames.clear();
 
@@ -178,7 +181,7 @@ TEST_CASE("join handle_j DENY — losing the tiebreak forces a rejoin (we yield 
     TestHal hal;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000F0F0);    // a HIGH key -> loses the tie on equal epoch
     node.on_init(join_cfg());
-    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinClaimGuardTimerId);  // adopt id 1 (epoch 1)
+    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);  // adopt id 1 (epoch 1)
     CHECK(node.joined());
     CHECK(node.node_id() == 1);
     hal.events.clear();
@@ -206,7 +209,7 @@ TEST_CASE("join handle_j DENY — winning the tiebreak keeps our id (no rejoin)"
     TestHal hal;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0x00000001);    // a LOW key -> wins the tie on equal epoch
     node.on_init(join_cfg());
-    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinClaimGuardTimerId);  // adopt id 1 (epoch 1)
+    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);  // adopt id 1 (epoch 1)
     CHECK(node.joined());
     hal.events.clear();
 
@@ -227,7 +230,7 @@ TEST_CASE("join — a beacon carrying our id with a DIFFERENT hash triggers the 
     TestHal hal;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000A1A1);
     node.on_init(join_cfg());
-    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinClaimGuardTimerId);  // adopt id 1
+    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);  // adopt id 1
     CHECK(node.joined());
     hal.events.clear(); hal.tx_frames.clear();
 
@@ -244,4 +247,36 @@ TEST_CASE("join — a beacon carrying our id with a DIFFERENT hash triggers the 
     std::array<uint8_t, 64> echo{}; const size_t en = make_beacon(/*src=*/1, /*hash=*/0x0000A1A1, echo);
     node.on_recv(echo.data(), en, meta);
     CHECK(hal.find("join_deny_sent") == nullptr);
+}
+
+TEST_CASE("join L2a — a shared neighbour mediates a collision: J_DENY(MEDIATED) to the key-loser") {
+    TestHal hal;
+    Node c(hal, /*node_id=*/5, /*key_hash32=*/0x0000C0C0);       // C: a bystander that hears BOTH colliding nodes
+    c.on_init(join_cfg());
+    hal.events.clear(); hal.tx_frames.clear();
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    std::array<uint8_t, 64> ba{}; const size_t na = make_beacon(/*id=*/7, /*key=*/0x00001111, ba);  // node A — lower key = winner
+    c.on_recv(ba.data(), na, meta);
+    std::array<uint8_t, 64> bb{}; const size_t nb = make_beacon(/*id=*/7, /*key=*/0x00002222, bb);  // node B — higher key = loser
+    c.on_recv(bb.data(), nb, meta);
+
+    CHECK(hal.find("addr_conflict_mediated") != nullptr);        // C detected the same-id/different-hash conflict
+    bool denied_loser = false;
+    for (const auto& f : hal.tx_frames) {
+        auto p = parse_j(std::span<const uint8_t>(f.data(), f.size()));
+        if (p && p->opcode == static_cast<uint8_t>(j_opcode::deny) && p->denied_node_id == 7
+            && p->owner_key_hash32 == 0x00001111 && p->claimant_key_hash32 == 0x00002222
+            && p->reason == J_DENY_MEDIATED) denied_loser = true;   // owner=winner, claimant=loser, key-only
+    }
+    CHECK(denied_loser);
+
+    // #1 suppression: the loser/winner keep beaconing their id until the loser renumbers — those repeat
+    // beacons re-create the conflict, but within the window they must NOT re-fire a DENY (one per collision).
+    const int denies_after_first = count_j_deny(hal.tx_frames);
+    CHECK(denies_after_first == 1);
+    c.on_recv(ba.data(), na, meta);                              // A again (re-flap)
+    c.on_recv(bb.data(), nb, meta);                              // B again
+    c.on_recv(ba.data(), na, meta);                              // A again
+    CHECK(count_j_deny(hal.tx_frames) == denies_after_first);    // still exactly one DENY (suppressed)
 }

@@ -293,6 +293,7 @@ private:
     static constexpr uint32_t kOverhearRetuneTimerId   = 57;  // overhear ARM: retune RX back to routing_sf after the DATA-M window
     static constexpr uint32_t kJoinClaimGuardTimerId   = 58;  // node_id DAD: claim guard window -> adopt-or-deny
     static constexpr uint32_t kJoinRetryTimerId        = 59;  // node_id DAD: jittered re-claim after a lost claim/heal
+    static constexpr uint32_t kJoinListenTimerId       = 60;  // node_id DAD: listen window before the FIRST claim (L1: hear the leaf, then pick)
 
     // ---- beacon emit / ingest ----------------------------------------------
     void emit_beacon(const char* kind);                            // "periodic" | "triggered"
@@ -344,6 +345,9 @@ private:
     void    join_deny_id(uint8_t id);                            // add to the denied list (1-day TTL)
     bool    join_id_denied(uint8_t id) const;                    // is this id currently denied (not expired)?
     void    age_out_denied_ids();                                // drop denied entries past dad_denied_id_ttl_ms
+    bool    mediated_recently(uint8_t node_id, uint32_t loser_hash) const;  // L2a: did we already DENY this (id,loser) this window?
+    void    mark_mediated(uint8_t node_id, uint32_t loser_hash);            // L2a: record a sent mediated DENY
+    void    age_out_mediated();                                             // drop mediation records past the suppress window
     // Q REQ_SYNC plane (boot route-bootstrap) — node_query.cpp.
     void    req_sync_loop_fire();                                  // kReqSyncTimerId: send + re-arm while discovery+starved (dv:9167)
     void    send_req_sync_q(const char* reason);                   // broadcast a REQ_SYNC Q (no draw; dv:8032)
@@ -561,12 +565,16 @@ private:
     uint8_t    _parked_sends_n = 0;
     // node_id auto-assignment (DAD + heal) — node_join.cpp; design 2026-06-05-node-id-auto-assignment-design.md.
     bool     _joined = false;                                    // adopted a node_id via DAD (vs cfg/NV-provisioned)
-    uint8_t  _claim_epoch = 0;                                   // bumped per claim, the static seniority tiebreak key (§6)
+    bool     _join_listen_pending = false;                       // a join was requested; listening before the first claim (L1)
+    uint8_t  _claim_epoch = 0;                                   // VESTIGIAL (key-only tiebreak): reserved on wire/NV, not consulted
     struct JoinClaim { bool active; uint8_t proposed; uint32_t key_hash32; uint8_t claim_epoch; uint8_t nonce; uint64_t started_ms; };
     JoinClaim _join_claim{};                                     // the single in-flight claim (active=false when none)
     struct DeniedId { uint8_t id; uint64_t denied_at_ms; };      // a slot that lost a claim/heal (§13: 1-day TTL)
     DeniedId _join_denied[protocol::cap_join_denied] = {};
     uint8_t  _join_denied_n = 0;
+    struct MediatedRecent { uint8_t node_id; uint32_t loser_hash; uint64_t t_ms; };   // L2a: suppress per-(id,loser) re-DENY
+    MediatedRecent _mediated_recent[protocol::cap_mediated_recent] = {};
+    uint8_t        _mediated_recent_n = 0;
     // Q REQ_SYNC plane state (node_query.cpp). _last_req_sync_tx_ms rate-limits the originator (dv:8035);
     // _q_responded is the responder dedup ring (key opcode|src|dest, ttl q_respond_ttl_ms) — Lua refuses on
     // cap-full, we evict-oldest (matches the F-dedup idiom; equivalent below cap, robust for a long-running

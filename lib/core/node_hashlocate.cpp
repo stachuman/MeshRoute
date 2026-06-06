@@ -63,7 +63,34 @@ bool Node::id_bind_set(uint8_t node_id, uint32_t key_hash32, IdBindSource source
                     _hal.emit("addr_conflict_observed", f, 4); );
                 return false;
             }
-            _id_bind[i].key_hash32 = key_hash32;                // authoritative -> overwrite the hash
+            // L2a shared-neighbour heal: a FIRST-HAND beacon (source==bcn, §5.5 confidence gate) for an id we
+            // already hold bound to a DIFFERENT hash, and it is NOT our own id -> we heard two nodes use the
+            // same id. Mediate (we hold both full hashes first-hand): deny the key-loser (§6 key-only) so it
+            // renumbers, keep the winner. Without this the binding just flaps (and corrupts our H answers).
+            // Gate (§5.5 first-hand): a genuine BEACON learn = source==bcn AND authoritative. The `&&
+            // authoritative` is what makes this self-sufficient — a J-frame learn also uses source==bcn but
+            // is `claimed` (refused above at !authoritative), so without this the gate would lean on that
+            // upstream refuse alone (the agent's confidence-gate catch).
+            if (node_id != _node_id && source == IdBindSource::bcn && authoritative
+                && _id_bind[i].confidence == static_cast<uint8_t>(IdBindConf::authoritative)) {
+                const uint32_t existing_key = _id_bind[i].key_hash32;
+                const bool incoming_wins = join_tiebreak_wins(0, key_hash32, 0, existing_key);
+                const uint32_t winner = incoming_wins ? key_hash32 : existing_key;
+                const uint32_t loser  = incoming_wins ? existing_key : key_hash32;
+                if (!mediated_recently(node_id, loser)) {       // #1: one DENY per (id,loser) per window, not per beacon
+                    MR_TELEMETRY(
+                        EventField f[] = { { .key = "node",   .type = EventField::T::i64, .i = node_id },
+                                           { .key = "winner", .type = EventField::T::i64, .i = static_cast<int64_t>(winner) },
+                                           { .key = "loser",  .type = EventField::T::i64, .i = static_cast<int64_t>(loser) } };
+                        _hal.emit("addr_conflict_mediated", f, 3); );
+                    addr_conflict_send_deny(node_id, winner, loser, J_DENY_MEDIATED);
+                    mark_mediated(node_id, loser);
+                }
+                // We always take the incoming below (so a legitimate same-node re-key still applies + the
+                // binding can't get stuck on a departed loser); the DENY drives the key-loser to renumber,
+                // and the winner's next beacon re-asserts it — the flap is transient, convergence is the DENY.
+            }
+            _id_bind[i].key_hash32 = key_hash32;                // authoritative -> overwrite the hash (incoming wins / same-node rekey)
         }
         _id_bind[i].last_seen_ms = now;                         // refresh (silent — not new)
         _id_bind[i].source       = static_cast<uint8_t>(source);

@@ -258,7 +258,7 @@ std::optional<f_out> parse_f(std::span<const uint8_t> frame);     // nullopt: le
 // Opcode values are NON-sequential: DISCOVER=0, CLAIM=1, DENY=2, OFFER=3.
 // TODO: Join frame needs to hold also firmware version - so nodes can respond with information whether minimum requirements are met
 enum class j_opcode : uint8_t { discover = 0, claim = 1, deny = 2, offer = 3 };
-constexpr uint8_t J_DENY_CONFLICT = 1, J_DENY_PENDING_CLAIM = 2, J_DENY_OWN_ID_DEFENSE = 3;
+constexpr uint8_t J_DENY_CONFLICT = 1, J_DENY_PENDING_CLAIM = 2, J_DENY_OWN_ID_DEFENSE = 3, J_DENY_MEDIATED = 4;  // 4 = third-party shared-neighbour heal (L2a)
 
 // DISCOVER (6 B): key_hash32(LE).
 struct j_discover_in { uint8_t leaf_id; bool gateway_capable; bool is_mobile; uint32_t key_hash32; };

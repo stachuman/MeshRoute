@@ -18,11 +18,12 @@
 
 namespace meshroute {
 
-// §6 — the one tiebreak. Higher claim_epoch wins; on a tie the lower key_hash32 wins. Both inputs are
-// STATIC + wire-carried, so both sides compute the same total order from the same values -> exactly one
-// yields -> convergent, no ping-pong. (key_hash32 is unique per honest node, so the order is total.)
-bool Node::join_tiebreak_wins(uint8_t my_epoch, uint32_t my_key, uint8_t their_epoch, uint32_t their_key) {
-    if (my_epoch != their_epoch) return my_epoch > their_epoch;
+// §6 — the one tiebreak (KEY-ONLY, decided 2026-06-06): lower key_hash32 WINS/keeps; higher yields.
+// One rule for EVERY heal — direct (§7), mediated/shared-neighbour (L2a), delivery-driven (L2c) — so
+// they can never pick different losers (a third-party mediator has no epoch; key alone keeps them
+// consistent). key_hash32 is a unique total order per honest node ⇒ exactly one winner, convergent.
+// claim_epoch is now VESTIGIAL: still carried on the J wire + in NV (reserved), no longer consulted here.
+bool Node::join_tiebreak_wins(uint8_t /*my_epoch*/, uint32_t my_key, uint8_t /*their_epoch*/, uint32_t their_key) {
     return my_key < their_key;
 }
 
@@ -51,6 +52,34 @@ void Node::age_out_denied_ids() {
     _join_denied_n = w;
 }
 
+// ---- L2a mediation suppression: one DENY per (id, loser-hash) per window (#1 — kill the per-beacon storm) --
+bool Node::mediated_recently(uint8_t node_id, uint32_t loser_hash) const {
+    const uint64_t now = _hal.now();
+    for (uint8_t i = 0; i < _mediated_recent_n; ++i)
+        if (_mediated_recent[i].node_id == node_id && _mediated_recent[i].loser_hash == loser_hash
+            && (now - _mediated_recent[i].t_ms) < protocol::mediated_deny_suppress_ms)
+            return true;
+    return false;
+}
+void Node::mark_mediated(uint8_t node_id, uint32_t loser_hash) {
+    const uint64_t now = _hal.now();
+    for (uint8_t i = 0; i < _mediated_recent_n; ++i)
+        if (_mediated_recent[i].node_id == node_id && _mediated_recent[i].loser_hash == loser_hash) {
+            _mediated_recent[i].t_ms = now; return;                                       // refresh the window
+        }
+    if (_mediated_recent_n < protocol::cap_mediated_recent) { _mediated_recent[_mediated_recent_n++] = { node_id, loser_hash, now }; return; }
+    uint8_t o = 0;                                                                        // full -> evict the oldest
+    for (uint8_t i = 1; i < _mediated_recent_n; ++i) if (_mediated_recent[i].t_ms < _mediated_recent[o].t_ms) o = i;
+    _mediated_recent[o] = { node_id, loser_hash, now };
+}
+void Node::age_out_mediated() {
+    const uint64_t now = _hal.now();
+    uint8_t w = 0;
+    for (uint8_t r = 0; r < _mediated_recent_n; ++r)
+        if ((now - _mediated_recent[r].t_ms) < protocol::mediated_deny_suppress_ms) _mediated_recent[w++] = _mediated_recent[r];
+    _mediated_recent_n = w;
+}
+
 // ---- §3 candidate selection: prefer our previous id, else a random free slot (-1 = leaf full) ----------
 int Node::join_choose_candidate_id() {
     const int prev = id_bind_find_by_hash(_key_hash32);                 // the network/NV may remember our old id
@@ -61,14 +90,21 @@ int Node::join_choose_candidate_id() {
             _hal.emit("join_prefer_previous_id", f, 2); );
         return prev;
     }
+    // "taken" = every id this node KNOWS is in use (L1, design §3): id_bind (direct neighbours + heard
+    // claims) ∪ _rt dest (EVERY reachable node within dv_hop_cap — DV-propagated, the wide view that makes
+    // an incremental joiner leaf-unique) ∪ the no-route defer queue ∪ our own pending claim. Best-effort:
+    // pre-convergence / simultaneous-cold-start gaps fall to the heal (§7.1), not to this picker.
+    auto id_taken = [&](uint8_t id) -> bool {
+        for (uint16_t i = 0; i < _id_bind_n;  ++i) if (_id_bind[i].node_id == id)     return true;
+        for (uint8_t  i = 0; i < _rt_count;   ++i) if (_rt[i].dest == id)             return true;
+        for (uint8_t  i = 0; i < _deferred_n; ++i) if (_deferred[i].item.dst == id)   return true;
+        return _join_claim.active && _join_claim.proposed == id;
+    };
     uint8_t free_list[254];                                             // 254 B stack — fine
     uint16_t nfree = 0;
-    for (int id = 1; id <= 254; ++id) {
-        if (join_id_denied(static_cast<uint8_t>(id))) continue;
-        bool taken = false;
-        for (uint16_t i = 0; i < _id_bind_n; ++i) if (_id_bind[i].node_id == id) { taken = true; break; }
-        if (!taken) free_list[nfree++] = static_cast<uint8_t>(id);
-    }
+    for (int id = 1; id <= 254; ++id)
+        if (!join_id_denied(static_cast<uint8_t>(id)) && !id_taken(static_cast<uint8_t>(id)))
+            free_list[nfree++] = static_cast<uint8_t>(id);
     if (nfree == 0) return -1;
     return free_list[_hal.rand_range(0, static_cast<int>(nfree))];      // uniform pick (two joiners rarely collide)
 }
@@ -83,7 +119,7 @@ bool Node::join_start_claim([[maybe_unused]] const char* reason) {   // reason: 
             _hal.emit("join_no_candidate", f, 1); );
         return false;
     }
-    _claim_epoch = static_cast<uint8_t>((_claim_epoch + 1) & 0xFF);     // bump per claim (the static seniority key)
+    // claim_epoch is NO LONGER bumped (key-only tiebreak, §6) — it stays reserved on the wire + in NV.
     const uint8_t nonce = static_cast<uint8_t>(_hal.rand_range(0, 256));
     _join_claim = { true, static_cast<uint8_t>(cand), _key_hash32, _claim_epoch, nonce, _hal.now() };
 

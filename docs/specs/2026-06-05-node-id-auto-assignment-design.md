@@ -171,19 +171,36 @@ The guarantee is **NOT "every collision, anywhere."** What converges:
 - **Direct-neighbour adopted collisions** — two same-id owners that hear *each other's* beacons/DENYs
   (unit-tested).
 
+- **2-hop collisions (shared neighbour) — NOW HEALED by L2a (landed 2026-06-06).** A common neighbour
+  C hears both owners first-hand; `id_bind_set` (the auth-vs-auth conflict, was a silent flap) now
+  **mediates** — C holds both full hashes, picks the **key-loser** (§6 key-only) and sends a
+  `J_DENY(MEDIATED)`; the loser `forced_rejoin`s. Worth doing independent of traffic: the flap was
+  corrupting C's hash-locate answers (`id_bind` is the H substrate). The old **third-party-epoch
+  landmine is dissolved** by key-only — a mediator needs no epoch.
+
 What does **not** heal yet:
-- **Multi-hop collisions.** Two same-id nodes **≥2 hops apart** that share a common neighbour: J/DENY
-  and beacons are single-hop here, so the two owners never hear each other — the shared neighbour just
-  sees a **flapping `id_bind`** (each beacon overwrites the other), no heal. Closing this needs the heal
-  to propagate (a forwarded DENY or an id-keyed probe) — **deferred; decide third-party-heal vs
-  explicitly scoping the guarantee to single-hop.**
-- **`[LANDMINE — documented]` case-(b) third-party DENY carries the wrong epoch.** When a node denies a
-  CLAIM that conflicts with a binding it learned *second-hand* (the contested id is **not its own**), it
-  sends the DENY with **its own `claim_epoch`**, not the real owner's (whose epoch it doesn't hold).
-  Harmless **today** — such a DENY only reaches an *unjoined* claimant, which backs off on the *binding*
-  (the `id_bind` conflict), not on the epoch comparison — but it is a latent correctness landmine if the
-  heal logic ever starts trusting a third-party DENY's epoch. A real fix carries the owner's epoch in
-  `id_bind`, or restricts DENY-with-epoch to the actual owner.
+- **>2-hop collisions** (no single node hears both owners) — no mediator exists, so L2a can't reach them.
+  These are **stable** (each node's DV picks one best route → no flap, just *split delivery*). Handled by
+  **L2c** (verify-on-delivery + HARD-`H` redirect, frames.md P6) — **deferred to the E2E/by-hash slice**,
+  gated on the measurement below.
+
+### 7.2 The reframe — uniqueness is *efficiency*, not *correctness*
+node_id leaf-uniqueness is a routing-efficiency goal, **not** a delivery-correctness requirement:
+- **The MAC handshake is UNAFFECTED.** RTS/CTS/DATA/ACK next-hops are always *direct neighbours*, which
+  direct-DAD + L2a keep unique. A dup never corrupts hop-by-hop forwarding.
+- **Only end-delivery (dest addressing) is exposed**, and that is exactly what hash addressing resolves —
+  `key_hash32` (hash-locate) + `send_by_hash` verify-on-use catch a wrong-node delivery. So the guarantee
+  is **best-effort dedup (L1 + L2a) + delivery robust to the residual via hash (L2c)** — not theoretical
+  leaf-uniqueness (the classic MANET DAD problem, unsolvable under partition).
+
+### 7.3 Measurement (the gate on L2c urgency)
+`t93` (138-node **cold-start storm** — the adversarial worst case): with L1 + L2a, **21 / 136 ids dup**
+(down from 23). L1 barely helps a *storm* (`_rt` is empty at claim time — incremental joins into a
+*converged* leaf do far better); the residual is the **>2-hop** dups L2a can't reach. **L2a is chatty**
+in a dense storm (~670 mediated DENYs for ~3 reachable heals — a per-flap re-send to rate-limit later).
+**Decision input for L2c:** the residual is real under storms, so L2c's urgency hinges on *how much
+end-delivery is by-node_id vs already by-hash* — audit that; if delivery still leans on node_id, L2c
+can't wait for E2E.
 
 ---
 
@@ -229,6 +246,18 @@ the unprovisioned-`node_id`-0 duplicate-exemption. Verified: native **218/218** 
 tiebreak, candidate, claim→adopt, guard-objection, CLAIM→deny, DENY→forced_rejoin win/lose, beacon-
 collision defense), 6 MAC gates + channel/discovery green, XIAO+Heltec green, full t-suite 80/86 (no new
 regressions), sim happy-path gate `test/t91_node_id_dad_convergence.json`.
+**#0 dedup + heal hardening — DONE 2026-06-06 (native + device green, 219/219):**
+- **key-only tiebreak** — `join_tiebreak_wins` ignores epoch; `claim_epoch` no longer bumped/consulted
+  (vestigial, reserved on the J wire + NV — *not* a #4 redo). One rule for direct/mediated/L2c heals.
+- **L1** — the picker's taken-set widened to `_rt` dest ∪ no-route defer queue ∪ pending claim (was
+  `_id_bind`-only) → leaf-unique for incremental joins into a converged leaf.
+- **claim-after-listen** — `on_command(join)` arms a `join_listen_ms` listen window (kJoinListenTimerId)
+  before the first claim, so `_rt`/`_id_bind` populate first; fresh node → listen-then-claim, rebooted
+  in-leaf node → resume joined from NV (no claim).
+- **L2a** — shared-neighbour mediated heal (above, §7.1) + `J_DENY_MEDIATED` reason. +1 doctest.
+- **frames.md P6** — `dst_key_hash32` field LOCKED (the L2c/cross-layer/E2E anchor); L2c *logic* deferred.
+- Measurement (§7.3): t93 storm residual 21/136 (>2-hop); L2a chatty (rate-limit TODO). t91/t92 green.
+
 **NV persistence + auto-join — DONE 2026-06-06 (device):** `/mrcfg` Blob v4 persists `claim_epoch` + a
 `joined` flag (repurposing the old `_pad`, same size so v2/v3 blobs still parse); `fw_main` restores them
 at boot (`restore_join_state`), **auto-DADs when unprovisioned** (`node_id==0`), and re-persists on any

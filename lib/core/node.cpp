@@ -106,6 +106,7 @@ void Node::on_timer(uint32_t timer_id) {
         id_bind_age_out();            // hash-locate A0: drop expired bindings on the same periodic sweep
         age_out_parked_sends();       // hash-locate D: give up on DMs whose hash never resolved
         age_out_denied_ids();         // node_id DAD: a denied slot becomes reusable after dad_denied_id_ttl_ms
+        age_out_mediated();           // L2a: drop mediation-suppression records past the window
         (void)_hal.after(_cfg.rt_aging_check_period_ms, kAgingTimerId);
         break;
     case kTriggeredBeaconTimerId:
@@ -128,6 +129,7 @@ void Node::on_timer(uint32_t timer_id) {
     case kOverhearRetuneTimerId:  _hal.set_rx_sf(_cfg.routing_sf);  break;   // overhear ARM: retune RX back to routing_sf
     case kJoinClaimGuardTimerId:  join_claim_guard_fire();         break;   // node_id DAD: guard elapsed -> adopt-or-deny
     case kJoinRetryTimerId:       join_start_claim("retry");       break;   // node_id DAD: re-claim after a lost claim/heal
+    case kJoinListenTimerId:      _join_listen_pending = false; join_start_claim("listen_done"); break;   // L1: listen window done -> claim
     case kCascadeRequeueTimerId:  become_free();           break;   // backoff elapsed -> drain the requeued flight
     case kRtsDutyDeferTimerId:    rts_duty_defer_fire();   break;   // #A redo: over-budget RTS duty-defer re-check/hand
     case kNackWaitTimerId:                                          // BUSY_RX wait elapsed -> re-RTS SAME hop
@@ -201,11 +203,15 @@ CmdResult Node::on_command(const Command& c) {
             const uint16_t ctr = do_send_channel(c.u.channel.channel_id, c.body, c.body_len);
             return CmdResult{ CmdCode::queued, ctr, _tx_queue_n };   // buffered dirty -> advertised next BCN -> pulled
         }
-        case CmdKind::join: {        // node_id DAD: kick off a claim (the design's join = beacon-listen + DAD;
-                                     // the typed op is advisory for now). Idempotent once joined.
+        case CmdKind::join: {        // node_id DAD. Idempotent once joined. CLAIM-AFTER-LISTEN (L1): hear the
+                                     // leaf's beacons first (populate _rt/_id_bind so the picker sees existing
+                                     // ids), THEN claim — armed here, fired on kJoinListenTimerId.
             if (_joined) return CmdResult{ CmdCode::queued, 0, _tx_queue_n };
-            const bool started = join_start_claim("command");
-            return CmdResult{ started ? CmdCode::queued : CmdCode::err_no_binding, 0, _tx_queue_n };
+            if (!_join_claim.active && !_join_listen_pending) {
+                _join_listen_pending = true;
+                (void)_hal.after(protocol::join_listen_ms, kJoinListenTimerId);
+            }
+            return CmdResult{ CmdCode::queued, 0, _tx_queue_n };
         }
         case CmdKind::send_layer:    // cross-layer  -> R7
         default:

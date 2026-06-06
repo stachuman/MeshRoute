@@ -219,6 +219,11 @@ inline constexpr uint32_t dad_claim_guard_ms   = 20000;       // §13: wait this
 inline constexpr uint32_t dad_denied_id_ttl_ms = 86400000;    // §13: a lost slot stays denied 1 day, then reusable
 inline constexpr uint8_t  cap_join_denied      = 16;          // bounded denied-id list (denials are rare; evict-oldest)
 inline constexpr uint8_t  unjoined_node_id     = 0;           // 0 = unprovisioned (do_send refused until adopt)
+// L2a mediation airtime guard: one mediated DENY per (id, loser-hash) per window — else a flapping binding
+// re-DENYs on EVERY beacon (a dense-storm airtime sink). Re-mediates after the window if the loser hasn't
+// yet renumbered (covers a lost DENY). Bounded ring (evict-oldest); 32 covers realistic churn.
+inline constexpr uint8_t  cap_mediated_recent     = 32;
+inline constexpr uint32_t mediated_deny_suppress_ms = 30000;
 
 // ---- Wire-format frame overhead (matches Lua DATA_HDR_LEN + DATA_INNER_OVERHEAD) ----
 // Lua CODE is authoritative: DATA_HDR_LEN = 8 + VISITED_LEN(6) = 14 (dv_dual_sf.lua:2904-2905);

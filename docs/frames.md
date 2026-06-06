@@ -327,12 +327,44 @@ Inner with `CRYPTED` (payload-flags b3) set:
   - `CLAIM` already carries `key_hash32 + proposed_node_id + lease_age_seconds + claim_epoch + nonce`.
   - `DENY` already carries the `OWN_ID_DEFENSE` reason (the objection).
   - **Tiebreak — see the canonical rule in the design §5.3 step 4:** static, wire-carried
-    `claim_epoch` (symmetric, established-holder bias) → `key_hash32` final (lower yields).
-    **Live `lease_age_seconds` is NOT a primary key** (time-varying → asymmetric eval →
-    mutual-yield/keep flapping); it stays informational. `CLAIM`/`DENY` already carry the
-    static fields, so no new fields are needed.
+    **`key_hash32`-only — lower `key_hash32` WINS/keeps, higher yields** (DECIDED 2026-06-06;
+    see the node-id spec §6). One rule for ALL heals — direct, mediated (shared-neighbour), and
+    delivery-driven (L2c) — so they can never pick different losers. `claim_epoch` is now
+    **vestigial**: it stays in `CLAIM`/`DENY` (and the NV blob) **reserved**, no longer bumped or
+    consulted. `lease_age_seconds` likewise informational. No new J fields.
 - **OFFER:** its `data_sf_bitmap` / id-assignment role is superseded by P4 (Q config pull)
   + DAD self-assignment; retain the opcode, narrow its use (or drop — sim-evaluate).
+
+## P6. DATA — `dst_key_hash32`: the universal final-recipient field (cleartext)
+
+The single "who is this ultimately for" field — serves **same-layer verify-on-delivery + node_id
+collision recovery (L2c)**, **cross-layer/gateway addressing**, and **E2E key resolution** at once.
+
+- **Flag `PAYLOAD_FLAG_DST_HASH` = 0x40 (b6).** When set, the inner carries the recipient's 4-byte
+  `key_hash32` (the routing handle width), **placed right after the payload-flags byte and ALWAYS
+  CLEARTEXT** (outside any AEAD).
+- **Coexists with `CROSS_LAYER` (b0) as an extension, not a parallel encoding:** `DST_HASH` names the
+  *recipient*; `CROSS_LAYER` *adds* the layer-path (the gateway envelope's `layer_id` + hops). The
+  envelope **references this one `dst_key_hash32`** instead of duplicating it. So same-layer hash DM =
+  `DST_HASH`; cross-layer DM = `DST_HASH | CROSS_LAYER`.
+- **Inner layout** (general): `[payload-flags][dst_key_hash32 (4, if DST_HASH, cleartext)]
+  [cross-layer path (if CROSS_LAYER, cleartext)][origin (1; cleartext, or AEAD-sealed if CRYPTED)]
+  [body (sealed if CRYPTED)][Poly1305 tag (16, if CRYPTED)]`. `dst_key_hash32` stays cleartext even
+  under `CRYPTED` — it leaks no more than the already-cleartext `dst` node-id, and a misdelivered
+  CRYPTED DM's **AEAD-auth failure is a corroborating** collision signal.
+- **Use — L2c (verify-on-delivery + redirect):** the node the `dst` id routes to compares
+  `dst_key_hash32` to its own. **Match → deliver. Mismatch → an id collision misdelivered this DM:**
+  (1) forward to the real owner via a **HARD `H`** query on `dst_key_hash32` (the DM still arrives, no
+  loss; cache-on-pass refreshes the sender's stale binding); (2) trigger the heal — run the
+  `key_hash32`-only tiebreak (it holds both its own + `dst_key_hash32`): loser → `forced_rejoin`,
+  winner → route a hash-addressed `J_DENY` to `dst_key_hash32`. **Exactly one renumbers** → the id
+  becomes unique. **Loop guard:** ride `hops_remaining` + mark the DM redirected-once (no ping-pong).
+- **Presence policy — default-ON for app DMs.** The flag types presence, but the send path includes
+  it whenever the dst's hash is known: `send_by_hash` has it directly; `send`-by-id reverse-looks-up
+  the dst's hash in `id_bind`. Only a DM to a totally-unknown id omits it (L2c can't help that one).
+  Cost: **+4 B / DM** (~+10 ms at SF8 — DMs ≪ beacons).
+- **STATUS:** wire field LOCKED here; the L2c verify/redirect *logic* ships with the E2E / by-hash
+  slice (same HARD-`H` + by-hash machinery), gated on the residual-dup measurement (node-id spec §11).
 
 ## Frequency / cost summary
 
