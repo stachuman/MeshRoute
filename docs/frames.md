@@ -102,9 +102,14 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 
 **flags (byte 1 high nibble):** `PAYLOAD_TYPE_M = 0x1`, `PRIORITY = 0x2`, `E2E_IS_ACK = 0x4`, `E2E_ACK_REQ = 0x8`.
 
-**Inner payload-flags (inner byte 0, always cleartext):** the inner begins with a flags byte that *types* the payload so a relay/receiver can act on it without decoding the body — `CROSS_LAYER`(b0, gateway envelope; the next byte is the cross-layer address length, then the path), `H_ANSWER`(b1, a public *hash-bind response* — relays read & cache the `key_hash32→node_id` binding, cache-on-pass), `AUTHORITATIVE`(b2, on an H-answer: owner-answered ⇒ overwrite vs cached ⇒ hint), `CRYPTED`(b3, the body after the prefix is encrypted), b7..4 rsv. **Invariant:** the flags byte and the cross-layer path are *always cleartext*; only the type-specific body is encrypted, and only when `CRYPTED` is set — so public payloads (H-answers, cross-layer routing) stay readable to forwarders while user content is sealed. This is how a node knows it may, and can, read an otherwise-opaque inner. (A *by-hash* DM also carries the intended `key_hash32` so the recipient can verify-on-use; mismatch → hard-H redirect — see H.)
+**Inner payload-flags (inner byte 0, always cleartext)** type the payload so a relay/receiver can act without decoding the body:
+`CROSS_LAYER`(b0) — gateway envelope (adds the layer-path); `H_ANSWER`(b1) — a public *hash-bind response* (relays read & cache the `key_hash32→node_id` binding, cache-on-pass); `AUTHORITATIVE`(b2) — on an H-answer: owner-answered vs cached; `CRYPTED`(b3) — `origin`+body are encrypted; `DST_HASH`(b6) — the inner carries the recipient's `key_hash32`; b4/b5/b7 rsv.
 
-**Normal DM inner** (after the payload-flags byte): `origin`(1 B — the sender's node_id) · message body. `origin` is **always present** (the destination needs it to attribute/reply) and lives in the *encryptable* body, so with `CRYPTED` set the **sender is hidden** — known only to the destination that decrypts; relays and eavesdroppers see the cleartext `dst` and the `visited` relay path, never the originator. (`visited[]` is zero on origination, so it leaks no sender either.)
+**Inner layout:** `[payload-flags] [dst_key_hash32 (4 B, if DST_HASH)] [cross-layer path (if CROSS_LAYER)] [origin (1 B)] [body] [Poly1305 tag (16 B, if CRYPTED)]`.
+
+- **`dst_key_hash32`** — the universal *final-recipient* `key_hash32`, **always cleartext** (leaks no more than the cleartext `dst` id). The node the `dst` id routes to verifies it against its own: match → deliver; mismatch → an id collision misdelivered this DM → forward to the real owner via a HARD `H` query (the DM still arrives) + heal the collision. `CROSS_LAYER` adds the layer-path; the gateway envelope references this one field (same- and cross-layer share it). Default-on for app DMs (the send path looks the dst's hash up in `id_bind`); +4 B.
+- **`CRYPTED`** — `origin`+body are sealed (XChaCha20-Poly1305) so the **sender is hidden** (only the destination decrypts; relays/eavesdroppers see the cleartext `dst`, `dst_key_hash32`, and `visited` path, never the originator). The flags byte, `dst_key_hash32`, and cross-layer path stay cleartext; a 16-B tag trails. AEAD-auth failure on a misdelivered CRYPTED DM corroborates a collision.
+- **Normal DM** (no CRYPTED): `origin` is the sender's node_id (the destination attributes/replies by it; `visited[]` is zero on origination, so it leaks no sender).
 
 `hops_remaining = 0` on the wire means TTL-exhausted (drop). The MAC stays opaque.
 
@@ -212,168 +217,19 @@ Shared 2-byte header; body and length depend on opcode. All multi-byte fields **
 **CLAIM (11 B):** bytes 2..5 = `key_hash32` · byte 6 = `proposed_node_id` · bytes 7..8 = `lease_age_seconds` (u16) · byte 9 = `claim_epoch` · byte 10 = `nonce`.
 
 **DENY (15 B):** byte 2 = `denied_node_id` · bytes 3..6 = `owner_key_hash32` · bytes 7..10 = `claimant_key_hash32` · bytes 11..12 = `owner_lease_age_seconds` (u16) · byte 13 = `owner_claim_epoch` · byte 14 = `reason`.
-DENY **reason:** `1 = CONFLICT`, `2 = PENDING_CLAIM`, `3 = OWN_ID_DEFENSE`.
+DENY **reason:** `1 = CONFLICT`, `2 = PENDING_CLAIM`, `3 = OWN_ID_DEFENSE`, `4 = MEDIATED` (a third-party shared-neighbour heal).
+
+**node_id assignment is Duplicate-Address-Detection (DAD), not OTAA:** a node listens, picks a free id (excluding every id in `id_bind` + the routing table), broadcasts a **CLAIM**, and adopts it after a guard window unless **DENY**'d; a same-id collision heals by one side renumbering. **Tiebreak is `key_hash32`-only — lower key wins/keeps, higher yields** (`claim_epoch`/`lease_age_seconds` are carried but reserved/telemetry, not consulted). `DISCOVER`/`OFFER` are deferred (the listen + CLAIM/heal core is what's used). See `docs/specs/2026-06-05-node-id-auto-assignment-design.md`.
 
 ---
 
-# Proposed changes — identity / leaf-membership / join (DRAFT 2026-06-05)
+## Planned wire extensions
 
-Source design: `docs/specs/2026-06-05-identity-leaf-membership-join-design.md`
-(honest-node threat model — no beacon auth, no group key; opt-in DM E2E only).
-These are **proposals**, not yet implemented. Byte positions are the proposal; the
-implemented sections above remain authoritative until a change lands.
+Decided in the design specs and landing with their slices (not all wired yet) — listed so the wire reference stays complete:
 
-## P1. BCN — +10 B leaf header (every beacon)
-
-Carry the leaf-instance fingerprint so a same-`leaf_id` node with divergent config
-self-isolates (design §3). Placed **as a fixed header field, before the schedule and
-route entries**, so the 151 B page truncates route entries — never the leaf header.
-
-| Byte | Field | Description |
-|------|-------|-------------|
-| 8..11 | `lineage_id` | 4 B, **LE**. Minted once at leaf creation; immutable; disambiguates 4-bit `leaf_id` collisions. |
-| 12..13 | `epoch` | 2 B, **LE**. LWW config version; bumped only on a deliberate operator write. |
-| 14..17 | `config_hash` | 4 B. `truncate(BLAKE2b(canonical(data_sf_list ‖ leaf_name ‖ duty_cycle)), 4)`. |
-
-Presence flag: reuse a BCN byte-3 rsv bit as `has_leaf` (b4) for a staged rollout, **or**
-make it mandatory at the wire flag-day. `key_hash32` (bytes 4..7) is already present, so
-the DAD `(node_id, key_hash32)` pair rides every beacon for free. Cost ≈ +26 ms at SF8.
-
-## P2. DATA — CRYPTED inner (opt-in DM E2E) + the origin-privacy reconciliation
-
-Inner with `CRYPTED` (payload-flags b3) set:
-
-```
-[ payload-flags : 1 B, cleartext ]
-[ AEAD-sealed:  origin(1) ‖ body(n)   ]   <- XChaCha20-Poly1305 ciphertext
-[ Poly1305 tag : 16 B ]
-```
-
-- **`origin` moves INSIDE the sealed region** (design §2 / frames.md DATA note already
-  commits to this): with `CRYPTED` the **sender is hidden** — only the destination that
-  decrypts learns it; relays/eavesdroppers see only the cleartext `dst` + `visited[]`.
-- **Nonce (decide):** XChaCha20 needs 24 B. **(a) derive** `nonce = truncate(BLAKE2b(
-  sender_key_hash32 ‖ dst ‖ ctr ‖ epoch), 24)` → **+0 B on air** (recommended; uniqueness
-  rests on `ctr` being per-(origin,dst) monotonic), or **(b) carry** 24 B.
-- **Tag vs the legacy 4 B MAC trailer (decide):** the 16 B Poly1305 tag is the integrity
-  for CRYPTED payloads; the existing 4 B frame MAC trailer is then redundant for CRYPTED
-  frames — fold it (tag only) or keep both. Recommend: tag is the inner trailer; the 4 B
-  MAC stays as the frame-level slot for non-CRYPTED frames.
-- **[RECONCILE — code-grounded 2026-06-05; what `origin`-encryption actually touches].**
-  Only **one** relay mechanism reads the inner `origin`: the cross-path **LOOP_DUP**
-  detector `sokey = (origin<<24)|(dst<<16)|ctr` (`node_mac_rx.cpp:311,352`). The others do
-  **not**:
-  - **Anti-spam — UNAFFECTED.** `track_originator_observation` / `compute_originator_metric`
-    key on the **immediate prev-hop** `_pending_rx->from` (`:267,271`), never on `origin`
-    (metal-correct — a relay can't see the true origin on LoRa). Zero change.
-  - **HOP_BUDGET / loop *safety* — UNAFFECTED.** `hops_remaining` is a cleartext header
-    field; decrement + drop-at-<0 (`:319-322`) bounds every loop. No infinite loops.
-  - **LOOP_DUP — LOST for CRYPTED.** The early cross-path dup→NACK→cascade-to-alt is
-    origin-keyed; a looping crypted DM then circulates until TTL kills it (airtime cost,
-    not a safety bug). **NB (premise to VERIFY):** `visited[6]` *appears* inert today
-    (grep-indicated — packed as 6 zero bytes `node_mac.cpp:547`, no forward-path reader
-    found), contradicting an earlier note. **Confirm by code audit before relying on it.**
-  - **`from`-fallback is UNSAFE — do not use it.** `origin = ui ? ui->origin : from`
-    (`:285`) plus a CRYPTED-unaware `parse_unicast_inner` would read ciphertext as `origin`;
-    forcing `from` makes `sokey` per-hop (LOOP_DUP dies) **and** can false-collide two
-    crypted flights sharing `(from,dst,ctr)` → a wrong re-ACK/drop (missed delivery).
-- **[PROPOSED — pending code verification + user ratification; belongs to the E2E/CRYPTED
-  slice, not identity/leaf/join] activate `visited[]` as the loop guard.** Restore cross-path
-  loop detection **origin-independently, +0 wire** (the 6 bytes are already spent): on forward,
-  NACK/drop if `_node_id ∈ visited[]`, else append `_node_id`. Uniform for crypted + plaintext;
-  would **supersede** the origin-keyed `sokey` LOOP_DUP. `last_acked` (`:302`, `from`-keyed)
-  still separates retry from loop; `hops_remaining` is the >6-hop backstop. *This changes
-  data-plane loop safety — do not implement until the `visited`-inert premise is confirmed
-  and the change is ratified.*
-- **[IF CRYPTED is built] required code changes (conditional on that slice):**
-  1. `parse_unicast_inner` becomes **CRYPTED-aware** — when payload-flags has `CRYPTED`,
-     return *origin-unknown* (do NOT read ciphertext byte 1 as `origin`).
-  2. Relay **skips** the `sokey` origin dedup for CRYPTED — **no `from` fallback**.
-  3. **Activate `visited[]`** (append-self + self-presence NACK) on the forward path.
-  4. dm_delivery / telemetry that key on `origin` must tolerate origin-unknown for CRYPTED.
-  Anti-spam and HOP_BUDGET need **no** change.
-- **e2e-ACK caveat:** the e2e-ACK routes back to `origin` (its `dst` = origin, cleartext),
-  so the sender↔dst pairing still leaks on the ACK — full metadata privacy would need the
-  ACK hidden too (out of scope here).
-
-## P3. H + hash-bind — return the full pubkey (for DM E2E key resolution)
-
-- **H query** byte 7 flags: `HARD` = b0 (exists). Add **`WANT_PUBKEY` = b1**. Pubkey
-  resolution MUST use a **HARD** query (authoritative owner key, design §5.5).
-- **Hash-bind answer** (a DATA inner, `H_ANSWER`): when answered to a `WANT_PUBKEY` query
-  by a node holding the pubkey, append `ed_pub`(32) and type it with a new payload-flag
-  **`PAYLOAD_FLAG_PUBKEY` = 0x10 (b4)**:
-
-  `[payload-flags(H_ANSWER | opt AUTHORITATIVE | PUBKEY)] target_layer(1) node_id(1) key_hash32(4 LE) ed_pub(32)` = **39 B** (unicast, on-demand — not on the beacon).
-
-## P4. Q — CONFIG_PULL subtype + config-transfer (join/config-sync)
-
-- New **`CONFIG_PULL`** Q subtype (alongside `REQ_SYNC` / `CHANNEL_PULL`): body
-  `lineage_id(4 LE) ‖ epoch(2 LE)` = "send me the config for this lineage/epoch."
-- **Config-transfer carrier** (was under-specified): a routed **DATA** to the puller, typed
-  by a new payload-flag **`PAYLOAD_FLAG_CONFIG` = 0x20 (b5)**, body:
-  `lineage_id(4) ‖ epoch(2) ‖ data_sf_list(len ‖ bytes) ‖ leaf_name(len ‖ utf8) ‖ duty_cycle(2)`.
-  Any node at that epoch can serve it (durable; survives the originator leaving).
-
-## P5. J — wire-version + DAD mapping (mostly already on the wire)
-
-- **Wire version (decide):** carry a `wire_version` so peers reject incompatible frames
-  (design §5.4 + the in-code TODO). **(a)** steal J byte-1 `rsv` (b3..0) as a 4-bit version
-  (16 values, **+0 B**), or **(b)** a full byte 2 (+1 B per opcode: 6/8/11/15 → 7/9/12/16).
-  Recommend (a) — wire-compat is coarse-grained.
-- **DISCOVER kept** (active solicit; the design defaults to passive beacon-listen but keeps
-  DISCOVER — **re-evaluate during simulations**).
-- **DAD reuses the EXISTING `CLAIM` / `DENY`** — no new fields:
-  - `CLAIM` already carries `key_hash32 + proposed_node_id + lease_age_seconds + claim_epoch + nonce`.
-  - `DENY` already carries the `OWN_ID_DEFENSE` reason (the objection).
-  - **Tiebreak — see the canonical rule in the design §5.3 step 4:** static, wire-carried
-    **`key_hash32`-only — lower `key_hash32` WINS/keeps, higher yields** (DECIDED 2026-06-06;
-    see the node-id spec §6). One rule for ALL heals — direct, mediated (shared-neighbour), and
-    delivery-driven (L2c) — so they can never pick different losers. `claim_epoch` is now
-    **vestigial**: it stays in `CLAIM`/`DENY` (and the NV blob) **reserved**, no longer bumped or
-    consulted. `lease_age_seconds` likewise informational. No new J fields.
-- **OFFER:** its `data_sf_bitmap` / id-assignment role is superseded by P4 (Q config pull)
-  + DAD self-assignment; retain the opcode, narrow its use (or drop — sim-evaluate).
-
-## P6. DATA — `dst_key_hash32`: the universal final-recipient field (cleartext)
-
-The single "who is this ultimately for" field — serves **same-layer verify-on-delivery + node_id
-collision recovery (L2c)**, **cross-layer/gateway addressing**, and **E2E key resolution** at once.
-
-- **Flag `PAYLOAD_FLAG_DST_HASH` = 0x40 (b6).** When set, the inner carries the recipient's 4-byte
-  `key_hash32` (the routing handle width), **placed right after the payload-flags byte and ALWAYS
-  CLEARTEXT** (outside any AEAD).
-- **Coexists with `CROSS_LAYER` (b0) as an extension, not a parallel encoding:** `DST_HASH` names the
-  *recipient*; `CROSS_LAYER` *adds* the layer-path (the gateway envelope's `layer_id` + hops). The
-  envelope **references this one `dst_key_hash32`** instead of duplicating it. So same-layer hash DM =
-  `DST_HASH`; cross-layer DM = `DST_HASH | CROSS_LAYER`.
-- **Inner layout** (general): `[payload-flags][dst_key_hash32 (4, if DST_HASH, cleartext)]
-  [cross-layer path (if CROSS_LAYER, cleartext)][origin (1; cleartext, or AEAD-sealed if CRYPTED)]
-  [body (sealed if CRYPTED)][Poly1305 tag (16, if CRYPTED)]`. `dst_key_hash32` stays cleartext even
-  under `CRYPTED` — it leaks no more than the already-cleartext `dst` node-id, and a misdelivered
-  CRYPTED DM's **AEAD-auth failure is a corroborating** collision signal.
-- **Use — L2c (verify-on-delivery + redirect):** the node the `dst` id routes to compares
-  `dst_key_hash32` to its own. **Match → deliver. Mismatch → an id collision misdelivered this DM:**
-  (1) forward to the real owner via a **HARD `H`** query on `dst_key_hash32` (the DM still arrives, no
-  loss; cache-on-pass refreshes the sender's stale binding); (2) trigger the heal — run the
-  `key_hash32`-only tiebreak (it holds both its own + `dst_key_hash32`): loser → `forced_rejoin`,
-  winner → route a hash-addressed `J_DENY` to `dst_key_hash32`. **Exactly one renumbers** → the id
-  becomes unique. **Loop guard:** ride `hops_remaining` + mark the DM redirected-once (no ping-pong).
-- **Presence policy — default-ON for app DMs.** The flag types presence, but the send path includes
-  it whenever the dst's hash is known: `send_by_hash` has it directly; `send`-by-id reverse-looks-up
-  the dst's hash in `id_bind`. Only a DM to a totally-unknown id omits it (L2c can't help that one).
-  Cost: **+4 B / DM** (~+10 ms at SF8 — DMs ≪ beacons).
-- **STATUS:** wire field LOCKED here; the L2c verify/redirect *logic* ships with the E2E / by-hash
-  slice (same HARD-`H` + by-hash machinery), gated on the residual-dup measurement (node-id spec §11).
-
-## Frequency / cost summary
-
-| Change | When | On-air cost |
-|---|---|---|
-| P1 leaf header | every beacon | **+10 B** (the only hot-path cost) |
-| P2 CRYPTED inner | opt-in DM | +16 B (derived nonce) … +40 B (carried) |
-| P3 pubkey answer | on-demand, unicast | +32 B on the answer only |
-| P4 config pull/transfer | join / config change | new subtype + ~20–40 B body |
-| P5 J wire-version | rare | +0 B (rsv bits) or +1 B/opcode |
-
-No genuinely new frame is required — DAD reuses J `CLAIM`/`DENY`.
+- **BCN — +10 B leaf header** `{lineage_id(4) · epoch(2) · config_hash(4)}`, written **before** the route entries (so it survives the 151-B page truncation): the same-`leaf_id`-but-divergent-config filter. See `docs/specs/2026-06-05-identity-leaf-membership-join-design.md` §3.
+- **DATA — `DST_HASH`** (described above): **shipped** — the cleartext recipient `key_hash32` + verify-on-delivery (a mismatch identity-preservingly forwards the DM to the real owner; no renumber, see the node-id design spec §7.1).
+- **DATA — `CRYPTED`** (described above): the wire flag/layout are locked; the AEAD seal/open (`origin`+body encryption) ships with the E2E / by-hash slice.
+- **H — pubkey resolution:** a `WANT_PUBKEY` query flag (b1) + a hash-bind answer that appends the 32-B `ed_pub` (typed `PUBKEY` payload-flag, b4), for DM E2E key resolution.
+- **Q — `CONFIG_PULL`** subtype: pull a leaf's full config (`data_sf_list`/`leaf_name`/`duty_cycle`) for a `{lineage, epoch}`, returned as a routed DATA typed `CONFIG` payload-flag (b5).
+- **J — `wire_version`** in byte 1's reserved nibble: a coarse wire-compat check at join.

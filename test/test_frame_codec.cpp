@@ -1039,3 +1039,36 @@ TEST_CASE("DATA — default hops_remaining is 31 (no TTL enforcement, Lua 'or 31
     CHECK(o.has_value());
     if (o) { CHECK(o->hops_remaining == 31); CHECK(o->committed_hops == 0); }
 }
+
+TEST_CASE("DATA unicast inner — DST_HASH round-trip + plain + reject other shapes/truncations") {
+    // plain inner: [payload-flags=0][origin][body]
+    { const uint8_t in[] = { 0x00, 7, 'h', 'i' };
+      auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in));
+      CHECK(u.has_value());
+      if (u) { CHECK_FALSE(u->has_dst_hash); CHECK(u->origin == 7);
+               CHECK(u->body.size() == 2); CHECK(u->body[0] == 'h'); CHECK(u->body[1] == 'i'); } }
+    // DST_HASH inner: [0x40][dst_key_hash32 LE = 0x12345678][origin][body]
+    { const uint8_t in[] = { PAYLOAD_FLAG_DST_HASH, 0x78, 0x56, 0x34, 0x12, 9, 'o', 'k' };
+      auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in));
+      CHECK(u.has_value());
+      if (u) { CHECK(u->has_dst_hash); CHECK(u->dst_key_hash32 == 0x12345678u); CHECK(u->origin == 9);
+               CHECK(u->body.size() == 2); CHECK(u->body[0] == 'o'); CHECK(u->body[1] == 'k'); } }
+    // DST_HASH with an EMPTY body is valid (origin present, zero-length body)
+    { const uint8_t in[] = { PAYLOAD_FLAG_DST_HASH, 1, 2, 3, 4, 9 };
+      auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in));
+      CHECK(u.has_value());
+      if (u) { CHECK(u->has_dst_hash); CHECK(u->origin == 9); CHECK(u->body.size() == 0); } }
+    // reject: other inner shapes (caller dispatches them elsewhere) + truncations
+    { const uint8_t hans[] = { PAYLOAD_FLAG_H_ANSWER, 1, 2, 3, 4, 5, 6 };      // H_ANSWER
+      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(hans, sizeof hans)).has_value()); }
+    { const uint8_t cry[] = { PAYLOAD_FLAG_CRYPTED, 1, 'x' };                  // CRYPTED
+      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(cry, sizeof cry)).has_value()); }
+    { const uint8_t xl[] = { PAYLOAD_FLAG_CROSS_LAYER, 1, 'x' };               // CROSS_LAYER
+      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(xl, sizeof xl)).has_value()); }
+    { const uint8_t shorthash[] = { PAYLOAD_FLAG_DST_HASH, 1, 2, 3 };          // DST_HASH, hash truncated
+      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(shorthash, sizeof shorthash)).has_value()); }
+    { const uint8_t noorigin[] = { PAYLOAD_FLAG_DST_HASH, 1, 2, 3, 4 };        // hash but no origin byte
+      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(noorigin, sizeof noorigin)).has_value()); }
+    { const uint8_t* e = nullptr;
+      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(e, size_t(0))).has_value()); }   // empty
+}

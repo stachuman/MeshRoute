@@ -321,11 +321,13 @@ enum DataFlag : uint8_t {            // Lua flag VALUES (packed into byte1 high 
 // Payload-flags byte = the UNIVERSAL first byte of a normal DATA inner (it reuses the always-zero
 // src_addr_len slot — +0 wire). Locked positions (frames.md): CROSS_LAYER b0 (hierarchical addressing,
 // deferred — the address length follows), H_ANSWER b1 (the inner is a hash-bind answer), AUTHORITATIVE
-// b2 (the answer is the owner's, not cached), CRYPTED b3 (inner body encrypted, deferred). b4..b7 reserved.
+// b2 (the answer is the owner's, not cached), CRYPTED b3 (inner body encrypted, deferred), DST_HASH b6
+// (the inner carries the recipient's key_hash32, cleartext — L2c verify-on-delivery). b4/b5/b7 reserved.
 // channel-M is the legacy exception — typed by the DATA-header DATA_FLAG_PAYLOAD_TYPE_M, no payload-flags byte.
 enum PayloadFlag : uint8_t {
     PAYLOAD_FLAG_CROSS_LAYER   = 0x01, PAYLOAD_FLAG_H_ANSWER = 0x02,
     PAYLOAD_FLAG_AUTHORITATIVE = 0x04, PAYLOAD_FLAG_CRYPTED  = 0x08,
+    PAYLOAD_FLAG_DST_HASH      = 0x40,
 };
 
 struct data_in {
@@ -360,7 +362,9 @@ std::span<const uint8_t> data_inner  (std::span<const uint8_t> frame, const data
 std::span<const uint8_t> data_mac    (std::span<const uint8_t> frame, const data_out& d);  // 4 B
 
 // OPTIONAL inner helpers (behaviour layer; dispatched by data_out.payload_type_m):
-struct data_unicast_inner { uint8_t origin; std::span<const uint8_t> body; };       // NORMAL unicast inner: [payload-flags=0][origin][body]
+// NORMAL unicast inner: [payload-flags][dst_key_hash32 (4 B LE, iff DST_HASH)][origin][body].
+struct data_unicast_inner { uint8_t origin; std::span<const uint8_t> body;
+                            bool has_dst_hash = false; uint32_t dst_key_hash32 = 0; };
 std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> inner);
 struct data_m_inner { uint32_t channel_msg_id; uint8_t channel_id; uint8_t flavor;  // channel_msg_id BIG-endian
                       std::span<const uint8_t> body; };

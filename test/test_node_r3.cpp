@@ -165,6 +165,37 @@ static size_t mk_data_e2e(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origi
     in.mac = std::span<const uint8_t>(mac, 4);
     return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
 }
+// DATA carrying a DST_HASH inner ([0x40][dst_key_hash32 LE 4B][origin][body]) — L2c verify-on-delivery.
+static size_t mk_data_dsthash(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origin,
+                              uint32_t dst_hash, const char* body, std::array<uint8_t, 64>& b) {
+    std::array<uint8_t, 40> inner{};
+    inner[0] = PAYLOAD_FLAG_DST_HASH;
+    inner[1] = static_cast<uint8_t>(dst_hash);        inner[2] = static_cast<uint8_t>(dst_hash >> 8);
+    inner[3] = static_cast<uint8_t>(dst_hash >> 16);  inner[4] = static_cast<uint8_t>(dst_hash >> 24);
+    inner[5] = origin;
+    uint8_t bl = 0; while (body[bl]) { inner[6 + bl] = static_cast<uint8_t>(body[bl]); ++bl; }
+    const uint8_t mac[4] = { 0, 0, 0, 0 };
+    data_in in{}; in.addr_len = 0; in.flags = 0; in.next = next; in.dst = dst;
+    in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
+    in.visited = {}; in.inner = std::span<const uint8_t>(inner.data(), 6 + bl);
+    in.mac = std::span<const uint8_t>(mac, 4);
+    return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
+}
+// DATA carrying an H_ANSWER (hash-bind) inner: resolves hb_key -> hb_node (authoritative=owner). Routed to
+// `dst`; do_post_ack consumes it via on_hash_bind_response (drains a parked redirect/send for hb_key).
+static size_t mk_data_hashbind(uint8_t next, uint8_t dst, uint16_t ctr,
+                               uint8_t hb_node, uint32_t hb_key, bool authoritative,
+                               std::array<uint8_t, 64>& b) {
+    std::array<uint8_t, 16> inner{};
+    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = hb_node; hb.key_hash32 = hb_key; hb.authoritative = authoritative;
+    const size_t il = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
+    const uint8_t mac[4] = { 0, 0, 0, 0 };
+    data_in in{}; in.addr_len = 0; in.flags = 0; in.next = next; in.dst = dst;
+    in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
+    in.visited = {}; in.inner = std::span<const uint8_t>(inner.data(), il);
+    in.mac = std::span<const uint8_t>(mac, 4);
+    return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
+}
 // Minimal beacon FROM `src` (one throwaway entry) — installs a DIRECT hops=1
 // route to `src` on the receiver, so a send to `src` has a usable next hop.
 static size_t mk_beacon(uint8_t src, std::array<uint8_t, 64>& b) {
@@ -1783,4 +1814,192 @@ TEST_CASE("E2E ACK — origin of an E2E_IS_ACK DATA confirms (no app delivery)")
     CHECK(ack != nullptr);
     if (ack) { CHECK(ack->from == 2); CHECK(ack->ctr == 5); }  // confirmed the DM we originated (ctr=5)
     CHECK(hal.count("delivered") == 0);                      // an E2E ack is NOT delivered as a message
+}
+
+// ===================== L2c — DST_HASH verify-on-delivery + identity-preserving redirect =====================
+// A DM addressed to our node_id but carrying a cleartext DST_HASH naming a DIFFERENT key was misdelivered
+// by an id collision: do NOT deliver; FORWARD it (origin + ctr + flags + inner preserved — NOT re-sent) to
+// the real owner of want_hash if resolvable, else flood a HARD H to learn it and drop. No renumber (§7.1).
+
+TEST_CASE("L2c — DST_HASH matching our key delivers normally") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    node.on_init(cfg);
+    RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+    std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(1, 2, 2, 5, 15, rb);
+    hal._now = 1000; node.on_recv(rb.data(), rn, meta);
+    std::array<uint8_t, 64> db{};
+    const size_t dn = mk_data_dsthash(2, 2, 0x0005, /*origin=*/1, /*dst_hash=*/0xABCD, "hi", db);
+    CHECK(dn > 0);
+    hal._now = 2000; node.on_recv(db.data(), dn, meta);
+    node.on_timer(kPostAckTimerId);
+    const Ev* dlv = hal.last("delivered");
+    CHECK(dlv != nullptr);
+    if (dlv) { CHECK(dlv->has_payload); CHECK(dlv->payload == "hi"); }   // body parsed past the 4-B hash prefix
+    CHECK(hal.count("l2c_misdelivery") == 0);
+}
+
+TEST_CASE("L2c — DST_HASH mismatch, owner UNKNOWN: HARD H query, drop, no deliver, no renumber") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    node.on_init(cfg);
+    node.restore_join_state(/*epoch=*/0, /*joined=*/true);       // would-be heal target; proves L2c does NOT renumber
+    RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+    std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(1, 2, 2, 5, 15, rb);
+    hal._now = 1000; node.on_recv(rb.data(), rn, meta);
+    std::array<uint8_t, 64> db{};
+    const size_t dn = mk_data_dsthash(2, 2, 0x0005, 1, /*dst_hash=*/0xFFFFFFFFu, "hi", db);   // unknown owner
+    hal._now = 2000; node.on_recv(db.data(), dn, meta);
+    node.on_timer(kPostAckTimerId);
+    CHECK(hal.count("delivered") == 0);                          // NOT delivered locally
+    CHECK(hal.count("l2c_misdelivery") == 1);
+    CHECK(hal.count("l2c_redirect_query") == 1);                 // HARD H flood to learn the owner
+    CHECK(hal.count("h_tx") == 1);
+    CHECK(hal.count("l2c_redirect_forward") == 0);               // nothing to forward to (unknown)
+    CHECK(hal.count("addr_conflict_forced_rejoin") == 0);        // §7.1: L2c never renumbers
+    CHECK(hal.count("join_deny_sent") == 0);
+}
+
+TEST_CASE("L2c — DST_HASH mismatch, owner KNOWN: FORWARD preserves origin + ctr (identity not corrupted)") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    node.on_init(cfg);
+    // A beacon from owner(3) binds 3 -> key_hash32 0x1234 (id_bind) AND installs a direct route to 3.
+    std::array<uint8_t, 64> bb{}; const size_t bn = mk_beacon(/*src=*/3, bb);
+    RxMeta b3{ 8.0f, -80.0f, 0, static_cast<int8_t>(3) };
+    hal._now = 500; node.on_recv(bb.data(), bn, b3);
+    // A misdelivered DM (origin=1, ctr=0x0005) addressed to our id(2) but wanting key 0x1234 (owner 3).
+    RxMeta from1{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+    std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(1, 2, 2, 5, 15, rb);
+    hal._now = 1000; node.on_recv(rb.data(), rn, from1);
+    std::array<uint8_t, 64> db{};
+    const size_t dn = mk_data_dsthash(2, 2, /*ctr=*/0x0005, /*origin=*/1, /*dst_hash=*/0x1234, "hi", db);
+    hal._now = 2000; node.on_recv(db.data(), dn, from1);
+    node.on_timer(kPostAckTimerId);
+    CHECK(hal.count("delivered") == 0);                          // not for us
+    CHECK(hal.count("l2c_misdelivery") == 1);
+    const Ev* rf = hal.last("l2c_redirect_forward");
+    CHECK(rf != nullptr);
+    if (rf) { CHECK(rf->to == 3); CHECK(rf->ctr == 5); }         // forwarded toward owner 3, ORIGINAL ctr
+    // Drive the forward leg (RTS->CTS->DATA) and prove the emitted DATA keeps origin=1 + ctr=5 (not re-sent).
+    const Ev* rts = hal.last("rts_tx");
+    CHECK(rts != nullptr);
+    if (rts) CHECK(rts->next == 3);
+    std::array<uint8_t, 8> cb{}; const size_t cn = mk_cts(/*rx_id=*/2, /*tx_id=*/3, /*data_sf=*/12, cb);
+    hal._now = 2100; node.on_recv(cb.data(), cn, b3);
+    node.on_timer(kCtsToDataGapTimerId);
+    CHECK(hal.count("data_tx") == 1);
+    const TxFrame* dataf = nullptr;
+    for (const auto& f : hal.tx_frames) if (!f.bytes.empty() && (f.bytes[0] >> 4) == 0x3) dataf = &f;
+    CHECK(dataf != nullptr);
+    if (dataf) {
+        auto d = parse_data(std::span<const uint8_t>(dataf->bytes.data(), dataf->bytes.size()));
+        CHECK(d.has_value());
+        if (d) {
+            CHECK(d->ctr == 0x0005);                             // ORIGINAL ctr preserved (no new send_by_hash ctr)
+            CHECK(d->dst == 3);                                  // re-targeted to the real owner
+            auto inner = data_inner(std::span<const uint8_t>(dataf->bytes.data(), dataf->bytes.size()), *d);
+            auto ui = parse_unicast_inner(inner);
+            CHECK(ui.has_value());
+            if (ui) { CHECK(ui->origin == 1);                    // ORIGINAL sender preserved (NOT the redirector id 2)
+                      CHECK(ui->has_dst_hash); CHECK(ui->dst_key_hash32 == 0x1234u); }
+        }
+    }
+}
+
+TEST_CASE("L2c — repeated misdeliveries for one hash collapse to ONE redirect action (anti-flood)") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    node.on_init(cfg);
+    RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+    for (uint8_t k = 0; k < 2; ++k) {                            // two misdeliveries, same want_hash, distinct ctr_lo
+        const uint8_t ctr = static_cast<uint8_t>(5 + k);
+        std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(1, 2, 2, ctr, 15, rb);
+        hal._now = 1000 + 1000 * k; node.on_recv(rb.data(), rn, meta);
+        std::array<uint8_t, 64> db{};
+        const size_t dn = mk_data_dsthash(2, 2, ctr, 1, /*dst_hash=*/0xFFFFFFFFu, "hi", db);
+        hal._now = 1500 + 1000 * k; node.on_recv(db.data(), dn, meta);
+        node.on_timer(kPostAckTimerId);
+    }
+    CHECK(hal.count("delivered") == 0);
+    CHECK(hal.count("l2c_misdelivery") == 2);                    // BOTH observed (telemetry every time)
+    CHECK(hal.count("l2c_redirect_query") == 1);                 // but only ONE redirect action -> no flood storm
+    CHECK(hal.count("h_tx") == 1);
+}
+
+// --- confirmation-gated heal: the HARD-H resolution decides forward (stale binding) vs heal (real collision) ---
+
+TEST_CASE("L2c — parked redirect resolves to a DIFFERENT id: forward, NEVER renumber (stale binding)") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; node.on_init(cfg);
+    node.restore_join_state(/*epoch=*/0, /*joined=*/true);       // joined: a heal WOULD renumber — it must not
+    // Route to 7 via neighbour 4 (this beacon does NOT bind 0x1234), so a later forward to 7 can issue.
+    std::array<uint8_t, 64> rbe{}; const size_t rben = mk_beacon_route(/*src=*/4, /*dest=*/7, /*next=*/4, /*hops=*/2, /*score=*/10, rbe);
+    RxMeta m4{ 8.0f, -80.0f, 0, static_cast<int8_t>(4) }; hal._now = 500; node.on_recv(rbe.data(), rben, m4);
+    // Misdeliver a DM wanting key 0x1234 (unknown) -> park + HARD-H.
+    RxMeta from1{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+    std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(1, 2, 2, 5, 15, rb);
+    hal._now = 1000; node.on_recv(rb.data(), rn, from1);
+    std::array<uint8_t, 64> db{}; const size_t dn = mk_data_dsthash(2, 2, 0x0005, /*origin=*/1, /*dst_hash=*/0x1234, "hi", db);
+    hal._now = 2000; node.on_recv(db.data(), dn, from1);
+    node.on_timer(kPostAckTimerId);
+    CHECK(hal.count("l2c_redirect_parked") == 1);
+    CHECK(hal.count("l2c_redirect_forward") == 0);               // nothing forwarded yet (parked, awaiting resolution)
+    // HARD-H answer: 0x1234 is at id 7 (the recipient MOVED; not our id) -> forward, no collision.
+    std::array<uint8_t, 16> rb2{}; const size_t rn2 = mk_rts(4, 2, 2, 6, 7, rb2);
+    hal._now = 3000; node.on_recv(rb2.data(), rn2, m4);
+    std::array<uint8_t, 64> ab{}; const size_t an = mk_data_hashbind(2, 2, 0x0006, /*hb_node=*/7, /*hb_key=*/0x1234, true, ab);
+    hal._now = 3100; node.on_recv(ab.data(), an, m4);
+    node.on_timer(kPostAckTimerId);
+    CHECK(hal.count("l2c_redirect_forward") == 1);               // forwarded to the moved recipient
+    const Ev* rf = hal.last("l2c_redirect_forward");
+    if (rf) { CHECK(rf->to == 7); CHECK(rf->ctr == 5); }         // ORIGINAL ctr preserved
+    CHECK(hal.count("l2c_collision_confirmed") == 0);            // NOT a same-id collision
+    CHECK(hal.count("addr_conflict_forced_rejoin") == 0);        // joined, but NEVER renumbered (no spurious churn)
+}
+
+TEST_CASE("L2c — parked redirect resolves to OUR id: CONFIRMED collision, we WIN -> DENY (no renumber)") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0x0000ABCDu);  // LOW key -> we keep + DENY
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; node.on_init(cfg);
+    RxMeta from1{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+    std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(1, 2, 2, 5, 15, rb);
+    hal._now = 1000; node.on_recv(rb.data(), rn, from1);
+    std::array<uint8_t, 64> db{}; const size_t dn = mk_data_dsthash(2, 2, 0x0005, 1, /*want=*/0xFFFF0000u, "hi", db);
+    hal._now = 2000; node.on_recv(db.data(), dn, from1);
+    node.on_timer(kPostAckTimerId);
+    CHECK(hal.count("l2c_redirect_parked") == 1);
+    // HARD-H answer: 0xFFFF0000 is at id 2 (OUR id) -> proven same-id collision.
+    RxMeta m4{ 8.0f, -80.0f, 0, static_cast<int8_t>(4) };
+    std::array<uint8_t, 16> rb2{}; const size_t rn2 = mk_rts(4, 2, 2, 6, 7, rb2);
+    hal._now = 3000; node.on_recv(rb2.data(), rn2, m4);
+    std::array<uint8_t, 64> ab{}; const size_t an = mk_data_hashbind(2, 2, 0x0006, /*hb_node=*/2, /*hb_key=*/0xFFFF0000u, true, ab);
+    hal._now = 3100; node.on_recv(ab.data(), an, m4);
+    node.on_timer(kPostAckTimerId);
+    CHECK(hal.count("addr_conflict_self_defended") == 1);        // the answer did NOT clobber our self-binding
+    CHECK(hal.count("l2c_collision_confirmed") == 1);
+    CHECK(hal.count("join_deny_sent") == 1);                     // we keep -> DENY the squatter
+    if (const Ev* d = hal.last("join_deny_sent")) CHECK(d->reason == 4);   // MEDIATED
+    CHECK(hal.count("addr_conflict_forced_rejoin") == 0);
+}
+
+TEST_CASE("L2c — parked redirect resolves to OUR id, we LOSE (joined): forced_rejoin (yield the id)") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xFFFFFFFFu);  // HIGH key -> we yield
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; node.on_init(cfg);
+    node.restore_join_state(/*epoch=*/0, /*joined=*/true);       // forced_rejoin only fires when DAD-joined
+    RxMeta from1{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+    std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(1, 2, 2, 5, 15, rb);
+    hal._now = 1000; node.on_recv(rb.data(), rn, from1);
+    std::array<uint8_t, 64> db{}; const size_t dn = mk_data_dsthash(2, 2, 0x0005, 1, /*want=*/0x00000001u, "hi", db);
+    hal._now = 2000; node.on_recv(db.data(), dn, from1);
+    node.on_timer(kPostAckTimerId);
+    CHECK(hal.count("l2c_redirect_parked") == 1);
+    RxMeta m4{ 8.0f, -80.0f, 0, static_cast<int8_t>(4) };
+    std::array<uint8_t, 16> rb2{}; const size_t rn2 = mk_rts(4, 2, 2, 6, 7, rb2);
+    hal._now = 3000; node.on_recv(rb2.data(), rn2, m4);
+    std::array<uint8_t, 64> ab{}; const size_t an = mk_data_hashbind(2, 2, 0x0006, /*hb_node=*/2, /*hb_key=*/0x00000001u, true, ab);
+    hal._now = 3100; node.on_recv(ab.data(), an, m4);
+    node.on_timer(kPostAckTimerId);
+    CHECK(hal.count("l2c_collision_confirmed") == 1);
+    CHECK(hal.count("addr_conflict_forced_rejoin") == 1);        // we are the squatter -> yield our id
+    CHECK(hal.count("join_deny_sent") == 0);
 }

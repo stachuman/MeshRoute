@@ -243,6 +243,7 @@ public:
     // ---- id_bind (hash-locate substrate) inspection: tests + the H resolver drive these.
     uint16_t          id_bind_count() const { return _id_bind_n; }
     bool              joined()        const { return _joined; }        // DAD: adopted a node_id (test/app accessor)
+    bool              key_hash_of_id(uint8_t id, uint32_t& out) const;  // id_bind reverse lookup (authoritative-preferred); false = unknown (DST_HASH omitted). Public for the send-path test.
     uint8_t           claim_epoch()   const { return _claim_epoch; }
     void              restore_join_state(uint8_t claim_epoch, bool joined) { _claim_epoch = claim_epoch; _joined = joined; }  // boot: reload persisted DAD state (NV)
     // §6 DAD tiebreak (pure): higher claim_epoch wins; tie -> lower key_hash32 wins. Public for the convergence test.
@@ -334,6 +335,18 @@ private:
     void    drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id);   // a binding arrived -> fly the parked DMs to it
     void    drain_resolved_parked_sends();                       // beacon-tick re-drain: any parked hash now authoritatively bound
     void    age_out_parked_sends();                              // give up on parked sends past send_defer_ttl_ms
+    // L2c verify-on-delivery: a DM whose DST_HASH != our key was misdelivered by an id collision —
+    // FORWARD it (identity-preserving, not re-originated) toward the real owner of want_hash. The HEAL
+    // (renumber) is confirmation-gated: deferred to the HARD-H resolution, fired only when want_hash resolves
+    // back to OUR own id (a proven same-id collision) — see design §7.1.
+    void    l2c_handle_misdelivery(const PostAck& pa, uint32_t want_hash);
+    void    l2c_park_redirect(uint32_t want_hash, const PostAck& pa);                 // hold a misdelivered DM for forward-on-resolution
+    void    l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint8_t ctr_lo, uint8_t flags,
+                                uint8_t prev_hop, uint8_t fwd_remaining, uint8_t fwd_committed,
+                                const uint8_t* inner, uint8_t inner_len);             // a fresh routing leg, identity preserved
+    void    l2c_confirmed_collision(uint32_t want_hash);                              // HARD-H resolved want_hash->our id => key-only heal
+    bool    l2c_redirected_recently(uint32_t want_hash);         // one redirect action per hash per window (anti-flood)
+    void    l2c_mark_redirected(uint32_t want_hash);
     // node_id auto-assignment (DAD + heal) — node_join.cpp.
     int     join_choose_candidate_id();                          // prefer previous id, else a random free slot (-1 = leaf full)
     bool    join_start_claim(const char* reason);                // pick a candidate, bump epoch, broadcast J_CLAIM, arm the guard
@@ -426,7 +439,7 @@ private:
 
     // ---- R3 data plane (MAC: RTS-CTS-DATA-ACK) -----------------------------
     uint16_t do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags);  // returns the ctr
-    uint16_t enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, const char* tx_event);
+    uint16_t enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, const char* tx_event, bool app_dm = false);
     void     send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr);          // E2E ACK reply (E2E_IS_ACK; e2e_ack_tx)
     void     enqueue_push(const Push& p);                                  // append to the bounded ring
     void     become_free();                                       // dv_dual_sf.lua:7433 (FIFO single-drain)
@@ -559,10 +572,20 @@ private:
     HashQuerySeen _hash_query_seen[protocol::cap_hash_query_seen] = {};
     uint8_t       _hash_query_seen_n = 0;
     // send-by-hash DMs parked awaiting a hash-bind resolution (D); drained by on_hash_bind_response, aged on the timer.
+    // is_redirect=true => an L2c misdelivered DM held for FORWARD (not re-send): `body`=the full inner (incl.
+    // DST_HASH), and origin/ctr/ctr_lo/previous_hop/fwd_* are preserved so the resolution forwards it
+    // identity-intact. resolved_id==our id at drain = a CONFIRMED collision (the heal trigger, design §7.1).
     struct ParkedSend { uint32_t key_hash32; uint64_t parked_at_ms; uint8_t flags; uint8_t body_len;
+                        bool is_redirect = false; uint8_t origin = 0; uint16_t ctr = 0; uint8_t ctr_lo = 0;
+                        uint8_t previous_hop = 0; uint8_t fwd_remaining = 0; uint8_t fwd_committed = 0;
                         uint8_t body[protocol::max_payload_bytes_hard_cap]; };
     ParkedSend _parked_sends[protocol::cap_parked_sends] = {};
     uint8_t    _parked_sends_n = 0;
+    // L2c redirect-suppression ring: a misdelivered DM we've already redirected for this hash recently,
+    // so a still-poisoned binding (collision unhealed) can't re-trigger an endless redirect→deliver→redirect.
+    struct L2cRedirect { uint32_t key_hash32; uint64_t t_ms; };
+    L2cRedirect _l2c_redirect[protocol::cap_l2c_redirect] = {};
+    uint8_t     _l2c_redirect_n = 0;
     // node_id auto-assignment (DAD + heal) — node_join.cpp; design 2026-06-05-node-id-auto-assignment-design.md.
     bool     _joined = false;                                    // adopted a node_id via DAD (vs cfg/NV-provisioned)
     bool     _join_listen_pending = false;                       // a join was requested; listening before the first claim (L1)

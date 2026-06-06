@@ -54,6 +54,19 @@ bool Node::id_bind_set(uint8_t node_id, uint32_t key_hash32, IdBindSource source
     for (uint16_t i = 0; i < _id_bind_n; ++i) {                  // existing entry for this node_id?
         if (_id_bind[i].node_id != node_id) continue;
         if (_id_bind[i].key_hash32 != key_hash32) {              // CONFLICT: a different hash claims this id
+            if (node_id == _node_id && _id_bind[i].key_hash32 == _key_hash32) {
+                // Our OWN self-binding is the root of trust — NEVER let any source (even an authoritative
+                // H answer resolving a colliding hash back to our id, as the L2c redirect can trigger)
+                // overwrite our id->our-key mapping. A foreign key on our id is a collision to DEFEND, not
+                // to absorb (the beacon/join defense + L2c handle that); absorbing it would corrupt every
+                // hash-locate answer we give for ourselves.
+                MR_TELEMETRY(
+                    EventField f[] = { { .key = "node",                .type = EventField::T::i64, .i = node_id },
+                                       { .key = "observed_key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) },
+                                       { .key = "source",              .type = EventField::T::str, .s = id_bind_source_str(source) } };
+                    _hal.emit("addr_conflict_self_defended", f, 3); );
+                return false;
+            }
             if (!authoritative) {                               // claimed -> refuse, keep the known binding
                 MR_TELEMETRY(
                     EventField f[] = { { .key = "node",                .type = EventField::T::i64, .i = node_id },
@@ -134,6 +147,25 @@ int Node::id_bind_find_by_hash(uint32_t key_hash32, IdBindConf* conf_out) {
         return _id_bind[i].node_id;
     }
     return -1;
+}
+
+// Reverse lookup: a node_id -> its stable key_hash32 (the inverse of id_bind_find_by_hash). Used by the
+// send path to stamp DST_HASH (L2c verify-on-delivery) on an app DM. Prefers an AUTHORITATIVE binding;
+// falls back to any non-expired claimed one. Returns false (DST_HASH omitted) when the id is unknown.
+bool Node::key_hash_of_id(uint8_t id, uint32_t& out) const {
+    const uint64_t now = _hal.now();
+    int best = -1; bool best_auth = false;
+    for (uint16_t i = 0; i < _id_bind_n; ++i) {
+        if (_id_bind[i].node_id != id) continue;
+        const bool self_keep = (_id_bind[i].node_id == _node_id && _id_bind[i].key_hash32 == _key_hash32);
+        if (!self_keep && _cfg.id_bind_ttl_ms > 0
+            && (now - _id_bind[i].last_seen_ms) >= _cfg.id_bind_ttl_ms) continue;     // expired
+        const bool auth = _id_bind[i].confidence == static_cast<uint8_t>(IdBindConf::authoritative);
+        if (best < 0 || (auth && !best_auth)) { best = i; best_auth = auth; if (auth) break; }
+    }
+    if (best < 0) return false;
+    out = _id_bind[best].key_hash32;
+    return true;
 }
 
 // Drop expired bindings (TTL on last_seen_ms; Lua id_bind_age_one dv:4753). The self-binding is exempt.
@@ -372,18 +404,51 @@ void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len,
         _hal.emit("send_parked_for_hash", f, 1); );
 }
 
+// L2c: hold a misdelivered DM awaiting the HARD-H resolution. Unlike park_send (a fresh origination), this
+// stores the FULL inner (incl. DST_HASH) + the original origin/ctr/flags so drain FORWARDS it identity-intact.
+void Node::l2c_park_redirect(uint32_t want_hash, const PostAck& pa) {
+    if (_parked_sends_n >= protocol::cap_parked_sends) return;   // full -> drop (the sender retries)
+    ParkedSend& p = _parked_sends[_parked_sends_n++];
+    p.key_hash32 = want_hash; p.flags = pa.flags; p.parked_at_ms = _hal.now();
+    p.is_redirect = true; p.origin = pa.origin; p.ctr = pa.ctr; p.ctr_lo = pa.ctr_lo;
+    p.previous_hop = pa.previous_hop; p.fwd_remaining = pa.fwd_remaining; p.fwd_committed = pa.fwd_committed;
+    p.body_len = (pa.inner_len > protocol::max_payload_bytes_hard_cap) ? protocol::max_payload_bytes_hard_cap : pa.inner_len;
+    for (uint8_t i = 0; i < p.body_len; ++i) p.body[i] = pa.inner[i];   // body[] holds the full inner for a redirect
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(want_hash) },
+                           { .key = "origin",     .type = EventField::T::i64, .i = pa.origin },
+                           { .key = "ctr",        .type = EventField::T::i64, .i = pa.ctr } };
+        _hal.emit("l2c_redirect_parked", f, 3); );
+}
+
 // A binding for key_hash32 just resolved -> fly every parked DM for it to resolved_id (the verify-on-use redirect:
-// the id comes from the hash-bind ANSWER, so a stale soft binding is corrected here).
+// the id comes from the hash-bind ANSWER, so a stale soft binding is corrected here). A redirect (L2c) entry is
+// FORWARDED identity-intact; resolved_id == OUR id means the want_hash owner holds our id => a CONFIRMED
+// collision: heal (key-only) instead of forwarding-to-self (which would loop). A plain send-by-hash re-sends.
 void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id) {
     uint8_t w = 0;
     for (uint8_t r = 0; r < _parked_sends_n; ++r) {
         const ParkedSend p = _parked_sends[r];
         if (p.key_hash32 == key_hash32) {
-            MR_TELEMETRY(
-                EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) },
-                                   { .key = "node",       .type = EventField::T::i64, .i = resolved_id } };
-                _hal.emit("send_hash_resolved", f, 2); );
-            do_send(resolved_id, p.body, p.body_len, p.flags);   // load-bearing (OUTSIDE the wrap): fly the held DM
+            if (p.is_redirect) {
+                if (resolved_id == _node_id) {
+                    l2c_confirmed_collision(key_hash32);                 // proven same-id collision -> heal (NOT forward-to-self)
+                } else {
+                    MR_TELEMETRY(
+                        EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = resolved_id },
+                                           { .key = "origin", .type = EventField::T::i64, .i = p.origin },
+                                           { .key = "ctr",    .type = EventField::T::i64, .i = p.ctr } };
+                        _hal.emit("l2c_redirect_forward", f, 3); );      // recipient moved (stale binding) -> forward, no heal
+                    l2c_enqueue_forward(resolved_id, p.origin, p.ctr, p.ctr_lo, p.flags,
+                                        p.previous_hop, p.fwd_remaining, p.fwd_committed, p.body, p.body_len);
+                }
+            } else {
+                MR_TELEMETRY(
+                    EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) },
+                                       { .key = "node",       .type = EventField::T::i64, .i = resolved_id } };
+                    _hal.emit("send_hash_resolved", f, 2); );
+                do_send(resolved_id, p.body, p.body_len, p.flags);   // load-bearing (OUTSIDE the wrap): fly the held DM
+            }
             continue;                                            // drop the parked entry
         }
         _parked_sends[w++] = p;
@@ -403,12 +468,22 @@ void Node::drain_resolved_parked_sends() {
         const ParkedSend p = _parked_sends[r];
         IdBindConf conf = IdBindConf::claimed;
         const int id = id_bind_find_by_hash(p.key_hash32, &conf);
-        if (id >= 0 && conf == IdBindConf::authoritative) {
-            MR_TELEMETRY(
-                EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(p.key_hash32) },
-                                   { .key = "node",       .type = EventField::T::i64, .i = id } };
-                _hal.emit("send_hash_resolved", f, 2); );
-            do_send(static_cast<uint8_t>(id), p.body, p.body_len, p.flags);   // load-bearing (OUTSIDE the wrap)
+        if (id >= 0 && conf == IdBindConf::authoritative && static_cast<uint8_t>(id) != _node_id) {
+            if (p.is_redirect) {
+                MR_TELEMETRY(
+                    EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = id },
+                                       { .key = "origin", .type = EventField::T::i64, .i = p.origin },
+                                       { .key = "ctr",    .type = EventField::T::i64, .i = p.ctr } };
+                    _hal.emit("l2c_redirect_forward", f, 3); );
+                l2c_enqueue_forward(static_cast<uint8_t>(id), p.origin, p.ctr, p.ctr_lo, p.flags,
+                                    p.previous_hop, p.fwd_remaining, p.fwd_committed, p.body, p.body_len);
+            } else {
+                MR_TELEMETRY(
+                    EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(p.key_hash32) },
+                                       { .key = "node",       .type = EventField::T::i64, .i = id } };
+                    _hal.emit("send_hash_resolved", f, 2); );
+                do_send(static_cast<uint8_t>(id), p.body, p.body_len, p.flags);   // load-bearing (OUTSIDE the wrap)
+            }
             continue;                                            // drop the parked entry
         }
         _parked_sends[w++] = p;

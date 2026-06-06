@@ -629,11 +629,23 @@ std::span<const uint8_t> data_mac(std::span<const uint8_t> frame, const data_out
 }
 
 std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> inner) {
-    if (inner.size() < 2) return std::nullopt;                    // payload-flags + origin
-    if (inner[0] != 0) return std::nullopt;                       // payload-flags: 0 for a plaintext unicast (H_ANSWER/CROSS_LAYER are other inner types; CRYPTED awaits the decrypt layer)
+    if (inner.empty()) return std::nullopt;
+    const uint8_t pf = inner[0];
+    // Plaintext unicast only. The single optional field decoded here is DST_HASH (the recipient's
+    // key_hash32, L2c verify-on-delivery). H_ANSWER / CROSS_LAYER / AUTHORITATIVE / CRYPTED are other
+    // inner shapes the caller dispatches elsewhere — reject any bit outside DST_HASH (keeps the old
+    // inner[0]==0 strictness, just widened by the one cleartext field).
+    if (pf & ~static_cast<uint8_t>(PAYLOAD_FLAG_DST_HASH)) return std::nullopt;
     data_unicast_inner u{};
-    u.origin = inner[1];
-    u.body   = inner.subspan(2);
+    size_t off = 1;
+    if (pf & PAYLOAD_FLAG_DST_HASH) {
+        if (inner.size() < off + 4) return std::nullopt;          // dst_key_hash32 (4 B LE)
+        wire::Reader r(inner.subspan(off, 4)); u.dst_key_hash32 = r.u32_le();
+        u.has_dst_hash = true; off += 4;
+    }
+    if (inner.size() < off + 1) return std::nullopt;              // origin
+    u.origin = inner[off]; off += 1;
+    u.body   = inner.subspan(off);
     return u;
 }
 std::optional<data_m_inner> parse_m_inner(std::span<const uint8_t> inner) {

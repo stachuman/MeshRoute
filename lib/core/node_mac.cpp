@@ -50,14 +50,27 @@ uint32_t Node::retry_jitter_ms() const { return 3 * airtime_routing_ms(8); }
 // Build + enqueue an app DATA. `tx_event` separates an app send ("tx_enqueue", the dm_delivery
 // record-creation key) from an internal protocol DATA like the E2E ack ("e2e_ack_tx") that must NOT
 // be counted as an app DM.
-uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, [[maybe_unused]] const char* tx_event) {
+uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, [[maybe_unused]] const char* tx_event, bool app_dm) {
     const uint16_t ctr = next_ctr(dst);
     TxItem item{};
     item.origin = _node_id; item.dst = dst; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
     item.flags = flags;
-    item.inner[0] = 0x00; item.inner[1] = _node_id;      // payload-flags=0 (plaintext DM, no H_ANSWER) | origin | body
-    if (body) for (uint8_t i = 0; i < body_len; ++i) item.inner[2 + i] = body[i];
-    item.inner_len = static_cast<uint8_t>(2 + body_len);
+    // Inner = [payload-flags][dst_key_hash32 (4 B LE, iff DST_HASH)][origin][body]. DST_HASH (L2c verify-
+    // on-delivery) is default-on for app DMs when we know the recipient's stable key (id_bind) and the +4 B
+    // still fits the inner buffer — else fall back to plain. NOT for internal DATA (E2E acks): app_dm=false.
+    uint8_t pf = 0x00, off = 1;
+    uint32_t dh = 0;
+    if (app_dm && key_hash_of_id(dst, dh)
+        && static_cast<size_t>(2 + 4 + body_len) <= protocol::max_payload_bytes_hard_cap) {
+        pf |= PAYLOAD_FLAG_DST_HASH;
+        item.inner[1] = static_cast<uint8_t>(dh);         item.inner[2] = static_cast<uint8_t>(dh >> 8);
+        item.inner[3] = static_cast<uint8_t>(dh >> 16);   item.inner[4] = static_cast<uint8_t>(dh >> 24);
+        off = 5;
+    }
+    item.inner[0] = pf;
+    item.inner[off++] = _node_id;                         // origin
+    if (body) for (uint8_t i = 0; i < body_len; ++i) item.inner[off + i] = body[i];
+    item.inner_len = static_cast<uint8_t>(off + body_len);
     item.enqueue_time_ms = _hal.now();                   // first-enqueue time (cascade-requeue total-age cap)
     // Inc 3 back-off: a warn'd ACK (a downstream neighbour says we're near its airtime cap) parks new DM
     // originations until the warn window expires, relieving that neighbour. The hard receiver-side airtime
@@ -86,7 +99,7 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
 
 // E2E/PRIORITY ride the wire via `flags`; the E2E ACK behaviour lives in do_post_ack + send_e2e_ack.
 uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags) {
-    return enqueue_data(dst, body, body_len, flags, "tx_enqueue");   // app DM (dm_delivery record key)
+    return enqueue_data(dst, body, body_len, flags, "tx_enqueue", /*app_dm=*/true);   // app DM (dm_delivery record key); DST_HASH default-on
 }
 
 // End-to-end ACK: a tiny DATA back to the DM's origin carrying the acked ctr (E2E_IS_ACK). Emits

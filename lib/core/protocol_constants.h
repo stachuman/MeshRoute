@@ -225,6 +225,12 @@ inline constexpr uint8_t  unjoined_node_id     = 0;           // 0 = unprovision
 inline constexpr uint8_t  cap_mediated_recent     = 32;
 inline constexpr uint32_t mediated_deny_suppress_ms = 30000;
 
+// L2c verify-on-delivery: a DM whose DST_HASH != our key was misdelivered by an id collision. We redirect
+// it to the real owner (send-by-hash) once per hash per window — a still-poisoned binding (collision not
+// yet healed) would otherwise re-trigger redirect→deliver-to-self→redirect until the heal converges.
+inline constexpr uint8_t  cap_l2c_redirect        = 16;
+inline constexpr uint32_t l2c_redirect_suppress_ms = 30000;
+
 // ---- Wire-format frame overhead (matches Lua DATA_HDR_LEN + DATA_INNER_OVERHEAD) ----
 // Lua CODE is authoritative: DATA_HDR_LEN = 8 + VISITED_LEN(6) = 14 (dv_dual_sf.lua:2904-2905);
 // DATA_INNER_OVERHEAD = 2 + MAC_LEN(4) = 6 (:2908); hard cap = 255-14-6 = 235 (:8637).

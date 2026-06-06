@@ -178,11 +178,42 @@ The guarantee is **NOT "every collision, anywhere."** What converges:
   corrupting C's hash-locate answers (`id_bind` is the H substrate). The old **third-party-epoch
   landmine is dissolved** by key-only — a mediator needs no epoch.
 
+- **>2-hop collisions (no shared neighbour) — NOW HANDLED by L2c (landed 2026-06-06).** No mediator hears
+  both owners, so the collision only surfaces at *end-delivery*: a DM addressed to the shared id carries the
+  sender's intended `dst_key_hash32` (DATA `DST_HASH` flag, frames.md) and lands on the wrong owner. The
+  destination compares `DST_HASH` to its own key; on mismatch:
+
+  1. **Redirect (always, identity-preserving).** The DM is **FORWARDED** toward `want_hash`'s real owner — a
+     fresh routing leg (`is_forward`) that keeps the original `origin`/`ctr`/`flags`/inner. It is *never*
+     re-`send`-originated: a re-send would stamp the redirector as sender, send the E2E ack to the redirector,
+     and mint a new `ctr` (duplicate on the sender's retry) — the three bugs the review's #1 caught. If we
+     already hold a fresh **authoritative** owner binding (e.g. the owner's beacon) it forwards immediately;
+     otherwise the DM is **parked** and a **HARD `H`** is flooded.
+  2. **Heal (confirmation-gated, NOT blind).** The heal is **deferred to the HARD-`H` resolution**, which is
+     owner-authoritative (one keypair → one owner reporting its current id) and so is a *free, exact*
+     discriminator: when `want_hash` resolves back to **OUR own id**, the owner of `want_hash` genuinely also
+     holds our id ⇒ a **real same-id collision** ⇒ heal by §6 key-only (winner keeps + `J_DENY(MEDIATED)`s the
+     squatter; loser `forced_rejoin`s). When it resolves to a **different id**, the recipient merely moved off
+     the id (a **stale sender binding**) ⇒ forward only, **never renumber** — this is what kills the
+     spurious-churn risk of an immediate yield. In the real-collision case the redirect can't deliver anyway
+     (resolves to self), so the heal is exactly what unblocks delivery once the loser renumbers.
+
+  One action-set per `(want_hash)` per 30 s window (`_l2c_redirect` ring) so a sender's queued DMs can't trigger
+  a redirect/H flood per DM (one-copy principle). A self-binding guard in `id_bind_set`
+  (`addr_conflict_self_defended`) stops the colliding `H` answer (`want_hash→our id`) from overwriting our own
+  identity binding. Unit-tested in `test_node_r3.cpp` (match-delivers / unknown→park+HARD-H /
+  known→forward-preserves-origin+ctr / parked→resolve-to-other→forward-no-renumber /
+  parked→resolve-to-self→{win-DENY, lose-rejoin} / anti-flood-collapses) + the codec round-trip in
+  `test_frame_codec.cpp`.
+
 What does **not** heal yet:
-- **>2-hop collisions** (no single node hears both owners) — no mediator exists, so L2a can't reach them.
-  These are **stable** (each node's DV picks one best route → no flap, just *split delivery*). Handled by
-  **L2c** (verify-on-delivery + HARD-`H` redirect, frames.md P6) — **deferred to the E2E/by-hash slice**,
-  gated on the measurement below.
+- **L2c on a cfg/NV-provisioned LOSER:** `forced_rejoin` guards on `_joined`, so a node whose id came from
+  config/NV (not DAD) does **not** auto-renumber when it loses a confirmed L2c collision — operator-set ids
+  aren't silently reassigned. The DM still reaches the real owner (the redirect is independent of the heal),
+  and the skipped heal is **observable** (`l2c_collision_confirmed healed=false`), not a silent drop.
+- **2nd+ DMs inside the suppression window** are observed-then-dropped (not redirected) — they recover via the
+  app/E2E retry once the collision converges. The trade is deliberate: bounded floods over guaranteed redelivery
+  of every transient-window DM.
 
 ### 7.2 The reframe — uniqueness is *efficiency*, not *correctness*
 node_id leaf-uniqueness is a routing-efficiency goal, **not** a delivery-correctness requirement:
@@ -200,7 +231,10 @@ node_id leaf-uniqueness is a routing-efficiency goal, **not** a delivery-correct
 in a dense storm (~670 mediated DENYs for ~3 reachable heals — a per-flap re-send to rate-limit later).
 **Decision input for L2c:** the residual is real under storms, so L2c's urgency hinges on *how much
 end-delivery is by-node_id vs already by-hash* — audit that; if delivery still leans on node_id, L2c
-can't wait for E2E.
+can't wait for E2E. **Resolved 2026-06-06:** L2c landed (§7.1) decoupled from E2E — `DST_HASH` is a
+cleartext DATA field that verifies on delivery, so the >2-hop residual is now caught/redirected at the
+app-DM layer without waiting for the encrypted E2E slice. The `t93` storm residual still wants the L1/L2a
+dedup (L2c is the *delivery* backstop, not a dedup substitute).
 
 ---
 

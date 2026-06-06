@@ -439,10 +439,21 @@ void Node::do_post_ack() {
             become_free();
             return;
         }
-        // deliver: body = inner[2..] (skip payload-flags + origin), null-terminated for the event.
+        // Parse the inner (handles the optional DST_HASH prefix) -> origin + body.
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(pa.inner, pa.inner_len));
+        // L2c verify-on-delivery: DST_HASH present and naming a key that ISN'T ours => an id collision
+        // misdelivered this DM. Heal the collision + redirect to the real owner; do NOT deliver locally.
+        if (ui && ui->has_dst_hash && ui->dst_key_hash32 != _key_hash32) {
+            l2c_handle_misdelivery(pa, ui->dst_key_hash32);     // forward to the real owner (identity-preserving)
+            return;                                             // l2c re-kicks the queue itself (become_free)
+        }
+        // deliver: body from the parsed inner (legacy raw inner[2..] fallback if the inner didn't parse).
         char body[protocol::max_payload_bytes_hard_cap + 1];
-        const uint8_t blen = (pa.inner_len > 2) ? static_cast<uint8_t>(pa.inner_len - 2) : 0;
-        for (uint8_t i = 0; i < blen; ++i) body[i] = static_cast<char>(pa.inner[2 + i]);
+        uint8_t blen;
+        if (ui) { blen = static_cast<uint8_t>(ui->body.size());
+                  for (uint8_t i = 0; i < blen; ++i) body[i] = static_cast<char>(ui->body[i]); }
+        else    { blen = (pa.inner_len > 2) ? static_cast<uint8_t>(pa.inner_len - 2) : 0;
+                  for (uint8_t i = 0; i < blen; ++i) body[i] = static_cast<char>(pa.inner[2 + i]); }
         body[blen] = '\0';
         MR_TELEMETRY(
             EventField f[] = {
