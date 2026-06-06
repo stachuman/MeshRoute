@@ -198,13 +198,19 @@ The guarantee is **NOT "every collision, anywhere."** What converges:
      spurious-churn risk of an immediate yield. In the real-collision case the redirect can't deliver anyway
      (resolves to self), so the heal is exactly what unblocks delivery once the loser renumbers.
 
-  One action-set per `(want_hash)` per 30 s window (`_l2c_redirect` ring) so a sender's queued DMs can't trigger
-  a redirect/H flood per DM (one-copy principle). A self-binding guard in `id_bind_set`
-  (`addr_conflict_self_defended`) stops the colliding `H` answer (`want_hash→our id`) from overwriting our own
-  identity binding. Unit-tested in `test_node_r3.cpp` (match-delivers / unknown→park+HARD-H /
-  known→forward-preserves-origin+ctr / parked→resolve-to-other→forward-no-renumber /
-  parked→resolve-to-self→{win-DENY, lose-rejoin} / anti-flood-collapses) + the codec round-trip in
-  `test_frame_codec.cpp`.
+  Hardening (from the adversarial review): the redirect leg is built **originator-style** (`is_forward=false`)
+  so its hop budget is **re-derived from our route to the owner**, never inherited from the inbound DM (whose
+  remainder is irrelevant and, for a DM that arrived at us *exhausted*, would underflow to the 31-hop max). Only
+  the **PARK + HARD-`H` flood** path is anti-flood-gated (`_l2c_redirect` ring, one flood per `want_hash` per 30 s);
+  the **immediate-forward** path is floodless (a unicast forward) so it is **not** gated — every queued DM reaches
+  the owner. A self-binding guard in `id_bind_set` (`addr_conflict_self_defended`) stops the colliding `H` answer
+  (`want_hash→our id`) from overwriting our own identity binding; `key_hash_of_id` (the send-side `DST_HASH` stamp)
+  only trusts an **authoritative** binding (a stale claimed one would stamp a wrong hash). The confirmed-collision
+  heal is run **after** the drain loop (never mid-loop) so `forced_rejoin`'s identity mutation can't corrupt a
+  sibling parked entry. Unit-tested in `test_node_r3.cpp` (match-delivers / unknown→park+HARD-H /
+  known→forward-preserves-origin+ctr / resolve-to-other→forward-no-renumber / resolve-to-self→{win-DENY,
+  lose-rejoin} / cfg-loser→healed=false / hop-budget-rebudget / recycled-slot-not-mis-drained / age-out /
+  beacon-re-drain / anti-flood-collapses) + the codec round-trip in `test_frame_codec.cpp`.
 
 What does **not** heal yet:
 - **L2c on a cfg/NV-provisioned LOSER:** `forced_rejoin` guards on `_joined`, so a node whose id came from
@@ -214,6 +220,22 @@ What does **not** heal yet:
 - **2nd+ DMs inside the suppression window** are observed-then-dropped (not redirected) — they recover via the
   app/E2E retry once the collision converges. The trade is deliberate: bounded floods over guaranteed redelivery
   of every transient-window DM.
+- **The DM that *exposes* a confirmed collision is dropped.** When the HARD-`H` resolves `want_hash` back to our
+  own id, forwarding-to-self would loop, so the triggering DM is dropped while the heal runs; it is recovered by
+  the sender's retry once the loser renumbers (and the sender's binding updates). Keeping it parked through the
+  heal to redeliver post-renumber is a viable future enhancement, but is fiddly (the loser is transiently at
+  `node_id 0` mid-`forced_rejoin`), so it's deferred — consistent with the in-window-drop residual above.
+- **DAD-wins-vs-operator-pinned is a persistent collision.** If a DAD-joined node WINS the key tiebreak against a
+  cfg/NV-pinned node, it keeps its id and `J_DENY`s the pinned peer — which can't yield (`!_joined`) — so the
+  collision never resolves (the DAD node can't tell the peer is pinned; pinned-ness isn't on the wire). Same-id
+  *pinned-vs-pinned* surfacing for the operator is fine; this asymmetric case is not. **Follow-up:** a `pinned`
+  bit on the J/BCN wire so a DAD node always *defers* to an operator-pinned id regardless of key (tiebreak
+  becomes `pinned > key`). Until then, operators must avoid colliding a pinned id with the DAD pool.
+- **The E2E-ACK return leg is unprotected by `DST_HASH`** (`send_e2e_ack` → `enqueue_data(app_dm=false)`). Under
+  an unhealed >2-hop collision the ack addressed back to the DM origin can land on the colliding node and be
+  consumed there, so the true origin never sees confirmation (→ retry). Stamping `DST_HASH` on the ack is the
+  fix but couples to the ack's `inner[2..3]` ctr read (DST_HASH shifts the body), so it ships with the E2E/CRYPTED
+  slice; until then E2E confirmation is **best-effort** under an unhealed collision.
 
 ### 7.2 The reframe — uniqueness is *efficiency*, not *correctness*
 node_id leaf-uniqueness is a routing-efficiency goal, **not** a delivery-correctness requirement:

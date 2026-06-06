@@ -10,50 +10,54 @@
 
 ---
 
-Implementation notes added during porting:
-1. DATE frame - byte 0 of payload becomes flag
-2. Add handling of node names (as payload)
-3. Join process - HOW to prevent that node join leaf without proper join? Proposal - BCN is crypted with leaf key - which node can learn only during join process?
-4. Join process - query needs to carry wire version - to check if I'm compatible with given leaf and I can talk. Note - wire version is NOT node version (more advanced version can keep wire version same!)
+Implementation notes (status 2026-06-06):
+1. DATA frame — byte 0 of the inner is a **payload-flags** byte. ✅ DONE (`CROSS_LAYER`/`H_ANSWER`/`AUTHORITATIVE`/`CRYPTED` + `DST_HASH`; `frame_codec`).
+2. Node names — carried in the **identity record**, not the wire hot path. ✅ DONE (`name` in `/mrid`, `cfg set name`; app-level).
+3. Prevent joining a leaf without a proper join — **RESOLVED; the old "BCN crypted with a leaf key" idea is REJECTED.** Threat model is honest-node / anti-**misconfiguration**, not anti-adversary (the unique sync word `0x4D` already keeps foreign protocols off the air). The gate is the **beacon config-fingerprint** `{lineage_id, epoch, config_hash}`: a node with wrong/absent config computes a mismatched fingerprint and **self-isolates** — no signing, no group/leaf key. There is deliberately **no cryptographic membership secret** — "join" = sync to the correct config; a correctly-configured node *is* a member. Per-message BCN signing was rejected (≈ +164 ms/beacon at SF8, no adversary). On-air crypto is **DM-only** (X25519 ECDH, opt-in). Refs: `docs/specs/2026-06-05-identity-leaf-membership-join-design.md` §0/§3/§6.
+4. Join carries a **1-byte wire-version** (wire-compat, NOT node version) — still planned, lands with R6 leaf-config join.
 
 Discovery
-1. At the moment req_sync_min_routes is 8 - that is not correct - constantly Q frames are sent
+1. req_sync_min_routes=8 caused constant Q frames — note retained (tune in/with R6).
 
 ---
 
-## Status — where the port stands (2026-06-05)
+## Status — where the port stands (2026-06-06)
 
-**The stable same-layer core is DONE and FLASHABLE.** XIAO nRF52840 + Heltec
-v3 builds are green; on metal the node beacons and `send <id> <text>` delivers
-a DM. The original §4 tracks (annotated there too):
+**The stable same-layer core + identity + the node_id (short-address) half of join are DONE and FLASHABLE.** XIAO nRF52840 + Heltec v3 builds are green; on metal the node beacons and `send <id> <text>` delivers a DM. Tracks:
 
 | Track | State |
 |---|---|
-| Codec **C0–C6** — all 10 §10 cmd-nibble frames | ✅ done (J = codec only; its runtime is R6) |
-| HAL **H0–H3** — timer wheel, `Sx1262Radio`, `device_hal` (RX polled; the PreambleDetected IRQ was tried + reverted on metal) | ✅ done — **flashable** |
+| Codec **C0–C6** — all 10 §10 cmd-nibble frames | ✅ done |
+| HAL **H0–H3** — timer wheel, `Sx1262Radio`, `device_hal` (RX polled; PreambleDetected IRQ tried + reverted on metal) | ✅ done — **flashable** |
 | Sim-integration **S0–S3** — `FirmwareNode` in-loop beside `ScriptedNode` + the lua-vs-meshroute differential harness | ✅ done |
-| Behaviour **R1–R5** — beacon emit, DV routing (K=3, prune), MAC RTS/CTS/DATA/ACK/NACK, throttle/triggered/cascade/LBT, Q REQ_SYNC + channel gossip (M-broadcast) | ✅ done |
-| **Hash-locate plane (H, A0–D)** — `id_bind` table, soft/hard resolve, hash-bind response, cache-on-pass, send-by-hash + park/verify-on-use *(a workstream added after the §4 table was written)* | ✅ done |
-| **R6 Join** state machine | ⏳ **codec-only** — `on_recv` has no `J` case, `on_command(join)` → `err_unsupported`, no handshake/lease/NV/crypt-key. **← NEXT** |
-| **R7 Gateway / cross-layer** (multi-leaf) | ❌ absent — the deferred production driver (and the consumer of the H plane's deferred cross-layer trigger) |
+| Behaviour **R1–R5** — beacon emit, DV routing (K=3, prune), MAC RTS/CTS/DATA/ACK/NACK, throttle/triggered/cascade/LBT, Q REQ_SYNC + channel gossip | ✅ done |
+| **Hash-locate plane (H, A0–D)** — `id_bind`, soft/hard resolve, hash-bind response, cache-on-pass, send-by-hash + park/verify-on-use | ✅ done |
+| **Identity (Slice A/A2)** — Ed25519+X25519 from one seed (vendored monocypher), `key_hash32 = ed_pub[:4]`, `/mrid` NV + HW-RNG + `cfg set name` / `regen`; the sim derives the same value (single source feeds both engines) | ✅ done |
+| **node_id auto-assignment (DAD)** — the SHORT-ADDRESS half of join: picker excludes `_id_bind`∪`_rt`∪defer-queue + **claim-after-listen** (L1); claim→guard→adopt; **key-only** tiebreak (§6); shared-neighbour mediated heal (L2a); delivery-driven **verify-on-delivery + H-redirect + gated heal** (L2c, `DST_HASH`); `node_id`+`joined` in NV (reboot-reclaim) | ✅ done |
+| **R6 — leaf-config join** (the CONFIG half): beacon fingerprint `{lineage_id, epoch, config_hash}` + peering/adopt filter + `CONFIG_PULL` (learn `data_sf_list`/`leaf_name`/`duty_cycle`) + `J wire_version` | ⏳ **← NEXT** (design: identity spec §3–§5; wire: frames.md P1/P4; plan §9 below) |
+| **Dynamic config write path** — operator-gated `epoch` bump (LWW by `key_hash32`); leaf-death/recreate backstop | ❌ after R6 (R6.3) |
+| **E2E DM crypto** — X25519 ECDH → AEAD on the DATA body (`CRYPTED` b3); needs `id_bind` full-pubkey resolution | ⏳ wire reserved (`DST_HASH`/`CRYPTED`); AEAD + redirect-by-hash deferred to this slice |
+| **R7 Gateway / cross-layer** (multi-leaf) | ❌ deferred follow-on (consumer of the H plane's cross-layer trigger) |
 | **R8 Mobile + asymmetric** | ❌ not started |
-| **App layer** — inbox persistence, known-nodes directory, channel subscriptions, per-leaf crypto | ❌ net-new, not started |
+| **App layer** — inbox persistence, known-nodes directory, channel subscriptions | ❌ net-new (per-leaf crypto **removed** — rejected; on-air crypto is DM-only) |
 | **D0** first on-metal frame (BCN + DM) | ✅ done |
 | **D1** two-board over-the-air round-trip | ⏳ bench-pending (on-metal, yours) |
 
-**Verification baseline (this is the regression bar):** native doctests
-**205/205**; the **6 MAC differential gates** (lua-vs-meshroute, `--band 0`,
-via `test/run_tests.sh`) PASS; **channel 6/6 + discovery 2/2** both engines;
-the live hash-locate gate `test/t89_hashlocate_warm_shortcircuit.json` PASS;
-both device builds green; on-device the telemetry emits are stripped via the
-`MR_TELEMETRY` macro (`-DMESHROUTE_NO_TELEMETRY`). Full sim t-suite is 78/84 —
-the 6 fails are pre-existing **Lua-engine** scenarios (join/gateway/long-chain),
-not C++ regressions.
+**Verification baseline (the regression bar):** native doctests **220/220**
+(identity + node_id DAD added their cases); the **6 MAC differential gates**
+(lua-vs-meshroute, via `test/run_tests.sh`) PASS; **channel 6/6 + discovery 2/2**
+both engines; identity/join sim gates **t90** (seed→key_hash32 parity), **t91**
+(DAD distinct-pick), **t92** (forced collision → heal → distinct), **t93** (s18
+dense → meshroute join, staged with start_at/dies_at) all PASS; hash-locate gate
+**t89** PASS; both device builds green; telemetry stripped on-device via
+`MR_TELEMETRY` (`-DMESHROUTE_NO_TELEMETRY`). The 6 pre-existing **Lua-engine**
+fails (join/gateway/long-chain) are unchanged — no C++ regressions.
 
-**Immediate next: Join (R6)** — the deferral condition ("land routing/MAC/
-discovery first") is now met; see §9 (re-pointed). The per-leaf crypt key +
-the J wire-version byte (the notes at the top of this file) are an open design
-question — land join *plaintext* first, decide crypto separately.
+**Immediate next: R6 leaf-config join.** The `node_id` (short-address) half of
+join is DONE (DAD, above). What remains is the **CONFIG** half — a joiner
+learning `data_sf_list`/`leaf_name`/`duty_cycle` from the leaf, plus the
+misconfiguration gate. **Crypto is decided** (no BCN signing / no per-leaf key —
+fingerprint + honest-node; on-air crypto is DM-only X25519). See §9 (rewritten).
 
 ---
 
@@ -244,7 +248,7 @@ Codecs are pure functions (no HAL), so the **codec track** and the
 **Status (2026-06-05): C0–C6 all ✅ done.** The DATA inner reframed to the
 universal `[payload-flags][origin][body]` prefix (the always-zero `src_addr_len`
 slot); H grew to 8 B (the HARD-query flag); the hash-bind sub-format landed with
-the H plane. `J` codecs are done but the J *runtime* is R6.
+the H plane. `J` codecs are done; the **J CLAIM/DENY runtime landed with node_id DAD (R6a)** — the leaf-config J handling (`CONFIG_PULL`, `wire_version`) is R6b.
 
 (Order is reversed vs PORT_NOTES, which started at BCN — we de-risk the
 new codec+test harness on a 3-byte frame before the most complex one.)
@@ -287,17 +291,19 @@ latent differential gap to watch.
 | R4 | Throttle + triggered beacons / F1 blind window / cascade requeue | t29/t42/t14/t20/t26 equivalents |
 | R5 | Q frames / REQ_SYNC / channel gossip | t30/t39/t65-69 equivalents |
 | **R5.5** | **Hash-locate (H) plane** — id_bind table, soft/hard resolve, hash-bind response, cache-on-pass, send-by-hash + verify-on-use *(not in the original plan; added 2026-06-04)* | t89 + the 6 MAC gates green |
-| R6 | Join state machine | t46-t60 equivalents |
+| R6a | **node_id DAD** (short-address half): claim-after-listen, claim/guard/adopt, key-only heal (§6), L2a mediator + L2c redirect, NV reboot-reclaim | t91/t92/t93 ✅ **done** |
+| R6b | **leaf-config join** (config half): beacon fingerprint + peering filter + `CONFIG_PULL` + `J wire_version` | ⏳ **NEXT** — §9 |
 | R7 | **(follow-on) Gateway + cross-layer** | s09/s10 — see scope note §5 |
 | R8 | Mobile + asymmetric | s07/s08 |
 | D0 | First on-device: one BCN over the air on XIAO | — |
 | D1 | Two-board RTS-CTS-DATA-ACK between two XIAOs | — |
 
-**Status (2026-06-05): R1–R5 + R5.5 ✅ done; D0 ✅ done (BCN + DM on metal).**
-**R6 (join) is the NEXT step — currently codec-only** (`on_recv` J case absent,
-`on_command(join)` → `err_unsupported`, no handshake/state machine/lease/NV).
+**Status (2026-06-06): R1–R5 + R5.5 ✅; Identity (Slice A/A2) ✅; node_id DAD
+(R6a — `on_recv` J CLAIM/DENY, `on_command(join)` → claim-after-listen, L2a/L2c,
+NV reboot-reclaim) ✅; D0 ✅ (BCN + DM on metal).** **R6b (leaf-config join:
+beacon fingerprint + `CONFIG_PULL` + `wire_version`) is the NEXT step** — see §9.
 **R7 gateway/cross-layer + R8 mobile/asymmetric = not started.** D1 (two-board
-over-the-air) is bench-pending on real hardware (yours). See §9 for the R6 plan.
+over-the-air) is bench-pending on real hardware (yours).
 
 ---
 
@@ -371,31 +377,53 @@ duty / EU868 g3, preamble 16 sym.
 
 ---
 
-## 9. Immediate next step — Join (R6)
+## 9. Immediate next step — R6 leaf-config join
 
-*(The original §9 — the wire-decision spike + codec C0/C1 — is long done;
-the whole codec/HAL/sim/behaviour stack through R5.5 has landed. See Status.)*
+*(Superseded: the original wire-spike (done) and the DISCOVER/OFFER + lease-age
+sketch. The `node_id` short-address allocation is DONE via **DAD** — beacon-listen
++ claim/guard/adopt + key-only heal + L2c redirect — NOT DISCOVER/OFFER, and NOT
+lease-age (proven non-convergent under wire staleness; dropped for key-only).
+DISCOVER/OFFER are deferred.)*
 
-The same-layer core is done and flashable, so the **deferral on join is
-lifted** (it was "land routing/MAC/discovery first"). Join is the foundational
-unblocker: a device with `_node_id == 0` is refused at the `on_command` gate, so
-it can't self-provision in the field. Sliced to de-risk the L-effort:
+**Goal.** A fresh node boots knowing only **freq / BW / control-SF** (enough to
+hear the control channel). R6 lets it learn the leaf's runtime config and only
+then participate, so a misconfigured node self-isolates instead of breaking the
+leaf. It composes with the done node_id DAD: on join a node does BOTH — sync the
+config (this slice) AND DAD-allocate its `node_id` (done); claim-after-listen
+already provides the listen window the config-pull needs.
 
-- **Slice A** (~100–150 LOC, no crypto): `on_recv` `J` dispatcher + `handle_j`
-  for `DISCOVER`/`OFFER` only + `on_command(CmdKind::join)` to trigger discovery
-  + a sim scenario proving the DISCOVER→OFFER exchange (and the responder's
-  `id_bind` write). Validates the design before the stateful dance.
-- **Slice B**: the `CLAIM`/`DENY` state machine + `addr_conflict` tie-break
-  (lease-age + claim-epoch + forced-rejoin) — the conflict-recovery heart.
-- **Slice C**: NV (flash KV) lease persistence via a `device_nv` seam, so a
-  rebooted node keeps its `adopted_at_ms` + `claim_epoch` tie-break authority.
+**Pieces** (design: identity spec §3–§5; wire: frames.md P1/P4):
+- **Beacon fingerprint** — every BCN carries `{lineage_id(4) · epoch(2) ·
+  config_hash(4)}` as a fixed header **before** the route entries (survives the
+  151-B page truncation). `config_hash = trunc(BLAKE2b(canonical(data_sf_list
+  [ORDER-significant] ‖ leaf_name ‖ duty_cycle)), 4)`.
+- **Peering / adopt filter** (§3.3) — same `leaf_id` AND same `(lineage, epoch,
+  config_hash)` ⇒ peer. Different `lineage` ⇒ not my leaf (ignore). Same lineage,
+  higher `epoch` ⇒ I'm stale ⇒ pull + adopt. **This filter is the misconfig gate
+  — no signing.**
+- **`CONFIG_PULL`** — a joiner/stale node pulls the full config for `{lineage,
+  epoch}` via `Q CONFIG_PULL`, answered as a routed DATA with the `CONFIG`
+  payload-flag (b5). Any member at that epoch may serve it (durability §4.2).
+- **`J wire_version`** (1 byte) — wire-compat gate at join (distinct from node
+  version); reject a wire-incompatible peer.
+- **Leaf creation** — an operator `create leaf` mints a random immutable
+  `lineage_id` + sets the config (the founding node).
 
-**Decide before coding (open design Q — the notes at the top of this file):**
-the **per-leaf crypt key** (encrypt part of the BCN so un-joined nodes can't
-learn the topology / to make private leafs) and the **1-byte J wire-version**.
-Recommendation: land join **plaintext** first; treat the crypt-key (responder-
-generates-in-OFFER vs pre-shared vs DH-at-join) as a separate design pass.
+**Slices:**
+- **R6.1** — beacon-fingerprint emit/ingest + peering/adopt filter (the misconfig
+  gate; no config transfer yet — uses local/`cfg`-set config). Sim gate: two
+  nodes with divergent `data_sf_list` must NOT peer; matching ones do.
+- **R6.2** — `CONFIG_PULL` request/response (learn `data_sf_list`/`leaf_name`/
+  `duty_cycle` from the leaf) + adopt-on-higher-epoch + `J wire_version`. Sim
+  gate: a fresh node joins, pulls config, becomes a member.
+- **R6.3** — dynamic config write path: operator-gated `epoch` bump, LWW by
+  `key_hash32`; leaf-death/recreate backstop (no authority/handoff).
 
-**Other big rocks after R6:** R7 gateway/cross-layer (the multi-leaf deployment
-multiplier + the H plane's deferred consumer), then the app layer (inbox /
-known-nodes directory / subscriptions).
+**Crypto — DECIDED (closed):** no BCN signing, no per-leaf/group key. The
+fingerprint is the gate (honest-node, anti-misconfiguration). On-air crypto is
+**DM-only** (X25519 ECDH → AEAD, `CRYPTED` b3) and ships as its own E2E slice
+(needs `id_bind` full-pubkey resolution). Refs: identity spec §0/§6, top-note #3.
+
+**After R6:** E2E DM AEAD, then R7 gateway/cross-layer (the multi-leaf multiplier
++ the H plane's deferred consumer), then the app layer (inbox / known-nodes /
+subscriptions).

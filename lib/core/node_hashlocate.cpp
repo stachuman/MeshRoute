@@ -150,22 +150,22 @@ int Node::id_bind_find_by_hash(uint32_t key_hash32, IdBindConf* conf_out) {
 }
 
 // Reverse lookup: a node_id -> its stable key_hash32 (the inverse of id_bind_find_by_hash). Used by the
-// send path to stamp DST_HASH (L2c verify-on-delivery) on an app DM. Prefers an AUTHORITATIVE binding;
-// falls back to any non-expired claimed one. Returns false (DST_HASH omitted) when the id is unknown.
+// send path to stamp DST_HASH (L2c verify-on-delivery) on an app DM. ONLY an AUTHORITATIVE (owner-confirmed
+// / first-hand beacon / self) binding qualifies — a CLAIMED (second-hand / relayed) binding can be stale and
+// would stamp a wrong dst_hash that triggers a spurious redirect at the recipient (mirrors send_by_hash's
+// trust model, which HARD-verifies a soft binding before use). Returns false (DST_HASH omitted) otherwise.
 bool Node::key_hash_of_id(uint8_t id, uint32_t& out) const {
     const uint64_t now = _hal.now();
-    int best = -1; bool best_auth = false;
     for (uint16_t i = 0; i < _id_bind_n; ++i) {
         if (_id_bind[i].node_id != id) continue;
-        const bool self_keep = (_id_bind[i].node_id == _node_id && _id_bind[i].key_hash32 == _key_hash32);
+        if (_id_bind[i].confidence != static_cast<uint8_t>(IdBindConf::authoritative)) continue;  // confident only
+        const bool self_keep = (id == _node_id && _id_bind[i].key_hash32 == _key_hash32);
         if (!self_keep && _cfg.id_bind_ttl_ms > 0
             && (now - _id_bind[i].last_seen_ms) >= _cfg.id_bind_ttl_ms) continue;     // expired
-        const bool auth = _id_bind[i].confidence == static_cast<uint8_t>(IdBindConf::authoritative);
-        if (best < 0 || (auth && !best_auth)) { best = i; best_auth = auth; if (auth) break; }
+        out = _id_bind[i].key_hash32;
+        return true;
     }
-    if (best < 0) return false;
-    out = _id_bind[best].key_hash32;
-    return true;
+    return false;
 }
 
 // Drop expired bindings (TTL on last_seen_ms; Lua id_bind_age_one dv:4753). The self-binding is exempt.
@@ -393,6 +393,9 @@ void Node::emit_hash_query(uint32_t key_hash32, bool hard) {
 void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags) {
     if (_parked_sends_n >= protocol::cap_parked_sends) return;   // full -> drop (the app can retry)
     ParkedSend& p = _parked_sends[_parked_sends_n++];
+    p = ParkedSend{};                                           // reset a RECYCLED slot: the array is compacted in
+    // place (drain/age-out never clear vacated slots), so a slot last used by an L2c redirect would otherwise
+    // keep is_redirect=true and mis-route this plain send-by-hash through the redirect branch on drain.
     p.key_hash32 = key_hash32; p.flags = flags; p.parked_at_ms = _hal.now();
     // Clamp to the DM body cap (NOT the 235-B inner buffer): drain_parked_sends -> do_send -> enqueue_data
     // writes body at inner[2+i], so a >233 body would overrun inner[]. on_command already rejects oversize
@@ -409,9 +412,9 @@ void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len,
 void Node::l2c_park_redirect(uint32_t want_hash, const PostAck& pa) {
     if (_parked_sends_n >= protocol::cap_parked_sends) return;   // full -> drop (the sender retries)
     ParkedSend& p = _parked_sends[_parked_sends_n++];
+    p = ParkedSend{};                                           // reset the recycled slot before stamping redirect state
     p.key_hash32 = want_hash; p.flags = pa.flags; p.parked_at_ms = _hal.now();
     p.is_redirect = true; p.origin = pa.origin; p.ctr = pa.ctr; p.ctr_lo = pa.ctr_lo;
-    p.previous_hop = pa.previous_hop; p.fwd_remaining = pa.fwd_remaining; p.fwd_committed = pa.fwd_committed;
     p.body_len = (pa.inner_len > protocol::max_payload_bytes_hard_cap) ? protocol::max_payload_bytes_hard_cap : pa.inner_len;
     for (uint8_t i = 0; i < p.body_len; ++i) p.body[i] = pa.inner[i];   // body[] holds the full inner for a redirect
     MR_TELEMETRY(
@@ -426,21 +429,25 @@ void Node::l2c_park_redirect(uint32_t want_hash, const PostAck& pa) {
 // FORWARDED identity-intact; resolved_id == OUR id means the want_hash owner holds our id => a CONFIRMED
 // collision: heal (key-only) instead of forwarding-to-self (which would loop). A plain send-by-hash re-sends.
 void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id) {
+    bool heal = false;                                            // a confirmed collision found this pass
     uint8_t w = 0;
     for (uint8_t r = 0; r < _parked_sends_n; ++r) {
         const ParkedSend p = _parked_sends[r];
         if (p.key_hash32 == key_hash32) {
             if (p.is_redirect) {
                 if (resolved_id == _node_id) {
-                    l2c_confirmed_collision(key_hash32);                 // proven same-id collision -> heal (NOT forward-to-self)
+                    // Proven same-id collision (the owner of want_hash holds OUR id). DEFER the heal to AFTER
+                    // the loop: l2c_confirmed_collision -> forced_rejoin mutates _node_id, and running it here
+                    // would corrupt a sibling parked entry processed later in this same loop. The DM is dropped
+                    // (forwarding-to-self loops); the sender's retry recovers it once the heal converges.
+                    heal = true;
                 } else {
                     MR_TELEMETRY(
                         EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = resolved_id },
                                            { .key = "origin", .type = EventField::T::i64, .i = p.origin },
                                            { .key = "ctr",    .type = EventField::T::i64, .i = p.ctr } };
                         _hal.emit("l2c_redirect_forward", f, 3); );      // recipient moved (stale binding) -> forward, no heal
-                    l2c_enqueue_forward(resolved_id, p.origin, p.ctr, p.ctr_lo, p.flags,
-                                        p.previous_hop, p.fwd_remaining, p.fwd_committed, p.body, p.body_len);
+                    l2c_enqueue_forward(resolved_id, p.origin, p.ctr, p.ctr_lo, p.flags, p.body, p.body_len);
                 }
             } else {
                 MR_TELEMETRY(
@@ -454,6 +461,7 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id) {
         _parked_sends[w++] = p;
     }
     _parked_sends_n = w;
+    if (heal) l2c_confirmed_collision(key_hash32);               // AFTER the loop -> forced_rejoin can't corrupt siblings
 }
 
 // Re-drain parked sends whose hash has SINCE gained an AUTHORITATIVE binding from a source other than the
@@ -476,7 +484,7 @@ void Node::drain_resolved_parked_sends() {
                                        { .key = "ctr",    .type = EventField::T::i64, .i = p.ctr } };
                     _hal.emit("l2c_redirect_forward", f, 3); );
                 l2c_enqueue_forward(static_cast<uint8_t>(id), p.origin, p.ctr, p.ctr_lo, p.flags,
-                                    p.previous_hop, p.fwd_remaining, p.fwd_committed, p.body, p.body_len);
+                                    p.body, p.body_len);
             } else {
                 MR_TELEMETRY(
                     EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(p.key_hash32) },

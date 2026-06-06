@@ -295,66 +295,83 @@ void Node::l2c_mark_redirected(uint32_t want_hash) {
     _l2c_redirect[o] = { want_hash, now };
 }
 void Node::l2c_handle_misdelivery(const PostAck& pa, uint32_t want_hash) {
-    // ONE action-set per (hash) per window (anti-flood, mirrors L2a's mediated_recently): a sender's queued
-    // DMs to a colliding id must NOT trigger one redirect/query flood per DM. The telemetry fires on EVERY
-    // misdelivery regardless; the suppressed copies are dropped (the sender retries once routing converges).
-    const bool act = !l2c_redirected_recently(want_hash);
     MR_TELEMETRY(
-        EventField f[] = { { .key = "node",       .type = EventField::T::i64,     .i = _node_id },
-                           { .key = "origin",     .type = EventField::T::i64,     .i = pa.origin },
-                           { .key = "ctr",        .type = EventField::T::i64,     .i = pa.ctr },
-                           { .key = "want_hash",  .type = EventField::T::i64,     .i = static_cast<int64_t>(want_hash) },
-                           { .key = "suppressed", .type = EventField::T::boolean, .b = !act } };
-        _hal.emit("l2c_misdelivery", f, 5); );
-    if (!act) { become_free(); return; }                                  // already handled this collision recently
-    l2c_mark_redirected(want_hash);
+        EventField f[] = { { .key = "node",       .type = EventField::T::i64, .i = _node_id },
+                           { .key = "origin",     .type = EventField::T::i64, .i = pa.origin },
+                           { .key = "ctr",        .type = EventField::T::i64, .i = pa.ctr },
+                           { .key = "want_hash",  .type = EventField::T::i64, .i = static_cast<int64_t>(want_hash) } };
+        _hal.emit("l2c_misdelivery", f, 4); );
     // REDIRECT — FORWARD the DM toward want_hash's real owner WITHOUT re-originating: the full inner (incl.
     // DST_HASH) + origin/ctr/flags ride through unchanged, so sender attribution, the E2E-ack target, and the
-    // (origin,ctr) dedup all stay intact (a re-`send` would corrupt all three — that was the review's #1 bug).
-    // If we already hold a fresh AUTHORITATIVE owner binding (and it isn't us), forward now. Otherwise PARK
-    // the DM + flood a HARD H: the resolution decides forward-vs-heal — want_hash resolving back to OUR id is
-    // a CONFIRMED same-id collision (heal), any other id means the recipient just moved (forward, no renumber).
-    // The HEAL is therefore confirmation-gated in drain_parked_sends, never blind here (design §7.1).
+    // (origin,ctr) dedup all stay intact (a re-`send` would corrupt all three — the review's #1 bug). The leg
+    // is re-budgeted from OUR route to the owner (l2c_enqueue_forward, originator-style), NOT inherited from the
+    // inbound DM (whose remainder is irrelevant / may have arrived exhausted — the review's hop-budget bug).
+    //
+    // If we hold a fresh AUTHORITATIVE owner binding (and it isn't us), forward NOW — floodless, so it is NOT
+    // suppression-gated (every queued DM should reach the owner). Otherwise PARK + flood a HARD H; THAT path is
+    // anti-flood-gated (one flood per hash per window). The resolution decides forward-vs-heal — want_hash back
+    // to OUR id is a CONFIRMED same-id collision (heal), any other id means the recipient moved (forward, no
+    // renumber). The HEAL is therefore confirmation-gated in drain_parked_sends, never blind here (design §7.1).
     IdBindConf conf = IdBindConf::claimed;
     const int rid = id_bind_find_by_hash(want_hash, &conf);
     if (rid >= 0 && conf == IdBindConf::authoritative && static_cast<uint8_t>(rid) != _node_id) {
-        l2c_enqueue_forward(static_cast<uint8_t>(rid), pa.origin, pa.ctr, pa.ctr_lo, pa.flags,
-                            pa.previous_hop, pa.fwd_remaining, pa.fwd_committed, pa.inner, pa.inner_len);
+        l2c_enqueue_forward(static_cast<uint8_t>(rid), pa.origin, pa.ctr, pa.ctr_lo, pa.flags, pa.inner, pa.inner_len);
         MR_TELEMETRY(
             EventField f[] = { { .key = "origin", .type = EventField::T::i64, .i = pa.origin },
                                { .key = "ctr",    .type = EventField::T::i64, .i = pa.ctr },
                                { .key = "to",     .type = EventField::T::i64, .i = rid } };
             _hal.emit("l2c_redirect_forward", f, 3); );
-    } else {
-        l2c_park_redirect(want_hash, pa);                                 // hold the DM for forward/heal-on-resolution
-        emit_hash_query(want_hash, /*hard=*/true);                        // owner-authoritative resolution = the discriminator
+        return;                                                           // l2c_enqueue_forward kicked the queue
+    }
+    if (l2c_redirected_recently(want_hash)) {                            // suppress only the PARK+flood path (anti-flood)
         MR_TELEMETRY(
             EventField f[] = { { .key = "want_hash", .type = EventField::T::i64, .i = static_cast<int64_t>(want_hash) } };
-            _hal.emit("l2c_redirect_query", f, 1); );
+            _hal.emit("l2c_redirect_suppressed", f, 1); );
+        become_free();
+        return;
     }
-    become_free();                                                        // resume the queue (issue the forward / next item)
-}
-
-// Build + enqueue a fresh routing leg that carries an EXISTING DM (origin/ctr/inner preserved) to `to_id` —
-// the L2c identity-preserving forward (used both on an immediate resolve and on a parked-redirect drain).
-void Node::l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint8_t ctr_lo, uint8_t flags,
-                               uint8_t prev_hop, uint8_t fwd_remaining, uint8_t fwd_committed,
-                               const uint8_t* inner, uint8_t inner_len) {
-    TxItem it{};
-    it.origin = origin; it.dst = to_id; it.ctr = ctr; it.ctr_lo = ctr_lo; it.flags = flags;
-    it.is_forward = true; it.previous_hop = prev_hop;
-    it.inner_len = (inner_len > protocol::max_payload_bytes_hard_cap) ? protocol::max_payload_bytes_hard_cap : inner_len;
-    for (uint8_t i = 0; i < it.inner_len; ++i) it.inner[i] = inner[i];
-    it.fwd_remaining = fwd_remaining; it.fwd_committed = fwd_committed;
-    it.enqueue_time_ms = _hal.now();
-    if (_tx_queue_n < kTxQueueCap) _tx_queue[_tx_queue_n++] = it;
+    l2c_mark_redirected(want_hash);
+    l2c_park_redirect(want_hash, pa);                                     // hold the DM for forward/heal-on-resolution
+    emit_hash_query(want_hash, /*hard=*/true);                           // owner-authoritative resolution = the discriminator
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "want_hash", .type = EventField::T::i64, .i = static_cast<int64_t>(want_hash) } };
+        _hal.emit("l2c_redirect_query", f, 1); );
     become_free();
 }
 
+// Build + enqueue a fresh routing leg that carries an EXISTING DM (origin/ctr/inner preserved) to `to_id`. It
+// is an ORIGINATOR-style leg (is_forward=false): do_data_tx re-budgets the hop count from OUR rt to `to_id`
+// (NOT the inbound DM's remainder) and applies no previous_hop exclusion — the redirect goes to a DIFFERENT
+// destination, so neither the old budget nor the old upstream-loop guard applies. Identity rides in
+// origin/ctr/inner. Returns false (and emits) if the tx queue is full so the drop is never silent.
+bool Node::l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint8_t ctr_lo, uint8_t flags,
+                               const uint8_t* inner, uint8_t inner_len) {
+    if (_tx_queue_n >= kTxQueueCap) {
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = to_id },
+                               { .key = "origin", .type = EventField::T::i64, .i = origin },
+                               { .key = "ctr",    .type = EventField::T::i64, .i = ctr } };
+            _hal.emit("l2c_redirect_dropped_queue_full", f, 3); );
+        return false;
+    }
+    TxItem it{};
+    it.origin = origin; it.dst = to_id; it.ctr = ctr; it.ctr_lo = ctr_lo; it.flags = flags;
+    it.is_forward = false;                                                // originator-style: fresh rt-derived budget, no prev-hop exclusion
+    it.inner_len = (inner_len > protocol::max_payload_bytes_hard_cap) ? protocol::max_payload_bytes_hard_cap : inner_len;
+    for (uint8_t i = 0; i < it.inner_len; ++i) it.inner[i] = inner[i];
+    it.enqueue_time_ms = _hal.now();
+    _tx_queue[_tx_queue_n++] = it;
+    become_free();
+    return true;
+}
+
 // The HARD-H resolution proved want_hash's owner holds OUR node_id => a genuine same-id collision (not a
-// stale sender binding). Heal by the §6 key-only tiebreak: lower key keeps + DENYs the squatter; higher
-// yields. Renumber only fires for a DAD-joined node (forced_rejoin's `!_joined` guard) — a cfg/NV-provisioned
-// id is operator-owned, surfaced (collision_confirmed healed=false) rather than auto-reassigned.
+// stale sender binding). Called AFTER the drain loop (NOT mid-loop) so forced_rejoin's identity mutation can't
+// corrupt a sibling parked entry. Heal by the §6 key-only tiebreak: lower key keeps + DENYs the squatter;
+// higher yields. Renumber only fires for a DAD-joined node (forced_rejoin's `!_joined` guard) — a cfg/NV-
+// provisioned id is operator-owned, surfaced (collision_confirmed healed=false) rather than auto-reassigned.
+// The DM that exposed the collision was dropped at the drain (forwarding-to-self loops); it is recovered by
+// the sender's retry once the heal converges (consistent with the in-window-drop residual, design §7.1).
 void Node::l2c_confirmed_collision(uint32_t want_hash) {
     const bool i_win = join_tiebreak_wins(0, _key_hash32, 0, want_hash);
     MR_TELEMETRY(

@@ -341,10 +341,9 @@ private:
     // back to OUR own id (a proven same-id collision) — see design §7.1.
     void    l2c_handle_misdelivery(const PostAck& pa, uint32_t want_hash);
     void    l2c_park_redirect(uint32_t want_hash, const PostAck& pa);                 // hold a misdelivered DM for forward-on-resolution
-    void    l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint8_t ctr_lo, uint8_t flags,
-                                uint8_t prev_hop, uint8_t fwd_remaining, uint8_t fwd_committed,
-                                const uint8_t* inner, uint8_t inner_len);             // a fresh routing leg, identity preserved
-    void    l2c_confirmed_collision(uint32_t want_hash);                              // HARD-H resolved want_hash->our id => key-only heal
+    bool    l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint8_t ctr_lo, uint8_t flags,
+                                const uint8_t* inner, uint8_t inner_len);             // fresh ORIGINATOR-budget leg, identity preserved; false = dropped (queue full)
+    void    l2c_confirmed_collision(uint32_t want_hash);                              // HARD-H resolved want_hash->our id => key-only heal (called AFTER the drain loop)
     bool    l2c_redirected_recently(uint32_t want_hash);         // one redirect action per hash per window (anti-flood)
     void    l2c_mark_redirected(uint32_t want_hash);
     // node_id auto-assignment (DAD + heal) — node_join.cpp.
@@ -573,11 +572,11 @@ private:
     uint8_t       _hash_query_seen_n = 0;
     // send-by-hash DMs parked awaiting a hash-bind resolution (D); drained by on_hash_bind_response, aged on the timer.
     // is_redirect=true => an L2c misdelivered DM held for FORWARD (not re-send): `body`=the full inner (incl.
-    // DST_HASH), and origin/ctr/ctr_lo/previous_hop/fwd_* are preserved so the resolution forwards it
-    // identity-intact. resolved_id==our id at drain = a CONFIRMED collision (the heal trigger, design §7.1).
+    // DST_HASH), and origin/ctr/ctr_lo are preserved so the resolution forwards it identity-intact. The redirect
+    // leg is re-budgeted as a fresh route (originator-style), so no hop fields are carried. resolved_id==our id
+    // at drain = a CONFIRMED collision (the heal trigger, design §7.1).
     struct ParkedSend { uint32_t key_hash32; uint64_t parked_at_ms; uint8_t flags; uint8_t body_len;
                         bool is_redirect = false; uint8_t origin = 0; uint16_t ctr = 0; uint8_t ctr_lo = 0;
-                        uint8_t previous_hop = 0; uint8_t fwd_remaining = 0; uint8_t fwd_committed = 0;
                         uint8_t body[protocol::max_payload_bytes_hard_cap]; };
     ParkedSend _parked_sends[protocol::cap_parked_sends] = {};
     uint8_t    _parked_sends_n = 0;

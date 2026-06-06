@@ -414,7 +414,12 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     _post_ack.inner_len = static_cast<uint8_t>(inner.size() <= protocol::max_payload_bytes_hard_cap
                                                ? inner.size() : protocol::max_payload_bytes_hard_cap);
     for (uint8_t i = 0; i < _post_ack.inner_len; ++i) _post_ack.inner[i] = inner[i];
-    _post_ack.fwd_remaining = static_cast<uint8_t>(hb_new_remaining);   // >=0 here (exhaustion returned above)
+    // Clamp the underflow: the exhaustion NACK that guarantees hb_new_remaining>=0 only fires for a FORWARD
+    // (d.dst != self, line above) — the DELIVERY case (d.dst==self) is exempt, so a DM that arrived AT us with
+    // hops_remaining==0 leaves hb_new_remaining==-1. That value is dead for a plain deliver, but an L2c
+    // misdelivery re-forwards from the delivery case, so -1 -> uint8_t 255 (saturating to the 31 max) must not
+    // leak into a budget. (L2c re-budgets its leg from rt anyway; this is belt-and-suspenders.)
+    _post_ack.fwd_remaining = static_cast<uint8_t>(hb_new_remaining < 0 ? 0 : hb_new_remaining);
     _post_ack.fwd_committed = hb_new_committed;                         // carried into the forward TxItem
     (void)_hal.after(airtime_routing_ms(3) + 1, kPostAckTimerId);
 }
