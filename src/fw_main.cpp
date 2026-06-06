@@ -54,6 +54,7 @@ static bool     g_radio_ok = false;   // SX1262 std_init result — surfaced in 
 static uint32_t g_rx_count = 0;       // frames received (status diagnostic)
 static double   g_freq_mhz = LORA_FREQ;   // live operating freq (compile default; Slice-2 NV will override at boot)
 static int8_t   g_tx_power = LORA_TX_POWER;   // live TX power (dBm); NV `cfg set tx_power` overrides at boot
+static uint8_t  g_persist_id = 0, g_persist_epoch = 0, g_persist_join = 0;   // last DAD lease state written to NV (change-detect)
 
 // ---- device-console diagnostics (host tool: tools/meshroute_client.py) ---------------------------
 // Print the live routing table in the meshroute_client `routes` wire format.
@@ -199,7 +200,7 @@ static void handle_cfg_set(const char* args) {
     if      (!strcmp(key, "node_id")) {
         const int v = atoi(val);
         if (v < 0 || v > 254) { Serial.println(F("> cfg err bad_value (node_id 0..254; 0=unprovisioned)")); return; }
-        b.node_id = (uint8_t)v; live = false;
+        b.node_id = (uint8_t)v; b.joined = 0; live = false;        // operator-pinned id -> NOT DAD-adopted (won't auto-yield)
     }
     else if (!strcmp(key, "freq"))                                     { b.freq_mhz = atof(val);                reconfig = true; }
     else if (!strcmp(key, "routing_sf") || !strcmp(key, "control_sf")) { b.routing_sf = (uint8_t)atoi(val);    reconfig = true; }
@@ -307,6 +308,10 @@ void setup() {
     }
     meshroute::identity_from_seed(g_identity, idb.seed);        // key_hash32 = ed_pub[:4]
     g_node.set_identity(node_id, g_identity.key_hash32);        // node_id 0 stays unprovisioned -> do_send refused
+    // node_id DAD: restore the persisted lease state so a reboot KEEPS its id + tiebreak seniority (NV blob v4).
+    g_node.restore_join_state(nv.claim_epoch, (node_id != 0) && (nv.joined != 0));
+    g_persist_id = node_id; g_persist_epoch = nv.claim_epoch;        // prime the persist tracker -> no spurious boot write
+    g_persist_join = ((node_id != 0) && (nv.joined != 0)) ? 1 : 0;
     print_identity(idb);                                        // key_hash32 (hex) + name
     Serial.print(F("  node id   = ")); Serial.print(node_id);
     Serial.println(node_id == 0 ? F("  (UNPROVISIONED: cfg set node_id <1..254> + reboot, or join)") : F(""));
@@ -333,6 +338,13 @@ void setup() {
     g_hal.seed_rng((uint32_t)millis() ^ (g_node.key_hash32() * 2654435761u));
 
     g_node.on_init(cfg);
+    // node_id DAD auto-join: an UNPROVISIONED node (no persisted id) self-assigns one via the claim state
+    // machine. A node that rebooted WITH a persisted id skips this — it already owns it (restored above).
+    if (node_id == 0) {
+        meshroute::Command jc{}; jc.kind = meshroute::CmdKind::join;
+        g_node.on_command(jc);
+        Serial.println(F("  join      = auto-DAD started (unprovisioned)"));
+    }
     Serial.println(F("  node      = up. Type: send <id> <text>  |  routes | cfg | cfg set <k> <v> | status | reboot"));
 }
 
@@ -362,6 +374,25 @@ static void service_console() {
             line[pos++] = c;
         }
     }
+}
+
+// node_id DAD: persist the lease state (node_id + claim_epoch + joined) to /mrcfg WHEN it changes (adopt /
+// epoch bump / forced rejoin), so a reboot keeps its id + seniority. Load-modify-save so the config fields
+// (set via `cfg set`) are preserved. Cheap on the no-change path (3 compares); a flash write only on change.
+static void persist_join_if_changed() {
+    const uint8_t id = g_node.node_id(), ep = g_node.claim_epoch(), jn = g_node.joined() ? 1 : 0;
+    if (id == g_persist_id && ep == g_persist_epoch && jn == g_persist_join) return;
+    mrnv::Blob b{};
+    if (!mrnv::load(b)) {                                            // no blob yet -> seed from live config
+        const meshroute::NodeConfig& nc = g_node.config();
+        b.freq_mhz = g_freq_mhz;        b.bw_hz = nc.radio_bw_hz;   b.beacon_ms = nc.beacon_period_ms;
+        b.duty = nc.duty_cycle;         b.allowed_sf_bitmap = nc.allowed_sf_bitmap;
+        b.routing_sf = nc.routing_sf;   b.data_sf = nc.data_sf;     b.cr = nc.radio_cr;
+        b.lbt = nc.lbt_enabled ? 1 : 0; b.tx_power = g_tx_power;
+    }
+    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
+    b.node_id = id; b.claim_epoch = ep; b.joined = jn;
+    if (mrnv::save(b)) { g_persist_id = id; g_persist_epoch = ep; g_persist_join = jn; }
 }
 
 void loop() {
@@ -402,6 +433,9 @@ void loop() {
 
     // 4) Console input -> commands.
     service_console();
+
+    // 4b) Persist the DAD lease state if it changed this iteration (adopt / epoch bump / forced rejoin).
+    persist_join_if_changed();
 
     // 5) Heartbeat — bring-up liveness so the console is never silent (a lone node prints nothing
     //    otherwise, and the one-time boot banner is lost across the USB re-enumeration on reset).

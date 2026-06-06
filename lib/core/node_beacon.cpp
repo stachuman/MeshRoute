@@ -200,7 +200,14 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (!parsed) return;
     const beacon_out& b = *parsed;
     if (b.leaf_id != _cfg.leaf_id) return;                // single-layer filter (R1)
-    if (b.src == _node_id) return;                        // ignore our own echo
+    if (b.src == _node_id) {                              // beacon carrying OUR short id...
+        if (b.key_hash32 == _key_hash32) return;          // ...and our hash -> a true self-echo; drop
+        // ...but a DIFFERENT hash -> an ADDRESS COLLISION (node_id DAD §7). The old guard swallowed this.
+        // Defend our id: a J_DENY(OWN_ID_DEFENSE) carrying our claim_epoch makes the impostor run the
+        // §6 tiebreak in its DENY handler and yield if it loses. Do NOT record the impostor's binding.
+        if (_node_id != 0) addr_conflict_send_deny(_node_id, _key_hash32, b.key_hash32, J_DENY_OWN_ID_DEFENSE);
+        return;
+    }
 
     // R4.3 max-idle witness — set AFTER the parse/leaf/self-echo guards (Lua dv:9559), NOT at the on_recv
     // dispatch top: a foreign-leaf or unparseable B-frame must NOT update it, or the max-idle B+C (and hence

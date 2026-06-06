@@ -20,7 +20,8 @@ namespace mrnv {
 struct Blob {                  // packed-ish POD; written/read verbatim. Bump kVersion on any layout change.
     uint32_t magic;            // kMagic — distinguishes a real blob from erased flash
     uint16_t version;          // kVersion — a mismatch => ignore (use defaults)
-    uint16_t _pad;
+    uint8_t  claim_epoch;      // node_id DAD: the static tiebreak key, persisted so a reboot keeps its seniority (was _pad hi)
+    uint8_t  joined;           // node_id DAD: 1 = node_id was DAD-adopted (defends + yields) vs cfg-pinned (was _pad lo)
     double   freq_mhz;
     uint32_t bw_hz;
     uint32_t beacon_ms;
@@ -34,7 +35,9 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     int8_t   tx_power;         // dBm (repurposed _pad2); SX1262 range -9..22. `cfg set tx_power`
 };
 constexpr uint32_t kMagic   = 0x4D524331u;   // 'MRC1'
-constexpr uint16_t kVersion = 3;             // tx_power (was _pad2); load() ALSO accepts v2 (identical
+constexpr uint16_t kVersion = 4;             // v4: claim_epoch + joined repurpose the old _pad (SAME size, so v2/v3
+                                             // blobs still parse — their _pad was 0 -> claim_epoch=0, joined=0).
+                                             // tx_power (was _pad2); load() ALSO accepts v2 (identical
                                              // layout) + defaults tx_power, so the bump preserves config
 
 // ---- Identity record (`/mrid`) — SEPARATE from the config blob above (spec §1.4). The 32-byte master
@@ -66,7 +69,7 @@ inline bool load(Blob& out) {
     if (!f.open("/mrcfg", FILE_O_READ)) return false;
     const int n = f.read(reinterpret_cast<uint8_t*>(&out), sizeof(out));
     f.close();
-    return n == static_cast<int>(sizeof(out)) && out.magic == kMagic && (out.version == kVersion || out.version == 2);
+    return n == static_cast<int>(sizeof(out)) && out.magic == kMagic && (out.version >= 2 && out.version <= kVersion);
 }
 inline bool save(const Blob& b) {
     using namespace Adafruit_LittleFS_Namespace;
@@ -106,7 +109,7 @@ inline bool load(Blob& out) {
     if (!p.begin("mr", /*readOnly=*/true)) return false;
     const size_t n = p.getBytes("cfg", &out, sizeof(out));
     p.end();
-    return n == sizeof(out) && out.magic == kMagic && (out.version == kVersion || out.version == 2);
+    return n == sizeof(out) && out.magic == kMagic && (out.version >= 2 && out.version <= kVersion);
 }
 inline bool save(const Blob& b) {
     Preferences p;

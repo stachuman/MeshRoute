@@ -242,6 +242,11 @@ public:
     bool              channel_has(uint32_t id) const { return channel_buffer_find(id) >= 0; }
     // ---- id_bind (hash-locate substrate) inspection: tests + the H resolver drive these.
     uint16_t          id_bind_count() const { return _id_bind_n; }
+    bool              joined()        const { return _joined; }        // DAD: adopted a node_id (test/app accessor)
+    uint8_t           claim_epoch()   const { return _claim_epoch; }
+    void              restore_join_state(uint8_t claim_epoch, bool joined) { _claim_epoch = claim_epoch; _joined = joined; }  // boot: reload persisted DAD state (NV)
+    // §6 DAD tiebreak (pure): higher claim_epoch wins; tie -> lower key_hash32 wins. Public for the convergence test.
+    static bool       join_tiebreak_wins(uint8_t my_epoch, uint32_t my_key, uint8_t their_epoch, uint32_t their_key);
     int               id_bind_find_by_hash(uint32_t key_hash32, IdBindConf* conf_out = nullptr);   // -> node_id, or -1 (skips expired); opt. out: the binding's confidence (soft/hard resolve)
     void              on_hash_bind_response(const uint8_t* inner, uint8_t inner_len);   // C.1: the origin consumed an H_ANSWER DATA -> cache (h_query) + drain. public = the deliver seam + test driver
     void              on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len);      // C.2: a forwarder snooped an H_ANSWER in transit -> cache-on-pass (h_relay). public = the relay seam + test driver
@@ -286,6 +291,8 @@ private:
     static constexpr uint8_t  kChannelPullSlots        = protocol::cap_channel_pull_pending;
     static constexpr uint32_t kMBcastClearTimerId      = 56;  // M-broadcast fire-and-forget: clear pending_tx after the DATA-M airtime (no ACK)
     static constexpr uint32_t kOverhearRetuneTimerId   = 57;  // overhear ARM: retune RX back to routing_sf after the DATA-M window
+    static constexpr uint32_t kJoinClaimGuardTimerId   = 58;  // node_id DAD: claim guard window -> adopt-or-deny
+    static constexpr uint32_t kJoinRetryTimerId        = 59;  // node_id DAD: jittered re-claim after a lost claim/heal
 
     // ---- beacon emit / ingest ----------------------------------------------
     void emit_beacon(const char* kind);                            // "periodic" | "triggered"
@@ -326,6 +333,17 @@ private:
     void    drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id);   // a binding arrived -> fly the parked DMs to it
     void    drain_resolved_parked_sends();                       // beacon-tick re-drain: any parked hash now authoritatively bound
     void    age_out_parked_sends();                              // give up on parked sends past send_defer_ttl_ms
+    // node_id auto-assignment (DAD + heal) — node_join.cpp.
+    int     join_choose_candidate_id();                          // prefer previous id, else a random free slot (-1 = leaf full)
+    bool    join_start_claim(const char* reason);                // pick a candidate, bump epoch, broadcast J_CLAIM, arm the guard
+    void    join_claim_guard_fire();                             // kJoinClaimGuardTimerId: adopt (no objection) or deny+retry
+    void    join_adopt(uint8_t node_id);                         // set_identity + joined + self-bind + beacon
+    void    handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta);   // J RX dispatch (CLAIM/DENY; DISCOVER/OFFER later)
+    void    addr_conflict_send_deny(uint8_t node_id, uint32_t owner_key, uint32_t claimant_key, uint8_t reason);  // owner defends its id
+    void    forced_rejoin(const char* reason);                   // lost the heal tiebreak -> yield id + re-claim
+    void    join_deny_id(uint8_t id);                            // add to the denied list (1-day TTL)
+    bool    join_id_denied(uint8_t id) const;                    // is this id currently denied (not expired)?
+    void    age_out_denied_ids();                                // drop denied entries past dad_denied_id_ttl_ms
     // Q REQ_SYNC plane (boot route-bootstrap) — node_query.cpp.
     void    req_sync_loop_fire();                                  // kReqSyncTimerId: send + re-arm while discovery+starved (dv:9167)
     void    send_req_sync_q(const char* reason);                   // broadcast a REQ_SYNC Q (no draw; dv:8032)
@@ -541,6 +559,14 @@ private:
                         uint8_t body[protocol::max_payload_bytes_hard_cap]; };
     ParkedSend _parked_sends[protocol::cap_parked_sends] = {};
     uint8_t    _parked_sends_n = 0;
+    // node_id auto-assignment (DAD + heal) — node_join.cpp; design 2026-06-05-node-id-auto-assignment-design.md.
+    bool     _joined = false;                                    // adopted a node_id via DAD (vs cfg/NV-provisioned)
+    uint8_t  _claim_epoch = 0;                                   // bumped per claim, the static seniority tiebreak key (§6)
+    struct JoinClaim { bool active; uint8_t proposed; uint32_t key_hash32; uint8_t claim_epoch; uint8_t nonce; uint64_t started_ms; };
+    JoinClaim _join_claim{};                                     // the single in-flight claim (active=false when none)
+    struct DeniedId { uint8_t id; uint64_t denied_at_ms; };      // a slot that lost a claim/heal (§13: 1-day TTL)
+    DeniedId _join_denied[protocol::cap_join_denied] = {};
+    uint8_t  _join_denied_n = 0;
     // Q REQ_SYNC plane state (node_query.cpp). _last_req_sync_tx_ms rate-limits the originator (dv:8035);
     // _q_responded is the responder dedup ring (key opcode|src|dest, ttl q_respond_ttl_ms) — Lua refuses on
     // cap-full, we evict-oldest (matches the F-dedup idiom; equivalent below cap, robust for a long-running

@@ -105,6 +105,7 @@ void Node::on_timer(uint32_t timer_id) {
         age_out_stale_routes();
         id_bind_age_out();            // hash-locate A0: drop expired bindings on the same periodic sweep
         age_out_parked_sends();       // hash-locate D: give up on DMs whose hash never resolved
+        age_out_denied_ids();         // node_id DAD: a denied slot becomes reusable after dad_denied_id_ttl_ms
         (void)_hal.after(_cfg.rt_aging_check_period_ms, kAgingTimerId);
         break;
     case kTriggeredBeaconTimerId:
@@ -125,6 +126,8 @@ void Node::on_timer(uint32_t timer_id) {
         if (_pending_tx && _pending_tx->m_broadcast) { _pending_tx.reset(); become_free(); }
         break;
     case kOverhearRetuneTimerId:  _hal.set_rx_sf(_cfg.routing_sf);  break;   // overhear ARM: retune RX back to routing_sf
+    case kJoinClaimGuardTimerId:  join_claim_guard_fire();         break;   // node_id DAD: guard elapsed -> adopt-or-deny
+    case kJoinRetryTimerId:       join_start_claim("retry");       break;   // node_id DAD: re-claim after a lost claim/heal
     case kCascadeRequeueTimerId:  become_free();           break;   // backoff elapsed -> drain the requeued flight
     case kRtsDutyDeferTimerId:    rts_duty_defer_fire();   break;   // #A redo: over-budget RTS duty-defer re-check/hand
     case kNackWaitTimerId:                                          // BUSY_RX wait elapsed -> re-RTS SAME hop
@@ -169,6 +172,7 @@ void Node::on_recv(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         case wire::Cmd::F: handle_f  (bytes, len, meta); break;     // F route-find RREQ/RREP flood
         case wire::Cmd::Q: handle_q  (bytes, len, meta); break;     // Q REQ_SYNC route-bootstrap (-> jittered sync beacon)
         case wire::Cmd::H: handle_h  (bytes, len, meta); break;     // H hash-locate flood (key_hash32 -> node_id)
+        case wire::Cmd::J: handle_j  (bytes, len, meta); break;     // J node_id DAD (CLAIM/DENY -> claim/heal)
         default: break;                                              // rest ignored
     }
 }
@@ -197,8 +201,13 @@ CmdResult Node::on_command(const Command& c) {
             const uint16_t ctr = do_send_channel(c.u.channel.channel_id, c.body, c.body_len);
             return CmdResult{ CmdCode::queued, ctr, _tx_queue_n };   // buffered dirty -> advertised next BCN -> pulled
         }
+        case CmdKind::join: {        // node_id DAD: kick off a claim (the design's join = beacon-listen + DAD;
+                                     // the typed op is advisory for now). Idempotent once joined.
+            if (_joined) return CmdResult{ CmdCode::queued, 0, _tx_queue_n };
+            const bool started = join_start_claim("command");
+            return CmdResult{ started ? CmdCode::queued : CmdCode::err_no_binding, 0, _tx_queue_n };
+        }
         case CmdKind::send_layer:    // cross-layer  -> R7
-        case CmdKind::join:          // address-assign -> later
         default:
             return CmdResult{ CmdCode::err_unsupported, 0, _tx_queue_n };
     }

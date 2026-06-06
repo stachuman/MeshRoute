@@ -164,6 +164,27 @@ never a claimed/snooped rumor — which falls out, since beacon ingest is first-
 `id_bind_set`, so a peer's beacon never rewrites our own identity row via the authoritative-overwrite
 path (`node_hashlocate.cpp:66`).
 
+### 7.1 Scope of the heal guarantee — KNOWN LIMITS (as built 2026-06-06)
+The guarantee is **NOT "every collision, anywhere."** What converges:
+- **Claim-time collisions** (two joiners pick the same id while claiming) — the simultaneous-claim
+  tiebreak in `handle_j` CLAIM (sim-gated, `t92`).
+- **Direct-neighbour adopted collisions** — two same-id owners that hear *each other's* beacons/DENYs
+  (unit-tested).
+
+What does **not** heal yet:
+- **Multi-hop collisions.** Two same-id nodes **≥2 hops apart** that share a common neighbour: J/DENY
+  and beacons are single-hop here, so the two owners never hear each other — the shared neighbour just
+  sees a **flapping `id_bind`** (each beacon overwrites the other), no heal. Closing this needs the heal
+  to propagate (a forwarded DENY or an id-keyed probe) — **deferred; decide third-party-heal vs
+  explicitly scoping the guarantee to single-hop.**
+- **`[LANDMINE — documented]` case-(b) third-party DENY carries the wrong epoch.** When a node denies a
+  CLAIM that conflicts with a binding it learned *second-hand* (the contested id is **not its own**), it
+  sends the DENY with **its own `claim_epoch`**, not the real owner's (whose epoch it doesn't hold).
+  Harmless **today** — such a DENY only reaches an *unjoined* claimant, which backs off on the *binding*
+  (the `id_bind` conflict), not on the epoch comparison — but it is a latent correctness landmine if the
+  heal logic ever starts trusting a third-party DENY's epoch. A real fix carries the owner's epoch in
+  `id_bind`, or restricts DENY-with-epoch to the actual owner.
+
 ---
 
 ## 8. Exhaustion (254 slots)
@@ -193,12 +214,38 @@ on a timer." A node that loses NV just re-runs DAD from scratch (re-derives iden
   cross-partition beacon triggers the heal → the static tiebreak picks one survivor → the other
   renumbers once. No flap (static comparison); upper layers re-bind by `key_hash32`.
 
-**Liveness:** every collision is detected within ~one beacon period of contact and resolved in one
+**Liveness (scoped to §7.1):** a **single-hop** collision is detected within ~one beacon period of contact and resolved in one
 DENY round-trip; the loser's `denied_ids` prevents immediately re-picking the contested id.
 
 ---
 
-## 11. C++ port plan
+## 11. C++ port plan — **CORE LANDED 2026-06-06**
+
+**Built:** `lib/core/node_join.cpp` (the §6 tiebreak, candidate selection + denied-list aging, claim→guard→
+adopt, `handle_j` CLAIM/DENY, `forced_rejoin`, `addr_conflict_send_deny`), the `node_beacon.cpp` self-echo-
+guard fix (the heal detector), `on_command(join)` / `on_recv` J dispatch / `on_timer` (guard + retry) /
+the denied-id aging hook, the constants (`dad_claim_guard_ms`=20 s etc.), the sim `join` command +
+the unprovisioned-`node_id`-0 duplicate-exemption. Verified: native **218/218** (+7 `test_node_join.cpp`:
+tiebreak, candidate, claim→adopt, guard-objection, CLAIM→deny, DENY→forced_rejoin win/lose, beacon-
+collision defense), 6 MAC gates + channel/discovery green, XIAO+Heltec green, full t-suite 80/86 (no new
+regressions), sim happy-path gate `test/t91_node_id_dad_convergence.json`.
+**NV persistence + auto-join — DONE 2026-06-06 (device):** `/mrcfg` Blob v4 persists `claim_epoch` + a
+`joined` flag (repurposing the old `_pad`, same size so v2/v3 blobs still parse); `fw_main` restores them
+at boot (`restore_join_state`), **auto-DADs when unprovisioned** (`node_id==0`), and re-persists on any
+change (adopt / epoch bump / forced rejoin). So a reboot **keeps its id + tiebreak seniority**; a fresh
+node self-provisions. Bench-verified by the user (flash). The spec §3 soft-self-`H` rejoin (recover the id
+from a neighbour's cache when NV is lost) is **not yet coded** — NV-loss currently re-runs DAD for a fresh
+id, which is the correct fallback.
+
+**Forced-collision heal — sim-gated:** `test/t92_node_id_collision_heal.json` (seed-swept to force two
+nodes onto the same candidate → `simultaneous_claim_lost` + one re-picks → distinct ids).
+
+**Deferred:** `J_DISCOVER`/`J_OFFER` (the beacon-listen + Q-pull model doesn't need them yet); the
+multi-hop heal + third-party-DENY epoch fix (§7.1); the soft-self-`H` rejoin (§3). The **pure beacon-heal**
+(two long-adopted nodes meeting after a partition) stays unit-test-only — the sim has no dynamic link
+up/down to stage it.
+
+
 
 **Prerequisite (small):** the `node_beacon.cpp:203` self-echo-guard fix (§7) — without it the heal
 detector never fires. Ships with a focused gate (two nodes, same id, different seed → exactly one

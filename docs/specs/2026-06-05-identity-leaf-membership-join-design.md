@@ -284,15 +284,20 @@ sentinel, `0xFF` reserved — `node.cpp:28` panics on it).
    and re-announce:
    > **Static, symmetric comparison only** — both sides read the same wire-carried values
    > and reach the same verdict: an established-holder bias via the **static, wire-carried
-   > `claim_epoch`** (the holder with the senior claim keeps the id), then the **`key_hash32`
-   > as the final deterministic tiebreak** (lower `key_hash32` yields). **Live
+   > `claim_epoch`** (**higher** `claim_epoch` keeps the id), then the **`key_hash32`
+   > as the final deterministic tiebreak** (**lower `key_hash32` WINS / keeps; higher yields**
+   > — matches `Node::join_tiebreak_wins`, the authoritative implementation). **Live
    > `lease_age_seconds` is NOT a primary key** — it is time-varying and evaluated
    > asymmetrically by each side, which can produce mutual-yield/mutual-keep flapping; it
-   > stays informational at most. (The exact `claim_epoch` seniority direction is finalized
-   > in this §5.3 dedicated pass; the *structure* — static primary → `key_hash32` final, no
+   > stays informational at most. (Direction FINALIZED 2026-06-06: higher epoch wins, lower
+   > key wins; the *structure* — static primary → `key_hash32` final, no
    > live `lease_age` — is fixed.)
 
    Stable comparison ⇒ no flapping; upper layers re-bind by `key_hash32`.
+   - **SCOPE (as built):** the heal converges **single-hop** collisions (the two owners hear each
+     other) + claim-time collisions. **Multi-hop** collisions (same id ≥2 hops apart via a common
+     neighbour) do **not** heal yet, and a third-party DENY carries the wrong epoch — both are
+     documented in the node-id spec **§7.1**. The "exactly one renumbers" claim is scoped to those cases.
    - **[xcheck] Detection requires a beacon-guard fix — see §5.5.** Today
      `node_beacon.cpp:203` drops *any* beacon with `src == _node_id` as a self-echo, which
      **silently swallows this exact collision**. The guard must narrow to a *true* echo

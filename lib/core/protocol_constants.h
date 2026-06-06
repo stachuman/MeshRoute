@@ -210,6 +210,16 @@ inline constexpr uint16_t join_retry_backoff_ms         = 10000;
 inline constexpr uint32_t join_j_rate_limit_window_ms   = 300000;
 inline constexpr uint8_t  join_j_max_per_window         = 6;
 
+// ---- node_id auto-assignment (DAD + heal) — docs/specs/2026-06-05-node-id-auto-assignment-design.md.
+// DELIBERATE divergence from the Lua baseline (signed off 2026-06-06): the C++ DAD widens the claim guard
+// (3s -> 20s, headroom for an objection over a slow/lossy LoRa link) and uses a tiebreak of
+// claim_epoch -> key_hash32 (NOT the Lua's lease_age-first, which is provably non-convergent under wire
+// staleness — spec §6). lease_age stays on the wire as telemetry. Convergence > Lua-lockstep here.
+inline constexpr uint32_t dad_claim_guard_ms   = 20000;       // §13: wait this long for an objection before adopting
+inline constexpr uint32_t dad_denied_id_ttl_ms = 86400000;    // §13: a lost slot stays denied 1 day, then reusable
+inline constexpr uint8_t  cap_join_denied      = 16;          // bounded denied-id list (denials are rare; evict-oldest)
+inline constexpr uint8_t  unjoined_node_id     = 0;           // 0 = unprovisioned (do_send refused until adopt)
+
 // ---- Wire-format frame overhead (matches Lua DATA_HDR_LEN + DATA_INNER_OVERHEAD) ----
 // Lua CODE is authoritative: DATA_HDR_LEN = 8 + VISITED_LEN(6) = 14 (dv_dual_sf.lua:2904-2905);
 // DATA_INNER_OVERHEAD = 2 + MAC_LEN(4) = 6 (:2908); hard cap = 255-14-6 = 235 (:8637).
