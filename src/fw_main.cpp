@@ -103,6 +103,7 @@ static void dump_status() {
     Serial.print(F("[status] uptime_ms="));  Serial.print((uint32_t)g_hal.now());
     Serial.print(F(" rx="));                 Serial.print(g_rx_count);
     Serial.print(F(" tx="));                 Serial.print(g_iradio.tx_count());
+    Serial.print(F(" isr="));                Serial.print(g_iradio.isr_count());   // DIO1 edges — isr=0 ⇒ pin/mask; isr>0 & rx=0 ⇒ drain/re-arm
     Serial.print(F(" duty_ms="));            Serial.print((uint32_t)g_hal.airtime_used_ms(3600000));
     Serial.print(F(" routes="));             Serial.print(g_node.rt_count());
     Serial.print(F(" pending="));            Serial.println(g_node.has_pending_tx() ? 1 : 0);

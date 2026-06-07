@@ -4,13 +4,19 @@
 // The DEVICE-ONLY IRadio: drives the vendored CustomSX1262 (RadioLib SX1262 subclass). Guarded by
 // ARDUINO so the native build (which has no RadioLib) skips it — the native tests use a MockRadio.
 //
-// RX is POLLED: poll_rx() reads getIrqFlags() each loop and acts on PREAMBLE_DETECTED + RX_DONE. (The
-// event-driven setPacketReceivedAction/DIO1 version is in git history — REVERTED here: on metal it
-// delivered no RX events [isr flag never surfaced a packet], so we fall back to polling to get a working
-// 2-device RX baseline; re-add the IRQ once RX is proven + verifiable against this baseline.)
+// RX is INTERRUPT-DRIVEN (Step 1 of docs/specs/2026-06-07-metal-rx-async-tx-sleep): a DIO1 ISR
+// (setPacketReceivedAction) sets a volatile flag on RxDone; poll_rx() consumes the flag, reads the
+// frame, and re-arms RX — the proven MeshCore recipe (MeshCore RadioLibWrappers.cpp). This replaces the
+// earlier polled getIrqFlags() RX path, which is kept as a compile fallback (-DMR_RX_POLL): it had been
+// a bring-up workaround after the first IRQ attempt "never surfaced a packet". isr_count() (console
+// `status isr=`) proves the IRQ LINE fires, independent of delivery — the Step-1 diagnostic:
+//   isr=0          -> the ISR never fires      -> DIO1 pin/mask (check LORA_PIN_DIO1 vs the board variant)
+//   isr>0 & rx=0   -> ISR fires, no delivery   -> drain/re-arm bug
 //
-// TEMP RX DEBUG: [pre] on a detected preamble, [rxdone irq=..] on a completed packet — to tell whether
-// the radio detects the other node at all (bring-up diagnostic; strip once 2 nodes talk).
+// TX is still BLOCKING here (Step 2 makes it async). The blocking transmit() also pulses DIO1 on TxDone
+// -> the ISR sets the flag; we DISCARD that stale edge before re-arming RX (else a spurious empty drain).
+//
+// The preamble witness stays POLLED (a cheap getIrqFlags() read, not a DIO1 event) -> take_preamble().
 //
 // REALITY SPLIT: compiles under the board envs here; on-metal RX is BENCH-VERIFIED BY THE USER. The
 // MeshRoute logic above it (DeviceHal) is native-proven against MockRadio.
@@ -23,12 +29,32 @@
 
 namespace meshroute {
 
+// ---- DIO1 interrupt-service glue ------------------------------------------------------------------
+// RadioLib's setPacketReceivedAction() wants a plain void(void) fn ptr, so the ISR is a free function
+// toggling a file-scope volatile. There is ONE radio instance per device (g_iradio), so a single shared
+// flag is unambiguous. On ESP32 the ISR must live in IRAM. The same DIO1 line carries RxDone (while in
+// RX mode) AND TxDone (after a transmit); in Step 1 only RxDone delivery matters — the TxDone edge is
+// discarded in transmit().
+#if defined(ESP32)
+  #define MR_ISR_ATTR IRAM_ATTR
+#else
+  #define MR_ISR_ATTR
+#endif
+static volatile bool     g_dio1_fired = false;   // set by the ISR on a DIO1 edge; consumed by poll_rx
+static volatile uint32_t g_isr_count  = 0;       // diagnostic: # of DIO1 edges seen (console `status isr=`)
+static void MR_ISR_ATTR mr_on_dio1() { g_dio1_fired = true; g_isr_count = g_isr_count + 1; }  // ++ on volatile is C++20-deprecated
+#undef MR_ISR_ATTR
+
 class Sx1262Radio : public IRadio {
 public:
     explicit Sx1262Radio(CustomSX1262& radio) : _radio(radio) {}
 
-    // Arm continuous RX after std_init(). Call once in setup() (post-std_init).
-    bool begin() { return _radio.startReceive() == RADIOLIB_ERR_NONE; }
+    // Register the DIO1 ISR, then arm continuous RX. Call once in setup() (post-std_init).
+    bool begin() {
+        _radio.setPacketReceivedAction(mr_on_dio1);              // DIO1 -> mr_on_dio1 (RxDone while in RX)
+        g_dio1_fired = false;
+        return _radio.startReceive() == RADIOLIB_ERR_NONE;       // arms the RxDone IRQ on DIO1
+    }
 
     TxResult transmit(const uint8_t* b, size_t n,
                       int16_t sf, int32_t bw_hz, int8_t cr, int8_t pw, int16_t pre) override {
@@ -41,12 +67,13 @@ public:
         if (cr  > 0)    _radio.setCodingRate(static_cast<uint8_t>(cr));
         if (pw  > -100) _radio.setOutputPower(static_cast<int8_t>(pw));
         if (pre > 0)    _radio.setPreambleLength(static_cast<uint16_t>(pre));
-        const int16_t st = _radio.transmit(const_cast<uint8_t*>(b), n);            // blocking TX
+        const int16_t st = _radio.transmit(const_cast<uint8_t*>(b), n);            // blocking TX (Step 2 -> async)
         // Return RX to the LISTENING SF (routing), not the SF we just TX'd on. After a DATA (sent on the
         // data SF) the ACK comes back on routing — without this the sender stays parked on the data SF
         // and misses the ACK, forcing RTS retries. The sim's radio never moves the rx SF on TX, so this
         // just makes metal match the sim's assumption.
         if (_rx_sf > 0 && _rx_sf != _cur_sf) { _cur_sf = _rx_sf; _radio.setSpreadingFactor(static_cast<uint8_t>(_rx_sf)); }
+        g_dio1_fired = false;                                                      // Step 1: discard the TxDone edge before re-arming RX
         _radio.startReceive();                                                     // back to listening (on the rx/listening SF)
         _pre_seen = false;
         return st == RADIOLIB_ERR_NONE ? TxResult::ok : TxResult::radio_error;
@@ -57,23 +84,29 @@ public:
         Serial.print(F("[rxsf=")); Serial.print(sf); Serial.print(F(" t=")); Serial.print(millis()); Serial.println(F("]"));   // TEMP DEBUG: RX SF hop + ms timestamp (data-SF window = Δt between consecutive hops)
         _radio.standby();                                                          // SX1262: SetModulationParams (the SF) only latches in STANDBY — issued mid-RX it is dropped, so set_rx_sf was re-arming on the OLD SF (the data-leg bug)
         _radio.setSpreadingFactor(static_cast<uint8_t>(sf));
+        g_dio1_fired = false;                                                      // drop any stale edge before re-arming on the new SF
         _radio.startReceive();
         _pre_seen = false;
     }
 
     // LBT: SX1262 hardware CAD. NB: currently BYPASSED (cfg.lbt_enabled=false) because scanChannel()
-    // can block unbounded on the CAD-done IRQ — must be made non-blocking before LBT is re-enabled.
+    // can block unbounded on the CAD-done IRQ — replaced by a software noise-floor LBT in Step 3.
     bool channel_busy() override { return _radio.scanChannel() == RADIOLIB_LORA_DETECTED; }
 
-    // Polled each loop: latches a preamble (rising-edge -> on_preamble_detected witness) and, on RxDone,
-    // reads the frame + its SNR/RSSI then re-arms RX. getIrqFlags() reads the raw IRQ register directly,
-    // so this works regardless of DIO1 interrupt routing.
+    // Polled each loop: (1) latches a preamble (rising-edge -> on_preamble_detected witness) via a cheap
+    // getIrqFlags() read; (2) on the DIO1 RxDone IRQ flag, reads the frame + its SNR/RSSI then re-arms RX.
+    // (-DMR_RX_POLL reverts the RxDone gate to the legacy polled IRQ-bit, for an A/B bring-up fallback.)
     bool poll_rx(uint8_t* buf, size_t cap, size_t& out_len, float& snr_db, float& rssi_dbm) override {
         const uint16_t irq = _radio.getIrqFlags();
         const bool pre = (irq & SX126X_IRQ_PREAMBLE_DETECTED) != 0;
         if (pre && !_pre_seen) { _preamble = true; _pre_seen = true; Serial.print(F("[pre sf=")); Serial.print(_cur_sf); Serial.print(F(" t=")); Serial.print(millis()); Serial.print(F("]")); }  // RX DEBUG: + SF + ms timestamp
         if (!pre) _pre_seen = false;                                     // window ended
-        if ((irq & RADIOLIB_SX126X_IRQ_RX_DONE) == 0) return false;
+#if defined(MR_RX_POLL)
+        if ((irq & RADIOLIB_SX126X_IRQ_RX_DONE) == 0) return false;      // legacy polled fallback (A/B)
+#else
+        if (!g_dio1_fired) return false;                                 // ISR-driven (default): no RxDone yet
+        g_dio1_fired = false;                                            // consume this edge
+#endif
         Serial.print(F("[rxdone irq=")); Serial.print(irq, HEX); Serial.print(F(" sf=")); Serial.print(_cur_sf); Serial.print(F(" t=")); Serial.print(millis()); Serial.print(F("]"));   // RX DEBUG: + SF + ms timestamp
         size_t l = _radio.getPacketLength();
         if (l > cap) l = cap;
@@ -82,7 +115,7 @@ public:
         // channel (noise floor), not the just-received frame.
         snr_db   = _radio.getSNR();
         rssi_dbm = _radio.getRSSI();
-        _radio.startReceive();
+        _radio.startReceive();                                          // re-arm RX (MeshCore discipline: startReceive after every read)
         _pre_seen = false;
         if (st != RADIOLIB_ERR_NONE) { Serial.print(F("[rxbad st=")); Serial.print(st); Serial.print(F(" t=")); Serial.print(millis()); Serial.println(F("]")); return false; }   // TEMP DEBUG: frame arrived but failed to decode + ms timestamp
         out_len  = l;
@@ -92,7 +125,8 @@ public:
     // The loop drains this each iteration -> Node::on_preamble_detected(now).
     bool take_preamble() { const bool f = _preamble; _preamble = false; return f; }
 
-    uint32_t tx_count() const { return _tx_count; }   // status diagnostic (frames transmitted)
+    uint32_t tx_count() const { return _tx_count; }    // status diagnostic (frames transmitted)
+    uint32_t isr_count() const { return g_isr_count; } // status diagnostic (DIO1 edges) — proves the IRQ line fires
 
 private:
     CustomSX1262& _radio;
