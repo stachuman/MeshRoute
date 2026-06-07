@@ -57,8 +57,6 @@ public:
     uint32_t txq_drops() const { return _txq_drops; }     // # frames dropped on outbound-queue overflow (status diagnostic)
     uint8_t  txq_depth() const { return _txq_count; }     // current outbound-queue depth (status diagnostic)
     uint32_t tx_timeouts() const { return _tx_timeouts; } // # in-flight TXs force-recovered by the watchdog (should stay 0)
-    void     set_lbt(bool en) { _lbt_enabled = en; }      // Step 3: gate the pump CSMA guard (off = sim-parity straight-through)
-    uint32_t csma_defers() const { return _csma_defers; } // # frames held off a busy channel by CSMA (LBT-working diagnostic)
     void     seed_rng(uint32_t seed) { _rng = seed ? seed : 0xA5A5A5A5u; }
     int      short_id() const { return _short_id; }
     bool     panicked() const { return _panicked; }
@@ -91,14 +89,10 @@ private:
     // edge leaves the node deaf + mute). Generous (1.5x airtime + slop) so a normal TX never trips it.
     uint64_t _tx_deadline_ms = 0;
     uint32_t _tx_timeouts    = 0;   // # watchdog recoveries (diagnostic; should stay 0)
-
-    // Pump CSMA guard (Step 3). With LBT on, hold the head frame off a busy channel up to kCsmaMaxDeferMs,
-    // then force-send (no starvation). Covers DATA/CTS/ACK at the PHY (they bypass the Node's LBT pre-check).
-    static constexpr uint32_t kCsmaMaxDeferMs = 1000;   // bench-tunable: too long -> blown response windows; too short -> forced collisions
-    bool     _lbt_enabled    = false;   // off -> straight-through (sim parity); set from cfg.lbt_enabled at boot
-    bool     _csma_holding   = false;   // currently holding the head frame off a busy channel (explicit, not a 0-time sentinel)
-    uint64_t _csma_hold_since = 0;      // when the current hold episode began (valid while _csma_holding)
-    uint32_t _csma_defers    = 0;       // # hold episodes (diagnostic)
+    // NB: device-level CSMA lives in the Node's LBT (tx_initiating/tx_flood -> channel_busy_until), which
+    // correctly defers ONLY unsolicited frames. There is intentionally NO pump-level CSMA guard — it would
+    // wrongly hold the time-critical CTS/DATA/ACK responses. The radio's channel_busy() (noise-floor +
+    // is_receiving) is the signal the Node's LBT consumes.
 
     IClock&       _clock;
     IRadio&       _radio;

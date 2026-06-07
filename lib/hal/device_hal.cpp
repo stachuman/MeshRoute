@@ -32,17 +32,7 @@ TxResult DeviceHal::tx(const uint8_t* bytes, size_t len, const TxParams& p) {
 // it called airtime_used_ms() first). A failed arm drops the frame (rare radio_error; not retried here).
 void DeviceHal::pump_tx() {
     if (_radio.tx_busy()) return;                                         // a TX is still on air
-    if (_txq_count == 0) { _csma_holding = false; return; }
-    // CSMA (Step 3): with LBT on, hold the head frame off a busy channel (retry next loop) up to the max
-    // defer, then force-send so a persistently busy channel can't starve it. LBT off -> straight through
-    // (sim parity). The Node already pre-defers RTS/beacons; this also covers DATA/CTS/ACK at the PHY.
-    if (_lbt_enabled && _radio.channel_busy()) {
-        const uint64_t now = _clock.now_ms();
-        if (!_csma_holding) { _csma_holding = true; _csma_hold_since = now; _csma_defers++; }   // new hold episode
-        if (now - _csma_hold_since < kCsmaMaxDeferMs) return;             // keep waiting for a clear channel
-        // held past the cap -> fall through and force-send (avoid starvation)
-    }
-    _csma_holding = false;
+    if (_txq_count == 0) return;
     TxQEntry& e = _txq[_txq_head];
     const TxResult r = _radio.start_transmit(e.buf, e.len, e.sf, e.bw, e.cr, e.pw, e.pre);
     if (r == TxResult::ok) {

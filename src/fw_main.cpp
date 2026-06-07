@@ -109,7 +109,6 @@ static void dump_status() {
     Serial.print(F(" txto="));               Serial.print(g_hal.tx_timeouts());    // TX-watchdog recoveries — a missed TxDone (should stay 0)
     Serial.print(F(" lbt="));                Serial.print(g_node.config().lbt_enabled ? 1 : 0);
     Serial.print(F(" nf="));                 Serial.print(g_iradio.noise_floor(), 0); // LBT noise floor (dBm)
-    Serial.print(F(" csma="));               Serial.print(g_hal.csma_defers());    // # frames held off a busy channel (LBT working)
     Serial.print(F(" duty_ms="));            Serial.print((uint32_t)g_hal.airtime_used_ms(3600000));
     Serial.print(F(" routes="));             Serial.print(g_node.rt_count());
     Serial.print(F(" pending="));            Serial.println(g_node.has_pending_tx() ? 1 : 0);
@@ -343,7 +342,6 @@ void setup() {
     g_hal.configure(/*sf=*/(int16_t)cfg.routing_sf, /*bw_hz=*/(int32_t)cfg.radio_bw_hz,
                     /*cr=*/(int8_t)cfg.radio_cr, /*preamble=*/(int16_t)P::preamble_sym,
                     /*power=*/g_tx_power, /*channel_busy_hold_ms=*/100);
-    g_hal.set_lbt(cfg.lbt_enabled);                              // Step 3: gate the pump CSMA guard (matches the Node's LBT)
     g_hal.seed_rng((uint32_t)millis() ^ (g_node.key_hash32() * 2654435761u));
 
     g_node.on_init(cfg);

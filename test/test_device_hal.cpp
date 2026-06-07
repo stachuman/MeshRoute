@@ -178,40 +178,6 @@ TEST_CASE("DeviceHal — TX watchdog does NOT fire on a timely completion") {
     CHECK(radio.abort_count == 0);
 }
 
-TEST_CASE("DeviceHal CSMA — LBT on: a busy channel holds the frame; it sends once the channel clears") {
-    FakeClock clk; MockRadio radio; DeviceHal hal(clk, radio);
-    hal.configure(8, 125000, 5, 16, 14, 100); hal.set_lbt(true); clk.now = 0;
-    const uint8_t f[3] = {1,2,3}; TxParams p;
-    radio.busy = true;                                     // channel busy (carrier sensed)
-    CHECK(hal.tx(f, 3, p) == TxResult::ok);
-    hal.service_tx();  CHECK(radio.txs.empty());           // held off the busy channel
-    clk.now = 50; hal.service_tx(); CHECK(radio.txs.empty()); // still busy, within the max defer
-    CHECK(hal.csma_defers() == 1);                         // one hold episode counted
-    radio.busy = false; hal.service_tx();                  // channel clear -> sends
-    CHECK(radio.txs.size() == 1);
-}
-
-TEST_CASE("DeviceHal CSMA — LBT on: a persistently busy channel force-sends past the max defer (no starvation)") {
-    FakeClock clk; MockRadio radio; DeviceHal hal(clk, radio);
-    hal.configure(8, 125000, 5, 16, 14, 100); hal.set_lbt(true); clk.now = 0;
-    const uint8_t f[3] = {1,2,3}; TxParams p;
-    radio.busy = true;                                     // never clears
-    CHECK(hal.tx(f, 3, p) == TxResult::ok);
-    hal.service_tx(); CHECK(radio.txs.empty());            // held
-    clk.now = 100000; hal.service_tx();                    // well past kCsmaMaxDeferMs -> force-send
-    CHECK(radio.txs.size() == 1);
-}
-
-TEST_CASE("DeviceHal CSMA — LBT off: a busy channel does NOT hold (sim parity / Step-2 behaviour)") {
-    FakeClock clk; MockRadio radio; DeviceHal hal(clk, radio);
-    hal.configure(8, 125000, 5, 16, 14, 100); /* set_lbt defaults off */ clk.now = 0;
-    const uint8_t f[3] = {1,2,3}; TxParams p;
-    radio.busy = true;
-    CHECK(hal.tx(f, 3, p) == TxResult::ok);
-    hal.service_tx(); CHECK(radio.txs.size() == 1);        // sent regardless of the busy channel
-    CHECK(hal.csma_defers() == 0);
-}
-
 TEST_CASE("DeviceHal::channel_busy_until — CAD busy -> now+hold; clear -> 0") {
     FakeClock clk; MockRadio radio; DeviceHal hal(clk, radio);
     hal.configure(8, 125000, 5, 16, 14, /*hold=*/100);
