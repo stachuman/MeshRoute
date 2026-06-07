@@ -34,6 +34,16 @@
   #ifndef MR_MAX_SLEEP_MS
     #define MR_MAX_SLEEP_MS 1000u         // cap an idle sleep so the console + periodic work stay responsive (tunable)
   #endif
+  // Sleep policy (see loop()): a HEADLESS node light-sleeps when idle; the moment a host is detected (any
+  // console byte) the board latches AWAKE so the serial console stays usable; an explicit `sleep` command
+  // forces it back to sleep. WHY: ESP32 light-sleep gates the UART clock, so the console is unreachable while
+  // asleep and a typed byte can't even wake it (UART-wake proved unreliable on the Heltec) — so we must NOT
+  // sleep while a host is present. Mirrors MeshCore, whose CLI firmware never sleeps (only headless repeaters
+  // do). MR_BOOT_GRACE_MS keeps us awake right after boot so the host's first byte is caught (a sleeping board
+  // would miss it); connecting a monitor resets the board over DTR, so "a host connects" == "a fresh boot".
+  #ifndef MR_BOOT_GRACE_MS
+    #define MR_BOOT_GRACE_MS 30000u       // 30 s (tunable) — stay awake this long after boot to catch the host's first byte
+  #endif
   #if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
     #include <nrf_soc.h>                  // sd_softdevice_is_enabled / sd_app_evt_wait
   #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
@@ -66,6 +76,8 @@ static uint8_t  g_rxbuf[P::max_payload_bytes_hard_cap + 32];
 static bool     g_radio_ok = false;   // SX1262 std_init result — surfaced in the heartbeat below
 static uint32_t g_rx_count = 0;       // frames received (status diagnostic)
 static uint32_t g_sleep_count = 0;    // idle light-sleep entries (status `slept=`); climbs = the gate fires, stuck = never sleeps
+static bool     g_host_present = false; // a console byte was seen this boot -> a human is here -> stay awake (MeshCore inhibit_sleep)
+static bool     g_force_sleep  = false; // the `sleep` console command -> light-sleep when idle even with a host present
 static double   g_freq_mhz = LORA_FREQ;   // live operating freq (compile default; Slice-2 NV will override at boot)
 static int8_t   g_tx_power = LORA_TX_POWER;   // live TX power (dBm); NV `cfg set tx_power` overrides at boot
 static uint8_t  g_persist_id = 0, g_persist_epoch = 0, g_persist_join = 0;   // last DAD lease state written to NV (change-detect)
@@ -122,6 +134,7 @@ static void dump_status() {
     Serial.print(F(" txdrop="));             Serial.print(g_hal.txq_drops());      // outbound-queue overflow drops (should stay 0)
     Serial.print(F(" txto="));               Serial.print(g_hal.tx_timeouts());    // TX-watchdog recoveries — a missed TxDone (should stay 0)
     Serial.print(F(" slept="));              Serial.print(g_sleep_count);          // idle light-sleep entries — climbs = the gate fires (0 = never sleeps)
+    Serial.print(F(" sleep="));              Serial.print(g_force_sleep ? F("forced") : (g_host_present ? F("off-host") : F("auto"))); // policy: auto=headless→sleeps, off-host=awake (host seen), forced=`sleep` cmd
     Serial.print(F(" lbt="));                Serial.print(g_node.config().lbt_enabled ? 1 : 0);
     Serial.print(F(" nf="));                 Serial.print(g_iradio.noise_floor(), 0); // LBT noise floor (dBm)
     Serial.print(F(" duty_ms="));            Serial.print((uint32_t)g_hal.airtime_used_ms(3600000));
@@ -254,7 +267,23 @@ static void do_reboot() {
 #endif
 }
 
-// Handle a debug/diagnostic console line (routes/cfg/status/cfg set/reboot). Returns true if consumed.
+// `sleep` / `sleep on` -> light-sleep when idle even though a host is present (the explicit override the user
+// asked for); `sleep off` -> cancel it, stay awake. A headless node (no console byte this boot) light-sleeps
+// on its own — this command is only for a node you're connected to. After `sleep on` the console goes quiet
+// (light-sleep gates the UART) — reconnect to get it back (DTR resets the board). The node still wakes on RX
+// (a peer DM prints RECV) and on its scheduled timers. No-op on -DMR_NO_POWERSAVE builds (the gate is gone).
+static void handle_sleep(const char* arg, size_t n) {
+    while (n && *arg == ' ') { ++arg; --n; }
+    if (n >= 3 && !strncmp(arg, "off", 3)) {
+        g_force_sleep = false;
+        Serial.println(F("> sleep off — staying awake while a host is connected"));
+    } else {
+        g_force_sleep = true;
+        Serial.println(F("> sleep on — light-sleeping when idle; reconnect to wake the console (still wakes on RX)"));
+    }
+}
+
+// Handle a debug/diagnostic console line (routes/cfg/status/cfg set/reboot/sleep). Returns true if consumed.
 static bool service_debug(const char* line, size_t len) {
     if (len == 6 && !strncmp(line, "routes", 6))   { dump_routes(); return true; }
     if (len == 6 && !strncmp(line, "status", 6))   { dump_status(); return true; }
@@ -262,6 +291,7 @@ static bool service_debug(const char* line, size_t len) {
     if (len == 5 && !strncmp(line, "regen", 5))    { do_regen();    return true; }
     if (len >  8 && !strncmp(line, "cfg set ", 8)) { handle_cfg_set(line + 8); return true; }
     if (len == 3 && !strncmp(line, "cfg", 3))      { dump_cfg();    return true; }
+    if ((len == 5 || (len > 5 && line[5] == ' ')) && !strncmp(line, "sleep", 5)) { handle_sleep(line + 5, len - 5); return true; }
     return false;
 }
 
@@ -367,7 +397,7 @@ void setup() {
         g_node.on_command(jc);
         Serial.println(F("  join      = auto-DAD started (unprovisioned)"));
     }
-    Serial.println(F("  node      = up. Type: send <id> <text>  |  routes | cfg | cfg set <k> <v> | status | reboot"));
+    Serial.println(F("  node      = up. Type: send <id> <text>  |  routes | cfg | cfg set <k> <v> | status | sleep | reboot"));
 }
 
 // Accumulate a USB-CDC line; on '\n' parse it into a Command + hand it to the Node.
@@ -440,6 +470,9 @@ static void board_sleep_until([[maybe_unused]] uint64_t deadline_ms, [[maybe_unu
             const uint64_t dt = deadline_ms > now_ms ? (deadline_ms - now_ms) : 1;
             esp_sleep_enable_timer_wakeup(dt * 1000ULL);       // ...or the next-timer deadline
         }
+        // NB: no UART wake source — light-sleep gates the UART clock, so a typed byte can't reliably wake us
+        // (verified dead on the Heltec). We only reach here when NO host is present (loop()'s `may_sleep`), so
+        // there's no console to strand; regain it by reconnecting (DTR resets -> a fresh, awake boot).
         esp_light_sleep_start();
     }
 #endif
@@ -489,7 +522,9 @@ void loop() {
         }
     }
 
-    // 4) Console input -> commands.
+    // 4) Console input -> commands. A byte means a host is here -> latch awake so the console stays usable
+    //    (service_console() drains Serial, so we must note it BEFORE; the sleep gate below honors the latch).
+    if (Serial.available()) g_host_present = true;
     service_console();
 
     // 4b) Persist the DAD lease state if it changed this iteration (adopt / epoch bump / forced rejoin).
@@ -499,8 +534,12 @@ void loop() {
     //    Capped at MR_MAX_SLEEP_MS so the console + periodic work stay responsive (matters on ESP32;
     //    nRF52 WFE wakes every RTC tick regardless). Gate: not mid-TX, no queued TX, no console input.
 #if !defined(MR_NO_POWERSAVE)
-    if (!g_iradio.tx_busy() && g_hal.txq_depth() == 0 && !Serial.available()) {
-        const uint64_t s_now = g_hal.now();
+    const uint64_t s_now = g_hal.now();
+    // Sleep policy: a HEADLESS node (no host byte this boot, past the boot grace) light-sleeps when idle; an
+    // explicit `sleep` command forces it even with a host present. A host that has typed latches us awake so
+    // the console stays usable (ESP32 light-sleep would otherwise gate the UART and strand it). See MR_BOOT_GRACE_MS.
+    const bool may_sleep = g_force_sleep || (!g_host_present && s_now >= MR_BOOT_GRACE_MS);
+    if (may_sleep && !g_iradio.tx_busy() && g_hal.txq_depth() == 0 && !Serial.available()) {
         uint64_t due = g_hal.next_due_ms();                    // UINT64_MAX if no timer armed
         const uint64_t cap = s_now + MR_MAX_SLEEP_MS;
         if (due > cap) due = cap;
