@@ -51,6 +51,14 @@ public:
 
     // ---- device-loop glue (called by fw_main, not part of the Hal contract) ----
     int      pop_due_timer() { return _wheel.pop_due(_clock.now_ms()); }   // -1 if none due
+    // Async-TX pump (Step 2): drain the in-flight TX completion (-> radio re-arms RX) + start the next
+    // queued frame when the radio is idle. Call every loop, after RX + the timer drain (both enqueue TX).
+    void     service_tx();
+    uint32_t txq_drops() const { return _txq_drops; }     // # frames dropped on outbound-queue overflow (status diagnostic)
+    uint8_t  txq_depth() const { return _txq_count; }     // current outbound-queue depth (status diagnostic)
+    uint32_t tx_timeouts() const { return _tx_timeouts; } // # in-flight TXs force-recovered by the watchdog (should stay 0)
+    void     set_lbt(bool en) { _lbt_enabled = en; }      // Step 3: gate the pump CSMA guard (off = sim-parity straight-through)
+    uint32_t csma_defers() const { return _csma_defers; } // # frames held off a busy channel by CSMA (LBT-working diagnostic)
     void     seed_rng(uint32_t seed) { _rng = seed ? seed : 0xA5A5A5A5u; }
     int      short_id() const { return _short_id; }
     bool     panicked() const { return _panicked; }
@@ -65,6 +73,33 @@ public:
     }
 
 private:
+    void pump_tx();                 // internal: start the head queued frame if the radio is idle (+ debit the ledger)
+
+    // Outbound TX queue (Step 2 async TX). Half-duplex: the radio sends ONE frame at a time. tx() enqueues
+    // (mirrors the sim's _pending_txs + MeshCore's `outbound`); service_tx()/pump_tx() start the next when
+    // the radio is idle + debit the ledger at the actual on-air send. Bounded ring; overflow drops + counts
+    // (the MAC's own timeouts recover the frame — at lbt=false this matches the sim, which never busies tx).
+    struct TxQEntry { uint8_t buf[255]; uint16_t len; int16_t sf; int32_t bw; int8_t cr; int16_t pre; int8_t pw; };
+    static constexpr uint8_t kTxQCap = 8;
+    TxQEntry _txq[kTxQCap];
+    uint8_t  _txq_head  = 0;        // ring read index
+    uint8_t  _txq_count = 0;        // entries in flight in the ring
+    uint32_t _txq_drops = 0;        // overflow drops (diagnostic)
+
+    // TX-completion watchdog (mirrors MeshCore's outbound_expiry). pump_tx() sets the deadline at the
+    // on-air send; service_tx() force-recovers the radio if a TxDone never arrives by then (else a missed
+    // edge leaves the node deaf + mute). Generous (1.5x airtime + slop) so a normal TX never trips it.
+    uint64_t _tx_deadline_ms = 0;
+    uint32_t _tx_timeouts    = 0;   // # watchdog recoveries (diagnostic; should stay 0)
+
+    // Pump CSMA guard (Step 3). With LBT on, hold the head frame off a busy channel up to kCsmaMaxDeferMs,
+    // then force-send (no starvation). Covers DATA/CTS/ACK at the PHY (they bypass the Node's LBT pre-check).
+    static constexpr uint32_t kCsmaMaxDeferMs = 1000;   // bench-tunable: too long -> blown response windows; too short -> forced collisions
+    bool     _lbt_enabled    = false;   // off -> straight-through (sim parity); set from cfg.lbt_enabled at boot
+    bool     _csma_holding   = false;   // currently holding the head frame off a busy channel (explicit, not a 0-time sentinel)
+    uint64_t _csma_hold_since = 0;      // when the current hold episode began (valid while _csma_holding)
+    uint32_t _csma_defers    = 0;       // # hold episodes (diagnostic)
+
     IClock&       _clock;
     IRadio&       _radio;
     TimerWheel    _wheel;

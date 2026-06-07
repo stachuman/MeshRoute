@@ -104,6 +104,12 @@ static void dump_status() {
     Serial.print(F(" rx="));                 Serial.print(g_rx_count);
     Serial.print(F(" tx="));                 Serial.print(g_iradio.tx_count());
     Serial.print(F(" isr="));                Serial.print(g_iradio.isr_count());   // DIO1 edges — isr=0 ⇒ pin/mask; isr>0 & rx=0 ⇒ drain/re-arm
+    Serial.print(F(" txq="));                Serial.print(g_hal.txq_depth());      // async-TX queue depth (should idle at 0)
+    Serial.print(F(" txdrop="));             Serial.print(g_hal.txq_drops());      // outbound-queue overflow drops (should stay 0)
+    Serial.print(F(" txto="));               Serial.print(g_hal.tx_timeouts());    // TX-watchdog recoveries — a missed TxDone (should stay 0)
+    Serial.print(F(" lbt="));                Serial.print(g_node.config().lbt_enabled ? 1 : 0);
+    Serial.print(F(" nf="));                 Serial.print(g_iradio.noise_floor(), 0); // LBT noise floor (dBm)
+    Serial.print(F(" csma="));               Serial.print(g_hal.csma_defers());    // # frames held off a busy channel (LBT working)
     Serial.print(F(" duty_ms="));            Serial.print((uint32_t)g_hal.airtime_used_ms(3600000));
     Serial.print(F(" routes="));             Serial.print(g_node.rt_count());
     Serial.print(F(" pending="));            Serial.println(g_node.has_pending_tx() ? 1 : 0);
@@ -281,7 +287,8 @@ void setup() {
     cfg.duty_cycle            = (double)LORA_DUTY_CYCLE_PCT / 100.0;
     cfg.duty_cycle_window_ms  = 3600000;                        // 1 h (ETSI)
     cfg.peer_count            = 0;                              // no sim:nodes() on device -> no rt_full telemetry
-    // KEEP false unless NV overrides: device LBT -> scanChannel() can spin unbounded (the beacon-timer freeze).
+    // Default OFF (pending Step-3 bench sign-off); `cfg set lbt 1` + reboot enables it via NV. The old
+    // scanChannel()-spin reason is gone — channel_busy() is now the non-blocking software noise-floor LBT.
     cfg.lbt_enabled           = false;
 
     uint8_t node_id = 0;                                         // unprovisioned default; NV / join sets it
@@ -336,6 +343,7 @@ void setup() {
     g_hal.configure(/*sf=*/(int16_t)cfg.routing_sf, /*bw_hz=*/(int32_t)cfg.radio_bw_hz,
                     /*cr=*/(int8_t)cfg.radio_cr, /*preamble=*/(int16_t)P::preamble_sym,
                     /*power=*/g_tx_power, /*channel_busy_hold_ms=*/100);
+    g_hal.set_lbt(cfg.lbt_enabled);                              // Step 3: gate the pump CSMA guard (matches the Node's LBT)
     g_hal.seed_rng((uint32_t)millis() ^ (g_node.key_hash32() * 2654435761u));
 
     g_node.on_init(cfg);
@@ -416,6 +424,13 @@ void loop() {
 
     // 2) Timers: fire every elapsed Node timer (beacons, RTS/ACK timeouts, retries, the duty/LBT defers).
     for (int id; (id = g_hal.pop_due_timer()) >= 0; ) g_node.on_timer((uint32_t)id);
+
+    // 2b) Async TX: drain the in-flight TX completion (radio re-arms RX) + start the next queued frame.
+    //     After RX + timers, since both enqueue TX. The loop stays live during a long TX (no freeze).
+    g_hal.service_tx();
+
+    // 2c) LBT noise-floor sampler (only when LBT is on — it feeds channel_busy()). Self-paced (≤1 RSSI/10 ms).
+    if (g_node.config().lbt_enabled) g_iradio.sample_noise();
 
     // 3) App pushes: surface deliveries / ACKs over the console.
     meshroute::Push pu{};

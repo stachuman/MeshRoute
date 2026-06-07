@@ -6,25 +6,63 @@
 
 namespace meshroute {
 
+// Async TX (Step 2): tx() ENQUEUES (resolving the per-frame params); the on-air send + ledger debit happen
+// in pump_tx() once the radio is idle. Returns ok when queued (mirrors the sim's tx == enqueue + ok),
+// too_long past the SX1262 length register, or busy if the bounded ring is full (dropped + counted).
 TxResult DeviceHal::tx(const uint8_t* bytes, size_t len, const TxParams& p) {
-    // Resolve the per-frame params (sentinel -1/-127 = the radio operating-point default).
-    const int16_t sf  = p.sf           >= 0    ? p.sf           : _def_sf;
-    const int32_t bw  = p.bw_hz        >= 0    ? p.bw_hz        : _def_bw;
-    const int8_t  cr  = p.cr           >= 0    ? p.cr           : _def_cr;
-    const int16_t pre = p.preamble_sym >= 0    ? p.preamble_sym : _def_preamble;
-    const int8_t  pw  = p.power_dbm    >= -126 ? p.power_dbm    : _def_power;
+    if (len > 255) return TxResult::too_long;                              // SX1262 length register (matches the sim)
+    if (_txq_count >= kTxQCap) { _txq_drops++; return TxResult::busy; }    // ring full -> drop (MAC timeouts recover)
 
-    const TxResult r = _radio.transmit(bytes, len, sf, bw, cr, pw, pre);
+    const uint8_t slot = static_cast<uint8_t>((_txq_head + _txq_count) % kTxQCap);
+    TxQEntry& e = _txq[slot];
+    // Resolve the per-frame params (sentinel -1/-127 = the radio operating-point default) at enqueue.
+    e.sf  = p.sf           >= 0    ? p.sf           : _def_sf;
+    e.bw  = p.bw_hz        >= 0    ? p.bw_hz        : _def_bw;
+    e.cr  = p.cr           >= 0    ? p.cr           : _def_cr;
+    e.pre = p.preamble_sym >= 0    ? p.preamble_sym : _def_preamble;
+    e.pw  = p.power_dbm    >= -126 ? p.power_dbm    : _def_power;
+    e.len = static_cast<uint16_t>(len);
+    for (size_t i = 0; i < len; ++i) e.buf[i] = bytes[i];
+    _txq_count++;
+    return TxResult::ok;
+}
 
-    // Record airtime into OUR duty-cycle ledger only on a real on-air TX — the duty DECISION was already
-    // the protocol's (it called airtime_used_ms() first); the Hal just logs what actually flew.
-    if (r == TxResult::ok) {
-        const uint32_t air = airtime_ms(static_cast<uint8_t>(sf), static_cast<uint32_t>(bw),
-                                        static_cast<uint8_t>(cr), static_cast<uint16_t>(pre),
-                                        static_cast<uint16_t>(len));
-        _ledger.record(_clock.now_ms() + air, air);
+// Start the head queued frame iff the radio is idle (half-duplex: one in-flight TX). Debit the duty-cycle
+// ledger on the REAL on-air send — the Hal logs what actually flew (the duty DECISION was the protocol's,
+// it called airtime_used_ms() first). A failed arm drops the frame (rare radio_error; not retried here).
+void DeviceHal::pump_tx() {
+    if (_radio.tx_busy()) return;                                         // a TX is still on air
+    if (_txq_count == 0) { _csma_holding = false; return; }
+    // CSMA (Step 3): with LBT on, hold the head frame off a busy channel (retry next loop) up to the max
+    // defer, then force-send so a persistently busy channel can't starve it. LBT off -> straight through
+    // (sim parity). The Node already pre-defers RTS/beacons; this also covers DATA/CTS/ACK at the PHY.
+    if (_lbt_enabled && _radio.channel_busy()) {
+        const uint64_t now = _clock.now_ms();
+        if (!_csma_holding) { _csma_holding = true; _csma_hold_since = now; _csma_defers++; }   // new hold episode
+        if (now - _csma_hold_since < kCsmaMaxDeferMs) return;             // keep waiting for a clear channel
+        // held past the cap -> fall through and force-send (avoid starvation)
     }
-    return r;
+    _csma_holding = false;
+    TxQEntry& e = _txq[_txq_head];
+    const TxResult r = _radio.start_transmit(e.buf, e.len, e.sf, e.bw, e.cr, e.pw, e.pre);
+    if (r == TxResult::ok) {
+        const uint32_t air = airtime_ms(static_cast<uint8_t>(e.sf), static_cast<uint32_t>(e.bw),
+                                        static_cast<uint8_t>(e.cr), static_cast<uint16_t>(e.pre), e.len);
+        _ledger.record(_clock.now_ms() + air, air);
+        _tx_deadline_ms = _clock.now_ms() + air + air / 2 + 100;          // watchdog: 1.5x airtime + 100 ms slop
+    }
+    _txq_head = static_cast<uint8_t>((_txq_head + 1) % kTxQCap);          // pop (ok, or a dropped failed-arm)
+    _txq_count--;
+}
+
+void DeviceHal::service_tx() {
+    // Drain a normal completion (radio re-arms RX). If none AND a TX is still on air past its deadline,
+    // the TxDone was lost -> force-recover, else the node is stuck deaf+mute (MeshCore outbound_expiry).
+    if (!_radio.poll_tx_done() && _radio.tx_busy() && _clock.now_ms() > _tx_deadline_ms) {
+        _radio.abort_tx();
+        _tx_timeouts++;
+    }
+    pump_tx();                                                           // start the next queued frame if the radio is now idle
 }
 
 void DeviceHal::set_rx_sf(int sf) {

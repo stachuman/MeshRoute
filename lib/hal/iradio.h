@@ -21,10 +21,27 @@ namespace meshroute {
 struct IRadio {
     virtual ~IRadio() = default;
 
-    // Hal::tx -> apply the per-frame params then transmit. Returns the PHY result; airtime accounting
-    // (the duty-cycle ledger) is the DeviceHal's job, not the radio's. bytes borrowed for the call only.
-    virtual TxResult transmit(const uint8_t* bytes, size_t len,
-                              int16_t sf, int32_t bw_hz, int8_t cr, int8_t power_dbm, int16_t preamble_sym) = 0;
+    // Async TX (Step 2). Arm a NON-BLOCKING transmit of the per-frame params; returns immediately:
+    //   ok          -> armed; the frame is going on air. Poll poll_tx_done() for completion.
+    //   radio_error -> the PHY refused to start — nothing armed.
+    // The caller (DeviceHal) MUST NOT call start_transmit() while tx_busy() — half-duplex, one in-flight
+    // TX. bytes borrowed for the call only (impl copies into the PHY FIFO). Airtime accounting (the
+    // duty-cycle ledger) is the DeviceHal's job, not the radio's.
+    virtual TxResult start_transmit(const uint8_t* bytes, size_t len,
+                                    int16_t sf, int32_t bw_hz, int8_t cr, int8_t power_dbm, int16_t preamble_sym) = 0;
+
+    // Drain the in-flight TX completion: true EXACTLY ONCE per start_transmit(), on the TxDone edge. On
+    // that true edge the radio has restored the listening SF + re-armed continuous RX. false while no TX
+    // is in flight, or while one is still on air. Call every loop.
+    virtual bool poll_tx_done() = 0;
+
+    // Is a start_transmit() still on air (armed, TxDone not yet drained by poll_tx_done())?
+    virtual bool tx_busy() const = 0;
+
+    // Force-recover a STUCK in-flight TX (a TxDone edge that never arrived — SPI/IRQ glitch). Stop the
+    // transmit, restore the listening SF, re-arm RX, clear the in-flight state. The DeviceHal watchdog
+    // calls this once the in-flight TX overruns its airtime deadline (else the node is left deaf + mute).
+    virtual void abort_tx() = 0;
 
     // Hal::set_rx_sf -> set the spreading factor + (re)arm continuous receive on the routing/data SF.
     virtual void set_rx_sf(int sf) = 0;

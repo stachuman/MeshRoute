@@ -13,8 +13,10 @@
 //   isr=0          -> the ISR never fires      -> DIO1 pin/mask (check LORA_PIN_DIO1 vs the board variant)
 //   isr>0 & rx=0   -> ISR fires, no delivery   -> drain/re-arm bug
 //
-// TX is still BLOCKING here (Step 2 makes it async). The blocking transmit() also pulses DIO1 on TxDone
-// -> the ISR sets the flag; we DISCARD that stale edge before re-arming RX (else a spurious empty drain).
+// TX is ASYNC (Step 2): start_transmit() arms a non-blocking startTransmit() and returns; poll_tx_done()
+// drains the TxDone edge (the SAME shared DIO1 flag — _tx_in_flight routes it: poll_rx ignores it mid-TX)
+// and re-arms RX. DeviceHal owns the outbound queue + half-duplex serialization (one in-flight TX). The
+// loop stays live during a long (SF12) TX — timers/RX no longer freeze for the airtime.
 //
 // The preamble witness stays POLLED (a cheap getIrqFlags() read, not a DIO1 event) -> take_preamble().
 //
@@ -56,27 +58,59 @@ public:
         return _radio.startReceive() == RADIOLIB_ERR_NONE;       // arms the RxDone IRQ on DIO1
     }
 
-    TxResult transmit(const uint8_t* b, size_t n,
-                      int16_t sf, int32_t bw_hz, int8_t cr, int8_t pw, int16_t pre) override {
+    // Async TX (Step 2): apply the per-frame params + arm a NON-BLOCKING startTransmit(); return at once.
+    // The DIO1 TxDone edge is drained by poll_tx_done() (which re-arms RX). DeviceHal must not call this
+    // while tx_busy(). The same DIO1 flag carries RxDone/TxDone — _tx_in_flight routes the edge (poll_rx
+    // ignores it while a TX is on air; poll_tx_done consumes it).
+    TxResult start_transmit(const uint8_t* b, size_t n,
+                            int16_t sf, int32_t bw_hz, int8_t cr, int8_t pw, int16_t pre) override {
         ++_tx_count;
-        // TX DEBUG: mirror of the [rx] line — the OTHER half of the handshake. cmd nibble = byte0 high 4 bits.
         if (sf > 0) _cur_sf = sf;                                                  // TEMP DEBUG
-        Serial.print(F("[tx] cmd=")); Serial.print(n ? (b[0] >> 4) : 0); Serial.print(F(" len=")); Serial.print((unsigned)n); Serial.print(F(" sf=")); Serial.print(_cur_sf); Serial.print(F(" t=")); Serial.println(millis());  // TEMP DEBUG: + tx SF + ms timestamp
+        Serial.print(F("[tx] cmd=")); Serial.print(n ? (b[0] >> 4) : 0); Serial.print(F(" len=")); Serial.print((unsigned)n); Serial.print(F(" sf=")); Serial.print(_cur_sf); Serial.print(F(" t=")); Serial.println(millis());  // TEMP DEBUG: arm-time trace (+ tx SF + ms); [txdone] marks completion -> Δ = airtime
         if (sf  > 0)    _radio.setSpreadingFactor(static_cast<uint8_t>(sf));
         if (bw_hz > 0)  _radio.setBandwidth(static_cast<float>(bw_hz) / 1000.0f);   // RadioLib wants kHz
         if (cr  > 0)    _radio.setCodingRate(static_cast<uint8_t>(cr));
         if (pw  > -100) _radio.setOutputPower(static_cast<int8_t>(pw));
         if (pre > 0)    _radio.setPreambleLength(static_cast<uint16_t>(pre));
-        const int16_t st = _radio.transmit(const_cast<uint8_t*>(b), n);            // blocking TX (Step 2 -> async)
-        // Return RX to the LISTENING SF (routing), not the SF we just TX'd on. After a DATA (sent on the
-        // data SF) the ACK comes back on routing — without this the sender stays parked on the data SF
-        // and misses the ACK, forcing RTS retries. The sim's radio never moves the rx SF on TX, so this
-        // just makes metal match the sim's assumption.
+        g_dio1_fired = false;                                                      // clear any stale RX edge before arming TX (else poll_tx_done sees it as a premature TxDone)
+        const int16_t st = _radio.startTransmit(const_cast<uint8_t*>(b), n);       // NON-BLOCKING; DIO1 -> TxDone
+        if (st != RADIOLIB_ERR_NONE) {
+            Serial.print(F("[txerr st=")); Serial.print(st); Serial.print(F(" t=")); Serial.print(millis()); Serial.println(F("]"));   // arm failed — recover to RX
+            _radio.startReceive();
+            return TxResult::radio_error;
+        }
+        _tx_in_flight = true;
+        return TxResult::ok;
+    }
+
+    // Drain the in-flight TX: on the TxDone edge, finish + restore the LISTENING SF (routing) and re-arm RX.
+    // Restoring _rx_sf matters for the dual-SF DATA: the DATA flies on the data SF but the ACK returns on
+    // routing — without this the sender stays parked on the data SF and misses the ACK.
+    bool poll_tx_done() override {
+        if (!_tx_in_flight) return false;
+        if (!g_dio1_fired) return false;                                          // still on air
+        g_dio1_fired = false;                                                     // consume the TxDone edge
+        _tx_in_flight = false;
+        _radio.finishTransmit();                                                  // RadioLib async-TX cleanup
+        Serial.print(F("[txdone t=")); Serial.print(millis()); Serial.println(F("]"));   // arm -> here = the airtime (loop stayed live in between)
         if (_rx_sf > 0 && _rx_sf != _cur_sf) { _cur_sf = _rx_sf; _radio.setSpreadingFactor(static_cast<uint8_t>(_rx_sf)); }
-        g_dio1_fired = false;                                                      // Step 1: discard the TxDone edge before re-arming RX
-        _radio.startReceive();                                                     // back to listening (on the rx/listening SF)
+        _radio.startReceive();                                                    // re-arm continuous RX on the listening SF
         _pre_seen = false;
-        return st == RADIOLIB_ERR_NONE ? TxResult::ok : TxResult::radio_error;
+        return true;
+    }
+
+    bool tx_busy() const override { return _tx_in_flight; }
+
+    // Watchdog recovery: the in-flight TX overran its deadline (TxDone never came). Stop it, restore the
+    // listening SF, re-arm RX — mirrors poll_tx_done's tail without waiting for the (lost) edge.
+    void abort_tx() override {
+        Serial.print(F("[txabort t=")); Serial.print(millis()); Serial.println(F("]"));   // TX stuck -> forced recover
+        _radio.standby();                                                         // stop the (stuck) transmit
+        _tx_in_flight = false;
+        g_dio1_fired = false;
+        if (_rx_sf > 0 && _rx_sf != _cur_sf) { _cur_sf = _rx_sf; _radio.setSpreadingFactor(static_cast<uint8_t>(_rx_sf)); }
+        _radio.startReceive();                                                    // re-arm continuous RX
+        _pre_seen = false;
     }
 
     void set_rx_sf(int sf) override {
@@ -89,14 +123,40 @@ public:
         _pre_seen = false;
     }
 
-    // LBT: SX1262 hardware CAD. NB: currently BYPASSED (cfg.lbt_enabled=false) because scanChannel()
-    // can block unbounded on the CAD-done IRQ — replaced by a software noise-floor LBT in Step 3.
-    bool channel_busy() override { return _radio.scanChannel() == RADIOLIB_LORA_DETECTED; }
+    // Software LBT (Step 3): NON-BLOCKING carrier sense — busy if we're transmitting, OR a frame is in
+    // progress (preamble/header), OR the channel RSSI is above the rolling noise floor + threshold.
+    // Replaces the blocking HW-CAD scanChannel() (which could spin on the CAD-done IRQ). Fed to the Node's
+    // LBT pre-check (channel_busy_until) AND the DeviceHal pump CSMA guard.
+    bool channel_busy() override {
+        if (_tx_in_flight) return true;                                // we're on air -> busy (by us)
+        if (_radio.isReceiving()) return true;                         // carrier sense: preamble/header in progress
+        return _radio.getRSSI(false) > (_noise_floor + kLbtThresholdDb);   // energy above the noise floor
+    }
+
+    // Refine the noise floor from quiet RSSI samples (paced, idle-only) — the baseline channel_busy()
+    // compares against. Called each loop by fw_main when LBT is on. Excludes in-progress receptions +
+    // above-floor (packet) energy so the floor tracks ambient noise, not traffic. Mirrors MeshCore's sampler.
+    void sample_noise() {
+        const uint32_t now = millis();
+        if (now - _last_floor_ms < kFloorSampleMs) return;             // pace the SPI reads
+        _last_floor_ms = now;
+        if (_tx_in_flight || _radio.isReceiving()) return;             // don't fold traffic into the floor
+        const float rssi = _radio.getRSSI(false);
+        if (rssi >= _noise_floor + kFloorWindowDb) return;             // above floor+window = activity, not noise
+        _floor_sum += rssi;
+        if (++_floor_n >= kFloorSamples) {
+            float avg = _floor_sum / static_cast<float>(_floor_n);
+            _noise_floor = avg < -120.0f ? -120.0f : avg;             // clamp to the SX1262 floor
+            _floor_sum = 0.0f; _floor_n = 0;
+        }
+    }
+    float noise_floor() const { return _noise_floor; }   // status diagnostic (dBm)
 
     // Polled each loop: (1) latches a preamble (rising-edge -> on_preamble_detected witness) via a cheap
     // getIrqFlags() read; (2) on the DIO1 RxDone IRQ flag, reads the frame + its SNR/RSSI then re-arms RX.
     // (-DMR_RX_POLL reverts the RxDone gate to the legacy polled IRQ-bit, for an A/B bring-up fallback.)
     bool poll_rx(uint8_t* buf, size_t cap, size_t& out_len, float& snr_db, float& rssi_dbm) override {
+        if (_tx_in_flight) return false;                                // mid-TX: the DIO1 edge is TxDone (poll_tx_done's), not RxDone
         const uint16_t irq = _radio.getIrqFlags();
         const bool pre = (irq & SX126X_IRQ_PREAMBLE_DETECTED) != 0;
         if (pre && !_pre_seen) { _preamble = true; _pre_seen = true; Serial.print(F("[pre sf=")); Serial.print(_cur_sf); Serial.print(F(" t=")); Serial.print(millis()); Serial.print(F("]")); }  // RX DEBUG: + SF + ms timestamp
@@ -129,10 +189,22 @@ public:
     uint32_t isr_count() const { return g_isr_count; } // status diagnostic (DIO1 edges) — proves the IRQ line fires
 
 private:
+    // Software-LBT tunables (bench-tunable). Threshold too low -> false-busy/starvation; too high -> missed
+    // activity. is_receiving() is the primary sense; the RSSI floor is the energy backstop.
+    static constexpr float    kLbtThresholdDb = 10.0f;   // busy if RSSI > noise_floor + this
+    static constexpr float    kFloorWindowDb  = 14.0f;   // a sample within floor+this counts toward the floor (exclude packets)
+    static constexpr uint16_t kFloorSamples   = 32;      // samples per floor recompute
+    static constexpr uint32_t kFloorSampleMs  = 10;      // min ms between RSSI samples (pace SPI)
+
     CustomSX1262& _radio;
     uint32_t _tx_count = 0;   // frames transmitted (status diagnostic)
     bool _preamble = false;   // latched preamble event (drained by take_preamble)
     bool _pre_seen = false;   // edge-detect: preamble already latched this RX cycle
+    bool _tx_in_flight = false; // async TX armed (start_transmit) until poll_tx_done drains the TxDone edge; routes the shared DIO1 flag
+    float    _noise_floor   = -110.0f;  // rolling ambient RSSI floor (dBm); sane seed until samples converge
+    float    _floor_sum     = 0.0f;     // accumulator for the current floor recompute
+    uint16_t _floor_n       = 0;        // samples accumulated
+    uint32_t _last_floor_ms = 0;        // last RSSI sample time (pacing)
     int  _cur_sf   = 0;       // TEMP DEBUG: radio's current SF (set on tx + set_rx_sf), shown in rx/tx traces
     int  _rx_sf    = 0;       // the LISTENING SF (set by set_rx_sf); transmit() restores it post-TX so the sender doesn't sit on the data SF after a DATA and miss the ACK
 };
