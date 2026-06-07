@@ -2179,3 +2179,48 @@ TEST_CASE("L2c — parked redirect forwards on the owner's BEACON re-drain (drai
     if (rf) { CHECK(rf->to == 9); CHECK(rf->ctr == 5); }        // forwarded to the owner, original ctr
     CHECK(hal.count("l2c_collision_confirmed") == 0);
 }
+
+// --- review re-fix regressions: forwarder drop-not-defer + plain send-by-hash resolving to self ---
+
+TEST_CASE("L2c — a no-route redirect DROPS (forwarder semantics), it does NOT defer/send_failed") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; node.on_init(cfg);
+    node.restore_join_state(/*epoch=*/0, /*joined=*/true);
+    RxMeta m4{ 8.0f, -80.0f, 0, static_cast<int8_t>(4) };
+    // An H answer (via relay 4) binds 7->0x1234 AUTHORITATIVE but installs NO route to 7 (only to relay 4).
+    std::array<uint8_t, 16> rba{}; const size_t rna = mk_rts(4, 2, 2, 9, 7, rba);
+    hal._now = 500; node.on_recv(rba.data(), rna, m4);
+    std::array<uint8_t, 64> aba{}; const size_t ana = mk_data_hashbind(2, 2, 0x0009, /*hb_node=*/7, /*hb_key=*/0x1234, true, aba);
+    hal._now = 600; node.on_recv(aba.data(), ana, m4);
+    node.on_timer(kPostAckTimerId);
+    // Misdeliver a DM wanting 0x1234: owner 7 is known authoritatively -> immediate forward, but no route to 7.
+    RxMeta from1{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+    std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(1, 2, 2, 5, 15, rb);
+    hal._now = 1000; node.on_recv(rb.data(), rn, from1);
+    std::array<uint8_t, 64> db{}; const size_t dn = mk_data_dsthash(2, 2, 0x0005, 1, /*want=*/0x1234, "hi", db);
+    hal._now = 2000; node.on_recv(db.data(), dn, from1);
+    node.on_timer(kPostAckTimerId);
+    CHECK(hal.count("l2c_redirect_forward") == 1);              // we tried to forward (enqueued)
+    CHECK(hal.count("send_no_route") == 1);                     // ...and DROPPED it (forwarder, is_forward=true)
+    CHECK(hal.count("send_deferred") == 0);                     // NOT the originator defer path
+    CHECK(hal.count("send_deferred_giveup") == 0);             // and thus no send_failed-to-local-app for a transit DM
+}
+
+TEST_CASE("L2c/H — a plain send-by-hash that resolves to OUR OWN id gives up (no self-addressed do_send)") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; node.on_init(cfg);
+    // Address an UNKNOWN hash 0xCAFE -> send_by_hash parks (plain) + floods a soft H.
+    hal._now = 1000; send_hash_cmd(node, /*dst_hash=*/0xCAFEu, "yo");
+    CHECK(hal.count("send_parked_for_hash") == 1);
+    // An H answer claims 0xCAFE is at id 2 (OUR id) with a foreign key -> self-guard refuses the bind, and the
+    // plain parked send must NOT do_send to ourselves.
+    RxMeta m4{ 8.0f, -80.0f, 0, static_cast<int8_t>(4) };
+    std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(4, 2, 2, 6, 7, rb);
+    hal._now = 2000; node.on_recv(rb.data(), rn, m4);
+    std::array<uint8_t, 64> ab{}; const size_t an = mk_data_hashbind(2, 2, 0x0006, /*hb_node=*/2, /*hb_key=*/0xCAFEu, true, ab);
+    hal._now = 2100; node.on_recv(ab.data(), an, m4);
+    node.on_timer(kPostAckTimerId);
+    CHECK(hal.count("addr_conflict_self_defended") == 1);       // the foreign-key bind on our id was refused
+    CHECK(hal.count("send_hash_giveup") == 1);                  // the plain send gave up (resolved to self)
+    CHECK(hal.count("tx_enqueue") == 0);                        // NO self-addressed do_send
+}

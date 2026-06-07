@@ -63,8 +63,10 @@ struct EventField {
 // MR_EMIT(event, EF_*(key, value)...) — terse form of the EventField[] + _hal.emit block. Behaviour-identical
 // (expands through MR_TELEMETRY, so device-stripped the same way); the field count is derived via sizeof so it
 // can never drift from the array. e.g.  MR_EMIT("join_adopted", EF_I("node", id), EF_B("healed", ok));
-#define MR_EMIT(EV, ...) MR_TELEMETRY( const EventField _ef[] = { __VA_ARGS__ };                    \
-                                       _hal.emit((EV), _ef, sizeof(_ef) / sizeof(_ef[0])); )
+#define MR_EMIT_TO(HAL, EV, ...) MR_TELEMETRY( const EventField _ef[] = { __VA_ARGS__ };            \
+                                               (HAL).emit((EV), _ef, sizeof(_ef) / sizeof(_ef[0])); )
+#define MR_EMIT(EV, ...) MR_EMIT_TO(_hal, EV, __VA_ARGS__)   // Node member methods (the Node's _hal); free
+                                                             // functions that take a `Hal&` use MR_EMIT_TO(hal, ...)
 #define EF_I(K, V) EventField{ .key = (K), .type = EventField::T::i64,     .i = static_cast<int64_t>(V) }
 #define EF_F(K, V) EventField{ .key = (K), .type = EventField::T::f64,     .f = static_cast<double>(V) }
 #define EF_S(K, V) EventField{ .key = (K), .type = EventField::T::str,     .s = (V) }
