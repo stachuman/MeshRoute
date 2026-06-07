@@ -29,6 +29,19 @@
 #include <string.h>
 #include <stdlib.h>
 
+// Step 4 light-sleep — platform sleep primitives (radio stays in continuous RX; DIO1 RxDone wakes the MCU).
+#if !defined(MR_NO_POWERSAVE)
+  #ifndef MR_MAX_SLEEP_MS
+    #define MR_MAX_SLEEP_MS 1000u         // cap an idle sleep so the console + periodic work stay responsive (tunable)
+  #endif
+  #if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
+    #include <nrf_soc.h>                  // sd_softdevice_is_enabled / sd_app_evt_wait
+  #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
+    #include <esp_sleep.h>
+    #include <driver/rtc_io.h>            // rtc_gpio_is_valid_gpio
+  #endif
+#endif
+
 namespace P = meshroute::protocol;
 
 // ---- node identity. key_hash32 = ed_pub[:4], DERIVED from a 32-byte master seed persisted in `/mrid`
@@ -52,6 +65,7 @@ static meshroute::Identity     g_identity{};                                    
 static uint8_t  g_rxbuf[P::max_payload_bytes_hard_cap + 32];
 static bool     g_radio_ok = false;   // SX1262 std_init result — surfaced in the heartbeat below
 static uint32_t g_rx_count = 0;       // frames received (status diagnostic)
+static uint32_t g_sleep_count = 0;    // idle light-sleep entries (status `slept=`); climbs = the gate fires, stuck = never sleeps
 static double   g_freq_mhz = LORA_FREQ;   // live operating freq (compile default; Slice-2 NV will override at boot)
 static int8_t   g_tx_power = LORA_TX_POWER;   // live TX power (dBm); NV `cfg set tx_power` overrides at boot
 static uint8_t  g_persist_id = 0, g_persist_epoch = 0, g_persist_join = 0;   // last DAD lease state written to NV (change-detect)
@@ -107,6 +121,7 @@ static void dump_status() {
     Serial.print(F(" txq="));                Serial.print(g_hal.txq_depth());      // async-TX queue depth (should idle at 0)
     Serial.print(F(" txdrop="));             Serial.print(g_hal.txq_drops());      // outbound-queue overflow drops (should stay 0)
     Serial.print(F(" txto="));               Serial.print(g_hal.tx_timeouts());    // TX-watchdog recoveries — a missed TxDone (should stay 0)
+    Serial.print(F(" slept="));              Serial.print(g_sleep_count);          // idle light-sleep entries — climbs = the gate fires (0 = never sleeps)
     Serial.print(F(" lbt="));                Serial.print(g_node.config().lbt_enabled ? 1 : 0);
     Serial.print(F(" nf="));                 Serial.print(g_iradio.noise_floor(), 0); // LBT noise floor (dBm)
     Serial.print(F(" duty_ms="));            Serial.print((uint32_t)g_hal.airtime_used_ms(3600000));
@@ -402,6 +417,35 @@ static void persist_join_if_changed() {
     if (mrnv::save(b)) { g_persist_id = id; g_persist_epoch = ep; g_persist_join = jn; }
 }
 
+// Step 4 — idle light-sleep: halt the CPU until `deadline_ms` OR a radio/console IRQ. The radio stays in
+// continuous RX, so a DIO1 RxDone (an incoming frame) wakes us; the next-timer deadline wakes us for a
+// scheduled beacon/timeout. nRF52: WFE (errata-87 FPU clear first) — wakes on ANY event (RTC tick / DIO1 /
+// USB), so the deadline is advisory + the console stays responsive. ESP32-S3: esp_light_sleep to the
+// deadline or DIO1 (ext1). -DMR_NO_POWERSAVE compiles it out (busy-spin, for A/B power measurement).
+#if !defined(MR_NO_POWERSAVE)
+static void board_sleep_until([[maybe_unused]] uint64_t deadline_ms, [[maybe_unused]] uint64_t now_ms) {
+#if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
+  #if (__FPU_USED == 1)
+    __set_FPSCR(__get_FPSCR() & ~(0x0000009Fu));   // nRF52 errata 87: stale FPU flags keep WFE awake ("insomnia")
+    (void)__get_FPSCR(); NVIC_ClearPendingIRQ(FPU_IRQn);
+  #endif
+    uint8_t sd_on = 0; sd_softdevice_is_enabled(&sd_on);
+    if (sd_on) sd_app_evt_wait();                  // SoftDevice: process pending events, then sleep
+    else { __SEV(); __WFE(); __WFE(); }            // raw WFE (SEV+double-WFE clears any stale event)
+#elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
+    if (rtc_gpio_is_valid_gpio((gpio_num_t)LORA_PIN_DIO1)) {   // only if DIO1 can wake from light-sleep
+        esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+        esp_sleep_enable_ext1_wakeup((1ULL << LORA_PIN_DIO1), ESP_EXT1_WAKEUP_ANY_HIGH);   // DIO1 RxDone wakes us
+        if (deadline_ms != UINT64_MAX) {
+            const uint64_t dt = deadline_ms > now_ms ? (deadline_ms - now_ms) : 1;
+            esp_sleep_enable_timer_wakeup(dt * 1000ULL);       // ...or the next-timer deadline
+        }
+        esp_light_sleep_start();
+    }
+#endif
+}
+#endif  // !MR_NO_POWERSAVE
+
 void loop() {
     const uint64_t now = g_hal.now();
 
@@ -450,4 +494,18 @@ void loop() {
 
     // 4b) Persist the DAD lease state if it changed this iteration (adopt / epoch bump / forced rejoin).
     persist_join_if_changed();
+
+    // 5) Idle light-sleep: nothing pending -> halt the CPU until the next timer OR a radio/console IRQ.
+    //    Capped at MR_MAX_SLEEP_MS so the console + periodic work stay responsive (matters on ESP32;
+    //    nRF52 WFE wakes every RTC tick regardless). Gate: not mid-TX, no queued TX, no console input.
+#if !defined(MR_NO_POWERSAVE)
+    if (!g_iradio.tx_busy() && g_hal.txq_depth() == 0 && !Serial.available()) {
+        const uint64_t s_now = g_hal.now();
+        uint64_t due = g_hal.next_due_ms();                    // UINT64_MAX if no timer armed
+        const uint64_t cap = s_now + MR_MAX_SLEEP_MS;
+        if (due > cap) due = cap;
+        ++g_sleep_count;                                       // count sleep entries (status `slept=`)
+        board_sleep_until(due, s_now);
+    }
+#endif
 }

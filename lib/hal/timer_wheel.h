@@ -33,6 +33,10 @@ public:
     bool     active(uint32_t timer_id) const;        // test/introspection
     uint64_t due_at(uint32_t timer_id) const;        // test/introspection (undefined if inactive)
 
+    // The earliest active deadline (min _due over active ids), or UINT64_MAX if nothing is armed. Bounds an
+    // idle sleep: fw_main halts the CPU until this time (or a radio/console IRQ wakes it sooner). O(kCap).
+    uint64_t earliest_due() const;
+
 private:
     bool     _active[kCap] = {};
     uint64_t _due[kCap]    = {};

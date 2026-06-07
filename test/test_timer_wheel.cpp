@@ -84,3 +84,18 @@ TEST_CASE("TimerWheel — out-of-range caller id is rejected (bounded cap 64)") 
     CHECK(!w.active(64));
     CHECK(w.pop_due(100) == 63);                   // the valid one still fires
 }
+
+TEST_CASE("TimerWheel — earliest_due returns the min active deadline (UINT64_MAX when idle)") {
+    TimerWheel w;
+    CHECK(w.earliest_due() == UINT64_MAX);         // nothing armed -> idle
+    CHECK(w.after(100, /*id=*/5, /*now=*/1000));   // due 1100
+    CHECK(w.after(50,  /*id=*/7, /*now=*/1000));   // due 1050
+    CHECK(w.after(300, /*id=*/2, /*now=*/1000));   // due 1300
+    CHECK(w.earliest_due() == 1050);               // the soonest deadline (sleep target)
+    CHECK(w.pop_due(1050) == 7);                   // fire it
+    CHECK(w.earliest_due() == 1100);               // next soonest
+    w.cancel(5);
+    CHECK(w.earliest_due() == 1300);               // 5 cancelled -> 2 is next
+    w.cancel(2);
+    CHECK(w.earliest_due() == UINT64_MAX);         // none left -> idle again
+}

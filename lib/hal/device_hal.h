@@ -51,6 +51,7 @@ public:
 
     // ---- device-loop glue (called by fw_main, not part of the Hal contract) ----
     int      pop_due_timer() { return _wheel.pop_due(_clock.now_ms()); }   // -1 if none due
+    uint64_t next_due_ms()   { return _wheel.earliest_due(); }             // earliest armed deadline (UINT64_MAX = idle); bounds the idle-sleep
     // Async-TX pump (Step 2): drain the in-flight TX completion (-> radio re-arms RX) + start the next
     // queued frame when the radio is idle. Call every loop, after RX + the timer drain (both enqueue TX).
     void     service_tx();

@@ -28,4 +28,10 @@ int TimerWheel::pop_due(uint64_t now_ms) {
 bool     TimerWheel::active(uint32_t timer_id) const { return timer_id < kCap && _active[timer_id]; }
 uint64_t TimerWheel::due_at(uint32_t timer_id) const { return timer_id < kCap ? _due[timer_id] : 0; }
 
+uint64_t TimerWheel::earliest_due() const {
+    uint64_t m = UINT64_MAX;
+    for (uint32_t i = 0; i < kCap; ++i) if (_active[i] && _due[i] < m) m = _due[i];
+    return m;
+}
+
 }  // namespace meshroute
