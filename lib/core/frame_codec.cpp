@@ -204,23 +204,26 @@ uint8_t parse_channel_digest_tlv(std::span<const uint8_t> ext, uint32_t* ids_out
 // -----------------------------------------------------------------------------
 size_t pack_cts(const cts_in& in, std::span<uint8_t> out) {
     if (in.chosen_data_sf < 5 || in.chosen_data_sf > 12) return 0;
-    if (out.size() < 3) return 0;
+    const bool with_pl = in.payload_len != 0;          // NAV: optional 4th byte (sender adds it iff nav_enabled)
+    if (out.size() < (with_pl ? 4u : 3u)) return 0;
     wire::Writer w(out);
     const uint8_t sf3 = static_cast<uint8_t>((in.chosen_data_sf - 5) & 0x07);
     // flags in the cmd byte's low nibble: (sf-5)(3) | already_received(1) — mirrors the Lua flags byte.
     w.u8(wire::cmd_byte(wire::Cmd::C, static_cast<uint8_t>((sf3 << 1) | (in.already_received ? 0x01 : 0x00))));
     w.u8(in.tx_id);
     w.u8(in.rx_id);
+    if (with_pl) w.u8(in.payload_len);                 // cleared DATA's inner+MAC length (for the overhearer's NAV)
     return w.ok() ? w.size() : 0;
 }
 
 std::optional<cts_out> parse_cts(std::span<const uint8_t> frame) {
-    if (frame.size() != 3) return std::nullopt;
+    if (frame.size() != 3 && frame.size() != 4) return std::nullopt;
     wire::Reader r(frame);
     const uint8_t b0 = r.u8();
     if (wire::cmd_of(b0) != wire::Cmd::C) return std::nullopt;
     const uint8_t tx_id = r.u8();
     const uint8_t rx_id = r.u8();
+    const uint8_t payload_len = (frame.size() == 4) ? r.u8() : 0;   // NAV: optional 4th byte (0 => absent)
     if (!r.ok()) return std::nullopt;
     const uint8_t flags = wire::flags_of(b0);          // (sf-5)(3) | already_received(1)
     cts_out o{};
@@ -228,6 +231,7 @@ std::optional<cts_out> parse_cts(std::span<const uint8_t> frame) {
     o.already_received = (flags & 0x01) != 0;
     o.tx_id            = tx_id;
     o.rx_id            = rx_id;
+    o.payload_len      = payload_len;
     return o;
 }
 

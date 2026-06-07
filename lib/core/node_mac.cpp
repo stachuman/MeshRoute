@@ -80,6 +80,13 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
         MR_EMIT("origination_backoff_ack_warn", EF_I("origin", item.origin), EF_I("dst", item.dst),
                 EF_I("ctr", item.ctr), EF_I("until_ms", _ack_warn_until));
     }
+    // NAV companion (nav_enabled): jitter a fresh own-DM origination by rand(0, retry_jitter) so two nodes
+    // originating at the same moment don't fire their RTS in the same airtime window — the one collision NAV
+    // can't prevent (no RTS is decoded, so neither sets the other's NAV). App DMs only (E2E acks are responses).
+    if (app_dm && _cfg.nav_enabled) {
+        const uint64_t base = item.next_attempt_ms > _hal.now() ? item.next_attempt_ms : _hal.now();
+        item.next_attempt_ms = base + static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(retry_jitter_ms()) + 1));
+    }
     if (_tx_queue_n < kTxQueueCap) _tx_queue[_tx_queue_n++] = item;
     MR_EMIT(tx_event, EF_I("origin", item.origin), EF_I("dst", item.dst),
             EF_I("ctr", item.ctr), EF_I("depth", _tx_queue_n));
@@ -252,19 +259,42 @@ void Node::tx_rts_retry() {
 // TX past busy_until + rand(0,lbt_backoff+1) — the ONE LBT draw, ONLY when busy (dv:3693-3706). lbt_enabled=false
 // (every gate) -> straight to lbt_complete -> byte-identical, NO draw.
 void Node::tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen) {
-    if (_cfg.lbt_enabled) {
-        const uint64_t now = _hal.now();
-        const uint64_t busy_until = _hal.channel_busy_until();
-        if (busy_until > now) {
-            const uint32_t wait  = static_cast<uint32_t>(busy_until - now);
-            const uint32_t delay = wait + static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(_lbt_backoff_ms) + 1));
-            MR_EMIT("tx_lbt_defer", EF_S("kind", "initiating"), EF_I("defer_ms", delay),
-                    EF_I("busy_until_ms", busy_until));
-            schedule_lbt_defer(bytes, len, sf, kind, rts_flight_gen, delay);
-            return;
-        }
+    const uint64_t now = _hal.now();
+    uint64_t busy_until = 0;
+    if (_cfg.lbt_enabled) { const uint64_t b = _hal.channel_busy_until(); if (b > busy_until) busy_until = b; }  // physical carrier sense (LBT)
+    if (_cfg.nav_enabled && _nav_until_ms > busy_until) busy_until = _nav_until_ms;                              // virtual carrier sense (NAV)
+    if (busy_until > now) {
+        const uint32_t wait  = static_cast<uint32_t>(busy_until - now);
+        const uint32_t delay = wait + static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(_lbt_backoff_ms) + 1));   // shared backoff jitter -> NAV-released TX de-syncs
+        MR_EMIT("tx_lbt_defer", EF_S("kind", "initiating"), EF_I("defer_ms", delay),
+                EF_I("busy_until_ms", busy_until));
+        schedule_lbt_defer(bytes, len, sf, kind, rts_flight_gen, delay);
+        return;
     }
     lbt_complete(bytes, len, sf, kind, rts_flight_gen);
+}
+
+// NAV (virtual carrier sense) duration helpers — pure, native-testable. Conservative: an overheard RTS
+// reserves CTS+DATA+ACK (DATA size known from payload_len, SF taken as our max = longest), a CTS reserves
+// DATA+ACK (SF exact from chosen_data_sf, size assumed max). Per-leg turnaround gaps included.
+uint32_t Node::nav_duration_rts(uint8_t data_sf, uint8_t payload_len) const {
+    const uint32_t cts_air  = static_cast<uint32_t>(airtime_routing_ms(3));   // CTS = 3 B on the routing SF
+    const uint32_t data_air = static_cast<uint32_t>(airtime_ms(data_sf, _cfg.radio_bw_hz, _cfg.radio_cr,
+                                  protocol::preamble_sym, static_cast<uint16_t>(payload_len + 13)));   // +13 = DATA header (handle_rts:57)
+    const uint32_t ack_air  = static_cast<uint32_t>(airtime_routing_ms(3));   // ACK = 3 B
+    return cts_air + data_air + ack_air + 3u * static_cast<uint32_t>(protocol::cts_to_data_gap_ms);   // 3 turnarounds
+}
+uint32_t Node::nav_duration_cts(uint8_t data_sf, uint8_t payload_len) const {
+    // Exact when the CTS carried payload_len (DATA frame = inner+MAC + 13 header); else max-frame fallback.
+    const uint16_t data_bytes = payload_len ? static_cast<uint16_t>(payload_len + 13) : 255;
+    const uint32_t data_air = static_cast<uint32_t>(airtime_ms(data_sf, _cfg.radio_bw_hz, _cfg.radio_cr,
+                                  protocol::preamble_sym, data_bytes));
+    const uint32_t ack_air  = static_cast<uint32_t>(airtime_routing_ms(3));
+    return data_air + ack_air + 2u * static_cast<uint32_t>(protocol::cts_to_data_gap_ms);
+}
+void Node::nav_arm(uint32_t duration_ms) {
+    const uint64_t until = _hal.now() + duration_ms;
+    if (until > _nav_until_ms) _nav_until_ms = until;   // extend; never shorten
 }
 
 // Stash a busy-channel deferred TX in a free ring slot + arm its own timer (kLbtDeferTimerId + slot), so
@@ -348,9 +378,11 @@ bool Node::tx_flood(const uint8_t* bytes, size_t len, int16_t sf) {
             return false;
         }
     }
-    if (_cfg.lbt_enabled) {
+    {
         const uint64_t now = _hal.now();
-        const uint64_t busy_until = _hal.channel_busy_until();
+        uint64_t busy_until = 0;
+        if (_cfg.lbt_enabled) { const uint64_t b = _hal.channel_busy_until(); if (b > busy_until) busy_until = b; }  // physical carrier sense (LBT)
+        if (_cfg.nav_enabled && _nav_until_ms > busy_until) busy_until = _nav_until_ms;                              // virtual carrier sense (NAV)
         const int64_t  wait = static_cast<int64_t>(busy_until) - static_cast<int64_t>(now);
         if (wait > static_cast<int64_t>(_flood_lbt_max_defer_ms)) {    // busy too long -> drop the page (dv:3796)
             MR_EMIT("tx_flood_skipped", EF_I("busy_for_ms", wait));

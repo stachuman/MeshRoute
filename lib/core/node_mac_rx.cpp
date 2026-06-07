@@ -67,7 +67,22 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         }
         return;                                          // M_BROADCAST RTS never CTSes
     }
-    if (r.next != _node_id) return;                      // not addressed to us as next-hop
+    if (r.next != _node_id) {                             // not addressed to us as next-hop = overheard
+        // NAV (virtual carrier sense): an overheard UNICAST RTS reserves the medium for the rest of the
+        // exchange (CTS+DATA+ACK) — M_BROADCAST already returned above, so this is unicast. Defer own
+        // unsolicited TX until then (tx_initiating/tx_flood) so we don't step on the CTS in the silent gap.
+        if (_cfg.nav_enabled) {
+            const uint8_t nav_sf = (r.sf_index <= 2)
+                ? select_data_sf(r.sf_index, protocol::db_to_q4(meta.snr_db))   // pinned singleton -> the exact data SF
+                : max_data_sf();                                                // ANY(3) -> conservative (the receiver picks)
+            nav_arm(nav_duration_rts(nav_sf, r.payload_len));
+        }
+        return;
+    }
+    // NAV: virtually busy under someone else's reservation -> (optionally) ignore this (new) addressed RTS;
+    // the requester is a hidden node that didn't hear the reservation and will time out + retry. Tunable
+    // (nav_ignore_rts): dropping it protects the reservation but causes the requester to cascade/give up.
+    if (_cfg.nav_enabled && _cfg.nav_ignore_rts && _hal.now() < _nav_until_ms) return;
     MR_TELEMETRY(
         EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = r.src },
                            { .key = "dst",  .type = EventField::T::i64, .i = r.dst } };
@@ -82,7 +97,8 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         // stale 4-bit ctr_lo alias from false-positiving on slow sustained traffic.
         cts_in cin{}; cin.chosen_data_sf = la->second.chosen_data_sf;
         cin.already_received = true; cin.tx_id = _node_id; cin.rx_id = r.src;
-        uint8_t cbuf[3]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, 3));
+        cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0;   // NAV: size the overhearer's DATA reservation
+        uint8_t cbuf[4]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, sizeof cbuf));
         tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b
         MR_TELEMETRY(
             EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
@@ -96,7 +112,8 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         _pending_rx->ctr_lo == r.ctr_lo) {
         cts_in cin{}; cin.chosen_data_sf = _pending_rx->chosen_data_sf;
         cin.already_received = false; cin.tx_id = _node_id; cin.rx_id = r.src;
-        uint8_t cbuf[3]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, 3));
+        cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0;   // NAV: size the overhearer's DATA reservation
+        uint8_t cbuf[4]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, sizeof cbuf));
         tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b
         MR_TELEMETRY(
             EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
@@ -203,7 +220,8 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     _pending_rx = prx;
     start_pending_rx_expiry(r.payload_len);
     cts_in cin{}; cin.chosen_data_sf = sf; cin.already_received = false; cin.tx_id = _node_id; cin.rx_id = r.src;
-    uint8_t cbuf[3]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, 3));
+    cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0;   // NAV: size the overhearer's DATA reservation
+    uint8_t cbuf[4]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, sizeof cbuf));
     tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b: stash + tag the CTS
     MR_TELEMETRY(
         EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
@@ -222,7 +240,12 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // requester), not the dropped ctr_lo. Timing uses Lua CTS_LEN=4, not the 3-B C++ wire.
     track_originator_observation(c.tx_id, /*kind=cts*/1, /*dedup_key=*/c.rx_id,
                                  static_cast<uint32_t>(airtime_routing_ms(4)));
-    if (c.rx_id != _node_id) return;
+    if (c.rx_id != _node_id) {                            // overheard CTS (not clearing us)
+        // NAV: reserve the medium for the DATA+ACK this CTS just authorized (covers the hidden node near the
+        // receiver that didn't hear the RTS). chosen_data_sf is exact; size assumed max (conservative).
+        if (_cfg.nav_enabled) nav_arm(nav_duration_cts(c.chosen_data_sf, c.payload_len));
+        return;
+    }
     if (!_pending_tx || !_pending_tx->awaiting_cts) return;   // ctr_lo flight-match dropped: rx_id==me + tx_id==next (below) pin the flight
     // Cascade disambiguation: the CTS now carries its sender (tx_id), so accept only the CTS from the
     // next-hop we RTS'd. Wire-backed (no PHY-sender god-view) — this is what distinguishes the primary

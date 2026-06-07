@@ -107,21 +107,24 @@ size_t  pack_channel_digest_tlv(const uint32_t* ids, uint8_t count, std::span<ui
 uint8_t parse_channel_digest_tlv(std::span<const uint8_t> ext, uint32_t* ids_out, uint8_t max); // ids found (0 if no type-3 TLV)
 
 // -----------------------------------------------------------------------------
-// CTS — clear-to-send (cmd-nibble 0x2, 3 B) — ROADMAP §10.3
+// CTS — clear-to-send (cmd-nibble 0x2, 3 B; +1 B if payload_len != 0) — ROADMAP §10.3
 // -----------------------------------------------------------------------------
 //   byte 0 : cmd=0x2(4 hi) | (sf-5)(3) | already_received(1)   [flags in the low nibble]
 //   byte 1 : tx_id(8) — CTS sender (the forwarder clearing the requester)
 //   byte 2 : rx_id(8) — intended requester id (the RTS sender being cleared)
+//   byte 3 : payload_len(8) — OPTIONAL: the cleared DATA's inner+MAC length, for NAV. Present iff non-zero
+//            (the sender adds it only when nav_enabled). A CTS-overhearer reads it to size an exact NAV
+//            reservation for the upcoming DATA; absent (3-B CTS) => fall back to a max-size estimate.
 // ctr_lo DROPPED vs the legacy CTS: tx_id+rx_id pin the flight under single-slot
 // stop-and-wait, and tx_id (not ctr_lo) disambiguates cascade alts; tx_id also makes
 // the CTS addressable/attributable on metal (no PHY-sender god-view). The Lua mirror is
 // 4 B (literal 'C' tag); the cmd-nibble packs cmd+flags into byte 0. sf in 5..12;
 // already_received short-circuits a resend whose ACK was lost.
-struct cts_in  { uint8_t chosen_data_sf; bool already_received; uint8_t tx_id; uint8_t rx_id; };
-struct cts_out { uint8_t chosen_data_sf; bool already_received; uint8_t tx_id; uint8_t rx_id; };
-// Returns 3 on success; 0 on bad input (sf outside 5..12) or out span < 3.
+struct cts_in  { uint8_t chosen_data_sf; bool already_received; uint8_t tx_id; uint8_t rx_id; uint8_t payload_len = 0; };
+struct cts_out { uint8_t chosen_data_sf; bool already_received; uint8_t tx_id; uint8_t rx_id; uint8_t payload_len = 0; };
+// Returns 3 (or 4 if in.payload_len != 0) on success; 0 on bad input (sf outside 5..12) or out span too small.
 size_t pack_cts(const cts_in& in, std::span<uint8_t> out);
-// nullopt on wrong cmd nibble or len != 3.
+// nullopt on wrong cmd nibble or len not in {3,4}. payload_len = byte 3 (0 if a 3-B CTS).
 std::optional<cts_out> parse_cts(std::span<const uint8_t> frame);
 
 // -----------------------------------------------------------------------------

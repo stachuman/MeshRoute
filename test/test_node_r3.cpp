@@ -83,6 +83,7 @@ public:
 constexpr uint32_t kRtsTimeoutTimerId    = 4;   // mirror node.h's private constants
 constexpr uint32_t kAckTimeoutTimerId    = 5;
 constexpr uint32_t kCtsToDataGapTimerId  = 7;
+constexpr uint32_t kQueueWakeupTimerId   = 8;   // become_free re-drain (NAV origination-jitter wake)
 constexpr uint32_t kPostAckTimerId       = 9;
 constexpr uint32_t kRetryBackoffTimerId  = 10;
 constexpr uint32_t kDeferredDrainTimerId = 11;
@@ -1403,7 +1404,7 @@ TEST_CASE("R4.3 max-idle witness ignores a foreign-leaf beacon (set after the le
 static Node* mk_lbt_node(TestHal& hal, bool lbt_enabled, std::vector<std::array<uint8_t,3>> vias) {
     Node* node = new Node(hal, 1, 0xABCD);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
-    cfg.lbt_enabled = lbt_enabled;
+    cfg.lbt_enabled = lbt_enabled; cfg.nav_enabled = false;   // LBT rand-order tests isolate from NAV (its origination jitter draws a rand)
     node->on_init(cfg);
     std::array<uint8_t,64> bb{};
     for (auto& v : vias) {
@@ -1611,7 +1612,7 @@ TEST_CASE("Cleanup #A (redo) — over-budget RTS duty-deferred in the dedicated 
     // assertable with the no-op TestHal::after.)
     TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
-    cfg.duty_cycle = 0.10; cfg.duty_cycle_window_ms = 100000;   // budget 10000ms
+    cfg.duty_cycle = 0.10; cfg.duty_cycle_window_ms = 100000; cfg.nav_enabled = false;   // budget 10000ms; duty-rand test isolates from NAV
     node.on_init(cfg);
     std::array<uint8_t,64> bb{}; RxMeta mb{12.0f,-70.0f,0,static_cast<int8_t>(2)};
     const size_t bn = mk_beacon_route(2,5,9,1,14,bb); node.on_recv(bb.data(),bn,mb);
@@ -2223,4 +2224,132 @@ TEST_CASE("L2c/H — a plain send-by-hash that resolves to OUR OWN id gives up (
     CHECK(hal.count("addr_conflict_self_defended") == 1);       // the foreign-key bind on our id was refused
     CHECK(hal.count("send_hash_giveup") == 1);                  // the plain send gave up (resolved to self)
     CHECK(hal.count("tx_enqueue") == 0);                        // NO self-addressed do_send
+}
+
+// ---- NAV (virtual carrier sense) -------------------------------------------------------------------
+// Overheard unicast RTS/CTS reserve the medium (nav_enabled); own unsolicited TX defers until it clears;
+// a new addressed RTS during a reservation is ignored. Channel/broadcast RTS + addressed RTS don't set it.
+
+TEST_CASE("NAV — an overheard unicast RTS reserves the medium (only when nav_enabled)") {
+    // nav OFF (default) -> overheard RTS sets nothing
+    { TestHal hal; Node node(hal, /*id=*/2, 0xABCD);
+      NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; cfg.nav_enabled = false;   // explicit OFF (firmware default is now ON)
+      node.on_init(cfg);
+      std::array<uint8_t, 16> rb{};
+      const size_t rn = mk_rts(/*src=*/1, /*next=*/3, /*dst=*/4, /*ctr_lo=*/5, /*plen=*/20, rb);  // next=3 != me(2) -> overheard
+      hal._now = 1000; node.on_recv(rb.data(), rn, RxMeta{8.0f, -80.0f, 0, 1});
+      CHECK(node.nav_until_ms() == 0); }
+    // nav ON -> overheard unicast RTS reserves into the future
+    { TestHal hal; Node node(hal, /*id=*/2, 0xABCD);
+      NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; cfg.nav_enabled = true;
+      node.on_init(cfg);
+      std::array<uint8_t, 16> rb{};
+      const size_t rn = mk_rts(1, 3, 4, 5, 20, rb);
+      hal._now = 1000; node.on_recv(rb.data(), rn, RxMeta{8.0f, -80.0f, 0, 1});
+      CHECK(node.nav_until_ms() > 1000); }
+}
+
+TEST_CASE("NAV — an RTS addressed to us, and a channel/broadcast RTS, do NOT set NAV") {
+    TestHal hal; Node node(hal, /*id=*/2, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; cfg.nav_enabled = true;
+    node.on_init(cfg);
+    // addressed to us (next=2) -> our exchange, not a reservation to honor
+    std::array<uint8_t, 16> rb{};
+    const size_t rn = mk_rts(/*src=*/1, /*next=*/2, /*dst=*/2, 5, 20, rb);
+    hal._now = 1000; node.on_recv(rb.data(), rn, RxMeta{8.0f, -80.0f, 0, 1});
+    CHECK(node.nav_until_ms() == 0);
+    // M_BROADCAST (channel) RTS -> a flood, no CTS to protect -> no NAV
+    rts_in mb{}; mb.leaf_id = 0; mb.src = 1; mb.next = 3; mb.dst = 4; mb.ctr_lo = 6; mb.sf_index = 3;
+    mb.rts_flags = RTS_FLAG_M_BROADCAST; mb.payload_len = 20; mb.m_payload_id_lo16 = 0xBEEF;
+    std::array<uint8_t, 16> mbb{};
+    const size_t mbn = pack_rts(mb, std::span<uint8_t>(mbb.data(), mbb.size()));
+    CHECK(mbn > 0);
+    hal._now = 1100; node.on_recv(mbb.data(), mbn, RxMeta{8.0f, -80.0f, 0, 1});
+    CHECK(node.nav_until_ms() == 0);
+}
+
+TEST_CASE("NAV — an overheard CTS reserves DATA+ACK; the reservation scales with the data SF") {
+    uint64_t d7 = 0, d12 = 0;
+    { TestHal hal; Node node(hal, /*id=*/2, 0xABCD);
+      NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; cfg.nav_enabled = true;
+      node.on_init(cfg);
+      std::array<uint8_t, 8> cb{};
+      const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/3, /*data_sf=*/7, cb);   // rx_id=1 != me(2) -> overheard
+      hal._now = 1000; node.on_recv(cb.data(), cn, RxMeta{8.0f, -80.0f, 0, 3});
+      d7 = node.nav_until_ms() - 1000; }
+    { TestHal hal; Node node(hal, /*id=*/2, 0xABCD);
+      NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; cfg.nav_enabled = true;
+      node.on_init(cfg);
+      std::array<uint8_t, 8> cb{};
+      const size_t cn = mk_cts(1, 3, /*data_sf=*/12, cb);
+      hal._now = 1000; node.on_recv(cb.data(), cn, RxMeta{8.0f, -80.0f, 0, 3});
+      d12 = node.nav_until_ms() - 1000; }
+    CHECK(d7 > 0);
+    CHECK(d12 > d7);                                            // SF12 DATA reserves longer than SF7
+}
+
+TEST_CASE("NAV — own RTS for a queued DM defers while the medium is reserved, then flies once it clears") {
+    TestHal hal; Node node(hal, /*id=*/1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    cfg.lbt_enabled = false; cfg.nav_enabled = true;           // isolate NAV as the only defer source
+    node.on_init(cfg);
+    std::array<uint8_t, 64> bb{}; const size_t bn = mk_beacon(/*src=*/2, bb);   // direct route to bob(2)
+    hal._now = 1000; node.on_recv(bb.data(), bn, RxMeta{8.0f, -80.0f, 0, 2});
+    // reserve the medium (overheard RTS from 3 -> next 4)
+    std::array<uint8_t, 16> ob{}; const size_t on = mk_rts(/*src=*/3, /*next=*/4, /*dst=*/5, 7, 20, ob);
+    hal._now = 1500; node.on_recv(ob.data(), on, RxMeta{8.0f, -80.0f, 0, 3});
+    CHECK(node.nav_until_ms() > 1500);
+    // originate to bob -> the flight decides to RTS, but NAV defers the actual hand-off
+    hal._now = 1600; send_cmd(node, /*dst=*/2, "hi");
+    CHECK(hal.count("rts_tx") == 1);                            // decided to send
+    CHECK(hal.last_tx("RTS") == nullptr);                       // ...but NAV deferred it (not handed to the radio)
+    // NAV clears -> draining the LBT-defer slot hands the RTS
+    hal._now = node.nav_until_ms() + 10; node.on_timer(kLbtDeferTimerId);
+    CHECK(hal.last_tx("RTS") != nullptr);
+}
+
+TEST_CASE("NAV — addressed RTS during a reservation: dropped iff nav_ignore_rts, answered by default") {
+    std::array<uint8_t, 16> ob{}; const size_t on = mk_rts(/*src=*/3, /*next=*/4, /*dst=*/5, 7, 20, ob);  // overheard -> arms NAV
+    std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(/*src=*/1, /*next=*/2, /*dst=*/2, 9, 15, rb);  // addressed to us(2)
+    // nav_ignore_rts = true (802.11 blanket-NAV): the addressed RTS is dropped under the reservation.
+    { TestHal hal; Node node(hal, /*id=*/2, 0xABCD);
+      NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; cfg.nav_enabled = true; cfg.nav_ignore_rts = true;
+      node.on_init(cfg);
+      hal._now = 1000; node.on_recv(ob.data(), on, RxMeta{8.0f, -80.0f, 0, 3});
+      CHECK(node.nav_until_ms() > 1000);
+      hal._now = 1100; node.on_recv(rb.data(), rn, RxMeta{8.0f, -80.0f, 0, 1});
+      CHECK(hal.count("cts_tx") == 0); }                       // dropped under the reservation
+    // DEFAULT (nav_ignore_rts = false, sim-tuned): the SAME RTS during a reservation is still ANSWERED.
+    { TestHal hal; Node node(hal, /*id=*/2, 0xABCD);
+      NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; cfg.nav_enabled = true;   // nav_ignore_rts defaults false
+      node.on_init(cfg);
+      hal._now = 1000; node.on_recv(ob.data(), on, RxMeta{8.0f, -80.0f, 0, 3});
+      CHECK(node.nav_until_ms() > 1000);                       // reservation IS active
+      hal._now = 1100; node.on_recv(rb.data(), rn, RxMeta{8.0f, -80.0f, 0, 1});
+      CHECK(hal.count("cts_tx") == 1); }                       // ...yet the request is answered (defer, don't refuse)
+}
+
+TEST_CASE("NAV — a fresh own DM origination is jittered (nav_enabled), de-syncing simultaneous originators") {
+    // nav ON -> the origination is held by the jitter (rand forced > 0), then flies once it elapses
+    TestHal hal; Node node(hal, /*id=*/1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    cfg.lbt_enabled = false; cfg.nav_enabled = true;
+    node.on_init(cfg);
+    std::array<uint8_t, 64> bb{}; const size_t bn = mk_beacon(/*src=*/2, bb);
+    hal._now = 1000; node.on_recv(bb.data(), bn, RxMeta{8.0f, -80.0f, 0, 2});      // route to bob(2)
+    hal._rand_ret = 200;                                                            // force a non-zero jitter draw
+    hal._now = 2000; send_cmd(node, /*dst=*/2, "hi");
+    CHECK(hal.count("rts_tx") == 0);                                                // held by the jitter (not even decided yet)
+    CHECK(hal.last_tx("RTS") == nullptr);
+    hal._now = 2300; node.on_timer(kQueueWakeupTimerId);                            // jitter elapsed -> drain
+    CHECK(hal.last_tx("RTS") != nullptr);                                           // now it flies
+
+    // control: nav OFF -> no origination jitter -> the RTS is handed at once
+    TestHal h2; Node n2(h2, /*id=*/1, 0xABCD);
+    NodeConfig c2; c2.routing_sf = 7; c2.data_sf = 12; c2.leaf_id = 0; c2.lbt_enabled = false; c2.nav_enabled = false;   // explicit OFF (firmware default is now ON)
+    n2.on_init(c2);
+    std::array<uint8_t, 64> b2{}; const size_t bn2 = mk_beacon(2, b2);
+    h2._now = 1000; n2.on_recv(b2.data(), bn2, RxMeta{8.0f, -80.0f, 0, 2});
+    h2._rand_ret = 200; h2._now = 2000; send_cmd(n2, /*dst=*/2, "hi");
+    CHECK(h2.last_tx("RTS") != nullptr);
 }

@@ -122,9 +122,18 @@ TEST_CASE("CTS/ACK — robustness: reject wrong cmd / wrong length / bad input")
     CHECK_FALSE(parse_ack(cts).has_value());            // CTS bytes, wrong cmd for ACK
 
     std::array<uint8_t, 2> shortbuf{0x20, 0x00};
-    CHECK_FALSE(parse_cts(shortbuf).has_value());        // len != 3
-    std::array<uint8_t, 4> longbuf{0x27, 0x11, 0x2A, 0x00};
-    CHECK_FALSE(parse_cts(longbuf).has_value());         // len != 3
+    CHECK_FALSE(parse_cts(shortbuf).has_value());        // len < 3
+    std::array<uint8_t, 5> longbuf{0x27, 0x11, 0x2A, 0x10, 0x00};
+    CHECK_FALSE(parse_cts(longbuf).has_value());         // len not in {3,4}
+    // 4-byte CTS is valid: byte 3 = payload_len (NAV). Roundtrip pack(4)/parse.
+    std::array<uint8_t, 4> p4{};
+    CHECK(pack_cts({7, false, 1, 2, /*payload_len=*/30}, p4) == 4);
+    auto rp = parse_cts(p4);
+    CHECK(rp.has_value());
+    if (rp) { CHECK(rp->payload_len == 30); CHECK(rp->chosen_data_sf == 7); CHECK(rp->tx_id == 1); CHECK(rp->rx_id == 2); }
+    auto r3 = parse_cts(cts);                            // a 3-byte CTS still parses, payload_len defaults 0
+    CHECK(r3.has_value());
+    if (r3) CHECK(r3->payload_len == 0);
 
     std::array<uint8_t, 2> tiny{};
     CHECK(pack_cts({7, false, 1, 2}, tiny) == 0);        // out span too small

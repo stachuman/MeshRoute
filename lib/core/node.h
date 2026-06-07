@@ -80,6 +80,8 @@ struct NodeConfig {
     bool     lbt_enabled               = true;
     uint32_t lbt_backoff_ms            = 0;       // 0 => derive
     uint32_t flood_lbt_max_defer_ms    = 0;       // 0 => derive
+    bool     nav_enabled               = true;    // NAV virtual carrier sense ON by default (device + sim consistent). C++-only — so it DIVERGES the lua↔meshroute differentials by design (Lua is frozen); set false to restore lua-parity (e.g. in the differential scenarios).
+    bool     nav_ignore_rts            = false;   // NAV: ANSWER an addressed RTS even during a reservation (sim-tuned default). true = drop it (802.11 blanket-NAV) — protects the reservation but causes cascades/giveups. ignore-off won on s18 + s17_metro: same delivery, fewer collisions + cascades.
 };
 
 // One route candidate (DV). Mirrors the Lua rt[dest].candidates[i] fields
@@ -234,6 +236,7 @@ public:
     uint8_t           rt_count()       const { return _rt_count; }
     const RtEntry&    rt_at(uint8_t i) const { return _rt[i]; }   // 0..rt_count()-1; candidates[0] is the primary
     bool              has_pending_tx() const { return _pending_tx.has_value(); }
+    uint64_t          nav_until_ms()   const { return _nav_until_ms; }  // NAV reservation deadline (0 = clear); test/status accessor
     // ---- channel-plane inspection (public, like rt_count) + the two seams tests drive directly ----
     uint16_t          channel_buffer_count() const { return _channel_buffer_n; }
     bool              channel_has(uint32_t id) const { return channel_buffer_find(id) >= 0; }
@@ -467,6 +470,12 @@ private:
     void     lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen);
     bool     schedule_lbt_defer(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind,   // free-slot stash
                                 uint32_t rts_flight_gen, uint32_t delay);   // false = ring full (dropped)
+    // NAV (virtual carrier sense, nav_enabled): an overheard unicast RTS/CTS reserves the medium for the rest
+    // of that exchange; the node defers its own unsolicited TX (tx_initiating/tx_flood) until it clears. The
+    // duration helpers are PURE (native-testable); nav_arm extends _nav_until_ms (max). Conservative SF/size.
+    uint32_t nav_duration_rts(uint8_t data_sf, uint8_t payload_len) const;  // overheard RTS -> CTS+DATA+ACK+gaps
+    uint32_t nav_duration_cts(uint8_t data_sf, uint8_t payload_len) const;  // overheard CTS -> DATA(exact, or max if payload_len=0)+ACK+gaps
+    void     nav_arm(uint32_t duration_ms);                                 // _nav_until_ms = max(_nav_until_ms, now+dur)
     // R4.5b: the central TX helper (Lua tx_with_retry dv:3599) — stash the retry-eligible frame + set the
     // frame-type tag + duty pre-check + _hal.tx. Every TX except the beacon routes through it.
     bool     tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag tag);   // returns handed (false on a duty defer)
@@ -518,6 +527,7 @@ private:
     // buf holds a full beacon (beacon_max_bytes=151) — a smaller buf would TRUNCATE a deferred page (review #04).
     uint32_t _lbt_backoff_ms        = 0;
     uint32_t _flood_lbt_max_defer_ms = 0;
+    uint64_t _nav_until_ms          = 0;         // NAV: medium reserved (by an overheard unicast RTS/CTS) until this ms; 0 = clear
     static constexpr uint8_t kLbtSlots = 4;
     struct DeferredLbt { bool pending = false; uint8_t kind = 0; uint8_t len = 0; int16_t sf = 0;
                          uint32_t rts_flight_gen = 0;   // RTS staleness key (flight_gen, not the old 4-bit ctr_lo proxy)
