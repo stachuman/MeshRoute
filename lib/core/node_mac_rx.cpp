@@ -55,10 +55,13 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             _hal.set_rx_sf(data_sf);
             // Stay on the data SF until the DATA-M lands: gap (RTS->DATA) + the FULL DATA-frame airtime
             // (r.payload_len is the inner+MAC; +13 covers the DATA header) + margin. Sizing only the inner
-            // retunes back ~one header's airtime too early -> the DATA-M is dropped (drop_sf_mismatch).
+            // retunes back ~one header's airtime too early -> the DATA-M is dropped (drop_sf_mismatch). The
+            // +30 is the sim's ideal margin; rx_window_slop_ms adds the REAL metal RX_DONE/SPI turnaround
+            // (ZERO on the sim) — without it an overhearer retunes back before the DATA-M's RX_DONE on metal
+            // and misses it (the same slop the addressed DATA wait already carries in start_pending_rx_expiry).
             const uint32_t back = protocol::cts_to_data_gap_ms
                 + airtime_ms(data_sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym,
-                             static_cast<uint16_t>(r.payload_len + 13)) + 30;
+                             static_cast<uint16_t>(r.payload_len + 13)) + 30 + _hal.rx_window_slop_ms(data_sf);
             (void)_hal.after(back, kOverhearRetuneTimerId);
             MR_TELEMETRY(
                 EventField f[] = { { .key = "id_lo16",        .type = EventField::T::i64,     .i = r.m_payload_id_lo16 },

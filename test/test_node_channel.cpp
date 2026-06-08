@@ -181,6 +181,28 @@ TEST_CASE("DATA-M ingest: a received channel msg is admitted + buffered; a gatew
     }
 }
 
+TEST_CASE("DATA-M ingest pushes a channel_recv to the app (origin/channel_id/body); dup raises no 2nd push") {
+    const uint8_t body[] = { 'h', 'i' };
+    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    const uint32_t id = Node::channel_msg_id_mint(/*origin=*/9, 0x4242u, 1);
+    node.ingest_channel_m(mk_m(id, /*ch=*/5, /*flavor=*/0, body, 2), /*next=*/2, /*dst=*/2, /*from=*/9);
+    Push pu{}; bool got = false;
+    while (node.next_push(pu)) {
+        if (pu.kind == PushKind::channel_recv) {
+            got = true;
+            CHECK(pu.origin == 9);            // the minter (channel_msg_id high byte)
+            CHECK(pu.channel_id == 5);
+            CHECK(pu.body_len == 2);
+            CHECK(pu.body[0] == 'h'); CHECK(pu.body[1] == 'i');
+        }
+    }
+    CHECK(got);                               // a NEW channel message surfaces to the app, like a DM
+    // A DUPLICATE ingest (already buffered) must NOT raise a second push.
+    node.ingest_channel_m(mk_m(id, 5, 0, body, 2), 2, 2, 9);
+    int n = 0; while (node.next_push(pu)) if (pu.kind == PushKind::channel_recv) ++n;
+    CHECK(n == 0);
+}
+
 TEST_CASE("per-origin anti-spam: distinct-id count caps at the window max; over-cap drops; self bypasses") {
     TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
     const uint8_t body[] = { 'm' };

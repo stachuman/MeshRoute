@@ -40,11 +40,18 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
     Scan s{ line, line + len };
     Tok verb = token(s);
     if (verb.n == 0) return ParseErr::empty;
-    if (!tok_eq(verb, "send")) return ParseErr::unknown_verb;
+    //   send <id> <text>          — DM, NO E2E ack
+    //   send_ack <id> <text>      — DM, E2E ack requested (flags E2E=0x08)
+    //   send_channel <ch> <text>  — single-layer channel gossip (channel_id 0..255)
+    const bool is_send     = tok_eq(verb, "send");
+    const bool is_send_ack = tok_eq(verb, "send_ack");
+    const bool is_channel  = tok_eq(verb, "send_channel");
+    if (!is_send && !is_send_ack && !is_channel) return ParseErr::unknown_verb;
 
-    Tok dst = token(s);
-    uint32_t dst_id = 0;
-    if (!parse_u32_tok(dst, 254, dst_id)) return ParseErr::bad_args;
+    // first arg: dst short-id (send/send_ack, 0..254) or channel id (send_channel, 0..255).
+    Tok arg = token(s);
+    uint32_t arg_val = 0;
+    if (!parse_u32_tok(arg, is_channel ? 255u : 254u, arg_val)) return ParseErr::bad_args;
 
     // body = remainder after exactly one separating space (verbatim, incl. spaces).
     if (s.p < s.end && (*s.p == ' ' || *s.p == '\t')) ++s.p;
@@ -52,10 +59,15 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
     if (body_len > protocol::max_payload_bytes_hard_cap) body_len = protocol::max_payload_bytes_hard_cap;
 
     out = Command{};
-    out.kind = CmdKind::send;
-    out.u.send.dst_id = static_cast<uint8_t>(dst_id);
-    out.u.send.dst_hash = 0;
-    out.u.send.flags = 0x08;  // E2E (command.h: E2E=0x08); PRIORITY=0x02 deferred
+    if (is_channel) {
+        out.kind = CmdKind::send_channel;
+        out.u.channel.channel_id = static_cast<uint8_t>(arg_val);
+    } else {
+        out.kind = CmdKind::send;
+        out.u.send.dst_id   = static_cast<uint8_t>(arg_val);
+        out.u.send.dst_hash = 0;
+        out.u.send.flags    = is_send_ack ? 0x08 : 0x00;  // send_ack = E2E ack-req; send = no ack (command.h: E2E=0x08)
+    }
     out.body = reinterpret_cast<const uint8_t*>(s.p);
     out.body_len = static_cast<uint8_t>(body_len);
     return ParseErr::ok;

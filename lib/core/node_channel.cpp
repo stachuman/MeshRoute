@@ -124,8 +124,9 @@ void Node::channel_buffer_add(const ChannelEntry& e) {
     _channel_buffer[_channel_buffer_n++] = e;
 }
 
-// ---- promiscuous-overhear pull cancel (dv:11006). Phase 1: the ring is empty (scheduling is Phase 2),
-//      so this is a no-op today; wired now so the ingest path is complete. -------------------------
+// ---- promiscuous-overhear pull cancel (dv:11006). We got `id` (overheard M-broadcast) OR saw a peer pull
+//      it -> drop our matching pending pull(s) so we don't double-pull. The pending ring is populated by
+//      process_channel_digest (Phase 2). -------------------------
 void Node::cancel_channel_pull(uint32_t id, [[maybe_unused]] uint8_t overheard_from, bool peer_q) {
     for (uint8_t i = 0; i < protocol::cap_channel_pull_pending; ++i) {
         ChannelPullPending& p = _channel_pull_pending[i];
@@ -165,6 +166,16 @@ void Node::ingest_channel_m(const data_m_inner& m, uint8_t next, [[maybe_unused]
                                               ? protocol::channel_msg_max_payload_bytes : m.body.size());
         if (e.payload_len) std::memcpy(e.payload, m.body.data(), e.payload_len);
         channel_buffer_add(e);
+        // App push: surface a NEW channel message to the app/console, like a DM's msg_recv (the device
+        // console prints it; the sim observes via the emit below). Load-bearing -> OUTSIDE the wrap.
+        {
+            Push pu{};
+            pu.kind = PushKind::channel_recv; pu.origin = origin; pu.channel_id = m.channel_id;
+            pu.body_len = static_cast<uint8_t>(e.payload_len > protocol::max_payload_bytes_hard_cap
+                                               ? protocol::max_payload_bytes_hard_cap : e.payload_len);
+            for (uint8_t i = 0; i < pu.body_len; ++i) pu.body[i] = e.payload[i];
+            enqueue_push(pu);
+        }
         MR_TELEMETRY(
             const char* src = (next == _node_id && dst == _node_id) ? "pull_target"
                             : (next == _node_id)                    ? "forwarder" : "overheard";

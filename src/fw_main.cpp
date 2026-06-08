@@ -312,7 +312,7 @@ static void handle_debug(const char* arg, size_t n) {
 
 // `help` / `?` — a small command + cfg-key reference for the live console session.
 static void dump_help() {
-    Serial.println(F("[help] send <id> <text> | cfg | cfg set <k> <v> | routes | status | sleep [on|off] | debug [on|off] | regen | reboot"));
+    Serial.println(F("[help] send <id> <text> | send_ack <id> <text> | send_channel <ch> <text> | cfg | cfg set <k> <v> | routes | status | sleep [on|off] | debug [on|off] | regen | reboot"));
     Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway key"));
 }
 
@@ -544,6 +544,11 @@ void loop() {
         switch (pu.kind) {
             case meshroute::PushKind::msg_recv:
                 Serial.println(F("RECV from=")); Serial.print(pu.origin); Serial.print(F(": "));
+                Serial.write(pu.body, pu.body_len); Serial.println();
+                break;
+            case meshroute::PushKind::channel_recv:
+                Serial.print(F("CH ")); Serial.print(pu.channel_id);
+                Serial.print(F(" from=")); Serial.print(pu.origin); Serial.print(F(": "));
                 Serial.write(pu.body, pu.body_len); Serial.println();
                 break;
             case meshroute::PushKind::send_acked:
