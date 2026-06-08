@@ -1,0 +1,67 @@
+// MeshRoute — lib/core/frame_trace.h
+// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
+//
+// Compact, DECODED one-line trace of a wire frame for on-device debugging (RX + TX). Decodes the cmd
+// nibble (§10) + the addressing fields per frame type, so the console shows from/to/dst/ctr instead of a
+// raw cmd number. Shared by fw_main (RX, after poll_rx) and device_radio (TX, at arm time) so both
+// directions read the same. DEVICE-ONLY (uses Serial); native/sim builds skip the whole header.
+#pragma once
+#if defined(ARDUINO)
+#include <Arduino.h>
+#include <span>
+#include "frame_codec.h"   // parse_rts/cts/data/ack/nack + the *_out structs
+
+namespace meshroute {
+
+// cmd nibble (high 4 bits of byte 0) -> short name. §10: BCN0 RTS1 CTS2 DATA3 ACK4 NACK5 Q6 H7 F8 J9.
+inline const char* mr_cmd_name(uint8_t cmd) {
+    switch (cmd) {
+        case 0x0: return "BCN";  case 0x1: return "RTS";  case 0x2: return "CTS";
+        case 0x3: return "DATA"; case 0x4: return "ACK";  case 0x5: return "NACK";
+        case 0x6: return "Q";    case 0x7: return "H";    case 0x8: return "F";
+        case 0x9: return "J";    default:  return "?";
+    }
+}
+
+inline bool g_mr_trace_on = true;   // `debug on/off` (device console) gates the whole decoded RX/TX trace below
+
+// One line:  «rx <NAME> from= to= dst= … len= sf= [snr= rssi=] t=…ms   (»tx for is_rx=false; no snr/rssi)
+// `sf` = the radio SF the frame arrived/left on. Addressing fields are per-type (see §10 / the user's ask):
+//   RTS  from=src to=next dst=dst sfi=<sf_index 0..3, 3=ANY>      CTS  from=tx_id to=rx_id dsf=<data sf>
+//   DATA to=next dst=dst ctr=<ctr>                                ACK  to=<to> ctr=<ctr_lo>
+//   NACK to=<to> rsn=<reason>                                     BCN/Q/H/F/J: name only
+inline void mr_trace_frame(bool is_rx, const uint8_t* b, size_t n, int sf,
+                           float snr, float rssi, uint32_t t_ms) {
+    if (!g_mr_trace_on) return;                    // `debug off` silences the per-frame trace
+    const uint8_t cmd = n ? static_cast<uint8_t>(b[0] >> 4) : 0xFFu;
+    Serial.println(F("")); Serial.print(F(" t=")); Serial.print(t_ms); Serial.print(F(" ms "));
+    Serial.print(is_rx ? F("«rx ") : F("»tx "));
+    Serial.print(mr_cmd_name(cmd));
+    const std::span<const uint8_t> f(b, n);
+    switch (cmd) {
+        case 0x1: if (auto r = parse_rts(f))  { Serial.print(F(" from=")); Serial.print(r->src);
+                      Serial.print(F(" to="));  Serial.print(r->next); Serial.print(F(" dst=")); Serial.print(r->dst);
+                      Serial.print(F(" ctr=")); Serial.print(r->ctr_lo);   // WHICH DM this RTS is for (disambiguates concurrent DMs)
+                      Serial.print(F(" sfi=")); Serial.print(r->sf_index); } break;
+        case 0x2: if (auto c = parse_cts(f))  { Serial.print(F(" from=")); Serial.print(c->tx_id);
+                      Serial.print(F(" to="));  Serial.print(c->rx_id); Serial.print(F(" dsf=")); Serial.print(c->chosen_data_sf);
+                      if (c->already_received) Serial.print(F(" RCVD")); } break;   // dedup CTS: "I already have this DM" -> sender skips DATA
+        case 0x3: if (auto d = parse_data(f)) { Serial.print(F(" to=")); Serial.print(d->next);
+                      Serial.print(F(" dst=")); Serial.print(d->dst); Serial.print(F(" ctr=")); Serial.print(d->ctr); } break;
+        case 0x4: if (auto a = parse_ack(f))  { Serial.print(F(" to=")); Serial.print(a->to);
+                      Serial.print(F(" ctr=")); Serial.print(a->ctr_lo); } break;
+        case 0x5: if (auto k = parse_nack(f)) { Serial.print(F(" to=")); Serial.print(k->to);
+                      Serial.print(F(" ctr=")); Serial.print(k->ctr_lo);
+                      Serial.print(F(" rsn=")); Serial.print(k->reason); } break;
+        default: break;                                   // BCN/Q/H/F/J: just the name + common fields
+    }
+    Serial.print(F(" len=")); Serial.print(static_cast<unsigned>(n));
+    Serial.print(F(" sf="));  Serial.print(sf);
+    if (is_rx) { Serial.print(F(" snr="));  Serial.print(snr, 1);
+                 Serial.print(F(" rssi=")); Serial.print(rssi, 0); }
+    Serial.flush();
+    //Serial.println(F(""));
+}
+
+}  // namespace meshroute
+#endif  // ARDUINO

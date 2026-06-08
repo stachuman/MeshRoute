@@ -42,6 +42,10 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                      static_cast<uint32_t>(airtime_routing_ms(static_cast<int>(len))));
     // Learn the RTS sender as a 1-hop neighbour — any RTS, overheard or addressed (Lua learn_rx_source).
     if (learn_direct_neighbor(r.src, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
+    // No data SF configured (empty sf_list) -> this node is data-incapable: it can't pick a DATA SF, so it does
+    // NOT CTS / retune / arm NAV (no silent fallback). The sender's DM just fails — fail loud. Control plane
+    // (neighbour-learn above, beacons, routing) still runs; only data participation is refused.
+    if (_cfg.allowed_sf_bitmap == 0) return;
     // ROADMAP §3: an M_BROADCAST RTS is a fire-and-forget channel re-broadcast (no CTS). ANY node that hears
     // it and LACKS the msg (by the id low-16) retunes RX to the advertised SF to catch the DATA-M — not just
     // the addressed puller. The retune-back timer restores routing_sf. Holders + gateways skip. (dv:2081/9940.)

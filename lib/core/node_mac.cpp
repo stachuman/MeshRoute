@@ -27,17 +27,16 @@ uint8_t Node::select_data_sf(uint8_t rts_sf_index, int16_t rx_snr_q4) const {
     // Adaptive DATA-SF: resolve the requester's sf_index to a candidate SF set, then pick the fastest
     // SF the link SNR supports (Lua sf_index_to_bitmap :3027 + select_data_sf :3043). ANY(3) -> our full
     // allowed_sf_bitmap; pinned 0..2 -> that singleton (M-broadcast / forced SF). allowed_sf_bitmap==0
-    // means "unconfigured" -> the single preferred data_sf (legacy single-SF nodes). PURE (no rand).
+    // means "unconfigured" -> NO data SF: returns 0, and callers refuse to send / ignore the RTS (no silent
+    // fallback — a misconfigured node must fail loud, not run on a hidden default). PURE (no rand).
     uint16_t bitmap = _cfg.allowed_sf_bitmap;
-    if (bitmap == 0) bitmap = static_cast<uint16_t>(1u << _cfg.data_sf);
     if (rts_sf_index != 3 /*ANY*/) {                          // pinned: the index-th allowed SF
         uint16_t pin = 0; uint8_t seen = 0;
         for (uint8_t sf = 5; sf <= 12; ++sf)
             if (bitmap & (1u << sf)) { if (seen++ == rts_sf_index) { pin = static_cast<uint16_t>(1u << sf); break; } }
         if (pin) bitmap = pin;                                // out-of-range index -> keep full set (Lua :3035)
     }
-    const uint8_t sf = protocol::select_data_sf_for_snr(rx_snr_q4, bitmap, protocol::sf_margin_q4);
-    return (sf != 0) ? sf : _cfg.data_sf;
+    return protocol::select_data_sf_for_snr(rx_snr_q4, bitmap, protocol::sf_margin_q4);  // 0 if sf_list empty
 }
 
 uint32_t Node::airtime_routing_ms(uint16_t len) const {
@@ -156,10 +155,9 @@ void Node::become_free() {
 // ---- M-broadcast (channel gossip) fire-and-forget tx (dv:6997/7044/7389) ----------------------
 // chosen_data_sf = max(allowed_sf_bitmap) — largest SF = most robust = most receivers decode it.
 uint8_t Node::max_data_sf() const {
-    const uint16_t bitmap = _cfg.allowed_sf_bitmap;
-    if (bitmap == 0) return _cfg.data_sf;                        // no allowed set -> the preferred data SF
+    const uint16_t bitmap = _cfg.allowed_sf_bitmap;             // 0 -> no data SF (returns 0; origination refused upstream)
     for (uint8_t sf = 12; sf >= 5; --sf) if (bitmap & (1u << sf)) return sf;
-    return _cfg.data_sf;
+    return 0;
 }
 // The RTS sf_index that pins that max SF (its rank in the ascending allowed set) so a receiver resolves it
 // via select_data_sf — no CTS needed to communicate the choice. (Assumes <=3 allowed SFs, like the Lua.)
@@ -575,14 +573,21 @@ void Node::start_rts_timeout() {
     (void)_hal.after((base << shift) + 1, kRtsTimeoutTimerId);
 }
 void Node::start_ack_timeout() {
-    const uint8_t  sf  = _pending_tx ? _pending_tx->chosen_data_sf : _cfg.data_sf;
+    const uint8_t  sf  = _pending_tx ? _pending_tx->chosen_data_sf : max_data_sf();  // pending always set here
     const uint16_t len = static_cast<uint16_t>(18 + (_pending_tx ? _pending_tx->inner_len : 0));
+    // base = DATA airtime + the ACK's routing airtime. PLUS the REAL hardware turnaround airtime_ms can't see
+    // (rx_window_slop_ms, ZERO on the sim): the ACK round-trip crosses TWO SPI SF-reconfigs — the receiver
+    // retunes data->routing to SEND the ACK, and WE restore RX data->routing to HEAR it. Without them the
+    // ack-timeout landed ~70 ms BEFORE the ACK on metal -> it cleared awaiting_ack, so the real ACK was then
+    // ignored (handle_ack needs awaiting_ack) and a redundant re-RTS fired on a DELIVERED flight. Mirrors
+    // start_pending_rx_expiry, which already carries the slop for the symmetric DATA wait. (Bench: SF9 DATA.)
     const uint32_t base = airtime_ms(sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym, len)
-                        + airtime_routing_ms(3);
+                        + airtime_routing_ms(3)
+                        + _hal.rx_window_slop_ms(sf) + _hal.rx_window_slop_ms(_cfg.routing_sf);
     (void)_hal.after(base + 2, kAckTimeoutTimerId);
 }
 void Node::start_pending_rx_expiry(uint8_t payload_len) {
-    const uint8_t  sf  = _pending_rx ? _pending_rx->chosen_data_sf : _cfg.data_sf;
+    const uint8_t  sf  = _pending_rx ? _pending_rx->chosen_data_sf : max_data_sf();  // pending always set here
     const uint16_t len = static_cast<uint16_t>(14 + payload_len);
     // +2: the original ideal-timing margin — this is ALL the sim uses, so s18 contention is unchanged.
     // On top, _hal.rx_window_slop_ms(sf) is the REAL hardware slop airtime_ms can't see, bench-measured

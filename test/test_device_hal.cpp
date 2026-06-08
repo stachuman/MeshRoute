@@ -220,7 +220,7 @@ TEST_CASE("DeviceHal — a real Node runs over the device backend: a beacon time
     hal.configure(/*sf=*/7, 125000, 5, 16, 14, 100);
     hal.seed_rng(1);
     Node node(hal, /*id=*/1, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
     node.on_init(cfg);                                  // schedules the first beacon (after -> the wheel)
     // Pump the device loop a while: advance time + drain due timers into the Node, then service the
     // async-TX queue (start the beacon, complete it, drain the completion) — the Step-2 loop shape.

@@ -26,19 +26,18 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     uint32_t bw_hz;
     uint32_t beacon_ms;
     double   duty;
-    uint16_t allowed_sf_bitmap;
+    uint16_t allowed_sf_bitmap;  // the sf_list (bit=sf); 0 = no data SF -> node refuses to originate data
     uint8_t  routing_sf;
-    uint8_t  data_sf;
     uint8_t  cr;
     uint8_t  lbt;
     uint8_t  node_id;          // 0 = unprovisioned (no sends until join / `cfg set node_id`)
     int8_t   tx_power;         // dBm (repurposed _pad2); SX1262 range -9..22. `cfg set tx_power`
 };
 constexpr uint32_t kMagic   = 0x4D524331u;   // 'MRC1'
-constexpr uint16_t kVersion = 4;             // v4: claim_epoch + joined repurpose the old _pad (SAME size, so v2/v3
-                                             // blobs still parse — their _pad was 0 -> claim_epoch=0, joined=0).
-                                             // tx_power (was _pad2); load() ALSO accepts v2 (identical
-                                             // layout) + defaults tx_power, so the bump preserves config
+constexpr uint16_t kVersion = 5;             // v5: REMOVED data_sf (sf_list is now mandatory). The Blob shrank, so
+                                             // every pre-v5 blob fails the `n == sizeof(out)` size check in load()
+                                             // and is rejected -> the node re-provisions from defaults. (The
+                                             // version>=2 range below is now effectively "v5 only" — the size gate.)
 
 // ---- Identity record (`/mrid`) — SEPARATE from the config blob above (spec §1.4). The 32-byte master
 // seed is the single source of truth: ed_pub / key_hash32 / x_* are DERIVED at boot via identity_from_seed

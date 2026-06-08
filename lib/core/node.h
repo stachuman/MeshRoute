@@ -38,7 +38,8 @@ struct NodeConfig {
     bool     req_sync_on_boot    = true;
     bool     seen_bitmap_enabled = true;
     uint8_t  routing_sf          = 7;
-    uint16_t allowed_sf_bitmap   = 0;            // allowed DATA-SF set (bit=sf), from config allowed_data_sfs; 0 = use data_sf
+    uint16_t allowed_sf_bitmap   = 0;            // allowed DATA-SF set (bit=sf), from config allowed_data_sfs (sf_list);
+                                                 // 0 = no data SF -> node refuses to originate data + ignores data RTS
     uint32_t beacon_period_ms    = 900000;
     uint32_t beacon_max_idle_ms  = 900000;
     uint8_t  req_sync_min_routes = 8;            // originator: stop REQ_SYNC once rt reaches this (Lua dv:8039)
@@ -62,7 +63,6 @@ struct NodeConfig {
     // R3 data plane: radio params for floor-exact airtime (timeout/retry sizing).
     uint32_t radio_bw_hz = 250000;
     uint8_t  radio_cr    = 5;
-    uint8_t  data_sf     = 12;       // preferred data SF (CTS picks it for sf_index=ANY)
     uint8_t  dv_hop_cap  = protocol::dv_hop_cap;  // DV route hop cap + F RREQ TTL. Network-wide: set via the J join
                                                   // frame (Slice 3); static config is the bootstrap/fallback. Default 16.
     // R4.0 duty-cycle budget. Default OFF (0.0) so every prior gate stays HEALTHY/inert; a
@@ -227,6 +227,9 @@ public:
     uint8_t           node_id()        const { return _node_id; }
     uint32_t          key_hash32()     const { return _key_hash32; }
     const NodeConfig& config()         const { return _cfg; }
+    NodeConfig&       mutable_config()       { return _cfg; }   // LIVE tweak of dynamically-read cfg (device `cfg set`):
+                                                                // touch ONLY fields the MAC re-reads each use (sf_list/lbt/
+                                                                // beacon/nav/hop_cap/leaf_id/gateway), NOT on_init-cached (duty).
     // Live `cfg set` of the radio knobs (control SF / BW / CR) — updates the config the MAC + airtime read,
     // WITHOUT re-initing the Node (routes / in-flight flight survive). LBT-derived delays are cached at
     // on_init and go stale on a live change, but LBT is off by default and needs a reboot to enable.

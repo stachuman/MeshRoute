@@ -114,7 +114,7 @@ static CmdResult send_by_hash_cmd(Node& node, uint32_t dst_hash, const uint8_t* 
 TEST_CASE("A0 id_bind — a heard beacon binds the sender's key_hash32 -> node_id") {
     TestHal hal;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0xABCD);   // unprovisioned: no self-binding to confuse counts
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
     node.on_init(cfg);
     RxMeta meta{8.0f, -80.0f, 0, -1};
 
@@ -133,7 +133,7 @@ TEST_CASE("A0 id_bind — a heard beacon binds the sender's key_hash32 -> node_i
 TEST_CASE("A0 id_bind — self binding is seeded at init when provisioned") {
     TestHal hal;
     Node node(hal, /*node_id=*/7, /*key_hash32=*/0x0000BEEF);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
     node.on_init(cfg);
     CHECK(node.id_bind_find_by_hash(0x0000BEEF) == 7);   // own hash resolves to self (we can answer for ourselves)
 }
@@ -141,7 +141,7 @@ TEST_CASE("A0 id_bind — self binding is seeded at init when provisioned") {
 TEST_CASE("A0 id_bind — a binding past its TTL is no longer resolved") {
     TestHal hal;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.id_bind_ttl_ms = 5000;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.id_bind_ttl_ms = 5000;
     node.on_init(cfg);
     RxMeta meta{8.0f, -80.0f, 0, -1};
 
@@ -158,7 +158,7 @@ TEST_CASE("A0 id_bind — a binding past its TTL is no longer resolved") {
 TEST_CASE("A0 id_bind — table cap refuses a new node_id when full (table_cap_hit)") {
     TestHal hal;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0xABCD); // unprovisioned: no self-binding occupies a slot
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.cap_id_bind = 2;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.cap_id_bind = 2;
     node.on_init(cfg);
     RxMeta meta{8.0f, -80.0f, 0, -1};
 
@@ -180,7 +180,7 @@ TEST_CASE("A0 id_bind — table cap refuses a new node_id when full (table_cap_h
 TEST_CASE("A0 id_bind — a rehome (same hash, new node_id) evicts the stale id [rejoin self-heal]") {
     TestHal hal;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
     node.on_init(cfg);
     RxMeta meta{8.0f, -80.0f, 0, -1};
     auto feed = [&](uint8_t src, uint32_t h) {
@@ -198,7 +198,7 @@ TEST_CASE("A0 id_bind — an authoritative beacon re-key overwrites the same id'
     // not refuses. (The claimed -> refuse path needs a second-hand source = h_relay; it's covered at Phase C.)
     TestHal hal;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
     node.on_init(cfg);
     RxMeta meta{8.0f, -80.0f, 0, -1};
     auto feed = [&](uint8_t src, uint32_t h) {
@@ -215,7 +215,7 @@ TEST_CASE("A0 id_bind — an authoritative beacon re-key overwrites the same id'
 TEST_CASE("A0 id_bind — an AUTHORITATIVE source overwrites a conflicting claimed binding") {
     TestHal hal;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000CAFE);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
     node.on_init(cfg);
     RxMeta meta{8.0f, -80.0f, 0, -1};
     std::array<uint8_t, 64> b{}; const size_t n = make_beacon(/*src=*/3, /*hash=*/0x0000F00D, b);
@@ -232,7 +232,7 @@ TEST_CASE("A0 id_bind — an AUTHORITATIVE source overwrites a conflicting claim
 TEST_CASE("A handle_h — own hash resolves (HARD/authoritative) and SUPPRESSES the forward") {
     TestHal hal;
     Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000DEAD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
     node.on_init(cfg);
     RxMeta meta{8.0f, -80.0f, 0, -1};
     hal.tx_frames.clear();
@@ -250,7 +250,7 @@ TEST_CASE("A handle_h — own hash resolves (HARD/authoritative) and SUPPRESSES 
 TEST_CASE("A handle_h — WARM CASE: a node that cached the owner's beacon answers; the flood stops") {
     TestHal hal;
     Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000BBBB);   // B (a relay), not the owner
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
     node.on_init(cfg);
     RxMeta meta{8.0f, -80.0f, 0, -1};
 
@@ -273,7 +273,7 @@ TEST_CASE("A handle_h — WARM CASE: a node that cached the owner's beacon answe
 TEST_CASE("A handle_h — unknown hash FORWARDS with TTL-1 (deduped on a re-flood)") {
     TestHal hal;
     Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000BBBB);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
     node.on_init(cfg);
     RxMeta meta{8.0f, -80.0f, 0, -1};
     hal.tx_frames.clear();
@@ -299,7 +299,7 @@ TEST_CASE("A handle_h — unknown hash FORWARDS with TTL-1 (deduped on a re-floo
 TEST_CASE("A handle_h — TTL exhausted (ttl=0) does NOT forward; own-query echo is ignored") {
     TestHal hal;
     Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000BBBB);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
     node.on_init(cfg);
     RxMeta meta{8.0f, -80.0f, 0, -1};
     hal.tx_frames.clear();
@@ -320,7 +320,7 @@ TEST_CASE("A handle_h — TTL exhausted (ttl=0) does NOT forward; own-query echo
 TEST_CASE("A handle_h HARD — skips the cache and forwards to the owner (verify-on-use escalation)") {
     TestHal hal;
     Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000BBBB);   // B (a relay) that cached C's binding
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
     node.on_init(cfg);
     RxMeta meta{8.0f, -80.0f, 0, -1};
     std::array<uint8_t, 64> bcn{}; const size_t bn = make_beacon(/*src=*/7, /*hash=*/0x0000CCCC, bcn);
@@ -353,7 +353,7 @@ TEST_CASE("A handle_h HARD — skips the cache and forwards to the owner (verify
 TEST_CASE("A handle_h — variant-aware dedup: a HARD query is not suppressed by a prior SOFT") {
     TestHal hal;
     Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000BBBB);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
     node.on_init(cfg);
     RxMeta meta{8.0f, -80.0f, 0, -1};
     hal.tx_frames.clear();
@@ -403,7 +403,7 @@ TEST_CASE("B codec — hash-bind inner round-trips (H_ANSWER + AUTHORITATIVE + b
 TEST_CASE("B send — the resolver enqueues a hash-bind response addressed to the H-query origin") {
     TestHal hal;
     Node node(hal, /*node_id=*/2, /*key_hash32=*/0x0000BBBB);   // the owner of BBBB
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
     node.on_init(cfg);
     RxMeta meta{8.0f, -80.0f, 0, -1};
     hal.events.clear();
@@ -425,7 +425,7 @@ TEST_CASE("B send — the resolver enqueues a hash-bind response addressed to th
 TEST_CASE("B receive — the origin consumes an H_ANSWER DATA and parses the binding") {
     TestHal hal;
     Node node(hal, /*node_id=*/9, /*key_hash32=*/0x00009999);   // the querier/origin
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
     node.on_init(cfg);
     hal.events.clear();
 
@@ -449,7 +449,7 @@ TEST_CASE("B receive — the origin consumes an H_ANSWER DATA and parses the bin
 TEST_CASE("C.1 consume — the origin caches the resolved binding (h_query, confidence from the answer)") {
     TestHal hal;
     Node node(hal, /*node_id=*/9, /*key_hash32=*/0x00009999);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
     node.on_init(cfg);
     CHECK(node.id_bind_find_by_hash(0x0000BBBB) == -1);  // unknown before the answer
 
@@ -467,7 +467,7 @@ TEST_CASE("C.1 consume — the origin caches the resolved binding (h_query, conf
 TEST_CASE("C.2 cache-on-pass — a forwarder snoops a relayed answer (h_relay) and becomes a future resolver") {
     TestHal hal;
     Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000BBBB);   // a relay — neither querier nor owner
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
     node.on_init(cfg);
     hal.events.clear();
 
@@ -483,7 +483,7 @@ TEST_CASE("C.2 cache-on-pass — a forwarder snoops a relayed answer (h_relay) a
 TEST_CASE("C — a CLAIMED (soft) snoop does NOT override an authoritative binding (the deferred A0 refuse)") {
     TestHal hal;
     Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000BBBB);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
     node.on_init(cfg);
     RxMeta meta{8.0f, -80.0f, 0, -1};
     std::array<uint8_t, 64> bcn{}; const size_t bn = make_beacon(/*src=*/3, /*hash=*/0x00001111, bcn);
@@ -508,7 +508,7 @@ TEST_CASE("C — a CLAIMED (soft) snoop does NOT override an authoritative bindi
 TEST_CASE("D send-by-hash — an AUTHORITATIVE binding sends immediately (no park, no H flood)") {
     TestHal hal;
     Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
     node.on_init(cfg);
     RxMeta meta{8.0f, -80.0f, 0, -1};
     std::array<uint8_t, 64> bcn{}; const size_t bn = make_beacon(/*src=*/7, /*hash=*/0x0000CCCC, bcn);
@@ -527,7 +527,7 @@ TEST_CASE("D send-by-hash — an AUTHORITATIVE binding sends immediately (no par
 TEST_CASE("D send-by-hash — an UNKNOWN hash parks the DM and floods a SOFT H query") {
     TestHal hal;
     Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
     node.on_init(cfg);
     hal.events.clear();
 
@@ -548,7 +548,7 @@ TEST_CASE("D send-by-hash — an UNKNOWN hash parks the DM and floods a SOFT H q
 TEST_CASE("D send-by-hash — a SOFT (claimed) binding parks + floods a HARD query (verify-on-use)") {
     TestHal hal;
     Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
     node.on_init(cfg);
     // Seed a CLAIMED binding via a soft (non-authoritative) snooped answer: DDDD -> node 4.
     std::array<uint8_t, 7> inner{};
@@ -573,7 +573,7 @@ TEST_CASE("D send-by-hash — a SOFT (claimed) binding parks + floods a HARD que
 TEST_CASE("D drain — a hash-bind answer resolves the parked DM and flies it (send_hash_resolved)") {
     TestHal hal;
     Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
     node.on_init(cfg);
     const uint8_t body[] = { 'h', 'i' };
     send_by_hash_cmd(node, /*dst_hash=*/0x0000EEEE, body, sizeof(body));   // unknown -> parked
@@ -598,7 +598,7 @@ TEST_CASE("D drain — a hash-bind answer resolves the parked DM and flies it (s
 TEST_CASE("D give-up — a parked DM whose hash never resolves is dropped on the aging sweep") {
     TestHal hal;
     Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
     node.on_init(cfg);
     const uint8_t body[] = { 'x' };
     send_by_hash_cmd(node, /*dst_hash=*/0x0000EEEE, body, sizeof(body));   // unknown -> parked
@@ -620,7 +620,7 @@ TEST_CASE("D give-up — a parked DM whose hash never resolves is dropped on the
 TEST_CASE("D send-by-hash — an oversized body is refused (err_too_large), never parked (no inner[] overrun)") {
     TestHal hal;
     Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
     node.on_init(cfg);
     hal.events.clear();
     std::array<uint8_t, 240> big{};
@@ -648,7 +648,7 @@ TEST_CASE("D send-by-hash — an oversized body is refused (err_too_large), neve
 TEST_CASE("D re-drain — a beacon that installs the authoritative binding flies a stranded parked DM") {
     TestHal hal;
     Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
     node.on_init(cfg);
     const uint8_t body[] = { 'h', 'i' };
     send_by_hash_cmd(node, /*dst_hash=*/0x0000B3B3, body, sizeof(body));   // unknown -> parked; the H answer is "lost" (never delivered)

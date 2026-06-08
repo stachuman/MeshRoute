@@ -186,6 +186,8 @@ CmdResult Node::on_command(const Command& c) {
         case CmdKind::send: {
             if (_node_id == 0)                                    // unprovisioned: must join / cfg set node_id
                 return CmdResult{ CmdCode::err_unprovisioned, 0, _tx_queue_n };
+            if (_cfg.allowed_sf_bitmap == 0)                      // no data SF (empty sf_list): refuse — no silent fallback
+                return CmdResult{ CmdCode::err_no_data_sf, 0, _tx_queue_n };
             if (c.body_len > protocol::dm_max_body_bytes)         // body + the 2-B inner prefix must fit inner[] (no OOB)
                 return CmdResult{ CmdCode::err_too_large, 0, _tx_queue_n };
             if (c.u.send.dst_hash != 0) {                         // address-by-hash (hash-locate): resolve, then send
@@ -198,6 +200,8 @@ CmdResult Node::on_command(const Command& c) {
         case CmdKind::send_channel: {                         // ROADMAP §3 channel gossip (single-layer)
             if (_node_id == 0)                                // unprovisioned: must join / cfg set node_id
                 return CmdResult{ CmdCode::err_unprovisioned, 0, _tx_queue_n };
+            if (_cfg.allowed_sf_bitmap == 0)                  // channel gossip rides a data SF: refuse if none configured
+                return CmdResult{ CmdCode::err_no_data_sf, 0, _tx_queue_n };
             if (c.body_len > protocol::channel_msg_max_payload_bytes)
                 return CmdResult{ CmdCode::err_too_large, 0, _tx_queue_n };
             const uint16_t ctr = do_send_channel(c.u.channel.channel_id, c.body, c.body_len);

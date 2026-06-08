@@ -28,6 +28,7 @@
 #if defined(ARDUINO)
 #include <RadioLib.h>
 #include "helpers/radiolib/CustomSX1262.h"   // vendored — getIrqFlags() + SX126X_IRQ_PREAMBLE_DETECTED
+#include "../core/frame_trace.h"             // mr_trace_frame() — shared decoded RX/TX console trace
 
 namespace meshroute {
 
@@ -66,7 +67,7 @@ public:
                             int16_t sf, int32_t bw_hz, int8_t cr, int8_t pw, int16_t pre) override {
         ++_tx_count;
         if (sf > 0) _cur_sf = sf;                                                  // TEMP DEBUG
-        Serial.print(F("[tx] cmd=")); Serial.print(n ? (b[0] >> 4) : 0); Serial.print(F(" len=")); Serial.print((unsigned)n); Serial.print(F(" sf=")); Serial.print(_cur_sf); Serial.print(F(" t=")); Serial.println(millis());  // TEMP DEBUG: arm-time trace (+ tx SF + ms); [txdone] marks completion -> Δ = airtime
+        mr_trace_frame(/*is_rx=*/false, b, n, _cur_sf, 0.0f, 0.0f, millis());   // decoded arm-time trace; [txdone] below marks completion -> Δ = airtime
         if (sf  > 0)    _radio.setSpreadingFactor(static_cast<uint8_t>(sf));
         if (bw_hz > 0)  _radio.setBandwidth(static_cast<float>(bw_hz) / 1000.0f);   // RadioLib wants kHz
         if (cr  > 0)    _radio.setCodingRate(static_cast<uint8_t>(cr));
@@ -100,6 +101,7 @@ public:
     }
 
     bool tx_busy() const override { return _tx_in_flight; }
+    int  rx_sf()   const { return _cur_sf; }   // the radio SF currently armed (for the decoded RX trace)
 
     // Watchdog recovery: the in-flight TX overran its deadline (TxDone never came). Stop it, restore the
     // listening SF, re-arm RX — mirrors poll_tx_done's tail without waiting for the (lost) edge.
@@ -115,7 +117,7 @@ public:
 
     void set_rx_sf(int sf) override {
         _cur_sf = sf; _rx_sf = sf;                                                 // _rx_sf = the LISTENING SF; transmit() restores it post-TX (so we don't sit on the data SF after a DATA)
-        Serial.print(F("[rxsf=")); Serial.print(sf); Serial.print(F(" t=")); Serial.print(millis()); Serial.println(F("]"));   // TEMP DEBUG: RX SF hop + ms timestamp (data-SF window = Δt between consecutive hops)
+        Serial.print(F("↻ rx-sf → ")); Serial.print(sf); Serial.print(F("  t=")); Serial.print(millis()); Serial.println(F("ms"));   // RX listening-SF hop (data-SF window = Δt between hops)
         _radio.standby();                                                          // SX1262: SetModulationParams (the SF) only latches in STANDBY — issued mid-RX it is dropped, so set_rx_sf was re-arming on the OLD SF (the data-leg bug)
         _radio.setSpreadingFactor(static_cast<uint8_t>(sf));
         g_dio1_fired = false;                                                      // drop any stale edge before re-arming on the new SF
@@ -159,7 +161,7 @@ public:
         if (_tx_in_flight) return false;                                // mid-TX: the DIO1 edge is TxDone (poll_tx_done's), not RxDone
         const uint16_t irq = _radio.getIrqFlags();
         const bool pre = (irq & SX126X_IRQ_PREAMBLE_DETECTED) != 0;
-        if (pre && !_pre_seen) { _preamble = true; _pre_seen = true; Serial.print(F("[pre sf=")); Serial.print(_cur_sf); Serial.print(F(" t=")); Serial.print(millis()); Serial.print(F("]")); }  // RX DEBUG: + SF + ms timestamp
+        if (pre && !_pre_seen) { _preamble = true; _pre_seen = true; }   // latch the preamble witness; print removed (noise)
         if (!pre) _pre_seen = false;                                     // window ended
 #if defined(MR_RX_POLL)
         if ((irq & RADIOLIB_SX126X_IRQ_RX_DONE) == 0) return false;      // legacy polled fallback (A/B)
@@ -167,8 +169,7 @@ public:
         if (!g_dio1_fired) return false;                                 // ISR-driven (default): no RxDone yet
         g_dio1_fired = false;                                            // consume this edge
 #endif
-        Serial.print(F("[rxdone irq=")); Serial.print(irq, HEX); Serial.print(F(" sf=")); Serial.print(_cur_sf); Serial.print(F(" t=")); Serial.print(millis()); Serial.print(F("]"));   // RX DEBUG: + SF + ms timestamp
-        size_t l = _radio.getPacketLength();
+        size_t l = _radio.getPacketLength();   // RxDone: decoded line is the fw_main «rx (was [rxdone] raw dump)
         if (l > cap) l = cap;
         const int16_t st = _radio.readData(buf, l);                     // clears the RX IRQs
         // Read the packet's SNR/RSSI BEFORE re-arming — after startReceive() they reflect the live

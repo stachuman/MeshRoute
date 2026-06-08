@@ -230,7 +230,7 @@ static CmdResult send_cmd(Node& node, uint8_t dst, const char* body) {
 
 TEST_CASE("R3 receiver — RTS -> CTS -> DATA -> delivered (we are the destination)") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
     node.on_init(cfg);
     RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };   // immediate sender = bob(1)
 
@@ -257,7 +257,7 @@ TEST_CASE("R3 receiver — RTS -> CTS -> DATA -> delivered (we are the destinati
 
 TEST_CASE("R3 dedup — retried RTS within last_acked TTL -> already_received CTS; past TTL -> fresh CTS") {
     TestHal hal; Node node(hal, 2, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
     node.on_init(cfg);
     RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
     std::array<uint8_t, 16> rb{}; std::array<uint8_t, 64> db{};
@@ -290,7 +290,7 @@ TEST_CASE("R3 dedup — retried RTS within last_acked TTL -> already_received CT
 // so only a hand-fed mid-flight ordering exercises it.
 TEST_CASE("R3.x concurrency — 2nd send waits behind the in-flight one until become_free re-drains") {
     TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);   // self = alice(1)
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
     node.on_init(cfg);
 
     // Seed a direct route to bob(2) so issue_send has a next hop.
@@ -363,7 +363,7 @@ TEST_CASE("R3.x golden — retry_jitter_ms == 3*airtime_routing(RTS_LEN=8)") {
 static Node* mk_sender_with_routes(TestHal& hal, std::vector<std::array<uint8_t,3>> vias) {
     // each via = {next_hop_src, hops_advertised, score_bucket}
     Node* node = new Node(hal, /*id=*/1, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
     node->on_init(cfg);
     std::array<uint8_t,64> bb{};
     for (auto& v : vias) {
@@ -491,7 +491,7 @@ TEST_CASE("cascade — ACK-timeout exhaustion walks to the alternate (Risk #5 fu
 
 TEST_CASE("defer — originator send with no route is held, then drained when a route appears") {
     TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
     node.on_init(cfg);
     hal._now = 1000;
     send_cmd(node, /*dst=*/5, "later");                 // no route -> DEFER (not drop)
@@ -508,7 +508,7 @@ TEST_CASE("defer — originator send with no route is held, then drained when a 
 
 TEST_CASE("defer — TTL-first giveup: a held send with no route ages out on the periodic drain") {
     TestHal hal; Node node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
     node.on_init(cfg);
     hal._now = 1000;
     send_cmd(node, 5, "lost");
@@ -521,7 +521,7 @@ TEST_CASE("defer — TTL-first giveup: a held send with no route ages out on the
 
 TEST_CASE("defer — TTL-FIRST beats route-exists: past-TTL held send gives up even when a route arrives") {
     TestHal hal; Node node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
     node.on_init(cfg);
     hal._now = 1000;
     send_cmd(node, 5, "trapped");                       // deferred (no route)
@@ -541,7 +541,7 @@ TEST_CASE("defer — TTL-FIRST beats route-exists: past-TTL held send gives up e
 // ---- NACK plane (BUSY_RX + LOOP_DUP) ---------------------------------------
 TEST_CASE("nack — BUSY_RX emit: a 2nd-flight RTS into a busy receiver gets a NACK") {
     TestHal hal; Node node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
     std::array<uint8_t,16> rb{};
     const size_t rn = mk_rts(/*src=*/2, /*next=*/1, /*dst=*/9, /*ctr_lo=*/5, /*plen=*/10, rb);
     RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
@@ -624,7 +624,7 @@ TEST_CASE("nack — LOOP_DUP miss: DIRECT giveup, NOT requeue (Lua dv:10588)") {
 
 TEST_CASE("nack — LOOP_DUP emit: same flight via a different prev-hop NACKs the sender") {
     TestHal hal; Node node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
     std::array<uint8_t,64> bb{};                        // merge(1) needs a route to dst=5 to forward
     const size_t bn = mk_beacon_route(/*src=*/7, /*dest=*/5, /*next=*/9, /*hops=*/1, /*score=*/14, bb);
     RxMeta m7{12.0f,-70.0f,0,static_cast<int8_t>(7)}; node.on_recv(bb.data(), bn, m7);
@@ -647,7 +647,7 @@ TEST_CASE("nack — LOOP_DUP emit: same flight via a different prev-hop NACKs th
 
 TEST_CASE("cascade — equal-score candidates keep INSERTION order (Lua-faithful, NO id tie-break)") {
     TestHal hal; Node node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
     node.on_init(cfg);
     std::array<uint8_t,64> bb{};
     RxMeta m9{12.0f, -70.0f, 0, static_cast<int8_t>(9)};   // via 9 arrives FIRST
@@ -692,7 +692,7 @@ TEST_CASE("hop_budget — originator initial budget = min(31, rt_hops + slack)")
 
 TEST_CASE("hop_budget — forwarder with hops_remaining==0 NACKs HOP_BUDGET (no ACK, no forward)") {
     TestHal hal; Node node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
     std::array<uint8_t,64> bb{}; const size_t bn = mk_beacon_route(7, 5, 9, 1, 14, bb);
     RxMeta m7{12.0f,-70.0f,0,static_cast<int8_t>(7)}; node.on_recv(bb.data(), bn, m7);   // route to 5
     std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
@@ -712,7 +712,7 @@ TEST_CASE("hop_budget — forwarder with hops_remaining==0 NACKs HOP_BUDGET (no 
 
 TEST_CASE("hop_budget — destination is EXEMPT: hops_remaining==0 AT the dst delivers, no NACK") {
     TestHal hal; Node node(hal, 5, 0xABCD);                // self == the destination
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
     std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
     RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
     const size_t rn = mk_rts(2, 5, 5, 3, 10, rb); node.on_recv(rb.data(), rn, m2);
@@ -726,7 +726,7 @@ TEST_CASE("hop_budget — destination is EXEMPT: hops_remaining==0 AT the dst de
 
 TEST_CASE("hop_budget — forwarder decrements: arriving remaining=2 forwards with remaining=1") {
     TestHal hal; Node node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
     std::array<uint8_t,64> bb{}; const size_t bn = mk_beacon_route(7, 5, 9, 1, 14, bb);   // route to 5 via 7
     RxMeta m7{12.0f,-70.0f,0,static_cast<int8_t>(7)}; node.on_recv(bb.data(), bn, m7);
     std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
@@ -772,7 +772,7 @@ TEST_CASE("hop_budget — sender NACK recovery: terminal giveup + rt.hops bump f
 // (not accepted+forwarded). Before the fix the C++ ran dedup first and skipped the write.
 TEST_CASE("hop_budget — an exhausted frame records seen_origins so a later diff-prev-hop arrival is LOOP_DUP") {
     TestHal hal; Node node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
     std::array<uint8_t,64> bb{}; const size_t bn = mk_beacon_route(7, 5, 9, 1, 14, bb);   // route to 5 (could forward)
     RxMeta m7{12.0f,-70.0f,0,static_cast<int8_t>(7)}; node.on_recv(bb.data(), bn, m7);
     std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
@@ -809,7 +809,7 @@ TEST_CASE("hop_budget — an exhausted frame records seen_origins so a later dif
 // terminally HOP_BUDGET-killed an in-transit message that had ample budget.
 TEST_CASE("hop_budget — a forwarded flight keeps its budget across a BUSY_RX long-busy requeue") {
     TestHal hal; Node node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
     std::array<uint8_t,64> bb{};
     { const size_t n = mk_beacon_route(7, 5, 9, 1, 14, bb);     // route to 5 via 7 (primary, score 14)
       RxMeta m7{12.0f,-70.0f,0,static_cast<int8_t>(7)}; node.on_recv(bb.data(), n, m7); }
@@ -840,7 +840,7 @@ TEST_CASE("hop_budget — a forwarded flight keeps its budget across a BUSY_RX l
 // ---- R4.0 + R4.1 — duty-cycle budget tier + BUDGET NACK (reason 1) ----------
 static Node* mk_budget_node(TestHal& hal, double duty_cycle, uint32_t window_ms) {
     Node* node = new Node(hal, /*id=*/1, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
     cfg.duty_cycle = duty_cycle; cfg.duty_cycle_window_ms = window_ms;
     node->on_init(cfg);
     return node;
@@ -1023,7 +1023,7 @@ TEST_CASE("R4.2 ACK budget_hint — STRAINED forwarder's ACK carries the tier; s
     // EMIT: a STRAINED forwarder (60%) still CTSes (only >=CRITICAL refuses) and ACKs with budget_hint=STRAINED.
     {
         TestHal hal; Node node(hal, 1, 0xABCD);
-        NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
         cfg.duty_cycle = 0.10; cfg.duty_cycle_window_ms = 1000;   // budget 100ms
         node.on_init(cfg);
         hal._airtime_used = 60;                                   // 60% -> STRAINED (CTSes, doesn't refuse)
@@ -1062,7 +1062,7 @@ TEST_CASE("R4.2 ACK budget_hint — STRAINED forwarder's ACK carries the tier; s
 // tier climb by bumping the scripted airtime between the RTS and the DATA.
 TEST_CASE("R4.2 ACK budget_hint — EXHAUSTED at DATA-time caps the forward hint at CRITICAL") {
     TestHal hal; Node node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
     cfg.duty_cycle = 0.10; cfg.duty_cycle_window_ms = 100000;     // budget 10000ms (realistic — the CTS/ACK fit it)
     node.on_init(cfg);
     std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
@@ -1083,7 +1083,7 @@ TEST_CASE("R4.2 ACK budget_hint — EXHAUSTED at DATA-time caps the forward hint
 // ---- R4.4 — originator anti-spam (1st-hop statistical rate-limit) ----
 TEST_CASE("R4.4 compute_originator_metric — distinct ctr_lo, 10s dedup, window prune, apparent=max(0,rts-cts)") {
     TestHal hal; Node node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
     int app; uint32_t air; uint8_t rts, cts;
     // 3 distinct-ctr_lo RTSes from sender 9 (air 10 each) -> rts=3
     hal._now = 1000;
@@ -1110,7 +1110,7 @@ TEST_CASE("R4.4 compute_originator_metric — distinct ctr_lo, 10s dedup, window
 
 TEST_CASE("R4.4 originator ledger — fixed ring caps at cap_originator_events, evicts oldest, metric stays correct") {
     TestHal hal; Node node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
     // Overflow the heap-free ring: cap+8 RTSes from sender 9, ctr_lo cycling 0..15, 1s apart. Same ctr_lo
     // recurs every 16s (> the 10s dedup window) so NONE dedup -> cap+8 distinct events, all inside the
     // 5-min window (no prune). The ring must cap at N and evict the oldest 8, not grow unboundedly.
@@ -1136,7 +1136,7 @@ TEST_CASE("R4.4 airtime backstop — a sender UNDER the airtime cap is NOT throt
     // IS capped). What MUST hold instead, and is the no-false-positive guarantee: a sender whose overheard
     // airtime stays under the cap is never throttled (mirrors s18 dormancy — heaviest legit << cap).
     TestHal hal; Node node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
     cfg.duty_cycle = 0.04; cfg.duty_cycle_window_ms = 300000;   // budget 12000ms -> airtime cap 3000ms
     node.on_init(cfg);
     std::array<uint8_t,16> rb{};
@@ -1153,7 +1153,7 @@ TEST_CASE("R4.4 airtime backstop — a sender UNDER the airtime cap is NOT throt
 
 TEST_CASE("R4.4 airtime backstop — over the 25%-budget airtime cap drops even when apparent <= max") {
     TestHal hal; Node node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
     cfg.duty_cycle = 0.001; cfg.duty_cycle_window_ms = 10000;   // budget 10ms -> airtime cap floor(0.35*10)=3ms
     node.on_init(cfg);
     std::array<uint8_t,16> rb{};
@@ -1174,7 +1174,7 @@ TEST_CASE("R4.4 airtime backstop OFF when duty disabled (budget 0) -> no throttl
     RxMeta m9{8.0f,-80.0f,0,9};
     // duty=0: an overheard + an addressed RTS (airtime >> any cap) -> NOT dropped (backstop skipped), CTSed.
     TestHal hal; Node node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;   // duty_cycle = 0 (disabled)
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;   // duty_cycle = 0 (disabled)
     node.on_init(cfg);
     const size_t ov = mk_rts(9,99,8,0,10,rb); node.on_recv(rb.data(), ov, m9);
     const size_t rn = mk_rts(9, 1,8,1,10,rb); node.on_recv(rb.data(), rn, m9);
@@ -1184,7 +1184,7 @@ TEST_CASE("R4.4 airtime backstop OFF when duty disabled (budget 0) -> no throttl
 
 TEST_CASE("R4.4 Inc 2 — DATA airtime feeds the ledger (kind=data) + warn band fires below the drop cap") {
     TestHal hal; Node node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
     cfg.duty_cycle = 0.02; cfg.duty_cycle_window_ms = 300000;   // budget 6000ms -> cap 2100ms, warn 1680ms (share 0.35)
     node.on_init(cfg);
     // DATA airtime (kind=2) feeds total_air just like RTS/CTS — that's what gives the backstop teeth
@@ -1232,7 +1232,7 @@ TEST_CASE("R4.4 Inc 4 self-cap — an over-cap own origination is deferred (unde
     // Over cap: pre-load the own-origination ledger to the cap, then originate once more -> deferred at
     // become_free (BEFORE issue_send), so no RTS goes out. (Pre-loading avoids driving N full flights.)
     { TestHal hal; Node node(hal, 1, 0xABCD);
-      NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+      NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
       cfg.originator_self_cap_per_window = 3; node.on_init(cfg);
       node.self_originate_observe(); node.self_originate_observe(); node.self_originate_observe();  // count = 3 = cap
       uint64_t oldest; CHECK(node.self_originate_count(&oldest) == 3);
@@ -1241,7 +1241,7 @@ TEST_CASE("R4.4 Inc 4 self-cap — an over-cap own origination is deferred (unde
       CHECK(hal.count("rts_tx") == 0); }                // not transmitted (deferred before issue_send)
     // Under cap: 2 < 3 -> NOT deferred; the origination proceeds past the self-cap gate.
     { TestHal hal; Node node(hal, 1, 0xABCD);
-      NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+      NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
       cfg.originator_self_cap_per_window = 3; node.on_init(cfg);
       node.self_originate_observe(); node.self_originate_observe();   // count = 2 < cap
       send_cmd(node, /*dst=*/8, "hi");
@@ -1251,7 +1251,7 @@ TEST_CASE("R4.4 Inc 4 self-cap — an over-cap own origination is deferred (unde
 // ---- R4.3 — adaptive beacon throttle + silence-jitter (THE determinism golden) ----
 static Node* mk_throttle_node(TestHal& hal, uint32_t quiet_ms, uint32_t max_idle_ms) {
     Node* node = new Node(hal, /*id=*/1, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
     cfg.quiet_threshold_ms = quiet_ms; cfg.beacon_max_idle_ms = max_idle_ms;
     node->on_init(cfg);
     return node;
@@ -1381,7 +1381,7 @@ TEST_CASE("R4.3 triggered-beacon min-interval — 2nd draw ONLY in steady_state 
 // desyncs from the Lua on multi-leaf channels. The routing-SF witness (channel-busy) IS set for all frames.
 TEST_CASE("R4.3 max-idle witness ignores a foreign-leaf beacon (set after the leaf guard)") {
     TestHal hal; Node node(hal, /*id=*/1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
     cfg.quiet_threshold_ms = 30000; cfg.beacon_max_idle_ms = 30000;   // small max_idle -> override eligible
     node.on_init(cfg);
     hal._now = 100000;                                        // past max_idle, no prior beacon (since_tx = inf)
@@ -1403,7 +1403,7 @@ TEST_CASE("R4.3 max-idle witness ignores a foreign-leaf beacon (set after the le
 // ---- R4.5 — LBT (listen-before-talk) pre-checks (THE rand-order golden) ----
 static Node* mk_lbt_node(TestHal& hal, bool lbt_enabled, std::vector<std::array<uint8_t,3>> vias) {
     Node* node = new Node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
     cfg.lbt_enabled = lbt_enabled; cfg.nav_enabled = false;   // LBT rand-order tests isolate from NAV (its origination jitter draws a rand)
     node->on_init(cfg);
     std::array<uint8_t,64> bb{};
@@ -1457,7 +1457,7 @@ TEST_CASE("R4.5 rand-order golden — LBT draws ONLY when enabled + channel busy
 
 TEST_CASE("R4.5 tx_flood — a beacon is DROPPED when the channel is busy longer than flood_lbt_max_defer_ms") {
     TestHal hal; Node node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
     cfg.lbt_enabled = true; cfg.quiet_threshold_ms = 0;        // quiet=0 fast path -> emit_beacon -> tx_flood
     node.on_init(cfg);
     hal._now = 1000; hal._channel_busy_until = 10000000;       // busy WAY past flood_lbt_max_defer
@@ -1472,7 +1472,7 @@ TEST_CASE("R4.5 tx_flood — a beacon is DROPPED when the channel is busy longer
 // (drop it + desync the rand stream). The ring gives each defer its own slot + timer (Lua per-closure semantics).
 TEST_CASE("R4.5 LBT ring — two concurrent deferred NACKs BOTH reach the radio (no single-stash clobber)") {
     TestHal hal; Node node(hal, 1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0; cfg.lbt_enabled = true;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; cfg.lbt_enabled = true;
     node.on_init(cfg);
     std::array<uint8_t,16> rb{};
     hal._now = 1000; hal._channel_busy_until = 0;
@@ -1568,7 +1568,7 @@ TEST_CASE("Shared-bug #2 — tx_with_retry duty pre-check defers an over-budget 
     // _hal.tx -> the sim's duty hard-block bounced it via on_radio_busy, consuming a stash retry per bounce. Fix:
     // the duty pre-check defers (no _hal.tx) + a timer re-runs tx_with_retry from the stash. Draw-free.
     TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
     cfg.duty_cycle = 0.10; cfg.duty_cycle_window_ms = 100000;   // budget 10000ms
     node.on_init(cfg);
     std::array<uint8_t,64> bb{}; RxMeta mb{12.0f,-70.0f,0,static_cast<int8_t>(2)};
@@ -1611,7 +1611,7 @@ TEST_CASE("Cleanup #A (redo) — over-budget RTS duty-deferred in the dedicated 
     // safe. Draw-free; gate-inert. (start_rts_timeout is armed on the hand — the deliberate drift; not separately
     // assertable with the no-op TestHal::after.)
     TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 7; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
     cfg.duty_cycle = 0.10; cfg.duty_cycle_window_ms = 100000; cfg.nav_enabled = false;   // budget 10000ms; duty-rand test isolates from NAV
     node.on_init(cfg);
     std::array<uint8_t,64> bb{}; RxMeta mb{12.0f,-70.0f,0,static_cast<int8_t>(2)};
@@ -1778,7 +1778,7 @@ TEST_CASE("F RREP relayed (not the origin) -> forward path + RREP onward along r
 
 TEST_CASE("E2E ACK — destination of an E2E_ACK_REQ DATA replies with an ack to the origin") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
     node.on_init(cfg);
     RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
 
@@ -1799,7 +1799,7 @@ TEST_CASE("E2E ACK — destination of an E2E_ACK_REQ DATA replies with an ack to
 
 TEST_CASE("E2E ACK — origin of an E2E_IS_ACK DATA confirms (no app delivery)") {
     TestHal hal; Node node(hal, /*id=*/0, /*key=*/0xABCD);   // we are the origin being acked
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
     node.on_init(cfg);
     RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
 
@@ -1826,7 +1826,7 @@ TEST_CASE("E2E ACK — origin of an E2E_IS_ACK DATA confirms (no app delivery)")
 
 TEST_CASE("L2c — DST_HASH matching our key delivers normally") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
     node.on_init(cfg);
     RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
     std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(1, 2, 2, 5, 15, rb);
@@ -1844,7 +1844,7 @@ TEST_CASE("L2c — DST_HASH matching our key delivers normally") {
 
 TEST_CASE("L2c — DST_HASH mismatch, owner UNKNOWN: HARD H query, drop, no deliver, no renumber") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
     node.on_init(cfg);
     node.restore_join_state(/*epoch=*/0, /*joined=*/true);       // would-be heal target; proves L2c does NOT renumber
     RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
@@ -1865,7 +1865,7 @@ TEST_CASE("L2c — DST_HASH mismatch, owner UNKNOWN: HARD H query, drop, no deli
 
 TEST_CASE("L2c — DST_HASH mismatch, owner KNOWN: FORWARD preserves origin + ctr (identity not corrupted)") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
     node.on_init(cfg);
     // A beacon from owner(3) binds 3 -> key_hash32 0x1234 (id_bind) AND installs a direct route to 3.
     std::array<uint8_t, 64> bb{}; const size_t bn = mk_beacon(/*src=*/3, bb);
@@ -1912,7 +1912,7 @@ TEST_CASE("L2c — DST_HASH mismatch, owner KNOWN: FORWARD preserves origin + ct
 
 TEST_CASE("L2c — repeated misdeliveries for one hash collapse to ONE redirect action (anti-flood)") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
     node.on_init(cfg);
     RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
     for (uint8_t k = 0; k < 2; ++k) {                            // two misdeliveries, same want_hash, distinct ctr_lo
@@ -1936,7 +1936,7 @@ TEST_CASE("L2c — repeated misdeliveries for one hash collapse to ONE redirect 
 
 TEST_CASE("L2c — parked redirect resolves to a DIFFERENT id: forward, NEVER renumber (stale binding)") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; node.on_init(cfg);
     node.restore_join_state(/*epoch=*/0, /*joined=*/true);       // joined: a heal WOULD renumber — it must not
     // Route to 7 via neighbour 4 (this beacon does NOT bind 0x1234), so a later forward to 7 can issue.
     std::array<uint8_t, 64> rbe{}; const size_t rben = mk_beacon_route(/*src=*/4, /*dest=*/7, /*next=*/4, /*hops=*/2, /*score=*/10, rbe);
@@ -1965,7 +1965,7 @@ TEST_CASE("L2c — parked redirect resolves to a DIFFERENT id: forward, NEVER re
 
 TEST_CASE("L2c — parked redirect resolves to OUR id: CONFIRMED collision, we WIN -> DENY (no renumber)") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0x0000ABCDu);  // LOW key -> we keep + DENY
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; node.on_init(cfg);
     RxMeta from1{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
     std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(1, 2, 2, 5, 15, rb);
     hal._now = 1000; node.on_recv(rb.data(), rn, from1);
@@ -1989,7 +1989,7 @@ TEST_CASE("L2c — parked redirect resolves to OUR id: CONFIRMED collision, we W
 
 TEST_CASE("L2c — parked redirect resolves to OUR id, we LOSE (joined): forced_rejoin (yield the id)") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xFFFFFFFFu);  // HIGH key -> we yield
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; node.on_init(cfg);
     node.restore_join_state(/*epoch=*/0, /*joined=*/true);       // forced_rejoin only fires when DAD-joined
     RxMeta from1{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
     std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(1, 2, 2, 5, 15, rb);
@@ -2037,7 +2037,7 @@ static CmdResult send_hash_cmd(Node& node, uint32_t dst_hash, const char* body) 
 
 TEST_CASE("L2c — redirect re-budgets the hop count from rt (no destination-exhaustion underflow)") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; node.on_init(cfg);
     // Beacon from owner(3) -> authoritative bind 3->0x1234 + a DIRECT route to 3 (rt_hops=1).
     std::array<uint8_t, 64> bb{}; const size_t bn = mk_beacon(/*src=*/3, bb);
     RxMeta b3{ 8.0f, -80.0f, 0, static_cast<int8_t>(3) }; hal._now = 500; node.on_recv(bb.data(), bn, b3);
@@ -2069,7 +2069,7 @@ TEST_CASE("L2c — redirect re-budgets the hop count from rt (no destination-exh
 
 TEST_CASE("L2c — park_send into a recycled redirect slot is NOT mis-drained as a redirect (slot reset)") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; node.on_init(cfg);
     RxMeta m4{ 8.0f, -80.0f, 0, static_cast<int8_t>(4) };
     // (1) Misdeliver for 0xAAAA (unknown) -> parks a REDIRECT at slot 0 (is_redirect=true).
     RxMeta from1{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
@@ -2098,7 +2098,7 @@ TEST_CASE("L2c — park_send into a recycled redirect slot is NOT mis-drained as
 
 TEST_CASE("L2c send-side — originator stamps DST_HASH from an authoritative id_bind") {
     TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; node.on_init(cfg);
     uint32_t hh = 0;
     CHECK_FALSE(node.key_hash_of_id(2, hh));                    // unknown -> no stamp
     std::array<uint8_t, 64> bb{}; const size_t bn = mk_beacon(/*src=*/2, bb);   // authoritative bind 2->0x1234 + route
@@ -2125,7 +2125,7 @@ TEST_CASE("L2c send-side — originator stamps DST_HASH from an authoritative id
 
 TEST_CASE("L2c — cfg/NV-provisioned LOSER (not joined): collision confirmed but NO renumber (healed=false)") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xFFFFFFFFu);  // HIGH key -> would lose; but NOT joined
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; node.on_init(cfg);
     // (no restore_join_state -> _joined stays false: an operator-pinned id)
     RxMeta from1{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
     std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(1, 2, 2, 5, 15, rb);
@@ -2147,7 +2147,7 @@ TEST_CASE("L2c — cfg/NV-provisioned LOSER (not joined): collision confirmed bu
 
 TEST_CASE("L2c — parked redirect ages out (send_hash_giveup) when its HARD-H never resolves") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; node.on_init(cfg);
     RxMeta from1{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
     std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(1, 2, 2, 5, 15, rb);
     hal._now = 1000; node.on_recv(rb.data(), rn, from1);
@@ -2164,7 +2164,7 @@ TEST_CASE("L2c — parked redirect ages out (send_hash_giveup) when its HARD-H n
 
 TEST_CASE("L2c — parked redirect forwards on the owner's BEACON re-drain (drain_resolved_parked_sends)") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; node.on_init(cfg);
     RxMeta from1{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
     std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(1, 2, 2, 5, 15, rb);
     hal._now = 1000; node.on_recv(rb.data(), rn, from1);
@@ -2185,7 +2185,7 @@ TEST_CASE("L2c — parked redirect forwards on the owner's BEACON re-drain (drai
 
 TEST_CASE("L2c — a no-route redirect DROPS (forwarder semantics), it does NOT defer/send_failed") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; node.on_init(cfg);
     node.restore_join_state(/*epoch=*/0, /*joined=*/true);
     RxMeta m4{ 8.0f, -80.0f, 0, static_cast<int8_t>(4) };
     // An H answer (via relay 4) binds 7->0x1234 AUTHORITATIVE but installs NO route to 7 (only to relay 4).
@@ -2209,7 +2209,7 @@ TEST_CASE("L2c — a no-route redirect DROPS (forwarder semantics), it does NOT 
 
 TEST_CASE("L2c/H — a plain send-by-hash that resolves to OUR OWN id gives up (no self-addressed do_send)") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; node.on_init(cfg);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; node.on_init(cfg);
     // Address an UNKNOWN hash 0xCAFE -> send_by_hash parks (plain) + floods a soft H.
     hal._now = 1000; send_hash_cmd(node, /*dst_hash=*/0xCAFEu, "yo");
     CHECK(hal.count("send_parked_for_hash") == 1);
@@ -2233,7 +2233,7 @@ TEST_CASE("L2c/H — a plain send-by-hash that resolves to OUR OWN id gives up (
 TEST_CASE("NAV — an overheard unicast RTS reserves the medium (only when nav_enabled)") {
     // nav OFF (default) -> overheard RTS sets nothing
     { TestHal hal; Node node(hal, /*id=*/2, 0xABCD);
-      NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; cfg.nav_enabled = false;   // explicit OFF (firmware default is now ON)
+      NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; cfg.nav_enabled = false;   // explicit OFF (firmware default is now ON)
       node.on_init(cfg);
       std::array<uint8_t, 16> rb{};
       const size_t rn = mk_rts(/*src=*/1, /*next=*/3, /*dst=*/4, /*ctr_lo=*/5, /*plen=*/20, rb);  // next=3 != me(2) -> overheard
@@ -2241,7 +2241,7 @@ TEST_CASE("NAV — an overheard unicast RTS reserves the medium (only when nav_e
       CHECK(node.nav_until_ms() == 0); }
     // nav ON -> overheard unicast RTS reserves into the future
     { TestHal hal; Node node(hal, /*id=*/2, 0xABCD);
-      NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; cfg.nav_enabled = true;
+      NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; cfg.nav_enabled = true;
       node.on_init(cfg);
       std::array<uint8_t, 16> rb{};
       const size_t rn = mk_rts(1, 3, 4, 5, 20, rb);
@@ -2251,7 +2251,7 @@ TEST_CASE("NAV — an overheard unicast RTS reserves the medium (only when nav_e
 
 TEST_CASE("NAV — an RTS addressed to us, and a channel/broadcast RTS, do NOT set NAV") {
     TestHal hal; Node node(hal, /*id=*/2, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; cfg.nav_enabled = true;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; cfg.nav_enabled = true;
     node.on_init(cfg);
     // addressed to us (next=2) -> our exchange, not a reservation to honor
     std::array<uint8_t, 16> rb{};
@@ -2271,14 +2271,14 @@ TEST_CASE("NAV — an RTS addressed to us, and a channel/broadcast RTS, do NOT s
 TEST_CASE("NAV — an overheard CTS reserves DATA+ACK; the reservation scales with the data SF") {
     uint64_t d7 = 0, d12 = 0;
     { TestHal hal; Node node(hal, /*id=*/2, 0xABCD);
-      NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; cfg.nav_enabled = true;
+      NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; cfg.nav_enabled = true;
       node.on_init(cfg);
       std::array<uint8_t, 8> cb{};
       const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/3, /*data_sf=*/7, cb);   // rx_id=1 != me(2) -> overheard
       hal._now = 1000; node.on_recv(cb.data(), cn, RxMeta{8.0f, -80.0f, 0, 3});
       d7 = node.nav_until_ms() - 1000; }
     { TestHal hal; Node node(hal, /*id=*/2, 0xABCD);
-      NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; cfg.nav_enabled = true;
+      NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; cfg.nav_enabled = true;
       node.on_init(cfg);
       std::array<uint8_t, 8> cb{};
       const size_t cn = mk_cts(1, 3, /*data_sf=*/12, cb);
@@ -2290,7 +2290,7 @@ TEST_CASE("NAV — an overheard CTS reserves DATA+ACK; the reservation scales wi
 
 TEST_CASE("NAV — own RTS for a queued DM defers while the medium is reserved, then flies once it clears") {
     TestHal hal; Node node(hal, /*id=*/1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
     cfg.lbt_enabled = false; cfg.nav_enabled = true;           // isolate NAV as the only defer source
     node.on_init(cfg);
     std::array<uint8_t, 64> bb{}; const size_t bn = mk_beacon(/*src=*/2, bb);   // direct route to bob(2)
@@ -2313,7 +2313,7 @@ TEST_CASE("NAV — addressed RTS during a reservation: dropped iff nav_ignore_rt
     std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(/*src=*/1, /*next=*/2, /*dst=*/2, 9, 15, rb);  // addressed to us(2)
     // nav_ignore_rts = true (802.11 blanket-NAV): the addressed RTS is dropped under the reservation.
     { TestHal hal; Node node(hal, /*id=*/2, 0xABCD);
-      NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; cfg.nav_enabled = true; cfg.nav_ignore_rts = true;
+      NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; cfg.nav_enabled = true; cfg.nav_ignore_rts = true;
       node.on_init(cfg);
       hal._now = 1000; node.on_recv(ob.data(), on, RxMeta{8.0f, -80.0f, 0, 3});
       CHECK(node.nav_until_ms() > 1000);
@@ -2321,7 +2321,7 @@ TEST_CASE("NAV — addressed RTS during a reservation: dropped iff nav_ignore_rt
       CHECK(hal.count("cts_tx") == 0); }                       // dropped under the reservation
     // DEFAULT (nav_ignore_rts = false, sim-tuned): the SAME RTS during a reservation is still ANSWERED.
     { TestHal hal; Node node(hal, /*id=*/2, 0xABCD);
-      NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0; cfg.nav_enabled = true;   // nav_ignore_rts defaults false
+      NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; cfg.nav_enabled = true;   // nav_ignore_rts defaults false
       node.on_init(cfg);
       hal._now = 1000; node.on_recv(ob.data(), on, RxMeta{8.0f, -80.0f, 0, 3});
       CHECK(node.nav_until_ms() > 1000);                       // reservation IS active
@@ -2332,7 +2332,7 @@ TEST_CASE("NAV — addressed RTS during a reservation: dropped iff nav_ignore_rt
 TEST_CASE("NAV — a fresh own DM origination is jittered (nav_enabled), de-syncing simultaneous originators") {
     // nav ON -> the origination is held by the jitter (rand forced > 0), then flies once it elapses
     TestHal hal; Node node(hal, /*id=*/1, 0xABCD);
-    NodeConfig cfg; cfg.routing_sf = 7; cfg.data_sf = 12; cfg.leaf_id = 0;
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
     cfg.lbt_enabled = false; cfg.nav_enabled = true;
     node.on_init(cfg);
     std::array<uint8_t, 64> bb{}; const size_t bn = mk_beacon(/*src=*/2, bb);
@@ -2346,7 +2346,7 @@ TEST_CASE("NAV — a fresh own DM origination is jittered (nav_enabled), de-sync
 
     // control: nav OFF -> no origination jitter -> the RTS is handed at once
     TestHal h2; Node n2(h2, /*id=*/1, 0xABCD);
-    NodeConfig c2; c2.routing_sf = 7; c2.data_sf = 12; c2.leaf_id = 0; c2.lbt_enabled = false; c2.nav_enabled = false;   // explicit OFF (firmware default is now ON)
+    NodeConfig c2; c2.routing_sf = 7; c2.allowed_sf_bitmap = (1u << 12); c2.leaf_id = 0; c2.lbt_enabled = false; c2.nav_enabled = false;   // explicit OFF (firmware default is now ON)
     n2.on_init(c2);
     std::array<uint8_t, 64> b2{}; const size_t bn2 = mk_beacon(2, b2);
     h2._now = 1000; n2.on_recv(b2.data(), bn2, RxMeta{8.0f, -80.0f, 0, 2});

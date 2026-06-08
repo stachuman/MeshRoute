@@ -95,9 +95,6 @@ CfgErr parse_cfg(const char* line, size_t len, NodeConfig& cfg,
     } else if (tok_eq(key, "routing_sf")) {
         if (!parse_u32_tok(val, 12, u) || u < 5) return CfgErr::bad_value;
         cfg.routing_sf = static_cast<uint8_t>(u);
-    } else if (tok_eq(key, "data_sf")) {
-        if (!parse_u32_tok(val, 12, u) || u < 5) return CfgErr::bad_value;
-        cfg.data_sf = static_cast<uint8_t>(u);
     } else if (tok_eq(key, "gateway")) {
         if (tok_eq(val, "1") || tok_eq(val, "true")) cfg.is_gateway = true;
         else if (tok_eq(val, "0") || tok_eq(val, "false")) cfg.is_gateway = false;

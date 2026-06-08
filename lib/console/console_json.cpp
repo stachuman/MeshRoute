@@ -120,7 +120,6 @@ size_t write_ready(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeCo
     j.lit(",\"mode\":"); j.str(mode, std::strlen(mode));
     j.lit(",\"gateway\":"); j.lit(c.is_gateway ? "true" : "false");
     j.lit(",\"routing_sf\":"); j.u32(c.routing_sf);
-    j.lit(",\"data_sf\":"); j.u32(c.data_sf);
     j.ch('}');
     return j.finish();
 }
@@ -132,7 +131,6 @@ size_t write_status(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeC
     j.lit(",\"leaf_id\":"); j.u32(c.leaf_id);
     j.lit(",\"gateway\":"); j.lit(c.is_gateway ? "true" : "false");
     j.lit(",\"routing_sf\":"); j.u32(c.routing_sf);
-    j.lit(",\"data_sf\":"); j.u32(c.data_sf);
     j.ch('}');
     return j.finish();
 }

@@ -70,7 +70,7 @@ public:
     }
 };
 
-static NodeConfig basic_cfg() { NodeConfig c; c.routing_sf = 7; c.leaf_id = 0; return c; }
+static NodeConfig basic_cfg() { NodeConfig c; c.routing_sf = 7; c.leaf_id = 0; c.allowed_sf_bitmap = (1u << 12); return c; }
 
 // Craft a DATA-M inner for ingest_channel_m. body kept alive by the caller's array.
 static data_m_inner mk_m(uint32_t id, uint8_t channel_id, uint8_t flavor, const uint8_t* body, uint8_t len) {

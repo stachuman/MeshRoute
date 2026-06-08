@@ -63,11 +63,11 @@ TEST_CASE("write_err / write_log / write_ready / write_status") {
     n = write_log(b, sizeof b, "hello");
     CHECK(std::string(b, n) == "{\"log\":\"hello\"}\n");
 
-    NodeConfig c{}; c.routing_sf = 7; c.data_sf = 12; c.is_gateway = false; c.leaf_id = 0;
+    NodeConfig c{}; c.routing_sf = 7; c.is_gateway = false; c.leaf_id = 0;
     n = write_ready(b, sizeof b, 3, 0xa1b2c3d4u, c, "existing");
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"ready\",\"id\":3,\"key\":\"a1b2c3d4\",\"leaf_id\":0,\"mode\":\"existing\",\"gateway\":false,\"routing_sf\":7,\"data_sf\":12}\n");
+      "{\"ev\":\"ready\",\"id\":3,\"key\":\"a1b2c3d4\",\"leaf_id\":0,\"mode\":\"existing\",\"gateway\":false,\"routing_sf\":7}\n");
     n = write_status(b, sizeof b, 3, 0xa1b2c3d4u, c, "operating");
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"status\",\"id\":3,\"key\":\"a1b2c3d4\",\"state\":\"operating\",\"leaf_id\":0,\"gateway\":false,\"routing_sf\":7,\"data_sf\":12}\n");
+      "{\"ev\":\"status\",\"id\":3,\"key\":\"a1b2c3d4\",\"state\":\"operating\",\"leaf_id\":0,\"gateway\":false,\"routing_sf\":7}\n");
 }

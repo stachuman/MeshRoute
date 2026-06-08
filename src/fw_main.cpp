@@ -20,6 +20,7 @@
 #include "iclock.h"
 #include "device_radio.h"
 #include "device_hal.h"
+#include "frame_trace.h"      // mr_trace_frame() — decoded one-line RX/TX console trace
 #include "node.h"
 #include "identity.h"
 #include "command.h"
@@ -115,14 +116,18 @@ static void dump_cfg() {
     Serial.print(F("[cfg] node_id="));   Serial.print(g_node.node_id());
     Serial.print(F(" freq="));           Serial.print(g_freq_mhz, 4);
     Serial.print(F(" routing_sf="));     Serial.print(c.routing_sf);
-    Serial.print(F(" data_sf="));        Serial.print(c.data_sf);
     Serial.print(F(" sf_list="));        print_sf_list(c.allowed_sf_bitmap);
     Serial.print(F(" bw="));             Serial.print(c.radio_bw_hz);
     Serial.print(F(" cr="));             Serial.print(c.radio_cr);
     Serial.print(F(" tx_power="));       Serial.print((int)g_tx_power);
     Serial.print(F(" duty="));           Serial.print(c.duty_cycle, 3);
     Serial.print(F(" lbt="));            Serial.print(c.lbt_enabled ? 1 : 0);
-    Serial.print(F(" beacon_ms="));      Serial.println(c.beacon_period_ms);
+    Serial.print(F(" beacon_ms="));      Serial.print(c.beacon_period_ms);
+    Serial.print(F(" nav="));            Serial.print(c.nav_enabled ? 1 : 0);
+    Serial.print(F(" nav_ignore="));     Serial.print(c.nav_ignore_rts ? 1 : 0);
+    Serial.print(F(" hop_cap="));        Serial.print(c.dv_hop_cap);
+    Serial.print(F(" leaf_id="));        Serial.print(c.leaf_id);
+    Serial.print(F(" gateway="));        Serial.println(c.is_gateway ? 1 : 0);
 }
 
 static void dump_status() {
@@ -199,8 +204,9 @@ static void do_regen() {
 }
 
 // `cfg set <key> <value>` — ACCUMULATES onto the pending NV blob (so several sets + ONE reboot works), then
-// applies: RADIO knobs (freq/routing_sf|control_sf/bw/cr/tx_power) take effect LIVE; node_id + the MAC knobs
-// (data_sf/sf_list/duty/lbt/beacon_ms) need a reboot (live they'd re-init the running Node). `args` past "cfg set ".
+// applies LIVE to the running node where possible. RADIO knobs (freq/routing_sf|control_sf/bw/cr/tx_power) +
+// MAC knobs (sf_list/lbt/beacon_ms) take effect NOW; node_id + duty need a reboot (identity / on_init budget).
+// Extra protocol knobs (nav/nav_ignore/hop_cap/leaf_id/gateway) apply live but are NOT persisted yet (reboot reverts).
 static void handle_cfg_set(const char* args) {
     char key[20]; size_t k = 0;
     while (args[k] && args[k] != ' ' && k < sizeof(key) - 1) { key[k] = args[k]; ++k; }
@@ -225,37 +231,49 @@ static void handle_cfg_set(const char* args) {
         const meshroute::NodeConfig& nc = g_node.config();
         b.freq_mhz = g_freq_mhz;        b.bw_hz = nc.radio_bw_hz;       b.beacon_ms = nc.beacon_period_ms;
         b.duty = nc.duty_cycle;         b.allowed_sf_bitmap = nc.allowed_sf_bitmap;
-        b.routing_sf = nc.routing_sf;   b.data_sf = nc.data_sf;         b.cr = nc.radio_cr;
+        b.routing_sf = nc.routing_sf;   b.cr = nc.radio_cr;
         b.lbt = nc.lbt_enabled ? 1 : 0; b.node_id = g_node.node_id();   b.tx_power = g_tx_power;
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;    // (re)stamp -> also upgrades a loaded v2 blob to v3
 
-    bool live = true, reconfig = false;                    // live = apply now; reconfig = radio needs a re-tune
+    // live = takes effect on the RUNNING node now (else reboot); radio = needs apply_radio_live; persist = write NV.
+    // node-config knobs apply via mutable_config() (the MAC re-reads those each use). duty stays reboot (its
+    // budget_ms is computed once at on_init); the extra protocol knobs are live-only (not in the NV blob yet).
+    meshroute::NodeConfig& lc = g_node.mutable_config();
+    bool live = true, reconfig = false, radio = false, persist = true;
     if      (!strcmp(key, "node_id")) {
         const int v = atoi(val);
         if (v < 0 || v > 254) { Serial.println(F("> cfg err bad_value (node_id 0..254; 0=unprovisioned)")); return; }
         b.node_id = (uint8_t)v; b.joined = 0; live = false;        // operator-pinned id -> NOT DAD-adopted (won't auto-yield)
     }
-    else if (!strcmp(key, "freq"))                                     { b.freq_mhz = atof(val);                reconfig = true; }
-    else if (!strcmp(key, "routing_sf") || !strcmp(key, "control_sf")) { b.routing_sf = (uint8_t)atoi(val);    reconfig = true; }
-    else if (!strcmp(key, "bw"))                                       { b.bw_hz = (uint32_t)atol(val);        reconfig = true; }
-    else if (!strcmp(key, "cr"))                                       { b.cr = (uint8_t)atoi(val);            reconfig = true; }
+    else if (!strcmp(key, "freq"))                                     { b.freq_mhz = atof(val);             reconfig = radio = true; }
+    else if (!strcmp(key, "routing_sf") || !strcmp(key, "control_sf")) { b.routing_sf = (uint8_t)atoi(val); reconfig = radio = true; }
+    else if (!strcmp(key, "bw"))                                       { b.bw_hz = (uint32_t)atol(val);     reconfig = radio = true; }
+    else if (!strcmp(key, "cr"))                                       { b.cr = (uint8_t)atoi(val);         reconfig = radio = true; }
     else if (!strcmp(key, "tx_power")) {
         const int v = atoi(val);
         if (v < -9 || v > 22) { Serial.println(F("> cfg err bad_value (tx_power -9..22 dBm)")); return; }
-        b.tx_power = (int8_t)v;                                        // live, but no radio re-tune
+        b.tx_power = (int8_t)v; radio = true;                         // live, but no radio re-tune
     }
-    else if (!strcmp(key, "data_sf"))    { b.data_sf = (uint8_t)atoi(val);            live = false; }
-    else if (!strcmp(key, "sf_list"))    { b.allowed_sf_bitmap = parse_sf_list(val);  live = false; }
-    else if (!strcmp(key, "duty"))       { b.duty = atof(val);                        live = false; }
-    else if (!strcmp(key, "lbt"))        { b.lbt = atoi(val) != 0;                    live = false; }
-    else if (!strcmp(key, "beacon_ms"))  { b.beacon_ms = (uint32_t)atol(val);         live = false; }
+    // --- node-config knobs: LIVE via mutable_config() (the MAC re-reads each field per use), + persisted ---
+    else if (!strcmp(key, "sf_list"))    { b.allowed_sf_bitmap = parse_sf_list(val); lc.allowed_sf_bitmap = b.allowed_sf_bitmap; }
+    else if (!strcmp(key, "lbt"))        { b.lbt = atoi(val) != 0;            lc.lbt_enabled = (b.lbt != 0); }
+    else if (!strcmp(key, "beacon_ms"))  { b.beacon_ms = (uint32_t)atol(val); lc.beacon_period_ms = b.beacon_ms; }
+    else if (!strcmp(key, "duty"))       { b.duty = atof(val); live = false; }     // reboot: budget_ms is set at on_init
+    // --- extra protocol knobs: LIVE-only (not in the NV blob yet -> reboot reverts) ---
+    else if (!strcmp(key, "nav"))        { lc.nav_enabled    = atoi(val) != 0; persist = false; }
+    else if (!strcmp(key, "nav_ignore")) { lc.nav_ignore_rts = atoi(val) != 0; persist = false; }
+    else if (!strcmp(key, "hop_cap"))    { lc.dv_hop_cap = (uint8_t)atoi(val); persist = false; }
+    else if (!strcmp(key, "leaf_id"))    { lc.leaf_id    = (uint8_t)atoi(val); persist = false; }
+    else if (!strcmp(key, "gateway"))    { lc.is_gateway = (atoi(val) != 0 || !strcmp(val, "true")); persist = false; }
     else { Serial.print(F("> cfg err unknown_key ")); Serial.println(key); return; }
 
-    if (!mrnv::save(b)) { Serial.println(F("> cfg err nv_save_failed")); return; }
-    if (live) apply_radio_live(b, reconfig);
+    if (persist && !mrnv::save(b)) { Serial.println(F("> cfg err nv_save_failed")); return; }
+    if (radio && live) apply_radio_live(b, reconfig);
     Serial.print(F("> cfg ")); Serial.print(key); Serial.print('='); Serial.print(val);
-    Serial.println(live ? F(" ok (applied live)") : F(" ok (reboot to apply)"));
+    if      (!live)   Serial.println(F(" ok (reboot to apply)"));
+    else if (persist) Serial.println(F(" ok (live + saved)"));
+    else              Serial.println(F(" ok (live, not persisted)"));
 }
 
 static void do_reboot() {
@@ -283,8 +301,24 @@ static void handle_sleep(const char* arg, size_t n) {
     }
 }
 
-// Handle a debug/diagnostic console line (routes/cfg/status/cfg set/reboot/sleep). Returns true if consumed.
+// `debug on` / `debug off` (also `debug 1`/`debug 0`) — gate the decoded per-frame «rx/»tx console trace
+// (frame_trace.h g_mr_trace_on). Default ON. Lets the REPL silence the verbose tracing for normal use.
+static void handle_debug(const char* arg, size_t n) {
+    while (n && *arg == ' ') { ++arg; --n; }
+    const bool off = (n >= 3 && !strncmp(arg, "off", 3)) || (n >= 1 && arg[0] == '0');
+    meshroute::g_mr_trace_on = !off;
+    Serial.println(off ? F("> debug off — RX/TX frame trace silenced") : F("> debug on — tracing RX/TX frames"));
+}
+
+// `help` / `?` — a small command + cfg-key reference for the live console session.
+static void dump_help() {
+    Serial.println(F("[help] send <id> <text> | cfg | cfg set <k> <v> | routes | status | sleep [on|off] | debug [on|off] | regen | reboot"));
+    Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway key"));
+}
+
+// Handle a debug/diagnostic console line (help/routes/cfg/status/cfg set/reboot/sleep/debug). Returns true if consumed.
 static bool service_debug(const char* line, size_t len) {
+    if ((len == 4 && !strncmp(line, "help", 4)) || (len == 1 && line[0] == '?')) { dump_help(); return true; }
     if (len == 6 && !strncmp(line, "routes", 6))   { dump_routes(); return true; }
     if (len == 6 && !strncmp(line, "status", 6))   { dump_status(); return true; }
     if (len == 6 && !strncmp(line, "reboot", 6))   { do_reboot();   return true; }
@@ -292,6 +326,7 @@ static bool service_debug(const char* line, size_t len) {
     if (len >  8 && !strncmp(line, "cfg set ", 8)) { handle_cfg_set(line + 8); return true; }
     if (len == 3 && !strncmp(line, "cfg", 3))      { dump_cfg();    return true; }
     if ((len == 5 || (len > 5 && line[5] == ' ')) && !strncmp(line, "sleep", 5)) { handle_sleep(line + 5, len - 5); return true; }
+    if ((len == 5 || (len > 5 && line[5] == ' ')) && !strncmp(line, "debug", 5)) { handle_debug(line + 5, len - 5); return true; }
     return false;
 }
 
@@ -324,7 +359,6 @@ void setup() {
     // knobs AND the node identity. node_id 0 = unprovisioned (sends refused; provision via NV or join).
     meshroute::NodeConfig cfg;
     cfg.routing_sf            = LORA_SF;                         // RX + control plane on the radio's SF
-    cfg.data_sf               = LORA_SF;                         // single SF default; adaptive select_data_sf is live
     cfg.radio_bw_hz           = (uint32_t)(LORA_BW * 1000.0);    // keep the Node's airtime math == the radio's BW
     cfg.radio_cr              = LORA_CR;
     cfg.leaf_id               = 0;
@@ -340,7 +374,7 @@ void setup() {
     if (mrnv::load(nv)) {                                        // a prior `cfg set` persisted -> apply it
         node_id               = nv.node_id;
         g_freq_mhz            = nv.freq_mhz;
-        cfg.routing_sf        = nv.routing_sf;   cfg.data_sf      = nv.data_sf;
+        cfg.routing_sf        = nv.routing_sf;
         cfg.allowed_sf_bitmap = nv.allowed_sf_bitmap;
         cfg.radio_bw_hz       = nv.bw_hz;        cfg.radio_cr     = nv.cr;
         cfg.duty_cycle        = nv.duty;         cfg.lbt_enabled  = nv.lbt != 0;
@@ -370,7 +404,7 @@ void setup() {
     Serial.print(F("  control sf= ")); Serial.print(cfg.routing_sf); Serial.println(F("  (RTS/CTS/ACK + beacons)"));
     Serial.print(F("  data sf   = "));
     if (cfg.allowed_sf_bitmap) { print_sf_list(cfg.allowed_sf_bitmap); Serial.println(F("  (receiver picks the fastest by SNR)")); }
-    else                       { Serial.print(cfg.data_sf);           Serial.println(F("  (fixed — no sf_list configured)")); }
+    else                       { Serial.println(F("(none — set sf_list; data send is REFUSED until configured)")); }
 
     Serial.print(F("  tx power  = ")); Serial.print((int)g_tx_power); Serial.println(F(" dBm"));
 
@@ -397,7 +431,7 @@ void setup() {
         g_node.on_command(jc);
         Serial.println(F("  join      = auto-DAD started (unprovisioned)"));
     }
-    Serial.println(F("  node      = up. Type: send <id> <text>  |  routes | cfg | cfg set <k> <v> | status | sleep | reboot"));
+    Serial.println(F("  node      = up. Type 'help' for commands."));
 }
 
 // Accumulate a USB-CDC line; on '\n' parse it into a Command + hand it to the Node.
@@ -439,7 +473,7 @@ static void persist_join_if_changed() {
         const meshroute::NodeConfig& nc = g_node.config();
         b.freq_mhz = g_freq_mhz;        b.bw_hz = nc.radio_bw_hz;   b.beacon_ms = nc.beacon_period_ms;
         b.duty = nc.duty_cycle;         b.allowed_sf_bitmap = nc.allowed_sf_bitmap;
-        b.routing_sf = nc.routing_sf;   b.data_sf = nc.data_sf;     b.cr = nc.radio_cr;
+        b.routing_sf = nc.routing_sf;   b.cr = nc.radio_cr;
         b.lbt = nc.lbt_enabled ? 1 : 0; b.tx_power = g_tx_power;
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
@@ -488,10 +522,7 @@ void loop() {
         // Bring-up visibility: a frame physically arrived (proves the two radios hear each other).
         // Only fires on an actual RX, so it's low-noise. cmd nibble = high 4 bits of byte 0 (§10 wire).
         ++g_rx_count;
-        Serial.print(F("[rx] len="));  Serial.print((unsigned)len);
-        Serial.print(F(" cmd="));      Serial.print(len ? (g_rxbuf[0] >> 4) : 0);
-        Serial.print(F(" snr="));      Serial.print(snr, 1);
-        Serial.print(F(" rssi="));     Serial.println(rssi, 0);
+        meshroute::mr_trace_frame(/*is_rx=*/true, g_rxbuf, len, g_iradio.rx_sf(), snr, rssi, (uint32_t)g_hal.now());  // per-frame time
         meshroute::RxMeta meta{ snr, rssi, now, /*src_hint=*/(int16_t)-1 };   // LoRa carries no PHY src; Node derives it
         g_node.on_recv(g_rxbuf, len, meta);
     }
@@ -512,15 +543,16 @@ void loop() {
     while (g_node.next_push(pu)) {
         switch (pu.kind) {
             case meshroute::PushKind::msg_recv:
-                Serial.print(F("RECV from=")); Serial.print(pu.origin); Serial.print(F(": "));
+                Serial.println(F("RECV from=")); Serial.print(pu.origin); Serial.print(F(": "));
                 Serial.write(pu.body, pu.body_len); Serial.println();
                 break;
             case meshroute::PushKind::send_acked:
-                Serial.print(F("ACKED ctr="));  Serial.println(pu.ctr); break;
+                Serial.println(F("ACKED ctr="));  Serial.println(pu.ctr); break;
             case meshroute::PushKind::send_failed:
-                Serial.print(F("FAILED ctr=")); Serial.println(pu.ctr); break;
+                Serial.println(F("FAILED ctr=")); Serial.println(pu.ctr); break;
         }
     }
+    Serial.flush();
 
     // 4) Console input -> commands. A byte means a host is here -> latch awake so the console stays usable
     //    (service_console() drains Serial, so we must note it BEFORE; the sleep gate below honors the latch).
