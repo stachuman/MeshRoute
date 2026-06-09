@@ -46,7 +46,7 @@ byte 2   : next        = 0xFF               — broadcast convention (no unicast
 byte 3   : ctr_lo(7..4) | addr_len=0(3..1) | rsv(0)
 byte 4   : hop_left     (reuse the `dst` byte as the TTL safety cap; decremented each forward)
 byte 5   : sf_index(7..6) | rts_flags(5..2) | rsv(1..0)   — sf_index = max_data_sf_index; flags = M_BROADCAST|FLOOD
-byte 6   : payload_len  (of the DATA-M body that follows on the data SF)
+byte 6   : payload_len  (of the M-frame body that follows on the data SF)
 bytes 7-10  : channel_msg_id (4 B, BIG-ENDIAN)            — IMMUTABLE
 bytes 11-42 : coverage bitmap (32 B = 256 bits, bit i = node id i in THIS leaf)  — MUTABLE (OR'd each hop)
 ```
@@ -54,9 +54,11 @@ Total **43 B** on the control SF. (M_BROADCAST-without-FLOOD keeps the legacy 2-
 
 `next = 0xFF` and `hop_left` reuse the existing `next`/`dst` byte positions so `pack_rts`/`parse_rts` stay structurally the same; only the tail length branches on `FLOOD`.
 
-### 3.2 DATA-M (data SF) — UNCHANGED
+### 3.2 Data-SF frame — SUPERSEDED by the lean **M frame** (2026-06-09)
 
-The existing DATA frame (cmd `0x3`, `DATA_FLAG_PAYLOAD_TYPE_M = 0x01`), inner = `channel_msg_id(4 BE) | channel_id(1) | flavor(1) | body`. Rides the data SF = `max_data_sf` (the sender's pick — see §4). The same frame the current pull-response already emits.
+> **UPDATE 2026-06-09:** the data-SF frame is no longer a `DATA + PAYLOAD_TYPE_M` — it is the lean **M frame** (cmd `0xA`): `[cmd|leaf_id][channel_id][flavor][channel_msg_id 4 BE][body]`, 7-B header. This drops the ~17 B of DM plumbing and adds `leaf_id` (the cross-leaf leak fix). The RTS-M's `payload_len` now carries the M-frame **body** length (overhearer window = `airtime(payload_len + 7)`). See `docs/superpowers/specs/2026-06-09-lean-channel-m-frame-design.md` + the **M** section of `docs/frames.md`. Everything else in this redesign (the RTS-M tail, the bitmap-suppressed forward, the consumer/provider split) is unchanged — only the frame that rides the data SF changed.
+
+Rides the data SF = `max_data_sf` (the sender's pick — see §4). Both the flood-originate and the pull-response emit this one M frame.
 
 ### 3.3 CHANNEL_DIGEST & CHANNEL_PULL — UNCHANGED
 
@@ -203,7 +205,7 @@ The flood RTS-M rides the **existing fire-and-forget M-broadcast flight** (`m_br
 - **`enqueue_flood_m(bitmap, hop_left, &ChannelEntry)`** — sibling of `enqueue_channel_m`; sets `flood = true`, `next = 0xFF`, copies the bitmap + `hop_left`. Originate (§4.1) passes the fresh seed bitmap + `flood_hop_max`; rebroadcast (§4.5 on-fire) passes the updated `working_bitmap` + the decremented `hop_left`.
 - **`issue_m_broadcast`** — copies `flood`/`hop_left`/`flood_bitmap` from the popped `TxItem` to `PendingTx`.
 - **`tx_m_broadcast_rts`** — branch on `pt.flood`: build the **43-B FLOOD RTS** (`channel_msg_id` from `pt.inner[0..3]` BE, `next = 0xFF`, `dst = hop_left`, `rts_flags = M_BROADCAST | FLOOD`, `flood_bitmap`) vs the legacy 9-B `id_lo16` path. **Fail loud:** if `flood` and the bitmap has no bits set, `_hal.log(...) + return` — don't TX a zero-coverage flood (it would silently over-rebroadcast, *not* fail loud on its own). Mirrors the existing `pack_rts == 0` guard; originate always seeds ≥ self's bit, so an empty bitmap ⟹ a bug.
-- The DATA-M is **unchanged** (§3.2) — the existing m-broadcast inner; only the RTS format branches.
+- The data-SF frame is the lean **M frame** (cmd 0xA — §3.2 UPDATE 2026-06-09), not a DATA frame; only the RTS format branches.
 
 ### `node_mac_rx.cpp`
 - **`handle_rts` M_BROADCAST block** — EXTEND: if `RTS_FLAG_FLOOD`, run §4.2 (dedup, create/merge flood-state, store the bitmap + `rx_snr`) before the existing overhear-retune. The forward decision is deferred to DATA-M ingest (§4.3). Retune gate `:53 !_cfg.is_gateway` → `!(_cfg.is_gateway && _cfg.gateway_only)` (gateway+owner retunes to catch the DATA-M; a pure bridge stays out).

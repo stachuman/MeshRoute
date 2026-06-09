@@ -72,9 +72,9 @@ public:
 
 static NodeConfig basic_cfg() { NodeConfig c; c.routing_sf = 7; c.leaf_id = 0; c.allowed_sf_bitmap = (1u << 12); return c; }
 
-// Craft a DATA-M inner for ingest_channel_m. body kept alive by the caller's array.
-static data_m_inner mk_m(uint32_t id, uint8_t channel_id, uint8_t flavor, const uint8_t* body, uint8_t len) {
-    data_m_inner m{}; m.channel_msg_id = id; m.channel_id = channel_id; m.flavor = flavor;
+// Craft a parsed lean M frame (m_out) for a direct ingest_channel_m call. body kept alive by the caller. leaf 0.
+static m_out mk_m(uint32_t id, uint8_t channel_id, uint8_t flavor, const uint8_t* body, uint8_t len) {
+    m_out m{}; m.leaf_id = 0; m.channel_msg_id = id; m.channel_id = channel_id; m.flavor = flavor;
     m.body = std::span<const uint8_t>(body, len); return m;
 }
 
@@ -113,15 +113,13 @@ static size_t mk_m_broadcast_rts(uint8_t src, uint8_t next, uint8_t dst, uint32_
     in.payload_len = 8; in.m_payload_id_lo16 = static_cast<uint16_t>(id & 0xFFFF);
     return pack_rts(in, std::span<uint8_t>(b.data(), b.size()));
 }
-// A DATA-M frame (payload_type_m) carrying the M-inner id|channel_id|flavor|body, addressed to `next`/`dst`.
-static size_t mk_data_m(uint8_t next, uint8_t dst, uint32_t id, uint8_t ch, std::array<uint8_t,64>& b) {
-    uint8_t inner[8] = { static_cast<uint8_t>(id >> 24), static_cast<uint8_t>(id >> 16),
-                         static_cast<uint8_t>(id >> 8),  static_cast<uint8_t>(id), ch, /*flavor*/0, 'h', 'i' };
-    const uint8_t mac[4] = { 0, 0, 0, 0 };
-    data_in in{}; in.addr_len = 0; in.flags = DATA_FLAG_PAYLOAD_TYPE_M; in.next = next; in.dst = dst;
-    in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = static_cast<uint16_t>(id & 0xFF);
-    in.visited = {}; in.inner = std::span<const uint8_t>(inner, 8); in.mac = std::span<const uint8_t>(mac, 4);
-    return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
+// A lean M frame (cmd 0xA) carrying channel_id|flavor|id|body="hi" on leaf `leaf` — the data-SF frame an RTS-M
+// announces. Address-less (no next/dst); the byte-0 leaf nibble is the leak gate handle_channel_data checks.
+static size_t mk_m_frame(uint8_t leaf, uint32_t id, uint8_t ch, std::array<uint8_t,64>& b) {
+    const uint8_t body[2] = { 'h', 'i' };
+    m_in in{}; in.leaf_id = leaf; in.channel_id = ch; in.flavor = 0; in.channel_msg_id = id;
+    in.body = std::span<const uint8_t>(body, 2);
+    return pack_m(in, std::span<uint8_t>(b.data(), b.size()));
 }
 // A FLOOD RTS-M (43 B) from `src` advertising `id` with the coverage `bm32`, `hop_left`, sf_index.
 static size_t mk_flood_rts(uint8_t leaf, uint8_t src, uint32_t id, const uint8_t* bm32, uint8_t hop_left,
@@ -190,7 +188,7 @@ TEST_CASE("DATA-M ingest: a received channel msg is admitted + buffered; a gatew
     {
         TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
         const uint32_t id = Node::channel_msg_id_mint(/*origin=*/9, 0x4242u, 1);
-        node.ingest_channel_m(mk_m(id, /*ch=*/5, /*flavor=*/0, body, 2), /*next=*/2, /*dst=*/2, /*from=*/9);
+        node.ingest_channel_m(mk_m(id, /*ch=*/5, /*flavor=*/0, body, 2), /*from=*/9);
         CHECK(node.channel_buffer_count() == 1);
         CHECK(node.channel_has(id));
         CHECK(hal.count("channel_msg_received") == 1);
@@ -198,7 +196,7 @@ TEST_CASE("DATA-M ingest: a received channel msg is admitted + buffered; a gatew
     {   // §7 PURE BRIDGE (gateway_only): fully out of the channel plane -> does NOT buffer (consumer half off)
         TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); cfg.is_gateway = true; cfg.gateway_only = true; node.on_init(cfg);
         const uint32_t id = Node::channel_msg_id_mint(9, 0x4242u, 1);
-        node.ingest_channel_m(mk_m(id, 5, 0, body, 2), 2, 2, 9);
+        node.ingest_channel_m(mk_m(id, 5, 0, body, 2), 9);
         CHECK(node.channel_buffer_count() == 0);
     }
 }
@@ -207,7 +205,7 @@ TEST_CASE("DATA-M ingest pushes a channel_recv to the app (origin/channel_id/bod
     const uint8_t body[] = { 'h', 'i' };
     TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
     const uint32_t id = Node::channel_msg_id_mint(/*origin=*/9, 0x4242u, 1);
-    node.ingest_channel_m(mk_m(id, /*ch=*/5, /*flavor=*/0, body, 2), /*next=*/2, /*dst=*/2, /*from=*/9);
+    node.ingest_channel_m(mk_m(id, /*ch=*/5, /*flavor=*/0, body, 2), /*from=*/9);
     Push pu{}; bool got = false;
     while (node.next_push(pu)) {
         if (pu.kind == PushKind::channel_recv) {
@@ -220,7 +218,7 @@ TEST_CASE("DATA-M ingest pushes a channel_recv to the app (origin/channel_id/bod
     }
     CHECK(got);                               // a NEW channel message surfaces to the app, like a DM
     // A DUPLICATE ingest (already buffered) must NOT raise a second push.
-    node.ingest_channel_m(mk_m(id, 5, 0, body, 2), 2, 2, 9);
+    node.ingest_channel_m(mk_m(id, 5, 0, body, 2), 9);
     int n = 0; while (node.next_push(pu)) if (pu.kind == PushKind::channel_recv) ++n;
     CHECK(n == 0);
 }
@@ -231,19 +229,19 @@ TEST_CASE("per-origin anti-spam: distinct-id count caps at the window max; over-
     // 20 distinct ids from origin 9 (vary the low bytes) -> all admitted + buffered
     for (int k = 0; k < protocol::channel_origin_max_per_window; ++k) {
         const uint32_t id = (uint32_t(9) << 24) | static_cast<uint32_t>(k);
-        node.ingest_channel_m(mk_m(id, 5, 0, body, 1), 2, 2, 9);
+        node.ingest_channel_m(mk_m(id, 5, 0, body, 1), 9);
     }
     CHECK(node.channel_buffer_count() == protocol::channel_origin_max_per_window);
     CHECK(hal.count("channel_drop_originator_throttle") == 0);
     // the (cap+1)th DISTINCT id from origin 9 -> dropped (count stays at cap)
     const uint32_t over = (uint32_t(9) << 24) | 0xFFu;
-    node.ingest_channel_m(mk_m(over, 5, 0, body, 1), 2, 2, 9);
+    node.ingest_channel_m(mk_m(over, 5, 0, body, 1), 9);
     CHECK(node.channel_buffer_count() == protocol::channel_origin_max_per_window);
     CHECK(hal.count("channel_drop_originator_throttle") == 1);
     CHECK(!node.channel_has(over));
     // a DIFFERENT origin is independent -> admitted
     const uint32_t other = (uint32_t(10) << 24) | 1u;
-    node.ingest_channel_m(mk_m(other, 5, 0, body, 1), 2, 2, 10);
+    node.ingest_channel_m(mk_m(other, 5, 0, body, 1), 10);
     CHECK(node.channel_has(other));
 }
 
@@ -251,15 +249,15 @@ TEST_CASE("anti-spam repeat-id refreshes (not re-counts): a re-broadcast can't f
     TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
     const uint8_t body[] = { 'm' };
     for (int k = 0; k < protocol::channel_origin_max_per_window; ++k)   // saturate origin 9 at the cap
-        node.ingest_channel_m(mk_m((uint32_t(9) << 24) | static_cast<uint32_t>(k), 5, 0, body, 1), 2, 2, 9);
+        node.ingest_channel_m(mk_m((uint32_t(9) << 24) | static_cast<uint32_t>(k), 5, 0, body, 1), 9);
     CHECK(node.channel_buffer_count() == protocol::channel_origin_max_per_window);
     // re-ingest an EXISTING id (origin 9, k=0) -> already-present (refresh), NOT a new entry, NOT a drop
-    node.ingest_channel_m(mk_m((uint32_t(9) << 24) | 0u, 5, 0, body, 1), 2, 2, 9);
+    node.ingest_channel_m(mk_m((uint32_t(9) << 24) | 0u, 5, 0, body, 1), 9);
     CHECK(node.channel_buffer_count() == protocol::channel_origin_max_per_window);   // unchanged
     CHECK(hal.count("channel_msg_already_present") == 1);
     CHECK(hal.count("channel_drop_originator_throttle") == 0);                       // the dup was admitted, not dropped
     // a NEW distinct id from origin 9 still drops — the dup did NOT free a slot
-    node.ingest_channel_m(mk_m((uint32_t(9) << 24) | 0x99u, 5, 0, body, 1), 2, 2, 9);
+    node.ingest_channel_m(mk_m((uint32_t(9) << 24) | 0x99u, 5, 0, body, 1), 9);
     CHECK(hal.count("channel_drop_originator_throttle") == 1);
     CHECK(node.channel_buffer_count() == protocol::channel_origin_max_per_window);
 }
@@ -296,7 +294,7 @@ TEST_CASE("buffer eviction (safe): an entry seen by ALL 1-hop neighbours is evic
     // mark a NON-oldest entry (ids[5]) as seen by the only neighbour (50) -> it becomes "safe" (all-seen).
     // (ingest a dup of ids[5] from 50: self-origin bypasses admit; existing -> mark_seen_by(ids[5], 50).)
     const uint8_t body[] = { 'x' };
-    node.ingest_channel_m(mk_m(ids[5], 7, 0, body, 1), /*next=*/3, /*dst=*/3, /*from=*/50);
+    node.ingest_channel_m(mk_m(ids[5], 7, 0, body, 1), /*from=*/50);
     send_channel(node, 7, "overflow");                              // cap+1 -> pick the SAFE entry, not the oldest
     CHECK(node.channel_buffer_count() == protocol::cap_channel_buffer);
     CHECK(!node.channel_has(ids[5]));                               // the all-seen entry was evicted (safe mode)
@@ -403,7 +401,7 @@ TEST_CASE("pull overhear-cancel: receiving the msg before the jitter fires suppr
     const size_t bn = mk_beacon_digest(50, &X, 1, bb); node.on_recv(bb.data(), bn, meta_at(100));
     CHECK(hal.count("channel_pull_scheduled") == 1);
     const uint8_t body[] = { 'z' };                                  // the msg arrives via DATA-M before the jitter
-    node.ingest_channel_m(mk_m(X, 7, 0, body, 1), 2, 2, 50);
+    node.ingest_channel_m(mk_m(X, 7, 0, body, 1), 50);
     CHECK(hal.count("channel_pull_suppressed") == 1);                // cancel_channel_pull fired
     node.on_timer(kChannelPullTimerId);                             // the now-inactive slot -> no tx
     CHECK(hal.count("channel_pull_sent") == 0);
@@ -482,20 +480,33 @@ TEST_CASE("M-broadcast fire-and-forget: pull -> RTS(M_BROADCAST) -> (gap) DATA-M
     if (rts) { auto pr = parse_rts(std::span<const uint8_t>(rts->data(), rts->size())); CHECK(pr); if (pr) CHECK(pr->m_broadcast); }
     CHECK(hal.armed(kCtsToDataGapTimerId));                            // RTS->DATA gap (no CTS wait)
     node.on_timer(kCtsToDataGapTimerId);                              // gap fires -> DATA-M
-    CHECK(hal.last_tx_cmd(0x3) != nullptr);                           // DATA frame went out
+    CHECK(hal.last_tx_cmd(0xA) != nullptr);                           // lean M frame (cmd 0xA) went out
     CHECK(hal.armed(kMBcastClearTimerId));                            // clear armed (no ACK wait)
     CHECK(node.has_pending_tx());
     node.on_timer(kMBcastClearTimerId);                              // clear fires
     CHECK(!node.has_pending_tx());
 }
 
-TEST_CASE("promiscuous M-ingest: an overheard DATA-M (next != us) is buffered before the addressed-check") {
-    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+TEST_CASE("M-frame ingest: a leaf-matching M frame (cmd 0xA) is buffered promiscuously (no addressing)") {
+    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);   // leaf 0
     const uint32_t id = (uint32_t(9) << 24) | 0xABu;
     std::array<uint8_t,64> db{};
-    const size_t dn = mk_data_m(/*next=*/7, /*dst=*/7, id, /*ch=*/5, db);   // addressed to 7; we overhear it
+    const size_t dn = mk_m_frame(/*leaf=*/0, id, /*ch=*/5, db);
     node.on_recv(db.data(), dn, meta_at(100));
-    CHECK(node.channel_has(id));                                       // buffered promiscuously
+    CHECK(node.channel_has(id));                                       // buffered (our leaf, no addressing)
+}
+
+TEST_CASE("M-frame leaf gate: an M frame for a FOREIGN leaf is dropped at ingest, NOT buffered (the leak fix)") {
+    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); cfg.leaf_id = 0; node.on_init(cfg);
+    const uint32_t id = (uint32_t(9) << 24) | 0xCDu;
+    std::array<uint8_t,64> db{};
+    // A stray M frame stamped leaf 3 (e.g. punched in from an adjacent layer) — byte-0 nibble != ours -> drop.
+    node.on_recv(db.data(), mk_m_frame(/*leaf=*/3, id, /*ch=*/5, db), meta_at(100));
+    CHECK(!node.channel_has(id));                                      // dropped before buffering (cross-leaf leak plugged)
+    CHECK(hal.count("channel_msg_received") == 0);
+    // ... and a matching-leaf one for the same id IS buffered (the gate is leaf-selective, not a blanket drop).
+    node.on_recv(db.data(), mk_m_frame(/*leaf=*/0, id, /*ch=*/5, db), meta_at(110));
+    CHECK(node.channel_has(id));
 }
 
 // ===================== FLOOD plane (2026-06-08 redesign) — the fast-primary state machine =====================
@@ -538,7 +549,7 @@ TEST_CASE("FLOOD forward: unmarked neighbour -> rebroadcast scheduled; all-marke
         const uint32_t id = (uint32_t(5) << 24) | 0x22u;
         uint8_t bm[32] = {}; bm_set(bm, 1);                                 // 9 NOT marked
         std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, 1, id, bm, 8, 3, rb), meta_at(10));
-        std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_data_m(2, 2, id, 5, db), meta_at(40));  // DATA-M body
+        std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_m_frame(0, id, 5, db), meta_at(40));  // DATA-M body
         CHECK(node.channel_has(id));
         CHECK(hal.count("flood_rebroadcast_scheduled") == 1);
         CHECK(hal.armed(kFloodRebcastTimerId));                            // slot 0
@@ -549,7 +560,7 @@ TEST_CASE("FLOOD forward: unmarked neighbour -> rebroadcast scheduled; all-marke
         const uint32_t id = (uint32_t(5) << 24) | 0x33u;
         uint8_t bm[32] = {}; bm_set(bm, 1); bm_set(bm, 9);                 // 9 IS marked -> covered
         std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, 1, id, bm, 8, 3, rb), meta_at(10));
-        std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_data_m(2, 2, id, 5, db), meta_at(40));
+        std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_m_frame(0, id, 5, db), meta_at(40));
         CHECK(node.channel_has(id));
         CHECK(hal.count("flood_rebroadcast_scheduled") == 0);             // silent (self-terminating)
     }
@@ -562,7 +573,7 @@ TEST_CASE("FLOOD rebroadcast: re-floods {coverage + me} with hop_left-1; hop_lef
         const uint32_t id = (uint32_t(5) << 24) | 0x44u;
         uint8_t bm[32] = {}; bm_set(bm, 1);
         std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, 1, id, bm, /*hop_left=*/8, 3, rb), meta_at(10));
-        std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_data_m(2, 2, id, 5, db), meta_at(40));
+        std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_m_frame(0, id, 5, db), meta_at(40));
         const int before = hal.count("flood_tx");
         node.on_timer(kFloodRebcastTimerId);                              // slot 0 fires
         CHECK(hal.count("flood_tx") == before + 1);                       // re-flooded
@@ -579,7 +590,7 @@ TEST_CASE("FLOOD rebroadcast: re-floods {coverage + me} with hop_left-1; hop_lef
         const uint32_t id = (uint32_t(5) << 24) | 0x55u;
         uint8_t bm[32] = {}; bm_set(bm, 1);
         std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, 1, id, bm, /*hop_left=*/1, 3, rb), meta_at(10));
-        std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_data_m(2, 2, id, 5, db), meta_at(40));
+        std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_m_frame(0, id, 5, db), meta_at(40));
         const int before = hal.count("flood_tx");
         node.on_timer(kFloodRebcastTimerId);
         CHECK(hal.count("flood_tx") == before);                           // NO re-flood
@@ -628,7 +639,7 @@ TEST_CASE("FLOOD gateway+owner: CONSUMES (retunes + stores) a flood but is PROVI
     uint8_t bm[32] = {}; bm_set(bm, 1);                                  // 9 unmarked -> a normal node WOULD rebroadcast
     std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, 1, id, bm, 8, 3, rb), meta_at(10));
     CHECK(hal.count("channel_overhear_armed") == 1);                    // consumer: it DID retune to catch the DATA-M
-    std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_data_m(2, 2, id, 5, db), meta_at(40));
+    std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_m_frame(0, id, 5, db), meta_at(40));
     CHECK(node.channel_has(id));                                        // consumer: stored for the owner
     CHECK(hal.count("flood_rebroadcast_scheduled") == 0);              // PROVIDER off: never arms a rebroadcast
     CHECK(hal.count("flood_tx") == 0);                                  // ...and never floods (the state is freed instead)

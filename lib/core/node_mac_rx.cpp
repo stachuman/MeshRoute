@@ -64,9 +64,12 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                     if (fresh) {                              // §4.2 step 3: retune to catch the DATA-M for a FRESH state
                         const uint8_t data_sf = select_data_sf(r.sf_index, snr_q4);
                         _hal.set_rx_sf(data_sf);
+                        // The data-SF frame is the lean M frame: payload_len carries its BODY length, +M_FRAME_HDR_LEN
+                        // (7) = the full on-air M frame (was +13 = the old DATA-M header). Sizing it short retunes
+                        // back before the M frame's RX_DONE -> drop_sf_mismatch. +30 ideal margin + the metal slop.
                         const uint32_t back = protocol::cts_to_data_gap_ms
                             + airtime_ms(data_sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym,
-                                         static_cast<uint16_t>(r.payload_len + 13)) + 30 + _hal.rx_window_slop_ms(data_sf);
+                                         static_cast<uint16_t>(r.payload_len + M_FRAME_HDR_LEN)) + 30 + _hal.rx_window_slop_ms(data_sf);
                         (void)_hal.after(back, kOverhearRetuneTimerId);
                         MR_EMIT("channel_overhear_armed", EF_I("sender", r.src), EF_I("chosen_data_sf", data_sf), EF_B("flood", true));
                     }
@@ -77,15 +80,14 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         if (!(_cfg.is_gateway && _cfg.gateway_only) && !channel_have_id_lo16(r.m_payload_id_lo16)) {   // §7 consumer: gateway+owner catches a pull-response
             const uint8_t data_sf = select_data_sf(r.sf_index, protocol::db_to_q4(meta.snr_db));
             _hal.set_rx_sf(data_sf);
-            // Stay on the data SF until the DATA-M lands: gap (RTS->DATA) + the FULL DATA-frame airtime
-            // (r.payload_len is the inner+MAC; +13 covers the DATA header) + margin. Sizing only the inner
-            // retunes back ~one header's airtime too early -> the DATA-M is dropped (drop_sf_mismatch). The
-            // +30 is the sim's ideal margin; rx_window_slop_ms adds the REAL metal RX_DONE/SPI turnaround
-            // (ZERO on the sim) — without it an overhearer retunes back before the DATA-M's RX_DONE on metal
-            // and misses it (the same slop the addressed DATA wait already carries in start_pending_rx_expiry).
+            // Stay on the data SF until the M frame lands: gap (RTS->DATA) + the FULL M-frame airtime
+            // (r.payload_len carries the BODY length; +M_FRAME_HDR_LEN (7) covers the M header) + margin.
+            // Sizing it short retunes back ~one header's airtime too early -> the M frame is dropped
+            // (drop_sf_mismatch). The +30 is the sim's ideal margin; rx_window_slop_ms adds the REAL metal
+            // RX_DONE/SPI turnaround (ZERO on the sim; the same slop start_pending_rx_expiry carries).
             const uint32_t back = protocol::cts_to_data_gap_ms
                 + airtime_ms(data_sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym,
-                             static_cast<uint16_t>(r.payload_len + 13)) + 30 + _hal.rx_window_slop_ms(data_sf);
+                             static_cast<uint16_t>(r.payload_len + M_FRAME_HDR_LEN)) + 30 + _hal.rx_window_slop_ms(data_sf);
             (void)_hal.after(back, kOverhearRetuneTimerId);
             MR_TELEMETRY(
                 EventField f[] = { { .key = "id_lo16",        .type = EventField::T::i64,     .i = r.m_payload_id_lo16 },
@@ -296,22 +298,23 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     (void)_hal.after(protocol::cts_to_data_gap_ms, kCtsToDataGapTimerId);     // fixed 5ms gap (NOT rand)
 }
 
+// 2026-06-09: a channel message is now the lean M frame (cmd 0xA), NOT a DATA+PAYLOAD_TYPE_M. The data SF
+// frame that follows a FLOOD/M_BROADCAST RTS-M is this M frame; every node that retuned (the overhear ARM)
+// ingests it promiscuously — but the STANDARD byte-0 leaf gate runs first, so a stray that punched into an
+// adjacent leaf dies before buffering (the cross-leaf leak fix). No CTS/ACK/forward; the retune-back timer
+// restores routing_sf. `from` keeps the DATA-M's src_hint-or-0xFF derivation (metal carries no PHY sender).
+void Node::handle_channel_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
+    auto pm = parse_m(std::span<const uint8_t>(bytes, len));
+    if (!pm) return;
+    if (pm->leaf_id != _cfg.leaf_id) return;                 // the leak gate — a foreign-leaf M frame dies here
+    const uint8_t from = (meta.src_hint >= 0) ? static_cast<uint8_t>(meta.src_hint) : 0xFF;
+    ingest_channel_m(*pm, from);
+}
+
 void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto pd = parse_data(std::span<const uint8_t>(bytes, len));
     if (!pd) return;
     const data_out& d = *pd;
-    // ROADMAP §3: a channel M-payload DATA is a 1-hop fire-and-forget broadcast — EVERY node that retuned to
-    // the data SF (the overhear ARM) buffers it promiscuously, regardless of `next`, BEFORE the addressed-check
-    // (dv:10942). No CTS/ACK/forward; the overhear retune-back timer restores routing_sf.
-    if (d.payload_type_m) {
-        const auto m_inner = data_inner(std::span<const uint8_t>(bytes, len), d);
-        const auto m = parse_m_inner(m_inner);
-        if (m) {
-            const uint8_t from = (meta.src_hint >= 0) ? static_cast<uint8_t>(meta.src_hint) : 0xFF;
-            ingest_channel_m(*m, d.next, d.dst, from);
-        }
-        return;
-    }
     if (d.next != _node_id) return;
     if (!_pending_rx || _pending_rx->ctr_lo != d.ctr_lo4) return;
     // Inc 2 anti-spam: record this inbound DATA's airtime in the sender's window — the dominant

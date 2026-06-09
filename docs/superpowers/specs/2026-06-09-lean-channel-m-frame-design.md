@@ -1,7 +1,7 @@
 # Lean Channel-Message Frame (M · cmd 0xA) — Design Spec
 
 **Date:** 2026-06-09
-**Status:** Design — approved direction (frame layout agreed); ready for an implementation plan.
+**Status:** IMPLEMENTED 2026-06-09 (codec `pack_m`/`parse_m` cmd 0xA · dispatch `handle_channel_data` · `ingest_channel_m(m_out)` · `PAYLOAD_TYPE_M` retired · airtime recalcs · frames.md M section). Native 262/262 + xiao + heltec green.
 **Author:** Stanislaw Kozicki / supervised port.
 
 ---

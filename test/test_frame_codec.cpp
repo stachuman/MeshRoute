@@ -817,7 +817,6 @@ TEST_CASE("DATA — golden NORMAL (header + visited + inner + MAC)") {
     if (o) {
         CHECK(o->addr_len == 0);
         CHECK(o->flags == 0);
-        CHECK_FALSE(o->payload_type_m);
         CHECK(o->next == 0x0B); CHECK(o->dst == 0x0C);
         CHECK(o->hops_remaining == 10); CHECK(o->committed_hops == 2);
         CHECK(o->prev_fwd_rt_hops == 3);
@@ -839,36 +838,52 @@ TEST_CASE("DATA — golden NORMAL (header + visited + inner + MAC)") {
     }
 }
 
-TEST_CASE("DATA — golden M / channel (payload_type_m, channel_msg_id BE)") {
-    const uint8_t inner[] = {0x07, 0xAB, 0xCD, 0xEF, 0x02, 0x01, 0x99};   // msgid BE | chan | flavor | body
-    data_in in{};
-    in.flags = DATA_FLAG_PAYLOAD_TYPE_M; in.next = 0x0B; in.dst = 0xFF;
-    in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0;
-    in.ctr = 0x0001; in.visited = {}; in.inner = inner; in.mac = {};
-    std::array<uint8_t, 32> buf{};
-    size_t n = pack_data(in, buf);
-    CHECK(n == 25);
-    const uint8_t ex[] = {0x30, 0x10, 0x0B, 0xFF, 0xF8, 0x00, 0x01, 0x00,
-                          0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-                          0x07, 0xAB, 0xCD, 0xEF, 0x02, 0x01, 0x99, 0x00, 0x00, 0x00, 0x00};
-    for (int i = 0; i < 25; ++i) CHECK(buf[i] == ex[i]);
-
-    std::span<const uint8_t> fr(buf.data(), n);
-    auto o = parse_data(fr);
+TEST_CASE("M — golden lean channel-message frame (cmd 0xA, leaf in byte-0, channel_msg_id BE)") {
+    // 2026-06-09: channel messages moved off DATA onto their own cmd 0xA. leaf rides byte-0 low nibble.
+    const uint8_t body[] = {0x99};
+    m_in in{}; in.leaf_id = 5; in.channel_id = 0x02; in.flavor = 0x01; in.channel_msg_id = 0x07ABCDEFu; in.body = body;
+    std::array<uint8_t, 16> buf{};
+    size_t n = pack_m(in, buf);
+    CHECK(n == 8);                                            // 7-B header + 1-B body
+    const uint8_t ex[] = {0xA5, 0x02, 0x01, 0x07, 0xAB, 0xCD, 0xEF, 0x99};   // cmd 0xA|leaf 5; id BE
+    for (int i = 0; i < 8; ++i) CHECK(buf[i] == ex[i]);
+    auto o = parse_m(std::span<const uint8_t>(buf.data(), n));
     CHECK(o.has_value());
-    if (o) {
-        CHECK(o->payload_type_m);
-        CHECK(o->flags == DATA_FLAG_PAYLOAD_TYPE_M);
-        CHECK(o->dst == 0xFF);
-        CHECK(o->hops_remaining == 31); CHECK(o->committed_hops == 0);
-        CHECK(o->ctr == 0x0001);
-        CHECK(o->inner_len == 7);
-        auto m = parse_m_inner(data_inner(fr, *o));
-        CHECK(m.has_value());
-        if (m) { CHECK(m->channel_msg_id == 0x07ABCDEF); CHECK(m->channel_id == 0x02);
-                 CHECK(m->flavor == 0x01); CHECK(m->body.size() == 1);
-                 if (m->body.size() == 1) CHECK(m->body[0] == 0x99); }
-    }
+    if (o) { CHECK(o->leaf_id == 5);                          // leaf survives byte-0 (the leak gate reads it)
+             CHECK(o->channel_id == 0x02); CHECK(o->flavor == 0x01);
+             CHECK(o->channel_msg_id == 0x07ABCDEFu);         // BIG-endian
+             CHECK(o->body.size() == 1);
+             if (o->body.size() == 1) CHECK(o->body[0] == 0x99); }
+}
+
+TEST_CASE("M — round-trip across leaf/channel/flavor/body; reject len<7 + wrong cmd; accept empty body") {
+    for (uint8_t leaf : {uint8_t(0), uint8_t(7), uint8_t(15)})
+        for (uint8_t ch : {uint8_t(0), uint8_t(0xFF)})
+            for (uint32_t id : {uint32_t(0), uint32_t(0x01020304u), uint32_t(0xFFFFFFFFu)})
+                for (size_t blen : {size_t(0), size_t(1), size_t(110)}) {
+                    std::array<uint8_t, 120> body{};
+                    for (size_t i = 0; i < blen; ++i) body[i] = uint8_t(0x20 + i);
+                    m_in in{}; in.leaf_id = leaf; in.channel_id = ch; in.flavor = 3; in.channel_msg_id = id;
+                    in.body = std::span<const uint8_t>(body.data(), blen);
+                    std::array<uint8_t, 128> buf{};
+                    size_t n = pack_m(in, buf);
+                    CHECK(n == 7 + blen);
+                    auto o = parse_m(std::span<const uint8_t>(buf.data(), n));
+                    CHECK(o.has_value());
+                    if (o) { CHECK(o->leaf_id == (leaf & 0x0F)); CHECK(o->channel_id == ch);
+                             CHECK(o->flavor == 3); CHECK(o->channel_msg_id == id);
+                             CHECK(o->body.size() == blen);
+                             bool bok = true; for (size_t i = 0; i < blen; ++i) bok = bok && (o->body[i] == uint8_t(0x20 + i));
+                             CHECK(bok); }
+                }
+    const uint8_t too_short[] = {0xA0, 0x01, 0x02, 0x03, 0x04, 0x05};               // 6 B header incomplete -> reject
+    CHECK_FALSE(parse_m(std::span<const uint8_t>(too_short, 6)).has_value());
+    const uint8_t wrong_cmd[] = {0x30, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06};         // cmd 0x3 (DATA) -> reject
+    CHECK_FALSE(parse_m(std::span<const uint8_t>(wrong_cmd, 7)).has_value());
+    const uint8_t min_m[] = {0xA0, 0x05, 0x00, 0xDE, 0xAD, 0xBE, 0xEF};             // 7-B header, empty body -> accept
+    auto m0 = parse_m(std::span<const uint8_t>(min_m, 7));
+    CHECK(m0.has_value());
+    if (m0) { CHECK(m0->channel_id == 0x05); CHECK(m0->channel_msg_id == 0xDEADBEEFu); CHECK(m0->body.empty()); }
 }
 
 TEST_CASE("DATA — round-trip across fields (flags, visited, ctr, inner, hops)") {
@@ -897,7 +912,6 @@ TEST_CASE("DATA — round-trip across fields (flags, visited, ctr, inner, hops)"
                         CHECK(o->e2e_ack_req    == ((flags & DATA_FLAG_E2E_ACK_REQ)    != 0));
                         CHECK(o->e2e_is_ack     == ((flags & DATA_FLAG_E2E_IS_ACK)     != 0));
                         CHECK(o->priority       == ((flags & DATA_FLAG_PRIORITY)       != 0));
-                        CHECK(o->payload_type_m == ((flags & DATA_FLAG_PAYLOAD_TYPE_M) != 0));
                         CHECK(o->ctr == ctr);
                         CHECK(o->ctr_lo4 == (ctr & 0x0F));
                         CHECK(o->hops_remaining == hr);
@@ -940,17 +954,15 @@ TEST_CASE("DATA — byte1 flag bit isolation (each flag toggles exactly its bit)
         in.visited = {}; in.inner = {}; in.mac = {};
         return pack_data(in, out);
     };
-    std::array<uint8_t, 24> base{}, ack_req{}, is_ack{}, prio{}, m{};
+    std::array<uint8_t, 24> base{}, ack_req{}, is_ack{}, prio{};
     CHECK(pack_flags(0, base) == 18);
     CHECK(pack_flags(DATA_FLAG_E2E_ACK_REQ,    ack_req) == 18);
     CHECK(pack_flags(DATA_FLAG_E2E_IS_ACK,     is_ack)  == 18);
     CHECK(pack_flags(DATA_FLAG_PRIORITY,       prio)    == 18);
-    CHECK(pack_flags(DATA_FLAG_PAYLOAD_TYPE_M, m)       == 18);
     CHECK(base[1] == 0x00);
-    CHECK((base[1] ^ ack_req[1]) == 0x80);   // E2E_ACK_REQ    -> bit 7
-    CHECK((base[1] ^ is_ack[1])  == 0x40);   // E2E_IS_ACK     -> bit 6
-    CHECK((base[1] ^ prio[1])    == 0x20);   // PRIORITY       -> bit 5
-    CHECK((base[1] ^ m[1])       == 0x10);   // PAYLOAD_TYPE_M -> bit 4
+    CHECK((base[1] ^ ack_req[1]) == 0x80);   // E2E_ACK_REQ -> bit 7
+    CHECK((base[1] ^ is_ack[1])  == 0x40);   // E2E_IS_ACK  -> bit 6
+    CHECK((base[1] ^ prio[1])    == 0x20);   // PRIORITY    -> bit 5  (bit 4 retired: channel-M moved to cmd 0xA)
 }
 
 TEST_CASE("DATA — reject: wrong cmd / <18 / addr_len!=0 / bad span sizes; 18-B min accepts") {
@@ -1003,7 +1015,7 @@ TEST_CASE("DATA — reject: wrong cmd / <18 / addr_len!=0 / bad span sizes; 18-B
     CHECK(pack_data(bad_mac, buf) == 0);                                       // mac size 3 != 4
 }
 
-TEST_CASE("DATA — endianness guard (ctr LE, channel_msg_id BE)") {
+TEST_CASE("DATA — endianness guard (ctr LE)") {
     data_in in{};
     in.next = 1; in.dst = 2; in.ctr = 0xBEEF;
     in.visited = {}; in.inner = {}; in.mac = {};
@@ -1012,10 +1024,7 @@ TEST_CASE("DATA — endianness guard (ctr LE, channel_msg_id BE)") {
     CHECK(n == 18);
     CHECK(buf[6] == 0xEF);   // ctr LE: low byte first
     CHECK(buf[7] == 0xBE);
-    const uint8_t m_inner[] = {0x12, 0x34, 0x56, 0x78, 0x00, 0x00};
-    auto m = parse_m_inner(m_inner);
-    CHECK(m.has_value());
-    if (m) CHECK(m->channel_msg_id == 0x12345678);   // MSB-first (BE)
+    // (channel_msg_id BE is exercised by the M-frame golden/round-trip tests above — it's no longer a DATA inner.)
 }
 
 TEST_CASE("DATA — inner helpers: reject malformed + accept minimum (empty body)") {
@@ -1023,19 +1032,13 @@ TEST_CASE("DATA — inner helpers: reject malformed + accept minimum (empty body
     CHECK_FALSE(parse_unicast_inner(too_short_uni).has_value());
     const uint8_t bad_srcaddr[] = {0x01, 0x07};     // src_addr_len != 0
     CHECK_FALSE(parse_unicast_inner(bad_srcaddr).has_value());
-    const uint8_t too_short_m[] = {0x01, 0x02, 0x03, 0x04, 0x05};   // < 6
-    CHECK_FALSE(parse_m_inner(too_short_m).has_value());
 
-    // minimum-accept boundaries: empty body
+    // minimum-accept boundary: empty body
     const uint8_t min_uni[] = {0x00, 0x07};         // src_addr_len=0, origin=7, body empty
     auto u = parse_unicast_inner(min_uni);
     CHECK(u.has_value());
     if (u) { CHECK(u->origin == 7); CHECK(u->body.size() == 0); }
-    const uint8_t min_m[] = {0x00, 0x00, 0x00, 0x01, 0x02, 0x03};   // msgid BE | chan | flavor, body empty
-    auto m = parse_m_inner(min_m);
-    CHECK(m.has_value());
-    if (m) { CHECK(m->channel_msg_id == 0x00000001); CHECK(m->channel_id == 0x02);
-             CHECK(m->flavor == 0x03); CHECK(m->body.size() == 0); }
+    // (channel-M inner retired — its parse boundaries are covered by the M-frame reject/accept test above.)
 }
 
 TEST_CASE("DATA — default hops_remaining is 31 (no TTL enforcement, Lua 'or 31')") {

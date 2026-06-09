@@ -21,6 +21,7 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 | 0x7 | H    | 8 B | hash-locate flood (soft/hard) |
 | 0x8 | F    | 7 B | route-find RREQ/RREP flood |
 | 0x9 | J    | 6 / 8 / 11 / 15 B | join family |
+| 0xA | M    | 7+n B | channel message (lean; leaf-scoped gossip) |
 
 ---
 
@@ -69,7 +70,7 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 **sf_index:** 0..2 = singleton index into `allowed_data_sfs`; 3 = ANY (receiver picks data SF by SNR). A FLOOD pins `sf_index` to the sender's `max_data_sf` (every flood DATA-M rides the largest allowed SF).
 **rts_flags:** `M_BROADCAST = 0x01`, `RELAY = 0x02`, `FLOOD = 0x04` (positioned at bits 2 (0x04), 3 (0x08), and 4 (0x10) within byte 5).
 
-**FLOOD (`M_BROADCAST | FLOOD`, 43 B)** — the channel-flood primary path (managed flood; the BCN digest + `Q:CHANNEL_PULL` are the repair backstop). It sets **both** flags: `M_BROADCAST` reuses the overhear-retune (receivers retune to the data SF to catch the DATA-M), `FLOOD` selects the 43-B tail and the bitmap-suppressed forward. The 4-B `channel_msg_id` + 32-B coverage bitmap replace the 2-B `m_payload_id` tail; `next` is the broadcast `0xFF` and the `dst` slot carries `hop_left`, so `pack_rts`/`parse_rts` keep the same byte positions and only the tail length branches on `FLOOD`. Forward rule: a receiver with an unmarked 1-hop neighbour re-floods (SNR-weighted backoff, OR-ing its own coverage into the bitmap and decrementing `hop_left`); all neighbours already marked → stay silent. The DATA-M that follows is the unchanged **Channel-M** inner (see DATA). **Leaf-scoped — never bridged across leaves.**
+**FLOOD (`M_BROADCAST | FLOOD`, 43 B)** — the channel-flood primary path (managed flood; the BCN digest + `Q:CHANNEL_PULL` are the repair backstop). It sets **both** flags: `M_BROADCAST` reuses the overhear-retune (receivers retune to the data SF to catch the DATA-M), `FLOOD` selects the 43-B tail and the bitmap-suppressed forward. The 4-B `channel_msg_id` + 32-B coverage bitmap replace the 2-B `m_payload_id` tail; `next` is the broadcast `0xFF` and the `dst` slot carries `hop_left`, so `pack_rts`/`parse_rts` keep the same byte positions and only the tail length branches on `FLOOD`. Forward rule: a receiver with an unmarked 1-hop neighbour re-floods (SNR-weighted backoff, OR-ing its own coverage into the bitmap and decrementing `hop_left`); all neighbours already marked → stay silent. The data-SF frame that follows is the lean **M frame** (cmd 0xA — see M), **not** a DATA frame; the RTS-M's `payload_len` carries that M frame's body length. **Leaf-scoped — never bridged across leaves.**
 
 ---
 
@@ -101,14 +102,14 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 | 5      | prev_fwd_rt_hops                 | soft hop-gradient hint                                                                                                                                                                                             |
 | 6..7   | ctr                              | 16-bit message counter (**LE**)                                                                                                                                                                                    |
 | 8..13  | visited[6]                       | 6 fixed slots, one short-id each (0 = empty, no length prefix)                                                                                                                                                     |
-| 14..   | inner                            | typed inner (see **Inner layouts**) — for a normal / hash-bind frame byte 14 is the cleartext payload-flags byte; a **channel-M** frame (`PAYLOAD_TYPE_M`) has **no** flags byte (byte 14 is the `channel_msg_id`) |
+| 14..   | inner                            | typed inner (see **Inner layouts**) — byte 14 is the cleartext payload-flags byte (normal / hash-bind) |
 | last 4 | MAC                              | opaque 4-byte frame trailer (currently zero-stubbed)                                                                                                                                                               |
 
-**flags (byte 1 high nibble):** `PAYLOAD_TYPE_M = 0x1`, `PRIORITY = 0x2`, `E2E_IS_ACK = 0x4`, `E2E_ACK_REQ = 0x8`.
+**flags (byte 1 high nibble):** `PRIORITY = 0x2`, `E2E_IS_ACK = 0x4`, `E2E_ACK_REQ = 0x8`. (Bit `0x1` is retired — channel messages moved off DATA onto their own **M** frame, cmd 0xA.)
 
 ### Inner layouts
 
-The `inner` slot has **three** shapes. **Channel-M** is typed by the header `PAYLOAD_TYPE_M` flag and has **no** payload-flags byte; the other two begin with a cleartext **payload-flags byte** (`inner[0]`).
+The `inner` slot has **two** shapes (normal unicast, hash-bind answer); both begin with a cleartext **payload-flags byte** (`inner[0]`). (Channel messages are no longer a DATA inner — they ride the lean **M** frame, cmd 0xA, below.)
 
 **Payload-flags byte** (`inner[0]`, always cleartext) — types a non-M inner so a relay/receiver can act without decoding the body:
 
@@ -122,13 +123,10 @@ The `inner` slot has **three** shapes. **Channel-M** is typed by the header `PAY
 | b6 `0x40` | `DST_HASH` | the inner carries the recipient's `key_hash32` (L2c verify-on-delivery; shared by cross-layer) |
 | b5,b7 | rsv | zero |
 
-**① Normal unicast** (incl. the E2E-ack; `PAYLOAD_TYPE_M=0`, `H_ANSWER=0`):
+**① Normal unicast** (incl. the E2E-ack; `H_ANSWER=0`):
 `[payload-flags] [dst_key_hash32 4 B LE — iff DST_HASH] [layer-path — iff CROSS_LAYER] [origin 1 B] [source_hash 4 B LE — iff SOURCE_HASH] [body…] [Poly1305 tag 16 B — iff CRYPTED]`. The E2E-ack (`E2E_IS_ACK`) is this shape with `body` = the acked `ctr` (2 B LE). Everything from `origin` onward (incl. `source_hash`) is the region sealed under `CRYPTED`; the flags byte, `dst_key_hash32`, and layer-path stay cleartext.
 
-**② Channel-M** (`PAYLOAD_TYPE_M=1`; no payload-flags byte):
-`[channel_msg_id 4 B **BE**] [channel_id 1 B] [flavor 1 B] [body…]`.
-
-**③ Hash-bind answer** (`H_ANSWER`; cleartext, 7 B):
+**② Hash-bind answer** (`H_ANSWER`; cleartext, 7 B):
 `[payload-flags = H_ANSWER (+AUTHORITATIVE)] [target_layer 1 B] [node_id 1 B] [key_hash32 4 B LE]`.
 
 #### Cross-layer layer-path (iff `CROSS_LAYER`)
@@ -260,6 +258,22 @@ Shared 2-byte header; body and length depend on opcode. All multi-byte fields **
 DENY **reason:** `1 = CONFLICT`, `2 = PENDING_CLAIM`, `3 = OWN_ID_DEFENSE`, `4 = MEDIATED` (a third-party shared-neighbour heal).
 
 **node_id assignment is Duplicate-Address-Detection (DAD), not OTAA:** a node listens, picks a free id (excluding every id in `id_bind` + the routing table), broadcasts a **CLAIM**, and adopts it after a guard window unless **DENY**'d; a same-id collision heals by one side renumbering. **Tiebreak is `key_hash32`-only — lower key wins/keeps, higher yields** (`claim_epoch`/`lease_age_seconds` are carried but reserved/telemetry, not consulted). `DISCOVER`/`OFFER` are deferred (the listen + CLAIM/heal core is what's used). See `docs/specs/2026-06-05-node-id-auto-assignment-design.md`.
+
+---
+
+## M — channel message (lean) · cmd 0xA · 7+n B
+
+**Use** — a single-leaf channel (broadcast-group) message; the data-SF frame announced by a FLOOD or M_BROADCAST **RTS-M** (the channel-flood primary path, or a `Q:CHANNEL_PULL` repair response). Purpose-built: it drops the ~17 B of DM-only plumbing the old `DATA + PAYLOAD_TYPE_M` carried (`next`/`dst`/`hops`/`ctr`/`visited[6]`/`MAC`) and rides `leaf_id` in byte 0, so the cross-leaf leak gate is the **standard byte-0 leaf check** (`(b0 & 0x0F) != leaf_id → drop`, before buffering). **Reply** — none (fire-and-forget); a receiver that retuned to the data SF (the overhear ARM) buffers it promiscuously. **Deliberate divergence from the frozen Lua** (which keeps channel-M on the DATA frame) — a C++-only wire choice, documented like the `data_sf` removal.
+
+| Byte | Field | Description |
+|------|-------|-------------|
+| 0 | cmd \| leaf_id | bits 7..4 = `0xA`; bits 3..0 = leaf_id — **the leak gate** (a foreign-leaf M frame dies here) |
+| 1 | channel_id | which channel |
+| 2 | flavor | encoding/crypto variant: `0 = public` (plaintext) · `1 = group` (encrypted) · … |
+| 3..6 | channel_msg_id | **BE**; identity — `== the FLOOD RTS-M tail` (bytes 7-10) `== the Q:CHANNEL_PULL` id; `origin = byte 3` |
+| 7.. | payload | by `flavor` (`public` = plaintext body; `group`/encrypted = `[nonce \| ciphertext \| Poly1305 tag 16 B]` — the deferred crypto slice) |
+
+**Header = 7 B.** The announcing RTS-M's `payload_len` carries this frame's **body** length (`n`); an overhearer sizes its data-SF retune window as `airtime(payload_len + 7)`. **Leaf-scoped — never bridged across leaves** (gateways are channel consumers/providers, never flood-bridges; see the channel-flood redesign spec). `channel_msg_id` is **BE** (distinct from the LE `key_hash32`/`ctr` elsewhere).
 
 ---
 

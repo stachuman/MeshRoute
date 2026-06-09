@@ -1,13 +1,14 @@
 // MeshRoute — lib/core/node_channel.cpp  (channel-message gossip plane, ROADMAP §3)
 // Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
-// Phase 1 of the CHANNEL_PULL port: the channel buffer + per-origin anti-spam + DATA-M
-// ingestion + send_channel origination. The digest gossip, the jittered pull, the responder,
-// and the M-broadcast tx land in Phase 2. SINGLE-LAYER only: gateways skip the whole gossip
-// plane (Principle 11) — they still FORWARD M-frames via the normal DATA path, but never buffer,
-// advertise, or pull. Mirrors dv_dual_sf.lua: channel_msg_id :2239, channel_buffer_find :3426,
-// channel_buffer_mark_seen_by :3434, channel_origin_admit :3456, channel_buffer_pick_eviction
-// :3485, channel_buffer_add :3511, the DATA-M ingest :10942, send_channel :12126.
+// The channel-message gossip plane: the channel buffer + per-origin anti-spam + send_channel
+// origination, the managed FLOOD (fast primary, 2026-06-08) + the digest/CHANNEL_PULL repair
+// backstop, and ingestion of the lean M frame (cmd 0xA, 2026-06-09 — its OWN frame, NOT a DATA
+// inner; see frame_codec.h pack_m). Channel messages are LEAF-SCOPED — the M frame's byte-0
+// leaf_id gates ingest. Gateways are consumer-not-provider per `gateway_only` (receive + pull for
+// the owner; never rebroadcast/relay — see node.h §7). Mirrors dv_dual_sf.lua: channel_msg_id
+// :2239, channel_buffer_find :3426, channel_buffer_mark_seen_by :3434, channel_origin_admit :3456,
+// channel_buffer_pick_eviction :3485, channel_buffer_add :3511, the DATA-M ingest :10942, send_channel :12126.
 //
 // DELIBERATE device divergences from the Lua BASELINE (draw-free plane — no determinism impact):
 //   - per-origin anti-spam ledger is a map<origin, FIXED array[20]> (Lua: unbounded per-origin
@@ -151,7 +152,8 @@ void Node::cancel_channel_pull(uint32_t id, [[maybe_unused]] uint8_t overheard_f
 // ---- DATA-M ingestion (dv:10942): admit (gateways included) -> if !gateway, merge into the buffer
 //      (new -> add+dirty+seen_by+cancel-pull; existing -> mark seen_by). The caller (handle_data)
 //      handles the ACK / forward of the underlying DATA frame; this is the gossip side-effect. -----
-void Node::ingest_channel_m(const data_m_inner& m, uint8_t next, [[maybe_unused]] uint8_t dst, uint8_t from) {
+void Node::ingest_channel_m(const m_out& m, uint8_t from) {
+    if (m.leaf_id != _cfg.leaf_id) return;                     // defensive leaf gate (dispatch already gated; tests call directly)
     const uint32_t id     = m.channel_msg_id;
     const uint8_t  origin = static_cast<uint8_t>((id >> 24) & 0xff);    // the minter (dv:2912)
     if (!channel_origin_admit(origin, id)) {                   // over per-origin budget -> drop (not buffered/forwarded)
@@ -160,6 +162,12 @@ void Node::ingest_channel_m(const data_m_inner& m, uint8_t next, [[maybe_unused]
         return;
     }
     if (_cfg.is_gateway && _cfg.gateway_only) return;          // §7 CONSUMER: a gateway+owner stores+delivers; a pure bridge stays out
+    // The lean M frame carries no addressing — a receipt is a "pull_target" iff we have a pull pending for this
+    // id (we asked for it), else "overheard" (it reached us via the flood / a peer's broadcast). The flood/pull
+    // mechanics below are unchanged; only the source label is now derived from our own state, not the wire.
+    bool was_pulled = false;
+    for (uint8_t i = 0; i < protocol::cap_channel_pull_pending; ++i)
+        if (_channel_pull_pending[i].active && _channel_pull_pending[i].id == id) { was_pulled = true; break; }
     const int existing = channel_buffer_find(id);
     if (existing < 0) {                                        // NEW -> buffer it
         ChannelEntry e{};
@@ -181,20 +189,18 @@ void Node::ingest_channel_m(const data_m_inner& m, uint8_t next, [[maybe_unused]
             enqueue_push(pu);
         }
         MR_TELEMETRY(
-            const char* src = (next == _node_id && dst == _node_id) ? "pull_target"
-                            : (next == _node_id)                    ? "forwarder" : "overheard";
+            const char* src = was_pulled ? "pull_target" : "overheard";
             EventField f[] = { { .key = "id",         .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
                                { .key = "channel_id", .type = EventField::T::i64, .i = m.channel_id },
                                { .key = "source",     .type = EventField::T::str, .s = src },
                                { .key = "from",       .type = EventField::T::i64, .i = from } };
             _hal.emit("channel_msg_received", f, 4); );
-        if (next != _node_id) {                               // overheard (not addressed to us) -> the analyzer's cascade-overlap signal (dv:11001)
+        if (!was_pulled) {                                    // we got it without asking -> the analyzer's flood/cascade-overlap signal (dv:11001)
             MR_TELEMETRY(
                 EventField fo[] = { { .key = "id",          .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
                                     { .key = "channel_id",  .type = EventField::T::i64, .i = m.channel_id },
-                                    { .key = "from",        .type = EventField::T::i64, .i = from },
-                                    { .key = "intended_to", .type = EventField::T::i64, .i = next } };
-                _hal.emit("channel_msg_overheard", fo, 4); );
+                                    { .key = "from",        .type = EventField::T::i64, .i = from } };
+                _hal.emit("channel_msg_overheard", fo, 3); );
         }
         cancel_channel_pull(id, from);                        // we got it -> drop any pending pull for it
         // FLOOD §4.3 step 3: if a flood-state is waiting on this DATA-M (i.e. it arrived via a FLOOD RTS-M),
@@ -393,23 +399,23 @@ static inline uint32_t m_inner_id(const uint8_t* inner) {
 }
 // Is an M-payload for `id` already in flight or queued? (the s12 pull-storm dedup, dv:11850-11867)
 bool Node::channel_m_in_flight(uint32_t id) const {
-    if (_pending_tx && (_pending_tx->flags & DATA_FLAG_PAYLOAD_TYPE_M)
+    if (_pending_tx && _pending_tx->m_broadcast
         && _pending_tx->inner_len >= 4 && m_inner_id(_pending_tx->inner) == id) return true;
     for (uint8_t i = 0; i < _tx_queue_n; ++i)
-        if ((_tx_queue[i].flags & DATA_FLAG_PAYLOAD_TYPE_M)
+        if (_tx_queue[i].is_channel_m
             && _tx_queue[i].inner_len >= 4 && m_inner_id(_tx_queue[i].inner) == id) return true;
     return false;
 }
 
-// Build an M-payload DATA (id|channel_id|flavor|body) and enqueue it as a unicast to the puller — it
-// rides the normal DATA path, but the RTS carries RTS_FLAG_M_BROADCAST so overhearers can catch it
-// (dv:11875-11894). The originator is US (the re-broadcaster), per the Lua.
+// Stage an M-payload (id|channel_id|flavor|body) and enqueue it as an M-broadcast to the puller — the RTS
+// carries RTS_FLAG_M_BROADCAST so overhearers catch the lean M frame on the data SF (dv:11875-11894). dst =
+// the puller so the RTS-M is routed to it (the legacy M_BROADCAST RTS needs a next-hop); the M frame itself
+// is address-less (the puller matches by channel_msg_id) so there's no per-target ctr — derive it from the id.
 void Node::enqueue_channel_m(uint8_t target, const ChannelEntry& e) {
     if (_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (the puller can re-pull)
     TxItem item{};
-    item.origin = _node_id; item.dst = target;
-    item.ctr    = next_ctr(target); item.ctr_lo = static_cast<uint8_t>(item.ctr & 0x0F);
-    item.flags  = DATA_FLAG_PAYLOAD_TYPE_M;
+    item.origin = _node_id; item.dst = target; item.is_channel_m = true;
+    item.ctr    = static_cast<uint16_t>(e.id & 0xff); item.ctr_lo = static_cast<uint8_t>(e.id & 0x0F);  // id-derived (M frame has no ctr)
     item.inner[0] = static_cast<uint8_t>(e.id >> 24); item.inner[1] = static_cast<uint8_t>(e.id >> 16);
     item.inner[2] = static_cast<uint8_t>(e.id >> 8);  item.inner[3] = static_cast<uint8_t>(e.id);
     item.inner[4] = e.channel_id; item.inner[5] = e.flavor;
@@ -499,7 +505,7 @@ void Node::enqueue_flood_m(uint8_t channel_id, uint8_t flavor, uint32_t id, cons
     TxItem item{};
     item.origin = _node_id; item.dst = 0xFF;                      // broadcast; the RTS dst slot carries hop_left
     item.ctr = static_cast<uint16_t>(id & 0xff); item.ctr_lo = static_cast<uint8_t>(id & 0x0F);
-    item.flags = DATA_FLAG_PAYLOAD_TYPE_M;
+    item.is_channel_m = true;
     item.flood = true; item.hop_left = hop_left;
     for (uint8_t i = 0; i < 32; ++i) item.flood_bitmap[i] = bitmap32[i];
     item.inner[0] = static_cast<uint8_t>(id >> 24); item.inner[1] = static_cast<uint8_t>(id >> 16);

@@ -131,7 +131,7 @@ void Node::become_free() {
     // governed by the per-origin channel COUNT plane). Defer-in-place (bump next_attempt_ms) until the
     // oldest origination ages out, then re-pick; the receiver-side airtime backstop is the hard floor.
     if (_tx_queue[pick].origin == _node_id && !_tx_queue[pick].is_forward
-        && !(_tx_queue[pick].flags & DATA_FLAG_PAYLOAD_TYPE_M)) {
+        && !_tx_queue[pick].is_channel_m) {
         uint64_t oldest = now;
         const uint8_t own = self_originate_count(&oldest);
         if (own >= _cfg.originator_self_cap_per_window) {
@@ -185,7 +185,9 @@ void Node::tx_m_broadcast_rts() {
     rts_in rin{};
     rin.leaf_id = _cfg.leaf_id; rin.src = _node_id; rin.ctr_lo = pt.ctr_lo;
     rin.sf_index = max_data_sf_index();
-    rin.payload_len = static_cast<uint8_t>(pt.inner_len + 4 /*MAC_LEN*/);
+    // payload_len announces the BODY length of the lean M frame to follow (pt.inner = [id 4][ch 1][fl 1][body]).
+    // The overhearer sizes its retune window as airtime(payload_len + M_FRAME_HDR_LEN) = the full 7+body M frame.
+    rin.payload_len = static_cast<uint8_t>(pt.inner_len - 6);
     if (pt.flood) {                                            // FLOOD RTS-M (43 B): id + 32-B coverage bitmap
         // FAIL LOUD (gate refinement #1): an all-zero bitmap is a VALID 43-B frame that makes every receiver
         // see all-neighbours-unmarked -> a rebroadcast storm. A legit flood always has >=1 bit set (the
@@ -267,7 +269,7 @@ void Node::issue_send(const TxItem& item) {
     pt.next = first;
     pt.flight_gen = ++_flight_gen;                       // #A redo: a NEW flight identity (cascade_to_alt keeps it; a requeue re-installs here -> new gen)
     _pending_tx = pt;
-    if (item.flags & DATA_FLAG_PAYLOAD_TYPE_M) { issue_m_broadcast(); return; }   // channel gossip: fire-and-forget broadcast
+    if (item.is_channel_m) { issue_m_broadcast(); return; }   // channel gossip (pull-response): fire-and-forget M-broadcast
     tx_rts_retry();                                      // packs+emits the RTS + start_rts_timeout
 }
 
@@ -546,6 +548,29 @@ void Node::retry_stashed(uint8_t slot) {
 void Node::do_data_tx() {
     if (!_pending_tx || _pending_tx->awaiting_ack || _pending_tx->chosen_data_sf == 0) return;
     PendingTx& pt = *_pending_tx;
+    // Channel M-broadcast: send the lean M frame (cmd 0xA) on the data SF, NOT a DATA frame. No DM header /
+    // hop-budget / visited / MAC — pt.inner = [channel_msg_id 4 BE][channel_id][flavor][body]. Fire-and-forget
+    // (no ACK): clear the flight after the M-frame airtime (kMBcastClearTimerId).
+    if (pt.m_broadcast) {
+        const uint32_t id = (static_cast<uint32_t>(pt.inner[0]) << 24) | (static_cast<uint32_t>(pt.inner[1]) << 16)
+                          | (static_cast<uint32_t>(pt.inner[2]) << 8)  |  static_cast<uint32_t>(pt.inner[3]);
+        m_in min{};
+        min.leaf_id = _cfg.leaf_id; min.channel_id = pt.inner[4]; min.flavor = pt.inner[5];
+        min.channel_msg_id = id;
+        min.body = std::span<const uint8_t>(pt.inner + 6, static_cast<size_t>(pt.inner_len - 6));
+        uint8_t mbuf[protocol::lora_max_frame_bytes];
+        const size_t mlen = pack_m(min, std::span<uint8_t>(mbuf, sizeof(mbuf)));
+        if (mlen == 0) { _hal.log("M-frame pack failed"); return; }
+        const bool handed = tx_with_retry(mbuf, mlen, static_cast<int16_t>(pt.chosen_data_sf), FrameTag::data);
+        MR_EMIT("data_tx", EF_I("dst", pt.dst), EF_I("next", pt.next), EF_I("ctr", pt.ctr),
+                EF_I("sf", pt.chosen_data_sf), EF_B("m_broadcast", true));
+        if (handed) {
+            const uint32_t data_air = airtime_ms(pt.chosen_data_sf, _cfg.radio_bw_hz, _cfg.radio_cr,
+                                                 protocol::preamble_sym, static_cast<uint16_t>(mlen));
+            (void)_hal.after(data_air + 5, kMBcastClearTimerId);
+        }
+        return;
+    }
     // Hop budget (§7.6). An ORIGINATOR derives the initial budget from its route:
     // remaining = min(31, rt_hops + slack); a FORWARDER carries the already-decremented
     // values (threaded from handle_data). prev_fwd_rt_hops is ALWAYS re-stamped to
@@ -578,17 +603,12 @@ void Node::do_data_tx() {
     if (dlen == 0) { _hal.log("DATA pack failed"); return; }
     const bool handed = tx_with_retry(buf, dlen, static_cast<int16_t>(pt.chosen_data_sf), FrameTag::data);   // R4.5b stash; #2 may duty-defer
     MR_EMIT("data_tx", EF_I("dst", pt.dst), EF_I("next", pt.next), EF_I("ctr", pt.ctr),
-            EF_I("sf", pt.chosen_data_sf), EF_B("m_broadcast", pt.m_broadcast));   // emitted before tx_with_retry (dv:10251); M-broadcast pins max_data_sf
+            EF_I("sf", pt.chosen_data_sf), EF_B("m_broadcast", false));   // emitted before tx_with_retry (dv:10251); m_broadcast handled above (early return)
     // Arm the ACK wait ONLY if the DATA actually hit the air — mirrors the Lua DATA on_handed (dv:10270-10279, fires only
     // on real self:tx) + the not-handed clear (dv:10281-10283). #2's duty defer returns handed=false: arming a short
     // ack-timeout on an un-sent DATA would fire before the (long) duty wait, draw a rand + tear the flight down.
-    if (handed) {
-        if (pt.m_broadcast) {                                            // fire-and-forget: no ACK; clear after the DATA airtime
-            const uint32_t data_air = airtime_ms(pt.chosen_data_sf, _cfg.radio_bw_hz, _cfg.radio_cr,
-                                                 protocol::preamble_sym, static_cast<uint16_t>(dlen));
-            (void)_hal.after(data_air + 5, kMBcastClearTimerId);
-        } else { pt.awaiting_ack = true; start_ack_timeout(); }
-    } else { pt.awaiting_ack = false; }
+    if (handed) { pt.awaiting_ack = true; start_ack_timeout(); }
+    else        { pt.awaiting_ack = false; }
 }
 
 void Node::start_rts_timeout() {
@@ -597,7 +617,12 @@ void Node::start_rts_timeout() {
     // so anchor the RTS->DATA gap to the ACTUAL TX here. The DATA then fires cts_to_data_gap_ms AFTER the
     // RTS clears the air, which is exactly when overhearers have received the RTS + retuned to the data SF.
     if (_pending_tx && _pending_tx->m_broadcast) {
-        const uint32_t gap = airtime_routing_ms(9 /*M_BROADCAST RTS = 7 base + id_lo16(2)*/) + protocol::cts_to_data_gap_ms;
+        // The gap must outlast the RTS-M's OWN airtime so the M frame fires after the RTS clears the air (and
+        // overhearers have decoded it + retuned). The RTS-M is 43 B for a FLOOD (id + 32-B bitmap) vs 9 B for a
+        // legacy M_BROADCAST (7 base + id_lo16) — size the gap to the actual RTS, else a flood's M frame fires
+        // mid-RTS and overhearers (whose retune window is anchored to the full 43-B RTS) miss it.
+        const uint8_t rts_len = _pending_tx->flood ? 43 : 9;
+        const uint32_t gap = airtime_routing_ms(rts_len) + protocol::cts_to_data_gap_ms;
         (void)_hal.after(gap, kCtsToDataGapTimerId);                       // RTS->DATA gap fires do_data_tx (no CTS)
         return;
     }

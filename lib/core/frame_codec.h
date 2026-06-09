@@ -321,18 +321,18 @@ std::optional<j_out> parse_j(std::span<const uint8_t> frame);
 //   bytes 8-13 : visited[6] (fixed 6 slots, one short-id each, 0=empty, no length prefix)
 //   bytes 14.. : inner  (OPAQUE ciphertext slot, n bytes — crypto is a behaviour layer)
 //   last 4     : MAC    (OPAQUE 4-byte trailer)
-// The inner sub-layouts (NORMAL / channel-M) are exposed by SEPARATE optional helpers
-// the behaviour layer calls per payload_type_m — the mandatory parse keeps inner+MAC
-// opaque (mirrors the BCN ext-block seam). Gateway-envelope / hash-bind / E2E-ACK body
-// ride inside the (encrypted) inner and are deferred to the behaviour iterations.
-// ENDIANNESS: ctr is LITTLE-endian; the channel-M channel_msg_id is BIG-endian.
+// The NORMAL / hash-bind inner sub-layouts are exposed by SEPARATE optional helpers the
+// behaviour layer calls — the mandatory parse keeps inner+MAC opaque (mirrors the BCN
+// ext-block seam). Gateway-envelope / hash-bind / E2E-ACK body ride inside the (encrypted)
+// inner and are deferred to the behaviour iterations. ENDIANNESS: ctr is LITTLE-endian.
+// (Channel messages have their OWN frame — the lean M frame, cmd 0xA — not a DATA inner.)
 
 inline constexpr size_t DATA_HDR_LEN     = 14;
 inline constexpr size_t DATA_MAC_LEN     = 4;
 inline constexpr size_t DATA_VISITED_LEN = 6;
 enum DataFlag : uint8_t {            // Lua flag VALUES (packed into byte1 high nibble)
-    DATA_FLAG_PAYLOAD_TYPE_M = 0x01, DATA_FLAG_PRIORITY    = 0x02,
-    DATA_FLAG_E2E_IS_ACK     = 0x04, DATA_FLAG_E2E_ACK_REQ = 0x08,
+    DATA_FLAG_PRIORITY    = 0x02,    // 0x01 retired: channel-M moved off DATA onto its own cmd 0xA (M frame)
+    DATA_FLAG_E2E_IS_ACK  = 0x04, DATA_FLAG_E2E_ACK_REQ = 0x08,
 };
 
 // Payload-flags byte = the UNIVERSAL first byte of a normal DATA inner (it reuses the always-zero
@@ -340,7 +340,7 @@ enum DataFlag : uint8_t {            // Lua flag VALUES (packed into byte1 high 
 // deferred — the address length follows), H_ANSWER b1 (the inner is a hash-bind answer), AUTHORITATIVE
 // b2 (the answer is the owner's, not cached), CRYPTED b3 (inner body encrypted, deferred), DST_HASH b6
 // (the inner carries the recipient's key_hash32, cleartext — L2c verify-on-delivery). b4/b5/b7 reserved.
-// channel-M is the legacy exception — typed by the DATA-header DATA_FLAG_PAYLOAD_TYPE_M, no payload-flags byte.
+// (channel messages no longer ride DATA — they have their own lean M frame, cmd 0xA; see pack_m below.)
 enum PayloadFlag : uint8_t {
     PAYLOAD_FLAG_CROSS_LAYER   = 0x01, PAYLOAD_FLAG_H_ANSWER = 0x02,
     PAYLOAD_FLAG_AUTHORITATIVE = 0x04, PAYLOAD_FLAG_CRYPTED  = 0x08,
@@ -367,7 +367,7 @@ size_t pack_data(const data_in& in, std::span<uint8_t> out);
 
 struct data_out {
     uint8_t  addr_len, flags;
-    bool     e2e_ack_req, e2e_is_ack, priority, payload_type_m;
+    bool     e2e_ack_req, e2e_is_ack, priority;
     uint8_t  next, dst, hops_remaining, committed_hops, prev_fwd_rt_hops;
     uint16_t ctr;               // full 16-bit LE
     uint8_t  ctr_lo4;           // derived ctr & 0x0F (CTS/ACK/NACK hop-match convenience)
@@ -378,14 +378,30 @@ std::span<const uint8_t> data_visited(std::span<const uint8_t> frame, const data
 std::span<const uint8_t> data_inner  (std::span<const uint8_t> frame, const data_out& d);  // opaque, inner_len B
 std::span<const uint8_t> data_mac    (std::span<const uint8_t> frame, const data_out& d);  // 4 B
 
-// OPTIONAL inner helpers (behaviour layer; dispatched by data_out.payload_type_m):
+// OPTIONAL inner helpers (behaviour layer; the inner is typed by its payload-flags byte):
 // NORMAL unicast inner: [payload-flags][dst_key_hash32 (4 B LE, iff DST_HASH)][origin][body].
 struct data_unicast_inner { uint8_t origin; std::span<const uint8_t> body;
                             bool has_dst_hash = false; uint32_t dst_key_hash32 = 0; };
 std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> inner);
-struct data_m_inner { uint32_t channel_msg_id; uint8_t channel_id; uint8_t flavor;  // channel_msg_id BIG-endian
-                      std::span<const uint8_t> body; };
-std::optional<data_m_inner> parse_m_inner(std::span<const uint8_t> inner);
+// -----------------------------------------------------------------------------
+// M — lean channel-message frame (cmd-nibble 0xA, 7+n B) — 2026-06-09 design.
+// -----------------------------------------------------------------------------
+// A purpose-built channel-message frame: drops the ~17 B of DM-only plumbing the old
+// DATA+PAYLOAD_TYPE_M carried (next/dst/hops/ctr/visited/MAC), and rides leaf_id in
+// byte-0's low nibble so the leak gate is the standard byte-0 leaf check (the cross-leaf
+// leak fix). DELIBERATE divergence from the frozen Lua (which keeps channel-M on DATA).
+//   byte 0   : cmd=0xA(7..4) | leaf_id(3..0)   — leaf_id = the leak gate
+//   byte 1   : channel_id
+//   byte 2   : flavor    (0=public plaintext, 1=group/encrypted, … — encryption deferred)
+//   bytes 3-6: channel_msg_id (4 B, BIG-ENDIAN; origin = byte 3)
+//   bytes 7..: payload   (by flavor; public = plaintext body)
+inline constexpr size_t M_FRAME_HDR_LEN = 7;   // cmd|leaf + channel_id + flavor + channel_msg_id(4)
+struct m_in  { uint8_t leaf_id; uint8_t channel_id; uint8_t flavor; uint32_t channel_msg_id;  // id BIG-endian on wire
+               std::span<const uint8_t> body; };
+struct m_out { uint8_t leaf_id; uint8_t channel_id; uint8_t flavor; uint32_t channel_msg_id;  // id BIG-endian
+               std::span<const uint8_t> body; };
+size_t pack_m(const m_in& in, std::span<uint8_t> out);          // 7 + body; 0 on short buf
+std::optional<m_out> parse_m(std::span<const uint8_t> frame);   // nullopt: len < 7 / cmd != M
 
 // Hash-bind answer inner (H §3.7a): [payload-flags(H_ANSWER + opt AUTHORITATIVE)][target_layer][node_id]
 // [key_hash32 LE] = 7 B. CLEARTEXT (CRYPTED=0) so relays can cache-on-pass. parse returns nullopt unless

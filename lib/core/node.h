@@ -24,7 +24,7 @@
 
 namespace meshroute {
 
-struct data_m_inner;   // frame_codec.h — fwd-decl so the channel ingest seam doesn't pull the codec into node.h
+struct m_out;          // frame_codec.h — fwd-decl so the channel ingest seam doesn't pull the codec into node.h
 struct rts_out;        // frame_codec.h — fwd-decl for the FLOOD RTS-M handler seam (handle_flood_rts)
 
 // POD; no heap, no JSON. Only the T/F-class knobs the Lua on_init reads.
@@ -128,6 +128,8 @@ struct TxItem {                      // a queued message awaiting a flight
     // values; originators recompute from rt). Ignored unless is_forward.
     uint8_t  fwd_remaining = 0;
     uint8_t  fwd_committed = 0;
+    // Channel M-broadcast (gossip plane): the data-SF frame is the lean M frame (cmd 0xA), fire-and-forget.
+    bool     is_channel_m = false;   // true => a channel M-broadcast (flood OR pull-response); flags is unused (no DM)
     // Channel FLOOD m-broadcast (2026-06-08): the 43-B FLOOD RTS-M tail rides the flight.
     bool     flood = false;          // true => FLOOD RTS-M (vs legacy M_BROADCAST); a true broadcast (next=0xFF, no route)
     uint8_t  hop_left = 0;           // FLOOD TTL safety cap (rides the RTS `dst` slot, §3.1)
@@ -273,7 +275,7 @@ public:
         return true;
     }
     static uint32_t   channel_msg_id_mint(uint8_t origin, uint32_t key_hash32, uint8_t ctr);   // origin<<24|(kh&0xffff)<<8|ctr (dv:2239)
-    void    ingest_channel_m(const data_m_inner& m, uint8_t next, uint8_t dst, uint8_t from);  // DATA-M merge (dv:10942); public for tests
+    void    ingest_channel_m(const m_out& m, uint8_t from);  // M-frame merge (dv:10942); public for tests
 
 private:
     // Node-owned timer-id namespace (Hal::after re-arm-by-id, cap 64). Reserve
@@ -487,6 +489,7 @@ private:
     void     handle_rts (const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'R' -> CTS
     void     handle_cts (const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'C' -> DATA
     void     handle_data(const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'D' -> deliver/forward + ACK
+    void     handle_channel_data(const uint8_t* b, size_t n, const RxMeta& m);  // on_recv 'M' (cmd 0xA) -> leaf gate + ingest
     void     handle_ack (const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'K' -> done
     void     handle_nack(const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'N' -> blind+wait / cascade
     void     do_data_tx();                                        // kCtsToDataGapTimerId fire

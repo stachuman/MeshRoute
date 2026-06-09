@@ -618,7 +618,6 @@ std::optional<data_out> parse_data(std::span<const uint8_t> frame) {
     o.e2e_ack_req    = (o.flags & DATA_FLAG_E2E_ACK_REQ)    != 0;
     o.e2e_is_ack     = (o.flags & DATA_FLAG_E2E_IS_ACK)     != 0;
     o.priority       = (o.flags & DATA_FLAG_PRIORITY)       != 0;
-    o.payload_type_m = (o.flags & DATA_FLAG_PAYLOAD_TYPE_M) != 0;
     o.next             = frame[2];
     o.dst              = frame[3];
     o.hops_remaining   = static_cast<uint8_t>((frame[4] >> 3) & 0x1F);
@@ -667,14 +666,30 @@ std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> i
     u.body   = inner.subspan(off);
     return u;
 }
-std::optional<data_m_inner> parse_m_inner(std::span<const uint8_t> inner) {
-    if (inner.size() < 6) return std::nullopt;                    // channel_msg_id(4) + channel_id + flavor
-    data_m_inner m{};
-    { wire::Reader r(inner.subspan(0, 4)); m.channel_msg_id = r.u32_be(); }   // BIG-endian
-    m.channel_id = inner[4];
-    m.flavor     = inner[5];
-    m.body       = inner.subspan(6);
-    return m;
+// -----------------------------------------------------------------------------
+// M — lean channel-message frame (cmd 0xA, 7+n B). 2026-06-09: channel messages
+// moved off the DATA frame onto their own cmd. leaf_id rides byte-0 (the leak gate).
+// -----------------------------------------------------------------------------
+size_t pack_m(const m_in& in, std::span<uint8_t> out) {
+    if (out.size() < M_FRAME_HDR_LEN + in.body.size()) return 0;
+    wire::Writer w(out);
+    w.u8(wire::cmd_byte(wire::Cmd::M, static_cast<uint8_t>(in.leaf_id & 0x0F)));
+    w.u8(in.channel_id);
+    w.u8(in.flavor);
+    w.u32_be(in.channel_msg_id);                                  // BIG-endian (origin = byte 3)
+    for (uint8_t b : in.body) w.u8(b);
+    return w.ok() ? w.size() : 0;
+}
+std::optional<m_out> parse_m(std::span<const uint8_t> frame) {
+    if (frame.size() < M_FRAME_HDR_LEN) return std::nullopt;      // cmd|leaf + channel_id + flavor + id(4)
+    if (wire::cmd_of(frame[0]) != wire::Cmd::M) return std::nullopt;
+    m_out o{};
+    o.leaf_id    = wire::flags_of(frame[0]);                      // the leak gate (checked by the caller)
+    o.channel_id = frame[1];
+    o.flavor     = frame[2];
+    { wire::Reader r(frame.subspan(3, 4)); o.channel_msg_id = r.u32_be(); }   // BIG-endian
+    o.body       = frame.subspan(M_FRAME_HDR_LEN);
+    return o;
 }
 
 size_t pack_hash_bind_inner(const hash_bind_inner& in, std::span<uint8_t> out) {
