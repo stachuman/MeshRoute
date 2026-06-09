@@ -32,12 +32,16 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     uint8_t  lbt;
     uint8_t  node_id;          // 0 = unprovisioned (no sends until join / `cfg set node_id`)
     int8_t   tx_power;         // dBm (repurposed _pad2); SX1262 range -9..22. `cfg set tx_power`
+    uint8_t  is_gateway;       // v6: role/topology config (was live-only; now persisted across reboot)
+    uint8_t  gateway_only;     // v6: §7 pure-bridge flag (channel-plane consumer half off too)
+    uint8_t  is_mobile;        // v6
+    uint8_t  leaf_id;          // v6: leaf membership (floods are leaf-scoped)
 };
 constexpr uint32_t kMagic   = 0x4D524331u;   // 'MRC1'
-constexpr uint16_t kVersion = 5;             // v5: REMOVED data_sf (sf_list is now mandatory). The Blob shrank, so
-                                             // every pre-v5 blob fails the `n == sizeof(out)` size check in load()
-                                             // and is rejected -> the node re-provisions from defaults. (The
-                                             // version>=2 range below is now effectively "v5 only" — the size gate.)
+constexpr uint16_t kVersion = 6;             // v6: PERSIST role/topology (is_gateway, gateway_only, is_mobile, leaf_id),
+                                             // previously live-only. The Blob grew, so every pre-v6 blob fails the
+                                             // `n == sizeof(out)` size check in load() and is rejected -> the node
+                                             // re-provisions from defaults (no migration; just re-run `cfg set`).
 
 // ---- Identity record (`/mrid`) — SEPARATE from the config blob above (spec §1.4). The 32-byte master
 // seed is the single source of truth: ed_pub / key_hash32 / x_* are DERIVED at boot via identity_from_seed

@@ -231,10 +231,18 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
     channel_buffer_add(e);
     self_originate_observe();                                  // Inc 4: channels share the DM self-cap ledger
     MR_TELEMETRY(
+        // `payload` carries the post text so the analyzer (dm_delivery_breakdown.py) can match a post to its
+        // msg_id — emit-parity with the Lua self_originate event (the tool keys Pass 1 on the payload).
+        char pbuf[protocol::channel_msg_max_payload_bytes + 1];
+        const uint16_t pl = (e.payload_len > protocol::channel_msg_max_payload_bytes)
+                            ? protocol::channel_msg_max_payload_bytes : e.payload_len;
+        for (uint16_t i = 0; i < pl; ++i) pbuf[i] = static_cast<char>(e.payload[i]);
+        pbuf[pl] = '\0';
         EventField f[] = { { .key = "id",         .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
                            { .key = "channel_id", .type = EventField::T::i64, .i = channel_id },
+                           { .key = "payload",    .type = EventField::T::str, .s = pbuf },
                            { .key = "source",     .type = EventField::T::str, .s = "self_originate" } };
-        _hal.emit("channel_msg_received", f, 3); );
+        _hal.emit("channel_msg_received", f, 4); );
     // FLOOD origination (§4.1): seed the coverage bitmap {me + my hops==1 neighbours} and broadcast the
     // FLOOD RTS-M + DATA-M. A data-incapable node (no data SF) is non-operational (user rule) -> skip the
     // flood, buffer-only; the repair digest still covers it. No default-SF fallback.
@@ -417,9 +425,9 @@ void Node::enqueue_channel_m(uint8_t target, const ChannelEntry& e) {
 
 // CHANNEL_PULL responder (dv:11821): cancel my own pending pulls for the requested ids (a peer is
 // pulling them — overhear dedup), then — if WE are the addressed target — re-broadcast each held id as
-// an M-payload (skipping ids already in flight/queue). Gateways: a pull is a unicast Q to a specific
-// dest; a gateway only answers a pull addressed to IT (it forwarded the original DATA but holds no
-// buffer, so channel_buffer_find misses -> it answers nothing). No explicit is_gateway gate needed.
+// an M-payload (skipping ids already in flight/queue). Gateways (§7 PROVIDER half OFF): a gateway+owner
+// now HOLDS channel messages, so the explicit is_gateway gate below serves a pull ONLY for a SELF-originated
+// id — a gateway never relays another node's message (that airtime is reserved for the inter-leaf role).
 void Node::handle_channel_pull(uint8_t src, uint8_t dest, const uint32_t* ids, uint8_t count) {
     for (uint8_t i = 0; i < count; ++i) cancel_channel_pull(ids[i], src, /*peer_q=*/true);   // a peer pulled these -> cancel my pending pulls (dv:11831)
     if (dest != _node_id) return;                                // only the addressed target serves the pull

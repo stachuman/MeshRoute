@@ -12,7 +12,7 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 | cmd | Frame | Length | Role |
 |-----|-------|--------|------|
 | 0x0 | BCN  | variable | periodic beacon |
-| 0x1 | RTS  | 7 B (9 B if M_BROADCAST) | request-to-send |
+| 0x1 | RTS  | 7 B · 9 B if M_BROADCAST · 43 B if FLOOD | request-to-send |
 | 0x2 | CTS  | 3 B | clear-to-send |
 | 0x3 | DATA | 18+n B | data plane |
 | 0x4 | ACK  | 3 B | acknowledgement |
@@ -49,23 +49,27 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 
 ---
 
-## RTS — request-to-send · cmd 0x1 · 7 B (9 B if M_BROADCAST)
+## RTS — request-to-send · cmd 0x1 · 7 B · 9 B if M_BROADCAST · 43 B if FLOOD
 
-**Use** — reserve the single TX slot with the chosen `next` hop before DATA (after listen-before-talk + a budget check). **Reply** — **CTS** to proceed, or **NACK** if refused. The M_BROADCAST variant (channel re-broadcast) expects *no* CTS — overhearers retune to the data SF to catch the DATA.
+**Use** — reserve the single TX slot with the chosen `next` hop before DATA (after listen-before-talk + a budget check). **Reply** — **CTS** to proceed, or **NACK** if refused. The M_BROADCAST variant (channel re-broadcast) expects *no* CTS — overhearers retune to the data SF to catch the DATA. The **FLOOD** variant (channel-flood primary path) likewise expects no CTS, and carries a 4-B flood id + 32-B coverage bitmap (see below).
 
 | Byte | Field | Description |
 |------|-------|-------------|
 | 0 | cmd \| leaf_id | bits 7..4 = `0x1`; bits 3..0 = leaf_id |
-| 1 | src | immediate sender (the requester) |
-| 2 | next | next-hop being requested |
+| 1 | src | immediate sender (the requester; for a FLOOD, the relaying forwarder — changes each hop) |
+| 2 | next | next-hop being requested (**FLOOD: `0xFF`** broadcast) |
 | 3 | ctr_lo \| addr_len | b7..4 = ctr_lo · b3..1 = addr_len (0 only, today) · b0 rsv |
-| 4 | dst | final destination |
+| 4 | dst | final destination (**FLOOD: `hop_left`** TTL cap, decremented each forward) |
 | 5 | sf_index \| rts_flags | b7..6 = sf_index · b5..2 = rts_flags · b1..0 rsv |
-| 6 | payload_len | length of the DATA payload to follow (wraps mod-256) |
-| 7..8 | m_payload_id | **BE**, present **iff** `rts_flags & M_BROADCAST` |
+| 6 | payload_len | length of the DATA(-M) payload to follow (wraps mod-256) |
+| 7..8 | m_payload_id | **BE**, present **iff** `M_BROADCAST` **without** `FLOOD` |
+| 7..10 | channel_msg_id | **BE**, present **iff** `FLOOD` — the immutable flood id |
+| 11..42 | coverage bitmap | present **iff** `FLOOD` — 32 B (256 bits): bit `id` = node `id` already covered in this leaf (byte `id/8`, mask `1<<(id%8)`); OR'd-in at each hop |
 
-**sf_index:** 0..2 = singleton index into `allowed_data_sfs`; 3 = ANY (receiver picks data SF by SNR).
-**rts_flags:** `M_BROADCAST = 0x01`, `RELAY = 0x02` (positioned at bits 2 (0x04) and 3 (0x08) within byte 5).
+**sf_index:** 0..2 = singleton index into `allowed_data_sfs`; 3 = ANY (receiver picks data SF by SNR). A FLOOD pins `sf_index` to the sender's `max_data_sf` (every flood DATA-M rides the largest allowed SF).
+**rts_flags:** `M_BROADCAST = 0x01`, `RELAY = 0x02`, `FLOOD = 0x04` (positioned at bits 2 (0x04), 3 (0x08), and 4 (0x10) within byte 5).
+
+**FLOOD (`M_BROADCAST | FLOOD`, 43 B)** — the channel-flood primary path (managed flood; the BCN digest + `Q:CHANNEL_PULL` are the repair backstop). It sets **both** flags: `M_BROADCAST` reuses the overhear-retune (receivers retune to the data SF to catch the DATA-M), `FLOOD` selects the 43-B tail and the bitmap-suppressed forward. The 4-B `channel_msg_id` + 32-B coverage bitmap replace the 2-B `m_payload_id` tail; `next` is the broadcast `0xFF` and the `dst` slot carries `hop_left`, so `pack_rts`/`parse_rts` keep the same byte positions and only the tail length branches on `FLOOD`. Forward rule: a receiver with an unmarked 1-hop neighbour re-floods (SNR-weighted backoff, OR-ing its own coverage into the bitmap and decrementing `hop_left`); all neighbours already marked → stay silent. The DATA-M that follows is the unchanged **Channel-M** inner (see DATA). **Leaf-scoped — never bridged across leaves.**
 
 ---
 

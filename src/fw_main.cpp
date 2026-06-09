@@ -128,7 +128,8 @@ static void dump_cfg() {
     Serial.print(F(" hop_cap="));        Serial.print(c.dv_hop_cap);
     Serial.print(F(" leaf_id="));        Serial.print(c.leaf_id);
     Serial.print(F(" gateway="));        Serial.print(c.is_gateway ? 1 : 0);
-    Serial.print(F(" gateway_only="));   Serial.println(c.gateway_only ? 1 : 0);
+    Serial.print(F(" gateway_only="));   Serial.print(c.gateway_only ? 1 : 0);
+    Serial.print(F(" mobile="));         Serial.println(c.is_mobile ? 1 : 0);
 }
 
 static void dump_status() {
@@ -234,6 +235,8 @@ static void handle_cfg_set(const char* args) {
         b.duty = nc.duty_cycle;         b.allowed_sf_bitmap = nc.allowed_sf_bitmap;
         b.routing_sf = nc.routing_sf;   b.cr = nc.radio_cr;
         b.lbt = nc.lbt_enabled ? 1 : 0; b.node_id = g_node.node_id();   b.tx_power = g_tx_power;
+        b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;   // v6 role/topology
+        b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;    // (re)stamp -> also upgrades a loaded v2 blob to v3
 
@@ -261,13 +264,15 @@ static void handle_cfg_set(const char* args) {
     else if (!strcmp(key, "lbt"))        { b.lbt = atoi(val) != 0;            lc.lbt_enabled = (b.lbt != 0); }
     else if (!strcmp(key, "beacon_ms"))  { b.beacon_ms = (uint32_t)atol(val); lc.beacon_period_ms = b.beacon_ms; }
     else if (!strcmp(key, "duty"))       { b.duty = atof(val); live = false; }     // reboot: budget_ms is set at on_init
-    // --- extra protocol knobs: LIVE-only (not in the NV blob yet -> reboot reverts) ---
+    // --- nav/hop tuning: LIVE-only (good defaults; reboot reverts) ---
     else if (!strcmp(key, "nav"))        { lc.nav_enabled    = atoi(val) != 0; persist = false; }
     else if (!strcmp(key, "nav_ignore")) { lc.nav_ignore_rts = atoi(val) != 0; persist = false; }
     else if (!strcmp(key, "hop_cap"))    { lc.dv_hop_cap = (uint8_t)atoi(val); persist = false; }
-    else if (!strcmp(key, "leaf_id"))    { lc.leaf_id    = (uint8_t)atoi(val); persist = false; }
-    else if (!strcmp(key, "gateway"))    { lc.is_gateway = (atoi(val) != 0 || !strcmp(val, "true")); persist = false; }
-    else if (!strcmp(key, "gateway_only")) { lc.gateway_only = (atoi(val) != 0 || !strcmp(val, "true")); persist = false; }   // §7 role flag: live-only like gateway (NOT persisted)
+    // --- role/topology: LIVE via mutable_config() + PERSISTED (NV v6 -> survives reboot) ---
+    else if (!strcmp(key, "leaf_id"))      { lc.leaf_id = (uint8_t)atoi(val);                            b.leaf_id      = lc.leaf_id; }
+    else if (!strcmp(key, "gateway"))      { lc.is_gateway   = (atoi(val) != 0 || !strcmp(val, "true")); b.is_gateway   = lc.is_gateway   ? 1 : 0; }
+    else if (!strcmp(key, "gateway_only")) { lc.gateway_only = (atoi(val) != 0 || !strcmp(val, "true")); b.gateway_only = lc.gateway_only ? 1 : 0; }
+    else if (!strcmp(key, "mobile"))       { lc.is_mobile    = (atoi(val) != 0 || !strcmp(val, "true")); b.is_mobile    = lc.is_mobile    ? 1 : 0; }
     else { Serial.print(F("> cfg err unknown_key ")); Serial.println(key); return; }
 
     if (persist && !mrnv::save(b)) { Serial.println(F("> cfg err nv_save_failed")); return; }
@@ -315,7 +320,7 @@ static void handle_debug(const char* arg, size_t n) {
 // `help` / `?` — a small command + cfg-key reference for the live console session.
 static void dump_help() {
     Serial.println(F("[help] send <id> <text> | send_ack <id> <text> | send_channel <ch> <text> | cfg | cfg set <k> <v> | routes | status | sleep [on|off] | debug [on|off] | regen | reboot"));
-    Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway gateway_only key"));
+    Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway gateway_only mobile key"));
 }
 
 // Handle a debug/diagnostic console line (help/routes/cfg/status/cfg set/reboot/sleep/debug). Returns true if consumed.
@@ -382,6 +387,8 @@ void setup() {
         cfg.duty_cycle        = nv.duty;         cfg.lbt_enabled  = nv.lbt != 0;
         cfg.beacon_period_ms  = nv.beacon_ms;
         g_tx_power            = (nv.version >= 3) ? nv.tx_power : (int8_t)LORA_TX_POWER;   // v2 blob had no tx_power -> keep the default
+        cfg.is_gateway        = nv.is_gateway != 0;   cfg.gateway_only = nv.gateway_only != 0;   // v6 role/topology (only v6 blobs load -> always present)
+        cfg.is_mobile         = nv.is_mobile != 0;    cfg.leaf_id      = nv.leaf_id;
         Serial.println(F("  config    = loaded from NV"));
     }
     // Identity (/mrid): load the 32-byte master seed, or mint one from the HW-RNG on first boot.
@@ -477,6 +484,8 @@ static void persist_join_if_changed() {
         b.duty = nc.duty_cycle;         b.allowed_sf_bitmap = nc.allowed_sf_bitmap;
         b.routing_sf = nc.routing_sf;   b.cr = nc.radio_cr;
         b.lbt = nc.lbt_enabled ? 1 : 0; b.tx_power = g_tx_power;
+        b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;   // v6 role/topology
+        b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
     b.node_id = id; b.claim_epoch = ep; b.joined = jn;

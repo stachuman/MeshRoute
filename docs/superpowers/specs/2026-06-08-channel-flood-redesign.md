@@ -224,7 +224,7 @@ The flood RTS-M rides the **existing fire-and-forget M-broadcast flight** (`m_br
 
 ### Sim (`FirmwareNode.cpp`) / device (`fw_main.cpp`)
 - No new flood wiring: `send_channel` already routes to `do_send_channel`; `channel_recv` already prints on device. The flood is internal to `Node`. `flood_*` SNR math uses `meta.snr_db` (real on metal, sim-provided in scenarios).
-- **Config plumbing for `gateway_only`** — expose it exactly like `is_gateway` (the `gateway` cfg key): a `cfg` key + `dump_cfg` line + the NV blob (bump `device_nv.h` `kVersion`) + the sim `FirmwareNode` config map. Follow the same live-vs-reboot policy as `gateway` (role flag; live-settable, no silent default).
+- **Config plumbing for the role/topology cluster** — `is_gateway` + `gateway_only` + `is_mobile` + `leaf_id` each get a `cfg` key + a `dump_cfg` line + the sim `FirmwareNode` config map, and are **PERSISTED in the NV `Blob`** (`device_nv.h` `kVersion` 5→6; no migration — pre-v6 blobs fail the exact-size load and re-provision from defaults) so `cfg set` survives reboot. Live-settable via `mutable_config()`; no silent default. (The nav/hop *tuning* knobs stay live-only — good defaults, reboot reverts.)
 
 ---
 
