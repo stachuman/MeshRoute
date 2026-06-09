@@ -397,8 +397,8 @@ void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len,
     // place (drain/age-out never clear vacated slots), so a slot last used by an L2c redirect would otherwise
     // keep is_redirect=true and mis-route this plain send-by-hash through the redirect branch on drain.
     p.key_hash32 = key_hash32; p.flags = flags; p.parked_at_ms = _hal.now();
-    // Clamp to the DM body cap (NOT the 235-B inner buffer): drain_parked_sends -> do_send -> enqueue_data
-    // writes body at inner[2+i], so a >233 body would overrun inner[]. on_command already rejects oversize
+    // Clamp to the DM body cap (NOT the 241-B inner buffer): drain_parked_sends -> do_send -> enqueue_data
+    // writes body at inner[2+i], so a >239 body would overrun inner[]. on_command already rejects oversize
     // (err_too_large) — this is defense-in-depth so a parked body can never exceed the deliverable size.
     p.body_len = (body_len > protocol::dm_max_body_bytes) ? protocol::dm_max_body_bytes : body_len;
     for (uint8_t i = 0; i < p.body_len; ++i) p.body[i] = body[i];

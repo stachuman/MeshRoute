@@ -14,7 +14,7 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 | 0x0 | BCN  | variable | periodic beacon |
 | 0x1 | RTS  | 7 B · 9 B if M_BROADCAST · 43 B if FLOOD | request-to-send |
 | 0x2 | CTS  | 3 B | clear-to-send |
-| 0x3 | DATA | 18+n B | data plane |
+| 0x3 | DATA | 12+n B | data plane |
 | 0x4 | ACK  | 3 B | acknowledgement |
 | 0x5 | NACK | 4 B | negative acknowledgement |
 | 0x6 | Q    | 4 B (+ pull body) | query (REQ_SYNC / CHANNEL_PULL) |
@@ -88,7 +88,7 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 
 ---
 
-## DATA — data plane · cmd 0x3 · 18+n B
+## DATA — data plane · cmd 0x3 · 12+n B
 
 **Use** — the payload, sent on the granted SF after a CTS, then relayed hop-by-hop (each hop re-runs RTS/CTS/DATA). **Reply** — **ACK** from the next hop, else **NACK**; with `E2E_ACK_REQ` the final destination returns an end-to-end ACK (a DATA with `E2E_IS_ACK`).
 
@@ -101,8 +101,7 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 | 4      | hops_remaining \| committed_hops | b7..3 = hops_remaining (5-bit, 0..31) · b2..0 = committed_hops (3-bit, 0..7)                                                                                                                                       |
 | 5      | prev_fwd_rt_hops                 | soft hop-gradient hint                                                                                                                                                                                             |
 | 6..7   | ctr                              | 16-bit message counter (**LE**)                                                                                                                                                                                    |
-| 8..13  | visited[6]                       | 6 fixed slots, one short-id each (0 = empty, no length prefix)                                                                                                                                                     |
-| 14..   | inner                            | typed inner (see **Inner layouts**) — byte 14 is the cleartext payload-flags byte (normal / hash-bind) |
+| 8..    | inner                            | typed inner (see **Inner layouts**) — byte 8 is the cleartext payload-flags byte (normal / hash-bind) |
 | last 4 | MAC                              | opaque 4-byte frame trailer (currently zero-stubbed)                                                                                                                                                               |
 
 **flags (byte 1 high nibble):** `PRIORITY = 0x2`, `E2E_IS_ACK = 0x4`, `E2E_ACK_REQ = 0x8`. (Bit `0x1` is retired — channel messages moved off DATA onto their own **M** frame, cmd 0xA.)
@@ -146,8 +145,8 @@ Path size = `1 + ceil(n_layers/2)` B. `layer_id[0]` = the **origin's** layer, `l
 
 - **`dst_key_hash32`** — the universal *final-recipient* `key_hash32`, **always cleartext** (leaks no more than the cleartext `dst` id). The node the `dst` id routes to verifies it against its own: match → deliver; mismatch → an id collision misdelivered this DM → forward to the real owner (the DM still arrives) + heal. Same- and cross-layer share this one field. Default-on for app DMs (the send path looks the dst's hash up in `id_bind`); +4 B.
 - **`source_hash`** — the **origin's** `key_hash32`, in the **sealed** region (after `origin`), so it's hidden from relays when `CRYPTED` is set. Set **iff `E2E_ACK_REQ`**: the destination reads it to learn who sent the DM and address the E2E-ack back — it becomes the ack's `dst_key_hash32`, and for cross-layer it pairs with the reversed `layer-path` to route the ack home. +4 B.
-- **`CRYPTED`** — `origin`+body are sealed (XChaCha20-Poly1305) so the **sender is hidden** (only the destination decrypts; relays/eavesdroppers see the cleartext `dst`, `dst_key_hash32`, layer-path, and `visited`, never the originator). A 16-B tag trails. AEAD-auth failure on a misdelivered CRYPTED DM corroborates a collision.
-- **Normal DM** (no CRYPTED): `origin` is the sender's node_id (the destination attributes/replies by it; `visited[]` is zero on origination, so it leaks no sender).
+- **`CRYPTED`** — `origin`+body are sealed (XChaCha20-Poly1305) so the **sender is hidden** (only the destination decrypts; relays/eavesdroppers see the cleartext `dst`, `dst_key_hash32`, and layer-path, never the originator). A 16-B tag trails. AEAD-auth failure on a misdelivered CRYPTED DM corroborates a collision.
+- **Normal DM** (no CRYPTED): `origin` is the sender's node_id (the destination attributes/replies by it).
 
 `hops_remaining = 0` on the wire means TTL-exhausted (drop). The MAC stays opaque.
 

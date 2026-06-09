@@ -93,13 +93,13 @@ TEST_CASE("Bounded-state caps match the Lua PROTOCOL values") {
     CHECK(P::cap_id_bind                   == 256);
 }
 
-TEST_CASE("Frame overhead math matches the Lua DATA constants") {
-    // Lua code: DATA_HDR_LEN = 8 + VISITED_LEN(6) = 14 (dv_dual_sf.lua:2905);
-    // DATA_INNER_OVERHEAD = 6 (:2908); hard cap = 255 - 14 - 6 = 235 (:8637).
-    CHECK(P::data_hdr_len              == 14);
+TEST_CASE("Frame overhead math — C++ DATA header drops the Lua visited[6] (deliberate divergence)") {
+    // C++ DATA_HDR_LEN = 8 (no visited; loop/dedup via _seen_origins + TTL) -> hard cap 255 - 8 - 6 = 241.
+    // The frozen Lua keeps visited -> DATA_HDR_LEN 14 -> 235 (dv_dual_sf.lua:2904-2905). Divergence on purpose.
+    CHECK(P::data_hdr_len              == 8);
     CHECK(P::data_inner_overhead       == 6);
     CHECK(P::lora_max_frame_bytes      == 255);
-    CHECK(P::max_payload_bytes_hard_cap == 235);  // 255 - 14 - 6
+    CHECK(P::max_payload_bytes_hard_cap == 241);  // 255 - 8 - 6
 }
 
 TEST_CASE("Hop-budget constants match the Lua PROTOCOL values") {

@@ -626,7 +626,7 @@ TEST_CASE("D send-by-hash — an oversized body is refused (err_too_large), neve
     std::array<uint8_t, 240> big{};
     for (auto& b : big) b = 'x';
 
-    // body of dm_max_body_bytes + 1 (234) would overrun TxItem.inner[] at enqueue_data's inner[2+i].
+    // body of dm_max_body_bytes + 1 (240) would overrun TxItem.inner[] at enqueue_data's inner[2+i].
     Command over{}; over.kind = CmdKind::send; over.u.send.dst_hash = 0x0000EEEE;
     over.body = big.data(); over.body_len = static_cast<uint8_t>(protocol::dm_max_body_bytes + 1);
     const CmdResult ro = node.on_command(over);
@@ -639,7 +639,7 @@ TEST_CASE("D send-by-hash — an oversized body is refused (err_too_large), neve
     over_id.body = big.data(); over_id.body_len = static_cast<uint8_t>(protocol::dm_max_body_bytes + 1);
     CHECK(node.on_command(over_id).code == CmdCode::err_too_large);
 
-    // and the exact cap (233) is accepted (unknown hash -> parks).
+    // and the exact cap (239) is accepted (unknown hash -> parks).
     Command ok{}; ok.kind = CmdKind::send; ok.u.send.dst_hash = 0x0000EEEE;
     ok.body = big.data(); ok.body_len = protocol::dm_max_body_bytes;
     CHECK(node.on_command(ok).code == CmdCode::queued);

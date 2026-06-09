@@ -579,14 +579,12 @@ std::optional<j_out> parse_j(std::span<const uint8_t> frame) {
 }
 
 // -----------------------------------------------------------------------------
-// DATA — cmd=0x3, 18+n B (ROADMAP §10.3). See frame_codec.h for layout.
+// DATA — cmd=0x3, 12+n B (ROADMAP §10.3). See frame_codec.h for layout.
 // -----------------------------------------------------------------------------
 size_t pack_data(const data_in& in, std::span<uint8_t> out) {
     if (in.addr_len != 0) return 0;                               // hierarchy deferred this phase
-    const bool vis_zero = in.visited.empty();
     const bool mac_zero = in.mac.empty();
-    if (!vis_zero && in.visited.size() != DATA_VISITED_LEN) return 0;
-    if (!mac_zero && in.mac.size()     != DATA_MAC_LEN)     return 0;
+    if (!mac_zero && in.mac.size() != DATA_MAC_LEN) return 0;
 
     const uint8_t hr = in.hops_remaining > 31 ? 31 : in.hops_remaining;   // saturate (matches Lua math.min)
     const uint8_t ch = in.committed_hops > 7  ? 7  : in.committed_hops;
@@ -599,8 +597,6 @@ size_t pack_data(const data_in& in, std::span<uint8_t> out) {
     w.u8(static_cast<uint8_t>(((hr & 0x1F) << 3) | (ch & 0x07)));
     w.u8(in.prev_fwd_rt_hops);
     w.u16_le(in.ctr);
-    if (vis_zero) { for (int i = 0; i < (int)DATA_VISITED_LEN; ++i) w.u8(0); }
-    else          { for (uint8_t b : in.visited) w.u8(b); }
     for (uint8_t b : in.inner) w.u8(b);                           // opaque ciphertext slot
     if (mac_zero) { for (int i = 0; i < (int)DATA_MAC_LEN; ++i) w.u8(0); }
     else          { for (uint8_t b : in.mac) w.u8(b); }           // opaque 4-B trailer
@@ -608,7 +604,7 @@ size_t pack_data(const data_in& in, std::span<uint8_t> out) {
 }
 
 std::optional<data_out> parse_data(std::span<const uint8_t> frame) {
-    if (frame.size() < DATA_HDR_LEN + DATA_MAC_LEN) return std::nullopt;   // < 18
+    if (frame.size() < DATA_HDR_LEN + DATA_MAC_LEN) return std::nullopt;   // < 12
     if (wire::cmd_of(frame[0]) != wire::Cmd::D) return std::nullopt;
 
     data_out o{};
@@ -625,18 +621,13 @@ std::optional<data_out> parse_data(std::span<const uint8_t> frame) {
     o.prev_fwd_rt_hops = frame[5];
     { wire::Reader r(frame.subspan(6, 2)); o.ctr = r.u16_le(); }
     o.ctr_lo4     = static_cast<uint8_t>(o.ctr & 0x0F);           // derived hop-match convenience
-    o.visited_off = 8;
-    o.inner_off   = DATA_HDR_LEN;                                 // 14
-    o.inner_len   = frame.size() - DATA_HDR_LEN - DATA_MAC_LEN;   // size>=18 guaranteed above
+    o.inner_off   = DATA_HDR_LEN;                                 // 8
+    o.inner_len   = frame.size() - DATA_HDR_LEN - DATA_MAC_LEN;   // size>=12 guaranteed above
     o.mac_off     = frame.size() - DATA_MAC_LEN;
     o.frame_len   = frame.size();
     return o;
 }
 
-std::span<const uint8_t> data_visited(std::span<const uint8_t> frame, const data_out& d) {
-    if (d.visited_off + DATA_VISITED_LEN > frame.size()) return {};
-    return frame.subspan(d.visited_off, DATA_VISITED_LEN);
-}
 std::span<const uint8_t> data_inner(std::span<const uint8_t> frame, const data_out& d) {
     if (d.inner_off + d.inner_len > frame.size()) return {};
     return frame.subspan(d.inner_off, d.inner_len);

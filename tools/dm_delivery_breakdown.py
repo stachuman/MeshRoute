@@ -98,7 +98,7 @@ from collections import defaultdict, Counter
 
 # --- LoRa airtime (mirrors dv_dual_sf.lua airtime_ms) + frame sizes ---
 RTS_LEN, CTS_LEN, ACK_LEN, NACK_LEN, MAC_LEN = 8, 3, 3, 4, 4
-DATA_HDR_LEN = 14          # 8 + 6-byte visited window
+DATA_HDR_LEN = 8           # C++ drops the Lua visited[6] (deliberate wire divergence)
 PREAMBLE_SYM = 16          # PROTOCOL default
 
 

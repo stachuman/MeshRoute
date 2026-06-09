@@ -238,19 +238,23 @@ inline constexpr uint32_t mediated_deny_suppress_ms = 30000;
 inline constexpr uint8_t  cap_l2c_redirect        = 16;
 inline constexpr uint32_t l2c_redirect_suppress_ms = 30000;
 
-// ---- Wire-format frame overhead (matches Lua DATA_HDR_LEN + DATA_INNER_OVERHEAD) ----
-// Lua CODE is authoritative: DATA_HDR_LEN = 8 + VISITED_LEN(6) = 14 (dv_dual_sf.lua:2904-2905);
-// DATA_INNER_OVERHEAD = 2 + MAC_LEN(4) = 6 (:2908); hard cap = 255-14-6 = 235 (:8637).
-// (A stale Lua COMMENT at :8632-8633 reads "DATA_HDR_LEN=8 ... 241" — ignore it; trust the code.)
-inline constexpr uint8_t  data_hdr_len        = 14;
+// ---- Wire-format frame overhead (C++ DATA header DIVERGES from the frozen Lua) ----
+// The C++ DATA frame DROPS the Lua's visited[6] (loop/dedup uses _seen_origins + hops_remaining TTL,
+// never a visited list) — a DELIBERATE wire divergence, decided by the architect (like the data_sf
+// removal and the lean M frame). See frame_codec.h / docs/frames.md. So:
+//   C++  DATA_HDR_LEN = 8 (no visited)  ->  hard cap = 255 - 8 - 6 = 241.
+//   Lua  DATA_HDR_LEN = 8 + VISITED_LEN(6) = 14 (dv_dual_sf.lua:2904-2905) -> 235.
+// (The C++ value matches the stale Lua COMMENT at :8632-8633 ("...8 ... 241"); we diverge from the
+// Lua CODE on purpose here, NOT following that comment.) DATA_INNER_OVERHEAD = 2 + MAC_LEN(4) = 6 (:2908).
+inline constexpr uint8_t  data_hdr_len        = 8;
 inline constexpr uint8_t  data_inner_overhead = 6;
 inline constexpr uint8_t  lora_max_frame_bytes = 255;  // SX126x/SX127x 8-bit length register
 inline constexpr uint8_t  max_payload_bytes_hard_cap =
-    lora_max_frame_bytes - data_hdr_len - data_inner_overhead;  // = 235 (the TxItem.inner[] buffer size)
+    lora_max_frame_bytes - data_hdr_len - data_inner_overhead;  // = 241 (the TxItem.inner[] buffer size)
 // A normal DM inner is [payload-flags][origin][body...] (enqueue_data writes body at inner[2+i]), so the
-// app body must fit in the inner buffer MINUS that 2-byte prefix — 233. Exceeding it overruns inner[].
+// app body must fit in the inner buffer MINUS that 2-byte prefix — 239. Exceeding it overruns inner[].
 inline constexpr uint8_t  dm_inner_prefix_bytes = 2;                                      // [payload-flags][origin]
-inline constexpr uint8_t  dm_max_body_bytes = max_payload_bytes_hard_cap - dm_inner_prefix_bytes;  // = 233
+inline constexpr uint8_t  dm_max_body_bytes = max_payload_bytes_hard_cap - dm_inner_prefix_bytes;  // = 239
 
 // ---- SF demod thresholds (Q4 dB, mirrors SF_DEMOD_THRESHOLD in Lua) -------
 // SF5 = -2.5 dB → -40 Q4; SF12 = -20.0 dB → -320 Q4.

@@ -595,7 +595,6 @@ void Node::do_data_tx() {
     din.addr_len = 0; din.flags = pt.flags; din.next = pt.next; din.dst = pt.dst;
     din.hops_remaining = hb_remaining; din.committed_hops = hb_committed;
     din.prev_fwd_rt_hops = hb_prev_fwd; din.ctr = pt.ctr;
-    din.visited = {};                                    // empty -> 6 zero bytes
     din.inner = std::span<const uint8_t>(pt.inner, pt.inner_len);
     din.mac   = std::span<const uint8_t>(mac, 4);
     uint8_t buf[protocol::lora_max_frame_bytes];

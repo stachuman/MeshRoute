@@ -309,7 +309,7 @@ struct j_out {
 std::optional<j_out> parse_j(std::span<const uint8_t> frame);
 
 // -----------------------------------------------------------------------------
-// DATA — data plane frame (cmd-nibble 0x3, 18+n B) — ROADMAP §10.3
+// DATA — data plane frame (cmd-nibble 0x3, 12+n B) — ROADMAP §10.3
 // -----------------------------------------------------------------------------
 //   byte 0     : cmd=0x3(7..4) | addr_len(3..1) | rsv(0)    [addr_len 0 this phase]
 //   byte 1     : flags(7..4) | rsv(3..0)
@@ -318,8 +318,7 @@ std::optional<j_out> parse_j(std::span<const uint8_t> frame);
 //   byte 4     : hops_remaining(7..3, 5-bit 0..31) | committed_hops(2..0, 3-bit 0..7)
 //   byte 5     : prev_fwd_rt_hops (soft hop-gradient)
 //   bytes 6-7  : ctr (16-bit, LITTLE-endian)
-//   bytes 8-13 : visited[6] (fixed 6 slots, one short-id each, 0=empty, no length prefix)
-//   bytes 14.. : inner  (OPAQUE ciphertext slot, n bytes — crypto is a behaviour layer)
+//   bytes 8..  : inner  (OPAQUE ciphertext slot, n bytes — crypto is a behaviour layer)
 //   last 4     : MAC    (OPAQUE 4-byte trailer)
 // The NORMAL / hash-bind inner sub-layouts are exposed by SEPARATE optional helpers the
 // behaviour layer calls — the mandatory parse keeps inner+MAC opaque (mirrors the BCN
@@ -327,9 +326,11 @@ std::optional<j_out> parse_j(std::span<const uint8_t> frame);
 // inner and are deferred to the behaviour iterations. ENDIANNESS: ctr is LITTLE-endian.
 // (Channel messages have their OWN frame — the lean M frame, cmd 0xA — not a DATA inner.)
 
-inline constexpr size_t DATA_HDR_LEN     = 14;
+// NOTE: the C++ DATA frame DROPS the Lua's visited[6] (loop/dedup is done by _seen_origins +
+// hops_remaining TTL, never a visited list) — a deliberate wire divergence from the frozen Lua
+// (which keeps visited -> DATA_HDR_LEN 14). So the C++ header is 8 B; see docs/frames.md.
+inline constexpr size_t DATA_HDR_LEN     = 8;
 inline constexpr size_t DATA_MAC_LEN     = 4;
-inline constexpr size_t DATA_VISITED_LEN = 6;
 enum DataFlag : uint8_t {            // Lua flag VALUES (packed into byte1 high nibble)
     DATA_FLAG_PRIORITY    = 0x02,    // 0x01 retired: channel-M moved off DATA onto its own cmd 0xA (M frame)
     DATA_FLAG_E2E_IS_ACK  = 0x04, DATA_FLAG_E2E_ACK_REQ = 0x08,
@@ -358,11 +359,10 @@ struct data_in {
     uint8_t  committed_hops;    // saturated 0..7
     uint8_t  prev_fwd_rt_hops;
     uint16_t ctr;               // packed LITTLE-endian
-    std::span<const uint8_t> visited;  // empty -> 6 zero bytes; else exactly 6 (else pack->0)
     std::span<const uint8_t> inner;    // opaque ciphertext slot (0..max)
     std::span<const uint8_t> mac;      // empty -> 4 zero bytes; else exactly 4 (else pack->0)
 };
-// Bytes written, or 0 on bad input (addr_len!=0 / visited size / mac size) or short out.
+// Bytes written, or 0 on bad input (addr_len!=0 / mac size) or short out.
 size_t pack_data(const data_in& in, std::span<uint8_t> out);
 
 struct data_out {
@@ -371,10 +371,9 @@ struct data_out {
     uint8_t  next, dst, hops_remaining, committed_hops, prev_fwd_rt_hops;
     uint16_t ctr;               // full 16-bit LE
     uint8_t  ctr_lo4;           // derived ctr & 0x0F (CTS/ACK/NACK hop-match convenience)
-    size_t   visited_off, inner_off, inner_len, mac_off, frame_len;
+    size_t   inner_off, inner_len, mac_off, frame_len;
 };
-std::optional<data_out> parse_data(std::span<const uint8_t> frame);   // nullopt: len<18 / cmd / addr_len!=0
-std::span<const uint8_t> data_visited(std::span<const uint8_t> frame, const data_out& d);  // 6 B
+std::optional<data_out> parse_data(std::span<const uint8_t> frame);   // nullopt: len<12 / cmd / addr_len!=0
 std::span<const uint8_t> data_inner  (std::span<const uint8_t> frame, const data_out& d);  // opaque, inner_len B
 std::span<const uint8_t> data_mac    (std::span<const uint8_t> frame, const data_out& d);  // 4 B
 

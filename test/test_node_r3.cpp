@@ -139,7 +139,7 @@ static size_t mk_data(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origin,
     const uint8_t mac[4] = { 0, 0, 0, 0 };
     data_in in{}; in.addr_len = 0; in.flags = 0; in.next = next; in.dst = dst;
     in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
-    in.visited = {}; in.inner = std::span<const uint8_t>(inner.data(), 2 + bl);
+    in.inner = std::span<const uint8_t>(inner.data(), 2 + bl);
     in.mac = std::span<const uint8_t>(mac, 4);
     return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
 }
@@ -152,7 +152,7 @@ static size_t mk_data_hb(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origin
     const uint8_t mac[4] = { 0, 0, 0, 0 };
     data_in in{}; in.addr_len = 0; in.flags = 0; in.next = next; in.dst = dst;
     in.hops_remaining = hops_remaining; in.committed_hops = committed; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
-    in.visited = {}; in.inner = std::span<const uint8_t>(inner.data(), 2 + bl);
+    in.inner = std::span<const uint8_t>(inner.data(), 2 + bl);
     in.mac = std::span<const uint8_t>(mac, 4);
     return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
 }
@@ -164,7 +164,7 @@ static size_t mk_data_e2e(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origi
     const uint8_t mac[4] = { 0, 0, 0, 0 };
     data_in in{}; in.addr_len = 0; in.flags = flags; in.next = next; in.dst = dst;
     in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
-    in.visited = {}; in.inner = std::span<const uint8_t>(inner.data(), 2 + body_len);
+    in.inner = std::span<const uint8_t>(inner.data(), 2 + body_len);
     in.mac = std::span<const uint8_t>(mac, 4);
     return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
 }
@@ -180,7 +180,7 @@ static size_t mk_data_dsthash(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t o
     const uint8_t mac[4] = { 0, 0, 0, 0 };
     data_in in{}; in.addr_len = 0; in.flags = 0; in.next = next; in.dst = dst;
     in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
-    in.visited = {}; in.inner = std::span<const uint8_t>(inner.data(), 6 + bl);
+    in.inner = std::span<const uint8_t>(inner.data(), 6 + bl);
     in.mac = std::span<const uint8_t>(mac, 4);
     return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
 }
@@ -195,7 +195,7 @@ static size_t mk_data_hashbind(uint8_t next, uint8_t dst, uint16_t ctr,
     const uint8_t mac[4] = { 0, 0, 0, 0 };
     data_in in{}; in.addr_len = 0; in.flags = 0; in.next = next; in.dst = dst;
     in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
-    in.visited = {}; in.inner = std::span<const uint8_t>(inner.data(), il);
+    in.inner = std::span<const uint8_t>(inner.data(), il);
     in.mac = std::span<const uint8_t>(mac, 4);
     return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
 }
@@ -2024,7 +2024,7 @@ static size_t mk_data_dsthash_hops(uint8_t next, uint8_t dst, uint16_t ctr, uint
     const uint8_t mac[4] = { 0, 0, 0, 0 };
     data_in in{}; in.addr_len = 0; in.flags = 0; in.next = next; in.dst = dst;
     in.hops_remaining = hops_remaining; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
-    in.visited = {}; in.inner = std::span<const uint8_t>(inner.data(), 6 + bl);
+    in.inner = std::span<const uint8_t>(inner.data(), 6 + bl);
     in.mac = std::span<const uint8_t>(mac, 4);
     return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
 }
