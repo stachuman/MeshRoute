@@ -111,6 +111,10 @@ CfgErr parse_cfg(const char* line, size_t len, NodeConfig& cfg,
         if (tok_eq(val, "1") || tok_eq(val, "true")) cfg.is_gateway = true;
         else if (tok_eq(val, "0") || tok_eq(val, "false")) cfg.is_gateway = false;
         else return CfgErr::bad_value;
+    } else if (tok_eq(key, "gateway_only")) {                  // §7: pure bridge (channel-plane consumer half off too)
+        if (tok_eq(val, "1") || tok_eq(val, "true")) cfg.gateway_only = true;
+        else if (tok_eq(val, "0") || tok_eq(val, "false")) cfg.gateway_only = false;
+        else return CfgErr::bad_value;
     } else if (tok_eq(key, "beacon_period_ms")) {
         if (!parse_u32_tok(val, 0xFFFFFFFFu, u)) return CfgErr::bad_value;
         cfg.beacon_period_ms = u;

@@ -123,11 +123,33 @@ static size_t mk_data_m(uint8_t next, uint8_t dst, uint32_t id, uint8_t ch, std:
     in.visited = {}; in.inner = std::span<const uint8_t>(inner, 8); in.mac = std::span<const uint8_t>(mac, 4);
     return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
 }
+// A FLOOD RTS-M (43 B) from `src` advertising `id` with the coverage `bm32`, `hop_left`, sf_index.
+static size_t mk_flood_rts(uint8_t leaf, uint8_t src, uint32_t id, const uint8_t* bm32, uint8_t hop_left,
+                           uint8_t sf_index, std::array<uint8_t,64>& b) {
+    rts_in in{}; in.leaf_id = leaf; in.src = src; in.next = 0xFF; in.ctr_lo = static_cast<uint8_t>(id & 0x0F);
+    in.dst = hop_left;                                              // FLOOD: dst slot carries hop_left
+    in.sf_index = sf_index; in.rts_flags = static_cast<uint8_t>(RTS_FLAG_M_BROADCAST | RTS_FLAG_FLOOD);
+    in.payload_len = 8; in.flood_channel_msg_id = id;
+    in.flood_bitmap = std::span<const uint8_t>(bm32, 32);
+    return pack_rts(in, std::span<uint8_t>(b.data(), b.size()));
+}
+static inline bool bm_bit(const uint8_t* bm, uint8_t n) { return (bm[n >> 3] >> (n & 7)) & 1u; }
+static inline void bm_set(uint8_t* bm, uint8_t n) { bm[n >> 3] |= static_cast<uint8_t>(1u << (n & 7)); }
+
 constexpr uint32_t kBeaconTimerId       = 1;
 constexpr uint32_t kCtsToDataGapTimerId = 7;
 constexpr uint32_t kChannelPullTimerId  = 48;
 constexpr uint32_t kMBcastClearTimerId  = 56;
 constexpr uint32_t kOverhearRetuneTimerId = 57;
+constexpr uint32_t kFloodRebcastTimerId = 61;   // base of the [61..63] rebroadcast ring
+
+// 2026-06-08 redesign: send_channel now FLOODS first (a fire-and-forget m-broadcast flight), THEN the digest
+// is the repair backstop. Repair-layer tests must let that flight complete (RTS->DATA gap -> clear) so the
+// node is free + the originate-flood isn't mistaken for / doesn't suppress the pull-response under test.
+static void drain_originate_flood(Node& node) {
+    node.on_timer(kCtsToDataGapTimerId);   // RTS -> DATA-M gap fires -> the flood DATA-M goes out
+    node.on_timer(kMBcastClearTimerId);    // fire-and-forget: clear the m-broadcast flight (no ACK)
+}
 
 }  // namespace
 
@@ -173,8 +195,8 @@ TEST_CASE("DATA-M ingest: a received channel msg is admitted + buffered; a gatew
         CHECK(node.channel_has(id));
         CHECK(hal.count("channel_msg_received") == 1);
     }
-    {   // Principle 11: a gateway does NOT buffer channel gossip (it still forwards via the DATA path)
-        TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); cfg.is_gateway = true; node.on_init(cfg);
+    {   // §7 PURE BRIDGE (gateway_only): fully out of the channel plane -> does NOT buffer (consumer half off)
+        TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); cfg.is_gateway = true; cfg.gateway_only = true; node.on_init(cfg);
         const uint32_t id = Node::channel_msg_id_mint(9, 0x4242u, 1);
         node.ingest_channel_m(mk_m(id, 5, 0, body, 2), 2, 2, 9);
         CHECK(node.channel_buffer_count() == 0);
@@ -316,6 +338,7 @@ TEST_CASE("digest emit: a dirty entry is advertised in the BCN digest TLV; retir
     node.on_init(cfg);
     const CmdResult r = send_channel(node, 7, "hi");
     const uint32_t id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
+    drain_originate_flood(node);                                       // complete the flood -> free for the beacon
     node.on_timer(kBeaconTimerId);                                     // beacon #1
     const auto* bcn = hal.last_tx_cmd(0x0); CHECK(bcn);
     if (bcn) {
@@ -391,6 +414,7 @@ TEST_CASE("CHANNEL_PULL responder: a held id is re-broadcast as an M-payload wit
     TestHal hal; Node node(hal, 3, 0x1234ABCDu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
     const CmdResult r = send_channel(node, 7, "channel-data");
     const uint32_t id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
+    drain_originate_flood(node);                                      // complete the flood (else channel_m_in_flight suppresses the pull-response)
     std::array<uint8_t,32> qb{};
     const size_t qn = mk_q_pull(/*src=*/5, /*dest=*/3, &id, 1, qb);   // peer 5 pulls the id FROM us (dest=3)
     node.on_recv(qb.data(), qn, meta_at(100));
@@ -472,4 +496,140 @@ TEST_CASE("promiscuous M-ingest: an overheard DATA-M (next != us) is buffered be
     const size_t dn = mk_data_m(/*next=*/7, /*dst=*/7, id, /*ch=*/5, db);   // addressed to 7; we overhear it
     node.on_recv(db.data(), dn, meta_at(100));
     CHECK(node.channel_has(id));                                       // buffered promiscuously
+}
+
+// ===================== FLOOD plane (2026-06-08 redesign) — the fast-primary state machine =====================
+
+TEST_CASE("FLOOD originate: do_send_channel seeds {self + hops==1 neighbours} into the RTS-M bitmap, broadcasts") {
+    TestHal hal; Node node(hal, /*id=*/3, 0x1234ABCDu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    std::array<uint8_t,64> bb{}; node.on_recv(bb.data(), mk_beacon(7, bb), meta_at(10));   // neighbour 7 (hops==1)
+    send_channel(node, 5, "hi");
+    CHECK(hal.count("flood_tx") == 1);
+    const std::vector<uint8_t>* rts = nullptr;                                             // the emitted FLOOD RTS-M
+    for (auto& f : hal.tx_frames) { auto o = parse_rts(std::span<const uint8_t>(f.data(), f.size())); if (o && o->flood) rts = &f; }
+    CHECK(rts != nullptr);
+    if (rts) {
+        auto o = parse_rts(std::span<const uint8_t>(rts->data(), rts->size())); CHECK(o.has_value());
+        if (o) {
+            CHECK(o->next == 0xFF);
+            auto bm = rts_flood_bitmap(std::span<const uint8_t>(rts->data(), rts->size()), *o);
+            CHECK(bm.size() == 32);
+            CHECK(bm_bit(bm.data(), 3));    // my bit
+            CHECK(bm_bit(bm.data(), 7));    // neighbour
+        }
+    }
+}
+
+TEST_CASE("FLOOD receive: a fresh RTS-M retunes to catch the DATA-M; a 2nd (dup) does not re-retune") {
+    TestHal hal; Node node(hal, /*id=*/2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    const uint32_t id = (uint32_t(5) << 24) | 0x1234u;
+    uint8_t bm[32] = {}; bm_set(bm, 1);                                     // only the sender marked
+    std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, /*src=*/1, id, bm, 8, /*sf_index=*/3, rb), meta_at(20));
+    CHECK(hal.count("channel_overhear_armed") == 1);
+    CHECK(hal.armed(kOverhearRetuneTimerId));
+    node.on_recv(rb.data(), mk_flood_rts(0, 1, id, bm, 8, 3, rb), meta_at(25));   // duplicate -> active state, no new retune
+    CHECK(hal.count("channel_overhear_armed") == 1);
+}
+
+TEST_CASE("FLOOD forward: unmarked neighbour -> rebroadcast scheduled; all-marked -> silent") {
+    {   // an unmarked neighbour (9) -> arm a rebroadcast
+        TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+        std::array<uint8_t,64> bb{}; node.on_recv(bb.data(), mk_beacon(9, bb), meta_at(5));
+        const uint32_t id = (uint32_t(5) << 24) | 0x22u;
+        uint8_t bm[32] = {}; bm_set(bm, 1);                                 // 9 NOT marked
+        std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, 1, id, bm, 8, 3, rb), meta_at(10));
+        std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_data_m(2, 2, id, 5, db), meta_at(40));  // DATA-M body
+        CHECK(node.channel_has(id));
+        CHECK(hal.count("flood_rebroadcast_scheduled") == 1);
+        CHECK(hal.armed(kFloodRebcastTimerId));                            // slot 0
+    }
+    {   // every neighbour already marked -> stay silent
+        TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+        std::array<uint8_t,64> bb{}; node.on_recv(bb.data(), mk_beacon(9, bb), meta_at(5));
+        const uint32_t id = (uint32_t(5) << 24) | 0x33u;
+        uint8_t bm[32] = {}; bm_set(bm, 1); bm_set(bm, 9);                 // 9 IS marked -> covered
+        std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, 1, id, bm, 8, 3, rb), meta_at(10));
+        std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_data_m(2, 2, id, 5, db), meta_at(40));
+        CHECK(node.channel_has(id));
+        CHECK(hal.count("flood_rebroadcast_scheduled") == 0);             // silent (self-terminating)
+    }
+}
+
+TEST_CASE("FLOOD rebroadcast: re-floods {coverage + me} with hop_left-1; hop_left<=1 -> TTL drop") {
+    {   // a healthy hop_left re-floods with hop_left-1 + the extended coverage
+        TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+        std::array<uint8_t,64> bb{}; node.on_recv(bb.data(), mk_beacon(9, bb), meta_at(5));
+        const uint32_t id = (uint32_t(5) << 24) | 0x44u;
+        uint8_t bm[32] = {}; bm_set(bm, 1);
+        std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, 1, id, bm, /*hop_left=*/8, 3, rb), meta_at(10));
+        std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_data_m(2, 2, id, 5, db), meta_at(40));
+        const int before = hal.count("flood_tx");
+        node.on_timer(kFloodRebcastTimerId);                              // slot 0 fires
+        CHECK(hal.count("flood_tx") == before + 1);                       // re-flooded
+        const std::vector<uint8_t>* rf = nullptr;
+        for (auto& f : hal.tx_frames) { auto o = parse_rts(std::span<const uint8_t>(f.data(), f.size())); if (o && o->flood) rf = &f; }
+        if (rf) { auto o = parse_rts(std::span<const uint8_t>(rf->data(), rf->size()));
+                  if (o) { CHECK(o->dst == 7);                            // hop_left 8 -> 7 (rides the dst slot)
+                           auto m = rts_flood_bitmap(std::span<const uint8_t>(rf->data(), rf->size()), *o);
+                           CHECK(bm_bit(m.data(), 2)); CHECK(bm_bit(m.data(), 9)); } }   // +me +neighbour
+    }
+    {   // hop_left == 1 -> the rebroadcast would reach 0 -> TTL drop (no re-flood)
+        TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+        std::array<uint8_t,64> bb{}; node.on_recv(bb.data(), mk_beacon(9, bb), meta_at(5));
+        const uint32_t id = (uint32_t(5) << 24) | 0x55u;
+        uint8_t bm[32] = {}; bm_set(bm, 1);
+        std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, 1, id, bm, /*hop_left=*/1, 3, rb), meta_at(10));
+        std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_data_m(2, 2, id, 5, db), meta_at(40));
+        const int before = hal.count("flood_tx");
+        node.on_timer(kFloodRebcastTimerId);
+        CHECK(hal.count("flood_tx") == before);                           // NO re-flood
+        CHECK(hal.count("flood_hop_exhausted") == 1);
+    }
+}
+
+TEST_CASE("FLOOD fast-self-pull (§4.4): caught the RTS-M, missed the DATA-M -> pull from src on retune") {
+    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    const uint32_t id = (uint32_t(5) << 24) | 0x66u;
+    uint8_t bm[32] = {}; bm_set(bm, 1);
+    std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, /*src=*/4, id, bm, 8, 3, rb), meta_at(10));
+    CHECK(hal.armed(kOverhearRetuneTimerId));
+    node.on_timer(kOverhearRetuneTimerId);                                // window closed, DATA-M never arrived
+    CHECK(hal.count("channel_pull_sent") == 1);                           // fast-self-pull fired (trigger=flood_fast)
+    CHECK(hal.last_tx_cmd(0x6) != nullptr);                               // a CHANNEL_PULL Q (cmd 0x6) to src
+}
+
+TEST_CASE("FLOOD leaf-mismatch: a foreign-leaf RTS-M is dropped (no overhear, no state)") {
+    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); cfg.leaf_id = 0; node.on_init(cfg);
+    const uint32_t id = (uint32_t(5) << 24) | 0x77u;
+    uint8_t bm[32] = {}; bm_set(bm, 1);
+    std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(/*leaf=*/3, 1, id, bm, 8, 3, rb), meta_at(10));  // leaf 3 != 0
+    CHECK(hal.count("channel_overhear_armed") == 0);
+}
+
+TEST_CASE("FLOOD pure-bridge leak guard: gateway_only hearing > cap_flood_pending distinct RTS-Ms creates ZERO states") {
+    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg();
+    cfg.is_gateway = true; cfg.gateway_only = true; node.on_init(cfg);    // PURE BRIDGE: fully out of the channel plane
+    // The leak the gate flagged: states created but never freed exhausts _flood[]. A pure bridge must alloc
+    // NOTHING from a heard FLOOD RTS-M (create<->resolve coupled). Hear 5 distinct ones (> cap=3).
+    for (uint32_t k = 0; k < 5; ++k) {
+        const uint32_t id = (uint32_t(5) << 24) | (0x80u + k);
+        uint8_t bm[32] = {}; bm_set(bm, 1);
+        std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, 1, id, bm, 8, 3, rb), meta_at(10 + k));
+    }
+    CHECK(hal.count("channel_overhear_armed") == 0);   // never retunes -> never allocs -> no leak
+    CHECK(hal.count("flood_tx") == 0);                 // never rebroadcasts
+}
+
+TEST_CASE("FLOOD gateway+owner: CONSUMES (retunes + stores) a flood but is PROVIDER-off (never rebroadcasts)") {
+    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg();
+    cfg.is_gateway = true; /* gateway_only = false -> gateway + owner */ node.on_init(cfg);
+    std::array<uint8_t,64> bb{}; node.on_recv(bb.data(), mk_beacon(9, bb), meta_at(5));   // an UNMARKED neighbour 9
+    const uint32_t id = (uint32_t(5) << 24) | 0x99u;
+    uint8_t bm[32] = {}; bm_set(bm, 1);                                  // 9 unmarked -> a normal node WOULD rebroadcast
+    std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, 1, id, bm, 8, 3, rb), meta_at(10));
+    CHECK(hal.count("channel_overhear_armed") == 1);                    // consumer: it DID retune to catch the DATA-M
+    std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_data_m(2, 2, id, 5, db), meta_at(40));
+    CHECK(node.channel_has(id));                                        // consumer: stored for the owner
+    CHECK(hal.count("flood_rebroadcast_scheduled") == 0);              // PROVIDER off: never arms a rebroadcast
+    CHECK(hal.count("flood_tx") == 0);                                  // ...and never floods (the state is freed instead)
 }

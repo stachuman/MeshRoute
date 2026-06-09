@@ -183,6 +183,13 @@ inline constexpr uint8_t  channel_dirty_max_advertisements = 3;   // K: clear di
 inline constexpr uint8_t  cap_channel_pull_pending      = 8;      // bounded pending-pull ring (Lua: unbounded table)
 inline constexpr uint8_t  bcn_ext_type_channel_digest  = 3;      // BCN ext-TLV type for the channel digest (dv:1248)
 inline constexpr uint8_t  cap_channel_pull_recent      = 32;     // bounded re-pull dedup ring (Lua: unbounded map)
+
+// ---- channel flood (2026-06-08 redesign): managed flood = fast primary; digest+pull = repair backstop ----
+inline constexpr uint8_t  cap_flood_pending = 3;        // concurrent floods mid-backoff (bounded to the free timer band [61-63]); overflow -> repair backstop
+inline constexpr uint8_t  flood_hop_max     = 16;       // TTL safety cap (≈ dv_hop_cap)
+inline constexpr uint32_t flood_backoff_ms  = 2000;     // T_backoff: max rebroadcast jitter; >= one RTS-M+DATA-M airtime so an overhearer can cancel first
+inline constexpr int16_t  flood_snr_lo_q4   = -15 * 16; // SNR-norm range lo (dB, Q4)
+inline constexpr int16_t  flood_snr_hi_q4   =  10 * 16; // SNR-norm range hi (dB, Q4)
 // channel_msg_id flavor (encryption variant; crypto deferred — all plaintext v1, dv:2229-2231)
 inline constexpr uint8_t  channel_flavor_public  = 0;
 inline constexpr uint8_t  channel_flavor_group   = 1;

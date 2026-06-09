@@ -183,9 +183,32 @@ void Node::tx_m_broadcast_rts() {
     if (!_pending_tx) return;
     PendingTx& pt = *_pending_tx;
     rts_in rin{};
-    rin.leaf_id = _cfg.leaf_id; rin.src = _node_id; rin.next = pt.next; rin.ctr_lo = pt.ctr_lo;
-    rin.dst = pt.dst; rin.sf_index = max_data_sf_index(); rin.rts_flags = RTS_FLAG_M_BROADCAST;
+    rin.leaf_id = _cfg.leaf_id; rin.src = _node_id; rin.ctr_lo = pt.ctr_lo;
+    rin.sf_index = max_data_sf_index();
     rin.payload_len = static_cast<uint8_t>(pt.inner_len + 4 /*MAC_LEN*/);
+    if (pt.flood) {                                            // FLOOD RTS-M (43 B): id + 32-B coverage bitmap
+        // FAIL LOUD (gate refinement #1): an all-zero bitmap is a VALID 43-B frame that makes every receiver
+        // see all-neighbours-unmarked -> a rebroadcast storm. A legit flood always has >=1 bit set (the
+        // originator's own + neighbours, or OR'd coverage), so a zero bitmap is a bug — refuse to transmit.
+        bool any = false; for (uint8_t i = 0; i < 32; ++i) if (pt.flood_bitmap[i]) { any = true; break; }
+        if (!any) {
+            _hal.log("FLOOD RTS zero bitmap — refusing tx");
+            MR_EMIT("flood_zero_bitmap_refused", EF_I("ctr", pt.ctr));
+            _pending_tx.reset(); become_free(); return;
+        }
+        rin.next = 0xFF; rin.dst = pt.hop_left;                // §3.1: next=0xFF (broadcast), dst slot = hop_left
+        rin.rts_flags = static_cast<uint8_t>(RTS_FLAG_M_BROADCAST | RTS_FLAG_FLOOD);
+        rin.flood_channel_msg_id = (static_cast<uint32_t>(pt.inner[0]) << 24) | (static_cast<uint32_t>(pt.inner[1]) << 16)
+                                 | (static_cast<uint32_t>(pt.inner[2]) << 8)  |  static_cast<uint32_t>(pt.inner[3]);
+        rin.flood_bitmap = std::span<const uint8_t>(pt.flood_bitmap, 32);
+        uint8_t fbuf[43];
+        const size_t fl = pack_rts(rin, std::span<uint8_t>(fbuf, sizeof(fbuf)));
+        if (fl == 0) { _hal.log("FLOOD RTS pack failed"); _pending_tx.reset(); become_free(); return; }
+        MR_EMIT("rts_tx", EF_I("next", 0xFF), EF_I("ctr", pt.ctr), EF_B("flood", true));
+        tx_initiating(fbuf, fl, static_cast<int16_t>(_cfg.routing_sf), LbtKind::rts, pt.flight_gen);
+        return;
+    }
+    rin.next = pt.next; rin.dst = pt.dst; rin.rts_flags = RTS_FLAG_M_BROADCAST;
     rin.m_payload_id_lo16 = static_cast<uint16_t>((pt.inner[2] << 8) | pt.inner[3]);   // low-16 of the BE id
     uint8_t buf[11];                                            // RTS(8) + id_lo16(2)
     const size_t l = pack_rts(rin, std::span<uint8_t>(buf, sizeof(buf)));
@@ -216,6 +239,18 @@ void Node::issue_send(const TxItem& item) {
     pt.previous_hop = item.previous_hop; pt.has_previous_hop = item.is_forward;
     pt.requeue_count = item.requeue_count; pt.enqueue_time_ms = item.enqueue_time_ms;
     pt.fwd_remaining = item.fwd_remaining; pt.fwd_committed = item.fwd_committed;   // hop budget (forwarder)
+    pt.flood = item.flood; pt.hop_left = item.hop_left;                             // channel FLOOD: the 43-B RTS-M tail
+    for (uint8_t i = 0; i < 32; ++i) pt.flood_bitmap[i] = item.flood_bitmap[i];
+
+    // A channel FLOOD is a TRUE broadcast (next=0xFF, no unicast route) -> skip route selection (which would
+    // find no route and drop/defer) and fire the fire-and-forget flight directly.
+    if (item.flood) {
+        pt.next = 0xFF;
+        pt.flight_gen = ++_flight_gen;
+        _pending_tx = pt;
+        issue_m_broadcast();
+        return;
+    }
 
     const uint8_t first = pick_next_cascade_hop(pt);     // first SELECTABLE candidate (skips previous_hop)
     if (first == 0) {

@@ -154,24 +154,38 @@ std::optional<ack_out> parse_ack(std::span<const uint8_t> frame);
 //            READING A (§10.3 wording is ambiguous; we pin flags to bits 5..2):
 //            within byte 5, M_BROADCAST -> bit 2 (0x04), RELAY -> bit 3 (0x08).
 //   byte 6 : payload_len                                   [wraps mod-256 via uint8_t]
-//   bytes 7-8 : id_lo16 (BE)  — present iff (rts_flags & RTS_FLAG_M_BROADCAST)
+//   bytes 7-8 : id_lo16 (BE)  — present iff (rts_flags & RTS_FLAG_M_BROADCAST) without FLOOD
 // sf_index: 0..2 = singleton into allowed_data_sfs; 3 = ANY (receiver picks by SNR).
 // Contract: all fields MASK/wrap (no clamp); payload_len wraps; parse rejects
 // addr_len != 0 (hierarchy deferred).
+//
+// FLOOD RTS-M (channel-flood, 2026-06-08 redesign) — sets BOTH M_BROADCAST|FLOOD; 43 B total.
+// The FLOOD tail REPLACES the 2-B id_lo16 tail (flood is checked first):
+//   byte 2  : next = 0xFF  (broadcast convention; the `next` slot, set by the flood layer)
+//   byte 4  : hop_left     (TTL safety cap; reuses the `dst` slot, decremented each forward)
+//   bytes 7-10  : channel_msg_id (4 B, BIG-ENDIAN)            — IMMUTABLE
+//   bytes 11-42 : coverage bitmap (32 B = 256 bits, bit i = node id i in this leaf) — MUTABLE
 constexpr uint8_t RTS_FLAG_M_BROADCAST = 0x01;
 constexpr uint8_t RTS_FLAG_RELAY       = 0x02;
+constexpr uint8_t RTS_FLAG_FLOOD       = 0x04;   // channel flood: extended 43-B RTS-M tail (id + bitmap)
 struct rts_in {
     uint8_t  leaf_id; uint8_t src; uint8_t next; uint8_t ctr_lo;
     uint8_t  dst; uint8_t sf_index; uint8_t rts_flags; uint8_t payload_len;
-    uint16_t m_payload_id_lo16;   // appended (BE) iff rts_flags & RTS_FLAG_M_BROADCAST
+    uint16_t m_payload_id_lo16 = 0;        // appended (BE) iff M_BROADCAST and NOT FLOOD
+    uint32_t flood_channel_msg_id = 0;     // FLOOD tail: channel_msg_id (BE, bytes 7-10)
+    std::span<const uint8_t> flood_bitmap = {};   // FLOOD tail: exactly 32 B (bytes 11-42); pack->0 if FLOOD and size != 32
 };
 struct rts_out {
     uint8_t  leaf_id; uint8_t src; uint8_t next; uint8_t ctr_lo; uint8_t addr_len;
     uint8_t  dst; uint8_t sf_index; uint8_t rts_flags; uint8_t payload_len;
     bool     m_broadcast; uint16_t m_payload_id_lo16;
+    bool     flood = false;                // rts_flags & RTS_FLAG_FLOOD (43-B tail present)
+    uint32_t flood_channel_msg_id = 0;     // bytes 7-10 (BE) when flood
+    size_t   flood_bitmap_off = 0;         // offset of the 32-B bitmap when flood (use rts_flood_bitmap)
 };
-size_t pack_rts(const rts_in& in, std::span<uint8_t> out);          // 7 or 9; 0 on short buf
-std::optional<rts_out> parse_rts(std::span<const uint8_t> frame);   // nullopt: len<7 / cmd / addr_len!=0
+size_t pack_rts(const rts_in& in, std::span<uint8_t> out);          // 7 / 9 / 43; 0 on short buf or FLOOD bitmap != 32 B
+std::optional<rts_out> parse_rts(std::span<const uint8_t> frame);   // nullopt: len<7 (or <43 if FLOOD) / cmd / addr_len!=0
+std::span<const uint8_t> rts_flood_bitmap(std::span<const uint8_t> frame, const rts_out& o);  // 32 B; empty unless flood
 
 // -----------------------------------------------------------------------------
 // NACK — (cmd-nibble 0x5, 4 B) — ROADMAP §10.3

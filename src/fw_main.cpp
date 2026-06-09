@@ -127,7 +127,8 @@ static void dump_cfg() {
     Serial.print(F(" nav_ignore="));     Serial.print(c.nav_ignore_rts ? 1 : 0);
     Serial.print(F(" hop_cap="));        Serial.print(c.dv_hop_cap);
     Serial.print(F(" leaf_id="));        Serial.print(c.leaf_id);
-    Serial.print(F(" gateway="));        Serial.println(c.is_gateway ? 1 : 0);
+    Serial.print(F(" gateway="));        Serial.print(c.is_gateway ? 1 : 0);
+    Serial.print(F(" gateway_only="));   Serial.println(c.gateway_only ? 1 : 0);
 }
 
 static void dump_status() {
@@ -266,6 +267,7 @@ static void handle_cfg_set(const char* args) {
     else if (!strcmp(key, "hop_cap"))    { lc.dv_hop_cap = (uint8_t)atoi(val); persist = false; }
     else if (!strcmp(key, "leaf_id"))    { lc.leaf_id    = (uint8_t)atoi(val); persist = false; }
     else if (!strcmp(key, "gateway"))    { lc.is_gateway = (atoi(val) != 0 || !strcmp(val, "true")); persist = false; }
+    else if (!strcmp(key, "gateway_only")) { lc.gateway_only = (atoi(val) != 0 || !strcmp(val, "true")); persist = false; }   // §7 role flag: live-only like gateway (NOT persisted)
     else { Serial.print(F("> cfg err unknown_key ")); Serial.println(key); return; }
 
     if (persist && !mrnv::save(b)) { Serial.println(F("> cfg err nv_save_failed")); return; }
@@ -313,7 +315,7 @@ static void handle_debug(const char* arg, size_t n) {
 // `help` / `?` — a small command + cfg-key reference for the live console session.
 static void dump_help() {
     Serial.println(F("[help] send <id> <text> | send_ack <id> <text> | send_channel <ch> <text> | cfg | cfg set <k> <v> | routes | status | sleep [on|off] | debug [on|off] | regen | reboot"));
-    Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway key"));
+    Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway gateway_only key"));
 }
 
 // Handle a debug/diagnostic console line (help/routes/cfg/status/cfg set/reboot/sleep/debug). Returns true if consumed.

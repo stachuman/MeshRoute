@@ -278,7 +278,7 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // ROADMAP §3 channel gossip: react to a CHANNEL_DIGEST ext-TLV. Placed BEFORE the triggered-beacon
     // trigger below so the pull-jitter DRAW precedes the triggered-beacon draw, matching the Lua stream
     // (dv:9617 calls process_channel_digest before the triggered re-beacon). Gateways skip (Principle 11).
-    if (dn && !_cfg.is_gateway) process_channel_digest(b.src, dids, dn);  // dids/dn parsed above (before beacon_rx); gateways skip (Principle 11)
+    if (dn && !(_cfg.is_gateway && _cfg.gateway_only)) process_channel_digest(b.src, dids, dn);  // §7 consumer: a gateway+owner consumes digests to pull its own holes; a pure bridge skips
     maybe_exit_discovery(rt_changed ? "rt_update" : "beacon_rx");
     if (rt_changed) {
         schedule_triggered_beacon();

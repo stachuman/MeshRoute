@@ -78,22 +78,25 @@ A node keeps its **hops==1 neighbour set** for each leaf it belongs to (from the
 7. `schedule_triggered_beacon()` — so the repair digest is prompt, not 15-min.
 
 ### 4.2 Receive a FLOOD RTS-M (control SF), tail `{channel_msg_id, bitmap, sf_index, hop_left}`
-1. **Gate:** drop if `leaf_id != _cfg.leaf_id`. (Gateways: §7 — no special-case needed.)
+1. **Gate:** drop if `leaf_id != _cfg.leaf_id`. (Gateways: §7 — consumer/provider split, `gateway_only`-gated.)
 2. **Dedup:**
    - **Active flood-state for this id** (rebroadcast pending — an overheard duplicate): OR the incoming bitmap into `working_bitmap`, recompute my unmarked neighbours, and **cancel** the pending timer if none remain (the §4.5 while-pending path). No re-deliver, no new flood. Done.
    - **Already in the buffer, no active state** (already forwarded): drop. Done.
-   - **New** (not in buffer, no state): create flood-state `{id, working_bitmap = incoming, src, rx_snr_q4, awaiting_data = true}`; continue.
-3. **Catch the body:** retune RX to `sf_index`'s data SF for the DATA-M window — the **existing M_BROADCAST overhear-retune** (`set_rx_sf` + `kOverhearRetuneTimerId` + the metal slop). Gate on "I don't already hold this id."
+   - **New** (not in buffer, no state): `flood_state_alloc` (§6) — **all slots active → drop to repair** (no overhear, no forward); else create flood-state `{id, working_bitmap = incoming, src, rx_snr_q4, awaiting_data = true}` and continue.
+3. **Catch the body:** retune RX to `sf_index`'s data SF (always `max_data_sf`) for the DATA-M window — the **existing M_BROADCAST overhear-retune** (`set_rx_sf` + `kOverhearRetuneTimerId` + the metal slop). Gate on "I don't already hold this id."
+
+> **One overhear at a time (single radio).** The radio listens on ONE SF, so there is at most one open DATA-M window: `kOverhearRetuneTimerId` is a single id (57), **not** a ring, and at most one flood-state is `awaiting_data`. Retuning to the data SF makes the node deaf to the control SF, so a FLOOD RTS-M transmitted during an open window simply isn't heard → that flood is caught later by repair. A ring would be meaningless (no two-SF listen; all DATA-Ms ride `max_data_sf` anyway).
 
 ### 4.3 DATA-M received (data SF) — `ingest_channel_m`
-1. `channel_origin_admit(origin = id>>24, id)` — per-origin anti-spam (unchanged). Over budget → drop (no buffer, no deliver, **no forward**).
+1. `channel_origin_admit(origin = id>>24, id)` — per-origin anti-spam (unchanged). Over budget → drop: no buffer, no deliver, **no forward**, and **free the flood-state** (clear `awaiting_data`) so §4.4 does not fast-self-pull a message we deliberately throttled.
 2. Store `{id, channel_id, flavor, body}` in the buffer, mark **dirty** (arms repair), deliver to the app (`channel_recv` push).
 3. Mark the flood-state `awaiting_data = false`, cache the body in the flood-state (needed to re-flood). → **Forward decision (4.5).**
 
 ### 4.4 DATA-M NOT received (overhear window closed, flood-state still `awaiting_data`)
-The `kOverhearRetuneTimerId` fire (retune back to routing) checks each `awaiting_data` flood-state: if its id is still absent from the buffer, **fast-self-pull** — enqueue a `CHANNEL_PULL` (existing `channel_pull_fire` path) to **`src`** (the node that relayed the RTS-M to us — a confirmed adjacent holder), instead of waiting for a digest. Then free the flood-state. (We caught the announce, missed the body → repair immediately.)
+The `kOverhearRetuneTimerId` fire (retune back to routing) resolves the (single, §4.2) `awaiting_data` flood-state: if its id is still absent from the buffer, **fast-self-pull** — enqueue a `CHANNEL_PULL` (existing `channel_pull_fire` path) to **`src`** (the node that relayed the RTS-M to us — a confirmed adjacent holder), instead of waiting for a digest. Then free the flood-state. (We caught the announce, missed the body → repair immediately.) A flood-state already freed by an anti-spam drop (§4.3 step 1) is **not** `awaiting_data`, so it is correctly skipped — we never pull a deliberately-throttled message.
 
 ### 4.5 Forward decision (bitmap rule + SNR-x² backoff)
+**A gateway never reaches the rebroadcast here** (provider half off, §7): `flood_forward_decision` early-returns for `is_gateway`, freeing the flood-state without forwarding. For every other node:
 Let `unmarked = { n ∈ my hops==1 neighbours : bit n is 0 in working_bitmap }`.
 - **`unmarked` empty → stay silent** (free the flood-state).
 - **`unmarked` non-empty → arm a rebroadcast timer** at `now + backoff`, where
@@ -135,15 +138,17 @@ struct FloodState {
     uint8_t  body[channel_msg_max_payload_bytes] = {};  // cached for re-flood
     uint8_t  body_len = 0, channel_id = 0, flavor = 0, hop_left = 0;
 };
-FloodState _flood[cap_flood_pending];   // bounded ring; oldest-inactive evicted
+FloodState _flood[cap_flood_pending];   // bounded table; slot i → its rebroadcast timer (kFloodRebcastTimerId + i)
 ```
 
+**Allocation (no silent fallback):** `flood_state_alloc` scans for an **inactive** slot. **All slots active → drop the new flood** (no flood-state, no overhear, no forward) — the repair layer catches it later. **Never evict an active slot**: it holds an in-progress overhear or a committed rebroadcast, so evicting would drop coverage we promised. A slot is *active* while `awaiting_data` (overhear) or while its rebroadcast timer is armed; it frees on rebroadcast-fire, coverage-cancel, no-unmarked-neighbours, or anti-spam drop (§4.3).
+
 ### Timer ids (NEW)
-Allocate a free range for the rebroadcast slots — `kFloodRebcastTimerId = 32`, slots `[32 .. 32 + cap_flood_pending − 1]` (32-39 for cap 8; the 32-47 band is currently free, and all < `kCap = 64`). `on_timer`: `id − kFloodRebcastTimerId → flood_rebroadcast_fire(slot)`.
+The only free ids below `kCap = 64` are **[61-63]** — `kSyncResponse` owns [32-47] (16 slots), `kChannelPull` [48-55], `kMBcastClear`/`kOverhearRetune` 56/57, join 58-60. The flood is best-effort with a repair backstop, so the rebroadcast ring need not be worst-case-sized; size it to the free band: `kFloodRebcastTimerId = 61`, slots `[61 .. 61 + cap_flood_pending − 1]` = **[61-63]** for `cap_flood_pending = 3`. A 4th concurrent flood mid-backoff overflows to the repair layer — exactly its job. (`TimerWheel` is a flat `[kCap]` array, no bitmask — bumping `kCap` is also cheap if a bigger ring is ever wanted.) `on_timer`: `id − kFloodRebcastTimerId → flood_rebroadcast_fire(slot)`.
 
 ### Constants (NEW, `protocol_constants.h`)
 ```cpp
-constexpr uint8_t  cap_flood_pending = 8;        // concurrent in-progress floods (bounded)
+constexpr uint8_t  cap_flood_pending = 3;        // concurrent floods mid-backoff (bounded to the free timer band [61-63]); overflow -> repair backstop
 constexpr uint8_t  flood_hop_max     = 16;       // TTL safety cap (≈ dv_hop_cap)
 constexpr uint32_t flood_backoff_ms  = 2000;     // T_backoff — max rebroadcast jitter (tunable)
 constexpr int16_t  flood_snr_lo_q4   = -15 * 16; // SNR-norm range lo (dB, Q4)
@@ -154,14 +159,28 @@ constexpr uint8_t  RTS_FLAG_FLOOD    = 0x04;     // frame_codec.h
 
 ---
 
-## 7. Gateways & leaf separation
+## 7. Gateways — consumer, not provider (config-gated)
 
-Gateways are **full flood participants, but never bridge a flood across leaves** — and the separation **is** the `leaf_id` field, so there is essentially no special-casing:
-- The forward (§4) already keys on `leaf_id`: a node forwards a leaf-X flood only to its leaf-X neighbours, under `leaf_id = X`.
-- A gateway simply has neighbours in more than one leaf, so it runs the flood **independently per leaf** and never re-emits a frame under a different `leaf_id`. A leaf-1 message reaches the gateway (it buffers + delivers it) and **stops there** w.r.t. leaf 2.
-- Contrast with unicast DMs, which gateways **do** bridge cross-layer. Floods they do not.
+A gateway **preserves its airtime budget for inter-leaf bridging by never *routing* a channel flood within its leaf** — but it is otherwise a normal node whose owner may want to read channel messages. So a gateway is a **consumer, not a provider** of the channel plane:
 
-Consequence: the 256-bit bitmap is **per-leaf** node-id space (ids 0..255 within *that* leaf), so the gateway keeps a separate flood-state per leaf.
+| Role | Actions | Gateway does it? |
+|---|---|---|
+| **Consumer** (owner functionality) | receive a flood (retune + catch DATA-M — RX only, zero airtime), store + push `channel_recv` to the owner, process neighbour digests → pull its OWN holes, fast-self-pull a missed DATA-M, originate the owner's own messages, serve a pull only for a message it **originated** | **yes** — when owner-serving (the switch) |
+| **Provider** (relaying others' traffic = airtime) | rebroadcast a flood, build/advertise its own digest, serve a pull for **another** node's message | **never** |
+
+The split *is* the gateway rule: don't spend airtime carrying other nodes' traffic (reserved for the cross-leaf role); do spend the small, bounded airtime to fill the owner's own inbox.
+
+### Config switch — `gateway_only` (`NodeConfig`, bool)
+Is this node a *pure bridge* or *also an owner node*?
+- `gateway_only = true` — **pure bridge**: the consumer half is OFF too. The node stays fully out of the channel plane (today's Principle-11 behaviour) — maximum airtime preserved for the inter-leaf role.
+- `gateway_only = false` (**default**) — **gateway + owner**: the consumer half is ON (the table's top row). The provider half stays OFF regardless.
+
+The switch toggles ONLY the consumer half; the provider half is unconditional for any `is_gateway` node. For a non-gateway node the switch is irrelevant (normal nodes are full participants). Concretely the existing `is_gateway` skips split into two classes:
+- **Consumer skips → `is_gateway && gateway_only`** (so a gateway+owner participates): retune `node_mac_rx.cpp:53`, store `node_channel.cpp:158`, digest-process call-site `node_beacon.cpp:281` + body guard `node_channel.cpp:285`.
+- **Provider skips → `is_gateway` alone** (always off for any gateway): digest-build `node_beacon.cpp:161`, the new no-rebroadcast guard in `flood_forward_decision`, and the new `handle_channel_pull` `origin == _node_id` serve guard.
+
+### Leaf separation
+Cross-leaf delivery remains a §1 non-goal: a gateway has one `leaf_id`, never re-emits under another, and — since it never rebroadcasts — holds **no per-leaf flood-state for forwarding** at all (a consumer-side flood-state may exist transiently only to track `awaiting_data` for the fast-self-pull). The 32-byte bitmap is single-leaf node-id space (ids 0..255 within this leaf).
 
 ---
 
@@ -173,31 +192,46 @@ Consequence: the 256-bit bitmap is **per-leaf** node-id space (ids 0..255 within
 
 ### `node_channel.cpp`
 - **`do_send_channel`** — ADD the flood origination (§4.1) on top of the existing buffer+dirty: seed bitmap, enqueue FLOOD RTS-M + DATA-M, `schedule_triggered_beacon()`.
-- ADD: `flood_state_find/alloc/free`, `flood_forward_decision()` (§4.5), `flood_rebroadcast_fire(slot)`, `flood_fast_self_pull(id)`, and 32-byte bitmap helpers (set/test/OR, my-unmarked-neighbours scan over the routing table hops==1 set).
-- **`ingest_channel_m`** — after the existing buffer+dirty+deliver, if a flood-state exists for the id (i.e. this DATA-M came from a FLOOD RTS-M), call `flood_forward_decision()`.
-- **REUSED unchanged:** `channel_buffer_*`, `channel_origin_admit`, `channel_have_id_lo16`, `build_channel_digest_ext`, `process_channel_digest`, `channel_pull_recently/mark`, `channel_pull_fire`, `handle_channel_pull`, `enqueue_channel_m`, `cancel_channel_pull` — these become the repair layer.
+- ADD: `flood_state_find/alloc/free`, `flood_forward_decision()` (§4.5), `flood_rebroadcast_fire(slot)`, `flood_fast_self_pull(id)`, and 32-byte bitmap helpers (set/test/OR, my-unmarked-neighbours scan over the routing table hops==1 set). **`flood_forward_decision` early-returns for `is_gateway`** (provider half off, §7) — a gateway tracks `awaiting_data` for the fast-self-pull but never arms a rebroadcast.
+- **`ingest_channel_m`** — after the existing buffer+dirty+deliver, if a flood-state exists for the id (i.e. this DATA-M came from a FLOOD RTS-M), call `flood_forward_decision()`. Store gate `:158 if (_cfg.is_gateway) return;` → `if (_cfg.is_gateway && _cfg.gateway_only) return;` (gateway+owner stores + delivers; a pure bridge still drops).
+- **`handle_channel_pull`** (was "unchanged") — ADD an `is_gateway` serve guard: a gateway answers a pull **only for a self-originated id** (`_channel_buffer[e].origin == _node_id`), never relays another node's message. The `:397-399` comment ("a gateway holds no buffer → answers nothing") is FALSE once a gateway stores — rewrite it to the origin-guard reasoning.
+- **`process_channel_digest`** — body gate `:285 if (_cfg.is_gateway) return;` → `if (_cfg.is_gateway && _cfg.gateway_only) return;` (gateway+owner processes digests to pull its own holes; a pure bridge skips).
+- **REUSED unchanged:** `channel_buffer_*`, `channel_origin_admit`, `channel_have_id_lo16`, `build_channel_digest_ext`, `channel_pull_recently/mark`, `channel_pull_fire`, `enqueue_channel_m`, `cancel_channel_pull` — these become the repair layer.
+
+### `node_mac.cpp` (the M-broadcast flight carries the FLOOD RTS-M tail)
+The flood RTS-M rides the **existing fire-and-forget M-broadcast flight** (`m_broadcast`); `FLOOD` is a sub-mode. The 32-B bitmap + `hop_left` can't be read from `FloodState` at TX time — the **originator has no FloodState**, and a queued item may wait behind others — so they ride the flight (`TxItem`/`PendingTx`, below).
+- **`enqueue_flood_m(bitmap, hop_left, &ChannelEntry)`** — sibling of `enqueue_channel_m`; sets `flood = true`, `next = 0xFF`, copies the bitmap + `hop_left`. Originate (§4.1) passes the fresh seed bitmap + `flood_hop_max`; rebroadcast (§4.5 on-fire) passes the updated `working_bitmap` + the decremented `hop_left`.
+- **`issue_m_broadcast`** — copies `flood`/`hop_left`/`flood_bitmap` from the popped `TxItem` to `PendingTx`.
+- **`tx_m_broadcast_rts`** — branch on `pt.flood`: build the **43-B FLOOD RTS** (`channel_msg_id` from `pt.inner[0..3]` BE, `next = 0xFF`, `dst = hop_left`, `rts_flags = M_BROADCAST | FLOOD`, `flood_bitmap`) vs the legacy 9-B `id_lo16` path. **Fail loud:** if `flood` and the bitmap has no bits set, `_hal.log(...) + return` — don't TX a zero-coverage flood (it would silently over-rebroadcast, *not* fail loud on its own). Mirrors the existing `pack_rts == 0` guard; originate always seeds ≥ self's bit, so an empty bitmap ⟹ a bug.
+- The DATA-M is **unchanged** (§3.2) — the existing m-broadcast inner; only the RTS format branches.
 
 ### `node_mac_rx.cpp`
-- **`handle_rts` M_BROADCAST block** — EXTEND: if `RTS_FLAG_FLOOD`, run §4.2 (dedup, create/merge flood-state, store the bitmap + `rx_snr`) before the existing overhear-retune. The forward decision is deferred to DATA-M ingest (§4.3).
+- **`handle_rts` M_BROADCAST block** — EXTEND: if `RTS_FLAG_FLOOD`, run §4.2 (dedup, create/merge flood-state, store the bitmap + `rx_snr`) before the existing overhear-retune. The forward decision is deferred to DATA-M ingest (§4.3). Retune gate `:53 !_cfg.is_gateway` → `!(_cfg.is_gateway && _cfg.gateway_only)` (gateway+owner retunes to catch the DATA-M; a pure bridge stays out).
+  - **Couple create→resolve (avoids a table leak):** only create a *fresh* flood-state when the node will retune to catch its DATA-M — gate the fresh-alloc on the **same** `!(is_gateway && gateway_only)` condition as the retune. A fresh `awaiting_data` state created without a retune never frees (no DATA-M arrives, no overhear timer is armed, and a gateway never arms `kOverhearRetuneTimerId`), so `_flood[]` leaks to permanent-full. (Coverage-merge into an *existing* state is safe regardless — a pure bridge simply has none.)
 - **`kOverhearRetuneTimerId` handler** — ADD the §4.4 fast-self-pull check (DATA-M didn't arrive for an `awaiting_data` flood-state).
 
 ### `node.cpp`
 - **`on_timer`** — ADD the `kFloodRebcastTimerId + slot` branch → `flood_rebroadcast_fire(slot)`.
 
 ### `node_beacon.cpp`
-- No change to digest building; the trigger-beacon lives in `do_send_channel` + the flood first-receipt.
+- No change to digest **building** itself; the trigger-beacon lives in `do_send_channel` + the flood first-receipt. Digest-build stays off for all gateways (`:161 !_cfg.is_gateway` unchanged — provider half).
+- Digest-**process** call-site `:281 if (dn && !_cfg.is_gateway)` → `if (dn && !(_cfg.is_gateway && _cfg.gateway_only))` (gateway+owner consumes neighbour digests to pull its own holes; a pure bridge skips).
 
 ### `node.h` / `protocol_constants.h`
 - Add the `FloodState` struct + `_flood[]` table, the new timer-id constants, the §6 constants, and the new method declarations.
+- **`TxItem` + `PendingTx`** — add `bool flood; uint8_t hop_left; uint8_t flood_bitmap[32];` so the FLOOD RTS-M tail rides the existing flight (see `node_mac.cpp`; ~+306 B total at `kTxQueueCap = 8` + 1 in-flight — trivial vs ~115 KB free).
+- Add `bool gateway_only = false;` to `NodeConfig` (the §7 switch — default false = a gateway also serves its owner).
 
 ### Sim (`FirmwareNode.cpp`) / device (`fw_main.cpp`)
-- No new wiring: `send_channel` already routes to `do_send_channel`; `channel_recv` already prints on device. The flood is internal to `Node`. `flood_*` SNR math uses `meta.snr_db` (real on metal, sim-provided in scenarios).
+- No new flood wiring: `send_channel` already routes to `do_send_channel`; `channel_recv` already prints on device. The flood is internal to `Node`. `flood_*` SNR math uses `meta.snr_db` (real on metal, sim-provided in scenarios).
+- **Config plumbing for `gateway_only`** — expose it exactly like `is_gateway` (the `gateway` cfg key): a `cfg` key + `dump_cfg` line + the NV blob (bump `device_nv.h` `kVersion`) + the sim `FirmwareNode` config map. Follow the same live-vs-reboot policy as `gateway` (role flag; live-settable, no silent default).
 
 ---
 
 ## 9. Testing
 
 - **Native (`test_node_channel.cpp`):** new cases — FLOOD RTS-M pack/parse round-trip (43 B); originate seeds {self+neighbours}; receive-new buffers+delivers+arms-forward; the bitmap rule (all-neighbours-marked → silent; any-unmarked → rebroadcast); backoff cancel on overheard coverage; dedup drops a repeat; fast-self-pull on missed DATA-M; leaf-mismatch drop; hop_left TTL drop. Drive through `handle_rts`/`ingest_channel_m` with the in-memory `TestHal` (capture tx_frames + timers, as the existing suite does).
+- **Gateway consumer/provider (`test_node_channel.cpp`):** `gateway_only = true` — still skips the merge (the existing `:176` test, now pinned to `gateway_only = true`). `gateway_only = false` — a flood DATA-M is stored + pushes `channel_recv`, a neighbour digest triggers a self-pull, but the gateway NEVER rebroadcasts a flood, NEVER builds a digest, and serves `handle_channel_pull` only for a self-originated id (a pull for another origin → no `enqueue_channel_m`).
 - **Sim scenario:** a multi-hop leaf (e.g. the line A-B-C-D and a denser mesh) — assert one flood reaches all nodes within a few hops' airtime, and that the repair fires only for injected holes. Verify gateways don't bridge between two leaves.
 - **Metal (2-node + 3-node bench):** `send_channel 0 hello` → the other node prints `channel_recv` within a flood (no 15-min wait); kill one node mid-flood → it recovers via the digest backstop after a triggered beacon. Re-use the decoded `«rx`/`»tx` trace (add an `M`/`FLOOD` decode line).
 

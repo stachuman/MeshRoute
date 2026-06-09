@@ -25,6 +25,7 @@
 namespace meshroute {
 
 struct data_m_inner;   // frame_codec.h — fwd-decl so the channel ingest seam doesn't pull the codec into node.h
+struct rts_out;        // frame_codec.h — fwd-decl for the FLOOD RTS-M handler seam (handle_flood_rts)
 
 // POD; no heap, no JSON. Only the T/F-class knobs the Lua on_init reads.
 // PROTOCOL constants stay in protocol_constants.h (hardcoded on device).
@@ -33,6 +34,8 @@ struct data_m_inner;   // frame_codec.h — fwd-decl so the channel ingest seam 
 // 1-byte wire-version (wire-compat, not node version). The leaf-config half is implemented in R6 (PORT_PLAN §9).
 struct NodeConfig {
     bool     is_gateway          = false;
+    bool     gateway_only        = false;       // §7 flood switch: true = PURE bridge (out of the channel plane);
+                                                // false (default) = gateway ALSO serves its owner (consumer half on, provider half off)
     bool     is_mobile           = false;
     bool     join_required       = false;
     bool     req_sync_on_boot    = true;
@@ -125,6 +128,10 @@ struct TxItem {                      // a queued message awaiting a flight
     // values; originators recompute from rt). Ignored unless is_forward.
     uint8_t  fwd_remaining = 0;
     uint8_t  fwd_committed = 0;
+    // Channel FLOOD m-broadcast (2026-06-08): the 43-B FLOOD RTS-M tail rides the flight.
+    bool     flood = false;          // true => FLOOD RTS-M (vs legacy M_BROADCAST); a true broadcast (next=0xFF, no route)
+    uint8_t  hop_left = 0;           // FLOOD TTL safety cap (rides the RTS `dst` slot, §3.1)
+    uint8_t  flood_bitmap[32] = {};  // FLOOD coverage bitmap (carried into the RTS-M tail)
 };
 struct PendingTx {                   // the in-flight sender state (one per node)
     uint8_t  origin = 0, dst = 0, next = 0, ctr_lo = 0;
@@ -154,6 +161,10 @@ struct PendingTx {                   // the in-flight sender state (one per node
     // object-identity guard `__pending_tx_ref` (dv:3712) — an exact staleness key for a deferred RTS, replacing the
     // 4-bit ctr_lo proxy that wraps every 16 sends (cleanup #A redo). cascade_to_alt mutates in place (same gen).
     uint32_t flight_gen = 0;
+    // Channel FLOOD m-broadcast: the 43-B FLOOD RTS-M tail (copied from the TxItem at issue_send).
+    bool     flood = false;
+    uint8_t  hop_left = 0;
+    uint8_t  flood_bitmap[32] = {};
 };
 struct DeferredSend {                // a send with no route yet — held until one appears (or TTL)
     TxItem   item;
@@ -298,6 +309,7 @@ private:
     static constexpr uint32_t kJoinClaimGuardTimerId   = 58;  // node_id DAD: claim guard window -> adopt-or-deny
     static constexpr uint32_t kJoinRetryTimerId        = 59;  // node_id DAD: jittered re-claim after a lost claim/heal
     static constexpr uint32_t kJoinListenTimerId       = 60;  // node_id DAD: listen window before the FIRST claim (L1: hear the leaf, then pick)
+    static constexpr uint32_t kFloodRebcastTimerId     = 61;  // channel flood rebroadcast fire; BASE of a ring [61..63] (slot = id - base); only free band < kCap=64
 
     // ---- beacon emit / ingest ----------------------------------------------
     void emit_beacon(const char* kind);                            // "periodic" | "triggered"
@@ -388,6 +400,19 @@ private:
     };
     struct ChannelOriginEvent  { uint32_t id; uint64_t t_ms; };
     struct ChannelOriginLedger { ChannelOriginEvent ev[protocol::channel_origin_max_per_window]; uint8_t n = 0; };
+    // Channel FLOOD in-progress state (2026-06-08 redesign). One slot per concurrent flood mid-backoff;
+    // slot i owns rebroadcast timer kFloodRebcastTimerId+i. active while awaiting_data (overhear) OR while
+    // its rebroadcast timer is armed; freed on fire / coverage-cancel / no-unmarked / anti-spam drop.
+    struct FloodState {
+        bool     active = false;
+        bool     awaiting_data = false;   // RTS-M seen, DATA-M not yet (fast-self-pull candidate)
+        uint32_t id = 0;                  // channel_msg_id
+        uint8_t  src = 0;                 // who relayed it to us (pull target / neighbour-learn)
+        int16_t  rx_snr_q4 = 0;           // SNR of the winning RTS-M (drives the backoff)
+        uint8_t  bitmap[32] = {};         // working coverage (OR'd from every heard RTS-M for this id)
+        uint8_t  body[protocol::channel_msg_max_payload_bytes] = {};  // cached for the re-flood DATA-M
+        uint8_t  body_len = 0, channel_id = 0, flavor = 0, hop_left = 0;
+    };
     struct ChannelPullPending  { bool active; uint32_t id; uint8_t target; uint64_t requested_at; uint64_t fire_at; };
     struct ChannelPullRecent   { uint32_t id; uint64_t t_ms; };    // re-pull dedup (Lua channel_pull_recent)
     int     channel_buffer_find(uint32_t id) const;                // index of the entry, or -1 (dv:3426)
@@ -410,7 +435,19 @@ private:
     bool    channel_have_id_lo16(uint16_t lo) const;             // do we hold a channel msg whose id low-16 == lo? (overhear skip, dv:2081)
     // M-broadcast fire-and-forget tx (no CTS/ACK; chosen_data_sf = max allowed; dv:6997/7044).
     void    issue_m_broadcast();                                  // set up the m_broadcast flight from _pending_tx + fire the RTS
-    void    tx_m_broadcast_rts();                                 // pack+tx the M_BROADCAST RTS + arm the RTS->DATA gap (no CTS wait)
+    void    tx_m_broadcast_rts();                                 // pack+tx the M_BROADCAST (or FLOOD) RTS + arm the RTS->DATA gap (no CTS wait)
+    // ---- channel FLOOD plane (2026-06-08 redesign; node_channel.cpp) -------------------------------
+    int     flood_state_find(uint32_t id);                        // active slot for id, or -1
+    int     flood_state_alloc(uint32_t id);                       // free slot, or -1 (all active -> DROP to repair; never evict, §6)
+    void    flood_state_free(uint8_t slot);                       // clear active + cancel its rebroadcast timer
+    void    flood_set_my_coverage(uint8_t* bm) const;            // set my bit + my hops==1 neighbour bits (originate-seed AND rebroadcast cover; idempotent)
+    bool    flood_any_unmarked(const uint8_t* bm) const;         // true if any hops==1 neighbour is unmarked in bm
+    void    enqueue_flood_m(uint8_t channel_id, uint8_t flavor, uint32_t id, const uint8_t* body, uint8_t body_len,
+                            const uint8_t* bitmap32, uint8_t hop_left);   // build+enqueue a FLOOD m-broadcast (no target)
+    bool    handle_flood_rts(const rts_out& r, const uint8_t* in_bitmap, int16_t snr_q4);  // §4.2 RX of a FLOOD RTS-M; true = fresh state -> retune to catch DATA-M
+    void    flood_forward_decision(uint8_t slot);                // §4.5 after DATA-M ingest: silent | arm backoff
+    void    flood_rebroadcast_fire(uint8_t slot);                // kFloodRebcastTimerId+slot: re-flood {unmarked+me}, hop_left--
+    void    flood_fast_self_pull(uint8_t slot);                  // §4.4: caught RTS-M, missed DATA-M -> pull from src
     uint8_t max_data_sf() const;                                  // highest SF in allowed_sf_bitmap (largest = most robust)
     uint8_t max_data_sf_index() const;                            // its index in the ascending allowed set (the RTS sf_index)
 
@@ -629,6 +666,7 @@ private:
     ChannelPullPending _channel_pull_pending[protocol::cap_channel_pull_pending] = {};
     ChannelPullRecent  _channel_pull_recent[protocol::cap_channel_pull_recent] = {};
     uint8_t            _channel_pull_recent_n = 0;
+    FloodState         _flood[protocol::cap_flood_pending] = {};   // channel-flood in-progress table (slot i -> timer kFloodRebcastTimerId+i)
     std::map<uint8_t, uint16_t>  _peer_send_counter;   // next_ctr per dst
     std::map<uint32_t, LastAcked> _last_acked_from;    // key (src<<24|dst<<16|ctr_lo<<8|len)
     std::map<uint32_t, uint64_t>  _seen_origins;       // key (origin<<24|dst<<16|ctr) -> expiry_ms

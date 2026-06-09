@@ -1081,3 +1081,42 @@ TEST_CASE("DATA unicast inner — DST_HASH round-trip + plain + reject other sha
     { const uint8_t* e = nullptr;
       CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(e, size_t(0))).has_value()); }   // empty
 }
+
+TEST_CASE("RTS — FLOOD RTS-M round-trip (43 B: channel_msg_id BE + 32-B bitmap) + rejects") {
+    std::array<uint8_t, 32> bm{};
+    for (int i = 0; i < 32; ++i) bm[i] = static_cast<uint8_t>(i * 7 + 1);
+    rts_in in{};
+    in.leaf_id = 3; in.src = 9; in.next = 0xFF; in.ctr_lo = 5;
+    in.dst = 14 /*hop_left*/; in.sf_index = 2; in.payload_len = 42;
+    in.rts_flags = RTS_FLAG_M_BROADCAST | RTS_FLAG_FLOOD;
+    in.flood_channel_msg_id = 0x11223344u;
+    in.flood_bitmap = std::span<const uint8_t>(bm.data(), 32);
+    std::array<uint8_t, 64> buf{};
+    const size_t n = pack_rts(in, std::span<uint8_t>(buf.data(), buf.size()));
+    CHECK(n == 43);
+    auto o = parse_rts(std::span<const uint8_t>(buf.data(), n));
+    CHECK(o.has_value());
+    if (o) {
+        CHECK(o->leaf_id == 3); CHECK(o->src == 9); CHECK(o->next == 0xFF);  // next slot = broadcast 0xFF
+        CHECK(o->ctr_lo == 5); CHECK(o->dst == 14);                          // dst slot = hop_left
+        CHECK(o->sf_index == 2); CHECK(o->m_broadcast); CHECK(o->flood);
+        CHECK(o->flood_channel_msg_id == 0x11223344u);
+        auto pbm = rts_flood_bitmap(std::span<const uint8_t>(buf.data(), n), *o);
+        CHECK(pbm.size() == 32);
+        bool same = true; for (int i = 0; i < 32; ++i) if (pbm[i] != bm[i]) same = false;
+        CHECK(same);
+    }
+    // reject: FLOOD with a non-32-B bitmap -> pack 0 (no zero-fill fallback)
+    { rts_in bad = in; const uint8_t three[3] = { 1, 2, 3 }; bad.flood_bitmap = std::span<const uint8_t>(three, 3);
+      CHECK(pack_rts(bad, std::span<uint8_t>(buf.data(), buf.size())) == 0); }
+    // reject: a FLOOD frame truncated below 43 B -> parse nullopt
+    CHECK_FALSE(parse_rts(std::span<const uint8_t>(buf.data(), 20)).has_value());
+    // a non-FLOOD M_BROADCAST still packs 9 B with the id_lo16 tail (unchanged)
+    { rts_in mb{}; mb.leaf_id = 0; mb.src = 1; mb.next = 2; mb.ctr_lo = 3; mb.dst = 4; mb.sf_index = 1;
+      mb.rts_flags = RTS_FLAG_M_BROADCAST; mb.payload_len = 10; mb.m_payload_id_lo16 = 0xBEEF;
+      const size_t mn = pack_rts(mb, std::span<uint8_t>(buf.data(), buf.size()));
+      CHECK(mn == 9);
+      auto mo = parse_rts(std::span<const uint8_t>(buf.data(), mn));
+      CHECK(mo.has_value());
+      if (mo) { CHECK(mo->m_broadcast); CHECK_FALSE(mo->flood); CHECK(mo->m_payload_id_lo16 == 0xBEEF); } }
+}

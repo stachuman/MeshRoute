@@ -50,7 +50,31 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // it and LACKS the msg (by the id low-16) retunes RX to the advertised SF to catch the DATA-M — not just
     // the addressed puller. The retune-back timer restores routing_sf. Holders + gateways skip. (dv:2081/9940.)
     if (r.m_broadcast) {
-        if (!_cfg.is_gateway && !channel_have_id_lo16(r.m_payload_id_lo16)) {
+        if (r.flood) {                                       // FLOOD RTS-M (§4.2): dedup/merge/create state, then catch the DATA-M
+            // COUPLE create->resolve (§8 note): only a participant ALLOCS a flood-state — else the state is
+            // created but the retune that resolves it is skipped and nothing ever frees it (the gateway-leak
+            // bug). Gate the whole flood handling on the SAME condition as the retune. §7 CONSUMER half: a
+            // gateway+owner participates (catches the DATA-M for its owner); a pure bridge (gateway_only) +
+            // a data-incapable node (no data SF) stay out.
+            if (!(_cfg.is_gateway && _cfg.gateway_only) && _cfg.allowed_sf_bitmap != 0) {
+                auto fbm = rts_flood_bitmap(std::span<const uint8_t>(bytes, len), r);
+                if (fbm.size() == 32) {
+                    const int16_t snr_q4 = protocol::db_to_q4(meta.snr_db);
+                    const bool fresh = handle_flood_rts(r, fbm.data(), snr_q4);
+                    if (fresh) {                              // §4.2 step 3: retune to catch the DATA-M for a FRESH state
+                        const uint8_t data_sf = select_data_sf(r.sf_index, snr_q4);
+                        _hal.set_rx_sf(data_sf);
+                        const uint32_t back = protocol::cts_to_data_gap_ms
+                            + airtime_ms(data_sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym,
+                                         static_cast<uint16_t>(r.payload_len + 13)) + 30 + _hal.rx_window_slop_ms(data_sf);
+                        (void)_hal.after(back, kOverhearRetuneTimerId);
+                        MR_EMIT("channel_overhear_armed", EF_I("sender", r.src), EF_I("chosen_data_sf", data_sf), EF_B("flood", true));
+                    }
+                }
+            }
+            return;                                          // FLOOD RTS never CTSes
+        }
+        if (!(_cfg.is_gateway && _cfg.gateway_only) && !channel_have_id_lo16(r.m_payload_id_lo16)) {   // §7 consumer: gateway+owner catches a pull-response
             const uint8_t data_sf = select_data_sf(r.sf_index, protocol::db_to_q4(meta.snr_db));
             _hal.set_rx_sf(data_sf);
             // Stay on the data SF until the DATA-M lands: gap (RTS->DATA) + the FULL DATA-frame airtime

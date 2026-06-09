@@ -154,8 +154,12 @@ void Node::cancel_channel_pull(uint32_t id, [[maybe_unused]] uint8_t overheard_f
 void Node::ingest_channel_m(const data_m_inner& m, uint8_t next, [[maybe_unused]] uint8_t dst, uint8_t from) {
     const uint32_t id     = m.channel_msg_id;
     const uint8_t  origin = static_cast<uint8_t>((id >> 24) & 0xff);    // the minter (dv:2912)
-    if (!channel_origin_admit(origin, id)) return;             // over per-origin budget -> drop (not buffered/forwarded by caller)
-    if (_cfg.is_gateway) return;                               // Principle 11: gateways don't gossip (still forward via DATA path)
+    if (!channel_origin_admit(origin, id)) {                   // over per-origin budget -> drop (not buffered/forwarded)
+        const int fs = flood_state_find(id);                  // C1 (§4.3 step 1): free any flood-state so §4.4 does
+        if (fs >= 0) flood_state_free(static_cast<uint8_t>(fs)); // NOT fast-self-pull a deliberately-throttled message
+        return;
+    }
+    if (_cfg.is_gateway && _cfg.gateway_only) return;          // §7 CONSUMER: a gateway+owner stores+delivers; a pure bridge stays out
     const int existing = channel_buffer_find(id);
     if (existing < 0) {                                        // NEW -> buffer it
         ChannelEntry e{};
@@ -193,6 +197,16 @@ void Node::ingest_channel_m(const data_m_inner& m, uint8_t next, [[maybe_unused]
                 _hal.emit("channel_msg_overheard", fo, 4); );
         }
         cancel_channel_pull(id, from);                        // we got it -> drop any pending pull for it
+        // FLOOD §4.3 step 3: if a flood-state is waiting on this DATA-M (i.e. it arrived via a FLOOD RTS-M),
+        // cache the body into it (needed to re-flood) and run the forward decision (§4.5: silent | arm backoff).
+        const int slot = flood_state_find(id);
+        if (slot >= 0) {
+            FloodState& fs = _flood[slot];
+            fs.awaiting_data = false; fs.channel_id = m.channel_id; fs.flavor = m.flavor;
+            fs.body_len = static_cast<uint8_t>(e.payload_len);
+            for (uint8_t k = 0; k < fs.body_len; ++k) fs.body[k] = e.payload[k];
+            flood_forward_decision(static_cast<uint8_t>(slot));
+        }
     } else {                                                   // ALREADY HAVE IT -> just track the holder
         channel_mark_seen_by(id, from);
         MR_TELEMETRY(
@@ -221,6 +235,15 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
                            { .key = "channel_id", .type = EventField::T::i64, .i = channel_id },
                            { .key = "source",     .type = EventField::T::str, .s = "self_originate" } };
         _hal.emit("channel_msg_received", f, 3); );
+    // FLOOD origination (§4.1): seed the coverage bitmap {me + my hops==1 neighbours} and broadcast the
+    // FLOOD RTS-M + DATA-M. A data-incapable node (no data SF) is non-operational (user rule) -> skip the
+    // flood, buffer-only; the repair digest still covers it. No default-SF fallback.
+    if (max_data_sf() != 0) {
+        uint8_t bm[32] = {};
+        flood_set_my_coverage(bm);
+        enqueue_flood_m(e.channel_id, e.flavor, e.id, e.payload, static_cast<uint8_t>(e.payload_len), bm, protocol::flood_hop_max);
+    }
+    schedule_triggered_beacon();                              // §4.1.7: make the repair digest prompt, not 15-min
     return c;
 }
 
@@ -282,7 +305,7 @@ void Node::channel_pull_mark(uint32_t id) {
 // within the window) schedule a JITTERED pull. THE DRAW is rand(0, jitter+1) at the Lua's gate-order
 // (dv:3568: after the recent gate, before storage). Gateways skip the entire plane (Principle 11).
 void Node::process_channel_digest(uint8_t src, const uint32_t* ids, uint8_t count) {
-    if (_cfg.is_gateway) return;
+    if (_cfg.is_gateway && _cfg.gateway_only) return;          // §7 CONSUMER: a gateway+owner pulls ITS OWN holes; a pure bridge stays out
     const uint64_t now = _hal.now();
     uint8_t scheduled = 0;
     for (uint8_t k = 0; k < count; ++k) {
@@ -404,6 +427,7 @@ void Node::handle_channel_pull(uint8_t src, uint8_t dest, const uint32_t* ids, u
     for (uint8_t i = 0; i < count; ++i) {
         const int e = channel_buffer_find(ids[i]);
         if (e < 0) continue;                                     // we don't hold it
+        if (_cfg.is_gateway && _channel_buffer[e].origin != _node_id) continue;  // §7 PROVIDER off: a gateway serves a pull ONLY for its OWN message, never relays another node's
         if (!channel_m_in_flight(ids[i])) { enqueue_channel_m(src, _channel_buffer[e]); any = true; }
         else {
             MR_TELEMETRY(
@@ -422,6 +446,132 @@ void Node::handle_channel_pull(uint8_t src, uint8_t dest, const uint32_t* ids, u
             _hal.emit("channel_msg_pulled", f, 1); );
         become_free();                                           // kick the queue to start the M-broadcast
     }
+}
+
+// =============================================================================
+// Channel FLOOD plane (2026-06-08 redesign): fast primary propagation. The digest+pull above is now the
+// repair backstop. A node floods a channel message to its hops==1 neighbours suppressed by a coverage
+// bitmap; the flood self-terminates when no node has an unmarked neighbour. Single-radio constraint: at
+// most one flood-state is `awaiting_data` (one open DATA-M overhear window) — see §4.2.
+// =============================================================================
+
+int  Node::flood_state_find(uint32_t id) {
+    for (uint8_t i = 0; i < protocol::cap_flood_pending; ++i)
+        if (_flood[i].active && _flood[i].id == id) return i;
+    return -1;
+}
+int  Node::flood_state_alloc(uint32_t id) {
+    for (uint8_t i = 0; i < protocol::cap_flood_pending; ++i)
+        if (!_flood[i].active) { _flood[i] = FloodState{}; _flood[i].active = true; _flood[i].id = id; return i; }
+    return -1;   // §6/C3: ALL slots active -> drop the new flood to the repair layer; NEVER evict an active slot
+}
+void Node::flood_state_free(uint8_t slot) {
+    if (slot >= protocol::cap_flood_pending) return;
+    _hal.cancel(kFloodRebcastTimerId + slot);
+    _flood[slot] = FloodState{};   // active = false
+}
+
+// set my bit + my hops==1 neighbour bits (idempotent: originate-seed on a zeroed bm, OR-in on rebroadcast).
+void Node::flood_set_my_coverage(uint8_t* bm) const {
+    seen_set(bm, _node_id);
+    for (uint8_t i = 0; i < _rt_count; ++i)
+        if (_rt[i].n > 0 && _rt[i].candidates[0].hops == 1) seen_set(bm, _rt[i].dest);
+}
+bool Node::flood_any_unmarked(const uint8_t* bm) const {
+    for (uint8_t i = 0; i < _rt_count; ++i)
+        if (_rt[i].n > 0 && _rt[i].candidates[0].hops == 1 && !seen_test(bm, _rt[i].dest)) return true;
+    return false;
+}
+
+// Build + enqueue a FLOOD m-broadcast: a fire-and-forget DATA-M whose RTS-M carries the 43-B FLOOD tail
+// (id + 32-B bitmap). A true broadcast (no target); issue_send bypasses route selection (next=0xFF).
+void Node::enqueue_flood_m(uint8_t channel_id, uint8_t flavor, uint32_t id, const uint8_t* body, uint8_t body_len,
+                           const uint8_t* bitmap32, uint8_t hop_left) {
+    if (_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (repair covers it)
+    TxItem item{};
+    item.origin = _node_id; item.dst = 0xFF;                      // broadcast; the RTS dst slot carries hop_left
+    item.ctr = static_cast<uint16_t>(id & 0xff); item.ctr_lo = static_cast<uint8_t>(id & 0x0F);
+    item.flags = DATA_FLAG_PAYLOAD_TYPE_M;
+    item.flood = true; item.hop_left = hop_left;
+    for (uint8_t i = 0; i < 32; ++i) item.flood_bitmap[i] = bitmap32[i];
+    item.inner[0] = static_cast<uint8_t>(id >> 24); item.inner[1] = static_cast<uint8_t>(id >> 16);
+    item.inner[2] = static_cast<uint8_t>(id >> 8);  item.inner[3] = static_cast<uint8_t>(id);
+    item.inner[4] = channel_id; item.inner[5] = flavor;
+    for (uint8_t k = 0; k < body_len; ++k) item.inner[6 + k] = body[k];
+    item.inner_len = static_cast<uint8_t>(6 + body_len);
+    item.enqueue_time_ms = _hal.now();
+    _tx_queue[_tx_queue_n++] = item;
+    MR_EMIT("flood_tx", EF_I("id", static_cast<int64_t>(id)), EF_I("hop_left", hop_left));
+    become_free();                                                // kick the queue -> issue_m_broadcast (FLOOD RTS-M)
+}
+
+// §4.2 — RX of a FLOOD RTS-M (control SF). Returns true iff a FRESH flood-state was created (the caller then
+// retunes to catch the DATA-M). The channel_id/flavor/body arrive later with the DATA-M (ingest).
+bool Node::handle_flood_rts(const rts_out& r, const uint8_t* in_bm, int16_t snr_q4) {
+    const uint32_t id = r.flood_channel_msg_id;
+    const int existing = flood_state_find(id);
+    if (existing >= 0) {                                          // active state -> overheard duplicate: OR coverage
+        FloodState& fs = _flood[existing];
+        for (uint8_t i = 0; i < 32; ++i) fs.bitmap[i] |= in_bm[i];
+        // §4.5 while-pending: a backoff-phase state now fully covered -> cancel the rebroadcast + free.
+        if (!fs.awaiting_data && !flood_any_unmarked(fs.bitmap)) flood_state_free(static_cast<uint8_t>(existing));
+        return false;                                            // no new flood, no retune
+    }
+    if (channel_buffer_find(id) >= 0) return false;              // already in the buffer, no state -> already forwarded, drop
+    const int slot = flood_state_alloc(id);
+    if (slot < 0) { MR_EMIT("flood_state_full", EF_I("id", static_cast<int64_t>(id))); return false; }  // C3 -> repair
+    FloodState& fs = _flood[slot];
+    fs.awaiting_data = true; fs.src = r.src; fs.rx_snr_q4 = snr_q4; fs.hop_left = r.dst;  // §3.1: dst slot = hop_left
+    for (uint8_t i = 0; i < 32; ++i) fs.bitmap[i] = in_bm[i];
+    return true;                                                 // fresh -> catch the DATA-M (retune in the caller)
+}
+
+// §4.5 — after the DATA-M ingest: do I have an unmarked neighbour? No -> silent. Yes -> arm a SNR-x² backoff.
+void Node::flood_forward_decision(uint8_t slot) {
+    if (slot >= protocol::cap_flood_pending || !_flood[slot].active) return;
+    if (_cfg.is_gateway) { flood_state_free(slot); return; }     // §7 provider half OFF: a gateway never rebroadcasts
+    FloodState& fs = _flood[slot];
+    if (!flood_any_unmarked(fs.bitmap)) { flood_state_free(slot); return; }   // every neighbour covered -> stay silent
+    // backoff = T_backoff * snr_norm^2 ; snr_norm = clamp((rx_snr - lo)/(hi - lo), 0, 1). Integer-exact.
+    const int32_t lo = protocol::flood_snr_lo_q4, hi = protocol::flood_snr_hi_q4;
+    int32_t num = static_cast<int32_t>(fs.rx_snr_q4) - lo;
+    if (num < 0) num = 0; if (num > (hi - lo)) num = (hi - lo);
+    const int64_t span = static_cast<int64_t>(hi) - lo;          // statically > 0 (compile-time constants)
+    const uint32_t backoff = static_cast<uint32_t>(static_cast<int64_t>(protocol::flood_backoff_ms) * num * num / (span * span));
+    (void)_hal.after(backoff, kFloodRebcastTimerId + slot);
+    MR_EMIT("flood_rebroadcast_scheduled", EF_I("id", static_cast<int64_t>(fs.id)), EF_I("backoff_ms", backoff), EF_I("slot", slot));
+}
+
+// kFloodRebcastTimerId+slot — re-flood {my unmarked neighbours + me}, hop_left-1 (drop on TTL exhaustion).
+void Node::flood_rebroadcast_fire(uint8_t slot) {
+    if (slot >= protocol::cap_flood_pending || !_flood[slot].active) return;
+    const FloodState fs = _flood[slot];                          // copy: we free the slot before re-enqueue
+    uint8_t bm[32]; for (uint8_t i = 0; i < 32; ++i) bm[i] = fs.bitmap[i];
+    flood_set_my_coverage(bm);                                   // §4.5 on-fire: {my unmarked neighbours + me}
+    flood_state_free(slot);
+    if (fs.hop_left <= 1) { MR_EMIT("flood_hop_exhausted", EF_I("id", static_cast<int64_t>(fs.id))); return; }  // TTL drop
+    if (max_data_sf() == 0) return;                             // non-operational (no data SF) -> no fallback
+    enqueue_flood_m(fs.channel_id, fs.flavor, fs.id, fs.body, fs.body_len, bm, static_cast<uint8_t>(fs.hop_left - 1));
+}
+
+// §4.4 — caught the FLOOD RTS-M but missed the DATA-M (overhear window closed, still awaiting_data): pull
+// the body immediately from `src` (a confirmed adjacent holder), instead of waiting for a digest.
+void Node::flood_fast_self_pull(uint8_t slot) {
+    if (slot >= protocol::cap_flood_pending || !_flood[slot].active) return;
+    const uint32_t id = _flood[slot].id; const uint8_t src = _flood[slot].src;
+    flood_state_free(slot);
+    if (channel_buffer_find(id) >= 0) return;                    // arrived meanwhile -> no pull
+    if (channel_pull_recently(id)) return;                       // re-pull dedup window
+    q_in in{};
+    in.leaf_id = _cfg.leaf_id; in.src = _node_id; in.dest = src;
+    in.opcode = q_opcode::channel_pull; in.mobile = _cfg.is_mobile;
+    in.channel_ids = std::span<const uint32_t>(&id, 1);
+    uint8_t buf[16];
+    const size_t n = pack_q(in, std::span<uint8_t>(buf, sizeof(buf)));
+    if (n == 0) return;
+    MR_EMIT("channel_pull_sent", EF_I("id", static_cast<int64_t>(id)), EF_I("target", src), EF_S("trigger", "flood_fast"));
+    tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
+    channel_pull_mark(id);
 }
 
 }  // namespace meshroute

@@ -126,7 +126,13 @@ void Node::on_timer(uint32_t timer_id) {
     case kMBcastClearTimerId:                                       // M-broadcast fire-and-forget: clear the flight (no ACK)
         if (_pending_tx && _pending_tx->m_broadcast) { _pending_tx.reset(); become_free(); }
         break;
-    case kOverhearRetuneTimerId:  _hal.set_rx_sf(_cfg.routing_sf);  break;   // overhear ARM: retune RX back to routing_sf
+    case kOverhearRetuneTimerId:                                            // overhear ARM: retune RX back to routing_sf
+        _hal.set_rx_sf(_cfg.routing_sf);
+        // §4.4: a FLOOD flood-state still awaiting its DATA-M (caught the RTS-M, missed the body) -> fast-self-pull
+        // from its src now (single radio => at most one awaiting_data state, §4.2).
+        for (uint8_t i = 0; i < protocol::cap_flood_pending; ++i)
+            if (_flood[i].active && _flood[i].awaiting_data) { flood_fast_self_pull(i); break; }
+        break;
     case kJoinClaimGuardTimerId:  join_claim_guard_fire();         break;   // node_id DAD: guard elapsed -> adopt-or-deny
     case kJoinRetryTimerId:       join_start_claim("retry");       break;   // node_id DAD: re-claim after a lost claim/heal
     case kJoinListenTimerId:      _join_listen_pending = false; join_start_claim("listen_done"); break;   // L1: listen window done -> claim
@@ -154,6 +160,8 @@ void Node::on_timer(uint32_t timer_id) {
             sync_response_fire(static_cast<uint8_t>(timer_id - kSyncResponseTimerId));            // REQ_SYNC jittered reply ring slot
         } else if (timer_id >= kChannelPullTimerId && timer_id < kChannelPullTimerId + kChannelPullSlots) {
             channel_pull_fire(static_cast<uint8_t>(timer_id - kChannelPullTimerId));             // channel CHANNEL_PULL jittered fire
+        } else if (timer_id >= kFloodRebcastTimerId && timer_id < kFloodRebcastTimerId + protocol::cap_flood_pending) {
+            flood_rebroadcast_fire(static_cast<uint8_t>(timer_id - kFloodRebcastTimerId));       // channel FLOOD rebroadcast ring slot
         }
         break;
     }
