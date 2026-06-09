@@ -540,12 +540,18 @@ void Node::flood_forward_decision(uint8_t slot) {
     if (_cfg.is_gateway) { flood_state_free(slot); return; }     // §7 provider half OFF: a gateway never rebroadcasts
     FloodState& fs = _flood[slot];
     if (!flood_any_unmarked(fs.bitmap)) { flood_state_free(slot); return; }   // every neighbour covered -> stay silent
-    // backoff = T_backoff * snr_norm^2 ; snr_norm = clamp((rx_snr - lo)/(hi - lo), 0, 1). Integer-exact.
+    // SNR-x² gives the backoff WINDOW = T_backoff * snr_norm^2 ; snr_norm = clamp((rx_snr-lo)/(hi-lo),0,1). Then
+    // pick a RANDOM slot in [0, window] (rand_range is [lo,hi)). A deterministic delay makes every same-SNR node
+    // fire at the SAME instant -> they collide and nobody hears anybody to cancel; worse, a uniformly high-SNR
+    // mesh saturates every node to the max window so ALL fire together. The random slot de-collides them: the
+    // earliest draw rebroadcasts, the rest hear its RTS-M, OR the coverage, and cancel. far-first holds in
+    // expectation (E[delay] = window/2, monotonic in SNR). Standard LBT still gates the actual TX on top.
     const int32_t lo = protocol::flood_snr_lo_q4, hi = protocol::flood_snr_hi_q4;
     int32_t num = static_cast<int32_t>(fs.rx_snr_q4) - lo;
     if (num < 0) num = 0; if (num > (hi - lo)) num = (hi - lo);
     const int64_t span = static_cast<int64_t>(hi) - lo;          // statically > 0 (compile-time constants)
-    const uint32_t backoff = static_cast<uint32_t>(static_cast<int64_t>(protocol::flood_backoff_ms) * num * num / (span * span));
+    const uint32_t window  = static_cast<uint32_t>(static_cast<int64_t>(protocol::flood_backoff_ms) * num * num / (span * span));
+    const uint32_t backoff = static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(window) + 1));   // random slot in [0, window]
     (void)_hal.after(backoff, kFloodRebcastTimerId + slot);
     MR_EMIT("flood_rebroadcast_scheduled", EF_I("id", static_cast<int64_t>(fs.id)), EF_I("backoff_ms", backoff), EF_I("slot", slot));
 }
