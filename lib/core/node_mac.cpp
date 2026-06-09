@@ -182,6 +182,7 @@ void Node::issue_m_broadcast() {
 void Node::tx_m_broadcast_rts() {
     if (!_pending_tx) return;
     PendingTx& pt = *_pending_tx;
+    if (pt.inner_len < 6) { _hal.log("M-broadcast RTS inner_len < 6 — refusing tx"); _pending_tx.reset(); become_free(); return; }   // fail loud: M inner is [id4|ch|fl|body]; <6 underflows inner_len-6
     rts_in rin{};
     rin.leaf_id = _cfg.leaf_id; rin.src = _node_id; rin.ctr_lo = pt.ctr_lo;
     rin.sf_index = max_data_sf_index();
@@ -200,8 +201,7 @@ void Node::tx_m_broadcast_rts() {
         }
         rin.next = 0xFF; rin.dst = pt.hop_left;                // §3.1: next=0xFF (broadcast), dst slot = hop_left
         rin.rts_flags = static_cast<uint8_t>(RTS_FLAG_M_BROADCAST | RTS_FLAG_FLOOD);
-        rin.flood_channel_msg_id = (static_cast<uint32_t>(pt.inner[0]) << 24) | (static_cast<uint32_t>(pt.inner[1]) << 16)
-                                 | (static_cast<uint32_t>(pt.inner[2]) << 8)  |  static_cast<uint32_t>(pt.inner[3]);
+        rin.flood_channel_msg_id = m_inner_id(pt.inner);
         rin.flood_bitmap = std::span<const uint8_t>(pt.flood_bitmap, 32);
         uint8_t fbuf[43];
         const size_t fl = pack_rts(rin, std::span<uint8_t>(fbuf, sizeof(fbuf)));
@@ -552,8 +552,8 @@ void Node::do_data_tx() {
     // hop-budget / visited / MAC — pt.inner = [channel_msg_id 4 BE][channel_id][flavor][body]. Fire-and-forget
     // (no ACK): clear the flight after the M-frame airtime (kMBcastClearTimerId).
     if (pt.m_broadcast) {
-        const uint32_t id = (static_cast<uint32_t>(pt.inner[0]) << 24) | (static_cast<uint32_t>(pt.inner[1]) << 16)
-                          | (static_cast<uint32_t>(pt.inner[2]) << 8)  |  static_cast<uint32_t>(pt.inner[3]);
+        if (pt.inner_len < 6) { _hal.log("M-frame inner_len < 6 — refusing tx"); _pending_tx.reset(); become_free(); return; }   // fail loud: would underflow inner_len-6 -> OOB body span
+        const uint32_t id = m_inner_id(pt.inner);
         m_in min{};
         min.leaf_id = _cfg.leaf_id; min.channel_id = pt.inner[4]; min.flavor = pt.inner[5];
         min.channel_msg_id = id;

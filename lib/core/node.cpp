@@ -129,9 +129,11 @@ void Node::on_timer(uint32_t timer_id) {
     case kOverhearRetuneTimerId:                                            // overhear ARM: retune RX back to routing_sf
         _hal.set_rx_sf(_cfg.routing_sf);
         // §4.4: a FLOOD flood-state still awaiting its DATA-M (caught the RTS-M, missed the body) -> fast-self-pull
-        // from its src now (single radio => at most one awaiting_data state, §4.2).
+        // from its src now. Single-radio + SF-gating normally means at most ONE awaiting_data state (§4.2), but
+        // resolve ALL of them — never strand an awaiting_data slot if that invariant is ever broken (2nd radio /
+        // a retune-logic change), which would otherwise leak the slot until reboot. (Defense-in-depth.)
         for (uint8_t i = 0; i < protocol::cap_flood_pending; ++i)
-            if (_flood[i].active && _flood[i].awaiting_data) { flood_fast_self_pull(i); break; }
+            if (_flood[i].active && _flood[i].awaiting_data) flood_fast_self_pull(i);
         break;
     case kJoinClaimGuardTimerId:  join_claim_guard_fire();         break;   // node_id DAD: guard elapsed -> adopt-or-deny
     case kJoinRetryTimerId:       join_start_claim("retry");       break;   // node_id DAD: re-claim after a lost claim/heal

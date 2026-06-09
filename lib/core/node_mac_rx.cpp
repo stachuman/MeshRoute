@@ -50,6 +50,11 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // it and LACKS the msg (by the id low-16) retunes RX to the advertised SF to catch the DATA-M — not just
     // the addressed puller. The retune-back timer restores routing_sf. Holders + gateways skip. (dv:2081/9940.)
     if (r.m_broadcast) {
+        // Mid-DATA-reception: don't abandon the in-flight RX to chase a channel overhear. SF-gating keeps us off
+        // the control SF while _pending_rx (so normally unreachable), but guard defensively — retuning here would
+        // clobber the awaited DATA, and a fresh flood-state created without a resolving retune would leak the slot.
+        // The flood/M-broadcast is best-effort + repair-backstopped, so skipping it while busy is safe.
+        if (_pending_rx) return;
         if (r.flood) {                                       // FLOOD RTS-M (§4.2): dedup/merge/create state, then catch the DATA-M
             // COUPLE create->resolve (§8 note): only a participant ALLOCS a flood-state — else the state is
             // created but the retune that resolves it is skipped and nothing ever frees it (the gateway-leak

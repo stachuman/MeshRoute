@@ -393,7 +393,7 @@ void Node::channel_pull_fire(uint8_t slot) {
 // =============================================================================
 
 // id of an M-payload TxItem/PendingTx inner (first 4 bytes, BE channel_msg_id).
-static inline uint32_t m_inner_id(const uint8_t* inner) {
+uint32_t Node::m_inner_id(const uint8_t* inner) {                // Node static (node.h) — shared by the TX path so the BE decode isn't hand-rolled per call site
     return (static_cast<uint32_t>(inner[0]) << 24) | (static_cast<uint32_t>(inner[1]) << 16)
          | (static_cast<uint32_t>(inner[2]) << 8)  |  static_cast<uint32_t>(inner[3]);
 }

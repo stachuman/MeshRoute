@@ -452,6 +452,7 @@ private:
     void    flood_fast_self_pull(uint8_t slot);                  // §4.4: caught RTS-M, missed DATA-M -> pull from src
     uint8_t max_data_sf() const;                                  // highest SF in allowed_sf_bitmap (largest = most robust)
     uint8_t max_data_sf_index() const;                            // its index in the ascending allowed set (the RTS sf_index)
+    static uint32_t m_inner_id(const uint8_t* inner);             // channel_msg_id (BE) from an M-inner buffer [id4|ch|fl|body]
 
     // ---- route table (DV merge) --------------------------------------------
     enum class MergeAction : uint8_t { none, new_dest, primary_refresh, promote, alt_install };
