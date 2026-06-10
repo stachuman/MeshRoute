@@ -230,6 +230,27 @@ static CmdResult send_cmd(Node& node, uint8_t dst, const char* body) {
 
 }  // namespace
 
+TEST_CASE("R3 dedup — seen-origins ROLLS (evict oldest) at the 256 cap instead of refusing the new key") {
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0x1);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    node.on_init(cfg);
+
+    // Fill to the cap with DISTINCT keys recorded at INCREASING times -> key `base+0` is the oldest (min expiry).
+    const uint32_t base = 0x01020300u;
+    for (uint16_t i = 0; i < protocol::cap_seen_origins; ++i)
+        node.record_seen_origin(base + i, /*from=*/2, /*now=*/uint64_t(1000 + i));
+    CHECK(node.seen_origin_count() == protocol::cap_seen_origins);   // 256, all live (TTL 30s)
+    CHECK(node.seen_origin_live(base + 0, /*now=*/2000));            // the oldest is present (not expired)
+
+    // One more NEW key past the cap -> ROLL: the oldest (base+0) is evicted, the new key stored, count stays 256.
+    const uint32_t fresh = base + protocol::cap_seen_origins;
+    node.record_seen_origin(fresh, /*from=*/3, /*now=*/uint64_t(1000 + protocol::cap_seen_origins));
+    CHECK(node.seen_origin_count() == protocol::cap_seen_origins);   // STILL 256 — rolled, not grown, not refused
+    CHECK_FALSE(node.seen_origin_live(base + 0, /*now=*/2000));      // the oldest was evicted...
+    CHECK(node.seen_origin_live(fresh, /*now=*/2000));              // ...and the NEW key IS recorded (the fix)
+    CHECK(node.seen_origin_live(base + 1, /*now=*/2000));          // only ONE evicted — the 2nd-oldest survived
+}
+
 TEST_CASE("R3 receiver — RTS -> CTS -> DATA -> delivered (we are the destination)") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;

@@ -280,6 +280,12 @@ public:
     }
     static uint32_t   channel_msg_id_mint(uint8_t origin, uint32_t key_hash32, uint8_t ctr);   // origin<<24|(kh&0xffff)<<8|ctr (dv:2239)
     void    ingest_channel_m(const m_out& m, uint8_t from);  // M-frame merge (dv:10942); public for tests
+    // Origin-level DATA dedup (loop/retransmit detection): record (origin,dst,ctr)->expiry + the prev-hop.
+    // Prunes expired, then ROLLS (evicts the oldest = min-expiry) at the 256 cap instead of refusing. Public for tests.
+    void    record_seen_origin(uint32_t sokey, uint8_t from, uint64_t now_ms);
+    size_t  seen_origin_count() const { return _seen_origins.size(); }
+    bool    seen_origin_live(uint32_t sokey, uint64_t now_ms) const {
+        auto it = _seen_origins.find(sokey); return it != _seen_origins.end() && it->second > now_ms; }
 
 private:
     // Node-owned timer-id namespace (Hal::after re-arm-by-id, cap 64). Reserve

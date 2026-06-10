@@ -316,9 +316,29 @@ void Node::handle_channel_data(const uint8_t* bytes, size_t len, const RxMeta& m
     ingest_channel_m(*pm, from);
 }
 
+// Record this flight's (origin,dst,ctr) key -> expiry + prev-hop for the loop/retransmit dedup. Prune the
+// expired entries first; then if still at the cap (all live) and the key is NEW, ROLL — evict the OLDEST
+// (min-expiry = earliest recorded, least remaining loop-window) to make room, rather than refusing the new
+// key. Re-recording an existing key just refreshes it (no eviction). Bounded by cap_seen_origins; no growth.
+void Node::record_seen_origin(uint32_t sokey, uint8_t from, uint64_t now_ms) {
+    for (auto it = _seen_origins.begin(); it != _seen_origins.end(); )
+        { if (it->second <= now_ms) { _seen_origin_from.erase(it->first); it = _seen_origins.erase(it); } else ++it; }
+    if (_seen_origins.size() >= protocol::cap_seen_origins
+        && _seen_origins.find(sokey) == _seen_origins.end()) {              // full of LIVE entries + a NEW key -> roll
+        auto oldest = _seen_origins.begin();
+        for (auto it = _seen_origins.begin(); it != _seen_origins.end(); ++it)
+            if (it->second < oldest->second) oldest = it;                   // min expiry = the earliest recorded
+        _seen_origin_from.erase(oldest->first);
+        _seen_origins.erase(oldest);
+    }
+    _seen_origins[sokey]     = now_ms + protocol::seen_origin_ttl_ms;
+    _seen_origin_from[sokey] = from;
+}
+
 void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto pd = parse_data(std::span<const uint8_t>(bytes, len));
     if (!pd) return;
+    
     const data_out& d = *pd;
     if (d.next != _node_id) return;
     if (!_pending_rx || _pending_rx->ctr_lo != d.ctr_lo4) return;
@@ -389,13 +409,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             _hal.emit("hop_budget_exceeded", ef, 3); );
         // Record (origin,dst,ctr) so a LATER non-exhausted arrival of the SAME flight via
         // a DIFFERENT prev-hop is caught as LOOP_DUP (not accepted+forwarded) — dv:10933-10940.
-        // prune-expired + cap, mirroring the pass-path write below.
-        for (auto it = _seen_origins.begin(); it != _seen_origins.end(); )
-            { if (it->second <= nowm) { _seen_origin_from.erase(it->first); it = _seen_origins.erase(it); } else ++it; }
-        if (_seen_origins.size() < protocol::cap_seen_origins) {
-            _seen_origins[sokey] = nowm + protocol::seen_origin_ttl_ms;
-            _seen_origin_from[sokey] = from;
-        }
+        record_seen_origin(sokey, from, nowm);   // prune + roll-evict-oldest-if-full + insert (see the def)
         nack_in nin{}; nin.reason = protocol::nack_reason_hop_budget; nin.ctr_lo = d.ctr_lo4;
         nin.payload = static_cast<uint8_t>((hb_new_committed & 0x0f) << 4);   // committed in the HIGH nibble
         nin.to = from;
@@ -462,12 +476,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                            { .key = "airtime_warn", .type = EventField::T::i64, .i = ain.warn ? 1 : 0 } };
         _hal.emit("ack_tx", f, 3); );
     if (live_dup) { become_free(); return; }                                        // same prev-hop dup -> ACK only
-    for (auto it = _seen_origins.begin(); it != _seen_origins.end(); )              // prune expired (30s TTL)
-        { if (it->second <= nowm) { _seen_origin_from.erase(it->first); it = _seen_origins.erase(it); } else ++it; }
-    if (_seen_origins.size() < protocol::cap_seen_origins) {                        // bounded (256)
-        _seen_origins[sokey] = nowm + protocol::seen_origin_ttl_ms;
-        _seen_origin_from[sokey] = from;                                            // the prev-hop (LOOP_DUP discriminator)
-    }
+    record_seen_origin(sokey, from, nowm);                                          // record + roll-evict-oldest if full
     // defer deliver/forward by the ACK airtime so it doesn't share a sim step with the ACK.
     _post_ack = PostAck{};
     _post_ack.pending = true; _post_ack.is_forward = (d.dst != _node_id);
