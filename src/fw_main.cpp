@@ -292,6 +292,27 @@ static void do_reboot() {
 #endif
 }
 
+// `ota` — reboot into the bootloader's BLE OTA DFU. Writes the retained DFU magic (0xA8 =
+// DFU_MAGIC_OTA_RESET) so the OTAFIX/Adafruit bootloader brings up its OWN SoftDevice + BLE DFU — the
+// (bare-metal) app needs no BLE stack of its own. GPREGRET survives NVIC_SystemReset(). Then push the
+// new firmware (firmware.zip from `pio run`) with the Nordic "nRF Device Firmware Update" app / nRF
+// Connect over BLE. REQUIRES the OTAFIX bootloader (flash once via UF2 — see docs/ota.md). To abort:
+// double-tap RESET (UF2 mode). On ESP32 the esp_ota path isn't wired yet (spec §B.2 transport TBD).
+static void do_ota() {
+#if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
+    // The reset below drops into the bootloader (no USB-CDC), so this console port disappears — print
+    // the notice and give the host terminal time to render it BEFORE the USB tears down. Too short a
+    // delay loses the line (nothing showed at 100 ms); 500 ms renders reliably.
+    Serial.println(F("> OTA: rebooting into BLE DFU now — this USB console will drop here."));
+    Serial.println(F(">      Push firmware.zip via the Nordic DFU app (enable its auto-reboot). Double-tap RESET to abort."));
+    Serial.flush(); delay(500);
+    NRF_POWER->GPREGRET = 0xA8;   // DFU_MAGIC_OTA_RESET: bootloader inits its own SD + starts BLE OTA DFU
+    NVIC_SystemReset();           // the retained GPREGRET survives the reset
+#elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
+    Serial.println(F("> ota: unsupported on this build yet (ESP32 esp_ota path not wired — see spec §B.2)"));
+#endif
+}
+
 // `sleep` / `sleep on` -> light-sleep when idle even though a host is present (the explicit override the user
 // asked for); `sleep off` -> cancel it, stay awake. A headless node (no console byte this boot) light-sleeps
 // on its own — this command is only for a node you're connected to. After `sleep on` the console goes quiet
@@ -362,7 +383,7 @@ static void handle_whoami() {
 static void dump_help() {
     Serial.println(F("[help] messaging:  send <id> <text> | send_ack <id> <text> | sendhash <hash> <text> | sendhash_ack <hash> <text> | send_channel <ch> <text>"));
     Serial.println(F("[help] hash/id:    lookup <hash> | hashof <id> | whoami"));
-    Serial.println(F("[help] diag:       routes | status | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot"));
+    Serial.println(F("[help] diag:       routes | status | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
     Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway gateway_only mobile key"));
 }
 
@@ -373,6 +394,7 @@ static bool service_debug(const char* line, size_t len) {
     if (len == 6 && !strncmp(line, "status", 6))   { dump_status(); return true; }
     if (len == 6 && !strncmp(line, "reboot", 6))   { do_reboot();   return true; }
     if (len == 5 && !strncmp(line, "regen", 5))    { do_regen();    return true; }
+    if (len == 3 && !strncmp(line, "ota", 3))      { do_ota();      return true; }
     if (len >  8 && !strncmp(line, "cfg set ", 8)) { handle_cfg_set(line + 8); return true; }
     if (len == 3 && !strncmp(line, "cfg", 3))      { dump_cfg();    return true; }
     if ((len == 5 || (len > 5 && line[5] == ' ')) && !strncmp(line, "sleep", 5)) { handle_sleep(line + 5, len - 5); return true; }
