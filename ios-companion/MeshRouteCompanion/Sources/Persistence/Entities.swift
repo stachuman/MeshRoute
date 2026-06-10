@@ -1,0 +1,78 @@
+// MeshRouteCompanion — Entities.swift
+//
+// The durable archive (the phone, not the bounded-inbox node, is the long-term store). SwiftData
+// @Model classes + mapping to/from the MeshRouteCore value types. The app uses @Query over these
+// directly as the UI source of truth; AppModel writes them (with the dedup rule from ConversationStore).
+
+import Foundation
+import SwiftData
+import MeshRouteWire
+import MeshRouteCore
+
+@Model
+final class ContactEntity {
+    @Attribute(.unique) var hashValue32: UInt32
+    var name: String
+    var lastKnownID: Int?          // most recent short id seen for this hash
+    var createdAt: Date
+
+    init(hashValue32: UInt32, name: String, lastKnownID: Int? = nil, createdAt: Date = .now) {
+        self.hashValue32 = hashValue32; self.name = name
+        self.lastKnownID = lastKnownID; self.createdAt = createdAt
+    }
+
+    var keyHash: KeyHash { KeyHash(hashValue32) }
+    var contact: Contact {
+        Contact(hash: keyHash, name: name, lastKnownID: lastKnownID.map { UInt8(clamping: $0) })
+    }
+}
+
+@Model
+final class MessageEntity {
+    @Attribute(.unique) var id: UUID
+    var threadKind: String         // "dm" | "channel"
+    var threadHash: UInt32         // dm: the peer's key_hash32 (or a pseudo-hash == id until resolved)
+    var threadChannel: Int         // channel: the channel id
+    var directionRaw: String       // MessageDirection
+    var body: String
+    var timestamp: Date
+    var stateRaw: String           // DeliveryState
+    var origin: Int?               // sender short id (incoming)
+    var ctr: Int?                  // node message counter (send id / received id)
+
+    init(id: UUID, thread: ThreadKey, direction: MessageDirection, body: String,
+         timestamp: Date, state: DeliveryState, origin: Int?, ctr: Int?) {
+        self.id = id
+        switch thread {
+        case .dm(let h):      self.threadKind = "dm";      self.threadHash = h.value; self.threadChannel = -1
+        case .channel(let c): self.threadKind = "channel"; self.threadHash = 0;       self.threadChannel = Int(c)
+        }
+        self.directionRaw = direction.rawValue
+        self.body = body
+        self.timestamp = timestamp
+        self.stateRaw = state.rawValue
+        self.origin = origin
+        self.ctr = ctr
+    }
+
+    var threadKey: ThreadKey {
+        threadKind == "channel" ? .channel(UInt8(clamping: threadChannel)) : .dm(KeyHash(threadHash))
+    }
+    var direction: MessageDirection { MessageDirection(rawValue: directionRaw) ?? .incoming }
+    var state: DeliveryState { DeliveryState(rawValue: stateRaw) ?? .received }
+}
+
+@Model
+final class NodeProfileEntity {
+    @Attribute(.unique) var key32: UInt32
+    var shortID: Int
+    var mode: String
+    var routingSF: Int
+    var gateway: Bool
+    var lastSeen: Date
+
+    init(key32: UInt32, shortID: Int, mode: String, routingSF: Int, gateway: Bool, lastSeen: Date = .now) {
+        self.key32 = key32; self.shortID = shortID; self.mode = mode
+        self.routingSF = routingSF; self.gateway = gateway; self.lastSeen = lastSeen
+    }
+}

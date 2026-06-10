@@ -1,0 +1,46 @@
+name: MeshRouteCompanion
+options:
+  bundleIdPrefix: com.meshroute
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+packages:
+  MeshRouteKit:
+    path: ../MeshRouteKit
+
+targets:
+  MeshRouteCompanion:
+    type: application
+    platform: iOS
+    sources:
+      - path: Sources
+      - path: Assets.xcassets
+    dependencies:
+      - package: MeshRouteKit
+        product: MeshRouteWire
+      - package: MeshRouteKit
+        product: MeshRouteCore
+    info:
+      path: Sources/App/Info.plist
+      properties:
+        CFBundleDisplayName: MeshRoute
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSBluetoothAlwaysUsageDescription: "MeshRoute connects to your node over Bluetooth to read and send messages and read its status."
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.meshroute.companion
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+        ENABLE_PREVIEWS: YES
+        # Simulator builds need no signing; keep the project team-agnostic.
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGN_IDENTITY: ""

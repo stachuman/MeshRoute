@@ -15,6 +15,7 @@
 #pragma once
 #include "hal.h"
 #include "command.h"
+#include "inbox.h"
 #include "protocol_constants.h"
 #include <cstddef>
 #include <cstdint>
@@ -210,6 +211,10 @@ public:
     void on_preamble_detected(uint64_t time_ms);                         // SX1262 IRQ / throttle witness
     CmdResult on_command(const Command& c);                              // the typed app<->firmware seam
     bool      next_push(Push& out);                                      // drain the async push ring (CMD_SYNC_NEXT)
+    // Persistent inbox (durable DM + channel history). A backend installs durable stores via
+    // inbox().on_init(dm, chan) AFTER Node::on_init; until then the inbox is disabled (record-on-delivery
+    // is inert). The node records on its DM/channel deliver paths; a companion pulls incrementally.
+    Inbox&    inbox() { return _inbox; }
 
     // Exposed for the R3.x determinism golden test. The retry-jitter RANGE is a
     // cross-engine alignment contract: 3*airtime_routing(RTS_LEN=8) must equal
@@ -565,6 +570,7 @@ private:
     uint8_t  _node_id;            // reassignable via _hal.set_protocol_id (join/lease)
     uint32_t _key_hash32;         // stable long identity
     NodeConfig _cfg;             // borrowed copy from on_init
+    Inbox    _inbox;             // persistent inbox (disabled until a backend installs stores; see inbox())
     int16_t  _routing_snr_floor_q4 = 0;   // SF_DEMOD_THRESHOLD[routing_sf] + sf_margin_q4
     RtEntry  _rt[protocol::cap_routes];
     uint8_t  _rt_count = 0;       // distinct dests, kept sorted ascending by dest

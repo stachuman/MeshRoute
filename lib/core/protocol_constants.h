@@ -258,6 +258,17 @@ inline constexpr uint8_t  max_payload_bytes_hard_cap =
 inline constexpr uint8_t  dm_inner_prefix_bytes = 2;                                      // conservative cap (>= the [origin] prefix)
 inline constexpr uint8_t  dm_max_body_bytes = max_payload_bytes_hard_cap - dm_inner_prefix_bytes;  // = 239
 
+// ---- Persistent inbox (DM + channel durable history; 2026-06-10 spec) -------
+// Two independent flash stores: DMs are large + durable, channels persisted but freely evicted.
+// Both drop-oldest at the byte cap. The store is a segmented append-log (delete-oldest-segment, no
+// rewrite); segment <= store cap. A record = an 18-B header + body, body <= inbox_max_body, so a
+// single record always fits a segment (the "record > segment" path is a defensive guard, never hit).
+inline constexpr uint32_t inbox_dm_store_bytes     = 512u * 1024;   // ~thousands of short DMs
+inline constexpr uint32_t inbox_chan_store_bytes   = 128u * 1024;   // freer (channels evict sooner)
+inline constexpr uint32_t inbox_segment_bytes_dm   = 32u * 1024;    // delete-oldest granularity (DM)
+inline constexpr uint32_t inbox_segment_bytes_chan = 16u * 1024;    // delete-oldest granularity (channel)
+inline constexpr uint8_t  inbox_max_body           = max_payload_bytes_hard_cap;  // 241 (record body cap)
+
 // ---- SF demod thresholds (Q4 dB, mirrors SF_DEMOD_THRESHOLD in Lua) -------
 // SF5 = -2.5 dB → -40 Q4; SF12 = -20.0 dB → -320 Q4.
 constexpr int16_t sf_demod_threshold_q4(uint8_t sf) {

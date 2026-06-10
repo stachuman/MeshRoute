@@ -11,6 +11,7 @@
 
 #include "node.h"
 #include "frame_codec.h"
+#include "ram_inbox_store.h"
 
 #include <array>
 #include <cstring>
@@ -276,6 +277,45 @@ TEST_CASE("R3 receiver — RTS -> CTS -> DATA -> delivered (we are the destinati
     const Ev* dlv = hal.last("delivered");
     CHECK(dlv != nullptr);
     if (dlv) { CHECK(dlv->has_payload); CHECK(dlv->payload == "hi"); }
+}
+
+// Inbox integration (persistent-inbox spec §12): a delivered DM lands in the DM store AND the push ring,
+// with consistent fields (both are written from the same post-ACK state in do_post_ack).
+TEST_CASE("inbox integration — a delivered DM is recorded durably + pushed, fields consistent") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    node.on_init(cfg);
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    node.inbox().on_init(&dm, &ch);                          // a backend installs durable stores
+    CHECK(node.inbox().enabled());
+    RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };  // immediate sender = bob(1)
+
+    std::array<uint8_t, 16> rb{};
+    hal._now = 1000; node.on_recv(rb.data(), mk_rts(/*src=*/1, /*next=*/2, /*dst=*/2, /*ctr_lo=*/5, /*plen=*/15, rb), meta);
+    std::array<uint8_t, 64> db{};
+    hal._now = 2000; node.on_recv(db.data(), mk_data(/*next=*/2, /*dst=*/2, /*ctr=*/0x0005, /*origin=*/0, "hi", db), meta);
+    node.on_timer(kPostAckTimerId);                          // do_post_ack: msg_recv push + record_dm together
+
+    // 1) the live push ring received the DM
+    Push pu{}; bool got = false;
+    while (node.next_push(pu)) { if (pu.kind == PushKind::msg_recv) { got = true; break; } }
+    CHECK(got);
+
+    // 2) the durable inbox recorded exactly one DM, consistent with that push
+    CHECK(dm.count() == 1);
+    CHECK(ch.count() == 0);                                  // a DM does not touch the channel store
+    struct Got { bool seen; InboxKind kind; uint8_t origin; uint16_t ctr; std::string body; } g{ false, InboxKind::channel, 0, 0, "" };
+    node.inbox().pull(0, 0, [](void* c, const InboxEntry& e) -> bool {
+        auto* x = static_cast<Got*>(c);
+        x->seen = true; x->kind = e.kind; x->origin = e.origin; x->ctr = e.ctr;
+        x->body.assign(reinterpret_cast<const char*>(e.body ? e.body : reinterpret_cast<const uint8_t*>("")), e.body_len);
+        return true;
+    }, &g);
+    CHECK(g.seen);
+    CHECK(g.kind == InboxKind::dm);
+    CHECK(g.body == "hi");                                   // the delivered content
+    if (got) { CHECK(g.origin == pu.origin); CHECK(g.ctr == pu.ctr);   // same source (do_post_ack) -> consistent
+               CHECK(g.body == std::string(reinterpret_cast<const char*>(pu.body), pu.body_len)); }
 }
 
 TEST_CASE("R3 dedup — retried RTS within last_acked TTL -> already_received CTS; past TTL -> fresh CTS") {

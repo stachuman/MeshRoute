@@ -93,7 +93,7 @@ public:
         g_dio1_fired = false;                                                     // consume the TxDone edge
         _tx_in_flight = false;
         _radio.finishTransmit();                                                  // RadioLib async-TX cleanup
-        Serial.print(F("[txdone t=")); Serial.print(millis()); Serial.println(F("]"));   // arm -> here = the airtime (loop stayed live in between)
+        //Serial.print(F("[txdone t=")); Serial.print(millis()); Serial.println(F("]"));   // arm -> here = the airtime (loop stayed live in between)
         if (_rx_sf > 0 && _rx_sf != _cur_sf) { _cur_sf = _rx_sf; _radio.setSpreadingFactor(static_cast<uint8_t>(_rx_sf)); }
         _radio.startReceive();                                                    // re-arm continuous RX on the listening SF
         _pre_seen = false;
