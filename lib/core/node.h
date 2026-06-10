@@ -107,11 +107,13 @@ struct RtEntry {
 };
 
 // ---- R3 data-plane state (MAC) ---------------------------------------------
-// inner = payload-flags(1)|origin(1)|body — the DATA unicast inner (parse_unicast_inner).
+// inner = [dst_key_hash32 (iff DST_HASH)]|origin(1)|body — the DATA unicast inner (parse_unicast_inner;
+// no payload-flags byte). flags = the byte-1 DataFlag set; type = the byte-8 DataType (0 = normal DM).
 struct TxItem {                      // a queued message awaiting a flight
     uint8_t  origin = 0, dst = 0, ctr_lo = 0;
     uint16_t ctr = 0;
     uint8_t  flags = 0;
+    uint8_t  type = 0;               // DataType (0 = normal DM); threaded so a forward keeps its frame type
     uint8_t  inner[protocol::max_payload_bytes_hard_cap] = {};
     uint8_t  inner_len = 0;
     bool     is_forward = false;     // true => previous_hop valid (a relayed item)
@@ -139,6 +141,7 @@ struct PendingTx {                   // the in-flight sender state (one per node
     uint8_t  origin = 0, dst = 0, next = 0, ctr_lo = 0;
     uint16_t ctr = 0;
     uint8_t  flags = 0;
+    uint8_t  type = 0;               // DataType (0 = normal DM); carried into pack_data at do_data_tx
     uint8_t  inner[protocol::max_payload_bytes_hard_cap] = {};
     uint8_t  inner_len = 0;
     uint8_t  chosen_data_sf = 0;     // 0 = unset until the CTS arrives
@@ -183,6 +186,7 @@ struct PostAck {                     // deferred deliver/forward after the ACK a
     uint8_t  origin = 0, dst = 0, ctr_lo = 0, previous_hop = 0;
     uint16_t ctr = 0;
     uint8_t  flags = 0;
+    uint8_t  type = 0;               // DataType (0 = normal DM); kept so a forwarded frame keeps its type
     uint8_t  inner[protocol::max_payload_bytes_hard_cap] = {};
     uint8_t  inner_len = 0;
     // Hop-budget for the forward (the decremented values from handle_data); copied
@@ -265,8 +269,8 @@ public:
     // §6 DAD tiebreak (pure): higher claim_epoch wins; tie -> lower key_hash32 wins. Public for the convergence test.
     static bool       join_tiebreak_wins(uint8_t my_epoch, uint32_t my_key, uint8_t their_epoch, uint32_t their_key);
     int               id_bind_find_by_hash(uint32_t key_hash32, IdBindConf* conf_out = nullptr);   // -> node_id, or -1 (skips expired); opt. out: the binding's confidence (soft/hard resolve)
-    void              on_hash_bind_response(const uint8_t* inner, uint8_t inner_len);   // C.1: the origin consumed an H_ANSWER DATA -> cache (h_query) + drain. public = the deliver seam + test driver
-    void              on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len);      // C.2: a forwarder snooped an H_ANSWER in transit -> cache-on-pass (h_relay). public = the relay seam + test driver
+    void              on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool authoritative);   // C.1: the origin consumed an H_ANSWER DATA -> cache (h_query) + drain. authoritative from the frame TYPE. public = the deliver seam + test driver
+    void              on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool authoritative);      // C.2: a forwarder snooped an H_ANSWER in transit -> cache-on-pass (h_relay). authoritative from the frame TYPE. public = the relay seam + test driver
     bool              channel_entry_dirty(uint32_t id) const { const int i = channel_buffer_find(id); return i >= 0 && _channel_buffer[i].dirty; }
     bool              channel_payload_eq(uint32_t id, const uint8_t* p, uint16_t len) const {
         const int i = channel_buffer_find(id);
@@ -486,8 +490,9 @@ private:
 
     // ---- R3 data plane (MAC: RTS-CTS-DATA-ACK) -----------------------------
     uint16_t do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags);  // returns the ctr
-    uint16_t enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, const char* tx_event, bool app_dm = false);
-    void     send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr);          // E2E ACK reply (E2E_IS_ACK; e2e_ack_tx)
+    uint16_t enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, const char* tx_event,
+                          bool app_dm = false, uint8_t type = 0);
+    void     send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr);          // E2E ACK reply (TYPE=E2E_ACK; e2e_ack_tx)
     void     enqueue_push(const Push& p);                                  // append to the bounded ring
     void     become_free();                                       // dv_dual_sf.lua:7433 (FIFO single-drain)
     void     issue_send(const TxItem& item);                      // :7018 pending_tx + RTS

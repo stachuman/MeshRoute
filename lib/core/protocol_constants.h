@@ -251,9 +251,11 @@ inline constexpr uint8_t  data_inner_overhead = 6;
 inline constexpr uint8_t  lora_max_frame_bytes = 255;  // SX126x/SX127x 8-bit length register
 inline constexpr uint8_t  max_payload_bytes_hard_cap =
     lora_max_frame_bytes - data_hdr_len - data_inner_overhead;  // = 241 (the TxItem.inner[] buffer size)
-// A normal DM inner is [payload-flags][origin][body...] (enqueue_data writes body at inner[2+i]), so the
-// app body must fit in the inner buffer MINUS that 2-byte prefix — 239. Exceeding it overruns inner[].
-inline constexpr uint8_t  dm_inner_prefix_bytes = 2;                                      // [payload-flags][origin]
+// A normal DM inner is [origin][body...] (enqueue_data writes body at inner[off+i]; no payload-flags byte
+// anymore — DST_HASH/etc. are byte-1 header flags). The app body must fit in the inner buffer MINUS the
+// prefix; kept at a conservative 2 (covers the [origin] prefix and leaves headroom; the DST_HASH variant's
+// [dst_key_hash32 4][origin]=5-B prefix has its own explicit fit-check in enqueue_data). Exceeding it overruns inner[].
+inline constexpr uint8_t  dm_inner_prefix_bytes = 2;                                      // conservative cap (>= the [origin] prefix)
 inline constexpr uint8_t  dm_max_body_bytes = max_payload_bytes_hard_cap - dm_inner_prefix_bytes;  // = 239
 
 // ---- SF demod thresholds (Q4 dB, mirrors SF_DEMOD_THRESHOLD in Lua) -------

@@ -589,14 +589,19 @@ size_t pack_data(const data_in& in, std::span<uint8_t> out) {
     const uint8_t hr = in.hops_remaining > 31 ? 31 : in.hops_remaining;   // saturate (matches Lua math.min)
     const uint8_t ch = in.committed_hops > 7  ? 7  : in.committed_hops;
 
+    // APP is DERIVED from type: a non-zero type sets the byte-1 APP bit AND emits the TYPE byte at offset 8.
+    // The caller never sets APP by hand, so the flag + type can't disagree.
+    const uint8_t flags = static_cast<uint8_t>(in.type != 0 ? (in.flags | DATA_FLAG_APP)
+                                                            : (in.flags & ~DATA_FLAG_APP));
     wire::Writer w(out);
     w.u8(wire::cmd_byte(wire::Cmd::D, static_cast<uint8_t>((in.addr_len & 0x07) << 1)));  // addr_len b3..1, rsv b0
-    w.u8(static_cast<uint8_t>((in.flags & 0x0F) << 4));           // flags high nibble | rsv low
+    w.u8(flags);                                                 // full byte-1 flags
     w.u8(in.next);
     w.u8(in.dst);
     w.u8(static_cast<uint8_t>(((hr & 0x1F) << 3) | (ch & 0x07)));
     w.u8(in.prev_fwd_rt_hops);
     w.u16_le(in.ctr);
+    if (in.type != 0) w.u8(in.type);                             // byte 8: TYPE (iff APP)
     for (uint8_t b : in.inner) w.u8(b);                           // opaque ciphertext slot
     if (mac_zero) { for (int i = 0; i < (int)DATA_MAC_LEN; ++i) w.u8(0); }
     else          { for (uint8_t b : in.mac) w.u8(b); }           // opaque 4-B trailer
@@ -610,10 +615,14 @@ std::optional<data_out> parse_data(std::span<const uint8_t> frame) {
     data_out o{};
     o.addr_len = static_cast<uint8_t>((frame[0] >> 1) & 0x07);    // byte0 bits 3..1
     if (o.addr_len != 0) return std::nullopt;                     // hierarchy deferred
-    o.flags          = static_cast<uint8_t>((frame[1] >> 4) & 0x0F);
-    o.e2e_ack_req    = (o.flags & DATA_FLAG_E2E_ACK_REQ)    != 0;
-    o.e2e_is_ack     = (o.flags & DATA_FLAG_E2E_IS_ACK)     != 0;
-    o.priority       = (o.flags & DATA_FLAG_PRIORITY)       != 0;
+    o.flags          = frame[1];                                 // full byte-1 flags
+    o.app            = (o.flags & DATA_FLAG_APP)         != 0;
+    o.cross_layer    = (o.flags & DATA_FLAG_CROSS_LAYER) != 0;
+    o.crypted        = (o.flags & DATA_FLAG_CRYPTED)     != 0;
+    o.e2e_ack_req    = (o.flags & DATA_FLAG_E2E_ACK_REQ) != 0;
+    o.source_hash    = (o.flags & DATA_FLAG_SOURCE_HASH) != 0;
+    o.dst_hash       = (o.flags & DATA_FLAG_DST_HASH)    != 0;
+    o.priority       = (o.flags & DATA_FLAG_PRIORITY)    != 0;
     o.next             = frame[2];
     o.dst              = frame[3];
     o.hops_remaining   = static_cast<uint8_t>((frame[4] >> 3) & 0x1F);
@@ -621,8 +630,18 @@ std::optional<data_out> parse_data(std::span<const uint8_t> frame) {
     o.prev_fwd_rt_hops = frame[5];
     { wire::Reader r(frame.subspan(6, 2)); o.ctr = r.u16_le(); }
     o.ctr_lo4     = static_cast<uint8_t>(o.ctr & 0x0F);           // derived hop-match convenience
-    o.inner_off   = DATA_HDR_LEN;                                 // 8
-    o.inner_len   = frame.size() - DATA_HDR_LEN - DATA_MAC_LEN;   // size>=12 guaranteed above
+    if (o.app) {
+        // APP: a TYPE byte sits at offset 8 before the inner. The < 12 guard above only ensures the 8-B
+        // header + 4-B MAC; an APP frame needs ONE more byte for the TYPE -> reject a too-short APP frame.
+        if (frame.size() < DATA_HDR_LEN + 1 + DATA_MAC_LEN) return std::nullopt;
+        o.type      = frame[DATA_HDR_LEN];                        // byte 8
+        o.inner_off = DATA_HDR_LEN + 1;                          // 9
+    } else {
+        o.type      = 0;
+        o.inner_off = DATA_HDR_LEN;                              // 8
+    }
+    o.e2e_is_ack  = (o.type == DATA_TYPE_E2E_ACK);               // derived convenience
+    o.inner_len   = frame.size() - o.inner_off - DATA_MAC_LEN;   // size guard above ensures >= 0
     o.mac_off     = frame.size() - DATA_MAC_LEN;
     o.frame_len   = frame.size();
     return o;
@@ -637,17 +656,13 @@ std::span<const uint8_t> data_mac(std::span<const uint8_t> frame, const data_out
     return frame.subspan(d.mac_off, DATA_MAC_LEN);
 }
 
-std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> inner) {
-    if (inner.empty()) return std::nullopt;
-    const uint8_t pf = inner[0];
-    // Plaintext unicast only. The single optional field decoded here is DST_HASH (the recipient's
-    // key_hash32, L2c verify-on-delivery). H_ANSWER / CROSS_LAYER / AUTHORITATIVE / CRYPTED are other
-    // inner shapes the caller dispatches elsewhere — reject any bit outside DST_HASH (keeps the old
-    // inner[0]==0 strictness, just widened by the one cleartext field).
-    if (pf & ~static_cast<uint8_t>(PAYLOAD_FLAG_DST_HASH)) return std::nullopt;
+std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> inner, uint8_t flags) {
+    // Plaintext unicast: NO payload-flags byte. The optional dst_key_hash32 (4 B LE, the recipient's
+    // key_hash32 — L2c verify-on-delivery) is present iff the byte-1 header had DST_HASH set, then origin,
+    // then body. The presence comes from `flags`, not a leading inner byte.
     data_unicast_inner u{};
-    size_t off = 1;
-    if (pf & PAYLOAD_FLAG_DST_HASH) {
+    size_t off = 0;
+    if (flags & DATA_FLAG_DST_HASH) {
         if (inner.size() < off + 4) return std::nullopt;          // dst_key_hash32 (4 B LE)
         wire::Reader r(inner.subspan(off, 4)); u.dst_key_hash32 = r.u32_le();
         u.has_dst_hash = true; off += 4;
@@ -683,23 +698,24 @@ std::optional<m_out> parse_m(std::span<const uint8_t> frame) {
     return o;
 }
 
+// 6-B hash-bind inner: NO payload-flags byte (H_ANSWER + AUTHORITATIVE ride the frame TYPE). The caller
+// sets the frame's data_in.type from `in.authoritative` (H_ANSWER vs AUTHORITATIVE_H_ANSWER).
 size_t pack_hash_bind_inner(const hash_bind_inner& in, std::span<uint8_t> out) {
-    if (out.size() < 7) return 0;
+    if (out.size() < 6) return 0;
     wire::Writer w(out);
-    w.u8(static_cast<uint8_t>(PAYLOAD_FLAG_H_ANSWER | (in.authoritative ? PAYLOAD_FLAG_AUTHORITATIVE : 0)));
     w.u8(in.target_layer);
     w.u8(in.node_id);
     w.u32_le(in.key_hash32);                                      // LITTLE-endian (matches pack_h / beacon)
     return w.ok() ? w.size() : 0;
 }
+// The caller already knows it's a hash-bind from the frame TYPE, so there's no flags byte to check here.
+// `authoritative` is left default (the caller sets the binding confidence from the TYPE byte, not the inner).
 std::optional<hash_bind_inner> parse_hash_bind_inner(std::span<const uint8_t> inner) {
-    if (inner.size() < 7) return std::nullopt;
-    if (!(inner[0] & PAYLOAD_FLAG_H_ANSWER)) return std::nullopt; // not a hash-bind answer
+    if (inner.size() < 6) return std::nullopt;
     hash_bind_inner o{};
-    o.target_layer = inner[1];
-    o.node_id      = inner[2];
-    { wire::Reader r(inner.subspan(3, 4)); o.key_hash32 = r.u32_le(); }
-    o.authoritative = (inner[0] & PAYLOAD_FLAG_AUTHORITATIVE) != 0;
+    o.target_layer = inner[0];
+    o.node_id      = inner[1];
+    { wire::Reader r(inner.subspan(2, 4)); o.key_hash32 = r.u32_le(); }
     return o;
 }
 

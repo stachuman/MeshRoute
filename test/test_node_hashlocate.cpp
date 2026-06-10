@@ -372,30 +372,30 @@ TEST_CASE("A handle_h — variant-aware dedup: a HARD query is not suppressed by
 
 // ---- Phase B: the hash-bind response (codec round-trip + send-side + receive-side) ----------------
 
-TEST_CASE("B codec — hash-bind inner round-trips (H_ANSWER + AUTHORITATIVE + binding survive)") {
-    std::array<uint8_t, 7> buf{};
+TEST_CASE("B codec — hash-bind inner round-trips (6 B, no payload-flags byte; AUTHORITATIVE via frame TYPE)") {
+    std::array<uint8_t, 6> buf{};
     hash_bind_inner in{}; in.target_layer = 2; in.node_id = 7; in.key_hash32 = 0xDEADBEEF; in.authoritative = true;
     const size_t n = pack_hash_bind_inner(in, std::span<uint8_t>(buf.data(), buf.size()));
-    CHECK(n == 7);
-    CHECK((buf[0] & PAYLOAD_FLAG_H_ANSWER) != 0);        // typed by the payload-flag, no magic
-    CHECK((buf[0] & PAYLOAD_FLAG_AUTHORITATIVE) != 0);
-    CHECK((buf[0] & PAYLOAD_FLAG_CRYPTED) == 0);         // cleartext so relays can cache-on-pass
+    CHECK(n == 6);
+    // 6-B layout: [target_layer][node_id][key_hash32 LE] — no payload-flags byte (H_ANSWER/AUTHORITATIVE ride
+    // the frame TYPE, which the caller sets from `authoritative`).
+    CHECK(buf[0] == 2);                                  // target_layer
+    CHECK(buf[1] == 7);                                  // node_id
+    CHECK(buf[2] == 0xEF); CHECK(buf[3] == 0xBE);        // key_hash32 LE
+    CHECK(buf[4] == 0xAD); CHECK(buf[5] == 0xDE);
     auto out = parse_hash_bind_inner(std::span<const uint8_t>(buf.data(), n));
     CHECK(out.has_value());
     if (out) {
         CHECK(out->target_layer == 2);
         CHECK(out->node_id == 7);
         CHECK(out->key_hash32 == 0xDEADBEEF);
-        CHECK(out->authoritative == true);
     }
-    // a cached (soft) answer: AUTHORITATIVE clear
-    in.authoritative = false; pack_hash_bind_inner(in, std::span<uint8_t>(buf.data(), buf.size()));
-    auto soft = parse_hash_bind_inner(std::span<const uint8_t>(buf.data(), 7));
-    CHECK((soft.has_value() && soft->authoritative == false));
-    // a NORMAL DM inner ([payload-flags=0][origin][body]) is NOT a hash-bind answer + still round-trips as a unicast.
-    const uint8_t dm[] = { 0x00, /*origin=*/3, 'h', 'i' };
-    CHECK(parse_hash_bind_inner(std::span<const uint8_t>(dm, sizeof(dm))) == std::nullopt);
-    auto uni = parse_unicast_inner(std::span<const uint8_t>(dm, sizeof(dm)));
+    // < 6 B -> nullopt
+    CHECK(parse_hash_bind_inner(std::span<const uint8_t>(buf.data(), 5)) == std::nullopt);
+    // A NORMAL DM inner ([origin][body], flags=0) round-trips as a unicast (a 6-B span also parses as a
+    // hash-bind — the two inners are disambiguated by the frame TYPE, not the inner bytes).
+    const uint8_t dm[] = { /*origin=*/3, 'h', 'i' };
+    auto uni = parse_unicast_inner(std::span<const uint8_t>(dm, sizeof(dm)), /*flags=*/0);
     CHECK(uni.has_value());
     if (uni) { CHECK(uni->origin == 3); CHECK(uni->body.size() == 2); }
 }
@@ -433,7 +433,7 @@ TEST_CASE("B receive — the origin consumes an H_ANSWER DATA and parses the bin
     std::array<uint8_t, 7> inner{};
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 2; hb.key_hash32 = 0x0000BBBB; hb.authoritative = true;
     const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
-    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in));
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), hb.authoritative);
 
     const Ev* rx = find_ev(hal.events, "hash_bind_rx");
     CHECK(rx != nullptr);
@@ -456,7 +456,7 @@ TEST_CASE("C.1 consume — the origin caches the resolved binding (h_query, conf
     std::array<uint8_t, 7> inner{};
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 2; hb.key_hash32 = 0x0000BBBB; hb.authoritative = true;
     const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
-    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in));
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), hb.authoritative);
 
     CHECK(node.id_bind_find_by_hash(0x0000BBBB) == 2);   // cached -> now resolvable from id_bind
     Node::IdBindConf conf = Node::IdBindConf::claimed;
@@ -474,7 +474,7 @@ TEST_CASE("C.2 cache-on-pass — a forwarder snoops a relayed answer (h_relay) a
     std::array<uint8_t, 7> inner{};
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 7; hb.key_hash32 = 0x0000CCCC; hb.authoritative = true;
     const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
-    node.on_hash_bind_snoop(inner.data(), static_cast<uint8_t>(in));
+    node.on_hash_bind_snoop(inner.data(), static_cast<uint8_t>(in), hb.authoritative);
 
     CHECK(node.id_bind_find_by_hash(0x0000CCCC) == 7);   // snooped in transit -> a future resolver (floods shrink)
     CHECK(find_ev(hal.events, "hash_bind_snooped") != nullptr);
@@ -494,7 +494,7 @@ TEST_CASE("C — a CLAIMED (soft) snoop does NOT override an authoritative bindi
     std::array<uint8_t, 7> inner{};
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 3; hb.key_hash32 = 0x00002222; hb.authoritative = false;
     const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
-    node.on_hash_bind_snoop(inner.data(), static_cast<uint8_t>(in));
+    node.on_hash_bind_snoop(inner.data(), static_cast<uint8_t>(in), hb.authoritative);
 
     CHECK(node.id_bind_find_by_hash(0x00001111) == 3);   // the authoritative binding is kept
     CHECK(node.id_bind_find_by_hash(0x00002222) == -1);  // the claimed conflict refused
@@ -554,7 +554,7 @@ TEST_CASE("D send-by-hash — a SOFT (claimed) binding parks + floods a HARD que
     std::array<uint8_t, 7> inner{};
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 4; hb.key_hash32 = 0x0000DDDD; hb.authoritative = false;
     const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
-    node.on_hash_bind_snoop(inner.data(), static_cast<uint8_t>(in));
+    node.on_hash_bind_snoop(inner.data(), static_cast<uint8_t>(in), hb.authoritative);
     Node::IdBindConf conf = Node::IdBindConf::authoritative;
     CHECK(node.id_bind_find_by_hash(0x0000DDDD, &conf) == 4);
     CHECK(conf == Node::IdBindConf::claimed);            // soft -> claimed (not trusted to send blind)
@@ -583,7 +583,7 @@ TEST_CASE("D drain — a hash-bind answer resolves the parked DM and flies it (s
     std::array<uint8_t, 7> inner{};
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 6; hb.key_hash32 = 0x0000EEEE; hb.authoritative = true;
     const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
-    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in));
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), hb.authoritative);
 
     const Ev* res = find_ev(hal.events, "send_hash_resolved");
     CHECK(res != nullptr);
@@ -591,7 +591,7 @@ TEST_CASE("D drain — a hash-bind answer resolves the parked DM and flies it (s
 
     // The parked DM has drained — a second identical answer resolves NOTHING (no re-send).
     hal.events.clear();
-    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in));
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), hb.authoritative);
     CHECK(find_ev(hal.events, "send_hash_resolved") == nullptr);
 }
 
@@ -613,7 +613,7 @@ TEST_CASE("D give-up — a parked DM whose hash never resolves is dropped on the
     std::array<uint8_t, 7> inner{};
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 6; hb.key_hash32 = 0x0000EEEE; hb.authoritative = true;
     const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
-    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in));
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), hb.authoritative);
     CHECK(find_ev(hal.events, "send_hash_resolved") == nullptr);
 }
 
@@ -700,7 +700,7 @@ TEST_CASE("resolve — unknown hash floods H, then the hash-bind answer pushes h
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 9; hb.key_hash32 = 0x0000ABAB; hb.authoritative = true;
     std::array<uint8_t, 16> inner{};
     const size_t il = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
-    node.on_hash_bind_response(inner.data(), (uint8_t)il);
+    node.on_hash_bind_response(inner.data(), (uint8_t)il, hb.authoritative);
     CHECK(node.next_push(p));
     CHECK(p.kind == PushKind::hash_resolved);
     CHECK(p.origin == 9);

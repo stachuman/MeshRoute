@@ -49,24 +49,24 @@ uint32_t Node::retry_jitter_ms() const { return 3 * airtime_routing_ms(8); }
 // Build + enqueue an app DATA. `tx_event` separates an app send ("tx_enqueue", the dm_delivery
 // record-creation key) from an internal protocol DATA like the E2E ack ("e2e_ack_tx") that must NOT
 // be counted as an app DM.
-uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, [[maybe_unused]] const char* tx_event, bool app_dm) {
+uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, [[maybe_unused]] const char* tx_event, bool app_dm, uint8_t type) {
     const uint16_t ctr = next_ctr(dst);
     TxItem item{};
     item.origin = _node_id; item.dst = dst; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
-    item.flags = flags;
-    // Inner = [payload-flags][dst_key_hash32 (4 B LE, iff DST_HASH)][origin][body]. DST_HASH (L2c verify-
-    // on-delivery) is default-on for app DMs when we know the recipient's stable key (id_bind) and the +4 B
-    // still fits the inner buffer — else fall back to plain. NOT for internal DATA (E2E acks): app_dm=false.
-    uint8_t pf = 0x00, off = 1;
+    item.flags = flags; item.type = type;
+    // Inner = [dst_key_hash32 (4 B LE, iff DST_HASH)][origin][body] — NO payload-flags byte. DST_HASH (L2c
+    // verify-on-delivery) is default-on for app DMs when we know the recipient's stable key (id_bind) and the
+    // +4 B still fits the inner buffer — when present, set the byte-1 HEADER flag (item.flags) and prefix the
+    // hash. Else plain ([origin][body]). NOT for internal DATA (E2E acks): app_dm=false.
+    uint8_t off = 0;
     uint32_t dh = 0;
     if (app_dm && key_hash_of_id(dst, dh)
-        && static_cast<size_t>(2 + 4 + body_len) <= protocol::max_payload_bytes_hard_cap) {
-        pf |= PAYLOAD_FLAG_DST_HASH;
-        item.inner[1] = static_cast<uint8_t>(dh);         item.inner[2] = static_cast<uint8_t>(dh >> 8);
-        item.inner[3] = static_cast<uint8_t>(dh >> 16);   item.inner[4] = static_cast<uint8_t>(dh >> 24);
-        off = 5;
+        && static_cast<size_t>(4 + 1 + body_len) <= protocol::max_payload_bytes_hard_cap) {
+        item.flags |= DATA_FLAG_DST_HASH;
+        item.inner[0] = static_cast<uint8_t>(dh);         item.inner[1] = static_cast<uint8_t>(dh >> 8);
+        item.inner[2] = static_cast<uint8_t>(dh >> 16);   item.inner[3] = static_cast<uint8_t>(dh >> 24);
+        off = 4;
     }
-    item.inner[0] = pf;
     item.inner[off++] = _node_id;                         // origin
     if (body) for (uint8_t i = 0; i < body_len; ++i) item.inner[off + i] = body[i];
     item.inner_len = static_cast<uint8_t>(off + body_len);
@@ -98,12 +98,12 @@ uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8
     return enqueue_data(dst, body, body_len, flags, "tx_enqueue", /*app_dm=*/true);   // app DM (dm_delivery record key); DST_HASH default-on
 }
 
-// End-to-end ACK: a tiny DATA back to the DM's origin carrying the acked ctr (E2E_IS_ACK). Emits
-// e2e_ack_tx (NOT tx_enqueue) so dm_delivery doesn't miscount the ack as an app DM; it routes home
-// on the reverse path the F discovery already laid toward the origin.
+// End-to-end ACK: a tiny DATA back to the DM's origin carrying the acked ctr. Typed by the frame TYPE
+// (DATA_TYPE_E2E_ACK -> APP byte), NOT a byte-1 flag. Emits e2e_ack_tx (NOT tx_enqueue) so dm_delivery
+// doesn't miscount the ack as an app DM; it routes home on the reverse path F discovery laid toward the origin.
 void Node::send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr) {
     const uint8_t body[2] = { static_cast<uint8_t>(acked_ctr & 0xFF), static_cast<uint8_t>(acked_ctr >> 8) };
-    (void)enqueue_data(to_origin, body, 2, DATA_FLAG_E2E_IS_ACK, "e2e_ack_tx");
+    (void)enqueue_data(to_origin, body, 2, /*flags=*/0, "e2e_ack_tx", /*app_dm=*/false, DATA_TYPE_E2E_ACK);
 }
 
 void Node::become_free() {
@@ -232,7 +232,7 @@ void Node::issue_send(const TxItem& item) {
     // must not loop back upstream) + the empty alts_tried set.
     PendingTx pt{};
     pt.origin = item.origin; pt.dst = item.dst;
-    pt.ctr_lo = item.ctr_lo; pt.ctr = item.ctr; pt.flags = item.flags;
+    pt.ctr_lo = item.ctr_lo; pt.ctr = item.ctr; pt.flags = item.flags; pt.type = item.type;
     pt.inner_len = item.inner_len;
     for (uint8_t i = 0; i < item.inner_len; ++i) pt.inner[i] = item.inner[i];
     pt.chosen_data_sf = 0; pt.retries_left = effective_rts_max_retries(item.requeue_count);
@@ -592,7 +592,7 @@ void Node::do_data_tx() {
     }
     const uint8_t mac[4] = { 0, 0, 0, 0 };
     data_in din{};
-    din.addr_len = 0; din.flags = pt.flags; din.next = pt.next; din.dst = pt.dst;
+    din.addr_len = 0; din.flags = pt.flags; din.type = pt.type; din.next = pt.next; din.dst = pt.dst;
     din.hops_remaining = hb_remaining; din.committed_hops = hb_committed;
     din.prev_fwd_rt_hops = hb_prev_fwd; din.ctr = pt.ctr;
     din.inner = std::span<const uint8_t>(pt.inner, pt.inner_len);

@@ -90,43 +90,55 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 
 ## DATA — data plane · cmd 0x3 · 12+n B
 
-**Use** — the payload, sent on the granted SF after a CTS, then relayed hop-by-hop (each hop re-runs RTS/CTS/DATA). **Reply** — **ACK** from the next hop, else **NACK**; with `E2E_ACK_REQ` the final destination returns an end-to-end ACK (a DATA with `E2E_IS_ACK`).
+**Use** — the payload, sent on the granted SF after a CTS, then relayed hop-by-hop (each hop re-runs RTS/CTS/DATA). **Reply** — **ACK** from the next hop, else **NACK**; with `E2E_ACK_REQ` the final destination returns an end-to-end ACK (a DATA whose **TYPE** = `E2E_ACK`).
 
-| Byte   | Field                            | Description                                                                                                                                                                                                        |
-| ------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| 0      | cmd \| addr_len                  | bits 7..4 = `0x3`; b3..1 = addr_len (0 this phase); b0 rsv                                                                                                                                                         |
-| 1      | flags                            | high nibble (b7..4); low nibble rsv                                                                                                                                                                                |
-| 2      | next                             | next-hop short-id                                                                                                                                                                                                  |
-| 3      | dst                              | final destination short-id                                                                                                                                                                                         |
-| 4      | hops_remaining \| committed_hops | b7..3 = hops_remaining (5-bit, 0..31) · b2..0 = committed_hops (3-bit, 0..7)                                                                                                                                       |
-| 5      | prev_fwd_rt_hops                 | soft hop-gradient hint                                                                                                                                                                                             |
-| 6..7   | ctr                              | 16-bit message counter (**LE**)                                                                                                                                                                                    |
-| 8..    | inner                            | typed inner (see **Inner layouts**) — byte 8 is the cleartext payload-flags byte (normal / hash-bind) |
-| last 4 | MAC                              | opaque 4-byte frame trailer (currently zero-stubbed)                                                                                                                                                               |
+| Byte   | Field                            | Description                                                                                           |
+| ------ | -------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| 0      | cmd \| addr_len                  | bits 7..4 = `0x3`; b3..1 = addr_len (0 this phase); b0 rsv                                            |
+| 1      | flags                            | full byte (see **flags**) — APP gates a TYPE byte                                                     |
+| 2      | next                             | next-hop short-id                                                                                     |
+| 3      | dst                              | final destination short-id                                                                            |
+| 4      | hops_remaining \| committed_hops | b7..3 = hops_remaining (5-bit, 0..31) · b2..0 = committed_hops (3-bit, 0..7)                          |
+| 5      | prev_fwd_rt_hops                 | soft hop-gradient hint                                                                                |
+| 6..7   | ctr                              | 16-bit message counter (**LE**)                                                                       |
+| 8      | TYPE                             | message kind (enum, **present iff `APP`** — see **TYPE**); else the inner starts here                |
+| 8/9..  | inner                            | the inner (see **Inner layouts**) — starts at 9 when `APP`, else 8; **no payload-flags byte**         |
+| last 4 | MAC                              | opaque 4-byte frame trailer (currently zero-stubbed)                                                  |
 
-**flags (byte 1 high nibble):** `PRIORITY = 0x2`, `E2E_IS_ACK = 0x4`, `E2E_ACK_REQ = 0x8`. (Bit `0x1` is retired — channel messages moved off DATA onto their own **M** frame, cmd 0xA.)
+Bytes 2..7 are the **fixed routing header** — relays read `next`/`dst`/`hops`/`ctr` at constant offsets regardless of `APP`. The TYPE byte sits where the old `inner[0]` payload-flags byte was (promoted into the cleartext header, gated by `APP`); only endpoints / cache-on-pass snoopers read it. A normal user DM (`APP=0`) carries **no** TYPE byte.
+
+**flags (byte 1, full byte):** combinable modifiers; `APP` is **derived** from TYPE on pack (a non-zero TYPE sets `APP` and emits the TYPE byte, so the flag and TYPE can't disagree).
+
+| bit       | flag            | status                                                                                  |
+| --------- | --------------- | --------------------------------------------------------------------------------------- |
+| b7 `0x80` | `APP`           | a TYPE byte follows the header (derived from TYPE)                                       |
+| b6 `0x40` | `CROSS_LAYER`   | reserved — the inner carries a cross-layer **layer-path** table (gateway routing)       |
+| b5 `0x20` | `CRYPTED`       | reserved — `origin`+body sealed (relays still read the cleartext `dst_key_hash32` / layer-path) |
+| b4 `0x10` | `E2E_ACK_REQ`   | live — the final destination returns an end-to-end ack                                  |
+| b3 `0x08` | rsv             | free                                                                                     |
+| b2 `0x04` | `SOURCE_HASH`   | reserved — the inner carries the **origin's** `key_hash32` (sealed region; set iff `E2E_ACK_REQ`) |
+| b1 `0x02` | `DST_HASH`      | live — the inner carries the recipient's `key_hash32` (L2c verify-on-delivery)          |
+| b0 `0x01` | `PRIORITY`      | decoded-only (no behaviour wired yet)                                                    |
+
+**TYPE (byte 8, enum, present iff `APP`):** mutually-exclusive message kinds. `AUTHORITATIVE` is folded into the H-answer code (1 vs 2); the old `E2E_IS_ACK` flag became the `E2E_ACK` type.
+
+| code | type | inner shape |
+|------|------|-------------|
+| 0 | *(reserved / invalid — never on the wire; `APP=0` means no TYPE byte)* | — |
+| 1 | `H_ANSWER` | `[target_layer 1][node_id 1][key_hash32 4 LE]` (6 B) |
+| 2 | `AUTHORITATIVE_H_ANSWER` | same as `H_ANSWER`; the answer is the owner's (authoritative) |
+| 3 | `E2E_ACK` | normal-unicast inner, `body` = the acked `ctr` (2 B LE) |
+| 4..255 | future | WANT_PUBKEY answer, gateway-envelope, … |
 
 ### Inner layouts
 
-The `inner` slot has **two** shapes (normal unicast, hash-bind answer); both begin with a cleartext **payload-flags byte** (`inner[0]`). (Channel messages are no longer a DATA inner — they ride the lean **M** frame, cmd 0xA, below.)
+The `inner` has **no payload-flags byte** — its old flag-bits are now the byte-1 `flags`, its old type-bits are the `TYPE` enum. The presence of each optional field is read from the **byte-1 header flags** (not a payload byte). (Channel messages are no longer a DATA inner — they ride the lean **M** frame, cmd 0xA, below.)
 
-**Payload-flags byte** (`inner[0]`, always cleartext) — types a non-M inner so a relay/receiver can act without decoding the body:
+**① Normal unicast** (incl. the E2E-ack; `APP=0`, or `APP` with `TYPE=E2E_ACK`):
+`[dst_key_hash32 4 B LE — iff DST_HASH] [layer-path — iff CROSS_LAYER] [origin 1 B] [source_hash 4 B LE — iff SOURCE_HASH] [body…] [Poly1305 tag 16 B — iff CRYPTED]`. The E2E-ack (`TYPE=E2E_ACK`) is this shape with `body` = the acked `ctr` (2 B LE). Everything from `origin` onward (incl. `source_hash`) is the region sealed under `CRYPTED`; `dst_key_hash32` and layer-path stay cleartext.
 
-| bit | flag | meaning |
-|-----|------|---------|
-| b0 `0x01` | `CROSS_LAYER` | the inner carries a cross-layer **layer-path** table (gateway routing) |
-| b1 `0x02` | `H_ANSWER` | the inner is a public *hash-bind response* (relays read + cache `key_hash32→node_id`, cache-on-pass) |
-| b2 `0x04` | `AUTHORITATIVE` | on an H-answer: owner-answered (vs a cached relay) |
-| b3 `0x08` | `CRYPTED` | `origin`+body sealed (relays still read the cleartext flags / `dst_key_hash32` / layer-path) |
-| b4 `0x10` | `SOURCE_HASH` | the inner carries the **origin's** `key_hash32`, in the sealed region (hidden under `CRYPTED`); set **iff `E2E_ACK_REQ`** so the destination can address the E2E-ack back |
-| b6 `0x40` | `DST_HASH` | the inner carries the recipient's `key_hash32` (L2c verify-on-delivery; shared by cross-layer) |
-| b5,b7 | rsv | zero |
-
-**① Normal unicast** (incl. the E2E-ack; `H_ANSWER=0`):
-`[payload-flags] [dst_key_hash32 4 B LE — iff DST_HASH] [layer-path — iff CROSS_LAYER] [origin 1 B] [source_hash 4 B LE — iff SOURCE_HASH] [body…] [Poly1305 tag 16 B — iff CRYPTED]`. The E2E-ack (`E2E_IS_ACK`) is this shape with `body` = the acked `ctr` (2 B LE). Everything from `origin` onward (incl. `source_hash`) is the region sealed under `CRYPTED`; the flags byte, `dst_key_hash32`, and layer-path stay cleartext.
-
-**② Hash-bind answer** (`H_ANSWER`; cleartext, 7 B):
-`[payload-flags = H_ANSWER (+AUTHORITATIVE)] [target_layer 1 B] [node_id 1 B] [key_hash32 4 B LE]`.
+**② Hash-bind answer** (`TYPE = H_ANSWER` / `AUTHORITATIVE_H_ANSWER`; cleartext, 6 B):
+`[target_layer 1 B] [node_id 1 B] [key_hash32 4 B LE]`. The `H_ANSWER` / `AUTHORITATIVE` distinction rides the frame TYPE (1 vs 2), **not** the inner.
 
 #### Cross-layer layer-path (iff `CROSS_LAYER`)
 
@@ -141,7 +153,7 @@ Path size = `1 + ceil(n_layers/2)` B. `layer_id[0]` = the **origin's** layer, `l
 
 - **Forward:** a gateway bridging `layer_id[cur] → layer_id[cur+1]` increments **only** `cur` and re-transmits on the next layer — it never removes a list entry. (DATA carries no `leaf_id` of its own, so `cur` is the explicit position.)
 - **Arrival:** the frame is in the destination's layer when `cur == n_layers-1`.
-- **E2E-ack return** (`E2E_ACK_REQ` set): the destination builds the ack as a `CROSS_LAYER` DATA (`E2E_IS_ACK`) whose `layer_id[]` is the **reverse** of the received list (`ack[i] = layer_id[n_layers-1-i]`), `cur` reset to 0 — so the ack walks home along the same layers. The ack's `dst_key_hash32` is the origin's `key_hash32`, which the destination reads from the request's `source_hash` (present because `E2E_ACK_REQ` required it).
+- **E2E-ack return** (`E2E_ACK_REQ` set): the destination builds the ack as a `CROSS_LAYER` DATA with `TYPE = E2E_ACK` whose `layer_id[]` is the **reverse** of the received list (`ack[i] = layer_id[n_layers-1-i]`), `cur` reset to 0 — so the ack walks home along the same layers. The ack's `dst_key_hash32` is the origin's `key_hash32`, which the destination reads from the request's `source_hash` (present because `E2E_ACK_REQ` required it).
 
 - **`dst_key_hash32`** — the universal *final-recipient* `key_hash32`, **always cleartext** (leaks no more than the cleartext `dst` id). The node the `dst` id routes to verifies it against its own: match → deliver; mismatch → an id collision misdelivered this DM → forward to the real owner (the DM still arrives) + heal. Same- and cross-layer share this one field. Default-on for app DMs (the send path looks the dst's hash up in `id_bind`); +4 B.
 - **`source_hash`** — the **origin's** `key_hash32`, in the **sealed** region (after `origin`), so it's hidden from relays when `CRYPTED` is set. Set **iff `E2E_ACK_REQ`**: the destination reads it to learn who sent the DM and address the E2E-ack back — it becomes the ack's `dst_key_hash32`, and for cross-layer it pairs with the reversed `layer-path` to route the ack home. +4 B.
@@ -212,7 +224,7 @@ Path size = `1 + ceil(n_layers/2)` B. `layer_id[0]` = the **origin's** layer, `l
 | 6 | ttl | decremented per forward; 0 = drop |
 | 7 | flags | b0 = `HARD` (owner-only resolve, ignore caches); b7..1 rsv |
 
-**Hash-bind response** (H's reply): a routed **DATA** to `origin`, typed by the `H_ANSWER` inner payload-flag (inner byte 0; `CRYPTED`=0, so relays read & cache it — see DATA). Body: `target_layer`(1) · `node_id`(1) · `key_hash32`(4 **LE**) — **no magic** (the `H_ANSWER` flag types it; supersedes the Lua `\x1fH1`); the *authoritative* bit rides the payload-flags byte (b2).
+**Hash-bind response** (H's reply): a routed **DATA** to `origin`, typed by the frame **TYPE** = `H_ANSWER` (or `AUTHORITATIVE_H_ANSWER`); `CRYPTED`=0, so relays read & cache it — see DATA. Inner (6 B, **no payload-flags byte**): `target_layer`(1) · `node_id`(1) · `key_hash32`(4 **LE**) — **no magic** (the frame TYPE types it; supersedes the Lua `\x1fH1`); *authoritative* is the `AUTHORITATIVE_H_ANSWER` code (TYPE 2 vs 1), not an inner bit.
 
 ---
 

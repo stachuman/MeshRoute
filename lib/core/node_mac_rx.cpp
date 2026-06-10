@@ -343,7 +343,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // parity with the Lua data_rx (dv:10911), which the analysis tools key delivery on. origin
     // is also needed below (BEFORE the ACK) so HOP_BUDGET/LOOP_DUP can NACK instead of re-ACKing.
     auto inner = data_inner(std::span<const uint8_t>(bytes, len), d);
-    auto ui = parse_unicast_inner(inner);
+    auto ui = parse_unicast_inner(inner, d.flags);
     const uint8_t origin = ui ? ui->origin : from;
     MR_TELEMETRY(
         EventField f[] = { { .key = "origin", .type = EventField::T::i64, .i = origin },
@@ -472,7 +472,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     _post_ack = PostAck{};
     _post_ack.pending = true; _post_ack.is_forward = (d.dst != _node_id);
     _post_ack.origin = origin; _post_ack.dst = d.dst; _post_ack.ctr_lo = d.ctr_lo4;
-    _post_ack.ctr = d.ctr; _post_ack.flags = d.flags; _post_ack.previous_hop = from;
+    _post_ack.ctr = d.ctr; _post_ack.flags = d.flags; _post_ack.type = d.type; _post_ack.previous_hop = from;
     _post_ack.inner_len = static_cast<uint8_t>(inner.size() <= protocol::max_payload_bytes_hard_cap
                                                ? inner.size() : protocol::max_payload_bytes_hard_cap);
     for (uint8_t i = 0; i < _post_ack.inner_len; ++i) _post_ack.inner[i] = inner[i];
@@ -491,36 +491,37 @@ void Node::do_post_ack() {
     const PostAck pa = _post_ack;
     _post_ack.pending = false;
     if (!pa.is_forward) {
-        if (pa.inner_len >= 1 && (pa.inner[0] & PAYLOAD_FLAG_H_ANSWER)) {   // a hash-bind answer for us -> consume (routing info, NOT a DM)
-            on_hash_bind_response(pa.inner, pa.inner_len);
+        if (pa.type == DATA_TYPE_H_ANSWER || pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER) {   // a hash-bind answer for us -> consume (routing info, NOT a DM)
+            on_hash_bind_response(pa.inner, pa.inner_len, pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER);
             become_free();
             return;
         }
-        if (pa.flags & DATA_FLAG_E2E_IS_ACK) {           // an end-to-end ACK for a DM we originated -> confirm, not deliver
+        if (pa.type == DATA_TYPE_E2E_ACK) {              // an end-to-end ACK for a DM we originated -> confirm, not deliver
             MR_TELEMETRY(
-                const uint16_t acked = (pa.inner_len >= 4)
-                                       ? static_cast<uint16_t>(pa.inner[2] | (pa.inner[3] << 8)) : 0;
+                // E2E_ACK inner is normal unicast [origin][ctr_lo][ctr_hi] (no payload-flags byte) -> ctr at inner[1..2].
+                const uint16_t acked = (pa.inner_len >= 3)
+                                       ? static_cast<uint16_t>(pa.inner[1] | (pa.inner[2] << 8)) : 0;
                 EventField ef[] = { { .key = "from", .type = EventField::T::i64, .i = pa.origin },
                                     { .key = "ctr",  .type = EventField::T::i64, .i = acked } };
                 _hal.emit("e2e_ack_rx", ef, 2); );
             become_free();
             return;
         }
-        // Parse the inner (handles the optional DST_HASH prefix) -> origin + body.
-        auto ui = parse_unicast_inner(std::span<const uint8_t>(pa.inner, pa.inner_len));
+        // Parse the inner (handles the optional DST_HASH prefix, read from pa.flags) -> origin + body.
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(pa.inner, pa.inner_len), pa.flags);
         // L2c verify-on-delivery: DST_HASH present and naming a key that ISN'T ours => an id collision
         // misdelivered this DM. Heal the collision + redirect to the real owner; do NOT deliver locally.
         if (ui && ui->has_dst_hash && ui->dst_key_hash32 != _key_hash32) {
             l2c_handle_misdelivery(pa, ui->dst_key_hash32);     // forward to the real owner (identity-preserving)
             return;                                             // l2c re-kicks the queue itself (become_free)
         }
-        // deliver: body from the parsed inner (legacy raw inner[2..] fallback if the inner didn't parse).
+        // deliver: body from the parsed inner (raw inner[1..] fallback — origin at inner[0] — if it didn't parse).
         char body[protocol::max_payload_bytes_hard_cap + 1];
         uint8_t blen;
         if (ui) { blen = static_cast<uint8_t>(ui->body.size());
                   for (uint8_t i = 0; i < blen; ++i) body[i] = static_cast<char>(ui->body[i]); }
-        else    { blen = (pa.inner_len > 2) ? static_cast<uint8_t>(pa.inner_len - 2) : 0;
-                  for (uint8_t i = 0; i < blen; ++i) body[i] = static_cast<char>(pa.inner[2 + i]); }
+        else    { blen = (pa.inner_len > 1) ? static_cast<uint8_t>(pa.inner_len - 1) : 0;
+                  for (uint8_t i = 0; i < blen; ++i) body[i] = static_cast<char>(pa.inner[1 + i]); }
         body[blen] = '\0';
         MR_TELEMETRY(
             EventField f[] = {
@@ -538,10 +539,11 @@ void Node::do_post_ack() {
         become_free();
     } else {
         // C.2 cache-on-pass: a relayed hash-bind answer is cleartext -> snoop the binding before forwarding.
-        if (pa.inner_len >= 1 && (pa.inner[0] & PAYLOAD_FLAG_H_ANSWER)) on_hash_bind_snoop(pa.inner, pa.inner_len);
+        if (pa.type == DATA_TYPE_H_ANSWER || pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER)
+            on_hash_bind_snoop(pa.inner, pa.inner_len, pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER);
         TxItem it{};
         it.origin = pa.origin; it.dst = pa.dst; it.ctr = pa.ctr; it.ctr_lo = pa.ctr_lo;
-        it.flags = pa.flags; it.is_forward = true; it.previous_hop = pa.previous_hop;
+        it.flags = pa.flags; it.type = pa.type; it.is_forward = true; it.previous_hop = pa.previous_hop;
         it.inner_len = pa.inner_len;
         for (uint8_t i = 0; i < pa.inner_len; ++i) it.inner[i] = pa.inner[i];
         it.fwd_remaining = pa.fwd_remaining; it.fwd_committed = pa.fwd_committed;   // carry the decremented budget
@@ -678,7 +680,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             (void)_hal.after(wait, kNackWaitTimerId);
         } else {                                                  // long busy -> requeue SAME hop (verbatim meta)
             TxItem it{};
-            it.origin = pt.origin; it.dst = pt.dst; it.ctr = pt.ctr; it.ctr_lo = pt.ctr_lo; it.flags = pt.flags;
+            it.origin = pt.origin; it.dst = pt.dst; it.ctr = pt.ctr; it.ctr_lo = pt.ctr_lo; it.flags = pt.flags; it.type = pt.type;
             it.inner_len = pt.inner_len;
             for (uint8_t i = 0; i < pt.inner_len; ++i) it.inner[i] = pt.inner[i];
             it.is_forward = pt.has_previous_hop; it.previous_hop = pt.previous_hop;

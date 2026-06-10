@@ -296,14 +296,15 @@ void Node::send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint
                                    uint32_t key_hash32, bool authoritative) {
     if (_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (the querier can re-flood)
     hash_bind_inner hb{};
-    hb.target_layer = target_layer; hb.node_id = node_id; hb.key_hash32 = key_hash32; hb.authoritative = authoritative;
-    uint8_t inner[7];
+    hb.target_layer = target_layer; hb.node_id = node_id; hb.key_hash32 = key_hash32;   // authoritative rides the frame TYPE, not the inner
+    uint8_t inner[6];
     const size_t n = pack_hash_bind_inner(hb, std::span<uint8_t>(inner, sizeof(inner)));
     if (n == 0) return;
     TxItem item{};
     item.origin = _node_id; item.dst = to_origin;
     item.ctr = next_ctr(to_origin); item.ctr_lo = static_cast<uint8_t>(item.ctr & 0x0F);
-    item.flags = 0;                                              // NORMAL DATA — typed by the H_ANSWER payload-flag, NOT payload_type_m
+    item.flags = 0;                                              // byte-1 flags clear; the H_ANSWER TYPE byte (below) types it
+    item.type  = authoritative ? DATA_TYPE_AUTHORITATIVE_H_ANSWER : DATA_TYPE_H_ANSWER;
     for (size_t i = 0; i < n; ++i) item.inner[i] = inner[i];
     item.inner_len = static_cast<uint8_t>(n);
     item.enqueue_time_ms = _hal.now();
@@ -320,18 +321,19 @@ void Node::send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint
 // The querier received a DATA whose inner is a hash-bind answer (handle_data routed it here off the
 // H_ANSWER payload-flag). Phase B: parse + emit. Phase C will id_bind_set(h_query, conf) + drain the
 // parked send-by-hash. DELIBERATELY does NOT deliver as a DM (it is routing/identity info, not user content).
-void Node::on_hash_bind_response(const uint8_t* inner, uint8_t inner_len) {
+void Node::on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool authoritative) {
     auto hb = parse_hash_bind_inner(std::span<const uint8_t>(inner, inner_len));
     if (!hb) return;
-    // C.1 destination consume: WE asked -> source h_query; the answer's AUTHORITATIVE flag carries the
-    // confidence (an owner answer is authoritative, a cache-relayed soft answer is claimed -> verify-on-use).
+    // C.1 destination consume: WE asked -> source h_query; the answer's AUTHORITATIVE bit (now the frame TYPE,
+    // passed in) carries the confidence (an owner answer is authoritative, a cache-relayed soft answer is
+    // claimed -> verify-on-use).
     id_bind_set(hb->node_id, hb->key_hash32, IdBindSource::h_query,
-                hb->authoritative ? IdBindConf::authoritative : IdBindConf::claimed);
+                authoritative ? IdBindConf::authoritative : IdBindConf::claimed);
     MR_TELEMETRY(
         EventField f[] = { { .key = "node",          .type = EventField::T::i64,     .i = hb->node_id },
                            { .key = "key_hash32",    .type = EventField::T::i64,     .i = static_cast<int64_t>(hb->key_hash32) },
                            { .key = "target_layer",  .type = EventField::T::i64,     .i = hb->target_layer },
-                           { .key = "authoritative", .type = EventField::T::boolean, .b = hb->authoritative } };
+                           { .key = "authoritative", .type = EventField::T::boolean, .b = authoritative } };
         _hal.emit("hash_bind_rx", f, 4); );
     drain_parked_sends(hb->key_hash32, hb->node_id);   // D: a parked send-by-hash for this hash can now fly to the resolved id
 }
@@ -341,15 +343,15 @@ void Node::on_hash_bind_response(const uint8_t* inner, uint8_t inner_len) {
 // resolver and repeat H floods shrink (measured in the Phase D multi-node sim). source = h_relay (snooped,
 // distinct from the asked h_query); confidence rides the answer's AUTHORITATIVE flag. We do NOT consume —
 // do_post_ack still forwards the DATA. Deliberate, measurable divergence (gate: flood reach trends down).
-void Node::on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len) {
+void Node::on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool authoritative) {
     auto hb = parse_hash_bind_inner(std::span<const uint8_t>(inner, inner_len));
     if (!hb) return;
     id_bind_set(hb->node_id, hb->key_hash32, IdBindSource::h_relay,
-                hb->authoritative ? IdBindConf::authoritative : IdBindConf::claimed);
+                authoritative ? IdBindConf::authoritative : IdBindConf::claimed);
     MR_TELEMETRY(
         EventField f[] = { { .key = "node",          .type = EventField::T::i64,     .i = hb->node_id },
                            { .key = "key_hash32",    .type = EventField::T::i64,     .i = static_cast<int64_t>(hb->key_hash32) },
-                           { .key = "authoritative", .type = EventField::T::boolean, .b = hb->authoritative } };
+                           { .key = "authoritative", .type = EventField::T::boolean, .b = authoritative } };
         _hal.emit("hash_bind_snooped", f, 3); );
 }
 

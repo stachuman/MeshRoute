@@ -795,8 +795,8 @@ TEST_CASE("BCN — reject: wrong cmd / truncation / trailing / over-cap") {
 // DATA — cmd 0x3 (C6). 8-B §10 header + opaque inner + opaque 4-B MAC.
 // Golden hex hand-derived from §10.3; field meaning matches the Lua data plane.
 // -----------------------------------------------------------------------------
-TEST_CASE("DATA — golden NORMAL (header + inner + MAC; no visited)") {
-    const uint8_t inner[] = {0x00, 0x07, 0xAA, 0xBB};   // src_addr_len=0, origin=7, body=AA BB
+TEST_CASE("DATA — golden NORMAL DM (full flags byte; no APP/TYPE byte; no payload-flags byte)") {
+    const uint8_t inner[] = {0x07, 0xAA, 0xBB};   // [origin=7][body=AA BB] — NO payload-flags byte
     const uint8_t mac[]   = {0, 0, 0, 0};
     data_in in{};
     in.addr_len = 0; in.flags = 0; in.next = 0x0B; in.dst = 0x0C;
@@ -804,10 +804,10 @@ TEST_CASE("DATA — golden NORMAL (header + inner + MAC; no visited)") {
     in.ctr = 0x1234; in.inner = inner; in.mac = mac;
     std::array<uint8_t, 32> buf{};
     size_t n = pack_data(in, buf);
-    CHECK(n == 16);
+    CHECK(n == 15);   // 8 header + 3 inner + 4 MAC (no TYPE byte; APP=0)
     const uint8_t ex[] = {0x30, 0x00, 0x0B, 0x0C, 0x52, 0x03, 0x34, 0x12,
-                          0x00, 0x07, 0xAA, 0xBB, 0x00, 0x00, 0x00, 0x00};
-    for (int i = 0; i < 16; ++i) CHECK(buf[i] == ex[i]);
+                          0x07, 0xAA, 0xBB, 0x00, 0x00, 0x00, 0x00};
+    for (int i = 0; i < 15; ++i) CHECK(buf[i] == ex[i]);
 
     std::span<const uint8_t> fr(buf.data(), n);
     auto o = parse_data(fr);
@@ -815,22 +815,61 @@ TEST_CASE("DATA — golden NORMAL (header + inner + MAC; no visited)") {
     if (o) {
         CHECK(o->addr_len == 0);
         CHECK(o->flags == 0);
+        CHECK_FALSE(o->app); CHECK(o->type == 0);
+        CHECK(o->inner_off == 8);
         CHECK(o->next == 0x0B); CHECK(o->dst == 0x0C);
         CHECK(o->hops_remaining == 10); CHECK(o->committed_hops == 2);
         CHECK(o->prev_fwd_rt_hops == 3);
         CHECK(o->ctr == 0x1234); CHECK(o->ctr_lo4 == 0x4);
-        CHECK(o->inner_len == 4);
-        CHECK(o->frame_len == 16);
+        CHECK(o->inner_len == 3);
+        CHECK(o->frame_len == 15);
         auto inr = data_inner(fr, *o);
-        CHECK(inr.size() == 4);
+        CHECK(inr.size() == 3);
         auto mc = data_mac(fr, *o);
         CHECK(mc.size() == 4);
         if (mc.size() == 4) CHECK(mc[0] == 0x00);
-        auto u = parse_unicast_inner(inr);
+        auto u = parse_unicast_inner(inr, o->flags);
         CHECK(u.has_value());
         if (u) { CHECK(u->origin == 7); CHECK(u->body.size() == 2);
                  if (u->body.size() == 2) { CHECK(u->body[0] == 0xAA); CHECK(u->body[1] == 0xBB); } }
     }
+}
+
+TEST_CASE("DATA — golden APP frame (TYPE byte at offset 8; inner_off 9)") {
+    // An APP frame: type != 0 -> pack sets the APP bit (0x80) in byte 1 + emits the TYPE byte at offset 8.
+    // E2E_ACK example: inner = [origin=9][acked_ctr 0x0005 LE] (normal-unicast shape, no payload-flags byte).
+    const uint8_t inner[] = {0x09, 0x05, 0x00};
+    const uint8_t mac[]   = {0, 0, 0, 0};
+    data_in in{};
+    in.addr_len = 0; in.flags = 0; in.type = DATA_TYPE_E2E_ACK;   // 3
+    in.next = 0x0B; in.dst = 0x0C;
+    in.hops_remaining = 10; in.committed_hops = 2; in.prev_fwd_rt_hops = 3;
+    in.ctr = 0x1234; in.inner = inner; in.mac = mac;
+    std::array<uint8_t, 32> buf{};
+    size_t n = pack_data(in, buf);
+    CHECK(n == 16);   // 8 header + 1 TYPE + 3 inner + 4 MAC
+    const uint8_t ex[] = {0x30, 0x80, 0x0B, 0x0C, 0x52, 0x03, 0x34, 0x12,
+                          0x03, 0x09, 0x05, 0x00, 0x00, 0x00, 0x00, 0x00};
+    for (int i = 0; i < 16; ++i) CHECK(buf[i] == ex[i]);
+
+    std::span<const uint8_t> fr(buf.data(), n);
+    auto o = parse_data(fr);
+    CHECK(o.has_value());
+    if (o) {
+        CHECK(o->flags == 0x80);             // APP bit set (derived from type)
+        CHECK(o->app); CHECK(o->type == DATA_TYPE_E2E_ACK); CHECK(o->e2e_is_ack);
+        CHECK(o->inner_off == 9);
+        CHECK(o->inner_len == 3);
+        CHECK(o->frame_len == 16);
+        auto inr = data_inner(fr, *o);
+        CHECK(inr.size() == 3);
+        if (inr.size() == 3) { CHECK(inr[0] == 0x09); CHECK(inr[1] == 0x05); CHECK(inr[2] == 0x00); }
+    }
+    // A too-short APP frame (no room for the TYPE byte: 8 header + 4 MAC = 12, APP set) is rejected.
+    std::array<uint8_t, 12> shortapp{};
+    for (int i = 0; i < 12; ++i) shortapp[i] = 0;
+    shortapp[0] = 0x30; shortapp[1] = 0x80;   // cmd D, APP set, but only 12 B (no TYPE byte slot)
+    CHECK_FALSE(parse_data(shortapp).has_value());
 }
 
 TEST_CASE("M — golden lean channel-message frame (cmd 0xA, leaf in byte-0, channel_msg_id BE)") {
@@ -881,46 +920,59 @@ TEST_CASE("M — round-trip across leaf/channel/flavor/body; reject len<7 + wron
     if (m0) { CHECK(m0->channel_id == 0x05); CHECK(m0->channel_msg_id == 0xDEADBEEFu); CHECK(m0->body.empty()); }
 }
 
-TEST_CASE("DATA — round-trip across fields (flags, ctr, inner, hops)") {
+TEST_CASE("DATA — round-trip across fields (full flags byte, TYPE/APP, ctr, inner, hops)") {
     for (uint8_t flags : {uint8_t(0), uint8_t(DATA_FLAG_E2E_ACK_REQ),
-                          uint8_t(DATA_FLAG_E2E_IS_ACK | DATA_FLAG_PRIORITY), uint8_t(0x0F)})
-        for (uint16_t ctr : {uint16_t(0), uint16_t(0x1234), uint16_t(0xFFFF)})
-            for (uint8_t hr : {uint8_t(0), uint8_t(31)})
-                for (size_t inlen : {size_t(0), size_t(1), size_t(40)}) {
-                    std::array<uint8_t, 40> inner{};
-                    for (size_t i = 0; i < inlen; ++i) inner[i] = uint8_t(0x10 + i);
-                    std::array<uint8_t, 4> mac{0xDE, 0xAD, 0xBE, 0xEF};
-                    data_in in{};
-                    in.flags = flags; in.next = 0x21; in.dst = 0x22;
-                    in.hops_remaining = hr; in.committed_hops = 5; in.prev_fwd_rt_hops = 9;
-                    in.ctr = ctr;
-                    in.inner = std::span<const uint8_t>(inner.data(), inlen); in.mac = mac;
-                    std::array<uint8_t, 64> buf{};
-                    size_t n = pack_data(in, buf);
-                    CHECK(n == 12 + inlen);
-                    std::span<const uint8_t> fr(buf.data(), n);
-                    auto o = parse_data(fr);
-                    CHECK(o.has_value());
-                    if (o) {
-                        CHECK(o->flags == (flags & 0x0F));
-                        CHECK(o->e2e_ack_req    == ((flags & DATA_FLAG_E2E_ACK_REQ)    != 0));
-                        CHECK(o->e2e_is_ack     == ((flags & DATA_FLAG_E2E_IS_ACK)     != 0));
-                        CHECK(o->priority       == ((flags & DATA_FLAG_PRIORITY)       != 0));
-                        CHECK(o->ctr == ctr);
-                        CHECK(o->ctr_lo4 == (ctr & 0x0F));
-                        CHECK(o->hops_remaining == hr);
-                        CHECK(o->committed_hops == 5);
-                        CHECK(o->prev_fwd_rt_hops == 9);
-                        CHECK(o->inner_len == inlen);
-                        auto inr = data_inner(fr, *o);
-                        bool iok = inr.size() == inlen;
-                        for (size_t i = 0; i < inlen && iok; ++i) iok = inr[i] == uint8_t(0x10 + i);
-                        CHECK(iok);
-                        auto mc = data_mac(fr, *o);
-                        CHECK(mc.size() == 4);
-                        if (mc.size() == 4) { CHECK(mc[0] == 0xDE); CHECK(mc[3] == 0xEF); }
+                          uint8_t(DATA_FLAG_DST_HASH | DATA_FLAG_PRIORITY),
+                          uint8_t(DATA_FLAG_CROSS_LAYER | DATA_FLAG_CRYPTED | DATA_FLAG_SOURCE_HASH)})
+        for (uint8_t type : {uint8_t(0), uint8_t(DATA_TYPE_H_ANSWER),
+                             uint8_t(DATA_TYPE_AUTHORITATIVE_H_ANSWER), uint8_t(DATA_TYPE_E2E_ACK)})
+            for (uint16_t ctr : {uint16_t(0), uint16_t(0x1234), uint16_t(0xFFFF)})
+                for (uint8_t hr : {uint8_t(0), uint8_t(31)})
+                    for (size_t inlen : {size_t(0), size_t(1), size_t(40)}) {
+                        std::array<uint8_t, 40> inner{};
+                        for (size_t i = 0; i < inlen; ++i) inner[i] = uint8_t(0x10 + i);
+                        std::array<uint8_t, 4> mac{0xDE, 0xAD, 0xBE, 0xEF};
+                        data_in in{};
+                        in.flags = flags; in.type = type; in.next = 0x21; in.dst = 0x22;
+                        in.hops_remaining = hr; in.committed_hops = 5; in.prev_fwd_rt_hops = 9;
+                        in.ctr = ctr;
+                        in.inner = std::span<const uint8_t>(inner.data(), inlen); in.mac = mac;
+                        std::array<uint8_t, 64> buf{};
+                        size_t n = pack_data(in, buf);
+                        const size_t app_off = (type != 0) ? 1u : 0u;   // +1 TYPE byte when APP
+                        CHECK(n == 12 + app_off + inlen);
+                        std::span<const uint8_t> fr(buf.data(), n);
+                        auto o = parse_data(fr);
+                        CHECK(o.has_value());
+                        if (o) {
+                            // APP is derived from type: the written flags byte is the input flags + the APP bit (or not).
+                            const uint8_t exp_flags = (type != 0) ? uint8_t(flags | DATA_FLAG_APP) : flags;
+                            CHECK(o->flags == exp_flags);
+                            CHECK(o->app            == (type != 0));
+                            CHECK(o->type           == type);
+                            CHECK(o->inner_off      == (8u + app_off));
+                            CHECK(o->e2e_is_ack     == (type == DATA_TYPE_E2E_ACK));
+                            CHECK(o->cross_layer    == ((flags & DATA_FLAG_CROSS_LAYER) != 0));
+                            CHECK(o->crypted        == ((flags & DATA_FLAG_CRYPTED)     != 0));
+                            CHECK(o->e2e_ack_req    == ((flags & DATA_FLAG_E2E_ACK_REQ) != 0));
+                            CHECK(o->source_hash    == ((flags & DATA_FLAG_SOURCE_HASH) != 0));
+                            CHECK(o->dst_hash       == ((flags & DATA_FLAG_DST_HASH)    != 0));
+                            CHECK(o->priority       == ((flags & DATA_FLAG_PRIORITY)    != 0));
+                            CHECK(o->ctr == ctr);
+                            CHECK(o->ctr_lo4 == (ctr & 0x0F));
+                            CHECK(o->hops_remaining == hr);
+                            CHECK(o->committed_hops == 5);
+                            CHECK(o->prev_fwd_rt_hops == 9);
+                            CHECK(o->inner_len == inlen);
+                            auto inr = data_inner(fr, *o);
+                            bool iok = inr.size() == inlen;
+                            for (size_t i = 0; i < inlen && iok; ++i) iok = inr[i] == uint8_t(0x10 + i);
+                            CHECK(iok);
+                            auto mc = data_mac(fr, *o);
+                            CHECK(mc.size() == 4);
+                            if (mc.size() == 4) { CHECK(mc[0] == 0xDE); CHECK(mc[3] == 0xEF); }
+                        }
                     }
-                }
 }
 
 TEST_CASE("DATA — hop_budget saturates (matches Lua math.min, not a wrap)") {
@@ -937,22 +989,34 @@ TEST_CASE("DATA — hop_budget saturates (matches Lua math.min, not a wrap)") {
     if (o) { CHECK(o->hops_remaining == 31); CHECK(o->committed_hops == 7); }
 }
 
-TEST_CASE("DATA — byte1 flag bit isolation (each flag toggles exactly its bit)") {
+TEST_CASE("DATA — byte1 flag bit isolation (full byte; each flag toggles exactly its bit)") {
     auto pack_flags = [](uint8_t flags, std::array<uint8_t, 24>& out) -> size_t {
         data_in in{};
-        in.next = 1; in.dst = 2; in.flags = flags;
+        in.next = 1; in.dst = 2; in.flags = flags;   // type stays 0 (no APP byte) so byte 1 == the flags input
         in.inner = {}; in.mac = {};
         return pack_data(in, out);
     };
-    std::array<uint8_t, 24> base{}, ack_req{}, is_ack{}, prio{};
+    std::array<uint8_t, 24> base{}, xl{}, cry{}, ack_req{}, srch{}, dsth{}, prio{};
     CHECK(pack_flags(0, base) == 12);
-    CHECK(pack_flags(DATA_FLAG_E2E_ACK_REQ,    ack_req) == 12);
-    CHECK(pack_flags(DATA_FLAG_E2E_IS_ACK,     is_ack)  == 12);
-    CHECK(pack_flags(DATA_FLAG_PRIORITY,       prio)    == 12);
+    CHECK(pack_flags(DATA_FLAG_CROSS_LAYER, xl)      == 12);
+    CHECK(pack_flags(DATA_FLAG_CRYPTED,     cry)     == 12);
+    CHECK(pack_flags(DATA_FLAG_E2E_ACK_REQ, ack_req) == 12);
+    CHECK(pack_flags(DATA_FLAG_SOURCE_HASH, srch)    == 12);
+    CHECK(pack_flags(DATA_FLAG_DST_HASH,    dsth)    == 12);
+    CHECK(pack_flags(DATA_FLAG_PRIORITY,    prio)    == 12);
     CHECK(base[1] == 0x00);
-    CHECK((base[1] ^ ack_req[1]) == 0x80);   // E2E_ACK_REQ -> bit 7
-    CHECK((base[1] ^ is_ack[1])  == 0x40);   // E2E_IS_ACK  -> bit 6
-    CHECK((base[1] ^ prio[1])    == 0x20);   // PRIORITY    -> bit 5  (bit 4 retired: channel-M moved to cmd 0xA)
+    CHECK((base[1] ^ xl[1])      == 0x40);   // CROSS_LAYER -> bit 6
+    CHECK((base[1] ^ cry[1])     == 0x20);   // CRYPTED     -> bit 5
+    CHECK((base[1] ^ ack_req[1]) == 0x10);   // E2E_ACK_REQ -> bit 4
+    CHECK((base[1] ^ srch[1])    == 0x04);   // SOURCE_HASH -> bit 2
+    CHECK((base[1] ^ dsth[1])    == 0x02);   // DST_HASH    -> bit 1
+    CHECK((base[1] ^ prio[1])    == 0x01);   // PRIORITY    -> bit 0
+    // APP (bit 7) is DERIVED from type, not set directly: a non-zero type sets it + emits the TYPE byte.
+    std::array<uint8_t, 24> app{};
+    data_in ai{}; ai.next = 1; ai.dst = 2; ai.flags = 0; ai.type = DATA_TYPE_H_ANSWER; ai.inner = {}; ai.mac = {};
+    CHECK(pack_data(ai, app) == 13);          // +1 TYPE byte
+    CHECK((base[1] ^ app[1]) == 0x80);        // APP -> bit 7
+    CHECK(app[8] == DATA_TYPE_H_ANSWER);      // the TYPE byte
 }
 
 TEST_CASE("DATA — reject: wrong cmd / <12 / addr_len!=0 / bad span sizes; 12-B min accepts") {
@@ -1014,14 +1078,13 @@ TEST_CASE("DATA — endianness guard (ctr LE)") {
 }
 
 TEST_CASE("DATA — inner helpers: reject malformed + accept minimum (empty body)") {
-    const uint8_t too_short_uni[] = {0x00};         // < 2
-    CHECK_FALSE(parse_unicast_inner(too_short_uni).has_value());
-    const uint8_t bad_srcaddr[] = {0x01, 0x07};     // src_addr_len != 0
-    CHECK_FALSE(parse_unicast_inner(bad_srcaddr).has_value());
+    // No payload-flags byte: a plain inner (flags=0) is [origin][body], so an empty inner has no origin -> reject.
+    const uint8_t empty_uni[] = {0x00};
+    CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(empty_uni, 0), /*flags=*/0).has_value());
 
-    // minimum-accept boundary: empty body
-    const uint8_t min_uni[] = {0x00, 0x07};         // src_addr_len=0, origin=7, body empty
-    auto u = parse_unicast_inner(min_uni);
+    // minimum-accept boundary: just an origin (flags=0), empty body
+    const uint8_t min_uni[] = {0x07};               // origin=7, body empty
+    auto u = parse_unicast_inner(std::span<const uint8_t>(min_uni, 1), /*flags=*/0);
     CHECK(u.has_value());
     if (u) { CHECK(u->origin == 7); CHECK(u->body.size() == 0); }
     // (channel-M inner retired — its parse boundaries are covered by the M-frame reject/accept test above.)
@@ -1038,37 +1101,37 @@ TEST_CASE("DATA — default hops_remaining is 31 (no TTL enforcement, Lua 'or 31
     if (o) { CHECK(o->hops_remaining == 31); CHECK(o->committed_hops == 0); }
 }
 
-TEST_CASE("DATA unicast inner — DST_HASH round-trip + plain + reject other shapes/truncations") {
-    // plain inner: [payload-flags=0][origin][body]
-    { const uint8_t in[] = { 0x00, 7, 'h', 'i' };
-      auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in));
+TEST_CASE("DATA unicast inner — DST_HASH round-trip + plain + reject truncations (layout from flags)") {
+    // plain inner (flags=0): [origin][body] — no payload-flags byte
+    { const uint8_t in[] = { 7, 'h', 'i' };
+      auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in), /*flags=*/0);
       CHECK(u.has_value());
       if (u) { CHECK_FALSE(u->has_dst_hash); CHECK(u->origin == 7);
                CHECK(u->body.size() == 2); CHECK(u->body[0] == 'h'); CHECK(u->body[1] == 'i'); } }
-    // DST_HASH inner: [0x40][dst_key_hash32 LE = 0x12345678][origin][body]
-    { const uint8_t in[] = { PAYLOAD_FLAG_DST_HASH, 0x78, 0x56, 0x34, 0x12, 9, 'o', 'k' };
-      auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in));
+    // DST_HASH inner (flags & DST_HASH): [dst_key_hash32 LE = 0x12345678][origin][body]
+    { const uint8_t in[] = { 0x78, 0x56, 0x34, 0x12, 9, 'o', 'k' };
+      auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in), DATA_FLAG_DST_HASH);
       CHECK(u.has_value());
       if (u) { CHECK(u->has_dst_hash); CHECK(u->dst_key_hash32 == 0x12345678u); CHECK(u->origin == 9);
                CHECK(u->body.size() == 2); CHECK(u->body[0] == 'o'); CHECK(u->body[1] == 'k'); } }
     // DST_HASH with an EMPTY body is valid (origin present, zero-length body)
-    { const uint8_t in[] = { PAYLOAD_FLAG_DST_HASH, 1, 2, 3, 4, 9 };
-      auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in));
+    { const uint8_t in[] = { 1, 2, 3, 4, 9 };
+      auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in), DATA_FLAG_DST_HASH);
       CHECK(u.has_value());
       if (u) { CHECK(u->has_dst_hash); CHECK(u->origin == 9); CHECK(u->body.size() == 0); } }
-    // reject: other inner shapes (caller dispatches them elsewhere) + truncations
-    { const uint8_t hans[] = { PAYLOAD_FLAG_H_ANSWER, 1, 2, 3, 4, 5, 6 };      // H_ANSWER
-      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(hans, sizeof hans)).has_value()); }
-    { const uint8_t cry[] = { PAYLOAD_FLAG_CRYPTED, 1, 'x' };                  // CRYPTED
-      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(cry, sizeof cry)).has_value()); }
-    { const uint8_t xl[] = { PAYLOAD_FLAG_CROSS_LAYER, 1, 'x' };               // CROSS_LAYER
-      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(xl, sizeof xl)).has_value()); }
-    { const uint8_t shorthash[] = { PAYLOAD_FLAG_DST_HASH, 1, 2, 3 };          // DST_HASH, hash truncated
-      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(shorthash, sizeof shorthash)).has_value()); }
-    { const uint8_t noorigin[] = { PAYLOAD_FLAG_DST_HASH, 1, 2, 3, 4 };        // hash but no origin byte
-      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(noorigin, sizeof noorigin)).has_value()); }
+    // Other header flags (CROSS_LAYER/CRYPTED/SOURCE_HASH) don't change the unicast inner layout here — only
+    // DST_HASH adds the 4-B prefix. A flags=0 inner with a leading 'origin' parses fine regardless of them.
+    { const uint8_t in[] = { 5, 'x' };
+      auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in), DATA_FLAG_CRYPTED);   // no DST_HASH bit
+      CHECK(u.has_value());
+      if (u) { CHECK_FALSE(u->has_dst_hash); CHECK(u->origin == 5); CHECK(u->body.size() == 1); } }
+    // reject: truncations
+    { const uint8_t shorthash[] = { 1, 2, 3 };          // DST_HASH set but hash truncated (<4)
+      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(shorthash, sizeof shorthash), DATA_FLAG_DST_HASH).has_value()); }
+    { const uint8_t noorigin[] = { 1, 2, 3, 4 };        // hash present but no origin byte
+      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(noorigin, sizeof noorigin), DATA_FLAG_DST_HASH).has_value()); }
     { const uint8_t* e = nullptr;
-      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(e, size_t(0))).has_value()); }   // empty
+      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(e, size_t(0)), /*flags=*/0).has_value()); }   // empty, no origin
 }
 
 TEST_CASE("RTS — FLOOD RTS-M round-trip (43 B: channel_msg_id BE + 32-B bitmap) + rejects") {

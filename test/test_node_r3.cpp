@@ -134,12 +134,12 @@ static size_t mk_rts(uint8_t src, uint8_t next, uint8_t dst, uint8_t ctr_lo,
 }
 static size_t mk_data(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origin,
                       const char* body, std::array<uint8_t, 64>& b) {
-    std::array<uint8_t, 32> inner{}; inner[0] = 0; inner[1] = origin;
-    uint8_t bl = 0; while (body[bl]) { inner[2 + bl] = static_cast<uint8_t>(body[bl]); ++bl; }
+    std::array<uint8_t, 32> inner{}; inner[0] = origin;   // [origin][body] — no payload-flags byte
+    uint8_t bl = 0; while (body[bl]) { inner[1 + bl] = static_cast<uint8_t>(body[bl]); ++bl; }
     const uint8_t mac[4] = { 0, 0, 0, 0 };
     data_in in{}; in.addr_len = 0; in.flags = 0; in.next = next; in.dst = dst;
     in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
-    in.inner = std::span<const uint8_t>(inner.data(), 2 + bl);
+    in.inner = std::span<const uint8_t>(inner.data(), 1 + bl);
     in.mac = std::span<const uint8_t>(mac, 4);
     return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
 }
@@ -147,40 +147,41 @@ static size_t mk_data(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origin,
 static size_t mk_data_hb(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origin,
                          uint8_t hops_remaining, uint8_t committed,
                          const char* body, std::array<uint8_t, 64>& b) {
-    std::array<uint8_t, 32> inner{}; inner[0] = 0; inner[1] = origin;
-    uint8_t bl = 0; while (body[bl]) { inner[2 + bl] = static_cast<uint8_t>(body[bl]); ++bl; }
+    std::array<uint8_t, 32> inner{}; inner[0] = origin;   // [origin][body] — no payload-flags byte
+    uint8_t bl = 0; while (body[bl]) { inner[1 + bl] = static_cast<uint8_t>(body[bl]); ++bl; }
     const uint8_t mac[4] = { 0, 0, 0, 0 };
     data_in in{}; in.addr_len = 0; in.flags = 0; in.next = next; in.dst = dst;
     in.hops_remaining = hops_remaining; in.committed_hops = committed; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
-    in.inner = std::span<const uint8_t>(inner.data(), 2 + bl);
+    in.inner = std::span<const uint8_t>(inner.data(), 1 + bl);
     in.mac = std::span<const uint8_t>(mac, 4);
     return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
 }
-// DATA with explicit flags + a raw body (may contain 0 bytes) — for the E2E ACK tests.
+// DATA with explicit flags + TYPE + a raw body (may contain 0 bytes) — for the E2E ACK tests. The inner is
+// the normal-unicast shape [origin][body] (no payload-flags byte); `type` rides the byte-8 TYPE byte (APP).
 static size_t mk_data_e2e(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origin, uint8_t flags,
-                          const uint8_t* body, uint8_t body_len, std::array<uint8_t, 64>& b) {
-    std::array<uint8_t, 32> inner{}; inner[0] = 0; inner[1] = origin;
-    for (uint8_t i = 0; i < body_len; ++i) inner[2 + i] = body[i];
+                          const uint8_t* body, uint8_t body_len, std::array<uint8_t, 64>& b, uint8_t type = 0) {
+    std::array<uint8_t, 32> inner{}; inner[0] = origin;
+    for (uint8_t i = 0; i < body_len; ++i) inner[1 + i] = body[i];
     const uint8_t mac[4] = { 0, 0, 0, 0 };
-    data_in in{}; in.addr_len = 0; in.flags = flags; in.next = next; in.dst = dst;
+    data_in in{}; in.addr_len = 0; in.flags = flags; in.type = type; in.next = next; in.dst = dst;
     in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
-    in.inner = std::span<const uint8_t>(inner.data(), 2 + body_len);
+    in.inner = std::span<const uint8_t>(inner.data(), 1 + body_len);
     in.mac = std::span<const uint8_t>(mac, 4);
     return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
 }
-// DATA carrying a DST_HASH inner ([0x40][dst_key_hash32 LE 4B][origin][body]) — L2c verify-on-delivery.
+// DATA carrying a DST_HASH inner ([dst_key_hash32 LE 4B][origin][body]) with the DST_HASH header flag set —
+// L2c verify-on-delivery. No payload-flags byte; presence is signalled by the byte-1 flag.
 static size_t mk_data_dsthash(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origin,
                               uint32_t dst_hash, const char* body, std::array<uint8_t, 64>& b) {
     std::array<uint8_t, 40> inner{};
-    inner[0] = PAYLOAD_FLAG_DST_HASH;
-    inner[1] = static_cast<uint8_t>(dst_hash);        inner[2] = static_cast<uint8_t>(dst_hash >> 8);
-    inner[3] = static_cast<uint8_t>(dst_hash >> 16);  inner[4] = static_cast<uint8_t>(dst_hash >> 24);
-    inner[5] = origin;
-    uint8_t bl = 0; while (body[bl]) { inner[6 + bl] = static_cast<uint8_t>(body[bl]); ++bl; }
+    inner[0] = static_cast<uint8_t>(dst_hash);        inner[1] = static_cast<uint8_t>(dst_hash >> 8);
+    inner[2] = static_cast<uint8_t>(dst_hash >> 16);  inner[3] = static_cast<uint8_t>(dst_hash >> 24);
+    inner[4] = origin;
+    uint8_t bl = 0; while (body[bl]) { inner[5 + bl] = static_cast<uint8_t>(body[bl]); ++bl; }
     const uint8_t mac[4] = { 0, 0, 0, 0 };
-    data_in in{}; in.addr_len = 0; in.flags = 0; in.next = next; in.dst = dst;
+    data_in in{}; in.addr_len = 0; in.flags = DATA_FLAG_DST_HASH; in.next = next; in.dst = dst;
     in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
-    in.inner = std::span<const uint8_t>(inner.data(), 6 + bl);
+    in.inner = std::span<const uint8_t>(inner.data(), 5 + bl);
     in.mac = std::span<const uint8_t>(mac, 4);
     return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
 }
@@ -190,10 +191,11 @@ static size_t mk_data_hashbind(uint8_t next, uint8_t dst, uint16_t ctr,
                                uint8_t hb_node, uint32_t hb_key, bool authoritative,
                                std::array<uint8_t, 64>& b) {
     std::array<uint8_t, 16> inner{};
-    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = hb_node; hb.key_hash32 = hb_key; hb.authoritative = authoritative;
+    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = hb_node; hb.key_hash32 = hb_key;   // 6-B inner; authoritative via TYPE
     const size_t il = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
     const uint8_t mac[4] = { 0, 0, 0, 0 };
     data_in in{}; in.addr_len = 0; in.flags = 0; in.next = next; in.dst = dst;
+    in.type = authoritative ? DATA_TYPE_AUTHORITATIVE_H_ANSWER : DATA_TYPE_H_ANSWER;   // H_ANSWER rides the frame TYPE
     in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
     in.inner = std::span<const uint8_t>(inner.data(), il);
     in.mac = std::span<const uint8_t>(mac, 4);
@@ -1810,7 +1812,7 @@ TEST_CASE("E2E ACK — origin of an E2E_IS_ACK DATA confirms (no app delivery)")
     std::array<uint8_t, 64> db{};
     const uint8_t acked[2] = { 5, 0 };                       // acked ctr = 5 (LE)
     const size_t dn = mk_data_e2e(/*next=*/0, /*dst=*/0, /*ctr=*/0x0009, /*origin=*/2,
-                                  DATA_FLAG_E2E_IS_ACK, acked, 2, db);
+                                  /*flags=*/0, acked, 2, db, /*type=*/DATA_TYPE_E2E_ACK);
     hal._now = 2000; node.on_recv(db.data(), dn, meta);
     node.on_timer(kPostAckTimerId);
     const Ev* ack = hal.last("e2e_ack_rx");
@@ -1902,7 +1904,7 @@ TEST_CASE("L2c — DST_HASH mismatch, owner KNOWN: FORWARD preserves origin + ct
             CHECK(d->ctr == 0x0005);                             // ORIGINAL ctr preserved (no new send_by_hash ctr)
             CHECK(d->dst == 3);                                  // re-targeted to the real owner
             auto inner = data_inner(std::span<const uint8_t>(dataf->bytes.data(), dataf->bytes.size()), *d);
-            auto ui = parse_unicast_inner(inner);
+            auto ui = parse_unicast_inner(inner, d->flags);
             CHECK(ui.has_value());
             if (ui) { CHECK(ui->origin == 1);                    // ORIGINAL sender preserved (NOT the redirector id 2)
                       CHECK(ui->has_dst_hash); CHECK(ui->dst_key_hash32 == 0x1234u); }
@@ -2016,15 +2018,14 @@ static size_t mk_data_dsthash_hops(uint8_t next, uint8_t dst, uint16_t ctr, uint
                                    uint32_t dst_hash, uint8_t hops_remaining, const char* body,
                                    std::array<uint8_t, 64>& b) {
     std::array<uint8_t, 40> inner{};
-    inner[0] = PAYLOAD_FLAG_DST_HASH;
-    inner[1] = static_cast<uint8_t>(dst_hash);        inner[2] = static_cast<uint8_t>(dst_hash >> 8);
-    inner[3] = static_cast<uint8_t>(dst_hash >> 16);  inner[4] = static_cast<uint8_t>(dst_hash >> 24);
-    inner[5] = origin;
-    uint8_t bl = 0; while (body[bl]) { inner[6 + bl] = static_cast<uint8_t>(body[bl]); ++bl; }
+    inner[0] = static_cast<uint8_t>(dst_hash);        inner[1] = static_cast<uint8_t>(dst_hash >> 8);
+    inner[2] = static_cast<uint8_t>(dst_hash >> 16);  inner[3] = static_cast<uint8_t>(dst_hash >> 24);
+    inner[4] = origin;
+    uint8_t bl = 0; while (body[bl]) { inner[5 + bl] = static_cast<uint8_t>(body[bl]); ++bl; }
     const uint8_t mac[4] = { 0, 0, 0, 0 };
-    data_in in{}; in.addr_len = 0; in.flags = 0; in.next = next; in.dst = dst;
+    data_in in{}; in.addr_len = 0; in.flags = DATA_FLAG_DST_HASH; in.next = next; in.dst = dst;
     in.hops_remaining = hops_remaining; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
-    in.inner = std::span<const uint8_t>(inner.data(), 6 + bl);
+    in.inner = std::span<const uint8_t>(inner.data(), 5 + bl);
     in.mac = std::span<const uint8_t>(mac, 4);
     return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
 }
@@ -2116,7 +2117,7 @@ TEST_CASE("L2c send-side — originator stamps DST_HASH from an authoritative id
         auto d = parse_data(std::span<const uint8_t>(dataf->bytes.data(), dataf->bytes.size()));
         CHECK(d.has_value());
         if (d) {
-            auto ui = parse_unicast_inner(data_inner(std::span<const uint8_t>(dataf->bytes.data(), dataf->bytes.size()), *d));
+            auto ui = parse_unicast_inner(data_inner(std::span<const uint8_t>(dataf->bytes.data(), dataf->bytes.size()), *d), d->flags);
             CHECK(ui.has_value());
             if (ui) { CHECK(ui->has_dst_hash); CHECK(ui->dst_key_hash32 == 0x1234u); CHECK(ui->origin == 1); }
         }
