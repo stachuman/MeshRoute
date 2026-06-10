@@ -43,6 +43,58 @@ TEST_CASE("parse_command — send_channel <ch> <body>") {
     CHECK(c.u.channel.channel_id == 255);
 }
 
+TEST_CASE("parse_command — sendhash <hash> <body> (address by key_hash32, NO ack)") {
+    const char* line = "sendhash a1b2c3d4 hello";
+    Command c{};
+    CHECK(parse_command(line, std::strlen(line), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::send);                 // hash-addressed DM rides the same send path
+    CHECK(c.u.send.dst_id == 0);                    // no short id — on_command routes by dst_hash
+    CHECK(c.u.send.dst_hash == 0xa1b2c3d4u);
+    CHECK(c.u.send.flags == 0x00);                  // plain DM: no ack requested
+    CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "hello");
+}
+
+TEST_CASE("parse_command — sendhash_ack <hash> <body> (E2E ack-req)") {
+    const char* line = "sendhash_ack 0a0b0c0d ok";
+    Command c{};
+    CHECK(parse_command(line, std::strlen(line), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::send);
+    CHECK(c.u.send.dst_id == 0);
+    CHECK(c.u.send.dst_hash == 0x0a0b0c0du);
+    CHECK(c.u.send.flags == 0x08);                  // E2E ack-req
+    CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "ok");
+}
+
+TEST_CASE("parse_command — sendhash bad hash -> bad_args") {
+    Command c{};
+    const char* nonhex = "sendhash xyz hi";
+    CHECK(parse_command(nonhex, std::strlen(nonhex), c) == ParseErr::bad_args);     // non-hex
+    const char* toolong = "sendhash 123456789 hi";
+    CHECK(parse_command(toolong, std::strlen(toolong), c) == ParseErr::bad_args);   // >8 hex digits
+}
+
+TEST_CASE("parse_command — resolve <hash> [hard] (network hash-locate, notify-only)") {
+    Command c{};
+    const char* soft = "resolve a1b2c3d4";
+    CHECK(parse_command(soft, std::strlen(soft), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::resolve);
+    CHECK(c.u.resolve.dst_hash == 0xa1b2c3d4u);
+    CHECK(c.u.resolve.hard == false);
+    const char* hard = "resolve 00ff00ff hard";
+    CHECK(parse_command(hard, std::strlen(hard), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::resolve);
+    CHECK(c.u.resolve.dst_hash == 0x00ff00ffu);
+    CHECK(c.u.resolve.hard == true);
+}
+
+TEST_CASE("parse_command — resolve bad hash / bad 2nd arg -> bad_args") {
+    Command c{};
+    const char* nonhex = "resolve zz";
+    CHECK(parse_command(nonhex, std::strlen(nonhex), c) == ParseErr::bad_args);
+    const char* badopt = "resolve a1 soft";       // only `hard` is a valid 2nd arg
+    CHECK(parse_command(badopt, std::strlen(badopt), c) == ParseErr::bad_args);
+}
+
 TEST_CASE("parse_command — errors") {
     Command c{};
     CHECK(parse_command("ping 5 x", 8, c) == ParseErr::unknown_verb);

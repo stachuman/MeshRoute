@@ -645,6 +645,88 @@ TEST_CASE("D send-by-hash — an oversized body is refused (err_too_large), neve
     CHECK(node.on_command(ok).code == CmdCode::queued);
 }
 
+// Reconstruct the queried hash from a hash_resolved push (body[0..3] = hash LE).
+static uint32_t push_hash(const Push& p) {
+    return (uint32_t)p.body[0] | ((uint32_t)p.body[1] << 8) | ((uint32_t)p.body[2] << 16) | ((uint32_t)p.body[3] << 24);
+}
+
+TEST_CASE("resolve — own hash and a cached AUTHORITATIVE binding answer immediately (no flood)") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    // (a) our OWN hash resolves to self, authoritative, with NO airtime.
+    Command rc{}; rc.kind = CmdKind::resolve; rc.u.resolve.dst_hash = 0x00001111; rc.u.resolve.hard = false;
+    CHECK(node.on_command(rc).code == CmdCode::queued);
+    Push p{};
+    CHECK(node.next_push(p));
+    CHECK(p.kind == PushKind::hash_resolved);
+    CHECK(p.origin == 1);                            // self
+    CHECK(p.dst == 1);                               // authoritative
+    CHECK(push_hash(p) == 0x00001111u);
+    CHECK(count_h_tx(hal.tx_frames) == 0);           // answered from self -> no flood
+
+    // (b) a directly-heard beacon installs an AUTHORITATIVE binding -> resolve answers from cache, no flood.
+    std::array<uint8_t, 64> b{};
+    const size_t n = make_beacon(/*src=*/7, /*key_hash32=*/0x0000B0B0, b);
+    node.on_recv(b.data(), n, meta);
+    hal.tx_frames.clear();
+    Command rc2{}; rc2.kind = CmdKind::resolve; rc2.u.resolve.dst_hash = 0x0000B0B0; rc2.u.resolve.hard = false;
+    CHECK(node.on_command(rc2).code == CmdCode::queued);
+    Push p2{};
+    CHECK(node.next_push(p2));
+    CHECK(p2.kind == PushKind::hash_resolved);
+    CHECK(p2.origin == 7);
+    CHECK(p2.dst == 1);
+    CHECK(push_hash(p2) == 0x0000B0B0u);
+    CHECK(count_h_tx(hal.tx_frames) == 0);
+}
+
+TEST_CASE("resolve — unknown hash floods H, then the hash-bind answer pushes hash_resolved") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    node.on_init(cfg);
+
+    Command rc{}; rc.kind = CmdKind::resolve; rc.u.resolve.dst_hash = 0x0000ABAB; rc.u.resolve.hard = false;
+    CHECK(node.on_command(rc).code == CmdCode::queued);
+    Push p{};
+    CHECK_FALSE(node.next_push(p));                  // unknown -> NO immediate answer
+    CHECK(count_h_tx(hal.tx_frames) >= 1);           // it flooded H to find the owner
+
+    // the owner's hash-bind answer arrives (routed to us as an H_ANSWER DATA inner) -> resolve completes.
+    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 9; hb.key_hash32 = 0x0000ABAB; hb.authoritative = true;
+    std::array<uint8_t, 16> inner{};
+    const size_t il = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
+    node.on_hash_bind_response(inner.data(), (uint8_t)il);
+    CHECK(node.next_push(p));
+    CHECK(p.kind == PushKind::hash_resolved);
+    CHECK(p.origin == 9);
+    CHECK(p.dst == 1);                               // owner answer is authoritative
+    CHECK(push_hash(p) == 0x0000ABABu);
+}
+
+TEST_CASE("resolve — a hash that never resolves pushes a timeout (node 0) after the TTL") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    node.on_init(cfg);
+
+    Command rc{}; rc.kind = CmdKind::resolve; rc.u.resolve.dst_hash = 0x0000DEAD; rc.u.resolve.hard = false;
+    CHECK(node.on_command(rc).code == CmdCode::queued);
+    Push p{};
+    CHECK_FALSE(node.next_push(p));                  // parked, awaiting the flood answer
+
+    hal._now += protocol::send_defer_ttl_ms;         // let the parked resolve age out
+    node.on_timer(kAgingTimerId);
+    CHECK(node.next_push(p));
+    CHECK(p.kind == PushKind::hash_resolved);
+    CHECK(p.origin == 0);                            // 0 = unresolved / timeout
+    CHECK(push_hash(p) == 0x0000DEADu);
+}
+
 TEST_CASE("D re-drain — a beacon that installs the authoritative binding flies a stranded parked DM") {
     TestHal hal;
     Node node(hal, /*node_id=*/1, /*key_hash32=*/0x00001111);

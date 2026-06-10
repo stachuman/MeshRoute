@@ -54,9 +54,11 @@ const char* cmdcode_name(CmdCode c) {
 }
 const char* pushkind_name(PushKind k) {
     switch (k) {
-        case PushKind::msg_recv:    return "msg_recv";
-        case PushKind::send_acked:  return "send_acked";
-        case PushKind::send_failed: return "send_failed";
+        case PushKind::msg_recv:      return "msg_recv";
+        case PushKind::channel_recv:  return "channel_recv";
+        case PushKind::send_acked:    return "send_acked";
+        case PushKind::send_failed:   return "send_failed";
+        case PushKind::hash_resolved: return "hash_resolved";
     }
     return "unknown";
 }
@@ -90,6 +92,16 @@ size_t write_push(char* buf, size_t cap, const Push& p) {
         j.lit(",\"origin\":"); j.u32(p.origin);
         j.lit(",\"ctr\":");    j.u32(p.ctr);
         j.lit(",\"body\":");   j.str(reinterpret_cast<const char*>(p.body), p.body_len);
+    } else if (p.kind == PushKind::channel_recv) {
+        j.lit(",\"origin\":");     j.u32(p.origin);
+        j.lit(",\"channel_id\":"); j.u32(p.channel_id);
+        j.lit(",\"body\":");       j.str(reinterpret_cast<const char*>(p.body), p.body_len);
+    } else if (p.kind == PushKind::hash_resolved) {
+        const uint32_t hash = static_cast<uint32_t>(p.body[0]) | (static_cast<uint32_t>(p.body[1]) << 8)
+                            | (static_cast<uint32_t>(p.body[2]) << 16) | (static_cast<uint32_t>(p.body[3]) << 24);
+        j.lit(",\"node\":"); j.u32(p.origin);          // 0 = unresolved / timeout
+        j.lit(",\"auth\":"); j.u32(p.dst);
+        j.lit(",\"hash\":"); j.u32(hash);
     } else {  // send_acked / send_failed
         j.lit(",\"dst\":"); j.u32(p.dst);
         j.lit(",\"ctr\":"); j.u32(p.ctr);

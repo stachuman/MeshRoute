@@ -352,6 +352,11 @@ private:
     void    drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id);   // a binding arrived -> fly the parked DMs to it
     void    drain_resolved_parked_sends();                       // beacon-tick re-drain: any parked hash now authoritatively bound
     void    age_out_parked_sends();                              // give up on parked sends past send_defer_ttl_ms
+    // Diagnostic `resolve` (CmdKind::resolve): locate a hash WITHOUT sending a DM. Authoritative cache hit (or
+    // own hash) -> answer now; else park a notify-only request + flood H. The answer/timeout rides hash_resolved.
+    void    request_resolve(uint32_t key_hash32, bool hard);     // the resolve entrypoint (called by on_command)
+    void    park_resolve_request(uint32_t key_hash32);           // park a notify-only resolve (de-dups by hash)
+    void    push_hash_resolved(uint32_t key_hash32, uint8_t node_id, bool authoritative);  // enqueue the push (node_id 0 = timeout)
     // L2c verify-on-delivery: a DM whose DST_HASH != our key was misdelivered by an id collision —
     // FORWARD it (identity-preserving, not re-originated) toward the real owner of want_hash. The HEAL
     // (renumber) is confirmation-gated: deferred to the HARD-H resolution, fired only when want_hash resolves
@@ -627,8 +632,8 @@ private:
     // leg is re-budgeted as a fresh route (originator-style), so no hop fields are carried. resolved_id==our id
     // at drain = a CONFIRMED collision (the heal trigger, design §7.1).
     struct ParkedSend { uint32_t key_hash32; uint64_t parked_at_ms; uint8_t flags; uint8_t body_len;
-                        bool is_redirect = false; uint8_t origin = 0; uint16_t ctr = 0; uint8_t ctr_lo = 0;
-                        uint8_t body[protocol::max_payload_bytes_hard_cap]; };
+                        bool is_redirect = false; bool is_resolve = false; uint8_t origin = 0; uint16_t ctr = 0; uint8_t ctr_lo = 0;
+                        uint8_t body[protocol::max_payload_bytes_hard_cap]; };   // is_resolve: notify-only diag (a `resolve`), no body
     ParkedSend _parked_sends[protocol::cap_parked_sends] = {};
     uint8_t    _parked_sends_n = 0;
     // L2c redirect-suppression ring: a misdelivered DM we've already redirected for this hash recently,

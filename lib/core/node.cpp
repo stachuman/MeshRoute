@@ -228,6 +228,12 @@ CmdResult Node::on_command(const Command& c) {
             }
             return CmdResult{ CmdCode::queued, 0, _tx_queue_n };
         }
+        case CmdKind::resolve: {     // diagnostic hash-locate (no DM) — the answer rides the hash_resolved push
+            if (_node_id == 0)       // unprovisioned: the H flood needs a valid origin
+                return CmdResult{ CmdCode::err_unprovisioned, 0, _tx_queue_n };
+            request_resolve(c.u.resolve.dst_hash, c.u.resolve.hard);
+            return CmdResult{ CmdCode::queued, 0, _tx_queue_n };
+        }
         case CmdKind::send_layer:    // cross-layer  -> R7
         default:
             return CmdResult{ CmdCode::err_unsupported, 0, _tx_queue_n };

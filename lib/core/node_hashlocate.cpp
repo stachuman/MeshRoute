@@ -434,7 +434,11 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id) {
     for (uint8_t r = 0; r < _parked_sends_n; ++r) {
         const ParkedSend p = _parked_sends[r];
         if (p.key_hash32 == key_hash32) {
-            if (p.is_redirect) {
+            if (p.is_resolve) {                                  // notify-only `resolve` diag: report, don't send
+                IdBindConf conf = IdBindConf::claimed;
+                (void)id_bind_find_by_hash(key_hash32, &conf);   // confidence was just set by the caller
+                push_hash_resolved(key_hash32, resolved_id, conf == IdBindConf::authoritative);
+            } else if (p.is_redirect) {
                 if (resolved_id == _node_id) {
                     // Proven same-id collision (the owner of want_hash holds OUR id). DEFER the heal to AFTER
                     // the loop: l2c_confirmed_collision -> forced_rejoin mutates _node_id, and running it here
@@ -484,7 +488,9 @@ void Node::drain_resolved_parked_sends() {
         IdBindConf conf = IdBindConf::claimed;
         const int id = id_bind_find_by_hash(p.key_hash32, &conf);
         if (id >= 0 && conf == IdBindConf::authoritative && static_cast<uint8_t>(id) != _node_id) {
-            if (p.is_redirect) {
+            if (p.is_resolve) {
+                push_hash_resolved(p.key_hash32, static_cast<uint8_t>(id), true);   // a beacon resolved it -> answer
+            } else if (p.is_redirect) {
                 if (l2c_enqueue_forward(static_cast<uint8_t>(id), p.origin, p.ctr, p.ctr_lo, p.flags, p.body, p.body_len)) {
                     MR_TELEMETRY(
                         EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = id },
@@ -517,14 +523,65 @@ void Node::age_out_parked_sends() {
     for (uint8_t r = 0; r < _parked_sends_n; ++r) {
         const ParkedSend p = _parked_sends[r];
         if ((now - p.parked_at_ms) >= protocol::send_defer_ttl_ms) {
-            MR_TELEMETRY(
-                EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(p.key_hash32) } };
-                _hal.emit("send_hash_giveup", f, 1); );
-            continue;                                            // drop (the hash didn't resolve in time)
+            if (p.is_resolve) {
+                push_hash_resolved(p.key_hash32, 0, false);     // a `resolve` that never resolved -> timeout answer
+            } else {
+                MR_TELEMETRY(
+                    EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(p.key_hash32) } };
+                    _hal.emit("send_hash_giveup", f, 1); );
+            }
+            continue;                                            // drop (handled: reported / gave up)
         }
         _parked_sends[w++] = p;
     }
     _parked_sends_n = w;
+}
+
+// ---- Diagnostic `resolve` (CmdKind::resolve) -----------------------------------------------------------
+// Locate the node owning key_hash32 WITHOUT sending a DM. An authoritative cache hit (or our own hash)
+// answers immediately; otherwise park a notify-only request + flood H, and the answer/timeout rides the
+// hash_resolved push. SOFT (hard=false) accepts a cached authoritative binding; HARD always floods to reach
+// the owner (verify-on-use), mirroring send_by_hash.
+void Node::request_resolve(uint32_t key_hash32, bool hard) {
+    if (key_hash32 == 0) return;                                  // 0 = no-hash sentinel
+    if (key_hash32 == _key_hash32) { push_hash_resolved(key_hash32, _node_id, true); return; }   // it's us
+    if (!hard) {
+        IdBindConf conf = IdBindConf::claimed;
+        const int id = id_bind_find_by_hash(key_hash32, &conf);
+        if (id >= 0 && conf == IdBindConf::authoritative) {
+            push_hash_resolved(key_hash32, static_cast<uint8_t>(id), true); return;               // cached + trusted
+        }
+    }
+    park_resolve_request(key_hash32);                             // unknown / soft-cached / hard -> flood + wait
+    emit_hash_query(key_hash32, hard);
+}
+
+// Park a notify-only resolve request (no body). De-dup by hash so a re-issued `resolve` refreshes the timer
+// instead of consuming a second slot. Bounded by cap_parked_sends (shared with send-by-hash / L2c redirect).
+void Node::park_resolve_request(uint32_t key_hash32) {
+    for (uint8_t i = 0; i < _parked_sends_n; ++i)
+        if (_parked_sends[i].is_resolve && _parked_sends[i].key_hash32 == key_hash32) {
+            _parked_sends[i].parked_at_ms = _hal.now(); return;  // already pending -> refresh the TTL
+        }
+    if (_parked_sends_n >= protocol::cap_parked_sends) return;   // full -> drop (operator re-runs)
+    ParkedSend& p = _parked_sends[_parked_sends_n++];
+    p = ParkedSend{};
+    p.key_hash32 = key_hash32; p.is_resolve = true; p.parked_at_ms = _hal.now();
+}
+
+// Enqueue the hash_resolved push: origin = owner node_id (0 = unresolved/timeout), dst = authoritative?1:0,
+// body[0..3] = the queried hash (LE) so the host knows which `resolve` this answers.
+void Node::push_hash_resolved(uint32_t key_hash32, uint8_t node_id, bool authoritative) {
+    Push p{};
+    p.kind    = PushKind::hash_resolved;
+    p.origin  = node_id;
+    p.dst     = authoritative ? 1 : 0;
+    p.body[0] = static_cast<uint8_t>(key_hash32);
+    p.body[1] = static_cast<uint8_t>(key_hash32 >> 8);
+    p.body[2] = static_cast<uint8_t>(key_hash32 >> 16);
+    p.body[3] = static_cast<uint8_t>(key_hash32 >> 24);
+    p.body_len = 4;
+    enqueue_push(p);
 }
 
 }  // namespace meshroute

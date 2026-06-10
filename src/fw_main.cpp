@@ -317,9 +317,52 @@ static void handle_debug(const char* arg, size_t n) {
     Serial.println(off ? F("> debug off — RX/TX frame trace silenced") : F("> debug on — tracing RX/TX frames"));
 }
 
+// `lookup <hash>` — local id_bind cache peek (NO airtime): resolve a key_hash32 -> node short-id from what
+// this node already knows (beacons / prior H answers). Hash is hex (e.g. `lookup 8a3f1c02`). For a network
+// resolve of an unknown hash, use `resolve` (floods H).
+static void handle_lookup(const char* arg, size_t n) {
+    while (n && *arg == ' ') { ++arg; --n; }
+    if (!n) { Serial.println(F("> lookup err bad_args (hex hash)")); return; }
+    const uint32_t hash = (uint32_t)strtoul(arg, nullptr, 16);
+    meshroute::Node::IdBindConf conf = meshroute::Node::IdBindConf::claimed;
+    const int id = g_node.id_bind_find_by_hash(hash, &conf);
+    Serial.print(F("[lookup] 0x")); Serial.print(hash, HEX);
+    if (id < 0) { Serial.println(F(" -> miss")); return; }
+    Serial.print(F(" -> id=")); Serial.print(id);
+    Serial.println(conf == meshroute::Node::IdBindConf::authoritative ? F(" (authoritative)") : F(" (claimed)"));
+}
+
+// `hashof <id>` — reverse lookup: a node short-id -> its key_hash32 (AUTHORITATIVE bindings only — a node we
+// can vouch for). Decimal id 0..254.
+static void handle_hashof(const char* arg, size_t n) {
+    while (n && *arg == ' ') { ++arg; --n; }
+    if (!n) { Serial.println(F("> hashof err bad_args (id 0..254)")); return; }
+    const int id = atoi(arg);
+    uint32_t hash = 0;
+    Serial.print(F("[hashof] id=")); Serial.print(id);
+    if (id >= 0 && id <= 254 && g_node.key_hash_of_id((uint8_t)id, hash)) { Serial.print(F(" -> 0x")); Serial.println(hash, HEX); }
+    else                                                                  Serial.println(F(" -> unknown"));
+}
+
+// `whoami` — this node's own identity + role. The hash printed here is what a peer types into `sendhash` to
+// reach you (the device can't surface its own key_hash32 any other way). Name is read from /mrid.
+static void handle_whoami() {
+    Serial.print(F("[whoami] id=")); Serial.print(g_node.node_id());
+    Serial.print(F(" hash=0x"));     Serial.print(g_node.key_hash32(), HEX);
+    mrnv::IdBlob idb{};
+    if (mrnv::load_id(idb) && idb.name_len) { Serial.print(F(" name=\"")); Serial.write(idb.name, idb.name_len); Serial.print('"'); }
+    const meshroute::NodeConfig& c = g_node.config();
+    Serial.print(F(" leaf="));   Serial.print(c.leaf_id);
+    Serial.print(F(" gw="));     Serial.print(c.is_gateway ? 1 : 0);
+    Serial.print(F(" gwonly=")); Serial.print(c.gateway_only ? 1 : 0);
+    Serial.print(F(" mobile=")); Serial.println(c.is_mobile ? 1 : 0);
+}
+
 // `help` / `?` — a small command + cfg-key reference for the live console session.
 static void dump_help() {
-    Serial.println(F("[help] send <id> <text> | send_ack <id> <text> | send_channel <ch> <text> | cfg | cfg set <k> <v> | routes | status | sleep [on|off] | debug [on|off] | regen | reboot"));
+    Serial.println(F("[help] messaging:  send <id> <text> | send_ack <id> <text> | sendhash <hash> <text> | sendhash_ack <hash> <text> | send_channel <ch> <text>"));
+    Serial.println(F("[help] hash/id:    lookup <hash> | hashof <id> | whoami"));
+    Serial.println(F("[help] diag:       routes | status | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot"));
     Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway gateway_only mobile key"));
 }
 
@@ -334,6 +377,9 @@ static bool service_debug(const char* line, size_t len) {
     if (len == 3 && !strncmp(line, "cfg", 3))      { dump_cfg();    return true; }
     if ((len == 5 || (len > 5 && line[5] == ' ')) && !strncmp(line, "sleep", 5)) { handle_sleep(line + 5, len - 5); return true; }
     if ((len == 5 || (len > 5 && line[5] == ' ')) && !strncmp(line, "debug", 5)) { handle_debug(line + 5, len - 5); return true; }
+    if (len == 6 && !strncmp(line, "whoami", 6)) { handle_whoami(); return true; }
+    if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "lookup", 6)) { handle_lookup(line + 6, len - 6); return true; }
+    if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "hashof", 6)) { handle_hashof(line + 6, len - 6); return true; }
     return false;
 }
 
@@ -554,7 +600,7 @@ void loop() {
     while (g_node.next_push(pu)) {
         switch (pu.kind) {
             case meshroute::PushKind::msg_recv:
-                Serial.println(F("RECV from=")); Serial.print(pu.origin); Serial.print(F(": "));
+                Serial.print(F("RECV from="));   Serial.print(pu.origin); Serial.print(F(": "));
                 Serial.write(pu.body, pu.body_len); Serial.println();
                 break;
             case meshroute::PushKind::channel_recv:
@@ -563,9 +609,18 @@ void loop() {
                 Serial.write(pu.body, pu.body_len); Serial.println();
                 break;
             case meshroute::PushKind::send_acked:
-                Serial.println(F("ACKED ctr="));  Serial.println(pu.ctr); break;
+                Serial.print(F("ACKED ctr="));    Serial.println(pu.ctr); break;
             case meshroute::PushKind::send_failed:
-                Serial.println(F("FAILED ctr=")); Serial.println(pu.ctr); break;
+                Serial.print(F("FAILED ctr="));   Serial.println(pu.ctr); break;
+            case meshroute::PushKind::hash_resolved: {
+                const uint32_t hash = (uint32_t)pu.body[0] | ((uint32_t)pu.body[1] << 8)
+                                    | ((uint32_t)pu.body[2] << 16) | ((uint32_t)pu.body[3] << 24);
+                if (pu.origin == 0) { Serial.print(F("UNRESOLVED 0x")); Serial.print(hash, HEX); Serial.println(F(" (timeout)")); }
+                else { Serial.print(F("RESOLVED 0x")); Serial.print(hash, HEX);
+                       Serial.print(F(" -> id=")); Serial.print(pu.origin);
+                       Serial.println(pu.dst ? F(" (auth)") : F(" (cached)")); }
+                break;
+            }
         }
     }
     Serial.flush();

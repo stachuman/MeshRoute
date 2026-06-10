@@ -17,7 +17,7 @@
 namespace meshroute {
 
 // ---- requests (one cmd-code + a bounded typed payload, like a MeshCore frame) ----
-enum class CmdKind : uint8_t { send, send_layer, send_channel, join };
+enum class CmdKind : uint8_t { send, send_layer, send_channel, join, resolve };
 
 // The four Lua send_* verbs collapse to ONE Send + flag bits (same wire bits as
 // dv_dual_sf.lua:2187-2189). Addressed by short id (now) / key_hash32 (later) —
@@ -28,6 +28,10 @@ struct SendCmd        { uint8_t dst_id; uint32_t dst_hash; uint8_t flags; };
 struct SendLayerCmd   { uint8_t hops[protocol::gw_env_max_hops]; uint8_t hop_count; uint32_t dst_hash; };
 struct SendChannelCmd { uint8_t channel_id; };
 struct JoinCmd        { enum Op : uint8_t { discover, claim, deny } op; uint8_t node_id; uint32_t claimant_hash; };
+// Diagnostic: locate the node owning key_hash32 (the hash-locate H flood); the answer rides
+// PushKind::hash_resolved. hard = skip caches, reach the owner (verify-on-use). NO body — notify-only,
+// distinct from a send-by-hash (which carries a DM and rides CmdKind::send with dst_hash set).
+struct ResolveCmd     { uint32_t dst_hash; bool hard; };
 
 struct Command {
     CmdKind kind = CmdKind::send;
@@ -36,6 +40,7 @@ struct Command {
         SendLayerCmd   layer;
         SendChannelCmd channel;
         JoinCmd        join;
+        ResolveCmd     resolve;
     } u;
     const uint8_t* body     = nullptr;   // BORROWED for the call only (mirrors hal.h on_recv)
     uint8_t        body_len = 0;
@@ -56,6 +61,8 @@ enum class PushKind : uint8_t {
     channel_recv,  // a NEW channel message was received (origin=minter, channel_id, body=text)
     send_acked,    // our send's link ACK returned (ctr = the sent message id)
     send_failed,   // our send gave up (ctr = the sent message id)
+    hash_resolved, // a `resolve` completed: origin = owner node_id (0 = unresolved/timeout),
+                   // dst = authoritative?1:0, body[0..3] = the queried key_hash32 (LE, 4 B)
 };
 struct Push {
     PushKind kind = PushKind::msg_recv;

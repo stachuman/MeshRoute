@@ -34,46 +34,7 @@ bool parse_u32_tok(const Tok& t, uint32_t max, uint32_t& out) {
     return true;
 }
 
-}  // namespace
-
-ParseErr parse_command(const char* line, size_t len, Command& out) {
-    Scan s{ line, line + len };
-    Tok verb = token(s);
-    if (verb.n == 0) return ParseErr::empty;
-    //   send <id> <text>          — DM, NO E2E ack
-    //   send_ack <id> <text>      — DM, E2E ack requested (flags E2E=0x08)
-    //   send_channel <ch> <text>  — single-layer channel gossip (channel_id 0..255)
-    const bool is_send     = tok_eq(verb, "send");
-    const bool is_send_ack = tok_eq(verb, "send_ack");
-    const bool is_channel  = tok_eq(verb, "send_channel");
-    if (!is_send && !is_send_ack && !is_channel) return ParseErr::unknown_verb;
-
-    // first arg: dst short-id (send/send_ack, 0..254) or channel id (send_channel, 0..255).
-    Tok arg = token(s);
-    uint32_t arg_val = 0;
-    if (!parse_u32_tok(arg, is_channel ? 255u : 254u, arg_val)) return ParseErr::bad_args;
-
-    // body = remainder after exactly one separating space (verbatim, incl. spaces).
-    if (s.p < s.end && (*s.p == ' ' || *s.p == '\t')) ++s.p;
-    size_t body_len = static_cast<size_t>(s.end - s.p);
-    if (body_len > protocol::max_payload_bytes_hard_cap) body_len = protocol::max_payload_bytes_hard_cap;
-
-    out = Command{};
-    if (is_channel) {
-        out.kind = CmdKind::send_channel;
-        out.u.channel.channel_id = static_cast<uint8_t>(arg_val);
-    } else {
-        out.kind = CmdKind::send;
-        out.u.send.dst_id   = static_cast<uint8_t>(arg_val);
-        out.u.send.dst_hash = 0;
-        out.u.send.flags    = is_send_ack ? 0x08 : 0x00;  // send_ack = E2E ack-req; send = no ack (command.h: E2E=0x08)
-    }
-    out.body = reinterpret_cast<const uint8_t*>(s.p);
-    out.body_len = static_cast<uint8_t>(body_len);
-    return ParseErr::ok;
-}
-
-namespace {
+// Parse up to 8 hex digits into a u32; false on empty/non-hex/overflow (>8 digits).
 bool parse_hex32_tok(const Tok& t, uint32_t& out) {
     if (t.n == 0 || t.n > 8) return false;
     uint32_t v = 0;
@@ -88,7 +49,69 @@ bool parse_hex32_tok(const Tok& t, uint32_t& out) {
     out = v;
     return true;
 }
+
 }  // namespace
+
+ParseErr parse_command(const char* line, size_t len, Command& out) {
+    Scan s{ line, line + len };
+    Tok verb = token(s);
+    if (verb.n == 0) return ParseErr::empty;
+
+    //   resolve <hash> [hard] — diagnostic hash-locate (H flood); the answer arrives async via hash_resolved.
+    if (tok_eq(verb, "resolve")) {
+        Tok arg = token(s);
+        uint32_t hash = 0;
+        if (!parse_hex32_tok(arg, hash)) return ParseErr::bad_args;
+        Tok opt = token(s);
+        const bool hard = (opt.n != 0) && tok_eq(opt, "hard");
+        if (opt.n != 0 && !hard) return ParseErr::bad_args;        // the only valid 2nd arg is `hard`
+        out = Command{};
+        out.kind = CmdKind::resolve;
+        out.u.resolve.dst_hash = hash;
+        out.u.resolve.hard     = hard;
+        return ParseErr::ok;
+    }
+
+    //   send <id> <text>           — DM by short id, NO E2E ack
+    //   send_ack <id> <text>       — DM by short id, E2E ack requested (flags E2E=0x08)
+    //   sendhash <hash> <text>     — DM by key_hash32 (hash-locate); on_command resolves then sends
+    //   sendhash_ack <hash> <text> — DM by key_hash32, E2E ack requested
+    //   send_channel <ch> <text>   — single-layer channel gossip (channel_id 0..255)
+    const bool is_send         = tok_eq(verb, "send");
+    const bool is_send_ack     = tok_eq(verb, "send_ack");
+    const bool is_sendhash     = tok_eq(verb, "sendhash");
+    const bool is_sendhash_ack = tok_eq(verb, "sendhash_ack");
+    const bool is_channel      = tok_eq(verb, "send_channel");
+    if (!is_send && !is_send_ack && !is_sendhash && !is_sendhash_ack && !is_channel)
+        return ParseErr::unknown_verb;
+    const bool by_hash = is_sendhash || is_sendhash_ack;   // first arg is a hex key_hash32, not a decimal id
+    const bool e2e_ack = is_send_ack || is_sendhash_ack;   // the *_ack verbs request the E2E ack
+
+    // first arg: hex key_hash32 (sendhash*), decimal channel id (send_channel, 0..255), or decimal dst id (0..254).
+    Tok arg = token(s);
+    uint32_t arg_val = 0;
+    if (by_hash) { if (!parse_hex32_tok(arg, arg_val))                         return ParseErr::bad_args; }
+    else         { if (!parse_u32_tok(arg, is_channel ? 255u : 254u, arg_val)) return ParseErr::bad_args; }
+
+    // body = remainder after exactly one separating space (verbatim, incl. spaces).
+    if (s.p < s.end && (*s.p == ' ' || *s.p == '\t')) ++s.p;
+    size_t body_len = static_cast<size_t>(s.end - s.p);
+    if (body_len > protocol::max_payload_bytes_hard_cap) body_len = protocol::max_payload_bytes_hard_cap;
+
+    out = Command{};
+    if (is_channel) {
+        out.kind = CmdKind::send_channel;
+        out.u.channel.channel_id = static_cast<uint8_t>(arg_val);
+    } else {
+        out.kind = CmdKind::send;
+        out.u.send.dst_id   = by_hash ? 0 : static_cast<uint8_t>(arg_val);
+        out.u.send.dst_hash = by_hash ? arg_val : 0u;     // on_command (node.cpp) routes dst_hash!=0 to send_by_hash
+        out.u.send.flags    = e2e_ack ? 0x08 : 0x00;      // *_ack = E2E ack-req (command.h: E2E=0x08)
+    }
+    out.body = reinterpret_cast<const uint8_t*>(s.p);
+    out.body_len = static_cast<uint8_t>(body_len);
+    return ParseErr::ok;
+}
 
 CfgErr parse_cfg(const char* line, size_t len, NodeConfig& cfg,
                  uint8_t& node_id, uint32_t& key_hash32) {
