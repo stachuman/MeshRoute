@@ -32,9 +32,11 @@
 #         [bluetooth]# pair <ADDR>        (enter PIN 123456 when asked)
 #         [bluetooth]# trust <ADDR>
 #     After that, `meshroute_client_ble.py monitor --addr <ADDR>` connects to the bonded device.
-#   - Windows (WinRT): `client.pair()` works and prompts for the PIN.
-# This client calls pair() best-effort (logs the outcome) and never proceeds insecurely on its own — if the
-# subscribe fails because the link isn't bonded, that surfaces as an error, not a silent hang.
+#   - Windows (WinRT): bleak's `client.pair()` does NOT do the passkey ceremony (it returns None without
+#     bonding). Pair ONCE via Settings > Bluetooth & devices > Add device > "MeshRoute-<id>" > enter the PIN,
+#     then run this client with `--no-pair` (Windows reconnects to the bond automatically).
+# This client calls pair() best-effort, then if the encrypted-char subscribe fails for lack of a bond it
+# prints the OS-pairing recipe (above) and exits — never a silent hang, never an insecure shortcut.
 #
 # Usage:
 #   meshroute_client_ble.py scan                         # list advertising MeshRoute nodes
@@ -44,10 +46,19 @@
 #   meshroute_client_ble.py --pin 654321 monitor         # non-default pairing PIN
 #   meshroute_client_ble.py --selftest                   # JSON-line parser checks, no device needed
 
+import sys
+
+# WINDOWS/WinRT FIX — MUST run before `import bleak` (or anything pulling in pythoncom). In a console app the
+# COM apartment can default to/be forced to STA (single-threaded), and then WinRT async event callbacks NEVER
+# dispatch — connect() + start_notify() succeed and the peripheral reports the CCCD enabled, but the
+# notification handler is silent (the exact symptom we hit). Forcing MTA makes the callbacks fire. No-op off
+# Windows. (See bleak troubleshooting: COM apartment / Windows GUI.)
+if sys.platform == "win32":
+    sys.coinit_flags = 0   # 0 = COINIT_MULTITHREADED
+
 import argparse
 import asyncio
 import json
-import sys
 
 NUS_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e"
 NUS_RX      = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"   # write  (host -> node)
@@ -152,12 +163,38 @@ async def _resolve_address(args):
     return addr
 
 
+def _is_auth_error(e):
+    """True if an exception is the SoftDevice rejecting an un-bonded link (the §A.3 gate doing its job)."""
+    m = str(e).lower()
+    return any(k in m for k in ("insufficient authentication", "insufficient encryption",
+                                "authenticat", "encryption", "not paired", "access denied"))
+
+
+def _pairing_help(addr, pin):
+    """The actionable message when the link isn't bonded. Pairing a static-PIN MITM peripheral is an OS-level
+    ceremony (the OS shows the PIN dialog) — bleak's pair() can't supply the passkey on every backend. So pair
+    ONCE via the OS, then reconnect with --no-pair (the bond persists)."""
+    return (
+        "\n  ⚠ The node requires an encrypted + MITM-bonded link before GATT (spec §A.3) — this is the\n"
+        "    firmware's security gate working correctly; the link just isn't bonded yet.\n\n"
+        f"    Pair ONCE via your OS (it shows the PIN dialog — enter {pin}), then reconnect with --no-pair:\n"
+        f"      Windows: Settings > Bluetooth & devices > Add device > Bluetooth > \"MeshRoute-…\" > PIN {pin}\n"
+        f"      Linux:   bluetoothctl -> agent KeyboardDisplay; default-agent; pair {addr} (PIN {pin}); trust {addr}\n"
+        f"      macOS:   accept the system PIN prompt ({pin})\n\n"
+        "    Then:  python tools/meshroute_client_ble.py --no-pair repl\n"
+        "    (Once bonded, the OS reconnects to the bond automatically — no re-PIN.)")
+
+
 async def _connect(args, on_json):
     """Connect, best-effort pair, subscribe TXD. Returns an open BleakClient (caller disconnects). `on_json`
     is called with each parsed NDJSON object as it arrives. This IS the iOS-reference sequence."""
     BleakClient, _ = _import_bleak()
     addr = await _resolve_address(args)
-    client = BleakClient(addr)
+    # Windows: force a fresh (UNCACHED) GATT read so we don't subscribe against a stale cached characteristic
+    # from the Settings bond (a DIY nRF52 whose GATT shifts between flashes is the classic stale-cache case).
+    # NB the option lives INSIDE the `winrt=` dict — a bare `use_cached_services=` is silently ignored by bleak.
+    client_kwargs = {"winrt": {"use_cached_services": False}} if sys.platform == "win32" else {}
+    client = BleakClient(addr, **client_kwargs)
     await client.connect()
     print(f"  connected [{addr}]", file=sys.stderr)
 
@@ -181,14 +218,24 @@ async def _connect(args, on_json):
 
     # Subscribing to the encrypted TXD is the readiness gate (and the trigger for OS pairing) — exactly the
     # iOS contract: the app sends nothing until this succeeds (post-bond). A failure here = not bonded.
-    await client.start_notify(NUS_TX, _notify)
+    try:
+        await client.start_notify(NUS_TX, _notify)
+    except Exception as e:                                     # noqa: BLE001
+        if _is_auth_error(e):                                  # the §A.3 gate rejected an un-bonded link
+            await client.disconnect()
+            sys.exit(_pairing_help(addr, args.pin))           # actionable guidance, not a traceback
+        raise
     print("  subscribed TXD — link READY", file=sys.stderr)
     return client
 
 
 async def send_line(client, line):
+    # Write WITH response (an ATT Write Request, acknowledged) — the command channel wants reliable delivery,
+    # not fire-and-forget. Write-without-response was silently dropped on WinRT (the node never saw the command),
+    # while the CCCD subscribe — also a Write Request — worked; that mismatch was the tell. iOS NOTE: use
+    # writeValue:forCharacteristic:type:CBCharacteristicWriteWithResponse for RXD.
     data = (line.rstrip("\n") + "\n").encode("utf-8")
-    await client.write_gatt_char(NUS_RX, data, response=False)
+    await client.write_gatt_char(NUS_RX, data, response=True)
 
 
 # ---- subcommands -------------------------------------------------------------------------------------
