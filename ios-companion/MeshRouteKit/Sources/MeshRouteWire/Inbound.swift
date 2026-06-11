@@ -46,7 +46,12 @@ public struct NodeReady: Hashable, Sendable, Codable {
     public let mode: String
     public let gateway: Bool
     public let routingSF: Int
-    enum CodingKeys: String, CodingKey { case id, key, leafID = "leaf_id", mode, gateway, routingSF = "routing_sf" }
+    /// The node's inbox epoch (bumped on any store reset). Optional + nil on firmware without a durable
+    /// inbox — the proposed home for the epoch the sync layer needs before deciding pull cursors (TBD wire).
+    public let inboxEpoch: UInt32?
+    enum CodingKeys: String, CodingKey {
+        case id, key, leafID = "leaf_id", mode, gateway, routingSF = "routing_sf", inboxEpoch = "inbox_epoch"
+    }
 }
 
 public struct NodeStatusSnapshot: Hashable, Sendable, Codable {
@@ -62,13 +67,15 @@ public struct NodeStatusSnapshot: Hashable, Sendable, Codable {
 // ---- the decoded inbound union ----
 public enum Inbound: Hashable, Sendable {
     case ack(CommandAck)
-    case messageReceived(origin: Int, ctr: Int, body: String)
-    case channelReceived(origin: Int, channelID: Int, body: String)
+    case messageReceived(origin: Int, ctr: Int, senderHash: UInt32?, body: String)   // senderHash = sender key_hash32
+    case channelReceived(origin: Int, channelID: Int, channelMsgID: UInt32?, body: String)
     case sendAcked(dst: Int, ctr: Int)
     case sendFailed(dst: Int, ctr: Int)
     case hashResolved(node: Int, authoritative: Bool, hash: KeyHash)   // node == 0 → unresolved/timeout
     case ready(NodeReady)
     case status(NodeStatusSnapshot)
+    case inboxEntry(InboxEntry)                                       // one record from a pull_inbox stream
+    case inboxEnd(dmSeq: UInt32, chanSeq: UInt32, epoch: UInt32?, count: Int)  // pull done: newest seqs, served epoch, #streamed
     case event(type: String, fields: [String: JSONValue])             // generic / future events
     case log(String)
     case error(code: String, message: String?)
@@ -104,11 +111,12 @@ public enum PushDecoder {
         switch ev {
         case "msg_recv":
             if let m = try? decoder.decode(MsgRecv.self, from: data) {
-                return .messageReceived(origin: m.origin, ctr: m.ctr, body: m.body)
+                return .messageReceived(origin: m.origin, ctr: m.ctr, senderHash: m.sender_hash, body: m.body)
             }
         case "channel_recv":
             if let m = try? decoder.decode(ChannelRecv.self, from: data) {
-                return .channelReceived(origin: m.origin, channelID: m.channel_id, body: m.body)
+                return .channelReceived(origin: m.origin, channelID: m.channel_id,
+                                        channelMsgID: m.channel_msg_id, body: m.body)
             }
         case "send_acked":
             if let m = try? decoder.decode(SendFate.self, from: data) {
@@ -126,6 +134,21 @@ public enum PushDecoder {
             if let m = try? decoder.decode(NodeReady.self, from: data) { return .ready(m) }
         case "status":
             if let m = try? decoder.decode(NodeStatusSnapshot.self, from: data) { return .status(m) }
+        case "inbox_dm":
+            if let m = try? decoder.decode(InboxDM.self, from: data) {
+                return .inboxEntry(InboxEntry(seq: m.seq, kind: .dm, origin: m.origin, channelID: 0,
+                                              ctr: m.ctr, senderHash: m.sender_hash, rxTimeMs: m.rx_ms, body: m.body))
+            }
+        case "inbox_channel":
+            if let m = try? decoder.decode(InboxCh.self, from: data) {
+                return .inboxEntry(InboxEntry(seq: m.seq, kind: .channel, origin: m.origin, channelID: m.channel_id,
+                                              ctr: Int(m.channel_msg_id & 0xFF), channelMsgID: m.channel_msg_id,
+                                              rxTimeMs: m.rx_ms, body: m.body))
+            }
+        case "inbox_end":
+            if let m = try? decoder.decode(InboxEnd.self, from: data) {
+                return .inboxEnd(dmSeq: m.dm_seq, chanSeq: m.chan_seq, epoch: m.epoch, count: m.count)
+            }
         default:
             break
         }
@@ -145,8 +168,11 @@ public enum PushDecoder {
         let log: String?
         let err: String?; let msg: String?
     }
-    private struct MsgRecv: Decodable { let origin: Int; let ctr: Int; let body: String }
-    private struct ChannelRecv: Decodable { let origin: Int; let channel_id: Int; let body: String }
+    private struct MsgRecv: Decodable { let origin: Int; let ctr: Int; let sender_hash: UInt32?; let body: String }
+    private struct ChannelRecv: Decodable { let origin: Int; let channel_id: Int; let channel_msg_id: UInt32?; let body: String }
     private struct SendFate: Decodable { let dst: Int; let ctr: Int }
     private struct HashResolved: Decodable { let node: Int; let auth: Int; let hash: UInt32 }
+    private struct InboxDM: Decodable { let seq: UInt32; let origin: Int; let ctr: Int; let sender_hash: UInt32?; let rx_ms: UInt64; let body: String }
+    private struct InboxCh: Decodable { let seq: UInt32; let origin: Int; let channel_id: Int; let channel_msg_id: UInt32; let rx_ms: UInt64; let body: String }
+    private struct InboxEnd: Decodable { let dm_seq: UInt32; let chan_seq: UInt32; let epoch: UInt32?; let count: Int }
 }

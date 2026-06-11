@@ -36,12 +36,16 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     uint8_t  gateway_only;     // v6: §7 pure-bridge flag (channel-plane consumer half off too)
     uint8_t  is_mobile;        // v6
     uint8_t  leaf_id;          // v6: leaf membership (floods are leaf-scoped)
+    uint8_t  ble_mode;         // v7: BLE companion policy — 0=off (bare-metal, default), 1=on, 2=periodic
+    uint8_t  ble_period_min;   // v7: periodic-mode advertising period (minutes); reboot-to-apply
+    uint32_t ble_pin;          // v7: the 6-digit BLE pairing passkey (0..999999)
 };
 constexpr uint32_t kMagic   = 0x4D524331u;   // 'MRC1'
-constexpr uint16_t kVersion = 6;             // v6: PERSIST role/topology (is_gateway, gateway_only, is_mobile, leaf_id),
-                                             // previously live-only. The Blob grew, so every pre-v6 blob fails the
-                                             // `n == sizeof(out)` size check in load() and is rejected -> the node
-                                             // re-provisions from defaults (no migration; just re-run `cfg set`).
+constexpr uint16_t kVersion = 7;             // v7: PERSIST the BLE companion policy (ble_mode/ble_period_min/ble_pin).
+                                             // v6: role/topology (is_gateway, gateway_only, is_mobile, leaf_id). The Blob
+                                             // grew, so every pre-v7 blob fails the `n == sizeof(out)` size check in load()
+                                             // and is rejected -> the node re-provisions from defaults (BOTH boards — the
+                                             // Blob is shared with the ESP32/Preferences backend; no migration, re-run `cfg set`).
 
 // ---- Identity record (`/mrid`) — SEPARATE from the config blob above (spec §1.4). The 32-byte master
 // seed is the single source of truth: ed_pub / key_hash32 / x_* are DERIVED at boot via identity_from_seed

@@ -669,6 +669,11 @@ std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> i
     }
     if (inner.size() < off + 1) return std::nullopt;              // origin
     u.origin = inner[off]; off += 1;
+    if (flags & DATA_FLAG_SOURCE_HASH) {                          // origin's key_hash32 (stable sender id), after origin
+        if (inner.size() < off + 4) return std::nullopt;          // source_hash (4 B LE)
+        wire::Reader r(inner.subspan(off, 4)); u.source_hash = r.u32_le();
+        u.has_source_hash = true; off += 4;
+    }
     u.body   = inner.subspan(off);
     return u;
 }

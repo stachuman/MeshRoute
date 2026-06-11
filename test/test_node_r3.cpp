@@ -304,17 +304,17 @@ TEST_CASE("inbox integration — a delivered DM is recorded durably + pushed, fi
     // 2) the durable inbox recorded exactly one DM, consistent with that push
     CHECK(dm.count() == 1);
     CHECK(ch.count() == 0);                                  // a DM does not touch the channel store
-    struct Got { bool seen; InboxKind kind; uint8_t origin; uint16_t ctr; std::string body; } g{ false, InboxKind::channel, 0, 0, "" };
+    struct Got { bool seen; InboxKind kind; uint8_t origin; uint32_t msg_id; std::string body; } g{ false, InboxKind::channel, 0, 0, "" };
     node.inbox().pull(0, 0, [](void* c, const InboxEntry& e) -> bool {
         auto* x = static_cast<Got*>(c);
-        x->seen = true; x->kind = e.kind; x->origin = e.origin; x->ctr = e.ctr;
+        x->seen = true; x->kind = e.kind; x->origin = e.origin; x->msg_id = e.msg_id;
         x->body.assign(reinterpret_cast<const char*>(e.body ? e.body : reinterpret_cast<const uint8_t*>("")), e.body_len);
         return true;
     }, &g);
     CHECK(g.seen);
     CHECK(g.kind == InboxKind::dm);
     CHECK(g.body == "hi");                                   // the delivered content
-    if (got) { CHECK(g.origin == pu.origin); CHECK(g.ctr == pu.ctr);   // same source (do_post_ack) -> consistent
+    if (got) { CHECK(g.origin == pu.origin); CHECK(g.msg_id == pu.ctr);   // DM msg_id == the ctr; same source (do_post_ack)
                CHECK(g.body == std::string(reinterpret_cast<const char*>(pu.body), pu.body_len)); }
 }
 

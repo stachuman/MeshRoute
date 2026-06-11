@@ -38,11 +38,16 @@ final class MessageEntity {
     var timestamp: Date
     var stateRaw: String           // DeliveryState
     var origin: Int?               // sender short id (incoming)
-    var ctr: Int?                  // node message counter (send id / received id)
+    var ctr: Int?                  // node message counter — DM identity component (16-bit msg_id)
+    var channelMsgID: Int?         // channel identity — full 32-bit channel_msg_id (nil for DM)
+    var senderHash: Int?           // DM identity — sender's stable key_hash32 (nil/0 = legacy DM)
 
     init(id: UUID, thread: ThreadKey, direction: MessageDirection, body: String,
-         timestamp: Date, state: DeliveryState, origin: Int?, ctr: Int?) {
+         timestamp: Date, state: DeliveryState, origin: Int?, ctr: Int?, channelMsgID: Int? = nil,
+         senderHash: Int? = nil) {
         self.id = id
+        self.channelMsgID = channelMsgID
+        self.senderHash = senderHash
         switch thread {
         case .dm(let h):      self.threadKind = "dm";      self.threadHash = h.value; self.threadChannel = -1
         case .channel(let c): self.threadKind = "channel"; self.threadHash = 0;       self.threadChannel = Int(c)
@@ -70,9 +75,21 @@ final class NodeProfileEntity {
     var routingSF: Int
     var gateway: Bool
     var lastSeen: Date
+    // Per-node inbox sync state { epoch, dm_cursor, chan_cursor }. The cursors are meaningful only within
+    // an epoch; a node store wipe bumps the epoch and we re-pull from 0 (see AppModel.startInboxSync).
+    var inboxEpoch: Int = 0
+    var dmCursor: Int = 0
+    var chanCursor: Int = 0
 
     init(key32: UInt32, shortID: Int, mode: String, routingSF: Int, gateway: Bool, lastSeen: Date = .now) {
         self.key32 = key32; self.shortID = shortID; self.mode = mode
         self.routingSF = routingSF; self.gateway = gateway; self.lastSeen = lastSeen
+    }
+
+    var syncState: InboxSyncState {
+        get { InboxSyncState(epoch: UInt32(clamping: inboxEpoch),
+                             dmCursor: UInt32(clamping: dmCursor),
+                             chanCursor: UInt32(clamping: chanCursor)) }
+        set { inboxEpoch = Int(newValue.epoch); dmCursor = Int(newValue.dmCursor); chanCursor = Int(newValue.chanCursor) }
     }
 }

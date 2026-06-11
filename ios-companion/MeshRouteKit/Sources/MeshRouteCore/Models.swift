@@ -51,25 +51,52 @@ public struct ChatMessage: Identifiable, Hashable, Sendable {
     public var origin: UInt8?
     /// The node's message counter — the send id (outgoing) or the received message id (inbound DM).
     public var ctr: Int?
+    /// Per-store inbox seq, set for messages sourced from a `pull_inbox` (nil for live pushes / outgoing).
+    public var seq: UInt32?
+    /// Full 32-bit channel_msg_id — the channel identity (channel messages only; nil for DM / outgoing).
+    public var channelMsgID: UInt32?
+    /// The sender's stable key_hash32 (DM SOURCE_HASH) — the DM identity + thread key; nil/0 = legacy DM.
+    public var senderHash: UInt32?
 
     public init(id: UUID = UUID(), thread: ThreadKey, direction: MessageDirection, body: String,
-                timestamp: Date, state: DeliveryState, origin: UInt8? = nil, ctr: Int? = nil) {
+                timestamp: Date, state: DeliveryState, origin: UInt8? = nil, ctr: Int? = nil,
+                seq: UInt32? = nil, channelMsgID: UInt32? = nil, senderHash: UInt32? = nil) {
         self.id = id; self.thread = thread; self.direction = direction; self.body = body
         self.timestamp = timestamp; self.state = state; self.origin = origin; self.ctr = ctr
+        self.seq = seq; self.channelMsgID = channelMsgID; self.senderHash = senderHash
     }
 
-    /// Dedup identity for an INBOUND DM: (origin, ctr). A reconnect/inbox-pull must not duplicate it.
-    /// nil when we can't dedup (channel pushes carry no ctr on the wire — see console_json channel_recv).
-    public var inboundDedupKey: InboundKey? {
-        guard direction == .incoming, let origin, let ctr else { return nil }
-        return InboundKey(origin: origin, ctr: ctr)
+    /// Stable identity for an INBOUND message, shared by the live push and the inbox-pull paths so a
+    /// record never duplicates across them OR across an epoch-reset re-pull from seq 0. nil when we can't
+    /// form it. seq/epoch are deliberately NOT part of identity — those reset on a store wipe.
+    public var inboundDedupKey: MessageIdentity? {
+        guard direction == .incoming else { return nil }
+        switch thread {
+        case .dm:
+            guard let ctr else { return nil }
+            return .dm(senderHash: senderHash, origin: origin, ctr: ctr)
+        case .channel:
+            guard let channelMsgID else { return nil }
+            return .channel(msgID: channelMsgID)
+        }
     }
 }
 
-public struct InboundKey: Hashable, Sendable {
-    public let origin: UInt8
-    public let ctr: Int
-    public init(origin: UInt8, ctr: Int) { self.origin = origin; self.ctr = ctr }
+/// The stable dedup identity (firmware review). A DM uses the sender's stable `key_hash32` when present
+/// (`sender_hash != 0` — the 8-bit `origin` is reassignable), else falls back to `(origin, ctr)`. A
+/// channel uses the full 32-bit `channel_msg_id` (exact, no body tiebreaker). seq/epoch are NOT identity
+/// (they're per-epoch/transport; a re-pull-from-0 must merge).
+public enum MessageIdentity: Hashable, Sendable {
+    case dmByHash(hash: UInt32, ctr: Int)
+    case dmByID(origin: UInt8, ctr: Int)
+    case channel(msgID: UInt32)
+
+    /// Build the DM identity: prefer the stable sender hash; fall back to the short id for legacy DMs.
+    public static func dm(senderHash: UInt32?, origin: UInt8?, ctr: Int) -> MessageIdentity? {
+        if let h = senderHash, h != 0 { return .dmByHash(hash: h, ctr: ctr) }
+        guard let origin else { return nil }
+        return .dmByID(origin: origin, ctr: ctr)
+    }
 }
 
 /// The name↔hash map the app owns. Resolves a heard short id to a contact when a binding is known.

@@ -189,10 +189,9 @@ void Node::ingest_channel_m(const m_out& m, uint8_t from) {
             enqueue_push(pu);
         }
         // Durable inbox (record-on-delivery), alongside the push. NEW-message branch only -> once per msg.
-        // ctr = the channel_msg_id's low 8 bits (origin+ctr reconstruct the id: the middle 16 are the
-        // origin's fixed key_hash16). Inert until a backend installs stores.
-        _inbox.record_channel(m.channel_id, origin, static_cast<uint16_t>(id & 0xff),
-                              e.payload, static_cast<uint8_t>(e.payload_len), _hal.now());
+        // Store the FULL 32-bit channel_msg_id (the exact identity the app dedups by; the low byte alone
+        // can't be reconstructed without the origin's key_hash16). Inert until a backend installs stores.
+        _inbox.record_channel(m.channel_id, id, e.payload, static_cast<uint8_t>(e.payload_len), _hal.now());
         MR_TELEMETRY(
             const char* src = was_pulled ? "pull_target" : "overheard";
             EventField f[] = { { .key = "id",         .type = EventField::T::i64, .i = static_cast<int64_t>(id) },

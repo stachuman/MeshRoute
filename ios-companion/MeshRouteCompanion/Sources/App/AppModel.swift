@@ -28,6 +28,10 @@ final class AppModel {
     private var pump: Task<Void, Never>?
     private var activeMockLink: MockNodeLink?     // kept when running the mock, for the demo button
     private var pendingOutgoing: [UUID] = []     // FIFO: outgoing message ids awaiting their queued ack
+    private var activeSync: InboxSyncState?        // in-flight inbox cursors for this connection
+    private var activeSyncProfile: NodeProfileEntity?
+    private var greetedThisConnection = false      // sent `whoami` once on connect
+    private var syncStartedThisConnection = false  // started the inbox pull once on connect
 
     init(modelContainer: ModelContainer) {
         self.modelContainer = modelContainer
@@ -83,12 +87,20 @@ final class AppModel {
 
     private func disconnectInternal() {
         pump?.cancel(); pump = nil; session = nil; activeMockLink = nil; pendingOutgoing.removeAll()
+        activeSync = nil; activeSyncProfile = nil
+        greetedThisConnection = false; syncStartedThisConnection = false
     }
 
     private func handle(_ event: SessionEvent) {
         switch event {
         case .link(let s):
             linkState = s
+            // On a fresh, usable link, fetch identity deterministically (don't rely on an unsolicited
+            // greeting). The node replies to `whoami` with a `ready` JSON → identity + (Phase 3) inbox sync.
+            if case .connected = s, !greetedThisConnection {
+                greetedThisConnection = true
+                sendCommand(.whoami)
+            }
         case .inbound(let inbound):
             appendConsole(inbound)
             ingest(inbound)
@@ -101,11 +113,16 @@ final class AppModel {
         switch inbound {
         case .ready(let r):
             nodeIdentity = r
-            upsertNodeProfile(r)
-        case .messageReceived(let origin, let ctr, let body):
-            insertInboundDM(origin: origin, ctr: ctr, body: body)
-        case .channelReceived(let origin, let channelID, let body):
-            insertChannel(origin: origin, channelID: channelID, body: body)
+            let profile = upsertNodeProfile(r)
+            startInboxSync(r, profile: profile)
+        case .inboxEntry(let e):
+            importInboxEntry(e)
+        case .inboxEnd(_, _, let epoch, _):
+            handleInboxEnd(servedEpoch: epoch)
+        case .messageReceived(let origin, let ctr, let senderHash, let body):
+            insertInboundDM(origin: origin, ctr: ctr, senderHash: senderHash, body: body)
+        case .channelReceived(let origin, let channelID, let channelMsgID, let body):
+            insertChannel(origin: origin, channelID: channelID, channelMsgID: channelMsgID, body: body)
         case .sendAcked(_, let ctr):
             setOutgoingState(ctr: ctr, to: .acked)
         case .sendFailed(_, let ctr):
@@ -120,21 +137,40 @@ final class AppModel {
         try? context.save()
     }
 
-    private func insertInboundDM(origin: Int, ctr: Int, body: String) {
-        // dedup by (origin, ctr) — a reconnect / inbox pull must not duplicate.
-        if incomingMessages().contains(where: { $0.origin == origin && $0.ctr == ctr }) { return }
-        // Until a resolve binds the id to a hash, stage under a pseudo-hash == id; if a contact already
-        // holds this short id, key straight to their real hash.
-        let threadHash = contactHash(forID: origin) ?? UInt32(UInt8(clamping: origin))
-        let msg = MessageEntity(id: UUID(), thread: .dm(KeyHash(threadHash)), direction: .incoming,
-                                body: body, timestamp: .now, state: .received, origin: origin, ctr: ctr)
+    private func insertInboundDM(origin: Int, ctr: Int, senderHash: UInt32?, body: String) {
+        if dmExists(senderHash: senderHash, origin: origin, ctr: ctr) { return }
+        let msg = MessageEntity(id: UUID(), thread: .dm(KeyHash(dmThreadHash(senderHash: senderHash, origin: origin))),
+                                direction: .incoming, body: body, timestamp: .now, state: .received,
+                                origin: origin, ctr: ctr, senderHash: senderHash.map(Int.init))
         context.insert(msg)
     }
 
-    private func insertChannel(origin: Int, channelID: Int, body: String) {
+    private func insertChannel(origin: Int, channelID: Int, channelMsgID: UInt32?, body: String) {
+        if let mid = channelMsgID, channelExists(msgID: mid) { return }   // dedup by channel_msg_id
         let msg = MessageEntity(id: UUID(), thread: .channel(UInt8(clamping: channelID)), direction: .incoming,
-                                body: body, timestamp: .now, state: .received, origin: origin, ctr: nil)
+                                body: body, timestamp: .now, state: .received, origin: origin, ctr: nil,
+                                channelMsgID: channelMsgID.map(Int.init))
         context.insert(msg)
+    }
+
+    /// A DM thread key: the sender's STABLE hash when present (→ straight into the contact's thread, no
+    /// resolve), else a known id→hash binding, else a pseudo-hash == id staged until a resolve rekeys it.
+    private func dmThreadHash(senderHash: UInt32?, origin: Int) -> UInt32 {
+        if let h = senderHash, h != 0 { return h }
+        return contactHash(forID: origin) ?? UInt32(UInt8(clamping: origin))
+    }
+
+    // Dedup against the durable archive: DM by (sender_hash, ctr) | (origin, ctr); channel by channel_msg_id.
+    private func dmExists(senderHash: UInt32?, origin: Int, ctr: Int) -> Bool {
+        if let h = senderHash, h != 0 {
+            let hi = Int(h)
+            return incomingMessages().contains { $0.threadKind == "dm" && $0.senderHash == hi && $0.ctr == ctr }
+        }
+        return incomingMessages().contains { $0.threadKind == "dm" && $0.origin == origin && $0.ctr == ctr }
+    }
+    private func channelExists(msgID: UInt32) -> Bool {
+        let m = Int(msgID)
+        return incomingMessages().contains { $0.threadKind == "channel" && $0.channelMsgID == m }
     }
 
     private func setOutgoingState(ctr: Int, to state: DeliveryState) {
@@ -265,14 +301,66 @@ final class AppModel {
     }
     private func contactHash(forID id: Int) -> UInt32? { contact(forID: id)?.hashValue32 }
 
-    private func upsertNodeProfile(_ r: NodeReady) {
+    @discardableResult
+    private func upsertNodeProfile(_ r: NodeReady) -> NodeProfileEntity {
         let key = r.key.value
         let d = FetchDescriptor<NodeProfileEntity>(predicate: #Predicate { $0.key32 == key })
         if let p = try? context.fetch(d).first {
             p.shortID = r.id; p.mode = r.mode; p.routingSF = r.routingSF; p.gateway = r.gateway; p.lastSeen = .now
-        } else {
-            context.insert(NodeProfileEntity(key32: key, shortID: r.id, mode: r.mode,
-                                             routingSF: r.routingSF, gateway: r.gateway))
+            return p
+        }
+        let p = NodeProfileEntity(key32: key, shortID: r.id, mode: r.mode, routingSF: r.routingSF, gateway: r.gateway)
+        context.insert(p)
+        return p
+    }
+
+    // ---- inbox sync (handles the node's seq-epoch reset; see INBOX_SYNC_CONTRACT.md) ----
+
+    /// On the `ready` snapshot: reconcile our saved cursors against the node's CURRENT inbox epoch and
+    /// pull. If the epoch changed (store wiped / first sync), beginSync resets the cursors to 0 → a full
+    /// re-pull → and dedup-on-import merges it into the archive. No-op on firmware without a durable inbox.
+    private func startInboxSync(_ r: NodeReady, profile: NodeProfileEntity) {
+        guard let nodeEpoch = r.inboxEpoch, !syncStartedThisConnection else { return }
+        syncStartedThisConnection = true
+        var state = profile.syncState
+        let (dmSince, chanSince) = state.beginSync(nodeEpoch: nodeEpoch)
+        profile.syncState = state                       // persist the (possibly reset) epoch + cursors
+        try? context.save()
+        activeSync = state; activeSyncProfile = profile
+        sendCommand(.pullInbox(dmSince: dmSince, chanSince: chanSince))
+    }
+
+    private func importInboxEntry(_ e: InboxEntry) {
+        if !inboxEntryExists(e) {                        // dedup-on-import by stable identity (no seq/epoch)
+            let thread: ThreadKey = e.kind == .channel
+                ? .channel(UInt8(clamping: e.channelID))
+                : .dm(KeyHash(dmThreadHash(senderHash: e.senderHash, origin: e.origin)))
+            context.insert(MessageEntity(id: UUID(), thread: thread, direction: .incoming, body: e.body,
+                                         timestamp: .now, state: .received, origin: e.origin, ctr: e.ctr,
+                                         channelMsgID: e.channelMsgID.map(Int.init),
+                                         senderHash: e.senderHash.map(Int.init)))
+        }
+        activeSync?.advance(with: e)                     // advance the cursor for the store we just saw
+    }
+
+    /// Pull complete: `inbox_end.epoch` is authoritative for the cursors we just advanced (it also lets us
+    /// detect a mid-pull wipe). Adopt it and persist { epoch, dm_cursor, chan_cursor }.
+    private func handleInboxEnd(servedEpoch: UInt32?) {
+        guard var state = activeSync, let profile = activeSyncProfile else { return }
+        if let served = servedEpoch { state.epoch = served }
+        activeSync = state
+        profile.syncState = state
+        try? context.save()
+    }
+
+    /// Dedup-on-import: DM by (origin, ctr); channel by the full channel_msg_id. seq/epoch are not identity.
+    private func inboxEntryExists(_ e: InboxEntry) -> Bool {
+        switch e.kind {
+        case .dm:
+            return dmExists(senderHash: e.senderHash, origin: e.origin, ctr: e.ctr)
+        case .channel:
+            guard let mid = e.channelMsgID else { return false }
+            return channelExists(msgID: mid)
         }
     }
 }
@@ -288,13 +376,15 @@ struct ConsoleLine: Identifiable {
 func describe(_ inbound: Inbound) -> String {
     switch inbound {
     case .ack(let a):                              return "ack \(a.code) ctr=\(a.ctr) qd=\(a.queueDepth)"
-    case .messageReceived(let o, let c, let b):    return "msg_recv from \(o) ctr=\(c): \(b)"
-    case .channelReceived(let o, let ch, let b):   return "channel_recv ch\(ch) from \(o): \(b)"
+    case .messageReceived(let o, let c, _, let b):  return "msg_recv from \(o) ctr=\(c): \(b)"
+    case .channelReceived(let o, let ch, _, let b): return "channel_recv ch\(ch) from \(o): \(b)"
     case .sendAcked(let d, let c):                 return "send_acked dst=\(d) ctr=\(c)"
     case .sendFailed(let d, let c):                return "send_failed dst=\(d) ctr=\(c)"
     case .hashResolved(let n, let a, let h):       return "hash_resolved \(h.hex8) → node \(n)\(a ? " (auth)" : "")"
     case .ready(let r):                            return "ready id=\(r.id) key=\(r.key.hex8) sf=\(r.routingSF)"
     case .status(let s):                           return "status id=\(s.id) \(s.state)"
+    case .inboxEntry(let e):                       return "inbox_\(e.kind.rawValue) seq=\(e.seq) from \(e.origin) ctr=\(e.ctr): \(e.body)"
+    case .inboxEnd(let dm, let chan, let epoch, let count): return "inbox_end dm=\(dm) chan=\(chan) epoch=\(epoch.map(String.init) ?? "—") count=\(count)"
     case .event(let t, _):                         return "event \(t)"
     case .log(let m):                              return "log: \(m)"
     case .error(let code, let msg):                return "err \(code)\(msg.map { ": \($0)" } ?? "")"

@@ -26,6 +26,7 @@
 #include "command.h"
 #include "console_parse.h"
 #include "device_nv.h"
+#include "device_inbox_store.h"
 #include "device_rng.h"
 #include <string.h>
 #include <stdlib.h>
@@ -71,6 +72,10 @@ static meshroute::ArduinoClock g_clock;
 static meshroute::Sx1262Radio  g_iradio(g_radio);
 static meshroute::DeviceHal    g_hal(g_clock, g_iradio);
 static meshroute::Node         g_node(g_hal, /*node_id=*/0, /*key_hash32=*/0, "node");   // identity set in setup() from /mrid
+// Persistent inbox device stores (records on the external QSPI when wired — see device_inbox_store.h; META on
+// InternalFS). Installed in setup(); inert until the QSPI records backend is bench-wired (begin() then fails).
+static mrinbox::DeviceInboxStore g_inbox_dm("/dm", "/mri_dm", meshroute::protocol::inbox_dm_store_bytes,   mrinbox::kSegScratchBytes);
+static mrinbox::DeviceInboxStore g_inbox_ch("/ch", "/mri_ch", meshroute::protocol::inbox_chan_store_bytes, mrinbox::kSegScratchBytes);
 static meshroute::Identity     g_identity{};                                            // seed -> Ed25519/X25519 + key_hash32
 
 static uint8_t  g_rxbuf[P::max_payload_bytes_hard_cap + 32];
@@ -81,6 +86,11 @@ static bool     g_host_present = false; // a console byte was seen this boot -> 
 static bool     g_force_sleep  = false; // the `sleep` console command -> light-sleep when idle even with a host present
 static double   g_freq_mhz = LORA_FREQ;   // live operating freq (compile default; Slice-2 NV will override at boot)
 static int8_t   g_tx_power = LORA_TX_POWER;   // live TX power (dBm); NV `cfg set tx_power` overrides at boot
+// BLE companion policy (NV v7; read at boot, reboot-to-apply). Compile defaults = the documented bare-metal
+// node: off / 15-min periodic window / PIN 123456 (spec §4 + §A.3). A v7 blob overrides these at boot.
+static uint8_t  g_ble_mode = 0;            // 0=off (bare-metal), 1=on, 2=periodic
+static uint8_t  g_ble_period_min = 15;     // periodic-mode advertising period (minutes)
+static uint32_t g_ble_pin = 123456;        // 6-digit pairing passkey
 static uint8_t  g_persist_id = 0, g_persist_epoch = 0, g_persist_join = 0;   // last DAD lease state written to NV (change-detect)
 
 // ---- device-console diagnostics (host tool: tools/meshroute_client.py) ---------------------------
@@ -129,7 +139,10 @@ static void dump_cfg() {
     Serial.print(F(" leaf_id="));        Serial.print(c.leaf_id);
     Serial.print(F(" gateway="));        Serial.print(c.is_gateway ? 1 : 0);
     Serial.print(F(" gateway_only="));   Serial.print(c.gateway_only ? 1 : 0);
-    Serial.print(F(" mobile="));         Serial.println(c.is_mobile ? 1 : 0);
+    Serial.print(F(" mobile="));         Serial.print(c.is_mobile ? 1 : 0);
+    Serial.print(F(" ble_mode="));       Serial.print(g_ble_mode == 0 ? F("off") : g_ble_mode == 1 ? F("on") : F("periodic"));
+    Serial.print(F(" ble_period="));     Serial.print(g_ble_period_min);
+    Serial.print(F(" ble_pin="));        Serial.println(g_ble_pin);
 }
 
 static void dump_status() {
@@ -237,6 +250,8 @@ static void handle_cfg_set(const char* args) {
         b.lbt = nc.lbt_enabled ? 1 : 0; b.node_id = g_node.node_id();   b.tx_power = g_tx_power;
         b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;   // v6 role/topology
         b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;
+        b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;        // v7 BLE policy (live globals)
+        b.ble_pin    = g_ble_pin;
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;    // (re)stamp -> also upgrades a loaded v2 blob to v3
 
@@ -273,6 +288,26 @@ static void handle_cfg_set(const char* args) {
     else if (!strcmp(key, "gateway"))      { lc.is_gateway   = (atoi(val) != 0 || !strcmp(val, "true")); b.is_gateway   = lc.is_gateway   ? 1 : 0; }
     else if (!strcmp(key, "gateway_only")) { lc.gateway_only = (atoi(val) != 0 || !strcmp(val, "true")); b.gateway_only = lc.gateway_only ? 1 : 0; }
     else if (!strcmp(key, "mobile"))       { lc.is_mobile    = (atoi(val) != 0 || !strcmp(val, "true")); b.is_mobile    = lc.is_mobile    ? 1 : 0; }
+    // --- BLE companion policy: PERSISTED, reboot-to-apply (the stack inits at boot from these). Invalid input
+    //     is REJECTED (fail loud), never silently defaulted. ---
+    else if (!strcmp(key, "ble_mode")) {
+        uint8_t m;
+        if      (!strcmp(val, "off"))      m = 0;
+        else if (!strcmp(val, "on"))       m = 1;
+        else if (!strcmp(val, "periodic")) m = 2;
+        else { Serial.println(F("> cfg err bad_value (ble_mode off|on|periodic)")); return; }
+        b.ble_mode = m; live = false;
+    }
+    else if (!strcmp(key, "ble_period")) {
+        const int v = atoi(val);
+        if (v < 1 || v > 255) { Serial.println(F("> cfg err bad_value (ble_period 1..255 min)")); return; }
+        b.ble_period_min = (uint8_t)v; live = false;
+    }
+    else if (!strcmp(key, "ble_pin")) {
+        const long v = atol(val);
+        if (v < 0 || v > 999999) { Serial.println(F("> cfg err bad_value (ble_pin 0..999999, 6-digit passkey)")); return; }
+        b.ble_pin = (uint32_t)v; live = false;
+    }
     else { Serial.print(F("> cfg err unknown_key ")); Serial.println(key); return; }
 
     if (persist && !mrnv::save(b)) { Serial.println(F("> cfg err nv_save_failed")); return; }
@@ -457,6 +492,8 @@ void setup() {
         g_tx_power            = (nv.version >= 3) ? nv.tx_power : (int8_t)LORA_TX_POWER;   // v2 blob had no tx_power -> keep the default
         cfg.is_gateway        = nv.is_gateway != 0;   cfg.gateway_only = nv.gateway_only != 0;   // v6 role/topology (only v6 blobs load -> always present)
         cfg.is_mobile         = nv.is_mobile != 0;    cfg.leaf_id      = nv.leaf_id;
+        g_ble_mode            = nv.ble_mode;          g_ble_period_min = nv.ble_period_min;      // v7 BLE policy (only v7 blobs load)
+        g_ble_pin             = nv.ble_pin;
         Serial.println(F("  config    = loaded from NV"));
     }
     // Identity (/mrid): load the 32-byte master seed, or mint one from the HW-RNG on first boot.
@@ -501,6 +538,9 @@ void setup() {
     g_hal.seed_rng((uint32_t)millis() ^ (g_node.key_hash32() * 2654435761u));
 
     g_node.on_init(cfg);
+    // Install the durable inbox stores. begin() fails (records backend not wired yet) -> the inbox stays
+    // disabled (record-on-delivery is inert); flips on automatically once device_inbox_store.h's qspi_* land.
+    g_node.inbox().on_init(&g_inbox_dm, &g_inbox_ch);
     // node_id DAD auto-join: an UNPROVISIONED node (no persisted id) self-assigns one via the claim state
     // machine. A node that rebooted WITH a persisted id skips this — it already owns it (restored above).
     if (node_id == 0) {
@@ -554,6 +594,8 @@ static void persist_join_if_changed() {
         b.lbt = nc.lbt_enabled ? 1 : 0; b.tx_power = g_tx_power;
         b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;   // v6 role/topology
         b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;
+        b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;        // v7 BLE policy (live globals)
+        b.ble_pin    = g_ble_pin;
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
     b.node_id = id; b.claim_epoch = ep; b.joined = jn;
@@ -616,6 +658,11 @@ void loop() {
 
     // 2c) LBT noise-floor sampler (only when LBT is on — it feeds channel_busy()). Self-paced (≤1 RSSI/10 ms).
     if (g_node.config().lbt_enabled) g_iradio.sample_noise();
+
+    // 2d) Inbox: periodically persist the next-seq high-water (§6 "/ on a timer"; bounds the seq-reuse window
+    //     if the records store is later lost). No-op while the inbox is disabled (records backend not wired).
+    static uint32_t s_inbox_flush_ms = 0;
+    if ((uint32_t)now - s_inbox_flush_ms >= 30000u) { s_inbox_flush_ms = (uint32_t)now; g_node.inbox().flush(); }
 
     // 3) App pushes: surface deliveries / ACKs over the console.
     meshroute::Push pu{};

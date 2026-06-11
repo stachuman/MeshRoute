@@ -544,8 +544,10 @@ void Node::do_post_ack() {
         pu.body_len = blen; for (uint8_t i = 0; i < blen; ++i) pu.body[i] = static_cast<uint8_t>(body[i]);
         enqueue_push(pu);                                // app channel: the inbound message (live notify)
         // ... and the durable inbox (record-on-delivery), written alongside the push. Inert until a backend
-        // installs stores; this is the FINAL-destination deliver path so it fires once per delivered DM.
-        _inbox.record_dm(pa.origin, pa.ctr, reinterpret_cast<const uint8_t*>(body), blen, _hal.now());
+        // installs stores; this is the FINAL-destination deliver path so it fires once per delivered DM. The
+        // sender_hash (origin's stable key_hash32) is recorded when SOURCE_HASH was set — the app's DM identity.
+        const uint32_t sender_hash = (ui && ui->has_source_hash) ? ui->source_hash : 0;
+        _inbox.record_dm(pa.origin, sender_hash, pa.ctr, reinterpret_cast<const uint8_t*>(body), blen, _hal.now());
         // E2E ACK requested -> reply to the DM's origin with the acked ctr (routes home on the F reverse path).
         if (pa.flags & DATA_FLAG_E2E_ACK_REQ) send_e2e_ack(pa.origin, pa.ctr);
         become_free();

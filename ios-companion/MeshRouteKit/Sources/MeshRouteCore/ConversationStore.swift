@@ -11,7 +11,7 @@ import MeshRouteWire
 public struct ConversationStore: Sendable {
     /// All messages, grouped by thread, kept in timestamp order.
     public private(set) var threads: [ThreadKey: [ChatMessage]] = [:]
-    private var seenInbound: Set<InboundKey> = []
+    private var seenInbound: Set<MessageIdentity> = []
 
     public init() {}
 
@@ -24,11 +24,11 @@ public struct ConversationStore: Sendable {
     @discardableResult
     public mutating func ingest(_ inbound: Inbound, now: Date) -> ChatMessage? {
         switch inbound {
-        case .messageReceived(let origin, let ctr, let body):
-            return insertInboundDM(origin: UInt8(clamping: origin), ctr: ctr, body: body, now: now)
-        case .channelReceived(let origin, let channelID, let body):
+        case .messageReceived(let origin, let ctr, let senderHash, let body):
+            return insertInboundDM(origin: UInt8(clamping: origin), ctr: ctr, senderHash: senderHash, body: body, now: now)
+        case .channelReceived(let origin, let channelID, let channelMsgID, let body):
             return insertChannel(origin: UInt8(clamping: origin), channelID: UInt8(clamping: channelID),
-                                 body: body, now: now)
+                                 channelMsgID: channelMsgID, body: body, now: now)
         case .sendAcked(_, let ctr):
             updateOutgoing(ctr: ctr, to: .acked); return nil
         case .sendFailed(_, let ctr):
@@ -38,22 +38,62 @@ public struct ConversationStore: Sendable {
         }
     }
 
-    private mutating func insertInboundDM(origin: UInt8, ctr: Int, body: String, now: Date) -> ChatMessage? {
-        let key = InboundKey(origin: origin, ctr: ctr)
-        guard !seenInbound.contains(key) else { return nil }   // dedup by (origin, ctr)
+    private mutating func insertInboundDM(origin: UInt8, ctr: Int, senderHash: UInt32?, body: String, now: Date) -> ChatMessage? {
+        guard let key = MessageIdentity.dm(senderHash: senderHash, origin: origin, ctr: ctr) else { return nil }
+        guard !seenInbound.contains(key) else { return nil }   // dedup by (sender_hash, ctr) | (origin, ctr)
         seenInbound.insert(key)
-        // A DM thread is keyed by the peer's HASH, but an inbound DM only carries the short id. Until a
-        // binding resolves the hash we can't key by hash — so we stage id-only DMs under a pseudo-hash
-        // derived from the id; the app re-keys to the real hash when a resolve binds it.
-        let msg = ChatMessage(thread: .dm(KeyHash(UInt32(origin))), direction: .incoming, body: body,
-                              timestamp: now, state: .received, origin: origin, ctr: ctr)
+        let msg = ChatMessage(thread: dmThread(senderHash: senderHash, origin: origin), direction: .incoming,
+                              body: body, timestamp: now, state: .received, origin: origin, ctr: ctr,
+                              senderHash: senderHash)
         append(msg)
         return msg
     }
 
-    private mutating func insertChannel(origin: UInt8, channelID: UInt8, body: String, now: Date) -> ChatMessage {
+    /// Ingest one record from a `pull_inbox` stream. Dedups against the live path by the kind's stable
+    /// identity (DM = (sender_hash, ctr) | (origin, ctr); channel = channel_msg_id) so a message received
+    /// live and later pulled — or re-pulled from 0 after an epoch reset — does not duplicate. The phone
+    /// stamps wall-clock `now` (the node only knows uptime); `seq` is retained for cursor advancement.
+    @discardableResult
+    public mutating func ingestInbox(_ entry: InboxEntry, now: Date) -> ChatMessage? {
+        let origin = UInt8(clamping: entry.origin)
+        let key: MessageIdentity
+        let thread: ThreadKey
+        switch entry.kind {
+        case .dm:
+            guard let k = MessageIdentity.dm(senderHash: entry.senderHash, origin: origin, ctr: entry.ctr) else { return nil }
+            key = k
+            thread = dmThread(senderHash: entry.senderHash, origin: origin)
+        case .channel:
+            guard let mid = entry.channelMsgID else { return nil }   // a channel record must carry its id
+            key = .channel(msgID: mid)
+            thread = .channel(UInt8(clamping: entry.channelID))
+        }
+        guard !seenInbound.contains(key) else { return nil }   // dedup-on-import vs the live + prior-pull archive
+        seenInbound.insert(key)
+        let msg = ChatMessage(thread: thread, direction: .incoming, body: entry.body, timestamp: now,
+                              state: .received, origin: origin, ctr: entry.ctr, seq: entry.seq,
+                              channelMsgID: entry.channelMsgID, senderHash: entry.senderHash)
+        append(msg)
+        return msg
+    }
+
+    /// A DM thread key. With a sender_hash we key by the sender's STABLE hash → straight into the contact's
+    /// thread, no resolve/rekey. Without it (legacy DM) we stage under a pseudo-hash == id until a resolve
+    /// binds it (rekeyDM moves it).
+    private func dmThread(senderHash: UInt32?, origin: UInt8) -> ThreadKey {
+        if let h = senderHash, h != 0 { return .dm(KeyHash(h)) }
+        return .dm(KeyHash(UInt32(origin)))
+    }
+
+    private mutating func insertChannel(origin: UInt8, channelID: UInt8, channelMsgID: UInt32?,
+                                        body: String, now: Date) -> ChatMessage? {
+        if let mid = channelMsgID {                            // dedup live channels too, now we have the id
+            let key = MessageIdentity.channel(msgID: mid)
+            guard !seenInbound.contains(key) else { return nil }
+            seenInbound.insert(key)
+        }
         let msg = ChatMessage(thread: .channel(channelID), direction: .incoming, body: body,
-                              timestamp: now, state: .received, origin: origin, ctr: nil)
+                              timestamp: now, state: .received, origin: origin, ctr: nil, channelMsgID: channelMsgID)
         append(msg)
         return msg
     }
@@ -93,7 +133,7 @@ public struct ConversationStore: Sendable {
 
     private mutating func append(_ msg: ChatMessage) {
         threads[msg.thread, default: []].append(msg)
-        threads[msg.thread]?.sort { $0.timestamp < $1.timestamp }
+        threads[msg.thread]?.sort { ($0.timestamp, $0.seq ?? 0) < ($1.timestamp, $1.seq ?? 0) }
     }
 
     private mutating func mutate(id: UUID, _ body: (inout ChatMessage) -> Void) {
@@ -111,7 +151,7 @@ public struct ConversationStore: Sendable {
         guard from != to, let moving = threads[from] else { return }
         let retargeted = moving.map { m -> ChatMessage in var m = m; m.thread = to; return m }
         threads[to, default: []].append(contentsOf: retargeted)
-        threads[to]?.sort { $0.timestamp < $1.timestamp }
+        threads[to]?.sort { ($0.timestamp, $0.seq ?? 0) < ($1.timestamp, $1.seq ?? 0) }
         threads[from] = nil
     }
 }

@@ -52,6 +52,9 @@ public enum Command: Hashable, Sendable {
     case configSet(key: String, value: String)  // "cfg set <key> <value>"
     case lookup(KeyHash)                         // local id_bind peek (no airtime)
     case hashOf(UInt8)                           // reverse: id → hash (authoritative only)
+    // inbox sync (persistent-inbox spec §8) — catch up the durable history on connect / after being away.
+    case pullInbox(dmSince: UInt32, chanSince: UInt32)
+    case markRead(kind: InboxKind, seq: UInt32)
     case raw(String)                             // escape hatch — sent verbatim
 
     /// The exact console line (no trailing newline — the transport frames it).
@@ -82,6 +85,8 @@ public enum Command: Hashable, Sendable {
         case .configSet(let k, let v):      return "cfg set \(k) \(v)"
         case .lookup(let h):                return "lookup \(h.hex8)"
         case .hashOf(let i):                return "hashof \(i)"
+        case .pullInbox(let dm, let chan):  return "pull_inbox \(dm) \(chan)"
+        case .markRead(let kind, let seq):  return "mark_read \(kind.commandToken) \(seq)"
         case .raw(let s):                   return s
         }
     }

@@ -74,9 +74,32 @@ config get/set, plus the pushes `msg_recv`/`channel_recv`/`send_acked`/`send_fai
 The phone, not the node, is the long-term store (the node's inbox is bounded). Persist with
 **SwiftData/Core Data**:
 - **Contacts** (name ↔ hash ↔ id).
-- **Message history** (DMs + channels), full archive; **dedup/merge by `(origin, ctr)`** when pulling
-  from the node so a reconnect doesn't duplicate.
+- **Message history** (DMs + channels), full archive; **dedup/merge by the STABLE message identity** when
+  pulling from the node so a reconnect doesn't duplicate — a **channel** message by its full 32-bit
+  **`channel_msg_id`**, a **DM** by **`(origin, ctr)`**. (The firmware inbox now stores the whole
+  `channel_msg_id`; do NOT key channel dedup on the low byte / the node's `seq`.)
 - **Node profiles** (paired nodes + their config snapshots).
+
+### 5.1 Node-reset (seq-epoch) handling — **REQUIRED** (do this before the sync hardens)
+
+The firmware inbox hands each record a per-store **`seq`** that the app uses as its **sync cursor**
+(`pull_inbox <dm_since> <chan_since>` returns `seq > cursor`). But **`seq` is monotonic only within one
+node-storage epoch.** If the node's flash inbox is wiped — factory reset, an OTA that erases the data
+partition, or a format-on-dirty recovery — `seq` **restarts at 1**, so a cursor the app already advanced
+past would make it **silently miss** the node's new messages (firmware persistent-inbox spec §6/§10.1).
+
+The app MUST:
+1. **Persist a `storage_epoch` per node** (the firmware exposes it — a u32 that bumps on any inbox wipe;
+   firmware spec §10.1). Read it on connect alongside `whoami`.
+2. **On a changed epoch ⇒ the node's history was wiped ⇒ reset that node's cursors to 0 and re-pull from
+   the start.** This is safe + non-duplicating *because* the archive dedups by the **stable identity**
+   above (the re-pulled messages already exist locally), NOT by `seq`.
+3. *Fallback if the firmware exposes no epoch yet:* treat `node.newest_seq < my_cursor` as a reset signal
+   and re-sync — weaker (misses a wipe-then-refill past the old cursor); prefer the explicit epoch, and
+   flag it to the firmware side. (Cross-ref: persistent-inbox spec §10.1 lists epoch-exposure as a hard
+   Phase-2 requirement on the device store.)
+
+**Never assume `seq` is globally monotonic across a node's lifetime** — only within an epoch.
 
 ## 6. iOS stack
 

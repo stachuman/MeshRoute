@@ -20,20 +20,24 @@ using namespace meshroute;
 namespace {
 
 // pull collector: copy the decoded entry (body points into transient store bytes -> copy to a std::string).
-struct Collected { uint32_t seq; InboxKind kind; uint8_t origin; uint8_t channel_id; uint16_t ctr; uint64_t rx; std::string body; };
+struct Collected { uint32_t seq; InboxKind kind; uint8_t origin; uint8_t channel_id; uint32_t msg_id;
+                   uint32_t sender_hash; uint64_t rx; std::string body; };
 struct Collector { std::vector<Collected> items; };
 bool collect_cb(void* ctx, const InboxEntry& e) {
     auto* c = static_cast<Collector*>(ctx);
-    c->items.push_back({ e.seq, e.kind, e.origin, e.channel_id, e.ctr, e.rx_time_ms,
+    c->items.push_back({ e.seq, e.kind, e.origin, e.channel_id, e.msg_id, e.sender_hash, e.rx_time_ms,
                          std::string(reinterpret_cast<const char*>(e.body ? e.body : reinterpret_cast<const uint8_t*>("")), e.body_len) });
     return true;
 }
 
-void rec_dm(Inbox& ib, uint8_t origin, uint16_t ctr, const char* s, uint64_t t) {
-    ib.record_dm(origin, ctr, reinterpret_cast<const uint8_t*>(s), static_cast<uint8_t>(std::strlen(s)), t);
+// A synthetic channel_msg_id (origin<<24 | key_hash16<<8 | ctr8) — the full 32-bit identity the inbox stores.
+uint32_t mk_chan_id(uint8_t origin, uint8_t ctr8) { return (uint32_t(origin) << 24) | (uint32_t(0x1234) << 8) | ctr8; }
+
+void rec_dm(Inbox& ib, uint8_t origin, uint16_t ctr, const char* s, uint64_t t, uint32_t sender_hash = 0) {
+    ib.record_dm(origin, sender_hash, ctr, reinterpret_cast<const uint8_t*>(s), static_cast<uint8_t>(std::strlen(s)), t);
 }
-void rec_ch(Inbox& ib, uint8_t ch, uint8_t origin, uint16_t ctr, const char* s, uint64_t t) {
-    ib.record_channel(ch, origin, ctr, reinterpret_cast<const uint8_t*>(s), static_cast<uint8_t>(std::strlen(s)), t);
+void rec_ch(Inbox& ib, uint8_t ch, uint8_t origin, uint8_t ctr8, const char* s, uint64_t t) {
+    ib.record_channel(ch, mk_chan_id(origin, ctr8), reinterpret_cast<const uint8_t*>(s), static_cast<uint8_t>(std::strlen(s)), t);
 }
 
 }  // namespace
@@ -57,12 +61,13 @@ TEST_CASE("inbox: record DM + channel, pull(0,0) returns all oldest-first, field
     Collector c; const uint16_t n = ib.pull(0, 0, collect_cb, &c);
     CHECK(n == 3); CHECK(c.items.size() == 3);
     // DM block (oldest-first) THEN channel block
-    CHECK(c.items[0].kind == InboxKind::dm); CHECK(c.items[0].origin == 5); CHECK(c.items[0].ctr == 100);
+    CHECK(c.items[0].kind == InboxKind::dm); CHECK(c.items[0].origin == 5); CHECK(c.items[0].msg_id == 100);   // DM msg_id = ctr
     CHECK(c.items[0].body == "hi-bob"); CHECK(c.items[0].rx == 1000); CHECK(c.items[0].seq == 1);
     CHECK(c.items[1].kind == InboxKind::dm); CHECK(c.items[1].origin == 7); CHECK(c.items[1].body == "yo");
     CHECK(c.items[1].seq == 2);
     CHECK(c.items[2].kind == InboxKind::channel); CHECK(c.items[2].channel_id == 2); CHECK(c.items[2].origin == 9);
-    CHECK(c.items[2].ctr == 0x42); CHECK(c.items[2].body == "hello-chan"); CHECK(c.items[2].seq == 1);   // independent seq space
+    CHECK(c.items[2].msg_id == mk_chan_id(9, 0x42));          // FULL 32-bit channel_msg_id (origin in the high byte)
+    CHECK(c.items[2].body == "hello-chan"); CHECK(c.items[2].seq == 1);   // independent seq space
     CHECK(ib.dm_newest_seq() == 2); CHECK(ib.chan_newest_seq() == 1);
 }
 
@@ -84,7 +89,7 @@ TEST_CASE("inbox: drop-oldest at the byte cap — oldest evicted, count bounded,
     CHECK(c.items.size() == dm.count());
     for (size_t i = 1; i < c.items.size(); ++i) CHECK(c.items[i].seq > c.items[i - 1].seq);   // monotonic, oldest-first
     CHECK(c.items.back().seq == 10);                              // the newest is retained
-    CHECK(c.items.back().ctr == 10);
+    CHECK(c.items.back().msg_id == 10);                           // DM msg_id = ctr (the 10th)
 }
 
 TEST_CASE("inbox: DM and channel stores are isolated (a channel flood does NOT evict DMs)") {
@@ -123,7 +128,7 @@ TEST_CASE("inbox: empty / max-body records round-trip; an over-cap single record
     Inbox ib; ib.on_init(&dm, &ch);
     rec_dm(ib, 1, 1, "", 0);                                      // empty body
     std::string big(protocol::inbox_max_body, 'A');              // max body
-    ib.record_dm(2, 2, reinterpret_cast<const uint8_t*>(big.data()), protocol::inbox_max_body, 0);
+    ib.record_dm(2, /*sender_hash*/ 0, 2, reinterpret_cast<const uint8_t*>(big.data()), protocol::inbox_max_body, 0);
     Collector c; ib.pull(0, 0, collect_cb, &c);
     CHECK(c.items.size() == 2);
     CHECK(c.items[0].body.empty());
@@ -131,10 +136,33 @@ TEST_CASE("inbox: empty / max-body records round-trip; an over-cap single record
     CHECK(c.items[1].body == big);
 
     // a single record larger than the whole store -> append rejects (never reached given inbox_max_body, but the guard holds)
-    RamInboxStore tiny(20), ch2(protocol::inbox_chan_store_bytes);   // < one 21-B record
+    RamInboxStore tiny(20), ch2(protocol::inbox_chan_store_bytes);   // < one record (24-B header + body + 2-B frame)
     Inbox ib2; ib2.on_init(&tiny, &ch2);
     rec_dm(ib2, 1, 1, "x", 0);
     CHECK(tiny.count() == 0);                                     // not stored (and seq still advanced — monotonic, not gapless)
+}
+
+TEST_CASE("inbox: DM sender_hash (the stable identity, SOURCE_HASH) round-trips; absent/channel = 0") {
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    Inbox ib; ib.on_init(&dm, &ch);
+    rec_dm(ib, /*origin*/ 5, /*ctr*/ 42, "hi", 0, /*sender_hash*/ 0xDEADBEEFu);   // an E2E/SOURCE_HASH DM
+    rec_dm(ib, /*origin*/ 6, /*ctr*/ 7,  "plain", 0);                              // sender_hash absent -> 0
+    rec_ch(ib, /*ch*/ 2, /*origin*/ 9, /*ctr8*/ 1, "c", 0);
+    Collector c; ib.pull(0, 0, collect_cb, &c);
+    CHECK(c.items.size() == 3);
+    CHECK(c.items[0].kind == InboxKind::dm);      CHECK(c.items[0].sender_hash == 0xDEADBEEFu);  // the stable DM identity (sender_hash, ctr)
+    CHECK(c.items[0].msg_id == 42);
+    CHECK(c.items[1].kind == InboxKind::dm);      CHECK(c.items[1].sender_hash == 0);             // absent -> (origin, ctr)
+    CHECK(c.items[2].kind == InboxKind::channel); CHECK(c.items[2].sender_hash == 0);             // channels identify by channel_msg_id
+}
+
+TEST_CASE("inbox: storage_epoch is surfaced from the DM store (the companion's wipe-detector, §10.1)") {
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    dm.epoch = 7;                                                 // device bumped it on a wipe
+    Inbox ib; ib.on_init(&dm, &ch);
+    CHECK(ib.storage_epoch() == 7);
+    Inbox off;                                                    // disabled inbox -> 0 (no durable epoch)
+    CHECK(off.storage_epoch() == 0);
 }
 
 TEST_CASE("inbox: flush() force-persists the next-seq counters (the on-a-timer half of §6)") {

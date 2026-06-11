@@ -1119,12 +1119,30 @@ TEST_CASE("DATA unicast inner — DST_HASH round-trip + plain + reject truncatio
       auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in), DATA_FLAG_DST_HASH);
       CHECK(u.has_value());
       if (u) { CHECK(u->has_dst_hash); CHECK(u->origin == 9); CHECK(u->body.size() == 0); } }
-    // Other header flags (CROSS_LAYER/CRYPTED/SOURCE_HASH) don't change the unicast inner layout here — only
-    // DST_HASH adds the 4-B prefix. A flags=0 inner with a leading 'origin' parses fine regardless of them.
-    { const uint8_t in[] = { 5, 'x' };
-      auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in), DATA_FLAG_CRYPTED);   // no DST_HASH bit
+    // SOURCE_HASH inner (flags & SOURCE_HASH): [origin][source_hash 4 B LE = 0xCAFEF00D][body] — the sender's
+    // stable key_hash32, AFTER origin.
+    { const uint8_t in[] = { 9, 0x0D, 0xF0, 0xFE, 0xCA, 'h', 'i' };
+      auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in), DATA_FLAG_SOURCE_HASH);
       CHECK(u.has_value());
-      if (u) { CHECK_FALSE(u->has_dst_hash); CHECK(u->origin == 5); CHECK(u->body.size() == 1); } }
+      if (u) { CHECK_FALSE(u->has_dst_hash); CHECK(u->origin == 9);
+               CHECK(u->has_source_hash); CHECK(u->source_hash == 0xCAFEF00Du);
+               CHECK(u->body.size() == 2); CHECK(u->body[0] == 'h'); CHECK(u->body[1] == 'i'); } }
+    // DST_HASH + SOURCE_HASH together: [dst_hash 4][origin][source_hash 4][body] — both prefixes, in order.
+    { const uint8_t in[] = { 0x78, 0x56, 0x34, 0x12, 9, 0x0D, 0xF0, 0xFE, 0xCA, 'y' };
+      auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in),
+                                   static_cast<uint8_t>(DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH));
+      CHECK(u.has_value());
+      if (u) { CHECK(u->has_dst_hash); CHECK(u->dst_key_hash32 == 0x12345678u); CHECK(u->origin == 9);
+               CHECK(u->has_source_hash); CHECK(u->source_hash == 0xCAFEF00Du);
+               CHECK(u->body.size() == 1); CHECK(u->body[0] == 'y'); } }
+    // SOURCE_HASH set but the 4-B hash is truncated -> reject (no OOB read)
+    { const uint8_t in[] = { 9, 0x0D, 0xF0 };   // origin + only 2 of 4 source_hash bytes
+      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(in, sizeof in), DATA_FLAG_SOURCE_HASH).has_value()); }
+    // A flag the unicast inner doesn't decode (CRYPTED) leaves the layout at [origin][body].
+    { const uint8_t in[] = { 5, 'x' };
+      auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in), DATA_FLAG_CRYPTED);   // no DST_HASH/SOURCE_HASH bit
+      CHECK(u.has_value());
+      if (u) { CHECK_FALSE(u->has_dst_hash); CHECK_FALSE(u->has_source_hash); CHECK(u->origin == 5); CHECK(u->body.size() == 1); } }
     // reject: truncations
     { const uint8_t shorthash[] = { 1, 2, 3 };          // DST_HASH set but hash truncated (<4)
       CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(shorthash, sizeof shorthash), DATA_FLAG_DST_HASH).has_value()); }

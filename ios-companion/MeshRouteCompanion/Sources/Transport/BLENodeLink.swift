@@ -83,6 +83,10 @@ final class BLENodeLink: NSObject, NodeLink, @unchecked Sendable {
     private func startScanIfReady() {
         guard wantConnect, central.state == .poweredOn, peripheral == nil else { return }
         emit(.state(.scanning))
+        // Service-UUID-filtered scan (required for iOS background scanning + the right way to find a
+        // periodic/windowed node). REQUIRES the firmware to advertise the NUS service UUID in its
+        // advertising packet (Bluefruit: `Advertising.addService(bleuart)`) — a name-only advert won't
+        // match this filter. See docs/superpowers/specs/2026-06-11-ble-companion-phase2-scope.md Step 5/8.
         central.scanForPeripherals(withServices: [serviceUUID], options: nil)
     }
 }
@@ -128,6 +132,7 @@ extension BLENodeLink: CBCentralManagerDelegate {
 
 extension BLENodeLink: CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        if let error { emit(.state(.failed("service discovery failed: \(error.localizedDescription)"))); return }
         guard let svc = peripheral.services?.first(where: { $0.uuid == serviceUUID }) else {
             emit(.state(.failed("node has no bleuart service"))); return
         }
@@ -135,11 +140,21 @@ extension BLENodeLink: CBPeripheralDelegate {
     }
 
     func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
+        if let error { emit(.state(.failed("characteristic discovery failed: \(error.localizedDescription)"))); return }
         for ch in service.characteristics ?? [] {
             if ch.uuid == rxUUID { rxChar = ch }
-            if ch.uuid == txUUID { peripheral.setNotifyValue(true, for: ch) }
+            if ch.uuid == txUUID { peripheral.setNotifyValue(true, for: ch) }   // touching the encrypted char triggers pairing
         }
-        if rxChar != nil { emit(.state(.connected)) }
+        // We report `.connected` only once the TX subscription CONFIRMS (post-pairing) — see below — so the
+        // app never writes before the bonded link + notify pipe are live (firmware §A.3 gates GATT on bonding).
+    }
+
+    func peripheral(_ peripheral: CBPeripheral, didUpdateNotificationStateFor characteristic: CBCharacteristic, error: Error?) {
+        guard characteristic.uuid == txUUID else { return }
+        if let error {     // a wrong PIN / refused bond surfaces here as an auth error
+            emit(.state(.failed("pairing failed (check the node PIN): \(error.localizedDescription)"))); return
+        }
+        if characteristic.isNotifying, rxChar != nil { emit(.state(.connected)) }
     }
 
     func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {

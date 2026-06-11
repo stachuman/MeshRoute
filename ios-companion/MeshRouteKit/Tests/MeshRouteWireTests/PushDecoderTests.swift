@@ -31,19 +31,31 @@ final class PushDecoderTests: XCTestCase {
     }
 
     func testMsgRecv() {
-        guard case .messageReceived(let origin, let ctr, let body)? =
-                PushDecoder.decode(line: #"{"ev":"msg_recv","origin":2,"ctr":7,"body":"hi there"}"#) else {
+        guard case .messageReceived(let origin, let ctr, let senderHash, let body)? =
+                PushDecoder.decode(line: #"{"ev":"msg_recv","origin":2,"ctr":7,"sender_hash":2319391746,"body":"hi there"}"#) else {
             return XCTFail("not msg_recv")
         }
         XCTAssertEqual(origin, 2); XCTAssertEqual(ctr, 7); XCTAssertEqual(body, "hi there")
+        XCTAssertEqual(senderHash, 2319391746)   // 0x8a3f1c02 — the sender's stable key_hash32
+        // legacy DM without sender_hash → nil (app falls back to (origin, ctr))
+        guard case .messageReceived(_, _, let sh2, _)? =
+                PushDecoder.decode(line: #"{"ev":"msg_recv","origin":2,"ctr":7,"body":"hi"}"#) else { return XCTFail() }
+        XCTAssertNil(sh2)
     }
 
     func testChannelRecv() {
-        guard case .channelReceived(let origin, let ch, let body)? =
+        // without channel_msg_id (pre-companion firmware) → channelMsgID nil, still decodes
+        guard case .channelReceived(let origin, let ch, let mid, let body)? =
                 PushDecoder.decode(line: #"{"ev":"channel_recv","origin":4,"channel_id":3,"body":"gm"}"#) else {
             return XCTFail("not channel_recv")
         }
-        XCTAssertEqual(origin, 4); XCTAssertEqual(ch, 3); XCTAssertEqual(body, "gm")
+        XCTAssertEqual(origin, 4); XCTAssertEqual(ch, 3); XCTAssertNil(mid); XCTAssertEqual(body, "gm")
+        // with channel_msg_id (companion firmware) → carries the full 32-bit identity
+        guard case .channelReceived(_, _, let mid2, _)? =
+                PushDecoder.decode(line: #"{"ev":"channel_recv","origin":4,"channel_id":3,"channel_msg_id":68298753,"body":"gm"}"#) else {
+            return XCTFail("not channel_recv")
+        }
+        XCTAssertEqual(mid2, 68298753)
     }
 
     func testSendAckedAndFailed() {

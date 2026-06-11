@@ -68,6 +68,14 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
         off = 4;
     }
     item.inner[off++] = _node_id;                         // origin
+    // SOURCE_HASH (default-on for app DMs): carry the sender's key_hash32 AFTER origin — the STABLE DM identity
+    // (the 8-bit origin node_id is reassignable; key_hash32 is not), which the destination records + the E2E-ack
+    // reads. +4 B; only when it fits. (Moves into the CRYPTED-sealed region once E2E encryption lands.)
+    if (app_dm && static_cast<size_t>(off + 4 + body_len) <= protocol::max_payload_bytes_hard_cap) {
+        item.flags |= DATA_FLAG_SOURCE_HASH;
+        item.inner[off++] = static_cast<uint8_t>(_key_hash32);         item.inner[off++] = static_cast<uint8_t>(_key_hash32 >> 8);
+        item.inner[off++] = static_cast<uint8_t>(_key_hash32 >> 16);   item.inner[off++] = static_cast<uint8_t>(_key_hash32 >> 24);
+    }
     if (body) for (uint8_t i = 0; i < body_len; ++i) item.inner[off + i] = body[i];
     item.inner_len = static_cast<uint8_t>(off + body_len);
     item.enqueue_time_ms = _hal.now();                   // first-enqueue time (cascade-requeue total-age cap)

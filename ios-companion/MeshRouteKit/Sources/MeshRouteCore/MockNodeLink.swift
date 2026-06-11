@@ -20,13 +20,28 @@ public actor MockNodeLink: NodeLink {
     private var inboundCtr: [UInt8: Int] = [:]      // per-origin received counter
     private var connected = false
 
+    // A small durable inbox, mirroring the firmware's two independent seq stores (DM + channel).
+    private var dmRecords: [InboxEntry] = []
+    private var chanRecords: [InboxEntry] = []
+    private var dmSeq: UInt32 = 0
+    private var chanSeq: UInt32 = 0
+    private var inboxEpoch: UInt32 = 1             // bumped on a simulated store wipe (seq restarts at 1)
+    private var uptimeMs: UInt64 = 1_000           // fake node uptime that climbs as records arrive
+
     public init(selfID: Int = 1,
                 selfHash: KeyHash = KeyHash(0x10a0_b0c0),
-                knownPeers: [KeyHash: Int] = [KeyHash(0x8a3f1c02): 2, KeyHash(0x1122aabb): 3]) {
+                knownPeers: [KeyHash: Int] = [KeyHash(0x8a3f1c02): 2, KeyHash(0x1122aabb): 3],
+                seedInbox: Bool = true) {
         self.selfID = selfID
         self.selfHash = selfHash
         self.knownPeers = knownPeers
         (self.events, self.continuation) = AsyncStream<LinkEvent>.makeStream()
+        if seedInbox {
+            // "Messages received while you were away" — exercised by a pull_inbox on connect.
+            recordDM(origin: 2, ctr: 11, body: "(missed) you around?")
+            recordDM(origin: 3, ctr: 4,  body: "(missed) ping from 3")
+            recordChannel(channelID: 1, origin: 2, ctr: 5, body: "(missed) gm channel 1")
+        }
     }
 
     public func connect() async {
@@ -58,6 +73,15 @@ public actor MockNodeLink: NodeLink {
         case "send_channel":
             sendCtr += 1
             emit(ackLine("queued", ctr: sendCtr))           // channels aren't link-acked
+        case "pull_inbox":
+            let dmSince  = tokens.count > 0 ? (UInt32(tokens[0]) ?? 0) : 0
+            let chanSince = tokens.count > 1 ? (UInt32(tokens[1]) ?? 0) : 0
+            var count = 0
+            for e in dmRecords   where e.seq > dmSince   { emit(inboxDMLine(e));   count += 1 }
+            for e in chanRecords where e.seq > chanSince { emit(inboxChLine(e)); count += 1 }
+            emit(inboxEndLine(count: count))
+        case "mark_read":
+            emit(#"{"log":"mark_read \#(tokens.joined(separator: " "))"}"#)
         case "resolve":
             if let h = tokens.first.flatMap({ KeyHash(hex: $0) }) {
                 let node = knownPeers[h] ?? 0                // 0 = unresolved/timeout
@@ -76,17 +100,54 @@ public actor MockNodeLink: NodeLink {
 
     // ---- test/app hooks: inject inbound traffic as if a peer messaged us ----
 
-    /// Simulate an inbound DM from `id`. Returns the (origin, ctr) the node assigned.
+    /// Simulate an inbound DM from `id`: emit the live push AND record it durably (so a later
+    /// pull_inbox returns it too). Returns the (origin, ctr) the node assigned.
     @discardableResult
     public func simulateIncomingDM(fromID id: UInt8, body: String) -> (UInt8, Int) {
         let ctr = (inboundCtr[id] ?? 0) + 1
         inboundCtr[id] = ctr
-        emit(#"{"ev":"msg_recv","origin":\#(id),"ctr":\#(ctr),"body":\#(jsonString(body))}"#)
+        let sh = hashForID(id) ?? 0      // the sender's stable key_hash32 (0 = unknown → legacy fallback)
+        emit(#"{"ev":"msg_recv","origin":\#(id),"ctr":\#(ctr),"sender_hash":\#(sh),"body":\#(jsonString(body))}"#)
+        recordDM(origin: id, ctr: ctr, body: body)
         return (id, ctr)
     }
 
+    /// Reverse of knownPeers (hash→id): the sender's stable key_hash32 for a short id, if known.
+    private func hashForID(_ id: UInt8) -> UInt32? {
+        knownPeers.first { $0.value == Int(id) }?.key.value
+    }
+
+    /// Simulate the node's flash inbox being wiped (QSPI re-flash / format-on-dirty): bump the epoch and
+    /// restart both seq spaces at 0 — so the next records get seq 1,2,… below any cursor we'd advanced to.
+    public func simulateStoreReset() {
+        inboxEpoch += 1
+        dmRecords.removeAll(); chanRecords.removeAll()
+        dmSeq = 0; chanSeq = 0
+    }
+
     public func simulateChannel(channelID: UInt8, fromID id: UInt8, body: String) {
-        emit(#"{"ev":"channel_recv","origin":\#(id),"channel_id":\#(channelID),"body":\#(jsonString(body))}"#)
+        let ctr = (inboundCtr[id] ?? 0) + 1
+        inboundCtr[id] = ctr
+        let msgID = Self.channelMsgID(origin: id, ctr: ctr)
+        emit(#"{"ev":"channel_recv","origin":\#(id),"channel_id":\#(channelID),"channel_msg_id":\#(msgID),"body":\#(jsonString(body))}"#)
+        recordChannel(channelID: channelID, origin: id, ctr: ctr, body: body)
+    }
+
+    // A stand-in for the firmware's 32-bit channel_msg_id (origin<<24 | key_hash16<<8 | ctr).
+    private static func channelMsgID(origin: UInt8, ctr: Int) -> UInt32 {
+        (UInt32(origin) << 24) | (UInt32(ctr) & 0x00FF_FFFF)
+    }
+
+    private func recordDM(origin: UInt8, ctr: Int, body: String) {
+        uptimeMs += 1_000; dmSeq += 1
+        dmRecords.append(InboxEntry(seq: dmSeq, kind: .dm, origin: Int(origin), channelID: 0,
+                                    ctr: ctr, senderHash: hashForID(origin), rxTimeMs: uptimeMs, body: body))
+    }
+    private func recordChannel(channelID: UInt8, origin: UInt8, ctr: Int, body: String) {
+        uptimeMs += 1_000; chanSeq += 1
+        chanRecords.append(InboxEntry(seq: chanSeq, kind: .channel, origin: Int(origin), channelID: Int(channelID),
+                                      ctr: ctr, channelMsgID: Self.channelMsgID(origin: origin, ctr: ctr),
+                                      rxTimeMs: uptimeMs, body: body))
     }
 
     // ---- internals ----
@@ -107,10 +168,19 @@ public actor MockNodeLink: NodeLink {
         #"{"ev":"hash_resolved","node":\#(node),"auth":\#(auth ? 1 : 0),"hash":\#(hash.value)}"#
     }
     private func readyLine(state: String) -> String {
-        #"{"ev":"ready","id":\#(selfID),"key":"\#(selfHash.hex8)","leaf_id":0,"mode":"\#(state)","gateway":false,"routing_sf":7}"#
+        #"{"ev":"ready","id":\#(selfID),"key":"\#(selfHash.hex8)","leaf_id":0,"mode":"\#(state)","gateway":false,"routing_sf":7,"inbox_epoch":\#(inboxEpoch)}"#
     }
     private func statusLine() -> String {
         #"{"ev":"status","id":\#(selfID),"key":"\#(selfHash.hex8)","state":"up","leaf_id":0,"gateway":false,"routing_sf":7}"#
+    }
+    private func inboxDMLine(_ e: InboxEntry) -> String {
+        #"{"ev":"inbox_dm","seq":\#(e.seq),"origin":\#(e.origin),"ctr":\#(e.ctr),"sender_hash":\#(e.senderHash ?? 0),"rx_ms":\#(e.rxTimeMs),"body":\#(jsonString(e.body))}"#
+    }
+    private func inboxChLine(_ e: InboxEntry) -> String {
+        #"{"ev":"inbox_channel","seq":\#(e.seq),"origin":\#(e.origin),"channel_id":\#(e.channelID),"channel_msg_id":\#(e.channelMsgID ?? 0),"rx_ms":\#(e.rxTimeMs),"body":\#(jsonString(e.body))}"#
+    }
+    private func inboxEndLine(count: Int) -> String {
+        #"{"ev":"inbox_end","dm_seq":\#(dmSeq),"chan_seq":\#(chanSeq),"epoch":\#(inboxEpoch),"count":\#(count)}"#
     }
     /// Minimal JSON string escaping for injected bodies (matches console_json's escapes).
     private func jsonString(_ s: String) -> String {

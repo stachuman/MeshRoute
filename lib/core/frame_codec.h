@@ -343,7 +343,9 @@ enum DataFlag : uint8_t {
     DATA_FLAG_CRYPTED     = 0x20,    // reserved (E2E: the inner body is sealed)
     DATA_FLAG_E2E_ACK_REQ = 0x10,    // request an end-to-end ack
     /* 0x08 rsv (free) */
-    DATA_FLAG_SOURCE_HASH = 0x04,    // reserved (the inner carries the origin's key_hash32)
+    DATA_FLAG_SOURCE_HASH = 0x04,    // LIVE: the inner carries the origin's key_hash32 (after origin) — the STABLE
+                                     // sender identity (default-on for app DMs); the E2E-ack also reads it. Moves
+                                     // into the CRYPTED-sealed region when E2E encryption lands.
     DATA_FLAG_DST_HASH    = 0x02,    // the inner carries the recipient's key_hash32 (L2c verify-on-delivery)
     DATA_FLAG_PRIORITY    = 0x01,    // decoded-only (no behaviour wired yet)
 };
@@ -390,10 +392,12 @@ std::span<const uint8_t> data_inner  (std::span<const uint8_t> frame, const data
 std::span<const uint8_t> data_mac    (std::span<const uint8_t> frame, const data_out& d);  // 4 B
 
 // OPTIONAL inner helpers (behaviour layer; the inner layout is read from the byte-1 FLAGS, not a payload
-// byte). NORMAL unicast inner: [dst_key_hash32 (4 B LE, iff flags & DST_HASH)][origin][body]. The caller
-// passes the header flags so the helper knows whether the dst_key_hash32 prefix is present.
+// byte). NORMAL unicast inner: [dst_key_hash32 (4 B LE, iff flags & DST_HASH)][origin][source_hash (4 B LE,
+// iff flags & SOURCE_HASH)][body]. The caller passes the header flags so the helper knows which optional
+// fields are present. `source_hash` = the origin's key_hash32 (the stable sender identity).
 struct data_unicast_inner { uint8_t origin; std::span<const uint8_t> body;
-                            bool has_dst_hash = false; uint32_t dst_key_hash32 = 0; };
+                            bool has_dst_hash = false;    uint32_t dst_key_hash32 = 0;
+                            bool has_source_hash = false; uint32_t source_hash = 0; };
 std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> inner, uint8_t flags);
 // -----------------------------------------------------------------------------
 // M — lean channel-message frame (cmd-nibble 0xA, 7+n B) — 2026-06-09 design.

@@ -33,13 +33,18 @@ test/  — a RAM-backed fake InboxStore (so all Inbox logic is unit-tested in `n
 struct InboxRecord {
     uint32_t seq;          // per-store monotonic id (survives reboot — see §6); the pull cursor
     uint8_t  kind;         // 0 = DM, 1 = channel
-    uint8_t  origin;       // sender node_id (DM) / minter node_id (channel)
+    uint8_t  origin;       // sender node_id (DM) / minter node_id (channel == msg_id >> 24)
     uint8_t  channel_id;   // channel only (0 for DM)
-    uint16_t ctr;          // the message ctr (with origin: identity / app-side dedup)
+    uint32_t msg_id;       // EXACT identity: DM = the 16-bit ctr; channel = the FULL 32-bit channel_msg_id
+    uint32_t sender_hash;  // DM = the sender's key_hash32 (the STABLE identity; 0 if SOURCE_HASH absent); 0 for channel
     uint64_t rx_time_ms;   // node uptime ms at receive (absolute time deferred — §15)
     uint8_t  body_len;     // 0..inbox_max_body
     // uint8_t body[body_len] follows
 };
+// 2026-06-10: `ctr`->u32 `msg_id` (a channel needs its WHOLE channel_msg_id). 2026-06-11: +`sender_hash` —
+// DMs now always carry the sender's `key_hash32` via the DATA `SOURCE_HASH` flag (the 8-bit `origin` is
+// reassignable; `key_hash32` is not). Header is **24 B**. App identity: a **DM** = `(sender_hash, ctr)` when
+// sender_hash != 0 else `(origin, ctr)`; a **channel** = the full `msg_id` (channel_msg_id).
 ```
 On flash each record is **length-framed**: `[u16 total_len][InboxRecord header][body]`. No read/unread
 flag in the record — read state is a single per-store cursor (§5), so records are never mutated
@@ -157,6 +162,28 @@ honoring the same cap/eviction.
   segmented-log `InboxStore` on it.
 - **native (tests):** the RAM fake.
 
+### 10.1 Seq high-water / storage-epoch survival — **HARD REQUIREMENT** (completes §6)
+
+§6 keeps `seq` monotonic across eviction and a batched-persist crash (the stored records are the
+authoritative high-water; the persisted counter backstops a segment loss, now flushed via
+`Inbox::flush()` + don't-reset-on-failed-persist). It does **NOT** survive a **full store wipe** — the
+OTAFIX/format-on-dirty above erases the segments **and** the meta, so `seq` restarts at 1 and a
+companion whose cursor is already past that value **silently misses** the node's new messages (the
+exact §6 failure). The device store MUST do at least one of:
+
+- **(a) keep the high-water outside the wiped store** — persist `next_seq` (per store) as a tiny counter
+  on **InternalFS** (beside `/mrid`), NOT on the QSPI/LittleFS data store, so a data-store format
+  doesn't lose it; and/or
+- **(b) expose a `storage_epoch` (u32)** that bumps on every format/wipe of the data store (persisted on
+  InternalFS). The companion reads it; a **changed epoch ⇒ the node's history was wiped ⇒ the app resets
+  its cursors to 0 and re-pulls** (safe: the app dedups by the stable message identity, not by seq).
+
+(b) is the robust choice and is the contract the iOS companion expects — see
+`2026-06-10-ios-companion-app-design.md` §5. The backend should also call `Inbox::flush()` on a periodic
+timer / before a planned reboot, to bound the segment-loss reuse window. The `lib/core` `restore_next`
+already takes `max(records_high+1, persisted_next)`; this section is the device-store half that the core
+cannot do alone (it has no view of where the counter physically lives).
+
 ## 11. Config / constants (`protocol_constants.h`)
 
 `inbox_dm_store_bytes` (512 KiB), `inbox_chan_store_bytes` (128 KiB), `inbox_segment_bytes_dm`
@@ -181,8 +208,12 @@ Sizes are the design knobs; document the resulting approximate message counts.
 ## 13. Phasing (within the inbox)
 
 1. **`InboxStore` interface + `Inbox` logic + the RAM fake + all native tests** (no hardware; full
-   logic coverage). Wire `record_dm`/`record_channel` into the delivery paths.
-2. **Device stores** — QSPI (nRF52) + LittleFS partition (ESP32) `InboxStore`s; bench-verify.
+   logic coverage). Wire `record_dm`/`record_channel` into the delivery paths. **DONE 2026-06-10**
+   (native 282/282, both boards build, lus clean; `Inbox::pull` tested directly — the `pull_inbox`
+   command/`inbox_entry` push transport moved to Phase 3 per below, as it needs the companion).
+2. **Device stores** — QSPI (nRF52) + LittleFS partition (ESP32) `InboxStore`s; bench-verify. **MUST
+   also implement §10.1** (the seq high-water / `storage_epoch` survival across a full wipe) — without it
+   a wiped node silently desyncs every paired companion.
 3. **Companion pull wiring** — `pull_inbox` command + `inbox_entry` push (rides the BLE companion;
    gated on that spec's Phase 2). Until then, `pull` is exercised by the native tests via `on_command`.
 

@@ -116,7 +116,7 @@ Bytes 2..7 are the **fixed routing header** — relays read `next`/`dst`/`hops`/
 | b5 `0x20` | `CRYPTED`       | reserved — `origin`+body sealed (relays still read the cleartext `dst_key_hash32` / layer-path) |
 | b4 `0x10` | `E2E_ACK_REQ`   | live — the final destination returns an end-to-end ack                                  |
 | b3 `0x08` | rsv             | free                                                                                     |
-| b2 `0x04` | `SOURCE_HASH`   | reserved — the inner carries the **origin's** `key_hash32` (sealed region; set iff `E2E_ACK_REQ`) |
+| b2 `0x04` | `SOURCE_HASH`   | **live** — the inner carries the **origin's** `key_hash32` after `origin` (the stable sender identity; **default-on for app DMs**, not just `E2E_ACK_REQ`); moves into the sealed region when `CRYPTED` lands |
 | b1 `0x02` | `DST_HASH`      | live — the inner carries the recipient's `key_hash32` (L2c verify-on-delivery)          |
 | b0 `0x01` | `PRIORITY`      | decoded-only (no behaviour wired yet)                                                    |
 
@@ -156,7 +156,7 @@ Path size = `1 + ceil(n_layers/2)` B. `layer_id[0]` = the **origin's** layer, `l
 - **E2E-ack return** (`E2E_ACK_REQ` set): the destination builds the ack as a `CROSS_LAYER` DATA with `TYPE = E2E_ACK` whose `layer_id[]` is the **reverse** of the received list (`ack[i] = layer_id[n_layers-1-i]`), `cur` reset to 0 — so the ack walks home along the same layers. The ack's `dst_key_hash32` is the origin's `key_hash32`, which the destination reads from the request's `source_hash` (present because `E2E_ACK_REQ` required it).
 
 - **`dst_key_hash32`** — the universal *final-recipient* `key_hash32`, **always cleartext** (leaks no more than the cleartext `dst` id). The node the `dst` id routes to verifies it against its own: match → deliver; mismatch → an id collision misdelivered this DM → forward to the real owner (the DM still arrives) + heal. Same- and cross-layer share this one field. Default-on for app DMs (the send path looks the dst's hash up in `id_bind`); +4 B.
-- **`source_hash`** — the **origin's** `key_hash32`, in the **sealed** region (after `origin`), so it's hidden from relays when `CRYPTED` is set. Set **iff `E2E_ACK_REQ`**: the destination reads it to learn who sent the DM and address the E2E-ack back — it becomes the ack's `dst_key_hash32`, and for cross-layer it pairs with the reversed `layer-path` to route the ack home. +4 B.
+- **`source_hash`** — the **origin's** `key_hash32`, after `origin` (in the region sealed once `CRYPTED` lands). **Default-on for app DMs** (`enqueue_data` sets `SOURCE_HASH` + appends it whenever it fits) — the **stable sender identity**: the 8-bit `origin` node_id is reassignable (DAD), `key_hash32` is not, so the destination records `source_hash` as the DM's durable identity (inbox / app dedup), and when `E2E_ACK_REQ` is set it also becomes the ack's `dst_key_hash32` (pairs with the reversed `layer-path` cross-layer). +4 B.
 - **`CRYPTED`** — `origin`+body are sealed (XChaCha20-Poly1305) so the **sender is hidden** (only the destination decrypts; relays/eavesdroppers see the cleartext `dst`, `dst_key_hash32`, and layer-path, never the originator). A 16-B tag trails. AEAD-auth failure on a misdelivered CRYPTED DM corroborates a collision.
 - **Normal DM** (no CRYPTED): `origin` is the sender's node_id (the destination attributes/replies by it).
 
