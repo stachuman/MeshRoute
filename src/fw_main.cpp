@@ -28,8 +28,11 @@
 #include "device_nv.h"
 #include "device_inbox_store.h"
 #include "device_rng.h"
+#include "console_json.h"    // write_ack/write_push/write_ready/write_err — the BLE companion's JSON twin
+#include "device_ble.h"      // BLE companion transport (XIAO nRF52840; an inert no-op on ESP32/native)
 #include <string.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 // Step 4 light-sleep — platform sleep primitives (radio stays in continuous RX; DIO1 RxDone wakes the MCU).
 #if !defined(MR_NO_POWERSAVE)
@@ -440,6 +443,24 @@ static bool service_debug(const char* line, size_t len) {
     return false;
 }
 
+// BLE companion inbound: handle ONE console line, emitting a single NDJSON response (the schema of
+// docs/specs/2026-05-30-device-console-design.md §4). Reuses the USB command engine — parse_command +
+// g_node.on_command — so the wire grammar physically cannot drift between the USB and BLE transports.
+// `whoami` -> a `ready` identity object; an unparseable/unknown line -> a fail-loud `err` (never a silent
+// drop). The phone-facing link is JSON-only by design (the human plain-text dumps stay on USB). Handed to
+// mrble::begin() as the transport's DispatchFn — device_ble.h owns the bytes, fw_main owns the meaning.
+static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t cap) {
+    using namespace meshroute::console;
+    if (len == 0) return 0;
+    if (len == 6 && !strncmp(line, "whoami", 6))
+        return write_ready(out, cap, g_node.node_id(), g_node.key_hash32(), g_node.config(), "existing");
+    meshroute::Command cmd{};
+    const ParseErr e = parse_command(line, len, cmd);
+    if (e == ParseErr::ok)    return write_ack(out, cap, g_node.on_command(cmd));
+    if (e == ParseErr::empty) return 0;
+    return write_err(out, cap, "parse", e == ParseErr::unknown_verb ? "unknown_cmd" : "bad_args");
+}
+
 void setup() {
     Serial.begin(115200);
     while (!Serial && millis() < 3000) { /* wait for USB CDC, but don't block forever */ }
@@ -547,6 +568,21 @@ void setup() {
         meshroute::Command jc{}; jc.kind = meshroute::CmdKind::join;
         g_node.on_command(jc);
         Serial.println(F("  join      = auto-DAD started (unprovisioned)"));
+    }
+    // Step 5: BLE companion transport (XIAO nRF52840 only; an inert no-op on ESP32/native). Brings up the
+    // S140 SoftDevice + Nordic UART Service + the advertising-window policy, and arms the SD-RNG keystone
+    // (mrble::begin sets mrrng::sd_enabled()=true). Gated on the persisted ble_mode (NV v7); off = today's
+    // exact bare-metal path. The advert name is the /mrid name if set, else "MeshRoute-<id>" (cosmetic —
+    // iOS discovers the node by the NUS service UUID, not the name).
+    if (g_ble_mode != 0) {
+        char ble_name[20];
+        if (idb.name_len) { const size_t k = idb.name_len < 19 ? (size_t)idb.name_len : 19; memcpy(ble_name, idb.name, k); ble_name[k] = '\0'; }
+        else              { snprintf(ble_name, sizeof ble_name, "MeshRoute-%u", (unsigned)node_id); }
+        const bool up = mrble::begin(g_ble_mode, g_ble_period_min, g_ble_pin, ble_name, &ble_dispatch_line);
+        Serial.print(F("  ble       = "));
+        if (up) { Serial.print(g_ble_mode == 1 ? F("on") : F("periodic"));
+                  Serial.println(F("  (secured: MITM passkey pairing — PIN in `cfg`)")); }
+        else    { Serial.println(F("INIT FAILED")); }      // fail loud: NO silent fall-back to bare-metal/insecure
     }
     Serial.println(F("  node      = up. Type 'help' for commands."));
 }
@@ -691,6 +727,20 @@ void loop() {
                 break;
             }
         }
+        // BLE companion: the structured NDJSON twin of the plain-text line above (design doc §4). The ring is
+        // drained ONCE here and fanned to both sinks — formatting + TX happen only when a phone is connected,
+        // and the whole block is inert (write_push never called) off-XIAO or with no client.
+        if (mrble::connected()) {
+            // Sized for the TRUE worst case: a 241-B body (max_payload_bytes_hard_cap) of all-control chars
+            // escapes 6x (\uXXXX, console_json.cpp), i.e. ~1446 B + the field envelope. 1536 guarantees a valid
+            // Push NEVER overflows (the earlier 640 silently dropped large/escaped bodies — review HIGH). static
+            // (not stack) to keep 1.5 KB off the hot-path stack; bleuart chunks the TX across notifications.
+            static char jb[1536];
+            const size_t n = meshroute::console::write_push(jb, sizeof jb, pu);
+            if (n) mrble::tx_line(jb, n);
+            else { static const char kOvf[] = "{\"err\":\"push_encode_overflow\"}\n";   // unreachable for valid
+                   mrble::tx_line(kOvf, sizeof(kOvf) - 1); }                            // input; LOUD, never silent
+        }
     }
     Serial.flush();
 
@@ -698,6 +748,10 @@ void loop() {
     //    (service_console() drains Serial, so we must note it BEFORE; the sleep gate below honors the latch).
     if (Serial.available()) g_host_present = true;
     service_console();
+
+    // 4c) BLE companion: advance the advertising-window policy + drain inbound NUS lines (both inert off-XIAO).
+    mrble::on_tick(now);
+    mrble::service_rx();
 
     // 4b) Persist the DAD lease state if it changed this iteration (adopt / epoch bump / forced rejoin).
     persist_join_if_changed();
@@ -711,7 +765,7 @@ void loop() {
     // explicit `sleep` command forces it even with a host present. A host that has typed latches us awake so
     // the console stays usable (ESP32 light-sleep would otherwise gate the UART and strand it). See MR_BOOT_GRACE_MS.
     const bool may_sleep = g_force_sleep || (!g_host_present && s_now >= MR_BOOT_GRACE_MS);
-    if (may_sleep && !g_iradio.tx_busy() && g_hal.txq_depth() == 0 && !Serial.available()) {
+    if (may_sleep && !g_iradio.tx_busy() && g_hal.txq_depth() == 0 && !Serial.available() && !mrble::connected()) {
         uint64_t due = g_hal.next_due_ms();                    // UINT64_MAX if no timer armed
         const uint64_t cap = s_now + MR_MAX_SLEEP_MS;
         if (due > cap) due = cap;

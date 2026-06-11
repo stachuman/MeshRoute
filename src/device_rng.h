@@ -13,7 +13,9 @@
 // Bluefruit.begin(): SD up -> draw from the SD entropy pool (sd_rand_application_vector_get); SD off (bare-metal,
 // the default) -> the direct NRF_RNG path, byte-identical to before. NB we do NOT probe sd_softdevice_is_enabled()
 // — that is itself an SVC and would fault when the SD is off. The `regen` path runs at RUNTIME under a live BLE
-// link, so the SD branch is load-bearing, not just first-boot. (Bench-verified; the host build never calls this.)
+// link, so the SD branch is load-bearing, not just first-boot. (BENCH-VERIFICATION PENDING — the SD path has
+// never executed: no hardware yet, and sd_enabled() is still false until Step 5's BLE init sets it. The host
+// build never calls this.)
 #pragma once
 #include <stdint.h>
 #include <stddef.h>

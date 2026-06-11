@@ -445,6 +445,9 @@ CFG_KEYS = {
     "duty":       "duty-cycle fraction, e.g. 0.01  [reboot]",
     "lbt":        "listen-before-talk, 0 or 1  [reboot]",
     "beacon_ms":  "beacon period, ms  [reboot]",
+    "ble_mode":   "BLE companion: off|on|periodic  [reboot]",
+    "ble_period": "periodic-mode advertising period, 1..255 min  [reboot]",
+    "ble_pin":    "BLE pairing passkey, 0..999999 (6-digit)  [reboot]",
 }
 
 

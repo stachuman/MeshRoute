@@ -1,0 +1,4 @@
+# MeshRoute — BLE companion test client deps (tools/meshroute_client_ble.py).
+# The repo's tools/ are otherwise loose stdlib scripts; this is the one that needs a 3rd-party lib.
+#   pip install -r tools/requirements-ble.txt
+bleak>=0.21

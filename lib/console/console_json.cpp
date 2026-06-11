@@ -49,6 +49,8 @@ const char* cmdcode_name(CmdCode c) {
         case CmdCode::err_priority_capped: return "err_priority_capped";
         case CmdCode::err_no_binding:      return "err_no_binding";
         case CmdCode::err_unsupported:     return "err_unsupported";
+        case CmdCode::err_unprovisioned:   return "err_unprovisioned";   // node_id==0 (very common on a fresh device)
+        case CmdCode::err_no_data_sf:      return "err_no_data_sf";      // allowed_sf_bitmap==0 (sf_list unset)
     }
     return "err_unknown";
 }
@@ -88,14 +90,19 @@ size_t write_event(char* buf, size_t cap, const char* type, const EventField* f,
 size_t write_push(char* buf, size_t cap, const Push& p) {
     JsonBuf j(buf, cap);
     j.lit("{\"ev\":\""); j.lit(pushkind_name(p.kind)); j.ch('"');
+    // Clamp to the array bound: Push.body is uint8_t[max_payload_bytes_hard_cap]. body_len is set from validated
+    // frame data upstream, but a defensive clamp here means a corrupt value can never drive str() to read past
+    // the buffer (an OOB read would be a far worse failure than a truncated body).
+    const size_t body_n = p.body_len <= protocol::max_payload_bytes_hard_cap ? p.body_len
+                                                                             : protocol::max_payload_bytes_hard_cap;
     if (p.kind == PushKind::msg_recv) {
         j.lit(",\"origin\":"); j.u32(p.origin);
         j.lit(",\"ctr\":");    j.u32(p.ctr);
-        j.lit(",\"body\":");   j.str(reinterpret_cast<const char*>(p.body), p.body_len);
+        j.lit(",\"body\":");   j.str(reinterpret_cast<const char*>(p.body), body_n);
     } else if (p.kind == PushKind::channel_recv) {
         j.lit(",\"origin\":");     j.u32(p.origin);
         j.lit(",\"channel_id\":"); j.u32(p.channel_id);
-        j.lit(",\"body\":");       j.str(reinterpret_cast<const char*>(p.body), p.body_len);
+        j.lit(",\"body\":");       j.str(reinterpret_cast<const char*>(p.body), body_n);
     } else if (p.kind == PushKind::hash_resolved) {
         const uint32_t hash = static_cast<uint32_t>(p.body[0]) | (static_cast<uint32_t>(p.body[1]) << 8)
                             | (static_cast<uint32_t>(p.body[2]) << 16) | (static_cast<uint32_t>(p.body[3]) << 24);
