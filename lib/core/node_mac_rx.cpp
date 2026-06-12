@@ -541,16 +541,16 @@ void Node::do_post_ack() {
             };
             _hal.emit("delivered", f, 4); );
         // sender_hash = the origin's stable key_hash32 (when SOURCE_HASH was set) — the app's DM dedup identity.
-        // Computed BEFORE the push so the LIVE msg_recv carries it too: Phase-3 sync needs the live event and the
-        // later pulled record to dedup by the same (sender_hash, ctr).
         const uint32_t sender_hash = (ui && ui->has_source_hash) ? ui->source_hash : 0;
+        // Record-on-delivery FIRST (the FINAL-destination deliver path, once per delivered DM): it returns the
+        // inbox seq (0 if disabled). The live msg_recv push then carries the SAME sender_hash + seq as the pulled
+        // record -> the app dedups by (sender_hash, ctr) and detects a dropped live push by the seq (model B).
+        const uint32_t seq = _inbox.record_dm(pa.origin, sender_hash, pa.ctr,
+                                              reinterpret_cast<const uint8_t*>(body), blen, _hal.now());
         Push pu{}; pu.kind = PushKind::msg_recv; pu.origin = pa.origin; pu.dst = pa.dst; pu.ctr = pa.ctr;
-        pu.sender_hash = sender_hash;
+        pu.sender_hash = sender_hash; pu.seq = seq;
         pu.body_len = blen; for (uint8_t i = 0; i < blen; ++i) pu.body[i] = static_cast<uint8_t>(body[i]);
-        enqueue_push(pu);                                // app channel: the inbound message (live notify)
-        // ... and the durable inbox (record-on-delivery), written alongside the push. Inert until a backend
-        // installs stores; this is the FINAL-destination deliver path so it fires once per delivered DM.
-        _inbox.record_dm(pa.origin, sender_hash, pa.ctr, reinterpret_cast<const uint8_t*>(body), blen, _hal.now());
+        enqueue_push(pu);                                // app channel: the inbound message (live notify, seq-stamped)
         // E2E ACK requested -> reply to the DM's origin with the acked ctr (routes home on the F reverse path).
         if (pa.flags & DATA_FLAG_E2E_ACK_REQ) send_e2e_ack(pa.origin, pa.ctr);
         become_free();

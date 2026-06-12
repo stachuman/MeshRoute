@@ -106,6 +106,11 @@ inline bool begin(uint8_t mode, uint8_t period_min, uint32_t pin, const char* na
     if (mode == 0) return false;                            // off -> never bring the SoftDevice up
     g_dispatch = dispatch;
 
+    // FIX: the default ATT MTU is 23 (20-B notification payload), so a 125-B `ready` / a long msg_recv
+    // splits across ~7 notifications and only the first survives the SoftDevice's tiny default HVN queue
+    // — the client gets a truncated line that never decodes. BANDWIDTH_MAX raises the MTU (to 247, so the
+    // whole reply fits in ONE notification) AND enlarges the notify queue. MUST precede Bluefruit.begin().
+    Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
     Bluefruit.begin(/*prph=*/1, /*central=*/0);
     // <-- KEYSTONE: Bluefruit.begin() just enabled the SoftDevice, so the SD now owns the radio. Set the flag
     // HERE, before any failure-return below (e.g. setPIN failing): once the SD is up it stays up, so a later

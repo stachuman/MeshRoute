@@ -178,21 +178,24 @@ void Node::ingest_channel_m(const m_out& m, uint8_t from) {
                                               ? protocol::channel_msg_max_payload_bytes : m.body.size());
         if (e.payload_len) std::memcpy(e.payload, m.body.data(), e.payload_len);
         channel_buffer_add(e);
+        // Record-on-delivery FIRST (NEW-message branch only -> once per msg): it returns the inbox seq (0 if
+        // disabled). Store the FULL 32-bit channel_msg_id (the exact identity the app dedups by; the low byte
+        // alone can't be reconstructed without the origin's key_hash16). The live channel_recv push then carries
+        // the SAME channel_msg_id + seq as the pulled record -> the app unifies live+pulled + detects gaps (model B).
+        const uint32_t seq = _inbox.record_channel(m.channel_id, id, e.payload,
+                                                   static_cast<uint8_t>(e.payload_len), _hal.now());
         // App push: surface a NEW channel message to the app/console, like a DM's msg_recv (the device
         // console prints it; the sim observes via the emit below). Load-bearing -> OUTSIDE the wrap.
         {
             Push pu{};
             pu.kind = PushKind::channel_recv; pu.origin = origin; pu.channel_id = m.channel_id;
             pu.channel_msg_id = id;            // the FULL 32-bit channel id — the app's dedup identity (matches the inbox record)
+            pu.seq = seq;                      // the inbox per-store seq (0 = inbox disabled -> write_push omits it)
             pu.body_len = static_cast<uint8_t>(e.payload_len > protocol::max_payload_bytes_hard_cap
                                                ? protocol::max_payload_bytes_hard_cap : e.payload_len);
             for (uint8_t i = 0; i < pu.body_len; ++i) pu.body[i] = e.payload[i];
             enqueue_push(pu);
         }
-        // Durable inbox (record-on-delivery), alongside the push. NEW-message branch only -> once per msg.
-        // Store the FULL 32-bit channel_msg_id (the exact identity the app dedups by; the low byte alone
-        // can't be reconstructed without the origin's key_hash16). Inert until a backend installs stores.
-        _inbox.record_channel(m.channel_id, id, e.payload, static_cast<uint8_t>(e.payload_len), _hal.now());
         MR_TELEMETRY(
             const char* src = was_pulled ? "pull_target" : "overheard";
             EventField f[] = { { .key = "id",         .type = EventField::T::i64, .i = static_cast<int64_t>(id) },

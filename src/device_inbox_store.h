@@ -45,10 +45,11 @@ constexpr uint16_t kVersion = 1;
 #if defined(ARDUINO)
 namespace mrinbox {
 
-// read_since reads one segment at a time into this scratch + walks its frames. Segments are sized to it
-// (fw_main passes seg_bytes == kSegScratchBytes for the bring-up; the spec's 32K/16K can be tuned on the
-// bench). One static buffer (single-threaded); .bss, not the stack (avoids the try_drain stack-overflow class).
-static constexpr uint32_t kSegScratchBytes = 4096;
+// read_since reads a WHOLE segment into this scratch + walks its frames, so a segment must be <= it (begin()
+// guards seg_bytes). Tied to protocol::inbox_segment_bytes so the segment size and the scratch are ONE value —
+// a larger segment would silently truncate the read (drop every record past the scratch). One static buffer
+// (single-threaded); .bss, not the stack (avoids the try_drain stack-overflow class).
+static constexpr uint32_t kSegScratchBytes = meshroute::protocol::inbox_segment_bytes;   // 4 KiB
 static uint8_t kSegScratch[kSegScratchBytes];
 
 // =============================================================================
@@ -91,13 +92,15 @@ private:
     const char* _meta_path;
     uint32_t    _cap, _seg;
     Meta        _meta{};
-    uint16_t    _count = 0;          // live record count (rebuilt at begin / maintained on append+drop)
+    uint16_t    _count = 0;          // DIAGNOSTIC ONLY: appends THIS boot (0 after a restore — begin() rebuilds bytes,
+                                     //   not count; not decremented on drop). The Inbox uses pull, never count().
     uint32_t    _total = 0;          // live bytes across the ring
     bool        _ok = false;         // begin() succeeded (mount + meta consistent)
 };
 
 // ---- the segmented-log logic (platform-neutral; uses the seams above) -------------------------------------
 inline bool DeviceInboxStore::begin() {
+    if (_seg > kSegScratchBytes) return false;                  // a segment can't exceed the read scratch -> fail loud (no silent truncation)
     bool formatted = false;
     if (!qspi_mount(&formatted)) return false;                  // records store unmountable -> fail loud (Inbox stays disabled)
 
@@ -123,7 +126,7 @@ inline bool DeviceInboxStore::begin() {
     _count = 0; _total = 0;
     for (uint16_t i = _meta.tail_seg; ; i = static_cast<uint16_t>((i + 1) % _meta.seg_count)) {
         uint32_t sz = 0;
-        if (qspi_seg_size(i, &sz)) _total += sz;               // (count is recomputed lazily in read_since; bytes drive the cap)
+        if (qspi_seg_size(i, &sz)) _total += sz;               // bytes drive the cap; _count is NOT rebuilt here (diag-only, see count())
         if (i == _meta.head_seg) break;
     }
     _ok = true;
@@ -168,7 +171,7 @@ inline bool DeviceInboxStore::append(uint32_t seq, const uint8_t* rec, uint16_t 
 inline uint16_t DeviceInboxStore::read_since(uint32_t since_seq, ReadCb cb, void* ctx) const {
     if (!_ok) return 0;
     uint16_t visited = 0;
-    const uint32_t cap = _seg <= kSegScratchBytes ? _seg : kSegScratchBytes;
+    const uint32_t cap = _seg;                                  // begin() guarantees _seg <= kSegScratchBytes (no truncation)
     // Walk tail..head (oldest segment first); within a segment, records are append-order (oldest first).
     for (uint16_t i = _meta.tail_seg; ; i = static_cast<uint16_t>((i + 1) % _meta.seg_count)) {
         const uint32_t n = qspi_seg_read(i, kSegScratch, cap);   // whole segment into the scratch (<= kSegScratchBytes)

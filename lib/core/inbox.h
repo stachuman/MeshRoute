@@ -78,11 +78,13 @@ public:
     void on_init(InboxStore* dm, InboxStore* chan);
     bool enabled() const { return _dm != nullptr && _chan != nullptr; }
 
-    // Record-on-delivery (called from the node's DM / channel deliver paths). No-op if disabled. `sender_hash`
-    // = the DM sender's key_hash32 (the stable identity, 0 if SOURCE_HASH was absent). The channel identity is
-    // the FULL channel_msg_id (origin is derived from its high byte) — store it whole, not the ctr.
-    void record_dm(uint8_t origin, uint32_t sender_hash, uint16_t ctr, const uint8_t* body, uint8_t len, uint64_t now_ms);
-    void record_channel(uint8_t channel_id, uint32_t channel_msg_id, const uint8_t* body, uint8_t len, uint64_t now_ms);
+    // Record-on-delivery (called from the node's DM / channel deliver paths). RETURNS the assigned per-store
+    // `seq` (0 if the inbox is disabled — nothing recorded). The caller stamps it into the live Push so the app
+    // can unify live + pulled by seq + detect a dropped live push (the contract's model "B"); hence record
+    // BEFORE enqueue_push. `sender_hash` = the DM sender's key_hash32 (stable identity, 0 if SOURCE_HASH absent).
+    // The channel identity is the FULL channel_msg_id (origin = its high byte) — store it whole, not the ctr.
+    uint32_t record_dm(uint8_t origin, uint32_t sender_hash, uint16_t ctr, const uint8_t* body, uint8_t len, uint64_t now_ms);
+    uint32_t record_channel(uint8_t channel_id, uint32_t channel_msg_id, const uint8_t* body, uint8_t len, uint64_t now_ms);
 
     // Companion pull: stream DM records (seq > dm_since), THEN channel records (seq > chan_since), each
     // oldest-first, via cb. Returns the total entries visited. DM-block-then-channel-block (the two seq
@@ -102,8 +104,8 @@ public:
     void     flush();
 
 private:
-    void record(InboxStore* store, uint32_t& next, uint8_t& unpersisted, InboxKind kind, uint8_t origin,
-                uint8_t channel_id, uint32_t msg_id, uint32_t sender_hash, const uint8_t* body, uint8_t len, uint64_t now_ms);
+    uint32_t record(InboxStore* store, uint32_t& next, uint8_t& unpersisted, InboxKind kind, uint8_t origin,
+                    uint8_t channel_id, uint32_t msg_id, uint32_t sender_hash, const uint8_t* body, uint8_t len, uint64_t now_ms);
 
     InboxStore* _dm   = nullptr;
     InboxStore* _chan = nullptr;

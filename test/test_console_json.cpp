@@ -42,19 +42,23 @@ TEST_CASE("write_event — type + typed EventField k/v") {
     CHECK(std::string(b, n) == "{\"ev\":\"cts_rx\",\"from\":5,\"snr\":7.25}\n");
 }
 
-TEST_CASE("write_push — msg_recv carries sender_hash + escaped body; channel_recv carries channel_msg_id") {
+TEST_CASE("write_push — msg_recv/channel_recv carry identity + seq (model B); seq OMITTED when 0 (inbox disabled)") {
     char b[300];
     Push m{}; m.kind = PushKind::msg_recv; m.origin = 3; m.ctr = 7; m.sender_hash = 3735928559u;  // 0xDEADBEEF
     const char* body = "hi\"x"; m.body_len = 4; std::memcpy(m.body, body, 4);
-    size_t n = write_push(b, sizeof b, m);
+    size_t n = write_push(b, sizeof b, m);                                   // seq==0 -> omitted (best-effort live only)
     CHECK(std::string(b, n) ==
       "{\"ev\":\"msg_recv\",\"origin\":3,\"ctr\":7,\"sender_hash\":3735928559,\"body\":\"hi\\\"x\"}\n");
+    m.seq = 42;                                                              // inbox enabled -> seq present
+    n = write_push(b, sizeof b, m);
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"msg_recv\",\"origin\":3,\"ctr\":7,\"sender_hash\":3735928559,\"seq\":42,\"body\":\"hi\\\"x\"}\n");
 
-    Push ch{}; ch.kind = PushKind::channel_recv; ch.origin = 4; ch.channel_id = 3; ch.channel_msg_id = 68298753u;
+    Push ch{}; ch.kind = PushKind::channel_recv; ch.origin = 4; ch.channel_id = 3; ch.channel_msg_id = 68298753u; ch.seq = 7;
     const char* cb = "yo"; ch.body_len = 2; std::memcpy(ch.body, cb, 2);
     n = write_push(b, sizeof b, ch);
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"channel_recv\",\"origin\":4,\"channel_id\":3,\"channel_msg_id\":68298753,\"body\":\"yo\"}\n");
+      "{\"ev\":\"channel_recv\",\"origin\":4,\"channel_id\":3,\"channel_msg_id\":68298753,\"seq\":7,\"body\":\"yo\"}\n");
 
     Push a{}; a.kind = PushKind::send_acked; a.dst = 5; a.ctr = 7;
     n = write_push(b, sizeof b, a);

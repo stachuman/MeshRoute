@@ -67,8 +67,8 @@ public struct NodeStatusSnapshot: Hashable, Sendable, Codable {
 // ---- the decoded inbound union ----
 public enum Inbound: Hashable, Sendable {
     case ack(CommandAck)
-    case messageReceived(origin: Int, ctr: Int, senderHash: UInt32?, body: String)   // senderHash = sender key_hash32
-    case channelReceived(origin: Int, channelID: Int, channelMsgID: UInt32?, body: String)
+    case messageReceived(origin: Int, ctr: Int, senderHash: UInt32?, seq: UInt32?, body: String)   // seq present iff inbox enabled
+    case channelReceived(origin: Int, channelID: Int, channelMsgID: UInt32?, seq: UInt32?, body: String)
     case sendAcked(dst: Int, ctr: Int)
     case sendFailed(dst: Int, ctr: Int)
     case hashResolved(node: Int, authoritative: Bool, hash: KeyHash)   // node == 0 → unresolved/timeout
@@ -111,12 +111,12 @@ public enum PushDecoder {
         switch ev {
         case "msg_recv":
             if let m = try? decoder.decode(MsgRecv.self, from: data) {
-                return .messageReceived(origin: m.origin, ctr: m.ctr, senderHash: m.sender_hash, body: m.body)
+                return .messageReceived(origin: m.origin, ctr: m.ctr, senderHash: m.sender_hash, seq: m.seq, body: m.body)
             }
         case "channel_recv":
             if let m = try? decoder.decode(ChannelRecv.self, from: data) {
                 return .channelReceived(origin: m.origin, channelID: m.channel_id,
-                                        channelMsgID: m.channel_msg_id, body: m.body)
+                                        channelMsgID: m.channel_msg_id, seq: m.seq, body: m.body)
             }
         case "send_acked":
             if let m = try? decoder.decode(SendFate.self, from: data) {
@@ -168,8 +168,8 @@ public enum PushDecoder {
         let log: String?
         let err: String?; let msg: String?
     }
-    private struct MsgRecv: Decodable { let origin: Int; let ctr: Int; let sender_hash: UInt32?; let body: String }
-    private struct ChannelRecv: Decodable { let origin: Int; let channel_id: Int; let channel_msg_id: UInt32?; let body: String }
+    private struct MsgRecv: Decodable { let origin: Int; let ctr: Int; let sender_hash: UInt32?; let seq: UInt32?; let body: String }
+    private struct ChannelRecv: Decodable { let origin: Int; let channel_id: Int; let channel_msg_id: UInt32?; let seq: UInt32?; let body: String }
     private struct SendFate: Decodable { let dst: Int; let ctr: Int }
     private struct HashResolved: Decodable { let node: Int; let auth: Int; let hash: UInt32 }
     private struct InboxDM: Decodable { let seq: UInt32; let origin: Int; let ctr: Int; let sender_hash: UInt32?; let rx_ms: UInt64; let body: String }

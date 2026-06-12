@@ -99,11 +99,13 @@ size_t write_push(char* buf, size_t cap, const Push& p) {
         j.lit(",\"origin\":");      j.u32(p.origin);
         j.lit(",\"ctr\":");         j.u32(p.ctr);
         j.lit(",\"sender_hash\":"); j.u32(p.sender_hash);   // Phase-3: live↔pulled DM dedup identity (0 if no SOURCE_HASH)
+        if (p.seq) { j.lit(",\"seq\":"); j.u32(p.seq); }    // model B: the inbox seq (gap detector). OMITTED if 0 = inbox disabled
         j.lit(",\"body\":");        j.str(reinterpret_cast<const char*>(p.body), body_n);
     } else if (p.kind == PushKind::channel_recv) {
         j.lit(",\"origin\":");         j.u32(p.origin);
         j.lit(",\"channel_id\":");     j.u32(p.channel_id);
         j.lit(",\"channel_msg_id\":"); j.u32(p.channel_msg_id);   // Phase-3: the full 32-bit channel dedup identity
+        if (p.seq) { j.lit(",\"seq\":"); j.u32(p.seq); }          // model B: the inbox seq (gap detector). OMITTED if 0 = inbox disabled
         j.lit(",\"body\":");           j.str(reinterpret_cast<const char*>(p.body), body_n);
     } else if (p.kind == PushKind::hash_resolved) {
         const uint32_t hash = static_cast<uint32_t>(p.body[0]) | (static_cast<uint32_t>(p.body[1]) << 8)

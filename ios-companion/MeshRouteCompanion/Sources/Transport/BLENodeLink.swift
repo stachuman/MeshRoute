@@ -143,7 +143,7 @@ extension BLENodeLink: CBPeripheralDelegate {
         if let error { emit(.state(.failed("characteristic discovery failed: \(error.localizedDescription)"))); return }
         for ch in service.characteristics ?? [] {
             if ch.uuid == rxUUID { rxChar = ch }
-            if ch.uuid == txUUID { peripheral.setNotifyValue(true, for: ch) }   // touching the encrypted char triggers pairing
+            if ch.uuid == txUUID { peripheral.setNotifyValue(true, for: ch) }
         }
         // We report `.connected` only once the TX subscription CONFIRMS (post-pairing) — see below — so the
         // app never writes before the bonded link + notify pipe are live (firmware §A.3 gates GATT on bonding).

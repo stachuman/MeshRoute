@@ -119,10 +119,12 @@ final class AppModel {
             importInboxEntry(e)
         case .inboxEnd(_, _, let epoch, _):
             handleInboxEnd(servedEpoch: epoch)
-        case .messageReceived(let origin, let ctr, let senderHash, let body):
+        case .messageReceived(let origin, let ctr, let senderHash, let seq, let body):
             insertInboundDM(origin: origin, ctr: ctr, senderHash: senderHash, body: body)
-        case .channelReceived(let origin, let channelID, let channelMsgID, let body):
+            applyLiveSeq(kind: .dm, seq: seq)
+        case .channelReceived(let origin, let channelID, let channelMsgID, let seq, let body):
             insertChannel(origin: origin, channelID: channelID, channelMsgID: channelMsgID, body: body)
+            applyLiveSeq(kind: .channel, seq: seq)
         case .sendAcked(_, let ctr):
             setOutgoingState(ctr: ctr, to: .acked)
         case .sendFailed(_, let ctr):
@@ -245,6 +247,13 @@ final class AppModel {
             simulateInbound(fromID: 2, body: "hey — it works over BLE!")
             try? await Task.sleep(for: .milliseconds(300))
             sendDM(to: .dm(bench), body: "hello from the iOS app 👋")
+            try? await Task.sleep(for: .milliseconds(500))
+            // Model B: a live push is dropped from the bounded ring; the NEXT push's seq jumps the gap →
+            // the app detects it and pull_inbox-backfills the lost message immediately (no reconnect needed).
+            if let mock = activeMockLink {
+                await mock.simulateDroppedIncomingDM(fromID: 2, body: "dropped push — recovered by gap-pull")
+                await mock.simulateIncomingDM(fromID: 2, body: "after the gap")
+            }
         }
     }
 
@@ -330,6 +339,21 @@ final class AppModel {
         sendCommand(.pullInbox(dmSince: dmSince, chanSince: chanSince))
     }
 
+    /// Model B (live-while-connected): the per-store cursor is the live high-water. If a live push's seq
+    /// jumps past `high+1`, a push was dropped from the bounded ring → pull_inbox-backfill immediately
+    /// (the just-ingested live message dedups against the pulled copy). Then advance + persist the cursor.
+    /// No seq (inbox disabled) or no active sync ⇒ best-effort live only.
+    private func applyLiveSeq(kind: InboxKind, seq: UInt32?) {
+        guard let seq, var state = activeSync else { return }
+        if state.classifyLive(kind: kind, seq: seq) == .gap {
+            sendCommand(.pullInbox(dmSince: state.dmCursor, chanSince: state.chanCursor))
+        }
+        state.advance(kind: kind, seq: seq)
+        activeSync = state
+        activeSyncProfile?.syncState = state
+        try? context.save()
+    }
+
     private func importInboxEntry(_ e: InboxEntry) {
         if !inboxEntryExists(e) {                        // dedup-on-import by stable identity (no seq/epoch)
             let thread: ThreadKey = e.kind == .channel
@@ -376,8 +400,8 @@ struct ConsoleLine: Identifiable {
 func describe(_ inbound: Inbound) -> String {
     switch inbound {
     case .ack(let a):                              return "ack \(a.code) ctr=\(a.ctr) qd=\(a.queueDepth)"
-    case .messageReceived(let o, let c, _, let b):  return "msg_recv from \(o) ctr=\(c): \(b)"
-    case .channelReceived(let o, let ch, _, let b): return "channel_recv ch\(ch) from \(o): \(b)"
+    case .messageReceived(let o, let c, _, _, let b):  return "msg_recv from \(o) ctr=\(c): \(b)"
+    case .channelReceived(let o, let ch, _, _, let b): return "channel_recv ch\(ch) from \(o): \(b)"
     case .sendAcked(let d, let c):                 return "send_acked dst=\(d) ctr=\(c)"
     case .sendFailed(let d, let c):                return "send_failed dst=\(d) ctr=\(c)"
     case .hashResolved(let n, let a, let h):       return "hash_resolved \(h.hex8) → node \(n)\(a ? " (auth)" : "")"

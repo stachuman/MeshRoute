@@ -21,7 +21,7 @@ final class InboxCoreTests: XCTestCase {
 
     func testInboxIngestDedupsAgainstLivePush() {
         var store = ConversationStore()
-        store.ingest(.messageReceived(origin: 2, ctr: 7, senderHash: nil, body: "hi"), now: now)  // live first (legacy DM)
+        store.ingest(.messageReceived(origin: 2, ctr: 7, senderHash: nil, seq: nil, body: "hi"), now: now)  // live first (legacy DM)
         // the same message later arrives via pull_inbox → must NOT duplicate
         let dup = store.ingestInbox(InboxEntry(seq: 5, kind: .dm, origin: 2, channelID: 0,
                                                ctr: 7, rxTimeMs: 1, body: "hi"), now: now)
@@ -91,7 +91,7 @@ final class InboxCoreTests: XCTestCase {
 
     func testLiveChannelThenInboxPullDedups() {
         var store = ConversationStore()
-        store.ingest(.channelReceived(origin: 4, channelID: 3, channelMsgID: 0x0400_0009, body: "gm"), now: now)
+        store.ingest(.channelReceived(origin: 4, channelID: 3, channelMsgID: 0x0400_0009, seq: nil, body: "gm"), now: now)
         // the same channel message later arrives via pull_inbox (same full id) → must NOT duplicate
         let dup = store.ingestInbox(InboxEntry(seq: 5, kind: .channel, origin: 4, channelID: 3,
                                                ctr: 9, channelMsgID: 0x0400_0009, rxTimeMs: 1, body: "gm"), now: now)
@@ -127,6 +127,19 @@ final class InboxCoreTests: XCTestCase {
                                                   ctr: 1, rxTimeMs: 1, body: "a"), now: now)
         XCTAssertNil(replay)
         XCTAssertEqual(store.messages(in: .dm(KeyHash(2))).count, 3)
+    }
+
+    func testLiveDMCarriesSeqAndDroppedPushCreatesGap() async throws {
+        let mock = MockNodeLink(seedInbox: false)          // empty stores → predictable seqs from 1
+        await mock.connect()
+        await mock.simulateIncomingDM(fromID: 2, body: "one")          // seq 1 → pushed
+        await mock.simulateDroppedIncomingDM(fromID: 2, body: "two")   // seq 2 → recorded, NOT pushed (dropped)
+        await mock.simulateIncomingDM(fromID: 2, body: "three")        // seq 3 → pushed
+        let inbound = await drainInbox(mock, until: 3)     // ready, msg_recv(seq1), msg_recv(seq3)
+        let seqs = inbound.compactMap { inb -> UInt32? in
+            if case .messageReceived(_, _, _, let s, _) = inb { return s } else { return nil }
+        }
+        XCTAssertEqual(seqs, [1, 3])   // seq 2 missing → seq 3 jumps past high+1 → the app's gap detector fires
     }
 
     func testMockExposesEpochAndResetBumpsIt() async throws {

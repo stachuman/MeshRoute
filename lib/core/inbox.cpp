@@ -99,8 +99,8 @@ void Inbox::on_init(InboxStore* dm, InboxStore* chan) {
     _dm_unpersisted = _chan_unpersisted = 0;
 }
 
-void Inbox::record(InboxStore* store, uint32_t& next, uint8_t& unpersisted, InboxKind kind, uint8_t origin,
-                   uint8_t channel_id, uint32_t msg_id, uint32_t sender_hash, const uint8_t* body, uint8_t len, uint64_t now_ms) {
+uint32_t Inbox::record(InboxStore* store, uint32_t& next, uint8_t& unpersisted, InboxKind kind, uint8_t origin,
+                       uint8_t channel_id, uint32_t msg_id, uint32_t sender_hash, const uint8_t* body, uint8_t len, uint64_t now_ms) {
     if (len > protocol::inbox_max_body) len = protocol::inbox_max_body;   // callers already bound the body; defensive
     uint8_t buf[inbox_record_max_bytes];
     const uint32_t seq = next++;                                  // monotonic; assign-then-advance
@@ -109,19 +109,20 @@ void Inbox::record(InboxStore* store, uint32_t& next, uint8_t& unpersisted, Inbo
     // Batched persist (§6): reset the batch ONLY on a SUCCESSFUL set_next_seq — a failed flash write keeps
     // `unpersisted` high so the next append RETRIES, instead of swallowing the failure + skipping a batch.
     if (++unpersisted >= kSeqPersistBatch && store->set_next_seq(next)) unpersisted = 0;
+    return seq;                                                   // the live Push stamps this -> the app's gap detector (model B)
 }
 
-void Inbox::record_dm(uint8_t origin, uint32_t sender_hash, uint16_t ctr, const uint8_t* body, uint8_t len, uint64_t now_ms) {
-    if (!enabled()) return;
-    record(_dm, _dm_next, _dm_unpersisted, InboxKind::dm, origin, /*channel_id*/ 0, /*msg_id*/ ctr, sender_hash, body, len, now_ms);
+uint32_t Inbox::record_dm(uint8_t origin, uint32_t sender_hash, uint16_t ctr, const uint8_t* body, uint8_t len, uint64_t now_ms) {
+    if (!enabled()) return 0;
+    return record(_dm, _dm_next, _dm_unpersisted, InboxKind::dm, origin, /*channel_id*/ 0, /*msg_id*/ ctr, sender_hash, body, len, now_ms);
 }
 
-void Inbox::record_channel(uint8_t channel_id, uint32_t channel_msg_id,
-                           const uint8_t* body, uint8_t len, uint64_t now_ms) {
-    if (!enabled()) return;
+uint32_t Inbox::record_channel(uint8_t channel_id, uint32_t channel_msg_id,
+                               const uint8_t* body, uint8_t len, uint64_t now_ms) {
+    if (!enabled()) return 0;
     const uint8_t origin = static_cast<uint8_t>(channel_msg_id >> 24);   // the minter (channel_msg_id high byte)
-    record(_chan, _chan_next, _chan_unpersisted, InboxKind::channel, origin, channel_id, channel_msg_id,
-           /*sender_hash*/ 0, body, len, now_ms);   // channels identify by the full channel_msg_id, not a sender hash
+    return record(_chan, _chan_next, _chan_unpersisted, InboxKind::channel, origin, channel_id, channel_msg_id,
+                  /*sender_hash*/ 0, body, len, now_ms);   // channels identify by the full channel_msg_id, not a sender hash
 }
 
 uint16_t Inbox::pull(uint32_t dm_since, uint32_t chan_since, PullCb cb, void* ctx) const {

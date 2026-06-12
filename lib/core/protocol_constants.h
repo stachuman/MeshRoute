@@ -261,12 +261,15 @@ inline constexpr uint8_t  dm_max_body_bytes = max_payload_bytes_hard_cap - dm_in
 // ---- Persistent inbox (DM + channel durable history; 2026-06-10 spec) -------
 // Two independent flash stores: DMs are large + durable, channels persisted but freely evicted.
 // Both drop-oldest at the byte cap. The store is a segmented append-log (delete-oldest-segment, no
-// rewrite); segment <= store cap. A record = an 18-B header + body, body <= inbox_max_body, so a
+// rewrite); segment <= store cap. A record = a 24-B header + body, body <= inbox_max_body, so a
 // single record always fits a segment (the "record > segment" path is a defensive guard, never hit).
 inline constexpr uint32_t inbox_dm_store_bytes     = 512u * 1024;   // ~thousands of short DMs
 inline constexpr uint32_t inbox_chan_store_bytes   = 128u * 1024;   // freer (channels evict sooner)
-inline constexpr uint32_t inbox_segment_bytes_dm   = 32u * 1024;    // delete-oldest granularity (DM)
-inline constexpr uint32_t inbox_segment_bytes_chan = 16u * 1024;    // delete-oldest granularity (channel)
+// The segment (delete-oldest granularity) = the read-scratch size: read_since loads a WHOLE segment into a
+// fixed scratch buffer, so a segment must NOT exceed it (a larger segment would silently truncate the read).
+// Hence one value for both, enforced by the store's begin() guard. (Earlier 32K/16K spec values were never
+// wired — they'd have overrun the 4 KB scratch; reconciled to the real, scratch-bounded size.)
+inline constexpr uint32_t inbox_segment_bytes      = 4u * 1024;     // 4 KiB; == the store read-scratch
 inline constexpr uint8_t  inbox_max_body           = max_payload_bytes_hard_cap;  // 241 (record body cap)
 
 // ---- SF demod thresholds (Q4 dB, mirrors SF_DEMOD_THRESHOLD in Lua) -------

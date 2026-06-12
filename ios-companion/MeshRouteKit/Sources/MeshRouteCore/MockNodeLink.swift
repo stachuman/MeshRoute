@@ -107,9 +107,17 @@ public actor MockNodeLink: NodeLink {
         let ctr = (inboundCtr[id] ?? 0) + 1
         inboundCtr[id] = ctr
         let sh = hashForID(id) ?? 0      // the sender's stable key_hash32 (0 = unknown → legacy fallback)
-        emit(#"{"ev":"msg_recv","origin":\#(id),"ctr":\#(ctr),"sender_hash":\#(sh),"body":\#(jsonString(body))}"#)
-        recordDM(origin: id, ctr: ctr, body: body)
+        recordDM(origin: id, ctr: ctr, body: body)   // record BEFORE the push so the live push carries its seq
+        emit(#"{"ev":"msg_recv","origin":\#(id),"ctr":\#(ctr),"sender_hash":\#(sh),"seq":\#(dmSeq),"body":\#(jsonString(body))}"#)
         return (id, ctr)
+    }
+
+    /// Record an inbound DM but DON'T emit the live push — simulates a push dropped from the bounded ring.
+    /// The next simulateIncomingDM then carries a seq that jumps the gap, exercising model B's pull-backfill.
+    public func simulateDroppedIncomingDM(fromID id: UInt8, body: String) {
+        let ctr = (inboundCtr[id] ?? 0) + 1
+        inboundCtr[id] = ctr
+        recordDM(origin: id, ctr: ctr, body: body)
     }
 
     /// Reverse of knownPeers (hash→id): the sender's stable key_hash32 for a short id, if known.
@@ -129,8 +137,8 @@ public actor MockNodeLink: NodeLink {
         let ctr = (inboundCtr[id] ?? 0) + 1
         inboundCtr[id] = ctr
         let msgID = Self.channelMsgID(origin: id, ctr: ctr)
-        emit(#"{"ev":"channel_recv","origin":\#(id),"channel_id":\#(channelID),"channel_msg_id":\#(msgID),"body":\#(jsonString(body))}"#)
-        recordChannel(channelID: channelID, origin: id, ctr: ctr, body: body)
+        recordChannel(channelID: channelID, origin: id, ctr: ctr, body: body)   // record BEFORE push (assigns chanSeq)
+        emit(#"{"ev":"channel_recv","origin":\#(id),"channel_id":\#(channelID),"channel_msg_id":\#(msgID),"seq":\#(chanSeq),"body":\#(jsonString(body))}"#)
     }
 
     // A stand-in for the firmware's 32-bit channel_msg_id (origin<<24 | key_hash16<<8 | ctr).

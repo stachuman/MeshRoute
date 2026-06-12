@@ -93,4 +93,22 @@ final class InboxWireTests: XCTestCase {
         }
         XCTAssertNil(r2.inboxEpoch)
     }
+
+    // ---- model "B": live-push seq vs the per-store high-water (gap detection) ----
+
+    func testClassifyLiveGapDetection() {
+        let s = InboxSyncState(epoch: 1, dmCursor: 41, chanCursor: 6)
+        XCTAssertEqual(s.classifyLive(kind: .dm, seq: 42), .contiguous)    // high+1
+        XCTAssertEqual(s.classifyLive(kind: .channel, seq: 7), .contiguous)
+        XCTAssertEqual(s.classifyLive(kind: .dm, seq: 45), .gap)           // > high+1 → a live push was dropped
+        XCTAssertEqual(s.classifyLive(kind: .dm, seq: 41), .duplicate)     // == high → already held
+        XCTAssertEqual(s.classifyLive(kind: .dm, seq: 10), .duplicate)     // < high → already held (epoch re-pull etc.)
+    }
+
+    func testAdvanceKindSeqTakesMax() {
+        var s = InboxSyncState(epoch: 1, dmCursor: 10)
+        s.advance(kind: .dm, seq: 12); XCTAssertEqual(s.dmCursor, 12)
+        s.advance(kind: .dm, seq: 11); XCTAssertEqual(s.dmCursor, 12)      // older → never regresses
+        s.advance(kind: .channel, seq: 3); XCTAssertEqual(s.chanCursor, 3)
+    }
 }

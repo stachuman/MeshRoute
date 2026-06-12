@@ -24,11 +24,12 @@ public struct ConversationStore: Sendable {
     @discardableResult
     public mutating func ingest(_ inbound: Inbound, now: Date) -> ChatMessage? {
         switch inbound {
-        case .messageReceived(let origin, let ctr, let senderHash, let body):
-            return insertInboundDM(origin: UInt8(clamping: origin), ctr: ctr, senderHash: senderHash, body: body, now: now)
-        case .channelReceived(let origin, let channelID, let channelMsgID, let body):
+        case .messageReceived(let origin, let ctr, let senderHash, let seq, let body):
+            return insertInboundDM(origin: UInt8(clamping: origin), ctr: ctr, senderHash: senderHash,
+                                   seq: seq, body: body, now: now)
+        case .channelReceived(let origin, let channelID, let channelMsgID, let seq, let body):
             return insertChannel(origin: UInt8(clamping: origin), channelID: UInt8(clamping: channelID),
-                                 channelMsgID: channelMsgID, body: body, now: now)
+                                 channelMsgID: channelMsgID, seq: seq, body: body, now: now)
         case .sendAcked(_, let ctr):
             updateOutgoing(ctr: ctr, to: .acked); return nil
         case .sendFailed(_, let ctr):
@@ -38,13 +39,14 @@ public struct ConversationStore: Sendable {
         }
     }
 
-    private mutating func insertInboundDM(origin: UInt8, ctr: Int, senderHash: UInt32?, body: String, now: Date) -> ChatMessage? {
+    private mutating func insertInboundDM(origin: UInt8, ctr: Int, senderHash: UInt32?, seq: UInt32?,
+                                          body: String, now: Date) -> ChatMessage? {
         guard let key = MessageIdentity.dm(senderHash: senderHash, origin: origin, ctr: ctr) else { return nil }
         guard !seenInbound.contains(key) else { return nil }   // dedup by (sender_hash, ctr) | (origin, ctr)
         seenInbound.insert(key)
         let msg = ChatMessage(thread: dmThread(senderHash: senderHash, origin: origin), direction: .incoming,
                               body: body, timestamp: now, state: .received, origin: origin, ctr: ctr,
-                              senderHash: senderHash)
+                              seq: seq, senderHash: senderHash)
         append(msg)
         return msg
     }
@@ -86,14 +88,15 @@ public struct ConversationStore: Sendable {
     }
 
     private mutating func insertChannel(origin: UInt8, channelID: UInt8, channelMsgID: UInt32?,
-                                        body: String, now: Date) -> ChatMessage? {
+                                        seq: UInt32?, body: String, now: Date) -> ChatMessage? {
         if let mid = channelMsgID {                            // dedup live channels too, now we have the id
             let key = MessageIdentity.channel(msgID: mid)
             guard !seenInbound.contains(key) else { return nil }
             seenInbound.insert(key)
         }
         let msg = ChatMessage(thread: .channel(channelID), direction: .incoming, body: body,
-                              timestamp: now, state: .received, origin: origin, ctr: nil, channelMsgID: channelMsgID)
+                              timestamp: now, state: .received, origin: origin, ctr: nil, seq: seq,
+                              channelMsgID: channelMsgID)
         append(msg)
         return msg
     }

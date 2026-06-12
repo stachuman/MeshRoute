@@ -72,10 +72,32 @@ public struct InboxSyncState: Hashable, Sendable, Codable {
     }
 
     /// Advance the relevant store's cursor to the max seq seen (seqs arrive oldest-first within a store).
-    public mutating func advance(with entry: InboxEntry) {
-        switch entry.kind {
-        case .dm:      dmCursor = max(dmCursor, entry.seq)
-        case .channel: chanCursor = max(chanCursor, entry.seq)
+    public mutating func advance(with entry: InboxEntry) { advance(kind: entry.kind, seq: entry.seq) }
+
+    /// Advance a store's cursor to the max seq seen — also the high-water for LIVE gap detection (model B).
+    public mutating func advance(kind: InboxKind, seq: UInt32) {
+        switch kind {
+        case .dm:      dmCursor = max(dmCursor, seq)
+        case .channel: chanCursor = max(chanCursor, seq)
         }
     }
+
+    public func cursor(for kind: InboxKind) -> UInt32 { kind == .dm ? dmCursor : chanCursor }
+
+    /// Model "B" (2026-06-12): the per-store cursor is ALSO the live high-water. Classify a live push's
+    /// `seq` against it — a jump past `high+1` means a live push was dropped (bounded drop-oldest ring),
+    /// so the app backfills with `pull_inbox <high>` immediately instead of waiting for reconnect.
+    public func classifyLive(kind: InboxKind, seq: UInt32) -> LiveSeq {
+        let high = cursor(for: kind)
+        if seq <= high      { return .duplicate }   // already held (live/pull overlap or epoch re-pull)
+        if seq == high + 1  { return .contiguous }  // the expected next record
+        return .gap                                 // seq > high+1 → a dropped live push between high and seq
+    }
+}
+
+/// The verdict for a live push carrying a `seq` (model B). `nil`-seq pushes skip this entirely (best-effort).
+public enum LiveSeq: Hashable, Sendable {
+    case contiguous   // apply + advance
+    case gap          // pull_inbox from the current cursor to backfill the dropped record(s), then apply
+    case duplicate    // already held → dedup by stable identity, don't regress the cursor
 }

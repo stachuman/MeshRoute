@@ -26,6 +26,19 @@ mark_read  <dm|chan> <seq>            # advance the per-store read cursor (UX un
 - `pull_inbox 0 0` = full history. Live `msg_recv`/`channel_recv` still deliver in real time; pull is
   only on-connect / been-away catch-up.
 
+### Live + pull unified by `seq` — chosen model ("B", 2026-06-12)
+
+The app keeps **one high-water per store**, advanced by BOTH live pushes and pull responses (it *is* the
+`pull_inbox` cursor). For each live push carrying `seq`:
+- `seq == high+1` → contiguous → apply + advance.
+- `seq > high+1` → **gap** (a live push was dropped — the push ring is bounded/drop-oldest) → `pull_inbox <high> …` to backfill, then apply.
+- `seq <= high` → already held (live/pull overlap, or an epoch re-pull) → dedup by stable identity.
+- `seq` **absent** (the node's inbox is disabled) → best-effort live only; no gap-pull (nothing to pull from).
+
+So a message dropped while connected is recovered **immediately** (the next push exposes the gap), not only
+on reconnect. `pull_inbox`-on-connect stays the been-away catch-up; the live `seq` is the while-connected gap
+detector. (Chosen over "A" = best-effort-live + reconcile-only-on-reconnect.)
+
 ## Pushes (node → app)  — one JSON object per line
 
 ```json
@@ -69,18 +82,23 @@ So the sync layer:
 Implemented + tested app-side: `InboxSyncState.beginSync(nodeEpoch:)`, `MessageIdentity`,
 `ConversationStore.ingestInbox`, and `NodeProfileEntity.syncState` (see `AppModel.startInboxSync`).
 
-## Firmware asks (small — so live pushes share the pulled inbox's identity keys)
+## Firmware asks (small — so live pushes share the pulled inbox's identity keys + a live cursor)
 
-So a message seen **live** and later **pulled** dedups on the same key, the live pushes need the same
-identity fields the inbox now stores:
+So a message seen **live** and later **pulled** dedups on the same key **and** the client can detect a
+*missed* live push (model "B" above), the live pushes need the inbox's identity fields **and its `seq`**:
 ```json
-{"ev":"channel_recv","origin":4,"channel_id":3,"channel_msg_id":68298753,"body":"…"}        // channel_msg_id is new
-{"ev":"msg_recv","origin":2,"ctr":7,"sender_hash":3735928559,"body":"…"}                    // sender_hash is new
+{"ev":"channel_recv","origin":4,"channel_id":3,"channel_msg_id":68298753,"seq":7,"body":"…"}   // channel_msg_id + seq are new
+{"ev":"msg_recv","origin":2,"ctr":7,"sender_hash":3735928559,"seq":42,"body":"…"}              // sender_hash + seq are new
 ```
-Both are at hand already: `node_channel.cpp` passes the full `channel_msg_id` to `record_channel`, and
-`do_post_ack` has `sender_hash` (the parsed `source_hash`) right at the `msg_recv` push. (Firmware note:
-each adds a `u32` to the `Push` POD + its `console_json` writer — a small Phase-3 task, landed with the
-companion pushes.) Without them, a channel/DM seen live AND later pulled can duplicate.
+Identity fields are at hand: `node_channel.cpp` passes the full `channel_msg_id` to `record_channel`, and
+`do_post_ack` has `sender_hash` (the parsed `source_hash`) right at the `msg_recv` push. **`seq`** is the
+inbox record's per-store seq — so the firmware must **record BEFORE it pushes**: `record_dm`/`record_channel`
+return the assigned seq, and `do_post_ack` / `ingest_channel_m` call them *before* `enqueue_push` (today the
+push is enqueued *first* — flip the order, or stamp the seq into the already-built push). **`seq` is present
+only when the inbox is enabled** (the device store is up); **absent/`0` ⇒ no durable store ⇒ best-effort
+live only, no gap-pull.** Each field adds a `u32` to the `Push` POD + its `console_json` writer — a Phase-3
+task, landed with the companion pushes. Without the identity fields a live+pulled message duplicates;
+without `seq` a dropped live push is invisible until the next reconnect.
 
 ## Open / deferred (match the inbox spec §8, §14)
 
@@ -95,6 +113,10 @@ companion pushes.) Without them, a channel/DM seen live AND later pulled can dup
 `InboxEntry` (with `senderHash` + `channelMsgID`), `InboxSyncState` (epoch + cursors), `MessageIdentity`
 (`.dmByHash(hash,ctr)` / `.dmByID(origin,ctr)` / `.channel(msgID)`), `ConversationStore.ingestInbox`
 (dedup vs live + re-pull; DM threads key by `sender_hash` → straight into the contact, no resolve), and
-`MockNodeLink` serves `pull_inbox` + `inbox_epoch` + `sender_hash`. App: `NodeProfileEntity.syncState`,
-`AppModel.startInboxSync`. Aligned to the 2026-06-10 + 2026-06-11 firmware reviews (channel = 32-bit
-`channel_msg_id`; DM = `(sender_hash, ctr)`; `inbox_end.epoch`). Run `swift test --scratch-path /private/tmp/mrk-build` (55 tests).
+`MockNodeLink` serves `pull_inbox` + `inbox_epoch` + `sender_hash`/`channel_msg_id`/`seq` on live pushes.
+**Model B (live-while-connected):** live `msg_recv`/`channel_recv` carry `seq`; `InboxSyncState.classifyLive`
+(contiguous / gap / duplicate) + `AppModel.applyLiveSeq` pull-backfill on a gap and advance the cursor — so
+a push dropped from the bounded ring is recovered immediately, not only on reconnect. App:
+`NodeProfileEntity.syncState`, `AppModel.startInboxSync`. Aligned to the 2026-06-10/11/12 firmware reviews
+(channel = 32-bit `channel_msg_id`; DM = `(sender_hash, ctr)`; `inbox_end.epoch`; live `seq` high-water).
+Run `swift test --scratch-path /private/tmp/mrk-build` (58 tests).

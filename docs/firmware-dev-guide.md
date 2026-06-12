@@ -112,6 +112,21 @@ pio run -e xiao_sx1262 -t upload
 2. Copy `.pio/build/xiao_sx1262/firmware.uf2` onto it.
 3. The board flashes and reboots automatically.
 
+**Manual upload via `adafruit-nrfutil`** (this is exactly what `pio run -t upload` runs under the hood — handy for scripting/CI, or flashing a prebuilt `.zip` without PlatformIO). The build already emits the signed DFU package `.pio/build/xiao_sx1262/firmware.zip` (PlatformIO generates it with `adafruit-nrfutil dfu genpkg --dev-type 0x0052 --sd-req <S140 fwid> --application firmware.hex`), so you only run the serial-DFU step:
+1. **Double-tap reset** to enter the bootloader, then find the port (`pio device list` → `/dev/ttyACM0` on Linux, `COMx` on Windows).
+2. Flash the `.zip` (`--singlebank` because S140 lives in the bootloader region; `-b 115200` is the DFU baud):
+```bash
+# the tool ships with the PlatformIO toolchain — no install needed:
+python ~/.platformio/packages/tool-adafruit-nrfutil/adafruit-nrfutil.py \
+    dfu serial -p /dev/ttyACM0 -b 115200 -t 1200 --singlebank \
+    -pkg .pio/build/xiao_sx1262/firmware.zip
+
+# …or, after `pip install adafruit-nrfutil`, simply:
+adafruit-nrfutil dfu serial -p /dev/ttyACM0 -b 115200 -t 1200 --singlebank \
+    -pkg .pio/build/xiao_sx1262/firmware.zip
+```
+To build the `.zip` yourself from a `.hex` (rarely needed — the build does it): `adafruit-nrfutil dfu genpkg --dev-type 0x0052 --application firmware.hex firmware.zip`.
+
 Then watch it come up:
 ```bash
 pio device monitor          # expect: boot banner -> radio = OK -> heartbeat
@@ -142,4 +157,5 @@ pio debug -e xiao_sx1262                                         # SWD (needs a 
 # upload
 pio run -e xiao_sx1262 -t upload                                 # nrfutil (double-tap reset)
 #   or drag .pio/build/xiao_sx1262/firmware.uf2 onto the XIAO drive
+#   or manual DFU: adafruit-nrfutil dfu serial -p <PORT> -b 115200 --singlebank -pkg .pio/build/xiao_sx1262/firmware.zip
 ```

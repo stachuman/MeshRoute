@@ -27,6 +27,7 @@
 #include "console_parse.h"
 #include "device_nv.h"
 #include "device_inbox_store.h"
+#include "fixed_inbox_store.h"   // the interim VOLATILE RAM inbox (until the durable QSPI records backend lands)
 #include "device_rng.h"
 #include "console_json.h"    // write_ack/write_push/write_ready/write_err — the BLE companion's JSON twin
 #include "device_ble.h"      // BLE companion transport (XIAO nRF52840; an inert no-op on ESP32/native)
@@ -75,10 +76,20 @@ static meshroute::ArduinoClock g_clock;
 static meshroute::Sx1262Radio  g_iradio(g_radio);
 static meshroute::DeviceHal    g_hal(g_clock, g_iradio);
 static meshroute::Node         g_node(g_hal, /*node_id=*/0, /*key_hash32=*/0, "node");   // identity set in setup() from /mrid
-// Persistent inbox device stores (records on the external QSPI when wired — see device_inbox_store.h; META on
-// InternalFS). Installed in setup(); inert until the QSPI records backend is bench-wired (begin() then fails).
+// Inbox stores. The durable QSPI/LittleFS DeviceInboxStore records backend is a bench-TODO (its begin() fails ->
+// inbox disabled), so until MRINBOX_QSPI_READY lands we install the INTERIM volatile FixedInboxStore: a bounded
+// RAM ring so record-on-delivery + pull_inbox actually WORK on metal (session-scoped history the iOS companion
+// can sync today). Lost on reboot; the per-boot epoch (set in setup) makes the app re-pull after a node reboot.
+#ifndef MR_RAM_INBOX_SLOTS
+#define MR_RAM_INBOX_SLOTS 32           // interim RAM inbox depth per store (~8.5 KB/store at 272-B slots)
+#endif
+#if defined(MRINBOX_QSPI_READY)
 static mrinbox::DeviceInboxStore g_inbox_dm("/dm", "/mri_dm", meshroute::protocol::inbox_dm_store_bytes,   mrinbox::kSegScratchBytes);
 static mrinbox::DeviceInboxStore g_inbox_ch("/ch", "/mri_ch", meshroute::protocol::inbox_chan_store_bytes, mrinbox::kSegScratchBytes);
+#else
+static meshroute::FixedInboxStore<MR_RAM_INBOX_SLOTS> g_inbox_dm;
+static meshroute::FixedInboxStore<MR_RAM_INBOX_SLOTS> g_inbox_ch;
+#endif
 static meshroute::Identity     g_identity{};                                            // seed -> Ed25519/X25519 + key_hash32
 
 static uint8_t  g_rxbuf[P::max_payload_bytes_hard_cap + 32];
@@ -623,9 +634,20 @@ void setup() {
     g_hal.seed_rng((uint32_t)millis() ^ (g_node.key_hash32() * 2654435761u));
 
     g_node.on_init(cfg);
-    // Install the durable inbox stores. begin() fails (records backend not wired yet) -> the inbox stays
-    // disabled (record-on-delivery is inert); flips on automatically once device_inbox_store.h's qspi_* land.
+    // Install the inbox stores so record-on-delivery + pull_inbox work. With the interim RAM store: give it a
+    // per-boot-unique storage_epoch (HW-RNG; drawn here BEFORE BLE init, so the bare-metal NRF_RNG path is still
+    // valid) -> after a reboot the companion sees a NEW epoch and re-pulls (the volatile store lost its history).
+#if !defined(MRINBOX_QSPI_READY)
+    uint32_t boot_epoch = 0; mrrng::fill(reinterpret_cast<uint8_t*>(&boot_epoch), sizeof boot_epoch);
+    g_inbox_dm.set_epoch(boot_epoch); g_inbox_ch.set_epoch(boot_epoch);
+#endif
     g_node.inbox().on_init(&g_inbox_dm, &g_inbox_ch);
+#if defined(MRINBOX_QSPI_READY)
+    Serial.println(F("  inbox     = QSPI (durable)"));
+#else
+    Serial.print(F("  inbox     = RAM volatile, ")); Serial.print(MR_RAM_INBOX_SLOTS);
+    Serial.println(F(" msgs/store (interim — lost on reboot; durable QSPI store is a bench-TODO)"));
+#endif
     // node_id DAD auto-join: an UNPROVISIONED node (no persisted id) self-assigns one via the claim state
     // machine. A node that rebooted WITH a persisted id skips this — it already owns it (restored above).
     if (node_id == 0) {

@@ -50,6 +50,23 @@ TEST_CASE("inbox: disabled until stores are installed (record_* / pull inert)") 
     CHECK(c.items.empty());
 }
 
+TEST_CASE("inbox: record_dm/record_channel RETURN the assigned seq (model-B live-push stamp); 0 when disabled") {
+    // Disabled -> 0: the live push then omits seq -> the app treats it as best-effort live only (no gap-pull).
+    Inbox off;
+    CHECK(off.record_dm(5, 0, 1, reinterpret_cast<const uint8_t*>("x"), 1, 0) == 0);
+    CHECK(off.record_channel(2, mk_chan_id(9, 1), reinterpret_cast<const uint8_t*>("x"), 1, 0) == 0);
+    // Enabled -> the assigned per-store seq, monotonic, with INDEPENDENT DM / channel spaces. This is the
+    // exact value stamped into the live Push, so live + pulled dedup/order on the same seq.
+    RamInboxStore rdm(protocol::inbox_dm_store_bytes), rch(protocol::inbox_chan_store_bytes);
+    Inbox ib; ib.on_init(&rdm, &rch);
+    CHECK(ib.record_dm(5, 0, 100, reinterpret_cast<const uint8_t*>("a"), 1, 0) == 1);
+    CHECK(ib.record_dm(7, 0, 101, reinterpret_cast<const uint8_t*>("b"), 1, 0) == 2);
+    CHECK(ib.record_channel(2, mk_chan_id(9, 0x42), reinterpret_cast<const uint8_t*>("c"), 1, 0) == 1);  // channel space starts at 1
+    CHECK(ib.record_dm(8, 0, 102, reinterpret_cast<const uint8_t*>("d"), 1, 0) == 3);
+    CHECK(ib.record_channel(2, mk_chan_id(9, 0x43), reinterpret_cast<const uint8_t*>("e"), 1, 0) == 2);
+    CHECK(ib.dm_newest_seq() == 3); CHECK(ib.chan_newest_seq() == 2);
+}
+
 TEST_CASE("inbox: record DM + channel, pull(0,0) returns all oldest-first, fields intact") {
     RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
     Inbox ib; ib.on_init(&dm, &ch);
