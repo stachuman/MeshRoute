@@ -92,3 +92,62 @@ TEST_CASE("dual-layer cfg: on_init REFUSES same leaf nibble (§0.8 wire-filter a
     // window_period_ms is the ONE shared cycle -> the two must agree.
     { StubHal h; Node n(h, 1, 1); NodeConfig c = base; c.layers[1].window_period_ms = 20000; CHECK_FALSE(n.on_init(c)); }
 }
+
+// ---- SLICE 2b: per-layer dedup NON-ALIASING (the node_mac_rx.cpp:393 fix; spec §8) -----------------------
+// Friend of Node (declared in node.h, MESHROUTE_NATIVE-only). White-box seam: point _active at a given leaf +
+// read the per-LayerRuntime dedup maps. NO production behavior — the gateway's real leaf-swap is Slice 3.
+namespace meshroute {
+struct DualLayerTestAccess {
+    static void  set_active(Node& n, uint8_t i)  { n._active = &n._layers[i]; }
+    static auto& seen(Node& n, uint8_t i)        { return n._layers[i]._seen_origins; }
+    static auto& seen_from(Node& n, uint8_t i)   { return n._layers[i]._seen_origin_from; }   // LOOP_DUP prev-hop
+    static auto& last_acked(Node& n, uint8_t i)  { return n._layers[i]._last_acked_from; }
+};
+}  // namespace meshroute
+
+TEST_CASE("dual-layer dedup: the same (origin,dst,ctr) key on two leaves does NOT collide (§8; node_mac_rx.cpp:393)") {
+    StubHal hal; Node node(hal, /*id*/1, /*key*/0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(/*layer_id*/ 1, /*sf*/ 8);
+    cfg.layers[1] = good_layer(/*layer_id*/ 2, /*sf*/ 9);
+    CHECK(node.on_init(cfg));   // -fno-exceptions => CHECK only (REQUIRE throws); valid gateway always inits
+
+    // The dedup key carries NO layer bits — `sokey = (origin<<24)|(dst<<16)|ctr`. The SAME tuple legitimately
+    // occurs on BOTH leaves (ids/ctrs are per-layer namespaces). Pre-fix (one global map) leaf-1's frame would
+    // be falsely deduped against leaf-0's; the per-LayerRuntime maps (Slice 2a) isolate them. Assert it.
+    const uint32_t K = (uint32_t(5) << 24) | (uint32_t(9) << 16) | 42u;   // origin=5, dst=9, ctr=42
+    const uint64_t t = 1000;
+
+    DualLayerTestAccess::set_active(node, 0);
+    node.record_seen_origin(K, /*from*/ 7, t);
+    CHECK(node.seen_origin_live(K, t));            // recorded on leaf 0
+    CHECK(node.seen_origin_count() == 1);
+
+    DualLayerTestAccess::set_active(node, 1);        // switch active leaf (gateway window-swap; Slice 3 wraps it)
+    CHECK_FALSE(node.seen_origin_live(K, t));        // THE FIX: the same key is UNKNOWN on leaf 1 (no aliasing)
+    CHECK(node.seen_origin_count() == 0);
+    CHECK(DualLayerTestAccess::seen_from(node, 1).count(K) == 0);   // the LOOP_DUP prev-hop map is per-layer too
+
+    node.record_seen_origin(K, /*from*/ 8, t);       // record the SAME key on leaf 1, from a DIFFERENT prev-hop
+    CHECK(node.seen_origin_live(K, t));
+    CHECK(node.seen_origin_count() == 1);
+    { auto& sf = DualLayerTestAccess::seen_from(node, 1);                    // leaf 1 records prev-hop 8 ...
+      auto it = sf.find(K); CHECK((it != sf.end() && it->second == 8)); }
+
+    DualLayerTestAccess::set_active(node, 0);         // leaf 0 is untouched by leaf-1's record
+    CHECK(node.seen_origin_live(K, t));
+    CHECK(node.seen_origin_count() == 1);
+    { auto& sf = DualLayerTestAccess::seen_from(node, 0);                    // ... leaf 0 KEEPS its own prev-hop 7
+      auto it = sf.find(K); CHECK((it != sf.end() && it->second == 7)); }   // (not aliased/overwritten by leaf 1's 8)
+
+    // Structural: the per-leaf dedup maps are DISTINCT objects (seen_origins + _seen_origin_from + last_acked_from).
+    CHECK(&DualLayerTestAccess::seen(node, 0)       != &DualLayerTestAccess::seen(node, 1));
+    CHECK(&DualLayerTestAccess::seen_from(node, 0)  != &DualLayerTestAccess::seen_from(node, 1));
+    CHECK(&DualLayerTestAccess::last_acked(node, 0) != &DualLayerTestAccess::last_acked(node, 1));
+
+    // last_acked_from non-aliasing: an entry on leaf 0 is absent on leaf 1 (default-construct via operator[]).
+    const uint32_t LA = (uint32_t(7) << 24) | (uint32_t(9) << 16) | (uint32_t(3) << 8) | 12u;
+    DualLayerTestAccess::last_acked(node, 0)[LA];
+    CHECK(DualLayerTestAccess::last_acked(node, 0).count(LA) == 1);
+    CHECK(DualLayerTestAccess::last_acked(node, 1).count(LA) == 0);
+}

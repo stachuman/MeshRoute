@@ -447,7 +447,7 @@ static void usb_sink(const char* s, size_t n) { Serial.write(reinterpret_cast<co
 static void ble_sink(const char* s, size_t n) { mrble::tx_line(s, n); }   // inert off-XIAO / when no client
 
 namespace { struct PullCtx { JsonSink sink; uint32_t count; }; }
-static char s_inbox_jb[1700];   // one record-line scratch (reused per pulled record): a 241-B body 6x-escaped + envelope
+static char s_inbox_jb[1700];   // shared NDJSON line scratch: pulled inbox records AND live-push lines (loop()) — sequential, single-threaded, never concurrent (241-B body 6x-escaped + envelope)
 
 // pull() callback: format ONE record -> JSON -> sink. The body ptr is valid only for this call (the encoder copies it).
 static bool inbox_pull_cb(void* vctx, const meshroute::InboxEntry& e) {
@@ -824,9 +824,10 @@ void loop() {
             // escapes 6x (\uXXXX, console_json.cpp), i.e. ~1446 B + the field envelope (now incl. channel_msg_id /
             // sender_hash, ~90 B). 1700 keeps a comfortable margin (1536 was an exact-fit after the Phase-3 fields)
             // so a valid Push NEVER overflows. static (not stack) to keep it off the hot-path stack; bleuart chunks.
-            static char jb[1700];
-            const size_t n = meshroute::console::write_push(jb, sizeof jb, pu);
-            if (n) mrble::tx_line(jb, n);
+            // Reuse the inbox-pull scratch (s_inbox_jb): push-drain and pull_inbox run at different loop
+            // phases, never concurrently (single-threaded), so one shared 1700-B line buffer suffices (−1.7 KB).
+            const size_t n = meshroute::console::write_push(s_inbox_jb, sizeof s_inbox_jb, pu);
+            if (n) mrble::tx_line(s_inbox_jb, n);
             else { static const char kOvf[] = "{\"err\":\"push_encode_overflow\"}\n";   // unreachable for valid
                    mrble::tx_line(kOvf, sizeof(kOvf) - 1); }                            // input; LOUD, never silent
         }

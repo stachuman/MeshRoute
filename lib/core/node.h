@@ -755,6 +755,12 @@ private:
         // R4.4 originator anti-spam: per-sender sliding-window ledger of overheard RTS/CTS (fixed ring).
         std::map<uint8_t, OrigRing> _per_sender_originator;  // sender_id -> recent events (fixed ring)
     };
+#ifdef MESHROUTE_NATIVE
+    // White-box test seam (native test build only — #ifdef'd out of every device build, zero firmware surface):
+    // test/test_dual_layer.cpp points _active at each leaf + reads the per-LayerRuntime dedup maps to ASSERT the
+    // Slice-2b non-aliasing property (§8). The gateway's real leaf-swap (activate_layer) lands in Slice 3.
+    friend struct DualLayerTestAccess;
+#endif
     LayerRuntime  _layers[MR_N_LAYERS];
     LayerRuntime* _active = &_layers[0];
     uint8_t       _n_layers = 1;
