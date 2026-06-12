@@ -51,10 +51,10 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // the addressed puller. The retune-back timer restores routing_sf. Holders + gateways skip. (dv:2081/9940.)
     if (r.m_broadcast) {
         // Mid-DATA-reception: don't abandon the in-flight RX to chase a channel overhear. SF-gating keeps us off
-        // the control SF while _pending_rx (so normally unreachable), but guard defensively — retuning here would
+        // the control SF while _active->_pending_rx (so normally unreachable), but guard defensively — retuning here would
         // clobber the awaited DATA, and a fresh flood-state created without a resolving retune would leak the slot.
         // The flood/M-broadcast is best-effort + repair-backstopped, so skipping it while busy is safe.
-        if (_pending_rx) return;
+        if (_active->_pending_rx) return;
         if (r.flood) {                                       // FLOOD RTS-M (§4.2): dedup/merge/create state, then catch the DATA-M
             // COUPLE create->resolve (§8 note): only a participant ALLOCS a flood-state — else the state is
             // created but the retune that resolves it is skipped and nothing ever frees it (the gateway-leak
@@ -129,8 +129,8 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // last_acked dedup: a retried RTS after we already delivered -> CTS already_received, no re-deliver.
     const uint32_t lakey = (uint32_t(r.src) << 24) | (uint32_t(r.dst) << 16) |
                            (uint32_t(r.ctr_lo) << 8) | r.payload_len;
-    auto la = _last_acked_from.find(lakey);
-    if (la != _last_acked_from.end() && (_hal.now() - la->second.t_ms) < protocol::last_acked_ttl_ms) {
+    auto la = _active->_last_acked_from.find(lakey);
+    if (la != _active->_last_acked_from.end() && (_hal.now() - la->second.t_ms) < protocol::last_acked_ttl_ms) {
         // Fresh within the 10s TTL (dv_dual_sf.lua:9861) — the TTL gate is what stops a
         // stale 4-bit ctr_lo alias from false-positiving on slow sustained traffic.
         cts_in cin{}; cin.chosen_data_sf = la->second.chosen_data_sf;
@@ -146,9 +146,9 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     }
     // A retried RTS for the SAME flight while we still await its DATA -> re-CTS + restart
     // the expiry (dv_dual_sf.lua:218 CTS-dup) so the sender's retry gets a fresh CTS.
-    if (_pending_rx && _pending_rx->from == r.src && _pending_rx->dst == r.dst &&
-        _pending_rx->ctr_lo == r.ctr_lo) {
-        cts_in cin{}; cin.chosen_data_sf = _pending_rx->chosen_data_sf;
+    if (_active->_pending_rx && _active->_pending_rx->from == r.src && _active->_pending_rx->dst == r.dst &&
+        _active->_pending_rx->ctr_lo == r.ctr_lo) {
+        cts_in cin{}; cin.chosen_data_sf = _active->_pending_rx->chosen_data_sf;
         cin.already_received = false; cin.tx_id = _node_id; cin.rx_id = r.src;
         cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0;   // NAV: size the overhearer's DATA reservation
         uint8_t cbuf[4]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, sizeof cbuf));
@@ -157,16 +157,16 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
                                { .key = "dup", .type = EventField::T::boolean, .b = true } };
             _hal.emit("cts_tx", f, 2); );
-        start_pending_rx_expiry(_pending_rx->payload_len);
+        start_pending_rx_expiry(_active->_pending_rx->payload_len);
         return;
     }
     // Busy with a DIFFERENT flight. If we hold a pending_rx (receiving someone else's
     // DATA), NACK the sender with how-long-busy so it waits/requeues instead of
     // grinding rts_timeout (dv:9934). If we hold a pending_tx (sending our own), STAY
     // SILENT (dv:9962 — the busy_for estimate lied for ACK-loss-stuck nodes).
-    if (_pending_rx) {
+    if (_active->_pending_rx) {
         const uint64_t now = _hal.now();
-        uint64_t busy_for = (_pending_rx->expiry_ms > now) ? (_pending_rx->expiry_ms - now) : 0;
+        uint64_t busy_for = (_active->_pending_rx->expiry_ms > now) ? (_active->_pending_rx->expiry_ms - now) : 0;
         if (busy_for > 65535) busy_for = 65535;
         const uint32_t q = (static_cast<uint32_t>(busy_for) + protocol::nack_busy_quantum_ms - 1)
                            / protocol::nack_busy_quantum_ms;                    // ceil
@@ -181,7 +181,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         tx_initiating(nbuf, nl, static_cast<int16_t>(_cfg.routing_sf), LbtKind::nack, 0);   // R4.5 LBT (handle_rts NACK, dv:9953)
         return;
     }
-    if (_pending_tx) {                                   // sending our own -> silent (no NACK)
+    if (_active->_pending_tx) {                                   // sending our own -> silent (no NACK)
         MR_TELEMETRY(
             EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = r.src } };
             _hal.emit("rts_drop_pending_tx", f, 1); );
@@ -255,7 +255,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     const uint8_t sf = select_data_sf(r.sf_index, protocol::db_to_q4(meta.snr_db));
     PendingRx prx{}; prx.from = r.src; prx.dst = r.dst; prx.ctr_lo = r.ctr_lo;
     prx.chosen_data_sf = sf; prx.payload_len = r.payload_len; prx.set_at_ms = _hal.now();
-    _pending_rx = prx;
+    _active->_pending_rx = prx;
     start_pending_rx_expiry(r.payload_len);
     cts_in cin{}; cin.chosen_data_sf = sf; cin.already_received = false; cin.tx_id = _node_id; cin.rx_id = r.src;
     cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0;   // NAV: size the overhearer's DATA reservation
@@ -284,22 +284,22 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         if (_cfg.nav_enabled) nav_arm(nav_duration_cts(c.chosen_data_sf, c.payload_len));
         return;
     }
-    if (!_pending_tx || !_pending_tx->awaiting_cts) return;   // ctr_lo flight-match dropped: rx_id==me + tx_id==next (below) pin the flight
+    if (!_active->_pending_tx || !_active->_pending_tx->awaiting_cts) return;   // ctr_lo flight-match dropped: rx_id==me + tx_id==next (below) pin the flight
     // Cascade disambiguation: the CTS now carries its sender (tx_id), so accept only the CTS from the
     // next-hop we RTS'd. Wire-backed (no PHY-sender god-view) — this is what distinguishes the primary
     // next-hop's CTS from an alt's when both answer the same RTS (cascade-to-alt). dv:10195.
-    if (c.tx_id != _pending_tx->next) return;
+    if (c.tx_id != _active->_pending_tx->next) return;
     // Learn the CTS sender (= our next-hop) as a 1-hop neighbour (Lua learn_rx_source / cts_frame).
     if (learn_direct_neighbor(c.tx_id, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
     _hal.cancel(kRtsTimeoutTimerId);                     // else it fires same-tick and burns a retry
     _hal.cancel(kRetryBackoffTimerId);                   // drop a stale retry armed by a just-fired rts_timeout
-    _pending_tx->awaiting_cts = false;
-    _pending_tx->chosen_data_sf = c.chosen_data_sf;
+    _active->_pending_tx->awaiting_cts = false;
+    _active->_pending_tx->chosen_data_sf = c.chosen_data_sf;
     MR_TELEMETRY(
-        EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = _pending_tx->next },   // CTS is from our next-hop (src_hint=-1 on metal)
+        EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = _active->_pending_tx->next },   // CTS is from our next-hop (src_hint=-1 on metal)
                            { .key = "sf",   .type = EventField::T::i64, .i = c.chosen_data_sf } };
         _hal.emit("cts_rx", f, 2); );
-    if (c.already_received) { _pending_tx.reset(); become_free(); return; }   // already delivered upstream
+    if (c.already_received) { _active->_pending_tx.reset(); become_free(); return; }   // already delivered upstream
     (void)_hal.after(protocol::cts_to_data_gap_ms, kCtsToDataGapTimerId);     // fixed 5ms gap (NOT rand)
 }
 
@@ -321,18 +321,18 @@ void Node::handle_channel_data(const uint8_t* bytes, size_t len, const RxMeta& m
 // (min-expiry = earliest recorded, least remaining loop-window) to make room, rather than refusing the new
 // key. Re-recording an existing key just refreshes it (no eviction). Bounded by cap_seen_origins; no growth.
 void Node::record_seen_origin(uint32_t sokey, uint8_t from, uint64_t now_ms) {
-    for (auto it = _seen_origins.begin(); it != _seen_origins.end(); )
-        { if (it->second <= now_ms) { _seen_origin_from.erase(it->first); it = _seen_origins.erase(it); } else ++it; }
-    if (_seen_origins.size() >= protocol::cap_seen_origins
-        && _seen_origins.find(sokey) == _seen_origins.end()) {              // full of LIVE entries + a NEW key -> roll
-        auto oldest = _seen_origins.begin();
-        for (auto it = _seen_origins.begin(); it != _seen_origins.end(); ++it)
+    for (auto it = _active->_seen_origins.begin(); it != _active->_seen_origins.end(); )
+        { if (it->second <= now_ms) { _active->_seen_origin_from.erase(it->first); it = _active->_seen_origins.erase(it); } else ++it; }
+    if (_active->_seen_origins.size() >= protocol::cap_seen_origins
+        && _active->_seen_origins.find(sokey) == _active->_seen_origins.end()) {              // full of LIVE entries + a NEW key -> roll
+        auto oldest = _active->_seen_origins.begin();
+        for (auto it = _active->_seen_origins.begin(); it != _active->_seen_origins.end(); ++it)
             if (it->second < oldest->second) oldest = it;                   // min expiry = the earliest recorded
-        _seen_origin_from.erase(oldest->first);
-        _seen_origins.erase(oldest);
+        _active->_seen_origin_from.erase(oldest->first);
+        _active->_seen_origins.erase(oldest);
     }
-    _seen_origins[sokey]     = now_ms + protocol::seen_origin_ttl_ms;
-    _seen_origin_from[sokey] = from;
+    _active->_seen_origins[sokey]     = now_ms + protocol::seen_origin_ttl_ms;
+    _active->_seen_origin_from[sokey] = from;
 }
 
 void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
@@ -341,24 +341,24 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     
     const data_out& d = *pd;
     if (d.next != _node_id) return;
-    if (!_pending_rx || _pending_rx->ctr_lo != d.ctr_lo4) return;
+    if (!_active->_pending_rx || _active->_pending_rx->ctr_lo != d.ctr_lo4) return;
     // Inc 2 anti-spam: record this inbound DATA's airtime in the sender's window — the dominant
-    // airtime a sender imposes on us (RTS-only never approached the cap). Keyed on _pending_rx->from
+    // airtime a sender imposes on us (RTS-only never approached the cap). Keyed on _active->_pending_rx->from
     // (== this hop's RTS src, so RTS+DATA accumulate in one entry; frame-derived, metal-correct) and
     // costed at the chosen data SF over the whole frame.
-    track_originator_observation(_pending_rx->from, /*kind=data*/2, d.ctr_lo4,
-        airtime_ms(_pending_rx->chosen_data_sf, _cfg.radio_bw_hz, _cfg.radio_cr,
+    track_originator_observation(_active->_pending_rx->from, /*kind=data*/2, d.ctr_lo4,
+        airtime_ms(_active->_pending_rx->chosen_data_sf, _cfg.radio_bw_hz, _cfg.radio_cr,
                    protocol::preamble_sym, static_cast<uint16_t>(len)));
     int oa_app_; uint32_t orig_air; uint8_t oa_rts_, oa_cts_;   // sender's windowed airtime AFTER this DATA (calibration)
-    compute_originator_metric(_pending_rx->from, oa_app_, orig_air, oa_rts_, oa_cts_);
+    compute_originator_metric(_active->_pending_rx->from, oa_app_, orig_air, oa_rts_, oa_cts_);
     (void)oa_app_; (void)oa_rts_; (void)oa_cts_;
-    // The DATA's link sender = whoever we CTS'd (_pending_rx->from, set in handle_rts).
+    // The DATA's link sender = whoever we CTS'd (_active->_pending_rx->from, set in handle_rts).
     // src_hint is the SIM oracle (real LoRa carries no PHY source; the device sets -1),
     // so use it only when present, else fall back to our pending-RX contract — else
     // from=0xFF on metal -> the ACK + HOP_BUDGET/LOOP_DUP NACKs target node 255 and the
     // dedup/loop keys are corrupt, so the DM never completes.
     const uint8_t from = (meta.src_hint >= 0) ? static_cast<uint8_t>(meta.src_hint)
-                                              : _pending_rx->from;
+                                              : _active->_pending_rx->from;
     // Parse the inner up-front so data_rx carries the (origin, ctr) message key — telemetry
     // parity with the Lua data_rx (dv:10911), which the analysis tools key delivery on. origin
     // is also needed below (BEFORE the ACK) so HOP_BUDGET/LOOP_DUP can NACK instead of re-ACKing.
@@ -375,19 +375,19 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         _hal.emit("data_rx", f, 6); );
     // Learn the DATA prev-hop as a 1-hop neighbour (Lua learn_rx_source / data_frame).
     if (learn_direct_neighbor(from, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
-    const uint8_t rx_sf = _pending_rx->chosen_data_sf;
-    const uint8_t pl    = _pending_rx->payload_len;
+    const uint8_t rx_sf = _active->_pending_rx->chosen_data_sf;
+    const uint8_t pl    = _active->_pending_rx->payload_len;
     _hal.cancel(kPendingRxExpiryTimerId);
     _hal.set_rx_sf(_cfg.routing_sf);                     // receiver retunes back
-    _pending_rx.reset();
+    _active->_pending_rx.reset();
     // last_acked cache: a retried RTS gets CTS already_received=1 instead of re-delivery.
     const uint32_t lakey = (uint32_t(from) << 24) | (uint32_t(d.dst) << 16) |
                            (uint32_t(d.ctr_lo4) << 8) | pl;
     const uint64_t nowm = _hal.now();
-    for (auto it = _last_acked_from.begin(); it != _last_acked_from.end(); )   // prune expired (10s TTL)
-        { if ((nowm - it->second.t_ms) >= protocol::last_acked_ttl_ms) it = _last_acked_from.erase(it); else ++it; }
-    if (_last_acked_from.size() < protocol::cap_seen_origins)                  // bounded (reuse the 256 cap)
-        _last_acked_from[lakey] = LastAcked{ rx_sf, nowm };
+    for (auto it = _active->_last_acked_from.begin(); it != _active->_last_acked_from.end(); )   // prune expired (10s TTL)
+        { if ((nowm - it->second.t_ms) >= protocol::last_acked_ttl_ms) it = _active->_last_acked_from.erase(it); else ++it; }
+    if (_active->_last_acked_from.size() < protocol::cap_seen_origins)                  // bounded (reuse the 256 cap)
+        _active->_last_acked_from[lakey] = LastAcked{ rx_sf, nowm };
     // origin/inner parsed up-front (above) so data_rx carries the key; origin is read here
     // BEFORE the ACK so HOP_BUDGET/LOOP_DUP can NACK instead of re-ACKing.
     const uint32_t sokey = (uint32_t(origin) << 24) | (uint32_t(d.dst) << 16) | d.ctr;
@@ -425,11 +425,11 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     }
     // Origin-level dedup (dv:10966+), AFTER HOP_BUDGET. A same-prev-hop dup is normal
     // lost-ACK recovery (ACK-only below); a DIFFERENT prev-hop means a mesh loop -> NACK.
-    auto so = _seen_origins.find(sokey);
-    const bool live_dup = (so != _seen_origins.end() && so->second > nowm);
+    auto so = _active->_seen_origins.find(sokey);
+    const bool live_dup = (so != _active->_seen_origins.end() && so->second > nowm);
     if (live_dup) {
-        auto sof = _seen_origin_from.find(sokey);
-        if (sof != _seen_origin_from.end() && sof->second != from) {
+        auto sof = _active->_seen_origin_from.find(sokey);
+        if (sof != _active->_seen_origin_from.end() && sof->second != from) {
             // LOOP_DUP: the SAME flight arrived via a DIFFERENT prev-hop (a mesh loop,
             // dv:10971). NACK the sender so it cascades to an alt, and do NOT ACK (the
             // ACK would clear its pending_tx early). prior_from = the first prev-hop.
@@ -478,27 +478,27 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (live_dup) { become_free(); return; }                                        // same prev-hop dup -> ACK only
     record_seen_origin(sokey, from, nowm);                                          // record + roll-evict-oldest if full
     // defer deliver/forward by the ACK airtime so it doesn't share a sim step with the ACK.
-    _post_ack = PostAck{};
-    _post_ack.pending = true; _post_ack.is_forward = (d.dst != _node_id);
-    _post_ack.origin = origin; _post_ack.dst = d.dst; _post_ack.ctr_lo = d.ctr_lo4;
-    _post_ack.ctr = d.ctr; _post_ack.flags = d.flags; _post_ack.type = d.type; _post_ack.previous_hop = from;
-    _post_ack.inner_len = static_cast<uint8_t>(inner.size() <= protocol::max_payload_bytes_hard_cap
+    _active->_post_ack = PostAck{};
+    _active->_post_ack.pending = true; _active->_post_ack.is_forward = (d.dst != _node_id);
+    _active->_post_ack.origin = origin; _active->_post_ack.dst = d.dst; _active->_post_ack.ctr_lo = d.ctr_lo4;
+    _active->_post_ack.ctr = d.ctr; _active->_post_ack.flags = d.flags; _active->_post_ack.type = d.type; _active->_post_ack.previous_hop = from;
+    _active->_post_ack.inner_len = static_cast<uint8_t>(inner.size() <= protocol::max_payload_bytes_hard_cap
                                                ? inner.size() : protocol::max_payload_bytes_hard_cap);
-    for (uint8_t i = 0; i < _post_ack.inner_len; ++i) _post_ack.inner[i] = inner[i];
+    for (uint8_t i = 0; i < _active->_post_ack.inner_len; ++i) _active->_post_ack.inner[i] = inner[i];
     // Clamp the underflow: the exhaustion NACK that guarantees hb_new_remaining>=0 only fires for a FORWARD
     // (d.dst != self, line above) — the DELIVERY case (d.dst==self) is exempt, so a DM that arrived AT us with
     // hops_remaining==0 leaves hb_new_remaining==-1. That value is dead for a plain deliver, but an L2c
     // misdelivery re-forwards from the delivery case, so -1 -> uint8_t 255 (saturating to the 31 max) must not
     // leak into a budget. (L2c re-budgets its leg from rt anyway; this is belt-and-suspenders.)
-    _post_ack.fwd_remaining = static_cast<uint8_t>(hb_new_remaining < 0 ? 0 : hb_new_remaining);
-    _post_ack.fwd_committed = hb_new_committed;                         // carried into the forward TxItem
+    _active->_post_ack.fwd_remaining = static_cast<uint8_t>(hb_new_remaining < 0 ? 0 : hb_new_remaining);
+    _active->_post_ack.fwd_committed = hb_new_committed;                         // carried into the forward TxItem
     (void)_hal.after(airtime_routing_ms(3) + 1, kPostAckTimerId);
 }
 
 void Node::do_post_ack() {
-    if (!_post_ack.pending) return;
-    const PostAck pa = _post_ack;
-    _post_ack.pending = false;
+    if (!_active->_post_ack.pending) return;
+    const PostAck pa = _active->_post_ack;
+    _active->_post_ack.pending = false;
     if (!pa.is_forward) {
         if (pa.type == DATA_TYPE_H_ANSWER || pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER) {   // a hash-bind answer for us -> consume (routing info, NOT a DM)
             on_hash_bind_response(pa.inner, pa.inner_len, pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER);
@@ -567,7 +567,7 @@ void Node::do_post_ack() {
         it.enqueue_time_ms = _hal.now();                 // fresh hop attempt (dv:11391): the cascade-requeue
                                                          // total-age window starts when THIS hop accepts the
                                                          // forward — else it defaults 0 and the cap mis-fires.
-        if (_tx_queue_n < kTxQueueCap) _tx_queue[_tx_queue_n++] = it;
+        if (_active->_tx_queue_n < kTxQueueCap) _active->_tx_queue[_active->_tx_queue_n++] = it;
         become_free();
     }
 }
@@ -577,15 +577,15 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (!pk) return;
     const ack_out& k = *pk;
     if (k.to != _node_id) return;
-    if (!_pending_tx || !_pending_tx->awaiting_ack || _pending_tx->ctr_lo != k.ctr_lo) return;
+    if (!_active->_pending_tx || !_active->_pending_tx->awaiting_ack || _active->_pending_tx->ctr_lo != k.ctr_lo) return;
     // src-less by design (see handle_cts): to+ctr_lo already identifies the ACK as our next-hop's. The
     // src_hint cross-check is SIM-ONLY, so gate it on availability rather than REJECTING when absent — the
     // old `src_hint < 0 ||` dropped EVERY ack on metal (device src_hint=-1), so the DM never completed.
-    if (meta.src_hint >= 0 && static_cast<uint8_t>(meta.src_hint) != _pending_tx->next) return;  // (cf. NACK gate, Lua dv:10300)
+    if (meta.src_hint >= 0 && static_cast<uint8_t>(meta.src_hint) != _active->_pending_tx->next) return;  // (cf. NACK gate, Lua dv:10300)
     _hal.cancel(kAckTimeoutTimerId);
     _hal.cancel(kRetryBackoffTimerId);                   // drop a stale retry armed by a just-fired ack_timeout
     // Learn the ACK sender (= our next-hop) as a 1-hop neighbour (Lua learn_rx_source / ack_frame).
-    if (learn_direct_neighbor(_pending_tx->next, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
+    if (learn_direct_neighbor(_active->_pending_tx->next, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
     // R4.2: consume the ACK's piggybacked budget_hint -> learn the next-hop's tier in the FORWARD
     // direction (the NACK only covers the reverse). local_only=true: rerank routes but DON'T dirty /
     // schedule a beacon (so NO triggered-beacon draw on the forward path). Lua dv:10341-10344.
@@ -594,7 +594,7 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         const uint8_t tier = (k.budget_hint > static_cast<uint8_t>(BudgetTier::critical))
                              ? static_cast<uint8_t>(BudgetTier::critical) : k.budget_hint;
         // the ACK is from our next-hop (matched above) — use that, not src_hint (sim-only / -1 on device).
-        ack_budget_reranked = mark_neighbor_budget_tier(_pending_tx->next,
+        ack_budget_reranked = mark_neighbor_budget_tier(_active->_pending_tx->next,
                                                         tier, "ack_budget", /*local_only=*/true);
     }
     // Inc 3: a warn'd ACK means our next-hop considers us near its airtime cap. Honest back-off — park new
@@ -603,22 +603,22 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (k.warn) {
         _ack_warn_until = _hal.now() + protocol::originator_ack_warn_backoff_ms;
         MR_TELEMETRY(
-            EventField wf[] = { { .key = "from",   .type = EventField::T::i64, .i = _pending_tx->next },
+            EventField wf[] = { { .key = "from",   .type = EventField::T::i64, .i = _active->_pending_tx->next },
                                 { .key = "ctr_lo", .type = EventField::T::i64, .i = k.ctr_lo },
                                 { .key = "backoff_until_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_ack_warn_until) } };
             _hal.emit("originator_warned_by_ack", wf, 3); );
     }
     MR_TELEMETRY(
-        EventField f[] = { { .key = "from",     .type = EventField::T::i64, .i = _pending_tx->next },   // ACK is from our next-hop (src_hint=-1 on metal)
-                           { .key = "origin",   .type = EventField::T::i64, .i = _pending_tx->origin },
-                           { .key = "dst",      .type = EventField::T::i64, .i = _pending_tx->dst },
-                           { .key = "ctr",      .type = EventField::T::i64, .i = _pending_tx->ctr },
+        EventField f[] = { { .key = "from",     .type = EventField::T::i64, .i = _active->_pending_tx->next },   // ACK is from our next-hop (src_hint=-1 on metal)
+                           { .key = "origin",   .type = EventField::T::i64, .i = _active->_pending_tx->origin },
+                           { .key = "dst",      .type = EventField::T::i64, .i = _active->_pending_tx->dst },
+                           { .key = "ctr",      .type = EventField::T::i64, .i = _active->_pending_tx->ctr },
                            { .key = "budget_hint",     .type = EventField::T::i64, .i = k.budget_hint },
                            { .key = "budget_reranked", .type = EventField::T::i64, .i = ack_budget_reranked },
                            { .key = "airtime_warn",    .type = EventField::T::i64, .i = k.warn ? 1 : 0 } };
         _hal.emit("ack_rx", f, 7); );
-    { Push pu{}; pu.kind = PushKind::send_acked; pu.dst = _pending_tx->dst; pu.ctr = _pending_tx->ctr; enqueue_push(pu); }
-    _pending_tx.reset();
+    { Push pu{}; pu.kind = PushKind::send_acked; pu.dst = _active->_pending_tx->dst; pu.ctr = _active->_pending_tx->ctr; enqueue_push(pu); }
+    _active->_pending_tx.reset();
     become_free();
 }
 
@@ -630,20 +630,20 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (!pn) return;
     const nack_out& n = *pn;
     if (n.to != _node_id) return;                                   // not for us
-    if (!_pending_tx) return;                                       // no flight to react on
-    if (_pending_tx->ctr_lo != n.ctr_lo) return;                    // stale (different flight)
-    if (meta.src_hint >= 0 && static_cast<uint8_t>(meta.src_hint) != _pending_tx->next) {
+    if (!_active->_pending_tx) return;                                       // no flight to react on
+    if (_active->_pending_tx->ctr_lo != n.ctr_lo) return;                    // stale (different flight)
+    if (meta.src_hint >= 0 && static_cast<uint8_t>(meta.src_hint) != _active->_pending_tx->next) {
         MR_TELEMETRY(
             EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = static_cast<uint8_t>(meta.src_hint) } };
             _hal.emit("nack_drop_unexpected_src", f, 1); );
         return;
     }
     // Learn the NACK sender (= our next-hop) as a 1-hop neighbour (Lua learn_rx_source / nack_frame).
-    if (learn_direct_neighbor(_pending_tx->next, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
+    if (learn_direct_neighbor(_active->_pending_tx->next, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
     _hal.cancel(kRtsTimeoutTimerId);                                // faster than the timeout (dv:10390)
     _hal.cancel(kAckTimeoutTimerId);
-    _pending_tx->awaiting_cts = false; _pending_tx->awaiting_ack = false;
-    PendingTx& pt = *_pending_tx;
+    _active->_pending_tx->awaiting_cts = false; _active->_pending_tx->awaiting_ack = false;
+    PendingTx& pt = *_active->_pending_tx;
 
     if (n.reason == protocol::nack_reason_loop_dup) {
         [[maybe_unused]] const uint8_t from_next = pt.next;
@@ -668,7 +668,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                 _hal.emit("path_cascade_exhausted", f, 2);
                 _hal.emit("rts_giveup", f, 2); );
             { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
-            _pending_tx.reset();
+            _active->_pending_tx.reset();
             become_free();
         }
         return;
@@ -684,8 +684,8 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             _hal.emit("nack_rx", rf, 3); );
         if (busy_for > 0) {                                        // mark the peer blind, max-merge (dv:10627)
             const uint64_t until = now + busy_for;
-            auto bit = _blind_until.find(pt.next);
-            _blind_until[pt.next] = (bit != _blind_until.end() && bit->second > until) ? bit->second : until;
+            auto bit = _active->_blind_until.find(pt.next);
+            _active->_blind_until[pt.next] = (bit != _active->_blind_until.end() && bit->second > until) ? bit->second : until;
             MR_TELEMETRY(
                 EventField bf[] = { { .key = "next", .type = EventField::T::i64, .i = pt.next } };
                 _hal.emit("blind_observed", bf, 1); );
@@ -708,8 +708,8 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                 EventField tf[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
                                     { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
                 _hal.emit("tx_requeued", tf, 2); );
-            if (_tx_queue_n < kTxQueueCap) {
-                _tx_queue[_tx_queue_n++] = it;
+            if (_active->_tx_queue_n < kTxQueueCap) {
+                _active->_tx_queue[_active->_tx_queue_n++] = it;
             } else {                                              // queue full -> can't requeue; give up loudly
                 MR_TELEMETRY(
                     EventField gf[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
@@ -718,7 +718,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                     _hal.emit("rts_giveup", gf, 2); );
                 { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
             }
-            _pending_tx.reset();
+            _active->_pending_tx.reset();
             become_free();
         }
         return;
@@ -757,7 +757,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             _hal.emit("path_cascade_exhausted", gf, 2);
             _hal.emit("rts_giveup", gf, 2); );
         { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
-        _pending_tx.reset();
+        _active->_pending_tx.reset();
         become_free();
         return;
     }
@@ -772,16 +772,16 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         if      (tier >= static_cast<uint8_t>(BudgetTier::exhausted)) blind_ms = protocol::budget_blind_exhausted_ms;
         else if (tier <= static_cast<uint8_t>(BudgetTier::strained))  blind_ms = protocol::budget_blind_strained_ms;
         const uint64_t until = _hal.now() + blind_ms;                                      // max-merge (dv:10416-10422)
-        auto bit = _blind_until.find(pt.next);
-        if (bit == _blind_until.end() || until > bit->second) {
-            _blind_until[pt.next] = until;
+        auto bit = _active->_blind_until.find(pt.next);
+        if (bit == _active->_blind_until.end() || until > bit->second) {
+            _active->_blind_until[pt.next] = until;
             MR_TELEMETRY(
                 EventField bf[] = { { .key = "next", .type = EventField::T::i64, .i = pt.next } };
                 _hal.emit("blind_observed", bf, 1); );
         }
         // R4.2: record the persistent neighbor tier (routing-grade demotion beyond the blind window)
         // + rerank affected routes. local_only=false -> dirty + a triggered beacon if a primary moved.
-        // Reads pt.next BEFORE try_cascade_requeue resets _pending_tx.
+        // Reads pt.next BEFORE try_cascade_requeue resets _active->_pending_tx.
         [[maybe_unused]] const int reranked = mark_neighbor_budget_tier(pt.next, tier, "nack_budget", /*local_only=*/false);
         MR_TELEMETRY(
             EventField rf[] = { { .key = "from",     .type = EventField::T::i64, .i = pt.next },
@@ -790,7 +790,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                 { .key = "reranked", .type = EventField::T::i64, .i = reranked } };
             _hal.emit("nack_rx", rf, 4); );
         // requeue-or-giveup: the helper does both legs (caps -> exhausted+giveup+drop, else
-        // requeue@backoff) + _pending_tx.reset() + become_free()/timer (dv:10449-10467). The caps
+        // requeue@backoff) + _active->_pending_tx.reset() + become_free()/timer (dv:10449-10467). The caps
         // giveup event is "rts_giveup" (Lua dv:10462; "budget_low" is the trigger, not the name).
         try_cascade_requeue(pt, "rts_giveup");
         return;

@@ -30,7 +30,15 @@ void JsonBuf::str(const char* s, size_t n) {
     ch('"');
 }
 void JsonBuf::key(const char* k) { ch('"'); lit(k); lit("\":"); }
-void JsonBuf::i64(int64_t v) { char t[24]; std::snprintf(t, sizeof t, "%lld", static_cast<long long>(v)); lit(t); }
+void JsonBuf::i64(int64_t v) {
+    // Hand-rolled digits: newlib-nano (the nRF52 BSP libc) has an integer-only printf with NO long-long
+    // support — "%lld" emits the literal "ld" on metal (host libcs hide this), producing invalid JSON.
+    char t[24]; char* p = t + sizeof t; *--p = '\0';
+    uint64_t u = static_cast<uint64_t>(v); if (v < 0) u = ~u + 1;   // magnitude; INT64_MIN-safe
+    do { *--p = static_cast<char>('0' + u % 10); u /= 10; } while (u);
+    if (v < 0) *--p = '-';
+    lit(p);
+}
 void JsonBuf::u32(uint32_t v) { char t[12]; std::snprintf(t, sizeof t, "%u", v); lit(t); }
 void JsonBuf::f64(double v)  { char t[24]; std::snprintf(t, sizeof t, "%.4g", v); lit(t); }
 size_t JsonBuf::finish() {
@@ -136,7 +144,7 @@ static void key_hex32(JsonBuf& j, uint32_t key) {
     char t[16]; std::snprintf(t, sizeof t, "\"%08x\"", key); j.lit(t);
 }
 size_t write_ready(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* mode,
-                   uint32_t inbox_epoch) {
+                   uint32_t inbox_epoch, uint64_t now_ms) {
     JsonBuf j(buf, cap);
     j.lit("{\"ev\":\"ready\",\"id\":"); j.u32(id);
     j.lit(",\"key\":"); key_hex32(j, key);
@@ -145,6 +153,7 @@ size_t write_ready(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeCo
     j.lit(",\"gateway\":"); j.lit(c.is_gateway ? "true" : "false");
     j.lit(",\"routing_sf\":"); j.u32(c.routing_sf);
     j.lit(",\"inbox_epoch\":"); j.u32(inbox_epoch);   // Phase-3: bumps on any store wipe -> app re-pulls from 0
+    j.lit(",\"now_ms\":"); j.i64(static_cast<int64_t>(now_ms));  // node uptime at emit: the app's rx_ms->wall-clock anchor (no RTC)
     j.ch('}');
     return j.finish();
 }
@@ -177,12 +186,14 @@ size_t write_inbox_channel(char* buf, size_t cap, uint32_t seq, uint8_t origin, 
     j.ch('}');
     return j.finish();
 }
-size_t write_inbox_end(char* buf, size_t cap, uint32_t dm_seq, uint32_t chan_seq, uint32_t epoch, uint32_t count) {
+size_t write_inbox_end(char* buf, size_t cap, uint32_t dm_seq, uint32_t chan_seq, uint32_t epoch, uint32_t count,
+                       uint64_t now_ms) {
     JsonBuf j(buf, cap);
     j.lit("{\"ev\":\"inbox_end\",\"dm_seq\":"); j.u32(dm_seq);
     j.lit(",\"chan_seq\":"); j.u32(chan_seq);
     j.lit(",\"epoch\":");    j.u32(epoch);
     j.lit(",\"count\":");    j.u32(count);
+    j.lit(",\"now_ms\":");   j.i64(static_cast<int64_t>(now_ms));  // uptime at emit, pairs with each record's rx_ms
     j.ch('}');
     return j.finish();
 }

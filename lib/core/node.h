@@ -28,6 +28,22 @@ namespace meshroute {
 struct m_out;          // frame_codec.h — fwd-decl so the channel ingest seam doesn't pull the codec into node.h
 struct rts_out;        // frame_codec.h — fwd-decl for the FLOOD RTS-M handler seam (handle_flood_rts)
 
+// Per-layer (per-leaf) config — the dual-layer gateway model (2026-06-12-gateway-dual-layer-design.md §3.1).
+// A normal node has n_layers=1 (uses layers[0]); a GATEWAY has 2 EQUAL layers (no home/guest, §0.1). One
+// identity (key_hash32) spans both; node_id is per-leaf (independent DAD, §0.2). `layer_id` is the FULL 8-bit
+// id (1..255); `leaf_id = layer_id & 0x0F` is the derived coarse wire filter (§0.8). window_ms/offset 0 =
+// DERIVE the SF-weighted anti-phase split at the scheduler (§4, Slice 3). REQUIRED on a gateway: layer_id /
+// routing_sf / allowed_sf_bitmap — on_init fails LOUD if unset (§3.2, no silent inherit).
+struct LayerConfig {
+    uint8_t  layer_id          = 0;       // FULL 8-bit id (1..255); 0 = unset. leaf_id = layer_id & 0x0F.
+    uint8_t  routing_sf        = 0;       // 0 = unset (REQUIRED per layer)
+    uint16_t allowed_sf_bitmap = 0;       // allowed DATA-SF set; 0 = unset/no-data-SF (REQUIRED per layer)
+    uint32_t beacon_period_ms  = 900000;
+    uint32_t window_period_ms  = 15000;   // the full layer0->layer1 cycle (§3.2 default; cfg-overridable)
+    uint32_t window_ms         = 0;       // this layer's presence in the cycle; 0 = DERIVE SF-weighted (§4)
+    uint32_t window_offset_ms  = 0;       // phase; 0 = DERIVE anti-phase from the other layer (§4)
+};
+
 // POD; no heap, no JSON. Only the T/F-class knobs the Lua on_init reads.
 // PROTOCOL constants stay in protocol_constants.h (hardcoded on device).
 // Leaf-membership / identity / join is DESIGN-RESOLVED — see docs/specs/2026-06-05-identity-leaf-membership-join-design.md:
@@ -86,6 +102,12 @@ struct NodeConfig {
     uint32_t flood_lbt_max_defer_ms    = 0;       // 0 => derive
     bool     nav_enabled               = true;    // NAV virtual carrier sense ON by default (device + sim consistent). C++-only — so it DIVERGES the lua↔meshroute differentials by design (Lua is frozen); set false to restore lua-parity (e.g. in the differential scenarios).
     bool     nav_ignore_rts            = false;   // NAV: ANSWER an addressed RTS even during a reservation (sim-tuned default). true = drop it (802.11 blanket-NAV) — protects the reservation but causes cascades/giveups. ignore-off won on s18 + s17_metro: same delivery, fewer collisions + cascades.
+    // ---- dual-layer gateway (2026-06-12 design). n_layers=1 = normal node (uses layers[0]); 2 = gateway.
+    //      Slice 0: layers[0] MIRRORS the legacy routing_sf/allowed_sf_bitmap/leaf_id/beacon_period_ms scalars
+    //      (set in on_init); is_gateway above stays config-driven. Slice 2a migrates the readers to the active
+    //      LayerRuntime + derives is_gateway = (n_layers == 2).
+    uint8_t     n_layers = 1;
+    LayerConfig layers[2];
 };
 
 // One route candidate (DV). Mirrors the Lua rt[dest].candidates[i] fields
@@ -201,7 +223,7 @@ class Node {
 public:
     Node(Hal& hal, uint8_t node_id, uint32_t key_hash32, const char* name = nullptr);
 
-    void on_init(const NodeConfig& cfg);                                 // cfg borrowed
+    bool on_init(const NodeConfig& cfg);                                 // cfg borrowed; false = REFUSED (bad dual-layer config, §3.2)
     // Reassign identity post-construct (device boots id=0 then loads it from NV; the join runtime sets it
     // too). 0 = unprovisioned (do_send is refused). 0xFF is reserved and ignored.
     void set_identity(uint8_t node_id, uint32_t key_hash32);
@@ -258,15 +280,15 @@ public:
     void set_radio_cfg(uint8_t routing_sf, uint32_t bw_hz, uint8_t cr) {
         _cfg.routing_sf = routing_sf; _cfg.radio_bw_hz = bw_hz; _cfg.radio_cr = cr;
     }
-    uint8_t           rt_count()       const { return _rt_count; }
-    const RtEntry&    rt_at(uint8_t i) const { return _rt[i]; }   // 0..rt_count()-1; candidates[0] is the primary
-    bool              has_pending_tx() const { return _pending_tx.has_value(); }
+    uint8_t           rt_count()       const { return _active->_rt_count; }
+    const RtEntry&    rt_at(uint8_t i) const { return _active->_rt[i]; }   // 0..rt_count()-1; candidates[0] is the primary
+    bool              has_pending_tx() const { return _active->_pending_tx.has_value(); }
     uint64_t          nav_until_ms()   const { return _nav_until_ms; }  // NAV reservation deadline (0 = clear); test/status accessor
     // ---- channel-plane inspection (public, like rt_count) + the two seams tests drive directly ----
-    uint16_t          channel_buffer_count() const { return _channel_buffer_n; }
+    uint16_t          channel_buffer_count() const { return _active->_channel_buffer_n; }
     bool              channel_has(uint32_t id) const { return channel_buffer_find(id) >= 0; }
     // ---- id_bind (hash-locate substrate) inspection: tests + the H resolver drive these.
-    uint16_t          id_bind_count() const { return _id_bind_n; }
+    uint16_t          id_bind_count() const { return _active->_id_bind_n; }
     bool              joined()        const { return _joined; }        // DAD: adopted a node_id (test/app accessor)
     bool              key_hash_of_id(uint8_t id, uint32_t& out) const;  // id_bind reverse lookup (AUTHORITATIVE-only); false = unknown/claimed-only (DST_HASH omitted). Public for the send-path test.
     uint8_t           claim_epoch()   const { return _claim_epoch; }
@@ -276,11 +298,11 @@ public:
     int               id_bind_find_by_hash(uint32_t key_hash32, IdBindConf* conf_out = nullptr);   // -> node_id, or -1 (skips expired); opt. out: the binding's confidence (soft/hard resolve)
     void              on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool authoritative);   // C.1: the origin consumed an H_ANSWER DATA -> cache (h_query) + drain. authoritative from the frame TYPE. public = the deliver seam + test driver
     void              on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool authoritative);      // C.2: a forwarder snooped an H_ANSWER in transit -> cache-on-pass (h_relay). authoritative from the frame TYPE. public = the relay seam + test driver
-    bool              channel_entry_dirty(uint32_t id) const { const int i = channel_buffer_find(id); return i >= 0 && _channel_buffer[i].dirty; }
+    bool              channel_entry_dirty(uint32_t id) const { const int i = channel_buffer_find(id); return i >= 0 && _active->_channel_buffer[i].dirty; }
     bool              channel_payload_eq(uint32_t id, const uint8_t* p, uint16_t len) const {
         const int i = channel_buffer_find(id);
-        if (i < 0 || _channel_buffer[i].payload_len != len) return false;
-        for (uint16_t k = 0; k < len; ++k) if (_channel_buffer[i].payload[k] != p[k]) return false;
+        if (i < 0 || _active->_channel_buffer[i].payload_len != len) return false;
+        for (uint16_t k = 0; k < len; ++k) if (_active->_channel_buffer[i].payload[k] != p[k]) return false;
         return true;
     }
     static uint32_t   channel_msg_id_mint(uint8_t origin, uint32_t key_hash32, uint8_t ctr);   // origin<<24|(kh&0xffff)<<8|ctr (dv:2239)
@@ -288,9 +310,9 @@ public:
     // Origin-level DATA dedup (loop/retransmit detection): record (origin,dst,ctr)->expiry + the prev-hop.
     // Prunes expired, then ROLLS (evicts the oldest = min-expiry) at the 256 cap instead of refusing. Public for tests.
     void    record_seen_origin(uint32_t sokey, uint8_t from, uint64_t now_ms);
-    size_t  seen_origin_count() const { return _seen_origins.size(); }
+    size_t  seen_origin_count() const { return _active->_seen_origins.size(); }
     bool    seen_origin_live(uint32_t sokey, uint64_t now_ms) const {
-        auto it = _seen_origins.find(sokey); return it != _seen_origins.end() && it->second > now_ms; }
+        auto it = _active->_seen_origins.find(sokey); return it != _active->_seen_origins.end() && it->second > now_ms; }
 
 private:
     // Node-owned timer-id namespace (Hal::after re-arm-by-id, cap 64). Reserve
@@ -572,8 +594,6 @@ private:
     NodeConfig _cfg;             // borrowed copy from on_init
     Inbox    _inbox;             // persistent inbox (disabled until a backend installs stores; see inbox())
     int16_t  _routing_snr_floor_q4 = 0;   // SF_DEMOD_THRESHOLD[routing_sf] + sf_margin_q4
-    RtEntry  _rt[protocol::cap_routes];
-    uint8_t  _rt_count = 0;       // distinct dests, kept sorted ascending by dest
     bool     _rt_full_emitted = false;
     // R2 state
     uint8_t  _beacon_offset = 0;             // sliding stable-page rotation cursor
@@ -614,35 +634,19 @@ private:
                          uint8_t ctr_lo = 0;   // DATA slot: the pending_tx flight this DATA belongs to (re-arm guard, dv:10271)
                          uint8_t buf[protocol::lora_max_frame_bytes] = {}; };
     TxStashSlot _tx_stash[kRetrySlots];
-    // R3 data-plane state (single flight per node)
+    // R3 data-plane state (single flight per node) — the pipeline arrays MOVED into LayerRuntime (Slice 2a).
+    // kTxQueueCap stays a Node-level static constexpr (compile-time array dim, identical for every layer;
+    // visible by unqualified name inside the nested LayerRuntime + in Node member fns — no per-layer state).
     static constexpr uint8_t kTxQueueCap = 8;
-    TxItem                   _tx_queue[kTxQueueCap];
-    uint8_t                  _tx_queue_n = 0;          // FIFO depth
-    std::optional<PendingTx> _pending_tx;
-    std::optional<PendingRx> _pending_rx;
-    PostAck                  _post_ack;
-    // No-route defer queue (insertion-order array; drained TTL-first on a beacon
-    // route-change or the 1s periodic timer). _drain_armed gates the periodic timer.
-    DeferredSend             _deferred[protocol::cap_deferred_sends];
-    uint8_t                  _deferred_n = 0;
-    bool                     _drain_armed = false;
-    // F route-discovery dedup state (Lua route_request_seen / route_request_last).
+    // F route-discovery dedup state (Lua route_request_seen / route_request_last). Members in LayerRuntime.
     struct RReqSeen { uint8_t origin; uint8_t dst; uint64_t t_ms; };   // relay flood-dedup
     struct RReqLast { uint8_t dst; uint8_t ttl; uint64_t t_ms; };      // per-dst origination rate-limit
-    RReqSeen _rreq_seen[protocol::cap_route_request_seen] = {};
-    uint8_t  _rreq_seen_n = 0;
-    RReqLast _rreq_last[protocol::cap_route_request_last] = {};
-    uint8_t  _rreq_last_n = 0;
     // Hash-locate id_bind table (Lua dv:4677): key_hash32 -> node_id, beacon-populated. Bounded array
     // (array sized at the protocol max; _cfg.cap_id_bind gates additions). One timestamp: id_bind_set
-    // always carries the key, so last_seen == last_key_seen (the plain-refresh split lands with C.2).
+    // always carries the key, so last_seen == last_key_seen (the plain-refresh split lands with C.2). Member in LayerRuntime.
     struct IdBind { uint32_t key_hash32; uint64_t last_seen_ms; uint8_t node_id; uint8_t source; uint8_t confidence; };
-    IdBind   _id_bind[protocol::cap_id_bind] = {};
-    uint16_t _id_bind_n = 0;
-    // H hash-locate flood dedup (Lua hash_query_seen): per-(origin,key_hash32), hash_query_seen_ttl_ms window.
+    // H hash-locate flood dedup (Lua hash_query_seen): per-(origin,key_hash32), hash_query_seen_ttl_ms window. Member in LayerRuntime.
     struct HashQuerySeen { uint8_t origin; uint32_t key_hash32; uint64_t t_ms; bool hard; };
-    HashQuerySeen _hash_query_seen[protocol::cap_hash_query_seen] = {};
-    uint8_t       _hash_query_seen_n = 0;
     // send-by-hash DMs parked awaiting a hash-bind resolution (D); drained by on_hash_bind_response, aged on the timer.
     // is_redirect=true => an L2c misdelivered DM held for FORWARD (not re-send): `body`=the full inner (incl.
     // DST_HASH), and origin/ctr/ctr_lo are preserved so the resolution forwards it identity-intact. The redirect
@@ -682,26 +686,8 @@ private:
     struct SyncPending { bool active; bool suppressed; uint8_t requester; bool requester_mobile;
                          uint64_t requested_at; uint64_t fire_at; };
     SyncPending _sync_pending[protocol::cap_sync_response_pending] = {};
-    // Channel-message gossip plane state (node_channel.cpp; struct defs are above the channel method decls).
-    // _channel_buffer is the FIFO gossip store (oldest at [0]). _per_origin_channel is the anti-spam ledger
-    // (map of FIXED arrays; per-origin events bounded by the 20-distinct cap). _channel_pull_pending is the
-    // bounded pending-pull ring (scheduling/timers land in Phase 2 — Phase 1 only cancels on overhear).
-    ChannelEntry _channel_buffer[protocol::cap_channel_buffer];
-    uint16_t     _channel_buffer_n = 0;
-    std::map<uint8_t, ChannelOriginLedger> _per_origin_channel;   // origin -> windowed distinct-id ledger
-    ChannelPullPending _channel_pull_pending[protocol::cap_channel_pull_pending] = {};
-    ChannelPullRecent  _channel_pull_recent[protocol::cap_channel_pull_recent] = {};
-    uint8_t            _channel_pull_recent_n = 0;
-    FloodState         _flood[protocol::cap_flood_pending] = {};   // channel-flood in-progress table (slot i -> timer kFloodRebcastTimerId+i)
-    std::map<uint8_t, uint16_t>  _peer_send_counter;   // next_ctr per dst
-    std::map<uint32_t, LastAcked> _last_acked_from;    // key (src<<24|dst<<16|ctr_lo<<8|len)
-    std::map<uint32_t, uint64_t>  _seen_origins;       // key (origin<<24|dst<<16|ctr) -> expiry_ms
-    std::map<uint32_t, uint8_t>   _seen_origin_from;   // same key -> the prev-hop (LOOP_DUP discriminator)
-    std::map<uint8_t, uint64_t>   _blind_until;        // next_hop -> absolute_ms it's deaf-on-routing (F1)
-    // R4.2 persistent neighbor budget tier (routing-grade demotion beyond the short blind window).
-    // mutable: get_neighbor_tier lazy-prunes the TTL-expired entry on read, like the Lua (dv:3863-3868).
-    mutable std::map<uint8_t, uint8_t>  _neighbor_budget_tier;       // next_hop -> tier (1..3); absent/0 = HEALTHY
-    mutable std::map<uint8_t, uint64_t> _neighbor_budget_tier_set_at; // next_hop -> absolute_ms the mark was set
+    // Channel-message gossip plane state + dedup maps + the originator ring — MOVED into LayerRuntime (Slice 2a;
+    // struct defs ChannelEntry/FloodState/etc. are above the channel method decls; OrigEvent/OrigRing below).
     // R4.4 originator anti-spam: per-sender sliding-window ledger of overheard RTS/CTS. kind: 0=rts, 1=cts.
     // FIXED RING (not a std::vector) — the old map-of-vectors rebuilt a vector on every overheard frame
     // (alloc/free per frame), which fragments the nRF52 heap; this keeps the events in a fixed in-struct
@@ -710,7 +696,69 @@ private:
     // once per NEW sender (bounded by neighbours), not per frame (the accepted determinism relaxation).
     struct OrigEvent { uint64_t t; uint8_t kind; uint8_t ctr_lo; uint32_t air; };
     struct OrigRing  { OrigEvent ev[protocol::cap_originator_events]; uint8_t count = 0; };
-    std::map<uint8_t, OrigRing> _per_sender_originator;  // sender_id -> recent events (fixed ring)
+    // _per_sender_originator MOVED into LayerRuntime (Slice 2a).
+
+    // ---- LayerRuntime (2026-06-12-gateway-dual-layer-design.md §2) -----------------------------------------
+    // Per-layer (per-leaf) runtime state. A normal node has n_layers=1 and only _layers[0] is used; a gateway
+    // (later slices) has 2 EQUAL layers and swaps _active at each window switch. Slice 2a is a PURE NO-OP hoist:
+    // these members moved here VERBATIM (initializers preserved), every reader redirected through _active->.
+    // The array dimension is MR_N_LAYERS (protocol_constants.h): 1 on a leaf build (the array is one element —
+    // identical RAM to the pre-dual-layer firmware), 2 only on [env:gateway]. on_init REFUSES n_layers==2 when
+    // MR_N_LAYERS<2, so _layers[1] is never reached on a 1-element build (audited: 405 reads all go via _active=&_layers[0]).
+    // Nested struct so the in-class helper struct defs (RtEntry, TxItem, PendingTx, ..., IdBind, ChannelEntry,
+    // FloodState, OrigRing, ...) stay visible by unqualified name. Node is never copied, so the raw _active
+    // pointer + default member initializer is safe.
+    struct LayerRuntime {
+        // Routing table (DV).
+        RtEntry  _rt[protocol::cap_routes];
+        uint8_t  _rt_count = 0;       // distinct dests, kept sorted ascending by dest
+        // R3 data-plane state (single flight per node).
+        TxItem                   _tx_queue[kTxQueueCap];
+        uint8_t                  _tx_queue_n = 0;          // FIFO depth
+        std::optional<PendingTx> _pending_tx;
+        std::optional<PendingRx> _pending_rx;
+        PostAck                  _post_ack;
+        // No-route defer queue (insertion-order array; drained TTL-first on a beacon
+        // route-change or the 1s periodic timer). _drain_armed gates the periodic timer.
+        DeferredSend             _deferred[protocol::cap_deferred_sends];
+        uint8_t                  _deferred_n = 0;
+        bool                     _drain_armed = false;
+        // F route-discovery dedup state (Lua route_request_seen / route_request_last).
+        RReqSeen _rreq_seen[protocol::cap_route_request_seen] = {};
+        uint8_t  _rreq_seen_n = 0;
+        RReqLast _rreq_last[protocol::cap_route_request_last] = {};
+        uint8_t  _rreq_last_n = 0;
+        // Hash-locate id_bind table (Lua dv:4677): key_hash32 -> node_id, beacon-populated.
+        IdBind   _id_bind[protocol::cap_id_bind] = {};
+        uint16_t _id_bind_n = 0;
+        // H hash-locate flood dedup (Lua hash_query_seen): per-(origin,key_hash32), hash_query_seen_ttl_ms window.
+        HashQuerySeen _hash_query_seen[protocol::cap_hash_query_seen] = {};
+        uint8_t       _hash_query_seen_n = 0;
+        // Channel-message gossip plane state (node_channel.cpp).
+        ChannelEntry _channel_buffer[protocol::cap_channel_buffer];
+        uint16_t     _channel_buffer_n = 0;
+        std::map<uint8_t, ChannelOriginLedger> _per_origin_channel;   // origin -> windowed distinct-id ledger
+        ChannelPullPending _channel_pull_pending[protocol::cap_channel_pull_pending] = {};
+        ChannelPullRecent  _channel_pull_recent[protocol::cap_channel_pull_recent] = {};
+        uint8_t            _channel_pull_recent_n = 0;
+        FloodState         _flood[protocol::cap_flood_pending] = {};   // channel-flood in-progress table (slot i -> timer kFloodRebcastTimerId+i)
+        // dedup maps.
+        std::map<uint8_t, uint16_t>  _peer_send_counter;   // next_ctr per dst
+        std::map<uint32_t, LastAcked> _last_acked_from;    // key (src<<24|dst<<16|ctr_lo<<8|len)
+        std::map<uint32_t, uint64_t>  _seen_origins;       // key (origin<<24|dst<<16|ctr) -> expiry_ms
+        std::map<uint32_t, uint8_t>   _seen_origin_from;   // same key -> the prev-hop (LOOP_DUP discriminator)
+        std::map<uint8_t, uint64_t>   _blind_until;        // next_hop -> absolute_ms it's deaf-on-routing (F1)
+        // R4.2 persistent neighbor budget tier (routing-grade demotion beyond the short blind window).
+        // mutable: get_neighbor_tier lazy-prunes the TTL-expired entry on read, like the Lua (dv:3863-3868).
+        mutable std::map<uint8_t, uint8_t>  _neighbor_budget_tier;       // next_hop -> tier (1..3); absent/0 = HEALTHY
+        mutable std::map<uint8_t, uint64_t> _neighbor_budget_tier_set_at; // next_hop -> absolute_ms the mark was set
+        // R4.4 originator anti-spam: per-sender sliding-window ledger of overheard RTS/CTS (fixed ring).
+        std::map<uint8_t, OrigRing> _per_sender_originator;  // sender_id -> recent events (fixed ring)
+    };
+    LayerRuntime  _layers[MR_N_LAYERS];
+    LayerRuntime* _active = &_layers[0];
+    uint8_t       _n_layers = 1;
+
     uint64_t _ack_warn_until = 0;   // DM Inc 3: park new DM originations until this ms (set by a warn'd ACK)
     uint64_t _own_orig_events[protocol::cap_originator_events] = {};  // Inc 4 self-cap: own-origination timestamps (in-window)
     uint8_t  _own_orig_count = 0;

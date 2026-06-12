@@ -18,7 +18,7 @@
 namespace meshroute {
 
 uint16_t Node::next_ctr(uint8_t dst) {
-    uint16_t& c = _peer_send_counter[dst];
+    uint16_t& c = _active->_peer_send_counter[dst];
     c = (c >= 65535) ? 1 : static_cast<uint16_t>(c + 1);   // wraps 65535->1 (NOT a rand site)
     return c;
 }
@@ -94,9 +94,9 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
         const uint64_t base = item.next_attempt_ms > _hal.now() ? item.next_attempt_ms : _hal.now();
         item.next_attempt_ms = base + static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(retry_jitter_ms()) + 1));
     }
-    if (_tx_queue_n < kTxQueueCap) _tx_queue[_tx_queue_n++] = item;
+    if (_active->_tx_queue_n < kTxQueueCap) _active->_tx_queue[_active->_tx_queue_n++] = item;
     MR_EMIT(tx_event, EF_I("origin", item.origin), EF_I("dst", item.dst),
-            EF_I("ctr", item.ctr), EF_I("depth", _tx_queue_n));
+            EF_I("ctr", item.ctr), EF_I("depth", _active->_tx_queue_n));
     become_free();
     return ctr;
 }
@@ -115,21 +115,21 @@ void Node::send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr) {
 }
 
 void Node::become_free() {
-    if (_pending_tx || _pending_rx) return;              // half-duplex serialize
-    if (_tx_queue_n == 0) return;
+    if (_active->_pending_tx || _active->_pending_rx) return;              // half-duplex serialize
+    if (_active->_tx_queue_n == 0) return;
     // Drain the FIRST item whose backoff has elapsed (next_attempt_ms <= now). The
     // Lua scans (not head-only) so a fresh send isn't blocked behind a backing-off
     // cascade-requeue, and the next_attempt_ms gate means a concurrent become_free
     // can't skip a requeue's backoff. Items with next_attempt_ms==0 are always ready,
     // so a queue without requeues behaves as plain FIFO.
     const uint64_t now = _hal.now();
-    uint8_t  pick = _tx_queue_n;                          // sentinel = none ready
+    uint8_t  pick = _active->_tx_queue_n;                          // sentinel = none ready
     uint64_t soonest = UINT64_MAX;
-    for (uint8_t i = 0; i < _tx_queue_n; ++i) {
-        if (_tx_queue[i].next_attempt_ms <= now) { pick = i; break; }
-        if (_tx_queue[i].next_attempt_ms < soonest) soonest = _tx_queue[i].next_attempt_ms;
+    for (uint8_t i = 0; i < _active->_tx_queue_n; ++i) {
+        if (_active->_tx_queue[i].next_attempt_ms <= now) { pick = i; break; }
+        if (_active->_tx_queue[i].next_attempt_ms < soonest) soonest = _active->_tx_queue[i].next_attempt_ms;
     }
-    if (pick == _tx_queue_n) {                            // none ready -> wake at the soonest backoff
+    if (pick == _active->_tx_queue_n) {                            // none ready -> wake at the soonest backoff
         (void)_hal.after(static_cast<uint32_t>(soonest - now), kQueueWakeupTimerId);
         return;
     }
@@ -138,25 +138,25 @@ void Node::become_free() {
     // forwards (is_forward — we stay a good relay) and channel broadcasts (M_BROADCAST, when R5 lands —
     // governed by the per-origin channel COUNT plane). Defer-in-place (bump next_attempt_ms) until the
     // oldest origination ages out, then re-pick; the receiver-side airtime backstop is the hard floor.
-    if (_tx_queue[pick].origin == _node_id && !_tx_queue[pick].is_forward
-        && !_tx_queue[pick].is_channel_m) {
+    if (_active->_tx_queue[pick].origin == _node_id && !_active->_tx_queue[pick].is_forward
+        && !_active->_tx_queue[pick].is_channel_m) {
         uint64_t oldest = now;
         const uint8_t own = self_originate_count(&oldest);
         if (own >= _cfg.originator_self_cap_per_window) {
             uint64_t until = oldest + protocol::originator_window_ms;
             if (until <= now) until = now + 1;
-            _tx_queue[pick].next_attempt_ms = until;          // defer in place
-            MR_EMIT("originator_self_defer", EF_I("origin", _tx_queue[pick].origin), EF_I("dst", _tx_queue[pick].dst),
-                    EF_I("ctr", _tx_queue[pick].ctr), EF_I("own_count", own),
+            _active->_tx_queue[pick].next_attempt_ms = until;          // defer in place
+            MR_EMIT("originator_self_defer", EF_I("origin", _active->_tx_queue[pick].origin), EF_I("dst", _active->_tx_queue[pick].dst),
+                    EF_I("ctr", _active->_tx_queue[pick].ctr), EF_I("own_count", own),
                     EF_I("cap", _cfg.originator_self_cap_per_window), EF_I("until_ms", until));
             become_free();                                    // re-pick (skips the now-deferred item)
             return;
         }
         self_originate_observe();                             // admitted -> record
     }
-    TxItem item = _tx_queue[pick];
-    for (uint8_t i = pick + 1; i < _tx_queue_n; ++i) _tx_queue[i - 1] = _tx_queue[i];
-    --_tx_queue_n;
+    TxItem item = _active->_tx_queue[pick];
+    for (uint8_t i = pick + 1; i < _active->_tx_queue_n; ++i) _active->_tx_queue[i - 1] = _active->_tx_queue[i];
+    --_active->_tx_queue_n;
     issue_send(item);
 }
 
@@ -176,11 +176,11 @@ uint8_t Node::max_data_sf_index() const {
     for (uint8_t sf = 5; sf <= 12; ++sf) if (bitmap & (1u << sf)) ++count;
     return static_cast<uint8_t>(count - 1);                     // ascending -> the highest SF is the last index
 }
-// Set up the fire-and-forget flight on the just-installed _pending_tx, then fire the RTS. No CTS wait
+// Set up the fire-and-forget flight on the just-installed _active->_pending_tx, then fire the RTS. No CTS wait
 // (the SF is in the RTS), no ACK wait (failures recover via the next BCN-digest cascade).
 void Node::issue_m_broadcast() {
-    if (!_pending_tx) return;
-    PendingTx& pt = *_pending_tx;
+    if (!_active->_pending_tx) return;
+    PendingTx& pt = *_active->_pending_tx;
     pt.m_broadcast = true; pt.awaiting_cts = false; pt.awaiting_ack = false;
     pt.chosen_data_sf = max_data_sf();                          // sender picks the SF; advertised in the RTS
     tx_m_broadcast_rts();
@@ -188,9 +188,9 @@ void Node::issue_m_broadcast() {
 // Pack + TX the M_BROADCAST RTS (sf_index pinned to the max SF + the channel_msg_id low-16), then arm
 // the RTS->DATA gap directly (kCtsToDataGapTimerId -> do_data_tx) — skipping the CTS round-trip.
 void Node::tx_m_broadcast_rts() {
-    if (!_pending_tx) return;
-    PendingTx& pt = *_pending_tx;
-    if (pt.inner_len < 6) { _hal.log("M-broadcast RTS inner_len < 6 — refusing tx"); _pending_tx.reset(); become_free(); return; }   // fail loud: M inner is [id4|ch|fl|body]; <6 underflows inner_len-6
+    if (!_active->_pending_tx) return;
+    PendingTx& pt = *_active->_pending_tx;
+    if (pt.inner_len < 6) { _hal.log("M-broadcast RTS inner_len < 6 — refusing tx"); _active->_pending_tx.reset(); become_free(); return; }   // fail loud: M inner is [id4|ch|fl|body]; <6 underflows inner_len-6
     rts_in rin{};
     rin.leaf_id = _cfg.leaf_id; rin.src = _node_id; rin.ctr_lo = pt.ctr_lo;
     rin.sf_index = max_data_sf_index();
@@ -205,7 +205,7 @@ void Node::tx_m_broadcast_rts() {
         if (!any) {
             _hal.log("FLOOD RTS zero bitmap — refusing tx");
             MR_EMIT("flood_zero_bitmap_refused", EF_I("ctr", pt.ctr));
-            _pending_tx.reset(); become_free(); return;
+            _active->_pending_tx.reset(); become_free(); return;
         }
         rin.next = 0xFF; rin.dst = pt.hop_left;                // §3.1: next=0xFF (broadcast), dst slot = hop_left
         rin.rts_flags = static_cast<uint8_t>(RTS_FLAG_M_BROADCAST | RTS_FLAG_FLOOD);
@@ -213,7 +213,7 @@ void Node::tx_m_broadcast_rts() {
         rin.flood_bitmap = std::span<const uint8_t>(pt.flood_bitmap, 32);
         uint8_t fbuf[43];
         const size_t fl = pack_rts(rin, std::span<uint8_t>(fbuf, sizeof(fbuf)));
-        if (fl == 0) { _hal.log("FLOOD RTS pack failed"); _pending_tx.reset(); become_free(); return; }
+        if (fl == 0) { _hal.log("FLOOD RTS pack failed"); _active->_pending_tx.reset(); become_free(); return; }
         MR_EMIT("rts_tx", EF_I("next", 0xFF), EF_I("ctr", pt.ctr), EF_B("flood", true));
         tx_initiating(fbuf, fl, static_cast<int16_t>(_cfg.routing_sf), LbtKind::rts, pt.flight_gen);
         return;
@@ -234,7 +234,7 @@ void Node::tx_m_broadcast_rts() {
 void Node::issue_send(const TxItem& item) {
     // A new flight is going live -> drop any stale BUSY_RX nack-wait left armed for a
     // torn-down prior flight, so its timer can't spuriously re-RTS this one on a 4-bit
-    // ctr_lo collision (issue_send is the only choke point that installs a new _pending_tx).
+    // ctr_lo collision (issue_send is the only choke point that installs a new _active->_pending_tx).
     clear_nack_wait();
     // Build the flight first so pick_next_cascade_hop sees previous_hop (forwarders
     // must not loop back upstream) + the empty alts_tried set.
@@ -257,7 +257,7 @@ void Node::issue_send(const TxItem& item) {
     if (item.flood) {
         pt.next = 0xFF;
         pt.flight_gen = ++_flight_gen;
-        _pending_tx = pt;
+        _active->_pending_tx = pt;
         issue_m_broadcast();
         return;
     }
@@ -276,14 +276,14 @@ void Node::issue_send(const TxItem& item) {
     }
     pt.next = first;
     pt.flight_gen = ++_flight_gen;                       // #A redo: a NEW flight identity (cascade_to_alt keeps it; a requeue re-installs here -> new gen)
-    _pending_tx = pt;
+    _active->_pending_tx = pt;
     if (item.is_channel_m) { issue_m_broadcast(); return; }   // channel gossip (pull-response): fire-and-forget M-broadcast
     tx_rts_retry();                                      // packs+emits the RTS + start_rts_timeout
 }
 
 void Node::tx_rts_retry() {
-    if (!_pending_tx) return;
-    PendingTx& pt = *_pending_tx;
+    if (!_active->_pending_tx) return;
+    PendingTx& pt = *_active->_pending_tx;
     pt.awaiting_cts = true; pt.awaiting_ack = false; pt.chosen_data_sf = 0;
     rts_in rin{};
     rin.leaf_id = _cfg.leaf_id; rin.src = _node_id; rin.next = pt.next; rin.ctr_lo = pt.ctr_lo;
@@ -362,7 +362,7 @@ bool Node::schedule_lbt_defer(const uint8_t* bytes, size_t len, int16_t sf, LbtK
 // after_tx). NACK/flood: just TX.
 void Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen) {
     if (kind == LbtKind::rts) {
-        if (!_pending_tx || _pending_tx->flight_gen != rts_flight_gen) {  // flight changed while we waited (flight_gen = object-identity, not the 4-bit ctr_lo)
+        if (!_active->_pending_tx || _active->_pending_tx->flight_gen != rts_flight_gen) {  // flight changed while we waited (flight_gen = object-identity, not the 4-bit ctr_lo)
             MR_EMIT("rts_tx_cancelled_stale", EF_S("reason", "pending_tx_changed"));
             return;
         }
@@ -394,7 +394,7 @@ void Node::lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind ki
 void Node::rts_duty_defer_fire() {
     RtsDutyDefer& d = _rts_duty_defer;
     if (!d.pending) return;
-    if (!_pending_tx || _pending_tx->flight_gen != d.flight_gen) {       // the flight this RTS belonged to is gone
+    if (!_active->_pending_tx || _active->_pending_tx->flight_gen != d.flight_gen) {       // the flight this RTS belonged to is gone
         d.pending = false;
         MR_EMIT("rts_tx_cancelled_stale", EF_S("reason", "pending_tx_changed"));
         return;
@@ -490,7 +490,7 @@ bool Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag 
     if (slot >= 0) {
         TxStashSlot& s = _tx_stash[slot];
         s.valid = true; s.sf = sf; s.retries_left = protocol::tx_defer_max_retries;
-        s.ctr_lo = _pending_tx ? _pending_tx->ctr_lo : 0;   // READ only for the DATA slot (retry_stashed re-arm guard); for CTS/ACK/NACK this records the forwarder's OWN outbound flight + is never consulted
+        s.ctr_lo = _active->_pending_tx ? _active->_pending_tx->ctr_lo : 0;   // READ only for the DATA slot (retry_stashed re-arm guard); for CTS/ACK/NACK this records the forwarder's OWN outbound flight + is never consulted
         s.len = static_cast<uint16_t>(len < sizeof(s.buf) ? len : sizeof(s.buf));
         for (uint16_t i = 0; i < s.len; ++i) s.buf[i] = bytes[i];
     }
@@ -521,14 +521,14 @@ void Node::duty_defer_fire(uint8_t slot) {
     static const FrameTag kSlotTag[kRetrySlots] = { FrameTag::cts, FrameTag::data, FrameTag::ack, FrameTag::nack };
     const FrameTag tag = kSlotTag[slot];
     // DATA staleness guard (review #6): if the flight moved on during the duty wait (ACK/NACK/implicit-ack replaced
-    // _pending_tx), do NOT re-transmit the stale DATA / re-stash with a mismatched ctr_lo. Mirrors retry_stashed +
+    // _active->_pending_tx), do NOT re-transmit the stale DATA / re-stash with a mismatched ctr_lo. Mirrors retry_stashed +
     // the Lua m_broadcast retry guard (dv:12172). CTS/ACK/NACK are idempotent responses -> no flight guard.
-    if (tag == FrameTag::data && (!_pending_tx || _pending_tx->ctr_lo != s.ctr_lo)) return;
+    if (tag == FrameTag::data && (!_active->_pending_tx || _active->_pending_tx->ctr_lo != s.ctr_lo)) return;
     const bool handed = tx_with_retry(s.buf, s.len, s.sf, tag);       // re-runs the duty pre-check (re-defers if still over budget)
     // DATA re-hand: re-arm the ACK wait do_data_tx skipped at defer-time (the DATA now hit the air). Anchored to the
     // actual send time, matching the Lua deferred re-run replaying on_handed (dv:3633 -> 3637 -> 10274-10278).
-    if (handed && tag == FrameTag::data && _pending_tx && _pending_tx->ctr_lo == s.ctr_lo) {
-        _pending_tx->awaiting_ack = true;
+    if (handed && tag == FrameTag::data && _active->_pending_tx && _active->_pending_tx->ctr_lo == s.ctr_lo) {
+        _active->_pending_tx->awaiting_ack = true;
         start_ack_timeout();
     }
 }
@@ -547,20 +547,20 @@ void Node::retry_stashed(uint8_t slot) {
     // (dv:10270-10278) — fires on the initial tx AND on the stash retry. Without this the re-sent DATA flies but the
     // sender stays !awaiting_ack with no ack-timeout, so the returning ACK is dropped + the flight never recovers.
     // Guarded on the pending flight (ctr_lo) so a retry against a since-replaced flight does NOT re-arm.
-    if (tag == FrameTag::data && _pending_tx && _pending_tx->ctr_lo == s.ctr_lo) {
-        _pending_tx->awaiting_ack = true;
+    if (tag == FrameTag::data && _active->_pending_tx && _active->_pending_tx->ctr_lo == s.ctr_lo) {
+        _active->_pending_tx->awaiting_ack = true;
         start_ack_timeout();
     }
 }
 
 void Node::do_data_tx() {
-    if (!_pending_tx || _pending_tx->awaiting_ack || _pending_tx->chosen_data_sf == 0) return;
-    PendingTx& pt = *_pending_tx;
+    if (!_active->_pending_tx || _active->_pending_tx->awaiting_ack || _active->_pending_tx->chosen_data_sf == 0) return;
+    PendingTx& pt = *_active->_pending_tx;
     // Channel M-broadcast: send the lean M frame (cmd 0xA) on the data SF, NOT a DATA frame. No DM header /
     // hop-budget / visited / MAC — pt.inner = [channel_msg_id 4 BE][channel_id][flavor][body]. Fire-and-forget
     // (no ACK): clear the flight after the M-frame airtime (kMBcastClearTimerId).
     if (pt.m_broadcast) {
-        if (pt.inner_len < 6) { _hal.log("M-frame inner_len < 6 — refusing tx"); _pending_tx.reset(); become_free(); return; }   // fail loud: would underflow inner_len-6 -> OOB body span
+        if (pt.inner_len < 6) { _hal.log("M-frame inner_len < 6 — refusing tx"); _active->_pending_tx.reset(); become_free(); return; }   // fail loud: would underflow inner_len-6 -> OOB body span
         const uint32_t id = m_inner_id(pt.inner);
         m_in min{};
         min.leaf_id = _cfg.leaf_id; min.channel_id = pt.inner[4]; min.flavor = pt.inner[5];
@@ -623,25 +623,25 @@ void Node::start_rts_timeout() {
     // hand-off in EVERY path (lbt_complete:327 + rts_duty_defer_fire:351) = the Lua's on_handed (dv:7032),
     // so anchor the RTS->DATA gap to the ACTUAL TX here. The DATA then fires cts_to_data_gap_ms AFTER the
     // RTS clears the air, which is exactly when overhearers have received the RTS + retuned to the data SF.
-    if (_pending_tx && _pending_tx->m_broadcast) {
+    if (_active->_pending_tx && _active->_pending_tx->m_broadcast) {
         // The gap must outlast the RTS-M's OWN airtime so the M frame fires after the RTS clears the air (and
         // overhearers have decoded it + retuned). The RTS-M is 43 B for a FLOOD (id + 32-B bitmap) vs 9 B for a
         // legacy M_BROADCAST (7 base + id_lo16) — size the gap to the actual RTS, else a flood's M frame fires
         // mid-RTS and overhearers (whose retune window is anchored to the full 43-B RTS) miss it.
-        const uint8_t rts_len = _pending_tx->flood ? 43 : 9;
+        const uint8_t rts_len = _active->_pending_tx->flood ? 43 : 9;
         const uint32_t gap = airtime_routing_ms(rts_len) + protocol::cts_to_data_gap_ms;
         (void)_hal.after(gap, kCtsToDataGapTimerId);                       // RTS->DATA gap fires do_data_tx (no CTS)
         return;
     }
     const uint32_t base = airtime_routing_ms(8) + airtime_routing_ms(4);   // Lua RTS_LEN=8 + CTS_LEN=4 (timing matches Lua)
     const uint8_t  attempt = static_cast<uint8_t>(protocol::rts_max_retries -
-                              (_pending_tx ? _pending_tx->retries_left : 0));
+                              (_active->_pending_tx ? _active->_pending_tx->retries_left : 0));
     const uint32_t shift = attempt < 2 ? attempt : 2;                       // x2 backoff, cap x4
     (void)_hal.after((base << shift) + 1, kRtsTimeoutTimerId);
 }
 void Node::start_ack_timeout() {
-    const uint8_t  sf  = _pending_tx ? _pending_tx->chosen_data_sf : max_data_sf();  // pending always set here
-    const uint16_t len = static_cast<uint16_t>(18 + (_pending_tx ? _pending_tx->inner_len : 0));
+    const uint8_t  sf  = _active->_pending_tx ? _active->_pending_tx->chosen_data_sf : max_data_sf();  // pending always set here
+    const uint16_t len = static_cast<uint16_t>(18 + (_active->_pending_tx ? _active->_pending_tx->inner_len : 0));
     // base = DATA airtime + the ACK's routing airtime. PLUS the REAL hardware turnaround airtime_ms can't see
     // (rx_window_slop_ms, ZERO on the sim): the ACK round-trip crosses TWO SPI SF-reconfigs — the receiver
     // retunes data->routing to SEND the ACK, and WE restore RX data->routing to HEAR it. Without them the
@@ -654,7 +654,7 @@ void Node::start_ack_timeout() {
     (void)_hal.after(base + 2, kAckTimeoutTimerId);
 }
 void Node::start_pending_rx_expiry(uint8_t payload_len) {
-    const uint8_t  sf  = _pending_rx ? _pending_rx->chosen_data_sf : max_data_sf();  // pending always set here
+    const uint8_t  sf  = _active->_pending_rx ? _active->_pending_rx->chosen_data_sf : max_data_sf();  // pending always set here
     const uint16_t len = static_cast<uint16_t>(14 + payload_len);
     // +2: the original ideal-timing margin — this is ALL the sim uses, so s18 contention is unchanged.
     // On top, _hal.rx_window_slop_ms(sf) is the REAL hardware slop airtime_ms can't see, bench-measured
@@ -666,7 +666,7 @@ void Node::start_pending_rx_expiry(uint8_t payload_len) {
     const uint32_t t = airtime_routing_ms(4) /*CTS_LEN=4*/ + protocol::cts_to_data_gap_ms +
                        airtime_ms(sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym, len)
                        + 2 + _hal.rx_window_slop_ms(sf);
-    if (_pending_rx) _pending_rx->expiry_ms = _hal.now() + t;   // for the BUSY_RX NACK busy_for calc
+    if (_active->_pending_rx) _active->_pending_rx->expiry_ms = _hal.now() + t;   // for the BUSY_RX NACK busy_for calc
     (void)_hal.after(t, kPendingRxExpiryTimerId);
 }
 

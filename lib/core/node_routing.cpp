@@ -12,22 +12,22 @@ namespace meshroute {
 // ---- route table ------------------------------------------------------------
 
 RtEntry* Node::rt_find(uint8_t dest) {
-    for (uint8_t i = 0; i < _rt_count; ++i) {
-        if (_rt[i].dest == dest) return &_rt[i];
-        if (_rt[i].dest > dest)  return nullptr;          // sorted ascending
+    for (uint8_t i = 0; i < _active->_rt_count; ++i) {
+        if (_active->_rt[i].dest == dest) return &_active->_rt[i];
+        if (_active->_rt[i].dest > dest)  return nullptr;          // sorted ascending
     }
     return nullptr;
 }
 
 RtEntry* Node::rt_insert(uint8_t dest) {
-    if (_rt_count >= protocol::cap_routes) return nullptr;
+    if (_active->_rt_count >= protocol::cap_routes) return nullptr;
     uint8_t pos = 0;
-    while (pos < _rt_count && _rt[pos].dest < dest) ++pos;
-    for (uint8_t i = _rt_count; i > pos; --i) _rt[i] = _rt[i - 1];   // shift right
-    _rt[pos]      = RtEntry{};
-    _rt[pos].dest = dest;
-    _rt_count++;
-    return &_rt[pos];
+    while (pos < _active->_rt_count && _active->_rt[pos].dest < dest) ++pos;
+    for (uint8_t i = _active->_rt_count; i > pos; --i) _active->_rt[i] = _active->_rt[i - 1];   // shift right
+    _active->_rt[pos]      = RtEntry{};
+    _active->_rt[pos].dest = dest;
+    _active->_rt_count++;
+    return &_active->_rt[pos];
 }
 
 // R4.2 tier penalty table [tier][viable_alts], Q4 dB (Lua dv:3843-3848). tier 0 = no penalty.
@@ -40,13 +40,13 @@ static constexpr int16_t kTierScorePenaltyQ4[4][3] = {
 };
 
 uint8_t Node::get_neighbor_tier(uint8_t node_id) const {
-    auto it = _neighbor_budget_tier.find(node_id);
-    if (it == _neighbor_budget_tier.end() || it->second == 0) return 0;
-    auto sit = _neighbor_budget_tier_set_at.find(node_id);
-    const uint64_t set_at = (sit != _neighbor_budget_tier_set_at.end()) ? sit->second : 0;
+    auto it = _active->_neighbor_budget_tier.find(node_id);
+    if (it == _active->_neighbor_budget_tier.end() || it->second == 0) return 0;
+    auto sit = _active->_neighbor_budget_tier_set_at.find(node_id);
+    const uint64_t set_at = (sit != _active->_neighbor_budget_tier_set_at.end()) ? sit->second : 0;
     if (_hal.now() - set_at >= protocol::neighbor_budget_tier_ttl_ms) {   // TTL expired -> lazy prune (dv:3863-3868)
-        _neighbor_budget_tier.erase(it);
-        if (sit != _neighbor_budget_tier_set_at.end()) _neighbor_budget_tier_set_at.erase(sit);
+        _active->_neighbor_budget_tier.erase(it);
+        if (sit != _active->_neighbor_budget_tier_set_at.end()) _active->_neighbor_budget_tier_set_at.erase(sit);
         return 0;
     }
     return it->second;
@@ -119,8 +119,8 @@ void Node::sort_candidates(RtEntry& e) {
 // beacon if anything moved on a non-local mark. Lua dv:4255-4318.
 int Node::resort_routes_for_neighbor_penalty(uint8_t node_id, [[maybe_unused]] const char* source, bool local_only) {
     int changed = 0;
-    for (uint8_t e = 0; e < _rt_count; ++e) {
-        RtEntry& entry = _rt[e];
+    for (uint8_t e = 0; e < _active->_rt_count; ++e) {
+        RtEntry& entry = _active->_rt[e];
         if (entry.n < 2) continue;                       // single candidate can't rerank
         bool affected = false;
         for (uint8_t i = 0; i < entry.n; ++i)
@@ -177,8 +177,8 @@ int Node::mark_neighbor_budget_tier(uint8_t node_id, uint8_t tier, const char* s
     if (tier == 0) return 0;                             // <= HEALTHY -> nothing to mark
     const uint8_t current = get_neighbor_tier(node_id);  // (also lazy-prunes an expired mark)
     if (current > tier) return 0;                        // max-merge: never downgrade a worse mark
-    _neighbor_budget_tier[node_id]        = tier;
-    _neighbor_budget_tier_set_at[node_id] = _hal.now();
+    _active->_neighbor_budget_tier[node_id]        = tier;
+    _active->_neighbor_budget_tier_set_at[node_id] = _hal.now();
     const int reranked = resort_routes_for_neighbor_penalty(node_id, source, local_only);
     MR_TELEMETRY(
         EventField f[] = { { .key = "node",     .type = EventField::T::i64, .i = node_id },
@@ -240,7 +240,7 @@ Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand) {
 
 void Node::maybe_emit_rt_full() {
     if (_rt_full_emitted || _cfg.peer_count == 0) return;   // peer_count 0 = sim telemetry off
-    if (_rt_count >= _cfg.peer_count) {
+    if (_active->_rt_count >= _cfg.peer_count) {
         MR_TELEMETRY(
             EventField f[] = { { .key = "peers", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.peer_count) } };
             _hal.emit("rt_full", f, 1); );
@@ -251,10 +251,10 @@ void Node::maybe_emit_rt_full() {
 // ---- R2 route-plane hardening -----------------------------------------------
 
 void Node::rt_remove(uint8_t idx) {
-    if (idx >= _rt_count) return;
-    for (uint8_t k = idx; k + 1 < _rt_count; ++k) _rt[k] = _rt[k + 1];   // shift down (reverse of rt_insert)
-    --_rt_count;
-    _rt[_rt_count] = RtEntry{};                                          // scrub vacated slot
+    if (idx >= _active->_rt_count) return;
+    for (uint8_t k = idx; k + 1 < _active->_rt_count; ++k) _active->_rt[k] = _active->_rt[k + 1];   // shift down (reverse of rt_insert)
+    --_active->_rt_count;
+    _active->_rt[_active->_rt_count] = RtEntry{};                                          // scrub vacated slot
 }
 
 uint32_t Node::ttl_for_hops(uint8_t hops) const {
@@ -269,8 +269,8 @@ void Node::age_out_stale_routes() {
     const uint64_t now = _hal.now();
     bool any_evicted = false;
     uint8_t i = 0;
-    while (i < _rt_count) {
-        RtEntry& e = _rt[i];
+    while (i < _active->_rt_count) {
+        RtEntry& e = _active->_rt[i];
         uint8_t w = 0;                    // compact survivors forward (preserves sort)
         bool primary_evicted = false;
         for (uint8_t r = 0; r < e.n; ++r) {
@@ -335,8 +335,8 @@ void Node::rt_prune_cycle(uint8_t dest, uint8_t sender) {
     if (!mutated) return;
     e->n = w;
     if (e->n == 0) {
-        for (uint8_t i = 0; i < _rt_count; ++i)            // e dangles after rt_remove — find idx first
-            if (_rt[i].dest == dest) { rt_remove(i); break; }
+        for (uint8_t i = 0; i < _active->_rt_count; ++i)            // e dangles after rt_remove — find idx first
+            if (_active->_rt[i].dest == dest) { rt_remove(i); break; }
     } else if (primary_pruned) {
         e->dirty = true;
     }

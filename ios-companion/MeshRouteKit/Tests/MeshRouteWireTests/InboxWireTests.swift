@@ -42,11 +42,18 @@ final class InboxWireTests: XCTestCase {
     }
 
     func testInboxEnd() {
-        guard case .inboxEnd(let dm, let chan, let epoch, let count)? = PushDecoder.decode(
+        guard case .inboxEnd(let dm, let chan, let epoch, let count, let nowMs)? = PushDecoder.decode(
             line: #"{"ev":"inbox_end","dm_seq":42,"chan_seq":7,"epoch":3,"count":15}"#) else {
             return XCTFail("not inbox_end")
         }
         XCTAssertEqual(dm, 42); XCTAssertEqual(chan, 7); XCTAssertEqual(epoch, 3); XCTAssertEqual(count, 15)
+        XCTAssertNil(nowMs)                                                  // older firmware omits it
+
+        guard case .inboxEnd(_, _, _, _, let nowMs2)? = PushDecoder.decode(
+            line: #"{"ev":"inbox_end","dm_seq":42,"chan_seq":7,"epoch":3,"count":15,"now_ms":987654}"#) else {
+            return XCTFail("not inbox_end")
+        }
+        XCTAssertEqual(nowMs2, 987654)                                       // the rx_ms→wall-clock anchor
     }
 
     func testSyncStateAdvanceTakesMaxPerStore() {
@@ -82,16 +89,18 @@ final class InboxWireTests: XCTestCase {
 
     func testReadyCarriesInboxEpochOrNil() {
         guard case .ready(let r)? = PushDecoder.decode(
-            line: #"{"ev":"ready","id":1,"key":"8a3f1c02","leaf_id":0,"mode":"node","gateway":false,"routing_sf":7,"inbox_epoch":3}"#) else {
+            line: #"{"ev":"ready","id":1,"key":"8a3f1c02","leaf_id":0,"mode":"node","gateway":false,"routing_sf":7,"inbox_epoch":3,"now_ms":123456789012}"#) else {
             return XCTFail()
         }
         XCTAssertEqual(r.inboxEpoch, 3)
+        XCTAssertEqual(r.nowMs, 123456789012)   // > UInt32.max: the anchor is a true 64-bit uptime
         // a node without a durable inbox omits the field → nil (no sync)
         guard case .ready(let r2)? = PushDecoder.decode(
             line: #"{"ev":"ready","id":1,"key":"8a3f1c02","leaf_id":0,"mode":"node","gateway":false,"routing_sf":7}"#) else {
             return XCTFail()
         }
         XCTAssertNil(r2.inboxEpoch)
+        XCTAssertNil(r2.nowMs)
     }
 
     // ---- model "B": live-push seq vs the per-store high-water (gap detection) ----

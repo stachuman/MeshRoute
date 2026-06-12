@@ -40,19 +40,19 @@ static inline bool seen_set(uint8_t* bm, uint8_t nbr) {        // returns true i
 
 // ---- buffer find / seen_by (dv:3426 / 3434) ----------------------------------------------------
 int Node::channel_buffer_find(uint32_t id) const {
-    for (uint16_t i = 0; i < _channel_buffer_n; ++i) if (_channel_buffer[i].id == id) return static_cast<int>(i);
+    for (uint16_t i = 0; i < _active->_channel_buffer_n; ++i) if (_active->_channel_buffer[i].id == id) return static_cast<int>(i);
     return -1;
 }
 bool Node::channel_mark_seen_by(uint32_t id, uint8_t neighbour) {
     const int i = channel_buffer_find(id);
     if (i < 0) return false;
-    return seen_set(_channel_buffer[i].seen_by, neighbour);
+    return seen_set(_active->_channel_buffer[i].seen_by, neighbour);
 }
 // Do we hold a channel msg whose id low-16 == lo? The M_BROADCAST RTS carries only the low 16 of the
 // channel_msg_id; an overhearer uses this to SKIP the retune when it (probably) already has the msg (dv:2081).
 bool Node::channel_have_id_lo16(uint16_t lo) const {
-    for (uint16_t i = 0; i < _channel_buffer_n; ++i)
-        if (static_cast<uint16_t>(_channel_buffer[i].id & 0xffff) == lo) return true;
+    for (uint16_t i = 0; i < _active->_channel_buffer_n; ++i)
+        if (static_cast<uint16_t>(_active->_channel_buffer[i].id & 0xffff) == lo) return true;
     return false;
 }
 
@@ -63,7 +63,7 @@ bool Node::channel_origin_admit(uint8_t origin, uint32_t msg_id) {
     if (origin == _node_id) return true;                        // self bypasses
     const uint64_t now    = _hal.now();
     const uint64_t cutoff = (now >= _cfg.channel_origin_window_ms) ? now - _cfg.channel_origin_window_ms : 0;
-    ChannelOriginLedger& L = _per_origin_channel[origin];       // map insert-on-miss (default-constructed n=0)
+    ChannelOriginLedger& L = _active->_per_origin_channel[origin];       // map insert-on-miss (default-constructed n=0)
     // Prune in place (keep in-window), refreshing the matching id; events are unique-id (dups refresh),
     // so the kept count IS the distinct count (matching the Lua's `seen` set).
     uint8_t k = 0; bool dup = false;
@@ -92,14 +92,14 @@ bool Node::channel_origin_admit(uint8_t origin, uint32_t msg_id) {
 //      ("safe"); else the absolute oldest (index 0, "fallback"). No neighbours -> fallback. -------
 int Node::channel_buffer_pick_eviction(bool* safe) const {
     *safe = false;
-    if (_channel_buffer_n == 0) return -1;
+    if (_active->_channel_buffer_n == 0) return -1;
     uint8_t nbrs[protocol::cap_routes]; uint8_t nn = 0;         // live direct neighbours (rt hops==1)
-    for (uint8_t i = 0; i < _rt_count; ++i)
-        if (_rt[i].n > 0 && _rt[i].candidates[0].hops == 1) nbrs[nn++] = _rt[i].dest;
+    for (uint8_t i = 0; i < _active->_rt_count; ++i)
+        if (_active->_rt[i].n > 0 && _active->_rt[i].candidates[0].hops == 1) nbrs[nn++] = _active->_rt[i].dest;
     if (nn == 0) return 0;                                      // no neighbours observed -> oldest (fallback)
-    for (uint16_t i = 0; i < _channel_buffer_n; ++i) {         // oldest-first
+    for (uint16_t i = 0; i < _active->_channel_buffer_n; ++i) {         // oldest-first
         bool all = true;
-        for (uint8_t j = 0; j < nn; ++j) if (!seen_test(_channel_buffer[i].seen_by, nbrs[j])) { all = false; break; }
+        for (uint8_t j = 0; j < nn; ++j) if (!seen_test(_active->_channel_buffer[i].seen_by, nbrs[j])) { all = false; break; }
         if (all) { *safe = true; return static_cast<int>(i); }
     }
     return 0;                                                   // none fully seen -> oldest (fallback)
@@ -107,22 +107,22 @@ int Node::channel_buffer_pick_eviction(bool* safe) const {
 
 // ---- buffer add (dv:3511): evict (safe-then-oldest) when full, then append at the tail (FIFO). ---
 void Node::channel_buffer_add(const ChannelEntry& e) {
-    if (_channel_buffer_n >= protocol::cap_channel_buffer) {
+    if (_active->_channel_buffer_n >= protocol::cap_channel_buffer) {
         bool safe = false;
         const int idx = channel_buffer_pick_eviction(&safe);
         if (idx >= 0) {
-            [[maybe_unused]] const uint32_t evicted_id = _channel_buffer[idx].id;
+            [[maybe_unused]] const uint32_t evicted_id = _active->_channel_buffer[idx].id;
             // remove [idx], shift the tail down to keep insertion order (oldest at [0])
-            const uint16_t tail = static_cast<uint16_t>(_channel_buffer_n - idx - 1);
-            if (tail) std::memmove(&_channel_buffer[idx], &_channel_buffer[idx + 1], tail * sizeof(ChannelEntry));
-            --_channel_buffer_n;
+            const uint16_t tail = static_cast<uint16_t>(_active->_channel_buffer_n - idx - 1);
+            if (tail) std::memmove(&_active->_channel_buffer[idx], &_active->_channel_buffer[idx + 1], tail * sizeof(ChannelEntry));
+            --_active->_channel_buffer_n;
             MR_TELEMETRY(
                 EventField f[] = { { .key = "id",   .type = EventField::T::i64, .i = static_cast<int64_t>(evicted_id) },
                                    { .key = "mode", .type = EventField::T::str, .s = safe ? "safe" : "fallback" } };
                 _hal.emit("channel_msg_evicted", f, 2); );
         }
     }
-    _channel_buffer[_channel_buffer_n++] = e;
+    _active->_channel_buffer[_active->_channel_buffer_n++] = e;
 }
 
 // ---- promiscuous-overhear pull cancel (dv:11006). We got `id` (overheard M-broadcast) OR saw a peer pull
@@ -130,7 +130,7 @@ void Node::channel_buffer_add(const ChannelEntry& e) {
 //      process_channel_digest (Phase 2). -------------------------
 void Node::cancel_channel_pull(uint32_t id, [[maybe_unused]] uint8_t overheard_from, bool peer_q) {
     for (uint8_t i = 0; i < protocol::cap_channel_pull_pending; ++i) {
-        ChannelPullPending& p = _channel_pull_pending[i];
+        ChannelPullPending& p = _active->_channel_pull_pending[i];
         if (p.active && p.id == id) {
             p.active = false;
             if (peer_q) {   // a peer's Q already pulled this id -> stand down so we don't double-pull (dv:11831)
@@ -167,7 +167,7 @@ void Node::ingest_channel_m(const m_out& m, uint8_t from) {
     // mechanics below are unchanged; only the source label is now derived from our own state, not the wire.
     bool was_pulled = false;
     for (uint8_t i = 0; i < protocol::cap_channel_pull_pending; ++i)
-        if (_channel_pull_pending[i].active && _channel_pull_pending[i].id == id) { was_pulled = true; break; }
+        if (_active->_channel_pull_pending[i].active && _active->_channel_pull_pending[i].id == id) { was_pulled = true; break; }
     const int existing = channel_buffer_find(id);
     if (existing < 0) {                                        // NEW -> buffer it
         ChannelEntry e{};
@@ -215,7 +215,7 @@ void Node::ingest_channel_m(const m_out& m, uint8_t from) {
         // cache the body into it (needed to re-flood) and run the forward decision (§4.5: silent | arm backoff).
         const int slot = flood_state_find(id);
         if (slot >= 0) {
-            FloodState& fs = _flood[slot];
+            FloodState& fs = _active->_flood[slot];
             fs.awaiting_data = false; fs.channel_id = m.channel_id; fs.flavor = m.flavor;
             fs.body_len = static_cast<uint8_t>(e.payload_len);
             for (uint8_t k = 0; k < fs.body_len; ++k) fs.body[k] = e.payload[k];
@@ -283,8 +283,8 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
 size_t Node::build_channel_digest_ext(uint8_t* out, size_t cap) {
     uint32_t ids[protocol::channel_dirty_max_per_bcn];
     uint8_t  count = 0;
-    for (int i = static_cast<int>(_channel_buffer_n) - 1; i >= 0 && count < protocol::channel_dirty_max_per_bcn; --i) {
-        ChannelEntry& e = _channel_buffer[static_cast<uint16_t>(i)];
+    for (int i = static_cast<int>(_active->_channel_buffer_n) - 1; i >= 0 && count < protocol::channel_dirty_max_per_bcn; --i) {
+        ChannelEntry& e = _active->_channel_buffer[static_cast<uint16_t>(i)];
         if (!e.dirty) continue;
         ids[count++] = e.id;
         if (++e.bcn_ad_count >= _cfg.channel_dirty_max_advertisements) {   // K: per-node override (Lua k_max = node.channel_dirty_max_advertisements or 3)
@@ -304,21 +304,21 @@ size_t Node::build_channel_digest_ext(uint8_t* out, size_t cap) {
 // re-pull dedup ring (Lua channel_pull_recent map). recently = a pull for `id` fired within the window.
 bool Node::channel_pull_recently(uint32_t id) const {
     const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _channel_pull_recent_n; ++i)
-        if (_channel_pull_recent[i].id == id)
-            return (now - _channel_pull_recent[i].t_ms) < protocol::channel_pull_window_ms;
+    for (uint8_t i = 0; i < _active->_channel_pull_recent_n; ++i)
+        if (_active->_channel_pull_recent[i].id == id)
+            return (now - _active->_channel_pull_recent[i].t_ms) < protocol::channel_pull_window_ms;
     return false;
 }
 void Node::channel_pull_mark(uint32_t id) {
     const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _channel_pull_recent_n; ++i)
-        if (_channel_pull_recent[i].id == id) { _channel_pull_recent[i].t_ms = now; return; }
-    if (_channel_pull_recent_n < protocol::cap_channel_pull_recent) {
-        _channel_pull_recent[_channel_pull_recent_n++] = { id, now };
+    for (uint8_t i = 0; i < _active->_channel_pull_recent_n; ++i)
+        if (_active->_channel_pull_recent[i].id == id) { _active->_channel_pull_recent[i].t_ms = now; return; }
+    if (_active->_channel_pull_recent_n < protocol::cap_channel_pull_recent) {
+        _active->_channel_pull_recent[_active->_channel_pull_recent_n++] = { id, now };
     } else {                                                       // ring full -> evict the oldest
         uint8_t o = 0;
-        for (uint8_t i = 1; i < _channel_pull_recent_n; ++i) if (_channel_pull_recent[i].t_ms < _channel_pull_recent[o].t_ms) o = i;
-        _channel_pull_recent[o] = { id, now };
+        for (uint8_t i = 1; i < _active->_channel_pull_recent_n; ++i) if (_active->_channel_pull_recent[i].t_ms < _active->_channel_pull_recent[o].t_ms) o = i;
+        _active->_channel_pull_recent[o] = { id, now };
     }
 }
 
@@ -345,17 +345,17 @@ void Node::process_channel_digest(uint8_t src, const uint32_t* ids, uint8_t coun
         // one pending slot per id: reuse the id's live slot (overwrite/re-arm), else a free slot.
         int slot = -1;
         for (uint8_t s = 0; s < protocol::cap_channel_pull_pending; ++s)
-            if (_channel_pull_pending[s].active && _channel_pull_pending[s].id == id) { slot = s; break; }
+            if (_active->_channel_pull_pending[s].active && _active->_channel_pull_pending[s].id == id) { slot = s; break; }
         if (slot < 0)
             for (uint8_t s = 0; s < protocol::cap_channel_pull_pending; ++s)
-                if (!_channel_pull_pending[s].active) { slot = static_cast<int>(s); break; }
+                if (!_active->_channel_pull_pending[s].active) { slot = static_cast<int>(s); break; }
         if (slot < 0) {                                           // ring full (Lua unbounded) — drop after the draw
             MR_TELEMETRY(
                 EventField f[] = { { .key = "id", .type = EventField::T::i64, .i = static_cast<int64_t>(id) } };
                 _hal.emit("channel_pull_drop_full", f, 1); );
             continue;
         }
-        _channel_pull_pending[slot] = { /*active*/true, id, src, /*requested_at*/now, /*fire_at*/now + jitter };
+        _active->_channel_pull_pending[slot] = { /*active*/true, id, src, /*requested_at*/now, /*fire_at*/now + jitter };
         MR_TELEMETRY(
             EventField f[] = { { .key = "id",       .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
                                { .key = "target",   .type = EventField::T::i64, .i = src },
@@ -369,7 +369,7 @@ void Node::process_channel_digest(uint8_t src, const uint32_t* ids, uint8_t coun
 // fired, suppress; else broadcast a CHANNEL_PULL Q for {id} to the advertiser + record the recent pull.
 void Node::channel_pull_fire(uint8_t slot) {
     if (slot >= protocol::cap_channel_pull_pending) return;
-    ChannelPullPending& p = _channel_pull_pending[slot];
+    ChannelPullPending& p = _active->_channel_pull_pending[slot];
     if (!p.active) return;
     p.active = false;
     const uint32_t id = p.id; const uint8_t target = p.target;
@@ -407,11 +407,11 @@ uint32_t Node::m_inner_id(const uint8_t* inner) {                // Node static 
 }
 // Is an M-payload for `id` already in flight or queued? (the s12 pull-storm dedup, dv:11850-11867)
 bool Node::channel_m_in_flight(uint32_t id) const {
-    if (_pending_tx && _pending_tx->m_broadcast
-        && _pending_tx->inner_len >= 4 && m_inner_id(_pending_tx->inner) == id) return true;
-    for (uint8_t i = 0; i < _tx_queue_n; ++i)
-        if (_tx_queue[i].is_channel_m
-            && _tx_queue[i].inner_len >= 4 && m_inner_id(_tx_queue[i].inner) == id) return true;
+    if (_active->_pending_tx && _active->_pending_tx->m_broadcast
+        && _active->_pending_tx->inner_len >= 4 && m_inner_id(_active->_pending_tx->inner) == id) return true;
+    for (uint8_t i = 0; i < _active->_tx_queue_n; ++i)
+        if (_active->_tx_queue[i].is_channel_m
+            && _active->_tx_queue[i].inner_len >= 4 && m_inner_id(_active->_tx_queue[i].inner) == id) return true;
     return false;
 }
 
@@ -420,7 +420,7 @@ bool Node::channel_m_in_flight(uint32_t id) const {
 // the puller so the RTS-M is routed to it (the legacy M_BROADCAST RTS needs a next-hop); the M frame itself
 // is address-less (the puller matches by channel_msg_id) so there's no per-target ctr — derive it from the id.
 void Node::enqueue_channel_m(uint8_t target, const ChannelEntry& e) {
-    if (_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (the puller can re-pull)
+    if (_active->_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (the puller can re-pull)
     TxItem item{};
     item.origin = _node_id; item.dst = target; item.is_channel_m = true;
     item.ctr    = static_cast<uint16_t>(e.id & 0xff); item.ctr_lo = static_cast<uint8_t>(e.id & 0x0F);  // id-derived (M frame has no ctr)
@@ -430,7 +430,7 @@ void Node::enqueue_channel_m(uint8_t target, const ChannelEntry& e) {
     for (uint16_t k = 0; k < e.payload_len; ++k) item.inner[6 + k] = e.payload[k];
     item.inner_len = static_cast<uint8_t>(6 + e.payload_len);
     item.enqueue_time_ms = _hal.now();
-    _tx_queue[_tx_queue_n++] = item;
+    _active->_tx_queue[_active->_tx_queue_n++] = item;
     MR_TELEMETRY(
         EventField f[] = { { .key = "id", .type = EventField::T::i64, .i = static_cast<int64_t>(e.id) },
                            { .key = "to", .type = EventField::T::i64, .i = target } };
@@ -449,8 +449,8 @@ void Node::handle_channel_pull(uint8_t src, uint8_t dest, const uint32_t* ids, u
     for (uint8_t i = 0; i < count; ++i) {
         const int e = channel_buffer_find(ids[i]);
         if (e < 0) continue;                                     // we don't hold it
-        if (_cfg.is_gateway && _channel_buffer[e].origin != _node_id) continue;  // §7 PROVIDER off: a gateway serves a pull ONLY for its OWN message, never relays another node's
-        if (!channel_m_in_flight(ids[i])) { enqueue_channel_m(src, _channel_buffer[e]); any = true; }
+        if (_cfg.is_gateway && _active->_channel_buffer[e].origin != _node_id) continue;  // §7 PROVIDER off: a gateway serves a pull ONLY for its OWN message, never relays another node's
+        if (!channel_m_in_flight(ids[i])) { enqueue_channel_m(src, _active->_channel_buffer[e]); any = true; }
         else {
             MR_TELEMETRY(
                 EventField f[] = { { .key = "id", .type = EventField::T::i64, .i = static_cast<int64_t>(ids[i]) },
@@ -479,29 +479,29 @@ void Node::handle_channel_pull(uint8_t src, uint8_t dest, const uint32_t* ids, u
 
 int  Node::flood_state_find(uint32_t id) {
     for (uint8_t i = 0; i < protocol::cap_flood_pending; ++i)
-        if (_flood[i].active && _flood[i].id == id) return i;
+        if (_active->_flood[i].active && _active->_flood[i].id == id) return i;
     return -1;
 }
 int  Node::flood_state_alloc(uint32_t id) {
     for (uint8_t i = 0; i < protocol::cap_flood_pending; ++i)
-        if (!_flood[i].active) { _flood[i] = FloodState{}; _flood[i].active = true; _flood[i].id = id; return i; }
+        if (!_active->_flood[i].active) { _active->_flood[i] = FloodState{}; _active->_flood[i].active = true; _active->_flood[i].id = id; return i; }
     return -1;   // §6/C3: ALL slots active -> drop the new flood to the repair layer; NEVER evict an active slot
 }
 void Node::flood_state_free(uint8_t slot) {
     if (slot >= protocol::cap_flood_pending) return;
     _hal.cancel(kFloodRebcastTimerId + slot);
-    _flood[slot] = FloodState{};   // active = false
+    _active->_flood[slot] = FloodState{};   // active = false
 }
 
 // set my bit + my hops==1 neighbour bits (idempotent: originate-seed on a zeroed bm, OR-in on rebroadcast).
 void Node::flood_set_my_coverage(uint8_t* bm) const {
     seen_set(bm, _node_id);
-    for (uint8_t i = 0; i < _rt_count; ++i)
-        if (_rt[i].n > 0 && _rt[i].candidates[0].hops == 1) seen_set(bm, _rt[i].dest);
+    for (uint8_t i = 0; i < _active->_rt_count; ++i)
+        if (_active->_rt[i].n > 0 && _active->_rt[i].candidates[0].hops == 1) seen_set(bm, _active->_rt[i].dest);
 }
 bool Node::flood_any_unmarked(const uint8_t* bm) const {
-    for (uint8_t i = 0; i < _rt_count; ++i)
-        if (_rt[i].n > 0 && _rt[i].candidates[0].hops == 1 && !seen_test(bm, _rt[i].dest)) return true;
+    for (uint8_t i = 0; i < _active->_rt_count; ++i)
+        if (_active->_rt[i].n > 0 && _active->_rt[i].candidates[0].hops == 1 && !seen_test(bm, _active->_rt[i].dest)) return true;
     return false;
 }
 
@@ -509,7 +509,7 @@ bool Node::flood_any_unmarked(const uint8_t* bm) const {
 // (id + 32-B bitmap). A true broadcast (no target); issue_send bypasses route selection (next=0xFF).
 void Node::enqueue_flood_m(uint8_t channel_id, uint8_t flavor, uint32_t id, const uint8_t* body, uint8_t body_len,
                            const uint8_t* bitmap32, uint8_t hop_left) {
-    if (_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (repair covers it)
+    if (_active->_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (repair covers it)
     TxItem item{};
     item.origin = _node_id; item.dst = 0xFF;                      // broadcast; the RTS dst slot carries hop_left
     item.ctr = static_cast<uint16_t>(id & 0xff); item.ctr_lo = static_cast<uint8_t>(id & 0x0F);
@@ -522,7 +522,7 @@ void Node::enqueue_flood_m(uint8_t channel_id, uint8_t flavor, uint32_t id, cons
     for (uint8_t k = 0; k < body_len; ++k) item.inner[6 + k] = body[k];
     item.inner_len = static_cast<uint8_t>(6 + body_len);
     item.enqueue_time_ms = _hal.now();
-    _tx_queue[_tx_queue_n++] = item;
+    _active->_tx_queue[_active->_tx_queue_n++] = item;
     MR_EMIT("flood_tx", EF_I("id", static_cast<int64_t>(id)), EF_I("hop_left", hop_left));
     become_free();                                                // kick the queue -> issue_m_broadcast (FLOOD RTS-M)
 }
@@ -533,7 +533,7 @@ bool Node::handle_flood_rts(const rts_out& r, const uint8_t* in_bm, int16_t snr_
     const uint32_t id = r.flood_channel_msg_id;
     const int existing = flood_state_find(id);
     if (existing >= 0) {                                          // active state -> overheard duplicate: OR coverage
-        FloodState& fs = _flood[existing];
+        FloodState& fs = _active->_flood[existing];
         for (uint8_t i = 0; i < 32; ++i) fs.bitmap[i] |= in_bm[i];
         // §4.5 while-pending: a backoff-phase state now fully covered -> cancel the rebroadcast + free.
         if (!fs.awaiting_data && !flood_any_unmarked(fs.bitmap)) flood_state_free(static_cast<uint8_t>(existing));
@@ -542,7 +542,7 @@ bool Node::handle_flood_rts(const rts_out& r, const uint8_t* in_bm, int16_t snr_
     if (channel_buffer_find(id) >= 0) return false;              // already in the buffer, no state -> already forwarded, drop
     const int slot = flood_state_alloc(id);
     if (slot < 0) { MR_EMIT("flood_state_full", EF_I("id", static_cast<int64_t>(id))); return false; }  // C3 -> repair
-    FloodState& fs = _flood[slot];
+    FloodState& fs = _active->_flood[slot];
     fs.awaiting_data = true; fs.src = r.src; fs.rx_snr_q4 = snr_q4; fs.hop_left = r.dst;  // §3.1: dst slot = hop_left
     for (uint8_t i = 0; i < 32; ++i) fs.bitmap[i] = in_bm[i];
     return true;                                                 // fresh -> catch the DATA-M (retune in the caller)
@@ -550,9 +550,9 @@ bool Node::handle_flood_rts(const rts_out& r, const uint8_t* in_bm, int16_t snr_
 
 // §4.5 — after the DATA-M ingest: do I have an unmarked neighbour? No -> silent. Yes -> arm a SNR-x² backoff.
 void Node::flood_forward_decision(uint8_t slot) {
-    if (slot >= protocol::cap_flood_pending || !_flood[slot].active) return;
+    if (slot >= protocol::cap_flood_pending || !_active->_flood[slot].active) return;
     if (_cfg.is_gateway) { flood_state_free(slot); return; }     // §7 provider half OFF: a gateway never rebroadcasts
-    FloodState& fs = _flood[slot];
+    FloodState& fs = _active->_flood[slot];
     if (!flood_any_unmarked(fs.bitmap)) { flood_state_free(slot); return; }   // every neighbour covered -> stay silent
     // SNR-x² gives the backoff WINDOW = T_backoff * snr_norm^2 ; snr_norm = clamp((rx_snr-lo)/(hi-lo),0,1). Then
     // pick a RANDOM slot in [0, window] (rand_range is [lo,hi)). A deterministic delay makes every same-SNR node
@@ -572,8 +572,8 @@ void Node::flood_forward_decision(uint8_t slot) {
 
 // kFloodRebcastTimerId+slot — re-flood {my unmarked neighbours + me}, hop_left-1 (drop on TTL exhaustion).
 void Node::flood_rebroadcast_fire(uint8_t slot) {
-    if (slot >= protocol::cap_flood_pending || !_flood[slot].active) return;
-    const FloodState fs = _flood[slot];                          // copy: we free the slot before re-enqueue
+    if (slot >= protocol::cap_flood_pending || !_active->_flood[slot].active) return;
+    const FloodState fs = _active->_flood[slot];                          // copy: we free the slot before re-enqueue
     uint8_t bm[32]; for (uint8_t i = 0; i < 32; ++i) bm[i] = fs.bitmap[i];
     flood_set_my_coverage(bm);                                   // §4.5 on-fire: {my unmarked neighbours + me}
     flood_state_free(slot);
@@ -585,8 +585,8 @@ void Node::flood_rebroadcast_fire(uint8_t slot) {
 // §4.4 — caught the FLOOD RTS-M but missed the DATA-M (overhear window closed, still awaiting_data): pull
 // the body immediately from `src` (a confirmed adjacent holder), instead of waiting for a digest.
 void Node::flood_fast_self_pull(uint8_t slot) {
-    if (slot >= protocol::cap_flood_pending || !_flood[slot].active) return;
-    const uint32_t id = _flood[slot].id; const uint8_t src = _flood[slot].src;
+    if (slot >= protocol::cap_flood_pending || !_active->_flood[slot].active) return;
+    const uint32_t id = _active->_flood[slot].id; const uint8_t src = _active->_flood[slot].src;
     flood_state_free(slot);
     if (channel_buffer_find(id) >= 0) return;                    // arrived meanwhile -> no pull
     if (channel_pull_recently(id)) return;                       // re-pull dedup window

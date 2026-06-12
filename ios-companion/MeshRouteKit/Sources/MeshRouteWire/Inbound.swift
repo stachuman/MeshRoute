@@ -49,8 +49,11 @@ public struct NodeReady: Hashable, Sendable, Codable {
     /// The node's inbox epoch (bumped on any store reset). Optional + nil on firmware without a durable
     /// inbox — the proposed home for the epoch the sync layer needs before deciding pull cursors (TBD wire).
     public let inboxEpoch: UInt32?
+    /// Node uptime (ms) at emit — the rx_ms→wall-clock anchor (the node has no RTC). nil on older firmware.
+    public let nowMs: UInt64?
     enum CodingKeys: String, CodingKey {
-        case id, key, leafID = "leaf_id", mode, gateway, routingSF = "routing_sf", inboxEpoch = "inbox_epoch"
+        case id, key, leafID = "leaf_id", mode, gateway, routingSF = "routing_sf", inboxEpoch = "inbox_epoch",
+             nowMs = "now_ms"
     }
 }
 
@@ -75,7 +78,7 @@ public enum Inbound: Hashable, Sendable {
     case ready(NodeReady)
     case status(NodeStatusSnapshot)
     case inboxEntry(InboxEntry)                                       // one record from a pull_inbox stream
-    case inboxEnd(dmSeq: UInt32, chanSeq: UInt32, epoch: UInt32?, count: Int)  // pull done: newest seqs, served epoch, #streamed
+    case inboxEnd(dmSeq: UInt32, chanSeq: UInt32, epoch: UInt32?, count: Int, nowMs: UInt64?)  // pull done: newest seqs, served epoch, #streamed, uptime anchor
     case event(type: String, fields: [String: JSONValue])             // generic / future events
     case log(String)
     case error(code: String, message: String?)
@@ -147,7 +150,7 @@ public enum PushDecoder {
             }
         case "inbox_end":
             if let m = try? decoder.decode(InboxEnd.self, from: data) {
-                return .inboxEnd(dmSeq: m.dm_seq, chanSeq: m.chan_seq, epoch: m.epoch, count: m.count)
+                return .inboxEnd(dmSeq: m.dm_seq, chanSeq: m.chan_seq, epoch: m.epoch, count: m.count, nowMs: m.now_ms)
             }
         default:
             break
@@ -174,5 +177,5 @@ public enum PushDecoder {
     private struct HashResolved: Decodable { let node: Int; let auth: Int; let hash: UInt32 }
     private struct InboxDM: Decodable { let seq: UInt32; let origin: Int; let ctr: Int; let sender_hash: UInt32?; let rx_ms: UInt64; let body: String }
     private struct InboxCh: Decodable { let seq: UInt32; let origin: Int; let channel_id: Int; let channel_msg_id: UInt32; let rx_ms: UInt64; let body: String }
-    private struct InboxEnd: Decodable { let dm_seq: UInt32; let chan_seq: UInt32; let epoch: UInt32?; let count: Int }
+    private struct InboxEnd: Decodable { let dm_seq: UInt32; let chan_seq: UInt32; let epoch: UInt32?; let count: Int; let now_ms: UInt64? }
 }

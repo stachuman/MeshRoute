@@ -20,20 +20,20 @@ namespace meshroute {
 bool Node::rreq_seen_recently(uint8_t origin, uint8_t dst) {
     const uint64_t now    = _hal.now();
     const uint64_t cutoff = (now >= protocol::route_request_seen_ttl_ms) ? now - protocol::route_request_seen_ttl_ms : 0;
-    for (uint8_t i = 0; i < _rreq_seen_n; ++i)
-        if (_rreq_seen[i].origin == origin && _rreq_seen[i].dst == dst && _rreq_seen[i].t_ms >= cutoff) return true;
+    for (uint8_t i = 0; i < _active->_rreq_seen_n; ++i)
+        if (_active->_rreq_seen[i].origin == origin && _active->_rreq_seen[i].dst == dst && _active->_rreq_seen[i].t_ms >= cutoff) return true;
     return false;
 }
 void Node::mark_rreq_seen(uint8_t origin, uint8_t dst) {
     const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _rreq_seen_n; ++i)
-        if (_rreq_seen[i].origin == origin && _rreq_seen[i].dst == dst) { _rreq_seen[i].t_ms = now; return; }
-    if (_rreq_seen_n < protocol::cap_route_request_seen) {
-        _rreq_seen[_rreq_seen_n++] = { origin, dst, now };
+    for (uint8_t i = 0; i < _active->_rreq_seen_n; ++i)
+        if (_active->_rreq_seen[i].origin == origin && _active->_rreq_seen[i].dst == dst) { _active->_rreq_seen[i].t_ms = now; return; }
+    if (_active->_rreq_seen_n < protocol::cap_route_request_seen) {
+        _active->_rreq_seen[_active->_rreq_seen_n++] = { origin, dst, now };
     } else {                                              // ring full -> evict the oldest
         uint8_t o = 0;
-        for (uint8_t i = 1; i < _rreq_seen_n; ++i) if (_rreq_seen[i].t_ms < _rreq_seen[o].t_ms) o = i;
-        _rreq_seen[o] = { origin, dst, now };
+        for (uint8_t i = 1; i < _active->_rreq_seen_n; ++i) if (_active->_rreq_seen[i].t_ms < _active->_rreq_seen[o].t_ms) o = i;
+        _active->_rreq_seen[o] = { origin, dst, now };
     }
 }
 
@@ -41,28 +41,28 @@ void Node::mark_rreq_seen(uint8_t origin, uint8_t dst) {
 // the window UNLESS the TTL escalates (the ttl=1 probe -> dv_hop_cap requery is always allowed).
 bool Node::rreq_rate_ok(uint8_t dst, uint8_t ttl) {
     const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _rreq_last_n; ++i) {
-        if (_rreq_last[i].dst != dst) continue;
-        const bool window_open = (now - _rreq_last[i].t_ms) >= protocol::route_request_seen_ttl_ms;
-        const bool escalate    = ttl > _rreq_last[i].ttl;
+    for (uint8_t i = 0; i < _active->_rreq_last_n; ++i) {
+        if (_active->_rreq_last[i].dst != dst) continue;
+        const bool window_open = (now - _active->_rreq_last[i].t_ms) >= protocol::route_request_seen_ttl_ms;
+        const bool escalate    = ttl > _active->_rreq_last[i].ttl;
         if (!window_open && !escalate) return false;      // recent + same/lower ttl -> suppress
-        _rreq_last[i].t_ms = now; _rreq_last[i].ttl = ttl; return true;
+        _active->_rreq_last[i].t_ms = now; _active->_rreq_last[i].ttl = ttl; return true;
     }
     // NEW dst. Full table -> REFUSE the new dst (Lua route_request_last cap, table_cap_hit "refuse"),
     // NOT evict-oldest: a bounded in-flight-discovery budget is back-pressure, not LRU churn.
-    if (_rreq_last_n >= _cfg.cap_route_request_last) {
+    if (_active->_rreq_last_n >= _cfg.cap_route_request_last) {
         MR_TELEMETRY(
             char keybuf[12]; std::snprintf(keybuf, sizeof(keybuf), "dst:%u", static_cast<unsigned>(dst));
             EventField f[] = { { .key = "table",  .type = EventField::T::str, .s = "route_request_last" },
                                { .key = "cap",    .type = EventField::T::i64, .i = _cfg.cap_route_request_last },
-                               { .key = "size",   .type = EventField::T::i64, .i = _rreq_last_n },
+                               { .key = "size",   .type = EventField::T::i64, .i = _active->_rreq_last_n },
                                { .key = "action", .type = EventField::T::str, .s = "refuse" },
                                { .key = "key",    .type = EventField::T::str, .s = keybuf } };
             _hal.emit("table_cap_hit", f, 5);
         );
         return false;
     }
-    _rreq_last[_rreq_last_n++] = { dst, ttl, now };
+    _active->_rreq_last[_active->_rreq_last_n++] = { dst, ttl, now };
     return true;
 }
 

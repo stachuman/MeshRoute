@@ -92,7 +92,7 @@ void Node::emit_beacon(const char* kind) {
     // Half-duplex busy skip (Lua send_beacon_page dv:7585): never beacon mid data-exchange. periodic_beacon_fire
     // already guards this, but the TRIGGERED path (kTriggeredBeaconTimerId) reaches here directly — without this
     // the C++ would TX a triggered beacon while busy where the Lua skips, diverging beacon timing (review #02).
-    if (_pending_tx || _pending_rx) { _hal.log("beacon_tx skipped (busy in data exchange)"); return; }
+    if (_active->_pending_tx || _active->_pending_rx) { _hal.log("beacon_tx skipped (busy in data exchange)"); return; }
     // R4.3 budget-aware skip (dv:7595): at tier >= CRITICAL a BCN is a luxury — preserve the remaining duty
     // budget for forwards already queued. Neighbours keep us via passive last_seen from any frame we send.
     // (compute_budget_tier is draw-free; HEALTHY in every gate, so this is gate-inert.)
@@ -112,33 +112,33 @@ void Node::emit_beacon(const char* kind) {
     // A MOBILE node advertises ZERO route entries (identity-only beacon) — never
     // used as transit (dv_dual_sf.lua:1716-1721).
     beacon_entry entries[kMaxBeaconEntries];
-    uint8_t      pack_idx[kMaxBeaconEntries];   // _rt indices packed (for dirty-clear)
+    uint8_t      pack_idx[kMaxBeaconEntries];   // _active->_rt indices packed (for dirty-clear)
     uint8_t n = 0, dirty_n = 0, stable_n = 0, total_dirty = 0;
 
     if (!_cfg.is_mobile) {
-        if (_rt_count == 0) _beacon_offset = 0;          // Lua total==0 path resets the cursor (dv_dual_sf.lua:1761)
-        for (uint8_t i = 0; i < _rt_count; ++i) if (_rt[i].dirty) ++total_dirty;
-        // Phase 1: dirty entries first (ascending dest — _rt is kept sorted).
-        for (uint8_t i = 0; i < _rt_count && n < kMaxBeaconEntries; ++i) {
-            if (!_rt[i].dirty) continue;
+        if (_active->_rt_count == 0) _beacon_offset = 0;          // Lua total==0 path resets the cursor (dv_dual_sf.lua:1761)
+        for (uint8_t i = 0; i < _active->_rt_count; ++i) if (_active->_rt[i].dirty) ++total_dirty;
+        // Phase 1: dirty entries first (ascending dest — _active->_rt is kept sorted).
+        for (uint8_t i = 0; i < _active->_rt_count && n < kMaxBeaconEntries; ++i) {
+            if (!_active->_rt[i].dirty) continue;
             pack_idx[n++] = i; ++dirty_n;
         }
         // Phase 2: stable rotation from _beacon_offset, skipped on dirty-only
         // beacons AND when the dirty page already filled (remaining==0) — the Lua
         // gates new_offset on `remaining > 0 and not dirty_only` (dv_dual_sf.lua:1789).
-        if (!dirty_only && _rt_count > 0 && n < kMaxBeaconEntries) {
+        if (!dirty_only && _active->_rt_count > 0 && n < kMaxBeaconEntries) {
             uint8_t idx = _beacon_offset, steps = 0;
-            while (n < kMaxBeaconEntries && steps < _rt_count) {
-                const uint8_t ri = static_cast<uint8_t>(idx % _rt_count);
-                if (!_rt[ri].dirty) { pack_idx[n++] = ri; ++stable_n; }
+            while (n < kMaxBeaconEntries && steps < _active->_rt_count) {
+                const uint8_t ri = static_cast<uint8_t>(idx % _active->_rt_count);
+                if (!_active->_rt[ri].dirty) { pack_idx[n++] = ri; ++stable_n; }
                 idx = static_cast<uint8_t>(idx + 1); ++steps;
             }
-            _beacon_offset = static_cast<uint8_t>(idx % _rt_count);   // advance ONLY when Phase 2 ran
+            _beacon_offset = static_cast<uint8_t>(idx % _active->_rt_count);   // advance ONLY when Phase 2 ran
         }
     }
 
     for (uint8_t k = 0; k < n; ++k) {
-        const RtEntry&     re = _rt[pack_idx[k]];
+        const RtEntry&     re = _active->_rt[pack_idx[k]];
         const RtCandidate& pc = re.candidates[0];
         entries[k].dest         = re.dest;
         entries[k].next         = pc.next_hop;
@@ -173,9 +173,9 @@ void Node::emit_beacon(const char* kind) {
 
     // Clear dirty ONLY on the dirty entries that landed in THIS beacon — overflow
     // dirty routes stay dirty for the next one (dv_dual_sf.lua:1832-1836).
-    for (uint8_t k = 0; k < dirty_n; ++k) _rt[pack_idx[k]].dirty = false;
+    for (uint8_t k = 0; k < dirty_n; ++k) _active->_rt[pack_idx[k]].dirty = false;
 
-    MR_EMIT("beacon_tx", EF_I("n_entries",n),EF_I("rt_total",_rt_count),EF_I("routing_sf",_cfg.routing_sf),EF_S("kind",kind),EF_I("result",sent ? 0 : 2));
+    MR_EMIT("beacon_tx", EF_I("n_entries",n),EF_I("rt_total",_active->_rt_count),EF_I("routing_sf",_cfg.routing_sf),EF_S("kind",kind),EF_I("result",sent ? 0 : 2));
     MR_EMIT("beacon_diff_breakdown", EF_I("dirty_n",dirty_n),EF_I("stable_n",stable_n),EF_I("total_dirty",total_dirty));
 }
 
@@ -282,7 +282,7 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     maybe_exit_discovery(rt_changed ? "rt_update" : "beacon_rx");
     if (rt_changed) {
         schedule_triggered_beacon();
-        if (_deferred_n > 0) try_drain_deferred();        // a new route may unblock a deferred send
+        if (_active->_deferred_n > 0) try_drain_deferred();        // a new route may unblock a deferred send
     }
     drain_resolved_parked_sends();                        // this beacon may have installed the authoritative binding a parked send-by-hash awaits (no-op if none parked)
     maybe_emit_rt_full();
@@ -299,7 +299,7 @@ bool Node::beacon_max_idle_force(uint64_t now, bool emit_events) {
     const uint64_t since_bcn_rx = (_last_rx_bcn_ms != 0) ? (now - _last_rx_bcn_ms) : UINT64_MAX;
     const uint64_t defer_window = _cfg.beacon_max_idle_ms / 3;
     uint8_t dirty_n = 0;
-    for (uint8_t i = 0; i < _rt_count; ++i) if (_rt[i].dirty) ++dirty_n;
+    for (uint8_t i = 0; i < _active->_rt_count; ++i) if (_active->_rt[i].dirty) ++dirty_n;
     const bool skip_clean = (dirty_n == 0 && since_bcn_rx < defer_window); // (B+C) neighbour fresh AND nothing new
     if (emit_events) {
         if (skip_clean) {
@@ -316,7 +316,7 @@ bool Node::beacon_max_idle_force(uint64_t now, bool emit_events) {
 // the channel is busy; on a quiet channel a silence-jitter draw spreads the TX to combat thundering herds.
 void Node::periodic_beacon_fire() {
     if (_cfg.join_required) return;                          // unjoined: no address, can't beacon (dv:7696)
-    if (_pending_tx || _pending_rx) return;                  // busy in a data exchange (dv:7699)
+    if (_active->_pending_tx || _active->_pending_rx) return;                  // busy in a data exchange (dv:7699)
     if (_cfg.quiet_threshold_ms == 0) { emit_beacon("periodic"); return; }   // FAST PATH (dv:7704) — NO draw
     const uint64_t now = _hal.now();
     const uint64_t since_rx = (_last_rx_routing_sf_ms != 0) ? (now - _last_rx_routing_sf_ms) : UINT64_MAX;
@@ -348,7 +348,7 @@ void Node::periodic_beacon_fire() {
 // if the channel went busy AND the max-idle override doesn't force us, stand down (they won the race). NO draw.
 void Node::deferred_beacon_jitter_fire(uint8_t slot) {
     if (slot < kBeaconJitterSlots) _beacon_jitter_pending[slot] = false;   // #D: free the ring slot
-    if (_pending_tx || _pending_rx) return;                  // busy in a data exchange (dv:7802)
+    if (_active->_pending_tx || _active->_pending_rx) return;                  // busy in a data exchange (dv:7802)
     const uint64_t now = _hal.now();
     const uint64_t since = (_last_rx_routing_sf_ms != 0) ? (now - _last_rx_routing_sf_ms) : UINT64_MAX;
     const bool force_idle_post = beacon_max_idle_force(now, /*emit_events=*/false);   // recompute SILENTLY (dv:7814)
@@ -398,13 +398,13 @@ void Node::maybe_exit_discovery([[maybe_unused]] const char* reason) {
     const uint64_t now = _hal.now();
     const bool timed_out = (_discovery_until_ms > 0) && (now >= _discovery_until_ms);
     if (_discovery_bcn_rx_count >= protocol::discovery_min_bcn_rx ||
-        _rt_count >= protocol::discovery_min_routes || timed_out) {
+        _active->_rt_count >= protocol::discovery_min_routes || timed_out) {
         _discovery_mode = false;
         MR_TELEMETRY(
             EventField f[] = {
                 { .key = "reason",     .type = EventField::T::str, .s = reason },
                 { .key = "heard_bcn",  .type = EventField::T::i64, .i = static_cast<int64_t>(_discovery_bcn_rx_count) },
-                { .key = "rt_total",   .type = EventField::T::i64, .i = static_cast<int64_t>(_rt_count) },
+                { .key = "rt_total",   .type = EventField::T::i64, .i = static_cast<int64_t>(_active->_rt_count) },
                 { .key = "elapsed_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(now - _discovery_started_ms) },
             };
             _hal.emit("bcn_discovery_exit", f, 4); );

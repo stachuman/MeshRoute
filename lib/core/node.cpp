@@ -38,8 +38,40 @@ void Node::set_identity(uint8_t node_id, uint32_t key_hash32) {
     id_bind_set(_node_id, _key_hash32, IdBindSource::self, IdBindConf::authoritative);   // re-seed our own binding (authoritative) under the new identity
 }
 
-void Node::on_init(const NodeConfig& cfg) {
+bool Node::on_init(const NodeConfig& cfg) {
+    // Dual-layer validation gate (§3.2) — a GATEWAY (n_layers==2) must have both layers' REQUIRED fields set and
+    // non-overlapping explicit windows. Fail LOUD (refuse, the node stays down) — no silent inherit / auto-adjust.
+    if (cfg.n_layers == 2) {
+#if MR_N_LAYERS < 2
+        return false;   // a gateway config on a single-layer build — REFUSE (no _layers[1] exists). Fail loud,
+                        // never silently fall back to single-layer. Build [env:gateway] (-DMR_N_LAYERS=2) for a gateway.
+#endif
+        for (uint8_t i = 0; i < 2; ++i) {
+            const LayerConfig& L = cfg.layers[i];
+            if (L.layer_id == 0)                       return false;   // REQUIRED: full 8-bit id (1..255)
+            if (L.routing_sf < 5 || L.routing_sf > 12) return false;   // REQUIRED: a valid routing SF
+            if (L.allowed_sf_bitmap == 0)              return false;   // REQUIRED: a gateway must route data
+        }
+        const LayerConfig& a = cfg.layers[0]; const LayerConfig& b = cfg.layers[1];
+        // §0.8: the two layers MUST differ in their leaf nibble (layer_id & 0x0F) — that nibble is the coarse
+        // byte-0 wire filter, so same-nibble co-channel layers would ALIAS (frames cross). Refuse loud.
+        if ((a.layer_id & 0x0F) == (b.layer_id & 0x0F)) return false;
+        // window_period_ms is the ONE shared layer0->layer1 cycle — per-LayerConfig for wire/cfg symmetry, but
+        // the two must agree (a differing period is meaningless + would make the overlap check read a stale half).
+        if (a.window_period_ms != b.window_period_ms)   return false;
+        if (a.window_ms && b.window_ms && a.window_ms + b.window_ms > a.window_period_ms) return false;  // explicit windows overlap
+    }
+
     _cfg = cfg;
+    // Slice 0: a single-layer node mirrors its legacy scalars into layers[0] (backward-compat until Slice 2a
+    // migrates the readers). A gateway (n_layers==2) supplies layers[0..1] explicitly (validated above).
+    if (_cfg.n_layers <= 1) {
+        _cfg.n_layers = 1;
+        _cfg.layers[0].layer_id          = _cfg.leaf_id;          // single-layer: layer_id == leaf_id (may be 0 for R1)
+        _cfg.layers[0].routing_sf        = _cfg.routing_sf;
+        _cfg.layers[0].allowed_sf_bitmap = _cfg.allowed_sf_bitmap;
+        _cfg.layers[0].beacon_period_ms  = _cfg.beacon_period_ms;
+    }
     // Lua: (SF_DEMOD_THRESHOLD[routing_sf] or -240) + sf_margin_q4 (dv_dual_sf.lua:8386).
     // The out-of-range fallback is the literal -240 (SF10), NOT table[12].
     const int16_t demod = (_cfg.routing_sf >= 5 && _cfg.routing_sf <= 12)
@@ -82,6 +114,7 @@ void Node::on_init(const NodeConfig& cfg) {
     // Hash-locate A0: seed our OWN binding (authenticated) so we resolve self-directed H queries (Lua
     // dv:9072). node_id 0 is unprovisioned (no identity yet) — set_identity re-seeds after a join/cfg.
     if (_node_id != 0) id_bind_set(_node_id, _key_hash32, IdBindSource::self, IdBindConf::authoritative);
+    return true;
 }
 
 // ---- dispatch (timer ids -> subsystem handlers; RX cmd-nibble -> handlers) --
@@ -124,7 +157,7 @@ void Node::on_timer(uint32_t timer_id) {
     case kDeferredDrainTimerId:   try_drain_deferred();    break;   // periodic no-route drain / TTL giveup
     case kReqSyncTimerId:         req_sync_loop_fire();    break;   // REQ_SYNC boot loop: send + re-arm while starved
     case kMBcastClearTimerId:                                       // M-broadcast fire-and-forget: clear the flight (no ACK)
-        if (_pending_tx && _pending_tx->m_broadcast) { _pending_tx.reset(); become_free(); }
+        if (_active->_pending_tx && _active->_pending_tx->m_broadcast) { _active->_pending_tx.reset(); become_free(); }
         break;
     case kOverhearRetuneTimerId:                                            // overhear ARM: retune RX back to routing_sf
         _hal.set_rx_sf(_cfg.routing_sf);
@@ -133,7 +166,7 @@ void Node::on_timer(uint32_t timer_id) {
         // resolve ALL of them — never strand an awaiting_data slot if that invariant is ever broken (2nd radio /
         // a retune-logic change), which would otherwise leak the slot until reboot. (Defense-in-depth.)
         for (uint8_t i = 0; i < protocol::cap_flood_pending; ++i)
-            if (_flood[i].active && _flood[i].awaiting_data) flood_fast_self_pull(i);
+            if (_active->_flood[i].active && _active->_flood[i].awaiting_data) flood_fast_self_pull(i);
         break;
     case kJoinClaimGuardTimerId:  join_claim_guard_fire();         break;   // node_id DAD: guard elapsed -> adopt-or-deny
     case kJoinRetryTimerId:       join_start_claim("retry");       break;   // node_id DAD: re-claim after a lost claim/heal
@@ -143,7 +176,7 @@ void Node::on_timer(uint32_t timer_id) {
     case kNackWaitTimerId:                                          // BUSY_RX wait elapsed -> re-RTS SAME hop
         if (_nack_wait_pending) {
             _nack_wait_pending = false;
-            if (_pending_tx && _pending_tx->ctr_lo == _nack_wait_ctr_lo) tx_rts_retry();
+            if (_active->_pending_tx && _active->_pending_tx->ctr_lo == _nack_wait_ctr_lo) tx_rts_retry();
         }
         break;
     default:
@@ -196,47 +229,47 @@ CmdResult Node::on_command(const Command& c) {
     switch (c.kind) {
         case CmdKind::send: {
             if (_node_id == 0)                                    // unprovisioned: must join / cfg set node_id
-                return CmdResult{ CmdCode::err_unprovisioned, 0, _tx_queue_n };
+                return CmdResult{ CmdCode::err_unprovisioned, 0, _active->_tx_queue_n };
             if (_cfg.allowed_sf_bitmap == 0)                      // no data SF (empty sf_list): refuse — no silent fallback
-                return CmdResult{ CmdCode::err_no_data_sf, 0, _tx_queue_n };
+                return CmdResult{ CmdCode::err_no_data_sf, 0, _active->_tx_queue_n };
             if (c.body_len > protocol::dm_max_body_bytes)         // body + the 2-B inner prefix must fit inner[] (no OOB)
-                return CmdResult{ CmdCode::err_too_large, 0, _tx_queue_n };
+                return CmdResult{ CmdCode::err_too_large, 0, _active->_tx_queue_n };
             if (c.u.send.dst_hash != 0) {                         // address-by-hash (hash-locate): resolve, then send
                 const uint16_t ctr = send_by_hash(c.u.send.dst_hash, c.body, c.body_len, c.u.send.flags);
-                return CmdResult{ CmdCode::queued, ctr, _tx_queue_n };
+                return CmdResult{ CmdCode::queued, ctr, _active->_tx_queue_n };
             }
             const uint16_t ctr = do_send(c.u.send.dst_id, c.body, c.body_len, c.u.send.flags);
-            return CmdResult{ CmdCode::queued, ctr, _tx_queue_n };
+            return CmdResult{ CmdCode::queued, ctr, _active->_tx_queue_n };
         }
         case CmdKind::send_channel: {                         // ROADMAP §3 channel gossip (single-layer)
             if (_node_id == 0)                                // unprovisioned: must join / cfg set node_id
-                return CmdResult{ CmdCode::err_unprovisioned, 0, _tx_queue_n };
+                return CmdResult{ CmdCode::err_unprovisioned, 0, _active->_tx_queue_n };
             if (_cfg.allowed_sf_bitmap == 0)                  // channel gossip rides a data SF: refuse if none configured
-                return CmdResult{ CmdCode::err_no_data_sf, 0, _tx_queue_n };
+                return CmdResult{ CmdCode::err_no_data_sf, 0, _active->_tx_queue_n };
             if (c.body_len > protocol::channel_msg_max_payload_bytes)
-                return CmdResult{ CmdCode::err_too_large, 0, _tx_queue_n };
+                return CmdResult{ CmdCode::err_too_large, 0, _active->_tx_queue_n };
             const uint16_t ctr = do_send_channel(c.u.channel.channel_id, c.body, c.body_len);
-            return CmdResult{ CmdCode::queued, ctr, _tx_queue_n };   // buffered dirty -> advertised next BCN -> pulled
+            return CmdResult{ CmdCode::queued, ctr, _active->_tx_queue_n };   // buffered dirty -> advertised next BCN -> pulled
         }
         case CmdKind::join: {        // node_id DAD. Idempotent once joined. CLAIM-AFTER-LISTEN (L1): hear the
-                                     // leaf's beacons first (populate _rt/_id_bind so the picker sees existing
+                                     // leaf's beacons first (populate _active->_rt/_active->_id_bind so the picker sees existing
                                      // ids), THEN claim — armed here, fired on kJoinListenTimerId.
-            if (_joined) return CmdResult{ CmdCode::queued, 0, _tx_queue_n };
+            if (_joined) return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };
             if (!_join_claim.active && !_join_listen_pending) {
                 _join_listen_pending = true;
                 (void)_hal.after(protocol::join_listen_ms, kJoinListenTimerId);
             }
-            return CmdResult{ CmdCode::queued, 0, _tx_queue_n };
+            return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };
         }
         case CmdKind::resolve: {     // diagnostic hash-locate (no DM) — the answer rides the hash_resolved push
             if (_node_id == 0)       // unprovisioned: the H flood needs a valid origin
-                return CmdResult{ CmdCode::err_unprovisioned, 0, _tx_queue_n };
+                return CmdResult{ CmdCode::err_unprovisioned, 0, _active->_tx_queue_n };
             request_resolve(c.u.resolve.dst_hash, c.u.resolve.hard);
-            return CmdResult{ CmdCode::queued, 0, _tx_queue_n };
+            return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };
         }
         case CmdKind::send_layer:    // cross-layer  -> R7
         default:
-            return CmdResult{ CmdCode::err_unsupported, 0, _tx_queue_n };
+            return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };
     }
 }
 
@@ -269,7 +302,7 @@ void Node::on_radio_busy(const BusyInfo& info) {
     const FrameTag tag = static_cast<FrameTag>(info.tag);
     MR_EMIT("radio_busy",EF_I("reason",info.reason),EF_I("busy_until_ms",info.busy_until_ms));
    
-    if (tag == FrameTag::rts && _pending_tx) {                      // RTS blocked: rts_timeout retries (dv:12089)
+    if (tag == FrameTag::rts && _active->_pending_tx) {                      // RTS blocked: rts_timeout retries (dv:12089)
         // PORT DIVERGENCE (deliberate): Lua dv:12091 clears awaiting_cts here, but Lua's rts_timeout_fire does NOT
         // gate on it (it captures ctr_lo in the timer closure). OUR rts_timeout_fire uses awaiting_cts AS the
         // staleness key (the fixed timer id can't carry ctr_lo), so clearing it makes the already-armed timeout bail
@@ -277,12 +310,12 @@ void Node::on_radio_busy(const BusyInfo& info) {
         // the node legitimately still awaits a CTS that won't come; leaving awaiting_cts=true lets the armed
         // rts_timeout fire + re-RTS, matching Lua's NET behaviour. Every other awaiting_cts=false transition cancels
         // kRtsTimeoutTimerId first (handle_cts:173, handle_nack:389), so the guard stays sound for those paths.
-        MR_EMIT("rts_tx_blocked",EF_I("next",_pending_tx->next),EF_I("ctr",_pending_tx->ctr));
+        MR_EMIT("rts_tx_blocked",EF_I("next",_active->_pending_tx->next),EF_I("ctr",_active->_pending_tx->ctr));
     }
-    if (tag == FrameTag::data && _pending_tx) {                     // DATA blocked: stash retry re-issues (dv:12109)
-        _pending_tx->awaiting_ack = false;
+    if (tag == FrameTag::data && _active->_pending_tx) {                     // DATA blocked: stash retry re-issues (dv:12109)
+        _active->_pending_tx->awaiting_ack = false;
         _hal.cancel(kAckTimeoutTimerId);
-        MR_EMIT("data_tx_blocked",EF_I("next",_pending_tx->next),EF_I("ctr",_pending_tx->ctr));
+        MR_EMIT("data_tx_blocked",EF_I("next",_active->_pending_tx->next),EF_I("ctr",_active->_pending_tx->ctr));
     }
     const int slot = retry_slot_of(tag);
     if (slot < 0) return;                                          // RTS/beacon: not stash-retried
@@ -294,12 +327,12 @@ void Node::on_radio_busy(const BusyInfo& info) {
             _hal.emit("tx_giveup", f, 1); );
         s.valid = false;
         // SHARED-BUG FIX (#1, both engines): a DATA giveup STRANDS the flight — the DATA branch above cleared
-        // awaiting_ack + cancelled the ack-timeout (and rts_timeout is moot), so _pending_tx would sit forever with
+        // awaiting_ack + cancelled the ack-timeout (and rts_timeout is moot), so _active->_pending_tx would sit forever with
         // no recovery timer and become_free() is blocked behind it -> the whole TX queue stalls. Release the flight
         // (mirror the DATA-M giveup, dv:12151) so the queue drains. Only DATA: a CTS/ACK/NACK giveup is a
-        // receiver-side response whose pending_rx is freed by pending_rx_expiry; _pending_tx may be unrelated.
-        if (tag == FrameTag::data && _pending_tx && _pending_tx->ctr_lo == s.ctr_lo) {
-            _pending_tx.reset();
+        // receiver-side response whose pending_rx is freed by pending_rx_expiry; _active->_pending_tx may be unrelated.
+        if (tag == FrameTag::data && _active->_pending_tx && _active->_pending_tx->ctr_lo == s.ctr_lo) {
+            _active->_pending_tx.reset();
             become_free();
         }
         return;

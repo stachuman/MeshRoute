@@ -55,10 +55,28 @@ final class InboxCoreTests: XCTestCase {
         XCTAssertEqual(entries.count, 3)
         XCTAssertEqual(entries.filter { $0.kind == .dm }.count, 2)
         XCTAssertEqual(entries.filter { $0.kind == .channel }.count, 1)
-        guard case .inboxEnd(let dmSeq, let chanSeq, _, let count)? = inbound.last else { return XCTFail("no inbox_end") }
+        guard case .inboxEnd(let dmSeq, let chanSeq, _, let count, let nowMs)? = inbound.last else { return XCTFail("no inbox_end") }
         XCTAssertEqual(count, 3)
         XCTAssertEqual(dmSeq, 2)        // dm newest seq
         XCTAssertEqual(chanSeq, 1)      // chan newest seq (independent space)
+        XCTAssertNotNil(nowMs)          // the mock serves the uptime anchor like current firmware
+    }
+
+    // ---- rx_ms → wall-clock anchoring (NodeTimeAnchor) ----
+
+    func testAnchorConvertsUptimeToWallClock() {
+        let connectedAt = Date(timeIntervalSince1970: 1_750_000_000)
+        let anchor = NodeTimeAnchor(nodeNowMs: 100_000, capturedAt: connectedAt)   // node up 100 s
+        // received at uptime 40 s → 60 s before the anchor moment
+        XCTAssertEqual(anchor.wallClock(rxMs: 40_000), connectedAt.addingTimeInterval(-60))
+        // received "now" → exactly the anchor moment
+        XCTAssertEqual(anchor.wallClock(rxMs: 100_000), connectedAt)
+    }
+
+    func testAnchorClampsFutureRxMs() {
+        let connectedAt = Date(timeIntervalSince1970: 1_750_000_000)
+        let anchor = NodeTimeAnchor(nodeNowMs: 100_000, capturedAt: connectedAt)
+        XCTAssertEqual(anchor.wallClock(rxMs: 100_001), connectedAt)   // never invents a future time
     }
 
     func testMockPullRespectsCursors() async throws {

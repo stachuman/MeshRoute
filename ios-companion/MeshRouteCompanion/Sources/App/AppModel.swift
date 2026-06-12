@@ -30,6 +30,7 @@ final class AppModel {
     private var pendingOutgoing: [UUID] = []     // FIFO: outgoing message ids awaiting their queued ack
     private var activeSync: InboxSyncState?        // in-flight inbox cursors for this connection
     private var activeSyncProfile: NodeProfileEntity?
+    private var timeAnchor: NodeTimeAnchor?        // node-uptime ↔ wall-clock pairing (from ready/inbox_end now_ms)
     private var greetedThisConnection = false      // sent `whoami` once on connect
     private var syncStartedThisConnection = false  // started the inbox pull once on connect
 
@@ -87,7 +88,7 @@ final class AppModel {
 
     private func disconnectInternal() {
         pump?.cancel(); pump = nil; session = nil; activeMockLink = nil; pendingOutgoing.removeAll()
-        activeSync = nil; activeSyncProfile = nil
+        activeSync = nil; activeSyncProfile = nil; timeAnchor = nil
         greetedThisConnection = false; syncStartedThisConnection = false
     }
 
@@ -113,11 +114,13 @@ final class AppModel {
         switch inbound {
         case .ready(let r):
             nodeIdentity = r
+            if let n = r.nowMs { timeAnchor = NodeTimeAnchor(nodeNowMs: n) }   // anchor BEFORE the pull streams in
             let profile = upsertNodeProfile(r)
             startInboxSync(r, profile: profile)
         case .inboxEntry(let e):
             importInboxEntry(e)
-        case .inboxEnd(_, _, let epoch, _):
+        case .inboxEnd(_, _, let epoch, _, let nowMs):
+            if let n = nowMs { timeAnchor = NodeTimeAnchor(nodeNowMs: n) }     // refresh for later gap-pulls
             handleInboxEnd(servedEpoch: epoch)
         case .messageReceived(let origin, let ctr, let senderHash, let seq, let body):
             insertInboundDM(origin: origin, ctr: ctr, senderHash: senderHash, body: body)
@@ -139,7 +142,17 @@ final class AppModel {
         try? context.save()
     }
 
+    /// An inbound DM from a hash we don't know auto-creates a placeholder contact ("Node <id>", renameable
+    /// in Contacts) so the thread lists under a name instead of a raw hash; a known hash refreshes the
+    /// contact's lastKnownID (the id↔hash binding is reassignable, the hash is the identity).
+    private func ensureContact(senderHash: UInt32?, origin: Int) {
+        guard let h = senderHash, h != 0 else { return }     // no stable identity → nothing to pin a contact to
+        if let c = contact(for: KeyHash(h)) { c.lastKnownID = origin; return }
+        context.insert(ContactEntity(hashValue32: h, name: "Node \(origin)", lastKnownID: origin))
+    }
+
     private func insertInboundDM(origin: Int, ctr: Int, senderHash: UInt32?, body: String) {
+        ensureContact(senderHash: senderHash, origin: origin)
         if dmExists(senderHash: senderHash, origin: origin, ctr: ctr) { return }
         let msg = MessageEntity(id: UUID(), thread: .dm(KeyHash(dmThreadHash(senderHash: senderHash, origin: origin))),
                                 direction: .incoming, body: body, timestamp: .now, state: .received,
@@ -355,12 +368,16 @@ final class AppModel {
     }
 
     private func importInboxEntry(_ e: InboxEntry) {
+        if e.kind == .dm { ensureContact(senderHash: e.senderHash, origin: e.origin) }
         if !inboxEntryExists(e) {                        // dedup-on-import by stable identity (no seq/epoch)
             let thread: ThreadKey = e.kind == .channel
                 ? .channel(UInt8(clamping: e.channelID))
                 : .dm(KeyHash(dmThreadHash(senderHash: e.senderHash, origin: e.origin)))
+            // True receive time via the uptime anchor (ready/inbox_end now_ms); pull-time as the fallback
+            // on firmware without the field.
+            let received = timeAnchor?.wallClock(rxMs: e.rxTimeMs) ?? .now
             context.insert(MessageEntity(id: UUID(), thread: thread, direction: .incoming, body: e.body,
-                                         timestamp: .now, state: .received, origin: e.origin, ctr: e.ctr,
+                                         timestamp: received, state: .received, origin: e.origin, ctr: e.ctr,
                                          channelMsgID: e.channelMsgID.map(Int.init),
                                          senderHash: e.senderHash.map(Int.init)))
         }
@@ -396,19 +413,26 @@ struct ConsoleLine: Identifiable {
     let kind: Kind
 }
 
+/// " 0x<hex8>" for a present sender hash, "" otherwise. Convention: any hash shown to a human is
+/// hex8 (the wire carries decimal u32 — that stays raw-line-only).
+private func hex(_ h: UInt32?) -> String {
+    guard let h, h != 0 else { return "" }
+    return " 0x" + KeyHash(h).hex8
+}
+
 /// A short human description of an inbound event for the debug console.
 func describe(_ inbound: Inbound) -> String {
     switch inbound {
     case .ack(let a):                              return "ack \(a.code) ctr=\(a.ctr) qd=\(a.queueDepth)"
-    case .messageReceived(let o, let c, _, _, let b):  return "msg_recv from \(o) ctr=\(c): \(b)"
+    case .messageReceived(let o, let c, let h, _, let b):  return "msg_recv from \(o)\(hex(h)) ctr=\(c): \(b)"
     case .channelReceived(let o, let ch, _, _, let b): return "channel_recv ch\(ch) from \(o): \(b)"
     case .sendAcked(let d, let c):                 return "send_acked dst=\(d) ctr=\(c)"
     case .sendFailed(let d, let c):                return "send_failed dst=\(d) ctr=\(c)"
     case .hashResolved(let n, let a, let h):       return "hash_resolved \(h.hex8) → node \(n)\(a ? " (auth)" : "")"
     case .ready(let r):                            return "ready id=\(r.id) key=\(r.key.hex8) sf=\(r.routingSF)"
     case .status(let s):                           return "status id=\(s.id) \(s.state)"
-    case .inboxEntry(let e):                       return "inbox_\(e.kind.rawValue) seq=\(e.seq) from \(e.origin) ctr=\(e.ctr): \(e.body)"
-    case .inboxEnd(let dm, let chan, let epoch, let count): return "inbox_end dm=\(dm) chan=\(chan) epoch=\(epoch.map(String.init) ?? "—") count=\(count)"
+    case .inboxEntry(let e):                       return "inbox_\(e.kind.rawValue) seq=\(e.seq) from \(e.origin)\(hex(e.senderHash)) ctr=\(e.ctr): \(e.body)"
+    case .inboxEnd(let dm, let chan, let epoch, let count, _): return "inbox_end dm=\(dm) chan=\(chan) epoch=\(epoch.map(String.init) ?? "—") count=\(count)"
     case .event(let t, _):                         return "event \(t)"
     case .log(let m):                              return "log: \(m)"
     case .error(let code, let msg):                return "err \(code)\(msg.map { ": \($0)" } ?? "")"

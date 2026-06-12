@@ -476,7 +476,7 @@ static void handle_pull_inbox(const char* args, JsonSink sink) {
     // inbox_end carries the store's NEWEST seq per store (contract §"newest seq per store"), NOT a cursor echo —
     // so an empty store / a stale-high cursor self-heals (the app advances to the real high-water, re-syncing).
     const size_t n = meshroute::console::write_inbox_end(s_inbox_jb, sizeof s_inbox_jb,
-                       ib.dm_newest_seq(), ib.chan_newest_seq(), ib.storage_epoch(), ctx.count);
+                       ib.dm_newest_seq(), ib.chan_newest_seq(), ib.storage_epoch(), ctx.count, g_hal.now());
     if (n) sink(s_inbox_jb, n);
 }
 static void handle_mark_read(const char* args, JsonSink sink) {
@@ -525,7 +525,7 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     if (len == 0) return 0;
     if (len == 6 && !strncmp(line, "whoami", 6))
         return write_ready(out, cap, g_node.node_id(), g_node.key_hash32(), g_node.config(), "existing",
-                           g_node.inbox().storage_epoch());
+                           g_node.inbox().storage_epoch(), g_hal.now());
     // Inbox sync (companion-only): stream the reply via mrble::tx_line and return 0 (no buffered single-line ack).
     if ((len == 10 || (len > 10 && line[10] == ' ')) && !strncmp(line, "pull_inbox", 10)) { handle_pull_inbox(line + 10, ble_sink); return 0; }
     if ((len ==  9 || (len >  9 && line[9]  == ' ')) && !strncmp(line, "mark_read",   9)) { handle_mark_read(line + 9,  ble_sink); return 0; }
@@ -633,7 +633,10 @@ void setup() {
                     /*power=*/g_tx_power, /*channel_busy_hold_ms=*/100);
     g_hal.seed_rng((uint32_t)millis() ^ (g_node.key_hash32() * 2654435761u));
 
-    g_node.on_init(cfg);
+    // on_init REFUSES a bad dual-layer config (§3.2 fail-loud). Today the device builds cfg with n_layers==1
+    // (always valid), so this never fires — but Slice 3 (per-layer cfg keys) can produce an invalid gateway, and
+    // the device must NOT operate on a half-applied config. Print loud + leave the node unconfigured.
+    if (!g_node.on_init(cfg)) Serial.println(F("  config    = REFUSED (invalid layer config — node NOT operational)"));
     // Install the inbox stores so record-on-delivery + pull_inbox work. With the interim RAM store: give it a
     // per-boot-unique storage_epoch (HW-RNG; drawn here BEFORE BLE init, so the bare-metal NRF_RNG path is still
     // valid) -> after a reboot the companion sees a NEW epoch and re-pulls (the volatile store lost its history).

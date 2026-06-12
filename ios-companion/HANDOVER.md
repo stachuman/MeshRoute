@@ -45,18 +45,49 @@ epoch-aware (`inbox_epoch` resets cursors) with model "B" live-`seq` gap recover
   this Mac). To enable BLE on a node: `cfg set ble_mode on` (or `periodic`) + reboot (default `off`);
   PIN default `123456` (`cfg set ble_pin`); the S140 SoftDevice must be flashed.
 
+## Product direction
+The LIVING roadmap (decisions D1–D5, themes A–E, open questions Q1–Q10) is
+`docs/superpowers/specs/2026-06-12-companion-product-roadmap.md` — the single tracking doc for
+where the companion is going. The list below is the nearer-term engineering queue.
+
 ## Open items / next (priority order)
 1. **`status`/`cfg`/`routes` over BLE — App Phase 3.** Today only `whoami` is JSON-wired; the Node-tab
    `status`/`cfg` buttons send verbs the firmware answers with `{"err":"unknown_cmd"}` (by design).
    Quick win: wire `status`→ the existing unused `write_status` in `ble_dispatch_line` (~2 lines).
    Bigger: the Config + Status screens + the `cfg`/`routes` JSON encoders.
 2. **OTA (App Phase 1)** — embed Nordic `iOSDFULibrary`; works against the bootloader DFU. Not started.
-3. **Persistent inbox (firmware Phase 3)** — QSPI/LittleFS stores (another agent). The app-side sync
-   contract is implemented + tested; `pull_inbox` returns empty until the device stores land.
+3. **Durable inbox (firmware Phase 3)** — an INTERIM **volatile RAM** inbox (32 msgs/store, wiped on
+   reboot, fresh epoch each boot) is LIVE in the default build since commit b8e6080 (2026-06-12) —
+   record-on-delivery + `pull_inbox` + `mark_read` all work; boot banner: `inbox = RAM volatile`.
+   The durable QSPI/LittleFS backend (`MRINBOX_QSPI_READY`) is still pending (another agent).
 4. **Contacts QR exchange** (scan a peer's `whoami` hash); message timestamps from `rx_ms`;
    background-BLE / State Restoration.
 
+## SOLVED (2026-06-12): messages received while away didn't show after connect
+**Root cause:** `JsonBuf::i64` formatted with `snprintf("%lld")` — newlib-nano (the nRF52 BSP libc)
+has an integer-only printf with no long-long support, so on metal it emitted the LITERAL `ld`:
+`"rx_ms":ld` → every `inbox_dm`/`inbox_channel` line was invalid JSON → the app decoder fell back to
+`.raw` (visible in the Console tab, never ingested). `inbox_end` has no `rx_ms`, so the pull
+"completed" silently. Native tests (host libc handles `%lld`) could never catch it; found via the
+USB-serial `pull_inbox 0 0` smoke test.
+**Fix:** hand-rolled digit writer in `lib/console/console_json.cpp` `JsonBuf::i64` (libc-independent,
+INT64_MIN-safe; host-verified against all edge cases; existing test_console_json expectations pin the
+format). Needs rebuild + reflash on the build PC. NOTE the reflash wipes the RAM inbox → re-send test
+messages after reboot, then connect the companion (new epoch → full re-pull → Messages populate).
+**Known sibling (separate task):** `JsonBuf::f64` (`%.4g`) likely breaks the same way on metal — used
+by the `rt_update` event's `score` field (diagnostics only, not messaging).
+**Contract gap → DECIDED (roadmap D7):** DM dedup identity `(sender_hash, ctr)` collides when a
+SENDER reboots (ctr restarts at 1). Fix = persist `ctr` in NV; owned by the inbox-hardening agent
+(asks written in INBOX_SYNC_CONTRACT.md §"Hardening asks").
+**Follow-up shipped (same day):** unknown senders auto-create a placeholder contact — an inbound DM
+(live or inbox-pulled) whose `sender_hash` has no ContactEntity inserts one named "Node <id>"
+(renameable in Contacts); a known hash refreshes `lastKnownID`. `AppModel.ensureContact`, called from
+`insertInboundDM` + `importInboxEntry` (before the dedup check, so an epoch-reset full re-pull
+backfills contacts for already-archived threads).
+
 ## Gotchas (also in `memory/`)
+- **Hash presentation convention:** anything human-facing shows `0x`+hex8; the wire carries decimal
+  u32 (`sender_hash`, `channel_msg_id`). Decimal belongs only in raw wire dumps.
 - SwiftPM → local-disk scratch (`--scratch-path /private/tmp/mrk-build`). Xcode/`xcodebuild` is fine.
 - Firmware builds happen on a **separate PC**; sandboxed `pio` here shows `._`/`.sconsign` FS errors
   (mount artifact, not code).

@@ -75,8 +75,8 @@ TEST_CASE("write_inbox_* — pull stream records + terminator + mark_read ack") 
     CHECK(std::string(b, n) ==
       "{\"ev\":\"inbox_channel\",\"seq\":7,\"origin\":4,\"channel_id\":3,\"channel_msg_id\":68298753,\"rx_ms\":123456,\"body\":\"yo\"}\n");
 
-    n = write_inbox_end(b, sizeof b, 42, 7, 3, 15);
-    CHECK(std::string(b, n) == "{\"ev\":\"inbox_end\",\"dm_seq\":42,\"chan_seq\":7,\"epoch\":3,\"count\":15}\n");
+    n = write_inbox_end(b, sizeof b, 42, 7, 3, 15, 987654ull);
+    CHECK(std::string(b, n) == "{\"ev\":\"inbox_end\",\"dm_seq\":42,\"chan_seq\":7,\"epoch\":3,\"count\":15,\"now_ms\":987654}\n");
 
     n = write_inbox_marked(b, sizeof b, "dm", 42);
     CHECK(std::string(b, n) == "{\"ack\":\"mark_read\",\"kind\":\"dm\",\"seq\":42}\n");
@@ -92,9 +92,9 @@ TEST_CASE("write_err / write_log / write_ready / write_status") {
     CHECK(std::string(b, n) == "{\"log\":\"hello\"}\n");
 
     NodeConfig c{}; c.routing_sf = 7; c.is_gateway = false; c.leaf_id = 0;
-    n = write_ready(b, sizeof b, 3, 0xa1b2c3d4u, c, "existing", 5);
+    n = write_ready(b, sizeof b, 3, 0xa1b2c3d4u, c, "existing", 5, 123456789012ull);   // > u32: proves the 64-bit digits
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"ready\",\"id\":3,\"key\":\"a1b2c3d4\",\"leaf_id\":0,\"mode\":\"existing\",\"gateway\":false,\"routing_sf\":7,\"inbox_epoch\":5}\n");
+      "{\"ev\":\"ready\",\"id\":3,\"key\":\"a1b2c3d4\",\"leaf_id\":0,\"mode\":\"existing\",\"gateway\":false,\"routing_sf\":7,\"inbox_epoch\":5,\"now_ms\":123456789012}\n");
     n = write_status(b, sizeof b, 3, 0xa1b2c3d4u, c, "operating");
     CHECK(std::string(b, n) ==
       "{\"ev\":\"status\",\"id\":3,\"key\":\"a1b2c3d4\",\"state\":\"operating\",\"leaf_id\":0,\"gateway\":false,\"routing_sf\":7}\n");

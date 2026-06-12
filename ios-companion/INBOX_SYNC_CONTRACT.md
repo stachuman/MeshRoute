@@ -44,7 +44,7 @@ detector. (Chosen over "A" = best-effort-live + reconcile-only-on-reconnect.)
 ```json
 {"ev":"inbox_dm","seq":42,"origin":2,"ctr":7,"sender_hash":3735928559,"rx_ms":123456,"body":"…"}
 {"ev":"inbox_channel","seq":7,"origin":4,"channel_id":3,"channel_msg_id":68298753,"rx_ms":123456,"body":"…"}
-{"ev":"inbox_end","dm_seq":42,"chan_seq":7,"epoch":3,"count":15}
+{"ev":"inbox_end","dm_seq":42,"chan_seq":7,"epoch":3,"count":15,"now_ms":987654}
 ```
 - Emit the **DM block then the channel block** (matches `Inbox::pull`'s order), each oldest-first, then
   `inbox_end` with the newest seq per store + the number streamed (+ the `epoch` it was served under, so a
@@ -100,12 +100,30 @@ live only, no gap-pull.** Each field adds a `u32` to the `Push` POD + its `conso
 task, landed with the companion pushes. Without the identity fields a live+pulled message duplicates;
 without `seq` a dropped live push is invisible until the next reconnect.
 
+## Hardening asks for the inbox-hardening agent (decisions D7 + D10, roadmap 2026-06-12)
+
+From `docs/superpowers/specs/2026-06-12-companion-product-roadmap.md` (user-ratified decisions):
+
+1. **D7 — persist the DM `ctr` across reboots** (NV, the epoch+RAM write pattern from the identity
+   spec §4.4 — rate-limited flash writes). Why: dedup identity is `(sender_hash, ctr)`; today a
+   sender reboot restarts `ctr` at 1, so its next messages REUSE identities the app has already
+   archived and are **silently deduped away**. Persisting `ctr` closes this with zero wire cost.
+   (Observed live on the bench 2026-06-12 — small ctrs collide constantly under reflash cycles.)
+2. **D10 — two companions on one node is a supported case.** Consequence for `mark_read`: a single
+   node-side read cursor can't represent two phones' read states. Direction: read state is
+   **per-companion, app-side**; node-side `mark_read` demotes to a retention/pruning hint (safe to
+   advance only past the MIN of all bonded companions' acks, or simply ignore for retention until
+   multi-bond lands). Open detail = Q12 in the roadmap: app-side only vs per-bond cursors node-side.
+
 ## Open / deferred (match the inbox spec §8, §14)
 
 - **No `delete`** in v1 (node self-manages via drop-oldest). Not in this contract.
 - `mark_read` reply: a `{"ack":…}` or nothing — app doesn't depend on one. Firmware's choice.
-- Absolute time: deferred (no node RTC). If a node later sends its current uptime in `inbox_end`
-  (`"now_ms"`), the app can map `rx_ms` → wall-clock precisely instead of stamping pull-time.
+- ~~Absolute time: deferred~~ **DONE (2026-06-12, Theme A):** `ready` + `inbox_end` carry `"now_ms"`
+  (node uptime at emit). The app anchors it against its wall clock at decode
+  (`NodeTimeAnchor`: `wall(rx_ms) = capturedAt − (now_ms − rx_ms)`) so pulled records get TRUE receive
+  times; absent field (older firmware) → pull-time stamping as before. A reboot resets uptime AND
+  bumps the epoch, so an anchor never spans a reboot.
 
 ## App-side reference (already implemented + tested)
 

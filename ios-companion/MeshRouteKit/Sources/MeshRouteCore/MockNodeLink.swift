@@ -176,7 +176,7 @@ public actor MockNodeLink: NodeLink {
         #"{"ev":"hash_resolved","node":\#(node),"auth":\#(auth ? 1 : 0),"hash":\#(hash.value)}"#
     }
     private func readyLine(state: String) -> String {
-        #"{"ev":"ready","id":\#(selfID),"key":"\#(selfHash.hex8)","leaf_id":0,"mode":"\#(state)","gateway":false,"routing_sf":7,"inbox_epoch":\#(inboxEpoch)}"#
+        #"{"ev":"ready","id":\#(selfID),"key":"\#(selfHash.hex8)","leaf_id":0,"mode":"\#(state)","gateway":false,"routing_sf":7,"inbox_epoch":\#(inboxEpoch),"now_ms":\#(uptimeMs)}"#
     }
     private func statusLine() -> String {
         #"{"ev":"status","id":\#(selfID),"key":"\#(selfHash.hex8)","state":"up","leaf_id":0,"gateway":false,"routing_sf":7}"#
@@ -188,7 +188,7 @@ public actor MockNodeLink: NodeLink {
         #"{"ev":"inbox_channel","seq":\#(e.seq),"origin":\#(e.origin),"channel_id":\#(e.channelID),"channel_msg_id":\#(e.channelMsgID ?? 0),"rx_ms":\#(e.rxTimeMs),"body":\#(jsonString(e.body))}"#
     }
     private func inboxEndLine(count: Int) -> String {
-        #"{"ev":"inbox_end","dm_seq":\#(dmSeq),"chan_seq":\#(chanSeq),"epoch":\#(inboxEpoch),"count":\#(count)}"#
+        #"{"ev":"inbox_end","dm_seq":\#(dmSeq),"chan_seq":\#(chanSeq),"epoch":\#(inboxEpoch),"count":\#(count),"now_ms":\#(uptimeMs)}"#
     }
     /// Minimal JSON string escaping for injected bodies (matches console_json's escapes).
     private func jsonString(_ s: String) -> String {

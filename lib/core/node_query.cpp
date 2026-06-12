@@ -55,7 +55,7 @@ void Node::send_req_sync_q(const char* reason) {
     if (!_cfg.req_sync_on_boot) return;
     const uint64_t now = _hal.now();
     if (_last_req_sync_tx_ms != 0 && (now - _last_req_sync_tx_ms) < protocol::req_sync_retry_ms) return;
-    if (_rt_count >= _cfg.req_sync_min_routes) return;        // already route-rich -> no need to ask
+    if (_active->_rt_count >= _cfg.req_sync_min_routes) return;        // already route-rich -> no need to ask
     _last_req_sync_tx_ms = now;
     q_in in{};
     in.leaf_id = _cfg.leaf_id; in.src = _node_id; in.dest = 0xFF;   // broadcast
@@ -65,7 +65,7 @@ void Node::send_req_sync_q(const char* reason) {
     if (n == 0) return;
     MR_TELEMETRY(
         EventField f[] = { { .key = "opcode",           .type = EventField::T::i64, .i = static_cast<uint8_t>(q_opcode::req_sync) },
-                           { .key = "rt_total",         .type = EventField::T::i64, .i = _rt_count },
+                           { .key = "rt_total",         .type = EventField::T::i64, .i = _active->_rt_count },
                            { .key = "requester_mobile", .type = EventField::T::i64, .i = _cfg.is_mobile ? 1 : 0 } };
         _hal.emit("q_tx", f, 3); );
     tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
@@ -75,7 +75,7 @@ void Node::send_req_sync_q(const char* reason) {
 void Node::req_sync_loop_fire() {
     if (!in_discovery()) return;
     send_req_sync_q("discovery");
-    if (in_discovery() && _rt_count < _cfg.req_sync_min_routes)
+    if (in_discovery() && _active->_rt_count < _cfg.req_sync_min_routes)
         (void)_hal.after(protocol::req_sync_retry_ms, kReqSyncTimerId);
 }
 
@@ -116,7 +116,7 @@ void Node::handle_q(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 // ---- jittered full-table response (Lua schedule_sync_response dv:8064; the ONLY draw) ----------
 void Node::schedule_sync_response(uint8_t requester, bool requester_mobile) {
     if (!_cfg.sync_response_enabled) return;
-    const uint8_t route_n = _rt_count;
+    const uint8_t route_n = _active->_rt_count;
     if (route_n < _cfg.sync_response_min_routes) {              // route-starved responder skip (inert at default min=0)
         MR_TELEMETRY(
             EventField f[] = { { .key = "joiner",   .type = EventField::T::i64, .i = requester },
@@ -171,7 +171,7 @@ void Node::sync_response_fire(uint8_t slot) {
     }
     MR_TELEMETRY(
         EventField f[] = { { .key = "joiner",   .type = EventField::T::i64, .i = p.requester },
-                           { .key = "rt_total", .type = EventField::T::i64, .i = _rt_count } };
+                           { .key = "rt_total", .type = EventField::T::i64, .i = _active->_rt_count } };
         _hal.emit("sync_response_tx", f, 2); );
     emit_beacon("sync");                                       // full-table page (dirty_only=false for kind=="sync")
 }

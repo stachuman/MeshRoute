@@ -33,11 +33,11 @@ static inline const char* id_bind_source_str(Node::IdBindSource s) {
 // must go, or id_bind_find_by_hash returns an ambiguous (often dead) id. Compaction; returns # evicted.
 uint8_t Node::id_bind_evict_other_hash_holders(uint32_t key_hash32, uint8_t keep_node_id) {
     uint16_t w = 0; uint8_t evicted = 0;
-    for (uint16_t r = 0; r < _id_bind_n; ++r) {
-        if (_id_bind[r].key_hash32 == key_hash32 && _id_bind[r].node_id != keep_node_id) { ++evicted; continue; }
-        _id_bind[w++] = _id_bind[r];
+    for (uint16_t r = 0; r < _active->_id_bind_n; ++r) {
+        if (_active->_id_bind[r].key_hash32 == key_hash32 && _active->_id_bind[r].node_id != keep_node_id) { ++evicted; continue; }
+        _active->_id_bind[w++] = _active->_id_bind[r];
     }
-    _id_bind_n = w;
+    _active->_id_bind_n = w;
     return evicted;
 }
 
@@ -51,10 +51,10 @@ bool Node::id_bind_set(uint8_t node_id, uint32_t key_hash32, IdBindSource source
     if (node_id == 0xFF) return false;                           // reserved id
     const uint64_t now = _hal.now();
     const bool authoritative = (confidence == IdBindConf::authoritative);
-    for (uint16_t i = 0; i < _id_bind_n; ++i) {                  // existing entry for this node_id?
-        if (_id_bind[i].node_id != node_id) continue;
-        if (_id_bind[i].key_hash32 != key_hash32) {              // CONFLICT: a different hash claims this id
-            if (node_id == _node_id && _id_bind[i].key_hash32 == _key_hash32) {
+    for (uint16_t i = 0; i < _active->_id_bind_n; ++i) {                  // existing entry for this node_id?
+        if (_active->_id_bind[i].node_id != node_id) continue;
+        if (_active->_id_bind[i].key_hash32 != key_hash32) {              // CONFLICT: a different hash claims this id
+            if (node_id == _node_id && _active->_id_bind[i].key_hash32 == _key_hash32) {
                 // Our OWN self-binding is the root of trust — NEVER let any source (even an authoritative
                 // H answer resolving a colliding hash back to our id, as the L2c redirect can trigger)
                 // overwrite our id->our-key mapping. A foreign key on our id is a collision to DEFEND, not
@@ -70,7 +70,7 @@ bool Node::id_bind_set(uint8_t node_id, uint32_t key_hash32, IdBindSource source
             if (!authoritative) {                               // claimed -> refuse, keep the known binding
                 MR_TELEMETRY(
                     EventField f[] = { { .key = "node",                .type = EventField::T::i64, .i = node_id },
-                                       { .key = "known_key_hash32",    .type = EventField::T::i64, .i = static_cast<int64_t>(_id_bind[i].key_hash32) },
+                                       { .key = "known_key_hash32",    .type = EventField::T::i64, .i = static_cast<int64_t>(_active->_id_bind[i].key_hash32) },
                                        { .key = "observed_key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) },
                                        { .key = "source",              .type = EventField::T::str, .s = id_bind_source_str(source) } };
                     _hal.emit("addr_conflict_observed", f, 4); );
@@ -85,8 +85,8 @@ bool Node::id_bind_set(uint8_t node_id, uint32_t key_hash32, IdBindSource source
             // is `claimed` (refused above at !authoritative), so without this the gate would lean on that
             // upstream refuse alone (the agent's confidence-gate catch).
             if (node_id != _node_id && source == IdBindSource::bcn && authoritative
-                && _id_bind[i].confidence == static_cast<uint8_t>(IdBindConf::authoritative)) {
-                const uint32_t existing_key = _id_bind[i].key_hash32;
+                && _active->_id_bind[i].confidence == static_cast<uint8_t>(IdBindConf::authoritative)) {
+                const uint32_t existing_key = _active->_id_bind[i].key_hash32;
                 const bool incoming_wins = join_tiebreak_wins(0, key_hash32, 0, existing_key);
                 const uint32_t winner = incoming_wins ? key_hash32 : existing_key;
                 const uint32_t loser  = incoming_wins ? existing_key : key_hash32;
@@ -103,27 +103,27 @@ bool Node::id_bind_set(uint8_t node_id, uint32_t key_hash32, IdBindSource source
                 // binding can't get stuck on a departed loser); the DENY drives the key-loser to renumber,
                 // and the winner's next beacon re-asserts it — the flap is transient, convergence is the DENY.
             }
-            _id_bind[i].key_hash32 = key_hash32;                // authoritative -> overwrite the hash (incoming wins / same-node rekey)
+            _active->_id_bind[i].key_hash32 = key_hash32;                // authoritative -> overwrite the hash (incoming wins / same-node rekey)
         }
-        _id_bind[i].last_seen_ms = now;                         // refresh (silent — not new)
-        _id_bind[i].source       = static_cast<uint8_t>(source);
-        _id_bind[i].confidence   = static_cast<uint8_t>(confidence);
+        _active->_id_bind[i].last_seen_ms = now;                         // refresh (silent — not new)
+        _active->_id_bind[i].source       = static_cast<uint8_t>(source);
+        _active->_id_bind[i].confidence   = static_cast<uint8_t>(confidence);
         id_bind_evict_other_hash_holders(key_hash32, node_id);  // one hash -> one id (heal a same-hash rehome)
         return true;
     }
     // NEW node_id: heal any stale holder of this hash FIRST (a pure rehome frees its slot), then cap-check.
     id_bind_evict_other_hash_holders(key_hash32, node_id);
-    if (_id_bind_n >= _cfg.cap_id_bind) {                        // table full -> refuse (Lua dv:4707)
+    if (_active->_id_bind_n >= _cfg.cap_id_bind) {                        // table full -> refuse (Lua dv:4707)
         MR_TELEMETRY(
             EventField f[] = { { .key = "table",  .type = EventField::T::str, .s = "id_bind" },
                                { .key = "cap",    .type = EventField::T::i64, .i = _cfg.cap_id_bind },
-                               { .key = "size",   .type = EventField::T::i64, .i = _id_bind_n },
+                               { .key = "size",   .type = EventField::T::i64, .i = _active->_id_bind_n },
                                { .key = "action", .type = EventField::T::str, .s = "refuse" },
                                { .key = "node",   .type = EventField::T::i64, .i = node_id } };
             _hal.emit("table_cap_hit", f, 5); );
         return false;
     }
-    _id_bind[_id_bind_n++] = { key_hash32, now, node_id, static_cast<uint8_t>(source), static_cast<uint8_t>(confidence) };
+    _active->_id_bind[_active->_id_bind_n++] = { key_hash32, now, node_id, static_cast<uint8_t>(source), static_cast<uint8_t>(confidence) };
     MR_TELEMETRY(
         EventField f[] = { { .key = "node",       .type = EventField::T::i64, .i = node_id },
                            { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) },
@@ -138,13 +138,13 @@ bool Node::id_bind_set(uint8_t node_id, uint32_t key_hash32, IdBindSource source
 // This is the call that makes "any node that knows answers" work. Returns -1 on miss.
 int Node::id_bind_find_by_hash(uint32_t key_hash32, IdBindConf* conf_out) {
     const uint64_t now = _hal.now();
-    for (uint16_t i = 0; i < _id_bind_n; ++i) {
-        if (_id_bind[i].key_hash32 != key_hash32) continue;
-        const bool self_keep = (_id_bind[i].node_id == _node_id && _id_bind[i].key_hash32 == _key_hash32);
+    for (uint16_t i = 0; i < _active->_id_bind_n; ++i) {
+        if (_active->_id_bind[i].key_hash32 != key_hash32) continue;
+        const bool self_keep = (_active->_id_bind[i].node_id == _node_id && _active->_id_bind[i].key_hash32 == _key_hash32);
         if (!self_keep && _cfg.id_bind_ttl_ms > 0
-            && (now - _id_bind[i].last_seen_ms) >= _cfg.id_bind_ttl_ms) continue;   // expired -> skip
-        if (conf_out) *conf_out = static_cast<IdBindConf>(_id_bind[i].confidence);  // soft/hard for the H resolver
-        return _id_bind[i].node_id;
+            && (now - _active->_id_bind[i].last_seen_ms) >= _cfg.id_bind_ttl_ms) continue;   // expired -> skip
+        if (conf_out) *conf_out = static_cast<IdBindConf>(_active->_id_bind[i].confidence);  // soft/hard for the H resolver
+        return _active->_id_bind[i].node_id;
     }
     return -1;
 }
@@ -156,13 +156,13 @@ int Node::id_bind_find_by_hash(uint32_t key_hash32, IdBindConf* conf_out) {
 // trust model, which HARD-verifies a soft binding before use). Returns false (DST_HASH omitted) otherwise.
 bool Node::key_hash_of_id(uint8_t id, uint32_t& out) const {
     const uint64_t now = _hal.now();
-    for (uint16_t i = 0; i < _id_bind_n; ++i) {
-        if (_id_bind[i].node_id != id) continue;
-        if (_id_bind[i].confidence != static_cast<uint8_t>(IdBindConf::authoritative)) continue;  // confident only
-        const bool self_keep = (id == _node_id && _id_bind[i].key_hash32 == _key_hash32);
+    for (uint16_t i = 0; i < _active->_id_bind_n; ++i) {
+        if (_active->_id_bind[i].node_id != id) continue;
+        if (_active->_id_bind[i].confidence != static_cast<uint8_t>(IdBindConf::authoritative)) continue;  // confident only
+        const bool self_keep = (id == _node_id && _active->_id_bind[i].key_hash32 == _key_hash32);
         if (!self_keep && _cfg.id_bind_ttl_ms > 0
-            && (now - _id_bind[i].last_seen_ms) >= _cfg.id_bind_ttl_ms) continue;     // expired
-        out = _id_bind[i].key_hash32;
+            && (now - _active->_id_bind[i].last_seen_ms) >= _cfg.id_bind_ttl_ms) continue;     // expired
+        out = _active->_id_bind[i].key_hash32;
         return true;
     }
     return false;
@@ -175,8 +175,8 @@ void Node::id_bind_age_out() {
     if (_cfg.id_bind_ttl_ms == 0) return;
     const uint64_t now = _hal.now();
     uint16_t w = 0;
-    for (uint16_t r = 0; r < _id_bind_n; ++r) {
-        const IdBind e = _id_bind[r];
+    for (uint16_t r = 0; r < _active->_id_bind_n; ++r) {
+        const IdBind e = _active->_id_bind[r];
         const bool self_keep = (e.node_id == _node_id && e.key_hash32 == _key_hash32);
         if (!self_keep && (now - e.last_seen_ms) >= _cfg.id_bind_ttl_ms) {
             MR_TELEMETRY(
@@ -187,9 +187,9 @@ void Node::id_bind_age_out() {
                 _hal.emit("id_bind_aged", f, 4); );
             continue;                                            // drop (don't keep)
         }
-        _id_bind[w++] = e;
+        _active->_id_bind[w++] = e;
     }
-    _id_bind_n = w;
+    _active->_id_bind_n = w;
 }
 
 // =============================================================================
@@ -203,22 +203,22 @@ void Node::id_bind_age_out() {
 bool Node::hash_query_seen_recently(uint8_t origin, uint32_t key_hash32, bool hard) {
     const uint64_t now    = _hal.now();
     const uint64_t cutoff = (now >= protocol::hash_query_seen_ttl_ms) ? now - protocol::hash_query_seen_ttl_ms : 0;
-    for (uint8_t i = 0; i < _hash_query_seen_n; ++i)
-        if (_hash_query_seen[i].origin == origin && _hash_query_seen[i].key_hash32 == key_hash32
-            && _hash_query_seen[i].hard == hard && _hash_query_seen[i].t_ms >= cutoff) return true;
+    for (uint8_t i = 0; i < _active->_hash_query_seen_n; ++i)
+        if (_active->_hash_query_seen[i].origin == origin && _active->_hash_query_seen[i].key_hash32 == key_hash32
+            && _active->_hash_query_seen[i].hard == hard && _active->_hash_query_seen[i].t_ms >= cutoff) return true;
     return false;
 }
 void Node::mark_hash_query_seen(uint8_t origin, uint32_t key_hash32, bool hard) {
     const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _hash_query_seen_n; ++i)
-        if (_hash_query_seen[i].origin == origin && _hash_query_seen[i].key_hash32 == key_hash32
-            && _hash_query_seen[i].hard == hard) { _hash_query_seen[i].t_ms = now; return; }
-    if (_hash_query_seen_n < protocol::cap_hash_query_seen) {
-        _hash_query_seen[_hash_query_seen_n++] = { origin, key_hash32, now, hard };
+    for (uint8_t i = 0; i < _active->_hash_query_seen_n; ++i)
+        if (_active->_hash_query_seen[i].origin == origin && _active->_hash_query_seen[i].key_hash32 == key_hash32
+            && _active->_hash_query_seen[i].hard == hard) { _active->_hash_query_seen[i].t_ms = now; return; }
+    if (_active->_hash_query_seen_n < protocol::cap_hash_query_seen) {
+        _active->_hash_query_seen[_active->_hash_query_seen_n++] = { origin, key_hash32, now, hard };
     } else {                                              // ring full -> evict the oldest
         uint8_t o = 0;
-        for (uint8_t i = 1; i < _hash_query_seen_n; ++i) if (_hash_query_seen[i].t_ms < _hash_query_seen[o].t_ms) o = i;
-        _hash_query_seen[o] = { origin, key_hash32, now, hard };
+        for (uint8_t i = 1; i < _active->_hash_query_seen_n; ++i) if (_active->_hash_query_seen[i].t_ms < _active->_hash_query_seen[o].t_ms) o = i;
+        _active->_hash_query_seen[o] = { origin, key_hash32, now, hard };
     }
 }
 
@@ -294,7 +294,7 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 // answered as the owner (matches_self), not from a cached binding. (Lua send_hash_bind_response dv:5877.)
 void Node::send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id,
                                    uint32_t key_hash32, bool authoritative) {
-    if (_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (the querier can re-flood)
+    if (_active->_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (the querier can re-flood)
     hash_bind_inner hb{};
     hb.target_layer = target_layer; hb.node_id = node_id; hb.key_hash32 = key_hash32;   // authoritative rides the frame TYPE, not the inner
     uint8_t inner[6];
@@ -308,7 +308,7 @@ void Node::send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint
     for (size_t i = 0; i < n; ++i) item.inner[i] = inner[i];
     item.inner_len = static_cast<uint8_t>(n);
     item.enqueue_time_ms = _hal.now();
-    _tx_queue[_tx_queue_n++] = item;
+    _active->_tx_queue[_active->_tx_queue_n++] = item;
     MR_TELEMETRY(
         EventField f[] = { { .key = "to",            .type = EventField::T::i64,     .i = to_origin },
                            { .key = "node",          .type = EventField::T::i64,     .i = node_id },

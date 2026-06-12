@@ -31,7 +31,7 @@ Node::BudgetTier Node::compute_budget_tier() const {
 void Node::track_originator_observation(uint8_t sender, uint8_t kind, uint8_t ctr_lo, uint32_t air) {
     const uint64_t now    = _hal.now();
     const uint64_t cutoff = (now >= protocol::originator_window_ms) ? (now - protocol::originator_window_ms) : 0;
-    OrigRing& r = _per_sender_originator[sender];
+    OrigRing& r = _active->_per_sender_originator[sender];
 
     // Prune expired + dedup-first, compacting survivors to the front in insertion order. w <= i throughout,
     // so writing r.ev[w] never clobbers an unread r.ev[i].
@@ -66,8 +66,8 @@ void Node::track_originator_observation(uint8_t sender, uint8_t kind, uint8_t ct
 void Node::compute_originator_metric(uint8_t sender, int& apparent, uint32_t& total_air,
                                      uint8_t& rts, uint8_t& cts) const {
     apparent = 0; total_air = 0; rts = 0; cts = 0;
-    auto it = _per_sender_originator.find(sender);
-    if (it == _per_sender_originator.end()) return;
+    auto it = _active->_per_sender_originator.find(sender);
+    if (it == _active->_per_sender_originator.end()) return;
     const uint64_t now    = _hal.now();
     const uint64_t cutoff = (now >= protocol::originator_window_ms) ? (now - protocol::originator_window_ms) : 0;
     uint16_t rts_seen = 0;                 // RTS: distinct 4-bit ctr_lo

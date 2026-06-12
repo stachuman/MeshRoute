@@ -17,6 +17,29 @@
 
 #include <cstdint>
 
+// ---- Build-time knobs (per-env -D overrides in platformio.ini) --------------
+// Defaults below = the single-layer LEAF, i.e. a TRUE no-op vs the pre-dual-layer
+// firmware. Only the [env:gateway] build overrides them (and [env:native], which
+// sets MR_N_LAYERS=2 so it can exercise the dual-layer logic tests):
+//   MR_N_LAYERS            # of LayerRuntime instances. 1 = a normal leaf (the
+//                          _layers[] array shrinks to one element); 2 = a gateway
+//                          (one radio time-multiplexed across two layers, Slice 3+).
+//                          A config with n_layers==2 on an MR_N_LAYERS<2 build is
+//                          REFUSED in on_init (fail-loud — no silent single-layer fallback).
+//   MR_CAP_CHANNEL_BUFFER  gossip FIFO depth. A gateway SKIPS the gossip plane
+//                          (Principle 11), so its build cuts this hard to reclaim
+//                          the ~60 KB the second LayerRuntime would otherwise cost.
+//   MR_CAP_DEFERRED_SENDS  no-route defer-queue depth (secondary gateway RAM trim).
+#ifndef MR_N_LAYERS
+#define MR_N_LAYERS 1
+#endif
+#ifndef MR_CAP_CHANNEL_BUFFER
+#define MR_CAP_CHANNEL_BUFFER 128
+#endif
+#ifndef MR_CAP_DEFERRED_SENDS
+#define MR_CAP_DEFERRED_SENDS 32
+#endif
+
 namespace meshroute::protocol {
 
 // ---- Q4 fixed-point dB -----------------------------------------------------
@@ -159,7 +182,7 @@ inline constexpr uint16_t cap_seen_origins              = 256;
 inline constexpr uint16_t cap_q_queried                 = 128;
 inline constexpr uint16_t cap_q_responded_to            = 128;
 inline constexpr uint8_t  cap_sync_response_pending     = 16;   // device ring of concurrent pending REQ_SYNC responses (Lua: unbounded table)
-inline constexpr uint16_t cap_deferred_sends            = 32;
+inline constexpr uint16_t cap_deferred_sends            = MR_CAP_DEFERRED_SENDS;   // default 32; gateway build trims (RAM)
 inline constexpr uint16_t cap_gateway_deferred_handoffs = 32;
 inline constexpr uint16_t cap_id_bind                   = 256;
 // H hash-locate flood (dv:1160-1162): per-(origin,hash) relay dedup + the originator's initial TTL.
@@ -171,7 +194,7 @@ inline constexpr uint8_t  cap_parked_sends              = 8;       // send-by-ha
 // ---- Channel-message gossip plane (ROADMAP §3) -----------------------------
 // Single-layer only — gateways skip the whole plane (Principle 11). Phase 1 = the
 // buffer + per-origin anti-spam + DATA-M ingest + send_channel origination.
-inline constexpr uint16_t cap_channel_buffer            = 128;    // FIFO gossip-buffer entries (Lua dv:988)
+inline constexpr uint16_t cap_channel_buffer            = MR_CAP_CHANNEL_BUFFER;   // default 128 FIFO gossip entries (Lua dv:988); gateway build cuts hard (skips the plane)
 inline constexpr uint16_t channel_msg_max_payload_bytes = 200;    // dv:989
 inline constexpr uint32_t channel_origin_window_ms      = 300000; // per-origin anti-spam window, 5 min (dv:997)
 inline constexpr uint8_t  channel_origin_max_per_window = 20;     // distinct msgs/origin/window before drop (dv:998)

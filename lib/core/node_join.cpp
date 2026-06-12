@@ -91,13 +91,13 @@ int Node::join_choose_candidate_id() {
         return prev;
     }
     // "taken" = every id this node KNOWS is in use (L1, design §3): id_bind (direct neighbours + heard
-    // claims) ∪ _rt dest (EVERY reachable node within dv_hop_cap — DV-propagated, the wide view that makes
+    // claims) ∪ _active->_rt dest (EVERY reachable node within dv_hop_cap — DV-propagated, the wide view that makes
     // an incremental joiner leaf-unique) ∪ the no-route defer queue ∪ our own pending claim. Best-effort:
     // pre-convergence / simultaneous-cold-start gaps fall to the heal (§7.1), not to this picker.
     auto id_taken = [&](uint8_t id) -> bool {
-        for (uint16_t i = 0; i < _id_bind_n;  ++i) if (_id_bind[i].node_id == id)     return true;
-        for (uint8_t  i = 0; i < _rt_count;   ++i) if (_rt[i].dest == id)             return true;
-        for (uint8_t  i = 0; i < _deferred_n; ++i) if (_deferred[i].item.dst == id)   return true;
+        for (uint16_t i = 0; i < _active->_id_bind_n;  ++i) if (_active->_id_bind[i].node_id == id)     return true;
+        for (uint8_t  i = 0; i < _active->_rt_count;   ++i) if (_active->_rt[i].dest == id)             return true;
+        for (uint8_t  i = 0; i < _active->_deferred_n; ++i) if (_active->_deferred[i].item.dst == id)   return true;
         return _join_claim.active && _join_claim.proposed == id;
     };
     uint8_t free_list[254];                                             // 254 B stack — fine
@@ -148,8 +148,8 @@ void Node::join_claim_guard_fire() {
     const uint8_t proposed = _join_claim.proposed;
     _join_claim.active = false;
     bool conflict = false;
-    for (uint16_t i = 0; i < _id_bind_n; ++i)
-        if (_id_bind[i].node_id == proposed && _id_bind[i].key_hash32 != _key_hash32) { conflict = true; break; }
+    for (uint16_t i = 0; i < _active->_id_bind_n; ++i)
+        if (_active->_id_bind[i].node_id == proposed && _active->_id_bind[i].key_hash32 != _key_hash32) { conflict = true; break; }
     if (conflict) {
         join_deny_id(proposed);
         MR_TELEMETRY(
@@ -188,9 +188,9 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         if (_joined && proposed == _node_id && j.key_hash32 != _key_hash32) {           // (a) my adopted id
             conflict = true;
         } else {                                                                        // (b) a known binding, other hash
-            for (uint16_t i = 0; i < _id_bind_n; ++i)
-                if (_id_bind[i].node_id == proposed && _id_bind[i].key_hash32 != j.key_hash32) {
-                    conflict = true; owner_key = _id_bind[i].key_hash32; break;
+            for (uint16_t i = 0; i < _active->_id_bind_n; ++i)
+                if (_active->_id_bind[i].node_id == proposed && _active->_id_bind[i].key_hash32 != j.key_hash32) {
+                    conflict = true; owner_key = _active->_id_bind[i].key_hash32; break;
                 }
         }
         if (!conflict && _join_claim.active && _join_claim.proposed == proposed         // (c) simultaneous claim
@@ -259,10 +259,10 @@ void Node::forced_rejoin(const char* reason) {
     _join_claim.active = false;
     _hal.cancel(kJoinClaimGuardTimerId);
     join_deny_id(prior);
-    for (uint16_t i = 0; i < _id_bind_n; ++i)                          // drop our own (prior, myhash) binding
-        if (_id_bind[i].node_id == prior && _id_bind[i].key_hash32 == _key_hash32) {
-            for (uint16_t k = i; k + 1 < _id_bind_n; ++k) _id_bind[k] = _id_bind[k + 1];
-            _id_bind_n--; break;
+    for (uint16_t i = 0; i < _active->_id_bind_n; ++i)                          // drop our own (prior, myhash) binding
+        if (_active->_id_bind[i].node_id == prior && _active->_id_bind[i].key_hash32 == _key_hash32) {
+            for (uint16_t k = i; k + 1 < _active->_id_bind_n; ++k) _active->_id_bind[k] = _active->_id_bind[k + 1];
+            _active->_id_bind_n--; break;
         }
     set_identity(protocol::unjoined_node_id, _key_hash32);             // 0 = unprovisioned (transient; re-claim below)
     MR_TELEMETRY(
@@ -350,7 +350,7 @@ void Node::l2c_handle_misdelivery(const PostAck& pa, uint32_t want_hash) {
 // the queue (`become_free`) so the half-duplex serializer can't stall; returns false (and emits) on queue-full.
 bool Node::l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint8_t ctr_lo, uint8_t flags,
                                const uint8_t* inner, uint8_t inner_len) {
-    if (_tx_queue_n >= kTxQueueCap) {
+    if (_active->_tx_queue_n >= kTxQueueCap) {
         MR_TELEMETRY(
             EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = to_id },
                                { .key = "origin", .type = EventField::T::i64, .i = origin },
@@ -371,7 +371,7 @@ bool Node::l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint
     it.inner_len = (inner_len > protocol::max_payload_bytes_hard_cap) ? protocol::max_payload_bytes_hard_cap : inner_len;
     for (uint8_t i = 0; i < it.inner_len; ++i) it.inner[i] = inner[i];
     it.enqueue_time_ms = _hal.now();
-    _tx_queue[_tx_queue_n++] = it;
+    _active->_tx_queue[_active->_tx_queue_n++] = it;
     become_free();
     return true;
 }
