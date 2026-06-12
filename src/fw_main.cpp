@@ -421,8 +421,66 @@ static void handle_whoami() {
 static void dump_help() {
     Serial.println(F("[help] messaging:  send <id> <text> | send_ack <id> <text> | sendhash <hash> <text> | sendhash_ack <hash> <text> | send_channel <ch> <text>"));
     Serial.println(F("[help] hash/id:    lookup <hash> | hashof <id> | whoami"));
+    Serial.println(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
     Serial.println(F("[help] diag:       routes | status | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
     Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway gateway_only mobile key ble_mode on|off"));
+}
+
+// ---- Phase-3 inbox sync (schema: ios-companion/INBOX_SYNC_CONTRACT.md) -----------------------------------
+// `pull_inbox <dm_since> <chan_since>` streams the inbox (DM block then channel block, oldest-first) + an
+// inbox_end terminator; `mark_read <dm|chan> <seq>` advances the per-store read cursor. Both stream NDJSON to a
+// transport SINK (USB Serial OR the BLE NUS), so one handler serves both consoles. The companion link is JSON;
+// on USB it's structured output for the host harness.
+using JsonSink = void (*)(const char* s, size_t n);
+static void usb_sink(const char* s, size_t n) { Serial.write(reinterpret_cast<const uint8_t*>(s), n); }
+static void ble_sink(const char* s, size_t n) { mrble::tx_line(s, n); }   // inert off-XIAO / when no client
+
+namespace { struct PullCtx { JsonSink sink; uint32_t count; }; }
+static char s_inbox_jb[1700];   // one record-line scratch (reused per pulled record): a 241-B body 6x-escaped + envelope
+
+// pull() callback: format ONE record -> JSON -> sink. The body ptr is valid only for this call (the encoder copies it).
+static bool inbox_pull_cb(void* vctx, const meshroute::InboxEntry& e) {
+    PullCtx* c = static_cast<PullCtx*>(vctx);
+    const size_t n = (e.kind == meshroute::InboxKind::dm)
+        ? meshroute::console::write_inbox_dm(s_inbox_jb, sizeof s_inbox_jb, e.seq, e.origin,
+              static_cast<uint16_t>(e.msg_id), e.sender_hash, e.rx_time_ms,
+              reinterpret_cast<const char*>(e.body), e.body_len)
+        : meshroute::console::write_inbox_channel(s_inbox_jb, sizeof s_inbox_jb, e.seq, e.origin,
+              e.channel_id, e.msg_id, e.rx_time_ms, reinterpret_cast<const char*>(e.body), e.body_len);
+    if (n) { c->sink(s_inbox_jb, n); ++c->count; }
+    else {                                                // UNREACHABLE for a valid body (<=241 B fits 1700), but
+        char eb[48];                                      // NEVER drop a record silently: tell the app one didn't encode.
+        const size_t en = meshroute::console::write_err(eb, sizeof eb, "inbox_encode", nullptr);
+        if (en) c->sink(eb, en);
+    }
+    return true;                                          // never stop early — the app pulls the whole delta
+}
+static void handle_pull_inbox(const char* args, JsonSink sink) {
+    char* end;
+    const uint32_t dm_since   = strtoul(args, &end, 10);  // missing/garbled args -> 0 (a full pull is always safe; the app dedups)
+    const uint32_t chan_since = strtoul(end, nullptr, 10);
+    meshroute::Inbox& ib = g_node.inbox();
+    PullCtx ctx{ sink, 0 };
+    ib.pull(dm_since, chan_since, inbox_pull_cb, &ctx);
+    // inbox_end carries the store's NEWEST seq per store (contract §"newest seq per store"), NOT a cursor echo —
+    // so an empty store / a stale-high cursor self-heals (the app advances to the real high-water, re-syncing).
+    const size_t n = meshroute::console::write_inbox_end(s_inbox_jb, sizeof s_inbox_jb,
+                       ib.dm_newest_seq(), ib.chan_newest_seq(), ib.storage_epoch(), ctx.count);
+    if (n) sink(s_inbox_jb, n);
+}
+static void handle_mark_read(const char* args, JsonSink sink) {
+    while (*args == ' ') ++args;
+    // The kind must be EXACTLY "dm" or "chan" (word boundary = next char is space or end). Without the boundary
+    // check, "dm5"/"dme" match strncmp("dm",2) and "channel" matches strncmp("chan",4) -> wrong/zero seq parsed.
+    meshroute::InboxKind kind; const char* kstr;
+    if      (!strncmp(args, "dm", 2)   && (args[2] == ' ' || args[2] == '\0')) { kind = meshroute::InboxKind::dm;      kstr = "dm";   args += 2; }
+    else if (!strncmp(args, "chan", 4) && (args[4] == ' ' || args[4] == '\0')) { kind = meshroute::InboxKind::channel; kstr = "chan"; args += 4; }
+    else { char eb[64]; const size_t n = meshroute::console::write_err(eb, sizeof eb, "mark_read", "kind must be dm|chan");
+           if (n) sink(eb, n); return; }                 // fail loud on a bad kind
+    const uint32_t seq = strtoul(args, nullptr, 10);
+    g_node.inbox().mark_read(kind, seq);
+    char ab[64]; const size_t n = meshroute::console::write_inbox_marked(ab, sizeof ab, kstr, seq);
+    if (n) sink(ab, n);
 }
 
 // Handle a debug/diagnostic console line (help/routes/cfg/status/cfg set/reboot/sleep/debug). Returns true if consumed.
@@ -440,6 +498,8 @@ static bool service_debug(const char* line, size_t len) {
     if (len == 6 && !strncmp(line, "whoami", 6)) { handle_whoami(); return true; }
     if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "lookup", 6)) { handle_lookup(line + 6, len - 6); return true; }
     if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "hashof", 6)) { handle_hashof(line + 6, len - 6); return true; }
+    if ((len == 10 || (len > 10 && line[10] == ' ')) && !strncmp(line, "pull_inbox", 10)) { handle_pull_inbox(line + 10, usb_sink); return true; }
+    if ((len ==  9 || (len >  9 && line[9]  == ' ')) && !strncmp(line, "mark_read",   9)) { handle_mark_read(line + 9,  usb_sink); return true; }
     return false;
 }
 
@@ -453,7 +513,11 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     using namespace meshroute::console;
     if (len == 0) return 0;
     if (len == 6 && !strncmp(line, "whoami", 6))
-        return write_ready(out, cap, g_node.node_id(), g_node.key_hash32(), g_node.config(), "existing");
+        return write_ready(out, cap, g_node.node_id(), g_node.key_hash32(), g_node.config(), "existing",
+                           g_node.inbox().storage_epoch());
+    // Inbox sync (companion-only): stream the reply via mrble::tx_line and return 0 (no buffered single-line ack).
+    if ((len == 10 || (len > 10 && line[10] == ' ')) && !strncmp(line, "pull_inbox", 10)) { handle_pull_inbox(line + 10, ble_sink); return 0; }
+    if ((len ==  9 || (len >  9 && line[9]  == ' ')) && !strncmp(line, "mark_read",   9)) { handle_mark_read(line + 9,  ble_sink); return 0; }
     meshroute::Command cmd{};
     const ParseErr e = parse_command(line, len, cmd);
     if (e == ParseErr::ok)    return write_ack(out, cap, g_node.on_command(cmd));
@@ -732,10 +796,10 @@ void loop() {
         // and the whole block is inert (write_push never called) off-XIAO or with no client.
         if (mrble::connected()) {
             // Sized for the TRUE worst case: a 241-B body (max_payload_bytes_hard_cap) of all-control chars
-            // escapes 6x (\uXXXX, console_json.cpp), i.e. ~1446 B + the field envelope. 1536 guarantees a valid
-            // Push NEVER overflows (the earlier 640 silently dropped large/escaped bodies — review HIGH). static
-            // (not stack) to keep 1.5 KB off the hot-path stack; bleuart chunks the TX across notifications.
-            static char jb[1536];
+            // escapes 6x (\uXXXX, console_json.cpp), i.e. ~1446 B + the field envelope (now incl. channel_msg_id /
+            // sender_hash, ~90 B). 1700 keeps a comfortable margin (1536 was an exact-fit after the Phase-3 fields)
+            // so a valid Push NEVER overflows. static (not stack) to keep it off the hot-path stack; bleuart chunks.
+            static char jb[1700];
             const size_t n = meshroute::console::write_push(jb, sizeof jb, pu);
             if (n) mrble::tx_line(jb, n);
             else { static const char kOvf[] = "{\"err\":\"push_encode_overflow\"}\n";   // unreachable for valid

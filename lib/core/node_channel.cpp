@@ -183,6 +183,7 @@ void Node::ingest_channel_m(const m_out& m, uint8_t from) {
         {
             Push pu{};
             pu.kind = PushKind::channel_recv; pu.origin = origin; pu.channel_id = m.channel_id;
+            pu.channel_msg_id = id;            // the FULL 32-bit channel id — the app's dedup identity (matches the inbox record)
             pu.body_len = static_cast<uint8_t>(e.payload_len > protocol::max_payload_bytes_hard_cap
                                                ? protocol::max_payload_bytes_hard_cap : e.payload_len);
             for (uint8_t i = 0; i < pu.body_len; ++i) pu.body[i] = e.payload[i];

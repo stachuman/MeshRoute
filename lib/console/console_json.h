@@ -39,8 +39,19 @@ size_t write_push  (char* buf, size_t cap, const Push& p);
 size_t write_event (char* buf, size_t cap, const char* type, const EventField* f, size_t n);
 size_t write_log   (char* buf, size_t cap, const char* msg);
 size_t write_err   (char* buf, size_t cap, const char* code, const char* msg);  // msg nullable
-size_t write_ready (char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* mode);
+size_t write_ready (char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* mode,
+                    uint32_t inbox_epoch);
 size_t write_status(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* state);
+
+// Phase-3 inbox sync (schema: ios-companion/INBOX_SYNC_CONTRACT.md). The pull stream = inbox_dm* then
+// inbox_channel* (oldest-first) then inbox_end; mark_read acks via write_inbox_marked. Fields individual to
+// keep this file free of inbox.h.
+size_t write_inbox_dm     (char* buf, size_t cap, uint32_t seq, uint8_t origin, uint16_t ctr, uint32_t sender_hash,
+                           uint64_t rx_ms, const char* body, size_t body_len);
+size_t write_inbox_channel(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8_t channel_id,
+                           uint32_t channel_msg_id, uint64_t rx_ms, const char* body, size_t body_len);
+size_t write_inbox_end    (char* buf, size_t cap, uint32_t dm_seq, uint32_t chan_seq, uint32_t epoch, uint32_t count);
+size_t write_inbox_marked (char* buf, size_t cap, const char* kind, uint32_t seq);
 
 const char* cmdcode_name(CmdCode c);
 const char* pushkind_name(PushKind k);

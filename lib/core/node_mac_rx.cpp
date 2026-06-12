@@ -540,13 +540,16 @@ void Node::do_post_ack() {
                 { .key = "payload", .type = EventField::T::str, .s = body },     // dm_delivery keys (dst, payload)
             };
             _hal.emit("delivered", f, 4); );
+        // sender_hash = the origin's stable key_hash32 (when SOURCE_HASH was set) — the app's DM dedup identity.
+        // Computed BEFORE the push so the LIVE msg_recv carries it too: Phase-3 sync needs the live event and the
+        // later pulled record to dedup by the same (sender_hash, ctr).
+        const uint32_t sender_hash = (ui && ui->has_source_hash) ? ui->source_hash : 0;
         Push pu{}; pu.kind = PushKind::msg_recv; pu.origin = pa.origin; pu.dst = pa.dst; pu.ctr = pa.ctr;
+        pu.sender_hash = sender_hash;
         pu.body_len = blen; for (uint8_t i = 0; i < blen; ++i) pu.body[i] = static_cast<uint8_t>(body[i]);
         enqueue_push(pu);                                // app channel: the inbound message (live notify)
         // ... and the durable inbox (record-on-delivery), written alongside the push. Inert until a backend
-        // installs stores; this is the FINAL-destination deliver path so it fires once per delivered DM. The
-        // sender_hash (origin's stable key_hash32) is recorded when SOURCE_HASH was set — the app's DM identity.
-        const uint32_t sender_hash = (ui && ui->has_source_hash) ? ui->source_hash : 0;
+        // installs stores; this is the FINAL-destination deliver path so it fires once per delivered DM.
         _inbox.record_dm(pa.origin, sender_hash, pa.ctr, reinterpret_cast<const uint8_t*>(body), blen, _hal.now());
         // E2E ACK requested -> reply to the DM's origin with the acked ctr (routes home on the F reverse path).
         if (pa.flags & DATA_FLAG_E2E_ACK_REQ) send_e2e_ack(pa.origin, pa.ctr);

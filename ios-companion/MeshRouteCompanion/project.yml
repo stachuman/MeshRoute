@@ -40,7 +40,10 @@ targets:
         SWIFT_VERSION: "5.0"
         IPHONEOS_DEPLOYMENT_TARGET: "17.0"
         ENABLE_PREVIEWS: YES
-        # Simulator builds need no signing; keep the project team-agnostic.
-        CODE_SIGNING_ALLOWED: NO
-        CODE_SIGNING_REQUIRED: NO
-        CODE_SIGN_IDENTITY: ""
+        # Signing: the Simulator needs none. To run on a real iPhone, use automatic signing and set
+        # your team — either pick it in Xcode (target ▸ Signing & Capabilities ▸ Team), or paste your
+        # 10-char Team ID into DEVELOPMENT_TEAM below (that way it survives `xcodegen generate`).
+        # A FREE Apple ID works (no paid Developer Program needed). Command-line Simulator builds still
+        # pass CODE_SIGNING_ALLOWED=NO explicitly, so they don't need a team.
+        CODE_SIGN_STYLE: Automatic
+        DEVELOPMENT_TEAM: ""
