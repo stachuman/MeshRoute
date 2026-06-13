@@ -702,10 +702,6 @@ TEST_CASE("dual-layer bridge: a gateway re-injects a cross-layer DM onto the far
     CHECK(h != nullptr);
     if (h) { CHECK(h->target_leaf == 1); CHECK(h->dst_node_id == 20); CHECK(h->origin == 7); CHECK(h->ctr == 42);
              CHECK((h->flags & DATA_FLAG_CROSS_LAYER) != 0); CHECK(h->inner_len == inner_len); }
-    // LOOP SUPPRESSION: the far leaf's _seen_origins now holds (origin 7, dst 20, ctr 42) -> our own re-inject is a live_dup.
-    const uint32_t sokey = (static_cast<uint32_t>(7) << 24) | (static_cast<uint32_t>(20) << 16) | 42u;
-    CHECK(DualLayerTestAccess::seen(gw, 1).count(sokey) == 1);
-
     // drain on the far leaf's activation -> the re-inject lands on leaf 1's tx_queue as a fresh-budget gw_relay leg.
     DualLayerTestAccess::set_active(gw, 1);
     DualLayerTestAccess::drain(gw, 1);
@@ -714,6 +710,9 @@ TEST_CASE("dual-layer bridge: a gateway re-injects a cross-layer DM onto the far
     const TxItem& it = DualLayerTestAccess::leaf_tx_at(gw, 1, 0);
     CHECK(it.origin == 7); CHECK(it.dst == 20); CHECK(it.ctr == 42);
     CHECK(it.is_gw_relay); CHECK(it.is_forward); CHECK(it.inner_len == inner_len);   // identity preserved, relay-marked
+    // LOOP SUPPRESSION (seeded AT DRAIN, 4f): the far leaf's _seen_origins now holds (origin 7, dst 20, ctr 42).
+    const uint32_t sokey = (static_cast<uint32_t>(7) << 24) | (static_cast<uint32_t>(20) << 16) | 42u;
+    CHECK(DualLayerTestAccess::seen(gw, 1).count(sokey) == 1);
 }
 
 TEST_CASE("dual-layer bridge: the re-injected relay RTS carries RTS_FLAG_RELAY end-to-end (Slice 4c.2)") {
@@ -773,6 +772,60 @@ TEST_CASE("dual-layer bridge: the DELIVER-branch fork routes a cross-layer TRANS
     CHECK(h != nullptr); if (h) { CHECK(h->target_leaf == 1); CHECK(h->dst_node_id == 20); CHECK(h->origin == 7); }
 }
 
+TEST_CASE("dual-layer bridge: an UNKNOWN far-leaf binding DEFERS the handoff -> H-flood -> resolves on the binding (Slice 4f)") {
+    StubHal hal; hal._now = 10000;
+    Node gw(hal, /*id*/ 1, 0xABCDu);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
+    cfg.layers[1] = good_layer(2, 8); cfg.layers[1].node_id = 12;
+    CHECK(gw.on_init(cfg));
+    // bridge a cross-layer DM to Y (key 0x9999) on leaf 2 -- but Y is NOT bound on leaf 2 yet.
+    const uint8_t ids[2] = { 1, 2 }; const uint8_t body[2] = { 'h', 'i' };
+    uint8_t inner[64];
+    const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH);
+    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, /*origin*/ 7, 0, body, 2);
+    DualLayerTestAccess::bridge_from(gw, /*origin*/ 7, /*dst*/ 5, /*ctr*/ 42, flags, inner, static_cast<uint8_t>(il));
+    CHECK(DualLayerTestAccess::handoff_count(gw) == 1);            // deferred (unresolved binding)
+
+    // drain on leaf 2 with the binding STILL unknown -> floods an H query + KEEPS the handoff (not re-injected).
+    DualLayerTestAccess::set_active(gw, 1);
+    hal.last_tx_len = 0;
+    DualLayerTestAccess::drain(gw, 1);
+    CHECK(DualLayerTestAccess::handoff_count(gw) == 1);            // still deferred
+    CHECK(DualLayerTestAccess::leaf_tx_n(gw, 1) == 0);            // NOT re-injected
+    CHECK(hal.last_tx_len > 0);                                   // an H query for the binding went out
+
+    // the binding ARRIVES (Y(0x9999) -> node 20 on leaf 2) -> the next drain resolves + re-injects.
+    DualLayerTestAccess::bind_on_leaf(gw, /*leaf*/ 1, /*node*/ 20, /*key*/ 0x9999u);
+    DualLayerTestAccess::drain(gw, 1);
+    CHECK(DualLayerTestAccess::handoff_count(gw) == 0);            // consumed
+    CHECK(DualLayerTestAccess::leaf_tx_n(gw, 1) == 1);            // re-injected
+    CHECK(DualLayerTestAccess::leaf_tx_at(gw, 1, 0).dst == 20);
+    const uint32_t sokey = (static_cast<uint32_t>(7) << 24) | (static_cast<uint32_t>(20) << 16) | 42u;
+    CHECK(DualLayerTestAccess::seen(gw, 1).count(sokey) == 1);    // loop-seeded at the (deferred) drain
+}
+
+TEST_CASE("dual-layer bridge: an unknown far-leaf binding aged past the TTL gives up LOUD (Slice 4f)") {
+    StubHal hal; hal._now = 10000;
+    Node gw(hal, /*id*/ 1, 0xABCDu);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
+    cfg.layers[1] = good_layer(2, 8); cfg.layers[1].node_id = 12;
+    CHECK(gw.on_init(cfg));
+    const uint8_t ids[2] = { 1, 2 }; const uint8_t body[1] = { 'x' };
+    uint8_t inner[64];
+    const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH);
+    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0xBEEFu, ids, 2, 1, 7, 0, body, 1);
+    DualLayerTestAccess::bridge_from(gw, 7, 5, 77, flags, inner, static_cast<uint8_t>(il));
+    CHECK(DualLayerTestAccess::handoff_count(gw) == 1);            // deferred
+    // advance past the defer TTL -> the next drain GIVES UP (dropped, never re-injected).
+    hal._now += meshroute::protocol::gateway_handoff_defer_ttl_ms + 1;
+    DualLayerTestAccess::set_active(gw, 1);
+    DualLayerTestAccess::drain(gw, 1);
+    CHECK(DualLayerTestAccess::handoff_count(gw) == 0);            // dropped (TTL giveup)
+    CHECK(DualLayerTestAccess::leaf_tx_n(gw, 1) == 0);            // NOT re-injected
+}
+
 TEST_CASE("dual-layer bridge: a cross-layer DM addressed to the gateway ITSELF is REFUSED-not-bridged when malformed; not-our-layer refused (Slice 4c.1)") {
     StubHal hal; hal._now = 10000;
     Node gw(hal, /*id*/ 1, 0xABCDu);
@@ -788,11 +841,13 @@ TEST_CASE("dual-layer bridge: a cross-layer DM addressed to the gateway ITSELF i
       const size_t n = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, 7, 0, body, 1);
       DualLayerTestAccess::bridge_from(gw, 7, 5, 42, flags, inner, static_cast<uint8_t>(n));
       CHECK(DualLayerTestAccess::handoff_count(gw) == 0); }
-    // target leaf 2 is ours, but the recipient hash is UNKNOWN on it (no binding) -> REFUSE (4f will defer instead).
+    // target leaf 2 is ours, but the recipient hash is UNKNOWN on it -> 4f DEFERS (buffer UNRESOLVED, not drop).
     { const uint8_t ids[2] = { 1, 2 };
       const size_t n = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0xBEEFu, ids, 2, 1, 7, 0, body, 1);
       DualLayerTestAccess::bridge_from(gw, 7, 5, 43, flags, inner, static_cast<uint8_t>(n));
-      CHECK(DualLayerTestAccess::handoff_count(gw) == 0); }
+      CHECK(DualLayerTestAccess::handoff_count(gw) == 1);                 // DEFERRED (4f), not dropped
+      const XlHandoff* h = DualLayerTestAccess::handoff_first(gw);
+      CHECK(h != nullptr); if (h) { CHECK(h->dst_node_id == 0); CHECK(h->dst_key_hash32 == 0xBEEFu); } }  // UNRESOLVED, awaiting the binding
 }
 
 TEST_CASE("dual-layer send: an RTS to a time-multiplexing gateway DEFERS to its window, then fires when it opens (Slice 4a / 3e.2b)") {

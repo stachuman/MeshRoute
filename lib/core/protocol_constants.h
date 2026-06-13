@@ -237,6 +237,11 @@ inline constexpr uint32_t gateway_layer_busy_retry_ms = 1000;
 // Slice 3e.2: a node remembers the window schedule of nearby gateways (learned from their beacons) so it can time
 // an RTS to hit the gateway's window on the SENDER's leaf. Small ring (a node hears few gateways); evict-oldest.
 inline constexpr uint8_t  cap_gateway_neighbor_schedules = 4;
+// Slice 4f: an unknown far-leaf binding defers the handoff (instead of dropping) — the gateway floods an H query on
+// the target leaf + re-resolves on a later visit, giving up after the TTL. The reflood throttle is ~one visit period
+// (the DELIVERY_ANALYSIS "~15s not 5s" insight: re-flooding every q_query_ttl thrashes the gateway's far-leaf window).
+inline constexpr uint32_t gateway_handoff_defer_ttl_ms = 60000;   // ~4 visit periods (15s) before a loud giveup
+inline constexpr uint32_t gateway_handoff_reflood_ms   = 15000;   // one H query per gateway visit period (not per drain)
 // Slice 4c.1: the gateway's cross-layer re-inject HANDOFF buffer — a node-global ring of pending bridges, each
 // waiting for its TARGET leaf's window to open (drained in activate_layer). 16 = the user's SMALL cap (full-body
 // entries; a single gateway bridging one layer-pair can't have many in flight). NOTE: cap_gateway_deferred_handoffs

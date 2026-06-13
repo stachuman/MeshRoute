@@ -639,18 +639,16 @@ void Node::bridge_cross_layer(const PostAck& pa, const data_unicast_inner& ui) {
         MR_EMIT("xl_bridge_refused", EF_I("reason", 2), EF_I("origin", pa.origin), EF_I("ctr", pa.ctr));
         become_free(); return;
     }
-    const int dst_node = id_on_leaf_by_hash(static_cast<uint8_t>(target_leaf), ui.dst_key_hash32);
-    if (dst_node < 0) {
-        MR_EMIT("xl_bridge_no_binding", EF_I("target_leaf", target_leaf), EF_I("origin", pa.origin), EF_I("ctr", pa.ctr));
-        become_free(); return;   // 4f will defer + H-flood here instead of dropping
-    }
+    const int dst_node = id_on_leaf_by_hash(static_cast<uint8_t>(target_leaf), ui.dst_key_hash32);   // -1 = unknown -> 4f DEFERS (resolve at drain + H-flood), never drops
     // Advance cur ONLY if a further gateway hop remains (multi-gateway, reserved). v1: cur == n_layers-1 -> unchanged.
     uint8_t new_cur = ui.cur;
     if (static_cast<uint8_t>(ui.cur + 1) < ui.n_layers) new_cur = static_cast<uint8_t>(ui.cur + 1);
     // The re-inject inner is the ORIGINAL preserved verbatim (dst_hash + the full layer-path + origin + source_hash +
-    // body); only the cursor byte is patched for a multi-gw advance. dst = the resolved recipient on the target leaf.
+    // body); only the cursor byte is patched for a multi-gw advance. dst_node 0 = UNRESOLVED (drain re-resolves + H-floods).
     XlHandoff h{};
-    h.valid = true; h.target_leaf = static_cast<uint8_t>(target_leaf); h.dst_node_id = static_cast<uint8_t>(dst_node);
+    h.valid = true; h.target_leaf = static_cast<uint8_t>(target_leaf);
+    h.dst_node_id = (dst_node > 0) ? static_cast<uint8_t>(dst_node) : 0;
+    h.dst_key_hash32 = ui.dst_key_hash32;                     // 4f: re-resolve + H-flood the binding on the target leaf
     h.origin = pa.origin; h.ctr = pa.ctr; h.ctr_lo = pa.ctr_lo; h.flags = pa.flags; h.type = pa.type;
     h.inner_len = pa.inner_len;
     for (uint8_t i = 0; i < pa.inner_len; ++i) h.inner[i] = pa.inner[i];
@@ -663,24 +661,47 @@ void Node::bridge_cross_layer(const PostAck& pa, const data_unicast_inner& ui) {
         MR_EMIT("xl_handoff_full", EF_I("origin", pa.origin), EF_I("dst", dst_node), EF_I("ctr", pa.ctr));
         become_free(); return;
     }
-    // Loop suppression: when we later hear our own re-inject (origin, dst_node, ctr) on the target leaf -> live_dup.
-    seed_seen_origin_on_leaf(static_cast<uint8_t>(target_leaf), pa.origin, static_cast<uint8_t>(dst_node), pa.ctr);
+    // (The loop-suppression seed moves to the DRAIN: for an UNRESOLVED handoff dst_node isn't known yet; the drain
+    //  seeds _seen_origins right before building the re-inject, once the recipient id is resolved on the target leaf.)
     MR_EMIT("xl_bridge", EF_I("origin", pa.origin), EF_I("dst", dst_node), EF_I("ctr", pa.ctr),
-            EF_I("target_leaf", target_leaf), EF_I("cur", new_cur));
-    become_free();                                            // the handoff drains when the target leaf's window opens (activate_layer)
+            EF_I("target_leaf", target_leaf), EF_I("cur", new_cur), EF_I("resolved", dst_node > 0 ? 1 : 0));
+    become_free();                                            // drains (resolved) or defers + H-floods (unresolved) on the target leaf's window
 }
 
 // Called from activate_layer(leaf) with _active == &_layers[leaf]: move every handoff targeting this leaf into its
 // tx_queue as a fresh-budget RELAY leg (identity preserved — mirrors l2c_enqueue_forward; + is_gw_relay + the DM type).
 void Node::drain_xl_handoffs_for_leaf(uint8_t leaf) {
+    const uint64_t now = _hal.now();
     for (uint8_t i = 0; i < protocol::cap_gateway_handoffs; ++i) {
         XlHandoff& h = _xl_handoffs[i];
         if (!h.valid || h.target_leaf != leaf) continue;
-        h.valid = false;                                      // consume the slot
+        // Slice 4f: an UNRESOLVED handoff (binding unknown at bridge) re-resolves on THIS (now-active target) leaf's
+        // id_bind. Found -> drain below. Still unknown -> H-flood the binding on this leaf (throttled, one per visit)
+        // + keep deferred; on the TTL -> give up LOUD (X's DM retry recovers it — an ack/transit DM never floods home).
+        if (h.dst_node_id == 0) {
+            const int rid = id_bind_find_by_hash(h.dst_key_hash32);   // _active == &_layers[leaf] here
+            if (rid > 0) {
+                h.dst_node_id = static_cast<uint8_t>(rid);
+            } else if (now - h.queued_at_ms >= protocol::gateway_handoff_defer_ttl_ms) {
+                MR_EMIT("xl_handoff_giveup", EF_I("origin", h.origin), EF_I("ctr", h.ctr), EF_I("dst_hash", static_cast<int64_t>(h.dst_key_hash32)), EF_I("leaf", leaf));
+                h.valid = false;                                     // TTL exceeded -> DROP loud
+                continue;
+            } else {
+                if (h.last_h_flood_ms == 0 || now - h.last_h_flood_ms >= protocol::gateway_handoff_reflood_ms) {  // 0 = never flooded -> fire now
+                    emit_hash_query(h.dst_key_hash32, /*hard=*/false);   // flood an H query on THIS leaf (we're on it now)
+                    h.last_h_flood_ms = now;
+                    MR_EMIT("xl_handoff_h_flood", EF_I("ctr", h.ctr), EF_I("dst_hash", static_cast<int64_t>(h.dst_key_hash32)), EF_I("leaf", leaf));
+                }
+                continue;                                            // keep deferred -> re-resolve on a later visit / the H-answer
+            }
+        }
+        h.valid = false;                                      // resolved -> consume the slot + build the relay leg
         if (_active->_tx_queue_n >= kTxQueueCap) {            // queue full -> drop loud (transit DM lost; the sender's E2E ack won't come)
             MR_EMIT("xl_handoff_drop_queue_full", EF_I("origin", h.origin), EF_I("dst", h.dst_node_id), EF_I("ctr", h.ctr));
             continue;
         }
+        // Loop suppression (moved here from the bridge, 4f): seed THIS leaf so we live_dup our own re-inject.
+        seed_seen_origin_on_leaf(leaf, h.origin, h.dst_node_id, h.ctr);
         TxItem it{};
         it.origin = h.origin; it.dst = h.dst_node_id; it.ctr = h.ctr; it.ctr_lo = h.ctr_lo;
         it.flags = h.flags; it.type = h.type; it.is_forward = true; it.is_gw_relay = true; it.previous_hop = 0;

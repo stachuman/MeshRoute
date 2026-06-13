@@ -244,7 +244,9 @@ struct GatewaySchedule {
 struct XlHandoff {
     bool     valid       = false;
     uint8_t  target_leaf = 0;        // the leaf INDEX (0/1) to re-inject on (its layer_id == layer_ids[cur])
-    uint8_t  dst_node_id = 0;        // the recipient resolved on the target leaf's id_bind (the re-inject's routing dst)
+    uint8_t  dst_node_id = 0;        // the recipient on the target leaf (the re-inject's routing dst); 0 = UNRESOLVED (4f: binding unknown at bridge -> resolve at drain)
+    uint32_t dst_key_hash32 = 0;     // Slice 4f: the recipient's stable key -> re-resolve + H-flood the binding on the target leaf
+    uint64_t last_h_flood_ms = 0;    // Slice 4f: throttle the unknown-binding H-reflood to one per visit period
     uint8_t  origin      = 0;        // the ORIGINAL sender (preserved end-to-end)
     uint16_t ctr         = 0;
     uint8_t  ctr_lo      = 0;

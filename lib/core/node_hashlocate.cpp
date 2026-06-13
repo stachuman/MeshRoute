@@ -336,6 +336,9 @@ void Node::on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool a
                            { .key = "authoritative", .type = EventField::T::boolean, .b = authoritative } };
         _hal.emit("hash_bind_rx", f, 4); );
     drain_parked_sends(hb->key_hash32, hb->node_id, hb->target_layer);   // D: a parked send-by-hash can now fly; target_layer drives the cross-layer fork (4d)
+    // Slice 4f: the binding for a DEFERRED cross-layer handoff just arrived on THIS leaf -> re-resolve + drain it now
+    // (else it waits a full visit period). _active is the leaf the answer arrived on; the caller become_free()s next.
+    drain_xl_handoffs_for_leaf(static_cast<uint8_t>(_active - &_layers[0]));
 }
 
 // C.2 cache-on-pass (NEW, beyond the Lua's gateway-only caching): a RELAYED hash-bind answer is
