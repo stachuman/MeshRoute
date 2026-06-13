@@ -169,6 +169,43 @@ void Node::send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr) {
     (void)enqueue_data(to_origin, body, 2, /*flags=*/0, "e2e_ack_tx", /*app_dm=*/false, DATA_TYPE_E2E_ACK);
 }
 
+// Slice 4e: the reversed-path CROSS_LAYER E2E ack. The inbound DM `dm` preserved the full layer-path (§0.10), so Y
+// REVERSES it and acks the ORIGINAL sender X over a gateway bridging back. dst = X's stable key (dm.source_hash) —
+// FAIL LOUD if absent (NEVER ack pa.origin on the local leaf — that's a different node on the wrong layer). The ack
+// is a CROSS_LAYER TYPE=E2E_ACK DATA, bridged by 4c.1 exactly like any forward cross-layer DATA. Best-effort: no
+// reverse gateway / route -> DROP loud (X's DM retry recovers it; an ack never floods/parks).
+void Node::send_e2e_ack_cross_layer(const data_unicast_inner& dm, uint16_t acked_ctr) {
+    if (!dm.has_cross_layer || dm.n_layers == 0) return;                  // not a cross-layer DM (caller already gated, defensive)
+    if (!dm.has_source_hash || dm.source_hash == 0) {                     // no stable sender key -> can't address the ack. FAIL LOUD.
+        MR_EMIT("xl_ack_no_source", EF_I("acked_ctr", acked_ctr));
+        return;
+    }
+    // Reverse the preserved path: [A,B] -> [B,A]; cur reset to 1 (Y on rev[0], enters rev[1] = X's origin layer).
+    uint8_t rev[protocol::gw_env_max_hops] = {};
+    for (uint8_t i = 0; i < dm.n_layers; ++i) rev[i] = dm.layer_ids[dm.n_layers - 1 - i];
+    const uint8_t target_leaf = static_cast<uint8_t>(rev[1] & 0x0F);      // the next layer to enter (cur=1)
+    const uint8_t gw = select_gateway_for_leaf(target_leaf);
+    if (gw == 0 || rt_find(gw) == nullptr) {                              // no reverse gateway / route -> DROP loud (never park/flood an ack)
+        MR_EMIT("xl_ack_no_gateway", EF_I("target_leaf", target_leaf), EF_I("acked_ctr", acked_ctr), EF_I("to_hash", static_cast<int64_t>(dm.source_hash)));
+        return;
+    }
+    TxItem item{};
+    const uint16_t ctr = next_ctr(gw);                                   // a fresh MAC ctr vs the gateway (the ack's own identity)
+    item.origin = _node_id; item.dst = gw; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
+    item.flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH);
+    item.type  = DATA_TYPE_E2E_ACK;
+    const uint8_t abody[2] = { static_cast<uint8_t>(acked_ctr & 0xFF), static_cast<uint8_t>(acked_ctr >> 8) };
+    const size_t n = pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), item.flags, dm.source_hash,
+                                        rev, dm.n_layers, /*cur*/ 1, _node_id, _key_hash32, abody, 2);
+    if (n == 0) return;                                                  // overflow (never for a 2-B ack) -> fail loud
+    item.inner_len = static_cast<uint8_t>(n);
+    item.enqueue_time_ms = _hal.now();
+    if (_active->_tx_queue_n >= kTxQueueCap) return;
+    _active->_tx_queue[_active->_tx_queue_n++] = item;
+    MR_EMIT("xl_e2e_ack_tx", EF_I("to_hash", static_cast<int64_t>(dm.source_hash)), EF_I("gw", gw), EF_I("acked_ctr", acked_ctr));
+    become_free();                                                       // 4a defers the RTS to the gateway's window
+}
+
 void Node::become_free() {
     if (_active->_pending_tx || _active->_pending_rx) return;              // half-duplex serialize
     if (_active->_tx_queue_n == 0) return;

@@ -517,9 +517,11 @@ void Node::do_post_ack() {
         }
         if (pa.type == DATA_TYPE_E2E_ACK) {              // an end-to-end ACK for a DM we originated -> confirm, not deliver
             MR_TELEMETRY(
-                // E2E_ACK inner is normal unicast [origin][ctr_lo][ctr_hi] (no payload-flags byte) -> ctr at inner[1..2].
-                const uint16_t acked = (pa.inner_len >= 3)
-                                       ? static_cast<uint16_t>(pa.inner[1] | (pa.inner[2] << 8)) : 0;
+                // The acked ctr: a same-layer E2E_ACK inner is [origin][ctr_lo][ctr_hi] (ctr at inner[1..2]); a 4e
+                // CROSS_LAYER ack is ...[origin][source_hash][body=ctr_lo,ctr_hi] -> the ctr is the parsed BODY (ui).
+                const uint16_t acked = ((pa.flags & DATA_FLAG_CROSS_LAYER) && ui && ui->body.size() >= 2)
+                                       ? static_cast<uint16_t>(ui->body[0] | (ui->body[1] << 8))
+                                       : ((pa.inner_len >= 3) ? static_cast<uint16_t>(pa.inner[1] | (pa.inner[2] << 8)) : 0);
                 EventField ef[] = { { .key = "from", .type = EventField::T::i64, .i = pa.origin },
                                     { .key = "ctr",  .type = EventField::T::i64, .i = acked } };
                 _hal.emit("e2e_ack_rx", ef, 2); );
@@ -560,8 +562,12 @@ void Node::do_post_ack() {
         pu.layer_id = rx_layer; pu.sender_hash = sender_hash; pu.seq = seq;
         pu.body_len = blen; for (uint8_t i = 0; i < blen; ++i) pu.body[i] = static_cast<uint8_t>(body[i]);
         enqueue_push(pu);                                // app channel: the inbound message (live notify, seq-stamped)
-        // E2E ACK requested -> reply to the DM's origin with the acked ctr (routes home on the F reverse path).
-        if (pa.flags & DATA_FLAG_E2E_ACK_REQ) send_e2e_ack(pa.origin, pa.ctr);
+        // E2E ACK requested -> reply with the acked ctr. CROSS_LAYER -> a reversed-path cross-layer ack (4e); else the
+        // same-layer ack home on the F reverse path.
+        if (pa.flags & DATA_FLAG_E2E_ACK_REQ) {
+            if ((pa.flags & DATA_FLAG_CROSS_LAYER) && ui) send_e2e_ack_cross_layer(*ui, pa.ctr);
+            else                                          send_e2e_ack(pa.origin, pa.ctr);
+        }
         become_free();
     } else {
         // C.2 cache-on-pass: a relayed hash-bind answer is cleartext -> snoop the binding before forwarding.

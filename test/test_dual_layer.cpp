@@ -181,6 +181,13 @@ struct DualLayerTestAccess {
         gs.period_ms = 15000; gs.n_rec = 1; gs.rec[0].leaf_id = leaf_served; gs.rec[0].window_ms = 7500; gs.rec[0].offset_ms = 0;
         n.store_gateway_schedule(gs);
     }
+    static void           store_gw_schedule_pair(Node& n, uint8_t gw_node, uint8_t leafA, uint8_t leafB) {  // a gateway serving BOTH leaves (4e)
+        GatewaySchedule gs{}; gs.valid = true; gs.gw_node_id = gw_node; gs.heard_ms = n._hal.now(); gs.period_ms = 15000; gs.n_rec = 2;
+        gs.rec[0].leaf_id = leafA; gs.rec[0].window_ms = 7500; gs.rec[0].offset_ms = 0;
+        gs.rec[1].leaf_id = leafB; gs.rec[1].window_ms = 7500; gs.rec[1].offset_ms = 7500;   // leafB opens later -> a node on leafB defers (held)
+        n.store_gateway_schedule(gs);
+    }
+    static void           send_xl_ack(Node& n, const data_unicast_inner& dm, uint16_t ctr) { n.send_e2e_ack_cross_layer(dm, ctr); }
     static void           drain_parked(Node& n, uint32_t key, uint8_t resolved, uint8_t layer) { n.drain_parked_sends(key, resolved, layer); }   // simulate the H-answer
     static uint8_t        pending_dst(Node& n)              { return n._active->_pending_tx ? n._active->_pending_tx->dst : 0; }
     static uint8_t        pending_flags(Node& n)            { return n._active->_pending_tx ? n._active->_pending_tx->flags : 0xFF; }
@@ -564,6 +571,50 @@ TEST_CASE("dual-layer origination: send_cross_layer builds [my,target] cur=1 + S
               CHECK(ui->dst_key_hash32 == 0x9999u);                          // the final recipient Y
               CHECK(ui->has_source_hash); CHECK(ui->source_hash == 0x7777u); // X's stable key (for the reversed ack)
               CHECK(ui->origin == 7); }                                      // X
+}
+
+TEST_CASE("dual-layer ack: Y builds a REVERSED-path cross-layer E2E ack back to the original sender (Slice 4e)") {
+    StubHal hal; hal._now = 50000;
+    Node y(hal, /*id*/ 30, 0x9999u);                         // Y, the recipient on layer B (leaf 2)
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 2;
+    CHECK(y.on_init(cfg));
+    DualLayerTestAccess::store_gw_schedule_pair(y, /*gw*/ 5, /*leafA*/ 1, /*leafB*/ 2);   // G bridges A(1)<->B(2)
+    DualLayerTestAccess::learn_neighbor(y, 5);               // route to G
+    // the inbound cross-layer DM from X@A: layer_ids=[1,2], SOURCE_HASH=X(0x7777), DST_HASH=Y(0x9999), origin X(7).
+    data_unicast_inner dm{};
+    dm.origin = 7; dm.has_cross_layer = true; dm.n_layers = 2; dm.cur = 1; dm.layer_ids[0] = 1; dm.layer_ids[1] = 2;
+    dm.has_source_hash = true; dm.source_hash = 0x7777u;
+    dm.has_dst_hash = true; dm.dst_key_hash32 = 0x9999u;
+    DualLayerTestAccess::send_xl_ack(y, dm, /*acked_ctr*/ 42);
+    // the ack DEFERS to G's window (Y's leaf opens later) -> held in the queue, inspectable.
+    CHECK(DualLayerTestAccess::leaf_tx_n(y, 0) == 1);
+    const TxItem& it = DualLayerTestAccess::leaf_tx_at(y, 0, 0);
+    CHECK(it.dst == 5);                                       // MAC dst = the reverse gateway
+    CHECK(it.type == DATA_TYPE_E2E_ACK);
+    CHECK((it.flags & DATA_FLAG_CROSS_LAYER) != 0);
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(it.inner, it.inner_len), it.flags);
+    CHECK(ui.has_value());
+    if (ui) { CHECK(ui->has_cross_layer); CHECK(ui->n_layers == 2); CHECK(ui->cur == 1);
+              CHECK(ui->layer_ids[0] == 2); CHECK(ui->layer_ids[1] == 1);     // REVERSED [B,A]
+              CHECK(ui->dst_key_hash32 == 0x7777u);                            // addressed BACK to X
+              CHECK(ui->has_source_hash); CHECK(ui->source_hash == 0x9999u);   // from Y
+              CHECK(ui->origin == 30);                                         // Y
+              CHECK(ui->body.size() == 2);
+              CHECK((static_cast<uint16_t>(ui->body[0]) | (static_cast<uint16_t>(ui->body[1]) << 8)) == 42); }   // the acked ctr
+}
+
+TEST_CASE("dual-layer ack: a cross-layer DM WITHOUT SOURCE_HASH -> NO ack (never ack the local-leaf origin) (Slice 4e)") {
+    StubHal hal; hal._now = 50000;
+    Node y(hal, /*id*/ 30, 0x9999u);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 2;
+    CHECK(y.on_init(cfg));
+    DualLayerTestAccess::store_gw_schedule_pair(y, 5, 1, 2);
+    DualLayerTestAccess::learn_neighbor(y, 5);
+    data_unicast_inner dm{};
+    dm.origin = 7; dm.has_cross_layer = true; dm.n_layers = 2; dm.cur = 1; dm.layer_ids[0] = 1; dm.layer_ids[1] = 2;
+    dm.has_source_hash = false;                              // NO stable sender key -> can't address the ack
+    DualLayerTestAccess::send_xl_ack(y, dm, 42);
+    CHECK(DualLayerTestAccess::leaf_tx_n(y, 0) == 0);        // FAIL LOUD: no ack built (not a wrong-node ack)
 }
 
 TEST_CASE("dual-layer origination: a routeless bridging gateway -> PARK + reactive RREQ, not give-up (Slice 4d.2)") {
