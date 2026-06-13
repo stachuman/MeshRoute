@@ -667,6 +667,19 @@ std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> i
         wire::Reader r(inner.subspan(off, 4)); u.dst_key_hash32 = r.u32_le();
         u.has_dst_hash = true; off += 4;
     }
+    // Slice 4b: the CROSS_LAYER layer-path, BETWEEN dst_hash and origin (spec §5). n_layers:1 | cur:1 | n_layers×1B
+    // FULL 8-bit ids. FAIL LOUD (nullopt) on short / n_layers 0 / n_layers > gw_env_max_hops / cur >= n_layers — NO
+    // clamp, NO default-to-0 (extends the existing nullopt-on-short precedent; the consumer must refuse, not raw-deliver).
+    if (flags & DATA_FLAG_CROSS_LAYER) {
+        if (inner.size() < off + 2) return std::nullopt;          // n_layers + cur
+        const uint8_t n = inner[off]; const uint8_t cur = inner[off + 1];
+        if (n == 0 || n > protocol::gw_env_max_hops) return std::nullopt;
+        if (cur >= n) return std::nullopt;                        // cur indexes the NEXT layer to enter (< n)
+        if (inner.size() < off + 2 + n) return std::nullopt;      // the n layer_ids
+        u.has_cross_layer = true; u.n_layers = n; u.cur = cur;
+        for (uint8_t i = 0; i < n; ++i) u.layer_ids[i] = inner[off + 2 + i];
+        off += static_cast<size_t>(2) + n;
+    }
     if (inner.size() < off + 1) return std::nullopt;              // origin
     u.origin = inner[off]; off += 1;
     if (flags & DATA_FLAG_SOURCE_HASH) {                          // origin's key_hash32 (stable sender id), after origin
@@ -676,6 +689,36 @@ std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> i
     }
     u.body   = inner.subspan(off);
     return u;
+}
+
+size_t pack_unicast_inner(std::span<uint8_t> out, uint8_t flags, uint32_t dst_key_hash32,
+                          const uint8_t* layer_ids, uint8_t n_layers, uint8_t cur,
+                          uint8_t origin, uint32_t source_hash, const uint8_t* body, uint8_t body_len) {
+    // Size the inner FIRST so a too-small `out` never gets a partial write (fail loud: return 0, the caller refuses).
+    size_t need = static_cast<size_t>(1) + body_len;             // origin + body
+    if (flags & DATA_FLAG_DST_HASH)    need += 4;
+    if (flags & DATA_FLAG_SOURCE_HASH) need += 4;
+    if (flags & DATA_FLAG_CROSS_LAYER) {
+        if (n_layers == 0 || n_layers > protocol::gw_env_max_hops || cur >= n_layers) return 0;   // invalid path -> refuse
+        need += static_cast<size_t>(2) + n_layers;
+    }
+    if (need > out.size()) return 0;                             // overflow -> refuse (NO truncation)
+    size_t off = 0;
+    if (flags & DATA_FLAG_DST_HASH) {                            // dst_key_hash32 (4 B LE) — matches enqueue_data's manual LE
+        out[off++] = static_cast<uint8_t>(dst_key_hash32);       out[off++] = static_cast<uint8_t>(dst_key_hash32 >> 8);
+        out[off++] = static_cast<uint8_t>(dst_key_hash32 >> 16); out[off++] = static_cast<uint8_t>(dst_key_hash32 >> 24);
+    }
+    if (flags & DATA_FLAG_CROSS_LAYER) {                         // layer-path: n_layers | cur | layer_ids (FULL 8-bit)
+        out[off++] = n_layers; out[off++] = cur;
+        for (uint8_t i = 0; i < n_layers; ++i) out[off++] = layer_ids[i];
+    }
+    out[off++] = origin;
+    if (flags & DATA_FLAG_SOURCE_HASH) {                         // source_hash (4 B LE), AFTER origin
+        out[off++] = static_cast<uint8_t>(source_hash);       out[off++] = static_cast<uint8_t>(source_hash >> 8);
+        out[off++] = static_cast<uint8_t>(source_hash >> 16); out[off++] = static_cast<uint8_t>(source_hash >> 24);
+    }
+    for (uint8_t i = 0; i < body_len; ++i) out[off++] = body ? body[i] : 0;
+    return off;
 }
 // -----------------------------------------------------------------------------
 // M — lean channel-message frame (cmd 0xA, 7+n B). 2026-06-09: channel messages

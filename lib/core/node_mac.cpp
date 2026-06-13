@@ -58,26 +58,24 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     // verify-on-delivery) is default-on for app DMs when we know the recipient's stable key (id_bind) and the
     // +4 B still fits the inner buffer — when present, set the byte-1 HEADER flag (item.flags) and prefix the
     // hash. Else plain ([origin][body]). NOT for internal DATA (E2E acks): app_dm=false.
-    uint8_t off = 0;
+    // Decide the optional inner fields (the SAME fit-checks as before), then build the bytes via the shared
+    // pack_unicast_inner (Slice 4b — the single source of inner byte ORDER; proves byte-identical for this
+    // non-cross-layer path). Inner = [dst_key_hash32 (iff DST_HASH)][origin][source_hash (iff SOURCE_HASH)][body].
+    // DST_HASH (L2c verify-on-delivery) is default-on for app DMs when we know the recipient's stable key + it fits;
+    // SOURCE_HASH carries the sender's STABLE key_hash32 AFTER origin (the 8-bit origin is reassignable). NOT for
+    // internal DATA (E2E acks): app_dm=false. NO CROSS_LAYER here — that path is Slice 4d (origination) / 4c (bridge).
     uint32_t dh = 0;
     if (app_dm && key_hash_of_id(dst, dh)
         && static_cast<size_t>(4 + 1 + body_len) <= protocol::max_payload_bytes_hard_cap) {
         item.flags |= DATA_FLAG_DST_HASH;
-        item.inner[0] = static_cast<uint8_t>(dh);         item.inner[1] = static_cast<uint8_t>(dh >> 8);
-        item.inner[2] = static_cast<uint8_t>(dh >> 16);   item.inner[3] = static_cast<uint8_t>(dh >> 24);
-        off = 4;
     }
-    item.inner[off++] = _node_id;                         // origin
-    // SOURCE_HASH (default-on for app DMs): carry the sender's key_hash32 AFTER origin — the STABLE DM identity
-    // (the 8-bit origin node_id is reassignable; key_hash32 is not), which the destination records + the E2E-ack
-    // reads. +4 B; only when it fits. (Moves into the CRYPTED-sealed region once E2E encryption lands.)
-    if (app_dm && static_cast<size_t>(off + 4 + body_len) <= protocol::max_payload_bytes_hard_cap) {
+    const uint8_t after_origin = static_cast<uint8_t>((item.flags & DATA_FLAG_DST_HASH ? 4 : 0) + 1);
+    if (app_dm && static_cast<size_t>(after_origin + 4 + body_len) <= protocol::max_payload_bytes_hard_cap) {
         item.flags |= DATA_FLAG_SOURCE_HASH;
-        item.inner[off++] = static_cast<uint8_t>(_key_hash32);         item.inner[off++] = static_cast<uint8_t>(_key_hash32 >> 8);
-        item.inner[off++] = static_cast<uint8_t>(_key_hash32 >> 16);   item.inner[off++] = static_cast<uint8_t>(_key_hash32 >> 24);
     }
-    if (body) for (uint8_t i = 0; i < body_len; ++i) item.inner[off + i] = body[i];
-    item.inner_len = static_cast<uint8_t>(off + body_len);
+    item.inner_len = static_cast<uint8_t>(
+        pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), item.flags, dh,
+                           /*layer_ids*/ nullptr, /*n_layers*/ 0, /*cur*/ 0, _node_id, _key_hash32, body, body_len));
     item.enqueue_time_ms = _hal.now();                   // first-enqueue time (cascade-requeue total-age cap)
     // Inc 3 back-off: a warn'd ACK (a downstream neighbour says we're near its airtime cap) parks new DM
     // originations until the warn window expires, relieving that neighbour. The hard receiver-side airtime
@@ -273,6 +271,25 @@ void Node::issue_send(const TxItem& item) {
             defer_send(item);
         }
         return;
+    }
+    // Slice 4a (the deferred 3e.2b): if the resolved next-hop is a learned, time-multiplexing GATEWAY, HOLD the RTS
+    // until its window on OUR leaf opens (dv:7331). gateway_schedule_defer_ms returns 0 for a non-gateway / unknown
+    // next-hop (send now), or up to a full window_period_ms when the gateway is away on its other leaf — it isn't
+    // listening on our leaf then, so firing now just burns airtime. Re-queue with a next_attempt_ms COMPOSED as
+    // max() against any backoff already on the item (ack-warn / self-cap) — never shorten an existing hold. NOT for
+    // channel gossip (is_channel_m is fire-and-forget; a gateway skips channels anyway). issue_send's ONLY caller is
+    // become_free, which just removed this item, so the queue always has room to re-add it.
+    if (!item.is_channel_m) {
+        if (const uint32_t defer = gateway_schedule_defer_ms(first); defer > 0) {
+            TxItem held = item;
+            const uint64_t until = _hal.now() + defer;
+            if (held.next_attempt_ms < until) held.next_attempt_ms = until;   // compose: never clobber an earlier-armed backoff
+            if (_active->_tx_queue_n < kTxQueueCap) _active->_tx_queue[_active->_tx_queue_n++] = held;
+            MR_EMIT("tx_gateway_schedule_defer", EF_I("dst", item.dst), EF_I("next", first),
+                    EF_I("ctr", item.ctr), EF_I("defer_ms", defer));
+            become_free();                               // re-service: pick another ready item, else arm kQueueWakeupTimerId for the soonest
+            return;
+        }
     }
     pt.next = first;
     pt.flight_gen = ++_flight_gen;                       // #A redo: a NEW flight identity (cascade_to_alt keeps it; a requeue re-installs here -> new gen)

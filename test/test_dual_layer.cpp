@@ -152,6 +152,7 @@ struct DualLayerTestAccess {
     static uint64_t last_beacon_ms(Node& n, uint8_t i)      { return n._layers[i]._last_beacon_ms; } // Slice 3d per-leaf beacon
     static uint32_t gw_defer(Node& n, uint8_t gw_node_id)   { return n.gateway_schedule_defer_ms(gw_node_id); }  // Slice 3e.2
     static void     emit(Node& n, const char* kind)         { n.emit_beacon(kind); }                  // Slice 3e F-A: force a beacon
+    static void     pump(Node& n)                           { n.become_free(); }                      // Slice 4a: the kQueueWakeupTimerId handler
 };
 }  // namespace meshroute
 
@@ -479,6 +480,46 @@ TEST_CASE("dual-layer beacon: the ACTIVE leaf advertises countdown 0 even MID-wi
     // leaf 1 (foreign) opens at t=17500; at t=13000 -> 4500 ms away -> 45 units.
     CHECK(r1->layer_id == 2);
     CHECK(r1->offset_100ms == 45);
+}
+
+TEST_CASE("dual-layer send: an RTS to a time-multiplexing gateway DEFERS to its window, then fires when it opens (Slice 4a / 3e.2b)") {
+    // 1) a gateway G emits a beacon on leaf 0 (nibble 1, node_id 5) — capture it off the wire. now >= the discovery
+    //    beacon period so the boot beacon is due (maybe_emit_gateway_beacon: now - _last_beacon_ms(0) >= period).
+    StubHal ghal; ghal._now = 10000;
+    Node gw(ghal, /*id*/ 1, 0xABCDu);
+    NodeConfig gcfg; gcfg.n_layers = 2;
+    gcfg.layers[0] = good_layer(1, 8); gcfg.layers[0].node_id = 5;
+    gcfg.layers[1] = good_layer(2, 8); gcfg.layers[1].node_id = 12;   // equal SF -> 7500/7500 windows, period 15000
+    CHECK(gw.on_init(gcfg));
+    CHECK(ghal.last_tx_len > 0);
+
+    // 2) a normal SENDER on leaf 1 hears G -> learns BOTH a 1-hop route to G (id 5) AND G's window schedule.
+    StubHal hal; hal._now = 50000;
+    Node tx(hal, /*id*/ 7, 0x7777u);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+    CHECK(tx.on_init(cfg));
+    RxMeta meta{}; meta.snr_db = 9.0f; meta.rssi_dbm = -70.0f; meta.recv_ms = hal._now; meta.src_hint = -1;
+    tx.on_recv(ghal.last_tx, ghal.last_tx_len, meta);
+    CHECK(tx.rt_count() >= 1);                  // a route to G (id 5) installed from its beacon
+
+    // 3) advance so G is on its FOREIGN leaf (deaf to us): heard at 50000, at +8000 the defer is 7100 ms.
+    hal._now = 58000;
+    hal.last_tx_len = 0;
+    const char* body = "hi!";
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 5; c.u.send.flags = 0;
+    c.body = reinterpret_cast<const uint8_t*>(body); c.body_len = 3;
+    const CmdResult r = tx.on_command(c);
+    CHECK(r.code == CmdCode::queued);
+    // DEFERRED: no flight installed, NO RTS on the wire, the DM HELD in the queue (next_attempt_ms = the window open).
+    CHECK_FALSE(tx.has_pending_tx());
+    CHECK(hal.last_tx_len == 0);
+    CHECK(r.queue_depth == 1);
+
+    // 4) G's leaf-1 (= our) window re-opens at +15100 (period 15000 + the 100 ms guard) -> the queue wakeup fires the RTS.
+    hal._now = 65100;
+    DualLayerTestAccess::pump(tx);              // become_free (the kQueueWakeupTimerId handler)
+    CHECK(tx.has_pending_tx());                 // flight now live -> the held DM went out
+    CHECK(hal.last_tx_len > 0);                 // an RTS hit the wire
 }
 
 TEST_CASE("dual-layer config: a window beyond the 8-bit wire range is REFUSED, not clamped (Slice 3e F-C)") {

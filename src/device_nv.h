@@ -74,6 +74,11 @@ struct IdBlob {
     uint16_t name_len;         // bytes of `name` in use (0..sizeof(name))
     uint8_t  seed[32];         // master identity secret (the ONLY persisted key material)
     char     name[32];         // human label (app-level, §1.3); not necessarily null-terminated — name_len bounds it
+    // Node location (deployment metadata), degrees × 1e7; (0,0) = unset. APPENDED to /mrid (set once via
+    // `cfg set lat`/`lon` or the app). The strict size check below means a legacy /mrid (no lat/lon) is
+    // rejected on the first boot after reflashing -> the node re-mints a fresh identity. Fine: dev system.
+    int32_t  lat_e7;
+    int32_t  lon_e7;
 };
 constexpr uint32_t kIdMagic   = 0x4D524944u; // 'MRID'
 constexpr uint16_t kIdVersion = 1;

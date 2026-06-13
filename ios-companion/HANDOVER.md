@@ -73,12 +73,27 @@ to project.yml — `xcodegen generate` already run). Wire format `meshroute://co
 `"name"` (loaded per-whoami, no RAM cost) — rebuild+reflash with the Theme-A `now_ms` change; give
 nodes names via `cfg set name <str>`.
 
+## Theme C location (fixed-node set/show) — SHIPPED 2026-06-12, bench-verify pending
+Format = int32 degrees×1e7 (`lat_e7`/`lon_e7`, 0,0=unset). Firmware: persisted in the **`/mrid`** record
+(appended after `name`, no version bump; strict load → reflashing re-mints identity, accepted as a dev
+system); `g_lat_e7`/`g_lon_e7`; `cfg set lat`/`lon`
+(serial + **wired over BLE** in `ble_dispatch_line`, echoes fresh cfg); dump_cfg + help + `cfg` JSON
+(`lat_e7`/`lon_e7`). App: `NodeConfigInfo.latitude/longitude/hasPosition`; Node-tab Location row + MapKit
+preview + set sheet (manual or CoreLocation "use my location"); `AppModel.setNodeLocation`. New Info.plist
+key: NSLocationWhenInUseUsageDescription. Needs PC rebuild + `pio test -e native` (cfg golden has
+lat_e7/lon_e7) + reflash. Still TODO: BCN-ext broadcast so PEERS' positions show (firmware beacon +
+position table) + the mobile phone-fed path.
+
 ## E1 reliability + notifications (roadmap step 4, in progress) — 2026-06-12
 Background-BLE fixes (auto-reconnect now re-syncs; foreground re-sync; `bluetooth-central` bg mode) +
 **local notifications** (a DM arriving while not on screen → `UNUserNotification` banner; live path only,
 not bulk pull). `AppModel.requestNotificationAuthorization` (on launch) / `notifyInboundDM` /
-`handleForeground`+`handleBackground` (RootView scenePhase). Still TODO: State Restoration, app-icon
-badge, firmware wake-on-message. Also: app now **decodes `layer_id`** (D12) on all 4 message types.
+`handleForeground`+`handleBackground` (RootView scenePhase). **Tap-to-open** via `NotificationRouter`
+→ `openConversation` (tab/path hoisted to AppModel). **App-icon badge** mirrors unread. App now
+**decodes `layer_id`** (D12) on all 4 message types. Still TODO for E1: **State Restoration** — survive
+app termination; deferred because it needs a persistent-BLE-session refactor (today connect() makes a
+fresh link/session each time; restoration needs the CBCentralManager created at launch with a restore
+id + willRestoreState + pump-always-on) and on-device termination testing. Plus firmware wake-on-message.
 
 ## Theme A (roadmap step 1) — SHIPPED 2026-06-12, bench-verify pending
 Timestamps (`now_ms` in `ready`/`inbox_end` + app `NodeTimeAnchor`; firmware needs PC rebuild +

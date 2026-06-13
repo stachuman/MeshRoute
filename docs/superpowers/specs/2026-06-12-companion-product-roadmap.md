@@ -39,6 +39,7 @@ not coded; R8 mobile not started. The durable (QSPI) inbox is pending; the inter
 | D11 | 2026-06-12 | **The app is the join UI** (post-R6): discover beaconing leafs → show `leaf_name` → join. |
 | D12 | 2026-06-12 | **(Q13 → gateway spec, fixed)** The receiving-layer field on pushes + inbox records is the **full 8-bit `layer_id`** (not the 4-bit leaf nibble, which aliases across 255 layers). Applies to the `Push` POD, the inbox record, and the `msg_recv`/`channel_recv`/`inbox_dm`/`inbox_channel` JSON. **Firmware emits it + app decodes it (2026-06-12)** — wired into `Inbound`/`InboxEntry` (optional, 0 on single-layer); not yet persisted/shown (gateway-era UI). |
 | D13 | 2026-06-12 | **Wake-on-message BLE (user-proposed):** a node that RECEIVES a DM addressed to it turns BLE advertising ON (outside any periodic window), bounded — stop on companion connect or timeout. The app's background service-UUID scan wakes on the advert → connect → pull → local notification. Amends D9: worst-case stays the window period, but TYPICAL push latency becomes seconds. Params → Q15. |
+| D15 | 2026-06-12 | **(Q4 — location)** Position format = **int32 degrees × 1e7** (`lat_e7`/`lon_e7`; 0,0 = unset; no float on the wire). Persisted in the **`/mrid` identity record** (appended after `name`, no version bump; strict load → a legacy `/mrid` is rejected on first boot and the node re-mints its identity — fine, dev system, user accepts hash change). The app sets it via `cfg set lat`/`lon` — and **`cfg set` is now wired over BLE** generally (the phone can set node config; MITM-paired trusted owner). |
 | D14 | 2026-06-12 | **Amends D10 — two phones are NOT specially handled.** The app/node just WARN the user when more than one companion is bonded/has synced ("multiple phones paired — sync behavior is undefined"). Read state stays app-side per-phone (that part of D10 stands); no per-bond cursors, no multi-companion sync design. Closes Q12. Mechanism (cheap): `ready` gains a `bonds:N` count → app banners when N>1 (land with E1). |
 
 ## 2. Personas
@@ -114,11 +115,18 @@ not coded; R8 mobile not started. The durable (QSPI) inbox is pending; the inter
   scope (Q1 residue) — DM-to-one only, or also a leaf-flood "announce myself"?
 - **Auto-contact** (done 2026-06-12): unknown `sender_hash` → placeholder "Node N", renameable.
 
-### C — Location & map *(order #6)* — per **D2 + D8**
-- **One rail (D8):** position rides the **BCN ext TLV** for every node type; fixed vs mobile
-  differs only in the SOURCE — fixed = `cfg set lat/lon` NV property (set once), mobile =
-  phone-fed over BLE (opt-in). Cadence: fixed every Nth beacon (≈0 airtime); mobile per-beacon
-  or on-move. (Format/precision: Q4.)
+### C — Location & map *(order #6)* — per **D2 + D8** — **fixed-node SET/SHOW SHIPPED 2026-06-12**
+- **Format (Q4 → decided):** **int32 degrees × 1e7** ("no float on wire"; `lat_e7`/`lon_e7`, 0,0 = unset).
+- **Fixed-node location** ✅ — firmware: persisted in the **`/mrid`** record (appended after `name`,
+  no version bump; reflash re-mints identity — fine, dev system); device globals `g_lat_e7`/`g_lon_e7`;
+  `cfg set lat`/`lon <degrees>` (serial + **over
+  BLE** — `cfg set` is now wired into `ble_dispatch_line`, replying with the fresh cfg); `dump_cfg` +
+  help updated; `cfg` JSON emits `lat_e7`/`lon_e7`. App: `NodeConfigInfo.latitude/longitude/hasPosition`;
+  Node-tab **Location row + MapKit preview** + a set sheet (manual entry **or** "Use my current
+  location" via CoreLocation). Mock round-trips `cfg set lat/lon`.
+- **Still TODO:** the **BCN ext TLV** broadcast (so PEERS see each other's positions — needs firmware
+  beacon work + a position table) and the **mobile** phone-fed path (D8); then the map shows the whole
+  mesh, not just the node you're connected to. Cadence: fixed every Nth beacon; mobile per-beacon/on-move.
 - **App:** map with pins + last-seen age; **distance/bearing list fallback** ("Marek: 2.1 km NE,
   12 min ago") — works without map tiles, which matter off-grid (offline tiles = open UX issue).
 - **Privacy:** per-contact opt-in, precision degrade (exact/±500 m/off), TTL on stored positions.
@@ -157,8 +165,12 @@ not coded; R8 mobile not started. The durable (QSPI) inbox is pending; the inter
 - **Local notifications** ✅ (2026-06-12) — a DM arriving while not on screen posts a `UNUserNotification`
   banner (title = contact/Node name, grouped per conversation via `threadIdentifier`). Foreground +
   bulk pull-catch-up are suppressed; only the live path fires. Auth requested on launch.
-- **Still TODO for E1:** CBCentralManager State Restoration (survive app *termination*), badge on the
-  app icon, and the firmware D4/D13 wake-on-message advertising.
+  **Tap-to-open** ✅ — `NotificationRouter` (UNUserNotificationCenterDelegate) parses `dm-<hash>` →
+  `AppModel.openConversation` switches to Messages + pushes the thread (`selectedTab`/`messagesPath`
+  hoisted to AppModel; ThreadsList NavigationStack bound to it). **App-icon badge** ✅ mirrors unread.
+- **Still TODO for E1:** CBCentralManager State Restoration — survive app *termination* (deferred: needs
+  a persistent-BLE-session refactor of connect/disconnect + on-device testing across termination); and
+  the firmware D4/D13 wake-on-message advertising.
   With `periodic` ble_mode, worst-case latency = the window period — **accepted (D9)**.
   Firmware side of D4: **activity pins the window open** (proposed default: pinned while a BLE
   central is connected + a short linger (~2 min) after disconnect — Q7 ratifies).
@@ -194,7 +206,7 @@ Q10→D11.)* Remaining:
 | # | Question | Blocks |
 |---|---|---|
 | Q1b | **Contact-card scope:** DM-to-one only, or also a leaf-flood "announce myself"? | B2 |
-| Q4 | **Position TLV format + cadence:** int32 ×1e-7 lat/lon? Fixed = every Nth beacon (N?); mobile = per-beacon or on-move threshold? | C |
+| Q4b | **Position BCN-ext cadence** (the broadcast half, still TODO): fixed = every Nth beacon (N?); mobile = per-beacon or an on-move threshold? (Format settled → D15: int32 ×1e7.) | C broadcast |
 | Q7 | **Ratify the D4 default:** window pinned while a BLE central is connected, + ~2 min linger after disconnect. | E1 (fw) |
 | Q9 | **Channel naming:** local labels v1 (assumed yes); leaf-level shared directory ever? | A |
 | ~~Q12~~ | Closed by **D14**: read state app-side per-phone; multi-phone = warn-only, no design. | — |

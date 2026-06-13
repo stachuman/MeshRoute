@@ -51,7 +51,7 @@ final class NodeInfoWireTests: XCTestCase {
 
     func testCfgDecodesAndDerives() {
         guard case .cfg(let c)? = PushDecoder.decode(
-            line: #"{"ev":"cfg","node_id":5,"freq_hz":869462500,"routing_sf":7,"sf_list":"7,12","bw_hz":125000,"cr":5,"tx_power":22,"duty_x1000":100,"lbt":true,"beacon_ms":900000,"hop_cap":16,"leaf_id":0,"gateway":false,"mobile":false,"ble_mode":"on","ble_period":15,"ble_pin":123456}"#) else {
+            line: #"{"ev":"cfg","node_id":5,"freq_hz":869462500,"routing_sf":7,"sf_list":"7,12","bw_hz":125000,"cr":5,"tx_power":22,"duty_x1000":100,"lbt":true,"beacon_ms":900000,"hop_cap":16,"leaf_id":0,"gateway":false,"mobile":false,"ble_mode":"on","ble_period":15,"ble_pin":123456,"lat_e7":522297000,"lon_e7":-41000000}"#) else {
             return XCTFail("not cfg")
         }
         XCTAssertEqual(c.nodeID, 5)
@@ -59,5 +59,16 @@ final class NodeInfoWireTests: XCTestCase {
         XCTAssertEqual(c.freqMHz, 869.4625, accuracy: 0.0001)   // freq_hz → MHz
         XCTAssertEqual(c.dutyPercent, 10.0, accuracy: 0.001)    // duty_x1000 → %
         XCTAssertEqual(c.bleMode, "on")
+        XCTAssertTrue(c.hasPosition)
+        XCTAssertEqual(c.latitude, 52.2297, accuracy: 1e-6)     // lat_e7 → degrees
+        XCTAssertEqual(c.longitude, -4.1, accuracy: 1e-6)       // signed
+    }
+
+    func testCfgWithoutLocationDecodes() {     // older firmware: no lat_e7/lon_e7 → hasPosition false
+        guard case .cfg(let c)? = PushDecoder.decode(
+            line: #"{"ev":"cfg","node_id":5,"freq_hz":869462500,"routing_sf":7,"sf_list":"7,12","bw_hz":125000,"cr":5,"tx_power":22,"duty_x1000":100,"lbt":true,"beacon_ms":900000,"hop_cap":16,"leaf_id":0,"gateway":false,"mobile":false,"ble_mode":"on","ble_period":15,"ble_pin":123456}"#) else {
+            return XCTFail("not cfg")
+        }
+        XCTAssertFalse(c.hasPosition)
     }
 }

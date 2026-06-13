@@ -302,6 +302,8 @@ size_t write_cfg(char* buf, size_t cap, const NodeConfig& c, const CfgExtras& x)
     j.lit(",\"ble_mode\":");   j.str(x.ble_mode, std::strlen(x.ble_mode));
     j.lit(",\"ble_period\":"); j.u32(x.ble_period);
     j.lit(",\"ble_pin\":");    j.u32(x.ble_pin);
+    j.lit(",\"lat_e7\":");     j.i64(x.lat_e7);   // signed; degrees×1e7, 0 = unset
+    j.lit(",\"lon_e7\":");     j.i64(x.lon_e7);
     write_layers_array(j, c);
     j.ch('}');
     return j.finish();

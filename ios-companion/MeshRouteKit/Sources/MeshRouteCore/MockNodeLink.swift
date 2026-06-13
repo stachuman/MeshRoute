@@ -27,6 +27,8 @@ public actor MockNodeLink: NodeLink {
     private var chanSeq: UInt32 = 0
     private var inboxEpoch: UInt32 = 1             // bumped on a simulated store wipe (seq restarts at 1)
     private var uptimeMs: UInt64 = 1_000           // fake node uptime that climbs as records arrive
+    private var mockLatE7 = 0                       // node location (degrees×1e7); 0 = unset, set via `cfg set lat/lon`
+    private var mockLonE7 = 0
 
     public init(selfID: Int = 1,
                 selfHash: KeyHash = KeyHash(0x10a0_b0c0),
@@ -92,6 +94,11 @@ public actor MockNodeLink: NodeLink {
         case "status":
             emit(statusLine())
         case "cfg":
+            if tokens.first == "set", tokens.count >= 3 {       // `cfg set <key> <val>` → apply, then echo cfg
+                let key = tokens[1], val = tokens[2]
+                if key == "lat" { mockLatE7 = Int((Double(val) ?? 0) * 1e7) }
+                if key == "lon" { mockLonE7 = Int((Double(val) ?? 0) * 1e7) }
+            }
             emit(cfgLine())
         case "routes":
             for (i, peer) in knownPeers.sorted(by: { $0.value < $1.value }).enumerated() {
@@ -187,7 +194,7 @@ public actor MockNodeLink: NodeLink {
         #"{"ev":"status","id":\#(selfID),"key":"\#(selfHash.hex8)","state":"operating","leaf_id":0,"gateway":false,"routing_sf":7,"uptime_ms":\#(uptimeMs),"duty_ms":1240,"txq":0,"txdrop":0,"rx":42,"tx":17,"routes":\#(knownPeers.count),"pending":false,"lbt":true,"batt_mv":4050}"#
     }
     private func cfgLine() -> String {
-        #"{"ev":"cfg","node_id":\#(selfID),"freq_hz":869462500,"routing_sf":7,"sf_list":"7,12","bw_hz":125000,"cr":5,"tx_power":22,"duty_x1000":100,"lbt":true,"beacon_ms":900000,"hop_cap":16,"leaf_id":0,"gateway":false,"mobile":false,"ble_mode":"on","ble_period":15,"ble_pin":123456}"#
+        #"{"ev":"cfg","node_id":\#(selfID),"freq_hz":869462500,"routing_sf":7,"sf_list":"7,12","bw_hz":125000,"cr":5,"tx_power":22,"duty_x1000":100,"lbt":true,"beacon_ms":900000,"hop_cap":16,"leaf_id":0,"gateway":false,"mobile":false,"ble_mode":"on","ble_period":15,"ble_pin":123456,"lat_e7":\#(mockLatE7),"lon_e7":\#(mockLonE7)}"#
     }
     private func routeLine(dest: Int, hops: Int, score: Int) -> String {
         #"{"ev":"route","dest":\#(dest),"next":\#(dest),"hops":\#(hops),"score":\#(score),"gw":false,"layer":0,"age_ms":4200,"cand":1}"#

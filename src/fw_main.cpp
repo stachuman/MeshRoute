@@ -105,6 +105,10 @@ static int8_t   g_tx_power = LORA_TX_POWER;   // live TX power (dBm); NV `cfg se
 static uint8_t  g_ble_mode = 0;            // 0=off (bare-metal), 1=on, 2=periodic
 static uint8_t  g_ble_period_min = 15;     // periodic-mode advertising period (minutes)
 static uint32_t g_ble_pin = 123456;        // 6-digit pairing passkey
+// Node location (deployment metadata, persisted in the /mrid record alongside name). Degrees × 1e7;
+// (0,0) = unset. A FIXED node is set once (`cfg set lat`/`lon` or the app); a mobile node is fed by its phone.
+static int32_t  g_lat_e7 = 0;
+static int32_t  g_lon_e7 = 0;
 static uint8_t  g_persist_id = 0, g_persist_epoch = 0, g_persist_join = 0;   // last DAD lease state written to NV (change-detect)
 
 // ---- device-console diagnostics (host tool: tools/meshroute_client.py) ---------------------------
@@ -156,7 +160,10 @@ static void dump_cfg() {
     Serial.print(F(" mobile="));         Serial.print(c.is_mobile ? 1 : 0);
     Serial.print(F(" ble_mode="));       Serial.print(g_ble_mode == 0 ? F("off") : g_ble_mode == 1 ? F("on") : F("periodic"));
     Serial.print(F(" ble_period="));     Serial.print(g_ble_period_min);
-    Serial.print(F(" ble_pin="));        Serial.println(g_ble_pin);
+    Serial.print(F(" ble_pin="));        Serial.print(g_ble_pin);
+    // Arduino Print formats floats via its own dtostrf (NOT newlib printf), so 7-decimal degrees print fine.
+    Serial.print(F(" lat="));            Serial.print(g_lat_e7 / 1e7, 7);
+    Serial.print(F(" lon="));            Serial.println(g_lon_e7 / 1e7, 7);
     // Dual-layer gateway: an ADDITIVE second line per leaf (single-layer dump above is unchanged). Prints each
     // leaf's node_id/layer_id/routing_sf + the (possibly on_init-derived) window_ms/offset of the active config.
     if (c.n_layers == 2) {
@@ -258,6 +265,20 @@ static void handle_cfg_set(const char* args) {
     key[k] = '\0';
     const char* val = (args[k] == ' ') ? (args + k + 1) : (args + k);
     if (!*val) { Serial.println(F("> cfg err bad_args")); return; }
+
+    // `lat`/`lon` live in the IDENTITY record (/mrid) alongside `name`, NOT the config blob — handle early.
+    // Input is decimal degrees (e.g. `cfg set lat 52.2297`); stored as int32 degrees×1e7. atof is fine on
+    // newlib-nano (only float *printf* is broken). load_id preserves the seed + name + the other coord.
+    if (!strcmp(key, "lat") || !strcmp(key, "lon")) {
+        mrnv::IdBlob idb{};
+        if (!mrnv::load_id(idb)) memcpy(idb.seed, g_identity.seed, sizeof idb.seed);   // no /mrid yet -> running seed
+        const int32_t e7 = (int32_t)(atof(val) * 1e7);
+        if (key[2] == 't') { idb.lat_e7 = e7; g_lat_e7 = e7; }                          // "lat"
+        else               { idb.lon_e7 = e7; g_lon_e7 = e7; }                          // "lon"
+        idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
+        Serial.println(mrnv::save_id(idb) ? F("> cfg ok (saved to /mrid)") : F("> cfg err nv_save_failed"));
+        return;
+    }
 
     // `name` lives in the IDENTITY record (/mrid), NOT the config blob — handle it separately + early.
     if (!strcmp(key, "name")) {
@@ -526,7 +547,7 @@ static void dump_help() {
     Serial.println(F("[help] hash/id:    lookup <hash> | hashof <id> | whoami"));
     Serial.println(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
     Serial.println(F("[help] diag:       routes | status | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
-    Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile key ble_mode on|off"));
+    Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile key ble_mode on|off lat lon"));
     Serial.println(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms"));
 }
 
@@ -678,6 +699,8 @@ static meshroute::console::CfgExtras make_cfg_extras() {
     x.ble_mode   = g_ble_mode == 0 ? "off" : g_ble_mode == 1 ? "on" : "periodic";
     x.ble_period = g_ble_period_min;
     x.ble_pin    = g_ble_pin;
+    x.lat_e7     = g_lat_e7;
+    x.lon_e7     = g_lon_e7;
     return x;
 }
 
@@ -702,6 +725,14 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     if (len == 6 && !strncmp(line, "status", 6)) {
         const size_t m = write_status(s_inbox_jb, sizeof s_inbox_jb, g_node.node_id(), g_node.key_hash32(),
                                       g_node.config(), node_state_str(), make_status_fields());
+        if (m) ble_sink(s_inbox_jb, m);
+        return 0;
+    }
+    // `cfg set <key> <val>` from the app (e.g. `cfg set lat 52.2297`): apply + persist via the shared handler
+    // (its `> cfg ...` lines go to USB; harmless), then reply with the FRESH cfg object so the app's view updates.
+    if (len > 8 && !strncmp(line, "cfg set ", 8)) {
+        handle_cfg_set(line + 8);
+        const size_t m = write_cfg(s_inbox_jb, sizeof s_inbox_jb, g_node.config(), make_cfg_extras());
         if (m) ble_sink(s_inbox_jb, m);
         return 0;
     }
@@ -812,6 +843,7 @@ void setup() {
     }
     meshroute::identity_from_seed(g_identity, idb.seed);        // key_hash32 = ed_pub[:4]
     g_node.set_identity(node_id, g_identity.key_hash32);        // node_id 0 stays unprovisioned -> do_send refused
+    g_lat_e7 = idb.lat_e7; g_lon_e7 = idb.lon_e7;              // node location (persisted in /mrid; 0,0 on first boot)
     // node_id DAD: restore the persisted lease state so a reboot KEEPS its id + tiebreak seniority (NV blob v4).
     g_node.restore_join_state(nv.claim_epoch, (node_id != 0) && (nv.joined != 0));
     g_persist_id = node_id; g_persist_epoch = nv.claim_epoch;        // prime the persist tracker -> no spurious boot write

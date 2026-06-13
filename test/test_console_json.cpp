@@ -126,9 +126,11 @@ TEST_CASE("write_route / write_routes_end / write_cfg — Node+Network screens")
     meshroute::console::CfgExtras x;
     x.node_id = 5; x.freq_hz = 869462500u; x.tx_power = 22; x.duty_x1000 = 100;   // 0.1 → 100 (no float on wire)
     x.ble_mode = "on"; x.ble_period = 15; x.ble_pin = 123456;
+    x.lat_e7 = 522297000; x.lon_e7 = -41000000;   // 52.2297, -4.1 (signed → i64)
     n = write_cfg(b, sizeof b, cc, x);
     CHECK(std::string(b, n) ==
       "{\"ev\":\"cfg\",\"node_id\":5,\"freq_hz\":869462500,\"routing_sf\":7,\"sf_list\":\"7,12\",\"bw_hz\":125000,\"cr\":5,"
       "\"tx_power\":22,\"duty_x1000\":100,\"lbt\":true,\"beacon_ms\":900000,\"hop_cap\":16,\"leaf_id\":0,"
-      "\"gateway\":false,\"mobile\":false,\"ble_mode\":\"on\",\"ble_period\":15,\"ble_pin\":123456}\n");
+      "\"gateway\":false,\"mobile\":false,\"ble_mode\":\"on\",\"ble_period\":15,\"ble_pin\":123456,"
+      "\"lat_e7\":522297000,\"lon_e7\":-41000000}\n");
 }

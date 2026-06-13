@@ -31,6 +31,7 @@ targets:
           - UIInterfaceOrientationPortrait
         NSBluetoothAlwaysUsageDescription: "MeshRoute connects to your node over Bluetooth to read and send messages and read its status."
         NSCameraUsageDescription: "MeshRoute uses the camera to scan a peer's contact QR card."
+        NSLocationWhenInUseUsageDescription: "MeshRoute uses your location to set a fixed node's position — stand at the node and tap “Use my current location”."
         # Keep receiving node notifications while backgrounded / screen-off (Theme E1). Without this iOS
         # suspends the app on screen-off and the live BLE notification is lost until the next reconnect.
         UIBackgroundModes:

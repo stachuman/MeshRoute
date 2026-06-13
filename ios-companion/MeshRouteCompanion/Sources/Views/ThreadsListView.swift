@@ -15,7 +15,8 @@ struct ThreadsListView: View {
     @State private var renameText = ""
 
     var body: some View {
-        NavigationStack {
+        @Bindable var model = model
+        NavigationStack(path: $model.messagesPath) {   // bound so a notification tap can push a thread
             Group {
                 if summaries.isEmpty {
                     ContentUnavailableView("No messages yet", systemImage: "tray",

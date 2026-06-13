@@ -29,6 +29,10 @@ final class AppModel {
     private(set) var latestConfig: NodeConfigInfo?
     private var routesAccumulator: [RouteInfo] = []   // fills during a `routes` stream, swapped in at routes_end
     var backend: Backend = defaultBackend
+    // Navigation the notification-tap router drives (Messages = tab 0).
+    var selectedTab = 0
+    var messagesPath: [ThreadKey] = []
+    private var notifRouter: NotificationRouter?
 
     private var session: NodeSession?
     private var pump: Task<Void, Never>?
@@ -358,9 +362,25 @@ final class AppModel {
 
     // ---- local notifications (Theme E1): alert on a DM that arrives while we're not on screen ----
 
-    /// Ask once (idempotent — iOS only prompts the first time). Call on launch.
+    /// Ask once (idempotent — iOS only prompts the first time) + install the tap router. Call on launch.
     func requestNotificationAuthorization() {
+        let router = NotificationRouter(model: self)
+        notifRouter = router
+        UNUserNotificationCenter.current().delegate = router
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+    }
+
+    /// Mirror the unread total onto the app-icon badge.
+    func setAppBadge(_ count: Int) {
+        UNUserNotificationCenter.current().setBadgeCount(count)
+    }
+
+    /// A tapped DM banner → jump to that conversation (Messages tab) and mark it read.
+    func openConversation(threadHash: UInt32) {
+        let key = ThreadKey.dm(KeyHash(threadHash))
+        selectedTab = 0
+        messagesPath = [key]
+        markThreadRead(key)
     }
 
     private func notifyInboundDM(threadHash: UInt32, origin: Int, body: String) {
@@ -373,6 +393,14 @@ final class AppModel {
         content.threadIdentifier = "dm-\(threadHash)"    // iOS groups a conversation's banners together
         let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(req)
+    }
+
+    /// Set the node's location (a FIXED node, set once). Sends `cfg set lat/lon` in decimal degrees; the
+    /// node persists to /mrloc and replies with the fresh cfg → the Config view updates.
+    func setNodeLocation(latitude: Double, longitude: Double) {
+        sendCommand(.configSet(key: "lat", value: String(format: "%.7f", latitude)))
+        sendCommand(.configSet(key: "lon", value: String(format: "%.7f", longitude)))
+        sendCommand(.config)                              // pull the updated cfg back (mock + real both re-emit)
     }
 
     // ---- Node / Network refresh (Theme D) ----
@@ -561,6 +589,22 @@ struct ConsoleLine: Identifiable {
     let id = UUID()
     let text: String
     let kind: Kind
+}
+
+/// Routes a tapped DM banner into the right conversation. The banner's `threadIdentifier` is "dm-<hash>".
+final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
+    weak var model: AppModel?
+    init(model: AppModel) { self.model = model }
+
+    func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        let tid = response.notification.request.content.threadIdentifier
+        if tid.hasPrefix("dm-"), let hash = UInt32(tid.dropFirst(3)) {
+            Task { @MainActor in self.model?.openConversation(threadHash: hash) }
+        }
+        completionHandler()
+    }
 }
 
 /// " 0x<hex8>" for a present sender hash, "" otherwise. Convention: any hash shown to a human is

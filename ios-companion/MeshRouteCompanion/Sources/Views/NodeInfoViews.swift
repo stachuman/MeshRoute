@@ -33,6 +33,7 @@ struct StatusSection: View {
 
 struct ConfigSection: View {
     let cfg: NodeConfigInfo
+    @State private var showLocation = false
     var body: some View {
         Section("Configuration") {
             LabeledContent("Frequency", value: String(format: "%.4f MHz", cfg.freqMHz))
@@ -47,7 +48,22 @@ struct ConfigSection: View {
             if cfg.gateway { LabeledContent("Gateway", value: "yes") }
             if cfg.mobile { LabeledContent("Mobile", value: "yes") }
             LabeledContent("BLE", value: "\(cfg.bleMode)\(cfg.bleMode == "periodic" ? " · \(cfg.blePeriod) min" : "")")
+            // Location — tap to set; a map preview when set (Theme C)
+            Button { showLocation = true } label: {
+                HStack {
+                    Text("Location").foregroundStyle(.primary)
+                    Spacer()
+                    Text(cfg.hasPosition ? String(format: "%.5f, %.5f", cfg.latitude, cfg.longitude) : "Set…")
+                        .foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.tertiary)
+                }
+            }
+            if cfg.hasPosition {
+                NodeMapPreview(lat: cfg.latitude, lon: cfg.longitude)
+                    .frame(height: 140).listRowInsets(EdgeInsets())
+            }
         }
+        .sheet(isPresented: $showLocation) { NodeLocationView(current: cfg) }
     }
 }
 

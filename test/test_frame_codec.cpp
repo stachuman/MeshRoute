@@ -1152,6 +1152,63 @@ TEST_CASE("DATA unicast inner — DST_HASH round-trip + plain + reject truncatio
       CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(e, size_t(0)), /*flags=*/0).has_value()); }   // empty, no origin
 }
 
+TEST_CASE("DATA unicast inner — CROSS_LAYER layer-path parse + fail-loud (Slice 4b / spec §5)") {
+    using meshroute::protocol::gw_env_max_hops;
+    // CROSS_LAYER inner: [n_layers | cur | layer_ids...][origin][body], BETWEEN dst_hash and origin.
+    // layer-path = n_layers 2, cur 1, ids [0x17, 0x27] (FULL 8-bit, NOT the 4-bit leaf nibble).
+    { const uint8_t in[] = { 2, 1, 0x17, 0x27, 9, 'h', 'i' };
+      auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in), DATA_FLAG_CROSS_LAYER);
+      CHECK(u.has_value());
+      if (u) { CHECK(u->has_cross_layer); CHECK(u->n_layers == 2); CHECK(u->cur == 1);
+               CHECK(u->layer_ids[0] == 0x17); CHECK(u->layer_ids[1] == 0x27);   // FULL 8-bit ids preserved
+               CHECK(u->origin == 9); CHECK(u->body.size() == 2); CHECK(u->body[0] == 'h'); } }
+    // DST_HASH + CROSS_LAYER + SOURCE_HASH together — the LOCKED order [dst_hash][layer-path][origin][source_hash][body].
+    { const uint8_t in[] = { 0x78,0x56,0x34,0x12,  2,1,0x17,0x27,  9,  0x0D,0xF0,0xFE,0xCA,  'y' };
+      auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in),
+                                   static_cast<uint8_t>(DATA_FLAG_DST_HASH | DATA_FLAG_CROSS_LAYER | DATA_FLAG_SOURCE_HASH));
+      CHECK(u.has_value());
+      if (u) { CHECK(u->dst_key_hash32 == 0x12345678u); CHECK(u->has_cross_layer); CHECK(u->n_layers == 2);
+               CHECK(u->cur == 1); CHECK(u->layer_ids[0] == 0x17); CHECK(u->origin == 9);
+               CHECK(u->source_hash == 0xCAFEF00Du); CHECK(u->body.size() == 1); CHECK(u->body[0] == 'y'); } }
+    // FAIL LOUD (nullopt), NO clamp / default:
+    { const uint8_t in[] = { 0, 0, 9 };                                    // n_layers 0 -> refuse
+      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(in, sizeof in), DATA_FLAG_CROSS_LAYER).has_value()); }
+    { const uint8_t in[] = { 5, 0, 1,2,3,4,5, 9 };                          // n_layers 5 > gw_env_max_hops(4) -> refuse
+      CHECK(gw_env_max_hops == 4);
+      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(in, sizeof in), DATA_FLAG_CROSS_LAYER).has_value()); }
+    { const uint8_t in[] = { 2, 2, 0x17,0x27, 9 };                         // cur 2 >= n_layers 2 -> refuse (cur indexes < n)
+      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(in, sizeof in), DATA_FLAG_CROSS_LAYER).has_value()); }
+    { const uint8_t in[] = { 3, 0, 0x17, 0x27 };                           // n_layers 3 but only 2 ids present -> refuse
+      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(in, sizeof in), DATA_FLAG_CROSS_LAYER).has_value()); }
+    { const uint8_t in[] = { 2 };                                          // n_layers byte but no cur -> refuse
+      CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(in, sizeof in), DATA_FLAG_CROSS_LAYER).has_value()); }
+}
+
+TEST_CASE("DATA unicast inner — pack_unicast_inner round-trips with parse + overflow/invalid -> 0 (Slice 4b)") {
+    uint8_t out[64];
+    const uint8_t ids[2] = { 0x17, 0x27 };
+    const uint8_t body[3] = { 'a', 'b', 'c' };
+    // plain [origin][body] — and the SAME helper backs enqueue_data, so this is the no-op-preserving path.
+    { const size_t n = pack_unicast_inner(std::span<uint8_t>(out, sizeof out), /*flags=*/0, 0, nullptr, 0, 0, 9, 0, body, 3);
+      CHECK(n == 4);
+      auto u = parse_unicast_inner(std::span<const uint8_t>(out, n), 0);
+      CHECK(u.has_value()); if (u) { CHECK(u->origin == 9); CHECK_FALSE(u->has_cross_layer); CHECK(u->body.size() == 3); } }
+    // full combo: pack -> parse -> identical (the locked order, the single source of truth).
+    { const uint8_t f = static_cast<uint8_t>(DATA_FLAG_DST_HASH | DATA_FLAG_CROSS_LAYER | DATA_FLAG_SOURCE_HASH);
+      const size_t n = pack_unicast_inner(std::span<uint8_t>(out, sizeof out), f, 0x12345678u, ids, 2, 1, 9, 0xCAFEF00Du, body, 3);
+      CHECK(n == 4 /*dh*/ + 4 /*path:2+2*/ + 1 /*origin*/ + 4 /*srch*/ + 3 /*body*/);
+      auto u = parse_unicast_inner(std::span<const uint8_t>(out, n), f);
+      CHECK(u.has_value());
+      if (u) { CHECK(u->dst_key_hash32 == 0x12345678u); CHECK(u->n_layers == 2); CHECK(u->cur == 1);
+               CHECK(u->layer_ids[0] == 0x17); CHECK(u->layer_ids[1] == 0x27); CHECK(u->origin == 9);
+               CHECK(u->source_hash == 0xCAFEF00Du); CHECK(u->body.size() == 3); CHECK(u->body[0] == 'a'); } }
+    // overflow -> 0 (NO truncation): a 5-byte buffer can't hold dst_hash(4)+origin(1)+body(3).
+    { CHECK(pack_unicast_inner(std::span<uint8_t>(out, 5), DATA_FLAG_DST_HASH, 1, nullptr, 0, 0, 9, 0, body, 3) == 0); }
+    // invalid path (CROSS_LAYER but n_layers 0 / cur>=n) -> 0 (refuse, never emit a bad frame).
+    { CHECK(pack_unicast_inner(std::span<uint8_t>(out, sizeof out), DATA_FLAG_CROSS_LAYER, 0, ids, 0, 0, 9, 0, body, 3) == 0);
+      CHECK(pack_unicast_inner(std::span<uint8_t>(out, sizeof out), DATA_FLAG_CROSS_LAYER, 0, ids, 2, 2, 9, 0, body, 3) == 0); }
+}
+
 TEST_CASE("RTS — FLOOD RTS-M round-trip (43 B: channel_msg_id BE + 32-B bitmap) + rejects") {
     std::array<uint8_t, 32> bm{};
     for (int i = 0; i < 32; ++i) bm[i] = static_cast<uint8_t>(i * 7 + 1);

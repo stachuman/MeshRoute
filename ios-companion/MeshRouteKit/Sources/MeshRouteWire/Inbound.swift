@@ -116,14 +116,19 @@ public struct NodeConfigInfo: Hashable, Sendable, Codable {
     public let bleMode: String
     public let blePeriod: Int
     public let blePin: UInt32
+    public let latE7: Int?       // node location, degrees × 1e7 (nil on older firmware; 0 = unset)
+    public let lonE7: Int?
     enum CodingKeys: String, CodingKey {
         case nodeID = "node_id", freqHz = "freq_hz", routingSF = "routing_sf", sfList = "sf_list",
              bwHz = "bw_hz", cr, txPower = "tx_power", dutyX1000 = "duty_x1000", lbt, beaconMs = "beacon_ms",
              hopCap = "hop_cap", leafID = "leaf_id", gateway, mobile, bleMode = "ble_mode",
-             blePeriod = "ble_period", blePin = "ble_pin"
+             blePeriod = "ble_period", blePin = "ble_pin", latE7 = "lat_e7", lonE7 = "lon_e7"
     }
     public var freqMHz: Double { Double(freqHz) / 1_000_000 }
     public var dutyPercent: Double { Double(dutyX1000) / 10 }   // 100 → 10.0 %
+    public var hasPosition: Bool { (latE7 ?? 0) != 0 || (lonE7 ?? 0) != 0 }
+    public var latitude: Double { Double(latE7 ?? 0) / 1e7 }
+    public var longitude: Double { Double(lonE7 ?? 0) / 1e7 }
 }
 
 // ---- the decoded inbound union ----

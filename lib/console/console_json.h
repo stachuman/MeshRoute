@@ -82,6 +82,8 @@ struct CfgExtras {
     const char* ble_mode = "off";
     uint16_t ble_period = 0;    // periodic advertising period (minutes)
     uint32_t ble_pin   = 0;
+    int32_t  lat_e7    = 0;     // node location, degrees × 1e7 (0 = unset)
+    int32_t  lon_e7    = 0;
 };
 size_t write_cfg(char* buf, size_t cap, const NodeConfig& c, const CfgExtras& x);
 
