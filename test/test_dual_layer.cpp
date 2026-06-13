@@ -176,6 +176,8 @@ struct DualLayerTestAccess {
     static void           send_xl(Node& n, uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t len) { n.send_cross_layer(dst_node, dst_hash, target_layer, body, len); }
     static uint8_t        parked_count(Node& n)              { return n._parked_sends_n; }
     static uint8_t        deferred_count(Node& n)            { return n._active->_deferred_n; }
+    static void           fill_tx_queue(Node& n, uint8_t leaf)  { n._layers[leaf]._tx_queue_n = Node::kTxQueueCap; }   // simulate a full queue
+    static void           clear_tx_queue(Node& n, uint8_t leaf) { n._layers[leaf]._tx_queue_n = 0; }
     static void           store_gw_schedule(Node& n, uint8_t gw_node, uint8_t leaf_served) {   // a known gateway WITHOUT a route (4d.2)
         GatewaySchedule gs{}; gs.valid = true; gs.gw_node_id = gw_node; gs.heard_ms = n._hal.now();
         gs.period_ms = 15000; gs.n_rec = 1; gs.rec[0].leaf_id = leaf_served; gs.rec[0].window_ms = 7500; gs.rec[0].offset_ms = 0;
@@ -824,6 +826,59 @@ TEST_CASE("dual-layer bridge: an unknown far-leaf binding aged past the TTL give
     DualLayerTestAccess::drain(gw, 1);
     CHECK(DualLayerTestAccess::handoff_count(gw) == 0);            // dropped (TTL giveup)
     CHECK(DualLayerTestAccess::leaf_tx_n(gw, 1) == 0);            // NOT re-injected
+}
+
+TEST_CASE("dual-layer bridge: a resolved handoff on a FULL queue is KEPT for retry, not dropped (Slice 4f / review HIGH #1)") {
+    StubHal hal; hal._now = 10000;
+    Node gw(hal, /*id*/ 1, 0xABCDu);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
+    cfg.layers[1] = good_layer(2, 8); cfg.layers[1].node_id = 12;
+    CHECK(gw.on_init(cfg));
+    DualLayerTestAccess::bind_on_leaf(gw, /*leaf*/ 1, /*node*/ 20, /*key*/ 0x9999u);   // resolved at bridge
+    const uint8_t ids[2] = { 1, 2 }; const uint8_t body[2] = { 'h', 'i' };
+    uint8_t inner[64];
+    const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH);
+    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, 7, 0, body, 2);
+    DualLayerTestAccess::bridge_from(gw, 7, 5, 42, flags, inner, static_cast<uint8_t>(il));
+    CHECK(DualLayerTestAccess::handoff_count(gw) == 1);
+    // drain with the far leaf's tx_queue FULL -> the resolved handoff must be KEPT (retry), NOT dropped.
+    DualLayerTestAccess::set_active(gw, 1);
+    DualLayerTestAccess::fill_tx_queue(gw, 1);
+    DualLayerTestAccess::drain(gw, 1);
+    CHECK(DualLayerTestAccess::handoff_count(gw) == 1);            // KEPT (the fix); a pre-fix drop would be 0
+    // the queue clears -> the next drain re-injects it (no loss).
+    DualLayerTestAccess::clear_tx_queue(gw, 1);
+    DualLayerTestAccess::drain(gw, 1);
+    CHECK(DualLayerTestAccess::handoff_count(gw) == 0);            // now consumed
+    CHECK(DualLayerTestAccess::leaf_tx_n(gw, 1) == 1);
+    CHECK(DualLayerTestAccess::leaf_tx_at(gw, 1, 0).dst == 20);
+}
+
+TEST_CASE("dual-layer bridge: the H-answer re-drain HOOK resolves a deferred handoff immediately (Slice 4f)") {
+    StubHal hal; hal._now = 10000;
+    Node gw(hal, /*id*/ 1, 0xABCDu);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
+    cfg.layers[1] = good_layer(2, 8); cfg.layers[1].node_id = 12;
+    CHECK(gw.on_init(cfg));
+    // bridge to an UNKNOWN binding (0x9999) on leaf 2 -> a deferred handoff.
+    const uint8_t ids[2] = { 1, 2 }; const uint8_t body[2] = { 'h', 'i' };
+    uint8_t inner[64];
+    const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH);
+    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, 7, 0, body, 2);
+    DualLayerTestAccess::bridge_from(gw, 7, 5, 42, flags, inner, static_cast<uint8_t>(il));
+    CHECK(DualLayerTestAccess::handoff_count(gw) == 1);            // deferred (unresolved)
+
+    // the gateway is on the TARGET leaf (1) when the H-answer (0x9999 -> node 20) arrives -> the hook re-drains NOW.
+    DualLayerTestAccess::set_active(gw, 1);
+    hash_bind_inner hb{}; hb.target_layer = 2; hb.node_id = 20; hb.key_hash32 = 0x9999u;
+    uint8_t hbuf[16]; const size_t hn = pack_hash_bind_inner(hb, std::span<uint8_t>(hbuf, sizeof hbuf));
+    CHECK(hn > 0);
+    gw.on_hash_bind_response(hbuf, static_cast<uint8_t>(hn), /*authoritative*/ true);   // -> id_bind_set + the 4f re-drain hook
+    CHECK(DualLayerTestAccess::handoff_count(gw) == 0);            // resolved + drained IMMEDIATELY (no wait for the next visit)
+    CHECK(DualLayerTestAccess::leaf_tx_n(gw, 1) == 1);
+    CHECK(DualLayerTestAccess::leaf_tx_at(gw, 1, 0).dst == 20);
 }
 
 TEST_CASE("dual-layer bridge: a cross-layer DM addressed to the gateway ITSELF is REFUSED-not-bridged when malformed; not-our-layer refused (Slice 4c.1)") {

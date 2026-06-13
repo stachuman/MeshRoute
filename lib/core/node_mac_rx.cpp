@@ -671,6 +671,7 @@ void Node::bridge_cross_layer(const PostAck& pa, const data_unicast_inner& ui) {
 // Called from activate_layer(leaf) with _active == &_layers[leaf]: move every handoff targeting this leaf into its
 // tx_queue as a fresh-budget RELAY leg (identity preserved — mirrors l2c_enqueue_forward; + is_gw_relay + the DM type).
 void Node::drain_xl_handoffs_for_leaf(uint8_t leaf) {
+    if (leaf >= _n_layers || &_layers[leaf] != _active) return;   // the drain is _active-COUPLED (re-resolve/flood/rt/enqueue use _active) — refuse a wrong-leaf call
     const uint64_t now = _hal.now();
     for (uint8_t i = 0; i < protocol::cap_gateway_handoffs; ++i) {
         XlHandoff& h = _xl_handoffs[i];
@@ -689,16 +690,21 @@ void Node::drain_xl_handoffs_for_leaf(uint8_t leaf) {
             } else {
                 if (h.last_h_flood_ms == 0 || now - h.last_h_flood_ms >= protocol::gateway_handoff_reflood_ms) {  // 0 = never flooded -> fire now
                     emit_hash_query(h.dst_key_hash32, /*hard=*/false);   // flood an H query on THIS leaf (we're on it now)
-                    h.last_h_flood_ms = now;
+                    // ONE H query resolves the binding for EVERY pending handoff to this hash -> stamp them all so
+                    // siblings don't re-flood the SAME query this pass / window (review #4: no duplicate floods).
+                    for (uint8_t j = 0; j < protocol::cap_gateway_handoffs; ++j)
+                        if (_xl_handoffs[j].valid && _xl_handoffs[j].dst_node_id == 0 && _xl_handoffs[j].dst_key_hash32 == h.dst_key_hash32)
+                            _xl_handoffs[j].last_h_flood_ms = now;
                     MR_EMIT("xl_handoff_h_flood", EF_I("ctr", h.ctr), EF_I("dst_hash", static_cast<int64_t>(h.dst_key_hash32)), EF_I("leaf", leaf));
                 }
                 continue;                                            // keep deferred -> re-resolve on a later visit / the H-answer
             }
         }
-        h.valid = false;                                      // resolved -> consume the slot + build the relay leg
-        if (_active->_tx_queue_n >= kTxQueueCap) {            // queue full -> drop loud (transit DM lost; the sender's E2E ack won't come)
-            MR_EMIT("xl_handoff_drop_queue_full", EF_I("origin", h.origin), EF_I("dst", h.dst_node_id), EF_I("ctr", h.ctr));
-            continue;
+        // resolved -> build the relay leg. KEEP the slot until the enqueue SUCCEEDS: a transient queue-full RETRIES
+        // next visit (like the deferred path), NEVER drops a resolved transit DM (review HIGH #1).
+        if (_active->_tx_queue_n >= kTxQueueCap) {
+            MR_EMIT("xl_handoff_queue_full_retry", EF_I("origin", h.origin), EF_I("dst", h.dst_node_id), EF_I("ctr", h.ctr));
+            continue;                                          // h.valid stays true -> retried on the next window
         }
         // Loop suppression (moved here from the bridge, 4f): seed THIS leaf so we live_dup our own re-inject.
         seed_seen_origin_on_leaf(leaf, h.origin, h.dst_node_id, h.ctr);
@@ -714,6 +720,7 @@ void Node::drain_xl_handoffs_for_leaf(uint8_t leaf) {
         for (uint8_t k = 0; k < it.inner_len; ++k) it.inner[k] = h.inner[k];
         it.enqueue_time_ms = _hal.now();
         _active->_tx_queue[_active->_tx_queue_n++] = it;
+        h.valid = false;                                       // consume the slot ONLY after a successful enqueue (review HIGH #1)
         MR_EMIT("xl_handoff_drained", EF_I("origin", h.origin), EF_I("dst", h.dst_node_id), EF_I("ctr", h.ctr), EF_I("leaf", leaf));
     }
     // activate_layer calls become_free() right after this -> the drained relay leg gets serviced in this window.
