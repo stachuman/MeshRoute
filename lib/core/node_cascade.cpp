@@ -126,6 +126,7 @@ void Node::try_cascade_requeue(const PendingTx& pt, [[maybe_unused]] const char*
     it.inner_len = pt.inner_len;
     for (uint8_t i = 0; i < pt.inner_len; ++i) it.inner[i] = pt.inner[i];
     it.is_forward = pt.has_previous_hop; it.previous_hop = pt.previous_hop;
+    it.is_gw_relay = pt.is_gw_relay;                                            // Slice 4c.2: a requeued cross-layer relay keeps RTS_FLAG_RELAY
     it.fwd_remaining = pt.fwd_remaining; it.fwd_committed = pt.fwd_committed;   // carry hop budget across the requeue
     it.requeue_count = static_cast<uint8_t>(pt.requeue_count + 1);
     it.enqueue_time_ms = pt.enqueue_time_ms;             // PRESERVE the original first-enqueue time

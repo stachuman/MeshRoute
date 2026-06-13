@@ -104,6 +104,58 @@ uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8
     return enqueue_data(dst, body, body_len, flags, "tx_enqueue", /*app_dm=*/true);   // app DM (dm_delivery record key); DST_HASH default-on
 }
 
+// ---- Slice 4d: cross-layer DM origination -------------------------------------------------------------------
+// A gateway whose LEARNED schedule SERVES target_leaf (it beacons on that leaf). 0 = none known. Schedule-verified
+// (user 2026-06-13): every _gw_schedules entry IS a gateway (only a self_gateway beacon populates it). The caller
+// checks for a route to the returned gateway (serves-but-no-route -> 4d.2 park+ROUTE_QUERY).
+uint8_t Node::select_gateway_for_leaf(uint8_t target_leaf) const {
+    for (uint8_t i = 0; i < protocol::cap_gateway_neighbor_schedules; ++i) {
+        const GatewaySchedule& s = _gw_schedules[i];
+        if (!s.valid) continue;
+        for (uint8_t r = 0; r < s.n_rec; ++r)
+            if (s.rec[r].leaf_id == target_leaf) return s.gw_node_id;   // G serves the target leaf
+    }
+    return 0;
+}
+
+// Build + enqueue a CROSS_LAYER DM toward dst_hash on target_layer, routed (MAC dst) to gateway gw_node. The inner
+// carries the full layer-path [our_layer, target_layer] cur=1 + dst_hash + SOURCE_HASH (REQUIRED for the reversed
+// E2E ack, 4e). pack_unicast_inner's size-first overflow is the cross-layer fit-check (returns 0 -> fail loud).
+bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len) {
+    TxItem item{};
+    const uint16_t ctr = next_ctr(gw_node);          // MAC ctr vs the next-hop gateway (= the e2e (source_hash, ctr) identity)
+    item.origin = _node_id; item.dst = gw_node; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
+    item.flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH);
+    const uint8_t ids[2] = { active_layer_id(), target_layer };
+    const size_t n = pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), item.flags, dst_hash,
+                                        ids, /*n_layers*/ 2, /*cur*/ 1, _node_id, _key_hash32, body, body_len);
+    if (n == 0) return false;                         // overflow (228-B body cap with the layer-path) -> fail loud
+    item.inner_len = static_cast<uint8_t>(n);
+    item.enqueue_time_ms = _hal.now();
+    if (_active->_tx_queue_n >= kTxQueueCap) return false;
+    _active->_tx_queue[_active->_tx_queue_n++] = item;
+    MR_EMIT("tx_enqueue_xl", EF_I("origin", item.origin), EF_I("dst", gw_node), EF_I("ctr", ctr),
+            EF_I("target_layer", target_layer), EF_I("depth", _active->_tx_queue_n));
+    become_free();                                   // 4a defers the RTS to the gateway's window on our leaf
+    return true;
+}
+
+// Originate a cross-layer DM: select a bridging gateway (schedule-verified) + enqueue. No gateway serves the target
+// leaf (or no route to it) -> fail loud (send_failed push). 4d.2 will park+ROUTE_QUERY the serves-but-no-route case.
+void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len) {
+    const uint8_t target_leaf = static_cast<uint8_t>(target_layer & 0x0F);
+    const uint8_t gw = select_gateway_for_leaf(target_leaf);
+    if (gw == 0 || rt_find(gw) == nullptr) {         // 4d.1: no gateway / no route -> err_no_gateway (4d.2 adds park+ROUTE_QUERY)
+        MR_EMIT("xl_send_no_gateway", EF_I("target_layer", target_layer), EF_I("dst_hash", static_cast<int64_t>(dst_hash)), EF_I("gw", gw));
+        Push pu{}; pu.kind = PushKind::send_failed; pu.dst = dst_node; pu.ctr = 0; enqueue_push(pu);
+        return;
+    }
+    if (!enqueue_cross_layer(gw, dst_hash, target_layer, body, body_len)) {
+        MR_EMIT("xl_send_too_large", EF_I("target_layer", target_layer), EF_I("gw", gw));
+        Push pu{}; pu.kind = PushKind::send_failed; pu.dst = dst_node; pu.ctr = 0; enqueue_push(pu);
+    }
+}
+
 // End-to-end ACK: a tiny DATA back to the DM's origin carrying the acked ctr. Typed by the frame TYPE
 // (DATA_TYPE_E2E_ACK -> APP byte), NOT a byte-1 flag. Emits e2e_ack_tx (NOT tx_enqueue) so dm_delivery
 // doesn't miscount the ack as an app DM; it routes home on the reverse path F discovery laid toward the origin.
@@ -249,6 +301,7 @@ void Node::issue_send(const TxItem& item) {
     pt.fwd_remaining = item.fwd_remaining; pt.fwd_committed = item.fwd_committed;   // hop budget (forwarder)
     pt.flood = item.flood; pt.hop_left = item.hop_left;                             // channel FLOOD: the 43-B RTS-M tail
     for (uint8_t i = 0; i < 32; ++i) pt.flood_bitmap[i] = item.flood_bitmap[i];
+    pt.is_gw_relay = item.is_gw_relay;                                              // Slice 4c.2: thread the cross-layer relay marker -> the RTS sets RTS_FLAG_RELAY
 
     // A channel FLOOD is a TRUE broadcast (next=0xFF, no unicast route) -> skip route selection (which would
     // find no route and drop/defer) and fire the fire-and-forget flight directly.
@@ -304,7 +357,9 @@ void Node::tx_rts_retry() {
     pt.awaiting_cts = true; pt.awaiting_ack = false; pt.chosen_data_sf = 0;
     rts_in rin{};
     rin.leaf_id = _cfg.leaf_id; rin.src = _node_id; rin.next = pt.next; rin.ctr_lo = pt.ctr_lo;
-    rin.dst = pt.dst; rin.sf_index = 3 /*ANY*/; rin.rts_flags = 0;   // DM RTS; the M-broadcast RTS is tx_m_broadcast_rts
+    // DM RTS; the M-broadcast RTS is tx_m_broadcast_rts. Slice 4c.2: a gateway's cross-layer re-inject sets RTS_FLAG_RELAY
+    // so the receiver exempts it from the originator anti-spam (node_mac_rx :40/:199) — G is relaying, not a 1st-hop origination.
+    rin.dst = pt.dst; rin.sf_index = 3 /*ANY*/; rin.rts_flags = pt.is_gw_relay ? RTS_FLAG_RELAY : 0;
     rin.payload_len = static_cast<uint8_t>(pt.inner_len + 4 /*MAC_LEN*/); rin.m_payload_id_lo16 = 0;
     uint8_t buf[9];
     const size_t l = pack_rts(rin, std::span<uint8_t>(buf, sizeof(buf)));

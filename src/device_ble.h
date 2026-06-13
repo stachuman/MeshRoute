@@ -72,6 +72,7 @@ bool                       g_started     = false;
 // is the correct, sufficient idiom: volatile forces a fresh load (no register caching) and a byte store is
 // atomic — no memory barrier / critical section is needed (adding one would be cargo-cult). Do NOT "fix".
 volatile uint8_t           g_conn_count  = 0;
+volatile uint16_t          g_conn_handle = BLE_CONN_HANDLE_INVALID;   // for getMtu() — chunk long tx_line replies
 char                       g_pin_str[7]  = {0}; // the 6-digit MITM passkey as a string. setPIN() stores it BY
                                                 // POINTER (no copy), so it MUST outlive pairing -> a static.
 char                       g_line[160];       // inbound line buffer (mirrors the USB console)
@@ -81,8 +82,8 @@ char                       g_out[256];        // outbound JSON scratch (one NDJS
 
 // Bluefruit callbacks — run in the Bluefruit event-task context (NOT a hard ISR), so Serial.print is safe here
 // (the stock pairing_pin.ino example prints from these too). Concise on-USB signal for the bench bring-up.
-void on_connect(uint16_t)             { if (g_conn_count < 255) ++g_conn_count; Serial.println(F("[ble] connected (pairing required before GATT)")); }
-void on_disconnect(uint16_t, uint8_t r){ if (g_conn_count > 0)  --g_conn_count; Serial.print(F("[ble] disconnected reason=0x")); Serial.println(r, HEX); }
+void on_connect(uint16_t h)            { if (g_conn_count < 255) ++g_conn_count; g_conn_handle = h; Serial.println(F("[ble] connected (pairing required before GATT)")); }
+void on_disconnect(uint16_t, uint8_t r){ if (g_conn_count > 0)  --g_conn_count; g_conn_handle = BLE_CONN_HANDLE_INVALID; Serial.print(F("[ble] disconnected reason=0x")); Serial.println(r, HEX); }
 void on_secured(uint16_t)             { Serial.println(F("[ble] link secured (paired/bonded)")); }
 void on_pair_complete(uint16_t, uint8_t st) { Serial.print(F("[ble] pairing ")); Serial.println(st == BLE_GAP_SEC_STATUS_SUCCESS ? F("OK") : F("FAILED")); }
 
@@ -108,8 +109,10 @@ inline bool begin(uint8_t mode, uint8_t period_min, uint32_t pin, const char* na
 
     // FIX: the default ATT MTU is 23 (20-B notification payload), so a 125-B `ready` / a long msg_recv
     // splits across ~7 notifications and only the first survives the SoftDevice's tiny default HVN queue
-    // — the client gets a truncated line that never decodes. BANDWIDTH_MAX raises the MTU (to 247, so the
-    // whole reply fits in ONE notification) AND enlarges the notify queue. MUST precede Bluefruit.begin().
+    // — the client gets a truncated line that never decodes. BANDWIDTH_MAX raises the MTU (to 247) AND
+    // enlarges the notify queue. MUST precede Bluefruit.begin(). NOTE: a single notification still carries
+    // only (MTU − 3) bytes, so a reply LONGER than that (cfg ~290 B, a wide status, a long inbox_dm) is
+    // chunked across notifications by tx_line() — the app reassembles by '\n'.
     Bluefruit.configPrphBandwidth(BANDWIDTH_MAX);
     Bluefruit.begin(/*prph=*/1, /*central=*/0);
     // <-- KEYSTONE: Bluefruit.begin() just enabled the SoftDevice, so the SD now owns the radio. Set the flag
@@ -181,7 +184,18 @@ inline void service_rx() {
 
 inline void tx_line(const char* s, size_t n) {
     if (g_conn_count == 0) return;
-    g_bleuart.write(reinterpret_cast<const uint8_t*>(s), n);
+    // A single g_bleuart.write() emits ONE notification of at most (ATT MTU − 3) bytes; a longer line (cfg
+    // ~290 B, a wide status, a long inbox_dm) would lose its tail. Chunk by the negotiated MTU so EACH write
+    // is a clean single notification; the app's LineAccumulator reassembles by '\n' regardless of the splits.
+    BLEConnection* conn = Bluefruit.Connection(g_conn_handle);
+    const uint16_t mtu  = conn ? conn->getMtu() : 23;
+    const size_t   chunk = (mtu > 3) ? static_cast<size_t>(mtu - 3) : 20;
+    size_t off = 0;
+    while (off < n) {
+        const size_t len = (n - off < chunk) ? (n - off) : chunk;
+        g_bleuart.write(reinterpret_cast<const uint8_t*>(s + off), len);
+        off += len;
+    }
 }
 
 inline bool connected() { return g_conn_count > 0; }

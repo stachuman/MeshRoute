@@ -335,7 +335,7 @@ void Node::on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool a
                            { .key = "target_layer",  .type = EventField::T::i64,     .i = hb->target_layer },
                            { .key = "authoritative", .type = EventField::T::boolean, .b = authoritative } };
         _hal.emit("hash_bind_rx", f, 4); );
-    drain_parked_sends(hb->key_hash32, hb->node_id);   // D: a parked send-by-hash for this hash can now fly to the resolved id
+    drain_parked_sends(hb->key_hash32, hb->node_id, hb->target_layer);   // D: a parked send-by-hash can now fly; target_layer drives the cross-layer fork (4d)
 }
 
 // C.2 cache-on-pass (NEW, beyond the Lua's gateway-only caching): a RELAYED hash-bind answer is
@@ -409,6 +409,20 @@ void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len,
         _hal.emit("send_parked_for_hash", f, 1); );
 }
 
+// Slice 4d: park a CROSS-LAYER-capable send. Identical to park_send but marks cross_layer, so when the H-answer
+// resolves (node_id, target_layer) the drain originates a CROSS_LAYER DM via a gateway iff target_layer != our leaf.
+void Node::park_send_layer(uint32_t key_hash32, const uint8_t* body, uint8_t body_len) {
+    if (_parked_sends_n >= protocol::cap_parked_sends) return;   // full -> drop (the app can retry)
+    ParkedSend& p = _parked_sends[_parked_sends_n++];
+    p = ParkedSend{};
+    p.key_hash32 = key_hash32; p.flags = 0; p.parked_at_ms = _hal.now(); p.cross_layer = true;
+    p.body_len = (body_len > protocol::dm_max_body_bytes) ? protocol::dm_max_body_bytes : body_len;
+    for (uint8_t i = 0; i < p.body_len; ++i) p.body[i] = body[i];
+    MR_TELEMETRY(
+        EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) } };
+        _hal.emit("send_layer_parked", f, 1); );
+}
+
 // L2c: hold a misdelivered DM awaiting the HARD-H resolution. Unlike park_send (a fresh origination), this
 // stores the FULL inner (incl. DST_HASH) + the original origin/ctr/flags so drain FORWARDS it identity-intact.
 void Node::l2c_park_redirect(uint32_t want_hash, const PostAck& pa) {
@@ -430,7 +444,7 @@ void Node::l2c_park_redirect(uint32_t want_hash, const PostAck& pa) {
 // the id comes from the hash-bind ANSWER, so a stale soft binding is corrected here). A redirect (L2c) entry is
 // FORWARDED identity-intact; resolved_id == OUR id means the want_hash owner holds our id => a CONFIRMED
 // collision: heal (key-only) instead of forwarding-to-self (which would loop). A plain send-by-hash re-sends.
-void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id) {
+void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t target_layer) {
     bool heal = false;                                            // a confirmed collision found this pass
     uint8_t w = 0;
     for (uint8_t r = 0; r < _parked_sends_n; ++r) {
@@ -462,11 +476,15 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id) {
                 MR_TELEMETRY(
                     EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) } };
                     _hal.emit("send_hash_giveup", f, 1); );
+            } else if (p.cross_layer && target_layer != 0xFF && target_layer != _cfg.leaf_id) {
+                // Slice 4d (§5): the dst lives on ANOTHER layer -> originate a CROSS_LAYER DM via a bridging gateway.
+                send_cross_layer(resolved_id, key_hash32, target_layer, p.body, p.body_len);
             } else {
                 MR_TELEMETRY(
                     EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) },
                                        { .key = "node",       .type = EventField::T::i64, .i = resolved_id } };
                     _hal.emit("send_hash_resolved", f, 2); );
+                // same-layer (incl. a cross_layer park whose dst turned out to be on OUR leaf, §5.1): a plain DM.
                 do_send(resolved_id, p.body, p.body_len, p.flags);   // load-bearing (OUTSIDE the wrap): fly the held DM
             }
             continue;                                            // matched entry handled (forwarded / healed / kept-above / given up)
@@ -487,6 +505,7 @@ void Node::drain_resolved_parked_sends() {
     uint8_t w = 0;
     for (uint8_t r = 0; r < _parked_sends_n; ++r) {
         const ParkedSend p = _parked_sends[r];
+        if (p.cross_layer) { _parked_sends[w++] = p; continue; }   // 4d: a cross-layer park needs the H-answer's target_layer (a beacon carries no addressing layer) -> keep parked
         IdBindConf conf = IdBindConf::claimed;
         const int id = id_bind_find_by_hash(p.key_hash32, &conf);
         if (id >= 0 && conf == IdBindConf::authoritative && static_cast<uint8_t>(id) != _node_id) {

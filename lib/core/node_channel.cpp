@@ -180,16 +180,19 @@ void Node::ingest_channel_m(const m_out& m, uint8_t from) {
                                               ? protocol::channel_msg_max_payload_bytes : m.body.size());
         if (e.payload_len) std::memcpy(e.payload, m.body.data(), e.payload_len);
         channel_buffer_add(e);
-        // Record-on-delivery FIRST (NEW-message branch only -> once per msg): it returns the inbox seq (0 if
-        // disabled). Store the FULL 32-bit channel_msg_id (the exact identity the app dedups by; the low byte
-        // alone can't be reconstructed without the origin's key_hash16). The live channel_recv push then carries
-        // the SAME channel_msg_id + seq as the pulled record -> the app unifies live+pulled + detects gaps (model B).
-        const uint8_t rx_layer = active_layer_id();   // §2/Q13: the receiving layer (leaf-local; gateways skip channels)
-        const uint32_t seq = _inbox.record_channel(m.channel_id, id, rx_layer, e.payload,
-                                                   static_cast<uint8_t>(e.payload_len), _hal.now());
-        // App push: surface a NEW channel message to the app/console, like a DM's msg_recv (the device
-        // console prints it; the sim observes via the emit below). Load-bearing -> OUTSIDE the wrap.
-        {
+        // Record-on-delivery + app push — but NOT for our OWN posts. A node can re-encounter a channel
+        // message it minted (its buffer entry was evicted, then the message came back via a peer's re-flood
+        // or a digest pull) -> origin == _node_id. The app already shows that post as "sent"; recording +
+        // pushing it would echo it back as "received" (the app can't dedup — its sent copy has no
+        // channel_msg_id). So skip the inbox/app side for self-originated messages; the gossip/flood
+        // mechanics below still run (forwarding is unaffected).
+        if (origin != _node_id) {
+            // Record-on-delivery FIRST (once per msg): returns the inbox seq (0 if disabled). Store the FULL
+            // 32-bit channel_msg_id (the exact identity the app dedups by). The live channel_recv push carries
+            // the SAME channel_msg_id + seq -> the app unifies live+pulled + detects gaps (model B).
+            const uint8_t rx_layer = active_layer_id();   // §2/Q13: the receiving layer (leaf-local; gateways skip channels)
+            const uint32_t seq = _inbox.record_channel(m.channel_id, id, rx_layer, e.payload,
+                                                       static_cast<uint8_t>(e.payload_len), _hal.now());
             Push pu{};
             pu.kind = PushKind::channel_recv; pu.origin = origin; pu.channel_id = m.channel_id;
             pu.layer_id = rx_layer;            // §2/Q13: the receiving layer

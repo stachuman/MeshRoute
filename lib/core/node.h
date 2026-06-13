@@ -163,6 +163,7 @@ struct TxItem {                      // a queued message awaiting a flight
     bool     flood = false;          // true => FLOOD RTS-M (vs legacy M_BROADCAST); a true broadcast (next=0xFF, no route)
     uint8_t  hop_left = 0;           // FLOOD TTL safety cap (rides the RTS `dst` slot, §3.1)
     uint8_t  flood_bitmap[32] = {};  // FLOOD coverage bitmap (carried into the RTS-M tail)
+    bool     is_gw_relay = false;    // Slice 4c.1: a gateway's cross-layer re-inject -> exempt from originator anti-spam (wired 4c.2)
 };
 struct PendingTx {                   // the in-flight sender state (one per node)
     uint8_t  origin = 0, dst = 0, next = 0, ctr_lo = 0;
@@ -197,6 +198,7 @@ struct PendingTx {                   // the in-flight sender state (one per node
     bool     flood = false;
     uint8_t  hop_left = 0;
     uint8_t  flood_bitmap[32] = {};
+    bool     is_gw_relay = false;    // Slice 4c.2: a gateway's cross-layer re-inject -> RTS carries RTS_FLAG_RELAY (receiver exempts it from anti-spam)
 };
 struct DeferredSend {                // a send with no route yet — held until one appears (or TTL)
     TxItem   item;
@@ -233,6 +235,27 @@ struct GatewaySchedule {
     uint8_t  n_rec      = 0;
     struct Rec { uint8_t leaf_id = 0; uint32_t window_ms = 0; uint32_t offset_ms = 0; } rec[2];
 };
+
+// Slice 4c.1: a cross-layer DM the gateway must BRIDGE to its OTHER leaf — buffered (node-global, it spans leaves)
+// until that leaf's window opens, then drained into the leaf's tx_queue (activate_layer). The re-inject `inner` is
+// the ORIGINAL inner preserved verbatim (dst_hash + the cursor layer-path + origin + source_hash + body), with only
+// the cursor byte advanced for a multi-gateway hop (v1 = last hop, unchanged). `dst_node_id` = the recipient resolved
+// on the TARGET leaf's id_bind at bridge time. is_gw_relay marks it exempt from the originator anti-spam (wired 4c.2).
+struct XlHandoff {
+    bool     valid       = false;
+    uint8_t  target_leaf = 0;        // the leaf INDEX (0/1) to re-inject on (its layer_id == layer_ids[cur])
+    uint8_t  dst_node_id = 0;        // the recipient resolved on the target leaf's id_bind (the re-inject's routing dst)
+    uint8_t  origin      = 0;        // the ORIGINAL sender (preserved end-to-end)
+    uint16_t ctr         = 0;
+    uint8_t  ctr_lo      = 0;
+    uint8_t  flags       = 0;        // verbatim (CROSS_LAYER + E2E_ACK_REQ + DST_HASH + SOURCE_HASH ...)
+    uint8_t  type        = 0;
+    uint8_t  inner[protocol::max_payload_bytes_hard_cap] = {};
+    uint8_t  inner_len   = 0;
+    uint64_t queued_at_ms = 0;
+};
+
+struct data_unicast_inner;   // frame_codec.h — fwd-decl for bridge_cross_layer's const-ref param (full type in node_mac_rx.cpp)
 
 class Node {
 public:
@@ -408,7 +431,12 @@ private:
     uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags); // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify)
     void    emit_hash_query(uint32_t key_hash32, bool hard);     // originate an H flood for key_hash32 (hard = verify-on-use)
     void    park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags);
-    void    drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id);   // a binding arrived -> fly the parked DMs to it
+    void    park_send_layer(uint32_t key_hash32, const uint8_t* body, uint8_t body_len);   // Slice 4d: a cross-layer-capable park (resolves layer + gateway on the H-answer)
+    void    drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t target_layer = 0xFF);   // a binding arrived -> fly the parked DMs to it (target_layer from the H-answer, 0xFF = beacon re-drain / unknown)
+    // Slice 4d: cross-layer origination — select a bridging gateway (schedule-verified) + build the CROSS_LAYER DM.
+    uint8_t select_gateway_for_leaf(uint8_t target_leaf) const;  // a gateway whose learned schedule SERVES target_leaf (0 = none known); route checked by the caller
+    void    send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len);  // pick G + enqueue, else err_no_gateway (4d.2: park+ROUTE_QUERY)
+    bool    enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len);  // build [my,target] cur=1 -> next-hop G; false = fit/queue fail
     void    drain_resolved_parked_sends();                       // beacon-tick re-drain: any parked hash now authoritatively bound
     void    age_out_parked_sends();                              // give up on parked sends past send_defer_ttl_ms
     // Diagnostic `resolve` (CmdKind::resolve): locate a hash WITHOUT sending a DM. Authoritative cache hit (or
@@ -572,6 +600,12 @@ private:
     void     store_gateway_schedule(const GatewaySchedule& gs);   // Slice 3e.2: remember a heard gateway's schedule (evict-oldest)
     const GatewaySchedule* find_gw_schedule(uint8_t gw_node_id) const;
     uint32_t gateway_schedule_defer_ms(uint8_t gw_node_id) const; // Slice 3e.2: ms to defer an RTS so it hits the gateway's window on OUR leaf
+    // ---- Slice 4c.1: cross-layer DM bridge (the keystone) ------------------------------------------------------
+    void     bridge_cross_layer(const PostAck& pa, const data_unicast_inner& ui);  // re-inject a transit cross-layer DM onto the far leaf
+    int      id_on_leaf_by_hash(uint8_t leaf, uint32_t key_hash32) const;          // resolve key_hash32 -> node_id on a SPECIFIC leaf's id_bind (-1 = unknown); NEVER via _active->
+    void     seed_seen_origin_on_leaf(uint8_t leaf, uint8_t origin, uint8_t dst, uint16_t ctr);  // loop-suppress the re-inject on the far leaf
+    bool     push_xl_handoff(const XlHandoff& h);                 // buffer a handoff; false = full (refuse loud)
+    void     drain_xl_handoffs_for_leaf(uint8_t leaf);           // on activate_layer(leaf): move matching handoffs into the leaf's tx_queue
     // Slice 4a': the FULL 8-bit layer_id of the ACTIVE leaf (§2/Q13) — stamped on every delivered DM/channel record + Push so the
     // app knows which layer a message arrived on (origin aliases across a gateway's two leaves). Single-layer: layers[0].layer_id == leaf_id.
     uint8_t  active_layer_id() const { return _cfg.layers[static_cast<size_t>(_active - &_layers[0])].layer_id; }
@@ -690,8 +724,8 @@ private:
     // leg is re-budgeted as a fresh route (originator-style), so no hop fields are carried. resolved_id==our id
     // at drain = a CONFIRMED collision (the heal trigger, design §7.1).
     struct ParkedSend { uint32_t key_hash32; uint64_t parked_at_ms; uint8_t flags; uint8_t body_len;
-                        bool is_redirect = false; bool is_resolve = false; uint8_t origin = 0; uint16_t ctr = 0; uint8_t ctr_lo = 0;
-                        uint8_t body[protocol::max_payload_bytes_hard_cap]; };   // is_resolve: notify-only diag (a `resolve`), no body
+                        bool is_redirect = false; bool is_resolve = false; bool cross_layer = false; uint8_t origin = 0; uint16_t ctr = 0; uint8_t ctr_lo = 0;
+                        uint8_t body[protocol::max_payload_bytes_hard_cap]; };   // is_resolve: notify-only diag (a `resolve`), no body. cross_layer (Slice 4d): a send_layer awaiting (node_id,target_layer)
     ParkedSend _parked_sends[protocol::cap_parked_sends] = {};
     uint8_t    _parked_sends_n = 0;
     // L2c redirect-suppression ring: a misdelivered DM we've already redirected for this hash recently,
@@ -814,6 +848,9 @@ private:
     // Slice 3e.2: learned schedules of nearby GATEWAYS (Node-global — a node's view of the gateways it can reach,
     // independent of its own layers). Keyed by the gateway's node_id; evict-oldest on overflow.
     GatewaySchedule _gw_schedules[protocol::cap_gateway_neighbor_schedules];
+    // Slice 4c.1: cross-layer re-inject HANDOFFS (node-global — they span leaves; survive a window swap, drained on the
+    // TARGET leaf's activate). A SMALL bounded ring (refuse-when-full LOUD, never drop-oldest a transit DM silently).
+    XlHandoff _xl_handoffs[protocol::cap_gateway_handoffs];
 
     uint64_t _ack_warn_until = 0;   // DM Inc 3: park new DM originations until this ms (set by a warn'd ACK)
     uint64_t _own_orig_events[protocol::cap_originator_events] = {};  // Inc 4 self-cap: own-origination timestamps (in-window)

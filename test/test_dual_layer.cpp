@@ -153,6 +153,37 @@ struct DualLayerTestAccess {
     static uint32_t gw_defer(Node& n, uint8_t gw_node_id)   { return n.gateway_schedule_defer_ms(gw_node_id); }  // Slice 3e.2
     static void     emit(Node& n, const char* kind)         { n.emit_beacon(kind); }                  // Slice 3e F-A: force a beacon
     static void     pump(Node& n)                           { n.become_free(); }                      // Slice 4a: the kQueueWakeupTimerId handler
+    // Slice 4c.1 bridge accessors
+    static void     bind_on_leaf(Node& n, uint8_t leaf, uint8_t node_id, uint32_t key) {
+        auto& L = n._layers[leaf];
+        L._id_bind[L._id_bind_n].key_hash32 = key; L._id_bind[L._id_bind_n].node_id = node_id;
+        L._id_bind[L._id_bind_n].last_seen_ms = n._hal.now(); L._id_bind[L._id_bind_n].confidence = 1;  // authoritative
+        ++L._id_bind_n;
+    }
+    static void     bridge_from(Node& n, uint8_t origin, uint8_t dst, uint16_t ctr, uint8_t flags, const uint8_t* inner, uint8_t inner_len) {
+        PostAck pa{}; pa.is_forward = false; pa.origin = origin; pa.dst = dst; pa.ctr = ctr;
+        pa.ctr_lo = static_cast<uint8_t>(ctr & 0x0F); pa.flags = flags; pa.inner_len = inner_len;
+        for (uint8_t i = 0; i < inner_len; ++i) pa.inner[i] = inner[i];
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(inner, inner_len), flags);
+        if (ui) n.bridge_cross_layer(pa, *ui);
+    }
+    static int            handoff_count(Node& n) { int c = 0; for (auto& h : n._xl_handoffs) if (h.valid) ++c; return c; }
+    static const XlHandoff* handoff_first(Node& n) { for (auto& h : n._xl_handoffs) if (h.valid) return &h; return nullptr; }
+    static void           drain(Node& n, uint8_t leaf)          { n.drain_xl_handoffs_for_leaf(leaf); }
+    static uint8_t        leaf_tx_n(Node& n, uint8_t leaf)      { return n._layers[leaf]._tx_queue_n; }
+    static const TxItem&  leaf_tx_at(Node& n, uint8_t leaf, uint8_t i) { return n._layers[leaf]._tx_queue[i]; }
+    static void           learn_neighbor(Node& n, uint8_t node_id) { n.learn_direct_neighbor(node_id, 40, false); }   // 1-hop route on the ACTIVE leaf
+    static void           send_xl(Node& n, uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t len) { n.send_cross_layer(dst_node, dst_hash, target_layer, body, len); }
+    static uint8_t        parked_count(Node& n)              { return n._parked_sends_n; }
+    static void           drain_parked(Node& n, uint32_t key, uint8_t resolved, uint8_t layer) { n.drain_parked_sends(key, resolved, layer); }   // simulate the H-answer
+    static uint8_t        pending_dst(Node& n)              { return n._active->_pending_tx ? n._active->_pending_tx->dst : 0; }
+    static uint8_t        pending_flags(Node& n)            { return n._active->_pending_tx ? n._active->_pending_tx->flags : 0xFF; }
+    static bool           parked_cross_layer(Node& n, uint8_t i) { return n._parked_sends[i].cross_layer; }
+    static void           set_pending_rx(Node& n, uint8_t from, uint8_t ctr_lo, uint8_t sf, uint8_t payload_len) {  // simulate a prior RTS/CTS so handle_data accepts the DATA
+        PendingRx pr{}; pr.from = from; pr.ctr_lo = ctr_lo; pr.chosen_data_sf = sf; pr.payload_len = payload_len;
+        pr.set_at_ms = n._hal.now(); pr.expiry_ms = n._hal.now() + 100000;
+        n._active->_pending_rx = pr;
+    }
 };
 }  // namespace meshroute
 
@@ -480,6 +511,210 @@ TEST_CASE("dual-layer beacon: the ACTIVE leaf advertises countdown 0 even MID-wi
     // leaf 1 (foreign) opens at t=17500; at t=13000 -> 4500 ms away -> 45 units.
     CHECK(r1->layer_id == 2);
     CHECK(r1->offset_100ms == 45);
+}
+
+TEST_CASE("dual-layer origination: send_layer parks a cross-layer send + floods an H query (Slice 4d)") {
+    StubHal hal; hal._now = 10000;
+    Node x(hal, /*id*/ 7, 0x7777u);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+    CHECK(x.on_init(cfg));
+    hal.last_tx_len = 0;
+    Command c{}; c.kind = CmdKind::send_layer; c.u.layer.dst_hash = 0x9999u; c.u.layer.hop_count = 0;
+    const char* body = "hi"; c.body = reinterpret_cast<const uint8_t*>(body); c.body_len = 2;
+    const CmdResult r = x.on_command(c);
+    CHECK(r.code == CmdCode::queued);                         // accepted (parked, resolving)
+    CHECK(DualLayerTestAccess::parked_count(x) == 1);
+    CHECK(DualLayerTestAccess::parked_cross_layer(x, 0));     // a CROSS-LAYER park (resolves layer+gateway on the H-answer)
+    CHECK(hal.last_tx_len > 0);                               // an H query went out
+}
+
+TEST_CASE("dual-layer origination: send_cross_layer builds [my,target] cur=1 + SOURCE_HASH to a schedule-verified gateway (Slice 4d)") {
+    // a gateway G beacons -> X learns G's schedule (serves leaves 1+2) AND a 1-hop route to G.
+    StubHal ghal; ghal._now = 10000;
+    Node gw(ghal, /*id*/ 1, 0xABCDu);
+    NodeConfig gcfg; gcfg.n_layers = 2;
+    gcfg.layers[0] = good_layer(1, 8); gcfg.layers[0].node_id = 5;
+    gcfg.layers[1] = good_layer(2, 8); gcfg.layers[1].node_id = 12;
+    CHECK(gw.on_init(gcfg)); CHECK(ghal.last_tx_len > 0);
+    StubHal hal; hal._now = 50000;
+    Node x(hal, /*id*/ 7, 0x7777u);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+    CHECK(x.on_init(cfg));
+    RxMeta meta{}; meta.snr_db = 9.0f; meta.rssi_dbm = -70.0f; meta.recv_ms = hal._now; meta.src_hint = -1;
+    x.on_recv(ghal.last_tx, ghal.last_tx_len, meta);
+    CHECK(x.rt_count() >= 1);                                 // a route to G installed from its beacon
+    // advance so G is on its FOREIGN leaf -> the cross-layer DM DEFERS (held in the queue, inspectable).
+    hal._now = 58000;
+    const uint8_t body[3] = { 'h', 'i', '!' };
+    DualLayerTestAccess::send_xl(x, /*dst_node*/ 20, /*dst_hash*/ 0x9999u, /*target_layer*/ 2, body, 3);
+    CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 1);         // deferred to G's window -> held
+    const TxItem& it = DualLayerTestAccess::leaf_tx_at(x, 0, 0);
+    CHECK(it.dst == 5);                                       // MAC dst = the gateway G (node 5)
+    CHECK((it.flags & DATA_FLAG_CROSS_LAYER) != 0);
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(it.inner, it.inner_len), it.flags);
+    CHECK(ui.has_value());
+    if (ui) { CHECK(ui->has_cross_layer); CHECK(ui->n_layers == 2); CHECK(ui->cur == 1);
+              CHECK(ui->layer_ids[0] == 1); CHECK(ui->layer_ids[1] == 2);   // [our_layer, target_layer]
+              CHECK(ui->dst_key_hash32 == 0x9999u);                          // the final recipient Y
+              CHECK(ui->has_source_hash); CHECK(ui->source_hash == 0x7777u); // X's stable key (for the reversed ack)
+              CHECK(ui->origin == 7); }                                      // X
+}
+
+TEST_CASE("dual-layer origination: the H-answer drains a parked send_layer into a CROSS_LAYER DM; same-layer short-circuits (Slice 4d)") {
+    // G beacons -> X learns G's schedule (serves leaves 1+2) + a route to G.
+    StubHal ghal; ghal._now = 10000;
+    Node gw(ghal, /*id*/ 1, 0xABCDu);
+    NodeConfig gcfg; gcfg.n_layers = 2;
+    gcfg.layers[0] = good_layer(1, 8); gcfg.layers[0].node_id = 5;
+    gcfg.layers[1] = good_layer(2, 8); gcfg.layers[1].node_id = 12;
+    CHECK(gw.on_init(gcfg)); CHECK(ghal.last_tx_len > 0);
+    StubHal hal; hal._now = 50000;
+    Node x(hal, /*id*/ 7, 0x7777u);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+    CHECK(x.on_init(cfg));
+    RxMeta meta{}; meta.snr_db = 9.0f; meta.rssi_dbm = -70.0f; meta.recv_ms = hal._now; meta.src_hint = -1;
+    x.on_recv(ghal.last_tx, ghal.last_tx_len, meta);
+    hal._now = 58000;   // G on its foreign leaf -> the cross-layer DM defers (held, inspectable)
+
+    // (A) cross-layer: send_layer to Y(0x9999), the H-answer says target_layer=2 (!= our leaf 1) -> CROSS_LAYER DM.
+    { Command c{}; c.kind = CmdKind::send_layer; c.u.layer.dst_hash = 0x9999u;
+      const char* b = "hi"; c.body = reinterpret_cast<const uint8_t*>(b); c.body_len = 2;
+      CHECK(x.on_command(c).code == CmdCode::queued);
+      DualLayerTestAccess::drain_parked(x, /*key*/ 0x9999u, /*resolved Y*/ 20, /*target_layer*/ 2);   // the H-answer
+      CHECK(DualLayerTestAccess::parked_count(x) == 0);                      // consumed
+      CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 1);
+      const TxItem& it = DualLayerTestAccess::leaf_tx_at(x, 0, 0);
+      CHECK((it.flags & DATA_FLAG_CROSS_LAYER) != 0); CHECK(it.dst == 5); }   // -> bridged via G
+
+    // (B) §5.1 short-circuit: a send_layer whose H-answer says target_layer == OUR leaf (1) -> a PLAIN same-layer DM.
+    { DualLayerTestAccess::learn_neighbor(x, 30);            // route to node 30 so the same-layer DM flies (in-flight)
+      Command c{}; c.kind = CmdKind::send_layer; c.u.layer.dst_hash = 0x4444u;
+      const char* b = "yo"; c.body = reinterpret_cast<const uint8_t*>(b); c.body_len = 2;
+      CHECK(x.on_command(c).code == CmdCode::queued);
+      DualLayerTestAccess::drain_parked(x, /*key*/ 0x4444u, /*resolved*/ 30, /*target_layer*/ 1);   // same leaf -> do_send (NOT cross-layer)
+      CHECK(x.has_pending_tx());                             // the plain DM went straight in-flight (route to 30, no gateway defer)
+      CHECK(DualLayerTestAccess::pending_dst(x) == 30);      // addressed DIRECTLY to node 30, NOT routed via a gateway
+      CHECK((DualLayerTestAccess::pending_flags(x) & DATA_FLAG_CROSS_LAYER) == 0); }   // PLAIN, not cross-layer
+}
+
+TEST_CASE("dual-layer bridge: a gateway re-injects a cross-layer DM onto the far leaf + seeds loop suppression (Slice 4c.1)") {
+    StubHal hal; hal._now = 10000;
+    Node gw(hal, /*id*/ 1, 0xABCDu);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;    // leaf 0: layer_id 1, node_id 5 (G is active HERE at boot)
+    cfg.layers[1] = good_layer(2, 8); cfg.layers[1].node_id = 12;   // leaf 1: layer_id 2, node_id 12
+    CHECK(gw.on_init(cfg));
+    // bind the recipient Y (key 0x9999 -> node 20) on the FAR leaf (leaf 1) so the cross-leaf resolve succeeds.
+    DualLayerTestAccess::bind_on_leaf(gw, /*leaf*/ 1, /*node*/ 20, /*key*/ 0x9999u);
+
+    // a cross-layer DM inner: dst_hash=Y(0x9999) (NOT the gateway's 0xABCD), layer_ids=[1,2] cur=1, origin=X(7), body.
+    const uint8_t ids[2] = { 1, 2 };
+    const uint8_t body[3] = { 'h', 'i', '!' };
+    uint8_t inner[64];
+    const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH);
+    const size_t inner_len = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, /*origin*/ 7, 0, body, 3);
+    CHECK(inner_len > 0);
+
+    // bridge it (addressed to G's leaf-0 node_id 5 => deliver branch => CROSS_LAYER fork => transit => bridge).
+    DualLayerTestAccess::bridge_from(gw, /*origin*/ 7, /*dst*/ 5, /*ctr*/ 42, flags, inner, static_cast<uint8_t>(inner_len));
+
+    // a handoff is buffered for the FAR leaf, recipient resolved, inner preserved.
+    CHECK(DualLayerTestAccess::handoff_count(gw) == 1);
+    const XlHandoff* h = DualLayerTestAccess::handoff_first(gw);
+    CHECK(h != nullptr);
+    if (h) { CHECK(h->target_leaf == 1); CHECK(h->dst_node_id == 20); CHECK(h->origin == 7); CHECK(h->ctr == 42);
+             CHECK((h->flags & DATA_FLAG_CROSS_LAYER) != 0); CHECK(h->inner_len == inner_len); }
+    // LOOP SUPPRESSION: the far leaf's _seen_origins now holds (origin 7, dst 20, ctr 42) -> our own re-inject is a live_dup.
+    const uint32_t sokey = (static_cast<uint32_t>(7) << 24) | (static_cast<uint32_t>(20) << 16) | 42u;
+    CHECK(DualLayerTestAccess::seen(gw, 1).count(sokey) == 1);
+
+    // drain on the far leaf's activation -> the re-inject lands on leaf 1's tx_queue as a fresh-budget gw_relay leg.
+    DualLayerTestAccess::set_active(gw, 1);
+    DualLayerTestAccess::drain(gw, 1);
+    CHECK(DualLayerTestAccess::handoff_count(gw) == 0);            // consumed
+    CHECK(DualLayerTestAccess::leaf_tx_n(gw, 1) == 1);
+    const TxItem& it = DualLayerTestAccess::leaf_tx_at(gw, 1, 0);
+    CHECK(it.origin == 7); CHECK(it.dst == 20); CHECK(it.ctr == 42);
+    CHECK(it.is_gw_relay); CHECK(it.is_forward); CHECK(it.inner_len == inner_len);   // identity preserved, relay-marked
+}
+
+TEST_CASE("dual-layer bridge: the re-injected relay RTS carries RTS_FLAG_RELAY end-to-end (Slice 4c.2)") {
+    StubHal hal; hal._now = 10000;
+    Node gw(hal, /*id*/ 1, 0xABCDu);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
+    cfg.layers[1] = good_layer(2, 8); cfg.layers[1].node_id = 12;
+    CHECK(gw.on_init(cfg));
+    DualLayerTestAccess::bind_on_leaf(gw, /*leaf*/ 1, /*node*/ 20, /*key*/ 0x9999u);
+    // bridge a cross-layer DM (addressed to G) -> a handoff for leaf 1.
+    const uint8_t ids[2] = { 1, 2 }; const uint8_t body[2] = { 'h', 'i' };
+    uint8_t inner[64];
+    const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH);
+    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, /*origin*/ 7, 0, body, 2);
+    DualLayerTestAccess::bridge_from(gw, /*origin*/ 7, /*dst*/ 5, /*ctr*/ 42, flags, inner, static_cast<uint8_t>(il));
+    CHECK(DualLayerTestAccess::handoff_count(gw) == 1);
+    // far leaf: install a 1-hop route to Y(20), drain the handoff, then service the queue -> the relay RTS fires.
+    DualLayerTestAccess::set_active(gw, 1);
+    DualLayerTestAccess::learn_neighbor(gw, 20);
+    DualLayerTestAccess::drain(gw, 1);
+    hal.last_tx_len = 0;
+    DualLayerTestAccess::pump(gw);                         // become_free -> issue_send (threads is_gw_relay) -> tx_rts_retry
+    CHECK(hal.last_tx_len > 0);
+    auto r = parse_rts(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len));
+    CHECK(r.has_value());
+    if (r) { CHECK((r->rts_flags & RTS_FLAG_RELAY) != 0);   // the relay marker is ON the wire -> the receiver exempts it from anti-spam
+             CHECK(r->next == 20); }                        // routed to Y on the far leaf
+}
+
+TEST_CASE("dual-layer bridge: the DELIVER-branch fork routes a cross-layer TRANSIT DM to bridge, not inbox (Slice 4c.1 keystone)") {
+    StubHal hal; hal._now = 10000;
+    Node gw(hal, /*id*/ 1, 0xABCDu);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
+    cfg.layers[1] = good_layer(2, 8); cfg.layers[1].node_id = 12;
+    CHECK(gw.on_init(cfg));
+    DualLayerTestAccess::bind_on_leaf(gw, /*leaf*/ 1, /*node*/ 20, /*key*/ 0x9999u);
+    // a CROSS_LAYER DATA addressed to G's leaf-0 node_id (5) -> deliver branch (d.dst==self). dst_hash=Y(0x9999)!=G's
+    // key -> the fork must TRANSIT it (bridge), not deliver to the gateway's inbox.
+    const uint8_t ids[2] = { 1, 2 }; const uint8_t body[2] = { 'h', 'i' };
+    uint8_t inner[64];
+    const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH);
+    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, /*origin*/ 7, 0, body, 2);
+    uint8_t frame[96]; const uint8_t mac4[4] = { 0, 0, 0, 0 };
+    data_in din{}; din.addr_len = 0; din.flags = flags; din.next = 5; din.dst = 5; din.hops_remaining = 31; din.ctr = 42;
+    din.inner = std::span<const uint8_t>(inner, il); din.mac = std::span<const uint8_t>(mac4, 4);
+    const size_t fl = pack_data(din, std::span<uint8_t>(frame, sizeof frame));
+    CHECK(fl > 0);
+    // simulate the prior RTS/CTS (handle_data requires a matching _pending_rx; ctr 42 -> ctr_lo4 = 0x0A).
+    DualLayerTestAccess::set_pending_rx(gw, /*from*/ 7, /*ctr_lo*/ 0x0A, /*sf*/ 8, /*payload_len*/ static_cast<uint8_t>(il + 4));
+    RxMeta meta{}; meta.snr_db = 9.0f; meta.rssi_dbm = -70.0f; meta.recv_ms = hal._now; meta.src_hint = -1;
+    gw.on_recv(frame, fl, meta);                 // handle_data -> ACK + arm the post-ack
+    gw.on_timer(9 /*kPostAckTimerId*/);          // do_post_ack -> the deliver-branch CROSS_LAYER fork -> bridge
+    CHECK(DualLayerTestAccess::handoff_count(gw) == 1);   // BRIDGED (the fork fired), NOT delivered to the gateway inbox
+    const XlHandoff* h = DualLayerTestAccess::handoff_first(gw);
+    CHECK(h != nullptr); if (h) { CHECK(h->target_leaf == 1); CHECK(h->dst_node_id == 20); CHECK(h->origin == 7); }
+}
+
+TEST_CASE("dual-layer bridge: a cross-layer DM addressed to the gateway ITSELF is REFUSED-not-bridged when malformed; not-our-layer refused (Slice 4c.1)") {
+    StubHal hal; hal._now = 10000;
+    Node gw(hal, /*id*/ 1, 0xABCDu);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
+    cfg.layers[1] = good_layer(2, 8); cfg.layers[1].node_id = 12;
+    CHECK(gw.on_init(cfg));
+    const uint8_t body[1] = { 'x' };
+    uint8_t inner[64];
+    const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH);
+    // target layer 9 is NOT one of the gateway's leaves (1/2) -> REFUSE (no handoff, no default leaf).
+    { const uint8_t ids[2] = { 1, 9 };
+      const size_t n = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, 7, 0, body, 1);
+      DualLayerTestAccess::bridge_from(gw, 7, 5, 42, flags, inner, static_cast<uint8_t>(n));
+      CHECK(DualLayerTestAccess::handoff_count(gw) == 0); }
+    // target leaf 2 is ours, but the recipient hash is UNKNOWN on it (no binding) -> REFUSE (4f will defer instead).
+    { const uint8_t ids[2] = { 1, 2 };
+      const size_t n = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0xBEEFu, ids, 2, 1, 7, 0, body, 1);
+      DualLayerTestAccess::bridge_from(gw, 7, 5, 43, flags, inner, static_cast<uint8_t>(n));
+      CHECK(DualLayerTestAccess::handoff_count(gw) == 0); }
 }
 
 TEST_CASE("dual-layer send: an RTS to a time-multiplexing gateway DEFERS to its window, then fires when it opens (Slice 4a / 3e.2b)") {

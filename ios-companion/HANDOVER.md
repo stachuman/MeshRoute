@@ -101,6 +101,16 @@ Timestamps (`now_ms` in `ready`/`inbox_end` + app `NodeTimeAnchor`; firmware nee
 (no `mark_read` sent — D14), local channel labels. Package tests green, app builds. New SwiftData
 bits: `MessageEntity.isRead`, `ChannelLabelEntity` (additive migration).
 
+## Fixes 2026-06-12 (bench-reported)
+- **Channel self-echo** — a node could record/push its OWN channel post back as "received" (after the
+  buffer evicted it + a re-flood/digest-pull re-ingested it; the app can't dedup — its sent copy has no
+  channel_msg_id). Fixed in `node_channel.cpp ingest_channel_m`: skip the inbox record + channel_recv
+  push when `origin == _node_id` (gossip/flood forwarding still runs). Needs PC rebuild + `pio test`.
+- **Battery 3.7 V on USB = NOT a bug.** VBAT (D32/P0.31) reads the CELL via a ÷3 divider, never USB's
+  5 V (max ~4.2 V even charging). 3.7 V is a real mid-charge LiPo; XIAO charges at only 50 mA so it
+  rises slowly. Added `batt_raw`+`batt_mv` to serial `status` to verify vs a multimeter. With NO battery
+  the reading is meaningless (can't reliably detect cell-absent).
+
 ## Product direction
 The LIVING roadmap (decisions D1–D5, themes A–E, open questions Q1–Q10) is
 `docs/superpowers/specs/2026-06-12-companion-product-roadmap.md` — the single tracking doc for

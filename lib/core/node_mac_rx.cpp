@@ -500,6 +500,16 @@ void Node::do_post_ack() {
     const PostAck pa = _active->_post_ack;
     _active->_post_ack.pending = false;
     if (!pa.is_forward) {
+        // Parse the inner up-front (the optional DST_HASH prefix + the cross-layer layer-path, read from pa.flags).
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(pa.inner, pa.inner_len), pa.flags);
+        // Slice 4c.1 (the bridge KEYSTONE): a CROSS_LAYER DM in TRANSIT through this gateway -> BRIDGE it to the next
+        // layer BEFORE any type-based consume (so a 4e cross-layer E2E-ack passing through bridges, not gets consumed).
+        // dst_hash == our key => we ARE the recipient: fall through to the normal handling (E2E-ack confirm / deliver to
+        // inbox). A malformed CROSS_LAYER inner is REFUSED (drop) — its layer-path bytes must never reach the app as body.
+        if (pa.flags & DATA_FLAG_CROSS_LAYER) {
+            if (!ui || !ui->has_cross_layer) { become_free(); return; }
+            if (!(ui->has_dst_hash && ui->dst_key_hash32 == _key_hash32)) { bridge_cross_layer(pa, *ui); return; }
+        }
         if (pa.type == DATA_TYPE_H_ANSWER || pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER) {   // a hash-bind answer for us -> consume (routing info, NOT a DM)
             on_hash_bind_response(pa.inner, pa.inner_len, pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER);
             become_free();
@@ -516,10 +526,8 @@ void Node::do_post_ack() {
             become_free();
             return;
         }
-        // Parse the inner (handles the optional DST_HASH prefix, read from pa.flags) -> origin + body.
-        auto ui = parse_unicast_inner(std::span<const uint8_t>(pa.inner, pa.inner_len), pa.flags);
-        // L2c verify-on-delivery: DST_HASH present and naming a key that ISN'T ours => an id collision
-        // misdelivered this DM. Heal the collision + redirect to the real owner; do NOT deliver locally.
+        // L2c verify-on-delivery (NON-cross-layer; cross-layer was forked above): DST_HASH present and naming a key
+        // that ISN'T ours => an id collision misdelivered this DM. Heal the collision + redirect to the real owner.
         if (ui && ui->has_dst_hash && ui->dst_key_hash32 != _key_hash32) {
             l2c_handle_misdelivery(pa, ui->dst_key_hash32);     // forward to the real owner (identity-preserving)
             return;                                             // l2c re-kicks the queue itself (become_free)
@@ -571,6 +579,117 @@ void Node::do_post_ack() {
         if (_active->_tx_queue_n < kTxQueueCap) _active->_tx_queue[_active->_tx_queue_n++] = it;
         become_free();
     }
+}
+
+// ---- Slice 4c.1: cross-layer DM bridge (the keystone) ------------------------------------------------------------
+// Resolve key_hash32 -> node_id on a SPECIFIC leaf's id_bind. NEVER via _active-> : the bridge writes a NON-active
+// leaf, and any _active-> deref mid-resolve would read/corrupt the wrong leaf's state (the subtlest aliasing trap).
+// Mirrors id_bind_find_by_hash's match (key + not-expired, self exempt) but on _layers[leaf]. -1 = unknown.
+int Node::id_on_leaf_by_hash(uint8_t leaf, uint32_t key_hash32) const {
+    if (leaf >= _n_layers) return -1;
+    const LayerRuntime& L = _layers[leaf];
+    const uint64_t now = _hal.now();
+    for (uint16_t i = 0; i < L._id_bind_n; ++i) {
+        if (L._id_bind[i].key_hash32 != key_hash32) continue;
+        const bool self_keep = (L._id_bind[i].node_id == _cfg.layers[leaf].node_id && L._id_bind[i].key_hash32 == _key_hash32);
+        if (!self_keep && _cfg.id_bind_ttl_ms > 0
+            && (now - L._id_bind[i].last_seen_ms) >= _cfg.id_bind_ttl_ms) continue;   // expired -> skip
+        return L._id_bind[i].node_id;
+    }
+    return -1;
+}
+
+// Loop suppression: seed the TARGET leaf's _seen_origins for the re-inject's (origin, dst, ctr) so when THIS gateway
+// later hears its own relay on that leaf it is caught as a live_dup (ACK-only, no re-bridge / re-forward). Mirrors
+// record_seen_origin but on _layers[leaf] (the bridge writes a non-active leaf).
+void Node::seed_seen_origin_on_leaf(uint8_t leaf, uint8_t origin, uint8_t dst, uint16_t ctr) {
+    if (leaf >= _n_layers) return;
+    const uint32_t sokey = (static_cast<uint32_t>(origin) << 24) | (static_cast<uint32_t>(dst) << 16) | ctr;
+    const uint64_t now = _hal.now();
+    _layers[leaf]._seen_origins[sokey]     = now + protocol::seen_origin_ttl_ms;
+    _layers[leaf]._seen_origin_from[sokey] = _node_id;   // we re-injected it
+}
+
+// Buffer a handoff into the node-global ring; false = full (the caller REFUSES loud — never drop-oldest a transit DM).
+bool Node::push_xl_handoff(const XlHandoff& h) {
+    for (uint8_t i = 0; i < protocol::cap_gateway_handoffs; ++i)
+        if (!_xl_handoffs[i].valid) { _xl_handoffs[i] = h; return true; }
+    return false;
+}
+
+void Node::bridge_cross_layer(const PostAck& pa, const data_unicast_inner& ui) {
+    // ui.has_cross_layer is guaranteed by the caller. The next layer to ENTER = layer_ids[cur].
+    const uint8_t target_layer_id = ui.layer_ids[ui.cur];
+    // Which of OUR leaves carries that layer_id? (A gateway owns 2.) Not one of ours -> REFUSE loud (no default leaf).
+    int target_leaf = -1;
+    for (uint8_t i = 0; i < _n_layers; ++i) if (_cfg.layers[i].layer_id == target_layer_id) { target_leaf = i; break; }
+    if (target_leaf < 0) {
+        MR_EMIT("xl_bridge_refused", EF_I("reason", 1), EF_I("target_layer", target_layer_id), EF_I("origin", pa.origin), EF_I("ctr", pa.ctr));
+        become_free(); return;
+    }
+    // The stable recipient identity (dst_hash) must be present + resolvable on the TARGET leaf. Unknown binding ->
+    // Slice 4f defers (H-flood + handoff TTL); v1 (4c.1) REFUSES loud (drop, NEVER a silent reroute).
+    if (!ui.has_dst_hash) {
+        MR_EMIT("xl_bridge_refused", EF_I("reason", 2), EF_I("origin", pa.origin), EF_I("ctr", pa.ctr));
+        become_free(); return;
+    }
+    const int dst_node = id_on_leaf_by_hash(static_cast<uint8_t>(target_leaf), ui.dst_key_hash32);
+    if (dst_node < 0) {
+        MR_EMIT("xl_bridge_no_binding", EF_I("target_leaf", target_leaf), EF_I("origin", pa.origin), EF_I("ctr", pa.ctr));
+        become_free(); return;   // 4f will defer + H-flood here instead of dropping
+    }
+    // Advance cur ONLY if a further gateway hop remains (multi-gateway, reserved). v1: cur == n_layers-1 -> unchanged.
+    uint8_t new_cur = ui.cur;
+    if (static_cast<uint8_t>(ui.cur + 1) < ui.n_layers) new_cur = static_cast<uint8_t>(ui.cur + 1);
+    // The re-inject inner is the ORIGINAL preserved verbatim (dst_hash + the full layer-path + origin + source_hash +
+    // body); only the cursor byte is patched for a multi-gw advance. dst = the resolved recipient on the target leaf.
+    XlHandoff h{};
+    h.valid = true; h.target_leaf = static_cast<uint8_t>(target_leaf); h.dst_node_id = static_cast<uint8_t>(dst_node);
+    h.origin = pa.origin; h.ctr = pa.ctr; h.ctr_lo = pa.ctr_lo; h.flags = pa.flags; h.type = pa.type;
+    h.inner_len = pa.inner_len;
+    for (uint8_t i = 0; i < pa.inner_len; ++i) h.inner[i] = pa.inner[i];
+    if (new_cur != ui.cur) {                                   // patch cur (layer-path offset = dst_hash?4:0; cur byte at off+1)
+        const uint8_t off = static_cast<uint8_t>(ui.has_dst_hash ? 4 : 0);
+        if (static_cast<size_t>(off) + 1 < h.inner_len) h.inner[off + 1] = new_cur;
+    }
+    h.queued_at_ms = _hal.now();
+    if (!push_xl_handoff(h)) {                                 // full -> REFUSE loud (the sender's E2E ack just won't come)
+        MR_EMIT("xl_handoff_full", EF_I("origin", pa.origin), EF_I("dst", dst_node), EF_I("ctr", pa.ctr));
+        become_free(); return;
+    }
+    // Loop suppression: when we later hear our own re-inject (origin, dst_node, ctr) on the target leaf -> live_dup.
+    seed_seen_origin_on_leaf(static_cast<uint8_t>(target_leaf), pa.origin, static_cast<uint8_t>(dst_node), pa.ctr);
+    MR_EMIT("xl_bridge", EF_I("origin", pa.origin), EF_I("dst", dst_node), EF_I("ctr", pa.ctr),
+            EF_I("target_leaf", target_leaf), EF_I("cur", new_cur));
+    become_free();                                            // the handoff drains when the target leaf's window opens (activate_layer)
+}
+
+// Called from activate_layer(leaf) with _active == &_layers[leaf]: move every handoff targeting this leaf into its
+// tx_queue as a fresh-budget RELAY leg (identity preserved — mirrors l2c_enqueue_forward; + is_gw_relay + the DM type).
+void Node::drain_xl_handoffs_for_leaf(uint8_t leaf) {
+    for (uint8_t i = 0; i < protocol::cap_gateway_handoffs; ++i) {
+        XlHandoff& h = _xl_handoffs[i];
+        if (!h.valid || h.target_leaf != leaf) continue;
+        h.valid = false;                                      // consume the slot
+        if (_active->_tx_queue_n >= kTxQueueCap) {            // queue full -> drop loud (transit DM lost; the sender's E2E ack won't come)
+            MR_EMIT("xl_handoff_drop_queue_full", EF_I("origin", h.origin), EF_I("dst", h.dst_node_id), EF_I("ctr", h.ctr));
+            continue;
+        }
+        TxItem it{};
+        it.origin = h.origin; it.dst = h.dst_node_id; it.ctr = h.ctr; it.ctr_lo = h.ctr_lo;
+        it.flags = h.flags; it.type = h.type; it.is_forward = true; it.is_gw_relay = true; it.previous_hop = 0;
+        RtEntry* rte = rt_find(h.dst_node_id);                // FRESH budget from THIS (target) leaf's route to the recipient
+        const uint8_t rt_hops = (rte && rte->n > 0) ? rte->candidates[0].hops : 1;
+        const int rem = static_cast<int>(rt_hops) + protocol::hop_budget_slack;
+        it.fwd_remaining = static_cast<uint8_t>(rem > protocol::hop_budget_max_initial ? protocol::hop_budget_max_initial : rem);
+        it.fwd_committed = 0;
+        it.inner_len = (h.inner_len > protocol::max_payload_bytes_hard_cap) ? protocol::max_payload_bytes_hard_cap : h.inner_len;
+        for (uint8_t k = 0; k < it.inner_len; ++k) it.inner[k] = h.inner[k];
+        it.enqueue_time_ms = _hal.now();
+        _active->_tx_queue[_active->_tx_queue_n++] = it;
+        MR_EMIT("xl_handoff_drained", EF_I("origin", h.origin), EF_I("dst", h.dst_node_id), EF_I("ctr", h.ctr), EF_I("leaf", leaf));
+    }
+    // activate_layer calls become_free() right after this -> the drained relay leg gets serviced in this window.
 }
 
 void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {

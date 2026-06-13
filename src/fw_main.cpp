@@ -196,7 +196,17 @@ static void dump_status() {
     Serial.print(F(" nf="));                 Serial.print(g_iradio.noise_floor(), 0); // LBT noise floor (dBm)
     Serial.print(F(" duty_ms="));            Serial.print((uint32_t)g_hal.airtime_used_ms(3600000));
     Serial.print(F(" routes="));             Serial.print(g_node.rt_count());
-    Serial.print(F(" pending="));            Serial.println(g_node.has_pending_tx() ? 1 : 0);
+    Serial.print(F(" pending="));            Serial.print(g_node.has_pending_tx() ? 1 : 0);
+#if defined(NRF52_PLATFORM) && defined(PIN_VBAT) && !defined(MR_NO_BATT)
+    // Battery diagnostic. VBAT (P0.31) reads the CELL through a ÷3 divider — NEVER USB's 5 V (max ~4.2 V).
+    // Verify vs a multimeter on the battery: mv = raw × ADC_MULTIPLIER(3.0) × AREF_VOLTAGE(3.0) / 4.096.
+    pinMode(VBAT_ENABLE, OUTPUT); digitalWrite(VBAT_ENABLE, LOW);
+    analogReadResolution(12); analogReference(AR_INTERNAL_3_0);
+    const int braw = analogRead(PIN_VBAT);
+    Serial.print(F(" batt_raw="));           Serial.print(braw);
+    Serial.print(F(" batt_mv="));            Serial.print((int)((braw * ADC_MULTIPLIER * AREF_VOLTAGE) / 4.096f));
+#endif
+    Serial.println();
 }
 
 // "7,12" -> allowed_sf_bitmap (bit per SF index 5..12); 0 if none valid.

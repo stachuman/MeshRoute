@@ -237,6 +237,15 @@ inline constexpr uint32_t gateway_layer_busy_retry_ms = 1000;
 // Slice 3e.2: a node remembers the window schedule of nearby gateways (learned from their beacons) so it can time
 // an RTS to hit the gateway's window on the SENDER's leaf. Small ring (a node hears few gateways); evict-oldest.
 inline constexpr uint8_t  cap_gateway_neighbor_schedules = 4;
+// Slice 4c.1: the gateway's cross-layer re-inject HANDOFF buffer — a node-global ring of pending bridges, each
+// waiting for its TARGET leaf's window to open (drained in activate_layer). 16 = the user's SMALL cap (full-body
+// entries; a single gateway bridging one layer-pair can't have many in flight). NOTE: cap_gateway_deferred_handoffs
+// (32, above) is the TTL/POLICY reference for the 4f unknown-binding giveup, NOT this live buffer's size.
+#if MR_N_LAYERS >= 2
+inline constexpr uint8_t cap_gateway_handoffs = 16;
+#else
+inline constexpr uint8_t cap_gateway_handoffs = 1;   // a single-layer node NEVER bridges (the fork refuses cross-layer when no leaf matches) -> 1 slot, ~4 KB reclaimed vs 16
+#endif
 // Slice 3e F-C: the wire's schedule_record duration_100ms / offset_100ms are 8-bit ×100 ms => a 25.5 s ceiling, with NO
 // escape unit (unlike period_units' ×5000 ms mode). on_init REFUSES (fail loud, no clamp) a gateway window beyond this:
 // a clamped duration/countdown breaks the receiver's defer phase math (the clamped offset no longer ≈ the cycle). The

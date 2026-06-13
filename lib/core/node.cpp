@@ -242,8 +242,11 @@ void Node::activate_layer(uint8_t i) {
     if (L.node_id != 0)                                          // seed leaf i's OWN id_bind binding (per-leaf table)
         id_bind_set(L.node_id, _key_hash32, IdBindSource::self, IdBindConf::authoritative);
     // Re-home (ENTER): re-derive the entering leaf's queue/drain drivers from its preserved LayerRuntime state.
-    // become_free() re-services the tx_queue (covers the self-safe queue-wakeup / cascade-requeue ids); the deferred
-    // TTL-drain re-arms iff this leaf still has no-route sends parked (1s period << a window — no cadence skew).
+    // Slice 4c.1: drain any cross-layer handoffs targeting THIS leaf into its tx_queue FIRST (now that _active is it),
+    // so become_free() carries the bridged relay legs in this window. become_free() re-services the tx_queue (covers
+    // the self-safe queue-wakeup / cascade-requeue ids); the deferred TTL-drain re-arms iff this leaf still has no-route
+    // sends parked (1s period << a window — no cadence skew).
+    drain_xl_handoffs_for_leaf(i);
     become_free();
     if (_active->_deferred_n > 0) { _active->_drain_armed = true; (void)_hal.after(protocol::send_defer_drain_period_ms, kDeferredDrainTimerId); }
 }
@@ -498,7 +501,17 @@ CmdResult Node::on_command(const Command& c) {
             request_resolve(c.u.resolve.dst_hash, c.u.resolve.hard);
             return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };
         }
-        case CmdKind::send_layer:    // cross-layer  -> R7
+        case CmdKind::send_layer: {                          // Slice 4d: cross-layer DM origination (§5)
+            if (_node_id == 0)                               return CmdResult{ CmdCode::err_unprovisioned, 0, _active->_tx_queue_n };
+            if (_cfg.allowed_sf_bitmap == 0)                 return CmdResult{ CmdCode::err_no_data_sf, 0, _active->_tx_queue_n };
+            if (c.body_len > protocol::dm_max_body_bytes)    return CmdResult{ CmdCode::err_too_large, 0, _active->_tx_queue_n };
+            if (c.u.layer.dst_hash == 0)                     return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };  // a layer send needs a stable dst key
+            // Park-first (§5 / user 2026-06-13): resolve the dst's (node_id, target_layer) via an H query; the drain
+            // decides same-layer-vs-cross-layer from the answer's target_layer (caching the layer in id_bind is deferred).
+            park_send_layer(c.u.layer.dst_hash, c.body, c.body_len);
+            emit_hash_query(c.u.layer.dst_hash, /*hard=*/false);
+            return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };
+        }
         default:
             return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };
     }
