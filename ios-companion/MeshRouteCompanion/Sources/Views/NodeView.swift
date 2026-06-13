@@ -9,6 +9,7 @@ struct NodeView: View {
     @State private var resolveHex = ""
     @State private var consoleInput = ""
     @State private var simBody = "ping from a peer"
+    @FocusState private var fieldFocused: Bool      // drives the keyboard "Done" dismiss (no other tappable area)
 
     var body: some View {
         @Bindable var model = model
@@ -62,6 +63,7 @@ struct NodeView: View {
                     HStack {
                         TextField("resolve hash (hex)", text: $resolveHex)
                             .autocorrectionDisabled().textInputAutocapitalization(.never).monospaced()
+                            .focused($fieldFocused)
                         Button("Resolve") {
                             if let h = KeyHash(hex: resolveHex) { model.resolve(h); resolveHex = "" }
                         }.disabled(KeyHash(hex: resolveHex) == nil)
@@ -71,7 +73,7 @@ struct NodeView: View {
                 // ---- mock demo ----
                 if model.canSimulateInbound {
                     Section("Mock demo") {
-                        TextField("incoming body", text: $simBody)
+                        TextField("incoming body", text: $simBody).focused($fieldFocused)
                         Button("Simulate inbound DM from id 2") { model.simulateInbound(fromID: 2, body: simBody) }
                     }
                 }
@@ -81,6 +83,7 @@ struct NodeView: View {
                     HStack {
                         TextField("raw line, e.g. send 2 hi", text: $consoleInput)
                             .autocorrectionDisabled().textInputAutocapitalization(.never).monospaced()
+                            .focused($fieldFocused)
                         Button("Send") { model.sendRaw(consoleInput); consoleInput = "" }
                             .disabled(consoleInput.isEmpty || !model.isConnected)
                     }
@@ -96,10 +99,15 @@ struct NodeView: View {
                 }
             }
             .navigationTitle("Node")
+            .scrollDismissesKeyboard(.interactively)   // swipe the list down to dismiss the keyboard too
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { model.refreshNodeInfo() } label: { Image(systemName: "arrow.clockwise") }
                         .disabled(!model.isConnected)
+                }
+                ToolbarItemGroup(placement: .keyboard) {   // the explicit dismiss the screen lacked
+                    Spacer()
+                    Button("Done") { fieldFocused = false }
                 }
             }
             .onChange(of: model.isConnected) { _, connected in

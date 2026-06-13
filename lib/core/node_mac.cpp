@@ -140,16 +140,21 @@ bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, uint8_t targe
     return true;
 }
 
-// Originate a cross-layer DM: select a bridging gateway (schedule-verified) + enqueue. No gateway serves the target
-// leaf (or no route to it) -> fail loud (send_failed push). 4d.2 will park+ROUTE_QUERY the serves-but-no-route case.
+// Originate a cross-layer DM: select a bridging gateway (schedule-verified) + enqueue. NO gateway serves the target
+// leaf -> err_no_gateway (fail loud, send_failed). A gateway IS known but UNROUTED -> 4d.2 (user 2026-06-13: park +
+// reactive ROUTE_QUERY): enqueue anyway; issue_send's no-route path defers the origination (park in _deferred + an
+// expanding-ring RREQ for G via emit_route_request) and try_drain_deferred re-flies it when a route to G appears
+// (the Lua Pass-2; an EXPLICIT recovery, not a silent fallback — it ages out to send_failed on the deferred TTL).
 void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len) {
     const uint8_t target_leaf = static_cast<uint8_t>(target_layer & 0x0F);
     const uint8_t gw = select_gateway_for_leaf(target_leaf);
-    if (gw == 0 || rt_find(gw) == nullptr) {         // 4d.1: no gateway / no route -> err_no_gateway (4d.2 adds park+ROUTE_QUERY)
-        MR_EMIT("xl_send_no_gateway", EF_I("target_layer", target_layer), EF_I("dst_hash", static_cast<int64_t>(dst_hash)), EF_I("gw", gw));
+    if (gw == 0) {                                   // no gateway serves the target leaf at all -> fail loud
+        MR_EMIT("xl_send_no_gateway", EF_I("target_layer", target_layer), EF_I("dst_hash", static_cast<int64_t>(dst_hash)));
         Push pu{}; pu.kind = PushKind::send_failed; pu.dst = dst_node; pu.ctr = 0; enqueue_push(pu);
         return;
     }
+    // gw != 0: enqueue regardless of route. A live route -> issue_send fires (4a defers to G's window). No route ->
+    // issue_send -> defer_send parks it + RREQs G (4d.2 park+reactive), re-flown by try_drain_deferred on the route.
     if (!enqueue_cross_layer(gw, dst_hash, target_layer, body, body_len)) {
         MR_EMIT("xl_send_too_large", EF_I("target_layer", target_layer), EF_I("gw", gw));
         Push pu{}; pu.kind = PushKind::send_failed; pu.dst = dst_node; pu.ctr = 0; enqueue_push(pu);

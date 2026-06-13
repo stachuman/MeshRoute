@@ -175,6 +175,12 @@ struct DualLayerTestAccess {
     static void           learn_neighbor(Node& n, uint8_t node_id) { n.learn_direct_neighbor(node_id, 40, false); }   // 1-hop route on the ACTIVE leaf
     static void           send_xl(Node& n, uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t len) { n.send_cross_layer(dst_node, dst_hash, target_layer, body, len); }
     static uint8_t        parked_count(Node& n)              { return n._parked_sends_n; }
+    static uint8_t        deferred_count(Node& n)            { return n._active->_deferred_n; }
+    static void           store_gw_schedule(Node& n, uint8_t gw_node, uint8_t leaf_served) {   // a known gateway WITHOUT a route (4d.2)
+        GatewaySchedule gs{}; gs.valid = true; gs.gw_node_id = gw_node; gs.heard_ms = n._hal.now();
+        gs.period_ms = 15000; gs.n_rec = 1; gs.rec[0].leaf_id = leaf_served; gs.rec[0].window_ms = 7500; gs.rec[0].offset_ms = 0;
+        n.store_gateway_schedule(gs);
+    }
     static void           drain_parked(Node& n, uint32_t key, uint8_t resolved, uint8_t layer) { n.drain_parked_sends(key, resolved, layer); }   // simulate the H-answer
     static uint8_t        pending_dst(Node& n)              { return n._active->_pending_tx ? n._active->_pending_tx->dst : 0; }
     static uint8_t        pending_flags(Node& n)            { return n._active->_pending_tx ? n._active->_pending_tx->flags : 0xFF; }
@@ -558,6 +564,27 @@ TEST_CASE("dual-layer origination: send_cross_layer builds [my,target] cur=1 + S
               CHECK(ui->dst_key_hash32 == 0x9999u);                          // the final recipient Y
               CHECK(ui->has_source_hash); CHECK(ui->source_hash == 0x7777u); // X's stable key (for the reversed ack)
               CHECK(ui->origin == 7); }                                      // X
+}
+
+TEST_CASE("dual-layer origination: a routeless bridging gateway -> PARK + reactive RREQ, not give-up (Slice 4d.2)") {
+    StubHal hal; hal._now = 50000;
+    Node x(hal, /*id*/ 7, 0x7777u);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+    CHECK(x.on_init(cfg));
+    // a gateway G(5) serving leaf 2 is KNOWN (we hold its schedule) but there is NO route to it.
+    DualLayerTestAccess::store_gw_schedule(x, /*gw*/ 5, /*leaf_served*/ 2);
+    CHECK(x.rt_count() == 0);
+    hal.last_tx_len = 0;
+    const uint8_t body[2] = { 'h', 'i' };
+    DualLayerTestAccess::send_xl(x, /*dst_node*/ 20, /*dst_hash*/ 0x9999u, /*target_layer*/ 2, body, 2);
+    // NOT a give-up: the DM is PARKED for the route (deferred) + a reactive RREQ for G went out.
+    CHECK_FALSE(x.has_pending_tx());                          // no route -> not in-flight
+    CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 0);         // left the tx_queue (moved to _deferred)
+    CHECK(DualLayerTestAccess::deferred_count(x) == 1);       // parked in _deferred (the park half)
+    CHECK(hal.last_tx_len > 0);                               // an RREQ (F frame) went out (the reactive half)
+    auto f = parse_f(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len));
+    CHECK(f.has_value());
+    if (f) { CHECK_FALSE(f->is_reply); CHECK(f->dst_id == 5); }   // RREQ for the gateway G(5)
 }
 
 TEST_CASE("dual-layer origination: the H-answer drains a parked send_layer into a CROSS_LAYER DM; same-layer short-circuits (Slice 4d)") {
