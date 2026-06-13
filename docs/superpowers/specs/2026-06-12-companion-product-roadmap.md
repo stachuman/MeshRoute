@@ -123,11 +123,22 @@ not coded; R8 mobile not started. The durable (QSPI) inbox is pending; the inter
   12 min ago") — works without map tiles, which matter off-grid (offline tiles = open UX issue).
 - **Privacy:** per-contact opt-in, precision degrade (exact/±500 m/off), TTL on stored positions.
 
-### D — Network awareness *(order #3)*
-- **Phase 3 over BLE:** `status`/`cfg`/`routes` as JSON (encoders partly exist; `write_status`
-  unused) → Node screen (battery via VBAT — fw S, uptime, airtime %, queue depths) + Network
-  screen (reachable nodes, hops, link quality, last-seen, gateway badge).
-- **Leaf panel:** `leaf_name`, epoch, member count — the operator's "is my leaf healthy".
+### D — Network awareness *(order #3)* — **SHIPPED 2026-06-12 (bench-verify pending)**
+- **Phase 3 over BLE** ✅ — `status` enriched (uptime/duty/txq/rx-tx/routes/pending/lbt + optional
+  `batt_mv`), `routes` streamed (`{"ev":"route",…}`×N + `routes_end`), `cfg` object (freq/SF/bw/cr/
+  tx_power/duty/beacon/leaf/ble…). Wire: `write_status`/`write_route`/`write_routes_end`/`write_cfg`
+  in console_json (no float on the wire — freq as Hz, duty×1000); `ble_dispatch_line` wires all three.
+  App: enriched `NodeStatusSnapshot` + `RouteInfo` + `NodeConfigInfo`; Node tab gains Status + Config
+  sections + a Network (routes) screen; auto-refresh on connect + manual refresh. Mock serves them.
+- **Battery** ✅ — `read_batt_mv()` uses the **authoritative MeshCore XiaoNrf52Board method** (checked
+  against `/Volumes/meshcore/MeshCore` 2026-06-12): VBAT_ENABLE=D14/P0.14 (held LOW by `initVariant`,
+  so reading costs no extra power), PIN_VBAT=**D32**/P0.31/AIN7 (NOT pin 31 — that's NFC2 in our map),
+  `mV = adc×ADC_MULTIPLIER(3.0)×AREF(3.0)/4.096`. **ON by default** on the XIAO; an implausible read
+  (USB-only / no cell) → omit (app hides the row). Gated to `NRF52_PLATFORM` so Heltec/ESP32 builds
+  skip it; `-DMR_NO_BATT` compiles it out.
+- **Leaf panel** (leaf_name/epoch/member count) — deferred to R6 (leaf-config join lands those fields).
+- **Gateway era** (post-R7): `status`/`cfg` already emit the additive `layers:[…]` array
+  (`write_layers_array`, built by the gateway agent) — the app can adopt it when R7 lands (Q14).
 - **Gateway era (post-R7):** a gateway's Node screen shows BOTH layers (per-layer node_id, SF,
   routes) + the window schedule ("layer B window opens in 4 s"); routes/dedup are per-layer.
   Channel threads become layer-scoped app-side (channels never cross — thread key gains the layer).

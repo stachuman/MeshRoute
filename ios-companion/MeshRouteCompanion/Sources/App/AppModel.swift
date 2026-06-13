@@ -22,6 +22,11 @@ final class AppModel {
     private(set) var linkState: LinkState = .disconnected
     private(set) var nodeIdentity: NodeReady?
     private(set) var consoleLog: [ConsoleLine] = []
+    // Node / Network screens (Theme D) — refreshed on demand from status/routes/cfg.
+    private(set) var latestStatus: NodeStatusSnapshot?
+    private(set) var routes: [RouteInfo] = []
+    private(set) var latestConfig: NodeConfigInfo?
+    private var routesAccumulator: [RouteInfo] = []   // fills during a `routes` stream, swapped in at routes_end
     var backend: Backend = defaultBackend
 
     private var session: NodeSession?
@@ -92,6 +97,7 @@ final class AppModel {
         pump?.cancel(); pump = nil; session = nil; activeMockLink = nil; pendingOutgoing.removeAll()
         activeSync = nil; activeSyncProfile = nil; timeAnchor = nil
         greetedThisConnection = false; syncStartedThisConnection = false
+        latestStatus = nil; latestConfig = nil; routes = []; routesAccumulator = []
     }
 
     private func handle(_ event: SessionEvent) {
@@ -139,6 +145,14 @@ final class AppModel {
             bindAndRekey(id: node, hash: hash)
         case .ack(let ack):
             attachAck(ack)
+        case .status(let s):
+            latestStatus = s
+        case .route(let r):
+            routesAccumulator.append(r)
+        case .routesEnd:
+            routes = routesAccumulator.sorted { $0.dest < $1.dest }; routesAccumulator = []
+        case .cfg(let c):
+            latestConfig = c
         default:
             break
         }
@@ -309,6 +323,16 @@ final class AppModel {
     }
 
     func resolve(_ hash: KeyHash, hard: Bool = false) { sendCommand(.resolve(.init(hash: hash, hard: hard))) }
+
+    // ---- Node / Network refresh (Theme D) ----
+    func refreshStatus() { sendCommand(.status) }
+    func refreshConfig() { sendCommand(.config) }
+    func refreshRoutes() { routesAccumulator = []; sendCommand(.routes) }
+    /// Pull everything the Node tab shows in one go (on appear / pull-to-refresh).
+    func refreshNodeInfo() {
+        guard isConnected else { return }
+        refreshStatus(); refreshConfig(); refreshRoutes()
+    }
 
     func sendRaw(_ line: String) {
         guard !line.isEmpty else { return }
@@ -505,7 +529,10 @@ func describe(_ inbound: Inbound) -> String {
     case .sendFailed(let d, let c):                return "send_failed dst=\(d) ctr=\(c)"
     case .hashResolved(let n, let a, let h):       return "hash_resolved \(h.hex8) → node \(n)\(a ? " (auth)" : "")"
     case .ready(let r):                            return "ready id=\(r.id) key=\(r.key.hex8) sf=\(r.routingSF)"
-    case .status(let s):                           return "status id=\(s.id) \(s.state)"
+    case .status(let s):                           return "status id=\(s.id) \(s.state) up=\(s.uptimeMs.map(String.init) ?? "—") routes=\(s.routes.map(String.init) ?? "—")"
+    case .route(let r):                            return "route dest=\(r.dest) next=\(r.next) hops=\(r.hops) score=\(r.score)"
+    case .routesEnd(let n):                        return "routes_end count=\(n)"
+    case .cfg(let c):                              return "cfg node=\(c.nodeID) sf=\(c.routingSF) freq=\(c.freqMHz)"
     case .inboxEntry(let e):                       return "inbox_\(e.kind.rawValue) seq=\(e.seq) from \(e.origin)\(hex(e.senderHash)) ctr=\(e.ctr): \(e.body)"
     case .inboxEnd(let dm, let chan, let epoch, let count, _): return "inbox_end dm=\(dm) chan=\(chan) epoch=\(epoch.map(String.init) ?? "—") count=\(count)"
     case .event(let t, _):                         return "event \(t)"

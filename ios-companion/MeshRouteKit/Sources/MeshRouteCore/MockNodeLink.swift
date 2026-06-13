@@ -91,8 +91,13 @@ public actor MockNodeLink: NodeLink {
             emit(readyLine(state: "whoami"))
         case "status":
             emit(statusLine())
-        case "cfg", "routes":
-            emit(#"{"log":"\#(verb): (mock node — not modeled)"}"#)
+        case "cfg":
+            emit(cfgLine())
+        case "routes":
+            for (i, peer) in knownPeers.sorted(by: { $0.value < $1.value }).enumerated() {
+                emit(routeLine(dest: peer.value, hops: 1 + i, score: -32 - i * 8))
+            }
+            emit(#"{"ev":"routes_end","count":\#(knownPeers.count)}"#)
         default:
             emit(#"{"log":"mock: unhandled '\#(verb)'"}"#)
         }
@@ -179,7 +184,13 @@ public actor MockNodeLink: NodeLink {
         #"{"ev":"ready","id":\#(selfID),"key":"\#(selfHash.hex8)","name":"Mock \#(selfID)","leaf_id":0,"mode":"\#(state)","gateway":false,"routing_sf":7,"inbox_epoch":\#(inboxEpoch),"now_ms":\#(uptimeMs)}"#
     }
     private func statusLine() -> String {
-        #"{"ev":"status","id":\#(selfID),"key":"\#(selfHash.hex8)","state":"up","leaf_id":0,"gateway":false,"routing_sf":7}"#
+        #"{"ev":"status","id":\#(selfID),"key":"\#(selfHash.hex8)","state":"operating","leaf_id":0,"gateway":false,"routing_sf":7,"uptime_ms":\#(uptimeMs),"duty_ms":1240,"txq":0,"txdrop":0,"rx":42,"tx":17,"routes":\#(knownPeers.count),"pending":false,"lbt":true,"batt_mv":4050}"#
+    }
+    private func cfgLine() -> String {
+        #"{"ev":"cfg","node_id":\#(selfID),"freq_hz":869462500,"routing_sf":7,"sf_list":"7,12","bw_hz":125000,"cr":5,"tx_power":22,"duty_x1000":100,"lbt":true,"beacon_ms":900000,"hop_cap":16,"leaf_id":0,"gateway":false,"mobile":false,"ble_mode":"on","ble_period":15,"ble_pin":123456}"#
+    }
+    private func routeLine(dest: Int, hops: Int, score: Int) -> String {
+        #"{"ev":"route","dest":\#(dest),"next":\#(dest),"hops":\#(hops),"score":\#(score),"gw":false,"layer":0,"age_ms":4200,"cand":1}"#
     }
     private func inboxDMLine(_ e: InboxEntry) -> String {
         #"{"ev":"inbox_dm","seq":\#(e.seq),"origin":\#(e.origin),"ctr":\#(e.ctr),"sender_hash":\#(e.senderHash ?? 0),"rx_ms":\#(e.rxTimeMs),"body":\#(jsonString(e.body))}"#

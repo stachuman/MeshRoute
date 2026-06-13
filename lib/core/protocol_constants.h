@@ -226,11 +226,23 @@ inline constexpr uint8_t gw_env_max_hops = 4;    // GW_ENV_MAX_HOPS (send_layer 
 inline constexpr uint8_t cap_push_ring   = 16;   // async push ring (MeshCore OFFLINE_QUEUE_SIZE)
 
 // ---- Gateway scheduling ----------------------------------------------------
+// SENDER-SIDE settle margin (Lua dv:5027-5030): a node timing its RTS to hit a gateway's window adds this guard so
+// the frame lands AFTER the window opens + the gateway's retune settles. Consumed by the SENDER-DEFER (Slice 3e:
+// gateway_schedule_defer_ms / the receiver-anchored countdown), NOT the window-switch path (3d) — correctly unused there.
 inline constexpr uint16_t gateway_schedule_guard_ms = 100;
 // Window-switch busy-retry: when a scheduled leaf-swap is deferred because the active layer is mid-exchange
 // (_pending_tx / _pending_rx / _post_ack.pending), re-arm the switch after this. EXPLICIT named constant — the
 // Lua silently fell back to max(rts_busy_retry_ms, 1000); we declare it (no-fallback rule). (Lua L8425 == 1000.)
 inline constexpr uint32_t gateway_layer_busy_retry_ms = 1000;
+// Slice 3e.2: a node remembers the window schedule of nearby gateways (learned from their beacons) so it can time
+// an RTS to hit the gateway's window on the SENDER's leaf. Small ring (a node hears few gateways); evict-oldest.
+inline constexpr uint8_t  cap_gateway_neighbor_schedules = 4;
+// Slice 3e F-C: the wire's schedule_record duration_100ms / offset_100ms are 8-bit ×100 ms => a 25.5 s ceiling, with NO
+// escape unit (unlike period_units' ×5000 ms mode). on_init REFUSES (fail loud, no clamp) a gateway window beyond this:
+// a clamped duration/countdown breaks the receiver's defer phase math (the clamped offset no longer ≈ the cycle). The
+// offset is bounded by the active window (active leaf encodes 0; foreign leaf <= one active window away), so this single
+// window bound covers BOTH 8-bit fields. 255 * 100 ms = 25500.
+inline constexpr uint32_t gateway_schedule_window_max_ms = 25500;
 
 // ---- Join state machine (§2a) ----------------------------------------------
 inline constexpr uint16_t join_listen_ms                = 3000;

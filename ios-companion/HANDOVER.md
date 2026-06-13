@@ -50,6 +50,22 @@ Matches the booked project domain **meshroute.eu**. NOTE for the next device dep
 a NEW app — the old install stays (delete it), the on-device archive does NOT carry over (re-pull
 rebuilds history from the node's inbox; contacts re-add/QR), and Xcode re-prompts signing/trust.
 
+## Theme D (roadmap step 3) — SHIPPED 2026-06-12, bench-verify pending
+status/cfg/routes over BLE → Node tab Status + Config sections + Network (routes) screen.
+Firmware: `write_status` (enriched) / `write_route` / `write_routes_end` / `write_cfg` in
+console_json.cpp; `ble_dispatch_line` wires status (buffered), cfg (buffered), routes (streamed via
+tx_line). NO float on the wire (freq=Hz, duty×1000) — dodges the newlib-nano printf bug. Battery
+(`read_batt_mv`) uses the authoritative MeshCore XiaoNrf52Board method (PIN_VBAT=D32/P0.31, ×3.0
+divider, 3.0 V ref) — ON by default on XIAO, omits when implausible (USB-only); gated to NRF52_PLATFORM,
+-DMR_NO_BATT to disable.
+App: `NodeStatusSnapshot` enriched + `RouteInfo`/`NodeConfigInfo` + `NodeInfoViews.swift`. Needs PC
+rebuild + `pio test -e native` (new goldens) + reflash. `status`/`cfg`/`routes` no longer return
+`unknown_cmd`.
+**Buffer fix (2026-06-12):** enriched `status` (~260 B max) and `cfg` (~298 B; gateway w/ layers[]
+~680 B) overflow `device_ble.h`'s `g_out[256]`. Fixed in fw_main `ble_dispatch_line`: status+cfg now
+format into the 1700-B `s_inbox_jb` and stream via `ble_sink` (return 0), like routes/pull_inbox —
+zero new RAM, gateway-safe. (A too-small test buffer `b[200]` for the status golden was bumped to 256.)
+
 ## B1 (roadmap step 2) — SHIPPED 2026-06-12, bench-verify pending
 QR contact exchange: Contacts tab → "My card" QR + camera scan (VisionKit; camera permission added
 to project.yml — `xcodegen generate` already run). Wire format `meshroute://contact?v=1&h=…&n=…`

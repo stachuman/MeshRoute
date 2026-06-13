@@ -154,7 +154,37 @@ void Node::emit_beacon(const char* kind) {
     in.src          = _node_id;
     in.key_hash32   = _key_hash32;
     in.entries      = std::span<const beacon_entry>(entries, n);
-    // schedule / seen_bitmap left empty → codec derives has_*=0.
+    // Slice 3e: a GATEWAY advertises its window schedule — one schedule_record per leaf, carrying the RECEIVER-ANCHORED
+    // countdown (offset_100ms = time until that leaf's window NEXT opens; %period so the active leaf reads ~0 = open now).
+    // A node wanting the gateway on its leaf defers its RTS to that window (3e.2). layer_id = the 4-bit leaf nibble (§0.8).
+    // (TX-fixup re-stamp at the true TX instant is deferred — the LBT defer is << the 100ms quantization.)
+    schedule_record sched[2];
+    if (_cfg.n_layers == 2) {
+        const uint64_t now    = _hal.now();
+        const uint32_t period = _cfg.layers[0].window_period_ms;
+        for (uint8_t i = 0; i < 2; ++i) {
+            const LayerConfig& L = _cfg.layers[i];
+            // §3e F-A: the ACTIVE leaf is open NOW -> countdown 0 EXPLICITLY. Don't lean on (period % period): that only
+            // reads 0 at the switch instant — a triggered beacon emitted mid-window would otherwise carry period-elapsed,
+            // which both mis-states the schedule and OVERFLOWS the 8-bit offset above 25.5 s. The foreign leaf carries the
+            // time to its next open (set_window_anchors keeps it <= one active window, so < period; %period is defensive).
+            uint64_t cd = (&_layers[i] == _active)
+                          ? 0
+                          : ((_layers[i]._next_open_ms > now) ? (_layers[i]._next_open_ms - now) : 0);   // <0 -> 0 (busy-defer slip)
+            if (period) cd %= period;
+            sched[i].layer_id    = static_cast<uint8_t>(L.layer_id & 0x0F);
+            sched[i].routing_sf  = L.routing_sf;
+            const uint32_t psec = period / 1000;                                                      // period: seconds, else 5s-units (ceil)
+            if (psec <= 255) { sched[i].period_unit_5s = false; sched[i].period_units = static_cast<uint8_t>(psec < 1 ? 1 : psec); }
+            else { const uint32_t p5 = (period + 4999) / 5000; sched[i].period_unit_5s = true; sched[i].period_units = static_cast<uint8_t>(p5 > 255 ? 255 : p5); }
+            const uint32_t d100 = L.window_ms / 100;
+            sched[i].duration_100ms = static_cast<uint8_t>(d100 < 1 ? 1 : (d100 > 255 ? 255 : d100));
+            const uint64_t o100 = cd / 100;
+            sched[i].offset_100ms   = static_cast<uint8_t>(o100 > 255 ? 255 : o100);
+        }
+        in.schedule = std::span<const schedule_record>(sched, 2);
+    }
+    // seen_bitmap left empty → codec derives has_seen_bitmap=0.
     // ROADMAP §3: advertise our dirty channel msgs in the BCN digest ext-TLV (gateways skip — Principle 11).
     // build_channel_digest_ext is draw-free; its ad_count/dirty side effects track per built beacon (dv:1453).
     uint8_t ext_buf[16]; size_t ext_n = 0;
@@ -216,6 +246,24 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 
     const uint64_t now         = _hal.now();
     const int16_t  meta_snr_q4 = protocol::db_to_q4(meta.snr_db);
+
+    // Slice 3e.2: learn a GATEWAY's window schedule from its beacon (self_gateway + has_schedule) so we can later time
+    // an RTS to its window (gateway_schedule_defer_ms). visit_start is anchored to `now` (this heard instant — the leaf
+    // filter above means the gateway is currently on OUR leaf, so its OUR-leaf record reads ~open-now).
+    if (b.self_gateway && b.has_schedule && b.schedule_count > 0) {
+        GatewaySchedule gs{};
+        gs.valid = true; gs.gw_node_id = b.src; gs.heard_ms = now;
+        gs.n_rec = (b.schedule_count > 2) ? 2 : b.schedule_count;
+        for (uint8_t i = 0; i < gs.n_rec; ++i) {
+            auto r = parse_beacon_schedule(std::span<const uint8_t>(bytes, len), b, i);
+            if (!r) { gs.n_rec = i; break; }
+            gs.rec[i].leaf_id   = r->layer_id;
+            gs.rec[i].window_ms = static_cast<uint32_t>(r->duration_100ms) * 100;
+            gs.rec[i].offset_ms = static_cast<uint32_t>(r->offset_100ms) * 100;
+            gs.period_ms        = static_cast<uint32_t>(r->period_units) * (r->period_unit_5s ? 5000u : 1000u);
+        }
+        if (gs.n_rec > 0) store_gateway_schedule(gs);
+    }
 
     // REQ_SYNC de-storm (dv_dual_sf.lua:9699-9709): a USEFUL overheard beacon means a neighbour is
     // already advertising routes to the requester, so cancel any pending jittered sync-response still

@@ -83,7 +83,7 @@ TEST_CASE("write_inbox_* — pull stream records + terminator + mark_read ack") 
 }
 
 TEST_CASE("write_err / write_log / write_ready / write_status") {
-    char b[200];
+    char b[256];   // status line is ~206B (222B with batt_mv) — must clear the largest emitter here
     size_t n = write_err(b, sizeof b, "parse", "expected: send <dst> <body>");
     CHECK(std::string(b, n) == "{\"err\":\"parse\",\"msg\":\"expected: send <dst> <body>\"}\n");
     n = write_err(b, sizeof b, "not_started", nullptr);
@@ -98,7 +98,37 @@ TEST_CASE("write_err / write_log / write_ready / write_status") {
     n = write_ready(b, sizeof b, 3, 0xa1b2c3d4u, c, "existing", 5, 99ull, "Bench \"5\"", 9);  // /mrid name, escaped
     CHECK(std::string(b, n) ==
       "{\"ev\":\"ready\",\"id\":3,\"key\":\"a1b2c3d4\",\"name\":\"Bench \\\"5\\\"\",\"leaf_id\":0,\"mode\":\"existing\",\"gateway\":false,\"routing_sf\":7,\"inbox_epoch\":5,\"now_ms\":99}\n");
-    n = write_status(b, sizeof b, 3, 0xa1b2c3d4u, c, "operating");
+    meshroute::console::StatusFields sf;
+    sf.uptime_ms = 123456; sf.duty_ms = 42; sf.txq = 0; sf.txdrop = 0; sf.rx = 7; sf.tx = 3;
+    sf.routes = 2; sf.pending = false; sf.lbt = true; sf.batt_mv = -1;   // no battery -> omitted
+    n = write_status(b, sizeof b, 3, 0xa1b2c3d4u, c, "operating", sf);
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"status\",\"id\":3,\"key\":\"a1b2c3d4\",\"state\":\"operating\",\"leaf_id\":0,\"gateway\":false,\"routing_sf\":7}\n");
+      "{\"ev\":\"status\",\"id\":3,\"key\":\"a1b2c3d4\",\"state\":\"operating\",\"leaf_id\":0,\"gateway\":false,\"routing_sf\":7,"
+      "\"uptime_ms\":123456,\"duty_ms\":42,\"txq\":0,\"txdrop\":0,\"rx\":7,\"tx\":3,\"routes\":2,\"pending\":false,\"lbt\":true}\n");
+    sf.batt_mv = 4100;                                                   // battery present -> field appears
+    n = write_status(b, sizeof b, 3, 0xa1b2c3d4u, c, "operating", sf);
+    CHECK(std::string(b, n).find("\"batt_mv\":4100") != std::string::npos);
+}
+
+TEST_CASE("write_route / write_routes_end / write_cfg — Node+Network screens") {
+    char b[400];
+    meshroute::console::RouteRow r;
+    r.dest = 2; r.next = 4; r.hops = 2; r.score = -48; r.gw = true; r.layer = 7; r.age_ms = 5000; r.cand = 1;
+    size_t n = write_route(b, sizeof b, r);
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"route\",\"dest\":2,\"next\":4,\"hops\":2,\"score\":-48,\"gw\":true,\"layer\":7,\"age_ms\":5000,\"cand\":1}\n");
+    n = write_routes_end(b, sizeof b, 3);
+    CHECK(std::string(b, n) == "{\"ev\":\"routes_end\",\"count\":3}\n");
+
+    NodeConfig cc{}; cc.routing_sf = 7; cc.allowed_sf_bitmap = (1u << 7) | (1u << 12); cc.radio_bw_hz = 125000;
+    cc.radio_cr = 5; cc.duty_cycle = 0.1; cc.lbt_enabled = true; cc.beacon_period_ms = 900000;
+    cc.dv_hop_cap = 16; cc.leaf_id = 0; cc.is_gateway = false; cc.is_mobile = false;
+    meshroute::console::CfgExtras x;
+    x.node_id = 5; x.freq_hz = 869462500u; x.tx_power = 22; x.duty_x1000 = 100;   // 0.1 → 100 (no float on wire)
+    x.ble_mode = "on"; x.ble_period = 15; x.ble_pin = 123456;
+    n = write_cfg(b, sizeof b, cc, x);
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"cfg\",\"node_id\":5,\"freq_hz\":869462500,\"routing_sf\":7,\"sf_list\":\"7,12\",\"bw_hz\":125000,\"cr\":5,"
+      "\"tx_power\":22,\"duty_x1000\":100,\"lbt\":true,\"beacon_ms\":900000,\"hop_cap\":16,\"leaf_id\":0,"
+      "\"gateway\":false,\"mobile\":false,\"ble_mode\":\"on\",\"ble_period\":15,\"ble_pin\":123456}\n");
 }

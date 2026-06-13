@@ -227,7 +227,8 @@ size_t write_inbox_marked(char* buf, size_t cap, const char* kind, uint32_t seq)
     j.ch('}');
     return j.finish();
 }
-size_t write_status(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* state) {
+size_t write_status(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* state,
+                    const StatusFields& s) {
     JsonBuf j(buf, cap);
     j.lit("{\"ev\":\"status\",\"id\":"); j.u32(id);
     j.lit(",\"key\":"); key_hex32(j, key);
@@ -235,7 +236,69 @@ size_t write_status(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeC
     j.lit(",\"leaf_id\":"); j.u32(c.leaf_id);
     j.lit(",\"gateway\":"); j.lit(c.is_gateway ? "true" : "false");
     j.lit(",\"routing_sf\":"); j.u32(c.routing_sf);
+    j.lit(",\"uptime_ms\":"); j.i64(static_cast<int64_t>(s.uptime_ms));
+    j.lit(",\"duty_ms\":");   j.u32(s.duty_ms);
+    j.lit(",\"txq\":");       j.u32(s.txq);
+    j.lit(",\"txdrop\":");    j.u32(s.txdrop);
+    j.lit(",\"rx\":");        j.u32(s.rx);
+    j.lit(",\"tx\":");        j.u32(s.tx);
+    j.lit(",\"routes\":");    j.u32(s.routes);
+    j.lit(",\"pending\":");   j.lit(s.pending ? "true" : "false");
+    j.lit(",\"lbt\":");       j.lit(s.lbt ? "true" : "false");
+    if (s.batt_mv >= 0) { j.lit(",\"batt_mv\":"); j.u32(static_cast<uint32_t>(s.batt_mv)); }
     write_layers_array(j, c);   // dual-layer gateway: additive "layers":[...] (omitted when n_layers==1)
+    j.ch('}');
+    return j.finish();
+}
+
+size_t write_route(char* buf, size_t cap, const RouteRow& r) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"route\",\"dest\":"); j.u32(r.dest);
+    j.lit(",\"next\":");  j.u32(r.next);
+    j.lit(",\"hops\":");  j.u32(r.hops);
+    j.lit(",\"score\":"); j.i64(r.score);            // Q4 dB, may be negative
+    j.lit(",\"gw\":");    j.lit(r.gw ? "true" : "false");
+    j.lit(",\"layer\":"); j.u32(r.layer);
+    j.lit(",\"age_ms\":"); j.u32(r.age_ms);
+    j.lit(",\"cand\":");  j.u32(r.cand);
+    j.ch('}');
+    return j.finish();
+}
+size_t write_routes_end(char* buf, size_t cap, uint32_t count) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"routes_end\",\"count\":"); j.u32(count);
+    j.ch('}');
+    return j.finish();
+}
+
+// allowed_sf_bitmap → a quoted CSV "7,12" (bit position = SF); "" when unconfigured.
+static void sf_list_str(JsonBuf& j, uint16_t bitmap) {
+    j.ch('"');
+    bool first = true;
+    for (uint8_t sf = 5; sf <= 12; ++sf)
+        if (bitmap & (1u << sf)) { if (!first) j.ch(','); j.u32(sf); first = false; }
+    j.ch('"');
+}
+size_t write_cfg(char* buf, size_t cap, const NodeConfig& c, const CfgExtras& x) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"cfg\",\"node_id\":"); j.u32(x.node_id);
+    j.lit(",\"freq_hz\":");    j.u32(x.freq_hz);
+    j.lit(",\"routing_sf\":"); j.u32(c.routing_sf);
+    j.lit(",\"sf_list\":");    sf_list_str(j, c.allowed_sf_bitmap);
+    j.lit(",\"bw_hz\":");      j.u32(c.radio_bw_hz);
+    j.lit(",\"cr\":");         j.u32(c.radio_cr);
+    j.lit(",\"tx_power\":");   j.i64(x.tx_power);
+    j.lit(",\"duty_x1000\":"); j.u32(x.duty_x1000);
+    j.lit(",\"lbt\":");        j.lit(c.lbt_enabled ? "true" : "false");
+    j.lit(",\"beacon_ms\":");  j.u32(c.beacon_period_ms);
+    j.lit(",\"hop_cap\":");    j.u32(c.dv_hop_cap);
+    j.lit(",\"leaf_id\":");    j.u32(c.leaf_id);
+    j.lit(",\"gateway\":");    j.lit(c.is_gateway ? "true" : "false");
+    j.lit(",\"mobile\":");     j.lit(c.is_mobile ? "true" : "false");
+    j.lit(",\"ble_mode\":");   j.str(x.ble_mode, std::strlen(x.ble_mode));
+    j.lit(",\"ble_period\":"); j.u32(x.ble_period);
+    j.lit(",\"ble_pin\":");    j.u32(x.ble_pin);
+    write_layers_array(j, c);
     j.ch('}');
     return j.finish();
 }

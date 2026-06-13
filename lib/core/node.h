@@ -222,6 +222,17 @@ struct PostAck {                     // deferred deliver/forward after the ACK a
     uint8_t  fwd_committed = 0;
 };
 struct LastAcked { uint8_t chosen_data_sf = 0; uint64_t t_ms = 0; };
+// Slice 3e.2: a learned gateway window schedule (from a heard gateway beacon's schedule_record block). The sender
+// times its RTS to the gateway with gateway_schedule_defer_ms: visit_start = heard_ms + rec.offset_ms (NO shared
+// wall clock — anchored to the heard instant); phase = (now - visit_start) mod period.
+struct GatewaySchedule {
+    bool     valid      = false;
+    uint8_t  gw_node_id = 0;          // the gateway's node_id on the leaf we heard it = the RTS target
+    uint64_t heard_ms   = 0;
+    uint32_t period_ms  = 0;
+    uint8_t  n_rec      = 0;
+    struct Rec { uint8_t leaf_id = 0; uint32_t window_ms = 0; uint32_t offset_ms = 0; } rec[2];
+};
 
 class Node {
 public:
@@ -555,6 +566,12 @@ private:
     void     activate_layer(uint8_t i);
     bool     layer_swap_blocked() const;                          // §4 busy-guard: never switch mid-exchange
     int16_t  routing_snr_floor_for(uint8_t routing_sf) const;     // SF_DEMOD_THRESHOLD[sf] + sf_margin (per-leaf)
+    void     window_switch_fire();                                // Slice 3d: gateway window scheduler (kLayerWindowTimerId) — alternate the active leaf
+    void     maybe_emit_gateway_beacon();                         // Slice 3d: per-leaf beacon at window-activation (if the active leaf is due)
+    void     set_window_anchors(uint8_t active_leaf);             // Slice 3e: refresh each leaf's _next_open_ms (the countdown anchor)
+    void     store_gateway_schedule(const GatewaySchedule& gs);   // Slice 3e.2: remember a heard gateway's schedule (evict-oldest)
+    const GatewaySchedule* find_gw_schedule(uint8_t gw_node_id) const;
+    uint32_t gateway_schedule_defer_ms(uint8_t gw_node_id) const; // Slice 3e.2: ms to defer an RTS so it hits the gateway's window on OUR leaf
     void     start_rts_timeout();
     void     start_ack_timeout();
     void     start_pending_rx_expiry(uint8_t payload_len);
@@ -775,6 +792,12 @@ private:
         QResponded  _q_responded[protocol::cap_q_responded_to] = {};            // responder dedup ring (opcode|src|dest)
         uint8_t     _q_responded_n = 0;
         SyncPending _sync_pending[protocol::cap_sync_response_pending] = {};    // jittered full-table reply ring (per requester)
+        // Slice 3d per-leaf beacon: a gateway beacons each leaf on its OWN cadence at window-activation (the shared
+        // kBeaconTimerId is disabled for gateways — its single deadline halves the per-leaf cadence). 0 = never beaconed.
+        uint64_t _last_beacon_ms = 0;
+        // Slice 3e: absolute ms this leaf's window NEXT opens — the anchor for the receiver-anchored countdown
+        // (schedule_record.offset). Set by the scheduler on every switch + at boot. countdown = (next_open-now) % period.
+        uint64_t _next_open_ms = 0;
     };
 #ifdef MESHROUTE_NATIVE
     // White-box test seam (native test build only — #ifdef'd out of every device build, zero firmware surface):
@@ -785,6 +808,9 @@ private:
     LayerRuntime  _layers[MR_N_LAYERS];
     LayerRuntime* _active = &_layers[0];
     uint8_t       _n_layers = 1;
+    // Slice 3e.2: learned schedules of nearby GATEWAYS (Node-global — a node's view of the gateways it can reach,
+    // independent of its own layers). Keyed by the gateway's node_id; evict-oldest on overflow.
+    GatewaySchedule _gw_schedules[protocol::cap_gateway_neighbor_schedules];
 
     uint64_t _ack_warn_until = 0;   // DM Inc 3: park new DM originations until this ms (set by a warn'd ACK)
     uint64_t _own_orig_events[protocol::cap_originator_events] = {};  // Inc 4 self-cap: own-origination timestamps (in-window)

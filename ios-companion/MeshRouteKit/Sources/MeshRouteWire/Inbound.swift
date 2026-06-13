@@ -66,7 +66,64 @@ public struct NodeStatusSnapshot: Hashable, Sendable, Codable {
     public let leafID: Int
     public let gateway: Bool
     public let routingSF: Int
-    enum CodingKeys: String, CodingKey { case id, key, state, leafID = "leaf_id", gateway, routingSF = "routing_sf" }
+    // Runtime telemetry (Theme D) — all optional so an older node's terse status still decodes.
+    public let uptimeMs: UInt64?
+    public let dutyMs: UInt32?
+    public let txq: Int?
+    public let txdrop: Int?
+    public let rx: Int?
+    public let tx: Int?
+    public let routes: Int?
+    public let pending: Bool?
+    public let lbt: Bool?
+    public let battMv: Int?          // omitted by the node when no battery reader is wired
+    enum CodingKeys: String, CodingKey {
+        case id, key, state, leafID = "leaf_id", gateway, routingSF = "routing_sf",
+             uptimeMs = "uptime_ms", dutyMs = "duty_ms", txq, txdrop, rx, tx, routes, pending, lbt,
+             battMv = "batt_mv"
+    }
+}
+
+/// One route-table row (a `{"ev":"route",…}` line from the `routes` stream).
+public struct RouteInfo: Hashable, Sendable, Codable {
+    public let dest: Int
+    public let next: Int
+    public let hops: Int
+    public let score: Int            // Q4 dB (÷16 for dB)
+    public let gw: Bool
+    public let layer: Int
+    public let ageMs: UInt32
+    public let cand: Int
+    enum CodingKeys: String, CodingKey { case dest, next, hops, score, gw, layer, ageMs = "age_ms", cand }
+}
+
+/// The node config snapshot (the `{"ev":"cfg",…}` object — read-only display v1).
+public struct NodeConfigInfo: Hashable, Sendable, Codable {
+    public let nodeID: Int
+    public let freqHz: UInt32
+    public let routingSF: Int
+    public let sfList: String        // "7,12"
+    public let bwHz: UInt32
+    public let cr: Int
+    public let txPower: Int
+    public let dutyX1000: Int        // duty_cycle×1000 (no float on the wire); dutyPercent below
+    public let lbt: Bool
+    public let beaconMs: UInt32
+    public let hopCap: Int
+    public let leafID: Int
+    public let gateway: Bool
+    public let mobile: Bool
+    public let bleMode: String
+    public let blePeriod: Int
+    public let blePin: UInt32
+    enum CodingKeys: String, CodingKey {
+        case nodeID = "node_id", freqHz = "freq_hz", routingSF = "routing_sf", sfList = "sf_list",
+             bwHz = "bw_hz", cr, txPower = "tx_power", dutyX1000 = "duty_x1000", lbt, beaconMs = "beacon_ms",
+             hopCap = "hop_cap", leafID = "leaf_id", gateway, mobile, bleMode = "ble_mode",
+             blePeriod = "ble_period", blePin = "ble_pin"
+    }
+    public var freqMHz: Double { Double(freqHz) / 1_000_000 }
+    public var dutyPercent: Double { Double(dutyX1000) / 10 }   // 100 → 10.0 %
 }
 
 // ---- the decoded inbound union ----
@@ -79,6 +136,9 @@ public enum Inbound: Hashable, Sendable {
     case hashResolved(node: Int, authoritative: Bool, hash: KeyHash)   // node == 0 → unresolved/timeout
     case ready(NodeReady)
     case status(NodeStatusSnapshot)
+    case route(RouteInfo)                                            // one row from the `routes` stream
+    case routesEnd(count: Int)                                       // routes stream terminator
+    case cfg(NodeConfigInfo)                                         // node config snapshot
     case inboxEntry(InboxEntry)                                       // one record from a pull_inbox stream
     case inboxEnd(dmSeq: UInt32, chanSeq: UInt32, epoch: UInt32?, count: Int, nowMs: UInt64?)  // pull done: newest seqs, served epoch, #streamed, uptime anchor
     case event(type: String, fields: [String: JSONValue])             // generic / future events
@@ -139,6 +199,12 @@ public enum PushDecoder {
             if let m = try? decoder.decode(NodeReady.self, from: data) { return .ready(m) }
         case "status":
             if let m = try? decoder.decode(NodeStatusSnapshot.self, from: data) { return .status(m) }
+        case "route":
+            if let m = try? decoder.decode(RouteInfo.self, from: data) { return .route(m) }
+        case "routes_end":
+            if let m = try? decoder.decode(RoutesEnd.self, from: data) { return .routesEnd(count: m.count) }
+        case "cfg":
+            if let m = try? decoder.decode(NodeConfigInfo.self, from: data) { return .cfg(m) }
         case "inbox_dm":
             if let m = try? decoder.decode(InboxDM.self, from: data) {
                 return .inboxEntry(InboxEntry(seq: m.seq, kind: .dm, origin: m.origin, channelID: 0,
@@ -180,4 +246,5 @@ public enum PushDecoder {
     private struct InboxDM: Decodable { let seq: UInt32; let origin: Int; let ctr: Int; let sender_hash: UInt32?; let rx_ms: UInt64; let body: String }
     private struct InboxCh: Decodable { let seq: UInt32; let origin: Int; let channel_id: Int; let channel_msg_id: UInt32; let rx_ms: UInt64; let body: String }
     private struct InboxEnd: Decodable { let dm_seq: UInt32; let chan_seq: UInt32; let epoch: UInt32?; let count: Int; let now_ms: UInt64? }
+    private struct RoutesEnd: Decodable { let count: Int }
 }

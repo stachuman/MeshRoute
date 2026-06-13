@@ -117,6 +117,11 @@ bool Node::on_init(const NodeConfig& cfg) {
         if (L1.window_offset_ms + L1.window_ms > period) return false;
         if (L0.window_offset_ms < L1.window_offset_ms + L1.window_ms &&
             L1.window_offset_ms < L0.window_offset_ms + L0.window_ms) return false;   // intervals overlap
+        // §3e F-C: a window must FIT the wire's 8-bit ×100ms duration/offset field (max 25.5 s, no escape unit). Beyond
+        // that, the schedule_record silently clamps + the receiver's defer phase math breaks. Refuse, don't clamp. The
+        // offset is bounded by the active window (active leaf -> 0, foreign leaf <= one active window), so this covers both.
+        if (L0.window_ms > protocol::gateway_schedule_window_max_ms ||
+            L1.window_ms > protocol::gateway_schedule_window_max_ms) return false;
     }
     // Lua: (SF_DEMOD_THRESHOLD[routing_sf] or -240) + sf_margin_q4 (dv_dual_sf.lua:8386).
     // The out-of-range fallback is the literal -240 (SF10), NOT table[12].
@@ -142,7 +147,11 @@ bool Node::on_init(const NodeConfig& cfg) {
     // leaf_id / beacon_period_ms / node_id), the SNR floor + LBT timing, and retunes the radio to leaf 0's SF.
     // (Runs AFTER the legacy-scalar setup above, which it supersedes; the discovery/beacon arming below then
     // reads leaf 0's values.) A single-layer node never activates — its scalars stay as set above (no-op path).
-    if (_cfg.n_layers == 2) activate_layer(0);
+    if (_cfg.n_layers == 2) {
+        activate_layer(0);                                                       // boot on leaf 0
+        set_window_anchors(0);                                                   // Slice 3e: seed the countdown anchors
+        (void)_hal.after(_cfg.layers[0].window_ms, kLayerWindowTimerId);         // Slice 3d: arm the first window-switch (leaf0 -> leaf1)
+    }
 
     // Discovery window: boot in fast-cadence / full-page mode until we have heard
     // enough of the mesh or a bounded timeout expires (dv_dual_sf.lua:8399-8401).
@@ -151,11 +160,17 @@ bool Node::on_init(const NodeConfig& cfg) {
     _discovery_until_ms     = _discovery_started_ms + protocol::discovery_ms;
     _discovery_bcn_rx_count = 0;
 
-    // Arm the first beacon spread across the (phase-dependent) period to avoid a
-    // mass-boot burst (dv_dual_sf.lua:9027-9035).
-    const int first_period = static_cast<int>(in_discovery() ? protocol::discovery_beacon_period_ms
-                                                             : _cfg.beacon_period_ms);
-    (void)_hal.after(static_cast<uint32_t>(_hal.rand_range(0, first_period)), kBeaconTimerId);
+    // Arm the first beacon spread across the (phase-dependent) period to avoid a mass-boot burst (dv:9027-9035).
+    // A GATEWAY does NOT use the shared kBeaconTimerId — its single deadline would HALVE the per-leaf cadence (one
+    // beacon/period landing on whichever leaf is active then). Instead it beacons each leaf at WINDOW-ACTIVATION on
+    // that leaf's own cadence (maybe_emit_gateway_beacon); seed leaf 0 now (after discovery state is set above).
+    if (_cfg.n_layers == 2) {
+        maybe_emit_gateway_beacon();
+    } else {
+        const int first_period = static_cast<int>(in_discovery() ? protocol::discovery_beacon_period_ms
+                                                                 : _cfg.beacon_period_ms);
+        (void)_hal.after(static_cast<uint32_t>(_hal.rand_range(0, first_period)), kBeaconTimerId);
+    }
     // Periodic route-aging sweep (dv_dual_sf.lua:9080-9086).
     (void)_hal.after(_cfg.rt_aging_check_period_ms, kAgingTimerId);
     // REQ_SYNC bootstrap (dv_dual_sf.lua:9166-9175): after a listen window, broadcast a REQ_SYNC Q
@@ -233,6 +248,105 @@ void Node::activate_layer(uint8_t i) {
     if (_active->_deferred_n > 0) { _active->_drain_armed = true; (void)_hal.after(protocol::send_defer_drain_period_ms, kDeferredDrainTimerId); }
 }
 
+// Slice 3d: the gateway WINDOW SCHEDULER (kLayerWindowTimerId). The two leaves' windows are anti-phase + back-to-back
+// (§4): leaf 0 is active for window_ms[0], then leaf 1 for window_ms[1], summing to the period — so the "close" of one
+// leaf IS the "open" of the other, ONE recurring switch event. Boot arms the first switch (after leaf-0's window);
+// each fire alternates the active leaf + arms the next switch after the NOW-active leaf's window. BUSY-GUARD (Lua
+// gate order): if mid-exchange, HOLD the current leaf + re-evaluate after gateway_layer_busy_retry_ms (the window
+// slips, never yanks a flight) — NO separate close-retry, matching the Lua (the next switch re-checks).
+void Node::window_switch_fire() {
+    if (_n_layers != 2) return;                                    // gateways only (defensive; never armed single-layer)
+    const uint8_t next = (_active == &_layers[0]) ? 1 : 0;
+    if (layer_swap_blocked()) {                                    // mid-exchange -> hold, re-evaluate after the busy-retry
+        // Telemetry: a deferral is OBSERVABLE so leaf STARVATION (one leaf reliably busy at switch time -> the other
+        // never gets serviced -> cross-layer DMs to it never bridge, the gateway's core job) shows up in the sim. The
+        // slip is currently UNBOUNDED (matches the Lua §4 "the window slips, never yanks a flight"); a max-hold /
+        // drain-then-switch bound is an OPEN design item — gate it on this event's frequency in the sim.
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "held_leaf", .type = EventField::T::i64, .i = (next == 0) ? 1 : 0 },
+                               { .key = "next_leaf", .type = EventField::T::i64, .i = next } };
+            _hal.emit("gateway_layer_window_deferred", f, 2); );
+        (void)_hal.after(protocol::gateway_layer_busy_retry_ms, kLayerWindowTimerId);
+        return;
+    }
+    activate_layer(next);
+    set_window_anchors(next);                                            // Slice 3e: refresh the countdown anchors BEFORE the beacon advertises them
+    maybe_emit_gateway_beacon();                                          // beacon the entering leaf iff its cadence is due
+    (void)_hal.after(_cfg.layers[next].window_ms, kLayerWindowTimerId);   // next switch when this leaf's window closes
+}
+
+// Slice 3e: refresh each leaf's _next_open_ms — the anchor for the receiver-anchored schedule countdown. The just-
+// activated leaf re-opens in a FULL cycle (now+period; its countdown will %period back to 0 = "open now"); the other
+// leaf opens when this leaf's window closes (now + this leaf's window_ms). Robust to busy-defer slip (re-derived each switch).
+void Node::set_window_anchors(uint8_t active_leaf) {
+    const uint64_t now    = _hal.now();
+    const uint32_t period = _cfg.layers[0].window_period_ms;
+    _layers[active_leaf]._next_open_ms     = now + period;
+    _layers[1 - active_leaf]._next_open_ms = now + _cfg.layers[active_leaf].window_ms;
+}
+
+// ---- Slice 3e.2: learned gateway schedules (RX consume + the sender-defer) ----------------------------------
+const GatewaySchedule* Node::find_gw_schedule(uint8_t gw_node_id) const {
+    for (uint8_t i = 0; i < protocol::cap_gateway_neighbor_schedules; ++i)
+        if (_gw_schedules[i].valid && _gw_schedules[i].gw_node_id == gw_node_id) return &_gw_schedules[i];
+    return nullptr;
+}
+
+void Node::store_gateway_schedule(const GatewaySchedule& gs) {
+    uint8_t slot = 0xFF, oldest = 0;                               // refresh-by-id, else a free slot, else evict-oldest
+    for (uint8_t i = 0; i < protocol::cap_gateway_neighbor_schedules; ++i) {
+        if (_gw_schedules[i].valid && _gw_schedules[i].gw_node_id == gs.gw_node_id) { slot = i; break; }
+        if (!_gw_schedules[i].valid && slot == 0xFF) slot = i;
+        if (_gw_schedules[i].heard_ms < _gw_schedules[oldest].heard_ms) oldest = i;
+    }
+    _gw_schedules[(slot == 0xFF) ? oldest : slot] = gs;
+}
+
+// ms to defer an RTS so it lands during the gateway's window on OUR leaf (Lua gateway_schedule_defer_ms dv:5013). For
+// each record: visit_start = heard_ms + offset (the receiver-anchored open, NO shared clock); phase = (now-visit_start)
+// mod period. A FOREIGN-leaf record currently OPEN means the gateway is deaf to us -> wait until it ends. OUR-leaf record
+// when the gateway is AWAY -> wait until our window comes around. Take the max defer; 0 = reachable now, send.
+uint32_t Node::gateway_schedule_defer_ms(uint8_t gw_node_id) const {
+    const GatewaySchedule* s = find_gw_schedule(gw_node_id);
+    if (!s || !s->valid || s->period_ms == 0) return 0;           // unknown / no schedule -> send now
+    const uint64_t now     = _hal.now();
+    const uint8_t  my_leaf = _cfg.leaf_id;
+    uint32_t best = 0;
+    for (uint8_t i = 0; i < s->n_rec; ++i) {
+        const GatewaySchedule::Rec& r = s->rec[i];
+        const uint64_t visit_start = s->heard_ms + r.offset_ms;
+        const int64_t  raw   = static_cast<int64_t>(now) - static_cast<int64_t>(visit_start);
+        const uint32_t phase = static_cast<uint32_t>(((raw % s->period_ms) + s->period_ms) % s->period_ms);
+        uint32_t defer = 0;
+        if (r.leaf_id != my_leaf) {                               // foreign visit currently open -> deaf to us, wait it out
+            if (phase < r.window_ms) defer = r.window_ms - phase + protocol::gateway_schedule_guard_ms;
+        } else {                                                  // our visit not open yet -> wait until it comes around
+            if (phase >= r.window_ms) defer = s->period_ms - phase + protocol::gateway_schedule_guard_ms;
+        }
+        if (defer > best) best = defer;
+    }
+    return best;   // (+ herd-jitter when gateway_spread_nibble is wired; 3e.1 left it 0 = no jitter)
+}
+
+// Slice 3d: per-leaf beacon — at WINDOW-ACTIVATION, beacon the now-active leaf iff its OWN cadence is due. The window
+// schedule provides the emit opportunity (correct SF + the leaf is idle post-swap, so emit_beacon won't busy-skip); the
+// per-leaf _last_beacon_ms gates it to the period (visit-quantized: at the first visit past due, ±one window). Replaces
+// the shared kBeaconTimerId for gateways. Also drives the gateway's discovery-exit (no shared timer calls it otherwise).
+void Node::maybe_emit_gateway_beacon() {
+    maybe_exit_discovery("gateway_window");
+    const uint64_t now    = _hal.now();
+    const uint32_t period = in_discovery() ? protocol::discovery_beacon_period_ms : _cfg.beacon_period_ms;
+    // The Lua's differential "gateway_sweep" (dv:8430): beacon on entry if the leaf has DIRTY routes (new info to
+    // propagate NOW, don't wait out the period) — OR the periodic refresh cadence is due. emit_beacon sends dirty-only
+    // in steady state (clearing the dirty flags), so the next visit stays silent unless something new appeared.
+    bool dirty = false;
+    for (uint8_t i = 0; i < _active->_rt_count; ++i) if (_active->_rt[i].dirty) { dirty = true; break; }
+    if (dirty || now - _active->_last_beacon_ms >= period) {
+        emit_beacon("gateway_window");                                    // guarded (busy/budget skip)
+        _active->_last_beacon_ms = now;
+    }
+}
+
 // ---- dispatch (timer ids -> subsystem handlers; RX cmd-nibble -> handlers) --
 
 void Node::on_timer(uint32_t timer_id) {
@@ -295,6 +409,7 @@ void Node::on_timer(uint32_t timer_id) {
             if (_active->_pending_tx && _active->_pending_tx->ctr_lo == _nack_wait_ctr_lo) tx_rts_retry();
         }
         break;
+    case kLayerWindowTimerId:     window_switch_fire();    break;   // Slice 3d: gateway window scheduler — alternate the active leaf
     default:
         // R4.5 LBT deferred-TX slots occupy the id range [kLbtDeferTimerId, +kLbtSlots) — each fires its own slot.
         if (timer_id >= kLbtDeferTimerId && timer_id < kLbtDeferTimerId + kLbtSlots) {

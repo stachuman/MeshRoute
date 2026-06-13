@@ -42,7 +42,48 @@ size_t write_err   (char* buf, size_t cap, const char* code, const char* msg);  
 size_t write_ready (char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* mode,
                     uint32_t inbox_epoch, uint64_t now_ms,
                     const char* name = nullptr, size_t name_len = 0);   // /mrid node name; omitted when empty
-size_t write_status(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* state);
+// ---- Node / Network screens over BLE (companion Phase 3 — roadmap Theme D) ----------------------
+// Runtime telemetry not in NodeConfig, passed individually so console_json stays dependency-light.
+// batt_mv < 0 ⇒ no battery reader ⇒ the field is OMITTED (never a wrong/garbage voltage).
+struct StatusFields {
+    uint64_t uptime_ms = 0;
+    uint32_t duty_ms   = 0;     // airtime used in the last hour (ms)
+    uint16_t txq       = 0;     // async-TX queue depth (idles at 0)
+    uint16_t txdrop    = 0;     // outbound-queue overflow drops
+    uint32_t rx        = 0;     // frames received
+    uint32_t tx        = 0;     // frames transmitted
+    uint8_t  routes    = 0;     // route-table size
+    bool     pending   = false; // a flight in progress
+    bool     lbt       = false; // listen-before-talk enabled
+    int32_t  batt_mv   = -1;    // battery millivolts; <0 = unavailable (omit)
+};
+size_t write_status(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* state,
+                    const StatusFields& s);
+
+// One route-table row + the stream terminator (mirrors the inbox pull pattern; streamed via tx_line).
+struct RouteRow {
+    uint8_t  dest = 0, next = 0, hops = 0;
+    int16_t  score = 0;        // Q4 dB route score
+    bool     gw = false;
+    uint8_t  layer = 0;
+    uint32_t age_ms = 0;       // since last_seen
+    uint8_t  cand = 0;         // candidate next-hops held (1..K)
+};
+size_t write_route    (char* buf, size_t cap, const RouteRow& r);
+size_t write_routes_end(char* buf, size_t cap, uint32_t count);
+
+// The node config as one JSON object (read-only display v1). Device extras not in NodeConfig are
+// pre-converted to integers here (no float on the wire — newlib-nano printf can't do %f/%lld).
+struct CfgExtras {
+    uint8_t  node_id   = 0;
+    uint32_t freq_hz   = 0;     // operating frequency in Hz (mhz×1e6, computed device-side)
+    int8_t   tx_power  = 0;     // dBm
+    uint32_t duty_x1000 = 0;    // duty_cycle×1000 (0.1 → 100); app shows /10 %
+    const char* ble_mode = "off";
+    uint16_t ble_period = 0;    // periodic advertising period (minutes)
+    uint32_t ble_pin   = 0;
+};
+size_t write_cfg(char* buf, size_t cap, const NodeConfig& c, const CfgExtras& x);
 
 // Phase-3 inbox sync (schema: ios-companion/INBOX_SYNC_CONTRACT.md). The pull stream = inbox_dm* then
 // inbox_channel* (oldest-first) then inbox_end; mark_read acks via write_inbox_marked. Fields individual to

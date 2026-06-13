@@ -607,6 +607,80 @@ static bool service_debug(const char* line, size_t len) {
     return false;
 }
 
+// ---- Node / Network screens over BLE (companion Phase 3 — roadmap Theme D) -------------------------------
+// Battery (VBAT) read — pins/divider/formula are the authoritative MeshCore XiaoNrf52Board method, using
+// OUR variant.h macros (VBAT_ENABLE=D14/P0.14, PIN_VBAT=D32/P0.31/AIN7, ADC_MULTIPLIER=3.0, AREF=3.0 V):
+//   mV = adc × ADC_MULTIPLIER × AREF_VOLTAGE / 4.096.
+// initVariant() already holds VBAT_ENABLE LOW (divider always enabled — reading costs no extra power).
+// An implausible read (USB-only / no cell / floating pin) returns -1 ⇒ the field is OMITTED, never garbage.
+// Compile out with -DMR_NO_BATT (or on a board without PIN_VBAT, e.g. Heltec).
+static int32_t read_batt_mv() {
+#if !defined(NRF52_PLATFORM) || defined(MR_NO_BATT) || !defined(PIN_VBAT)
+    return -1;   // non-nRF52 (Heltec/ESP32 uses a different ADC API), compiled out, or no VBAT divider
+#else
+    static bool adc_ready = false;
+    if (!adc_ready) {                              // configure the ADC once (a reference switch needs settling)
+        pinMode(VBAT_ENABLE, OUTPUT); digitalWrite(VBAT_ENABLE, LOW);
+        pinMode(PIN_VBAT, INPUT);
+        analogReadResolution(12);
+        analogReference(AR_INTERNAL_3_0);
+        delay(2);
+        adc_ready = true;
+    }
+    const int adc = analogRead(PIN_VBAT);
+    const int32_t mv = static_cast<int32_t>((adc * ADC_MULTIPLIER * AREF_VOLTAGE) / 4.096f);
+    return (mv > 2000 && mv < 4500) ? mv : -1;     // 1S-LiPo plausible range; else omit
+#endif
+}
+
+// Build the rich status snapshot from the device globals (the same data dump_status prints on USB).
+static meshroute::console::StatusFields make_status_fields() {
+    meshroute::console::StatusFields s;
+    s.uptime_ms = g_hal.now();
+    s.duty_ms   = static_cast<uint32_t>(g_hal.airtime_used_ms(3600000));
+    s.txq       = static_cast<uint16_t>(g_hal.txq_depth());
+    s.txdrop    = static_cast<uint16_t>(g_hal.txq_drops());
+    s.rx        = g_rx_count;
+    s.tx        = g_iradio.tx_count();
+    s.routes    = g_node.rt_count();
+    s.pending   = g_node.has_pending_tx();
+    s.lbt       = g_node.config().lbt_enabled;
+    s.batt_mv   = read_batt_mv();
+    return s;
+}
+static const char* node_state_str() { return g_node.node_id() == 0 ? "unprovisioned" : "operating"; }
+
+// `routes` over BLE: stream one {"ev":"route",...} per table entry then {"ev":"routes_end","count":N}.
+static void handle_routes(JsonSink sink) {
+    const uint64_t now = g_hal.now();
+    const uint8_t n = g_node.rt_count();
+    for (uint8_t i = 0; i < n; ++i) {
+        const meshroute::RtEntry& e = g_node.rt_at(i);
+        const meshroute::RtCandidate& c = e.candidates[0];
+        meshroute::console::RouteRow r;
+        r.dest = e.dest; r.next = c.next_hop; r.hops = c.hops; r.score = c.score;
+        r.gw = c.is_gateway; r.layer = c.learned_layer_id;
+        r.age_ms = static_cast<uint32_t>(now - c.last_seen_ms); r.cand = e.n;
+        const size_t m = meshroute::console::write_route(s_inbox_jb, sizeof s_inbox_jb, r);
+        if (m) sink(s_inbox_jb, m);
+    }
+    const size_t m = meshroute::console::write_routes_end(s_inbox_jb, sizeof s_inbox_jb, n);
+    if (m) sink(s_inbox_jb, m);
+}
+
+// Build the cfg extras (device globals not in NodeConfig) for write_cfg.
+static meshroute::console::CfgExtras make_cfg_extras() {
+    meshroute::console::CfgExtras x;
+    x.node_id    = g_node.node_id();
+    x.freq_hz    = static_cast<uint32_t>(g_freq_mhz * 1000000.0 + 0.5);
+    x.tx_power   = g_tx_power;
+    x.duty_x1000 = static_cast<uint32_t>(g_node.config().duty_cycle * 1000.0 + 0.5);
+    x.ble_mode   = g_ble_mode == 0 ? "off" : g_ble_mode == 1 ? "on" : "periodic";
+    x.ble_period = g_ble_period_min;
+    x.ble_pin    = g_ble_pin;
+    return x;
+}
+
 // BLE companion inbound: handle ONE console line, emitting a single NDJSON response (the schema of
 // docs/specs/2026-05-30-device-console-design.md §4). Reuses the USB command engine — parse_command +
 // g_node.on_command — so the wire grammar physically cannot drift between the USB and BLE transports.
@@ -622,6 +696,21 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
         return write_ready(out, cap, g_node.node_id(), g_node.key_hash32(), g_node.config(), "existing",
                            g_node.inbox().storage_epoch(), g_hal.now(), idb.name, nl);
     }
+    // status/cfg/routes stream via the big s_inbox_jb scratch (NOT the 256-B `out`): an enriched status
+    // is ~260 B and a gateway's status/cfg (with the layers[] array) reaches ~680 B — both overflow a
+    // 256-B buffer. Reusing the 1700-B line scratch costs no extra RAM. return 0 (no buffered single-line ack).
+    if (len == 6 && !strncmp(line, "status", 6)) {
+        const size_t m = write_status(s_inbox_jb, sizeof s_inbox_jb, g_node.node_id(), g_node.key_hash32(),
+                                      g_node.config(), node_state_str(), make_status_fields());
+        if (m) ble_sink(s_inbox_jb, m);
+        return 0;
+    }
+    if (len == 3 && !strncmp(line, "cfg", 3)) {
+        const size_t m = write_cfg(s_inbox_jb, sizeof s_inbox_jb, g_node.config(), make_cfg_extras());
+        if (m) ble_sink(s_inbox_jb, m);
+        return 0;
+    }
+    if (len == 6 && !strncmp(line, "routes", 6)) { handle_routes(ble_sink); return 0; }
     // Inbox sync (companion-only): stream the reply via mrble::tx_line and return 0 (no buffered single-line ack).
     if ((len == 10 || (len > 10 && line[10] == ' ')) && !strncmp(line, "pull_inbox", 10)) { handle_pull_inbox(line + 10, ble_sink); return 0; }
     if ((len ==  9 || (len >  9 && line[9]  == ' ')) && !strncmp(line, "mark_read",   9)) { handle_mark_read(line + 9,  ble_sink); return 0; }

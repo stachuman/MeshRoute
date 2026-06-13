@@ -9,6 +9,7 @@
 #include "doctest.h"
 
 #include "node.h"
+#include "frame_codec.h"   // Slice 3e: parse_beacon / parse_beacon_schedule to verify the gateway's advertised schedule
 
 using namespace meshroute;
 
@@ -22,13 +23,20 @@ public:
     int      last_set_protocol_id = -1;
     bool     cancelled[80]       = {};   // cancelled[id] = a cancel(id) was seen (kCap=80)
     bool     armed[80]           = {};   // armed[id]     = an after(_, id) was seen
-    TxResult tx(const uint8_t*, size_t, const TxParams&) override { return TxResult::ok; }
+    uint32_t last_delay[80]      = {};   // last_delay[id] = the most recent after() delay for id
+    uint8_t  last_tx[256]        = {};   // the most recent tx'd frame (Slice 3e: parse the gateway's advertised schedule)
+    size_t   last_tx_len         = 0;
+    TxResult tx(const uint8_t* b, size_t n, const TxParams&) override {
+        last_tx_len = (n < sizeof last_tx) ? n : sizeof last_tx;
+        for (size_t i = 0; i < last_tx_len; ++i) last_tx[i] = b[i];
+        return TxResult::ok;
+    }
     void     set_rx_sf(int sf) override { last_set_rx_sf = sf; }
     uint64_t channel_busy_until() override { return 0; }
     uint64_t airtime_used_ms(uint64_t) override { return 0; }
     uint64_t oldest_tx_end_ms() override { return 0; }
     uint64_t now() override { return _now; }
-    bool     after(uint32_t, uint32_t id) override { if (id < 80) armed[id] = true; return true; }
+    bool     after(uint32_t delay, uint32_t id) override { if (id < 80) { armed[id] = true; last_delay[id] = delay; } return true; }
     void     cancel(uint32_t id) override { if (id < 80) cancelled[id] = true; }
     void     set_protocol_id(int id) override { last_set_protocol_id = id; }
     int      rand_range(int lo, int) override { return lo; }
@@ -139,6 +147,11 @@ struct DualLayerTestAccess {
     static bool     flood_slot_active(Node& n, uint8_t slot) { return n._active->_flood[slot].active; }
     static void     flood_decide(Node& n, uint8_t slot)     { n.flood_forward_decision(slot); }
     static uint32_t flood_rebcast_timer_id(uint8_t slot)    { return Node::kFloodRebcastTimerId + slot; }
+    static uint32_t window_timer_id()                       { return Node::kLayerWindowTimerId; }   // Slice 3d scheduler
+    static uint32_t beacon_timer_id()                       { return Node::kBeaconTimerId; }         // shared periodic beacon
+    static uint64_t last_beacon_ms(Node& n, uint8_t i)      { return n._layers[i]._last_beacon_ms; } // Slice 3d per-leaf beacon
+    static uint32_t gw_defer(Node& n, uint8_t gw_node_id)   { return n.gateway_schedule_defer_ms(gw_node_id); }  // Slice 3e.2
+    static void     emit(Node& n, const char* kind)         { n.emit_beacon(kind); }                  // Slice 3e F-A: force a beacon
 };
 }  // namespace meshroute
 
@@ -330,6 +343,158 @@ TEST_CASE("dual-layer hardening: a swap re-homes the leaving leaf's deferred-dra
     hal.armed[DualLayerTestAccess::drain_timer_id()] = false;     // reset the witness
     DualLayerTestAccess::activate(node, 0);
     CHECK(hal.armed[DualLayerTestAccess::drain_timer_id()]);      // re-armed for leaf 0 on enter
+}
+
+// ---- SLICE 3d: the gateway window scheduler (alternate the active leaf; busy-guard defers) -----------------
+TEST_CASE("dual-layer scheduler: the window-switch loop alternates the active leaf; busy-guard defers (Slice 3d)") {
+    StubHal hal; Node node(hal, /*id*/ 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[1] = good_layer(2, 8);   // EQUAL SF -> 7500/7500 windows
+    CHECK(node.on_init(cfg));
+    const uint32_t WIN = node.config().layers[0].window_ms;
+    CHECK(WIN == 7500);
+    const uint32_t WID = DualLayerTestAccess::window_timer_id();
+    // boot: active leaf 0; the first window-switch is armed after leaf-0's window.
+    CHECK(DualLayerTestAccess::active_ptr(node) == DualLayerTestAccess::layer_ptr(node, 0));
+    CHECK(hal.armed[WID]);
+    CHECK(hal.last_delay[WID] == WIN);                            // arms after window_ms[0]
+    // fire the switch -> leaf 1, re-armed after leaf-1's window.
+    node.on_timer(WID);
+    CHECK(DualLayerTestAccess::active_ptr(node) == DualLayerTestAccess::layer_ptr(node, 1));
+    CHECK(hal.last_delay[WID] == node.config().layers[1].window_ms);
+    // fire again -> back to leaf 0 (anti-phase alternation).
+    node.on_timer(WID);
+    CHECK(DualLayerTestAccess::active_ptr(node) == DualLayerTestAccess::layer_ptr(node, 0));
+    // BUSY-GUARD: mid-exchange (pending_tx) -> HOLD the leaf, re-arm after the busy-retry (window slips, no yank).
+    DualLayerTestAccess::set_pending_tx(node, true);
+    node.on_timer(WID);
+    CHECK(DualLayerTestAccess::active_ptr(node) == DualLayerTestAccess::layer_ptr(node, 0));   // held on leaf 0
+    CHECK(hal.last_delay[WID] == protocol::gateway_layer_busy_retry_ms);                       // busy-retry, not a window
+    // once the exchange clears, the next fire switches normally.
+    DualLayerTestAccess::set_pending_tx(node, false);
+    node.on_timer(WID);
+    CHECK(DualLayerTestAccess::active_ptr(node) == DualLayerTestAccess::layer_ptr(node, 1));
+}
+
+TEST_CASE("dual-layer beacon: a gateway beacons each leaf on its own cadence at window-activation, NOT the shared timer (Slice 3d)") {
+    StubHal hal; hal._now = 10000;                       // past the discovery beacon period (5000) so a leaf is due
+    Node node(hal, /*id*/ 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
+    cfg.layers[1] = good_layer(2, 8); cfg.layers[1].node_id = 12;
+    CHECK(node.on_init(cfg));
+    // the SHARED periodic beacon timer is DISABLED for a gateway (its single deadline halves the per-leaf cadence).
+    CHECK_FALSE(hal.armed[DualLayerTestAccess::beacon_timer_id()]);
+    // boot beaconed leaf 0 (due) at window-activation; leaf 1 not yet visited.
+    CHECK(DualLayerTestAccess::last_beacon_ms(node, 0) == 10000);
+    CHECK(DualLayerTestAccess::last_beacon_ms(node, 1) == 0);
+    // switch to leaf 1 -> beacon it (due).
+    hal._now = 20000;
+    node.on_timer(DualLayerTestAccess::window_timer_id());
+    CHECK(DualLayerTestAccess::active_ptr(node) == DualLayerTestAccess::layer_ptr(node, 1));
+    CHECK(DualLayerTestAccess::last_beacon_ms(node, 1) == 20000);
+    // switch back to leaf 0 -> still due (>= cadence since 10000) -> re-beacon on ITS own schedule.
+    hal._now = 25000;
+    node.on_timer(DualLayerTestAccess::window_timer_id());
+    CHECK(DualLayerTestAccess::last_beacon_ms(node, 0) == 25000);
+}
+
+TEST_CASE("dual-layer beacon: a gateway ADVERTISES its window schedule — one record/leaf, receiver-anchored countdown (Slice 3e)") {
+    StubHal hal; hal._now = 10000;
+    Node node(hal, /*id*/ 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
+    cfg.layers[1] = good_layer(2, 8); cfg.layers[1].node_id = 12;   // equal SF -> 7500/7500 windows, 15000 period
+    CHECK(node.on_init(cfg));                                       // boot beacons leaf 0 -> hal.last_tx is that beacon
+    auto b = parse_beacon(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len));
+    CHECK(b.has_value());
+    if (!b.has_value()) return;
+    CHECK(b->self_gateway);
+    CHECK(b->has_schedule);
+    CHECK(b->schedule_count == 2);
+    auto r0 = parse_beacon_schedule(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len), *b, 0);
+    auto r1 = parse_beacon_schedule(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len), *b, 1);
+    CHECK(r0.has_value());
+    CHECK(r1.has_value());
+    if (!r0.has_value() || !r1.has_value()) return;
+    // leaf 0 is ACTIVE at boot -> its window re-opens in a full period -> countdown %period = 0 ("open now").
+    CHECK(r0->layer_id == 1);
+    CHECK(r0->routing_sf == 8);
+    CHECK(r0->duration_100ms == 75);          // 7500ms / 100
+    CHECK(r0->offset_100ms == 0);             // active leaf -> reachable now
+    CHECK(r0->period_units == 15);            // 15000ms = 15s
+    // leaf 1 opens when leaf 0's window closes (7500ms from the boot anchor) -> countdown 7500 -> 75.
+    CHECK(r1->layer_id == 2);
+    CHECK(r1->offset_100ms == 75);
+}
+
+TEST_CASE("dual-layer beacon: a node LEARNS a gateway's schedule + defers its RTS to the gateway's window (Slice 3e.2)") {
+    // 1) a gateway emits a beacon on leaf 0 (at boot) — capture it off the wire.
+    StubHal ghal; ghal._now = 10000;
+    Node gw(ghal, /*id*/ 1, 0xABCDu);
+    NodeConfig gcfg; gcfg.n_layers = 2;
+    gcfg.layers[0] = good_layer(1, 8); gcfg.layers[0].node_id = 5;    // leaf-0 nibble 1, node_id 5
+    gcfg.layers[1] = good_layer(2, 8); gcfg.layers[1].node_id = 12;   // leaf-1 nibble 2
+    CHECK(gw.on_init(gcfg));
+    CHECK(ghal.last_tx_len > 0);                                      // the boot beacon (carries the schedule)
+    // 2) a NORMAL receiver on leaf 1 (= the gateway's active leaf-0 nibble) hears it -> learns gw 5's schedule.
+    StubHal rhal; rhal._now = 50000;
+    Node rx(rhal, /*id*/ 7, 0x7777u);
+    NodeConfig rcfg; rcfg.routing_sf = 8; rcfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); rcfg.leaf_id = 1;
+    CHECK(rx.on_init(rcfg));
+    RxMeta meta{}; meta.snr_db = 9.0f; meta.rssi_dbm = -70.0f; meta.recv_ms = rhal._now; meta.src_hint = -1;
+    rx.on_recv(ghal.last_tx, ghal.last_tx_len, meta);
+    // 3) at the heard instant the gateway is on leaf 1 (our leaf) -> reachable now (defer 0).
+    CHECK(DualLayerTestAccess::gw_defer(rx, /*gw_node_id*/ 5) == 0);
+    // 4) advance 8000ms — the gateway has moved to the foreign leaf -> defer until our window comes around:
+    //    our-leaf phase 8000 >= window 7500 -> defer = period(15000) - 8000 + guard(100) = 7100.
+    rhal._now = 58000;
+    CHECK(DualLayerTestAccess::gw_defer(rx, 5) == 7100);
+    // an UNKNOWN gateway -> no schedule -> send now.
+    CHECK(DualLayerTestAccess::gw_defer(rx, 99) == 0);
+}
+
+TEST_CASE("dual-layer beacon: the ACTIVE leaf advertises countdown 0 even MID-window (Slice 3e F-A)") {
+    StubHal hal; hal._now = 10000;
+    Node gw(hal, /*id*/ 1, 0xABCDu);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
+    cfg.layers[1] = good_layer(2, 8); cfg.layers[1].node_id = 12;   // equal SF -> 7500/7500 windows, period 15000
+    CHECK(gw.on_init(cfg));                               // active = leaf 0; anchors: leaf0 re-opens in a full period, leaf1 in 7500
+    // advance 3000 ms INTO leaf-0's window (NO switch) — the active leaf is still open NOW.
+    hal._now = 13000;
+    hal.last_tx_len = 0;
+    DualLayerTestAccess::emit(gw, "triggered");          // a mid-window (triggered-style) beacon
+    auto b = parse_beacon(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len));
+    CHECK(b.has_value());
+    if (!b.has_value()) return;
+    auto r0 = parse_beacon_schedule(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len), *b, 0);
+    auto r1 = parse_beacon_schedule(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len), *b, 1);
+    CHECK(r0.has_value());
+    CHECK(r1.has_value());
+    if (!r0.has_value() || !r1.has_value()) return;
+    // F-A: leaf 0 is ACTIVE -> 0 ("open now"), NOT period-elapsed (15000-3000=12000 -> 120 units, the pre-fix wire value).
+    CHECK(r0->layer_id == 1);
+    CHECK(r0->offset_100ms == 0);
+    // leaf 1 (foreign) opens at t=17500; at t=13000 -> 4500 ms away -> 45 units.
+    CHECK(r1->layer_id == 2);
+    CHECK(r1->offset_100ms == 45);
+}
+
+TEST_CASE("dual-layer config: a window beyond the 8-bit wire range is REFUSED, not clamped (Slice 3e F-C)") {
+    // equal-SF derivation splits the period 50/50; schedule_record duration/offset are 8-bit x100ms (max 25.5 s, no escape).
+    // period 51000 -> 25500/25500 == the wire max -> ACCEPT (the boundary fits exactly).
+    { StubHal h; Node gw(h, /*id*/ 1, 0xABCDu);
+      NodeConfig c; c.n_layers = 2;
+      c.layers[0] = good_layer(1, 8); c.layers[0].node_id = 5;  c.layers[0].window_period_ms = 51000;
+      c.layers[1] = good_layer(2, 8); c.layers[1].node_id = 12; c.layers[1].window_period_ms = 51000;
+      CHECK(gw.on_init(c)); }
+    // period 51002 -> 25501/25501 > the wire max -> REFUSE (fail loud — a clamp would silently break the defer phase math).
+    { StubHal h; Node gw(h, /*id*/ 1, 0xABCDu);
+      NodeConfig c; c.n_layers = 2;
+      c.layers[0] = good_layer(1, 8); c.layers[0].node_id = 5;  c.layers[0].window_period_ms = 51002;
+      c.layers[1] = good_layer(2, 8); c.layers[1].node_id = 12; c.layers[1].window_period_ms = 51002;
+      CHECK_FALSE(gw.on_init(c)); }
 }
 
 TEST_CASE("dual-layer activation: a swap DRAINS the leaving leaf's sync-response ring (no stale timer on the wrong leaf) (Slice 3c)") {

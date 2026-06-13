@@ -45,10 +45,20 @@ struct NodeView: View {
                     }
                 }
 
+                // ---- live status + config + network (Theme D) ----
+                if let s = model.latestStatus { StatusSection(status: s) }
+                if let c = model.latestConfig { ConfigSection(cfg: c) }
+                if model.isConnected {
+                    Section {
+                        NavigationLink { RoutesView() } label: {
+                            Label("Network · \(model.latestStatus?.routes ?? model.routes.count) routes",
+                                  systemImage: "point.3.connected.trianglepath.dotted")
+                        }
+                    }
+                }
+
                 // ---- diagnostics ----
                 Section("Diagnostics") {
-                    Button("whoami") { model.sendRaw("whoami") }
-                    Button("status") { model.sendRaw("status") }
                     HStack {
                         TextField("resolve hash (hex)", text: $resolveHex)
                             .autocorrectionDisabled().textInputAutocapitalization(.never).monospaced()
@@ -86,6 +96,15 @@ struct NodeView: View {
                 }
             }
             .navigationTitle("Node")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { model.refreshNodeInfo() } label: { Image(systemName: "arrow.clockwise") }
+                        .disabled(!model.isConnected)
+                }
+            }
+            .onChange(of: model.isConnected) { _, connected in
+                if connected { model.refreshNodeInfo() }   // auto-pull status/cfg/routes once the link is up
+            }
         }
     }
 
