@@ -193,12 +193,8 @@ TEST_CASE("DATA-M ingest: a received channel msg is admitted + buffered; a gatew
         CHECK(node.channel_has(id));
         CHECK(hal.count("channel_msg_received") == 1);
     }
-    {   // §7 PURE BRIDGE (gateway_only): fully out of the channel plane -> does NOT buffer (consumer half off)
-        TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); cfg.is_gateway = true; cfg.gateway_only = true; node.on_init(cfg);
-        const uint32_t id = Node::channel_msg_id_mint(9, 0x4242u, 1);
-        node.ingest_channel_m(mk_m(id, 5, 0, body, 2), 9);
-        CHECK(node.channel_buffer_count() == 0);
-    }
+    // (REMOVED 2026-06-13: the §7 single-layer PURE-BRIDGE ingest sub-test. is_gateway is now DERIVED=(n_layers==2),
+    //  so a single-layer node is NEVER a channel gateway — the gw_env consumer/provider/pure-bridge role is gone.)
 }
 
 TEST_CASE("DATA-M ingest pushes a channel_recv to the app (origin/channel_id/body); dup raises no 2nd push") {
@@ -617,30 +613,7 @@ TEST_CASE("FLOOD leaf-mismatch: a foreign-leaf RTS-M is dropped (no overhear, no
     CHECK(hal.count("channel_overhear_armed") == 0);
 }
 
-TEST_CASE("FLOOD pure-bridge leak guard: gateway_only hearing > cap_flood_pending distinct RTS-Ms creates ZERO states") {
-    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg();
-    cfg.is_gateway = true; cfg.gateway_only = true; node.on_init(cfg);    // PURE BRIDGE: fully out of the channel plane
-    // The leak the gate flagged: states created but never freed exhausts _flood[]. A pure bridge must alloc
-    // NOTHING from a heard FLOOD RTS-M (create<->resolve coupled). Hear 5 distinct ones (> cap=3).
-    for (uint32_t k = 0; k < 5; ++k) {
-        const uint32_t id = (uint32_t(5) << 24) | (0x80u + k);
-        uint8_t bm[32] = {}; bm_set(bm, 1);
-        std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, 1, id, bm, 8, 3, rb), meta_at(10 + k));
-    }
-    CHECK(hal.count("channel_overhear_armed") == 0);   // never retunes -> never allocs -> no leak
-    CHECK(hal.count("flood_tx") == 0);                 // never rebroadcasts
-}
-
-TEST_CASE("FLOOD gateway+owner: CONSUMES (retunes + stores) a flood but is PROVIDER-off (never rebroadcasts)") {
-    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg();
-    cfg.is_gateway = true; /* gateway_only = false -> gateway + owner */ node.on_init(cfg);
-    std::array<uint8_t,64> bb{}; node.on_recv(bb.data(), mk_beacon(9, bb), meta_at(5));   // an UNMARKED neighbour 9
-    const uint32_t id = (uint32_t(5) << 24) | 0x99u;
-    uint8_t bm[32] = {}; bm_set(bm, 1);                                  // 9 unmarked -> a normal node WOULD rebroadcast
-    std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, 1, id, bm, 8, 3, rb), meta_at(10));
-    CHECK(hal.count("channel_overhear_armed") == 1);                    // consumer: it DID retune to catch the DATA-M
-    std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_m_frame(0, id, 5, db), meta_at(40));
-    CHECK(node.channel_has(id));                                        // consumer: stored for the owner
-    CHECK(hal.count("flood_rebroadcast_scheduled") == 0);              // PROVIDER off: never arms a rebroadcast
-    CHECK(hal.count("flood_tx") == 0);                                  // ...and never floods (the state is freed instead)
-}
+// (REMOVED 2026-06-13: two §7 single-layer channel-gateway TEST_CASEs — "FLOOD pure-bridge leak guard" and
+//  "FLOOD gateway+owner CONSUMES but PROVIDER-off". is_gateway is now DERIVED=(n_layers==2), so a single-layer node
+//  cannot be a channel gateway; the gw_env pure-bridge / consumer-not-provider role no longer exists. A dual-layer
+//  gateway skips the WHOLE channel plane (Principle 11, n_layers==2 gates) — covered by test_dual_layer.cpp.)

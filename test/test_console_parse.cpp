@@ -110,7 +110,7 @@ TEST_CASE("parse_cfg — keys map to NodeConfig/id/key") {
     CHECK(P("cfg id 3") == CfgErr::ok);           CHECK(id == 3);
     CHECK(P("cfg routing_sf 9") == CfgErr::ok);   CHECK(c.routing_sf == 9);
     CHECK(P("cfg data_sf 12") == CfgErr::unknown_key);   // removed: sf_list is mandatory, no single data_sf fallback
-    CHECK(P("cfg gateway 1") == CfgErr::ok);      CHECK(c.is_gateway == true);
+    CHECK(P("cfg gateway 1") == CfgErr::unknown_key);   // removed: is_gateway is DERIVED=(n_layers==2), not configurable
     CHECK(P("cfg key a1b2c3d4") == CfgErr::ok);   CHECK(key == 0xa1b2c3d4u);
     CHECK(P("cfg routing_sf 99") == CfgErr::bad_value);  // SF out of 5..12
     CHECK(P("cfg nope 1") == CfgErr::unknown_key);

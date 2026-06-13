@@ -40,6 +40,13 @@ void Node::set_identity(uint8_t node_id, uint32_t key_hash32) {
 }
 
 bool Node::on_init(const NodeConfig& cfg) {
+#if defined(MR_GATEWAY_BUILD)
+    // F1 (RAM-safety guard): the DEDICATED gateway firmware cuts cap_channel_buffer to 8 at COMPILE time, which is
+    // only safe because a dual-layer gateway SKIPS the channel plane at RUNTIME (n_layers==2). A single-layer config
+    // on a gateway build (e.g. fresh NV → n_layers=1) would run the FULL plane into the 8-entry buffer = silent lossy
+    // gossip. REFUSE it (fail-loud): a gateway build is dedicated to gateways. (The node stays up for re-provisioning.)
+    if (cfg.n_layers < 2) return false;
+#endif
     // Dual-layer validation gate (§3.2) — a GATEWAY (n_layers==2) must have both layers' REQUIRED fields set and
     // non-overlapping explicit windows. Fail LOUD (refuse, the node stays down) — no silent inherit / auto-adjust.
     if (cfg.n_layers == 2) {
@@ -77,6 +84,11 @@ bool Node::on_init(const NodeConfig& cfg) {
         _cfg.layers[0].window_ms         = _cfg.layers[0].window_period_ms;   // no split: one window == whole period (always-on)
     }
     _n_layers = _cfg.n_layers;   // Slice 3c: mirror the (normalized) layer count to the runtime member activate_layer guards on
+    // is_gateway is DERIVED, NOT configurable (user 2026-06-13): a gateway IS a dual-layer node (n_layers==2). The
+    // single authoritative derivation point — overrides any cfg/NV value. So `cfg gateway` is gone, the wire bit a node
+    // advertises about ITSELF (self_gateway / J gateway_capable) now reliably means "dual-layer gateway", and the iOS
+    // companion's ready/status `"gateway"` is trustworthy. (The LEARNED neighbour is_gateway flag is a separate field.)
+    _cfg.is_gateway = (_cfg.n_layers == 2);
     // Slice 3a: a GATEWAY derives the SF-weighted, anti-phase window split (§0.9/§4) for any window_ms/offset left
     // 0 (= DERIVE). Throughput-symmetric = equal DATA bytes/cycle, NOT equal time: weight each window by the layer
     // SF's MARGINAL per-byte airtime (preamble cancels), so the slower (higher-SF) leaf gets the longer window:

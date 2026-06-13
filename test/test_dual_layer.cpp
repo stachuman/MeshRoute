@@ -134,6 +134,11 @@ struct DualLayerTestAccess {
     static void     set_tx_stash(Node& n, bool v)     { n._tx_stash[0].valid = v; }
     static void     set_deferred(Node& n, uint8_t i, uint8_t cnt, bool armed) { n._layers[i]._deferred_n = cnt; n._layers[i]._drain_armed = armed; }
     static uint32_t drain_timer_id()                  { return Node::kDeferredDrainTimerId; }
+    // F2: pin the FORWARD/provider gate (a gateway never rebroadcasts a channel flood).
+    static void     arm_flood_slot(Node& n, uint8_t slot)   { n._active->_flood[slot].active = true; }
+    static bool     flood_slot_active(Node& n, uint8_t slot) { return n._active->_flood[slot].active; }
+    static void     flood_decide(Node& n, uint8_t slot)     { n.flood_forward_decision(slot); }
+    static uint32_t flood_rebcast_timer_id(uint8_t slot)    { return Node::kFloodRebcastTimerId + slot; }
 };
 }  // namespace meshroute
 
@@ -305,6 +310,26 @@ TEST_CASE("dual-layer activation: layer_swap_blocked is the §4 busy-guard (pend
     DualLayerTestAccess::set_post_ack(node, false);   CHECK_FALSE(DualLayerTestAccess::swap_blocked(node));
     DualLayerTestAccess::set_nack_wait(node, true);   CHECK(DualLayerTestAccess::swap_blocked(node));      // paused BUSY_RX re-RTS
     DualLayerTestAccess::set_nack_wait(node, false);  CHECK_FALSE(DualLayerTestAccess::swap_blocked(node));
+    // Slice 3c hardening (id-classification guard_defer): the Node-global transient stash also defers the swap.
+    DualLayerTestAccess::set_deferred_lbt(node, true);  CHECK(DualLayerTestAccess::swap_blocked(node));     // LBT-deferred frame on the leaving leaf's SF
+    DualLayerTestAccess::set_deferred_lbt(node, false); CHECK_FALSE(DualLayerTestAccess::swap_blocked(node));
+    DualLayerTestAccess::set_tx_stash(node, true);      CHECK(DualLayerTestAccess::swap_blocked(node));     // on-radio-busy re-issue stash
+    DualLayerTestAccess::set_tx_stash(node, false);     CHECK_FALSE(DualLayerTestAccess::swap_blocked(node));
+}
+
+TEST_CASE("dual-layer hardening: a swap re-homes the leaving leaf's deferred-drain (no stranded no-route DMs) (Slice 3c)") {
+    StubHal hal; Node node(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2; cfg.layers[0] = good_layer(1, 8); cfg.layers[1] = good_layer(2, 9);
+    CHECK(node.on_init(cfg));
+    // leaf 0 has a no-route DM parked: _deferred_n>0 + the drain armed.
+    DualLayerTestAccess::set_deferred(node, /*leaf*/ 0, /*count*/ 1, /*armed*/ true);
+    // swap to leaf 1: leaf 0's shared drain timer is CANCELLED (re-homed off the leaving leaf).
+    DualLayerTestAccess::activate(node, 1);
+    CHECK(hal.cancelled[DualLayerTestAccess::drain_timer_id()]);
+    // swap BACK to leaf 0: its deferred-drain is RE-ARMED from preserved state — the parked DM isn't stranded.
+    hal.armed[DualLayerTestAccess::drain_timer_id()] = false;     // reset the witness
+    DualLayerTestAccess::activate(node, 0);
+    CHECK(hal.armed[DualLayerTestAccess::drain_timer_id()]);      // re-armed for leaf 0 on enter
 }
 
 TEST_CASE("dual-layer activation: a swap DRAINS the leaving leaf's sync-response ring (no stale timer on the wrong leaf) (Slice 3c)") {
@@ -342,5 +367,12 @@ TEST_CASE("dual-layer Principle 11: a gateway never originates or pulls channel 
       bool any_pull = false;
       for (uint8_t s = 0; s < 8; ++s) if (hal.armed[DualLayerTestAccess::channel_pull_timer_id(s)]) any_pull = true;
       CHECK_FALSE(any_pull);                                                       // a gateway never schedules a channel pull
+      // F2: a gateway never FORWARDS — flood_forward_decision frees the slot + arms NO rebroadcast (the durable
+      // 'receive-maybe-later, never forward' invariant; the serve gate handle_channel_pull uses the same n_layers==2 early-return).
+      DualLayerTestAccess::arm_flood_slot(node, 0);
+      CHECK(DualLayerTestAccess::flood_slot_active(node, 0));
+      DualLayerTestAccess::flood_decide(node, 0);
+      CHECK_FALSE(DualLayerTestAccess::flood_slot_active(node, 0));                 // freed, not rebroadcast
+      CHECK_FALSE(hal.armed[DualLayerTestAccess::flood_rebcast_timer_id(0)]);       // no rebroadcast timer armed
     }
 }
