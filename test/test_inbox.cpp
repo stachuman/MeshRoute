@@ -21,11 +21,11 @@ namespace {
 
 // pull collector: copy the decoded entry (body points into transient store bytes -> copy to a std::string).
 struct Collected { uint32_t seq; InboxKind kind; uint8_t origin; uint8_t channel_id; uint32_t msg_id;
-                   uint32_t sender_hash; uint64_t rx; std::string body; };
+                   uint32_t sender_hash; uint8_t layer_id; uint64_t rx; std::string body; };
 struct Collector { std::vector<Collected> items; };
 bool collect_cb(void* ctx, const InboxEntry& e) {
     auto* c = static_cast<Collector*>(ctx);
-    c->items.push_back({ e.seq, e.kind, e.origin, e.channel_id, e.msg_id, e.sender_hash, e.rx_time_ms,
+    c->items.push_back({ e.seq, e.kind, e.origin, e.channel_id, e.msg_id, e.sender_hash, e.layer_id, e.rx_time_ms,
                          std::string(reinterpret_cast<const char*>(e.body ? e.body : reinterpret_cast<const uint8_t*>("")), e.body_len) });
     return true;
 }
@@ -33,11 +33,11 @@ bool collect_cb(void* ctx, const InboxEntry& e) {
 // A synthetic channel_msg_id (origin<<24 | key_hash16<<8 | ctr8) — the full 32-bit identity the inbox stores.
 uint32_t mk_chan_id(uint8_t origin, uint8_t ctr8) { return (uint32_t(origin) << 24) | (uint32_t(0x1234) << 8) | ctr8; }
 
-void rec_dm(Inbox& ib, uint8_t origin, uint16_t ctr, const char* s, uint64_t t, uint32_t sender_hash = 0) {
-    ib.record_dm(origin, sender_hash, ctr, reinterpret_cast<const uint8_t*>(s), static_cast<uint8_t>(std::strlen(s)), t);
+void rec_dm(Inbox& ib, uint8_t origin, uint16_t ctr, const char* s, uint64_t t, uint32_t sender_hash = 0, uint8_t layer_id = 0) {
+    ib.record_dm(origin, sender_hash, ctr, layer_id, reinterpret_cast<const uint8_t*>(s), static_cast<uint8_t>(std::strlen(s)), t);
 }
-void rec_ch(Inbox& ib, uint8_t ch, uint8_t origin, uint8_t ctr8, const char* s, uint64_t t) {
-    ib.record_channel(ch, mk_chan_id(origin, ctr8), reinterpret_cast<const uint8_t*>(s), static_cast<uint8_t>(std::strlen(s)), t);
+void rec_ch(Inbox& ib, uint8_t ch, uint8_t origin, uint8_t ctr8, const char* s, uint64_t t, uint8_t layer_id = 0) {
+    ib.record_channel(ch, mk_chan_id(origin, ctr8), layer_id, reinterpret_cast<const uint8_t*>(s), static_cast<uint8_t>(std::strlen(s)), t);
 }
 
 }  // namespace
@@ -53,17 +53,17 @@ TEST_CASE("inbox: disabled until stores are installed (record_* / pull inert)") 
 TEST_CASE("inbox: record_dm/record_channel RETURN the assigned seq (model-B live-push stamp); 0 when disabled") {
     // Disabled -> 0: the live push then omits seq -> the app treats it as best-effort live only (no gap-pull).
     Inbox off;
-    CHECK(off.record_dm(5, 0, 1, reinterpret_cast<const uint8_t*>("x"), 1, 0) == 0);
-    CHECK(off.record_channel(2, mk_chan_id(9, 1), reinterpret_cast<const uint8_t*>("x"), 1, 0) == 0);
+    CHECK(off.record_dm(5, 0, 1, /*layer_id*/ 0, reinterpret_cast<const uint8_t*>("x"), 1, 0) == 0);
+    CHECK(off.record_channel(2, mk_chan_id(9, 1), /*layer_id*/ 0, reinterpret_cast<const uint8_t*>("x"), 1, 0) == 0);
     // Enabled -> the assigned per-store seq, monotonic, with INDEPENDENT DM / channel spaces. This is the
     // exact value stamped into the live Push, so live + pulled dedup/order on the same seq.
     RamInboxStore rdm(protocol::inbox_dm_store_bytes), rch(protocol::inbox_chan_store_bytes);
     Inbox ib; ib.on_init(&rdm, &rch);
-    CHECK(ib.record_dm(5, 0, 100, reinterpret_cast<const uint8_t*>("a"), 1, 0) == 1);
-    CHECK(ib.record_dm(7, 0, 101, reinterpret_cast<const uint8_t*>("b"), 1, 0) == 2);
-    CHECK(ib.record_channel(2, mk_chan_id(9, 0x42), reinterpret_cast<const uint8_t*>("c"), 1, 0) == 1);  // channel space starts at 1
-    CHECK(ib.record_dm(8, 0, 102, reinterpret_cast<const uint8_t*>("d"), 1, 0) == 3);
-    CHECK(ib.record_channel(2, mk_chan_id(9, 0x43), reinterpret_cast<const uint8_t*>("e"), 1, 0) == 2);
+    CHECK(ib.record_dm(5, 0, 100, /*layer_id*/ 0, reinterpret_cast<const uint8_t*>("a"), 1, 0) == 1);
+    CHECK(ib.record_dm(7, 0, 101, /*layer_id*/ 0, reinterpret_cast<const uint8_t*>("b"), 1, 0) == 2);
+    CHECK(ib.record_channel(2, mk_chan_id(9, 0x42), /*layer_id*/ 0, reinterpret_cast<const uint8_t*>("c"), 1, 0) == 1);  // channel space starts at 1
+    CHECK(ib.record_dm(8, 0, 102, /*layer_id*/ 0, reinterpret_cast<const uint8_t*>("d"), 1, 0) == 3);
+    CHECK(ib.record_channel(2, mk_chan_id(9, 0x43), /*layer_id*/ 0, reinterpret_cast<const uint8_t*>("e"), 1, 0) == 2);
     CHECK(ib.dm_newest_seq() == 3); CHECK(ib.chan_newest_seq() == 2);
 }
 
@@ -86,6 +86,19 @@ TEST_CASE("inbox: record DM + channel, pull(0,0) returns all oldest-first, field
     CHECK(c.items[2].msg_id == mk_chan_id(9, 0x42));          // FULL 32-bit channel_msg_id (origin in the high byte)
     CHECK(c.items[2].body == "hello-chan"); CHECK(c.items[2].seq == 1);   // independent seq space
     CHECK(ib.dm_newest_seq() == 2); CHECK(ib.chan_newest_seq() == 1);
+}
+
+TEST_CASE("inbox: the receiving layer_id round-trips through serialize -> store -> pull (Slice 4a' / §2/Q13)") {
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    Inbox ib; ib.on_init(&dm, &ch);
+    rec_dm(ib, 5, 100, "on-23", 1000, /*sender_hash*/ 0xABCDu, /*layer_id*/ 23);   // a DM heard on layer 23
+    rec_dm(ib, 5, 101, "on-39", 1001, /*sender_hash*/ 0xABCDu, /*layer_id*/ 39);   // SAME origin/sender, different layer
+    rec_ch(ib, 2, 9, 0x42, "ch-on-7", 1002, /*layer_id*/ 7);
+    Collector c; ib.pull(0, 0, collect_cb, &c);
+    CHECK(c.items.size() == 3);
+    CHECK(c.items[0].layer_id == 23);   // the receiving layer survived the durable record (24->25 B header)
+    CHECK(c.items[1].layer_id == 39);   // same (origin 5, ctr-pair) but a distinct layer — the disambiguation §2/Q13 demands
+    CHECK(c.items[2].layer_id == 7);    // channels carry it too
 }
 
 TEST_CASE("inbox: pull(since) returns only seq > since (the cursor)") {
@@ -145,7 +158,7 @@ TEST_CASE("inbox: empty / max-body records round-trip; an over-cap single record
     Inbox ib; ib.on_init(&dm, &ch);
     rec_dm(ib, 1, 1, "", 0);                                      // empty body
     std::string big(protocol::inbox_max_body, 'A');              // max body
-    ib.record_dm(2, /*sender_hash*/ 0, 2, reinterpret_cast<const uint8_t*>(big.data()), protocol::inbox_max_body, 0);
+    ib.record_dm(2, /*sender_hash*/ 0, 2, /*layer_id*/ 0, reinterpret_cast<const uint8_t*>(big.data()), protocol::inbox_max_body, 0);
     Collector c; ib.pull(0, 0, collect_cb, &c);
     CHECK(c.items.size() == 2);
     CHECK(c.items[0].body.empty());

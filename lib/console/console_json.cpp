@@ -105,12 +105,14 @@ size_t write_push(char* buf, size_t cap, const Push& p) {
                                                                              : protocol::max_payload_bytes_hard_cap;
     if (p.kind == PushKind::msg_recv) {
         j.lit(",\"origin\":");      j.u32(p.origin);
+        j.lit(",\"layer_id\":");    j.u32(p.layer_id);      // §2/Q13: which layer this DM arrived on (matches the pulled inbox_dm)
         j.lit(",\"ctr\":");         j.u32(p.ctr);
         j.lit(",\"sender_hash\":"); j.u32(p.sender_hash);   // Phase-3: live↔pulled DM dedup identity (0 if no SOURCE_HASH)
         if (p.seq) { j.lit(",\"seq\":"); j.u32(p.seq); }    // model B: the inbox seq (gap detector). OMITTED if 0 = inbox disabled
         j.lit(",\"body\":");        j.str(reinterpret_cast<const char*>(p.body), body_n);
     } else if (p.kind == PushKind::channel_recv) {
         j.lit(",\"origin\":");         j.u32(p.origin);
+        j.lit(",\"layer_id\":");       j.u32(p.layer_id);   // §2/Q13: which layer this channel message arrived on
         j.lit(",\"channel_id\":");     j.u32(p.channel_id);
         j.lit(",\"channel_msg_id\":"); j.u32(p.channel_msg_id);   // Phase-3: the full 32-bit channel dedup identity
         if (p.seq) { j.lit(",\"seq\":"); j.u32(p.seq); }          // model B: the inbox seq (gap detector). OMITTED if 0 = inbox disabled
@@ -185,11 +187,12 @@ size_t write_ready(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeCo
 // Schema = ios-companion/INBOX_SYNC_CONTRACT.md. sender_hash / channel_msg_id are DECIMAL u32 (not hex). rx_ms
 // is node uptime (the app stamps wall-clock on pull). Fields are passed individually so console_json stays free
 // of an inbox.h dependency. Bodies are JSON-escaped + bounded like write_push.
-size_t write_inbox_dm(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint16_t ctr, uint32_t sender_hash,
-                      uint64_t rx_ms, const char* body, size_t body_len) {
+size_t write_inbox_dm(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8_t layer_id, uint16_t ctr,
+                      uint32_t sender_hash, uint64_t rx_ms, const char* body, size_t body_len) {
     JsonBuf j(buf, cap);
     j.lit("{\"ev\":\"inbox_dm\",\"seq\":"); j.u32(seq);
     j.lit(",\"origin\":");      j.u32(origin);
+    j.lit(",\"layer_id\":");    j.u32(layer_id);   // §2/Q13: which layer this DM arrived on
     j.lit(",\"ctr\":");         j.u32(ctr);
     j.lit(",\"sender_hash\":"); j.u32(sender_hash);
     j.lit(",\"rx_ms\":");       j.i64(static_cast<int64_t>(rx_ms));
@@ -197,11 +200,12 @@ size_t write_inbox_dm(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint1
     j.ch('}');
     return j.finish();
 }
-size_t write_inbox_channel(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8_t channel_id,
+size_t write_inbox_channel(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8_t layer_id, uint8_t channel_id,
                            uint32_t channel_msg_id, uint64_t rx_ms, const char* body, size_t body_len) {
     JsonBuf j(buf, cap);
     j.lit("{\"ev\":\"inbox_channel\",\"seq\":"); j.u32(seq);
     j.lit(",\"origin\":");         j.u32(origin);
+    j.lit(",\"layer_id\":");       j.u32(layer_id);   // §2/Q13: which layer this channel message arrived on
     j.lit(",\"channel_id\":");     j.u32(channel_id);
     j.lit(",\"channel_msg_id\":"); j.u32(channel_msg_id);
     j.lit(",\"rx_ms\":");          j.i64(static_cast<int64_t>(rx_ms));

@@ -44,21 +44,21 @@ TEST_CASE("write_event — type + typed EventField k/v") {
 
 TEST_CASE("write_push — msg_recv/channel_recv carry identity + seq (model B); seq OMITTED when 0 (inbox disabled)") {
     char b[300];
-    Push m{}; m.kind = PushKind::msg_recv; m.origin = 3; m.ctr = 7; m.sender_hash = 3735928559u;  // 0xDEADBEEF
+    Push m{}; m.kind = PushKind::msg_recv; m.origin = 3; m.layer_id = 5; m.ctr = 7; m.sender_hash = 3735928559u;  // 0xDEADBEEF
     const char* body = "hi\"x"; m.body_len = 4; std::memcpy(m.body, body, 4);
     size_t n = write_push(b, sizeof b, m);                                   // seq==0 -> omitted (best-effort live only)
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"msg_recv\",\"origin\":3,\"ctr\":7,\"sender_hash\":3735928559,\"body\":\"hi\\\"x\"}\n");
+      "{\"ev\":\"msg_recv\",\"origin\":3,\"layer_id\":5,\"ctr\":7,\"sender_hash\":3735928559,\"body\":\"hi\\\"x\"}\n");
     m.seq = 42;                                                              // inbox enabled -> seq present
     n = write_push(b, sizeof b, m);
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"msg_recv\",\"origin\":3,\"ctr\":7,\"sender_hash\":3735928559,\"seq\":42,\"body\":\"hi\\\"x\"}\n");
+      "{\"ev\":\"msg_recv\",\"origin\":3,\"layer_id\":5,\"ctr\":7,\"sender_hash\":3735928559,\"seq\":42,\"body\":\"hi\\\"x\"}\n");
 
-    Push ch{}; ch.kind = PushKind::channel_recv; ch.origin = 4; ch.channel_id = 3; ch.channel_msg_id = 68298753u; ch.seq = 7;
+    Push ch{}; ch.kind = PushKind::channel_recv; ch.origin = 4; ch.layer_id = 9; ch.channel_id = 3; ch.channel_msg_id = 68298753u; ch.seq = 7;
     const char* cb = "yo"; ch.body_len = 2; std::memcpy(ch.body, cb, 2);
     n = write_push(b, sizeof b, ch);
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"channel_recv\",\"origin\":4,\"channel_id\":3,\"channel_msg_id\":68298753,\"seq\":7,\"body\":\"yo\"}\n");
+      "{\"ev\":\"channel_recv\",\"origin\":4,\"layer_id\":9,\"channel_id\":3,\"channel_msg_id\":68298753,\"seq\":7,\"body\":\"yo\"}\n");
 
     Push a{}; a.kind = PushKind::send_acked; a.dst = 5; a.ctr = 7;
     n = write_push(b, sizeof b, a);
@@ -67,13 +67,13 @@ TEST_CASE("write_push — msg_recv/channel_recv carry identity + seq (model B); 
 
 TEST_CASE("write_inbox_* — pull stream records + terminator + mark_read ack") {
     char b[400];
-    size_t n = write_inbox_dm(b, sizeof b, 42, 2, 7, 3735928559u, 123456ull, "hi", 2);
+    size_t n = write_inbox_dm(b, sizeof b, 42, 2, /*layer_id*/ 23, 7, 3735928559u, 123456ull, "hi", 2);
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"inbox_dm\",\"seq\":42,\"origin\":2,\"ctr\":7,\"sender_hash\":3735928559,\"rx_ms\":123456,\"body\":\"hi\"}\n");
+      "{\"ev\":\"inbox_dm\",\"seq\":42,\"origin\":2,\"layer_id\":23,\"ctr\":7,\"sender_hash\":3735928559,\"rx_ms\":123456,\"body\":\"hi\"}\n");
 
-    n = write_inbox_channel(b, sizeof b, 7, 4, 3, 68298753u, 123456ull, "yo", 2);
+    n = write_inbox_channel(b, sizeof b, 7, 4, /*layer_id*/ 7, 3, 68298753u, 123456ull, "yo", 2);
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"inbox_channel\",\"seq\":7,\"origin\":4,\"channel_id\":3,\"channel_msg_id\":68298753,\"rx_ms\":123456,\"body\":\"yo\"}\n");
+      "{\"ev\":\"inbox_channel\",\"seq\":7,\"origin\":4,\"layer_id\":7,\"channel_id\":3,\"channel_msg_id\":68298753,\"rx_ms\":123456,\"body\":\"yo\"}\n");
 
     n = write_inbox_end(b, sizeof b, 42, 7, 3, 15, 987654ull);
     CHECK(std::string(b, n) == "{\"ev\":\"inbox_end\",\"dm_seq\":42,\"chan_seq\":7,\"epoch\":3,\"count\":15,\"now_ms\":987654}\n");

@@ -32,32 +32,33 @@ final class PushDecoderTests: XCTestCase {
 
     func testMsgRecv() {
         // companion firmware: msg_recv carries sender_hash AND the live seq (model B gap detector)
-        guard case .messageReceived(let origin, let ctr, let senderHash, let seq, let body)? =
-                PushDecoder.decode(line: #"{"ev":"msg_recv","origin":2,"ctr":7,"sender_hash":2319391746,"seq":42,"body":"hi there"}"#) else {
+        guard case .messageReceived(let origin, let ctr, let senderHash, let seq, let layer, let body)? =
+                PushDecoder.decode(line: #"{"ev":"msg_recv","origin":2,"layer_id":5,"ctr":7,"sender_hash":2319391746,"seq":42,"body":"hi there"}"#) else {
             return XCTFail("not msg_recv")
         }
         XCTAssertEqual(origin, 2); XCTAssertEqual(ctr, 7); XCTAssertEqual(body, "hi there")
         XCTAssertEqual(senderHash, 2319391746)   // 0x8a3f1c02 — the sender's stable key_hash32
         XCTAssertEqual(seq, 42)
-        // legacy/inbox-disabled DM without sender_hash or seq → both nil (best-effort live only)
-        guard case .messageReceived(_, _, let sh2, let seq2, _)? =
+        XCTAssertEqual(layer, 5)                 // D12: receiving layer
+        // legacy/inbox-disabled DM without sender_hash/seq/layer_id → all nil (best-effort live only)
+        guard case .messageReceived(_, _, let sh2, let seq2, let layer2, _)? =
                 PushDecoder.decode(line: #"{"ev":"msg_recv","origin":2,"ctr":7,"body":"hi"}"#) else { return XCTFail() }
-        XCTAssertNil(sh2); XCTAssertNil(seq2)
+        XCTAssertNil(sh2); XCTAssertNil(seq2); XCTAssertNil(layer2)
     }
 
     func testChannelRecv() {
         // without channel_msg_id/seq (pre-companion firmware) → both nil, still decodes
-        guard case .channelReceived(let origin, let ch, let mid, let seq, let body)? =
+        guard case .channelReceived(let origin, let ch, let mid, let seq, _, let body)? =
                 PushDecoder.decode(line: #"{"ev":"channel_recv","origin":4,"channel_id":3,"body":"gm"}"#) else {
             return XCTFail("not channel_recv")
         }
         XCTAssertEqual(origin, 4); XCTAssertEqual(ch, 3); XCTAssertNil(mid); XCTAssertNil(seq); XCTAssertEqual(body, "gm")
-        // with channel_msg_id + seq (companion firmware) → full identity + live high-water
-        guard case .channelReceived(_, _, let mid2, let seq2, _)? =
-                PushDecoder.decode(line: #"{"ev":"channel_recv","origin":4,"channel_id":3,"channel_msg_id":68298753,"seq":7,"body":"gm"}"#) else {
+        // with channel_msg_id + seq + layer_id (companion firmware) → full identity + live high-water + layer
+        guard case .channelReceived(_, _, let mid2, let seq2, let layer2, _)? =
+                PushDecoder.decode(line: #"{"ev":"channel_recv","origin":4,"layer_id":9,"channel_id":3,"channel_msg_id":68298753,"seq":7,"body":"gm"}"#) else {
             return XCTFail("not channel_recv")
         }
-        XCTAssertEqual(mid2, 68298753); XCTAssertEqual(seq2, 7)
+        XCTAssertEqual(mid2, 68298753); XCTAssertEqual(seq2, 7); XCTAssertEqual(layer2, 9)
     }
 
     func testSendAckedAndFailed() {

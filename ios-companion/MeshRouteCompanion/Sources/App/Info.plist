@@ -24,6 +24,10 @@
 	<string>MeshRoute connects to your node over Bluetooth to read and send messages and read its status.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>MeshRoute uses the camera to scan a peer's contact QR card.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

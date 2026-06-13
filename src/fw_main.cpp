@@ -546,10 +546,10 @@ static char s_inbox_jb[1700];   // shared NDJSON line scratch: pulled inbox reco
 static bool inbox_pull_cb(void* vctx, const meshroute::InboxEntry& e) {
     PullCtx* c = static_cast<PullCtx*>(vctx);
     const size_t n = (e.kind == meshroute::InboxKind::dm)
-        ? meshroute::console::write_inbox_dm(s_inbox_jb, sizeof s_inbox_jb, e.seq, e.origin,
+        ? meshroute::console::write_inbox_dm(s_inbox_jb, sizeof s_inbox_jb, e.seq, e.origin, e.layer_id,
               static_cast<uint16_t>(e.msg_id), e.sender_hash, e.rx_time_ms,
               reinterpret_cast<const char*>(e.body), e.body_len)
-        : meshroute::console::write_inbox_channel(s_inbox_jb, sizeof s_inbox_jb, e.seq, e.origin,
+        : meshroute::console::write_inbox_channel(s_inbox_jb, sizeof s_inbox_jb, e.seq, e.origin, e.layer_id,
               e.channel_id, e.msg_id, e.rx_time_ms, reinterpret_cast<const char*>(e.body), e.body_len);
     if (n) { c->sink(s_inbox_jb, n); ++c->count; }
     else {                                                // UNREACHABLE for a valid body (<=241 B fits 1700), but

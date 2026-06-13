@@ -24,10 +24,10 @@ public struct ConversationStore: Sendable {
     @discardableResult
     public mutating func ingest(_ inbound: Inbound, now: Date) -> ChatMessage? {
         switch inbound {
-        case .messageReceived(let origin, let ctr, let senderHash, let seq, let body):
+        case .messageReceived(let origin, let ctr, let senderHash, let seq, _, let body):
             return insertInboundDM(origin: UInt8(clamping: origin), ctr: ctr, senderHash: senderHash,
                                    seq: seq, body: body, now: now)
-        case .channelReceived(let origin, let channelID, let channelMsgID, let seq, let body):
+        case .channelReceived(let origin, let channelID, let channelMsgID, let seq, _, let body):
             return insertChannel(origin: UInt8(clamping: origin), channelID: UInt8(clamping: channelID),
                                  channelMsgID: channelMsgID, seq: seq, body: body, now: now)
         case .sendAcked(_, let ctr):

@@ -42,8 +42,8 @@ detector. (Chosen over "A" = best-effort-live + reconcile-only-on-reconnect.)
 ## Pushes (node → app)  — one JSON object per line
 
 ```json
-{"ev":"inbox_dm","seq":42,"origin":2,"ctr":7,"sender_hash":3735928559,"rx_ms":123456,"body":"…"}
-{"ev":"inbox_channel","seq":7,"origin":4,"channel_id":3,"channel_msg_id":68298753,"rx_ms":123456,"body":"…"}
+{"ev":"inbox_dm","seq":42,"origin":2,"layer_id":5,"ctr":7,"sender_hash":3735928559,"rx_ms":123456,"body":"…"}
+{"ev":"inbox_channel","seq":7,"origin":4,"layer_id":5,"channel_id":3,"channel_msg_id":68298753,"rx_ms":123456,"body":"…"}
 {"ev":"inbox_end","dm_seq":42,"chan_seq":7,"epoch":3,"count":15,"now_ms":987654}
 ```
 - Emit the **DM block then the channel block** (matches `Inbox::pull`'s order), each oldest-first, then
@@ -58,6 +58,13 @@ detector. (Chosen over "A" = best-effort-live + reconcile-only-on-reconnect.)
   else `(origin, ctr)`**. (`sender_hash` is `0`/omitted only for legacy/non-`SOURCE_HASH` DMs.)
 - These mirror `console_json.cpp`'s existing writers; the natural firmware shape is a
   `write_inbox_entry(buf, cap, const InboxEntry&)` paralleling `write_push`.
+- **`layer_id` (2026-06-13, dual-layer gateway §2/Q13):** the **full 8-bit receiving `layer_id`** the message
+  arrived on. A **gateway** is a member of two layers on one identity, so the 8-bit `origin` aliases across its
+  two leaves — `(origin, ctr)` alone can't tell layer 7's node 5 from layer 39's node 5. The firmware now stamps
+  the receiving `layer_id` on EVERY DM/channel record + live push (a normal single-layer node sends its one
+  `leaf_id`, so existing behaviour is unchanged — just an added field). The app may thread it into the
+  conversation/display; DM dedup identity is **unchanged** (`(sender_hash, ctr)`/`(origin, ctr)`) — `layer_id`
+  is informational routing context, not part of the identity key.
 
 ## Epoch & store-reset handling (FIRM)
 
@@ -87,8 +94,8 @@ Implemented + tested app-side: `InboxSyncState.beginSync(nodeEpoch:)`, `MessageI
 So a message seen **live** and later **pulled** dedups on the same key **and** the client can detect a
 *missed* live push (model "B" above), the live pushes need the inbox's identity fields **and its `seq`**:
 ```json
-{"ev":"channel_recv","origin":4,"channel_id":3,"channel_msg_id":68298753,"seq":7,"body":"…"}   // channel_msg_id + seq are new
-{"ev":"msg_recv","origin":2,"ctr":7,"sender_hash":3735928559,"seq":42,"body":"…"}              // sender_hash + seq are new
+{"ev":"channel_recv","origin":4,"layer_id":5,"channel_id":3,"channel_msg_id":68298753,"seq":7,"body":"…"}   // channel_msg_id + seq + layer_id are new
+{"ev":"msg_recv","origin":2,"layer_id":5,"ctr":7,"sender_hash":3735928559,"seq":42,"body":"…"}              // sender_hash + seq + layer_id are new
 ```
 Identity fields are at hand: `node_channel.cpp` passes the full `channel_msg_id` to `record_channel`, and
 `do_post_ack` has `sender_hash` (the parsed `source_hash`) right at the `msg_recv` push. **`seq`** is the

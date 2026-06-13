@@ -7,6 +7,7 @@
 import Foundation
 import SwiftData
 import Observation
+import UserNotifications
 import MeshRouteWire
 import MeshRouteCore
 
@@ -38,6 +39,7 @@ final class AppModel {
     private var timeAnchor: NodeTimeAnchor?        // node-uptime ↔ wall-clock pairing (from ready/inbox_end now_ms)
     private var greetedThisConnection = false      // sent `whoami` once on connect
     private var syncStartedThisConnection = false  // started the inbox pull once on connect
+    private var isForeground = true                 // drives whether an inbound DM posts a local notification
 
     init(modelContainer: ModelContainer) {
         self.modelContainer = modelContainer
@@ -104,12 +106,24 @@ final class AppModel {
         switch event {
         case .link(let s):
             linkState = s
-            // On a fresh, usable link, fetch identity deterministically (don't rely on an unsolicited
-            // greeting). The node replies to `whoami` with a `ready` JSON → identity + (Phase 3) inbox sync.
-            if case .connected = s, !greetedThisConnection {
+            switch s {
+            case .connected where !greetedThisConnection:
+                // On a fresh, usable link, fetch identity deterministically (don't rely on an unsolicited
+                // greeting). `whoami` → `ready` JSON → identity + inbox sync. Also fires on an AUTO-reconnect
+                // (a dropped link / periodic window / background resume), because the guards were cleared below.
                 greetedThisConnection = true
                 sendCommand(.whoami)
                 drainOutbox()                       // messages composed while away go out now, oldest first
+            case .disconnected, .failed:
+                // The link dropped — BUT BLENodeLink may auto-reconnect through the SAME session (it never
+                // calls disconnectInternal). Clear the per-connection guards so the next .connected re-greets
+                // + re-pulls the inbox (catch-up). Without this, an auto-reconnect shows "connected" but never
+                // syncs → messages that arrived during the drop don't appear until a manual reconnect.
+                greetedThisConnection = false
+                syncStartedThisConnection = false
+                timeAnchor = nil
+            default:
+                break                                // .scanning/.connecting/.pairing — transient, keep guards
             }
         case .inbound(let inbound):
             appendConsole(inbound)
@@ -131,10 +145,10 @@ final class AppModel {
         case .inboxEnd(_, _, let epoch, _, let nowMs):
             if let n = nowMs { timeAnchor = NodeTimeAnchor(nodeNowMs: n) }     // refresh for later gap-pulls
             handleInboxEnd(servedEpoch: epoch)
-        case .messageReceived(let origin, let ctr, let senderHash, let seq, let body):
+        case .messageReceived(let origin, let ctr, let senderHash, let seq, _, let body):
             insertInboundDM(origin: origin, ctr: ctr, senderHash: senderHash, body: body)
             applyLiveSeq(kind: .dm, seq: seq)
-        case .channelReceived(let origin, let channelID, let channelMsgID, let seq, let body):
+        case .channelReceived(let origin, let channelID, let channelMsgID, let seq, _, let body):
             insertChannel(origin: origin, channelID: channelID, channelMsgID: channelMsgID, body: body)
             applyLiveSeq(kind: .channel, seq: seq)
         case .sendAcked(_, let ctr):
@@ -171,11 +185,15 @@ final class AppModel {
     private func insertInboundDM(origin: Int, ctr: Int, senderHash: UInt32?, body: String) {
         ensureContact(senderHash: senderHash, origin: origin)
         if dmExists(senderHash: senderHash, origin: origin, ctr: ctr) { return }
-        let msg = MessageEntity(id: UUID(), thread: .dm(KeyHash(dmThreadHash(senderHash: senderHash, origin: origin))),
+        let threadHash = dmThreadHash(senderHash: senderHash, origin: origin)
+        let msg = MessageEntity(id: UUID(), thread: .dm(KeyHash(threadHash)),
                                 direction: .incoming, body: body, timestamp: .now, state: .received,
                                 origin: origin, ctr: ctr, senderHash: senderHash.map(Int.init))
         msg.isRead = false
         context.insert(msg)
+        // A genuinely new DM arriving while we're NOT on screen (background BLE, or another tab inactive)
+        // → a local banner. Only on the LIVE path (this fn) — never the bulk pull-catch-up (importInboxEntry).
+        notifyInboundDM(threadHash: threadHash, origin: origin, body: body)
     }
 
     private func insertChannel(origin: Int, channelID: Int, channelMsgID: UInt32?, body: String) {
@@ -323,6 +341,39 @@ final class AppModel {
     }
 
     func resolve(_ hash: KeyHash, hard: Bool = false) { sendCommand(.resolve(.init(hash: hash, hard: hard))) }
+
+    /// App returned to the foreground. If the link stayed up through a screen-off/suspend, a live push may
+    /// have been dropped while we were suspended (no disconnect event → fix #1's auto-resync never fired), so
+    /// pull from the current cursors to catch up. If the link actually died, CoreBluetooth will report the
+    /// disconnect and the auto-reconnect path re-syncs instead.
+    func handleForeground() {
+        isForeground = true
+        guard isConnected else { return }
+        if let s = activeSync {
+            sendCommand(.pullInbox(dmSince: s.dmCursor, chanSince: s.chanCursor))
+        }
+        refreshStatus()
+    }
+    func handleBackground() { isForeground = false }
+
+    // ---- local notifications (Theme E1): alert on a DM that arrives while we're not on screen ----
+
+    /// Ask once (idempotent — iOS only prompts the first time). Call on launch.
+    func requestNotificationAuthorization() {
+        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+    }
+
+    private func notifyInboundDM(threadHash: UInt32, origin: Int, body: String) {
+        guard !isForeground else { return }              // on screen → the thread updates live, no banner
+        let title = contact(for: KeyHash(threadHash))?.name ?? "Node \(origin)"
+        let content = UNMutableNotificationContent()
+        content.title = title
+        content.body = body
+        content.sound = .default
+        content.threadIdentifier = "dm-\(threadHash)"    // iOS groups a conversation's banners together
+        let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(req)
+    }
 
     // ---- Node / Network refresh (Theme D) ----
     func refreshStatus() { sendCommand(.status) }
@@ -523,8 +574,8 @@ private func hex(_ h: UInt32?) -> String {
 func describe(_ inbound: Inbound) -> String {
     switch inbound {
     case .ack(let a):                              return "ack \(a.code) ctr=\(a.ctr) qd=\(a.queueDepth)"
-    case .messageReceived(let o, let c, let h, _, let b):  return "msg_recv from \(o)\(hex(h)) ctr=\(c): \(b)"
-    case .channelReceived(let o, let ch, _, _, let b): return "channel_recv ch\(ch) from \(o): \(b)"
+    case .messageReceived(let o, let c, let h, _, let layer, let b):  return "msg_recv from \(o)\(hex(h))\(layer.map { " L\($0)" } ?? "") ctr=\(c): \(b)"
+    case .channelReceived(let o, let ch, _, _, let layer, let b): return "channel_recv ch\(ch) from \(o)\(layer.map { " L\($0)" } ?? ""): \(b)"
     case .sendAcked(let d, let c):                 return "send_acked dst=\(d) ctr=\(c)"
     case .sendFailed(let d, let c):                return "send_failed dst=\(d) ctr=\(c)"
     case .hashResolved(let n, let a, let h):       return "hash_resolved \(h.hex8) → node \(n)\(a ? " (auth)" : "")"

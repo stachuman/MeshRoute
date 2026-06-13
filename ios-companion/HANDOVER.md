@@ -73,6 +73,13 @@ to project.yml — `xcodegen generate` already run). Wire format `meshroute://co
 `"name"` (loaded per-whoami, no RAM cost) — rebuild+reflash with the Theme-A `now_ms` change; give
 nodes names via `cfg set name <str>`.
 
+## E1 reliability + notifications (roadmap step 4, in progress) — 2026-06-12
+Background-BLE fixes (auto-reconnect now re-syncs; foreground re-sync; `bluetooth-central` bg mode) +
+**local notifications** (a DM arriving while not on screen → `UNUserNotification` banner; live path only,
+not bulk pull). `AppModel.requestNotificationAuthorization` (on launch) / `notifyInboundDM` /
+`handleForeground`+`handleBackground` (RootView scenePhase). Still TODO: State Restoration, app-icon
+badge, firmware wake-on-message. Also: app now **decodes `layer_id`** (D12) on all 4 message types.
+
 ## Theme A (roadmap step 1) — SHIPPED 2026-06-12, bench-verify pending
 Timestamps (`now_ms` in `ready`/`inbox_end` + app `NodeTimeAnchor`; firmware needs PC rebuild +
 `pio test -e native` + reflash), offline outbox (drain-on-connect), delivery retry, per-phone unread

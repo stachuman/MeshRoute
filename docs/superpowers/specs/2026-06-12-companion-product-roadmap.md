@@ -37,7 +37,7 @@ not coded; R8 mobile not started. The durable (QSPI) inbox is pending; the inter
 | D9 | 2026-06-12 | **Notification latency:** worst-case push delay = the BLE window period is ACCEPTED. |
 | D10 | 2026-06-12 | **Two phones on one node is a supported case.** ⇒ read state must be per-companion (app-side); node-side `mark_read` becomes a retention/pruning hint, not the read state. Detail lands in the inbox contract with D7's owner. |
 | D11 | 2026-06-12 | **The app is the join UI** (post-R6): discover beaconing leafs → show `leaf_name` → join. |
-| D12 | 2026-06-12 | **(Q13 → gateway spec, fixed)** The receiving-layer field on pushes + inbox records is the **full 8-bit `layer_id`** (not the 4-bit leaf nibble, which aliases across 255 layers). Applies to the `Push` POD, the inbox record, and the `msg_recv`/`channel_recv`/`inbox_dm`/`inbox_channel` JSON. |
+| D12 | 2026-06-12 | **(Q13 → gateway spec, fixed)** The receiving-layer field on pushes + inbox records is the **full 8-bit `layer_id`** (not the 4-bit leaf nibble, which aliases across 255 layers). Applies to the `Push` POD, the inbox record, and the `msg_recv`/`channel_recv`/`inbox_dm`/`inbox_channel` JSON. **Firmware emits it + app decodes it (2026-06-12)** — wired into `Inbound`/`InboxEntry` (optional, 0 on single-layer); not yet persisted/shown (gateway-era UI). |
 | D13 | 2026-06-12 | **Wake-on-message BLE (user-proposed):** a node that RECEIVES a DM addressed to it turns BLE advertising ON (outside any periodic window), bounded — stop on companion connect or timeout. The app's background service-UUID scan wakes on the advert → connect → pull → local notification. Amends D9: worst-case stays the window period, but TYPICAL push latency becomes seconds. Params → Q15. |
 | D14 | 2026-06-12 | **Amends D10 — two phones are NOT specially handled.** The app/node just WARN the user when more than one companion is bonded/has synced ("multiple phones paired — sync behavior is undefined"). Read state stays app-side per-phone (that part of D10 stands); no per-bond cursors, no multi-companion sync design. Closes Q12. Mechanism (cheap): `ready` gains a `bonds:N` count → app banners when N>1 (land with E1). |
 
@@ -143,9 +143,23 @@ not coded; R8 mobile not started. The durable (QSPI) inbox is pending; the inter
   routes) + the window schedule ("layer B window opens in 4 s"); routes/dedup are per-layer.
   Channel threads become layer-scoped app-side (channels never cross — thread key gains the layer).
 
-### E — A real iPhone app *(order #4)*
-- **Background BLE + local notifications** (app L): DM arrives while backgrounded → banner. With
-  `periodic` ble_mode, worst-case latency = the window period — **accepted (D9)**.
+### E — A real iPhone app *(order #4)* — **E1 STARTED 2026-06-12**
+- **Background BLE reliability** ✅ (2026-06-12, bench-verify pending) — three fixes for "screen off →
+  message received by node → wake phone → nothing until manual reconnect":
+  1. **Auto-reconnect now re-syncs** — `BLENodeLink` auto-reconnects a dropped link through the same
+     session; the per-connection guards (`greetedThisConnection`/`syncStartedThisConnection`) were only
+     cleared on a USER disconnect, so an auto-reconnect showed "connected" but never re-`whoami`/re-pulled.
+     Now cleared on every `.disconnected`/`.failed` → the next `.connected` re-greets + catches up.
+  2. **Foreground re-sync** — `scenePhase == .active` → `pull_inbox` from the current cursors, for the
+     case where the link stayed up through suspend but a push was dropped (no disconnect event fired).
+  3. **`UIBackgroundModes: bluetooth-central`** — so iOS keeps the connection alive / delivers
+     notifications while backgrounded instead of suspending the app on screen-off.
+- **Local notifications** ✅ (2026-06-12) — a DM arriving while not on screen posts a `UNUserNotification`
+  banner (title = contact/Node name, grouped per conversation via `threadIdentifier`). Foreground +
+  bulk pull-catch-up are suppressed; only the live path fires. Auth requested on launch.
+- **Still TODO for E1:** CBCentralManager State Restoration (survive app *termination*), badge on the
+  app icon, and the firmware D4/D13 wake-on-message advertising.
+  With `periodic` ble_mode, worst-case latency = the window period — **accepted (D9)**.
   Firmware side of D4: **activity pins the window open** (proposed default: pinned while a BLE
   central is connected + a short linger (~2 min) after disconnect — Q7 ratifies).
 - **iCloud backup** of archive + contacts (app M): the phone is the system's only durable store.

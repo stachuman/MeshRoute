@@ -144,7 +144,15 @@ public:
         _last_floor_ms = now;
         if (_tx_in_flight || _radio.isReceiving()) return;             // don't fold traffic into the floor
         const float rssi = _radio.getRSSI(false);
-        if (rssi >= _noise_floor + kFloorWindowDb) return;             // above floor+window = activity, not noise
+        if (rssi >= _noise_floor + kFloorWindowDb) {                   // above floor+window = activity, not noise
+            // Stuck-floor escape (ports MeshCore RadioLibWrapper::resetAGC's re-seed): a floor sitting far BELOW the
+            // true ambient rejects EVERY in-window idle sample, self-reinforcing the stuck value forever (MeshCore's
+            // documented failure: stuck -120 -> threshold -106 too low to accept ~-105 samples). After a long
+            // all-rejected streak, re-seed to 0 so the floor reconverges from scratch to the real ambient.
+            if (++_floor_rejects >= kFloorStuckRejects) reset_noise_floor();
+            return;
+        }
+        _floor_rejects = 0;                                            // a sample landed in-window -> the floor is tracking, not stuck
         _floor_sum += rssi;
         if (++_floor_n >= kFloorSamples) {
             float avg = _floor_sum / static_cast<float>(_floor_n);
@@ -152,6 +160,10 @@ public:
             _floor_sum = 0.0f; _floor_n = 0;
         }
     }
+    // Stuck-floor escape: drop the floor back to the 0 seed so it reconverges from scratch — the only way out of a
+    // self-reinforcing stuck floor (MeshCore re-seeds the same way in resetAGC). Triggered by a long all-rejected
+    // streak in sample_noise(); also safe to call from any future RX-recovery path.
+    void reset_noise_floor() { _noise_floor = 0.0f; _floor_sum = 0.0f; _floor_n = 0; _floor_rejects = 0; }
     float noise_floor() const { return _noise_floor; }   // status diagnostic (dBm)
 
     // Polled each loop: (1) latches a preamble (rising-edge -> on_preamble_detected witness) via a cheap
@@ -196,15 +208,17 @@ private:
     static constexpr float    kFloorWindowDb  = 14.0f;   // a sample within floor+this counts toward the floor (exclude packets)
     static constexpr uint16_t kFloorSamples   = 32;      // samples per floor recompute
     static constexpr uint32_t kFloorSampleMs  = 10;      // min ms between RSSI samples (pace SPI)
+    static constexpr uint16_t kFloorStuckRejects = 64;   // consecutive above-window idle samples -> re-seed the floor (stuck-floor escape; MeshCore resetAGC). ~0.64s @ kFloorSampleMs; bench-tunable
 
     CustomSX1262& _radio;
     uint32_t _tx_count = 0;   // frames transmitted (status diagnostic)
     bool _preamble = false;   // latched preamble event (drained by take_preamble)
     bool _pre_seen = false;   // edge-detect: preamble already latched this RX cycle
     bool _tx_in_flight = false; // async TX armed (start_transmit) until poll_tx_done drains the TxDone edge; routes the shared DIO1 flag
-    float    _noise_floor   = -110.0f;  // rolling ambient RSSI floor (dBm); sane seed until samples converge
+    float    _noise_floor   = 0.0f;     // rolling ambient RSSI floor (dBm); 0 seed (MeshCore) converges DOWN to ambient — never sticks high. channel_busy() is permissive until the first batch lands (RSSI > 0+threshold is never true).
     float    _floor_sum     = 0.0f;     // accumulator for the current floor recompute
     uint16_t _floor_n       = 0;        // samples accumulated
+    uint16_t _floor_rejects = 0;        // consecutive above-window idle samples (stuck-floor detector -> reset_noise_floor)
     uint32_t _last_floor_ms = 0;        // last RSSI sample time (pacing)
     int  _cur_sf   = 0;       // TEMP DEBUG: radio's current SF (set on tx + set_rx_sf), shown in rx/tx traces
     int  _rx_sf    = 0;       // the LISTENING SF (set by set_rx_sf); transmit() restores it post-TX so the sender doesn't sit on the data SF after a DATA and miss the ACK

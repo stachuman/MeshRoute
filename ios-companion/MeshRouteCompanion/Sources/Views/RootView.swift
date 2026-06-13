@@ -5,6 +5,7 @@ import SwiftData
 
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @Environment(\.scenePhase) private var scenePhase
     @Query(filter: #Predicate<MessageEntity> { $0.directionRaw == "incoming" && !$0.isRead })
     private var unread: [MessageEntity]
 
@@ -19,6 +20,16 @@ struct RootView: View {
                 .tabItem { Label("Node", systemImage: "antenna.radiowaves.left.and.right") }
         }
         .tint(.accentColor)
-        .onAppear { model.startDemoIfRequested() }
+        .onAppear {
+            model.startDemoIfRequested()
+            model.requestNotificationAuthorization()           // first launch → the iOS permission prompt
+        }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .active:            model.handleForeground()   // catch up anything missed while suspended
+            case .background, .inactive: model.handleBackground()
+            @unknown default:        break
+            }
+        }
     }
 }

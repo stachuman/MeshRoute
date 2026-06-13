@@ -572,6 +572,9 @@ private:
     void     store_gateway_schedule(const GatewaySchedule& gs);   // Slice 3e.2: remember a heard gateway's schedule (evict-oldest)
     const GatewaySchedule* find_gw_schedule(uint8_t gw_node_id) const;
     uint32_t gateway_schedule_defer_ms(uint8_t gw_node_id) const; // Slice 3e.2: ms to defer an RTS so it hits the gateway's window on OUR leaf
+    // Slice 4a': the FULL 8-bit layer_id of the ACTIVE leaf (§2/Q13) — stamped on every delivered DM/channel record + Push so the
+    // app knows which layer a message arrived on (origin aliases across a gateway's two leaves). Single-layer: layers[0].layer_id == leaf_id.
+    uint8_t  active_layer_id() const { return _cfg.layers[static_cast<size_t>(_active - &_layers[0])].layer_id; }
     void     start_rts_timeout();
     void     start_ack_timeout();
     void     start_pending_rx_expiry(uint8_t payload_len);

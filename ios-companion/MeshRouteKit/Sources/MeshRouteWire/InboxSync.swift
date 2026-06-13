@@ -32,14 +32,16 @@ public struct InboxEntry: Hashable, Sendable {
     public let ctr: Int             // DM identity component (16-bit msg_id). Channel: low-8, informational only.
     public let senderHash: UInt32?  // DM only: the sender's stable key_hash32 (SOURCE_HASH); 0/nil = legacy DM
     public let channelMsgID: UInt32? // channel identity: the full 32-bit channel_msg_id (nil for a DM)
+    public let layerID: Int?        // receiving layer (D12; 0 on single-layer, nil on legacy firmware)
     public let rxTimeMs: UInt64     // node uptime ms at receive (phone stamps wall-clock on pull)
     public let body: String
 
     public init(seq: UInt32, kind: InboxKind, origin: Int, channelID: Int, ctr: Int,
-                senderHash: UInt32? = nil, channelMsgID: UInt32? = nil, rxTimeMs: UInt64, body: String) {
+                senderHash: UInt32? = nil, channelMsgID: UInt32? = nil, layerID: Int? = nil,
+                rxTimeMs: UInt64, body: String) {
         self.seq = seq; self.kind = kind; self.origin = origin; self.channelID = channelID
         self.ctr = ctr; self.senderHash = senderHash; self.channelMsgID = channelMsgID
-        self.rxTimeMs = rxTimeMs; self.body = body
+        self.layerID = layerID; self.rxTimeMs = rxTimeMs; self.body = body
     }
 }
 

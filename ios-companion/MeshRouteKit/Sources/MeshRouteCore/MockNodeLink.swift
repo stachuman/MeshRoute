@@ -113,7 +113,7 @@ public actor MockNodeLink: NodeLink {
         inboundCtr[id] = ctr
         let sh = hashForID(id) ?? 0      // the sender's stable key_hash32 (0 = unknown → legacy fallback)
         recordDM(origin: id, ctr: ctr, body: body)   // record BEFORE the push so the live push carries its seq
-        emit(#"{"ev":"msg_recv","origin":\#(id),"ctr":\#(ctr),"sender_hash":\#(sh),"seq":\#(dmSeq),"body":\#(jsonString(body))}"#)
+        emit(#"{"ev":"msg_recv","origin":\#(id),"layer_id":0,"ctr":\#(ctr),"sender_hash":\#(sh),"seq":\#(dmSeq),"body":\#(jsonString(body))}"#)
         return (id, ctr)
     }
 
@@ -143,7 +143,7 @@ public actor MockNodeLink: NodeLink {
         inboundCtr[id] = ctr
         let msgID = Self.channelMsgID(origin: id, ctr: ctr)
         recordChannel(channelID: channelID, origin: id, ctr: ctr, body: body)   // record BEFORE push (assigns chanSeq)
-        emit(#"{"ev":"channel_recv","origin":\#(id),"channel_id":\#(channelID),"channel_msg_id":\#(msgID),"seq":\#(chanSeq),"body":\#(jsonString(body))}"#)
+        emit(#"{"ev":"channel_recv","origin":\#(id),"layer_id":0,"channel_id":\#(channelID),"channel_msg_id":\#(msgID),"seq":\#(chanSeq),"body":\#(jsonString(body))}"#)
     }
 
     // A stand-in for the firmware's 32-bit channel_msg_id (origin<<24 | key_hash16<<8 | ctr).
@@ -193,10 +193,10 @@ public actor MockNodeLink: NodeLink {
         #"{"ev":"route","dest":\#(dest),"next":\#(dest),"hops":\#(hops),"score":\#(score),"gw":false,"layer":0,"age_ms":4200,"cand":1}"#
     }
     private func inboxDMLine(_ e: InboxEntry) -> String {
-        #"{"ev":"inbox_dm","seq":\#(e.seq),"origin":\#(e.origin),"ctr":\#(e.ctr),"sender_hash":\#(e.senderHash ?? 0),"rx_ms":\#(e.rxTimeMs),"body":\#(jsonString(e.body))}"#
+        #"{"ev":"inbox_dm","seq":\#(e.seq),"origin":\#(e.origin),"layer_id":\#(e.layerID ?? 0),"ctr":\#(e.ctr),"sender_hash":\#(e.senderHash ?? 0),"rx_ms":\#(e.rxTimeMs),"body":\#(jsonString(e.body))}"#
     }
     private func inboxChLine(_ e: InboxEntry) -> String {
-        #"{"ev":"inbox_channel","seq":\#(e.seq),"origin":\#(e.origin),"channel_id":\#(e.channelID),"channel_msg_id":\#(e.channelMsgID ?? 0),"rx_ms":\#(e.rxTimeMs),"body":\#(jsonString(e.body))}"#
+        #"{"ev":"inbox_channel","seq":\#(e.seq),"origin":\#(e.origin),"layer_id":\#(e.layerID ?? 0),"channel_id":\#(e.channelID),"channel_msg_id":\#(e.channelMsgID ?? 0),"rx_ms":\#(e.rxTimeMs),"body":\#(jsonString(e.body))}"#
     }
     private func inboxEndLine(count: Int) -> String {
         #"{"ev":"inbox_end","dm_seq":\#(dmSeq),"chan_seq":\#(chanSeq),"epoch":\#(inboxEpoch),"count":\#(count),"now_ms":\#(uptimeMs)}"#
