@@ -9,6 +9,7 @@ struct ThreadView: View {
     @Environment(AppModel.self) private var model
     @Query private var messages: [MessageEntity]
     @Query private var contacts: [ContactEntity]
+    @Query private var labels: [ChannelLabelEntity]
     let thread: ThreadKey
     @State private var draft = ""
 
@@ -46,6 +47,8 @@ struct ThreadView: View {
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { model.markThreadRead(thread) }
+        .onChange(of: messages.count) { _, _ in model.markThreadRead(thread) }   // arrivals while viewing
     }
 
     private var byteLimit: Int {
@@ -55,7 +58,8 @@ struct ThreadView: View {
 
     private var title: String {
         let byHash = Dictionary(contacts.map { ($0.hashValue32, $0) }, uniquingKeysWith: { a, _ in a })
-        return threadTitle(thread, contactsByHash: byHash)
+        let byChannel = Dictionary(labels.map { ($0.channelID, $0.name) }, uniquingKeysWith: { a, _ in a })
+        return threadTitle(thread, contactsByHash: byHash, channelLabels: byChannel)
     }
 
     private func send() {
@@ -70,6 +74,7 @@ struct ThreadView: View {
 }
 
 struct MessageBubble: View {
+    @Environment(AppModel.self) private var model
     let message: MessageEntity
     private var outgoing: Bool { message.direction == .outgoing }
 
@@ -88,6 +93,13 @@ struct MessageBubble: View {
                     }
                     Text(message.timestamp.shortRelative).font(.caption2).foregroundStyle(.tertiary)
                     if outgoing { DeliveryBadge(state: message.state).font(.caption2) }
+                }
+                if outgoing && message.state == .failed {
+                    Button { model.retry(message) } label: {
+                        Label("Tap to retry", systemImage: "arrow.clockwise")
+                            .font(.caption2).foregroundStyle(.red)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
             if !outgoing { Spacer(minLength: 40) }

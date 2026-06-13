@@ -60,6 +60,7 @@ bool Node::channel_have_id_lo16(uint16_t lo) const {
 //      id REFRESHES (not re-counts) so a heavily re-gossiped legit msg can't false-throttle its
 //      origin. origin==self bypasses (own posts use the origination self-cap). Returns admit. ----
 bool Node::channel_origin_admit(uint8_t origin, uint32_t msg_id) {
+    if (_cfg.n_layers == 2) return false;                       // Principle 11: a dual-layer gateway is OUT of the channel plane (justifies cap_channel_buffer=8)
     if (origin == _node_id) return true;                        // self bypasses
     const uint64_t now    = _hal.now();
     const uint64_t cutoff = (now >= _cfg.channel_origin_window_ms) ? now - _cfg.channel_origin_window_ms : 0;
@@ -153,6 +154,7 @@ void Node::cancel_channel_pull(uint32_t id, [[maybe_unused]] uint8_t overheard_f
 //      (new -> add+dirty+seen_by+cancel-pull; existing -> mark seen_by). The caller (handle_data)
 //      handles the ACK / forward of the underlying DATA frame; this is the gossip side-effect. -----
 void Node::ingest_channel_m(const m_out& m, uint8_t from) {
+    if (_cfg.n_layers == 2) return;                            // Principle 11: a dual-layer gateway never ingests channel gossip
     if (m.leaf_id != _cfg.leaf_id) return;                     // defensive leaf gate (dispatch already gated; tests call directly)
     const uint32_t id     = m.channel_msg_id;
     const uint8_t  origin = static_cast<uint8_t>((id >> 24) & 0xff);    // the minter (dv:2912)
@@ -327,6 +329,7 @@ void Node::channel_pull_mark(uint32_t id) {
 // within the window) schedule a JITTERED pull. THE DRAW is rand(0, jitter+1) at the Lua's gate-order
 // (dv:3568: after the recent gate, before storage). Gateways skip the entire plane (Principle 11).
 void Node::process_channel_digest(uint8_t src, const uint32_t* ids, uint8_t count) {
+    if (_cfg.n_layers == 2) return;                            // Principle 11: a dual-layer gateway never pulls channel gossip
     if (_cfg.is_gateway && _cfg.gateway_only) return;          // §7 CONSUMER: a gateway+owner pulls ITS OWN holes; a pure bridge stays out
     const uint64_t now = _hal.now();
     uint8_t scheduled = 0;
@@ -443,6 +446,7 @@ void Node::enqueue_channel_m(uint8_t target, const ChannelEntry& e) {
 // now HOLDS channel messages, so the explicit is_gateway gate below serves a pull ONLY for a SELF-originated
 // id — a gateway never relays another node's message (that airtime is reserved for the inter-leaf role).
 void Node::handle_channel_pull(uint8_t src, uint8_t dest, const uint32_t* ids, uint8_t count) {
+    if (_cfg.n_layers == 2) return;                              // Principle 11: a dual-layer gateway never serves a channel pull (holds no buffer)
     for (uint8_t i = 0; i < count; ++i) cancel_channel_pull(ids[i], src, /*peer_q=*/true);   // a peer pulled these -> cancel my pending pulls (dv:11831)
     if (dest != _node_id) return;                                // only the addressed target serves the pull
     bool any = false;
@@ -551,7 +555,7 @@ bool Node::handle_flood_rts(const rts_out& r, const uint8_t* in_bm, int16_t snr_
 // §4.5 — after the DATA-M ingest: do I have an unmarked neighbour? No -> silent. Yes -> arm a SNR-x² backoff.
 void Node::flood_forward_decision(uint8_t slot) {
     if (slot >= protocol::cap_flood_pending || !_active->_flood[slot].active) return;
-    if (_cfg.is_gateway) { flood_state_free(slot); return; }     // §7 provider half OFF: a gateway never rebroadcasts
+    if (_cfg.is_gateway || _cfg.n_layers == 2) { flood_state_free(slot); return; }     // §7 provider half OFF / Principle 11: a (single- or dual-layer) gateway never rebroadcasts
     FloodState& fs = _active->_flood[slot];
     if (!flood_any_unmarked(fs.bitmap)) { flood_state_free(slot); return; }   // every neighbour covered -> stay silent
     // SNR-x² gives the backoff WINDOW = T_backoff * snr_norm^2 ; snr_norm = clamp((rx_snr-lo)/(hi-lo),0,1). Then

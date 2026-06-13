@@ -157,6 +157,22 @@ static void dump_cfg() {
     Serial.print(F(" ble_mode="));       Serial.print(g_ble_mode == 0 ? F("off") : g_ble_mode == 1 ? F("on") : F("periodic"));
     Serial.print(F(" ble_period="));     Serial.print(g_ble_period_min);
     Serial.print(F(" ble_pin="));        Serial.println(g_ble_pin);
+    // Dual-layer gateway: an ADDITIVE second line per leaf (single-layer dump above is unchanged). Prints each
+    // leaf's node_id/layer_id/routing_sf + the (possibly on_init-derived) window_ms/offset of the active config.
+    if (c.n_layers == 2) {
+        for (uint8_t li = 0; li < 2; ++li) {
+            const meshroute::LayerConfig& L = c.layers[li];
+            Serial.print(F("[cfg.layer")); Serial.print(li);
+            Serial.print(F("] node_id="));    Serial.print(L.node_id);
+            Serial.print(F(" layer_id="));    Serial.print(L.layer_id);
+            Serial.print(F(" routing_sf="));  Serial.print(L.routing_sf);
+            Serial.print(F(" sf_list="));     print_sf_list(L.allowed_sf_bitmap);
+            Serial.print(F(" beacon_ms="));   Serial.print(L.beacon_period_ms);
+            Serial.print(F(" window_period_ms=")); Serial.print(L.window_period_ms);
+            Serial.print(F(" window_ms="));   Serial.print(L.window_ms);
+            Serial.print(F(" window_offset_ms=")); Serial.println(L.window_offset_ms);
+        }
+    }
 }
 
 static void dump_status() {
@@ -322,6 +338,69 @@ static void handle_cfg_set(const char* args) {
         if (v < 0 || v > 999999) { Serial.println(F("> cfg err bad_value (ble_pin 0..999999, 6-digit passkey)")); return; }
         b.ble_pin = (uint32_t)v; live = false;
     }
+    // --- v8 DUAL-LAYER GATEWAY: PERSISTED raw per-layer fields, reboot-to-apply (on_init validates + derives the
+    //     window split). Invalid input is REJECTED (fail loud), never silently clamped/defaulted. layer 0 = the
+    //     legacy node_id/routing_sf/sf_list/beacon_ms keys; these are the layer-1 + shared-schedule extras. ---
+    else if (!strcmp(key, "n_layers")) {
+        const int v = atoi(val);
+        if (v != 1 && v != 2) { Serial.println(F("> cfg err bad_value (n_layers 1|2)")); return; }
+        b.n_layers = (uint8_t)v; live = false;
+    }
+    else if (!strcmp(key, "layer0_id")) {
+        const int v = atoi(val);
+        if (v < 0 || v > 255) { Serial.println(F("> cfg err bad_value (layer0_id 0..255)")); return; }
+        b.layer0_id = (uint8_t)v; live = false;
+    }
+    else if (!strcmp(key, "window_period_ms")) {
+        const long v = atol(val);
+        if (v < 1) { Serial.println(F("> cfg err bad_value (window_period_ms >= 1)")); return; }
+        b.window_period_ms = (uint32_t)v; live = false;
+    }
+    else if (!strcmp(key, "l0_window_ms")) {
+        const long v = atol(val);
+        if (v < 0) { Serial.println(F("> cfg err bad_value (l0_window_ms 0=derive)")); return; }
+        b.l0_window_ms = (uint32_t)v; live = false;
+    }
+    else if (!strcmp(key, "l0_window_offset_ms")) {
+        const long v = atol(val);
+        if (v < 0) { Serial.println(F("> cfg err bad_value (l0_window_offset_ms 0=derive)")); return; }
+        b.l0_window_offset_ms = (uint32_t)v; live = false;
+    }
+    else if (!strcmp(key, "l1_layer_id")) {
+        const int v = atoi(val);
+        if (v < 0 || v > 255) { Serial.println(F("> cfg err bad_value (l1_layer_id 0..255)")); return; }
+        b.l1_layer_id = (uint8_t)v; live = false;
+    }
+    else if (!strcmp(key, "l1_node_id")) {
+        const int v = atoi(val);
+        if (v < 0 || v > 254) { Serial.println(F("> cfg err bad_value (l1_node_id 0..254; 0=unprovisioned)")); return; }
+        b.l1_node_id = (uint8_t)v; live = false;
+    }
+    else if (!strcmp(key, "l1_routing_sf")) {
+        const int v = atoi(val);
+        if (v < 5 || v > 12) { Serial.println(F("> cfg err bad_value (l1_routing_sf 5..12)")); return; }
+        b.l1_routing_sf = (uint8_t)v; live = false;
+    }
+    else if (!strcmp(key, "l1_sf_list")) {
+        const uint16_t bm = parse_sf_list(val);
+        if (!bm) { Serial.println(F("> cfg err bad_value (l1_sf_list: comma SFs 5..12, e.g. 7,9)")); return; }
+        b.l1_allowed_sf_bitmap = bm; live = false;
+    }
+    else if (!strcmp(key, "l1_beacon_ms")) {
+        const long v = atol(val);
+        if (v < 1) { Serial.println(F("> cfg err bad_value (l1_beacon_ms >= 1)")); return; }
+        b.l1_beacon_period_ms = (uint32_t)v; live = false;
+    }
+    else if (!strcmp(key, "l1_window_ms")) {
+        const long v = atol(val);
+        if (v < 0) { Serial.println(F("> cfg err bad_value (l1_window_ms 0=derive)")); return; }
+        b.l1_window_ms = (uint32_t)v; live = false;
+    }
+    else if (!strcmp(key, "l1_window_offset_ms")) {
+        const long v = atol(val);
+        if (v < 0) { Serial.println(F("> cfg err bad_value (l1_window_offset_ms 0=derive)")); return; }
+        b.l1_window_offset_ms = (uint32_t)v; live = false;
+    }
     else { Serial.print(F("> cfg err unknown_key ")); Serial.println(key); return; }
 
     if (persist && !mrnv::save(b)) { Serial.println(F("> cfg err nv_save_failed")); return; }
@@ -426,6 +505,18 @@ static void handle_whoami() {
     Serial.print(F(" gw="));     Serial.print(c.is_gateway ? 1 : 0);
     Serial.print(F(" gwonly=")); Serial.print(c.gateway_only ? 1 : 0);
     Serial.print(F(" mobile=")); Serial.println(c.is_mobile ? 1 : 0);
+    // Dual-layer gateway: an ADDITIVE per-leaf line. Single-layer whoami above is BYTE-IDENTICAL to before.
+    if (c.n_layers == 2) {
+        for (uint8_t li = 0; li < 2; ++li) {
+            const meshroute::LayerConfig& L = c.layers[li];
+            Serial.print(F("[whoami.layer")); Serial.print(li);
+            Serial.print(F("] node_id="));   Serial.print(L.node_id);
+            Serial.print(F(" layer_id="));   Serial.print(L.layer_id);
+            Serial.print(F(" routing_sf=")); Serial.print(L.routing_sf);
+            Serial.print(F(" window_ms="));  Serial.print(L.window_ms);
+            Serial.print(F(" window_offset_ms=")); Serial.println(L.window_offset_ms);
+        }
+    }
 }
 
 // `help` / `?` — a small command + cfg-key reference for the live console session.
@@ -435,6 +526,7 @@ static void dump_help() {
     Serial.println(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
     Serial.println(F("[help] diag:       routes | status | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
     Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway gateway_only mobile key ble_mode on|off"));
+    Serial.println(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms"));
 }
 
 // ---- Phase-3 inbox sync (schema: ios-companion/INBOX_SYNC_CONTRACT.md) -----------------------------------
@@ -523,9 +615,12 @@ static bool service_debug(const char* line, size_t len) {
 static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t cap) {
     using namespace meshroute::console;
     if (len == 0) return 0;
-    if (len == 6 && !strncmp(line, "whoami", 6))
+    if (len == 6 && !strncmp(line, "whoami", 6)) {
+        mrnv::IdBlob idb{}; mrnv::load_id(idb);              // the /mrid name (no RAM copy kept; whoami is rare)
+        const size_t nl = (idb.name_len <= sizeof idb.name) ? idb.name_len : 0;
         return write_ready(out, cap, g_node.node_id(), g_node.key_hash32(), g_node.config(), "existing",
-                           g_node.inbox().storage_epoch(), g_hal.now());
+                           g_node.inbox().storage_epoch(), g_hal.now(), idb.name, nl);
+    }
     // Inbox sync (companion-only): stream the reply via mrble::tx_line and return 0 (no buffered single-line ack).
     if ((len == 10 || (len > 10 && line[10] == ' ')) && !strncmp(line, "pull_inbox", 10)) { handle_pull_inbox(line + 10, ble_sink); return 0; }
     if ((len ==  9 || (len >  9 && line[9]  == ' ')) && !strncmp(line, "mark_read",   9)) { handle_mark_read(line + 9,  ble_sink); return 0; }
@@ -590,6 +685,29 @@ void setup() {
         cfg.is_mobile         = nv.is_mobile != 0;    cfg.leaf_id      = nv.leaf_id;
         g_ble_mode            = nv.ble_mode;          g_ble_period_min = nv.ble_period_min;      // v7 BLE policy (only v7 blobs load)
         g_ble_pin             = nv.ble_pin;
+        // v8 DUAL-LAYER GATEWAY: provision the raw per-layer fields ONLY (on_init validates the 2-layer config + derives
+        // window_ms/window_offset_ms when 0). n_layers != 2 -> single-layer exactly as today (no behaviour change).
+        if (nv.n_layers == 2) {
+            cfg.n_layers = 2;
+            // layer 0 = the legacy single-layer fields (node_id / routing_sf / sf_list / beacon) + the persisted window schedule.
+            cfg.layers[0].layer_id          = nv.layer0_id;
+            cfg.layers[0].node_id           = nv.node_id;
+            cfg.layers[0].routing_sf        = nv.routing_sf;
+            cfg.layers[0].allowed_sf_bitmap = nv.allowed_sf_bitmap;
+            cfg.layers[0].beacon_period_ms  = nv.beacon_ms;
+            cfg.layers[0].window_period_ms  = nv.window_period_ms;   // shared layer0<->layer1 cycle
+            cfg.layers[0].window_ms         = nv.l0_window_ms;       // 0 = on_init derives
+            cfg.layers[0].window_offset_ms  = nv.l0_window_offset_ms;
+            // layer 1 = the l1_* block (window_period_ms shared with layer 0).
+            cfg.layers[1].layer_id          = nv.l1_layer_id;
+            cfg.layers[1].node_id           = nv.l1_node_id;
+            cfg.layers[1].routing_sf        = nv.l1_routing_sf;
+            cfg.layers[1].allowed_sf_bitmap = nv.l1_allowed_sf_bitmap;
+            cfg.layers[1].beacon_period_ms  = nv.l1_beacon_period_ms;
+            cfg.layers[1].window_period_ms  = nv.window_period_ms;   // shared cycle
+            cfg.layers[1].window_ms         = nv.l1_window_ms;       // 0 = on_init derives
+            cfg.layers[1].window_offset_ms  = nv.l1_window_offset_ms;
+        }
         Serial.println(F("  config    = loaded from NV"));
     }
     // Identity (/mrid): load the 32-byte master seed, or mint one from the HW-RNG on first boot.

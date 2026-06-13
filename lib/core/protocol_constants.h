@@ -227,6 +227,10 @@ inline constexpr uint8_t cap_push_ring   = 16;   // async push ring (MeshCore OF
 
 // ---- Gateway scheduling ----------------------------------------------------
 inline constexpr uint16_t gateway_schedule_guard_ms = 100;
+// Window-switch busy-retry: when a scheduled leaf-swap is deferred because the active layer is mid-exchange
+// (_pending_tx / _pending_rx / _post_ack.pending), re-arm the switch after this. EXPLICIT named constant — the
+// Lua silently fell back to max(rts_busy_retry_ms, 1000); we declare it (no-fallback rule). (Lua L8425 == 1000.)
+inline constexpr uint32_t gateway_layer_busy_retry_ms = 1000;
 
 // ---- Join state machine (§2a) ----------------------------------------------
 inline constexpr uint16_t join_listen_ms                = 3000;

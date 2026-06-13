@@ -448,6 +448,21 @@ CFG_KEYS = {
     "ble_mode":   "BLE companion: off|on|periodic  [reboot]",
     "ble_period": "periodic-mode advertising period, 1..255 min  [reboot]",
     "ble_pin":    "BLE pairing passkey, 0..999999 (6-digit)  [reboot]",
+    # v8 dual-layer gateway. n_layers=2 turns the node into a gateway; layer 0 reuses node_id/routing_sf/sf_list/
+    # beacon_ms; the l1_* keys + the shared window schedule configure the 2nd leaf. window_ms/offset 0 = the
+    # firmware derives the SF-weighted anti-phase split at on_init. All reboot-to-apply (read at on_init).
+    "n_layers":            "layers: 1 (normal) or 2 (gateway)  [reboot]",
+    "layer0_id":           "layer-0 full 8-bit layer_id, 0..255  [reboot]",
+    "window_period_ms":    "shared layer0<->layer1 cycle, ms (>=1)  [reboot]",
+    "l0_window_ms":        "layer-0 presence in the cycle, ms (0=derive)  [reboot]",
+    "l0_window_offset_ms": "layer-0 phase, ms (0=derive)  [reboot]",
+    "l1_layer_id":         "layer-1 full 8-bit layer_id, 0..255  [reboot]",
+    "l1_node_id":          "layer-1 node address, 0..254 (0=unprovisioned)  [reboot]",
+    "l1_routing_sf":       "layer-1 control-plane SF, 5..12  [reboot]",
+    "l1_sf_list":          "layer-1 allowed data SFs, comma list e.g. 7,9  [reboot]",
+    "l1_beacon_ms":        "layer-1 beacon period, ms (>=1)  [reboot]",
+    "l1_window_ms":        "layer-1 presence in the cycle, ms (0=derive)  [reboot]",
+    "l1_window_offset_ms": "layer-1 phase, ms (0=derive)  [reboot]",
 }
 
 

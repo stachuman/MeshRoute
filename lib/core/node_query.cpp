@@ -27,8 +27,8 @@ namespace meshroute {
 // key_hash32 term is always 0 here — we key on (opcode, src, dest) only.
 bool Node::q_responded_recently(uint8_t opcode, uint8_t src, uint8_t dest) {
     const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _q_responded_n; ++i) {
-        const QResponded& e = _q_responded[i];
+    for (uint8_t i = 0; i < _active->_q_responded_n; ++i) {
+        const QResponded& e = _active->_q_responded[i];
         if (e.opcode == opcode && e.src == src && e.dest == dest)
             return (now - e.t_ms) < protocol::q_respond_ttl_ms;
     }
@@ -36,16 +36,16 @@ bool Node::q_responded_recently(uint8_t opcode, uint8_t src, uint8_t dest) {
 }
 void Node::mark_q_responded(uint8_t opcode, uint8_t src, uint8_t dest) {
     const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _q_responded_n; ++i) {
-        QResponded& e = _q_responded[i];
+    for (uint8_t i = 0; i < _active->_q_responded_n; ++i) {
+        QResponded& e = _active->_q_responded[i];
         if (e.opcode == opcode && e.src == src && e.dest == dest) { e.t_ms = now; return; }   // refresh
     }
-    if (_q_responded_n < protocol::cap_q_responded_to) {
-        _q_responded[_q_responded_n++] = { opcode, src, dest, now };
+    if (_active->_q_responded_n < protocol::cap_q_responded_to) {
+        _active->_q_responded[_active->_q_responded_n++] = { opcode, src, dest, now };
     } else {                                              // ring full -> evict the oldest (Lua refuses; equal below cap)
         uint8_t o = 0;
-        for (uint8_t i = 1; i < _q_responded_n; ++i) if (_q_responded[i].t_ms < _q_responded[o].t_ms) o = i;
-        _q_responded[o] = { opcode, src, dest, now };
+        for (uint8_t i = 1; i < _active->_q_responded_n; ++i) if (_active->_q_responded[i].t_ms < _active->_q_responded[o].t_ms) o = i;
+        _active->_q_responded[o] = { opcode, src, dest, now };
     }
 }
 
@@ -127,7 +127,7 @@ void Node::schedule_sync_response(uint8_t requester, bool requester_mobile) {
     }
     // One pending response per requester (Lua sync_response_pending[key]) — BEFORE the draw.
     for (uint8_t i = 0; i < protocol::cap_sync_response_pending; ++i)
-        if (_sync_pending[i].active && _sync_pending[i].requester == requester) return;
+        if (_active->_sync_pending[i].active && _active->_sync_pending[i].requester == requester) return;
     // THE DRAW — rand_range(min, max+1) == Lua self:rand(lo, hi+1) (dv:8083). Placed here, at the
     // Lua's exact gate-order, so the streams stay aligned even when the ring is full below (the Lua
     // has no ring — it always draws + stores).
@@ -137,7 +137,7 @@ void Node::schedule_sync_response(uint8_t requester, bool requester_mobile) {
     if (requester_mobile) delay += protocol::sync_response_requester_mobile_penalty_ms;   // dv:8088
     int slot = -1;
     for (uint8_t i = 0; i < protocol::cap_sync_response_pending; ++i)
-        if (!_sync_pending[i].active) { slot = static_cast<int>(i); break; }
+        if (!_active->_sync_pending[i].active) { slot = static_cast<int>(i); break; }
     if (slot < 0) {                                            // ring full (device cap; Lua unbounded) — drop AFTER the draw
         MR_TELEMETRY(
             EventField f[] = { { .key = "joiner", .type = EventField::T::i64, .i = requester } };
@@ -145,7 +145,7 @@ void Node::schedule_sync_response(uint8_t requester, bool requester_mobile) {
         return;
     }
     const uint64_t now = _hal.now();
-    _sync_pending[slot] = { .active = true, .suppressed = false, .requester = requester,
+    _active->_sync_pending[slot] = { .active = true, .suppressed = false, .requester = requester,
                             .requester_mobile = requester_mobile, .requested_at = now, .fire_at = now + delay };
     MR_TELEMETRY(
         EventField f[] = { { .key = "joiner",            .type = EventField::T::i64, .i = requester },
@@ -159,7 +159,7 @@ void Node::schedule_sync_response(uint8_t requester, bool requester_mobile) {
 // ---- response fire (Lua the schedule_sync_response after()-closure body dv:8108) ----------------
 void Node::sync_response_fire(uint8_t slot) {
     if (slot >= protocol::cap_sync_response_pending) return;
-    SyncPending& p = _sync_pending[slot];
+    SyncPending& p = _active->_sync_pending[slot];
     if (!p.active) return;                                     // already fired / never armed
     p.active = false;
     if (p.suppressed) {                                        // a useful beacon was overheard in-window -> stand down

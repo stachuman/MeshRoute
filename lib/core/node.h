@@ -36,6 +36,8 @@ struct rts_out;        // frame_codec.h — fwd-decl for the FLOOD RTS-M handler
 // routing_sf / allowed_sf_bitmap — on_init fails LOUD if unset (§3.2, no silent inherit).
 struct LayerConfig {
     uint8_t  layer_id          = 0;       // FULL 8-bit id (1..255); 0 = unset. leaf_id = layer_id & 0x0F.
+    uint8_t  node_id           = 0;       // per-leaf 8-bit address (independent DAD, §0.2); 0 = unprovisioned.
+                                          // Slice 3: STATIC (provisioned via cfg/NV); live DAD deferred to the join workstream.
     uint8_t  routing_sf        = 0;       // 0 = unset (REQUIRED per layer)
     uint16_t allowed_sf_bitmap = 0;       // allowed DATA-SF set; 0 = unset/no-data-SF (REQUIRED per layer)
     uint32_t beacon_period_ms  = 900000;
@@ -104,8 +106,10 @@ struct NodeConfig {
     bool     nav_ignore_rts            = false;   // NAV: ANSWER an addressed RTS even during a reservation (sim-tuned default). true = drop it (802.11 blanket-NAV) — protects the reservation but causes cascades/giveups. ignore-off won on s18 + s17_metro: same delivery, fewer collisions + cascades.
     // ---- dual-layer gateway (2026-06-12 design). n_layers=1 = normal node (uses layers[0]); 2 = gateway.
     //      Slice 0: layers[0] MIRRORS the legacy routing_sf/allowed_sf_bitmap/leaf_id/beacon_period_ms scalars
-    //      (set in on_init); is_gateway above stays config-driven. Slice 2a migrates the readers to the active
-    //      LayerRuntime + derives is_gateway = (n_layers == 2).
+    //      (set in on_init). NB: `is_gateway` above is NOT derived from n_layers — it is the SINGLE-LAYER
+    //      channel-plane gateway flag (consumer/provider/pure-bridge, the old gw_env notion, used by node_channel
+    //      + test_node_channel). A DUAL-LAYER gateway is `n_layers==2`, and per Principle 11 it skips the channel
+    //      gossip plane ENTIRELY (gated on n_layers==2 at every channel entry — justifies cap_channel_buffer=8).
     uint8_t     n_layers = 1;
     LayerConfig layers[2];
 };
@@ -348,7 +352,14 @@ private:
     static constexpr uint32_t kJoinClaimGuardTimerId   = 58;  // node_id DAD: claim guard window -> adopt-or-deny
     static constexpr uint32_t kJoinRetryTimerId        = 59;  // node_id DAD: jittered re-claim after a lost claim/heal
     static constexpr uint32_t kJoinListenTimerId       = 60;  // node_id DAD: listen window before the FIRST claim (L1: hear the leaf, then pick)
-    static constexpr uint32_t kFloodRebcastTimerId     = 61;  // channel flood rebroadcast fire; BASE of a ring [61..63] (slot = id - base); only free band < kCap=64
+    static constexpr uint32_t kFloodRebcastTimerId     = 61;  // channel flood rebroadcast fire; BASE of a ring [61..63] (slot = id - base); LAST of the dense 1..63 block
+    // ---- Slice 3 dual-layer gateway scheduler band [64..79] (kCap raised 64->80 in 3b). PER-LAYER timers: slot = layer
+    // index (0..1). Inert on a single-layer node (n_layers==1 never arms them). The window open/close + per-leaf beacon
+    // are the only PERSISTENT per-layer timers; the MAC exchange timers (RTS/ACK/retry rings) are active-layer-shared.
+    static constexpr uint32_t kLayerWindowTimerId      = 64;  // per-layer window-OPEN / leaf-switch fire; BASE of [64..65]
+    static constexpr uint32_t kLayerWindowCloseTimerId = 66;  // per-layer window-CLOSE / return fire;      BASE of [66..67]
+    static constexpr uint32_t kLayerBeaconTimerId      = 68;  // per-leaf beacon cadence (gateway);         BASE of [68..69]
+    // [70..79] free for future per-layer timers.
 
     // ---- beacon emit / ingest ----------------------------------------------
     void emit_beacon(const char* kind);                            // "periodic" | "triggered"
@@ -538,6 +549,12 @@ private:
     void     handle_nack(const uint8_t* b, size_t n, const RxMeta& m);   // on_recv 'N' -> blind+wait / cascade
     void     do_data_tx();                                        // kCtsToDataGapTimerId fire
     void     do_post_ack();                                       // kPostAckTimerId fire (deliver|forward)
+    // ---- Slice 3 dual-layer gateway: leaf activation (3d's window scheduler drives activate_layer on timers,
+    // gated by layer_swap_blocked). Retunes SF + per-leaf identity + the active-layer scalars/SNR-floor/LBT timing;
+    // migrates the per-leaf sync-response ring (shared timer ids) off the LEAVING leaf so a stale fire can't hit it.
+    void     activate_layer(uint8_t i);
+    bool     layer_swap_blocked() const;                          // §4 busy-guard: never switch mid-exchange
+    int16_t  routing_snr_floor_for(uint8_t routing_sf) const;     // SF_DEMOD_THRESHOLD[sf] + sf_margin (per-leaf)
     void     start_rts_timeout();
     void     start_ack_timeout();
     void     start_pending_rx_expiry(uint8_t payload_len);
@@ -678,14 +695,13 @@ private:
     // _q_responded is the responder dedup ring (key opcode|src|dest, ttl q_respond_ttl_ms) — Lua refuses on
     // cap-full, we evict-oldest (matches the F-dedup idiom; equivalent below cap, robust for a long-running
     // device). _sync_pending is the bounded jitter-response ring (Lua: an unbounded table of after()-closures;
-    // one slot per requester, fired by kSyncResponseTimerId+slot).
-    uint64_t _last_req_sync_tx_ms = 0;
+    // one slot per requester, fired by kSyncResponseTimerId+slot). Both arrays MOVED into LayerRuntime (Slice 2b):
+    // keyed by a REMOTE leaf-local id (q.src / requester), so a gateway's two leaves must NOT share them
+    // (Principle 5 — else node-5@leafA aliases node-5@leafB and the gateway drops one leaf's sync reply).
+    uint64_t _last_req_sync_tx_ms = 0;   // self-state (our own last REQ_SYNC tx) — stays Node-global, not per-layer
     struct QResponded { uint8_t opcode; uint8_t src; uint8_t dest; uint64_t t_ms; };
-    QResponded _q_responded[protocol::cap_q_responded_to] = {};
-    uint8_t    _q_responded_n = 0;
     struct SyncPending { bool active; bool suppressed; uint8_t requester; bool requester_mobile;
                          uint64_t requested_at; uint64_t fire_at; };
-    SyncPending _sync_pending[protocol::cap_sync_response_pending] = {};
     // Channel-message gossip plane state + dedup maps + the originator ring — MOVED into LayerRuntime (Slice 2a;
     // struct defs ChannelEntry/FloodState/etc. are above the channel method decls; OrigEvent/OrigRing below).
     // R4.4 originator anti-spam: per-sender sliding-window ledger of overheard RTS/CTS. kind: 0=rts, 1=cts.
@@ -754,6 +770,11 @@ private:
         mutable std::map<uint8_t, uint64_t> _neighbor_budget_tier_set_at; // next_hop -> absolute_ms the mark was set
         // R4.4 originator anti-spam: per-sender sliding-window ledger of overheard RTS/CTS (fixed ring).
         std::map<uint8_t, OrigRing> _per_sender_originator;  // sender_id -> recent events (fixed ring)
+        // Q REQ_SYNC plane dedup (Slice 2b — moved from Node scope; keyed by a REMOTE leaf-local q.src/requester,
+        // so per-layer: a gateway's two leaves must not alias the same 8-bit id across distinct physical nodes).
+        QResponded  _q_responded[protocol::cap_q_responded_to] = {};            // responder dedup ring (opcode|src|dest)
+        uint8_t     _q_responded_n = 0;
+        SyncPending _sync_pending[protocol::cap_sync_response_pending] = {};    // jittered full-table reply ring (per requester)
     };
 #ifdef MESHROUTE_NATIVE
     // White-box test seam (native test build only — #ifdef'd out of every device build, zero firmware surface):

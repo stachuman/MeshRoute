@@ -88,7 +88,7 @@ public:
     // sim Hals (FirmwareNode) inherit 0 with no change needed.
     virtual uint32_t rx_window_slop_ms(int sf) const { (void)sf; return 0; }
 
-    // ---- time / timers — one-shot, caller-allocated ids, (re)arm-by-id, cap 64
+    // ---- time / timers — one-shot, caller-allocated ids, (re)arm-by-id, cap 80 (Slice 3b: 64->80 for the gw scheduler)
     virtual uint64_t now() = 0;
     [[nodiscard]] virtual bool after(uint32_t delay_ms, uint32_t timer_id) = 0;  // false if full
     virtual void     cancel(uint32_t timer_id) = 0;    // idempotent

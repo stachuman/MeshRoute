@@ -39,11 +39,28 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     uint8_t  ble_mode;         // v7: BLE companion policy — 0=off (bare-metal, default), 1=on, 2=periodic
     uint8_t  ble_period_min;   // v7: periodic-mode advertising period (minutes); reboot-to-apply
     uint32_t ble_pin;          // v7: the 6-digit BLE pairing passkey (0..999999)
+    // v8: DUAL-LAYER GATEWAY. n_layers=1 => single-layer (layer 0 = the legacy fields above: node_id / routing_sf /
+    // allowed_sf_bitmap / beacon_ms; layer0_id holds the full 8-bit layer_id). n_layers=2 => gateway, layer 1 in the
+    // l1_* block. window fields persist the schedule (0 = re-derive the SF-weighted anti-phase split at on_init).
+    uint8_t  n_layers;            // 1 or 2 (0/old blob => treated as 1)
+    uint8_t  layer0_id;           // layer 0 FULL 8-bit layer_id (single-layer: == leaf_id)
+    uint32_t window_period_ms;    // the shared layer0<->layer1 cycle
+    uint32_t l0_window_ms;        // layer 0 presence; 0 = derive
+    uint32_t l0_window_offset_ms; // layer 0 phase; 0 = derive (layer 0 = 0)
+    uint8_t  l1_node_id;          // layer 1 per-leaf node_id (static; live DAD deferred)
+    uint8_t  l1_layer_id;         // layer 1 FULL 8-bit layer_id
+    uint8_t  l1_claim_epoch;      // layer 1 per-leaf DAD seniority (forward-compat; DAD deferred)
+    uint8_t  l1_joined;           // layer 1 per-leaf DAD adopted (forward-compat; DAD deferred)
+    uint8_t  l1_routing_sf;       // layer 1 routing SF (5..12)
+    uint16_t l1_allowed_sf_bitmap;// layer 1 data-SF set
+    uint32_t l1_beacon_period_ms; // layer 1 beacon cadence
+    uint32_t l1_window_ms;        // layer 1 presence; 0 = derive
+    uint32_t l1_window_offset_ms; // layer 1 phase; 0 = derive anti-phase
 };
 constexpr uint32_t kMagic   = 0x4D524331u;   // 'MRC1'
-constexpr uint16_t kVersion = 7;             // v7: PERSIST the BLE companion policy (ble_mode/ble_period_min/ble_pin).
-                                             // v6: role/topology (is_gateway, gateway_only, is_mobile, leaf_id). The Blob
-                                             // grew, so every pre-v7 blob fails the `n == sizeof(out)` size check in load()
+constexpr uint16_t kVersion = 8;             // v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
+                                             // block). v7: BLE companion policy. v6: role/topology (is_gateway/...). The Blob
+                                             // grew, so every pre-v8 blob fails the `n == sizeof(out)` size check in load()
                                              // and is rejected -> the node re-provisions from defaults (BOTH boards — the
                                              // Blob is shared with the ESP32/Preferences backend; no migration, re-run `cfg set`).
 

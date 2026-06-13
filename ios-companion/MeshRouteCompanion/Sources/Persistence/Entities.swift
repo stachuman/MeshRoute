@@ -41,6 +41,8 @@ final class MessageEntity {
     var ctr: Int?                  // node message counter — DM identity component (16-bit msg_id)
     var channelMsgID: Int?         // channel identity — full 32-bit channel_msg_id (nil for DM)
     var senderHash: Int?           // DM identity — sender's stable key_hash32 (nil/0 = legacy DM)
+    var isRead: Bool = true        // unread badge driver; incoming inserts set false (default true keeps
+                                   // pre-existing + outgoing rows read after the lightweight migration)
 
     init(id: UUID, thread: ThreadKey, direction: MessageDirection, body: String,
          timestamp: Date, state: DeliveryState, origin: Int?, ctr: Int?, channelMsgID: Int? = nil,
@@ -65,6 +67,13 @@ final class MessageEntity {
     }
     var direction: MessageDirection { MessageDirection(rawValue: directionRaw) ?? .incoming }
     var state: DeliveryState { DeliveryState(rawValue: stateRaw) ?? .received }
+}
+
+@Model
+final class ChannelLabelEntity {     // a LOCAL name for a channel number ("3 = Sailing crew") — never on the wire
+    @Attribute(.unique) var channelID: Int
+    var name: String
+    init(channelID: Int, name: String) { self.channelID = channelID; self.name = name }
 }
 
 @Model

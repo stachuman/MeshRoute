@@ -61,7 +61,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             // bug). Gate the whole flood handling on the SAME condition as the retune. §7 CONSUMER half: a
             // gateway+owner participates (catches the DATA-M for its owner); a pure bridge (gateway_only) +
             // a data-incapable node (no data SF) stay out.
-            if (!(_cfg.is_gateway && _cfg.gateway_only) && _cfg.allowed_sf_bitmap != 0) {
+            if (!(_cfg.is_gateway && _cfg.gateway_only) && _cfg.n_layers != 2 && _cfg.allowed_sf_bitmap != 0) {   // Principle 11: a dual-layer gateway never overhears channel floods
                 auto fbm = rts_flood_bitmap(std::span<const uint8_t>(bytes, len), r);
                 if (fbm.size() == 32) {
                     const int16_t snr_q4 = protocol::db_to_q4(meta.snr_db);
@@ -82,7 +82,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             }
             return;                                          // FLOOD RTS never CTSes
         }
-        if (!(_cfg.is_gateway && _cfg.gateway_only) && !channel_have_id_lo16(r.m_payload_id_lo16)) {   // §7 consumer: gateway+owner catches a pull-response
+        if (!(_cfg.is_gateway && _cfg.gateway_only) && _cfg.n_layers != 2 && !channel_have_id_lo16(r.m_payload_id_lo16)) {   // §7 consumer / Principle 11: a dual-layer gateway never overhears a channel pull-response
             const uint8_t data_sf = select_data_sf(r.sf_index, protocol::db_to_q4(meta.snr_db));
             _hal.set_rx_sf(data_sf);
             // Stay on the data SF until the M frame lands: gap (RTS->DATA) + the FULL M-frame airtime

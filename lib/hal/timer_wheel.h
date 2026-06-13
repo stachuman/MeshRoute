@@ -3,7 +3,9 @@
 //
 // H1 — the device-backend timer wheel behind Hal::after()/cancel(). Honors the contract
 // (lib/core/hal.h): caller-allocated one-shot ids, (re)arm-by-id, bounded. The Node owns
-// the timer ids (1..31 + the slot ranges [15..30], the RTS-duty-defer id 31), all < kCap.
+// the timer ids: 1..63 DENSE (singletons + slot-ring ranges, e.g. SyncResponse [32..47],
+// flood [61..63]); 64..79 = the band reserved for the Slice-3 per-layer gateway scheduler
+// (window open/close + per-leaf beacon). All < kCap.
 //
 // DRIFT (vs MeshCore's absolute-timestamp priority queue): a flat array INDEXED BY timer_id
 // — heap-free, O(kCap) per tick, and re-arm-by-id is a single store. Simpler + native-testable
@@ -20,7 +22,8 @@ namespace meshroute {
 
 class TimerWheel {
 public:
-    static constexpr uint32_t kCap = 64;   // matches the Hal "cap 64" caller-id contract
+    static constexpr uint32_t kCap = 80;   // matches the Hal "cap 80" caller-id contract (raised 64->80 in Slice 3b
+                                           // to open the 64..79 band for the dual-layer gateway scheduler; ids 1..63 are dense)
 
     // false ONLY if timer_id is out of range (>= kCap); otherwise (re)arms id to fire at now+delay.
     bool after(uint32_t delay_ms, uint32_t timer_id, uint64_t now_ms);

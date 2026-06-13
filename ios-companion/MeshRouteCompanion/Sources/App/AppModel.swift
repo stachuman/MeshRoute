@@ -55,7 +55,9 @@ final class AppModel {
         case .waitingForWindow: return "Waiting for the node's window…"
         case .connecting:       return "Connecting…"
         case .pairing:          return "Pairing…"
-        case .connected:        return nodeIdentity.map { "Connected · node \($0.id)" } ?? "Connected"
+        case .connected:
+            guard let id = nodeIdentity else { return "Connected" }
+            return "Connected · " + (id.name.map { "\($0) (\(id.id))" } ?? "node \(id.id)")
         case .failed(let m):    return "Failed: \(m)"
         }
     }
@@ -101,6 +103,7 @@ final class AppModel {
             if case .connected = s, !greetedThisConnection {
                 greetedThisConnection = true
                 sendCommand(.whoami)
+                drainOutbox()                       // messages composed while away go out now, oldest first
             }
         case .inbound(let inbound):
             appendConsole(inbound)
@@ -157,6 +160,7 @@ final class AppModel {
         let msg = MessageEntity(id: UUID(), thread: .dm(KeyHash(dmThreadHash(senderHash: senderHash, origin: origin))),
                                 direction: .incoming, body: body, timestamp: .now, state: .received,
                                 origin: origin, ctr: ctr, senderHash: senderHash.map(Int.init))
+        msg.isRead = false
         context.insert(msg)
     }
 
@@ -165,6 +169,7 @@ final class AppModel {
         let msg = MessageEntity(id: UUID(), thread: .channel(UInt8(clamping: channelID)), direction: .incoming,
                                 body: body, timestamp: .now, state: .received, origin: origin, ctr: nil,
                                 channelMsgID: channelMsgID.map(Int.init))
+        msg.isRead = false
         context.insert(msg)
     }
 
@@ -213,20 +218,88 @@ final class AppModel {
     // ---- outbound ----
 
     func sendDM(to thread: ThreadKey, body: String) {
-        guard case .dm = thread, let target = target(for: thread) else { return }
-        let msg = MessageEntity(id: UUID(), thread: thread, direction: .outgoing, body: body,
-                                timestamp: .now, state: .sending, origin: nil, ctr: nil)
-        context.insert(msg); try? context.save()
-        pendingOutgoing.append(msg.id)
-        sendCommand(.sendDM(.init(target: target, body: body)))
+        guard case .dm = thread, target(for: thread) != nil else { return }
+        compose(thread: thread, body: body)
     }
 
     func sendChannel(_ channelID: UInt8, body: String) {
-        let msg = MessageEntity(id: UUID(), thread: .channel(channelID), direction: .outgoing, body: body,
-                                timestamp: .now, state: .sending, origin: nil, ctr: nil)
+        compose(thread: .channel(channelID), body: body)
+    }
+
+    /// Insert the outgoing message and dispatch it — or park it in the OUTBOX when there's no link
+    /// (drained FIFO by `drainOutbox` on the next connect).
+    private func compose(thread: ThreadKey, body: String) {
+        let msg = MessageEntity(id: UUID(), thread: thread, direction: .outgoing, body: body,
+                                timestamp: .now, state: isConnected ? .sending : .outbox,
+                                origin: nil, ctr: nil)
         context.insert(msg); try? context.save()
-        pendingOutgoing.append(msg.id)
-        sendCommand(.sendChannel(.init(channelID: channelID, body: body)))
+        if isConnected { dispatch(msg) }
+    }
+
+    /// Hand one stored outgoing message to the node (FIFO ack pairing via pendingOutgoing).
+    private func dispatch(_ msg: MessageEntity) {
+        switch msg.threadKey {
+        case .dm(let h):
+            guard let target = target(for: .dm(h)) else { return }
+            pendingOutgoing.append(msg.id)
+            sendCommand(.sendDM(.init(target: target, body: msg.body)))
+        case .channel(let c):
+            pendingOutgoing.append(msg.id)
+            sendCommand(.sendChannel(.init(channelID: c, body: msg.body)))
+        }
+    }
+
+    /// Send everything parked in the outbox, oldest first (called once per connection).
+    private func drainOutbox() {
+        let outboxRaw = DeliveryState.outbox.rawValue
+        let d = FetchDescriptor<MessageEntity>(predicate: #Predicate { $0.stateRaw == outboxRaw },
+                                               sortBy: [SortDescriptor(\.timestamp, order: .forward)])
+        for msg in (try? context.fetch(d)) ?? [] {
+            msg.stateRaw = DeliveryState.sending.rawValue
+            dispatch(msg)
+        }
+        try? context.save()
+    }
+
+    /// Re-send a failed message: straight out when connected, else back to the outbox for the next link.
+    func retry(_ msg: MessageEntity) {
+        guard msg.direction == .outgoing, msg.state == .failed else { return }
+        msg.stateRaw = (isConnected ? DeliveryState.sending : .outbox).rawValue
+        if isConnected { dispatch(msg) }
+        try? context.save()
+    }
+
+    /// Unread → read for every incoming message of a thread (read state is per-phone — D14).
+    func markThreadRead(_ thread: ThreadKey) {
+        for m in threadMessages(thread) where m.direction == .incoming && !m.isRead { m.isRead = true }
+        try? context.save()
+    }
+
+    /// Local channel name ("3 = Sailing crew"); empty name removes the label. Never on the wire.
+    func setChannelLabel(_ channelID: Int, name: String) {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        let d = FetchDescriptor<ChannelLabelEntity>(predicate: #Predicate { $0.channelID == channelID })
+        let existing = try? context.fetch(d).first
+        switch (existing, trimmed.isEmpty) {
+        case (let e?, true):  context.delete(e)
+        case (let e?, false): e.name = trimmed
+        case (nil, false):    context.insert(ChannelLabelEntity(channelID: channelID, name: trimmed))
+        case (nil, true):     break
+        }
+        try? context.save()
+    }
+
+    private func threadMessages(_ thread: ThreadKey) -> [MessageEntity] {
+        let d: FetchDescriptor<MessageEntity>
+        switch thread {
+        case .dm(let h):
+            let hv = h.value
+            d = FetchDescriptor(predicate: #Predicate { $0.threadKind == "dm" && $0.threadHash == hv })
+        case .channel(let c):
+            let ci = Int(c)
+            d = FetchDescriptor(predicate: #Predicate { $0.threadKind == "channel" && $0.threadChannel == ci })
+        }
+        return (try? context.fetch(d)) ?? []
     }
 
     func addContact(name: String, hash: KeyHash) {
@@ -376,10 +449,12 @@ final class AppModel {
             // True receive time via the uptime anchor (ready/inbox_end now_ms); pull-time as the fallback
             // on firmware without the field.
             let received = timeAnchor?.wallClock(rxMs: e.rxTimeMs) ?? .now
-            context.insert(MessageEntity(id: UUID(), thread: thread, direction: .incoming, body: e.body,
-                                         timestamp: received, state: .received, origin: e.origin, ctr: e.ctr,
-                                         channelMsgID: e.channelMsgID.map(Int.init),
-                                         senderHash: e.senderHash.map(Int.init)))
+            let msg = MessageEntity(id: UUID(), thread: thread, direction: .incoming, body: e.body,
+                                    timestamp: received, state: .received, origin: e.origin, ctr: e.ctr,
+                                    channelMsgID: e.channelMsgID.map(Int.init),
+                                    senderHash: e.senderHash.map(Int.init))
+            msg.isRead = false
+            context.insert(msg)
         }
         activeSync?.advance(with: e)                     // advance the cursor for the store we just saw
     }

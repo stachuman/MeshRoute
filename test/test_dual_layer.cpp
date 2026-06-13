@@ -13,19 +13,24 @@
 using namespace meshroute;
 
 namespace {
-// Minimal no-op Hal — on_init only needs the timer/now/sf seams; nothing is asserted on the Hal in Slice 0.
+// Minimal Hal — on_init only needs the timer/now/sf seams. Slice 3c CAPTURES the radio retunes + cancels so the
+// activation tests can assert what activate_layer did (last SF/short-id; which timer ids were cancelled).
 class StubHal : public Hal {
 public:
     uint64_t _now = 0;
+    int      last_set_rx_sf      = -1;
+    int      last_set_protocol_id = -1;
+    bool     cancelled[80]       = {};   // cancelled[id] = a cancel(id) was seen (kCap=80)
+    bool     armed[80]           = {};   // armed[id]     = an after(_, id) was seen
     TxResult tx(const uint8_t*, size_t, const TxParams&) override { return TxResult::ok; }
-    void     set_rx_sf(int) override {}
+    void     set_rx_sf(int sf) override { last_set_rx_sf = sf; }
     uint64_t channel_busy_until() override { return 0; }
     uint64_t airtime_used_ms(uint64_t) override { return 0; }
     uint64_t oldest_tx_end_ms() override { return 0; }
     uint64_t now() override { return _now; }
-    bool     after(uint32_t, uint32_t) override { return true; }
-    void     cancel(uint32_t) override {}
-    void     set_protocol_id(int) override {}
+    bool     after(uint32_t, uint32_t id) override { if (id < 80) armed[id] = true; return true; }
+    void     cancel(uint32_t id) override { if (id < 80) cancelled[id] = true; }
+    void     set_protocol_id(int id) override { last_set_protocol_id = id; }
     int      rand_range(int lo, int) override { return lo; }
     void     emit(const char*, const EventField*, size_t) override {}
     void     log(const char*) override {}
@@ -102,6 +107,33 @@ struct DualLayerTestAccess {
     static auto& seen(Node& n, uint8_t i)        { return n._layers[i]._seen_origins; }
     static auto& seen_from(Node& n, uint8_t i)   { return n._layers[i]._seen_origin_from; }   // LOOP_DUP prev-hop
     static auto& last_acked(Node& n, uint8_t i)  { return n._layers[i]._last_acked_from; }
+    // Q REQ_SYNC plane (the methods are private; reach them via the friend).
+    static void  mark_q(Node& n, uint8_t op, uint8_t src, uint8_t dst)   { n.mark_q_responded(op, src, dst); }
+    static bool  q_recent(Node& n, uint8_t op, uint8_t src, uint8_t dst) { return n.q_responded_recently(op, src, dst); }
+    static auto& sync_pending(Node& n, uint8_t i) { return n._layers[i]._sync_pending; }
+    // Slice 3c: leaf activation + the §4 busy-guard (the methods + state are private).
+    static void     activate(Node& n, uint8_t i)        { n.activate_layer(i); }
+    static bool     swap_blocked(Node& n)               { return n.layer_swap_blocked(); }
+    static const void* active_ptr(Node& n)              { return n._active; }
+    static const void* layer_ptr(Node& n, uint8_t i)    { return &n._layers[i]; }
+    static int16_t  snr_floor(Node& n)                  { return n._routing_snr_floor_q4; }
+    static uint32_t sync_timer_id(uint8_t s)            { return Node::kSyncResponseTimerId + s; }
+    static void     arm_sync_slot(Node& n, uint8_t s)   { n._active->_sync_pending[s].active = true; }
+    static bool     sync_slot_active(Node& n, uint8_t i, uint8_t s) { return n._layers[i]._sync_pending[s].active; }
+    // busy-guard inputs (set on the ACTIVE leaf / Node-global)
+    static void     set_pending_tx(Node& n, bool v)     { if (v) n._active->_pending_tx.emplace(); else n._active->_pending_tx.reset(); }
+    static void     set_pending_rx(Node& n, bool v)     { if (v) n._active->_pending_rx.emplace(); else n._active->_pending_rx.reset(); }
+    static void     set_post_ack(Node& n, bool v)       { n._active->_post_ack.pending = v; }
+    static void     set_nack_wait(Node& n, bool v)      { n._nack_wait_pending = v; }
+    // Slice 3c #4: Principle 11 — channel-plane entry points (private) reached via the friend.
+    static bool     origin_admit(Node& n, uint8_t origin, uint32_t msg_id) { return n.channel_origin_admit(origin, msg_id); }
+    static void     process_digest(Node& n, uint8_t src, const uint32_t* ids, uint8_t count) { n.process_channel_digest(src, ids, count); }
+    static uint32_t channel_pull_timer_id(uint8_t s) { return Node::kChannelPullTimerId + s; }
+    // Slice 3c hardening: the Node-global transient stash (guard_defer) + the per-leaf deferred-drain (rehome).
+    static void     set_deferred_lbt(Node& n, bool v) { n._deferred_lbt[0].pending = v; }
+    static void     set_tx_stash(Node& n, bool v)     { n._tx_stash[0].valid = v; }
+    static void     set_deferred(Node& n, uint8_t i, uint8_t cnt, bool armed) { n._layers[i]._deferred_n = cnt; n._layers[i]._drain_armed = armed; }
+    static uint32_t drain_timer_id()                  { return Node::kDeferredDrainTimerId; }
 };
 }  // namespace meshroute
 
@@ -150,4 +182,165 @@ TEST_CASE("dual-layer dedup: the same (origin,dst,ctr) key on two leaves does NO
     DualLayerTestAccess::last_acked(node, 0)[LA];
     CHECK(DualLayerTestAccess::last_acked(node, 0).count(LA) == 1);
     CHECK(DualLayerTestAccess::last_acked(node, 1).count(LA) == 0);
+}
+
+TEST_CASE("dual-layer dedup: the Q REQ_SYNC plane (_q_responded / _sync_pending) is per-layer too (Slice 2b)") {
+    StubHal hal; Node node(hal, /*id*/1, /*key*/0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(/*layer_id*/ 1, /*sf*/ 8);
+    cfg.layers[1] = good_layer(/*layer_id*/ 2, /*sf*/ 9);
+    CHECK(node.on_init(cfg));
+
+    // _q_responded keys on (opcode, src=REMOTE leaf-local id, dest). src=5 is a DIFFERENT physical node on each
+    // leaf, so a responder-dedup mark on leaf 0 must NOT suppress the reply owed to node-5 on leaf 1 (the gateway
+    // aliasing bug, Principle 5). hal.now()==0 throughout, so the mark is within q_respond_ttl_ms.
+    DualLayerTestAccess::set_active(node, 0);
+    DualLayerTestAccess::mark_q(node, /*opcode*/ 0, /*src*/ 5, /*dest*/ 0xFF);
+    CHECK(DualLayerTestAccess::q_recent(node, 0, 5, 0xFF));         // responded on leaf 0
+    DualLayerTestAccess::set_active(node, 1);
+    CHECK_FALSE(DualLayerTestAccess::q_recent(node, 0, 5, 0xFF));   // THE FIX: NOT suppressed on leaf 1
+    DualLayerTestAccess::mark_q(node, 0, 5, 0xFF);                  // leaf 1 marks independently
+    DualLayerTestAccess::set_active(node, 0);
+    CHECK(DualLayerTestAccess::q_recent(node, 0, 5, 0xFF));         // leaf 0 still holds its own mark
+
+    // _sync_pending (the jittered full-table-reply ring) is a distinct per-leaf object.
+    CHECK(&DualLayerTestAccess::sync_pending(node, 0) != &DualLayerTestAccess::sync_pending(node, 1));
+}
+
+// ---- SLICE 3a: SF-weighted anti-phase window derivation (§0.9/§4) + validate-not-clamp (§3.2) -----------
+TEST_CASE("dual-layer scheduler: equal-SF gateway derives a 50/50 anti-phase split (Slice 3a, §0.9)") {
+    StubHal hal; Node node(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(/*layer_id*/ 1, /*sf*/ 8);
+    cfg.layers[1] = good_layer(/*layer_id*/ 2, /*sf*/ 8);   // SAME SF -> equal weight -> 50/50
+    CHECK(node.on_init(cfg));
+    const NodeConfig& c = node.config();
+    CHECK(c.layers[0].window_ms == 7500);                  // 15000 * 0.5
+    CHECK(c.layers[1].window_ms == 7500);
+    CHECK(c.layers[0].window_offset_ms == 0);              // layer 0 opens at cycle start
+    CHECK(c.layers[1].window_offset_ms == 7500);           // anti-phase: layer 1 opens when layer 0 closes
+    CHECK(c.layers[0].window_ms + c.layers[1].window_ms == c.layers[0].window_period_ms);  // fills the period
+}
+
+TEST_CASE("dual-layer scheduler: SF-weighted split gives the higher-SF leaf the LONGER window (Slice 3a, §0.9)") {
+    StubHal hal; Node node(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[1] = good_layer(2, 9);   // SF8 vs SF9
+    CHECK(node.on_init(cfg));
+    const NodeConfig& c = node.config();
+    const uint32_t period = c.layers[0].window_period_ms;
+    CHECK(c.layers[0].window_ms > 0);
+    CHECK(c.layers[1].window_ms > 0);
+    CHECK(c.layers[0].window_ms < c.layers[1].window_ms);             // SF9 (slower/more airtime/byte) -> longer window
+    CHECK(c.layers[0].window_ms + c.layers[1].window_ms == period);   // back-to-back, fills the period exactly
+    CHECK(c.layers[1].window_offset_ms == c.layers[0].window_ms);     // anti-phase
+}
+
+TEST_CASE("dual-layer scheduler: an explicit window_ms fills the remainder + derives the anti-phase offset (Slice 3a)") {
+    StubHal hal; Node node(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[1] = good_layer(2, 9);
+    cfg.layers[0].window_ms = 6000;                        // explicit layer 0; layer 1 derives the remainder
+    CHECK(node.on_init(cfg));
+    const NodeConfig& c = node.config();
+    CHECK(c.layers[0].window_ms == 6000);
+    CHECK(c.layers[1].window_ms == 9000);                  // 15000 - 6000
+    CHECK(c.layers[1].window_offset_ms == 6000);           // anti-phase off the explicit window
+}
+
+TEST_CASE("dual-layer scheduler: on_init REFUSES a 0 window_period (validate-not-clamp, §3.2)") {
+    StubHal hal; Node node(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[1] = good_layer(2, 9);
+    cfg.layers[0].window_period_ms = 0; cfg.layers[1].window_period_ms = 0;
+    CHECK_FALSE(node.on_init(cfg));
+}
+
+TEST_CASE("dual-layer cfg: single-layer mirrors node_id into layers[0] + window == whole period (Slice 3a)") {
+    StubHal hal; Node node(hal, /*id*/ 42, 0x1);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 12); cfg.leaf_id = 3;
+    CHECK(node.on_init(cfg));
+    const NodeConfig& c = node.config();
+    CHECK(c.layers[0].node_id == 42);                      // the one node_id mirrors into layers[0]
+    CHECK(c.layers[0].window_ms == c.layers[0].window_period_ms);   // single-layer: always-on
+}
+
+// ---- SLICE 3c: leaf activation (activate_layer) + the §4 busy-guard + sync-response timer migration ----------
+TEST_CASE("dual-layer activation: activate_layer swaps the leaf + retunes SF / identity / SNR floor (Slice 3c)") {
+    StubHal hal; Node node(hal, /*id*/ 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
+    cfg.layers[1] = good_layer(2, 9); cfg.layers[1].node_id = 12;
+    CHECK(node.on_init(cfg));
+    // boot activates leaf 0: active = layers[0]; node_id 5 (overrides the ctor's 1); SF8; leaf nibble 1.
+    CHECK(DualLayerTestAccess::active_ptr(node) == DualLayerTestAccess::layer_ptr(node, 0));
+    CHECK(node.node_id() == 5);
+    CHECK(node.config().routing_sf == 8);
+    CHECK(node.config().leaf_id == 1);
+    CHECK(hal.last_set_rx_sf == 8);
+    CHECK(hal.last_set_protocol_id == 5);
+    const int16_t floor_sf8 = DualLayerTestAccess::snr_floor(node);
+    // swap to leaf 1
+    DualLayerTestAccess::activate(node, 1);
+    CHECK(DualLayerTestAccess::active_ptr(node) == DualLayerTestAccess::layer_ptr(node, 1));
+    CHECK(node.node_id() == 12);                          // per-leaf identity follows the active leaf
+    CHECK(node.config().routing_sf == 9);
+    CHECK(node.config().leaf_id == 2);                   // layer_id 2 & 0x0F
+    CHECK(hal.last_set_rx_sf == 9);                      // radio retuned to the new SF
+    CHECK(hal.last_set_protocol_id == 12);
+    CHECK(DualLayerTestAccess::snr_floor(node) != floor_sf8);   // SNR floor recomputed per-leaf (SF9 != SF8)
+}
+
+TEST_CASE("dual-layer activation: layer_swap_blocked is the §4 busy-guard (pending_tx/rx, post_ack, nack_wait) (Slice 3c)") {
+    StubHal hal; Node node(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[1] = good_layer(2, 9);
+    CHECK(node.on_init(cfg));
+    CHECK_FALSE(DualLayerTestAccess::swap_blocked(node));                                                  // idle -> free to switch
+    DualLayerTestAccess::set_pending_tx(node, true);  CHECK(DualLayerTestAccess::swap_blocked(node));      // in-flight tx
+    DualLayerTestAccess::set_pending_tx(node, false); CHECK_FALSE(DualLayerTestAccess::swap_blocked(node));
+    DualLayerTestAccess::set_pending_rx(node, true);  CHECK(DualLayerTestAccess::swap_blocked(node));      // in-flight rx
+    DualLayerTestAccess::set_pending_rx(node, false); CHECK_FALSE(DualLayerTestAccess::swap_blocked(node));
+    DualLayerTestAccess::set_post_ack(node, true);    CHECK(DualLayerTestAccess::swap_blocked(node));      // post-ACK straddles the ACK
+    DualLayerTestAccess::set_post_ack(node, false);   CHECK_FALSE(DualLayerTestAccess::swap_blocked(node));
+    DualLayerTestAccess::set_nack_wait(node, true);   CHECK(DualLayerTestAccess::swap_blocked(node));      // paused BUSY_RX re-RTS
+    DualLayerTestAccess::set_nack_wait(node, false);  CHECK_FALSE(DualLayerTestAccess::swap_blocked(node));
+}
+
+TEST_CASE("dual-layer activation: a swap DRAINS the leaving leaf's sync-response ring (no stale timer on the wrong leaf) (Slice 3c)") {
+    StubHal hal; Node node(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[1] = good_layer(2, 9);
+    CHECK(node.on_init(cfg));
+    // active leaf 0: arm a pending jittered sync-response at slot 3 — its timer id (kSyncResponseTimerId+3) is SHARED across leaves.
+    DualLayerTestAccess::arm_sync_slot(node, 3);
+    CHECK(DualLayerTestAccess::sync_slot_active(node, 0, 3));
+    // swap to leaf 1: leaf 0's slot 3 must be CLEARED + its timer cancelled, so a later fire can't act on leaf 1's ring.
+    DualLayerTestAccess::activate(node, 1);
+    CHECK_FALSE(DualLayerTestAccess::sync_slot_active(node, 0, 3));               // drained on leave
+    CHECK(hal.cancelled[DualLayerTestAccess::sync_timer_id(3)]);                  // the shared timer id was cancelled
+    CHECK_FALSE(DualLayerTestAccess::sync_slot_active(node, 1, 3));               // leaf 1's own ring untouched
+}
+
+// ---- SLICE 3c #4: Principle 11 — a dual-layer gateway (n_layers==2) is OUT of the channel gossip plane ------
+TEST_CASE("dual-layer Principle 11: a gateway never originates or pulls channel gossip (Slice 3c #4)") {
+    const uint32_t heard_id = 0x07000002u;                 // a channel msg-id (origin 7) the node does not hold
+    // Single-layer reference: a normal node ADMITS a fresh origin (the plane is live).
+    { StubHal hal; Node node(hal, /*id*/ 1, 0x1);
+      NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+      CHECK(node.on_init(cfg));
+      CHECK(DualLayerTestAccess::origin_admit(node, /*origin*/ 5, /*msg_id*/ 0x05000001u));   // normal node admits
+    }
+    // Gateway: admits NOTHING + schedules NO pull on a heard digest (Principle 11 -> the RAM cap_channel_buffer=8 holds).
+    { StubHal hal; Node node(hal, 1, 0x1);
+      NodeConfig cfg; cfg.n_layers = 2;
+      cfg.layers[0] = good_layer(1, 8); cfg.layers[1] = good_layer(2, 9);
+      CHECK(node.on_init(cfg));
+      CHECK_FALSE(DualLayerTestAccess::origin_admit(node, 5, 0x05000001u));       // a gateway never originates channel msgs
+      const uint32_t ids[1] = { heard_id };
+      DualLayerTestAccess::process_digest(node, /*src*/ 7, ids, 1);
+      bool any_pull = false;
+      for (uint8_t s = 0; s < 8; ++s) if (hal.armed[DualLayerTestAccess::channel_pull_timer_id(s)]) any_pull = true;
+      CHECK_FALSE(any_pull);                                                       // a gateway never schedules a channel pull
+    }
 }

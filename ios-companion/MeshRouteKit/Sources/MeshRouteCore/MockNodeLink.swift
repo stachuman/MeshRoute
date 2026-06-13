@@ -176,7 +176,7 @@ public actor MockNodeLink: NodeLink {
         #"{"ev":"hash_resolved","node":\#(node),"auth":\#(auth ? 1 : 0),"hash":\#(hash.value)}"#
     }
     private func readyLine(state: String) -> String {
-        #"{"ev":"ready","id":\#(selfID),"key":"\#(selfHash.hex8)","leaf_id":0,"mode":"\#(state)","gateway":false,"routing_sf":7,"inbox_epoch":\#(inboxEpoch),"now_ms":\#(uptimeMs)}"#
+        #"{"ev":"ready","id":\#(selfID),"key":"\#(selfHash.hex8)","name":"Mock \#(selfID)","leaf_id":0,"mode":"\#(state)","gateway":false,"routing_sf":7,"inbox_epoch":\#(inboxEpoch),"now_ms":\#(uptimeMs)}"#
     }
     private func statusLine() -> String {
         #"{"ev":"status","id":\#(selfID),"key":"\#(selfHash.hex8)","state":"up","leaf_id":0,"gateway":false,"routing_sf":7}"#

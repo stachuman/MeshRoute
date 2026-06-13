@@ -9,7 +9,10 @@ struct ThreadsListView: View {
     @Environment(AppModel.self) private var model
     @Query(sort: \MessageEntity.timestamp, order: .reverse) private var messages: [MessageEntity]
     @Query private var contacts: [ContactEntity]
+    @Query private var labels: [ChannelLabelEntity]
     @State private var showNewChannel = false
+    @State private var renameTarget: UInt8?         // channel id being renamed (drives the alert)
+    @State private var renameText = ""
 
     var body: some View {
         NavigationStack {
@@ -20,6 +23,11 @@ struct ThreadsListView: View {
                 } else {
                     List(summaries) { s in
                         NavigationLink(value: s.key) { ThreadRow(summary: s) }
+                            .contextMenu {
+                                if case .channel(let c) = s.key {
+                                    Button { startRename(c) } label: { Label("Rename channel", systemImage: "pencil") }
+                                }
+                            }
                     }
                 }
             }
@@ -32,22 +40,45 @@ struct ThreadsListView: View {
                 }
             }
             .sheet(isPresented: $showNewChannel) { NewChannelSheet() }
+            .alert("Channel name", isPresented: Binding(get: { renameTarget != nil },
+                                                        set: { if !$0 { renameTarget = nil } })) {
+                TextField("Name (empty to clear)", text: $renameText)
+                Button("Save") {
+                    if let c = renameTarget { model.setChannelLabel(Int(c), name: renameText) }
+                    renameTarget = nil
+                }
+                Button("Cancel", role: .cancel) { renameTarget = nil }
+            } message: {
+                Text("A local label for channel \(renameTarget.map(String.init) ?? "") — only on this phone.")
+            }
         }
+    }
+
+    private func startRename(_ channel: UInt8) {
+        renameText = channelLabels[Int(channel)] ?? ""
+        renameTarget = channel
     }
 
     private var contactsByHash: [UInt32: ContactEntity] {
         Dictionary(contacts.map { ($0.hashValue32, $0) }, uniquingKeysWith: { a, _ in a })
     }
+    private var channelLabels: [Int: String] {
+        Dictionary(labels.map { ($0.channelID, $0.name) }, uniquingKeysWith: { a, _ in a })
+    }
 
     private var summaries: [ThreadSummary] {
+        var unread: [ThreadKey: Int] = [:]
+        for m in messages where m.direction == .incoming && !m.isRead { unread[m.threadKey, default: 0] += 1 }
         var latest: [ThreadKey: ThreadSummary] = [:]
         for m in messages where latest[m.threadKey] == nil {   // messages are reverse-sorted → first = latest
             let key = m.threadKey
             latest[key] = ThreadSummary(key: key,
-                                        title: threadTitle(key, contactsByHash: contactsByHash),
+                                        title: threadTitle(key, contactsByHash: contactsByHash,
+                                                           channelLabels: channelLabels),
                                         lastBody: m.body, lastDate: m.timestamp,
-                                        outgoing: m.direction == .outgoing)
-        }
+                                        outgoing: m.direction == .outgoing,
+                                        unread: unread[key] ?? 0)
+            }
         return latest.values.sorted { $0.lastDate > $1.lastDate }
     }
 }
@@ -59,12 +90,22 @@ struct ThreadRow: View {
             Image(systemName: isChannel ? "number.circle.fill" : "person.crop.circle.fill")
                 .font(.title2).foregroundStyle(isChannel ? Color.orange : Color.accentColor)
             VStack(alignment: .leading, spacing: 2) {
-                Text(summary.title).font(.headline)
+                Text(summary.title).font(.headline).fontWeight(summary.unread > 0 ? .bold : .regular)
                 Text((summary.outgoing ? "You: " : "") + summary.lastBody)
-                    .font(.subheadline).foregroundStyle(.secondary).lineLimit(1)
+                    .font(.subheadline).lineLimit(1)
+                    .foregroundStyle(summary.unread > 0 ? Color.primary : Color.secondary)
+                    .fontWeight(summary.unread > 0 ? .semibold : .regular)
             }
             Spacer()
-            Text(summary.lastDate.shortRelative).font(.caption2).foregroundStyle(.tertiary)
+            VStack(alignment: .trailing, spacing: 4) {
+                Text(summary.lastDate.shortRelative).font(.caption2).foregroundStyle(.tertiary)
+                if summary.unread > 0 {
+                    Text("\(summary.unread)")
+                        .font(.caption2.bold()).foregroundStyle(.white)
+                        .padding(.horizontal, 7).padding(.vertical, 2)
+                        .background(Capsule().fill(Color.accentColor))
+                }
+            }
         }
         .padding(.vertical, 2)
     }

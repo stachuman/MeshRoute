@@ -109,11 +109,11 @@ From `docs/superpowers/specs/2026-06-12-companion-product-roadmap.md` (user-rati
    sender reboot restarts `ctr` at 1, so its next messages REUSE identities the app has already
    archived and are **silently deduped away**. Persisting `ctr` closes this with zero wire cost.
    (Observed live on the bench 2026-06-12 — small ctrs collide constantly under reflash cycles.)
-2. **D10 — two companions on one node is a supported case.** Consequence for `mark_read`: a single
-   node-side read cursor can't represent two phones' read states. Direction: read state is
-   **per-companion, app-side**; node-side `mark_read` demotes to a retention/pruning hint (safe to
-   advance only past the MIN of all bonded companions' acks, or simply ignore for retention until
-   multi-bond lands). Open detail = Q12 in the roadmap: app-side only vs per-bond cursors node-side.
+2. **D10/D14 — two companions: WARN, don't design for it.** Read state is per-phone, app-side (the
+   app does not send `mark_read` in v1); node-side `mark_read` stays a simple hint — do NOT build
+   per-bond cursors. The only multi-phone behavior is a warning: when more than one companion is
+   bonded, the app shows "multiple phones paired — sync behavior is undefined" (cheap mechanism:
+   `ready` gains a `bonds:N` count; lands with the notification slice).
 
 ## Open / deferred (match the inbox spec §8, §14)
 

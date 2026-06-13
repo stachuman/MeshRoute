@@ -51,9 +51,11 @@ public struct NodeReady: Hashable, Sendable, Codable {
     public let inboxEpoch: UInt32?
     /// Node uptime (ms) at emit — the rx_ms→wall-clock anchor (the node has no RTC). nil on older firmware.
     public let nowMs: UInt64?
+    /// The node's own /mrid name (`cfg set name`) — app-level identity label (§1.3). Omitted when unset.
+    public let name: String?
     enum CodingKeys: String, CodingKey {
         case id, key, leafID = "leaf_id", mode, gateway, routingSF = "routing_sf", inboxEpoch = "inbox_epoch",
-             nowMs = "now_ms"
+             nowMs = "now_ms", name
     }
 }
 

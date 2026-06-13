@@ -13,6 +13,7 @@
 // docs/specs/2026-05-29-r1-beacon-emit-design.md + 2026-05-30-r2-route-hardening-design.md.
 #include "node.h"
 
+#include "airtime.h"   // airtime_ms — Slice 3a SF-weighted window derivation
 #include "wire.h"
 
 namespace meshroute {
@@ -59,6 +60,7 @@ bool Node::on_init(const NodeConfig& cfg) {
         // window_period_ms is the ONE shared layer0->layer1 cycle — per-LayerConfig for wire/cfg symmetry, but
         // the two must agree (a differing period is meaningless + would make the overlap check read a stale half).
         if (a.window_period_ms != b.window_period_ms)   return false;
+        if (a.window_period_ms == 0)                    return false;   // §3.2 validate-not-clamp: refuse a 0 cycle
         if (a.window_ms && b.window_ms && a.window_ms + b.window_ms > a.window_period_ms) return false;  // explicit windows overlap
     }
 
@@ -68,9 +70,41 @@ bool Node::on_init(const NodeConfig& cfg) {
     if (_cfg.n_layers <= 1) {
         _cfg.n_layers = 1;
         _cfg.layers[0].layer_id          = _cfg.leaf_id;          // single-layer: layer_id == leaf_id (may be 0 for R1)
+        _cfg.layers[0].node_id           = _node_id;              // single-layer: the one node_id (Slice 3a)
         _cfg.layers[0].routing_sf        = _cfg.routing_sf;
         _cfg.layers[0].allowed_sf_bitmap = _cfg.allowed_sf_bitmap;
         _cfg.layers[0].beacon_period_ms  = _cfg.beacon_period_ms;
+        _cfg.layers[0].window_ms         = _cfg.layers[0].window_period_ms;   // no split: one window == whole period (always-on)
+    }
+    _n_layers = _cfg.n_layers;   // Slice 3c: mirror the (normalized) layer count to the runtime member activate_layer guards on
+    // Slice 3a: a GATEWAY derives the SF-weighted, anti-phase window split (§0.9/§4) for any window_ms/offset left
+    // 0 (= DERIVE). Throughput-symmetric = equal DATA bytes/cycle, NOT equal time: weight each window by the layer
+    // SF's MARGINAL per-byte airtime (preamble cancels), so the slower (higher-SF) leaf gets the longer window:
+    //   window_i = period * per_byte_air(sf_i) / (per_byte_air(sf_0) + per_byte_air(sf_1)); offset[1] = window[0].
+    if (_cfg.n_layers == 2) {
+        LayerConfig& L0 = _cfg.layers[0]; LayerConfig& L1 = _cfg.layers[1];
+        const uint32_t period = L0.window_period_ms;
+        auto per_byte_air = [&](uint8_t sf) -> uint32_t {     // marginal payload airtime for 120 B (preamble cancels)
+            return airtime_ms(sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym, 240)
+                 - airtime_ms(sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym, 120);
+        };
+        const uint32_t w0 = per_byte_air(L0.routing_sf), w1 = per_byte_air(L1.routing_sf);
+        if (w0 + w1 == 0) return false;                                       // degenerate (guard; SFs are 5..12)
+        if (L0.window_ms == 0 && L1.window_ms == 0) {                         // both DERIVE: SF-weighted, fill the period
+            L0.window_ms = static_cast<uint32_t>(static_cast<uint64_t>(period) * w0 / (w0 + w1));
+            L1.window_ms = period - L0.window_ms;
+        } else if (L0.window_ms == 0) {                                       // one explicit -> the other fills the rest
+            L0.window_ms = (period > L1.window_ms) ? period - L1.window_ms : 0;
+        } else if (L1.window_ms == 0) {
+            L1.window_ms = (period > L0.window_ms) ? period - L0.window_ms : 0;
+        }
+        if (L1.window_offset_ms == 0) L1.window_offset_ms = L0.window_ms;     // anti-phase (layer0 offset stays 0)
+        // Validate the concrete schedule (fail loud, no clamp): non-zero windows, each fits the period, no overlap.
+        if (L0.window_ms == 0 || L1.window_ms == 0) return false;
+        if (L0.window_offset_ms + L0.window_ms > period) return false;
+        if (L1.window_offset_ms + L1.window_ms > period) return false;
+        if (L0.window_offset_ms < L1.window_offset_ms + L1.window_ms &&
+            L1.window_offset_ms < L0.window_offset_ms + L0.window_ms) return false;   // intervals overlap
     }
     // Lua: (SF_DEMOD_THRESHOLD[routing_sf] or -240) + sf_margin_q4 (dv_dual_sf.lua:8386).
     // The out-of-range fallback is the literal -240 (SF10), NOT table[12].
@@ -91,6 +125,12 @@ bool Node::on_init(const NodeConfig& cfg) {
                       : (retry_jitter_ms() / 2 > 1 ? retry_jitter_ms() / 2 : 1);
     _flood_lbt_max_defer_ms = (_cfg.flood_lbt_max_defer_ms > 0) ? _cfg.flood_lbt_max_defer_ms
                               : airtime_routing_ms(protocol::beacon_max_bytes);
+
+    // Slice 3c: a GATEWAY boots on leaf 0 — activate_layer(0) overrides the active-layer scalars (routing_sf /
+    // leaf_id / beacon_period_ms / node_id), the SNR floor + LBT timing, and retunes the radio to leaf 0's SF.
+    // (Runs AFTER the legacy-scalar setup above, which it supersedes; the discovery/beacon arming below then
+    // reads leaf 0's values.) A single-layer node never activates — its scalars stay as set above (no-op path).
+    if (_cfg.n_layers == 2) activate_layer(0);
 
     // Discovery window: boot in fast-cadence / full-page mode until we have heard
     // enough of the mesh or a bounded timeout expires (dv_dual_sf.lua:8399-8401).
@@ -115,6 +155,70 @@ bool Node::on_init(const NodeConfig& cfg) {
     // dv:9072). node_id 0 is unprovisioned (no identity yet) — set_identity re-seeds after a join/cfg.
     if (_node_id != 0) id_bind_set(_node_id, _key_hash32, IdBindSource::self, IdBindConf::authoritative);
     return true;
+}
+
+// ---- Slice 3c: dual-layer leaf activation -------------------------------------------------------------------
+// SF_DEMOD_THRESHOLD[sf] + sf_margin (Lua dv:8386); the -240 out-of-range fallback is the literal (SF10), not table[12].
+int16_t Node::routing_snr_floor_for(uint8_t routing_sf) const {
+    const int16_t demod = (routing_sf >= 5 && routing_sf <= 12)
+                          ? protocol::sf_demod_threshold_q4_table[routing_sf] : static_cast<int16_t>(-240);
+    return static_cast<int16_t>(demod + protocol::sf_margin_q4);
+}
+
+// §4 busy-guard: NEVER switch leaves mid-exchange. An in-flight RTS/CTS/DATA/ACK (_pending_tx / _pending_rx), the
+// post-ACK deliver/forward that straddles the ACK (_post_ack.pending — must finish on its own leaf, code-verified
+// 2026-06-12), or a BUSY_RX same-hop re-RTS wait (_nack_wait_pending — a paused flight) must complete first. The
+// scheduler (3d) re-arms the switch after gateway_layer_busy_retry_ms when this returns true.
+bool Node::layer_swap_blocked() const {
+    if (_active->_pending_tx.has_value() || _active->_pending_rx.has_value()
+        || _active->_post_ack.pending || _nack_wait_pending) return true;
+    // Node-GLOBAL transient stash holding a frame packed for the LEAVING leaf's SF/id (the id-classification's
+    // guard_defer set): the LBT-deferred ring + the on-radio-busy / duty-defer re-issue stash. They clear in ms
+    // (one LBT backoff), so deferring the swap until then is a bounded wait — and stops a wrong-leaf-SF re-TX.
+    for (uint8_t s = 0; s < kLbtSlots;   ++s) if (_deferred_lbt[s].pending) return true;
+    for (uint8_t s = 0; s < kRetrySlots; ++s) if (_tx_stash[s].valid)       return true;
+    return false;
+}
+
+// Switch the active leaf. The window scheduler (3d) drives this on timers, GATED by layer_swap_blocked(). Steps:
+//  (1) drain the LEAVING leaf's sync-response ring — its timer ids (kSyncResponseTimerId+slot) are SHARED across
+//      leaves, so a stale fire would hit the wrong leaf / leak a slot. (The single-flight MAC timers are covered by
+//      layer_swap_blocked() — none in flight here; the channel rings are gateway-skipped, Principle 11.)
+//  (2) make the active-layer scalars + SF-derived timing (the Lua active_*) reflect leaf i;  (3) swap _active;
+//  (4) retune the radio + the Hal short-id;  (5) re-seed the now-active leaf's own id_bind binding.
+void Node::activate_layer(uint8_t i) {
+    if (i >= _n_layers) return;                                  // defensive: n_layers==2 only; single-layer never swaps
+    for (uint8_t s = 0; s < protocol::cap_sync_response_pending; ++s)
+        if (_active->_sync_pending[s].active) { _hal.cancel(kSyncResponseTimerId + s); _active->_sync_pending[s].active = false; }
+    // Re-home (LEAVE): cancel the leaving leaf's per-leaf queue/drain timers (shared wheel ids — the id-classification
+    // rehome set). The STATE lives per-leaf in LayerRuntime (preserved); only the wheel slots re-home, on ENTER below.
+    // (The periodic BEACON plane — kBeaconTimerId/kTriggeredBeaconTimerId/kBeaconJitterTimerId + kReqSyncTimerId — is a
+    // PER-LEAF-TIMER-id job for Slice 3d: a cancel+rearm here would RESET its long cadence on every window.)
+    _hal.cancel(kDeferredDrainTimerId);
+    _hal.cancel(kQueueWakeupTimerId);
+    _hal.cancel(kCascadeRequeueTimerId);
+
+    const LayerConfig& L = _cfg.layers[i];
+    _cfg.routing_sf        = L.routing_sf;                       // active-layer scalars the active-layer-shared MAC reads
+    _cfg.allowed_sf_bitmap = L.allowed_sf_bitmap;
+    _cfg.leaf_id           = static_cast<uint8_t>(L.layer_id & 0x0F);   // the byte-0 wire leaf filter
+    _cfg.beacon_period_ms  = L.beacon_period_ms;
+    _node_id               = L.node_id;                          // the leaf's own 8-bit address (static; live DAD deferred)
+    _routing_snr_floor_q4  = routing_snr_floor_for(L.routing_sf);
+    _lbt_backoff_ms        = (_cfg.lbt_backoff_ms > 0) ? _cfg.lbt_backoff_ms     // SF-derived timing for the new leaf
+                             : (retry_jitter_ms() / 2 > 1 ? retry_jitter_ms() / 2 : 1);
+    _flood_lbt_max_defer_ms = (_cfg.flood_lbt_max_defer_ms > 0) ? _cfg.flood_lbt_max_defer_ms
+                              : airtime_routing_ms(protocol::beacon_max_bytes);
+    _active = &_layers[i];                                       // THE SWAP — the MAC pump now operates on leaf i
+    _hal.set_rx_sf(L.routing_sf);                               // retune RX (SF latches in standby)
+    _hal.set_protocol_id(L.node_id);                           // Hal short-id = the active leaf's node_id
+    if (L.node_id != 0)                                          // seed leaf i's OWN id_bind binding (per-leaf table)
+        id_bind_set(L.node_id, _key_hash32, IdBindSource::self, IdBindConf::authoritative);
+    // Re-home (ENTER): re-derive the entering leaf's queue/drain drivers from its preserved LayerRuntime state.
+    // become_free() re-services the tx_queue (covers the self-safe queue-wakeup / cascade-requeue ids); the deferred
+    // TTL-drain re-arms iff this leaf still has no-route sends parked (1s period << a window — no cadence skew).
+    become_free();
+    if (_active->_deferred_n > 0) { _active->_drain_armed = true; (void)_hal.after(protocol::send_defer_drain_period_ms, kDeferredDrainTimerId); }
 }
 
 // ---- dispatch (timer ids -> subsystem handlers; RX cmd-nibble -> handlers) --

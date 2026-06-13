@@ -94,6 +94,13 @@ final class InboxWireTests: XCTestCase {
         }
         XCTAssertEqual(r.inboxEpoch, 3)
         XCTAssertEqual(r.nowMs, 123456789012)   // > UInt32.max: the anchor is a true 64-bit uptime
+        XCTAssertNil(r.name)                    // name omitted when the node has none
+
+        guard case .ready(let named)? = PushDecoder.decode(
+            line: #"{"ev":"ready","id":5,"key":"ff609d5c","name":"Bench 5","leaf_id":0,"mode":"existing","gateway":false,"routing_sf":7,"inbox_epoch":1,"now_ms":99}"#) else {
+            return XCTFail()
+        }
+        XCTAssertEqual(named.name, "Bench 5")   // the /mrid node name rides ready
         // a node without a durable inbox omits the field → nil (no sync)
         guard case .ready(let r2)? = PushDecoder.decode(
             line: #"{"ev":"ready","id":1,"key":"8a3f1c02","leaf_id":0,"mode":"node","gateway":false,"routing_sf":7}"#) else {

@@ -33,6 +33,7 @@ public enum MessageDirection: String, Hashable, Sendable, Codable {
 
 /// Lifecycle of a message we sent (incoming messages are always `.received`).
 public enum DeliveryState: String, Hashable, Sendable, Codable {
+    case outbox       // composed while DISCONNECTED — waits in the outbox, drained FIFO on connect
     case sending      // composed, line written, no ack yet
     case queued       // node accepted it (ack: queued, ctr assigned)
     case acked        // link/E2E ack returned (send_acked)

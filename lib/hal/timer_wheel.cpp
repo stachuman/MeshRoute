@@ -4,7 +4,7 @@
 namespace meshroute {
 
 bool TimerWheel::after(uint32_t delay_ms, uint32_t timer_id, uint64_t now_ms) {
-    if (timer_id >= kCap) return false;              // out-of-range caller id (the Node never exceeds 31)
+    if (timer_id >= kCap) return false;              // out-of-range caller id (the Node owns 1..79; 64..79 = Slice-3 gateway band)
     _active[timer_id] = true;                         // re-arm-by-id: replaces any pending deadline for this id
     _due[timer_id]    = now_ms + delay_ms;
     return true;

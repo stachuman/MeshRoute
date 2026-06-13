@@ -39,6 +39,7 @@ not coded; R8 mobile not started. The durable (QSPI) inbox is pending; the inter
 | D11 | 2026-06-12 | **The app is the join UI** (post-R6): discover beaconing leafs → show `leaf_name` → join. |
 | D12 | 2026-06-12 | **(Q13 → gateway spec, fixed)** The receiving-layer field on pushes + inbox records is the **full 8-bit `layer_id`** (not the 4-bit leaf nibble, which aliases across 255 layers). Applies to the `Push` POD, the inbox record, and the `msg_recv`/`channel_recv`/`inbox_dm`/`inbox_channel` JSON. |
 | D13 | 2026-06-12 | **Wake-on-message BLE (user-proposed):** a node that RECEIVES a DM addressed to it turns BLE advertising ON (outside any periodic window), bounded — stop on companion connect or timeout. The app's background service-UUID scan wakes on the advert → connect → pull → local notification. Amends D9: worst-case stays the window period, but TYPICAL push latency becomes seconds. Params → Q15. |
+| D14 | 2026-06-12 | **Amends D10 — two phones are NOT specially handled.** The app/node just WARN the user when more than one companion is bonded/has synced ("multiple phones paired — sync behavior is undefined"). Read state stays app-side per-phone (that part of D10 stands); no per-bond cursors, no multi-companion sync design. Closes Q12. Mechanism (cheap): `ready` gains a `bonds:N` count → app banners when N>1 (land with E1). |
 
 ## 2. Personas
 
@@ -86,19 +87,26 @@ not coded; R8 mobile not started. The durable (QSPI) inbox is pending; the inter
 
 ## 4. Themes
 
-### A — Messaging feel *(order #1)*
-| Item | App | Firmware/wire |
-|---|---|---|
-| **Real timestamps** — wall-clock = `phone_now − (uptime_now − rx_ms)` | convert + display | add `uptime_ms` to `ready` + `inbox_end` (S) |
-| **Outbox** — compose offline, auto-send on reconnect, in order | M | — |
-| **Delivery polish** — ticks from sending/queued/acked/failed, tap-to-retry | S | — |
-| **Unread** — badges + bold rows, `mark_read` on thread view | S | done (mark_read exists) |
-| **Channel names** — local labels ("3 = Sailing crew") | S | — (leaf directory later, Q9) |
+### A — Messaging feel *(order #1)* — **SHIPPED 2026-06-12 (bench-verify pending)**
+| Item | Status |
+|---|---|
+| **Real timestamps** | ✅ fw: `now_ms` in `ready`+`inbox_end` (rebuild/reflash needed); app: `NodeTimeAnchor` converts `rx_ms`→wall-clock, pull-time fallback on old firmware |
+| **Outbox** | ✅ compose offline → `.outbox` state → drained FIFO on connect; failed-retry while offline re-parks to outbox |
+| **Delivery polish** | ✅ state badges incl. outbox; failed bubbles get "Tap to retry" |
+| **Unread** | ✅ per-phone `isRead` (D14), bold rows + per-thread count + Messages tab badge; read on thread view. `mark_read` is NOT sent (per D14) |
+| **Channel names** | ✅ local labels via long-press → Rename channel (Q9 assumed-yes) |
 
-### B — Contacts & identity *(order #2 QR, #5 cards)*
-- **QR exchange** (app-only, S): show/scan `{name, key_hash32, ed_pub}`. Physical presence = the
-  trust ceremony; no signature needed.
-- **Name in `ready`** (fw S): `whoami` should return the node's own `/mrid` name → app shows it.
+### B — Contacts & identity *(order #2 QR, #5 cards)* — **B1 SHIPPED 2026-06-12 (bench-verify pending)**
+- **QR exchange** ✅ — Contacts tab: "My card" (QR of the connected node's name+hash) + camera scan →
+  add/rename contact. Payload format (versioned, forward-compatible, on the project domain —
+  **meshroute.eu, booked 2026-06-12**):
+  `https://meshroute.eu/c?v=1&h=<hex8>&n=<name>[&p=<ed_pub hex64, RESERVED for B2/E2E>]` —
+  `ContactCard` in MeshRouteCore (tested); `meshroute://contact` legacy alias accepted; unknown params
+  never fail the parse. https so a STOCK-camera scan can Universal-Link into the app once the domain
+  hosts an `apple-app-site-association` (+ a "get the app" fallback page at `/c`) — future task.
+  Physical presence = the trust ceremony; no signature (D6).
+- **Name in `ready`** ✅ — `whoami` loads the `/mrid` name on demand (no RAM copy) and emits
+  `"name":"…"` (omitted when unset); app shows it in Node tab, status pill, and uses it on My card.
 - **Contact card over mesh** (fw M, app M): DATA `TYPE=CONTACT_CARD` `{name, key_hash32, ed_pub,
   sig}`; **verified node-side per D6** (the app never does crypto; keys are opaque bytes even in
   QR payloads), pass-through nodes snoop-cache (the spec's cache-on-pass), recipient app offers
@@ -133,8 +141,9 @@ not coded; R8 mobile not started. The durable (QSPI) inbox is pending; the inter
 - **Join/onboarding UX — DECIDED (D11), post-R6:** the app IS the join UI: discover beaconing
   leafs → show `leaf_name` → join. First-run magic. Firmware ask (with R6): a BLE surface for
   "leafs heard" + a join verb.
-- **Multi-node:** profiles already keyed by node key; switcher UI later. **Two phones on one
-  node is supported (D10)** — read state per-companion, app-side.
+- **Multi-node:** profiles already keyed by node key; switcher UI later. **Two phones on one node:
+  warn-only (D14)** — read state per-phone app-side; the app banners "multiple phones paired —
+  undefined behavior" (via a `bonds:N` count in `ready`, lands with E1).
 
 ### Protocol hardening
 - **D5 locked:** `sender_hash` always in DATA.
@@ -163,7 +172,7 @@ Q10→D11.)* Remaining:
 | Q4 | **Position TLV format + cadence:** int32 ×1e-7 lat/lon? Fixed = every Nth beacon (N?); mobile = per-beacon or on-move threshold? | C |
 | Q7 | **Ratify the D4 default:** window pinned while a BLE central is connected, + ~2 min linger after disconnect. | E1 (fw) |
 | Q9 | **Channel naming:** local labels v1 (assumed yes); leaf-level shared directory ever? | A |
-| Q12 | **Per-companion read state** (from D10): app-side only, or does the node track per-bond cursors? (Goes to the inbox-hardening agent with D7.) | A (unread) |
+| ~~Q12~~ | Closed by **D14**: read state app-side per-phone; multi-phone = warn-only, no design. | — |
 | Q14 | **`ready` shape for gateways** (two per-layer node_ids): additive `"layers":[{"layer_id":N,"id":M},…]` keeping the existing `"id"` for single-layer compat? App decoding is tolerant either way — settle when R7 lands. | D (gateway era) |
 | Q15 | **Wake-on-message params (D13):** triggers = DMs only, or channel msgs too? Advert duration (prop.: 2 min)? Only when a companion bond exists (prop.: yes)? Re-arm suppression so a burst doesn't re-advertise per message (prop.: one window per burst)? | E1 (fw) |
 

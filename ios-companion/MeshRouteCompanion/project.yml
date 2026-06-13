@@ -1,6 +1,6 @@
 name: MeshRouteCompanion
 options:
-  bundleIdPrefix: com.meshroute
+  bundleIdPrefix: eu.meshroute
   deploymentTarget:
     iOS: "17.0"
   createIntermediateGroups: true
@@ -30,9 +30,10 @@ targets:
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
         NSBluetoothAlwaysUsageDescription: "MeshRoute connects to your node over Bluetooth to read and send messages and read its status."
+        NSCameraUsageDescription: "MeshRoute uses the camera to scan a peer's contact QR card."
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.meshroute.companion
+        PRODUCT_BUNDLE_IDENTIFIER: eu.meshroute.companion
         MARKETING_VERSION: "0.1"
         CURRENT_PROJECT_VERSION: "1"
         GENERATE_INFOPLIST_FILE: NO

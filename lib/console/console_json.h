@@ -40,7 +40,8 @@ size_t write_event (char* buf, size_t cap, const char* type, const EventField* f
 size_t write_log   (char* buf, size_t cap, const char* msg);
 size_t write_err   (char* buf, size_t cap, const char* code, const char* msg);  // msg nullable
 size_t write_ready (char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* mode,
-                    uint32_t inbox_epoch, uint64_t now_ms);
+                    uint32_t inbox_epoch, uint64_t now_ms,
+                    const char* name = nullptr, size_t name_len = 0);   // /mrid node name; omitted when empty
 size_t write_status(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* state);
 
 // Phase-3 inbox sync (schema: ios-companion/INBOX_SYNC_CONTRACT.md). The pull stream = inbox_dm* then

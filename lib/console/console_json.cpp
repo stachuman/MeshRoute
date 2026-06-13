@@ -143,17 +143,40 @@ size_t write_err(char* buf, size_t cap, const char* code, const char* msg) {
 static void key_hex32(JsonBuf& j, uint32_t key) {
     char t[16]; std::snprintf(t, sizeof t, "\"%08x\"", key); j.lit(t);
 }
+// Dual-layer gateway: ADDITIVE per-leaf array (companion cfg/ready/status). Emitted ONLY when n_layers==2, so a
+// single-layer node's JSON is byte-identical to before. One object per leaf (node_id/layer_id/routing_sf + the
+// possibly-derived window_ms/offset of the ACTIVE config — on_init has already filled the derived split).
+static void write_layers_array(JsonBuf& j, const NodeConfig& c) {
+    if (c.n_layers != 2) return;
+    j.lit(",\"layers\":[");
+    for (uint8_t i = 0; i < 2; ++i) {
+        const LayerConfig& L = c.layers[i];
+        if (i) j.ch(',');
+        j.lit("{\"layer_id\":");        j.u32(L.layer_id);
+        j.lit(",\"node_id\":");         j.u32(L.node_id);
+        j.lit(",\"routing_sf\":");      j.u32(L.routing_sf);
+        j.lit(",\"allowed_sf_bitmap\":"); j.u32(L.allowed_sf_bitmap);
+        j.lit(",\"beacon_period_ms\":"); j.u32(L.beacon_period_ms);
+        j.lit(",\"window_period_ms\":"); j.u32(L.window_period_ms);
+        j.lit(",\"window_ms\":");       j.u32(L.window_ms);
+        j.lit(",\"window_offset_ms\":"); j.u32(L.window_offset_ms);
+        j.ch('}');
+    }
+    j.ch(']');
+}
 size_t write_ready(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* mode,
-                   uint32_t inbox_epoch, uint64_t now_ms) {
+                   uint32_t inbox_epoch, uint64_t now_ms, const char* name, size_t name_len) {
     JsonBuf j(buf, cap);
     j.lit("{\"ev\":\"ready\",\"id\":"); j.u32(id);
     j.lit(",\"key\":"); key_hex32(j, key);
+    if (name && name_len) { j.lit(",\"name\":"); j.str(name, name_len); }   // §1.3 app-level identity label
     j.lit(",\"leaf_id\":"); j.u32(c.leaf_id);
     j.lit(",\"mode\":"); j.str(mode, std::strlen(mode));
     j.lit(",\"gateway\":"); j.lit(c.is_gateway ? "true" : "false");
     j.lit(",\"routing_sf\":"); j.u32(c.routing_sf);
     j.lit(",\"inbox_epoch\":"); j.u32(inbox_epoch);   // Phase-3: bumps on any store wipe -> app re-pulls from 0
     j.lit(",\"now_ms\":"); j.i64(static_cast<int64_t>(now_ms));  // node uptime at emit: the app's rx_ms->wall-clock anchor (no RTC)
+    write_layers_array(j, c);                         // dual-layer gateway: additive "layers":[...] (omitted when n_layers==1)
     j.ch('}');
     return j.finish();
 }
@@ -212,6 +235,7 @@ size_t write_status(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeC
     j.lit(",\"leaf_id\":"); j.u32(c.leaf_id);
     j.lit(",\"gateway\":"); j.lit(c.is_gateway ? "true" : "false");
     j.lit(",\"routing_sf\":"); j.u32(c.routing_sf);
+    write_layers_array(j, c);   // dual-layer gateway: additive "layers":[...] (omitted when n_layers==1)
     j.ch('}');
     return j.finish();
 }

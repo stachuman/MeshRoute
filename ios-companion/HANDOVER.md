@@ -45,6 +45,24 @@ epoch-aware (`inbox_epoch` resets cursors) with model "B" live-`seq` gap recover
   this Mac). To enable BLE on a node: `cfg set ble_mode on` (or `periodic`) + reboot (default `off`);
   PIN default `123456` (`cfg set ble_pin`); the S140 SoftDevice must be flashed.
 
+## Bundle id changed 2026-06-12: `eu.meshroute.companion` (was com.meshroute.companion)
+Matches the booked project domain **meshroute.eu**. NOTE for the next device deploy: iOS treats it as
+a NEW app — the old install stays (delete it), the on-device archive does NOT carry over (re-pull
+rebuilds history from the node's inbox; contacts re-add/QR), and Xcode re-prompts signing/trust.
+
+## B1 (roadmap step 2) — SHIPPED 2026-06-12, bench-verify pending
+QR contact exchange: Contacts tab → "My card" QR + camera scan (VisionKit; camera permission added
+to project.yml — `xcodegen generate` already run). Wire format `meshroute://contact?v=1&h=…&n=…`
+(`ContactCard`, tested; `&p=` pubkey reserved for B2). Firmware: `ready` now carries the `/mrid`
+`"name"` (loaded per-whoami, no RAM cost) — rebuild+reflash with the Theme-A `now_ms` change; give
+nodes names via `cfg set name <str>`.
+
+## Theme A (roadmap step 1) — SHIPPED 2026-06-12, bench-verify pending
+Timestamps (`now_ms` in `ready`/`inbox_end` + app `NodeTimeAnchor`; firmware needs PC rebuild +
+`pio test -e native` + reflash), offline outbox (drain-on-connect), delivery retry, per-phone unread
+(no `mark_read` sent — D14), local channel labels. Package tests green, app builds. New SwiftData
+bits: `MessageEntity.isRead`, `ChannelLabelEntity` (additive migration).
+
 ## Product direction
 The LIVING roadmap (decisions D1–D5, themes A–E, open questions Q1–Q10) is
 `docs/superpowers/specs/2026-06-12-companion-product-roadmap.md` — the single tracking doc for

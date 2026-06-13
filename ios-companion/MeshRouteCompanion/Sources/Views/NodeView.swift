@@ -36,6 +36,7 @@ struct NodeView: View {
                 // ---- identity ----
                 if let id = model.nodeIdentity {
                     Section("Node identity") {
+                        if let n = id.name { LabeledContent("Name", value: n) }
                         LabeledContent("Short id", value: "\(id.id)")
                         LabeledContent("key_hash32", value: "0x" + id.key.hex8)
                         LabeledContent("Control SF", value: "\(id.routingSF)")

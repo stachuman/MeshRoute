@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		03AD8931137D46286A121223 /* QRViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3053E61FBD049383E94E111C /* QRViews.swift */; };
 		1C5030936052E598B3A58373 /* BLENodeLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76FE05DE01E564E0101E2F60 /* BLENodeLink.swift */; };
 		25A382FFF6D2DA2A61332C14 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69E57ACBFD76D391F3B1D0A0 /* RootView.swift */; };
 		3CEFB972BFC98D2E6F587B66 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CE9556D47DD04EC1DB189B90 /* Assets.xcassets */; };
@@ -26,13 +27,14 @@
 /* Begin PBXFileReference section */
 		0B4730354D9A65EF3E727116 /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
 		138E35B5551DC91916B70B8C /* ContactsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContactsView.swift; sourceTree = "<group>"; };
+		3053E61FBD049383E94E111C /* QRViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRViews.swift; sourceTree = "<group>"; };
 		33249ED1CF44D17B65F03D14 /* MeshRouteCompanionApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshRouteCompanionApp.swift; sourceTree = "<group>"; };
 		4AD285ABA097FFD10C738217 /* NodeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeView.swift; sourceTree = "<group>"; };
 		6267E72E0E2DA66D814C2872 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		69E57ACBFD76D391F3B1D0A0 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		76FE05DE01E564E0101E2F60 /* BLENodeLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLENodeLink.swift; sourceTree = "<group>"; };
 		B5C578558F1BC38A4B6A34A4 /* ThreadsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadsListView.swift; sourceTree = "<group>"; };
-		B8225CE27BA54D448E76BED2 /* MeshRouteCompanion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MeshRouteCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B8225CE27BA54D448E76BED2 /* MeshRouteCompanion.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MeshRouteCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CE9556D47DD04EC1DB189B90 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D4B3F52A980322A539C9B67E /* MeshRouteKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MeshRouteKit; path = ../MeshRouteKit; sourceTree = SOURCE_ROOT; };
 		D54D0288A1A610CC38F2276D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -61,6 +63,7 @@
 				0B4730354D9A65EF3E727116 /* Components.swift */,
 				138E35B5551DC91916B70B8C /* ContactsView.swift */,
 				4AD285ABA097FFD10C738217 /* NodeView.swift */,
+				3053E61FBD049383E94E111C /* QRViews.swift */,
 				69E57ACBFD76D391F3B1D0A0 /* RootView.swift */,
 				B5C578558F1BC38A4B6A34A4 /* ThreadsListView.swift */,
 				EEF796C1DC75D1460CA1B31B /* ThreadView.swift */,
@@ -162,9 +165,10 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 2630;
+				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					1EC0E0A42B8AB3C80FA66DEB = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -215,6 +219,7 @@
 				B1EFB0BCA5609FB149F56428 /* Entities.swift in Sources */,
 				45442516FE409FF6E12263F9 /* MeshRouteCompanionApp.swift in Sources */,
 				9C6FEBD4AE1DD462A347C81E /* NodeView.swift in Sources */,
+				03AD8931137D46286A121223 /* QRViews.swift in Sources */,
 				25A382FFF6D2DA2A61332C14 /* RootView.swift in Sources */,
 				EFE948C5B3A0387F44E5A6B1 /* ThreadView.swift in Sources */,
 				F9A43713879E2AB382DB2B13 /* ThreadsListView.swift in Sources */,
@@ -231,6 +236,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/App/Info.plist;
@@ -240,7 +246,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.meshroute.companion;
+				PRODUCT_BUNDLE_IDENTIFIER = eu.meshroute.companion;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -254,6 +260,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/App/Info.plist;
@@ -263,7 +270,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 0.1;
-				PRODUCT_BUNDLE_IDENTIFIER = com.meshroute.companion;
+				PRODUCT_BUNDLE_IDENTIFIER = eu.meshroute.companion;
 				SDKROOT = iphoneos;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -305,10 +312,8 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
-				DEVELOPMENT_TEAM = AD2S36C934;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -329,7 +334,6 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -371,10 +375,8 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				DEVELOPMENT_TEAM = AD2S36C934;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -388,7 +390,6 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;

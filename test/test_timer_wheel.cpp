@@ -76,13 +76,24 @@ TEST_CASE("TimerWheel — a fired timer that re-arms with a positive delay does 
     CHECK(w.pop_due(5020) == 1);                   // fires next tick
 }
 
-TEST_CASE("TimerWheel — out-of-range caller id is rejected (bounded cap 64)") {
+TEST_CASE("TimerWheel — out-of-range caller id is rejected (bounded cap 80)") {
     TimerWheel w;
-    CHECK(w.after(10, /*id=*/63, 0));              // last valid id
-    CHECK_FALSE(w.after(10, /*id=*/64, 0));        // == kCap -> rejected
+    CHECK(w.after(10, /*id=*/79, 0));              // last valid id (kCap=80; Slice-3 gateway band is 64..79)
+    CHECK_FALSE(w.after(10, /*id=*/80, 0));        // == kCap -> rejected
     CHECK_FALSE(w.after(10, /*id=*/255, 0));
-    CHECK(!w.active(64));
-    CHECK(w.pop_due(100) == 63);                   // the valid one still fires
+    CHECK(!w.active(80));
+    CHECK(w.pop_due(100) == 79);                   // the valid one still fires
+}
+
+TEST_CASE("TimerWheel — a Slice-3 gateway-band id (64..79) arms + fires (kCap raised 64->80)") {
+    TimerWheel w;
+    CHECK(w.after(50, /*id=*/64, 1000));           // kLayerWindowTimerId (layer 0)
+    CHECK(w.after(50, /*id=*/69, 1000));           // kLayerBeaconTimerId + 1 (layer 1)
+    CHECK(w.active(64)); CHECK(w.active(69));
+    CHECK(w.earliest_due() == 1050);
+    CHECK(w.pop_due(1050) == 64);                  // smallest-id-first on a tie
+    CHECK(w.pop_due(1050) == 69);
+    CHECK(!w.active(64)); CHECK(!w.active(69));     // one-shot
 }
 
 TEST_CASE("TimerWheel — earliest_due returns the min active deadline (UINT64_MAX when idle)") {

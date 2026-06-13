@@ -10,6 +10,8 @@ struct ContactsView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \ContactEntity.name) private var contacts: [ContactEntity]
     @State private var showAdd = false
+    @State private var showMyCard = false
+    @State private var showScanner = false
 
     var body: some View {
         NavigationStack {
@@ -21,6 +23,7 @@ struct ContactsView: View {
                         Text("The node knows only hashes + short ids — add a peer by their key_hash32 to give them a name.")
                     } actions: {
                         Button("Add contact") { showAdd = true }
+                        Button("Scan a QR card") { showScanner = true }
                     }
                 } else {
                     List {
@@ -40,11 +43,17 @@ struct ContactsView: View {
             .navigationTitle("Contacts")
             .navigationDestination(for: ThreadKey.self) { ThreadView(thread: $0) }
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showMyCard = true } label: { Image(systemName: "qrcode") }
+                }
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    Button { showScanner = true } label: { Image(systemName: "qrcode.viewfinder") }
                     Button { showAdd = true } label: { Image(systemName: "plus") }
                 }
             }
             .sheet(isPresented: $showAdd) { AddContactView() }
+            .sheet(isPresented: $showMyCard) { MyCardView() }
+            .sheet(isPresented: $showScanner) { ScanContactView() }
         }
     }
 

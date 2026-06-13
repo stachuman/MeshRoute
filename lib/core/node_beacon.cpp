@@ -224,7 +224,7 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // keeps it opaque), so a present seen-bitmap counts as useful (slightly looser, no draw impact).
     if ((b.n_entries > 0) || b.has_seen_bitmap) {
         for (uint8_t i = 0; i < protocol::cap_sync_response_pending; ++i) {
-            SyncPending& p = _sync_pending[i];
+            SyncPending& p = _active->_sync_pending[i];
             if (p.active && !p.suppressed && now <= p.fire_at
                 && (now - p.requested_at) <= protocol::sync_response_suppress_window_ms)
                 p.suppressed = true;

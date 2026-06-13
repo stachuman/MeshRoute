@@ -9,7 +9,8 @@ struct MeshRouteCompanionApp: App {
     private let container: ModelContainer
 
     init() {
-        let schema: [any PersistentModel.Type] = [ContactEntity.self, MessageEntity.self, NodeProfileEntity.self]
+        let schema: [any PersistentModel.Type] = [ContactEntity.self, MessageEntity.self, NodeProfileEntity.self,
+                                                  ChannelLabelEntity.self]
         let container: ModelContainer
         do {
             container = try ModelContainer(for: Schema(schema))
