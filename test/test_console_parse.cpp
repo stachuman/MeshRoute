@@ -3,6 +3,7 @@
 // NB: no DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN — test_airtime.cpp provides main().
 #include "doctest.h"
 #include "console_parse.h"
+#include "frame_codec.h"   // DATA_FLAG_E2E_ACK_REQ — assert the parser emits the bit the RX acts on
 #include <cstring>
 #include <string>
 
@@ -26,7 +27,7 @@ TEST_CASE("parse_command — send_ack <dst> <body> (E2E ack-req)") {
     CHECK(parse_command(line, std::strlen(line), c) == ParseErr::ok);
     CHECK(c.kind == CmdKind::send);
     CHECK(c.u.send.dst_id == 5);
-    CHECK(c.u.send.flags == 0x08);              // E2E ack-req
+    CHECK(c.u.send.flags == DATA_FLAG_E2E_ACK_REQ);   // the bit the RX acts on (was 0x08, a dead bit -> acks never fired)
     CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "hi there");
 }
 
@@ -61,7 +62,7 @@ TEST_CASE("parse_command — sendhash_ack <hash> <body> (E2E ack-req)") {
     CHECK(c.kind == CmdKind::send);
     CHECK(c.u.send.dst_id == 0);
     CHECK(c.u.send.dst_hash == 0x0a0b0c0du);
-    CHECK(c.u.send.flags == 0x08);                  // E2E ack-req
+    CHECK(c.u.send.flags == DATA_FLAG_E2E_ACK_REQ);  // the bit the RX acts on (was 0x08, a dead bit -> acks never fired)
     CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "ok");
 }
 

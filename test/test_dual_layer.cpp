@@ -80,6 +80,16 @@ TEST_CASE("dual-layer cfg: on_init REFUSES a missing REQUIRED per-layer field (f
     { StubHal h; Node n(h, 1, 1); CHECK(n.on_init(base)); }                                                             // the unmodified base is valid
 }
 
+TEST_CASE("dual-layer cfg: on_init REFUSES an out-of-range n_layers (> MR_N_LAYERS array bound, fail loud)") {
+    // Defense-in-depth (§3.2): the fixed _layers[MR_N_LAYERS] array means a count past it must be refused, not
+    // silently accepted (which would set _n_layers past the array end -> OOB). On the native build MR_N_LAYERS==2.
+    NodeConfig base; base.n_layers = 2; base.layers[0] = good_layer(1, 8); base.layers[1] = good_layer(2, 9);
+    { StubHal h; Node n(h, 1, 1); NodeConfig c = base; c.n_layers = 3;   CHECK_FALSE(n.on_init(c)); }  // 3 > 2
+    { StubHal h; Node n(h, 1, 1); NodeConfig c = base; c.n_layers = 44;  CHECK_FALSE(n.on_init(c)); }  // e.g. the host 300->uint8_t(44) alias
+    { StubHal h; Node n(h, 1, 1); NodeConfig c = base; c.n_layers = 255; CHECK_FALSE(n.on_init(c)); }  // max uint8_t
+    { StubHal h; Node n(h, 1, 1); CHECK(n.on_init(base)); }                                            // n_layers==2 still valid
+}
+
 TEST_CASE("dual-layer cfg: on_init REFUSES overlapping explicit windows; accepts non-overlap + derived (0)") {
     NodeConfig base; base.n_layers = 2; base.layers[0] = good_layer(1, 8); base.layers[1] = good_layer(2, 9);
     // window_period_ms defaults to 15000 in both layers; the overlap check reads layers[0].window_period_ms.

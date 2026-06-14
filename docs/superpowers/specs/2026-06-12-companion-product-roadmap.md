@@ -22,6 +22,43 @@ recovery) → unknown senders auto-create contacts. **Firmware:** same-layer cor
 E2E DM crypto wire-reserved; R7 gateway **designed** (`2026-06-12-gateway-dual-layer-design.md`),
 not coded; R8 mobile not started. The durable (QSPI) inbox is pending; the interim store is RAM.
 
+## 0.1 Status dashboard (reviewed 2026-06-14)
+
+Legend: **✅ code-complete** (bench-verify pending) · **🔜 queued** (designed / next) · **⏸ blocked**
+(firmware dep or open question) · **❌ not started**.
+
+| Theme | Feature | Status | Note |
+|---|---|---|---|
+| A Messaging | real timestamps · outbox · delivery+retry · unread · channel labels | ✅ | all shipped 2026-06-12 |
+| B Contacts | QR exchange (My card + scan) · name-in-`ready` · auto-contact | ✅ | B1 shipped |
+| B Contacts | **contact card over mesh** (B2) | ⏸ | open: card scope Q1b |
+| C Location | fixed-node **set/show** + map preview + "use my location" | ✅ | persisted in `/mrid` (D15) |
+| C Location | **peers on a map** (BCN-ext position broadcast + position table) | ❌ | firmware beacon work + Q4b |
+| C Location | mobile **phone-fed** position | ⏸ | R8 mobile (firmware) |
+| C Location | dedicated **Map screen** / distance-bearing list / offline tiles | ❌ | app, gated on the broadcast data |
+| D Network | status / cfg / routes screens · battery | ✅ | shipped; `cfg set` over BLE too |
+| D Network | leaf panel (name/epoch/members) | ⏸ | R6 leaf-config join |
+| D Network | gateway dual-layer UI (`layers[]`) | ⏸ | R7 gateway |
+| E iPhone-app | background-BLE reliability · local notifications · tap-to-open · app badge | ✅ | E1 partial |
+| E iPhone-app | CBCentralManager **State Restoration** (survive app *kill*) | 🔜 | deferred — needs persistent-session refactor + device test |
+| E iPhone-app | **wake-on-message** advertising (D13) | ⏸ | firmware (Q15) |
+| E iPhone-app | join / onboarding UX (D11) | ⏸ | R6 |
+| E iPhone-app | iCloud backup · multi-node switcher · `bonds:N` multi-phone warning (D14) | ❌ | app |
+| Hardening | `sender_hash` always-on (D5) · `now_ms` time anchor | ✅ | |
+| Hardening | `ctr` persisted in NV (sender-reboot dedup collision, D7) | 🔜 | inbox-hardening agent |
+| Crypto | E2E DM (`CRYPTED`) surfacing in the app | ⏸ | firmware E2E slice |
+| OTA | firmware update from the app (App "Phase 1") | ❌ | **never started — see §7** |
+
+**Bench fixes landed 2026-06-13/14** (not roadmap features, but live): channel **self-echo** (node no longer
+records its own channel posts), BLE **multi-notification chunking** (`tx_line` — `cfg`/wide-`status` no
+longer truncate at one MTU), **map re-center** (`Map(position:)` reactive camera), **keyboard dismiss** on
+the Node screen, battery `batt_raw` serial diagnostic.
+
+**One-line read:** Themes **A, B1, C-fixed, D, E1** are code-complete and waiting on your bench. Everything
+else is either a firmware dependency (R6/R7/R8, E2E, durable inbox), one open question (Q1b/Q4b/Q15), or
+a deliberately-deferred refactor (State Restoration). **§7** lists what the roadmap doesn't yet cover at
+all; **§8** consolidates every firmware feature the companion needs and what each unblocks.
+
 ## 1. Decision log
 
 | # | Date | Decision |
@@ -214,3 +251,132 @@ Q10→D11.)* Remaining:
 | Q15 | **Wake-on-message params (D13):** triggers = DMs only, or channel msgs too? Advert duration (prop.: 2 min)? Only when a companion bond exists (prop.: yes)? Re-arm suppression so a burst doesn't re-advertise per message (prop.: one window per burst)? | E1 (fw) |
 
 *(Q13 → D12, resolved in the gateway spec 2026-06-12.)*
+
+## 7. Missing / proposed features (gap analysis 2026-06-14)
+
+Themes A–E cover the *messenger*. These are the gaps — capabilities the roadmap doesn't yet name —
+grouped by persona. Effort **S/M/L**; **app-only** = no firmware. ⭐ = recommended high-value.
+
+### 7.1 Operator / fleet management (persona 2 — the biggest blank area)
+- ⭐ **Remote node administration** *(user-proposed; fw L, app M)* — admin OTHER nodes over the mesh
+  from the phone, not just the BLE-connected one: remote `cfg get/set`, `status`, `reboot`, `regen`,
+  set-location. Mechanism: a new **`TYPE=ADMIN` DATA frame**, **signed by the owner's key** so a node
+  only obeys its owner (the node verifies the Ed25519 signature — fits D6: the *node* does crypto, the
+  app carries opaque bytes). Open design: the **authorization model** — is "owner" the identity that
+  provisioned it, a per-node admin pubkey, or a leaf-admin key? → needs a decision + a small spec.
+- ⭐ **OTA firmware update from the app** *(App "Phase 1" — never started; app L)* — update the
+  connected node over BLE (Nordic DFU / the bootloader we already ship). Critical for a deployed mesh.
+  Stretch: **mesh-relayed OTA** to remote nodes (bandwidth-bounded, ambitious — a later epic).
+- **Fleet dashboard** *(app M, needs the §7.5 node directory)* — every known node: up/down, battery,
+  last-seen, role, link quality. The operator's "is my network healthy" home screen.
+- **Proactive alerts** *(app M + a little fw)* — node went silent / battery low / duty-cycle exhausted
+  → a push notification. Turns the operator from polling to being-told.
+- **Node provisioning wizard** *(app M)* — bring up a NEW node end-to-end from the phone: name, join a
+  leaf, set role (fixed/mobile/gateway), set location. Extends D11 join + the `cfg set`-over-BLE we have.
+
+### 7.2 Safety / off-grid (persona 1 — flagship potential)
+- ⭐ **SOS / emergency beacon** *(fw M, app S)* — one tap → a **high-priority flood** carrying your
+  location + a preset distress message, repeated on a schedule until cancelled. The data plane already
+  has priority classes; this could be THE reason a hiking/sailing group buys in. Needs a priority/SOS
+  flag + a guarded UI.
+- **Share location in a message** *(fw S, app S)* — drop your current position into a DM/channel (a
+  `TYPE=LOCATION` inline, or just text + the map renders it). Cheap, very useful off-grid.
+- **Check-in / "I'm OK"** *(app M)* — manual or periodic location+status ping to a group; surfaces
+  "last heard from X: 12 min ago".
+- **Compass / bearing + distance to a contact** *(app S)* — when all you have is last-known positions,
+  point-me-to-Marek beats a blank map. (The distance/bearing list under Theme C is the seed.)
+- **Geofence / proximity alerts** *(app M)* — notify when a contact comes within / leaves a radius.
+
+### 7.3 Messaging depth
+- **Reply / quote a specific message** *(app S local; M if echoed on the wire)*.
+- **Message search** *(app S)* · **local delete / archive** *(app S)* · **drafts** *(app S)* — all
+  app-only quick wins.
+- **Reactions** *(app S local, or a tiny wire TYPE)*.
+- **Priority surfaced in the UI** *(app S + fw flag)* — normal / high / emergency send classes (the
+  data plane supports priority today; the app doesn't expose it).
+- **Read receipts** *(needs an app↔app receipt — airtime cost)* — likely opt-in or skip.
+
+### 7.4 Identity / trust / security
+- **E2E encryption UX** *(app M, gated on the firmware E2E slice)* — a lock icon, "keys exchanged via
+  card", the per-thread encrypted state. The wire (`CRYPTED`) is reserved; surface it when it lands.
+- **Pubkey verification ("safety numbers")** *(app S, after cards carry `ed_pub`)* — compare full keys
+  in person to defeat the TOFU/MITM gap the identity spec flags.
+- **Block / mute** a contact or channel *(app S)*.
+- **Paired-phone (bond) management** *(app S + `bonds:N` from D14)* — list / revoke bonded phones.
+- **Rename my own node from the app** *(app S — transport exists)* — `cfg set name` over BLE is wired;
+  just needs a field (today only settable on serial).
+
+### 7.5 Known-nodes directory (a missing foundation)
+- **A persisted directory of every node the app has heard of** *(app M)* — keyed by `key_hash32`:
+  name, last-known role, leaf, position, battery, last-seen. PORT_PLAN's "App layer / known-nodes
+  directory" — several features above (fleet dashboard, map, alerts) depend on it. Currently the app
+  only models *contacts* (manual) + the *connected* node; there's no model of "the whole mesh."
+
+### 7.6 Platform / polish
+- **Settings screen** *(app S)* — notification prefs, units (km/mi), BLE PIN entry, theme. (None exist.)
+- **Android companion** *(L)* — v1 is iOS-only; the `MeshRouteKit` split was designed to make a second
+  client cheap, but it's a whole app.
+- **Apple Watch / Live Activity / home-screen widget** *(app M)* — glanceable "connected · 2 unread".
+- **Siri shortcuts / App Intents** *(app M)* — "message Marek on the mesh".
+- **Backup & export** *(app M)* — iCloud (noted in E) + export chat/contacts.
+- **Localization / accessibility / iPad layout** *(app M)*.
+
+### 7.7 Top picks (if we want to prioritize the gaps)
+1. **Known-nodes directory (§7.5)** — the missing data foundation that unblocks the map, fleet view,
+   and alerts. Do this with/before the Theme-C broadcast half.
+2. **OTA from the app (§7.1)** — highest operator value, and we already ship a DFU bootloader.
+3. **Remote node administration (§7.1)** — your example; needs the authorization-model decision first.
+4. **SOS / emergency beacon (§7.2)** — the off-grid flagship; small once a priority/SOS flag exists.
+5. **Settings + rename-my-node + block/mute (§7.3/7.4/7.6)** — a cluster of app-only quick wins.
+
+These are **proposals, not commitments** — promote any into Themes A–E (or a new Theme F "Operator /
+fleet") and the §5 sequencing when you pick them up.
+
+## 8. Firmware features the companion needs (and what each unblocks)
+
+Consolidates EVERY firmware-side dependency in one place — both the existing port tracks and the
+**companion-specific asks that aren't in any firmware backlog yet** (§8.2 is the new, actionable list
+to hand the node agent). Status: **✅ done** · **🔧 designed / in-progress (other agent)** · **❌ not
+started**. "Unblocks" = the companion feature(s) that cannot ship without it.
+
+### 8.1 Already on the firmware roadmap / PORT_PLAN
+| Firmware item | Status | Unblocks (companion) |
+|---|---|---|
+| `now_ms` in `ready`/`inbox_end` | ✅ | real timestamps (A) |
+| `sender_hash` / `channel_msg_id` / `seq` / `layer_id` on pushes + inbox | ✅ | dedup, model-B gap recovery, layer tagging |
+| `cfg set` + `status`/`cfg`/`routes` JSON over BLE | ✅ | Node + Network screens (D), set location, rename-node |
+| **Durable QSPI inbox** (inbox agent) | 🔧 | message history surviving reboot (today RAM-volatile) |
+| **`ctr` persisted in NV** (D7) | 🔧 | reliable dedup across sender reboots |
+| **R6 leaf-config join** | ❌ | join / onboarding UX (D11); leaf panel name/epoch/members (D) |
+| **R7 gateway dual-layer** | 🔧 designed | gateway UI (`layers[]`, per-layer node_id, window schedule); layer-scoped channels |
+| **R8 mobile nodes** | ❌ | mobile phone-fed position; mobiles on the map |
+| **E2E DM crypto (`CRYPTED` slice)** | 🔧 wire-reserved | E2E UX / lock icon; pubkey verification |
+
+### 8.2 Companion-specific firmware asks — **NOT yet in any firmware backlog (add these)**
+| Firmware ask | Effort | Unblocks |
+|---|---|---|
+| ⭐ **BCN ext-TLV position (+ optional health) broadcast** — nodes share lat/lon on the air | M | peers-on-a-map (C broadcast); fleet location |
+| ⭐ **Known-nodes table queryable over BLE** — per heard node: `key_hash32`/id/name/role(gw/mobile)/leaf/last-seen/position/battery (aggregates id_bind + beacons + the position broadcast) | M | known-nodes directory (§7.5) → **map, fleet dashboard, alerts all depend on this** |
+| **Wake-on-message BLE advertising** (D13) **+ activity pins the window open** (D4) | M | low-latency background notifications; interactive sessions don't drop BLE (E1) |
+| **`bonds:N` count in `ready`** (D14) | S | multi-phone "undefined behaviour" warning |
+| **`TYPE=CONTACT_CARD` DATA frame** + node-side sign/verify + cache-on-pass | M | contact card over mesh (B2); pubkey distribution for E2E |
+| ⭐ **`TYPE=ADMIN` signed DATA frame** + node-side owner-authorization | L | **remote node administration** (§7.1) |
+| ⭐ **App-facing OTA trigger** (enter-DFU verb/cfg over BLE; later mesh-relayed OTA) | M / L | **OTA from the app** (§7.1) |
+| **Priority / SOS send class + high-priority flood** (the data plane HAS priority — expose it) | M | SOS / emergency beacon (§7.2); priority messaging |
+| **`TYPE=LOCATION` inline payload** in a DM/channel | S | share-location-in-a-message (§7.2) |
+| **Node telemetry / event-log pull over BLE** (recent events, drops, errors) | M | remote debugging; logs view; alert sources |
+| **Node-side alert events** (battery-low / duty-exhausted / peer-dead) pushed to BLE | S | proactive alerts (§7.1) |
+| **Channel directory / subscription** (PORT_PLAN "channel subscriptions") | M | channel management UI |
+| **Dynamic leaf-config write path** (R6.3) | M | leaf management UI (operator) |
+
+### 8.3 Decisions these firmware asks need FIRST (block the spec)
+- **Remote admin (`TYPE=ADMIN`) authorization model** — who is "owner"? provisioning identity / a
+  per-node admin pubkey / a leaf-admin key. Blocks the admin frame + remote admin (§7.1).
+- **OTA scope** — connected-node-over-BLE first, mesh-relayed later? Shapes the trigger + the epic size.
+- **Position broadcast format + privacy** — Q4b cadence + per-contact opt-in / precision-degrade / TTL.
+  Blocks the BCN ext-TLV.
+- **SOS semantics** — repeat cadence, cancel, audience (leaf-flood?). Blocks the SOS class.
+
+**Critical-path note:** the **known-nodes table over BLE (§8.2)** is the quiet keystone — the Map,
+fleet dashboard, and alerts in §7 all read from it. It's worth specifying *before* those app features,
+and it composes naturally with the position broadcast and (later) R6/R7 role/leaf data.

@@ -1,6 +1,7 @@
 // MeshRoute — lib/console/console_parse.cpp
 // Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 #include "console_parse.h"
+#include "frame_codec.h"   // DATA_FLAG_E2E_ACK_REQ (the canonical wire flag the RX acts on)
 #include <cstring>
 
 namespace meshroute::console {
@@ -73,7 +74,7 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
     }
 
     //   send <id> <text>           — DM by short id, NO E2E ack
-    //   send_ack <id> <text>       — DM by short id, E2E ack requested (flags E2E=0x08)
+    //   send_ack <id> <text>       — DM by short id, E2E ack requested (flags DATA_FLAG_E2E_ACK_REQ = 0x10)
     //   sendhash <hash> <text>     — DM by key_hash32 (hash-locate); on_command resolves then sends
     //   sendhash_ack <hash> <text> — DM by key_hash32, E2E ack requested
     //   send_channel <ch> <text>   — single-layer channel gossip (channel_id 0..255)
@@ -106,7 +107,7 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
         out.kind = CmdKind::send;
         out.u.send.dst_id   = by_hash ? 0 : static_cast<uint8_t>(arg_val);
         out.u.send.dst_hash = by_hash ? arg_val : 0u;     // on_command (node.cpp) routes dst_hash!=0 to send_by_hash
-        out.u.send.flags    = e2e_ack ? 0x08 : 0x00;      // *_ack = E2E ack-req (command.h: E2E=0x08)
+        out.u.send.flags    = static_cast<uint8_t>(e2e_ack ? DATA_FLAG_E2E_ACK_REQ : 0);  // *_ack => the wire bit the RX acts on (node_mac_rx: & 0x10). 0x08 was a DEAD bit -> acks never fired.
     }
     out.body = reinterpret_cast<const uint8_t*>(s.p);
     out.body_len = static_cast<uint8_t>(body_len);

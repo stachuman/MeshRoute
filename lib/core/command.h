@@ -26,7 +26,7 @@ enum class CmdKind : uint8_t { send, send_layer, send_channel, join, resolve };
 // dv_dual_sf.lua:2187-2189). Addressed by short id (now) / key_hash32 (later) —
 // never a name (the device has no name map; that is forever a backend concern).
 // Plain PODs (no in-class initializers) so the union has a trivial default ctor and
-// the header stays C++17-includable by the sim (hal.h discipline). flags = wire DATA_FLAG_* (E2E_ACK_REQ=0x10|PRIORITY=0x02; 0x08 free).
+// the header stays C++17-includable by the sim (hal.h discipline). flags = wire DATA_FLAG_* (E2E_ACK_REQ=0x10, DST_HASH=0x02, PRIORITY=0x01; 0x08 free).
 struct SendCmd        { uint8_t dst_id; uint32_t dst_hash; uint8_t flags; };
 struct SendLayerCmd   { uint8_t hops[protocol::gw_env_max_hops]; uint8_t hop_count; uint32_t dst_hash; uint8_t flags; };   // flags honored on the cross-layer DM (E2E_ACK_REQ -> Y acks via the reversed path, Slice 4d/e2e)
 struct SendChannelCmd { uint8_t channel_id; };

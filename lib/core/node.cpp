@@ -47,6 +47,10 @@ bool Node::on_init(const NodeConfig& cfg) {
     // gossip. REFUSE it (fail-loud): a gateway build is dedicated to gateways. (The node stays up for re-provisioning.)
     if (cfg.n_layers < 2) return false;
 #endif
+    // Defend the fixed _layers[MR_N_LAYERS] bound (fail-loud, §3.2): refuse an out-of-range layer count from ANY
+    // source (corrupt NV, a direct caller, a mis-cast host config). The normalization/validation below only
+    // handles n_layers in {1, 2}, so n_layers > MR_N_LAYERS would otherwise set _n_layers past the array end.
+    if (cfg.n_layers > MR_N_LAYERS) return false;
     // Dual-layer validation gate (§3.2) — a GATEWAY (n_layers==2) must have both layers' REQUIRED fields set and
     // non-overlapping explicit windows. Fail LOUD (refuse, the node stays down) — no silent inherit / auto-adjust.
     if (cfg.n_layers == 2) {

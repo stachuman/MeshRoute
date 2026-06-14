@@ -13,13 +13,27 @@ import MeshRouteCore
 struct NodeMapPreview: View {
     let lat: Double
     let lon: Double
+    @State private var position: MapCameraPosition
+
+    init(lat: Double, lon: Double) {
+        self.lat = lat; self.lon = lon
+        _position = State(initialValue: Self.region(lat, lon))
+    }
+
     var body: some View {
-        let coord = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-        Map(initialPosition: .region(MKCoordinateRegion(
-                center: coord, span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)))) {
-            Marker("Node", coordinate: coord)
+        Map(position: $position) {
+            Marker("Node", coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lon))
         }
-        .allowsHitTesting(false)   // preview only — tap the row to edit
+        .allowsHitTesting(false)                               // preview only — tap the row to edit
+        // initialPosition is one-shot; drive the camera so the map RE-CENTERS when lat/lon change
+        // (after "Use my current location", and after Save refreshes the Config-section preview).
+        .onChange(of: lat) { _, _ in position = Self.region(lat, lon) }
+        .onChange(of: lon) { _, _ in position = Self.region(lat, lon) }
+    }
+
+    private static func region(_ lat: Double, _ lon: Double) -> MapCameraPosition {
+        .region(MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: lat, longitude: lon),
+                                   span: MKCoordinateSpan(latitudeDelta: 0.02, longitudeDelta: 0.02)))
     }
 }
 
@@ -49,9 +63,8 @@ struct NodeLocationView: View {
             Form {
                 Section {
                     if let c = parsed {
-                        NodeMapPreview(lat: c.latitude, lon: c.longitude)
+                        NodeMapPreview(lat: c.latitude, lon: c.longitude)   // re-centers itself on coord change
                             .frame(height: 200).listRowInsets(EdgeInsets())
-                            .id("\(latText),\(lonText)")   // rebuild → recenter when the coordinates change
                     } else {
                         Text("Enter a valid latitude / longitude, or use your current location.")
                             .font(.footnote).foregroundStyle(.secondary)
