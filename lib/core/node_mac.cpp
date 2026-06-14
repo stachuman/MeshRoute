@@ -718,6 +718,11 @@ void Node::retry_stashed(uint8_t slot) {
     const FrameTag tag = kSlotTag[slot];
     TxParams p; p.sf = s.sf; p.label = label_of_frame(tag); p.tag = static_cast<uint16_t>(tag);
     _hal.tx(s.buf, s.len, p);
+    s.reissue_pending = false;   // the armed busy re-issue has now been handed to the radio. UNLIKE the duty path
+                                 // (duty_defer_fire -> tx_with_retry, which clears it), THIS path calls _hal.tx
+                                 // directly, so clear it HERE — else a gateway's busy-retried ACK leaves the stash
+                                 // reissue_pending forever and layer_swap_blocked() deadlocks the leaf swap. If the
+                                 // re-TX busies AGAIN, on_radio_busy re-arms + re-sets it.
     // DATA re-issue: re-arm the ACK wait the on_radio_busy block cleared, exactly as the Lua DATA on_handed does
     // (dv:10270-10278) — fires on the initial tx AND on the stash retry. Without this the re-sent DATA flies but the
     // sender stays !awaiting_ack with no ack-timeout, so the returning ACK is dropped + the flight never recovers.

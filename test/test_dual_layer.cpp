@@ -151,6 +151,8 @@ struct DualLayerTestAccess {
     static void     set_deferred_lbt(Node& n, bool v) { n._deferred_lbt[0].pending = v; }
     static void     set_tx_stash(Node& n, bool v)     { n._tx_stash[0].valid = v; n._tx_stash[0].reissue_pending = v; }   // a GENUINE pending re-issue (valid + a timer armed)
     static void     set_tx_stash_clean(Node& n)       { n._tx_stash[0].valid = true; n._tx_stash[0].reissue_pending = false; }   // a cleanly-sent CTS/ACK: valid buffer, NO re-issue pending
+    static void     fire_busy_retry(Node& n, uint8_t slot) { n.retry_stashed(slot); }                                          // the kRadioBusyRetryTimerId handler (the busy re-issue path)
+    static bool     stash_reissue_pending(Node& n, uint8_t slot) { return n._tx_stash[slot].reissue_pending; }
     static void     set_deferred(Node& n, uint8_t i, uint8_t cnt, bool armed) { n._layers[i]._deferred_n = cnt; n._layers[i]._drain_armed = armed; }
     static uint32_t drain_timer_id()                  { return Node::kDeferredDrainTimerId; }
     // F2: pin the FORWARD/provider gate (a gateway never rebroadcasts a channel flood).
@@ -397,6 +399,20 @@ TEST_CASE("dual-layer activation: layer_swap_blocked is the §4 busy-guard (pend
     // same-tag TX / an on_radio_busy giveup) — that is NOT mid-exchange and MUST NOT block the swap, or a gateway's
     // first ACK strands its layer scheduler forever and cross-layer DMs never bridge.
     DualLayerTestAccess::set_tx_stash_clean(node);      CHECK_FALSE(DualLayerTestAccess::swap_blocked(node));
+}
+
+TEST_CASE("swap-fix: the BUSY-retry re-issue (retry_stashed) clears reissue_pending -> no gateway swap deadlock") {
+    // Regression for the consolidated-review HIGH: on_radio_busy arms a busy-retry (valid + reissue_pending); when the
+    // timer fires, retry_stashed re-transmits via _hal.tx DIRECTLY (not tx_with_retry, which would reset the flag) — so
+    // it MUST clear reissue_pending itself, else the gateway's layer swap is blocked forever.
+    StubHal hal; Node node(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2; cfg.layers[0] = good_layer(1, 8); cfg.layers[1] = good_layer(2, 9);
+    CHECK(node.on_init(cfg));
+    DualLayerTestAccess::set_tx_stash(node, true);                       // a busy re-issue is armed (valid + reissue_pending) on slot 0
+    CHECK(DualLayerTestAccess::swap_blocked(node));                      // blocked while pending
+    DualLayerTestAccess::fire_busy_retry(node, 0);                       // kRadioBusyRetryTimerId fires -> re-transmits
+    CHECK_FALSE(DualLayerTestAccess::stash_reissue_pending(node, 0));    // THE FIX: cleared on re-issue
+    CHECK_FALSE(DualLayerTestAccess::swap_blocked(node));               // -> the leaf swap is free again
 }
 
 TEST_CASE("dual-layer hardening: a swap re-homes the leaving leaf's deferred-drain (no stranded no-route DMs) (Slice 3c)") {

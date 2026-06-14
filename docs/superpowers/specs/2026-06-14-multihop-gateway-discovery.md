@@ -102,6 +102,8 @@ Pass-2 returns a gw with no live route → `enqueue_cross_layer` → `issue_send
 
 native (incl. the multi-hop origination unit) + 4 builds + **s18 byte-identical** + the **multi-hop** sim scenario delivers + read the two-pass selection & the seen-guard + confirm `build_gateway_layer_ext` returns 0 when empty + confirm the ROUTE_QUERY fallback actually fires (§2.6).
 
-## 6. Out of scope (explicit — document, don't silently mis-handle)
+## 6. Design constraint: a gateway is **exactly two layers** (not a limitation)
 
-A **single** gateway bridging **3+ layers via PROPAGATION**: the `gw_id → single dest_leaf` table (last-write-wins, Lua-faithful) loses the 2nd `dest_leaf` when re-gossiped. Direct neighbours still know all served leaves via `_gw_schedules`. Full multi-bridge propagation belongs with the **3-layer scenarios (Slice 5)**. Note the limitation in a comment; do not silently mis-route.
+**Decision (user, 2026-06-14): we do NOT build a single node spanning 3+ layers — removed from the roadmap.** A gateway always bridges **exactly two** layers. So the `gw_id → single dest_leaf` table is **exactly correct, not lossy**: a 2-layer gateway serves exactly **one** other leaf on each of its two planes, so one `dest_leaf` per `gw_id` is complete. A network with more than two layers is built from **multiple 2-layer gateways** — one per layer-pair, as in `s15_three_layer`'s `bridge_12` / `bridge_13` / `bridge_23` triangle. There is **no** per-gateway multi-leaf table, **no** `MR_N_LAYERS ≥ 3`, and **no** "multi-bridge propagation" follow-up.
+
+(Distinct and unaffected: *multi-gateway transit* — a DM crossing 3+ layers via a **chain** of 2-layer gateways — still rides the explicit `send_layer` layer-path + cursor; that is a separate capability, not a 3-layer gateway.)
