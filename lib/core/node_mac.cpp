@@ -118,25 +118,26 @@ uint8_t Node::select_gateway_for_leaf(uint8_t target_leaf) const {
     return 0;
 }
 
-// Build + enqueue a CROSS_LAYER DM toward dst_hash on target_layer, routed (MAC dst) to gateway gw_node. The inner
-// carries the full layer-path [our_layer, target_layer] cur=1 + dst_hash + SOURCE_HASH (REQUIRED for the reversed
-// E2E ack, 4e). pack_unicast_inner's size-first overflow is the cross-layer fit-check (returns 0 -> fail loud).
-bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags) {
+// Build + enqueue a CROSS_LAYER DM along an explicit layer-path (layer_ids[0..n_layers-1], cursor at `cur` = the
+// next layer to enter), routed (MAC dst) to gateway gw_node. The inner carries the FULL path (immutable in transit;
+// only the cursor advances, so the destination can reverse it for the 4e E2E ack) + dst_hash + SOURCE_HASH (REQUIRED
+// for that reversed ack). pack_unicast_inner's size-first overflow is the cross-layer fit-check (returns 0 -> fail loud).
+bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t* layer_ids, uint8_t n_layers, uint8_t cur, const uint8_t* body, uint8_t body_len, uint8_t flags, uint16_t* out_ctr) {
     TxItem item{};
     const uint16_t ctr = next_ctr(gw_node);          // MAC ctr vs the next-hop gateway (= the e2e (source_hash, ctr) identity)
     item.origin = _node_id; item.dst = gw_node; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
     item.flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH
                                       | (flags & DATA_FLAG_E2E_ACK_REQ));   // 4d/e2e: honor the app's E2E-ack request -> Y acks over the reversed path (4e)
-    const uint8_t ids[2] = { active_layer_id(), target_layer };
     const size_t n = pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), item.flags, dst_hash,
-                                        ids, /*n_layers*/ 2, /*cur*/ 1, _node_id, _key_hash32, body, body_len);
+                                        layer_ids, n_layers, cur, _node_id, _key_hash32, body, body_len);
     if (n == 0) return false;                         // overflow (228-B body cap with the layer-path) -> fail loud
     item.inner_len = static_cast<uint8_t>(n);
     item.enqueue_time_ms = _hal.now();
     if (_active->_tx_queue_n >= kTxQueueCap) return false;
     _active->_tx_queue[_active->_tx_queue_n++] = item;
+    if (out_ctr) *out_ctr = ctr;                     // the app's correlation token (returned in CmdResult.ctr)
     MR_EMIT("tx_enqueue_xl", EF_I("origin", item.origin), EF_I("dst", gw_node), EF_I("ctr", ctr),
-            EF_I("target_layer", target_layer), EF_I("depth", _active->_tx_queue_n));
+            EF_I("target_layer", layer_ids[cur]), EF_I("depth", _active->_tx_queue_n));   // the next layer to enter (cur < n_layers, caller-guaranteed)
     become_free();                                   // 4a defers the RTS to the gateway's window on our leaf
     return true;
 }
@@ -156,10 +157,36 @@ void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_
     }
     // gw != 0: enqueue regardless of route. A live route -> issue_send fires (4a defers to G's window). No route ->
     // issue_send -> defer_send parks it + RREQs G (4d.2 park+reactive), re-flown by try_drain_deferred on the route.
-    if (!enqueue_cross_layer(gw, dst_hash, target_layer, body, body_len, flags)) {
+    const uint8_t ids[2] = { active_layer_id(), target_layer };   // the 2-element path [our_layer, target_layer], cur=1
+    if (!enqueue_cross_layer(gw, dst_hash, ids, /*n_layers*/ 2, /*cur*/ 1, body, body_len, flags)) {
         MR_EMIT("xl_send_too_large", EF_I("target_layer", target_layer), EF_I("gw", gw));
         Push pu{}; pu.kind = PushKind::send_failed; pu.dst = dst_node; pu.ctr = 0; enqueue_push(pu);
     }
+}
+
+// Explicit-path origination (console/companion send_layer, §5): the user supplied the DESTINATION layer path
+// (hops[0..hop_count-1]); we PREPEND our own active layer as path[0] (cur=1, so the first layer entered is hops[0]),
+// then route (MAC dst) to a gateway serving hops[0]'s leaf. NO H-query — the path is explicit. Multi-gateway transit
+// then "just works": the 4c.1 bridge advances `cur` at each gateway along the preserved path. Fail loud (send_failed
+// Push) if no gateway serves hops[0] or the inner overflows. The handler validated the path (hop_count <= max-1,
+// each layer != 0, hops[0] != our layer) before calling, so building path[1+hop_count] stays in bounds.
+CmdCode Node::originate_layer_path(uint32_t dst_hash, const uint8_t* hops, uint8_t hop_count, const uint8_t* body, uint8_t body_len, uint8_t flags, uint16_t& out_ctr) {
+    out_ctr = 0;
+    uint8_t path[protocol::gw_env_max_hops] = {};
+    path[0] = active_layer_id();
+    for (uint8_t i = 0; i < hop_count; ++i) path[1 + i] = hops[i];
+    const uint8_t n_layers = static_cast<uint8_t>(1 + hop_count);
+    const uint8_t first_leaf = static_cast<uint8_t>(hops[0] & 0x0F);     // hops[0] = the first layer to enter (cur=1)
+    const uint8_t gw = select_gateway_for_leaf(first_leaf);
+    if (gw == 0) {                                                       // no gateway serves the first hop's leaf -> fail loud
+        MR_EMIT("xl_send_no_gateway", EF_I("target_layer", hops[0]), EF_I("dst_hash", static_cast<int64_t>(dst_hash)));
+        return CmdCode::err_no_gateway;                                  // SYNCHRONOUS (the app holds the CmdResult handle); NO orphan push
+    }
+    if (!enqueue_cross_layer(gw, dst_hash, path, n_layers, /*cur*/ 1, body, body_len, flags, &out_ctr)) {
+        MR_EMIT("xl_send_too_large", EF_I("target_layer", hops[0]), EF_I("gw", gw));
+        return CmdCode::err_too_large;
+    }
+    return CmdCode::queued;                                              // out_ctr now holds the correlation token
 }
 
 // End-to-end ACK: a tiny DATA back to the DM's origin carrying the acked ctr. Typed by the frame TYPE

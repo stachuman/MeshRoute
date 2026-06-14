@@ -441,7 +441,12 @@ private:
     // Slice 4d: cross-layer origination — select a bridging gateway (schedule-verified) + build the CROSS_LAYER DM.
     uint8_t select_gateway_for_leaf(uint8_t target_leaf) const;  // a gateway whose learned schedule SERVES target_leaf (0 = none known); route checked by the caller
     void    send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags);  // pick G + enqueue, else err_no_gateway (4d.2: park+ROUTE_QUERY); flags honored on the DM
-    bool    enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags);  // build [my,target] cur=1 -> next-hop G; honors flags & E2E_ACK_REQ; false = fit/queue fail
+    // Explicit-path origination (console/companion send_layer, §5): route a cross-layer DM along the user-supplied
+    // layer path [our_layer, hops...] cur=1, NO H-query. Returns SYNCHRONOUSLY (no orphan push): CmdCode::queued (+
+    // out_ctr = the MAC ctr the app correlates async pushes by), err_no_gateway (no gateway serves hops[0]'s leaf),
+    // or err_too_large (the inner overflows). The handler validates the path before calling (hop_count, layer!=0, hops[0]!=ours).
+    CmdCode originate_layer_path(uint32_t dst_hash, const uint8_t* hops, uint8_t hop_count, const uint8_t* body, uint8_t body_len, uint8_t flags, uint16_t& out_ctr);
+    bool    enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t* layer_ids, uint8_t n_layers, uint8_t cur, const uint8_t* body, uint8_t body_len, uint8_t flags, uint16_t* out_ctr = nullptr);  // build the layer-path inner -> next-hop G; honors flags & E2E_ACK_REQ; *out_ctr=ctr on success; false = fit/queue fail
     void    drain_resolved_parked_sends();                       // beacon-tick re-drain: any parked hash now authoritatively bound
     void    age_out_parked_sends();                              // give up on parked sends past send_defer_ttl_ms
     // Diagnostic `resolve` (CmdKind::resolve): locate a hash WITHOUT sending a DM. Authoritative cache hit (or

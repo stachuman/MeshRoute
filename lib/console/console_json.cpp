@@ -77,6 +77,10 @@ size_t write_ack(char* buf, size_t cap, const CmdResult& r) {
     j.lit("{\"ack\":\""); j.lit(cmdcode_name(r.code)); j.ch('"');
     j.lit(",\"ctr\":"); j.u32(r.ctr);
     j.lit(",\"qd\":");  j.u32(r.queue_depth);
+    // The "send handle" (CmdResult.dst_hash / layer_path): dh != 0 => a hash/layer-addressed send (correlate by
+    // dh, never the 8-bit id); lp != 0 => the send_layer destination path packed MSB-first ([2,3] -> 0x0203).
+    j.lit(",\"dh\":"); j.u32(r.dst_hash);
+    j.lit(",\"lp\":"); j.u32(r.layer_path);
     j.ch('}');
     return j.finish();
 }

@@ -463,6 +463,14 @@ void Node::on_recv(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 
 // ---- the typed command seam (the app<->firmware entrypoint) -----------------
 
+// Pack a send_layer destination path into the CmdResult.layer_path correlation token: hops MSB-first, hops[0] in
+// the highest used byte ([2,3] -> (2<<8)|3 = 0x0203). Layer ids are >=1, so no leading-zero hop (unambiguous).
+static uint32_t pack_layer_path(const uint8_t* hops, uint8_t hop_count) {
+    uint32_t v = 0;
+    for (uint8_t i = 0; i < hop_count; ++i) v = (v << 8) | hops[i];
+    return v;
+}
+
 CmdResult Node::on_command(const Command& c) {
     switch (c.kind) {
         case CmdKind::send: {
@@ -474,10 +482,10 @@ CmdResult Node::on_command(const Command& c) {
                 return CmdResult{ CmdCode::err_too_large, 0, _active->_tx_queue_n };
             if (c.u.send.dst_hash != 0) {                         // address-by-hash (hash-locate): resolve, then send
                 const uint16_t ctr = send_by_hash(c.u.send.dst_hash, c.body, c.body_len, c.u.send.flags);
-                return CmdResult{ CmdCode::queued, ctr, _active->_tx_queue_n };
+                return CmdResult{ CmdCode::queued, ctr, _active->_tx_queue_n, c.u.send.dst_hash, /*layer_path*/ 0 };
             }
             const uint16_t ctr = do_send(c.u.send.dst_id, c.body, c.body_len, c.u.send.flags);
-            return CmdResult{ CmdCode::queued, ctr, _active->_tx_queue_n };
+            return CmdResult{ CmdCode::queued, ctr, _active->_tx_queue_n };   // id-addressed: dst_hash/layer_path = 0
         }
         case CmdKind::send_channel: {                         // ROADMAP §3 channel gossip (single-layer)
             if (_node_id == 0)                                // unprovisioned: must join / cfg set node_id
@@ -509,12 +517,31 @@ CmdResult Node::on_command(const Command& c) {
             if (_node_id == 0)                               return CmdResult{ CmdCode::err_unprovisioned, 0, _active->_tx_queue_n };
             if (_cfg.allowed_sf_bitmap == 0)                 return CmdResult{ CmdCode::err_no_data_sf, 0, _active->_tx_queue_n };
             if (c.body_len > protocol::dm_max_body_bytes)    return CmdResult{ CmdCode::err_too_large, 0, _active->_tx_queue_n };
+            // Every send_layer return echoes the dst_hash (and, once known, the layer_path) so the app holds the
+            // full "send handle" (CmdResult.dst_hash + layer_path); async pushes then correlate by CmdResult.ctr.
             if (c.u.layer.dst_hash == 0)                     return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };  // a layer send needs a stable dst key
-            // Park-first (§5 / user 2026-06-13): resolve the dst's (node_id, target_layer) via an H query; the drain
-            // decides same-layer-vs-cross-layer from the answer's target_layer (caching the layer in id_bind is deferred).
+            if (c.u.layer.hop_count > 0) {
+                // EXPLICIT-PATH origination (the user supplied the destination layer path) — route by it, no H-query.
+                // Validate the path fail-loud (§5, no silent fix): the full path (1 + hop_count, after prepending our
+                // own layer) must fit gw_env_max_hops; every layer id >= 1; and hops[0] must not be our OWN layer (a
+                // cross-layer send to your own layer is a misconfig).
+                const uint8_t hc = c.u.layer.hop_count;
+                const uint32_t lp = pack_layer_path(c.u.layer.hops, hc);
+                if (hc > protocol::gw_env_max_hops - 1)      return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n, c.u.layer.dst_hash, lp };  // path too long
+                for (uint8_t i = 0; i < hc; ++i)
+                    if (c.u.layer.hops[i] == 0)              return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n, c.u.layer.dst_hash, 0 };  // layer id 0 is unset (path invalid -> layer_path omitted)
+                if (c.u.layer.hops[0] == active_layer_id())  return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n, c.u.layer.dst_hash, lp };  // self-layer = misconfig
+                // Synchronous: queued (+ ctr to correlate) / err_no_gateway / err_too_large. NO orphan push.
+                uint16_t ctr = 0;
+                const CmdCode code = originate_layer_path(c.u.layer.dst_hash, c.u.layer.hops, hc, c.body, c.body_len, c.u.layer.flags, ctr);
+                return CmdResult{ code, ctr, _active->_tx_queue_n, c.u.layer.dst_hash, lp };
+            }
+            // hop_count == 0: park-first (§5 / user 2026-06-13): resolve the dst's (node_id, target_layer) via an H
+            // query; the drain decides same-layer-vs-cross-layer from the answer's target_layer (layer-in-id_bind cache
+            // deferred). The target layer is resolved later, so layer_path is unknown here (0) — the app still has dst_hash.
             park_send_layer(c.u.layer.dst_hash, c.body, c.body_len, c.u.layer.flags);
             emit_hash_query(c.u.layer.dst_hash, /*hard=*/false);
-            return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };
+            return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n, c.u.layer.dst_hash, /*layer_path*/ 0 };
         }
         default:
             return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };

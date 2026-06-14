@@ -554,6 +554,7 @@ static void handle_whoami() {
 // `help` / `?` — a small command + cfg-key reference for the live console session.
 static void dump_help() {
     Serial.println(F("[help] messaging:  send <id> <text> | send_ack <id> <text> | sendhash <hash> <text> | sendhash_ack <hash> <text> | send_channel <ch> <text>"));
+    Serial.println(F("[help] cross-layer: send_layer <hash> <l1,l2,…> <text> | send_layer_ack <hash> <l1,l2,…> <text>  (explicit destination layer path)"));
     Serial.println(F("[help] hash/id:    lookup <hash> | hashof <id> | whoami"));
     Serial.println(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
     Serial.println(F("[help] diag:       routes | status | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
@@ -942,7 +943,11 @@ static void service_console() {
                     const meshroute::CmdResult r = g_node.on_command(cmd);
                     Serial.print(F("> "));
                     Serial.print(r.code == meshroute::CmdCode::queued ? F("queued ctr=") : F("err ctr="));
-                    Serial.print(r.ctr); Serial.print(F(" depth=")); Serial.println(r.queue_depth);
+                    Serial.print(r.ctr); Serial.print(F(" depth=")); Serial.print(r.queue_depth);
+                    // The send handle for hash/layer-addressed sends (dh != 0 = correlate by hash, not id).
+                    if (r.dst_hash) { Serial.print(F(" dh=0x")); Serial.print(r.dst_hash, HEX); }
+                    if (r.layer_path) { Serial.print(F(" lp=0x")); Serial.print(r.layer_path, HEX); }
+                    Serial.println();
                 } else if (e != meshroute::console::ParseErr::empty) {
                     Serial.println(F("> parse error"));
                 }

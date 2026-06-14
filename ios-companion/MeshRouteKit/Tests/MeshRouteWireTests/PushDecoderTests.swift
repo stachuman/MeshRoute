@@ -7,12 +7,29 @@ import XCTest
 final class PushDecoderTests: XCTestCase {
 
     func testAck() {
+        // legacy ack (no send-handle fields) → dstHash/layerPath nil
         guard case .ack(let a)? = PushDecoder.decode(line: #"{"ack":"queued","ctr":5,"qd":0}"#) else {
             return XCTFail("not an ack")
         }
         XCTAssertEqual(a.code, .queued)
         XCTAssertEqual(a.ctr, 5)
         XCTAssertEqual(a.queueDepth, 0)
+        XCTAssertNil(a.dstHash); XCTAssertNil(a.layerPath)
+    }
+
+    func testAckSendHandle() {       // D19 send-handle: dh = hash-addressed dst, lp = packed cross-layer path
+        guard case .ack(let a)? = PushDecoder.decode(
+            line: #"{"ack":"queued","ctr":7,"qd":0,"dh":2319391746,"lp":515}"#) else {
+            return XCTFail("not an ack")
+        }
+        XCTAssertEqual(a.ctr, 7)
+        XCTAssertEqual(a.dstHash, 2319391746)   // 0x8a3f1c02
+        XCTAssertEqual(a.layerPath, 515)        // 0x0203 = (2<<8)|3 = hops [2,3], MSB-first
+        // dh:0 / lp:0 (a plain `send <id>` / same-layer) → both nil
+        guard case .ack(let b)? = PushDecoder.decode(line: #"{"ack":"queued","ctr":8,"qd":0,"dh":0,"lp":0}"#) else {
+            return XCTFail("not an ack")
+        }
+        XCTAssertNil(b.dstHash); XCTAssertNil(b.layerPath)
     }
 
     func testAckError() {

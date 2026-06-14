@@ -73,6 +73,53 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
         return ParseErr::ok;
     }
 
+    //   send_layer     <hash> <l1,l2,…> <text> — explicit-path cross-layer DM along the given destination layers
+    //   send_layer_ack <hash> <l1,l2,…> <text> — same + request the end-to-end ack (the companion reuses this parser)
+    {
+        const bool is_layer     = tok_eq(verb, "send_layer");
+        const bool is_layer_ack = tok_eq(verb, "send_layer_ack");
+        if (is_layer || is_layer_ack) {
+            Tok htok = token(s);
+            uint32_t h = 0;
+            if (!parse_hex32_tok(htok, h) || h == 0) return ParseErr::bad_args;   // <hash>: 8-hex key_hash32, nonzero
+            Tok ptok = token(s);
+            if (ptok.n == 0) return ParseErr::bad_args;                           // <l1,l2,…> required (no empty path)
+            out = Command{};
+            out.kind = CmdKind::send_layer;
+            out.u.layer.dst_hash  = h;
+            out.u.layer.hop_count = 0;
+            out.u.layer.flags     = static_cast<uint8_t>(is_layer_ack ? DATA_FLAG_E2E_ACK_REQ : 0);
+            // Split the comma-separated decimal destination layer ids into hops[]. Cap at gw_env_max_hops-1:
+            // originate_layer_path PREPENDS our own layer as path[0], so the user supplies at most that many.
+            uint32_t v = 0; bool digit = false;
+            for (size_t i = 0; i < ptok.n; ++i) {
+                const char ch = ptok.s[i];
+                if (ch == ',') {
+                    if (!digit || v == 0 || v > 255) return ParseErr::bad_args;   // empty / zero / >255 element
+                    if (out.u.layer.hop_count >= protocol::gw_env_max_hops - 1) return ParseErr::bad_args;  // too many hops
+                    out.u.layer.hops[out.u.layer.hop_count++] = static_cast<uint8_t>(v);
+                    v = 0; digit = false;
+                } else if (ch >= '0' && ch <= '9') {
+                    v = v * 10 + static_cast<uint32_t>(ch - '0');
+                    if (v > 255) return ParseErr::bad_args;
+                    digit = true;
+                } else {
+                    return ParseErr::bad_args;                                    // non-numeric
+                }
+            }
+            if (!digit || v == 0 || v > 255) return ParseErr::bad_args;           // the final element
+            if (out.u.layer.hop_count >= protocol::gw_env_max_hops - 1) return ParseErr::bad_args;
+            out.u.layer.hops[out.u.layer.hop_count++] = static_cast<uint8_t>(v);
+            // body = remainder after exactly one separating space (verbatim, incl. spaces).
+            if (s.p < s.end && (*s.p == ' ' || *s.p == '\t')) ++s.p;
+            size_t body_len = static_cast<size_t>(s.end - s.p);
+            if (body_len > protocol::max_payload_bytes_hard_cap) body_len = protocol::max_payload_bytes_hard_cap;
+            out.body = reinterpret_cast<const uint8_t*>(s.p);
+            out.body_len = static_cast<uint8_t>(body_len);
+            return ParseErr::ok;
+        }
+    }
+
     //   send <id> <text>           — DM by short id, NO E2E ack
     //   send_ack <id> <text>       — DM by short id, E2E ack requested (flags DATA_FLAG_E2E_ACK_REQ = 0x10)
     //   sendhash <hash> <text>     — DM by key_hash32 (hash-locate); on_command resolves then sends

@@ -100,10 +100,18 @@ MVP verbs only; an unknown verb or malformed line returns an error and the Node 
 The host parser branches on the leading key (`ack` / `ev` / `log` / `err`).
 
 ```jsonc
-// command acks + lifecycle (CmdResult.code → ack name; all 7 CmdCode values):
-{"ack":"queued","ctr":7,"qd":1}                       // queued: ctr = message id, qd = queue_depth
-{"ack":"err_unknown_dst","ctr":0,"qd":0}              // err_unknown_dst|err_too_large|err_no_gateway|
-                                                      //   err_priority_capped|err_no_binding|err_unsupported
+// command acks + lifecycle (CmdResult.code → ack name; all CmdCode values). The "send handle" dh/lp lets the
+// app correlate async send_acked/send_failed (by ctr) AND show WHAT was sent without keeping its own map:
+//   dh = dst_hash: 0 = id-addressed (correlate by the 8-bit dst+ctr); non-zero = the target key_hash32 for a
+//        hash/layer send (correlate by dh — a small hash like 0x10 is NEVER confused with id 16, separate field).
+//   lp = layer_path: send_layer only — the destination layers packed MSB-first (hops[0] high byte; [2,3] -> 0x0203);
+//        0 = not a layer send. send_layer's no-gateway/overflow failures are SYNCHRONOUS err codes (no orphan push).
+{"ack":"queued","ctr":7,"qd":1,"dh":0,"lp":0}             // send <id>:        id-addressed (dh/lp = 0)
+{"ack":"queued","ctr":9,"qd":1,"dh":3735928559,"lp":0}   // sendhash <hash>:  dh = key_hash32
+{"ack":"queued","ctr":9,"qd":1,"dh":3735928559,"lp":515} // send_layer <hash> 2,3: dh = key, lp = 0x0203
+{"ack":"err_no_gateway","ctr":0,"qd":1,"dh":3735928559,"lp":515}  // send_layer sync failure (still carries the handle)
+{"ack":"err_unknown_dst","ctr":0,"qd":0,"dh":0,"lp":0}   // err_unknown_dst|err_too_large|err_no_gateway|
+                                                          //   err_priority_capped|err_no_binding|err_unsupported|err_no_data_sf
 {"ack":"cfg","key":"routing_sf","val":7}
 {"ack":"verbose","on":true}
 {"ev":"ready","id":3,"key":"a1b2c3d4","leaf_id":0,"mode":"existing","gateway":false,"routing_sf":7,"data_sf":12}

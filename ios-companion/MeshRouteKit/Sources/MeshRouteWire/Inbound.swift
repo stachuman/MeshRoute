@@ -31,10 +31,16 @@ public enum AckCode: String, Codable, Sendable {
 
 public struct CommandAck: Hashable, Sendable {
     public let code: AckCode
-    public let ctr: Int          // the message id this result is for
+    public let ctr: Int          // the message id this result is for (correlates the async send_acked/send_failed)
     public let queueDepth: Int
-    public init(code: AckCode, ctr: Int, queueDepth: Int) {
+    // Send-handle (firmware "dh"/"lp", D19): the hash/layer-addressed destination of this send. nil when 0
+    // (a plain `send <id>` / same-layer). The app records ctr → (dstHash, layerPath) to display/re-send a
+    // cross-layer message; the async outcomes still correlate by ctr.
+    public let dstHash: UInt32?
+    public let layerPath: UInt32?    // cross-layer path packed MSB-first ((2<<8)|3 = 0x0203 for [2,3]); nil = same-layer
+    public init(code: AckCode, ctr: Int, queueDepth: Int, dstHash: UInt32? = nil, layerPath: UInt32? = nil) {
         self.code = code; self.ctr = ctr; self.queueDepth = queueDepth
+        self.dstHash = dstHash; self.layerPath = layerPath
     }
 }
 
@@ -167,7 +173,9 @@ public enum PushDecoder {
         if let ack = disc.ack {
             return .ack(CommandAck(code: AckCode(wire: ack),
                                    ctr: disc.ctr ?? 0,
-                                   queueDepth: disc.qd ?? 0))
+                                   queueDepth: disc.qd ?? 0,
+                                   dstHash: (disc.dh ?? 0) != 0 ? disc.dh : nil,    // 0 ⇒ send <id> / same-layer
+                                   layerPath: (disc.lp ?? 0) != 0 ? disc.lp : nil))
         }
         if let ev = disc.ev {
             return decodeEvent(ev, data: data, trimmed: trimmed)
@@ -241,7 +249,7 @@ public enum PushDecoder {
 
     // ---- private decode shapes (mirror the exact console_json field names) ----
     private struct Discriminator: Decodable {
-        let ack: String?; let ctr: Int?; let qd: Int?
+        let ack: String?; let ctr: Int?; let qd: Int?; let dh: UInt32?; let lp: UInt32?   // dh/lp = send-handle (D19)
         let ev: String?
         let log: String?
         let err: String?; let msg: String?

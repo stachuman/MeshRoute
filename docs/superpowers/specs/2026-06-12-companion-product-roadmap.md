@@ -78,6 +78,10 @@ all; **§8** consolidates every firmware feature the companion needs and what ea
 | D13 | 2026-06-12 | **Wake-on-message BLE (user-proposed):** a node that RECEIVES a DM addressed to it turns BLE advertising ON (outside any periodic window), bounded — stop on companion connect or timeout. The app's background service-UUID scan wakes on the advert → connect → pull → local notification. Amends D9: worst-case stays the window period, but TYPICAL push latency becomes seconds. Params → Q15. |
 | D15 | 2026-06-12 | **(Q4 — location)** Position format = **int32 degrees × 1e7** (`lat_e7`/`lon_e7`; 0,0 = unset; no float on the wire). Persisted in the **`/mrid` identity record** (appended after `name`, no version bump; strict load → a legacy `/mrid` is rejected on first boot and the node re-mints its identity — fine, dev system, user accepts hash change). The app sets it via `cfg set lat`/`lon` — and **`cfg set` is now wired over BLE** generally (the phone can set node config; MITM-paired trusted owner). |
 | D14 | 2026-06-12 | **Amends D10 — two phones are NOT specially handled.** The app/node just WARN the user when more than one companion is bonded/has synced ("multiple phones paired — sync behavior is undefined"). Read state stays app-side per-phone (that part of D10 stands); no per-bond cursors, no multi-companion sync design. Closes Q12. Mechanism (cheap): `ready` gains a `bonds:N` count → app banners when N>1 (land with E1). |
+| D16 | 2026-06-14 | **E2E ack is per-DM, OFF by default.** A DM may optionally request an end-to-end ack (firmware `send_ack`/`sendhash_ack` verbs / `E2E_ACK_REQ`) — **default OFF** to save airtime (an E2E ack is a full return DATA + the cross-layer reverse path on a gateway). Exposed as a **per-message** toggle in compose, NOT a global setting, so the user pays the round-trip only when delivery confirmation matters. App: the toggle + a distinct **"delivered (E2E)"** state (vs queued/link-acked). Firmware: the verbs exist; needs a **distinct push for the E2E-ack arrival** so the app can tell end-to-end delivery from the link `send_acked` (→ §8.2). |
+| D17 | 2026-06-14 | **Cross-layer DM addressing = layer-path + final hash** (confirms gateway spec §5). A cross-layer DM is addressed by a **list of layers to traverse** (`layer_ids[]` + a `cur` cursor, preserved for the reversed-path E2E ack) **plus the final recipient `dst_key_hash32`**. v1 (2 layers, 1 gateway): the **sending node** computes the 2-element path `[A,B]` from a hash-locate answer (`target_layer`) — the **app still addresses by contact hash only** (layer-agnostic); the node does the cross-layer work. Multi-gateway transit (3+ layers) = who builds `[A,B,C]`? → Q16. Companion impact: address-by-hash unchanged; the app shows a message's `layer_id` (already decoded), surfaces `err_no_gateway`, and the known-nodes directory (§8.2) tracks each node's layer. |
+| D19 | 2026-06-14 | **(Firmware, coding agent — companion chose model A) Unified send-handle on `CmdResult`.** Every send verb returns `{code, ctr, dst_hash, layer_path}`. `send_layer`'s no-gateway/overflow becomes a **synchronous error** (not an orphan `dst=0,ctr=0` push). This reconciles the earlier "put `dst_hash` on the Push" idea — NOT needed: the app correlates by **`ctr`** (its existing model — ack→ctr→message, then async `send_acked`/`send_failed` match by ctr), so **no Push/TxItem identity threading** (the field-threading trap). App side: add optional `dst_hash`/`layer_path` (decimal u32) to the ack decode + a `ctr→(hash,path)` map; both 0 in v1 (`send`/`sendhash` auto-route). `layer_path` packing: hops right-aligned, `hop[0]` high byte (`(2<<8)|3 = 0x0203` for `[2,3]`); 0 = none (layer ids ≥1 ⇒ unambiguous). Open: `send_layer` arg format + the sync-before-async ordering guarantee. |
+| D18 | 2026-06-14 | **Cross-layer addressing UX = auto-first, manual override is advanced.** The common case stays **zero-knowledge** — the user addresses by contact hash; the node resolves the layer + path via **live hash-locate** (authoritative). v1 needs NO manual addressing. Two additive aids: (a) the **QR card gains an optional `&l=<layer_id>` hint** (forward-compat like `&p=`) — a *seed/display hint only*, NEVER overrides the live H query (a stored/card layer goes stale: mobiles move, re-provisioning); (b) a contact gains an **optional "layer path" override** — an **advanced** field for **multi-gateway (3+ layers, Q16)** where auto-discovery can't build the chain; needs a firmware **send-with-explicit-path verb** (§8.2). The sender's OWN layer is the implicit origin, never part of the composed chain. |
 
 ## 2. Personas
 
@@ -138,9 +142,9 @@ all; **§8** consolidates every firmware feature the companion needs and what ea
 - **QR exchange** ✅ — Contacts tab: "My card" (QR of the connected node's name+hash) + camera scan →
   add/rename contact. Payload format (versioned, forward-compatible, on the project domain —
   **meshroute.eu, booked 2026-06-12**):
-  `https://meshroute.eu/c?v=1&h=<hex8>&n=<name>[&p=<ed_pub hex64, RESERVED for B2/E2E>]` —
+  `https://meshroute.eu/c?v=1&h=<hex8>&n=<name>[&p=<ed_pub hex64, RESERVED B2/E2E>][&l=<layer_id> RESERVED hint, D18]` —
   `ContactCard` in MeshRouteCore (tested); `meshroute://contact` legacy alias accepted; unknown params
-  never fail the parse. https so a STOCK-camera scan can Universal-Link into the app once the domain
+  never fail the parse. (`&l=` = a display/seed hint for cross-layer; the live H query stays authoritative.) https so a STOCK-camera scan can Universal-Link into the app once the domain
   hosts an `apple-app-site-association` (+ a "get the app" fallback page at `/c`) — future task.
   Physical presence = the trust ceremony; no signature (D6).
 - **Name in `ready`** ✅ — `whoami` loads the `/mrid` name on demand (no RAM copy) and emits
@@ -249,6 +253,7 @@ Q10→D11.)* Remaining:
 | ~~Q12~~ | Closed by **D14**: read state app-side per-phone; multi-phone = warn-only, no design. | — |
 | Q14 | **`ready` shape for gateways** (two per-layer node_ids): additive `"layers":[{"layer_id":N,"id":M},…]` keeping the existing `"id"` for single-layer compat? App decoding is tolerant either way — settle when R7 lands. | D (gateway era) |
 | Q15 | **Wake-on-message params (D13):** triggers = DMs only, or channel msgs too? Advert duration (prop.: 2 min)? Only when a companion bond exists (prop.: yes)? Re-arm suppression so a burst doesn't re-advertise per message (prop.: one window per burst)? | E1 (fw) |
+| Q16 | **Multi-gateway cross-layer path (D17):** for 3+ layers, who builds the `[A,B,C]` layer-path — the **sending node** (needs a cross-layer topology view it doesn't have today), a **directory/gateway service**, or the **app**? v1 is single-gateway (the node computes `[A,B]` from a hash-locate `target_layer`). | R7+ cross-layer |
 
 *(Q13 → D12, resolved in the gateway spec 2026-06-12.)*
 
@@ -288,6 +293,9 @@ grouped by persona. Effort **S/M/L**; **app-only** = no firmware. ⭐ = recommen
 - **Geofence / proximity alerts** *(app M)* — notify when a contact comes within / leaves a radius.
 
 ### 7.3 Messaging depth
+- ⭐ **Per-message E2E-ack toggle** *(D16; app S — the `*_ack` verbs already exist + a small fw push)* —
+  "request delivery confirmation" in the compose bar, **OFF by default** (an E2E ack costs a full return
+  DATA), with a distinct **"delivered (end-to-end)"** state vs link-acked. Near-term + mostly app-side.
 - **Reply / quote a specific message** *(app S local; M if echoed on the wire)*.
 - **Message search** *(app S)* · **local delete / archive** *(app S)* · **drafts** *(app S)* — all
   app-only quick wins.
@@ -362,6 +370,8 @@ started**. "Unblocks" = the companion feature(s) that cannot ship without it.
 | **`TYPE=CONTACT_CARD` DATA frame** + node-side sign/verify + cache-on-pass | M | contact card over mesh (B2); pubkey distribution for E2E |
 | ⭐ **`TYPE=ADMIN` signed DATA frame** + node-side owner-authorization | L | **remote node administration** (§7.1) |
 | ⭐ **App-facing OTA trigger** (enter-DFU verb/cfg over BLE; later mesh-relayed OTA) | M / L | **OTA from the app** (§7.1) |
+| **Distinct E2E-ack push event** (vs the link `send_acked`) so the app can show end-to-end delivery | S | per-message E2E ack "delivered (E2E)" state (D16) |
+| **Send-with-explicit-layer-path verb** (app supplies `layer_ids[]`; node doesn't auto-compute) | M | manual cross-layer addressing / contact layer-path override (D18, multi-gateway) |
 | **Priority / SOS send class + high-priority flood** (the data plane HAS priority — expose it) | M | SOS / emergency beacon (§7.2); priority messaging |
 | **`TYPE=LOCATION` inline payload** in a DM/channel | S | share-location-in-a-message (§7.2) |
 | **Node telemetry / event-log pull over BLE** (recent events, drops, errors) | M | remote debugging; logs view; alert sources |

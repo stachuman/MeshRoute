@@ -26,10 +26,14 @@ TEST_CASE("JsonBuf — primitives, escaping, overflow latch") {
 
 TEST_CASE("write_ack — CmdResult → ack JSON") {
     char b[96];
+    // id-addressed send: dh/lp == 0
     size_t n = write_ack(b, sizeof b, CmdResult{CmdCode::queued, 7, 1});
-    CHECK(std::string(b, n) == "{\"ack\":\"queued\",\"ctr\":7,\"qd\":1}\n");
+    CHECK(std::string(b, n) == "{\"ack\":\"queued\",\"ctr\":7,\"qd\":1,\"dh\":0,\"lp\":0}\n");
     n = write_ack(b, sizeof b, CmdResult{CmdCode::err_unknown_dst, 0, 0});
-    CHECK(std::string(b, n) == "{\"ack\":\"err_unknown_dst\",\"ctr\":0,\"qd\":0}\n");
+    CHECK(std::string(b, n) == "{\"ack\":\"err_unknown_dst\",\"ctr\":0,\"qd\":0,\"dh\":0,\"lp\":0}\n");
+    // hash/layer-addressed send: the handle (dh = key_hash32, lp = packed path [2,3] -> 0x0203 = 515)
+    n = write_ack(b, sizeof b, CmdResult{CmdCode::queued, 9, 2, 0xDEADBEEFu, 0x0203u});
+    CHECK(std::string(b, n) == "{\"ack\":\"queued\",\"ctr\":9,\"qd\":2,\"dh\":3735928559,\"lp\":515}\n");
 }
 
 TEST_CASE("write_event — type + typed EventField k/v") {

@@ -184,6 +184,7 @@ struct DualLayerTestAccess {
     static const TxItem&  leaf_tx_at(Node& n, uint8_t leaf, uint8_t i) { return n._layers[leaf]._tx_queue[i]; }
     static void           learn_neighbor(Node& n, uint8_t node_id) { n.learn_direct_neighbor(node_id, 40, false); }   // 1-hop route on the ACTIVE leaf
     static void           send_xl(Node& n, uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t len, uint8_t flags = 0) { n.send_cross_layer(dst_node, dst_hash, target_layer, body, len, flags); }
+    static CmdCode        originate(Node& n, uint32_t dst_hash, const uint8_t* hops, uint8_t hc, const uint8_t* body, uint8_t len, uint8_t flags = 0) { uint16_t ctr = 0; return n.originate_layer_path(dst_hash, hops, hc, body, len, flags, ctr); }
     static uint8_t        parked_count(Node& n)              { return n._parked_sends_n; }
     static uint8_t        deferred_count(Node& n)            { return n._active->_deferred_n; }
     static void           fill_tx_queue(Node& n, uint8_t leaf)  { n._layers[leaf]._tx_queue_n = Node::kTxQueueCap; }   // simulate a full queue
@@ -608,6 +609,118 @@ TEST_CASE("dual-layer origination: send_cross_layer HONORS the E2E_ACK_REQ flag 
     const TxItem& it = DualLayerTestAccess::leaf_tx_at(x, 0, 0);
     CHECK((it.flags & DATA_FLAG_CROSS_LAYER) != 0);
     CHECK((it.flags & DATA_FLAG_E2E_ACK_REQ) != 0);          // THE FIX: the app's E2E request is threaded onto the cross-layer DM
+}
+
+// ---- explicit-path send_layer origination (console/companion, §5) ---------------------------------------
+// Shared setup: a gateway G beacons (serves leaves 1+2) -> X (on leaf 1) learns G's schedule + a route. Then X
+// originates along a USER-supplied layer path (no H-query); the path is prepended with X's own layer (cur=1).
+namespace {
+Node* make_x_learning_gw(StubHal& ghal, Node& gw, StubHal& hal, Node& x) {
+    ghal._now = 10000;
+    NodeConfig gcfg; gcfg.n_layers = 2;
+    gcfg.layers[0] = good_layer(1, 8); gcfg.layers[0].node_id = 5;
+    gcfg.layers[1] = good_layer(2, 8); gcfg.layers[1].node_id = 12;
+    CHECK(gw.on_init(gcfg)); CHECK(ghal.last_tx_len > 0);
+    hal._now = 50000;
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+    CHECK(x.on_init(cfg));
+    RxMeta meta{}; meta.snr_db = 9.0f; meta.rssi_dbm = -70.0f; meta.recv_ms = hal._now; meta.src_hint = -1;
+    x.on_recv(ghal.last_tx, ghal.last_tx_len, meta);
+    CHECK(x.rt_count() >= 1);
+    hal._now = 58000;                                        // G on its FOREIGN leaf -> the DM defers (held, inspectable)
+    return &x;
+}
+}  // namespace
+
+TEST_CASE("send_layer: a single-hop explicit path builds [my,target] cur=1 to the gateway for that leaf") {
+    StubHal ghal; Node gw(ghal, /*id*/ 1, 0xABCDu);
+    StubHal hal;  Node x(hal, /*id*/ 7, 0x7777u);
+    make_x_learning_gw(ghal, gw, hal, x);
+    const uint8_t body[2] = { 'h', 'i' };
+    const uint8_t hops[1] = { 2 };                           // user supplies destination layer 2; X prepends its own (1)
+    DualLayerTestAccess::originate(x, /*dst_hash*/ 0x9999u, hops, /*hop_count*/ 1, body, 2, DATA_FLAG_E2E_ACK_REQ);
+    CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 1);
+    const TxItem& it = DualLayerTestAccess::leaf_tx_at(x, 0, 0);
+    CHECK(it.dst == 5);                                       // routed to G (serves leaf 2)
+    CHECK((it.flags & DATA_FLAG_CROSS_LAYER) != 0);
+    CHECK((it.flags & DATA_FLAG_E2E_ACK_REQ) != 0);          // flags threaded through
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(it.inner, it.inner_len), it.flags);
+    CHECK(ui.has_value());
+    if (ui) { CHECK(ui->has_cross_layer); CHECK(ui->n_layers == 2); CHECK(ui->cur == 1);
+              CHECK(ui->layer_ids[0] == 1); CHECK(ui->layer_ids[1] == 2);   // [our_layer, hops[0]]
+              CHECK(ui->dst_key_hash32 == 0x9999u);
+              CHECK(ui->has_source_hash); CHECK(ui->source_hash == 0x7777u); CHECK(ui->origin == 7); }
+}
+
+TEST_CASE("send_layer: a two-hop explicit path builds [my,h0,h1] n_layers=3 cur=1 to the gateway for h0's leaf") {
+    StubHal ghal; Node gw(ghal, /*id*/ 1, 0xABCDu);
+    StubHal hal;  Node x(hal, /*id*/ 7, 0x7777u);
+    make_x_learning_gw(ghal, gw, hal, x);
+    const uint8_t body[2] = { 'h', 'i' };
+    const uint8_t hops[2] = { 2, 3 };                        // path [my=1, 2, 3]; routed to the gateway serving hops[0]=leaf 2
+    DualLayerTestAccess::originate(x, /*dst_hash*/ 0x9999u, hops, /*hop_count*/ 2, body, 2);
+    CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 1);
+    const TxItem& it = DualLayerTestAccess::leaf_tx_at(x, 0, 0);
+    CHECK(it.dst == 5);                                       // first hop routes to G (serves leaf 2)
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(it.inner, it.inner_len), it.flags);
+    CHECK(ui.has_value());
+    if (ui) { CHECK(ui->n_layers == 3); CHECK(ui->cur == 1);
+              CHECK(ui->layer_ids[0] == 1); CHECK(ui->layer_ids[1] == 2); CHECK(ui->layer_ids[2] == 3); }
+}
+
+TEST_CASE("send_layer: on_command REFUSES hops[0] == our own layer (self-layer misconfig, fail loud)") {
+    StubHal ghal; Node gw(ghal, /*id*/ 1, 0xABCDu);
+    StubHal hal;  Node x(hal, /*id*/ 7, 0x7777u);
+    make_x_learning_gw(ghal, gw, hal, x);
+    Command c{}; c.kind = CmdKind::send_layer; c.u.layer.dst_hash = 0x9999u;
+    c.u.layer.hop_count = 1; c.u.layer.hops[0] = 1;          // 1 == X's own layer
+    const char* body = "hi"; c.body = reinterpret_cast<const uint8_t*>(body); c.body_len = 2;
+    const CmdResult r = x.on_command(c);
+    CHECK(r.code == CmdCode::err_unsupported);               // refused (no silent fix)
+    CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 0);        // nothing enqueued
+}
+
+TEST_CASE("send_layer: no gateway serves hops[0]'s leaf -> SYNCHRONOUS err_no_gateway, nothing enqueued, NO orphan push") {
+    StubHal ghal; Node gw(ghal, /*id*/ 1, 0xABCDu);
+    StubHal hal;  Node x(hal, /*id*/ 7, 0x7777u);
+    make_x_learning_gw(ghal, gw, hal, x);                    // G serves leaves 1+2 only
+    const uint8_t body[2] = { 'h', 'i' };
+    const uint8_t hops[1] = { 9 };                           // leaf 9: NO known gateway serves it
+    const CmdCode code = DualLayerTestAccess::originate(x, /*dst_hash*/ 0x9999u, hops, /*hop_count*/ 1, body, 2);
+    CHECK(code == CmdCode::err_no_gateway);                  // the failure is returned SYNCHRONOUSLY (the app holds the handle)
+    CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 0);        // nothing enqueued
+    Push p{};
+    CHECK_FALSE(x.next_push(p));                             // and NO orphan push (was the dst=0/ctr=0 uncorrelatable push)
+}
+
+TEST_CASE("send_layer: on_command returns the full send-handle (ctr + dst_hash + packed layer_path)") {
+    StubHal ghal; Node gw(ghal, /*id*/ 1, 0xABCDu);
+    StubHal hal;  Node x(hal, /*id*/ 7, 0x7777u);
+    make_x_learning_gw(ghal, gw, hal, x);                    // G serves leaves 1+2 -> hops[0]=2 routes
+    Command c{}; c.kind = CmdKind::send_layer; c.u.layer.dst_hash = 0x9999u;
+    c.u.layer.hop_count = 2; c.u.layer.hops[0] = 2; c.u.layer.hops[1] = 3;   // path [2,3] -> (2<<8)|3 = 0x0203
+    const char* body = "hi"; c.body = reinterpret_cast<const uint8_t*>(body); c.body_len = 2;
+    const CmdResult r = x.on_command(c);
+    CHECK(r.code == CmdCode::queued);
+    CHECK(r.ctr != 0);                                       // a real correlation token (NOT 0)
+    CHECK(r.dst_hash == 0x9999u);                            // echoes the target key
+    CHECK(r.layer_path == 0x0203u);                          // hops packed MSB-first (hops[0] high byte)
+}
+
+TEST_CASE("send handle: sendhash echoes dst_hash (layer_path 0); plain send echoes neither") {
+    StubHal hal; Node x(hal, /*id*/ 7, 0x7777u);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+    CHECK(x.on_init(cfg));
+    DualLayerTestAccess::learn_neighbor(x, 30);             // a route so do_send succeeds
+    const char* body = "hi";
+    { Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 30; c.u.send.dst_hash = 0;
+      c.body = reinterpret_cast<const uint8_t*>(body); c.body_len = 2;
+      const CmdResult r = x.on_command(c);
+      CHECK(r.code == CmdCode::queued); CHECK(r.dst_hash == 0); CHECK(r.layer_path == 0); }   // id-addressed
+    { Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 0; c.u.send.dst_hash = 0xDEADBEEFu;
+      c.body = reinterpret_cast<const uint8_t*>(body); c.body_len = 2;
+      const CmdResult r = x.on_command(c);
+      CHECK(r.dst_hash == 0xDEADBEEFu); CHECK(r.layer_path == 0); }                            // hash-addressed
 }
 
 TEST_CASE("dual-layer ack: Y builds a REVERSED-path cross-layer E2E ack back to the original sender (Slice 4e)") {

@@ -54,7 +54,20 @@ enum class CmdCode : uint8_t { queued, err_unknown_dst, err_too_large,
                                err_no_gateway, err_priority_capped, err_no_binding, err_unsupported,
                                err_unprovisioned,    // node_id==0: must join or `cfg set node_id` first
                                err_no_data_sf };     // allowed_sf_bitmap==0: configure sf_list before sending data
-struct CmdResult { CmdCode code = CmdCode::queued; uint16_t ctr = 0; uint8_t queue_depth = 0; };
+// The synchronous "send handle" — the app records it and correlates async send_acked/send_failed pushes by `ctr`.
+// dst_hash / layer_path echo WHAT was sent so the app keeps no command->identity map of its own (and so a small
+// hash like 0x10 is NEVER confused with an 8-bit id — it lives in its own 32-bit field):
+//   send <id>            -> ctr, dst_hash=0,    layer_path=0
+//   sendhash <hash>      -> ctr, dst_hash=hash, layer_path=0
+//   send_layer <hash> <l..> -> ctr, dst_hash=hash, layer_path = the hops packed MSB-first (hops[0] high byte;
+//                              [2,3] -> (2<<8)|3 = 0x0203; 0 = no layers). Layer ids are >=1 so no leading-zero hop.
+struct CmdResult {
+    CmdCode  code        = CmdCode::queued;
+    uint16_t ctr         = 0;
+    uint8_t  queue_depth = 0;
+    uint32_t dst_hash    = 0;   // hash/layer-addressed sends: the target key_hash32 (0 = id-addressed)
+    uint32_t layer_path  = 0;   // send_layer: the destination layer path packed MSB-first (0 = not a layer send)
+};
 
 // ---- async push channel (delivery/ACK/inbound; matches MeshCore PUSH_CODE_*) ----
 // Drained by the transport via Node::next_push (CMD_SYNC_NEXT-style). The Node owns

@@ -74,6 +74,54 @@ TEST_CASE("parse_command — sendhash bad hash -> bad_args") {
     CHECK(parse_command(toolong, std::strlen(toolong), c) == ParseErr::bad_args);   // >8 hex digits
 }
 
+TEST_CASE("parse_command — send_layer <hash> <l1,l2,…> <body> (explicit-path cross-layer DM)") {
+    Command c{};
+    const char* line = "send_layer a1b2c3d4 2,3 hi there";
+    CHECK(parse_command(line, std::strlen(line), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::send_layer);
+    CHECK(c.u.layer.dst_hash == 0xa1b2c3d4u);
+    CHECK(c.u.layer.hop_count == 2);
+    CHECK(c.u.layer.hops[0] == 2);
+    CHECK(c.u.layer.hops[1] == 3);
+    CHECK(c.u.layer.flags == 0x00);                                  // plain send_layer: no E2E ack
+    CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "hi there");
+
+    // a single-hop path
+    const char* one = "send_layer 0a0b0c0d 5 yo";
+    CHECK(parse_command(one, std::strlen(one), c) == ParseErr::ok);
+    CHECK(c.u.layer.hop_count == 1);
+    CHECK(c.u.layer.hops[0] == 5);
+}
+
+TEST_CASE("parse_command — send_layer_ack sets the E2E ack-req flag") {
+    Command c{};
+    const char* line = "send_layer_ack a1b2c3d4 2 hi";
+    CHECK(parse_command(line, std::strlen(line), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::send_layer);
+    CHECK(c.u.layer.hop_count == 1);
+    CHECK(c.u.layer.hops[0] == 2);
+    CHECK(c.u.layer.flags == DATA_FLAG_E2E_ACK_REQ);                 // the wire bit the RX acts on (0x10)
+}
+
+TEST_CASE("parse_command — send_layer malformed paths -> bad_args (fail loud, no silent fix)") {
+    Command c{};
+    // gw_env_max_hops == 4, so the user may supply at most 3 destination layers (path[0] is our own, prepended).
+    const char* toomany = "send_layer a1b2c3d4 2,3,4,5 hi";   // 4 hops -> overflow
+    CHECK(parse_command(toomany, std::strlen(toomany), c) == ParseErr::bad_args);
+    const char* nonnum  = "send_layer a1b2c3d4 2,x hi";       // non-numeric element
+    CHECK(parse_command(nonnum, std::strlen(nonnum), c) == ParseErr::bad_args);
+    const char* zero    = "send_layer a1b2c3d4 0 hi";         // layer id 0 (unset)
+    CHECK(parse_command(zero, std::strlen(zero), c) == ParseErr::bad_args);
+    const char* empties = "send_layer a1b2c3d4 2,,3 hi";      // empty element
+    CHECK(parse_command(empties, std::strlen(empties), c) == ParseErr::bad_args);
+    const char* nopath  = "send_layer a1b2c3d4";              // no path token at all
+    CHECK(parse_command(nopath, std::strlen(nopath), c) == ParseErr::bad_args);
+    const char* badhash = "send_layer zz 2 hi";               // non-hex hash
+    CHECK(parse_command(badhash, std::strlen(badhash), c) == ParseErr::bad_args);
+    const char* over255 = "send_layer a1b2c3d4 300 hi";       // layer id > 255
+    CHECK(parse_command(over255, std::strlen(over255), c) == ParseErr::bad_args);
+}
+
 TEST_CASE("parse_command — resolve <hash> [hard] (network hash-locate, notify-only)") {
     Command c{};
     const char* soft = "resolve a1b2c3d4";
