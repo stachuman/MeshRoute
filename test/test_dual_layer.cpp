@@ -149,7 +149,8 @@ struct DualLayerTestAccess {
     static uint32_t channel_pull_timer_id(uint8_t s) { return Node::kChannelPullTimerId + s; }
     // Slice 3c hardening: the Node-global transient stash (guard_defer) + the per-leaf deferred-drain (rehome).
     static void     set_deferred_lbt(Node& n, bool v) { n._deferred_lbt[0].pending = v; }
-    static void     set_tx_stash(Node& n, bool v)     { n._tx_stash[0].valid = v; }
+    static void     set_tx_stash(Node& n, bool v)     { n._tx_stash[0].valid = v; n._tx_stash[0].reissue_pending = v; }   // a GENUINE pending re-issue (valid + a timer armed)
+    static void     set_tx_stash_clean(Node& n)       { n._tx_stash[0].valid = true; n._tx_stash[0].reissue_pending = false; }   // a cleanly-sent CTS/ACK: valid buffer, NO re-issue pending
     static void     set_deferred(Node& n, uint8_t i, uint8_t cnt, bool armed) { n._layers[i]._deferred_n = cnt; n._layers[i]._drain_armed = armed; }
     static uint32_t drain_timer_id()                  { return Node::kDeferredDrainTimerId; }
     // F2: pin the FORWARD/provider gate (a gateway never rebroadcasts a channel flood).
@@ -185,6 +186,12 @@ struct DualLayerTestAccess {
     static void           learn_neighbor(Node& n, uint8_t node_id) { n.learn_direct_neighbor(node_id, 40, false); }   // 1-hop route on the ACTIVE leaf
     static void           send_xl(Node& n, uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t len, uint8_t flags = 0) { n.send_cross_layer(dst_node, dst_hash, target_layer, body, len, flags); }
     static CmdCode        originate(Node& n, uint32_t dst_hash, const uint8_t* hops, uint8_t hc, const uint8_t* body, uint8_t len, uint8_t flags = 0) { uint16_t ctr = 0; return n.originate_layer_path(dst_hash, hops, hc, body, len, flags, ctr); }
+    // Multi-hop gateway discovery (type-4 TLV) accessors.
+    static void     ingest_bl(Node& n, uint8_t gw, uint8_t dest_leaf) { n.ingest_bridged_layer(gw, dest_leaf); }
+    static uint8_t  select_gw(Node& n, uint8_t target_leaf)          { return n.select_gateway_for_leaf(target_leaf); }
+    static size_t   build_gw_ext(Node& n, uint8_t* out, size_t cap)  { return n.build_gateway_layer_ext(out, cap); }
+    static int      bl_dest(Node& n, uint8_t gw)                     { for (uint8_t i = 0; i < protocol::cap_bridged_layers; ++i) if (n._bridged_layers[i].valid && n._bridged_layers[i].gw_id == gw) return n._bridged_layers[i].dest_leaf; return -1; }
+    static void     hear_on_leaf(Node& n, uint8_t id, uint32_t key)  { n.id_bind_set(id, key, Node::IdBindSource::bcn, Node::IdBindConf::authoritative); }   // an authoritative id_bind = "heard on our leaf"
     static uint8_t        parked_count(Node& n)              { return n._parked_sends_n; }
     static uint8_t        deferred_count(Node& n)            { return n._active->_deferred_n; }
     static void           fill_tx_queue(Node& n, uint8_t leaf)  { n._layers[leaf]._tx_queue_n = Node::kTxQueueCap; }   // simulate a full queue
@@ -384,8 +391,12 @@ TEST_CASE("dual-layer activation: layer_swap_blocked is the §4 busy-guard (pend
     // Slice 3c hardening (id-classification guard_defer): the Node-global transient stash also defers the swap.
     DualLayerTestAccess::set_deferred_lbt(node, true);  CHECK(DualLayerTestAccess::swap_blocked(node));     // LBT-deferred frame on the leaving leaf's SF
     DualLayerTestAccess::set_deferred_lbt(node, false); CHECK_FALSE(DualLayerTestAccess::swap_blocked(node));
-    DualLayerTestAccess::set_tx_stash(node, true);      CHECK(DualLayerTestAccess::swap_blocked(node));     // on-radio-busy re-issue stash
+    DualLayerTestAccess::set_tx_stash(node, true);      CHECK(DualLayerTestAccess::swap_blocked(node));     // on-radio-busy/duty re-issue PENDING (a timer armed)
     DualLayerTestAccess::set_tx_stash(node, false);     CHECK_FALSE(DualLayerTestAccess::swap_blocked(node));
+    // THE BUG FIX (gateway swap-stall): a cleanly-sent CTS/ACK leaves the stash `valid` (only cleared by a newer
+    // same-tag TX / an on_radio_busy giveup) — that is NOT mid-exchange and MUST NOT block the swap, or a gateway's
+    // first ACK strands its layer scheduler forever and cross-layer DMs never bridge.
+    DualLayerTestAccess::set_tx_stash_clean(node);      CHECK_FALSE(DualLayerTestAccess::swap_blocked(node));
 }
 
 TEST_CASE("dual-layer hardening: a swap re-homes the leaving leaf's deferred-drain (no stranded no-route DMs) (Slice 3c)") {
@@ -1152,4 +1163,47 @@ TEST_CASE("dual-layer Principle 11: a gateway never originates or pulls channel 
       CHECK_FALSE(DualLayerTestAccess::flood_slot_active(node, 0));                 // freed, not rebroadcast
       CHECK_FALSE(hal.armed[DualLayerTestAccess::flood_rebcast_timer_id(0)]);       // no rebroadcast timer armed
     }
+}
+
+// ---- multi-hop gateway discovery (type-4 bridged_layers TLV, 2026-06-14) -----------------------------------
+// NB: Node is constructed IN PLACE in each case (it has a self-pointer _active = &_layers[0] — a by-value return
+// would dangle it). cfg = a plain single-layer node on leaf 1.
+#define INIT_LEAF1(VAR, ID, KEY) StubHal hal; Node VAR(hal, (ID), (KEY)); \
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1; CHECK(VAR.on_init(cfg))
+
+TEST_CASE("bridged_layers: ingest last-write-wins; build returns 0 when empty (s18 keystone), >0 after a learned row") {
+    INIT_LEAF1(n, 1, 0x1);
+    uint8_t buf[32];
+    CHECK(DualLayerTestAccess::build_gw_ext(n, buf, sizeof buf) == 0);    // single-layer, no rows -> NO type-4 TLV (s18 byte-identical)
+    DualLayerTestAccess::ingest_bl(n, /*gw*/ 5, /*dest_leaf*/ 2);
+    CHECK(DualLayerTestAccess::bl_dest(n, 5) == 2);
+    DualLayerTestAccess::ingest_bl(n, /*gw*/ 5, /*dest_leaf*/ 3);         // SAME gw_id -> overwrite (one row per gw_id)
+    CHECK(DualLayerTestAccess::bl_dest(n, 5) == 3);
+    CHECK(DualLayerTestAccess::build_gw_ext(n, buf, sizeof buf) > 0);     // a NON-gateway now RE-GOSSIPS the learned row (propagation)
+}
+
+TEST_CASE("bridged_layers selection: a gw 2 hops away (in _bridged_layers, NOT _gw_schedules) is selectable") {
+    INIT_LEAF1(x, 7, 0x7777u);
+    CHECK(DualLayerTestAccess::select_gw(x, /*target_leaf*/ 2) == 0);     // nothing known yet
+    DualLayerTestAccess::ingest_bl(x, /*gw*/ 5, /*dest_leaf*/ 2);         // type-4 TLV (multi-hop): G bridges 1<->2, schedule NEVER heard
+    DualLayerTestAccess::learn_neighbor(x, 5);                            // a route to G (DV; multi-hop in reality)
+    CHECK(DualLayerTestAccess::select_gw(x, 2) == 5);                     // Pass 1: a routed gw bridging leaf 2 -> selected (was 0 before the fix)
+}
+
+TEST_CASE("bridged_layers Pass-2 seen-guard: REJECT a propagated gw never heard on our leaf (cross-layer TLV leak)") {
+    INIT_LEAF1(x, 7, 0x7777u);
+    DualLayerTestAccess::ingest_bl(x, /*gw*/ 9, /*dest_leaf*/ 2);         // a TLV that LEAKED in: gw 9 bridges leaf 2, but no route + never heard on our leaf
+    CHECK(DualLayerTestAccess::select_gw(x, 2) == 0);                     // seen-guard REJECTS (no id_bind for gw 9 on our leaf)
+    DualLayerTestAccess::hear_on_leaf(x, /*id*/ 9, /*key*/ 0x9999u);      // now we've actually heard gw 9 on our leaf
+    CHECK(DualLayerTestAccess::select_gw(x, 2) == 9);                     // Pass 2 accepts -> caller enqueues + fires a ROUTE_QUERY
+}
+
+TEST_CASE("bridged_layers: two gateways on ONE leaf bridging DIFFERENT leaves -> the RIGHT gw per target") {
+    // The decision motivator (spec): 'is a gateway' is not enough — one leaf can host several gateways, each to a
+    // different layer. Selection must pick the gw bridging the TARGET leaf.
+    INIT_LEAF1(x, 7, 0x7777u);
+    DualLayerTestAccess::ingest_bl(x, /*gwA*/ 5, /*dest_leaf*/ 2); DualLayerTestAccess::learn_neighbor(x, 5);
+    DualLayerTestAccess::ingest_bl(x, /*gwB*/ 6, /*dest_leaf*/ 3); DualLayerTestAccess::learn_neighbor(x, 6);
+    CHECK(DualLayerTestAccess::select_gw(x, 2) == 5);                     // -> the gw bridging leaf 2
+    CHECK(DualLayerTestAccess::select_gw(x, 3) == 6);                     // -> the gw bridging leaf 3
 }

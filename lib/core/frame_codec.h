@@ -110,6 +110,14 @@ std::span<const uint8_t> beacon_ext(std::span<const uint8_t> frame, const beacon
 size_t  pack_channel_digest_tlv(const uint32_t* ids, uint8_t count, std::span<uint8_t> out);    // bytes written, or 0
 uint8_t parse_channel_digest_tlv(std::span<const uint8_t> ext, uint32_t* ids_out, uint8_t max); // ids found (0 if no type-3 TLV)
 
+// BCN gateway-layer ext-TLV (type 4, dv:1249/1513) — multi-hop gateway discovery. Wire = the Lua split-list:
+// [type<<4 | body_len] then body = N × gw_id(1B), then ceil(N/2) packed layer-nibble bytes (entry i's dest_leaf in
+// the LOW nibble if i even, HIGH nibble if i odd). gw_id = the gateway's node_id on the advertising leaf; dest_leaf =
+// the 4-bit leaf it bridges TO. N <= bridged_layers_max_per_tlv (9) -> body <= 9+5 = 14 <= the 4-bit len cap (15).
+struct GwLayerEntry { uint8_t gw_id; uint8_t dest_leaf; };
+size_t  pack_gateway_layer_tlv(const GwLayerEntry* e, uint8_t n, std::span<uint8_t> out);       // bytes written, or 0 (n==0 -> 0)
+uint8_t parse_gateway_layer_tlv(std::span<const uint8_t> ext, GwLayerEntry* out, uint8_t max);  // entries found (0 if no type-4 TLV)
+
 // -----------------------------------------------------------------------------
 // CTS — clear-to-send (cmd-nibble 0x2, 3 B; +1 B if payload_len != 0) — ROADMAP §10.3
 // -----------------------------------------------------------------------------

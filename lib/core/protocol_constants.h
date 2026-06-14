@@ -208,6 +208,10 @@ inline constexpr uint8_t  cap_channel_pulls_per_bcn_cycle = 3;    // new pulls/d
 inline constexpr uint8_t  channel_dirty_max_advertisements = 3;   // K: clear dirty after K ads (dv:1034) [Phase 2]
 inline constexpr uint8_t  cap_channel_pull_pending      = 8;      // bounded pending-pull ring (Lua: unbounded table)
 inline constexpr uint8_t  bcn_ext_type_channel_digest  = 3;      // BCN ext-TLV type for the channel digest (dv:1248)
+inline constexpr uint8_t  bcn_ext_type_gateway_layer   = 4;      // BCN ext-TLV type 4: multi-hop gateway-layer propagation (dv:1249) — gw_id->dest_leaf, re-gossiped by ALL nodes
+inline constexpr uint8_t  cap_bridged_layers           = 8;      // Node-global gw_id->dest_leaf table (mirror _gw_schedules); leaves carry it (they ORIGINATE cross-layer DMs)
+inline constexpr uint8_t  bridged_layers_max_per_tlv   = 9;      // N entries per type-4 TLV: 9 gw_ids + ceil(9/2)=5 nibble bytes = 14 <= the 4-bit len cap (15)
+inline constexpr uint32_t bridged_layers_ttl_ms        = 172800000;  // 48 h (Lua); a sim gate may shrink to exercise aging
 inline constexpr uint8_t  cap_channel_pull_recent      = 32;     // bounded re-pull dedup ring (Lua: unbounded map)
 
 // ---- channel flood (2026-06-08 redesign): managed flood = fast primary; digest+pull = repair backstop ----

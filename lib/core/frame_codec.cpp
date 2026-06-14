@@ -199,6 +199,55 @@ uint8_t parse_channel_digest_tlv(std::span<const uint8_t> ext, uint32_t* ids_out
     return 0;
 }
 
+// BCN gateway-layer ext-TLV (type 4) — the Lua split-list (dv:1513 build / dv:1977 parse), byte-for-byte.
+size_t pack_gateway_layer_tlv(const GwLayerEntry* e, uint8_t n, std::span<uint8_t> out) {
+    if (n == 0) return 0;                                            // empty -> emit NO TLV (the s18 keystone; caller relies on this)
+    if (n > protocol::bridged_layers_max_per_tlv) n = protocol::bridged_layers_max_per_tlv;
+    const uint8_t nibbles  = static_cast<uint8_t>((n + 1) / 2);      // ceil(N/2)
+    const uint8_t body_len = static_cast<uint8_t>(n + nibbles);
+    if (body_len > 15) return 0;                                     // 4-bit len cap (n<=9 -> <=14; defensive)
+    wire::Writer w(out);
+    w.u8(static_cast<uint8_t>((protocol::bcn_ext_type_gateway_layer << 4) | (body_len & 0x0f)));
+    for (uint8_t i = 0; i < n; ++i) w.u8(e[i].gw_id);
+    for (uint8_t bi = 0; bi < nibbles; ++bi) {                       // entry 2*bi -> LOW nibble; entry 2*bi+1 -> HIGH nibble
+        uint8_t v = static_cast<uint8_t>(e[2 * bi].dest_leaf & 0x0f);
+        if (static_cast<uint8_t>(2 * bi + 1) < n)
+            v = static_cast<uint8_t>(v | ((e[2 * bi + 1].dest_leaf & 0x0f) << 4));
+        w.u8(v);
+    }
+    return w.ok() ? w.size() : 0;
+}
+// Scan the ext block for the type-4 TLV; N is inferred from body_len (no count byte). A duplicate gw_id discards
+// the WHOLE TLV (return 0), mirroring the Lua. Skips other TLV types (forward-compat).
+uint8_t parse_gateway_layer_tlv(std::span<const uint8_t> ext, GwLayerEntry* out, uint8_t max) {
+    size_t o = 0;
+    while (o < ext.size()) {
+        const uint8_t type = static_cast<uint8_t>(ext[o] >> 4);
+        const uint8_t blen = static_cast<uint8_t>(ext[o] & 0x0f);
+        if (o + 1 + blen > ext.size()) break;                       // truncated TLV -> stop
+        if (type == protocol::bcn_ext_type_gateway_layer) {
+            const std::span<const uint8_t> body = ext.subspan(o + 1, blen);
+            const uint8_t N = static_cast<uint8_t>((2u * static_cast<unsigned>(blen)) / 3u);   // Lua dv:1981
+            if (N == 0) return 0;
+            if (static_cast<size_t>(N) + (N + 1) / 2 != blen) return 0;                        // body_len must == N + ceil(N/2)
+            uint8_t seen[32] = {};                                   // gw_id (0..255) dedup bitset — each gw_id at most once (Lua dv:1985)
+            uint8_t cnt = 0;
+            for (uint8_t i = 0; i < N; ++i) {
+                const uint8_t gw_id = body[i];
+                const uint8_t nb    = body[static_cast<size_t>(N) + i / 2];
+                const uint8_t leaf  = (i % 2 == 0) ? static_cast<uint8_t>(nb & 0x0f)
+                                                   : static_cast<uint8_t>((nb >> 4) & 0x0f);
+                if (seen[gw_id >> 3] & (1u << (gw_id & 7))) return 0;                          // duplicate gw_id -> discard whole TLV (Lua dv:1997)
+                seen[gw_id >> 3] = static_cast<uint8_t>(seen[gw_id >> 3] | (1u << (gw_id & 7)));
+                if (cnt < max) out[cnt++] = GwLayerEntry{ gw_id, leaf };
+            }
+            return cnt;
+        }
+        o += 1u + blen;                                             // skip other TLV types
+    }
+    return 0;
+}
+
 // -----------------------------------------------------------------------------
 // CTS — cmd=0x2, 3 B (ROADMAP §10.3)
 // -----------------------------------------------------------------------------

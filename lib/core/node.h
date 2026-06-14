@@ -239,6 +239,16 @@ struct GatewaySchedule {
     struct Rec { uint8_t leaf_id = 0; uint32_t window_ms = 0; uint32_t offset_ms = 0; } rec[2];
 };
 
+// Multi-hop gateway discovery (2026-06-14): one row = "gw_id (its node_id on THIS leaf) bridges TO dest_leaf". Fed by
+// the type-4 BCN ext-TLV, re-gossiped by ALL nodes so the mapping travels the whole mesh; read by select_gateway_for_leaf
+// so a node >1 hop from a gateway can still originate a cross-layer DM. Node-global (leaves originate). Last-write-wins.
+struct BridgedLayer {
+    uint8_t  gw_id        = 0;
+    uint8_t  dest_leaf    = 0;
+    uint64_t last_seen_ms = 0;
+    bool     valid        = false;
+};
+
 // Slice 4c.1: a cross-layer DM the gateway must BRIDGE to its OTHER leaf — buffered (node-global, it spans leaves)
 // until that leaf's window opens, then drained into the leaf's tx_queue (activate_layer). The re-inject `inner` is
 // the ORIGINAL inner preserved verbatim (dst_hash + the cursor layer-path + origin + source_hash + body), with only
@@ -439,7 +449,7 @@ private:
     void    park_send_layer(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags);   // Slice 4d: a cross-layer-capable park (resolves layer + gateway on the H-answer); flags carry the app's E2E_ACK_REQ etc.
     void    drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t target_layer = 0xFF);   // a binding arrived -> fly the parked DMs to it (target_layer from the H-answer, 0xFF = beacon re-drain / unknown)
     // Slice 4d: cross-layer origination — select a bridging gateway (schedule-verified) + build the CROSS_LAYER DM.
-    uint8_t select_gateway_for_leaf(uint8_t target_leaf) const;  // a gateway whose learned schedule SERVES target_leaf (0 = none known); route checked by the caller
+    uint8_t select_gateway_for_leaf(uint8_t target_leaf);        // a gateway (1-hop schedule OR multi-hop _bridged_layers) bridging to target_leaf; 0 = none. Two-pass: routed-preferred, then unrouted fallback (non-const: prunes aged rows)
     void    send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags);  // pick G + enqueue, else err_no_gateway (4d.2: park+ROUTE_QUERY); flags honored on the DM
     // Explicit-path origination (console/companion send_layer, §5): route a cross-layer DM along the user-supplied
     // layer path [our_layer, hops...] cur=1, NO H-query. Returns SYNCHRONOUSLY (no orphan push): CmdCode::queued (+
@@ -611,6 +621,10 @@ private:
     void     store_gateway_schedule(const GatewaySchedule& gs);   // Slice 3e.2: remember a heard gateway's schedule (evict-oldest)
     const GatewaySchedule* find_gw_schedule(uint8_t gw_node_id) const;
     uint32_t gateway_schedule_defer_ms(uint8_t gw_node_id) const; // Slice 3e.2: ms to defer an RTS so it hits the gateway's window on OUR leaf
+    // ---- Multi-hop gateway discovery (2026-06-14, type-4 BCN TLV): the originator's gateway SELECTION half ------
+    void     ingest_bridged_layer(uint8_t gw_id, uint8_t dest_leaf);   // last-write-wins (one row per gw_id)
+    void     prune_aged_bridged_layers(uint64_t now);                  // invalidate rows older than bridged_layers_ttl_ms
+    size_t   build_gateway_layer_ext(uint8_t* out, size_t cap);        // our beacon's type-4 TLV (self-advert + re-gossip); 0 = none (s18-inert)
     // ---- Slice 4c.1: cross-layer DM bridge (the keystone) ------------------------------------------------------
     void     bridge_cross_layer(const PostAck& pa, const data_unicast_inner& ui);  // re-inject a transit cross-layer DM onto the far leaf
     int      id_on_leaf_by_hash(uint8_t leaf, uint32_t key_hash32) const;          // resolve key_hash32 -> node_id on a SPECIFIC leaf's id_bind (-1 = unknown); NEVER via _active->
@@ -714,6 +728,11 @@ private:
     static constexpr uint8_t kRetrySlots = 4;   // cts, data, ack, nack
     struct TxStashSlot { bool valid = false; uint16_t len = 0; int16_t sf = 0; uint8_t retries_left = 0;
                          uint8_t ctr_lo = 0;   // DATA slot: the pending_tx flight this DATA belongs to (re-arm guard, dv:10271)
+                         // reissue_pending: a busy/duty re-issue timer is ARMED for this slot (vs. a stale clean-sent
+                         // buffer that is `valid` but already on the air). layer_swap_blocked() gates on THIS, not
+                         // `valid` — else a gateway's first cleanly-sent ACK leaves `valid` set forever + the layer
+                         // swap never fires (the bridged DM on the other leaf never transmits). See node.cpp swap guard.
+                         bool reissue_pending = false;
                          uint8_t buf[protocol::lora_max_frame_bytes] = {}; };
     TxStashSlot _tx_stash[kRetrySlots];
     // R3 data-plane state (single flight per node) — the pipeline arrays MOVED into LayerRuntime (Slice 2a).
@@ -859,6 +878,7 @@ private:
     // Slice 3e.2: learned schedules of nearby GATEWAYS (Node-global — a node's view of the gateways it can reach,
     // independent of its own layers). Keyed by the gateway's node_id; evict-oldest on overflow.
     GatewaySchedule _gw_schedules[protocol::cap_gateway_neighbor_schedules];
+    BridgedLayer    _bridged_layers[protocol::cap_bridged_layers];   // multi-hop gw_id->dest_leaf (type-4 TLV; ~8×11 B)
     // Slice 4c.1: cross-layer re-inject HANDOFFS (node-global — they span leaves; survive a window swap, drained on the
     // TARGET leaf's activate). A SMALL bounded ring (refuse-when-full LOUD, never drop-oldest a transit DM silently).
     XlHandoff _xl_handoffs[protocol::cap_gateway_handoffs];

@@ -27,7 +27,7 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 
 ## BCN — beacon · cmd 0x0 · variable
 
-**Use** — broadcast periodically (and on a change, jittered) on the routing SF; advertises DV routes, identity, schedule, seen-set, and a channel digest. **Reply** — none; neighbours merge the routes, and an unseen digest id triggers a `Q:CHANNEL_PULL`.
+**Use** — broadcast periodically (and on a change, jittered) on the routing SF; advertises DV routes, identity, schedule, seen-set, a channel digest, and gateway-bridged-layer hints (for multi-hop cross-layer routing). **Reply** — none; neighbours merge the routes, and an unseen digest id triggers a `Q:CHANNEL_PULL`.
 
 Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` route entries, an optional 32-byte seen-bitmap, and an optional ext block.
 
@@ -47,6 +47,11 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 **Schedule record (4 B):** b0 = `layer_id`(b7..4) \| `(routing_sf−5)`(b3..1) \| `period_unit_5s`(b0) · b1 = `duration_100ms` · b2 = `offset_100ms` · b3 = `period_units` (×1000 ms if period_unit_5s=0, ×5000 ms if =1).
 
 **Seen-bitmap (32 B):** presence bit for node `id` at byte `id/8`, mask `1<<(id%8)`.
+
+**Ext block (TLVs):** `ext_len (1 B)`, then a sequence of TLVs — each `[type (b7..4) | body_len (b3..0)] [body … body_len B]`. A reader scans for the type(s) it knows and skips the rest (forward-compatible; `body_len ≤ 15`). Defined types:
+
+- **Type 3 — channel digest:** `[count 1 B] [channel_msg_id 4 B BE] × count` — this node's dirty channel-msg ids; an unseen id triggers a `Q:CHANNEL_PULL`. `count ≤ 3` (the 4-bit `body_len` cap). Gateways do **not** emit it (channel-plane consumer, Principle 11).
+- **Type 4 — gateway-layer:** `[gw_id 1 B] × N`, then `⌈N/2⌉` packed leaf-nibble bytes (entry *2i* → low nibble, entry *2i+1* → high nibble). Each `(gw_id, dest_leaf)` pair = "gateway `gw_id` (its node_id on **this** leaf) bridges to `dest_leaf`." A gateway self-advertises the other leaf it serves; **every** node re-gossips its learned entries, so the mapping propagates **multi-hop** — the originator of a cross-layer DM reads it to choose a gateway it has a route to. `N ≤ 9` (9 + ⌈9/2⌉ = 14 B ≤ the cap); entries age out after `bridged_layers_ttl_ms`. A single-layer node has nothing to advertise → emits no type-4 TLV (wire-inert).
 
 ---
 

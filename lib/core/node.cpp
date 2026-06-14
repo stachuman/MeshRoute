@@ -206,8 +206,11 @@ bool Node::layer_swap_blocked() const {
     // Node-GLOBAL transient stash holding a frame packed for the LEAVING leaf's SF/id (the id-classification's
     // guard_defer set): the LBT-deferred ring + the on-radio-busy / duty-defer re-issue stash. They clear in ms
     // (one LBT backoff), so deferring the swap until then is a bounded wait — and stops a wrong-leaf-SF re-TX.
-    for (uint8_t s = 0; s < kLbtSlots;   ++s) if (_deferred_lbt[s].pending) return true;
-    for (uint8_t s = 0; s < kRetrySlots; ++s) if (_tx_stash[s].valid)       return true;
+    for (uint8_t s = 0; s < kLbtSlots;   ++s) if (_deferred_lbt[s].pending)         return true;
+    // Gate on reissue_pending (a busy/duty re-issue timer is ARMED), NOT bare `valid`: a cleanly-sent CTS/ACK/NACK
+    // leaves its stash `valid` (the buffer is only cleared by a newer same-tag TX or an on_radio_busy giveup), so a
+    // bare-`valid` gate left a gateway's first ACK blocking the layer swap FOREVER (the bridged DM never transmits).
+    for (uint8_t s = 0; s < kRetrySlots; ++s) if (_tx_stash[s].valid && _tx_stash[s].reissue_pending) return true;
     return false;
 }
 
@@ -307,6 +310,27 @@ void Node::store_gateway_schedule(const GatewaySchedule& gs) {
         if (_gw_schedules[i].heard_ms < _gw_schedules[oldest].heard_ms) oldest = i;
     }
     _gw_schedules[(slot == 0xFF) ? oldest : slot] = gs;
+}
+
+// Multi-hop gateway discovery: record "gw_id bridges TO dest_leaf" (last-write-wins, one row per gw_id — Lua dv:4936).
+// §6 OUT-OF-SCOPE (documented, not silently mis-routed): a SINGLE gateway bridging 3+ layers via PROPAGATION loses all
+// but the last dest_leaf here (one row/gw_id). Direct neighbours still know every served leaf via _gw_schedules; full
+// multi-bridge propagation belongs with the 3-layer work. Today's 2-layer gateways advertise exactly one other leaf.
+void Node::ingest_bridged_layer(uint8_t gw_id, uint8_t dest_leaf) {
+    uint8_t slot = 0xFF, oldest = 0;                               // refresh-by-id, else a free slot, else evict-oldest
+    for (uint8_t i = 0; i < protocol::cap_bridged_layers; ++i) {
+        if (_bridged_layers[i].valid && _bridged_layers[i].gw_id == gw_id) { slot = i; break; }
+        if (!_bridged_layers[i].valid && slot == 0xFF) slot = i;
+        if (_bridged_layers[i].last_seen_ms < _bridged_layers[oldest].last_seen_ms) oldest = i;
+    }
+    BridgedLayer& b = _bridged_layers[(slot == 0xFF) ? oldest : slot];
+    b.valid = true; b.gw_id = gw_id; b.dest_leaf = dest_leaf; b.last_seen_ms = _hal.now();
+}
+
+void Node::prune_aged_bridged_layers(uint64_t now) {
+    for (uint8_t i = 0; i < protocol::cap_bridged_layers; ++i)
+        if (_bridged_layers[i].valid && now > _bridged_layers[i].last_seen_ms + protocol::bridged_layers_ttl_ms)
+            _bridged_layers[i].valid = false;
 }
 
 // ms to defer an RTS so it lands during the gateway's window on OUR leaf (Lua gateway_schedule_defer_ms dv:5013). For
@@ -613,6 +637,7 @@ void Node::on_radio_busy(const BusyInfo& info) {
         return;
     }
     --s.retries_left;
+    s.reissue_pending = true;                                         // a busy re-issue timer is now armed (gates the gateway layer swap)
     const uint64_t now  = _hal.now();
     const uint64_t wait = (info.busy_until_ms > now) ? (info.busy_until_ms - now) : 0;
     const uint32_t delay = static_cast<uint32_t>(wait) + 2 +                                  // +2 guard (dv:12204)

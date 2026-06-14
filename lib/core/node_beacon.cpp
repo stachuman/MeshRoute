@@ -88,6 +88,45 @@ bool Node::learn_direct_neighbor(uint8_t sender, int16_t snr_q4, bool is_gw) {
     return false;
 }
 
+// Build our beacon's type-4 gateway-layer TLV (Lua build_gateway_layer_ext dv:1513). Entries: (a) if WE are a gateway,
+// self-advert {our active-leaf node_id -> the OTHER leaf we serve}; (b) EVERY node re-gossips its valid _bridged_layers
+// rows. Skip dest_leaf == our active leaf (useless). Dedup gw_id, sort by recency, cap 9. Returns 0 (NO TLV) when empty
+// — the single-layer / s18 keystone guard (no entries -> no bytes -> wire byte-identical).
+size_t Node::build_gateway_layer_ext(uint8_t* out, size_t cap) {
+    prune_aged_bridged_layers(_hal.now());
+    const uint8_t active_leaf = _cfg.leaf_id;
+    GwLayerEntry entries[protocol::bridged_layers_max_per_tlv];
+    uint64_t     seen_ms[protocol::bridged_layers_max_per_tlv];
+    uint8_t      n = 0;
+    uint8_t      seen_gw[32] = {};                                  // each gw_id at most once (Lua seen_in_tlv)
+    auto try_add = [&](uint8_t gw_id, uint8_t dest_leaf, uint64_t ms) {
+        if (n >= protocol::bridged_layers_max_per_tlv) return;
+        if (dest_leaf == active_leaf) return;                      // advertising the receiver's own leaf is useless
+        if (seen_gw[gw_id >> 3] & (1u << (gw_id & 7))) return;
+        seen_gw[gw_id >> 3] = static_cast<uint8_t>(seen_gw[gw_id >> 3] | (1u << (gw_id & 7)));
+        entries[n] = GwLayerEntry{ gw_id, dest_leaf }; seen_ms[n] = ms; ++n;
+    };
+    // (a) Self-advert (gateway only): our active-leaf node_id bridges TO the other leaf we serve.
+    if (_cfg.is_gateway && _n_layers == 2) {
+        const uint8_t active_idx = static_cast<uint8_t>(_active - &_layers[0]);
+        const uint8_t other_leaf = static_cast<uint8_t>(_cfg.layers[active_idx ^ 1].layer_id & 0x0F);
+        try_add(_node_id, other_leaf, _hal.now());                 // _node_id follows the active leaf
+    }
+    // (b) Propagate (ALL nodes): re-gossip every valid learned row.
+    for (uint8_t i = 0; i < protocol::cap_bridged_layers; ++i)
+        if (_bridged_layers[i].valid)
+            try_add(_bridged_layers[i].gw_id, _bridged_layers[i].dest_leaf, _bridged_layers[i].last_seen_ms);
+    if (n == 0) return 0;                                          // KEYSTONE: no entries -> NO TLV (s18 byte-identical)
+    // top-K by recency (last_seen desc, then gw_id asc) — Lua dv:1558. Tiny N (<=9): insertion-ish selection sort.
+    for (uint8_t a = 0; a < n; ++a)
+        for (uint8_t b = static_cast<uint8_t>(a + 1); b < n; ++b)
+            if (seen_ms[b] > seen_ms[a] || (seen_ms[b] == seen_ms[a] && entries[b].gw_id < entries[a].gw_id)) {
+                const GwLayerEntry te = entries[a]; entries[a] = entries[b]; entries[b] = te;
+                const uint64_t     ts = seen_ms[a]; seen_ms[a] = seen_ms[b]; seen_ms[b] = ts;
+            }
+    return pack_gateway_layer_tlv(entries, n, std::span<uint8_t>(out, cap));
+}
+
 void Node::emit_beacon(const char* kind) {
     // Half-duplex busy skip (Lua send_beacon_page dv:7585): never beacon mid data-exchange. periodic_beacon_fire
     // already guards this, but the TRIGGERED path (kTriggeredBeaconTimerId) reaches here directly — without this
@@ -187,8 +226,12 @@ void Node::emit_beacon(const char* kind) {
     // seen_bitmap left empty → codec derives has_seen_bitmap=0.
     // ROADMAP §3: advertise our dirty channel msgs in the BCN digest ext-TLV (gateways skip — Principle 11).
     // build_channel_digest_ext is draw-free; its ad_count/dirty side effects track per built beacon (dv:1453).
-    uint8_t ext_buf[16]; size_t ext_n = 0;
+    uint8_t ext_buf[32]; size_t ext_n = 0;
     if (!_cfg.is_gateway) ext_n = build_channel_digest_ext(ext_buf, sizeof(ext_buf));
+    // Multi-hop gateway discovery: append the type-4 gateway-layer TLV (a gateway self-adverts its other leaf; EVERY
+    // node re-gossips its _bridged_layers). Returns 0 when there's nothing -> a single-layer node emits NO type-4 TLV
+    // (it's not a gateway + never ingests one), so s18 stays wire byte-identical. KEYSTONE GUARD.
+    ext_n += build_gateway_layer_ext(ext_buf + ext_n, sizeof(ext_buf) - ext_n);
     in.ext = std::span<const uint8_t>(ext_buf, ext_n);
 
     uint8_t buf[protocol::beacon_max_bytes];
@@ -239,6 +282,13 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (b.has_ext) {
         const auto ext = beacon_ext(std::span<const uint8_t>(bytes, len), b);
         dn = parse_channel_digest_tlv(ext, dids, protocol::channel_dirty_max_per_bcn);
+        // Multi-hop gateway discovery (type-4 TLV): ingest gw_id->dest_leaf. The leaf filter above means this beacon
+        // is on OUR leaf, so gw_id is a node_id on our leaf. Skip our own id + a dest_leaf == our leaf (Lua dv:1540).
+        GwLayerEntry gle[protocol::bridged_layers_max_per_tlv];
+        const uint8_t gn = parse_gateway_layer_tlv(ext, gle, protocol::bridged_layers_max_per_tlv);
+        for (uint8_t i = 0; i < gn; ++i)
+            if (gle[i].gw_id != _node_id && gle[i].dest_leaf != _cfg.leaf_id)
+                ingest_bridged_layer(gle[i].gw_id, gle[i].dest_leaf);
     }
     // beacon_rx — one per received beacon (the gate asserts src)
     MR_EMIT("beacon_rx",EF_I("src",b.src),EF_I("channel_digest_ids",dn));

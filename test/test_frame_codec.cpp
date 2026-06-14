@@ -1247,3 +1247,34 @@ TEST_CASE("RTS — FLOOD RTS-M round-trip (43 B: channel_msg_id BE + 32-B bitmap
       CHECK(mo.has_value());
       if (mo) { CHECK(mo->m_broadcast); CHECK_FALSE(mo->flood); CHECK(mo->m_payload_id_lo16 == 0xBEEF); } }
 }
+
+TEST_CASE("gateway-layer TLV (type 4) — pack/parse round-trip, incl ODD N nibble packing") {
+    for (uint8_t N : { uint8_t(1), uint8_t(2), uint8_t(3), uint8_t(4), uint8_t(5), uint8_t(9) }) {   // 3/5/9 = odd N
+        GwLayerEntry in[9];
+        for (uint8_t i = 0; i < N; ++i) in[i] = GwLayerEntry{ static_cast<uint8_t>(10 + i), static_cast<uint8_t>((i * 3 + 1) & 0x0F) };
+        uint8_t buf[32];
+        const size_t n = pack_gateway_layer_tlv(in, N, std::span<uint8_t>(buf, sizeof buf));
+        CHECK(n > 0);
+        CHECK(static_cast<uint8_t>(buf[0] >> 4) == protocol::bcn_ext_type_gateway_layer);        // header type nibble
+        GwLayerEntry out[9];
+        const uint8_t got = parse_gateway_layer_tlv(std::span<const uint8_t>(buf, n), out, 9);
+        CHECK(got == N);
+        for (uint8_t i = 0; i < N; ++i) { CHECK(out[i].gw_id == in[i].gw_id); CHECK(out[i].dest_leaf == (in[i].dest_leaf & 0x0F)); }
+    }
+    // empty -> 0 bytes (the codec-level s18 keystone)
+    uint8_t b[4]; GwLayerEntry none[1] = {{0, 0}};
+    CHECK(pack_gateway_layer_tlv(none, 0, std::span<uint8_t>(b, sizeof b)) == 0);
+}
+
+TEST_CASE("gateway-layer TLV — a DUPLICATE gw_id discards the whole TLV; an unrelated TLV is skipped") {
+    GwLayerEntry dup[2] = { {7, 2}, {7, 3} };                  // same gw_id twice (pack does not dedup; the wire is malformed)
+    uint8_t buf[16];
+    const size_t n = pack_gateway_layer_tlv(dup, 2, std::span<uint8_t>(buf, sizeof buf));
+    CHECK(n > 0);
+    GwLayerEntry out[2];
+    CHECK(parse_gateway_layer_tlv(std::span<const uint8_t>(buf, n), out, 2) == 0);               // duplicate -> reject whole TLV
+    // a type-3 (channel-digest) TLV alone -> the type-4 parse finds nothing (skips other types)
+    uint32_t ids[1] = { 0xDEADBEEF }; uint8_t c3[16];
+    const size_t c3n = pack_channel_digest_tlv(ids, 1, std::span<uint8_t>(c3, sizeof c3));
+    CHECK(parse_gateway_layer_tlv(std::span<const uint8_t>(c3, c3n), out, 2) == 0);
+}

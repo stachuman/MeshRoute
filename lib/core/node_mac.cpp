@@ -105,15 +105,46 @@ uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8
 }
 
 // ---- Slice 4d: cross-layer DM origination -------------------------------------------------------------------
-// A gateway whose LEARNED schedule SERVES target_leaf (it beacons on that leaf). 0 = none known. Schedule-verified
-// (user 2026-06-13): every _gw_schedules entry IS a gateway (only a self_gateway beacon populates it). The caller
-// checks for a route to the returned gateway (serves-but-no-route -> 4d.2 park+ROUTE_QUERY).
-uint8_t Node::select_gateway_for_leaf(uint8_t target_leaf) const {
+// Two-pass gateway selection (Lua select_gateway_for_layer dv:5168). A gateway "bridges target_leaf" if a 1-hop
+// _gw_schedules record serves it OR a multi-hop _bridged_layers row (type-4 TLV) maps gw->target_leaf. Pass 1 prefers
+// a gw with a LIVE ROUTE (best by fewest hops, then score); Pass 2 falls back to a known-but-unrouted gw (the caller
+// enqueues toward it; issue_send's no-route path fires a ROUTE_QUERY). The schedule-defer is the NEXT-HOP's job, NOT
+// selection's — `_gw_schedules` is consulted here only for the membership test, never for timing.
+uint8_t Node::select_gateway_for_leaf(uint8_t target_leaf) {
+    prune_aged_bridged_layers(_hal.now());
+    auto bridges_target = [&](uint8_t gw) -> bool {
+        if (const GatewaySchedule* s = find_gw_schedule(gw))                                  // 1-hop: direct neighbour's schedule
+            for (uint8_t r = 0; r < s->n_rec; ++r) if (s->rec[r].leaf_id == target_leaf) return true;
+        for (uint8_t i = 0; i < protocol::cap_bridged_layers; ++i)                            // multi-hop: propagated TLV
+            if (_bridged_layers[i].valid && _bridged_layers[i].gw_id == gw && _bridged_layers[i].dest_leaf == target_leaf) return true;
+        return false;
+    };
+    // Pass 1 — a gateway WITH a live route (preferred): best (fewest hops, then best score).
+    uint8_t best_gw = 0, best_hops = 0; int16_t best_score = 0;
+    for (uint8_t i = 0; i < _active->_rt_count; ++i) {
+        const RtEntry& e = _active->_rt[i];
+        if (e.dest == _node_id || e.n == 0) continue;
+        if (!bridges_target(e.dest)) continue;
+        const RtCandidate& pc = e.candidates[0];
+        if (best_gw == 0 || pc.hops < best_hops || (pc.hops == best_hops && pc.score > best_score)) {
+            best_gw = e.dest; best_hops = pc.hops; best_score = pc.score;
+        }
+    }
+    if (best_gw != 0) return best_gw;
+    // Pass 2 — known-to-bridge but UNROUTED (fallback). Direct-neighbour schedule first (no rt route yet)...
     for (uint8_t i = 0; i < protocol::cap_gateway_neighbor_schedules; ++i) {
         const GatewaySchedule& s = _gw_schedules[i];
         if (!s.valid) continue;
-        for (uint8_t r = 0; r < s.n_rec; ++r)
-            if (s.rec[r].leaf_id == target_leaf) return s.gw_node_id;   // G serves the target leaf
+        for (uint8_t r = 0; r < s.n_rec; ++r) if (s.rec[r].leaf_id == target_leaf) return s.gw_node_id;
+    }
+    // ...then a propagated row, WITH the on-layer seen-guard (Lua dv:5234): only trust a TLV entry for a gw we've
+    // actually heard on OUR leaf (an authoritative id_bind). Rejects a cross-layer TLV LEAK — a gw that lives on a
+    // DIFFERENT leaf whose mapping propagated in via a dual-layer gateway; unreachable from here.
+    for (uint8_t i = 0; i < protocol::cap_bridged_layers; ++i) {
+        const BridgedLayer& bl = _bridged_layers[i];
+        if (!bl.valid || bl.dest_leaf != target_leaf) continue;
+        uint32_t kh = 0;
+        if (key_hash_of_id(bl.gw_id, kh)) return bl.gw_id;   // heard on our leaf -> trustworthy
     }
     return 0;
 }
@@ -632,6 +663,7 @@ bool Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag 
     if (slot >= 0) {
         TxStashSlot& s = _tx_stash[slot];
         s.valid = true; s.sf = sf; s.retries_left = protocol::tx_defer_max_retries;
+        s.reissue_pending = false;   // a fresh attempt: only the duty-defer / on_radio_busy paths below arm a re-issue
         s.ctr_lo = _active->_pending_tx ? _active->_pending_tx->ctr_lo : 0;   // READ only for the DATA slot (retry_stashed re-arm guard); for CTS/ACK/NACK this records the forwarder's OWN outbound flight + is never consulted
         s.len = static_cast<uint16_t>(len < sizeof(s.buf) ? len : sizeof(s.buf));
         for (uint16_t i = 0; i < s.len; ++i) s.buf[i] = bytes[i];
@@ -646,6 +678,7 @@ bool Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag 
     uint32_t wait = 0;
     if (slot >= 0 && duty_over_budget(len, sf, &wait)) {
         MR_EMIT("duty_cycle_blocked", EF_S("label", label_of_frame(tag)), EF_I("wait_ms", wait), EF_S("source", "tx_with_retry"));
+        _tx_stash[slot].reissue_pending = true;                        // a duty re-issue timer is now armed (gates the gateway layer swap)
         (void)_hal.after(wait, kDutyDeferTimerId + static_cast<uint32_t>(slot));
         return false;                                                  // NOT handed to the radio (caller must not arm post-tx state)
     }
