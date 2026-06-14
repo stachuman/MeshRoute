@@ -414,11 +414,11 @@ void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len,
 
 // Slice 4d: park a CROSS-LAYER-capable send. Identical to park_send but marks cross_layer, so when the H-answer
 // resolves (node_id, target_layer) the drain originates a CROSS_LAYER DM via a gateway iff target_layer != our leaf.
-void Node::park_send_layer(uint32_t key_hash32, const uint8_t* body, uint8_t body_len) {
+void Node::park_send_layer(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags) {
     if (_parked_sends_n >= protocol::cap_parked_sends) return;   // full -> drop (the app can retry)
     ParkedSend& p = _parked_sends[_parked_sends_n++];
     p = ParkedSend{};
-    p.key_hash32 = key_hash32; p.flags = 0; p.parked_at_ms = _hal.now(); p.cross_layer = true;
+    p.key_hash32 = key_hash32; p.flags = flags; p.parked_at_ms = _hal.now(); p.cross_layer = true;   // 4d/e2e: keep the app's flags (E2E_ACK_REQ) -> the drain threads them onto the cross-layer DM
     p.body_len = (body_len > protocol::dm_max_body_bytes) ? protocol::dm_max_body_bytes : body_len;
     for (uint8_t i = 0; i < p.body_len; ++i) p.body[i] = body[i];
     MR_TELEMETRY(
@@ -481,7 +481,7 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t 
                     _hal.emit("send_hash_giveup", f, 1); );
             } else if (p.cross_layer && target_layer != 0xFF && target_layer != _cfg.leaf_id) {
                 // Slice 4d (§5): the dst lives on ANOTHER layer -> originate a CROSS_LAYER DM via a bridging gateway.
-                send_cross_layer(resolved_id, key_hash32, target_layer, p.body, p.body_len);
+                send_cross_layer(resolved_id, key_hash32, target_layer, p.body, p.body_len, p.flags);
             } else {
                 MR_TELEMETRY(
                     EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) },

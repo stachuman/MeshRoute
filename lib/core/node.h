@@ -433,12 +433,12 @@ private:
     uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags); // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify)
     void    emit_hash_query(uint32_t key_hash32, bool hard);     // originate an H flood for key_hash32 (hard = verify-on-use)
     void    park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags);
-    void    park_send_layer(uint32_t key_hash32, const uint8_t* body, uint8_t body_len);   // Slice 4d: a cross-layer-capable park (resolves layer + gateway on the H-answer)
+    void    park_send_layer(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags);   // Slice 4d: a cross-layer-capable park (resolves layer + gateway on the H-answer); flags carry the app's E2E_ACK_REQ etc.
     void    drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t target_layer = 0xFF);   // a binding arrived -> fly the parked DMs to it (target_layer from the H-answer, 0xFF = beacon re-drain / unknown)
     // Slice 4d: cross-layer origination — select a bridging gateway (schedule-verified) + build the CROSS_LAYER DM.
     uint8_t select_gateway_for_leaf(uint8_t target_leaf) const;  // a gateway whose learned schedule SERVES target_leaf (0 = none known); route checked by the caller
-    void    send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len);  // pick G + enqueue, else err_no_gateway (4d.2: park+ROUTE_QUERY)
-    bool    enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len);  // build [my,target] cur=1 -> next-hop G; false = fit/queue fail
+    void    send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags);  // pick G + enqueue, else err_no_gateway (4d.2: park+ROUTE_QUERY); flags honored on the DM
+    bool    enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags);  // build [my,target] cur=1 -> next-hop G; honors flags & E2E_ACK_REQ; false = fit/queue fail
     void    drain_resolved_parked_sends();                       // beacon-tick re-drain: any parked hash now authoritatively bound
     void    age_out_parked_sends();                              // give up on parked sends past send_defer_ttl_ms
     // Diagnostic `resolve` (CmdKind::resolve): locate a hash WITHOUT sending a DM. Authoritative cache hit (or

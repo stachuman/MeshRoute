@@ -121,11 +121,12 @@ uint8_t Node::select_gateway_for_leaf(uint8_t target_leaf) const {
 // Build + enqueue a CROSS_LAYER DM toward dst_hash on target_layer, routed (MAC dst) to gateway gw_node. The inner
 // carries the full layer-path [our_layer, target_layer] cur=1 + dst_hash + SOURCE_HASH (REQUIRED for the reversed
 // E2E ack, 4e). pack_unicast_inner's size-first overflow is the cross-layer fit-check (returns 0 -> fail loud).
-bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len) {
+bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags) {
     TxItem item{};
     const uint16_t ctr = next_ctr(gw_node);          // MAC ctr vs the next-hop gateway (= the e2e (source_hash, ctr) identity)
     item.origin = _node_id; item.dst = gw_node; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
-    item.flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH);
+    item.flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH
+                                      | (flags & DATA_FLAG_E2E_ACK_REQ));   // 4d/e2e: honor the app's E2E-ack request -> Y acks over the reversed path (4e)
     const uint8_t ids[2] = { active_layer_id(), target_layer };
     const size_t n = pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), item.flags, dst_hash,
                                         ids, /*n_layers*/ 2, /*cur*/ 1, _node_id, _key_hash32, body, body_len);
@@ -145,7 +146,7 @@ bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, uint8_t targe
 // reactive ROUTE_QUERY): enqueue anyway; issue_send's no-route path defers the origination (park in _deferred + an
 // expanding-ring RREQ for G via emit_route_request) and try_drain_deferred re-flies it when a route to G appears
 // (the Lua Pass-2; an EXPLICIT recovery, not a silent fallback — it ages out to send_failed on the deferred TTL).
-void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len) {
+void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags) {
     const uint8_t target_leaf = static_cast<uint8_t>(target_layer & 0x0F);
     const uint8_t gw = select_gateway_for_leaf(target_leaf);
     if (gw == 0) {                                   // no gateway serves the target leaf at all -> fail loud
@@ -155,7 +156,7 @@ void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_
     }
     // gw != 0: enqueue regardless of route. A live route -> issue_send fires (4a defers to G's window). No route ->
     // issue_send -> defer_send parks it + RREQs G (4d.2 park+reactive), re-flown by try_drain_deferred on the route.
-    if (!enqueue_cross_layer(gw, dst_hash, target_layer, body, body_len)) {
+    if (!enqueue_cross_layer(gw, dst_hash, target_layer, body, body_len, flags)) {
         MR_EMIT("xl_send_too_large", EF_I("target_layer", target_layer), EF_I("gw", gw));
         Push pu{}; pu.kind = PushKind::send_failed; pu.dst = dst_node; pu.ctr = 0; enqueue_push(pu);
     }

@@ -508,7 +508,7 @@ CmdResult Node::on_command(const Command& c) {
             if (c.u.layer.dst_hash == 0)                     return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };  // a layer send needs a stable dst key
             // Park-first (§5 / user 2026-06-13): resolve the dst's (node_id, target_layer) via an H query; the drain
             // decides same-layer-vs-cross-layer from the answer's target_layer (caching the layer in id_bind is deferred).
-            park_send_layer(c.u.layer.dst_hash, c.body, c.body_len);
+            park_send_layer(c.u.layer.dst_hash, c.body, c.body_len, c.u.layer.flags);
             emit_hash_query(c.u.layer.dst_hash, /*hard=*/false);
             return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };
         }
