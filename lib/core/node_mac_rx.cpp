@@ -15,7 +15,7 @@
 
 #include <span>
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 // 2-bit ACK SNR bucket (dv_dual_sf.lua:842; centers -16/-8/+4) — NOT the 4-bit one.
 static uint8_t bucket_of_snr_2b(int snr_q4) {

@@ -7,7 +7,7 @@
 // Node class (declared in node.h); split out of node.cpp for readability.
 #include "node.h"
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 // ---- route table ------------------------------------------------------------
 

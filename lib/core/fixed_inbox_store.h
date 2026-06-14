@@ -12,11 +12,14 @@
 // to merge; the app dedups by stable message identity). The durable QSPI store replaces this with a real
 // persisted epoch + records that survive reboot.
 #pragma once
+#ifndef MESHROUTE_NS
+#define MESHROUTE_NS meshroute   // Slice 5 faithful two-lib: gateway variant compiles with -DMESHROUTE_NS=meshroute_gw
+#endif
 #include "inbox.h"   // InboxStore, inbox_record_max_bytes
 #include <cstdint>
 #include <cstddef>
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 template <uint16_t Slots>
 class FixedInboxStore : public InboxStore {

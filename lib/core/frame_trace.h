@@ -6,12 +6,15 @@
 // raw cmd number. Shared by fw_main (RX, after poll_rx) and device_radio (TX, at arm time) so both
 // directions read the same. DEVICE-ONLY (uses Serial); native/sim builds skip the whole header.
 #pragma once
+#ifndef MESHROUTE_NS
+#define MESHROUTE_NS meshroute   // Slice 5 faithful two-lib: gateway variant compiles with -DMESHROUTE_NS=meshroute_gw
+#endif
 #if defined(ARDUINO)
 #include <Arduino.h>
 #include <span>
 #include "frame_codec.h"   // parse_rts/cts/data/ack/nack + the *_out structs
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 // cmd nibble (high 4 bits of byte 0) -> short name. §10: BCN0 RTS1 CTS2 DATA3 ACK4 NACK5 Q6 H7 F8 J9.
 inline const char* mr_cmd_name(uint8_t cmd) {

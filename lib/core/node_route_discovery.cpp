@@ -14,7 +14,7 @@
 
 #include <cstdio>   // snprintf for the table_cap_hit "dst:N" key (Lua parity)
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 // Relay-side flood dedup (Lua route_request_seen; key origin|dst; route_request_seen_ttl_ms window).
 bool Node::rreq_seen_recently(uint8_t origin, uint8_t dst) {

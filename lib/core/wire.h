@@ -11,11 +11,14 @@
 //   * key_hash32 / 16-bit counters are LE; channel-msg-id is BE (later frames).
 
 #pragma once
+#ifndef MESHROUTE_NS
+#define MESHROUTE_NS meshroute   // Slice 5 faithful two-lib: gateway variant compiles with -DMESHROUTE_NS=meshroute_gw
+#endif
 #include <cstddef>
 #include <cstdint>
 #include <span>
 
-namespace meshroute::wire {
+namespace MESHROUTE_NS::wire {
 
 // §10.1 primary command codes (byte 0 high nibble).
 enum class Cmd : uint8_t {

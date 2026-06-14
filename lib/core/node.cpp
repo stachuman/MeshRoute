@@ -16,7 +16,7 @@
 #include "airtime.h"   // airtime_ms — Slice 3a SF-weighted window derivation
 #include "wire.h"
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 // ---- construction & lifecycle ----------------------------------------------
 

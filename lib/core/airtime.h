@@ -17,10 +17,13 @@
 // and the Lua so airtime matches the real chip (e.g. SF6/len50: 60 -> 61 ms).
 
 #pragma once
+#ifndef MESHROUTE_NS
+#define MESHROUTE_NS meshroute   // Slice 5 faithful two-lib: gateway variant compiles with -DMESHROUTE_NS=meshroute_gw
+#endif
 
 #include <cstdint>
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 // Airtime in whole milliseconds for one LoRa frame.
 //

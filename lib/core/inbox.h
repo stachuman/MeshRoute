@@ -8,10 +8,13 @@
 // node holds a bounded rolling history; the phone is the long-term archive (pulls incrementally).
 // See docs/superpowers/specs/2026-06-10-persistent-inbox-spec.md.
 #pragma once
+#ifndef MESHROUTE_NS
+#define MESHROUTE_NS meshroute   // Slice 5 faithful two-lib: gateway variant compiles with -DMESHROUTE_NS=meshroute_gw
+#endif
 #include "protocol_constants.h"
 #include <cstdint>
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 // One inbox entry, DECODED (what pull / a store dump yields). kind: DM or channel; channel_id is 0 for
 // a DM. `msg_id` is the EXACT message identity: a DM's 16-bit ctr (pair with `origin`), or a channel's

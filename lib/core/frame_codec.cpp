@@ -15,7 +15,7 @@
 #include "wire.h"
 #include "protocol_constants.h"   // bcn_ext_type_channel_digest + channel_dirty_max_per_bcn (channel-digest TLV)
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 // -----------------------------------------------------------------------------
 // BCN — cmd=0x0, variable length (ROADMAP §10.3). See frame_codec.h for layout.

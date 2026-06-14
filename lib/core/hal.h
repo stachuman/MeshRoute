@@ -11,10 +11,13 @@
 // itself builds as C++20 (S2 design decision D-S2a = B). -fno-exceptions /
 // -fno-rtti / no heap in hot paths.
 #pragma once
+#ifndef MESHROUTE_NS
+#define MESHROUTE_NS meshroute   // Slice 5 faithful two-lib: gateway variant compiles with -DMESHROUTE_NS=meshroute_gw
+#endif
 #include <cstddef>
 #include <cstdint>
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 enum class TxResult  : uint8_t { ok, busy, too_long, radio_error };
 enum class BusyReason : uint8_t { channel_busy, self_tx_in_flight, oversized, duty_cycle_exceeded };

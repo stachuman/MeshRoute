@@ -9,7 +9,7 @@
 
 #include <cmath>
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 uint32_t airtime_ms(uint8_t sf,
                     uint32_t bw_hz,

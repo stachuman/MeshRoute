@@ -14,6 +14,9 @@
 // differential test (see test/test_protocol_constants.cpp).
 
 #pragma once
+#ifndef MESHROUTE_NS
+#define MESHROUTE_NS meshroute   // Slice 5 faithful two-lib: gateway variant compiles with -DMESHROUTE_NS=meshroute_gw
+#endif
 
 #include <cstdint>
 
@@ -40,7 +43,7 @@
 #define MR_CAP_DEFERRED_SENDS 32
 #endif
 
-namespace meshroute::protocol {
+namespace MESHROUTE_NS::protocol {
 
 // ---- Q4 fixed-point dB -----------------------------------------------------
 inline constexpr int     q4_scale = 16;

@@ -22,6 +22,9 @@
 //     etc.; decoders return nullopt on length-cap violation.
 
 #pragma once
+#ifndef MESHROUTE_NS
+#define MESHROUTE_NS meshroute   // Slice 5 faithful two-lib: gateway variant compiles with -DMESHROUTE_NS=meshroute_gw
+#endif
 
 #include <cstddef>
 #include <cstdint>
@@ -29,7 +32,7 @@
 #include <span>
 #include "protocol_constants.h"   // gw_env_max_hops (the cross-layer layer-path bound, Slice 4b)
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 // -----------------------------------------------------------------------------
 // BCN — periodic beacon frame (cmd-nibble 0x0) — ROADMAP §10.3

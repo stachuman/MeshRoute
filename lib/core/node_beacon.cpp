@@ -13,7 +13,7 @@
 #include <span>
 #include <cstring>    // strcmp — kind=="sync" full-table gate
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 // Full-page beacon entry cap that fits beacon_max_bytes (8-B header + 4-B/entry).
 static constexpr uint8_t kMaxBeaconEntries =

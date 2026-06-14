@@ -21,7 +21,7 @@
 
 #include <cstring>
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 // ---- channel_msg_id mint (dv:2239): origin<<24 | (key_hash32 LOW 16)<<8 | ctr low 8, big-endian on wire.
 uint32_t Node::channel_msg_id_mint(uint8_t origin, uint32_t key_hash32, uint8_t ctr) {

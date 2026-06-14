@@ -13,6 +13,9 @@
 // the adaptive throttle are later R-iterations. See docs/specs/2026-05-29-r1-*
 // and 2026-05-30-r2-route-hardening-design.md.
 #pragma once
+#ifndef MESHROUTE_NS
+#define MESHROUTE_NS meshroute   // Slice 5 faithful two-lib: gateway variant compiles with -DMESHROUTE_NS=meshroute_gw
+#endif
 #include "hal.h"
 #include "command.h"
 #include "inbox.h"
@@ -23,7 +26,7 @@
 #include <vector>
 #include <optional>
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 struct m_out;          // frame_codec.h — fwd-decl so the channel ingest seam doesn't pull the codec into node.h
 struct rts_out;        // frame_codec.h — fwd-decl for the FLOOD RTS-M handler seam (handle_flood_rts)

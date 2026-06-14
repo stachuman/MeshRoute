@@ -16,7 +16,7 @@
 
 #include <span>
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 // §6 — the one tiebreak (KEY-ONLY, decided 2026-06-06): lower key_hash32 WINS/keeps; higher yields.
 // One rule for EVERY heal — direct (§7), mediated/shared-neighbour (L2a), delivery-driven (L2c) — so

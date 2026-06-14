@@ -13,7 +13,7 @@
 
 #include <span>
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 static inline const char* id_bind_conf_str(Node::IdBindConf c) {
     return (c == Node::IdBindConf::authoritative) ? "authoritative" : "claimed";

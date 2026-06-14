@@ -8,9 +8,12 @@
 // advertise / a connected client extending) opens an immediate window. We window the ADVERTISING, never the
 // stack itself (the SoftDevice stays enabled; only advertising toggles) — spec §A.1.
 #pragma once
+#ifndef MESHROUTE_NS
+#define MESHROUTE_NS meshroute   // Slice 5 faithful two-lib: gateway variant compiles with -DMESHROUTE_NS=meshroute_gw
+#endif
 #include <cstdint>
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 enum class BleMode : uint8_t { off = 0, on = 1, periodic = 2 };   // == the NV `ble_mode` values
 

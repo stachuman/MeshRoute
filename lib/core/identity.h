@@ -21,10 +21,13 @@
 //     key_for(id) placeholder, so on metal this module compiles unused.
 // `name` (§1.3) is app-level metadata, not a crypto concern, so it is NOT here.
 #pragma once
+#ifndef MESHROUTE_NS
+#define MESHROUTE_NS meshroute   // Slice 5 faithful two-lib: gateway variant compiles with -DMESHROUTE_NS=meshroute_gw
+#endif
 #include <cstdint>
 #include <cstddef>
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 // All key material for one node. ~196 B; one per node, loaded from /mrid on device.
 struct Identity {

@@ -12,7 +12,7 @@
 
 #include <cstring>
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 uint32_t key_hash32_of(const uint8_t ed_pub[32]) {
     return  static_cast<uint32_t>(ed_pub[0])

@@ -19,11 +19,14 @@
 // This supersedes the Arduino-gated logic in src/device_inbox_store.h: that same begin/append/read_since,
 // extracted so it runs on the host. The device QSPI/InternalFS backends (the two interfaces) are the thin HAL.
 #pragma once
+#ifndef MESHROUTE_NS
+#define MESHROUTE_NS meshroute   // Slice 5 faithful two-lib: gateway variant compiles with -DMESHROUTE_NS=meshroute_gw
+#endif
 #include "inbox.h"      // meshroute::InboxStore
 #include <stdint.h>
 #include <string.h>
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 // The RECORDS flash HAL — a ring of fixed-cap segment "files" addressed by index. Append-only within a
 // segment; whole-segment erase for drop-oldest. Device: a LittleFS dir of `<i>` files on QSPI. Native: a fake.

@@ -8,7 +8,7 @@
 // (declared in node.h); split out of node.cpp for readability.
 #include "node.h"
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 bool Node::alt_tried(const PendingTx& pt, uint8_t hop) const {
     for (uint8_t i = 0; i < pt.alts_tried_n; ++i) if (pt.alts_tried[i] == hop) return true;

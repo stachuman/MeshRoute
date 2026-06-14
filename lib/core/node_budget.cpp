@@ -9,7 +9,7 @@
 // Part of the Node class (declared in node.h); split out of node_mac.cpp for readability.
 #include "node.h"
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 // R4.0: route-free duty-cycle tier from the rolling airtime window (Lua dv:3560-3571).
 // Integer pct is tier-identical to the Lua float at the {50,80,95} integer thresholds.

@@ -20,7 +20,7 @@
 #include "node.h"
 #include "frame_codec.h"
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 // ---- responder dedup ring (Lua q_responded_to; key opcode|src|dest, ttl q_respond_ttl_ms) ------
 // REQ_SYNC carries no key_hash32 (that was the removed HASH_QUERY field), so the Lua key's

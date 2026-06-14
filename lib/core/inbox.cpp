@@ -7,7 +7,7 @@
 // See docs/superpowers/specs/2026-06-10-persistent-inbox-spec.md.
 #include "inbox.h"
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 namespace {
 
 // ---- little-endian field (de)serialization (self-contained; no wire.h dep) ----

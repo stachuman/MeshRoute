@@ -15,7 +15,7 @@
 
 #include <span>
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 uint16_t Node::next_ctr(uint8_t dst) {
     uint16_t& c = _active->_peer_send_counter[dst];

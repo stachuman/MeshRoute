@@ -10,11 +10,14 @@
 // Mirrors hal.h's discipline: typed PODs in, no std::string/json/heap, bodies
 // BORROWED for the call only. See docs/specs/2026-05-30-command-interface-design.md.
 #pragma once
+#ifndef MESHROUTE_NS
+#define MESHROUTE_NS meshroute   // Slice 5 faithful two-lib: gateway variant compiles with -DMESHROUTE_NS=meshroute_gw
+#endif
 #include "protocol_constants.h"
 #include <cstddef>
 #include <cstdint>
 
-namespace meshroute {
+namespace MESHROUTE_NS {
 
 // ---- requests (one cmd-code + a bounded typed payload, like a MeshCore frame) ----
 enum class CmdKind : uint8_t { send, send_layer, send_channel, join, resolve };
