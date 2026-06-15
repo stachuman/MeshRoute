@@ -43,6 +43,7 @@ public:
     void     cancel(uint32_t) override {}
     void     set_protocol_id(int) override {}
     int      rand_range(int lo, int) override { return lo; }   // deterministic
+    void     rand_bytes(uint8_t* o, size_t n) override { for (size_t i = 0; i < n; ++i) o[i] = static_cast<uint8_t>(rand_range(0, 256)); }
     void     emit(const char* type, const EventField* f, size_t n) override {
         Captured c; c.type = type;
         for (size_t i = 0; i < n; ++i) {

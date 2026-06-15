@@ -632,8 +632,12 @@ std::optional<j_out> parse_j(std::span<const uint8_t> frame) {
 // -----------------------------------------------------------------------------
 size_t pack_data(const data_in& in, std::span<uint8_t> out) {
     if (in.addr_len != 0) return 0;                               // hierarchy deferred this phase
+    // CRYPTED ⇒ DST_HASH: the per-DM nonce derives from the CLEARTEXT dst_key_hash32, so it MUST be present
+    // (spec §3 DP2). Refuse — never emit a sealed frame the recipient can't reconstruct the nonce for.
+    if ((in.flags & DATA_FLAG_CRYPTED) && !(in.flags & DATA_FLAG_DST_HASH)) return 0;
+    const size_t mac_len = data_mac_len(in.flags);                // 8-B nonce-seed under CRYPTED, else the 4-B MAC
     const bool mac_zero = in.mac.empty();
-    if (!mac_zero && in.mac.size() != DATA_MAC_LEN) return 0;
+    if (!mac_zero && in.mac.size() != mac_len) return 0;
 
     const uint8_t hr = in.hops_remaining > 31 ? 31 : in.hops_remaining;   // saturate (matches Lua math.min)
     const uint8_t ch = in.committed_hops > 7  ? 7  : in.committed_hops;
@@ -652,13 +656,13 @@ size_t pack_data(const data_in& in, std::span<uint8_t> out) {
     w.u16_le(in.ctr);
     if (in.type != 0) w.u8(in.type);                             // byte 8: TYPE (iff APP)
     for (uint8_t b : in.inner) w.u8(b);                           // opaque ciphertext slot
-    if (mac_zero) { for (int i = 0; i < (int)DATA_MAC_LEN; ++i) w.u8(0); }
-    else          { for (uint8_t b : in.mac) w.u8(b); }           // opaque 4-B trailer
+    if (mac_zero) { for (size_t i = 0; i < mac_len; ++i) w.u8(0); }
+    else          { for (uint8_t b : in.mac) w.u8(b); }           // opaque trailer: 4-B MAC, or 8-B nonce-seed under CRYPTED
     return w.ok() ? w.size() : 0;
 }
 
 std::optional<data_out> parse_data(std::span<const uint8_t> frame) {
-    if (frame.size() < DATA_HDR_LEN + DATA_MAC_LEN) return std::nullopt;   // < 12
+    if (frame.size() < DATA_HDR_LEN) return std::nullopt;          // need the 8-B header to read the byte-1 flags first
     if (wire::cmd_of(frame[0]) != wire::Cmd::D) return std::nullopt;
 
     data_out o{};
@@ -672,6 +676,8 @@ std::optional<data_out> parse_data(std::span<const uint8_t> frame) {
     o.source_hash    = (o.flags & DATA_FLAG_SOURCE_HASH) != 0;
     o.dst_hash       = (o.flags & DATA_FLAG_DST_HASH)    != 0;
     o.priority       = (o.flags & DATA_FLAG_PRIORITY)    != 0;
+    const size_t mac_len = data_mac_len(o.flags);                 // 8 under CRYPTED (nonce-seed), else the 4-B MAC
+    if (frame.size() < DATA_HDR_LEN + mac_len) return std::nullopt;   // header + the (conditional) trailer
     o.next             = frame[2];
     o.dst              = frame[3];
     o.hops_remaining   = static_cast<uint8_t>((frame[4] >> 3) & 0x1F);
@@ -682,7 +688,7 @@ std::optional<data_out> parse_data(std::span<const uint8_t> frame) {
     if (o.app) {
         // APP: a TYPE byte sits at offset 8 before the inner. The < 12 guard above only ensures the 8-B
         // header + 4-B MAC; an APP frame needs ONE more byte for the TYPE -> reject a too-short APP frame.
-        if (frame.size() < DATA_HDR_LEN + 1 + DATA_MAC_LEN) return std::nullopt;
+        if (frame.size() < DATA_HDR_LEN + 1 + mac_len) return std::nullopt;
         o.type      = frame[DATA_HDR_LEN];                        // byte 8
         o.inner_off = DATA_HDR_LEN + 1;                          // 9
     } else {
@@ -690,8 +696,8 @@ std::optional<data_out> parse_data(std::span<const uint8_t> frame) {
         o.inner_off = DATA_HDR_LEN;                              // 8
     }
     o.e2e_is_ack  = (o.type == DATA_TYPE_E2E_ACK);               // derived convenience
-    o.inner_len   = frame.size() - o.inner_off - DATA_MAC_LEN;   // size guard above ensures >= 0
-    o.mac_off     = frame.size() - DATA_MAC_LEN;
+    o.inner_len   = frame.size() - o.inner_off - mac_len;        // size guard above ensures >= 0
+    o.mac_off     = frame.size() - mac_len;
     o.frame_len   = frame.size();
     return o;
 }
@@ -701,8 +707,15 @@ std::span<const uint8_t> data_inner(std::span<const uint8_t> frame, const data_o
     return frame.subspan(d.inner_off, d.inner_len);
 }
 std::span<const uint8_t> data_mac(std::span<const uint8_t> frame, const data_out& d) {
-    if (d.mac_off + DATA_MAC_LEN > frame.size()) return {};
-    return frame.subspan(d.mac_off, DATA_MAC_LEN);
+    const size_t n = data_mac_len(d.flags);                       // 8 under CRYPTED (the nonce-seed), else 4
+    if (d.mac_off + n > frame.size()) return {};
+    return frame.subspan(d.mac_off, n);
+}
+// The 8-B cleartext nonce-seed (rand8) a CRYPTED DATA carries in its trailer; empty for a non-CRYPTED frame.
+std::span<const uint8_t> data_nonce_seed(std::span<const uint8_t> frame, const data_out& d) {
+    if (!d.crypted) return {};
+    if (d.mac_off + 8 > frame.size()) return {};
+    return frame.subspan(d.mac_off, 8);
 }
 
 std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> inner, uint8_t flags) {
@@ -731,6 +744,13 @@ std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> i
     }
     if (inner.size() < off + 1) return std::nullopt;              // origin
     u.origin = inner[off]; off += 1;
+    if (flags & DATA_FLAG_CRYPTED) {
+        // SEALED (spec §3): source_hash + location + body live INSIDE the ciphertext (+ a 16-B tag at the end).
+        // The cleartext AAD region ends at `origin`; hand the rest (ciphertext||tag) to the open step rather than
+        // reading source_hash/location/body raw. has_source_hash/has_location stay false until decryption.
+        u.body = inner.subspan(off);
+        return u;
+    }
     if (flags & DATA_FLAG_SOURCE_HASH) {                          // origin's key_hash32 (stable sender id), after origin
         if (inner.size() < off + 4) return std::nullopt;          // source_hash (4 B LE)
         wire::Reader r(inner.subspan(off, 4)); u.source_hash = r.u32_le();

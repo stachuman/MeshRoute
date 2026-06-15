@@ -923,7 +923,7 @@ TEST_CASE("M — round-trip across leaf/channel/flavor/body; reject len<7 + wron
 TEST_CASE("DATA — round-trip across fields (full flags byte, TYPE/APP, ctr, inner, hops)") {
     for (uint8_t flags : {uint8_t(0), uint8_t(DATA_FLAG_E2E_ACK_REQ),
                           uint8_t(DATA_FLAG_DST_HASH | DATA_FLAG_PRIORITY),
-                          uint8_t(DATA_FLAG_CROSS_LAYER | DATA_FLAG_CRYPTED | DATA_FLAG_SOURCE_HASH)})
+                          uint8_t(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH)})  // CRYPTED has its own 8-B-trailer round-trip (Phase-1 tests below)
         for (uint8_t type : {uint8_t(0), uint8_t(DATA_TYPE_H_ANSWER),
                              uint8_t(DATA_TYPE_AUTHORITATIVE_H_ANSWER), uint8_t(DATA_TYPE_E2E_ACK)})
             for (uint16_t ctr : {uint16_t(0), uint16_t(0x1234), uint16_t(0xFFFF)})
@@ -999,14 +999,14 @@ TEST_CASE("DATA — byte1 flag bit isolation (full byte; each flag toggles exact
     std::array<uint8_t, 24> base{}, xl{}, cry{}, ack_req{}, srch{}, dsth{}, prio{};
     CHECK(pack_flags(0, base) == 12);
     CHECK(pack_flags(DATA_FLAG_CROSS_LAYER, xl)      == 12);
-    CHECK(pack_flags(DATA_FLAG_CRYPTED,     cry)     == 12);
+    CHECK(pack_flags(DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH, cry) == 16);  // CRYPTED requires DST_HASH + an 8-B nonce-seed trailer
     CHECK(pack_flags(DATA_FLAG_E2E_ACK_REQ, ack_req) == 12);
     CHECK(pack_flags(DATA_FLAG_SOURCE_HASH, srch)    == 12);
     CHECK(pack_flags(DATA_FLAG_DST_HASH,    dsth)    == 12);
     CHECK(pack_flags(DATA_FLAG_PRIORITY,    prio)    == 12);
     CHECK(base[1] == 0x00);
     CHECK((base[1] ^ xl[1])      == 0x40);   // CROSS_LAYER -> bit 6
-    CHECK((base[1] ^ cry[1])     == 0x20);   // CRYPTED     -> bit 5
+    CHECK((dsth[1] ^ cry[1])     == 0x20);   // CRYPTED     -> bit 5 (isolated vs DST_HASH, which CRYPTED requires)
     CHECK((base[1] ^ ack_req[1]) == 0x10);   // E2E_ACK_REQ -> bit 4
     CHECK((base[1] ^ srch[1])    == 0x04);   // SOURCE_HASH -> bit 2
     CHECK((base[1] ^ dsth[1])    == 0x02);   // DST_HASH    -> bit 1
@@ -1381,4 +1381,78 @@ TEST_CASE("unicast inner — LOCATION grows the inner by 6; the body cap shrinks
     uint8_t ok[19] = {};
     CHECK(pack_unicast_inner(std::span<uint8_t>(ok, sizeof ok), flags, 0, nullptr, 0, 0,
                              7, 1, body, sizeof body, 1, 1) == 19);    // 1+4+6+8
+}
+
+// =============================================================================
+// Phase 1 — conditional DATA MAC trailer (4 normally, 8 under CRYPTED = the nonce-seed)
+// + the CRYPTED inner split. Spec docs/superpowers/specs/2026-06-15-phase1-e2e-dm-crypto.md §3.
+// =============================================================================
+TEST_CASE("data_mac_len — 4 normally, 8 under CRYPTED") {
+    CHECK(data_mac_len(0) == 4);
+    CHECK(data_mac_len(DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH) == 4);
+    CHECK(data_mac_len(DATA_FLAG_CRYPTED) == 8);
+    CHECK(data_mac_len(DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH) == 8);
+}
+
+TEST_CASE("pack_data — KEYSTONE: a non-CRYPTED DATA keeps the 4-B trailer (byte-identical layout)") {
+    const uint8_t inner[5] = { 9, 'h', 'e', 'l', 'l' };
+    uint8_t out[64] = {};
+    data_in din{}; din.flags = DATA_FLAG_SOURCE_HASH; din.next = 2; din.dst = 3; din.ctr = 0x0042;
+    din.inner = std::span<const uint8_t>(inner, sizeof inner);          // mac empty -> 4 zero trailer
+    const size_t n = pack_data(din, std::span<uint8_t>(out, sizeof out));
+    CHECK(n == 8 + 5 + 4);
+    auto d = parse_data(std::span<const uint8_t>(out, n));
+    CHECK(d.has_value());
+    if (d) { CHECK_FALSE(d->crypted); CHECK(d->inner_len == 5); CHECK(d->mac_off == n - 4); }
+}
+
+TEST_CASE("pack_data — CRYPTED carries an 8-B trailer (nonce-seed); parse exposes data_nonce_seed + data_mac(8)") {
+    const uint8_t inner[6] = { 9, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE };       // origin + opaque sealed blob
+    const uint8_t seed[8]  = { 1, 2, 3, 4, 5, 6, 7, 8 };
+    uint8_t out[64] = {};
+    data_in din{}; din.flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH; din.next = 2; din.dst = 3; din.ctr = 7;
+    din.inner = std::span<const uint8_t>(inner, sizeof inner);
+    din.mac   = std::span<const uint8_t>(seed, 8);
+    const size_t n = pack_data(din, std::span<uint8_t>(out, sizeof out));
+    CHECK(n == 8 + 6 + 8);
+    auto d = parse_data(std::span<const uint8_t>(out, n));
+    CHECK(d.has_value());
+    if (d) {
+        CHECK(d->crypted);
+        CHECK(d->inner_len == 6);
+        CHECK(d->mac_off == n - 8);
+        auto sd = data_nonce_seed(std::span<const uint8_t>(out, n), *d);
+        CHECK(sd.size() == 8);
+        bool seed_ok = true; for (int i = 0; i < 8; ++i) if (sd[i] != seed[i]) seed_ok = false;
+        CHECK(seed_ok);
+        CHECK(data_mac(std::span<const uint8_t>(out, n), *d).size() == 8);   // data_mac == the conditional trailer
+    }
+}
+
+TEST_CASE("pack_data — refuses CRYPTED without DST_HASH, and a wrong-size CRYPTED trailer") {
+    const uint8_t inner[2] = { 9, 0xAA }; const uint8_t seed[8] = {};
+    uint8_t out[64];
+    data_in din{}; din.flags = DATA_FLAG_CRYPTED;                       // NO DST_HASH -> refuse
+    din.inner = std::span<const uint8_t>(inner, sizeof inner); din.mac = std::span<const uint8_t>(seed, 8);
+    CHECK(pack_data(din, std::span<uint8_t>(out, sizeof out)) == 0);
+    din.flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH; din.mac = std::span<const uint8_t>(seed, 4);  // 4-B trailer under CRYPTED -> refuse
+    CHECK(pack_data(din, std::span<uint8_t>(out, sizeof out)) == 0);
+}
+
+TEST_CASE("parse_unicast_inner — CRYPTED stops at origin; the sealed region is handed back as body") {
+    uint8_t inner[4 + 1 + 10];
+    inner[0] = 0x44; inner[1] = 0x33; inner[2] = 0x22; inner[3] = 0x11;     // dst_key_hash32 = 0x11223344 LE
+    inner[4] = 42;                                                          // origin (cleartext)
+    for (int i = 0; i < 10; ++i) inner[5 + i] = static_cast<uint8_t>(0xA0 + i);  // sealed ct||tag (opaque)
+    const uint8_t flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH;
+    auto u = parse_unicast_inner(std::span<const uint8_t>(inner, sizeof inner), flags);
+    CHECK(u.has_value());
+    if (u) {
+        CHECK(u->has_dst_hash); CHECK(u->dst_key_hash32 == 0x11223344u);
+        CHECK(u->origin == 42);
+        CHECK_FALSE(u->has_source_hash);                                   // NOT read raw (sealed)
+        CHECK_FALSE(u->has_location);
+        CHECK(u->body.size() == 10);                                       // the whole sealed region (ct||tag)
+        CHECK(u->body[0] == 0xA0); CHECK(u->body[9] == 0xA9);
+    }
 }

@@ -3,6 +3,7 @@
 
 #include "../core/airtime.h"   // lib/core (relative — see device_hal.h); SAME airtime_ms formula the
                                // Node uses, so the device duty ledger == Node math == Lua.
+#include "../../src/device_rng.h"   // mrrng::fill — HW RNG / SD-RNG for rand_bytes (host build: zeros, see header)
 
 namespace meshroute {
 
@@ -74,5 +75,8 @@ int DeviceHal::rand_range(int lo, int hi) {
     _rng ^= _rng << 13; _rng ^= _rng >> 17; _rng ^= _rng << 5;   // xorshift32
     return lo + static_cast<int>(_rng % static_cast<uint32_t>(hi - lo));
 }
+// Crypto entropy (the XChaCha nonce-seed) — the HW RNG, NOT the xorshift32 above. mrrng::fill draws NRF_RNG /
+// SD-RNG / esp_random on device; the host/native build fills zeros (degenerate-on-purpose, see device_rng.h).
+void DeviceHal::rand_bytes(uint8_t* out, size_t n) { mrrng::fill(out, n); }
 
 }  // namespace meshroute

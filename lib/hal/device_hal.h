@@ -45,6 +45,7 @@ public:
     // ---- Hal identity / rng / telemetry ----
     void     set_protocol_id(int id) override { _short_id = id < 0 ? 0 : (id > 255 ? 255 : id); }
     int      rand_range(int lo, int hi) override;       // [lo,hi); xorshift32 (device determinism is irrelevant)
+    void     rand_bytes(uint8_t* out, size_t n) override;   // crypto entropy: mrrng::fill (HW RNG / SD-RNG); host build = zeros
     void     emit(const char* type, const EventField* fields, size_t n) override { (void)type; (void)fields; (void)n; }
     void     log(const char* msg) override { (void)msg; }   // device routes telemetry over the console in fw_main, not here
     void     panic(const char* why) override { _panicked = true; _panic_why = why; }

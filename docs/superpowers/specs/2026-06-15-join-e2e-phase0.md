@@ -35,24 +35,24 @@ DECISION: ✅ **Reuse the H-query → DATA-answer path + cache-on-pass; GATED by
 **E3 Replay protection for sealed DMs.**
 Issue: AEAD = integrity, not freshness; a captured CRYPTED DM can be re-injected. Spec is silent.
 Rec: **accept-none for v1** (honest-node threat model, §0) + document explicitly; revisit with the app-layer security phase. (A small per-`source_hash` ctr-window is the upgrade path.)
-DECISION: ____
+DECISION: ✅ **accept-none for v1** (honest-node §0); documented. The per-`source_hash` ctr-window is the upgrade path.
 
 **E4 KDF construction.**
 Rec: `key = BLAKE2b(shared_point ‖ "MR-E2E-v1" ‖ min(myhash,peerhash) ‖ max(myhash,peerhash))[:32]` — domain-separated + endpoint-bound (so the two directions share one key deterministically).
-DECISION: ____ (confirm)
+DECISION: ✅ confirmed — **canonical order is DOMAIN-FIRST**: `key = BLAKE2b("MR-E2E-v1" ‖ shared ‖ min(hash) ‖ max(hash))[:32]` (matches the wire-surface reservation + the Phase-1 instruction; the shared-first ordering above is superseded — order is arbitrary but must be ONE, domain-first chosen). **AAD = the cleartext routing header.**
 
 **E5 Forward secrecy.**
 Reality: static-static X25519 ⇒ **no FS** (one seed compromise → all past/future DMs). 
 Rec: **accept no-FS for v1**, on the record (consistent with §0). Ephemeral/FS is a future app-layer phase.
-DECISION: ____ (confirm)
+DECISION: ✅ confirmed — **no FS for v1** (static-static), on the record.
 
 **E6 No-pubkey-known behaviour.**
 Rec: **FAIL LOUD** — refuse the send + surface to the app; **never silently fall back to cleartext** (matches the codebase's no-silent-default ethos; cf. `data_sf` removal).
-DECISION: ____ (confirm)
+DECISION: ✅ confirmed — **FAIL LOUD** (refuse + surface to app), never silent cleartext.
 
 **E7 key_hash32 collision for the key cache.**
 Rec: cache keyed by **full pubkey**; the existing `DST_HASH` verify-on-delivery + AEAD-auth-fail already *detect* a wrong recipient; on a cached collision, disambiguate via a fresh HARD-H (which returns the full pubkey).
-DECISION: ____ (confirm)
+DECISION: ✅ confirmed — cache by **full pubkey** (RESOLVED by E2; 32-bit collisions distinguishable). Refined 2026-06-15: an authoritative (TYPE-5) pubkey **survives relay** (immutable + hash-verifiable); needed-but-absent → HARD `WANT_PUBKEY`.
 
 ### L — Leaf membership / config-correctness
 
@@ -62,21 +62,21 @@ DECISION: ✅ Hash the canonical bytes the code stores: `config_hash (u32 LE) = 
 
 **L2 lineage_id minting / `leaf create` UX.**
 Rec: a `cfg` op (e.g. `leaf create`) mints a random 4-B `lineage_id` + sets the leaf-defining config (epoch 0); joiners adopt it from the beacon/CONFIG_PULL. Document that two operators independently "creating leaf 3" get **two different lineages = two non-interoperating leaves** (safe by design; a UX footgun to surface, not prevent).
-DECISION: ____
+DECISION: ✅ a `leaf create` cfg op mints the 4-B `lineage_id` (epoch 0) + the leaf config; joiners adopt from beacon/CONFIG_PULL. Two-operators→two-lineages footgun documented, not prevented. (Phase 2.)
 
 **L3 CONFIG_PULL carrier.**
 Options: (a) a `Q CONFIG_PULL` subtype (request) answered by a routed **DATA `TYPE=CONFIG_ANSWER`** (config body); (b) all-in-Q.
 Rec: **(a)** — Q-request + routed-DATA-answer (reuses the routed delivery + the DATA-TYPE enum; mirrors E2's pubkey answer).
-DECISION: ____
+DECISION: ✅ **(a)** — `CONFIG_PULL` is a Q-request answered by a routed **DATA TYPE `CONFIG_ANSWER`** (reserved TYPE 6 in the wire-surface reservation). The Q-request subtype carrier is a Phase-2 detail.
 
 **L4 Epoch bump semantics.**
 Rec: a writer **first syncs max-seen-epoch from beacons**, then `epoch = max_seen + 1`; ties (same epoch, diff hash) resolved by higher `key_hash32` (loser pulls, keeps epoch — no bump war); 2-B wrap handled by the same key-tiebreak. Document.
-DECISION: ____ (confirm)
+DECISION: ✅ confirmed — sync max-seen-epoch → `max+1`; ties → higher `key_hash32` (loser pulls, keeps epoch, no bump-war). (Phase 2.)
 
 **L5 BCN +10 B leaf header = wire flag-day.**
 Reality: adding `{lineage_id(4) ‖ epoch(2) ‖ config_hash(4)}` before the route entries grows every beacon → **breaks the frozen s18 byte-identical keystone** (this phase is *semantic* parity, re-baseline). No BCN version negotiation → hard flag-day (fine per the 3-test-node policy).
 Rec: **accept**; write the header before route entries; re-baseline s18 + verify semantic parity for Phase 2.
-DECISION: ____ (confirm)
+DECISION: ✅ confirmed — accept the +10-B BCN flag-day (reflash-all) + s18 re-baseline (Phase 2 = semantic parity). ⚠ Phase-2 TODO: re-examine the BCN truncation cut-order (the leaf header must never be cut).
 
 ### G — Gaps
 
@@ -89,17 +89,15 @@ DECISION: ✅ Static gateway node_ids (provisioned), defer live per-leaf DAD. **
 **G2 Address-exhaustion retry.**
 Reality: designed ("retry on a slow timer") but **not built** — an exhausted joiner gives up permanently (`node_join.cpp:116-121`).
 Rec: add a slow-retry timer (ids free as bindings age). Small fix.
-DECISION: ____ (confirm)
+DECISION: ✅ confirmed — add a slow exhaustion-retry timer. (Phase 3.)
 
 ---
 
 ## §C — Verification gap (not a decision, an action)
 
-The DAD sim-gates the spec cites as green — **`t91_node_id_dad_convergence`, `t92_node_id_collision_heal`, `t93` (138-node storm)** — **do not exist in the tree** (no `test/*.json` match). So the shipped DAD's convergence/heal/storm claims (incl. the "21/136 dup" that justified L2c) have **no reproducible artifact**. Action: **recreate them** as part of the join/crypto verification (they're the regression proof for both the shipped DAD and the new work).
+**CORRECTED 2026-06-15 (coder cross-check):** the DAD sim-gates **DO exist** — in the **simulator repo** (`~/lora-universal-simulator/test/`), not `MeshRoute/test/`: `t90_identity_seed_derivation`, `t91_node_id_dad_convergence`, `t92_node_id_collision_heal`, `t93_singlelayer_dense_meshroute_join`, plus the full join suite `t47`–`t60` (j-frame wire, autonomous join, no-offer retry, simultaneous-claim race, rate-limit, lease/epoch NV, forced-rejoin) — each with a golden `_events.ndjson`. The original "do not exist" claim grepped the wrong repo. **The "recreate them" action is MOOT.** One residual gap: the real `t93` is a *single-layer-dense join* scenario, **not** a 138-node DAD storm — so a dedicated high-density DAD-storm gate may still be worth adding (Phase 3).
 
 ---
 
-## Next
-1. You mark the `DECISION:` lines (or we talk through the four ★: **E1 nonce, E2 pubkey-wire, L1 config-hash, G1 gateway-DAD** — they have real trade-offs).
-2. I fold the decisions + the §A reconciliations into the two specs + `frames.md`, and recreate the §C gates plan.
-3. Then the coder starts — **Phase 1 (E2E crypto)** first (smaller, no flag-day), **Phase 2 (leaf membership)** second.
+## Next — CLOSED 2026-06-15
+All 12 DECISION lines above are stamped (✅). Folded into: the two design-spec Phase-0 banners, `frames.md`, the **wire-surface reservation** (`2026-06-15-wire-surface-reservation.md`), and the **Phase-1 instruction** (`2026-06-15-phase1-e2e-dm-crypto.md`). §C corrected (the gates exist in the sim repo). **The coder starts Phase 1 (E2E crypto)**; Phase 2 (leaf membership, flag-day) follows.

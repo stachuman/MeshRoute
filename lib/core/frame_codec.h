@@ -362,6 +362,11 @@ enum DataFlag : uint8_t {
     DATA_FLAG_PRIORITY    = 0x01,    // decoded-only (no behaviour wired yet)
 };
 
+// Phase 1: the DATA trailer is CONDITIONAL on CRYPTED — a CRYPTED frame repurposes the 4-B MAC into an
+// 8-B cleartext nonce-seed (rand8); non-CRYPTED keeps the 4-B(-zero) trailer (-> s18 byte-identical).
+// Read from the cleartext byte-1 flags BEFORE the trailer, so a relay sizes the frame without decrypting.
+inline constexpr size_t data_mac_len(uint8_t flags) { return (flags & DATA_FLAG_CRYPTED) ? 8 : 4; }
+
 // byte-8 TYPE (enum, present IFF APP=1): mutually-exclusive message kinds. 0 is reserved/invalid (never on
 // the wire — APP=0 means no TYPE byte). AUTHORITATIVE is folded into the H_ANSWER code (1 vs 2); E2E_IS_ACK
 // became the E2E_ACK type. The H_ANSWER inner is cleartext so relays cache-on-pass.
@@ -401,7 +406,9 @@ struct data_out {
 };
 std::optional<data_out> parse_data(std::span<const uint8_t> frame);   // nullopt: len<12 / cmd / addr_len!=0 / APP w/o room for TYPE
 std::span<const uint8_t> data_inner  (std::span<const uint8_t> frame, const data_out& d);  // opaque, inner_len B
-std::span<const uint8_t> data_mac    (std::span<const uint8_t> frame, const data_out& d);  // 4 B
+std::span<const uint8_t> data_mac    (std::span<const uint8_t> frame, const data_out& d);  // 4 B (8 if CRYPTED)
+// Phase 1: the 8-B cleartext nonce-seed (rand8) carried in the trailer of a CRYPTED DATA. Empty otherwise.
+std::span<const uint8_t> data_nonce_seed(std::span<const uint8_t> frame, const data_out& d);
 
 // 6-byte location codec — 21-bit lat + 22-bit lon quantized from int32 deg×1e7 (~11 m, global).
 // LOCATION-propagation spec 2026-06-14. step = 1024 e7-units; +512 cell-centring on decode. The

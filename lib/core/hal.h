@@ -101,6 +101,11 @@ public:
 
     // ---- rng
     virtual int      rand_range(int lo, int hi) = 0;   // [lo,hi); shared mt19937 + draw order in sim
+    // Crypto-strength entropy — DISTINCT from rand_range (a software mt19937 on device: fine for jitter, but
+    // predictable + reboot-repeatable -> UNSAFE for an XChaCha nonce under a static ECDH key). Device draws the
+    // HW RNG (mrrng::fill / SD-RNG); sim draws its DETERMINISTIC per-node RNG so E2E scenarios reproduce. ONLY
+    // the CRYPTED seal path calls this -> never drawn with E2E off (the s18 byte-identity keystone is untouched).
+    virtual void     rand_bytes(uint8_t* out, size_t n) = 0;
 
     // ---- telemetry — the BACKEND serializes; Node stays format-agnostic.
     virtual void     emit(const char* type, const EventField* fields, size_t n_fields) = 0;

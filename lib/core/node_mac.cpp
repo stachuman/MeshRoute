@@ -474,7 +474,7 @@ void Node::tx_rts_retry() {
     // DM RTS; the M-broadcast RTS is tx_m_broadcast_rts. Slice 4c.2: a gateway's cross-layer re-inject sets RTS_FLAG_RELAY
     // so the receiver exempts it from the originator anti-spam (node_mac_rx :40/:199) — G is relaying, not a 1st-hop origination.
     rin.dst = pt.dst; rin.sf_index = 3 /*ANY*/; rin.rts_flags = pt.is_gw_relay ? RTS_FLAG_RELAY : 0;
-    rin.payload_len = static_cast<uint8_t>(pt.inner_len + 4 /*MAC_LEN*/); rin.m_payload_id_lo16 = 0;
+    rin.payload_len = static_cast<uint8_t>(pt.inner_len + data_mac_len(pt.flags)); rin.m_payload_id_lo16 = 0;  // +8 under CRYPTED (nonce-seed)
     uint8_t buf[9];
     const size_t l = pack_rts(rin, std::span<uint8_t>(buf, sizeof(buf)));
     if (l == 0) { _hal.log("RTS pack failed"); return; }

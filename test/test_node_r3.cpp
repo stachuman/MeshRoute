@@ -54,6 +54,7 @@ public:
     void     set_protocol_id(int) override {}
     int      _rand_ret = -1;   // opt-in scriptable rand (>=0 overrides the default `return lo`; -1 = default)
     int      rand_range(int lo, int) override { ++rand_calls; return _rand_ret >= 0 ? _rand_ret : lo; }
+    void     rand_bytes(uint8_t* o, size_t n) override { for (size_t i = 0; i < n; ++i) o[i] = static_cast<uint8_t>(rand_range(0, 256)); }
     void     emit(const char* type, const EventField* f, size_t n) override {
         Ev e; e.type = type;
         for (size_t i = 0; i < n; ++i) {

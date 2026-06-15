@@ -40,6 +40,7 @@ public:
     void     cancel(uint32_t id) override { if (id < 80) cancelled[id] = true; }
     void     set_protocol_id(int id) override { last_set_protocol_id = id; }
     int      rand_range(int lo, int) override { return lo; }
+    void     rand_bytes(uint8_t* o, size_t n) override { for (size_t i = 0; i < n; ++i) o[i] = static_cast<uint8_t>(rand_range(0, 256)); }
     void     emit(const char*, const EventField*, size_t) override {}
     void     log(const char*) override {}
 };
