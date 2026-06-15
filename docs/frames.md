@@ -4,7 +4,7 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 
 **Conventions**
 - Byte 0's **high nibble (bits 7..4) is the command nibble (`cmd`)** that identifies the frame; the low nibble (bits 3..0) usually carries `leaf_id` (layer id, 0..15).
-- Node ids are 8-bit short-ids; `0xFF` is reserved (unknown / broadcast sentinel).
+- Node ids are 8-bit short-ids. Reserved allocation: **`0`** = unprovisioned / no-use · **`1`–`16`** = GATEWAYS only (statically provisioned) · **`17`–`254`** = normal nodes (auto-assigned via DAD) · **`0xFF`** = unknown / broadcast sentinel. The join/DAD candidate pick excludes `1`–`16` for normal nodes.
 - Multi-byte integers are **little-endian** unless marked **BE**.
 - `rsv` = reserved (zero on pack, ignored on parse).
 
@@ -97,18 +97,18 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 
 **Use** — the payload, sent on the granted SF after a CTS, then relayed hop-by-hop (each hop re-runs RTS/CTS/DATA). **Reply** — **ACK** from the next hop, else **NACK**; with `E2E_ACK_REQ` the final destination returns an end-to-end ACK (a DATA whose **TYPE** = `E2E_ACK`).
 
-| Byte   | Field                            | Description                                                                                           |
-| ------ | -------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| 0      | cmd \| addr_len                  | bits 7..4 = `0x3`; b3..1 = addr_len (0 this phase); b0 rsv                                            |
-| 1      | flags                            | full byte (see **flags**) — APP gates a TYPE byte                                                     |
-| 2      | next                             | next-hop short-id                                                                                     |
-| 3      | dst                              | final destination short-id                                                                            |
-| 4      | hops_remaining \| committed_hops | b7..3 = hops_remaining (5-bit, 0..31) · b2..0 = committed_hops (3-bit, 0..7)                          |
-| 5      | prev_fwd_rt_hops                 | soft hop-gradient hint                                                                                |
-| 6..7   | ctr                              | 16-bit message counter (**LE**)                                                                       |
-| 8      | TYPE                             | message kind (enum, **present iff `APP`** — see **TYPE**); else the inner starts here                |
-| 8/9..  | inner                            | the inner (see **Inner layouts**) — starts at 9 when `APP`, else 8; **no payload-flags byte**         |
-| last 4 | MAC                              | opaque 4-byte frame trailer (currently zero-stubbed)                                                  |
+| Byte   | Field                            | Description                                                                                   |
+| ------ | -------------------------------- | --------------------------------------------------------------------------------------------- |
+| 0      | cmd \| addr_len                  | bits 7..4 = `0x3`; b3..1 = addr_len (0 this phase); b0 rsv                                    |
+| 1      | flags                            | full byte (see **flags**) — APP gates a TYPE byte                                             |
+| 2      | next                             | next-hop short-id                                                                             |
+| 3      | dst                              | final destination short-id                                                                    |
+| 4      | hops_remaining \| committed_hops | b7..3 = hops_remaining (5-bit, 0..31) · b2..0 = committed_hops (3-bit, 0..7)                  |
+| 5      | prev_fwd_rt_hops                 | soft hop-gradient hint                                                                        |
+| 6..7   | ctr                              | 16-bit message counter (**LE**)                                                               |
+| 8      | TYPE                             | message kind (enum, **present iff `APP`** — see **TYPE**); else the inner starts here         |
+| 8/9..  | inner                            | the inner (see **Inner layouts**) — starts at 9 when `APP`, else 8; **no payload-flags byte** |
+| last 4 | MAC                              | opaque 4-byte frame trailer (currently zero-stubbed)                                          |
 
 Bytes 2..7 are the **fixed routing header** — relays read `next`/`dst`/`hops`/`ctr` at constant offsets regardless of `APP`. The TYPE byte sits where the old `inner[0]` payload-flags byte was (promoted into the cleartext header, gated by `APP`); only endpoints / cache-on-pass snoopers read it. A normal user DM (`APP=0`) carries **no** TYPE byte.
 
@@ -127,13 +127,13 @@ Bytes 2..7 are the **fixed routing header** — relays read `next`/`dst`/`hops`/
 
 **TYPE (byte 8, enum, present iff `APP`):** mutually-exclusive message kinds. `AUTHORITATIVE` is folded into the H-answer code (1 vs 2); the old `E2E_IS_ACK` flag became the `E2E_ACK` type.
 
-| code | type | inner shape |
-|------|------|-------------|
-| 0 | *(reserved / invalid — never on the wire; `APP=0` means no TYPE byte)* | — |
-| 1 | `H_ANSWER` | `[target_layer 1][node_id 1][key_hash32 4 LE]` (6 B) |
-| 2 | `AUTHORITATIVE_H_ANSWER` | same as `H_ANSWER`; the answer is the owner's (authoritative) |
-| 3 | `E2E_ACK` | normal-unicast inner, `body` = the acked `ctr` (2 B LE) |
-| 4..255 | future | WANT_PUBKEY answer, gateway-envelope, … |
+| code   | type                                                                   | inner shape                                                   |
+| ------ | ---------------------------------------------------------------------- | ------------------------------------------------------------- |
+| 0      | *(reserved / invalid — never on the wire; `APP=0` means no TYPE byte)* | —                                                             |
+| 1      | `H_ANSWER`                                                             | `[target_layer 1][node_id 1][key_hash32 4 LE]` (6 B)          |
+| 2      | `AUTHORITATIVE_H_ANSWER`                                               | same as `H_ANSWER`; the answer is the owner's (authoritative) |
+| 3      | `E2E_ACK`                                                              | normal-unicast inner, `body` = the acked `ctr` (2 B LE)       |
+| 4..255 | future                                                                 | WANT_PUBKEY answer, gateway-envelope, …                       |
 
 ### Inner layouts
 
@@ -297,11 +297,11 @@ DENY **reason:** `1 = CONFLICT`, `2 = PENDING_CLAIM`, `3 = OWN_ID_DEFENSE`, `4 =
 
 Decided in the design specs and landing with their slices (not all wired yet) — listed so the wire reference stays complete:
 
-- **BCN — +10 B leaf header** `{lineage_id(4) · epoch(2) · config_hash(4)}`, written **before** the route entries (so it survives the 151-B page truncation): the same-`leaf_id`-but-divergent-config filter. See `docs/specs/2026-06-05-identity-leaf-membership-join-design.md` §3.
+- **BCN — +10 B leaf header** `{lineage_id(4) · epoch(2) · config_hash(4)}`, written **before** the route entries (so it survives the 151-B page truncation): the same-`leaf_id`-but-divergent-config filter. `config_hash = BLAKE2b(u16 allowed_sf_bitmap LE ‖ u32 duty_ppm LE ‖ u8 name_len ‖ leaf_name)[:4]`. **Wire FLAG-DAY** (no BCN version handshake → reflash-all). **⚠ Re-examine BCN truncation when this lands** — the leaf header must never be cut; pin the overflow priority (entries / seen-bitmap / ext). See `docs/specs/2026-06-05-identity-leaf-membership-join-design.md` §3 + phase-0 doc (L1/L5).
 - **DATA — `DST_HASH`** (described above): **shipped** — the cleartext recipient `key_hash32` + verify-on-delivery (a mismatch identity-preservingly forwards the DM to the real owner; no renumber, see the node-id design spec §7.1).
-- **DATA — `CRYPTED`** (described above): the wire flag/layout are locked; the AEAD seal/open (`origin`+body encryption) ships with the E2E / by-hash slice.
+- **DATA — `CRYPTED`** (described above): the AEAD seal/open (X25519 ECDH → BLAKE2b KDF → XChaCha20-Poly1305 over `origin`+body) ships with the E2E slice. **Nonce:** the 4-B `MAC` trailer becomes a **CRYPTED-gated 8-B cleartext nonce-seed** (4-B-zero when not CRYPTED → s18 byte-identical; 8-B random when CRYPTED), `nonce = BLAKE2b(rand8 ‖ ctr ‖ dst_key_hash32)[:24]`; AEAD AAD = the cleartext routing header. See `docs/superpowers/specs/2026-06-15-join-e2e-phase0.md` (E1/E4).
 - **DATA — `LOCATION` (opt-in 6-B sender location): SHIPPED.** ~11 m, 21-bit lat + 22-bit lon quantized from the stored `int32 e7` (`g_lat_e7`/`g_lon_e7`); flag `0x08`, in the sealed inner after `source_hash` (private to the recipient once `CRYPTED` lands). Toggle `loc_in_dm` (default off → wire byte-identical; never sends `(0,0)`); set ONLY on origination. See `docs/superpowers/specs/2026-06-14-location-propagation.md`.
 - **M — `LOCATION` (opt-in, broadcast-public): DEFERRED proposal.** `flavor` bit `0x08`, a 6-B location after `channel_msg_id`; toggle `loc_in_m`. NOT implemented this round — needs threading the originator's location through the channel-flood plane with re-flood **preservation** (whole-leaf coverage, never the re-flooder's own location) + the RTS-M `payload_len +6`; the codec (`pack_m`/`parse_m`) does NOT handle `0x08` yet. Future slice.
-- **H — pubkey resolution:** a `WANT_PUBKEY` query flag (b1) + a hash-bind answer that appends the 32-B `ed_pub` (a new payload-flag in the free b5/b7 space — b4 is now `SOURCE_HASH`), for DM E2E key resolution.
-- **Q — `CONFIG_PULL`** subtype: pull a leaf's full config (`data_sf_list`/`leaf_name`/`duty_cycle`) for a `{lineage, epoch}`, returned as a routed DATA typed by a new payload-flag (free b5/b7 space).
+- **H / DATA — pubkey resolution (E2E):** H query gains a `WANT_PUBKEY` flag; the owner answers with a routed DATA **TYPE `H_ANSWER_PUBKEY`** = `[target_layer 1][node_id 1][ed_pub 32]` (the redundant `key_hash32` is dropped — it's `ed_pub[:4]`). Every relay caches `ed_pub` **keyed by full pubkey** (cache-on-pass, confidence-tiered like `id_bind`; verifies `ed_pub[:4]==`hash). See phase-0 doc (E2). *(Supersedes the old "payload-flag in b5/b7" plan — that byte is gone.)*
+- **Q — `CONFIG_PULL`** subtype: pull a leaf's full config (SF-set / `leaf_name` / `duty_cycle`) for a `{lineage, epoch}`, answered by a routed DATA **TYPE `CONFIG_ANSWER`**. See phase-0 doc (L3).
 - **J — `wire_version`** in byte 1's reserved nibble: a coarse wire-compat check at join.

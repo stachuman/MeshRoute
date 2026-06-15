@@ -1,5 +1,11 @@
 # node_id Auto-Assignment (DAD + Self-Heal) — Design Spec
 
+> ## ⚑ Phase-0 update (2026-06-15) — corrections + decisions; full rationale in `docs/superpowers/specs/2026-06-15-join-e2e-phase0.md`
+> **Doc-drift (code is truth, this doc is a post-implementation record):** the tiebreak is **KEY-ONLY** — `join_tiebreak_wins` = `my_key < their_key`; `claim_epoch`/`nonce` are **VESTIGIAL** (on wire + NV, never consulted or bumped) → the **§6 "epoch→key" rule box is STALE, read it as key-only.** The §4/§7 beacon-guard "prerequisite" is **DONE** (`node_beacon.cpp:260-267`). Retry has **NO jitter** (fixed 10 s `join_retry_backoff_ms`). NV `claim_epoch` is **inert**.
+> **G1 — reserved id allocation:** `0`=unprovisioned · **`1`–`16`=GATEWAYS** (static, provisioned) · **`17`–`254`=normal** (DAD) · `0xFF`=broadcast. **`join_choose_candidate_id` MUST pick from `[17,254]` only.** Gateway **per-leaf DAD = DEFERRED** (gateways use static cfg ids); single-leaf DAD is as built.
+> **G2:** add a slow **exhaustion-retry timer** — today an exhausted joiner returns `false` and gives up permanently (`node_join.cpp:116-121`).
+> **⚠ Verification gap:** the `t91/t92/t93` sim-gates this doc cites as green **DO NOT EXIST** in the tree — recreate them (DAD convergence / collision-heal / 138-node storm) as the regression proof for the shipped DAD + the new work.
+
 **Status:** §13 decisions **SIGNED OFF 2026-06-06** (`claim_guard_ms`=20 s · `denied_ids` age=1 day ·
 NV-loss→re-run DAD) — **ready for the port slice** (prereq: the `node_beacon.cpp:203` guard fix, §7).
 The dedicated deep-dive §5.3/§7.2 of `2026-06-05-identity-leaf-membership-join-design.md`, required
