@@ -262,6 +262,7 @@ static void do_regen() {
     if (!mrnv::save_id(idb)) { Serial.println(F("> regen err nv_save_failed")); return; }
     meshroute::identity_from_seed(g_identity, idb.seed);
     g_node.set_identity(g_node.node_id(), g_identity.key_hash32);
+    g_node.set_crypto_identity(g_identity.x_secret, g_identity.ed_pub);   // DP1: re-install the E2E crypto identity
     Serial.print(F("> regen ok"));
     print_identity(idb);
 }
@@ -859,6 +860,7 @@ void setup() {
     }
     meshroute::identity_from_seed(g_identity, idb.seed);        // key_hash32 = ed_pub[:4]
     g_node.set_identity(node_id, g_identity.key_hash32);        // node_id 0 stays unprovisioned -> do_send refused
+    g_node.set_crypto_identity(g_identity.x_secret, g_identity.ed_pub);   // DP1: install the E2E crypto identity (X25519 + ed_pub)
     g_lat_e7 = idb.lat_e7; g_lon_e7 = idb.lon_e7;              // node location (persisted in /mrid; 0,0 on first boot)
     cfg.lat_e7 = g_lat_e7; cfg.lon_e7 = g_lon_e7;             // feed the node's location to the DM piggyback (loc_in_dm)
     // node_id DAD: restore the persisted lease state so a reboot KEEPS its id + tiebreak seniority (NV blob v4).

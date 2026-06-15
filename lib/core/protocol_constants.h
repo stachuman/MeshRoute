@@ -227,6 +227,9 @@ inline constexpr uint8_t  channel_flavor_private = 2;
 
 // ---- Identity binding ------------------------------------------------------
 inline constexpr uint32_t id_bind_ttl_ms = 172800000;   // 48 h
+// E2E peer-pubkey cache (Phase 1 §6): key_hash32 -> ed_pub. Sparse (only sealed-DM partners); per LayerRuntime.
+inline constexpr uint16_t cap_peer_keys   = 16;
+inline constexpr uint32_t peer_key_ttl_ms = id_bind_ttl_ms;   // pubkeys are immutable; aging is cache hygiene, not correctness
 
 // ---- Command interface (the app<->firmware seam) ---------------------------
 inline constexpr uint8_t gw_env_max_hops = 4;    // GW_ENV_MAX_HOPS (send_layer hop path)

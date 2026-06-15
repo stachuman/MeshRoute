@@ -12,6 +12,7 @@
 
 #include "node.h"
 #include "frame_codec.h"
+#include "identity.h"
 
 #include <array>
 #include <cstring>
@@ -750,4 +751,66 @@ TEST_CASE("D re-drain — a beacon that installs the authoritative binding flies
     hal.events.clear();
     node.on_recv(bcn.data(), bn, meta);
     CHECK(find_ev(hal.events, "send_hash_resolved") == nullptr);
+}
+
+// =============================================================================
+// Phase 1 §6 — E2E peer-pubkey cache (key_hash32 -> ed_pub). Per-LayerRuntime,
+// hash-verified, authoritative-never-downgraded, evict-oldest at cap, TTL-aged.
+// =============================================================================
+TEST_CASE("peer_key — set/find round-trip; a forged ed_pub (hash mismatch) is refused") {
+    TestHal hal; Node node(hal, /*id=*/5, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    uint8_t seed[32]; for (int i = 0; i < 32; ++i) seed[i] = static_cast<uint8_t>(i + 3);
+    Identity id{}; identity_from_seed(id, seed);
+    CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::authoritative));
+    uint8_t out[32] = {}; Node::PeerKeyConf conf{};
+    CHECK(node.peer_key_find(id.key_hash32, out, &conf));
+    bool same = true; for (int i = 0; i < 32; ++i) if (out[i] != id.ed_pub[i]) same = false;
+    CHECK(same); CHECK(conf == Node::PeerKeyConf::authoritative);
+    CHECK(node.peer_key_count() == 1);
+    CHECK_FALSE(node.peer_key_set(id.key_hash32 ^ 0x1u, id.ed_pub, Node::PeerKeyConf::authoritative));  // hash != ed_pub[:4]
+    CHECK_FALSE(node.peer_key_find(id.key_hash32 ^ 0x1u, out));
+    CHECK(node.peer_key_count() == 1);                                  // the forged insert did NOT cache
+}
+
+TEST_CASE("peer_key — authoritative is never downgraded by an overheard insert") {
+    TestHal hal; Node node(hal, 5, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); node.on_init(cfg);
+    uint8_t seed[32]; for (int i = 0; i < 32; ++i) seed[i] = static_cast<uint8_t>(i + 9);
+    Identity id{}; identity_from_seed(id, seed);
+    CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::authoritative));
+    CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::overheard));   // same hash, LOWER conf
+    Node::PeerKeyConf conf{}; uint8_t out[32];
+    CHECK(node.peer_key_find(id.key_hash32, out, &conf));
+    CHECK(conf == Node::PeerKeyConf::authoritative);                                    // stayed authoritative
+}
+
+TEST_CASE("peer_key — evict the least-recently-seen when the cache is full (cap_peer_keys)") {
+    TestHal hal; Node node(hal, 5, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); node.on_init(cfg);
+    Identity first{};
+    for (int k = 0; k <= protocol::cap_peer_keys; ++k) {               // cap+1 distinct keys, strictly increasing last_seen
+        uint8_t seed[32] = {}; seed[0] = static_cast<uint8_t>(k + 1); seed[1] = 0x5A;
+        Identity id{}; identity_from_seed(id, seed);
+        hal._now = 1000ull + static_cast<uint64_t>(k) * 10;
+        CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::authoritative));
+        if (k == 0) first = id;
+    }
+    CHECK(node.peer_key_count() == protocol::cap_peer_keys);           // rolled, not grown
+    uint8_t out[32];
+    CHECK_FALSE(node.peer_key_find(first.key_hash32, out));            // the oldest was evicted
+}
+
+TEST_CASE("peer_key — aged past peer_key_ttl_ms; age_out compacts it away") {
+    TestHal hal; Node node(hal, 5, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); node.on_init(cfg);
+    uint8_t seed[32]; for (int i = 0; i < 32; ++i) seed[i] = static_cast<uint8_t>(i + 21);
+    Identity id{}; identity_from_seed(id, seed);
+    hal._now = 1000; CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::authoritative));
+    hal._now = 1000 + protocol::peer_key_ttl_ms;                       // exactly at TTL -> aged
+    uint8_t out[32];
+    CHECK_FALSE(node.peer_key_find(id.key_hash32, out));
+    node.peer_key_age_out();
+    CHECK(node.peer_key_count() == 0);
 }

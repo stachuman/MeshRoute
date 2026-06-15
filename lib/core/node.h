@@ -284,6 +284,11 @@ public:
     // Reassign identity post-construct (device boots id=0 then loads it from NV; the join runtime sets it
     // too). 0 = unprovisioned (do_send is refused). 0xFF is reserved and ignored.
     void set_identity(uint8_t node_id, uint32_t key_hash32);
+    // DP1 (Phase-1 E2E): install the X25519 ECDH secret + our Ed25519 pubkey, so we can seal/open DMs.
+    // Identity is GLOBAL (a gateway shares ONE across both layers). Until set, crypto_ready()==false and any
+    // seal/open FAILS LOUD (never silently falls back to cleartext). Backends derive these from the /mrid seed
+    // (device) or the per-node scenario seed (sim).
+    void set_crypto_identity(const uint8_t x_secret[32], const uint8_t ed_pub[32]);
     void on_recv(const uint8_t* bytes, size_t len, const RxMeta& meta);  // bytes valid during call only
     void on_timer(uint32_t timer_id);                                    // dispatch on Node-owned id
     void on_radio_busy(const BusyInfo& info);                            // deferred-TX retry/giveup
@@ -311,6 +316,7 @@ public:
     // dedup-by-hash; claimed (beacon / cached / snooped) refuses a same-id conflict.
     enum class IdBindSource : uint8_t { self = 0, bcn = 1, h_query = 2, h_relay = 3 };
     enum class IdBindConf   : uint8_t { claimed = 0, authoritative = 1 };
+    enum class PeerKeyConf  : uint8_t { overheard = 0, authoritative = 1 };   // v1 only inserts authoritative (TYPE-5 owner answer)
     bool       is_blind(uint8_t next_hop) const;                         // _blind_until active? (read-only; bounded by neighbour count)
     uint8_t    get_neighbor_tier(uint8_t node_id) const;                 // R4.2 tier read (TTL-expiring lazy-prune); public for tests
     void       schedule_triggered_beacon();                             // R4.3 trigger jitter + min-interval defer; public for tests
@@ -327,6 +333,7 @@ public:
     // ---- device-console diagnostics: const LIVE reads consumed by fw_main's routes/cfg/status seam.
     uint8_t           node_id()        const { return _node_id; }
     uint32_t          key_hash32()     const { return _key_hash32; }
+    bool              crypto_ready()   const { return _crypto_ready; }   // DP1: a crypto identity is installed
     const NodeConfig& config()         const { return _cfg; }
     NodeConfig&       mutable_config()       { return _cfg; }   // LIVE tweak of dynamically-read cfg (device `cfg set`):
                                                                 // touch ONLY fields the MAC re-reads each use (sf_list/lbt/
@@ -353,6 +360,12 @@ public:
     // §6 DAD tiebreak (pure): higher claim_epoch wins; tie -> lower key_hash32 wins. Public for the convergence test.
     static bool       join_tiebreak_wins(uint8_t my_epoch, uint32_t my_key, uint8_t their_epoch, uint32_t their_key);
     int               id_bind_find_by_hash(uint32_t key_hash32, IdBindConf* conf_out = nullptr);   // -> node_id, or -1 (skips expired); opt. out: the binding's confidence (soft/hard resolve)
+    // E2E peer-pubkey cache (Phase 1 §6). Public for the seal/open paths + tests. hash-verified (ed_pub[:4]==hash),
+    // authoritative-never-downgraded, evict-oldest at cap_peer_keys, TTL-aged. Per the ACTIVE layer.
+    bool              peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyConf conf);   // false: ed_pub[:4]!=hash
+    bool              peer_key_find(uint32_t key_hash32, uint8_t ed_pub_out[32], PeerKeyConf* conf_out = nullptr);  // false: absent/aged
+    void              peer_key_age_out();                                                              // drop entries past peer_key_ttl_ms
+    uint16_t          peer_key_count() const { return _active->_peer_keys_n; }
     void              on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool authoritative);   // C.1: the origin consumed an H_ANSWER DATA -> cache (h_query) + drain. authoritative from the frame TYPE. public = the deliver seam + test driver
     void              on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool authoritative);      // C.2: a forwarder snooped an H_ANSWER in transit -> cache-on-pass (h_relay). authoritative from the frame TYPE. public = the relay seam + test driver
     bool              channel_entry_dirty(uint32_t id) const { const int i = channel_buffer_find(id); return i >= 0 && _active->_channel_buffer[i].dirty; }
@@ -691,6 +704,9 @@ private:
     Hal&     _hal;
     uint8_t  _node_id;            // reassignable via _hal.set_protocol_id (join/lease)
     uint32_t _key_hash32;         // stable long identity
+    uint8_t  _x_secret[32] = {};  // DP1: X25519 ECDH secret (Phase-1 E2E DM crypto)
+    uint8_t  _ed_pub[32]   = {};  // DP1: our Ed25519 pubkey (advertised so peers can ECDH to us)
+    bool     _crypto_ready = false;
     NodeConfig _cfg;             // borrowed copy from on_init
     Inbox    _inbox;             // persistent inbox (disabled until a backend installs stores; see inbox())
     int16_t  _routing_snr_floor_q4 = 0;   // SF_DEMOD_THRESHOLD[routing_sf] + sf_margin_q4
@@ -750,6 +766,9 @@ private:
     // (array sized at the protocol max; _cfg.cap_id_bind gates additions). One timestamp: id_bind_set
     // always carries the key, so last_seen == last_key_seen (the plain-refresh split lands with C.2). Member in LayerRuntime.
     struct IdBind { uint32_t key_hash32; uint64_t last_seen_ms; uint8_t node_id; uint8_t source; uint8_t confidence; };
+    // E2E peer-pubkey cache (Phase 1 §6): key_hash32 -> ed_pub. Immutable + hash-verifiable (ed_pub[:4]==key_hash32),
+    // so a TYPE-5 owner answer is cached AUTHORITATIVE even relayed/cached-on-pass (can't decay). Member in LayerRuntime.
+    struct PeerKey { uint32_t key_hash32; uint64_t last_seen_ms; uint8_t ed_pub[32]; uint8_t confidence; };
     // H hash-locate flood dedup (Lua hash_query_seen): per-(origin,key_hash32), hash_query_seen_ttl_ms window. Member in LayerRuntime.
     struct HashQuerySeen { uint8_t origin; uint32_t key_hash32; uint64_t t_ms; bool hard; };
     // send-by-hash DMs parked awaiting a hash-bind resolution (D); drained by on_hash_bind_response, aged on the timer.
@@ -835,6 +854,9 @@ private:
         // Hash-locate id_bind table (Lua dv:4677): key_hash32 -> node_id, beacon-populated.
         IdBind   _id_bind[protocol::cap_id_bind] = {};
         uint16_t _id_bind_n = 0;
+        // E2E peer-pubkey cache (Phase 1 §6): key_hash32 -> ed_pub (authoritative, hash-verified).
+        PeerKey  _peer_keys[protocol::cap_peer_keys] = {};
+        uint16_t _peer_keys_n = 0;
         // H hash-locate flood dedup (Lua hash_query_seen): per-(origin,key_hash32), hash_query_seen_ttl_ms window.
         HashQuerySeen _hash_query_seen[protocol::cap_hash_query_seen] = {};
         uint8_t       _hash_query_seen_n = 0;

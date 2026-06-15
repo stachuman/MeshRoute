@@ -39,6 +39,11 @@ void Node::set_identity(uint8_t node_id, uint32_t key_hash32) {
     id_bind_set(_node_id, _key_hash32, IdBindSource::self, IdBindConf::authoritative);   // re-seed our own binding (authoritative) under the new identity
 }
 
+void Node::set_crypto_identity(const uint8_t x_secret[32], const uint8_t ed_pub[32]) {
+    for (int i = 0; i < 32; ++i) { _x_secret[i] = x_secret[i]; _ed_pub[i] = ed_pub[i]; }
+    _crypto_ready = true;        // DP1: seal/open are now permitted (until set, they FAIL LOUD — never cleartext)
+}
+
 bool Node::on_init(const NodeConfig& cfg) {
 #if defined(MR_GATEWAY_BUILD)
     // F1 (RAM-safety guard): the DEDICATED gateway firmware cuts cap_channel_buffer to 8 at COMPILE time, which is

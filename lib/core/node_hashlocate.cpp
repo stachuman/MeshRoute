@@ -192,6 +192,65 @@ void Node::id_bind_age_out() {
     _active->_id_bind_n = w;
 }
 
+// ---- E2E peer-pubkey cache (Phase 1 §6): key_hash32 -> ed_pub, hash-verified + authoritative-never-downgraded ----
+bool Node::peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyConf conf) {
+    // Hash-verifiable: key_hash32 == LE(ed_pub[0..3]) (== identity.h key_hash32_of). A forged binding is REFUSED.
+    const uint32_t derived = static_cast<uint32_t>(ed_pub[0]) | (static_cast<uint32_t>(ed_pub[1]) << 8) |
+                             (static_cast<uint32_t>(ed_pub[2]) << 16) | (static_cast<uint32_t>(ed_pub[3]) << 24);
+    if (derived != key_hash32) return false;
+    const uint64_t now = _hal.now();
+    auto& L = *_active;
+    for (uint16_t i = 0; i < L._peer_keys_n; ++i) {                 // already cached -> refresh; upgrade, never downgrade
+        if (L._peer_keys[i].key_hash32 == key_hash32) {
+            L._peer_keys[i].last_seen_ms = now;
+            if (static_cast<uint8_t>(conf) > L._peer_keys[i].confidence) {
+                for (int b = 0; b < 32; ++b) L._peer_keys[i].ed_pub[b] = ed_pub[b];
+                L._peer_keys[i].confidence = static_cast<uint8_t>(conf);
+            }
+            return true;
+        }
+    }
+    uint16_t slot;
+    if (L._peer_keys_n < protocol::cap_peer_keys) { slot = L._peer_keys_n++; }
+    else {                                                          // cache full -> evict the least-recently-seen
+        slot = 0;
+        for (uint16_t i = 1; i < L._peer_keys_n; ++i)
+            if (L._peer_keys[i].last_seen_ms < L._peer_keys[slot].last_seen_ms) slot = i;
+    }
+    L._peer_keys[slot].key_hash32 = key_hash32;
+    for (int b = 0; b < 32; ++b) L._peer_keys[slot].ed_pub[b] = ed_pub[b];
+    L._peer_keys[slot].confidence = static_cast<uint8_t>(conf);
+    L._peer_keys[slot].last_seen_ms = now;
+    return true;
+}
+
+bool Node::peer_key_find(uint32_t key_hash32, uint8_t ed_pub_out[32], PeerKeyConf* conf_out) {
+    const uint64_t now = _hal.now();
+    auto& L = *_active;
+    for (uint16_t i = 0; i < L._peer_keys_n; ++i) {
+        if (L._peer_keys[i].key_hash32 == key_hash32) {
+            if (protocol::peer_key_ttl_ms != 0 && (now - L._peer_keys[i].last_seen_ms) >= protocol::peer_key_ttl_ms)
+                return false;                                       // aged
+            for (int b = 0; b < 32; ++b) ed_pub_out[b] = L._peer_keys[i].ed_pub[b];
+            if (conf_out) *conf_out = static_cast<PeerKeyConf>(L._peer_keys[i].confidence);
+            return true;
+        }
+    }
+    return false;
+}
+
+void Node::peer_key_age_out() {
+    if (protocol::peer_key_ttl_ms == 0) return;
+    const uint64_t now = _hal.now();
+    auto& L = *_active;
+    uint16_t w = 0;
+    for (uint16_t r = 0; r < L._peer_keys_n; ++r) {
+        if ((now - L._peer_keys[r].last_seen_ms) >= protocol::peer_key_ttl_ms) continue;   // drop expired
+        L._peer_keys[w++] = L._peer_keys[r];
+    }
+    L._peer_keys_n = w;
+}
+
 // =============================================================================
 // Phase A — the H flood + resolve handler. The defining behaviour: ANY node that
 // already holds the binding answers + STOPS the flood; the flood is the fallback.
