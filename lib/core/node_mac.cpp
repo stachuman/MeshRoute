@@ -96,7 +96,8 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
                                         _key_hash32, _cfg.lat_e7, _cfg.lon_e7, body, body_len);
         if (n == 0) {                                                      // no authoritative recipient pubkey (or overflow)
             MR_EMIT("e2e_no_pubkey", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("hash", static_cast<int64_t>(dh)));
-            return ctr;                                                    // fail loud: not enqueued, never cleartext
+            emit_hash_query(dh, /*hard=*/true, /*want_pubkey=*/true);      // E2E §6: resolve the recipient's pubkey so a retry can seal
+            return ctr;                                                    // fail loud: this send not enqueued, never cleartext
         }
         item.inner_len = static_cast<uint8_t>(n);
         for (int i = 0; i < 8; ++i) item.nonce_seed[i] = seed[i];

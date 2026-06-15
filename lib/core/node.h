@@ -383,6 +383,7 @@ public:
                           int32_t& lon_out, uint8_t* body_out, uint8_t& body_len_out);   // caller resolves origin->sender_hash (id_bind)
     void              on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool authoritative);   // C.1: the origin consumed an H_ANSWER DATA -> cache (h_query) + drain. authoritative from the frame TYPE. public = the deliver seam + test driver
     void              on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool authoritative);      // C.2: a forwarder snooped an H_ANSWER in transit -> cache-on-pass (h_relay). authoritative from the frame TYPE. public = the relay seam + test driver
+    void              on_hash_bind_pubkey(const uint8_t* inner, uint8_t inner_len);   // E2E §6: a DATA TYPE 5 (delivered OR relayed-through) -> cache the ed_pub authoritative (verify ed_pub[:4]==hash)
     bool              channel_entry_dirty(uint32_t id) const { const int i = channel_buffer_find(id); return i >= 0 && _active->_channel_buffer[i].dirty; }
     bool              channel_payload_eq(uint32_t id, const uint8_t* p, uint16_t len) const {
         const int i = channel_buffer_find(id);
@@ -474,9 +475,10 @@ private:
     bool    hash_query_seen_recently(uint8_t origin, uint32_t key_hash32, bool hard);    // per-(origin,hash,VARIANT) dedup — a hard query isn't suppressed by a prior soft's seen-entry
     void    mark_hash_query_seen(uint8_t origin, uint32_t key_hash32, bool hard);
     void    send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, uint32_t key_hash32, bool authoritative); // B: routed DATA(H_ANSWER inner) home
+    void    send_hash_bind_pubkey_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, const uint8_t ed_pub[32]);  // E2E §6: routed DATA TYPE 5 (the owner's ed_pub)
     // D — send-by-hash trigger (the deferred "address by key_hash32") + verify-on-use.
     uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags); // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify)
-    void    emit_hash_query(uint32_t key_hash32, bool hard);     // originate an H flood for key_hash32 (hard = verify-on-use)
+    void    emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey = false);   // H flood for key_hash32 (hard = verify-on-use; want_pubkey = E2E §6, ask the owner's ed_pub)
     void    park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags);
     void    park_send_layer(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags);   // Slice 4d: a cross-layer-capable park (resolves layer + gateway on the H-answer); flags carry the app's E2E_ACK_REQ etc.
     void    drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t target_layer = 0xFF);   // a binding arrived -> fly the parked DMs to it (target_layer from the H-answer, 0xFF = beacon re-drain / unknown)

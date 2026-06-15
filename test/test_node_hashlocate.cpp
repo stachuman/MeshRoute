@@ -865,3 +865,22 @@ TEST_CASE("e2e seal — refuses (returns 0) when the recipient pubkey is unknown
     uint8_t inner[64], s8[8];
     CHECK(A.e2e_seal_inner(inner, sizeof inner, s8, flags, /*dst=unknown*/ 0xDEADBEEFu, 1, 7, id.key_hash32, 0, 0, body, 3) == 0);
 }
+
+// =============================================================================
+// Phase 1 §6 — the over-the-air pubkey wire: WANT_PUBKEY query -> owner TYPE-5 answer -> cache.
+// =============================================================================
+TEST_CASE("e2e pubkey wire — on_hash_bind_pubkey caches the owner's ed_pub (authoritative)") {
+    TestHal hal; Node node(hal, 5, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); node.on_init(cfg);
+    uint8_t seed[32]; for (int i = 0; i < 32; ++i) seed[i] = static_cast<uint8_t>(i + 7);
+    Identity id{}; identity_from_seed(id, seed);
+    hash_bind_pubkey_inner hb{}; hb.target_layer = 0; hb.node_id = 9;
+    for (int i = 0; i < 32; ++i) hb.ed_pub[i] = id.ed_pub[i];
+    uint8_t inner[34]; const size_t n = pack_hash_bind_pubkey_inner(hb, std::span<uint8_t>(inner, sizeof inner));
+    node.on_hash_bind_pubkey(inner, static_cast<uint8_t>(n));
+    uint8_t out[32]; Node::PeerKeyConf conf{};
+    CHECK(node.peer_key_find(id.key_hash32, out, &conf));            // resolved by key_hash32 (== ed_pub[:4])
+    CHECK(conf == Node::PeerKeyConf::authoritative);
+    bool same = true; for (int i = 0; i < 32; ++i) if (out[i] != id.ed_pub[i]) same = false; CHECK(same);
+}
+

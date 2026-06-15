@@ -389,7 +389,10 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                { .key = "target_layer",  .type = EventField::T::i64,     .i = _cfg.leaf_id },
                                { .key = "authoritative", .type = EventField::T::boolean, .b = authoritative } };
             _hal.emit("h_resolved", f, 5); );              // dv:11649
-        send_hash_bind_response(h.origin, _cfg.leaf_id, static_cast<uint8_t>(node_id), h.key_hash32, authoritative);
+        if (h.want_pubkey && authoritative && _crypto_ready)        // E2E §6: the OWNER answers WANT_PUBKEY with TYPE 5 (its ed_pub)
+            send_hash_bind_pubkey_response(h.origin, _cfg.leaf_id, static_cast<uint8_t>(node_id), _ed_pub);
+        else
+            send_hash_bind_response(h.origin, _cfg.leaf_id, static_cast<uint8_t>(node_id), h.key_hash32, authoritative);
         return;                                            // SUPPRESS — the whole point: the flood stops here
     }
 
@@ -444,6 +447,38 @@ void Node::send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint
                            { .key = "authoritative", .type = EventField::T::boolean, .b = authoritative } };
         _hal.emit("hash_bind_response_enqueued", f, 4); );        // dv:5897
     become_free();                                               // kick the queue to route the answer home
+}
+
+// E2E §6: the owner answers a WANT_PUBKEY query with its ed_pub — a routed DATA TYPE 5 (cleartext; cache-on-pass).
+void Node::send_hash_bind_pubkey_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, const uint8_t ed_pub[32]) {
+    if (_active->_tx_queue_n >= kTxQueueCap) return;
+    hash_bind_pubkey_inner hb{}; hb.target_layer = target_layer; hb.node_id = node_id;
+    for (int i = 0; i < 32; ++i) hb.ed_pub[i] = ed_pub[i];
+    uint8_t inner[34];
+    const size_t n = pack_hash_bind_pubkey_inner(hb, std::span<uint8_t>(inner, sizeof inner));
+    if (n == 0) return;
+    TxItem item{};
+    item.origin = _node_id; item.dst = to_origin;
+    item.ctr = next_ctr(to_origin); item.ctr_lo = static_cast<uint8_t>(item.ctr & 0x0F);
+    item.flags = 0; item.type = DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY;   // TYPE 5 (owner-only; the query rode HARD)
+    for (size_t i = 0; i < n; ++i) item.inner[i] = inner[i];
+    item.inner_len = static_cast<uint8_t>(n);
+    item.enqueue_time_ms = _hal.now();
+    _active->_tx_queue[_active->_tx_queue_n++] = item;
+    MR_EMIT("hash_bind_pubkey_response_enqueued", EF_I("to", to_origin), EF_I("node", node_id));
+    become_free();
+}
+
+// E2E §6: a DATA TYPE 5 (delivered to us OR relayed-through) -> cache the owner's ed_pub AUTHORITATIVE. The pubkey is
+// immutable + hash-verifiable, so cache-on-pass can't decay it (peer_key_set re-verifies ed_pub[:4] == key_hash32).
+void Node::on_hash_bind_pubkey(const uint8_t* inner, uint8_t inner_len) {
+    auto o = parse_hash_bind_pubkey_inner(std::span<const uint8_t>(inner, inner_len));
+    if (!o) return;
+    const uint32_t kh = static_cast<uint32_t>(o->ed_pub[0]) | (static_cast<uint32_t>(o->ed_pub[1]) << 8)
+                      | (static_cast<uint32_t>(o->ed_pub[2]) << 16) | (static_cast<uint32_t>(o->ed_pub[3]) << 24);
+    if (peer_key_set(kh, o->ed_pub, PeerKeyConf::authoritative))
+        MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(kh)), EF_I("node", o->node_id));
+    // [#38b park/drain follow-up: on a fresh authoritative insert, drain parked CRYPTED sends to kh -> seal + send.]
 }
 
 // The querier received a DATA whose inner is a hash-bind answer (handle_data routed it here off the
@@ -507,11 +542,11 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
 }
 
 // Originate an H flood for key_hash32 (Lua send_hash_query dv:5625). hard = the verify-on-use escalation.
-void Node::emit_hash_query(uint32_t key_hash32, bool hard) {
+void Node::emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey) {
     if (key_hash32 == 0 || key_hash32 == _key_hash32) return;    // nothing to locate (degenerate / it's us)
     h_in in{};
     in.leaf_id = _cfg.leaf_id; in.origin = _node_id; in.key_hash32 = key_hash32;
-    in.ttl = protocol::hash_query_max_ttl; in.hard = hard;
+    in.ttl = protocol::hash_query_max_ttl; in.hard = hard; in.want_pubkey = want_pubkey;
     uint8_t buf[8];
     const size_t n = pack_h(in, std::span<uint8_t>(buf, sizeof(buf)));
     if (n == 0) return;

@@ -247,9 +247,10 @@ std::optional<uint32_t> parse_q_channel_id(std::span<const uint8_t> frame,
 //   byte 6   : ttl               (decremented per forward; 0 = drop)
 //   byte 7   : H flags — bit 0 = HARD (skip the id_bind cache; resolve own-hash only -> reach the OWNER for
 //              an authoritative correction; the verify-on-use escalation). soft (default) consults the cache.
-enum HFlag : uint8_t { H_FLAG_HARD = 0x01 };
-struct h_in  { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; };
-struct h_out { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; };
+enum HFlag : uint8_t { H_FLAG_HARD = 0x01,
+                       H_FLAG_WANT_PUBKEY = 0x02 };   // E2E §6: request the owner's ed_pub (set WITH HARD; owner answers DATA TYPE 5)
+struct h_in  { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; bool want_pubkey = false; };
+struct h_out { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; bool want_pubkey = false; };
 size_t pack_h(const h_in& in, std::span<uint8_t> out);            // 8; 0 on short buf
 std::optional<h_out> parse_h(std::span<const uint8_t> frame);     // nullopt: len<7 / cmd; hard from byte 7 if present
 
@@ -374,6 +375,8 @@ enum DataType : uint8_t {
     DATA_TYPE_H_ANSWER               = 1,   // the inner is a hash-bind answer (cache key_hash32->node_id)
     DATA_TYPE_AUTHORITATIVE_H_ANSWER = 2,   // same inner; the answer is the owner's (authoritative)
     DATA_TYPE_E2E_ACK                = 3,   // normal-unicast inner; body = the acked ctr (2 B LE)
+    DATA_TYPE_H_ANSWER_PUBKEY               = 4,   // E2E §6: RESERVED (overheard/soft pubkey answer) — NOT emitted in v1
+    DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY = 5,   // E2E §6: the owner's pubkey answer — inner [target_layer][node_id][ed_pub 32]
 };
 
 struct data_in {
@@ -465,5 +468,11 @@ std::optional<m_out> parse_m(std::span<const uint8_t> frame);   // nullopt: len 
 struct hash_bind_inner { uint8_t target_layer; uint8_t node_id; uint32_t key_hash32; bool authoritative = false; };
 size_t pack_hash_bind_inner(const hash_bind_inner& in, std::span<uint8_t> out);          // 6; 0 on short buf
 std::optional<hash_bind_inner> parse_hash_bind_inner(std::span<const uint8_t> inner);    // nullopt: < 6 B
+
+// Hash-bind PUBKEY answer inner (E2E §6, DATA TYPE 5): [target_layer 1][node_id 1][ed_pub 32] = 34 B. The key_hash32
+// is DROPPED (== ed_pub[:4]; the cacher derives + verifies it). CLEARTEXT (CRYPTED=0) so relays cache-on-pass.
+struct hash_bind_pubkey_inner { uint8_t target_layer; uint8_t node_id; uint8_t ed_pub[32]; };
+size_t pack_hash_bind_pubkey_inner(const hash_bind_pubkey_inner& in, std::span<uint8_t> out);          // 34; 0 on short buf
+std::optional<hash_bind_pubkey_inner> parse_hash_bind_pubkey_inner(std::span<const uint8_t> inner);    // nullopt: < 34 B
 
 }  // namespace meshroute

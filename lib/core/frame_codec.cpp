@@ -470,7 +470,7 @@ size_t pack_h(const h_in& in, std::span<uint8_t> out) {
     w.u8(in.origin);
     w.u32_le(in.key_hash32);
     w.u8(in.ttl);                          // u8: config caps ttl <= 16
-    w.u8(in.hard ? H_FLAG_HARD : 0);       // byte 7: H flags
+    w.u8(static_cast<uint8_t>((in.hard ? H_FLAG_HARD : 0) | (in.want_pubkey ? H_FLAG_WANT_PUBKEY : 0)));   // byte 7: H flags
     return w.ok() ? w.size() : 0;
 }
 
@@ -485,7 +485,8 @@ std::optional<h_out> parse_h(std::span<const uint8_t> frame) {
     o.key_hash32 = r.u32_le();
     o.ttl        = r.u8();
     if (!r.ok()) return std::nullopt;
-    o.hard = (frame.size() >= 8) && (frame[7] & H_FLAG_HARD);   // lenient: a 7-B frame parses as soft
+    o.hard        = (frame.size() >= 8) && (frame[7] & H_FLAG_HARD);          // lenient: a 7-B frame parses as soft
+    o.want_pubkey = (frame.size() >= 8) && (frame[7] & H_FLAG_WANT_PUBKEY);   // E2E §6: the sender wants the owner's ed_pub
     return o;
 }
 
@@ -871,6 +872,21 @@ std::optional<hash_bind_inner> parse_hash_bind_inner(std::span<const uint8_t> in
     o.target_layer = inner[0];
     o.node_id      = inner[1];
     { wire::Reader r(inner.subspan(2, 4)); o.key_hash32 = r.u32_le(); }
+    return o;
+}
+
+// Hash-bind PUBKEY answer inner (E2E §6, TYPE 5): [target_layer][node_id][ed_pub 32] = 34 B (key_hash32 dropped).
+size_t pack_hash_bind_pubkey_inner(const hash_bind_pubkey_inner& in, std::span<uint8_t> out) {
+    if (out.size() < 34) return 0;
+    out[0] = in.target_layer; out[1] = in.node_id;
+    for (int i = 0; i < 32; ++i) out[2 + i] = in.ed_pub[i];
+    return 34;
+}
+std::optional<hash_bind_pubkey_inner> parse_hash_bind_pubkey_inner(std::span<const uint8_t> inner) {
+    if (inner.size() < 34) return std::nullopt;
+    hash_bind_pubkey_inner o{};
+    o.target_layer = inner[0]; o.node_id = inner[1];
+    for (int i = 0; i < 32; ++i) o.ed_pub[i] = inner[2 + i];
     return o;
 }
 

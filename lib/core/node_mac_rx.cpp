@@ -517,6 +517,11 @@ void Node::do_post_ack() {
             become_free();
             return;
         }
+        if (pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY) {   // E2E §6: the owner's pubkey answer -> cache (routing/key info, NOT a DM)
+            on_hash_bind_pubkey(pa.inner, pa.inner_len);
+            become_free();
+            return;
+        }
         if (pa.type == DATA_TYPE_E2E_ACK) {              // an end-to-end ACK for a DM we originated -> confirm, not deliver
             MR_TELEMETRY(
                 // The acked ctr: a same-layer E2E_ACK inner is [origin][ctr_lo][ctr_hi] (ctr at inner[1..2]); a 4e
@@ -613,6 +618,8 @@ void Node::do_post_ack() {
         // C.2 cache-on-pass: a relayed hash-bind answer is cleartext -> snoop the binding before forwarding.
         if (pa.type == DATA_TYPE_H_ANSWER || pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER)
             on_hash_bind_snoop(pa.inner, pa.inner_len, pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER);
+        else if (pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY)
+            on_hash_bind_pubkey(pa.inner, pa.inner_len);            // E2E §6: cache-on-pass the owner's pubkey
         TxItem it{};
         it.origin = pa.origin; it.dst = pa.dst; it.ctr = pa.ctr; it.ctr_lo = pa.ctr_lo;
         it.flags = pa.flags; it.type = pa.type; it.is_forward = true; it.previous_hop = pa.previous_hop;

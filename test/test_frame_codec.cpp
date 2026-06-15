@@ -1456,3 +1456,16 @@ TEST_CASE("parse_unicast_inner — CRYPTED stops at origin; the sealed region is
         CHECK(u->body[0] == 0xA0); CHECK(u->body[9] == 0xA9);
     }
 }
+
+TEST_CASE("hash-bind PUBKEY inner (DATA TYPE 5) — 34-B round-trip; <34 rejected") {
+    hash_bind_pubkey_inner in{}; in.target_layer = 5; in.node_id = 42;
+    for (int i = 0; i < 32; ++i) in.ed_pub[i] = static_cast<uint8_t>(0x10 + i);
+    uint8_t buf[40] = {};
+    CHECK(pack_hash_bind_pubkey_inner(in, std::span<uint8_t>(buf, sizeof buf)) == 34);
+    auto o = parse_hash_bind_pubkey_inner(std::span<const uint8_t>(buf, 34));
+    CHECK(o.has_value());
+    if (o) { CHECK(o->target_layer == 5); CHECK(o->node_id == 42);
+             bool same = true; for (int i = 0; i < 32; ++i) if (o->ed_pub[i] != in.ed_pub[i]) same = false; CHECK(same); }
+    CHECK(pack_hash_bind_pubkey_inner(in, std::span<uint8_t>(buf, 33)) == 0);
+    CHECK_FALSE(parse_hash_bind_pubkey_inner(std::span<const uint8_t>(buf, 33)).has_value());
+}
