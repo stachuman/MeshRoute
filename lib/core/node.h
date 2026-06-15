@@ -151,6 +151,7 @@ struct TxItem {                      // a queued message awaiting a flight
     uint8_t  type = 0;               // DataType (0 = normal DM); threaded so a forward keeps its frame type
     uint8_t  inner[protocol::max_payload_bytes_hard_cap] = {};
     uint8_t  inner_len = 0;
+    uint8_t  nonce_seed[8] = {};     // CRYPTED only: the 8-B XChaCha nonce-seed -> the DATA MAC trailer at do_data_tx
     bool     is_forward = false;     // true => previous_hop valid (a relayed item)
     uint8_t  previous_hop = 0;
     // Cascade-requeue meta (the Lua queue_meta): requeue_count drives the
@@ -180,6 +181,7 @@ struct PendingTx {                   // the in-flight sender state (one per node
     uint8_t  type = 0;               // DataType (0 = normal DM); carried into pack_data at do_data_tx
     uint8_t  inner[protocol::max_payload_bytes_hard_cap] = {};
     uint8_t  inner_len = 0;
+    uint8_t  nonce_seed[8] = {};     // CRYPTED only: the 8-B nonce-seed (from the TxItem) -> the DATA trailer at do_data_tx
     uint8_t  chosen_data_sf = 0;     // 0 = unset until the CTS arrives
     bool     m_broadcast    = false; // channel M-payload: fire-and-forget (no CTS/ACK); chosen_data_sf set at issue
     uint8_t  retries_left = 0;
@@ -226,6 +228,7 @@ struct PostAck {                     // deferred deliver/forward after the ACK a
     uint8_t  type = 0;               // DataType (0 = normal DM); kept so a forwarded frame keeps its type
     uint8_t  inner[protocol::max_payload_bytes_hard_cap] = {};
     uint8_t  inner_len = 0;
+    uint8_t  nonce_seed[8] = {};      // CRYPTED only: the 8-B nonce-seed from the DATA trailer (open at do_post_ack; preserved on forward)
     // Hop-budget for the forward (the decremented values from handle_data); copied
     // into the forward TxItem in do_post_ack.
     uint8_t  fwd_remaining = 0;

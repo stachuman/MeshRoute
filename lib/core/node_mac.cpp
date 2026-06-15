@@ -82,10 +82,30 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
                               + (item.flags & DATA_FLAG_SOURCE_HASH ? 4 : 0) + 6 + body_len;
         if (with_loc <= protocol::max_payload_bytes_hard_cap) item.flags |= DATA_FLAG_LOCATION;
     }
-    item.inner_len = static_cast<uint8_t>(
-        pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), item.flags, dh,
-                           /*layer_ids*/ nullptr, /*n_layers*/ 0, /*cur*/ 0, _node_id, _key_hash32, body, body_len,
-                           _cfg.lat_e7, _cfg.lon_e7));   // written iff DATA_FLAG_LOCATION was set above (origination-only)
+    // E2E SEAL (Phase 1 §4): when this node originates an app DM with e2e_dm on, the inner is SEALED (CRYPTED).
+    // CRYPTED requires the cleartext dst_key_hash32 (DST_HASH) AND the recipient's AUTHORITATIVE pubkey. If either
+    // is missing -> FAIL LOUD (emit e2e_no_pubkey, do NOT enqueue — NEVER cleartext). [#38b: park + HARD WANT_PUBKEY.]
+    if (app_dm && _cfg.e2e_dm) {
+        if (!(item.flags & DATA_FLAG_DST_HASH)) {                          // no dst hash -> can't derive the nonce/key
+            MR_EMIT("e2e_no_pubkey", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("reason_no_dst_hash", 1));
+            return ctr;                                                    // not enqueued (fail loud, no cleartext)
+        }
+        item.flags |= DATA_FLAG_CRYPTED;                                   // SOURCE_HASH (+LOCATION if loc_in_dm) already decided above
+        uint8_t seed[8];
+        const size_t n = e2e_seal_inner(item.inner, sizeof item.inner, seed, item.flags, dh, _node_id, ctr,
+                                        _key_hash32, _cfg.lat_e7, _cfg.lon_e7, body, body_len);
+        if (n == 0) {                                                      // no authoritative recipient pubkey (or overflow)
+            MR_EMIT("e2e_no_pubkey", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("hash", static_cast<int64_t>(dh)));
+            return ctr;                                                    // fail loud: not enqueued, never cleartext
+        }
+        item.inner_len = static_cast<uint8_t>(n);
+        for (int i = 0; i < 8; ++i) item.nonce_seed[i] = seed[i];
+    } else {
+        item.inner_len = static_cast<uint8_t>(
+            pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), item.flags, dh,
+                               /*layer_ids*/ nullptr, /*n_layers*/ 0, /*cur*/ 0, _node_id, _key_hash32, body, body_len,
+                               _cfg.lat_e7, _cfg.lon_e7));   // written iff DATA_FLAG_LOCATION was set above (origination-only)
+    }
     item.enqueue_time_ms = _hal.now();                   // first-enqueue time (cascade-requeue total-age cap)
     // Inc 3 back-off: a warn'd ACK (a downstream neighbour says we're near its airtime cap) parks new DM
     // originations until the warn window expires, relieving that neighbour. The hard receiver-side airtime
@@ -407,6 +427,7 @@ void Node::issue_send(const TxItem& item) {
     pt.ctr_lo = item.ctr_lo; pt.ctr = item.ctr; pt.flags = item.flags; pt.type = item.type;
     pt.inner_len = item.inner_len;
     for (uint8_t i = 0; i < item.inner_len; ++i) pt.inner[i] = item.inner[i];
+    for (int i = 0; i < 8; ++i) pt.nonce_seed[i] = item.nonce_seed[i];   // CRYPTED: carry the 8-B nonce-seed to the DATA trailer
     pt.chosen_data_sf = 0; pt.retries_left = effective_rts_max_retries(item.requeue_count);
     pt.awaiting_cts = true; pt.awaiting_ack = false;
     pt.alts_tried_n = 0;
@@ -797,7 +818,8 @@ void Node::do_data_tx() {
     din.hops_remaining = hb_remaining; din.committed_hops = hb_committed;
     din.prev_fwd_rt_hops = hb_prev_fwd; din.ctr = pt.ctr;
     din.inner = std::span<const uint8_t>(pt.inner, pt.inner_len);
-    din.mac   = std::span<const uint8_t>(mac, 4);
+    din.mac   = (pt.flags & DATA_FLAG_CRYPTED) ? std::span<const uint8_t>(pt.nonce_seed, 8)   // CRYPTED: 8-B nonce-seed trailer
+                                               : std::span<const uint8_t>(mac, 4);             // else the 4-B(-zero) MAC
     uint8_t buf[protocol::lora_max_frame_bytes];
     const size_t dlen = pack_data(din, std::span<uint8_t>(buf, sizeof(buf)));
     if (dlen == 0) { _hal.log("DATA pack failed"); return; }

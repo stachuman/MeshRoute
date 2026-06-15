@@ -485,6 +485,8 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     _active->_post_ack.inner_len = static_cast<uint8_t>(inner.size() <= protocol::max_payload_bytes_hard_cap
                                                ? inner.size() : protocol::max_payload_bytes_hard_cap);
     for (uint8_t i = 0; i < _active->_post_ack.inner_len; ++i) _active->_post_ack.inner[i] = inner[i];
+    if (d.crypted) { auto sd = data_nonce_seed(std::span<const uint8_t>(bytes, len), d);   // CRYPTED: stash the 8-B nonce-seed for the open / forward
+                     for (uint8_t i = 0; i < 8 && i < sd.size(); ++i) _active->_post_ack.nonce_seed[i] = sd[i]; }
     // Clamp the underflow: the exhaustion NACK that guarantees hb_new_remaining>=0 only fires for a FORWARD
     // (d.dst != self, line above) — the DELIVERY case (d.dst==self) is exempt, so a DM that arrived AT us with
     // hops_remaining==0 leaves hb_new_remaining==-1. That value is dead for a plain deliver, but an L2c
@@ -534,13 +536,34 @@ void Node::do_post_ack() {
             l2c_handle_misdelivery(pa, ui->dst_key_hash32);     // forward to the real owner (identity-preserving)
             return;                                             // l2c re-kicks the queue itself (become_free)
         }
+        // E2E OPEN (Phase 1 §5): a CRYPTED DM -> decrypt the sealed {source_hash + location + body}. The cleartext
+        // `origin` resolves the sender (id_bind, authoritative); the seed rides the trailer. FAIL LOUD on tag-fail /
+        // no sender pubkey (drop, NEVER deliver ciphertext to the app).
+        uint32_t dec_source_hash = 0; bool dec_has_loc = false; int32_t dec_lat = 0, dec_lon = 0;
+        uint8_t dec_body[protocol::max_payload_bytes_hard_cap]; uint8_t dec_body_len = 0;
+        bool crypted_ok = false;
+        if (pa.flags & DATA_FLAG_CRYPTED) {
+            uint32_t sh;
+            if (!key_hash_of_id(pa.origin, sh)) {                            // no authoritative sender hash -> can't open
+                MR_EMIT("e2e_open_no_pubkey", EF_I("origin", pa.origin), EF_I("ctr", pa.ctr));
+                become_free(); return;
+            }
+            if (!e2e_open_inner(pa.inner, pa.inner_len, pa.nonce_seed, pa.flags, pa.ctr, sh,
+                                dec_source_hash, dec_has_loc, dec_lat, dec_lon, dec_body, dec_body_len)) {
+                MR_EMIT("e2e_open_fail", EF_I("origin", pa.origin), EF_I("ctr", pa.ctr), EF_I("hash", static_cast<int64_t>(sh)));
+                become_free(); return;                                      // tag fail / no peer key -> drop (no ciphertext delivery)
+            }
+            crypted_ok = true;
+        }
         // deliver: body from the parsed inner (raw inner[1..] fallback — origin at inner[0] — if it didn't parse).
         char body[protocol::max_payload_bytes_hard_cap + 1];
         uint8_t blen;
-        if (ui) { blen = static_cast<uint8_t>(ui->body.size());
-                  for (uint8_t i = 0; i < blen; ++i) body[i] = static_cast<char>(ui->body[i]); }
-        else    { blen = (pa.inner_len > 1) ? static_cast<uint8_t>(pa.inner_len - 1) : 0;
-                  for (uint8_t i = 0; i < blen; ++i) body[i] = static_cast<char>(pa.inner[1 + i]); }
+        if (crypted_ok) { blen = dec_body_len;                              // the DECRYPTED body (sealed region opened above)
+                          for (uint8_t i = 0; i < blen; ++i) body[i] = static_cast<char>(dec_body[i]); }
+        else if (ui)    { blen = static_cast<uint8_t>(ui->body.size());
+                          for (uint8_t i = 0; i < blen; ++i) body[i] = static_cast<char>(ui->body[i]); }
+        else            { blen = (pa.inner_len > 1) ? static_cast<uint8_t>(pa.inner_len - 1) : 0;
+                          for (uint8_t i = 0; i < blen; ++i) body[i] = static_cast<char>(pa.inner[1 + i]); }
         body[blen] = '\0';
         MR_TELEMETRY(
             EventField f[] = {
@@ -551,7 +574,7 @@ void Node::do_post_ack() {
             };
             _hal.emit("delivered", f, 4); );
         // sender_hash = the origin's stable key_hash32 (when SOURCE_HASH was set) — the app's DM dedup identity.
-        const uint32_t sender_hash = (ui && ui->has_source_hash) ? ui->source_hash : 0;
+        const uint32_t sender_hash = crypted_ok ? dec_source_hash : ((ui && ui->has_source_hash) ? ui->source_hash : 0);
         // Record-on-delivery FIRST (the FINAL-destination deliver path, once per delivered DM): it returns the
         // inbox seq (0 if disabled). The live msg_recv push then carries the SAME sender_hash + seq as the pulled
         // record -> the app dedups by (sender_hash, ctr) and detects a dropped live push by the seq (model B).
@@ -564,14 +587,17 @@ void Node::do_post_ack() {
         // LOCATION (spec §5): the sender piggybacked its 6-B location -> surface it to the app on the Push (always
         // compiled — the companion renders it) + a peer_location telemetry for the sim/gate (device-stripped).
         // A firmware-side peer-location cache is the optional §5 follow-up (the companion holds the map for v1).
-        if (ui && ui->has_location) {
-            pu.has_location = true; pu.lat_e7 = ui->lat_e7; pu.lon_e7 = ui->lon_e7;
+        const bool    loc_present = crypted_ok ? dec_has_loc : (ui && ui->has_location);
+        const int32_t loc_lat     = crypted_ok ? dec_lat : (ui ? ui->lat_e7 : 0);
+        const int32_t loc_lon     = crypted_ok ? dec_lon : (ui ? ui->lon_e7 : 0);
+        if (loc_present) {
+            pu.has_location = true; pu.lat_e7 = loc_lat; pu.lon_e7 = loc_lon;
             MR_TELEMETRY(
                 EventField pf[] = {
                     { .key = "origin", .type = EventField::T::i64, .i = pa.origin },
                     { .key = "hash",   .type = EventField::T::i64, .i = static_cast<int64_t>(sender_hash) },
-                    { .key = "lat_e7", .type = EventField::T::i64, .i = ui->lat_e7 },
-                    { .key = "lon_e7", .type = EventField::T::i64, .i = ui->lon_e7 },
+                    { .key = "lat_e7", .type = EventField::T::i64, .i = loc_lat },
+                    { .key = "lon_e7", .type = EventField::T::i64, .i = loc_lon },
                 };
                 _hal.emit("peer_location", pf, 4); );
         }
@@ -592,6 +618,7 @@ void Node::do_post_ack() {
         it.flags = pa.flags; it.type = pa.type; it.is_forward = true; it.previous_hop = pa.previous_hop;
         it.inner_len = pa.inner_len;
         for (uint8_t i = 0; i < pa.inner_len; ++i) it.inner[i] = pa.inner[i];
+        for (int i = 0; i < 8; ++i) it.nonce_seed[i] = pa.nonce_seed[i];   // CRYPTED: a relay re-tx's the original nonce-seed verbatim
         it.fwd_remaining = pa.fwd_remaining; it.fwd_committed = pa.fwd_committed;   // carry the decremented budget
         it.enqueue_time_ms = _hal.now();                 // fresh hop attempt (dv:11391): the cascade-requeue
                                                          // total-age window starts when THIS hop accepts the

@@ -10,6 +10,7 @@
 #include "doctest.h"
 
 #include "node.h"
+#include "identity.h"
 #include "frame_codec.h"
 #include "ram_inbox_store.h"
 
@@ -2522,4 +2523,98 @@ TEST_CASE("receive — a delivered DM WITHOUT location leaves the Push unset (no
     while (node.next_push(pu)) { if (pu.kind == PushKind::msg_recv) { got = true; break; } }
     CHECK(got); if (got) CHECK_FALSE(pu.has_location);
     CHECK(hal.count("peer_location") == 0);
+}
+
+// -----------------------------------------------------------------------------
+// Phase 1 §4 — seal-on-send WIRING: an e2e_dm origination must emit a CRYPTED
+// DATA (CRYPTED|DST_HASH flags, the 8-B nonce-seed trailer, body sealed). Drives
+// the real enqueue_data -> issue_send (seed thread) -> do_data_tx (trailer) path.
+// -----------------------------------------------------------------------------
+TEST_CASE("e2e wiring — an e2e_dm origination emits a CRYPTED DATA (8-B trailer, body NOT cleartext)") {
+    TestHal hal;
+    uint8_t seedA[32], seedB[32]; for (int i = 0; i < 32; ++i) { seedA[i] = uint8_t(i + 1); seedB[i] = uint8_t(100 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, seedA); identity_from_seed(idB, seedB);
+    Node A(hal, /*id=*/1, idA.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.e2e_dm = true;
+    A.on_init(cfg);
+    A.set_crypto_identity(idA.x_secret, idA.ed_pub);
+    // A learns node 2 (=B): a beacon from src=2 binds 2 -> idB.key_hash32 (authoritative) + a direct route to 2.
+    std::array<uint8_t, 64> bb{};
+    beacon_entry be{}; be.dest = 2; be.next = 2; be.score_bucket = 14; be.hops = 1;
+    beacon_in bin{}; bin.leaf_id = 0; bin.src = 2; bin.key_hash32 = idB.key_hash32;
+    bin.entries = std::span<const beacon_entry>(&be, 1);
+    const size_t bn = pack_beacon(bin, std::span<uint8_t>(bb.data(), bb.size()));
+    RxMeta bm{ 12.0f, -70.0f, 0, static_cast<int8_t>(2) };
+    A.on_recv(bb.data(), bn, bm);
+    A.peer_key_set(idB.key_hash32, idB.ed_pub, Node::PeerKeyConf::authoritative);
+
+    send_cmd(A, /*dst=*/2, "secret-dm-xyz");                  // a CRYPTED origination (e2e_dm on, B's pubkey known)
+    std::array<uint8_t, 8> cb{}; RxMeta bob{ 8.0f, -80.0f, 0, static_cast<int8_t>(2) };
+    hal._now = 100; A.on_recv(cb.data(), mk_cts(/*rx_id=*/1, /*tx_id=*/2, /*data_sf=*/12, cb), bob);
+    A.on_timer(kCtsToDataGapTimerId);
+    const TxFrame* dataf = nullptr;
+    for (const auto& f : hal.tx_frames) if (!f.bytes.empty() && (f.bytes[0] >> 4) == 0x3) dataf = &f;
+    CHECK(dataf != nullptr);
+    if (dataf) {
+        auto d = parse_data(std::span<const uint8_t>(dataf->bytes.data(), dataf->bytes.size()));
+        CHECK(d.has_value());
+        if (d) {
+            CHECK(d->crypted);                               // CRYPTED set on the wire
+            CHECK(d->dst_hash);                              // CRYPTED => DST_HASH
+            CHECK(data_mac(std::span<const uint8_t>(dataf->bytes.data(), dataf->bytes.size()), *d).size() == 8);  // 8-B nonce-seed trailer
+            const char* secret = "secret-dm-xyz"; bool leaked = false;
+            for (size_t i = 0; i + 13 <= dataf->bytes.size(); ++i) { bool mm = true; for (int j = 0; j < 13; ++j) if (dataf->bytes[i+j] != uint8_t(secret[j])) mm = false; if (mm) leaked = true; }
+            CHECK_FALSE(leaked);                             // the body is sealed (never cleartext on the wire)
+        }
+    }
+}
+
+// -----------------------------------------------------------------------------
+// Phase 1 §5 — open-on-receive WIRING: B receives a CRYPTED DATA, do_post_ack
+// opens it (seed from the trailer, sender from origin->id_bind) and delivers the
+// DECRYPTED plaintext to the app push. Drives handle_data (seed capture) -> do_post_ack.
+// -----------------------------------------------------------------------------
+TEST_CASE("e2e wiring — B opens a received CRYPTED DM and delivers the plaintext to the push") {
+    uint8_t seedA[32], seedB[32]; for (int i = 0; i < 32; ++i) { seedA[i] = uint8_t(i + 1); seedB[i] = uint8_t(100 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, seedA); identity_from_seed(idB, seedB);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+
+    // A seals a DM to B (A holds B's pubkey).
+    TestHal halA; Node A(halA, 1, idA.key_hash32); A.on_init(cfg);
+    A.set_crypto_identity(idA.x_secret, idA.ed_pub);
+    A.peer_key_set(idB.key_hash32, idB.ed_pub, Node::PeerKeyConf::authoritative);
+    const uint8_t flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH;
+    const uint8_t body[9] = { 't','o','p','-','s','e','c','r','t' };
+    uint8_t inner[96], seed[8];
+    const size_t il = A.e2e_seal_inner(inner, sizeof inner, seed, flags, /*dst=*/idB.key_hash32,
+                                       /*origin=*/1, /*ctr=*/0x0005, /*source_hash=*/idA.key_hash32, 0, 0, body, sizeof body);
+    CHECK(il > 0);
+    uint8_t frame[128];
+    data_in din{}; din.addr_len = 0; din.flags = flags; din.next = 2; din.dst = 2; din.hops_remaining = 31; din.ctr = 0x0005;
+    din.inner = std::span<const uint8_t>(inner, il); din.mac = std::span<const uint8_t>(seed, 8);
+    const size_t fl = pack_data(din, std::span<uint8_t>(frame, sizeof frame));
+    CHECK(fl == 8 + il + 8);                                  // hdr + inner + 8-B nonce-seed trailer
+
+    // B receives it. B holds A's pubkey + learns A's binding (origin 1 -> idA.key_hash32) from a beacon.
+    TestHal halB; Node B(halB, 2, idB.key_hash32); B.on_init(cfg);
+    B.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    B.peer_key_set(idA.key_hash32, idA.ed_pub, Node::PeerKeyConf::authoritative);
+    std::array<uint8_t, 64> bb{};
+    beacon_entry be{}; be.dest = 1; be.next = 1; be.score_bucket = 14; be.hops = 1;
+    beacon_in bin{}; bin.leaf_id = 0; bin.src = 1; bin.key_hash32 = idA.key_hash32; bin.entries = std::span<const beacon_entry>(&be, 1);
+    RxMeta from1{ 12.0f, -70.0f, 0, static_cast<int8_t>(1) };
+    halB._now = 500; B.on_recv(bb.data(), pack_beacon(bin, std::span<uint8_t>(bb.data(), bb.size())), from1);
+    std::array<uint8_t, 16> rb{};
+    halB._now = 1000; B.on_recv(rb.data(), mk_rts(/*src=*/1, /*next=*/2, /*dst=*/2, /*ctr_lo=*/5, /*plen=*/static_cast<uint8_t>(il + 8), rb), from1);
+    halB._now = 2000; B.on_recv(frame, fl, from1);
+    B.on_timer(kPostAckTimerId);
+    Push pu{}; bool got = false;
+    while (B.next_push(pu)) { if (pu.kind == PushKind::msg_recv) { got = true; break; } }
+    CHECK(got);
+    if (got) {
+        CHECK(pu.body_len == 9);
+        bool same = true; for (int i = 0; i < 9; ++i) if (pu.body[i] != body[i]) same = false;
+        CHECK(same);                                         // the DECRYPTED plaintext was delivered
+        CHECK(pu.sender_hash == idA.key_hash32);             // the verified sender
+    }
 }
