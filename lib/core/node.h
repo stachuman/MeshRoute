@@ -107,6 +107,10 @@ struct NodeConfig {
     uint32_t flood_lbt_max_defer_ms    = 0;       // 0 => derive
     bool     nav_enabled               = true;    // NAV virtual carrier sense ON by default (device + sim consistent). C++-only — so it DIVERGES the lua↔meshroute differentials by design (Lua is frozen); set false to restore lua-parity (e.g. in the differential scenarios).
     bool     nav_ignore_rts            = false;   // NAV: ANSWER an addressed RTS even during a reservation (sim-tuned default). true = drop it (802.11 blanket-NAV) — protects the reservation but causes cascades/giveups. ignore-off won on s18 + s17_metro: same delivery, fewer collisions + cascades.
+    // ---- opt-in location propagation (2026-06-14 spec). Default OFF -> the flag/slot never appear -> s18 byte-identical.
+    int32_t  lat_e7 = 0, lon_e7 = 0;             // this node's location (deg×1e7; (0,0) = unset -> NEVER transmitted)
+    bool     loc_in_dm = false;                  // piggyback location on originated DMs (DATA_FLAG_LOCATION, sealed inner)
+    bool     loc_in_m  = false;                  // piggyback location on originated channel M frames (flavor 0x08, public)
     // ---- dual-layer gateway (2026-06-12 design). n_layers=1 = normal node (uses layers[0]); 2 = gateway.
     //      Slice 0: layers[0] MIRRORS the legacy routing_sf/allowed_sf_bitmap/leaf_id/beacon_period_ms scalars
     //      (set in on_init). NB: `is_gateway` above is NOT derived from n_layers — it is the SINGLE-LAYER

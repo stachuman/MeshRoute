@@ -92,6 +92,8 @@ struct Push {
     uint32_t channel_msg_id = 0;   // channel_recv: the FULL 32-bit channel message id (the app's dedup identity)
     uint32_t seq = 0;              // msg_recv/channel_recv: the inbox per-store seq (0 = inbox disabled -> omit).
                                    //   The app unifies live + pulled by seq + detects a dropped live push (model B).
+    bool     has_location = false; // msg_recv: the sender piggybacked a 6-B location (DATA_FLAG_LOCATION).
+    int32_t  lat_e7 = 0, lon_e7 = 0;  //   deg×1e7 (~11 m), valid iff has_location. (M receive deferred.)
     uint8_t  body[protocol::max_payload_bytes_hard_cap] = {};   // msg_recv / channel_recv text (empty otherwise)
     uint8_t  body_len = 0;
 };

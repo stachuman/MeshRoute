@@ -2415,3 +2415,110 @@ TEST_CASE("NAV — a fresh own DM origination is jittered (nav_enabled), de-sync
     h2._rand_ret = 200; h2._now = 2000; send_cmd(n2, /*dst=*/2, "hi");
     CHECK(h2.last_tx("RTS") != nullptr);
 }
+
+// -----------------------------------------------------------------------------
+// Origination — LOCATION piggyback (spec 2026-06-14 §3). enqueue_data sets
+// DATA_FLAG_LOCATION iff app_dm && loc_in_dm && (lat||lon) — NEVER on relays/acks.
+// Drive a full origination to the DATA frame and read the inner back off the wire.
+// -----------------------------------------------------------------------------
+namespace {
+struct OrigLoc { bool flag = false; bool has_loc = false; int32_t lat = 0, lon = 0; };
+static OrigLoc originate_dm_loc(bool loc_in_dm, int32_t lat, int32_t lon) {
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    cfg.loc_in_dm = loc_in_dm; cfg.lat_e7 = lat; cfg.lon_e7 = lon;
+    node.on_init(cfg);
+    std::array<uint8_t, 64> bb{};
+    RxMeta m{ 12.0f, -70.0f, 0, static_cast<int8_t>(2) };
+    node.on_recv(bb.data(), mk_beacon_route(/*src=*/2, /*dest=*/5, /*next=*/9, /*hops=*/1, /*score=*/14, bb), m);
+    send_cmd(node, /*dst=*/5, "hi");                          // app DM origination -> RTS to next-hop 2
+    std::array<uint8_t, 8> cb{};
+    RxMeta bob{ 8.0f, -80.0f, 0, static_cast<int8_t>(2) };
+    hal._now = 100; node.on_recv(cb.data(), mk_cts(/*rx_id=*/1, /*tx_id=*/2, /*data_sf=*/12, cb), bob);
+    node.on_timer(kCtsToDataGapTimerId);                      // CTS->DATA gap -> DATA tx
+    OrigLoc r{};
+    const TxFrame* dataf = nullptr;
+    for (const auto& f : hal.tx_frames) if (!f.bytes.empty() && (f.bytes[0] >> 4) == 0x3) dataf = &f;
+    if (dataf) {
+        auto d = parse_data(std::span<const uint8_t>(dataf->bytes.data(), dataf->bytes.size()));
+        if (d) {
+            r.flag = (d->flags & DATA_FLAG_LOCATION) != 0;
+            auto inner = data_inner(std::span<const uint8_t>(dataf->bytes.data(), dataf->bytes.size()), *d);
+            auto ui = parse_unicast_inner(inner, d->flags);
+            if (ui && ui->has_location) { r.has_loc = true; r.lat = ui->lat_e7; r.lon = ui->lon_e7; }
+        }
+    }
+    return r;
+}
+}  // namespace
+
+TEST_CASE("origination — loc_in_dm + nonzero location sets DATA_FLAG_LOCATION (coords round-trip)") {
+    OrigLoc r = originate_dm_loc(/*loc_in_dm=*/true, 523000000, 134050000);
+    CHECK(r.flag);
+    CHECK(r.has_loc);
+    long dlat = static_cast<long>(r.lat) - 523000000; if (dlat < 0) dlat = -dlat;
+    long dlon = static_cast<long>(r.lon) - 134050000; if (dlon < 0) dlon = -dlon;
+    CHECK(dlat <= 512); CHECK(dlon <= 512);
+}
+
+TEST_CASE("origination — LOCATION NOT set when toggle off, nor when location is (0,0)") {
+    CHECK_FALSE(originate_dm_loc(/*loc_in_dm=*/false, 523000000, 134050000).flag);   // opted out
+    CHECK_FALSE(originate_dm_loc(/*loc_in_dm=*/true,  0, 0).flag);                    // opted in but no fix
+}
+
+// -----------------------------------------------------------------------------
+// Receive — a delivered DM that carried LOCATION surfaces the coords on the
+// msg_recv Push + emits a peer_location telemetry (spec 2026-06-14 §5). DATA only
+// (M receive is deferred).
+// -----------------------------------------------------------------------------
+TEST_CASE("receive — a delivered DM with LOCATION surfaces coords on the Push + emits peer_location") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    node.on_init(cfg);
+    RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };          // immediate sender = 1
+    const uint8_t bodytext[] = { 'h', 'i' };
+    const int32_t LAT = 523000000, LON = 134050000;
+    uint8_t inner[64];
+    const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_SOURCE_HASH | DATA_FLAG_LOCATION);
+    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, /*dst_hash*/ 0,
+                                         nullptr, 0, 0, /*origin*/ 1, /*source_hash*/ 0xCAFEF00Du,
+                                         bodytext, sizeof bodytext, LAT, LON);
+    CHECK(il > 0);
+    std::array<uint8_t, 16> rb{};
+    hal._now = 1000;
+    node.on_recv(rb.data(), mk_rts(/*src=*/1, /*next=*/2, /*dst=*/2, /*ctr_lo=*/5,
+                                   /*plen=*/static_cast<uint8_t>(il + 4), rb), meta);
+    uint8_t frame[96]; const uint8_t mac4[4] = { 0, 0, 0, 0 };
+    data_in din{}; din.addr_len = 0; din.flags = flags; din.next = 2; din.dst = 2; din.hops_remaining = 31; din.ctr = 0x0005;
+    din.inner = std::span<const uint8_t>(inner, il); din.mac = std::span<const uint8_t>(mac4, 4);
+    const size_t fl = pack_data(din, std::span<uint8_t>(frame, sizeof frame));
+    CHECK(fl > 0);
+    hal._now = 2000; node.on_recv(frame, fl, meta);
+    node.on_timer(kPostAckTimerId);
+    Push pu{}; bool got = false;
+    while (node.next_push(pu)) { if (pu.kind == PushKind::msg_recv) { got = true; break; } }
+    CHECK(got);
+    if (got) {
+        CHECK(pu.has_location);
+        long dlat = static_cast<long>(pu.lat_e7) - LAT; if (dlat < 0) dlat = -dlat;
+        long dlon = static_cast<long>(pu.lon_e7) - LON; if (dlon < 0) dlon = -dlon;
+        CHECK(dlat <= 512); CHECK(dlon <= 512);
+    }
+    CHECK(hal.count("peer_location") == 1);                          // telemetry emitted for the sim/gate
+}
+
+TEST_CASE("receive — a delivered DM WITHOUT location leaves the Push unset (no peer_location)") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    node.on_init(cfg);
+    RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+    std::array<uint8_t, 16> rb{};
+    hal._now = 1000; node.on_recv(rb.data(), mk_rts(1, 2, 2, 5, 15, rb), meta);
+    std::array<uint8_t, 64> db{};
+    hal._now = 2000; node.on_recv(db.data(), mk_data(/*next=*/2, /*dst=*/2, /*ctr=*/0x0005, /*origin=*/1, "hi", db), meta);
+    node.on_timer(kPostAckTimerId);
+    Push pu{}; bool got = false;
+    while (node.next_push(pu)) { if (pu.kind == PushKind::msg_recv) { got = true; break; } }
+    CHECK(got); if (got) CHECK_FALSE(pu.has_location);
+    CHECK(hal.count("peer_location") == 0);
+}

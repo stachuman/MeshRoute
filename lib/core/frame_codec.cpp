@@ -736,17 +736,52 @@ std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> i
         wire::Reader r(inner.subspan(off, 4)); u.source_hash = r.u32_le();
         u.has_source_hash = true; off += 4;
     }
+    if (flags & DATA_FLAG_LOCATION) {                            // 6-B sender location, after source_hash, before body
+        if (inner.size() < off + 6) return std::nullopt;
+        int32_t la = 0, lo = 0; unpack_loc6(inner.subspan(off, 6), la, lo);
+        u.has_location = true; u.lat_e7 = la; u.lon_e7 = lo; off += 6;
+    }
     u.body   = inner.subspan(off);
     return u;
 }
 
+// 6-byte location codec — 21-bit lat + 22-bit lon, ~11 m. Quantize the stored int32 deg×1e7 by 1024
+// (step ≈ 0.0001024° ≈ 11.4 m); +512 on decode centres the cell (per-axis error ≤ 512 e7 ≈ 5.7 m).
+// Pack the 48-bit value (u_lat<<27)|(u_lon<<5) MSB-first; the low 5 bits are reserved = 0.
+size_t pack_loc6(int32_t lat_e7, int32_t lon_e7, std::span<uint8_t> out6) {
+    if (out6.size() < 6) return 0;
+    int64_t u_lat = (static_cast<int64_t>(lat_e7) + 900000000) >> 10;       // int64: lat_e7+9e8 can exceed int32
+    int64_t u_lon = (static_cast<int64_t>(lon_e7) + 1800000000) >> 10;
+    if (u_lat < 0) u_lat = 0; else if (u_lat > (1 << 21) - 1) u_lat = (1 << 21) - 1;   // clamp to 21 bits
+    if (u_lon < 0) u_lon = 0; else if (u_lon > (1 << 22) - 1) u_lon = (1 << 22) - 1;   // clamp to 22 bits
+    const uint64_t v = (static_cast<uint64_t>(u_lat) << 27) | (static_cast<uint64_t>(u_lon) << 5);
+    out6[0] = static_cast<uint8_t>(v >> 40); out6[1] = static_cast<uint8_t>(v >> 32);
+    out6[2] = static_cast<uint8_t>(v >> 24); out6[3] = static_cast<uint8_t>(v >> 16);
+    out6[4] = static_cast<uint8_t>(v >> 8);  out6[5] = static_cast<uint8_t>(v);
+    return 6;
+}
+bool unpack_loc6(std::span<const uint8_t> in6, int32_t& lat_e7, int32_t& lon_e7) {
+    if (in6.size() < 6) return false;
+    const uint64_t v = (static_cast<uint64_t>(in6[0]) << 40) | (static_cast<uint64_t>(in6[1]) << 32) |
+                       (static_cast<uint64_t>(in6[2]) << 24) | (static_cast<uint64_t>(in6[3]) << 16) |
+                       (static_cast<uint64_t>(in6[4]) << 8)  |  static_cast<uint64_t>(in6[5]);
+    const uint32_t u_lat = static_cast<uint32_t>((v >> 27) & ((1u << 21) - 1));
+    const uint32_t u_lon = static_cast<uint32_t>((v >> 5)  & ((1u << 22) - 1));
+    // int64 intermediates are MANDATORY: u_lon<<10 reaches 3.6e9 > INT32_MAX before the offset brings it back.
+    lat_e7 = static_cast<int32_t>((static_cast<int64_t>(u_lat) << 10) - 900000000  + 512);
+    lon_e7 = static_cast<int32_t>((static_cast<int64_t>(u_lon) << 10) - 1800000000 + 512);
+    return true;
+}
+
 size_t pack_unicast_inner(std::span<uint8_t> out, uint8_t flags, uint32_t dst_key_hash32,
                           const uint8_t* layer_ids, uint8_t n_layers, uint8_t cur,
-                          uint8_t origin, uint32_t source_hash, const uint8_t* body, uint8_t body_len) {
+                          uint8_t origin, uint32_t source_hash, const uint8_t* body, uint8_t body_len,
+                          int32_t lat_e7, int32_t lon_e7) {
     // Size the inner FIRST so a too-small `out` never gets a partial write (fail loud: return 0, the caller refuses).
     size_t need = static_cast<size_t>(1) + body_len;             // origin + body
     if (flags & DATA_FLAG_DST_HASH)    need += 4;
     if (flags & DATA_FLAG_SOURCE_HASH) need += 4;
+    if (flags & DATA_FLAG_LOCATION)    need += 6;                // 6-B sender location (after source_hash) — body cap shrinks by 6
     if (flags & DATA_FLAG_CROSS_LAYER) {
         if (n_layers == 0 || n_layers > protocol::gw_env_max_hops || cur >= n_layers) return 0;   // invalid path -> refuse
         need += static_cast<size_t>(2) + n_layers;
@@ -765,6 +800,9 @@ size_t pack_unicast_inner(std::span<uint8_t> out, uint8_t flags, uint32_t dst_ke
     if (flags & DATA_FLAG_SOURCE_HASH) {                         // source_hash (4 B LE), AFTER origin
         out[off++] = static_cast<uint8_t>(source_hash);       out[off++] = static_cast<uint8_t>(source_hash >> 8);
         out[off++] = static_cast<uint8_t>(source_hash >> 16); out[off++] = static_cast<uint8_t>(source_hash >> 24);
+    }
+    if (flags & DATA_FLAG_LOCATION) {                            // 6-B location, AFTER source_hash, BEFORE body (origin-onward sealed region)
+        pack_loc6(lat_e7, lon_e7, out.subspan(off, 6)); off += 6;
     }
     for (uint8_t i = 0; i < body_len; ++i) out[off++] = body ? body[i] : 0;
     return off;

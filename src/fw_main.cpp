@@ -162,6 +162,7 @@ static void dump_cfg() {
     Serial.print(F(" ble_period="));     Serial.print(g_ble_period_min);
     Serial.print(F(" ble_pin="));        Serial.print(g_ble_pin);
     // Arduino Print formats floats via its own dtostrf (NOT newlib printf), so 7-decimal degrees print fine.
+    Serial.print(F(" loc_dm="));         Serial.print(c.loc_in_dm ? 1 : 0);
     Serial.print(F(" lat="));            Serial.print(g_lat_e7 / 1e7, 7);
     Serial.print(F(" lon="));            Serial.println(g_lon_e7 / 1e7, 7);
     // Dual-layer gateway: an ADDITIVE second line per leaf (single-layer dump above is unchanged). Prints each
@@ -283,8 +284,8 @@ static void handle_cfg_set(const char* args) {
         mrnv::IdBlob idb{};
         if (!mrnv::load_id(idb)) memcpy(idb.seed, g_identity.seed, sizeof idb.seed);   // no /mrid yet -> running seed
         const int32_t e7 = (int32_t)(atof(val) * 1e7);
-        if (key[2] == 't') { idb.lat_e7 = e7; g_lat_e7 = e7; }                          // "lat"
-        else               { idb.lon_e7 = e7; g_lon_e7 = e7; }                          // "lon"
+        if (key[2] == 't') { idb.lat_e7 = e7; g_lat_e7 = e7; g_node.mutable_config().lat_e7 = e7; }   // "lat" (also LIVE)
+        else               { idb.lon_e7 = e7; g_lon_e7 = e7; g_node.mutable_config().lon_e7 = e7; }   // "lon" (also LIVE)
         idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
         Serial.println(mrnv::save_id(idb) ? F("> cfg ok (saved to /mrid)") : F("> cfg err nv_save_failed"));
         return;
@@ -313,6 +314,7 @@ static void handle_cfg_set(const char* args) {
         b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;
         b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;        // v7 BLE policy (live globals)
         b.ble_pin    = g_ble_pin;
+        b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;                  // v9 location toggle (seed from the live config)
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;    // (re)stamp -> also upgrades a loaded v2 blob to v3
 
@@ -344,6 +346,8 @@ static void handle_cfg_set(const char* args) {
     else if (!strcmp(key, "nav"))        { lc.nav_enabled    = atoi(val) != 0; persist = false; }
     else if (!strcmp(key, "nav_ignore")) { lc.nav_ignore_rts = atoi(val) != 0; persist = false; }
     else if (!strcmp(key, "hop_cap"))    { lc.dv_hop_cap = (uint8_t)atoi(val); persist = false; }
+    // --- location piggyback: LIVE via mutable_config() + PERSISTED (NV v9). The lat/lon are set via `cfg set lat`/`lon` (-> /mrid). ---
+    else if (!strcmp(key, "loc_in_dm"))  { b.loc_in_dm = (atoi(val) != 0 || !strcmp(val, "on") || !strcmp(val, "true")) ? 1 : 0; lc.loc_in_dm = (b.loc_in_dm != 0); }
     // --- role/topology: LIVE via mutable_config() + PERSISTED (NV v6 -> survives reboot) ---
     else if (!strcmp(key, "leaf_id"))      { lc.leaf_id = (uint8_t)atoi(val);                            b.leaf_id      = lc.leaf_id; }
     // `gateway` is NOT a cfg key — is_gateway is DERIVED = (n_layers==2) in on_init (a gateway is the dedicated
@@ -558,7 +562,7 @@ static void dump_help() {
     Serial.println(F("[help] hash/id:    lookup <hash> | hashof <id> | whoami"));
     Serial.println(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
     Serial.println(F("[help] diag:       routes | status | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
-    Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile key ble_mode on|off lat lon"));
+    Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile key ble_mode on|off lat lon loc_in_dm"));
     Serial.println(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms"));
 }
 
@@ -817,6 +821,7 @@ void setup() {
         cfg.is_mobile         = nv.is_mobile != 0;    cfg.leaf_id      = nv.leaf_id;
         g_ble_mode            = nv.ble_mode;          g_ble_period_min = nv.ble_period_min;      // v7 BLE policy (only v7 blobs load)
         g_ble_pin             = nv.ble_pin;
+        cfg.loc_in_dm         = (nv.loc_in_dm != 0);                                                // v9 location piggyback toggle
         // v8 DUAL-LAYER GATEWAY: provision the raw per-layer fields ONLY (on_init validates the 2-layer config + derives
         // window_ms/window_offset_ms when 0). n_layers != 2 -> single-layer exactly as today (no behaviour change).
         if (nv.n_layers == 2) {
@@ -855,6 +860,7 @@ void setup() {
     meshroute::identity_from_seed(g_identity, idb.seed);        // key_hash32 = ed_pub[:4]
     g_node.set_identity(node_id, g_identity.key_hash32);        // node_id 0 stays unprovisioned -> do_send refused
     g_lat_e7 = idb.lat_e7; g_lon_e7 = idb.lon_e7;              // node location (persisted in /mrid; 0,0 on first boot)
+    cfg.lat_e7 = g_lat_e7; cfg.lon_e7 = g_lon_e7;             // feed the node's location to the DM piggyback (loc_in_dm)
     // node_id DAD: restore the persisted lease state so a reboot KEEPS its id + tiebreak seniority (NV blob v4).
     g_node.restore_join_state(nv.claim_epoch, (node_id != 0) && (nv.joined != 0));
     g_persist_id = node_id; g_persist_epoch = nv.claim_epoch;        // prime the persist tracker -> no spurious boot write
@@ -976,6 +982,7 @@ static void persist_join_if_changed() {
         b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;
         b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;        // v7 BLE policy (live globals)
         b.ble_pin    = g_ble_pin;
+        b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;                  // v9 location toggle (seed from the live config)
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
     b.node_id = id; b.claim_epoch = ep; b.joined = jn;

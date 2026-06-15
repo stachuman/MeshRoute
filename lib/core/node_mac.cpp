@@ -73,9 +73,19 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     if (app_dm && static_cast<size_t>(after_origin + 4 + body_len) <= protocol::max_payload_bytes_hard_cap) {
         item.flags |= DATA_FLAG_SOURCE_HASH;
     }
+    // LOCATION (opt-in, 2026-06-14 spec §3): set ONLY on an app-DM ORIGINATION (app_dm), when the node opted in
+    // (loc_in_dm) AND it HAS a fix (not (0,0)) AND the +6 B still fits. Mirrors the DST_HASH/SOURCE_HASH fit-gate
+    // (drop the best-effort piggyback rather than overflow the inner). NEVER set for E2E acks (app_dm=false) or
+    // forwards/relays (those don't call enqueue_data — they re-tx the received inner).
+    if (app_dm && _cfg.loc_in_dm && (_cfg.lat_e7 != 0 || _cfg.lon_e7 != 0)) {
+        const size_t with_loc = static_cast<size_t>(after_origin)
+                              + (item.flags & DATA_FLAG_SOURCE_HASH ? 4 : 0) + 6 + body_len;
+        if (with_loc <= protocol::max_payload_bytes_hard_cap) item.flags |= DATA_FLAG_LOCATION;
+    }
     item.inner_len = static_cast<uint8_t>(
         pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), item.flags, dh,
-                           /*layer_ids*/ nullptr, /*n_layers*/ 0, /*cur*/ 0, _node_id, _key_hash32, body, body_len));
+                           /*layer_ids*/ nullptr, /*n_layers*/ 0, /*cur*/ 0, _node_id, _key_hash32, body, body_len,
+                           _cfg.lat_e7, _cfg.lon_e7));   // written iff DATA_FLAG_LOCATION was set above (origination-only)
     item.enqueue_time_ms = _hal.now();                   // first-enqueue time (cascade-requeue total-age cap)
     // Inc 3 back-off: a warn'd ACK (a downstream neighbour says we're near its airtime cap) parks new DM
     // originations until the warn window expires, relieving that neighbour. The hard receiver-side airtime
@@ -160,7 +170,9 @@ bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t
     item.flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH
                                       | (flags & DATA_FLAG_E2E_ACK_REQ));   // 4d/e2e: honor the app's E2E-ack request -> Y acks over the reversed path (4e)
     const size_t n = pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), item.flags, dst_hash,
-                                        layer_ids, n_layers, cur, _node_id, _key_hash32, body, body_len);
+                                        layer_ids, n_layers, cur, _node_id, _key_hash32, body, body_len,
+                                        /*lat_e7*/ 0, /*lon_e7*/ 0);   // v1 scope: cross-layer DMs carry NO location
+                                                                       // (same-layer DM + M only; cross-layer = documented follow-up)
     if (n == 0) return false;                         // overflow (228-B body cap with the layer-path) -> fail loud
     item.inner_len = static_cast<uint8_t>(n);
     item.enqueue_time_ms = _hal.now();
@@ -255,7 +267,8 @@ void Node::send_e2e_ack_cross_layer(const data_unicast_inner& dm, uint16_t acked
     item.type  = DATA_TYPE_E2E_ACK;
     const uint8_t abody[2] = { static_cast<uint8_t>(acked_ctr & 0xFF), static_cast<uint8_t>(acked_ctr >> 8) };
     const size_t n = pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), item.flags, dm.source_hash,
-                                        rev, dm.n_layers, /*cur*/ 1, _node_id, _key_hash32, abody, 2);
+                                        rev, dm.n_layers, /*cur*/ 1, _node_id, _key_hash32, abody, 2,
+                                        /*lat_e7*/ 0, /*lon_e7*/ 0);   // E2E ack: NEVER carries location
     if (n == 0) return;                                                  // overflow (never for a 2-B ack) -> fail loud
     item.inner_len = static_cast<uint8_t>(n);
     item.enqueue_time_ms = _hal.now();

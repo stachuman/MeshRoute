@@ -561,6 +561,20 @@ void Node::do_post_ack() {
         Push pu{}; pu.kind = PushKind::msg_recv; pu.origin = pa.origin; pu.dst = pa.dst; pu.ctr = pa.ctr;
         pu.layer_id = rx_layer; pu.sender_hash = sender_hash; pu.seq = seq;
         pu.body_len = blen; for (uint8_t i = 0; i < blen; ++i) pu.body[i] = static_cast<uint8_t>(body[i]);
+        // LOCATION (spec §5): the sender piggybacked its 6-B location -> surface it to the app on the Push (always
+        // compiled — the companion renders it) + a peer_location telemetry for the sim/gate (device-stripped).
+        // A firmware-side peer-location cache is the optional §5 follow-up (the companion holds the map for v1).
+        if (ui && ui->has_location) {
+            pu.has_location = true; pu.lat_e7 = ui->lat_e7; pu.lon_e7 = ui->lon_e7;
+            MR_TELEMETRY(
+                EventField pf[] = {
+                    { .key = "origin", .type = EventField::T::i64, .i = pa.origin },
+                    { .key = "hash",   .type = EventField::T::i64, .i = static_cast<int64_t>(sender_hash) },
+                    { .key = "lat_e7", .type = EventField::T::i64, .i = ui->lat_e7 },
+                    { .key = "lon_e7", .type = EventField::T::i64, .i = ui->lon_e7 },
+                };
+                _hal.emit("peer_location", pf, 4); );
+        }
         enqueue_push(pu);                                // app channel: the inbound message (live notify, seq-stamped)
         // E2E ACK requested -> reply with the acked ctr. CROSS_LAYER -> a reversed-path cross-layer ack (4e); else the
         // same-layer ack home on the F reverse path.

@@ -1189,13 +1189,13 @@ TEST_CASE("DATA unicast inner — pack_unicast_inner round-trips with parse + ov
     const uint8_t ids[2] = { 0x17, 0x27 };
     const uint8_t body[3] = { 'a', 'b', 'c' };
     // plain [origin][body] — and the SAME helper backs enqueue_data, so this is the no-op-preserving path.
-    { const size_t n = pack_unicast_inner(std::span<uint8_t>(out, sizeof out), /*flags=*/0, 0, nullptr, 0, 0, 9, 0, body, 3);
+    { const size_t n = pack_unicast_inner(std::span<uint8_t>(out, sizeof out), /*flags=*/0, 0, nullptr, 0, 0, 9, 0, body, 3, 0, 0);
       CHECK(n == 4);
       auto u = parse_unicast_inner(std::span<const uint8_t>(out, n), 0);
       CHECK(u.has_value()); if (u) { CHECK(u->origin == 9); CHECK_FALSE(u->has_cross_layer); CHECK(u->body.size() == 3); } }
     // full combo: pack -> parse -> identical (the locked order, the single source of truth).
     { const uint8_t f = static_cast<uint8_t>(DATA_FLAG_DST_HASH | DATA_FLAG_CROSS_LAYER | DATA_FLAG_SOURCE_HASH);
-      const size_t n = pack_unicast_inner(std::span<uint8_t>(out, sizeof out), f, 0x12345678u, ids, 2, 1, 9, 0xCAFEF00Du, body, 3);
+      const size_t n = pack_unicast_inner(std::span<uint8_t>(out, sizeof out), f, 0x12345678u, ids, 2, 1, 9, 0xCAFEF00Du, body, 3, 0, 0);
       CHECK(n == 4 /*dh*/ + 4 /*path:2+2*/ + 1 /*origin*/ + 4 /*srch*/ + 3 /*body*/);
       auto u = parse_unicast_inner(std::span<const uint8_t>(out, n), f);
       CHECK(u.has_value());
@@ -1203,10 +1203,10 @@ TEST_CASE("DATA unicast inner — pack_unicast_inner round-trips with parse + ov
                CHECK(u->layer_ids[0] == 0x17); CHECK(u->layer_ids[1] == 0x27); CHECK(u->origin == 9);
                CHECK(u->source_hash == 0xCAFEF00Du); CHECK(u->body.size() == 3); CHECK(u->body[0] == 'a'); } }
     // overflow -> 0 (NO truncation): a 5-byte buffer can't hold dst_hash(4)+origin(1)+body(3).
-    { CHECK(pack_unicast_inner(std::span<uint8_t>(out, 5), DATA_FLAG_DST_HASH, 1, nullptr, 0, 0, 9, 0, body, 3) == 0); }
+    { CHECK(pack_unicast_inner(std::span<uint8_t>(out, 5), DATA_FLAG_DST_HASH, 1, nullptr, 0, 0, 9, 0, body, 3, 0, 0) == 0); }
     // invalid path (CROSS_LAYER but n_layers 0 / cur>=n) -> 0 (refuse, never emit a bad frame).
-    { CHECK(pack_unicast_inner(std::span<uint8_t>(out, sizeof out), DATA_FLAG_CROSS_LAYER, 0, ids, 0, 0, 9, 0, body, 3) == 0);
-      CHECK(pack_unicast_inner(std::span<uint8_t>(out, sizeof out), DATA_FLAG_CROSS_LAYER, 0, ids, 2, 2, 9, 0, body, 3) == 0); }
+    { CHECK(pack_unicast_inner(std::span<uint8_t>(out, sizeof out), DATA_FLAG_CROSS_LAYER, 0, ids, 0, 0, 9, 0, body, 3, 0, 0) == 0);
+      CHECK(pack_unicast_inner(std::span<uint8_t>(out, sizeof out), DATA_FLAG_CROSS_LAYER, 0, ids, 2, 2, 9, 0, body, 3, 0, 0) == 0); }
 }
 
 TEST_CASE("RTS — FLOOD RTS-M round-trip (43 B: channel_msg_id BE + 32-B bitmap) + rejects") {
@@ -1277,4 +1277,108 @@ TEST_CASE("gateway-layer TLV — a DUPLICATE gw_id discards the whole TLV; an un
     uint32_t ids[1] = { 0xDEADBEEF }; uint8_t c3[16];
     const size_t c3n = pack_channel_digest_tlv(ids, 1, std::span<uint8_t>(c3, sizeof c3));
     CHECK(parse_gateway_layer_tlv(std::span<const uint8_t>(c3, c3n), out, 2) == 0);
+}
+
+// -----------------------------------------------------------------------------
+// loc6 — 6-byte location codec (21-bit lat + 22-bit lon, ~11 m). Location-propagation
+// spec 2026-06-14. step = 1024 e7-units; +512 cell-centering bounds the per-axis
+// decode error by 512 e7 (~5.7 m at the equator). The DECODE MUST use int64
+// intermediates — u_lon<<10 reaches 3.6e9 > INT32_MAX.
+// -----------------------------------------------------------------------------
+static long loc6_abs(long v) { return v < 0 ? -v : v; }
+
+TEST_CASE("loc6 — round-trip within the ~11 m quantization bound across the globe") {
+    struct P { int32_t lat, lon; };
+    const P pts[] = {
+        {0, 0}, {523000000, 134050000},        // ~52.30, 13.405
+        {-337680000, 1511000000},              // Sydney -33.768, 151.10
+        {900000000, 1800000000},               // +90 / +180 (antimeridian -> the int64 decode path)
+        {-900000000, -1800000000},             // -90 / -180
+        {900000000, -1800000000}, {-1, 1},
+    };
+    for (const P& p : pts) {
+        uint8_t b[6] = {};
+        CHECK(pack_loc6(p.lat, p.lon, std::span<uint8_t>(b, sizeof b)) == 6);
+        int32_t lat = 0, lon = 0;
+        CHECK(unpack_loc6(std::span<const uint8_t>(b, 6), lat, lon));
+        CHECK(loc6_abs(static_cast<long>(lat) - p.lat) <= 512);
+        CHECK(loc6_abs(static_cast<long>(lon) - p.lon) <= 512);
+    }
+}
+
+TEST_CASE("loc6 — 6 bytes MSB-first; low 5 bits reserved = 0") {
+    uint8_t b[6] = {};
+    CHECK(pack_loc6(0, 0, std::span<uint8_t>(b, sizeof b)) == 6);
+    CHECK((b[5] & 0x1F) == 0);
+}
+
+TEST_CASE("loc6 — short buffer refuses (pack 0, unpack false)") {
+    uint8_t five[5] = {};
+    CHECK(pack_loc6(523000000, 134050000, std::span<uint8_t>(five, 5)) == 0);
+    int32_t lat = 7, lon = 7;
+    CHECK_FALSE(unpack_loc6(std::span<const uint8_t>(five, 5), lat, lon));
+}
+
+TEST_CASE("loc6 — over-range latitude clamps to the field ceiling (no overflow)") {
+    uint8_t b[6] = {};
+    CHECK(pack_loc6(2000000000, 0, std::span<uint8_t>(b, sizeof b)) == 6);   // lat >> +90, garbage in
+    int32_t lat = 0, lon = 0;
+    CHECK(unpack_loc6(std::span<const uint8_t>(b, 6), lat, lon));
+    CHECK(lat > 900000000);                                                  // clamped near the ceiling, bounded
+}
+
+// -----------------------------------------------------------------------------
+// DATA inner — LOCATION slot (DATA_FLAG_LOCATION 0x08), spec 2026-06-14 §3.
+// The 6-B location sits AFTER source_hash, BEFORE body (inside the origin-onward
+// sealed region). The KEYSTONE: absent the flag, the new coord params must not
+// perturb a single byte (s18 byte-identity).
+// -----------------------------------------------------------------------------
+TEST_CASE("unicast inner — LOCATION round-trips after source_hash, before body") {
+    const uint8_t body[] = {0xAA, 0xBB, 0xCC};
+    uint8_t buf[64] = {};
+    const uint8_t flags = DATA_FLAG_SOURCE_HASH | DATA_FLAG_LOCATION;
+    const int32_t LAT = 523000000, LON = 134050000;
+    const size_t n = pack_unicast_inner(std::span<uint8_t>(buf, sizeof buf), flags,
+                                        /*dst_hash*/ 0, /*layer_ids*/ nullptr, 0, 0,
+                                        /*origin*/ 42, /*source_hash*/ 0x11223344,
+                                        body, sizeof body, LAT, LON);
+    CHECK(n == 1 + 4 + 6 + 3);                                  // origin + source_hash + loc6 + body
+    auto u = parse_unicast_inner(std::span<const uint8_t>(buf, n), flags);
+    CHECK(u.has_value());
+    if (u) {
+        CHECK(u->origin == 42);
+        CHECK(u->has_source_hash); CHECK(u->source_hash == 0x11223344);
+        CHECK(u->has_location);
+        CHECK(loc6_abs(static_cast<long>(u->lat_e7) - LAT) <= 512);
+        CHECK(loc6_abs(static_cast<long>(u->lon_e7) - LON) <= 512);
+        CHECK(u->body.size() == 3);
+        CHECK(u->body[0] == 0xAA); CHECK(u->body[2] == 0xCC);  // body intact AFTER the 6-B location
+    }
+}
+
+TEST_CASE("unicast inner — KEYSTONE: coords inert when LOCATION absent (byte-identical)") {
+    const uint8_t body[] = {1, 2, 3, 4};
+    uint8_t with_coords[64] = {}, zero_coords[64] = {};
+    const uint8_t flags = DATA_FLAG_SOURCE_HASH;               // NO LOCATION
+    const size_t a = pack_unicast_inner(std::span<uint8_t>(with_coords, 64), flags, 0, nullptr, 0, 0,
+                                        7, 0xDEADBEEF, body, sizeof body, 523000000, 134050000);
+    const size_t b = pack_unicast_inner(std::span<uint8_t>(zero_coords, 64), flags, 0, nullptr, 0, 0,
+                                        7, 0xDEADBEEF, body, sizeof body, 0, 0);
+    CHECK(a == b);
+    CHECK(a == 1 + 4 + 4);                                     // origin + source_hash + body — NO loc6
+    bool same = true; for (size_t i = 0; i < a; ++i) if (with_coords[i] != zero_coords[i]) same = false;
+    CHECK(same);                                               // coords MUST NOT perturb the flag-absent path
+    auto u = parse_unicast_inner(std::span<const uint8_t>(with_coords, a), flags);
+    CHECK(u.has_value()); if (u) CHECK_FALSE(u->has_location);
+}
+
+TEST_CASE("unicast inner — LOCATION grows the inner by 6; the body cap shrinks (overflow refuses)") {
+    const uint8_t body[8] = {};
+    uint8_t tight[13] = {};                                    // fits origin(1)+source_hash(4)+body(8)=13, not +6
+    const uint8_t flags = DATA_FLAG_SOURCE_HASH | DATA_FLAG_LOCATION;
+    CHECK(pack_unicast_inner(std::span<uint8_t>(tight, sizeof tight), flags, 0, nullptr, 0, 0,
+                             7, 1, body, sizeof body, 1, 1) == 0);     // +6 doesn't fit -> refuse, no truncation
+    uint8_t ok[19] = {};
+    CHECK(pack_unicast_inner(std::span<uint8_t>(ok, sizeof ok), flags, 0, nullptr, 0, 0,
+                             7, 1, body, sizeof body, 1, 1) == 19);    // 1+4+6+8
 }

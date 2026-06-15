@@ -867,7 +867,7 @@ TEST_CASE("dual-layer bridge: a gateway re-injects a cross-layer DM onto the far
     const uint8_t body[3] = { 'h', 'i', '!' };
     uint8_t inner[64];
     const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH);
-    const size_t inner_len = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, /*origin*/ 7, 0, body, 3);
+    const size_t inner_len = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, /*origin*/ 7, 0, body, 3, 0, 0);
     CHECK(inner_len > 0);
 
     // bridge it (addressed to G's leaf-0 node_id 5 => deliver branch => CROSS_LAYER fork => transit => bridge).
@@ -904,7 +904,7 @@ TEST_CASE("dual-layer bridge: the re-injected relay RTS carries RTS_FLAG_RELAY e
     const uint8_t ids[2] = { 1, 2 }; const uint8_t body[2] = { 'h', 'i' };
     uint8_t inner[64];
     const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH);
-    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, /*origin*/ 7, 0, body, 2);
+    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, /*origin*/ 7, 0, body, 2, 0, 0);
     DualLayerTestAccess::bridge_from(gw, /*origin*/ 7, /*dst*/ 5, /*ctr*/ 42, flags, inner, static_cast<uint8_t>(il));
     CHECK(DualLayerTestAccess::handoff_count(gw) == 1);
     // far leaf: install a 1-hop route to Y(20), drain the handoff, then service the queue -> the relay RTS fires.
@@ -933,7 +933,7 @@ TEST_CASE("dual-layer bridge: the DELIVER-branch fork routes a cross-layer TRANS
     const uint8_t ids[2] = { 1, 2 }; const uint8_t body[2] = { 'h', 'i' };
     uint8_t inner[64];
     const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH);
-    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, /*origin*/ 7, 0, body, 2);
+    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, /*origin*/ 7, 0, body, 2, 0, 0);
     uint8_t frame[96]; const uint8_t mac4[4] = { 0, 0, 0, 0 };
     data_in din{}; din.addr_len = 0; din.flags = flags; din.next = 5; din.dst = 5; din.hops_remaining = 31; din.ctr = 42;
     din.inner = std::span<const uint8_t>(inner, il); din.mac = std::span<const uint8_t>(mac4, 4);
@@ -960,7 +960,7 @@ TEST_CASE("dual-layer bridge: an UNKNOWN far-leaf binding DEFERS the handoff -> 
     const uint8_t ids[2] = { 1, 2 }; const uint8_t body[2] = { 'h', 'i' };
     uint8_t inner[64];
     const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH);
-    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, /*origin*/ 7, 0, body, 2);
+    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, /*origin*/ 7, 0, body, 2, 0, 0);
     DualLayerTestAccess::bridge_from(gw, /*origin*/ 7, /*dst*/ 5, /*ctr*/ 42, flags, inner, static_cast<uint8_t>(il));
     CHECK(DualLayerTestAccess::handoff_count(gw) == 1);            // deferred (unresolved binding)
 
@@ -992,7 +992,7 @@ TEST_CASE("dual-layer bridge: an unknown far-leaf binding aged past the TTL give
     const uint8_t ids[2] = { 1, 2 }; const uint8_t body[1] = { 'x' };
     uint8_t inner[64];
     const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH);
-    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0xBEEFu, ids, 2, 1, 7, 0, body, 1);
+    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0xBEEFu, ids, 2, 1, 7, 0, body, 1, 0, 0);
     DualLayerTestAccess::bridge_from(gw, 7, 5, 77, flags, inner, static_cast<uint8_t>(il));
     CHECK(DualLayerTestAccess::handoff_count(gw) == 1);            // deferred
     // advance past the defer TTL -> the next drain GIVES UP (dropped, never re-injected).
@@ -1014,7 +1014,7 @@ TEST_CASE("dual-layer bridge: a resolved handoff on a FULL queue is KEPT for ret
     const uint8_t ids[2] = { 1, 2 }; const uint8_t body[2] = { 'h', 'i' };
     uint8_t inner[64];
     const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH);
-    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, 7, 0, body, 2);
+    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, 7, 0, body, 2, 0, 0);
     DualLayerTestAccess::bridge_from(gw, 7, 5, 42, flags, inner, static_cast<uint8_t>(il));
     CHECK(DualLayerTestAccess::handoff_count(gw) == 1);
     // drain with the far leaf's tx_queue FULL -> the resolved handoff must be KEPT (retry), NOT dropped.
@@ -1041,7 +1041,7 @@ TEST_CASE("dual-layer bridge: the H-answer re-drain HOOK resolves a deferred han
     const uint8_t ids[2] = { 1, 2 }; const uint8_t body[2] = { 'h', 'i' };
     uint8_t inner[64];
     const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH);
-    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, 7, 0, body, 2);
+    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, 7, 0, body, 2, 0, 0);
     DualLayerTestAccess::bridge_from(gw, 7, 5, 42, flags, inner, static_cast<uint8_t>(il));
     CHECK(DualLayerTestAccess::handoff_count(gw) == 1);            // deferred (unresolved)
 
@@ -1068,12 +1068,12 @@ TEST_CASE("dual-layer bridge: a cross-layer DM addressed to the gateway ITSELF i
     const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH);
     // target layer 9 is NOT one of the gateway's leaves (1/2) -> REFUSE (no handoff, no default leaf).
     { const uint8_t ids[2] = { 1, 9 };
-      const size_t n = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, 7, 0, body, 1);
+      const size_t n = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0x9999u, ids, 2, 1, 7, 0, body, 1, 0, 0);
       DualLayerTestAccess::bridge_from(gw, 7, 5, 42, flags, inner, static_cast<uint8_t>(n));
       CHECK(DualLayerTestAccess::handoff_count(gw) == 0); }
     // target leaf 2 is ours, but the recipient hash is UNKNOWN on it -> 4f DEFERS (buffer UNRESOLVED, not drop).
     { const uint8_t ids[2] = { 1, 2 };
-      const size_t n = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0xBEEFu, ids, 2, 1, 7, 0, body, 1);
+      const size_t n = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, 0xBEEFu, ids, 2, 1, 7, 0, body, 1, 0, 0);
       DualLayerTestAccess::bridge_from(gw, 7, 5, 43, flags, inner, static_cast<uint8_t>(n));
       CHECK(DualLayerTestAccess::handoff_count(gw) == 1);                 // DEFERRED (4f), not dropped
       const XlHandoff* h = DualLayerTestAccess::handoff_first(gw);

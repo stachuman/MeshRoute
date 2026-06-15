@@ -354,7 +354,7 @@ enum DataFlag : uint8_t {
     DATA_FLAG_CROSS_LAYER = 0x40,    // reserved (R7: the inner carries a layer-path)
     DATA_FLAG_CRYPTED     = 0x20,    // reserved (E2E: the inner body is sealed)
     DATA_FLAG_E2E_ACK_REQ = 0x10,    // request an end-to-end ack
-    /* 0x08 rsv (free) */
+    DATA_FLAG_LOCATION    = 0x08,    // opt-in 6-B sender location in the sealed inner (after source_hash); set ONLY on origination
     DATA_FLAG_SOURCE_HASH = 0x04,    // LIVE: the inner carries the origin's key_hash32 (after origin) — the STABLE
                                      // sender identity (default-on for app DMs); the E2E-ack also reads it. Moves
                                      // into the CRYPTED-sealed region when E2E encryption lands.
@@ -403,6 +403,12 @@ std::optional<data_out> parse_data(std::span<const uint8_t> frame);   // nullopt
 std::span<const uint8_t> data_inner  (std::span<const uint8_t> frame, const data_out& d);  // opaque, inner_len B
 std::span<const uint8_t> data_mac    (std::span<const uint8_t> frame, const data_out& d);  // 4 B
 
+// 6-byte location codec — 21-bit lat + 22-bit lon quantized from int32 deg×1e7 (~11 m, global).
+// LOCATION-propagation spec 2026-06-14. step = 1024 e7-units; +512 cell-centring on decode. The
+// DECODE MUST use int64 intermediates — u_lon<<10 reaches 3.6e9 > INT32_MAX.
+size_t pack_loc6(int32_t lat_e7, int32_t lon_e7, std::span<uint8_t> out6);          // 6, or 0 on short buf
+bool   unpack_loc6(std::span<const uint8_t> in6, int32_t& lat_e7, int32_t& lon_e7); // false if < 6 B
+
 // OPTIONAL inner helpers (behaviour layer; the inner layout is read from the byte-1 FLAGS, not a payload byte).
 // Unicast inner (the LOCKED order, spec §5): [dst_key_hash32 (4 B LE, iff DST_HASH)][layer-path (iff CROSS_LAYER:
 // n_layers:1 | cur:1 | layer_ids: n_layers×1B FULL 8-bit ids)][origin][source_hash (4 B LE, iff SOURCE_HASH)][body].
@@ -412,6 +418,7 @@ std::span<const uint8_t> data_mac    (std::span<const uint8_t> frame, const data
 struct data_unicast_inner { uint8_t origin; std::span<const uint8_t> body;
                             bool has_dst_hash = false;    uint32_t dst_key_hash32 = 0;
                             bool has_source_hash = false; uint32_t source_hash = 0;
+                            bool has_location = false;    int32_t lat_e7 = 0, lon_e7 = 0;
                             bool has_cross_layer = false; uint8_t n_layers = 0, cur = 0;
                             uint8_t layer_ids[protocol::gw_env_max_hops] = {}; };
 std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> inner, uint8_t flags);
@@ -420,7 +427,8 @@ std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> i
 // iff CROSS_LAYER. Returns bytes written, or 0 on overflow / an invalid path (caller FAILS LOUD — never truncates).
 size_t pack_unicast_inner(std::span<uint8_t> out, uint8_t flags, uint32_t dst_key_hash32,
                           const uint8_t* layer_ids, uint8_t n_layers, uint8_t cur,
-                          uint8_t origin, uint32_t source_hash, const uint8_t* body, uint8_t body_len);
+                          uint8_t origin, uint32_t source_hash, const uint8_t* body, uint8_t body_len,
+                          int32_t lat_e7, int32_t lon_e7);   // lat/lon written iff flags & DATA_FLAG_LOCATION
 // -----------------------------------------------------------------------------
 // M — lean channel-message frame (cmd-nibble 0xA, 7+n B) — 2026-06-09 design.
 // -----------------------------------------------------------------------------
