@@ -814,3 +814,54 @@ TEST_CASE("peer_key — aged past peer_key_ttl_ms; age_out compacts it away") {
     node.peer_key_age_out();
     CHECK(node.peer_key_count() == 0);
 }
+
+// =============================================================================
+// Phase 1 §4/§5 — E2E seal/open round-trip (the crypto core of seal-on-send /
+// open-on-receive, exercised directly via the Node helpers).
+// =============================================================================
+TEST_CASE("e2e seal/open — A seals a DM to B, B opens it; the inner is actually encrypted; tamper/ctr/spoof all drop") {
+    TestHal halA, halB;
+    uint8_t seedA[32], seedB[32];
+    for (int i = 0; i < 32; ++i) { seedA[i] = uint8_t(i + 1); seedB[i] = uint8_t(100 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, seedA); identity_from_seed(idB, seedB);
+    Node A(halA, 1, idA.key_hash32), B(halB, 2, idB.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    A.on_init(cfg); B.on_init(cfg);
+    A.set_crypto_identity(idA.x_secret, idA.ed_pub); B.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    A.peer_key_set(idB.key_hash32, idB.ed_pub, Node::PeerKeyConf::authoritative);   // each learns the other's authoritative pubkey
+    B.peer_key_set(idA.key_hash32, idA.ed_pub, Node::PeerKeyConf::authoritative);
+
+    const uint8_t flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH;
+    const uint8_t body[12] = { 's','e','c','r','e','t','-','h','e','l','l','o' };
+    uint8_t inner[128], seed[8];
+    const size_t n = A.e2e_seal_inner(inner, sizeof inner, seed, flags, /*dst=*/idB.key_hash32,
+                                      /*origin=*/1, /*ctr=*/7, /*source_hash=*/idA.key_hash32, 0, 0, body, sizeof body);
+    CHECK(n == 5 + 4 + 12 + 16);                                    // aad(dst4+origin1) + source_hash(4) + body(12) + tag(16)
+    bool leaked = false;                                            // the body must NOT be cleartext anywhere in the inner
+    for (size_t i = 0; i + 12 <= n; ++i) { bool m = true; for (int j = 0; j < 12; ++j) if (inner[i+j] != body[j]) m = false; if (m) leaked = true; }
+    CHECK_FALSE(leaked);
+
+    uint32_t got_sh = 0; bool got_loc = true; int32_t la = 1, lo = 1; uint8_t out[64] = {}; uint8_t outlen = 0;
+    CHECK(B.e2e_open_inner(inner, n, seed, flags, /*ctr=*/7, /*sender_hash=*/idA.key_hash32, got_sh, got_loc, la, lo, out, outlen));
+    CHECK(got_sh == idA.key_hash32);                               // the sealed source_hash == the resolved sender (anti-spoof)
+    CHECK_FALSE(got_loc);
+    CHECK(outlen == 12);
+    bool same = true; for (int i = 0; i < 12; ++i) if (out[i] != body[i]) same = false; CHECK(same);
+
+    uint8_t t[128]; for (size_t i = 0; i < n; ++i) t[i] = inner[i]; t[6] ^= 0x01;   // a tampered ciphertext byte
+    CHECK_FALSE(B.e2e_open_inner(t, n, seed, flags, 7, idA.key_hash32, got_sh, got_loc, la, lo, out, outlen));
+    CHECK_FALSE(B.e2e_open_inner(inner, n, seed, flags, /*wrong ctr*/ 8, idA.key_hash32, got_sh, got_loc, la, lo, out, outlen));
+    CHECK_FALSE(B.e2e_open_inner(inner, n, seed, flags, 7, /*wrong sender*/ idA.key_hash32 ^ 0x5u, got_sh, got_loc, la, lo, out, outlen));
+}
+
+TEST_CASE("e2e seal — refuses (returns 0) when the recipient pubkey is unknown (fail-loud, never cleartext)") {
+    TestHal hal; uint8_t seed[32]; for (int i = 0; i < 32; ++i) seed[i] = uint8_t(i + 5);
+    Identity id{}; identity_from_seed(id, seed);
+    Node A(hal, 1, id.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); A.on_init(cfg);
+    A.set_crypto_identity(id.x_secret, id.ed_pub);
+    const uint8_t flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH;
+    const uint8_t body[3] = { 1, 2, 3 };
+    uint8_t inner[64], s8[8];
+    CHECK(A.e2e_seal_inner(inner, sizeof inner, s8, flags, /*dst=unknown*/ 0xDEADBEEFu, 1, 7, id.key_hash32, 0, 0, body, 3) == 0);
+}

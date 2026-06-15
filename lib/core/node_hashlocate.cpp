@@ -10,6 +10,9 @@
 // join id-defense (J_DENY on conflict) and the cross-layer gateway_remote_bind are deferred.
 #include "node.h"
 #include "frame_codec.h"
+#include "identity.h"      // ed_pub_to_x25519 (E2E ECDH)
+#include "dm_crypto.h"     // dm_kdf / dm_nonce / dm_seal / dm_open (E2E seal/open)
+#include "monocypher.h"    // crypto_x25519 / crypto_wipe
 
 #include <span>
 
@@ -249,6 +252,72 @@ void Node::peer_key_age_out() {
         L._peer_keys[w++] = L._peer_keys[r];
     }
     L._peer_keys_n = w;
+}
+
+// ---- E2E seal/open (Phase 1 §4/§5): same-layer CRYPTED unicast inner = [dst_hash 4][origin 1][ct][tag 16] ----
+size_t Node::e2e_seal_inner(uint8_t* inner, size_t cap, uint8_t seed8[8], uint8_t flags, uint32_t dst_key_hash32,
+                            uint8_t origin, uint16_t ctr, uint32_t source_hash, int32_t lat_e7, int32_t lon_e7,
+                            const uint8_t* body, uint8_t body_len) {
+    if (flags & DATA_FLAG_CROSS_LAYER) return 0;                    // v1: same-layer CRYPTED only
+    uint8_t peer_ed[32]; PeerKeyConf conf = PeerKeyConf::overheard; // 1. recipient's AUTHORITATIVE pubkey (else fail loud)
+    if (!peer_key_find(dst_key_hash32, peer_ed, &conf) || conf != PeerKeyConf::authoritative) return 0;
+    uint8_t peer_x[32]; ed_pub_to_x25519(peer_x, peer_ed);          // 2. ECDH -> per-pair key
+    uint8_t shared[32]; crypto_x25519(shared, _x_secret, peer_x);
+    uint8_t key[32]; dm_kdf(key, shared, _key_hash32, dst_key_hash32);
+    _hal.rand_bytes(seed8, 8);                                      // 3. fresh nonce-seed (HAL crypto RNG) -> nonce
+    uint8_t nonce[24]; dm_nonce(nonce, seed8, ctr, dst_key_hash32);
+    uint8_t aad[5] = { uint8_t(dst_key_hash32), uint8_t(dst_key_hash32 >> 8), uint8_t(dst_key_hash32 >> 16),
+                       uint8_t(dst_key_hash32 >> 24), origin };     // 4. cleartext AAD = [dst_hash 4 LE][origin]
+    uint8_t pt[protocol::max_payload_bytes_hard_cap]; size_t pt_len = 0;   // 5. plaintext = [source_hash?][location?][body]
+    if (flags & DATA_FLAG_SOURCE_HASH) { pt[pt_len++]=uint8_t(source_hash); pt[pt_len++]=uint8_t(source_hash>>8);
+                                         pt[pt_len++]=uint8_t(source_hash>>16); pt[pt_len++]=uint8_t(source_hash>>24); }
+    if (flags & DATA_FLAG_LOCATION) { if (pt_len + 6 > sizeof pt) return 0; pack_loc6(lat_e7, lon_e7, std::span<uint8_t>(pt + pt_len, 6)); pt_len += 6; }
+    for (uint8_t i = 0; i < body_len; ++i) { if (pt_len >= sizeof pt) return 0; pt[pt_len++] = body[i]; }
+    const size_t total = sizeof aad + pt_len + DM_TAG_LEN;         // 6. inner = aad || ciphertext || tag
+    if (total > cap) { crypto_wipe(key, 32); crypto_wipe(shared, 32); crypto_wipe(pt, sizeof pt); return 0; }
+    for (size_t i = 0; i < sizeof aad; ++i) inner[i] = aad[i];
+    uint8_t tag[DM_TAG_LEN];
+    dm_seal(inner + sizeof aad, tag, key, nonce, aad, sizeof aad, pt, pt_len);
+    for (size_t i = 0; i < DM_TAG_LEN; ++i) inner[sizeof aad + pt_len + i] = tag[i];
+    crypto_wipe(key, 32); crypto_wipe(shared, 32); crypto_wipe(pt, sizeof pt);
+    return total;
+}
+
+bool Node::e2e_open_inner(const uint8_t* inner, size_t inner_len, const uint8_t seed8[8], uint8_t flags, uint16_t ctr,
+                          uint32_t sender_hash, uint32_t& source_hash_out, bool& has_location_out, int32_t& lat_out,
+                          int32_t& lon_out, uint8_t* body_out, uint8_t& body_len_out) {
+    source_hash_out = 0; has_location_out = false; lat_out = 0; lon_out = 0; body_len_out = 0;
+    if (flags & DATA_FLAG_CROSS_LAYER) return false;                // v1: same-layer only
+    // 1. SENDER pubkey from the caller-resolved hash (origin -> id_bind is the caller's job, e.g. do_post_ack)
+    uint8_t sender_ed[32]; PeerKeyConf conf = PeerKeyConf::overheard;
+    if (!peer_key_find(sender_hash, sender_ed, &conf) || conf != PeerKeyConf::authoritative) return false;
+    uint8_t sx[32]; ed_pub_to_x25519(sx, sender_ed);               // 2. ECDH -> key (same KDF both directions)
+    uint8_t shared[32]; crypto_x25519(shared, _x_secret, sx);
+    uint8_t key[32]; dm_kdf(key, shared, _key_hash32, sender_hash);
+    uint8_t nonce[24]; dm_nonce(nonce, seed8, ctr, _key_hash32);   // 3. we are dst -> dst_key_hash32 == our key
+    const size_t aad_len = 5;                                       // 4. [dst_hash 4][origin 1] (same-layer)
+    if (inner_len < aad_len + DM_TAG_LEN) { crypto_wipe(key, 32); crypto_wipe(shared, 32); return false; }
+    const size_t ct_len = inner_len - aad_len - DM_TAG_LEN;
+    uint8_t pt[protocol::max_payload_bytes_hard_cap];
+    if (ct_len > sizeof pt) { crypto_wipe(key, 32); crypto_wipe(shared, 32); return false; }
+    const bool ok = dm_open(pt, key, nonce, inner, aad_len, inner + aad_len, ct_len, inner + aad_len + ct_len);
+    crypto_wipe(key, 32); crypto_wipe(shared, 32);
+    if (!ok) { crypto_wipe(pt, sizeof pt); return false; }          // tag fail -> hard drop
+    size_t off = 0;                                                 // 5. parse [source_hash?][location?][body]
+    if (flags & DATA_FLAG_SOURCE_HASH) {
+        if (ct_len < off + 4) { crypto_wipe(pt, sizeof pt); return false; }
+        source_hash_out = uint32_t(pt[off]) | (uint32_t(pt[off+1])<<8) | (uint32_t(pt[off+2])<<16) | (uint32_t(pt[off+3])<<24); off += 4;
+    }
+    if (flags & DATA_FLAG_LOCATION) {
+        if (ct_len < off + 6) { crypto_wipe(pt, sizeof pt); return false; }
+        unpack_loc6(std::span<const uint8_t>(pt + off, 6), lat_out, lon_out); has_location_out = true; off += 6;
+    }
+    body_len_out = uint8_t(ct_len - off);
+    for (size_t i = 0; i < body_len_out; ++i) body_out[i] = pt[off + i];
+    // 6. anti-spoof: the SEALED source_hash must equal the resolved sender's hash (only the real sender's key opens to it)
+    if ((flags & DATA_FLAG_SOURCE_HASH) && source_hash_out != sender_hash) { crypto_wipe(pt, sizeof pt); body_len_out = 0; return false; }
+    crypto_wipe(pt, sizeof pt);
+    return true;
 }
 
 // =============================================================================

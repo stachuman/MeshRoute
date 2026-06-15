@@ -111,6 +111,7 @@ struct NodeConfig {
     int32_t  lat_e7 = 0, lon_e7 = 0;             // this node's location (deg×1e7; (0,0) = unset -> NEVER transmitted)
     bool     loc_in_dm = false;                  // piggyback location on originated DMs (DATA_FLAG_LOCATION, sealed inner)
     bool     loc_in_m  = false;                  // piggyback location on originated channel M frames (flavor 0x08, public)
+    bool     e2e_dm    = false;                  // Phase 1: originate app DMs ENCRYPTED when the recipient's pubkey is known; default OFF -> s18 byte-identical
     // ---- dual-layer gateway (2026-06-12 design). n_layers=1 = normal node (uses layers[0]); 2 = gateway.
     //      Slice 0: layers[0] MIRRORS the legacy routing_sf/allowed_sf_bitmap/leaf_id/beacon_period_ms scalars
     //      (set in on_init). NB: `is_gateway` above is NOT derived from n_layers — it is the SINGLE-LAYER
@@ -366,6 +367,17 @@ public:
     bool              peer_key_find(uint32_t key_hash32, uint8_t ed_pub_out[32], PeerKeyConf* conf_out = nullptr);  // false: absent/aged
     void              peer_key_age_out();                                                              // drop entries past peer_key_ttl_ms
     uint16_t          peer_key_count() const { return _active->_peer_keys_n; }
+    // E2E seal/open (Phase 1 §4/§5). Public for the send/receive paths + tests. SAME-LAYER DMs only in v1
+    // (cross-layer CRYPTED out of scope). Recipient/sender pubkey resolved from the peer-key cache; ECDH+KDF+nonce
+    // via _x_secret. e2e_seal_inner builds [dst_hash 4][origin 1][ciphertext][tag 16] + the 8-B nonce-seed; returns
+    // inner_len (0 = no authoritative pubkey / overflow -> caller FAILS LOUD, never cleartext).
+    size_t e2e_seal_inner(uint8_t* inner, size_t cap, uint8_t seed8[8], uint8_t flags, uint32_t dst_key_hash32,
+                          uint8_t origin, uint16_t ctr, uint32_t source_hash, int32_t lat_e7, int32_t lon_e7,
+                          const uint8_t* body, uint8_t body_len);
+    // e2e_open_inner: decrypt + VERIFY the sealed source_hash == the resolved sender's hash. false = no key / tag fail.
+    bool   e2e_open_inner(const uint8_t* inner, size_t inner_len, const uint8_t seed8[8], uint8_t flags, uint16_t ctr,
+                          uint32_t sender_hash, uint32_t& source_hash_out, bool& has_location_out, int32_t& lat_out,
+                          int32_t& lon_out, uint8_t* body_out, uint8_t& body_len_out);   // caller resolves origin->sender_hash (id_bind)
     void              on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool authoritative);   // C.1: the origin consumed an H_ANSWER DATA -> cache (h_query) + drain. authoritative from the frame TYPE. public = the deliver seam + test driver
     void              on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool authoritative);      // C.2: a forwarder snooped an H_ANSWER in transit -> cache-on-pass (h_relay). authoritative from the frame TYPE. public = the relay seam + test driver
     bool              channel_entry_dirty(uint32_t id) const { const int i = channel_buffer_find(id); return i >= 0 && _active->_channel_buffer[i].dirty; }
