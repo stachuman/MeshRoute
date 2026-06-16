@@ -89,6 +89,16 @@ public actor MockNodeLink: NodeLink {
                 let node = knownPeers[h] ?? 0                // 0 = unresolved/timeout
                 emit(hashResolvedLine(node: node, auth: node != 0, hash: h))
             }
+        case "peerkey":                                      // install a verified key → derive hash = ed_pub[:4]
+            if let hex = tokens.first, hex.count == 64, let h = KeyHash(hex: String(hex.prefix(8))) {
+                emit(#"{"ev":"peerkey_set","hash":\#(h.value),"pinned":true}"#)
+            } else {
+                emit(#"{"ev":"peerkey_err","reason":"bad_hex"}"#)
+            }
+        case "reqpubkey":
+            if let h = tokens.first.flatMap({ KeyHash(hex: $0) }) {
+                emit(#"{"ev":"reqpubkey_sent","hash":\#(h.value)}"#)
+            }
         case "whoami":
             emit(readyLine(state: "whoami"))
         case "status":
@@ -188,7 +198,7 @@ public actor MockNodeLink: NodeLink {
         #"{"ev":"hash_resolved","node":\#(node),"auth":\#(auth ? 1 : 0),"hash":\#(hash.value)}"#
     }
     private func readyLine(state: String) -> String {
-        #"{"ev":"ready","id":\#(selfID),"key":"\#(selfHash.hex8)","name":"Mock \#(selfID)","leaf_id":0,"mode":"\#(state)","gateway":false,"routing_sf":7,"inbox_epoch":\#(inboxEpoch),"now_ms":\#(uptimeMs)}"#
+        #"{"ev":"ready","id":\#(selfID),"key":"\#(selfHash.hex8)","name":"Mock \#(selfID)","pubkey":"\#(selfHash.hex8)\#(String(repeating: "0", count: 56))","leaf_id":0,"mode":"\#(state)","gateway":false,"routing_sf":7,"inbox_epoch":\#(inboxEpoch),"now_ms":\#(uptimeMs)}"#
     }
     private func statusLine() -> String {
         #"{"ev":"status","id":\#(selfID),"key":"\#(selfHash.hex8)","state":"operating","leaf_id":0,"gateway":false,"routing_sf":7,"uptime_ms":\#(uptimeMs),"duty_ms":1240,"txq":0,"txdrop":0,"rx":42,"tx":17,"routes":\#(knownPeers.count),"pending":false,"lbt":true,"batt_mv":4050}"#

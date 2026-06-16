@@ -28,6 +28,14 @@ inline const char* mr_cmd_name(uint8_t cmd) {
 
 inline bool g_mr_trace_on = true;   // `debug on/off` (device console) gates the whole decoded RX/TX trace below
 
+// Hex-dump frame[off, off+len) to the console, capped at `cap` bytes (..  if truncated). Used by the CRYPTED
+// region annotation so an operator can EYE-CONFIRM the encrypted span isn't their plaintext.
+inline void mr_trace_hex(const uint8_t* b, size_t off, size_t len, size_t cap) {
+    const size_t show = (len > cap) ? cap : len;
+    for (size_t i = 0; i < show; ++i) { uint8_t x = b[off + i]; if (x < 0x10) Serial.print('0'); Serial.print(x, HEX); }
+    if (len > cap) Serial.print(F(".."));
+}
+
 // One line:  «rx <NAME> from= to= dst= … len= sf= [snr= rssi=] t=…ms   (»tx for is_rx=false; no snr/rssi)
 // `sf` = the radio SF the frame arrived/left on. Addressing fields are per-type (see §10 / the user's ask):
 //   RTS  from=src to=next dst=dst sfi=<sf_index 0..3, 3=ANY>      CTS  from=tx_id to=rx_id dsf=<data sf>
@@ -50,7 +58,16 @@ inline void mr_trace_frame(bool is_rx, const uint8_t* b, size_t n, int sf,
                       Serial.print(F(" to="));  Serial.print(c->rx_id); Serial.print(F(" dsf=")); Serial.print(c->chosen_data_sf);
                       if (c->already_received) Serial.print(F(" RCVD")); } break;   // dedup CTS: "I already have this DM" -> sender skips DATA
         case 0x3: if (auto d = parse_data(f)) { Serial.print(F(" to=")); Serial.print(d->next);
-                      Serial.print(F(" dst=")); Serial.print(d->dst); Serial.print(F(" ctr=")); Serial.print(d->ctr); } break;
+                      Serial.print(F(" dst=")); Serial.print(d->dst); Serial.print(F(" ctr=")); Serial.print(d->ctr);
+                      // E2E eye-confirm: for a CRYPTED DATA, annotate which on-wire bytes are encrypted. The header
+                      // (above) + aad are CLEARTEXT; enc[a..b) is the sealed body (opaque hex); tag+seed are trailers.
+                      if (d->crypted) { const auto cr = data_crypted_region(*d);
+                          if (cr.valid && cr.tag_off + cr.tag_len <= n) {
+                              Serial.print(F(" CRYPTED enc[")); Serial.print((unsigned)cr.ct_off); Serial.print(F(".."));
+                              Serial.print((unsigned)(cr.ct_off + cr.ct_len)); Serial.print(F(")="));
+                              mr_trace_hex(b, cr.ct_off, cr.ct_len, 24);                          // the ENCRYPTED body bytes
+                              Serial.print(F(" aad=")); mr_trace_hex(b, cr.aad_off, cr.aad_len, 8);   // cleartext dst_hash+origin
+                              Serial.print(F(" tag[16] seed[8]")); } } } break;
         case 0x4: if (auto a = parse_ack(f))  { Serial.print(F(" to=")); Serial.print(a->to);
                       Serial.print(F(" ctr=")); Serial.print(a->ctr_lo); } break;
         case 0x5: if (auto k = parse_nack(f)) { Serial.print(F(" to=")); Serial.print(k->to);

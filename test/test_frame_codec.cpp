@@ -1469,3 +1469,48 @@ TEST_CASE("hash-bind PUBKEY inner (DATA TYPE 5) — 34-B round-trip; <34 rejecte
     CHECK(pack_hash_bind_pubkey_inner(in, std::span<uint8_t>(buf, 33)) == 0);
     CHECK_FALSE(parse_hash_bind_pubkey_inner(std::span<const uint8_t>(buf, 33)).has_value());
 }
+
+// E2E observability (device console eye-confirm): data_crypted_region carves a parsed CRYPTED DATA frame into
+// the labelled byte ranges [aad 5 | ciphertext | tag 16] + the 8-B nonce-seed trailer. Build a real CRYPTED frame
+// via pack_data (synthetic inner = aad(5)+ct(14)+tag(16)=35, 8-B seed mac), parse it, and check every region maps
+// to the right bytes — so the device trace highlights exactly the encrypted span and nothing else.
+TEST_CASE("data_crypted_region — carves [aad | ciphertext | tag | seed] of a CRYPTED DATA frame") {
+    std::array<uint8_t, 35> inner{};                                   // [dst_hash 4][origin 1][ct 14][tag 16]
+    for (size_t i = 0; i < inner.size(); ++i) inner[i] = uint8_t(0x40 + i);
+    std::array<uint8_t, 8> seed{};
+    for (size_t i = 0; i < 8; ++i) seed[i] = uint8_t(0xA0 + i);
+    data_in in{};
+    in.flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH;                 // CRYPTED requires DST_HASH; mac trailer = 8-B seed
+    in.next = 0x21; in.dst = 0x22; in.ctr = 0x1234;
+    in.inner = std::span<const uint8_t>(inner.data(), inner.size());
+    in.mac   = std::span<const uint8_t>(seed.data(), seed.size());
+    std::array<uint8_t, 80> buf{};
+    const size_t n = pack_data(in, buf);
+    CHECK(n > 0);
+    auto d = parse_data(std::span<const uint8_t>(buf.data(), n));
+    CHECK(d.has_value());
+    if (d) {
+        CHECK(d->crypted);
+        auto r = data_crypted_region(*d);
+        CHECK(r.valid);
+        // aad = the first 5 inner bytes (dst_hash 4 + origin 1), CLEARTEXT
+        CHECK(r.aad_off == d->inner_off);            CHECK(r.aad_len == 5);
+        // ciphertext = the 14 sealed bytes between aad and tag
+        CHECK(r.ct_off  == d->inner_off + 5);        CHECK(r.ct_len  == 14);
+        // tag = the last 16 inner bytes
+        CHECK(r.tag_off == d->inner_off + 35 - 16);  CHECK(r.tag_len == 16);
+        // seed = the 8-B nonce-seed MAC trailer, right after the inner
+        CHECK(r.seed_off == d->mac_off);             CHECK(r.seed_len == 8);
+        // the carved ciphertext bytes are exactly inner[5..19) (proves the offset maps the right span)
+        bool ct_ok = true; for (size_t i = 0; i < r.ct_len; ++i) ct_ok = ct_ok && (buf[r.ct_off + i] == inner[5 + i]);
+        CHECK(ct_ok);
+    }
+    // a NON-crypted DATA frame -> invalid (no encrypted region to show)
+    data_in plain{}; plain.flags = 0; plain.next = 1; plain.dst = 2;
+    std::array<uint8_t, 4> pmac{1,2,3,4}; std::array<uint8_t, 4> pin{9,9,9,9};
+    plain.inner = std::span<const uint8_t>(pin.data(), pin.size()); plain.mac = pmac;
+    std::array<uint8_t, 40> pbuf{}; const size_t pn = pack_data(plain, pbuf);
+    auto pd = parse_data(std::span<const uint8_t>(pbuf.data(), pn));
+    CHECK(pd.has_value());
+    if (pd) CHECK_FALSE(data_crypted_region(*pd).valid);
+}

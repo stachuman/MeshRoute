@@ -32,7 +32,7 @@ public struct ConversationStore: Sendable {
                                  channelMsgID: channelMsgID, seq: seq, body: body, now: now)
         case .sendAcked(_, let ctr):
             updateOutgoing(ctr: ctr, to: .acked); return nil
-        case .sendFailed(_, let ctr):
+        case .sendFailed(_, let ctr, _):
             updateOutgoing(ctr: ctr, to: .failed); return nil
         default:
             return nil

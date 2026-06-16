@@ -32,7 +32,7 @@ final class ConversationStoreTests: XCTestCase {
         var store = ConversationStore()
         let out = store.appendOutgoing(thread: .dm(KeyHash(2)), body: "yo", now: now)
         store.attach(ctr: 9, toMessage: out.id)
-        store.ingest(.sendFailed(dst: 2, ctr: 9), now: now)
+        store.ingest(.sendFailed(dst: 2, ctr: 9, reason: nil), now: now)
         XCTAssertEqual(store.messages(in: .dm(KeyHash(2))).first?.state, .failed)
     }
 

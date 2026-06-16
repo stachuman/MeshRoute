@@ -719,6 +719,21 @@ std::span<const uint8_t> data_nonce_seed(std::span<const uint8_t> frame, const d
     return frame.subspan(d.mac_off, 8);
 }
 
+// E2E observability: carve a CRYPTED DATA inner into [aad 5][ciphertext][tag 16] + the 8-B nonce-seed trailer.
+crypted_region data_crypted_region(const data_out& d) {
+    crypted_region r{};
+    constexpr size_t kAadLen = 5;    // [dst_hash 4][origin 1] — CRYPTED mandates DST_HASH (same-layer v1)
+    constexpr size_t kTagLen = 16;   // Poly1305 tag (== dm_crypto DM_TAG_LEN)
+    if (!d.crypted) return r;                                   // not encrypted -> nothing to show
+    if (d.inner_len < kAadLen + kTagLen) return r;             // malformed: can't hold aad + tag
+    r.aad_off  = d.inner_off;                       r.aad_len  = kAadLen;
+    r.ct_off   = d.inner_off + kAadLen;             r.ct_len   = d.inner_len - kAadLen - kTagLen;
+    r.tag_off  = d.inner_off + d.inner_len - kTagLen; r.tag_len = kTagLen;
+    r.seed_off = d.mac_off;                         r.seed_len = data_mac_len(d.flags);   // 8 under CRYPTED
+    r.valid = true;
+    return r;
+}
+
 std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> inner, uint8_t flags) {
     // Plaintext unicast: NO payload-flags byte. The optional dst_key_hash32 (4 B LE, the recipient's
     // key_hash32 — L2c verify-on-delivery) is present iff the byte-1 header had DST_HASH set, then origin,

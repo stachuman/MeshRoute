@@ -59,9 +59,12 @@ public struct NodeReady: Hashable, Sendable, Codable {
     public let nowMs: UInt64?
     /// The node's own /mrid name (`cfg set name`) — app-level identity label (§1.3). Omitted when unset.
     public let name: String?
+    /// The node's own ed25519 public key (64 hex) — so `MyCardView` can put `p` in the QR (E2E, 2026-06-16).
+    /// `key_hash32` alone can't seal a DM; the full pubkey is the sealing key. nil on pre-E2E firmware.
+    public let pubkey: String?
     enum CodingKeys: String, CodingKey {
         case id, key, leafID = "leaf_id", mode, gateway, routingSF = "routing_sf", inboxEpoch = "inbox_epoch",
-             nowMs = "now_ms", name
+             nowMs = "now_ms", name, pubkey
     }
 }
 
@@ -143,8 +146,13 @@ public enum Inbound: Hashable, Sendable {
     case messageReceived(origin: Int, ctr: Int, senderHash: UInt32?, seq: UInt32?, layerID: Int?, body: String)   // seq present iff inbox enabled; layerID = receiving layer (D12, 0 on single-layer)
     case channelReceived(origin: Int, channelID: Int, channelMsgID: UInt32?, seq: UInt32?, layerID: Int?, body: String)
     case sendAcked(dst: Int, ctr: Int)
-    case sendFailed(dst: Int, ctr: Int)
+    case sendFailed(dst: Int, ctr: Int, reason: String?)              // reason: no_pubkey · no_identity · too_large · bad_rng · no_route (E2E 2026-06-16)
     case hashResolved(node: Int, authoritative: Bool, hash: KeyHash)   // node == 0 → unresolved/timeout
+    // E2E peer-key provisioning (2026-06-16): results of `peerkey`/`reqpubkey` + a key becoming available.
+    case peerKeySet(hash: KeyHash, pinned: Bool)                       // a scanned card's pubkey installed
+    case peerKeyError(reason: String)                                 // bad_hex | hash_mismatch — not installed
+    case reqPubkeySent(hash: KeyHash)                                 // an on-air key request went out
+    case peerKeyCached(hash: KeyHash, pinned: Bool)                   // a key arrived → "secure send ready, resend"
     case ready(NodeReady)
     case status(NodeStatusSnapshot)
     case route(RouteInfo)                                            // one row from the `routes` stream
@@ -203,11 +211,23 @@ public enum PushDecoder {
             }
         case "send_failed":
             if let m = try? decoder.decode(SendFate.self, from: data) {
-                return .sendFailed(dst: m.dst, ctr: m.ctr)
+                return .sendFailed(dst: m.dst, ctr: m.ctr, reason: m.reason)
             }
         case "hash_resolved":
             if let m = try? decoder.decode(HashResolved.self, from: data) {
                 return .hashResolved(node: m.node, authoritative: m.auth != 0, hash: KeyHash(m.hash))
+            }
+        case "peerkey_set":
+            if let m = try? decoder.decode(PeerKeyEvent.self, from: data) {
+                return .peerKeySet(hash: KeyHash(m.hash), pinned: m.pinned ?? true)
+            }
+        case "peerkey_err":
+            if let m = try? decoder.decode(ReasonEvent.self, from: data) { return .peerKeyError(reason: m.reason) }
+        case "reqpubkey_sent":
+            if let m = try? decoder.decode(PeerKeyEvent.self, from: data) { return .reqPubkeySent(hash: KeyHash(m.hash)) }
+        case "peer_key_cached":
+            if let m = try? decoder.decode(PeerKeyEvent.self, from: data) {
+                return .peerKeyCached(hash: KeyHash(m.hash), pinned: m.pinned ?? false)
             }
         case "ready":
             if let m = try? decoder.decode(NodeReady.self, from: data) { return .ready(m) }
@@ -256,8 +276,10 @@ public enum PushDecoder {
     }
     private struct MsgRecv: Decodable { let origin: Int; let ctr: Int; let sender_hash: UInt32?; let seq: UInt32?; let layer_id: Int?; let body: String }
     private struct ChannelRecv: Decodable { let origin: Int; let channel_id: Int; let channel_msg_id: UInt32?; let seq: UInt32?; let layer_id: Int?; let body: String }
-    private struct SendFate: Decodable { let dst: Int; let ctr: Int }
+    private struct SendFate: Decodable { let dst: Int; let ctr: Int; let reason: String? }   // reason on send_failed (E2E)
     private struct HashResolved: Decodable { let node: Int; let auth: Int; let hash: UInt32 }
+    private struct PeerKeyEvent: Decodable { let hash: UInt32; let pinned: Bool? }            // peerkey_set / reqpubkey_sent / peer_key_cached
+    private struct ReasonEvent: Decodable { let reason: String }                              // peerkey_err
     private struct InboxDM: Decodable { let seq: UInt32; let origin: Int; let ctr: Int; let sender_hash: UInt32?; let layer_id: Int?; let rx_ms: UInt64; let body: String }
     private struct InboxCh: Decodable { let seq: UInt32; let origin: Int; let channel_id: Int; let channel_msg_id: UInt32; let layer_id: Int?; let rx_ms: UInt64; let body: String }
     private struct InboxEnd: Decodable { let dm_seq: UInt32; let chan_seq: UInt32; let epoch: UInt32?; let count: Int; let now_ms: UInt64? }

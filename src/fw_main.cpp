@@ -1041,6 +1041,24 @@ void loop() {
     // 2) Timers: fire every elapsed Node timer (beacons, RTS/ACK timeouts, retries, the duty/LBT defers).
     for (int id; (id = g_hal.pop_due_timer()) >= 0; ) g_node.on_timer((uint32_t)id);
 
+    // 2a) Gateway visibility (`debug on`): a dual-layer gateway alternates which leaf it LISTENS on per the window
+    //     schedule (window_switch_fire, a timer above). Announce each switch — active layer/leaf/node_id/routing_sf
+    //     + the data-SF set — so the operator sees the cadence inline with the RX/TX trace. Single-layer never switches.
+    if (meshroute::g_mr_trace_on && g_node.config().n_layers == 2) {
+        static uint8_t s_last_layer = 0xFF;
+        const uint8_t cur = g_node.active_layer_id();
+        if (cur != s_last_layer) {
+            s_last_layer = cur;
+            const meshroute::NodeConfig& c = g_node.config();
+            Serial.print(F("\n t=")); Serial.print((uint32_t)now); Serial.print(F(" ms [gw] now LISTENING layer="));
+            Serial.print(cur);                  Serial.print(F(" leaf="));       Serial.print(c.leaf_id);
+            Serial.print(F(" node_id="));       Serial.print(g_node.node_id());
+            Serial.print(F(" routing_sf="));    Serial.print(c.routing_sf);
+            Serial.print(F(" data_sf="));       print_sf_list(c.allowed_sf_bitmap);
+            Serial.flush();
+        }
+    }
+
     // 2b) Async TX: drain the in-flight TX completion (radio re-arms RX) + start the next queued frame.
     //     After RX + timers, since both enqueue TX. The loop stays live during a long TX (no freeze).
     g_hal.service_tx();

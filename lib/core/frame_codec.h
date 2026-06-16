@@ -413,6 +413,18 @@ std::span<const uint8_t> data_mac    (std::span<const uint8_t> frame, const data
 // Phase 1: the 8-B cleartext nonce-seed (rand8) carried in the trailer of a CRYPTED DATA. Empty otherwise.
 std::span<const uint8_t> data_nonce_seed(std::span<const uint8_t> frame, const data_out& d);
 
+// Phase-1 E2E observability: the byte regions of a CRYPTED DATA inner, so the device console's decoded trace
+// (frame_trace.h) can let an operator EYE-CONFIRM exactly which bytes are encrypted. All offsets are into the
+// WHOLE frame. valid=false when `d` is not CRYPTED, or the inner is too short to hold [aad 5 + tag 16].
+struct crypted_region {
+    size_t aad_off = 0,  aad_len = 0;     // [dst_hash 4][origin 1] — CLEARTEXT (the AEAD's authenticated data)
+    size_t ct_off = 0,   ct_len = 0;      // the sealed {source_hash?+location?+body} = ciphertext (ENCRYPTED)
+    size_t tag_off = 0,  tag_len = 0;     // 16-B Poly1305 tag (== dm_crypto DM_TAG_LEN)
+    size_t seed_off = 0, seed_len = 0;    // 8-B cleartext nonce-seed (the conditional MAC trailer)
+    bool   valid = false;
+};
+crypted_region data_crypted_region(const data_out& d);
+
 // 6-byte location codec — 21-bit lat + 22-bit lon quantized from int32 deg×1e7 (~11 m, global).
 // LOCATION-propagation spec 2026-06-14. step = 1024 e7-units; +512 cell-centring on decode. The
 // DECODE MUST use int64 intermediates — u_lon<<10 reaches 3.6e9 > INT32_MAX.

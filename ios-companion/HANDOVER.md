@@ -111,6 +111,15 @@ bits: `MessageEntity.isRead`, `ChannelLabelEntity` (additive migration).
   rises slowly. Added `batt_raw`+`batt_mv` to serial `status` to verify vs a multimeter. With NO battery
   the reading is meaningless (can't reliably detect cell-absent).
 
+## E2E peer-key provisioning (app side) — SYNCED 2026-06-16 (firmware crypto in progress)
+Contract: INBOX_SYNC_CONTRACT.md §Verified-peer provisioning + `2026-06-16-e2e-peer-key-provisioning.md`.
+App stays crypto-free (D6/D20) — opaque pubkey bytes. Wired: decode `ready.pubkey` + `send_failed.reason`
++ `peerkey_set`/`peerkey_err`/`reqpubkey_sent`/`peer_key_cached`; commands `peerkey <hex64>` / `reqpubkey
+<hex8>` (`AppModel.provisionPeerKey`/`requestPubkey`); My-card QR now carries the pubkey (`&p=`); scanning
+a card with a pubkey auto-sends `peerkey`. Mock serves `ready.pubkey` + the peerkey/reqpubkey acks. TODO
+(UX slice): no-pubkey send → "Request key / Scan QR" prompt, `peer_key_cached` → "resend", `e2e_dm` toggle,
+per-thread lock icon. 73 package tests, app builds.
+
 ## Product direction
 The LIVING roadmap (decisions D1–D5, themes A–E, open questions Q1–Q10) is
 `docs/superpowers/specs/2026-06-12-companion-product-roadmap.md` — the single tracking doc for

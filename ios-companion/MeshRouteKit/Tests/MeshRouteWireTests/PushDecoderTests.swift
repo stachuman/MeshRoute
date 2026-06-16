@@ -84,11 +84,38 @@ final class PushDecoderTests: XCTestCase {
             return XCTFail("not send_acked")
         }
         XCTAssertEqual(dst, 2); XCTAssertEqual(ctr, 7)
-        guard case .sendFailed(let d2, let c2)? =
+        guard case .sendFailed(let d2, let c2, let r2)? =
                 PushDecoder.decode(line: #"{"ev":"send_failed","dst":9,"ctr":3}"#) else {
             return XCTFail("not send_failed")
         }
-        XCTAssertEqual(d2, 9); XCTAssertEqual(c2, 3)
+        XCTAssertEqual(d2, 9); XCTAssertEqual(c2, 3); XCTAssertNil(r2)
+        // E2E: a CRYPTED send dropped for no peer key carries a reason
+        guard case .sendFailed(_, _, let r3)? =
+                PushDecoder.decode(line: #"{"ev":"send_failed","dst":2,"ctr":7,"reason":"no_pubkey"}"#) else {
+            return XCTFail("not send_failed")
+        }
+        XCTAssertEqual(r3, "no_pubkey")
+    }
+
+    func testPeerKeyProvisioningEvents() {     // E2E peer-key provisioning (2026-06-16)
+        XCTAssertEqual(Command.peerKey(pubkeyHex: String(repeating: "ab", count: 32)).line,
+                       "peerkey " + String(repeating: "ab", count: 32))
+        XCTAssertEqual(Command.reqPubkey(KeyHash(0xff60_9d5c)).line, "reqpubkey ff609d5c")
+        guard case .peerKeySet(let h, let pinned)? =
+                PushDecoder.decode(line: #"{"ev":"peerkey_set","hash":3735928559,"pinned":true}"#) else {
+            return XCTFail("not peerkey_set")
+        }
+        XCTAssertEqual(h, KeyHash(0xDEAD_BEEF)); XCTAssertTrue(pinned)
+        guard case .peerKeyError(let reason)? =
+                PushDecoder.decode(line: #"{"ev":"peerkey_err","reason":"hash_mismatch"}"#) else {
+            return XCTFail("not peerkey_err")
+        }
+        XCTAssertEqual(reason, "hash_mismatch")
+        guard case .peerKeyCached(let hc, _)? =
+                PushDecoder.decode(line: #"{"ev":"peer_key_cached","hash":3735928559,"pinned":false}"#) else {
+            return XCTFail("not peer_key_cached")
+        }
+        XCTAssertEqual(hc, KeyHash(0xDEAD_BEEF))
     }
 
     func testHashResolvedDecimalHash() {

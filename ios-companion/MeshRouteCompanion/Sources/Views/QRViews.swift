@@ -19,7 +19,8 @@ struct MyCardView: View {
         NavigationStack {
             Group {
                 if let id = model.nodeIdentity {
-                    let card = ContactCard(name: id.name ?? "Node \(id.id)", hash: id.key)
+                    // Include the node's ed_pub (E2E) so a scanner can install a PINNED key → sealed DMs (2026-06-16).
+                    let card = ContactCard(name: id.name ?? "Node \(id.id)", hash: id.key, pubkeyHex: id.pubkey)
                     VStack(spacing: 16) {
                         if let img = qrUIImage(card.qrString) {
                             Image(uiImage: img)
@@ -78,10 +79,13 @@ struct ScanContactView: View {
                             Button("Add contact") {
                                 model.addContact(name: name.isEmpty ? "0x" + card.hash.hex8 : name,
                                                  hash: card.hash)
+                                if let p = card.pubkeyHex { model.provisionPeerKey(p) }   // E2E: PIN the verified key
                                 dismiss()
                             }
                         } footer: {
-                            Text("If this hash is already a contact, it is renamed.")
+                            Text(card.pubkeyHex != nil
+                                 ? "Includes a verified key — encrypted DMs to this contact seal immediately."
+                                 : "If this hash is already a contact, it is renamed.")
                         }
                     }
                 } else if QRScannerView.isSupported {

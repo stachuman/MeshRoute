@@ -340,6 +340,9 @@ public:
 
     // ---- device-console diagnostics: const LIVE reads consumed by fw_main's routes/cfg/status seam.
     uint8_t           node_id()        const { return _node_id; }
+    // The FULL 8-bit layer_id of the ACTIVE leaf (a gateway alternates leaves on the window schedule). Public so the
+    // device console (`debug on`) can announce which layer the gateway is currently LISTENING on. Single-layer: layers[0].layer_id.
+    uint8_t           active_layer_id() const { return _cfg.layers[static_cast<size_t>(_active - &_layers[0])].layer_id; }
     uint32_t          key_hash32()     const { return _key_hash32; }
     bool              crypto_ready()   const { return _crypto_ready; }   // DP1: a crypto identity is installed
     const NodeConfig& config()         const { return _cfg; }
@@ -670,9 +673,8 @@ private:
     void     seed_seen_origin_on_leaf(uint8_t leaf, uint8_t origin, uint8_t dst, uint16_t ctr);  // loop-suppress the re-inject on the far leaf
     bool     push_xl_handoff(const XlHandoff& h);                 // buffer a handoff; false = full (refuse loud)
     void     drain_xl_handoffs_for_leaf(uint8_t leaf);           // on activate_layer(leaf): move matching handoffs into the leaf's tx_queue
-    // Slice 4a': the FULL 8-bit layer_id of the ACTIVE leaf (§2/Q13) — stamped on every delivered DM/channel record + Push so the
-    // app knows which layer a message arrived on (origin aliases across a gateway's two leaves). Single-layer: layers[0].layer_id == leaf_id.
-    uint8_t  active_layer_id() const { return _cfg.layers[static_cast<size_t>(_active - &_layers[0])].layer_id; }
+    // Slice 4a': active_layer_id() (the FULL 8-bit layer_id of the ACTIVE leaf, stamped on every delivered DM/channel
+    // record + Push so the app knows which layer a message arrived on) is now PUBLIC (device-console diagnostics block).
     void     start_rts_timeout();
     void     start_ack_timeout();
     void     start_pending_rx_expiry(uint8_t payload_len);

@@ -55,6 +55,9 @@ public enum Command: Hashable, Sendable {
     // inbox sync (persistent-inbox spec §8) — catch up the durable history on connect / after being away.
     case pullInbox(dmSince: UInt32, chanSince: UInt32)
     case markRead(kind: InboxKind, seq: UInt32)
+    // E2E peer-key provisioning (2026-06-16 contract). The app does NO crypto — these just hand the node bytes.
+    case peerKey(pubkeyHex: String)              // install a scanned card's pubkey (PINNED) → "peerkey <hex64>"
+    case reqPubkey(KeyHash)                       // user-triggered on-air key request → "reqpubkey <hex8>"
     case raw(String)                             // escape hatch — sent verbatim
 
     /// The exact console line (no trailing newline — the transport frames it).
@@ -87,6 +90,8 @@ public enum Command: Hashable, Sendable {
         case .hashOf(let i):                return "hashof \(i)"
         case .pullInbox(let dm, let chan):  return "pull_inbox \(dm) \(chan)"
         case .markRead(let kind, let seq):  return "mark_read \(kind.commandToken) \(seq)"
+        case .peerKey(let hex):             return "peerkey \(hex)"
+        case .reqPubkey(let h):             return "reqpubkey \(h.hex8)"
         case .raw(let s):                   return s
         }
     }

@@ -157,8 +157,13 @@ final class AppModel {
             applyLiveSeq(kind: .channel, seq: seq)
         case .sendAcked(_, let ctr):
             setOutgoingState(ctr: ctr, to: .acked)
-        case .sendFailed(_, let ctr):
+        case .sendFailed(_, let ctr, let reason):
             setOutgoingState(ctr: ctr, to: .failed)
+            if reason == "no_pubkey" { /* E2E: offer Request-key / Scan-QR — UX slice TODO (2026-06-16 contract) */ }
+        case .peerKeyCached:
+            /* a peer key became available → "secure send ready, resend" — UX slice TODO */ break
+        case .peerKeySet, .peerKeyError, .reqPubkeySent:
+            break   // provisioning results — visible in the console for now
         case .hashResolved(let node, _, let hash) where node != 0:
             bindAndRekey(id: node, hash: hash)
         case .ack(let ack):
@@ -345,6 +350,12 @@ final class AppModel {
     }
 
     func resolve(_ hash: KeyHash, hard: Bool = false) { sendCommand(.resolve(.init(hash: hash, hard: hard))) }
+
+    // ---- E2E peer-key provisioning (the app carries opaque bytes; the node does the crypto) ----
+    /// Install a scanned card's pubkey on the node (PINNED) so a first encrypted DM seals with no round-trip.
+    func provisionPeerKey(_ pubkeyHex: String) { sendCommand(.peerKey(pubkeyHex: pubkeyHex)) }
+    /// User-triggered on-air key request (the "Request key" action after a no-pubkey drop).
+    func requestPubkey(_ hash: KeyHash) { sendCommand(.reqPubkey(hash)) }
 
     /// App returned to the foreground. If the link stayed up through a screen-off/suspend, a live push may
     /// have been dropped while we were suspended (no disconnect event → fix #1's auto-resync never fired), so
@@ -621,7 +632,11 @@ func describe(_ inbound: Inbound) -> String {
     case .messageReceived(let o, let c, let h, _, let layer, let b):  return "msg_recv from \(o)\(hex(h))\(layer.map { " L\($0)" } ?? "") ctr=\(c): \(b)"
     case .channelReceived(let o, let ch, _, _, let layer, let b): return "channel_recv ch\(ch) from \(o)\(layer.map { " L\($0)" } ?? ""): \(b)"
     case .sendAcked(let d, let c):                 return "send_acked dst=\(d) ctr=\(c)"
-    case .sendFailed(let d, let c):                return "send_failed dst=\(d) ctr=\(c)"
+    case .sendFailed(let d, let c, let r):         return "send_failed dst=\(d) ctr=\(c)\(r.map { " \($0)" } ?? "")"
+    case .peerKeySet(let h, let p):                return "peerkey_set \(h.hex8)\(p ? " pinned" : "")"
+    case .peerKeyError(let r):                     return "peerkey_err \(r)"
+    case .reqPubkeySent(let h):                    return "reqpubkey_sent \(h.hex8)"
+    case .peerKeyCached(let h, let p):             return "peer_key_cached \(h.hex8)\(p ? " pinned" : "")"
     case .hashResolved(let n, let a, let h):       return "hash_resolved \(h.hex8) → node \(n)\(a ? " (auth)" : "")"
     case .ready(let r):                            return "ready id=\(r.id) key=\(r.key.hex8) sf=\(r.routingSF)"
     case .status(let s):                           return "status id=\(s.id) \(s.state) up=\(s.uptimeMs.map(String.init) ?? "—") routes=\(s.routes.map(String.init) ?? "—")"
