@@ -1002,3 +1002,18 @@ TEST_CASE("§6 reqpubkey — fires ONE hard WANT_PUBKEY H query for the requeste
     CHECK(hard_wp);                                                  // HARD + want_pubkey for the requested hash
 }
 
+// §3 (E2E peer-key provisioning): `peerkey` installs a scanned pubkey as a PINNED (verified, MITM-resistant) key.
+TEST_CASE("§3 peerkey — on_command installs a PINNED (verified) peer key") {
+    TestHal hal; Node node(hal, 5, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); node.on_init(cfg);
+    uint8_t seed[32]; for (int i = 0; i < 32; ++i) seed[i] = static_cast<uint8_t>(i + 3);
+    Identity id{}; identity_from_seed(id, seed);
+    Command c{}; c.kind = CmdKind::peerkey;
+    for (int i = 0; i < 32; ++i) c.u.peerkey.ed_pub[i] = id.ed_pub[i];
+    CHECK(node.on_command(c).code == CmdCode::queued);
+    uint8_t out[32]; Node::PeerKeyConf conf{};
+    CHECK(node.peer_key_find(id.key_hash32, out, &conf));            // resolved by the DERIVED key_hash32 (== ed_pub[:4])
+    CHECK(conf == Node::PeerKeyConf::pinned);                        // a QR scan -> a verified PINNED key
+    bool same = true; for (int i = 0; i < 32; ++i) if (out[i] != id.ed_pub[i]) same = false; CHECK(same);
+}
+

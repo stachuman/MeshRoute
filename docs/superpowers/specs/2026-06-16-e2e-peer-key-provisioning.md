@@ -83,9 +83,8 @@ bob requests alice's). Re-record its golden `_events.ndjson`. The asserted prope
 **Per-message crypt (send):** crypt is decided PER DM, not only by the global `e2e_dm` (§4b). Thread an
 explicit crypt intent through the send `Command` (the companion's UX lock toggle sets it per message;
 `e2e_dm` is the DEFAULT when unset) — a tri-state `force-on / force-off / default`. The seal gate
-(`node_mac.cpp:88`) becomes `want_crypt = cmd.crypt.value_or(_cfg.e2e_dm)`. Console form: a `sendhashx`
-verb (crypted) beside `sendhash` (plain) + the `_ack` mirror — **OR** an `enc` arg; pick ONE explicit form
-(★ open sub-choice — see below). The companion sets the bit via the contract's send. A per-message CRYPTED
+(`node_mac.cpp:88`) becomes `want_crypt = cmd.crypt.value_or(_cfg.e2e_dm)`. Console form (CONFIRMED 2026-06-16): the **`sendhashx` / `sendhashx_ack`**
+verb pair (crypted) beside `sendhash`/`sendhash_ack` (plain). The companion sets the bit via the contract's send. A per-message CRYPTED
 send to a contact with no authoritative key still fails loud (§5, `send_failed{no_pubkey}`) — never silent
 cleartext, never silent-encrypt-when-plain-was-asked.
 
@@ -97,9 +96,9 @@ a plaintext DM ⇒ `enc:false`. **Channels: reserve the same `enc` field** on `c
 (cleartext today ⇒ `false`; channel crypto is a later phase). NV: `InboxEntry` gains 1 bit (bump the inbox
 store version if it's versioned).
 
-**★ Open sub-choice (confirm):** the console per-message form — a `sendhashx`/`sendhashx_ack` verb pair
-(explicit, mirrors the existing `_ack` verb pattern) vs an inline `enc` flag arg. I lean the **verb pair**
-(unambiguous in the positional line-ASCII parser; the companion sends whichever the contract pins).
+**★ CONFIRMED 2026-06-16:** the console per-message form is the **`sendhashx` / `sendhashx_ack`** verb pair
+(crypted) beside `sendhash`/`sendhash_ack` (plain) — explicit + unambiguous in the positional line-ASCII
+parser; the companion sends the same.
 
 ## 9. ★ Keystone + gate
 - **s18 `306c3cf4` byte-identical:** all of the above is e2e-path or companion-only — `e2e_dm` defaults off

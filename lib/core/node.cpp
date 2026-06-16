@@ -547,6 +547,14 @@ CmdResult Node::on_command(const Command& c) {
             emit_hash_query(c.u.resolve.dst_hash, /*hard=*/true, /*want_pubkey=*/true);
             return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };
         }
+        case CmdKind::peerkey: {     // §3: QR import — install the scanned full pubkey as a PINNED (verified) key.
+            const uint8_t* ep = c.u.peerkey.ed_pub;             // key_hash32 = ed_pub[:4] (derived, never trusted from the wire)
+            const uint32_t kh = static_cast<uint32_t>(ep[0]) | (static_cast<uint32_t>(ep[1]) << 8)
+                              | (static_cast<uint32_t>(ep[2]) << 16) | (static_cast<uint32_t>(ep[3]) << 24);
+            if (!peer_key_set(kh, ep, PeerKeyConf::pinned))    // false only when the cache is full of pinned keys (peer_key_full)
+                return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };
+            return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };
+        }
         case CmdKind::send_layer: {                          // Slice 4d: cross-layer DM origination (§5)
             if (_node_id == 0)                               return CmdResult{ CmdCode::err_unprovisioned, 0, _active->_tx_queue_n };
             if (_cfg.allowed_sf_bitmap == 0)                 return CmdResult{ CmdCode::err_no_data_sf, 0, _active->_tx_queue_n };

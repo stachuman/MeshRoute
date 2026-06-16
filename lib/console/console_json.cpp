@@ -189,10 +189,15 @@ static void write_layers_array(JsonBuf& j, const NodeConfig& c) {
     j.ch(']');
 }
 size_t write_ready(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* mode,
-                   uint32_t inbox_epoch, uint64_t now_ms, const char* name, size_t name_len) {
+                   uint32_t inbox_epoch, uint64_t now_ms, const char* name, size_t name_len, const uint8_t* ed_pub) {
     JsonBuf j(buf, cap);
     j.lit("{\"ev\":\"ready\",\"id\":"); j.u32(id);
     j.lit(",\"key\":"); key_hex32(j, key);
+    if (ed_pub) {                                                          // §4: the full pubkey (64 hex) for the QR `p` — key_hash32 alone can't seal
+        j.lit(",\"pubkey\":\"");
+        for (int i = 0; i < 32; ++i) { const char* H = "0123456789abcdef"; j.ch(H[ed_pub[i] >> 4]); j.ch(H[ed_pub[i] & 0xF]); }
+        j.ch('"');
+    }
     if (name && name_len) { j.lit(",\"name\":"); j.str(name, name_len); }   // §1.3 app-level identity label
     j.lit(",\"leaf_id\":"); j.u32(c.leaf_id);
     j.lit(",\"mode\":"); j.str(mode, std::strlen(mode));

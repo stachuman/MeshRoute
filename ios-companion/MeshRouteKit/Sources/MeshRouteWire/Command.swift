@@ -23,8 +23,10 @@ public struct SendDM: Hashable, Sendable {
     public var target: DMTarget
     public var body: String
     public var requestAck: Bool     // the *_ack verbs request the E2E ack (command.h flags E2E=0x08)
-    public init(target: DMTarget, body: String, requestAck: Bool = false) {
-        self.target = target; self.body = body; self.requestAck = requestAck
+    public var encrypt: Bool        // per-message E2E crypt (2026-06-16): the `sendhashx`/`sendhashx_ack` verbs.
+                                    // Only meaningful for a HASH target (sealing needs the recipient's pubkey).
+    public init(target: DMTarget, body: String, requestAck: Bool = false, encrypt: Bool = false) {
+        self.target = target; self.body = body; self.requestAck = requestAck; self.encrypt = encrypt
     }
 }
 
@@ -64,12 +66,15 @@ public enum Command: Hashable, Sendable {
     public var line: String {
         switch self {
         case .sendDM(let dm):
+            // encrypt is HASH-only (sealing needs the recipient's pubkey); ignored for an id target.
             let verb: String
-            switch (dm.target, dm.requestAck) {
-            case (.id, false):   verb = "send"
-            case (.id, true):    verb = "send_ack"
-            case (.hash, false): verb = "sendhash"
-            case (.hash, true):  verb = "sendhash_ack"
+            switch (dm.target, dm.requestAck, dm.encrypt) {
+            case (.id, false, _):       verb = "send"
+            case (.id, true, _):        verb = "send_ack"
+            case (.hash, false, false): verb = "sendhash"
+            case (.hash, true, false):  verb = "sendhash_ack"
+            case (.hash, false, true):  verb = "sendhashx"        // E2E-encrypted DM
+            case (.hash, true, true):   verb = "sendhashx_ack"    // E2E-encrypted + delivery ack
             }
             let addr: String
             switch dm.target {

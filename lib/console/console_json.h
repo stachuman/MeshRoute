@@ -41,7 +41,8 @@ size_t write_log   (char* buf, size_t cap, const char* msg);
 size_t write_err   (char* buf, size_t cap, const char* code, const char* msg);  // msg nullable
 size_t write_ready (char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* mode,
                     uint32_t inbox_epoch, uint64_t now_ms,
-                    const char* name = nullptr, size_t name_len = 0);   // /mrid node name; omitted when empty
+                    const char* name = nullptr, size_t name_len = 0,    // /mrid node name; omitted when empty
+                    const uint8_t* ed_pub = nullptr);                   // §4: full Ed25519 pubkey (64 hex) for the QR `p`; omitted when null
 // ---- Node / Network screens over BLE (companion Phase 3 — roadmap Theme D) ----------------------
 // Runtime telemetry not in NodeConfig, passed individually so console_json stays dependency-light.
 // batt_mv < 0 ⇒ no battery reader ⇒ the field is OMITTED (never a wrong/garbage voltage).

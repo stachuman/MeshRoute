@@ -19,6 +19,13 @@ final class CommandEncoderTests: XCTestCase {
                        "sendhash 8a3f1c02 yo")
         XCTAssertEqual(Command.sendDM(.init(target: .hash(h), body: "yo", requestAck: true)).line,
                        "sendhash_ack 8a3f1c02 yo")
+        // per-message E2E crypt (2026-06-16): sendhashx / sendhashx_ack (hash-only)
+        XCTAssertEqual(Command.sendDM(.init(target: .hash(h), body: "yo", encrypt: true)).line,
+                       "sendhashx 8a3f1c02 yo")
+        XCTAssertEqual(Command.sendDM(.init(target: .hash(h), body: "yo", requestAck: true, encrypt: true)).line,
+                       "sendhashx_ack 8a3f1c02 yo")
+        // encrypt is ignored for an id target (no encrypted id-send)
+        XCTAssertEqual(Command.sendDM(.init(target: .id(2), body: "yo", encrypt: true)).line, "send 2 yo")
     }
 
     func testSendChannel() {

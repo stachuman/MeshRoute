@@ -155,6 +155,20 @@ TEST_CASE("parse_command — reqpubkey <hash> (user-triggered WANT_PUBKEY reques
     CHECK(parse_command(bad, std::strlen(bad), c) == ParseErr::bad_args);
 }
 
+// §3 (E2E peer-key provisioning): peerkey <ed_pub hex64> — install a scanned peer's full pubkey (QR import, PINNED).
+TEST_CASE("parse_command — peerkey <ed_pub hex64> (QR import)") {
+    Command c{};
+    const char* line = "peerkey 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20";  // 64 hex = 32 B
+    CHECK(parse_command(line, std::strlen(line), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::peerkey);
+    bool ok = true; for (int i = 0; i < 32; ++i) ok = ok && (c.u.peerkey.ed_pub[i] == static_cast<uint8_t>(i + 1));
+    CHECK(ok);
+    const char* tooshort = "peerkey 0102";                                                            // 4 hex != 64
+    CHECK(parse_command(tooshort, std::strlen(tooshort), c) == ParseErr::bad_args);
+    const char* nonhex = "peerkey zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz";   // 64 non-hex
+    CHECK(parse_command(nonhex, std::strlen(nonhex), c) == ParseErr::bad_args);
+}
+
 TEST_CASE("parse_command — errors") {
     Command c{};
     CHECK(parse_command("ping 5 x", 8, c) == ParseErr::unknown_verb);

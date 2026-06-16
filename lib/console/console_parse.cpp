@@ -51,6 +51,23 @@ bool parse_hex32_tok(const Tok& t, uint32_t& out) {
     return true;
 }
 
+// Decode EXACTLY 2*n hex chars into out[0..n). false on a wrong length or a non-hex char (e.g. peerkey's 64-hex ed_pub).
+bool parse_hex_bytes_tok(const Tok& t, uint8_t* out, size_t n) {
+    if (t.n != 2 * n) return false;
+    auto nib = [](char c, uint8_t& d) -> bool {
+        if (c >= '0' && c <= '9') { d = static_cast<uint8_t>(c - '0');      return true; }
+        if (c >= 'a' && c <= 'f') { d = static_cast<uint8_t>(10 + c - 'a'); return true; }
+        if (c >= 'A' && c <= 'F') { d = static_cast<uint8_t>(10 + c - 'A'); return true; }
+        return false;
+    };
+    for (size_t i = 0; i < n; ++i) {
+        uint8_t hi, lo;
+        if (!nib(t.s[2 * i], hi) || !nib(t.s[2 * i + 1], lo)) return false;
+        out[i] = static_cast<uint8_t>((hi << 4) | lo);
+    }
+    return true;
+}
+
 }  // namespace
 
 ParseErr parse_command(const char* line, size_t len, Command& out) {
@@ -70,6 +87,17 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
         out.kind = CmdKind::resolve;
         out.u.resolve.dst_hash = hash;
         out.u.resolve.hard     = hard;
+        return ParseErr::ok;
+    }
+
+    //   peerkey <ed_pub hex64> — §3: install a scanned peer's full pubkey as a PINNED (verified) key. hash = ed_pub[:4].
+    if (tok_eq(verb, "peerkey")) {
+        Tok arg = token(s);
+        uint8_t ed[32];
+        if (!parse_hex_bytes_tok(arg, ed, 32)) return ParseErr::bad_args;
+        out = Command{};
+        out.kind = CmdKind::peerkey;
+        for (int i = 0; i < 32; ++i) out.u.peerkey.ed_pub[i] = ed[i];
         return ParseErr::ok;
     }
 

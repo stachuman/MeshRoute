@@ -42,7 +42,7 @@ detector. (Chosen over "A" = best-effort-live + reconcile-only-on-reconnect.)
 ## Pushes (node → app)  — one JSON object per line
 
 ```json
-{"ev":"inbox_dm","seq":42,"origin":2,"layer_id":5,"ctr":7,"sender_hash":3735928559,"rx_ms":123456,"body":"…"}
+{"ev":"inbox_dm","seq":42,"origin":2,"layer_id":5,"ctr":7,"sender_hash":3735928559,"rx_ms":123456,"enc":true,"body":"…"}
 {"ev":"inbox_channel","seq":7,"origin":4,"layer_id":5,"channel_id":3,"channel_msg_id":68298753,"rx_ms":123456,"body":"…"}
 {"ev":"inbox_end","dm_seq":42,"chan_seq":7,"epoch":3,"count":15,"now_ms":987654}
 ```
@@ -205,8 +205,8 @@ reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "
 ### Per-message crypt + the "encrypted?" indicator (2026-06-16)
 **Send — crypt is PER-MESSAGE**, not only the global `cfg set e2e_dm` default: the companion's send carries
 an explicit crypt bit (the UX lock toggle); `e2e_dm` is the **default** applied when the send doesn't
-specify. [Exact send form lands with the slice — a `sendhashx` verb or an `enc` arg; the seal gate uses
-`want_crypt = per_message ?? e2e_dm`.] A CRYPTED send with no authoritative key still fails loud
+specify. (Send form CONFIRMED 2026-06-16: a **`sendhashx` / `sendhashx_ack`** verb pair beside
+`sendhash`/`sendhash_ack`; the seal gate uses `want_crypt = per_message ?? e2e_dm`.) A CRYPTED send with no authoritative key still fails loud
 (`send_failed{no_pubkey}`).
 
 **Receive — every delivered DM tells the app whether it was sealed.** Add **`"enc":true|false`** to BOTH the

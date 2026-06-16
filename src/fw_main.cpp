@@ -163,6 +163,7 @@ static void dump_cfg() {
     Serial.print(F(" ble_pin="));        Serial.print(g_ble_pin);
     // Arduino Print formats floats via its own dtostrf (NOT newlib printf), so 7-decimal degrees print fine.
     Serial.print(F(" loc_dm="));         Serial.print(c.loc_in_dm ? 1 : 0);
+    Serial.print(F(" e2e_dm="));         Serial.print(c.e2e_dm ? 1 : 0);
     Serial.print(F(" lat="));            Serial.print(g_lat_e7 / 1e7, 7);
     Serial.print(F(" lon="));            Serial.println(g_lon_e7 / 1e7, 7);
     // Dual-layer gateway: an ADDITIVE second line per leaf (single-layer dump above is unchanged). Prints each
@@ -316,6 +317,7 @@ static void handle_cfg_set(const char* args) {
         b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;        // v7 BLE policy (live globals)
         b.ble_pin    = g_ble_pin;
         b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;                  // v9 location toggle (seed from the live config)
+        b.e2e_dm     = nc.e2e_dm ? 1 : 0;                     // v10 e2e encrypt toggle (seed from the live config)
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;    // (re)stamp -> also upgrades a loaded v2 blob to v3
 
@@ -349,6 +351,9 @@ static void handle_cfg_set(const char* args) {
     else if (!strcmp(key, "hop_cap"))    { lc.dv_hop_cap = (uint8_t)atoi(val); persist = false; }
     // --- location piggyback: LIVE via mutable_config() + PERSISTED (NV v9). The lat/lon are set via `cfg set lat`/`lon` (-> /mrid). ---
     else if (!strcmp(key, "loc_in_dm"))  { b.loc_in_dm = (atoi(val) != 0 || !strcmp(val, "on") || !strcmp(val, "true")) ? 1 : 0; lc.loc_in_dm = (b.loc_in_dm != 0); }
+    // --- E2E §4b: originate app DMs ENCRYPTED. LIVE via mutable_config() + PERSISTED (NV v10). A no-pubkey CRYPTED send
+    //     fails loud (send_failed{no_pubkey}); the user provisions keys via `peerkey`/`reqpubkey`. Default off = plaintext. ---
+    else if (!strcmp(key, "e2e_dm"))     { b.e2e_dm = (atoi(val) != 0 || !strcmp(val, "on") || !strcmp(val, "true")) ? 1 : 0; lc.e2e_dm = (b.e2e_dm != 0); }
     // --- role/topology: LIVE via mutable_config() + PERSISTED (NV v6 -> survives reboot) ---
     else if (!strcmp(key, "leaf_id"))      { lc.leaf_id = (uint8_t)atoi(val);                            b.leaf_id      = lc.leaf_id; }
     // `gateway` is NOT a cfg key — is_gateway is DERIVED = (n_layers==2) in on_init (a gateway is the dedicated
@@ -563,7 +568,7 @@ static void dump_help() {
     Serial.println(F("[help] hash/id:    whoami | lookup <hash> | hashof <id> | resolve <hash> [hard]"));
     Serial.println(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
     Serial.println(F("[help] diag:       routes | status | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
-    Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm ble_mode ble_period ble_pin   (bool keys take on|off; identity via regen)"));
+    Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin   (bool keys take on|off; identity via regen)"));
     Serial.println(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms"));
 }
 
@@ -733,7 +738,7 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
         mrnv::IdBlob idb{}; mrnv::load_id(idb);              // the /mrid name (no RAM copy kept; whoami is rare)
         const size_t nl = (idb.name_len <= sizeof idb.name) ? idb.name_len : 0;
         return write_ready(out, cap, g_node.node_id(), g_node.key_hash32(), g_node.config(), "existing",
-                           g_node.inbox().storage_epoch(), g_hal.now(), idb.name, nl);
+                           g_node.inbox().storage_epoch(), g_hal.now(), idb.name, nl, g_identity.ed_pub);   // §4: export pubkey for the QR `p`
     }
     // status/cfg/routes stream via the big s_inbox_jb scratch (NOT the 256-B `out`): an enriched status
     // is ~260 B and a gateway's status/cfg (with the layers[] array) reaches ~680 B — both overflow a
@@ -823,6 +828,7 @@ void setup() {
         g_ble_mode            = nv.ble_mode;          g_ble_period_min = nv.ble_period_min;      // v7 BLE policy (only v7 blobs load)
         g_ble_pin             = nv.ble_pin;
         cfg.loc_in_dm         = (nv.loc_in_dm != 0);                                                // v9 location piggyback toggle
+        cfg.e2e_dm            = (nv.e2e_dm != 0);                                                   // v10 E2E encrypt toggle (§4b)
         // v8 DUAL-LAYER GATEWAY: provision the raw per-layer fields ONLY (on_init validates the 2-layer config + derives
         // window_ms/window_offset_ms when 0). n_layers != 2 -> single-layer exactly as today (no behaviour change).
         if (nv.n_layers == 2) {
@@ -985,6 +991,7 @@ static void persist_join_if_changed() {
         b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;        // v7 BLE policy (live globals)
         b.ble_pin    = g_ble_pin;
         b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;                  // v9 location toggle (seed from the live config)
+        b.e2e_dm     = nc.e2e_dm ? 1 : 0;                     // v10 e2e encrypt toggle (seed from the live config)
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
     b.node_id = id; b.claim_epoch = ep; b.joined = jn;

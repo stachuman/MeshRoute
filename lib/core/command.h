@@ -20,7 +20,7 @@
 namespace MESHROUTE_NS {
 
 // ---- requests (one cmd-code + a bounded typed payload, like a MeshCore frame) ----
-enum class CmdKind : uint8_t { send, send_layer, send_channel, join, resolve, reqpubkey };
+enum class CmdKind : uint8_t { send, send_layer, send_channel, join, resolve, reqpubkey, peerkey };
 
 // The four Lua send_* verbs collapse to ONE Send + flag bits (same wire bits as
 // dv_dual_sf.lua:2187-2189). Addressed by short id (now) / key_hash32 (later) —
@@ -35,6 +35,9 @@ struct JoinCmd        { enum Op : uint8_t { discover, claim, deny } op; uint8_t 
 // PushKind::hash_resolved. hard = skip caches, reach the owner (verify-on-use). NO body — notify-only,
 // distinct from a send-by-hash (which carries a DM and rides CmdKind::send with dst_hash set).
 struct ResolveCmd     { uint32_t dst_hash; bool hard; };
+// E2E §3 (QR import): install a scanned peer's full Ed25519 pubkey as a PINNED (verified) key. key_hash32 = ed_pub[:4]
+// is derived (never trusted from the wire), so only the 32-byte pubkey rides the command.
+struct PeerkeyCmd     { uint8_t ed_pub[32]; };
 
 struct Command {
     CmdKind kind = CmdKind::send;
@@ -44,6 +47,7 @@ struct Command {
         SendChannelCmd channel;
         JoinCmd        join;
         ResolveCmd     resolve;
+        PeerkeyCmd     peerkey;
     } u;
     const uint8_t* body     = nullptr;   // BORROWED for the call only (mirrors hal.h on_recv)
     uint8_t        body_len = 0;
