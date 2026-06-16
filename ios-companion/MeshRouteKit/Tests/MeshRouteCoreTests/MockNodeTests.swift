@@ -69,7 +69,7 @@ final class MockNodeTests: XCTestCase {
         await mock.connect()
         await mock.simulateIncomingDM(fromID: 2, body: "ping")
         let inbound = await drainInbound(mock, until: 2) // ready, msg_recv
-        guard case .messageReceived(let origin, let ctr, _, _, _, let body) = inbound[1] else { return XCTFail() }
+        guard case .messageReceived(let origin, let ctr, _, _, _, _, let body) = inbound[1] else { return XCTFail() }
         XCTAssertEqual(origin, 2); XCTAssertEqual(ctr, 1); XCTAssertEqual(body, "ping")
     }
 

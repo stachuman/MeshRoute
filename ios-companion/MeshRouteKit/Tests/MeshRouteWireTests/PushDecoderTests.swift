@@ -49,18 +49,19 @@ final class PushDecoderTests: XCTestCase {
 
     func testMsgRecv() {
         // companion firmware: msg_recv carries sender_hash AND the live seq (model B gap detector)
-        guard case .messageReceived(let origin, let ctr, let senderHash, let seq, let layer, let body)? =
-                PushDecoder.decode(line: #"{"ev":"msg_recv","origin":2,"layer_id":5,"ctr":7,"sender_hash":2319391746,"seq":42,"body":"hi there"}"#) else {
+        guard case .messageReceived(let origin, let ctr, let senderHash, let seq, let layer, let crypted, let body)? =
+                PushDecoder.decode(line: #"{"ev":"msg_recv","origin":2,"layer_id":5,"ctr":7,"sender_hash":2319391746,"seq":42,"enc":true,"body":"hi there"}"#) else {
             return XCTFail("not msg_recv")
         }
         XCTAssertEqual(origin, 2); XCTAssertEqual(ctr, 7); XCTAssertEqual(body, "hi there")
         XCTAssertEqual(senderHash, 2319391746)   // 0x8a3f1c02 — the sender's stable key_hash32
         XCTAssertEqual(seq, 42)
         XCTAssertEqual(layer, 5)                 // D12: receiving layer
-        // legacy/inbox-disabled DM without sender_hash/seq/layer_id → all nil (best-effort live only)
-        guard case .messageReceived(_, _, let sh2, let seq2, let layer2, _)? =
+        XCTAssertEqual(crypted, true)            // E2E: the wire `enc` (CRYPTED) flag
+        // legacy DM without the optional fields → all nil
+        guard case .messageReceived(_, _, let sh2, let seq2, let layer2, let cr2, _)? =
                 PushDecoder.decode(line: #"{"ev":"msg_recv","origin":2,"ctr":7,"body":"hi"}"#) else { return XCTFail() }
-        XCTAssertNil(sh2); XCTAssertNil(seq2); XCTAssertNil(layer2)
+        XCTAssertNil(sh2); XCTAssertNil(seq2); XCTAssertNil(layer2); XCTAssertNil(cr2)
     }
 
     func testChannelRecv() {

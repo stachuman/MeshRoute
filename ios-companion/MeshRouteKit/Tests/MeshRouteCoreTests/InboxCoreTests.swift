@@ -21,7 +21,7 @@ final class InboxCoreTests: XCTestCase {
 
     func testInboxIngestDedupsAgainstLivePush() {
         var store = ConversationStore()
-        store.ingest(.messageReceived(origin: 2, ctr: 7, senderHash: nil, seq: nil, layerID: nil, body: "hi"), now: now)  // live first (legacy DM)
+        store.ingest(.messageReceived(origin: 2, ctr: 7, senderHash: nil, seq: nil, layerID: nil, crypted: nil, body: "hi"), now: now)  // live first (legacy DM)
         // the same message later arrives via pull_inbox → must NOT duplicate
         let dup = store.ingestInbox(InboxEntry(seq: 5, kind: .dm, origin: 2, channelID: 0,
                                                ctr: 7, rxTimeMs: 1, body: "hi"), now: now)
@@ -155,7 +155,7 @@ final class InboxCoreTests: XCTestCase {
         await mock.simulateIncomingDM(fromID: 2, body: "three")        // seq 3 → pushed
         let inbound = await drainInbox(mock, until: 3)     // ready, msg_recv(seq1), msg_recv(seq3)
         let seqs = inbound.compactMap { inb -> UInt32? in
-            if case .messageReceived(_, _, _, let s, _, _) = inb { return s } else { return nil }
+            if case .messageReceived(_, _, _, let s, _, _, _) = inb { return s } else { return nil }
         }
         XCTAssertEqual(seqs, [1, 3])   // seq 2 missing → seq 3 jumps past high+1 → the app's gap detector fires
     }

@@ -45,6 +45,14 @@ s18 `306c3cf4` byte-identical.**
 - The `ready` snapshot JSON gains `"pubkey":"<64 hex>"` = `g_identity.ed_pub` (so the app's `MyCardView`
   emits the QR `p` field; `key_hash32` alone can't seal). A `regen` re-emits `ready`.
 
+## 4b. `cfg set e2e_dm on|off` — the encrypt toggle (★ currently NO serial path — E2E is sim-only on metal)
+`_cfg.e2e_dm` gates the seal (`node_mac.cpp:88`) but is **NOT a `cfg set` key today** — only the sim
+scenario JSON sets it, so a real device can't enable E2E over serial (and the companion can't either).
+Add it, **mirroring `loc_in_dm`**: a `handle_cfg_set` branch (`fw_main.cpp:351`), the NV blob field (NV
+version bump), the `cfg keys:` help line (`:566`), `status`/`whoami` display, and load-at-boot into
+`NodeConfig`. Live via `mutable_config()` + persisted. Without this the whole slice is unreachable on
+metal. (s18-safe: a new cfg key default-off changes nothing until set.)
+
 ## 5. No-auto-query + the `send_failed` warn (`node_mac.cpp:88-118`)
 - **REMOVE** the `emit_hash_query(...)` at the `no_pubkey` case (`:102`). The no-pubkey path now:
   `MR_EMIT("e2e_no_pubkey", …)` + **`enqueue_push(Push{send_failed, dst, ctr, reason=no_pubkey})`** + drop.
@@ -71,6 +79,28 @@ s18 `306c3cf4` byte-identical.**
 bob requests alice's). Re-record its golden `_events.ndjson`. The asserted properties are unchanged
 (fail-loud-no-pubkey now also shows `send_failed{no_pubkey}`; ciphertext-opaque; encrypted delivery).
 
+## 8b. Per-message crypt + the `enc` indicator (the UX layer)
+**Per-message crypt (send):** crypt is decided PER DM, not only by the global `e2e_dm` (§4b). Thread an
+explicit crypt intent through the send `Command` (the companion's UX lock toggle sets it per message;
+`e2e_dm` is the DEFAULT when unset) — a tri-state `force-on / force-off / default`. The seal gate
+(`node_mac.cpp:88`) becomes `want_crypt = cmd.crypt.value_or(_cfg.e2e_dm)`. Console form: a `sendhashx`
+verb (crypted) beside `sendhash` (plain) + the `_ack` mirror — **OR** an `enc` arg; pick ONE explicit form
+(★ open sub-choice — see below). The companion sets the bit via the contract's send. A per-message CRYPTED
+send to a contact with no authoritative key still fails loud (§5, `send_failed{no_pubkey}`) — never silent
+cleartext, never silent-encrypt-when-plain-was-asked.
+
+**`enc` indicator (receive — the UX MUST know whether a DM was sealed):** stamp **`enc` (bool)** on the
+delivered DM at three layers — the `Push` POD + the `InboxEntry` (persisted) + the contract JSON
+(`msg_recv` live + `inbox_dm` pull, `"enc":true|false`). Source: the parsed `DATA_FLAG_CRYPTED` AND a
+successful `e2e_open` (a CRYPTED frame that fails to open never delivers, so `enc:true` ⇔ delivered-sealed);
+a plaintext DM ⇒ `enc:false`. **Channels: reserve the same `enc` field** on `channel_recv`/`inbox_channel`
+(cleartext today ⇒ `false`; channel crypto is a later phase). NV: `InboxEntry` gains 1 bit (bump the inbox
+store version if it's versioned).
+
+**★ Open sub-choice (confirm):** the console per-message form — a `sendhashx`/`sendhashx_ack` verb pair
+(explicit, mirrors the existing `_ack` verb pattern) vs an inline `enc` flag arg. I lean the **verb pair**
+(unambiguous in the positional line-ASCII parser; the companion sends whichever the contract pins).
+
 ## 9. ★ Keystone + gate
 - **s18 `306c3cf4` byte-identical:** all of the above is e2e-path or companion-only — `e2e_dm` defaults off
   → no `send_failed{no_pubkey}`, no `peerkey`/`reqpubkey`, PINNED/`/mrpeers` inert, `ready.pubkey` is a
@@ -78,6 +108,8 @@ bob requests alice's). Re-record its golden `_events.ndjson`. The asserted prope
 - **Native units:** pinned never-overwritten-by-on-air + never-evicted/aged; `peerkey` installs + rejects
   bad-hex/hash-mismatch; no-pubkey send → `send_failed{no_pubkey}` + **NO `h_tx`** (no auto-query);
   `reqpubkey` → one HARD+WANT_PUBKEY `h_tx`; `/mrpeers` NV round-trip (device backend); `peer_key_cached`
-  Push on cache insert.
+  Push on cache insert; a **per-message** crypted send seals while a plain send to the same peer does NOT
+  (`e2e_dm` = the default when unspecified); a delivered CRYPTED DM stamps **`enc:true`** on the push +
+  inbox record, a plaintext one `enc:false`, and the inbox round-trip preserves `enc`.
 - **Gate:** native + 4 builds (gateway <100%) + s18 byte-identical + **t94 re-recorded & green** (with the
   `reqpubkey` flow) + read the PINNED no-overwrite path by eye (the security-critical bit).

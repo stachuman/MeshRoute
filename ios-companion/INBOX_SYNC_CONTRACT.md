@@ -95,7 +95,7 @@ So a message seen **live** and later **pulled** dedups on the same key **and** t
 *missed* live push (model "B" above), the live pushes need the inbox's identity fields **and its `seq`**:
 ```json
 {"ev":"channel_recv","origin":4,"layer_id":5,"channel_id":3,"channel_msg_id":68298753,"seq":7,"body":"…"}   // channel_msg_id + seq + layer_id are new
-{"ev":"msg_recv","origin":2,"layer_id":5,"ctr":7,"sender_hash":3735928559,"seq":42,"body":"…"}              // sender_hash + seq + layer_id are new
+{"ev":"msg_recv","origin":2,"layer_id":5,"ctr":7,"sender_hash":3735928559,"seq":42,"body":"…"}              // sender_hash + seq + layer_id are new (+ `enc` — see §Per-message crypt)
 ```
 Identity fields are at hand: `node_channel.cpp` passes the full `channel_msg_id` to `record_channel`, and
 `do_post_ack` has `sender_hash` (the parsed `source_hash`) right at the `msg_recv` push. **`seq`** is the
@@ -201,6 +201,24 @@ reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "
 - `send_failed.reason` ∈ `no_pubkey · no_identity · too_large · bad_rng · no_route`. App maps `no_pubkey`
   → "recipient's key unknown — Request key / Scan QR"; permanent reasons (`too_large`/`no_route`) → plain fail.
 - `peer_key_cached` lets the app prompt "secure send ready — resend" after a request resolves (or QR import).
+
+### Per-message crypt + the "encrypted?" indicator (2026-06-16)
+**Send — crypt is PER-MESSAGE**, not only the global `cfg set e2e_dm` default: the companion's send carries
+an explicit crypt bit (the UX lock toggle); `e2e_dm` is the **default** applied when the send doesn't
+specify. [Exact send form lands with the slice — a `sendhashx` verb or an `enc` arg; the seal gate uses
+`want_crypt = per_message ?? e2e_dm`.] A CRYPTED send with no authoritative key still fails loud
+(`send_failed{no_pubkey}`).
+
+**Receive — every delivered DM tells the app whether it was sealed.** Add **`"enc":true|false`** to BOTH the
+live `msg_recv` and the pulled `inbox_dm` (the app shows a lock on `enc:true`):
+```json
+{"ev":"msg_recv","origin":2,"layer_id":5,"ctr":7,"sender_hash":3735928559,"seq":42,"enc":true,"body":"…"}
+{"ev":"inbox_dm","seq":42,"origin":2,"layer_id":5,"ctr":7,"sender_hash":3735928559,"rx_ms":123456,"enc":true,"body":"…"}
+```
+- Source: a delivered DM had `DATA_FLAG_CRYPTED` set AND opened (a CRYPTED frame that fails to open never
+  delivers ⇒ `enc:true` ⇔ delivered-sealed). Plaintext DM ⇒ `enc:false`.
+- **Channels (later):** the same `enc` field extends to `channel_recv`/`inbox_channel` (cleartext today ⇒
+  `false`; channel crypto is a future phase).
 
 ### Deferred
 - `peerkeys` (list pinned) + `peerkey_del <hash>` (un-verify) — app-side contact management; v2.

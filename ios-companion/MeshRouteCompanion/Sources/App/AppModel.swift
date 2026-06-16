@@ -149,8 +149,8 @@ final class AppModel {
         case .inboxEnd(_, _, let epoch, _, let nowMs):
             if let n = nowMs { timeAnchor = NodeTimeAnchor(nodeNowMs: n) }     // refresh for later gap-pulls
             handleInboxEnd(servedEpoch: epoch)
-        case .messageReceived(let origin, let ctr, let senderHash, let seq, _, let body):
-            insertInboundDM(origin: origin, ctr: ctr, senderHash: senderHash, body: body)
+        case .messageReceived(let origin, let ctr, let senderHash, let seq, _, let crypted, let body):
+            insertInboundDM(origin: origin, ctr: ctr, senderHash: senderHash, crypted: crypted ?? false, body: body)
             applyLiveSeq(kind: .dm, seq: seq)
         case .channelReceived(let origin, let channelID, let channelMsgID, let seq, _, let body):
             insertChannel(origin: origin, channelID: channelID, channelMsgID: channelMsgID, body: body)
@@ -191,7 +191,7 @@ final class AppModel {
         context.insert(ContactEntity(hashValue32: h, name: "Node \(origin)", lastKnownID: origin))
     }
 
-    private func insertInboundDM(origin: Int, ctr: Int, senderHash: UInt32?, body: String) {
+    private func insertInboundDM(origin: Int, ctr: Int, senderHash: UInt32?, crypted: Bool = false, body: String) {
         ensureContact(senderHash: senderHash, origin: origin)
         if dmExists(senderHash: senderHash, origin: origin, ctr: ctr) { return }
         let threadHash = dmThreadHash(senderHash: senderHash, origin: origin)
@@ -199,6 +199,7 @@ final class AppModel {
                                 direction: .incoming, body: body, timestamp: .now, state: .received,
                                 origin: origin, ctr: ctr, senderHash: senderHash.map(Int.init))
         msg.isRead = false
+        msg.crypted = crypted
         context.insert(msg)
         // A genuinely new DM arriving while we're NOT on screen (background BLE, or another tab inactive)
         // → a local banner. Only on the LIVE path (this fn) — never the bulk pull-catch-up (importInboxEntry).
@@ -258,9 +259,9 @@ final class AppModel {
 
     // ---- outbound ----
 
-    func sendDM(to thread: ThreadKey, body: String) {
+    func sendDM(to thread: ThreadKey, body: String, requestAck: Bool = false) {
         guard case .dm = thread, target(for: thread) != nil else { return }
-        compose(thread: thread, body: body)
+        compose(thread: thread, body: body, requestAck: requestAck)
     }
 
     func sendChannel(_ channelID: UInt8, body: String) {
@@ -268,11 +269,12 @@ final class AppModel {
     }
 
     /// Insert the outgoing message and dispatch it — or park it in the OUTBOX when there's no link
-    /// (drained FIFO by `drainOutbox` on the next connect).
-    private func compose(thread: ThreadKey, body: String) {
+    /// (drained FIFO by `drainOutbox` on the next connect). `requestAck` rides on the message (D16).
+    private func compose(thread: ThreadKey, body: String, requestAck: Bool = false) {
         let msg = MessageEntity(id: UUID(), thread: thread, direction: .outgoing, body: body,
                                 timestamp: .now, state: isConnected ? .sending : .outbox,
                                 origin: nil, ctr: nil)
+        msg.ackRequested = requestAck
         context.insert(msg); try? context.save()
         if isConnected { dispatch(msg) }
     }
@@ -283,7 +285,7 @@ final class AppModel {
         case .dm(let h):
             guard let target = target(for: .dm(h)) else { return }
             pendingOutgoing.append(msg.id)
-            sendCommand(.sendDM(.init(target: target, body: msg.body)))
+            sendCommand(.sendDM(.init(target: target, body: msg.body, requestAck: msg.ackRequested)))
         case .channel(let c):
             pendingOutgoing.append(msg.id)
             sendCommand(.sendChannel(.init(channelID: c, body: msg.body)))
@@ -568,6 +570,7 @@ final class AppModel {
                                     channelMsgID: e.channelMsgID.map(Int.init),
                                     senderHash: e.senderHash.map(Int.init))
             msg.isRead = false
+            msg.crypted = e.crypted ?? false
             context.insert(msg)
         }
         activeSync?.advance(with: e)                     // advance the cursor for the store we just saw
@@ -629,7 +632,7 @@ private func hex(_ h: UInt32?) -> String {
 func describe(_ inbound: Inbound) -> String {
     switch inbound {
     case .ack(let a):                              return "ack \(a.code) ctr=\(a.ctr) qd=\(a.queueDepth)"
-    case .messageReceived(let o, let c, let h, _, let layer, let b):  return "msg_recv from \(o)\(hex(h))\(layer.map { " L\($0)" } ?? "") ctr=\(c): \(b)"
+    case .messageReceived(let o, let c, let h, _, let layer, let cr, let b):  return "msg_recv from \(o)\(hex(h))\(layer.map { " L\($0)" } ?? "")\(cr == true ? " 🔒" : "") ctr=\(c): \(b)"
     case .channelReceived(let o, let ch, _, _, let layer, let b): return "channel_recv ch\(ch) from \(o)\(layer.map { " L\($0)" } ?? ""): \(b)"
     case .sendAcked(let d, let c):                 return "send_acked dst=\(d) ctr=\(c)"
     case .sendFailed(let d, let c, let r):         return "send_failed dst=\(d) ctr=\(c)\(r.map { " \($0)" } ?? "")"

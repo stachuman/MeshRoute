@@ -143,7 +143,7 @@ public struct NodeConfigInfo: Hashable, Sendable, Codable {
 // ---- the decoded inbound union ----
 public enum Inbound: Hashable, Sendable {
     case ack(CommandAck)
-    case messageReceived(origin: Int, ctr: Int, senderHash: UInt32?, seq: UInt32?, layerID: Int?, body: String)   // seq present iff inbox enabled; layerID = receiving layer (D12, 0 on single-layer)
+    case messageReceived(origin: Int, ctr: Int, senderHash: UInt32?, seq: UInt32?, layerID: Int?, crypted: Bool?, body: String)   // seq iff inbox; layerID = receiving layer (D12); crypted = the DATA CRYPTED flag (E2E, firmware-pending)
     case channelReceived(origin: Int, channelID: Int, channelMsgID: UInt32?, seq: UInt32?, layerID: Int?, body: String)
     case sendAcked(dst: Int, ctr: Int)
     case sendFailed(dst: Int, ctr: Int, reason: String?)              // reason: no_pubkey · no_identity · too_large · bad_rng · no_route (E2E 2026-06-16)
@@ -198,7 +198,7 @@ public enum PushDecoder {
         case "msg_recv":
             if let m = try? decoder.decode(MsgRecv.self, from: data) {
                 return .messageReceived(origin: m.origin, ctr: m.ctr, senderHash: m.sender_hash, seq: m.seq,
-                                        layerID: m.layer_id, body: m.body)
+                                        layerID: m.layer_id, crypted: m.enc, body: m.body)
             }
         case "channel_recv":
             if let m = try? decoder.decode(ChannelRecv.self, from: data) {
@@ -243,7 +243,7 @@ public enum PushDecoder {
             if let m = try? decoder.decode(InboxDM.self, from: data) {
                 return .inboxEntry(InboxEntry(seq: m.seq, kind: .dm, origin: m.origin, channelID: 0,
                                               ctr: m.ctr, senderHash: m.sender_hash, layerID: m.layer_id,
-                                              rxTimeMs: m.rx_ms, body: m.body))
+                                              crypted: m.enc, rxTimeMs: m.rx_ms, body: m.body))
             }
         case "inbox_channel":
             if let m = try? decoder.decode(InboxCh.self, from: data) {
@@ -274,13 +274,13 @@ public enum PushDecoder {
         let log: String?
         let err: String?; let msg: String?
     }
-    private struct MsgRecv: Decodable { let origin: Int; let ctr: Int; let sender_hash: UInt32?; let seq: UInt32?; let layer_id: Int?; let body: String }
+    private struct MsgRecv: Decodable { let origin: Int; let ctr: Int; let sender_hash: UInt32?; let seq: UInt32?; let layer_id: Int?; let enc: Bool?; let body: String }   // enc = the wire CRYPTED indicator
     private struct ChannelRecv: Decodable { let origin: Int; let channel_id: Int; let channel_msg_id: UInt32?; let seq: UInt32?; let layer_id: Int?; let body: String }
     private struct SendFate: Decodable { let dst: Int; let ctr: Int; let reason: String? }   // reason on send_failed (E2E)
     private struct HashResolved: Decodable { let node: Int; let auth: Int; let hash: UInt32 }
     private struct PeerKeyEvent: Decodable { let hash: UInt32; let pinned: Bool? }            // peerkey_set / reqpubkey_sent / peer_key_cached
     private struct ReasonEvent: Decodable { let reason: String }                              // peerkey_err
-    private struct InboxDM: Decodable { let seq: UInt32; let origin: Int; let ctr: Int; let sender_hash: UInt32?; let layer_id: Int?; let rx_ms: UInt64; let body: String }
+    private struct InboxDM: Decodable { let seq: UInt32; let origin: Int; let ctr: Int; let sender_hash: UInt32?; let layer_id: Int?; let enc: Bool?; let rx_ms: UInt64; let body: String }   // enc = the wire CRYPTED indicator
     private struct InboxCh: Decodable { let seq: UInt32; let origin: Int; let channel_id: Int; let channel_msg_id: UInt32; let layer_id: Int?; let rx_ms: UInt64; let body: String }
     private struct InboxEnd: Decodable { let dm_seq: UInt32; let chan_seq: UInt32; let epoch: UInt32?; let count: Int; let now_ms: UInt64? }
     private struct RoutesEnd: Decodable { let count: Int }

@@ -10,11 +10,11 @@ final class ConversationStoreTests: XCTestCase {
 
     func testInboundDMDedupByOriginCtr() {
         var store = ConversationStore()
-        XCTAssertNotNil(store.ingest(.messageReceived(origin: 2, ctr: 5, senderHash: nil, seq: nil, layerID: nil, body: "hi"), now: now))
-        XCTAssertNil(store.ingest(.messageReceived(origin: 2, ctr: 5, senderHash: nil, seq: nil, layerID: nil, body: "hi"), now: now)) // duplicate
+        XCTAssertNotNil(store.ingest(.messageReceived(origin: 2, ctr: 5, senderHash: nil, seq: nil, layerID: nil, crypted: nil, body: "hi"), now: now))
+        XCTAssertNil(store.ingest(.messageReceived(origin: 2, ctr: 5, senderHash: nil, seq: nil, layerID: nil, crypted: nil, body: "hi"), now: now)) // duplicate
         XCTAssertEqual(store.messages(in: .dm(KeyHash(2))).count, 1)
         // A different ctr from the same origin is a new message.
-        XCTAssertNotNil(store.ingest(.messageReceived(origin: 2, ctr: 6, senderHash: nil, seq: nil, layerID: nil, body: "again"), now: now))
+        XCTAssertNotNil(store.ingest(.messageReceived(origin: 2, ctr: 6, senderHash: nil, seq: nil, layerID: nil, crypted: nil, body: "again"), now: now))
         XCTAssertEqual(store.messages(in: .dm(KeyHash(2))).count, 2)
     }
 
@@ -45,7 +45,7 @@ final class ConversationStoreTests: XCTestCase {
 
     func testRekeyDMFromIDToHash() {
         var store = ConversationStore()
-        store.ingest(.messageReceived(origin: 2, ctr: 1, senderHash: nil, seq: nil, layerID: nil, body: "hi"), now: now)   // legacy DM staged under dm(id)
+        store.ingest(.messageReceived(origin: 2, ctr: 1, senderHash: nil, seq: nil, layerID: nil, crypted: nil, body: "hi"), now: now)   // legacy DM staged under dm(id)
         let realHash = KeyHash(0x8a3f1c02)
         store.rekeyDM(fromID: 2, toHash: realHash)
         XCTAssertTrue(store.messages(in: .dm(KeyHash(2))).isEmpty)
@@ -57,11 +57,11 @@ final class ConversationStoreTests: XCTestCase {
         var store = ConversationStore()
         let h: UInt32 = 0x8a3f1c02
         // a DM with sender_hash keys STRAIGHT to .dm(hash) — no pseudo-id staging, no resolve needed
-        store.ingest(.messageReceived(origin: 2, ctr: 7, senderHash: h, seq: nil, layerID: nil, body: "hi"), now: now)
+        store.ingest(.messageReceived(origin: 2, ctr: 7, senderHash: h, seq: nil, layerID: nil, crypted: nil, body: "hi"), now: now)
         XCTAssertEqual(store.messages(in: .dm(KeyHash(h))).count, 1)
         XCTAssertTrue(store.messages(in: .dm(KeyHash(2))).isEmpty)
         // same (sender_hash, ctr) but a REASSIGNED origin → still the same message → deduped
-        XCTAssertNil(store.ingest(.messageReceived(origin: 9, ctr: 7, senderHash: h, seq: nil, layerID: nil, body: "hi"), now: now))
+        XCTAssertNil(store.ingest(.messageReceived(origin: 9, ctr: 7, senderHash: h, seq: nil, layerID: nil, crypted: nil, body: "hi"), now: now))
         XCTAssertEqual(store.messages(in: .dm(KeyHash(h))).count, 1)
     }
 

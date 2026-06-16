@@ -12,6 +12,8 @@ struct ThreadView: View {
     @Query private var labels: [ChannelLabelEntity]
     let thread: ThreadKey
     @State private var draft = ""
+    @State private var requestAck = false       // per-message E2E delivery-ack toggle (DM only, D16)
+    private var isDM: Bool { if case .dm = thread { return true }; return false }
 
     init(thread: ThreadKey) {
         self.thread = thread
@@ -43,7 +45,8 @@ struct ThreadView: View {
                 }
             }
             Divider()
-            ComposeBar(text: $draft, byteLimit: byteLimit, onSend: send)
+            ComposeBar(text: $draft, byteLimit: byteLimit,
+                       requestAck: isDM ? $requestAck : nil, onSend: send)
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
@@ -66,7 +69,7 @@ struct ThreadView: View {
         let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { return }
         switch thread {
-        case .dm:             model.sendDM(to: thread, body: body)
+        case .dm:             model.sendDM(to: thread, body: body, requestAck: requestAck)
         case .channel(let c): model.sendChannel(c, body: body)
         }
         draft = ""
@@ -91,6 +94,16 @@ struct MessageBubble: View {
                     if let o = message.origin, !outgoing {
                         Text("id \(o)").font(.caption2).foregroundStyle(.tertiary)
                     }
+                    // crypted/plaintext marker (E2E): a closed lock when encrypted, open when not
+                    Image(systemName: message.crypted ? "lock.fill" : "lock.open")
+                        .font(.system(size: 9))
+                        .foregroundStyle(message.crypted ? Color.green : Color.secondary)
+                    if outgoing && message.ackRequested {       // an E2E delivery ack was requested (D16)
+                        Image(systemName: "checkmark.seal").font(.system(size: 9)).foregroundStyle(.tertiary)
+                    }
+                    if let c = message.ctr {                    // the node message counter, small
+                        Text("#\(c)").font(.caption2).foregroundStyle(.tertiary).monospaced()
+                    }
                     Text(message.timestamp.shortRelative).font(.caption2).foregroundStyle(.tertiary)
                     if outgoing { DeliveryBadge(state: message.state).font(.caption2) }
                 }
@@ -111,6 +124,7 @@ struct MessageBubble: View {
 struct ComposeBar: View {
     @Binding var text: String
     var byteLimit: Int
+    var requestAck: Binding<Bool>?    // nil = no toggle (channels); a binding = show the per-message ack toggle
     var onSend: () -> Void
 
     var body: some View {
@@ -121,6 +135,13 @@ struct ComposeBar: View {
                     .padding(.horizontal, 8)
             }
             HStack(spacing: 8) {
+                if let ack = requestAck {     // request E2E delivery confirmation for this message (off by default, D16)
+                    Button { ack.wrappedValue.toggle() } label: {
+                        Image(systemName: ack.wrappedValue ? "checkmark.seal.fill" : "checkmark.seal")
+                            .font(.title3).foregroundStyle(ack.wrappedValue ? Color.accentColor : .secondary)
+                    }
+                    .accessibilityLabel("Request delivery confirmation")
+                }
                 TextField("Message", text: $text, axis: .vertical)
                     .lineLimit(1...4).textFieldStyle(.roundedBorder)
                 Button(action: onSend) { Image(systemName: "arrow.up.circle.fill").font(.title2) }
