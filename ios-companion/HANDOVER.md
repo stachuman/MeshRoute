@@ -116,9 +116,13 @@ Contract: INBOX_SYNC_CONTRACT.md §Verified-peer provisioning + `2026-06-16-e2e-
 App stays crypto-free (D6/D20) — opaque pubkey bytes. Wired: decode `ready.pubkey` + `send_failed.reason`
 + `peerkey_set`/`peerkey_err`/`reqpubkey_sent`/`peer_key_cached`; commands `peerkey <hex64>` / `reqpubkey
 <hex8>` (`AppModel.provisionPeerKey`/`requestPubkey`); My-card QR now carries the pubkey (`&p=`); scanning
-a card with a pubkey auto-sends `peerkey`. Mock serves `ready.pubkey` + the peerkey/reqpubkey acks. TODO
-(UX slice): no-pubkey send → "Request key / Scan QR" prompt, `peer_key_cached` → "resend", `e2e_dm` toggle,
-per-thread lock icon. 73 package tests, app builds.
+a card with a pubkey auto-sends `peerkey`. Mock serves `ready.pubkey` + the peerkey/reqpubkey acks.
+**E2E surfacing UX SHIPPED 2026-06-16:** per-message **encrypt lock** in compose (`sendhashx`/`sendhashx_ack`,
+hash-only, defaults to the `e2e_dm` app setting) → `MessageEntity.crypted` → the bubble lock marker;
+`send_failed{no_pubkey}` → bubble "Request key" (`reqpubkey`); `peer_key_cached` → bubble "Key ready —
+resend securely" (`AppModel.markKeyReady`, `MessageEntity.failReason`); Node-tab "Encrypt DMs by default"
+→ `cfg set e2e_dm` + `@AppStorage("encryptDefault")`. App decodes `cfg.e2e_dm` (firmware doesn't emit it
+in cfg yet — §8.2 ask). 73 tests, app builds.
 
 ## Product direction
 The LIVING roadmap (decisions D1–D5, themes A–E, open questions Q1–Q10) is

@@ -487,7 +487,7 @@ private:
     void    send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, uint32_t key_hash32, bool authoritative); // B: routed DATA(H_ANSWER inner) home
     void    send_hash_bind_pubkey_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, const uint8_t ed_pub[32]);  // E2E §6: routed DATA TYPE 5 (the owner's ed_pub)
     // D — send-by-hash trigger (the deferred "address by key_hash32") + verify-on-use.
-    uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags); // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify)
+    uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def); // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify)
     void    emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey = false);   // H flood for key_hash32 (hard = verify-on-use; want_pubkey = E2E §6, ask the owner's ed_pub)
     void    park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags);
     void    park_send_layer(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags);   // Slice 4d: a cross-layer-capable park (resolves layer + gateway on the H-answer); flags carry the app's E2E_ACK_REQ etc.
@@ -636,9 +636,9 @@ private:
     void     maybe_exit_discovery(const char* reason);            // :7517
 
     // ---- R3 data plane (MAC: RTS-CTS-DATA-ACK) -----------------------------
-    uint16_t do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags);  // returns the ctr
+    uint16_t do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def);  // returns the ctr
     uint16_t enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, const char* tx_event,
-                          bool app_dm = false, uint8_t type = 0);
+                          bool app_dm = false, uint8_t type = 0, CryptIntent crypt = CryptIntent::def);
     void     send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr);          // E2E ACK reply (TYPE=E2E_ACK; e2e_ack_tx)
     void     send_e2e_ack_cross_layer(const data_unicast_inner& dm, uint16_t acked_ctr);  // Slice 4e: reversed-path CROSS_LAYER E2E ack back to the original sender
     void     enqueue_push(const Push& p);                                  // append to the bounded ring

@@ -49,7 +49,7 @@ uint32_t Node::retry_jitter_ms() const { return 3 * airtime_routing_ms(8); }
 // Build + enqueue an app DATA. `tx_event` separates an app send ("tx_enqueue", the dm_delivery
 // record-creation key) from an internal protocol DATA like the E2E ack ("e2e_ack_tx") that must NOT
 // be counted as an app DM.
-uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, [[maybe_unused]] const char* tx_event, bool app_dm, uint8_t type) {
+uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, [[maybe_unused]] const char* tx_event, bool app_dm, uint8_t type, CryptIntent crypt) {
     const uint16_t ctr = next_ctr(dst);
     TxItem item{};
     item.origin = _node_id; item.dst = dst; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
@@ -85,7 +85,12 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     // E2E SEAL (Phase 1 §4): when this node originates an app DM with e2e_dm on, the inner is SEALED (CRYPTED).
     // CRYPTED requires the cleartext dst_key_hash32 (DST_HASH) AND the recipient's AUTHORITATIVE pubkey. If either
     // is missing -> FAIL LOUD (emit e2e_no_pubkey, do NOT enqueue — NEVER cleartext). [#38b: park + HARD WANT_PUBKEY.]
-    if (app_dm && _cfg.e2e_dm) {
+    // §8b: per-message crypt — `def` follows the node's e2e_dm; `on`/`off` force this single DM CRYPTED/plain.
+    // (s18: a default send with e2e_dm off -> want_crypt=false -> plain, byte-identical to before.)
+    const bool want_crypt = (crypt == CryptIntent::on)  ? true
+                          : (crypt == CryptIntent::off) ? false
+                                                        : _cfg.e2e_dm;
+    if (app_dm && want_crypt) {
         if (!(item.flags & DATA_FLAG_DST_HASH)) {                          // no dst hash -> can't derive the nonce/key
             MR_EMIT("e2e_no_pubkey", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("reason_no_dst_hash", 1));
             return ctr;                                                    // not enqueued (fail loud, no cleartext)
@@ -151,8 +156,8 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
 }
 
 // E2E/PRIORITY ride the wire via `flags`; the E2E ACK behaviour lives in do_post_ack + send_e2e_ack.
-uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags) {
-    return enqueue_data(dst, body, body_len, flags, "tx_enqueue", /*app_dm=*/true);   // app DM (dm_delivery record key); DST_HASH default-on
+uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt) {
+    return enqueue_data(dst, body, body_len, flags, "tx_enqueue", /*app_dm=*/true, /*type=*/0, crypt);   // app DM (dm_delivery record key); DST_HASH default-on
 }
 
 // ---- Slice 4d: cross-layer DM origination -------------------------------------------------------------------

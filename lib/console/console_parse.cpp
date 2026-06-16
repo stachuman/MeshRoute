@@ -164,15 +164,21 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
     //   sendhash <hash> <text>     — DM by key_hash32 (hash-locate); on_command resolves then sends
     //   sendhash_ack <hash> <text> — DM by key_hash32, E2E ack requested
     //   send_channel <ch> <text>   — single-layer channel gossip (channel_id 0..255)
-    const bool is_send         = tok_eq(verb, "send");
-    const bool is_send_ack     = tok_eq(verb, "send_ack");
-    const bool is_sendhash     = tok_eq(verb, "sendhash");
-    const bool is_sendhash_ack = tok_eq(verb, "sendhash_ack");
-    const bool is_channel      = tok_eq(verb, "send_channel");
-    if (!is_send && !is_send_ack && !is_sendhash && !is_sendhash_ack && !is_channel)
+    const bool is_send          = tok_eq(verb, "send");
+    const bool is_send_ack      = tok_eq(verb, "send_ack");
+    const bool is_sendhash      = tok_eq(verb, "sendhash");
+    const bool is_sendhash_ack  = tok_eq(verb, "sendhash_ack");
+    const bool is_sendhashx     = tok_eq(verb, "sendhashx");       // §8b: force CRYPTED (per-message crypt-on)
+    const bool is_sendhashx_ack = tok_eq(verb, "sendhashx_ack");
+    const bool is_channel       = tok_eq(verb, "send_channel");
+    if (!is_send && !is_send_ack && !is_sendhash && !is_sendhash_ack && !is_sendhashx && !is_sendhashx_ack && !is_channel)
         return ParseErr::unknown_verb;
-    const bool by_hash = is_sendhash || is_sendhash_ack;   // first arg is a hex key_hash32, not a decimal id
-    const bool e2e_ack = is_send_ack || is_sendhash_ack;   // the *_ack verbs request the E2E ack
+    const bool by_hash = is_sendhash || is_sendhash_ack || is_sendhashx || is_sendhashx_ack;   // hex key_hash32 first arg
+    const bool e2e_ack = is_send_ack || is_sendhash_ack || is_sendhashx_ack;                    // the *_ack verbs request the E2E ack
+    // §8b: sendhashx* force CRYPTED; sendhash* force PLAIN; send* default to the node's e2e_dm.
+    const CryptIntent crypt = (is_sendhashx || is_sendhashx_ack) ? CryptIntent::on
+                            : (is_sendhash  || is_sendhash_ack)  ? CryptIntent::off
+                                                                 : CryptIntent::def;
 
     // first arg: hex key_hash32 (sendhash*), decimal channel id (send_channel, 0..255), or decimal dst id (0..254).
     Tok arg = token(s);
@@ -197,6 +203,7 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
     }
     out.body = reinterpret_cast<const uint8_t*>(s.p);
     out.body_len = static_cast<uint8_t>(body_len);
+    out.crypt = is_channel ? CryptIntent::def : crypt;   // §8b: per-message crypt (channels are cleartext -> def)
     return ParseErr::ok;
 }
 

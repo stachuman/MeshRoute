@@ -21,6 +21,9 @@ namespace MESHROUTE_NS {
 
 // ---- requests (one cmd-code + a bounded typed payload, like a MeshCore frame) ----
 enum class CmdKind : uint8_t { send, send_layer, send_channel, join, resolve, reqpubkey, peerkey };
+// E2E §8b: per-message crypt intent. `def` follows the node's `e2e_dm`; `on`/`off` force a single DM CRYPTED/plain
+// (the seal gate = want_crypt = (crypt==on)?true : (crypt==off)?false : _cfg.e2e_dm). Console: sendhashx=on, sendhash=off.
+enum class CryptIntent : uint8_t { def = 0, on, off };
 
 // The four Lua send_* verbs collapse to ONE Send + flag bits (same wire bits as
 // dv_dual_sf.lua:2187-2189). Addressed by short id (now) / key_hash32 (later) —
@@ -51,6 +54,7 @@ struct Command {
     } u;
     const uint8_t* body     = nullptr;   // BORROWED for the call only (mirrors hal.h on_recv)
     uint8_t        body_len = 0;
+    CryptIntent    crypt    = CryptIntent::def;   // §8b: per-message crypt override (send/sendhash = def/off, sendhashx = on)
 };
 
 // ---- synchronous result (the token; matches MeshCore RESP_CODE_*) ----

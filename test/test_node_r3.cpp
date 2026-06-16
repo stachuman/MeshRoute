@@ -2688,6 +2688,37 @@ TEST_CASE("§5 no-auto-query — a no-pubkey CRYPTED send warns (send_failed{no_
       CHECK(sf); CHECK(rsn == SendFailReason::no_pubkey); }   // the app is warned -> offer Request-key / Scan-QR
 }
 
+// §8b (per-message crypt): a single DM's crypt is decided PER message (sendhashx/sendhash), not only by the global
+// e2e_dm. want_crypt = (intent==on)?true : (intent==off)?false : e2e_dm. Drive the full flight + read the DATA frame's
+// CRYPTED bit for all four (intent × e2e_dm) corners.
+TEST_CASE("§8b per-message crypt — intent overrides e2e_dm; default follows it") {
+    auto run = [](bool e2e_dm_on, CryptIntent intent) -> bool {            // returns: was the on-air DATA CRYPTED?
+        TestHal hal;
+        uint8_t seedA[32], seedB[32]; for (int i = 0; i < 32; ++i) { seedA[i] = uint8_t(i + 1); seedB[i] = uint8_t(100 - i); }
+        Identity idA{}, idB{}; identity_from_seed(idA, seedA); identity_from_seed(idB, seedB);
+        Node A(hal, /*id=*/1, idA.key_hash32);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.e2e_dm = e2e_dm_on;
+        A.on_init(cfg);
+        A.set_crypto_identity(idA.x_secret, idA.ed_pub);
+        e2e_learn_peer(A, hal, idB);                                       // id_bind(2) + B's authoritative pubkey
+        Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 2; c.u.send.flags = 0; c.crypt = intent;
+        const char* body = "msg"; c.body = reinterpret_cast<const uint8_t*>(body); c.body_len = 3;
+        A.on_command(c);
+        std::array<uint8_t, 8> cb{}; RxMeta bob{ 8.0f, -80.0f, 0, static_cast<int8_t>(2) };
+        hal._now = 100; A.on_recv(cb.data(), mk_cts(/*rx_id=*/1, /*tx_id=*/2, /*data_sf=*/12, cb), bob);
+        A.on_timer(kCtsToDataGapTimerId);
+        for (const auto& f : hal.tx_frames) if (!f.bytes.empty() && (f.bytes[0] >> 4) == 0x3) {
+            auto d = parse_data(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+            if (d) return d->crypted;
+        }
+        return false;
+    };
+    CHECK(run(/*e2e_dm=*/false, CryptIntent::on));         // force CRYPTED even with e2e_dm OFF (sendhashx)
+    CHECK_FALSE(run(/*e2e_dm=*/true,  CryptIntent::off));  // force PLAIN even with e2e_dm ON (sendhash)
+    CHECK(run(/*e2e_dm=*/true,  CryptIntent::def));        // default follows e2e_dm (on -> crypted)
+    CHECK_FALSE(run(/*e2e_dm=*/false, CryptIntent::def));  // default follows e2e_dm (off -> plain)
+}
+
 // -----------------------------------------------------------------------------
 // Phase 1 §5 — open-on-receive WIRING: B receives a CRYPTED DATA, do_post_ack
 // opens it (seed from the trailer, sender from origin->id_bind) and delivers the

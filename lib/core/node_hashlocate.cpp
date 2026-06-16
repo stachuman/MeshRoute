@@ -559,11 +559,11 @@ void Node::on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool auth
 
 // on_command(send) routes here when dst_hash != 0 (the deferred "address by key_hash32"). Returns the DM ctr
 // if sent immediately, else 0 (parked/resolving — the ctr is assigned when the binding arrives).
-uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags) {
+uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt) {
     IdBindConf conf = IdBindConf::claimed;
     const int id = id_bind_find_by_hash(key_hash32, &conf);
     if (id >= 0 && conf == IdBindConf::authoritative)            // confident binding -> send NOW
-        return do_send(static_cast<uint8_t>(id), body, body_len, flags);
+        return do_send(static_cast<uint8_t>(id), body, body_len, flags, crypt);   // §8b: thread the per-message crypt intent
     // SOFT cached binding -> HARD verify-on-use (reach the owner for a correction); UNKNOWN -> SOFT flood.
     park_send(key_hash32, body, body_len, flags);
     emit_hash_query(key_hash32, /*hard=*/(id >= 0));

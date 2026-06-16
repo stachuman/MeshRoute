@@ -510,10 +510,10 @@ CmdResult Node::on_command(const Command& c) {
             if (c.body_len > protocol::dm_max_body_bytes)         // body + the 2-B inner prefix must fit inner[] (no OOB)
                 return CmdResult{ CmdCode::err_too_large, 0, _active->_tx_queue_n };
             if (c.u.send.dst_hash != 0) {                         // address-by-hash (hash-locate): resolve, then send
-                const uint16_t ctr = send_by_hash(c.u.send.dst_hash, c.body, c.body_len, c.u.send.flags);
+                const uint16_t ctr = send_by_hash(c.u.send.dst_hash, c.body, c.body_len, c.u.send.flags, c.crypt);
                 return CmdResult{ CmdCode::queued, ctr, _active->_tx_queue_n, c.u.send.dst_hash, /*layer_path*/ 0 };
             }
-            const uint16_t ctr = do_send(c.u.send.dst_id, c.body, c.body_len, c.u.send.flags);
+            const uint16_t ctr = do_send(c.u.send.dst_id, c.body, c.body_len, c.u.send.flags, c.crypt);   // §8b: per-message crypt
             return CmdResult{ CmdCode::queued, ctr, _active->_tx_queue_n };   // id-addressed: dst_hash/layer_path = 0
         }
         case CmdKind::send_channel: {                         // ROADMAP §3 channel gossip (single-layer)

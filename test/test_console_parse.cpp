@@ -169,6 +169,24 @@ TEST_CASE("parse_command — peerkey <ed_pub hex64> (QR import)") {
     CHECK(parse_command(nonhex, std::strlen(nonhex), c) == ParseErr::bad_args);
 }
 
+// §8b (per-message crypt): sendhashx* force CRYPTED, sendhash* force PLAIN, send* default to the node's e2e_dm.
+TEST_CASE("parse_command — sendhashx/sendhash carry the per-message crypt intent (§8b)") {
+    Command c{};
+    const char* sx = "sendhashx a1b2c3d4 hi there";
+    CHECK(parse_command(sx, std::strlen(sx), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::send); CHECK(c.u.send.dst_hash == 0xa1b2c3d4u);
+    CHECK(c.crypt == CryptIntent::on); CHECK(c.u.send.flags == 0x00);
+    const char* sxa = "sendhashx_ack a1b2c3d4 hi";
+    CHECK(parse_command(sxa, std::strlen(sxa), c) == ParseErr::ok);
+    CHECK(c.crypt == CryptIntent::on); CHECK(c.u.send.flags == DATA_FLAG_E2E_ACK_REQ);   // crypted + E2E ack
+    const char* sh = "sendhash a1b2c3d4 hi";
+    CHECK(parse_command(sh, std::strlen(sh), c) == ParseErr::ok);
+    CHECK(c.crypt == CryptIntent::off);                       // sendhash -> force PLAIN
+    const char* sid = "send 2 hi";
+    CHECK(parse_command(sid, std::strlen(sid), c) == ParseErr::ok);
+    CHECK(c.crypt == CryptIntent::def);                       // send -> default (follows e2e_dm)
+}
+
 TEST_CASE("parse_command — errors") {
     Command c{};
     CHECK(parse_command("ping 5 x", 8, c) == ParseErr::unknown_verb);
