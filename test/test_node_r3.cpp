@@ -2767,5 +2767,6 @@ TEST_CASE("e2e wiring — B opens a received CRYPTED DM and delivers the plainte
         bool same = true; for (int i = 0; i < 9; ++i) if (pu.body[i] != body[i]) same = false;
         CHECK(same);                                         // the DECRYPTED plaintext was delivered
         CHECK(pu.sender_hash == idA.key_hash32);             // the verified sender
+        CHECK(pu.enc);                                       // §8b: a sealed DM is stamped enc=true
     }
 }

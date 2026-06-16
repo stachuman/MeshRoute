@@ -100,6 +100,7 @@ struct Push {
     uint8_t  dst = 0;
     uint8_t  channel_id = 0;   // channel_recv only
     uint8_t  layer_id = 0;     // msg_recv/channel_recv: the FULL 8-bit receiving layer id (§2/Q13 — disambiguates origin across a gateway's leaves)
+    bool     enc = false;      // §8b: msg_recv -> the DM was delivered SEALED (CRYPTED + opened); channel_recv -> false (cleartext today)
     uint16_t ctr = 0;
     uint32_t sender_hash = 0;      // msg_recv: the DM sender's stable key_hash32 (0 = no SOURCE_HASH). The app's
                                    //   DM dedup identity is (sender_hash, ctr) when set, else (origin, ctr).

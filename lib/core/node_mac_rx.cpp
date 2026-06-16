@@ -541,24 +541,22 @@ void Node::do_post_ack() {
             l2c_handle_misdelivery(pa, ui->dst_key_hash32);     // forward to the real owner (identity-preserving)
             return;                                             // l2c re-kicks the queue itself (become_free)
         }
-        // E2E OPEN (Phase 1 §5): a CRYPTED DM -> decrypt the sealed {source_hash + location + body}. The cleartext
-        // `origin` resolves the sender (id_bind, authoritative); the seed rides the trailer. FAIL LOUD on tag-fail /
-        // no sender pubkey (drop, NEVER deliver ciphertext to the app).
+        // E2E OPEN (§1a sealed-sender): a CRYPTED DM carries NO cleartext sender hint -> TRIAL DECRYPT over the cached
+        // peer keys; the Poly1305 tag identifies the sender + opens the sealed {source_hash + location + body}. The seed
+        // rides the trailer. FAIL LOUD: no cached key opens it -> SILENT DROP (never deliver ciphertext to the app).
         uint32_t dec_source_hash = 0; bool dec_has_loc = false; int32_t dec_lat = 0, dec_lon = 0;
         uint8_t dec_body[protocol::max_payload_bytes_hard_cap]; uint8_t dec_body_len = 0;
+        uint32_t dec_origin = pa.origin;   // §1a: for CRYPTED the trial recovers origin (== cleartext now; from the seal at 1c)
         bool crypted_ok = false;
         if (pa.flags & DATA_FLAG_CRYPTED) {
-            uint32_t sh;
-            if (!key_hash_of_id(pa.origin, sh)) {                            // no authoritative sender hash -> can't open
-                MR_EMIT("e2e_open_no_pubkey", EF_I("origin", pa.origin), EF_I("ctr", pa.ctr));
+            // §1a sealed-sender: no cleartext sender hint -> TRIAL DECRYPTION over the cached keys; the tag identifies it.
+            uint32_t trial_sender = 0;
+            if (!e2e_open_trial(pa.inner, pa.inner_len, pa.nonce_seed, pa.flags, pa.ctr, trial_sender, dec_origin,
+                                dec_source_hash, dec_has_loc, dec_lat, dec_lon, dec_body, dec_body_len)) {
+                MR_EMIT("e2e_open_no_key", EF_I("ctr", pa.ctr));            // no cached key opens it -> SILENT DROP (no push/ack/inbox)
                 become_free(); return;
             }
-            if (!e2e_open_inner(pa.inner, pa.inner_len, pa.nonce_seed, pa.flags, pa.ctr, sh,
-                                dec_source_hash, dec_has_loc, dec_lat, dec_lon, dec_body, dec_body_len)) {
-                MR_EMIT("e2e_open_fail", EF_I("origin", pa.origin), EF_I("ctr", pa.ctr), EF_I("hash", static_cast<int64_t>(sh)));
-                become_free(); return;                                      // tag fail / no peer key -> drop (no ciphertext delivery)
-            }
-            crypted_ok = true;
+            crypted_ok = true; (void)trial_sender;   // dec_source_hash (sealed, anti-spoof-verified) == trial_sender = the sender
         }
         // deliver: body from the parsed inner (raw inner[1..] fallback — origin at inner[0] — if it didn't parse).
         char body[protocol::max_payload_bytes_hard_cap + 1];
@@ -572,7 +570,7 @@ void Node::do_post_ack() {
         body[blen] = '\0';
         MR_TELEMETRY(
             EventField f[] = {
-                { .key = "origin",  .type = EventField::T::i64, .i = pa.origin },
+                { .key = "origin",  .type = EventField::T::i64, .i = dec_origin },
                 { .key = "dst",     .type = EventField::T::i64, .i = pa.dst },
                 { .key = "ctr",     .type = EventField::T::i64, .i = pa.ctr },
                 { .key = "payload", .type = EventField::T::str, .s = body },     // dm_delivery keys (dst, payload)
@@ -584,10 +582,10 @@ void Node::do_post_ack() {
         // inbox seq (0 if disabled). The live msg_recv push then carries the SAME sender_hash + seq as the pulled
         // record -> the app dedups by (sender_hash, ctr) and detects a dropped live push by the seq (model B).
         const uint8_t rx_layer = active_layer_id();   // §2/Q13: which layer this DM arrived on (disambiguates origin on a gateway)
-        const uint32_t seq = _inbox.record_dm(pa.origin, sender_hash, pa.ctr, rx_layer,
-                                              reinterpret_cast<const uint8_t*>(body), blen, _hal.now());
-        Push pu{}; pu.kind = PushKind::msg_recv; pu.origin = pa.origin; pu.dst = pa.dst; pu.ctr = pa.ctr;
-        pu.layer_id = rx_layer; pu.sender_hash = sender_hash; pu.seq = seq;
+        const uint32_t seq = _inbox.record_dm(dec_origin, sender_hash, pa.ctr, rx_layer,
+                                              reinterpret_cast<const uint8_t*>(body), blen, _hal.now(), /*enc=*/crypted_ok ? 1 : 0);  // §8b
+        Push pu{}; pu.kind = PushKind::msg_recv; pu.origin = dec_origin; pu.dst = pa.dst; pu.ctr = pa.ctr;   // §1a: recovered origin for CRYPTED
+        pu.layer_id = rx_layer; pu.sender_hash = sender_hash; pu.seq = seq; pu.enc = crypted_ok;   // §8b: was this DM sealed?
         pu.body_len = blen; for (uint8_t i = 0; i < blen; ++i) pu.body[i] = static_cast<uint8_t>(body[i]);
         // LOCATION (spec §5): the sender piggybacked its 6-B location -> surface it to the app on the Push (always
         // compiled — the companion renders it) + a peer_location telemetry for the sim/gate (device-stripped).
@@ -599,7 +597,7 @@ void Node::do_post_ack() {
             pu.has_location = true; pu.lat_e7 = loc_lat; pu.lon_e7 = loc_lon;
             MR_TELEMETRY(
                 EventField pf[] = {
-                    { .key = "origin", .type = EventField::T::i64, .i = pa.origin },
+                    { .key = "origin", .type = EventField::T::i64, .i = dec_origin },
                     { .key = "hash",   .type = EventField::T::i64, .i = static_cast<int64_t>(sender_hash) },
                     { .key = "lat_e7", .type = EventField::T::i64, .i = loc_lat },
                     { .key = "lon_e7", .type = EventField::T::i64, .i = loc_lon },
@@ -611,7 +609,7 @@ void Node::do_post_ack() {
         // same-layer ack home on the F reverse path.
         if (pa.flags & DATA_FLAG_E2E_ACK_REQ) {
             if ((pa.flags & DATA_FLAG_CROSS_LAYER) && ui) send_e2e_ack_cross_layer(*ui, pa.ctr);
-            else                                          send_e2e_ack(pa.origin, pa.ctr);
+            else                                          send_e2e_ack(dec_origin, pa.ctr);   // §1a: ack the recovered origin
         }
         become_free();
     } else {

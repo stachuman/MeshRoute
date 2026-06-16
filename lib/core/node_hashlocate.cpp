@@ -278,7 +278,7 @@ size_t Node::e2e_seal_inner(uint8_t* inner, size_t cap, uint8_t seed8[8], uint8_
     if (!_crypto_ready) return 0;                                  // (set_crypto_identity not called -> _x_secret is zeros)
     outcome = SealOutcome::no_pubkey;
     uint8_t peer_ed[32]; PeerKeyConf conf = PeerKeyConf::overheard; // 1. recipient's AUTHORITATIVE pubkey (else fail loud)
-    if (!peer_key_find(dst_key_hash32, peer_ed, &conf) || conf != PeerKeyConf::authoritative) return 0;
+    if (!peer_key_find(dst_key_hash32, peer_ed, &conf) || static_cast<uint8_t>(conf) < static_cast<uint8_t>(PeerKeyConf::authoritative)) return 0;  // authoritative OR pinned
     uint8_t peer_x[32]; ed_pub_to_x25519(peer_x, peer_ed);          // 2. ECDH -> per-pair key
     uint8_t shared[32]; crypto_x25519(shared, _x_secret, peer_x);
     uint8_t key[32]; dm_kdf(key, shared, _key_hash32, dst_key_hash32);
@@ -310,13 +310,15 @@ size_t Node::e2e_seal_inner(uint8_t* inner, size_t cap, uint8_t seed8[8], uint8_
 }
 
 bool Node::e2e_open_inner(const uint8_t* inner, size_t inner_len, const uint8_t seed8[8], uint8_t flags, uint16_t ctr,
-                          uint32_t sender_hash, uint32_t& source_hash_out, bool& has_location_out, int32_t& lat_out,
-                          int32_t& lon_out, uint8_t* body_out, uint8_t& body_len_out) {
-    source_hash_out = 0; has_location_out = false; lat_out = 0; lon_out = 0; body_len_out = 0;
+                          uint32_t sender_hash, uint32_t& origin_out, uint32_t& source_hash_out, bool& has_location_out,
+                          int32_t& lat_out, int32_t& lon_out, uint8_t* body_out, uint8_t& body_len_out) {
+    origin_out = 0; source_hash_out = 0; has_location_out = false; lat_out = 0; lon_out = 0; body_len_out = 0;
     if (flags & DATA_FLAG_CROSS_LAYER) return false;                // v1: same-layer only
-    // 1. SENDER pubkey from the caller-resolved hash (origin -> id_bind is the caller's job, e.g. do_post_ack)
+    // §1a: origin is still in the cleartext AAD `[dst_hash 4][origin 1]` -> read it at inner[4]. (§1c moves it into pt[0].)
+    if (inner_len > 4) origin_out = inner[4];
+    // 1. SENDER pubkey for this candidate hash (the trial passes each cached key; a wrong key tag-fails below)
     uint8_t sender_ed[32]; PeerKeyConf conf = PeerKeyConf::overheard;
-    if (!peer_key_find(sender_hash, sender_ed, &conf) || conf != PeerKeyConf::authoritative) return false;
+    if (!peer_key_find(sender_hash, sender_ed, &conf) || static_cast<uint8_t>(conf) < static_cast<uint8_t>(PeerKeyConf::authoritative)) return false;  // authoritative OR pinned
     uint8_t sx[32]; ed_pub_to_x25519(sx, sender_ed);               // 2. ECDH -> key (same KDF both directions)
     uint8_t shared[32]; crypto_x25519(shared, _x_secret, sx);
     uint8_t key[32]; dm_kdf(key, shared, _key_hash32, sender_hash);
@@ -344,6 +346,26 @@ bool Node::e2e_open_inner(const uint8_t* inner, size_t inner_len, const uint8_t 
     if ((flags & DATA_FLAG_SOURCE_HASH) && source_hash_out != sender_hash) { crypto_wipe(pt, sizeof pt); body_len_out = 0; return false; }
     crypto_wipe(pt, sizeof pt);
     return true;
+}
+
+// §1a sealed-sender: trial decryption. Try each AUTHORITATIVE/PINNED cached peer key until the AEAD tag verifies for
+// one (false-accept 2^-128) -> that key's owner IS the sender. No cached key opens it -> false (caller drops silently).
+// (Perf: recomputes ECDH per candidate; caching the per-pair AEAD key in PeerKey is the documented optimisation.)
+bool Node::e2e_open_trial(const uint8_t* inner, size_t inner_len, const uint8_t seed8[8], uint8_t flags, uint16_t ctr,
+                          uint32_t& sender_hash_out, uint32_t& origin_out, uint32_t& source_hash_out,
+                          bool& has_location_out, int32_t& lat_out, int32_t& lon_out, uint8_t* body_out, uint8_t& body_len_out) {
+    sender_hash_out = 0; origin_out = 0; source_hash_out = 0; has_location_out = false; lat_out = 0; lon_out = 0; body_len_out = 0;
+    if (!_crypto_ready) return false;
+    auto& L = *_active;
+    for (uint16_t i = 0; i < L._peer_keys_n; ++i) {
+        if (static_cast<uint8_t>(L._peer_keys[i].confidence) < static_cast<uint8_t>(PeerKeyConf::authoritative)) continue;  // authoritative/pinned only
+        if (e2e_open_inner(inner, inner_len, seed8, flags, ctr, L._peer_keys[i].key_hash32, origin_out,
+                           source_hash_out, has_location_out, lat_out, lon_out, body_out, body_len_out)) {
+            sender_hash_out = L._peer_keys[i].key_hash32;          // the opening key's owner is the authenticated sender
+            return true;
+        }
+    }
+    return false;
 }
 
 // =============================================================================

@@ -92,7 +92,8 @@ size_t write_cfg(char* buf, size_t cap, const NodeConfig& c, const CfgExtras& x)
 // inbox_channel* (oldest-first) then inbox_end; mark_read acks via write_inbox_marked. Fields individual to
 // keep this file free of inbox.h.
 size_t write_inbox_dm     (char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8_t layer_id, uint16_t ctr,
-                           uint32_t sender_hash, uint64_t rx_ms, const char* body, size_t body_len);
+                           uint32_t sender_hash, uint64_t rx_ms, const char* body, size_t body_len,
+                           bool enc = false);   // §8b: "enc":true when the DM was delivered sealed; omitted (=false) otherwise
 size_t write_inbox_channel(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8_t layer_id, uint8_t channel_id,
                            uint32_t channel_msg_id, uint64_t rx_ms, const char* body, size_t body_len);
 size_t write_inbox_end    (char* buf, size_t cap, uint32_t dm_seq, uint32_t chan_seq, uint32_t epoch, uint32_t count,

@@ -126,6 +126,7 @@ size_t write_push(char* buf, size_t cap, const Push& p) {
         j.lit(",\"ctr\":");         j.u32(p.ctr);
         j.lit(",\"sender_hash\":"); j.u32(p.sender_hash);   // Phase-3: live↔pulled DM dedup identity (0 if no SOURCE_HASH)
         if (p.seq) { j.lit(",\"seq\":"); j.u32(p.seq); }    // model B: the inbox seq (gap detector). OMITTED if 0 = inbox disabled
+        if (p.enc) j.lit(",\"enc\":true");                  // §8b: this DM was delivered SEALED; omitted (=false) for plaintext
         j.lit(",\"body\":");        j.str(reinterpret_cast<const char*>(p.body), body_n);
     } else if (p.kind == PushKind::channel_recv) {
         j.lit(",\"origin\":");         j.u32(p.origin);
@@ -215,7 +216,7 @@ size_t write_ready(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeCo
 // is node uptime (the app stamps wall-clock on pull). Fields are passed individually so console_json stays free
 // of an inbox.h dependency. Bodies are JSON-escaped + bounded like write_push.
 size_t write_inbox_dm(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8_t layer_id, uint16_t ctr,
-                      uint32_t sender_hash, uint64_t rx_ms, const char* body, size_t body_len) {
+                      uint32_t sender_hash, uint64_t rx_ms, const char* body, size_t body_len, bool enc) {
     JsonBuf j(buf, cap);
     j.lit("{\"ev\":\"inbox_dm\",\"seq\":"); j.u32(seq);
     j.lit(",\"origin\":");      j.u32(origin);
@@ -223,6 +224,7 @@ size_t write_inbox_dm(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8
     j.lit(",\"ctr\":");         j.u32(ctr);
     j.lit(",\"sender_hash\":"); j.u32(sender_hash);
     j.lit(",\"rx_ms\":");       j.i64(static_cast<int64_t>(rx_ms));
+    if (enc) j.lit(",\"enc\":true");                  // §8b: sealed-delivery flag; omitted (=false) for plaintext
     j.lit(",\"body\":");        j.str(body, body_len);
     j.ch('}');
     return j.finish();

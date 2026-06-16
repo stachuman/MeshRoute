@@ -387,10 +387,17 @@ public:
     size_t e2e_seal_inner(uint8_t* inner, size_t cap, uint8_t seed8[8], uint8_t flags, uint32_t dst_key_hash32,
                           uint8_t origin, uint16_t ctr, uint32_t source_hash, int32_t lat_e7, int32_t lon_e7,
                           const uint8_t* body, uint8_t body_len, SealOutcome& outcome);
-    // e2e_open_inner: decrypt + VERIFY the sealed source_hash == the resolved sender's hash. false = no key / tag fail.
+    // e2e_open_inner: open under ONE candidate `sender_hash`; VERIFY the sealed source_hash == sender_hash. false = no
+    // key / tag fail. `origin_out` = the DM's origin (1a: read from the cleartext AAD; 1c: recovered from the seal).
     bool   e2e_open_inner(const uint8_t* inner, size_t inner_len, const uint8_t seed8[8], uint8_t flags, uint16_t ctr,
-                          uint32_t sender_hash, uint32_t& source_hash_out, bool& has_location_out, int32_t& lat_out,
-                          int32_t& lon_out, uint8_t* body_out, uint8_t& body_len_out);   // caller resolves origin->sender_hash (id_bind)
+                          uint32_t sender_hash, uint32_t& origin_out, uint32_t& source_hash_out, bool& has_location_out,
+                          int32_t& lat_out, int32_t& lon_out, uint8_t* body_out, uint8_t& body_len_out);
+    // §1a sealed-sender: TRIAL DECRYPTION — try each AUTHORITATIVE/PINNED cached peer key; the Poly1305 tag is the
+    // oracle. First verifying key → decrypt + that key's owner IS the sender (sender_hash_out) + recover origin. false =
+    // NO cached key opens it (caller DROPS silently — option a: no push/ack/inbox). No cleartext sender hint on the wire.
+    bool   e2e_open_trial(const uint8_t* inner, size_t inner_len, const uint8_t seed8[8], uint8_t flags, uint16_t ctr,
+                          uint32_t& sender_hash_out, uint32_t& origin_out, uint32_t& source_hash_out,
+                          bool& has_location_out, int32_t& lat_out, int32_t& lon_out, uint8_t* body_out, uint8_t& body_len_out);
     void              on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool authoritative);   // C.1: the origin consumed an H_ANSWER DATA -> cache (h_query) + drain. authoritative from the frame TYPE. public = the deliver seam + test driver
     void              on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool authoritative);      // C.2: a forwarder snooped an H_ANSWER in transit -> cache-on-pass (h_relay). authoritative from the frame TYPE. public = the relay seam + test driver
     void              on_hash_bind_pubkey(const uint8_t* inner, uint8_t inner_len);   // E2E §6: a DATA TYPE 5 (delivered OR relayed-through) -> cache the ed_pub authoritative (verify ed_pub[:4]==hash)

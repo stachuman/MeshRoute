@@ -192,6 +192,10 @@ The firmware does **NOT** auto-flood `WANT_PUBKEY` on a failed encrypted send. O
 reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "request key" UX action)
 ```
 - Firmware: `emit_hash_query(hash, hard=true, want_pubkey=true)`; ack `{"ev":"reqpubkey_sent","hash":…}`.
+- **Mutual (sealed-sender redesign 2026-06-16):** the request OPTIONALLY carries the requester's OWN pubkey (a
+  flag), so ONE request provisions BOTH directions — the bootstrap before any sealed DM flows. The request rides
+  the **cleartext flood**, so an attached pubkey is **visible to every relay** — the deliberate "establishing
+  contact" exposure (everything after is sealed). App command unchanged. *Directed-when-route-known is deferred.*
 
 ### UX pushes (node → app)
 ```json
@@ -209,16 +213,37 @@ specify. (Send form CONFIRMED 2026-06-16: a **`sendhashx` / `sendhashx_ack`** ve
 `sendhash`/`sendhash_ack`; the seal gate uses `want_crypt = per_message ?? e2e_dm`.) A CRYPTED send with no authoritative key still fails loud
 (`send_failed{no_pubkey}`).
 
-**Receive — every delivered DM tells the app whether it was sealed.** Add **`"enc":true|false`** to BOTH the
-live `msg_recv` and the pulled `inbox_dm` (the app shows a lock on `enc:true`):
+**Receive — every delivered DM tells the app whether it was sealed.** A DM opened from a CRYPTED frame carries
+**`"enc":true`** on BOTH the live `msg_recv` and the pulled `inbox_dm` (the app shows a lock). The field is
+**OMITTED for a plaintext DM** — *absent ⇒ `false`*, the SAME convention as `seq`. (Implemented 2026-06-16 as
+omit-when-false, NOT always-present, so the e2e-off event stream — incl. the `s18` golden trace — stays
+byte-for-byte unchanged.)
 ```json
-{"ev":"msg_recv","origin":2,"layer_id":5,"ctr":7,"sender_hash":3735928559,"seq":42,"enc":true,"body":"…"}
+{"ev":"msg_recv","origin":2,"layer_id":5,"ctr":7,"sender_hash":3735928559,"seq":42,"enc":true,"body":"…"}   // sealed
+{"ev":"msg_recv","origin":2,"layer_id":5,"ctr":7,"sender_hash":3735928559,"seq":43,"body":"…"}              // plaintext (enc OMITTED)
 {"ev":"inbox_dm","seq":42,"origin":2,"layer_id":5,"ctr":7,"sender_hash":3735928559,"rx_ms":123456,"enc":true,"body":"…"}
 ```
+- **App rule:** treat a MISSING `enc` as `false`. Only `enc:true` is ever emitted.
 - Source: a delivered DM had `DATA_FLAG_CRYPTED` set AND opened (a CRYPTED frame that fails to open never
-  delivers ⇒ `enc:true` ⇔ delivered-sealed). Plaintext DM ⇒ `enc:false`.
-- **Channels (later):** the same `enc` field extends to `channel_recv`/`inbox_channel` (cleartext today ⇒
-  `false`; channel crypto is a future phase).
+  delivers ⇒ `enc:true` ⇔ delivered-sealed). A plaintext DM omits `enc`.
+- **Channels (later):** `channel_recv`/`inbox_channel` likewise OMIT `enc` (cleartext today ⇒ false); the
+  field is reserved for a future channel-crypto phase.
+
+### Receiving a sealed DM you can't open — silent DROP (sealed-sender redesign, 2026-06-16)
+> **Supersedes the earlier "locked + auto-recover" model** (now dead). The originator is **sealed inside the
+> ciphertext** (privacy: a relay must never learn who sent a DM), so an un-openable DM is **un-attributable** —
+> there is no `sender_hash` to name, hence no "Request key from X", no `locked` inbox state, no ciphertext at rest.
+
+- A CRYPTED DM the node can't decrypt (no cached key opens it under trial decryption) is **dropped silently** —
+  **no push, no ack, no inbox entry.** There is **no per-message recovery**; the sender's retry after the
+  handshake completes re-delivers. **Recovery is the handshake, not the message.**
+- **Provisioning happens FIRST**, via the **mutual `reqpubkey` handshake** (below) or a QR `peerkey` — so both
+  sides hold both keys before any sealed DM flows, and every delivered sealed DM opens.
+- **No E2E-ack ⇒ "not delivered OR not decrypted"** (undifferentiated). The sender retries / re-handshakes. A
+  receiver that can't decrypt can't identify the sender, so it cannot (and must not) NACK — **silence is the
+  only signal.**
+- The `enc` indicator (above) is unchanged — a *delivered* DM was sealed ⇒ `enc:true`; plaintext omits it.
+  There is **no** third "locked" state; a DM is plaintext or `enc:true`.
 
 ### Deferred
 - `peerkeys` (list pinned) + `peerkey_del <hash>` (un-verify) — app-side contact management; v2.

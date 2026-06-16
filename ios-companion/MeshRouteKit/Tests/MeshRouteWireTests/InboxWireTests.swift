@@ -26,6 +26,15 @@ final class InboxWireTests: XCTestCase {
         XCTAssertEqual(e.senderHash, 2319391746)   // 0x8a3f1c02
         XCTAssertEqual(e.rxTimeMs, 123456)
         XCTAssertEqual(e.body, "hi")
+        XCTAssertNil(e.crypted)                     // §8b: enc OMITTED → plaintext (nil, not false)
+
+        // §8b: a SEALED inbox_dm carries enc:true (+ layer_id) → InboxEntry.crypted / .layerID
+        guard case .inboxEntry(let sealed)? = PushDecoder.decode(
+            line: #"{"ev":"inbox_dm","seq":43,"origin":2,"layer_id":23,"ctr":8,"sender_hash":2319391746,"rx_ms":123456,"enc":true,"body":"hi"}"#) else {
+            return XCTFail("not sealed inbox_dm")
+        }
+        XCTAssertEqual(sealed.crypted, true)
+        XCTAssertEqual(sealed.layerID, 23)
     }
 
     func testInboxEntryChannel() {
@@ -95,6 +104,14 @@ final class InboxWireTests: XCTestCase {
         XCTAssertEqual(r.inboxEpoch, 3)
         XCTAssertEqual(r.nowMs, 123456789012)   // > UInt32.max: the anchor is a true 64-bit uptime
         XCTAssertNil(r.name)                    // name omitted when the node has none
+        XCTAssertNil(r.pubkey)                  // §4: pre-E2E firmware omits the full ed_pub → nil
+
+        // §4: E2E firmware rides the full 64-hex ed_pub on ready (so MyCardView emits the QR `p`).
+        guard case .ready(let keyed)? = PushDecoder.decode(
+            line: #"{"ev":"ready","id":3,"key":"a1b2c3d4","pubkey":"000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f","leaf_id":0,"mode":"existing","gateway":false,"routing_sf":7,"inbox_epoch":5,"now_ms":99}"#) else {
+            return XCTFail()
+        }
+        XCTAssertEqual(keyed.pubkey, "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f")
 
         guard case .ready(let named)? = PushDecoder.decode(
             line: #"{"ev":"ready","id":5,"key":"ff609d5c","name":"Bench 5","leaf_id":0,"mode":"existing","gateway":false,"routing_sf":7,"inbox_epoch":1,"now_ms":99}"#) else {

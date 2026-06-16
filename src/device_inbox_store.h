@@ -38,7 +38,7 @@ struct Meta {
     uint32_t epoch;        // §10.1 storage epoch (bumps on a records-store wipe)
 };
 constexpr uint32_t kMagic   = 0x4D524958u;  // 'MRIX'
-constexpr uint16_t kVersion = 2;            // v2 (2026-06-13): record header gained layer_id (§2/Q13) — old meta rejected, store re-inits
+constexpr uint16_t kVersion = 3;            // v3 (2026-06-16): record header gained enc (§8b). v2: +layer_id (§2/Q13). Old meta rejected, store re-inits
 
 }  // namespace mrinbox
 

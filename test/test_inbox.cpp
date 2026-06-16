@@ -21,11 +21,11 @@ namespace {
 
 // pull collector: copy the decoded entry (body points into transient store bytes -> copy to a std::string).
 struct Collected { uint32_t seq; InboxKind kind; uint8_t origin; uint8_t channel_id; uint32_t msg_id;
-                   uint32_t sender_hash; uint8_t layer_id; uint64_t rx; std::string body; };
+                   uint32_t sender_hash; uint8_t layer_id; uint8_t enc; uint64_t rx; std::string body; };
 struct Collector { std::vector<Collected> items; };
 bool collect_cb(void* ctx, const InboxEntry& e) {
     auto* c = static_cast<Collector*>(ctx);
-    c->items.push_back({ e.seq, e.kind, e.origin, e.channel_id, e.msg_id, e.sender_hash, e.layer_id, e.rx_time_ms,
+    c->items.push_back({ e.seq, e.kind, e.origin, e.channel_id, e.msg_id, e.sender_hash, e.layer_id, e.enc, e.rx_time_ms,
                          std::string(reinterpret_cast<const char*>(e.body ? e.body : reinterpret_cast<const uint8_t*>("")), e.body_len) });
     return true;
 }
@@ -33,14 +33,31 @@ bool collect_cb(void* ctx, const InboxEntry& e) {
 // A synthetic channel_msg_id (origin<<24 | key_hash16<<8 | ctr8) — the full 32-bit identity the inbox stores.
 uint32_t mk_chan_id(uint8_t origin, uint8_t ctr8) { return (uint32_t(origin) << 24) | (uint32_t(0x1234) << 8) | ctr8; }
 
-void rec_dm(Inbox& ib, uint8_t origin, uint16_t ctr, const char* s, uint64_t t, uint32_t sender_hash = 0, uint8_t layer_id = 0) {
-    ib.record_dm(origin, sender_hash, ctr, layer_id, reinterpret_cast<const uint8_t*>(s), static_cast<uint8_t>(std::strlen(s)), t);
+void rec_dm(Inbox& ib, uint8_t origin, uint16_t ctr, const char* s, uint64_t t, uint32_t sender_hash = 0, uint8_t layer_id = 0, uint8_t enc = 0) {
+    ib.record_dm(origin, sender_hash, ctr, layer_id, reinterpret_cast<const uint8_t*>(s), static_cast<uint8_t>(std::strlen(s)), t, enc);
 }
 void rec_ch(Inbox& ib, uint8_t ch, uint8_t origin, uint8_t ctr8, const char* s, uint64_t t, uint8_t layer_id = 0) {
     ib.record_channel(ch, mk_chan_id(origin, ctr8), layer_id, reinterpret_cast<const uint8_t*>(s), static_cast<uint8_t>(std::strlen(s)), t);
 }
 
 }  // namespace
+
+// §8b: the `enc` (sealed-delivery) flag round-trips through serialize -> store -> pull. DMs carry their crypted-on-delivery
+// state; channels are always cleartext (enc=0).
+TEST_CASE("inbox: §8b enc flag survives the record round-trip (DM enc 0/1; channel always 0)") {
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    Inbox ib; ib.on_init(&dm, &ch);
+    rec_dm(ib, 2, 7, "sealed",  1000, /*sender_hash*/ 0xABCD, /*layer_id*/ 0, /*enc*/ 1);
+    rec_dm(ib, 2, 8, "plain",   1001, /*sender_hash*/ 0xABCD, /*layer_id*/ 0, /*enc*/ 0);
+    rec_ch(ib, 5, 9, 1, "chan", 1002);
+    Collector c; ib.pull(0, 0, collect_cb, &c);
+    CHECK(c.items.size() == 3);
+    if (c.items.size() == 3) {
+        CHECK(c.items[0].body == "sealed"); CHECK(c.items[0].enc == 1);   // CRYPTED DM
+        CHECK(c.items[1].body == "plain");  CHECK(c.items[1].enc == 0);   // plaintext DM
+        CHECK(c.items[2].kind == InboxKind::channel); CHECK(c.items[2].enc == 0);  // channel (cleartext)
+    }
+}
 
 TEST_CASE("inbox: disabled until stores are installed (record_* / pull inert)") {
     Inbox ib;                                                     // no on_init

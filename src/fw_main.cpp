@@ -565,6 +565,8 @@ static void handle_whoami() {
 static void dump_help() {
     Serial.println(F("[help] messaging:  send <id> <text> | send_ack <id> <text> | sendhash <hash> <text> | sendhash_ack <hash> <text> | send_channel <ch> <text>"));
     Serial.println(F("[help] cross-layer: send_layer <hash> <l1,l2,…> <text> | send_layer_ack <hash> <l1,l2,…> <text>  (explicit destination layer path)"));
+    Serial.println(F("[help] e2e send:   sendhashx <hash> <text> | sendhashx_ack <hash> <text>   (force-encrypt ONE DM; `cfg set e2e_dm on` = encrypt by default)"));
+    Serial.println(F("[help] e2e keys:   peerkey <ed_pub hex64> (install a scanned/QR pubkey = pinned) | reqpubkey <hash> (request a peer's key on-air)"));
     Serial.println(F("[help] hash/id:    whoami | lookup <hash> | hashof <id> | resolve <hash> [hard]"));
     Serial.println(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
     Serial.println(F("[help] diag:       routes | status | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
@@ -590,7 +592,7 @@ static bool inbox_pull_cb(void* vctx, const meshroute::InboxEntry& e) {
     const size_t n = (e.kind == meshroute::InboxKind::dm)
         ? meshroute::console::write_inbox_dm(s_inbox_jb, sizeof s_inbox_jb, e.seq, e.origin, e.layer_id,
               static_cast<uint16_t>(e.msg_id), e.sender_hash, e.rx_time_ms,
-              reinterpret_cast<const char*>(e.body), e.body_len)
+              reinterpret_cast<const char*>(e.body), e.body_len, e.enc != 0)   // §8b
         : meshroute::console::write_inbox_channel(s_inbox_jb, sizeof s_inbox_jb, e.seq, e.origin, e.layer_id,
               e.channel_id, e.msg_id, e.rx_time_ms, reinterpret_cast<const char*>(e.body), e.body_len);
     if (n) { c->sink(s_inbox_jb, n); ++c->count; }

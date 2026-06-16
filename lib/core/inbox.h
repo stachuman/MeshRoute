@@ -31,16 +31,18 @@ struct InboxEntry {
     uint32_t       msg_id;       // DM: ctr (16-bit); channel: the full 32-bit channel_msg_id
     uint32_t       sender_hash;  // DM: the sender's key_hash32 (the STABLE identity, when SOURCE_HASH was set); 0 if absent / channel
     uint8_t        layer_id;     // §2/Q13: the FULL 8-bit receiving layer id — disambiguates `origin` across a gateway's two leaves
+    uint8_t        enc;          // §8b: 1 = this DM was delivered SEALED (DATA_FLAG_CRYPTED + a successful e2e_open); 0 = plaintext / channel
     uint64_t       rx_time_ms;
     const uint8_t* body;
     uint8_t        body_len;
 };
 
 // Serialized record = [seq u32][kind u8][origin u8][channel_id u8][msg_id u32][sender_hash u32][rx_time_ms u64]
-// [layer_id u8][body_len u8][body], all LITTLE-endian. Fixed 25-B header + body. The STORE adds the on-flash
+// [layer_id u8][enc u8][body_len u8][body], all LITTLE-endian. Fixed 26-B header + body. The STORE adds the on-flash
 // framing ([u16 total_len] …); Inbox owns this record (de)serialization. The app's DM identity is (sender_hash,
-// ctr) when sender_hash != 0, else (origin, ctr); channel identity is the full msg_id. (§2/Q13: +layer_id 2026-06-13.)
-inline constexpr uint16_t inbox_record_header_bytes = 4 + 1 + 1 + 1 + 4 + 4 + 8 + 1 + 1;     // = 25
+// ctr) when sender_hash != 0, else (origin, ctr); channel identity is the full msg_id. (§2/Q13: +layer_id 2026-06-13;
+// §8b: +enc 2026-06-16 — bump the device store version so old records are rejected.)
+inline constexpr uint16_t inbox_record_header_bytes = 4 + 1 + 1 + 1 + 4 + 4 + 8 + 1 + 1 + 1; // = 26
 inline constexpr uint16_t inbox_record_max_bytes    = inbox_record_header_bytes + protocol::inbox_max_body;  // 265
 
 // ---- the storage HAL: a bounded, crash-safe append + iterate + drop-oldest record log -------------
@@ -87,8 +89,8 @@ public:
     // can unify live + pulled by seq + detect a dropped live push (the contract's model "B"); hence record
     // BEFORE enqueue_push. `sender_hash` = the DM sender's key_hash32 (stable identity, 0 if SOURCE_HASH absent).
     // The channel identity is the FULL channel_msg_id (origin = its high byte) — store it whole, not the ctr.
-    uint32_t record_dm(uint8_t origin, uint32_t sender_hash, uint16_t ctr, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms);
-    uint32_t record_channel(uint8_t channel_id, uint32_t channel_msg_id, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms);
+    uint32_t record_dm(uint8_t origin, uint32_t sender_hash, uint16_t ctr, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms, uint8_t enc = 0);   // §8b: enc=1 if the DM was delivered sealed
+    uint32_t record_channel(uint8_t channel_id, uint32_t channel_msg_id, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms);   // channels are cleartext today -> enc always 0
 
     // Companion pull: stream DM records (seq > dm_since), THEN channel records (seq > chan_since), each
     // oldest-first, via cb. Returns the total entries visited. DM-block-then-channel-block (the two seq
@@ -109,7 +111,7 @@ public:
 
 private:
     uint32_t record(InboxStore* store, uint32_t& next, uint8_t& unpersisted, InboxKind kind, uint8_t origin,
-                    uint8_t channel_id, uint32_t msg_id, uint32_t sender_hash, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms);
+                    uint8_t channel_id, uint32_t msg_id, uint32_t sender_hash, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms, uint8_t enc);
 
     InboxStore* _dm   = nullptr;
     InboxStore* _chan = nullptr;

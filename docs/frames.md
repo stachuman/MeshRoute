@@ -118,10 +118,10 @@ Bytes 2..7 are the **fixed routing header** — relays read `next`/`dst`/`hops`/
 | --------- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | b7 `0x80` | `APP`         | a TYPE byte follows the header (derived from TYPE)                                                                                                                                                            |
 | b6 `0x40` | `CROSS_LAYER` | reserved — the inner carries a cross-layer **layer-path** table (gateway routing)                                                                                                                             |
-| b5 `0x20` | `CRYPTED`     | reserved — `origin`+body sealed (relays still read the cleartext `dst_key_hash32` / layer-path)                                                                                                               |
+| b5 `0x20` | `CRYPTED`     | **live** — `origin` + everything after it SEALED (relays read only the cleartext `dst_key_hash32`); key selection = trial decryption; forces `DST_HASH`                                                       |
 | b4 `0x10` | `E2E_ACK_REQ` | live — the final destination returns an end-to-end ack                                                                                                                                                        |
-| b3 `0x08` | `LOCATION`    | **live** — opt-in 6-B sender location in the sealed inner (after `source_hash`); set ONLY on origination (`loc_in_dm` + a non-zero fix); see *Planned wire extensions*                                                                                                                                                                                                          |
-| b2 `0x04` | `SOURCE_HASH` | **live** — the inner carries the **origin's** `key_hash32` after `origin` (the stable sender identity; **default-on for app DMs**, not just `E2E_ACK_REQ`); moves into the sealed region when `CRYPTED` lands |
+| b3 `0x08` | `LOCATION`    | **live** — opt-in 6-B sender location in the sealed inner (after `source_hash`); set ONLY on origination (`loc_in_dm` + a non-zero fix); see *Planned wire extensions*                                        |
+| b2 `0x04` | `SOURCE_HASH` | **live** — the inner carries the origin's `key_hash32` after `origin` (the stable sender identity; **default-on for app DMs**); **sealed under `CRYPTED`**                                                    |
 | b1 `0x02` | `DST_HASH`    | live — the inner carries the recipient's `key_hash32` (L2c verify-on-delivery)                                                                                                                                |
 | b0 `0x01` | `PRIORITY`    | decoded-only (no behaviour wired yet)                                                                                                                                                                         |
 
@@ -139,8 +139,22 @@ Bytes 2..7 are the **fixed routing header** — relays read `next`/`dst`/`hops`/
 
 The `inner` has **no payload-flags byte** — its old flag-bits are now the byte-1 `flags`, its old type-bits are the `TYPE` enum. The presence of each optional field is read from the **byte-1 header flags** (not a payload byte). (Channel messages are no longer a DATA inner — they ride the lean **M** frame, cmd 0xA, below.)
 
-**① Normal unicast** (incl. the E2E-ack; `APP=0`, or `APP` with `TYPE=E2E_ACK`):
-`[dst_key_hash32 4 B LE — iff DST_HASH] [layer-path — iff CROSS_LAYER] [origin 1 B] [source_hash 4 B LE — iff SOURCE_HASH] [location 6 B — iff LOCATION] [body…] [Poly1305 tag 16 B — iff CRYPTED]`. The E2E-ack (`TYPE=E2E_ACK`) is this shape with `body` = the acked `ctr` (2 B LE). Everything from `source_hash` onward (`source_hash`, `location`, `body`) is sealed under `CRYPTED`; the cleartext routing header — `dst_key_hash32`, layer-path, **and `origin`** — stays cleartext and is the AEAD AAD. (`origin` is **NOT** sealed: the relay loop-dedup `_seen_origins` keys on `(origin,dst,ctr)` and `visited[]` was removed → sender-metadata privacy is declined.)
+**① Normal unicast** (incl. the E2E-ack) — fields in order:
+
+| Field | Size | Present when | CRYPTED? |
+|---|---|---|---|
+| `dst_key_hash32` | 4 B LE | `DST_HASH` (default-on app DM; **mandatory if CRYPTED**) | cleartext (AAD + nonce input) |
+| layer-path | var | `CROSS_LAYER` | cleartext (no cross-layer CRYPTED in v1) |
+| `origin` | 1 B | always | **sealed** |
+| `source_hash` | 4 B LE | `SOURCE_HASH` (default-on app DM) | **sealed** |
+| location | 6 B | `LOCATION` | **sealed** |
+| `body` | n B | always | **sealed** |
+| Poly1305 tag | 16 B | `CRYPTED` (trails the ciphertext) | — |
+
+- **Plaintext:** all fields cleartext in that order. `origin` = the sender's node_id (destination attributes/replies by it). E2E-ack (`TYPE=E2E_ACK`) = this shape, `body` = the acked `ctr` (2 B LE).
+- **CRYPTED (sealed-sender redesign, `2026-06-16-e2e-sealed-sender-redesign.md`):** only `dst_key_hash32` stays cleartext (the AEAD AAD); **`origin` and everything after it are SEALED** → a relay **cannot tell who sent the DM**. The 4-B MAC trailer grows to the 8-B cleartext **nonce-seed**. `CRYPTED ⇒ DST_HASH`.
+  - **Key selection = trial decryption** (no cleartext sender hint): the receiver tries each cached **authoritative/pinned** peer key; the tag verifies for exactly one → that key's owner *is* the sender (implicit auth), and `origin` is recovered from the seal. No candidate opens ⇒ **silent drop** (no push/ack/inbox). Bounded to ≤`cap_peer_keys` opens, only on DMs whose `dst_key_hash32` is ours.
+  - `source_hash` is now redundant under trial (the opening key is the sender); kept in v1 for the anti-spoof check — dropping it (−4 B) is a future optimisation.
 
 **② Hash-bind answer** (`TYPE = H_ANSWER` / `AUTHORITATIVE_H_ANSWER`; cleartext, 6 B):
 `[target_layer 1 B] [node_id 1 B] [key_hash32 4 B LE]`. The `H_ANSWER` / `AUTHORITATIVE` distinction rides the frame TYPE (1 vs 2), **not** the inner.
@@ -160,10 +174,8 @@ Path size = `1 + ceil(n_layers/2)` B. `layer_id[0]` = the **origin's** layer, `l
 - **Arrival:** the frame is in the destination's layer when `cur == n_layers-1`.
 - **E2E-ack return** (`E2E_ACK_REQ` set): the destination builds the ack as a `CROSS_LAYER` DATA with `TYPE = E2E_ACK` whose `layer_id[]` is the **reverse** of the received list (`ack[i] = layer_id[n_layers-1-i]`), `cur` reset to 0 — so the ack walks home along the same layers. The ack's `dst_key_hash32` is the origin's `key_hash32`, which the destination reads from the request's `source_hash` (present because `E2E_ACK_REQ` required it).
 
-- **`dst_key_hash32`** — the universal *final-recipient* `key_hash32`, **always cleartext** (leaks no more than the cleartext `dst` id). The node the `dst` id routes to verifies it against its own: match → deliver; mismatch → an id collision misdelivered this DM → forward to the real owner (the DM still arrives) + heal. Same- and cross-layer share this one field. Default-on for app DMs (the send path looks the dst's hash up in `id_bind`); +4 B.
-- **`source_hash`** — the **origin's** `key_hash32`, after `origin` (in the region sealed once `CRYPTED` lands). **Default-on for app DMs** (`enqueue_data` sets `SOURCE_HASH` + appends it whenever it fits) — the **stable sender identity**: the 8-bit `origin` node_id is reassignable (DAD), `key_hash32` is not, so the destination records `source_hash` as the DM's durable identity (inbox / app dedup), and when `E2E_ACK_REQ` is set it also becomes the ack's `dst_key_hash32` (pairs with the reversed `layer-path` cross-layer). +4 B.
-- **`CRYPTED`** — `source_hash` + `location` + `body` are sealed (XChaCha20-Poly1305); a 16-B tag trails, and the 4-B MAC trailer grows to 8 B (the cleartext nonce-seed). The cleartext routing header (`dst`, `dst_key_hash32`, layer-path, `origin`) is the AEAD AAD. **`origin` stays cleartext → the sender is NOT hidden** — sender-metadata privacy is explicitly declined (the relay loop-dedup keys on `origin`, and `visited[]` is gone; §0 promises *payload* privacy only). CRYPTED ⇒ DST_HASH forced (the nonce uses `dst_key_hash32`). AEAD-auth failure on a misdelivered CRYPTED DM corroborates a collision. See `docs/superpowers/specs/2026-06-15-phase1-e2e-dm-crypto.md`.
-- **Normal DM** (no CRYPTED): `origin` is the sender's node_id (the destination attributes/replies by it).
+- **`dst_key_hash32`** — the final-recipient `key_hash32`, **always cleartext** (leaks no more than the `dst` id). The node `dst` routes to verifies it: match → deliver; mismatch → an id collision misdelivered it → forward to the real owner + heal. Default-on for app DMs; +4 B.
+- **`source_hash`** — the origin's stable `key_hash32` (the 8-bit `origin` is reassignable, the hash is not). Default-on for app DMs; the destination uses it as the DM's durable identity (inbox/app dedup) and, with `E2E_ACK_REQ`, as the ack's `dst_key_hash32`. Sealed under CRYPTED. +4 B.
 
 `hops_remaining = 0` on the wire means TTL-exhausted (drop). The MAC stays opaque.
 
@@ -217,9 +229,9 @@ Path size = `1 + ceil(n_layers/2)` B. `layer_id[0]` = the **origin's** layer, `l
 
 ---
 
-## H — hash-locate flood · cmd 0x7 · 8 B
+## H — hash-locate flood · cmd 0x7 · 8 B · **+32 B** when a WANT_PUBKEY request attaches the requester's pubkey
 
-**Use** — flood to resolve an identity `key_hash32` to its current `node_id`; `origin` is preserved so the answer routes home. **Soft** (default): any node answers from its own hash *or* its `id_bind` cache — fast, may be stale. **Hard** (flag b0): owner-only — skip caches and flood until the owner itself answers (authoritative). Start soft; escalate to hard on a verify-on-use mismatch. **Reply** — a *hash-bind response* (a DATA carrying the binding — see below) routed to `origin`; an authoritative (owner) reply overwrites stale caches along its path.
+**Use** — flood to resolve an identity `key_hash32` → its `node_id`; `origin` is preserved so the answer routes home. **Soft** (default): any node answers from its own hash or `id_bind` cache. **Hard** (b0): owner-only — skip caches, flood until the owner answers. **WANT_PUBKEY** (b1): ask for the target's E2E **pubkey** (not just node_id). **Reply** — a hash-bind/pubkey response (DATA) routed to `origin`.
 
 | Byte | Field | Description |
 |------|-------|-------------|
@@ -227,9 +239,12 @@ Path size = `1 + ceil(n_layers/2)` B. `layer_id[0]` = the **origin's** layer, `l
 | 1 | origin | querier node_id, preserved across forwards |
 | 2..5 | key_hash32 | identity hash being located (**LE**) |
 | 6 | ttl | decremented per forward; 0 = drop |
-| 7 | flags | b0 = `HARD` (owner-only resolve, ignore caches); b7..1 rsv |
+| 7 | flags | b0 `HARD` · b1 `WANT_PUBKEY` · b2 `REQ_PUBKEY` (requester `ed_pub` appended); b7..3 rsv |
+| 8..39 | requester ed_pub | 32 B — **only if `REQ_PUBKEY`** (mutual exchange, below) |
 
-**Hash-bind response** (H's reply): a routed **DATA** to `origin`, typed by the frame **TYPE** = `H_ANSWER` (or `AUTHORITATIVE_H_ANSWER`); `CRYPTED`=0, so relays read & cache it — see DATA. Inner (6 B, **no payload-flags byte**): `target_layer`(1) · `node_id`(1) · `key_hash32`(4 **LE**) — **no magic** (the frame TYPE types it; supersedes the Lua `\x1fH1`); *authoritative* is the `AUTHORITATIVE_H_ANSWER` code (TYPE 2 vs 1), not an inner bit.
+**Replies (routed DATA to `origin`, `CRYPTED`=0 so relays cache):**
+- **Hash-bind** (`TYPE = H_ANSWER` / `AUTHORITATIVE_H_ANSWER`): inner `target_layer`(1) · `node_id`(1) · `key_hash32`(4 LE). Authoritative = the TYPE code (2 vs 1).
+- **Pubkey** (`TYPE = H_ANSWER_PUBKEY`, answers `WANT_PUBKEY`): inner `target_layer`(1) · `node_id`(1) · `ed_pub`(32) (no `key_hash32` — it's `ed_pub[:4]`). **Mutual:** if the request carried `REQ_PUBKEY`+`ed_pub`, the owner first **caches the requester's pubkey** (so it can decrypt the requester's sealed DMs + address this answer), then replies — **one round provisions BOTH directions** (the E2E bootstrap). The request rides the cleartext flood ⇒ both pubkeys are relay-visible: the deliberate "establishing contact" exposure; every DM after is sealed.
 
 ---
 
@@ -299,9 +314,9 @@ Decided in the design specs and landing with their slices (not all wired yet) �
 
 - **BCN — +10 B leaf header** `{lineage_id(4) · epoch(2) · config_hash(4)}`, written **before** the route entries (so it survives the 151-B page truncation): the same-`leaf_id`-but-divergent-config filter. `config_hash = BLAKE2b(u16 allowed_sf_bitmap LE ‖ u32 duty_ppm LE ‖ u8 name_len ‖ leaf_name)[:4]`. **Wire FLAG-DAY** (no BCN version handshake → reflash-all). **⚠ Re-examine BCN truncation when this lands** — the leaf header must never be cut; pin the overflow priority (entries / seen-bitmap / ext). See `docs/specs/2026-06-05-identity-leaf-membership-join-design.md` §3 + phase-0 doc (L1/L5).
 - **DATA — `DST_HASH`** (described above): **shipped** — the cleartext recipient `key_hash32` + verify-on-delivery (a mismatch identity-preservingly forwards the DM to the real owner; no renumber, see the node-id design spec §7.1).
-- **DATA — `CRYPTED`** (described above): the AEAD seal/open (X25519 ECDH → BLAKE2b KDF → XChaCha20-Poly1305 over `origin`+body) ships with the E2E slice. **Nonce:** the 4-B `MAC` trailer becomes a **CRYPTED-gated 8-B cleartext nonce-seed** (4-B-zero when not CRYPTED → s18 byte-identical; 8-B random when CRYPTED), `nonce = BLAKE2b(rand8 ‖ ctr ‖ dst_key_hash32)[:24]`; AEAD AAD = the cleartext routing header. See `docs/superpowers/specs/2026-06-15-join-e2e-phase0.md` (E1/E4).
+- **DATA — `CRYPTED`: SHIPPED, + sealed-sender redesign** (`docs/superpowers/specs/2026-06-16-e2e-sealed-sender-redesign.md`): the AEAD seal (X25519 ECDH → BLAKE2b KDF → XChaCha20-Poly1305) now covers **`origin` + everything after it**; AAD = the cleartext `dst_key_hash32` only; key selection by **trial decryption** (no cleartext sender). Nonce: the 4-B MAC trailer → an 8-B cleartext nonce-seed under CRYPTED (4-B-zero when off → s18 byte-identical), `nonce = BLAKE2b(seed8 ‖ ctr ‖ dst_key_hash32)[:24]`. See *Inner layouts*.
 - **DATA — `LOCATION` (opt-in 6-B sender location): SHIPPED.** ~11 m, 21-bit lat + 22-bit lon quantized from the stored `int32 e7` (`g_lat_e7`/`g_lon_e7`); flag `0x08`, in the sealed inner after `source_hash` (private to the recipient once `CRYPTED` lands). Toggle `loc_in_dm` (default off → wire byte-identical; never sends `(0,0)`); set ONLY on origination. See `docs/superpowers/specs/2026-06-14-location-propagation.md`.
 - **M — `LOCATION` (opt-in, broadcast-public): DEFERRED proposal.** `flavor` bit `0x08`, a 6-B location after `channel_msg_id`; toggle `loc_in_m`. NOT implemented this round — needs threading the originator's location through the channel-flood plane with re-flood **preservation** (whole-leaf coverage, never the re-flooder's own location) + the RTS-M `payload_len +6`; the codec (`pack_m`/`parse_m`) does NOT handle `0x08` yet. Future slice.
-- **H / DATA — pubkey resolution (E2E):** H query gains a `WANT_PUBKEY` flag; the owner answers with a routed DATA **TYPE `H_ANSWER_PUBKEY`** = `[target_layer 1][node_id 1][ed_pub 32]` (the redundant `key_hash32` is dropped — it's `ed_pub[:4]`). Every relay caches `ed_pub` **keyed by full pubkey** (cache-on-pass, confidence-tiered like `id_bind`; verifies `ed_pub[:4]==`hash). See phase-0 doc (E2). *(Supersedes the old "payload-flag in b5/b7" plan — that byte is gone.)*
+- **H — pubkey resolution (E2E): SHIPPED, + mutual** (redesign): `WANT_PUBKEY` H → owner answers DATA `TYPE H_ANSWER_PUBKEY` = `[target_layer 1][node_id 1][ed_pub 32]`. **Mutual:** a `REQ_PUBKEY` request appends the requester's `ed_pub`, so one round provisions BOTH directions (the bootstrap). Relays cache on-pass (verify `ed_pub[:4]==`hash). See **H**.
 - **Q — `CONFIG_PULL`** subtype: pull a leaf's full config (SF-set / `leaf_name` / `duty_cycle`) for a `{lineage, epoch}`, answered by a routed DATA **TYPE `CONFIG_ANSWER`**. See phase-0 doc (L3).
 - **J — `wire_version`** in byte 1's reserved nibble: a coarse wire-compat check at join.

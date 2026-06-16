@@ -933,17 +933,87 @@ TEST_CASE("e2e seal/open — A seals a DM to B, B opens it; the inner is actuall
     for (size_t i = 0; i + 12 <= n; ++i) { bool m = true; for (int j = 0; j < 12; ++j) if (inner[i+j] != body[j]) m = false; if (m) leaked = true; }
     CHECK_FALSE(leaked);
 
-    uint32_t got_sh = 0; bool got_loc = true; int32_t la = 1, lo = 1; uint8_t out[64] = {}; uint8_t outlen = 0;
-    CHECK(B.e2e_open_inner(inner, n, seed, flags, /*ctr=*/7, /*sender_hash=*/idA.key_hash32, got_sh, got_loc, la, lo, out, outlen));
+    uint32_t got_sh = 0, got_origin = 0; bool got_loc = true; int32_t la = 1, lo = 1; uint8_t out[64] = {}; uint8_t outlen = 0;
+    CHECK(B.e2e_open_inner(inner, n, seed, flags, /*ctr=*/7, /*sender_hash=*/idA.key_hash32, got_origin, got_sh, got_loc, la, lo, out, outlen));
     CHECK(got_sh == idA.key_hash32);                               // the sealed source_hash == the resolved sender (anti-spoof)
+    CHECK(got_origin == 1);                                        // §1a: origin read from the cleartext AAD (inner[4])
     CHECK_FALSE(got_loc);
     CHECK(outlen == 12);
     bool same = true; for (int i = 0; i < 12; ++i) if (out[i] != body[i]) same = false; CHECK(same);
 
     uint8_t t[128]; for (size_t i = 0; i < n; ++i) t[i] = inner[i]; t[6] ^= 0x01;   // a tampered ciphertext byte
-    CHECK_FALSE(B.e2e_open_inner(t, n, seed, flags, 7, idA.key_hash32, got_sh, got_loc, la, lo, out, outlen));
-    CHECK_FALSE(B.e2e_open_inner(inner, n, seed, flags, /*wrong ctr*/ 8, idA.key_hash32, got_sh, got_loc, la, lo, out, outlen));
-    CHECK_FALSE(B.e2e_open_inner(inner, n, seed, flags, 7, /*wrong sender*/ idA.key_hash32 ^ 0x5u, got_sh, got_loc, la, lo, out, outlen));
+    CHECK_FALSE(B.e2e_open_inner(t, n, seed, flags, 7, idA.key_hash32, got_origin, got_sh, got_loc, la, lo, out, outlen));
+    CHECK_FALSE(B.e2e_open_inner(inner, n, seed, flags, /*wrong ctr*/ 8, idA.key_hash32, got_origin, got_sh, got_loc, la, lo, out, outlen));
+    CHECK_FALSE(B.e2e_open_inner(inner, n, seed, flags, 7, /*wrong sender*/ idA.key_hash32 ^ 0x5u, got_origin, got_sh, got_loc, la, lo, out, outlen));
+}
+
+// =============================================================================
+// §1a sealed-sender — TRIAL DECRYPTION: there is no cleartext sender hint on a
+// CRYPTED frame; the receiver tries each cached peer key and the Poly1305 tag
+// is the oracle that identifies the sender. A node that doesn't hold the
+// sender's key has no candidate that opens -> drop.
+// =============================================================================
+TEST_CASE("§1a trial decrypt — picks the sender's key out of the cache, recovers origin; an un-held sender finds no candidate") {
+    TestHal halA, halB;
+    uint8_t seedA[32], seedB[32], seedC[32];
+    for (int i = 0; i < 32; ++i) { seedA[i] = uint8_t(i + 1); seedB[i] = uint8_t(100 - i); seedC[i] = uint8_t(i + 60); }
+    Identity idA{}, idB{}, idC{}; identity_from_seed(idA, seedA); identity_from_seed(idB, seedB); identity_from_seed(idC, seedC);
+    Node A(halA, 1, idA.key_hash32), B(halB, 2, idB.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    A.on_init(cfg); B.on_init(cfg);
+    A.set_crypto_identity(idA.x_secret, idA.ed_pub); B.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    A.peer_key_set(idB.key_hash32, idB.ed_pub, Node::PeerKeyConf::authoritative);
+    B.peer_key_set(idC.key_hash32, idC.ed_pub, Node::PeerKeyConf::authoritative);   // a DECOY, installed FIRST (must not false-accept)
+    B.peer_key_set(idA.key_hash32, idA.ed_pub, Node::PeerKeyConf::authoritative);   // A's real key
+
+    const uint8_t flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH;
+    const uint8_t body[5] = { 'h','e','l','l','o' };
+    uint8_t inner[96], seed[8]; Node::SealOutcome oc = Node::SealOutcome::ok;
+    const size_t n = A.e2e_seal_inner(inner, sizeof inner, seed, flags, /*dst=*/idB.key_hash32,
+                                      /*origin=*/1, /*ctr=*/7, /*source_hash=*/idA.key_hash32, 0, 0, body, sizeof body, oc);
+    CHECK(n > 0); CHECK(oc == Node::SealOutcome::ok);
+
+    uint32_t sender = 0, origin = 0, src = 0; bool loc = true; int32_t lat = 1, lon = 1; uint8_t out[64] = {}; uint8_t outlen = 0;
+    CHECK(B.e2e_open_trial(inner, n, seed, flags, /*ctr=*/7, sender, origin, src, loc, lat, lon, out, outlen));
+    CHECK(sender == idA.key_hash32);                                // the tag picked A's key out of {decoy, A}
+    CHECK(src == idA.key_hash32);                                   // sealed source_hash == sender (anti-spoof)
+    CHECK(origin == 1);                                             // recovered origin
+    CHECK(outlen == 5); { bool same = true; for (int i = 0; i < 5; ++i) if (out[i] != body[i]) same = false; CHECK(same); }
+
+    // a node with B's identity but only the DECOY key -> no candidate opens -> drop
+    TestHal halX; Node X(halX, 2, idB.key_hash32); X.on_init(cfg); X.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    X.peer_key_set(idC.key_hash32, idC.ed_pub, Node::PeerKeyConf::authoritative);
+    uint32_t s2 = 0, o2 = 0, sr2 = 0; bool l2 = false; int32_t a2 = 0, b2 = 0; uint8_t out2[64]; uint8_t ol2 = 0;
+    CHECK_FALSE(X.e2e_open_trial(inner, n, seed, flags, 7, s2, o2, sr2, l2, a2, b2, out2, ol2));
+}
+
+// =============================================================================
+// §1a — a PINNED key (QR-scanned, conf=2) must SEAL and OPEN. The pre-redesign
+// gate compared `conf != authoritative`, which wrongly excluded pinned.
+// =============================================================================
+TEST_CASE("§1a — a PINNED peer key seals AND opens (conf>=authoritative gate; the pinned-exclusion bug)") {
+    TestHal halA, halB;
+    uint8_t seedA[32], seedB[32];
+    for (int i = 0; i < 32; ++i) { seedA[i] = uint8_t(i + 1); seedB[i] = uint8_t(100 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, seedA); identity_from_seed(idB, seedB);
+    Node A(halA, 1, idA.key_hash32), B(halB, 2, idB.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    A.on_init(cfg); B.on_init(cfg);
+    A.set_crypto_identity(idA.x_secret, idA.ed_pub); B.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    A.peer_key_set(idB.key_hash32, idB.ed_pub, Node::PeerKeyConf::pinned);          // PINNED both directions (QR scan)
+    B.peer_key_set(idA.key_hash32, idA.ed_pub, Node::PeerKeyConf::pinned);
+
+    const uint8_t flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH;
+    const uint8_t body[3] = { 'h','i','!' };
+    uint8_t inner[96], seed[8]; Node::SealOutcome oc = Node::SealOutcome::no_pubkey;
+    const size_t n = A.e2e_seal_inner(inner, sizeof inner, seed, flags, idB.key_hash32,
+                                      /*origin=*/1, /*ctr=*/7, idA.key_hash32, 0, 0, body, sizeof body, oc);
+    CHECK(n > 0); CHECK(oc == Node::SealOutcome::ok);               // PINNED key SEALS (was rejected before the gate fix)
+
+    uint32_t sender = 0, origin = 0, src = 0; bool loc = false; int32_t lat = 0, lon = 0; uint8_t out[64] = {}; uint8_t outlen = 0;
+    CHECK(B.e2e_open_trial(inner, n, seed, flags, 7, sender, origin, src, loc, lat, lon, out, outlen));   // PINNED key OPENS
+    CHECK(sender == idA.key_hash32);
+    CHECK(origin == 1);
 }
 
 TEST_CASE("e2e seal — refuses (returns 0) when the recipient pubkey is unknown (fail-loud, never cleartext)") {

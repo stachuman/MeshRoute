@@ -67,6 +67,13 @@ TEST_CASE("write_push — msg_recv/channel_recv carry identity + seq (model B); 
     Push a{}; a.kind = PushKind::send_acked; a.dst = 5; a.ctr = 7;
     n = write_push(b, sizeof b, a);
     CHECK(std::string(b, n) == "{\"ev\":\"send_acked\",\"dst\":5,\"ctr\":7}\n");
+
+    // §8b: a SEALED msg_recv stamps "enc":true (after seq, before body); plaintext omits it (above).
+    Push e{}; e.kind = PushKind::msg_recv; e.origin = 3; e.layer_id = 5; e.ctr = 7; e.sender_hash = 0xDEADBEEFu; e.seq = 42; e.enc = true;
+    const char* eb = "x"; e.body_len = 1; std::memcpy(e.body, eb, 1);
+    n = write_push(b, sizeof b, e);
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"msg_recv\",\"origin\":3,\"layer_id\":5,\"ctr\":7,\"sender_hash\":3735928559,\"seq\":42,\"enc\":true,\"body\":\"x\"}\n");
 }
 
 TEST_CASE("write_inbox_* — pull stream records + terminator + mark_read ack") {
@@ -74,6 +81,9 @@ TEST_CASE("write_inbox_* — pull stream records + terminator + mark_read ack") 
     size_t n = write_inbox_dm(b, sizeof b, 42, 2, /*layer_id*/ 23, 7, 3735928559u, 123456ull, "hi", 2);
     CHECK(std::string(b, n) ==
       "{\"ev\":\"inbox_dm\",\"seq\":42,\"origin\":2,\"layer_id\":23,\"ctr\":7,\"sender_hash\":3735928559,\"rx_ms\":123456,\"body\":\"hi\"}\n");
+    n = write_inbox_dm(b, sizeof b, 42, 2, /*layer_id*/ 23, 7, 3735928559u, 123456ull, "hi", 2, /*enc=*/true);  // §8b
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"inbox_dm\",\"seq\":42,\"origin\":2,\"layer_id\":23,\"ctr\":7,\"sender_hash\":3735928559,\"rx_ms\":123456,\"enc\":true,\"body\":\"hi\"}\n");
 
     n = write_inbox_channel(b, sizeof b, 7, 4, /*layer_id*/ 7, 3, 68298753u, 123456ull, "yo", 2);
     CHECK(std::string(b, n) ==
