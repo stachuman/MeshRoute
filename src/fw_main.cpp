@@ -725,6 +725,28 @@ static meshroute::console::CfgExtras make_cfg_extras() {
     return x;
 }
 
+// E2E §2: persist a freshly-installed PINNED peer key to /mrpeers (whole-blob rewrite; update-in-place or append).
+// Best-effort — a full store / no-NV target just means it won't survive a reboot (the RAM PINNED key still works).
+static bool persist_pinned_peer(uint32_t kh, const uint8_t ed_pub[32]) {
+    mrnv::PeerBlob pb{};
+    if (!mrnv::load_peers(pb)) { pb = mrnv::PeerBlob{}; pb.magic = mrnv::kPeersMagic; pb.version = mrnv::kPeersVersion; pb.count = 0; }
+    for (uint16_t i = 0; i < pb.count && i < mrnv::kMaxPinnedPeers; ++i)
+        if (pb.rec[i].key_hash32 == kh) { memcpy(pb.rec[i].ed_pub, ed_pub, 32); return mrnv::save_peers(pb); }   // update in place
+    if (pb.count >= mrnv::kMaxPinnedPeers) return false;                                                          // store full
+    pb.rec[pb.count].key_hash32 = kh; memcpy(pb.rec[pb.count].ed_pub, ed_pub, 32); pb.count++;
+    pb.magic = mrnv::kPeersMagic; pb.version = mrnv::kPeersVersion;
+    return mrnv::save_peers(pb);
+}
+// E2E §3: a `peerkey` command -> install the RAM PINNED key (Node::on_command) + persist to /mrpeers + the contract ack.
+static size_t handle_peerkey(char* out, size_t cap, const meshroute::Command& cmd) {
+    const uint8_t* ep = cmd.u.peerkey.ed_pub;
+    const uint32_t kh = (uint32_t)ep[0] | ((uint32_t)ep[1] << 8) | ((uint32_t)ep[2] << 16) | ((uint32_t)ep[3] << 24);
+    if (g_node.on_command(cmd).code != meshroute::CmdCode::queued)        // false only when the cache is full of pinned keys
+        return (size_t)snprintf(out, cap, "{\"ev\":\"peerkey_err\",\"reason\":\"full\"}\n");
+    persist_pinned_peer(kh, ep);                                          // best-effort NV (bench); the RAM key works regardless
+    return (size_t)snprintf(out, cap, "{\"ev\":\"peerkey_set\",\"hash\":%lu,\"pinned\":true}\n", (unsigned long)kh);
+}
+
 // BLE companion inbound: handle ONE console line, emitting a single NDJSON response (the schema of
 // docs/specs/2026-05-30-device-console-design.md §4). Reuses the USB command engine — parse_command +
 // g_node.on_command — so the wire grammar physically cannot drift between the USB and BLE transports.
@@ -768,8 +790,13 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     if ((len ==  9 || (len >  9 && line[9]  == ' ')) && !strncmp(line, "mark_read",   9)) { handle_mark_read(line + 9,  ble_sink); return 0; }
     meshroute::Command cmd{};
     const ParseErr e = parse_command(line, len, cmd);
-    if (e == ParseErr::ok)    return write_ack(out, cap, g_node.on_command(cmd));
+    if (e == ParseErr::ok) {
+        if (cmd.kind == meshroute::CmdKind::peerkey) return handle_peerkey(out, cap, cmd);   // §2/§3: install + persist + contract ack
+        return write_ack(out, cap, g_node.on_command(cmd));
+    }
     if (e == ParseErr::empty) return 0;
+    if (len >= 8 && !strncmp(line, "peerkey ", 8))                                            // §3: a malformed peerkey -> the contract's peerkey_err
+        return (size_t)snprintf(out, cap, "{\"ev\":\"peerkey_err\",\"reason\":\"bad_hex\"}\n");
     return write_err(out, cap, "parse", e == ParseErr::unknown_verb ? "unknown_cmd" : "bad_args");
 }
 
@@ -910,6 +937,11 @@ void setup() {
     g_inbox_dm.set_epoch(boot_epoch); g_inbox_ch.set_epoch(boot_epoch);
 #endif
     g_node.inbox().on_init(&g_inbox_dm, &g_inbox_ch);
+    // E2E §2: reload the PINNED peer keys (/mrpeers) so a QR-scanned contact survives a reboot — re-install each as
+    // PeerKeyConf::pinned (never on-air-overwritten/evicted/aged). After on_init so the LayerRuntime _active is live.
+    { mrnv::PeerBlob pb{}; if (mrnv::load_peers(pb) && pb.count <= mrnv::kMaxPinnedPeers)
+        for (uint16_t i = 0; i < pb.count; ++i)
+            g_node.peer_key_set(pb.rec[i].key_hash32, pb.rec[i].ed_pub, meshroute::Node::PeerKeyConf::pinned); }
 #if defined(MRINBOX_QSPI_READY)
     Serial.println(F("  inbox     = QSPI (durable)"));
 #else
@@ -954,6 +986,10 @@ static void service_console() {
                 meshroute::Command cmd{};
                 const meshroute::console::ParseErr e = meshroute::console::parse_command(line, pos, cmd);
                 if (e == meshroute::console::ParseErr::ok) {
+                    if (cmd.kind == meshroute::CmdKind::peerkey) {       // §2/§3: install + persist + the contract ack
+                        char jb[80]; const size_t m = handle_peerkey(jb, sizeof jb, cmd);
+                        Serial.write(reinterpret_cast<const uint8_t*>(jb), m);
+                    } else {
                     const meshroute::CmdResult r = g_node.on_command(cmd);
                     Serial.print(F("> "));
                     Serial.print(r.code == meshroute::CmdCode::queued ? F("queued ctr=") : F("err ctr="));
@@ -962,8 +998,12 @@ static void service_console() {
                     if (r.dst_hash) { Serial.print(F(" dh=0x")); Serial.print(r.dst_hash, HEX); }
                     if (r.layer_path) { Serial.print(F(" lp=0x")); Serial.print(r.layer_path, HEX); }
                     Serial.println();
+                    }
                 } else if (e != meshroute::console::ParseErr::empty) {
-                    Serial.println(F("> parse error"));
+                    if (pos >= 8 && !strncmp(line, "peerkey ", 8))       // §3: a malformed peerkey -> the contract's peerkey_err
+                        Serial.println(F("{\"ev\":\"peerkey_err\",\"reason\":\"bad_hex\"}"));
+                    else
+                        Serial.println(F("> parse error"));
                 }
             }
             pos = 0;

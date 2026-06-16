@@ -86,6 +86,20 @@ struct IdBlob {
 constexpr uint32_t kIdMagic   = 0x4D524944u; // 'MRID'
 constexpr uint16_t kIdVersion = 1;
 
+// ---- Pinned peer-key store (`/mrpeers`) — E2E §2. The QR/`peerkey`-installed VERIFIED keys, reloaded at boot as
+// PINNED so a scanned contact survives reboot with no re-scan. On-air (TOFU) keys stay RAM-only. Whole-blob R/W like
+// /mrid; a `peerkey` install rewrites it. Dev hardware: a format change just bumps kPeersVersion (no migration).
+struct PeerRec  { uint32_t key_hash32; uint8_t ed_pub[32]; };
+struct PeerBlob {
+    uint32_t magic;       // kPeersMagic
+    uint16_t version;     // kPeersVersion
+    uint16_t count;       // entries in use (0..kMaxPinnedPeers)
+    PeerRec  rec[16];     // == cap_peer_keys; PINNED keys only
+};
+constexpr uint32_t kPeersMagic     = 0x4D525052u;  // 'MRPR'
+constexpr uint16_t kPeersVersion   = 1;
+constexpr uint8_t  kMaxPinnedPeers = 16;
+
 }  // namespace mrnv
 
 #if defined(ARDUINO)
@@ -132,6 +146,25 @@ inline bool save_id(const IdBlob& b) {
     f.close();
     return n == static_cast<int>(sizeof(b));
 }
+inline bool load_peers(PeerBlob& out) {                // §2: the pinned-key store
+    using namespace Adafruit_LittleFS_Namespace;
+    InternalFS.begin();
+    File f(InternalFS);
+    if (!f.open("/mrpeers", FILE_O_READ)) return false;
+    const int n = f.read(reinterpret_cast<uint8_t*>(&out), sizeof(out));
+    f.close();
+    return n == static_cast<int>(sizeof(out)) && out.magic == kPeersMagic && out.version == kPeersVersion;
+}
+inline bool save_peers(const PeerBlob& b) {
+    using namespace Adafruit_LittleFS_Namespace;
+    InternalFS.begin();
+    InternalFS.remove("/mrpeers");
+    File f(InternalFS);
+    if (!f.open("/mrpeers", FILE_O_WRITE)) return false;
+    const int n = f.write(reinterpret_cast<const uint8_t*>(&b), sizeof(b));
+    f.close();
+    return n == static_cast<int>(sizeof(b));
+}
 }  // namespace mrnv
 #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
   #include <Preferences.h>
@@ -164,6 +197,20 @@ inline bool save_id(const IdBlob& b) {
     p.end();
     return n == sizeof(b);
 }
+inline bool load_peers(PeerBlob& out) {                // §2: the pinned-key store
+    Preferences p;
+    if (!p.begin("mr", /*readOnly=*/true)) return false;
+    const size_t n = p.getBytes("peers", &out, sizeof(out));
+    p.end();
+    return n == sizeof(out) && out.magic == kPeersMagic && out.version == kPeersVersion;
+}
+inline bool save_peers(const PeerBlob& b) {
+    Preferences p;
+    if (!p.begin("mr", /*readOnly=*/false)) return false;
+    const size_t n = p.putBytes("peers", &b, sizeof(b));
+    p.end();
+    return n == sizeof(b);
+}
 }  // namespace mrnv
 #else
 namespace mrnv {                                       // unknown platform -> no NV (always defaults)
@@ -171,6 +218,8 @@ inline bool load(Blob&) { return false; }
 inline bool save(const Blob&) { return false; }
 inline bool load_id(IdBlob&) { return false; }
 inline bool save_id(const IdBlob&) { return false; }
+inline bool load_peers(PeerBlob&) { return false; }
+inline bool save_peers(const PeerBlob&) { return false; }
 }  // namespace mrnv
 #endif
 #endif  // ARDUINO

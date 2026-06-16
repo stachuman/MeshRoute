@@ -9,6 +9,7 @@ struct NodeView: View {
     @State private var resolveHex = ""
     @State private var consoleInput = ""
     @State private var simBody = "ping from a peer"
+    @AppStorage("encryptDefault") private var encryptDefault = false   // shared with the compose lock toggle
     @FocusState private var fieldFocused: Bool      // drives the keyboard "Done" dismiss (no other tappable area)
 
     var body: some View {
@@ -55,6 +56,16 @@ struct NodeView: View {
                             Label("Network · \(model.latestStatus?.routes ?? model.routes.count) routes",
                                   systemImage: "point.3.connected.trianglepath.dotted")
                         }
+                    }
+                    // ---- security (E2E) ----
+                    Section {
+                        Toggle("Encrypt DMs by default", isOn: Binding(
+                            get: { encryptDefault },
+                            set: { encryptDefault = $0; model.setNodeEncryptDefault($0) }))   // app default + `cfg set e2e_dm`
+                    } header: {
+                        Text("Security")
+                    } footer: {
+                        Text("New DMs default to encrypted (E2E). Toggle the lock per message to override.")
                     }
                 }
 

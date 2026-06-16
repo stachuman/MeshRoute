@@ -158,10 +158,9 @@ final class AppModel {
         case .sendAcked(_, let ctr):
             setOutgoingState(ctr: ctr, to: .acked)
         case .sendFailed(_, let ctr, let reason):
-            setOutgoingState(ctr: ctr, to: .failed)
-            if reason == "no_pubkey" { /* E2E: offer Request-key / Scan-QR — UX slice TODO (2026-06-16 contract) */ }
-        case .peerKeyCached:
-            /* a peer key became available → "secure send ready, resend" — UX slice TODO */ break
+            setOutgoingState(ctr: ctr, to: .failed, reason: reason)   // "no_pubkey" → the bubble offers Request-key/Scan
+        case .peerKeyCached(let hash, _):
+            markKeyReady(for: hash)                                   // failed-no_pubkey DMs to this hash → "secure resend"
         case .peerKeySet, .peerKeyError, .reqPubkeySent:
             break   // provisioning results — visible in the console for now
         case .hashResolved(let node, _, let hash) where node != 0:
@@ -235,8 +234,20 @@ final class AppModel {
         return incomingMessages().contains { $0.threadKind == "channel" && $0.channelMsgID == m }
     }
 
-    private func setOutgoingState(ctr: Int, to state: DeliveryState) {
-        for m in outgoingMessages() where m.ctr == ctr { m.stateRaw = state.rawValue }
+    private func setOutgoingState(ctr: Int, to state: DeliveryState, reason: String? = nil) {
+        for m in outgoingMessages() where m.ctr == ctr {
+            m.stateRaw = state.rawValue
+            if state == .failed { m.failReason = reason } else { m.failReason = nil }
+        }
+    }
+
+    /// A verified key for `hash` just arrived (peer_key_cached) → any failed "no_pubkey" DM to that contact can
+    /// now seal: flag it so the bubble offers a secure resend.
+    private func markKeyReady(for hash: KeyHash) {
+        for m in dmMessages(threadHash: hash.value) where m.state == .failed && m.failReason == "no_pubkey" {
+            m.failReason = "key_ready"
+        }
+        try? context.save()
     }
 
     private func attachAck(_ ack: CommandAck) {
@@ -259,9 +270,11 @@ final class AppModel {
 
     // ---- outbound ----
 
-    func sendDM(to thread: ThreadKey, body: String, requestAck: Bool = false) {
-        guard case .dm = thread, target(for: thread) != nil else { return }
-        compose(thread: thread, body: body, requestAck: requestAck)
+    func sendDM(to thread: ThreadKey, body: String, requestAck: Bool = false, encrypt: Bool = false) {
+        guard case .dm = thread, let t = target(for: thread) else { return }
+        // encrypt is HASH-only (sealing needs the recipient's pubkey); a plain id-thread can't be sealed.
+        let canEncrypt: Bool = { if case .hash = t { return true }; return false }()
+        compose(thread: thread, body: body, requestAck: requestAck, encrypt: encrypt && canEncrypt)
     }
 
     func sendChannel(_ channelID: UInt8, body: String) {
@@ -269,23 +282,26 @@ final class AppModel {
     }
 
     /// Insert the outgoing message and dispatch it — or park it in the OUTBOX when there's no link
-    /// (drained FIFO by `drainOutbox` on the next connect). `requestAck` rides on the message (D16).
-    private func compose(thread: ThreadKey, body: String, requestAck: Bool = false) {
+    /// (drained FIFO by `drainOutbox` on the next connect). `requestAck`/`encrypt` ride on the message.
+    private func compose(thread: ThreadKey, body: String, requestAck: Bool = false, encrypt: Bool = false) {
         let msg = MessageEntity(id: UUID(), thread: thread, direction: .outgoing, body: body,
                                 timestamp: .now, state: isConnected ? .sending : .outbox,
                                 origin: nil, ctr: nil)
         msg.ackRequested = requestAck
+        msg.crypted = encrypt                       // we requested E2E sealing → the lock marker shows
         context.insert(msg); try? context.save()
         if isConnected { dispatch(msg) }
     }
 
     /// Hand one stored outgoing message to the node (FIFO ack pairing via pendingOutgoing).
     private func dispatch(_ msg: MessageEntity) {
+        msg.failReason = nil                        // a (re)send clears any prior failure
         switch msg.threadKey {
         case .dm(let h):
             guard let target = target(for: .dm(h)) else { return }
             pendingOutgoing.append(msg.id)
-            sendCommand(.sendDM(.init(target: target, body: msg.body, requestAck: msg.ackRequested)))
+            sendCommand(.sendDM(.init(target: target, body: msg.body,
+                                      requestAck: msg.ackRequested, encrypt: msg.crypted)))   // crypted → sendhashx
         case .channel(let c):
             pendingOutgoing.append(msg.id)
             sendCommand(.sendChannel(.init(channelID: c, body: msg.body)))
@@ -358,6 +374,11 @@ final class AppModel {
     func provisionPeerKey(_ pubkeyHex: String) { sendCommand(.peerKey(pubkeyHex: pubkeyHex)) }
     /// User-triggered on-air key request (the "Request key" action after a no-pubkey drop).
     func requestPubkey(_ hash: KeyHash) { sendCommand(.reqPubkey(hash)) }
+    /// Set the node's default DM encryption (`cfg set e2e_dm`); the per-message lock toggle overrides it.
+    func setNodeEncryptDefault(_ on: Bool) {
+        sendCommand(.configSet(key: "e2e_dm", value: on ? "on" : "off"))
+        refreshConfig()
+    }
 
     /// App returned to the foreground. If the link stayed up through a screen-off/suspend, a live push may
     /// have been dropped while we were suspended (no disconnect event → fix #1's auto-resync never fired), so
