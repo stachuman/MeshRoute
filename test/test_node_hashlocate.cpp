@@ -46,7 +46,12 @@ public:
     void     cancel(uint32_t) override {}
     void     set_protocol_id(int) override {}
     int      rand_range(int lo, int) override { return lo; }
-    void     rand_bytes(uint8_t* o, size_t n) override { for (size_t i = 0; i < n; ++i) o[i] = static_cast<uint8_t>(rand_range(0, 256)); }
+    // Crypto RNG: a real HW RNG never returns all-zeros (which e2e_seal_inner now refuses, R7). Emulate a
+    // non-degenerate deterministic stream so the e2e seal/open round-trip uses a realistic nonce-seed.
+    uint8_t  _rb = 0x11;
+    void     rand_bytes(uint8_t* o, size_t n) override {
+        for (size_t i = 0; i < n; ++i) { _rb = static_cast<uint8_t>(_rb * 31 + 7); o[i] = (_rb == 0 ? 0xA5 : _rb); }
+    }
     void     emit(const char* type, const EventField* f, size_t n) override {
         Ev e; e.type = type;
         for (size_t i = 0; i < n; ++i) {
@@ -84,8 +89,8 @@ static size_t make_beacon(uint8_t src, uint32_t key_hash32, std::array<uint8_t, 
 }
 
 // An H query (hash-locate flood) from `origin` for `key_hash32` with `ttl`. hard=true skips the cache (reach owner).
-static size_t make_h(uint8_t origin, uint32_t key_hash32, uint8_t ttl, std::array<uint8_t, 16>& buf, bool hard = false) {
-    h_in in{}; in.leaf_id = 0; in.origin = origin; in.key_hash32 = key_hash32; in.ttl = ttl; in.hard = hard;
+static size_t make_h(uint8_t origin, uint32_t key_hash32, uint8_t ttl, std::array<uint8_t, 16>& buf, bool hard = false, bool want_pubkey = false) {
+    h_in in{}; in.leaf_id = 0; in.origin = origin; in.key_hash32 = key_hash32; in.ttl = ttl; in.hard = hard; in.want_pubkey = want_pubkey;
     return pack_h(in, std::span<uint8_t>(buf.data(), buf.size()));
 }
 
@@ -296,6 +301,31 @@ TEST_CASE("A handle_h — unknown hash FORWARDS with TTL-1 (deduped on a re-floo
     // Re-flood of the SAME (origin, hash) -> deduped, no second forward.
     node.on_recv(q.data(), n, meta);
     CHECK(hal.tx_frames.size() == 1);
+}
+
+// R4 (review): a relay must PRESERVE want_pubkey across an H forward. Otherwise a MULTI-HOP WANT_PUBKEY E2E bootstrap
+// reaches the owner with want_pubkey=0 -> the owner answers a plain hash-bind (no ed_pub) instead of the TYPE-5 pubkey
+// -> the requester never caches the recipient's ed_pub -> e2e_seal_inner keeps returning no-pubkey. One-hop works; the
+// forward dropped the flag (fwd.want_pubkey defaulted false). The forwarded frame must carry want_pubkey=true.
+TEST_CASE("R4 handle_h — a forwarded WANT_PUBKEY query PRESERVES the flag (multi-hop E2E bootstrap)") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000BBBB);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    hal.tx_frames.clear();
+
+    std::array<uint8_t, 16> q{};
+    const size_t n = make_h(/*origin=*/9, /*hash=*/0x0000FACE, /*ttl=*/4, q, /*hard=*/true, /*want_pubkey=*/true);
+    node.on_recv(q.data(), n, meta);
+
+    CHECK(find_ev(hal.events, "h_forward") != nullptr);
+    CHECK(hal.tx_frames.size() == 1);
+    if (!hal.tx_frames.empty()) {
+        auto pf = parse_h(std::span<const uint8_t>(hal.tx_frames[0].data(), hal.tx_frames[0].size()));
+        CHECK(pf.has_value());
+        if (pf) { CHECK(pf->ttl == 3); CHECK(pf->hard); CHECK(pf->want_pubkey); }   // want_pubkey PRESERVED across the hop
+    }
 }
 
 TEST_CASE("A handle_h — TTL exhausted (ttl=0) does NOT forward; own-query echo is ignored") {
@@ -834,9 +864,11 @@ TEST_CASE("e2e seal/open — A seals a DM to B, B opens it; the inner is actuall
     const uint8_t flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH;
     const uint8_t body[12] = { 's','e','c','r','e','t','-','h','e','l','l','o' };
     uint8_t inner[128], seed[8];
+    Node::SealOutcome oc = Node::SealOutcome::ok;
     const size_t n = A.e2e_seal_inner(inner, sizeof inner, seed, flags, /*dst=*/idB.key_hash32,
-                                      /*origin=*/1, /*ctr=*/7, /*source_hash=*/idA.key_hash32, 0, 0, body, sizeof body);
+                                      /*origin=*/1, /*ctr=*/7, /*source_hash=*/idA.key_hash32, 0, 0, body, sizeof body, oc);
     CHECK(n == 5 + 4 + 12 + 16);                                    // aad(dst4+origin1) + source_hash(4) + body(12) + tag(16)
+    CHECK(oc == Node::SealOutcome::ok);
     bool leaked = false;                                            // the body must NOT be cleartext anywhere in the inner
     for (size_t i = 0; i + 12 <= n; ++i) { bool m = true; for (int j = 0; j < 12; ++j) if (inner[i+j] != body[j]) m = false; if (m) leaked = true; }
     CHECK_FALSE(leaked);
@@ -863,7 +895,9 @@ TEST_CASE("e2e seal — refuses (returns 0) when the recipient pubkey is unknown
     const uint8_t flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH;
     const uint8_t body[3] = { 1, 2, 3 };
     uint8_t inner[64], s8[8];
-    CHECK(A.e2e_seal_inner(inner, sizeof inner, s8, flags, /*dst=unknown*/ 0xDEADBEEFu, 1, 7, id.key_hash32, 0, 0, body, 3) == 0);
+    Node::SealOutcome oc = Node::SealOutcome::ok;
+    CHECK(A.e2e_seal_inner(inner, sizeof inner, s8, flags, /*dst=unknown*/ 0xDEADBEEFu, 1, 7, id.key_hash32, 0, 0, body, 3, oc) == 0);
+    CHECK(oc == Node::SealOutcome::no_pubkey);                      // unknown dst -> no_pubkey (the only case that floods)
 }
 
 // =============================================================================

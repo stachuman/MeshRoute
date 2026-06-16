@@ -321,6 +321,10 @@ public:
     enum class IdBindSource : uint8_t { self = 0, bcn = 1, h_query = 2, h_relay = 3 };
     enum class IdBindConf   : uint8_t { claimed = 0, authoritative = 1 };
     enum class PeerKeyConf  : uint8_t { overheard = 0, authoritative = 1 };   // v1 only inserts authoritative (TYPE-5 owner answer)
+    // Why e2e_seal_inner returned 0 (the seal failed). Lets enqueue_data fail LOUD distinctly per cause instead of
+    // treating every 0 as "no pubkey" (which floods a WANT_PUBKEY + drops the DM). no_pubkey is the ONLY case that
+    // floods; the rest are local refusals (no_identity=R3, too_large=R2, bad_rng=R7, cross_layer=v1 scope).
+    enum class SealOutcome  : uint8_t { ok = 0, no_identity, no_pubkey, too_large, bad_rng, cross_layer };
     bool       is_blind(uint8_t next_hop) const;                         // _blind_until active? (read-only; bounded by neighbour count)
     uint8_t    get_neighbor_tier(uint8_t node_id) const;                 // R4.2 tier read (TTL-expiring lazy-prune); public for tests
     void       schedule_triggered_beacon();                             // R4.3 trigger jitter + min-interval defer; public for tests
@@ -373,10 +377,11 @@ public:
     // E2E seal/open (Phase 1 §4/§5). Public for the send/receive paths + tests. SAME-LAYER DMs only in v1
     // (cross-layer CRYPTED out of scope). Recipient/sender pubkey resolved from the peer-key cache; ECDH+KDF+nonce
     // via _x_secret. e2e_seal_inner builds [dst_hash 4][origin 1][ciphertext][tag 16] + the 8-B nonce-seed; returns
-    // inner_len (0 = no authoritative pubkey / overflow -> caller FAILS LOUD, never cleartext).
+    // inner_len, or 0 with `outcome` set to WHY (no_identity / no_pubkey / too_large / bad_rng / cross_layer) so the
+    // caller FAILS LOUD distinctly, never cleartext. Only no_pubkey warrants a WANT_PUBKEY flood.
     size_t e2e_seal_inner(uint8_t* inner, size_t cap, uint8_t seed8[8], uint8_t flags, uint32_t dst_key_hash32,
                           uint8_t origin, uint16_t ctr, uint32_t source_hash, int32_t lat_e7, int32_t lon_e7,
-                          const uint8_t* body, uint8_t body_len);
+                          const uint8_t* body, uint8_t body_len, SealOutcome& outcome);
     // e2e_open_inner: decrypt + VERIFY the sealed source_hash == the resolved sender's hash. false = no key / tag fail.
     bool   e2e_open_inner(const uint8_t* inner, size_t inner_len, const uint8_t seed8[8], uint8_t flags, uint16_t ctr,
                           uint32_t sender_hash, uint32_t& source_hash_out, bool& has_location_out, int32_t& lat_out,

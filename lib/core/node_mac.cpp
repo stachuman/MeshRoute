@@ -92,12 +92,30 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
         }
         item.flags |= DATA_FLAG_CRYPTED;                                   // SOURCE_HASH (+LOCATION if loc_in_dm) already decided above
         uint8_t seed[8];
+        SealOutcome oc = SealOutcome::ok;
         const size_t n = e2e_seal_inner(item.inner, sizeof item.inner, seed, item.flags, dh, _node_id, ctr,
-                                        _key_hash32, _cfg.lat_e7, _cfg.lon_e7, body, body_len);
-        if (n == 0) {                                                      // no authoritative recipient pubkey (or overflow)
-            MR_EMIT("e2e_no_pubkey", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("hash", static_cast<int64_t>(dh)));
-            emit_hash_query(dh, /*hard=*/true, /*want_pubkey=*/true);      // E2E §6: resolve the recipient's pubkey so a retry can seal
-            return ctr;                                                    // fail loud: this send not enqueued, never cleartext
+                                        _key_hash32, _cfg.lat_e7, _cfg.lon_e7, body, body_len, oc);
+        if (n == 0) {                                                      // seal failed -> FAIL LOUD distinctly, NEVER cleartext
+            switch (oc) {
+                case SealOutcome::no_pubkey:                               // E2E §6: ONLY no-pubkey floods a WANT_PUBKEY so a retry can seal
+                    MR_EMIT("e2e_no_pubkey", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("hash", static_cast<int64_t>(dh)));
+                    emit_hash_query(dh, /*hard=*/true, /*want_pubkey=*/true);
+                    break;
+                case SealOutcome::no_identity:                            // R3: no crypto identity -> fail loud, no flood
+                    MR_EMIT("e2e_no_identity", EF_I("dst", dst), EF_I("ctr", ctr));
+                    break;
+                case SealOutcome::too_large:                              // R2: oversize for CRYPTED -> fail loud + send_failed, NO flood
+                    MR_EMIT("e2e_seal_too_large", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("body_len", body_len));
+                    { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = dst; pu.ctr = ctr; enqueue_push(pu); }
+                    break;
+                case SealOutcome::bad_rng:                                // R7: crypto RNG returned a degenerate seed -> fail loud, no flood
+                    MR_EMIT("e2e_bad_rng", EF_I("dst", dst), EF_I("ctr", ctr));
+                    break;
+                default:                                                  // cross_layer / unexpected -> fail loud, no flood
+                    MR_EMIT("e2e_seal_failed", EF_I("dst", dst), EF_I("ctr", ctr));
+                    break;
+            }
+            return ctr;                                                    // not enqueued, never cleartext
         }
         item.inner_len = static_cast<uint8_t>(n);
         for (int i = 0; i < 8; ++i) item.nonce_seed[i] = seed[i];
@@ -185,6 +203,13 @@ uint8_t Node::select_gateway_for_leaf(uint8_t target_leaf) {
 // only the cursor advances, so the destination can reverse it for the 4e E2E ack) + dst_hash + SOURCE_HASH (REQUIRED
 // for that reversed ack). pack_unicast_inner's size-first overflow is the cross-layer fit-check (returns 0 -> fail loud).
 bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t* layer_ids, uint8_t n_layers, uint8_t cur, const uint8_t* body, uint8_t body_len, uint8_t flags, uint16_t* out_ctr) {
+    // R1 defense-in-depth: v1 cross-layer DMs are CLEARTEXT-only (no CRYPTED). The on_command send_layer path already
+    // refuses when e2e_dm is on; this is the universal choke so NO origination path (parked-drain, send_cross_layer)
+    // can ever put a cleartext cross-layer DM on the air while e2e_dm advertises confidentiality. Fail loud, never send.
+    if (_cfg.e2e_dm) {
+        MR_EMIT("e2e_cross_layer_refused", EF_I("dst", gw_node), EF_I("target_layer", layer_ids[cur]));
+        return false;
+    }
     TxItem item{};
     const uint16_t ctr = next_ctr(gw_node);          // MAC ctr vs the next-hop gateway (= the e2e (source_hash, ctr) identity)
     item.origin = _node_id; item.dst = gw_node; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
@@ -268,6 +293,13 @@ void Node::send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr) {
 // reverse gateway / route -> DROP loud (X's DM retry recovers it; an ack never floods/parks).
 void Node::send_e2e_ack_cross_layer(const data_unicast_inner& dm, uint16_t acked_ctr) {
     if (!dm.has_cross_layer || dm.n_layers == 0) return;                  // not a cross-layer DM (caller already gated, defensive)
+    // R1 (this is the parallel cross-layer origination that does NOT funnel through enqueue_cross_layer): an e2e_dm
+    // node emits NO cleartext cross-layer frame in v1 (same-layer CRYPTED only) — a cleartext ack would leak the
+    // acked_ctr and breach the invariant. Refuse loudly. (The sender's DM retry recovers a dropped ack; acks never park.)
+    if (_cfg.e2e_dm) {
+        MR_EMIT("e2e_cross_layer_refused", EF_I("acked_ctr", acked_ctr), EF_I("reason_ack", 1));
+        return;
+    }
     if (!dm.has_source_hash || dm.source_hash == 0) {                     // no stable sender key -> can't address the ack. FAIL LOUD.
         MR_EMIT("xl_ack_no_source", EF_I("acked_ctr", acked_ctr));
         return;

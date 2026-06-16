@@ -582,6 +582,32 @@ TEST_CASE("dual-layer origination: send_layer parks a cross-layer send + floods 
     CHECK(hal.last_tx_len > 0);                               // an H query went out
 }
 
+// R1 (review ship-blocker): cross-layer DM origination has NO CRYPTED in v1 (same-layer only). A node with
+// e2e_dm ON must REFUSE send_layer loudly — NOT silently park/originate a CLEARTEXT cross-layer DATA (which is
+// what enqueue_cross_layer does, ignoring _cfg.e2e_dm). Both sub-paths (park-first hop_count==0 + explicit-path
+// hop_count>0) must return err_unsupported with nothing parked and no H flood.
+TEST_CASE("R1 fail-loud: e2e_dm refuses cross-layer send_layer (v1 same-layer CRYPTED only — NEVER cleartext)") {
+    StubHal hal; hal._now = 10000;
+    Node x(hal, /*id*/ 7, 0x7777u);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+    cfg.e2e_dm = true;                                         // E2E on: no cross-layer CRYPTED in v1 -> must REFUSE
+    CHECK(x.on_init(cfg));
+    hal.last_tx_len = 0;
+    const char* body = "hi";
+    // park-first sub-path (hop_count == 0): pre-fix would PARK + flood an H query (a silent cleartext-bound accept).
+    Command c0{}; c0.kind = CmdKind::send_layer; c0.u.layer.dst_hash = 0x9999u; c0.u.layer.hop_count = 0;
+    c0.body = reinterpret_cast<const uint8_t*>(body); c0.body_len = 2;
+    const CmdResult r0 = x.on_command(c0);
+    CHECK(r0.code == CmdCode::err_unsupported);                // REFUSED loudly
+    CHECK(DualLayerTestAccess::parked_count(x) == 0);          // nothing parked (no cleartext drain later)
+    CHECK(hal.last_tx_len == 0);                               // NO H flood
+    // explicit-path sub-path (hop_count > 0): pre-fix would originate_layer_path -> a cleartext cross-layer DATA.
+    Command c1{}; c1.kind = CmdKind::send_layer; c1.u.layer.dst_hash = 0x9999u; c1.u.layer.hop_count = 1; c1.u.layer.hops[0] = 2;
+    c1.body = reinterpret_cast<const uint8_t*>(body); c1.body_len = 2;
+    CHECK(x.on_command(c1).code == CmdCode::err_unsupported);  // REFUSED loudly (no cleartext cross-layer DATA enqueued)
+}
+
+
 TEST_CASE("dual-layer origination: send_cross_layer builds [my,target] cur=1 + SOURCE_HASH to a schedule-verified gateway (Slice 4d)") {
     // a gateway G beacons -> X learns G's schedule (serves leaves 1+2) AND a 1-hop route to G.
     StubHal ghal; ghal._now = 10000;
@@ -793,6 +819,26 @@ TEST_CASE("dual-layer ack: a cross-layer DM WITHOUT SOURCE_HASH -> NO ack (never
     dm.has_source_hash = false;                              // NO stable sender key -> can't address the ack
     DualLayerTestAccess::send_xl_ack(y, dm, 42);
     CHECK(DualLayerTestAccess::leaf_tx_n(y, 0) == 0);        // FAIL LOUD: no ack built (not a wrong-node ack)
+}
+
+// R1 gap (adversarial review of the R1 fix): send_e2e_ack_cross_layer is a PARALLEL hand-built cross-layer
+// origination that does NOT funnel through enqueue_cross_layer's e2e_dm choke. An e2e_dm node that receives a
+// cleartext cross-layer DM with E2E_ACK_REQ would emit a CLEARTEXT cross-layer ack (leaking the acked_ctr),
+// breaching the R1 "no cleartext cross-layer frame while e2e_dm" invariant. With e2e_dm on it must REFUSE.
+TEST_CASE("R1 gap: e2e_dm refuses the cross-layer E2E ack (no cleartext cross-layer frame on air)") {
+    StubHal hal; hal._now = 50000;
+    Node y(hal, /*id*/ 30, 0x9999u);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 2;
+    cfg.e2e_dm = true;                                       // E2E on: v1 has no cross-layer CRYPTED -> never emit a cleartext xl ack
+    CHECK(y.on_init(cfg));
+    DualLayerTestAccess::store_gw_schedule_pair(y, /*gw*/ 5, /*leafA*/ 1, /*leafB*/ 2);   // a reverse gateway + route EXIST,
+    DualLayerTestAccess::learn_neighbor(y, 5);              // so ONLY e2e_dm can block the ack (rules out no-gateway).
+    data_unicast_inner dm{};
+    dm.origin = 7; dm.has_cross_layer = true; dm.n_layers = 2; dm.cur = 1; dm.layer_ids[0] = 1; dm.layer_ids[1] = 2;
+    dm.has_source_hash = true; dm.source_hash = 0x7777u;
+    dm.has_dst_hash = true; dm.dst_key_hash32 = 0x9999u;
+    DualLayerTestAccess::send_xl_ack(y, dm, /*acked_ctr*/ 42);
+    CHECK(DualLayerTestAccess::leaf_tx_n(y, 0) == 0);       // REFUSED loudly: no cleartext cross-layer ack on the air
 }
 
 TEST_CASE("dual-layer origination: a routeless bridging gateway -> PARK + reactive RREQ, not give-up (Slice 4d.2)") {

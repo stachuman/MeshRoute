@@ -145,3 +145,62 @@ a push dropped from the bounded ring is recovered immediately, not only on recon
 `NodeProfileEntity.syncState`, `AppModel.startInboxSync`. Aligned to the 2026-06-10/11/12 firmware reviews
 (channel = 32-bit `channel_msg_id`; DM = `(sender_hash, ctr)`; `inbox_end.epoch`; live `seq` high-water).
 Run `swift test --scratch-path /private/tmp/mrk-build` (58 tests).
+
+## Verified-peer provisioning — QR pubkey exchange (B2 / E2E) — PROPOSED 2026-06-16
+
+The QR contact card (`MeshRouteCore/ContactCard.swift`: `…/c?v=1&h=<hex8>&n=<name>[&p=<ed_pub hex64>]`)
+already reserves **`p`** for the full pubkey. This is the **out-of-band, MITM-resistant** key path
+(a physical scan is the trust ceremony) — distinct from, and stronger than, the on-air `WANT_PUBKEY`/TOFU
+resolution (which is explicitly NOT MITM-secure, identity-spec §2 [xcheck]). The app stays crypto-free
+(D6) — it only ferries opaque hex. Two interface additions:
+
+### node → app: export the node's own pubkey (so `MyCardView` can emit `p`)
+`key_hash32` (4 B, `ed_pub[:4]`) can't seal — the app needs the **full** `ed_pub`. The `ready` snapshot
+gains it (`key` stays for display/routing):
+```json
+{"ev":"ready", … ,"key":3735928559,"pubkey":"<64 hex ed_pub>"}
+```
+- `MyCardView` builds `ContactCard(name:, hash: key, pubkeyHex: pubkey)` → the QR now carries `p`.
+- `regen` changes the identity → the firmware re-emits `ready` (or a `{"ev":"identity","pubkey":…}` push)
+  so the card refreshes.
+
+### app → node: install a scanned peer's pubkey (PINNED / verified)
+```
+peerkey <ed_pub hex64>      # install a verified peer key from a scanned card. hash derives = ed_pub[:4].
+```
+- Firmware: 64-hex → 32 B; `key_hash32 = ed_pub[:4]`; `peer_key_set(key_hash32, ed_pub, PINNED)` (which
+  re-verifies `ed_pub[:4]==key_hash32`). **PINNED = a new tier above `authoritative`: never LRU-evicted,
+  never aged, and NEVER overwritten by an on-air `WANT_PUBKEY` answer for the same hash** — else an attacker
+  who grinds a colliding 32-bit hash and answers on-air could replace the scanned key (defeating the
+  ceremony). **NV-persisted** (a small `/mrpeers` store, the `/mrid` write pattern) so a verified contact
+  survives reboot without re-scanning. The name is NOT sent (names are app-side; the firmware key cache is
+  keyed by hash).
+- Ack (node → app):
+```json
+{"ev":"peerkey_set","hash":3735928559,"pinned":true}             // installed
+{"ev":"peerkey_err","reason":"bad_hex"|"hash_mismatch"}          // rejected, not installed
+```
+- App: when a scanned `ContactCard` has `pubkeyHex`, send `peerkey <p>` alongside the app-side `addContact`.
+  A first encrypted DM to a pinned contact then **seals immediately** — no `WANT_PUBKEY` round-trip, no
+  option-1 fail-loud drop.
+
+### on-air key request — USER-TRIGGERED (decided 2026-06-16: no silent automation)
+The firmware does **NOT** auto-flood `WANT_PUBKEY` on a failed encrypted send. On a no-pubkey send it
+**warns the app and drops** (`send_failed` below); the user then either **requests** the key on-air or
+**provides** it via QR. On-air resolution is thus an explicit action:
+```
+reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "request key" UX action)
+```
+- Firmware: `emit_hash_query(hash, hard=true, want_pubkey=true)`; ack `{"ev":"reqpubkey_sent","hash":…}`.
+
+### UX pushes (node → app)
+```json
+{"ev":"send_failed","dst":2,"ctr":7,"reason":"no_pubkey"}     // a CRYPTED send was DROPPED — warn + offer Request-key / Scan-QR
+{"ev":"peer_key_cached","hash":3735928559,"pinned":false}    // a key arrived (request answer / cache-on-pass / QR) → enable resend
+```
+- `send_failed.reason` ∈ `no_pubkey · no_identity · too_large · bad_rng · no_route`. App maps `no_pubkey`
+  → "recipient's key unknown — Request key / Scan QR"; permanent reasons (`too_large`/`no_route`) → plain fail.
+- `peer_key_cached` lets the app prompt "secure send ready — resend" after a request resolves (or QR import).
+
+### Deferred
+- `peerkeys` (list pinned) + `peerkey_del <hash>` (un-verify) — app-side contact management; v2.

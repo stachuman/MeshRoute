@@ -55,7 +55,14 @@ public:
     void     set_protocol_id(int) override {}
     int      _rand_ret = -1;   // opt-in scriptable rand (>=0 overrides the default `return lo`; -1 = default)
     int      rand_range(int lo, int) override { ++rand_calls; return _rand_ret >= 0 ? _rand_ret : lo; }
-    void     rand_bytes(uint8_t* o, size_t n) override { for (size_t i = 0; i < n; ++i) o[i] = static_cast<uint8_t>(rand_range(0, 256)); }
+    // Crypto RNG (DISTINCT from the weak rand_range above, whose default returns `lo`=0). A real HW RNG never
+    // returns an all-zero seed; emulate a non-degenerate deterministic stream so the e2e nonce-seed is realistic.
+    // zero_rng=true forces all-zero (to exercise the R7 bad-RNG fail-loud guard in e2e_seal_inner).
+    bool     zero_rng = false;
+    uint8_t  _rb = 0x11;
+    void     rand_bytes(uint8_t* o, size_t n) override {
+        for (size_t i = 0; i < n; ++i) { _rb = static_cast<uint8_t>(_rb * 31 + 7); o[i] = zero_rng ? 0 : (_rb == 0 ? 0xA5 : _rb); }
+    }
     void     emit(const char* type, const EventField* f, size_t n) override {
         Ev e; e.type = type;
         for (size_t i = 0; i < n; ++i) {
@@ -2569,6 +2576,81 @@ TEST_CASE("e2e wiring — an e2e_dm origination emits a CRYPTED DATA (8-B traile
     }
 }
 
+// Shared setup for the e2e fail-loud tests: A (e2e_dm on) learns B's authoritative pubkey + id_bind (so DST_HASH
+// resolves and "no pubkey" is ruled out). Caller decides whether to install A's crypto identity / oversize the body.
+static void e2e_learn_peer(Node& A, TestHal& hal, const Identity& idB) {
+    std::array<uint8_t, 64> bb{};
+    beacon_entry be{}; be.dest = 2; be.next = 2; be.score_bucket = 14; be.hops = 1;
+    beacon_in bin{}; bin.leaf_id = 0; bin.src = 2; bin.key_hash32 = idB.key_hash32;
+    bin.entries = std::span<const beacon_entry>(&be, 1);
+    const size_t bn = pack_beacon(bin, std::span<uint8_t>(bb.data(), bb.size()));
+    RxMeta bm{ 12.0f, -70.0f, 0, static_cast<int8_t>(2) };
+    A.on_recv(bb.data(), bn, bm);
+    A.peer_key_set(idB.key_hash32, idB.ed_pub, Node::PeerKeyConf::authoritative);
+}
+static bool saw_ev(const TestHal& hal, const char* type) {
+    for (const auto& e : hal.events) if (e.type == type) return true;
+    return false;
+}
+
+// R3 (review): with e2e_dm ON but NO crypto identity installed (set_crypto_identity never called -> _x_secret is
+// zeros), e2e_seal_inner must NOT seal under a zero key (a silent self-blackhole the recipient tag-fails). It must
+// FAIL LOUD (e2e_no_identity) and enqueue nothing — never cleartext, never a bogus-key frame, no WANT_PUBKEY flood.
+TEST_CASE("R3 fail-loud: e2e_dm without a crypto identity refuses to seal (no zero-key blackhole)") {
+    TestHal hal;
+    uint8_t seedA[32], seedB[32]; for (int i = 0; i < 32; ++i) { seedA[i] = uint8_t(i + 1); seedB[i] = uint8_t(100 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, seedA); identity_from_seed(idB, seedB);
+    Node A(hal, /*id=*/1, idA.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.e2e_dm = true;
+    A.on_init(cfg);
+    // DELIBERATELY no A.set_crypto_identity(...) -> _crypto_ready == false.
+    e2e_learn_peer(A, hal, idB);
+    send_cmd(A, /*dst=*/2, "secret-no-id");
+    CHECK(saw_ev(hal, "e2e_no_identity"));                   // fail loud
+    CHECK_FALSE(saw_ev(hal, "tx_enqueue"));                  // nothing enqueued (no bogus-key frame)
+    CHECK_FALSE(saw_ev(hal, "h_tx"));                        // no spurious WANT_PUBKEY flood (we HAVE the pubkey)
+    CHECK_FALSE(saw_ev(hal, "e2e_no_pubkey"));               // not misreported as a missing-pubkey
+}
+
+// R7 (review): a crypto RNG that returns an all-zero nonce seed collapses nonce uniqueness to the 16-bit ctr ->
+// keystream reuse under the static per-pair key (catastrophic). e2e_seal_inner must refuse loudly (e2e_bad_rng),
+// never seal with a degenerate nonce.
+TEST_CASE("R7 fail-loud: an all-zero crypto seed refuses to seal (no nonce-reuse)") {
+    TestHal hal; hal.zero_rng = true;                       // emulate a broken crypto RNG (all-zero seed)
+    uint8_t seedA[32], seedB[32]; for (int i = 0; i < 32; ++i) { seedA[i] = uint8_t(i + 1); seedB[i] = uint8_t(100 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, seedA); identity_from_seed(idB, seedB);
+    Node A(hal, /*id=*/1, idA.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.e2e_dm = true;
+    A.on_init(cfg);
+    A.set_crypto_identity(idA.x_secret, idA.ed_pub);
+    e2e_learn_peer(A, hal, idB);
+    send_cmd(A, /*dst=*/2, "secret-bad-rng");
+    CHECK(saw_ev(hal, "e2e_bad_rng"));                      // fail loud
+    CHECK_FALSE(saw_ev(hal, "tx_enqueue"));                 // nothing sealed/enqueued
+    CHECK_FALSE(saw_ev(hal, "h_tx"));                       // no flood (the RNG is broken, not the pubkey)
+}
+
+// R2 (review): the cleartext enqueue fit-gates omit the +16 Poly1305 tag, so a body in [217,232] sets the DM flags
+// and passes them, but e2e_seal_inner then overflows the inner. The shared 0-return handler can't tell overflow from
+// no-pubkey, so it misfires a HARD WANT_PUBKEY flood (for a key it HOLDS) and silently drops the DM (anti-flood +
+// lost-message bug). The oversize case must fail loud (e2e_seal_too_large) with NO flood.
+TEST_CASE("R2 fail-loud: an oversize CRYPTED DM fails loud + does NOT flood (anti-flood / lost-message)") {
+    TestHal hal;
+    uint8_t seedA[32], seedB[32]; for (int i = 0; i < 32; ++i) { seedA[i] = uint8_t(i + 1); seedB[i] = uint8_t(100 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, seedA); identity_from_seed(idB, seedB);
+    Node A(hal, /*id=*/1, idA.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.e2e_dm = true;
+    A.on_init(cfg);
+    A.set_crypto_identity(idA.x_secret, idA.ed_pub);
+    e2e_learn_peer(A, hal, idB);
+    const std::string big(220, 'x');                       // in [217,232]: cleartext gates pass, CRYPTED (+16 tag) overflows
+    send_cmd(A, /*dst=*/2, big.c_str());
+    CHECK(saw_ev(hal, "e2e_seal_too_large"));              // fail loud, distinct from no-pubkey
+    CHECK_FALSE(saw_ev(hal, "h_tx"));                      // NO spurious WANT_PUBKEY flood
+    CHECK_FALSE(saw_ev(hal, "e2e_no_pubkey"));             // not misreported as a missing pubkey
+    CHECK_FALSE(saw_ev(hal, "tx_enqueue"));                // the DM is not enqueued (it can never fit)
+}
+
 // -----------------------------------------------------------------------------
 // Phase 1 §5 — open-on-receive WIRING: B receives a CRYPTED DATA, do_post_ack
 // opens it (seed from the trailer, sender from origin->id_bind) and delivers the
@@ -2586,8 +2668,9 @@ TEST_CASE("e2e wiring — B opens a received CRYPTED DM and delivers the plainte
     const uint8_t flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH;
     const uint8_t body[9] = { 't','o','p','-','s','e','c','r','t' };
     uint8_t inner[96], seed[8];
+    Node::SealOutcome oc = Node::SealOutcome::ok;
     const size_t il = A.e2e_seal_inner(inner, sizeof inner, seed, flags, /*dst=*/idB.key_hash32,
-                                       /*origin=*/1, /*ctr=*/0x0005, /*source_hash=*/idA.key_hash32, 0, 0, body, sizeof body);
+                                       /*origin=*/1, /*ctr=*/0x0005, /*source_hash=*/idA.key_hash32, 0, 0, body, sizeof body, oc);
     CHECK(il > 0);
     uint8_t frame[128];
     data_in din{}; din.addr_len = 0; din.flags = flags; din.next = 2; din.dst = 2; din.hops_remaining = 31; din.ctr = 0x0005;

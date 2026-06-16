@@ -546,6 +546,10 @@ CmdResult Node::on_command(const Command& c) {
             if (_node_id == 0)                               return CmdResult{ CmdCode::err_unprovisioned, 0, _active->_tx_queue_n };
             if (_cfg.allowed_sf_bitmap == 0)                 return CmdResult{ CmdCode::err_no_data_sf, 0, _active->_tx_queue_n };
             if (c.body_len > protocol::dm_max_body_bytes)    return CmdResult{ CmdCode::err_too_large, 0, _active->_tx_queue_n };
+            // R1 (review ship-blocker): cross-layer DMs have NO CRYPTED in v1 (same-layer only). When e2e_dm is ON,
+            // REFUSE the cross-layer send loudly rather than silently originate/park a CLEARTEXT cross-layer DATA —
+            // never downgrade the advertised confidentiality guarantee without telling the app.
+            if (_cfg.e2e_dm)                                 return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n, c.u.layer.dst_hash, 0 };
             // Every send_layer return echoes the dst_hash (and, once known, the layer_path) so the app holds the
             // full "send handle" (CmdResult.dst_hash + layer_path); async pushes then correlate by CmdResult.ctr.
             if (c.u.layer.dst_hash == 0)                     return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };  // a layer send needs a stable dst key

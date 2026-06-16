@@ -216,6 +216,14 @@ bool Node::peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyCo
     uint16_t slot;
     if (L._peer_keys_n < protocol::cap_peer_keys) { slot = L._peer_keys_n++; }
     else {                                                          // cache full -> evict the least-recently-seen
+        // R5 (review, ACCEPTED v1 limitation): eviction is pure LRU with no authoritative floor, and inserts are
+        // unauthenticated-but-hash-self-consistent (TYPE-5 cache-on-pass). An in-mesh attacker emitting >cap
+        // self-consistent TYPE-5 frames with random ed_pubs can churn out a victim's legitimately-cached recipient
+        // key -> the next seal fails the authoritative gate -> the DM is REFUSED (fail-loud, never cleartext) and
+        // self-heals (the retry re-floods a HARD WANT_PUBKEY). So it is a SUSTAINED-FLOOD availability DoS, not a
+        // confidentiality break, and squarely inside the documented "not MITM-secure / TOFU" threat model. A real
+        // mitigation (rate-limit unsolicited cache-on-pass, or a recency/usage floor protecting hot keys) is a
+        // FUTURE design decision — it trades against the cache-on-pass efficiency feature, so it is not done here.
         slot = 0;
         for (uint16_t i = 1; i < L._peer_keys_n; ++i)
             if (L._peer_keys[i].last_seen_ms < L._peer_keys[slot].last_seen_ms) slot = i;
@@ -257,29 +265,41 @@ void Node::peer_key_age_out() {
 // ---- E2E seal/open (Phase 1 §4/§5): same-layer CRYPTED unicast inner = [dst_hash 4][origin 1][ct][tag 16] ----
 size_t Node::e2e_seal_inner(uint8_t* inner, size_t cap, uint8_t seed8[8], uint8_t flags, uint32_t dst_key_hash32,
                             uint8_t origin, uint16_t ctr, uint32_t source_hash, int32_t lat_e7, int32_t lon_e7,
-                            const uint8_t* body, uint8_t body_len) {
+                            const uint8_t* body, uint8_t body_len, SealOutcome& outcome) {
+    outcome = SealOutcome::cross_layer;
     if (flags & DATA_FLAG_CROSS_LAYER) return 0;                    // v1: same-layer CRYPTED only
+    outcome = SealOutcome::no_identity;                            // R3: NEVER seal under a zero key — fail loud if no identity
+    if (!_crypto_ready) return 0;                                  // (set_crypto_identity not called -> _x_secret is zeros)
+    outcome = SealOutcome::no_pubkey;
     uint8_t peer_ed[32]; PeerKeyConf conf = PeerKeyConf::overheard; // 1. recipient's AUTHORITATIVE pubkey (else fail loud)
     if (!peer_key_find(dst_key_hash32, peer_ed, &conf) || conf != PeerKeyConf::authoritative) return 0;
     uint8_t peer_x[32]; ed_pub_to_x25519(peer_x, peer_ed);          // 2. ECDH -> per-pair key
     uint8_t shared[32]; crypto_x25519(shared, _x_secret, peer_x);
     uint8_t key[32]; dm_kdf(key, shared, _key_hash32, dst_key_hash32);
     _hal.rand_bytes(seed8, 8);                                      // 3. fresh nonce-seed (HAL crypto RNG) -> nonce
+    // R7: a broken crypto RNG returning an all-zero seed collapses nonce uniqueness to the 16-bit ctr -> keystream
+    // reuse under the static per-pair key (catastrophic). Refuse loudly rather than seal with a degenerate nonce.
+    bool seed_zero = true; for (int i = 0; i < 8; ++i) if (seed8[i]) { seed_zero = false; break; }
+    if (seed_zero) { crypto_wipe(key, 32); crypto_wipe(shared, 32); outcome = SealOutcome::bad_rng; return 0; }
     uint8_t nonce[24]; dm_nonce(nonce, seed8, ctr, dst_key_hash32);
     uint8_t aad[5] = { uint8_t(dst_key_hash32), uint8_t(dst_key_hash32 >> 8), uint8_t(dst_key_hash32 >> 16),
                        uint8_t(dst_key_hash32 >> 24), origin };     // 4. cleartext AAD = [dst_hash 4 LE][origin]
     uint8_t pt[protocol::max_payload_bytes_hard_cap]; size_t pt_len = 0;   // 5. plaintext = [source_hash?][location?][body]
+    // R2/R6: any size overflow below -> too_large, and ALWAYS wipe key/shared/pt first (single wipe_fail exit).
+    outcome = SealOutcome::too_large;
+    auto wipe_fail = [&]() -> size_t { crypto_wipe(key, 32); crypto_wipe(shared, 32); crypto_wipe(pt, sizeof pt); return 0; };
     if (flags & DATA_FLAG_SOURCE_HASH) { pt[pt_len++]=uint8_t(source_hash); pt[pt_len++]=uint8_t(source_hash>>8);
                                          pt[pt_len++]=uint8_t(source_hash>>16); pt[pt_len++]=uint8_t(source_hash>>24); }
-    if (flags & DATA_FLAG_LOCATION) { if (pt_len + 6 > sizeof pt) return 0; pack_loc6(lat_e7, lon_e7, std::span<uint8_t>(pt + pt_len, 6)); pt_len += 6; }
-    for (uint8_t i = 0; i < body_len; ++i) { if (pt_len >= sizeof pt) return 0; pt[pt_len++] = body[i]; }
+    if (flags & DATA_FLAG_LOCATION) { if (pt_len + 6 > sizeof pt) return wipe_fail(); pack_loc6(lat_e7, lon_e7, std::span<uint8_t>(pt + pt_len, 6)); pt_len += 6; }
+    for (uint8_t i = 0; i < body_len; ++i) { if (pt_len >= sizeof pt) return wipe_fail(); pt[pt_len++] = body[i]; }
     const size_t total = sizeof aad + pt_len + DM_TAG_LEN;         // 6. inner = aad || ciphertext || tag
-    if (total > cap) { crypto_wipe(key, 32); crypto_wipe(shared, 32); crypto_wipe(pt, sizeof pt); return 0; }
+    if (total > cap) return wipe_fail();
     for (size_t i = 0; i < sizeof aad; ++i) inner[i] = aad[i];
     uint8_t tag[DM_TAG_LEN];
     dm_seal(inner + sizeof aad, tag, key, nonce, aad, sizeof aad, pt, pt_len);
     for (size_t i = 0; i < DM_TAG_LEN; ++i) inner[sizeof aad + pt_len + i] = tag[i];
     crypto_wipe(key, 32); crypto_wipe(shared, 32); crypto_wipe(pt, sizeof pt);
+    outcome = SealOutcome::ok;
     return total;
 }
 
@@ -410,6 +430,7 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     h_in fwd{};
     fwd.leaf_id = _cfg.leaf_id; fwd.origin = h.origin; fwd.key_hash32 = h.key_hash32;
     fwd.ttl = static_cast<uint8_t>(h.ttl - 1); fwd.hard = h.hard;   // preserve the variant across forwards
+    fwd.want_pubkey = h.want_pubkey;   // R4: PRESERVE the E2E pubkey-request flag so a multi-hop WANT_PUBKEY reaches the owner
     uint8_t buf[8];
     const size_t n = pack_h(fwd, std::span<uint8_t>(buf, sizeof(buf)));
     if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
