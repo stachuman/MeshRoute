@@ -845,6 +845,66 @@ TEST_CASE("peer_key — aged past peer_key_ttl_ms; age_out compacts it away") {
     CHECK(node.peer_key_count() == 0);
 }
 
+// §1 PINNED tier (E2E peer-key provisioning, 2026-06-16): a QR/manually-scanned key is PINNED — a 3rd tier above
+// authoritative that is NEVER overwritten by an on-air answer, NEVER LRU-evicted, and NEVER aged out.
+TEST_CASE("PINNED peer key — an on-air answer NEVER overwrites a pinned key (grind-collision resistance, §1)") {
+    TestHal hal; Node node(hal, 1, 0xAAAA);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); node.on_init(cfg);
+    uint8_t seed[32]; for (int i = 0; i < 32; ++i) seed[i] = static_cast<uint8_t>(i + 1);
+    Identity id{}; identity_from_seed(id, seed);
+    CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::pinned));        // QR-scanned -> pinned
+    // an on-air answer: SAME key_hash32 (== ed_pub[:4]) but a DIFFERENT full ed_pub (a prefix grind-collision)
+    uint8_t fake[32]; for (int i = 0; i < 32; ++i) fake[i] = id.ed_pub[i]; fake[8] ^= 0xFF;   // [:4] unchanged -> passes hash-verify
+    CHECK(node.peer_key_set(id.key_hash32, fake, Node::PeerKeyConf::authoritative));      // accepted call, but must be a NO-OP
+    uint8_t out[32]; Node::PeerKeyConf conf{};
+    CHECK(node.peer_key_find(id.key_hash32, out, &conf));
+    CHECK(conf == Node::PeerKeyConf::pinned);                                             // still pinned
+    bool kept = true; for (int i = 0; i < 32; ++i) if (out[i] != id.ed_pub[i]) kept = false;
+    CHECK(kept);                                                                          // the SCANNED key survived the grind
+}
+
+TEST_CASE("PINNED peer key — never LRU-evicted; the oldest NON-pinned is evicted instead (§1)") {
+    TestHal hal; Node node(hal, 5, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); node.on_init(cfg);
+    uint8_t pseed[32] = {}; pseed[0] = 0xF0; pseed[1] = 0x11;
+    Identity pin{}; identity_from_seed(pin, pseed);
+    hal._now = 1000; CHECK(node.peer_key_set(pin.key_hash32, pin.ed_pub, Node::PeerKeyConf::pinned));   // OLDEST last_seen
+    for (int k = 0; k < protocol::cap_peer_keys; ++k) {               // cap MORE distinct non-pinned -> forces evictions
+        uint8_t seed[32] = {}; seed[0] = static_cast<uint8_t>(k + 1); seed[1] = 0x33;
+        Identity id{}; identity_from_seed(id, seed);
+        hal._now = 2000ull + static_cast<uint64_t>(k) * 10;
+        CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::authoritative));
+    }
+    uint8_t out[32]; Node::PeerKeyConf conf{};
+    CHECK(node.peer_key_find(pin.key_hash32, out, &conf));            // the pinned key SURVIVED the eviction churn
+    CHECK(conf == Node::PeerKeyConf::pinned);
+}
+
+TEST_CASE("PINNED peer key — never ages out; an all-pinned full cache refuses a new insert (peer_key_full) (§1)") {
+    TestHal hal; Node node(hal, 5, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); node.on_init(cfg);
+    uint8_t seed[32]; for (int i = 0; i < 32; ++i) seed[i] = static_cast<uint8_t>(i + 21);
+    Identity id{}; identity_from_seed(id, seed);
+    hal._now = 1000; CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::pinned));
+    hal._now = 1000 + protocol::peer_key_ttl_ms * 3;                  // WAY past the TTL
+    uint8_t out[32];
+    CHECK(node.peer_key_find(id.key_hash32, out));                    // pinned NEVER ages -> still found
+    node.peer_key_age_out();
+    CHECK(node.peer_key_count() == 1);                                // age_out kept the pinned entry
+
+    for (int k = 1; k < protocol::cap_peer_keys; ++k) {              // fill the rest of the cache with pinned keys
+        uint8_t s[32] = {}; s[0] = static_cast<uint8_t>(k + 1); s[1] = 0x77;
+        Identity p{}; identity_from_seed(p, s);
+        CHECK(node.peer_key_set(p.key_hash32, p.ed_pub, Node::PeerKeyConf::pinned));
+    }
+    CHECK(node.peer_key_count() == protocol::cap_peer_keys);          // 16 pinned, cache full
+    uint8_t s2[32] = {}; s2[0] = 0xEE; s2[1] = 0x99;
+    Identity extra{}; identity_from_seed(extra, s2);
+    CHECK_FALSE(node.peer_key_set(extra.key_hash32, extra.ed_pub, Node::PeerKeyConf::authoritative));  // all-pinned -> REFUSE
+    CHECK(find_ev(hal.events, "peer_key_full") != nullptr);
+    CHECK(node.peer_key_count() == protocol::cap_peer_keys);          // nothing was evicted
+}
+
 // =============================================================================
 // Phase 1 §4/§5 — E2E seal/open round-trip (the crypto core of seal-on-send /
 // open-on-receive, exercised directly via the Node helpers).
@@ -916,5 +976,29 @@ TEST_CASE("e2e pubkey wire — on_hash_bind_pubkey caches the owner's ed_pub (au
     CHECK(node.peer_key_find(id.key_hash32, out, &conf));            // resolved by key_hash32 (== ed_pub[:4])
     CHECK(conf == Node::PeerKeyConf::authoritative);
     bool same = true; for (int i = 0; i < 32; ++i) if (out[i] != id.ed_pub[i]) same = false; CHECK(same);
+    // §7: caching a recipient's key also pushes peer_key_cached so the app prompts "secure send ready — resend".
+    Push p{}; bool cached = false;
+    while (node.next_push(p)) if (p.kind == PushKind::peer_key_cached) { cached = true; break; }
+    CHECK(cached);
+    CHECK(p.sender_hash == id.key_hash32);                           // which contact's key arrived
+}
+
+// §6 (E2E peer-key provisioning): `reqpubkey <hash>` is the user-triggered on-air request — now the ONLY thing that
+// fires a WANT_PUBKEY (besides a relay forwarding one). Exactly ONE HARD + want_pubkey H query for the asked hash.
+TEST_CASE("§6 reqpubkey — fires ONE hard WANT_PUBKEY H query for the requested hash") {
+    TestHal hal; Node node(hal, 5, 0x0000BBBB);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    hal.tx_frames.clear();
+    Command c{}; c.kind = CmdKind::reqpubkey; c.u.resolve.dst_hash = 0x0000FACE;
+    const CmdResult r = node.on_command(c);
+    CHECK(r.code == CmdCode::queued);
+    int n_h = 0; bool hard_wp = false;
+    for (const auto& f : hal.tx_frames) {
+        auto pf = parse_h(std::span<const uint8_t>(f.data(), f.size()));
+        if (pf) { ++n_h; if (pf->hard && pf->want_pubkey && pf->key_hash32 == 0x0000FACEu) hard_wp = true; }
+    }
+    CHECK(n_h == 1);                                                 // exactly one query (not a storm)
+    CHECK(hard_wp);                                                  // HARD + want_pubkey for the requested hash
 }
 

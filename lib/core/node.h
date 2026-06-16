@@ -320,7 +320,9 @@ public:
     // dedup-by-hash; claimed (beacon / cached / snooped) refuses a same-id conflict.
     enum class IdBindSource : uint8_t { self = 0, bcn = 1, h_query = 2, h_relay = 3 };
     enum class IdBindConf   : uint8_t { claimed = 0, authoritative = 1 };
-    enum class PeerKeyConf  : uint8_t { overheard = 0, authoritative = 1 };   // v1 only inserts authoritative (TYPE-5 owner answer)
+    // overheard < authoritative < pinned. pinned = a QR/manually-scanned key (E2E provisioning §1): the MITM-resistant
+    // tier — NEVER overwritten by an on-air answer, NEVER LRU-evicted, NEVER aged out (NV-backed on device).
+    enum class PeerKeyConf  : uint8_t { overheard = 0, authoritative = 1, pinned = 2 };
     // Why e2e_seal_inner returned 0 (the seal failed). Lets enqueue_data fail LOUD distinctly per cause instead of
     // treating every 0 as "no pubkey" (which floods a WANT_PUBKEY + drops the DM). no_pubkey is the ONLY case that
     // floods; the rest are local refusals (no_identity=R3, too_large=R2, bad_rng=R7, cross_layer=v1 scope).

@@ -144,6 +144,17 @@ TEST_CASE("parse_command — resolve bad hash / bad 2nd arg -> bad_args") {
     CHECK(parse_command(badopt, std::strlen(badopt), c) == ParseErr::bad_args);
 }
 
+// §6 (E2E peer-key provisioning): reqpubkey <key_hash32 hex8> — the user-triggered on-air pubkey request.
+TEST_CASE("parse_command — reqpubkey <hash> (user-triggered WANT_PUBKEY request)") {
+    Command c{};
+    const char* line = "reqpubkey a1b2c3d4";
+    CHECK(parse_command(line, std::strlen(line), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::reqpubkey);
+    CHECK(c.u.resolve.dst_hash == 0xa1b2c3d4u);
+    const char* bad = "reqpubkey zz";
+    CHECK(parse_command(bad, std::strlen(bad), c) == ParseErr::bad_args);
+}
+
 TEST_CASE("parse_command — errors") {
     Command c{};
     CHECK(parse_command("ping 5 x", 8, c) == ParseErr::unknown_verb);

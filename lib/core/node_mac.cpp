@@ -97,19 +97,21 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
                                         _key_hash32, _cfg.lat_e7, _cfg.lon_e7, body, body_len, oc);
         if (n == 0) {                                                      // seal failed -> FAIL LOUD distinctly, NEVER cleartext
             switch (oc) {
-                case SealOutcome::no_pubkey:                               // E2E §6: ONLY no-pubkey floods a WANT_PUBKEY so a retry can seal
-                    MR_EMIT("e2e_no_pubkey", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("hash", static_cast<int64_t>(dh)));
-                    emit_hash_query(dh, /*hard=*/true, /*want_pubkey=*/true);
-                    break;
+                case SealOutcome::no_pubkey:                               // E2E §5: NO auto-query. Key acquisition is USER-driven:
+                    MR_EMIT("e2e_no_pubkey", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("hash", static_cast<int64_t>(dh)));  // warn + drop; the
+                    { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::no_pubkey; pu.dst = dst; pu.ctr = ctr; enqueue_push(pu); }  // user
+                    break;                                                 // requests on-air (reqpubkey) or scans a QR (peerkey). NEVER cleartext.
                 case SealOutcome::no_identity:                            // R3: no crypto identity -> fail loud, no flood
                     MR_EMIT("e2e_no_identity", EF_I("dst", dst), EF_I("ctr", ctr));
+                    { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::no_identity; pu.dst = dst; pu.ctr = ctr; enqueue_push(pu); }
                     break;
                 case SealOutcome::too_large:                              // R2: oversize for CRYPTED -> fail loud + send_failed, NO flood
                     MR_EMIT("e2e_seal_too_large", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("body_len", body_len));
-                    { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = dst; pu.ctr = ctr; enqueue_push(pu); }
+                    { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::too_large; pu.dst = dst; pu.ctr = ctr; enqueue_push(pu); }
                     break;
                 case SealOutcome::bad_rng:                                // R7: crypto RNG returned a degenerate seed -> fail loud, no flood
                     MR_EMIT("e2e_bad_rng", EF_I("dst", dst), EF_I("ctr", ctr));
+                    { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::bad_rng; pu.dst = dst; pu.ctr = ctr; enqueue_push(pu); }
                     break;
                 default:                                                  // cross_layer / unexpected -> fail loud, no flood
                     MR_EMIT("e2e_seal_failed", EF_I("dst", dst), EF_I("ctr", ctr));
@@ -241,7 +243,7 @@ void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_
     const uint8_t gw = select_gateway_for_leaf(target_leaf);
     if (gw == 0) {                                   // no gateway serves the target leaf at all -> fail loud
         MR_EMIT("xl_send_no_gateway", EF_I("target_layer", target_layer), EF_I("dst_hash", static_cast<int64_t>(dst_hash)));
-        Push pu{}; pu.kind = PushKind::send_failed; pu.dst = dst_node; pu.ctr = 0; enqueue_push(pu);
+        Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::no_route; pu.dst = dst_node; pu.ctr = 0; enqueue_push(pu);
         return;
     }
     // gw != 0: enqueue regardless of route. A live route -> issue_send fires (4a defers to G's window). No route ->
@@ -249,7 +251,7 @@ void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_
     const uint8_t ids[2] = { active_layer_id(), target_layer };   // the 2-element path [our_layer, target_layer], cur=1
     if (!enqueue_cross_layer(gw, dst_hash, ids, /*n_layers*/ 2, /*cur*/ 1, body, body_len, flags)) {
         MR_EMIT("xl_send_too_large", EF_I("target_layer", target_layer), EF_I("gw", gw));
-        Push pu{}; pu.kind = PushKind::send_failed; pu.dst = dst_node; pu.ctr = 0; enqueue_push(pu);
+        Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::too_large; pu.dst = dst_node; pu.ctr = 0; enqueue_push(pu);
     }
 }
 

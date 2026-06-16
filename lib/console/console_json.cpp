@@ -69,8 +69,21 @@ const char* pushkind_name(PushKind k) {
         case PushKind::send_acked:    return "send_acked";
         case PushKind::send_failed:   return "send_failed";
         case PushKind::hash_resolved: return "hash_resolved";
+        case PushKind::peer_key_cached: return "peer_key_cached";
     }
     return "unknown";
+}
+// E2E §5: send_failed.reason — the app maps no_pubkey -> "Request key / Scan QR"; the permanent reasons -> plain fail.
+const char* sendfailreason_name(SendFailReason r) {
+    switch (r) {
+        case SendFailReason::no_pubkey:   return "no_pubkey";
+        case SendFailReason::no_identity: return "no_identity";
+        case SendFailReason::too_large:   return "too_large";
+        case SendFailReason::bad_rng:     return "bad_rng";
+        case SendFailReason::no_route:    return "no_route";
+        case SendFailReason::none:        return "none";
+    }
+    return "none";
 }
 size_t write_ack(char* buf, size_t cap, const CmdResult& r) {
     JsonBuf j(buf, cap);
@@ -127,9 +140,14 @@ size_t write_push(char* buf, size_t cap, const Push& p) {
         j.lit(",\"node\":"); j.u32(p.origin);          // 0 = unresolved / timeout
         j.lit(",\"auth\":"); j.u32(p.dst);
         j.lit(",\"hash\":"); j.u32(hash);
+    } else if (p.kind == PushKind::peer_key_cached) {      // E2E §7: a recipient key arrived -> the app can resend encrypted
+        j.lit(",\"hash\":");   j.u32(p.sender_hash);
+        j.lit(",\"pinned\":false");                        // on-air (TOFU); a QR import is the separate peerkey_set ack (pinned:true)
     } else {  // send_acked / send_failed
         j.lit(",\"dst\":"); j.u32(p.dst);
         j.lit(",\"ctr\":"); j.u32(p.ctr);
+        if (p.kind == PushKind::send_failed && p.reason != SendFailReason::none) {   // omit for a legacy/non-e2e giveup
+            j.lit(",\"reason\":\""); j.lit(sendfailreason_name(p.reason)); j.ch('"'); }
     }
     j.ch('}');
     return j.finish();

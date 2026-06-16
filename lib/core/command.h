@@ -20,7 +20,7 @@
 namespace MESHROUTE_NS {
 
 // ---- requests (one cmd-code + a bounded typed payload, like a MeshCore frame) ----
-enum class CmdKind : uint8_t { send, send_layer, send_channel, join, resolve };
+enum class CmdKind : uint8_t { send, send_layer, send_channel, join, resolve, reqpubkey };
 
 // The four Lua send_* verbs collapse to ONE Send + flag bits (same wire bits as
 // dv_dual_sf.lua:2187-2189). Addressed by short id (now) / key_hash32 (later) —
@@ -79,9 +79,15 @@ enum class PushKind : uint8_t {
     send_failed,   // our send gave up (ctr = the sent message id)
     hash_resolved, // a `resolve` completed: origin = owner node_id (0 = unresolved/timeout),
                    // dst = authoritative?1:0, body[0..3] = the queried key_hash32 (LE, 4 B)
+    peer_key_cached, // E2E §7: a recipient's pubkey was learned (on-air answer / cache-on-pass) -> the app can
+                     //   resend an encrypted DM. sender_hash = the cached key_hash32; pinned=false (on-air, TOFU).
 };
+// E2E §5: why a send_failed Push fired, so the app reacts (no_pubkey -> offer Request-key/Scan-QR; the permanent
+// reasons -> plain fail). Mirrors the contract `send_failed.reason`. `none` = a non-send_failed push.
+enum class SendFailReason : uint8_t { none = 0, no_pubkey, no_identity, too_large, bad_rng, no_route };
 struct Push {
     PushKind kind = PushKind::msg_recv;
+    SendFailReason reason = SendFailReason::none;   // send_failed only (else none)
     uint8_t  origin = 0;
     uint8_t  dst = 0;
     uint8_t  channel_id = 0;   // channel_recv only

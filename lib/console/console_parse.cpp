@@ -73,6 +73,17 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
         return ParseErr::ok;
     }
 
+    //   reqpubkey <hash> — §6: user-triggered on-air pubkey request (a HARD WANT_PUBKEY H flood). The only auto-source.
+    if (tok_eq(verb, "reqpubkey")) {
+        Tok arg = token(s);
+        uint32_t hash = 0;
+        if (!parse_hex32_tok(arg, hash)) return ParseErr::bad_args;
+        out = Command{};
+        out.kind = CmdKind::reqpubkey;
+        out.u.resolve.dst_hash = hash;
+        return ParseErr::ok;
+    }
+
     //   send_layer     <hash> <l1,l2,…> <text> — explicit-path cross-layer DM along the given destination layers
     //   send_layer_ack <hash> <l1,l2,…> <text> — same + request the end-to-end ack (the companion reuses this parser)
     {

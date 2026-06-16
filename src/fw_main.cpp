@@ -560,10 +560,10 @@ static void handle_whoami() {
 static void dump_help() {
     Serial.println(F("[help] messaging:  send <id> <text> | send_ack <id> <text> | sendhash <hash> <text> | sendhash_ack <hash> <text> | send_channel <ch> <text>"));
     Serial.println(F("[help] cross-layer: send_layer <hash> <l1,l2,…> <text> | send_layer_ack <hash> <l1,l2,…> <text>  (explicit destination layer path)"));
-    Serial.println(F("[help] hash/id:    lookup <hash> | hashof <id> | whoami"));
+    Serial.println(F("[help] hash/id:    whoami | lookup <hash> | hashof <id> | resolve <hash> [hard]"));
     Serial.println(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
     Serial.println(F("[help] diag:       routes | status | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
-    Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile key ble_mode on|off lat lon loc_in_dm"));
+    Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm ble_mode ble_period ble_pin   (bool keys take on|off; identity via regen)"));
     Serial.println(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms"));
 }
 

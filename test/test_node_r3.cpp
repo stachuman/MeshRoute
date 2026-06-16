@@ -2610,6 +2610,9 @@ TEST_CASE("R3 fail-loud: e2e_dm without a crypto identity refuses to seal (no ze
     CHECK_FALSE(saw_ev(hal, "tx_enqueue"));                  // nothing enqueued (no bogus-key frame)
     CHECK_FALSE(saw_ev(hal, "h_tx"));                        // no spurious WANT_PUBKEY flood (we HAVE the pubkey)
     CHECK_FALSE(saw_ev(hal, "e2e_no_pubkey"));               // not misreported as a missing-pubkey
+    { Push pf{}; bool sf = false; SendFailReason rsn = SendFailReason::none;                 // §2/§5: the app is WARNED with the reason
+      while (A.next_push(pf)) if (pf.kind == PushKind::send_failed) { sf = true; rsn = pf.reason; break; }
+      CHECK(sf); CHECK(rsn == SendFailReason::no_identity); }
 }
 
 // R7 (review): a crypto RNG that returns an all-zero nonce seed collapses nonce uniqueness to the 16-bit ctr ->
@@ -2628,6 +2631,9 @@ TEST_CASE("R7 fail-loud: an all-zero crypto seed refuses to seal (no nonce-reuse
     CHECK(saw_ev(hal, "e2e_bad_rng"));                      // fail loud
     CHECK_FALSE(saw_ev(hal, "tx_enqueue"));                 // nothing sealed/enqueued
     CHECK_FALSE(saw_ev(hal, "h_tx"));                       // no flood (the RNG is broken, not the pubkey)
+    { Push pf{}; bool sf = false; SendFailReason rsn = SendFailReason::none;
+      while (A.next_push(pf)) if (pf.kind == PushKind::send_failed) { sf = true; rsn = pf.reason; break; }
+      CHECK(sf); CHECK(rsn == SendFailReason::bad_rng); }
 }
 
 // R2 (review): the cleartext enqueue fit-gates omit the +16 Poly1305 tag, so a body in [217,232] sets the DM flags
@@ -2649,6 +2655,37 @@ TEST_CASE("R2 fail-loud: an oversize CRYPTED DM fails loud + does NOT flood (ant
     CHECK_FALSE(saw_ev(hal, "h_tx"));                      // NO spurious WANT_PUBKEY flood
     CHECK_FALSE(saw_ev(hal, "e2e_no_pubkey"));             // not misreported as a missing pubkey
     CHECK_FALSE(saw_ev(hal, "tx_enqueue"));                // the DM is not enqueued (it can never fit)
+    { Push pf{}; bool sf = false; SendFailReason rsn = SendFailReason::none;
+      while (A.next_push(pf)) if (pf.kind == PushKind::send_failed) { sf = true; rsn = pf.reason; break; }
+      CHECK(sf); CHECK(rsn == SendFailReason::too_large); }
+}
+
+// §5 (E2E peer-key provisioning, 2026-06-16): key acquisition is USER-DRIVEN, never silently automated. A no-pubkey
+// CRYPTED send no longer auto-floods WANT_PUBKEY — it WARNS the app (send_failed{no_pubkey}) and DROPS. The user then
+// requests the key on-air (`reqpubkey`) or scans a QR (`peerkey`).
+TEST_CASE("§5 no-auto-query — a no-pubkey CRYPTED send warns (send_failed{no_pubkey}) + drops, NO WANT_PUBKEY flood") {
+    TestHal hal;
+    uint8_t seedA[32], seedB[32]; for (int i = 0; i < 32; ++i) { seedA[i] = uint8_t(i + 1); seedB[i] = uint8_t(100 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, seedA); identity_from_seed(idB, seedB);
+    Node A(hal, /*id=*/1, idA.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.e2e_dm = true;
+    A.on_init(cfg);
+    A.set_crypto_identity(idA.x_secret, idA.ed_pub);
+    // A learns node 2's id_bind (DST_HASH resolves) but NOT its pubkey -> the seal hits no_pubkey.
+    std::array<uint8_t, 64> bb{};
+    beacon_entry be{}; be.dest = 2; be.next = 2; be.score_bucket = 14; be.hops = 1;
+    beacon_in bin{}; bin.leaf_id = 0; bin.src = 2; bin.key_hash32 = idB.key_hash32;
+    bin.entries = std::span<const beacon_entry>(&be, 1);
+    const size_t bn = pack_beacon(bin, std::span<uint8_t>(bb.data(), bb.size()));
+    RxMeta bm{ 12.0f, -70.0f, 0, static_cast<int8_t>(2) };
+    A.on_recv(bb.data(), bn, bm);                          // (deliberately NO A.peer_key_set for idB)
+    send_cmd(A, /*dst=*/2, "secret-no-key");
+    CHECK(saw_ev(hal, "e2e_no_pubkey"));                   // fail loud
+    CHECK_FALSE(saw_ev(hal, "h_tx"));                      // §5: NO auto WANT_PUBKEY flood (the user must reqpubkey)
+    CHECK_FALSE(saw_ev(hal, "tx_enqueue"));               // never cleartext
+    { Push pf{}; bool sf = false; SendFailReason rsn = SendFailReason::none;
+      while (A.next_push(pf)) if (pf.kind == PushKind::send_failed) { sf = true; rsn = pf.reason; break; }
+      CHECK(sf); CHECK(rsn == SendFailReason::no_pubkey); }   // the app is warned -> offer Request-key / Scan-QR
 }
 
 // -----------------------------------------------------------------------------

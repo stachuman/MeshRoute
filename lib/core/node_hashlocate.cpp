@@ -205,8 +205,10 @@ bool Node::peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyCo
     auto& L = *_active;
     for (uint16_t i = 0; i < L._peer_keys_n; ++i) {                 // already cached -> refresh; upgrade, never downgrade
         if (L._peer_keys[i].key_hash32 == key_hash32) {
+            const bool existing_pinned = (L._peer_keys[i].confidence == static_cast<uint8_t>(PeerKeyConf::pinned));
+            if (existing_pinned && conf != PeerKeyConf::pinned) return true;   // §1: PINNED is IMMUTABLE to an on-air set (no-op, no refresh)
             L._peer_keys[i].last_seen_ms = now;
-            if (static_cast<uint8_t>(conf) > L._peer_keys[i].confidence) {
+            if (conf == PeerKeyConf::pinned || static_cast<uint8_t>(conf) > L._peer_keys[i].confidence) {  // upgrade, or a user re-pin
                 for (int b = 0; b < 32; ++b) L._peer_keys[i].ed_pub[b] = ed_pub[b];
                 L._peer_keys[i].confidence = static_cast<uint8_t>(conf);
             }
@@ -215,18 +217,20 @@ bool Node::peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyCo
     }
     uint16_t slot;
     if (L._peer_keys_n < protocol::cap_peer_keys) { slot = L._peer_keys_n++; }
-    else {                                                          // cache full -> evict the least-recently-seen
-        // R5 (review, ACCEPTED v1 limitation): eviction is pure LRU with no authoritative floor, and inserts are
-        // unauthenticated-but-hash-self-consistent (TYPE-5 cache-on-pass). An in-mesh attacker emitting >cap
-        // self-consistent TYPE-5 frames with random ed_pubs can churn out a victim's legitimately-cached recipient
-        // key -> the next seal fails the authoritative gate -> the DM is REFUSED (fail-loud, never cleartext) and
-        // self-heals (the retry re-floods a HARD WANT_PUBKEY). So it is a SUSTAINED-FLOOD availability DoS, not a
-        // confidentiality break, and squarely inside the documented "not MITM-secure / TOFU" threat model. A real
-        // mitigation (rate-limit unsolicited cache-on-pass, or a recency/usage floor protecting hot keys) is a
-        // FUTURE design decision — it trades against the cache-on-pass efficiency feature, so it is not done here.
-        slot = 0;
-        for (uint16_t i = 1; i < L._peer_keys_n; ++i)
-            if (L._peer_keys[i].last_seen_ms < L._peer_keys[slot].last_seen_ms) slot = i;
+    else {                                                          // cache full -> evict the least-recently-seen NON-PINNED
+        // §1: a PINNED entry (QR-scanned, NV-backed) is NEVER evicted. Evict the oldest NON-pinned; if EVERY slot is
+        // pinned, REFUSE the insert (fail loud: peer_key_full) rather than drop a scanned key.
+        // [R5: eviction is otherwise pure LRU with no authoritative floor — a TYPE-5 cache-on-pass flood can churn the
+        // non-pinned entries (a sustained-flood availability DoS within the documented TOFU/not-MITM model: the next
+        // seal fails the authoritative gate -> the DM is REFUSED, never cleartext, and self-heals on a re-request). A
+        // recency/usage floor protecting hot keys is a FUTURE decision — it trades against the cache-on-pass feature.]
+        int victim = -1;
+        for (uint16_t i = 0; i < L._peer_keys_n; ++i) {
+            if (L._peer_keys[i].confidence == static_cast<uint8_t>(PeerKeyConf::pinned)) continue;   // never evict a pinned key
+            if (victim < 0 || L._peer_keys[i].last_seen_ms < L._peer_keys[static_cast<uint16_t>(victim)].last_seen_ms) victim = i;
+        }
+        if (victim < 0) { MR_EMIT("peer_key_full", EF_I("hash", static_cast<int64_t>(key_hash32))); return false; }   // all pinned -> refuse
+        slot = static_cast<uint16_t>(victim);
     }
     L._peer_keys[slot].key_hash32 = key_hash32;
     for (int b = 0; b < 32; ++b) L._peer_keys[slot].ed_pub[b] = ed_pub[b];
@@ -240,8 +244,9 @@ bool Node::peer_key_find(uint32_t key_hash32, uint8_t ed_pub_out[32], PeerKeyCon
     auto& L = *_active;
     for (uint16_t i = 0; i < L._peer_keys_n; ++i) {
         if (L._peer_keys[i].key_hash32 == key_hash32) {
-            if (protocol::peer_key_ttl_ms != 0 && (now - L._peer_keys[i].last_seen_ms) >= protocol::peer_key_ttl_ms)
-                return false;                                       // aged
+            const bool pinned = (L._peer_keys[i].confidence == static_cast<uint8_t>(PeerKeyConf::pinned));
+            if (!pinned && protocol::peer_key_ttl_ms != 0 && (now - L._peer_keys[i].last_seen_ms) >= protocol::peer_key_ttl_ms)
+                return false;                                       // aged (a PINNED key never ages)
             for (int b = 0; b < 32; ++b) ed_pub_out[b] = L._peer_keys[i].ed_pub[b];
             if (conf_out) *conf_out = static_cast<PeerKeyConf>(L._peer_keys[i].confidence);
             return true;
@@ -256,7 +261,8 @@ void Node::peer_key_age_out() {
     auto& L = *_active;
     uint16_t w = 0;
     for (uint16_t r = 0; r < L._peer_keys_n; ++r) {
-        if ((now - L._peer_keys[r].last_seen_ms) >= protocol::peer_key_ttl_ms) continue;   // drop expired
+        const bool pinned = (L._peer_keys[r].confidence == static_cast<uint8_t>(PeerKeyConf::pinned));
+        if (!pinned && (now - L._peer_keys[r].last_seen_ms) >= protocol::peer_key_ttl_ms) continue;   // drop expired (PINNED never ages)
         L._peer_keys[w++] = L._peer_keys[r];
     }
     L._peer_keys_n = w;
@@ -497,8 +503,10 @@ void Node::on_hash_bind_pubkey(const uint8_t* inner, uint8_t inner_len) {
     if (!o) return;
     const uint32_t kh = static_cast<uint32_t>(o->ed_pub[0]) | (static_cast<uint32_t>(o->ed_pub[1]) << 8)
                       | (static_cast<uint32_t>(o->ed_pub[2]) << 16) | (static_cast<uint32_t>(o->ed_pub[3]) << 24);
-    if (peer_key_set(kh, o->ed_pub, PeerKeyConf::authoritative))
+    if (peer_key_set(kh, o->ed_pub, PeerKeyConf::authoritative)) {
         MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(kh)), EF_I("node", o->node_id));
+        Push pu{}; pu.kind = PushKind::peer_key_cached; pu.sender_hash = kh; enqueue_push(pu);   // §7: app prompts "secure send ready — resend"
+    }
     // [#38b park/drain follow-up: on a fresh authoritative insert, drain parked CRYPTED sends to kh -> seal + send.]
 }
 

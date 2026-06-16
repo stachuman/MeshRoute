@@ -542,6 +542,11 @@ CmdResult Node::on_command(const Command& c) {
             request_resolve(c.u.resolve.dst_hash, c.u.resolve.hard);
             return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };
         }
+        case CmdKind::reqpubkey: {   // §6: user-triggered on-air pubkey request — the ONLY auto-source of WANT_PUBKEY now
+            if (_node_id == 0) return CmdResult{ CmdCode::err_unprovisioned, 0, _active->_tx_queue_n };
+            emit_hash_query(c.u.resolve.dst_hash, /*hard=*/true, /*want_pubkey=*/true);
+            return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };
+        }
         case CmdKind::send_layer: {                          // Slice 4d: cross-layer DM origination (§5)
             if (_node_id == 0)                               return CmdResult{ CmdCode::err_unprovisioned, 0, _active->_tx_queue_n };
             if (_cfg.allowed_sf_bitmap == 0)                 return CmdResult{ CmdCode::err_no_data_sf, 0, _active->_tx_queue_n };
