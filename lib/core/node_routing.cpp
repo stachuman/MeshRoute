@@ -20,6 +20,7 @@ RtEntry* Node::rt_find(uint8_t dest) {
 }
 
 RtEntry* Node::rt_insert(uint8_t dest) {
+    if (dest == 0 || dest == 0xFF) return nullptr;        // §P0: never store a route to the reserved sentinel ids (defense-in-depth)
     if (_active->_rt_count >= protocol::cap_routes) return nullptr;
     uint8_t pos = 0;
     while (pos < _active->_rt_count && _active->_rt[pos].dest < dest) ++pos;
@@ -341,6 +342,114 @@ void Node::rt_prune_cycle(uint8_t dest, uint8_t sender) {
         e->dirty = true;
     }
     schedule_triggered_beacon();
+}
+
+// =============================================================================
+// Peer-liveness + freshness plane (routing-liveness port, Lua dv:3986-4545).
+// PHASE 1 — STATE ONLY: count RTS/ACK-timeout giveups -> suspect/silent/dead
+// tiers (each with an expiry) + dest_seen for freshness; tracked + emitted but
+// NOT YET applied to scoring/selection/cascade (the resort + triggered-beacon
+// side-effects the Lua does here are DEFERRED to Phase 2/3 so P1 stays inert).
+// =============================================================================
+Node::PeerLiveness* Node::peer_liveness_slot(uint8_t node_id, bool create) {
+    auto& L = *_active;
+    for (uint8_t i = 0; i < L._peer_liveness_n; ++i)
+        if (L._peer_liveness[i].node_id == node_id) return &L._peer_liveness[i];
+    if (!create) return nullptr;
+    if (L._peer_liveness_n < protocol::cap_peer_liveness) {
+        PeerLiveness& s = L._peer_liveness[L._peer_liveness_n++]; s = PeerLiveness{}; s.node_id = node_id; return &s;
+    }
+    // full -> evict the LEAST valuable. Prefer a HEALTHY slot (no live tier), stalest first — so an asymmetric DEAD
+    // peer (reached by TX, never heard => dest_seen 0 but a live tier) is NOT the first to go and re-trusted (the
+    // review's Gap A; matters once Phase 2 consults the tier). Fall back to the global stalest only if all are non-healthy.
+    const uint64_t now = _hal.now();
+    int      best = 0;
+    bool     best_healthy = false;
+    uint64_t best_seen = 0;
+    for (uint8_t i = 0; i < L._peer_liveness_n; ++i) {
+        const PeerLiveness& c = L._peer_liveness[i];
+        const bool healthy = !(c.dead_until_ms > now || c.silent_until_ms > now || c.suspect_until_ms > now);
+        const bool better = (i == 0)
+                          || (healthy && !best_healthy)                                   // a healthy slot beats any non-healthy one
+                          || (healthy == best_healthy && c.dest_seen_ms < best_seen);     // same class -> the stalest
+        if (better) { best = i; best_healthy = healthy; best_seen = c.dest_seen_ms; }
+    }
+    L._peer_liveness[best] = PeerLiveness{}; L._peer_liveness[best].node_id = node_id;
+    return &L._peer_liveness[best];
+}
+
+uint8_t Node::peer_suspect_level(uint8_t node_id) {
+    if (node_id == 0 || node_id == _node_id) return 0;
+    PeerLiveness* s = peer_liveness_slot(node_id, /*create=*/false);
+    if (!s) return 0;
+    const uint64_t now = _hal.now();                       // highest tier first; clear expired lazily (Lua get_peer_suspect_level)
+    if (s->dead_until_ms    != 0) { if (s->dead_until_ms    > now) return 3; s->dead_until_ms    = 0; }
+    if (s->silent_until_ms  != 0) { if (s->silent_until_ms  > now) return 2; s->silent_until_ms  = 0; }
+    if (s->suspect_until_ms != 0) { if (s->suspect_until_ms > now) return 1; s->suspect_until_ms = 0; }
+    return 0;
+}
+
+void Node::mark_peer_suspect(uint8_t node_id, uint8_t level, const char* source) {
+    if (node_id == 0 || node_id == _node_id) return;
+    PeerLiveness* s = peer_liveness_slot(node_id, /*create=*/true);
+    if (!s) return;
+    const uint64_t now  = _hal.now();
+    const uint8_t  prev = peer_suspect_level(node_id);
+    if      (level >= 3) s->dead_until_ms    = now + protocol::peer_dead_ttl_ms;
+    else if (level >= 2) s->silent_until_ms  = now + protocol::peer_silent_ttl_ms;
+    else                 s->suspect_until_ms = now + protocol::peer_suspect_ttl_ms;
+    const uint8_t newl = peer_suspect_level(node_id);
+    // PHASE 1 INERT: the Lua here also resort_routes_for_neighbor_penalty + (on rts_timeout) schedule_triggered_beacon
+    // — DEFERRED to Phase 2/3. P1 only records state + emits telemetry, so routing decisions are unchanged.
+    MR_EMIT("peer_suspect_mark", EF_I("node", node_id), EF_I("level", newl), EF_I("previous_level", prev),
+            EF_S("source", source ? source : "unknown"), EF_I("rts_timeouts", s->rts_timeouts));
+}
+
+void Node::record_peer_rts_timeout(uint8_t node_id, uint8_t ctr_lo) {
+    if (node_id == 0 || node_id == _node_id) return;
+    PeerLiveness* s = peer_liveness_slot(node_id, /*create=*/true);
+    if (!s) return;
+    s->rts_timeouts = static_cast<uint16_t>(s->rts_timeouts + 1);
+    const uint16_t n = s->rts_timeouts;
+    MR_EMIT("peer_rts_timeout_count", EF_I("node", node_id), EF_I("ctr_lo", ctr_lo), EF_I("count", n));
+    const uint64_t now = _hal.now();
+    if (n >= protocol::peer_silent_rts_timeouts) {                          // 3 -> at least SILENT; 6 over the evidence window -> DEAD
+        if (s->first_timeout_ms == 0) s->first_timeout_ms = now;
+        if (n >= protocol::peer_dead_rts_timeouts && (now - s->first_timeout_ms) >= protocol::peer_dead_evidence_window_ms)
+            mark_peer_suspect(node_id, 3, "rts_timeout");
+        else
+            mark_peer_suspect(node_id, 2, "rts_timeout");
+    } else if (n >= protocol::peer_suspect_rts_timeouts) {                  // 2 -> SUSPECT
+        mark_peer_suspect(node_id, 1, "rts_timeout");
+    }
+}
+
+void Node::clear_peer_suspect(uint8_t node_id, const char* source) {
+    if (node_id == 0 || node_id == _node_id) return;
+    PeerLiveness* s = peer_liveness_slot(node_id, /*create=*/false);
+    if (!s) return;
+    const bool had = s->rts_timeouts != 0 || s->first_timeout_ms != 0 ||
+                     s->suspect_until_ms != 0 || s->silent_until_ms != 0 || s->dead_until_ms != 0;
+    if (!had) return;                                       // nothing to clear -> no event (Lua: emit only if `had`)
+    s->rts_timeouts = 0; s->first_timeout_ms = 0;
+    s->suspect_until_ms = 0; s->silent_until_ms = 0; s->dead_until_ms = 0;
+    // PHASE 1 INERT: the Lua resort here too -> DEFERRED to Phase 2. dest_seen_ms left intact (a separate freshness fact).
+    MR_EMIT("peer_suspect_clear", EF_I("node", node_id), EF_S("source", source ? source : "rx_frame"));
+}
+
+void Node::mark_dest_seen(uint8_t node_id) {
+    if (node_id == 0 || node_id == 0xFF || node_id == _node_id) return;
+    PeerLiveness* s = peer_liveness_slot(node_id, /*create=*/true);   // state ONLY — NO event (freshness input for is_next_hop_fresh, consulted in P2)
+    if (s) s->dest_seen_ms = _hal.now();
+}
+
+bool Node::is_next_hop_fresh(uint8_t node_id) const {
+    if (node_id == _node_id) return true;                  // self is always reachable
+    const auto& L = *_active;                              // const find (no create / no mutation)
+    const PeerLiveness* s = nullptr;
+    for (uint8_t i = 0; i < L._peer_liveness_n; ++i) if (L._peer_liveness[i].node_id == node_id) { s = &L._peer_liveness[i]; break; }
+    if (!s || s->dest_seen_ms == 0) return false;          // never heard -> not fresh
+    return (_hal.now() - s->dest_seen_ms) <= protocol::next_hop_live_ttl_ms;
 }
 
 }  // namespace meshroute

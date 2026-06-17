@@ -496,6 +496,12 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None):
     # (the first gw re-wrapped toward a second gw) -- i.e. Stage-2 was attempted.
     hops_by_payload = {}
     transit_started = set()
+    # §xl (2026-06-17 fix): reconstruct cross-layer DMs from the CURRENT firmware vocabulary. `tx_enqueue_xl`
+    # marks a cross-layer origination; the target's `delivered` PRESERVES the original (origin,ctr) (the gateway
+    # no longer rewrites them) + carries the resolved target dst -> arrival is a clean (origin,ctr) match.
+    xl_orig = {}        # (origin, ctr) -> (gw_wire_dst, target_layer, t_enqueue_ms)
+    delivered_oc = {}   # (origin, ctr) -> (target_dst, t_delivered_ms)   (first delivered per key)
+    xl_no_gw = 0        # cross-layer sends dropped at origination: no gateway route (xl_send_no_gateway)
     for t_ms, fid, et, d in walk_events(events_path, slot_to_id):
         if et == "gateway_schedule_change":
             lyr = d.get("active_layer_id")
@@ -519,6 +525,9 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None):
             # the gateway and ctr is the forward ctr.
             if o is not None and dst is not None and c is not None:
                 delivered_fwd.add((o, dst, c))
+            # §xl: the target's `delivered` preserves the ORIGINAL (origin,ctr) -> key cross-layer arrival on it.
+            if o is not None and c is not None and (o, c) not in delivered_oc:
+                delivered_oc[(o, c)] = (dst, t_ms)
         elif et == "gateway_envelope_dropped":
             drops.append({"origin": d.get("origin", fid),
                           "target_layer_id": d.get("target_layer_id"),
@@ -550,6 +559,11 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None):
             to_, hk = d.get("origin"), d.get("dst_key_hash32")
             if to_ is not None and hk is not None:
                 transit_started.add((to_, hk))
+        elif et == "tx_enqueue_xl":                       # §xl: a cross-layer origination (dst = the gateway wire-dst)
+            if o is not None and c is not None and (o, c) not in xl_orig:
+                xl_orig[(o, c)] = (dst, d.get("target_layer"), t_ms)
+        elif et == "xl_send_no_gateway":                  # §xl: cross-layer send dropped at origination (no gateway route)
+            xl_no_gw += 1
 
     # Index for looking up the originator's record from gateway-side
     # handoff events. (origin, ctr) -> record_key (origin, dst, ctr)
@@ -569,6 +583,10 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None):
                 "giveup_reason": None,
                 "payload":     None,
                 "carriers":    set(),
+                # §hops (2026-06-17): nodes that data_rx'd this msg. `data_rx` CARRIES origin (unlike the relay
+                # `data_tx`/`rts_tx`, which don't) → msg_key attributes each receive-hop to the right record, so
+                # distinct receivers == hop count. This is the robust hop measure (relay tx can't be keyed).
+                "rx_nodes":    set(),
                 "events":      [],
                 # Cross-layer extension. via_gateway flips True when the
                 # originator's tx_enqueue carries it; target_id resolves
@@ -697,6 +715,10 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None):
         # Carrier set: who actually transmitted for this message?
         if et in ("rts_tx", "data_tx", "rts_fwd", "rts_retry"):
             r["carriers"].add(fid)
+        # §hops: each data_rx = one traversed hop (a relay or the dst received a transmission). data_rx carries
+        # origin so it's keyed to the originator's record — this counts multi-hop where the relay tx (no origin) can't.
+        if et == "data_rx":
+            r["rx_nodes"].add(fid)
 
         # Timeline event capture.
         if et in TIMELINE_EMITS:
@@ -708,10 +730,24 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None):
     for r in msgs.values():
         r["events"].sort(key=lambda x: (x["t_ms"], x["node"]))
 
-    # Post-pass: resolve cross-layer target_id from key_hash + look up
-    # arrival via payload at the target. This is the only honest
-    # delivery signal for send_layer messages — the gateway rewrites
-    # origin/ctr on the second leg.
+    # §xl post-pass (2026-06-17): reconstruct one record per cross-layer origination + resolve arrival from
+    # delivered_oc. Done here (after the same-layer main pass) so it isn't clobbered. The target's `delivered`
+    # preserves (origin,ctr) and carries the resolved target dst, so no hash/payload resolution is needed.
+    xl_arrived = 0
+    for (o, c), (gw, tlayer, te) in xl_orig.items():
+        r = rec_create((o, gw, c))
+        r["via_gateway"] = True
+        r["target_layer_id"] = tlayer
+        if r["enqueued_ms"] is None:
+            r["enqueued_ms"] = te
+        dd = delivered_oc.get((o, c))
+        if dd is not None:
+            r["arrival_at_target_ms"] = dd[1]
+            r["target_id"] = dd[0]
+            xl_arrived += 1
+    xl_stats = {"sent": len(xl_orig) + xl_no_gw, "enqueued": len(xl_orig),
+                "arrived": xl_arrived, "no_gateway": xl_no_gw}
+
     for tl in gw_layers.values():
         tl.sort()
     second_leg = {
@@ -725,7 +761,7 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None):
         "hops_by_payload": hops_by_payload,
         "transit_started": transit_started,
     }
-    return msgs, arrival_by_payload, drops, gw_giveup, gw_layers, second_leg
+    return msgs, arrival_by_payload, drops, gw_giveup, gw_layers, second_leg, xl_stats
 
 
 def outcome(rec):
@@ -793,7 +829,10 @@ def summarise(msgs, pair_filter, id_to_name, no_gw_by_pair=None):
         # A pair is cross-layer if any record is via_gateway OR it had drops
         # (drops only come from send_layer, i.e. cross-layer).
         any_cross = any(r.get("via_gateway") for r in recs) or no_gw > 0
-        hops_list = [len(r["carriers"]) for r in recs if _arrived(r)]
+        # §hops: hop count = distinct data_rx receivers (origin-keyed, robust). Fall back to carriers for
+        # records with no rx_nodes (e.g. the post-pass cross-layer records, whose data_rx keys on the target dst).
+        hops_list = [len(r["rx_nodes"]) if r["rx_nodes"] else len(r["carriers"])
+                     for r in recs if _arrived(r)]
         mean_hops = (sum(hops_list) / len(hops_list)) if hops_list else None
         giveup_reasons = [r["giveup_reason"] for r in recs
                           if r["giveup_reason"]]
@@ -2349,7 +2388,7 @@ def main():
                     top=args.tail, link_km=args.tail_link_km)
         return
 
-    msgs, arrival_by_payload, drops, gw_giveup, gw_layers, second_leg = analyse(
+    msgs, arrival_by_payload, drops, gw_giveup, gw_layers, second_leg, xl_stats = analyse(
         args.events, slot_to_id, hash_layer_to_name)
     gw_home, gw_visit = gateway_layers(cfg)
 
@@ -2443,6 +2482,14 @@ def main():
     if args.mode in ("dm", "all"):
         print("=== DM ===")
         render_table(rows)
+        # §xl: the authoritative cross-layer delivery metric (pair-grouping-independent — the per-pair table
+        # above drops un-arrived cross-layer rows whose target can't be resolved without the seal). Reconstructed
+        # from tx_enqueue_xl + the (origin,ctr)-matched `delivered`.
+        if xl_stats["sent"]:
+            s = xl_stats
+            pct = f"{100*s['arrived']/s['sent']:.1f}%" if s["sent"] else "-"
+            print(f"cross-layer DMs: {s['arrived']}/{s['sent']} delivered = {pct}"
+                  f"   ({s['enqueued']} enqueued, {s['no_gateway']} dropped no-gateway)")
         if args.failures:
             print()
             print("=== Cross-layer stage funnel ===")

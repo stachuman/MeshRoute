@@ -1,0 +1,284 @@
+{
+ "_name": "s19_singlelayer_multihop_chain",
+ "_desc": "Single-layer MULTI-HOP baseline: a redundant 3-hop chain A-{L,L2}-{R,R2}-B with TWO disjoint A<->B paths (no A<->B direct link => every A<->B DM relays >=2 hops). Fills the suite's multi-hop gap (s18/s17 same-layer are single-hop). Doubles as the liveness-reroute base: killing one relay must reroute via the parallel path. Strong lossless links (snr_std_dev 0) so the gate measures HOP COUNT + delivery, not link noise.",
+ "simulation": {
+  "duration_ms": 1200000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "beacon_period_ms": 60000,
+  "seed": 42,
+  "node_startup_jitter_ms": 5000,
+  "radio": {
+   "sf": 8,
+   "bw": 125,
+   "cr": 5,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 0.1
+  }
+ },
+ "config": {
+  "debug_start_ms": 0,
+  "debug_end_ms": 1200000
+ },
+ "commands": [
+  {
+   "at_ms": 300000,
+   "node": "A",
+   "command": "send B p1 A->B-AB"
+  },
+  {
+   "at_ms": 390000,
+   "node": "B",
+   "command": "send A p1 B->A-BA"
+  },
+  {
+   "at_ms": 480000,
+   "node": "A",
+   "command": "send B p1 A->B-AB"
+  },
+  {
+   "at_ms": 570000,
+   "node": "B",
+   "command": "send A p1 B->A-BA"
+  },
+  {
+   "at_ms": 660000,
+   "node": "A",
+   "command": "send R p1 A->R-AR2hop"
+  },
+  {
+   "at_ms": 750000,
+   "node": "R",
+   "command": "send A p1 R->A-RA2hop"
+  },
+  {
+   "at_ms": 840000,
+   "node": "A",
+   "command": "send B p1 A->B-AB"
+  },
+  {
+   "at_ms": 930000,
+   "node": "B",
+   "command": "send A p1 B->A-BA"
+  }
+ ],
+ "nodes": [
+  {
+   "name": "A",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.6,
+   "lon": -122.33,
+   "node_id": 1,
+   "engine": "meshroute"
+  },
+  {
+   "name": "L",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.61,
+   "lon": -122.32,
+   "node_id": 2,
+   "engine": "meshroute"
+  },
+  {
+   "name": "L2",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.61,
+   "lon": -122.34,
+   "node_id": 3,
+   "engine": "meshroute"
+  },
+  {
+   "name": "R",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.620000000000005,
+   "lon": -122.32,
+   "node_id": 4,
+   "engine": "meshroute"
+  },
+  {
+   "name": "R2",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.620000000000005,
+   "lon": -122.34,
+   "node_id": 5,
+   "engine": "meshroute"
+  },
+  {
+   "name": "B",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.63,
+   "lon": -122.33,
+   "node_id": 6,
+   "engine": "meshroute"
+  }
+ ],
+ "topology": {
+  "links": [
+   {
+    "from": "A",
+    "to": "L",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "L",
+    "to": "A",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "A",
+    "to": "L2",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "L2",
+    "to": "A",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "L",
+    "to": "R",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "R",
+    "to": "L",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "L",
+    "to": "R2",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "R2",
+    "to": "L",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "L2",
+    "to": "R",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "R",
+    "to": "L2",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "L2",
+    "to": "R2",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "R2",
+    "to": "L2",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "R",
+    "to": "B",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "B",
+    "to": "R",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "R2",
+    "to": "B",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "B",
+    "to": "R2",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   }
+  ]
+ }
+}

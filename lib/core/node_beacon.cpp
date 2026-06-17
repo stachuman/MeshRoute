@@ -53,7 +53,7 @@ int16_t Node::route_score_from_snr(int16_t snr_q4) const {
 // reverse/forward-path learner. Like learn_direct_neighbor but multi-hop, and it does NOT fire a
 // triggered beacon (the F path relies on the periodic dirty-beacon to re-advertise).
 void Node::learn_route_via(uint8_t dest, uint8_t via, uint8_t hops, int16_t snr_q4) {
-    if (dest == 0xFF || dest == _node_id || via == 0xFF) return;
+    if (dest == 0xFF || dest == 0 || dest == _node_id || via == 0xFF || via == 0) return;   // §P0: 0 = reserved sentinel
     RtCandidate cand{};
     cand.next_hop = via; cand.score = route_score_from_snr(snr_q4); cand.hops = hops;
     cand.is_gateway = false; cand.last_seen_ms = _hal.now(); cand.learned_layer_id = _cfg.leaf_id;
@@ -69,7 +69,9 @@ void Node::learn_route_via(uint8_t dest, uint8_t via, uint8_t hops, int16_t snr_
 // merge it, emit rt_update. Returns true on a real change so the caller fires the triggered
 // beacon. The C++ has no id-bind/dest-seen/liveness plane, so those Lua sub-actions are absent.
 bool Node::learn_direct_neighbor(uint8_t sender, int16_t snr_q4, bool is_gw) {
-    if (sender == 0xFF || sender == _node_id) return false;   // unknown/reserved id, or self
+    if (sender == 0xFF || sender == 0 || sender == _node_id) return false;   // unknown/reserved id (0/0xFF), or self (§P0)
+    mark_dest_seen(sender);                          // §P1: a frame heard FROM a direct neighbour -> freshness stamp...
+    clear_peer_suspect(sender, "rx_frame");          // ...and it's demonstrably alive -> clear any timeout/suspect state (Lua dv:9325-9326)
     RtCandidate cand{};
     cand.next_hop         = sender;
     cand.score            = route_score_from_snr(snr_q4);
@@ -128,6 +130,11 @@ size_t Node::build_gateway_layer_ext(uint8_t* out, size_t cap) {
 }
 
 void Node::emit_beacon(const char* kind) {
+    // §P0: an UNPROVISIONED node (id 0) must NEVER advertise routes — its id is the reserved sentinel, so neighbours
+    // would install a route to "0" that then propagates. Guard the COMMON emit path (covers periodic + triggered +
+    // gateway-window + sync), broader than periodic_beacon_fire's join_required gate. A node beacons only once it has
+    // claimed a short id.
+    if (_node_id == 0) return;
     // Half-duplex busy skip (Lua send_beacon_page dv:7585): never beacon mid data-exchange. periodic_beacon_fire
     // already guards this, but the TRIGGERED path (kTriggeredBeaconTimerId) reaches here directly — without this
     // the C++ would TX a triggered beacon while busy where the Lua skips, diverging beacon timing (review #02).
@@ -257,6 +264,7 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (!parsed) return;
     const beacon_out& b = *parsed;
     if (b.leaf_id != _cfg.leaf_id) return;                // single-layer filter (R1)
+    if (b.src == 0) return;                               // §P0: a BCN from the reserved sentinel id (an unprovisioned node) -> DROP (never learn a route via/to 0)
     if (b.src == _node_id) {                              // beacon carrying OUR short id...
         if (b.key_hash32 == _key_hash32) return;          // ...and our hash -> a true self-echo; drop
         // ...but a DIFFERENT hash -> an ADDRESS COLLISION (node_id DAD §7). The old guard swallowed this.
@@ -342,10 +350,12 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         if (!pe) continue;
         const beacon_entry& e = *pe;
         if (e.dest == _node_id) continue;                 // split-horizon
-        if (e.next == _node_id) {                         // sender reaches e.dest via US
+        if (e.next == _node_id) {                         // sender reaches e.dest via US (incl. e.next==0 when WE are unprovisioned)
             rt_prune_cycle(e.dest, b.src);                // drop our looped candidates (dv_dual_sf.lua:9628-9633)
             continue;
         }
+        if (e.dest == 0 || e.next == 0) continue;         // §P0: never learn a route TO, or with an n2_hop OF, the reserved sentinel id 0
+                                                          // (AFTER the cycle-prune so an unprovisioned node's own-id=0 still prunes)
         // R2: peer-suspect skip is a no-op (no liveness plane → suspect_level 0).
         const int16_t entry_score_q4 = snr_of_bucket_4b(e.score_bucket);
         const int16_t rx_score_q4    = route_score_from_snr(meta_snr_q4);

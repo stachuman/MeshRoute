@@ -25,6 +25,7 @@
       "name": "c000",
       "node_id": 1,
       "key_hash32": "0x17010000",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.401715,
       "lon": 2.148377,
       "config": {
@@ -38,13 +39,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c001",
       "node_id": 2,
       "key_hash32": "0x17010001",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.401293,
       "lon": 2.174572,
       "config": {
@@ -58,13 +59,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c002",
       "node_id": 3,
       "key_hash32": "0x17010002",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.393929,
       "lon": 2.168063,
       "config": {
@@ -78,13 +79,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c003",
       "node_id": 4,
       "key_hash32": "0x17010003",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.392021,
       "lon": 2.155774,
       "config": {
@@ -98,13 +99,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c004",
       "node_id": 5,
       "key_hash32": "0x17010004",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.41092,
       "lon": 2.151519,
       "config": {
@@ -118,13 +119,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c005",
       "node_id": 6,
       "key_hash32": "0x17010005",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.395501,
       "lon": 2.149597,
       "config": {
@@ -138,13 +139,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c006",
       "node_id": 7,
       "key_hash32": "0x17010006",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.396913,
       "lon": 2.174895,
       "config": {
@@ -158,13 +159,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c007",
       "node_id": 8,
       "key_hash32": "0x17010007",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.397145,
       "lon": 2.155793,
       "config": {
@@ -178,13 +179,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c008",
       "node_id": 9,
       "key_hash32": "0x17010008",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.397611,
       "lon": 2.153646,
       "config": {
@@ -198,13 +199,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c009",
       "node_id": 10,
       "key_hash32": "0x17010009",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.393479,
       "lon": 2.162977,
       "config": {
@@ -218,13 +219,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c010",
       "node_id": 11,
       "key_hash32": "0x1701000A",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.405477,
       "lon": 2.158154,
       "config": {
@@ -238,13 +239,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c011",
       "node_id": 12,
       "key_hash32": "0x1701000B",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.411107,
       "lon": 2.169815,
       "config": {
@@ -258,13 +259,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c012",
       "node_id": 13,
       "key_hash32": "0x1701000C",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.400755,
       "lon": 2.16625,
       "config": {
@@ -278,13 +279,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c013",
       "node_id": 14,
       "key_hash32": "0x1701000D",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.39506,
       "lon": 2.158185,
       "config": {
@@ -298,13 +299,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c014",
       "node_id": 15,
       "key_hash32": "0x1701000E",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.396673,
       "lon": 2.159598,
       "config": {
@@ -318,13 +319,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c015",
       "node_id": 16,
       "key_hash32": "0x1701000F",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.407346,
       "lon": 2.146244,
       "config": {
@@ -338,13 +339,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c016",
       "node_id": 17,
       "key_hash32": "0x17010010",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.41319,
       "lon": 2.159092,
       "config": {
@@ -358,13 +359,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c017",
       "node_id": 18,
       "key_hash32": "0x17010011",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.398511,
       "lon": 2.15516,
       "config": {
@@ -378,13 +379,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c018",
       "node_id": 19,
       "key_hash32": "0x17010012",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.400946,
       "lon": 2.159394,
       "config": {
@@ -398,13 +399,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c019",
       "node_id": 20,
       "key_hash32": "0x17010013",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.411042,
       "lon": 2.150779,
       "config": {
@@ -418,13 +419,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c020",
       "node_id": 21,
       "key_hash32": "0x17010014",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.402813,
       "lon": 2.15621,
       "config": {
@@ -438,13 +439,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c021",
       "node_id": 22,
       "key_hash32": "0x17010015",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.392168,
       "lon": 2.154852,
       "config": {
@@ -458,13 +459,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c022",
       "node_id": 23,
       "key_hash32": "0x17010016",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.403408,
       "lon": 2.151509,
       "config": {
@@ -478,13 +479,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c023",
       "node_id": 24,
       "key_hash32": "0x17010017",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.392997,
       "lon": 2.151803,
       "config": {
@@ -498,13 +499,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c024",
       "node_id": 25,
       "key_hash32": "0x17010018",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.391142,
       "lon": 2.146633,
       "config": {
@@ -518,13 +519,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c025",
       "node_id": 26,
       "key_hash32": "0x17010019",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.403999,
       "lon": 2.16169,
       "config": {
@@ -538,13 +539,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c026",
       "node_id": 27,
       "key_hash32": "0x1701001A",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.397844,
       "lon": 2.149654,
       "config": {
@@ -558,13 +559,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c027",
       "node_id": 28,
       "key_hash32": "0x1701001B",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.410982,
       "lon": 2.16215,
       "config": {
@@ -578,13 +579,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c028",
       "node_id": 29,
       "key_hash32": "0x1701001C",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.395444,
       "lon": 2.143472,
       "config": {
@@ -598,13 +599,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c029",
       "node_id": 30,
       "key_hash32": "0x1701001D",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.400429,
       "lon": 2.151893,
       "config": {
@@ -618,13 +619,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c030",
       "node_id": 31,
       "key_hash32": "0x1701001E",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.397466,
       "lon": 2.163402,
       "config": {
@@ -638,13 +639,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c031",
       "node_id": 32,
       "key_hash32": "0x1701001F",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.409498,
       "lon": 2.153024,
       "config": {
@@ -658,13 +659,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c032",
       "node_id": 33,
       "key_hash32": "0x17010020",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.4016,
       "lon": 2.150717,
       "config": {
@@ -678,13 +679,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c033",
       "node_id": 34,
       "key_hash32": "0x17010021",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.39073,
       "lon": 2.159048,
       "config": {
@@ -698,13 +699,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c034",
       "node_id": 35,
       "key_hash32": "0x17010022",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.406063,
       "lon": 2.17077,
       "config": {
@@ -718,13 +719,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c035",
       "node_id": 36,
       "key_hash32": "0x17010023",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.39648,
       "lon": 2.170672,
       "config": {
@@ -738,13 +739,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c036",
       "node_id": 37,
       "key_hash32": "0x17010024",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.393299,
       "lon": 2.144725,
       "config": {
@@ -758,13 +759,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c037",
       "node_id": 38,
       "key_hash32": "0x17010025",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.403625,
       "lon": 2.16421,
       "config": {
@@ -778,13 +779,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c038",
       "node_id": 39,
       "key_hash32": "0x17010026",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.407226,
       "lon": 2.173279,
       "config": {
@@ -798,13 +799,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c039",
       "node_id": 40,
       "key_hash32": "0x17010027",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.4044,
       "lon": 2.173394,
       "config": {
@@ -818,13 +819,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c040",
       "node_id": 41,
       "key_hash32": "0x17010028",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.409182,
       "lon": 2.168916,
       "config": {
@@ -838,13 +839,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c041",
       "node_id": 42,
       "key_hash32": "0x17010029",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.391176,
       "lon": 2.153081,
       "config": {
@@ -858,13 +859,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c042",
       "node_id": 43,
       "key_hash32": "0x1701002A",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.399599,
       "lon": 2.152479,
       "config": {
@@ -878,13 +879,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c043",
       "node_id": 44,
       "key_hash32": "0x1701002B",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.394035,
       "lon": 2.145807,
       "config": {
@@ -898,13 +899,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c044",
       "node_id": 45,
       "key_hash32": "0x1701002C",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.396147,
       "lon": 2.143521,
       "config": {
@@ -918,13 +919,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c045",
       "node_id": 46,
       "key_hash32": "0x1701002D",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.412039,
       "lon": 2.159797,
       "config": {
@@ -938,13 +939,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c046",
       "node_id": 47,
       "key_hash32": "0x1701002E",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.399176,
       "lon": 2.147986,
       "config": {
@@ -958,13 +959,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c047",
       "node_id": 48,
       "key_hash32": "0x1701002F",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.413056,
       "lon": 2.156631,
       "config": {
@@ -978,13 +979,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c048",
       "node_id": 49,
       "key_hash32": "0x17010030",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.400877,
       "lon": 2.169902,
       "config": {
@@ -998,13 +999,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c049",
       "node_id": 50,
       "key_hash32": "0x17010031",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.40443,
       "lon": 2.147563,
       "config": {
@@ -1018,13 +1019,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c050",
       "node_id": 51,
       "key_hash32": "0x17010032",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.40855,
       "lon": 2.152426,
       "config": {
@@ -1038,13 +1039,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c051",
       "node_id": 52,
       "key_hash32": "0x17010033",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.399561,
       "lon": 2.16375,
       "config": {
@@ -1058,13 +1059,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c052",
       "node_id": 53,
       "key_hash32": "0x17010034",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.402866,
       "lon": 2.173781,
       "config": {
@@ -1078,13 +1079,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c053",
       "node_id": 54,
       "key_hash32": "0x17010035",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.394262,
       "lon": 2.153092,
       "config": {
@@ -1098,13 +1099,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c054",
       "node_id": 55,
       "key_hash32": "0x17010036",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.403105,
       "lon": 2.149551,
       "config": {
@@ -1118,13 +1119,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c055",
       "node_id": 56,
       "key_hash32": "0x17010037",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.402458,
       "lon": 2.169622,
       "config": {
@@ -1138,13 +1139,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c056",
       "node_id": 57,
       "key_hash32": "0x17010038",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.394797,
       "lon": 2.144849,
       "config": {
@@ -1158,13 +1159,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c057",
       "node_id": 58,
       "key_hash32": "0x17010039",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.40485,
       "lon": 2.164236,
       "config": {
@@ -1178,13 +1179,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c058",
       "node_id": 59,
       "key_hash32": "0x1701003A",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.410172,
       "lon": 2.171123,
       "config": {
@@ -1198,13 +1199,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c059",
       "node_id": 60,
       "key_hash32": "0x1701003B",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.403753,
       "lon": 2.152923,
       "config": {
@@ -1218,13 +1219,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c060",
       "node_id": 61,
       "key_hash32": "0x1701003C",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.402766,
       "lon": 2.144579,
       "config": {
@@ -1238,13 +1239,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c061",
       "node_id": 62,
       "key_hash32": "0x1701003D",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.403036,
       "lon": 2.177386,
       "config": {
@@ -1258,13 +1259,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c062",
       "node_id": 63,
       "key_hash32": "0x1701003E",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.400166,
       "lon": 2.17683,
       "config": {
@@ -1278,13 +1279,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c063",
       "node_id": 64,
       "key_hash32": "0x1701003F",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.403842,
       "lon": 2.149653,
       "config": {
@@ -1298,13 +1299,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c064",
       "node_id": 65,
       "key_hash32": "0x17010040",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.388318,
       "lon": 2.162309,
       "config": {
@@ -1318,13 +1319,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c065",
       "node_id": 66,
       "key_hash32": "0x17010041",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.389173,
       "lon": 2.168927,
       "config": {
@@ -1338,13 +1339,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c066",
       "node_id": 67,
       "key_hash32": "0x17010042",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.3967,
       "lon": 2.170287,
       "config": {
@@ -1358,13 +1359,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c067",
       "node_id": 68,
       "key_hash32": "0x17010043",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.393115,
       "lon": 2.148049,
       "config": {
@@ -1378,13 +1379,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c068",
       "node_id": 69,
       "key_hash32": "0x17010044",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.397029,
       "lon": 2.143718,
       "config": {
@@ -1398,13 +1399,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c069",
       "node_id": 70,
       "key_hash32": "0x17010045",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.411833,
       "lon": 2.151588,
       "config": {
@@ -1418,13 +1419,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c070",
       "node_id": 71,
       "key_hash32": "0x17010046",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.411178,
       "lon": 2.157139,
       "config": {
@@ -1438,13 +1439,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c071",
       "node_id": 72,
       "key_hash32": "0x17010047",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.397379,
       "lon": 2.146534,
       "config": {
@@ -1458,13 +1459,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c072",
       "node_id": 73,
       "key_hash32": "0x17010048",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.404539,
       "lon": 2.156139,
       "config": {
@@ -1478,13 +1479,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c073",
       "node_id": 74,
       "key_hash32": "0x17010049",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.405263,
       "lon": 2.157151,
       "config": {
@@ -1498,13 +1499,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c074",
       "node_id": 75,
       "key_hash32": "0x1701004A",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.406042,
       "lon": 2.163909,
       "config": {
@@ -1518,13 +1519,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c075",
       "node_id": 76,
       "key_hash32": "0x1701004B",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.409072,
       "lon": 2.163912,
       "config": {
@@ -1538,13 +1539,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c076",
       "node_id": 77,
       "key_hash32": "0x1701004C",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.401331,
       "lon": 2.158496,
       "config": {
@@ -1558,13 +1559,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c077",
       "node_id": 78,
       "key_hash32": "0x1701004D",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.409592,
       "lon": 2.170636,
       "config": {
@@ -1578,13 +1579,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c078",
       "node_id": 79,
       "key_hash32": "0x1701004E",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.396809,
       "lon": 2.175084,
       "config": {
@@ -1598,13 +1599,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c079",
       "node_id": 80,
       "key_hash32": "0x1701004F",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.38893,
       "lon": 2.163721,
       "config": {
@@ -1618,13 +1619,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c080",
       "node_id": 81,
       "key_hash32": "0x17010050",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.397944,
       "lon": 2.148847,
       "config": {
@@ -1638,13 +1639,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c081",
       "node_id": 82,
       "key_hash32": "0x17010051",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.394667,
       "lon": 2.148109,
       "config": {
@@ -1658,13 +1659,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c082",
       "node_id": 83,
       "key_hash32": "0x17010052",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.402172,
       "lon": 2.147259,
       "config": {
@@ -1678,13 +1679,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c083",
       "node_id": 84,
       "key_hash32": "0x17010053",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.389276,
       "lon": 2.15411,
       "config": {
@@ -1698,13 +1699,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c084",
       "node_id": 85,
       "key_hash32": "0x17010054",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.405448,
       "lon": 2.154306,
       "config": {
@@ -1718,13 +1719,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c085",
       "node_id": 86,
       "key_hash32": "0x17010055",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.406816,
       "lon": 2.145855,
       "config": {
@@ -1738,13 +1739,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c086",
       "node_id": 87,
       "key_hash32": "0x17010056",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.410321,
       "lon": 2.161928,
       "config": {
@@ -1758,13 +1759,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c087",
       "node_id": 88,
       "key_hash32": "0x17010057",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.394297,
       "lon": 2.15577,
       "config": {
@@ -1778,13 +1779,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c088",
       "node_id": 89,
       "key_hash32": "0x17010058",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.406366,
       "lon": 2.153102,
       "config": {
@@ -1798,13 +1799,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c089",
       "node_id": 90,
       "key_hash32": "0x17010059",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.408781,
       "lon": 2.166048,
       "config": {
@@ -1818,13 +1819,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c090",
       "node_id": 91,
       "key_hash32": "0x1701005A",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.392564,
       "lon": 2.163104,
       "config": {
@@ -1838,13 +1839,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c091",
       "node_id": 92,
       "key_hash32": "0x1701005B",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.403111,
       "lon": 2.144577,
       "config": {
@@ -1858,13 +1859,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c092",
       "node_id": 93,
       "key_hash32": "0x1701005C",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.406247,
       "lon": 2.144923,
       "config": {
@@ -1878,13 +1879,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c093",
       "node_id": 94,
       "key_hash32": "0x1701005D",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.393587,
       "lon": 2.169822,
       "config": {
@@ -1898,13 +1899,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c094",
       "node_id": 95,
       "key_hash32": "0x1701005E",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.406081,
       "lon": 2.156559,
       "config": {
@@ -1918,13 +1919,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c095",
       "node_id": 96,
       "key_hash32": "0x1701005F",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.401482,
       "lon": 2.169436,
       "config": {
@@ -1938,13 +1939,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c096",
       "node_id": 97,
       "key_hash32": "0x17010060",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.39758,
       "lon": 2.170663,
       "config": {
@@ -1958,13 +1959,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c097",
       "node_id": 98,
       "key_hash32": "0x17010061",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.395221,
       "lon": 2.167544,
       "config": {
@@ -1978,13 +1979,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c098",
       "node_id": 99,
       "key_hash32": "0x17010062",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.405563,
       "lon": 2.165106,
       "config": {
@@ -1998,13 +1999,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c099",
       "node_id": 100,
       "key_hash32": "0x17010063",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.398924,
       "lon": 2.144137,
       "config": {
@@ -2018,13 +2019,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c100",
       "node_id": 101,
       "key_hash32": "0x17010064",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.403126,
       "lon": 2.173789,
       "config": {
@@ -2038,13 +2039,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c101",
       "node_id": 102,
       "key_hash32": "0x17010065",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.41347,
       "lon": 2.1607,
       "config": {
@@ -2058,13 +2059,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c102",
       "node_id": 103,
       "key_hash32": "0x17010066",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.397655,
       "lon": 2.172748,
       "config": {
@@ -2078,13 +2079,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c103",
       "node_id": 104,
       "key_hash32": "0x17010067",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.393821,
       "lon": 2.147968,
       "config": {
@@ -2098,13 +2099,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c104",
       "node_id": 105,
       "key_hash32": "0x17010068",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.403579,
       "lon": 2.143985,
       "config": {
@@ -2118,13 +2119,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c105",
       "node_id": 106,
       "key_hash32": "0x17010069",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.407662,
       "lon": 2.154836,
       "config": {
@@ -2138,13 +2139,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c106",
       "node_id": 107,
       "key_hash32": "0x1701006A",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.397908,
       "lon": 2.160627,
       "config": {
@@ -2158,13 +2159,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c107",
       "node_id": 108,
       "key_hash32": "0x1701006B",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.401923,
       "lon": 2.154516,
       "config": {
@@ -2178,13 +2179,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c108",
       "node_id": 109,
       "key_hash32": "0x1701006C",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.390771,
       "lon": 2.159004,
       "config": {
@@ -2198,13 +2199,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c109",
       "node_id": 110,
       "key_hash32": "0x1701006D",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.392796,
       "lon": 2.160898,
       "config": {
@@ -2218,13 +2219,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c110",
       "node_id": 111,
       "key_hash32": "0x1701006E",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.397588,
       "lon": 2.175897,
       "config": {
@@ -2238,13 +2239,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c111",
       "node_id": 112,
       "key_hash32": "0x1701006F",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.398052,
       "lon": 2.165194,
       "config": {
@@ -2258,13 +2259,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c112",
       "node_id": 113,
       "key_hash32": "0x17010070",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.399955,
       "lon": 2.1521,
       "config": {
@@ -2278,13 +2279,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c113",
       "node_id": 114,
       "key_hash32": "0x17010071",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.398957,
       "lon": 2.170513,
       "config": {
@@ -2298,13 +2299,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c114",
       "node_id": 115,
       "key_hash32": "0x17010072",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.412442,
       "lon": 2.155721,
       "config": {
@@ -2318,13 +2319,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c115",
       "node_id": 116,
       "key_hash32": "0x17010073",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.39296,
       "lon": 2.169322,
       "config": {
@@ -2338,13 +2339,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c116",
       "node_id": 117,
       "key_hash32": "0x17010074",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.392665,
       "lon": 2.163142,
       "config": {
@@ -2358,13 +2359,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c117",
       "node_id": 118,
       "key_hash32": "0x17010075",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.407911,
       "lon": 2.16532,
       "config": {
@@ -2378,13 +2379,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c118",
       "node_id": 119,
       "key_hash32": "0x17010076",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.400761,
       "lon": 2.171587,
       "config": {
@@ -2398,13 +2399,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c119",
       "node_id": 120,
       "key_hash32": "0x17010077",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.400475,
       "lon": 2.148543,
       "config": {
@@ -2418,13 +2419,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c120",
       "node_id": 121,
       "key_hash32": "0x17010078",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.4132,
       "lon": 2.158635,
       "config": {
@@ -2438,13 +2439,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c121",
       "node_id": 122,
       "key_hash32": "0x17010079",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.395321,
       "lon": 2.157515,
       "config": {
@@ -2458,13 +2459,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c122",
       "node_id": 123,
       "key_hash32": "0x1701007A",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.406527,
       "lon": 2.156928,
       "config": {
@@ -2478,13 +2479,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c123",
       "node_id": 124,
       "key_hash32": "0x1701007B",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.39859,
       "lon": 2.145968,
       "config": {
@@ -2498,13 +2499,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c124",
       "node_id": 125,
       "key_hash32": "0x1701007C",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.396516,
       "lon": 2.14383,
       "config": {
@@ -2518,13 +2519,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c125",
       "node_id": 126,
       "key_hash32": "0x1701007D",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.40114,
       "lon": 2.176671,
       "config": {
@@ -2538,13 +2539,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c126",
       "node_id": 127,
       "key_hash32": "0x1701007E",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.390363,
       "lon": 2.167432,
       "config": {
@@ -2558,13 +2559,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c127",
       "node_id": 128,
       "key_hash32": "0x1701007F",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.39901,
       "lon": 2.174496,
       "config": {
@@ -2578,13 +2579,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c128",
       "node_id": 129,
       "key_hash32": "0x17010080",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.3998,
       "lon": 2.145059,
       "config": {
@@ -2598,13 +2599,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c129",
       "node_id": 130,
       "key_hash32": "0x17010081",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.402785,
       "lon": 2.162451,
       "config": {
@@ -2618,13 +2619,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c130",
       "node_id": 131,
       "key_hash32": "0x17010082",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.394964,
       "lon": 2.176597,
       "config": {
@@ -2638,13 +2639,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c131",
       "node_id": 132,
       "key_hash32": "0x17010083",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.398988,
       "lon": 2.154802,
       "config": {
@@ -2658,13 +2659,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c132",
       "node_id": 133,
       "key_hash32": "0x17010084",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.394822,
       "lon": 2.163244,
       "config": {
@@ -2678,13 +2679,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c133",
       "node_id": 134,
       "key_hash32": "0x17010085",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.406924,
       "lon": 2.171862,
       "config": {
@@ -2698,13 +2699,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c134",
       "node_id": 135,
       "key_hash32": "0x17010086",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.410119,
       "lon": 2.168853,
       "config": {
@@ -2718,13 +2719,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c135",
       "node_id": 136,
       "key_hash32": "0x17010087",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.393384,
       "lon": 2.150832,
       "config": {
@@ -2738,13 +2739,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c136",
       "node_id": 137,
       "key_hash32": "0x17010088",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.389663,
       "lon": 2.152293,
       "config": {
@@ -2758,13 +2759,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c137",
       "node_id": 138,
       "key_hash32": "0x17010089",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.398686,
       "lon": 2.147662,
       "config": {
@@ -2778,13 +2779,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c138",
       "node_id": 139,
       "key_hash32": "0x1701008A",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.397726,
       "lon": 2.168185,
       "config": {
@@ -2798,13 +2799,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c139",
       "node_id": 140,
       "key_hash32": "0x1701008B",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.399595,
       "lon": 2.159342,
       "config": {
@@ -2818,13 +2819,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c140",
       "node_id": 141,
       "key_hash32": "0x1701008C",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.409208,
       "lon": 2.160673,
       "config": {
@@ -2838,13 +2839,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c141",
       "node_id": 142,
       "key_hash32": "0x1701008D",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.39746,
       "lon": 2.163484,
       "config": {
@@ -2858,13 +2859,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c142",
       "node_id": 143,
       "key_hash32": "0x1701008E",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.406443,
       "lon": 2.158938,
       "config": {
@@ -2878,13 +2879,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c143",
       "node_id": 144,
       "key_hash32": "0x1701008F",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.395521,
       "lon": 2.154846,
       "config": {
@@ -2898,13 +2899,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c144",
       "node_id": 145,
       "key_hash32": "0x17010090",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.397345,
       "lon": 2.175467,
       "config": {
@@ -2918,13 +2919,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c145",
       "node_id": 146,
       "key_hash32": "0x17010091",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.400723,
       "lon": 2.157271,
       "config": {
@@ -2938,13 +2939,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c146",
       "node_id": 147,
       "key_hash32": "0x17010092",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.387997,
       "lon": 2.157899,
       "config": {
@@ -2958,13 +2959,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c147",
       "node_id": 148,
       "key_hash32": "0x17010093",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.410158,
       "lon": 2.170839,
       "config": {
@@ -2978,13 +2979,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c148",
       "node_id": 149,
       "key_hash32": "0x17010094",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.39577,
       "lon": 2.154751,
       "config": {
@@ -2998,13 +2999,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c149",
       "node_id": 150,
       "key_hash32": "0x17010095",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.389497,
       "lon": 2.170506,
       "config": {
@@ -3018,13 +3019,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c150",
       "node_id": 151,
       "key_hash32": "0x17010096",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.390595,
       "lon": 2.167828,
       "config": {
@@ -3038,13 +3039,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c151",
       "node_id": 152,
       "key_hash32": "0x17010097",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.396799,
       "lon": 2.148115,
       "config": {
@@ -3058,13 +3059,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c152",
       "node_id": 153,
       "key_hash32": "0x17010098",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.411935,
       "lon": 2.16611,
       "config": {
@@ -3078,13 +3079,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c153",
       "node_id": 154,
       "key_hash32": "0x17010099",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.412645,
       "lon": 2.156735,
       "config": {
@@ -3098,13 +3099,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c154",
       "node_id": 155,
       "key_hash32": "0x1701009A",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.387511,
       "lon": 2.161666,
       "config": {
@@ -3118,13 +3119,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c155",
       "node_id": 156,
       "key_hash32": "0x1701009B",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.38757,
       "lon": 2.162464,
       "config": {
@@ -3138,13 +3139,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c156",
       "node_id": 157,
       "key_hash32": "0x1701009C",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.404489,
       "lon": 2.15222,
       "config": {
@@ -3158,13 +3159,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c157",
       "node_id": 158,
       "key_hash32": "0x1701009D",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.397024,
       "lon": 2.161037,
       "config": {
@@ -3178,13 +3179,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c158",
       "node_id": 159,
       "key_hash32": "0x1701009E",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.408597,
       "lon": 2.167978,
       "config": {
@@ -3198,13 +3199,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c159",
       "node_id": 160,
       "key_hash32": "0x1701009F",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.404994,
       "lon": 2.157509,
       "config": {
@@ -3218,13 +3219,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c160",
       "node_id": 161,
       "key_hash32": "0x170100A0",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.398781,
       "lon": 2.176446,
       "config": {
@@ -3238,13 +3239,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c161",
       "node_id": 162,
       "key_hash32": "0x170100A1",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.39228,
       "lon": 2.147961,
       "config": {
@@ -3258,13 +3259,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c162",
       "node_id": 163,
       "key_hash32": "0x170100A2",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.398273,
       "lon": 2.167531,
       "config": {
@@ -3278,13 +3279,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c163",
       "node_id": 164,
       "key_hash32": "0x170100A3",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.40259,
       "lon": 2.161237,
       "config": {
@@ -3298,13 +3299,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c164",
       "node_id": 165,
       "key_hash32": "0x170100A4",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.402733,
       "lon": 2.144516,
       "config": {
@@ -3318,13 +3319,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c165",
       "node_id": 166,
       "key_hash32": "0x170100A5",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.39763,
       "lon": 2.146086,
       "config": {
@@ -3338,13 +3339,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c166",
       "node_id": 167,
       "key_hash32": "0x170100A6",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.395586,
       "lon": 2.166454,
       "config": {
@@ -3358,13 +3359,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c167",
       "node_id": 168,
       "key_hash32": "0x170100A7",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.412575,
       "lon": 2.154129,
       "config": {
@@ -3378,13 +3379,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c168",
       "node_id": 169,
       "key_hash32": "0x170100A8",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.396695,
       "lon": 2.170868,
       "config": {
@@ -3398,13 +3399,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c169",
       "node_id": 170,
       "key_hash32": "0x170100A9",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.388217,
       "lon": 2.151507,
       "config": {
@@ -3418,13 +3419,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c170",
       "node_id": 171,
       "key_hash32": "0x170100AA",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.398998,
       "lon": 2.172914,
       "config": {
@@ -3438,13 +3439,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c171",
       "node_id": 172,
       "key_hash32": "0x170100AB",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.392581,
       "lon": 2.151984,
       "config": {
@@ -3458,13 +3459,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c172",
       "node_id": 173,
       "key_hash32": "0x170100AC",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.404069,
       "lon": 2.145625,
       "config": {
@@ -3478,13 +3479,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c173",
       "node_id": 174,
       "key_hash32": "0x170100AD",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.403582,
       "lon": 2.146495,
       "config": {
@@ -3498,13 +3499,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c174",
       "node_id": 175,
       "key_hash32": "0x170100AE",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.402611,
       "lon": 2.168425,
       "config": {
@@ -3518,13 +3519,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c175",
       "node_id": 176,
       "key_hash32": "0x170100AF",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.403504,
       "lon": 2.148753,
       "config": {
@@ -3538,13 +3539,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c176",
       "node_id": 177,
       "key_hash32": "0x170100B0",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.394077,
       "lon": 2.174668,
       "config": {
@@ -3558,13 +3559,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c177",
       "node_id": 178,
       "key_hash32": "0x170100B1",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.388513,
       "lon": 2.165446,
       "config": {
@@ -3578,13 +3579,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c178",
       "node_id": 179,
       "key_hash32": "0x170100B2",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.39268,
       "lon": 2.171003,
       "config": {
@@ -3598,13 +3599,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "c179",
       "node_id": 180,
       "key_hash32": "0x170100B3",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.40088,
       "lon": 2.148091,
       "config": {
@@ -3618,13 +3619,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w000",
       "node_id": 181,
       "key_hash32": "0x17020000",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.392553,
       "lon": 2.131324,
       "config": {
@@ -3638,13 +3639,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w001",
       "node_id": 182,
       "key_hash32": "0x17020001",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.397313,
       "lon": 2.144409,
       "config": {
@@ -3658,13 +3659,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w002",
       "node_id": 183,
       "key_hash32": "0x17020002",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.391894,
       "lon": 2.135185,
       "config": {
@@ -3678,13 +3679,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w003",
       "node_id": 184,
       "key_hash32": "0x17020003",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.407084,
       "lon": 2.129541,
       "config": {
@@ -3698,13 +3699,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w004",
       "node_id": 185,
       "key_hash32": "0x17020004",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.396427,
       "lon": 2.130383,
       "config": {
@@ -3718,13 +3719,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w005",
       "node_id": 186,
       "key_hash32": "0x17020005",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.393041,
       "lon": 2.140433,
       "config": {
@@ -3738,13 +3739,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w006",
       "node_id": 187,
       "key_hash32": "0x17020006",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.401418,
       "lon": 2.137477,
       "config": {
@@ -3758,13 +3759,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w007",
       "node_id": 188,
       "key_hash32": "0x17020007",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.401009,
       "lon": 2.131811,
       "config": {
@@ -3778,13 +3779,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w008",
       "node_id": 189,
       "key_hash32": "0x17020008",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.400007,
       "lon": 2.124508,
       "config": {
@@ -3798,13 +3799,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w009",
       "node_id": 190,
       "key_hash32": "0x17020009",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.399837,
       "lon": 2.130926,
       "config": {
@@ -3818,13 +3819,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w010",
       "node_id": 191,
       "key_hash32": "0x1702000A",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.39789,
       "lon": 2.142688,
       "config": {
@@ -3838,13 +3839,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w011",
       "node_id": 192,
       "key_hash32": "0x1702000B",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.407568,
       "lon": 2.132055,
       "config": {
@@ -3858,13 +3859,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w012",
       "node_id": 193,
       "key_hash32": "0x1702000C",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.396926,
       "lon": 2.136304,
       "config": {
@@ -3878,13 +3879,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w013",
       "node_id": 194,
       "key_hash32": "0x1702000D",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.398547,
       "lon": 2.140572,
       "config": {
@@ -3898,13 +3899,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w014",
       "node_id": 195,
       "key_hash32": "0x1702000E",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.400363,
       "lon": 2.126792,
       "config": {
@@ -3918,13 +3919,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w015",
       "node_id": 196,
       "key_hash32": "0x1702000F",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.393012,
       "lon": 2.13685,
       "config": {
@@ -3938,13 +3939,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w016",
       "node_id": 197,
       "key_hash32": "0x17020010",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.398948,
       "lon": 2.142311,
       "config": {
@@ -3958,13 +3959,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w017",
       "node_id": 198,
       "key_hash32": "0x17020011",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.396444,
       "lon": 2.133445,
       "config": {
@@ -3978,13 +3979,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w018",
       "node_id": 199,
       "key_hash32": "0x17020012",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.392796,
       "lon": 2.137207,
       "config": {
@@ -3998,13 +3999,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w019",
       "node_id": 200,
       "key_hash32": "0x17020013",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.391704,
       "lon": 2.132493,
       "config": {
@@ -4018,13 +4019,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w020",
       "node_id": 201,
       "key_hash32": "0x17020014",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.396184,
       "lon": 2.126353,
       "config": {
@@ -4038,13 +4039,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w021",
       "node_id": 202,
       "key_hash32": "0x17020015",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.396342,
       "lon": 2.131599,
       "config": {
@@ -4058,13 +4059,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w022",
       "node_id": 203,
       "key_hash32": "0x17020016",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.403574,
       "lon": 2.140374,
       "config": {
@@ -4078,13 +4079,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w023",
       "node_id": 204,
       "key_hash32": "0x17020017",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.406257,
       "lon": 2.140346,
       "config": {
@@ -4098,13 +4099,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w024",
       "node_id": 205,
       "key_hash32": "0x17020018",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.400056,
       "lon": 2.130781,
       "config": {
@@ -4118,13 +4119,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w025",
       "node_id": 206,
       "key_hash32": "0x17020019",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.399664,
       "lon": 2.126489,
       "config": {
@@ -4138,13 +4139,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w026",
       "node_id": 207,
       "key_hash32": "0x1702001A",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.403297,
       "lon": 2.141723,
       "config": {
@@ -4158,13 +4159,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w027",
       "node_id": 208,
       "key_hash32": "0x1702001B",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.394168,
       "lon": 2.12886,
       "config": {
@@ -4178,13 +4179,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w028",
       "node_id": 209,
       "key_hash32": "0x1702001C",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.401258,
       "lon": 2.136263,
       "config": {
@@ -4198,13 +4199,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w029",
       "node_id": 210,
       "key_hash32": "0x1702001D",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.398059,
       "lon": 2.130472,
       "config": {
@@ -4218,13 +4219,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w030",
       "node_id": 211,
       "key_hash32": "0x1702001E",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.399783,
       "lon": 2.138361,
       "config": {
@@ -4238,13 +4239,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w031",
       "node_id": 212,
       "key_hash32": "0x1702001F",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.406613,
       "lon": 2.127746,
       "config": {
@@ -4258,13 +4259,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w032",
       "node_id": 213,
       "key_hash32": "0x17020020",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.399095,
       "lon": 2.12461,
       "config": {
@@ -4278,13 +4279,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "w033",
       "node_id": 214,
       "key_hash32": "0x17020021",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.397312,
       "lon": 2.144003,
       "config": {
@@ -4298,13 +4299,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e000",
       "node_id": 215,
       "key_hash32": "0x17030000",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.402819,
       "lon": 2.184967,
       "config": {
@@ -4318,13 +4319,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e001",
       "node_id": 216,
       "key_hash32": "0x17030001",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.398073,
       "lon": 2.176442,
       "config": {
@@ -4338,13 +4339,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e002",
       "node_id": 217,
       "key_hash32": "0x17030002",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.392019,
       "lon": 2.184693,
       "config": {
@@ -4358,13 +4359,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e003",
       "node_id": 218,
       "key_hash32": "0x17030003",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.400916,
       "lon": 2.174929,
       "config": {
@@ -4378,13 +4379,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e004",
       "node_id": 219,
       "key_hash32": "0x17030004",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.40079,
       "lon": 2.17599,
       "config": {
@@ -4398,13 +4399,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e005",
       "node_id": 220,
       "key_hash32": "0x17030005",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.400718,
       "lon": 2.182271,
       "config": {
@@ -4418,13 +4419,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e006",
       "node_id": 221,
       "key_hash32": "0x17030006",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.399446,
       "lon": 2.189274,
       "config": {
@@ -4438,13 +4439,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e007",
       "node_id": 222,
       "key_hash32": "0x17030007",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.396902,
       "lon": 2.194977,
       "config": {
@@ -4458,13 +4459,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e008",
       "node_id": 223,
       "key_hash32": "0x17030008",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.400451,
       "lon": 2.195163,
       "config": {
@@ -4478,13 +4479,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e009",
       "node_id": 224,
       "key_hash32": "0x17030009",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.403133,
       "lon": 2.180497,
       "config": {
@@ -4498,13 +4499,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e010",
       "node_id": 225,
       "key_hash32": "0x1703000A",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.395169,
       "lon": 2.185824,
       "config": {
@@ -4518,13 +4519,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e011",
       "node_id": 226,
       "key_hash32": "0x1703000B",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.399979,
       "lon": 2.185389,
       "config": {
@@ -4538,13 +4539,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e012",
       "node_id": 227,
       "key_hash32": "0x1703000C",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.398732,
       "lon": 2.193462,
       "config": {
@@ -4558,13 +4559,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e013",
       "node_id": 228,
       "key_hash32": "0x1703000D",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.406776,
       "lon": 2.191082,
       "config": {
@@ -4578,13 +4579,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e014",
       "node_id": 229,
       "key_hash32": "0x1703000E",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.3948,
       "lon": 2.186072,
       "config": {
@@ -4598,13 +4599,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e015",
       "node_id": 230,
       "key_hash32": "0x1703000F",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.402358,
       "lon": 2.174741,
       "config": {
@@ -4618,13 +4619,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e016",
       "node_id": 231,
       "key_hash32": "0x17030010",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.398272,
       "lon": 2.188562,
       "config": {
@@ -4638,13 +4639,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e017",
       "node_id": 232,
       "key_hash32": "0x17030011",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.405055,
       "lon": 2.193175,
       "config": {
@@ -4658,13 +4659,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e018",
       "node_id": 233,
       "key_hash32": "0x17030012",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.398044,
       "lon": 2.191572,
       "config": {
@@ -4678,13 +4679,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e019",
       "node_id": 234,
       "key_hash32": "0x17030013",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.404556,
       "lon": 2.187932,
       "config": {
@@ -4698,13 +4699,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e020",
       "node_id": 235,
       "key_hash32": "0x17030014",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.392593,
       "lon": 2.187658,
       "config": {
@@ -4718,13 +4719,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e021",
       "node_id": 236,
       "key_hash32": "0x17030015",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.396297,
       "lon": 2.18644,
       "config": {
@@ -4738,13 +4739,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e022",
       "node_id": 237,
       "key_hash32": "0x17030016",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.397655,
       "lon": 2.184548,
       "config": {
@@ -4758,13 +4759,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e023",
       "node_id": 238,
       "key_hash32": "0x17030017",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.397625,
       "lon": 2.178143,
       "config": {
@@ -4778,13 +4779,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e024",
       "node_id": 239,
       "key_hash32": "0x17030018",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.401622,
       "lon": 2.182915,
       "config": {
@@ -4798,13 +4799,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e025",
       "node_id": 240,
       "key_hash32": "0x17030019",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.395974,
       "lon": 2.194309,
       "config": {
@@ -4818,13 +4819,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e026",
       "node_id": 241,
       "key_hash32": "0x1703001A",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.4068,
       "lon": 2.186499,
       "config": {
@@ -4838,13 +4839,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e027",
       "node_id": 242,
       "key_hash32": "0x1703001B",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.405549,
       "lon": 2.177038,
       "config": {
@@ -4858,13 +4859,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e028",
       "node_id": 243,
       "key_hash32": "0x1703001C",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.399448,
       "lon": 2.176424,
       "config": {
@@ -4878,13 +4879,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e029",
       "node_id": 244,
       "key_hash32": "0x1703001D",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.394223,
       "lon": 2.185956,
       "config": {
@@ -4898,13 +4899,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e030",
       "node_id": 245,
       "key_hash32": "0x1703001E",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.397491,
       "lon": 2.174836,
       "config": {
@@ -4918,13 +4919,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e031",
       "node_id": 246,
       "key_hash32": "0x1703001F",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.393994,
       "lon": 2.177514,
       "config": {
@@ -4938,13 +4939,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e032",
       "node_id": 247,
       "key_hash32": "0x17030020",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.400027,
       "lon": 2.190339,
       "config": {
@@ -4958,13 +4959,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "e033",
       "node_id": 248,
       "key_hash32": "0x17030021",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.394244,
       "lon": 2.183395,
       "config": {
@@ -4978,13 +4979,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "gw_w0",
       "node_id": 249,
       "key_hash32": "0x17F00001",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.399138,
       "lon": 2.143786,
       "config": {
@@ -5012,13 +5013,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "gw_w1",
       "node_id": 250,
       "key_hash32": "0x17F00002",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.402364,
       "lon": 2.143786,
       "config": {
@@ -5046,13 +5047,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "gw_e0",
       "node_id": 251,
       "key_hash32": "0x17F00003",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.398763,
       "lon": 2.176214,
       "config": {
@@ -5080,13 +5081,13 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     },
     {
       "name": "gw_e1",
       "node_id": 252,
       "key_hash32": "0x17F00004",
+      "script": "scenarios/dv_dual_sf.lua",
       "lat": 41.402066,
       "lon": 2.176214,
       "config": {
@@ -5114,8 +5115,7 @@
         "discovery_beacon_period_ms": 4000,
         "state_snapshot_period_ms": 60000,
         "quiet_threshold_ms": 0
-      },
-      "engine": "meshroute"
+      }
     }
   ],
   "topology": {

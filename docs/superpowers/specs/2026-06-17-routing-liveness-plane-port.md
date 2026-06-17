@@ -22,11 +22,34 @@ Plus **②** the `id==0`/`dest==0`/`via==0` sentinel leak (cheap, independent). 
 
 ## ★ Keystone discipline SHIFT — read this first
 
-The s18 keystone has been **byte-identical `306c3cf4af65b56d6fc6415b964ad9f3`** because every prior slice was off-by-default-inert. **The liveness plane is NOT inert** — it is a new *behavior* the 306c3cf4 baseline lacks, and a faithful Lua port runs it ON by default (no config gate — gating it off would defeat the purpose and diverge from the Lua). So **activating it changes s18**, and the gate shifts from byte-identical to **semantic parity**:
+The liveness plane is a new *behavior* the byte-identical s18 keystone (`306c3cf4`) lacks, and a faithful Lua port runs it ON by default (no config gate — gating it off would defeat the purpose + diverge from Lua). So activating it changes routing, and **the gate shifts from byte-identical md5 to RESULT COMPARISON via `tools/dm_delivery_breakdown.py`** — we gate the *delivery outcome* across a **baseline SUITE**, not the byte stream of one scenario.
 
-- **Phase 0** is the one phase that STAYS byte-identical (no `id==0` appears in s18 → the guards are inert). Gate it the old way: s18 == `306c3cf4`.
-- **Phase 1** is behaviorally inert but adds diagnostic telemetry → re-record s18, and prove inertness with a **filtered** check: `grep -v` the new event types, then the remainder is byte-identical to the 306c3cf4 baseline's same filter (routing decisions unchanged; only new events added).
-- **Phases 2–4** change routing decisions → **re-baseline s18** to a new golden. The load-bearing gate is now **delivery-metric parity**: delivered count ≥ the current baseline, **leaks == 0**, no new stalls — ideally *improvement* (fewer dead-relay stalls), and the C++ behavior should move *toward* the `-e lua` s18 (we're porting a Lua mechanism). Plus a NEW targeted liveness gate scenario per phase (below).
+**BASELINE SUITE (captured 2026-06-17, current HEAD — the reference to beat). Full manifest + per-scenario run commands + caveats: `simulation/BASELINE.md`.**
+Per scenario: `lus -e meshroute simulation/<s>.json /tmp/<s>.ndjson` then `dm_delivery_breakdown.py simulation/<s>.json /tmp/<s>.ndjson --failures`:
+
+| scenario | role | same-layer (arr/sent) | cross-layer (deliv/sent) | leaks |
+|---|---|---|---|---|
+| `s18_meshroute` | single-layer dense — **anchor** (single-hop) | **108/113 (96%)** | — | — |
+| `s19_singlelayer_multihop_chain` | single-layer **MULTI-HOP** (redundant 3-hop chain; the liveness home) | **8/8** (2–3-hop) | — | — |
+| `s09_two_layer_gateway` | 2-layer cross-layer | 1/1 | **2/2 (100%)** | — |
+| `s10_two_layer_separation` | 2-layer cross-layer | 1/1 | **2/2 (100%)** | — |
+| `s16_dense_gateway` | dense 2-layer **overload stress** | — | **12/80 (15%)** | — |
+| `s15_three_layer` | **3-layer** cross-layer + channels | 47/48 | **14/21 (67%)** | **0** |
+| `s17_metro` | **252-node scale** + channels | **30/30 (100%)** | n/a (inert) | **0** |
+
+**The gate per behavior-changing phase (2–4)** — run the suite; vs the table require:
+- **same- AND cross-layer delivery do NOT regress** (s18 ≥108/113 · **s19 8/8 multi-hop** · s09/s10 2/2 · s16 ≥12/80 · s15 ≥14/21 and 47/48 · s17 ≥30/30) — **ideally they IMPROVE** (liveness should convert `SL: next-hop silent`/lost failures into reroutes). A drop is a FAIL. **s19 is the multi-hop reroute home** — gate its delivery 8/8 + `mean_hops` (A↔B **3**, A↔R **2**; the tool counts hops via `data_rx` receivers).
+- **`leaks == 0`** everywhere (Principle 11) — hard invariant (s15/s17 carry channels).
+- **failure taxonomy no worse** — no NEW failure class; the `--failures` `SL: next-hop silent` bucket trends down, not up.
+- **mean_hops sane + event-count within ~±3 %** of each scenario's baseline — the supplements that catch a *delivery-neutral* airtime/churn regression delivery-% can't see (byte-identical gave this for free).
+
+**Per-scenario reading:** s16 15 % / s15 67 % are stress / 3-layer difficulty — the gate is *no-regress, not 100 %*. **s17's cross-layer is inert** (translating it degrades the dense scenario, channels 101 %→33 %) → gate s17 on **same-layer 30/30 + channels leaks 0 + scale**, NOT cross-layer (XL coverage = s09/s10/s15/s16). XL-at-scale window tuning is a separate follow-up. See `BASELINE.md`.
+
+**The two phases that stay TIGHTER (byte-identical still applies — behavior is invariant there):**
+- **Phase 0** — no `id==0` in s18 ⇒ the guards are inert ⇒ s18 stays **byte-identical `306c3cf4`**.
+- **Phase 1** — state tracked but not applied ⇒ routing unchanged; only new telemetry. Prove with a **filtered** check: `grep -v` the new event types from both the fresh run and the `306c3cf4` baseline → the remainders' md5s MUST match. (Delivery-breakdown is also unchanged here.)
+
+**Why the shift (the honest trade):** byte-identical caught *any* drift (timing, airtime, churn) for free; result-comparison gates the *outcome* and is blind to a delivery-neutral airtime/churn regression — hence the event-count guard + `mean_hops` supplements, and keeping byte-identical where behavior is invariant. The NEW scenarios `t96`/`t97` are gated the same way: delivery in a dead-relay scenario must **improve** vs the pre-liveness run.
 
 Every phase also gates: `pio test -e native` (new units) + `pio run -e gateway -e xiao_sx1262 -e heltec_v3` (3 boards).
 
@@ -67,13 +90,13 @@ This is where the discipline shifts to semantic parity.
 2. **(c) Freshness eligibility:** a candidate whose next-hop is `!is_next_hop_fresh` is **non-viable** in `route_strictly_better` (`node_routing.cpp:72`) — it loses to any fresh candidate and to fresh discovery. This is the Lua-faithful fix and it **subsumes ③**: the unconditional `last_seen` refresh at `node_routing.cpp:215` is now harmless because a stale-next-hop route can't be *selected*.
 3. Re-rank on a tier change (the existing `resort_routes_for_neighbor_penalty@120` already re-sorts under a penalty change — wire the liveness tier into its trigger, alongside the budget tier).
 
-**Gate 2:** native units (a dead-tier next-hop loses to a fresh alt in `route_strictly_better`; a stale next-hop is non-viable; the penalty stacks with the budget penalty) · s18 **RE-BASELINE** (new golden) — delivered ≥ prior baseline, **leaks == 0**, route-stall count not worse · **NEW sim gate `t96_liveness_reroute`**: a relay on the best path stops responding → the originator's traffic reroutes to an alt within a couple of failed flights (assert delivery continues; assert the dead relay's route is demoted), vs stalling ~3 h before · 3 boards.
+**Gate 2:** native units (a dead-tier next-hop loses to a fresh alt in `route_strictly_better`; a stale next-hop is non-viable; the penalty stacks with the budget penalty) · **the `simulation/BASELINE.md` suite** (s18/s09/s10/s16/s15/s17) — no same/cross-layer delivery regression vs the table, **`leaks == 0`**, taxonomy no-worse, mean_hops + event-count (±3%) sane · **NEW sim gate `t96_liveness_reroute`**: a relay on the best path stops responding → the originator's traffic reroutes to an alt within a couple of failed flights (assert delivery continues; assert the dead relay's route is demoted), vs stalling ~3 h before · 3 boards.
 
 ## Phase 3 — silent-next CASCADE  (the reroute reaction at the sender)
 
 Port `candidate_silent_counts` (`@5558`) + the cascade hooks: in `rts_timeout_fire`/`ack_timeout_fire` (`node_cascade.cpp:228/239`), when the primary next-hop is suspect/silent, **cascade to the next viable alt immediately** instead of retrying the dead path. (The cascade machinery exists; this adds the liveness-driven trigger.)
 
-**Gate 3:** native units (primary silent → next attempt uses the alt, not a retry on the dead primary) · s18 re-baseline (delivery-metric parity, leaks 0) · `t96` extended: the reroute happens via cascade (assert the alt is used on the first failure, not after N retries) · 3 boards.
+**Gate 3:** native units (primary silent → next attempt uses the alt, not a retry on the dead primary) · the **`BASELINE.md` suite** — no-regress + `leaks == 0` · `t96` extended: the reroute happens via cascade (assert the alt is used on the first failure, not after N retries) · 3 boards.
 
 ## Phase 4 — distributed liveness GOSSIP  (mesh-scale; BCN WIRE change)
 
@@ -83,7 +106,7 @@ Port the beacon extension blocks so the mesh converges, not just the failing nod
 2. **Parse + apply** in `ingest_beacon` (`node_beacon.cpp:255`): read the ext TLVs (~Lua `@1949`), and `mark_peer_suspect(node, level, remote_src=true)` (~Lua `@9634/9665`) so a remote observation demotes our routes via that peer.
 3. ⚠ **Wire change** — the beacon grows an ext block. Honor the **beacon-truncation cut-order** (the ext block must fit `beacon_max_bytes` and never displace the routing entries / leaf header — same watch-item flagged for the Phase-2 leaf-membership work). Confirm the size budget.
 
-**Gate 4:** native units (encode → parse round-trips; a received suspect list demotes the local route) · s18 re-baseline (delivery-metric parity; confirm the beacon still fits + cut-order intact) · **NEW sim gate `t97_liveness_gossip`** (≥3 nodes): node A detects relay R dead and advertises it; node C — which has NOT itself failed via R — avoids R based on A's gossip (assert C reroutes without its own timeout evidence) · 3 boards.
+**Gate 4:** native units (encode → parse round-trips; a received suspect list demotes the local route) · the **`BASELINE.md` suite** — no-regress + `leaks == 0` + confirm the beacon still fits (cut-order intact; watch s15/s17 channel reach) · **NEW sim gate `t97_liveness_gossip`** (≥3 nodes): node A detects relay R dead and advertises it; node C — which has NOT itself failed via R — avoids R based on A's gossip (assert C reroutes without its own timeout evidence) · 3 boards.
 
 ## Phase 5 (optional) — ④ aging relief
 
@@ -93,8 +116,8 @@ After Phases 2–4, re-evaluate `rt_aging_ttl_remote_ms` (3 h, `node_routing.cpp
 
 ## Gate checklist (every phase)
 - [ ] `pio test -e native` all pass (`.pio/build/native/program | tail -3` for the true count)
-- [ ] s18: **byte-identical `306c3cf4`** (Phase 0) / **filtered-byte-identical** (Phase 1) / **re-baselined with delivery-metric parity + leaks==0** (Phases 2–4)
-- [ ] new sim gate green (`t96` Phase 2/3, `t97` Phase 4) — and prefer the C++ behavior to converge toward `-e lua` s18
+- [ ] delivery gate: **s18 byte-identical `306c3cf4`** (Phase 0) / **s18 filtered-byte-identical** (Phase 1) / **the `simulation/BASELINE.md` suite via `dm_delivery_breakdown`** (Phases 2–4) — no same/cross-layer regression vs the table (s18 ≥108/113 · **s19 8/8 multi-hop** · s09/s10 2/2 · s16 ≥12/80 · s15 ≥14/21+47/48 · s17 ≥30/30), `leaks==0`, taxonomy no-worse, event-count (±3%) sane
+- [ ] new sim gate green (`t96` Phase 2/3, `t97` Phase 4) — delivery **improves** vs the pre-liveness run; prefer convergence toward `-e lua` s18
 - [ ] 3 boards green
 - [ ] leave GREEN + uncommitted — the user commits
 

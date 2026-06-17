@@ -233,6 +233,7 @@ void Node::rts_timeout_fire() {
         const int jit = _hal.rand_range(0, static_cast<int>(retry_jitter_ms()) + 1);   // RNG site #1
         (void)_hal.after(static_cast<uint32_t>(jit), kRetryBackoffTimerId);
     } else {
+        record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo);   // §P1: same-hop RTS giveup = liveness evidence (tracked, NOT yet acted on)
         cascade_to_alt("rts_giveup");                    // same-hop exhausted -> walk to an alternate
     }
 }
@@ -245,6 +246,7 @@ void Node::ack_timeout_fire() {
         const int jit = _hal.rand_range(0, static_cast<int>(retry_jitter_ms()) + 1);   // RNG site #2
         (void)_hal.after(static_cast<uint32_t>(jit), kRetryBackoffTimerId);
     } else {
+        record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo);   // §P1: same-hop ACK giveup = liveness evidence (tracked, NOT yet acted on)
         cascade_to_alt("data_ack_giveup");               // same-hop exhausted -> walk to an alternate
     }
 }

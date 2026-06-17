@@ -839,6 +839,89 @@ TEST_CASE("§1b cross-type non-collision: a CRYPTED seed aliasing a plaintext (o
     CHECK(node.seen_origin_count() == 2);               // recorded as a DISTINCT flight, not aliased onto the plaintext one
 }
 
+// =============================================================================
+// Phase 0 (routing-liveness-plane port) — id==0 / 0-sentinel hardening. An
+// UNPROVISIONED node (id 0) and the reserved id 0 must NEVER enter routing:
+// id-0 nodes don't beacon, src-0 beacons are dropped, dest-0/via-0 candidates
+// are rejected. (s18 has no id 0 -> these guards are inert -> byte-identical.)
+// =============================================================================
+TEST_CASE("§P0 — an id==0 (unprovisioned) node emits NO beacon (the broad emit_beacon guard)") {
+    TestHal hal; Node node(hal, /*id=*/0, /*key=*/0x0000ABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    // learn a route from a VALID sender -> schedules a triggered beacon -> firing it reaches emit_beacon directly
+    std::array<uint8_t,64> bb{}; const size_t bn = mk_beacon_route(/*src=*/7, /*dest=*/5, /*next=*/9, /*hops=*/1, /*score=*/14, bb);
+    node.on_recv(bb.data(), bn, RxMeta{12.0f, -70.0f, 0, static_cast<int8_t>(7)});
+    hal.tx_frames.clear();
+    node.on_timer(kTriggeredBeaconTimerId);              // the triggered path bypasses periodic_beacon_fire's join guard
+    node.on_timer(kBeaconTimerId);
+    int n_bcn = 0; for (const auto& f : hal.tx_frames) if (!f.bytes.empty() && (f.bytes[0] >> 4) == 0x0) ++n_bcn;
+    CHECK(n_bcn == 0);                                   // an id==0 node never advertises routes
+}
+TEST_CASE("§P0 — a received BCN with src==0 is DROPPED (no route learned from the sentinel)") {
+    TestHal hal; Node node(hal, /*id=*/5, /*key=*/0x0000BBBB);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    CHECK(node.rt_count() == 0);
+    std::array<uint8_t,64> bb{}; const size_t bn = mk_beacon_route(/*src=*/0, /*dest=*/5, /*next=*/9, /*hops=*/1, /*score=*/14, bb);
+    node.on_recv(bb.data(), bn, RxMeta{12.0f, -70.0f, 0, static_cast<int8_t>(0)});
+    CHECK(node.rt_count() == 0);                         // src==0 dropped: no direct route to 0, no DV route via next_hop 0
+}
+TEST_CASE("§P0 — a beacon ROUTE-ENTRY with dest==0 is rejected (never a route to the sentinel)") {
+    TestHal hal; Node node(hal, /*id=*/5, /*key=*/0x0000BBBB);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t,64> bb{}; const size_t bn = mk_beacon_route(/*src=*/7, /*dest=*/0, /*next=*/9, /*hops=*/1, /*score=*/14, bb);
+    node.on_recv(bb.data(), bn, RxMeta{12.0f, -70.0f, 0, static_cast<int8_t>(7)});
+    bool route_to_0 = false, route_to_7 = false;
+    for (uint8_t i = 0; i < node.rt_count(); ++i) { if (node.rt_at(i).dest == 0) route_to_0 = true; if (node.rt_at(i).dest == 7) route_to_7 = true; }
+    CHECK_FALSE(route_to_0);                             // the dest==0 entry was skipped
+    CHECK(route_to_7);                                   // sanity: the DIRECT route to the sender(7) still learned (dest-specific guard, not a blanket drop)
+}
+
+// =============================================================================
+// Phase 1 (routing-liveness port) — local liveness STATE. RTS/ACK-timeout
+// giveups accumulate into suspect(2)/silent(3)/dead(6-over-15min) tiers; a frame
+// heard from a peer clears it; dest_seen drives is_next_hop_fresh. DETECTION
+// ONLY — not yet applied to routing (Phase 2). (state-only + new telemetry.)
+// =============================================================================
+TEST_CASE("§P1 peer-liveness STATE — timeout tiers (suspect/silent/dead) + clear + freshness") {
+    TestHal hal; Node node(hal, /*id=*/5, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    hal._now = 1000;
+    CHECK(node.peer_suspect_level(9) == 0);                              // unknown -> healthy
+    node.record_peer_rts_timeout(9, 0); CHECK(node.peer_suspect_level(9) == 0);   // 1 timeout: not yet
+    node.record_peer_rts_timeout(9, 0); CHECK(node.peer_suspect_level(9) == 1);   // 2 -> SUSPECT
+    node.record_peer_rts_timeout(9, 0); CHECK(node.peer_suspect_level(9) == 2);   // 3 -> SILENT
+    node.clear_peer_suspect(9, "rx_frame"); CHECK(node.peer_suspect_level(9) == 0);   // heard from 9 -> cleared
+    for (int i = 0; i < 6; ++i) node.record_peer_rts_timeout(9, 0);      // 6 timeouts, all at t=1000 -> evidence window NOT elapsed
+    CHECK(node.peer_suspect_level(9) == 2);                              // -> SILENT, not yet DEAD
+    hal._now = 1000 + protocol::peer_dead_evidence_window_ms + 1;        // past the 15-min evidence window
+    node.record_peer_rts_timeout(9, 0); CHECK(node.peer_suspect_level(9) == 3);   // -> DEAD
+    node.clear_peer_suspect(9, "rx_frame"); CHECK(node.peer_suspect_level(9) == 0);   // a clear resets even DEAD
+    node.record_peer_rts_timeout(5, 0); CHECK(node.peer_suspect_level(5) == 0);   // self is never tiered
+    node.record_peer_rts_timeout(0, 0); CHECK(node.peer_suspect_level(0) == 0);   // the 0 sentinel is never tiered
+    // FRESHNESS (is_next_hop_fresh — defined, NOT consulted by routing in P1)
+    hal._now = 5000000; node.mark_dest_seen(11);
+    CHECK(node.is_next_hop_fresh(11));                                   // just seen -> fresh
+    CHECK_FALSE(node.is_next_hop_fresh(99));                             // never seen -> not fresh
+    CHECK(node.is_next_hop_fresh(5));                                    // self -> always fresh
+    hal._now = 5000000 + protocol::next_hop_live_ttl_ms + 1;            // >20 min unseen
+    CHECK_FALSE(node.is_next_hop_fresh(11));                             // gone stale
+}
+TEST_CASE("§P1 liveness LRU — eviction keeps a DEAD peer over a healthy one (asymmetric-link safety)") {
+    TestHal hal; Node node(hal, /*id=*/5, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    // fill the table to cap with healthy peers (ids 10.., node 10 stamped FIRST -> oldest dest_seen -> the OLD policy's first victim)
+    for (int i = 0; i < protocol::cap_peer_liveness; ++i) { hal._now = 1000 + i; node.mark_dest_seen(static_cast<uint8_t>(10 + i)); }
+    // make node 10 DEAD (6 timeouts spanning the evidence window)
+    hal._now = 2000; for (int i = 0; i < 6; ++i) node.record_peer_rts_timeout(10, 0);
+    hal._now = 2000 + protocol::peer_dead_evidence_window_ms + 1; node.record_peer_rts_timeout(10, 0);
+    CHECK(node.peer_suspect_level(10) == 3);
+    // overflow: a NEW peer arrives -> table full -> eviction. The fix evicts a HEALTHY slot, NOT the dead one.
+    node.mark_dest_seen(200);
+    CHECK(node.peer_suspect_level(10) == 3);   // the DEAD peer SURVIVED (old min-dest_seen policy would have evicted it -> 0)
+    CHECK(node.is_next_hop_fresh(200));        // the new peer got in (a healthy slot made room)
+}
+
 TEST_CASE("cascade — equal-score candidates keep INSERTION order (Lua-faithful, NO id tie-break)") {
     TestHal hal; Node node(hal, 1, 0xABCD);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;

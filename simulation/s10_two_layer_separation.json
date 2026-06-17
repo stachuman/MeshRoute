@@ -1,6 +1,6 @@
 {
- "_name": "s09_two_layer_gateway_debug",
- "_desc": "Realistic gateway debug scenario: two different layer/leaf IDs (4 and 5), different control SFs, scheduled single-radio gateway windows, and progressive join-required nodes. Cross-layer delivery must be learned through observed JOIN/BCN traffic during gateway layer windows, not simulator-seeded foreign bindings. [DUAL-SCHEMA: also carries C++ n_layers:2/layers[] on 2 gateways; run on both engines via `lus --engine lua|meshroute`.]",
+ "_name": "s10_two_layer_gateway_separation",
+ "_desc": "Work-in-progress scenario for full gateway layer separation. Starts from the passing s09 two-layer gateway/debug scenario, then should evolve toward explicit per-layer routing/binding state instead of shared gateway routing tables. [DUAL-SCHEMA: also carries C++ n_layers:2/layers[] on 2 gateways; run on both engines via `lus --engine lua|meshroute`.]",
  "simulation": {
   "duration_ms": 240000,
   "step_ms": 1,
@@ -94,7 +94,7 @@
   },
   {
    "name": "l5_seed",
-   "node_id": 101,
+   "node_id": 1,
    "key_hash32": "0x55000065",
    "script": "scenarios/dv_dual_sf.lua",
    "config": {
@@ -185,7 +185,10 @@
     "join_listen_ms": 1500,
     "join_discover_jitter_ms": 500,
     "join_claim_guard_ms": 2500,
-    "state_snapshot_period_ms": 30000
+    "state_snapshot_period_ms": 30000,
+    "allowed_data_sfs": [
+     10
+    ]
    }
   },
   {
@@ -203,7 +206,10 @@
     "join_listen_ms": 1500,
     "join_discover_jitter_ms": 500,
     "join_claim_guard_ms": 2500,
-    "state_snapshot_period_ms": 30000
+    "state_snapshot_period_ms": 30000,
+    "allowed_data_sfs": [
+     10
+    ]
    }
   },
   {
@@ -221,7 +227,10 @@
     "join_listen_ms": 1500,
     "join_discover_jitter_ms": 500,
     "join_claim_guard_ms": 2500,
-    "state_snapshot_period_ms": 30000
+    "state_snapshot_period_ms": 30000,
+    "allowed_data_sfs": [
+     10
+    ]
    }
   },
   {
@@ -239,7 +248,10 @@
     "join_listen_ms": 1500,
     "join_discover_jitter_ms": 500,
     "join_claim_guard_ms": 2500,
-    "state_snapshot_period_ms": 30000
+    "state_snapshot_period_ms": 30000,
+    "allowed_data_sfs": [
+     11
+    ]
    }
   },
   {
@@ -257,7 +269,10 @@
     "join_listen_ms": 1500,
     "join_discover_jitter_ms": 500,
     "join_claim_guard_ms": 2500,
-    "state_snapshot_period_ms": 30000
+    "state_snapshot_period_ms": 30000,
+    "allowed_data_sfs": [
+     11
+    ]
    }
   },
   {
@@ -275,7 +290,10 @@
     "join_listen_ms": 1500,
     "join_discover_jitter_ms": 500,
     "join_claim_guard_ms": 2500,
-    "state_snapshot_period_ms": 30000
+    "state_snapshot_period_ms": 30000,
+    "allowed_data_sfs": [
+     11
+    ]
    }
   }
  ],

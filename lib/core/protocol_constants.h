@@ -122,6 +122,7 @@ inline constexpr int16_t  peer_suspect_penalty_q4      = 192;   // 12.0 dB
 inline constexpr int16_t  peer_silent_penalty_q4       = 640;   // 40.0 dB
 inline constexpr int16_t  peer_dead_penalty_q4         = 1280;  // 80.0 dB
 inline constexpr uint8_t  peer_suspect_bcn_max         = 8;
+inline constexpr uint8_t  cap_peer_liveness            = 64;    // bounded per-LayerRuntime liveness table (direct-neighbour set); LRU-evict oldest dest_seen
 
 // ---- Duty-cycle budget tiers -----------------------------------------------
 inline constexpr uint8_t  budget_strained_pct          = 50;

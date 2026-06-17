@@ -417,6 +417,14 @@ public:
     bool    seen_origin_live(uint64_t sokey, uint64_t now_ms) const {
         auto it = _active->_seen_origins.find(sokey); return it != _active->_seen_origins.end() && it->second > now_ms; }
 
+    // ---- Peer-liveness + freshness plane (routing-liveness port). Public for tests + the hooks. PHASE 1 = STATE
+    // ONLY: tracked + emitted, NOT yet applied to scoring/selection/cascade (that is Phase 2/3). ----
+    void    record_peer_rts_timeout(uint8_t node_id, uint8_t ctr_lo);   // a same-hop RTS/ACK giveup -> count + tier (suspect@2/silent@3/dead@6 over the evidence window)
+    void    clear_peer_suspect(uint8_t node_id, const char* source);   // a frame heard FROM node_id -> it's alive -> clear its timeout state + tiers
+    void    mark_dest_seen(uint8_t node_id);                           // stamp last-seen-as-transmitter (freshness input)
+    uint8_t peer_suspect_level(uint8_t node_id);                       // 0 healthy / 1 suspect / 2 silent / 3 dead (clears expired tiers lazily)
+    bool    is_next_hop_fresh(uint8_t node_id) const;                  // now - dest_seen <= next_hop_live_ttl_ms (self = always fresh); DEFINED, not consulted in P1
+
 private:
     // Node-owned timer-id namespace (Hal::after re-arm-by-id, cap 64). Reserve
     // 4+ for the R3 RTS/CTS/ACK timers.
@@ -639,6 +647,10 @@ private:
     void     age_out_stale_routes();                               // dv_dual_sf.lua:5249
     uint32_t ttl_for_hops(uint8_t hops) const;                     // hops<=1 neighbor else remote
     void     rt_prune_cycle(uint8_t dest, uint8_t sender);         // 3-cycle prune  :5193
+    // ---- Peer-liveness internals (routing-liveness port) -------------------
+    struct PeerLiveness;                                              // fwd decl (full def below, near the LayerRuntime member structs)
+    PeerLiveness* peer_liveness_slot(uint8_t node_id, bool create);   // find (or LRU-create) the per-node slot; nullptr if absent + !create
+    void          mark_peer_suspect(uint8_t node_id, uint8_t level, const char* source);   // set the tier's expiry + emit (PHASE 1: NO resort, NO triggered beacon)
     bool     in_discovery() const { return _discovery_mode; }
     void     maybe_exit_discovery(const char* reason);            // :7517
 
@@ -804,6 +816,11 @@ private:
     struct PeerKey { uint32_t key_hash32; uint64_t last_seen_ms; uint8_t ed_pub[32]; uint8_t confidence; };
     // H hash-locate flood dedup (Lua hash_query_seen): per-(origin,key_hash32), hash_query_seen_ttl_ms window. Member in LayerRuntime.
     struct HashQuerySeen { uint8_t origin; uint32_t key_hash32; uint64_t t_ms; bool hard; bool want_pubkey; };   // §2: WANT_PUBKEY is its own variant
+    // Peer-liveness + freshness plane (routing-liveness port, Lua dv:3986-4545): per-next-hop RTS/ACK-timeout
+    // accounting -> suspect/silent/dead tiers (each with an expiry), + dest_seen for next-hop freshness. Bounded
+    // LRU table per LayerRuntime (the direct-neighbour set). node_id 0 = empty slot.
+    struct PeerLiveness { uint8_t node_id; uint16_t rts_timeouts; uint64_t first_timeout_ms;
+                          uint64_t suspect_until_ms; uint64_t silent_until_ms; uint64_t dead_until_ms; uint64_t dest_seen_ms; };
     // send-by-hash DMs parked awaiting a hash-bind resolution (D); drained by on_hash_bind_response, aged on the timer.
     // is_redirect=true => an L2c misdelivered DM held for FORWARD (not re-send): `body`=the full inner (incl.
     // DST_HASH), and origin/ctr/ctr_lo are preserved so the resolution forwards it identity-intact. The redirect
@@ -894,6 +911,9 @@ private:
         // H hash-locate flood dedup (Lua hash_query_seen): per-(origin,key_hash32), hash_query_seen_ttl_ms window.
         HashQuerySeen _hash_query_seen[protocol::cap_hash_query_seen] = {};
         uint8_t       _hash_query_seen_n = 0;
+        // Peer-liveness + freshness plane (routing-liveness port): per-next-hop timeout tiers + dest_seen. Bounded LRU.
+        PeerLiveness  _peer_liveness[protocol::cap_peer_liveness] = {};
+        uint8_t       _peer_liveness_n = 0;
         // Channel-message gossip plane state (node_channel.cpp).
         ChannelEntry _channel_buffer[protocol::cap_channel_buffer];
         uint16_t     _channel_buffer_n = 0;
