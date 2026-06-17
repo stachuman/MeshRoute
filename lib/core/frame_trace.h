@@ -66,7 +66,7 @@ inline void mr_trace_frame(bool is_rx, const uint8_t* b, size_t n, int sf,
                               Serial.print(F(" CRYPTED enc[")); Serial.print((unsigned)cr.ct_off); Serial.print(F(".."));
                               Serial.print((unsigned)(cr.ct_off + cr.ct_len)); Serial.print(F(")="));
                               mr_trace_hex(b, cr.ct_off, cr.ct_len, 24);                          // the ENCRYPTED body bytes
-                              Serial.print(F(" aad=")); mr_trace_hex(b, cr.aad_off, cr.aad_len, 8);   // cleartext dst_hash+origin
+                              Serial.print(F(" aad=")); mr_trace_hex(b, cr.aad_off, cr.aad_len, 8);   // cleartext dst_hash (§1c: origin sealed)
                               Serial.print(F(" tag[16] seed[8]")); } } } break;
         case 0x4: if (auto a = parse_ack(f))  { Serial.print(F(" to=")); Serial.print(a->to);
                       Serial.print(F(" ctr=")); Serial.print(a->ctr_lo); } break;

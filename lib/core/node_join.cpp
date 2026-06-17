@@ -315,7 +315,7 @@ void Node::l2c_handle_misdelivery(const PostAck& pa, uint32_t want_hash) {
     IdBindConf conf = IdBindConf::claimed;
     const int rid = id_bind_find_by_hash(want_hash, &conf);
     if (rid >= 0 && conf == IdBindConf::authoritative && static_cast<uint8_t>(rid) != _node_id) {
-        if (l2c_enqueue_forward(static_cast<uint8_t>(rid), pa.origin, pa.ctr, pa.ctr_lo, pa.flags, pa.inner, pa.inner_len)) {
+        if (l2c_enqueue_forward(static_cast<uint8_t>(rid), pa.origin, pa.ctr, pa.ctr_lo, pa.flags, pa.inner, pa.inner_len, pa.nonce_seed)) {
             MR_TELEMETRY(
                 EventField f[] = { { .key = "origin", .type = EventField::T::i64, .i = pa.origin },
                                    { .key = "ctr",    .type = EventField::T::i64, .i = pa.ctr },
@@ -349,7 +349,7 @@ void Node::l2c_handle_misdelivery(const PostAck& pa, uint32_t want_hash) {
 // arrived at us exhausted) would underflow to the 31-hop max. Identity rides in origin/ctr/inner. ALWAYS kicks
 // the queue (`become_free`) so the half-duplex serializer can't stall; returns false (and emits) on queue-full.
 bool Node::l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint8_t ctr_lo, uint8_t flags,
-                               const uint8_t* inner, uint8_t inner_len) {
+                               const uint8_t* inner, uint8_t inner_len, const uint8_t nonce_seed[8]) {
     if (_active->_tx_queue_n >= kTxQueueCap) {
         MR_TELEMETRY(
             EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = to_id },
@@ -370,6 +370,7 @@ bool Node::l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint
     it.fwd_committed = 0;
     it.inner_len = (inner_len > protocol::max_payload_bytes_hard_cap) ? protocol::max_payload_bytes_hard_cap : inner_len;
     for (uint8_t i = 0; i < it.inner_len; ++i) it.inner[i] = inner[i];
+    for (int i = 0; i < 8; ++i) it.nonce_seed[i] = nonce_seed[i];          // §1c: CRYPTED re-tx carries the originator's seed verbatim (zero for plaintext)
     it.enqueue_time_ms = _hal.now();
     _active->_tx_queue[_active->_tx_queue_n++] = it;
     become_free();

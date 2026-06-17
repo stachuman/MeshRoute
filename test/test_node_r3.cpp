@@ -2104,6 +2104,46 @@ TEST_CASE("L2c — DST_HASH mismatch, owner KNOWN: FORWARD preserves origin + ct
     }
 }
 
+// A misdelivered CRYPTED DM (the dst_hash is cleartext, so the misdelivery branch fires BEFORE any open) must
+// re-tx the originator's 8-B nonce-seed verbatim on the redirect leg — else the real owner computes the wrong
+// nonce and the seal tag-fails (silent drop). Every other forward path carries the seed; the L2c redirect must too.
+TEST_CASE("§1c L2c — a misdelivered CRYPTED DM redirect carries the nonce-seed (else the owner can't open the seal)") {
+    TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    node.on_init(cfg);
+    std::array<uint8_t, 64> bb{}; const size_t bn = mk_beacon(/*src=*/3, bb);   // owner(3): id_bind 3->0x1234 + a route to 3
+    RxMeta b3{ 8.0f, -80.0f, 0, static_cast<int8_t>(3) };
+    hal._now = 500; node.on_recv(bb.data(), bn, b3);
+    const uint8_t S[8] = { 0x11,0x22,0x33,0x44, 0x55,0x66,0x77,0x88 };           // the originator's nonce-seed
+    RxMeta from1{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+    std::array<uint8_t, 16> rb{}; const size_t rn = mk_rts(1, 2, 2, /*ctr_lo=*/5, 20, rb);
+    hal._now = 1000; node.on_recv(rb.data(), rn, from1);
+    std::array<uint8_t, 64> db{};
+    const size_t dn = mk_data_crypted(/*next=*/2, /*dst=*/2, /*ctr=*/0x0005, /*origin=*/1, /*dst_hash=*/0x1234u, S, "hi", db);
+    hal._now = 2000; node.on_recv(db.data(), dn, from1);
+    node.on_timer(kPostAckTimerId);
+    CHECK(hal.count("l2c_misdelivery") == 1);                     // CRYPTED dst_hash names owner 3, not us(2) -> redirect
+    const Ev* rts = hal.last("rts_tx"); CHECK(rts != nullptr); if (rts) CHECK(rts->next == 3);
+    std::array<uint8_t, 8> cb{}; const size_t cn = mk_cts(/*rx_id=*/2, /*tx_id=*/3, /*data_sf=*/12, cb);
+    hal._now = 2100; node.on_recv(cb.data(), cn, b3);
+    node.on_timer(kCtsToDataGapTimerId);
+    CHECK(hal.count("data_tx") == 1);
+    const TxFrame* dataf = nullptr;
+    for (const auto& f : hal.tx_frames) if (!f.bytes.empty() && (f.bytes[0] >> 4) == 0x3) dataf = &f;
+    CHECK(dataf != nullptr);
+    if (dataf) {
+        auto d = parse_data(std::span<const uint8_t>(dataf->bytes.data(), dataf->bytes.size()));
+        CHECK(d.has_value());
+        if (d) {
+            CHECK(d->crypted);
+            auto sd = data_nonce_seed(std::span<const uint8_t>(dataf->bytes.data(), dataf->bytes.size()), *d);
+            CHECK(sd.size() == 8);
+            bool seed_ok = (sd.size() == 8); for (size_t i = 0; i < sd.size() && i < 8; ++i) seed_ok = seed_ok && (sd[i] == S[i]);
+            CHECK(seed_ok);                                      // the originator's seed must survive the redirect (was zeroed -> RED)
+        }
+    }
+}
+
 TEST_CASE("L2c — repeated misdeliveries for one hash collapse to ONE redirect action (anti-flood)") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;

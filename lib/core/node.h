@@ -381,7 +381,7 @@ public:
     uint16_t          peer_key_count() const { return _active->_peer_keys_n; }
     // E2E seal/open (Phase 1 §4/§5). Public for the send/receive paths + tests. SAME-LAYER DMs only in v1
     // (cross-layer CRYPTED out of scope). Recipient/sender pubkey resolved from the peer-key cache; ECDH+KDF+nonce
-    // via _x_secret. e2e_seal_inner builds [dst_hash 4][origin 1][ciphertext][tag 16] + the 8-B nonce-seed; returns
+    // via _x_secret. e2e_seal_inner builds [dst_hash 4][ciphertext][tag 16] + the 8-B nonce-seed (§1c: pt = origin‖…); returns
     // inner_len, or 0 with `outcome` set to WHY (no_identity / no_pubkey / too_large / bad_rng / cross_layer) so the
     // caller FAILS LOUD distinctly, never cleartext. Only no_pubkey warrants a WANT_PUBKEY flood.
     size_t e2e_seal_inner(uint8_t* inner, size_t cap, uint8_t seed8[8], uint8_t flags, uint32_t dst_key_hash32,
@@ -522,7 +522,7 @@ private:
     void    l2c_handle_misdelivery(const PostAck& pa, uint32_t want_hash);
     void    l2c_park_redirect(uint32_t want_hash, const PostAck& pa);                 // hold a misdelivered DM for forward-on-resolution
     bool    l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint8_t ctr_lo, uint8_t flags,
-                                const uint8_t* inner, uint8_t inner_len);             // fresh ORIGINATOR-budget leg, identity preserved; false = dropped (queue full)
+                                const uint8_t* inner, uint8_t inner_len, const uint8_t nonce_seed[8]);   // fresh ORIGINATOR-budget leg; CRYPTED carries the seed; false = dropped (queue full)
     void    l2c_confirmed_collision(uint32_t want_hash);                              // HARD-H resolved want_hash->our id => key-only heal (called AFTER the drain loop)
     bool    l2c_redirected_recently(uint32_t want_hash);         // one redirect action per hash per window (anti-flood)
     void    l2c_mark_redirected(uint32_t want_hash);
@@ -811,6 +811,7 @@ private:
     // at drain = a CONFIRMED collision (the heal trigger, design §7.1).
     struct ParkedSend { uint32_t key_hash32; uint64_t parked_at_ms; uint8_t flags; uint8_t body_len;
                         bool is_redirect = false; bool is_resolve = false; bool cross_layer = false; uint8_t origin = 0; uint16_t ctr = 0; uint8_t ctr_lo = 0;
+                        uint8_t nonce_seed[8] = {};   // §1c: a CRYPTED redirect's originator seed (preserved across the park+heal); zero for a plain send (re-sealed on drain)
                         uint8_t body[protocol::max_payload_bytes_hard_cap]; };   // is_resolve: notify-only diag (a `resolve`), no body. cross_layer (Slice 4d): a send_layer awaiting (node_id,target_layer)
     ParkedSend _parked_sends[protocol::cap_parked_sends] = {};
     uint8_t    _parked_sends_n = 0;

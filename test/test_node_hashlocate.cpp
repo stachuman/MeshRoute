@@ -927,7 +927,7 @@ TEST_CASE("e2e seal/open — A seals a DM to B, B opens it; the inner is actuall
     Node::SealOutcome oc = Node::SealOutcome::ok;
     const size_t n = A.e2e_seal_inner(inner, sizeof inner, seed, flags, /*dst=*/idB.key_hash32,
                                       /*origin=*/1, /*ctr=*/7, /*source_hash=*/idA.key_hash32, 0, 0, body, sizeof body, oc);
-    CHECK(n == 5 + 4 + 12 + 16);                                    // aad(dst4+origin1) + source_hash(4) + body(12) + tag(16)
+    CHECK(n == 4 + (1 + 4 + 12) + 16);                              // §1c: aad(dst_hash 4) + ct{origin 1 + source_hash 4 + body 12} + tag(16)
     CHECK(oc == Node::SealOutcome::ok);
     bool leaked = false;                                            // the body must NOT be cleartext anywhere in the inner
     for (size_t i = 0; i + 12 <= n; ++i) { bool m = true; for (int j = 0; j < 12; ++j) if (inner[i+j] != body[j]) m = false; if (m) leaked = true; }
@@ -936,7 +936,7 @@ TEST_CASE("e2e seal/open — A seals a DM to B, B opens it; the inner is actuall
     uint32_t got_sh = 0, got_origin = 0; bool got_loc = true; int32_t la = 1, lo = 1; uint8_t out[64] = {}; uint8_t outlen = 0;
     CHECK(B.e2e_open_inner(inner, n, seed, flags, /*ctr=*/7, /*sender_hash=*/idA.key_hash32, got_origin, got_sh, got_loc, la, lo, out, outlen));
     CHECK(got_sh == idA.key_hash32);                               // the sealed source_hash == the resolved sender (anti-spoof)
-    CHECK(got_origin == 1);                                        // §1a: origin read from the cleartext AAD (inner[4])
+    CHECK(got_origin == 1);                                        // §1c: origin recovered from the SEAL (pt[0]), not cleartext
     CHECK_FALSE(got_loc);
     CHECK(outlen == 12);
     bool same = true; for (int i = 0; i < 12; ++i) if (out[i] != body[i]) same = false; CHECK(same);
@@ -1014,6 +1014,43 @@ TEST_CASE("§1a — a PINNED peer key seals AND opens (conf>=authoritative gate;
     CHECK(B.e2e_open_trial(inner, n, seed, flags, 7, sender, origin, src, loc, lat, lon, out, outlen));   // PINNED key OPENS
     CHECK(sender == idA.key_hash32);
     CHECK(origin == 1);
+}
+
+// =============================================================================
+// §1c sealed-sender — origin is SEALED inside the ciphertext (pt[0]), not in the
+// cleartext AAD. A relay (or any overhearer) parsing a CRYPTED inner gets NO
+// cleartext origin; only the holder of the per-pair key RECOVERS it from the seal.
+// This is the privacy property: relays can't tell who originated a DM.
+// =============================================================================
+TEST_CASE("§1c sealed origin — origin is RECOVERED from the seal, NOT readable in the cleartext inner") {
+    TestHal halA, halB;
+    uint8_t seedA[32], seedB[32]; for (int i = 0; i < 32; ++i) { seedA[i] = uint8_t(i + 1); seedB[i] = uint8_t(100 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, seedA); identity_from_seed(idB, seedB);
+    Node A(halA, 1, idA.key_hash32), B(halB, 2, idB.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    A.on_init(cfg); B.on_init(cfg);
+    A.set_crypto_identity(idA.x_secret, idA.ed_pub); B.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    A.peer_key_set(idB.key_hash32, idB.ed_pub, Node::PeerKeyConf::authoritative);
+    B.peer_key_set(idA.key_hash32, idA.ed_pub, Node::PeerKeyConf::authoritative);
+
+    const uint8_t flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH;
+    const uint8_t body[4] = { 'p','i','n','g' };
+    const uint8_t ORIGIN = 0x42;                                    // a distinctive origin that must NOT leak in cleartext
+    uint8_t inner[96], seed[8]; Node::SealOutcome oc = Node::SealOutcome::no_pubkey;
+    const size_t n = A.e2e_seal_inner(inner, sizeof inner, seed, flags, /*dst=*/idB.key_hash32,
+                                      ORIGIN, /*ctr=*/9, /*source_hash=*/idA.key_hash32, 0, 0, body, sizeof body, oc);
+    CHECK(n > 0); CHECK(oc == Node::SealOutcome::ok);
+    // The wire parse must NOT surface a cleartext origin for a CRYPTED inner (it lives sealed in pt[0]).
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(inner, n), flags);
+    CHECK(ui.has_value());
+    if (ui) CHECK(ui->origin == 0);                                // §1c: NO cleartext origin (was inner[4]==0x42 pre-1c -> RED)
+    // B (the key holder) RECOVERS origin from the decrypted seal.
+    uint32_t got_sender = 0, got_origin = 0, got_src = 0; bool loc = true; int32_t la = 1, lo = 1; uint8_t out[64] = {}; uint8_t outlen = 0;
+    CHECK(B.e2e_open_trial(inner, n, seed, flags, /*ctr=*/9, got_sender, got_origin, got_src, loc, la, lo, out, outlen));
+    CHECK(got_origin == ORIGIN);                                   // recovered from inside the ciphertext
+    CHECK(got_sender == idA.key_hash32);
+    CHECK(outlen == 4);
+    bool same = true; for (int i = 0; i < 4; ++i) if (out[i] != body[i]) same = false; CHECK(same);
 }
 
 TEST_CASE("e2e seal — refuses (returns 0) when the recipient pubkey is unknown (fail-loud, never cleartext)") {

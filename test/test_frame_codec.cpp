@@ -1138,11 +1138,13 @@ TEST_CASE("DATA unicast inner — DST_HASH round-trip + plain + reject truncatio
     // SOURCE_HASH set but the 4-B hash is truncated -> reject (no OOB read)
     { const uint8_t in[] = { 9, 0x0D, 0xF0 };   // origin + only 2 of 4 source_hash bytes
       CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(in, sizeof in), DATA_FLAG_SOURCE_HASH).has_value()); }
-    // A flag the unicast inner doesn't decode (CRYPTED) leaves the layout at [origin][body].
-    { const uint8_t in[] = { 5, 'x' };
-      auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in), DATA_FLAG_CRYPTED);   // no DST_HASH/SOURCE_HASH bit
+    // §1c: a CRYPTED inner exposes NO cleartext origin — the parse stops at dst_hash and hands back ct||tag as body.
+    { const uint8_t in[] = { 0x78, 0x56, 0x34, 0x12, 0xAB, 0xCD };   // [dst_hash 4 LE = 0x12345678][sealed ct/tag bytes]
+      auto u = parse_unicast_inner(std::span<const uint8_t>(in, sizeof in), DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH);
       CHECK(u.has_value());
-      if (u) { CHECK_FALSE(u->has_dst_hash); CHECK_FALSE(u->has_source_hash); CHECK(u->origin == 5); CHECK(u->body.size() == 1); } }
+      if (u) { CHECK(u->has_dst_hash); CHECK(u->dst_key_hash32 == 0x12345678u);
+               CHECK(u->origin == 0); CHECK_FALSE(u->has_source_hash);     // origin + source_hash are SEALED, not read raw
+               CHECK(u->body.size() == 2); CHECK(u->body[0] == 0xAB); CHECK(u->body[1] == 0xCD); } }
     // reject: truncations
     { const uint8_t shorthash[] = { 1, 2, 3 };          // DST_HASH set but hash truncated (<4)
       CHECK_FALSE(parse_unicast_inner(std::span<const uint8_t>(shorthash, sizeof shorthash), DATA_FLAG_DST_HASH).has_value()); }
@@ -1439,21 +1441,20 @@ TEST_CASE("pack_data — refuses CRYPTED without DST_HASH, and a wrong-size CRYP
     CHECK(pack_data(din, std::span<uint8_t>(out, sizeof out)) == 0);
 }
 
-TEST_CASE("parse_unicast_inner — CRYPTED stops at origin; the sealed region is handed back as body") {
-    uint8_t inner[4 + 1 + 10];
+TEST_CASE("§1c parse_unicast_inner — CRYPTED stops at dst_hash; origin is SEALED, the whole rest is opaque body") {
+    uint8_t inner[4 + 11];
     inner[0] = 0x44; inner[1] = 0x33; inner[2] = 0x22; inner[3] = 0x11;     // dst_key_hash32 = 0x11223344 LE
-    inner[4] = 42;                                                          // origin (cleartext)
-    for (int i = 0; i < 10; ++i) inner[5 + i] = static_cast<uint8_t>(0xA0 + i);  // sealed ct||tag (opaque)
+    for (int i = 0; i < 11; ++i) inner[4 + i] = static_cast<uint8_t>(0xA0 + i);  // sealed ct||tag (opaque — origin is INSIDE)
     const uint8_t flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH;
     auto u = parse_unicast_inner(std::span<const uint8_t>(inner, sizeof inner), flags);
     CHECK(u.has_value());
     if (u) {
         CHECK(u->has_dst_hash); CHECK(u->dst_key_hash32 == 0x11223344u);
-        CHECK(u->origin == 42);
-        CHECK_FALSE(u->has_source_hash);                                   // NOT read raw (sealed)
+        CHECK(u->origin == 0);                                             // §1c: NO cleartext origin (sealed in pt[0])
+        CHECK_FALSE(u->has_source_hash);                                   // source_hash sealed too — NOT read raw
         CHECK_FALSE(u->has_location);
-        CHECK(u->body.size() == 10);                                       // the whole sealed region (ct||tag)
-        CHECK(u->body[0] == 0xA0); CHECK(u->body[9] == 0xA9);
+        CHECK(u->body.size() == 11);                                       // everything after dst_hash = the sealed region (ct||tag)
+        CHECK(u->body[0] == 0xA0); CHECK(u->body[10] == 0xAA);
     }
 }
 
@@ -1471,11 +1472,12 @@ TEST_CASE("hash-bind PUBKEY inner (DATA TYPE 5) — 34-B round-trip; <34 rejecte
 }
 
 // E2E observability (device console eye-confirm): data_crypted_region carves a parsed CRYPTED DATA frame into
-// the labelled byte ranges [aad 5 | ciphertext | tag 16] + the 8-B nonce-seed trailer. Build a real CRYPTED frame
-// via pack_data (synthetic inner = aad(5)+ct(14)+tag(16)=35, 8-B seed mac), parse it, and check every region maps
-// to the right bytes — so the device trace highlights exactly the encrypted span and nothing else.
+// the labelled byte ranges [aad 4 | ciphertext | tag 16] + the 8-B nonce-seed trailer. Build a real CRYPTED frame
+// via pack_data (synthetic inner = aad(4)+ct(15)+tag(16)=35, 8-B seed mac), parse it, and check every region maps
+// to the right bytes — so the device trace highlights exactly the encrypted span and nothing else. (§1c: origin is
+// SEALED inside the ct, so the cleartext aad is just dst_hash 4.)
 TEST_CASE("data_crypted_region — carves [aad | ciphertext | tag | seed] of a CRYPTED DATA frame") {
-    std::array<uint8_t, 35> inner{};                                   // [dst_hash 4][origin 1][ct 14][tag 16]
+    std::array<uint8_t, 35> inner{};                                   // [dst_hash 4][ct 15][tag 16]
     for (size_t i = 0; i < inner.size(); ++i) inner[i] = uint8_t(0x40 + i);
     std::array<uint8_t, 8> seed{};
     for (size_t i = 0; i < 8; ++i) seed[i] = uint8_t(0xA0 + i);
@@ -1493,16 +1495,16 @@ TEST_CASE("data_crypted_region — carves [aad | ciphertext | tag | seed] of a C
         CHECK(d->crypted);
         auto r = data_crypted_region(*d);
         CHECK(r.valid);
-        // aad = the first 5 inner bytes (dst_hash 4 + origin 1), CLEARTEXT
-        CHECK(r.aad_off == d->inner_off);            CHECK(r.aad_len == 5);
-        // ciphertext = the 14 sealed bytes between aad and tag
-        CHECK(r.ct_off  == d->inner_off + 5);        CHECK(r.ct_len  == 14);
+        // aad = the first 4 inner bytes (dst_hash 4), CLEARTEXT (§1c: origin moved into the ct)
+        CHECK(r.aad_off == d->inner_off);            CHECK(r.aad_len == 4);
+        // ciphertext = the 15 sealed bytes between aad and tag
+        CHECK(r.ct_off  == d->inner_off + 4);        CHECK(r.ct_len  == 15);
         // tag = the last 16 inner bytes
         CHECK(r.tag_off == d->inner_off + 35 - 16);  CHECK(r.tag_len == 16);
         // seed = the 8-B nonce-seed MAC trailer, right after the inner
         CHECK(r.seed_off == d->mac_off);             CHECK(r.seed_len == 8);
-        // the carved ciphertext bytes are exactly inner[5..19) (proves the offset maps the right span)
-        bool ct_ok = true; for (size_t i = 0; i < r.ct_len; ++i) ct_ok = ct_ok && (buf[r.ct_off + i] == inner[5 + i]);
+        // the carved ciphertext bytes are exactly inner[4..19) (proves the offset maps the right span)
+        bool ct_ok = true; for (size_t i = 0; i < r.ct_len; ++i) ct_ok = ct_ok && (buf[r.ct_off + i] == inner[4 + i]);
         CHECK(ct_ok);
     }
     // a NON-crypted DATA frame -> invalid (no encrypted region to show)

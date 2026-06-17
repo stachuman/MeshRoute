@@ -719,10 +719,10 @@ std::span<const uint8_t> data_nonce_seed(std::span<const uint8_t> frame, const d
     return frame.subspan(d.mac_off, 8);
 }
 
-// E2E observability: carve a CRYPTED DATA inner into [aad 5][ciphertext][tag 16] + the 8-B nonce-seed trailer.
+// E2E observability: carve a CRYPTED DATA inner into [aad 4][ciphertext][tag 16] + the 8-B nonce-seed trailer.
 crypted_region data_crypted_region(const data_out& d) {
     crypted_region r{};
-    constexpr size_t kAadLen = 5;    // [dst_hash 4][origin 1] — CRYPTED mandates DST_HASH (same-layer v1)
+    constexpr size_t kAadLen = 4;    // [dst_hash 4] — CRYPTED mandates DST_HASH (§1c: origin now SEALED in the ct)
     constexpr size_t kTagLen = 16;   // Poly1305 tag (== dm_crypto DM_TAG_LEN)
     if (!d.crypted) return r;                                   // not encrypted -> nothing to show
     if (d.inner_len < kAadLen + kTagLen) return r;             // malformed: can't hold aad + tag
@@ -758,15 +758,15 @@ std::optional<data_unicast_inner> parse_unicast_inner(std::span<const uint8_t> i
         for (uint8_t i = 0; i < n; ++i) u.layer_ids[i] = inner[off + 2 + i];
         off += static_cast<size_t>(2) + n;
     }
-    if (inner.size() < off + 1) return std::nullopt;              // origin
-    u.origin = inner[off]; off += 1;
     if (flags & DATA_FLAG_CRYPTED) {
-        // SEALED (spec §3): source_hash + location + body live INSIDE the ciphertext (+ a 16-B tag at the end).
-        // The cleartext AAD region ends at `origin`; hand the rest (ciphertext||tag) to the open step rather than
-        // reading source_hash/location/body raw. has_source_hash/has_location stay false until decryption.
+        // §1c SEALED: origin + source_hash + location + body ALL live INSIDE the ciphertext (+ a 16-B tag at the end).
+        // The cleartext region ends at dst_hash (+ any cross-layer path); hand the rest (ciphertext||tag) to the open
+        // step. u.origin stays 0/unset — a relay must NOT learn who originated a CRYPTED DM (privacy property).
         u.body = inner.subspan(off);
         return u;
     }
+    if (inner.size() < off + 1) return std::nullopt;              // origin (plaintext only)
+    u.origin = inner[off]; off += 1;
     if (flags & DATA_FLAG_SOURCE_HASH) {                          // origin's key_hash32 (stable sender id), after origin
         if (inner.size() < off + 4) return std::nullopt;          // source_hash (4 B LE)
         wire::Reader r(inner.subspan(off, 4)); u.source_hash = r.u32_le();

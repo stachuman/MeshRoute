@@ -415,10 +415,10 @@ std::span<const uint8_t> data_nonce_seed(std::span<const uint8_t> frame, const d
 
 // Phase-1 E2E observability: the byte regions of a CRYPTED DATA inner, so the device console's decoded trace
 // (frame_trace.h) can let an operator EYE-CONFIRM exactly which bytes are encrypted. All offsets are into the
-// WHOLE frame. valid=false when `d` is not CRYPTED, or the inner is too short to hold [aad 5 + tag 16].
+// WHOLE frame. valid=false when `d` is not CRYPTED, or the inner is too short to hold [aad 4 + tag 16].
 struct crypted_region {
-    size_t aad_off = 0,  aad_len = 0;     // [dst_hash 4][origin 1] — CLEARTEXT (the AEAD's authenticated data)
-    size_t ct_off = 0,   ct_len = 0;      // the sealed {source_hash?+location?+body} = ciphertext (ENCRYPTED)
+    size_t aad_off = 0,  aad_len = 0;     // [dst_hash 4] — CLEARTEXT (the AEAD's authenticated data; §1c: origin SEALED)
+    size_t ct_off = 0,   ct_len = 0;      // the sealed {origin+source_hash?+location?+body} = ciphertext (ENCRYPTED)
     size_t tag_off = 0,  tag_len = 0;     // 16-B Poly1305 tag (== dm_crypto DM_TAG_LEN)
     size_t seed_off = 0, seed_len = 0;    // 8-B cleartext nonce-seed (the conditional MAC trailer)
     bool   valid = false;

@@ -268,7 +268,7 @@ void Node::peer_key_age_out() {
     L._peer_keys_n = w;
 }
 
-// ---- E2E seal/open (Phase 1 §4/§5): same-layer CRYPTED unicast inner = [dst_hash 4][origin 1][ct][tag 16] ----
+// ---- E2E seal/open (§4/§5 + §1c sealed origin): CRYPTED inner = [dst_hash 4][ct][tag 16]; pt = [origin 1][source_hash?][loc?][body] ----
 size_t Node::e2e_seal_inner(uint8_t* inner, size_t cap, uint8_t seed8[8], uint8_t flags, uint32_t dst_key_hash32,
                             uint8_t origin, uint16_t ctr, uint32_t source_hash, int32_t lat_e7, int32_t lon_e7,
                             const uint8_t* body, uint8_t body_len, SealOutcome& outcome) {
@@ -288,12 +288,13 @@ size_t Node::e2e_seal_inner(uint8_t* inner, size_t cap, uint8_t seed8[8], uint8_
     bool seed_zero = true; for (int i = 0; i < 8; ++i) if (seed8[i]) { seed_zero = false; break; }
     if (seed_zero) { crypto_wipe(key, 32); crypto_wipe(shared, 32); outcome = SealOutcome::bad_rng; return 0; }
     uint8_t nonce[24]; dm_nonce(nonce, seed8, ctr, dst_key_hash32);
-    uint8_t aad[5] = { uint8_t(dst_key_hash32), uint8_t(dst_key_hash32 >> 8), uint8_t(dst_key_hash32 >> 16),
-                       uint8_t(dst_key_hash32 >> 24), origin };     // 4. cleartext AAD = [dst_hash 4 LE][origin]
-    uint8_t pt[protocol::max_payload_bytes_hard_cap]; size_t pt_len = 0;   // 5. plaintext = [source_hash?][location?][body]
+    uint8_t aad[4] = { uint8_t(dst_key_hash32), uint8_t(dst_key_hash32 >> 8),
+                       uint8_t(dst_key_hash32 >> 16), uint8_t(dst_key_hash32 >> 24) };   // 4. cleartext AAD = [dst_hash 4 LE] (§1c: origin SEALED)
+    uint8_t pt[protocol::max_payload_bytes_hard_cap]; size_t pt_len = 0;   // 5. plaintext = [origin 1][source_hash?][location?][body]
     // R2/R6: any size overflow below -> too_large, and ALWAYS wipe key/shared/pt first (single wipe_fail exit).
     outcome = SealOutcome::too_large;
     auto wipe_fail = [&]() -> size_t { crypto_wipe(key, 32); crypto_wipe(shared, 32); crypto_wipe(pt, sizeof pt); return 0; };
+    pt[pt_len++] = origin;                                          // §1c: origin is the FIRST sealed byte (privacy: relays can't read it)
     if (flags & DATA_FLAG_SOURCE_HASH) { pt[pt_len++]=uint8_t(source_hash); pt[pt_len++]=uint8_t(source_hash>>8);
                                          pt[pt_len++]=uint8_t(source_hash>>16); pt[pt_len++]=uint8_t(source_hash>>24); }
     if (flags & DATA_FLAG_LOCATION) { if (pt_len + 6 > sizeof pt) return wipe_fail(); pack_loc6(lat_e7, lon_e7, std::span<uint8_t>(pt + pt_len, 6)); pt_len += 6; }
@@ -314,8 +315,7 @@ bool Node::e2e_open_inner(const uint8_t* inner, size_t inner_len, const uint8_t 
                           int32_t& lat_out, int32_t& lon_out, uint8_t* body_out, uint8_t& body_len_out) {
     origin_out = 0; source_hash_out = 0; has_location_out = false; lat_out = 0; lon_out = 0; body_len_out = 0;
     if (flags & DATA_FLAG_CROSS_LAYER) return false;                // v1: same-layer only
-    // §1a: origin is still in the cleartext AAD `[dst_hash 4][origin 1]` -> read it at inner[4]. (§1c moves it into pt[0].)
-    if (inner_len > 4) origin_out = inner[4];
+    // §1c: origin is SEALED (pt[0]), recovered AFTER dm_open below — NOT read from the cleartext inner.
     // 1. SENDER pubkey for this candidate hash (the trial passes each cached key; a wrong key tag-fails below)
     uint8_t sender_ed[32]; PeerKeyConf conf = PeerKeyConf::overheard;
     if (!peer_key_find(sender_hash, sender_ed, &conf) || static_cast<uint8_t>(conf) < static_cast<uint8_t>(PeerKeyConf::authoritative)) return false;  // authoritative OR pinned
@@ -323,7 +323,7 @@ bool Node::e2e_open_inner(const uint8_t* inner, size_t inner_len, const uint8_t 
     uint8_t shared[32]; crypto_x25519(shared, _x_secret, sx);
     uint8_t key[32]; dm_kdf(key, shared, _key_hash32, sender_hash);
     uint8_t nonce[24]; dm_nonce(nonce, seed8, ctr, _key_hash32);   // 3. we are dst -> dst_key_hash32 == our key
-    const size_t aad_len = 5;                                       // 4. [dst_hash 4][origin 1] (same-layer)
+    const size_t aad_len = 4;                                       // 4. [dst_hash 4] (§1c: origin SEALED in pt[0])
     if (inner_len < aad_len + DM_TAG_LEN) { crypto_wipe(key, 32); crypto_wipe(shared, 32); return false; }
     const size_t ct_len = inner_len - aad_len - DM_TAG_LEN;
     uint8_t pt[protocol::max_payload_bytes_hard_cap];
@@ -331,7 +331,9 @@ bool Node::e2e_open_inner(const uint8_t* inner, size_t inner_len, const uint8_t 
     const bool ok = dm_open(pt, key, nonce, inner, aad_len, inner + aad_len, ct_len, inner + aad_len + ct_len);
     crypto_wipe(key, 32); crypto_wipe(shared, 32);
     if (!ok) { crypto_wipe(pt, sizeof pt); return false; }          // tag fail -> hard drop
-    size_t off = 0;                                                 // 5. parse [source_hash?][location?][body]
+    size_t off = 0;                                                 // 5. parse [origin 1][source_hash?][location?][body]
+    if (ct_len < off + 1) { crypto_wipe(pt, sizeof pt); return false; }   // §1c: origin is the FIRST sealed byte
+    origin_out = pt[off]; off += 1;
     if (flags & DATA_FLAG_SOURCE_HASH) {
         if (ct_len < off + 4) { crypto_wipe(pt, sizeof pt); return false; }
         source_hash_out = uint32_t(pt[off]) | (uint32_t(pt[off+1])<<8) | (uint32_t(pt[off+2])<<16) | (uint32_t(pt[off+3])<<24); off += 4;
@@ -650,6 +652,7 @@ void Node::l2c_park_redirect(uint32_t want_hash, const PostAck& pa) {
     p.is_redirect = true; p.origin = pa.origin; p.ctr = pa.ctr; p.ctr_lo = pa.ctr_lo;
     p.body_len = (pa.inner_len > protocol::max_payload_bytes_hard_cap) ? protocol::max_payload_bytes_hard_cap : pa.inner_len;
     for (uint8_t i = 0; i < p.body_len; ++i) p.body[i] = pa.inner[i];   // body[] holds the full inner for a redirect
+    for (int i = 0; i < 8; ++i) p.nonce_seed[i] = pa.nonce_seed[i];     // §1c: keep the originator's seed so a CRYPTED redirect stays openable after the heal
     MR_TELEMETRY(
         EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(want_hash) },
                            { .key = "origin",     .type = EventField::T::i64, .i = pa.origin },
@@ -678,7 +681,7 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t 
                     // would corrupt a sibling parked entry processed later in this same loop. The DM is dropped
                     // (forwarding-to-self loops); the sender's retry recovers it once the heal converges.
                     heal = true;
-                } else if (l2c_enqueue_forward(resolved_id, p.origin, p.ctr, p.ctr_lo, p.flags, p.body, p.body_len)) {
+                } else if (l2c_enqueue_forward(resolved_id, p.origin, p.ctr, p.ctr_lo, p.flags, p.body, p.body_len, p.nonce_seed)) {
                     MR_TELEMETRY(
                         EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = resolved_id },
                                            { .key = "origin", .type = EventField::T::i64, .i = p.origin },
@@ -729,7 +732,7 @@ void Node::drain_resolved_parked_sends() {
             if (p.is_resolve) {
                 push_hash_resolved(p.key_hash32, static_cast<uint8_t>(id), true);   // a beacon resolved it -> answer
             } else if (p.is_redirect) {
-                if (l2c_enqueue_forward(static_cast<uint8_t>(id), p.origin, p.ctr, p.ctr_lo, p.flags, p.body, p.body_len)) {
+                if (l2c_enqueue_forward(static_cast<uint8_t>(id), p.origin, p.ctr, p.ctr_lo, p.flags, p.body, p.body_len, p.nonce_seed)) {
                     MR_TELEMETRY(
                         EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = id },
                                            { .key = "origin", .type = EventField::T::i64, .i = p.origin },

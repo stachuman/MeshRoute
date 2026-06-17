@@ -683,6 +683,11 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None):
             origin_ctr_to_record_key[(origin, ctr)] = k
         elif et == "data_rx" and fid == dst and r["arrived_ms"] is None:
             r["arrived_ms"] = t_ms
+        elif et == "delivered" and fid == dst and r["arrived_ms"] is None:
+            # §1c sealed-sender: a CRYPTED DM's data_rx carries origin=0 (the origin is sealed), so it mis-keys
+            # and never sets arrived_ms. The `delivered` event (app-delivery at the dst) carries the RECOVERED
+            # origin -> it keys correctly. For PLAINTEXT, data_rx already set arrived_ms first (this is a no-op).
+            r["arrived_ms"] = t_ms
         elif et == "ack_rx" and fid == origin and r["ack_ms"] is None:
             r["ack_ms"] = t_ms
         elif et == "send_giveup" and fid == origin:
