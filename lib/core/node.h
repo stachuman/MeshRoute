@@ -489,8 +489,8 @@ private:
     uint8_t id_bind_evict_other_hash_holders(uint32_t key_hash32, uint8_t keep_node_id);   // rejoin self-heal: one hash -> one node_id
     void    id_bind_age_out();                                    // drop expired (TTL); emit id_bind_aged
     void    handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta);   // H flood: resolve (own-hash OR id_bind) + suppress, else forward TTL-1
-    bool    hash_query_seen_recently(uint8_t origin, uint32_t key_hash32, bool hard);    // per-(origin,hash,VARIANT) dedup — a hard query isn't suppressed by a prior soft's seen-entry
-    void    mark_hash_query_seen(uint8_t origin, uint32_t key_hash32, bool hard);
+    bool    hash_query_seen_recently(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey);   // per-(origin,hash,VARIANT) dedup; VARIANT = hard + want_pubkey (§2: a WANT_PUBKEY isn't suppressed by a prior plain HARD)
+    void    mark_hash_query_seen(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey);
     void    send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, uint32_t key_hash32, bool authoritative); // B: routed DATA(H_ANSWER inner) home
     void    send_hash_bind_pubkey_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, const uint8_t ed_pub[32]);  // E2E §6: routed DATA TYPE 5 (the owner's ed_pub)
     // D — send-by-hash trigger (the deferred "address by key_hash32") + verify-on-use.
@@ -803,7 +803,7 @@ private:
     // so a TYPE-5 owner answer is cached AUTHORITATIVE even relayed/cached-on-pass (can't decay). Member in LayerRuntime.
     struct PeerKey { uint32_t key_hash32; uint64_t last_seen_ms; uint8_t ed_pub[32]; uint8_t confidence; };
     // H hash-locate flood dedup (Lua hash_query_seen): per-(origin,key_hash32), hash_query_seen_ttl_ms window. Member in LayerRuntime.
-    struct HashQuerySeen { uint8_t origin; uint32_t key_hash32; uint64_t t_ms; bool hard; };
+    struct HashQuerySeen { uint8_t origin; uint32_t key_hash32; uint64_t t_ms; bool hard; bool want_pubkey; };   // §2: WANT_PUBKEY is its own variant
     // send-by-hash DMs parked awaiting a hash-bind resolution (D); drained by on_hash_bind_response, aged on the timer.
     // is_redirect=true => an L2c misdelivered DM held for FORWARD (not re-send): `body`=the full inner (incl.
     // DST_HASH), and origin/ctr/ctr_lo are preserved so the resolution forwards it identity-intact. The redirect

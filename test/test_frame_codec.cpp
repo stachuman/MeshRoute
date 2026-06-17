@@ -303,6 +303,30 @@ TEST_CASE("H — round-trip (key_hash32 LE) + golden + reject") {
     CHECK_FALSE(parse_h(nack).has_value());               // wrong cmd (+ short)
 }
 
+TEST_CASE("§2 H — a WANT_PUBKEY query appends the requester's ed_pub[32] (mutual reqpubkey); non-pubkey H unchanged") {
+    uint8_t reqpub[32]; for (int i = 0; i < 32; ++i) reqpub[i] = uint8_t(0xA0 + i);
+    h_in in{}; in.leaf_id = 2; in.origin = 7; in.key_hash32 = 0x11223344u; in.ttl = 16; in.hard = true; in.want_pubkey = true;
+    for (int i = 0; i < 32; ++i) in.requester_ed_pub[i] = reqpub[i];
+    std::array<uint8_t, 40> buf{};
+    CHECK(pack_h(in, buf) == 40);                              // 8 header + 32 appended requester pubkey
+    auto o = parse_h(std::span<const uint8_t>(buf.data(), 40));
+    CHECK(o.has_value());
+    if (o) {
+        CHECK(o->want_pubkey); CHECK(o->hard);
+        CHECK(o->origin == 7); CHECK(o->key_hash32 == 0x11223344u);
+        bool same = true; for (int i = 0; i < 32; ++i) if (o->requester_ed_pub[i] != reqpub[i]) same = false;
+        CHECK(same);                                           // §2: the requester's pubkey round-trips
+    }
+    // a WANT_PUBKEY frame TRUNCATED to 8 bytes (flag set, pubkey missing) -> REJECT (fail loud, never cache a zero key)
+    CHECK_FALSE(parse_h(std::span<const uint8_t>(buf.data(), 8)).has_value());
+    // a non-WANT_PUBKEY H is still exactly 8 bytes (the appended field is conditional)
+    std::array<uint8_t, 8> b8{};
+    CHECK(pack_h({2, 7, 0x11223344u, 16, /*hard=*/true}, b8) == 8);
+    auto o8 = parse_h(b8);
+    CHECK(o8.has_value());
+    if (o8) CHECK_FALSE(o8->want_pubkey);
+}
+
 TEST_CASE("F — RREQ/RREP round-trip + golden + is_reply isolation + reject") {
     for (uint8_t leaf : {0, 3, 15})
         for (uint8_t origin : {0, 0x11, 255})

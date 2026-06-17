@@ -249,10 +249,12 @@ std::optional<uint32_t> parse_q_channel_id(std::span<const uint8_t> frame,
 //              an authoritative correction; the verify-on-use escalation). soft (default) consults the cache.
 enum HFlag : uint8_t { H_FLAG_HARD = 0x01,
                        H_FLAG_WANT_PUBKEY = 0x02 };   // E2E §6: request the owner's ed_pub (set WITH HARD; owner answers DATA TYPE 5)
-struct h_in  { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; bool want_pubkey = false; };
-struct h_out { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; bool want_pubkey = false; };
-size_t pack_h(const h_in& in, std::span<uint8_t> out);            // 8; 0 on short buf
-std::optional<h_out> parse_h(std::span<const uint8_t> frame);     // nullopt: len<7 / cmd; hard from byte 7 if present
+// §2 mutual reqpubkey: when want_pubkey is set, the H frame APPENDS the requester's ed_pub[32] (so the owner caches
+// the requester + can decrypt its future sealed DMs). requester_ed_pub is meaningful ONLY when want_pubkey.
+struct h_in  { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; bool want_pubkey = false; uint8_t requester_ed_pub[32] = {}; };
+struct h_out { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; bool want_pubkey = false; uint8_t requester_ed_pub[32] = {}; };
+size_t pack_h(const h_in& in, std::span<uint8_t> out);            // 8, or 8+32=40 when want_pubkey; 0 on short buf
+std::optional<h_out> parse_h(std::span<const uint8_t> frame);     // nullopt: len<7 / cmd / (want_pubkey && len<40); hard+flags from byte 7
 
 // -----------------------------------------------------------------------------
 // F — route-find RREQ/RREP flood (cmd-nibble 0x8, 7 B) — ROADMAP §10.3

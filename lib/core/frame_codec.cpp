@@ -464,13 +464,15 @@ std::optional<uint32_t> parse_q_channel_id(std::span<const uint8_t> frame,
 // H — cmd 0x7, 8 B (§3.7a). key_hash32 LE; byte 7 = H flags (bit 0 = HARD: skip the cache, reach the owner).
 // -----------------------------------------------------------------------------
 size_t pack_h(const h_in& in, std::span<uint8_t> out) {
-    if (out.size() < 8) return 0;
+    const size_t need = in.want_pubkey ? 8 + 32 : 8;       // §2: a WANT_PUBKEY H appends the requester's ed_pub[32]
+    if (out.size() < need) return 0;
     wire::Writer w(out);
     w.u8(wire::cmd_byte(wire::Cmd::H, static_cast<uint8_t>(in.leaf_id & 0x0F)));
     w.u8(in.origin);
     w.u32_le(in.key_hash32);
     w.u8(in.ttl);                          // u8: config caps ttl <= 16
     w.u8(static_cast<uint8_t>((in.hard ? H_FLAG_HARD : 0) | (in.want_pubkey ? H_FLAG_WANT_PUBKEY : 0)));   // byte 7: H flags
+    if (in.want_pubkey) for (int i = 0; i < 32; ++i) w.u8(in.requester_ed_pub[i]);   // bytes 8..39: the requester's ed_pub
     return w.ok() ? w.size() : 0;
 }
 
@@ -487,6 +489,10 @@ std::optional<h_out> parse_h(std::span<const uint8_t> frame) {
     if (!r.ok()) return std::nullopt;
     o.hard        = (frame.size() >= 8) && (frame[7] & H_FLAG_HARD);          // lenient: a 7-B frame parses as soft
     o.want_pubkey = (frame.size() >= 8) && (frame[7] & H_FLAG_WANT_PUBKEY);   // E2E §6: the sender wants the owner's ed_pub
+    if (o.want_pubkey) {                                                      // §2: a WANT_PUBKEY H MUST carry the 32-B requester pubkey
+        if (frame.size() < 8 + 32) return std::nullopt;                      // flag set but pubkey missing -> reject (fail loud)
+        for (int i = 0; i < 32; ++i) o.requester_ed_pub[i] = frame[8 + i];
+    }
     return o;
 }
 

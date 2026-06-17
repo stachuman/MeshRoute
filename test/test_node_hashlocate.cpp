@@ -89,9 +89,11 @@ static size_t make_beacon(uint8_t src, uint32_t key_hash32, std::array<uint8_t, 
 }
 
 // An H query (hash-locate flood) from `origin` for `key_hash32` with `ttl`. hard=true skips the cache (reach owner).
-static size_t make_h(uint8_t origin, uint32_t key_hash32, uint8_t ttl, std::array<uint8_t, 16>& buf, bool hard = false, bool want_pubkey = false) {
+static size_t make_h(uint8_t origin, uint32_t key_hash32, uint8_t ttl, std::span<uint8_t> buf, bool hard = false,
+                     bool want_pubkey = false, const uint8_t* requester_ed_pub = nullptr) {
     h_in in{}; in.leaf_id = 0; in.origin = origin; in.key_hash32 = key_hash32; in.ttl = ttl; in.hard = hard; in.want_pubkey = want_pubkey;
-    return pack_h(in, std::span<uint8_t>(buf.data(), buf.size()));
+    if (want_pubkey) for (int i = 0; i < 32; ++i) in.requester_ed_pub[i] = requester_ed_pub ? requester_ed_pub[i] : uint8_t(0xC0 + i);
+    return pack_h(in, buf);   // §2: a WANT_PUBKEY H needs a >=40-B buf (8 hdr + 32 pubkey)
 }
 
 const Ev* find_ev(const std::vector<Ev>& evs, const char* type) {
@@ -315,8 +317,9 @@ TEST_CASE("R4 handle_h — a forwarded WANT_PUBKEY query PRESERVES the flag (mul
     RxMeta meta{8.0f, -80.0f, 0, -1};
     hal.tx_frames.clear();
 
-    std::array<uint8_t, 16> q{};
-    const size_t n = make_h(/*origin=*/9, /*hash=*/0x0000FACE, /*ttl=*/4, q, /*hard=*/true, /*want_pubkey=*/true);
+    std::array<uint8_t, 40> q{};   // §2: a WANT_PUBKEY H is 40 B (8 hdr + 32 requester pubkey)
+    uint8_t reqpub[32]; for (int i = 0; i < 32; ++i) reqpub[i] = uint8_t(0x50 + i);
+    const size_t n = make_h(/*origin=*/9, /*hash=*/0x0000FACE, /*ttl=*/4, q, /*hard=*/true, /*want_pubkey=*/true, reqpub);
     node.on_recv(q.data(), n, meta);
 
     CHECK(find_ev(hal.events, "h_forward") != nullptr);
@@ -324,7 +327,9 @@ TEST_CASE("R4 handle_h — a forwarded WANT_PUBKEY query PRESERVES the flag (mul
     if (!hal.tx_frames.empty()) {
         auto pf = parse_h(std::span<const uint8_t>(hal.tx_frames[0].data(), hal.tx_frames[0].size()));
         CHECK(pf.has_value());
-        if (pf) { CHECK(pf->ttl == 3); CHECK(pf->hard); CHECK(pf->want_pubkey); }   // want_pubkey PRESERVED across the hop
+        if (pf) { CHECK(pf->ttl == 3); CHECK(pf->hard); CHECK(pf->want_pubkey);   // want_pubkey PRESERVED across the hop
+                  bool same = true; for (int i = 0; i < 32; ++i) if (pf->requester_ed_pub[i] != reqpub[i]) same = false;
+                  CHECK(same); }   // §2: the requester's pubkey is carried across the forward too
     }
 }
 
@@ -1092,21 +1097,120 @@ TEST_CASE("e2e pubkey wire — on_hash_bind_pubkey caches the owner's ed_pub (au
 
 // §6 (E2E peer-key provisioning): `reqpubkey <hash>` is the user-triggered on-air request — now the ONLY thing that
 // fires a WANT_PUBKEY (besides a relay forwarding one). Exactly ONE HARD + want_pubkey H query for the asked hash.
-TEST_CASE("§6 reqpubkey — fires ONE hard WANT_PUBKEY H query for the requested hash") {
+TEST_CASE("§6 reqpubkey — fires ONE hard WANT_PUBKEY H query carrying OUR pubkey (mutual)") {
     TestHal hal; Node node(hal, 5, 0x0000BBBB);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
     node.on_init(cfg);
+    uint8_t seed[32]; for (int i = 0; i < 32; ++i) seed[i] = uint8_t(i + 5);
+    Identity me{}; identity_from_seed(me, seed);
+    node.set_crypto_identity(me.x_secret, me.ed_pub);               // §2: reqpubkey now needs our own pubkey to attach
     hal.tx_frames.clear();
     Command c{}; c.kind = CmdKind::reqpubkey; c.u.resolve.dst_hash = 0x0000FACE;
     const CmdResult r = node.on_command(c);
     CHECK(r.code == CmdCode::queued);
-    int n_h = 0; bool hard_wp = false;
+    int n_h = 0; bool hard_wp = false; bool pub_ok = false;
     for (const auto& f : hal.tx_frames) {
         auto pf = parse_h(std::span<const uint8_t>(f.data(), f.size()));
-        if (pf) { ++n_h; if (pf->hard && pf->want_pubkey && pf->key_hash32 == 0x0000FACEu) hard_wp = true; }
+        if (pf) { ++n_h;
+            if (pf->hard && pf->want_pubkey && pf->key_hash32 == 0x0000FACEu) {
+                hard_wp = true;
+                bool same = true; for (int i = 0; i < 32; ++i) if (pf->requester_ed_pub[i] != me.ed_pub[i]) same = false;
+                pub_ok = same;
+            } }
     }
     CHECK(n_h == 1);                                                 // exactly one query (not a storm)
     CHECK(hard_wp);                                                  // HARD + want_pubkey for the requested hash
+    CHECK(pub_ok);                                                   // §2: the H carries OUR ed_pub so the owner caches us
+}
+
+// §2: a reqpubkey from a node with NO crypto identity must FAIL LOUD (can't provide our pubkey for the mutual cache) — no flood.
+TEST_CASE("§2 reqpubkey without a crypto identity -> fail loud (h_want_pubkey_no_identity), no H flood") {
+    TestHal hal; Node node(hal, 5, 0x0000BBBB);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    node.on_init(cfg);   // NOTE: no set_crypto_identity
+    hal.tx_frames.clear();
+    Command c{}; c.kind = CmdKind::reqpubkey; c.u.resolve.dst_hash = 0x0000FACE;
+    node.on_command(c);
+    CHECK(find_ev(hal.events, "h_want_pubkey_no_identity") != nullptr);
+    int n_h = 0; for (const auto& f : hal.tx_frames) if (parse_h(std::span<const uint8_t>(f.data(), f.size()))) ++n_h;
+    CHECK(n_h == 0);                                                 // no WANT_PUBKEY H flooded without an identity
+}
+
+// §2 MUTUAL — the WANT_PUBKEY owner CACHES the requester's key (from the H's appended pubkey) BEFORE answering, so it
+// can decrypt the requester's future sealed DMs (the exchange provisions BOTH directions in one round, no QR/2nd req).
+TEST_CASE("§2 handle_h — a WANT_PUBKEY owner CACHES the requester's key + answers TYPE-5") {
+    TestHal hal;
+    uint8_t oseed[32], rseed[32]; for (int i = 0; i < 32; ++i) { oseed[i] = uint8_t(i + 1); rseed[i] = uint8_t(200 - i); }
+    Identity owner_id{}, req_id{}; identity_from_seed(owner_id, oseed); identity_from_seed(req_id, rseed);
+    Node owner(hal, /*id=*/5, owner_id.key_hash32);                  // owner is authoritative for its OWN hash
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    owner.on_init(cfg);
+    owner.set_crypto_identity(owner_id.x_secret, owner_id.ed_pub);   // crypto_ready so it can answer TYPE-5
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    hal.tx_frames.clear();
+    std::array<uint8_t, 40> q{};                                     // a WANT_PUBKEY H for the owner's hash, carrying the requester's pubkey
+    const size_t n = make_h(/*origin=*/9, owner_id.key_hash32, /*ttl=*/4, q, /*hard=*/true, /*want_pubkey=*/true, req_id.ed_pub);
+    owner.on_recv(q.data(), n, meta);
+    // the owner CACHED the requester's authoritative key
+    uint8_t out[32]; Node::PeerKeyConf conf{};
+    CHECK(owner.peer_key_find(req_id.key_hash32, out, &conf));
+    CHECK(conf == Node::PeerKeyConf::authoritative);
+    bool same = true; for (int i = 0; i < 32; ++i) if (out[i] != req_id.ed_pub[i]) same = false; CHECK(same);
+    // review#3: it ALSO learned the requester's id_bind (node 9 -> requester_hash) so it can ADDRESS a seal-back w/o a beacon
+    CHECK(owner.id_bind_find_by_hash(req_id.key_hash32) == 9);
+    // review#10/#11: a peer_key_cached PUSH (not just telemetry) fires so the app knows it can securely reply
+    Push pu{}; bool pushed = false;
+    while (owner.next_push(pu)) if (pu.kind == PushKind::peer_key_cached && pu.sender_hash == req_id.key_hash32) { pushed = true; break; }
+    CHECK(pushed);
+    CHECK(find_ev(hal.events, "peer_key_cached") != nullptr);        // the §7-aligned telemetry (hash + node)
+    CHECK(find_ev(hal.events, "hash_bind_pubkey_response_enqueued") != nullptr);   // and it answers TYPE-5 (its own pubkey back)
+}
+
+// §2 review#1 — the WANT_PUBKEY answer is gated on OWN-HASH (node_id==_node_id), NOT just `authoritative`. A non-owner
+// cache-holder that resolves a SOFT want_pubkey via its id_bind must NOT answer with its OWN pubkey (a blackhole) nor
+// cache the requester — it falls through to the plain hash-bind resolve (and the flood still reaches the true owner).
+TEST_CASE("§2 review#1 — a non-owner cache-holder does NOT answer a SOFT WANT_PUBKEY with its own key") {
+    TestHal hal;
+    uint8_t hseed[32], rseed[32]; for (int i = 0; i < 32; ++i) { hseed[i] = uint8_t(i + 9); rseed[i] = uint8_t(150 - i); }
+    Identity holder_id{}, req_id{}; identity_from_seed(holder_id, hseed); identity_from_seed(req_id, rseed);
+    Node holder(hal, /*id=*/5, holder_id.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    holder.on_init(cfg);
+    holder.set_crypto_identity(holder_id.x_secret, holder_id.ed_pub);
+    const uint32_t owner_hash = 0x0000FACE;                          // a hash the holder knows the owner(7) of, but is NOT
+    // seed the holder's authoritative id_bind via a beacon FROM owner(7) carrying owner_hash (7 -> owner_hash)
+    std::array<uint8_t, 64> bb{};
+    beacon_entry be{}; be.dest = 7; be.next = 7; be.score_bucket = 14; be.hops = 1;
+    beacon_in bin{}; bin.leaf_id = 0; bin.src = 7; bin.key_hash32 = owner_hash; bin.entries = std::span<const beacon_entry>(&be, 1);
+    holder.on_recv(bb.data(), pack_beacon(bin, std::span<uint8_t>(bb.data(), bb.size())), RxMeta{12.0f, -70.0f, 0, static_cast<int8_t>(7)});
+    hal.tx_frames.clear();
+    std::array<uint8_t, 40> q{};                                     // a SOFT (hard=false) WANT_PUBKEY for owner_hash
+    const size_t n = make_h(/*origin=*/9, owner_hash, /*ttl=*/4, q, /*hard=*/false, /*want_pubkey=*/true, req_id.ed_pub);
+    holder.on_recv(q.data(), n, RxMeta{8.0f, -80.0f, 0, -1});
+    uint8_t out[32]; Node::PeerKeyConf pc{};
+    CHECK_FALSE(holder.peer_key_find(req_id.key_hash32, out, &pc));  // did NOT cache the requester (we're not the owner)
+    CHECK(find_ev(hal.events, "hash_bind_pubkey_response_enqueued") == nullptr);   // and did NOT send a wrong-key TYPE-5
+}
+
+// §2 review#14 — a WANT_PUBKEY H is its OWN flood-dedup variant: a prior plain HARD H for the same (origin,hash) must
+// NOT suppress the later WANT_PUBKEY forward (else multi-hop mutual provisioning fails behind a prior locate).
+TEST_CASE("§2 review#14 — a prior plain HARD H does NOT suppress a later WANT_PUBKEY H forward") {
+    TestHal hal; Node relay(hal, /*id=*/5, 0x0000BBBB);             // a relay (NOT the owner of 0xFACE) -> it FORWARDS
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    relay.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    // a plain HARD H for (origin 9, hash 0xFACE) -> the relay forwards + marks (9,0xFACE,hard,!wp) seen
+    std::array<uint8_t, 16> q1{}; const size_t n1 = make_h(/*origin=*/9, 0x0000FACE, /*ttl=*/4, q1, /*hard=*/true);
+    relay.on_recv(q1.data(), n1, meta);
+    const int fwd_after_plain = count_h_tx(hal.tx_frames);
+    CHECK(fwd_after_plain >= 1);
+    // a HARD WANT_PUBKEY H for the SAME (origin, hash) -> a DIFFERENT variant -> must STILL forward (not deduped)
+    uint8_t reqpub[32]; for (int i = 0; i < 32; ++i) reqpub[i] = uint8_t(0x70 + i);
+    std::array<uint8_t, 40> q2{}; const size_t n2 = make_h(/*origin=*/9, 0x0000FACE, /*ttl=*/4, q2, /*hard=*/true, /*want_pubkey=*/true, reqpub);
+    relay.on_recv(q2.data(), n2, meta);
+    int wp_fwd = 0;
+    for (const auto& f : hal.tx_frames) { auto pf = parse_h(std::span<const uint8_t>(f.data(), f.size())); if (pf && pf->want_pubkey) ++wp_fwd; }
+    CHECK(wp_fwd == 1);                                              // the WANT_PUBKEY variant was forwarded despite the prior plain HARD
 }
 
 // §3 (E2E peer-key provisioning): `peerkey` installs a scanned pubkey as a PINNED (verified, MITM-resistant) key.

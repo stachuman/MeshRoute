@@ -378,25 +378,27 @@ bool Node::e2e_open_trial(const uint8_t* inner, size_t inner_len, const uint8_t 
 // per-(origin, key_hash32, VARIANT) flood dedup (Lua hash_query_seen; hash_query_seen_ttl_ms window). Keying on
 // `hard` is load-bearing: a HARD query (verify-on-use) must NOT be suppressed by a prior SOFT's seen-entry, or
 // the escalation that reaches the owner is silently swallowed. Mirrors rreq_seen.
-bool Node::hash_query_seen_recently(uint8_t origin, uint32_t key_hash32, bool hard) {
+bool Node::hash_query_seen_recently(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey) {
     const uint64_t now    = _hal.now();
     const uint64_t cutoff = (now >= protocol::hash_query_seen_ttl_ms) ? now - protocol::hash_query_seen_ttl_ms : 0;
     for (uint8_t i = 0; i < _active->_hash_query_seen_n; ++i)
         if (_active->_hash_query_seen[i].origin == origin && _active->_hash_query_seen[i].key_hash32 == key_hash32
-            && _active->_hash_query_seen[i].hard == hard && _active->_hash_query_seen[i].t_ms >= cutoff) return true;
+            && _active->_hash_query_seen[i].hard == hard && _active->_hash_query_seen[i].want_pubkey == want_pubkey
+            && _active->_hash_query_seen[i].t_ms >= cutoff) return true;
     return false;
 }
-void Node::mark_hash_query_seen(uint8_t origin, uint32_t key_hash32, bool hard) {
+void Node::mark_hash_query_seen(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey) {
     const uint64_t now = _hal.now();
     for (uint8_t i = 0; i < _active->_hash_query_seen_n; ++i)
         if (_active->_hash_query_seen[i].origin == origin && _active->_hash_query_seen[i].key_hash32 == key_hash32
-            && _active->_hash_query_seen[i].hard == hard) { _active->_hash_query_seen[i].t_ms = now; return; }
+            && _active->_hash_query_seen[i].hard == hard && _active->_hash_query_seen[i].want_pubkey == want_pubkey)
+            { _active->_hash_query_seen[i].t_ms = now; return; }
     if (_active->_hash_query_seen_n < protocol::cap_hash_query_seen) {
-        _active->_hash_query_seen[_active->_hash_query_seen_n++] = { origin, key_hash32, now, hard };
+        _active->_hash_query_seen[_active->_hash_query_seen_n++] = { origin, key_hash32, now, hard, want_pubkey };
     } else {                                              // ring full -> evict the oldest
         uint8_t o = 0;
         for (uint8_t i = 1; i < _active->_hash_query_seen_n; ++i) if (_active->_hash_query_seen[i].t_ms < _active->_hash_query_seen[o].t_ms) o = i;
-        _active->_hash_query_seen[o] = { origin, key_hash32, now, hard };
+        _active->_hash_query_seen[o] = { origin, key_hash32, now, hard, want_pubkey };
     }
 }
 
@@ -431,7 +433,7 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     }
 
     if (node_id >= 0) {                                    // RESOLVER path (dv:11644) — answer + SUPPRESS the forward
-        mark_hash_query_seen(h.origin, h.key_hash32, h.hard);   // mark BEFORE replying so a re-flood doesn't double-answer (dv:11647)
+        mark_hash_query_seen(h.origin, h.key_hash32, h.hard, h.want_pubkey);   // mark BEFORE replying so a re-flood doesn't double-answer (dv:11647)
         MR_TELEMETRY(
             EventField f[] = { { .key = "origin",        .type = EventField::T::i64,     .i = h.origin },
                                { .key = "key_hash32",    .type = EventField::T::i64,     .i = static_cast<int64_t>(h.key_hash32) },
@@ -439,17 +441,29 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                { .key = "target_layer",  .type = EventField::T::i64,     .i = _cfg.leaf_id },
                                { .key = "authoritative", .type = EventField::T::boolean, .b = authoritative } };
             _hal.emit("h_resolved", f, 5); );              // dv:11649
-        if (h.want_pubkey && authoritative && _crypto_ready)        // E2E §6: the OWNER answers WANT_PUBKEY with TYPE 5 (its ed_pub)
+        if (h.want_pubkey && node_id == _node_id && _crypto_ready) {   // §6 + review#1: ONLY the OWNER (own-hash) answers WANT_PUBKEY
+            // §2 MUTUAL: cache the requester's key + id_bind (from the H's appended ed_pub) BEFORE answering, so we can
+            // both DECRYPT and ADDRESS its future sealed DMs -> the exchange provisions BOTH directions in one round.
+            // requester_hash = requester_ed_pub[:4] LE (self-consistent: peer_key_set derives/checks the same hash).
+            const uint32_t requester_hash = uint32_t(h.requester_ed_pub[0]) | (uint32_t(h.requester_ed_pub[1]) << 8)
+                                          | (uint32_t(h.requester_ed_pub[2]) << 16) | (uint32_t(h.requester_ed_pub[3]) << 24);
+            bool req_zero = true; for (int i = 0; i < 32; ++i) if (h.requester_ed_pub[i]) { req_zero = false; break; }
+            if (!req_zero && requester_hash != 0                       // review#15: never cache a zero/degenerate requester key
+                && peer_key_set(requester_hash, h.requester_ed_pub, PeerKeyConf::authoritative)) {
+                id_bind_set(h.origin, requester_hash, IdBindSource::h_query, IdBindConf::authoritative);   // review#3: the ADDRESSING half (seal-back w/o waiting for a beacon)
+                MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(requester_hash)), EF_I("node", h.origin));   // review#11: schema aligned with §7
+                Push pu{}; pu.kind = PushKind::peer_key_cached; pu.sender_hash = requester_hash; enqueue_push(pu);   // review#10: app-notify on device too
+            }
             send_hash_bind_pubkey_response(h.origin, _cfg.leaf_id, static_cast<uint8_t>(node_id), _ed_pub);
-        else
+        } else
             send_hash_bind_response(h.origin, _cfg.leaf_id, static_cast<uint8_t>(node_id), h.key_hash32, authoritative);
         return;                                            // SUPPRESS — the whole point: the flood stops here
     }
 
     // FORWARD path (dv:11655): we don't know it (or it's a HARD query and we're not the owner) -> re-broadcast
     // once, deduped per variant, until TTL runs out.
-    if (hash_query_seen_recently(h.origin, h.key_hash32, h.hard)) return;   // flood dedup (dv:11656)
-    mark_hash_query_seen(h.origin, h.key_hash32, h.hard);                   // (dv:11657)
+    if (hash_query_seen_recently(h.origin, h.key_hash32, h.hard, h.want_pubkey)) return;   // flood dedup (dv:11656) — §2: WANT_PUBKEY is its own variant
+    mark_hash_query_seen(h.origin, h.key_hash32, h.hard, h.want_pubkey);                   // (dv:11657)
     if (h.ttl == 0) return;                                         // TTL exhausted (dv:11658)
     MR_TELEMETRY(
         EventField f[] = { { .key = "origin",     .type = EventField::T::i64,     .i = h.origin },
@@ -461,7 +475,8 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     fwd.leaf_id = _cfg.leaf_id; fwd.origin = h.origin; fwd.key_hash32 = h.key_hash32;
     fwd.ttl = static_cast<uint8_t>(h.ttl - 1); fwd.hard = h.hard;   // preserve the variant across forwards
     fwd.want_pubkey = h.want_pubkey;   // R4: PRESERVE the E2E pubkey-request flag so a multi-hop WANT_PUBKEY reaches the owner
-    uint8_t buf[8];
+    if (h.want_pubkey) for (int i = 0; i < 32; ++i) fwd.requester_ed_pub[i] = h.requester_ed_pub[i];   // §2: carry the requester's pubkey across the forward
+    uint8_t buf[8 + 32];               // §2: a WANT_PUBKEY H is 40 B
     const size_t n = pack_h(fwd, std::span<uint8_t>(buf, sizeof(buf)));
     if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
 }
@@ -597,10 +612,15 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
 // Originate an H flood for key_hash32 (Lua send_hash_query dv:5625). hard = the verify-on-use escalation.
 void Node::emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey) {
     if (key_hash32 == 0 || key_hash32 == _key_hash32) return;    // nothing to locate (degenerate / it's us)
+    if (want_pubkey && !_crypto_ready) {                         // §2: the mutual exchange needs OUR pubkey -> fail loud, no flood
+        MR_EMIT("h_want_pubkey_no_identity", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
+        return;
+    }
     h_in in{};
     in.leaf_id = _cfg.leaf_id; in.origin = _node_id; in.key_hash32 = key_hash32;
     in.ttl = protocol::hash_query_max_ttl; in.hard = hard; in.want_pubkey = want_pubkey;
-    uint8_t buf[8];
+    if (want_pubkey) for (int i = 0; i < 32; ++i) in.requester_ed_pub[i] = _ed_pub[i];   // §2: attach our pubkey so the owner caches us (mutual)
+    uint8_t buf[8 + 32];                                         // §2: a WANT_PUBKEY H is 40 B (8 hdr + 32 pubkey)
     const size_t n = pack_h(in, std::span<uint8_t>(buf, sizeof(buf)));
     if (n == 0) return;
     MR_TELEMETRY(
