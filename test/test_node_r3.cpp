@@ -2932,3 +2932,65 @@ TEST_CASE("e2e wiring — B opens a received CRYPTED DM and delivers the plainte
         CHECK(pu.enc);                                       // §8b: a sealed DM is stamped enc=true
     }
 }
+
+// §3 — the E2E-ack is gated on a SUCCESSFUL open and TARGETS THE DECRYPTED origin (sealed since §1c). A sealed DM the
+// receiver can't open is dropped BEFORE the ack — so a sender that gets no ack assumes "not delivered or not decrypted"
+// and retries (the contract's only recovery; there is no per-message "locked" state).
+namespace {
+// Build a CRYPTED DM A->B (origin=1, ctr=5) with the given extra flags + drive it into B; returns the packed frame len.
+size_t e2e_seal_AtoB(Node& A, const Identity& idA, const Identity& idB, uint8_t extra_flags, const char* body,
+                     uint8_t* frame, size_t cap, uint8_t* inner, size_t inner_cap, uint8_t seed[8]) {
+    const uint8_t flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH | extra_flags;
+    uint8_t blen = 0; while (body[blen]) ++blen;
+    Node::SealOutcome oc = Node::SealOutcome::ok;
+    const size_t il = A.e2e_seal_inner(inner, inner_cap, seed, flags, idB.key_hash32, /*origin=*/1, /*ctr=*/0x0005,
+                                       /*source_hash=*/idA.key_hash32, 0, 0, reinterpret_cast<const uint8_t*>(body), blen, oc);
+    if (il == 0) return 0;
+    data_in din{}; din.addr_len = 0; din.flags = flags; din.next = 2; din.dst = 2; din.hops_remaining = 31; din.ctr = 0x0005;
+    din.inner = std::span<const uint8_t>(inner, il); din.mac = std::span<const uint8_t>(seed, 8);
+    return pack_data(din, std::span<uint8_t>(frame, cap));
+}
+}  // namespace
+TEST_CASE("§3 e2e-ack — fires only after a successful open, TARGETING the recovered origin") {
+    uint8_t seedA[32], seedB[32]; for (int i = 0; i < 32; ++i) { seedA[i] = uint8_t(i + 1); seedB[i] = uint8_t(100 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, seedA); identity_from_seed(idB, seedB);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    TestHal halA; Node A(halA, 1, idA.key_hash32); A.on_init(cfg); A.set_crypto_identity(idA.x_secret, idA.ed_pub);
+    A.peer_key_set(idB.key_hash32, idB.ed_pub, Node::PeerKeyConf::authoritative);
+    uint8_t frame[128], inner[96], seed[8];
+    const size_t fl = e2e_seal_AtoB(A, idA, idB, /*extra=*/DATA_FLAG_E2E_ACK_REQ, "ack-me", frame, sizeof frame, inner, sizeof inner, seed);
+    CHECK(fl > 0);
+    // B holds A's key + a route to A (beacon), opens the DM, delivers, and ACKs.
+    TestHal halB; Node B(halB, 2, idB.key_hash32); B.on_init(cfg); B.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    B.peer_key_set(idA.key_hash32, idA.ed_pub, Node::PeerKeyConf::authoritative);
+    std::array<uint8_t, 64> bb{}; beacon_entry be{}; be.dest = 1; be.next = 1; be.score_bucket = 14; be.hops = 1;
+    beacon_in bin{}; bin.leaf_id = 0; bin.src = 1; bin.key_hash32 = idA.key_hash32; bin.entries = std::span<const beacon_entry>(&be, 1);
+    RxMeta from1{ 12.0f, -70.0f, 0, static_cast<int8_t>(1) };
+    halB._now = 500; B.on_recv(bb.data(), pack_beacon(bin, std::span<uint8_t>(bb.data(), bb.size())), from1);
+    std::array<uint8_t, 16> rb{};
+    halB._now = 1000; B.on_recv(rb.data(), mk_rts(1, 2, 2, 5, static_cast<uint8_t>(fl - 8), rb), from1);
+    halB._now = 2000; B.on_recv(frame, fl, from1);
+    B.on_timer(kPostAckTimerId);
+    const Ev* ack = halB.last("e2e_ack_tx");
+    CHECK(ack != nullptr);
+    if (ack) CHECK(ack->dst == 1);   // §1c+§3: the cleartext origin is GONE, so dst=1 can ONLY be the origin recovered from the seal
+}
+TEST_CASE("§3 e2e-ack — a CRYPTED DM the receiver can't open is dropped with NO ack") {
+    uint8_t seedA[32], seedB[32]; for (int i = 0; i < 32; ++i) { seedA[i] = uint8_t(i + 1); seedB[i] = uint8_t(100 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, seedA); identity_from_seed(idB, seedB);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    TestHal halA; Node A(halA, 1, idA.key_hash32); A.on_init(cfg); A.set_crypto_identity(idA.x_secret, idA.ed_pub);
+    A.peer_key_set(idB.key_hash32, idB.ed_pub, Node::PeerKeyConf::authoritative);
+    uint8_t frame[128], inner[96], seed[8];
+    const size_t fl = e2e_seal_AtoB(A, idA, idB, /*extra=*/DATA_FLAG_E2E_ACK_REQ, "ack-me", frame, sizeof frame, inner, sizeof inner, seed);
+    CHECK(fl > 0);
+    // B does NOT hold A's key -> trial-decrypt finds no candidate -> e2e_open_no_key, silent drop (BEFORE any ack).
+    TestHal halB; Node B(halB, 2, idB.key_hash32); B.on_init(cfg); B.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    RxMeta from1{ 12.0f, -70.0f, 0, static_cast<int8_t>(1) };
+    std::array<uint8_t, 16> rb{};
+    halB._now = 1000; B.on_recv(rb.data(), mk_rts(1, 2, 2, 5, static_cast<uint8_t>(fl - 8), rb), from1);
+    halB._now = 2000; B.on_recv(frame, fl, from1);
+    B.on_timer(kPostAckTimerId);
+    CHECK(halB.count("e2e_open_no_key") >= 1);   // dropped (no key)
+    CHECK(halB.count("e2e_ack_tx") == 0);        // and NO ack — a sender seeing no ack must retry (the recovery model)
+}

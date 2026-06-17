@@ -58,7 +58,28 @@ inline void mr_trace_frame(bool is_rx, const uint8_t* b, size_t n, int sf,
                       Serial.print(F(" to="));  Serial.print(c->rx_id); Serial.print(F(" dsf=")); Serial.print(c->chosen_data_sf);
                       if (c->already_received) Serial.print(F(" RCVD")); } break;   // dedup CTS: "I already have this DM" -> sender skips DATA
         case 0x3: if (auto d = parse_data(f)) { Serial.print(F(" to=")); Serial.print(d->next);
-                      Serial.print(F(" dst=")); Serial.print(d->dst); Serial.print(F(" ctr=")); Serial.print(d->ctr);
+                        Serial.print(F(" dst=")); Serial.print(d->dst); Serial.print(F(" ctr=")); Serial.print(d->ctr);
+                        if(d->app) {
+                            Serial.print(F(" app=")); Serial.print(d->type); 
+                            switch(d->type) {
+                                case 1: Serial.print(F("H_ANSWER"));break;
+                                case 2: Serial.print(F("AUTHORITATIVE_H_ANSWER"));break;
+                                case 3: Serial.print(F("E2E_ACK"));break;
+                                case 4: Serial.print(F("DATA_TYPE_H_ANSWER_PUBKEY"));break;
+                                case 5: Serial.print(F("DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY"));break;
+                                
+                            }
+                        }
+                        Serial.print(F(" flag="));
+                        if( d->flags & 0x80 ) Serial.print(F("app "));
+                        if( d->flags & 0x40 ) Serial.print(F("cross_layer "));
+                        if( d->flags & 0x20 ) Serial.print(F("crypted "));
+                        if( d->flags & 0x10 ) Serial.print(F("e2e_ack_req "));
+                        if( d->flags & 0x08 ) Serial.print(F("location "));
+                        if( d->flags & 0x04 ) Serial.print(F("source_hash "));
+                        if( d->flags & 0x02 ) Serial.print(F("dst_hash "));
+                        if( d->flags & 0x01 ) Serial.print(F("priority "));
+
                       // E2E eye-confirm: for a CRYPTED DATA, annotate which on-wire bytes are encrypted. The header
                       // (above) + aad are CLEARTEXT; enc[a..b) is the sealed body (opaque hex); tag+seed are trailers.
                       if (d->crypted) { const auto cr = data_crypted_region(*d);

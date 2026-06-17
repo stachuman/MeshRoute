@@ -192,19 +192,25 @@ The firmware does **NOT** auto-flood `WANT_PUBKEY` on a failed encrypted send. O
 reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "request key" UX action)
 ```
 - Firmware: `emit_hash_query(hash, hard=true, want_pubkey=true)`; ack `{"ev":"reqpubkey_sent","hash":…}`.
-- **Mutual (sealed-sender redesign 2026-06-16):** the request OPTIONALLY carries the requester's OWN pubkey (a
-  flag), so ONE request provisions BOTH directions — the bootstrap before any sealed DM flows. The request rides
-  the **cleartext flood**, so an attached pubkey is **visible to every relay** — the deliberate "establishing
-  contact" exposure (everything after is sealed). App command unchanged. *Directed-when-route-known is deferred.*
+- **Mutual (Slice 2, implemented 2026-06-17):** the WANT_PUBKEY H **always appends the requester's OWN pubkey**
+  (the 8→40-B H), so ONE request provisions BOTH directions: the **owner caches the requester** (key + id_bind)
+  before answering, and the requester caches the owner from the TYPE-5 answer. This is the bootstrap before any
+  sealed DM flows. The request rides the **cleartext flood**, so the attached pubkey is **visible to every relay**
+  — the deliberate "establishing contact" exposure (everything after is sealed). App command unchanged. A
+  reqpubkey from a node with **no crypto identity fails loud** (no flood) — provision an identity first.
+  *Directed-when-route-known is deferred.*
 
 ### UX pushes (node → app)
 ```json
 {"ev":"send_failed","dst":2,"ctr":7,"reason":"no_pubkey"}     // a CRYPTED send was DROPPED — warn + offer Request-key / Scan-QR
-{"ev":"peer_key_cached","hash":3735928559,"pinned":false}    // a key arrived (request answer / cache-on-pass / QR) → enable resend
+{"ev":"peer_key_cached","hash":3735928559,"pinned":false}    // a key arrived (request answer / cache-on-pass / QR / mutual) → enable resend
 ```
 - `send_failed.reason` ∈ `no_pubkey · no_identity · too_large · bad_rng · no_route`. App maps `no_pubkey`
   → "recipient's key unknown — Request key / Scan QR"; permanent reasons (`too_large`/`no_route`) → plain fail.
 - `peer_key_cached` lets the app prompt "secure send ready — resend" after a request resolves (or QR import).
+- **Mutual source (Slice 2):** you ALSO get `peer_key_cached` for the **requester's** hash when you ANSWER a
+  contact's `reqpubkey` — you cached *their* key during the handshake, so you can now securely reply to them
+  (no separate request needed). Same event/shape; the `hash` is the contact who just reached out.
 
 ### Per-message crypt + the "encrypted?" indicator (2026-06-16)
 **Send — crypt is PER-MESSAGE**, not only the global `cfg set e2e_dm` default: the companion's send carries

@@ -127,13 +127,14 @@ Bytes 2..7 are the **fixed routing header** — relays read `next`/`dst`/`hops`/
 
 **TYPE (byte 8, enum, present iff `APP`):** mutually-exclusive message kinds. `AUTHORITATIVE` is folded into the H-answer code (1 vs 2); the old `E2E_IS_ACK` flag became the `E2E_ACK` type.
 
-| code   | type                                                                   | inner shape                                                   |
-| ------ | ---------------------------------------------------------------------- | ------------------------------------------------------------- |
-| 0      | *(reserved / invalid — never on the wire; `APP=0` means no TYPE byte)* | —                                                             |
-| 1      | `H_ANSWER`                                                             | `[target_layer 1][node_id 1][key_hash32 4 LE]` (6 B)          |
-| 2      | `AUTHORITATIVE_H_ANSWER`                                               | same as `H_ANSWER`; the answer is the owner's (authoritative) |
-| 3      | `E2E_ACK`                                                              | normal-unicast inner, `body` = the acked `ctr` (2 B LE)       |
-| 4..255 | future                                                                 | WANT_PUBKEY answer, gateway-envelope, …                       |
+| code | type                                                                   | inner shape                                                   |
+| ---- | ---------------------------------------------------------------------- | ------------------------------------------------------------- |
+| 0    | *(reserved / invalid — never on the wire; `APP=0` means no TYPE byte)* | —                                                             |
+| 1    | `H_ANSWER`                                                             | `[target_layer 1][node_id 1][key_hash32 4 LE]` (6 B)          |
+| 2    | `AUTHORITATIVE_H_ANSWER`                                               | same as `H_ANSWER`; the answer is the owner's (authoritative) |
+| 3    | `E2E_ACK`                                                              | normal-unicast inner, `body` = the acked `ctr` (2 B LE)       |
+| 4    | DATA_TYPE_H_ANSWER_PUBKEY                                              |                                                               |
+| 5    | DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY                                |                                                               |
 
 ### Inner layouts
 
@@ -141,20 +142,21 @@ The `inner` has **no payload-flags byte** — its old flag-bits are now the byte
 
 **① Normal unicast** (incl. the E2E-ack) — fields in order:
 
-| Field | Size | Present when | CRYPTED? |
-|---|---|---|---|
-| `dst_key_hash32` | 4 B LE | `DST_HASH` (default-on app DM; **mandatory if CRYPTED**) | cleartext (AAD + nonce input) |
-| layer-path | var | `CROSS_LAYER` | cleartext (no cross-layer CRYPTED in v1) |
-| `origin` | 1 B | always | **sealed** |
-| `source_hash` | 4 B LE | `SOURCE_HASH` (default-on app DM) | **sealed** |
-| location | 6 B | `LOCATION` | **sealed** |
-| `body` | n B | always | **sealed** |
-| Poly1305 tag | 16 B | `CRYPTED` (trails the ciphertext) | — |
+| Field            | Size   | Present when                                             | CRYPTED?                                 |
+| ---------------- | ------ | -------------------------------------------------------- | ---------------------------------------- |
+| `dst_key_hash32` | 4 B LE | `DST_HASH` (default-on app DM; **mandatory if CRYPTED**) | cleartext (AAD + nonce input)            |
+| layer-path       | var    | `CROSS_LAYER`                                            | cleartext (no cross-layer CRYPTED in v1) |
+| `origin`         | 1 B    | always                                                   | **sealed**                               |
+| `source_hash`    | 4 B LE | `SOURCE_HASH` (default-on app DM)                        | **sealed**                               |
+| location         | 6 B    | `LOCATION`                                               | **sealed**                               |
+| `body`           | n B    | always                                                   | **sealed**                               |
+| Poly1305 tag     | 16 B   | `CRYPTED` (trails the ciphertext)                        | —                                        |
 
 - **Plaintext:** all fields cleartext in that order. `origin` = the sender's node_id (destination attributes/replies by it). E2E-ack (`TYPE=E2E_ACK`) = this shape, `body` = the acked `ctr` (2 B LE).
 - **CRYPTED (sealed-sender redesign, `2026-06-16-e2e-sealed-sender-redesign.md`):** only `dst_key_hash32` stays cleartext (the AEAD AAD); **`origin` and everything after it are SEALED** → a relay **cannot tell who sent the DM**. The 4-B MAC trailer grows to the 8-B cleartext **nonce-seed**. `CRYPTED ⇒ DST_HASH`.
   - **Key selection = trial decryption** (no cleartext sender hint): the receiver tries each cached **authoritative/pinned** peer key; the tag verifies for exactly one → that key's owner *is* the sender (implicit auth), and `origin` is recovered from the seal. No candidate opens ⇒ **silent drop** (no push/ack/inbox). Bounded to ≤`cap_peer_keys` opens, only on DMs whose `dst_key_hash32` is ours.
   - `source_hash` is now redundant under trial (the opening key is the sender); kept in v1 for the anti-spoof check — dropping it (−4 B) is a future optimisation.
+  - **Residual metadata leaks (accepted in v1):** sealing `origin` hides *who* sent a DM, but not the flow's existence. (1) `ctr` + `dst_key_hash32` stay cleartext, so a relay can still do **coarse traffic analysis** (count/time DMs to a given recipient hash). (2) Sealing `origin` removes the opportunistic **reverse-route learning** a relay used to get from a cleartext sender — the ack/return path falls back to normal discovery (the mutual `reqpubkey` handshake pre-warms it). (3) The E2E-ack's `dst_key_hash32 = origin` (it routes *back* to the sender) exposes the original sender as a **recipient** on the return leg — the routing-necessary recipient exposure we already accept for every DM.
 
 **② Hash-bind answer** (`TYPE = H_ANSWER` / `AUTHORITATIVE_H_ANSWER`; cleartext, 6 B):
 `[target_layer 1 B] [node_id 1 B] [key_hash32 4 B LE]`. The `H_ANSWER` / `AUTHORITATIVE` distinction rides the frame TYPE (1 vs 2), **not** the inner.
