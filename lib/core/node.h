@@ -412,9 +412,9 @@ public:
     void    ingest_channel_m(const m_out& m, uint8_t from);  // M-frame merge (dv:10942); public for tests
     // Origin-level DATA dedup (loop/retransmit detection): record (origin,dst,ctr)->expiry + the prev-hop.
     // Prunes expired, then ROLLS (evicts the oldest = min-expiry) at the 256 cap instead of refusing. Public for tests.
-    void    record_seen_origin(uint32_t sokey, uint8_t from, uint64_t now_ms);
+    void    record_seen_origin(uint64_t sokey, uint8_t from, uint64_t now_ms);
     size_t  seen_origin_count() const { return _active->_seen_origins.size(); }
-    bool    seen_origin_live(uint32_t sokey, uint64_t now_ms) const {
+    bool    seen_origin_live(uint64_t sokey, uint64_t now_ms) const {
         auto it = _active->_seen_origins.find(sokey); return it != _active->_seen_origins.end() && it->second > now_ms; }
 
 private:
@@ -904,8 +904,10 @@ private:
         // dedup maps.
         std::map<uint8_t, uint16_t>  _peer_send_counter;   // next_ctr per dst
         std::map<uint32_t, LastAcked> _last_acked_from;    // key (src<<24|dst<<16|ctr_lo<<8|len)
-        std::map<uint32_t, uint64_t>  _seen_origins;       // key (origin<<24|dst<<16|ctr) -> expiry_ms
-        std::map<uint32_t, uint8_t>   _seen_origin_from;   // same key -> the prev-hop (LOOP_DUP discriminator)
+        std::map<uint64_t, uint64_t>  _seen_origins;       // §1b TYPE-NAMESPACED flight key -> expiry_ms. PLAINTEXT =
+                                                           // (origin<<24|dst<<16|ctr) in [0,2^32); CRYPTED = the full
+                                                           // 8-B nonce-seed | (1<<63) in [2^63,2^64) — disjoint, can't alias.
+        std::map<uint64_t, uint8_t>   _seen_origin_from;   // same key -> the prev-hop (LOOP_DUP discriminator)
         std::map<uint8_t, uint64_t>   _blind_until;        // next_hop -> absolute_ms it's deaf-on-routing (F1)
         // R4.2 persistent neighbor budget tier (routing-grade demotion beyond the short blind window).
         // mutable: get_neighbor_tier lazy-prunes the TTL-expired entry on read, like the Lua (dv:3863-3868).

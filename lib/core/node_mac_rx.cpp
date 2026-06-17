@@ -320,7 +320,7 @@ void Node::handle_channel_data(const uint8_t* bytes, size_t len, const RxMeta& m
 // expired entries first; then if still at the cap (all live) and the key is NEW, ROLL — evict the OLDEST
 // (min-expiry = earliest recorded, least remaining loop-window) to make room, rather than refusing the new
 // key. Re-recording an existing key just refreshes it (no eviction). Bounded by cap_seen_origins; no growth.
-void Node::record_seen_origin(uint32_t sokey, uint8_t from, uint64_t now_ms) {
+void Node::record_seen_origin(uint64_t sokey, uint8_t from, uint64_t now_ms) {
     for (auto it = _active->_seen_origins.begin(); it != _active->_seen_origins.end(); )
         { if (it->second <= now_ms) { _active->_seen_origin_from.erase(it->first); it = _active->_seen_origins.erase(it); } else ++it; }
     if (_active->_seen_origins.size() >= protocol::cap_seen_origins
@@ -388,9 +388,22 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         { if ((nowm - it->second.t_ms) >= protocol::last_acked_ttl_ms) it = _active->_last_acked_from.erase(it); else ++it; }
     if (_active->_last_acked_from.size() < protocol::cap_seen_origins)                  // bounded (reuse the 256 cap)
         _active->_last_acked_from[lakey] = LastAcked{ rx_sf, nowm };
-    // origin/inner parsed up-front (above) so data_rx carries the key; origin is read here
-    // BEFORE the ACK so HOP_BUDGET/LOOP_DUP can NACK instead of re-ACKing.
-    const uint32_t sokey = (uint32_t(origin) << 24) | (uint32_t(d.dst) << 16) | d.ctr;
+    // §1b sealed-sender dedup key — TYPE-NAMESPACED into one 64-bit space so PLAINTEXT and CRYPTED can NEVER alias.
+    // PLAINTEXT = (origin<<24|dst<<16|ctr), naturally in [0,2^32) — same VALUE as before, just widened (s18 invariant).
+    // CRYPTED = the FULL 8-B cleartext nonce-seed loaded LE, top bit forced => [2^63,2^64). The seed is globally unique
+    // per message (a crypto invariant), preserved VERBATIM across forwards (so a loop via a different prev-hop still
+    // matches), and — once §1c seals `origin` — the ONLY flight-id a relay can read. Forcing bit 63 costs one seed bit
+    // (63 left => ~2^-47 birthday at the 256 cap) and makes the plaintext/CRYPTED disjointness a HARD invariant, not a
+    // probability. Extract the seed HERE, before the sokey: PLAINTEXT data_nonce_seed() returns an EMPTY span
+    // (frame_codec:717), so nseed stays zero and is never read on that path. origin is still read BEFORE the ACK so
+    // HOP_BUDGET/LOOP_DUP can NACK instead of re-ACKing.
+    uint8_t nseed[8] = {0};
+    if (d.crypted) { auto sd = data_nonce_seed(std::span<const uint8_t>(bytes, len), d);
+                     for (uint8_t i = 0; i < 8 && i < sd.size(); ++i) nseed[i] = sd[i]; }
+    uint64_t seed_u64 = 0; for (int i = 0; i < 8; ++i) seed_u64 |= uint64_t(nseed[i]) << (8 * i);   // LE load (zero for plaintext)
+    const uint64_t sokey = d.crypted
+        ? (seed_u64 | (uint64_t(1) << 63))                                                          // CRYPTED namespace: >= 2^63
+        : ((uint64_t(origin) << 24) | (uint64_t(d.dst) << 16) | d.ctr);                             // PLAINTEXT namespace: < 2^32
     // HOP_BUDGET enforcement FIRST (dv:10918-10964), BEFORE the dedup AND the ACK so the
     // NACK fires IN LIEU OF the ACK. A FORWARDER (d.dst != self) decrements the TTL; if the
     // decremented value went negative (the frame arrived with hops_remaining==0 at a
@@ -485,8 +498,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     _active->_post_ack.inner_len = static_cast<uint8_t>(inner.size() <= protocol::max_payload_bytes_hard_cap
                                                ? inner.size() : protocol::max_payload_bytes_hard_cap);
     for (uint8_t i = 0; i < _active->_post_ack.inner_len; ++i) _active->_post_ack.inner[i] = inner[i];
-    if (d.crypted) { auto sd = data_nonce_seed(std::span<const uint8_t>(bytes, len), d);   // CRYPTED: stash the 8-B nonce-seed for the open / forward
-                     for (uint8_t i = 0; i < 8 && i < sd.size(); ++i) _active->_post_ack.nonce_seed[i] = sd[i]; }
+    if (d.crypted) for (uint8_t i = 0; i < 8; ++i) _active->_post_ack.nonce_seed[i] = nseed[i];   // §1b: seed already extracted above (the dedup key) — stash verbatim for the open / forward
     // Clamp the underflow: the exhaustion NACK that guarantees hb_new_remaining>=0 only fires for a FORWARD
     // (d.dst != self, line above) — the DELIVERY case (d.dst==self) is exempt, so a DM that arrived AT us with
     // hops_remaining==0 leaves hb_new_remaining==-1. That value is dead for a plain deliver, but an L2c
@@ -656,7 +668,9 @@ int Node::id_on_leaf_by_hash(uint8_t leaf, uint32_t key_hash32) const {
 // record_seen_origin but on _layers[leaf] (the bridge writes a non-active leaf).
 void Node::seed_seen_origin_on_leaf(uint8_t leaf, uint8_t origin, uint8_t dst, uint16_t ctr) {
     if (leaf >= _n_layers) return;
-    const uint32_t sokey = (static_cast<uint32_t>(origin) << 24) | (static_cast<uint32_t>(dst) << 16) | ctr;
+    // PLAINTEXT-namespace key (< 2^32), matching handle_data's non-CRYPTED sokey. (A CRYPTED DM never reaches a gateway
+    // bridge — e2e_dm + cross-layer is refused — so this path is always plaintext.)
+    const uint64_t sokey = (static_cast<uint64_t>(origin) << 24) | (static_cast<uint64_t>(dst) << 16) | ctr;
     const uint64_t now = _hal.now();
     _layers[leaf]._seen_origins[sokey]     = now + protocol::seen_origin_ttl_ms;
     _layers[leaf]._seen_origin_from[sokey] = _node_id;   // we re-injected it

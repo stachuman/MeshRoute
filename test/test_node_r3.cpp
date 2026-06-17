@@ -211,6 +211,23 @@ static size_t mk_data_hashbind(uint8_t next, uint8_t dst, uint16_t ctr,
     in.mac = std::span<const uint8_t>(mac, 4);
     return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
 }
+// §1b CRYPTED DATA: [dst_hash LE 4][origin][body] inner + the CRYPTED flag + an 8-B nonce-seed TRAILER (which
+// IS the dedup key after §1b). The inner body is a stand-in: the dedup runs in handle_data BEFORE any open, and
+// a forwarder (dst != self) re-tx's a sealed frame verbatim without ever opening it — so no valid seal is needed
+// to exercise the dedup/loop path. CRYPTED requires DST_HASH (pack_data rejects CRYPTED && !DST_HASH).
+static size_t mk_data_crypted(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origin, uint32_t dst_hash,
+                              const uint8_t seed8[8], const char* body, std::array<uint8_t, 64>& b) {
+    std::array<uint8_t, 40> inner{};
+    inner[0] = uint8_t(dst_hash);       inner[1] = uint8_t(dst_hash >> 8);
+    inner[2] = uint8_t(dst_hash >> 16); inner[3] = uint8_t(dst_hash >> 24);
+    inner[4] = origin;
+    uint8_t bl = 0; while (body[bl]) { inner[5 + bl] = uint8_t(body[bl]); ++bl; }
+    data_in in{}; in.addr_len = 0; in.flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH; in.next = next; in.dst = dst;
+    in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
+    in.inner = std::span<const uint8_t>(inner.data(), 5 + bl);
+    in.mac = std::span<const uint8_t>(seed8, 8);                  // the 8-B nonce-seed (conditional MAC trailer)
+    return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
+}
 // Minimal beacon FROM `src` (one throwaway entry) — installs a DIRECT hops=1
 // route to `src` on the receiver, so a send to `src` has a usable next hop.
 static size_t mk_beacon(uint8_t src, std::array<uint8_t, 64>& b) {
@@ -715,6 +732,111 @@ TEST_CASE("nack — LOOP_DUP emit: same flight via a different prev-hop NACKs th
     if (nk) { CHECK(nk->to == 3); CHECK(nk->reason == 3); }
     CHECK(hal.count("dup_drop") >= 1);
     CHECK(hal.count("ack_tx") == ack_before);           // the looped dup was NOT re-ACKed
+}
+
+// =============================================================================
+// §1b sealed-sender — the CRYPTED dedup key is the 8-B nonce-seed, NOT the
+// cleartext (origin,dst,ctr). After §1c seals `origin` the relay can no longer
+// read it; the seed (globally unique per message, preserved verbatim on
+// forward) is the flight id. These pin that BEFORE 1c so the wire change is a
+// one-liner. The DISTINGUISHING test (same header, different seed) is the RED
+// driver: under the old origin-keyed dedup copy-2 would false-LOOP_DUP.
+// =============================================================================
+TEST_CASE("§1b CRYPTED dedup keys on the seed — same (origin,dst,ctr) but a DIFFERENT seed is a DISTINCT flight") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t,64> bb{};                         // a route to dst=5 so the forwarder forwards (dedup is pre-forward anyway)
+    const size_t bn = mk_beacon_route(/*src=*/7, /*dest=*/5, /*next=*/9, /*hops=*/1, /*score=*/14, bb);
+    RxMeta m7{12.0f,-70.0f,0,static_cast<int8_t>(7)}; node.on_recv(bb.data(), bn, m7);
+    std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
+    const uint8_t S1[8] = { 0xAA,0x01,0x02,0x03, 0x04,0x05,0x06,0x07 };
+    const uint8_t S2[8] = { 0xBB,0x11,0x12,0x13, 0x14,0x15,0x16,0x17 };   // DIFFERENT seed, SAME (origin,dst,ctr)
+    // copy 1 via prev-hop 2: a CRYPTED forward (origin 0, dst 5, ctr 10), seed S1 -> accepted + records seen(seed1, from=2)
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
+    hal._now = 1000; { const size_t rn = mk_rts(2,1,5,10,18,rb); node.on_recv(rb.data(), rn, m2); }
+    hal._now = 1100; { const size_t dn = mk_data_crypted(1,5,10,/*origin=*/0,/*dst_hash=*/0xDEADBEEFu, S1, "x", db); node.on_recv(db.data(), dn, m2); }
+    CHECK(hal.count("ack_tx") >= 1);
+    CHECK(node.seen_origin_count() == 1);                // one flight recorded so far
+    const int nack_before = hal.count("nack_tx");
+    const int dup_before  = hal.count("dup_drop");
+    // copy 2 via prev-hop 3: SAME (origin,dst,ctr) but a DIFFERENT seed S2 -> a SEPARATE message -> NOT a loop-dup.
+    RxMeta m3{8.0f,-80.0f,0,static_cast<int8_t>(3)};
+    hal._now = 1200; { const size_t rn = mk_rts(3,1,5,10,18,rb); node.on_recv(rb.data(), rn, m3); }
+    hal._now = 1300; { const size_t dn = mk_data_crypted(1,5,10,0,0xDEADBEEFu, S2, "x", db); node.on_recv(db.data(), dn, m3); }
+    CHECK(hal.count("nack_tx") == nack_before);          // NO LOOP_DUP — the seed differs (RED before 1b: origin-key would loop)
+    CHECK(hal.count("dup_drop") == dup_before);          // not dropped as a dup
+    CHECK(node.seen_origin_count() == 2);                // a SECOND distinct flight recorded (vs the retransmit's 1) — the seed IS the key
+}
+
+TEST_CASE("§1b CRYPTED loop detection: the SAME seed via a DIFFERENT prev-hop -> LOOP_DUP NACK") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t,64> bb{};
+    const size_t bn = mk_beacon_route(/*src=*/7, /*dest=*/5, /*next=*/9, /*hops=*/1, /*score=*/14, bb);
+    RxMeta m7{12.0f,-70.0f,0,static_cast<int8_t>(7)}; node.on_recv(bb.data(), bn, m7);
+    std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
+    const uint8_t S[8] = { 0xC0,0xC1,0xC2,0xC3, 0xC4,0xC5,0xC6,0xC7 };
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};                      // copy 1 via prev-hop 2 -> accepted, records seen(seed, from=2)
+    hal._now = 1000; { const size_t rn = mk_rts(2,1,5,10,18,rb); node.on_recv(rb.data(), rn, m2); }
+    hal._now = 1100; { const size_t dn = mk_data_crypted(1,5,10,0,0xDEADBEEFu, S, "x", db); node.on_recv(db.data(), dn, m2); }
+    CHECK(hal.count("ack_tx") >= 1);
+    const int ack_before = hal.count("ack_tx");
+    RxMeta m3{8.0f,-80.0f,0,static_cast<int8_t>(3)};                      // copy 2: the SAME seed (a forwarded loop) via prev-hop 3 -> LOOP_DUP
+    hal._now = 1200; { const size_t rn = mk_rts(3,1,5,10,18,rb); node.on_recv(rb.data(), rn, m3); }
+    hal._now = 1300; { const size_t dn = mk_data_crypted(1,5,10,0,0xDEADBEEFu, S, "x", db); node.on_recv(db.data(), dn, m3); }
+    const Ev* nk = hal.last("nack_tx"); CHECK(nk != nullptr);
+    if (nk) { CHECK(nk->to == 3); CHECK(nk->reason == 3); }               // nack_reason_loop_dup
+    CHECK(hal.count("dup_drop") >= 1);
+    CHECK(hal.count("ack_tx") == ack_before);                            // the loop was NOT re-ACKed
+}
+
+TEST_CASE("§1b CRYPTED retransmit: the SAME seed is a live dup (ONE flight entry), NOT a new flight or a LOOP_DUP") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t,64> bb{};
+    const size_t bn = mk_beacon_route(/*src=*/7, /*dest=*/5, /*next=*/9, /*hops=*/1, /*score=*/14, bb);
+    RxMeta m7{12.0f,-70.0f,0,static_cast<int8_t>(7)}; node.on_recv(bb.data(), bn, m7);
+    std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
+    const uint8_t S[8] = { 0xD0,0xD1,0xD2,0xD3, 0xD4,0xD5,0xD6,0xD7 };
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
+    // copy 1 (seed S via prev-hop 2, pl=18) -> accepted, records exactly ONE seen-origin entry (the seed-key).
+    hal._now = 1000; { const size_t rn = mk_rts(2,1,5,10,18,rb); node.on_recv(rb.data(), rn, m2); }
+    hal._now = 1100; { const size_t dn = mk_data_crypted(1,5,10,0,0xDEADBEEFu, S, "x", db); node.on_recv(db.data(), dn, m2); }
+    CHECK(node.seen_origin_count() == 1);
+    const int nack_before = hal.count("nack_tx");
+    // copy 2: the SAME seed via the SAME prev-hop 2. The RTS uses a DIFFERENT payload_len (20) so the last-acked cache
+    // MISSES (its key includes payload_len) and the DATA actually REACHES the seed-dedup — otherwise the RTS layer
+    // absorbs the retry and the dedup never runs (the vacuity the review caught). SAME prev-hop => benign, not a loop.
+    hal._now = 2000; { const size_t rn = mk_rts(2,1,5,10,20,rb); node.on_recv(rb.data(), rn, m2); }
+    hal._now = 2100; { const size_t dn = mk_data_crypted(1,5,10,0,0xDEADBEEFu, S, "x", db); node.on_recv(db.data(), dn, m2); }
+    CHECK(node.seen_origin_count() == 1);               // DEDUPED on the seed: NO new flight entry (a broken seed-key => 2)
+    CHECK(hal.count("nack_tx") == nack_before);         // same prev-hop => benign dup, NOT a LOOP_DUP
+}
+
+// The CRYPTED seed key and the plaintext (origin,dst,ctr) key share ONE _seen_origins map. They must NEVER alias:
+// CRYPTED keys are namespaced into [2^63, 2^64) (top bit forced) and plaintext into [0, 2^32). A crafted seed whose
+// low bytes equal a live plaintext key must NOT be mistaken for that flight.
+TEST_CASE("§1b cross-type non-collision: a CRYPTED seed aliasing a plaintext (origin,dst,ctr) is a DISTINCT flight") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t,64> bb{};
+    const size_t bn = mk_beacon_route(/*src=*/7, /*dest=*/5, /*next=*/9, /*hops=*/1, /*score=*/14, bb);
+    RxMeta m7{12.0f,-70.0f,0,static_cast<int8_t>(7)}; node.on_recv(bb.data(), bn, m7);
+    std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
+    // a PLAINTEXT flight: origin=0x12, dst=5, ctr=0x5678 -> plaintext sokey = (0x12<<24)|(5<<16)|0x5678 = 0x12055678.
+    RxMeta m2{8.0f,-80.0f,0,static_cast<int8_t>(2)};
+    hal._now = 1000; { const size_t rn = mk_rts(2,1,5,/*ctr_lo=*/8,18,rb); node.on_recv(rb.data(), rn, m2); }
+    hal._now = 1100; { const size_t dn = mk_data(1,5,/*ctr=*/0x5678,/*origin=*/0x12,"x",db); node.on_recv(db.data(), dn, m2); }
+    CHECK(node.seen_origin_count() == 1);
+    const int nack_before = hal.count("nack_tx");
+    // a CRYPTED frame whose 8-B seed's LOW 4 bytes (LE) == 0x12055678 and high 4 == 0 -> the OLD 32-bit fold collides
+    // with the plaintext key; the 64-bit type-namespaced key does NOT.
+    const uint8_t S[8] = { 0x78,0x56,0x05,0x12, 0x00,0x00,0x00,0x00 };
+    RxMeta m3{8.0f,-80.0f,0,static_cast<int8_t>(3)};
+    hal._now = 2000; { const size_t rn = mk_rts(3,1,5,/*ctr_lo=*/8,18,rb); node.on_recv(rb.data(), rn, m3); }
+    hal._now = 2100; { const size_t dn = mk_data_crypted(1,5,/*ctr=*/0x5678,0,0xDEADBEEFu, S, "x", db); node.on_recv(db.data(), dn, m3); }
+    CHECK(hal.count("nack_tx") == nack_before);         // NO false LOOP_DUP — disjoint namespaces (RED under the 32-bit fold)
+    CHECK(node.seen_origin_count() == 2);               // recorded as a DISTINCT flight, not aliased onto the plaintext one
 }
 
 TEST_CASE("cascade — equal-score candidates keep INSERTION order (Lua-faithful, NO id tie-break)") {
