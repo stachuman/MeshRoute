@@ -488,8 +488,8 @@ void Node::issue_send(const TxItem& item) {
         return;
     }
 
-    const uint8_t first = pick_next_cascade_hop(pt);     // first SELECTABLE candidate (skips previous_hop)
-    if (first == 0) {
+    uint8_t next_hop = pick_next_cascade_hop(pt);     // first SELECTABLE candidate (skips previous_hop)
+    if (next_hop == 0) {
         // No usable route yet. A FORWARDER drops (dv_dual_sf.lua:7041-7048 — it
         // can't hold someone else's transit); an ORIGINATOR defers the message
         // until a beacon installs a route or the defer-TTL expires (dv:7049-7052).
@@ -500,6 +500,40 @@ void Node::issue_send(const TxItem& item) {
         }
         return;
     }
+
+    // §P2 freshness gate at PICK time (Lua issue_send@7234-7262): the selected primary may
+    // be stale (>20 min unheard) — the sort already penalized it, but with no fresh alt it
+    // stays at position [0]. Swap to a fresh alt if one exists; if ALL candidates are stale,
+    // defer the send + flood a full-radius RREQ to re-discover the destination. Without this,
+    // a sole stale candidate would be retried indefinitely until the 3h aging TTL.
+    if (!is_next_hop_fresh(next_hop)) {
+        const RtEntry* const re = rt_find(pt.dst);
+        uint8_t alt = 0;
+        if (re) {
+            for (uint8_t i = 0; i < re->n; ++i) {
+                const RtCandidate& c = re->candidates[i];
+                if (c.next_hop != next_hop && next_hop_selectable(c, pt, false)) {
+                    alt = c.next_hop; break;
+                }
+            }
+        }
+        if (alt != 0) {
+            MR_EMIT("tx_stale_next_alt", EF_I("dst", pt.dst), EF_I("from_next", next_hop),
+                    EF_I("to_next", alt), EF_I("ctr", pt.ctr));
+            next_hop = alt;
+        } else {
+            if (item.is_forward) {
+                MR_EMIT("send_no_route", EF_I("dst", item.dst));
+            } else {
+                MR_EMIT("tx_all_candidates_stale", EF_I("dst", pt.dst), EF_I("ctr", pt.ctr),
+                        EF_I("next", next_hop));
+                defer_send(item);
+                emit_route_request(item.dst, _cfg.dv_hop_cap);  // full-radius requery: all known paths are stale
+            }
+            return;
+        }
+    }
+
     // Slice 4a (the deferred 3e.2b): if the resolved next-hop is a learned, time-multiplexing GATEWAY, HOLD the RTS
     // until its window on OUR leaf opens (dv:7331). gateway_schedule_defer_ms returns 0 for a non-gateway / unknown
     // next-hop (send now), or up to a full window_period_ms when the gateway is away on its other leaf — it isn't
@@ -508,18 +542,18 @@ void Node::issue_send(const TxItem& item) {
     // channel gossip (is_channel_m is fire-and-forget; a gateway skips channels anyway). issue_send's ONLY caller is
     // become_free, which just removed this item, so the queue always has room to re-add it.
     if (!item.is_channel_m) {
-        if (const uint32_t defer = gateway_schedule_defer_ms(first); defer > 0) {
+        if (const uint32_t defer = gateway_schedule_defer_ms(next_hop); defer > 0) {
             TxItem held = item;
             const uint64_t until = _hal.now() + defer;
             if (held.next_attempt_ms < until) held.next_attempt_ms = until;   // compose: never clobber an earlier-armed backoff
             if (_active->_tx_queue_n < kTxQueueCap) _active->_tx_queue[_active->_tx_queue_n++] = held;
-            MR_EMIT("tx_gateway_schedule_defer", EF_I("dst", item.dst), EF_I("next", first),
+            MR_EMIT("tx_gateway_schedule_defer", EF_I("dst", item.dst), EF_I("next", next_hop),
                     EF_I("ctr", item.ctr), EF_I("defer_ms", defer));
             become_free();                               // re-service: pick another ready item, else arm kQueueWakeupTimerId for the soonest
             return;
         }
     }
-    pt.next = first;
+    pt.next = next_hop;
     pt.flight_gen = ++_flight_gen;                       // #A redo: a NEW flight identity (cascade_to_alt keeps it; a requeue re-installs here -> new gen)
     _active->_pending_tx = pt;
     if (item.is_channel_m) { issue_m_broadcast(); return; }   // channel gossip (pull-response): fire-and-forget M-broadcast

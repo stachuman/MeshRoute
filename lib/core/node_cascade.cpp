@@ -41,6 +41,12 @@ bool Node::next_hop_selectable(const RtCandidate& c, const PendingTx& pt, bool a
     if (pt.has_previous_hop && c.next_hop == pt.previous_hop) return false;   // dv:3992
     if (alt_tried(pt, c.next_hop)) return false;                             // dv:4006
     if (is_blind(c.next_hop)) return false;                                  // F1: skip blind peers (dv:4030)
+    // §P2: a silent/dead next-hop is never selectable — skip it at selection time so the
+    // cascade doesn't waste an RTS on a confirmed-dead path (Lua dv:4107-4108).
+    if (liveness_penalty_q4(c.next_hop) >= protocol::peer_silent_penalty_q4) return false;
+    // §P2: a stale next-hop (>20 min unheard) is never selectable — the path may be gone
+    // (Lua dv:4110-4113). Without this, a sole stale candidate stays pickable indefinitely.
+    if (!is_next_hop_fresh(c.next_hop)) return false;
     return true;
 }
 

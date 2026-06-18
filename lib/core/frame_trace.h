@@ -52,6 +52,7 @@ inline void mr_trace_frame(bool is_rx, const uint8_t* b, size_t n, int sf,
     switch (cmd) {
         case 0x0: if( auto b = parse_beacon(f)) {
             Serial.print(F(" from=")); Serial.print(b->src);
+            Serial.print(F(" n=")); Serial.print(b->n_entries);
             Serial.print(F(" flags="));
             if(b->has_schedule) Serial.print(F(" has_schedule"));
             if(b->self_gateway) Serial.print(F(" self_gateway"));
@@ -106,7 +107,53 @@ inline void mr_trace_frame(bool is_rx, const uint8_t* b, size_t n, int sf,
         case 0xA: if (auto mm = parse_m(f))   { Serial.print(F(" leaf=")); Serial.print(mm->leaf_id);
                       Serial.print(F(" ch=")); Serial.print(mm->channel_id);
                       Serial.print(F(" id=")); Serial.print(mm->channel_msg_id, HEX); } break;   // lean channel-message frame
-        default: break;                                   // BCN/Q/H/F/J: just the name + common fields
+        case 0x6: if (auto q = parse_q(f))  { Serial.print(F(" leaf=")); Serial.print(q->leaf_id);
+                      Serial.print(F(" src=")); Serial.print(q->src);
+                      Serial.print(F(" dest=")); Serial.print(q->dest);
+                      Serial.print(F(" op="));
+                      switch (q->opcode) {
+                          case 1: Serial.print(F("REQ_SYNC")); break;
+                          case 3: Serial.print(F("CHANNEL_PULL"));
+                                  if (q->channel_id_count > 0) { Serial.print(F(" ch_ids=")); Serial.print(q->channel_id_count); }
+                                  break;
+                          default: Serial.print(q->opcode); break;
+                      }
+                      if (q->mobile) Serial.print(F(" mobile"));
+                  } break;
+        case 0x7: if (auto h = parse_h(f))  { Serial.print(F(" leaf=")); Serial.print(h->leaf_id);
+                      Serial.print(F(" origin=")); Serial.print(h->origin);
+                      Serial.print(F(" hash=")); Serial.print(h->key_hash32, HEX);
+                      Serial.print(F(" ttl=")); Serial.print(h->ttl);
+                      if (h->hard)    Serial.print(F(" HARD"));
+                      if (h->want_pubkey) Serial.print(F(" WANT_PUBKEY"));
+                  } break;
+        case 0x8: if (auto fr = parse_f(f)) { Serial.print(F(" leaf=")); Serial.print(fr->leaf_id);
+                      Serial.print(F(" origin=")); Serial.print(fr->origin);
+                      Serial.print(fr->is_reply ? F(" RREP") : F(" RREQ"));
+                      Serial.print(F(" dst=")); Serial.print(fr->dst_id);
+                      if (fr->is_reply) { Serial.print(F(" next_hop=")); Serial.print(fr->ttl_or_next_hop); }
+                      else { Serial.print(F(" ttl=")); Serial.print(fr->ttl_or_next_hop); }
+                      Serial.print(F(" hops=")); Serial.print(fr->hops);
+                      Serial.print(F(" relay=")); Serial.print(fr->relay);
+                  } break;
+        case 0x9: if (auto j = parse_j(f))  { Serial.print(F(" leaf=")); Serial.print(j->leaf_id);
+                      if (j->gateway_capable) Serial.print(F(" gw"));
+                      if (j->is_mobile)        Serial.print(F(" mobile"));
+                      switch (j->opcode) {
+                          case 0: Serial.print(F(" DISCOVER hash=")); Serial.print(j->key_hash32, HEX); break;
+                          case 1: Serial.print(F(" CLAIM proposed=")); Serial.print(j->proposed_node_id);
+                                  Serial.print(F(" epoch=")); Serial.print(j->claim_epoch);
+                                  Serial.print(F(" hash=")); Serial.print(j->key_hash32, HEX); break;
+                          case 2: Serial.print(F(" DENY denied=")); Serial.print(j->denied_node_id);
+                                  Serial.print(F(" reason=")); Serial.print(j->reason);
+                                  Serial.print(F(" owner_hash=")); Serial.print(j->owner_key_hash32, HEX);
+                                  Serial.print(F(" claimant_hash=")); Serial.print(j->claimant_key_hash32, HEX); break;
+                          case 3: Serial.print(F(" OFFER responder=")); Serial.print(j->responder_node_id);
+                                  Serial.print(F(" resp_hash=")); Serial.print(j->responder_key_hash32, HEX); break;
+                          default: Serial.print(F(" j_op=")); Serial.print(j->opcode); break;
+                      }
+                  } break;
+        default: break;                                   // unrecognized cmd — just the name + common fields
     }
     Serial.print(F(" len=")); Serial.print(static_cast<unsigned>(n));
     Serial.print(F(" sf="));  Serial.print(sf);

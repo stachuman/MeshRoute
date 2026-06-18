@@ -15,9 +15,11 @@
 
 namespace MESHROUTE_NS {
 
-// Full-page beacon entry cap that fits beacon_max_bytes (8-B header + 4-B/entry).
+// Full-page beacon entry cap that fits beacon_max_bytes (8-B fixed header + 32-B seen_bitmap
+// + 1-B ext_len, then 4-B/entry). Without the bitmap (mobile) the old cap was 35; with it always
+// present when enabled, 27 is safe and avoids silent beacon-pack failures.
 static constexpr uint8_t kMaxBeaconEntries =
-    static_cast<uint8_t>((protocol::beacon_max_bytes - 8) / 4);
+    static_cast<uint8_t>((protocol::beacon_max_bytes - 8 - 32 - 1) / 4);  // = 27
 
 // ---- 4-bit SNR wire-bucket round-trip (dv_dual_sf.lua:829-838) --------------
 // bucket centers at -19,-17,..,+11 dB; bin width 2 dB = 32 Q4; lower edge -20 dB.
@@ -274,7 +276,27 @@ void Node::emit_beacon(const char* kind) {
         }
         in.schedule = std::span<const schedule_record>(sched, 2);
     }
-    // seen_bitmap left empty → codec derives has_seen_bitmap=0.
+    // Seen bitmap: a 32-byte (256-bit) set of every node_id we know is alive — from direct
+    // frames (dest_seen_ms) and from route entries (rt[].candidates[0].last_seen_ms), within
+    // seen_bitmap_ttl_ms (30 min). The receiver uses it to passively keepalive routes via the
+    // sender and to learn indirect connectivity (Lua build_seen_bitmap@1283).
+    if (_cfg.seen_bitmap_enabled && !_cfg.is_mobile) {
+        uint8_t sbuf[32] = {};
+        const uint64_t sb_now = _hal.now();
+        const uint64_t sb_cut = (sb_now >= protocol::seen_bitmap_ttl_ms) ? sb_now - protocol::seen_bitmap_ttl_ms : 0;
+        for (uint8_t i = 0; i < _active->_peer_liveness_n; ++i) {
+            const uint8_t nid = _active->_peer_liveness[i].node_id;
+            if (nid > 0 && nid < 0xFF && _active->_peer_liveness[i].dest_seen_ms >= sb_cut)
+                sbuf[nid >> 3] |= static_cast<uint8_t>(1u << (nid & 7));
+        }
+        for (uint8_t i = 0; i < _active->_rt_count; ++i) {
+            const uint8_t d = _active->_rt[i].dest;
+            if (_active->_rt[i].n > 0 && _active->_rt[i].candidates[0].last_seen_ms >= sb_cut)
+                sbuf[d >> 3] |= static_cast<uint8_t>(1u << (d & 7));
+        }
+        sbuf[_node_id >> 3] |= static_cast<uint8_t>(1u << (_node_id & 7));
+        in.seen_bitmap = std::span<const uint8_t>(sbuf, 32);
+    }
     // ROADMAP §3: advertise our dirty channel msgs in the BCN digest ext-TLV (gateways skip — Principle 11).
     // build_channel_digest_ext is draw-free; its ad_count/dirty side effects track per built beacon (dv:1453).
     uint8_t ext_buf[64]; size_t ext_n = 0;   // §P4: holds digest(<=14) + gateway(<=15) + suspect(<=16) TLVs; pack_beacon checks the total vs beacon_max_bytes
@@ -352,6 +374,35 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         SuspectEntry susp[16];
         const uint8_t sn = parse_suspect_tlv(ext, susp, 16);
         if (sn > 0) apply_suspect_gossip(susp, sn, b.src);
+        // §P1 seen bitmap apply (Lua apply_seen_bitmap@1357): the sender's view of who's alive
+        // — stamp every seen peer as fresh + refresh last_seen_ms on any of our route candidates
+        // whose next_hop matches the sender (passive route keepalive without re-advertising).
+        // IMPORTANT: only stamp nodes that ALREADY have a PeerLiveness entry (actual direct
+        // neighbours we've heard from). Creating new entries for every bitmap node would bloat
+        // the 64-entry liveness table with gossip-only peers, evicting real direct neighbours
+        // and breaking is_next_hop_fresh for forwarding.
+        if (_cfg.seen_bitmap_enabled && !_cfg.is_mobile && b.has_seen_bitmap) {
+            const auto sbm = beacon_seen_bitmap(std::span<const uint8_t>(bytes, len), b);
+            if (sbm.size() == 32) {
+                const uint64_t s_now = _hal.now();
+                uint8_t applied = 0, refreshed = 0;
+                for (int id = 0; id <= 254; ++id) {
+                    if (id == _node_id) continue;
+                    if (!(sbm[static_cast<size_t>(id >> 3)] & (1u << (id & 7)))) continue;
+                    // Only stamp dest_seen on existing PeerLiveness entries (direct neighbours).
+                    // Gossip-only peers don't get entries — they'd evict real neighbours.
+                    PeerLiveness* pl = peer_liveness_slot(static_cast<uint8_t>(id), /*create=*/false);
+                    if (pl) { pl->dest_seen_ms = s_now; ++applied; }
+                    RtEntry* e = rt_find(static_cast<uint8_t>(id));
+                    if (e) {
+                        for (uint8_t j = 0; j < e->n; ++j)
+                            if (e->candidates[j].next_hop == b.src)
+                                { e->candidates[j].last_seen_ms = s_now; ++refreshed; }
+                    }
+                }
+                MR_EMIT("seen_bitmap_rx", EF_I("from", b.src), EF_I("applied", applied), EF_I("refreshed", refreshed));
+            }
+        }
     }
     // beacon_rx — one per received beacon (the gate asserts src)
     MR_EMIT("beacon_rx",EF_I("src",b.src),EF_I("channel_digest_ids",dn));
@@ -380,10 +431,22 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 
     // REQ_SYNC de-storm (dv_dual_sf.lua:9699-9709): a USEFUL overheard beacon means a neighbour is
     // already advertising routes to the requester, so cancel any pending jittered sync-response still
-    // inside its suppress window — our reply would be redundant. Draw-free. DIVERGENCE: the Lua's
-    // useful_bcn = (#entries>0) or (seen_bits>1); we don't extract the seen-bitmap popcount (the codec
-    // keeps it opaque), so a present seen-bitmap counts as useful (slightly looser, no draw impact).
-    if ((b.n_entries > 0) || b.has_seen_bitmap) {
+    // inside its suppress window — our reply would be redundant. Draw-free. useful_bcn = (#entries>0)
+    // or (seen_bits>1): at least ONE other node besides self in the bitmap = the sender has real
+    // network visibility. A bitmap with only self (popcount==1) doesn't suppress.
+    bool useful = b.n_entries > 0;
+    if (!useful && b.has_seen_bitmap) {
+        const auto sbm = beacon_seen_bitmap(std::span<const uint8_t>(bytes, len), b);
+        if (sbm.size() == 32) {
+            uint8_t bits = 0;
+            for (size_t i = 0; i < 32; ++i) {
+                uint8_t v = sbm[i];
+                while (v) { bits += v & 1; v >>= 1; }
+            }
+            useful = (bits > 1);
+        }
+    }
+    if (useful) {
         for (uint8_t i = 0; i < protocol::cap_sync_response_pending; ++i) {
             SyncPending& p = _active->_sync_pending[i];
             if (p.active && !p.suppressed && now <= p.fire_at
@@ -411,7 +474,15 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         }
         if (e.dest == 0 || e.next == 0) continue;         // §P0: never learn a route TO, or with an n2_hop OF, the reserved sentinel id 0
                                                           // (AFTER the cycle-prune so an unprovisioned node's own-id=0 still prunes)
-        // R2: peer-suspect skip is a no-op (no liveness plane → suspect_level 0).
+        // §P2: skip a beacon-carried route whose ADVERTISED next-hop (e.next) is known
+        // silent/dead by the receiver — the sender's path A→B→C is compromised when B is
+        // dead (Lua dv:9770-9776). Installing this route would leak a broken path into the
+        // table and waste RTS attempts before the timeout cascade fires its own RREQ.
+        if (liveness_penalty_q4(e.next) >= protocol::peer_silent_penalty_q4) {
+            MR_EMIT("rt_skip_silent_n2", EF_I("dest", e.dest), EF_I("via", b.src),
+                    EF_I("advertised_next", e.next));
+            continue;
+        }
         const int16_t entry_score_q4 = snr_of_bucket_4b(e.score_bucket);
         const int16_t rx_score_q4    = route_score_from_snr(meta_snr_q4);
         const int16_t combined_score = (rx_score_q4 < entry_score_q4) ? rx_score_q4 : entry_score_q4;
