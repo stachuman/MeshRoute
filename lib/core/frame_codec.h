@@ -118,6 +118,16 @@ struct GwLayerEntry { uint8_t gw_id; uint8_t dest_leaf; };
 size_t  pack_gateway_layer_tlv(const GwLayerEntry* e, uint8_t n, std::span<uint8_t> out);       // bytes written, or 0 (n==0 -> 0)
 uint8_t parse_gateway_layer_tlv(std::span<const uint8_t> ext, GwLayerEntry* out, uint8_t max);  // entries found (0 if no type-4 TLV)
 
+// §P4 BCN suspect-node gossip ext-TLVs (dv:1373 build / 1949 parse). A beacon carries EITHER a type-1 OR a type-2 TLV:
+//   type 1 SUSPECT_NODES : [type<<4 | N][N × node_id(1B)]              — applied by the receiver as SUSPECT (level 1).
+//   type 2 LIVENESS_STATE: [type<<4 | 2N][N × (node_id(1B), state(1B & 0x03))] — state 2=SILENT / 3=DEAD on the wire.
+// The encoder emits type 2 iff any advertised peer is DEAD, else type 1 (a SILENT-only set downgrades to a SUSPECT id
+// list — Lua-faithful). state in {1 SUSPECT, 2 SILENT, 3 DEAD}; SuspectEntry::state==0 means "healthy/absent".
+struct SuspectEntry { uint8_t node_id; uint8_t state; };
+size_t  pack_suspect_nodes_tlv(const uint8_t* ids, uint8_t n, std::span<uint8_t> out);          // type 1; bytes written, or 0 (n==0 -> 0)
+size_t  pack_liveness_state_tlv(const SuspectEntry* e, uint8_t n, std::span<uint8_t> out);      // type 2; bytes written, or 0 (n==0 -> 0)
+uint8_t parse_suspect_tlv(std::span<const uint8_t> ext, SuspectEntry* out, uint8_t max);        // scans BOTH type 1 (state=1) + type 2 (state from wire); entries found (0 if neither)
+
 // -----------------------------------------------------------------------------
 // CTS — clear-to-send (cmd-nibble 0x2, 3 B; +1 B if payload_len != 0) — ROADMAP §10.3
 // -----------------------------------------------------------------------------

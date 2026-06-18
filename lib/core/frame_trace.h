@@ -50,6 +50,15 @@ inline void mr_trace_frame(bool is_rx, const uint8_t* b, size_t n, int sf,
     Serial.print(mr_cmd_name(cmd));
     const std::span<const uint8_t> f(b, n);
     switch (cmd) {
+        case 0x0: if( auto b = parse_beacon(f)) {
+            Serial.print(F(" from=")); Serial.print(b->src);
+            Serial.print(F(" flags="));
+            if(b->has_schedule) Serial.print(F(" has_schedule"));
+            if(b->self_gateway) Serial.print(F(" self_gateway"));
+            if(b->is_mobile) Serial.print(F(" is_mobile"));
+            if(b->has_seen_bitmap) Serial.print(F(" has_seen_bitmap"));
+            if(b->has_ext) Serial.print(F(" has_ext"));
+        } break;
         case 0x1: if (auto r = parse_rts(f))  { Serial.print(F(" from=")); Serial.print(r->src);
                       Serial.print(F(" to="));  Serial.print(r->next); Serial.print(F(" dst=")); Serial.print(r->dst);
                       Serial.print(F(" ctr=")); Serial.print(r->ctr_lo);   // WHICH DM this RTS is for (disambiguates concurrent DMs)

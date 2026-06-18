@@ -248,6 +248,55 @@ uint8_t parse_gateway_layer_tlv(std::span<const uint8_t> ext, GwLayerEntry* out,
     return 0;
 }
 
+// §P4 BCN suspect-nodes ext-TLV (type 1, dv:1413). Wire: [type<<4 | N][N × node_id(1B)]. A SILENT-only advertise set.
+// The receiver applies each id as SUSPECT (level 1) — the wire carries NO state byte for this variant.
+size_t pack_suspect_nodes_tlv(const uint8_t* ids, uint8_t n, std::span<uint8_t> out) {
+    if (n == 0) return 0;                                            // empty -> emit NO TLV
+    if (n > protocol::peer_suspect_bcn_max) n = protocol::peer_suspect_bcn_max;   // <=8 (and <=15 for the 4-bit len)
+    wire::Writer w(out);
+    w.u8(static_cast<uint8_t>((protocol::bcn_ext_type_suspect_nodes << 4) | (n & 0x0f)));   // body_len = N (1B/id)
+    for (uint8_t i = 0; i < n; ++i) w.u8(ids[i]);
+    return w.ok() ? w.size() : 0;
+}
+// §P4 BCN liveness-state ext-TLV (type 2, dv:1401). Wire: [type<<4 | 2N][N × (node_id(1B), state(1B & 0x03))].
+// Emitted when the advertise set contains a DEAD peer; state 2=SILENT / 3=DEAD. Clamped to 7 entries so 2N<=14<=15
+// (the Lua wraps at >=8 — a shared bug we fix here).
+size_t pack_liveness_state_tlv(const SuspectEntry* e, uint8_t n, std::span<uint8_t> out) {
+    if (n == 0) return 0;
+    if (n > protocol::peer_liveness_state_bcn_max) n = protocol::peer_liveness_state_bcn_max;   // <=7 -> body 2N<=14
+    const uint8_t body_len = static_cast<uint8_t>(2 * n);
+    wire::Writer w(out);
+    w.u8(static_cast<uint8_t>((protocol::bcn_ext_type_liveness_state << 4) | (body_len & 0x0f)));
+    for (uint8_t i = 0; i < n; ++i) { w.u8(e[i].node_id); w.u8(static_cast<uint8_t>(e[i].state & 0x03)); }
+    return w.ok() ? w.size() : 0;
+}
+// §P4 scan the ext block for a suspect TLV — a beacon carries EITHER type 1 OR type 2. type 1 -> each id at SUSPECT(1);
+// type 2 -> [id,state] pairs (rejects odd body, Lua dv:1955). Returns the entry count; skips other TLV types (fwd-compat).
+uint8_t parse_suspect_tlv(std::span<const uint8_t> ext, SuspectEntry* out, uint8_t max) {
+    size_t o = 0;
+    while (o < ext.size()) {
+        const uint8_t type = static_cast<uint8_t>(ext[o] >> 4);
+        const uint8_t blen = static_cast<uint8_t>(ext[o] & 0x0f);
+        if (o + 1 + blen > ext.size()) break;                       // truncated TLV -> stop
+        if (type == protocol::bcn_ext_type_suspect_nodes) {
+            const std::span<const uint8_t> body = ext.subspan(o + 1, blen);
+            uint8_t cnt = 0;
+            for (uint8_t i = 0; i < blen && cnt < max; ++i) out[cnt++] = SuspectEntry{ body[i], 1 };   // type-1 -> SUSPECT
+            return cnt;
+        }
+        if (type == protocol::bcn_ext_type_liveness_state) {
+            if (blen & 1u) return 0;                                 // odd body -> malformed (Lua dv:1955)
+            const std::span<const uint8_t> body = ext.subspan(o + 1, blen);
+            uint8_t cnt = 0;
+            for (uint8_t i = 0; static_cast<size_t>(i) + 1 < blen && cnt < max; i = static_cast<uint8_t>(i + 2))
+                out[cnt++] = SuspectEntry{ body[i], static_cast<uint8_t>(body[i + 1] & 0x03) };
+            return cnt;
+        }
+        o += 1u + blen;                                             // skip other TLV types
+    }
+    return 0;
+}
+
 // -----------------------------------------------------------------------------
 // CTS — cmd=0x2, 3 B (ROADMAP §10.3)
 // -----------------------------------------------------------------------------

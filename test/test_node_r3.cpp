@@ -1014,6 +1014,81 @@ TEST_CASE("§P3 — a HEALTHY single-candidate primary does NOT fire an RREQ on 
     delete node;
 }
 
+// =============================================================================
+// Phase 4 (routing-liveness port) — distributed liveness GOSSIP (BCN wire change).
+// A node advertises its LOCALLY-observed silent/dead peers in a BCN suspect-TLV
+// (type 1 ids-only / type 2 [id,state]); a receiver applies them as a REMOTE
+// observation -> the mesh converges, not just the failing node. Anti-storm: a
+// gossip-learned tier is applied but NEVER re-advertised (only local rts_timeout
+// evidence populates the advertise window).
+// =============================================================================
+TEST_CASE("§P4 gossip ENCODE — a locally-SILENT peer -> type-1 id TLV; a locally-DEAD peer -> type-2 [id,state] TLV") {
+    using meshroute::SuspectEntry;
+    uint8_t buf[32]; SuspectEntry got[8];
+    {   // SILENT-only -> type-1 SUSPECT_NODES (bare id list)
+        TestHal hal; Node node(hal, 1, 0xABCD);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+        hal._now = 1000;
+        CHECK(node.test_build_suspect_ext(buf, sizeof(buf)) == 0);                 // nothing observed -> no TLV
+        node.record_peer_rts_timeout(5, 0); node.record_peer_rts_timeout(5, 0); node.record_peer_rts_timeout(5, 0);
+        CHECK(node.peer_suspect_level(5) == 2);
+        const size_t n = node.test_build_suspect_ext(buf, sizeof(buf));
+        CHECK(n == 1 + 1);
+        CHECK((buf[0] >> 4) == protocol::bcn_ext_type_suspect_nodes);
+        CHECK(meshroute::parse_suspect_tlv(std::span<const uint8_t>(buf, n), got, 8) == 1);
+        CHECK(got[0].node_id == 5); CHECK(got[0].state == 1);                      // type-1 applies as SUSPECT
+    }
+    {   // a DEAD peer present -> type-2 LIVENESS_STATE carrying the state byte
+        TestHal hal; Node node(hal, 1, 0xABCD);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+        hal._now = 1000;
+        for (int i = 0; i < 6; ++i) node.record_peer_rts_timeout(6, 0);            // 6 at t=1000 -> SILENT (window not elapsed)
+        hal._now = 1000 + protocol::peer_dead_evidence_window_ms + 1;
+        node.record_peer_rts_timeout(6, 0);                                        // 7th past the window -> DEAD
+        CHECK(node.peer_suspect_level(6) == 3);
+        const size_t n = node.test_build_suspect_ext(buf, sizeof(buf));
+        CHECK((buf[0] >> 4) == protocol::bcn_ext_type_liveness_state);
+        CHECK(meshroute::parse_suspect_tlv(std::span<const uint8_t>(buf, n), got, 8) == 1);
+        CHECK(got[0].node_id == 6); CHECK(got[0].state == 3);
+    }
+}
+TEST_CASE("§P4 gossip APPLY — a remote DEAD demotes the local route to a fresh alt, WITHOUT first-hand evidence") {
+    using meshroute::SuspectEntry;
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t,64> bb{};
+    hal._now = 1000; { const size_t n = mk_beacon_route(2, 9, 7, 1, 14, bb); node.on_recv(bb.data(), n, RxMeta{22.0f,-60.0f,0,static_cast<int8_t>(2)}); }  // strong via 2
+    hal._now = 1001; { const size_t n = mk_beacon_route(3, 9, 7, 1, 14, bb); node.on_recv(bb.data(), n, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(3)}); }   // weak via 3
+    CHECK(rt_primary_for(node, 9) == 2);
+    SuspectEntry g[1] = { { 2, 3 } };                                              // GOSSIP from node 8: "node 2 is DEAD"
+    hal._now = 2000; node.test_apply_suspect_gossip(g, 1, /*bcn_src=*/8);
+    CHECK(node.peer_suspect_level(2) == 3);                                        // remote DEAD applied (no own timeout)
+    CHECK(rt_primary_for(node, 9) == 3);                                          // -> route reroutes to the fresh alt via 3
+}
+TEST_CASE("§P4 anti-storm — a gossip-LEARNED tier is NOT re-advertised; only LOCAL evidence is; self/gossiper skipped") {
+    using meshroute::SuspectEntry;
+    uint8_t buf[32];
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    hal._now = 1000;
+    // learn "2 dead" + "9 silent" via gossip from node 8
+    SuspectEntry g[2] = { { 2, 3 }, { 9, 2 } };
+    node.test_apply_suspect_gossip(g, 2, /*bcn_src=*/8);
+    CHECK(node.peer_suspect_level(2) == 3);
+    CHECK(node.test_build_suspect_ext(buf, sizeof(buf)) == 0);                     // ANTI-STORM: learned marks are NOT re-gossiped
+    // a LOCAL observation IS advertised (proves the encoder works + isolates the anti-storm above)
+    node.record_peer_rts_timeout(4, 0); node.record_peer_rts_timeout(4, 0); node.record_peer_rts_timeout(4, 0);   // 4 SILENT locally
+    const size_t n = node.test_build_suspect_ext(buf, sizeof(buf));
+    CHECK(n > 0);
+    SuspectEntry got[8]; const uint8_t c = meshroute::parse_suspect_tlv(std::span<const uint8_t>(buf, n), got, 8);
+    CHECK(c == 1); CHECK(got[0].node_id == 4);                                     // ONLY the locally-observed 4 — NOT the gossip-learned 2/9
+    // self + gossiper are never marked
+    SuspectEntry s[2] = { { 1, 3 }, { 7, 3 } };                                    // id 1 = self, src 7
+    node.test_apply_suspect_gossip(s, 2, /*bcn_src=*/7);
+    CHECK(node.peer_suspect_level(1) == 0);                                        // never self-mark
+    CHECK(node.peer_suspect_level(7) == 0);                                        // never mark the gossiper
+}
+
 TEST_CASE("cascade — equal-score candidates keep INSERTION order (Lua-faithful, NO id tie-break)") {
     TestHal hal; Node node(hal, 1, 0xABCD);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;

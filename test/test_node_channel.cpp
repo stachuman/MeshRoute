@@ -327,6 +327,51 @@ TEST_CASE("BCN channel-digest ext-TLV: pack/parse round-trip, count cap, multi-T
     CHECK(parse_channel_digest_tlv(std::span<const uint8_t>(), out, 3) == 0);
 }
 
+TEST_CASE("§P4 BCN suspect/liveness ext-TLV: pack/parse round-trip, type selection, clamp, coexistence") {
+    using meshroute::SuspectEntry;
+    // type-1 SUSPECT_NODES: a SILENT-only set -> a bare id list, applied by the receiver as SUSPECT(1)
+    const uint8_t ids[3] = { 7, 42, 200 };
+    uint8_t buf[24] = {};
+    size_t n = meshroute::pack_suspect_nodes_tlv(ids, 3, std::span<uint8_t>(buf, sizeof(buf)));
+    CHECK(n == 1 + 3);                                                  // header + 3 ids
+    CHECK((buf[0] >> 4) == protocol::bcn_ext_type_suspect_nodes);
+    CHECK((buf[0] & 0x0f) == 3);
+    SuspectEntry out[8] = {};
+    CHECK(meshroute::parse_suspect_tlv(std::span<const uint8_t>(buf, n), out, 8) == 3);
+    CHECK(out[0].node_id == 7);   CHECK(out[0].state == 1);             // type-1 applies as SUSPECT
+    CHECK(out[1].node_id == 42);  CHECK(out[1].state == 1);
+    CHECK(out[2].node_id == 200); CHECK(out[2].state == 1);
+    // type-2 LIVENESS_STATE: a set containing a DEAD peer -> [id,state] pairs (silent=2 / dead=3)
+    const SuspectEntry ent[3] = { { 9, 3 }, { 12, 2 }, { 30, 3 } };
+    uint8_t buf2[24] = {};
+    n = meshroute::pack_liveness_state_tlv(ent, 3, std::span<uint8_t>(buf2, sizeof(buf2)));
+    CHECK(n == 1 + 6);                                                  // header + 3*2B
+    CHECK((buf2[0] >> 4) == protocol::bcn_ext_type_liveness_state);
+    CHECK((buf2[0] & 0x0f) == 6);
+    SuspectEntry out2[8] = {};
+    CHECK(meshroute::parse_suspect_tlv(std::span<const uint8_t>(buf2, n), out2, 8) == 3);
+    CHECK(out2[0].node_id == 9);  CHECK(out2[0].state == 3);
+    CHECK(out2[1].node_id == 12); CHECK(out2[1].state == 2);
+    CHECK(out2[2].node_id == 30); CHECK(out2[2].state == 3);
+    // n==0 -> 0 bytes (no TLV)
+    CHECK(meshroute::pack_suspect_nodes_tlv(ids, 0, std::span<uint8_t>(buf, sizeof(buf))) == 0);
+    CHECK(meshroute::pack_liveness_state_tlv(ent, 0, std::span<uint8_t>(buf, sizeof(buf))) == 0);
+    // type-2 CLAMP: asking 8 packs at most peer_liveness_state_bcn_max(7) (2*7=14 <= the 4-bit len cap 15)
+    SuspectEntry eight[8]; for (uint8_t i = 0; i < 8; ++i) eight[i] = SuspectEntry{ static_cast<uint8_t>(50 + i), 3 };
+    n = meshroute::pack_liveness_state_tlv(eight, 8, std::span<uint8_t>(buf2, sizeof(buf2)));
+    CHECK((buf2[0] & 0x0f) == 2 * protocol::peer_liveness_state_bcn_max);   // 14, not a wrapped value
+    SuspectEntry out3[8] = {};
+    CHECK(meshroute::parse_suspect_tlv(std::span<const uint8_t>(buf2, n), out3, 8) == protocol::peer_liveness_state_bcn_max);
+    // coexistence: a foreign type-7 TLV before the suspect TLV -> parse skips it
+    uint8_t multi[24] = {}; multi[0] = static_cast<uint8_t>((7 << 4) | 2); multi[1] = 0xAA; multi[2] = 0xBB;
+    const size_t sn = meshroute::pack_suspect_nodes_tlv(ids, 2, std::span<uint8_t>(multi + 3, sizeof(multi) - 3));
+    SuspectEntry out4[8] = {};
+    CHECK(meshroute::parse_suspect_tlv(std::span<const uint8_t>(multi, 3 + sn), out4, 8) == 2);
+    CHECK(out4[0].node_id == 7);
+    // bounds: empty ext -> 0; odd-length type-2 body would be rejected by parse (here just the empty case)
+    CHECK(meshroute::parse_suspect_tlv(std::span<const uint8_t>(), out, 8) == 0);
+}
+
 TEST_CASE("digest emit: a dirty entry is advertised in the BCN digest TLV; retires after K=3 ads") {
     TestHal hal; Node node(hal, 3, 0x1234ABCDu);
     NodeConfig cfg = basic_cfg(); cfg.quiet_threshold_ms = 0;          // fast beacon path (no throttle/jitter)

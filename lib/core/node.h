@@ -30,6 +30,7 @@ namespace MESHROUTE_NS {
 
 struct m_out;          // frame_codec.h — fwd-decl so the channel ingest seam doesn't pull the codec into node.h
 struct rts_out;        // frame_codec.h — fwd-decl for the FLOOD RTS-M handler seam (handle_flood_rts)
+struct SuspectEntry;   // frame_codec.h — fwd-decl for the §P4 suspect-gossip apply seam (apply_suspect_gossip)
 
 // Per-layer (per-leaf) config — the dual-layer gateway model (2026-06-12-gateway-dual-layer-design.md §3.1).
 // A normal node has n_layers=1 (uses layers[0]); a GATEWAY has 2 EQUAL layers (no home/guest, §0.1). One
@@ -360,6 +361,8 @@ public:
     uint8_t           rt_count()       const { return _active->_rt_count; }
     const RtEntry&    rt_at(uint8_t i) const { return _active->_rt[i]; }   // 0..rt_count()-1; candidates[0] is the primary
     void              rt_resort_for_pick(uint8_t dest) { refresh_route_order(dest, "test_pick"); }   // test: force the pick-time re-sort (freshness/penalty applied)
+    size_t            test_build_suspect_ext(uint8_t* out, size_t cap) { return build_suspect_ext(out, cap); }                 // §P4 test: drive the gossip encoder
+    void              test_apply_suspect_gossip(const SuspectEntry* e, uint8_t n, uint8_t src) { apply_suspect_gossip(e, n, src); }   // §P4 test: drive the gossip apply
     bool              has_pending_tx() const { return _active->_pending_tx.has_value(); }
     uint64_t          nav_until_ms()   const { return _nav_until_ms; }  // NAV reservation deadline (0 = clear); test/status accessor
     // ---- channel-plane inspection (public, like rt_count) + the two seams tests drive directly ----
@@ -652,7 +655,9 @@ private:
     // ---- Peer-liveness internals (routing-liveness port) -------------------
     struct PeerLiveness;                                              // fwd decl (full def below, near the LayerRuntime member structs)
     PeerLiveness* peer_liveness_slot(uint8_t node_id, bool create);   // find (or LRU-create) the per-node slot; nullptr if absent + !create
-    void          mark_peer_suspect(uint8_t node_id, uint8_t level, const char* source);   // set the tier's expiry + emit (PHASE 1: NO resort, NO triggered beacon)
+    void          mark_peer_suspect(uint8_t node_id, uint8_t level, const char* source, uint8_t remote_src = 0);   // set the tier expiry + resort (§P4: remote_src!=0 => gossip-learned: local_only resort + NO advertise-table write; remote_src is also echoed in the event)
+    size_t        build_suspect_ext(uint8_t* out, size_t cap);    // §P4: locally-observed suspect/dead peers -> a type-1 or type-2 BCN ext-TLV; 0 = none (dv:1373 build_suspect_nodes_ext)
+    void          apply_suspect_gossip(const SuspectEntry* e, uint8_t n, uint8_t bcn_src);   // §P4: a received suspect-TLV -> mark_peer_suspect(remote); skip self + the gossiper (dv:9627)
     bool     in_discovery() const { return _discovery_mode; }
     void     maybe_exit_discovery(const char* reason);            // :7517
 
@@ -821,8 +826,12 @@ private:
     // Peer-liveness + freshness plane (routing-liveness port, Lua dv:3986-4545): per-next-hop RTS/ACK-timeout
     // accounting -> suspect/silent/dead tiers (each with an expiry), + dest_seen for next-hop freshness. Bounded
     // LRU table per LayerRuntime (the direct-neighbour set). node_id 0 = empty slot.
+    // §P4 gossip: suspect_advertise_until_ms / dead_advertise_until_ms hold the GOSSIP window (what to put in our BCN
+    // suspect-TLV), set ONLY by LOCAL rts_timeout evidence (mark_peer_suspect remote_src==0). REMOTE-learned tiers write
+    // the *_until_ms routing fields but NOT these -> a node never re-gossips a suspicion it heard (anti-storm, dv:1388).
     struct PeerLiveness { uint8_t node_id; uint16_t rts_timeouts; uint64_t first_timeout_ms;
-                          uint64_t suspect_until_ms; uint64_t silent_until_ms; uint64_t dead_until_ms; uint64_t dest_seen_ms; };
+                          uint64_t suspect_until_ms; uint64_t silent_until_ms; uint64_t dead_until_ms; uint64_t dest_seen_ms;
+                          uint64_t suspect_advertise_until_ms; uint64_t dead_advertise_until_ms; };
     // send-by-hash DMs parked awaiting a hash-bind resolution (D); drained by on_hash_bind_response, aged on the timer.
     // is_redirect=true => an L2c misdelivered DM held for FORWARD (not re-send): `body`=the full inner (incl.
     // DST_HASH), and origin/ctr/ctr_lo are preserved so the resolution forwards it identity-intact. The redirect

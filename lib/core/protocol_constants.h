@@ -37,7 +37,7 @@
 #define MR_N_LAYERS 1
 #endif
 #ifndef MR_CAP_CHANNEL_BUFFER
-#define MR_CAP_CHANNEL_BUFFER 128
+#define MR_CAP_CHANNEL_BUFFER 32
 #endif
 #ifndef MR_CAP_DEFERRED_SENDS
 #define MR_CAP_DEFERRED_SENDS 32
@@ -121,7 +121,8 @@ inline constexpr uint32_t peer_dead_evidence_window_ms = 900000;
 inline constexpr int16_t  peer_suspect_penalty_q4      = 192;   // 12.0 dB
 inline constexpr int16_t  peer_silent_penalty_q4       = 640;   // 40.0 dB
 inline constexpr int16_t  peer_dead_penalty_q4         = 1280;  // 80.0 dB
-inline constexpr uint8_t  peer_suspect_bcn_max         = 8;
+inline constexpr uint8_t  peer_suspect_bcn_max         = 8;     // §P4: max suspect ids advertised per BCN (dv:1376; also clamped by the 4-bit TLV len <=15)
+inline constexpr uint8_t  peer_liveness_state_bcn_max  = 7;     // §P4: type-2 LIVENESS_STATE cap — 2B/entry must fit the 4-bit TLV len (2*7=14<=15). The Lua wraps at >=8 dead peers (shared bug, dv:1376); we clamp.
 inline constexpr uint8_t  cap_peer_liveness            = 64;    // bounded per-LayerRuntime liveness table (direct-neighbour set); LRU-evict oldest dest_seen
 
 // ---- Duty-cycle budget tiers -----------------------------------------------
@@ -198,7 +199,7 @@ inline constexpr uint8_t  cap_parked_sends              = 8;       // send-by-ha
 // ---- Channel-message gossip plane (ROADMAP §3) -----------------------------
 // Single-layer only — gateways skip the whole plane (Principle 11). Phase 1 = the
 // buffer + per-origin anti-spam + DATA-M ingest + send_channel origination.
-inline constexpr uint16_t cap_channel_buffer            = MR_CAP_CHANNEL_BUFFER;   // default 128 FIFO gossip entries (Lua dv:988); gateway build cuts hard (skips the plane)
+inline constexpr uint16_t cap_channel_buffer            = MR_CAP_CHANNEL_BUFFER;   // default 32 FIFO gossip entries (Lua dv:988) - reduction!
 inline constexpr uint16_t channel_msg_max_payload_bytes = 200;    // dv:989
 inline constexpr uint32_t channel_origin_window_ms      = 300000; // per-origin anti-spam window, 5 min (dv:997)
 inline constexpr uint8_t  channel_origin_max_per_window = 20;     // distinct msgs/origin/window before drop (dv:998)
@@ -208,6 +209,8 @@ inline constexpr uint16_t channel_pull_jitter_ms        = 5000;   // pull backof
 inline constexpr uint8_t  cap_channel_pulls_per_bcn_cycle = 3;    // new pulls/digest (dv:1022) [Phase 2]
 inline constexpr uint8_t  channel_dirty_max_advertisements = 3;   // K: clear dirty after K ads (dv:1034) [Phase 2]
 inline constexpr uint8_t  cap_channel_pull_pending      = 8;      // bounded pending-pull ring (Lua: unbounded table)
+inline constexpr uint8_t  bcn_ext_type_suspect_nodes   = 1;      // §P4 BCN ext-TLV type 1: gossip locally-observed SILENT peers (1B/id), applied as SUSPECT (dv:1241)
+inline constexpr uint8_t  bcn_ext_type_liveness_state  = 2;      // §P4 BCN ext-TLV type 2: gossip peers incl. DEAD ([id, state&0x03] 2B/entry) (dv:1242)
 inline constexpr uint8_t  bcn_ext_type_channel_digest  = 3;      // BCN ext-TLV type for the channel digest (dv:1248)
 inline constexpr uint8_t  bcn_ext_type_gateway_layer   = 4;      // BCN ext-TLV type 4: multi-hop gateway-layer propagation (dv:1249) — gw_id->dest_leaf, re-gossiped by ALL nodes
 inline constexpr uint8_t  cap_bridged_layers           = 8;      // Node-global gw_id->dest_leaf table (mirror _gw_schedules); leaves carry it (they ORIGINATE cross-layer DMs)

@@ -410,7 +410,7 @@ uint8_t Node::peer_suspect_level(uint8_t node_id) {
     return 0;
 }
 
-void Node::mark_peer_suspect(uint8_t node_id, uint8_t level, const char* source) {
+void Node::mark_peer_suspect(uint8_t node_id, uint8_t level, const char* source, uint8_t remote_src) {
     if (node_id == 0 || node_id == _node_id) return;
     PeerLiveness* s = peer_liveness_slot(node_id, /*create=*/true);
     if (!s) return;
@@ -419,12 +419,20 @@ void Node::mark_peer_suspect(uint8_t node_id, uint8_t level, const char* source)
     if      (level >= 3) s->dead_until_ms    = now + protocol::peer_dead_ttl_ms;
     else if (level >= 2) s->silent_until_ms  = now + protocol::peer_silent_ttl_ms;
     else                 s->suspect_until_ms = now + protocol::peer_suspect_ttl_ms;
+    // §P4 gossip window: ONLY a LOCALLY-observed tier (remote_src==0 — rts_timeout is the sole local caller) is
+    // advertised in our BCN suspect-TLV; a gossip-LEARNED tier (remote_src!=0) is applied above but NOT advertised
+    // (anti-storm: a node never re-gossips a suspicion it heard, dv:1388-1390). DEAD clears the silent advertise (dv:4493).
+    if (remote_src == 0) {
+        if (level >= 3) { s->dead_advertise_until_ms = now + protocol::peer_dead_ttl_ms; s->suspect_advertise_until_ms = 0; }
+        else            { s->suspect_advertise_until_ms = now + (level >= 2 ? protocol::peer_silent_ttl_ms : protocol::peer_suspect_ttl_ms); }
+    }
     const uint8_t newl = peer_suspect_level(node_id);
-    // §P2: a tier PROMOTION re-ranks every route via this now-penalized next-hop (resort_routes uses effective_score,
-    // which now includes the liveness penalty), and re-advertises if a primary moved. (Lua mark_peer_suspect@4466/4504.)
-    if (newl > prev) resort_routes_for_neighbor_penalty(node_id, source ? source : "peer_suspect", /*local_only=*/false);
+    // §P2: a tier PROMOTION re-ranks routes via this now-penalized next-hop. §P4: a REMOTE (gossip) promotion reranks
+    // LOCAL-ONLY (no dirty, no triggered beacon) so we never RE-ADVERTISE a heard suspicion (anti-storm guard #2,
+    // dv:4501); a LOCAL promotion may re-advertise (local_only=false). (Lua mark_peer_suspect@4466/4504.)
+    if (newl > prev) resort_routes_for_neighbor_penalty(node_id, source ? source : "peer_suspect", /*local_only=*/ remote_src != 0);
     MR_EMIT("peer_suspect_mark", EF_I("node", node_id), EF_I("level", newl), EF_I("previous_level", prev),
-            EF_S("source", source ? source : "unknown"), EF_I("rts_timeouts", s->rts_timeouts));
+            EF_S("source", source ? source : "unknown"), EF_I("rts_timeouts", s->rts_timeouts), EF_I("remote_src", remote_src));
 }
 
 void Node::record_peer_rts_timeout(uint8_t node_id, uint8_t ctr_lo) {
@@ -451,10 +459,12 @@ void Node::clear_peer_suspect(uint8_t node_id, const char* source) {
     PeerLiveness* s = peer_liveness_slot(node_id, /*create=*/false);
     if (!s) return;
     const bool had = s->rts_timeouts != 0 || s->first_timeout_ms != 0 ||
-                     s->suspect_until_ms != 0 || s->silent_until_ms != 0 || s->dead_until_ms != 0;
+                     s->suspect_until_ms != 0 || s->silent_until_ms != 0 || s->dead_until_ms != 0 ||
+                     s->suspect_advertise_until_ms != 0 || s->dead_advertise_until_ms != 0;   // §P4 also stop gossiping it
     if (!had) return;                                       // nothing to clear -> no event (Lua: emit only if `had`)
     s->rts_timeouts = 0; s->first_timeout_ms = 0;
     s->suspect_until_ms = 0; s->silent_until_ms = 0; s->dead_until_ms = 0;
+    s->suspect_advertise_until_ms = 0; s->dead_advertise_until_ms = 0;   // §P4: heard the peer -> stop advertising it as suspect (dv:4457-4463)
     // §P2: the penalty is lifted -> re-rank routes via this recovered next-hop (a demoted route may regain primacy) +
     // re-advertise on a primary change. dest_seen_ms left intact (a separate freshness fact). (Lua clear_peer_suspect@4501.)
     resort_routes_for_neighbor_penalty(node_id, source ? source : "peer_suspect_clear", /*local_only=*/false);

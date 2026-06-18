@@ -129,6 +129,50 @@ size_t Node::build_gateway_layer_ext(uint8_t* out, size_t cap) {
     return pack_gateway_layer_tlv(entries, n, std::span<uint8_t>(out, cap));
 }
 
+// §P4 build the suspect-node gossip TLV from our LOCALLY-observed advertise windows (Lua build_suspect_nodes_ext@1373).
+// Collect peers whose advertise window is still open (dead_advertise_until>now => DEAD; else suspect_advertise_until>now
+// => SILENT), skip self, sort (state DESC then node_id ASC), then emit type-2 LIVENESS_STATE (2B/entry) if ANY is DEAD,
+// else type-1 SUSPECT_NODES (1B/id). 0 = nothing to advertise. Reads ONLY the advertise windows (set by local
+// rts_timeout), so a gossip-learned tier is never re-advertised (anti-storm).
+size_t Node::build_suspect_ext(uint8_t* out, size_t cap) {
+    if (protocol::peer_suspect_bcn_max == 0) return 0;             // hard kill-switch (dv:1374)
+    const uint64_t now = _hal.now();
+    SuspectEntry rec[protocol::cap_peer_liveness];
+    uint8_t n = 0;
+    bool any_dead = false;
+    for (uint8_t i = 0; i < _active->_peer_liveness_n && n < protocol::cap_peer_liveness; ++i) {
+        const PeerLiveness& p = _active->_peer_liveness[i];
+        if (p.node_id == 0 || p.node_id == _node_id) continue;     // never gossip about self (dv:1381)
+        uint8_t state = 0;
+        if      (p.dead_advertise_until_ms    > now) { state = 3; any_dead = true; }
+        else if (p.suspect_advertise_until_ms > now) { state = 2; }
+        else continue;                                             // advertise window closed (heard-from clears it / TTL)
+        rec[n++] = SuspectEntry{ p.node_id, state };
+    }
+    if (n == 0) return 0;
+    // sort: state DESC (dead first so the cap drops silents, not deaths), then node_id ASC (dv:1394-1397). Small N.
+    for (uint8_t a = 0; a < n; ++a)
+        for (uint8_t b = static_cast<uint8_t>(a + 1); b < n; ++b)
+            if (rec[b].state > rec[a].state || (rec[b].state == rec[a].state && rec[b].node_id < rec[a].node_id)) {
+                const SuspectEntry t = rec[a]; rec[a] = rec[b]; rec[b] = t;
+            }
+    if (any_dead)                                                  // type 2: cap to peer_liveness_state_bcn_max (7) so 2N<=14 (Lua wraps at 8 — fixed)
+        return pack_liveness_state_tlv(rec, n, std::span<uint8_t>(out, cap));
+    uint8_t ids[protocol::cap_peer_liveness];                      // type 1: SILENT-only -> a bare id list (pack clamps to peer_suspect_bcn_max=8)
+    for (uint8_t i = 0; i < n; ++i) ids[i] = rec[i].node_id;
+    return pack_suspect_nodes_tlv(ids, n, std::span<uint8_t>(out, cap));
+}
+
+// §P4 apply a received suspect/liveness TLV (Lua dv:9627-9686): mark each named peer at the advertised tier as a REMOTE
+// observation (remote_src = the beacon sender). Skip self (never self-mark) and skip the gossiper itself; ignore state 0.
+void Node::apply_suspect_gossip(const SuspectEntry* e, uint8_t n, uint8_t bcn_src) {
+    for (uint8_t i = 0; i < n; ++i) {
+        const uint8_t id = e[i].node_id, state = e[i].state;
+        if (id == 0 || id == _node_id || id == bcn_src || state == 0) continue;   // never self; never the gossiper (dv:9634/9665)
+        mark_peer_suspect(id, state, state >= 2 ? "bcn_liveness" : "bcn_suspect", /*remote_src=*/bcn_src);
+    }
+}
+
 void Node::emit_beacon(const char* kind) {
     // §P0: an UNPROVISIONED node (id 0) must NEVER advertise routes — its id is the reserved sentinel, so neighbours
     // would install a route to "0" that then propagates. Guard the COMMON emit path (covers periodic + triggered +
@@ -233,12 +277,16 @@ void Node::emit_beacon(const char* kind) {
     // seen_bitmap left empty → codec derives has_seen_bitmap=0.
     // ROADMAP §3: advertise our dirty channel msgs in the BCN digest ext-TLV (gateways skip — Principle 11).
     // build_channel_digest_ext is draw-free; its ad_count/dirty side effects track per built beacon (dv:1453).
-    uint8_t ext_buf[32]; size_t ext_n = 0;
+    uint8_t ext_buf[64]; size_t ext_n = 0;   // §P4: holds digest(<=14) + gateway(<=15) + suspect(<=16) TLVs; pack_beacon checks the total vs beacon_max_bytes
     if (!_cfg.is_gateway) ext_n = build_channel_digest_ext(ext_buf, sizeof(ext_buf));
     // Multi-hop gateway discovery: append the type-4 gateway-layer TLV (a gateway self-adverts its other leaf; EVERY
     // node re-gossips its _bridged_layers). Returns 0 when there's nothing -> a single-layer node emits NO type-4 TLV
     // (it's not a gateway + never ingests one), so s18 stays wire byte-identical. KEYSTONE GUARD.
     ext_n += build_gateway_layer_ext(ext_buf + ext_n, sizeof(ext_buf) - ext_n);
+    // §P4 distributed liveness gossip: append the type-1/2 suspect TLV (our LOCALLY-observed silent/dead peers). ALL
+    // non-mobile nodes gossip (the liveness plane is universal, unlike the gateway-gated digest). Order-independent at
+    // parse. Empty when we have no fresh advertise window -> no TLV (s18 keeps its routing/delivery, see the gate).
+    if (!_cfg.is_mobile) ext_n += build_suspect_ext(ext_buf + ext_n, sizeof(ext_buf) - ext_n);
     in.ext = std::span<const uint8_t>(ext_buf, ext_n);
 
     uint8_t buf[protocol::beacon_max_bytes];
@@ -297,6 +345,13 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         for (uint8_t i = 0; i < gn; ++i)
             if (gle[i].gw_id != _node_id && gle[i].dest_leaf != _cfg.leaf_id)
                 ingest_bridged_layer(gle[i].gw_id, gle[i].dest_leaf);
+        // §P4 distributed liveness gossip (dv:9627-9686): a received suspect/liveness TLV demotes our routes via the
+        // named peers based on the SENDER's first-hand observation — so a node that hasn't itself timed out via a dead
+        // relay still reroutes. apply marks them REMOTE (no re-advertise, local_only resort = anti-storm). Wire body
+        // <=15 B -> at most 15 ids (type-1) / 7 pairs (type-2).
+        SuspectEntry susp[16];
+        const uint8_t sn = parse_suspect_tlv(ext, susp, 16);
+        if (sn > 0) apply_suspect_gossip(susp, sn, b.src);
     }
     // beacon_rx — one per received beacon (the gate asserts src)
     MR_EMIT("beacon_rx",EF_I("src",b.src),EF_I("channel_digest_ids",dn));
