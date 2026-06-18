@@ -248,6 +248,12 @@ inline constexpr uint16_t gateway_schedule_guard_ms = 100;
 // (_pending_tx / _pending_rx / _post_ack.pending), re-arm the switch after this. EXPLICIT named constant — the
 // Lua silently fell back to max(rts_busy_retry_ms, 1000); we declare it (no-fallback rule). (Lua L8425 == 1000.)
 inline constexpr uint32_t gateway_layer_busy_retry_ms = 1000;
+// Gateway-doorstep hold (dv:6351): when an RTS to a known gateway times out, patient window-aware requeue
+// instead of the generic cascade. The giveup timer (~10 visit windows at 15s each) is a long patience since
+// the gateway may be away on its other leaf. The jitter spreads neighbours so they don't re-collide in lockstep
+// when the gateway's window re-opens. (Lua gateway_send_giveup_ms / gateway_doorstep_retry_jitter_ms.)
+inline constexpr uint32_t gateway_send_giveup_ms           = 150000;
+inline constexpr uint32_t gateway_doorstep_retry_jitter_ms = 2000;
 // Slice 3e.2: a node remembers the window schedule of nearby gateways (learned from their beacons) so it can time
 // an RTS to hit the gateway's window on the SENDER's leaf. Small ring (a node hears few gateways); evict-oldest.
 inline constexpr uint8_t  cap_gateway_neighbor_schedules = 4;

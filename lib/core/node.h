@@ -691,6 +691,9 @@ private:
     void     store_gateway_schedule(const GatewaySchedule& gs);   // Slice 3e.2: remember a heard gateway's schedule (evict-oldest)
     const GatewaySchedule* find_gw_schedule(uint8_t gw_node_id) const;
     uint32_t gateway_schedule_defer_ms(uint8_t gw_node_id) const; // Slice 3e.2: ms to defer an RTS so it hits the gateway's window on OUR leaf
+    // Gateway-doorstep hold (Lua gateway_doorstep_hold@6351): an RTS/ACK timeout to a known gateway —
+    // patient window-aware requeue instead of the generic cascade. Returns true if consumed.
+    bool     gateway_doorstep_hold();
     // ---- Multi-hop gateway discovery (2026-06-14, type-4 BCN TLV): the originator's gateway SELECTION half ------
     void     ingest_bridged_layer(uint8_t gw_id, uint8_t dest_leaf);   // last-write-wins (one row per gw_id)
     void     prune_aged_bridged_layers(uint64_t now);                  // invalidate rows older than bridged_layers_ttl_ms

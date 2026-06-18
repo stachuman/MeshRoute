@@ -240,6 +240,10 @@ void Node::try_drain_deferred() {
 void Node::rts_timeout_fire() {
     if (!_active->_pending_tx || !_active->_pending_tx->awaiting_cts) return;          // stale (CTS already matched)
     if (_active->_pending_rx) { (void)_hal.after(protocol::rts_busy_retry_ms, kRtsTimeoutTimerId); return; }
+    // Gateway-doorstep hold (Lua dv:6452): an RTS to a KNOWN gateway on its doorstep hop timed out.
+    // Patient window-aware requeue instead of burning retries or fanning out to cascade — the
+    // gateway may simply be away on its other leaf. Handles its own giveup clock (150s).
+    if (gateway_doorstep_hold()) return;
     if (_active->_pending_tx->retries_left > 0) {
         // §P3 silent-next cascade: the primary is ALREADY known silent/dead (prior-flight liveness evidence) ->
         // don't burn same-hop retries on a confirmed-dead path; cascade to a viable alt NOW (or RREQ on no-alt).
@@ -260,6 +264,9 @@ void Node::rts_timeout_fire() {
 void Node::ack_timeout_fire() {
     if (!_active->_pending_tx || !_active->_pending_tx->awaiting_ack) return;
     if (_active->_pending_rx) { (void)_hal.after(protocol::rts_busy_retry_ms, kAckTimeoutTimerId); return; }
+    // Gateway-doorstep hold (Lua dv:6661): same as rts_timeout_fire — a DATA-ACK timeout to a
+    // known gateway on its doorstep hop also gets patient window-aware requeue.
+    if (gateway_doorstep_hold()) return;
     if (_active->_pending_tx->retries_left > 0) {
         // §P3 silent-next cascade (mirror of rts_timeout_fire): a missed DATA-ACK on an ALREADY-silent primary
         // cascades immediately rather than re-RTSing the dead path. Persisted-tier read, no per-timeout counting.
@@ -275,6 +282,50 @@ void Node::ack_timeout_fire() {
         record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo);   // §P1: same-hop ACK giveup = liveness evidence
         cascade_to_alt("data_ack_giveup");               // same-hop retries exhausted -> walk to an alternate (§P3: + RREQ if it's silent)
     }
+}
+// Gateway-doorstep hold (Lua gateway_doorstep_hold@6351): an RTS/ACK to a known gateway on its
+// doorstep hop (next==dst) timed out. Instead of burning same-hop retries or cascading to alts
+// (both would hit the same absent gateway), patient window-aware requeue: wait until the gateway's
+// next window on our leaf + jitter. Separate giveup clock (150s ≈ 10 visit windows) so the
+// message isn't lost on a transient window miss but DOES give up eventually.
+bool Node::gateway_doorstep_hold() {
+    const PendingTx& pt = *_active->_pending_tx;
+    if (pt.next != pt.dst) return false;                             // only the doorstep hop (last-hop to the gateway)
+    const GatewaySchedule* gs = find_gw_schedule(pt.dst);
+    if (!gs || !gs->valid) return false;                             // no known schedule for this gateway
+    const uint64_t now = _hal.now();
+    const uint64_t enq = pt.enqueue_time_ms ? pt.enqueue_time_ms : now;
+    const uint64_t age = now - enq;
+    if (age >= protocol::gateway_send_giveup_ms) {
+        MR_EMIT("send_giveup", EF_I("origin", pt.origin), EF_I("dst", pt.dst), EF_I("ctr", pt.ctr),
+                EF_S("reason", "gateway_unreachable_timeout"), EF_I("age_ms", static_cast<int64_t>(age)));
+        Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu);
+        _active->_pending_tx.reset();
+        become_free();
+        return true;
+    }
+    const uint32_t wait    = gateway_schedule_defer_ms(pt.dst);
+    const uint32_t jitter  = static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(protocol::gateway_doorstep_retry_jitter_ms) + 1));
+    uint32_t       backoff = wait + jitter;
+    if (backoff < 200) backoff = 200;
+    TxItem it{};
+    it.origin = pt.origin; it.dst = pt.dst; it.ctr = pt.ctr; it.ctr_lo = pt.ctr_lo;
+    it.flags = pt.flags; it.type = pt.type;
+    it.inner_len = pt.inner_len;
+    for (uint8_t i = 0; i < pt.inner_len; ++i) it.inner[i] = pt.inner[i];
+    it.is_forward = pt.has_previous_hop; it.previous_hop = pt.previous_hop;
+    it.is_gw_relay = pt.is_gw_relay;
+    it.fwd_remaining = pt.fwd_remaining; it.fwd_committed = pt.fwd_committed;
+    it.requeue_count  = pt.requeue_count;                         // preserved — NOT incremented
+    it.enqueue_time_ms = enq;                                      // preserved — giveup clock spans lifetime
+    it.next_attempt_ms = now + backoff;
+    MR_EMIT("gateway_hold_requeue", EF_I("origin", pt.origin), EF_I("dst", pt.dst), EF_I("ctr", pt.ctr),
+            EF_I("wait_ms", wait), EF_I("jitter_ms", jitter), EF_I("backoff_ms", backoff),
+            EF_I("age_ms", static_cast<int64_t>(age)));
+    if (_active->_tx_queue_n < kTxQueueCap) _active->_tx_queue[_active->_tx_queue_n++] = it;
+    _active->_pending_tx.reset();
+    become_free();
+    return true;
 }
 void Node::pending_rx_expiry_fire() {
     if (!_active->_pending_rx) return;
