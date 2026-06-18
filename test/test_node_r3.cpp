@@ -922,6 +922,98 @@ TEST_CASE("§P1 liveness LRU — eviction keeps a DEAD peer over a healthy one (
     CHECK(node.is_next_hop_fresh(200));        // the new peer got in (a healthy slot made room)
 }
 
+// =============================================================================
+// Phase 2 (routing-liveness port) — APPLY the liveness penalty + freshness gate.
+// A demoted (suspect/silent/dead) next-hop loses effective_score; a stale one is
+// non-viable; on a tier change the routes via it are re-ranked -> traffic reroutes
+// to a fresh alt. THIS IS BEHAVIORAL (the byte-identical gate gives way to the
+// delivery suite). Recovery (a frame heard) restores the route.
+// =============================================================================
+namespace { int rt_primary_for(Node& n, uint8_t dest) {   // the current primary next-hop for `dest`, or -1
+    for (uint8_t i = 0; i < n.rt_count(); ++i) if (n.rt_at(i).dest == dest) return n.rt_at(i).candidates[0].next_hop;
+    return -1; } }
+TEST_CASE("§P2 — a DEMOTED (silent) next-hop loses primacy to a fresh alt, and RECOVERS on a heard frame") {
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t,64> bb{};
+    hal._now = 1000; { const size_t n = mk_beacon_route(/*src=*/2, /*dest=*/5, /*next=*/9, /*hops=*/1, /*score=*/14, bb); node.on_recv(bb.data(), n, RxMeta{22.0f,-60.0f,0,static_cast<int8_t>(2)}); }
+    hal._now = 1001; { const size_t n = mk_beacon_route(/*src=*/3, /*dest=*/5, /*next=*/9, /*hops=*/1, /*score=*/14, bb); node.on_recv(bb.data(), n, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(3)}); }
+    CHECK(rt_primary_for(node, 5) == 2);                    // strong link via 2 wins initially
+    hal._now = 2000;                                        // node 2 goes SILENT (3 RTS-timeout giveups -> 40 dB penalty)
+    node.record_peer_rts_timeout(2, 0); node.record_peer_rts_timeout(2, 0); node.record_peer_rts_timeout(2, 0);
+    CHECK(node.peer_suspect_level(2) == 2);
+    CHECK(rt_primary_for(node, 5) == 3);                    // §P2: the tier-promotion resort rerouted to the fresh alt via 3
+    hal._now = 3000; node.clear_peer_suspect(2, "rx_frame");   // a frame heard from 2 -> it's alive -> clear
+    CHECK(node.peer_suspect_level(2) == 0);
+    CHECK(rt_primary_for(node, 5) == 2);                    // recovered -> the strong link regains primacy (clear re-ranked)
+}
+TEST_CASE("§P2 — a STALE next-hop (unseen > next_hop_live_ttl) is non-viable, loses to a fresh alt") {
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    std::array<uint8_t,64> bb{};
+    hal._now = 1000; { const size_t n = mk_beacon_route(2, 5, 9, 1, 14, bb); node.on_recv(bb.data(), n, RxMeta{22.0f,-60.0f,0,static_cast<int8_t>(2)}); }   // strong via 2
+    hal._now = 1001; { const size_t n = mk_beacon_route(3, 5, 9, 1, 14, bb); node.on_recv(bb.data(), n, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(3)}); }    // weak via 3
+    CHECK(rt_primary_for(node, 5) == 2);
+    // advance past next_hop_live_ttl with NO frame from node 2 (-> stale); node 3 re-beacons (stays fresh) -> re-sort
+    hal._now = 1000 + protocol::next_hop_live_ttl_ms + 1;
+    { const size_t n = mk_beacon_route(3, 5, 9, 1, 14, bb); node.on_recv(bb.data(), n, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(3)}); }   // keeps node 3 fresh
+    CHECK_FALSE(node.is_next_hop_fresh(2));                 // node 2 went stale
+    node.rt_resort_for_pick(5);                             // freshness is a PICK-TIME gate (Lua) -> force the re-sort a send would do
+    CHECK(rt_primary_for(node, 5) == 3);                    // §P2: stale via-2 non-viable -> fresh via-3 wins (pure freshness, no penalty)
+}
+
+// =============================================================================
+// Phase 3 (routing-liveness port) — the silent-next CASCADE reaction at the sender.
+// A flight whose primary next-hop is ALREADY known silent/dead (prior-flight
+// evidence) does NOT burn same-hop retries on the dead path — it cascades to a
+// viable alt on the FIRST timeout (or, with no alt, fires an RREQ to actively
+// rediscover, closing the user's no-alt dead-relay bug). Reads the persisted
+// liveness tier; NO per-timeout counting (that churned the suite +17.8% events).
+// DRIFT from the spec's literal per-failure/suspect trigger — see the phase report.
+// =============================================================================
+TEST_CASE("§P3 — a flight on an ALREADY-silent primary cascades to the alt on the FIRST timeout (no dead-path retries)") {
+    TestHal hal;
+    Node* node = mk_sender_with_routes(hal, {{2,1,14},{3,2,14}});   // via2 (h2) primary, via3 (h3) alt
+    send_cmd(*node, /*dst=*/5, "hi");
+    const Ev* r1 = hal.last("rts_tx"); CHECK(r1 != nullptr);
+    if (r1) CHECK(r1->next == 2);                       // first RTS to the primary (via 2)
+    // node 2 goes SILENT from OTHER evidence (3 prior giveups) WHILE this flight is in-air on it
+    node->record_peer_rts_timeout(2, 9); node->record_peer_rts_timeout(2, 9); node->record_peer_rts_timeout(2, 9);
+    CHECK(node->peer_suspect_level(2) == 2);            // SILENT
+    const int rand_before = hal.rand_calls;
+    node->on_timer(kRtsTimeoutTimerId);                // FIRST timeout: primary is silent -> cascade NOW (don't retry)
+    CHECK(hal.count("path_cascade") == 1);             // cascaded on the FIRST timeout (vs after 3 retries)
+    const Ev* pc = hal.last("path_cascade"); if (pc) { CHECK(pc->next == 3); CHECK(pc->dst == 5); }
+    const Ev* r2 = hal.last("rts_tx"); if (r2) CHECK(r2->next == 3);   // re-RTS on the fresh alt (via 3)
+    CHECK(hal.count("rts_giveup") == 0);               // walked, did not give up
+    CHECK(hal.rand_calls - rand_before == 0);          // NO same-hop retry-jitter draw (didn't retry the dead path)
+    delete node;
+}
+TEST_CASE("§P3 — a silent SINGLE-candidate primary fires an RREQ on exhaustion (active no-alt rediscovery)") {
+    TestHal hal;
+    Node* node = mk_sender_with_routes(hal, {{2,1,14}});   // only via 2 — no alt
+    send_cmd(*node, /*dst=*/5, "hi");
+    const Ev* r1 = hal.last("rts_tx"); if (r1) CHECK(r1->next == 2);
+    node->record_peer_rts_timeout(2, 9); node->record_peer_rts_timeout(2, 9); node->record_peer_rts_timeout(2, 9);
+    CHECK(node->peer_suspect_level(2) == 2);            // the sole next-hop is SILENT
+    const int r_tx_before = hal.count("r_tx");
+    node->on_timer(kRtsTimeoutTimerId);                // FIRST timeout: silent + no alt -> RREQ + requeue
+    CHECK(hal.count("r_tx") == r_tx_before + 1);       // active rediscovery: an RREQ for the unreachable dst
+    const Ev* rq = hal.last("r_tx"); if (rq) CHECK(rq->dst == 5);
+    CHECK(hal.count("cascade_requeue") == 1);          // and the flight is requeued (not a hard giveup yet)
+    delete node;
+}
+TEST_CASE("§P3 — a HEALTHY single-candidate primary does NOT fire an RREQ on a normal (congested) giveup") {
+    TestHal hal;
+    Node* node = mk_sender_with_routes(hal, {{2,1,14}});   // only via 2, healthy
+    send_cmd(*node, /*dst=*/5, "hi");
+    const int r_tx_before = hal.count("r_tx");
+    exhaust_rts_same_hop(*node);                        // normal congested giveup (primary not silent)
+    CHECK(hal.count("cascade_requeue") == 1);           // requeued as before
+    CHECK(hal.count("r_tx") == r_tx_before);            // NO RREQ — the RREQ-on-silent is gated on the silent tier
+    delete node;
+}
+
 TEST_CASE("cascade — equal-score candidates keep INSERTION order (Lua-faithful, NO id tie-break)") {
     TestHal hal; Node node(hal, 1, 0xABCD);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;

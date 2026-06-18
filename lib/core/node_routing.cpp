@@ -66,17 +66,38 @@ int16_t Node::budget_penalty_q4(const RtCandidate& c, const RtCandidate* cands, 
     return kTierScorePenaltyQ4[t][viable_alts];
 }
 
+// §P2: the liveness tier penalty for `next_hop` (const, non-mutating — checks the untils against now w/o lazy-clearing).
+int16_t Node::liveness_penalty_q4(uint8_t next_hop) const {
+    if (next_hop == 0 || next_hop == _node_id) return 0;
+    const auto& L = *_active;
+    const PeerLiveness* s = nullptr;
+    for (uint8_t i = 0; i < L._peer_liveness_n; ++i) if (L._peer_liveness[i].node_id == next_hop) { s = &L._peer_liveness[i]; break; }
+    if (!s) return 0;
+    const uint64_t now = _hal.now();
+    if (s->dead_until_ms    > now) return protocol::peer_dead_penalty_q4;
+    if (s->silent_until_ms  > now) return protocol::peer_silent_penalty_q4;
+    if (s->suspect_until_ms > now) return protocol::peer_suspect_penalty_q4;
+    return 0;
+}
+
 int16_t Node::effective_score(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const {
-    return static_cast<int16_t>(c.score - budget_penalty_q4(c, cands, n));   // suspect penalty deferred (0)
+    // §P2: subtract BOTH the R4.2 budget tier AND the liveness tier (suspect/silent/dead) — Lua effective_score@4140.
+    return static_cast<int16_t>(c.score - budget_penalty_q4(c, cands, n) - liveness_penalty_q4(c.next_hop));
 }
 
 bool Node::route_strictly_better(const RtCandidate& a, const RtCandidate& b,
                                  const RtCandidate* cands, uint8_t n) const {
-    const int16_t av = effective_score(a, cands, n);     // R4.2: penalty-adjusted; == score for HEALTHY next_hops
+    const int16_t av = effective_score(a, cands, n);     // R4.2 + §P2: budget + liveness penalty-adjusted
     const int16_t bv = effective_score(b, cands, n);
-    const bool a_viable = av >= _routing_snr_floor_q4;
-    const bool b_viable = bv >= _routing_snr_floor_q4;
-    if (a_viable != b_viable) return a_viable;            // viable beats non-viable (a penalty CAN flip viability)
+    // §P2 freshness eligibility: a candidate whose next-hop hasn't been heard within next_hop_live_ttl is NON-viable
+    // (loses to any fresh candidate). Subsumes the A↔B mutual-refresh trap: an unconditionally-refreshed-but-stale
+    // next-hop route can no longer be SELECTED. NB this is the SPEC's chosen layer (gate freshness in the SORT) — a
+    // deliberate DRIFT from the Lua, which gates it at PICK time (issue_send@7234 defers + RREQs an all-stale route).
+    // Consequence: with an alt, the fresh alt wins here (good); with NO alt, the only candidate stays selectable and
+    // the DM still flies at the stale next-hop (no Lua-style defer/RREQ) — the no-alt path is a documented follow-up.
+    const bool a_viable = av >= _routing_snr_floor_q4 && is_next_hop_fresh(a.next_hop);
+    const bool b_viable = bv >= _routing_snr_floor_q4 && is_next_hop_fresh(b.next_hop);
+    if (a_viable != b_viable) return a_viable;            // viable beats non-viable (a penalty/staleness CAN flip viability)
     if (a_viable) {                                       // both viable: hops-asc, eff-score-desc
         if (a.hops != b.hops) return a.hops < b.hops;
         if (av != bv)         return av > bv;
@@ -399,8 +420,9 @@ void Node::mark_peer_suspect(uint8_t node_id, uint8_t level, const char* source)
     else if (level >= 2) s->silent_until_ms  = now + protocol::peer_silent_ttl_ms;
     else                 s->suspect_until_ms = now + protocol::peer_suspect_ttl_ms;
     const uint8_t newl = peer_suspect_level(node_id);
-    // PHASE 1 INERT: the Lua here also resort_routes_for_neighbor_penalty + (on rts_timeout) schedule_triggered_beacon
-    // — DEFERRED to Phase 2/3. P1 only records state + emits telemetry, so routing decisions are unchanged.
+    // §P2: a tier PROMOTION re-ranks every route via this now-penalized next-hop (resort_routes uses effective_score,
+    // which now includes the liveness penalty), and re-advertises if a primary moved. (Lua mark_peer_suspect@4466/4504.)
+    if (newl > prev) resort_routes_for_neighbor_penalty(node_id, source ? source : "peer_suspect", /*local_only=*/false);
     MR_EMIT("peer_suspect_mark", EF_I("node", node_id), EF_I("level", newl), EF_I("previous_level", prev),
             EF_S("source", source ? source : "unknown"), EF_I("rts_timeouts", s->rts_timeouts));
 }
@@ -433,7 +455,9 @@ void Node::clear_peer_suspect(uint8_t node_id, const char* source) {
     if (!had) return;                                       // nothing to clear -> no event (Lua: emit only if `had`)
     s->rts_timeouts = 0; s->first_timeout_ms = 0;
     s->suspect_until_ms = 0; s->silent_until_ms = 0; s->dead_until_ms = 0;
-    // PHASE 1 INERT: the Lua resort here too -> DEFERRED to Phase 2. dest_seen_ms left intact (a separate freshness fact).
+    // §P2: the penalty is lifted -> re-rank routes via this recovered next-hop (a demoted route may regain primacy) +
+    // re-advertise on a primary change. dest_seen_ms left intact (a separate freshness fact). (Lua clear_peer_suspect@4501.)
+    resort_routes_for_neighbor_penalty(node_id, source ? source : "peer_suspect_clear", /*local_only=*/false);
     MR_EMIT("peer_suspect_clear", EF_I("node", node_id), EF_S("source", source ? source : "rx_frame"));
 }
 

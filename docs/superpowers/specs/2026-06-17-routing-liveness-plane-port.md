@@ -92,11 +92,13 @@ This is where the discipline shifts to semantic parity.
 
 **Gate 2:** native units (a dead-tier next-hop loses to a fresh alt in `route_strictly_better`; a stale next-hop is non-viable; the penalty stacks with the budget penalty) · **the `simulation/BASELINE.md` suite** (s18/s09/s10/s16/s15/s17) — no same/cross-layer delivery regression vs the table, **`leaks == 0`**, taxonomy no-worse, mean_hops + event-count (±3%) sane · **NEW sim gate `t96_liveness_reroute`**: a relay on the best path stops responding → the originator's traffic reroutes to an alt within a couple of failed flights (assert delivery continues; assert the dead relay's route is demoted), vs stalling ~3 h before · 3 boards.
 
-## Phase 3 — silent-next CASCADE  (the reroute reaction at the sender)
+## Phase 3 — silent-next CASCADE  (the reroute reaction at the sender) — DONE · GATED-PASS 2026-06-18
 
-Port `candidate_silent_counts` (`@5558`) + the cascade hooks: in `rts_timeout_fire`/`ack_timeout_fire` (`node_cascade.cpp:228/239`), when the primary next-hop is suspect/silent, **cascade to the next viable alt immediately** instead of retrying the dead path. (The cascade machinery exists; this adds the liveness-driven trigger.)
+**As-built (drift from the literal spec — ACCEPTED, gated):** the literal "per-timeout counting → cascade on the first failure" was tried and **regressed the suite** (s18 108→107, events **+17.8%**) — per-timeout evidence is too churny under dense transient-collision traffic, and the with-alt early-cascade is largely subsumed by Phase 2's pick-time resort. Rebuilt on the **persisted tier** (no per-timeout counting):
+1. **Early-cascade on an already-silent primary** — `rts_timeout_fire`/`ack_timeout_fire` (`node_cascade.cpp:242/258`): if `liveness_penalty_q4(next) >= peer_silent_penalty_q4` → `cascade_to_alt` immediately instead of burning same-hop retries. Reads prior-flight evidence; gated on **silent** (not suspect) to avoid churn (2nd drift, same justification).
+2. **No-alt RREQ-on-silent** — `cascade_to_alt` no-alt branch (`:106-107`): when the failed primary is silent/dead, `emit_route_request(dst, dv_hop_cap)` (full-radius, rate-limited) before requeue. **Closes the actual bug** — a dest reachable only via a departed relay floods an RREQ instead of stalling on the 3 h aging.
 
-**Gate 3:** native units (primary silent → next attempt uses the alt, not a retry on the dead primary) · the **`BASELINE.md` suite** — no-regress + `leaks == 0` · `t96` extended: the reroute happens via cascade (assert the alt is used on the first failure, not after N retries) · 3 boards.
+**Gate 3 (PASS):** native **22643/0** + 3 §P3 units (RED-verified): early-cascade-to-alt-on-first-timeout · silent-single-candidate fires RREQ · **healthy single-candidate does NOT fire RREQ** (the anti-churn proof) · BASELINE suite **0-regression** (s18 +8 events = +0.005%, confirming early-cascade rarely fires in healthy traffic) · **t96** golden✓ · new **t97_liveness_rreq_rediscovery** golden✓ · 3 boards. Benefit proven by t96 (reroute) + t97 (RREQ fires) + units; a full multi-node RREQ→fresh-path→deliver sim is blocked by the **F-frame mislabel** (`label_of_frame` defaults F/Q/H/J/M → "BCN") — small follow-up to unlock it.
 
 ## Phase 4 — distributed liveness GOSSIP  (mesh-scale; BCN WIRE change)
 

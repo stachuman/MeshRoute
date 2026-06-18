@@ -169,6 +169,12 @@ bool Node::on_init(const NodeConfig& cfg) {
     _discovery_until_ms     = _discovery_started_ms + protocol::discovery_ms;
     _discovery_bcn_rx_count = 0;
 
+    // §P2 freshness-coupling sanity (LOUD, not a refuse — the node still runs): a neighbour must beacon faster than the
+    // freshness window (next_hop_live_ttl_ms) or its route is wrongly demoted as a stale next-hop. The defaults hold
+    // (beacon 15min/discovery faster < 20min ttl); flag a raised beacon_period that breaks the coupling.
+    if (_cfg.beacon_period_ms >= protocol::next_hop_live_ttl_ms)
+        _hal.log("WARN: beacon_period_ms >= next_hop_live_ttl_ms (P2) — quiet-but-alive neighbours will be demoted as stale");
+
     // Arm the first beacon spread across the (phase-dependent) period to avoid a mass-boot burst (dv:9027-9035).
     // A GATEWAY does NOT use the shared kBeaconTimerId — its single deadline would HALVE the per-leaf cadence (one
     // beacon/period landing on whichever leaf is active then). Instead it beacons each leaf at WINDOW-ACTIVATION on

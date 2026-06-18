@@ -84,7 +84,7 @@ uint8_t Node::effective_rts_max_retries(uint8_t requeue_count) const {
 void Node::cascade_to_alt(const char* giveup_event) {
     if (!_active->_pending_tx) return;
     PendingTx& pt = *_active->_pending_tx;
-    [[maybe_unused]] const uint8_t from_next = pt.next;   // the hop that just failed (capture before overwrite)
+    const uint8_t from_next = pt.next;   // the hop that just failed (capture before overwrite; used by both branches)
     mark_tried(pt, pt.next);
     const uint8_t alt = pick_next_cascade_hop(pt);
     if (alt != 0) {
@@ -99,6 +99,12 @@ void Node::cascade_to_alt(const char* giveup_event) {
         pt.retries_left = effective_rts_max_retries(pt.requeue_count);   // requeue-aware budget on the alt
         tx_rts_retry();                                  // re-RTS on the alt — NO jitter (re-arms kRtsTimeoutTimerId)
     } else {
+        // §P3 active rediscovery: all candidates exhausted AND the primary that just failed is SILENT/DEAD (confirmed
+        // flaky, not merely congested) -> the route table holds only dead paths to dst. Flood an RREQ to find a FRESH
+        // path NOW rather than stalling on the requeue / 3h aging — closes the no-alt dead-relay case (the user's bug:
+        // a dest reachable only via a departed relay). Rate-limited (rreq_rate_ok); a normal congested giveup does NOT.
+        if (liveness_penalty_q4(from_next) >= protocol::peer_silent_penalty_q4)
+            emit_route_request(pt.dst, _cfg.dv_hop_cap);  // full-radius requery (network-wide configured TTL, like the deferred-drain requery)
         try_cascade_requeue(pt, giveup_event);           // all candidates tried
     }
 }
@@ -229,25 +235,39 @@ void Node::rts_timeout_fire() {
     if (!_active->_pending_tx || !_active->_pending_tx->awaiting_cts) return;          // stale (CTS already matched)
     if (_active->_pending_rx) { (void)_hal.after(protocol::rts_busy_retry_ms, kRtsTimeoutTimerId); return; }
     if (_active->_pending_tx->retries_left > 0) {
+        // §P3 silent-next cascade: the primary is ALREADY known silent/dead (prior-flight liveness evidence) ->
+        // don't burn same-hop retries on a confirmed-dead path; cascade to a viable alt NOW (or RREQ on no-alt).
+        // Reads the persisted tier (no per-timeout counting — that churned the suite). DRIFT from the spec's literal
+        // per-failure/suspect trigger: gated on SILENT (confirmed flaky), not suspect; see the phase report.
+        if (liveness_penalty_q4(_active->_pending_tx->next) >= protocol::peer_silent_penalty_q4) {
+            cascade_to_alt("rts_silent_cascade");
+            return;
+        }
         --_active->_pending_tx->retries_left;
         const int jit = _hal.rand_range(0, static_cast<int>(retry_jitter_ms()) + 1);   // RNG site #1
         (void)_hal.after(static_cast<uint32_t>(jit), kRetryBackoffTimerId);
     } else {
-        record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo);   // §P1: same-hop RTS giveup = liveness evidence (tracked, NOT yet acted on)
-        cascade_to_alt("rts_giveup");                    // same-hop exhausted -> walk to an alternate
+        record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo);   // §P1: same-hop RTS giveup = liveness evidence
+        cascade_to_alt("rts_giveup");                    // same-hop retries exhausted -> walk to an alternate (§P3: + RREQ if it's silent)
     }
 }
 void Node::ack_timeout_fire() {
     if (!_active->_pending_tx || !_active->_pending_tx->awaiting_ack) return;
     if (_active->_pending_rx) { (void)_hal.after(protocol::rts_busy_retry_ms, kAckTimeoutTimerId); return; }
     if (_active->_pending_tx->retries_left > 0) {
+        // §P3 silent-next cascade (mirror of rts_timeout_fire): a missed DATA-ACK on an ALREADY-silent primary
+        // cascades immediately rather than re-RTSing the dead path. Persisted-tier read, no per-timeout counting.
+        if (liveness_penalty_q4(_active->_pending_tx->next) >= protocol::peer_silent_penalty_q4) {
+            cascade_to_alt("data_ack_silent_cascade");
+            return;
+        }
         --_active->_pending_tx->retries_left;
         _active->_pending_tx->awaiting_ack = false; _active->_pending_tx->awaiting_cts = false; _active->_pending_tx->chosen_data_sf = 0;
         const int jit = _hal.rand_range(0, static_cast<int>(retry_jitter_ms()) + 1);   // RNG site #2
         (void)_hal.after(static_cast<uint32_t>(jit), kRetryBackoffTimerId);
     } else {
-        record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo);   // §P1: same-hop ACK giveup = liveness evidence (tracked, NOT yet acted on)
-        cascade_to_alt("data_ack_giveup");               // same-hop exhausted -> walk to an alternate
+        record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo);   // §P1: same-hop ACK giveup = liveness evidence
+        cascade_to_alt("data_ack_giveup");               // same-hop retries exhausted -> walk to an alternate (§P3: + RREQ if it's silent)
     }
 }
 void Node::pending_rx_expiry_fire() {

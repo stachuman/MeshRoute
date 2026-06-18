@@ -359,6 +359,7 @@ public:
     }
     uint8_t           rt_count()       const { return _active->_rt_count; }
     const RtEntry&    rt_at(uint8_t i) const { return _active->_rt[i]; }   // 0..rt_count()-1; candidates[0] is the primary
+    void              rt_resort_for_pick(uint8_t dest) { refresh_route_order(dest, "test_pick"); }   // test: force the pick-time re-sort (freshness/penalty applied)
     bool              has_pending_tx() const { return _active->_pending_tx.has_value(); }
     uint64_t          nav_until_ms()   const { return _nav_until_ms; }  // NAV reservation deadline (0 = clear); test/status accessor
     // ---- channel-plane inspection (public, like rt_count) + the two seams tests drive directly ----
@@ -639,6 +640,7 @@ private:
                                       const RtCandidate* cands, uint8_t n) const;  // :4227
     int16_t     effective_score(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const; // :4050
     int16_t     budget_penalty_q4(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const; // :3887
+    int16_t     liveness_penalty_q4(uint8_t next_hop) const;       // §P2: suspect 192 / silent 640 / dead 1280 Q4 (const, non-mutating tier read); Lua peer_suspect_penalty_db@4008
     int         resort_routes_for_neighbor_penalty(uint8_t node_id, const char* source, bool local_only);      // :4255
     RtEntry*    refresh_route_order(uint8_t dst, const char* reason);   // re-sort ONE dest's candidates (catch a tier change since the last sort), dv:4455
     void        maybe_emit_rt_full();
