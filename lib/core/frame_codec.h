@@ -88,6 +88,13 @@ struct beacon_in {
 // Bytes written, or 0 on bad input (schedule>15 / entries>63 / ext>255) or short out.
 size_t pack_beacon(const beacon_in& in, std::span<uint8_t> out);
 
+// Max route entries that fit a `frame_cap`-byte beacon AFTER its fixed 8-B header and the variable
+// schedule / seen-bitmap / ext blocks (caller passes each block's on-wire byte size: schedule = 1+4*n
+// or 0; bitmap = 32 or 0; ext_block = 1+ext_payload or 0). Clamped to the 6-bit n_entries field (63).
+// This is the TRUE byte-budget cap — replaces a fixed constant that ignored the variable blocks and
+// let a full page + a populated ext TLV silently overflow `frame_cap` (→ dropped beacon).
+uint8_t beacon_max_entries(size_t frame_cap, size_t sched_bytes, size_t bitmap_bytes, size_t ext_block_bytes);
+
 struct beacon_out {
     uint8_t  leaf_id; bool self_gateway; bool is_mobile; uint8_t src; uint32_t key_hash32;
     bool     has_schedule; uint8_t gateway_spread_nibble; uint8_t schedule_count;

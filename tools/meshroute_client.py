@@ -165,7 +165,10 @@ class MeshRouteClient:
         self._reader = None
 
     def open(self):
-        self._ser = serial.Serial(self.port, self.baud, timeout=0.2)
+        # dsrdtr=False prevents DTR toggling on port open, which triggers the ESP32
+        # auto-reset circuit (DTR→EN pulse). The Heltec and XIAO both enumerate as
+        # USB-CDC and don't need DTR for data — only for the bootloader flash mode.
+        self._ser = serial.Serial(self.port, self.baud, timeout=0.2, dsrdtr=False)
         self._stop.clear()
         self._reader = threading.Thread(target=self._read_loop, daemon=True)
         self._reader.start()

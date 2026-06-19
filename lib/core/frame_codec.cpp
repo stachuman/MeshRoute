@@ -67,6 +67,13 @@ size_t pack_beacon(const beacon_in& in, std::span<uint8_t> out) {
     return w.ok() ? w.size() : 0;
 }
 
+uint8_t beacon_max_entries(size_t frame_cap, size_t sched_bytes, size_t bitmap_bytes, size_t ext_block_bytes) {
+    const size_t overhead = 8 + sched_bytes + bitmap_bytes + ext_block_bytes;   // fixed header + variable blocks
+    if (overhead >= frame_cap) return 0;                                        // no room for any 4-B entry
+    size_t n = (frame_cap - overhead) / 4;
+    return static_cast<uint8_t>(n > 63 ? 63 : n);                               // 6-bit n_entries field
+}
+
 std::optional<beacon_out> parse_beacon(std::span<const uint8_t> frame) {
     if (frame.size() < 8) return std::nullopt;
     if (wire::cmd_of(frame[0]) != wire::Cmd::B) return std::nullopt;

@@ -85,8 +85,19 @@ int16_t Node::effective_score(const RtCandidate& c, const RtCandidate* cands, ui
     return static_cast<int16_t>(c.score - budget_penalty_q4(c, cands, n) - liveness_penalty_q4(c.next_hop));
 }
 
+// §cross-layer: is `dest` a gateway we'd use as a cross-layer egress? — a heard 1-hop schedule (_gw_schedules)
+// OR a multi-hop type-4 TLV row (_bridged_layers) names it a gw. Routes to such a dest are the cross-layer routes;
+// they are exempt from the freshness viability gate (gateways are intentionally quiet on our leaf).
+bool Node::is_gateway_dest(uint8_t dest) const {
+    if (dest == 0 || dest == 0xFF) return false;
+    if (find_gw_schedule(dest) != nullptr) return true;
+    for (uint8_t i = 0; i < protocol::cap_bridged_layers; ++i)
+        if (_bridged_layers[i].valid && _bridged_layers[i].gw_id == dest) return true;
+    return false;
+}
+
 bool Node::route_strictly_better(const RtCandidate& a, const RtCandidate& b,
-                                 const RtCandidate* cands, uint8_t n) const {
+                                 const RtCandidate* cands, uint8_t n, bool gw_dest) const {
     const int16_t av = effective_score(a, cands, n);     // R4.2 + §P2: budget + liveness penalty-adjusted
     const int16_t bv = effective_score(b, cands, n);
     // §P2 freshness eligibility: a candidate whose next-hop hasn't been heard within next_hop_live_ttl is NON-viable
@@ -95,8 +106,12 @@ bool Node::route_strictly_better(const RtCandidate& a, const RtCandidate& b,
     // deliberate DRIFT from the Lua, which gates it at PICK time (issue_send@7234 defers + RREQs an all-stale route).
     // Consequence: with an alt, the fresh alt wins here (good); with NO alt, the only candidate stays selectable and
     // the DM still flies at the stale next-hop (no Lua-style defer/RREQ) — the no-alt path is a documented follow-up.
-    const bool a_viable = av >= _routing_snr_floor_q4 && is_next_hop_fresh(a.next_hop);
-    const bool b_viable = bv >= _routing_snr_floor_q4 && is_next_hop_fresh(b.next_hop);
+    // §cross-layer freshness exemption: a route whose DEST is a gateway (the cross-layer egress) is NEVER gated by
+    // freshness — gateways are intentionally quiet on our leaf (time-multiplexed windows), and freshness was never
+    // meant to govern cross-layer route selection (it wrongly demoted viable gateway paths → s15/s16 regression).
+    // gw_dest short-circuits the is_next_hop_fresh viability check for those routes.
+    const bool a_viable = av >= _routing_snr_floor_q4 && (gw_dest || is_next_hop_fresh(a.next_hop));
+    const bool b_viable = bv >= _routing_snr_floor_q4 && (gw_dest || is_next_hop_fresh(b.next_hop));
     if (a_viable != b_viable) return a_viable;            // viable beats non-viable (a penalty/staleness CAN flip viability)
     if (a_viable) {                                       // both viable: hops-asc, eff-score-desc
         if (a.hops != b.hops) return a.hops < b.hops;
@@ -118,6 +133,7 @@ void Node::sort_candidates(RtEntry& e) {
     // viable_alts is a SET property (order-invariant); snapshot the candidate set so the penalty
     // context stays stable through the in-place shift — matching the Lua's swap-based table.sort,
     // which never exposes a transient duplicate to the comparator. Insertion sort (n <= K = 3), stable.
+    const bool gw_dest = is_gateway_dest(e.dest);        // §cross-layer: a gateway-dest route is freshness-exempt
     RtCandidate snap[protocol::max_rt_candidates];
     for (uint8_t i = 0; i < e.n; ++i) snap[i] = e.candidates[i];
     for (uint8_t i = 1; i < e.n; ++i) {
@@ -125,8 +141,8 @@ void Node::sort_candidates(RtEntry& e) {
         int j = static_cast<int>(i) - 1;
         while (j >= 0) {
             const RtCandidate& cur = e.candidates[j];
-            const bool key_less = route_strictly_better(key, cur, snap, e.n) ||
-                                  (!route_strictly_better(cur, key, snap, e.n) &&
+            const bool key_less = route_strictly_better(key, cur, snap, e.n, gw_dest) ||
+                                  (!route_strictly_better(cur, key, snap, e.n, gw_dest) &&
                                    effective_score(key, snap, e.n) > effective_score(cur, snap, e.n));
             if (!key_less) break;
             e.candidates[j + 1] = e.candidates[j];
@@ -213,6 +229,7 @@ int Node::mark_neighbor_budget_tier(uint8_t node_id, uint8_t tier, const char* s
 
 Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand) {
     RtEntry* entry = rt_find(dest);
+    const bool gw_dest = is_gateway_dest(dest);          // §cross-layer: a gateway-dest route is freshness-exempt
     if (entry == nullptr) {
         entry = rt_insert(dest);
         if (entry == nullptr) { _hal.log("rt full, route dropped"); return MergeAction::none; }
@@ -225,7 +242,7 @@ Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand) {
     // Match-by-next_hop: refresh in place if cand strictly better.
     for (uint8_t i = 0; i < entry->n; ++i) {
         if (entry->candidates[i].next_hop == cand.next_hop) {
-            if (route_strictly_better(cand, entry->candidates[i], entry->candidates, entry->n)) {
+            if (route_strictly_better(cand, entry->candidates[i], entry->candidates, entry->n, gw_dest)) {
                 const bool was_primary = (i == 0);
                 entry->candidates[i] = cand;
                 sort_candidates(*entry);
@@ -253,7 +270,7 @@ Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand) {
 
     // Full table: replace the worst (last) only if cand strictly beats it.
     RtCandidate& worst = entry->candidates[entry->n - 1];
-    if (!route_strictly_better(cand, worst, entry->candidates, entry->n)) return MergeAction::none;
+    if (!route_strictly_better(cand, worst, entry->candidates, entry->n, gw_dest)) return MergeAction::none;
     worst = cand;
     sort_candidates(*entry);
     if (entry->candidates[0].next_hop == cand.next_hop) { entry->dirty = true; return MergeAction::promote; }
@@ -473,17 +490,17 @@ void Node::clear_peer_suspect(uint8_t node_id, const char* source) {
 
 void Node::mark_dest_seen(uint8_t node_id) {
     if (node_id == 0 || node_id == 0xFF || node_id == _node_id) return;
-    PeerLiveness* s = peer_liveness_slot(node_id, /*create=*/true);   // state ONLY — NO event (freshness input for is_next_hop_fresh, consulted in P2)
-    if (s) s->dest_seen_ms = _hal.now();
+    const uint64_t now = _hal.now();
+    _active->_dest_seen_ms[node_id] = now;                           // the freshness map (full range, no eviction) -> is_next_hop_fresh
+    PeerLiveness* s = peer_liveness_slot(node_id, /*create=*/true);  // also track the direct neighbour for the liveness tiers + LRU dest_seen tiebreak
+    if (s) s->dest_seen_ms = now;
 }
 
 bool Node::is_next_hop_fresh(uint8_t node_id) const {
     if (node_id == _node_id) return true;                  // self is always reachable
-    const auto& L = *_active;                              // const find (no create / no mutation)
-    const PeerLiveness* s = nullptr;
-    for (uint8_t i = 0; i < L._peer_liveness_n; ++i) if (L._peer_liveness[i].node_id == node_id) { s = &L._peer_liveness[i]; break; }
-    if (!s || s->dest_seen_ms == 0) return false;          // never heard -> not fresh
-    return (_hal.now() - s->dest_seen_ms) <= protocol::next_hop_live_ttl_ms;
+    const uint64_t seen = _active->_dest_seen_ms[node_id]; // dedicated freshness map (full range, survives PeerLiveness LRU eviction)
+    if (seen == 0) return false;                           // never heard -> not fresh
+    return (_hal.now() - seen) <= protocol::next_hop_live_ttl_ms;
 }
 
 }  // namespace meshroute

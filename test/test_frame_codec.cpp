@@ -1540,3 +1540,24 @@ TEST_CASE("data_crypted_region — carves [aad | ciphertext | tag | seed] of a C
     CHECK(pd.has_value());
     if (pd) CHECK_FALSE(data_crypted_region(*pd).valid);
 }
+
+// §F2 / seen-bitmap cost-reduction: the TRUE byte-budget beacon-entry cap. Replaces the old fixed
+// kMaxBeaconEntries=27 (which ignored the variable ext/schedule blocks → a full page + a populated
+// ext TLV silently overflowed beacon_max_bytes → the whole beacon was DROPPED, node_beacon.cpp:316).
+TEST_CASE("§F2 beacon_max_entries — true byte-budget cap (header + schedule + bitmap + ext)") {
+    const size_t CAP = 151;   // protocol::beacon_max_bytes
+    // (a) bare beacon (no schedule / no bitmap / no ext) -> the theoretical max 35 = (151-8)/4
+    CHECK(beacon_max_entries(CAP, /*sched*/0, /*bitmap*/0, /*ext_block*/0) == 35);
+    // (b) bitmap present, nothing else -> 27 (the OLD hard-coded value, now DERIVED): (151-8-32)/4
+    CHECK(beacon_max_entries(CAP, 0, 32, 0) == 27);
+    // (c) F2 REGRESSION GUARD: a 2-leaf gateway schedule + bitmap + a 12-B ext TLV must NOT overflow —
+    //     the cap shrinks so the whole frame still fits beacon_max_bytes.
+    const size_t sched = 1 + 4 * 2;        // schedule block: 1-B nibble + 2×4-B records
+    const size_t extbk = 1 + 12;           // ext block: 1-B ext_len + 12-B payload
+    const uint8_t c = beacon_max_entries(CAP, sched, 32, extbk);
+    CHECK(8 + sched + 32 + extbk + static_cast<size_t>(c) * 4 <= CAP);   // total fits → pack_beacon won't return 0
+    // clamp to the 6-bit n_entries field even with a huge frame
+    CHECK(beacon_max_entries(1000, 0, 0, 0) == 63);
+    // overhead exceeding the frame -> 0 entries (no underflow)
+    CHECK(beacon_max_entries(CAP, 0, 32, 1 + 200) == 0);
+}

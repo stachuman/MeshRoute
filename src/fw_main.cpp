@@ -31,6 +31,7 @@
 #include "device_rng.h"
 #include "console_json.h"    // write_ack/write_push/write_ready/write_err — the BLE companion's JSON twin
 #include "device_ble.h"      // BLE companion transport (XIAO nRF52840; an inert no-op on ESP32/native)
+#include "device_ota.h"      // WiFi OTA (Heltec ESP32-S3); inert no-op on XIAO/native
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -54,7 +55,8 @@
     #include <nrf_soc.h>                  // sd_softdevice_is_enabled / sd_app_evt_wait
   #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
     #include <esp_sleep.h>
-    #include <driver/rtc_io.h>            // rtc_gpio_is_valid_gpio
+    #include <esp_ota_ops.h>             // esp_ota_mark_app_valid_cancel_rollback
+    #include <driver/rtc_io.h>           // rtc_gpio_is_valid_gpio
   #endif
 #endif
 
@@ -462,24 +464,24 @@ static void do_reboot() {
 #endif
 }
 
-// `ota` — reboot into the bootloader's BLE OTA DFU. Writes the retained DFU magic (0xA8 =
-// DFU_MAGIC_OTA_RESET) so the OTAFIX/Adafruit bootloader brings up its OWN SoftDevice + BLE DFU — the
-// (bare-metal) app needs no BLE stack of its own. GPREGRET survives NVIC_SystemReset(). Then push the
-// new firmware (firmware.zip from `pio run`) with the Nordic "nRF Device Firmware Update" app / nRF
-// Connect over BLE. REQUIRES the OTAFIX bootloader (flash once via UF2 — see docs/ota.md). To abort:
-// double-tap RESET (UF2 mode). On ESP32 the esp_ota path isn't wired yet (spec §B.2 transport TBD).
+// `ota` — platform-native firmware update. XIAO: BLE DFU; Heltec: WiFi SoftAP + web upload.
 static void do_ota() {
 #if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
-    // The reset below drops into the bootloader (no USB-CDC), so this console port disappears — print
-    // the notice and give the host terminal time to render it BEFORE the USB tears down. Too short a
-    // delay loses the line (nothing showed at 100 ms); 500 ms renders reliably.
     Serial.println(F("> OTA: rebooting into BLE DFU now — this USB console will drop here."));
     Serial.println(F(">      Push firmware.zip via the Nordic DFU app (enable its auto-reboot). Double-tap RESET to abort."));
     Serial.flush(); delay(500);
-    NRF_POWER->GPREGRET = 0xA8;   // DFU_MAGIC_OTA_RESET: bootloader inits its own SD + starts BLE OTA DFU
-    NVIC_SystemReset();           // the retained GPREGRET survives the reset
+    NRF_POWER->GPREGRET = 0xA8;   // DFU_MAGIC_OTA_RESET
+    NVIC_SystemReset();
 #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
-    Serial.println(F("> ota: unsupported on this build yet (ESP32 esp_ota path not wired — see spec §B.2)"));
+    if (mrota::ota_active()) {
+        mrota::ota_stop();
+        Serial.println(F("> OTA: stopped"));
+    } else {
+        if (mrota::ota_start())
+            Serial.println(F("> OTA: browse to the IP above, upload firmware.bin — node reboots on success"));
+        else
+            Serial.println(F("> OTA: start FAILED"));
+    }
 #endif
 }
 
@@ -972,6 +974,11 @@ void setup() {
                   Serial.println(F("  (secured: MITM passkey pairing — PIN in `cfg`)")); }
         else    { Serial.println(F("INIT FAILED")); }      // fail loud: NO silent fall-back to bare-metal/insecure
     }
+    // OTA rollback safety (ESP32 only — inert on nRF52): tell the bootloader this firmware is healthy.
+    // If we crash before reaching here (bad config, radio fail), the bootloader boots the previous slot.
+    #if defined(ARDUINO_ARCH_ESP32) || defined(ESP32)
+    esp_ota_mark_app_valid_cancel_rollback();
+    #endif
     Serial.println(F("  node      = up. Type 'help' for commands."));
 }
 
@@ -1173,6 +1180,11 @@ void loop() {
     // 4c) BLE companion: advance the advertising-window policy + drain inbound NUS lines (both inert off-XIAO).
     mrble::on_tick(now);
     mrble::service_rx();
+
+    #if defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
+    // 4c2) WiFi OTA server (Heltec ESP32 only; inert on XIAO): handle one HTTP client request.
+    mrota::ota_loop();
+    #endif 
 
     // 4b) Persist the DAD lease state if it changed this iteration (adopt / epoch bump / forced rejoin).
     persist_join_if_changed();

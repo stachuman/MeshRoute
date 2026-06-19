@@ -200,6 +200,7 @@ inline bool save_id(const IdBlob& b) {
 inline bool load_peers(PeerBlob& out) {                // §2: the pinned-key store
     Preferences p;
     if (!p.begin("mr", /*readOnly=*/true)) return false;
+    if (!p.isKey("peers")) { p.end(); return false; }   // no peers yet (first boot) — silent, no NVS error
     const size_t n = p.getBytes("peers", &out, sizeof(out));
     p.end();
     return n == sizeof(out) && out.magic == kPeersMagic && out.version == kPeersVersion;

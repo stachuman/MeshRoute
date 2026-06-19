@@ -907,6 +907,23 @@ TEST_CASE("§P1 peer-liveness STATE — timeout tiers (suspect/silent/dead) + cl
     hal._now = 5000000 + protocol::next_hop_live_ttl_ms + 1;            // >20 min unseen
     CHECK_FALSE(node.is_next_hop_fresh(11));                             // gone stale
 }
+TEST_CASE("§seen-bitmap re-port — dest_seen freshness survives for >cap_peer_liveness distinct dests (dedicated map, no LRU loss)") {
+    // The Lua dest_seen_ms is an unbounded node_id->ms map; the C++ used to piggyback it on the bounded
+    // 64-entry PeerLiveness LRU table, so freshness for the (cap+1)-th..Nth distinct dest was EVICTED — which
+    // starved the seen-bitmap benefit (gossip-only peers couldn't stay fresh). The dedicated _dest_seen_ms[256]
+    // map has NO eviction: every marked dest stays fresh.
+    TestHal hal; Node node(hal, /*id=*/5, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    hal._now = 1000000;
+    constexpr int kN = 100;                                  // > cap_peer_liveness (64)
+    for (int id = 10; id < 10 + kN; ++id) node.mark_dest_seen(static_cast<uint8_t>(id));
+    // ALL must read fresh — the bounded PeerLiveness LRU would have lost the first (kN - cap) of them.
+    for (int id = 10; id < 10 + kN; ++id)
+        CHECK(node.is_next_hop_fresh(static_cast<uint8_t>(id)));
+    hal._now = 1000000 + protocol::next_hop_live_ttl_ms + 1;  // all age out together past the TTL
+    for (int id = 10; id < 10 + kN; ++id)
+        CHECK_FALSE(node.is_next_hop_fresh(static_cast<uint8_t>(id)));
+}
 TEST_CASE("§P1 liveness LRU — eviction keeps a DEAD peer over a healthy one (asymmetric-link safety)") {
     TestHal hal; Node node(hal, /*id=*/5, /*key=*/0xABCD);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);

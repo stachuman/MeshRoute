@@ -62,7 +62,10 @@ struct NodeConfig {
     bool     is_mobile           = false;
     bool     join_required       = false;
     bool     req_sync_on_boot    = true;
-    bool     seen_bitmap_enabled = true;
+    bool     seen_bitmap_enabled = false;   // OFF by default 2026-06-19: no measurable delivery benefit in ANY scenario
+                                            // (freshness is next-hop-local + reception-driven; the reactive liveness plane
+                                            // owns disappearing-node detection — see is_next_hop_fresh/record_peer_rts_timeout),
+                                            // and it costs cross-layer delivery (s15/s16). Code retained, config-enableable.
     uint8_t  routing_sf          = 7;
     uint16_t allowed_sf_bitmap   = 0;            // allowed DATA-SF set (bit=sf), from config allowed_data_sfs (sf_list);
                                                  // 0 = no data SF -> node refuses to originate data + ignores data RTS
@@ -640,7 +643,8 @@ private:
     // R4.2 budget penalty can count viable alternatives (Lua signature (a,b,viab,candidates)). The
     // penalty is 0 for every HEALTHY-tier next_hop, so effective_score == score until a tier is marked.
     bool        route_strictly_better(const RtCandidate& a, const RtCandidate& b,
-                                      const RtCandidate* cands, uint8_t n) const;  // :4227
+                                      const RtCandidate* cands, uint8_t n, bool gw_dest = false) const;  // :4227 (gw_dest: cross-layer freshness-exempt)
+    bool        is_gateway_dest(uint8_t dest) const;          // §cross-layer: dest is a gateway egress (freshness-exempt)
     int16_t     effective_score(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const; // :4050
     int16_t     budget_penalty_q4(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const; // :3887
     int16_t     liveness_penalty_q4(uint8_t next_hop) const;       // §P2: suspect 192 / silent 640 / dead 1280 Q4 (const, non-mutating tier read); Lua peer_suspect_penalty_db@4008
@@ -925,9 +929,13 @@ private:
         // H hash-locate flood dedup (Lua hash_query_seen): per-(origin,key_hash32), hash_query_seen_ttl_ms window.
         HashQuerySeen _hash_query_seen[protocol::cap_hash_query_seen] = {};
         uint8_t       _hash_query_seen_n = 0;
-        // Peer-liveness + freshness plane (routing-liveness port): per-next-hop timeout tiers + dest_seen. Bounded LRU.
+        // Peer-liveness + freshness plane (routing-liveness port): per-next-hop timeout tiers. Bounded LRU.
         PeerLiveness  _peer_liveness[protocol::cap_peer_liveness] = {};
         uint8_t       _peer_liveness_n = 0;
+        // dest_seen freshness map (Lua dest_seen_ms@1289): node_id -> last-seen ms, FULL 0..254 range, NO eviction
+        // — decoupled from the bounded _peer_liveness table so seen-bitmap gossip can keep ANY peer fresh (the
+        // create=false piggyback starved gossip-only peers). is_next_hop_fresh reads this. 0 = never seen.
+        uint64_t      _dest_seen_ms[256] = {};
         // Channel-message gossip plane state (node_channel.cpp).
         ChannelEntry _channel_buffer[protocol::cap_channel_buffer];
         uint16_t     _channel_buffer_n = 0;
