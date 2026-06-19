@@ -16,6 +16,9 @@
 #include "airtime.h"   // airtime_ms — Slice 3a SF-weighted window derivation
 #include "wire.h"
 
+#include <cstdlib>     // atol — parse_gateway_cmd
+#include <cstring>     // strncmp — parse_gateway_cmd
+
 namespace MESHROUTE_NS {
 
 // ---- construction & lifecycle ----------------------------------------------
@@ -44,6 +47,118 @@ void Node::set_crypto_identity(const uint8_t x_secret[32], const uint8_t ed_pub[
     _crypto_ready = true;        // DP1: seal/open are now permitted (until set, they FAIL LOUD — never cleartext)
 }
 
+// The shared §3.2 dual-layer gate (see node.h). Extracted verbatim from on_init's former inline block so on_init
+// and the `gateway` console command validate IDENTICALLY. Mutates l0/l1 window fields (the SF-weighted derive).
+GwValErr validate_gateway_layers(LayerConfig& a, LayerConfig& b, uint32_t radio_bw_hz, uint8_t radio_cr) {
+    for (LayerConfig* L : {&a, &b}) {                                            // per-layer required fields (loop order matches the original)
+        if (L->layer_id == 0)                       return GwValErr::bad_leaf;     // REQUIRED: full 8-bit id (1..255)
+        if (L->routing_sf < 5 || L->routing_sf > 12) return GwValErr::bad_ctrl_sf; // REQUIRED: a valid routing SF
+        if (L->allowed_sf_bitmap == 0)              return GwValErr::no_data_sf;   // REQUIRED: a gateway must route data
+    }
+    // §0.8: the two layers MUST differ in their leaf nibble (layer_id & 0x0F) — the coarse byte-0 wire filter;
+    // same-nibble co-channel layers would ALIAS (frames cross).
+    if ((a.layer_id & 0x0F) == (b.layer_id & 0x0F)) return GwValErr::leaf_nibble_clash;
+    if (a.window_period_ms != b.window_period_ms)   return GwValErr::period_mismatch;  // the ONE shared cycle must agree
+    if (a.window_period_ms == 0)                    return GwValErr::period_zero;       // validate-not-clamp: refuse a 0 cycle
+    if (a.window_ms && b.window_ms && a.window_ms + b.window_ms > a.window_period_ms) return GwValErr::window_overlap;
+    // SF-weighted anti-phase window derive (window_i = period * per_byte_air(sf_i) / sum; offset[1] = window[0]).
+    const uint32_t period = a.window_period_ms;
+    auto per_byte_air = [&](uint8_t sf) -> uint32_t {     // marginal payload airtime for 120 B (preamble cancels)
+        return airtime_ms(sf, radio_bw_hz, radio_cr, protocol::preamble_sym, 240)
+             - airtime_ms(sf, radio_bw_hz, radio_cr, protocol::preamble_sym, 120);
+    };
+    const uint32_t w0 = per_byte_air(a.routing_sf), w1 = per_byte_air(b.routing_sf);
+    if (w0 + w1 == 0) return GwValErr::window_degenerate;                          // guard; SFs are 5..12
+    if (a.window_ms == 0 && b.window_ms == 0) {                                    // both DERIVE: SF-weighted, fill the period
+        a.window_ms = static_cast<uint32_t>(static_cast<uint64_t>(period) * w0 / (w0 + w1));
+        b.window_ms = period - a.window_ms;
+    } else if (a.window_ms == 0) {                                                 // one explicit -> the other fills the rest
+        a.window_ms = (period > b.window_ms) ? period - b.window_ms : 0;
+    } else if (b.window_ms == 0) {
+        b.window_ms = (period > a.window_ms) ? period - a.window_ms : 0;
+    }
+    if (b.window_offset_ms == 0) b.window_offset_ms = a.window_ms;                 // anti-phase (layer0 offset stays 0)
+    if (a.window_ms == 0 || b.window_ms == 0) return GwValErr::window_zero;        // concrete-schedule validation (fail loud)
+    if (a.window_offset_ms + a.window_ms > period) return GwValErr::window_exceeds_period;
+    if (b.window_offset_ms + b.window_ms > period) return GwValErr::window_exceeds_period;
+    if (a.window_offset_ms < b.window_offset_ms + b.window_ms &&
+        b.window_offset_ms < a.window_offset_ms + a.window_ms) return GwValErr::window_overlap;   // intervals overlap
+    if (a.window_ms > protocol::gateway_schedule_window_max_ms ||                   // §3e F-C: fit the 8-bit ×100ms wire field (25.5 s)
+        b.window_ms > protocol::gateway_schedule_window_max_ms) return GwValErr::window_too_long;
+    return GwValErr::ok;
+}
+
+// Parse the `gateway l0=… l1=… [opts]` console line (see node.h). Pure C-string parsing into `out`; per-field
+// ranges only — the cross-layer/nibble/window gate is validate_gateway_layers, run by the caller. node ∈ 1..254
+// (the 1..16 gateway reservation is a Join-time convention, NOT enforced here).
+GwParseErr parse_gateway_cmd(const char* args, GatewayProvision& out) {
+    out = GatewayProvision{};                                   // defaults: window_period_ms 15000, window_ms 0, beacon 900000
+    if (!args) return GwParseErr::missing_l0;
+    char buf[192]; size_t blen = 0;
+    for (; args[blen] && blen < sizeof(buf) - 1; ++blen) buf[blen] = args[blen];
+    buf[blen] = '\0';
+
+    auto parse_data_sfs = [](const char* s, uint16_t& bm) -> bool {     // "7,9,10" -> bitmap; false if empty/out-of-range/junk
+        bm = 0;
+        if (!s || !*s) return false;
+        const char* d = s;
+        while (*d) {
+            if (*d < '0' || *d > '9') return false;
+            long v = 0; while (*d >= '0' && *d <= '9') { v = v * 10 + (*d - '0'); ++d; }
+            if (v < 5 || v > 12) return false;
+            bm |= static_cast<uint16_t>(1u << v);
+            if (*d == ',') ++d; else if (*d) return false;             // a number must be followed by ',' or end
+        }
+        return bm != 0;
+    };
+    auto parse_leaf = [&](char* s, LayerConfig& L) -> GwParseErr {      // "leaf:node:ctrl_sf:data_sfs"
+        char* part[4] = { s, nullptr, nullptr, nullptr }; int np = 1;
+        for (char* p = s; *p; ++p) if (*p == ':') { if (np >= 4) return GwParseErr::bad_l0; *p = '\0'; part[np++] = p + 1; }
+        if (np != 4) return GwParseErr::bad_l0;
+        for (int i = 0; i < 3; ++i) {                                  // leaf/node/ctrl_sf are plain ints
+            if (!part[i][0]) return GwParseErr::bad_l0;
+            for (char* q = part[i]; *q; ++q) if (*q < '0' || *q > '9') return GwParseErr::bad_l0;
+        }
+        const long leaf = atol(part[0]), node = atol(part[1]), sf = atol(part[2]);
+        if (leaf < 1 || leaf > 255) return GwParseErr::bad_leaf;       // valid 8-bit id (validate also rejects 0 — parity)
+        if (node < 1 || node > 254) return GwParseErr::bad_node;       // 1..254 — the 1..16 reservation is NOT enforced here
+        if (sf < 5 || sf > 12)      return GwParseErr::bad_ctrl_sf;
+        uint16_t bm = 0; if (!parse_data_sfs(part[3], bm)) return GwParseErr::bad_data_sf;
+        L.layer_id = static_cast<uint8_t>(leaf); L.node_id = static_cast<uint8_t>(node);
+        L.routing_sf = static_cast<uint8_t>(sf); L.allowed_sf_bitmap = bm;
+        return GwParseErr::ok;
+    };
+
+    bool have_l0 = false, have_l1 = false;
+    char* p = buf;
+    while (*p) {
+        while (*p == ' ') ++p;
+        if (!*p) break;
+        char* tok = p;
+        while (*p && *p != ' ') ++p;
+        if (*p == ' ') { *p = '\0'; ++p; }
+        if      (!strncmp(tok, "l0=", 3)) { GwParseErr e = parse_leaf(tok + 3, out.l0); if (e != GwParseErr::ok) return e; have_l0 = true; }
+        else if (!strncmp(tok, "l1=", 3)) { GwParseErr e = parse_leaf(tok + 3, out.l1); if (e != GwParseErr::ok) return (e == GwParseErr::bad_l0) ? GwParseErr::bad_l1 : e; have_l1 = true; }
+        else if (!strncmp(tok, "period=", 7)) { const long v = atol(tok + 7); if (v < 1) return GwParseErr::bad_period; out.l0.window_period_ms = out.l1.window_period_ms = static_cast<uint32_t>(v); }
+        else if (!strncmp(tok, "beacon=", 7)) { const long v = atol(tok + 7); if (v < 1) return GwParseErr::bad_beacon; out.beacon_ms = static_cast<uint32_t>(v); }
+        else if (!strncmp(tok, "win0=", 5) || !strncmp(tok, "win1=", 5)) {
+            LayerConfig& L = (tok[3] == '0') ? out.l0 : out.l1;       // "ms:off"
+            char* c = tok + 5; char* colon = nullptr;
+            for (char* q = c; *q; ++q) if (*q == ':') { colon = q; break; }
+            if (!colon) return GwParseErr::bad_window;
+            *colon = '\0';
+            const long ms = atol(c), off = atol(colon + 1);
+            if (ms < 0 || off < 0) return GwParseErr::bad_window;
+            L.window_ms = static_cast<uint32_t>(ms); L.window_offset_ms = static_cast<uint32_t>(off);
+        }
+        else if (!strncmp(tok, "gateway_only=", 13)) { out.gateway_only = (atol(tok + 13) != 0); }
+        else return GwParseErr::unknown_opt;
+    }
+    if (!have_l0) return GwParseErr::missing_l0;
+    if (!have_l1) return GwParseErr::missing_l1;
+    return GwParseErr::ok;
+}
+
 bool Node::on_init(const NodeConfig& cfg) {
 #if defined(MR_GATEWAY_BUILD)
     // F1 (RAM-safety guard): the DEDICATED gateway firmware cuts cap_channel_buffer to 8 at COMPILE time, which is
@@ -58,31 +173,14 @@ bool Node::on_init(const NodeConfig& cfg) {
     if (cfg.n_layers > MR_N_LAYERS) return false;
     // Dual-layer validation gate (§3.2) — a GATEWAY (n_layers==2) must have both layers' REQUIRED fields set and
     // non-overlapping explicit windows. Fail LOUD (refuse, the node stays down) — no silent inherit / auto-adjust.
-    if (cfg.n_layers == 2) {
 #if MR_N_LAYERS < 2
-        return false;   // a gateway config on a single-layer build — REFUSE (no _layers[1] exists). Fail loud,
-                        // never silently fall back to single-layer. Build [env:gateway] (-DMR_N_LAYERS=2) for a gateway.
+    if (cfg.n_layers == 2) return false;   // a gateway config on a single-layer build — REFUSE (no _layers[1]). Fail
+                                           // loud, never silently single-layer. Build [env:gateway] (-DMR_N_LAYERS=2).
 #endif
-        for (uint8_t i = 0; i < 2; ++i) {
-            const LayerConfig& L = cfg.layers[i];
-            if (L.layer_id == 0)                       return false;   // REQUIRED: full 8-bit id (1..255)
-            if (L.routing_sf < 5 || L.routing_sf > 12) return false;   // REQUIRED: a valid routing SF
-            if (L.allowed_sf_bitmap == 0)              return false;   // REQUIRED: a gateway must route data
-        }
-        const LayerConfig& a = cfg.layers[0]; const LayerConfig& b = cfg.layers[1];
-        // §0.8: the two layers MUST differ in their leaf nibble (layer_id & 0x0F) — that nibble is the coarse
-        // byte-0 wire filter, so same-nibble co-channel layers would ALIAS (frames cross). Refuse loud.
-        if ((a.layer_id & 0x0F) == (b.layer_id & 0x0F)) return false;
-        // window_period_ms is the ONE shared layer0->layer1 cycle — per-LayerConfig for wire/cfg symmetry, but
-        // the two must agree (a differing period is meaningless + would make the overlap check read a stale half).
-        if (a.window_period_ms != b.window_period_ms)   return false;
-        if (a.window_period_ms == 0)                    return false;   // §3.2 validate-not-clamp: refuse a 0 cycle
-        if (a.window_ms && b.window_ms && a.window_ms + b.window_ms > a.window_period_ms) return false;  // explicit windows overlap
-    }
-
     _cfg = cfg;
-    // Slice 0: a single-layer node mirrors its legacy scalars into layers[0] (backward-compat until Slice 2a
-    // migrates the readers). A gateway (n_layers==2) supplies layers[0..1] explicitly (validated above).
+    // Slice 0: a single-layer node mirrors its legacy scalars into layers[0] (backward-compat until Slice 2a migrates
+    // the readers). A GATEWAY (n_layers==2) supplies layers[0..1] explicitly, validated by the SHARED §3.2 gate —
+    // the SAME predicate the `gateway` console command runs, so the command can never accept a config on_init refuses.
     if (_cfg.n_layers <= 1) {
         _cfg.n_layers = 1;
         _cfg.layers[0].layer_id          = _cfg.leaf_id;          // single-layer: layer_id == leaf_id (may be 0 for R1)
@@ -91,47 +189,16 @@ bool Node::on_init(const NodeConfig& cfg) {
         _cfg.layers[0].allowed_sf_bitmap = _cfg.allowed_sf_bitmap;
         _cfg.layers[0].beacon_period_ms  = _cfg.beacon_period_ms;
         _cfg.layers[0].window_ms         = _cfg.layers[0].window_period_ms;   // no split: one window == whole period (always-on)
+    } else {
+        // §3.2 dual-layer gate (shared with parse_gateway_cmd): required fields + leaf-nibble + the SF-weighted
+        // anti-phase window derive/validate (mutates _cfg.layers' window fields in place). Fail LOUD — node stays down.
+        if (validate_gateway_layers(_cfg.layers[0], _cfg.layers[1], _cfg.radio_bw_hz, _cfg.radio_cr) != GwValErr::ok)
+            return false;
     }
     _n_layers = _cfg.n_layers;   // Slice 3c: mirror the (normalized) layer count to the runtime member activate_layer guards on
-    // is_gateway is DERIVED, NOT configurable (user 2026-06-13): a gateway IS a dual-layer node (n_layers==2). The
-    // single authoritative derivation point — overrides any cfg/NV value. So `cfg gateway` is gone, the wire bit a node
-    // advertises about ITSELF (self_gateway / J gateway_capable) now reliably means "dual-layer gateway", and the iOS
-    // companion's ready/status `"gateway"` is trustworthy. (The LEARNED neighbour is_gateway flag is a separate field.)
+    // is_gateway is DERIVED, NOT configurable: a gateway IS a dual-layer node (n_layers==2). Single authoritative point
+    // (overrides any cfg/NV value) — so self_gateway / J gateway_capable reliably mean "dual-layer gateway".
     _cfg.is_gateway = (_cfg.n_layers == 2);
-    // Slice 3a: a GATEWAY derives the SF-weighted, anti-phase window split (§0.9/§4) for any window_ms/offset left
-    // 0 (= DERIVE). Throughput-symmetric = equal DATA bytes/cycle, NOT equal time: weight each window by the layer
-    // SF's MARGINAL per-byte airtime (preamble cancels), so the slower (higher-SF) leaf gets the longer window:
-    //   window_i = period * per_byte_air(sf_i) / (per_byte_air(sf_0) + per_byte_air(sf_1)); offset[1] = window[0].
-    if (_cfg.n_layers == 2) {
-        LayerConfig& L0 = _cfg.layers[0]; LayerConfig& L1 = _cfg.layers[1];
-        const uint32_t period = L0.window_period_ms;
-        auto per_byte_air = [&](uint8_t sf) -> uint32_t {     // marginal payload airtime for 120 B (preamble cancels)
-            return airtime_ms(sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym, 240)
-                 - airtime_ms(sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym, 120);
-        };
-        const uint32_t w0 = per_byte_air(L0.routing_sf), w1 = per_byte_air(L1.routing_sf);
-        if (w0 + w1 == 0) return false;                                       // degenerate (guard; SFs are 5..12)
-        if (L0.window_ms == 0 && L1.window_ms == 0) {                         // both DERIVE: SF-weighted, fill the period
-            L0.window_ms = static_cast<uint32_t>(static_cast<uint64_t>(period) * w0 / (w0 + w1));
-            L1.window_ms = period - L0.window_ms;
-        } else if (L0.window_ms == 0) {                                       // one explicit -> the other fills the rest
-            L0.window_ms = (period > L1.window_ms) ? period - L1.window_ms : 0;
-        } else if (L1.window_ms == 0) {
-            L1.window_ms = (period > L0.window_ms) ? period - L0.window_ms : 0;
-        }
-        if (L1.window_offset_ms == 0) L1.window_offset_ms = L0.window_ms;     // anti-phase (layer0 offset stays 0)
-        // Validate the concrete schedule (fail loud, no clamp): non-zero windows, each fits the period, no overlap.
-        if (L0.window_ms == 0 || L1.window_ms == 0) return false;
-        if (L0.window_offset_ms + L0.window_ms > period) return false;
-        if (L1.window_offset_ms + L1.window_ms > period) return false;
-        if (L0.window_offset_ms < L1.window_offset_ms + L1.window_ms &&
-            L1.window_offset_ms < L0.window_offset_ms + L0.window_ms) return false;   // intervals overlap
-        // §3e F-C: a window must FIT the wire's 8-bit ×100ms duration/offset field (max 25.5 s, no escape unit). Beyond
-        // that, the schedule_record silently clamps + the receiver's defer phase math breaks. Refuse, don't clamp. The
-        // offset is bounded by the active window (active leaf -> 0, foreign leaf <= one active window), so this covers both.
-        if (L0.window_ms > protocol::gateway_schedule_window_max_ms ||
-            L1.window_ms > protocol::gateway_schedule_window_max_ms) return false;
-    }
     // Lua: (SF_DEMOD_THRESHOLD[routing_sf] or -240) + sf_margin_q4 (dv_dual_sf.lua:8386).
     // The out-of-range fallback is the literal -240 (SF10), NOT table[12].
     const int16_t demod = (_cfg.routing_sf >= 5 && _cfg.routing_sf <= 12)
@@ -376,17 +443,36 @@ uint32_t Node::gateway_schedule_defer_ms(uint8_t gw_node_id) const {
 // the shared kBeaconTimerId for gateways. Also drives the gateway's discovery-exit (no shared timer calls it otherwise).
 void Node::maybe_emit_gateway_beacon() {
     maybe_exit_discovery("gateway_window");
-    const uint64_t now    = _hal.now();
-    const uint32_t period = in_discovery() ? protocol::discovery_beacon_period_ms : _cfg.beacon_period_ms;
-    // The Lua's differential "gateway_sweep" (dv:8430): beacon on entry if the leaf has DIRTY routes (new info to
-    // propagate NOW, don't wait out the period) — OR the periodic refresh cadence is due. emit_beacon sends dirty-only
-    // in steady state (clearing the dirty flags), so the next visit stays silent unless something new appeared.
+    const uint64_t now = _hal.now();
+    // A gateway is REACTIVE-ONLY in steady state — re-announcing its STATIC schedule on a timer is pure airtime waste
+    // (a neighbour computes every future window from one hearing; cold neighbours pull via REQ_SYNC), and that waste
+    // kills the duty budget the gateway needs for bridging. Three emit triggers, highest-priority first:
     bool dirty = false;
     for (uint8_t i = 0; i < _active->_rt_count; ++i) if (_active->_rt[i].dirty) { dirty = true; break; }
-    if (dirty || now - _active->_last_beacon_ms >= period) {
-        emit_beacon("gateway_window");                                    // guarded (busy/budget skip)
+
+    bool emit = false;
+    if (dirty) {
+        emit = true;                                                      // (1) reactive: real NEW info to propagate now
+    } else if (in_discovery()) {
+        // (2) NEW-gateway announcement on the fast discovery cadence — a fresh two-layer link-up MUST be discoverable.
+        if (now - _active->_last_beacon_ms >= protocol::discovery_beacon_period_ms) emit = true;
+    } else if (now - _active->_last_beacon_ms >= _cfg.gw_announce_min_interval_ms
+               && gateway_announce_has_headroom()) {
+        emit = true;                                                      // (3) slow safety-net heartbeat: gated on duty headroom
+    }
+    if (emit) {
+        emit_beacon("gateway_window");                                    // also guarded (busy / critical-budget skip)
         _active->_last_beacon_ms = now;
     }
+}
+
+// True when the rolling airtime usage is below gw_announce_duty_pct % of the duty budget — i.e. there is enough
+// headroom to spend a beacon on an unsolicited heartbeat. Duty disabled (budget 0) => unconstrained => always true.
+bool Node::gateway_announce_has_headroom() const {
+    if (_duty_cycle_budget_ms == 0) return true;
+    const uint64_t used = _hal.airtime_used_ms(_cfg.duty_cycle_window_ms);
+    const uint64_t cap  = (_duty_cycle_budget_ms * _cfg.gw_announce_duty_pct) / 100;
+    return used < cap;
 }
 
 // ---- dispatch (timer ids -> subsystem handlers; RX cmd-nibble -> handlers) --

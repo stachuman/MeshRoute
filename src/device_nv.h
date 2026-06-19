@@ -59,9 +59,13 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     uint8_t  loc_in_dm;           // v9: 1 = piggyback the node's location (DATA_FLAG_LOCATION) on originated DMs.
                                   //     The lat/lon themselves live in /mrid (IdBlob); this is just the opt-in toggle.
     uint8_t  e2e_dm;              // v10: 1 = originate app DMs ENCRYPTED (E2E §4b). Default off -> plaintext (s18-identical).
+    // v11: gateway noise control (duty-cycle protection). A gateway is reactive-only in steady state; these gate its
+    // sole unsolicited heartbeat. 0 => use the NodeConfig default (5% / 3 h) at boot (an old/zeroed blob stays sane).
+    uint8_t  gw_announce_duty_pct;       // v11: % OF the duty budget below which an unsolicited announce is allowed
+    uint32_t gw_announce_min_interval_ms;// v11: min ms between unsolicited steady-state announcements
 };
 constexpr uint32_t kMagic   = 0x4D524331u;   // 'MRC1'
-constexpr uint16_t kVersion = 10;            // v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
+constexpr uint16_t kVersion = 11;            // v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
                                              // block). v7: BLE companion policy. v6: role/topology (is_gateway/...). The Blob
                                              // grew, so every pre-v8 blob fails the `n == sizeof(out)` size check in load()
                                              // and is rejected -> the node re-provisions from defaults (BOTH boards — the

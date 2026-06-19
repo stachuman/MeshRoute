@@ -27,7 +27,7 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 
 ## BCN — beacon · cmd 0x0 · variable
 
-**Use** — broadcast periodically (and on a change, jittered) on the routing SF; advertises DV routes, identity, schedule, seen-set, a channel digest, and gateway-bridged-layer hints (for multi-hop cross-layer routing). **Reply** — none; neighbours merge the routes, and an unseen digest id triggers a `Q:CHANNEL_PULL`.
+**Use** — broadcast periodically (and on a change, jittered) on the routing SF; advertises DV routes, identity, schedule, a channel digest, gateway-bridged-layer hints (for multi-hop cross-layer routing), and — when enabled — a seen-set (**off by default**, see Seen-bitmap below). **Reply** — none; neighbours merge the routes, and an unseen digest id triggers a `Q:CHANNEL_PULL`.
 
 Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` route entries, an optional 32-byte seen-bitmap, and an optional ext block.
 
@@ -46,7 +46,7 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 
 **Schedule record (4 B):** b0 = `layer_id`(b7..4) \| `(routing_sf−5)`(b3..1) \| `period_unit_5s`(b0) · b1 = `duration_100ms` · b2 = `offset_100ms` · b3 = `period_units` (×1000 ms if period_unit_5s=0, ×5000 ms if =1).
 
-**Seen-bitmap (32 B):** presence bit for node `id` at byte `id/8`, mask `1<<(id%8)`.
+**Seen-bitmap (32 B):** presence bit for node `id` at byte `id/8`, mask `1<<(id%8)`. Set for nodes seen **directly** within `seen_bitmap_ttl_ms` (non-transitive: gossip-learned peers are consumed for freshness but NOT re-emitted). **Emitted only when `seen_bitmap_enabled` — DEFAULT OFF** (no measurable delivery benefit + a cross-layer cost; freshness is otherwise reception-driven + the reactive liveness plane handles disappearing nodes — see `docs/superpowers/specs/2026-06-18-seen-bitmap-cost-reduction.md`). When on: included **only on steady-state (dirty-only) beacons**, never on discovery/sync full pages, and **never emitted by a gateway** (airtime/duty-cycle ⇒ no cross-layer propagation) — though any node, gateway included, still *consumes* a received bitmap to refresh its own routes. The route-entry page is sized by a true byte-budget that **reserves** the 32-B bitmap (+ schedule + ext), so a full page carrying it never overflows the 151-B frame.
 
 **Ext block (TLVs):** `ext_len (1 B)`, then a sequence of TLVs — each `[type (b7..4) | body_len (b3..0)] [body … body_len B]`. A reader scans for the type(s) it knows and skips the rest (forward-compatible; `body_len ≤ 15`). Defined types:
 

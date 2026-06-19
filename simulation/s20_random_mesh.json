@@ -1,0 +1,3160 @@
+{
+ "_name": "s20_random_mesh",
+ "_desc": "Realistic 40-node sparse mesh (distance SNR ~9-24dB + noise 6dB) under contention: 120 RANDOM DMs in ~40min -> sub-100% delivery, multi-hop, freshness varies. The realistic seen_bitmap benefit test.",
+ "simulation": {
+  "duration_ms": 2700000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "beacon_period_ms": 300000,
+  "seed": 42,
+  "node_startup_jitter_ms": 5000,
+  "radio": {
+   "sf": 8,
+   "bw": 125,
+   "cr": 5,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 0.1
+  }
+ },
+ "config": {
+  "debug_start_ms": 0,
+  "debug_end_ms": 2700000
+ },
+ "commands": [
+  {
+   "at_ms": 121702,
+   "node": "n26",
+   "command": "send n36 m119 n26->n36-119"
+  },
+  {
+   "at_ms": 122398,
+   "node": "n35",
+   "command": "send n34 m15 n35->n34-15"
+  },
+  {
+   "at_ms": 129040,
+   "node": "n11",
+   "command": "send n25 m50 n11->n25-50"
+  },
+  {
+   "at_ms": 134871,
+   "node": "n18",
+   "command": "send n03 m82 n18->n03-82"
+  },
+  {
+   "at_ms": 150160,
+   "node": "n38",
+   "command": "send n15 m30 n38->n15-30"
+  },
+  {
+   "at_ms": 152812,
+   "node": "n40",
+   "command": "send n34 m74 n40->n34-74"
+  },
+  {
+   "at_ms": 168154,
+   "node": "n34",
+   "command": "send n17 m7 n34->n17-7"
+  },
+  {
+   "at_ms": 181898,
+   "node": "n04",
+   "command": "send n35 m46 n04->n35-46"
+  },
+  {
+   "at_ms": 208224,
+   "node": "n05",
+   "command": "send n22 m28 n05->n22-28"
+  },
+  {
+   "at_ms": 271112,
+   "node": "n05",
+   "command": "send n10 m86 n05->n10-86"
+  },
+  {
+   "at_ms": 286688,
+   "node": "n37",
+   "command": "send n16 m61 n37->n16-61"
+  },
+  {
+   "at_ms": 287331,
+   "node": "n20",
+   "command": "send n24 m89 n20->n24-89"
+  },
+  {
+   "at_ms": 295442,
+   "node": "n28",
+   "command": "send n09 m88 n28->n09-88"
+  },
+  {
+   "at_ms": 347210,
+   "node": "n27",
+   "command": "send n30 m39 n27->n30-39"
+  },
+  {
+   "at_ms": 359768,
+   "node": "n04",
+   "command": "send n21 m55 n04->n21-55"
+  },
+  {
+   "at_ms": 362955,
+   "node": "n20",
+   "command": "send n16 m18 n20->n16-18"
+  },
+  {
+   "at_ms": 365934,
+   "node": "n14",
+   "command": "send n26 m49 n14->n26-49"
+  },
+  {
+   "at_ms": 386454,
+   "node": "n11",
+   "command": "send n28 m5 n11->n28-5"
+  },
+  {
+   "at_ms": 405048,
+   "node": "n12",
+   "command": "send n05 m59 n12->n05-59"
+  },
+  {
+   "at_ms": 410298,
+   "node": "n06",
+   "command": "send n32 m20 n06->n32-20"
+  },
+  {
+   "at_ms": 411171,
+   "node": "n22",
+   "command": "send n18 m101 n22->n18-101"
+  },
+  {
+   "at_ms": 424267,
+   "node": "n30",
+   "command": "send n21 m67 n30->n21-67"
+  },
+  {
+   "at_ms": 450331,
+   "node": "n16",
+   "command": "send n37 m19 n16->n37-19"
+  },
+  {
+   "at_ms": 456011,
+   "node": "n04",
+   "command": "send n33 m58 n04->n33-58"
+  },
+  {
+   "at_ms": 501301,
+   "node": "n33",
+   "command": "send n32 m3 n33->n32-3"
+  },
+  {
+   "at_ms": 526557,
+   "node": "n13",
+   "command": "send n07 m37 n13->n07-37"
+  },
+  {
+   "at_ms": 530658,
+   "node": "n05",
+   "command": "send n29 m45 n05->n29-45"
+  },
+  {
+   "at_ms": 539351,
+   "node": "n01",
+   "command": "send n30 m68 n01->n30-68"
+  },
+  {
+   "at_ms": 554473,
+   "node": "n36",
+   "command": "send n20 m75 n36->n20-75"
+  },
+  {
+   "at_ms": 566319,
+   "node": "n12",
+   "command": "send n33 m12 n12->n33-12"
+  },
+  {
+   "at_ms": 589233,
+   "node": "n36",
+   "command": "send n01 m85 n36->n01-85"
+  },
+  {
+   "at_ms": 604142,
+   "node": "n09",
+   "command": "send n17 m76 n09->n17-76"
+  },
+  {
+   "at_ms": 605053,
+   "node": "n39",
+   "command": "send n33 m108 n39->n33-108"
+  },
+  {
+   "at_ms": 622840,
+   "node": "n16",
+   "command": "send n26 m60 n16->n26-60"
+  },
+  {
+   "at_ms": 653883,
+   "node": "n26",
+   "command": "send n19 m116 n26->n19-116"
+  },
+  {
+   "at_ms": 658512,
+   "node": "n35",
+   "command": "send n09 m21 n35->n09-21"
+  },
+  {
+   "at_ms": 675563,
+   "node": "n33",
+   "command": "send n17 m70 n33->n17-70"
+  },
+  {
+   "at_ms": 700205,
+   "node": "n24",
+   "command": "send n15 m2 n24->n15-2"
+  },
+  {
+   "at_ms": 741150,
+   "node": "n24",
+   "command": "send n38 m87 n24->n38-87"
+  },
+  {
+   "at_ms": 761062,
+   "node": "n04",
+   "command": "send n08 m4 n04->n08-4"
+  },
+  {
+   "at_ms": 771995,
+   "node": "n07",
+   "command": "send n36 m77 n07->n36-77"
+  },
+  {
+   "at_ms": 780320,
+   "node": "n33",
+   "command": "send n34 m57 n33->n34-57"
+  },
+  {
+   "at_ms": 781638,
+   "node": "n24",
+   "command": "send n19 m72 n24->n19-72"
+  },
+  {
+   "at_ms": 797585,
+   "node": "n10",
+   "command": "send n24 m14 n10->n24-14"
+  },
+  {
+   "at_ms": 812592,
+   "node": "n31",
+   "command": "send n36 m22 n31->n36-22"
+  },
+  {
+   "at_ms": 817559,
+   "node": "n06",
+   "command": "send n16 m47 n06->n16-47"
+  },
+  {
+   "at_ms": 889604,
+   "node": "n09",
+   "command": "send n28 m43 n09->n28-43"
+  },
+  {
+   "at_ms": 917248,
+   "node": "n25",
+   "command": "send n37 m109 n25->n37-109"
+  },
+  {
+   "at_ms": 954293,
+   "node": "n20",
+   "command": "send n33 m13 n20->n33-13"
+  },
+  {
+   "at_ms": 963688,
+   "node": "n14",
+   "command": "send n35 m24 n14->n35-24"
+  },
+  {
+   "at_ms": 976725,
+   "node": "n21",
+   "command": "send n17 m64 n21->n17-64"
+  },
+  {
+   "at_ms": 1003444,
+   "node": "n18",
+   "command": "send n19 m78 n18->n19-78"
+  },
+  {
+   "at_ms": 1014033,
+   "node": "n05",
+   "command": "send n35 m69 n05->n35-69"
+  },
+  {
+   "at_ms": 1018574,
+   "node": "n18",
+   "command": "send n32 m34 n18->n32-34"
+  },
+  {
+   "at_ms": 1052954,
+   "node": "n03",
+   "command": "send n31 m97 n03->n31-97"
+  },
+  {
+   "at_ms": 1055009,
+   "node": "n20",
+   "command": "send n15 m99 n20->n15-99"
+  },
+  {
+   "at_ms": 1062448,
+   "node": "n08",
+   "command": "send n16 m27 n08->n16-27"
+  },
+  {
+   "at_ms": 1080251,
+   "node": "n05",
+   "command": "send n04 m31 n05->n04-31"
+  },
+  {
+   "at_ms": 1085171,
+   "node": "n38",
+   "command": "send n36 m29 n38->n36-29"
+  },
+  {
+   "at_ms": 1112948,
+   "node": "n40",
+   "command": "send n10 m92 n40->n10-92"
+  },
+  {
+   "at_ms": 1118263,
+   "node": "n05",
+   "command": "send n33 m33 n05->n33-33"
+  },
+  {
+   "at_ms": 1144603,
+   "node": "n23",
+   "command": "send n05 m71 n23->n05-71"
+  },
+  {
+   "at_ms": 1162940,
+   "node": "n22",
+   "command": "send n07 m41 n22->n07-41"
+  },
+  {
+   "at_ms": 1166603,
+   "node": "n23",
+   "command": "send n14 m90 n23->n14-90"
+  },
+  {
+   "at_ms": 1167764,
+   "node": "n18",
+   "command": "send n30 m44 n18->n30-44"
+  },
+  {
+   "at_ms": 1173278,
+   "node": "n33",
+   "command": "send n32 m80 n33->n32-80"
+  },
+  {
+   "at_ms": 1215615,
+   "node": "n02",
+   "command": "send n08 m104 n02->n08-104"
+  },
+  {
+   "at_ms": 1218720,
+   "node": "n22",
+   "command": "send n09 m83 n22->n09-83"
+  },
+  {
+   "at_ms": 1222018,
+   "node": "n36",
+   "command": "send n35 m0 n36->n35-0"
+  },
+  {
+   "at_ms": 1227228,
+   "node": "n22",
+   "command": "send n14 m79 n22->n14-79"
+  },
+  {
+   "at_ms": 1233446,
+   "node": "n12",
+   "command": "send n38 m105 n12->n38-105"
+  },
+  {
+   "at_ms": 1234068,
+   "node": "n21",
+   "command": "send n16 m65 n21->n16-65"
+  },
+  {
+   "at_ms": 1239064,
+   "node": "n27",
+   "command": "send n16 m95 n27->n16-95"
+  },
+  {
+   "at_ms": 1239145,
+   "node": "n08",
+   "command": "send n35 m8 n08->n35-8"
+  },
+  {
+   "at_ms": 1351028,
+   "node": "n22",
+   "command": "send n08 m9 n22->n08-9"
+  },
+  {
+   "at_ms": 1364482,
+   "node": "n10",
+   "command": "send n13 m53 n10->n13-53"
+  },
+  {
+   "at_ms": 1378278,
+   "node": "n26",
+   "command": "send n09 m66 n26->n09-66"
+  },
+  {
+   "at_ms": 1382275,
+   "node": "n12",
+   "command": "send n40 m118 n12->n40-118"
+  },
+  {
+   "at_ms": 1388848,
+   "node": "n29",
+   "command": "send n35 m73 n29->n35-73"
+  },
+  {
+   "at_ms": 1436657,
+   "node": "n05",
+   "command": "send n22 m113 n05->n22-113"
+  },
+  {
+   "at_ms": 1488110,
+   "node": "n20",
+   "command": "send n27 m115 n20->n27-115"
+  },
+  {
+   "at_ms": 1505917,
+   "node": "n05",
+   "command": "send n03 m32 n05->n03-32"
+  },
+  {
+   "at_ms": 1508943,
+   "node": "n26",
+   "command": "send n35 m103 n26->n35-103"
+  },
+  {
+   "at_ms": 1513286,
+   "node": "n02",
+   "command": "send n12 m94 n02->n12-94"
+  },
+  {
+   "at_ms": 1586573,
+   "node": "n13",
+   "command": "send n30 m98 n13->n30-98"
+  },
+  {
+   "at_ms": 1642451,
+   "node": "n02",
+   "command": "send n08 m17 n02->n08-17"
+  },
+  {
+   "at_ms": 1686239,
+   "node": "n20",
+   "command": "send n26 m25 n20->n26-25"
+  },
+  {
+   "at_ms": 1710250,
+   "node": "n13",
+   "command": "send n27 m117 n13->n27-117"
+  },
+  {
+   "at_ms": 1724496,
+   "node": "n11",
+   "command": "send n07 m96 n11->n07-96"
+  },
+  {
+   "at_ms": 1791287,
+   "node": "n02",
+   "command": "send n13 m100 n02->n13-100"
+  },
+  {
+   "at_ms": 1795207,
+   "node": "n38",
+   "command": "send n28 m1 n38->n28-1"
+  },
+  {
+   "at_ms": 1808716,
+   "node": "n07",
+   "command": "send n04 m40 n07->n04-40"
+  },
+  {
+   "at_ms": 1824470,
+   "node": "n07",
+   "command": "send n23 m91 n07->n23-91"
+  },
+  {
+   "at_ms": 1827333,
+   "node": "n16",
+   "command": "send n31 m36 n16->n31-36"
+  },
+  {
+   "at_ms": 1849288,
+   "node": "n11",
+   "command": "send n12 m93 n11->n12-93"
+  },
+  {
+   "at_ms": 1878356,
+   "node": "n40",
+   "command": "send n06 m62 n40->n06-62"
+  },
+  {
+   "at_ms": 1894769,
+   "node": "n17",
+   "command": "send n34 m23 n17->n34-23"
+  },
+  {
+   "at_ms": 1896605,
+   "node": "n04",
+   "command": "send n06 m81 n04->n06-81"
+  },
+  {
+   "at_ms": 1896617,
+   "node": "n28",
+   "command": "send n23 m38 n28->n23-38"
+  },
+  {
+   "at_ms": 1913848,
+   "node": "n11",
+   "command": "send n29 m84 n11->n29-84"
+  },
+  {
+   "at_ms": 1928992,
+   "node": "n13",
+   "command": "send n24 m112 n13->n24-112"
+  },
+  {
+   "at_ms": 1942692,
+   "node": "n03",
+   "command": "send n07 m106 n03->n07-106"
+  },
+  {
+   "at_ms": 1948957,
+   "node": "n17",
+   "command": "send n03 m110 n17->n03-110"
+  },
+  {
+   "at_ms": 1950368,
+   "node": "n23",
+   "command": "send n21 m107 n23->n21-107"
+  },
+  {
+   "at_ms": 2001621,
+   "node": "n13",
+   "command": "send n35 m42 n13->n35-42"
+  },
+  {
+   "at_ms": 2013670,
+   "node": "n29",
+   "command": "send n34 m26 n29->n34-26"
+  },
+  {
+   "at_ms": 2023055,
+   "node": "n28",
+   "command": "send n11 m10 n28->n11-10"
+  },
+  {
+   "at_ms": 2028443,
+   "node": "n25",
+   "command": "send n17 m51 n25->n17-51"
+  },
+  {
+   "at_ms": 2083143,
+   "node": "n25",
+   "command": "send n39 m6 n25->n39-6"
+  },
+  {
+   "at_ms": 2102525,
+   "node": "n35",
+   "command": "send n09 m35 n35->n09-35"
+  },
+  {
+   "at_ms": 2119795,
+   "node": "n04",
+   "command": "send n38 m56 n04->n38-56"
+  },
+  {
+   "at_ms": 2138963,
+   "node": "n27",
+   "command": "send n32 m48 n27->n32-48"
+  },
+  {
+   "at_ms": 2161247,
+   "node": "n19",
+   "command": "send n28 m52 n19->n28-52"
+  },
+  {
+   "at_ms": 2169360,
+   "node": "n39",
+   "command": "send n21 m16 n39->n21-16"
+  },
+  {
+   "at_ms": 2219610,
+   "node": "n01",
+   "command": "send n17 m11 n01->n17-11"
+  },
+  {
+   "at_ms": 2247025,
+   "node": "n08",
+   "command": "send n20 m114 n08->n20-114"
+  },
+  {
+   "at_ms": 2256602,
+   "node": "n18",
+   "command": "send n23 m102 n18->n23-102"
+  },
+  {
+   "at_ms": 2312709,
+   "node": "n38",
+   "command": "send n37 m63 n38->n37-63"
+  },
+  {
+   "at_ms": 2378431,
+   "node": "n01",
+   "command": "send n34 m111 n01->n34-111"
+  },
+  {
+   "at_ms": 2394131,
+   "node": "n14",
+   "command": "send n04 m54 n14->n04-54"
+  }
+ ],
+ "nodes": [
+  {
+   "name": "n01",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.6004879937946,
+   "lon": -122.30166246235672,
+   "node_id": 1,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n02",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.6042126026143,
+   "lon": -122.30096876241647,
+   "node_id": 2,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n03",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.61082764924958,
+   "lon": -122.29938155179401,
+   "node_id": 3,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n04",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.61637262848697,
+   "lon": -122.30144571408579,
+   "node_id": 4,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n05",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.6197267263689,
+   "lon": -122.30164570973196,
+   "node_id": 5,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n06",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.624015232911816,
+   "lon": -122.29998125649163,
+   "node_id": 6,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n07",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.62834287589389,
+   "lon": -122.3010540682226,
+   "node_id": 7,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n08",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.60052459553223,
+   "lon": -122.29484270481788,
+   "node_id": 8,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n09",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.60402154217714,
+   "lon": -122.29468757010643,
+   "node_id": 9,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n10",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.61108300659837,
+   "lon": -122.29672725434112,
+   "node_id": 10,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n11",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.61607036738142,
+   "lon": -122.29430651211754,
+   "node_id": 11,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n12",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.619440876807815,
+   "lon": -122.29620582175066,
+   "node_id": 12,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n13",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.626600245752726,
+   "lon": -122.2955719190921,
+   "node_id": 13,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n14",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.628574610451835,
+   "lon": -122.29641149268107,
+   "node_id": 14,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n15",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.60121623028222,
+   "lon": -122.28963695889021,
+   "node_id": 15,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n16",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.60607494895646,
+   "lon": -122.28919593874657,
+   "node_id": 16,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n17",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.610126798320096,
+   "lon": -122.28834409482607,
+   "node_id": 17,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n18",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.61457487032023,
+   "lon": -122.28981785779054,
+   "node_id": 18,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n19",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.62115291632489,
+   "lon": -122.28958518086672,
+   "node_id": 19,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n20",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.62626597415109,
+   "lon": -122.2897292674916,
+   "node_id": 20,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n21",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.630716001426755,
+   "lon": -122.2915896146572,
+   "node_id": 21,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n22",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.59904764396478,
+   "lon": -122.28573714212739,
+   "node_id": 22,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n23",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.603529271919236,
+   "lon": -122.28593523189774,
+   "node_id": 23,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n24",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.60860350500293,
+   "lon": -122.28577709238911,
+   "node_id": 24,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n25",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.615474895554925,
+   "lon": -122.2854730873736,
+   "node_id": 25,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n26",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.61954563338491,
+   "lon": -122.2860167253923,
+   "node_id": 26,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n27",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.624184422377176,
+   "lon": -122.283471708943,
+   "node_id": 27,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n28",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.63051812384836,
+   "lon": -122.28461804148016,
+   "node_id": 28,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n29",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.598848985268695,
+   "lon": -122.27919805620716,
+   "node_id": 29,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n30",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.603821908728165,
+   "lon": -122.28042190595384,
+   "node_id": 30,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n31",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.61171333172723,
+   "lon": -122.2795100008405,
+   "node_id": 31,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n32",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.615199324103216,
+   "lon": -122.27935385012154,
+   "node_id": 32,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n33",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.621199981720665,
+   "lon": -122.27903400030958,
+   "node_id": 33,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n34",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.62405166825187,
+   "lon": -122.28163764914633,
+   "node_id": 34,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n35",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.62935408566821,
+   "lon": -122.28081290693409,
+   "node_id": 35,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n36",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.59898843995256,
+   "lon": -122.27344981599983,
+   "node_id": 36,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n37",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.60631728669266,
+   "lon": -122.2756486274172,
+   "node_id": 37,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n38",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.61054403532853,
+   "lon": -122.27536528834628,
+   "node_id": 38,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n39",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.61645091656409,
+   "lon": -122.27514401851595,
+   "node_id": 39,
+   "engine": "meshroute"
+  },
+  {
+   "name": "n40",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   },
+   "lat": 47.619177080582745,
+   "lon": -122.27588680372307,
+   "node_id": 40,
+   "engine": "meshroute"
+  }
+ ],
+ "topology": {
+  "links": [
+   {
+    "from": "n01",
+    "to": "n02",
+    "snr": 17.3,
+    "rssi": -55.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n02",
+    "to": "n01",
+    "snr": 17.3,
+    "rssi": -55.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n01",
+    "to": "n08",
+    "snr": 12.0,
+    "rssi": -59.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n08",
+    "to": "n01",
+    "snr": 12.0,
+    "rssi": -59.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n01",
+    "to": "n09",
+    "snr": 10.2,
+    "rssi": -61.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n09",
+    "to": "n01",
+    "snr": 10.2,
+    "rssi": -61.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n02",
+    "to": "n03",
+    "snr": 12.0,
+    "rssi": -59.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n03",
+    "to": "n02",
+    "snr": 12.0,
+    "rssi": -59.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n02",
+    "to": "n08",
+    "snr": 11.4,
+    "rssi": -60.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n08",
+    "to": "n02",
+    "snr": 11.4,
+    "rssi": -60.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n02",
+    "to": "n09",
+    "snr": 12.9,
+    "rssi": -58.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n09",
+    "to": "n02",
+    "snr": 12.9,
+    "rssi": -58.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n02",
+    "to": "n10",
+    "snr": 9.8,
+    "rssi": -61.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n10",
+    "to": "n02",
+    "snr": 9.8,
+    "rssi": -61.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n03",
+    "to": "n04",
+    "snr": 13.6,
+    "rssi": -58.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n04",
+    "to": "n03",
+    "snr": 13.6,
+    "rssi": -58.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n03",
+    "to": "n09",
+    "snr": 9.4,
+    "rssi": -61.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n09",
+    "to": "n03",
+    "snr": 9.4,
+    "rssi": -61.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n03",
+    "to": "n10",
+    "snr": 19.3,
+    "rssi": -53.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n10",
+    "to": "n03",
+    "snr": 19.3,
+    "rssi": -53.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n03",
+    "to": "n11",
+    "snr": 11.1,
+    "rssi": -60.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n11",
+    "to": "n03",
+    "snr": 11.1,
+    "rssi": -60.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n04",
+    "to": "n05",
+    "snr": 18.1,
+    "rssi": -54.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n05",
+    "to": "n04",
+    "snr": 18.1,
+    "rssi": -54.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n04",
+    "to": "n06",
+    "snr": 10.3,
+    "rssi": -61.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n06",
+    "to": "n04",
+    "snr": 10.3,
+    "rssi": -61.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n04",
+    "to": "n10",
+    "snr": 11.5,
+    "rssi": -60.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n10",
+    "to": "n04",
+    "snr": 11.5,
+    "rssi": -60.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n04",
+    "to": "n11",
+    "snr": 11.4,
+    "rssi": -60.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n11",
+    "to": "n04",
+    "snr": 11.4,
+    "rssi": -60.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n04",
+    "to": "n12",
+    "snr": 13.3,
+    "rssi": -58.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n12",
+    "to": "n04",
+    "snr": 13.3,
+    "rssi": -58.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n05",
+    "to": "n06",
+    "snr": 15.9,
+    "rssi": -56.5,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n06",
+    "to": "n05",
+    "snr": 15.9,
+    "rssi": -56.5,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n05",
+    "to": "n11",
+    "snr": 9.5,
+    "rssi": -61.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n11",
+    "to": "n05",
+    "snr": 9.5,
+    "rssi": -61.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n05",
+    "to": "n12",
+    "snr": 14.4,
+    "rssi": -57.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n12",
+    "to": "n05",
+    "snr": 14.4,
+    "rssi": -57.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n06",
+    "to": "n07",
+    "snr": 16.1,
+    "rssi": -56.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n07",
+    "to": "n06",
+    "snr": 16.1,
+    "rssi": -56.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n06",
+    "to": "n12",
+    "snr": 13.5,
+    "rssi": -58.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n12",
+    "to": "n06",
+    "snr": 13.5,
+    "rssi": -58.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n06",
+    "to": "n13",
+    "snr": 15.0,
+    "rssi": -57.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n13",
+    "to": "n06",
+    "snr": 15.0,
+    "rssi": -57.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n06",
+    "to": "n14",
+    "snr": 13.8,
+    "rssi": -58.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n14",
+    "to": "n06",
+    "snr": 13.8,
+    "rssi": -58.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n07",
+    "to": "n13",
+    "snr": 13.8,
+    "rssi": -58.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n13",
+    "to": "n07",
+    "snr": 13.8,
+    "rssi": -58.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n07",
+    "to": "n14",
+    "snr": 15.8,
+    "rssi": -56.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n14",
+    "to": "n07",
+    "snr": 15.8,
+    "rssi": -56.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n08",
+    "to": "n09",
+    "snr": 17.8,
+    "rssi": -54.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n09",
+    "to": "n08",
+    "snr": 17.8,
+    "rssi": -54.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n08",
+    "to": "n15",
+    "snr": 14.7,
+    "rssi": -57.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n15",
+    "to": "n08",
+    "snr": 14.7,
+    "rssi": -57.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n08",
+    "to": "n16",
+    "snr": 10.0,
+    "rssi": -61.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n16",
+    "to": "n08",
+    "snr": 10.0,
+    "rssi": -61.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n09",
+    "to": "n10",
+    "snr": 11.0,
+    "rssi": -60.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n10",
+    "to": "n09",
+    "snr": 11.0,
+    "rssi": -60.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n09",
+    "to": "n15",
+    "snr": 13.8,
+    "rssi": -58.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n15",
+    "to": "n09",
+    "snr": 13.8,
+    "rssi": -58.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n09",
+    "to": "n16",
+    "snr": 13.7,
+    "rssi": -58.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n16",
+    "to": "n09",
+    "snr": 13.7,
+    "rssi": -58.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n10",
+    "to": "n11",
+    "snr": 14.2,
+    "rssi": -57.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n11",
+    "to": "n10",
+    "snr": 14.2,
+    "rssi": -57.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n10",
+    "to": "n12",
+    "snr": 9.2,
+    "rssi": -61.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n12",
+    "to": "n10",
+    "snr": 9.2,
+    "rssi": -61.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n10",
+    "to": "n17",
+    "snr": 9.1,
+    "rssi": -61.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n17",
+    "to": "n10",
+    "snr": 9.1,
+    "rssi": -61.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n10",
+    "to": "n18",
+    "snr": 10.3,
+    "rssi": -60.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n18",
+    "to": "n10",
+    "snr": 10.3,
+    "rssi": -60.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n11",
+    "to": "n12",
+    "snr": 17.2,
+    "rssi": -55.5,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n12",
+    "to": "n11",
+    "snr": 17.2,
+    "rssi": -55.5,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n11",
+    "to": "n17",
+    "snr": 9.1,
+    "rssi": -61.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n17",
+    "to": "n11",
+    "snr": 9.1,
+    "rssi": -61.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n11",
+    "to": "n18",
+    "snr": 15.7,
+    "rssi": -56.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n18",
+    "to": "n11",
+    "snr": 15.7,
+    "rssi": -56.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n11",
+    "to": "n19",
+    "snr": 11.8,
+    "rssi": -59.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n19",
+    "to": "n11",
+    "snr": 11.8,
+    "rssi": -59.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n12",
+    "to": "n13",
+    "snr": 11.3,
+    "rssi": -60.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n13",
+    "to": "n12",
+    "snr": 11.3,
+    "rssi": -60.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n12",
+    "to": "n18",
+    "snr": 9.8,
+    "rssi": -61.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n18",
+    "to": "n12",
+    "snr": 9.8,
+    "rssi": -61.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n12",
+    "to": "n19",
+    "snr": 11.9,
+    "rssi": -59.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n19",
+    "to": "n12",
+    "snr": 11.9,
+    "rssi": -59.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n13",
+    "to": "n14",
+    "snr": 20.2,
+    "rssi": -53.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n14",
+    "to": "n13",
+    "snr": 20.2,
+    "rssi": -53.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n13",
+    "to": "n19",
+    "snr": 9.7,
+    "rssi": -61.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n19",
+    "to": "n13",
+    "snr": 9.7,
+    "rssi": -61.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n13",
+    "to": "n20",
+    "snr": 13.7,
+    "rssi": -58.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n20",
+    "to": "n13",
+    "snr": 13.7,
+    "rssi": -58.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n13",
+    "to": "n21",
+    "snr": 13.9,
+    "rssi": -58.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n21",
+    "to": "n13",
+    "snr": 13.9,
+    "rssi": -58.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n14",
+    "to": "n20",
+    "snr": 11.5,
+    "rssi": -60.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n20",
+    "to": "n14",
+    "snr": 11.5,
+    "rssi": -60.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n14",
+    "to": "n21",
+    "snr": 14.7,
+    "rssi": -57.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n21",
+    "to": "n14",
+    "snr": 14.7,
+    "rssi": -57.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n15",
+    "to": "n16",
+    "snr": 15.4,
+    "rssi": -56.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n16",
+    "to": "n15",
+    "snr": 15.4,
+    "rssi": -56.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n15",
+    "to": "n22",
+    "snr": 16.1,
+    "rssi": -56.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n22",
+    "to": "n15",
+    "snr": 16.1,
+    "rssi": -56.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n15",
+    "to": "n23",
+    "snr": 16.3,
+    "rssi": -56.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n23",
+    "to": "n15",
+    "snr": 16.3,
+    "rssi": -56.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n15",
+    "to": "n24",
+    "snr": 9.3,
+    "rssi": -61.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n24",
+    "to": "n15",
+    "snr": 9.3,
+    "rssi": -61.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n16",
+    "to": "n17",
+    "snr": 16.7,
+    "rssi": -55.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n17",
+    "to": "n16",
+    "snr": 16.7,
+    "rssi": -55.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n16",
+    "to": "n22",
+    "snr": 10.2,
+    "rssi": -61.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n22",
+    "to": "n16",
+    "snr": 10.2,
+    "rssi": -61.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n16",
+    "to": "n23",
+    "snr": 16.7,
+    "rssi": -55.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n23",
+    "to": "n16",
+    "snr": 16.7,
+    "rssi": -55.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n16",
+    "to": "n24",
+    "snr": 16.5,
+    "rssi": -56.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n24",
+    "to": "n16",
+    "snr": 16.5,
+    "rssi": -56.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n17",
+    "to": "n18",
+    "snr": 15.7,
+    "rssi": -56.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n18",
+    "to": "n17",
+    "snr": 15.7,
+    "rssi": -56.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n17",
+    "to": "n23",
+    "snr": 11.6,
+    "rssi": -59.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n23",
+    "to": "n17",
+    "snr": 11.6,
+    "rssi": -59.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n17",
+    "to": "n24",
+    "snr": 18.7,
+    "rssi": -54.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n24",
+    "to": "n17",
+    "snr": 18.7,
+    "rssi": -54.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n17",
+    "to": "n25",
+    "snr": 13.3,
+    "rssi": -58.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n25",
+    "to": "n17",
+    "snr": 13.3,
+    "rssi": -58.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n18",
+    "to": "n19",
+    "snr": 12.4,
+    "rssi": -59.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n19",
+    "to": "n18",
+    "snr": 12.4,
+    "rssi": -59.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n18",
+    "to": "n24",
+    "snr": 11.3,
+    "rssi": -60.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n24",
+    "to": "n18",
+    "snr": 11.3,
+    "rssi": -60.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n18",
+    "to": "n25",
+    "snr": 16.2,
+    "rssi": -56.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n25",
+    "to": "n18",
+    "snr": 16.2,
+    "rssi": -56.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n18",
+    "to": "n26",
+    "snr": 13.0,
+    "rssi": -58.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n26",
+    "to": "n18",
+    "snr": 13.0,
+    "rssi": -58.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n19",
+    "to": "n20",
+    "snr": 15.0,
+    "rssi": -57.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n20",
+    "to": "n19",
+    "snr": 15.0,
+    "rssi": -57.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n19",
+    "to": "n25",
+    "snr": 11.6,
+    "rssi": -59.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n25",
+    "to": "n19",
+    "snr": 11.6,
+    "rssi": -59.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n19",
+    "to": "n26",
+    "snr": 17.1,
+    "rssi": -55.5,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n26",
+    "to": "n19",
+    "snr": 17.1,
+    "rssi": -55.5,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n19",
+    "to": "n27",
+    "snr": 12.0,
+    "rssi": -59.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n27",
+    "to": "n19",
+    "snr": 12.0,
+    "rssi": -59.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n19",
+    "to": "n34",
+    "snr": 9.1,
+    "rssi": -61.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n34",
+    "to": "n19",
+    "snr": 9.1,
+    "rssi": -61.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n20",
+    "to": "n21",
+    "snr": 15.5,
+    "rssi": -56.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n21",
+    "to": "n20",
+    "snr": 15.5,
+    "rssi": -56.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n20",
+    "to": "n26",
+    "snr": 10.5,
+    "rssi": -60.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n26",
+    "to": "n20",
+    "snr": 10.5,
+    "rssi": -60.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n20",
+    "to": "n27",
+    "snr": 12.4,
+    "rssi": -59.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n27",
+    "to": "n20",
+    "snr": 12.4,
+    "rssi": -59.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n20",
+    "to": "n28",
+    "snr": 12.3,
+    "rssi": -59.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n28",
+    "to": "n20",
+    "snr": 12.3,
+    "rssi": -59.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n20",
+    "to": "n34",
+    "snr": 9.2,
+    "rssi": -61.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n34",
+    "to": "n20",
+    "snr": 9.2,
+    "rssi": -61.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n21",
+    "to": "n28",
+    "snr": 11.7,
+    "rssi": -59.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n28",
+    "to": "n21",
+    "snr": 11.7,
+    "rssi": -59.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n22",
+    "to": "n23",
+    "snr": 16.1,
+    "rssi": -56.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n23",
+    "to": "n22",
+    "snr": 16.1,
+    "rssi": -56.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n22",
+    "to": "n29",
+    "snr": 12.5,
+    "rssi": -59.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n29",
+    "to": "n22",
+    "snr": 12.5,
+    "rssi": -59.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n22",
+    "to": "n30",
+    "snr": 11.4,
+    "rssi": -60.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n30",
+    "to": "n22",
+    "snr": 11.4,
+    "rssi": -60.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n23",
+    "to": "n24",
+    "snr": 15.0,
+    "rssi": -57.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n24",
+    "to": "n23",
+    "snr": 15.0,
+    "rssi": -57.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n23",
+    "to": "n29",
+    "snr": 9.5,
+    "rssi": -61.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n29",
+    "to": "n23",
+    "snr": 9.5,
+    "rssi": -61.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n23",
+    "to": "n30",
+    "snr": 14.3,
+    "rssi": -57.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n30",
+    "to": "n23",
+    "snr": 14.3,
+    "rssi": -57.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n24",
+    "to": "n25",
+    "snr": 11.9,
+    "rssi": -59.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n25",
+    "to": "n24",
+    "snr": 11.9,
+    "rssi": -59.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n24",
+    "to": "n30",
+    "snr": 11.3,
+    "rssi": -60.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n30",
+    "to": "n24",
+    "snr": 11.3,
+    "rssi": -60.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n24",
+    "to": "n31",
+    "snr": 11.7,
+    "rssi": -59.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n31",
+    "to": "n24",
+    "snr": 11.7,
+    "rssi": -59.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n25",
+    "to": "n26",
+    "snr": 16.8,
+    "rssi": -55.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n26",
+    "to": "n25",
+    "snr": 16.8,
+    "rssi": -55.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n25",
+    "to": "n31",
+    "snr": 11.6,
+    "rssi": -60.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n31",
+    "to": "n25",
+    "snr": 11.6,
+    "rssi": -60.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n25",
+    "to": "n32",
+    "snr": 13.2,
+    "rssi": -58.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n32",
+    "to": "n25",
+    "snr": 13.2,
+    "rssi": -58.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n26",
+    "to": "n27",
+    "snr": 14.7,
+    "rssi": -57.5,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n27",
+    "to": "n26",
+    "snr": 14.7,
+    "rssi": -57.5,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n26",
+    "to": "n32",
+    "snr": 10.0,
+    "rssi": -61.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n32",
+    "to": "n26",
+    "snr": 10.0,
+    "rssi": -61.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n26",
+    "to": "n33",
+    "snr": 11.3,
+    "rssi": -60.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n33",
+    "to": "n26",
+    "snr": 11.3,
+    "rssi": -60.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n26",
+    "to": "n34",
+    "snr": 12.9,
+    "rssi": -58.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n34",
+    "to": "n26",
+    "snr": 12.9,
+    "rssi": -58.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n27",
+    "to": "n28",
+    "snr": 12.6,
+    "rssi": -59.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n28",
+    "to": "n27",
+    "snr": 12.6,
+    "rssi": -59.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n27",
+    "to": "n33",
+    "snr": 14.6,
+    "rssi": -57.5,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n33",
+    "to": "n27",
+    "snr": 14.6,
+    "rssi": -57.5,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n27",
+    "to": "n34",
+    "snr": 20.8,
+    "rssi": -52.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n34",
+    "to": "n27",
+    "snr": 20.8,
+    "rssi": -52.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n27",
+    "to": "n35",
+    "snr": 13.7,
+    "rssi": -58.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n35",
+    "to": "n27",
+    "snr": 13.7,
+    "rssi": -58.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n28",
+    "to": "n34",
+    "snr": 11.4,
+    "rssi": -60.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n34",
+    "to": "n28",
+    "snr": 11.4,
+    "rssi": -60.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n28",
+    "to": "n35",
+    "snr": 17.0,
+    "rssi": -55.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n35",
+    "to": "n28",
+    "snr": 17.0,
+    "rssi": -55.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n29",
+    "to": "n30",
+    "snr": 15.0,
+    "rssi": -57.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n30",
+    "to": "n29",
+    "snr": 15.0,
+    "rssi": -57.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n29",
+    "to": "n36",
+    "snr": 13.9,
+    "rssi": -58.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n36",
+    "to": "n29",
+    "snr": 13.9,
+    "rssi": -58.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n29",
+    "to": "n37",
+    "snr": 9.4,
+    "rssi": -61.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n37",
+    "to": "n29",
+    "snr": 9.4,
+    "rssi": -61.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n30",
+    "to": "n31",
+    "snr": 10.0,
+    "rssi": -61.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n31",
+    "to": "n30",
+    "snr": 10.0,
+    "rssi": -61.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n30",
+    "to": "n36",
+    "snr": 9.0,
+    "rssi": -62.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n36",
+    "to": "n30",
+    "snr": 9.0,
+    "rssi": -62.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n30",
+    "to": "n37",
+    "snr": 14.5,
+    "rssi": -57.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n37",
+    "to": "n30",
+    "snr": 14.5,
+    "rssi": -57.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n30",
+    "to": "n38",
+    "snr": 9.2,
+    "rssi": -61.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n38",
+    "to": "n30",
+    "snr": 9.2,
+    "rssi": -61.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n31",
+    "to": "n32",
+    "snr": 17.8,
+    "rssi": -54.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n32",
+    "to": "n31",
+    "snr": 17.8,
+    "rssi": -54.9,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n31",
+    "to": "n37",
+    "snr": 12.3,
+    "rssi": -59.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n37",
+    "to": "n31",
+    "snr": 12.3,
+    "rssi": -59.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n31",
+    "to": "n38",
+    "snr": 16.4,
+    "rssi": -56.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n38",
+    "to": "n31",
+    "snr": 16.4,
+    "rssi": -56.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n31",
+    "to": "n39",
+    "snr": 12.6,
+    "rssi": -59.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n39",
+    "to": "n31",
+    "snr": 12.6,
+    "rssi": -59.1,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n31",
+    "to": "n40",
+    "snr": 9.4,
+    "rssi": -61.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n40",
+    "to": "n31",
+    "snr": 9.4,
+    "rssi": -61.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n32",
+    "to": "n33",
+    "snr": 13.4,
+    "rssi": -58.5,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n33",
+    "to": "n32",
+    "snr": 13.4,
+    "rssi": -58.5,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n32",
+    "to": "n38",
+    "snr": 13.2,
+    "rssi": -58.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n38",
+    "to": "n32",
+    "snr": 13.2,
+    "rssi": -58.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n32",
+    "to": "n39",
+    "snr": 16.2,
+    "rssi": -56.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n39",
+    "to": "n32",
+    "snr": 16.2,
+    "rssi": -56.2,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n32",
+    "to": "n40",
+    "snr": 14.7,
+    "rssi": -57.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n40",
+    "to": "n32",
+    "snr": 14.7,
+    "rssi": -57.4,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n33",
+    "to": "n34",
+    "snr": 17.2,
+    "rssi": -55.5,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n34",
+    "to": "n33",
+    "snr": 17.2,
+    "rssi": -55.5,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n33",
+    "to": "n35",
+    "snr": 9.3,
+    "rssi": -61.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n35",
+    "to": "n33",
+    "snr": 9.3,
+    "rssi": -61.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n33",
+    "to": "n39",
+    "snr": 13.2,
+    "rssi": -58.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n39",
+    "to": "n33",
+    "snr": 13.2,
+    "rssi": -58.7,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n33",
+    "to": "n40",
+    "snr": 17.4,
+    "rssi": -55.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n40",
+    "to": "n33",
+    "snr": 17.4,
+    "rssi": -55.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n34",
+    "to": "n35",
+    "snr": 14.5,
+    "rssi": -57.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n35",
+    "to": "n34",
+    "snr": 14.5,
+    "rssi": -57.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n34",
+    "to": "n40",
+    "snr": 10.7,
+    "rssi": -60.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n40",
+    "to": "n34",
+    "snr": 10.7,
+    "rssi": -60.6,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n36",
+    "to": "n37",
+    "snr": 10.5,
+    "rssi": -60.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n37",
+    "to": "n36",
+    "snr": 10.5,
+    "rssi": -60.8,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n37",
+    "to": "n38",
+    "snr": 16.5,
+    "rssi": -56.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n38",
+    "to": "n37",
+    "snr": 16.5,
+    "rssi": -56.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n38",
+    "to": "n39",
+    "snr": 13.6,
+    "rssi": -58.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n39",
+    "to": "n38",
+    "snr": 13.6,
+    "rssi": -58.3,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n39",
+    "to": "n40",
+    "snr": 19.0,
+    "rssi": -54.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   },
+   {
+    "from": "n40",
+    "to": "n39",
+    "snr": 19.0,
+    "rssi": -54.0,
+    "snr_std_dev": 6,
+    "bidir": false
+   }
+  ]
+ }
+}

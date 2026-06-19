@@ -129,6 +129,26 @@ static void dump_routes() {
         Serial.print(F(" layer="));         Serial.print(c.learned_layer_id);
         Serial.print(F(" age_ms="));        Serial.print((uint32_t)(now - c.last_seen_ms));
         Serial.print(F(" cand="));          Serial.println(e.n);
+        // A gateway route carries unique state: its advertised window schedule (period + per-leaf windows) — known
+        // when we've heard the gateway 1-hop. Print it on a continuation line so a node can see when the gw is reachable.
+        if (c.is_gateway) {
+            const meshroute::GatewaySchedule* gs = g_node.rt_gateway_schedule(e.dest);
+            if (gs && gs->valid) {
+                Serial.print(F("[route]   gw_sched period="));  Serial.print(gs->period_ms);
+                Serial.print(F("ms heard_ms="));                Serial.print((uint32_t)(now - gs->heard_ms));
+                Serial.print(F(" defer_ms="));                  Serial.print(g_node.rt_gateway_defer_ms(e.dest));
+                Serial.print(F(" n_rec="));                     Serial.print(gs->n_rec);
+                for (uint8_t r = 0; r < gs->n_rec; ++r) {
+                    Serial.print(F(" [leaf"));   Serial.print(gs->rec[r].leaf_id);
+                    Serial.print(F(" win"));     Serial.print(gs->rec[r].window_ms);
+                    Serial.print(F("@"));        Serial.print(gs->rec[r].offset_ms);
+                    Serial.print(F("]"));
+                }
+                Serial.println();
+            } else {
+                Serial.println(F("[route]   gw_sched unknown (not heard 1-hop)"));
+            }
+        }
     }
     Serial.println(F("[routes] end"));
 }
@@ -143,31 +163,32 @@ static void print_sf_list(uint16_t bitmap) {
 
 static void dump_cfg() {
     const meshroute::NodeConfig& c = g_node.config();
-    Serial.print(F("[cfg] node_id="));   Serial.print(g_node.node_id());
-    Serial.print(F(" freq="));           Serial.print(g_freq_mhz, 4);
-    Serial.print(F(" routing_sf="));     Serial.print(c.routing_sf);
-    Serial.print(F(" sf_list="));        print_sf_list(c.allowed_sf_bitmap);
-    Serial.print(F(" bw="));             Serial.print(c.radio_bw_hz);
-    Serial.print(F(" cr="));             Serial.print(c.radio_cr);
-    Serial.print(F(" tx_power="));       Serial.print((int)g_tx_power);
-    Serial.print(F(" duty="));           Serial.print(c.duty_cycle, 3);
-    Serial.print(F(" lbt="));            Serial.print(c.lbt_enabled ? 1 : 0);
-    Serial.print(F(" beacon_ms="));      Serial.print(c.beacon_period_ms);
-    Serial.print(F(" nav="));            Serial.print(c.nav_enabled ? 1 : 0);
-    Serial.print(F(" nav_ignore="));     Serial.print(c.nav_ignore_rts ? 1 : 0);
-    Serial.print(F(" hop_cap="));        Serial.print(c.dv_hop_cap);
-    Serial.print(F(" leaf_id="));        Serial.print(c.leaf_id);
-    Serial.print(F(" gateway="));        Serial.print(c.is_gateway ? 1 : 0);
-    Serial.print(F(" gateway_only="));   Serial.print(c.gateway_only ? 1 : 0);
-    Serial.print(F(" mobile="));         Serial.print(c.is_mobile ? 1 : 0);
-    Serial.print(F(" ble_mode="));       Serial.print(g_ble_mode == 0 ? F("off") : g_ble_mode == 1 ? F("on") : F("periodic"));
-    Serial.print(F(" ble_period="));     Serial.print(g_ble_period_min);
-    Serial.print(F(" ble_pin="));        Serial.print(g_ble_pin);
+    // Grouped, one section per line — readable on a raw serial monitor. Keys match the `cfg set <key>` names.
+    Serial.print(F("[cfg] node_id="));     Serial.println(g_node.node_id());
+    Serial.print(F("  radio : freq="));    Serial.print(g_freq_mhz, 4);
+    Serial.print(F(" routing_sf="));       Serial.print(c.routing_sf);
+    Serial.print(F(" sf_list="));          print_sf_list(c.allowed_sf_bitmap);
+    Serial.print(F(" bw="));               Serial.print(c.radio_bw_hz);
+    Serial.print(F(" cr="));               Serial.print(c.radio_cr);
+    Serial.print(F(" tx_power="));         Serial.println((int)g_tx_power);
+    Serial.print(F("  proto : duty="));    Serial.print(c.duty_cycle, 3);
+    Serial.print(F(" beacon_ms="));        Serial.print(c.beacon_period_ms);
+    Serial.print(F(" hop_cap="));          Serial.print(c.dv_hop_cap);
+    Serial.print(F(" lbt="));              Serial.print(c.lbt_enabled ? 1 : 0);
+    Serial.print(F(" nav="));              Serial.print(c.nav_enabled ? 1 : 0);
+    Serial.print(F(" nav_ignore="));       Serial.println(c.nav_ignore_rts ? 1 : 0);
+    Serial.print(F("  leaf  : leaf_id=")); Serial.print(c.leaf_id);
+    Serial.print(F(" gateway="));          Serial.print(c.is_gateway ? 1 : 0);
+    Serial.print(F(" gateway_only="));     Serial.print(c.gateway_only ? 1 : 0);
+    Serial.print(F(" mobile="));           Serial.println(c.is_mobile ? 1 : 0);
+    Serial.print(F("  ble   : ble_mode=")); Serial.print(g_ble_mode == 0 ? F("off") : g_ble_mode == 1 ? F("on") : F("periodic"));
+    Serial.print(F(" ble_period="));       Serial.print(g_ble_period_min);
+    Serial.print(F(" ble_pin="));          Serial.println(g_ble_pin);
     // Arduino Print formats floats via its own dtostrf (NOT newlib printf), so 7-decimal degrees print fine.
-    Serial.print(F(" loc_dm="));         Serial.print(c.loc_in_dm ? 1 : 0);
-    Serial.print(F(" e2e_dm="));         Serial.print(c.e2e_dm ? 1 : 0);
-    Serial.print(F(" lat="));            Serial.print(g_lat_e7 / 1e7, 7);
-    Serial.print(F(" lon="));            Serial.println(g_lon_e7 / 1e7, 7);
+    Serial.print(F("  loc   : loc_dm="));  Serial.print(c.loc_in_dm ? 1 : 0);
+    Serial.print(F(" e2e_dm="));           Serial.print(c.e2e_dm ? 1 : 0);
+    Serial.print(F(" lat="));              Serial.print(g_lat_e7 / 1e7, 7);
+    Serial.print(F(" lon="));              Serial.println(g_lon_e7 / 1e7, 7);
     // Dual-layer gateway: an ADDITIVE second line per leaf (single-layer dump above is unchanged). Prints each
     // leaf's node_id/layer_id/routing_sf + the (possibly on_init-derived) window_ms/offset of the active config.
     if (c.n_layers == 2) {
@@ -320,6 +341,8 @@ static void handle_cfg_set(const char* args) {
         b.ble_pin    = g_ble_pin;
         b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;                  // v9 location toggle (seed from the live config)
         b.e2e_dm     = nc.e2e_dm ? 1 : 0;                     // v10 e2e encrypt toggle (seed from the live config)
+        b.gw_announce_duty_pct        = nc.gw_announce_duty_pct;        // v11 gateway noise control (seed from the live config)
+        b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;    // (re)stamp -> also upgrades a loaded v2 blob to v3
 
@@ -334,6 +357,12 @@ static void handle_cfg_set(const char* args) {
         b.node_id = (uint8_t)v; b.joined = 0; live = false;        // operator-pinned id -> NOT DAD-adopted (won't auto-yield)
     }
     else if (!strcmp(key, "freq"))                                     { b.freq_mhz = atof(val);             reconfig = radio = true; }
+    // BENCH NOTE (2026-06-19): SF5 does NOT lock over-the-air on the tested SX1262 modules (XIAO Wio-SX1262 +
+    // Heltec V3) — the receiver completes ZERO reception (`status` isr==tx, rx=0) at BW125 AND BW500, and bumping
+    // the TX preamble 16→256 made no difference, while SF6/7/8+ work through this exact path. It's an SX1262 PHY
+    // limit, NOT a protocol rule, so it is deliberately NOT enforced in lib/core/on_init (the sim's idealized radio
+    // has no such floor). => the usable control-SF floor on this hardware is 6; don't set routing_sf=5 on these
+    // modules. Left configurable (no hard guard) for future SF5-capable hardware. Ref: SX1262 DS §6.1.1.1.
     else if (!strcmp(key, "routing_sf") || !strcmp(key, "control_sf")) { b.routing_sf = (uint8_t)atoi(val); reconfig = radio = true; }
     else if (!strcmp(key, "bw"))                                       { b.bw_hz = (uint32_t)atol(val);     reconfig = radio = true; }
     else if (!strcmp(key, "cr"))                                       { b.cr = (uint8_t)atoi(val);         reconfig = radio = true; }
@@ -356,6 +385,10 @@ static void handle_cfg_set(const char* args) {
     // --- E2E §4b: originate app DMs ENCRYPTED. LIVE via mutable_config() + PERSISTED (NV v10). A no-pubkey CRYPTED send
     //     fails loud (send_failed{no_pubkey}); the user provisions keys via `peerkey`/`reqpubkey`. Default off = plaintext. ---
     else if (!strcmp(key, "e2e_dm"))     { b.e2e_dm = (atoi(val) != 0 || !strcmp(val, "on") || !strcmp(val, "true")) ? 1 : 0; lc.e2e_dm = (b.e2e_dm != 0); }
+    // --- gateway noise control (duty-cycle protection): LIVE via mutable_config() + PERSISTED (NV v11). The MAC reads
+    //     both each window-activation, so no reboot needed. duty_pct clamps to 1..100; interval 0 keeps the prior value. ---
+    else if (!strcmp(key, "gw_announce_pct"))      { int v = atoi(val); if (v < 1) v = 1; if (v > 100) v = 100; lc.gw_announce_duty_pct = (uint8_t)v; b.gw_announce_duty_pct = lc.gw_announce_duty_pct; }
+    else if (!strcmp(key, "gw_announce_interval")) { lc.gw_announce_min_interval_ms = (uint32_t)atol(val);       b.gw_announce_min_interval_ms = lc.gw_announce_min_interval_ms; }
     // --- role/topology: LIVE via mutable_config() + PERSISTED (NV v6 -> survives reboot) ---
     else if (!strcmp(key, "leaf_id"))      { lc.leaf_id = (uint8_t)atoi(val);                            b.leaf_id      = lc.leaf_id; }
     // `gateway` is NOT a cfg key — is_gateway is DERIVED = (n_layers==2) in on_init (a gateway is the dedicated
@@ -563,6 +596,94 @@ static void handle_whoami() {
     }
 }
 
+// ---- `gateway` one-command provisioning ---------------------------------------------------------------------
+// Parse + the SHARED §3.2 gate (validate_gateway_layers — identical to on_init's, so the console can never persist
+// a config on_init would refuse), then map into the v10 NV blob and prompt a reboot. Touches ONLY gateway fields
+// (radio/freq/tx_power/duty/etc. in the loaded blob are preserved); beacon cadence is preserved unless `beacon=` given.
+#if MR_N_LAYERS >= 2
+static const char* gw_parse_err_str(meshroute::GwParseErr e) {
+    using E = meshroute::GwParseErr;
+    switch (e) {
+        case E::missing_l0:  return "missing l0=";
+        case E::missing_l1:  return "missing l1=";
+        case E::bad_l0:      return "bad l0 format (want leaf:node:ctrl_sf:data_sfs)";
+        case E::bad_l1:      return "bad l1 format (want leaf:node:ctrl_sf:data_sfs)";
+        case E::bad_leaf:    return "leaf out of range (1..255)";
+        case E::bad_node:    return "node out of range (1..254)";
+        case E::bad_ctrl_sf: return "ctrl_sf out of range (5..12)";
+        case E::bad_data_sf: return "data SF list empty or out of range (5..12)";
+        case E::bad_period:  return "period must be > 0";
+        case E::bad_window:  return "win0=/win1= want ms:offset";
+        case E::bad_beacon:  return "beacon must be > 0";
+        case E::unknown_opt: return "unknown option";
+        default:             return "ok";
+    }
+}
+static const char* gw_val_err_str(meshroute::GwValErr e) {
+    using E = meshroute::GwValErr;
+    switch (e) {
+        case E::bad_leaf:             return "leaf id 0 not allowed";
+        case E::bad_ctrl_sf:          return "ctrl_sf out of range (5..12)";
+        case E::no_data_sf:           return "a layer has no data SF";
+        case E::leaf_nibble_clash:    return "the two leaf nibbles (leaf & 0x0F) collide (byte-0 wire filter)";
+        case E::period_mismatch:      return "the two window periods differ (must share one cycle)";
+        case E::period_zero:          return "window period must be > 0";
+        case E::window_degenerate:    return "derived window is 0 (bad SF mix?)";
+        case E::window_zero:          return "a window is 0";
+        case E::window_exceeds_period:return "a window exceeds the period";
+        case E::window_overlap:       return "the two windows overlap";
+        case E::window_too_long:      return "windows sum exceeds the period";
+        default:                      return "ok";
+    }
+}
+#endif
+static void handle_gateway(const char* args) {
+#if MR_N_LAYERS < 2
+    (void)args;
+    Serial.println(F("> gateway err not_gateway_build (flash the [env:gateway] -DMR_N_LAYERS=2 firmware)"));
+#else
+    using namespace meshroute;
+    GatewayProvision g{};
+    const GwParseErr pe = parse_gateway_cmd(args, g);
+    if (pe != GwParseErr::ok) { Serial.print(F("> gateway err ")); Serial.println(gw_parse_err_str(pe)); return; }
+
+    // Base = the PENDING blob so radio/freq/identity-adjacent fields survive; seed from the live config if none.
+    mrnv::Blob b{};
+    if (!mrnv::load(b)) {
+        const NodeConfig& nc = g_node.config();
+        b.freq_mhz = g_freq_mhz; b.bw_hz = nc.radio_bw_hz; b.cr = nc.radio_cr; b.duty = nc.duty_cycle;
+        b.tx_power = g_tx_power;  b.lbt = nc.lbt_enabled ? 1 : 0; b.beacon_ms = nc.beacon_period_ms;
+        b.ble_mode = g_ble_mode; b.ble_period_min = g_ble_period_min; b.ble_pin = g_ble_pin;
+    }
+    const uint32_t bw = b.bw_hz ? b.bw_hz : static_cast<uint32_t>(LORA_BW * 1000.0);
+    const uint8_t  cr = b.cr    ? b.cr    : 5;
+    const GwValErr ve = validate_gateway_layers(g.l0, g.l1, bw, cr);   // SAME gate on_init runs (derives windows)
+    if (ve != GwValErr::ok) { Serial.print(F("> gateway err ")); Serial.println(gw_val_err_str(ve)); return; }
+
+    b.n_layers = 2;
+    b.layer0_id = g.l0.layer_id; b.node_id = g.l0.node_id; b.routing_sf = g.l0.routing_sf; b.allowed_sf_bitmap = g.l0.allowed_sf_bitmap;
+    b.l1_layer_id = g.l1.layer_id; b.l1_node_id = g.l1.node_id; b.l1_routing_sf = g.l1.routing_sf; b.l1_allowed_sf_bitmap = g.l1.allowed_sf_bitmap;
+    b.window_period_ms = g.l0.window_period_ms;
+    b.l0_window_ms = g.l0.window_ms; b.l0_window_offset_ms = g.l0.window_offset_ms;
+    b.l1_window_ms = g.l1.window_ms; b.l1_window_offset_ms = g.l1.window_offset_ms;
+    b.gateway_only = g.gateway_only ? 1 : 0;
+    if (g.beacon_ms) { b.beacon_ms = g.beacon_ms; b.l1_beacon_period_ms = g.beacon_ms; }   // else: preserve existing cadence
+    b.bw_hz = bw; b.cr = cr;
+    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
+    if (!mrnv::save(b)) { Serial.println(F("> gateway err nv_save_failed")); return; }
+
+    Serial.print(F("> gateway OK — L0 leaf")); Serial.print(g.l0.layer_id); Serial.print(F(" id")); Serial.print(g.l0.node_id);
+    Serial.print(F(" sf")); Serial.print(g.l0.routing_sf);
+    Serial.print(F(" | L1 leaf")); Serial.print(g.l1.layer_id); Serial.print(F(" id")); Serial.print(g.l1.node_id);
+    Serial.print(F(" sf")); Serial.print(g.l1.routing_sf);
+    Serial.print(F(" | period")); Serial.print(g.l0.window_period_ms);
+    Serial.print(F("ms: L0 ")); Serial.print(g.l0.window_ms); Serial.print(F("@")); Serial.print(g.l0.window_offset_ms);
+    Serial.print(F(" / L1 ")); Serial.print(g.l1.window_ms); Serial.print(F("@")); Serial.print(g.l1.window_offset_ms);
+    if (g.gateway_only) Serial.print(F(" | gateway_only"));
+    Serial.println(F(" — reboot to apply"));
+#endif
+}
+
 // `help` / `?` — a small command + cfg-key reference for the live console session.
 static void dump_help() {
     Serial.println(F("[help] messaging:  send <id> <text> | send_ack <id> <text> | sendhash <hash> <text> | sendhash_ack <hash> <text> | send_channel <ch> <text>"));
@@ -572,8 +693,10 @@ static void dump_help() {
     Serial.println(F("[help] hash/id:    whoami | lookup <hash> | hashof <id> | resolve <hash> [hard]"));
     Serial.println(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
     Serial.println(F("[help] diag:       routes | status | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
-    Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin   (bool keys take on|off; identity via regen)"));
+    Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval   (bool keys take on|off; identity via regen)"));
     Serial.println(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms"));
+    Serial.println(F("[help] gateway:    gateway l0=<leaf>:<node>:<ctrl_sf>:<data_sfs> l1=<leaf>:<node>:<ctrl_sf>:<data_sfs> [period=ms] [win0=ms:off] [win1=ms:off] [beacon=ms] [gateway_only=0|1]"));
+    Serial.println(F("  one-shot dual-layer provisioning -> NV, reboot to apply (windows auto-derive SF-weighted anti-phase if win0/win1 omitted). e.g. gateway l0=1:1:8:7,9 l1=2:1:9:9,10"));
 }
 
 // ---- Phase-3 inbox sync (schema: ios-companion/INBOX_SYNC_CONTRACT.md) -----------------------------------
@@ -641,6 +764,7 @@ static bool service_debug(const char* line, size_t len) {
     if (len == 6 && !strncmp(line, "reboot", 6))   { do_reboot();   return true; }
     if (len == 5 && !strncmp(line, "regen", 5))    { do_regen();    return true; }
     if (len == 3 && !strncmp(line, "ota", 3))      { do_ota();      return true; }
+    if (len >  8 && !strncmp(line, "gateway ", 8)) { handle_gateway(line + 8); return true; }
     if (len >  8 && !strncmp(line, "cfg set ", 8)) { handle_cfg_set(line + 8); return true; }
     if (len == 3 && !strncmp(line, "cfg", 3))      { dump_cfg();    return true; }
     if ((len == 5 || (len > 5 && line[5] == ' ')) && !strncmp(line, "sleep", 5)) { handle_sleep(line + 5, len - 5); return true; }
@@ -812,9 +936,11 @@ void setup() {
                    // prints into the void. 2 s lets the monitor catch up before we print it.
 
     Serial.println(F("MeshRoute firmware v0.1 — boot"));
-    Serial.print(F("  freq      = ")); Serial.print((double)LORA_FREQ, 4); Serial.println(F(" MHz"));
-    Serial.print(F("  sf/bw/cr  = ")); Serial.print(LORA_SF); Serial.print(F("/"));
-    Serial.print((double)LORA_BW, 1); Serial.print(F("/4/")); Serial.println(LORA_CR);
+    // These are the COMPILE-TIME build defaults, printed BEFORE the NV blob loads — NOT the live config.
+    // A persisted `cfg set` overrides them; the real operating point prints below (control sf / data sf / `cfg`).
+    Serial.print(F("  build def = ")); Serial.print((double)LORA_FREQ, 4); Serial.print(F(" MHz  sf"));
+    Serial.print(LORA_SF); Serial.print(F("/bw")); Serial.print((double)LORA_BW, 1); Serial.print(F("/cr"));
+    Serial.print(LORA_CR); Serial.println(F("  (NV cfg overrides — live values below)"));
 #ifdef BOARD_XIAO_WIO_SX1262
     Serial.println(F("  board     = XIAO nRF52840 + Wio-SX1262"));
 #elif defined(BOARD_HELTEC_V3)
@@ -860,6 +986,8 @@ void setup() {
         g_ble_pin             = nv.ble_pin;
         cfg.loc_in_dm         = (nv.loc_in_dm != 0);                                                // v9 location piggyback toggle
         cfg.e2e_dm            = (nv.e2e_dm != 0);                                                   // v10 E2E encrypt toggle (§4b)
+        if (nv.gw_announce_duty_pct != 0)        cfg.gw_announce_duty_pct        = nv.gw_announce_duty_pct;        // v11 gateway noise control;
+        if (nv.gw_announce_min_interval_ms != 0) cfg.gw_announce_min_interval_ms = nv.gw_announce_min_interval_ms; //   0 => keep the default
         // v8 DUAL-LAYER GATEWAY: provision the raw per-layer fields ONLY (on_init validates the 2-layer config + derives
         // window_ms/window_offset_ms when 0). n_layers != 2 -> single-layer exactly as today (no behaviour change).
         if (nv.n_layers == 2) {
@@ -1041,6 +1169,8 @@ static void persist_join_if_changed() {
         b.ble_pin    = g_ble_pin;
         b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;                  // v9 location toggle (seed from the live config)
         b.e2e_dm     = nc.e2e_dm ? 1 : 0;                     // v10 e2e encrypt toggle (seed from the live config)
+        b.gw_announce_duty_pct        = nc.gw_announce_duty_pct;        // v11 gateway noise control (seed from the live config)
+        b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
     b.node_id = id; b.claim_epoch = ep; b.joined = jn;

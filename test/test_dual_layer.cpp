@@ -33,7 +33,8 @@ public:
     }
     void     set_rx_sf(int sf) override { last_set_rx_sf = sf; }
     uint64_t channel_busy_until() override { return 0; }
-    uint64_t airtime_used_ms(uint64_t) override { return 0; }
+    uint64_t _airtime_used_ms = 0;                       // settable: drives the gateway-announce duty-headroom gate
+    uint64_t airtime_used_ms(uint64_t) override { return _airtime_used_ms; }
     uint64_t oldest_tx_end_ms() override { return 0; }
     uint64_t now() override { return _now; }
     bool     after(uint32_t delay, uint32_t id) override { if (id < 80) { armed[id] = true; last_delay[id] = delay; } return true; }
@@ -164,6 +165,11 @@ struct DualLayerTestAccess {
     static uint32_t window_timer_id()                       { return Node::kLayerWindowTimerId; }   // Slice 3d scheduler
     static uint32_t beacon_timer_id()                       { return Node::kBeaconTimerId; }         // shared periodic beacon
     static uint64_t last_beacon_ms(Node& n, uint8_t i)      { return n._layers[i]._last_beacon_ms; } // Slice 3d per-leaf beacon
+    static void     set_last_beacon(Node& n, uint8_t i, uint64_t v) { n._layers[i]._last_beacon_ms = v; }
+    static void     call_gw_beacon(Node& n)                 { n.maybe_emit_gateway_beacon(); }        // the window-activation beacon decision
+    static void     inject_dirty_route(Node& n, uint8_t i, uint8_t dest) {                            // a dirty route on leaf i (reactive trigger)
+        auto& L = n._layers[i]; L._rt[0].dest = dest; L._rt[0].dirty = true; if (L._rt_count < 1) L._rt_count = 1;
+    }
     static uint32_t gw_defer(Node& n, uint8_t gw_node_id)   { return n.gateway_schedule_defer_ms(gw_node_id); }  // Slice 3e.2
     static void     emit(Node& n, const char* kind)         { n.emit_beacon(kind); }                  // Slice 3e F-A: force a beacon
     static void     pump(Node& n)                           { n.become_free(); }                      // Slice 4a: the kQueueWakeupTimerId handler
@@ -483,6 +489,87 @@ TEST_CASE("dual-layer beacon: a gateway beacons each leaf on its own cadence at 
     hal._now = 25000;
     node.on_timer(DualLayerTestAccess::window_timer_id());
     CHECK(DualLayerTestAccess::last_beacon_ms(node, 0) == 25000);
+}
+
+// ---- gateway noise control: steady-state is REACTIVE-ONLY (duty-cycle protection) ---------------------------
+// The schedule lets neighbours compute ALL future windows from ONE hearing (gateway_schedule_defer_ms), so re-
+// announcing a STATIC schedule on a timer is pure airtime waste -> kills the gateway's duty budget. Steady state:
+// beacon ONLY on dirty state (real new info) or a REQ_SYNC pull; the sole unsolicited heartbeat is gated on duty
+// headroom + a 3 h floor. Discovery is exempt (a new gateway / fresh two-layer link-up must be discoverable).
+TEST_CASE("gateway noise: steady-state is REACTIVE-ONLY — a clean, recently-beaconed gateway does NOT re-announce") {
+    StubHal hal; Node node(hal, /*id*/ 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
+    cfg.layers[1] = good_layer(2, 8); cfg.layers[1].node_id = 12;
+    CHECK(node.on_init(cfg));
+    // 1 000 000 ms ≈ 16.7 min: PAST discovery (60 s) AND past the old beacon_period_ms (15 min) — the old periodic
+    // clause WOULD fire here — but still << the 3 h announce floor, so reactive-only must stay silent.
+    hal._now = 1000000;
+    DualLayerTestAccess::set_last_beacon(node, 0, 0);               // route table clean
+    DualLayerTestAccess::call_gw_beacon(node);
+    CHECK(DualLayerTestAccess::last_beacon_ms(node, 0) == 0);       // NO re-announce
+}
+
+TEST_CASE("gateway noise: a DIRTY route still pushes IMMEDIATELY (reactive), even in steady state") {
+    StubHal hal; Node node(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
+    cfg.layers[1] = good_layer(2, 8); cfg.layers[1].node_id = 12;
+    CHECK(node.on_init(cfg));
+    hal._now = 100000;
+    DualLayerTestAccess::set_last_beacon(node, 0, 90000);
+    DualLayerTestAccess::inject_dirty_route(node, 0, /*dest*/ 42);  // new route info -> must propagate now
+    DualLayerTestAccess::call_gw_beacon(node);
+    CHECK(DualLayerTestAccess::last_beacon_ms(node, 0) == 100000);  // emitted immediately
+}
+
+TEST_CASE("gateway noise: the unsolicited heartbeat fires ONLY with duty headroom AND past the min interval") {
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
+    cfg.layers[1] = good_layer(2, 8); cfg.layers[1].node_id = 12;
+    cfg.duty_cycle = 0.10;                          // 10% duty -> budget = floor(0.10 * 3.6e6) = 360000 ms/h
+    cfg.gw_announce_duty_pct = 5;                   // announce only when used < 5% of budget = 18000 ms
+    cfg.gw_announce_min_interval_ms = 10800000;     // 3 h
+
+    // (1) past the 3 h floor + airtime under 5% of budget -> announce
+    { StubHal hal; Node node(hal, 1, 0x1); CHECK(node.on_init(cfg));
+      hal._airtime_used_ms = 1000;                  // 1 s << 18000
+      hal._now = 11000000;                          // > 3 h; leaf0._last = 0 -> interval satisfied
+      DualLayerTestAccess::set_last_beacon(node, 0, 0);
+      DualLayerTestAccess::call_gw_beacon(node);
+      CHECK(DualLayerTestAccess::last_beacon_ms(node, 0) == 11000000); }      // announced
+
+    // (2) past the floor but airtime OVER 5% of budget -> stay silent (let the bridging traffic carry liveness)
+    { StubHal hal; Node node(hal, 1, 0x1); CHECK(node.on_init(cfg));
+      hal._airtime_used_ms = 20000;                 // 20 s > 18000 -> no headroom
+      hal._now = 11000000;
+      DualLayerTestAccess::set_last_beacon(node, 0, 0);
+      DualLayerTestAccess::call_gw_beacon(node);
+      CHECK(DualLayerTestAccess::last_beacon_ms(node, 0) == 0); }             // silent
+
+    // (3) headroom OK but < 3 h since the last beacon -> stay silent
+    { StubHal hal; Node node(hal, 1, 0x1); CHECK(node.on_init(cfg));
+      hal._airtime_used_ms = 1000;
+      hal._now = 11000000;
+      DualLayerTestAccess::set_last_beacon(node, 0, 11000000 - 1000);        // beaconed 1 s ago
+      DualLayerTestAccess::call_gw_beacon(node);
+      CHECK(DualLayerTestAccess::last_beacon_ms(node, 0) == 11000000 - 1000); }  // too soon
+}
+
+// The `routes` console dump surfaces a gateway route's unique state via this accessor (period / per-leaf windows).
+TEST_CASE("routes dump: rt_gateway_schedule returns a heard gateway's stored schedule, nullptr when unknown") {
+    StubHal hal; hal._now = 5000; Node node(hal, /*id*/ 7, 0x1);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+    CHECK(node.on_init(cfg));
+    CHECK(node.rt_gateway_schedule(5) == nullptr);                            // never heard -> nullptr
+    DualLayerTestAccess::store_gw_schedule_pair(node, /*gw*/ 5, /*leafA*/ 1, /*leafB*/ 2);
+    const GatewaySchedule* gs = node.rt_gateway_schedule(5);
+    CHECK(gs != nullptr);
+    if (!gs) return;
+    CHECK(gs->period_ms == 15000);
+    CHECK(gs->n_rec == 2);
+    CHECK(gs->rec[0].leaf_id == 1); CHECK(gs->rec[0].window_ms == 7500); CHECK(gs->rec[0].offset_ms == 0);
+    CHECK(gs->rec[1].leaf_id == 2); CHECK(gs->rec[1].offset_ms == 7500);
 }
 
 TEST_CASE("dual-layer beacon: a gateway ADVERTISES its window schedule — one record/leaf, receiver-anchored countdown (Slice 3e)") {
@@ -1269,4 +1356,48 @@ TEST_CASE("bridged_layers: two gateways on ONE leaf bridging DIFFERENT leaves ->
     DualLayerTestAccess::ingest_bl(x, /*gwB*/ 6, /*dest_leaf*/ 3); DualLayerTestAccess::learn_neighbor(x, 6);
     CHECK(DualLayerTestAccess::select_gw(x, 2) == 5);                     // -> the gw bridging leaf 2
     CHECK(DualLayerTestAccess::select_gw(x, 3) == 6);                     // -> the gw bridging leaf 3
+}
+
+// ---- `gateway` one-command provisioning: parse_gateway_cmd + the shared validate predicate -----------------
+TEST_CASE("§gateway parse_gateway_cmd — a valid line fills both leaves; validate derives the SF-weighted windows") {
+    GatewayProvision g{};
+    CHECK(parse_gateway_cmd("l0=4:10:8:7,9 l1=5:11:9:7,9", g) == GwParseErr::ok);
+    CHECK(g.l0.layer_id == 4); CHECK(g.l0.node_id == 10); CHECK(g.l0.routing_sf == 8);
+    CHECK(g.l0.allowed_sf_bitmap == ((1u << 7) | (1u << 9)));
+    CHECK(g.l1.layer_id == 5); CHECK(g.l1.node_id == 11); CHECK(g.l1.routing_sf == 9);
+    CHECK(g.l1.allowed_sf_bitmap == ((1u << 7) | (1u << 9)));
+    // window derive happens in the shared predicate (the SAME one on_init runs)
+    CHECK(validate_gateway_layers(g.l0, g.l1, 125000, 5) == GwValErr::ok);
+    CHECK(g.l0.window_ms > 0);
+    CHECK(g.l1.window_ms == g.l0.window_period_ms - g.l0.window_ms);     // both-derive fills the period
+    CHECK(g.l1.window_offset_ms == g.l0.window_ms);                      // anti-phase
+    CHECK(g.l1.window_ms > g.l0.window_ms);                              // SF9 leaf gets the longer window
+}
+TEST_CASE("§gateway parse_gateway_cmd — order-independent tokens + optionals") {
+    GatewayProvision g{};
+    CHECK(parse_gateway_cmd("period=20000 l1=5:11:9:7 gateway_only=1 l0=4:10:8:7,9,10", g) == GwParseErr::ok);
+    CHECK(g.l0.window_period_ms == 20000); CHECK(g.l1.window_period_ms == 20000);
+    CHECK(g.l0.allowed_sf_bitmap == ((1u << 7) | (1u << 9) | (1u << 10)));
+    CHECK(g.l1.allowed_sf_bitmap == (1u << 7));
+    CHECK(g.gateway_only == true);
+}
+TEST_CASE("§gateway parse_gateway_cmd — error matrix; the 1..16 reservation is NOT enforced") {
+    GatewayProvision g{};
+    CHECK(parse_gateway_cmd("l0=4:10:8:7,9", g)                   == GwParseErr::missing_l1);
+    CHECK(parse_gateway_cmd("l1=5:11:9:7,9", g)                   == GwParseErr::missing_l0);
+    CHECK(parse_gateway_cmd("l0=4:0:8:7,9 l1=5:11:9:7,9", g)      == GwParseErr::bad_node);    // node 0
+    CHECK(parse_gateway_cmd("l0=4:255:8:7,9 l1=5:11:9:7,9", g)    == GwParseErr::bad_node);    // node 255 (0xFF reserved)
+    CHECK(parse_gateway_cmd("l0=0:10:8:7,9 l1=5:11:9:7,9", g)     == GwParseErr::bad_leaf);    // leaf 0
+    CHECK(parse_gateway_cmd("l0=4:10:13:7,9 l1=5:11:9:7,9", g)    == GwParseErr::bad_ctrl_sf); // SF 13
+    CHECK(parse_gateway_cmd("l0=4:10:8: l1=5:11:9:7,9", g)        == GwParseErr::bad_data_sf); // empty data list
+    CHECK(parse_gateway_cmd("l0=4:10:8:7,9 l1=5:11:9:7,9 x=1", g) == GwParseErr::unknown_opt);
+    // RESERVATION NOT ENFORCED: gateway node ids like 110 / 21 (outside 1..16) parse fine (Join-time convention)
+    CHECK(parse_gateway_cmd("l0=10:110:8:7,9 l1=5:21:9:7,9", g)   == GwParseErr::ok);
+    // the two leaves MAY share a node_id
+    CHECK(parse_gateway_cmd("l0=4:10:8:7,9 l1=5:10:9:7,9", g)     == GwParseErr::ok);
+}
+TEST_CASE("§gateway — leaf-nibble clash is caught by validate (parity with on_init), not parse") {
+    GatewayProvision g{};
+    CHECK(parse_gateway_cmd("l0=4:10:8:7,9 l1=20:11:9:7,9", g) == GwParseErr::ok);    // leaf 20 is a valid value
+    CHECK(validate_gateway_layers(g.l0, g.l1, 125000, 5) == GwValErr::leaf_nibble_clash);  // 4 == (20 & 0x0F)
 }

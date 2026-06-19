@@ -50,6 +50,36 @@ struct LayerConfig {
     uint32_t window_offset_ms  = 0;       // phase; 0 = DERIVE anti-phase from the other layer (§4)
 };
 
+// §3.2 dual-layer validation result. The SHARED predicate validate_gateway_layers() returns this; on_init maps
+// non-ok -> refuse (bool false), the `gateway` console command maps it to a specific operator error message.
+enum class GwValErr : uint8_t {
+    ok = 0, bad_leaf, bad_ctrl_sf, no_data_sf, leaf_nibble_clash,
+    period_mismatch, period_zero, window_degenerate, window_zero, window_exceeds_period, window_overlap, window_too_long
+};
+// The ONE dual-layer gate, shared by on_init AND parse_gateway_cmd (so the console command can never accept a
+// config on_init would refuse — anti-drift). Validates both layers' required fields + the leaf-nibble rule + the
+// shared window period, DERIVES the SF-weighted anti-phase window split for any window_ms/offset left 0, and
+// validates the concrete schedule. MUTATES L0/L1 window fields in place. Pure (no Serial/NV).
+GwValErr validate_gateway_layers(LayerConfig& l0, LayerConfig& l1, uint32_t radio_bw_hz, uint8_t radio_cr);
+
+// `gateway` console command parse result. Parse-stage errors (format / per-field ranges); the cross-layer +
+// window checks are validate_gateway_layers' job (the caller runs it after a clean parse).
+enum class GwParseErr : uint8_t {
+    ok = 0, missing_l0, missing_l1, bad_l0, bad_l1, bad_leaf, bad_node, bad_ctrl_sf, bad_data_sf,
+    bad_period, bad_window, bad_beacon, unknown_opt
+};
+struct GatewayProvision {
+    LayerConfig l0{};            // filled: layer_id, node_id, routing_sf, allowed_sf_bitmap (+ window_* after validate-derive)
+    LayerConfig l1{};
+    bool gateway_only = false;
+    uint32_t beacon_ms = 0;      // optional `beacon=`; 0 = UNSPECIFIED -> caller preserves the existing per-layer cadence
+};
+// Parse "l0=<leaf>:<node>:<ctrl_sf>:<data_sfs> l1=… [period=ms] [win0=ms:off] [win1=ms:off] [beacon=ms] [gateway_only=0|1]"
+// into `out` (l0/l1 LayerConfigs + opts). Per-field ranges only: leaf 1..255, node 1..254 (the `1..16` gateway
+// reservation is NOT enforced here — Join-time), ctrl_sf 5..12, non-empty data SFs. The cross-layer/nibble/window
+// gate is validate_gateway_layers (run by the caller). Pure: no Serial/NV. `out` is fully overwritten on ok.
+GwParseErr parse_gateway_cmd(const char* args, GatewayProvision& out);
+
 // POD; no heap, no JSON. Only the T/F-class knobs the Lua on_init reads.
 // PROTOCOL constants stay in protocol_constants.h (hardcoded on device).
 // Leaf-membership / identity / join is DESIGN-RESOLVED — see docs/specs/2026-06-05-identity-leaf-membership-join-design.md:
@@ -101,6 +131,13 @@ struct NodeConfig {
                                                 // (double, NOT float: floor(0.01*window) must match the Lua's
                                                 //  double exactly — float 0.01f*3.6e6 floors to 35999, not 36000)
     uint32_t duty_cycle_window_ms = 3600000;    // rolling airtime window (1 h)
+    // Gateway noise control: a gateway is REACTIVE-ONLY in steady state (beacons on dirty state / REQ_SYNC only).
+    // Its sole unsolicited steady-state announcement is a slow safety-net heartbeat, allowed ONLY when BOTH hold:
+    //   (a) current rolling airtime < gw_announce_duty_pct % of the duty budget (headroom), and
+    //   (b) >= gw_announce_min_interval_ms since the last beacon. Discovery still announces on the fast cadence
+    //   (a NEW gateway / two-layer link-up must be discoverable). Both configurable; 5% / 3 h defaults.
+    uint8_t  gw_announce_duty_pct       = 5;          // % OF the duty budget (e.g. 5% of a 10% duty = 0.5% airtime)
+    uint32_t gw_announce_min_interval_ms = 10800000;  // 3 h floor between unsolicited steady-state announcements
     uint16_t originator_max_per_window = 6;      // R4.4 anti-spam: apparent_origination drop threshold (T-class)
     uint16_t originator_self_cap_per_window = 20; // Inc 4 self-cap: max OWN originations/window before defer (calibrated > s18 heaviest 7; SEPARATE from the above so tests setting that low don't false-defer)
     uint32_t beacon_silence_jitter_ms  = 10000;  // R4.3 adaptive-throttle deferred-TX spread (dv:921)
@@ -363,6 +400,10 @@ public:
     }
     uint8_t           rt_count()       const { return _active->_rt_count; }
     const RtEntry&    rt_at(uint8_t i) const { return _active->_rt[i]; }   // 0..rt_count()-1; candidates[0] is the primary
+    // A heard 1-hop gateway's stored window schedule (nullptr if none known) + the ms to defer an RTS to its window.
+    // For the `routes` console dump: surface a gateway route's unique state (period / per-leaf windows / heard-age).
+    const GatewaySchedule* rt_gateway_schedule(uint8_t gw_node_id) const { return find_gw_schedule(gw_node_id); }
+    uint32_t          rt_gateway_defer_ms(uint8_t gw_node_id) const       { return gateway_schedule_defer_ms(gw_node_id); }
     void              rt_resort_for_pick(uint8_t dest) { refresh_route_order(dest, "test_pick"); }   // test: force the pick-time re-sort (freshness/penalty applied)
     size_t            test_build_suspect_ext(uint8_t* out, size_t cap) { return build_suspect_ext(out, cap); }                 // §P4 test: drive the gossip encoder
     void              test_apply_suspect_gossip(const SuspectEntry* e, uint8_t n, uint8_t src) { apply_suspect_gossip(e, n, src); }   // §P4 test: drive the gossip apply
@@ -691,6 +732,7 @@ private:
     int16_t  routing_snr_floor_for(uint8_t routing_sf) const;     // SF_DEMOD_THRESHOLD[sf] + sf_margin (per-leaf)
     void     window_switch_fire();                                // Slice 3d: gateway window scheduler (kLayerWindowTimerId) — alternate the active leaf
     void     maybe_emit_gateway_beacon();                         // Slice 3d: per-leaf beacon at window-activation (if the active leaf is due)
+    bool     gateway_announce_has_headroom() const;               // rolling airtime < gw_announce_duty_pct % of the duty budget
     void     set_window_anchors(uint8_t active_leaf);             // Slice 3e: refresh each leaf's _next_open_ms (the countdown anchor)
     void     store_gateway_schedule(const GatewaySchedule& gs);   // Slice 3e.2: remember a heard gateway's schedule (evict-oldest)
     const GatewaySchedule* find_gw_schedule(uint8_t gw_node_id) const;
