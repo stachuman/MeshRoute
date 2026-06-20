@@ -343,6 +343,8 @@ static void handle_cfg_set(const char* args) {
         b.e2e_dm     = nc.e2e_dm ? 1 : 0;                     // v10 e2e encrypt toggle (seed from the live config)
         b.gw_announce_duty_pct        = nc.gw_announce_duty_pct;        // v11 gateway noise control (seed from the live config)
         b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
+        b.l1_freq_mhz                 = nc.layers[1].freq_mhz;          // v12 per-layer freq (0 = inherit layer 0)
+        b.gw_herd_slack               = nc.gw_herd_slack;              // v13 §3e herd-spread slack
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;    // (re)stamp -> also upgrades a loaded v2 blob to v3
 
@@ -389,6 +391,7 @@ static void handle_cfg_set(const char* args) {
     //     both each window-activation, so no reboot needed. duty_pct clamps to 1..100; interval 0 keeps the prior value. ---
     else if (!strcmp(key, "gw_announce_pct"))      { int v = atoi(val); if (v < 1) v = 1; if (v > 100) v = 100; lc.gw_announce_duty_pct = (uint8_t)v; b.gw_announce_duty_pct = lc.gw_announce_duty_pct; }
     else if (!strcmp(key, "gw_announce_interval")) { lc.gw_announce_min_interval_ms = (uint32_t)atol(val);       b.gw_announce_min_interval_ms = lc.gw_announce_min_interval_ms; }
+    else if (!strcmp(key, "gw_herd_slack"))        { int v = atoi(val); if (v < 1) v = 1; if (v > 255) v = 255; lc.gw_herd_slack = (uint8_t)v; b.gw_herd_slack = lc.gw_herd_slack; }   // §3e herd-spread slack (live; MAC re-reads)
     // --- role/topology: LIVE via mutable_config() + PERSISTED (NV v6 -> survives reboot) ---
     else if (!strcmp(key, "leaf_id"))      { lc.leaf_id = (uint8_t)atoi(val);                            b.leaf_id      = lc.leaf_id; }
     // `gateway` is NOT a cfg key — is_gateway is DERIVED = (n_layers==2) in on_init (a gateway is the dedicated
@@ -477,6 +480,11 @@ static void handle_cfg_set(const char* args) {
         const long v = atol(val);
         if (v < 0) { Serial.println(F("> cfg err bad_value (l1_window_offset_ms 0=derive)")); return; }
         b.l1_window_offset_ms = (uint32_t)v; live = false;
+    }
+    else if (!strcmp(key, "l1_freq")) {                          // v12 per-layer freq: layer-1 RF carrier (0 = inherit layer 0/`freq`)
+        const double f = atof(val);
+        if (f < 0.0) { Serial.println(F("> cfg err bad_value (l1_freq MHz; 0=inherit)")); return; }
+        b.l1_freq_mhz = f; live = false;
     }
     else { Serial.print(F("> cfg err unknown_key ")); Serial.println(key); return; }
 
@@ -668,6 +676,8 @@ static void handle_gateway(const char* args) {
     b.l1_window_ms = g.l1.window_ms; b.l1_window_offset_ms = g.l1.window_offset_ms;
     b.gateway_only = g.gateway_only ? 1 : 0;
     if (g.beacon_ms) { b.beacon_ms = g.beacon_ms; b.l1_beacon_period_ms = g.beacon_ms; }   // else: preserve existing cadence
+    if (g.l0.freq_mhz > 0.0) b.freq_mhz = g.l0.freq_mhz;     // v12 per-layer freq: freq0 sets the node/layer-0 carrier (else keep)
+    b.l1_freq_mhz = g.l1.freq_mhz;                           // 0 = inherit layer 0's freq at boot
     b.bw_hz = bw; b.cr = cr;
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
     if (!mrnv::save(b)) { Serial.println(F("> gateway err nv_save_failed")); return; }
@@ -679,6 +689,8 @@ static void handle_gateway(const char* args) {
     Serial.print(F(" | period")); Serial.print(g.l0.window_period_ms);
     Serial.print(F("ms: L0 ")); Serial.print(g.l0.window_ms); Serial.print(F("@")); Serial.print(g.l0.window_offset_ms);
     Serial.print(F(" / L1 ")); Serial.print(g.l1.window_ms); Serial.print(F("@")); Serial.print(g.l1.window_offset_ms);
+    Serial.print(F(" | freq L0 ")); Serial.print(g.l0.freq_mhz > 0.0 ? g.l0.freq_mhz : (double)g_freq_mhz, 4);
+    Serial.print(F(" / L1 ")); Serial.print(g.l1.freq_mhz > 0.0 ? g.l1.freq_mhz : (g.l0.freq_mhz > 0.0 ? g.l0.freq_mhz : (double)g_freq_mhz), 4);
     if (g.gateway_only) Serial.print(F(" | gateway_only"));
     Serial.println(F(" — reboot to apply"));
 #endif
@@ -693,9 +705,9 @@ static void dump_help() {
     Serial.println(F("[help] hash/id:    whoami | lookup <hash> | hashof <id> | resolve <hash> [hard]"));
     Serial.println(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
     Serial.println(F("[help] diag:       routes | status | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
-    Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval   (bool keys take on|off; identity via regen)"));
-    Serial.println(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms"));
-    Serial.println(F("[help] gateway:    gateway l0=<leaf>:<node>:<ctrl_sf>:<data_sfs> l1=<leaf>:<node>:<ctrl_sf>:<data_sfs> [period=ms] [win0=ms:off] [win1=ms:off] [beacon=ms] [gateway_only=0|1]"));
+    Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack   (bool keys take on|off; identity via regen)"));
+    Serial.println(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
+    Serial.println(F("[help] gateway:    gateway l0=<leaf>:<node>:<ctrl_sf>:<data_sfs> l1=<leaf>:<node>:<ctrl_sf>:<data_sfs> [period=ms] [win0=ms:off] [win1=ms:off] [beacon=ms] [freq0=MHz] [freq1=MHz] [gateway_only=0|1]"));
     Serial.println(F("  one-shot dual-layer provisioning -> NV, reboot to apply (windows auto-derive SF-weighted anti-phase if win0/win1 omitted). e.g. gateway l0=1:1:8:7,9 l1=2:1:9:9,10"));
 }
 
@@ -943,6 +955,8 @@ void setup() {
     Serial.print(LORA_CR); Serial.println(F("  (NV cfg overrides — live values below)"));
 #ifdef BOARD_XIAO_WIO_SX1262
     Serial.println(F("  board     = XIAO nRF52840 + Wio-SX1262"));
+#elif defined(BOARD_XIAO_ESP32S3)
+    Serial.println(F("  board     = XIAO ESP32-S3 + Wio-SX1262"));
 #elif defined(BOARD_HELTEC_V3)
     Serial.println(F("  board     = Heltec WiFi LoRa 32 V3"));
 #endif
@@ -988,6 +1002,7 @@ void setup() {
         cfg.e2e_dm            = (nv.e2e_dm != 0);                                                   // v10 E2E encrypt toggle (§4b)
         if (nv.gw_announce_duty_pct != 0)        cfg.gw_announce_duty_pct        = nv.gw_announce_duty_pct;        // v11 gateway noise control;
         if (nv.gw_announce_min_interval_ms != 0) cfg.gw_announce_min_interval_ms = nv.gw_announce_min_interval_ms; //   0 => keep the default
+        if (nv.gw_herd_slack != 0)               cfg.gw_herd_slack              = nv.gw_herd_slack;               // v13 §3e herd-spread slack (0 => default 2)
         // v8 DUAL-LAYER GATEWAY: provision the raw per-layer fields ONLY (on_init validates the 2-layer config + derives
         // window_ms/window_offset_ms when 0). n_layers != 2 -> single-layer exactly as today (no behaviour change).
         if (nv.n_layers == 2) {
@@ -1001,6 +1016,7 @@ void setup() {
             cfg.layers[0].window_period_ms  = nv.window_period_ms;   // shared layer0<->layer1 cycle
             cfg.layers[0].window_ms         = nv.l0_window_ms;       // 0 = on_init derives
             cfg.layers[0].window_offset_ms  = nv.l0_window_offset_ms;
+            cfg.layers[0].freq_mhz          = nv.freq_mhz;           // v12 per-layer freq: layer 0 = the node's freq
             // layer 1 = the l1_* block (window_period_ms shared with layer 0).
             cfg.layers[1].layer_id          = nv.l1_layer_id;
             cfg.layers[1].node_id           = nv.l1_node_id;
@@ -1010,6 +1026,7 @@ void setup() {
             cfg.layers[1].window_period_ms  = nv.window_period_ms;   // shared cycle
             cfg.layers[1].window_ms         = nv.l1_window_ms;       // 0 = on_init derives
             cfg.layers[1].window_offset_ms  = nv.l1_window_offset_ms;
+            cfg.layers[1].freq_mhz          = (nv.l1_freq_mhz > 0.0) ? nv.l1_freq_mhz : nv.freq_mhz;  // v12: 0 = inherit layer 0's freq
         }
         Serial.println(F("  config    = loaded from NV"));
     }
@@ -1171,6 +1188,8 @@ static void persist_join_if_changed() {
         b.e2e_dm     = nc.e2e_dm ? 1 : 0;                     // v10 e2e encrypt toggle (seed from the live config)
         b.gw_announce_duty_pct        = nc.gw_announce_duty_pct;        // v11 gateway noise control (seed from the live config)
         b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
+        b.l1_freq_mhz                 = nc.layers[1].freq_mhz;          // v12 per-layer freq (0 = inherit layer 0)
+        b.gw_herd_slack               = nc.gw_herd_slack;              // v13 §3e herd-spread slack
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
     b.node_id = id; b.claim_epoch = ep; b.joined = jn;

@@ -63,9 +63,11 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     // sole unsolicited heartbeat. 0 => use the NodeConfig default (5% / 3 h) at boot (an old/zeroed blob stays sane).
     uint8_t  gw_announce_duty_pct;       // v11: % OF the duty budget below which an unsolicited announce is allowed
     uint32_t gw_announce_min_interval_ms;// v11: min ms between unsolicited steady-state announcements
+    double   l1_freq_mhz;                // v12: layer-1 RF carrier (per-layer freq). 0 = inherit freq_mhz (layer 0's). Layer 0 reuses freq_mhz.
+    uint8_t  gw_herd_slack;             // v13: §3e herd-spread slack factor (spread = exchange_airtime × this). 0 = use the NodeConfig default (2).
 };
 constexpr uint32_t kMagic   = 0x4D524331u;   // 'MRC1'
-constexpr uint16_t kVersion = 11;            // v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
+constexpr uint16_t kVersion = 13;            // v13: gw_herd_slack. v12: per-layer frequency (l1_freq_mhz). v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
                                              // block). v7: BLE companion policy. v6: role/topology (is_gateway/...). The Blob
                                              // grew, so every pre-v8 blob fails the `n == sizeof(out)` size check in load()
                                              // and is rejected -> the node re-provisions from defaults (BOTH boards — the

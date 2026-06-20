@@ -869,7 +869,12 @@ void Node::do_data_tx() {
     // Arm the ACK wait ONLY if the DATA actually hit the air — mirrors the Lua DATA on_handed (dv:10270-10279, fires only
     // on real self:tx) + the not-handed clear (dv:10281-10283). #2's duty defer returns handed=false: arming a short
     // ack-timeout on an un-sent DATA would fire before the (long) duty wait, draw a rand + tear the flight down.
-    if (handed) { pt.awaiting_ack = true; start_ack_timeout(); }
+    if (handed) {
+        pt.awaiting_ack = true; start_ack_timeout();
+        // §3e: roll the DATA-payload mean (EWMA alpha 5/16) over every DATA we pass — feeds exchange_airtime_ms.
+        _dm_payload_mean = _dm_payload_mean ? static_cast<uint16_t>((_dm_payload_mean * 11u + pt.inner_len * 5u) / 16u)
+                                            : pt.inner_len;
+    }
     else        { pt.awaiting_ack = false; }
 }
 

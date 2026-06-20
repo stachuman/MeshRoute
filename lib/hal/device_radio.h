@@ -125,6 +125,18 @@ public:
         _pre_seen = false;
     }
 
+    // Per-layer gateway: retune the RF carrier on a window switch. Like set_rx_sf, SetRfFrequency latches in STANDBY —
+    // issued mid-RX it is dropped — so standby -> setFrequency -> re-arm RX. The latched freq carries into the next TX
+    // (start_transmit never sets frequency), so DATA on this layer flies on this freq even as the SF varies in-flight.
+    void set_rx_freq(double mhz) override {
+        Serial.print(F("↻ rx-freq → ")); Serial.print(mhz, 4); Serial.print(F("  t=")); Serial.print(millis()); Serial.println(F("ms"));
+        _radio.standby();
+        _radio.setFrequency(static_cast<float>(mhz));
+        g_dio1_fired = false;                                                      // drop any stale edge before re-arming on the new freq
+        _radio.startReceive();
+        _pre_seen = false;
+    }
+
     // Software LBT (Step 3): NON-BLOCKING carrier sense — busy if we're transmitting, OR a frame is in
     // progress (preamble/header), OR the channel RSSI is above the rolling noise floor + threshold.
     // Replaces the blocking HW-CAD scanChannel() (which could spin on the CAD-done IRQ). Fed to the Node's

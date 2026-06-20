@@ -27,7 +27,7 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 
 ## BCN — beacon · cmd 0x0 · variable
 
-**Use** — broadcast periodically (and on a change, jittered) on the routing SF; advertises DV routes, identity, schedule, a channel digest, gateway-bridged-layer hints (for multi-hop cross-layer routing), and — when enabled — a seen-set (**off by default**, see Seen-bitmap below). **Reply** — none; neighbours merge the routes, and an unseen digest id triggers a `Q:CHANNEL_PULL`.
+**Use** — broadcast periodically (and on a change, jittered) on the routing SF; advertises DV routes, identity, schedule, a channel digest, gateway-bridged-layer hints (for multi-hop cross-layer routing), and — when enabled — a seen-set (**off by default**, see Seen-bitmap below). A **gateway is the exception: REACTIVE-ONLY in steady state** (see Schedule record below). **Reply** — none; neighbours merge the routes, and an unseen digest id triggers a `Q:CHANNEL_PULL`.
 
 Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` route entries, an optional 32-byte seen-bitmap, and an optional ext block.
 
@@ -44,7 +44,16 @@ Fixed 8-byte header, then (in order) an optional schedule block, `n_entries` rou
 
 **Route entry (4 B):** `dest` · `next` · `score_bucket`(b7..4) \| rsv(b3..1) \| `is_gateway`(b0) · `hops` (full byte, 1..255).
 
-**Schedule record (4 B):** b0 = `layer_id`(b7..4) \| `(routing_sf−5)`(b3..1) \| `period_unit_5s`(b0) · b1 = `duration_100ms` · b2 = `offset_100ms` · b3 = `period_units` (×1000 ms if period_unit_5s=0, ×5000 ms if =1).
+**Schedule record (4 B):** b0 = `layer_id`(b7..4) \| `(routing_sf−5)`(b3..1) \| `period_unit_5s`(b0) · b1 = `duration_100ms` · b2 = `offset_100ms` (a **receiver-anchored countdown** to that leaf's next window-open, re-stamped at the true TX instant) · b3 = `period_units` (×1000 ms if period_unit_5s=0, ×5000 ms if =1). A gateway emits **one record per leaf** it serves (≤2); a node hearing it **once** computes every future window of that gateway autonomously (`heard_ms + offset`, phase `(now − visit_start) mod period`) and defers its RTS to the open window — no shared clock, drift negligible vs the multi-second window.
+
+**Gateway beacon emission — REACTIVE-ONLY (duty-cycle protection).** Because the schedule is computed from one hearing, re-announcing a *static* schedule on a timer is pure airtime waste that would exhaust the gateway's duty budget (which it needs for bridging). The shared periodic beacon timer is **disabled** for a gateway; it beacons each leaf at window-activation only when one of:
+- **dirty** — its routes/state genuinely changed (real new info to propagate now); or
+- a **`Q:REQ_SYNC`** pull from a cold neighbour (answered with a full-page beacon carrying the schedule); or
+- a slow **safety-net heartbeat**, allowed only when **both** hold: rolling airtime `< gw_announce_duty_pct`% of the duty budget (default **5%** *of the budget* — e.g. 0.5% absolute at a 10% duty) **and** `≥ gw_announce_min_interval_ms` since the last beacon (default **3 h**). Both are `cfg set`-configurable (`gw_announce_pct` / `gw_announce_interval`) and persisted (NV v11).
+
+**Discovery is exempt:** a freshly-booted gateway / a just-connected two-layer link still announces on the fast discovery cadence so it is promptly discoverable. A busy gateway (airtime >5% of budget) emits no unsolicited heartbeat — its bridging traffic (CTS/ACK/relayed DATA) keeps neighbours' freshness alive via overhear.
+
+**Per-layer frequency (a layer is a `(freq, SF, leaf)` channel).** Each gateway layer may run on its own RF carrier; the gateway retunes the radio frequency (alongside SF) on every window switch (`activate_layer` → `set_rx_freq`, latched in standby like SF). Frequency is **provisioning-only — NOT on the wire**: a normal node stays on its own leaf's frequency permanently (it never tunes to the other leaf), so the schedule record carries no freq field and nothing changes here. Provisioned via the `gateway` command (`freq0=`/`freq1=`, omit ⇒ inherit) or `cfg set freq` (layer 0) / `cfg set l1_freq` (layer 1); persisted in NV v12 (`freq_mhz` = layer 0, `l1_freq_mhz` = layer 1, 0 = inherit). **Sim note:** the simulator's link layer models reachability by leaf/SF, not RF carrier, so per-layer-frequency isolation is **metal-verified only** (the sim `set_rx_freq` is a no-op ⇒ suite-neutral).
 
 **Seen-bitmap (32 B):** presence bit for node `id` at byte `id/8`, mask `1<<(id%8)`. Set for nodes seen **directly** within `seen_bitmap_ttl_ms` (non-transitive: gossip-learned peers are consumed for freshness but NOT re-emitted). **Emitted only when `seen_bitmap_enabled` — DEFAULT OFF** (no measurable delivery benefit + a cross-layer cost; freshness is otherwise reception-driven + the reactive liveness plane handles disappearing nodes — see `docs/superpowers/specs/2026-06-18-seen-bitmap-cost-reduction.md`). When on: included **only on steady-state (dirty-only) beacons**, never on discovery/sync full pages, and **never emitted by a gateway** (airtime/duty-cycle ⇒ no cross-layer propagation) — though any node, gateway included, still *consumes* a received bitmap to refresh its own routes. The route-entry page is sized by a true byte-budget that **reserves** the 32-B bitmap (+ schedule + ext), so a full page carrying it never overflows the 151-B frame.
 

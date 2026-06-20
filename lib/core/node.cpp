@@ -14,6 +14,7 @@
 #include "node.h"
 
 #include "airtime.h"   // airtime_ms — Slice 3a SF-weighted window derivation
+#include "frame_codec.h"  // DATA_HDR_LEN — §3e exchange_airtime_ms DATA-leg sizing
 #include "wire.h"
 
 #include <cstdlib>     // atol — parse_gateway_cmd
@@ -141,6 +142,8 @@ GwParseErr parse_gateway_cmd(const char* args, GatewayProvision& out) {
         else if (!strncmp(tok, "l1=", 3)) { GwParseErr e = parse_leaf(tok + 3, out.l1); if (e != GwParseErr::ok) return (e == GwParseErr::bad_l0) ? GwParseErr::bad_l1 : e; have_l1 = true; }
         else if (!strncmp(tok, "period=", 7)) { const long v = atol(tok + 7); if (v < 1) return GwParseErr::bad_period; out.l0.window_period_ms = out.l1.window_period_ms = static_cast<uint32_t>(v); }
         else if (!strncmp(tok, "beacon=", 7)) { const long v = atol(tok + 7); if (v < 1) return GwParseErr::bad_beacon; out.beacon_ms = static_cast<uint32_t>(v); }
+        else if (!strncmp(tok, "freq0=", 6)) { const double f = atof(tok + 6); if (f <= 0.0) return GwParseErr::bad_freq; out.l0.freq_mhz = f; }
+        else if (!strncmp(tok, "freq1=", 6)) { const double f = atof(tok + 6); if (f <= 0.0) return GwParseErr::bad_freq; out.l1.freq_mhz = f; }
         else if (!strncmp(tok, "win0=", 5) || !strncmp(tok, "win1=", 5)) {
             LayerConfig& L = (tok[3] == '0') ? out.l0 : out.l1;       // "ms:off"
             char* c = tok + 5; char* colon = nullptr;
@@ -224,6 +227,7 @@ bool Node::on_init(const NodeConfig& cfg) {
     // (Runs AFTER the legacy-scalar setup above, which it supersedes; the discovery/beacon arming below then
     // reads leaf 0's values.) A single-layer node never activates — its scalars stay as set above (no-op path).
     if (_cfg.n_layers == 2) {
+        _window_epoch_ms = _hal.now();                                           // Slice 3d GRID: anchor the absolute window grid at boot
         activate_layer(0);                                                       // boot on leaf 0
         set_window_anchors(0);                                                   // Slice 3e: seed the countdown anchors
         (void)_hal.after(_cfg.layers[0].window_ms, kLayerWindowTimerId);         // Slice 3d: arm the first window-switch (leaf0 -> leaf1)
@@ -323,6 +327,7 @@ void Node::activate_layer(uint8_t i) {
                               : airtime_routing_ms(protocol::beacon_max_bytes);
     _active = &_layers[i];                                       // THE SWAP — the MAC pump now operates on leaf i
     _hal.set_rx_sf(L.routing_sf);                               // retune RX (SF latches in standby)
+    if (L.freq_mhz > 0.0) _hal.set_rx_freq(L.freq_mhz);        // per-layer channel: retune the RF carrier (0 = inherit boot freq)
     _hal.set_protocol_id(L.node_id);                           // Hal short-id = the active leaf's node_id
     if (L.node_id != 0)                                          // seed leaf i's OWN id_bind binding (per-leaf table)
         id_bind_set(L.node_id, _key_hash32, IdBindSource::self, IdBindConf::authoritative);
@@ -344,12 +349,12 @@ void Node::activate_layer(uint8_t i) {
 // slips, never yanks a flight) — NO separate close-retry, matching the Lua (the next switch re-checks).
 void Node::window_switch_fire() {
     if (_n_layers != 2) return;                                    // gateways only (defensive; never armed single-layer)
-    const uint8_t next = (_active == &_layers[0]) ? 1 : 0;
     if (layer_swap_blocked()) {                                    // mid-exchange -> hold, re-evaluate after the busy-retry
-        // Telemetry: a deferral is OBSERVABLE so leaf STARVATION (one leaf reliably busy at switch time -> the other
-        // never gets serviced -> cross-layer DMs to it never bridge, the gateway's core job) shows up in the sim. The
-        // slip is currently UNBOUNDED (matches the Lua §4 "the window slips, never yanks a flight"); a max-hold /
-        // drain-then-switch bound is an OPEN design item — gate it on this event's frequency in the sim.
+        // The window slips to protect the in-flight exchange (Lua §4 "never yanks a flight"). With the ABSOLUTE grid
+        // below, a slip does NOT ratchet the schedule: the next successful fire snaps to the grid's current leaf +
+        // boundary, so the phase drift is bounded to <= one window (the slipped leaf simply loses that much of its
+        // window). STARVATION (a leaf reliably busy at switch time) is still observable here; a max-hold is an open item.
+        const uint8_t next = (_active == &_layers[0]) ? 1 : 0;
         MR_TELEMETRY(
             EventField f[] = { { .key = "held_leaf", .type = EventField::T::i64, .i = (next == 0) ? 1 : 0 },
                                { .key = "next_leaf", .type = EventField::T::i64, .i = next } };
@@ -357,10 +362,25 @@ void Node::window_switch_fire() {
         (void)_hal.after(protocol::gateway_layer_busy_retry_ms, kLayerWindowTimerId);
         return;
     }
-    activate_layer(next);
-    set_window_anchors(next);                                            // Slice 3e: refresh the countdown anchors BEFORE the beacon advertises them
+    // ABSOLUTE GRID (Slice 3d): the active leaf + the next switch are derived from the fixed epoch grid, NOT from a
+    // running "now + window_ms" (which ratchets on every slip). So even after a busy slip the schedule snaps back.
+    uint8_t target; uint32_t to_boundary;
+    window_grid_now(&target, &to_boundary);
+    if (&_layers[target] != _active) activate_layer(target);              // snap to the grid's current leaf (no-op if already there)
+    set_window_anchors(target);                                          // Slice 3e: refresh the countdown anchors BEFORE the beacon advertises them
     maybe_emit_gateway_beacon();                                          // beacon the entering leaf iff its cadence is due
-    (void)_hal.after(_cfg.layers[next].window_ms, kLayerWindowTimerId);   // next switch when this leaf's window closes
+    (void)_hal.after(to_boundary, kLayerWindowTimerId);                   // arm to the ABSOLUTE grid boundary (no ratchet)
+}
+
+// Slice 3d GRID: which leaf the absolute grid says is active NOW, and the ms until that leaf's window closes (the next
+// switch). Grid: leaf 0 owns [k·period, k·period+window0), leaf 1 owns [k·period+window0, (k+1)·period), anchored at
+// _window_epoch_ms. validate_gateway_layers guarantees 0 < window0 < period, so to_boundary is always >= 1.
+void Node::window_grid_now(uint8_t* active_leaf, uint32_t* ms_to_boundary) const {
+    const uint32_t period = _cfg.layers[0].window_period_ms;
+    const uint32_t w0     = _cfg.layers[0].window_ms;
+    const uint32_t phase  = static_cast<uint32_t>((_hal.now() - _window_epoch_ms) % period);
+    if (phase < w0) { *active_leaf = 0; *ms_to_boundary = w0 - phase; }
+    else            { *active_leaf = 1; *ms_to_boundary = period - phase; }
 }
 
 // Slice 3e: refresh each leaf's _next_open_ms — the anchor for the receiver-anchored schedule countdown. The just-
@@ -369,8 +389,10 @@ void Node::window_switch_fire() {
 void Node::set_window_anchors(uint8_t active_leaf) {
     const uint64_t now    = _hal.now();
     const uint32_t period = _cfg.layers[0].window_period_ms;
-    _layers[active_leaf]._next_open_ms     = now + period;
-    _layers[1 - active_leaf]._next_open_ms = now + _cfg.layers[active_leaf].window_ms;
+    uint8_t gl; uint32_t to_boundary;
+    window_grid_now(&gl, &to_boundary);                            // GRID: ms until the active leaf closes (= the other opens)
+    _layers[active_leaf]._next_open_ms     = now + period;         // active is open now (countdown %period -> ~0); next full open +period
+    _layers[1 - active_leaf]._next_open_ms = now + to_boundary;    // the other opens at the ABSOLUTE grid boundary (slip-robust)
 }
 
 // ---- Slice 3e.2: learned gateway schedules (RX consume + the sender-defer) ----------------------------------
@@ -411,30 +433,93 @@ void Node::prune_aged_bridged_layers(uint64_t now) {
             _bridged_layers[i].valid = false;
 }
 
-// ms to defer an RTS so it lands during the gateway's window on OUR leaf (Lua gateway_schedule_defer_ms dv:5013). For
-// each record: visit_start = heard_ms + offset (the receiver-anchored open, NO shared clock); phase = (now-visit_start)
-// mod period. A FOREIGN-leaf record currently OPEN means the gateway is deaf to us -> wait until it ends. OUR-leaf record
-// when the gateway is AWAY -> wait until our window comes around. Take the max defer; 0 = reachable now, send.
-uint32_t Node::gateway_schedule_defer_ms(uint8_t gw_node_id) const {
+// PURE (no RNG draw): the base defer to land an RTS during the gateway's window on OUR leaf (Lua gateway_schedule_defer_ms
+// dv:5013) + the capped herd-jitter range *out_jmax (the SEND path draws over it; the routes-dump reads base only). For
+// each record: visit_start = heard_ms + offset (receiver-anchored, NO shared clock); phase = (now-visit_start) mod period.
+// FOREIGN-leaf record OPEN -> gateway deaf to us, wait it out. OUR-leaf record AWAY -> wait for our window. Max defer; 0 = now.
+uint32_t Node::gateway_schedule_base_defer_ms(uint8_t gw_node_id, uint32_t* out_jmax) const {
+    if (out_jmax) *out_jmax = 0;
     const GatewaySchedule* s = find_gw_schedule(gw_node_id);
     if (!s || !s->valid || s->period_ms == 0) return 0;           // unknown / no schedule -> send now
     const uint64_t now     = _hal.now();
     const uint8_t  my_leaf = _cfg.leaf_id;
-    uint32_t best = 0;
+    // Adaptive guard (Lua dv:5029): a SPARSE herd (nibble 0 = herd-jitter inactive) biases the send deeper into the
+    // window for settle-edge margin; a DENSE herd (nibble>0) keeps the base guard (the jitter already disperses it).
+    uint32_t guard = protocol::gateway_schedule_guard_ms;
+    if (s->spread_nibble == 0) guard += protocol::gateway_schedule_guard_sparse_bonus_ms;
+    uint32_t best = 0, best_window = 0;                           // best_window = the window we'll be reachable in (jitter sizing)
     for (uint8_t i = 0; i < s->n_rec; ++i) {
         const GatewaySchedule::Rec& r = s->rec[i];
         const uint64_t visit_start = s->heard_ms + r.offset_ms;
         const int64_t  raw   = static_cast<int64_t>(now) - static_cast<int64_t>(visit_start);
         const uint32_t phase = static_cast<uint32_t>(((raw % s->period_ms) + s->period_ms) % s->period_ms);
-        uint32_t defer = 0;
         if (r.leaf_id != my_leaf) {                               // foreign visit currently open -> deaf to us, wait it out
-            if (phase < r.window_ms) defer = r.window_ms - phase + protocol::gateway_schedule_guard_ms;
+            if (phase < r.window_ms) { const uint32_t d = r.window_ms - phase + guard; if (d > best) { best = d; best_window = s->period_ms - r.window_ms; } }
         } else {                                                  // our visit not open yet -> wait until it comes around
-            if (phase >= r.window_ms) defer = s->period_ms - phase + protocol::gateway_schedule_guard_ms;
+            if (phase >= r.window_ms) { const uint32_t d = s->period_ms - phase + guard; if (d > best) { best = d; best_window = r.window_ms; } }
         }
-        if (defer > best) best = defer;
     }
-    return best;   // (+ herd-jitter when gateway_spread_nibble is wired; 3e.1 left it 0 = no jitter)
+    // Herd-jitter range (Lua dv:5072): spread our arrival over (nibble/15 × window) so the herd doesn't re-collide at
+    // window-open. Two caps leave the window tail for the chosen sender's exchange + the gateway's own forwards: an
+    // absolute couple-BARE-exchange headroom AND a fraction of the window. nibble 0 (sparse) -> no jitter. (The DRAW
+    // itself happens in the non-const wrapper below — keeping THIS query pure so the routes-dump never mutates the RNG.)
+    if (best > 0 && s->spread_nibble > 0 && best_window > 0 && out_jmax) {
+        uint32_t jmax = static_cast<uint32_t>((static_cast<uint64_t>(s->spread_nibble) * best_window) / 15);
+        const uint32_t headroom = 2u * exchange_airtime_ms();     // window-tail reserve = a couple BARE exchanges (NOT × slack)
+        const uint32_t cap_frac = static_cast<uint32_t>((static_cast<uint64_t>(best_window) * protocol::gateway_herd_jitter_max_pct) / 100);
+        uint32_t cap = (best_window > headroom) ? (best_window - headroom) : 0;
+        if (cap_frac < cap) cap = cap_frac;
+        if (jmax > cap) jmax = cap;
+        *out_jmax = jmax;
+    }
+    return best;
+}
+
+// SEND path: base defer + a uniform herd-jitter draw over [0, jmax) (Lua dv:5083 `self:rand(0, jmax)` — half-open, NO +1,
+// unlike the doorstep-retry sibling which adds +1). NON-const: it draws the shared RNG, so it must NOT be a const query.
+uint32_t Node::gateway_schedule_defer_ms(uint8_t gw_node_id) {
+    uint32_t jmax = 0;
+    uint32_t best = gateway_schedule_base_defer_ms(gw_node_id, &jmax);
+    if (jmax > 0) best += static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(jmax)));   // rand(0,jmax) — Lua half-open
+    return best;
+}
+
+// §3e herd sizing (Lua count_direct_neighbors dv:1677): rt entries whose PRIMARY candidate is a 1-hop neighbour.
+uint8_t Node::count_direct_neighbors() const {
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < _active->_rt_count; ++i)
+        if (_active->_rt[i].candidates[0].hops == 1) ++n;
+    return n;
+}
+
+// §3e: a single RTS+CTS+DATA+ACK exchange's airtime, computed from airtime_ms (improves on the Lua's fixed 600ms).
+// RTS/CTS/ACK fly on the routing SF (lengths 8/4/4, Lua timing); DATA flies on the most-robust data SF (max_data_sf)
+// and includes the cts_to_data_gap (the SF-retune delay between CTS and DATA). DATA payload = the rolling mean of what
+// we pass (_dm_payload_mean), bootstrapped to gateway_herd_assumed_payload_bytes until the first DATA sample lands.
+uint32_t Node::exchange_airtime_ms() const {
+    const uint8_t  dsf     = max_data_sf() ? max_data_sf() : _cfg.routing_sf;   // no data SF -> routing as a fallback
+    const uint16_t payload = _dm_payload_mean ? _dm_payload_mean : protocol::gateway_herd_assumed_payload_bytes;
+    const uint32_t data_air = airtime_ms(dsf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym,
+                                         static_cast<uint16_t>(DATA_HDR_LEN + payload));
+    return airtime_routing_ms(8) + airtime_routing_ms(4)        // RTS + CTS (routing SF)
+         + protocol::cts_to_data_gap_ms                         // CTS->DATA SF-retune gap
+         + data_air                                             // DATA (data SF)
+         + airtime_routing_ms(4);                               // ACK (routing SF)
+}
+
+// §3e (Lua gateway_spread_nibble dv:1692): this gateway's 0..15 herd-spread hint. frac = herd·exchange / window, capped
+// to 1; nibble = round(frac·15). A herd < gateway_herd_min advertises 0 (≤2 has nothing to de-conflict). window = the
+// ACTIVE leaf's window (the contention window the herd shares on this leaf). exchange = the computed per-exchange airtime.
+uint8_t Node::gateway_spread_nibble() const {
+    if (_cfg.n_layers != 2) return 0;                            // only a gateway advertises a schedule/spread
+    const uint32_t window = _cfg.layers[static_cast<size_t>(_active - &_layers[0])].window_ms;
+    const uint8_t  herd   = count_direct_neighbors();
+    if (window == 0 || herd < protocol::gateway_herd_min) return 0;
+    const uint32_t slack  = _cfg.gw_herd_slack ? _cfg.gw_herd_slack : 1;       // 0 -> 1 (no negative/zero spread)
+    uint64_t frac_num = static_cast<uint64_t>(herd) * exchange_airtime_ms() * slack;   // frac = num/window, capped to 1
+    if (frac_num > window) frac_num = window;
+    const uint32_t nib = static_cast<uint32_t>((frac_num * 15 + window / 2) / window);       // round(frac·15)
+    return static_cast<uint8_t>(nib > 15 ? 15 : nib);
 }
 
 // Slice 3d: per-leaf beacon — at WINDOW-ACTIVATION, beacon the now-active leaf iff its OWN cadence is due. The window

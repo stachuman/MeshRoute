@@ -82,6 +82,11 @@ public:
     // ---- radio — `bytes` borrowed for the call ONLY (impl copies); NOT re-entrant.
     [[nodiscard]] virtual TxResult tx(const uint8_t* bytes, size_t len, const TxParams& p) = 0;
     virtual void     set_rx_sf(int sf) = 0;            // clamp+ignore out-of-range; arms blind window
+    // Per-layer frequency (dual-layer gateway): retune the RX frequency on a window switch. NON-pure with a no-op
+    // default ON PURPOSE — a layer is a (freq, SF, leaf) channel, but only Hals that model RF carriers act on it.
+    // The device Hal overrides it (standby+setFrequency+re-arm); the SIM Hal does NOT model RF frequency (it keys
+    // reachability on leaf/SF), so it correctly inherits the no-op. mhz <= 0 => caller skips the call (inherit boot freq).
+    virtual void     set_rx_freq(double /*mhz*/) {}
     virtual uint64_t channel_busy_until() = 0;         // LBT busy_until ms, or 0
     virtual uint64_t airtime_used_ms(uint64_t window_ms) = 0;
     virtual uint64_t oldest_tx_end_ms() = 0;           // duty-cycle headroom calc

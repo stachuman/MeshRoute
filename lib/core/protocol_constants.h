@@ -244,6 +244,18 @@ inline constexpr uint8_t cap_push_ring   = 16;   // async push ring (MeshCore OF
 // the frame lands AFTER the window opens + the gateway's retune settles. Consumed by the SENDER-DEFER (Slice 3e:
 // gateway_schedule_defer_ms / the receiver-anchored countdown), NOT the window-switch path (3d) — correctly unused there.
 inline constexpr uint16_t gateway_schedule_guard_ms = 100;
+// §3e herd-spread (Lua gateway_spread_nibble / gateway_schedule_defer_ms herd-jitter). A gateway sizes a 0..15 spread
+// nibble from its 1-hop herd and advertises it; senders deferring to a window draw a uniform jitter over
+// (nibble/15 × window) so they don't all re-collide at window-open (the dominant dense-gateway first-leg failure).
+// The per-exchange airtime (RTS+CTS+gap+DATA+ACK) is COMPUTED from airtime_ms (Node::exchange_airtime_ms), NOT a
+// constant — a C++ improvement over the Lua's fixed 600ms estimate. The DATA leg uses a rolling mean of the payloads
+// the node passes; this is the bootstrap payload until the first DATA sample lands.
+inline constexpr uint8_t  gateway_herd_assumed_payload_bytes = 64;  // DM body assumption for the exchange calc (pre-EWMA)
+inline constexpr uint8_t  gateway_herd_min                = 3;    // herds < this advertise nibble 0 (≤2 has nothing to de-conflict)
+inline constexpr uint8_t  gateway_herd_jitter_max_pct     = 60;   // cap jitter at this % of the window (Lua 0.6 frac)
+// Adaptive guard (Lua dv:5029): a SPARSE herd (nibble 0 = herd-jitter inactive) biases the send deeper into the window
+// for settle-edge margin; a DENSE herd (nibble>0) keeps the base guard (the jitter already disperses it).
+inline constexpr uint16_t gateway_schedule_guard_sparse_bonus_ms = 200;
 // Window-switch busy-retry: when a scheduled leaf-swap is deferred because the active layer is mid-exchange
 // (_pending_tx / _pending_rx / _post_ack.pending), re-arm the switch after this. EXPLICIT named constant — the
 // Lua silently fell back to max(rts_busy_retry_ms, 1000); we declare it (no-fallback rule). (Lua L8425 == 1000.)

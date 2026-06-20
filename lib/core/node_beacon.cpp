@@ -239,6 +239,7 @@ void Node::emit_beacon(const char* kind) {
             sched[i].offset_100ms   = static_cast<uint8_t>(o100 > 255 ? 255 : o100);
         }
         in.schedule = std::span<const schedule_record>(sched, 2);
+        in.gateway_spread_nibble = gateway_spread_nibble();      // §3e: advertise the herd-spread hint so senders jitter across the window
     }
     // Seen bitmap: a 32-byte (256-bit) set of every node_id we know is alive — from direct
     // frames (dest_seen_ms) and from route entries (rt[].candidates[0].last_seen_ms), within
@@ -441,6 +442,7 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (b.self_gateway && b.has_schedule && b.schedule_count > 0) {
         GatewaySchedule gs{};
         gs.valid = true; gs.gw_node_id = b.src; gs.heard_ms = now;
+        gs.spread_nibble = b.gateway_spread_nibble;             // §3e: keep the advertised herd-spread hint for the defer jitter
         gs.n_rec = (b.schedule_count > 2) ? 2 : b.schedule_count;
         for (uint8_t i = 0; i < gs.n_rec; ++i) {
             auto r = parse_beacon_schedule(std::span<const uint8_t>(bytes, len), b, i);

@@ -27,6 +27,7 @@ public:
     // ---- Hal radio ----
     TxResult tx(const uint8_t* bytes, size_t len, const TxParams& p) override;
     void     set_rx_sf(int sf) override;
+    void     set_rx_freq(double mhz) override;          // per-layer gateway: retune the RF carrier on a window switch
     uint64_t channel_busy_until() override;             // CAD busy -> now + busy_hold; else 0
     uint64_t airtime_used_ms(uint64_t window_ms) override;
     uint64_t oldest_tx_end_ms() override;

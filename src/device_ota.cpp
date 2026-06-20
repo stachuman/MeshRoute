@@ -1,7 +1,8 @@
 // MeshRoute — src/device_ota.cpp
-// Heltec ESP32-S3 WiFi OTA using Arduino WiFi/WebServer/Update libraries.
-// Compiled only for heltec_v3 via build_src_filter.
-#if defined(BOARD_HELTEC_V3)
+// ESP32-S3 WiFi OTA (SoftAP + WebServer + Update) — board-agnostic; works on any ESP32 with WiFi
+// (Heltec V3 + XIAO ESP32-S3). Compiled in via build_src_filter on the ESP32 envs. The guard matches
+// fw_main's mrota:: call-site condition so every ESP32 build that calls these also defines them.
+#if defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
 
 #include <Arduino.h>
 #include <WiFi.h>
@@ -124,4 +125,4 @@ void ota_loop() {
 bool ota_active() { return s_active; }
 
 }  // namespace mrota
-#endif  // BOARD_HELTEC_V3
+#endif  // ESP32 (Heltec V3 / XIAO ESP32-S3)

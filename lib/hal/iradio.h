@@ -46,6 +46,10 @@ struct IRadio {
     // Hal::set_rx_sf -> set the spreading factor + (re)arm continuous receive on the routing/data SF.
     virtual void set_rx_sf(int sf) = 0;
 
+    // Hal::set_rx_freq -> retune the RF carrier (per-layer gateway window switch). standby -> setFrequency -> re-arm RX
+    // (freq latches in standby, same as SF). NON-pure no-op default so an IRadio that doesn't tune freq need not override.
+    virtual void set_rx_freq(double /*mhz*/) {}
+
     // Hal::channel_busy_until -> Listen-Before-Talk primitive: is the channel busy RIGHT NOW? (SX1262
     // hardware CAD, or an RSSI-over-threshold sample). DeviceHal wraps this into a busy-until hold.
     virtual bool channel_busy() = 0;

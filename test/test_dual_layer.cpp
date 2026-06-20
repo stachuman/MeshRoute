@@ -10,6 +10,7 @@
 
 #include "node.h"
 #include "frame_codec.h"   // Slice 3e: parse_beacon / parse_beacon_schedule to verify the gateway's advertised schedule
+#include "airtime.h"       // §3e: re-derive exchange_airtime_ms from the airtime_ms primitive
 
 using namespace meshroute;
 
@@ -32,6 +33,8 @@ public:
         return TxResult::ok;
     }
     void     set_rx_sf(int sf) override { last_set_rx_sf = sf; }
+    double   last_set_rx_freq = 0.0;                     // per-layer freq retune (dual-layer gateway)
+    void     set_rx_freq(double mhz) override { last_set_rx_freq = mhz; }
     uint64_t channel_busy_until() override { return 0; }
     uint64_t _airtime_used_ms = 0;                       // settable: drives the gateway-announce duty-headroom gate
     uint64_t airtime_used_ms(uint64_t) override { return _airtime_used_ms; }
@@ -40,7 +43,8 @@ public:
     bool     after(uint32_t delay, uint32_t id) override { if (id < 80) { armed[id] = true; last_delay[id] = delay; } return true; }
     void     cancel(uint32_t id) override { if (id < 80) cancelled[id] = true; }
     void     set_protocol_id(int id) override { last_set_protocol_id = id; }
-    int      rand_range(int lo, int) override { return lo; }
+    int      _rand_ret = -1;                              // >=0 => force this rand value (clamped); -1 => default (lo)
+    int      rand_range(int lo, int hi) override { if (_rand_ret < 0) return lo; int v = _rand_ret; if (v < lo) v = lo; if (hi > lo && v >= hi) v = hi - 1; return v; }
     void     rand_bytes(uint8_t* o, size_t n) override { for (size_t i = 0; i < n; ++i) o[i] = static_cast<uint8_t>(rand_range(0, 256)); }
     void     emit(const char*, const EventField*, size_t) override {}
     void     log(const char*) override {}
@@ -171,6 +175,22 @@ struct DualLayerTestAccess {
         auto& L = n._layers[i]; L._rt[0].dest = dest; L._rt[0].dirty = true; if (L._rt_count < 1) L._rt_count = 1;
     }
     static uint32_t gw_defer(Node& n, uint8_t gw_node_id)   { return n.gateway_schedule_defer_ms(gw_node_id); }  // Slice 3e.2
+    static uint8_t  spread_nibble(Node& n)                  { return n.gateway_spread_nibble(); }                // §3e herd-spread compute
+    static uint8_t  direct_neighbors(Node& n)              { return n.count_direct_neighbors(); }
+    static uint32_t exchange_airtime(Node& n)              { return n.exchange_airtime_ms(); }                  // §3e RTS+CTS+gap+DATA+ACK
+    static uint16_t dm_payload_mean(Node& n)              { return n._dm_payload_mean; }
+    static void     add_direct_neighbor(Node& n, uint8_t dest) {                                                // a 1-hop rt entry (herd member)
+        auto& L = *n._active; if (L._rt_count >= protocol::cap_routes) return;
+        uint8_t i = L._rt_count; L._rt[i].dest = dest; L._rt[i].n = 1;
+        L._rt[i].candidates[0].next_hop = dest; L._rt[i].candidates[0].hops = 1; L._rt_count = i + 1;
+    }
+    static void     store_gw_sched_nibble(Node& n, uint8_t gw_node, uint8_t leafA, uint8_t leafB, uint8_t nib) {
+        GatewaySchedule gs{}; gs.valid = true; gs.gw_node_id = gw_node; gs.heard_ms = n._hal.now();
+        gs.period_ms = 15000; gs.spread_nibble = nib; gs.n_rec = 2;
+        gs.rec[0].leaf_id = leafA; gs.rec[0].window_ms = 7500; gs.rec[0].offset_ms = 0;
+        gs.rec[1].leaf_id = leafB; gs.rec[1].window_ms = 7500; gs.rec[1].offset_ms = 7500;
+        n.store_gateway_schedule(gs);
+    }
     static void     emit(Node& n, const char* kind)         { n.emit_beacon(kind); }                  // Slice 3e F-A: force a beacon
     static void     pump(Node& n)                           { n.become_free(); }                      // Slice 4a: the kQueueWakeupTimerId handler
     // Slice 4c.1 bridge accessors
@@ -450,22 +470,46 @@ TEST_CASE("dual-layer scheduler: the window-switch loop alternates the active le
     CHECK(DualLayerTestAccess::active_ptr(node) == DualLayerTestAccess::layer_ptr(node, 0));
     CHECK(hal.armed[WID]);
     CHECK(hal.last_delay[WID] == WIN);                            // arms after window_ms[0]
-    // fire the switch -> leaf 1, re-armed after leaf-1's window.
-    node.on_timer(WID);
+    // fire the switch AT the grid boundary (now=7500) -> leaf 1, re-armed to the next boundary (leaf-1's window).
+    hal._now = 7500; node.on_timer(WID);
     CHECK(DualLayerTestAccess::active_ptr(node) == DualLayerTestAccess::layer_ptr(node, 1));
-    CHECK(hal.last_delay[WID] == node.config().layers[1].window_ms);
-    // fire again -> back to leaf 0 (anti-phase alternation).
-    node.on_timer(WID);
+    CHECK(hal.last_delay[WID] == node.config().layers[1].window_ms);   // 15000-7500 = 7500
+    // fire at the next boundary (now=15000) -> back to leaf 0 (the grid's anti-phase alternation).
+    hal._now = 15000; node.on_timer(WID);
     CHECK(DualLayerTestAccess::active_ptr(node) == DualLayerTestAccess::layer_ptr(node, 0));
-    // BUSY-GUARD: mid-exchange (pending_tx) -> HOLD the leaf, re-arm after the busy-retry (window slips, no yank).
-    DualLayerTestAccess::set_pending_tx(node, true);
+    // BUSY-GUARD: at the next boundary (now=22500) mid-exchange (pending_tx) -> HOLD the leaf, re-arm busy-retry (slip).
+    hal._now = 22500; DualLayerTestAccess::set_pending_tx(node, true);
     node.on_timer(WID);
     CHECK(DualLayerTestAccess::active_ptr(node) == DualLayerTestAccess::layer_ptr(node, 0));   // held on leaf 0
     CHECK(hal.last_delay[WID] == protocol::gateway_layer_busy_retry_ms);                       // busy-retry, not a window
-    // once the exchange clears, the next fire switches normally.
-    DualLayerTestAccess::set_pending_tx(node, false);
+    // once the exchange clears, the next fire snaps to the GRID's current leaf (phase 8500 -> leaf 1).
+    hal._now = 23500; DualLayerTestAccess::set_pending_tx(node, false);
     node.on_timer(WID);
     CHECK(DualLayerTestAccess::active_ptr(node) == DualLayerTestAccess::layer_ptr(node, 1));
+}
+
+// Slice 3d GRID / absolute scheduling: a busy slip does NOT ratchet the phase — the next fire snaps back to the absolute
+// grid boundary (the slipped leaf simply loses that much of its window), bounding drift to <= one window.
+TEST_CASE("dual-layer scheduler: GRID scheduling — a busy slip snaps back to the absolute grid (no ratchet)") {
+    StubHal hal; Node node(hal, /*id*/ 1, 0x1);                       // _now = 0 -> grid epoch 0
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[1] = good_layer(2, 8);   // 7500/7500, period 15000
+    CHECK(node.on_init(cfg));
+    const uint32_t WID = DualLayerTestAccess::window_timer_id();
+    // a busy slip across the leaf0->leaf1 boundary (now=7500): pending_tx holds the switch on leaf 0.
+    hal._now = 7500; DualLayerTestAccess::set_pending_tx(node, true);
+    node.on_timer(WID);
+    CHECK(DualLayerTestAccess::active_ptr(node) == DualLayerTestAccess::layer_ptr(node, 0));   // held
+    CHECK(hal.last_delay[WID] == protocol::gateway_layer_busy_retry_ms);
+    // busy-retry fires 1s later (now=8500), flight cleared -> snap to grid leaf 1, armed to the ABSOLUTE boundary 15000.
+    hal._now = 8500; DualLayerTestAccess::set_pending_tx(node, false);
+    node.on_timer(WID);
+    CHECK(DualLayerTestAccess::active_ptr(node) == DualLayerTestAccess::layer_ptr(node, 1));   // snapped to the grid leaf
+    CHECK(hal.last_delay[WID] == 6500);                                // 15000-8500: leaf-1 window SHORTENED by the slip, NOT a fresh 7500 (no ratchet)
+    // the grid boundary at 15000 is preserved -> leaf 0 gets its FULL window again (drift did not accumulate).
+    hal._now = 15000; node.on_timer(WID);
+    CHECK(DualLayerTestAccess::active_ptr(node) == DualLayerTestAccess::layer_ptr(node, 0));
+    CHECK(hal.last_delay[WID] == 7500);
 }
 
 TEST_CASE("dual-layer beacon: a gateway beacons each leaf on its own cadence at window-activation, NOT the shared timer (Slice 3d)") {
@@ -572,6 +616,31 @@ TEST_CASE("routes dump: rt_gateway_schedule returns a heard gateway's stored sch
     CHECK(gs->rec[1].leaf_id == 2); CHECK(gs->rec[1].offset_ms == 7500);
 }
 
+// Per-layer frequency: a layer is a (freq, SF, leaf) channel; the gateway retunes the RX carrier on a window switch.
+TEST_CASE("dual-layer freq: a gateway retunes the RX frequency on each window switch (per-layer channel)") {
+    StubHal hal; Node node(hal, /*id*/ 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;  cfg.layers[0].freq_mhz = 868.1;
+    cfg.layers[1] = good_layer(2, 9); cfg.layers[1].node_id = 12; cfg.layers[1].freq_mhz = 869.5;
+    CHECK(node.on_init(cfg));                                              // boots on leaf 0 -> retunes to 868.1
+    CHECK(hal.last_set_rx_freq == doctest::Approx(868.1));
+    DualLayerTestAccess::activate(node, 1);                                // switch to leaf 1
+    CHECK(hal.last_set_rx_freq == doctest::Approx(869.5));
+    DualLayerTestAccess::activate(node, 0);                                // back to leaf 0
+    CHECK(hal.last_set_rx_freq == doctest::Approx(868.1));
+}
+
+TEST_CASE("dual-layer freq: a layer with freq_mhz==0 does NOT retune (inherits the boot/global freq)") {
+    StubHal hal; Node node(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;  cfg.layers[0].freq_mhz = 868.1;
+    cfg.layers[1] = good_layer(2, 9); cfg.layers[1].node_id = 12; cfg.layers[1].freq_mhz = 0.0;   // inherit
+    CHECK(node.on_init(cfg));                                              // leaf 0 -> 868.1
+    CHECK(hal.last_set_rx_freq == doctest::Approx(868.1));
+    DualLayerTestAccess::activate(node, 1);                                // leaf 1 freq 0 -> NO retune
+    CHECK(hal.last_set_rx_freq == doctest::Approx(868.1));                 // unchanged
+}
+
 TEST_CASE("dual-layer beacon: a gateway ADVERTISES its window schedule — one record/leaf, receiver-anchored countdown (Slice 3e)") {
     StubHal hal; hal._now = 10000;
     Node node(hal, /*id*/ 1, 0x1);
@@ -620,11 +689,95 @@ TEST_CASE("dual-layer beacon: a node LEARNS a gateway's schedule + defers its RT
     // 3) at the heard instant the gateway is on leaf 1 (our leaf) -> reachable now (defer 0).
     CHECK(DualLayerTestAccess::gw_defer(rx, /*gw_node_id*/ 5) == 0);
     // 4) advance 8000ms — the gateway has moved to the foreign leaf -> defer until our window comes around:
-    //    our-leaf phase 8000 >= window 7500 -> defer = period(15000) - 8000 + guard(100) = 7100.
+    //    our-leaf phase 8000 >= window 7500 -> defer = period(15000) - 8000 + guard. The booted gateway has <3
+    //    neighbours -> advertises nibble 0 (SPARSE) -> guard = 100 + sparse_bonus(200) = 300 -> 15000-8000+300 = 7300.
     rhal._now = 58000;
-    CHECK(DualLayerTestAccess::gw_defer(rx, 5) == 7100);
+    CHECK(DualLayerTestAccess::gw_defer(rx, 5) == 7300);
     // an UNKNOWN gateway -> no schedule -> send now.
     CHECK(DualLayerTestAccess::gw_defer(rx, 99) == 0);
+}
+
+// §3e herd-spread (Lua gateway_spread_nibble dv:1692): a gateway sizes a 0..15 spread hint from its 1-hop herd.
+TEST_CASE("§3e herd-spread: gateway_spread_nibble sizes from the 1-hop herd; < gateway_herd_min advertises 0") {
+    StubHal hal; Node gw(hal, /*id*/ 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
+    cfg.layers[1] = good_layer(2, 8); cfg.layers[1].node_id = 12;       // equal SF -> 7500/7500 windows
+    CHECK(gw.on_init(cfg));
+    CHECK(DualLayerTestAccess::direct_neighbors(gw) == 0);
+    CHECK(DualLayerTestAccess::spread_nibble(gw) == 0);                 // empty herd -> 0
+    DualLayerTestAccess::add_direct_neighbor(gw, 30);
+    DualLayerTestAccess::add_direct_neighbor(gw, 31);
+    CHECK(DualLayerTestAccess::spread_nibble(gw) == 0);                 // herd 2 < min 3 -> still 0
+    DualLayerTestAccess::add_direct_neighbor(gw, 32);
+    DualLayerTestAccess::add_direct_neighbor(gw, 33);
+    DualLayerTestAccess::add_direct_neighbor(gw, 34);
+    CHECK(DualLayerTestAccess::direct_neighbors(gw) == 5);
+    // herd 5 >= min -> nonzero, and equals the formula over the COMPUTED exchange airtime × the slack factor (default 2):
+    //   frac = min(herd·exchange·slack, window)/window ; nibble = round(frac·15).
+    const uint32_t E = DualLayerTestAccess::exchange_airtime(gw);
+    const uint8_t slack = 2;                                            // cfg default
+    uint64_t frac_num = static_cast<uint64_t>(5) * E * slack; if (frac_num > 7500) frac_num = 7500;
+    const uint8_t expected = static_cast<uint8_t>((frac_num * 15 + 7500 / 2) / 7500);
+    CHECK(DualLayerTestAccess::spread_nibble(gw) > 0);
+    CHECK(DualLayerTestAccess::spread_nibble(gw) == expected);
+}
+
+// §3e slack: the herd-spread unit is exchange_airtime × gw_herd_slack — the bare airtime under-spreads (collision-unsafe),
+// so the slack restores the headroom. A larger slack -> a larger (or equal, if clamped) nibble.
+TEST_CASE("§3e herd-spread: gw_herd_slack scales the advertised nibble (default 2; cfg-tunable)") {
+    auto nib_for_slack = [](uint8_t slack) {
+        StubHal hal; Node gw(hal, /*id*/ 1, 0x1);
+        NodeConfig cfg; cfg.n_layers = 2; cfg.gw_herd_slack = slack;
+        cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
+        cfg.layers[1] = good_layer(2, 8); cfg.layers[1].node_id = 12;
+        gw.on_init(cfg);
+        for (uint8_t d = 30; d < 34; ++d) DualLayerTestAccess::add_direct_neighbor(gw, d);   // herd 4 (>= min 3)
+        return DualLayerTestAccess::spread_nibble(gw);
+    };
+    const uint8_t n1 = nib_for_slack(1), n2 = nib_for_slack(2), n4 = nib_for_slack(4);
+    CHECK(n1 > 0);                                                      // herd 4 with slack 1 still spreads a little
+    CHECK(n2 >= n1);                                                    // more slack -> >= spread (monotonic up to the 15 clamp)
+    CHECK(n4 >= n2);
+    CHECK(n4 > n1);                                                     // 4x slack genuinely widens the spread
+}
+
+// §3e: the per-exchange airtime is COMPUTED (RTS+CTS+gap+DATA+ACK via airtime_ms), not the Lua's fixed 600ms — and it
+// includes the CTS->DATA SF-retune gap. DATA len = the rolling mean of payloads passed (bootstrap until the first send).
+TEST_CASE("§3e exchange airtime: RTS+CTS+cts_gap+DATA+ACK via airtime_ms; DATA len from the rolling payload mean") {
+    StubHal hal; Node gw(hal, /*id*/ 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
+    cfg.layers[1] = good_layer(2, 8); cfg.layers[1].node_id = 12;
+    CHECK(gw.on_init(cfg));
+    // pre-sample: DATA len = the bootstrap assumption (64). Re-derive the composition from the airtime_ms PRIMITIVE.
+    const uint32_t bw = cfg.radio_bw_hz; const uint8_t cr = cfg.radio_cr;
+    const uint16_t pre = 8 + protocol::gateway_herd_assumed_payload_bytes;        // DATA_HDR_LEN(8) + 64
+    const uint32_t expect_pre = meshroute::airtime_ms(8, bw, cr, protocol::preamble_sym, 8)   // RTS
+                              + meshroute::airtime_ms(8, bw, cr, protocol::preamble_sym, 4)   // CTS
+                              + protocol::cts_to_data_gap_ms                                  // the SF-retune gap
+                              + meshroute::airtime_ms(8, bw, cr, protocol::preamble_sym, pre) // DATA @ max_data_sf (8)
+                              + meshroute::airtime_ms(8, bw, cr, protocol::preamble_sym, 4);  // ACK
+    CHECK(DualLayerTestAccess::exchange_airtime(gw) == expect_pre);
+    CHECK(DualLayerTestAccess::exchange_airtime(gw) > protocol::cts_to_data_gap_ms);          // the gap is genuinely included
+}
+
+// §3e herd-spread apply (Lua gateway_schedule_defer_ms dv:5072): a sender deferring to a window adds capped jitter.
+TEST_CASE("§3e herd-spread: a deferred send adds capped herd-jitter when the gateway advertises nibble>0") {
+    StubHal hal; hal._now = 50000;
+    Node rx(hal, /*id*/ 7, 0x7777u);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+    CHECK(rx.on_init(cfg));
+    DualLayerTestAccess::store_gw_sched_nibble(rx, /*gw*/ 5, /*leafA*/ 1, /*leafB*/ 2, /*nib*/ 15);   // heard at 50000
+    hal._now = 58000;                                                   // our-leaf phase 8000 >= window 7500 -> defer
+    // DENSE (nibble>0): guard = base 100 (no sparse bonus). base defer = 15000 - 8000 + 100 = 7100. best_window = 7500.
+    // jmax = (15/15)*7500 = 7500; cap = min(7500 - 2*600, 60%*7500) = min(6300, 4500) = 4500.
+    hal._rand_ret = 1000;                                               // jitter draw = 1000 (< jmax)
+    CHECK(DualLayerTestAccess::gw_defer(rx, 5) == 7100 + 1000);
+    hal._rand_ret = 999999;                                            // rand(0,jmax) half-open -> clamped to jmax-1 = 4499
+    CHECK(DualLayerTestAccess::gw_defer(rx, 5) == 7100 + 4499);
+    hal._rand_ret = -1;                                                // no forced rand -> draw 0 -> base only
+    CHECK(DualLayerTestAccess::gw_defer(rx, 5) == 7100);
 }
 
 TEST_CASE("dual-layer beacon: the ACTIVE leaf advertises countdown 0 even MID-window (Slice 3e F-A)") {
@@ -1234,7 +1387,8 @@ TEST_CASE("dual-layer send: an RTS to a time-multiplexing gateway DEFERS to its 
     tx.on_recv(ghal.last_tx, ghal.last_tx_len, meta);
     CHECK(tx.rt_count() >= 1);                  // a route to G (id 5) installed from its beacon
 
-    // 3) advance so G is on its FOREIGN leaf (deaf to us): heard at 50000, at +8000 the defer is 7100 ms.
+    // 3) advance so G is on its FOREIGN leaf (deaf to us): heard at 50000, at +8000 the defer is 7300 ms (G has 0
+    //    neighbours -> advertises spread nibble 0 = SPARSE -> guard = 100 + sparse_bonus(200); 15000-8000+300 = 7300).
     hal._now = 58000;
     hal.last_tx_len = 0;
     const char* body = "hi!";
@@ -1247,8 +1401,8 @@ TEST_CASE("dual-layer send: an RTS to a time-multiplexing gateway DEFERS to its 
     CHECK(hal.last_tx_len == 0);
     CHECK(r.queue_depth == 1);
 
-    // 4) G's leaf-1 (= our) window re-opens at +15100 (period 15000 + the 100 ms guard) -> the queue wakeup fires the RTS.
-    hal._now = 65100;
+    // 4) G's leaf-1 (= our) window re-opens at the deferred wakeup 58000+7300 = 65300 -> the queue wakeup fires the RTS.
+    hal._now = 65300;
     DualLayerTestAccess::pump(tx);              // become_free (the kQueueWakeupTimerId handler)
     CHECK(tx.has_pending_tx());                 // flight now live -> the held DM went out
     CHECK(hal.last_tx_len > 0);                 // an RTS hit the wire
@@ -1375,11 +1529,21 @@ TEST_CASE("§gateway parse_gateway_cmd — a valid line fills both leaves; valid
 }
 TEST_CASE("§gateway parse_gateway_cmd — order-independent tokens + optionals") {
     GatewayProvision g{};
-    CHECK(parse_gateway_cmd("period=20000 l1=5:11:9:7 gateway_only=1 l0=4:10:8:7,9,10", g) == GwParseErr::ok);
+    CHECK(parse_gateway_cmd("period=20000 l1=5:11:9:7 gateway_only=1 l0=4:10:8:7,9,10 freq0=868.1 freq1=869.5", g) == GwParseErr::ok);
     CHECK(g.l0.window_period_ms == 20000); CHECK(g.l1.window_period_ms == 20000);
     CHECK(g.l0.allowed_sf_bitmap == ((1u << 7) | (1u << 9) | (1u << 10)));
     CHECK(g.l1.allowed_sf_bitmap == (1u << 7));
     CHECK(g.gateway_only == true);
+    CHECK(g.l0.freq_mhz == doctest::Approx(868.1));
+    CHECK(g.l1.freq_mhz == doctest::Approx(869.5));
+}
+TEST_CASE("§gateway parse_gateway_cmd — freq0/freq1 are optional; omitted => 0 (inherit), non-positive => bad_freq") {
+    GatewayProvision g{};
+    CHECK(parse_gateway_cmd("l0=4:10:8:7,9 l1=5:11:9:7,9", g) == GwParseErr::ok);     // omitted
+    CHECK(g.l0.freq_mhz == doctest::Approx(0.0));                                     // 0 = inherit at apply
+    CHECK(g.l1.freq_mhz == doctest::Approx(0.0));
+    CHECK(parse_gateway_cmd("l0=4:10:8:7,9 l1=5:11:9:7,9 freq0=0", g)    == GwParseErr::bad_freq);   // must be > 0 if present
+    CHECK(parse_gateway_cmd("l0=4:10:8:7,9 l1=5:11:9:7,9 freq1=-1", g)   == GwParseErr::bad_freq);
 }
 TEST_CASE("§gateway parse_gateway_cmd — error matrix; the 1..16 reservation is NOT enforced") {
     GatewayProvision g{};

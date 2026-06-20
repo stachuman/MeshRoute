@@ -61,6 +61,10 @@ void DeviceHal::set_rx_sf(int sf) {
     _radio.set_rx_sf(sf);
 }
 
+void DeviceHal::set_rx_freq(double mhz) {
+    if (mhz > 0.0) _radio.set_rx_freq(mhz);          // 0/neg = inherit (core already skips; guard the HAL too)
+}
+
 uint64_t DeviceHal::channel_busy_until() {
     // LBT: a CAD/RSSI hit reads as busy for a conservative hold so the Node's LBT defers past it. DRIFT:
     // real SX1262 CAD instead of the sim's airtime-derived busy estimate (the sensing is more accurate).

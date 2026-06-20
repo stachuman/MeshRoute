@@ -44,6 +44,8 @@ struct LayerConfig {
                                           // Slice 3: STATIC (provisioned via cfg/NV); live DAD deferred to the join workstream.
     uint8_t  routing_sf        = 0;       // 0 = unset (REQUIRED per layer)
     uint16_t allowed_sf_bitmap = 0;       // allowed DATA-SF set; 0 = unset/no-data-SF (REQUIRED per layer)
+    double   freq_mhz          = 0.0;     // per-layer RF carrier; 0 = inherit the node's boot/global freq. A layer
+                                          // is a (freq, SF, leaf) channel — the gateway retunes freq on a window switch.
     uint32_t beacon_period_ms  = 900000;
     uint32_t window_period_ms  = 15000;   // the full layer0->layer1 cycle (§3.2 default; cfg-overridable)
     uint32_t window_ms         = 0;       // this layer's presence in the cycle; 0 = DERIVE SF-weighted (§4)
@@ -66,7 +68,7 @@ GwValErr validate_gateway_layers(LayerConfig& l0, LayerConfig& l1, uint32_t radi
 // window checks are validate_gateway_layers' job (the caller runs it after a clean parse).
 enum class GwParseErr : uint8_t {
     ok = 0, missing_l0, missing_l1, bad_l0, bad_l1, bad_leaf, bad_node, bad_ctrl_sf, bad_data_sf,
-    bad_period, bad_window, bad_beacon, unknown_opt
+    bad_period, bad_window, bad_beacon, bad_freq, unknown_opt
 };
 struct GatewayProvision {
     LayerConfig l0{};            // filled: layer_id, node_id, routing_sf, allowed_sf_bitmap (+ window_* after validate-derive)
@@ -74,7 +76,7 @@ struct GatewayProvision {
     bool gateway_only = false;
     uint32_t beacon_ms = 0;      // optional `beacon=`; 0 = UNSPECIFIED -> caller preserves the existing per-layer cadence
 };
-// Parse "l0=<leaf>:<node>:<ctrl_sf>:<data_sfs> l1=… [period=ms] [win0=ms:off] [win1=ms:off] [beacon=ms] [gateway_only=0|1]"
+// Parse "l0=<leaf>:<node>:<ctrl_sf>:<data_sfs> l1=… [period=ms] [win0=ms:off] [win1=ms:off] [beacon=ms] [freq0=MHz] [freq1=MHz] [gateway_only=0|1]"
 // into `out` (l0/l1 LayerConfigs + opts). Per-field ranges only: leaf 1..255, node 1..254 (the `1..16` gateway
 // reservation is NOT enforced here — Join-time), ctrl_sf 5..12, non-empty data SFs. The cross-layer/nibble/window
 // gate is validate_gateway_layers (run by the caller). Pure: no Serial/NV. `out` is fully overwritten on ok.
@@ -138,6 +140,11 @@ struct NodeConfig {
     //   (a NEW gateway / two-layer link-up must be discoverable). Both configurable; 5% / 3 h defaults.
     uint8_t  gw_announce_duty_pct       = 5;          // % OF the duty budget (e.g. 5% of a 10% duty = 0.5% airtime)
     uint32_t gw_announce_min_interval_ms = 10800000;  // 3 h floor between unsolicited steady-state announcements
+    // §3e herd-spread slack: the herd-jitter spread (and its window-tail headroom) is sized as exchange_airtime_ms() ×
+    // this factor. The bare exchange airtime is collision-UNSAFE for uniform-random placement (N senders back-to-back
+    // still birthday-collide); the slack supplies the headroom (the Lua's fixed 600ms was airtime ≈358ms × ~1.7 of
+    // implicit slack). Default 2; cfg-tunable. 1 = bare airtime (no slack), 0 treated as 1.
+    uint8_t  gw_herd_slack             = 2;
     uint16_t originator_max_per_window = 6;      // R4.4 anti-spam: apparent_origination drop threshold (T-class)
     uint16_t originator_self_cap_per_window = 20; // Inc 4 self-cap: max OWN originations/window before defer (calibrated > s18 heaviest 7; SEPARATE from the above so tests setting that low don't false-defer)
     uint32_t beacon_silence_jitter_ms  = 10000;  // R4.3 adaptive-throttle deferred-TX spread (dv:921)
@@ -284,6 +291,7 @@ struct GatewaySchedule {
     uint8_t  gw_node_id = 0;          // the gateway's node_id on the leaf we heard it = the RTS target
     uint64_t heard_ms   = 0;
     uint32_t period_ms  = 0;
+    uint8_t  spread_nibble = 0;       // §3e herd-spread hint (0..15) advertised by the gateway; sizes the sender's herd-jitter
     uint8_t  n_rec      = 0;
     struct Rec { uint8_t leaf_id = 0; uint32_t window_ms = 0; uint32_t offset_ms = 0; } rec[2];
 };
@@ -403,7 +411,7 @@ public:
     // A heard 1-hop gateway's stored window schedule (nullptr if none known) + the ms to defer an RTS to its window.
     // For the `routes` console dump: surface a gateway route's unique state (period / per-leaf windows / heard-age).
     const GatewaySchedule* rt_gateway_schedule(uint8_t gw_node_id) const { return find_gw_schedule(gw_node_id); }
-    uint32_t          rt_gateway_defer_ms(uint8_t gw_node_id) const       { return gateway_schedule_defer_ms(gw_node_id); }
+    uint32_t          rt_gateway_defer_ms(uint8_t gw_node_id) const       { return gateway_schedule_base_defer_ms(gw_node_id, nullptr); }  // base (no jitter) — stable display
     void              rt_resort_for_pick(uint8_t dest) { refresh_route_order(dest, "test_pick"); }   // test: force the pick-time re-sort (freshness/penalty applied)
     size_t            test_build_suspect_ext(uint8_t* out, size_t cap) { return build_suspect_ext(out, cap); }                 // §P4 test: drive the gossip encoder
     void              test_apply_suspect_gossip(const SuspectEntry* e, uint8_t n, uint8_t src) { apply_suspect_gossip(e, n, src); }   // §P4 test: drive the gossip apply
@@ -734,9 +742,14 @@ private:
     void     maybe_emit_gateway_beacon();                         // Slice 3d: per-leaf beacon at window-activation (if the active leaf is due)
     bool     gateway_announce_has_headroom() const;               // rolling airtime < gw_announce_duty_pct % of the duty budget
     void     set_window_anchors(uint8_t active_leaf);             // Slice 3e: refresh each leaf's _next_open_ms (the countdown anchor)
+    void     window_grid_now(uint8_t* active_leaf, uint32_t* ms_to_boundary) const;  // Slice 3d GRID: which leaf is active now + ms to its close
     void     store_gateway_schedule(const GatewaySchedule& gs);   // Slice 3e.2: remember a heard gateway's schedule (evict-oldest)
     const GatewaySchedule* find_gw_schedule(uint8_t gw_node_id) const;
-    uint32_t gateway_schedule_defer_ms(uint8_t gw_node_id) const; // Slice 3e.2: ms to defer an RTS so it hits the gateway's window on OUR leaf
+    uint32_t gateway_schedule_base_defer_ms(uint8_t gw_node_id, uint32_t* out_jmax) const;  // PURE: base defer + jitter range (no RNG draw)
+    uint32_t gateway_schedule_defer_ms(uint8_t gw_node_id);       // Slice 3e.2 SEND path: base + herd-jitter draw (NON-const: draws RNG)
+    uint8_t  count_direct_neighbors() const;                     // §3e herd sizing: rt entries whose primary candidate is 1-hop
+    uint8_t  gateway_spread_nibble() const;                      // §3e: this gateway's 0..15 herd-spread hint (Lua dv:1692)
+    uint32_t exchange_airtime_ms() const;                        // §3e: RTS+CTS+gap+DATA+ACK airtime (DATA len = rolling mean)
     // Gateway-doorstep hold (Lua gateway_doorstep_hold@6351): an RTS/ACK timeout to a known gateway —
     // patient window-aware requeue instead of the generic cascade. Returns true if consumed.
     bool     gateway_doorstep_hold();
@@ -821,6 +834,9 @@ private:
     bool     _triggered_beacon_pending = false;  // coalesce: gates BEFORE the rand draw
     uint64_t _last_beacon_tx_ms = 0;
     uint64_t _duty_cycle_budget_ms = 0;          // R4.0: floor(duty_cycle*window), derived in on_init; 0 = disabled
+    uint16_t _dm_payload_mean = 0;               // §3e: EWMA (alpha 5/16) of DATA payloads we pass; 0 = no sample (use assumption)
+    uint64_t _window_epoch_ms = 0;               // Slice 3d GRID: the absolute anchor (boot instant = leaf-0's first window open).
+                                                 // Switch times live on the grid epoch + k·period (+window0); a busy slip never ratchets it.
     // R4.3 adaptive-throttle witnesses (channel-busy detector). Pure timestamps, no rand.
     uint64_t _last_rx_routing_sf_ms = 0;         // any successful decode OR preamble-detect (dv:9164/12231); 0 = never
     uint64_t _last_rx_bcn_ms        = 0;         // last beacon ingest (the max-idle B+C filter; dv:9559)
