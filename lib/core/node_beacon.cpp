@@ -377,16 +377,23 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (b.config_hash != 0) {                             // config_hash==0 = NO fingerprint advertised (unprovisioned/pre-R6.1
                                                           // peer; BLAKE2b never yields 0, so a real configured node always
                                                           // advertises non-zero) -> peer by leaf nibble (legacy), no config gate.
-        const uint32_t my_lineage = _cfg.lineage_id;
-        const uint32_t my_hash    = cfg_config_hash();
-        if (my_lineage == 0 || b.lineage_id == 0) {       // UNMANAGED leaf (either side) -> legacy: peer iff config matches (§6.2 backward-compat)
+        const uint16_t my_lineage = _cfg.lineage_id;
+        const uint16_t my_hash    = cfg_config_hash();
+        if (my_lineage == 0 && b.lineage_id == 0) {       // BOTH UNMANAGED -> legacy: peer iff config matches (§6.2 backward-compat)
             if (b.config_hash != my_hash) {
                 MR_EMIT("leaf_config_conflict", EF_I("src", b.src), EF_I("their_hash", static_cast<int64_t>(b.config_hash)),
                         EF_I("my_hash", static_cast<int64_t>(my_hash)));
                 return;                                   // divergent config on an unmanaged leaf -> do NOT peer
             }
+        } else if (my_lineage == 0 && b.lineage_id != 0) {  // R6.2: I'm UNMANAGED, neighbour is a MANAGED member of this leaf ->
+            if (_node_id != 0) {                            //   JOIN it: adopt the lineage as target (un-synced: epoch stays 0) + PULL its config.
+                _cfg.lineage_id = b.lineage_id;             //   (need an id first to receive the routed CONFIG_ANSWER.)
+                MR_EMIT("leaf_join_pull", EF_I("src", b.src), EF_I("lineage", b.lineage_id));
+                send_config_pull(b.src, b.lineage_id, 0);
+            }
+            return;                                       // not a member yet -> don't peer
         } else if (b.lineage_id != my_lineage) {
-            return;                                       // foreign managed leaf -> ignore (self-isolating)
+            return;                                       // foreign managed lineage (or neighbour unmanaged while I'm managed) -> ignore
         } else if (b.config_epoch == _cfg.config_epoch) {
             if (b.config_hash != my_hash) {               // same epoch, different hash -> §4.1 concurrent-write conflict
                 MR_EMIT("leaf_config_conflict", EF_I("src", b.src), EF_I("epoch", _cfg.config_epoch),
@@ -394,9 +401,10 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                 return;                                   // don't peer while the conflict persists (R6.3 resolves by key tiebreak)
             }
             // same lineage + same (epoch, hash) -> peer (fall through)
-        } else if (b.config_epoch > _cfg.config_epoch) {  // neighbour is newer -> I'm stale; the PULL is R6.2
+        } else if (b.config_epoch > _cfg.config_epoch) {  // neighbour is NEWER -> I'm stale -> PULL the newer config (R6.2)
             MR_EMIT("leaf_stale", EF_I("src", b.src), EF_I("my_epoch", _cfg.config_epoch), EF_I("their_epoch", b.config_epoch));
-            return;                                       // don't peer on the diverging config (adopt-via-PULL lands in R6.2)
+            send_config_pull(b.src, my_lineage, _cfg.config_epoch);
+            return;                                       // don't peer on the diverging config until adopted
         } else {
             return;                                       // neighbour is older -> ignore (it heals later)
         }

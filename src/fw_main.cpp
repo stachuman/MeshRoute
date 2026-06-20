@@ -1351,6 +1351,21 @@ void loop() {
                        Serial.println(pu.dst ? F(" (auth)") : F(" (cached)")); }
                 break;
             }
+            case meshroute::PushKind::config_adopted: {   // R6.2: a pulled leaf config was adopted -> persist to NV
+                const meshroute::NodeConfig& nc = g_node.config();
+                mrnv::Blob b{};
+                if (mrnv::load(b)) {
+                    b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch;
+                    b.allowed_sf_bitmap = nc.allowed_sf_bitmap; b.duty = nc.duty_cycle;
+                    b.leaf_name_len = nc.leaf_name_len;
+                    for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
+                    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
+                    mrnv::save(b);
+                }
+                Serial.print(F("LEAF-CONFIG adopted lineage=")); Serial.print(nc.lineage_id);
+                Serial.print(F(" epoch=")); Serial.println(nc.config_epoch);
+                break;
+            }
         }
         // BLE companion: the structured NDJSON twin of the plain-text line above (design doc §4). The ring is
         // drained ONCE here and fanned to both sinks — formatting + TX happen only when a phone is connected,

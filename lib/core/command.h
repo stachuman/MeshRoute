@@ -89,10 +89,11 @@ enum class PushKind : uint8_t {
                    // dst = authoritative?1:0, body[0..3] = the queried key_hash32 (LE, 4 B)
     peer_key_cached, // E2E §7: a recipient's pubkey was learned (on-air answer / cache-on-pass) -> the app can
                      //   resend an encrypted DM. sender_hash = the cached key_hash32; pinned=false (on-air, TOFU).
+    config_adopted,  // R6.2: a CONFIG_ANSWER was adopted (lineage/epoch/sf_list/duty/name changed) -> device persists to NV.
 };
 // E2E §5: why a send_failed Push fired, so the app reacts (no_pubkey -> offer Request-key/Scan-QR; the permanent
 // reasons -> plain fail). Mirrors the contract `send_failed.reason`. `none` = a non-send_failed push.
-enum class SendFailReason : uint8_t { none = 0, no_pubkey, no_identity, too_large, bad_rng, no_route };
+enum class SendFailReason : uint8_t { none = 0, no_pubkey, no_identity, too_large, bad_rng, no_route, joining };   // R6.2: joining = un-synced managed leaf
 struct Push {
     PushKind kind = PushKind::msg_recv;
     SendFailReason reason = SendFailReason::none;   // send_failed only (else none)

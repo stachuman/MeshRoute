@@ -2,6 +2,7 @@
 #pragma once
 #include <cstdint>
 #include <cstddef>
+#include "protocol_constants.h"   // protocol::leaf_name_max (ConfigAnswer buffer)
 
 #ifndef MESHROUTE_NS
 #define MESHROUTE_NS meshroute   // Slice 5 faithful two-lib: gateway variant compiles with -DMESHROUTE_NS=meshroute_gw
@@ -17,5 +18,19 @@ namespace MESHROUTE_NS {
 // duty_ppm = round(duty_cycle * 1e6); leaf_name_len is clamped to leaf_name_max.
 uint16_t leaf_config_hash(uint16_t allowed_sf_bitmap, uint32_t duty_ppm,
                           const char* leaf_name, uint8_t leaf_name_len);
+
+// R6.2 CONFIG_ANSWER body (the DATA TYPE 6 payload a member sends to a puller). Layout (LE):
+//   [lineage u16][config_epoch u16][allowed_sf_bitmap u16][duty_ppm u32][leaf_name_len u8][leaf_name ...]
+// The puller adopts the whole tuple. Fixed prefix = 11 B + name. Max = 11 + leaf_name_max.
+struct ConfigAnswer {
+    uint16_t lineage_id = 0;
+    uint16_t config_epoch = 0;
+    uint16_t allowed_sf_bitmap = 0;
+    uint32_t duty_ppm = 0;
+    uint8_t  leaf_name_len = 0;
+    char     leaf_name[protocol::leaf_name_max] = {};
+};
+size_t pack_config_answer(const ConfigAnswer& in, uint8_t* out, size_t cap);   // bytes written, 0 on short buf
+bool   parse_config_answer(const uint8_t* body, size_t len, ConfigAnswer& out); // false on malformed
 
 }  // namespace MESHROUTE_NS

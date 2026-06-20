@@ -247,14 +247,18 @@ std::optional<nack_out> parse_nack(std::span<const uint8_t> frame);
 //   byte 3 : opcode(7..6) | mobile(bit 5) | rsv(4..0)
 //   [CHANNEL_PULL only] byte 4: count ; then count × channel_msg_id (4 B BIG-ENDIAN)
 // channel_msg_id is BE (distinct from the LE key_hash32 elsewhere) — keep it BE.
-enum class q_opcode : uint8_t { req_sync = 1, channel_pull = 3 };
+enum class q_opcode : uint8_t { req_sync = 1, config_pull = 2, channel_pull = 3 };   // R6.2: config_pull (2-bit opcode; 2 was free)
 struct q_in {
     uint8_t leaf_id; uint8_t src; uint8_t dest; q_opcode opcode; bool mobile;
     std::span<const uint32_t> channel_ids;   // only for channel_pull; else empty
+    uint16_t pull_lineage = 0;               // R6.2 config_pull: the lineage the puller wants
+    uint16_t pull_epoch   = 0;               // R6.2 config_pull: the epoch the puller has (0 = fresh joiner)
 };
 struct q_out {
     uint8_t leaf_id; uint8_t src; uint8_t dest; uint8_t opcode; bool mobile;
     uint8_t channel_id_count;                // 0 unless channel_pull
+    uint16_t pull_lineage;                    // R6.2: valid iff opcode==config_pull
+    uint16_t pull_epoch;
 };
 size_t pack_q(const q_in& in, std::span<uint8_t> out);   // 4, or 5+4N for pull; 0 on short buf / N>255
 std::optional<q_out> parse_q(std::span<const uint8_t> frame);
@@ -343,6 +347,7 @@ size_t pack_j_deny    (const j_deny_in&     in, std::span<uint8_t> out);   // 15
 // wrong EXACT length for the opcode.
 struct j_out {
     uint8_t  leaf_id; bool gateway_capable; bool is_mobile; uint8_t opcode;
+    uint8_t  wire_version;                                                     // R6.2 §5.2 (byte-1 rsv nibble)
     uint32_t key_hash32;                                                       // DISCOVER, CLAIM
     uint8_t  responder_node_id; uint32_t responder_key_hash32; uint8_t data_sf_bitmap;  // OFFER
     uint8_t  proposed_node_id; uint16_t lease_age_seconds; uint8_t claim_epoch; uint8_t nonce;  // CLAIM
@@ -407,6 +412,7 @@ enum DataType : uint8_t {
     DATA_TYPE_E2E_ACK                = 3,   // normal-unicast inner; body = the acked ctr (2 B LE)
     DATA_TYPE_H_ANSWER_PUBKEY               = 4,   // E2E §6: RESERVED (overheard/soft pubkey answer) — NOT emitted in v1
     DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY = 5,   // E2E §6: the owner's pubkey answer — inner [target_layer][node_id][ed_pub 32]
+    DATA_TYPE_CONFIG_ANSWER                 = 6,   // R6.2: routed answer to a CONFIG_PULL; body = leaf config (see leaf_config.h)
 };
 
 struct data_in {

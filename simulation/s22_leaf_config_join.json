@@ -1,0 +1,132 @@
+{
+ "_name": "s22_leaf_config_join",
+ "_desc": "R6.2: a fresh node J (lineage 0) joins a running MANAGED leaf (M1/M2, lineage 41153 epoch 1) by hearing a beacon -> CONFIG_PULL -> CONFIG_ANSWER -> adopt -> synced -> delivers on the learned SF [7,9]. Gate: leaf_config_adopted{J}, J->M1 delivers, M1->M2 (managed baseline) delivers.",
+ "simulation": {
+  "duration_ms": 700000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "beacon_period_ms": 60000,
+  "seed": 42,
+  "node_startup_jitter_ms": 5000,
+  "radio": {
+   "sf": 8,
+   "bw": 125,
+   "cr": 5,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 0.1
+  }
+ },
+ "config": {},
+ "nodes": [
+  {
+   "name": "M1",
+   "node_id": 1,
+   "engine": "meshroute",
+   "lat": 47.6,
+   "lon": -122.33,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "lineage_id": 41153,
+    "config_epoch": 1
+   }
+  },
+  {
+   "name": "M2",
+   "node_id": 2,
+   "engine": "meshroute",
+   "lat": 47.6,
+   "lon": -122.33,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "lineage_id": 41153,
+    "config_epoch": 1
+   }
+  },
+  {
+   "name": "J",
+   "node_id": 3,
+   "engine": "meshroute",
+   "lat": 47.6,
+   "lon": -122.33,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     12
+    ]
+   }
+  }
+ ],
+ "topology": {
+  "links": [
+   {
+    "from": "M1",
+    "to": "M2",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "M1",
+    "to": "J",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "M2",
+    "to": "M1",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "M2",
+    "to": "J",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "J",
+    "to": "M1",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "J",
+    "to": "M2",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   }
+  ]
+ },
+ "commands": [
+  {
+   "at_ms": 200000,
+   "node": "M1",
+   "command": "send M2 p1 M1->M2-managed"
+  },
+  {
+   "at_ms": 500000,
+   "node": "J",
+   "command": "send M1 p1 J->M1-after-join"
+  }
+ ]
+}

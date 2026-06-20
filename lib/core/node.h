@@ -621,6 +621,9 @@ private:
     // Q REQ_SYNC plane (boot route-bootstrap) — node_query.cpp.
     void    req_sync_loop_fire();                                  // kReqSyncTimerId: send + re-arm while discovery+starved (dv:9167)
     void    send_req_sync_q(const char* reason);                   // broadcast a REQ_SYNC Q (no draw; dv:8032)
+    void    send_config_pull(uint8_t to, uint16_t lineage, uint16_t epoch);  // R6.2: 1-hop CONFIG_PULL to a heard member
+    void    send_config_answer(uint8_t to);                        // R6.2: routed DATA TYPE 6 carrying OUR leaf config
+    void    adopt_config_answer(const uint8_t* body, size_t len);  // R6.2: adopt a pulled config (cfg + recompute + persist Push)
     void    handle_q(const uint8_t* bytes, size_t len, const RxMeta& meta);   // Q RX dispatch (dv:11767)
     void    schedule_sync_response(uint8_t requester, bool requester_mobile); // jittered full-table reply (the backoff DRAW; dv:8064)
     void    sync_response_fire(uint8_t slot);                      // kSyncResponseTimerId+slot: emit_beacon("sync") unless suppressed
@@ -947,6 +950,7 @@ private:
     // keyed by a REMOTE leaf-local id (q.src / requester), so a gateway's two leaves must NOT share them
     // (Principle 5 — else node-5@leafA aliases node-5@leafB and the gateway drops one leaf's sync reply).
     uint64_t _last_req_sync_tx_ms = 0;   // self-state (our own last REQ_SYNC tx) — stays Node-global, not per-layer
+    uint64_t _last_config_pull_tx_ms = 0;   // R6.2: rate-limit our CONFIG_PULL tx
     struct QResponded { uint8_t opcode; uint8_t src; uint8_t dest; uint64_t t_ms; };
     struct SyncPending { bool active; bool suppressed; uint8_t requester; bool requester_mobile;
                          uint64_t requested_at; uint64_t fire_at; };

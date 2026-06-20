@@ -3328,3 +3328,49 @@ TEST_CASE("R6.1 peering filter — divergent leaf config is not peered; matching
     feed(a_hash, /*src*/ 3);
     CHECK(route_to(A, 3));
 }
+
+// R6.2 config-sync: (A) an unmanaged node hearing a MANAGED beacon adopts the lineage (un-synced) + CONFIG_PULLs;
+// (B) a synced member answering a CONFIG_PULL emits a CONFIG_ANSWER. (Full pull->answer->adopt->deliver = the sim gate.)
+TEST_CASE("R6.2 config-sync — unmanaged node pulls on hearing a managed beacon; a member answers") {
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    // (A) JOIN-PULL
+    TestHal hj; Node J(hj, /*id=*/7, 0x7777);
+    NodeConfig jc; jc.routing_sf = 7; jc.leaf_id = 0; jc.allowed_sf_bitmap = (1u << 12); J.on_init(jc);
+    beacon_in bin{}; bin.leaf_id = 0; bin.src = 2; bin.key_hash32 = 0x2002;
+    bin.lineage_id = 0xABCD; bin.config_epoch = 3; bin.config_hash = 0x9999;   // managed, non-zero hash
+    std::array<uint8_t, 64> bb{}; size_t bn = pack_beacon(bin, std::span<uint8_t>(bb.data(), bb.size()));
+    hj._now = 1000; J.on_recv(bb.data(), bn, meta);
+    CHECK(hj.count("config_pull_tx") >= 1);                 // J pulled the config
+    CHECK(J.config().lineage_id == 0xABCD);                 // adopted the target lineage...
+    CHECK(J.config().config_epoch == 0);                    // ...but un-synced (epoch 0) -> participation-gated until adopt
+
+    // (B) ANSWER
+    TestHal hm; Node M(hm, /*id=*/2, 0x2002);
+    NodeConfig mc; mc.routing_sf = 7; mc.leaf_id = 0; mc.allowed_sf_bitmap = (1u << 7) | (1u << 9);
+    mc.lineage_id = 0xABCD; mc.config_epoch = 3; M.on_init(mc);
+    q_in q{}; q.leaf_id = 0; q.src = 7; q.dest = 2; q.opcode = q_opcode::config_pull; q.pull_lineage = 0xABCD; q.pull_epoch = 0;
+    std::array<uint8_t, 16> qb{}; size_t qn = pack_q(q, std::span<uint8_t>(qb.data(), qb.size()));
+    hm._now = 1000; M.on_recv(qb.data(), qn, meta);
+    CHECK(hm.count("config_answer_tx") >= 1);               // a member answers the pull
+}
+
+// R6.2 §6.4 participation gate: an un-synced MANAGED node (lineage!=0, epoch 0) must NOT originate app DMs / F —
+// only CONFIG_PULL. A synced node (epoch>0) or UNMANAGED node (lineage 0) originates freely.
+TEST_CASE("R6.2 participation gate — un-synced managed node blocks app-DM origination; synced originates") {
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    // un-synced: lineage set (joining) but epoch 0 -> do_send blocked, send_failed{joining}.
+    TestHal hu; Node U(hu, /*id=*/7, 0x7777);
+    NodeConfig uc; uc.routing_sf = 7; uc.leaf_id = 0; uc.allowed_sf_bitmap = (1u << 12);
+    uc.lineage_id = 0xABCD; uc.config_epoch = 0;   // managed target, NOT yet synced
+    U.on_init(uc);
+    send_cmd(U, /*dst=*/9, "hi");
+    CHECK(hu.count("send_failed") >= 1);             // un-synced origination refused (send_failed{joining})
+    CHECK(hu.count("tx_enqueue") == 0);             // and nothing enqueued
+    // synced: same shape but epoch>0 -> originates (the DM is enqueued).
+    TestHal hs; Node S(hs, /*id=*/8, 0x8888);
+    NodeConfig sc; sc.routing_sf = 7; sc.leaf_id = 0; sc.allowed_sf_bitmap = (1u << 12);
+    sc.lineage_id = 0xABCD; sc.config_epoch = 1;    // synced member
+    S.on_init(sc);
+    send_cmd(S, /*dst=*/9, "hi");
+    CHECK(hs.count("tx_enqueue") >= 1);             // originated (enqueued)
+}

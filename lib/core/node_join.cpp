@@ -181,6 +181,10 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (!pj) return;
     const j_out& j = *pj;
     if (j.leaf_id != _cfg.leaf_id) return;                             // foreign layer
+    if (j.wire_version != protocol::wire_version) {                    // R6.2 §5.2: never join across a wire-version gap
+        MR_EMIT("j_wire_incompatible", EF_I("src_op", j.opcode), EF_I("their_ver", j.wire_version), EF_I("my_ver", protocol::wire_version));
+        return;
+    }
 
     if (j.opcode == static_cast<uint8_t>(j_opcode::claim)) {
         const uint8_t proposed = j.proposed_node_id;

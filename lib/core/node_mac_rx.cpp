@@ -534,6 +534,11 @@ void Node::do_post_ack() {
             become_free();
             return;
         }
+        if (pa.type == DATA_TYPE_CONFIG_ANSWER) {   // R6.2: a leaf-config answer to our CONFIG_PULL -> adopt (NOT a DM)
+            if (ui && !ui->body.empty()) adopt_config_answer(ui->body.data(), ui->body.size());
+            become_free();
+            return;
+        }
         if (pa.type == DATA_TYPE_E2E_ACK) {              // an end-to-end ACK for a DM we originated -> confirm, not deliver
             MR_TELEMETRY(
                 // The acked ctr: a same-layer E2E_ACK inner is [origin][ctr_lo][ctr_hi] (ctr at inner[1..2]); a 4e

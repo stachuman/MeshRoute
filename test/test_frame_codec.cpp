@@ -382,7 +382,7 @@ TEST_CASE("J DISCOVER — round-trip (key_hash32 LE) + golden") {
                 }
     std::array<uint8_t, 6> g{};
     CHECK(pack_j_discover({3, true, true, 0x11223344u}, g) == 6);
-    const uint8_t ex[] = {0x93, 0xC0, 0x44, 0x33, 0x22, 0x11};
+    const uint8_t ex[] = {0x93, 0xC1, 0x44, 0x33, 0x22, 0x11};
     for (int i = 0; i < 6; ++i) CHECK(g[i] == ex[i]);
 }
 
@@ -406,7 +406,7 @@ TEST_CASE("J OFFER — round-trip + golden") {
                     }
     std::array<uint8_t, 8> g{};
     CHECK(pack_j_offer({5, true, false, 0x2A, 0xDEADBEEFu, 0x06}, g) == 8);
-    const uint8_t ex[] = {0x95, 0xB0, 0x2A, 0xEF, 0xBE, 0xAD, 0xDE, 0x06};
+    const uint8_t ex[] = {0x95, 0xB1, 0x2A, 0xEF, 0xBE, 0xAD, 0xDE, 0x06};
     for (int i = 0; i < 8; ++i) CHECK(g[i] == ex[i]);
 }
 
@@ -428,7 +428,7 @@ TEST_CASE("J CLAIM — round-trip (LE u16 lease) + golden") {
                 }
     std::array<uint8_t, 11> g{};
     CHECK(pack_j_claim({5, false, true, 0xDEADBEEFu, 0x2A, 300, 7, 0x99}, g) == 11);
-    const uint8_t ex[] = {0x95, 0x50, 0xEF, 0xBE, 0xAD, 0xDE, 0x2A, 0x2C, 0x01, 0x07, 0x99};
+    const uint8_t ex[] = {0x95, 0x51, 0xEF, 0xBE, 0xAD, 0xDE, 0x2A, 0x2C, 0x01, 0x07, 0x99};
     for (int i = 0; i < 11; ++i) CHECK(g[i] == ex[i]);
 }
 
@@ -447,7 +447,7 @@ TEST_CASE("J DENY — round-trip (two LE key_hash32 + LE lease) + golden") {
         CHECK(o->owner_claim_epoch == 3);
         CHECK(o->reason == J_DENY_OWN_ID_DEFENSE);
     }
-    const uint8_t ex[] = {0x95, 0xA0, 0x2A, 0x44, 0x33, 0x22, 0x11,
+    const uint8_t ex[] = {0x95, 0xA1, 0x2A, 0x44, 0x33, 0x22, 0x11,
                           0xEF, 0xBE, 0xAD, 0xDE, 0xE8, 0x03, 0x03, 0x03};
     for (int i = 0; i < 15; ++i) CHECK(buf[i] == ex[i]);
 }
@@ -1590,4 +1590,31 @@ TEST_CASE("§F2 beacon_max_entries — true byte-budget cap (header + schedule +
     CHECK(beacon_max_entries(1000, 0, 0, 0) == 63);
     // overhead exceeding the frame -> 0 entries (no underflow)
     CHECK(beacon_max_entries(CAP, 0, 32, 1 + 200) == 0);
+}
+
+TEST_CASE("R6.2 Q CONFIG_PULL — round-trips lineage + epoch (8 B); truncation rejected") {
+    q_in in{}; in.leaf_id = 3; in.src = 7; in.dest = 9; in.opcode = q_opcode::config_pull;
+    in.pull_lineage = 0xBEEF; in.pull_epoch = 0x0102;
+    std::array<uint8_t, 16> buf{};
+    size_t n = pack_q(in, buf);
+    CHECK(n == 8);
+    auto o = parse_q(std::span<const uint8_t>(buf.data(), n));
+    CHECK(o.has_value());
+    if (o) { CHECK(o->opcode == static_cast<uint8_t>(q_opcode::config_pull));
+             CHECK(o->pull_lineage == 0xBEEF); CHECK(o->pull_epoch == 0x0102); }
+    CHECK_FALSE(parse_q(std::span<const uint8_t>(buf.data(), 4)).has_value());   // no lineage/epoch -> reject
+}
+
+TEST_CASE("R6.2 CONFIG_ANSWER body — round-trips the leaf config tuple") {
+    meshroute::ConfigAnswer in{};
+    in.lineage_id = 0x1234; in.config_epoch = 7; in.allowed_sf_bitmap = (1u << 7) | (1u << 9);
+    in.duty_ppm = 10000; in.leaf_name_len = 3; in.leaf_name[0]='h'; in.leaf_name[1]='u'; in.leaf_name[2]='b';
+    uint8_t buf[32]; size_t n = meshroute::pack_config_answer(in, buf, sizeof buf);
+    CHECK(n == 11 + 3);
+    meshroute::ConfigAnswer out{};
+    CHECK(meshroute::parse_config_answer(buf, n, out));
+    CHECK(out.lineage_id == 0x1234); CHECK(out.config_epoch == 7);
+    CHECK(out.allowed_sf_bitmap == ((1u << 7) | (1u << 9))); CHECK(out.duty_ppm == 10000u);
+    CHECK(out.leaf_name_len == 3); CHECK(out.leaf_name[0]=='h'); CHECK(out.leaf_name[2]=='b');
+    CHECK_FALSE(meshroute::parse_config_answer(buf, 5, out));   // truncated
 }

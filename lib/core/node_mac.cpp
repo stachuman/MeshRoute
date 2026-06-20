@@ -55,7 +55,7 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     // E2E acks, forwards) is NEVER gated — only originations.
     if (app_dm && !leaf_config_synced()) {
         MR_EMIT("send_failed", EF_I("dst", dst), EF_S("reason", "joining"));
-        Push pu{}; pu.kind = PushKind::send_failed; pu.dst = dst; pu.ctr = 0; enqueue_push(pu);
+        Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::joining; pu.dst = dst; pu.ctr = 0; enqueue_push(pu);
         return 0;
     }
     const uint16_t ctr = next_ctr(dst);
