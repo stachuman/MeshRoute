@@ -5,13 +5,14 @@
 // it runs unchanged on both HAL backends: FirmwareNode in the simulator and the
 // MeshCore-PHY device backend. Bounded, fixed-size state (no heap in hot paths).
 //
-// R1 (beacon emit): periodic §10 BCN (C5 pack_beacon) over each rt[dest] primary
-// + DV route-table merge on RX (beacon_rx / rt_update / rt_full).
-// R2 (route-plane hardening): route aging/TTL eviction, the 3-cycle prune,
-// dirty-only differential beacons + paging, the triggered beacon kind, and the
-// discovery fast-cadence state machine. The MAC/data plane (RTS/CTS/DATA/ACK) and
-// the adaptive throttle are later R-iterations. See docs/specs/2026-05-29-r1-*
-// and 2026-05-30-r2-route-hardening-design.md.
+// SCOPE (as built, 2026-06): the Node spans the FULL same-layer + cross-layer stack —
+// beacon emit + DV routing (aging/TTL prune/discovery FSM), the MAC data plane (RTS/CTS/
+// DATA/ACK/NACK + throttle/triggered/cascade/LBT/NAV), hash-locate (H), E2E DM crypto
+// (sealed-sender), node_id DAD + heal, channel gossip + flood, peer-liveness, and the
+// dual-layer gateway. The class is split across partial-class TUs (node_*.cpp).
+// The ONE unbuilt design slice is R6 leaf-config membership (lineage/epoch/config_hash
+// beacon header + CONFIG_PULL) — docs/specs/2026-06-05-identity-leaf-membership-join-design.md
+// + the R6 implementation spec. (Historical iteration docs: docs/specs/2026-05-29-r1-* / r2-*.)
 #pragma once
 #ifndef MESHROUTE_NS
 #define MESHROUTE_NS meshroute   // Slice 5 faithful two-lib: gateway variant compiles with -DMESHROUTE_NS=meshroute_gw
@@ -41,7 +42,8 @@ struct SuspectEntry;   // frame_codec.h — fwd-decl for the §P4 suspect-gossip
 struct LayerConfig {
     uint8_t  layer_id          = 0;       // FULL 8-bit id (1..255); 0 = unset. leaf_id = layer_id & 0x0F.
     uint8_t  node_id           = 0;       // per-leaf 8-bit address (independent DAD, §0.2); 0 = unprovisioned.
-                                          // Slice 3: STATIC (provisioned via cfg/NV); live DAD deferred to the join workstream.
+                                          // Slice 3: STATIC (provisioned via cfg/NV). Single-layer node_id DAD is BUILT
+                                          // (node_join.cpp); only GATEWAY per-leaf DAD stays deferred (two independent claims, undesigned).
     uint8_t  routing_sf        = 0;       // 0 = unset (REQUIRED per layer)
     uint16_t allowed_sf_bitmap = 0;       // allowed DATA-SF set; 0 = unset/no-data-SF (REQUIRED per layer)
     double   freq_mhz          = 0.0;     // per-layer RF carrier; 0 = inherit the node's boot/global freq. A layer
@@ -115,6 +117,13 @@ struct NodeConfig {
     uint32_t id_bind_ttl_ms                = protocol::id_bind_ttl_ms;                 // hash-locate binding TTL (Lua node.id_bind_ttl_ms, 48h); a gate shrinks it to exercise aging
     uint32_t quiet_threshold_ms  = 30000;        // beacon throttle gate; <=0 = unthrottled (R1 fast path)
     uint8_t  leaf_id             = 0;            // layer id (single-layer R1 = 0)
+    // R6.1 leaf-config membership: lineage_id 0 = UNMANAGED leaf (peer-by-config_hash, backward-compat); a
+    // `leaf create` mints a non-zero lineage. config_epoch is LWW (ties -> higher key_hash32). leaf_name is in the
+    // config_hash (a change re-fingerprints the leaf). config_hash itself is DERIVED (leaf_config_hash over the cfg).
+    uint16_t lineage_id          = 0;       // u16 (2026-06-20b right-size)
+    uint16_t config_epoch        = 0;
+    uint8_t  leaf_name_len       = 0;
+    char     leaf_name[protocol::leaf_name_max] = {};
     uint16_t peer_count          = 0;            // host-set (N-1); 0 = no rt_full emit (sim telemetry)
     // R2 route-aging TTLs (config-overridable so a gate can shrink them; Lua
     // reads `config.X or <constant>`). hops<=1 uses neighbor, else remote.
@@ -531,6 +540,11 @@ private:
     bool _beacon_jitter_pending[kBeaconJitterSlots] = {};          // #D: which ring slots have a deferred periodic beacon armed
     bool beacon_max_idle_force(uint64_t now, bool emit_events);    // R4.3 max-idle B+C override (dv:7734-7784)
     void ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta);
+    uint16_t cfg_config_hash() const;                             // R6.1: leaf_config_hash over THIS node's active cfg (u16)
+    // R6.1 §6.4 join-participation gate: a node may originate F/DATA only once its leaf config is "synced" — UNMANAGED
+    // (lineage 0, backward-compat, always allowed) OR managed-and-adopted (config_epoch > 0; leaf-create/CONFIG_PULL set it).
+    // An un-synced managed joiner must listen + CONFIG_PULL only (no F/DATA pollution before it's a member).
+    bool     leaf_config_synced() const { return _cfg.lineage_id == 0 || _cfg.config_epoch > 0; }
     int16_t route_score_from_snr(int16_t snr_q4) const;            // dv_dual_sf.lua:3053
     // Direct (hops=1) neighbour learning from a received frame's immediate sender — the C++
     // learn_rx_source / learn_direct_from_frame. Returns true on a real change (new/promote/

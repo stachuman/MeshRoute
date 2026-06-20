@@ -1,0 +1,195 @@
+{
+ "_name": "s21_leaf_config_divergence",
+ "_desc": "R6.1 misconfig gate: A/B/C share allowed_data_sfs [7,9] (matching config) -> peer + deliver; D diverges ([12]) -> config_hash mismatch -> A/B/C refuse to peer (leaf_config_conflict; D passively excluded, no beacon-route). Gate proof = A<->B<->C deliver 100% + leaf_config_conflict>0 + leaks==0. (D gets no send: R6.1 gates the beacon plane; AODV would route around a forced send.)",
+ "simulation": {
+  "duration_ms": 600000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "beacon_period_ms": 60000,
+  "seed": 42,
+  "node_startup_jitter_ms": 5000,
+  "radio": {
+   "sf": 8,
+   "bw": 125,
+   "cr": 5,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 0.1
+  }
+ },
+ "config": {},
+ "nodes": [
+  {
+   "name": "A",
+   "node_id": 1,
+   "engine": "meshroute",
+   "lat": 47.6,
+   "lon": -122.33,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "B",
+   "node_id": 2,
+   "engine": "meshroute",
+   "lat": 47.6,
+   "lon": -122.33,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "C",
+   "node_id": 3,
+   "engine": "meshroute",
+   "lat": 47.6,
+   "lon": -122.33,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "D",
+   "node_id": 4,
+   "engine": "meshroute",
+   "lat": 47.6,
+   "lon": -122.33,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     12
+    ]
+   }
+  }
+ ],
+ "topology": {
+  "links": [
+   {
+    "from": "A",
+    "to": "B",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "A",
+    "to": "C",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "A",
+    "to": "D",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "B",
+    "to": "A",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "B",
+    "to": "C",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "B",
+    "to": "D",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "C",
+    "to": "A",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "C",
+    "to": "B",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "C",
+    "to": "D",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "D",
+    "to": "A",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "D",
+    "to": "B",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "D",
+    "to": "C",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   }
+  ]
+ },
+ "commands": [
+  {
+   "at_ms": 300000,
+   "node": "A",
+   "command": "send B p1 A->B-match"
+  },
+  {
+   "at_ms": 360000,
+   "node": "B",
+   "command": "send C p1 B->C-match"
+  },
+  {
+   "at_ms": 420000,
+   "node": "C",
+   "command": "send A p1 C->A-match"
+  }
+ ]
+}

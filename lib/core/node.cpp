@@ -319,7 +319,7 @@ void Node::activate_layer(uint8_t i) {
     _cfg.allowed_sf_bitmap = L.allowed_sf_bitmap;
     _cfg.leaf_id           = static_cast<uint8_t>(L.layer_id & 0x0F);   // the byte-0 wire leaf filter
     _cfg.beacon_period_ms  = L.beacon_period_ms;
-    _node_id               = L.node_id;                          // the leaf's own 8-bit address (static; live DAD deferred)
+    _node_id               = L.node_id;                          // the leaf's own 8-bit address (static; GATEWAY per-leaf DAD deferred — single-layer node_id DAD is built)
     _routing_snr_floor_q4  = routing_snr_floor_for(L.routing_sf);
     _lbt_backoff_ms        = (_cfg.lbt_backoff_ms > 0) ? _cfg.lbt_backoff_ms     // SF-derived timing for the new leaf
                              : (retry_jitter_ms() / 2 > 1 ? retry_jitter_ms() / 2 : 1);

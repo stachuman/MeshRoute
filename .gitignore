@@ -28,3 +28,7 @@ compile_commands.json
 
 # Local config overrides
 platformio.local.ini
+._*
+*.map
+.claude/
+.obsidian/

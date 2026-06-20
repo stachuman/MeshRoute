@@ -73,12 +73,20 @@ struct schedule_record {
     uint8_t period_units;
 };
 
+// R6.1 leaf-config membership header: a FIXED +6-B block written right after key_hash32, before the schedule (so it
+// survives beacon_max_bytes truncation — never the cut field). FLAG-DAY: present on every beacon. Right-sized to u16×3
+// (2026-06-20b): ~256 leaves birthday-safe, 65k config writes, 1/65k missed-misconfig (honest-node-benign, §3.4).
+inline constexpr size_t BCN_LEAF_HEADER_LEN = 6;    // lineage_id(2) + config_epoch(2) + config_hash(2)
+
 struct beacon_in {
     uint8_t  leaf_id;
     bool     self_gateway;
     bool     is_mobile;
     uint8_t  src;
     uint32_t key_hash32;
+    uint16_t lineage_id   = 0;     // R6.1: 0 = UNMANAGED leaf (peer-by-config_hash, backward-compat); else the operator-minted lineage
+    uint16_t config_epoch = 0;     // R6.1: monotonic config version (LWW; ties -> higher key_hash32 canonical)
+    uint16_t config_hash  = 0;     // R6.1: BLAKE2b(sf_bitmap ‖ duty_ppm ‖ leaf_name)[:2] — the misconfig fingerprint
     uint8_t  gateway_spread_nibble;                  // schedule herd-spread (0..15)
     std::span<const schedule_record> schedule;       // empty -> has_schedule=0 (<=15)
     std::span<const beacon_entry>    entries;        // <=63
@@ -97,6 +105,7 @@ uint8_t beacon_max_entries(size_t frame_cap, size_t sched_bytes, size_t bitmap_b
 
 struct beacon_out {
     uint8_t  leaf_id; bool self_gateway; bool is_mobile; uint8_t src; uint32_t key_hash32;
+    uint16_t lineage_id; uint16_t config_epoch; uint16_t config_hash;   // R6.1 leaf-config header (u16×3 = 6 B)
     bool     has_schedule; uint8_t gateway_spread_nibble; uint8_t schedule_count;
     uint8_t  n_entries; bool has_seen_bitmap; bool has_ext;
     // byte offsets into `frame` for the accessors:
@@ -290,11 +299,13 @@ std::optional<h_out> parse_h(std::span<const uint8_t> frame);     // nullopt: le
 //            Lua F wire (which used god-view meta.src) — metal-correct, decision (b).
 // NB: is_reply is at bit 7 here (the Lua had it at byte2 bit 0) — re-placed, not bit-copied.
 struct f_in  { uint8_t leaf_id; uint8_t origin; bool is_reply; uint8_t dst_id;
-               uint8_t ttl_or_next_hop; uint8_t hops; uint8_t relay; };
+               uint8_t ttl_or_next_hop; uint8_t hops; uint8_t relay;
+               uint16_t config_hash = 0; };   // R6.1 §6.4: the leaf fingerprint — handle_f gates a divergent F (flood-bypass closure)
 struct f_out { uint8_t leaf_id; uint8_t origin; bool is_reply; uint8_t dst_id;
-               uint8_t ttl_or_next_hop; uint8_t hops; uint8_t relay; };
-size_t pack_f(const f_in& in, std::span<uint8_t> out);            // 7; 0 on short buf
-std::optional<f_out> parse_f(std::span<const uint8_t> frame);     // nullopt: len<7 / cmd
+               uint8_t ttl_or_next_hop; uint8_t hops; uint8_t relay;
+               uint16_t config_hash; };
+size_t pack_f(const f_in& in, std::span<uint8_t> out);            // 9 (7 + config_hash u16); 0 on short buf
+std::optional<f_out> parse_f(std::span<const uint8_t> frame);     // nullopt: len<9 / cmd
 
 // -----------------------------------------------------------------------------
 // J — join family (cmd-nibble 0x9) — ROADMAP §10.3. OTAA-style join + short-id

@@ -13,6 +13,7 @@
 #include "doctest.h"
 
 #include "frame_codec.h"
+#include "leaf_config.h"   // R6.1: leaf_config_hash golden + sensitivity
 #include "wire.h"
 
 #include <array>
@@ -333,33 +334,33 @@ TEST_CASE("F — RREQ/RREP round-trip + golden + is_reply isolation + reject") {
             for (bool rep : {false, true})
                 for (uint8_t b4 : {0, 9, 255})
                     for (uint8_t hops : {0, 4, 255}) {
-                        std::array<uint8_t, 7> buf{};
-                        CHECK(pack_f({leaf, origin, rep, 0x2A, b4, hops, /*relay=*/0x55}, buf) == 7);
+                        std::array<uint8_t, 9> buf{};
+                        CHECK(pack_f({leaf, origin, rep, 0x2A, b4, hops, /*relay=*/0x55, /*config_hash=*/0xABCD}, buf) == 9);
                         auto o = parse_f(buf);
                         CHECK(o.has_value());
                         if (o) {
                             CHECK(o->leaf_id == leaf); CHECK(o->origin == origin);
                             CHECK(o->is_reply == rep); CHECK(o->dst_id == 0x2A);
                             CHECK(o->ttl_or_next_hop == b4); CHECK(o->hops == hops);
-                            CHECK(o->relay == 0x55);
+                            CHECK(o->relay == 0x55); CHECK(o->config_hash == 0xABCD);   // R6.1 §6.4 fingerprint round-trips
                         }
                     }
-    std::array<uint8_t, 7> rreq{}, rrep{};
-    CHECK(pack_f({3, 0x11, false, 0x2A, 8, 0, /*relay=*/0x07}, rreq) == 7);   // RREQ: byte4 = ttl 8, byte6 = relay 7
-    const uint8_t exq[] = {0x83, 0x11, 0x00, 0x2A, 0x08, 0x00, 0x07};
-    for (int i = 0; i < 7; ++i) CHECK(rreq[i] == exq[i]);
-    CHECK(pack_f({3, 0x11, true, 0x2A, 9, 4, /*relay=*/0x07}, rrep) == 7);    // RREP: byte4 = next_hop 9
-    const uint8_t exr[] = {0x83, 0x11, 0x80, 0x2A, 0x09, 0x04, 0x07};
-    for (int i = 0; i < 7; ++i) CHECK(rrep[i] == exr[i]);
+    std::array<uint8_t, 9> rreq{}, rrep{};
+    CHECK(pack_f({3, 0x11, false, 0x2A, 8, 0, /*relay=*/0x07, /*config_hash=*/0}, rreq) == 9);   // RREQ: byte4 = ttl 8, byte6 = relay 7
+    const uint8_t exq[] = {0x83, 0x11, 0x00, 0x2A, 0x08, 0x00, 0x07, 0x00, 0x00};   // +config_hash LE (0)
+    for (int i = 0; i < 9; ++i) CHECK(rreq[i] == exq[i]);
+    CHECK(pack_f({3, 0x11, true, 0x2A, 9, 4, /*relay=*/0x07, /*config_hash=*/0}, rrep) == 9);    // RREP: byte4 = next_hop 9
+    const uint8_t exr[] = {0x83, 0x11, 0x80, 0x2A, 0x09, 0x04, 0x07, 0x00, 0x00};
+    for (int i = 0; i < 9; ++i) CHECK(rrep[i] == exr[i]);
     // is_reply isolation: same everything else → only byte2 bit 7 flips.
-    std::array<uint8_t, 7> a{}, b{};
-    CHECK(pack_f({3, 0x11, false, 0x2A, 8, 4, /*relay=*/0x07}, a) == 7);
-    CHECK(pack_f({3, 0x11, true,  0x2A, 8, 4, /*relay=*/0x07}, b) == 7);
+    std::array<uint8_t, 9> a{}, b{};
+    CHECK(pack_f({3, 0x11, false, 0x2A, 8, 4, /*relay=*/0x07, 0}, a) == 9);
+    CHECK(pack_f({3, 0x11, true,  0x2A, 8, 4, /*relay=*/0x07, 0}, b) == 9);
     CHECK((a[2] ^ b[2]) == 0x80);
     CHECK(a[0] == b[0]); CHECK(a[1] == b[1]); CHECK(a[3] == b[3]);
-    CHECK(a[4] == b[4]); CHECK(a[5] == b[5]); CHECK(a[6] == b[6]);
-    std::array<uint8_t, 6> sh{0x83, 0x11, 0x00, 0x2A, 0x08, 0x00};
-    CHECK_FALSE(parse_f(sh).has_value());                 // len < 7
+    CHECK(a[4] == b[4]); CHECK(a[5] == b[5]); CHECK(a[6] == b[6]); CHECK(a[7] == b[7]); CHECK(a[8] == b[8]);
+    std::array<uint8_t, 8> sh{0x83, 0x11, 0x00, 0x2A, 0x08, 0x00, 0x07, 0x00};
+    CHECK_FALSE(parse_f(sh).has_value());                 // len < 9 (R6.1: config_hash mandatory)
 }
 
 // ===== C4: J join family (§10 cmd-nibble 0x9; byte1 reading A) ===============
@@ -484,10 +485,11 @@ TEST_CASE("BCN — golden minimal (header + 2 entries)") {
     in.entries = ents; in.seen_bitmap = {};
     std::array<uint8_t, 32> buf{};
     size_t n = pack_beacon(in, buf);
-    CHECK(n == 16);
+    CHECK(n == 22);   // 8-B header + 6-B leaf header (R6.1) + 2*4 entries
     const uint8_t ex[] = {0x03, 0x11, 0x02, 0x00, 0xEF, 0xBE, 0xAD, 0xDE,
+                          0,0, 0,0, 0,0,                                      // leaf header: lineage 0, epoch 0, config_hash 0 (u16x3)
                           0x05, 0x07, 0xC0, 0x02, 0x09, 0x07, 0xA1, 0x03};
-    for (int i = 0; i < 16; ++i) CHECK(buf[i] == ex[i]);
+    for (int i = 0; i < 22; ++i) CHECK(buf[i] == ex[i]);
 
     std::span<const uint8_t> fr(buf.data(), n);
     auto o = parse_beacon(fr);
@@ -502,7 +504,7 @@ TEST_CASE("BCN — golden minimal (header + 2 entries)") {
         CHECK_FALSE(o->has_seen_bitmap);
         CHECK_FALSE(o->has_ext);
         CHECK(o->n_entries == 2);
-        CHECK(o->frame_len == 16);
+        CHECK(o->frame_len == 22);
         auto e0 = parse_beacon_entry(fr, *o, 0);
         CHECK(e0.has_value());
         if (e0) { CHECK(e0->dest == 0x05); CHECK(e0->next == 0x07);
@@ -532,13 +534,14 @@ TEST_CASE("BCN — golden schedule + seen-bitmap") {
     in.seen_bitmap = bm;
     std::array<uint8_t, 64> buf{};
     size_t n = pack_beacon(in, buf);
-    CHECK(n == 8 + 1 + 4 + 32);   // 45
-    const uint8_t head[] = {0x01, 0x05, 0xD0, 0x00, 0xEF, 0xBE, 0xAD, 0xDE,
-                            0x01, 0x26, 0x1E, 0x0F, 0x3C};
-    for (int i = 0; i < 13; ++i) CHECK(buf[i] == head[i]);
-    CHECK(buf[13 + 0]  == 0x20);
-    CHECK(buf[13 + 1]  == 0x02);
-    CHECK(buf[13 + 16] == 0x04);
+    CHECK(n == 14 + 1 + 4 + 32);   // 8-B header + 6-B leaf header + (1 lc + 4 sched) + 32 bitmap = 51
+    const uint8_t head[] = {0x01, 0x05, 0xD0, 0x00, 0xEF, 0xBE, 0xAD, 0xDE,   // 8-B header
+                            0,0, 0,0, 0,0,                                    // 6-B leaf header (zeros, u16x3)
+                            0x01, 0x26, 0x1E, 0x0F, 0x3C};                    // schedule: lc + 4
+    for (int i = 0; i < 19; ++i) CHECK(buf[i] == head[i]);
+    CHECK(buf[19 + 0]  == 0x20);   // bitmap now at 14 + 1 + 4 = 19
+    CHECK(buf[19 + 1]  == 0x02);
+    CHECK(buf[19 + 16] == 0x04);
 
     std::span<const uint8_t> fr(buf.data(), n);
     auto o = parse_beacon(fr);
@@ -553,7 +556,7 @@ TEST_CASE("BCN — golden schedule + seen-bitmap") {
         CHECK(o->n_entries == 0);
         CHECK(o->has_seen_bitmap);
         CHECK_FALSE(o->has_ext);
-        CHECK(o->frame_len == 45);
+        CHECK(o->frame_len == 51);
         auto s0 = parse_beacon_schedule(fr, *o, 0);
         CHECK(s0.has_value());
         if (s0) { CHECK(s0->layer_id == 2); CHECK(s0->routing_sf == 8); CHECK_FALSE(s0->period_unit_5s);
@@ -574,10 +577,10 @@ TEST_CASE("BCN — opaque ext round-trip") {
     in.ext = ext_payload; in.seen_bitmap = {};
     std::array<uint8_t, 32> buf{};
     size_t n = pack_beacon(in, buf);
-    CHECK(n == 8 + 1 + 6);   // 15
+    CHECK(n == 14 + 1 + 6);   // 8-B header + 6-B leaf header + ext_len + 6 = 21
     CHECK(buf[2] == 0x08);   // only has_ext, n_entries 0
-    CHECK(buf[8] == 0x06);   // ext_len
-    for (int i = 0; i < 6; ++i) CHECK(buf[9 + i] == ext_payload[i]);
+    CHECK(buf[14] == 0x06);  // ext_len (after the 6-B leaf header)
+    for (int i = 0; i < 6; ++i) CHECK(buf[15 + i] == ext_payload[i]);
 
     std::span<const uint8_t> fr(buf.data(), n);
     auto o = parse_beacon(fr);
@@ -588,7 +591,7 @@ TEST_CASE("BCN — opaque ext round-trip") {
         CHECK_FALSE(o->has_seen_bitmap);
         CHECK(o->n_entries == 0);
         CHECK(o->ext_len == 6);
-        CHECK(o->frame_len == 15);
+        CHECK(o->frame_len == 21);
         auto x = beacon_ext(fr, *o);
         CHECK(x.size() == 6);
         if (x.size() == 6) for (int i = 0; i < 6; ++i) CHECK(x[i] == ext_payload[i]);
@@ -605,9 +608,9 @@ TEST_CASE("BCN — n_entries 6-bit split (byte3) round-trip") {
         in.leaf_id = 4; in.src = 0x33; in.key_hash32 = 0x01020304;
         in.entries = std::span<const beacon_entry>(ents.data(), count);
         in.seen_bitmap = {};
-        std::array<uint8_t, 8 + 63 * 4> buf{};
+        std::array<uint8_t, 14 + 63 * 4> buf{};
         size_t n = pack_beacon(in, buf);
-        CHECK(n == size_t(8 + count * 4));
+        CHECK(n == size_t(14 + count * 4));   // 8-B header + 10-B leaf header + entries
         CHECK(buf[2] == uint8_t(count & 0x07));                       // flags 0, n_lo
         CHECK(buf[3] == uint8_t(((count >> 3) & 0x07) << 5));         // n_hi in byte3
 
@@ -643,7 +646,7 @@ TEST_CASE("BCN — schedule multi-record + both period units round-trip") {
     in.schedule = recs; in.seen_bitmap = {};
     std::array<uint8_t, 64> buf{};
     size_t n = pack_beacon(in, buf);
-    CHECK(n == size_t(8 + 1 + 5 * 4));
+    CHECK(n == size_t(14 + 1 + 5 * 4));   // + 6-B leaf header
     std::span<const uint8_t> fr(buf.data(), n);
     auto o = parse_beacon(fr);
     CHECK(o.has_value());
@@ -674,7 +677,7 @@ TEST_CASE("BCN — all sections combined round-trip") {
     in.schedule = recs; in.entries = ents; in.seen_bitmap = bm; in.ext = ext_payload;
     std::array<uint8_t, 96> buf{};
     size_t n = pack_beacon(in, buf);
-    CHECK(n == size_t(8 + (1 + 4) + (2 * 4) + 32 + (1 + 2)));   // 56
+    CHECK(n == size_t(14 + (1 + 4) + (2 * 4) + 32 + (1 + 2)));   // + 6-B leaf header = 62
     CHECK(buf[2] == 0xFA);   // has_schedule|self_gw|is_mobile|seen_bm|ext | n_lo(2) = 0xF8|0x02
     CHECK(buf[3] == 0x00);   // n_entries_hi = 0
     std::span<const uint8_t> fr(buf.data(), n);
@@ -735,9 +738,9 @@ TEST_CASE("BCN — entry extremes (hops=255, bucket=0xF) + entry rsv bits ignore
     beacon_in in{};
     in.leaf_id = 1; in.src = 2; in.key_hash32 = 0xDEADBEEF;
     in.entries = ents; in.seen_bitmap = {};
-    std::array<uint8_t, 16> buf{};
+    std::array<uint8_t, 32> buf{};
     size_t n = pack_beacon(in, buf);
-    CHECK(n == 12);
+    CHECK(n == 18);   // 8-B header + 6-B leaf header + 4 entry
     std::span<const uint8_t> fr(buf.data(), n);
     auto o = parse_beacon(fr);
     CHECK(o.has_value());
@@ -747,9 +750,9 @@ TEST_CASE("BCN — entry extremes (hops=255, bucket=0xF) + entry rsv bits ignore
         if (e) { CHECK(e->dest == 0xFE); CHECK(e->next == 0xFD);
                  CHECK(e->score_bucket == 0xF); CHECK(e->is_gateway); CHECK(e->hops == 255); }
         // forge the entry's rsv bits (byte2 bits 1..3) -> parse must mask them off
-        std::array<uint8_t, 12> forged{};
+        std::array<uint8_t, 32> forged{};
         for (size_t i = 0; i < n; ++i) forged[i] = buf[i];
-        forged[8 + 2] |= 0x0E;
+        forged[14 + 2] |= 0x0E;   // entry byte2 is now at offset 14 (after the 6-B leaf header)
         std::span<const uint8_t> ff(forged.data(), n);
         auto o2 = parse_beacon(ff);
         CHECK(o2.has_value());
@@ -759,6 +762,33 @@ TEST_CASE("BCN — entry extremes (hops=255, bucket=0xF) + entry rsv bits ignore
             if (e2) { CHECK(e2->score_bucket == 0xF); CHECK(e2->is_gateway); }
         }
     }
+}
+
+TEST_CASE("R6.1 BCN — leaf header (lineage/epoch/config_hash, u16x3) round-trips at bytes 8..13 LE") {
+    beacon_in in{};
+    in.leaf_id = 2; in.src = 7; in.key_hash32 = 0xCAFEBABE;
+    in.lineage_id = 0x1122; in.config_epoch = 0x0507; in.config_hash = 0x99AA;
+    std::array<uint8_t, 32> buf{};
+    size_t n = pack_beacon(in, buf);
+    CHECK(n == 14);   // 8-B header + 6-B leaf header, no body
+    CHECK(buf[8]  == 0x22); CHECK(buf[9]  == 0x11);   // lineage_id LE
+    CHECK(buf[10] == 0x07); CHECK(buf[11] == 0x05);   // config_epoch LE
+    CHECK(buf[12] == 0xAA); CHECK(buf[13] == 0x99);   // config_hash LE
+    auto o = parse_beacon(std::span<const uint8_t>(buf.data(), n));
+    CHECK(o.has_value());
+    if (o) { CHECK(o->lineage_id == 0x1122); CHECK(o->config_epoch == 0x0507); CHECK(o->config_hash == 0x99AA); }
+}
+
+TEST_CASE("R6.1 leaf_config_hash — deterministic, sensitive to every input, never 0 (the filter sentinel)") {
+    using meshroute::leaf_config_hash;
+    const uint16_t h = leaf_config_hash(0x0280, 10000, "hub", 3);   // bitmap {7,9}, duty 1%, name "hub"
+    CHECK(h == leaf_config_hash(0x0280, 10000, "hub", 3));          // deterministic
+    CHECK(h != 0);                                                  // BLAKE2b never 0 — the config_hash==0 sentinel depends on this
+    CHECK(h != leaf_config_hash(0x0080, 10000, "hub", 3));          // bitmap-sensitive
+    CHECK(h != leaf_config_hash(0x0280, 20000, "hub", 3));          // duty-sensitive
+    CHECK(h != leaf_config_hash(0x0280, 10000, "hu2", 3));          // name-sensitive
+    CHECK(h != leaf_config_hash(0x0280, 10000, "hub", 2));          // name-length-sensitive
+    CHECK(h == 17487u);                                            // GOLDEN: BLAKE2b-512({80 02 10 27 00 00 03 'h' 'u' 'b'})[:2] LE
 }
 
 TEST_CASE("BCN — reject: wrong cmd / truncation / trailing / over-cap") {
@@ -771,25 +801,25 @@ TEST_CASE("BCN — reject: wrong cmd / truncation / trailing / over-cap") {
     in.schedule = recs; in.entries = ents; in.seen_bitmap = bm; in.ext = ext_payload;
     std::array<uint8_t, 96> buf{};
     size_t n = pack_beacon(in, buf);
-    CHECK(n == size_t(8 + 5 + 4 + 32 + 3));   // 52
+    CHECK(n == size_t(14 + 5 + 4 + 32 + 3));   // + 6-B leaf header = 58
 
     std::array<uint8_t, 8> wrong{};
     for (int i = 0; i < 8; ++i) wrong[i] = buf[i];
     wrong[0] = wire::cmd_byte(wire::Cmd::D, 1);
     CHECK_FALSE(parse_beacon(wrong).has_value());                              // wrong cmd
-    CHECK_FALSE(parse_beacon(std::span<const uint8_t>(buf.data(), 7)).has_value());        // < 8-B header
-    CHECK_FALSE(parse_beacon(std::span<const uint8_t>(buf.data(), 8 + 1 + 2)).has_value()); // mid-schedule
-    CHECK_FALSE(parse_beacon(std::span<const uint8_t>(buf.data(), 8 + 5 + 2)).has_value()); // mid-entries
-    CHECK_FALSE(parse_beacon(std::span<const uint8_t>(buf.data(), 8 + 5 + 4 + 16)).has_value()); // mid-bitmap
+    CHECK_FALSE(parse_beacon(std::span<const uint8_t>(buf.data(), 13)).has_value());        // < 14-B header+leaf (R6.1 min)
+    CHECK_FALSE(parse_beacon(std::span<const uint8_t>(buf.data(), 14 + 1 + 2)).has_value()); // mid-schedule
+    CHECK_FALSE(parse_beacon(std::span<const uint8_t>(buf.data(), 14 + 5 + 2)).has_value()); // mid-entries
+    CHECK_FALSE(parse_beacon(std::span<const uint8_t>(buf.data(), 14 + 5 + 4 + 16)).has_value()); // mid-bitmap
     CHECK_FALSE(parse_beacon(std::span<const uint8_t>(buf.data(), n - 1)).has_value());     // ext_len past end
 
-    std::array<uint8_t, 18> tb{};
+    std::array<uint8_t, 32> tb{};
     const beacon_entry me[] = {{0x05, 0x07, 0xC, false, 2}};
     beacon_in min_in{};
     min_in.leaf_id = 3; min_in.src = 0x11; min_in.key_hash32 = 0xDEADBEEF;
     min_in.entries = me; min_in.seen_bitmap = {};
     size_t mn = pack_beacon(min_in, tb);
-    CHECK(mn == 12);
+    CHECK(mn == 18);   // 8-B header + 6-B leaf header + 4 entry
     CHECK_FALSE(parse_beacon(std::span<const uint8_t>(tb.data(), mn + 1)).has_value());     // trailing byte
 
     std::array<beacon_entry, 64> too_many{};
@@ -812,7 +842,7 @@ TEST_CASE("BCN — reject: wrong cmd / truncation / trailing / over-cap") {
     CHECK(pack_beacon(oe, big) == 0);                                          // ext > 255
     std::array<uint8_t, 255> ext255{};
     beacon_in oe255{}; oe255.leaf_id = 1; oe255.src = 2; oe255.ext = ext255;
-    CHECK(pack_beacon(oe255, big) == size_t(8 + 1 + 255));                     // 255-B ext boundary packs
+    CHECK(pack_beacon(oe255, big) == size_t(14 + 1 + 255));                    // 255-B ext boundary packs (+6-B leaf header)
 }
 
 // -----------------------------------------------------------------------------
@@ -1546,16 +1576,16 @@ TEST_CASE("data_crypted_region — carves [aad | ciphertext | tag | seed] of a C
 // ext TLV silently overflowed beacon_max_bytes → the whole beacon was DROPPED, node_beacon.cpp:316).
 TEST_CASE("§F2 beacon_max_entries — true byte-budget cap (header + schedule + bitmap + ext)") {
     const size_t CAP = 151;   // protocol::beacon_max_bytes
-    // (a) bare beacon (no schedule / no bitmap / no ext) -> the theoretical max 35 = (151-8)/4
-    CHECK(beacon_max_entries(CAP, /*sched*/0, /*bitmap*/0, /*ext_block*/0) == 35);
-    // (b) bitmap present, nothing else -> 27 (the OLD hard-coded value, now DERIVED): (151-8-32)/4
-    CHECK(beacon_max_entries(CAP, 0, 32, 0) == 27);
+    // (a) bare beacon (no schedule / no bitmap / no ext) -> 34 = (151-8-6)/4 (R6.1: +6-B leaf header in the overhead)
+    CHECK(beacon_max_entries(CAP, /*sched*/0, /*bitmap*/0, /*ext_block*/0) == 34);
+    // (b) bitmap present, nothing else -> 26 = (151-8-6-32)/4
+    CHECK(beacon_max_entries(CAP, 0, 32, 0) == 26);
     // (c) F2 REGRESSION GUARD: a 2-leaf gateway schedule + bitmap + a 12-B ext TLV must NOT overflow —
     //     the cap shrinks so the whole frame still fits beacon_max_bytes.
     const size_t sched = 1 + 4 * 2;        // schedule block: 1-B nibble + 2×4-B records
     const size_t extbk = 1 + 12;           // ext block: 1-B ext_len + 12-B payload
     const uint8_t c = beacon_max_entries(CAP, sched, 32, extbk);
-    CHECK(8 + sched + 32 + extbk + static_cast<size_t>(c) * 4 <= CAP);   // total fits → pack_beacon won't return 0
+    CHECK(14 + sched + 32 + extbk + static_cast<size_t>(c) * 4 <= CAP);   // 8-B header + 6-B leaf header + blocks; total fits
     // clamp to the 6-bit n_entries field even with a huge frame
     CHECK(beacon_max_entries(1000, 0, 0, 0) == 63);
     // overhead exceeding the frame -> 0 entries (no underflow)

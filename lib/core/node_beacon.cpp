@@ -7,11 +7,13 @@
 // round-trip and the rt_update telemetry helper. Behaviour mirrors dv_dual_sf.lua.
 // Part of the Node class (declared in node.h); split out of node.cpp for readability.
 #include "node.h"
+#include "leaf_config.h"   // R6.1: leaf_config_hash — the misconfig fingerprint
 
 #include "frame_codec.h"
 
 #include <span>
 #include <cstring>    // strcmp — kind=="sync" full-table gate
+#include <cmath>      // lround — duty_ppm for the config_hash
 
 namespace MESHROUTE_NS {
 
@@ -210,6 +212,9 @@ void Node::emit_beacon(const char* kind) {
     in.is_mobile    = _cfg.is_mobile;
     in.src          = _node_id;
     in.key_hash32   = _key_hash32;
+    in.lineage_id   = _cfg.lineage_id;                  // R6.1 leaf-config header (FLAG-DAY: always present)
+    in.config_epoch = _cfg.config_epoch;
+    in.config_hash  = cfg_config_hash();
     // Slice 3e: a GATEWAY advertises its window schedule — one schedule_record per leaf, carrying the RECEIVER-ANCHORED
     // countdown (offset_100ms = time until that leaf's window NEXT opens; %period so the active leaf reads ~0 = open now).
     // A node wanting the gateway on its leaf defers its RTS to that window (3e.2). layer_id = the 4-bit leaf nibble (§0.8).
@@ -354,11 +359,48 @@ void Node::emit_beacon(const char* kind) {
     MR_EMIT("beacon_diff_breakdown", EF_I("dirty_n",dirty_n),EF_I("stable_n",stable_n),EF_I("total_dirty",total_dirty));
 }
 
+// R6.1: the config fingerprint over THIS node's ACTIVE-leaf config (activate_layer mirrors a gateway's per-layer
+// allowed_sf_bitmap into _cfg, so a gateway hashes its active leaf's SF set — matching that leaf's members).
+uint16_t Node::cfg_config_hash() const {
+    const uint32_t duty_ppm = (_cfg.duty_cycle > 0.0)
+                              ? static_cast<uint32_t>(std::lround(_cfg.duty_cycle * 1e6)) : 0u;
+    return leaf_config_hash(_cfg.allowed_sf_bitmap, duty_ppm, _cfg.leaf_name, _cfg.leaf_name_len);
+}
+
 void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto parsed = parse_beacon(std::span<const uint8_t>(bytes, len));
     if (!parsed) return;
     const beacon_out& b = *parsed;
-    if (b.leaf_id != _cfg.leaf_id) return;                // single-layer filter (R1)
+    if (b.leaf_id != _cfg.leaf_id) return;                // single-layer nibble filter (R1) — coarse leaf match first
+    // R6.1 leaf-config membership filter (§3.3): same nibble is NOT enough — refuse to peer across a config divergence
+    // (the misconfig gate). Compares the advertised lineage/epoch/config_hash against ours.
+    if (b.config_hash != 0) {                             // config_hash==0 = NO fingerprint advertised (unprovisioned/pre-R6.1
+                                                          // peer; BLAKE2b never yields 0, so a real configured node always
+                                                          // advertises non-zero) -> peer by leaf nibble (legacy), no config gate.
+        const uint32_t my_lineage = _cfg.lineage_id;
+        const uint32_t my_hash    = cfg_config_hash();
+        if (my_lineage == 0 || b.lineage_id == 0) {       // UNMANAGED leaf (either side) -> legacy: peer iff config matches (§6.2 backward-compat)
+            if (b.config_hash != my_hash) {
+                MR_EMIT("leaf_config_conflict", EF_I("src", b.src), EF_I("their_hash", static_cast<int64_t>(b.config_hash)),
+                        EF_I("my_hash", static_cast<int64_t>(my_hash)));
+                return;                                   // divergent config on an unmanaged leaf -> do NOT peer
+            }
+        } else if (b.lineage_id != my_lineage) {
+            return;                                       // foreign managed leaf -> ignore (self-isolating)
+        } else if (b.config_epoch == _cfg.config_epoch) {
+            if (b.config_hash != my_hash) {               // same epoch, different hash -> §4.1 concurrent-write conflict
+                MR_EMIT("leaf_config_conflict", EF_I("src", b.src), EF_I("epoch", _cfg.config_epoch),
+                        EF_I("their_hash", static_cast<int64_t>(b.config_hash)), EF_I("my_hash", static_cast<int64_t>(my_hash)));
+                return;                                   // don't peer while the conflict persists (R6.3 resolves by key tiebreak)
+            }
+            // same lineage + same (epoch, hash) -> peer (fall through)
+        } else if (b.config_epoch > _cfg.config_epoch) {  // neighbour is newer -> I'm stale; the PULL is R6.2
+            MR_EMIT("leaf_stale", EF_I("src", b.src), EF_I("my_epoch", _cfg.config_epoch), EF_I("their_epoch", b.config_epoch));
+            return;                                       // don't peer on the diverging config (adopt-via-PULL lands in R6.2)
+        } else {
+            return;                                       // neighbour is older -> ignore (it heals later)
+        }
+    }
     if (b.src == 0) return;                               // §P0: a BCN from the reserved sentinel id (an unprovisioned node) -> DROP (never learn a route via/to 0)
     if (b.src == _node_id) {                              // beacon carrying OUR short id...
         if (b.key_hash32 == _key_hash32) return;          // ...and our hash -> a true self-echo; drop

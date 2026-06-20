@@ -345,6 +345,8 @@ static void handle_cfg_set(const char* args) {
         b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
         b.l1_freq_mhz                 = nc.layers[1].freq_mhz;          // v12 per-layer freq (0 = inherit layer 0)
         b.gw_herd_slack               = nc.gw_herd_slack;              // v13 §3e herd-spread slack
+        b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch; b.leaf_name_len = nc.leaf_name_len;     // v14 R6.1 leaf-config
+        for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;    // (re)stamp -> also upgrades a loaded v2 blob to v3
 
@@ -696,6 +698,46 @@ static void handle_gateway(const char* args) {
 #endif
 }
 
+// ---- `leaf` — R6.1 leaf-config membership ops ---------------------------------------------------------------
+// `leaf create` mints a fresh random lineage_id (HW-RNG; never 0 = the unmanaged sentinel) -> a MANAGED leaf.
+// `leaf name <text>` sets the leaf_name (in the config_hash, so it re-fingerprints the leaf). Both persist + reboot.
+static void handle_leaf(const char* args) {
+    mrnv::Blob b{};
+    if (!mrnv::load(b)) {                                  // seed from the live config (same accumulation pattern as cfg set)
+        const meshroute::NodeConfig& nc = g_node.config();
+        b.freq_mhz = g_freq_mhz;        b.bw_hz = nc.radio_bw_hz;       b.beacon_ms = nc.beacon_period_ms;
+        b.duty = nc.duty_cycle;         b.allowed_sf_bitmap = nc.allowed_sf_bitmap;
+        b.routing_sf = nc.routing_sf;   b.cr = nc.radio_cr;
+        b.lbt = nc.lbt_enabled ? 1 : 0; b.node_id = g_node.node_id();   b.tx_power = g_tx_power;
+        b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;
+        b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;
+        b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;  b.ble_pin = g_ble_pin;
+        b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;  b.e2e_dm     = nc.e2e_dm ? 1 : 0;
+        b.gw_announce_duty_pct = nc.gw_announce_duty_pct; b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
+        b.l1_freq_mhz = nc.layers[1].freq_mhz; b.gw_herd_slack = nc.gw_herd_slack;
+        b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch; b.leaf_name_len = nc.leaf_name_len;
+        for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
+    }
+    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
+    if (!strncmp(args, "create", 6)) {
+        uint16_t lin = 0;
+        do { mrrng::fill(reinterpret_cast<uint8_t*>(&lin), sizeof lin); } while (lin == 0);   // never 0 (unmanaged sentinel); u16
+        b.lineage_id = lin;
+        if (b.config_epoch == 0) b.config_epoch = 1;      // a managed leaf starts at epoch >= 1
+        if (!mrnv::save(b)) { Serial.println(F("> leaf err nv_save_failed")); return; }
+        Serial.print(F("> leaf created lineage=")); Serial.print(lin); Serial.print(F(" epoch=")); Serial.print(b.config_epoch);
+        Serial.println(F(" — reboot to apply"));
+    } else if (!strncmp(args, "name ", 5)) {
+        const char* nm = args + 5;
+        uint8_t len = 0; while (nm[len] && len < sizeof(b.leaf_name)) { b.leaf_name[len] = (uint8_t)nm[len]; ++len; }
+        b.leaf_name_len = len;
+        if (!mrnv::save(b)) { Serial.println(F("> leaf err nv_save_failed")); return; }
+        Serial.print(F("> leaf name set (")); Serial.print(len); Serial.println(F(" B) — reboot to apply"));
+    } else {
+        Serial.println(F("> leaf err usage: leaf create | leaf name <text>"));
+    }
+}
+
 // `help` / `?` — a small command + cfg-key reference for the live console session.
 static void dump_help() {
     Serial.println(F("[help] messaging:  send <id> <text> | send_ack <id> <text> | sendhash <hash> <text> | sendhash_ack <hash> <text> | send_channel <ch> <text>"));
@@ -709,6 +751,7 @@ static void dump_help() {
     Serial.println(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
     Serial.println(F("[help] gateway:    gateway l0=<leaf>:<node>:<ctrl_sf>:<data_sfs> l1=<leaf>:<node>:<ctrl_sf>:<data_sfs> [period=ms] [win0=ms:off] [win1=ms:off] [beacon=ms] [freq0=MHz] [freq1=MHz] [gateway_only=0|1]"));
     Serial.println(F("  one-shot dual-layer provisioning -> NV, reboot to apply (windows auto-derive SF-weighted anti-phase if win0/win1 omitted). e.g. gateway l0=1:1:8:7,9 l1=2:1:9:9,10"));
+    Serial.println(F("[help] leaf:       leaf create (mint a managed-leaf lineage) | leaf name <text>   (R6.1 leaf-config membership; reboot to apply)"));
 }
 
 // ---- Phase-3 inbox sync (schema: ios-companion/INBOX_SYNC_CONTRACT.md) -----------------------------------
@@ -777,6 +820,7 @@ static bool service_debug(const char* line, size_t len) {
     if (len == 5 && !strncmp(line, "regen", 5))    { do_regen();    return true; }
     if (len == 3 && !strncmp(line, "ota", 3))      { do_ota();      return true; }
     if (len >  8 && !strncmp(line, "gateway ", 8)) { handle_gateway(line + 8); return true; }
+    if (len >  5 && !strncmp(line, "leaf ", 5))    { handle_leaf(line + 5);    return true; }
     if (len >  8 && !strncmp(line, "cfg set ", 8)) { handle_cfg_set(line + 8); return true; }
     if (len == 3 && !strncmp(line, "cfg", 3))      { dump_cfg();    return true; }
     if ((len == 5 || (len > 5 && line[5] == ' ')) && !strncmp(line, "sleep", 5)) { handle_sleep(line + 5, len - 5); return true; }
@@ -1003,6 +1047,9 @@ void setup() {
         if (nv.gw_announce_duty_pct != 0)        cfg.gw_announce_duty_pct        = nv.gw_announce_duty_pct;        // v11 gateway noise control;
         if (nv.gw_announce_min_interval_ms != 0) cfg.gw_announce_min_interval_ms = nv.gw_announce_min_interval_ms; //   0 => keep the default
         if (nv.gw_herd_slack != 0)               cfg.gw_herd_slack              = nv.gw_herd_slack;               // v13 §3e herd-spread slack (0 => default 2)
+        cfg.lineage_id   = nv.lineage_id;        cfg.config_epoch = nv.config_epoch;                            // v14 R6.1 leaf-config membership
+        cfg.leaf_name_len = (nv.leaf_name_len <= meshroute::protocol::leaf_name_max) ? nv.leaf_name_len : 0;
+        for (uint8_t i = 0; i < cfg.leaf_name_len; ++i) cfg.leaf_name[i] = (char)nv.leaf_name[i];
         // v8 DUAL-LAYER GATEWAY: provision the raw per-layer fields ONLY (on_init validates the 2-layer config + derives
         // window_ms/window_offset_ms when 0). n_layers != 2 -> single-layer exactly as today (no behaviour change).
         if (nv.n_layers == 2) {
@@ -1190,6 +1237,8 @@ static void persist_join_if_changed() {
         b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
         b.l1_freq_mhz                 = nc.layers[1].freq_mhz;          // v12 per-layer freq (0 = inherit layer 0)
         b.gw_herd_slack               = nc.gw_herd_slack;              // v13 §3e herd-spread slack
+        b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch; b.leaf_name_len = nc.leaf_name_len;     // v14 R6.1 leaf-config
+        for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
     b.node_id = id; b.claim_epoch = ep; b.joined = jn;

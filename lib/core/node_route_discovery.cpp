@@ -69,11 +69,13 @@ bool Node::rreq_rate_ok(uint8_t dst, uint8_t ttl) {
 // Originate an RREQ for `dst` (Lua emit_route_request). relay=self (we are the first forwarder).
 void Node::emit_route_request(uint8_t dst, uint8_t ttl) {
     if (dst == 0xFF || dst == _node_id) return;
+    if (!leaf_config_synced()) return;                            // R6.1 §6.4: an un-synced managed joiner must not flood F
     if (!rreq_rate_ok(dst, ttl)) return;
     f_in in{};
     in.leaf_id = _cfg.leaf_id; in.origin = _node_id; in.is_reply = false;
     in.dst_id  = dst; in.ttl_or_next_hop = ttl; in.hops = 0; in.relay = _node_id;
-    uint8_t buf[8];
+    in.config_hash = cfg_config_hash();                            // R6.1 §6.4: stamp our leaf fingerprint
+    uint8_t buf[16];
     const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
     if (n == 0) return;
     MR_TELEMETRY(
@@ -99,7 +101,8 @@ void Node::send_route_reply(uint8_t origin, uint8_t dst, uint8_t hops_to_dst) {
     f_in in{};
     in.leaf_id = _cfg.leaf_id; in.origin = origin; in.is_reply = true;
     in.dst_id  = dst; in.ttl_or_next_hop = next_hop; in.hops = hops_to_dst; in.relay = _node_id;
-    uint8_t buf[8];
+    in.config_hash = cfg_config_hash();                            // R6.1 §6.4: stamp our leaf fingerprint
+    uint8_t buf[16];
     const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
     if (n == 0) return;
     MR_TELEMETRY(
@@ -117,6 +120,14 @@ void Node::handle_f(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (!pf) return;
     const f_out& f = *pf;
     if (f.leaf_id != _cfg.leaf_id) return;
+    // R6.1 §6.4: the membership gate must cover F (route-discovery flood is the bypass around the beacon gate). Drop +
+    // do-NOT-relay an F whose leaf fingerprint diverges from ours -> contains a misconfigured node's flood to 1 hop.
+    // config_hash==0 = "no fingerprint" (BLAKE2b never yields 0; only an unprovisioned/legacy F) -> no gate (legacy).
+    if (f.config_hash != 0 && f.config_hash != cfg_config_hash()) {
+        MR_EMIT("leaf_config_conflict", EF_I("src", f.relay), EF_I("origin", f.origin), EF_S("frame", "F"),
+                EF_I("their_hash", static_cast<int64_t>(f.config_hash)), EF_I("my_hash", static_cast<int64_t>(cfg_config_hash())));
+        return;
+    }
     const uint8_t prev = f.relay;
     if (prev == 0xFF || prev == _node_id) return;
     const int16_t snr_q4 = protocol::db_to_q4(meta.snr_db);
@@ -158,7 +169,8 @@ void Node::handle_f(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         fwd.leaf_id = _cfg.leaf_id; fwd.origin = f.origin; fwd.is_reply = false;
         fwd.dst_id  = f.dst_id; fwd.ttl_or_next_hop = static_cast<uint8_t>(f.ttl_or_next_hop - 1);
         fwd.hops    = static_cast<uint8_t>(f.hops + 1); fwd.relay = _node_id;
-        uint8_t buf[8];
+        fwd.config_hash = f.config_hash;                          // preserve the originator's fingerprint (gate-passed -> == ours)
+        uint8_t buf[16];
         const size_t n = pack_f(fwd, std::span<uint8_t>(buf, sizeof(buf)));
         if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
     } else {                                               // ----------------- RREP -----------------

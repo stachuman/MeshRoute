@@ -50,6 +50,14 @@ uint32_t Node::retry_jitter_ms() const { return 3 * airtime_routing_ms(8); }
 // record-creation key) from an internal protocol DATA like the E2E ack ("e2e_ack_tx") that must NOT
 // be counted as an app DM.
 uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, [[maybe_unused]] const char* tx_event, bool app_dm, uint8_t type, CryptIntent crypt) {
+    // R6.1 §6.4 join-participation gate: an un-synced managed joiner must CONFIG_PULL before it originates app DMs (no
+    // pre-membership pollution). Inert for UNMANAGED/adopted nodes (leaf_config_synced()). Internal DATA (app_dm=false:
+    // E2E acks, forwards) is NEVER gated — only originations.
+    if (app_dm && !leaf_config_synced()) {
+        MR_EMIT("send_failed", EF_I("dst", dst), EF_S("reason", "joining"));
+        Push pu{}; pu.kind = PushKind::send_failed; pu.dst = dst; pu.ctr = 0; enqueue_push(pu);
+        return 0;
+    }
     const uint16_t ctr = next_ctr(dst);
     TxItem item{};
     item.origin = _node_id; item.dst = dst; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);

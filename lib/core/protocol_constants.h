@@ -64,6 +64,8 @@ constexpr float q4_to_db(int16_t q4) {
 
 // ---- Radio / PHY -----------------------------------------------------------
 inline constexpr uint8_t  preamble_sym   = 16;
+// R6.1 leaf-config membership: max leaf_name length (NV + the config_hash input; a change re-fingerprints the leaf).
+inline constexpr uint8_t  leaf_name_max  = 16;
 inline constexpr int16_t  sf_margin_q4   = 80;   //  5.0 dB
 
 // ---- MAC / channel access --------------------------------------------------

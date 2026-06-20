@@ -38,6 +38,10 @@ size_t pack_beacon(const beacon_in& in, std::span<uint8_t> out) {
                               (has_ext          ? 0x08 : 0) | (n_entries & 0x07)));
     w.u8(static_cast<uint8_t>(((n_entries >> 3) & 0x07) << 5));   // n_entries_hi | rsv=0
     w.u32_le(in.key_hash32);
+    // R6.1 leaf-config header (+6 B, FIXED, pre-schedule — never truncated): lineage_id · config_epoch · config_hash (u16×3).
+    w.u16_le(in.lineage_id);
+    w.u16_le(in.config_epoch);
+    w.u16_le(in.config_hash);
 
     if (has_schedule) {
         w.u8(static_cast<uint8_t>(((in.gateway_spread_nibble & 0x0F) << 4) |
@@ -68,14 +72,14 @@ size_t pack_beacon(const beacon_in& in, std::span<uint8_t> out) {
 }
 
 uint8_t beacon_max_entries(size_t frame_cap, size_t sched_bytes, size_t bitmap_bytes, size_t ext_block_bytes) {
-    const size_t overhead = 8 + sched_bytes + bitmap_bytes + ext_block_bytes;   // fixed header + variable blocks
+    const size_t overhead = 8 + BCN_LEAF_HEADER_LEN + sched_bytes + bitmap_bytes + ext_block_bytes;   // 8-B header + 10-B leaf header + variable blocks
     if (overhead >= frame_cap) return 0;                                        // no room for any 4-B entry
     size_t n = (frame_cap - overhead) / 4;
     return static_cast<uint8_t>(n > 63 ? 63 : n);                               // 6-bit n_entries field
 }
 
 std::optional<beacon_out> parse_beacon(std::span<const uint8_t> frame) {
-    if (frame.size() < 8) return std::nullopt;
+    if (frame.size() < 8 + BCN_LEAF_HEADER_LEN) return std::nullopt;   // R6.1 FLAG-DAY: the 10-B leaf header is mandatory
     if (wire::cmd_of(frame[0]) != wire::Cmd::B) return std::nullopt;
 
     beacon_out o{};
@@ -90,8 +94,11 @@ std::optional<beacon_out> parse_beacon(std::span<const uint8_t> frame) {
     o.has_ext         = (b2 & 0x08) != 0;
     o.n_entries       = static_cast<uint8_t>((b2 & 0x07) | (((b3 >> 5) & 0x07) << 3));
     { wire::Reader r(frame.subspan(4, 4)); o.key_hash32 = r.u32_le(); }
+    // R6.1 leaf-config header (bytes 8..13, FIXED, always present): lineage_id · config_epoch · config_hash (u16×3)
+    { wire::Reader r(frame.subspan(8, BCN_LEAF_HEADER_LEN));
+      o.lineage_id = r.u16_le(); o.config_epoch = r.u16_le(); o.config_hash = r.u16_le(); }
 
-    size_t pos = 8;
+    size_t pos = 8 + BCN_LEAF_HEADER_LEN;
     if (o.has_schedule) {
         if (pos + 1 > frame.size()) return std::nullopt;
         const uint8_t lc = frame[pos];
@@ -557,7 +564,7 @@ std::optional<h_out> parse_h(std::span<const uint8_t> frame) {
 // byte6 = relay (immediate forwarder) for metal-correct reverse/forward path learning.
 // -----------------------------------------------------------------------------
 size_t pack_f(const f_in& in, std::span<uint8_t> out) {
-    if (out.size() < 7) return 0;
+    if (out.size() < 9) return 0;          // R6.1: 7 + config_hash u16
     wire::Writer w(out);
     w.u8(wire::cmd_byte(wire::Cmd::F, static_cast<uint8_t>(in.leaf_id & 0x0F)));
     w.u8(in.origin);
@@ -566,11 +573,12 @@ size_t pack_f(const f_in& in, std::span<uint8_t> out) {
     w.u8(in.ttl_or_next_hop);              // raw dual byte (ttl | next_hop)
     w.u8(in.hops);
     w.u8(in.relay);                        // byte 6: immediate forwarder's node_id
+    w.u16_le(in.config_hash);              // bytes 7..8: R6.1 §6.4 leaf fingerprint (the F-flood membership gate)
     return w.ok() ? w.size() : 0;
 }
 
 std::optional<f_out> parse_f(std::span<const uint8_t> frame) {
-    if (frame.size() < 7) return std::nullopt;
+    if (frame.size() < 9) return std::nullopt;   // R6.1 FLAG-DAY: config_hash is mandatory on F
     wire::Reader r(frame);
     const uint8_t b0 = r.u8();
     if (wire::cmd_of(b0) != wire::Cmd::F) return std::nullopt;
@@ -582,6 +590,7 @@ std::optional<f_out> parse_f(std::span<const uint8_t> frame) {
     o.ttl_or_next_hop = r.u8();            // raw; handler interprets by is_reply
     o.hops            = r.u8();
     o.relay           = r.u8();            // byte 6: immediate forwarder
+    o.config_hash     = r.u16_le();        // bytes 7..8: R6.1 §6.4 leaf fingerprint
     if (!r.ok()) return std::nullopt;
     o.is_reply = (b2 & 0x80) != 0;
     return o;

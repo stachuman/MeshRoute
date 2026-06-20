@@ -16,9 +16,10 @@
 //     key_hash32 from a per-node seed via identity_from_seed (lora-universal-
 //     simulator/orchestrator/runtime/SimController.cpp). This module is exercised
 //     there, NOT in MeshRoute's own src/ yet.
-//   - Device wiring (NOT done) = HW-RNG seed -> /mrid NV -> identity_from_seed in
-//     fw_main + `regen` / `cfg set name`. Until that lands, fw_main still uses the
-//     key_for(id) placeholder, so on metal this module compiles unused.
+//   - Device wiring (DONE) = HW-RNG seed -> /mrid NV -> identity_from_seed in the
+//     fw_main boot path + `regen` / `cfg set name`; set_identity + set_crypto_identity
+//     install the derived key_hash32 + X25519/ed_pub (fw_main.cpp boot). The old
+//     key_for(id) placeholder is GONE — this module is live on metal.
 // `name` (§1.3) is app-level metadata, not a crypto concern, so it is NOT here.
 #pragma once
 #ifndef MESHROUTE_NS

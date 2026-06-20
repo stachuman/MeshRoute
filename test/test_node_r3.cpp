@@ -12,6 +12,7 @@
 #include "node.h"
 #include "identity.h"
 #include "frame_codec.h"
+#include "leaf_config.h"   // R6.1: real config_hash for the peering-filter test
 #include "ram_inbox_store.h"
 
 #include <array>
@@ -2135,8 +2136,8 @@ TEST_CASE("F RREQ addressed to us -> reverse path + RREP toward the forwarder") 
 
     f_in in{}; in.leaf_id = 0; in.origin = 10; in.is_reply = false;
     in.dst_id = 5; in.ttl_or_next_hop = 4; in.hops = 2; in.relay = 3;   // origin 10 seeks us(5); forwarder 3
-    uint8_t buf[8]; const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
-    CHECK(n == 7);
+    uint8_t buf[16]; const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
+    CHECK(n == 9);   // R6.1: F is 7 + config_hash u16
     hal._now = 1000; node.on_recv(buf, n, meta);
 
     bool saw_rev = false; for (const auto& e : hal.events) if (e.type == "rt_update" && e.dst == 10) saw_rev = true;
@@ -2164,7 +2165,7 @@ TEST_CASE("F RREQ relayed (no route) -> reverse path + ttl-decremented rebroadca
 
     f_in in{}; in.leaf_id = 0; in.origin = 10; in.is_reply = false;
     in.dst_id = 20; in.ttl_or_next_hop = 4; in.hops = 1; in.relay = 3;
-    uint8_t buf[8]; const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
+    uint8_t buf[16]; const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
     hal._now = 1000; node.on_recv(buf, n, meta);
 
     bool saw_rev = false; for (const auto& e : hal.events) if (e.type == "rt_update" && e.dst == 10) saw_rev = true;
@@ -2184,6 +2185,39 @@ TEST_CASE("F RREQ relayed (no route) -> reverse path + ttl-decremented rebroadca
     CHECK(count_rreq() == 1);                                // deduped: no second rebroadcast
 }
 
+// R6.1 §6.4: the membership gate must cover F (route-discovery is the bypass around the beacon gate). A divergent-config
+// F is dropped + NOT relayed (1-hop flood containment); a matching one is processed normally.
+TEST_CASE("R6.1 F-gate — a divergent-config F is dropped + NOT relayed; matching is processed") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/5, /*key_hash32=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    const uint16_t my_hash  = meshroute::leaf_config_hash(cfg.allowed_sf_bitmap, 0, nullptr, 0);
+    const uint16_t diverge  = meshroute::leaf_config_hash((1u << 7), 0, nullptr, 0);   // bitmap {7} != {12} -> different hash
+    CHECK(diverge != my_hash); CHECK(diverge != 0);
+
+    auto count_rreq = [&]() { int c = 0; for (const auto& tf : hal.tx_frames) {
+        auto p = parse_f(std::span<const uint8_t>(tf.bytes.data(), tf.bytes.size())); if (p && !p->is_reply) ++c; } return c; };
+    auto feed_rreq = [&](uint16_t ch, uint8_t origin) {
+        f_in in{}; in.leaf_id = 0; in.origin = origin; in.is_reply = false;
+        in.dst_id = 20; in.ttl_or_next_hop = 4; in.hops = 1; in.relay = 3; in.config_hash = ch;
+        uint8_t buf[16]; const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
+        node.on_recv(buf, n, meta);
+    };
+    // (1) DIVERGENT F -> gate drops it: no reverse path, NO rebroadcast, conflict event.
+    hal._now = 1000; feed_rreq(diverge, /*origin=*/10);
+    bool rev10 = false; for (const auto& e : hal.events) if (e.type == "rt_update" && e.dst == 10) rev10 = true;
+    CHECK_FALSE(rev10);
+    CHECK(count_rreq() == 0);                                // contained to 1 hop (not relayed)
+    CHECK(hal.count("leaf_config_conflict") >= 1);
+    // (2) MATCHING F -> processed: reverse path + rebroadcast.
+    hal._now = 2000; feed_rreq(my_hash, /*origin=*/11);
+    bool rev11 = false; for (const auto& e : hal.events) if (e.type == "rt_update" && e.dst == 11) rev11 = true;
+    CHECK(rev11);
+    CHECK(count_rreq() == 1);
+}
+
 TEST_CASE("F RREP addressed to the origin -> forward path + rrep_arrived") {
     TestHal hal;
     Node node(hal, /*node_id=*/10, /*key_hash32=*/0xABCD);  // we are the origin
@@ -2193,7 +2227,7 @@ TEST_CASE("F RREP addressed to the origin -> forward path + rrep_arrived") {
 
     f_in in{}; in.leaf_id = 0; in.origin = 10; in.is_reply = true;
     in.dst_id = 20; in.ttl_or_next_hop = 10; in.hops = 2; in.relay = 7;   // addressed to us(10); forwarder 7 toward dst
-    uint8_t buf[8]; const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
+    uint8_t buf[16]; const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
     hal._now = 1000; node.on_recv(buf, n, meta);
 
     bool saw_fwd = false; for (const auto& e : hal.events) if (e.type == "rt_update" && e.dst == 20) saw_fwd = true;
@@ -2211,13 +2245,13 @@ TEST_CASE("F RREP relayed (not the origin) -> forward path + RREP onward along r
     // Lay a reverse route to origin 10 (via 3) first, so the RREP can route onward.
     { f_in q{}; q.leaf_id = 0; q.origin = 10; q.is_reply = false; q.dst_id = 99;
       q.ttl_or_next_hop = 4; q.hops = 1; q.relay = 3;
-      uint8_t qb[8]; const size_t qn = pack_f(q, std::span<uint8_t>(qb, sizeof(qb)));
+      uint8_t qb[16]; const size_t qn = pack_f(q, std::span<uint8_t>(qb, sizeof(qb)));
       hal._now = 1000; node.on_recv(qb, qn, meta); }
     const size_t tx_before = hal.tx_frames.size();
 
     f_in in{}; in.leaf_id = 0; in.origin = 10; in.is_reply = true;
     in.dst_id = 20; in.ttl_or_next_hop = 5; in.hops = 2; in.relay = 7;    // addressed to us(5)
-    uint8_t buf[8]; const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
+    uint8_t buf[16]; const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
     hal._now = 2000; node.on_recv(buf, n, meta);
 
     bool saw_fwd = false; for (const auto& e : hal.events) if (e.type == "rt_update" && e.dst == 20) saw_fwd = true;
@@ -3260,4 +3294,37 @@ TEST_CASE("§3 e2e-ack — a CRYPTED DM the receiver can't open is dropped with 
     B.on_timer(kPostAckTimerId);
     CHECK(halB.count("e2e_open_no_key") >= 1);   // dropped (no key)
     CHECK(halB.count("e2e_ack_tx") == 0);        // and NO ack — a sender seeing no ack must retry (the recovery model)
+}
+
+// R6.1 leaf-config membership filter (§3.3): the misconfig gate — a same-leaf neighbour whose advertised config_hash
+// diverges from ours is NOT peered (no route learned); a matching one IS. Uses REAL non-zero config_hashes (the test
+// default 0 is the "no fingerprint" sentinel that bypasses the gate, so we set the hash explicitly here).
+TEST_CASE("R6.1 peering filter — divergent leaf config is not peered; matching config peers (misconfig gate)") {
+    TestHal hal; Node A(hal, /*id*/ 1, 0x1111);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
+    cfg.allowed_sf_bitmap = (1u << 12); cfg.duty_cycle = 0.01;       // bitmap {12}, duty 1%, name ""
+    CHECK(A.on_init(cfg));
+    const uint32_t a_hash = meshroute::leaf_config_hash(cfg.allowed_sf_bitmap, 10000u, cfg.leaf_name, cfg.leaf_name_len);
+
+    auto route_to = [](Node& n, uint8_t dest) {
+        for (uint8_t i = 0; i < n.rt_count(); ++i) if (n.rt_at(i).dest == dest) return true;
+        return false;
+    };
+    auto feed = [&](uint32_t config_hash, uint8_t src) {
+        beacon_in in{}; in.leaf_id = 0; in.src = src; in.key_hash32 = 0x2000u + src;
+        in.config_hash = config_hash;                                // a REAL advertised fingerprint
+        std::array<uint8_t, 64> b{};
+        const size_t n = pack_beacon(in, std::span<uint8_t>(b.data(), b.size()));
+        RxMeta meta{}; meta.snr_db = 9.0f; meta.rssi_dbm = -70.0f; meta.recv_ms = hal._now; meta.src_hint = -1;
+        A.on_recv(b.data(), n, meta);
+    };
+
+    // (1) DIVERGENT config (bitmap {7} != {12}) -> different hash -> NOT peered.
+    const uint32_t diverge = meshroute::leaf_config_hash((1u << 7), 10000u, nullptr, 0);
+    CHECK(diverge != a_hash);
+    feed(diverge, /*src*/ 2);
+    CHECK_FALSE(route_to(A, 2));
+    // (2) MATCHING config -> peered (route to src installed).
+    feed(a_hash, /*src*/ 3);
+    CHECK(route_to(A, 3));
 }
