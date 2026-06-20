@@ -484,6 +484,39 @@ uint32_t Node::gateway_schedule_defer_ms(uint8_t gw_node_id) {
     return best;
 }
 
+// Gateway-window broadcast sync (2026-06-20 side-task): bias the PERIODIC beacon to land at a gateway-neighbour's
+// window-open, so the gateway actually HEARS the route advertisement the node was going to send anyway. The unicast
+// path already does this (gateway_schedule_defer_ms); this is the broadcast half. CORE INVARIANT = ZERO extra beacons:
+// the nominal cadence is preserved — we only push the fire time forward to the FIRST window-open at/after it (the added
+// delay before the chosen window is < one window-period), then disperse within the window with the existing herd-jitter.
+// Returns nominal_ms unchanged when: in discovery (protect same-layer latency), no gateway neighbour serves our active
+// leaf, or the soonest such gw is already in-window now (defer==0 — spec §9.2: skip the bias). Multi-gateway: aligns to
+// the SOONEST window on the active leaf; disjoint windows are covered across successive periods (cadence drift + jitter).
+uint32_t Node::gateway_window_align_beacon(uint32_t nominal_ms) {
+    if (in_discovery()) return nominal_ms;                            // discovery beacons stay fast (same-layer bootstrap)
+    uint32_t best_defer = 0xFFFFFFFFu, best_jmax = 0, best_period = 0;
+    for (uint8_t i = 0; i < protocol::cap_gateway_neighbor_schedules; ++i) {
+        const GatewaySchedule& s = _gw_schedules[i];
+        if (!s.valid || s.period_ms == 0) continue;
+        bool serves_us = false;                                       // only align to a gw that visits OUR active leaf
+        for (uint8_t k = 0; k < s.n_rec; ++k) if (s.rec[k].leaf_id == _cfg.leaf_id) { serves_us = true; break; }
+        if (!serves_us) continue;
+        uint32_t jmax = 0;
+        const uint32_t defer = gateway_schedule_base_defer_ms(s.gw_node_id, &jmax);
+        if (defer == 0) continue;                                     // in-window now (or no schedule) -> no bias for this gw
+        if (defer < best_defer) { best_defer = defer; best_jmax = jmax; best_period = s.period_ms; }
+    }
+    if (best_period == 0) return nominal_ms;                          // no alignable gateway neighbour -> plain cadence
+    uint32_t target = best_defer;                                     // reachable windows recur at best_defer + k*period
+    if (target < nominal_ms) {                                        // step to the first window-open AT/AFTER the cadence instant
+        const uint32_t gap = nominal_ms - target;
+        const uint32_t k   = (gap + best_period - 1) / best_period;   // ceil -> added delay < one window-period
+        target += k * best_period;
+    }
+    if (best_jmax > 0) target += static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(best_jmax)));  // herd-jitter WITHIN the window
+    return target;
+}
+
 // §3e herd sizing (Lua count_direct_neighbors dv:1677): rt entries whose PRIMARY candidate is a 1-hop neighbour.
 uint8_t Node::count_direct_neighbors() const {
     uint8_t n = 0;
@@ -574,7 +607,11 @@ void Node::on_timer(uint32_t timer_id) {
                                            : _cfg.beacon_period_ms;
         const int      lo = static_cast<int>(P * 4 / 5);
         const int      hi = static_cast<int>(P * 6 / 5);
-        (void)_hal.after(static_cast<uint32_t>(_hal.rand_range(lo, hi + 1)), kBeaconTimerId);
+        const uint32_t nominal = static_cast<uint32_t>(_hal.rand_range(lo, hi + 1));
+        // Gateway-window broadcast sync: nudge this already-scheduled periodic beacon to a gateway-neighbour's
+        // window-open so the gateway hears it (ZERO extra beacons — cadence/count preserved; see the helper). A
+        // no-op (returns nominal) when there's no gateway neighbour / in discovery — i.e. the entire existing suite.
+        (void)_hal.after(gateway_window_align_beacon(nominal), kBeaconTimerId);
         break;
     }
     case kAgingTimerId:

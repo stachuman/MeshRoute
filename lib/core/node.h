@@ -764,6 +764,7 @@ private:
     const GatewaySchedule* find_gw_schedule(uint8_t gw_node_id) const;
     uint32_t gateway_schedule_base_defer_ms(uint8_t gw_node_id, uint32_t* out_jmax) const;  // PURE: base defer + jitter range (no RNG draw)
     uint32_t gateway_schedule_defer_ms(uint8_t gw_node_id);       // Slice 3e.2 SEND path: base + herd-jitter draw (NON-const: draws RNG)
+    uint32_t gateway_window_align_beacon(uint32_t nominal_ms);    // gw-window broadcast sync: bias the PERIODIC beacon to a gw-neighbour window-open (NON-const: herd-jitter draw)
     uint8_t  count_direct_neighbors() const;                     // §3e herd sizing: rt entries whose primary candidate is 1-hop
     uint8_t  gateway_spread_nibble() const;                      // §3e: this gateway's 0..15 herd-spread hint (Lua dv:1692)
     uint32_t exchange_airtime_ms() const;                        // §3e: RTS+CTS+gap+DATA+ACK airtime (DATA len = rolling mean)

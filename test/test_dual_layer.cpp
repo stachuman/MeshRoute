@@ -237,6 +237,10 @@ struct DualLayerTestAccess {
         n.store_gateway_schedule(gs);
     }
     static void           send_xl_ack(Node& n, const data_unicast_inner& dm, uint16_t ctr) { n.send_e2e_ack_cross_layer(dm, ctr); }
+    // gateway-window broadcast sync (2026-06-20 side-task)
+    static uint32_t       align_beacon(Node& n, uint32_t nominal)  { return n.gateway_window_align_beacon(nominal); }
+    static uint32_t       gw_base_defer(Node& n, uint8_t gw)        { uint32_t j = 0; return n.gateway_schedule_base_defer_ms(gw, &j); }
+    static void           force_exit_discovery(Node& n)            { n._discovery_mode = false; }
     static void           drain_parked(Node& n, uint32_t key, uint8_t resolved, uint8_t layer) { n.drain_parked_sends(key, resolved, layer); }   // simulate the H-answer
     static uint8_t        pending_dst(Node& n)              { return n._active->_pending_tx ? n._active->_pending_tx->dst : 0; }
     static uint8_t        pending_flags(Node& n)            { return n._active->_pending_tx ? n._active->_pending_tx->flags : 0xFF; }
@@ -1564,4 +1568,56 @@ TEST_CASE("§gateway — leaf-nibble clash is caught by validate (parity with on
     GatewayProvision g{};
     CHECK(parse_gateway_cmd("l0=4:10:8:7,9 l1=20:11:9:7,9", g) == GwParseErr::ok);    // leaf 20 is a valid value
     CHECK(validate_gateway_layers(g.l0, g.l1, 125000, 5) == GwValErr::leaf_nibble_clash);  // 4 == (20 & 0x0F)
+}
+
+// ---- gateway-window broadcast sync (2026-06-20 side-task): bias the PERIODIC beacon to a gw-neighbour window-open ----
+// Core invariant: ZERO extra beacons — the nominal cadence is preserved; the fire time is only pushed to the first
+// window-open at/after it (added delay < one window-period). A no-op without a gateway neighbour / in discovery.
+TEST_CASE("gw-window sync: periodic beacon biases to the gateway's window-open; added delay < one window-period") {
+    StubHal hal; hal._now = 100000; Node node(hal, /*id*/ 7, 0x1);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1; cfg.beacon_period_ms = 30000;
+    CHECK(node.on_init(cfg));
+    DualLayerTestAccess::force_exit_discovery(node);
+    DualLayerTestAccess::store_gw_schedule(node, /*gw*/ 5, /*leaf_served*/ 1);   // heard=now(100000), period 15000, leaf-1 window [0,7500)
+    hal._now = 110000;                                                           // phase 10000 -> our window CLOSED; next open at +5000
+    const uint32_t base = DualLayerTestAccess::gw_base_defer(node, 5);
+    CHECK(base > 0);                                                             // not in-window -> a real defer
+    const uint32_t nominal = 30000;
+    const uint32_t delay = DualLayerTestAccess::align_beacon(node, nominal);
+    CHECK(delay >= nominal);                                                     // never fires EARLIER than the cadence (no extra beacons)
+    CHECK(delay <  nominal + 15000);                                             // added delay < one window-period
+    CHECK((delay - base) % 15000 == 0);                                          // lands exactly at a window-open (nibble 0 -> no jitter)
+}
+
+TEST_CASE("gw-window sync: no gateway neighbour -> plain cadence (identical to today)") {
+    StubHal hal; hal._now = 100000; Node node(hal, 7, 0x1);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1; cfg.beacon_period_ms = 30000;
+    CHECK(node.on_init(cfg));
+    DualLayerTestAccess::force_exit_discovery(node);
+    CHECK(DualLayerTestAccess::align_beacon(node, 30000) == 30000);              // no schedule held -> unchanged
+}
+
+TEST_CASE("gw-window sync: in-discovery AND gw-in-window-now both skip the bias") {
+    StubHal hal; hal._now = 100000; Node node(hal, 7, 0x1);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1; cfg.beacon_period_ms = 30000;
+    CHECK(node.on_init(cfg));
+    DualLayerTestAccess::store_gw_schedule(node, 5, 1);                          // window open NOW (phase 0)
+    CHECK(DualLayerTestAccess::align_beacon(node, 30000) == 30000);             // (i) still in discovery -> no bias
+    DualLayerTestAccess::force_exit_discovery(node);
+    CHECK(DualLayerTestAccess::gw_base_defer(node, 5) == 0);                    // in-window -> defer 0
+    CHECK(DualLayerTestAccess::align_beacon(node, 30000) == 30000);             // (ii) gw in-window-now -> skip
+}
+
+TEST_CASE("gw-window sync: bias is bounded (< one window-period added) across all phases -> beacon count stays bounded") {
+    StubHal hal; hal._now = 100000; Node node(hal, 7, 0x1);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1; cfg.beacon_period_ms = 30000;
+    CHECK(node.on_init(cfg));
+    DualLayerTestAccess::force_exit_discovery(node);
+    DualLayerTestAccess::store_gw_schedule(node, 5, 1);                          // heard=100000
+    for (uint32_t ph = 100; ph < 15000; ph += 250) {                            // sweep the window phase
+        hal._now = 100000 + ph;
+        const uint32_t delay = DualLayerTestAccess::align_beacon(node, 30000);
+        CHECK(delay >= 30000);                                                   // never earlier than cadence
+        CHECK(delay <  30000 + 15000 + 7500);                                    // <= one window-period step + intra-window jitter span
+    }
 }
