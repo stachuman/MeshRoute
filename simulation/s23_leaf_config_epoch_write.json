@@ -1,0 +1,155 @@
+{
+ "_name": "s23_leaf_config_epoch_write",
+ "_desc": "R6.3 \u00a74.1: managed leaf A/B/C. (1) A operator-writes a new SF set -> epoch bump propagates (B/C pull+adopt). (2) A+B write CONCURRENTLY (same epoch, different config) -> LWW tiebreak converges one-sided, no flapping. Gate: leaf_config_write fires, neighbours adopt, conflicts stop (converged), delivery no-regress, leaks==0.",
+ "simulation": {
+  "duration_ms": 800000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "beacon_period_ms": 60000,
+  "seed": 42,
+  "node_startup_jitter_ms": 5000,
+  "radio": {
+   "sf": 8,
+   "bw": 125,
+   "cr": 5,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 0.1
+  }
+ },
+ "config": {},
+ "nodes": [
+  {
+   "name": "A",
+   "node_id": 17,
+   "engine": "meshroute",
+   "lat": 47.6,
+   "lon": -122.33,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "lineage_id": 41153,
+    "config_epoch": 1
+   }
+  },
+  {
+   "name": "B",
+   "node_id": 18,
+   "engine": "meshroute",
+   "lat": 47.6,
+   "lon": -122.33,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "lineage_id": 41153,
+    "config_epoch": 1
+   }
+  },
+  {
+   "name": "C",
+   "node_id": 19,
+   "engine": "meshroute",
+   "lat": 47.6,
+   "lon": -122.33,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "lineage_id": 41153,
+    "config_epoch": 1
+   }
+  }
+ ],
+ "topology": {
+  "links": [
+   {
+    "from": "A",
+    "to": "B",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "A",
+    "to": "C",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "B",
+    "to": "A",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "B",
+    "to": "C",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "C",
+    "to": "A",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "C",
+    "to": "B",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   }
+  ]
+ },
+ "commands": [
+  {
+   "at_ms": 100000,
+   "node": "A",
+   "command": "send B p1 baseline-A->B"
+  },
+  {
+   "at_ms": 150000,
+   "node": "A",
+   "command": "leafwrite sf 7,11"
+  },
+  {
+   "at_ms": 300000,
+   "node": "C",
+   "command": "send A p1 post-write-C->A"
+  },
+  {
+   "at_ms": 400000,
+   "node": "A",
+   "command": "leafwrite sf 7,9"
+  },
+  {
+   "at_ms": 400000,
+   "node": "B",
+   "command": "leafwrite sf 7,12"
+  },
+  {
+   "at_ms": 700000,
+   "node": "B",
+   "command": "send C p1 post-converge-B->C"
+  }
+ ]
+}

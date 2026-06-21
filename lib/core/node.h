@@ -624,6 +624,9 @@ private:
     void    send_config_pull(uint8_t to, uint16_t lineage, uint16_t epoch);  // R6.2: 1-hop CONFIG_PULL to a heard member
     void    send_config_answer(uint8_t to);                        // R6.2: routed DATA TYPE 6 carrying OUR leaf config
     void    adopt_config_answer(const uint8_t* body, size_t len);  // R6.2: adopt a pulled config (cfg + recompute + persist Push)
+public:
+    bool    leaf_config_write();                                   // R6.3 §4.1: operator config write -> epoch=max_seen+1 + re-advertise (managed only)
+private:
     void    handle_q(const uint8_t* bytes, size_t len, const RxMeta& meta);   // Q RX dispatch (dv:11767)
     void    schedule_sync_response(uint8_t requester, bool requester_mobile); // jittered full-table reply (the backoff DRAW; dv:8064)
     void    sync_response_fire(uint8_t slot);                      // kSyncResponseTimerId+slot: emit_beacon("sync") unless suppressed
@@ -952,6 +955,7 @@ private:
     // (Principle 5 — else node-5@leafA aliases node-5@leafB and the gateway drops one leaf's sync reply).
     uint64_t _last_req_sync_tx_ms = 0;   // self-state (our own last REQ_SYNC tx) — stays Node-global, not per-layer
     uint64_t _last_config_pull_tx_ms = 0;   // R6.2: rate-limit our CONFIG_PULL tx
+    uint16_t _max_seen_epoch = 0;           // R6.3 §4.1: highest config_epoch seen for OUR lineage (a write = max_seen+1)
     struct QResponded { uint8_t opcode; uint8_t src; uint8_t dest; uint64_t t_ms; };
     struct SyncPending { bool active; bool suppressed; uint8_t requester; bool requester_mobile;
                          uint64_t requested_at; uint64_t fire_at; };

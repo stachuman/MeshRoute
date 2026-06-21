@@ -394,19 +394,26 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             return;                                       // not a member yet -> don't peer
         } else if (b.lineage_id != my_lineage) {
             return;                                       // foreign managed lineage (or neighbour unmanaged while I'm managed) -> ignore
-        } else if (b.config_epoch == _cfg.config_epoch) {
-            if (b.config_hash != my_hash) {               // same epoch, different hash -> §4.1 concurrent-write conflict
-                MR_EMIT("leaf_config_conflict", EF_I("src", b.src), EF_I("epoch", _cfg.config_epoch),
-                        EF_I("their_hash", static_cast<int64_t>(b.config_hash)), EF_I("my_hash", static_cast<int64_t>(my_hash)));
-                return;                                   // don't peer while the conflict persists (R6.3 resolves by key tiebreak)
+        } else {                                          // SAME managed lineage -> track max-seen epoch (§4.1 write basis), then compare
+            if (b.config_epoch > _max_seen_epoch) _max_seen_epoch = b.config_epoch;
+            if (b.config_epoch == _cfg.config_epoch) {
+                if (b.config_hash != my_hash) {           // same epoch, different hash -> §4.1 concurrent-write conflict
+                    MR_EMIT("leaf_config_conflict", EF_I("src", b.src), EF_I("epoch", _cfg.config_epoch),
+                            EF_I("their_hash", static_cast<int64_t>(b.config_hash)), EF_I("my_hash", static_cast<int64_t>(my_hash)));
+                    // §4.1 LWW: the config from the HIGHER key_hash32 is canonical. I LOSE (their key higher) -> pull + adopt
+                    // it at the SAME epoch (NO bump — bumping would start an epoch war). I WIN -> keep mine; they pull from me
+                    // when they hear my beacon. Stable key comparison -> one-sided, converges, no flapping (design §3.3/§4.1).
+                    if (b.key_hash32 > _key_hash32) send_config_pull(b.src, my_lineage, _cfg.config_epoch);
+                    return;                               // don't peer while the conflict persists
+                }
+                // same lineage + same (epoch, hash) -> peer (fall through)
+            } else if (b.config_epoch > _cfg.config_epoch) {  // neighbour is NEWER -> I'm stale -> PULL the newer config (R6.2)
+                MR_EMIT("leaf_stale", EF_I("src", b.src), EF_I("my_epoch", _cfg.config_epoch), EF_I("their_epoch", b.config_epoch));
+                send_config_pull(b.src, my_lineage, _cfg.config_epoch);
+                return;                                   // don't peer on the diverging config until adopted
+            } else {
+                return;                                   // neighbour is older -> ignore (it heals later)
             }
-            // same lineage + same (epoch, hash) -> peer (fall through)
-        } else if (b.config_epoch > _cfg.config_epoch) {  // neighbour is NEWER -> I'm stale -> PULL the newer config (R6.2)
-            MR_EMIT("leaf_stale", EF_I("src", b.src), EF_I("my_epoch", _cfg.config_epoch), EF_I("their_epoch", b.config_epoch));
-            send_config_pull(b.src, my_lineage, _cfg.config_epoch);
-            return;                                       // don't peer on the diverging config until adopted
-        } else {
-            return;                                       // neighbour is older -> ignore (it heals later)
         }
     }
     if (b.src == 0) return;                               // §P0: a BCN from the reserved sentinel id (an unprovisioned node) -> DROP (never learn a route via/to 0)

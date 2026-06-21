@@ -3374,3 +3374,43 @@ TEST_CASE("R6.2 participation gate — un-synced managed node blocks app-DM orig
     send_cmd(S, /*dst=*/9, "hi");
     CHECK(hs.count("tx_enqueue") >= 1);             // originated (enqueued)
 }
+
+// R6.3 §4.1 dynamic config write: an operator write on a MANAGED node bumps epoch = max_seen+1 + re-advertises;
+// an UNMANAGED node (lineage 0) write is a no-op (no epoch plane).
+TEST_CASE("R6.3 leaf_config_write — managed bumps epoch=max_seen+1 + re-advertises; unmanaged is a no-op") {
+    TestHal h; Node n(h, /*id*/5, 0xAAAA);
+    NodeConfig c; c.routing_sf = 7; c.leaf_id = 0; c.allowed_sf_bitmap = (1u << 7); c.duty_cycle = 0.01;
+    c.lineage_id = 0xABCD; c.config_epoch = 3; n.on_init(c);
+    n.mutable_config().allowed_sf_bitmap = (1u << 7) | (1u << 9);     // operator changes the data-SF set...
+    CHECK(n.leaf_config_write());                                     // ...and commits (deliberate intent)
+    CHECK(n.config().config_epoch == 4);                             // 3 -> max_seen(3)+1
+    CHECK(h.count("leaf_config_write") == 1);
+    // unmanaged -> no-op (returns false, epoch untouched)
+    TestHal h2; Node u(h2, 6, 0xBBBB);
+    NodeConfig uc; uc.routing_sf = 7; uc.leaf_id = 0; uc.allowed_sf_bitmap = (1u << 7); uc.lineage_id = 0; u.on_init(uc);
+    u.mutable_config().allowed_sf_bitmap = (1u << 9);
+    CHECK_FALSE(u.leaf_config_write());
+    CHECK(u.config().config_epoch == 0);
+}
+
+// R6.3 §4.1 LWW: a same-lineage, same-epoch, DIFFERENT-hash beacon resolves by key_hash32 — I LOSE to a higher key
+// (pull + adopt theirs, no bump), I WIN vs a lower key (keep mine, no pull). One-sided -> converges, no epoch war.
+TEST_CASE("R6.3 LWW tiebreak — same-epoch diff-hash: lose to a higher key (pull), win vs a lower key (keep)") {
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    auto run = [&](uint32_t my_key, uint32_t their_key, bool expect_pull) {
+        TestHal h; Node n(h, /*id*/5, my_key);
+        NodeConfig c; c.routing_sf = 7; c.leaf_id = 0; c.allowed_sf_bitmap = (1u << 7); c.duty_cycle = 0.01;
+        c.lineage_id = 0xABCD; c.config_epoch = 4; n.on_init(c);
+        const uint16_t my_hash = meshroute::leaf_config_hash((1u << 7), 10000, nullptr, 0);   // matches n's config inputs
+        beacon_in b{}; b.leaf_id = 0; b.src = 2; b.key_hash32 = their_key;
+        b.lineage_id = 0xABCD; b.config_epoch = 4;
+        b.config_hash = static_cast<uint16_t>(my_hash ^ 0x5A5A);                              // guaranteed != my_hash, non-zero
+        std::array<uint8_t, 64> bb{}; size_t bn = pack_beacon(b, std::span<uint8_t>(bb.data(), bb.size()));
+        h._now = 1000; n.on_recv(bb.data(), bn, meta);
+        CHECK(h.count("leaf_config_conflict") >= 1);                  // the same-epoch divergence is detected
+        CHECK((h.count("config_pull_tx") >= 1) == expect_pull);      // loser pulls; winner doesn't
+        CHECK(n.config().config_epoch == 4);                         // NEVER bumps on a tie (no epoch war)
+    };
+    run(/*my*/0x1000, /*their*/0x2000, /*expect_pull=*/true);        // their key higher -> I lose -> pull
+    run(/*my*/0x2000, /*their*/0x1000, /*expect_pull=*/false);       // their key lower  -> I win  -> keep
+}

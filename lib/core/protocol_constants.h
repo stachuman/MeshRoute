@@ -318,6 +318,11 @@ inline constexpr uint32_t dad_claim_guard_ms   = 20000;       // §13: wait this
 inline constexpr uint32_t dad_denied_id_ttl_ms = 86400000;    // §13: a lost slot stays denied 1 day, then reusable
 inline constexpr uint8_t  cap_join_denied      = 16;          // bounded denied-id list (denials are rare; evict-oldest)
 inline constexpr uint8_t  unjoined_node_id     = 0;           // 0 = unprovisioned (do_send refused until adopt)
+// R6.3 / DAD G1: node-id reservation. 1..16 = gateways only; 17..254 = normal nodes; 0 fresh, 0xFF reserved. A
+// provisioning/DAD-time convention (the picker + cfg-set), NOT an on_init/wire invariant (a hard check regresses the
+// sim suite — static scenario ids bypass the picker). docs/superpowers/specs/2026-06-19-normal-node-id-reservation-design.md
+inline constexpr uint8_t  gateway_node_id_max  = 16;          // 1..16 reserved for gateways
+inline constexpr uint8_t  normal_node_id_min   = 17;          // normal nodes pick from 17..254
 // L2a mediation airtime guard: one mediated DENY per (id, loser-hash) per window — else a flapping binding
 // re-DENYs on EVERY beacon (a dense-storm airtime sink). Re-mediates after the window if the loser hasn't
 // yet renumbered (covers a lost DENY). Bounded ring (evict-oldest); 32 covers realistic churn.

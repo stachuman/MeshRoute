@@ -357,7 +357,11 @@ static void handle_cfg_set(const char* args) {
     bool live = true, reconfig = false, radio = false, persist = true;
     if      (!strcmp(key, "node_id")) {
         const int v = atoi(val);
-        if (v < 0 || v > 254) { Serial.println(F("> cfg err bad_value (node_id 0..254; 0=unprovisioned)")); return; }
+#if MR_N_LAYERS >= 2   // gateway build: layer-0 node_id IS a gateway id (R6.3/G1: 1..16)
+        if (v != 0 && (v < 1 || v > P::gateway_node_id_max)) { Serial.println(F("> cfg err bad_value (gateway node_id 1..16; 0=unprovisioned)")); return; }
+#else                  // normal build: 17..254 (1..16 reserved for gateways)
+        if (v < 0 || v > 254 || (v >= 1 && v <= P::gateway_node_id_max)) { Serial.println(F("> cfg err bad_value (node_id 0 or 17..254; 1..16 reserved for gateways)")); return; }
+#endif
         b.node_id = (uint8_t)v; b.joined = 0; live = false;        // operator-pinned id -> NOT DAD-adopted (won't auto-yield)
     }
     else if (!strcmp(key, "freq"))                                     { b.freq_mhz = atof(val);             reconfig = radio = true; }
@@ -376,10 +380,12 @@ static void handle_cfg_set(const char* args) {
         b.tx_power = (int8_t)v; radio = true;                         // live, but no radio re-tune
     }
     // --- node-config knobs: LIVE via mutable_config() (the MAC re-reads each field per use), + persisted ---
-    else if (!strcmp(key, "sf_list"))    { b.allowed_sf_bitmap = parse_sf_list(val); lc.allowed_sf_bitmap = b.allowed_sf_bitmap; }
+    else if (!strcmp(key, "sf_list"))    { b.allowed_sf_bitmap = parse_sf_list(val); lc.allowed_sf_bitmap = b.allowed_sf_bitmap;
+                                           if (b.lineage_id) b.config_epoch = (uint16_t)(b.config_epoch + 1); }   // R6.3 §4.1: a managed leaf-field write bumps epoch (propagates on reboot)
     else if (!strcmp(key, "lbt"))        { b.lbt = atoi(val) != 0;            lc.lbt_enabled = (b.lbt != 0); }
     else if (!strcmp(key, "beacon_ms"))  { b.beacon_ms = (uint32_t)atol(val); lc.beacon_period_ms = b.beacon_ms; }
-    else if (!strcmp(key, "duty"))       { b.duty = atof(val); live = false; }     // reboot: budget_ms is set at on_init
+    else if (!strcmp(key, "duty"))       { b.duty = atof(val); live = false;
+                                           if (b.lineage_id) b.config_epoch = (uint16_t)(b.config_epoch + 1); }   // R6.3 §4.1: managed leaf-field write bumps epoch
     // --- nav/hop tuning: LIVE-only (good defaults; reboot reverts) ---
     else if (!strcmp(key, "nav"))        { lc.nav_enabled    = atoi(val) != 0; persist = false; }
     else if (!strcmp(key, "nav_ignore")) { lc.nav_ignore_rts = atoi(val) != 0; persist = false; }
@@ -453,9 +459,9 @@ static void handle_cfg_set(const char* args) {
         if (v < 0 || v > 255) { Serial.println(F("> cfg err bad_value (l1_layer_id 0..255)")); return; }
         b.l1_layer_id = (uint8_t)v; live = false;
     }
-    else if (!strcmp(key, "l1_node_id")) {
+    else if (!strcmp(key, "l1_node_id")) {                          // R6.3/G1: the gateway's layer-1 id is also a gateway id (1..16)
         const int v = atoi(val);
-        if (v < 0 || v > 254) { Serial.println(F("> cfg err bad_value (l1_node_id 0..254; 0=unprovisioned)")); return; }
+        if (v != 0 && (v < 1 || v > P::gateway_node_id_max)) { Serial.println(F("> cfg err bad_value (l1_node_id 1..16; 0=unprovisioned)")); return; }
         b.l1_node_id = (uint8_t)v; live = false;
     }
     else if (!strcmp(key, "l1_routing_sf")) {
@@ -723,7 +729,9 @@ static void handle_leaf(const char* args) {
         uint16_t lin = 0;
         do { mrrng::fill(reinterpret_cast<uint8_t*>(&lin), sizeof lin); } while (lin == 0);   // never 0 (unmanaged sentinel); u16
         b.lineage_id = lin;
-        if (b.config_epoch == 0) b.config_epoch = 1;      // a managed leaf starts at epoch >= 1
+        b.config_epoch = 1;                               // §4.3 catastrophe re-mint: a FRESH lineage starts at epoch 1
+                                                          // (reset even if re-minting over an old managed leaf — the dead
+                                                          // lineage stops being beaconed here + ages out of route/id_bind)
         if (!mrnv::save(b)) { Serial.println(F("> leaf err nv_save_failed")); return; }
         Serial.print(F("> leaf created lineage=")); Serial.print(lin); Serial.print(F(" epoch=")); Serial.print(b.config_epoch);
         Serial.println(F(" — reboot to apply"));
@@ -731,6 +739,7 @@ static void handle_leaf(const char* args) {
         const char* nm = args + 5;
         uint8_t len = 0; while (nm[len] && len < sizeof(b.leaf_name)) { b.leaf_name[len] = (uint8_t)nm[len]; ++len; }
         b.leaf_name_len = len;
+        if (b.lineage_id) b.config_epoch = (uint16_t)(b.config_epoch + 1);   // R6.3 §4.1: leaf_name is in the config_hash -> a managed write bumps epoch
         if (!mrnv::save(b)) { Serial.println(F("> leaf err nv_save_failed")); return; }
         Serial.print(F("> leaf name set (")); Serial.print(len); Serial.println(F(" B) — reboot to apply"));
     } else {

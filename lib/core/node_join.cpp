@@ -83,7 +83,8 @@ void Node::age_out_mediated() {
 // ---- §3 candidate selection: prefer our previous id, else a random free slot (-1 = leaf full) ----------
 int Node::join_choose_candidate_id() {
     const int prev = id_bind_find_by_hash(_key_hash32);                 // the network/NV may remember our old id
-    if (prev >= 1 && prev <= 254 && !join_id_denied(static_cast<uint8_t>(prev))) {
+    // R6.3/G1: a legacy/NV prev id in the gateway range 1..16 is NOT re-preferred -> re-pick a normal id (17..254).
+    if (prev >= protocol::normal_node_id_min && prev <= 254 && !join_id_denied(static_cast<uint8_t>(prev))) {
         MR_TELEMETRY(
             EventField f[] = { { .key = "node",       .type = EventField::T::i64, .i = prev },
                                { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(_key_hash32) } };
@@ -102,7 +103,7 @@ int Node::join_choose_candidate_id() {
     };
     uint8_t free_list[254];                                             // 254 B stack — fine
     uint16_t nfree = 0;
-    for (int id = 1; id <= 254; ++id)
+    for (int id = protocol::normal_node_id_min; id <= 254; ++id)        // R6.3/G1: normal nodes pick 17..254 (1..16 = gateways)
         if (!join_id_denied(static_cast<uint8_t>(id)) && !id_taken(static_cast<uint8_t>(id)))
             free_list[nfree++] = static_cast<uint8_t>(id);
     if (nfree == 0) return -1;

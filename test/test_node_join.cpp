@@ -127,17 +127,18 @@ TEST_CASE("join — an unprovisioned node claims the lowest free id and ADOPTS w
 
     const Ev* sent = hal.find("join_claim_sent");
     CHECK(sent != nullptr);
-    if (sent) { CHECK(sent->proposed == 1); CHECK(sent->claim_epoch == 0); }   // lowest free id; claim_epoch vestigial (not bumped)
+    // R6.3/G1: the lowest free id is now 17 (1..16 reserved for gateways), NOT 1. claim_epoch vestigial (not bumped).
+    if (sent) { CHECK(sent->proposed == protocol::normal_node_id_min); CHECK(sent->claim_epoch == 0); }
     // a J_CLAIM went on air
     bool claim_tx = false;
     for (const auto& f : hal.tx_frames) { auto p = parse_j(std::span<const uint8_t>(f.data(), f.size()));
-        if (p && p->opcode == static_cast<uint8_t>(j_opcode::claim) && p->proposed_node_id == 1) claim_tx = true; }
+        if (p && p->opcode == static_cast<uint8_t>(j_opcode::claim) && p->proposed_node_id == protocol::normal_node_id_min) claim_tx = true; }
     CHECK(claim_tx);
     CHECK(node.joined() == false);                               // not yet — still in the guard window
 
     node.on_timer(kJoinClaimGuardTimerId);                       // guard elapses, no objection -> adopt
     CHECK(node.joined() == true);
-    CHECK(node.node_id() == 1);
+    CHECK(node.node_id() == protocol::normal_node_id_min);        // R6.3/G1: adopts 17 (lowest free normal id)
     CHECK(hal.find("join_adopted") != nullptr);
 }
 
@@ -145,36 +146,36 @@ TEST_CASE("join — an objection during the guard window denies the id (no adopt
     TestHal hal;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000A1A1);
     node.on_init(join_cfg());
-    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinListenTimerId);  // claims id 1
+    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinListenTimerId);  // claims id 17
     hal.events.clear();
 
-    // a different node beacons as id 1 (a conflicting binding appears mid-guard)
+    // a different node beacons as id 17 (a conflicting binding appears mid-guard)
     RxMeta meta{8.0f, -80.0f, 0, -1};
-    std::array<uint8_t, 64> bcn{}; const size_t bn = make_beacon(/*src=*/1, /*hash=*/0x0000B2B2, bcn);
+    std::array<uint8_t, 64> bcn{}; const size_t bn = make_beacon(/*src=*/protocol::normal_node_id_min, /*hash=*/0x0000B2B2, bcn);
     node.on_recv(bcn.data(), bn, meta);
 
     node.on_timer(kJoinClaimGuardTimerId);                       // guard sees the conflict -> deny, not adopt
     CHECK(node.joined() == false);
     const Ev* denied = hal.find("join_claim_denied");
     CHECK(denied != nullptr);
-    if (denied) CHECK(denied->denied == 1);
+    if (denied) CHECK(denied->denied == protocol::normal_node_id_min);
 }
 
 TEST_CASE("join handle_j CLAIM — a claim for OUR adopted id is denied (OWN_ID_DEFENSE on air)") {
     TestHal hal;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000A1A1);
     node.on_init(join_cfg());
-    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);  // adopt id 1
+    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);  // adopt id 17
     CHECK(node.joined());
     hal.events.clear(); hal.tx_frames.clear();
 
-    // an impostor claims our id 1 with a different hash
-    std::array<uint8_t, 16> j{}; const size_t jn = make_j_claim(/*hash=*/0x0000B2B2, /*proposed=*/1, /*epoch=*/1, j);
+    // an impostor claims our id 17 with a different hash
+    std::array<uint8_t, 16> j{}; const size_t jn = make_j_claim(/*hash=*/0x0000B2B2, /*proposed=*/protocol::normal_node_id_min, /*epoch=*/1, j);
     RxMeta meta{8.0f, -80.0f, 0, -1};
     node.on_recv(j.data(), jn, meta);
 
     CHECK(hal.find("join_deny_sent") != nullptr);
-    CHECK(count_j_deny(hal.tx_frames) == 1);                     // a J_DENY defending id 1 went out
+    CHECK(count_j_deny(hal.tx_frames) == 1);                     // a J_DENY defending id 17 went out
     CHECK(node.joined());                                        // we keep our id (the impostor must yield)
 }
 
@@ -182,14 +183,14 @@ TEST_CASE("join handle_j DENY — losing the tiebreak forces a rejoin (we yield 
     TestHal hal;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000F0F0);    // a HIGH key -> loses the tie on equal epoch
     node.on_init(join_cfg());
-    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);  // adopt id 1 (epoch 1)
+    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);  // adopt id 17 (epoch 1)
     CHECK(node.joined());
-    CHECK(node.node_id() == 1);
+    CHECK(node.node_id() == protocol::normal_node_id_min);
     hal.events.clear();
 
-    // a competing owner DENies us id 1 with a HIGHER epoch -> we lose -> forced_rejoin
+    // a competing owner DENies us id 17 with a HIGHER epoch -> we lose -> forced_rejoin
     std::array<uint8_t, 16> d{};
-    const size_t dn = make_j_deny(/*denied=*/1, /*owner_key=*/0x00001111, /*claimant_key=*/0x0000F0F0,
+    const size_t dn = make_j_deny(/*denied=*/protocol::normal_node_id_min, /*owner_key=*/0x00001111, /*claimant_key=*/0x0000F0F0,
                                   /*owner_epoch=*/5, J_DENY_OWN_ID_DEFENSE, d);
     RxMeta meta{8.0f, -80.0f, 0, -1};
     node.on_recv(d.data(), dn, meta);
@@ -199,45 +200,45 @@ TEST_CASE("join handle_j DENY — losing the tiebreak forces a rejoin (we yield 
     if (tb) CHECK((tb->has_iwin && tb->i_win == false));        // we lost (their epoch 5 > our 1)
     const Ev* fr = hal.find("addr_conflict_forced_rejoin");
     CHECK(fr != nullptr);
-    if (fr) CHECK(fr->prior == 1);                              // yielded id 1
-    // and we re-claimed a DIFFERENT id (id 1 is now denied)
+    if (fr) CHECK(fr->prior == protocol::normal_node_id_min);                              // yielded id 17
+    // and we re-claimed a DIFFERENT id (id 17 is now denied)
     const Ev* re = hal.find("join_claim_sent");
     CHECK(re != nullptr);
-    if (re) CHECK(re->proposed != 1);
+    if (re) CHECK(re->proposed != protocol::normal_node_id_min);
 }
 
 TEST_CASE("join handle_j DENY — winning the tiebreak keeps our id (no rejoin)") {
     TestHal hal;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0x00000001);    // a LOW key -> wins the tie on equal epoch
     node.on_init(join_cfg());
-    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);  // adopt id 1 (epoch 1)
+    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);  // adopt id 17 (epoch 1)
     CHECK(node.joined());
     hal.events.clear();
 
     std::array<uint8_t, 16> d{};
-    const size_t dn = make_j_deny(/*denied=*/1, /*owner_key=*/0x0000FFFF, /*claimant_key=*/0x00000001,
+    const size_t dn = make_j_deny(/*denied=*/protocol::normal_node_id_min, /*owner_key=*/0x0000FFFF, /*claimant_key=*/0x00000001,
                                   /*owner_epoch=*/1, J_DENY_OWN_ID_DEFENSE, d);   // equal epoch, our key lower
     RxMeta meta{8.0f, -80.0f, 0, -1};
     node.on_recv(d.data(), dn, meta);
 
     const Ev* tb = hal.find("addr_conflict_tie_break");
     CHECK((tb && tb->has_iwin && tb->i_win == true));
-    CHECK(hal.find("addr_conflict_forced_rejoin") == nullptr);  // we kept id 1
+    CHECK(hal.find("addr_conflict_forced_rejoin") == nullptr);  // we kept id 17
     CHECK(node.joined());
-    CHECK(node.node_id() == 1);
+    CHECK(node.node_id() == protocol::normal_node_id_min);
 }
 
 TEST_CASE("join — a beacon carrying our id with a DIFFERENT hash triggers the OWN_ID_DEFENSE (heal detector)") {
     TestHal hal;
     Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000A1A1);
     node.on_init(join_cfg());
-    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);  // adopt id 1
+    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);  // adopt id 17
     CHECK(node.joined());
     hal.events.clear(); hal.tx_frames.clear();
 
-    // an impostor beacons AS id 1 with a different hash — the old self-echo guard would have swallowed this
+    // an impostor beacons AS id 17 with a different hash — the old self-echo guard would have swallowed this
     RxMeta meta{8.0f, -80.0f, 0, -1};
-    std::array<uint8_t, 64> bcn{}; const size_t bn = make_beacon(/*src=*/1, /*hash=*/0x0000B2B2, bcn);
+    std::array<uint8_t, 64> bcn{}; const size_t bn = make_beacon(/*src=*/protocol::normal_node_id_min, /*hash=*/0x0000B2B2, bcn);
     node.on_recv(bcn.data(), bn, meta);
 
     CHECK(hal.find("join_deny_sent") != nullptr);               // we defended our id
@@ -245,7 +246,7 @@ TEST_CASE("join — a beacon carrying our id with a DIFFERENT hash triggers the 
 
     // a TRUE self-echo (our own id + our own hash) is still dropped silently (no defense)
     hal.events.clear(); hal.tx_frames.clear();
-    std::array<uint8_t, 64> echo{}; const size_t en = make_beacon(/*src=*/1, /*hash=*/0x0000A1A1, echo);
+    std::array<uint8_t, 64> echo{}; const size_t en = make_beacon(/*src=*/protocol::normal_node_id_min, /*hash=*/0x0000A1A1, echo);
     node.on_recv(echo.data(), en, meta);
     CHECK(hal.find("join_deny_sent") == nullptr);
 }
@@ -280,4 +281,26 @@ TEST_CASE("join L2a — a shared neighbour mediates a collision: J_DENY(MEDIATED
     c.on_recv(bb.data(), nb, meta);                              // B again
     c.on_recv(ba.data(), na, meta);                              // A again
     CHECK(count_j_deny(hal.tx_frames) == denies_after_first);    // still exactly one DENY (suppressed)
+}
+
+// R6.3/G1: the DAD picker must never hand out a gateway id (1..16) — normal nodes pick 17..254. Seed-varied across
+// the free-list index so both the low end (17) and high end (254) of the 238-slot pool are covered. A prev id in
+// 1..16 is covered transitively: it fails the `prev >= normal_node_id_min` guard -> falls to this same free-scan.
+TEST_CASE("join — R6.3/G1: the DAD picker never returns a gateway id (1..16); always 17..254 (seed-varied)") {
+    for (int bias : {0, 1, 5, 50, 200, 237}) {          // free_list index (238 slots: 17..254)
+        TestHal hal; hal._rand_lo_bias = bias;
+        Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000B2B2);
+        node.on_init(join_cfg());
+        Command c{}; c.kind = CmdKind::join;
+        CHECK(node.on_command(c).code == CmdCode::queued);
+        node.on_timer(kJoinListenTimerId);
+        const Ev* sent = hal.find("join_claim_sent");
+        CHECK(sent != nullptr);
+        if (sent) {
+            CHECK(sent->proposed >= protocol::normal_node_id_min);                                   // >= 17
+            CHECK(sent->proposed <= 254);
+            const bool in_gateway_range = (sent->proposed >= 1 && sent->proposed <= protocol::gateway_node_id_max);
+            CHECK_FALSE(in_gateway_range);                                                            // never 1..16
+        }
+    }
 }

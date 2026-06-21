@@ -160,9 +160,11 @@ void Node::adopt_config_answer(const uint8_t* body, size_t len) {
     ConfigAnswer ca{};
     if (!parse_config_answer(body, len, ca)) return;
     if (_cfg.lineage_id != 0 && ca.lineage_id != _cfg.lineage_id) return;   // not our target lineage
-    if (ca.config_epoch < _cfg.config_epoch) return;                        // not newer -> ignore
-    if (_cfg.lineage_id == ca.lineage_id && _cfg.config_epoch == ca.config_epoch &&
-        _cfg.allowed_sf_bitmap == ca.allowed_sf_bitmap) return;             // no change
+    if (ca.config_epoch < _cfg.config_epoch) return;                        // not newer -> ignore (same epoch IS adopted: the §4.1 LWW loser)
+    // No-change guard is HASH-based (not just bitmap) so a name/duty-only LWW write at the SAME epoch still adopts.
+    const uint16_t incoming_hash = leaf_config_hash(ca.allowed_sf_bitmap, ca.duty_ppm, ca.leaf_name, ca.leaf_name_len);
+    if (_cfg.lineage_id == ca.lineage_id && _cfg.config_epoch == ca.config_epoch && incoming_hash == cfg_config_hash()) return;
+    if (ca.config_epoch > _max_seen_epoch) _max_seen_epoch = ca.config_epoch;   // R6.3: adopting bumps our max-seen
     _cfg.lineage_id = ca.lineage_id; _cfg.config_epoch = ca.config_epoch;
     _cfg.allowed_sf_bitmap = ca.allowed_sf_bitmap;
     _cfg.duty_cycle = static_cast<double>(ca.duty_ppm) / 1e6;
@@ -172,6 +174,23 @@ void Node::adopt_config_answer(const uint8_t* body, size_t len) {
             EF_I("sf_bitmap", ca.allowed_sf_bitmap));
     schedule_triggered_beacon();                                            // re-advertise the adopted config -> propagate
     Push pu{}; pu.kind = PushKind::config_adopted; enqueue_push(pu);        // device: persist to NV
+}
+
+// R6.3 §4.1: an OPERATOR config write. The caller has already mutated the leaf fields (allowed_sf_bitmap / duty_cycle /
+// leaf_name) via mutable_config(); this commits the change as a deliberate, propagating bump: epoch = max_seen + 1,
+// recompute (config_hash is derived on the next beacon), re-advertise, persist. The operator-command gate IS the
+// "deliberate intent" marker — a merely-misconfigured node never calls this, so never propagates. Managed leaves only
+// (lineage 0 = unmanaged has no epoch plane). LWW (ties -> higher key_hash32) resolves a concurrent same-epoch write
+// in the beacon filter. Returns false (no-op) on an unmanaged leaf.
+bool Node::leaf_config_write() {
+    if (_cfg.lineage_id == 0) return false;                                 // unmanaged -> no epoch plane to propagate within
+    uint16_t base = _max_seen_epoch > _cfg.config_epoch ? _max_seen_epoch : _cfg.config_epoch;
+    _cfg.config_epoch = static_cast<uint16_t>(base + 1);
+    _max_seen_epoch   = _cfg.config_epoch;
+    MR_EMIT("leaf_config_write", EF_I("epoch", _cfg.config_epoch), EF_I("hash", static_cast<int64_t>(cfg_config_hash())));
+    schedule_triggered_beacon();                                            // re-advertise immediately -> neighbours go stale -> pull
+    Push pu{}; pu.kind = PushKind::config_adopted; enqueue_push(pu);        // device: persist the new {epoch, config}
+    return true;
 }
 
 // ---- jittered full-table response (Lua schedule_sync_response dv:8064; the ONLY draw) ----------
