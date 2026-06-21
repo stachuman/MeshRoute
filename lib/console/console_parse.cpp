@@ -68,6 +68,42 @@ bool parse_hex_bytes_tok(const Tok& t, uint8_t* out, size_t n) {
     return true;
 }
 
+// §2 send cleanup: parse the trailing `[-a] [-e] "<body>"` (flags + a QUOTED body, in ANY order) from the scan cursor.
+// `-a`=ack, `-e`=encrypt — each gated by allow_a/allow_e (an off-target flag is an error). The body is the verbatim
+// text between the quotes (spaces allowed). Returns false on: a disallowed/unknown flag, an unquoted token, an
+// unterminated/duplicate quote, or no body at all (the body is required).
+bool parse_send_tail(Scan& s, bool allow_a, bool allow_e, bool& ack, bool& enc,
+                     const uint8_t*& body, uint8_t& body_len) {
+    ack = false; enc = false; body = nullptr; body_len = 0; bool body_seen = false;
+    for (;;) {
+        skip_ws(s);
+        if (s.p >= s.end) break;
+        if (*s.p == '"') {                                       // the quoted body
+            if (body_seen) return false;                         // two bodies
+            ++s.p;
+            const char* b = s.p;
+            while (s.p < s.end && *s.p != '"') ++s.p;
+            if (s.p >= s.end) return false;                      // unterminated quote
+            size_t n = static_cast<size_t>(s.p - b);
+            if (n > protocol::max_payload_bytes_hard_cap) n = protocol::max_payload_bytes_hard_cap;
+            body = reinterpret_cast<const uint8_t*>(b); body_len = static_cast<uint8_t>(n);
+            body_seen = true;
+            ++s.p;                                               // past the closing quote
+        } else if (*s.p == '-') {                                // a flag: -a / -e (lone, single-char)
+            ++s.p;
+            if (s.p >= s.end) return false;
+            const char f = *s.p; ++s.p;
+            if (s.p < s.end && *s.p != ' ' && *s.p != '\t') return false;   // must be a lone token
+            if      (f == 'a') { if (!allow_a) return false; ack = true; }
+            else if (f == 'e') { if (!allow_e) return false; enc = true; }
+            else return false;                                   // unknown flag
+        } else {
+            return false;                                        // unquoted text -> error (body must be quoted)
+        }
+    }
+    return body_seen;                                            // the quoted body is mandatory
+}
+
 }  // namespace
 
 ParseErr parse_command(const char* line, size_t len, Command& out) {
@@ -112,30 +148,44 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
         return ParseErr::ok;
     }
 
-    //   send_layer     <hash> <l1,l2,…> <text> — explicit-path cross-layer DM along the given destination layers
-    //   send_layer_ack <hash> <l1,l2,…> <text> — same + request the end-to-end ack (the companion reuses this parser)
+    //   §2 send cleanup — 3 orthogonal verbs, QUOTED body, -a (ack) / -e (encrypt) flags in ANY order. HARD SWITCH:
+    //   the old send_ack/sendhash/sendhash_ack/sendhashx/sendhashx_ack/send_layer_ack verbs are GONE (-> unknown_verb).
+    //   send <id|hash> "<text>" [-a] [-e]          — id (<=254 dec) vs hash (8-hex) AUTO-detected; -e=crypt (hash only)
+    //   send_channel <ch> "<text>"                 — channel gossip (no ack/enc)
+    //   send_layer <hash> <l1,l2,…> "<text>" [-a]  — explicit cross-layer path
     {
-        const bool is_layer     = tok_eq(verb, "send_layer");
-        const bool is_layer_ack = tok_eq(verb, "send_layer_ack");
-        if (is_layer || is_layer_ack) {
-            Tok htok = token(s);
+        const bool is_send    = tok_eq(verb, "send");
+        const bool is_channel = tok_eq(verb, "send_channel");
+        const bool is_layer   = tok_eq(verb, "send_layer");
+        if (!is_send && !is_channel && !is_layer) return ParseErr::unknown_verb;
+
+        if (is_channel) {                                       // send_channel <ch> "<text>" — no ack/enc
+            uint32_t ch = 0;
+            if (!parse_u32_tok(token(s), 255u, ch)) return ParseErr::bad_args;
+            bool ack = false, enc = false; const uint8_t* body = nullptr; uint8_t blen = 0;
+            if (!parse_send_tail(s, /*allow_a=*/false, /*allow_e=*/false, ack, enc, body, blen)) return ParseErr::bad_args;
+            out = Command{};
+            out.kind = CmdKind::send_channel;
+            out.u.channel.channel_id = static_cast<uint8_t>(ch);
+            out.body = body; out.body_len = blen; out.crypt = CryptIntent::def;
+            return ParseErr::ok;
+        }
+
+        if (is_layer) {                                        // send_layer <hash> <l1,l2,…> "<text>" [-a]
             uint32_t h = 0;
-            if (!parse_hex32_tok(htok, h) || h == 0) return ParseErr::bad_args;   // <hash>: 8-hex key_hash32, nonzero
+            if (!parse_hex32_tok(token(s), h) || h == 0) return ParseErr::bad_args;   // <hash>: key_hash32, nonzero
             Tok ptok = token(s);
-            if (ptok.n == 0) return ParseErr::bad_args;                           // <l1,l2,…> required (no empty path)
+            if (ptok.n == 0) return ParseErr::bad_args;                               // <l1,l2,…> required (no empty path)
             out = Command{};
             out.kind = CmdKind::send_layer;
-            out.u.layer.dst_hash  = h;
-            out.u.layer.hop_count = 0;
-            out.u.layer.flags     = static_cast<uint8_t>(is_layer_ack ? DATA_FLAG_E2E_ACK_REQ : 0);
-            // Split the comma-separated decimal destination layer ids into hops[]. Cap at gw_env_max_hops-1:
-            // originate_layer_path PREPENDS our own layer as path[0], so the user supplies at most that many.
+            out.u.layer.dst_hash = h; out.u.layer.hop_count = 0;
+            // comma-separated decimal layer ids -> hops[]; cap at gw_env_max_hops-1 (originate_layer_path prepends ours).
             uint32_t v = 0; bool digit = false;
             for (size_t i = 0; i < ptok.n; ++i) {
                 const char ch = ptok.s[i];
                 if (ch == ',') {
-                    if (!digit || v == 0 || v > 255) return ParseErr::bad_args;   // empty / zero / >255 element
-                    if (out.u.layer.hop_count >= protocol::gw_env_max_hops - 1) return ParseErr::bad_args;  // too many hops
+                    if (!digit || v == 0 || v > 255) return ParseErr::bad_args;
+                    if (out.u.layer.hop_count >= protocol::gw_env_max_hops - 1) return ParseErr::bad_args;
                     out.u.layer.hops[out.u.layer.hop_count++] = static_cast<uint8_t>(v);
                     v = 0; digit = false;
                 } else if (ch >= '0' && ch <= '9') {
@@ -143,68 +193,36 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
                     if (v > 255) return ParseErr::bad_args;
                     digit = true;
                 } else {
-                    return ParseErr::bad_args;                                    // non-numeric
+                    return ParseErr::bad_args;
                 }
             }
-            if (!digit || v == 0 || v > 255) return ParseErr::bad_args;           // the final element
+            if (!digit || v == 0 || v > 255) return ParseErr::bad_args;
             if (out.u.layer.hop_count >= protocol::gw_env_max_hops - 1) return ParseErr::bad_args;
             out.u.layer.hops[out.u.layer.hop_count++] = static_cast<uint8_t>(v);
-            // body = remainder after exactly one separating space (verbatim, incl. spaces).
-            if (s.p < s.end && (*s.p == ' ' || *s.p == '\t')) ++s.p;
-            size_t body_len = static_cast<size_t>(s.end - s.p);
-            if (body_len > protocol::max_payload_bytes_hard_cap) body_len = protocol::max_payload_bytes_hard_cap;
-            out.body = reinterpret_cast<const uint8_t*>(s.p);
-            out.body_len = static_cast<uint8_t>(body_len);
+            bool ack = false, enc = false; const uint8_t* body = nullptr; uint8_t blen = 0;
+            if (!parse_send_tail(s, /*allow_a=*/true, /*allow_e=*/false, ack, enc, body, blen)) return ParseErr::bad_args;
+            out.u.layer.flags = static_cast<uint8_t>(ack ? DATA_FLAG_E2E_ACK_REQ : 0);
+            out.body = body; out.body_len = blen;
             return ParseErr::ok;
         }
-    }
 
-    //   send <id> <text>           — DM by short id, NO E2E ack
-    //   send_ack <id> <text>       — DM by short id, E2E ack requested (flags DATA_FLAG_E2E_ACK_REQ = 0x10)
-    //   sendhash <hash> <text>     — DM by key_hash32 (hash-locate); on_command resolves then sends
-    //   sendhash_ack <hash> <text> — DM by key_hash32, E2E ack requested
-    //   send_channel <ch> <text>   — single-layer channel gossip (channel_id 0..255)
-    const bool is_send          = tok_eq(verb, "send");
-    const bool is_send_ack      = tok_eq(verb, "send_ack");
-    const bool is_sendhash      = tok_eq(verb, "sendhash");
-    const bool is_sendhash_ack  = tok_eq(verb, "sendhash_ack");
-    const bool is_sendhashx     = tok_eq(verb, "sendhashx");       // §8b: force CRYPTED (per-message crypt-on)
-    const bool is_sendhashx_ack = tok_eq(verb, "sendhashx_ack");
-    const bool is_channel       = tok_eq(verb, "send_channel");
-    if (!is_send && !is_send_ack && !is_sendhash && !is_sendhash_ack && !is_sendhashx && !is_sendhashx_ack && !is_channel)
-        return ParseErr::unknown_verb;
-    const bool by_hash = is_sendhash || is_sendhash_ack || is_sendhashx || is_sendhashx_ack;   // hex key_hash32 first arg
-    const bool e2e_ack = is_send_ack || is_sendhash_ack || is_sendhashx_ack;                    // the *_ack verbs request the E2E ack
-    // §8b: sendhashx* force CRYPTED; sendhash* force PLAIN; send* default to the node's e2e_dm.
-    const CryptIntent crypt = (is_sendhashx || is_sendhashx_ack) ? CryptIntent::on
-                            : (is_sendhash  || is_sendhash_ack)  ? CryptIntent::off
-                                                                 : CryptIntent::def;
-
-    // first arg: hex key_hash32 (sendhash*), decimal channel id (send_channel, 0..255), or decimal dst id (0..254).
-    Tok arg = token(s);
-    uint32_t arg_val = 0;
-    if (by_hash) { if (!parse_hex32_tok(arg, arg_val))                         return ParseErr::bad_args; }
-    else         { if (!parse_u32_tok(arg, is_channel ? 255u : 254u, arg_val)) return ParseErr::bad_args; }
-
-    // body = remainder after exactly one separating space (verbatim, incl. spaces).
-    if (s.p < s.end && (*s.p == ' ' || *s.p == '\t')) ++s.p;
-    size_t body_len = static_cast<size_t>(s.end - s.p);
-    if (body_len > protocol::max_payload_bytes_hard_cap) body_len = protocol::max_payload_bytes_hard_cap;
-
-    out = Command{};
-    if (is_channel) {
-        out.kind = CmdKind::send_channel;
-        out.u.channel.channel_id = static_cast<uint8_t>(arg_val);
-    } else {
+        // send <id|hash> "<text>" [-a] [-e]: AUTO-detect — EXACTLY 8 hex chars => key_hash32; else decimal <=254 => id.
+        Tok arg = token(s);
+        uint32_t h = 0, id = 0; bool by_hash = false;
+        if (arg.n == 8 && parse_hex32_tok(arg, h)) by_hash = true;          // 8-hex -> hash (an id is <=3 digits, never 8)
+        else if (parse_u32_tok(arg, 254u, id))     by_hash = false;         // decimal <=254 -> id
+        else return ParseErr::bad_args;
+        bool ack = false, enc = false; const uint8_t* body = nullptr; uint8_t blen = 0;
+        if (!parse_send_tail(s, /*allow_a=*/true, /*allow_e=*/by_hash, ack, enc, body, blen)) return ParseErr::bad_args;  // -e only on a hash target
+        out = Command{};
         out.kind = CmdKind::send;
-        out.u.send.dst_id   = by_hash ? 0 : static_cast<uint8_t>(arg_val);
-        out.u.send.dst_hash = by_hash ? arg_val : 0u;     // on_command (node.cpp) routes dst_hash!=0 to send_by_hash
-        out.u.send.flags    = static_cast<uint8_t>(e2e_ack ? DATA_FLAG_E2E_ACK_REQ : 0);  // *_ack => the wire bit the RX acts on (node_mac_rx: & 0x10). 0x08 was a DEAD bit -> acks never fired.
+        out.u.send.dst_id   = by_hash ? 0 : static_cast<uint8_t>(id);
+        out.u.send.dst_hash = by_hash ? h : 0u;            // on_command routes dst_hash!=0 to send_by_hash
+        out.u.send.flags    = static_cast<uint8_t>(ack ? DATA_FLAG_E2E_ACK_REQ : 0);
+        out.body = body; out.body_len = blen;
+        out.crypt = enc ? CryptIntent::on : CryptIntent::def;   // -e => CRYPTED; absent => the node's e2e_dm default (force-plain dropped)
+        return ParseErr::ok;
     }
-    out.body = reinterpret_cast<const uint8_t*>(s.p);
-    out.body_len = static_cast<uint8_t>(body_len);
-    out.crypt = is_channel ? CryptIntent::def : crypt;   // §8b: per-message crypt (channels are cleartext -> def)
-    return ParseErr::ok;
 }
 
 CfgErr parse_cfg(const char* line, size_t len, NodeConfig& cfg,

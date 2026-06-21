@@ -554,7 +554,7 @@ static void handle_sleep(const char* arg, size_t n) {
 }
 
 // `debug on` / `debug off` (also `debug 1`/`debug 0`) — gate the decoded per-frame «rx/»tx console trace
-// (frame_trace.h g_mr_trace_on). Default ON. Lets the REPL silence the verbose tracing for normal use.
+// (frame_trace.h g_mr_trace_on). §3: default OFF at boot; `debug on` enables it for the session.
 static void handle_debug(const char* arg, size_t n) {
     while (n && *arg == ' ') { ++arg; --n; }
     const bool off = (n >= 3 && !strncmp(arg, "off", 3)) || (n >= 1 && arg[0] == '0');
@@ -872,18 +872,19 @@ static void handle_leave() {
 
 // `help` / `?` — a small command + cfg-key reference for the live console session.
 static void dump_help() {
-    Serial.println(F("[help] messaging:  send <id> <text> | send_ack <id> <text> | sendhash <hash> <text> | sendhash_ack <hash> <text> | send_channel <ch> <text>"));
-    Serial.println(F("[help] cross-layer: send_layer <hash> <l1,l2,…> <text> | send_layer_ack <hash> <l1,l2,…> <text>  (explicit destination layer path)"));
-    Serial.println(F("[help] e2e send:   sendhashx <hash> <text> | sendhashx_ack <hash> <text>   (force-encrypt ONE DM; `cfg set e2e_dm on` = encrypt by default)"));
+    Serial.println(F("[help] messaging:  send <id|hash> \"<text>\" [-a] [-e]   (-a=ack, -e=encrypt[hash only]; id<=254 / hash=8hex auto-detected)"));
+    Serial.println(F("[help] channel:    send_channel <ch> \"<text>\""));
+    Serial.println(F("[help] cross-layer: send_layer <hash> <l1,l2,…> \"<text>\" [-a]   (explicit destination layer path)"));
     Serial.println(F("[help] e2e keys:   peerkey <ed_pub hex64> (install a scanned/QR pubkey = pinned) | reqpubkey <hash> (request a peer's key on-air)"));
     Serial.println(F("[help] hash/id:    whoami | lookup <hash> | hashof <id> | resolve <hash> [hard]"));
     Serial.println(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
     Serial.println(F("[help] diag:       routes | status | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
     Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack   (bool keys take on|off; identity via regen)"));
     Serial.println(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
+    Serial.println(F("[help] provision:  join <freq_MHz> <bw_kHz> <ctrl_sf> <level_id> | create <freq> <bw> <ctrl_sf> <level_id> <sf_list> <duty%> \"<name>\" | leave   (LIVE, no reboot: join a net / mint a managed leaf [mother] / reset & keep freq)"));
     Serial.println(F("[help] gateway:    gateway l0=<leaf>:<node>:<ctrl_sf>:<data_sfs> l1=<leaf>:<node>:<ctrl_sf>:<data_sfs> [period=ms] [win0=ms:off] [win1=ms:off] [beacon=ms] [freq0=MHz] [freq1=MHz] [gateway_only=0|1]"));
     Serial.println(F("  one-shot dual-layer provisioning -> NV, reboot to apply (windows auto-derive SF-weighted anti-phase if win0/win1 omitted). e.g. gateway l0=1:1:8:7,9 l1=2:1:9:9,10"));
-    Serial.println(F("[help] leaf:       leaf create (mint a managed-leaf lineage) | leaf name <text>   (R6.1 leaf-config membership; reboot to apply)"));
+    Serial.println(F("[help] leaf:       leaf create (mint a lineage) | leaf name <text>   (low-level, reboot to apply; the live one-shot front-door is the `create` verb above)"));
 }
 
 // ---- Phase-3 inbox sync (schema: ios-companion/INBOX_SYNC_CONTRACT.md) -----------------------------------

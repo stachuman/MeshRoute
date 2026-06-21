@@ -26,7 +26,7 @@ inline const char* mr_cmd_name(uint8_t cmd) {
     }
 }
 
-inline bool g_mr_trace_on = true;   // `debug on/off` (device console) gates the whole decoded RX/TX trace below
+inline bool g_mr_trace_on = false;  // §3: default OFF — `debug on` enables the decoded RX/TX trace for a session
 
 // Hex-dump frame[off, off+len) to the console, capped at `cap` bytes (..  if truncated). Used by the CRYPTED
 // region annotation so an operator can EYE-CONFIRM the encrypted span isn't their plaintext.

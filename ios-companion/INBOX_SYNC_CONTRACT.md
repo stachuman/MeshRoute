@@ -18,6 +18,14 @@ Framing matches the rest of the link: **app→node = line-ASCII commands, node�
 
 ## Commands (app → node)
 
+> ⚠️ **UPDATE REQUIRED — send verbs changed (firmware 2026-06-21, spec `2026-06-21-serial-interface-cleanup.md` §2).** The 9 send verbs collapsed to **3 with a QUOTED body + `-a`/`-e` flags**; the old `send_ack`/`sendhash`/`sendhash_ack`/`sendhashx`/`sendhashx_ack`/`send_layer_ack` are **REMOVED** (a node now returns `unknown_verb`). Migrate `MeshRouteWire`/`Command.swift` in lock-step:
+> ```
+> send <id|hash> "<text>" [-a] [-e]          # id (<=254) vs hash (8-hex) AUTO-detected; -a=ack, -e=encrypt (hash only)
+> send_channel <ch> "<text>"                 # no ack/enc
+> send_layer <hash> <l1,l2,…> "<text>" [-a]  # explicit cross-layer path
+> ```
+> Crypt: `-e` ⇒ CRYPTED; **absent ⇒ the node's `e2e_dm` default** (the old `sendhash` force-PLAIN semantic is dropped — `cfg set e2e_dm off` + no `-e` = plain). Ack: `-a` ⇒ E2E-ack-req (valid on `send`/`send_layer`). The emitted intents (ack/crypt/hash) are unchanged — only the wire syntax. The §"Per-message crypt" block below (which named `sendhashx`/`sendhashx_ack`) is superseded by `-e`.
+
 ```
 pull_inbox <dm_since> <chan_since>     # stream records with seq > each cursor; two INDEPENDENT seq spaces
 mark_read  <dm|chan> <seq>            # advance the per-store read cursor (UX unread badges)
@@ -215,8 +223,9 @@ reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "
 ### Per-message crypt + the "encrypted?" indicator (2026-06-16)
 **Send — crypt is PER-MESSAGE**, not only the global `cfg set e2e_dm` default: the companion's send carries
 an explicit crypt bit (the UX lock toggle); `e2e_dm` is the **default** applied when the send doesn't
-specify. (Send form CONFIRMED 2026-06-16: a **`sendhashx` / `sendhashx_ack`** verb pair beside
-`sendhash`/`sendhash_ack`; the seal gate uses `want_crypt = per_message ?? e2e_dm`.) A CRYPTED send with no authoritative key still fails loud
+specify. (Send form UPDATED 2026-06-21: the per-message crypt bit is the **`-e` flag** on `send <hash> "…" -e`
+— the old `sendhashx`/`sendhashx_ack` verbs are REMOVED, see the UPDATE-REQUIRED banner under "Commands"; the
+seal gate still uses `want_crypt = per_message ?? e2e_dm`.) A CRYPTED send with no authoritative key still fails loud
 (`send_failed{no_pubkey}`).
 
 **Receive — every delivered DM tells the app whether it was sealed.** A DM opened from a CRYPTED frame carries

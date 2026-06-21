@@ -16,7 +16,7 @@
 #       {"ev":"send_acked","dst":5,"ctr":7}             {"ev":"channel_recv","origin":3,"channel_id":2,"body":"hi"}
 #       {"ev":"ready","id":1,"key":"a1b2c3d4",...}      {"err":"parse","code":"unknown_cmd"}
 #   The node sends ONLY JSON over BLE (the human plain-text dumps stay on USB); commands in are the same
-#   line grammar as USB (`send`/`send_ack`/`sendhash`/`send_channel`/`resolve`/`whoami`).
+#   line grammar as USB (`send <id|hash> "..." [-a] [-e]`/`send_channel`/`send_layer`/`resolve`/`whoami`).
 #
 # ---- PAIRING (the firmware requires an encrypted + MITM-bonded link — spec §A.3) ------------------------
 # The node serves its GATT chars at SECMODE_ENC_WITH_MITM with a STATIC 6-digit passkey (default 123456,

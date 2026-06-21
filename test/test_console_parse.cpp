@@ -10,116 +10,126 @@
 using namespace meshroute;            // Command, CmdKind, NodeConfig
 using namespace meshroute::console;   // parse_command, parse_cfg, ParseErr, CfgErr
 
-TEST_CASE("parse_command — send <dst> <body> (NO E2E ack)") {
-    const char* line = "send 5 hello world";
+TEST_CASE("parse_command — send <id> \"text\" [-a] (id target; quoted body; flags)") {
     Command c{};
-    CHECK(parse_command(line, std::strlen(line), c) == ParseErr::ok);
+    const char* p = "send 5 \"hello world\"";
+    CHECK(parse_command(p, std::strlen(p), c) == ParseErr::ok);
     CHECK(c.kind == CmdKind::send);
     CHECK(c.u.send.dst_id == 5);
-    CHECK(c.u.send.flags == 0x00);              // plain DM: no ack requested
-    CHECK(c.body_len == 11);                     // "hello world"
+    CHECK(c.u.send.dst_hash == 0u);
+    CHECK(c.u.send.flags == 0x00);
+    CHECK(c.crypt == CryptIntent::def);              // no -e -> the node's e2e_dm default
     CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "hello world");
-}
-
-TEST_CASE("parse_command — send_ack <dst> <body> (E2E ack-req)") {
-    const char* line = "send_ack 5 hi there";
-    Command c{};
-    CHECK(parse_command(line, std::strlen(line), c) == ParseErr::ok);
-    CHECK(c.kind == CmdKind::send);
+    const char* a = "send 5 \"hi\" -a";
+    CHECK(parse_command(a, std::strlen(a), c) == ParseErr::ok);
     CHECK(c.u.send.dst_id == 5);
-    CHECK(c.u.send.flags == DATA_FLAG_E2E_ACK_REQ);   // the bit the RX acts on (was 0x08, a dead bit -> acks never fired)
-    CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "hi there");
+    CHECK(c.u.send.flags == DATA_FLAG_E2E_ACK_REQ);
+    CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "hi");
 }
 
-TEST_CASE("parse_command — send_channel <ch> <body>") {
-    const char* line = "send_channel 7 broadcast msg";
+TEST_CASE("parse_command — send <hash> auto-detect + -e (CRYPTED, hash-only)") {
     Command c{};
-    CHECK(parse_command(line, std::strlen(line), c) == ParseErr::ok);
+    const char* h = "send 1a2b3c4d \"hi\" -e";
+    CHECK(parse_command(h, std::strlen(h), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::send);
+    CHECK(c.u.send.dst_id == 0);
+    CHECK(c.u.send.dst_hash == 0x1a2b3c4du);
+    CHECK(c.crypt == CryptIntent::on);               // -e => CRYPTED
+    CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "hi");
+    const char* d = "send 12345678 \"x\"";           // 8 all-digit chars => HASH (8-hex wins), not an id
+    CHECK(parse_command(d, std::strlen(d), c) == ParseErr::ok);
+    CHECK(c.u.send.dst_id == 0);
+    CHECK(c.u.send.dst_hash == 0x12345678u);
+    const char* idtok = "send 100 \"x\"";            // <=3 digits => id
+    CHECK(parse_command(idtok, std::strlen(idtok), c) == ParseErr::ok);
+    CHECK(c.u.send.dst_id == 100);
+    CHECK(c.u.send.dst_hash == 0u);
+}
+
+TEST_CASE("parse_command — flags before OR after the quoted body both parse") {
+    Command c{};
+    const char* after  = "send 1a2b3c4d \"hi\" -a -e";
+    CHECK(parse_command(after, std::strlen(after), c) == ParseErr::ok);
+    CHECK(c.u.send.flags == DATA_FLAG_E2E_ACK_REQ); CHECK(c.crypt == CryptIntent::on);
+    const char* before = "send 1a2b3c4d -e -a \"hi\"";
+    CHECK(parse_command(before, std::strlen(before), c) == ParseErr::ok);
+    CHECK(c.u.send.flags == DATA_FLAG_E2E_ACK_REQ); CHECK(c.crypt == CryptIntent::on);
+    const char* mixed  = "send 1a2b3c4d -e \"hi\" -a";
+    CHECK(parse_command(mixed, std::strlen(mixed), c) == ParseErr::ok);
+    CHECK(c.u.send.flags == DATA_FLAG_E2E_ACK_REQ); CHECK(c.crypt == CryptIntent::on);
+}
+
+TEST_CASE("parse_command — send errors: -e on non-hash, unquoted body, no body, bad target/flag") {
+    Command c{};
+    const char* eonid  = "send 5 \"hi\" -e";          // -e on an id target -> error
+    CHECK(parse_command(eonid, std::strlen(eonid), c) == ParseErr::bad_args);
+    const char* unq    = "send 5 hello";              // unquoted body -> error
+    CHECK(parse_command(unq, std::strlen(unq), c) == ParseErr::bad_args);
+    const char* nobody = "send 5 -a";                 // no body -> error
+    CHECK(parse_command(nobody, std::strlen(nobody), c) == ParseErr::bad_args);
+    const char* big    = "send 255 \"x\"";            // id > 254 + not 8-hex -> error
+    CHECK(parse_command(big, std::strlen(big), c) == ParseErr::bad_args);
+    const char* nonhex = "send abcd \"x\"";           // 4 chars: not 8-hex, not decimal -> error
+    CHECK(parse_command(nonhex, std::strlen(nonhex), c) == ParseErr::bad_args);
+    const char* badflag= "send 5 \"x\" -z";           // unknown flag -> error
+    CHECK(parse_command(badflag, std::strlen(badflag), c) == ParseErr::bad_args);
+}
+
+TEST_CASE("parse_command — send_channel <ch> \"text\" (no ack/enc)") {
+    Command c{};
+    const char* p = "send_channel 7 \"broadcast msg\"";
+    CHECK(parse_command(p, std::strlen(p), c) == ParseErr::ok);
     CHECK(c.kind == CmdKind::send_channel);
     CHECK(c.u.channel.channel_id == 7);
     CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "broadcast msg");
-    // channel id range is 0..255 (a full byte), wider than the 0..254 dst-id range
-    const char* hi = "send_channel 255 x";
+    const char* hi = "send_channel 255 \"x\"";        // channel id 0..255 (wider than the 0..254 dst id)
     CHECK(parse_command(hi, std::strlen(hi), c) == ParseErr::ok);
     CHECK(c.u.channel.channel_id == 255);
+    const char* aflag = "send_channel 7 \"x\" -a";    // -a/-e on a channel -> error
+    CHECK(parse_command(aflag, std::strlen(aflag), c) == ParseErr::bad_args);
 }
 
-TEST_CASE("parse_command — sendhash <hash> <body> (address by key_hash32, NO ack)") {
-    const char* line = "sendhash a1b2c3d4 hello";
+TEST_CASE("parse_command — send_layer <hash> <l1,l2,…> \"text\" [-a]") {
     Command c{};
-    CHECK(parse_command(line, std::strlen(line), c) == ParseErr::ok);
-    CHECK(c.kind == CmdKind::send);                 // hash-addressed DM rides the same send path
-    CHECK(c.u.send.dst_id == 0);                    // no short id — on_command routes by dst_hash
-    CHECK(c.u.send.dst_hash == 0xa1b2c3d4u);
-    CHECK(c.u.send.flags == 0x00);                  // plain DM: no ack requested
-    CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "hello");
-}
-
-TEST_CASE("parse_command — sendhash_ack <hash> <body> (E2E ack-req)") {
-    const char* line = "sendhash_ack 0a0b0c0d ok";
-    Command c{};
-    CHECK(parse_command(line, std::strlen(line), c) == ParseErr::ok);
-    CHECK(c.kind == CmdKind::send);
-    CHECK(c.u.send.dst_id == 0);
-    CHECK(c.u.send.dst_hash == 0x0a0b0c0du);
-    CHECK(c.u.send.flags == DATA_FLAG_E2E_ACK_REQ);  // the bit the RX acts on (was 0x08, a dead bit -> acks never fired)
-    CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "ok");
-}
-
-TEST_CASE("parse_command — sendhash bad hash -> bad_args") {
-    Command c{};
-    const char* nonhex = "sendhash xyz hi";
-    CHECK(parse_command(nonhex, std::strlen(nonhex), c) == ParseErr::bad_args);     // non-hex
-    const char* toolong = "sendhash 123456789 hi";
-    CHECK(parse_command(toolong, std::strlen(toolong), c) == ParseErr::bad_args);   // >8 hex digits
-}
-
-TEST_CASE("parse_command — send_layer <hash> <l1,l2,…> <body> (explicit-path cross-layer DM)") {
-    Command c{};
-    const char* line = "send_layer a1b2c3d4 2,3 hi there";
+    const char* line = "send_layer a1b2c3d4 2,3 \"hi there\" -a";
     CHECK(parse_command(line, std::strlen(line), c) == ParseErr::ok);
     CHECK(c.kind == CmdKind::send_layer);
     CHECK(c.u.layer.dst_hash == 0xa1b2c3d4u);
     CHECK(c.u.layer.hop_count == 2);
-    CHECK(c.u.layer.hops[0] == 2);
-    CHECK(c.u.layer.hops[1] == 3);
-    CHECK(c.u.layer.flags == 0x00);                                  // plain send_layer: no E2E ack
+    CHECK(c.u.layer.hops[0] == 2); CHECK(c.u.layer.hops[1] == 3);
+    CHECK(c.u.layer.flags == DATA_FLAG_E2E_ACK_REQ);
     CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "hi there");
-
-    // a single-hop path
-    const char* one = "send_layer 0a0b0c0d 5 yo";
+    const char* one = "send_layer 0a0b0c0d 5 \"yo\"";
     CHECK(parse_command(one, std::strlen(one), c) == ParseErr::ok);
-    CHECK(c.u.layer.hop_count == 1);
-    CHECK(c.u.layer.hops[0] == 5);
+    CHECK(c.u.layer.hop_count == 1); CHECK(c.u.layer.hops[0] == 5);
+    CHECK(c.u.layer.flags == 0x00);
+    const char* e = "send_layer a1b2c3d4 2 \"hi\" -e";   // -e invalid on a layer target
+    CHECK(parse_command(e, std::strlen(e), c) == ParseErr::bad_args);
 }
 
-TEST_CASE("parse_command — send_layer_ack sets the E2E ack-req flag") {
+TEST_CASE("parse_command — send_layer malformed paths -> bad_args (fail loud)") {
     Command c{};
-    const char* line = "send_layer_ack a1b2c3d4 2 hi";
-    CHECK(parse_command(line, std::strlen(line), c) == ParseErr::ok);
-    CHECK(c.kind == CmdKind::send_layer);
-    CHECK(c.u.layer.hop_count == 1);
-    CHECK(c.u.layer.hops[0] == 2);
-    CHECK(c.u.layer.flags == DATA_FLAG_E2E_ACK_REQ);                 // the wire bit the RX acts on (0x10)
-}
-
-TEST_CASE("parse_command — send_layer malformed paths -> bad_args (fail loud, no silent fix)") {
-    Command c{};
-    // gw_env_max_hops == 4, so the user may supply at most 3 destination layers (path[0] is our own, prepended).
-    const char* toomany = "send_layer a1b2c3d4 2,3,4,5 hi";   // 4 hops -> overflow
+    const char* toomany = "send_layer a1b2c3d4 2,3,4,5 \"hi\"";
     CHECK(parse_command(toomany, std::strlen(toomany), c) == ParseErr::bad_args);
-    const char* nonnum  = "send_layer a1b2c3d4 2,x hi";       // non-numeric element
+    const char* nonnum  = "send_layer a1b2c3d4 2,x \"hi\"";
     CHECK(parse_command(nonnum, std::strlen(nonnum), c) == ParseErr::bad_args);
-    const char* zero    = "send_layer a1b2c3d4 0 hi";         // layer id 0 (unset)
+    const char* zero    = "send_layer a1b2c3d4 0 \"hi\"";
     CHECK(parse_command(zero, std::strlen(zero), c) == ParseErr::bad_args);
-    const char* empties = "send_layer a1b2c3d4 2,,3 hi";      // empty element
+    const char* empties = "send_layer a1b2c3d4 2,,3 \"hi\"";
     CHECK(parse_command(empties, std::strlen(empties), c) == ParseErr::bad_args);
-    const char* nopath  = "send_layer a1b2c3d4";              // no path token at all
+    const char* nopath  = "send_layer a1b2c3d4";
     CHECK(parse_command(nopath, std::strlen(nopath), c) == ParseErr::bad_args);
-    const char* badhash = "send_layer zz 2 hi";               // non-hex hash
+    const char* badhash = "send_layer zz 2 \"hi\"";
     CHECK(parse_command(badhash, std::strlen(badhash), c) == ParseErr::bad_args);
-    const char* over255 = "send_layer a1b2c3d4 300 hi";       // layer id > 255
+    const char* over255 = "send_layer a1b2c3d4 300 \"hi\"";
     CHECK(parse_command(over255, std::strlen(over255), c) == ParseErr::bad_args);
+}
+
+TEST_CASE("parse_command — §2 HARD SWITCH: the removed send verbs are unknown_verb") {
+    Command c{};
+    const char* removed[] = { "send_ack 5 \"hi\"", "sendhash a1b2c3d4 \"hi\"", "sendhash_ack a1b2c3d4 \"hi\"",
+                              "sendhashx a1b2c3d4 \"hi\"", "sendhashx_ack a1b2c3d4 \"hi\"", "send_layer_ack a1b2c3d4 2 \"hi\"" };
+    for (const char* v : removed) CHECK(parse_command(v, std::strlen(v), c) == ParseErr::unknown_verb);
 }
 
 TEST_CASE("parse_command — resolve <hash> [hard] (network hash-locate, notify-only)") {
@@ -169,22 +179,23 @@ TEST_CASE("parse_command — peerkey <ed_pub hex64> (QR import)") {
     CHECK(parse_command(nonhex, std::strlen(nonhex), c) == ParseErr::bad_args);
 }
 
-// §8b (per-message crypt): sendhashx* force CRYPTED, sendhash* force PLAIN, send* default to the node's e2e_dm.
-TEST_CASE("parse_command — sendhashx/sendhash carry the per-message crypt intent (§8b)") {
+// §2 per-message crypt (HARD SWITCH): -e => CRYPTED; absent => the node's e2e_dm default. The old sendhash
+// force-PLAIN / sendhashx force-CRYPT verbs are gone — `cfg set e2e_dm off` + no -e is the plain path.
+TEST_CASE("parse_command — -e carries the per-message crypt intent; absent = e2e_dm default") {
     Command c{};
-    const char* sx = "sendhashx a1b2c3d4 hi there";
-    CHECK(parse_command(sx, std::strlen(sx), c) == ParseErr::ok);
+    const char* e = "send a1b2c3d4 \"hi there\" -e";
+    CHECK(parse_command(e, std::strlen(e), c) == ParseErr::ok);
     CHECK(c.kind == CmdKind::send); CHECK(c.u.send.dst_hash == 0xa1b2c3d4u);
     CHECK(c.crypt == CryptIntent::on); CHECK(c.u.send.flags == 0x00);
-    const char* sxa = "sendhashx_ack a1b2c3d4 hi";
-    CHECK(parse_command(sxa, std::strlen(sxa), c) == ParseErr::ok);
+    const char* ea = "send a1b2c3d4 \"hi\" -a -e";
+    CHECK(parse_command(ea, std::strlen(ea), c) == ParseErr::ok);
     CHECK(c.crypt == CryptIntent::on); CHECK(c.u.send.flags == DATA_FLAG_E2E_ACK_REQ);   // crypted + E2E ack
-    const char* sh = "sendhash a1b2c3d4 hi";
-    CHECK(parse_command(sh, std::strlen(sh), c) == ParseErr::ok);
-    CHECK(c.crypt == CryptIntent::off);                       // sendhash -> force PLAIN
-    const char* sid = "send 2 hi";
+    const char* plain = "send a1b2c3d4 \"hi\"";              // no -e -> default (NOT force-plain)
+    CHECK(parse_command(plain, std::strlen(plain), c) == ParseErr::ok);
+    CHECK(c.crypt == CryptIntent::def);
+    const char* sid = "send 2 \"hi\"";
     CHECK(parse_command(sid, std::strlen(sid), c) == ParseErr::ok);
-    CHECK(c.crypt == CryptIntent::def);                       // send -> default (follows e2e_dm)
+    CHECK(c.crypt == CryptIntent::def);                       // id target -> default (follows e2e_dm)
 }
 
 TEST_CASE("parse_command — errors") {
