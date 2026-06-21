@@ -620,7 +620,7 @@ private:
     void    age_out_mediated();                                             // drop mediation records past the suppress window
     // Q REQ_SYNC plane (boot route-bootstrap) — node_query.cpp.
     void    req_sync_loop_fire();                                  // kReqSyncTimerId: send + re-arm while discovery+starved (dv:9167)
-    void    send_req_sync_q(const char* reason);                   // broadcast a REQ_SYNC Q (no draw; dv:8032)
+    void    send_req_sync_q(const char* reason, bool force = false);  // broadcast a REQ_SYNC Q (no draw; dv:8032). force=bypass boot-flag+route-rich guards (reactive route-miss pull)
     void    send_config_pull(uint8_t to, uint16_t lineage, uint16_t epoch);  // R6.2: 1-hop CONFIG_PULL to a heard member
     void    send_config_answer(uint8_t to);                        // R6.2: routed DATA TYPE 6 carrying OUR leaf config
     void    adopt_config_answer(const uint8_t* body, size_t len);  // R6.2: adopt a pulled config (cfg + recompute + persist Push)

@@ -241,6 +241,11 @@ struct DualLayerTestAccess {
     static uint32_t       align_beacon(Node& n, uint32_t nominal)  { return n.gateway_window_align_beacon(nominal); }
     static uint32_t       gw_base_defer(Node& n, uint8_t gw)        { uint32_t j = 0; return n.gateway_schedule_base_defer_ms(gw, &j); }
     static void           force_exit_discovery(Node& n)            { n._discovery_mode = false; }
+    // gateway reactive route-pull on a cross-layer bridge miss (spec 2026-06-21)
+    static void           issue(Node& n, const TxItem& it)         { n.issue_send(it); }
+    static void           req_sync(Node& n, bool force)            { n.send_req_sync_q("test", force); }
+    static void           set_active_rt_count(Node& n, uint8_t c)  { n._active->_rt_count = c; }
+    static uint64_t       last_req_sync_ms(Node& n)                { return n._last_req_sync_tx_ms; }   // set just before the REQ_SYNC tx
     static void           drain_parked(Node& n, uint32_t key, uint8_t resolved, uint8_t layer) { n.drain_parked_sends(key, resolved, layer); }   // simulate the H-answer
     static uint8_t        pending_dst(Node& n)              { return n._active->_pending_tx ? n._active->_pending_tx->dst : 0; }
     static uint8_t        pending_flags(Node& n)            { return n._active->_pending_tx ? n._active->_pending_tx->flags : 0xFF; }
@@ -1620,4 +1625,52 @@ TEST_CASE("gw-window sync: bias is bounded (< one window-period added) across al
         CHECK(delay >= 30000);                                                   // never earlier than cadence
         CHECK(delay <  30000 + 15000 + 7500);                                    // <= one window-period step + intra-window jitter span
     }
+}
+
+// ---- gateway reactive route-pull on a cross-layer bridge miss (spec 2026-06-21 §6.1) ----------------------
+// A gateway time-multiplexes its layers and may permanently miss a far-layer route (dirty-only steady-state beacons).
+// On a bridged DM with no far-layer route it must reactively PULL (REQ_SYNC force) + DEFER (not drop) the transit leg.
+TEST_CASE("gw route-pull: send_req_sync_q(force) bypasses boot-flag + route-rich guards; 30s rate-limit holds") {
+    StubHal hal; hal._now = 100000; Node node(hal, /*id*/ 5, 0x1);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+    cfg.req_sync_on_boot = false; cfg.req_sync_min_routes = 8;
+    CHECK(node.on_init(cfg));
+    DualLayerTestAccess::force_exit_discovery(node);
+    DualLayerTestAccess::set_active_rt_count(node, 10);                       // route-RICH (>= min 8) + boot-flag OFF
+    hal.last_tx_len = 0;
+    DualLayerTestAccess::req_sync(node, /*force=*/false);
+    CHECK(hal.last_tx_len == 0);                                             // (i) guarded -> nothing sent
+    hal.last_tx_len = 0;
+    DualLayerTestAccess::req_sync(node, /*force=*/true);                     // (ii) force bypasses BOTH guards
+    auto q = parse_q(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len));
+    CHECK(q.has_value());
+    if (q) CHECK(q->opcode == static_cast<uint8_t>(q_opcode::req_sync));
+    hal.last_tx_len = 0;
+    DualLayerTestAccess::req_sync(node, /*force=*/true);                     // (iii) within retry_ms -> rate-limited (no Q-storm)
+    CHECK(hal.last_tx_len == 0);
+    hal._now += protocol::req_sync_retry_ms + 1;
+    hal.last_tx_len = 0;
+    DualLayerTestAccess::req_sync(node, /*force=*/true);                     // (iv) past the window -> sends again
+    CHECK(hal.last_tx_len > 0);
+}
+
+TEST_CASE("gw route-pull: a gateway-relay no-route leg PULLS + DEFERS (not drop); a normal forwarder still drops") {
+    StubHal hal; hal._now = 100000; Node node(hal, /*id*/ 5, 0x1);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1; cfg.req_sync_on_boot = false;
+    CHECK(node.on_init(cfg));
+    DualLayerTestAccess::force_exit_discovery(node);
+    // (a) GW-RELAY transit DM, no route to dst -> force REQ_SYNC + DEFER (parked, not dropped). NOTE: defer_send also
+    // fires a ttl=1 RREQ probe (emit_route_request) which is the LAST frame on air, so we witness the forced pull via
+    // the rate-limit stamp (set just before the REQ_SYNC tx), not last_tx. A real REQ_SYNC frame is covered above.
+    TxItem gw{}; gw.dst = 99; gw.is_forward = true; gw.is_gw_relay = true; gw.enqueue_time_ms = hal._now;
+    DualLayerTestAccess::issue(node, gw);
+    CHECK(DualLayerTestAccess::last_req_sync_ms(node) == hal._now);          // the forced pull fired
+    CHECK(DualLayerTestAccess::deferred_count(node) == 1);                   // parked, NOT dropped
+    // (d) a NORMAL forwarder (not gw-relay), no route -> DROP: no pull, nothing newly deferred (unchanged dv:7041-7048)
+    hal._now += protocol::req_sync_retry_ms + 1;                             // advance past the rate-limit so a pull COULD fire (isolates the is_gw_relay gate)
+    const uint64_t before = DualLayerTestAccess::last_req_sync_ms(node);
+    TxItem fwd{}; fwd.dst = 98; fwd.is_forward = true; fwd.is_gw_relay = false; fwd.enqueue_time_ms = hal._now;
+    DualLayerTestAccess::issue(node, fwd);
+    CHECK(DualLayerTestAccess::last_req_sync_ms(node) == before);            // NO pull (unchanged)
+    CHECK(DualLayerTestAccess::deferred_count(node) == 1);                   // still only the gw-relay one -> the forwarder dropped
 }

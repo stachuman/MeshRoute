@@ -52,12 +52,12 @@ void Node::mark_q_responded(uint8_t opcode, uint8_t src, uint8_t dest) {
 }
 
 // ---- originator (Lua send_req_sync_q dv:8032; NO rand draw) -------------------------------------
-void Node::send_req_sync_q(const char* reason) {
+void Node::send_req_sync_q(const char* reason, bool force) {
     (void)reason;                                              // sim-debug log string only (the Lua logs it)
-    if (!_cfg.req_sync_on_boot) return;
+    if (!force && !_cfg.req_sync_on_boot) return;
     const uint64_t now = _hal.now();
     if (_last_req_sync_tx_ms != 0 && (now - _last_req_sync_tx_ms) < protocol::req_sync_retry_ms) return;
-    if (_active->_rt_count >= _cfg.req_sync_min_routes) return;        // already route-rich -> no need to ask
+    if (!force && _active->_rt_count >= _cfg.req_sync_min_routes) return;  // route-rich -> no need (force: missing THIS route, ask anyway)
     _last_req_sync_tx_ms = now;
     q_in in{};
     in.leaf_id = _cfg.leaf_id; in.src = _node_id; in.dest = 0xFF;   // broadcast

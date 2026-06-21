@@ -503,8 +503,20 @@ void Node::issue_send(const TxItem& item) {
         // until a beacon installs a route or the defer-TTL expires (dv:7049-7052).
         if (item.is_forward) {
             MR_EMIT("send_no_route", EF_I("dst", item.dst));
+            // A normal forwarder DROPS here (it can't hold someone else's transit; dv:7041-7048) — it falls through
+            // to the return below. DELIBERATE EXCEPTION (gateway reactive route-pull, spec 2026-06-21 §4): a GATEWAY
+            // relaying a CROSS-LAYER transit DM is effectively the ORIGINATOR on the far layer (it is injecting the
+            // DM there), so when it has no far-layer route it must NOT drop. Instead it (1) reactively PULLs the full
+            // table — REQ_SYNC with force=true to bypass the route-rich guard (the gateway is route-rich but missing
+            // THIS one far-layer dst), which makes far-layer neighbours reply with full "sync" beacons it hears
+            // in-window; and (2) DEFERs the leg (park + retry via try_drain_deferred) so the DM is delivered once the
+            // pulled route lands — no first-packet loss. Bounded by the existing send_defer_ttl giveup.
+            // DO NOT "fix" this back to a drop: dropping loses the first DM to every new far-layer dst (the s15
+            // cross-layer 58%->90% gap; spec §2). The pull is rate-limited (req_sync_retry_ms) so a miss-storm can't
+            // flood the air.
+            if (item.is_gw_relay) { send_req_sync_q("gw_relay_no_route", /*force=*/true); defer_send(item); }
         } else {
-            defer_send(item);
+            defer_send(item);                         // originator: hold until a beacon installs a route (dv:7049-7052)
         }
         return;
     }
