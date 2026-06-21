@@ -70,6 +70,7 @@ const char* pushkind_name(PushKind k) {
         case PushKind::send_failed:   return "send_failed";
         case PushKind::hash_resolved: return "hash_resolved";
         case PushKind::peer_key_cached: return "peer_key_cached";
+        case PushKind::config_adopted:  return "config_adopted";   // R6.3: leaf-config membership update (live)
     }
     return "unknown";
 }
@@ -81,6 +82,7 @@ const char* sendfailreason_name(SendFailReason r) {
         case SendFailReason::too_large:   return "too_large";
         case SendFailReason::bad_rng:     return "bad_rng";
         case SendFailReason::no_route:    return "no_route";
+        case SendFailReason::joining:     return "joining";   // R6.3: managed leaf not yet config-synced (transient — gate lifts on adopt)
         case SendFailReason::none:        return "none";
     }
     return "none";
@@ -112,7 +114,7 @@ size_t write_event(char* buf, size_t cap, const char* type, const EventField* f,
     j.ch('}');
     return j.finish();
 }
-size_t write_push(char* buf, size_t cap, const Push& p) {
+size_t write_push(char* buf, size_t cap, const Push& p, const NodeConfig* cfg) {
     JsonBuf j(buf, cap);
     j.lit("{\"ev\":\""); j.lit(pushkind_name(p.kind)); j.ch('"');
     // Clamp to the array bound: Push.body is uint8_t[max_payload_bytes_hard_cap]. body_len is set from validated
@@ -144,6 +146,13 @@ size_t write_push(char* buf, size_t cap, const Push& p) {
     } else if (p.kind == PushKind::peer_key_cached) {      // E2E §7: a recipient key arrived -> the app can resend encrypted
         j.lit(",\"hash\":");   j.u32(p.sender_hash);
         j.lit(",\"pinned\":false");                        // on-air (TOFU); a QR import is the separate peerkey_set ack (pinned:true)
+    } else if (p.kind == PushKind::config_adopted) {       // R6.3: leaf-config adopted/updated -> the app's membership chip
+        if (cfg) {
+            j.lit(",\"lineage\":"); j.u32(cfg->lineage_id);
+            j.lit(",\"epoch\":");   j.u32(cfg->config_epoch);
+            if (cfg->leaf_name_len) { j.lit(",\"leaf\":"); j.str(cfg->leaf_name, cfg->leaf_name_len); }
+            j.lit(",\"level\":");   j.u32(cfg->leaf_id);   // interim: the wire leaf nibble (full level_id is NV-side)
+        }
     } else {  // send_acked / send_failed
         j.lit(",\"dst\":"); j.u32(p.dst);
         j.lit(",\"ctr\":"); j.u32(p.ctr);
@@ -201,6 +210,12 @@ size_t write_ready(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeCo
     }
     if (name && name_len) { j.lit(",\"name\":"); j.str(name, name_len); }   // §1.3 app-level identity label
     j.lit(",\"leaf_id\":"); j.u32(c.leaf_id);
+    // R6.3 leaf-config membership (iOS contract): lineage (0=unmanaged) / epoch / leaf name / level (interim=wire nibble) / synced.
+    j.lit(",\"lineage\":"); j.u32(c.lineage_id);
+    j.lit(",\"epoch\":");   j.u32(c.config_epoch);
+    if (c.leaf_name_len) { j.lit(",\"leaf\":"); j.str(c.leaf_name, c.leaf_name_len); }
+    j.lit(",\"level\":");   j.u32(c.leaf_id);
+    j.lit(",\"synced\":");  j.lit((c.lineage_id == 0 || c.config_epoch > 0) ? "true" : "false");
     j.lit(",\"mode\":"); j.str(mode, std::strlen(mode));
     j.lit(",\"gateway\":"); j.lit(c.is_gateway ? "true" : "false");
     j.lit(",\"routing_sf\":"); j.u32(c.routing_sf);

@@ -415,6 +415,16 @@ public:
     void set_radio_cfg(uint8_t routing_sf, uint32_t bw_hz, uint8_t cr) {
         _cfg.routing_sf = routing_sf; _cfg.radio_bw_hz = bw_hz; _cfg.radio_cr = cr;
     }
+    // R6.3 §2 (provisioning verbs / decision b): re-derive the duty-cycle budget after a LIVE duty change
+    // (the join/create verbs, adopt_config_answer, cfg-set duty) so enforcement applies without a reboot. Mirrors
+    // the on_init derivation (dv:8497) — closes the known duty-live gap (the budget was on_init-cached only).
+    void recompute_duty_budget() {
+        _duty_cycle_budget_ms = (_cfg.duty_cycle > 0.0)
+            ? static_cast<uint64_t>(_cfg.duty_cycle * _cfg.duty_cycle_window_ms) : 0;
+    }
+    // R6.3 provisioning verbs: reset BOTH the live epoch and the max-seen tracker together (a join/leave -> 0,
+    // a create -> 1). Keeps _max_seen_epoch from leaking an old leaf's numbering into a fresh lineage's writes.
+    void reset_leaf_epoch_state(uint16_t epoch) { _cfg.config_epoch = epoch; _max_seen_epoch = epoch; }
     uint8_t           rt_count()       const { return _active->_rt_count; }
     const RtEntry&    rt_at(uint8_t i) const { return _active->_rt[i]; }   // 0..rt_count()-1; candidates[0] is the primary
     // A heard 1-hop gateway's stored window schedule (nullptr if none known) + the ms to defer an RTS to its window.

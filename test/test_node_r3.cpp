@@ -3414,3 +3414,17 @@ TEST_CASE("R6.3 LWW tiebreak — same-epoch diff-hash: lose to a higher key (pul
     run(/*my*/0x1000, /*their*/0x2000, /*expect_pull=*/true);        // their key higher -> I lose -> pull
     run(/*my*/0x2000, /*their*/0x1000, /*expect_pull=*/false);       // their key lower  -> I win  -> keep
 }
+
+// R6.3 provisioning verbs (live core seam): reset_leaf_epoch_state resets BOTH config_epoch AND _max_seen_epoch, so a
+// fresh lineage (create) doesn't inherit the old leaf's epoch numbering. Proven via the epoch a subsequent write yields.
+TEST_CASE("R6.3 reset_leaf_epoch_state — resets epoch + max_seen (no leak into a fresh lineage)") {
+    TestHal h; Node n(h, /*id*/5, 0xAAAA);
+    NodeConfig c; c.routing_sf = 7; c.leaf_id = 0; c.allowed_sf_bitmap = (1u << 7); c.duty_cycle = 0.01;
+    c.lineage_id = 0xABCD; c.config_epoch = 5; n.on_init(c);
+    n.mutable_config().allowed_sf_bitmap = (1u << 9); CHECK(n.leaf_config_write());
+    CHECK(n.config().config_epoch == 6);                             // 5 -> 6; leaf_config_write also sets _max_seen_epoch=6
+    n.mutable_config().lineage_id = 0x1234; n.reset_leaf_epoch_state(1);   // 'create' a fresh lineage at epoch 1
+    CHECK(n.config().config_epoch == 1);
+    n.mutable_config().allowed_sf_bitmap = (1u << 11); CHECK(n.leaf_config_write());
+    CHECK(n.config().config_epoch == 2);                             // 1 -> 2 (NOT 7) -> max_seen was reset, no leak
+}

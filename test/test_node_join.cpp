@@ -304,3 +304,20 @@ TEST_CASE("join — R6.3/G1: the DAD picker never returns a gateway id (1..16); 
         }
     }
 }
+
+// R6.3 `join`/`leave` verbs (live core seam): a PROVISIONED node drops its id live (set_identity 0) + re-DADs a fresh
+// NORMAL id — no reboot. (The verb also re-tunes the radio + resets membership; those are device-side / board-build.)
+TEST_CASE("join — R6.3 live re-provision: a provisioned node drops its id + re-DADs (17..254), no reboot") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/50, /*key_hash32=*/0x0000A1A1);       // already provisioned id 50
+    node.on_init(join_cfg());
+    node.set_identity(0, 0x0000A1A1);                                // the verb's live unprovision
+    CHECK(node.node_id() == 0);
+    hal.events.clear(); hal.tx_frames.clear();
+    Command c{}; c.kind = CmdKind::join;
+    CHECK(node.on_command(c).code == CmdCode::queued);               // re-DAD live (no reboot)
+    node.on_timer(kJoinListenTimerId);
+    const Ev* sent = hal.find("join_claim_sent");
+    CHECK(sent != nullptr);
+    if (sent) CHECK(sent->proposed >= protocol::normal_node_id_min); // re-DADs a normal id (17..254)
+}

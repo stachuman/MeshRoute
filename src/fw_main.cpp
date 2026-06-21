@@ -178,6 +178,9 @@ static void dump_cfg() {
     Serial.print(F(" nav="));              Serial.print(c.nav_enabled ? 1 : 0);
     Serial.print(F(" nav_ignore="));       Serial.println(c.nav_ignore_rts ? 1 : 0);
     Serial.print(F("  leaf  : leaf_id=")); Serial.print(c.leaf_id);
+    { mrnv::Blob lb{}; if (mrnv::load(lb) && lb.layer0_id) {                  // R6.3 §3: show the full level_id + its wire nibble (clash check)
+        Serial.print(F(" level_id=")); Serial.print(lb.layer0_id);
+        Serial.print(F(" (→nibble ")); Serial.print(lb.layer0_id & 0x0F); Serial.print(F(")")); } }
     Serial.print(F(" gateway="));          Serial.print(c.is_gateway ? 1 : 0);
     Serial.print(F(" gateway_only="));     Serial.print(c.gateway_only ? 1 : 0);
     Serial.print(F(" mobile="));           Serial.println(c.is_mobile ? 1 : 0);
@@ -747,6 +750,126 @@ static void handle_leaf(const char* args) {
     }
 }
 
+// ---- R6.3 normal-node provisioning verbs: join / create / leave — LIVE-APPLY (no reboot). Spec
+//      2026-06-21-leaf-provisioning-console-verbs.md. The simplified front-door over cfg-set + leaf-create;
+//      normal nodes ONLY (gateways are multi-layer -> a future join_as_gateway, §5). `leaf create`/`cfg set`
+//      stay as the low-level path (§4). ---------------------------------------------------------------------
+
+// Seed a fresh blob from the live config (so a save on a never-persisted node doesn't zero the non-provisioning fields).
+static void seed_blob_from_live(mrnv::Blob& b) {
+    const meshroute::NodeConfig& nc = g_node.config();
+    b.freq_mhz = g_freq_mhz;        b.bw_hz = nc.radio_bw_hz;       b.beacon_ms = nc.beacon_period_ms;
+    b.duty = nc.duty_cycle;         b.allowed_sf_bitmap = nc.allowed_sf_bitmap;
+    b.routing_sf = nc.routing_sf;   b.cr = nc.radio_cr;
+    b.lbt = nc.lbt_enabled ? 1 : 0; b.node_id = g_node.node_id();   b.tx_power = g_tx_power;
+    b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;
+    b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;
+    b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;  b.ble_pin = g_ble_pin;
+    b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;  b.e2e_dm     = nc.e2e_dm ? 1 : 0;
+    b.gw_announce_duty_pct = nc.gw_announce_duty_pct; b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
+    b.l1_freq_mhz = nc.layers[1].freq_mhz; b.gw_herd_slack = nc.gw_herd_slack;
+    b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch; b.leaf_name_len = nc.leaf_name_len;
+    for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
+}
+
+// Parse "<freq_MHz> <bw_kHz> <ctrl_sf> <level_id>" and advance p. false (no print) on a malformed/out-of-range arg.
+static bool parse_radio_floor(const char*& p, double& freq, uint32_t& bw_hz, uint8_t& ctrl_sf, uint8_t& level_id) {
+    char* e;
+    freq     = strtod(p, &e); if (e == p) return false; p = e;
+    long bwk = strtol(p, &e, 10); if (e == p) return false; p = e;
+    long sf  = strtol(p, &e, 10); if (e == p) return false; p = e;
+    long lvl = strtol(p, &e, 10); if (e == p) return false; p = e;
+    if (freq < 100.0 || freq > 1000.0) return false;                         // sub-GHz ISM MHz sanity
+    if (bwk  < 7   || bwk  > 500)      return false;                         // kHz (7.8..500)
+    if (sf   < 5   || sf   > 12)       return false;
+    if (lvl  < 1   || lvl  > 255)      return false;                         // level_id 1..255 -> leaf_id = level_id & 0x0F
+    bw_hz = (uint32_t)(bwk * 1000); ctrl_sf = (uint8_t)sf; level_id = (uint8_t)lvl;
+    return true;
+}
+
+// Apply a just-saved provisioning blob LIVE (no reboot): radio re-tune + membership + config + (re-)DAD. The four
+// §2 sub-paths. do_dad=false only for `leave` (stays unprovisioned, idle awaiting a join).
+static void provision_apply_live(const mrnv::Blob& b, bool do_dad) {
+    apply_radio_live(b, /*reconfig=*/true);                                  // §2 radio: freq/bw/ctrl_sf live (sets routing_sf/bw/cr)
+    meshroute::NodeConfig& lc = g_node.mutable_config();                     // §2 config: MAC re-reads these each use
+    lc.leaf_id = b.leaf_id; lc.layers[0].layer_id = b.leaf_id; lc.layers[0].routing_sf = b.routing_sf;
+    lc.allowed_sf_bitmap = b.allowed_sf_bitmap; lc.layers[0].allowed_sf_bitmap = b.allowed_sf_bitmap;
+    lc.duty_cycle = b.duty;  lc.lineage_id = b.lineage_id;
+    lc.leaf_name_len = b.leaf_name_len;
+    for (uint8_t i = 0; i < b.leaf_name_len && i < sizeof(lc.leaf_name); ++i) lc.leaf_name[i] = (char)b.leaf_name[i];
+    g_node.reset_leaf_epoch_state(b.config_epoch);                          // config_epoch + _max_seen_epoch (fresh-lineage numbering)
+    g_node.recompute_duty_budget();                                         // §2(b) duty enforcement live
+    g_node.set_identity(0, g_identity.key_hash32); lc.layers[0].node_id = 0;// §2 membership: drop the old id -> unprovisioned
+    if (do_dad) { meshroute::Command jc{}; jc.kind = meshroute::CmdKind::join; (void)g_node.on_command(jc); }   // re-DAD live
+}
+
+// `join <freq_MHz> <bw_kHz> <ctrl_sf> <level_id>` — set the radio floor + (re-)DAD; auto-pulls the leaf config (R6.2).
+static void handle_join(const char* args) {
+    const char* p = args; double freq; uint32_t bw_hz; uint8_t ctrl_sf, level_id;
+    if (!parse_radio_floor(p, freq, bw_hz, ctrl_sf, level_id)) {
+        Serial.println(F("> join err usage: join <freq_MHz> <bw_kHz> <ctrl_sf 5..12> <level_id 1..255>")); return;
+    }
+    mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
+    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
+    b.freq_mhz = freq; b.bw_hz = bw_hz; b.routing_sf = ctrl_sf;
+    b.leaf_id = (uint8_t)(level_id & 0x0F); b.layer0_id = level_id;          // full level_id stored for display (§3)
+    b.node_id = 0; b.joined = 0; b.lineage_id = 0; b.config_epoch = 0;       // unprovisioned -> DAD + adopt the leaf's lineage via pull
+    if (!mrnv::save(b)) { Serial.println(F("> join err nv_save_failed")); return; }
+    provision_apply_live(b, /*do_dad=*/true);
+    Serial.print(F("> join freq=")); Serial.print(freq, 3); Serial.print(F(" bw=")); Serial.print(bw_hz / 1000);
+    Serial.print(F(" ctrl_sf=")); Serial.print(ctrl_sf); Serial.print(F(" level_id=")); Serial.print(level_id);
+    Serial.print(F(" (leaf nibble ")); Serial.print(level_id & 0x0F); Serial.println(F(") — DADing id + pulling config (live)"));
+}
+
+// `create <freq> <bw> <ctrl_sf> <level_id> <sf_list> <duty%> "<name>"` — join's floor + mint a MANAGED leaf (mother).
+static void handle_create(const char* args) {
+    const char* p = args; double freq; uint32_t bw_hz; uint8_t ctrl_sf, level_id;
+    if (!parse_radio_floor(p, freq, bw_hz, ctrl_sf, level_id)) goto usage;
+    {
+        char* e;
+        while (*p == ' ') ++p;                                               // sf_list token (no spaces, e.g. 7,9)
+        char sfbuf[24]; uint8_t si = 0; while (*p && *p != ' ' && si < sizeof(sfbuf) - 1) sfbuf[si++] = *p++; sfbuf[si] = 0;
+        const uint16_t bm = parse_sf_list(sfbuf);
+        if (bm == 0) goto usage;
+        const double dutypct = strtod(p, &e); if (e == p) goto usage; p = e;  // duty PERCENT
+        if (dutypct < 0.0 || dutypct > 100.0) goto usage;
+        while (*p == ' ') ++p;                                               // quoted name (allows spaces)
+        if (*p != '"') goto usage; ++p;
+        mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
+        b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
+        b.freq_mhz = freq; b.bw_hz = bw_hz; b.routing_sf = ctrl_sf;
+        b.leaf_id = (uint8_t)(level_id & 0x0F); b.layer0_id = level_id;
+        b.allowed_sf_bitmap = bm; b.duty = dutypct / 100.0;                  // percent -> 0..1 fraction
+        uint8_t nl = 0; while (*p && *p != '"' && nl < sizeof(b.leaf_name)) b.leaf_name[nl++] = (uint8_t)*p++;
+        b.leaf_name_len = nl;
+        uint16_t lin = 0; do { mrrng::fill(reinterpret_cast<uint8_t*>(&lin), sizeof lin); } while (lin == 0);   // mint managed lineage
+        b.lineage_id = lin; b.config_epoch = 1;                              // a fresh managed leaf starts at epoch 1
+        b.node_id = 0; b.joined = 0;
+        if (!mrnv::save(b)) { Serial.println(F("> create err nv_save_failed")); return; }
+        provision_apply_live(b, /*do_dad=*/true);
+        Serial.print(F("> create leaf lineage=")); Serial.print(lin); Serial.print(F(" level_id=")); Serial.print(level_id);
+        Serial.print(F(" (leaf nibble ")); Serial.print(level_id & 0x0F); Serial.print(F(") name=\""));
+        for (uint8_t i = 0; i < nl; ++i) Serial.print((char)b.leaf_name[i]); Serial.println(F("\" — mother live"));
+        return;
+    }
+usage:
+    Serial.println(F("> create err usage: create <freq> <bw> <ctrl_sf> <level_id> <sf_list e.g.7,9> <duty%> \"<name>\""));
+}
+
+// `leave` — wipe to default, keep ONLY freq; go unprovisioned + idle (the clean managed->managed re-join primitive).
+static void handle_leave() {
+    mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
+    const double keep_freq = b.freq_mhz;
+    b = mrnv::Blob{};                                                        // zero everything...
+    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
+    b.freq_mhz = keep_freq;                                                  // ...keep only freq
+    b.bw_hz = (uint32_t)(LORA_BW * 1000.0); b.routing_sf = LORA_SF; b.cr = LORA_CR; b.tx_power = LORA_TX_POWER;
+    b.beacon_ms = 900000; b.duty = (double)LORA_DUTY_CYCLE_PCT / 100.0;       // NodeConfig defaults (15 min, 10%)
+    if (!mrnv::save(b)) { Serial.println(F("> leave err nv_save_failed")); return; }
+    provision_apply_live(b, /*do_dad=*/false);                              // unprovisioned + idle (no DAD)
+    Serial.print(F("> left network (kept freq=")); Serial.print(keep_freq, 3); Serial.println(F(") — idle; `join` to re-provision (live)"));
+}
+
 // `help` / `?` — a small command + cfg-key reference for the live console session.
 static void dump_help() {
     Serial.println(F("[help] messaging:  send <id> <text> | send_ack <id> <text> | sendhash <hash> <text> | sendhash_ack <hash> <text> | send_channel <ch> <text>"));
@@ -830,6 +953,9 @@ static bool service_debug(const char* line, size_t len) {
     if (len == 3 && !strncmp(line, "ota", 3))      { do_ota();      return true; }
     if (len >  8 && !strncmp(line, "gateway ", 8)) { handle_gateway(line + 8); return true; }
     if (len >  5 && !strncmp(line, "leaf ", 5))    { handle_leaf(line + 5);    return true; }
+    if (len >  5 && !strncmp(line, "join ", 5))    { handle_join(line + 5);    return true; }   // R6.3 provisioning verbs (normal-node, live)
+    if (len >  7 && !strncmp(line, "create ", 7))  { handle_create(line + 7);  return true; }
+    if (len == 5 && !strncmp(line, "leave", 5))    { handle_leave();           return true; }
     if (len >  8 && !strncmp(line, "cfg set ", 8)) { handle_cfg_set(line + 8); return true; }
     if (len == 3 && !strncmp(line, "cfg", 3))      { dump_cfg();    return true; }
     if ((len == 5 || (len > 5 && line[5] == ' ')) && !strncmp(line, "sleep", 5)) { handle_sleep(line + 5, len - 5); return true; }
@@ -1386,7 +1512,7 @@ void loop() {
             // so a valid Push NEVER overflows. static (not stack) to keep it off the hot-path stack; bleuart chunks.
             // Reuse the inbox-pull scratch (s_inbox_jb): push-drain and pull_inbox run at different loop
             // phases, never concurrently (single-threaded), so one shared 1700-B line buffer suffices (−1.7 KB).
-            const size_t n = meshroute::console::write_push(s_inbox_jb, sizeof s_inbox_jb, pu);
+            const size_t n = meshroute::console::write_push(s_inbox_jb, sizeof s_inbox_jb, pu, &g_node.config());   // cfg: config_adopted membership (R6.3)
             if (n) mrble::tx_line(s_inbox_jb, n);
             else { static const char kOvf[] = "{\"err\":\"push_encode_overflow\"}\n";   // unreachable for valid
                    mrble::tx_line(kOvf, sizeof(kOvf) - 1); }                            // input; LOUD, never silent

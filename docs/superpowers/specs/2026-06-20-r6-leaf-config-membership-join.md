@@ -1,4 +1,4 @@
-// Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
+/ Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 
 # R6 — Leaf-config membership join (the final port slice) — implementation spec
 

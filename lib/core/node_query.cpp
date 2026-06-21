@@ -168,6 +168,7 @@ void Node::adopt_config_answer(const uint8_t* body, size_t len) {
     _cfg.lineage_id = ca.lineage_id; _cfg.config_epoch = ca.config_epoch;
     _cfg.allowed_sf_bitmap = ca.allowed_sf_bitmap;
     _cfg.duty_cycle = static_cast<double>(ca.duty_ppm) / 1e6;
+    recompute_duty_budget();                                                // R6.3 §2(b): adopted duty applies live (no reboot)
     _cfg.leaf_name_len = ca.leaf_name_len;
     for (uint8_t i = 0; i < ca.leaf_name_len; ++i) _cfg.leaf_name[i] = ca.leaf_name[i];
     MR_EMIT("leaf_config_adopted", EF_I("lineage", ca.lineage_id), EF_I("epoch", ca.config_epoch),

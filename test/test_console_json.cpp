@@ -108,10 +108,10 @@ TEST_CASE("write_err / write_log / write_ready / write_status") {
     NodeConfig c{}; c.routing_sf = 7; c.is_gateway = false; c.leaf_id = 0;
     n = write_ready(b, sizeof b, 3, 0xa1b2c3d4u, c, "existing", 5, 123456789012ull);   // > u32: proves the 64-bit digits
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"ready\",\"id\":3,\"key\":\"a1b2c3d4\",\"leaf_id\":0,\"mode\":\"existing\",\"gateway\":false,\"routing_sf\":7,\"inbox_epoch\":5,\"now_ms\":123456789012}\n");
+      "{\"ev\":\"ready\",\"id\":3,\"key\":\"a1b2c3d4\",\"leaf_id\":0,\"lineage\":0,\"epoch\":0,\"level\":0,\"synced\":true,\"mode\":\"existing\",\"gateway\":false,\"routing_sf\":7,\"inbox_epoch\":5,\"now_ms\":123456789012}\n");
     n = write_ready(b, sizeof b, 3, 0xa1b2c3d4u, c, "existing", 5, 99ull, "Bench \"5\"", 9);  // /mrid name, escaped
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"ready\",\"id\":3,\"key\":\"a1b2c3d4\",\"name\":\"Bench \\\"5\\\"\",\"leaf_id\":0,\"mode\":\"existing\",\"gateway\":false,\"routing_sf\":7,\"inbox_epoch\":5,\"now_ms\":99}\n");
+      "{\"ev\":\"ready\",\"id\":3,\"key\":\"a1b2c3d4\",\"name\":\"Bench \\\"5\\\"\",\"leaf_id\":0,\"lineage\":0,\"epoch\":0,\"level\":0,\"synced\":true,\"mode\":\"existing\",\"gateway\":false,\"routing_sf\":7,\"inbox_epoch\":5,\"now_ms\":99}\n");
     // §4: ready carries the full ed_pub (so MyCardView emits the QR `p` field). pubkey rides right after key; omitted when ed_pub==nullptr.
     uint8_t ep[32]; for (int i = 0; i < 32; ++i) ep[i] = static_cast<uint8_t>(i);
     n = write_ready(b, sizeof b, 3, 0xa1b2c3d4u, c, "existing", 5, 99ull, nullptr, 0, ep);
@@ -151,4 +151,23 @@ TEST_CASE("write_route / write_routes_end / write_cfg — Node+Network screens")
       "\"tx_power\":22,\"duty_x1000\":100,\"lbt\":true,\"beacon_ms\":900000,\"hop_cap\":16,\"leaf_id\":0,"
       "\"gateway\":false,\"mobile\":false,\"ble_mode\":\"on\",\"ble_period\":15,\"ble_pin\":123456,"
       "\"lat_e7\":522297000,\"lon_e7\":-41000000}\n");
+}
+
+// R6.3 leaf-config membership — the iOS companion contract additions (INBOX_SYNC_CONTRACT.md): send_failed{joining},
+// the config_adopted push (membership from the config), and the managed-node ready snapshot.
+TEST_CASE("write_push/write_ready — R6.3 leaf-config membership (iOS contract)") {
+    char b[320];
+    // (1) send_failed reason `joining` (transient — the participation gate, lifts on adopt)
+    Push f{}; f.kind = PushKind::send_failed; f.dst = 2; f.ctr = 7; f.reason = SendFailReason::joining;
+    size_t n = write_push(b, sizeof b, f);
+    CHECK(std::string(b, n) == "{\"ev\":\"send_failed\",\"dst\":2,\"ctr\":7,\"reason\":\"joining\"}\n");
+    // (2) config_adopted -> membership fields read from the live config
+    NodeConfig c{}; c.routing_sf = 8; c.leaf_id = 2; c.lineage_id = 41153; c.config_epoch = 3;
+    c.leaf_name_len = 3; c.leaf_name[0] = 'h'; c.leaf_name[1] = 'u'; c.leaf_name[2] = 'b';
+    Push ca{}; ca.kind = PushKind::config_adopted;
+    n = write_push(b, sizeof b, ca, &c);
+    CHECK(std::string(b, n) == "{\"ev\":\"config_adopted\",\"lineage\":41153,\"epoch\":3,\"leaf\":\"hub\",\"level\":2}\n");
+    // (3) managed ready carries lineage/epoch/leaf/level/synced
+    n = write_ready(b, sizeof b, 17, 0xa1b2c3d4u, c, "existing", 0, 0ull);
+    CHECK(std::string(b, n).find("\"lineage\":41153,\"epoch\":3,\"leaf\":\"hub\",\"level\":2,\"synced\":true") != std::string::npos);
 }
