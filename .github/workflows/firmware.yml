@@ -1,0 +1,63 @@
+name: firmware
+
+# Build the native unit suite + all board firmwares on every push / PR.
+# PlatformIO pulls every platform/toolchain/lib from platformio.ini, so the runner needs nothing pre-installed.
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:   # manual "Run workflow" button
+
+jobs:
+  # ---- native unit tests (doctest, test_framework=native) ----
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-native-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-native-
+      - run: pip install --upgrade platformio
+      - name: Run native test suite
+        run: pio test -e native
+
+  # ---- board firmware builds (one matrix job per env, in parallel) ----
+  firmware:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [xiao_sx1262, heltec_v3, xiao_esp32s3, gateway, gateway_heltec, gateway_esp32s3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cache/pip
+          key: pio-${{ matrix.env }}-${{ hashFiles('platformio.ini') }}
+          restore-keys: pio-${{ matrix.env }}-
+      - run: pip install --upgrade platformio
+      - name: Build ${{ matrix.env }}
+        run: pio run -e ${{ matrix.env }}
+      - name: Upload firmware
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-${{ matrix.env }}
+          path: |
+            .pio/build/${{ matrix.env }}/firmware.uf2
+            .pio/build/${{ matrix.env }}/firmware.hex
+            .pio/build/${{ matrix.env }}/firmware.bin
+          if-no-files-found: warn
