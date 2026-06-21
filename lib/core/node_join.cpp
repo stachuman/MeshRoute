@@ -114,10 +114,11 @@ int Node::join_choose_candidate_id() {
 bool Node::join_start_claim([[maybe_unused]] const char* reason) {   // reason: telemetry-only (stripped on device)
     if (_joined || _join_claim.active) return false;
     const int cand = join_choose_candidate_id();
-    if (cand < 0) {
+    if (cand < 0) {                                       // 17..254 all taken -> leaf full
         MR_TELEMETRY(
             EventField f[] = { { .key = "reason", .type = EventField::T::str, .s = reason ? reason : "no_free_id" } };
             _hal.emit("join_no_candidate", f, 1); );
+        Push pu{}; pu.kind = PushKind::join_refused; pu.join_reason = JoinRefuseReason::leaf_full; enqueue_push(pu);   // §7c: visible on metal
         return false;
     }
     // claim_epoch is NO LONGER bumped (key-only tiebreak, §6) — it stays reserved on the wire + in NV.

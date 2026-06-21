@@ -10,6 +10,7 @@
 #include "leaf_config.h"   // R6.1: leaf_config_hash — the misconfig fingerprint
 
 #include "frame_codec.h"
+#include "wire.h"          // §7c: wire::cmd_of/flags_of for the pre-parse beacon version gate
 
 #include <span>
 #include <cstring>    // strcmp — kind=="sync" full-table gate
@@ -368,6 +369,21 @@ uint16_t Node::cfg_config_hash() const {
 }
 
 void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
+    // §7c: cross-version gate FIRST, off the FIXED byte-3 low nibble — a foreign-version beacon may not even parse, so
+    // read the version straight from the raw frame (after the byte-0 cmd + leaf-nibble filter), before parse_beacon.
+    if (len < 4 || wire::cmd_of(bytes[0]) != wire::Cmd::B) return;
+    if (wire::flags_of(bytes[0]) != _cfg.leaf_id) return;               // foreign leaf nibble -> not ours
+    const uint8_t their_wire_ver = static_cast<uint8_t>(bytes[3] & 0x0F);
+    if (their_wire_ver != protocol::wire_version) {                     // incompatible wire -> refuse + tell the operator (Push, not telemetry)
+        const uint64_t now = _hal.now();
+        if (_last_join_refused_ms == 0 || now - _last_join_refused_ms >= protocol::join_refused_retry_ms) {
+            _last_join_refused_ms = now;
+            Push pu{}; pu.kind = PushKind::join_refused; pu.join_reason = JoinRefuseReason::wire_version;
+            pu.origin = their_wire_ver; pu.dst = protocol::wire_version; enqueue_push(pu);
+            MR_EMIT("join_refused", EF_S("reason", "wire_version"), EF_I("their_ver", their_wire_ver), EF_I("my_ver", protocol::wire_version));
+        }
+        return;                                                        // don't peer, don't parse a foreign-version format
+    }
     auto parsed = parse_beacon(std::span<const uint8_t>(bytes, len));
     if (!parsed) return;
     const beacon_out& b = *parsed;

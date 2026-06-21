@@ -3428,3 +3428,22 @@ TEST_CASE("R6.3 reset_leaf_epoch_state — resets epoch + max_seen (no leak into
     n.mutable_config().allowed_sf_bitmap = (1u << 11); CHECK(n.leaf_config_write());
     CHECK(n.config().config_epoch == 2);                             // 1 -> 2 (NOT 7) -> max_seen was reset, no leak
 }
+
+// R6.3 §7c: a beacon advertising a DIFFERENT wire_version is refused (no peer) + a RATE-LIMITED join_refused; a
+// same-version beacon is processed normally.
+TEST_CASE("R6.3 §7c — a foreign wire_version beacon is refused + rate-limited; same-version is processed") {
+    TestHal h; Node n(h, /*id*/5, 0xAAAA);
+    NodeConfig c; c.routing_sf = 7; c.leaf_id = 0; n.on_init(c);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    beacon_in b{}; b.leaf_id = 0; b.src = 2; b.key_hash32 = 0x2002;
+    std::array<uint8_t, 64> bb{}; size_t bn = pack_beacon(b, std::span<uint8_t>(bb.data(), bb.size()));
+    bb[3] = static_cast<uint8_t>((bb[3] & 0xF0) | 0x0E);              // wire_version 14 != ours (1)
+    h._now = 1000; n.on_recv(bb.data(), bn, meta);
+    CHECK(h.count("join_refused") == 1);                             // refused (visible, not just telemetry-dropped)
+    h._now = 2000; n.on_recv(bb.data(), bn, meta);                   // within the cooldown
+    CHECK(h.count("join_refused") == 1);                             // rate-limited -> NOT per-beacon
+    // a same-version beacon (untouched nibble) is NOT refused
+    std::array<uint8_t, 64> ok{}; size_t okn = pack_beacon(b, std::span<uint8_t>(ok.data(), ok.size()));
+    h._now = 3000; n.on_recv(ok.data(), okn, meta);
+    CHECK(h.count("join_refused") == 1);                             // unchanged
+}

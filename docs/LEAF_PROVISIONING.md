@@ -30,6 +30,10 @@ join 868.0 250 8 2
 
 > If the leaf is **unmanaged** (nobody ran `create`/`leaf create`), there is nothing to pull — the node runs on its manual floor (no data SFs until you set them).
 
+> **If a join is refused** the node prints (and the companion shows) a `JOIN REFUSED` line and stays unprovisioned:
+> - `network wire vN, this node vM — update firmware` — the network runs an incompatible wire protocol version; reflash to match.
+> - `leaf full — no id available` — all node ids (17..254) on this leaf are taken.
+
 ## 2. Create a fresh leaf — the first "mother" node
 
 ```

@@ -36,7 +36,7 @@ size_t pack_beacon(const beacon_in& in, std::span<uint8_t> out) {
     w.u8(static_cast<uint8_t>((has_schedule    ? 0x80 : 0) | (in.self_gateway ? 0x40 : 0) |
                               (in.is_mobile     ? 0x20 : 0) | (has_seen_bitmap ? 0x10 : 0) |
                               (has_ext          ? 0x08 : 0) | (n_entries & 0x07)));
-    w.u8(static_cast<uint8_t>(((n_entries >> 3) & 0x07) << 5));   // n_entries_hi | rsv=0
+    w.u8(static_cast<uint8_t>((((n_entries >> 3) & 0x07) << 5) | (protocol::wire_version & 0x0F)));   // n_entries_hi | wire_version (b3..0, +0 B; §7c)
     w.u32_le(in.key_hash32);
     // R6.1 leaf-config header (+6 B, FIXED, pre-schedule — never truncated): lineage_id · config_epoch · config_hash (u16×3).
     w.u16_le(in.lineage_id);
@@ -93,6 +93,7 @@ std::optional<beacon_out> parse_beacon(std::span<const uint8_t> frame) {
     o.has_seen_bitmap = (b2 & 0x10) != 0;
     o.has_ext         = (b2 & 0x08) != 0;
     o.n_entries       = static_cast<uint8_t>((b2 & 0x07) | (((b3 >> 5) & 0x07) << 3));
+    o.wire_version    = static_cast<uint8_t>(b3 & 0x0F);   // §7c: cross-version handshake (byte-3 low nibble, fixed offset)
     { wire::Reader r(frame.subspan(4, 4)); o.key_hash32 = r.u32_le(); }
     // R6.1 leaf-config header (bytes 8..13, FIXED, always present): lineage_id · config_epoch · config_hash (u16×3)
     { wire::Reader r(frame.subspan(8, BCN_LEAF_HEADER_LEN));

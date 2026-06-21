@@ -256,30 +256,39 @@ byte-for-byte unchanged.)
 
 ## Leaf-config membership + provisioning (firmware R6.1–R6.3 DONE; companion surface PROPOSED 2026-06-21)
 
-R6 adds **managed leaves**: a fresh node sets a small radio floor, then **auto-joins** (DAD an id) and **auto-pulls its leaf config** — data SFs / duty / name — from the network. The operator never hand-sets the data config on a joiner; only the *rendezvous floor* (freq + control SF + leaf) is manual. Firmware how-to: `docs/LEAF_PROVISIONING.md`. The R6 firmware (R6.1–R6.3) is committed/gated; the **companion JSON surface below needs 3 small firmware additions** (marked ⚙️) plus the provisioning verbs (spec'd, coder in progress).
+R6 adds **managed leaves**: a fresh node sets a small radio floor, then **auto-joins** (DAD an id) and **auto-pulls its leaf config** — data SFs / duty / name — from the network. The operator never hand-sets the data config on a joiner; only the *rendezvous floor* (freq + control SF + leaf) is manual. Firmware how-to: `docs/LEAF_PROVISIONING.md`. The R6 firmware (R6.1–R6.3) is committed/gated; the **companion JSON surface below is DONE** - the 3 console_json additions + the join_refused push + the join/create/leave verbs (coder green-shaped, gate-pending).
 
 ### Node → app: membership state (which leaf, synced?)
 A node's leaf membership = `lineage_id` (u16; **0 = unmanaged / standalone**), `config_epoch` (u16), `leaf_name` (string), `level_id` (1..255; the wire leaf nibble = `level_id & 0x0F`), and **synced** (`lineage==0 || epoch>0`). Two carriers:
 
-1. ⚙️ **`ready` snapshot gains them** (firmware ask — add to the `ready` writer):
+1. ✅ **`ready` snapshot gains them** (firmware ask — add to the `ready` writer):
 ```json
 {"ev":"ready", … ,"lineage":41153,"epoch":3,"leaf":"north field","level":2,"synced":true}
 ```
 - `lineage:0` ⇒ app shows "unmanaged / standalone". `lineage≠0 & synced:false` ⇒ "joining…". `synced:true` ⇒ "member of <leaf>".
 - *Note:* `level` (full 1..255) lands with the provisioning-verbs spec (which stores it); until then the firmware can send the wire **leaf nibble** (`leaf_id`, 0..15) under `level` — the app should treat it as an opaque label.
 
-2. ⚙️ **`config_adopted` live push** (firmware ask — `PushKind::config_adopted` exists but has **no `console_json` writer** yet; add one that reads `g_node.config()`). Fires when the node adopts/updates its leaf config (on join, on a propagated operator write, on an LWW change):
+2. ✅ **`config_adopted` live push** (firmware ask — `PushKind::config_adopted` exists but has **no `console_json` writer** yet; add one that reads `g_node.config()`). Fires when the node adopts/updates its leaf config (on join, on a propagated operator write, on an LWW change):
 ```json
 {"ev":"config_adopted","lineage":41153,"epoch":3,"leaf":"north field","level":2}
 ```
 - App: refresh the node's membership chip live ("synced to 'north field'").
 
 ### Node → app: a send blocked because not-yet-joined
-⚙️ `send_failed.reason` gains **`joining`** (firmware ask — `SendFailReason::joining` exists in `command.h` but is **missing from `console_json`'s `sendfailreason_name`**; add `case joining: return "joining"`):
+✅ `send_failed.reason` gains **`joining`** (firmware ask — `SendFailReason::joining` exists in `command.h` but is **missing from `console_json`'s `sendfailreason_name`**; add `case joining: return "joining"`):
 ```json
 {"ev":"send_failed","dst":2,"ctr":7,"reason":"joining"}   // managed leaf not yet config-synced — the participation gate
 ```
 - App maps `joining` → **transient**: "still joining the network — retry shortly" (NOT a permanent fail like `no_route`; the gate lifts automatically once the config is pulled, then a `config_adopted` arrives). **Updated reason set:** `no_pubkey · no_identity · too_large · bad_rng · no_route · joining`.
+
+### ✅ Node → app: the node CAN'T join — reason-coded `join_refused` (new push)
+A node that refuses/can't join surfaces it (today a wire mismatch is telemetry-only ⇒ **invisible on metal**). New `PushKind::join_refused`:
+```json
+{"ev":"join_refused","reason":"wire_version","their_ver":2,"my_ver":1}   // the network's wire protocol is incompatible
+{"ev":"join_refused","reason":"leaf_full"}                               // no free node id on this leaf
+```
+- `reason` ∈ `wire_version · leaf_full` (extensible). App: **`wire_version`** → a **blocking** "update firmware to match the network (wire v\<their_ver\>)" — the node will NOT join until updated; **`leaf_full`** → "this leaf is full — no address available". The node stays unjoined until resolved (it keeps retrying, so a later success/`config_adopted` clears the banner).
+- Firmware: `wire_version` is detected from a beacon's version nibble (+0 B, version-stable), `leaf_full` from the DAD id picker (`docs/superpowers/specs/2026-06-21-leaf-provisioning-console-verbs.md` §7c).
 
 ### App → node: provisioning verbs (spec `docs/superpowers/specs/2026-06-21-leaf-provisioning-console-verbs.md`)
 For a "Join network / Create leaf / Leave" UI. All apply **live — no reboot**:

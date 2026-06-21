@@ -171,3 +171,14 @@ TEST_CASE("write_push/write_ready — R6.3 leaf-config membership (iOS contract)
     n = write_ready(b, sizeof b, 17, 0xa1b2c3d4u, c, "existing", 0, 0ull);
     CHECK(std::string(b, n).find("\"lineage\":41153,\"epoch\":3,\"leaf\":\"hub\",\"level\":2,\"synced\":true") != std::string::npos);
 }
+
+// R6.3 §7c: join_refused push -> reason-coded JSON (wire_version carries their/my version; leaf_full is bare).
+TEST_CASE("write_push — R6.3 §7c join_refused (wire_version + leaf_full)") {
+    char b[160];
+    Push w{}; w.kind = PushKind::join_refused; w.join_reason = JoinRefuseReason::wire_version; w.origin = 2; w.dst = 1;
+    size_t n = write_push(b, sizeof b, w);
+    CHECK(std::string(b, n) == "{\"ev\":\"join_refused\",\"reason\":\"wire_version\",\"their_ver\":2,\"my_ver\":1}\n");
+    Push f{}; f.kind = PushKind::join_refused; f.join_reason = JoinRefuseReason::leaf_full;
+    n = write_push(b, sizeof b, f);
+    CHECK(std::string(b, n) == "{\"ev\":\"join_refused\",\"reason\":\"leaf_full\"}\n");
+}

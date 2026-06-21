@@ -68,6 +68,8 @@ inline constexpr uint8_t  preamble_sym   = 16;
 inline constexpr uint8_t  leaf_name_max  = 16;
 // R6.2 config-sync: min gap between a node's CONFIG_PULL tx (rate-limit; a stale/joining node re-pulls until adopted).
 inline constexpr uint32_t config_pull_retry_ms = 30000;   // 30 s
+// R6.3 §7c: min gap between join_refused{wire_version} pushes (so a foreign-version neighbour's every beacon doesn't spam).
+inline constexpr uint32_t join_refused_retry_ms = 60000;  // 60 s
 // R6.2 §5.2: coarse wire-compat version stamped in the J frame's byte-1 rsv nibble (+0 B). A joiner/responder rejects a
 // J whose wire_version differs -> no cross-version join. 4 bits (0..15); widen to a full byte if the version space runs out.
 inline constexpr uint8_t  wire_version = 1;

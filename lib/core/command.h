@@ -90,13 +90,17 @@ enum class PushKind : uint8_t {
     peer_key_cached, // E2E §7: a recipient's pubkey was learned (on-air answer / cache-on-pass) -> the app can
                      //   resend an encrypted DM. sender_hash = the cached key_hash32; pinned=false (on-air, TOFU).
     config_adopted,  // R6.2: a CONFIG_ANSWER was adopted (lineage/epoch/sf_list/duty/name changed) -> device persists to NV.
+    join_refused,    // R6.3 §7c: a join was refused (wire_version mismatch / leaf full) -> console + companion (telemetry is invisible on metal).
 };
 // E2E §5: why a send_failed Push fired, so the app reacts (no_pubkey -> offer Request-key/Scan-QR; the permanent
 // reasons -> plain fail). Mirrors the contract `send_failed.reason`. `none` = a non-send_failed push.
 enum class SendFailReason : uint8_t { none = 0, no_pubkey, no_identity, too_large, bad_rng, no_route, joining };   // R6.2: joining = un-synced managed leaf
+// R6.3 §7c: why a join was refused (join_refused push). wire_version -> origin=their_ver, dst=my_ver; leaf_full -> no extra.
+enum class JoinRefuseReason : uint8_t { wire_version = 0, leaf_full = 1 };
 struct Push {
     PushKind kind = PushKind::msg_recv;
     SendFailReason reason = SendFailReason::none;   // send_failed only (else none)
+    JoinRefuseReason join_reason = JoinRefuseReason::wire_version;   // join_refused only
     uint8_t  origin = 0;
     uint8_t  dst = 0;
     uint8_t  channel_id = 0;   // channel_recv only

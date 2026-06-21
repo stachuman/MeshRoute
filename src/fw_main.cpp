@@ -1501,6 +1501,14 @@ void loop() {
                 Serial.print(F(" epoch=")); Serial.println(nc.config_epoch);
                 break;
             }
+            case meshroute::PushKind::join_refused:        // R6.3 §7c: refusal feedback (telemetry is invisible on metal)
+                if (pu.join_reason == meshroute::JoinRefuseReason::wire_version) {
+                    Serial.print(F("⚠ JOIN REFUSED: network wire v")); Serial.print(pu.origin);
+                    Serial.print(F(", this node v")); Serial.print(pu.dst); Serial.println(F(" — update firmware"));
+                } else {
+                    Serial.println(F("⚠ JOIN REFUSED: leaf full — no id available"));
+                }
+                break;
         }
         // BLE companion: the structured NDJSON twin of the plain-text line above (design doc §4). The ring is
         // drained ONCE here and fanned to both sinks — formatting + TX happen only when a phone is connected,

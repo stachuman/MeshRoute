@@ -105,6 +105,7 @@ uint8_t beacon_max_entries(size_t frame_cap, size_t sched_bytes, size_t bitmap_b
 
 struct beacon_out {
     uint8_t  leaf_id; bool self_gateway; bool is_mobile; uint8_t src; uint32_t key_hash32;
+    uint8_t  wire_version;   // §7c: byte-3 low nibble — cross-version handshake (checked before the format-dependent parse)
     uint16_t lineage_id; uint16_t config_epoch; uint16_t config_hash;   // R6.1 leaf-config header (u16×3 = 6 B)
     bool     has_schedule; uint8_t gateway_spread_nibble; uint8_t schedule_count;
     uint8_t  n_entries; bool has_seen_bitmap; bool has_ext;

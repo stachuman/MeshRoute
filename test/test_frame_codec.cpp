@@ -486,7 +486,7 @@ TEST_CASE("BCN — golden minimal (header + 2 entries)") {
     std::array<uint8_t, 32> buf{};
     size_t n = pack_beacon(in, buf);
     CHECK(n == 22);   // 8-B header + 6-B leaf header (R6.1) + 2*4 entries
-    const uint8_t ex[] = {0x03, 0x11, 0x02, 0x00, 0xEF, 0xBE, 0xAD, 0xDE,
+    const uint8_t ex[] = {0x03, 0x11, 0x02, 0x01, 0xEF, 0xBE, 0xAD, 0xDE,
                           0,0, 0,0, 0,0,                                      // leaf header: lineage 0, epoch 0, config_hash 0 (u16x3)
                           0x05, 0x07, 0xC0, 0x02, 0x09, 0x07, 0xA1, 0x03};
     for (int i = 0; i < 22; ++i) CHECK(buf[i] == ex[i]);
@@ -535,7 +535,7 @@ TEST_CASE("BCN — golden schedule + seen-bitmap") {
     std::array<uint8_t, 64> buf{};
     size_t n = pack_beacon(in, buf);
     CHECK(n == 14 + 1 + 4 + 32);   // 8-B header + 6-B leaf header + (1 lc + 4 sched) + 32 bitmap = 51
-    const uint8_t head[] = {0x01, 0x05, 0xD0, 0x00, 0xEF, 0xBE, 0xAD, 0xDE,   // 8-B header
+    const uint8_t head[] = {0x01, 0x05, 0xD0, 0x01, 0xEF, 0xBE, 0xAD, 0xDE,   // 8-B header
                             0,0, 0,0, 0,0,                                    // 6-B leaf header (zeros, u16x3)
                             0x01, 0x26, 0x1E, 0x0F, 0x3C};                    // schedule: lc + 4
     for (int i = 0; i < 19; ++i) CHECK(buf[i] == head[i]);
@@ -612,7 +612,7 @@ TEST_CASE("BCN — n_entries 6-bit split (byte3) round-trip") {
         size_t n = pack_beacon(in, buf);
         CHECK(n == size_t(14 + count * 4));   // 8-B header + 10-B leaf header + entries
         CHECK(buf[2] == uint8_t(count & 0x07));                       // flags 0, n_lo
-        CHECK(buf[3] == uint8_t(((count >> 3) & 0x07) << 5));         // n_hi in byte3
+        CHECK(buf[3] == uint8_t(((((count >> 3) & 0x07) << 5)) | protocol::wire_version));   // n_hi | wire_version (§7c)
 
         std::span<const uint8_t> fr(buf.data(), n);
         auto o = parse_beacon(fr);
@@ -679,7 +679,7 @@ TEST_CASE("BCN — all sections combined round-trip") {
     size_t n = pack_beacon(in, buf);
     CHECK(n == size_t(14 + (1 + 4) + (2 * 4) + 32 + (1 + 2)));   // + 6-B leaf header = 62
     CHECK(buf[2] == 0xFA);   // has_schedule|self_gw|is_mobile|seen_bm|ext | n_lo(2) = 0xF8|0x02
-    CHECK(buf[3] == 0x00);   // n_entries_hi = 0
+    CHECK(buf[3] == protocol::wire_version);   // n_entries_hi 0 | wire_version (§7c)
     std::span<const uint8_t> fr(buf.data(), n);
     auto o = parse_beacon(fr);
     CHECK(o.has_value());
@@ -1617,4 +1617,19 @@ TEST_CASE("R6.2 CONFIG_ANSWER body — round-trips the leaf config tuple") {
     CHECK(out.allowed_sf_bitmap == ((1u << 7) | (1u << 9))); CHECK(out.duty_ppm == 10000u);
     CHECK(out.leaf_name_len == 3); CHECK(out.leaf_name[0]=='h'); CHECK(out.leaf_name[2]=='b');
     CHECK_FALSE(meshroute::parse_config_answer(buf, 5, out));   // truncated
+}
+
+TEST_CASE("BCN §7c — wire_version in byte-3 low nibble; round-trips + readable at a fixed offset cross-version") {
+    beacon_entry e{0x05, 0x07, 0xC, false, 2};
+    beacon_in in{}; in.leaf_id = 3; in.src = 0x11; in.key_hash32 = 0xDEADBEEF;
+    in.entries = std::span<const beacon_entry>(&e, 1);
+    std::array<uint8_t, 64> buf{}; size_t n = pack_beacon(in, buf);
+    CHECK(n > 0);
+    CHECK((buf[3] & 0x0F) == protocol::wire_version);                 // stamped in the low nibble (+0 B)
+    auto o = parse_beacon(std::span<const uint8_t>(buf.data(), n));
+    CHECK(o.has_value());
+    if (o) CHECK(o->wire_version == protocol::wire_version);
+    buf[3] = static_cast<uint8_t>((buf[3] & 0xF0) | 0x02);            // a foreign version at the SAME fixed offset
+    auto o2 = parse_beacon(std::span<const uint8_t>(buf.data(), n));
+    if (o2) CHECK(o2->wire_version == 2);                             // readable even when the format would differ
 }

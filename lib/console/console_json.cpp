@@ -71,6 +71,7 @@ const char* pushkind_name(PushKind k) {
         case PushKind::hash_resolved: return "hash_resolved";
         case PushKind::peer_key_cached: return "peer_key_cached";
         case PushKind::config_adopted:  return "config_adopted";   // R6.3: leaf-config membership update (live)
+        case PushKind::join_refused:    return "join_refused";     // R6.3 §7c: wire-version / leaf-full refusal
     }
     return "unknown";
 }
@@ -84,6 +85,13 @@ const char* sendfailreason_name(SendFailReason r) {
         case SendFailReason::no_route:    return "no_route";
         case SendFailReason::joining:     return "joining";   // R6.3: managed leaf not yet config-synced (transient — gate lifts on adopt)
         case SendFailReason::none:        return "none";
+    }
+    return "none";
+}
+const char* joinrefusereason_name(JoinRefuseReason r) {   // R6.3 §7c
+    switch (r) {
+        case JoinRefuseReason::wire_version: return "wire_version";
+        case JoinRefuseReason::leaf_full:    return "leaf_full";
     }
     return "none";
 }
@@ -152,6 +160,12 @@ size_t write_push(char* buf, size_t cap, const Push& p, const NodeConfig* cfg) {
             j.lit(",\"epoch\":");   j.u32(cfg->config_epoch);
             if (cfg->leaf_name_len) { j.lit(",\"leaf\":"); j.str(cfg->leaf_name, cfg->leaf_name_len); }
             j.lit(",\"level\":");   j.u32(cfg->leaf_id);   // interim: the wire leaf nibble (full level_id is NV-side)
+        }
+    } else if (p.kind == PushKind::join_refused) {         // R6.3 §7c: refusal feedback (invisible-on-metal telemetry replaced)
+        j.lit(",\"reason\":\""); j.lit(joinrefusereason_name(p.join_reason)); j.ch('"');
+        if (p.join_reason == JoinRefuseReason::wire_version) {
+            j.lit(",\"their_ver\":"); j.u32(p.origin);
+            j.lit(",\"my_ver\":");    j.u32(p.dst);
         }
     } else {  // send_acked / send_failed
         j.lit(",\"dst\":"); j.u32(p.dst);

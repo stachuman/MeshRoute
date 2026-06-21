@@ -1,7 +1,7 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # Leaf-provisioning console verbs — `join` / `create` / `leave`
 
-**Status:** READY FOR CODER (decisions locked 2026-06-21). Simplifies **normal-node** leaf provisioning into 3 verbs over the existing `cfg set` + `leaf create` mechanisms. **Live-apply (no reboot).** Gateways out of scope (§5). Update `docs/LEAF_PROVISIONING.md` to these verbs after. **REVISED 2026-06-21:** also folds in the **companion-JSON surface** (§7b — 3 small `console_json` additions) so the iOS app's leaf-membership UI lights up (see `ios-companion/INBOX_SYNC_CONTRACT.md`).
+**Status:** READY FOR CODER (decisions locked 2026-06-21). Simplifies **normal-node** leaf provisioning into 3 verbs over the existing `cfg set` + `leaf create` mechanisms. **Live-apply (no reboot).** Gateways out of scope (§5). Update `docs/LEAF_PROVISIONING.md` to these verbs after. **REVISED 2026-06-21:** also folds in the **companion-JSON surface** (§7b — 3 small `console_json` additions) so the iOS app's leaf-membership UI lights up (see `ios-companion/INBOX_SYNC_CONTRACT.md`), and **§7c join-refusal feedback** (wire-version & no-id → a reason-coded `join_refused` push; +0 B beacon version nibble).
 
 ## 0. Locked decisions
 1. `join`/`create` carry the full radio floor: **freq, bw, ctrl_sf, level_id**. CR is **not** an arg — stays default **5 (4/5, low)**; LoRa CRs interoperate (RX reads CR from the header) so it needn't match across nodes. **`level_id` is user-facing; `leaf_id = level_id & 0x0F` is derived internally.**
@@ -79,10 +79,34 @@ The R6 membership concepts are done but **not yet exposed to the BLE companion**
 
 After implementing, flip the ⚙️ marks in `INBOX_SYNC_CONTRACT.md` to "done".
 
+## 7c. Join refusal + feedback — wire-version & no-id (requirement added 2026-06-21)
+
+A node must **refuse an incompatible/unavailable network and tell the operator why** — today a wire mismatch is silently dropped with telemetry only, which is **invisible on metal** (`DeviceHal::emit` is a no-op). Two refusal reasons, one feedback push.
+
+### Feedback: a reason-coded `join_refused` push
+New **`PushKind::join_refused`** (analogous to `send_failed`) → console line + companion JSON:
+```json
+{"ev":"join_refused","reason":"wire_version","their_ver":2,"my_ver":1}   // network wire newer/older → update firmware
+{"ev":"join_refused","reason":"leaf_full"}                               // no free id on this leaf
+```
+- `reason` ∈ `wire_version · leaf_full` (extensible). `fw_main` prints a clear line ("⚠ cannot join — network wire v2, this node v1: update firmware" / "⚠ cannot join — leaf full, no id available"). The node **does NOT join** (stays unprovisioned/idle); `status` reflects it.
+- **Must be a Push, not `MR_EMIT`** — telemetry is discarded on metal, so the existing `j_wire_incompatible` is currently invisible; a Push reaches console **and** companion.
+
+### (1) wire_version — advertise in the BEACON (+0 B), check FIRST
+- Stamp `protocol::wire_version` in the beacon **byte-3 reserved nibble** (`b4..0`; the J already uses its byte-1 nibble — same pattern, **+0 B**). Byte-3 is a fixed offset ⇒ a **version-stable handshake** field readable cross-version even if the rest of the beacon format differs.
+- `ingest_beacon` checks it **first** — right after the byte-0 leaf-nibble filter, **before** the format-dependent leaf-header/entries parse: if `b.wire_version != protocol::wire_version` ⇒ refuse (don't peer, don't parse further) + a **rate-limited** `join_refused{wire_version, their_ver}` push (once, re-armed on a long cooldown — NOT every beacon).
+- Keep the existing `handle_j` wire-version reject (DAD belt-and-suspenders).
+- ⚠ **Beacon wire touch** (reserved-bit, +0 B). Wire-compatible *within* a version (the bits were 0 → no same-version delivery change); the gate re-baseline should be a no-op — confirm `leaks==0` + suite unchanged.
+- ★ **MAINTENANCE RULE (now load-bearing):** as of this change `protocol::wire_version` is a *real* cross-version gate — nodes on different values **refuse each other** (no join, no peer, in both the beacon and the J planes). Therefore **any wire-breaking protocol change MUST bump `protocol::wire_version`** (currently **1**; 4-bit nibble → 0..15, widen to a full byte if it ever runs out) **and reflash the whole network**. *Not* bumping on an incompatible change = silent cross-version interop on mismatched wire = corruption; bumping on a compatible change = a needless flag-day. Bump it on, and only on, an incompatible wire change.
+
+### (2) leaf_full (no id) — at the DAD picker
+- `join_choose_candidate_id()` already returns **−1** when 17..254 are all taken. On −1, raise `join_refused{leaf_full}` (today it's `join_no_candidate` telemetry — invisible on metal). No wire change.
+
 ## 8. Native tests + gate
 - **Units:** `join` parses + sets floor live + `leaf_id == level_id & 0x0F` + `node_id == 0`; `create` additionally sets sf_list/duty(%→fraction)/name + mints a lineage (epoch 1); `leave` zeroes membership + config but **keeps freq**; quoted-name parse (with spaces); bad-arg rejection.
 - **No-reboot:** assert the radio reconfig + DAD fire on the verb (no reboot path).
 - **Companion JSON (§7b):** `config_adopted` serializes `lineage/epoch/leaf/level`; `send_failed{joining}` → `"reason":"joining"`; `ready` carries the leaf fields + correct `synced`.
+- **Join refusal (§7c):** a beacon with a different `wire_version` ⇒ no peer + a `join_refused{wire_version}` push (rate-limited, not per-beacon); same-version beacon ⇒ unchanged; DAD picker −1 ⇒ `join_refused{leaf_full}`. Confirm the beacon byte-3 nibble round-trips (pack/parse) and the suite shows no delivery change (`leaks==0`).
 - Full native suite green; 1 normal board builds.
 - **Docs:** update `docs/LEAF_PROVISIONING.md` (verbs) AND flip the ⚙️ marks in `ios-companion/INBOX_SYNC_CONTRACT.md` to done.
 
@@ -94,5 +118,6 @@ After implementing, flip the ⚙️ marks in `INBOX_SYNC_CONTRACT.md` to "done".
 5. **Duty budget (decision b):** recompute `_duty_cycle_budget_ms` in the live-apply path (also covers adopt + `cfg set duty`).
 6. **`status`** shows `level_id (→ leaf nibble N)`; keep `leaf create` as a `create` alias (decision c).
 7. **Companion JSON (§7b):** add the `config_adopted` writer + the `joining` reason + the `ready` leaf fields to `lib/console/console_json.cpp`; flip the ⚙️ marks in `ios-companion/INBOX_SYNC_CONTRACT.md` to done.
-8. **Native tests (§8)** + update `docs/LEAF_PROVISIONING.md`.
-9. Hand back **green-shaped + uncommitted** → the quality-gate runs §8 (native + 1 board + the no-reboot assertion + the companion-JSON units) before the author commits.
+8. **Join refusal (§7c):** add `wire_version` to the beacon byte-3 nibble (pack/parse) + the `ingest_beacon` early version-check; add `PushKind::join_refused` (command.h + console_json + fw_main console line) fired on a beacon-version mismatch (rate-limited) and on the DAD picker's −1 (`leaf_full`); the companion gets `{"ev":"join_refused","reason":…}`.
+9. **Native tests (§8)** + update `docs/LEAF_PROVISIONING.md`.
+10. Hand back **green-shaped + uncommitted** → the quality-gate runs §8 (native + 1 board + no-reboot + companion-JSON + join-refusal units, and suite no-regress for the beacon nibble) before the author commits.

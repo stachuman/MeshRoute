@@ -966,6 +966,7 @@ private:
     uint64_t _last_req_sync_tx_ms = 0;   // self-state (our own last REQ_SYNC tx) — stays Node-global, not per-layer
     uint64_t _last_config_pull_tx_ms = 0;   // R6.2: rate-limit our CONFIG_PULL tx
     uint16_t _max_seen_epoch = 0;           // R6.3 §4.1: highest config_epoch seen for OUR lineage (a write = max_seen+1)
+    uint64_t _last_join_refused_ms = 0;     // R6.3 §7c: rate-limit the join_refused{wire_version} push
     struct QResponded { uint8_t opcode; uint8_t src; uint8_t dest; uint64_t t_ms; };
     struct SyncPending { bool active; bool suppressed; uint8_t requester; bool requester_mobile;
                          uint64_t requested_at; uint64_t fire_at; };
