@@ -522,6 +522,7 @@ static void handle_factory_reset(const char* arg, size_t n) {
     while (n && *arg == ' ') { ++arg; --n; }
     if (n == 7 && !strncmp(arg, "confirm", 7)) {
         Serial.println(F("> factory reset — erasing all NV, rebooting…"));
+        g_inbox_dm.wipe(); g_inbox_ch.wipe();   // §5: drop the QSPI inbox RECORDS (their store's domain); factory_erase does the InternalFS slots + meta
         if (!mrnv::factory_erase()) Serial.println(F("> factory_reset WARN: an NV slot did not erase (boot re-defaults it)"));
         do_reboot();
     } else {

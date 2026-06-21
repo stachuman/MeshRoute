@@ -70,6 +70,9 @@ public:
     // reads it; a changed epoch ⇒ the node's history was wiped ⇒ the app resets its cursors to 0 and
     // re-pulls (dedup by stable message identity makes that non-duplicating). 0 = no durable epoch.
     virtual uint32_t storage_epoch() const = 0;
+    // factory_reset (§5): drop ALL persisted records. Default no-op — a RAM-only store (FixedInboxStore) is cleared by
+    // the reboot that follows; a persistent store (DeviceInboxStore on QSPI) overrides to erase the record segments.
+    virtual void     wipe() {}
 };
 
 // ---- the inbox logic (lib/core; platform-neutral) -------------------------------------------------

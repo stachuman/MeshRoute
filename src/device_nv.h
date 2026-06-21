@@ -179,10 +179,11 @@ inline bool save_peers(const PeerBlob& b) {
 }
 // `factory_reset confirm`: erase EVERY persisted NV slot -> the node boots brand-new (default config, fresh
 // identity, no peers, empty inbox). TARGETED removal of the known files (NOT InternalFS.format()) so it can't
-// nuke unrelated FS state (e.g. OTA). The inbox META lives here on InternalFS (/mri_dm, /mri_ch); the inbox
-// RECORDS backend is the QSPI [BENCH-TODO] stub today (begin() fails -> inbox disabled -> no record files exist),
-// so there is nothing to erase there. Best-effort: a remove() of a never-written file just no-ops; the next boot
-// re-defaults any blob whose magic/version no longer validates regardless.
+// nuke unrelated FS state (e.g. OTA). This wipes the InternalFS slots — config + identity + peers + the inbox
+// META (/mri_dm, /mri_ch, the next_seq/epoch). The inbox RECORDS live on the SEPARATE external QSPI chip (a
+// different FS), so they are wiped by the inbox stores' wipe() in the `factory_reset confirm` command (their
+// domain) — together that leaves the inbox truly empty. Best-effort: a remove() of a never-written file no-ops;
+// the next boot re-defaults any blob whose magic/version no longer validates regardless.
 inline bool factory_erase() {
     using namespace Adafruit_LittleFS_Namespace;
     InternalFS.begin();
@@ -190,7 +191,7 @@ inline bool factory_erase() {
     InternalFS.remove("/mrid");                             // identity master seed (a fresh key/address is minted on boot)
     InternalFS.remove("/mrpeers");                          // pinned peer keys
     InternalFS.remove("/mri_dm");                           // inbox DM meta (next_seq / epoch / read cursor)
-    InternalFS.remove("/mri_ch");                           // inbox channel meta
+    InternalFS.remove("/mri_ch");                           // inbox channel meta  (the QSPI records: command -> store.wipe())
     return true;                                            // best-effort; load-time magic/version re-defaults anything left
 }
 }  // namespace mrnv

@@ -10,7 +10,7 @@
 #
 # ---- THE WIRE (host <-> node over NUS; mirrors docs/specs/2026-05-30-device-console-design.md §4) -------
 # Service 6E400001-B5A3-F393-E0A9-E50E24DCCA9E (the device advertises THIS uuid — we scan for it).
-#   RXD 6E400002 (write)  : host -> node. A console line, ASCII, e.g. "send 2 hello\n" or "whoami\n".
+#   RXD 6E400002 (write)  : host -> node. A console line, ASCII, e.g. 'send 2 "hello"\n' or "whoami\n".
 #   TXD 6E400003 (notify) : node -> host. One NDJSON object per line, e.g.
 #       {"ack":"queued","ctr":7,"qd":1}                 {"ev":"msg_recv","origin":3,"ctr":7,"body":"hi"}
 #       {"ev":"send_acked","dst":5,"ctr":7}             {"ev":"channel_recv","origin":3,"channel_id":2,"body":"hi"}
@@ -42,7 +42,7 @@
 #   meshroute_client_ble.py scan                         # list advertising MeshRoute nodes
 #   meshroute_client_ble.py monitor [--addr A | --name N]# connect + stream the node's JSON
 #   meshroute_client_ble.py repl    [--addr A]           # interactive: type lines, see JSON
-#   meshroute_client_ble.py send 2 hello [--addr A]      # one-shot DM, wait for the ack
+#   meshroute_client_ble.py send 2 "hello" [--addr A]    # one-shot DM, wait for the ack
 #   meshroute_client_ble.py --pin 654321 monitor         # non-default pairing PIN
 #   meshroute_client_ble.py --selftest                   # JSON-line parser checks, no device needed
 
@@ -287,7 +287,7 @@ async def cmd_send(args):
 
     client = await _connect(args, _on)
     try:
-        await send_line(client, f"send {args.dst} {args.text}")
+        await send_line(client, f'send {args.dst} "{args.text}"')   # §2 (2026-06-21): the body MUST be quoted
         try:
             await asyncio.wait_for(got.wait(), timeout=args.timeout)
         except asyncio.TimeoutError:
