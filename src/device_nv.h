@@ -177,6 +177,22 @@ inline bool save_peers(const PeerBlob& b) {
     f.close();
     return n == static_cast<int>(sizeof(b));
 }
+// `factory_reset confirm`: erase EVERY persisted NV slot -> the node boots brand-new (default config, fresh
+// identity, no peers, empty inbox). TARGETED removal of the known files (NOT InternalFS.format()) so it can't
+// nuke unrelated FS state (e.g. OTA). The inbox META lives here on InternalFS (/mri_dm, /mri_ch); the inbox
+// RECORDS backend is the QSPI [BENCH-TODO] stub today (begin() fails -> inbox disabled -> no record files exist),
+// so there is nothing to erase there. Best-effort: a remove() of a never-written file just no-ops; the next boot
+// re-defaults any blob whose magic/version no longer validates regardless.
+inline bool factory_erase() {
+    using namespace Adafruit_LittleFS_Namespace;
+    InternalFS.begin();
+    InternalFS.remove("/mrcfg");                            // config + node_id
+    InternalFS.remove("/mrid");                             // identity master seed (a fresh key/address is minted on boot)
+    InternalFS.remove("/mrpeers");                          // pinned peer keys
+    InternalFS.remove("/mri_dm");                           // inbox DM meta (next_seq / epoch / read cursor)
+    InternalFS.remove("/mri_ch");                           // inbox channel meta
+    return true;                                            // best-effort; load-time magic/version re-defaults anything left
+}
 }  // namespace mrnv
 #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
   #include <Preferences.h>
@@ -224,6 +240,17 @@ inline bool save_peers(const PeerBlob& b) {
     p.end();
     return n == sizeof(b);
 }
+// `factory_reset confirm`: erase ALL persisted NV. Config + identity + peers all live as keys in the single
+// "mr" Preferences/NVS namespace -> clear() wipes them in one shot (NOT a full nvs_flash_erase, so other
+// partitions/OTA state are untouched). The inbox records backend is the [BENCH-TODO] stub here (disabled),
+// so there is no separate inbox store to wipe.
+inline bool factory_erase() {
+    Preferences p;
+    if (!p.begin("mr", /*readOnly=*/false)) return false;
+    const bool ok = p.clear();                         // wipe the whole "mr" namespace (config + id + peers)
+    p.end();
+    return ok;
+}
 }  // namespace mrnv
 #else
 namespace mrnv {                                       // unknown platform -> no NV (always defaults)
@@ -233,6 +260,7 @@ inline bool load_id(IdBlob&) { return false; }
 inline bool save_id(const IdBlob&) { return false; }
 inline bool load_peers(PeerBlob&) { return false; }
 inline bool save_peers(const PeerBlob&) { return false; }
+inline bool factory_erase() { return true; }          // §2 native/unknown no-op stub (device-less build still compiles)
 }  // namespace mrnv
 #endif
 #endif  // ARDUINO

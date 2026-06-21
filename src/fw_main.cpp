@@ -516,6 +516,19 @@ static void do_reboot() {
 #endif
 }
 
+// `factory_reset` — confirm-gated full NV wipe -> reboot factory-fresh (default config + a NEW identity + no peers
+// + empty inbox). The literal `confirm` token guards against an accidental paste (irreversible).
+static void handle_factory_reset(const char* arg, size_t n) {
+    while (n && *arg == ' ') { ++arg; --n; }
+    if (n == 7 && !strncmp(arg, "confirm", 7)) {
+        Serial.println(F("> factory reset — erasing all NV, rebooting…"));
+        if (!mrnv::factory_erase()) Serial.println(F("> factory_reset WARN: an NV slot did not erase (boot re-defaults it)"));
+        do_reboot();
+    } else {
+        Serial.println(F("> factory_reset WIPES ALL flash (config + identity + peers + inbox) and reboots to factory. Type 'factory_reset confirm' to proceed."));
+    }
+}
+
 // `ota` — platform-native firmware update. XIAO: BLE DFU; Heltec: WiFi SoftAP + web upload.
 static void do_ota() {
 #if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
@@ -879,6 +892,7 @@ static void dump_help() {
     Serial.println(F("[help] hash/id:    whoami | lookup <hash> | hashof <id> | resolve <hash> [hard]"));
     Serial.println(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
     Serial.println(F("[help] diag:       routes | status | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
+    Serial.println(F("[help] reset:      factory_reset confirm   (WIPE all flash — config + identity + peers + inbox — and reboot to factory)"));
     Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack   (bool keys take on|off; identity via regen)"));
     Serial.println(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
     Serial.println(F("[help] provision:  join <freq_MHz> <bw_kHz> <ctrl_sf> <level_id> | create <freq> <bw> <ctrl_sf> <level_id> <sf_list> <duty%> \"<name>\" | leave   (LIVE, no reboot: join a net / mint a managed leaf [mother] / reset & keep freq)"));
@@ -950,6 +964,7 @@ static bool service_debug(const char* line, size_t len) {
     if (len == 6 && !strncmp(line, "routes", 6))   { dump_routes(); return true; }
     if (len == 6 && !strncmp(line, "status", 6))   { dump_status(); return true; }
     if (len == 6 && !strncmp(line, "reboot", 6))   { do_reboot();   return true; }
+    if ((len == 13 || (len > 13 && line[13] == ' ')) && !strncmp(line, "factory_reset", 13)) { handle_factory_reset(line + 13, len - 13); return true; }
     if (len == 5 && !strncmp(line, "regen", 5))    { do_regen();    return true; }
     if (len == 3 && !strncmp(line, "ota", 3))      { do_ota();      return true; }
     if (len >  8 && !strncmp(line, "gateway ", 8)) { handle_gateway(line + 8); return true; }
