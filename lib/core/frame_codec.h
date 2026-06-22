@@ -413,7 +413,8 @@ enum DataType : uint8_t {
     DATA_TYPE_E2E_ACK                = 3,   // normal-unicast inner; body = the acked ctr (2 B LE)
     DATA_TYPE_H_ANSWER_PUBKEY               = 4,   // E2E §6: RESERVED (overheard/soft pubkey answer) — NOT emitted in v1
     DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY = 5,   // E2E §6: the owner's pubkey answer — inner [target_layer][node_id][ed_pub 32]
-    DATA_TYPE_CONFIG_ANSWER                 = 6,   // R6.2: routed answer to a CONFIG_PULL; body = leaf config (see leaf_config.h)
+    // TYPE 6 was CONFIG_ANSWER (R6.2) — removed 2026-06-22: leaf config now rides the C control frame (cmd 0xB), which a
+    // joiner with an empty sf_list CAN receive (the old routed DATA could not). TYPE 6 is free for reuse.
 };
 
 struct data_in {

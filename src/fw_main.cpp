@@ -22,6 +22,7 @@
 #include "device_hal.h"
 #include "frame_trace.h"      // mr_trace_frame() — decoded one-line RX/TX console trace
 #include "node.h"
+#include "leaf_config.h"      // §5: duty_to_bp/bp_to_duty — quantize duty to the C-frame wire step (hash parity)
 #include "identity.h"
 #include "command.h"
 #include "console_parse.h"
@@ -387,7 +388,7 @@ static void handle_cfg_set(const char* args) {
                                            if (b.lineage_id) b.config_epoch = (uint16_t)(b.config_epoch + 1); }   // R6.3 §4.1: a managed leaf-field write bumps epoch (propagates on reboot)
     else if (!strcmp(key, "lbt"))        { b.lbt = atoi(val) != 0;            lc.lbt_enabled = (b.lbt != 0); }
     else if (!strcmp(key, "beacon_ms"))  { b.beacon_ms = (uint32_t)atol(val); lc.beacon_period_ms = b.beacon_ms; }
-    else if (!strcmp(key, "duty"))       { b.duty = atof(val); live = false;
+    else if (!strcmp(key, "duty"))       { b.duty = meshroute::bp_to_duty(meshroute::duty_to_bp(atof(val))); live = false;   // §5: quantize to the 0.01% wire step so the config_hash matches across nodes
                                            if (b.lineage_id) b.config_epoch = (uint16_t)(b.config_epoch + 1); }   // R6.3 §4.1: managed leaf-field write bumps epoch
     // --- nav/hop tuning: LIVE-only (good defaults; reboot reverts) ---
     else if (!strcmp(key, "nav"))        { lc.nav_enabled    = atoi(val) != 0; persist = false; }
@@ -754,7 +755,7 @@ static void handle_leaf(const char* args) {
         Serial.println(F(" — reboot to apply"));
     } else if (!strncmp(args, "name ", 5)) {
         const char* nm = args + 5;
-        uint8_t len = 0; while (nm[len] && len < sizeof(b.leaf_name)) { b.leaf_name[len] = (uint8_t)nm[len]; ++len; }
+        uint8_t len = 0; while (nm[len] && len < meshroute::protocol::leaf_name_max) { b.leaf_name[len] = (uint8_t)nm[len]; ++len; }   // §5: cut at 10 (the C-frame/hash cap)
         b.leaf_name_len = len;
         if (b.lineage_id) b.config_epoch = (uint16_t)(b.config_epoch + 1);   // R6.3 §4.1: leaf_name is in the config_hash -> a managed write bumps epoch
         if (!mrnv::save(b)) { Serial.println(F("> leaf err nv_save_failed")); return; }
@@ -813,8 +814,10 @@ static void provision_apply_live(const mrnv::Blob& b, bool do_dad) {
     for (uint8_t i = 0; i < b.leaf_name_len && i < sizeof(lc.leaf_name); ++i) lc.leaf_name[i] = (char)b.leaf_name[i];
     g_node.reset_leaf_epoch_state(b.config_epoch);                          // config_epoch + _max_seen_epoch (fresh-lineage numbering)
     g_node.recompute_duty_budget();                                         // §2(b) duty enforcement live
-    g_node.set_identity(0, g_identity.key_hash32); lc.layers[0].node_id = 0;// §2 membership: drop the old id -> unprovisioned
-    if (do_dad) { meshroute::Command jc{}; jc.kind = meshroute::CmdKind::join; (void)g_node.on_command(jc); }   // re-DAD live
+    g_node.reset_join_for_reprovision(); lc.layers[0].node_id = 0;          // §2 membership: drop id + CLEAR _joined so the re-DAD actually runs (set_identity alone leaves _joined -> join no-ops)
+    g_node.clear_routing_state();                                           // the old network's routes/bindings/schedules are stale -> wipe
+    g_node.set_rediscover_pending(do_dad);                                  // join/create: restart discovery once the new id is adopted (NOT leave -> idle)
+    if (do_dad) { meshroute::Command jc{}; jc.kind = meshroute::CmdKind::join; (void)g_node.on_command(jc); }   // re-DAD live (claim-after-listen -> J ~join_listen_ms later)
 }
 
 // `join <freq_MHz> <bw_kHz> <ctrl_sf> <level_id>` — set the radio floor + (re-)DAD; auto-pulls the leaf config (R6.2).
@@ -853,8 +856,9 @@ static void handle_create(const char* args) {
         b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
         b.freq_mhz = freq; b.bw_hz = bw_hz; b.routing_sf = ctrl_sf;
         b.leaf_id = (uint8_t)(level_id & 0x0F); b.layer0_id = level_id;
-        b.allowed_sf_bitmap = bm; b.duty = dutypct / 100.0;                  // percent -> 0..1 fraction
-        uint8_t nl = 0; while (*p && *p != '"' && nl < sizeof(b.leaf_name)) b.leaf_name[nl++] = (uint8_t)*p++;
+        b.allowed_sf_bitmap = bm;
+        b.duty = meshroute::bp_to_duty(meshroute::duty_to_bp(dutypct / 100.0));   // §5: percent -> 0..1, quantized to the 0.01% wire step
+        uint8_t nl = 0; while (*p && *p != '"') { if (nl < meshroute::protocol::leaf_name_max) b.leaf_name[nl++] = (uint8_t)*p; ++p; }   // §5: store ≤10, consume the rest of the quoted name
         b.leaf_name_len = nl;
         uint16_t lin = 0; do { mrrng::fill(reinterpret_cast<uint8_t*>(&lin), sizeof lin); } while (lin == 0);   // mint managed lineage
         b.lineage_id = lin; b.config_epoch = 1;                              // a fresh managed leaf starts at epoch 1
@@ -867,7 +871,7 @@ static void handle_create(const char* args) {
         return;
     }
 usage:
-    Serial.println(F("> create err usage: create <freq> <bw> <ctrl_sf> <level_id> <sf_list e.g.7,9> <duty%> \"<name>\""));
+    Serial.println(F("> create err usage: create <freq_MHz> <bw_kHz 7..500> <ctrl_sf 5..12> <level_id 1..255> <sf_list e.g.7,9> <duty_percent> \"<name>\""));
 }
 
 // `leave` — wipe to default, keep ONLY freq; go unprovisioned + idle (the clean managed->managed re-join primitive).
@@ -1296,12 +1300,22 @@ void setup() {
     Serial.print(F("  inbox     = RAM volatile, ")); Serial.print(MR_RAM_INBOX_SLOTS);
     Serial.println(F(" msgs/store (interim — lost on reboot; durable QSPI store is a bench-TODO)"));
 #endif
-    // node_id DAD auto-join: an UNPROVISIONED node (no persisted id) self-assigns one via the claim state
-    // machine. A node that rebooted WITH a persisted id skips this — it already owns it (restored above).
+    // node_id DAD auto-join: an UNPROVISIONED node (no persisted id) self-assigns one via the claim state machine.
+    // A node that rebooted WITH a persisted id skips this — it already owns it (restored above). BUT a freshly-flashed
+    // node must FIRST be configured with a target network: with NO leaf/level set it would DAD (J + BCN) on the default
+    // freq/bw/leaf=0 — the wrong channel. So gate on the configured sentinel: level_id (layer0_id, the full level_id)
+    // != 0 OR leaf_id != 0 (the latter covers the advanced `cfg set leaf_id` path, which sets the nibble but not
+    // layer0_id). level_id 0 = unconfigured -> stay IDLE until `join`/`create` sets the floor + triggers the DAD.
     if (node_id == 0) {
-        meshroute::Command jc{}; jc.kind = meshroute::CmdKind::join;
-        g_node.on_command(jc);
-        Serial.println(F("  join      = auto-DAD started (unprovisioned)"));
+        mrnv::Blob lb{};
+        const bool configured = mrnv::load(lb) && (lb.layer0_id != 0 || lb.leaf_id != 0);
+        if (configured) {
+            meshroute::Command jc{}; jc.kind = meshroute::CmdKind::join;
+            g_node.on_command(jc);
+            Serial.println(F("  join      = auto-DAD started (unprovisioned)"));
+        } else {
+            Serial.println(F("  join      = IDLE — unconfigured (level_id=0). Set freq/bw/ctrl_sf/level_id via 'join' or 'create'."));
+        }
     }
     // Step 5: BLE companion transport (XIAO nRF52840 only; an inert no-op on ESP32/native). Brings up the
     // S140 SoftDevice + Nordic UART Service + the advertising-window policy, and arms the SD-RNG keystone

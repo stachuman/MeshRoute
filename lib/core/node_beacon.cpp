@@ -363,9 +363,9 @@ void Node::emit_beacon(const char* kind) {
 // R6.1: the config fingerprint over THIS node's ACTIVE-leaf config (activate_layer mirrors a gateway's per-layer
 // allowed_sf_bitmap into _cfg, so a gateway hashes its active leaf's SF set — matching that leaf's members).
 uint16_t Node::cfg_config_hash() const {
-    const uint32_t duty_ppm = (_cfg.duty_cycle > 0.0)
-                              ? static_cast<uint32_t>(std::lround(_cfg.duty_cycle * 1e6)) : 0u;
-    return leaf_config_hash(_cfg.allowed_sf_bitmap, duty_ppm, _cfg.leaf_name, _cfg.leaf_name_len);
+    // §5: hash over the EXACT C-frame wire forms — duty as duty_bp (0.01% units), SF set as the u8 list (inside
+    // leaf_config_hash). A mother + a joiner MUST derive identical bytes here or the joiner re-pulls forever.
+    return leaf_config_hash(_cfg.allowed_sf_bitmap, duty_to_bp(_cfg.duty_cycle), _cfg.leaf_name, _cfg.leaf_name_len);
 }
 
 void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {

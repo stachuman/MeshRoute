@@ -174,6 +174,10 @@ void Node::join_adopt(uint8_t node_id) {
                            { .key = "claim_epoch", .type = EventField::T::i64, .i = _claim_epoch } };
         _hal.emit("join_adopted", f, 3); );
     schedule_triggered_beacon();                                       // announce the new id (peers re-bind on it)
+    if (_pending_rediscover) {                                         // a verb reprovision -> the id is now stable: rebuild routes
+        _pending_rediscover = false;
+        restart_discovery();
+    }
 }
 
 // ---- §5 receive: J dispatch + CLAIM/DENY handlers ----------------------------------------------------
@@ -256,21 +260,31 @@ void Node::addr_conflict_send_deny(uint8_t node_id, uint32_t owner_key, uint32_t
     if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
 }
 
-// Lost the heal tiebreak: yield the id, deny it (so the picker won't immediately re-pick it), drop our own
-// stale self-binding, go unprovisioned, and re-run DAD with a fresh candidate.
-void Node::forced_rejoin(const char* reason) {
-    if (!_joined) return;
-    const uint8_t prior = _node_id;
+// The join-FSM reset shared by forced_rejoin (heal) + the console reprovision verbs (join/create/leave, fw_main).
+// CRITICAL: clears `_joined` — without it, `set_identity(0)` leaves the node "joined" and CmdKind::join is
+// idempotent-once-joined (no claim, no J, node_id stuck) → a reprovision never re-DADs. On a joined node it also
+// denies the prior id + drops our own (prior, key) binding so the re-DAD picks a FRESH id (not the same one).
+void Node::reset_join_for_reprovision() {
+    if (_joined) {                                                     // joined-only cleanup (a fresh node skips it)
+        const uint8_t prior = _node_id;
+        join_deny_id(prior);                                          // don't let the picker immediately re-pick it
+        for (uint16_t i = 0; i < _active->_id_bind_n; ++i)            // drop our own (prior, myhash) binding
+            if (_active->_id_bind[i].node_id == prior && _active->_id_bind[i].key_hash32 == _key_hash32) {
+                for (uint16_t k = i; k + 1 < _active->_id_bind_n; ++k) _active->_id_bind[k] = _active->_id_bind[k + 1];
+                _active->_id_bind_n--; break;
+            }
+    }
     _joined = false;
     _join_claim.active = false;
     _hal.cancel(kJoinClaimGuardTimerId);
-    join_deny_id(prior);
-    for (uint16_t i = 0; i < _active->_id_bind_n; ++i)                          // drop our own (prior, myhash) binding
-        if (_active->_id_bind[i].node_id == prior && _active->_id_bind[i].key_hash32 == _key_hash32) {
-            for (uint16_t k = i; k + 1 < _active->_id_bind_n; ++k) _active->_id_bind[k] = _active->_id_bind[k + 1];
-            _active->_id_bind_n--; break;
-        }
-    set_identity(protocol::unjoined_node_id, _key_hash32);             // 0 = unprovisioned (transient; re-claim below)
+    set_identity(protocol::unjoined_node_id, _key_hash32);             // 0 = unprovisioned (transient; the caller re-claims)
+}
+
+// Lost the heal tiebreak: yield the id, deny it, drop our stale self-binding, go unprovisioned, and re-run DAD.
+void Node::forced_rejoin(const char* reason) {
+    if (!_joined) return;
+    const uint8_t prior = _node_id;                                   // capture BEFORE the reset zeroes _node_id (telemetry)
+    reset_join_for_reprovision();
     MR_TELEMETRY(
         EventField f[] = { { .key = "prior_node_id", .type = EventField::T::i64, .i = prior },
                            { .key = "reason",        .type = EventField::T::str, .s = reason ? reason : "addr_conflict_lost" } };

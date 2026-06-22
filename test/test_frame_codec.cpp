@@ -779,16 +779,16 @@ TEST_CASE("R6.1 BCN — leaf header (lineage/epoch/config_hash, u16x3) round-tri
     if (o) { CHECK(o->lineage_id == 0x1122); CHECK(o->config_epoch == 0x0507); CHECK(o->config_hash == 0x99AA); }
 }
 
-TEST_CASE("R6.1 leaf_config_hash — deterministic, sensitive to every input, never 0 (the filter sentinel)") {
+TEST_CASE("leaf_config_hash — deterministic, sensitive to every input, never 0 (the filter sentinel)") {
     using meshroute::leaf_config_hash;
-    const uint16_t h = leaf_config_hash(0x0280, 10000, "hub", 3);   // bitmap {7,9}, duty 1%, name "hub"
-    CHECK(h == leaf_config_hash(0x0280, 10000, "hub", 3));          // deterministic
+    const uint16_t h = leaf_config_hash(0x0280, 100, "hub", 3);     // bitmap {7,9} (wire u8 0x14), duty 1% (bp 100), name "hub"
+    CHECK(h == leaf_config_hash(0x0280, 100, "hub", 3));            // deterministic
     CHECK(h != 0);                                                  // BLAKE2b never 0 — the config_hash==0 sentinel depends on this
-    CHECK(h != leaf_config_hash(0x0080, 10000, "hub", 3));          // bitmap-sensitive
-    CHECK(h != leaf_config_hash(0x0280, 20000, "hub", 3));          // duty-sensitive
-    CHECK(h != leaf_config_hash(0x0280, 10000, "hu2", 3));          // name-sensitive
-    CHECK(h != leaf_config_hash(0x0280, 10000, "hub", 2));          // name-length-sensitive
-    CHECK(h == 17487u);                                            // GOLDEN: BLAKE2b-512({80 02 10 27 00 00 03 'h' 'u' 'b'})[:2] LE
+    CHECK(h != leaf_config_hash(0x0080, 100, "hub", 3));            // sf-set-sensitive (wire u8 differs)
+    CHECK(h != leaf_config_hash(0x0280, 200, "hub", 3));            // duty-sensitive (duty_bp differs)
+    CHECK(h != leaf_config_hash(0x0280, 100, "hu2", 3));            // name-sensitive
+    CHECK(h != leaf_config_hash(0x0280, 100, "hub", 2));            // name-length-sensitive
+    CHECK(h == 23847u);                                            // GOLDEN (C-frame wire form): BLAKE2b-512({14 64 00 03 'h' 'u' 'b'})[:2] LE
 }
 
 TEST_CASE("BCN — reject: wrong cmd / truncation / trailing / over-cap") {
@@ -1605,18 +1605,49 @@ TEST_CASE("R6.2 Q CONFIG_PULL — round-trips lineage + epoch (8 B); truncation 
     CHECK_FALSE(parse_q(std::span<const uint8_t>(buf.data(), 4)).has_value());   // no lineage/epoch -> reject
 }
 
-TEST_CASE("R6.2 CONFIG_ANSWER body — round-trips the leaf config tuple") {
-    meshroute::ConfigAnswer in{};
-    in.lineage_id = 0x1234; in.config_epoch = 7; in.allowed_sf_bitmap = (1u << 7) | (1u << 9);
-    in.duty_ppm = 10000; in.leaf_name_len = 3; in.leaf_name[0]='h'; in.leaf_name[1]='u'; in.leaf_name[2]='b';
-    uint8_t buf[32]; size_t n = meshroute::pack_config_answer(in, buf, sizeof buf);
-    CHECK(n == 11 + 3);
-    meshroute::ConfigAnswer out{};
-    CHECK(meshroute::parse_config_answer(buf, n, out));
-    CHECK(out.lineage_id == 0x1234); CHECK(out.config_epoch == 7);
-    CHECK(out.allowed_sf_bitmap == ((1u << 7) | (1u << 9))); CHECK(out.duty_ppm == 10000u);
+TEST_CASE("C config frame body — round-trips sf_list(u8)/duty_bp/epoch/name (§2)") {
+    meshroute::CConfig in{};
+    in.allowed_sf_bitmap = (1u << 7) | (1u << 9);   // SF7 + SF9 -> wire bits 2 + 4 = 0b00010100 = 0x14
+    in.duty_bp = 10;                                  // 0.1% (§7) -> 2-B wire field, NOT the old u32 duty_ppm
+    in.config_epoch = 7;
+    in.leaf_name_len = 3; in.leaf_name[0]='h'; in.leaf_name[1]='u'; in.leaf_name[2]='b';
+    uint8_t buf[32]; size_t n = meshroute::pack_c_config(in, buf, sizeof buf);
+    CHECK(n == 6 + 3);                                // 1 sf + 2 duty + 2 epoch + 1 nlen + 3 name
+    CHECK(buf[0] == 0x14);                            // the u8 SF list (SF5..12 packed to bits 0..7)
+    meshroute::CConfig out{};
+    CHECK(meshroute::parse_c_config(buf, n, out));
+    CHECK(out.allowed_sf_bitmap == ((1u << 7) | (1u << 9)));   // unpacks to the IDENTICAL internal bitmap
+    CHECK(out.duty_bp == 10); CHECK(out.config_epoch == 7);
     CHECK(out.leaf_name_len == 3); CHECK(out.leaf_name[0]=='h'); CHECK(out.leaf_name[2]=='b');
-    CHECK_FALSE(meshroute::parse_config_answer(buf, 5, out));   // truncated
+    CHECK_FALSE(meshroute::parse_c_config(buf, 4, out));        // truncated (< 6-B prefix)
+}
+
+TEST_CASE("C config frame — name truncates at leaf_name_max(10), identically on both sides (§5)") {
+    meshroute::CConfig in{};
+    in.allowed_sf_bitmap = (1u << 8); in.duty_bp = 1000; in.config_epoch = 2;
+    const char* long_name = "abcdefghijKLMNO";          // 15 chars -> must cut to 10
+    in.leaf_name_len = 15; for (uint8_t i = 0; i < 15; ++i) in.leaf_name[i] = long_name[i % 10];
+    uint8_t buf[32]; size_t n = meshroute::pack_c_config(in, buf, sizeof buf);
+    CHECK(n == 6 + meshroute::protocol::leaf_name_max);        // packed length is capped at 10
+    meshroute::CConfig out{};
+    CHECK(meshroute::parse_c_config(buf, n, out));
+    CHECK(out.leaf_name_len == meshroute::protocol::leaf_name_max);   // == 10
+}
+
+TEST_CASE("leaf_config_hash — equal across the sf-bitmap/duty_bp wire forms (§5 no-re-pull)") {
+    // The mother hashes its INTERNAL bitmap + duty_bp; a joiner that unpacked the SAME wire forms must hash identically
+    // (else config_hash diverges -> perpetual re-pull). duty entered finer than 0.01% must quantize to the same bp.
+    const uint16_t bm = (1u << 6) | (1u << 7);                 // SF6 + SF7
+    const uint16_t bp = meshroute::duty_to_bp(0.001);          // 0.1% -> 10
+    CHECK(bp == 10);
+    const uint16_t h1 = meshroute::leaf_config_hash(bm, bp, "hub", 3);
+    // a joiner that received sf_list u8 + duty_bp on the wire, unpacked, then re-derived bp from the lossy double:
+    const uint16_t bp2 = meshroute::duty_to_bp(meshroute::bp_to_duty(bp));   // round-trip stable
+    CHECK(bp2 == bp);
+    const uint16_t h2 = meshroute::leaf_config_hash(meshroute::sf_wire_to_bitmap(meshroute::sf_bitmap_to_wire(bm)), bp2, "hub", 3);
+    CHECK(h1 == h2);
+    // a finer-than-0.01% duty quantizes to the SAME bp on both sides
+    CHECK(meshroute::duty_to_bp(0.123456) == meshroute::duty_to_bp(0.1235));
 }
 
 TEST_CASE("BCN §7c — wire_version in byte-3 low nibble; round-trips + readable at a fixed offset cross-version") {

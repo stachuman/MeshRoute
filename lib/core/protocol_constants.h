@@ -65,7 +65,9 @@ constexpr float q4_to_db(int16_t q4) {
 // ---- Radio / PHY -----------------------------------------------------------
 inline constexpr uint8_t  preamble_sym   = 16;
 // R6.1 leaf-config membership: max leaf_name length (NV + the config_hash input; a change re-fingerprints the leaf).
-inline constexpr uint8_t  leaf_name_max  = 16;
+// 2026-06-22 (C-frame §5): 16 -> 10 so the name fits the C config frame + the hash uses an identical ≤10 form on
+// both sides (names are truncated to 10 at create / `leaf name`). NV Blob.leaf_name[16] STAYS [16] (no NV bump).
+inline constexpr uint8_t  leaf_name_max  = 10;
 // R6.2 config-sync: min gap between a node's CONFIG_PULL tx (rate-limit; a stale/joining node re-pulls until adopted).
 inline constexpr uint32_t config_pull_retry_ms = 30000;   // 30 s
 // R6.3 §7c: min gap between join_refused{wire_version} pushes (so a foreign-version neighbour's every beacon doesn't spam).

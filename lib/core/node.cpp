@@ -270,6 +270,36 @@ bool Node::on_init(const NodeConfig& cfg) {
     return true;
 }
 
+// Reprovision (join/create/leave verbs): the old network's learned state is stale -> wipe routes / id-bindings /
+// deferred sends (per layer) + the node-global gateway schedules + multi-hop bridge map. The DAD listen window then
+// re-learns the NEW network's neighbours; restart_discovery() (at id-adopt) drives the rebuild. NOT for the heal.
+void Node::clear_routing_state() {
+    for (uint8_t i = 0; i < _n_layers; ++i) {
+        _layers[i]._rt_count   = 0;          // routes
+        _layers[i]._id_bind_n  = 0;          // id -> key bindings (old neighbours)
+        _layers[i]._deferred_n = 0;          // parked no-route sends
+        _layers[i]._drain_armed = false;
+    }
+    for (uint8_t i = 0; i < protocol::cap_gateway_neighbor_schedules; ++i) _gw_schedules[i].valid = false;
+    for (uint8_t i = 0; i < protocol::cap_bridged_layers; ++i)             _bridged_layers[i].valid = false;
+}
+
+// Re-enter discovery so a reprovisioned node aggressively rebuilds its table under the NEW (just-adopted) id: fast
+// beacon cadence + the REQ_SYNC route-bootstrap pull. Mirrors on_init's discovery setup; called from join_adopt when
+// a verb reprovision is pending (id is now stable). after() is replace-by-id, so re-arming kBeaconTimerId is safe.
+void Node::restart_discovery() {
+    const uint64_t now = _hal.now();
+    _discovery_started_ms   = now;
+    _discovery_mode         = (protocol::discovery_ms > 0);
+    _discovery_until_ms     = now + protocol::discovery_ms;
+    _discovery_bcn_rx_count = 0;
+    _last_req_sync_tx_ms    = 0;             // clear the rate-limit -> the bootstrap REQ_SYNC can fire immediately
+    if (_cfg.n_layers != 2)                  // single-layer: a fast-cadence beacon soon (replaces the slow pending re-arm)
+        (void)_hal.after(static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(protocol::discovery_beacon_period_ms))), kBeaconTimerId);
+    if (_cfg.req_sync_on_boot)               // re-arm the REQ_SYNC bootstrap loop (pull neighbours' full tables)
+        (void)_hal.after(protocol::req_sync_listen_ms, kReqSyncTimerId);
+}
+
 // ---- Slice 3c: dual-layer leaf activation -------------------------------------------------------------------
 // SF_DEMOD_THRESHOLD[sf] + sf_margin (Lua dv:8386); the -240 out-of-range fallback is the literal (SF10), not table[12].
 int16_t Node::routing_snr_floor_for(uint8_t routing_sf) const {
@@ -700,6 +730,7 @@ void Node::on_recv(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         case wire::Cmd::H: handle_h  (bytes, len, meta); break;     // H hash-locate flood (key_hash32 -> node_id)
         case wire::Cmd::J: handle_j  (bytes, len, meta); break;     // J node_id DAD (CLAIM/DENY -> claim/heal)
         case wire::Cmd::M: handle_channel_data(bytes, len, meta); break;  // M lean channel-message frame (cmd 0xA) -> leaf gate + ingest
+        case wire::Cmd::CFG: handle_c(bytes, len, meta); break;     // C leaf-config frame (cmd 0xB) -> control-plane CONFIG_PULL answer -> adopt
         default: break;                                              // rest ignored
     }
 }

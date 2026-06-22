@@ -25,6 +25,7 @@ namespace {
 
 constexpr uint32_t kJoinClaimGuardTimerId = 58;   // mirrors Node's private DAD guard timer id
 constexpr uint32_t kJoinListenTimerId     = 60;   // claim-after-listen window (L1)
+constexpr uint32_t kBeaconTimerId         = 1;    // periodic beacon tick (drives maybe_exit_discovery)
 
 struct Ev { std::string type; int64_t node = -1; int64_t proposed = -1; int64_t denied = -1;
             int64_t claim_epoch = -1; int64_t prior = -1; int64_t their_epoch = -1;
@@ -320,4 +321,94 @@ TEST_CASE("join — R6.3 live re-provision: a provisioned node drops its id + re
     const Ev* sent = hal.find("join_claim_sent");
     CHECK(sent != nullptr);
     if (sent) CHECK(sent->proposed >= protocol::normal_node_id_min); // re-DADs a normal id (17..254)
+}
+
+// Reprovision re-DAD fix: a JOINED node re-DADs on join/create (the verbs). The bug was set_identity(0) leaving
+// _joined set -> CmdKind::join idempotent-no-op -> node_id stuck. reset_join_for_reprovision() clears _joined +
+// denies the prior id, so the re-DAD runs and picks a FRESH id (!= prior). A fresh node still DADs (existing test).
+TEST_CASE("join — reprovision: a joined node re-DADs after reset_join_for_reprovision (new id != prior)") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000C3C3);
+    node.on_init(join_cfg());
+    Command c{}; c.kind = CmdKind::join;
+    CHECK(node.on_command(c).code == CmdCode::queued);
+    node.on_timer(kJoinListenTimerId);
+    node.on_timer(kJoinClaimGuardTimerId);                       // adopt unopposed -> joined
+    CHECK(node.joined());
+    const int prior = node.node_id();
+    CHECK(prior >= protocol::normal_node_id_min);
+
+    // BUG repro: a bare re-join on a joined node no-ops (idempotent) -> no new claim.
+    hal.events.clear();
+    CHECK(node.on_command(c).code == CmdCode::queued);
+    node.on_timer(kJoinListenTimerId);
+    CHECK(hal.find("join_claim_sent") == nullptr);              // idempotent -> nothing happened (the bug)
+
+    // FIX: reset the join FSM, THEN re-DAD.
+    hal.events.clear(); hal.tx_frames.clear();
+    node.reset_join_for_reprovision();
+    CHECK_FALSE(node.joined());
+    CHECK(node.node_id() == 0);                                 // unprovisioned
+    CHECK(node.on_command(c).code == CmdCode::queued);
+    node.on_timer(kJoinListenTimerId);                          // listen window -> claim fires
+    const Ev* sent = hal.find("join_claim_sent");
+    CHECK(sent != nullptr);
+    if (sent) {
+        CHECK(sent->proposed >= protocol::normal_node_id_min);  // fresh normal id (17..254)
+        CHECK(sent->proposed != prior);                        // deny worked -> NOT the same id
+    }
+    bool claim_tx = false;                                      // a J_CLAIM went on air
+    for (const auto& f : hal.tx_frames) { auto p = parse_j(std::span<const uint8_t>(f.data(), f.size()));
+        if (p && p->opcode == static_cast<uint8_t>(j_opcode::claim)) claim_tx = true; }
+    CHECK(claim_tx);
+}
+
+// leave path: reset_join_for_reprovision() alone (no re-DAD) -> unprovisioned + idle (no claim).
+TEST_CASE("join — reprovision: reset alone (leave) leaves the node unprovisioned, no claim") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000D4D4);
+    node.on_init(join_cfg());
+    Command c{}; c.kind = CmdKind::join; node.on_command(c);
+    node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);
+    CHECK(node.joined());
+    hal.events.clear(); hal.tx_frames.clear();
+    node.reset_join_for_reprovision();                         // `leave` = reset, NO join command
+    CHECK_FALSE(node.joined());
+    CHECK(node.node_id() == 0);
+    CHECK(hal.find("join_claim_sent") == nullptr);            // idle — no claim until a `join`
+}
+
+// Reprovision routing-plane reset: a verb (join/create) on a running node wipes the stale routes + restarts discovery
+// at id-adopt (rebuild under the new id). The HEAL (forced_rejoin's shared reset) does NEITHER — same network, routes
+// stay valid, no rediscover. The _pending_rediscover flag (set only by the verb path) is the gate.
+TEST_CASE("join — reprovision wipes routes + restarts discovery at id-adopt; the heal does not") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000E5E5);
+    node.on_init(join_cfg());
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    std::array<uint8_t, 64> bcn{}; size_t bn = make_beacon(/*src=*/200, /*key=*/0x00009999, bcn);
+    node.on_recv(bcn.data(), bn, meta);                          // learn a neighbour route
+    CHECK(node.rt_count() >= 1);
+    hal._now = 70000; node.on_timer(kBeaconTimerId);            // > discovery_ms -> maybe_exit_discovery
+    CHECK_FALSE(node.in_discovery());
+
+    // (1) VERB reprovision: reset + clear routes + mark rediscover, then re-DAD.
+    node.reset_join_for_reprovision();
+    node.clear_routing_state();
+    CHECK(node.rt_count() == 0);                                // routes wiped
+    node.set_rediscover_pending(true);
+    Command c{}; c.kind = CmdKind::join;
+    CHECK(node.on_command(c).code == CmdCode::queued);
+    node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);  // adopt
+    CHECK(node.joined());
+    CHECK(node.in_discovery());                                 // RESTARTED under the new id
+
+    // (2) HEAL-style reset (no rediscover flag): re-DAD -> adopt must NOT restart discovery.
+    hal._now = 200000; node.on_timer(kBeaconTimerId);          // exit the restarted discovery again
+    CHECK_FALSE(node.in_discovery());
+    node.reset_join_for_reprovision();                         // the shared reset the heal uses — leaves the flag false
+    CHECK(node.on_command(c).code == CmdCode::queued);
+    node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);
+    CHECK(node.joined());
+    CHECK_FALSE(node.in_discovery());                          // heal kept routes -> no rediscover
 }

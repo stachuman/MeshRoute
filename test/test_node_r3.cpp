@@ -3304,7 +3304,7 @@ TEST_CASE("R6.1 peering filter — divergent leaf config is not peered; matching
     NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
     cfg.allowed_sf_bitmap = (1u << 12); cfg.duty_cycle = 0.01;       // bitmap {12}, duty 1%, name ""
     CHECK(A.on_init(cfg));
-    const uint32_t a_hash = meshroute::leaf_config_hash(cfg.allowed_sf_bitmap, 10000u, cfg.leaf_name, cfg.leaf_name_len);
+    const uint32_t a_hash = meshroute::leaf_config_hash(cfg.allowed_sf_bitmap, meshroute::duty_to_bp(0.01), cfg.leaf_name, cfg.leaf_name_len);
 
     auto route_to = [](Node& n, uint8_t dest) {
         for (uint8_t i = 0; i < n.rt_count(); ++i) if (n.rt_at(i).dest == dest) return true;
@@ -3320,7 +3320,7 @@ TEST_CASE("R6.1 peering filter — divergent leaf config is not peered; matching
     };
 
     // (1) DIVERGENT config (bitmap {7} != {12}) -> different hash -> NOT peered.
-    const uint32_t diverge = meshroute::leaf_config_hash((1u << 7), 10000u, nullptr, 0);
+    const uint32_t diverge = meshroute::leaf_config_hash((1u << 7), meshroute::duty_to_bp(0.01), nullptr, 0);
     CHECK(diverge != a_hash);
     feed(diverge, /*src*/ 2);
     CHECK_FALSE(route_to(A, 2));
@@ -3330,7 +3330,7 @@ TEST_CASE("R6.1 peering filter — divergent leaf config is not peered; matching
 }
 
 // R6.2 config-sync: (A) an unmanaged node hearing a MANAGED beacon adopts the lineage (un-synced) + CONFIG_PULLs;
-// (B) a synced member answering a CONFIG_PULL emits a CONFIG_ANSWER. (Full pull->answer->adopt->deliver = the sim gate.)
+// (B) a synced member answering a CONFIG_PULL emits a C config frame (cmd 0xB). (Full pull->answer->adopt = the gate.)
 TEST_CASE("R6.2 config-sync — unmanaged node pulls on hearing a managed beacon; a member answers") {
     RxMeta meta{8.0f, -80.0f, 0, -1};
     // (A) JOIN-PULL
@@ -3351,7 +3351,41 @@ TEST_CASE("R6.2 config-sync — unmanaged node pulls on hearing a managed beacon
     q_in q{}; q.leaf_id = 0; q.src = 7; q.dest = 2; q.opcode = q_opcode::config_pull; q.pull_lineage = 0xABCD; q.pull_epoch = 0;
     std::array<uint8_t, 16> qb{}; size_t qn = pack_q(q, std::span<uint8_t>(qb.data(), qb.size()));
     hm._now = 1000; M.on_recv(qb.data(), qn, meta);
-    CHECK(hm.count("config_answer_tx") >= 1);               // a member answers the pull
+    CHECK(hm.count("c_config_tx") >= 1);                    // a member answers the pull with a C frame
+}
+
+// ★ C config frame (cmd 0xB) BOOTSTRAP: a managed joiner with allowed_sf_bitmap==0 (no data SF — the old routed
+// CONFIG_ANSWER could NEVER reach it) DOES receive its config on the control plane. After adopt: sf_list/duty/name
+// set, synced (epoch>0), and the post-adopt config_hash EQUALS the source's (§5 — proves no perpetual re-pull loop).
+TEST_CASE("C config frame — empty-sf_list joiner adopts on a C frame; hash matches the source (§5)") {
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    const uint16_t src_bitmap = (1u << 6) | (1u << 7);     // the mother's SF set (SF6+SF7)
+    const double   src_duty   = 0.001;                      // 0.1% -> duty_bp 10
+    const uint16_t src_epoch  = 5;
+    const char*    src_name   = "hub";
+
+    // the joiner: NO data SF + un-synced, target lineage already set (it heard the managed beacon that triggered the pull)
+    TestHal hj; Node J(hj, /*id=*/7, 0x7777);
+    NodeConfig jc; jc.routing_sf = 7; jc.leaf_id = 0; jc.allowed_sf_bitmap = 0; J.on_init(jc);
+    J.mutable_config().lineage_id = 0xABCD;
+    CHECK(J.config().allowed_sf_bitmap == 0);
+
+    // a C frame addressed to the joiner: [cmd 0xB | leaf 0][src=2][dst=7] + body
+    meshroute::CConfig cc{}; cc.allowed_sf_bitmap = src_bitmap; cc.duty_bp = meshroute::duty_to_bp(src_duty);
+    cc.config_epoch = src_epoch; cc.leaf_name_len = 3; for (int i = 0; i < 3; ++i) cc.leaf_name[i] = src_name[i];
+    uint8_t frame[3 + 16]; frame[0] = static_cast<uint8_t>((0xB << 4) | 0); frame[1] = 2; frame[2] = 7;
+    const size_t bn = meshroute::pack_c_config(cc, frame + 3, sizeof(frame) - 3);
+    hj._now = 1000; J.on_recv(frame, 3 + bn, meta);
+
+    CHECK(J.config().allowed_sf_bitmap == src_bitmap);     // sf_list adopted (was 0)
+    CHECK(J.config().config_epoch == src_epoch);           // synced (epoch>0) -> participation gate lifts
+    CHECK(J.config().leaf_name_len == 3);
+    CHECK(hj.count("leaf_config_adopted") >= 1);
+    // §5: the joiner's recomputed config_hash now EQUALS the source's -> no re-pull
+    const uint16_t src_hash = meshroute::leaf_config_hash(src_bitmap, meshroute::duty_to_bp(src_duty), src_name, 3);
+    const uint16_t joiner_hash = meshroute::leaf_config_hash(J.config().allowed_sf_bitmap,
+        meshroute::duty_to_bp(J.config().duty_cycle), J.config().leaf_name, J.config().leaf_name_len);
+    CHECK(joiner_hash == src_hash);
 }
 
 // R6.2 §6.4 participation gate: an un-synced MANAGED node (lineage!=0, epoch 0) must NOT originate app DMs / F —

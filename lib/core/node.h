@@ -416,7 +416,7 @@ public:
         _cfg.routing_sf = routing_sf; _cfg.radio_bw_hz = bw_hz; _cfg.radio_cr = cr;
     }
     // R6.3 §2 (provisioning verbs / decision b): re-derive the duty-cycle budget after a LIVE duty change
-    // (the join/create verbs, adopt_config_answer, cfg-set duty) so enforcement applies without a reboot. Mirrors
+    // (the join/create verbs, adopt_c_config, cfg-set duty) so enforcement applies without a reboot. Mirrors
     // the on_init derivation (dv:8497) — closes the known duty-live gap (the budget was on_init-cached only).
     void recompute_duty_budget() {
         _duty_cycle_budget_ms = (_cfg.duty_cycle > 0.0)
@@ -425,6 +425,17 @@ public:
     // R6.3 provisioning verbs: reset BOTH the live epoch and the max-seen tracker together (a join/leave -> 0,
     // a create -> 1). Keeps _max_seen_epoch from leaking an old leaf's numbering into a fresh lineage's writes.
     void reset_leaf_epoch_state(uint16_t epoch) { _cfg.config_epoch = epoch; _max_seen_epoch = epoch; }
+    // Reset the join FSM so a re-DAD actually RUNS on a reprovision (join/create verbs). set_identity(0) alone leaves
+    // _joined set, and CmdKind::join is idempotent-once-joined -> the DAD never fires. Shared with forced_rejoin.
+    void reset_join_for_reprovision();
+    // Reprovision (join/create/leave verbs ONLY — NOT the heal): the old network's routes are stale. Drop ALL learned
+    // routes / id-bindings / gateway schedules so the node starts the new network with a clean table. (The heal keeps
+    // its routes — same network, only the id changed — so this is NOT in reset_join_for_reprovision.)
+    void clear_routing_state();
+    // Set by a verb reprovision (do_dad); join_adopt consumes it to restart discovery ONCE the new id is stable, so the
+    // fast-cadence beacons + the REQ_SYNC route-bootstrap go out under the adopted id (not the transient 0).
+    void set_rediscover_pending(bool v) { _pending_rediscover = v; }
+    void restart_discovery();    // re-enter discovery (fast beacon cadence + REQ_SYNC pull) to rebuild routes
     uint8_t           rt_count()       const { return _active->_rt_count; }
     const RtEntry&    rt_at(uint8_t i) const { return _active->_rt[i]; }   // 0..rt_count()-1; candidates[0] is the primary
     // A heard 1-hop gateway's stored window schedule (nullptr if none known) + the ms to defer an RTS to its window.
@@ -442,6 +453,7 @@ public:
     // ---- id_bind (hash-locate substrate) inspection: tests + the H resolver drive these.
     uint16_t          id_bind_count() const { return _active->_id_bind_n; }
     bool              joined()        const { return _joined; }        // DAD: adopted a node_id (test/app accessor)
+    bool              in_discovery()  const { return _discovery_mode; } // fast-cadence route-bootstrap window (test/app accessor)
     bool              key_hash_of_id(uint8_t id, uint32_t& out) const;  // id_bind reverse lookup (AUTHORITATIVE-only); false = unknown/claimed-only (DST_HASH omitted). Public for the send-path test.
     uint8_t           claim_epoch()   const { return _claim_epoch; }
     void              restore_join_state(uint8_t claim_epoch, bool joined) { _claim_epoch = claim_epoch; _joined = joined; }  // boot: reload persisted DAD state (NV)
@@ -632,8 +644,9 @@ private:
     void    req_sync_loop_fire();                                  // kReqSyncTimerId: send + re-arm while discovery+starved (dv:9167)
     void    send_req_sync_q(const char* reason, bool force = false);  // broadcast a REQ_SYNC Q (no draw; dv:8032). force=bypass boot-flag+route-rich guards (reactive route-miss pull)
     void    send_config_pull(uint8_t to, uint16_t lineage, uint16_t epoch);  // R6.2: 1-hop CONFIG_PULL to a heard member
-    void    send_config_answer(uint8_t to);                        // R6.2: routed DATA TYPE 6 carrying OUR leaf config
-    void    adopt_config_answer(const uint8_t* body, size_t len);  // R6.2: adopt a pulled config (cfg + recompute + persist Push)
+    void    send_c_config(uint8_t to);                            // C frame (cmd 0xB): control-plane answer to a CONFIG_PULL carrying OUR leaf config (an empty-sf_list joiner CAN receive it)
+    void    handle_c(const uint8_t* bytes, size_t len, const RxMeta& meta);   // C RX dispatch (cmd 0xB) -> adopt if addressed to us on our leaf
+    void    adopt_c_config(const uint8_t* body, size_t len);      // adopt a pulled config (cfg + recompute + persist Push); lineage from the last-heard beacon
 public:
     bool    leaf_config_write();                                   // R6.3 §4.1: operator config write -> epoch=max_seen+1 + re-advertise (managed only)
 private:
@@ -741,7 +754,6 @@ private:
     void          mark_peer_suspect(uint8_t node_id, uint8_t level, const char* source, uint8_t remote_src = 0);   // set the tier expiry + resort (§P4: remote_src!=0 => gossip-learned: local_only resort + NO advertise-table write; remote_src is also echoed in the event)
     size_t        build_suspect_ext(uint8_t* out, size_t cap);    // §P4: locally-observed suspect/dead peers -> a type-1 or type-2 BCN ext-TLV; 0 = none (dv:1373 build_suspect_nodes_ext)
     void          apply_suspect_gossip(const SuspectEntry* e, uint8_t n, uint8_t bcn_src);   // §P4: a received suspect-TLV -> mark_peer_suspect(remote); skip self + the gossiper (dv:9627)
-    bool     in_discovery() const { return _discovery_mode; }
     void     maybe_exit_discovery(const char* reason);            // :7517
 
     // ---- R3 data plane (MAC: RTS-CTS-DATA-ACK) -----------------------------
@@ -862,6 +874,7 @@ private:
     uint64_t _discovery_started_ms = 0;
     uint64_t _discovery_until_ms = 0;
     uint16_t _discovery_bcn_rx_count = 0;
+    bool     _pending_rediscover = false;     // reprovision verb -> restart discovery at the next join_adopt (id stable)
     bool     _triggered_beacon_pending = false;  // coalesce: gates BEFORE the rand draw
     uint64_t _last_beacon_tx_ms = 0;
     uint64_t _duty_cycle_budget_ms = 0;          // R4.0: floor(duty_cycle*window), derived in on_init; 0 = disabled

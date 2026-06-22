@@ -5,6 +5,8 @@ A node finds and talks on a network using a small **manual floor**: *frequency +
 
 The simple front-door is **three verbs — `join` / `create` / `leave` — that apply LIVE (no reboot).** Inspect anytime with `status`, `cfg`, `whoami`. (These are normal-node verbs; gateways are provisioned differently — see the bottom note.)
 
+> **A freshly-flashed node boots IDLE** — `level_id = 0` means *unconfigured*, so it does **nothing on the air** (no DAD/J, no beacons, no REQ_SYNC) until your first `join`/`create`. Flash, then provision: it never transmits on the wrong default channel in between. `status` reads `unprovisioned` until then.
+
 > `level_id` is the user-facing 1..255 network selector; the on-wire leaf nibble is `level_id & 0x0F` (only 16 distinct leaves on the air, so two `level_id`s with the same low nibble collide — `status` shows `level_id (→nibble N)` so you can spot a clash). Coding rate is a fixed low default (4/5) and isn't an argument — LoRa CRs interoperate.
 
 ## The three verbs

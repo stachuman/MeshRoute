@@ -19,8 +19,8 @@
 // Part of Node (declared in node.h).
 #include "node.h"
 #include "frame_codec.h"
-#include "leaf_config.h"   // R6.2: ConfigAnswer + pack/parse_config_answer
-#include <cmath>           // lround — duty_ppm
+#include "wire.h"          // wire::cmd_byte / Cmd::CFG / flags_of — the C config frame header
+#include "leaf_config.h"   // CConfig + pack/parse_c_config + leaf_config_hash + duty_to_bp/bp_to_duty
 
 namespace MESHROUTE_NS {
 
@@ -54,6 +54,11 @@ void Node::mark_q_responded(uint8_t opcode, uint8_t src, uint8_t dest) {
 // ---- originator (Lua send_req_sync_q dv:8032; NO rand draw) -------------------------------------
 void Node::send_req_sync_q(const char* reason, bool force) {
     (void)reason;                                              // sim-debug log string only (the Lua logs it)
+    // §P0 (mirrors emit_beacon's id-0 guard): an UNPROVISIONED node (id 0) must NEVER REQ_SYNC — its src would be
+    // the reserved sentinel 0, so receivers learn a route to "0" (which then propagates) + schedule a sync-response
+    // addressed to 0. A node REQ_SYNCs only once it has claimed a short id (boot discovery LISTENs + DADs first).
+    // The force path (gw-relay no-route reactive pull) is gateway-only -> always id != 0, so it is unaffected.
+    if (_node_id == 0) return;
     if (!force && !_cfg.req_sync_on_boot) return;
     const uint64_t now = _hal.now();
     if (_last_req_sync_tx_ms != 0 && (now - _last_req_sync_tx_ms) < protocol::req_sync_retry_ms) return;
@@ -117,13 +122,13 @@ void Node::handle_q(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         // every puller, survives the originator leaving). We answer only if WE are a synced member of that lineage.
         if (_cfg.lineage_id != 0 && _cfg.lineage_id == q.pull_lineage &&
             _cfg.config_epoch > 0 && _cfg.config_epoch >= q.pull_epoch)
-            send_config_answer(q.src);
+            send_c_config(q.src);
         return;
     }
     // Any other opcode is unknown -> silent.
 }
 
-// ---- R6.2 CONFIG_PULL / CONFIG_ANSWER ----------------------------------------------------------
+// ---- R6.2 CONFIG_PULL / C config-answer frame --------------------------------------------------
 // 1-hop pull of a leaf's config from a heard member (the joiner/stale node asks directly; needs no F).
 void Node::send_config_pull(uint8_t to, uint16_t lineage, uint16_t epoch) {
     if (to == 0 || to == 0xFF) return;
@@ -141,38 +146,59 @@ void Node::send_config_pull(uint8_t to, uint16_t lineage, uint16_t epoch) {
     tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
 }
 
-// Answer a CONFIG_PULL: routed DATA TYPE 6 carrying OUR leaf config (internal DATA: app_dm=false, never participation-gated).
-void Node::send_config_answer(uint8_t to) {
-    ConfigAnswer ca{};
-    ca.lineage_id = _cfg.lineage_id; ca.config_epoch = _cfg.config_epoch; ca.allowed_sf_bitmap = _cfg.allowed_sf_bitmap;
-    ca.duty_ppm = (_cfg.duty_cycle > 0.0) ? static_cast<uint32_t>(std::lround(_cfg.duty_cycle * 1e6)) : 0u;
-    ca.leaf_name_len = _cfg.leaf_name_len;
-    for (uint8_t i = 0; i < _cfg.leaf_name_len; ++i) ca.leaf_name[i] = _cfg.leaf_name[i];
-    uint8_t body[16 + protocol::leaf_name_max]; const size_t n = pack_config_answer(ca, body, sizeof body);
-    if (n == 0) return;
-    MR_EMIT("config_answer_tx", EF_I("to", to), EF_I("lineage", ca.lineage_id), EF_I("epoch", ca.config_epoch));
-    enqueue_data(to, body, static_cast<uint8_t>(n), 0, "config_answer", /*app_dm=*/false, DATA_TYPE_CONFIG_ANSWER, CryptIntent::off);
+// Answer a CONFIG_PULL with a C control frame on routing_sf (cmd 0xB), 1-hop direct to the puller. UNLIKE the old
+// routed CONFIG_ANSWER (a DATA needing the RTS/CTS handshake + a data SF), a control-plane frame reaches a joiner that
+// has NO data sf_list yet — the whole bootstrap fix. Best-effort: a lost C is re-answered when the puller re-pulls.
+void Node::send_c_config(uint8_t to) {
+    if (to == 0 || to == 0xFF) return;
+    CConfig cc{};
+    cc.allowed_sf_bitmap = _cfg.allowed_sf_bitmap;
+    cc.duty_bp           = duty_to_bp(_cfg.duty_cycle);
+    cc.config_epoch      = _cfg.config_epoch;
+    cc.leaf_name_len     = _cfg.leaf_name_len;
+    for (uint8_t i = 0; i < _cfg.leaf_name_len && i < protocol::leaf_name_max; ++i) cc.leaf_name[i] = _cfg.leaf_name[i];
+    uint8_t frame[3 + 6 + protocol::leaf_name_max];                         // [cmd|leaf][src][dst] + body (sf·duty·epoch·name)
+    frame[0] = wire::cmd_byte(wire::Cmd::CFG, static_cast<uint8_t>(_cfg.leaf_id & 0x0F));
+    frame[1] = _node_id;
+    frame[2] = to;
+    const size_t bn = pack_c_config(cc, frame + 3, sizeof(frame) - 3);
+    if (bn == 0) return;
+    MR_EMIT("c_config_tx", EF_I("to", to), EF_I("epoch", cc.config_epoch));
+    tx_initiating(frame, 3 + bn, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
 }
 
-// Adopt a pulled config (cfg + recompute hash on next beacon + a persist Push for the device). Guards: only our target
-// lineage, and never older than ours.
-void Node::adopt_config_answer(const uint8_t* body, size_t len) {
-    ConfigAnswer ca{};
-    if (!parse_config_answer(body, len, ca)) return;
-    if (_cfg.lineage_id != 0 && ca.lineage_id != _cfg.lineage_id) return;   // not our target lineage
-    if (ca.config_epoch < _cfg.config_epoch) return;                        // not newer -> ignore (same epoch IS adopted: the §4.1 LWW loser)
+// C config frame RX (cmd 0xB): header [cmd|leaf][src][dst]. Adopt only if it's addressed to us on our leaf nibble.
+// An empty-sf_list joiner reaches HERE (control plane) where the old routed CONFIG_ANSWER could never arrive.
+void Node::handle_c(const uint8_t* bytes, size_t len, const RxMeta& meta) {
+    (void)meta;
+    if (len < 3) return;
+    const uint8_t leaf = wire::flags_of(bytes[0]);
+    const uint8_t dst  = bytes[2];
+    if (leaf != _cfg.leaf_id) return;                                      // not our leaf nibble
+    if (_node_id == 0 || dst != _node_id) return;                          // must be addressed to us (we hold an id)
+    adopt_c_config(bytes + 3, len - 3);
+}
+
+// Adopt a pulled config from a C-frame body (cfg + recompute hash on next beacon + a persist Push for the device).
+// lineage_id is NOT on the wire — it's our target, set when we heard the managed beacon that triggered the pull (so we
+// must already have one). Guard: never older than ours; the SAME epoch IS adopted (the §4.1 LWW loser pulls the winner).
+void Node::adopt_c_config(const uint8_t* body, size_t len) {
+    if (_cfg.lineage_id == 0) return;                                      // no target lineage -> nothing to sync to
+    CConfig cc{};
+    if (!parse_c_config(body, len, cc)) return;
+    if (cc.config_epoch < _cfg.config_epoch) return;                       // not newer -> ignore
     // No-change guard is HASH-based (not just bitmap) so a name/duty-only LWW write at the SAME epoch still adopts.
-    const uint16_t incoming_hash = leaf_config_hash(ca.allowed_sf_bitmap, ca.duty_ppm, ca.leaf_name, ca.leaf_name_len);
-    if (_cfg.lineage_id == ca.lineage_id && _cfg.config_epoch == ca.config_epoch && incoming_hash == cfg_config_hash()) return;
-    if (ca.config_epoch > _max_seen_epoch) _max_seen_epoch = ca.config_epoch;   // R6.3: adopting bumps our max-seen
-    _cfg.lineage_id = ca.lineage_id; _cfg.config_epoch = ca.config_epoch;
-    _cfg.allowed_sf_bitmap = ca.allowed_sf_bitmap;
-    _cfg.duty_cycle = static_cast<double>(ca.duty_ppm) / 1e6;
+    const uint16_t incoming_hash = leaf_config_hash(cc.allowed_sf_bitmap, cc.duty_bp, cc.leaf_name, cc.leaf_name_len);
+    if (_cfg.config_epoch == cc.config_epoch && incoming_hash == cfg_config_hash()) return;
+    if (cc.config_epoch > _max_seen_epoch) _max_seen_epoch = cc.config_epoch;   // R6.3: adopting bumps our max-seen
+    _cfg.config_epoch = cc.config_epoch;
+    _cfg.allowed_sf_bitmap = cc.allowed_sf_bitmap;
+    _cfg.duty_cycle = bp_to_duty(cc.duty_bp);
     recompute_duty_budget();                                                // R6.3 §2(b): adopted duty applies live (no reboot)
-    _cfg.leaf_name_len = ca.leaf_name_len;
-    for (uint8_t i = 0; i < ca.leaf_name_len; ++i) _cfg.leaf_name[i] = ca.leaf_name[i];
-    MR_EMIT("leaf_config_adopted", EF_I("lineage", ca.lineage_id), EF_I("epoch", ca.config_epoch),
-            EF_I("sf_bitmap", ca.allowed_sf_bitmap));
+    _cfg.leaf_name_len = cc.leaf_name_len;
+    for (uint8_t i = 0; i < cc.leaf_name_len && i < protocol::leaf_name_max; ++i) _cfg.leaf_name[i] = cc.leaf_name[i];
+    MR_EMIT("leaf_config_adopted", EF_I("lineage", _cfg.lineage_id), EF_I("epoch", cc.config_epoch),
+            EF_I("sf_bitmap", cc.allowed_sf_bitmap));
     schedule_triggered_beacon();                                            // re-advertise the adopted config -> propagate
     Push pu{}; pu.kind = PushKind::config_adopted; enqueue_push(pu);        // device: persist to NV
 }

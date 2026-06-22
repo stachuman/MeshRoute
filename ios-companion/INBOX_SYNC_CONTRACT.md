@@ -313,3 +313,24 @@ leave                                                                           
 
 ### Deferred
 - **Mobile-node roaming** (auto `leave`+`join` between leaves, with hysteresis) — a later phase; the three verbs above are the primitives it builds on.
+
+## ⚙️ Duty-cycle status — companion readout (PROPOSED 2026-06-21, spec `docs/superpowers/specs/2026-06-21-duty-cycle-readout.md`)
+
+How much of the legal airtime budget the node has spent — so the app can show a "transmitting / silent" gauge + a countdown. **0–100 %, where 100 % = the node must stay silent** (budget spent), plus the ms until it can transmit again.
+
+### App → node: request it (on demand — the primary fetch)
+Send the command over the BLE command channel (RXD), exactly like any console line:
+```
+duty
+```
+The node replies on TXD with one JSON line:
+```json
+{"ev":"duty","pct":42,"avail_ms":0,"enabled":true}      // 42% used, headroom (can TX now)
+{"ev":"duty","pct":100,"avail_ms":73000,"enabled":true} // budget spent -> SILENT for ~73 s
+{"ev":"duty","pct":0,"avail_ms":0,"enabled":false}      // duty limit disabled (unlimited)
+```
+- `pct` 0..100 (100 = silent). `avail_ms` = ms until some airtime frees (0 = available now; drives the countdown when `pct`=100). `enabled=false` ⇒ no duty limit configured — show "unlimited"/"—" and ignore `pct`.
+- The value is **live/continuous** (rolling airtime window) — the app **polls `duty`** while a silent-countdown banner is on screen.
+
+### Node → app: in the `ready` snapshot (so the app shows it on connect)
+`ready` also carries `"duty_pct":42` (+ `"duty_avail_ms":0`) — an immediate starting value on connect; the `duty` query above is the live truth to refresh from.

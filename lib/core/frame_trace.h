@@ -13,16 +13,18 @@
 #include <Arduino.h>
 #include <span>
 #include "frame_codec.h"   // parse_rts/cts/data/ack/nack + the *_out structs
+#include "leaf_config.h"   // CConfig + parse_c_config + sf_bitmap_to_wire — the C leaf-config frame trace
 
 namespace MESHROUTE_NS {
 
-// cmd nibble (high 4 bits of byte 0) -> short name. §10: BCN0 RTS1 CTS2 DATA3 ACK4 NACK5 Q6 H7 F8 J9.
+// cmd nibble (high 4 bits of byte 0) -> short name. §10: BCN0 RTS1 CTS2 DATA3 ACK4 NACK5 Q6 H7 F8 J9 Ma Cb.
 inline const char* mr_cmd_name(uint8_t cmd) {
     switch (cmd) {
         case 0x0: return "BCN";  case 0x1: return "RTS";  case 0x2: return "CTS";
         case 0x3: return "DATA"; case 0x4: return "ACK";  case 0x5: return "NACK";
         case 0x6: return "Q";    case 0x7: return "H";    case 0x8: return "F";
-        case 0x9: return "J";    case 0xA: return "M";    default:  return "?";
+        case 0x9: return "J";    case 0xA: return "M";    case 0xB: return "C";
+        default:  return "?";
     }
 }
 
@@ -151,6 +153,18 @@ inline void mr_trace_frame(bool is_rx, const uint8_t* b, size_t n, int sf,
                           case 3: Serial.print(F(" OFFER responder=")); Serial.print(j->responder_node_id);
                                   Serial.print(F(" resp_hash=")); Serial.print(j->responder_key_hash32, HEX); break;
                           default: Serial.print(F(" j_op=")); Serial.print(j->opcode); break;
+                      }
+                  } break;
+        case 0xB: if (n >= 3) {                            // C leaf-config frame: [cmd|leaf][src][dst] + body
+                      Serial.print(F(" leaf=")); Serial.print(static_cast<unsigned>(b[0] & 0x0F));
+                      Serial.print(F(" src="));  Serial.print(static_cast<unsigned>(b[1]));
+                      Serial.print(F(" dst="));  Serial.print(static_cast<unsigned>(b[2]));
+                      CConfig cc;
+                      if (parse_c_config(b + 3, n - 3, cc)) {
+                          Serial.print(F(" sf=")); Serial.print(static_cast<unsigned>(sf_bitmap_to_wire(cc.allowed_sf_bitmap)), HEX);
+                          Serial.print(F(" duty_bp=")); Serial.print(cc.duty_bp);
+                          Serial.print(F(" epoch=")); Serial.print(cc.config_epoch);
+                          Serial.print(F(" name_len=")); Serial.print(static_cast<unsigned>(cc.leaf_name_len));
                       }
                   } break;
         default: break;                                   // unrecognized cmd — just the name + common fields

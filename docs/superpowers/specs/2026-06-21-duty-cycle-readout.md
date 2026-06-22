@@ -11,6 +11,8 @@ Operators (and the iOS companion) need to see how much of the duty-cycle budget 
 - **used** = `_hal.airtime_used_ms(_cfg.duty_cycle_window_ms)` — rolling TX airtime in the window.
 - **recovery** = `_hal.oldest_tx_end_ms() + window − now` — when the oldest TX ages out of the window and frees airtime (the same `wait_ms` `duty_over_budget` returns); fall back to the full window if no oldest.
 
+> **Ledger caveat (verified 2026-06-22, benign):** `used` comes from a fixed **64-entry** airtime ring (`AirtimeLedger`, drop-oldest). At the low duties where the limit actually binds (incl. 0.1% — budget 3.6 s, hit at ~2–36 frames) it's exact; at high duty a node can't sum >64 frames' airtime up to the budget anyway, and the anti-flood TX rate never approaches it. So `used`/`pct` are accurate near 100% (the region that matters) and at worst under-report in the comfortable region. Any fix (bigger ring / dropped-airtime accumulator) is a HAL concern, not the readout's — the readout faithfully surfaces whatever the ledger reports.
+
 ## 2. Node accessor — `duty_status()` (`node.h`, host-testable)
 ```cpp
 struct DutyStatus { uint8_t pct; uint32_t avail_ms; bool enabled; };
