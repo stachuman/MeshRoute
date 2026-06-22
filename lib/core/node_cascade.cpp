@@ -41,6 +41,7 @@ bool Node::next_hop_selectable(const RtCandidate& c, const PendingTx& pt, bool a
     if (pt.has_previous_hop && c.next_hop == pt.previous_hop) return false;   // dv:3992
     if (alt_tried(pt, c.next_hop)) return false;                             // dv:4006
     if (is_blind(c.next_hop)) return false;                                  // F1: skip blind peers (dv:4030)
+    if (route_uses_mobile_as_transit(pt.dst, c.next_hop)) return false;      // ① never relay THROUGH a mobile (belt-and-suspenders if a route turned mobile post-install; dv:4099)
     // NOTE: freshness/liveness is NOT a hard selectability gate (reverted from 4895480 — it false-rejected good
     // next-hops you TX-to-but-rarely-RX-from, dropping sole-but-functional paths: s18 108→98). It lives in the
     // SORT (route_strictly_better viability, node_routing.cpp) — stale loses to fresh but stays pickable if sole.
@@ -116,6 +117,14 @@ void Node::cascade_to_alt(const char* giveup_event) {
 // All candidates exhausted: requeue the flight onto _active->_tx_queue with a pure
 // exponential backoff (held idle until kCascadeRequeueTimerId fires), or — once the
 // requeue-count / total-age caps are hit — a true giveup (dv:6159-6213).
+// ④ load-adaptive back-pressure: effective requeue budget at this TX-queue depth (Lua cascade_load_skip dv:6275-6303).
+// Signed intermediates — uint8_t subtraction would wrap; the Lua uses math.max(0, …).
+int Node::cascade_effective_max(uint8_t queue_depth) {
+    const int load_excess = static_cast<int>(queue_depth) - static_cast<int>(protocol::cascade_requeue_load_threshold);
+    const int eff = static_cast<int>(protocol::cascade_requeue_max) - (load_excess > 0 ? load_excess : 0);
+    return eff > 0 ? eff : 0;
+}
+
 void Node::try_cascade_requeue(const PendingTx& pt, [[maybe_unused]] const char* giveup_event) {
     const uint64_t now = _hal.now();
     const bool count_done = pt.requeue_count >= protocol::cascade_requeue_max;
@@ -124,6 +133,24 @@ void Node::try_cascade_requeue(const PendingTx& pt, [[maybe_unused]] const char*
         MR_TELEMETRY(
             EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
                                { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
+            _hal.emit("path_cascade_exhausted", f, 2);
+            _hal.emit(giveup_event, f, 2); );
+        { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
+        _active->_pending_tx.reset();
+        become_free();
+        return;
+    }
+    // ④ load-adaptive shed: under a backed-up queue the budget shrinks below cascade_requeue_max, so a congested node
+    // sheds cascade-waste instead of requeuing at the fixed budget. Same TERMINAL drop as the hard cap above (so the
+    // analyzers still see path_cascade_exhausted + the giveup) + a cascade_load_skip marker. The kTxQueueCap overflow
+    // above stays the absolute backstop. dv:6275-6303.
+    if (static_cast<int>(pt.requeue_count) + 1 > cascade_effective_max(_active->_tx_queue_n)) {
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "dst",         .type = EventField::T::i64, .i = pt.dst },
+                               { .key = "ctr",         .type = EventField::T::i64, .i = pt.ctr },
+                               { .key = "queue_depth", .type = EventField::T::i64, .i = _active->_tx_queue_n },
+                               { .key = "eff_max",     .type = EventField::T::i64, .i = cascade_effective_max(_active->_tx_queue_n) } };
+            _hal.emit("cascade_load_skip", f, 4);
             _hal.emit("path_cascade_exhausted", f, 2);
             _hal.emit(giveup_event, f, 2); );
         { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }

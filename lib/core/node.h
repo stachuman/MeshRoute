@@ -386,6 +386,10 @@ public:
     // floods; the rest are local refusals (no_identity=R3, too_large=R2, bad_rng=R7, cross_layer=v1 scope).
     enum class SealOutcome  : uint8_t { ok = 0, no_identity, no_pubkey, too_large, bad_rng, cross_layer };
     bool       is_blind(uint8_t next_hop) const;                         // _blind_until active? (read-only; bounded by neighbour count)
+    // ① mobile-as-transit avoidance (Lua dv:1325-1334): learn the is_mobile beacon bit; NEVER relay THROUGH a mobile
+    // peer (it roams away), but DO deliver TO one (the next_hop==dest carve-out). Hard-exclude, not a score penalty.
+    bool       is_mobile_peer(uint8_t id) const;
+    bool       route_uses_mobile_as_transit(uint8_t dest, uint8_t next_hop) const;
     uint8_t    get_neighbor_tier(uint8_t node_id) const;                 // R4.2 tier read (TTL-expiring lazy-prune); public for tests
     void       schedule_triggered_beacon();                             // R4.3 trigger jitter + min-interval defer; public for tests
     int        mark_neighbor_budget_tier(uint8_t node_id, uint8_t tier, const char* source, bool local_only); // :4320; public for tests
@@ -869,6 +873,11 @@ private:
                                  bool allow_uphill) const;        // minimal filter :3990
     void     cascade_to_alt(const char* trigger);                 // on giveup: switch hop or requeue :6456
     void     try_cascade_requeue(const PendingTx& pt, const char* giveup_event);  // exhaustion -> requeue/giveup :6190
+public:
+    // ④ load-adaptive cascade budget (Lua cascade_load_skip dv:6275): the effective requeue budget at a given TX-queue
+    // depth = cascade_requeue_max − max(0, depth − threshold), clamped ≥0. Pure (depth + constants); static for tests.
+    static int cascade_effective_max(uint8_t queue_depth);
+private:
     uint32_t requeue_backoff_ms(uint8_t requeue_count) const;     // pure base*2^(n-1) capped :6209
     uint8_t  effective_rts_max_retries(uint8_t requeue_count) const;  // max(0, max-requeue_count) :3119
     void     defer_send(const TxItem& item);                      // no route yet -> hold (originator) :5545
@@ -1063,6 +1072,10 @@ private:
         // — decoupled from the bounded _peer_liveness table so seen-bitmap gossip can keep ANY peer fresh (the
         // create=false piggyback starved gossip-only peers). is_next_hop_fresh reads this. 0 = never seen.
         uint64_t      _dest_seen_ms[256] = {};
+        // ① mobile-peer set (Lua mobile_peers@1325): 1 bit per node_id, SET-only (is_mobile is a static per-node config,
+        // never flips at runtime — Lua dv:9603-9604 sets, never clears). Eviction-free (unlike _peer_liveness) so a
+        // gossip-only mobile is still avoided. 256 bits = 32 B/layer. Read by is_mobile_peer.
+        uint8_t       _mobile_peer[32] = {};
         // Channel-message gossip plane state (node_channel.cpp).
         ChannelEntry _channel_buffer[protocol::cap_channel_buffer];
         uint16_t     _channel_buffer_n = 0;

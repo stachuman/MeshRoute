@@ -228,6 +228,15 @@ int Node::mark_neighbor_budget_tier(uint8_t node_id, uint8_t tier, const char* s
 }
 
 Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand) {
+    // ① never STORE a route that relays THROUGH a mobile peer (it roams away) — but deliver TO a mobile is fine
+    // (the next_hop==dest carve-out inside the predicate). Hard skip, NOT a score penalty (Lua dv:4583).
+    if (route_uses_mobile_as_transit(dest, cand.next_hop)) {
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "dest", .type = EventField::T::i64, .i = dest },
+                               { .key = "next", .type = EventField::T::i64, .i = cand.next_hop } };
+            _hal.emit("rt_skip_mobile_transit", f, 2); );
+        return MergeAction::none;
+    }
     RtEntry* entry = rt_find(dest);
     const bool gw_dest = is_gateway_dest(dest);          // §cross-layer: a gateway-dest route is freshness-exempt
     if (entry == nullptr) {
@@ -501,6 +510,16 @@ bool Node::is_next_hop_fresh(uint8_t node_id) const {
     const uint64_t seen = _active->_dest_seen_ms[node_id]; // dedicated freshness map (full range, survives PeerLiveness LRU eviction)
     if (seen == 0) return false;                           // never heard -> not fresh
     return (_hal.now() - seen) <= protocol::next_hop_live_ttl_ms;
+}
+
+// ① mobile-as-transit avoidance (Lua dv:1325-1334). is_mobile_peer reads the per-layer SET-only bitset.
+bool Node::is_mobile_peer(uint8_t id) const {
+    return (_active->_mobile_peer[id >> 3] >> (id & 7)) & 1u;
+}
+// True iff routing to `dest` via `next_hop` would relay THROUGH a mobile peer. The next_hop != dest carve-out is the
+// whole point: deliver TO a mobile (it's the dest) is fine; relaying THROUGH one (it'll roam away) is not. (dv:1329-1334)
+bool Node::route_uses_mobile_as_transit(uint8_t dest, uint8_t next_hop) const {
+    return next_hop != 0 && dest != 0 && next_hop != dest && is_mobile_peer(next_hop);
 }
 
 }  // namespace meshroute

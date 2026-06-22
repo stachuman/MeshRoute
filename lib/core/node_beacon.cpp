@@ -560,6 +560,7 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // promote/primary_refresh counts as a change (re-beacon) — the carried-DV merge below omits
     // primary_refresh (matches the Lua entry loop :9656).
     if (learn_direct_neighbor(b.src, meta_snr_q4, b.self_gateway)) rt_changed = true;
+    if (b.is_mobile) _active->_mobile_peer[b.src >> 3] |= static_cast<uint8_t>(1u << (b.src & 7));   // ① learn mobility (SET-only, dv:9603-9604) -> avoid as transit
 
     // DV merge: each carried entry is a route via the sender (dv_dual_sf.lua:9620-9678).
     for (uint8_t i = 0; i < b.n_entries; ++i) {

@@ -162,7 +162,11 @@ inline constexpr uint8_t  cascade_requeue_max            = 3;
 inline constexpr uint16_t cascade_requeue_base_ms        = 5000;
 inline constexpr uint16_t cascade_requeue_backoff_cap_ms = 30000;
 inline constexpr uint32_t cascade_requeue_total_max_ms   = 60000;
-inline constexpr uint8_t  cascade_requeue_load_threshold = 0;
+// ④ load-adaptive cascade back-pressure: the TX-queue depth at/below which the FULL cascade_requeue_max budget holds;
+// above it the budget shrinks 1:1 with depth (cascade_effective_max). TUNED UP from the Lua's maximally-aggressive 0
+// (gate-calibrated 2026-06-22 via the {1,2,3} sweep — lowest non-regressing on s16/s18). With kTxQueueCap=8 +
+// cascade_requeue_max=3, threshold 2 keeps full budget through depth 2, shrinks at 3, fully gates at depth 5.
+inline constexpr uint8_t  cascade_requeue_load_threshold = 2;
 
 // ---- Q frames --------------------------------------------------------------
 inline constexpr uint16_t q_query_ttl_ms   = 5000;

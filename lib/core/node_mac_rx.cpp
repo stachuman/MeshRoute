@@ -42,6 +42,30 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                      static_cast<uint32_t>(airtime_routing_ms(static_cast<int>(len))));
     // Learn the RTS sender as a 1-hop neighbour — any RTS, overheard or addressed (Lua learn_rx_source).
     if (learn_direct_neighbor(r.src, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
+    // ② implicit-ACK from an overheard forward-RTS (Lua dv:9863-9893): if we have a flight in progress and overhear
+    // OUR next-hop forwarding the SAME DATA onward (its relay RTS), the hop decoded -> cancel our pending timeout
+    // instead of waiting out the ACK timer + firing a redundant retry that collides with its downstream DATA. Match
+    // next/dst/ctr_lo (strong) + payload_len (disambiguates a 4-bit ctr_lo wrap). payload_len is the end-to-end
+    // inner+MAC length (forwarded unchanged across hops) so it equals what our pending DATA implies (the same
+    // rin.payload_len = inner_len + data_mac_len(flags) we packed at node_mac.cpp:558).
+    if (_active->_pending_tx
+        && r.src     == _active->_pending_tx->next
+        && r.dst     == _active->_pending_tx->dst
+        && r.ctr_lo  == _active->_pending_tx->ctr_lo
+        && r.payload_len == static_cast<uint8_t>(_active->_pending_tx->inner_len + data_mac_len(_active->_pending_tx->flags))) {
+        _hal.cancel(kRtsTimeoutTimerId);
+        _hal.cancel(kAckTimeoutTimerId);
+        _hal.cancel(kRetryBackoffTimerId);                 // parity with handle_ack: drop a stale retry armed by a just-fired timeout
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "from",         .type = EventField::T::i64, .i = r.src },
+                               { .key = "dst",          .type = EventField::T::i64, .i = _active->_pending_tx->dst },
+                               { .key = "ctr_lo",       .type = EventField::T::i64, .i = r.ctr_lo },
+                               { .key = "forward_next", .type = EventField::T::i64, .i = r.next } };
+            _hal.emit("implicit_ack_from_forward", f, 4); );
+        _active->_pending_tx.reset();
+        become_free();
+        return;
+    }
     // No data SF configured (empty sf_list) -> this node is data-incapable: it can't pick a DATA SF, so it does
     // NOT CTS / retune / arm NAV (no silent fallback). The sender's DM just fails — fail loud. Control plane
     // (neighbour-learn above, beacons, routing) still runs; only data participation is refused.

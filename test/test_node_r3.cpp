@@ -1332,6 +1332,73 @@ TEST_CASE("duty_status — pct/avail/enabled surface the rolling-window budget")
     delete off;
 }
 
+TEST_CASE("① mobile-as-transit — learn is_mobile, exclude as transit, allow as dest (dv:1325-1334)") {
+    TestHal hal;
+    Node* node = mk_budget_node(hal, /*duty=*/0.0, /*window=*/3600000);   // id=1, leaf 0
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    CHECK_FALSE(node->is_mobile_peer(5));
+    // a MOBILE neighbour 5 beacons, carrying a route to dest 9 (=> a 9-via-5 candidate at our node)
+    beacon_entry e{}; e.dest = 9; e.next = 7; e.score_bucket = 12; e.hops = 2;
+    beacon_in in{}; in.leaf_id = 0; in.src = 5; in.key_hash32 = 0x2005; in.is_mobile = true;
+    in.entries = std::span<const beacon_entry>(&e, 1);
+    std::array<uint8_t, 64> bb{}; size_t bn = pack_beacon(in, std::span<uint8_t>(bb.data(), bb.size()));
+    node->on_recv(bb.data(), bn, meta);
+
+    CHECK(node->is_mobile_peer(5));                          // learned the bit
+    CHECK(node->route_uses_mobile_as_transit(9, 5));         // dest 9 via mobile 5 = transit -> excluded
+    CHECK_FALSE(node->route_uses_mobile_as_transit(5, 5));   // 5 IS the dest -> deliver TO a mobile is fine
+    CHECK_FALSE(node->route_uses_mobile_as_transit(9, 3));   // 3 not mobile -> fine
+    CHECK_FALSE(node->route_uses_mobile_as_transit(9, 0));   // next 0 -> not a transit
+
+    auto has = [&](uint8_t d){ for (uint8_t i = 0; i < node->rt_count(); ++i) if (node->rt_at(i).dest == d) return true; return false; };
+    CHECK_FALSE(has(9));                                     // rt_merge SKIPPED the 9-via-mobile-5 candidate (dv:4583)
+    CHECK(has(5));                                           // but 5 itself is reachable (direct neighbour; next==dest)
+    CHECK(hal.count("rt_skip_mobile_transit") >= 1);
+    delete node;
+}
+
+TEST_CASE("② implicit-ACK — overhearing the next-hop forward our DATA cancels the pending flight (dv:9863)") {
+    TestHal hal;
+    Node* node = mk_sender_with_routes(hal, {{2,1,14},{3,2,14}});   // dest 5 via 2 (primary) + 3 (alt)
+    send_cmd(*node, 5, "hi");                                       // RTS to via 2
+    // capture our in-flight RTS's ctr_lo + payload_len (== inner_len + MAC — what a forward must match)
+    uint8_t our_ctr_lo = 0, our_plen = 0; bool got = false;
+    for (auto& f : hal.tx_frames) { auto pr = parse_rts(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+        if (pr && pr->src == 1) { our_ctr_lo = pr->ctr_lo; our_plen = pr->payload_len; got = true; } }
+    CHECK(got);
+    RxMeta m2{12.0f, -70.0f, 0, static_cast<int8_t>(2)};
+    std::array<uint8_t, 8> cb{}; const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/2, /*data_sf=*/7, cb);
+    node->on_recv(cb.data(), cn, m2);
+    node->on_timer(kCtsToDataGapTimerId);                          // -> DATA tx (awaiting_ack)
+    CHECK(node->has_pending_tx());
+
+    // (1) a NON-matching overheard forward (wrong ctr_lo) does NOT cancel
+    std::array<uint8_t, 16> nb{}; const size_t nn = mk_rts(/*src=*/2, /*next=*/9, /*dst=*/5, static_cast<uint8_t>(our_ctr_lo ^ 0x0F), our_plen, nb);
+    node->on_recv(nb.data(), nn, m2);
+    CHECK(hal.count("implicit_ack_from_forward") == 0);
+    CHECK(node->has_pending_tx());                                 // flight survives a non-match
+
+    // (2) the MATCHING forward (next-hop 2 forwarding OUR ctr_lo/len to dst 5, on to 9) = implicit ACK
+    const int rts_before = hal.count("rts_tx");
+    std::array<uint8_t, 16> fb{}; const size_t fn = mk_rts(/*src=*/2, /*next=*/9, /*dst=*/5, our_ctr_lo, our_plen, fb);
+    node->on_recv(fb.data(), fn, m2);
+    CHECK(hal.count("implicit_ack_from_forward") == 1);
+    CHECK_FALSE(node->has_pending_tx());                           // flight cleared
+    node->on_timer(kAckTimeoutTimerId);                           // the ACK timer was cancelled -> NO redundant retry
+    CHECK(hal.count("rts_tx") == rts_before);
+    delete node;
+}
+
+TEST_CASE("④ cascade_effective_max — full budget at/below threshold, shrinks 1:1 above, int-clamp no wrap (dv:6275)") {
+    const int thr = protocol::cascade_requeue_load_threshold;
+    const int mx  = protocol::cascade_requeue_max;
+    CHECK(Node::cascade_effective_max(0) == mx);                       // empty queue -> full budget
+    CHECK(Node::cascade_effective_max(static_cast<uint8_t>(thr)) == mx);   // at threshold -> still full
+    CHECK(Node::cascade_effective_max(static_cast<uint8_t>(thr + 1)) == (mx - 1 > 0 ? mx - 1 : 0));   // one over -> shrink 1
+    CHECK(Node::cascade_effective_max(static_cast<uint8_t>(thr + mx)) == 0);   // budget fully gated
+    CHECK(Node::cascade_effective_max(255) == 0);                      // deep backlog -> 0, NO uint8 underflow wrap
+}
+
 TEST_CASE("R4.0 budget tier — thresholds 50/80/95 + disabled = HEALTHY (Lua dv:3560-3571)") {
     using BT = Node::BudgetTier;
     TestHal hal;
