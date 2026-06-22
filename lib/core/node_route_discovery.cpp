@@ -175,6 +175,17 @@ void Node::handle_f(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
     } else {                                               // ----------------- RREP -----------------
         if (f.ttl_or_next_hop != _node_id) return;         // unicast: only the addressed next-hop acts
+        // Loop/over-cap backstop: unlike the RREQ (TTL-bounded + rreq_seen-deduped), the unicast RREP relay had NO
+        // bound. An inconsistent reverse path (A->origin via B, B->origin via A — e.g. after a link drop the routes
+        // disagree) ping-pongs the reply forever, `hops` climbing unbounded (observed 90+ on metal -> an F storm).
+        // f.hops accumulates the answerer's distance-to-dst (<= dv_hop_cap, a cached route) PLUS the reverse hops back
+        // to origin (<= dv_hop_cap, the RREQ TTL), so a VALID reply can legitimately reach ~2x dv_hop_cap (far-cacher
+        // long-alt routes — seen in s18). Only beyond that is it necessarily a loop -> drop. (A tighter, hop-independent
+        // bound needs an RREP dedup; this is just the unbounded-loop safety net — the user's metal loop hit 90+.)
+        if (f.hops > static_cast<uint8_t>(2 * _cfg.dv_hop_cap)) {
+            MR_EMIT("rrep_drop_hop_cap", EF_I("origin", f.origin), EF_I("dst", f.dst_id), EF_I("hops", f.hops));
+            return;
+        }
         MR_TELEMETRY(
             EventField f2[] = { { .key = "origin", .type = EventField::T::i64, .i = f.origin },
                                 { .key = "dst",    .type = EventField::T::i64, .i = f.dst_id },
@@ -185,6 +196,16 @@ void Node::handle_f(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             MR_TELEMETRY(
                 EventField ev[] = { { .key = "dst", .type = EventField::T::i64, .i = f.dst_id } };
                 _hal.emit("rrep_arrived", ev, 1); );       // the armed 1s deferred-send drain flies the send
+            return;
+        }
+        // Loop-breaker (the real cure; the hop-cap above is the backstop for longer cycles): if our reverse route to
+        // the origin points BACK at `prev` — the node we just received this reply from — relaying bounces it straight
+        // back = a 2-node ping-pong (the inconsistent-route loop after a link drop). A LEGITIMATE relay never has
+        // next-hop == prev (that would mean the path to the origin runs back toward the dst), so this drops only loops
+        // — no false positives, unlike a by-hops dedup which can't tell a long alt-path reply from a loop.
+        RtEntry* rev = rt_find(f.origin);
+        if (rev != nullptr && rev->n > 0 && rev->candidates[0].next_hop == prev) {
+            MR_EMIT("rrep_drop_loopback", EF_I("origin", f.origin), EF_I("dst", f.dst_id), EF_I("via", prev));
             return;
         }
         send_route_reply(f.origin, f.dst_id, static_cast<uint8_t>(f.hops + 1));        // relay onward

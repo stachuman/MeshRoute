@@ -116,6 +116,36 @@ static uint8_t  g_persist_id = 0, g_persist_epoch = 0, g_persist_join = 0;   // 
 
 // ---- device-console diagnostics (host tool: tools/meshroute_client.py) ---------------------------
 // Print the live routing table in the meshroute_client `routes` wire format.
+// `route add <dest> <next_hop> <hops> [score_q4]` / `route del <dest>` — manually force / drop a route. A TESTING lever
+// to stress the routing algorithms with arbitrary or deliberately-inconsistent routes. `score_q4` is the same Q4-dB
+// value the `routes` dump shows; rt_merge competes the injected candidate like any learned one (high score -> primary).
+static void handle_route_cmd(const char* args) {
+    while (*args == ' ') ++args;
+    char* e;
+    if (!strncmp(args, "add", 3) && (args[3] == ' ' || args[3] == '\0')) {
+        const char* p = args + 3;
+        const long dest = strtol(p, &e, 10); const bool d1 = (e != p); p = e;
+        const long next = strtol(p, &e, 10); const bool d2 = (e != p); p = e;
+        const long hops = strtol(p, &e, 10); const bool d3 = (e != p); p = e;
+        long score = strtol(p, &e, 10); if (e == p) score = 160;          // optional; default ~10 dB (Q4) = a sticky primary
+        if (d1 && d2 && d3 && dest >= 1 && dest <= 254 && next >= 1 && next <= 254 && hops >= 1 && hops <= 255) {
+            const bool ok = g_node.route_inject((uint8_t)dest, (uint8_t)next, (uint8_t)hops, (int16_t)score);
+            Serial.print(F("> route add dest=")); Serial.print(dest); Serial.print(F(" via=")); Serial.print(next);
+            Serial.print(F(" hops="));            Serial.print(hops); Serial.print(F(" score=")); Serial.print(score);
+            Serial.println(ok ? F(" — installed (see `routes`)") : F(" — REJECTED (better candidates hold the slots)"));
+            return;
+        }
+    } else if (!strncmp(args, "del", 3) && (args[3] == ' ' || args[3] == '\0')) {
+        const long dest = strtol(args + 3, &e, 10);
+        if (e != args + 3 && dest >= 1 && dest <= 254) {
+            const bool ok = g_node.route_remove((uint8_t)dest);
+            Serial.print(F("> route del dest=")); Serial.print(dest); Serial.println(ok ? F(" — removed") : F(" — not found"));
+            return;
+        }
+    }
+    Serial.println(F("> route err usage: route add <dest> <next_hop> <hops> [score_q4] | route del <dest>"));
+}
+
 static void dump_routes() {
     const uint64_t now = g_hal.now();
     Serial.print(F("[routes] n=")); Serial.println(g_node.rt_count());
@@ -126,6 +156,7 @@ static void dump_routes() {
         Serial.print(F(" next="));          Serial.print(c.next_hop);
         Serial.print(F(" hops="));          Serial.print(c.hops);
         Serial.print(F(" score="));         Serial.print(c.score);
+        Serial.print(F(" pen="));           Serial.print(g_node.peer_penalty_q4(c.next_hop));   // liveness penalty on this next-hop (effective = score - pen)
         Serial.print(F(" gw="));            Serial.print(c.is_gateway ? 1 : 0);
         Serial.print(F(" layer="));         Serial.print(c.learned_layer_id);
         Serial.print(F(" age_ms="));        Serial.print((uint32_t)(now - c.last_seen_ms));
@@ -235,6 +266,16 @@ static void dump_status() {
     Serial.print(F(" batt_raw="));           Serial.print(braw);
     Serial.print(F(" batt_mv="));            Serial.print((int)((braw * ADC_MULTIPLIER * AREF_VOLTAGE) / 4.096f));
 #endif
+    Serial.println();
+}
+
+// `duty` — duty-cycle consumption readout: 0..100% of the rolling-window budget (100 = the node must stay silent),
+// + when at 100% how long until airtime ages back in. `disabled` when there is no duty limit.
+static void dump_duty() {
+    const auto d = g_node.duty_status();
+    if (!d.enabled) { Serial.println(F("[duty] disabled (no duty limit)")); return; }
+    Serial.print(F("[duty] ")); Serial.print(d.pct); Serial.print('%');
+    if (d.pct >= 100) { Serial.print(F(" — SILENT, ~")); Serial.print((d.avail_ms + 500) / 1000); Serial.print(F(" s to availability")); }
     Serial.println();
 }
 
@@ -896,7 +937,8 @@ static void dump_help() {
     Serial.println(F("[help] e2e keys:   peerkey <ed_pub hex64> (install a scanned/QR pubkey = pinned) | reqpubkey <hash> (request a peer's key on-air)"));
     Serial.println(F("[help] hash/id:    whoami | lookup <hash> | hashof <id> | resolve <hash> [hard]"));
     Serial.println(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
-    Serial.println(F("[help] diag:       routes | status | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
+    Serial.println(F("[help] diag:       routes | status | duty | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
+    Serial.println(F("[help] test:       route add <dest> <next_hop> <hops> [score_q4] | route del <dest>   (force/drop a route to stress routing)"));
     Serial.println(F("[help] reset:      factory_reset confirm   (WIPE all flash — config + identity + peers + inbox — and reboot to factory)"));
     Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack   (bool keys take on|off; identity via regen)"));
     Serial.println(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
@@ -967,7 +1009,9 @@ static void handle_mark_read(const char* args, JsonSink sink) {
 static bool service_debug(const char* line, size_t len) {
     if ((len == 4 && !strncmp(line, "help", 4)) || (len == 1 && line[0] == '?')) { dump_help(); return true; }
     if (len == 6 && !strncmp(line, "routes", 6))   { dump_routes(); return true; }
+    if (len > 6 && !strncmp(line, "route ", 6))     { handle_route_cmd(line + 6); return true; }   // manual route inject/del (testing)
     if (len == 6 && !strncmp(line, "status", 6))   { dump_status(); return true; }
+    if (len == 4 && !strncmp(line, "duty", 4))     { dump_duty();   return true; }
     if (len == 6 && !strncmp(line, "reboot", 6))   { do_reboot();   return true; }
     if ((len == 13 || (len > 13 && line[13] == ' ')) && !strncmp(line, "factory_reset", 13)) { handle_factory_reset(line + 13, len - 13); return true; }
     if (len == 5 && !strncmp(line, "regen", 5))    { do_regen();    return true; }
@@ -1099,8 +1143,18 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     if (len == 6 && !strncmp(line, "whoami", 6)) {
         mrnv::IdBlob idb{}; mrnv::load_id(idb);              // the /mrid name (no RAM copy kept; whoami is rare)
         const size_t nl = (idb.name_len <= sizeof idb.name) ? idb.name_len : 0;
-        return write_ready(out, cap, g_node.node_id(), g_node.key_hash32(), g_node.config(), "existing",
-                           g_node.inbox().storage_epoch(), g_hal.now(), idb.name, nl, g_identity.ed_pub);   // §4: export pubkey for the QR `p`
+        const auto ds = g_node.duty_status();               // duty snapshot in the ready object (app shows it on connect)
+        // ready carries the 64-hex pubkey + the duty snapshot -> ~280 B, over the 256-B `out`; stream via the big
+        // scratch like status/cfg (return 0 = no buffered single-line ack).
+        const size_t m = write_ready(s_inbox_jb, sizeof s_inbox_jb, g_node.node_id(), g_node.key_hash32(), g_node.config(),
+                                     "existing", g_node.inbox().storage_epoch(), g_hal.now(), idb.name, nl,
+                                     g_identity.ed_pub, ds.pct, ds.avail_ms);   // §4: export pubkey for the QR `p`
+        if (m) ble_sink(s_inbox_jb, m);
+        return 0;
+    }
+    if (len == 4 && !strncmp(line, "duty", 4)) {            // companion polls this for the silent-countdown banner
+        const auto ds = g_node.duty_status();
+        return write_duty(out, cap, ds.pct, ds.avail_ms, ds.enabled);
     }
     // status/cfg/routes stream via the big s_inbox_jb scratch (NOT the 256-B `out`): an enriched status
     // is ~260 B and a gateway's status/cfg (with the layers[] array) reaches ~680 B — both overflow a

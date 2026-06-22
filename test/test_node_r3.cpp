@@ -49,7 +49,8 @@ public:
     uint64_t channel_busy_until() override { return _channel_busy_until; }
     uint64_t _airtime_used = 0;   // R4.0: scriptable rolling-window airtime for compute_budget_tier
     uint64_t airtime_used_ms(uint64_t) override { return _airtime_used; }
-    uint64_t oldest_tx_end_ms() override { return 0; }
+    uint64_t _oldest_tx_end = 0;  // scriptable oldest in-window TX-end (duty_status recovery calc)
+    uint64_t oldest_tx_end_ms() override { return _oldest_tx_end; }
     uint64_t now() override { return _now; }
     bool     after(uint32_t, uint32_t) override { return true; }
     void     cancel(uint32_t) override {}
@@ -880,7 +881,7 @@ TEST_CASE("§P0 — a beacon ROUTE-ENTRY with dest==0 is rejected (never a route
 
 // =============================================================================
 // Phase 1 (routing-liveness port) — local liveness STATE. RTS/ACK-timeout
-// giveups accumulate into suspect(2)/silent(3)/dead(6-over-15min) tiers; a frame
+// giveups accumulate into suspect(1)/silent(3)/dead(6-over-15min) tiers; a frame
 // heard from a peer clears it; dest_seen drives is_next_hop_fresh. DETECTION
 // ONLY — not yet applied to routing (Phase 2). (state-only + new telemetry.)
 // =============================================================================
@@ -889,8 +890,8 @@ TEST_CASE("§P1 peer-liveness STATE — timeout tiers (suspect/silent/dead) + cl
     NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
     hal._now = 1000;
     CHECK(node.peer_suspect_level(9) == 0);                              // unknown -> healthy
-    node.record_peer_rts_timeout(9, 0); CHECK(node.peer_suspect_level(9) == 0);   // 1 timeout: not yet
-    node.record_peer_rts_timeout(9, 0); CHECK(node.peer_suspect_level(9) == 1);   // 2 -> SUSPECT
+    node.record_peer_rts_timeout(9, 0); CHECK(node.peer_suspect_level(9) == 1);   // 1 timeout -> SUSPECT (a full RTS-giveup is enough evidence to deprioritise)
+    node.record_peer_rts_timeout(9, 0); CHECK(node.peer_suspect_level(9) == 1);   // 2 -> still SUSPECT (SILENT only at 3)
     node.record_peer_rts_timeout(9, 0); CHECK(node.peer_suspect_level(9) == 2);   // 3 -> SILENT
     node.clear_peer_suspect(9, "rx_frame"); CHECK(node.peer_suspect_level(9) == 0);   // heard from 9 -> cleared
     for (int i = 0; i < 6; ++i) node.record_peer_rts_timeout(9, 0);      // 6 timeouts, all at t=1000 -> evidence window NOT elapsed
@@ -1306,6 +1307,29 @@ static Node* mk_budget_node(TestHal& hal, double duty_cycle, uint32_t window_ms)
     cfg.duty_cycle = duty_cycle; cfg.duty_cycle_window_ms = window_ms;
     node->on_init(cfg);
     return node;
+}
+
+TEST_CASE("duty_status — pct/avail/enabled surface the rolling-window budget") {
+    TestHal hal;
+    Node* node = mk_budget_node(hal, /*duty=*/0.10, /*window=*/3600000);   // budget = 360,000 ms
+    hal._airtime_used = 0;                                                 // 0% -> headroom
+    auto d0 = node->duty_status();
+    CHECK(d0.enabled); CHECK(d0.pct == 0); CHECK(d0.avail_ms == 0);
+    hal._airtime_used = 180000;                                           // half budget -> 50%, still headroom
+    auto d50 = node->duty_status();
+    CHECK(d50.pct == 50); CHECK(d50.avail_ms == 0);
+    hal._airtime_used = 360000; hal._oldest_tx_end = 0; hal._now = 0;     // at budget -> 100% (silent)
+    auto d100 = node->duty_status();
+    CHECK(d100.pct == 100); CHECK(d100.avail_ms > 0);                     // oldest=0 -> full-window fallback
+    hal._airtime_used = 400000; hal._oldest_tx_end = 1000; hal._now = 600000;   // recovery = oldest + window - now
+    auto dr = node->duty_status();
+    CHECK(dr.pct == 100); CHECK(dr.avail_ms == (1000u + 3600000u - 600000u));
+    delete node;
+    TestHal hal2; Node* off = mk_budget_node(hal2, /*duty=*/0.0, /*window=*/3600000);   // duty<=0 -> disabled (no limit)
+    hal2._airtime_used = 9999999;
+    auto doff = off->duty_status();
+    CHECK_FALSE(doff.enabled); CHECK(doff.pct == 0); CHECK(doff.avail_ms == 0);
+    delete off;
 }
 
 TEST_CASE("R4.0 budget tier — thresholds 50/80/95 + disabled = HEALTHY (Lua dv:3560-3571)") {

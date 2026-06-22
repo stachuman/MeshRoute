@@ -730,6 +730,24 @@ int Node::retry_slot_of(FrameTag tag) {
                    default: return -1; }                            // rts/beacon NOT retry-eligible
 }
 
+// Duty-cycle consumption readout (console `duty` + companion). Pure: surfaces the SAME budget/used/recovery
+// duty_over_budget uses, without a hypothetical frame ("where am I NOW", not the pre-TX check). 100% = silent.
+Node::DutyStatus Node::duty_status() const {
+    if (_duty_cycle_budget_ms == 0) return DutyStatus{0, 0, false};   // duty_cycle <= 0 -> no limit (unlimited)
+    const uint64_t used = _hal.airtime_used_ms(_cfg.duty_cycle_window_ms);
+    const uint8_t  pct  = (used >= _duty_cycle_budget_ms) ? 100
+                          : static_cast<uint8_t>(used * 100 / _duty_cycle_budget_ms);
+    uint32_t avail = 0;
+    if (pct >= 100) {                                                 // over budget -> when the oldest TX ages out of the window
+        const uint64_t oldest = _hal.oldest_tx_end_ms();
+        const uint64_t now    = _hal.now();
+        avail = (oldest > 0 && oldest + _cfg.duty_cycle_window_ms > now)
+                ? static_cast<uint32_t>(oldest + _cfg.duty_cycle_window_ms - now)
+                : static_cast<uint32_t>(_cfg.duty_cycle_window_ms);
+    }
+    return DutyStatus{pct, avail, true};
+}
+
 // check_duty_cycle (Lua dv:3573-3593): true if a `len`-byte TX at `sf` would breach the duty budget; *wait_ms = the
 // earliest moment a fresh TX could fit (oldest in-window entry ages out), floored to 1. Disabled (budget 0) -> false.
 // Pure airtime/timestamp arithmetic — NO rand. Used by tx_with_retry (#2 duty pre-check, retry-eligible frames only).

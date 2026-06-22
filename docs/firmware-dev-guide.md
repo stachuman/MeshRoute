@@ -158,4 +158,8 @@ pio debug -e xiao_sx1262                                         # SWD (needs a 
 pio run -e xiao_sx1262 -t upload                                 # nrfutil (double-tap reset)
 #   or drag .pio/build/xiao_sx1262/firmware.uf2 onto the XIAO drive
 #   or manual DFU: adafruit-nrfutil dfu serial -p <PORT> -b 115200 --singlebank -pkg .pio/build/xiao_sx1262/firmware.zip
+
+pio run -e xiao_sx1262 -t upload --upload-port /dev/tty...
+pio run -e xiao_sx1262 -t upload -t nobuild --upload-port /dev/tty
+
 ```

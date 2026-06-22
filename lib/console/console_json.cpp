@@ -213,7 +213,8 @@ static void write_layers_array(JsonBuf& j, const NodeConfig& c) {
     j.ch(']');
 }
 size_t write_ready(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* mode,
-                   uint32_t inbox_epoch, uint64_t now_ms, const char* name, size_t name_len, const uint8_t* ed_pub) {
+                   uint32_t inbox_epoch, uint64_t now_ms, const char* name, size_t name_len, const uint8_t* ed_pub,
+                   uint8_t duty_pct, uint32_t duty_avail_ms) {
     JsonBuf j(buf, cap);
     j.lit("{\"ev\":\"ready\",\"id\":"); j.u32(id);
     j.lit(",\"key\":"); key_hex32(j, key);
@@ -235,7 +236,18 @@ size_t write_ready(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeCo
     j.lit(",\"routing_sf\":"); j.u32(c.routing_sf);
     j.lit(",\"inbox_epoch\":"); j.u32(inbox_epoch);   // Phase-3: bumps on any store wipe -> app re-pulls from 0
     j.lit(",\"now_ms\":"); j.i64(static_cast<int64_t>(now_ms));  // node uptime at emit: the app's rx_ms->wall-clock anchor (no RTC)
+    j.lit(",\"duty_pct\":"); j.u32(duty_pct);          // duty readout snapshot (refresh via the `duty` query); 100 -> the node is silent
+    j.lit(",\"duty_avail_ms\":"); j.u32(duty_avail_ms);// ms until airtime ages back in (drives the app's silent-countdown banner)
     write_layers_array(j, c);                         // dual-layer gateway: additive "layers":[...] (omitted when n_layers==1)
+    j.ch('}');
+    return j.finish();
+}
+
+size_t write_duty(char* buf, size_t cap, uint8_t pct, uint32_t avail_ms, bool enabled) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"duty\",\"pct\":"); j.u32(pct);
+    j.lit(",\"avail_ms\":"); j.u32(avail_ms);
+    j.lit(",\"enabled\":"); j.lit(enabled ? "true" : "false");
     j.ch('}');
     return j.finish();
 }

@@ -438,6 +438,23 @@ public:
     void restart_discovery();    // re-enter discovery (fast beacon cadence + REQ_SYNC pull) to rebuild routes
     uint8_t           rt_count()       const { return _active->_rt_count; }
     const RtEntry&    rt_at(uint8_t i) const { return _active->_rt[i]; }   // 0..rt_count()-1; candidates[0] is the primary
+    // Console testing aid: manually force / drop a route, to stress the routing algorithms with arbitrary or
+    // inconsistent routes. route_inject returns true if the candidate took (rt_merge can reject if better candidates
+    // already hold the K slots). route_remove drops a dest's whole entry.
+    bool route_inject(uint8_t dest, uint8_t next_hop, uint8_t hops, int16_t score_q4) {
+        RtCandidate c{}; c.next_hop = next_hop; c.hops = hops; c.score = score_q4;
+        c.last_seen_ms = _hal.now(); c.learned_layer_id = _cfg.leaf_id;
+        rt_merge(dest, c);
+        const RtEntry* e = rt_find(dest);
+        if (e) for (uint8_t i = 0; i < e->n; ++i) if (e->candidates[i].next_hop == next_hop) return true;
+        return false;
+    }
+    bool route_remove(uint8_t dest) {
+        for (uint8_t i = 0; i < _active->_rt_count; ++i)
+            if (_active->_rt[i].dest == dest) { rt_remove(i); return true; }
+        return false;
+    }
+    int16_t peer_penalty_q4(uint8_t node_id) const { return liveness_penalty_q4(node_id); }   // liveness (suspect/silent/dead) penalty on a next-hop; routes dump shows effective = score - pen
     // A heard 1-hop gateway's stored window schedule (nullptr if none known) + the ms to defer an RTS to its window.
     // For the `routes` console dump: surface a gateway route's unique state (period / per-leaf windows / heard-age).
     const GatewaySchedule* rt_gateway_schedule(uint8_t gw_node_id) const { return find_gw_schedule(gw_node_id); }
@@ -454,6 +471,11 @@ public:
     uint16_t          id_bind_count() const { return _active->_id_bind_n; }
     bool              joined()        const { return _joined; }        // DAD: adopted a node_id (test/app accessor)
     bool              in_discovery()  const { return _discovery_mode; } // fast-cadence route-bootstrap window (test/app accessor)
+    // Duty-cycle consumption readout (console `duty` + companion). 0..100% of the rolling-window budget (100 = the node
+    // must stay silent); avail_ms = ms until SOME airtime ages back in (0 when there's headroom); enabled=false = no
+    // limit. Pure accessor — surfaces what duty_over_budget already computes; no state change.
+    struct DutyStatus { uint8_t pct; uint32_t avail_ms; bool enabled; };
+    DutyStatus        duty_status() const;
     bool              key_hash_of_id(uint8_t id, uint32_t& out) const;  // id_bind reverse lookup (AUTHORITATIVE-only); false = unknown/claimed-only (DST_HASH omitted). Public for the send-path test.
     uint8_t           claim_epoch()   const { return _claim_epoch; }
     void              restore_join_state(uint8_t claim_epoch, bool joined) { _claim_epoch = claim_epoch; _joined = joined; }  // boot: reload persisted DAD state (NV)

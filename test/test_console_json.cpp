@@ -97,7 +97,7 @@ TEST_CASE("write_inbox_* — pull stream records + terminator + mark_read ack") 
 }
 
 TEST_CASE("write_err / write_log / write_ready / write_status") {
-    char b[256];   // status line is ~206B (222B with batt_mv) — must clear the largest emitter here
+    char b[512];   // ready-with-pubkey+duty is ~280B — must clear the largest emitter here (device streams it via the 1700B scratch)
     size_t n = write_err(b, sizeof b, "parse", "expected: send <dst> <body>");
     CHECK(std::string(b, n) == "{\"err\":\"parse\",\"msg\":\"expected: send <dst> <body>\"}\n");
     n = write_err(b, sizeof b, "not_started", nullptr);
@@ -108,10 +108,13 @@ TEST_CASE("write_err / write_log / write_ready / write_status") {
     NodeConfig c{}; c.routing_sf = 7; c.is_gateway = false; c.leaf_id = 0;
     n = write_ready(b, sizeof b, 3, 0xa1b2c3d4u, c, "existing", 5, 123456789012ull);   // > u32: proves the 64-bit digits
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"ready\",\"id\":3,\"key\":\"a1b2c3d4\",\"leaf_id\":0,\"lineage\":0,\"epoch\":0,\"level\":0,\"synced\":true,\"mode\":\"existing\",\"gateway\":false,\"routing_sf\":7,\"inbox_epoch\":5,\"now_ms\":123456789012}\n");
+      "{\"ev\":\"ready\",\"id\":3,\"key\":\"a1b2c3d4\",\"leaf_id\":0,\"lineage\":0,\"epoch\":0,\"level\":0,\"synced\":true,\"mode\":\"existing\",\"gateway\":false,\"routing_sf\":7,\"inbox_epoch\":5,\"now_ms\":123456789012,\"duty_pct\":0,\"duty_avail_ms\":0}\n");
     n = write_ready(b, sizeof b, 3, 0xa1b2c3d4u, c, "existing", 5, 99ull, "Bench \"5\"", 9);  // /mrid name, escaped
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"ready\",\"id\":3,\"key\":\"a1b2c3d4\",\"name\":\"Bench \\\"5\\\"\",\"leaf_id\":0,\"lineage\":0,\"epoch\":0,\"level\":0,\"synced\":true,\"mode\":\"existing\",\"gateway\":false,\"routing_sf\":7,\"inbox_epoch\":5,\"now_ms\":99}\n");
+      "{\"ev\":\"ready\",\"id\":3,\"key\":\"a1b2c3d4\",\"name\":\"Bench \\\"5\\\"\",\"leaf_id\":0,\"lineage\":0,\"epoch\":0,\"level\":0,\"synced\":true,\"mode\":\"existing\",\"gateway\":false,\"routing_sf\":7,\"inbox_epoch\":5,\"now_ms\":99,\"duty_pct\":0,\"duty_avail_ms\":0}\n");
+    // ready carries the duty snapshot (app shows it on connect): duty_pct + duty_avail_ms ride after now_ms.
+    n = write_ready(b, sizeof b, 3, 0xa1b2c3d4u, c, "existing", 5, 99ull, nullptr, 0, nullptr, /*duty_pct=*/42, /*duty_avail_ms=*/73000);
+    CHECK(std::string(b, n).find("\"duty_pct\":42,\"duty_avail_ms\":73000}") != std::string::npos);
     // §4: ready carries the full ed_pub (so MyCardView emits the QR `p` field). pubkey rides right after key; omitted when ed_pub==nullptr.
     uint8_t ep[32]; for (int i = 0; i < 32; ++i) ep[i] = static_cast<uint8_t>(i);
     n = write_ready(b, sizeof b, 3, 0xa1b2c3d4u, c, "existing", 5, 99ull, nullptr, 0, ep);
@@ -126,6 +129,16 @@ TEST_CASE("write_err / write_log / write_ready / write_status") {
     sf.batt_mv = 4100;                                                   // battery present -> field appears
     n = write_status(b, sizeof b, 3, 0xa1b2c3d4u, c, "operating", sf);
     CHECK(std::string(b, n).find("\"batt_mv\":4100") != std::string::npos);
+}
+
+TEST_CASE("write_duty — pct/avail_ms/enabled query reply") {
+    char b[64];
+    size_t n = write_duty(b, sizeof b, 42, 0, true);                     // headroom
+    CHECK(std::string(b, n) == "{\"ev\":\"duty\",\"pct\":42,\"avail_ms\":0,\"enabled\":true}\n");
+    n = write_duty(b, sizeof b, 100, 73000, true);                       // silent, ~73 s to availability
+    CHECK(std::string(b, n) == "{\"ev\":\"duty\",\"pct\":100,\"avail_ms\":73000,\"enabled\":true}\n");
+    n = write_duty(b, sizeof b, 0, 0, false);                            // disabled (no limit)
+    CHECK(std::string(b, n) == "{\"ev\":\"duty\",\"pct\":0,\"avail_ms\":0,\"enabled\":false}\n");
 }
 
 TEST_CASE("write_route / write_routes_end / write_cfg — Node+Network screens") {

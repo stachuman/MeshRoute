@@ -122,7 +122,7 @@ inline constexpr uint32_t route_request_seen_ttl_ms = 10000;  // flood-dedup + r
 inline constexpr uint16_t route_reply_jitter_ms     = 400;    // RREP de-storm backoff (Phase B)
 
 // ---- Peer liveness (suspect/silent/dead tiers) -----------------------------
-inline constexpr uint8_t  peer_suspect_rts_timeouts    = 2;
+inline constexpr uint8_t  peer_suspect_rts_timeouts    = 1;   // 1 giveup (a FULL RTS-retry budget all unanswered) is enough to deprioritise a next-hop. Was 2 — too slow: a dead route wasted a whole retry budget on EVERY send until a 2nd giveup accrued (the alt only won transiently mid-cascade, never persisted).
 inline constexpr uint8_t  peer_silent_rts_timeouts     = 3;
 inline constexpr uint8_t  peer_dead_rts_timeouts       = 6;
 inline constexpr uint32_t peer_suspect_ttl_ms          = 300000;
