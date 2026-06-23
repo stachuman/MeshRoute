@@ -37,6 +37,7 @@ static inline bool seen_test(const uint8_t* bm, uint8_t nbr) { return (bm[nbr >>
 // DEBUG (trace_on only): one console line dumping my hops==1 neighbours + each one's covered bit in `bm`. This is
 // THE diagnostic for the asymmetric-coverage suspicion (a flood seeds "nodes I hear" but coverage is "nodes that
 // hear me"). Bounded stack buffer + the n<sizeof-8 guard make it truncation-safe (a small net is ~3 neighbours).
+#if 0  // FLOOD-DBG disabled 2026-06-23 — re-enable (this + the call sites + the node.h decl) for bench flood diag
 void Node::flood_log_coverage(const char* tag, uint32_t id, const uint8_t* bm) const {
     char buf[128];
     int n = snprintf(buf, sizeof buf, "flood %08lX %s nbrs:", (unsigned long)id, tag);
@@ -46,6 +47,7 @@ void Node::flood_log_coverage(const char* tag, uint32_t id, const uint8_t* bm) c
                           _active->_rt[i].dest, seen_test(bm, _active->_rt[i].dest) ? 'Y' : 'N');
     _hal.log(buf);
 }
+#endif
 static inline bool seen_set(uint8_t* bm, uint8_t nbr) {        // returns true if newly set
     const uint8_t mask = static_cast<uint8_t>(1u << (nbr & 7));
     if (bm[nbr >> 3] & mask) return false;
@@ -284,7 +286,7 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
     if (max_data_sf() != 0) {
         uint8_t bm[32] = {};
         flood_set_my_coverage(bm);
-        if (_hal.trace_on()) flood_log_coverage("SEED", e.id, bm);   // B (DEBUG): what the ORIGINATOR stamps covered (suspect: "nodes I hear", one-way)
+        // FLOOD-DBG disabled 2026-06-23 (re-enable for bench diag): if (_hal.trace_on()) flood_log_coverage("SEED", e.id, bm);   // B (DEBUG): what the ORIGINATOR stamps covered (suspect: "nodes I hear", one-way)
         enqueue_flood_m(e.channel_id, e.flavor, e.id, e.payload, static_cast<uint8_t>(e.payload_len), bm, protocol::flood_hop_max);
     }
     schedule_triggered_beacon();                              // §4.1.7: make the repair digest prompt, not 15-min
@@ -561,22 +563,22 @@ bool Node::handle_flood_rts(const rts_out& r, const uint8_t* in_bm, int16_t snr_
         for (uint8_t i = 0; i < 32; ++i) fs.bitmap[i] |= in_bm[i];
         // §4.5 while-pending: a backoff-phase state now fully covered -> cancel the rebroadcast + free.
         if (!fs.awaiting_data && !flood_any_unmarked(fs.bitmap)) flood_state_free(static_cast<uint8_t>(existing));
-        if (_hal.trace_on()) { char b[40]; snprintf(b, sizeof b, "flood %08lX dup-merge", (unsigned long)id); _hal.log(b); }   // D (DEBUG)
+        // FLOOD-DBG disabled 2026-06-23 (re-enable for bench diag): if (_hal.trace_on()) { char b[40]; snprintf(b, sizeof b, "flood %08lX dup-merge", (unsigned long)id); _hal.log(b); }   // D (DEBUG)
         return false;                                            // no new flood, no retune
     }
     if (channel_buffer_find(id) >= 0) {                          // already in the buffer, no state -> already forwarded, drop
-        if (_hal.trace_on()) { char b[48]; snprintf(b, sizeof b, "flood %08lX already-buffered", (unsigned long)id); _hal.log(b); }   // D (DEBUG)
+        // FLOOD-DBG disabled 2026-06-23 (re-enable for bench diag): if (_hal.trace_on()) { char b[48]; snprintf(b, sizeof b, "flood %08lX already-buffered", (unsigned long)id); _hal.log(b); }   // D (DEBUG)
         return false;
     }
     const int slot = flood_state_alloc(id);
     if (slot < 0) {                                              // C3 -> repair
-        if (_hal.trace_on()) { char b[40]; snprintf(b, sizeof b, "flood %08lX state-full", (unsigned long)id); _hal.log(b); }   // D (DEBUG)
+        // FLOOD-DBG disabled 2026-06-23 (re-enable for bench diag): if (_hal.trace_on()) { char b[40]; snprintf(b, sizeof b, "flood %08lX state-full", (unsigned long)id); _hal.log(b); }   // D (DEBUG)
         MR_EMIT("flood_state_full", EF_I("id", static_cast<int64_t>(id))); return false;
     }
     FloodState& fs = _active->_flood[slot];
     fs.awaiting_data = true; fs.src = r.src; fs.rx_snr_q4 = snr_q4; fs.hop_left = r.dst;  // §3.1: dst slot = hop_left
     for (uint8_t i = 0; i < 32; ++i) fs.bitmap[i] = in_bm[i];
-    if (_hal.trace_on()) { char b[56]; snprintf(b, sizeof b, "flood %08lX caught RTS-M from %u, awaiting DATA-M", (unsigned long)id, (unsigned)r.src); _hal.log(b); }   // F (DEBUG): this node will TRY to catch the flood body
+    // FLOOD-DBG disabled 2026-06-23 (re-enable for bench diag): if (_hal.trace_on()) { char b[56]; snprintf(b, sizeof b, "flood %08lX caught RTS-M from %u, awaiting DATA-M", (unsigned long)id, (unsigned)r.src); _hal.log(b); }   // F (DEBUG): this node will TRY to catch the flood body
     return true;                                                 // fresh -> catch the DATA-M (retune in the caller)
 }
 
@@ -586,7 +588,7 @@ void Node::flood_forward_decision(uint8_t slot) {
     if (_cfg.is_gateway || _cfg.n_layers == 2) { flood_state_free(slot); return; }     // §7 provider half OFF / Principle 11: a (single- or dual-layer) gateway never rebroadcasts
     FloodState& fs = _active->_flood[slot];
     if (!flood_any_unmarked(fs.bitmap)) {                                     // every neighbour covered -> stay silent
-        if (_hal.trace_on()) flood_log_coverage("SILENT", fs.id, fs.bitmap); // A (DEBUG): THE one — why this node went quiet + each hops==1 neighbour's covered state
+        // FLOOD-DBG disabled 2026-06-23 (re-enable for bench diag): if (_hal.trace_on()) flood_log_coverage("SILENT", fs.id, fs.bitmap); // A (DEBUG): THE one — why this node went quiet + each hops==1 neighbour's covered state
         flood_state_free(slot); return;
     }
     // SNR-x² gives the backoff WINDOW = T_backoff * snr_norm^2 ; snr_norm = clamp((rx_snr-lo)/(hi-lo),0,1). Then
@@ -602,7 +604,7 @@ void Node::flood_forward_decision(uint8_t slot) {
     const uint32_t window  = static_cast<uint32_t>(static_cast<int64_t>(protocol::flood_backoff_ms) * num * num / (span * span));
     const uint32_t backoff = static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(window) + 1));   // random slot in [0, window]
     (void)_hal.after(backoff, kFloodRebcastTimerId + slot);
-    if (_hal.trace_on()) { char b[72]; snprintf(b, sizeof b, "flood %08lX relay in %lums slot=%u", (unsigned long)fs.id, (unsigned long)backoff, (unsigned)slot); _hal.log(b); }   // C (DEBUG)
+    // FLOOD-DBG disabled 2026-06-23 (re-enable for bench diag): if (_hal.trace_on()) { char b[72]; snprintf(b, sizeof b, "flood %08lX relay in %lums slot=%u", (unsigned long)fs.id, (unsigned long)backoff, (unsigned)slot); _hal.log(b); }   // C (DEBUG)
     MR_EMIT("flood_rebroadcast_scheduled", EF_I("id", static_cast<int64_t>(fs.id)), EF_I("backoff_ms", backoff), EF_I("slot", slot));
 }
 
@@ -614,11 +616,11 @@ void Node::flood_rebroadcast_fire(uint8_t slot) {
     flood_set_my_coverage(bm);                                   // §4.5 on-fire: {my unmarked neighbours + me}
     flood_state_free(slot);
     if (fs.hop_left <= 1) {                                      // TTL drop
-        if (_hal.trace_on()) { char b[44]; snprintf(b, sizeof b, "flood %08lX hop-exhausted", (unsigned long)fs.id); _hal.log(b); }   // E (DEBUG)
+        // FLOOD-DBG disabled 2026-06-23 (re-enable for bench diag): if (_hal.trace_on()) { char b[44]; snprintf(b, sizeof b, "flood %08lX hop-exhausted", (unsigned long)fs.id); _hal.log(b); }   // E (DEBUG)
         MR_EMIT("flood_hop_exhausted", EF_I("id", static_cast<int64_t>(fs.id))); return;
     }
     if (max_data_sf() == 0) return;                             // non-operational (no data SF) -> no fallback
-    if (_hal.trace_on()) { char b[44]; snprintf(b, sizeof b, "flood %08lX RELAY hop=%u", (unsigned long)fs.id, (unsigned)(fs.hop_left - 1)); _hal.log(b); }   // E (DEBUG)
+    // FLOOD-DBG disabled 2026-06-23 (re-enable for bench diag): if (_hal.trace_on()) { char b[44]; snprintf(b, sizeof b, "flood %08lX RELAY hop=%u", (unsigned long)fs.id, (unsigned)(fs.hop_left - 1)); _hal.log(b); }   // E (DEBUG)
     enqueue_flood_m(fs.channel_id, fs.flavor, fs.id, fs.body, fs.body_len, bm, static_cast<uint8_t>(fs.hop_left - 1));
 }
 
@@ -637,7 +639,7 @@ void Node::flood_fast_self_pull(uint8_t slot) {
     uint8_t buf[16];
     const size_t n = pack_q(in, std::span<uint8_t>(buf, sizeof(buf)));
     if (n == 0) return;
-    if (_hal.trace_on()) { char b[60]; snprintf(b, sizeof b, "flood %08lX DATA-M MISSED -> self-pull from %u", (unsigned long)id, (unsigned)src); _hal.log(b); }   // G (DEBUG): live flood body LOST on this link -> pull (the weak-link path)
+    // FLOOD-DBG disabled 2026-06-23 (re-enable for bench diag): if (_hal.trace_on()) { char b[60]; snprintf(b, sizeof b, "flood %08lX DATA-M MISSED -> self-pull from %u", (unsigned long)id, (unsigned)src); _hal.log(b); }   // G (DEBUG): live flood body LOST on this link -> pull (the weak-link path)
     MR_EMIT("channel_pull_sent", EF_I("id", static_cast<int64_t>(id)), EF_I("target", src), EF_S("trigger", "flood_fast"));
     tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
     channel_pull_mark(id);

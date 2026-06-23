@@ -32,3 +32,7 @@ platformio.local.ini
 *.map
 .claude/
 .obsidian/
+
+# Python cache (tools/)
+__pycache__/
+*.pyc

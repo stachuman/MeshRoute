@@ -1,0 +1,9 @@
+# MeshRoute lab netspec — one logical single-leaf network (meshroute_lab.py provision)
+freq_mhz: 869.0
+bw_khz: 125
+ctrl_sf: 9
+level_id: 1
+sf_list: "7,9"
+duty_pct: 10
+leaf_name: "bench"
+mother: first        # a node_id, or "first" (first discovered)

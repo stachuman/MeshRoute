@@ -751,7 +751,7 @@ private:
     bool    handle_flood_rts(const rts_out& r, const uint8_t* in_bitmap, int16_t snr_q4);  // §4.2 RX of a FLOOD RTS-M; true = fresh state -> retune to catch DATA-M
     void    flood_forward_decision(uint8_t slot);                // §4.5 after DATA-M ingest: silent | arm backoff
     void    flood_rebroadcast_fire(uint8_t slot);                // kFloodRebcastTimerId+slot: re-flood {unmarked+me}, hop_left--
-    void    flood_log_coverage(const char* tag, uint32_t id, const uint8_t* bm) const;  // DEBUG (trace_on): dump my hops==1 neighbours + each bit's covered state in bm
+    // void    flood_log_coverage(const char* tag, uint32_t id, const uint8_t* bm) const;  // FLOOD-DBG disabled 2026-06-23 (def #if 0'd in node_channel.cpp; re-enable for bench diag)
     void    flood_fast_self_pull(uint8_t slot);                  // §4.4: caught RTS-M, missed DATA-M -> pull from src
     uint8_t max_data_sf() const;                                  // highest SF in allowed_sf_bitmap (largest = most robust)
     uint8_t max_data_sf_index() const;                            // its index in the ascending allowed set (the RTS sf_index)
