@@ -51,8 +51,9 @@ detector. (Chosen over "A" = best-effort-live + reconcile-only-on-reconnect.)
 
 ```json
 {"ev":"inbox_dm","seq":42,"origin":2,"layer_id":5,"ctr":7,"sender_hash":3735928559,"rx_ms":123456,"enc":true,"body":"…"}
+{"ev":"inbox_dm","type":"e2e_ack","seq":43,"origin":2,"layer_id":5,"ctr":7,"sender_hash":3735928559,"rx_ms":124000,"body":""}  // E2E-ack RECEIPT (no body)
 {"ev":"inbox_channel","seq":7,"origin":4,"layer_id":5,"channel_id":3,"channel_msg_id":68298753,"rx_ms":123456,"body":"…"}
-{"ev":"inbox_end","dm_seq":42,"chan_seq":7,"epoch":3,"count":15,"now_ms":987654}
+{"ev":"inbox_end","dm_seq":43,"chan_seq":7,"epoch":3,"count":15,"now_ms":987654}
 ```
 - Emit the **DM block then the channel block** (matches `Inbox::pull`'s order), each oldest-first, then
   `inbox_end` with the newest seq per store + the number streamed (+ the `epoch` it was served under, so a
@@ -73,6 +74,15 @@ detector. (Chosen over "A" = best-effort-live + reconcile-only-on-reconnect.)
   `leaf_id`, so existing behaviour is unchanged — just an added field). The app may thread it into the
   conversation/display; DM dedup identity is **unchanged** (`(sender_hash, ctr)`/`(origin, ctr)`) — `layer_id`
   is informational routing context, not part of the identity key.
+- **`type` (2026-06-23, E2E-ack receipts):** a DM record's optional **`type`** distinguishes a received MESSAGE from a
+  delivery RECEIPT. **Absent / `0`** ⇒ a normal received DM (render it, as today). **`"e2e_ack"`** ⇒ a RECEIPT for a
+  `-a` DM **this** node sent: `origin` = the node that **CONFIRMED** delivery (the original `-a` DM's recipient),
+  `ctr` = the **acked** ctr, `body` empty. The app matches **`(origin, ctr)`** — or **`(sender_hash, ctr)`** when
+  `sender_hash != 0` (a cross-layer ack: the 8-bit `origin` aliases across leaves, so the hash is the stable key) — to
+  its **OUTBOX** and marks that sent message **DELIVERED**; it must **NOT** render a receipt as an inbound message.
+  Receipts ride the **DM seq-cursor** (no new block / arg / cursor). There is also a non-durable **live fast-path**
+  console line `E2E-ACKED ctr=<X> from=<D>` (the connected/harness case). ⚠ **Rollout:** the contract change rides the
+  same `pull_inbox`, so an **un-updated** companion would mis-show a receipt as an empty-body DM — coordinate the update.
 
 ## Epoch & store-reset handling (FIRM)
 

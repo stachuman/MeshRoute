@@ -10,7 +10,7 @@ import glob
 import threading
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent))   # so `import meshroute_client` works
-from meshroute_client import MeshRouteClient   # noqa: E402  (reused: serial + reader thread + _rxq/_on_line)
+from meshroute_client import MeshRouteClient, find_ports   # noqa: E402  (reused: serial link + the USB port list)
 
 from .manager import collect_burst
 from . import parsers
@@ -21,6 +21,9 @@ class NodeInfo:
         self.port = port
         self.client = client
         self.lock = threading.Lock()      # writer-lock: one command in flight per node
+        self.serial = None                # USB serial number (host-side, from the descriptor) — on the XIAO nRF52840 it's
+                                          #   the chip's FICR DEVICEID: STABLE across any firmware/factory reset, so it
+                                          #   identifies the physical device even when node_id=0 / hash is freshly reset.
         self.node_id = None
         self.hash = None
         self.leaf = None
@@ -40,16 +43,24 @@ def discover(ports=None, whoami_timeout=2.0):
     """Open each port, `whoami`-probe it, return [NodeInfo] (responsive + DEAD)."""
     if ports is None:
         ports = sorted(glob.glob("/dev/ttyACM*"))
+    serials = {}                                                  # device-path -> USB serial number (host-side, no node interaction)
+    try:
+        for pi in find_ports():
+            serials[pi.device] = pi.serial_number
+    except Exception:
+        pass
     nodes = []
     for p in ports:
         try:
             client = MeshRouteClient(p).open()
         except Exception as e:
             ni = NodeInfo(p, None)
+            ni.serial = serials.get(p)
             ni.error = f"open failed: {e}"
             nodes.append(ni)
             continue
         ni = NodeInfo(p, client)
+        ni.serial = serials.get(p)
         try:
             w = parsers.parse_whoami(collect_burst(client, "whoami", "[whoami]", timeout=whoami_timeout))
             if w:

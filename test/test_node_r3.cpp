@@ -2405,6 +2405,49 @@ TEST_CASE("E2E ACK — origin of an E2E_IS_ACK DATA confirms (no app delivery)")
     CHECK(hal.count("delivered") == 0);                      // an E2E ack is NOT delivered as a message
 }
 
+// E2E-ack DURABLE RECEIPT (2026-06-23): the origin RECORDS the ack as a DM-store receipt (type=E2E_ACK, no body) AND
+// emits a live send_e2e_acked push -> harness/companion can confirm "the dest got it" (was telemetry-only = invisible on metal).
+TEST_CASE("E2E ACK — origin records a durable receipt + a send_e2e_acked push (not telemetry-only)") {
+    TestHal hal; Node node(hal, /*id=*/0, /*key=*/0xABCD);   // we are the origin being acked
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    node.on_init(cfg);
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    node.inbox().on_init(&dm, &ch);                          // a backend installs durable stores (else record_ack is inert)
+    RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+
+    std::array<uint8_t, 16> rb{};
+    hal._now = 1000; node.on_recv(rb.data(), mk_rts(/*src=*/1, /*next=*/0, /*dst=*/0, /*ctr_lo=*/9, /*plen=*/4, rb), meta);
+    std::array<uint8_t, 64> db{};
+    const uint8_t acked[2] = { 5, 0 };                       // acked ctr = 5 (LE)
+    hal._now = 2000; node.on_recv(db.data(), mk_data_e2e(/*next=*/0, /*dst=*/0, /*ctr=*/0x0009, /*origin=*/2,
+                                  /*flags=*/0, acked, 2, db, /*type=*/DATA_TYPE_E2E_ACK), meta);
+    node.on_timer(kPostAckTimerId);
+
+    // 1) a live send_e2e_acked push: dst = the acker (2), ctr = the acked ctr (5)
+    Push pu{}; bool got = false;
+    while (node.next_push(pu)) { if (pu.kind == PushKind::send_e2e_acked) { got = true; break; } }
+    CHECK(got);
+    if (got) { CHECK(pu.dst == 2); CHECK(pu.ctr == 5); }
+
+    // 2) a durable DM-store receipt (type=E2E_ACK, no body), NOT an app delivery
+    CHECK(dm.count() == 1);
+    CHECK(ch.count() == 0);                                  // a receipt does not touch the channel store
+    struct Got { bool seen; InboxKind kind; uint8_t origin; uint32_t msg_id; uint8_t type; uint8_t blen; }
+        g{ false, InboxKind::channel, 0, 0, 0, 99 };
+    node.inbox().pull(0, 0, [](void* c, const InboxEntry& e) -> bool {
+        auto* x = static_cast<Got*>(c);
+        x->seen = true; x->kind = e.kind; x->origin = e.origin; x->msg_id = e.msg_id; x->type = e.type; x->blen = e.body_len;
+        return true;
+    }, &g);
+    CHECK(g.seen);
+    CHECK(g.kind == InboxKind::dm);
+    CHECK(g.type == DATA_TYPE_E2E_ACK);                      // a receipt, distinguished by the type byte
+    CHECK(g.origin == 2);                                    // the dest that confirmed delivery
+    CHECK(g.msg_id == 5);                                    // = the acked ctr
+    CHECK(g.blen == 0);                                      // no body
+    CHECK(hal.count("delivered") == 0);                      // still NOT delivered as a message
+}
+
 // ===================== L2c — DST_HASH verify-on-delivery + identity-preserving redirect =====================
 // A DM addressed to our node_id but carrying a cleartext DST_HASH naming a DIFFERENT key was misdelivered
 // by an id collision: do NOT deliver; FORWARD it (origin + ctr + flags + inner preserved — NOT re-sent) to

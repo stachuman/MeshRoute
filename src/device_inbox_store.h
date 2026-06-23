@@ -38,7 +38,8 @@ struct Meta {
     uint32_t epoch;        // §10.1 storage epoch (bumps on a records-store wipe)
 };
 constexpr uint32_t kMagic   = 0x4D524958u;  // 'MRIX'
-constexpr uint16_t kVersion = 3;            // v3 (2026-06-16): record header gained enc (§8b). v2: +layer_id (§2/Q13). Old meta rejected, store re-inits
+constexpr uint16_t kVersion = 4;            // v4 (2026-06-23): record header gained `type` (E2E-ack receipts). v3: +enc (§8b). v2: +layer_id (§2/Q13).
+                                            // A version mismatch on an upgrade flash WIPES the QSPI records (old header layout) + BUMPS the epoch (companion re-pulls); next_seq is preserved (monotonic).
 
 }  // namespace mrinbox
 
@@ -107,19 +108,30 @@ inline bool DeviceInboxStore::begin() {
     bool formatted = false;
     if (!qspi_mount(&formatted)) return false;                  // records store unmountable -> fail loud (Inbox stays disabled)
 
-    const bool had_meta = load_meta();
+    const bool had_meta   = load_meta();                       // magic matched -> _meta holds the PRIOR values (incl. version)
+    const bool version_ok = had_meta && _meta.version == kVersion;
     if (!had_meta) {                                            // fresh / unreadable meta -> initialize
         _meta = Meta{};
         _meta.magic = kMagic; _meta.version = kVersion;
         _meta.seg_count = ring_segs();
         _meta.head_seg = _meta.tail_seg = 0;
         _meta.next_seq = 1; _meta.read_cursor = 0; _meta.epoch = 1;
+    } else if (!version_ok) {                                  // UPGRADE: the record header layout changed (e.g. +type 2026-06-23) ->
+        for (uint16_t i = 0; i < ring_segs(); ++i) qspi_seg_erase(i);  //  the old QSPI records can't be parsed by the new deserializer ->
+        _meta.version   = kVersion;                            //  WIPE them. KEEP next_seq (survives on InternalFS) so seq never reuses,
+        _meta.epoch    += 1;                                   //  and BUMP the epoch so the companion sees the wipe + re-pulls cleanly.
+        _meta.head_seg  = _meta.tail_seg = 0;
+        _meta.seg_count = ring_segs();
+        _meta.read_cursor = 0;
+        save_meta();
+        formatted = true;                                      // records are now empty (we just wiped) -> the §10.1 detect below is a no-op
     }
     // §10.1 wipe detection: the records store came up EMPTY but the (InternalFS) meta says we had records ->
     // the records were wiped (format-on-dirty / OTAFIX QSPI erase). BUMP the epoch, reset the ring; KEEP
     // next_seq (it survived on InternalFS) so seq never reuses. The companion sees the new epoch + re-syncs.
+    // ONLY for the version-OK path — the upgrade branch above already wiped + bumped (don't double-bump).
     const bool records_empty = formatted || !qspi_any_segments();
-    if (had_meta && records_empty && _meta.next_seq > 1) {
+    if (version_ok && records_empty && _meta.next_seq > 1) {
         _meta.epoch += 1;
         _meta.head_seg = _meta.tail_seg = 0;
         _meta.seg_count = ring_segs();
@@ -225,7 +237,9 @@ bool DeviceInboxStore::load_meta() {
     InternalFS.begin();
     File f(InternalFS); if (!f.open(_meta_path, FILE_O_READ)) return false;
     const int n = f.read(reinterpret_cast<uint8_t*>(&_meta), sizeof(_meta)); f.close();
-    return n == static_cast<int>(sizeof(_meta)) && _meta.magic == kMagic && _meta.version == kVersion;
+    // MAGIC-only here (NOT version): begin() needs the prior _meta (next_seq/epoch/version) to detect a version
+    // UPGRADE and wipe+re-epoch the records while preserving next_seq. A bad magic = no/garbage meta = a fresh init.
+    return n == static_cast<int>(sizeof(_meta)) && _meta.magic == kMagic;
 }
 bool DeviceInboxStore::save_meta() {
     using namespace Adafruit_LittleFS_Namespace;

@@ -85,6 +85,8 @@ enum class PushKind : uint8_t {
     channel_recv,  // a NEW channel message was received (origin=minter, channel_id, body=text)
     send_acked,    // our send's link ACK returned (ctr = the sent message id)
     send_failed,   // our send gave up (ctr = the sent message id)
+    send_e2e_acked, // the END-TO-END ack for a -a DM we originated arrived (dst = the dest that confirmed, ctr = the acked ctr).
+                    //   The true "the dest got it" signal — distinct from send_acked (the link/hop ack). Mirrors a durable inbox receipt.
     hash_resolved, // a `resolve` completed: origin = owner node_id (0 = unresolved/timeout),
                    // dst = authoritative?1:0, body[0..3] = the queried key_hash32 (LE, 4 B)
     peer_key_cached, // E2E §7: a recipient's pubkey was learned (on-air answer / cache-on-pass) -> the app can

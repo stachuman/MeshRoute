@@ -84,6 +84,11 @@ TEST_CASE("write_inbox_* — pull stream records + terminator + mark_read ack") 
     n = write_inbox_dm(b, sizeof b, 42, 2, /*layer_id*/ 23, 7, 3735928559u, 123456ull, "hi", 2, /*enc=*/true);  // §8b
     CHECK(std::string(b, n) ==
       "{\"ev\":\"inbox_dm\",\"seq\":42,\"origin\":2,\"layer_id\":23,\"ctr\":7,\"sender_hash\":3735928559,\"rx_ms\":123456,\"enc\":true,\"body\":\"hi\"}\n");
+    // E2E-ack RECEIPT (type = DATA_TYPE_E2E_ACK = 3): "type":"e2e_ack" rides right after "ev"; origin = the acker, ctr = the
+    // acked ctr, empty body. The default type=0 (the two calls above) OMITS the field -> the normal-DM wire is unchanged.
+    n = write_inbox_dm(b, sizeof b, 9, 5, /*layer_id*/ 1, 55, 0xC0FFEEu, 222ull, "", 0, /*enc=*/false, /*type=*/3);
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"inbox_dm\",\"type\":\"e2e_ack\",\"seq\":9,\"origin\":5,\"layer_id\":1,\"ctr\":55,\"sender_hash\":12648430,\"rx_ms\":222,\"body\":\"\"}\n");
 
     n = write_inbox_channel(b, sizeof b, 7, 4, /*layer_id*/ 7, 3, 68298753u, 123456ull, "yo", 2);
     CHECK(std::string(b, n) ==

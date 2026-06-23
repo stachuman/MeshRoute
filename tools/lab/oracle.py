@@ -32,10 +32,11 @@ def _filter(parsed, baseline_pair):
             "chan": [r for r in parsed["chan"] if r.get("seq", 0) > bch]}
 
 
-def _drain_pending(client, node_id, acks, deliveries, lock):
+def _drain_pending(client, node_id, acks, deliveries, e2e_live, lock):
     """After stop_live, lines route to _rxq instead of cb; the next request()'s _flush DISCARDS them. RECV/CH are
-    recovered by the durable pull, but ACKED/FAILED are LIVE-ONLY (never in the inbox) — a dropped ACK = a false
-    acked-DM FAIL (review). Drain _rxq here, folding acks + (for latency) deliveries, before the pull flushes."""
+    recovered by the durable pull, but the hop-ACKED/FAILED + E2E-ACKED pushes are LIVE-ONLY (never in the inbox).
+    A dropped E2E-ACKED only costs an rtt SAMPLE — the e2e verdict stands on the SENDER's durable receipt (the inbox).
+    Drain _rxq here, folding hop-acks + e2e-ack timestamps + (for latency) deliveries, before the pull flushes."""
     if client is None:
         return
     while True:
@@ -43,7 +44,12 @@ def _drain_pending(client, node_id, acks, deliveries, lock):
             ts, line = client._rxq.get_nowait()
         except Empty:
             break
-        if line.startswith("ACKED ctr=") or line.startswith("FAILED ctr="):
+        if line.startswith("E2E-ACKED ctr="):                         # the END-TO-END ack (rtt sample); verdict = the receipt
+            m = _CTR.search(line)
+            if m:
+                with lock:
+                    e2e_live[(node_id, int(m.group(1)))] = ts
+        elif line.startswith("ACKED ctr=") or line.startswith("FAILED ctr="):   # the first-HOP ack (reported, not gated)
             m = _CTR.search(line)
             if m:
                 with lock:
@@ -80,8 +86,9 @@ def run(manager, scenario, run_id, run_dir, settle_s=30.0, eventual_s=300.0, ver
 
     # 1. live capture: per-node queued-ctr queue + async ack map + delivery log (+ host-stamped events file).
     queued_q = {n.port: Queue() for n in nodes}
-    acks = {n.node_id: {} for n in nodes}
+    acks = {n.node_id: {} for n in nodes}                              # src -> {ctr: ACKED|FAILED} (first-HOP ack)
     deliveries = {n.node_id: [] for n in nodes}
+    e2e_ack_live = {}                                                  # (src_node_id, ctr) -> ts of the live E2E-ACKED (rtt)
     ev_files = {n.port: open(os.path.join(run_dir, f"events_{n.node_id}.log"), "w") for n in nodes}
     send_ts_by_tag = {}
     ctr_to_msg = {}                                                    # (node_id, ctr) -> (tag, send_ts)
@@ -93,7 +100,18 @@ def run(manager, scenario, run_id, run_dir, settle_s=30.0, eventual_s=300.0, ver
             pass
         if "queued ctr=" in line or "err ctr=" in line:
             queued_q[node.port].put((ts, line))
-        elif line.startswith("ACKED ctr=") or line.startswith("FAILED ctr="):
+        elif line.startswith("E2E-ACKED ctr="):                       # the TRUE e2e ack arrived (rtt); verdict = the receipt
+            m = _CTR.search(line)
+            if not m:
+                return
+            ctr = int(m.group(1))
+            with lock:
+                e2e_ack_live[(node.node_id, ctr)] = ts
+                tm = ctr_to_msg.get((node.node_id, ctr))
+            fm = _FROM.search(line)
+            rel = ts - (tm[1] if tm else t0)
+            vprint(f"[e2e ] {node.node_id}  ctr={ctr} from={fm.group(1) if fm else '?'}  +{rel:.1f}s   {tm[0] if tm else ''}")
+        elif line.startswith("ACKED ctr=") or line.startswith("FAILED ctr="):    # the first-HOP ack (reported, not gated)
             m = _CTR.search(line)
             if not m:
                 return
@@ -102,7 +120,7 @@ def run(manager, scenario, run_id, run_dir, settle_s=30.0, eventual_s=300.0, ver
                 acks[node.node_id][ctr] = "ACKED" if ok else "FAILED"
                 tm = ctr_to_msg.get((node.node_id, ctr))
             rel = ts - (tm[1] if tm else t0)
-            vprint(f"[{'ack ' if ok else 'fail'}] {node.node_id}  ctr={ctr}  +{rel:.1f}s   {tm[0] if tm else ''}")
+            vprint(f"[hop {'ack' if ok else 'fl'}] {node.node_id}  ctr={ctr}  +{rel:.1f}s   {tm[0] if tm else ''}")
         elif line.startswith("RECV from=") or line.startswith("CH "):
             tg = _tag_str(line)
             if not tg:
@@ -154,7 +172,7 @@ def run(manager, scenario, run_id, run_dir, settle_s=30.0, eventual_s=300.0, ver
     time.sleep(0.3)                                                   # let any in-flight cb finish (cb/_rxq/close race)
     imm_raw, inboxes_imm = {}, {}
     for n in nodes:
-        _drain_pending(n.client, n.node_id, acks, deliveries, lock)   # recover gap ACKs/RECV before _flush discards them
+        _drain_pending(n.client, n.node_id, acks, deliveries, e2e_ack_live, lock)   # recover gap ACKs/RECV before _flush discards them
         lines = manager.request(n, "pull_inbox 0 0", "inbox_end", 8.0)
         imm_raw[n.node_id] = lines
         inboxes_imm[n.node_id] = _filter(parse_inbox_lines(lines), baseline.get(n.node_id, (0, 0)))
@@ -177,7 +195,7 @@ def run(manager, scenario, run_id, run_dir, settle_s=30.0, eventual_s=300.0, ver
     final_raw, inboxes_evt = {}, {}
     if extra > 0:
         for n in nodes:
-            _drain_pending(n.client, n.node_id, acks, deliveries, lock)
+            _drain_pending(n.client, n.node_id, acks, deliveries, e2e_ack_live, lock)
             lines = manager.request(n, "pull_inbox 0 0", "inbox_end", 8.0)
             final_raw[n.node_id] = lines
             inboxes_evt[n.node_id] = _filter(parse_inbox_lines(lines), baseline.get(n.node_id, (0, 0)))
@@ -193,6 +211,6 @@ def run(manager, scenario, run_id, run_dir, settle_s=30.0, eventual_s=300.0, ver
 
     # 5. reconcile + report.
     result = _reconcile.reconcile(send_ledger, inboxes_evt, inboxes_imm, acks, deliveries, leaf_ids, run_id,
-                                  hangs=sorted(set(hangs)), eventual_s=eventual_s)
+                                  hangs=sorted(set(hangs)), eventual_s=eventual_s, e2e_ack_live=e2e_ack_live)
     report.write_reports(run_dir, result, send_ledger)
     return result

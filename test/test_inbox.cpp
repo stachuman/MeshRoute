@@ -10,6 +10,7 @@
 
 #include "inbox.h"
 #include "ram_inbox_store.h"
+#include "frame_codec.h"   // DATA_TYPE_E2E_ACK (the receipt `type` value)
 
 #include <cstring>
 #include <string>
@@ -21,11 +22,11 @@ namespace {
 
 // pull collector: copy the decoded entry (body points into transient store bytes -> copy to a std::string).
 struct Collected { uint32_t seq; InboxKind kind; uint8_t origin; uint8_t channel_id; uint32_t msg_id;
-                   uint32_t sender_hash; uint8_t layer_id; uint8_t enc; uint64_t rx; std::string body; };
+                   uint32_t sender_hash; uint8_t layer_id; uint8_t enc; uint8_t type; uint64_t rx; std::string body; };
 struct Collector { std::vector<Collected> items; };
 bool collect_cb(void* ctx, const InboxEntry& e) {
     auto* c = static_cast<Collector*>(ctx);
-    c->items.push_back({ e.seq, e.kind, e.origin, e.channel_id, e.msg_id, e.sender_hash, e.layer_id, e.enc, e.rx_time_ms,
+    c->items.push_back({ e.seq, e.kind, e.origin, e.channel_id, e.msg_id, e.sender_hash, e.layer_id, e.enc, e.type, e.rx_time_ms,
                          std::string(reinterpret_cast<const char*>(e.body ? e.body : reinterpret_cast<const uint8_t*>("")), e.body_len) });
     return true;
 }
@@ -57,6 +58,33 @@ TEST_CASE("inbox: §8b enc flag survives the record round-trip (DM enc 0/1; chan
         CHECK(c.items[1].body == "plain");  CHECK(c.items[1].enc == 0);   // plaintext DM
         CHECK(c.items[2].kind == InboxKind::channel); CHECK(c.items[2].enc == 0);  // channel (cleartext)
     }
+}
+
+// E2E-ack durable receipt (2026-06-23): record_ack writes a DM-store entry with type=DATA_TYPE_E2E_ACK, no body,
+// origin = the dest that confirmed, msg_id = the acked ctr. The `type` byte round-trips serialize -> store -> pull;
+// a normal record_dm stays type=0. (spec native unit (a)/(c)/(d).)
+TEST_CASE("inbox: record_ack stores an E2E-ack RECEIPT (type=E2E_ACK, no body) on the DM seq-space; normal DM type=0") {
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    Inbox ib; ib.on_init(&dm, &ch);
+    rec_dm(ib, 7, 100, "hello", 1000);                                   // a normal DM (seq 1, type 0)
+    const uint32_t ack_seq = ib.record_ack(/*from_origin=*/3, /*acked_ctr=*/55, /*layer_id=*/9, /*now=*/2000, /*acker_hash=*/0xC0FFEEu);
+    CHECK(ack_seq == 2);                                                 // rides the DM seq-space (no third cursor)
+    Collector c; ib.pull(0, 0, collect_cb, &c);
+    CHECK(c.items.size() == 2);
+    if (c.items.size() == 2) {
+        CHECK(c.items[0].type == 0);                                     // the normal DM is type 0
+        CHECK(c.items[0].body == "hello");
+        const auto& r = c.items[1];                                      // the receipt
+        CHECK(r.kind == InboxKind::dm);
+        CHECK(r.type == DATA_TYPE_E2E_ACK);
+        CHECK(r.origin == 3);                                            // the dest that confirmed delivery
+        CHECK(r.msg_id == 55);                                           // = the acked ctr
+        CHECK(r.sender_hash == 0xC0FFEEu);                               // cross-layer acker hash (the stable match key)
+        CHECK(r.layer_id == 9);
+        CHECK(r.body.empty());                                           // a receipt has no body
+        CHECK(r.rx == 2000);
+    }
+    CHECK(ib.dm_newest_seq() == 2); CHECK(ib.chan_newest_seq() == 0);    // receipt on the DM space; channel space untouched
 }
 
 TEST_CASE("inbox: disabled until stores are installed (record_* / pull inert)") {

@@ -257,9 +257,14 @@ size_t write_duty(char* buf, size_t cap, uint8_t pct, uint32_t avail_ms, bool en
 // is node uptime (the app stamps wall-clock on pull). Fields are passed individually so console_json stays free
 // of an inbox.h dependency. Bodies are JSON-escaped + bounded like write_push.
 size_t write_inbox_dm(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8_t layer_id, uint16_t ctr,
-                      uint32_t sender_hash, uint64_t rx_ms, const char* body, size_t body_len, bool enc) {
+                      uint32_t sender_hash, uint64_t rx_ms, const char* body, size_t body_len, bool enc, uint8_t type) {
     JsonBuf j(buf, cap);
-    j.lit("{\"ev\":\"inbox_dm\",\"seq\":"); j.u32(seq);
+    j.lit("{\"ev\":\"inbox_dm\"");
+    // The DATA_TYPE rides right after "ev". 0 = normal DM -> OMITTED (common case; wire-unchanged). 3 = DATA_TYPE_E2E_ACK
+    // (frame_codec.h) -> a receipt -> "e2e_ack"; any other non-zero -> the numeric (never drop the distinction silently).
+    if (type == 3)      j.lit(",\"type\":\"e2e_ack\"");
+    else if (type != 0) { j.lit(",\"type\":"); j.u32(type); }
+    j.lit(",\"seq\":");         j.u32(seq);
     j.lit(",\"origin\":");      j.u32(origin);
     j.lit(",\"layer_id\":");    j.u32(layer_id);   // §2/Q13: which layer this DM arrived on
     j.lit(",\"ctr\":");         j.u32(ctr);

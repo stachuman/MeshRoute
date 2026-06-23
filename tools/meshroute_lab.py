@@ -76,7 +76,7 @@ def cmd_status(args):
         duties = mgr.broadcast("duty", "[duty]", timeout=2.0)
         rows = []
         for n in nodes:
-            row = {"port": n.port, "id": n.node_id, "hash": n.hash, "leaf": n.leaf,
+            row = {"port": n.port, "serial": n.serial, "id": n.node_id, "hash": n.hash, "leaf": n.leaf,
                    "level_id": None, "sf_list": None, "routes": None, "duty": None,
                    "uptime_s": None, "state": "ok" if n.responsive else f"DEAD({n.error})"}
             if n.responsive:
@@ -97,8 +97,8 @@ def cmd_status(args):
     if args.json:
         print(json.dumps(rows, indent=2))
         return
-    hdr = ("port", "id", "hash", "leaf", "level_id", "sf_list", "routes", "duty", "uptime_s", "state")
-    w = (16, 5, 11, 5, 9, 9, 7, 9, 9, 22)
+    hdr = ("port", "serial", "id", "hash", "leaf", "level_id", "sf_list", "routes", "duty", "uptime_s", "state")
+    w = (16, 18, 5, 11, 5, 9, 9, 7, 9, 9, 22)
     def fmt(vals):
         return "  ".join(str(v if v is not None else "-").ljust(width) for v, width in zip(vals, w))
     print(fmt(hdr))
@@ -203,7 +203,7 @@ def main():
     pr.add_argument("scenario", help="scenario flat-key file (workload: oracle …; optional netspec: provisions first)")
     pr.add_argument("--ports", help="comma list (default: auto-discover)")
     pr.add_argument("-v", "--verbose", action="store_true",
-                    help="live event stream ([send]/[recv]/[chan]/[ack]/[pull]) + full per-message reconcile dump")
+                    help="live event stream ([send]/[recv]/[chan]/[e2e]/[hop]/[pull]) + full per-message reconcile dump")
     pr.set_defaults(func=cmd_run)
     pt = sub.add_parser("topology", help="print the network topology (direct links + asymmetric links)")
     pt.add_argument("--ports", help="comma list (default: auto-discover)")

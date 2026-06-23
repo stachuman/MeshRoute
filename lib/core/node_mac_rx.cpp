@@ -558,13 +558,19 @@ void Node::do_post_ack() {
             become_free();
             return;
         }
-        if (pa.type == DATA_TYPE_E2E_ACK) {              // an end-to-end ACK for a DM we originated -> confirm, not deliver
-            MR_TELEMETRY(
-                // The acked ctr: a same-layer E2E_ACK inner is [origin][ctr_lo][ctr_hi] (ctr at inner[1..2]); a 4e
-                // CROSS_LAYER ack is ...[origin][source_hash][body=ctr_lo,ctr_hi] -> the ctr is the parsed BODY (ui).
-                const uint16_t acked = ((pa.flags & DATA_FLAG_CROSS_LAYER) && ui && ui->body.size() >= 2)
-                                       ? static_cast<uint16_t>(ui->body[0] | (ui->body[1] << 8))
-                                       : ((pa.inner_len >= 3) ? static_cast<uint16_t>(pa.inner[1] | (pa.inner[2] << 8)) : 0);
+        if (pa.type == DATA_TYPE_E2E_ACK) {              // an end-to-end ACK for a DM we originated -> confirm + RECORD a receipt, not deliver
+            // The acked ctr: a same-layer E2E_ACK inner is [origin][ctr_lo][ctr_hi] (ctr at inner[1..2]); a 4e
+            // CROSS_LAYER ack is ...[origin][source_hash][body=ctr_lo,ctr_hi] -> the ctr is the parsed BODY (ui).
+            // Computed ALWAYS (was telemetry-only): the durable receipt + the live push need it on metal (NO_TELEMETRY).
+            const uint16_t acked = ((pa.flags & DATA_FLAG_CROSS_LAYER) && ui && ui->body.size() >= 2)
+                                   ? static_cast<uint16_t>(ui->body[0] | (ui->body[1] << 8))
+                                   : ((pa.inner_len >= 3) ? static_cast<uint16_t>(pa.inner[1] | (pa.inner[2] << 8)) : 0);
+            // Cross-layer: the acker's STABLE key (the 8-bit origin aliases across leaves) -> the companion's match key.
+            // Same-layer: (origin, ctr) suffices, acker_hash=0.
+            const uint32_t acker_hash = ((pa.flags & DATA_FLAG_CROSS_LAYER) && ui && ui->has_source_hash) ? ui->source_hash : 0;
+            _inbox.record_ack(pa.origin, acked, active_layer_id(), _hal.now(), acker_hash);   // durable receipt (DM store); inert if no backend (sim)
+            Push pu{}; pu.kind = PushKind::send_e2e_acked; pu.dst = pa.origin; pu.ctr = acked; enqueue_push(pu);   // live fast-path (E2E-ACKED ctr=X from=D)
+            MR_TELEMETRY(                                                                       // KEEP for the sim analyzer (free on metal)
                 EventField ef[] = { { .key = "from", .type = EventField::T::i64, .i = pa.origin },
                                     { .key = "ctr",  .type = EventField::T::i64, .i = acked } };
                 _hal.emit("e2e_ack_rx", ef, 2); );

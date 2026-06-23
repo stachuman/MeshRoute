@@ -967,7 +967,7 @@ static bool inbox_pull_cb(void* vctx, const meshroute::InboxEntry& e) {
     const size_t n = (e.kind == meshroute::InboxKind::dm)
         ? meshroute::console::write_inbox_dm(s_inbox_jb, sizeof s_inbox_jb, e.seq, e.origin, e.layer_id,
               static_cast<uint16_t>(e.msg_id), e.sender_hash, e.rx_time_ms,
-              reinterpret_cast<const char*>(e.body), e.body_len, e.enc != 0)   // §8b
+              reinterpret_cast<const char*>(e.body), e.body_len, e.enc != 0, e.type)   // §8b enc + the DATA_TYPE (E2E-ack receipt = "e2e_ack")
         : meshroute::console::write_inbox_channel(s_inbox_jb, sizeof s_inbox_jb, e.seq, e.origin, e.layer_id,
               e.channel_id, e.msg_id, e.rx_time_ms, reinterpret_cast<const char*>(e.body), e.body_len);
     if (n) { c->sink(s_inbox_jb, n); ++c->count; }
@@ -1571,6 +1571,8 @@ void loop() {
                 Serial.print(F("ACKED ctr="));    Serial.println(pu.ctr); break;
             case meshroute::PushKind::send_failed:
                 Serial.print(F("FAILED ctr="));   Serial.println(pu.ctr); break;
+            case meshroute::PushKind::send_e2e_acked:   // the END-TO-END ack arrived (dest confirmed) — distinct from the hop ACK
+                Serial.print(F("E2E-ACKED ctr=")); Serial.print(pu.ctr); Serial.print(F(" from=")); Serial.println(pu.dst); break;
             case meshroute::PushKind::hash_resolved: {
                 const uint32_t hash = (uint32_t)pu.body[0] | ((uint32_t)pu.body[1] << 8)
                                     | ((uint32_t)pu.body[2] << 16) | ((uint32_t)pu.body[3] << 24);
