@@ -9,20 +9,22 @@
 # (a hung node must not stall the fleet). See docs/superpowers/specs/2026-06-23-stress-harness-phase0-1.md.
 import sys
 import os
+import time
 import json
 import argparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # tools/ on the path -> `lab` + meshroute_client
-from lab import registry, parsers                                 # noqa: E402
+from lab import registry, parsers, oracle, report, topology     # noqa: E402
 from lab.manager import NodeManager                               # noqa: E402
 from lab.provision import provision, ProvisionError              # noqa: E402
 
-_NUM = {"freq_mhz": float, "bw_khz": int, "ctrl_sf": int, "level_id": int, "duty_pct": int}
-_REQUIRED = ("freq_mhz", "bw_khz", "ctrl_sf", "level_id", "sf_list", "duty_pct")
+_NETSPEC_NUM = {"freq_mhz": float, "bw_khz": int, "ctrl_sf": int, "level_id": int, "duty_pct": int, "beacon_ms": int}
+_NETSPEC_REQ = ("freq_mhz", "bw_khz", "ctrl_sf", "level_id", "sf_list", "duty_pct")
+_SCEN_NUM = {"dm_per_node": int, "chan_per_node": int, "channel": int, "settle_s": int, "eventual_s": int}
 
 
-def load_netspec(path):
-    """Flat `key: value` loader (dependency-free; the netspec is flat). Quotes + `#` comments stripped; numbers coerced."""
+def _parse_flat(path):
+    """Flat `key: value` loader (dependency-free). Quotes + `#` comments stripped; values stay strings."""
     spec = {}
     with open(path) as f:
         for raw in f:
@@ -30,16 +32,32 @@ def load_netspec(path):
             if not line or ":" not in line:
                 continue
             k, _, v = line.partition(":")
-            k, v = k.strip(), v.strip().strip('"').strip("'")
-            if k in _NUM:
-                try:
-                    v = _NUM[k](v)
-                except ValueError:
-                    sys.exit(f"netspec: {k}={v!r} is not a {_NUM[k].__name__}")
-            spec[k] = v
-    missing = [k for k in _REQUIRED if k not in spec]
+            spec[k.strip()] = v.strip().strip('"').strip("'")
+    return spec
+
+
+def _coerce(spec, nummap, path):
+    for k, t in nummap.items():
+        if k in spec:
+            try:
+                spec[k] = t(spec[k])
+            except ValueError:
+                sys.exit(f"{path}: {k}={spec[k]!r} is not a {t.__name__}")
+    return spec
+
+
+def load_netspec(path):
+    spec = _coerce(_parse_flat(path), _NETSPEC_NUM, path)
+    missing = [k for k in _NETSPEC_REQ if k not in spec]
     if missing:
         sys.exit(f"netspec {path}: missing required keys {missing}")
+    return spec
+
+
+def load_scenario(path):
+    spec = _coerce(_parse_flat(path), _SCEN_NUM, path)
+    if "workload" not in spec:
+        sys.exit(f"scenario {path}: missing required key 'workload'")
     return spec
 
 
@@ -53,9 +71,9 @@ def cmd_status(args):
     if not nodes:
         sys.exit("no /dev/ttyACM* ports found (use --ports to override)")
     with NodeManager(nodes) as mgr:
-        cfgs = mgr.broadcast("cfg", timeout=2.0)
-        stats = mgr.broadcast("status", timeout=2.0)
-        duties = mgr.broadcast("duty", timeout=2.0)
+        cfgs = mgr.broadcast("cfg", "[cfg]", timeout=2.0)
+        stats = mgr.broadcast("status", "[status]", timeout=2.0)
+        duties = mgr.broadcast("duty", "[duty]", timeout=2.0)
         rows = []
         for n in nodes:
             row = {"port": n.port, "id": n.node_id, "hash": n.hash, "leaf": n.leaf,
@@ -88,6 +106,18 @@ def cmd_status(args):
         print(fmt(tuple(r[k] for k in hdr)))
 
 
+def cmd_topology(args):
+    nodes = registry.discover(ports=_ports_arg(args.ports))
+    if not nodes:
+        sys.exit("no /dev/ttyACM* ports found (use --ports to override)")
+    with NodeManager(nodes) as mgr:
+        topo = topology.build(mgr)
+    if args.json:
+        print(json.dumps({str(k): v for k, v in topo.items()}, indent=2))
+    else:
+        print(topology.format_text(topo))
+
+
 def cmd_provision(args):
     spec = load_netspec(args.netspec)
     if args.mother is not None:
@@ -103,7 +133,7 @@ def cmd_provision(args):
         def progress(done, total, secs_left):
             print(f"  converging: {done}/{total}  ({secs_left}s left)", flush=True)
         try:
-            topo = provision(mgr, spec, timeout=args.timeout, on_progress=progress)
+            topo = provision(mgr, spec, timeout=args.timeout, reset=not args.no_reset, on_progress=progress)
         except ProvisionError as e:
             sys.exit(f"PROVISION FAILED: {e}")
     with open(args.out, "w") as f:
@@ -112,6 +142,43 @@ def cmd_provision(args):
     print(f"{'port':16}  {'node_id':7}  {'leaf':4}  {'level':5}  {'sf_list':8}  mother")
     for t in topo:
         print(f"{t['port']:16}  {t['node_id']:<7}  {t['leaf_id']:<4}  {t['level_id']:<5}  {t['sf_list']:8}  {'*' if t['is_mother'] else ''}")
+
+
+def cmd_run(args):
+    scenario = load_scenario(args.scenario)
+    run_id = format(int(time.time()) & 0xFFFFFF, "x")             # short host-side run id (nodes have no clock)
+    run_dir = os.path.join("runs", run_id)
+    os.makedirs(run_dir, exist_ok=True)
+    nodes = registry.discover(ports=_ports_arg(args.ports))
+    if not nodes:
+        sys.exit("no /dev/ttyACM* ports found (use --ports to override)")
+    with NodeManager(nodes) as mgr:
+        if scenario.get("netspec"):                              # provision first, then key off the fresh topology
+            ns_path = scenario["netspec"]
+            if not os.path.isabs(ns_path):
+                ns_path = os.path.join(os.path.dirname(os.path.abspath(args.scenario)), ns_path)
+            netspec = load_netspec(ns_path)
+            print(f"provisioning from {ns_path} ...")
+            try:
+                topo = provision(mgr, netspec,
+                                 on_progress=lambda d, t, s: print(f"  converging {d}/{t} ({s}s left)", flush=True))
+            except ProvisionError as e:
+                sys.exit(f"PROVISION FAILED: {e}")
+            by_port = {n.port: n for n in nodes}                 # DAD assigned new ids -> refresh NodeInfo so the oracle targets current ids
+            for t in topo:
+                if t["port"] in by_port:
+                    by_port[t["port"]].node_id = t["node_id"]
+        else:
+            print(f"running against the standing net ({len(mgr.responsive())} responsive node(s))")
+        result = oracle.run(mgr, scenario, run_id, run_dir,
+                            settle_s=scenario.get("settle_s", 30),
+                            eventual_s=scenario.get("eventual_s", 300),
+                            verbose=args.verbose)
+    if args.verbose:                                              # -v: full per-message dump before the (unchanged) summary
+        print("\n" + report.format_per_msg(result))
+    print("\n" + report.format_summary(result))
+    print(f"\nartifacts: {run_dir}/")
+    sys.exit(0 if result["verdict"]["pass"] else 1)
 
 
 def main():
@@ -124,10 +191,24 @@ def main():
     pp = sub.add_parser("provision", help="create/join the nodes into one leaf + verify convergence")
     pp.add_argument("netspec", help="netspec YAML/flat-key file")
     pp.add_argument("--mother", type=int, default=None, help="mother node_id (default: netspec.mother or first)")
-    pp.add_argument("--timeout", type=int, default=60, help="convergence timeout seconds")
+    pp.add_argument("--timeout", type=int, default=None,
+                    help="convergence timeout seconds (default: auto = max(90, n_nodes × beacon_s × 1.5); config-pull "
+                         "cascades hop-by-hop on a linear topology, so deep chains need longer)")
+    pp.add_argument("--no-reset", action="store_true",
+                    help="skip the `leave` reset preamble (additive provisioning onto an already-clean network)")
     pp.add_argument("--ports", help="comma list (default: auto-discover)")
     pp.add_argument("--out", default="provision.json", help="topology output path")
     pp.set_defaults(func=cmd_provision)
+    pr = sub.add_parser("run", help="run a workload scenario (Phase 2: oracle) + reconcile -> runs/<id>/")
+    pr.add_argument("scenario", help="scenario flat-key file (workload: oracle …; optional netspec: provisions first)")
+    pr.add_argument("--ports", help="comma list (default: auto-discover)")
+    pr.add_argument("-v", "--verbose", action="store_true",
+                    help="live event stream ([send]/[recv]/[chan]/[ack]/[pull]) + full per-message reconcile dump")
+    pr.set_defaults(func=cmd_run)
+    pt = sub.add_parser("topology", help="print the network topology (direct links + asymmetric links)")
+    pt.add_argument("--ports", help="comma list (default: auto-discover)")
+    pt.add_argument("--json", action="store_true")
+    pt.set_defaults(func=cmd_topology)
     args = ap.parse_args()
     args.func(args)
 

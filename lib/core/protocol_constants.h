@@ -252,7 +252,7 @@ inline constexpr uint32_t peer_key_ttl_ms = id_bind_ttl_ms;   // pubkeys are imm
 
 // ---- Command interface (the app<->firmware seam) ---------------------------
 inline constexpr uint8_t gw_env_max_hops = 4;    // GW_ENV_MAX_HOPS (send_layer hop path)
-inline constexpr uint8_t cap_push_ring   = 16;   // async push ring (MeshCore OFFLINE_QUEUE_SIZE)
+inline constexpr uint8_t cap_push_ring   = 32;   // async push ring
 
 // ---- Gateway scheduling ----------------------------------------------------
 // SENDER-SIDE settle margin (Lua dv:5027-5030): a node timing its RTS to hit a gateway's window adds this guard so

@@ -51,7 +51,7 @@ def discover(ports=None, whoami_timeout=2.0):
             continue
         ni = NodeInfo(p, client)
         try:
-            w = parsers.parse_whoami(collect_burst(client, "whoami", timeout=whoami_timeout))
+            w = parsers.parse_whoami(collect_burst(client, "whoami", "[whoami]", timeout=whoami_timeout))
             if w:
                 ni.node_id, ni.hash, ni.leaf = w["node_id"], w["hash"], w["leaf"]
                 ni.gw, ni.gwonly, ni.mobile, ni.name = w["gw"], w["gwonly"], w["mobile"], w["name"]

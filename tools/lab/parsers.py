@@ -68,6 +68,16 @@ def parse_status(lines):
     return None
 
 
+def parse_routes(lines):
+    """[route] dest=… next=… hops=… score=… … lines -> [dict per route]; skips the [route]   gw_sched sub-lines."""
+    out = []
+    for ln in lines:
+        s = ln.strip()
+        if s.startswith("[route]") and "dest=" in s and "gw_sched" not in s:
+            out.append(_kv(s[len("[route]"):]))
+    return out
+
+
 def parse_duty(lines):
     for ln in lines:
         s = ln.strip()
@@ -125,6 +135,16 @@ def _selftest():
 
     st = parse_status(["[status] uptime_ms=1366813 rx=42 tx=10 isr=12 txq=0 txdrop=0 sleep=auto lbt=0 routes=4 pending=0"])
     assert st["routes"] == "4" and st["uptime_ms"] == "1366813" and st["pending"] == "0" and st["sleep"] == "auto", st
+
+    rts = parse_routes([
+        "[routes] n=2",
+        "[route] dest=141 next=141 hops=1 score=228 pen=0 gw=0 layer=4 age_ms=100 cand=2",
+        "[route] dest=76 next=141 hops=2 score=44 pen=0 gw=0 layer=4 age_ms=200 cand=1",
+        "[route]   gw_sched period=1000ms heard_ms=5",   # sub-line — must be skipped
+        "[routes] end",
+    ])
+    assert len(rts) == 2 and rts[0]["dest"] == "141" and rts[0]["hops"] == "1" \
+        and rts[0]["score"] == "228" and rts[1]["hops"] == "2", rts
 
     assert parse_duty(["[duty] 42%"]) == {"enabled": True, "pct": 42, "silent": False, "avail_s": 0}
     d = parse_duty(["[duty] 100% — SILENT, ~73 s to availability"])

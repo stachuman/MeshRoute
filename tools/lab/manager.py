@@ -9,19 +9,35 @@ from queue import Empty
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-def collect_burst(client, cmd, timeout=2.0, quiet=0.25):
-    """Send `cmd`; return the response burst (raw lines) until ~`quiet` s of silence AFTER the first line,
-    or the overall `timeout` (dead-node guard). Requires queue mode (client._on_line is None)."""
+def collect_burst(client, cmd, expect, timeout=2.0, tail_quiet=0.2, tail_max=1.5):
+    """Marker-aware burst collect (Amendment 2). Send `cmd`, then:
+      1) collect lines until one CONTAINS `expect` (the real response arrived) OR `timeout`,
+      2) then collect the tail until `tail_quiet` s of silence (the rest of a multi-line reply like [cfg]),
+         bounded by `tail_max`.
+    Robust to unsolicited lines (beacons / DAD traces) that PRECEDE the response during provisioning churn —
+    the old first-quiet-gap logic returned that noise with no marker line. If `expect` never arrives within
+    `timeout`, return whatever was collected (the caller's parser yields None = a transient read-miss, retried
+    next poll — NOT a hard failure). Requires queue mode (client._on_line is None)."""
     client._flush()
     client.send_line(cmd)
-    lines, deadline = [], time.time() + timeout
-    while time.time() < deadline:
+    lines, deadline, got = [], time.time() + timeout, False
+    while time.time() < deadline:                              # phase 1: wait for the marker
         try:
-            _, line = client._rxq.get(timeout=min(quiet, max(0.0, deadline - time.time())))
+            _, line = client._rxq.get(timeout=max(0.0, deadline - time.time()))
         except Empty:
-            if lines:
-                break          # got the burst, then a quiet gap -> done
-            continue           # nothing yet -> keep waiting until the overall timeout
+            break
+        lines.append(line)
+        if expect in line:
+            got = True
+            break
+    if not got:
+        return lines                                          # marker never came -> transient miss
+    tail_deadline = time.time() + tail_max
+    while time.time() < tail_deadline:                        # phase 2: the rest of the (multi-line) reply
+        try:
+            _, line = client._rxq.get(timeout=tail_quiet)
+        except Empty:
+            break
         lines.append(line)
     return lines
 
@@ -39,16 +55,24 @@ class NodeManager:
     def by_id(self, node_id):
         return next((n for n in self.nodes if n.responsive and n.node_id == node_id), None)
 
-    def request(self, node, cmd, timeout=2.0):
-        """One command in flight per node (writer-lock); returns the raw response-burst lines."""
+    def request(self, node, cmd, expect, timeout=2.0):
+        """One command in flight per node (writer-lock); marker-aware (Amendment 2: `expect` = the substring
+        that marks the real response, e.g. '[cfg]' / '[whoami]' / '> '). Returns the raw response-burst lines."""
         with node.lock:
             if node.client is None:
                 return []
             if node.client._on_line is not None:
                 raise RuntimeError(f"{node.port}: client in live mode — stop_live() before request()")
-            return collect_burst(node.client, cmd, timeout)
+            return collect_burst(node.client, cmd, expect, timeout)
 
-    def broadcast(self, cmd, timeout=2.0, nodes=None):
+    def send(self, node, line):
+        """Write-only under the writer-lock, for use IN LIVE MODE (no collect — the ack/RECV/CH arrive async on the
+        live stream). One command in flight per node still holds (the lock)."""
+        with node.lock:
+            if node.client is not None:
+                node.client.send_line(line)
+
+    def broadcast(self, cmd, expect, timeout=2.0, nodes=None):
         """request() to every (or `nodes`) responsive node CONCURRENTLY. Returns {node.port: lines}
         (keyed by port, NOT node_id — unprovisioned nodes share node_id=0)."""
         targets = nodes if nodes is not None else self.responsive()
@@ -56,7 +80,7 @@ class NodeManager:
         if not targets:
             return out
         with ThreadPoolExecutor(max_workers=min(self._max_workers, len(targets))) as ex:
-            futs = {ex.submit(self.request, n, cmd, timeout): n for n in targets}
+            futs = {ex.submit(self.request, n, cmd, expect, timeout): n for n in targets}
             for f in as_completed(futs):
                 n = futs[f]
                 try:
@@ -91,3 +115,47 @@ class NodeManager:
 
     def __exit__(self, *a):
         self.close()
+
+
+# --------------------------------------------------------------------------------------------------
+# Offline self-test (no device): `python3 tools/lab/manager.py`  — Amendment 2 marker-aware collection.
+# --------------------------------------------------------------------------------------------------
+def _selftest():
+    from queue import Queue
+
+    class _FakeClient:                       # send_line enqueues a canned device reply; reader is the queue
+        def __init__(self, reply):
+            self._reply = reply
+            self._rxq = Queue()
+            self._on_line = None
+
+        def _flush(self):
+            while not self._rxq.empty():
+                try:
+                    self._rxq.get_nowait()
+                except Empty:
+                    break
+
+        def send_line(self, cmd):
+            for ln in self._reply:
+                self._rxq.put((0.0, ln))
+
+    # an unsolicited BCN/trace line PRECEDES the [cfg] reply (the churn case the old logic dropped)
+    reply = [
+        " t=1234 ms «rx BCN from=222 n=0 flags= len=14 sf=9",            # noise before the response
+        "[cfg] node_id=73",
+        "      radio : freq=869.0000 routing_sf=8 sf_list=7,9 bw=125000 cr=5 tx_power=22",
+        "      leaf  : leaf_id=1 level_id=1 (→nibble 1) gateway=0 gateway_only=0 mobile=0",
+    ]
+    lines = collect_burst(_FakeClient(reply), "cfg", "[cfg]", timeout=1.0)
+    assert any(l.startswith("[cfg]") for l in lines), lines          # marker line captured despite the leading BCN
+    assert any("sf_list=7,9" in l for l in lines), lines             # the multi-line tail captured too
+
+    # marker never arrives -> return what we got (transient miss), do NOT hang past timeout
+    only_noise = collect_burst(_FakeClient([" t=1 ms «rx BCN ..."]), "cfg", "[cfg]", timeout=0.4)
+    assert not any(l.startswith("[cfg]") for l in only_noise), only_noise
+    print("manager selftest OK")
+
+
+if __name__ == "__main__":
+    _selftest()

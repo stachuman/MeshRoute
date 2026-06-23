@@ -1,0 +1,10 @@
+# MeshRoute lab — Phase 2 oracle scenario (meshroute_lab.py run tools/scenario-oracle.txt)
+workload: oracle
+#netspec: netspec.example.yaml   # optional: provision+verify first; omit to run against the standing net
+dm_per_node: 1                  # each node sends this many DMs (round-robin to OTHER nodes)
+chan_per_node: 1                # …and this many channel messages
+channel: 0
+ack: true                       # -a on the DMs (drives the acked-DM criterion)
+enc: false
+settle_s: 30                    # window after the last send to catch async ACKs + flood/repair (= IMMEDIATE pull)
+eventual_s: 300                 # late re-pull for "true eventual" (≈ beacon period; 0 disables) — channels gate on THIS

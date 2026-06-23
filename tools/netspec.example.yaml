@@ -1,9 +1,10 @@
 # MeshRoute lab netspec — one logical single-leaf network (meshroute_lab.py provision)
 freq_mhz: 869.0
 bw_khz: 125
-ctrl_sf: 9
-level_id: 1
+ctrl_sf: 8
+level_id: 4
 sf_list: "7,9"
-duty_pct: 10
-leaf_name: "bench"
+duty_pct: 1          # ⚠ very tight for a stress test (throttles even provisioning beacons) — 10 gives the harness room
+beacon_ms: 30000     # short provisioning beacon: DAD + config-pull retries every ~30 s (Amendment 3); `leave` resets to 900000
+leaf_name: "Test net"
 mother: first        # a node_id, or "first" (first discovered)
