@@ -663,3 +663,38 @@ TEST_CASE("FLOOD leaf-mismatch: a foreign-leaf RTS-M is dropped (no overhear, no
 //  "FLOOD gateway+owner CONSUMES but PROVIDER-off". is_gateway is now DERIVED=(n_layers==2), so a single-layer node
 //  cannot be a channel gateway; the gw_env pure-bridge / consumer-not-provider role no longer exists. A dual-layer
 //  gateway skips the WHOLE channel plane (Principle 11, n_layers==2 gates) — covered by test_dual_layer.cpp.)
+
+// ★ channel send-ctr persistence (reboot id-reuse fix). On metal the self-keyed _peer_send_counter is RAM-only, so a
+// reboot resets ctr->0 and the origin re-mints channel_msg_ids it already used -> holders dedup-drop them as
+// `already-buffered`. Persisting + restoring the self-keyed ctr CONTINUES it across reboot (no re-mint). Host-tested
+// via the channel_ctr()/restore_channel_ctr() accessors (the device NV pack/restore is bench-verified).
+TEST_CASE("channel ctr persist — reboot CONTINUES the ctr (no id re-mint); restore_channel_ctr is the fix") {
+    const uint8_t ID = 254; const uint32_t KEY = 0xC0FFEE00u;
+    TestHal h1; Node n1(h1, ID, KEY); { NodeConfig c = basic_cfg(); n1.on_init(c); }
+    CHECK(send_channel(n1, 0, "x").code == CmdCode::queued);
+    const uint16_t k = n1.channel_ctr();
+    CHECK(k == 1);                                                    // first channel ctr
+    const uint32_t id_pre = Node::channel_msg_id_mint(ID, KEY, static_cast<uint8_t>(k));
+
+    // NEGATIVE control (the bug): a fresh node = the reboot WITHOUT restore re-mints the SAME ctr -> the SAME id.
+    TestHal hb; Node nbug(hb, ID, KEY); { NodeConfig c = basic_cfg(); nbug.on_init(c); }
+    CHECK(send_channel(nbug, 0, "x").code == CmdCode::queued);
+    CHECK(nbug.channel_ctr() == k);
+    CHECK(Node::channel_msg_id_mint(ID, KEY, static_cast<uint8_t>(nbug.channel_ctr())) == id_pre);   // dup id -> dropped
+
+    // THE FIX: the reboot WITH restore_channel_ctr continues at k+1 -> a NEW id, never reused.
+    TestHal hf; Node nfix(hf, ID, KEY); { NodeConfig c = basic_cfg(); nfix.on_init(c); }
+    nfix.restore_channel_ctr(k);
+    CHECK(send_channel(nfix, 0, "x").code == CmdCode::queued);
+    CHECK(nfix.channel_ctr() == static_cast<uint16_t>(k + 1));
+    CHECK(Node::channel_msg_id_mint(ID, KEY, static_cast<uint8_t>(nfix.channel_ctr())) != id_pre);   // distinct id
+}
+
+TEST_CASE("channel ctr — channel_ctr() 0 before any send (v14->0 default); restore_channel_ctr round-trips") {
+    TestHal h; Node n(h, 7, 0xABCDu); { NodeConfig c = basic_cfg(); n.on_init(c); }
+    CHECK(n.channel_ctr() == 0);                                      // fresh / migrated-v14 record -> no false continuity
+    n.restore_channel_ctr(1234);
+    CHECK(n.channel_ctr() == 1234);                                   // restored value visible
+    CHECK(send_channel(n, 0, "x").code == CmdCode::queued);
+    CHECK(n.channel_ctr() == 1235);                                   // the next send continues from the restored base
+}

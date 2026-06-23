@@ -48,7 +48,13 @@ public:
     int      rand_range(int lo, int hi) override;       // [lo,hi); xorshift32 (device determinism is irrelevant)
     void     rand_bytes(uint8_t* out, size_t n) override;   // crypto entropy: mrrng::fill (HW RNG / SD-RNG); host build = zeros
     void     emit(const char* type, const EventField* fields, size_t n) override { (void)type; (void)fields; (void)n; }
-    void     log(const char* msg) override { (void)msg; }   // device routes telemetry over the console in fw_main, not here
+    // Debug hooks wired by fw_main (which owns Serial + frame_trace's g_mr_trace_on) so THIS TU stays Arduino-free
+    // (native-testable). _trace_fn mirrors `debug on`; _log_fn prints to the console. Unset (tests/sim) => no-op.
+    using TraceFn = bool (*)();
+    using LogFn   = void (*)(const char*);
+    void     set_debug_hooks(TraceFn t, LogFn l) { _trace_fn = t; _log_fn = l; }
+    bool     trace_on() const override { return _trace_fn ? _trace_fn() : false; }
+    void     log(const char* msg) override { if (_log_fn) _log_fn(msg); }   // routed to Serial by fw_main's sink (was a dead no-op before the flood-trace work)
     void     panic(const char* why) override { _panicked = true; _panic_why = why; }
 
     // ---- device-loop glue (called by fw_main, not part of the Hal contract) ----
@@ -105,6 +111,8 @@ private:
     int           _short_id     = -1;
     bool          _panicked     = false;
     const char*   _panic_why    = nullptr;
+    TraceFn       _trace_fn     = nullptr;   // debug hooks (set by fw_main); null on tests/sim
+    LogFn         _log_fn       = nullptr;
     // operating point (RF plan defaults: SF8 / BW125 / CR4-5 / 16-sym preamble / 14 dBm; CAD hold 100 ms)
     int16_t  _def_sf       = 8;
     int32_t  _def_bw       = 125000;

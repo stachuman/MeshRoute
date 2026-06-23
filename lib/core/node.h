@@ -483,6 +483,12 @@ public:
     bool              key_hash_of_id(uint8_t id, uint32_t& out) const;  // id_bind reverse lookup (AUTHORITATIVE-only); false = unknown/claimed-only (DST_HASH omitted). Public for the send-path test.
     uint8_t           claim_epoch()   const { return _claim_epoch; }
     void              restore_join_state(uint8_t claim_epoch, bool joined) { _claim_epoch = claim_epoch; _joined = joined; }  // boot: reload persisted DAD state (NV)
+    // Channel send-ctr persistence (metal reboot id-reuse fix): the self-keyed _peer_send_counter entry = the LAST
+    // channel ctr this node minted. channel_ctr() reads it (0 if none); restore_channel_ctr seeds it at boot so the
+    // first post-boot next_ctr(_node_id) CONTINUES (no re-mint of an already-used channel_msg_id). Call after on_init
+    // (when _active + _node_id are valid). Host-testable.
+    uint16_t          channel_ctr() const { auto it = _active->_peer_send_counter.find(_node_id); return it != _active->_peer_send_counter.end() ? it->second : 0; }
+    void              restore_channel_ctr(uint16_t v) { _active->_peer_send_counter[_node_id] = v; }
     // §6 DAD tiebreak (pure): higher claim_epoch wins; tie -> lower key_hash32 wins. Public for the convergence test.
     static bool       join_tiebreak_wins(uint8_t my_epoch, uint32_t my_key, uint8_t their_epoch, uint32_t their_key);
     int               id_bind_find_by_hash(uint32_t key_hash32, IdBindConf* conf_out = nullptr);   // -> node_id, or -1 (skips expired); opt. out: the binding's confidence (soft/hard resolve)
@@ -745,6 +751,7 @@ private:
     bool    handle_flood_rts(const rts_out& r, const uint8_t* in_bitmap, int16_t snr_q4);  // §4.2 RX of a FLOOD RTS-M; true = fresh state -> retune to catch DATA-M
     void    flood_forward_decision(uint8_t slot);                // §4.5 after DATA-M ingest: silent | arm backoff
     void    flood_rebroadcast_fire(uint8_t slot);                // kFloodRebcastTimerId+slot: re-flood {unmarked+me}, hop_left--
+    void    flood_log_coverage(const char* tag, uint32_t id, const uint8_t* bm) const;  // DEBUG (trace_on): dump my hops==1 neighbours + each bit's covered state in bm
     void    flood_fast_self_pull(uint8_t slot);                  // §4.4: caught RTS-M, missed DATA-M -> pull from src
     uint8_t max_data_sf() const;                                  // highest SF in allowed_sf_bitmap (largest = most robust)
     uint8_t max_data_sf_index() const;                            // its index in the ascending allowed set (the RTS sf_index)

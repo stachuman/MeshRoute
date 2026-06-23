@@ -113,6 +113,7 @@ static uint32_t g_ble_pin = 123456;        // 6-digit pairing passkey
 static int32_t  g_lat_e7 = 0;
 static int32_t  g_lon_e7 = 0;
 static uint8_t  g_persist_id = 0, g_persist_epoch = 0, g_persist_join = 0;   // last DAD lease state written to NV (change-detect)
+static uint16_t g_persist_channel_ctr = 0;   // last channel send-ctr written to NV (change-detect; v15 reboot id-reuse fix)
 
 // ---- device-console diagnostics (host tool: tools/meshroute_client.py) ---------------------------
 // Print the live routing table in the meshroute_client `routes` wire format.
@@ -1196,6 +1197,11 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
 
 void setup() {
     Serial.begin(115200);
+    // Debug-trace hooks: route lib/core's _hal.trace_on()/_hal.log() to `debug on` + Serial. Keeps device_hal
+    // Arduino-free (it can't read frame_trace.h's g_mr_trace_on). The log sink itself gates on g_mr_trace_on so
+    // `debug off` stays fully silent (as before — DeviceHal::log was a no-op). Captureless lambdas -> fn-pointers.
+    g_hal.set_debug_hooks([]() -> bool { return meshroute::g_mr_trace_on; },
+                          [](const char* m) { if (meshroute::g_mr_trace_on) Serial.println(m); });
     while (!Serial && millis() < 3000) { /* wait for USB CDC, but don't block forever */ }
     delay(2000);   // Settle: the USB-CDC port re-enumerates on every reset, and the host serial
                    // monitor reattaches AFTER that — so without a pause the one-time boot banner
@@ -1306,6 +1312,7 @@ void setup() {
     g_node.restore_join_state(nv.claim_epoch, (node_id != 0) && (nv.joined != 0));
     g_persist_id = node_id; g_persist_epoch = nv.claim_epoch;        // prime the persist tracker -> no spurious boot write
     g_persist_join = ((node_id != 0) && (nv.joined != 0)) ? 1 : 0;
+    g_persist_channel_ctr = nv.channel_ctr;                          // prime the channel-ctr shadow (restored above) -> no spurious boot write
     print_identity(idb);                                        // key_hash32 (hex) + name
     Serial.print(F("  node id   = ")); Serial.print(node_id);
     Serial.println(node_id == 0 ? F("  (UNPROVISIONED: cfg set node_id <1..254> + reboot, or join)") : F(""));
@@ -1335,6 +1342,7 @@ void setup() {
     // (always valid), so this never fires — but Slice 3 (per-layer cfg keys) can produce an invalid gateway, and
     // the device must NOT operate on a half-applied config. Print loud + leave the node unconfigured.
     if (!g_node.on_init(cfg)) Serial.println(F("  config    = REFUSED (invalid layer config — node NOT operational)"));
+    else g_node.restore_channel_ctr(nv.channel_ctr);            // v15: continue the channel send-ctr across reboot (no id-reuse); after on_init so _active+_node_id are valid
     // Install the inbox stores so record-on-delivery + pull_inbox work. With the interim RAM store: give it a
     // per-boot-unique storage_epoch (HW-RNG; drawn here BEFORE BLE init, so the bare-metal NRF_RNG path is still
     // valid) -> after a reboot the companion sees a NEW epoch and re-pulls (the volatile store lost its history).
@@ -1439,7 +1447,8 @@ static void service_console() {
 // (set via `cfg set`) are preserved. Cheap on the no-change path (3 compares); a flash write only on change.
 static void persist_join_if_changed() {
     const uint8_t id = g_node.node_id(), ep = g_node.claim_epoch(), jn = g_node.joined() ? 1 : 0;
-    if (id == g_persist_id && ep == g_persist_epoch && jn == g_persist_join) return;
+    const uint16_t cc = g_node.channel_ctr();                        // v15: persist the self-keyed channel send-ctr too (reboot id-reuse fix)
+    if (id == g_persist_id && ep == g_persist_epoch && jn == g_persist_join && cc == g_persist_channel_ctr) return;
     mrnv::Blob b{};
     if (!mrnv::load(b)) {                                            // no blob yet -> seed from live config
         const meshroute::NodeConfig& nc = g_node.config();
@@ -1461,8 +1470,8 @@ static void persist_join_if_changed() {
         for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
-    b.node_id = id; b.claim_epoch = ep; b.joined = jn;
-    if (mrnv::save(b)) { g_persist_id = id; g_persist_epoch = ep; g_persist_join = jn; }
+    b.node_id = id; b.claim_epoch = ep; b.joined = jn; b.channel_ctr = cc;
+    if (mrnv::save(b)) { g_persist_id = id; g_persist_epoch = ep; g_persist_join = jn; g_persist_channel_ctr = cc; }
 }
 
 // Step 4 — idle light-sleep: halt the CPU until `deadline_ms` OR a radio/console IRQ. The radio stays in

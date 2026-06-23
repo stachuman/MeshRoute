@@ -22,6 +22,7 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     uint16_t version;          // kVersion — a mismatch => ignore (use defaults)
     uint8_t  claim_epoch;      // node_id DAD: the static tiebreak key, persisted so a reboot keeps its seniority (was _pad hi)
     uint8_t  joined;           // node_id DAD: 1 = node_id was DAD-adopted (defends + yields) vs cfg-pinned (was _pad lo)
+    uint16_t channel_ctr;      // v15: the self-keyed channel send-ctr — persisted so a reboot CONTINUES (no id-reuse -> no `already-buffered` dedup-drop)
     double   freq_mhz;
     uint32_t bw_hz;
     uint32_t beacon_ms;
@@ -73,7 +74,7 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     uint8_t  leaf_name[16];            // v14: leaf_name bytes (cap = leaf_name_max = 16)
 };
 constexpr uint32_t kMagic   = 0x4D524331u;   // 'MRC1'
-constexpr uint16_t kVersion = 14;            // v14: R6.1 leaf-config (lineage_id + config_epoch + leaf_name). v13: gw_herd_slack. v12: per-layer frequency (l1_freq_mhz). v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
+constexpr uint16_t kVersion = 15;            // v15: channel_ctr persist (reboot id-reuse fix). v14: R6.1 leaf-config (lineage_id + config_epoch + leaf_name). v13: gw_herd_slack. v12: per-layer frequency (l1_freq_mhz). v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
                                              // block). v7: BLE companion policy. v6: role/topology (is_gateway/...). The Blob
                                              // grew, so every pre-v8 blob fails the `n == sizeof(out)` size check in load()
                                              // and is rejected -> the node re-provisions from defaults (BOTH boards — the

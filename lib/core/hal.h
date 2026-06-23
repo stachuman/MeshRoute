@@ -115,6 +115,9 @@ public:
     // ---- telemetry — the BACKEND serializes; Node stays format-agnostic.
     virtual void     emit(const char* type, const EventField* fields, size_t n_fields) = 0;
     virtual void     log(const char* msg) = 0;
+    // Debug-trace gate so portable lib/core can honour `debug on` WITHOUT pulling in Serial/frame_trace.h.
+    // Defaulted false — the fake HAL (tests) + the sim HAL inherit it unchanged; the device HAL overrides it.
+    virtual bool     trace_on() const { return false; }
 
     // ---- exception-free fatal hook (sim assert / device reboot)
     virtual void     panic(const char* why) { (void)why; }
