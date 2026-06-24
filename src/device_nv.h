@@ -14,6 +14,7 @@
 // falls back to the compile-time defaults, so an unprovisioned or mismatched-version chip still boots.
 #pragma once
 #include <stdint.h>
+#include "fault_log.h"   // mrfault::FaultLog — the /mrfault store is whole-blob R/W, exactly like Blob
 
 namespace mrnv {
 
@@ -194,6 +195,27 @@ inline bool factory_erase() {
     InternalFS.remove("/mri_dm");                           // inbox DM meta (next_seq / epoch / read cursor)
     InternalFS.remove("/mri_ch");                           // inbox channel meta  (the QSPI records: command -> store.wipe())
     return true;                                            // best-effort; load-time magic/version re-defaults anything left
+    // NB: /mrfault is DELIBERATELY left — the fault history is HW diagnostic, orthogonal to a config/identity reset.
+}
+// Persistent fault log (`/mrfault`) — whole-blob R/W like Blob (a kFaultVersion bump rejects an old record -> init fresh).
+inline bool load_faults(mrfault::FaultLog& out) {
+    using namespace Adafruit_LittleFS_Namespace;
+    InternalFS.begin();
+    File f(InternalFS);
+    if (!f.open("/mrfault", FILE_O_READ)) return false;
+    const int n = f.read(reinterpret_cast<uint8_t*>(&out), sizeof(out));
+    f.close();
+    return n == static_cast<int>(sizeof(out)) && mrfault::fault_log_valid(out);
+}
+inline bool save_faults(const mrfault::FaultLog& b) {
+    using namespace Adafruit_LittleFS_Namespace;
+    InternalFS.begin();
+    InternalFS.remove("/mrfault");
+    File f(InternalFS);
+    if (!f.open("/mrfault", FILE_O_WRITE)) return false;
+    const int n = f.write(reinterpret_cast<const uint8_t*>(&b), sizeof(b));
+    f.close();
+    return n == static_cast<int>(sizeof(b));
 }
 }  // namespace mrnv
 #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
@@ -253,6 +275,23 @@ inline bool factory_erase() {
     p.end();
     return ok;
 }
+// Persistent fault log on ESP32 — its OWN NVS namespace ("mrfault"), so factory_erase()'s clear of "mr" leaves the
+// HW fault history intact (consistent with nRF52 keeping /mrfault). A kFaultVersion bump rejects an old record.
+inline bool load_faults(mrfault::FaultLog& out) {
+    Preferences p;
+    if (!p.begin("mrfault", /*readOnly=*/true)) return false;
+    if (!p.isKey("log")) { p.end(); return false; }      // no record yet (first boot) — silent, not an NVS error
+    const size_t n = p.getBytes("log", &out, sizeof(out));
+    p.end();
+    return n == sizeof(out) && mrfault::fault_log_valid(out);
+}
+inline bool save_faults(const mrfault::FaultLog& b) {
+    Preferences p;
+    if (!p.begin("mrfault", /*readOnly=*/false)) return false;
+    const size_t n = p.putBytes("log", &b, sizeof(b));
+    p.end();
+    return n == sizeof(b);
+}
 }  // namespace mrnv
 #else
 namespace mrnv {                                       // unknown platform -> no NV (always defaults)
@@ -263,6 +302,8 @@ inline bool save_id(const IdBlob&) { return false; }
 inline bool load_peers(PeerBlob&) { return false; }
 inline bool save_peers(const PeerBlob&) { return false; }
 inline bool factory_erase() { return true; }          // §2 native/unknown no-op stub (device-less build still compiles)
+inline bool load_faults(mrfault::FaultLog&) { return false; }
+inline bool save_faults(const mrfault::FaultLog&) { return false; }
 }  // namespace mrnv
 #endif
 #endif  // ARDUINO

@@ -1,0 +1,16 @@
+# MeshRoute lab — realistic-pacing oracle scenario (meshroute_lab.py run tools/scenario-realistic.txt [-v])
+# Same WHAT as scenario-oracle.txt (1 DM + 1 channel per node), but the sends are POISSON-SPREAD over a window
+# instead of fired back-to-back — so the transmitters DESYNCHRONIZE. The burst version stacks every node's TX into
+# ~5 s and self-collides (the `rxbad st=-7` CRC storm we measured); this separates the test artifact from a real
+# firmware gap. Seed makes a run reproducible; vary it (or remove for seed=0) to sample different arrival patterns.
+workload: oracle
+pacing: poisson                 # burst (default) | poisson
+spread_s: 120                   # spread the sends over ~this many seconds (Poisson arrivals; the tail runs a bit past)
+seed: 0                         # reproducible schedule; change to resample
+dm_per_node: 1
+chan_per_node: 1
+channel: 0
+ack: true
+enc: false
+settle_s: 30                    # after the LAST scheduled send
+eventual_s: 400                 # > spread_s + settle + repair — late sends still get a fair eventual window

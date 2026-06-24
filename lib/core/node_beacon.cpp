@@ -285,7 +285,9 @@ void Node::emit_beacon(const char* kind) {
     // ROADMAP §3: advertise our dirty channel msgs in the BCN digest ext-TLV (gateways skip — Principle 11).
     // build_channel_digest_ext is draw-free; its ad_count/dirty side effects track per built beacon (dv:1453).
     uint8_t ext_buf[64]; size_t ext_n = 0;   // §P4: holds digest(<=14) + gateway(<=15) + suspect(<=16) TLVs; pack_beacon checks the total vs beacon_max_bytes
-    if (!_cfg.is_gateway) ext_n = build_channel_digest_ext(ext_buf, sizeof(ext_buf));
+    // SELECT the channel digest (B, 2026-06-23): the build is side-effect-free; the ad_count++/retire is COMMITTED below, ONLY if the beacon airs.
+    uint32_t ch_picked[protocol::channel_dirty_max_per_bcn]; uint8_t ch_npicked = 0;
+    if (!_cfg.is_gateway) ext_n = build_channel_digest_ext(ext_buf, sizeof(ext_buf), ch_picked, ch_npicked);
     // Multi-hop gateway discovery: append the type-4 gateway-layer TLV (a gateway self-adverts its other leaf; EVERY
     // node re-gossips its _bridged_layers). Returns 0 when there's nothing -> a single-layer node emits NO type-4 TLV
     // (it's not a gateway + never ingests one), so s18 stays wire byte-identical. KEYSTONE GUARD.
@@ -349,12 +351,15 @@ void Node::emit_beacon(const char* kind) {
     TxParams p;
     p.sf    = static_cast<int16_t>(_cfg.routing_sf);
     p.label = "BCN";
-    [[maybe_unused]] const bool sent = tx_flood(buf, len, p.sf);   // R4.5 FLOOD LBT + duty pre-check (was a raw _hal.tx)
-    _last_beacon_tx_ms = _hal.now();
+    const bool sent = tx_flood(buf, len, p.sf);   // R4.5 FLOOD LBT + duty pre-check (was a raw _hal.tx)
+    _last_beacon_tx_ms = _hal.now();              // OUT OF SCOPE (flagged in the PR): stamped even when !sent — a broader beacon min-interval/Lua-parity concern, its own analysis
 
     // Clear dirty ONLY on the dirty entries that landed in THIS beacon — overflow
     // dirty routes stay dirty for the next one (dv_dual_sf.lua:1832-1836).
     for (uint8_t k = 0; k < dirty_n; ++k) _active->_rt[pack_idx[k]].dirty = false;
+    // Channel digest COMMIT (B, 2026-06-23): burn an ad_count / trigger holder-aware retire ONLY for advertisements that
+    // ACTUALLY AIRED. An LBT-suppressed / pack-dropped beacon never orphans a digest entry (the air-honesty fix).
+    if (sent) commit_channel_digest_advertised(ch_picked, ch_npicked);
 
     MR_EMIT("beacon_tx", EF_I("n_entries",n),EF_I("rt_total",_active->_rt_count),EF_I("routing_sf",_cfg.routing_sf),EF_S("kind",kind),EF_I("result",sent ? 0 : 2));
     MR_EMIT("beacon_diff_breakdown", EF_I("dirty_n",dirty_n),EF_I("stable_n",stable_n),EF_I("total_dirty",total_dirty));

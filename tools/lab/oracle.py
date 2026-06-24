@@ -135,10 +135,17 @@ def run(manager, scenario, run_id, run_dir, settle_s=30.0, eventual_s=300.0, ver
 
     manager.live_all(cb)
 
-    # 2. issue actions (sequential round-robin; deterministic).
+    # 2. issue actions ON THEIR SCHEDULE (burst = back-to-back, Phase-2 default; poisson = desynchronized over spread_s).
     actions = workload.build_actions(scenario, nodes, run_id)
+    workload.schedule(actions, scenario)                             # assign each action's `.at` offset + sort by arrival
+    if str(scenario.get("pacing", "burst")).strip().lower() == "poisson":
+        vprint(f"[pacing] poisson spread_s={scenario.get('spread_s', 120)} seed={scenario.get('seed', 0)} — sends desynchronized")
+    issue_t0 = time.time()
     send_ledger, hangs = [], []
     for a in actions:
+        wait = (issue_t0 + a.at) - time.time()                       # hold until this action's scheduled arrival
+        if wait > 0:
+            time.sleep(wait)
         src = node_by_id[a.src]
         while not queued_q[src.port].empty():                         # drain any stale queued line
             try:
@@ -162,8 +169,7 @@ def run(manager, scenario, run_id, run_dir, settle_s=30.0, eventual_s=300.0, ver
                 ctr_to_msg[(a.src, ctr)] = (a.tag, host_send_ts)
         send_ledger.append({"tag": a.tag, "src": a.src, "kind": a.kind, "dst": a.dst, "chan": a.chan,
                             "ack": a.ack, "enc": a.enc, "ctr": ctr, "host_send_ts": host_send_ts})
-        vprint(f"[send] {a.src} → {'DM ' + str(a.dst) if a.kind == 'dm' else 'CH ' + str(a.chan)}  ctr={ctr}   {a.tag}")
-        time.sleep(inter_gap_s)
+        vprint(f"[send] {a.src} → {'DM ' + str(a.dst) if a.kind == 'dm' else 'CH ' + str(a.chan)}  ctr={ctr}  @{a.at:.1f}s   {a.tag}")
 
     # 3. settle window (flood + early repair), then the IMMEDIATE pull.
     vprint(f"[settle] {int(settle_s)}s ...")

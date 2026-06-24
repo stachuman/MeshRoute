@@ -299,30 +299,69 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
 // (after the have/cap/recent gates, before storage) so the streams stay aligned.
 // =============================================================================
 
-// build_channel_digest_ext (dv:1426): walk the buffer NEWEST-first, advertise up to
-// channel_dirty_max_per_bcn DIRTY ids, increment each picked entry's bcn_ad_count, and retire it
-// (dirty=false) once it has been advertised channel_dirty_max_advertisements times (the s12 holder
-// load-bound). Writes the ext-TLV bytes into `out`; returns the byte count (0 = nothing to advertise).
-// DRAW-FREE — fires on every beacon build (the side effects track per-beacon, matching the Lua).
-size_t Node::build_channel_digest_ext(uint8_t* out, size_t cap) {
-    uint32_t ids[protocol::channel_dirty_max_per_bcn];
-    uint8_t  count = 0;
+// build_channel_digest_ext — SELECT (dv:1426): walk the buffer NEWEST-first, pick up to channel_dirty_max_per_bcn
+// DIRTY ids, pack the ext-TLV, and return the picked ids in `picked`/`npicked`. SIDE-EFFECT-FREE (B, 2026-06-23):
+// the per-advertisement ad_count++/retire is COMMITTED by emit_beacon only when the beacon actually aired — an
+// LBT-suppressed / pack-dropped beacon no longer burns an advertisement. DRAW-FREE. Returns the TLV byte count.
+size_t Node::build_channel_digest_ext(uint8_t* out, size_t cap, uint32_t* picked, uint8_t& npicked) {
+    uint8_t count = 0;
     for (int i = static_cast<int>(_active->_channel_buffer_n) - 1; i >= 0 && count < protocol::channel_dirty_max_per_bcn; --i) {
-        ChannelEntry& e = _active->_channel_buffer[static_cast<uint16_t>(i)];
-        if (!e.dirty) continue;
-        ids[count++] = e.id;
-        if (++e.bcn_ad_count >= _cfg.channel_dirty_max_advertisements) {   // K: per-node override (Lua k_max = node.channel_dirty_max_advertisements or 3)
+        const ChannelEntry& e = _active->_channel_buffer[static_cast<uint16_t>(i)];
+        if (e.dirty) picked[count++] = e.id;                       // SELECT only — no bcn_ad_count / dirty mutation here
+    }
+    npicked = count;
+    if (count == 0) return 0;
+    return pack_channel_digest_tlv(picked, count, std::span<uint8_t>(out, cap));
+}
+
+// Holder-aware retirement predicate (A, 2026-06-23): does every LIVE 1-hop neighbour already hold `e`? Same neighbour
+// set as channel_buffer_pick_eviction (rt hops==1), but DELIBERATELY NOT shared — eviction's nn==0 path is
+// fallback-evict-oldest (*safe=false), the OPPOSITE of retirement's nn==0=retire; merging would flip eviction's
+// telemetry mode (fallback->safe), a silent regression. nn==0 -> no live neighbour to serve -> nothing to advertise
+// -> retire. Else true iff every live 1-hop neighbour is in e.seen_by (they all hold it -> the repair-pull is moot).
+bool Node::channel_entry_fully_seen(const ChannelEntry& e) const {
+    uint8_t nbrs[protocol::cap_routes]; uint8_t nn = 0;
+    for (uint8_t i = 0; i < _active->_rt_count; ++i)
+        if (_active->_rt[i].n > 0 && _active->_rt[i].candidates[0].hops == 1) nbrs[nn++] = _active->_rt[i].dest;
+    if (nn == 0) return true;                                      // no live 1-hop neighbour -> nothing to serve -> retire OK
+    for (uint8_t j = 0; j < nn; ++j) if (!seen_test(e.seen_by, nbrs[j])) return false;
+    return true;                                                   // every live 1-hop neighbour holds it
+}
+
+// commit_channel_digest_advertised — COMMIT (B): the per-advertisement side effects for the ids that ACTUALLY AIRED
+// (emit_beacon calls this only when tx_flood `sent`). Re-find by id (indices may shift between select + commit; n<=3 so
+// the cost is nil). ++bcn_ad_count, then RETIRE on HOLDER COVERAGE (channel_entry_fully_seen) — a blind count no longer
+// orphans a held-by-nobody origin; channel_dirty_max_advertisements is now just the horizon SAFETY backstop (the
+// asymmetric neighbour we hear but that never pulls). A retired entry still answers pulls; buffer eviction is the bound.
+void Node::commit_channel_digest_advertised(const uint32_t* ids, uint8_t n) {
+    for (uint8_t k = 0; k < n; ++k) {
+        const int idx = channel_buffer_find(ids[k]);
+        if (idx < 0) continue;                                     // evicted between select + commit -> nothing to commit
+        ChannelEntry& e = _active->_channel_buffer[static_cast<uint16_t>(idx)];
+        ++e.bcn_ad_count;
+        const bool seen    = channel_entry_fully_seen(e);          // every live 1-hop neighbour holds it (or none to serve)
+        const bool horizon = e.bcn_ad_count >= _cfg.channel_dirty_max_advertisements;
+        const bool retired = seen || horizon;
+        if (retired) {
             e.dirty = false;                                       // retire from advertising (still answers pulls)
             MR_TELEMETRY(
                 EventField f[] = { { .key = "id",         .type = EventField::T::i64, .i = static_cast<int64_t>(e.id) },
                                    { .key = "channel_id", .type = EventField::T::i64, .i = e.channel_id },
                                    { .key = "ad_count",   .type = EventField::T::i64, .i = e.bcn_ad_count },
-                                   { .key = "threshold",  .type = EventField::T::i64, .i = _cfg.channel_dirty_max_advertisements } };
+                                   { .key = "reason",     .type = EventField::T::str, .s = seen ? "seen" : "horizon" } };   // which path retired it
                 _hal.emit("channel_dirty_cleared", f, 4); );
         }
+        // ★ metal trace (debug on): shows whether an orphan (seen=0/N) keeps advertising or retired early. THE key line.
+        if (_hal.trace_on()) {
+            uint8_t live = 0, seen_cnt = 0;
+            for (uint8_t i = 0; i < _active->_rt_count; ++i)
+                if (_active->_rt[i].n > 0 && _active->_rt[i].candidates[0].hops == 1) { ++live; if (seen_test(e.seen_by, _active->_rt[i].dest)) ++seen_cnt; }
+            char b[80];
+            if (retired) snprintf(b, sizeof b, "chan %08lX ad=%u seen=%u/%u -> RETIRE(%s)", (unsigned long)e.id, e.bcn_ad_count, seen_cnt, live, seen ? "seen" : "horizon");
+            else         snprintf(b, sizeof b, "chan %08lX ad=%u seen=%u/%u -> ADVERTISED", (unsigned long)e.id, e.bcn_ad_count, seen_cnt, live);
+            _hal.log(b);
+        }
     }
-    if (count == 0) return 0;
-    return pack_channel_digest_tlv(ids, count, std::span<uint8_t>(out, cap));
 }
 
 // re-pull dedup ring (Lua channel_pull_recent map). recently = a pull for `id` fired within the window.
@@ -359,10 +398,17 @@ void Node::process_channel_digest(uint8_t src, const uint32_t* ids, uint8_t coun
         const uint32_t id = ids[k];
         if (channel_buffer_find(id) >= 0) {                       // already have it -> track the holder
             channel_mark_seen_by(id, src);
+            if (_hal.trace_on()) { char b[64]; snprintf(b, sizeof b, "chan digest<-%u %08lX HAVE", src, (unsigned long)id); _hal.log(b); }
             continue;
         }
-        if (scheduled >= protocol::cap_channel_pulls_per_bcn_cycle) continue;   // per-beacon pull cap
-        if (channel_pull_recently(id)) continue;                  // recent-window gate (BEFORE the draw)
+        if (scheduled >= protocol::cap_channel_pulls_per_bcn_cycle) {           // per-beacon pull cap
+            if (_hal.trace_on()) { char b[64]; snprintf(b, sizeof b, "chan digest<-%u %08lX MISSING -> skip(cap)", src, (unsigned long)id); _hal.log(b); }
+            continue;
+        }
+        if (channel_pull_recently(id)) {                          // recent-window gate (BEFORE the draw)
+            if (_hal.trace_on()) { char b[64]; snprintf(b, sizeof b, "chan digest<-%u %08lX MISSING -> skip(recent)", src, (unsigned long)id); _hal.log(b); }
+            continue;
+        }
         // THE DRAW (dv:3568) — rand(0, channel_pull_jitter_ms+1). Made here regardless of slot availability
         // (the Lua always draws + stores into an unbounded map), so the stream stays aligned.
         const uint32_t jitter = static_cast<uint32_t>(_hal.rand_range(0, static_cast<int32_t>(_cfg.channel_pull_jitter_ms) + 1));
@@ -378,9 +424,11 @@ void Node::process_channel_digest(uint8_t src, const uint32_t* ids, uint8_t coun
             MR_TELEMETRY(
                 EventField f[] = { { .key = "id", .type = EventField::T::i64, .i = static_cast<int64_t>(id) } };
                 _hal.emit("channel_pull_drop_full", f, 1); );
+            if (_hal.trace_on()) { char b[64]; snprintf(b, sizeof b, "chan digest<-%u %08lX MISSING -> skip(ringfull)", src, (unsigned long)id); _hal.log(b); }
             continue;
         }
         _active->_channel_pull_pending[slot] = { /*active*/true, id, src, /*requested_at*/now, /*fire_at*/now + jitter };
+        if (_hal.trace_on()) { char b[72]; snprintf(b, sizeof b, "chan digest<-%u %08lX MISSING -> pull@%lums", src, (unsigned long)id, (unsigned long)jitter); _hal.log(b); }
         MR_TELEMETRY(
             EventField f[] = { { .key = "id",       .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
                                { .key = "target",   .type = EventField::T::i64, .i = src },
@@ -419,6 +467,7 @@ void Node::channel_pull_fire(uint8_t slot) {
         _hal.emit("channel_pull_sent", f, 3); );
     tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
     channel_pull_mark(id);                                        // dedup re-pulls for the window
+    if (_hal.trace_on()) { char b[64]; snprintf(b, sizeof b, "chan pull %08lX -> %u", (unsigned long)id, target); _hal.log(b); }
 }
 
 // =============================================================================
@@ -456,6 +505,7 @@ void Node::enqueue_channel_m(uint8_t target, const ChannelEntry& e) {
     item.inner_len = static_cast<uint8_t>(6 + e.payload_len);
     item.enqueue_time_ms = _hal.now();
     _active->_tx_queue[_active->_tx_queue_n++] = item;
+    if (_hal.trace_on()) { char b[64]; snprintf(b, sizeof b, "chan serve %08lX -> %u", (unsigned long)e.id, target); _hal.log(b); }
     MR_TELEMETRY(
         EventField f[] = { { .key = "id", .type = EventField::T::i64, .i = static_cast<int64_t>(e.id) },
                            { .key = "to", .type = EventField::T::i64, .i = target } };

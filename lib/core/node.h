@@ -436,6 +436,10 @@ public:
     // routes / id-bindings / gateway schedules so the node starts the new network with a clean table. (The heal keeps
     // its routes — same network, only the id changed — so this is NOT in reset_join_for_reprovision.)
     void clear_routing_state();
+    // `prep-restart` middle-tier reset: drop EVERY volatile/learned table (routes + channel buffer + liveness + pending
+    // TX/RX + flood + digest/pull + dedup maps + parked/l2c/mediated) to a fresh-but-PROVISIONED state. KEEPS _cfg
+    // (node_id/leaf/level_id/sf_list/lineage), the crypto identity, and the DAD join — no re-join needed. (node.cpp)
+    void clear_learned_state();
     // Set by a verb reprovision (do_dad); join_adopt consumes it to restart discovery ONCE the new id is stable, so the
     // fast-cadence beacons + the REQ_SYNC route-bootstrap go out under the adopted id (not the transient 0).
     void set_rediscover_pending(bool v) { _pending_rediscover = v; }
@@ -723,11 +727,14 @@ private:
     bool    channel_mark_seen_by(uint32_t id, uint8_t neighbour);  // set seen_by bit; true if newly set (dv:3434)
     bool    channel_origin_admit(uint8_t origin, uint32_t msg_id); // per-origin distinct-count anti-spam (dv:3456)
     int     channel_buffer_pick_eviction(bool* safe) const;        // oldest-all-seen else oldest; index (dv:3485)
+    bool    channel_entry_fully_seen(const ChannelEntry& e) const; // 2026-06-23: every live 1-hop neighbour holds e (or none to serve) -> retire-OK (holder-aware retirement; NOT shared with pick_eviction — opposite nn==0 meaning)
     void    channel_buffer_add(const ChannelEntry& e);             // insert; evict if full (dv:3511)
     void    cancel_channel_pull(uint32_t id, uint8_t overheard_from, bool peer_q = false); // pull cancel: peer_q=true -> a peer's Q pulled it (dv:11831); else we received it (dv:11006)
     uint16_t do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t body_len);  // send_channel origination (dv:12126)
-    // Phase 2: digest emit/ingest + the jittered pull (THE draw).
-    size_t  build_channel_digest_ext(uint8_t* out, size_t cap);    // dirty ids -> BCN ext-TLV; ad_count++/retire (dv:1426)
+    // Phase 2: digest emit/ingest + the jittered pull (THE draw). SELECT/COMMIT split (B, 2026-06-23): build is side-effect-free
+    // (fills `picked`); the per-ad ad_count++/retire is COMMITTED by emit_beacon ONLY when the beacon actually aired (tx_flood sent).
+    size_t  build_channel_digest_ext(uint8_t* out, size_t cap, uint32_t* picked, uint8_t& npicked);  // SELECT: dirty ids -> BCN ext-TLV; NO side effects (dv:1426)
+    void    commit_channel_digest_advertised(const uint32_t* ids, uint8_t n);  // COMMIT (on air): ad_count++ + holder-aware retire
     void    process_channel_digest(uint8_t src, const uint32_t* ids, uint8_t count);  // diff -> mark/schedule pull (dv:3546)
     void    channel_pull_fire(uint8_t slot);                       // kChannelPullTimerId+slot: re-check overhear -> tx the pull
     bool    channel_pull_recently(uint32_t id) const;             // re-pull dedup window (dv:3567)

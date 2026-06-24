@@ -39,7 +39,8 @@ public:
     int      last_rx_sf = -1;
     TxResult tx(const uint8_t* b, size_t n, const TxParams&) override { tx_frames.emplace_back(b, b + n); return TxResult::ok; }
     void     set_rx_sf(int sf) override { last_rx_sf = sf; }
-    uint64_t channel_busy_until() override { return 0; }
+    uint64_t _busy_until = 0;          // LBT knob: a far-future value (with cfg.lbt_enabled) makes tx_flood DROP (sent=false)
+    uint64_t channel_busy_until() override { return _busy_until; }
     uint64_t airtime_used_ms(uint64_t) override { return 0; }
     uint64_t oldest_tx_end_ms() override { return 0; }
     uint64_t now() override { return _now; }
@@ -372,14 +373,17 @@ TEST_CASE("§P4 BCN suspect/liveness ext-TLV: pack/parse round-trip, type select
     CHECK(meshroute::parse_suspect_tlv(std::span<const uint8_t>(), out, 8) == 0);
 }
 
-TEST_CASE("digest emit: a dirty entry is advertised in the BCN digest TLV; retires after K=3 ads") {
+// Holder-aware retirement (2026-06-23): a digest entry now retires on HOLDER COVERAGE, not a blind K=3. With NO live
+// 1-hop neighbour (nothing to serve) channel_entry_fully_seen is vacuously true -> it retires after the FIRST AIRED ad
+// (the advertised-then-committed beacon still carries the id; the retire applies after TX). Air-honest: commit-on-`sent`.
+TEST_CASE("digest emit: a dirty entry is advertised in the BCN digest TLV; with NO neighbour retires after 1 aired ad") {
     TestHal hal; Node node(hal, 3, 0x1234ABCDu);
     NodeConfig cfg = basic_cfg(); cfg.quiet_threshold_ms = 0;          // fast beacon path (no throttle/jitter)
     node.on_init(cfg);
     const CmdResult r = send_channel(node, 7, "hi");
     const uint32_t id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
     drain_originate_flood(node);                                       // complete the flood -> free for the beacon
-    node.on_timer(kBeaconTimerId);                                     // beacon #1
+    node.on_timer(kBeaconTimerId);                                     // beacon #1 (aired): advertises id, THEN commits the retire
     const auto* bcn = hal.last_tx_cmd(0x0); CHECK(bcn);
     if (bcn) {
         auto pb = parse_beacon(std::span<const uint8_t>(bcn->data(), bcn->size())); CHECK(pb.has_value());
@@ -388,10 +392,65 @@ TEST_CASE("digest emit: a dirty entry is advertised in the BCN digest TLV; retir
             uint32_t out[3] = {}; CHECK(parse_channel_digest_tlv(ext, out, 3) == 1); CHECK(out[0] == id);
         }
     }
-    CHECK(node.channel_entry_dirty(id));                               // still dirty after 1 ad
-    node.on_timer(kBeaconTimerId); node.on_timer(kBeaconTimerId);      // #2, #3 -> ad_count hits K=3
-    CHECK(!node.channel_entry_dirty(id));                             // retired from advertising (still buffered)
-    CHECK(node.channel_has(id));
+    CHECK(!node.channel_entry_dirty(id));                             // nn==0 (no neighbour to serve) -> retired after THIS aired ad
+    CHECK(node.channel_has(id));                                      // still buffered (answers pulls)
+    CHECK(hal.count("channel_dirty_cleared") == 1);
+}
+
+// (A) the bench regression: an UNCOVERED live 1-hop neighbour keeps the entry advertising PAST the old K=3 (no orphan);
+// once that neighbour is known to hold it (seen_by covered via its digest cross-ref) the next aired ad retires it.
+TEST_CASE("digest holder-aware: an uncovered 1-hop neighbour keeps it dirty past K=3; coverage then retires it") {
+    TestHal hal; Node node(hal, 3, 0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); cfg.quiet_threshold_ms = 0;
+    node.on_init(cfg);
+    std::array<uint8_t,64> nb{}; node.on_recv(nb.data(), mk_beacon(7, nb), meta_at(10));   // neighbour 7 = a live hops==1 node
+    const CmdResult r = send_channel(node, 5, "hi");
+    const uint32_t id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
+    drain_originate_flood(node);
+    for (int k = 0; k < 4; ++k) node.on_timer(kBeaconTimerId);        // 4 aired ads > the OLD K=3 (would have retired then)
+    CHECK(node.channel_entry_dirty(id));                              // STILL advertising: 7 hasn't pulled (seen_by[7] unset)
+    CHECK(hal.count("channel_dirty_cleared") == 0);
+    std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_beacon_digest(7, &id, 1, db), meta_at(20));  // 7 advertises id -> it HOLDS it -> mark seen_by[7]
+    node.on_timer(kBeaconTimerId);                                    // next aired ad: now fully covered -> retire (reason "seen")
+    CHECK(!node.channel_entry_dirty(id));
+    CHECK(hal.count("channel_dirty_cleared") == 1);
+}
+
+// (A) the horizon SAFETY backstop: a never-covered (asymmetric — we hear it, it never pulls from us) neighbour can't
+// hold the entry dirty forever; channel_dirty_max_advertisements aired ads retire it (reason "horizon").
+TEST_CASE("digest holder-aware: the horizon backstop retires a never-covered neighbour after K_max aired ads") {
+    TestHal hal; Node node(hal, 3, 0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); cfg.quiet_threshold_ms = 0;
+    node.on_init(cfg);
+    std::array<uint8_t,64> nb{}; node.on_recv(nb.data(), mk_beacon(7, nb), meta_at(10));   // 7 is hops==1 but never pulls
+    const CmdResult r = send_channel(node, 5, "hi");
+    const uint32_t id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
+    drain_originate_flood(node);
+    for (uint8_t k = 1; k < protocol::channel_dirty_max_advertisements; ++k) {   // ads 1..K_max-1
+        node.on_timer(kBeaconTimerId);
+        CHECK(node.channel_entry_dirty(id));                         // still advertising (uncovered, below the horizon)
+    }
+    node.on_timer(kBeaconTimerId);                                   // the K_max-th aired ad -> horizon retire
+    CHECK(!node.channel_entry_dirty(id));
+    CHECK(hal.count("channel_dirty_cleared") == 1);
+}
+
+// (B) air-honest accounting: an advertisement that DIDN'T air (LBT-suppressed) must NOT burn an ad_count or retire;
+// only an AIRED beacon commits. Drive tx_flood->false via a far-future channel-busy (with lbt_enabled).
+TEST_CASE("digest air-honest: an LBT-suppressed beacon burns no ad_count / no retire; only an aired beacon commits") {
+    TestHal hal; Node node(hal, 3, 0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); cfg.quiet_threshold_ms = 0; cfg.lbt_enabled = true;
+    node.on_init(cfg);
+    const CmdResult r = send_channel(node, 7, "hi");                  // (busy=0 here -> the originate flood airs)
+    const uint32_t id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
+    drain_originate_flood(node);
+    hal._busy_until = hal._now + 100000000ull;                        // channel busy far past the flood LBT defer cap -> tx_flood DROPS
+    node.on_timer(kBeaconTimerId);                                    // beacon SUPPRESSED (not aired) -> no commit
+    CHECK(node.channel_entry_dirty(id));                             // NOT retired: the ad never aired
+    CHECK(hal.count("channel_dirty_cleared") == 0);
+    hal._busy_until = 0;                                              // channel clear -> the beacon airs
+    node.on_timer(kBeaconTimerId);                                    // AIRED: commit -> nn==0 fully-seen -> retire
+    CHECK(!node.channel_entry_dirty(id));
     CHECK(hal.count("channel_dirty_cleared") == 1);
 }
 
@@ -697,4 +756,30 @@ TEST_CASE("channel ctr — channel_ctr() 0 before any send (v14->0 default); res
     CHECK(n.channel_ctr() == 1234);                                   // restored value visible
     CHECK(send_channel(n, 0, "x").code == CmdCode::queued);
     CHECK(n.channel_ctr() == 1235);                                   // the next send continues from the restored base
+}
+
+// prep-restart (2026-06-24): clear_learned_state() empties the learned tables (routes + channel buffer + pending)
+// but KEEPS the provisioning (node_id / leaf / sf_list) + the stable identity, and the node re-learns afterwards.
+TEST_CASE("prep-restart: clear_learned_state empties routes/channel/pending, KEEPS config+identity, re-learns after") {
+    TestHal hal; Node node(hal, /*id=*/42, /*key=*/0xABCDu);
+    NodeConfig cfg = basic_cfg(); cfg.allowed_sf_bitmap = (1u << 7) | (1u << 9);   // leaf_id stays 0 to match mk_beacon's leaf
+    node.on_init(cfg);
+    std::array<uint8_t,64> nb{}; node.on_recv(nb.data(), mk_beacon(7, nb), meta_at(10));   // a 1-hop neighbour -> a route
+    send_channel(node, 5, "hi"); drain_originate_flood(node);                              // a buffered channel msg
+    CHECK(node.rt_count() > 0);
+    CHECK(node.channel_buffer_count() == 1);
+    const uint8_t  id0 = node.node_id(); const uint8_t leaf0 = node.config().leaf_id;
+    const uint16_t sf0 = node.config().allowed_sf_bitmap; const uint32_t key0 = node.key_hash32();
+
+    node.clear_learned_state();
+
+    CHECK(node.rt_count() == 0);                          // routes gone
+    CHECK(node.channel_buffer_count() == 0);              // channel buffer gone
+    CHECK_FALSE(node.has_pending_tx());                   // no in-flight TX stranded
+    CHECK(node.node_id() == id0);                         // provisioning + identity UNCHANGED
+    CHECK(node.config().leaf_id == leaf0);
+    CHECK(node.config().allowed_sf_bitmap == sf0);
+    CHECK(node.key_hash32() == key0);
+    std::array<uint8_t,64> nb2{}; node.on_recv(nb2.data(), mk_beacon(9, nb2), meta_at(20));   // re-learns (clean reset, not a break)
+    CHECK(node.rt_count() > 0);
 }

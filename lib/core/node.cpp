@@ -284,6 +284,43 @@ void Node::clear_routing_state() {
     for (uint8_t i = 0; i < protocol::cap_bridged_layers; ++i)             _bridged_layers[i].valid = false;
 }
 
+// prep-restart (2026-06-24): the middle-tier reset — drop EVERY volatile/learned table to a fresh-but-PROVISIONED
+// state, KEEPING _cfg (node_id/leaf/level_id/sf_list/lineage/config_epoch), the crypto identity, and the DAD join.
+// IN-PLACE clears (NOT `_layers[i] = LayerRuntime{}` — that ~20 KB stack temporary would overflow the device stack):
+// reset the count/flag fields (stale array bytes are never read past the count), .clear() the maps, .reset() the
+// optionals, default-assign the SMALL per-slot rings. Leaves the node operational (it re-learns on the next beacons).
+void Node::clear_learned_state() {
+    clear_routing_state();                                  // routes + id_bind + deferred + gw_schedules + bridged_layers
+    for (uint8_t i = 0; i < _n_layers; ++i) {
+        LayerRuntime& L = _layers[i];
+        // data plane / in-flight (clear_routing_state already did _rt_count / _id_bind_n / _deferred_n / _drain_armed)
+        L._tx_queue_n = 0; L._pending_tx.reset(); L._pending_rx.reset(); L._post_ack = PostAck{};
+        L._rreq_seen_n = 0; L._rreq_last_n = 0;             // F route-discovery dedup
+        L._peer_keys_n = 0; L._hash_query_seen_n = 0;       // peer-key cache (reloads /mrpeers on the power-cycle) + hash-locate dedup
+        L._peer_liveness_n = 0;                             // liveness tiers
+        for (auto& v : L._dest_seen_ms) v = 0;              // freshness map (256 × u64)
+        for (auto& v : L._mobile_peer)  v = 0;              // mobile-peer set (32 B)
+        L._channel_buffer_n = 0; L._per_origin_channel.clear();          // channel buffer (+ its seen_by) + per-origin anti-spam ledgers
+        for (auto& p : L._channel_pull_pending) p = ChannelPullPending{}; // digest/pull pending
+        L._channel_pull_recent_n = 0;
+        for (auto& f : L._flood) f = FloodState{};          // channel-flood in-progress
+        L._peer_send_counter.clear(); L._last_acked_from.clear();
+        L._seen_origins.clear(); L._seen_origin_from.clear(); L._blind_until.clear();
+        L._neighbor_budget_tier.clear(); L._neighbor_budget_tier_set_at.clear();
+        L._per_sender_originator.clear();
+        L._q_responded_n = 0;
+        for (auto& s : L._sync_pending) s = SyncPending{};  // REQ_SYNC reply ring
+        L._last_beacon_ms = 0; L._next_open_ms = 0;         // beacon/window timing
+    }
+    // node-global learned/pending tables beyond clear_routing_state
+    for (uint8_t i = 0; i < protocol::cap_gateway_handoffs; ++i) _xl_handoffs[i].valid = false;
+    _parked_sends_n = 0; _l2c_redirect_n = 0; _mediated_recent_n = 0;
+    _ack_warn_until = 0; _own_orig_count = 0;
+    _nack_wait_pending = false; _nack_wait_ctr_lo = 0;
+    // KEEP: _cfg, _node_id, _key_hash32, _x_secret/_ed_pub/_crypto_ready, _joined, _claim_epoch, channel_ctr (NV).
+    //       The push ring is the app-notification channel (not learned topology) -> left intact.
+}
+
 // Re-enter discovery so a reprovisioned node aggressively rebuilds its table under the NEW (just-adopted) id: fast
 // beacon cadence + the REQ_SYNC route-bootstrap pull. Mirrors on_init's discovery setup; called from join_adopt when
 // a verb reprovision is pending (id is now stable). after() is replace-by-id, so re-arming kBeaconTimerId is safe.

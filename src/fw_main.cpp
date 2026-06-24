@@ -33,9 +33,26 @@
 #include "console_json.h"    // write_ack/write_push/write_ready/write_err — the BLE companion's JSON twin
 #include "device_ble.h"      // BLE companion transport (XIAO nRF52840; an inert no-op on ESP32/native)
 #include "device_ota.h"      // WiFi OTA (Heltec ESP32-S3); inert no-op on XIAO/native
+#include "fault_log.h"       // persistent fault log — platform-neutral ring/decode/formatters (lib/core)
+#include "device_fault.h"    // nRF52 HW glue: retained scratch + 8 s watchdog + HardFault capture (empty on ESP32)
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+
+#ifndef GIT_REV
+#define GIT_REV "nogit"      // tools/git_rev.py injects -DGIT_REV at build; this fallback keeps every env compiling
+#endif
+
+// Persistent fault log (spec 2026-06-24). The boot-capture loads/records/persists into g_fault_log on BOTH HW platforms
+// (MRFAULT_HW = nRF52 [.noinit + WDT + HardFault] OR ESP32 [RTC scratch + esp_task_wdt + esp_reset_reason]). On a
+// native/unknown build the calls are #if MRFAULT_HW-guarded out (and fw_main isn't compiled there anyway).
+static mrfault::FaultLog    g_fault_log;
+static mrfault::FaultRecord g_last_reset{};
+static bool                 g_last_reset_valid = false;
+
+// `prep-restart`: when true the loop SKIPS the operating block (RX/timers/tx/beacon/sleep) — the node is intentionally
+// DORMANT — but still feeds the WDT (not a hang) + services the console. RAM only, so a power-cycle clears it.
+static bool                 g_halted = false;
 
 // Step 4 light-sleep — platform sleep primitives (radio stays in continuous RX; DIO1 RxDone wakes the MCU).
 #if !defined(MR_NO_POWERSAVE)
@@ -243,6 +260,27 @@ static void dump_cfg() {
     }
 }
 
+static const char* board_name() {
+#if defined(BOARD_XIAO_WIO_SX1262)
+    return "xiao_nrf52";
+#elif defined(BOARD_XIAO_ESP32S3)
+    return "xiao_esp32s3";
+#elif defined(BOARD_HELTEC_V3)
+    return "heltec_v3";
+#else
+    return "native";
+#endif
+}
+// The `version` banner — build stamp + git rev + board + the last reset reason (ON DEMAND, no reset). Refactored
+// from the old boot prints so setup() and the `version` command share one source. (spec 2026-06-24 §6)
+static void print_banner() {
+    char buf[160];
+    mrfault::format_version_banner(buf, sizeof buf, __DATE__ " " __TIME__, GIT_REV, board_name());
+    Serial.println(buf);
+    mrfault::format_last_reset(g_last_reset_valid ? &g_last_reset : nullptr, buf, sizeof buf);
+    Serial.println(buf);
+}
+
 static void dump_status() {
     Serial.print(F("[status] uptime_ms="));  Serial.print((uint32_t)g_hal.now());
     Serial.print(F(" rx="));                 Serial.print(g_rx_count);
@@ -258,6 +296,10 @@ static void dump_status() {
     Serial.print(F(" duty_ms="));            Serial.print((uint32_t)g_hal.airtime_used_ms(3600000));
     Serial.print(F(" routes="));             Serial.print(g_node.rt_count());
     Serial.print(F(" pending="));            Serial.print(g_node.has_pending_tx() ? 1 : 0);
+    Serial.print(F(" reset="));                                                     // the fault-log's newest reason ("-" = none/ESP32)
+    if (g_last_reset_valid) { char rr[32]; mrfault::reset_reason_str(g_last_reset.reason_bits, rr, sizeof rr); Serial.print(rr); }
+    else                    Serial.print('-');
+    Serial.print(F(" halted="));             Serial.print(g_halted ? 1 : 0);        // prep-restart: 1 = intentionally dormant, not wedged
 #if defined(NRF52_PLATFORM) && defined(PIN_VBAT) && !defined(MR_NO_BATT)
     // Battery diagnostic. VBAT (P0.31) reads the CELL through a ÷3 divider — NEVER USB's 5 V (max ~4.2 V).
     // Verify vs a multimeter on the battery: mv = raw × ADC_MULTIPLIER(3.0) × AREF_VOLTAGE(3.0) / 4.096.
@@ -939,6 +981,8 @@ static void dump_help() {
     Serial.println(F("[help] hash/id:    whoami | lookup <hash> | hashof <id> | resolve <hash> [hard]"));
     Serial.println(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
     Serial.println(F("[help] diag:       routes | status | duty | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
+    Serial.println(F("[help] faults:     version (build/git/board + last reset, no reset) | faults (the flash fault ring) | crashtest <hang|fault|reboot> (needs `debug on`)"));
+    Serial.println(F("[help] fleet:      prep-restart   (clear routes+inbox, KEEP the join, go DORMANT — run fleet-wide then power-cycle for a clean restart; un-halt via power-cycle/reboot)"));
     Serial.println(F("[help] test:       route add <dest> <next_hop> <hops> [score_q4] | route del <dest>   (force/drop a route to stress routing)"));
     Serial.println(F("[help] reset:      factory_reset confirm   (WIPE all flash — config + identity + peers + inbox — and reboot to factory)"));
     Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack   (bool keys take on|off; identity via regen)"));
@@ -1007,8 +1051,67 @@ static void handle_mark_read(const char* args, JsonSink sink) {
 }
 
 // Handle a debug/diagnostic console line (help/routes/cfg/status/cfg set/reboot/sleep/debug). Returns true if consumed.
+// `faults` — dump the /mrfault ring newest-first + a one-line summary. nRF52 only; ESP32 = unsupported.
+static void dump_faults() {
+#if defined(MRFAULT_HW)
+    char buf[160];
+    for (uint16_t i = 0; i < g_fault_log.count; ++i) {
+        const mrfault::FaultRecord* r = mrfault::fault_log_at(g_fault_log, i);
+        if (!r) break;
+        mrfault::format_fault_record(*r, buf, sizeof buf);
+        Serial.print(F("[fault] ")); Serial.println(buf);
+    }
+    mrfault::format_fault_summary(g_fault_log, buf, sizeof buf);
+    Serial.print(F("[faults] ")); Serial.println(buf);
+#else
+    Serial.println(F("[faults] unsupported on this build (no HW fault backend)"));
+#endif
+}
+
+// `crashtest <hang|fault|reboot>` — deliberate fault injection to exercise the WDT / HardFault / reset paths on
+// metal. Gated behind `debug on` (ALWAYS compiled, active only after `debug on` — so the bench exercises the real
+// deployable image, not a separate crashtest build). spec 2026-06-24 §9.
+static void handle_crashtest(const char* args) {
+    if (!meshroute::g_mr_trace_on) { Serial.println(F("> crashtest err (enable `debug on` first — gated to avoid an accidental crash)")); return; }
+    while (*args == ' ') ++args;
+    if (!strncmp(args, "hang", 4)) {
+        Serial.println(F("> crashtest hang — spinning; the watchdog should reset in ~8 s")); Serial.flush();
+        for (;;) { /* no WDT feed -> DOG reset (nRF52); on a no-WDT build this hangs until power-cycle) */ }
+    } else if (!strncmp(args, "fault", 5)) {
+        Serial.println(F("> crashtest fault — forcing a crash")); Serial.flush();
+#if defined(NRF52_PLATFORM)
+        volatile uint32_t* p = reinterpret_cast<volatile uint32_t*>(0xFFFFFFF0u); (void)*p;   // bad-address read -> BusFault -> HardFault capture
+        __asm volatile("udf #0");                                                              // belt+braces: undefined instruction
+#elif defined(MRFAULT_ESP32)
+        abort();                                                                               // -> the IDF panic handler -> reboot, ESP_RST_PANIC (recorded as PANIC)
+#else
+        Serial.println(F("> (no HW fault path on this build)"));
+#endif
+    } else if (!strncmp(args, "reboot", 6)) {
+        Serial.println(F("> crashtest reboot — NVIC_SystemReset (SREQ)")); Serial.flush();
+        do_reboot();
+    } else {
+        Serial.println(F("> crashtest err usage: crashtest <hang|fault|reboot>"));
+    }
+}
+
+// `prep-restart` (middle-tier reset): drop the learned state (routes/channel/liveness/pending/dedup) + the inbox
+// records, KEEP the provisioning (node_id/leaf/level_id/sf_list/lineage + identity), then go DORMANT (no reboot).
+// Run on every node -> the net falls silent (no stale beacons to cross-poison) -> power-cycle the whole fleet ->
+// everyone converges from true zero. spec 2026-06-24.
+static void handle_prep_restart() {
+    g_node.clear_learned_state();                 // routes + channel buffer + liveness + pending + dedup -> empty (KEEPS _cfg + identity + join)
+    g_inbox_dm.wipe(); g_inbox_ch.wipe();         // QSPI inbox RECORDS (no-op on the RAM/ESP32 store); the boot epoch bumps -> companion re-syncs
+    g_halted = true;                              // the loop now skips the operating block (dormant) but stays console-responsive
+    Serial.println(F("> prep-restart — routes + inbox cleared, network membership KEPT, node HALTED. Power-cycle the fleet to restart clean."));
+}
+
 static bool service_debug(const char* line, size_t len) {
     if ((len == 4 && !strncmp(line, "help", 4)) || (len == 1 && line[0] == '?')) { dump_help(); return true; }
+    if (len == 7 && !strncmp(line, "version", 7))  { print_banner(); return true; }
+    if (len == 6 && !strncmp(line, "faults", 6))   { dump_faults();  return true; }
+    if (len == 12 && !strncmp(line, "prep-restart", 12)) { handle_prep_restart(); return true; }
+    if ((len == 9 || (len > 9 && line[9] == ' ')) && !strncmp(line, "crashtest", 9)) { handle_crashtest(line + 9); return true; }
     if (len == 6 && !strncmp(line, "routes", 6))   { dump_routes(); return true; }
     if (len > 6 && !strncmp(line, "route ", 6))     { handle_route_cmd(line + 6); return true; }   // manual route inject/del (testing)
     if (len == 6 && !strncmp(line, "status", 6))   { dump_status(); return true; }
@@ -1153,6 +1256,16 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
         if (m) ble_sink(s_inbox_jb, m);
         return 0;
     }
+    if (len == 7 && !strncmp(line, "version", 7)) {         // build/git/board + last reset — on demand, no reset
+        char reason[32]; mrfault::reset_reason_str(g_last_reset_valid ? g_last_reset.reason_bits : 0, reason, sizeof reason);
+        return (size_t)snprintf(out, cap,
+            "{\"ev\":\"version\",\"fw\":\"v0.1\",\"built\":\"%s\",\"git\":\"%s\",\"board\":\"%s\",\"reset\":\"%s\"}\n",
+            __DATE__ " " __TIME__, GIT_REV, board_name(), g_last_reset_valid ? reason : "-");
+    }
+    if (len == 12 && !strncmp(line, "prep-restart", 12)) {  // clear routes+inbox, keep join, go dormant (companion/harness can issue it)
+        handle_prep_restart();
+        return (size_t)snprintf(out, cap, "{\"ev\":\"prep_restart\",\"halted\":true}\n");
+    }
     if (len == 4 && !strncmp(line, "duty", 4)) {            // companion polls this for the silent-countdown banner
         const auto ds = g_node.duty_status();
         return write_duty(out, cap, ds.pct, ds.avail_ms, ds.enabled);
@@ -1197,6 +1310,11 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
 
 void setup() {
     Serial.begin(115200);
+    // §5.1: capture + CLEAR the reset reason FIRST — before BLE/SoftDevice (direct NRF_POWER access must be safe;
+    // on ESP32 it's the IDF-latched esp_reset_reason(), read-only). MRFAULT_HW = nRF52 OR ESP32.
+#if defined(MRFAULT_HW)
+    const uint16_t resetreas = mrfault::fault_read_resetreas_and_clear();
+#endif
     // Debug-trace hooks: route lib/core's _hal.trace_on()/_hal.log() to `debug on` + Serial. Keeps device_hal
     // Arduino-free (it can't read frame_trace.h's g_mr_trace_on). The log sink itself gates on g_mr_trace_on so
     // `debug off` stays fully silent (as before — DeviceHal::log was a no-op). Captureless lambdas -> fn-pointers.
@@ -1207,19 +1325,25 @@ void setup() {
                    // monitor reattaches AFTER that — so without a pause the one-time boot banner
                    // prints into the void. 2 s lets the monitor catch up before we print it.
 
-    Serial.println(F("MeshRoute firmware v0.1 — boot"));
+#if defined(MRFAULT_HW)
+    // §5.2-5: record THIS boot in the fault ring (reason + the scratch's ran_ms + any captured fault), then re-prime
+    // the scratch and ARM the 8 s watchdog (just after the deliberate settle, so the settle isn't watched but radio
+    // init + NV + the whole runtime are). The store (InternalFS on nRF52 / NVS on ESP32) is brought up inside load_faults.
+    if (!mrnv::load_faults(g_fault_log)) mrfault::fault_log_init(g_fault_log);
+    g_last_reset = mrfault::fault_compose_record(resetreas, g_fault_log.boot_seq + 1);
+    mrfault::fault_log_push(g_fault_log, g_last_reset);
+    mrnv::save_faults(g_fault_log);
+    g_last_reset_valid = true;
+    mrfault::fault_scratch_reset_after_capture();
+    mrfault::fault_wdt_start();
+#endif
+
+    print_banner();   // §6: version (build/git/board) + the last reset reason — replaces the old boot banner + board lines
     // These are the COMPILE-TIME build defaults, printed BEFORE the NV blob loads — NOT the live config.
     // A persisted `cfg set` overrides them; the real operating point prints below (control sf / data sf / `cfg`).
     Serial.print(F("  build def = ")); Serial.print((double)LORA_FREQ, 4); Serial.print(F(" MHz  sf"));
     Serial.print(LORA_SF); Serial.print(F("/bw")); Serial.print((double)LORA_BW, 1); Serial.print(F("/cr"));
     Serial.print(LORA_CR); Serial.println(F("  (NV cfg overrides — live values below)"));
-#ifdef BOARD_XIAO_WIO_SX1262
-    Serial.println(F("  board     = XIAO nRF52840 + Wio-SX1262"));
-#elif defined(BOARD_XIAO_ESP32S3)
-    Serial.println(F("  board     = XIAO ESP32-S3 + Wio-SX1262"));
-#elif defined(BOARD_HELTEC_V3)
-    Serial.println(F("  board     = Heltec WiFi LoRa 32 V3"));
-#endif
 
     // Bring up the SX1262 (begin/CRC/TCXO/DIO2-rf-switch/RXEN/RX-boost) then arm continuous RX.
 #if defined(P_LORA_SCLK)
@@ -1508,7 +1632,14 @@ static void board_sleep_until([[maybe_unused]] uint64_t deadline_ms, [[maybe_unu
 
 void loop() {
     const uint64_t now = g_hal.now();
+#if defined(MRFAULT_HW)
+    mrfault::fault_wdt_feed();                       // kick the 8 s watchdog; a hang freezes the loop -> DOG reset + auto-recovery
+    mrfault::fault_scratch_alive((uint32_t)now);     // refresh the retained moment-of-death stamp (free; survives the reset)
+#endif
 
+    // `prep-restart` halt: skip the WHOLE operating block (RX/timers/tx/beacon/push) while dormant. The WDT-feed above
+    // + service_console/BLE below still run, so the deliberate halt is NOT a hang and the node stays console-responsive.
+    if (!g_halted) {
     // 1) RX: drain received frames into the Node (+ the preamble-detect throttle/LBT witness).
     size_t len = 0; float snr = 0, rssi = 0;
     while (g_iradio.poll_rx(g_rxbuf, sizeof(g_rxbuf), len, snr, rssi)) {
@@ -1623,6 +1754,7 @@ void loop() {
         }
     }
     Serial.flush();
+    }  // end if (!g_halted) — the operating block
 
     // 4) Console input -> commands. A byte means a host is here -> latch awake so the console stays usable
     //    (service_console() drains Serial, so we must note it BEFORE; the sleep gate below honors the latch).
@@ -1649,7 +1781,7 @@ void loop() {
     // Sleep policy: a HEADLESS node (no host byte this boot, past the boot grace) light-sleeps when idle; an
     // explicit `sleep` command forces it even with a host present. A host that has typed latches us awake so
     // the console stays usable (ESP32 light-sleep would otherwise gate the UART and strand it). See MR_BOOT_GRACE_MS.
-    const bool may_sleep = g_force_sleep || (!g_host_present && s_now >= MR_BOOT_GRACE_MS);
+    const bool may_sleep = !g_halted && (g_force_sleep || (!g_host_present && s_now >= MR_BOOT_GRACE_MS));   // halted -> stay awake (console-responsive)
     if (may_sleep && !g_iradio.tx_busy() && g_hal.txq_depth() == 0 && !Serial.available() && !mrble::connected()) {
         uint64_t due = g_hal.next_due_ms();                    // UINT64_MAX if no timer armed
         const uint64_t cap = s_now + MR_MAX_SLEEP_MS;

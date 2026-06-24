@@ -1,6 +1,10 @@
 # MeshRoute lab harness — workload generators. Phase 2 = `oracle` only (deterministic round-robin); Phase 3 adds
 # random / channel-storm generators here (build_actions dispatches on scenario['workload']).
+# PACING (2026-06-24): build_actions builds WHAT is sent; schedule() sets WHEN (each action's `.at` offset). `burst`
+# (Phase-2 default) issues back-to-back; `poisson` spreads sends over a window so transmitters DESYNCHRONIZE — the
+# realistic test (the back-to-back burst self-collides: every node TX'ing at once = the CRC storm we measured).
 # Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
+import random
 try:
     from .tag import make_tag
 except ImportError:
@@ -23,6 +27,7 @@ class SendAction:
         self.chan = chan
         self.ack = ack
         self.enc = enc
+        self.at = 0.0               # scheduled arrival OFFSET (seconds from the issue-phase start); set by schedule()
 
     def command(self):
         """The exact console line (serial-cleanup syntax: `send <id> "<text>" [-a] [-e]` / `send_channel <ch> "<text>"`)."""
@@ -61,6 +66,36 @@ def build_actions(scenario, nodes, run):
     return actions
 
 
+def schedule(actions, scenario):
+    """Set each action's `.at` (offset seconds from the issue-phase start) per scenario['pacing'], and SORT by it.
+      - 'burst' (default): .at = i * inter_gap_s -> the Phase-2 back-to-back behaviour (all transmit ~at once).
+      - 'poisson': a Poisson process over `spread_s` (exponential inter-arrivals, mean spread_s/N) -> sends DESYNCHRONIZE.
+        Seeded (scenario['seed'], default 0) so a run is reproducible; the action ORDER is shuffled so node assignment
+        isn't biased by the round-robin build order. N.B. the oracle's active window must outlast spread_s + settle."""
+    pacing = str(scenario.get("pacing", "burst")).strip().lower()
+    n = len(actions)
+    if pacing in ("", "burst", "none"):
+        gap = float(scenario.get("inter_gap_s", 0.3))
+        for i, a in enumerate(actions):
+            a.at = i * gap
+        return actions
+    if pacing != "poisson":
+        raise ValueError(f"pacing '{pacing}' not supported (burst | poisson)")
+    if n == 0:
+        return actions
+    spread_s = float(scenario.get("spread_s", 120))
+    rng = random.Random(int(scenario.get("seed", 0)))
+    order = list(actions)
+    rng.shuffle(order)                                                 # which send arrives when — unbias the build order
+    rate = (n / spread_s) if spread_s > 0 else 0.0                     # mean arrivals/sec
+    t = 0.0
+    for a in order:
+        t += rng.expovariate(rate) if rate > 0 else 0.0               # exponential gap -> a Poisson arrival process
+        a.at = t
+    actions.sort(key=lambda a: a.at)                                   # issue in arrival order
+    return actions
+
+
 def _selftest():
     class _N:
         def __init__(self, nid):
@@ -78,6 +113,23 @@ def _selftest():
     assert a2[0].command() == 'send 17 "Tr1S254#0" -e', a2[0].command()
     try:
         build_actions({"workload": "random"}, nodes, "r1"); assert False
+    except ValueError:
+        pass
+
+    # pacing: burst -> i*gap; poisson -> monotonic, spread ~spread_s, seeded-reproducible
+    b = build_actions({"workload": "oracle", "dm_per_node": 1, "chan_per_node": 1}, nodes, "r1")
+    schedule(b, {"pacing": "burst", "inter_gap_s": 0.5})
+    assert [round(a.at, 3) for a in b] == [round(i * 0.5, 3) for i in range(len(b))], [a.at for a in b]
+    p1 = build_actions({"workload": "oracle", "dm_per_node": 1, "chan_per_node": 1}, nodes, "r1")
+    schedule(p1, {"pacing": "poisson", "spread_s": 100, "seed": 7})
+    ats = [a.at for a in p1]
+    assert ats == sorted(ats) and ats[0] >= 0, ats                     # sorted by arrival, non-negative
+    assert 20 < ats[-1] < 400, ats[-1]                                 # spans roughly the window (Poisson tail varies)
+    p2 = build_actions({"workload": "oracle", "dm_per_node": 1, "chan_per_node": 1}, nodes, "r1")
+    schedule(p2, {"pacing": "poisson", "spread_s": 100, "seed": 7})
+    assert [a.at for a in p2] == ats, "same seed -> reproducible schedule"
+    try:
+        schedule(build_actions({"workload": "oracle"}, nodes, "r1"), {"pacing": "nope"}); assert False
     except ValueError:
         pass
     print("workload selftest OK")
