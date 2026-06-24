@@ -54,6 +54,10 @@ static bool                 g_last_reset_valid = false;
 // DORMANT — but still feeds the WDT (not a hang) + services the console. RAM only, so a power-cycle clears it.
 static bool                 g_halted = false;
 
+// `rcmd` deferred recovery action: respond FIRST, then act ~3 s later so the response DM airs. 0=none, 1=reboot, 2=prep-restart.
+static uint8_t              g_remote_action = 0;
+static uint64_t             g_remote_action_at = 0;
+
 // Step 4 light-sleep — platform sleep primitives (radio stays in continuous RX; DIO1 RxDone wakes the MCU).
 #if !defined(MR_NO_POWERSAVE)
   #ifndef MR_MAX_SLEEP_MS
@@ -130,7 +134,17 @@ static uint32_t g_ble_pin = 123456;        // 6-digit pairing passkey
 static int32_t  g_lat_e7 = 0;
 static int32_t  g_lon_e7 = 0;
 static uint8_t  g_persist_id = 0, g_persist_epoch = 0, g_persist_join = 0;   // last DAD lease state written to NV (change-detect)
-static uint16_t g_persist_channel_ctr = 0;   // last channel send-ctr written to NV (change-detect; v15 reboot id-reuse fix)
+// InternalFS self-heal Part 3 (2026-06-24): the channel-ctr is no longer written every send — instead /mrcfg holds a
+// LEASE (the live ctr + margin). g_ctr_lease = that persisted leased value; a write fires only when the live ctr
+// catches it (every ~margin sends), and a reboot resumes FROM the lease (≥ any id used pre-crash -> no v15 id-reuse).
+static uint16_t g_ctr_lease = 0;
+// ids reserved per /mrcfg write. MUST exceed the max channel originations one loop() can drain before the post-drain
+// re-lease (persist_cfg_if_needed runs at the loop tail, AFTER service_console + mrble::service_rx). That count is
+// RX-buffer-capped: USB-CDC + BLE-NUS buffers (≤ ~1 KB total) / a `send_channel …` line (≈18 B) -> a few dozen, so
+// 256 is a >5x margin (and a reboot mid-burst resumes from the lease ≥ any id minted -> no v15 id-reuse). Also bounds
+// the /mrcfg write rate to 1 per `margin` channel sends.
+static constexpr uint16_t kChannelCtrLeaseMargin = 256;
+static bool     g_fs_reformatted = false;   // Part 2: mount_or_repair() reformatted a corrupt InternalFS this boot (surfaced in status; RAM)
 
 // ---- device-console diagnostics (host tool: tools/meshroute_client.py) ---------------------------
 // Print the live routing table in the meshroute_client `routes` wire format.
@@ -296,10 +310,11 @@ static void dump_status() {
     Serial.print(F(" duty_ms="));            Serial.print((uint32_t)g_hal.airtime_used_ms(3600000));
     Serial.print(F(" routes="));             Serial.print(g_node.rt_count());
     Serial.print(F(" pending="));            Serial.print(g_node.has_pending_tx() ? 1 : 0);
-    Serial.print(F(" reset="));                                                     // the fault-log's newest reason ("-" = none/ESP32)
-    if (g_last_reset_valid) { char rr[32]; mrfault::reset_reason_str(g_last_reset.reason_bits, rr, sizeof rr); Serial.print(rr); }
+    Serial.print(F(" reset="));                                                     // v2: the fault-log's newest CAUSE ("-" = none)
+    if (g_last_reset_valid) Serial.print(mrfault::fault_cause_str(g_last_reset.cause));
     else                    Serial.print('-');
     Serial.print(F(" halted="));             Serial.print(g_halted ? 1 : 0);        // prep-restart: 1 = intentionally dormant, not wedged
+    if (g_fs_reformatted) Serial.print(F(" fs=REFORMATTED"));                        // Part 2: InternalFS was corrupt this boot -> reformatted (re-provision)
 #if defined(NRF52_PLATFORM) && defined(PIN_VBAT) && !defined(MR_NO_BATT)
     // Battery diagnostic. VBAT (P0.31) reads the CELL through a ÷3 divider — NEVER USB's 5 V (max ~4.2 V).
     // Verify vs a multimeter on the battery: mv = raw × ADC_MULTIPLIER(3.0) × AREF_VOLTAGE(3.0) / 4.096.
@@ -594,6 +609,9 @@ static void handle_cfg_set(const char* args) {
 
 static void do_reboot() {
     Serial.println(F("> rebooting")); Serial.flush(); delay(100);
+#if defined(MRFAULT_HW)
+    mrfault::mark_expected_reset();   // v2 fault log: classify the upcoming reset as REBOOT, not UNEXPECTED
+#endif
 #if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
     NVIC_SystemReset();
 #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
@@ -621,6 +639,7 @@ static void do_ota() {
     Serial.println(F("> OTA: rebooting into BLE DFU now — this USB console will drop here."));
     Serial.println(F(">      Push firmware.zip via the Nordic DFU app (enable its auto-reboot). Double-tap RESET to abort."));
     Serial.flush(); delay(500);
+    mrfault::mark_expected_reset();   // v2 fault log: the OTA reset is a REBOOT, not UNEXPECTED
     NRF_POWER->GPREGRET = 0xA8;   // DFU_MAGIC_OTA_RESET
     NVIC_SystemReset();
 #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
@@ -628,9 +647,10 @@ static void do_ota() {
         mrota::ota_stop();
         Serial.println(F("> OTA: stopped"));
     } else {
-        if (mrota::ota_start())
+        if (mrota::ota_start()) {
+            mrota::set_pre_reboot_hook([] { mrfault::mark_expected_reset(); });   // v2 fault log: a WiFi-OTA reboot is a REBOOT, not UNEXPECTED
             Serial.println(F("> OTA: browse to the IP above, upload firmware.bin — node reboots on success"));
-        else
+        } else
             Serial.println(F("> OTA: start FAILED"));
     }
 #endif
@@ -983,6 +1003,7 @@ static void dump_help() {
     Serial.println(F("[help] diag:       routes | status | duty | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
     Serial.println(F("[help] faults:     version (build/git/board + last reset, no reset) | faults (the flash fault ring) | crashtest <hang|fault|reboot> (needs `debug on`)"));
     Serial.println(F("[help] fleet:      prep-restart   (clear routes+inbox, KEEP the join, go DORMANT — run fleet-wide then power-cycle for a clean restart; un-halt via power-cycle/reboot)"));
+    Serial.println(F("[help] remote:     rcmd <dst> <query>   (over-the-air diagnostics via a DM: status|faults|version|uptime|cfg|duty|reboot|prep-restart -> the node DMs back `[rcmd <from>] …`)"));
     Serial.println(F("[help] test:       route add <dest> <next_hop> <hops> [score_q4] | route del <dest>   (force/drop a route to stress routing)"));
     Serial.println(F("[help] reset:      factory_reset confirm   (WIPE all flash — config + identity + peers + inbox — and reboot to factory)"));
     Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack   (bool keys take on|off; identity via regen)"));
@@ -1106,11 +1127,83 @@ static void handle_prep_restart() {
     Serial.println(F("> prep-restart — routes + inbox cleared, network membership KEPT, node HALTED. Power-cycle the fleet to restart clean."));
 }
 
+// OTA remote diagnostics — execute a whitelisted query for `from` and DM the response back. Reads build a compact
+// one-DM body (≤ inbox_max_body, truncated with "…"); the two recovery WRITES respond FIRST then DEFER the action
+// ~3 s (so the response actually airs). Anything else -> `err: <q> not allowed`. spec 2026-06-24.
+static void remote_exec(uint8_t from, const uint8_t* query, uint8_t qlen) {
+    char q[24]; uint8_t qn = qlen < sizeof(q) - 1 ? qlen : sizeof(q) - 1;
+    for (uint8_t i = 0; i < qn; ++i) q[i] = (char)query[i];
+    while (qn && (q[qn - 1] == ' ' || q[qn - 1] == '\r' || q[qn - 1] == '\n')) --qn;   // trim
+    q[qn] = '\0';
+
+    if (!strcmp(q, "reboot") || !strcmp(q, "prep-restart")) {           // WRITE: respond FIRST, then defer
+        const char* ok = !strcmp(q, "reboot") ? "ok reboot" : "ok prep-restart";
+        g_node.send_remote_response(from, (const uint8_t*)ok, (uint8_t)strlen(ok));
+        g_remote_action    = !strcmp(q, "reboot") ? 1 : 2;
+        g_remote_action_at = g_hal.now() + 3000;                        // ~3 s for the response DM to route + air
+        return;
+    }
+
+    char resp[224]; int n = 0;                                         // ≤ inbox_max_body (241)
+    if (!strcmp(q, "status")) {
+        n = snprintf(resp, sizeof resp, "up=%lus rx=%lu tx=%lu txq=%u txto=%lu routes=%u duty_ms=%lu reset=%s",
+            (unsigned long)(g_hal.now() / 1000), (unsigned long)g_rx_count, (unsigned long)g_iradio.tx_count(),
+            (unsigned)g_hal.txq_depth(), (unsigned long)g_hal.tx_timeouts(), (unsigned)g_node.rt_count(),
+            (unsigned long)g_hal.airtime_used_ms(3600000),
+            g_last_reset_valid ? mrfault::fault_cause_str(g_last_reset.cause) : "-");
+    } else if (!strcmp(q, "uptime")) {
+        n = snprintf(resp, sizeof resp, "uptime=%lus", (unsigned long)(g_hal.now() / 1000));
+    } else if (!strcmp(q, "version")) {
+        char vb[120], lr[80];
+        mrfault::format_version_banner(vb, sizeof vb, __DATE__ " " __TIME__, GIT_REV, board_name());
+        mrfault::format_last_reset(g_last_reset_valid ? &g_last_reset : nullptr, lr, sizeof lr);
+        n = snprintf(resp, sizeof resp, "%s | %s", vb, lr);
+    } else if (!strcmp(q, "faults")) {
+        char sm[100], rr[120]; mrfault::format_fault_summary(g_fault_log, sm, sizeof sm);
+        const mrfault::FaultRecord* nr = mrfault::fault_log_at(g_fault_log, 0);
+        if (nr) mrfault::format_fault_record(*nr, rr, sizeof rr); else rr[0] = '\0';
+        n = snprintf(resp, sizeof resp, "%s%s%s", sm, nr ? " | " : "", rr);
+    } else if (!strcmp(q, "cfg")) {
+        const meshroute::NodeConfig& c = g_node.config();
+        char sf[32]; int sp = 0;
+        for (uint8_t s = 5; s <= 12; ++s) if (c.allowed_sf_bitmap & (1u << s)) sp += snprintf(sf + sp, (int)sizeof sf - sp, sp ? ",%u" : "%u", s);
+        if (sp == 0) { sf[0] = '-'; sf[1] = '\0'; }
+        const unsigned fmhz = (unsigned)g_freq_mhz;                                       // the live operating freq (g_freq_mhz); %f is unavailable on newlib-nano
+        const unsigned fkhz = (unsigned)((g_freq_mhz - (double)fmhz) * 1000.0 + 0.5);
+        n = snprintf(resp, sizeof resp, "id=%u leaf=%u routing_sf=%u sf=%s freq=%u.%03u halted=%u",
+                     g_node.node_id(), c.leaf_id, c.routing_sf, sf, fmhz, fkhz, g_halted ? 1 : 0);
+    } else if (!strcmp(q, "duty")) {
+        const auto ds = g_node.duty_status();
+        n = snprintf(resp, sizeof resp, "duty=%u%% avail=%lums enabled=%u", ds.pct, (unsigned long)ds.avail_ms, ds.enabled ? 1 : 0);
+    } else {
+        n = snprintf(resp, sizeof resp, "err: %s not allowed", q);
+    }
+    if (n < 0) n = 0;
+    if (n >= (int)sizeof resp) { n = (int)sizeof resp - 1; resp[n - 1] = '.'; resp[n - 2] = '.'; resp[n - 3] = '.'; }   // snprintf clipped -> mark "..."
+    g_node.send_remote_response(from, (const uint8_t*)resp, (uint8_t)n);
+}
+
+// Origin: `rcmd <dst> <query>` — DM a remote query to a node (incl. multi-hop) and await the `[rcmd <from>] …` reply.
+static void handle_rcmd(const char* args) {
+    while (*args == ' ') ++args;
+    char* end; const long dst = strtol(args, &end, 10);
+    if (end == args || dst < 1 || dst > 254) { Serial.println(F("> rcmd err usage: rcmd <dst 1..254> <query>  (status|faults|version|uptime|cfg|duty|reboot|prep-restart)")); return; }
+    while (*end == ' ') ++end;
+    uint8_t qn = (uint8_t)strlen(end);
+    while (qn && (end[qn - 1] == '\r' || end[qn - 1] == '\n' || end[qn - 1] == ' ')) --qn;
+    if (qn == 0) { Serial.println(F("> rcmd err: empty query")); return; }
+    if (qn > meshroute::protocol::inbox_max_body) qn = meshroute::protocol::inbox_max_body;
+    const uint16_t ctr = g_node.send_remote_cmd((uint8_t)dst, (const uint8_t*)end, qn);
+    Serial.print(F("> rcmd -> ")); Serial.print(dst); Serial.print(F(" \"")); Serial.write((const uint8_t*)end, qn);
+    Serial.print(F("\" ctr=")); Serial.println(ctr);
+}
+
 static bool service_debug(const char* line, size_t len) {
     if ((len == 4 && !strncmp(line, "help", 4)) || (len == 1 && line[0] == '?')) { dump_help(); return true; }
     if (len == 7 && !strncmp(line, "version", 7))  { print_banner(); return true; }
     if (len == 6 && !strncmp(line, "faults", 6))   { dump_faults();  return true; }
     if (len == 12 && !strncmp(line, "prep-restart", 12)) { handle_prep_restart(); return true; }
+    if ((len == 4 || (len > 4 && line[4] == ' ')) && !strncmp(line, "rcmd", 4)) { handle_rcmd(line + 4); return true; }
     if ((len == 9 || (len > 9 && line[9] == ' ')) && !strncmp(line, "crashtest", 9)) { handle_crashtest(line + 9); return true; }
     if (len == 6 && !strncmp(line, "routes", 6))   { dump_routes(); return true; }
     if (len > 6 && !strncmp(line, "route ", 6))     { handle_route_cmd(line + 6); return true; }   // manual route inject/del (testing)
@@ -1257,14 +1350,17 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
         return 0;
     }
     if (len == 7 && !strncmp(line, "version", 7)) {         // build/git/board + last reset — on demand, no reset
-        char reason[32]; mrfault::reset_reason_str(g_last_reset_valid ? g_last_reset.reason_bits : 0, reason, sizeof reason);
         return (size_t)snprintf(out, cap,
             "{\"ev\":\"version\",\"fw\":\"v0.1\",\"built\":\"%s\",\"git\":\"%s\",\"board\":\"%s\",\"reset\":\"%s\"}\n",
-            __DATE__ " " __TIME__, GIT_REV, board_name(), g_last_reset_valid ? reason : "-");
+            __DATE__ " " __TIME__, GIT_REV, board_name(), g_last_reset_valid ? mrfault::fault_cause_str(g_last_reset.cause) : "-");
     }
     if (len == 12 && !strncmp(line, "prep-restart", 12)) {  // clear routes+inbox, keep join, go dormant (companion/harness can issue it)
         handle_prep_restart();
         return (size_t)snprintf(out, cap, "{\"ev\":\"prep_restart\",\"halted\":true}\n");
+    }
+    if ((len == 4 || (len > 4 && line[4] == ' ')) && !strncmp(line, "rcmd", 4)) {   // issue an OTA remote query; the `[rcmd <from>]` reply lands on USB
+        handle_rcmd(line + 4);
+        return (size_t)snprintf(out, cap, "{\"ev\":\"rcmd_sent\"}\n");
     }
     if (len == 4 && !strncmp(line, "duty", 4)) {            // companion polls this for the silent-countdown banner
         const auto ds = g_node.duty_status();
@@ -1324,6 +1420,15 @@ void setup() {
     delay(2000);   // Settle: the USB-CDC port re-enumerates on every reset, and the host serial
                    // monitor reattaches AFTER that — so without a pause the one-time boot banner
                    // prints into the void. 2 s lets the monitor catch up before we print it.
+
+    // InternalFS self-heal (Part 2, 2026-06-24): mount the on-chip FS; if a reset-during-write corrupted it
+    // (LFS_NO_ASSERT now makes that an ERROR, not a halt), REFORMAT to a clean FS so the node BOOTS instead of
+    // bricking-to-serial. MUST precede every load*() below. nRF52 only (ESP32 NVS = no-op). ⚠ A reformat wipes
+    // /mrid too -> the node re-mints identity + loses its join -> re-provision (cfg set + join, or the harness).
+    if (mrnv::mount_or_repair()) {
+        g_fs_reformatted = true;
+        Serial.println(F("\n\xe2\x9a\xa0 INTERNALFS CORRUPT \xe2\x80\x94 REFORMATTED (re-provision needed: `cfg set` + `join`, or the harness `provision`)"));
+    }
 
 #if defined(MRFAULT_HW)
     // §5.2-5: record THIS boot in the fault ring (reason + the scratch's ran_ms + any captured fault), then re-prime
@@ -1436,7 +1541,9 @@ void setup() {
     g_node.restore_join_state(nv.claim_epoch, (node_id != 0) && (nv.joined != 0));
     g_persist_id = node_id; g_persist_epoch = nv.claim_epoch;        // prime the persist tracker -> no spurious boot write
     g_persist_join = ((node_id != 0) && (nv.joined != 0)) ? 1 : 0;
-    g_persist_channel_ctr = nv.channel_ctr;                          // prime the channel-ctr shadow (restored above) -> no spurious boot write
+    // NB g_ctr_lease is primed on the on_init-SUCCESS path below (after restore_channel_ctr), NOT here: if on_init is
+    // REFUSED the live ctr stays 0 while a here-primed lease (nv.channel_ctr) would read as "due" and REGRESS the
+    // persisted lease to 64. Priming only alongside the restore keeps live ctr == lease -> no spurious/regressing write.
     print_identity(idb);                                        // key_hash32 (hex) + name
     Serial.print(F("  node id   = ")); Serial.print(node_id);
     Serial.println(node_id == 0 ? F("  (UNPROVISIONED: cfg set node_id <1..254> + reboot, or join)") : F(""));
@@ -1466,7 +1573,8 @@ void setup() {
     // (always valid), so this never fires — but Slice 3 (per-layer cfg keys) can produce an invalid gateway, and
     // the device must NOT operate on a half-applied config. Print loud + leave the node unconfigured.
     if (!g_node.on_init(cfg)) Serial.println(F("  config    = REFUSED (invalid layer config — node NOT operational)"));
-    else g_node.restore_channel_ctr(nv.channel_ctr);            // v15: continue the channel send-ctr across reboot (no id-reuse); after on_init so _active+_node_id are valid
+    else { g_node.restore_channel_ctr(nv.channel_ctr);          // v15: continue the channel send-ctr across reboot (no id-reuse); after on_init so _active+_node_id are valid
+           g_ctr_lease = nv.channel_ctr; }                      // prime the lease = the (leased) ctr ONLY now that the live ctr was restored -> live == lease, no spurious/regressing write
     // Install the inbox stores so record-on-delivery + pull_inbox work. With the interim RAM store: give it a
     // per-boot-unique storage_epoch (HW-RNG; drawn here BEFORE BLE init, so the bare-metal NRF_RNG path is still
     // valid) -> after a reboot the companion sees a NEW epoch and re-pulls (the volatile store lost its history).
@@ -1569,10 +1677,12 @@ static void service_console() {
 // node_id DAD: persist the lease state (node_id + claim_epoch + joined) to /mrcfg WHEN it changes (adopt /
 // epoch bump / forced rejoin), so a reboot keeps its id + seniority. Load-modify-save so the config fields
 // (set via `cfg set`) are preserved. Cheap on the no-change path (3 compares); a flash write only on change.
-static void persist_join_if_changed() {
+static void persist_cfg_if_needed() {
     const uint8_t id = g_node.node_id(), ep = g_node.claim_epoch(), jn = g_node.joined() ? 1 : 0;
-    const uint16_t cc = g_node.channel_ctr();                        // v15: persist the self-keyed channel send-ctr too (reboot id-reuse fix)
-    if (id == g_persist_id && ep == g_persist_epoch && jn == g_persist_join && cc == g_persist_channel_ctr) return;
+    const uint16_t cc = g_node.channel_ctr();                        // v15: the self-keyed channel send-ctr (reboot id-reuse fix)
+    const bool join_changed = (id != g_persist_id || ep != g_persist_epoch || jn != g_persist_join);   // DAD adopt/epoch/forced-rejoin — RARE, persist promptly
+    const bool lease_due    = (int16_t)(uint16_t)(cc - g_ctr_lease) > 0;   // Part 3: the live ctr PASSED the persisted lease -> re-lease (every ~margin sends). wraparound-safe signed diff
+    if (!join_changed && !lease_due) return;
     mrnv::Blob b{};
     if (!mrnv::load(b)) {                                            // no blob yet -> seed from live config
         const meshroute::NodeConfig& nc = g_node.config();
@@ -1594,8 +1704,9 @@ static void persist_join_if_changed() {
         for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
-    b.node_id = id; b.claim_epoch = ep; b.joined = jn; b.channel_ctr = cc;
-    if (mrnv::save(b)) { g_persist_id = id; g_persist_epoch = ep; g_persist_join = jn; g_persist_channel_ctr = cc; }
+    const uint16_t leased = (uint16_t)(cc + kChannelCtrLeaseMargin);   // persist the ctr AHEAD: a reboot in the un-flushed window resumes here (> any id used) -> no reuse
+    b.node_id = id; b.claim_epoch = ep; b.joined = jn; b.channel_ctr = leased;
+    if (mrnv::save(b)) { g_persist_id = id; g_persist_epoch = ep; g_persist_join = jn; g_ctr_lease = leased; }
 }
 
 // Step 4 — idle light-sleep: halt the CPU until `deadline_ms` OR a radio/console IRQ. The radio stays in
@@ -1680,10 +1791,12 @@ void loop() {
     // 2c) LBT noise-floor sampler (only when LBT is on — it feeds channel_busy()). Self-paced (≤1 RSSI/10 ms).
     if (g_node.config().lbt_enabled) g_iradio.sample_noise();
 
-    // 2d) Inbox: periodically persist the next-seq high-water (§6 "/ on a timer"; bounds the seq-reuse window
-    //     if the records store is later lost). No-op while the inbox is disabled (records backend not wired).
-    static uint32_t s_inbox_flush_ms = 0;
-    if ((uint32_t)now - s_inbox_flush_ms >= 30000u) { s_inbox_flush_ms = (uint32_t)now; g_node.inbox().flush(); }
+    // 2d) Inbox meta: COALESCED slow persist (InternalFS self-heal Part 3, 2026-06-24). Inbox::flush() is now a
+    //     no-op unless a store actually appended, so this writes /mri_* only when the cursor advanced — at a relaxed
+    //     120 s cadence (was 30 s, unconditional) to cut the InternalFS write rate (the corruption window). Records
+    //     live on QSPI; a power-loss costs ≤ one cycle of cursor advance, which the harness re-pull tolerates.
+    static uint32_t s_nv_flush_ms = 0;
+    if ((uint32_t)now - s_nv_flush_ms >= 120000u) { s_nv_flush_ms = (uint32_t)now; g_node.inbox().flush(); }
 
     // 3) App pushes: surface deliveries / ACKs over the console.
     meshroute::Push pu{};
@@ -1754,6 +1867,20 @@ void loop() {
         }
     }
     Serial.flush();
+
+    // OTA remote diagnostics: drain the inbound rcmd slot — a response PRINTS (parseable line for the harness), a
+    // command EXECUTES here on the main loop (never the RX path). static = the ~244 B slot is off the hot-path stack.
+    { static meshroute::Node::RemoteInbound ri;
+      if (g_node.take_remote_inbound(ri)) {
+          if (ri.is_response) { Serial.print(F("[rcmd ")); Serial.print(ri.from); Serial.print(F("] ")); Serial.write(ri.body, ri.len); Serial.println(); }
+          else                remote_exec(ri.from, ri.body, ri.len);
+      } }
+    // deferred recovery action (respond-first-then-act): fire reboot / prep-restart once its ~3 s defer elapses, so
+    // the `ok …` response DM has aired first.
+    if (g_remote_action && g_hal.now() >= g_remote_action_at) {
+        const uint8_t act = g_remote_action; g_remote_action = 0;
+        if (act == 1) do_reboot(); else handle_prep_restart();
+    }
     }  // end if (!g_halted) — the operating block
 
     // 4) Console input -> commands. A byte means a host is here -> latch awake so the console stays usable
@@ -1770,8 +1897,8 @@ void loop() {
     mrota::ota_loop();
     #endif 
 
-    // 4b) Persist the DAD lease state if it changed this iteration (adopt / epoch bump / forced rejoin).
-    persist_join_if_changed();
+    // 4b) Persist the DAD lease (adopt / epoch bump / forced rejoin) + re-lease the channel ctr when it catches up.
+    persist_cfg_if_needed();
 
     // 5) Idle light-sleep: nothing pending -> halt the CPU until the next timer OR a radio/console IRQ.
     //    Capped at MR_MAX_SLEEP_MS so the console + periodic work stay responsive (matters on ESP32;

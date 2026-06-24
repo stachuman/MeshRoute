@@ -181,6 +181,31 @@ def cmd_run(args):
     sys.exit(0 if result["verdict"]["pass"] else 1)
 
 
+def cmd_rcmd(args):
+    # OTA remote diagnostics: send `rcmd <target> <query>` over a LIVE node and print the async `[rcmd <from>]` reply
+    # (the node DMs the query to <target>, which answers back as a DM — multi-hop; works when <target>'s serial is dead).
+    nodes = registry.discover(ports=_ports_arg(args.ports))
+    if not nodes:
+        sys.exit("no /dev/ttyACM* ports found (use --ports to override)")
+    with NodeManager(nodes) as mgr:
+        live = mgr.responsive()
+        if not live:
+            sys.exit("no responsive node to send through")
+        if args.via is not None:
+            via = next((n for n in live if n.node_id == args.via), None)
+            if via is None:
+                sys.exit(f"--via {args.via} is not among the responsive nodes ({[n.node_id for n in live]})")
+        else:
+            via = next((n for n in live if n.node_id != args.target), live[0])   # default: a responsive node that isn't the target
+        lines = mgr.request(via, f"rcmd {args.target} {args.query}", "[rcmd ", timeout=args.timeout)
+        reply = next((ln for ln in lines if ln.strip().startswith("[rcmd ")), None)
+        if reply:
+            print(reply.strip())
+        else:
+            print(f"(no [rcmd {args.target}] reply within {args.timeout}s via {via.label()})")
+            sys.exit(1)
+
+
 def main():
     ap = argparse.ArgumentParser(description="MeshRoute lab harness (status | provision)")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -209,6 +234,13 @@ def main():
     pt.add_argument("--ports", help="comma list (default: auto-discover)")
     pt.add_argument("--json", action="store_true")
     pt.set_defaults(func=cmd_topology)
+    prc = sub.add_parser("rcmd", help="over-the-air remote diagnostics: query a node via a live one + print its [rcmd] reply")
+    prc.add_argument("target", type=int, help="the target node_id (1..254)")
+    prc.add_argument("query", help="status | faults | version | uptime | cfg | duty | reboot | prep-restart")
+    prc.add_argument("--via", type=int, default=None, help="node_id to send THROUGH (default: a responsive node != target)")
+    prc.add_argument("--timeout", type=int, default=15, help="seconds to await the reply")
+    prc.add_argument("--ports", help="comma list (default: auto-discover)")
+    prc.set_defaults(func=cmd_rcmd)
     args = ap.parse_args()
     args.func(args)
 

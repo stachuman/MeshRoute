@@ -14,6 +14,9 @@ namespace mrota {
 
 static WebServer s_server(80);
 static bool       s_active = false;
+static void     (*s_pre_reboot_hook)() = nullptr;   // fw_main marks the upcoming ESP.restart() as a deliberate reset (v2 fault log)
+
+void set_pre_reboot_hook(void (*fn)()) { s_pre_reboot_hook = fn; }
 
 static const char kOtaPage[] PROGMEM = R"raw(
 <!DOCTYPE html>
@@ -82,7 +85,9 @@ static void handle_update() {
     if (written > 0 && Update.end(true)) {
         Serial.printf("OTA: %u bytes flashed — rebooting\n", (unsigned)written);
         s_server.send(200, "text/plain", "OK — rebooting now");
-        Serial.flush(); delay(500); ESP.restart();
+        Serial.flush(); delay(500);
+        if (s_pre_reboot_hook) s_pre_reboot_hook();   // mark the reset deliberate -> classifies as REBOOT, not UNEXPECTED
+        ESP.restart();
     } else {
         Serial.println(F("OTA: end failed or 0 bytes"));
         Update.abort();

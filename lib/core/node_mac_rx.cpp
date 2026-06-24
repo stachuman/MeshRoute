@@ -558,6 +558,24 @@ void Node::do_post_ack() {
             become_free();
             return;
         }
+        if (pa.type == DATA_TYPE_REMOTE_CMD || pa.type == DATA_TYPE_REMOTE_RESP) {   // OTA remote diagnostics: STAGE for the main loop
+            // NOT inbox'd / delivered-as-message, NOT consumed-silently like an E2E ack — fw_main executes (cmd) or prints
+            // (resp) on the main loop, never the RX path. One in flight; a 2nd while pending drops (rcmd is human-paced).
+            if (_remote_inbound.active) {
+                MR_EMIT("remote_inbound_drop_full", EF_I("from", pa.origin));
+            } else {
+                const uint8_t* src = ui ? ui->body.data() : ((pa.inner_len > 1) ? pa.inner + 1 : nullptr);   // inner = [origin][body…]; body is ui->body (cleartext)
+                uint8_t n = ui ? static_cast<uint8_t>(ui->body.size()) : ((pa.inner_len > 1) ? static_cast<uint8_t>(pa.inner_len - 1) : 0);
+                if (n > protocol::inbox_max_body) n = protocol::inbox_max_body;
+                _remote_inbound.active      = true;
+                _remote_inbound.is_response = (pa.type == DATA_TYPE_REMOTE_RESP);
+                _remote_inbound.from        = pa.origin;
+                _remote_inbound.len         = n;
+                for (uint8_t i = 0; i < n; ++i) _remote_inbound.body[i] = src ? src[i] : 0;
+            }
+            become_free();
+            return;
+        }
         if (pa.type == DATA_TYPE_E2E_ACK) {              // an end-to-end ACK for a DM we originated -> confirm + RECORD a receipt, not deliver
             // The acked ctr: a same-layer E2E_ACK inner is [origin][ctr_lo][ctr_hi] (ctr at inner[1..2]); a 4e
             // CROSS_LAYER ack is ...[origin][source_hash][body=ctr_lo,ctr_hi] -> the ctr is the parsed BODY (ui).

@@ -41,11 +41,13 @@ public:
     }
     uint32_t persisted_next_seq() const override { return _persisted_next; }
     bool     set_next_seq(uint32_t next) override {                // fail_set_next models a flash write failure
+        ++set_next_calls;                                          // total calls (the Part-3 test asserts flush() doesn't write a quiet store)
         if (fail_set_next) { ++failed_set_next_calls; return false; }
         _persisted_next = next; return true;
     }
     bool     fail_set_next = false;          // test knob: make every set_next_seq fail
     uint16_t failed_set_next_calls = 0;
+    uint16_t set_next_calls = 0;             // total set_next_seq invocations (success + fail)
     uint32_t read_cursor() const override { return _read_cursor; }
     bool     set_read_cursor(uint32_t seq) override { _read_cursor = seq; return true; }
     uint16_t count() const override { return static_cast<uint16_t>(_recs.size()); }

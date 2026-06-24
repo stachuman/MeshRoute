@@ -155,8 +155,11 @@ void Inbox::mark_read(InboxKind kind, uint32_t seq) {
 
 void Inbox::flush() {
     if (!enabled()) return;
-    if (_dm->set_next_seq(_dm_next))     _dm_unpersisted   = 0;   // reset the batch only on a successful persist
-    if (_chan->set_next_seq(_chan_next)) _chan_unpersisted = 0;
+    // InternalFS self-heal Part 3 (2026-06-24): write ONLY a store with un-persisted appends. The periodic caller
+    // now runs on a relaxed cadence, and a quiet store must NOT issue a set_next_seq every cycle — that unconditional
+    // write was a top contributor to the InternalFS write churn (the corruption window). Nothing dirty -> no write.
+    if (_dm_unpersisted   && _dm->set_next_seq(_dm_next))     _dm_unpersisted   = 0;   // reset the batch only on a successful persist
+    if (_chan_unpersisted && _chan->set_next_seq(_chan_next)) _chan_unpersisted = 0;
 }
 
 }  // namespace meshroute

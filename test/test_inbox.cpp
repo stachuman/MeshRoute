@@ -60,6 +60,27 @@ TEST_CASE("inbox: §8b enc flag survives the record round-trip (DM enc 0/1; chan
     }
 }
 
+// InternalFS self-heal Part 3 (2026-06-24): flush() must NOT write a store with nothing un-persisted (the old
+// unconditional 30 s set_next_seq was a top InternalFS write-churn source). It writes only the dirty store(s).
+TEST_CASE("inbox: flush() is a no-op when nothing un-persisted; writes only a dirty store") {
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    Inbox ib; ib.on_init(&dm, &ch);
+    ib.flush();                                          // fresh inbox, no appends -> NO writes
+    CHECK(dm.set_next_calls == 0);
+    CHECK(ch.set_next_calls == 0);
+    rec_dm(ib, 2, 7, "hi", 1000);                        // one DM append (< the 8-batch) -> DM store dirty, channel quiet
+    ib.flush();
+    CHECK(dm.set_next_calls == 1);                       // the dirty DM store persisted
+    CHECK(ch.set_next_calls == 0);                       // the quiet channel store NOT touched
+    ib.flush();                                          // nothing new -> still no further writes
+    CHECK(dm.set_next_calls == 1);
+    CHECK(ch.set_next_calls == 0);
+    rec_ch(ib, 5, 9, 1, "c", 1001);                      // now a channel append
+    ib.flush();
+    CHECK(dm.set_next_calls == 1);                       // DM still untouched (no new DM appends)
+    CHECK(ch.set_next_calls == 1);                       // channel persisted
+}
+
 // E2E-ack durable receipt (2026-06-23): record_ack writes a DM-store entry with type=DATA_TYPE_E2E_ACK, no body,
 // origin = the dest that confirmed, msg_id = the acked ctr. The `type` byte round-trips serialize -> store -> pull;
 // a normal record_dm stays type=0. (spec native unit (a)/(c)/(d).)

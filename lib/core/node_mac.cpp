@@ -301,6 +301,23 @@ void Node::send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr) {
     (void)enqueue_data(to_origin, body, 2, /*flags=*/0, "e2e_ack_tx", /*app_dm=*/false, DATA_TYPE_E2E_ACK);
 }
 
+// OTA remote diagnostics (`rcmd`, 2026-06-24): a console-style query / its response, carried over a normal-routed,
+// link-ACKed DM (multi-hop). NOT an app DM (app_dm=false -> not a dm_delivery key, not inbox'd). fw_main owns the
+// command whitelist + execution; lib/core is the generic transport.
+uint16_t Node::send_remote_cmd(uint8_t dst, const uint8_t* body, uint8_t len) {
+    return enqueue_data(dst, body, len, /*flags=*/0, "rcmd_tx", /*app_dm=*/false, DATA_TYPE_REMOTE_CMD);
+}
+uint16_t Node::send_remote_response(uint8_t dst, const uint8_t* body, uint8_t len) {
+    return enqueue_data(dst, body, len, /*flags=*/0, "rcmd_resp_tx", /*app_dm=*/false, DATA_TYPE_REMOTE_RESP);
+}
+// Drain the single inbound slot (fw_main, each loop). Returns true + copies out when one was staged; clears the slot.
+bool Node::take_remote_inbound(RemoteInbound& out) {
+    if (!_remote_inbound.active) return false;
+    out = _remote_inbound;
+    _remote_inbound.active = false;
+    return true;
+}
+
 // Slice 4e: the reversed-path CROSS_LAYER E2E ack. The inbound DM `dm` preserved the full layer-path (§0.10), so Y
 // REVERSES it and acks the ORIGINAL sender X over a gateway bridging back. dst = X's stable key (dm.source_hash) —
 // FAIL LOUD if absent (NEVER ack pa.origin on the local leaf — that's a different node on the wrong layer). The ack

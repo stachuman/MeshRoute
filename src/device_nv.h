@@ -217,6 +217,34 @@ inline bool save_faults(const mrfault::FaultLog& b) {
     f.close();
     return n == static_cast<int>(sizeof(b));
 }
+// InternalFS self-heal (Part 2, 2026-06-24): mount + REPAIR-ON-CORRUPT. Returns true IFF it had to reformat (the
+// caller logs loudly + sets a flag so `faults`/`version`/`status` surface it this boot). With LFS_NO_ASSERT (Part
+// 1) a corrupt CTZ block now RETURNS an error instead of assert()-halting, so we can DETECT it — begin() fails, or
+// a known file opens but read()s a negative (a corrupt skip-list head) — and RECOVER via InternalFS.format() -> a
+// clean FS that boots. Call ONCE at the very top of setup(), before any load*(). ⚠ Cost: a reformat wipes /mrid too
+// -> the node re-mints its identity + loses its join -> must be re-provisioned (a corrupt FS makes even /mrid
+// suspect; identity-preservation across a corrupt-format is a flagged later refinement). This is ALSO the recovery
+// image for an already-bricked node: it boots, sees the corruption, reformats, comes up clean.
+inline bool mount_or_repair() {
+    using namespace Adafruit_LittleFS_Namespace;
+    bool corrupt = !InternalFS.begin();                         // FS-metadata corruption -> begin() fails
+    if (!corrupt) {
+        static const char* const kFiles[] = { "/mrcfg", "/mrid", "/mrpeers", "/mri_dm", "/mri_ch", "/mrfault" };
+        for (const char* path : kFiles) {
+            File f(InternalFS);
+            if (f.open(path, FILE_O_READ)) {                    // exists -> probe one read; an absent file (open false) is FINE
+                uint8_t b; const int r = f.read(&b, 1);
+                f.close();
+                if (r < 0) { corrupt = true; break; }           // a read ERROR (LFS_ERR_CORRUPT; not EOF=0) -> corrupt block
+            }
+        }
+    }
+    if (corrupt) {
+        InternalFS.format();                                    // wipe to a clean FS (all NV slots gone -> defaults + re-mint)
+        InternalFS.begin();                                     // re-mount the clean FS so the load*() below run normally
+    }
+    return corrupt;
+}
 }  // namespace mrnv
 #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
   #include <Preferences.h>
@@ -292,6 +320,7 @@ inline bool save_faults(const mrfault::FaultLog& b) {
     p.end();
     return n == sizeof(b);
 }
+inline bool mount_or_repair() { return false; }    // NVS has no LittleFS-CTZ corruption mode -> nothing to repair (begin() is per-call above)
 }  // namespace mrnv
 #else
 namespace mrnv {                                       // unknown platform -> no NV (always defaults)
@@ -304,6 +333,7 @@ inline bool save_peers(const PeerBlob&) { return false; }
 inline bool factory_erase() { return true; }          // §2 native/unknown no-op stub (device-less build still compiles)
 inline bool load_faults(mrfault::FaultLog&) { return false; }
 inline bool save_faults(const mrfault::FaultLog&) { return false; }
+inline bool mount_or_repair() { return false; }       // native/unknown: no FS
 }  // namespace mrnv
 #endif
 #endif  // ARDUINO

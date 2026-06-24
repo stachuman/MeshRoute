@@ -2448,6 +2448,62 @@ TEST_CASE("E2E ACK — origin records a durable receipt + a send_e2e_acked push 
     CHECK(hal.count("delivered") == 0);                      // still NOT delivered as a message
 }
 
+// ===== OTA remote diagnostics (rcmd) — DATA_TYPE_REMOTE_CMD/RESP staging =====
+TEST_CASE("rcmd: a REMOTE_CMD DM STAGES into the inbound slot (not inbox/delivered); take drains it; a 2nd-while-pending drops") {
+    TestHal hal; Node node(hal, /*id=*/0, /*key=*/0xABCDu);   // we are the target of the command
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    node.on_init(cfg);
+    RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+
+    std::array<uint8_t,16> rb{};
+    hal._now = 1000; node.on_recv(rb.data(), mk_rts(/*src=*/1, /*next=*/0, /*dst=*/0, /*ctr_lo=*/9, /*plen=*/15, rb), meta);
+    std::array<uint8_t,64> db{};
+    const uint8_t body[6] = { 's','t','a','t','u','s' };
+    hal._now = 2000; node.on_recv(db.data(), mk_data_e2e(/*next=*/0, /*dst=*/0, /*ctr=*/0x0009, /*origin=*/2,
+                                  /*flags=*/0, body, 6, db, /*type=*/DATA_TYPE_REMOTE_CMD), meta);
+    node.on_timer(kPostAckTimerId);
+    CHECK(hal.count("delivered") == 0);                      // a remote cmd is NOT an app delivery
+
+    // a 2nd REMOTE_CMD WHILE one is pending -> dropped (the slot keeps the first; rcmd is human-paced)
+    std::array<uint8_t,16> rb2{};
+    hal._now = 3000; node.on_recv(rb2.data(), mk_rts(/*src=*/1, /*next=*/0, /*dst=*/0, /*ctr_lo=*/10, /*plen=*/15, rb2), meta);
+    std::array<uint8_t,64> db2{};
+    const uint8_t body2[4] = { 'd','u','t','y' };
+    hal._now = 4000; node.on_recv(db2.data(), mk_data_e2e(/*next=*/0, /*dst=*/0, /*ctr=*/0x000A, /*origin=*/3,
+                                  /*flags=*/0, body2, 4, db2, /*type=*/DATA_TYPE_REMOTE_CMD), meta);
+    node.on_timer(kPostAckTimerId);
+
+    Node::RemoteInbound ri;
+    CHECK(node.take_remote_inbound(ri));                     // drains the FIRST (the 2nd was dropped)
+    CHECK(ri.is_response == false);
+    CHECK(ri.from == 2);
+    CHECK(ri.len == 6);
+    CHECK(std::string(reinterpret_cast<const char*>(ri.body), ri.len) == "status");
+    CHECK_FALSE(node.take_remote_inbound(ri));              // slot cleared after the drain
+}
+
+TEST_CASE("rcmd: a REMOTE_RESP DM stages as is_response=true; send_remote_cmd/response return the sent ctr") {
+    TestHal hal; Node node(hal, /*id=*/0, /*key=*/0xABCDu);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    node.on_init(cfg);
+    RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(1) };
+    std::array<uint8_t,16> rb{};
+    hal._now = 1000; node.on_recv(rb.data(), mk_rts(/*src=*/1, /*next=*/0, /*dst=*/0, /*ctr_lo=*/9, /*plen=*/15, rb), meta);
+    std::array<uint8_t,64> db{};
+    const uint8_t body[8] = { 'u','p','=','4','2','s',' ',' ' };
+    hal._now = 2000; node.on_recv(db.data(), mk_data_e2e(/*next=*/0, /*dst=*/0, /*ctr=*/0x0009, /*origin=*/7,
+                                  /*flags=*/0, body, 8, db, /*type=*/DATA_TYPE_REMOTE_RESP), meta);
+    node.on_timer(kPostAckTimerId);
+    Node::RemoteInbound ri;
+    CHECK(node.take_remote_inbound(ri));
+    CHECK(ri.is_response == true);                          // a RESPONSE, not a command
+    CHECK(ri.from == 7);
+    // send_* return the assigned ctr (origination ride; we just check they don't refuse the call)
+    const uint8_t qb[4] = { 't','e','s','t' };
+    (void)node.send_remote_cmd(5, qb, 4);
+    (void)node.send_remote_response(5, qb, 4);
+}
+
 // ===================== L2c — DST_HASH verify-on-delivery + identity-preserving redirect =====================
 // A DM addressed to our node_id but carrying a cleartext DST_HASH naming a DIFFERENT key was misdelivered
 // by an id collision: do NOT deliver; FORWARD it (origin + ctr + flags + inner preserved — NOT re-sent) to

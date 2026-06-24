@@ -54,6 +54,25 @@ void put_hms(char* buf, size_t cap, size_t* pos, uint32_t ms) {
 }
 }  // namespace
 
+FaultCause classify_cause(bool magic_valid, bool had_fault, bool wdt_fired, bool expected) {
+    if (!magic_valid) return kCausePowerCycle;   // RAM was lost -> a true power-off
+    if (had_fault)    return kCauseHardfault;     // a captured fault frame
+    if (wdt_fired)    return kCauseWatchdog;      // the WDT pre-reset IRQ set the flag (a hang)
+    if (expected)     return kCauseReboot;        // mark_expected_reset before a deliberate NVIC_SystemReset
+    return kCauseUnexpected;                      // scratch valid, none set: pin reset / brownout-with-RAM / spontaneous
+}
+
+const char* fault_cause_str(uint8_t cause) {
+    switch (cause) {
+        case kCausePowerCycle: return "POWER_CYCLE";
+        case kCauseHardfault:  return "HARDFAULT";
+        case kCauseWatchdog:   return "WATCHDOG";
+        case kCauseReboot:     return "REBOOT";
+        case kCauseUnexpected: return "UNEXPECTED";
+        default:               return "?";
+    }
+}
+
 size_t reset_reason_str(uint16_t reason_bits, char* buf, size_t cap) {
     size_t pos = 0;
     if (cap) buf[0] = '\0';
@@ -73,33 +92,36 @@ size_t reset_reason_str(uint16_t reason_bits, char* buf, size_t cap) {
 size_t format_fault_record(const FaultRecord& r, char* buf, size_t cap) {
     size_t pos = 0;
     if (cap) buf[0] = '\0';
-    char tmp[64], reason[40];                                // 64: holds " · pc=0x… cfsr=0x… @0x…" (3×8 hex + literals)
-    reset_reason_str(r.reason_bits, reason, sizeof reason);
+    char tmp[64];
     snprintf(tmp, sizeof tmp, "boot %lu \xc2\xb7 ", (unsigned long)r.boot_seq);   // "boot <seq> · "
     put(buf, cap, &pos, tmp);
-    put(buf, cap, &pos, reason);
+    put(buf, cap, &pos, fault_cause_str(r.cause));               // the scratch-derived CAUSE is the headline
     put(buf, cap, &pos, " \xc2\xb7 ran ");
-    if (r.ran_ms == 0 && r.reason_bits == 0) put(buf, cap, &pos, "\xe2\x80\x94");   // POR + unknown uptime -> em-dash
-    else                                     put_hms(buf, cap, &pos, r.ran_ms);
+    if (r.cause == kCausePowerCycle) put(buf, cap, &pos, "\xe2\x80\x94");   // RAM lost -> uptime unknown (em-dash)
+    else                             put_hms(buf, cap, &pos, r.ran_ms);
     if (r.had_fault) {
         snprintf(tmp, sizeof tmp, " \xc2\xb7 pc=0x%lx cfsr=0x%lx @0x%lx",
                  (unsigned long)r.fault_pc, (unsigned long)r.cfsr, (unsigned long)r.fault_addr);
         put(buf, cap, &pos, tmp);
     }
+    if (r.reason_bits) {                                         // the RESETREAS HINT (0 on the UF2-bootloader nRF52; real elsewhere)
+        char reason[40]; reset_reason_str(r.reason_bits, reason, sizeof reason);
+        put(buf, cap, &pos, " \xc2\xb7 hint:"); put(buf, cap, &pos, reason);
+    }
     return pos;
 }
 
 size_t format_fault_summary(const FaultLog& f, char* buf, size_t cap) {
-    uint16_t faults = 0, dog = 0;
+    uint16_t hf = 0, wd = 0;                                     // counted from the scratch-derived CAUSE (so watchdog is finally meaningful)
     for (uint16_t i = 0; i < f.count; ++i) {
         const FaultRecord* r = fault_log_at(f, i);
         if (!r) continue;
-        if (r->had_fault) ++faults;
-        if (r->reason_bits & kResetDog) ++dog;
+        if (r->cause == kCauseHardfault) ++hf;
+        if (r->cause == kCauseWatchdog)  ++wd;
     }
     char tmp[96];
-    snprintf(tmp, sizeof tmp, "%u record%s \xc2\xb7 %u hardfault%s \xc2\xb7 %u watchdog reset%s",
-             f.count, f.count == 1 ? "" : "s", faults, faults == 1 ? "" : "s", dog, dog == 1 ? "" : "s");
+    snprintf(tmp, sizeof tmp, "%u record%s \xc2\xb7 %u hardfault%s \xc2\xb7 %u watchdog%s",
+             f.count, f.count == 1 ? "" : "s", hf, hf == 1 ? "" : "s", wd, wd == 1 ? "" : "s");
     size_t pos = 0; if (cap) buf[0] = '\0'; put(buf, cap, &pos, tmp);
     return pos;
 }
@@ -109,10 +131,8 @@ size_t format_last_reset(const FaultRecord* last, char* buf, size_t cap) {
     if (cap) buf[0] = '\0';
     put(buf, cap, &pos, "last reset: ");
     if (!last) { put(buf, cap, &pos, "unknown (no fault log)"); return pos; }
-    char reason[40];
-    reset_reason_str(last->reason_bits, reason, sizeof reason);
-    put(buf, cap, &pos, reason);
-    if (!(last->ran_ms == 0 && last->reason_bits == 0)) { put(buf, cap, &pos, " \xc2\xb7 ran "); put_hms(buf, cap, &pos, last->ran_ms); }
+    put(buf, cap, &pos, fault_cause_str(last->cause));
+    if (last->cause != kCausePowerCycle) { put(buf, cap, &pos, " \xc2\xb7 ran "); put_hms(buf, cap, &pos, last->ran_ms); }
     if (last->had_fault) {
         char tmp[48];
         snprintf(tmp, sizeof tmp, " \xc2\xb7 HARDFAULT pc=0x%lx cfsr=0x%lx", (unsigned long)last->fault_pc, (unsigned long)last->cfsr);

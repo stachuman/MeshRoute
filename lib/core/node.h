@@ -362,6 +362,19 @@ public:
     // is inert). The node records on its DM/channel deliver paths; a companion pulls incrementally.
     Inbox&    inbox() { return _inbox; }
 
+    // OTA remote diagnostics (`rcmd`, 2026-06-24): a console-style query / response carried over a DATA DM
+    // (DATA_TYPE_REMOTE_CMD / _RESP). lib/core is the GENERIC transport — fw_main owns the query whitelist + execution.
+    struct RemoteInbound {                       // a received remote cmd/resp, staged for the main loop (NOT the inbox)
+        bool    active = false;
+        bool    is_response = false;             // true = a response to our cmd; false = a command for us to execute
+        uint8_t from = 0;                        // the originator (pa.origin) — where the response goes back
+        uint8_t len = 0;
+        uint8_t body[protocol::inbox_max_body] = {};
+    };
+    uint16_t send_remote_cmd     (uint8_t dst, const uint8_t* body, uint8_t len);   // -> a DATA_TYPE_REMOTE_CMD DM (rides routing/ACK)
+    uint16_t send_remote_response(uint8_t dst, const uint8_t* body, uint8_t len);   // -> a DATA_TYPE_REMOTE_RESP DM
+    bool     take_remote_inbound(RemoteInbound& out);                              // drain the single inbound slot (fw_main, each loop)
+
     // Exposed for the R3.x determinism golden test. The retry-jitter RANGE is a
     // cross-engine alignment contract: 3*airtime_routing(RTS_LEN=8) must equal
     // the Lua's, or the lua-vs-meshroute forced-retry streams de-align (see the
@@ -1150,6 +1163,7 @@ private:
     // async push ring (the app channel; drained via next_push, drop-oldest on overflow)
     Push     _push_ring[protocol::cap_push_ring];
     uint8_t  _push_head = 0, _push_count = 0;
+    RemoteInbound _remote_inbound{};   // `rcmd`: single inbound slot (one in flight; a 2nd while pending drops). Drained by fw_main.
 };
 
 }  // namespace meshroute

@@ -69,7 +69,10 @@ public:
     uint32_t persisted_next_seq() const override { return _meta.next_seq; }
     bool     set_next_seq(uint32_t next) override { _meta.next_seq = next; return save_meta(); }
     uint32_t read_cursor() const override { return _meta.read_cursor; }
-    bool     set_read_cursor(uint32_t seq) override { _meta.read_cursor = seq; return save_meta(); }
+    // Change-detect (InternalFS self-heal Part 3): a `mark_read` to the SAME cursor must not rewrite the InternalFS
+    // meta — an app/companion can fire mark_read at its own cadence during a pull session, and a no-op rewrite is
+    // pure write churn (the corruption window). A real cursor advance still persists immediately (user/app-commanded).
+    bool     set_read_cursor(uint32_t seq) override { if (seq == _meta.read_cursor) return true; _meta.read_cursor = seq; return save_meta(); }
     uint16_t count() const override { return _count; }
     uint32_t storage_epoch() const override { return _meta.epoch; }
     // factory_reset (§5): drop EVERY record segment (the QSPI records). The InternalFS meta is removed by

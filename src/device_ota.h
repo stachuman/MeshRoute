@@ -14,5 +14,6 @@ bool ota_start();        // bring up SoftAP + web server; false on failure
 void ota_stop();         // tear down
 void ota_loop();         // call from main loop — handles one HTTP request (non-blocking)
 bool ota_active();       // is the server currently running?
+void set_pre_reboot_hook(void (*fn)());   // invoked right before the post-flash ESP.restart() (fw_main marks the reset deliberate)
 
 }  // namespace mrota

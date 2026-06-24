@@ -18,7 +18,20 @@ namespace mrfault {
 
 inline constexpr uint16_t kFaultRingN   = 16;
 inline constexpr uint32_t kFaultMagic   = 0x4D524654u;   // 'MRFT'
-inline constexpr uint16_t kFaultVersion = 1;
+inline constexpr uint16_t kFaultVersion = 2;             // v2 (2026-06-24): +cause (scratch-classified; RESETREAS demoted to a hint). v1: original. A bump rejects an old record.
+
+// The RELIABLE reset classification (v2) — derived from the RETAINED SCRATCH, not RESETREAS (the Adafruit UF2
+// bootloader reads + clears RESETREAS before our app, so on metal it's always 0/POR — useless). Priority order in
+// classify_cause(). reason_bits stays as a secondary HINT (real only on a no-bootloader build).
+enum FaultCause : uint8_t {
+    kCausePowerCycle = 0,   // scratch magic invalid => RAM was lost => a true power-off (ran unknown)
+    kCauseHardfault  = 1,   // a captured HardFault / panic frame
+    kCauseWatchdog   = 2,   // the watchdog fired (a hang it caught) — the WDT pre-reset IRQ set the flag
+    kCauseReboot     = 3,   // a DELIBERATE reset (reboot / OTA / prep-restart / crashtest reboot — mark_expected_reset)
+    kCauseUnexpected = 4,   // scratch valid, none of the above: a pin reset, a brownout that kept RAM, or a spontaneous reset
+};
+FaultCause  classify_cause(bool magic_valid, bool had_fault, bool wdt_fired, bool expected);   // PURE — the priority order above
+const char* fault_cause_str(uint8_t cause);   // "POWER_CYCLE" / "HARDFAULT" / "WATCHDOG" / "REBOOT" / "UNEXPECTED"
 
 // Compact reset-reason bits — MIRROR the nRF52 NRF_POWER->RESETREAS bits, compacted into 16 bits (the HW OFF bit
 // is 16, which a uint16_t can't hold, so the device maps it to bit 4). reason_bits == 0 => POR (a true power-on /
@@ -35,10 +48,10 @@ enum ResetReason : uint16_t {
 
 struct FaultRecord {              // ~24 B POD (one ring slot)
     uint32_t boot_seq;            // monotonic across power-cycles (== this record's boot number)
-    uint16_t reason_bits;         // compact ResetReason; 0 = POR
+    uint16_t reason_bits;         // compact ResetReason — a HINT only (0/POR on the UF2-bootloader nRF52; real elsewhere)
     uint8_t  had_fault;           // 1 = a HardFault frame was captured (fault_pc/cfsr/fault_addr valid)
-    uint8_t  _pad;
-    uint32_t ran_ms;              // uptime at death (the retained scratch's last_uptime_ms; 0 + POR => unknown)
+    uint8_t  cause;               // FaultCause — the RELIABLE scratch-derived classification (the headline; was _pad)
+    uint32_t ran_ms;              // uptime at death (the retained scratch's last_uptime_ms; 0 + POWER_CYCLE => unknown)
     uint32_t fault_pc;            // ARM fault frame (0 if no fault)
     uint32_t cfsr;
     uint32_t fault_addr;
