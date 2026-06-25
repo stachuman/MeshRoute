@@ -15,9 +15,9 @@ using namespace mrfault;
 
 namespace {
 FaultRecord rec(uint32_t seq, uint8_t cause, uint8_t had_fault = 0, uint32_t ran_ms = 0,
-                uint32_t pc = 0, uint32_t cfsr = 0, uint32_t addr = 0, uint16_t reason = 0) {
+                uint32_t pc = 0, uint32_t cfsr = 0, uint32_t addr = 0, uint16_t reason = 0, uint32_t lr = 0) {
     FaultRecord r{}; r.boot_seq = seq; r.cause = cause; r.had_fault = had_fault;
-    r.ran_ms = ran_ms; r.fault_pc = pc; r.cfsr = cfsr; r.fault_addr = addr; r.reason_bits = reason; return r;
+    r.ran_ms = ran_ms; r.fault_pc = pc; r.cfsr = cfsr; r.fault_addr = addr; r.reason_bits = reason; r.fault_lr = lr; return r;
 }
 std::string rstr(uint16_t bits) { char b[48]; reset_reason_str(bits, b, sizeof b); return std::string(b); }
 }  // namespace
@@ -26,7 +26,7 @@ TEST_CASE("fault_log: FaultLog is a POD that round-trips a whole-blob memcpy (th
     FaultLog f; fault_log_init(f);
     CHECK(fault_log_valid(f));
     fault_log_push(f, rec(1, kCauseWatchdog, 0, 5000));
-    fault_log_push(f, rec(2, kCauseHardfault, 1, 12000, 0xABCD, 0x8200, 0xDEAD));
+    fault_log_push(f, rec(2, kCauseHardfault, 1, 12000, 0xABCD, 0x8200, 0xDEAD, 0, /*lr*/0x5678));
     uint8_t bytes[sizeof(FaultLog)];
     std::memcpy(bytes, &f, sizeof f);                         // "serialize" = the verbatim POD copy (== mrnv::save)
     FaultLog g{};
@@ -38,14 +38,15 @@ TEST_CASE("fault_log: FaultLog is a POD that round-trips a whole-blob memcpy (th
     CHECK(fault_log_at(g, 0)->cause == kCauseHardfault);
     CHECK(fault_log_at(g, 0)->had_fault == 1);
     CHECK(fault_log_at(g, 0)->fault_pc == 0xABCD);
+    CHECK(fault_log_at(g, 0)->fault_lr == 0x5678);           // v3: the stacked LR round-trips
     CHECK(fault_log_at(g, 1)->boot_seq == 1);
 }
 
-TEST_CASE("fault_log: a bad magic/version is INVALID -> the loader re-inits fresh (v1 record rejected)") {
+TEST_CASE("fault_log: a bad magic/version is INVALID -> the loader re-inits fresh (older record rejected)") {
     FaultLog f; fault_log_init(f);
     f.magic = 0xDEADBEEFu; CHECK_FALSE(fault_log_valid(f));
-    fault_log_init(f); f.version = 1; CHECK_FALSE(fault_log_valid(f));   // a v1 record (pre-cause) is rejected -> one-time wipe
-    CHECK(kFaultVersion == 2);
+    fault_log_init(f); f.version = 2; CHECK_FALSE(fault_log_valid(f));   // a v2 record (pre-LR) is rejected -> one-time wipe
+    CHECK(kFaultVersion == 3);
 }
 
 TEST_CASE("fault_log: ring push drops the oldest at kFaultRingN; newest-first order; boot_seq high-water") {
@@ -87,12 +88,14 @@ TEST_CASE("fault_log: format_fault_record — boot/CAUSE/ran, hardfault frame + 
     CHECK(s.find("WATCHDOG") != std::string::npos);
     CHECK(s.find("ran 1m05s") != std::string::npos);
     CHECK(s.find("pc=") == std::string::npos);                // no fault -> no frame
+    CHECK(s.find("lr=") == std::string::npos);                // ... and no LR on a clean record
     CHECK(s.find("hint:") == std::string::npos);              // reason_bits 0 -> no hint
 
-    format_fault_record(rec(9, kCauseHardfault, 1, 0, 0x12340, 0x8200, 0xBEEF, /*reason*/ kResetSreq), b, sizeof b);
+    format_fault_record(rec(9, kCauseHardfault, 1, 0, 0x12340, 0x8200, 0xBEEF, /*reason*/ kResetSreq, /*lr*/0x9abc), b, sizeof b);
     std::string s2(b);
     CHECK(s2.find("HARDFAULT") != std::string::npos);
     CHECK(s2.find("pc=0x12340") != std::string::npos);
+    CHECK(s2.find("lr=0x9abc") != std::string::npos);         // v3: the caller addr (addr2line)
     CHECK(s2.find("cfsr=0x8200") != std::string::npos);
     CHECK(s2.find("hint:SREQ") != std::string::npos);         // the secondary RESETREAS hint
 
@@ -100,6 +103,37 @@ TEST_CASE("fault_log: format_fault_record — boot/CAUSE/ran, hardfault frame + 
     std::string s3(b);
     CHECK(s3.find("POWER_CYCLE") != std::string::npos);
     CHECK(s3.find("ran 0s") == std::string::npos);
+}
+
+TEST_CASE("fault_log: format_fault_record — a CANARY record shows @w<where> off + the before->after dword") {
+    char b[160];
+    // canary record packs: fault_pc=before, fault_lr=after, cfsr=where, fault_addr=off (see device_fault.h)
+    format_fault_record(rec(20, kCauseCanary, /*had_fault*/0, /*ran*/1000, /*pc=before*/0x20001a40u,
+                            /*cfsr=where*/3u, /*addr=off*/8u, /*reason*/0, /*lr=after*/0u), b, sizeof b);
+    std::string s(b);
+    CHECK(s.find("CANARY") != std::string::npos);
+    CHECK(s.find("@w3") != std::string::npos);            // where id 3 (= after_node_tick in fw_main)
+    CHECK(s.find("off=8") != std::string::npos);
+    CHECK(s.find("0x20001a40") != std::string::npos);     // before
+    CHECK(s.find("ran 1s") != std::string::npos);
+    CHECK(s.find("pc=") == std::string::npos);            // NOT a hardfault frame
+    CHECK(std::string(fault_cause_str(kCauseCanary)) == "CANARY");
+
+    // ADDENDUM: where>=100 = a per-timer-id trip -> "timer id=<where-100>" (here where=157 -> timer 57)
+    format_fault_record(rec(21, kCauseCanary, 0, 1000, /*before*/0x7ccb8u, /*cfsr=where*/157u, /*off*/64u, 0, /*after*/0u), b, sizeof b);
+    std::string st(b);
+    CHECK(st.find("CANARY") != std::string::npos);
+    CHECK(st.find("timer id=57") != std::string::npos);
+    CHECK(st.find("off=64") != std::string::npos);
+    CHECK(st.find("@w") == std::string::npos);            // the timer form, not the @w<where> form
+
+    // ADDENDUM 2: a WATCHPOINT record (the DWT named the store) -> pc/lr (addr2line the pc = the offending line)
+    format_fault_record(rec(22, kCauseWatchpoint, 0, 5000, /*pc*/0x12abcu, 0, 0, 0, /*lr*/0x34defu), b, sizeof b);
+    std::string sw(b);
+    CHECK(sw.find("WATCHPOINT") != std::string::npos);
+    CHECK(sw.find("pc=0x12abc") != std::string::npos);
+    CHECK(sw.find("lr=0x34def") != std::string::npos);
+    CHECK(std::string(fault_cause_str(kCauseWatchpoint)) == "WATCHPOINT");
 }
 
 TEST_CASE("fault_log: format_fault_summary counts hardfaults / watchdogs FROM the cause") {
@@ -130,9 +164,9 @@ TEST_CASE("fault_log: format_last_reset + format_version_banner") {
     CHECK(std::string(b).find("last reset: POWER_CYCLE") != std::string::npos);
     CHECK(std::string(b).find("ran ") == std::string::npos);
 
-    FaultRecord rf = rec(5, kCauseHardfault, 1, 2000, 0xCAFE, 0x8000);
+    FaultRecord rf = rec(5, kCauseHardfault, 1, 2000, 0xCAFE, 0x8000, 0, 0, /*lr*/0xd00d);
     format_last_reset(&rf, b, sizeof b);
-    CHECK(std::string(b).find("HARDFAULT pc=0xcafe") != std::string::npos);
+    CHECK(std::string(b).find("HARDFAULT pc=0xcafe lr=0xd00d") != std::string::npos);
 
     format_version_banner(b, sizeof b, "Jun 24 2026 10:00:00", "abc123-dirty", "xiao_sx1262");
     std::string v(b);
