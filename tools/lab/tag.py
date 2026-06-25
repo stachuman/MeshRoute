@@ -6,10 +6,21 @@
 import re
 
 _TAG_RE = re.compile(r"T([0-9A-Za-z]+)S(\d+)#(\d+)")
+_SENDMS_RE = re.compile(r"T[0-9A-Za-z]+S\d+#\d+@(\d+)")   # the firmware scheduled-send transmit-time suffix `…#<n>@<ms>`
 
 
 def make_tag(run, src, n):
     return f"T{run}S{src}#{n}"
+
+
+def parse_sendms(s):
+    """The firmware's `@<sendms>` transmit-time suffix (the node's millis() at TX) from a scheduled-send body -> int,
+    or None if absent. parse_tag already ignores the suffix (it matches the `T…#<n>` prefix), so the canonical tag
+    still reconciles; this pulls the send timestamp out for the (clock-aligned, approximate) latency."""
+    if not s:
+        return None
+    m = _SENDMS_RE.search(s)
+    return int(m.group(1)) if m else None
 
 
 def parse_tag(s):
@@ -34,6 +45,8 @@ def _selftest():
     assert make_tag("a1", 254, 0) == "Ta1S254#0"
     assert parse_tag("Ta1S254#7") == {"run": "a1", "src": 254, "n": 7}
     assert parse_tag("prefix Ta1S3#2 suffix") == {"run": "a1", "src": 3, "n": 2}   # found anywhere
+    assert parse_tag("Ta1S3#2@12345") == {"run": "a1", "src": 3, "n": 2}           # the @sendms suffix is ignored (canonical tag)
+    assert parse_sendms("Ta1S3#2@12345") == 12345 and parse_sendms("Ta1S3#2") is None
     assert parse_tag("no tag here") is None
     assert find_tag("Ta1S3#0", run="a1") == {"run": "a1", "src": 3, "n": 0}
     assert find_tag("Tb2S3#0", run="a1") is None                                   # different run -> ignored

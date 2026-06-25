@@ -1,16 +1,15 @@
-# MeshRoute lab — realistic-pacing oracle scenario (meshroute_lab.py run tools/scenario-realistic.txt [-v])
-# Same WHAT as scenario-oracle.txt (1 DM + 1 channel per node), but the sends are POISSON-SPREAD over a window
-# instead of fired back-to-back — so the transmitters DESYNCHRONIZE. The burst version stacks every node's TX into
-# ~5 s and self-collides (the `rxbad st=-7` CRC storm we measured); this separates the test artifact from a real
-# firmware gap. Seed makes a run reproducible; vary it (or remove for seed=0) to sample different arrival patterns.
-workload: oracle
-pacing: poisson                 # burst (default) | poisson
-spread_s: 120                   # spread the sends over ~this many seconds (Poisson arrivals; the tail runs a bit past)
-seed: 0                         # reproducible schedule; change to resample
-dm_per_node: 1
-chan_per_node: 1
+# MeshRoute lab — REALISTIC traffic (meshroute_lab.py run tools/scenario-realistic.txt [-v])
+# Each node INDEPENDENTLY Poisson-generates a message STREAM over the window — per message a DM (to a uniform-random
+# other node) or a channel broadcast, each at its OWN arrival time. The superposition of 8 independent streams is
+# real mesh traffic: NO synchronized "1 DM + 1 CH per node", NO "DM then CH 0.3 s later". (Contrast scenario-oracle.txt,
+# the deterministic round-robin probe used to validate the oracle machinery.)
+workload: realistic
+duration_s: 100                 # each node emits messages across this window
+rate_per_min: 3                 # ~6 msgs/node/min (moderate; ≈48 msgs/min across 8 nodes) — raise/lower to dial load
+dm_fraction: 0.6                # 60% DMs (uniform-random other node), 40% channel broadcasts
 channel: 0
-ack: true
+ack: true                       # -a on the DMs (drives the e2e-acked criterion)
 enc: false
-settle_s: 30                    # after the LAST scheduled send
-eventual_s: 400                 # > spread_s + settle + repair — late sends still get a fair eventual window
+seed: 0                         # reproducible; change to resample the stream
+settle_s: 30                    # after the LAST scheduled message
+eventual_s: 100                 # > duration + settle + repair — late messages still get a fair eventual window

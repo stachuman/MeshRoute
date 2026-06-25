@@ -14,7 +14,7 @@ import json
 import argparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))   # tools/ on the path -> `lab` + meshroute_client
-from lab import registry, parsers, oracle, report, topology     # noqa: E402
+from lab import registry, parsers, oracle, report, topology, armrun   # noqa: E402
 from lab.manager import NodeManager                               # noqa: E402
 from lab.provision import provision, ProvisionError              # noqa: E402
 
@@ -63,6 +63,10 @@ def load_scenario(path):
 
 def _ports_arg(s):
     return [p.strip() for p in s.split(",") if p.strip()] if s else None
+
+
+def _nlabel(n):
+    return f"id={n.node_id} ({n.port})"
 
 
 # --------------------------------------------------------------------------------------------------
@@ -181,6 +185,30 @@ def cmd_run(args):
     sys.exit(0 if result["verdict"]["pass"] else 1)
 
 
+def cmd_armrun(args):
+    # LOW-USB arm-and-read run (firmware scheduled-send): arm every node once, wait with NO live stream, then read +
+    # reconcile. USB touched only at arm + read -> survives flaky USB-CDC. Needs the firmware testsend/testch commands.
+    scenario = load_scenario(args.scenario)
+    run_id = format(int(time.time()) & 0xFFFFFF, "x")
+    run_dir = os.path.join("runs", run_id)
+    os.makedirs(run_dir, exist_ok=True)
+    nodes = registry.discover(ports=_ports_arg(args.ports))
+    if not nodes:
+        sys.exit("no /dev/ttyACM* ports found (use --ports to override)")
+    with NodeManager(nodes) as mgr:
+        print(f"arm-mode (low-USB) against the standing net ({len(mgr.responsive())} responsive node(s)) — "
+              "provision separately first if needed")
+        result, text = armrun.run(mgr, scenario, run_id, run_dir,
+                                  duration_s=float(scenario.get("duration_s", 300)),
+                                  settle_s=float(scenario.get("settle_s", 30)),
+                                  verbose=args.verbose)
+    if args.verbose:
+        print("\n" + report.format_per_msg(result))
+    print("\n" + text)
+    print(f"\nartifacts: {run_dir}/")
+    sys.exit(0 if result["verdict"]["pass"] else 1)
+
+
 def cmd_rcmd(args):
     # OTA remote diagnostics: send `rcmd <target> <query>` over a LIVE node and print the async `[rcmd <from>]` reply
     # (the node DMs the query to <target>, which answers back as a DM — multi-hop; works when <target>'s serial is dead).
@@ -202,8 +230,40 @@ def cmd_rcmd(args):
         if reply:
             print(reply.strip())
         else:
-            print(f"(no [rcmd {args.target}] reply within {args.timeout}s via {via.label()})")
+            print(f"(no [rcmd {args.target}] reply within {args.timeout}s via {_nlabel(via)})")
             sys.exit(1)
+
+
+def cmd_reset_net(args):
+    # Coordinated CLEAN fleet restart (prep-restart spec). Phase 1: prep-restart EVERY node -> each clears its learned
+    # state + inbox, KEEPS provisioning (id/leaf/sf_list), and goes DORMANT, so the whole network falls silent (no
+    # live neighbour left to re-poison stale routes). Phase 2: reboot every node -> each comes up fresh (empty
+    # routes/inbox, g_halted cleared) into that silent network -> convergence from true zero. A halted node still
+    # services the console, so the reboot command reaches it.
+    nodes = registry.discover(ports=_ports_arg(args.ports))
+    if not nodes:
+        sys.exit("no /dev/ttyACM* ports found (use --ports to override)")
+    with NodeManager(nodes) as mgr:
+        live = mgr.responsive()
+        if not live:
+            sys.exit("no responsive node to reset")
+        print(f"prep-restart -> {len(live)} node(s)  (clear routes + inbox, keep provisioning, go dormant)…")
+        r1 = mgr.broadcast("prep-restart", "HALTED", timeout=args.timeout, nodes=live)
+        halted = 0
+        for n in live:
+            ok = any("HALTED" in ln for ln in r1.get(n.port, []))
+            halted += ok
+            print(f"  {_nlabel(n)}: {'halted' if ok else 'NO CONFIRM'}")
+        time.sleep(args.settle)   # let every node reach dormancy before any reboot (so no still-live neighbour re-poisons)
+        print(f"reboot -> {len(live)} node(s)…")
+        r2 = mgr.broadcast("reboot", "rebooting", timeout=args.reboot_timeout, nodes=live)
+        rebooted = 0
+        for n in live:
+            ok = any("rebooting" in ln for ln in r2.get(n.port, []))
+            rebooted += ok
+            print(f"  {_nlabel(n)}: {'rebooting' if ok else 'NO CONFIRM'}")
+        print(f"network reset issued: {halted}/{len(live)} halted, {rebooted}/{len(live)} rebooting. "
+              f"Nodes re-enumerate in ~5-10 s — re-run `status` to confirm a clean (empty-route) bring-up.")
 
 
 def main():
@@ -230,6 +290,11 @@ def main():
     pr.add_argument("-v", "--verbose", action="store_true",
                     help="live event stream ([send]/[recv]/[chan]/[e2e]/[hop]/[pull]) + full per-message reconcile dump")
     pr.set_defaults(func=cmd_run)
+    pa = sub.add_parser("armrun", help="LOW-USB run: arm nodes with the firmware scheduler, wait (no live stream), read + reconcile")
+    pa.add_argument("scenario", help="scenario file (workload + duration_s/settle_s); needs the firmware testsend/testch")
+    pa.add_argument("--ports", help="comma list (default: auto-discover)")
+    pa.add_argument("-v", "--verbose", action="store_true", help="arm/read progress + full per-message dump")
+    pa.set_defaults(func=cmd_armrun)
     pt = sub.add_parser("topology", help="print the network topology (direct links + asymmetric links)")
     pt.add_argument("--ports", help="comma list (default: auto-discover)")
     pt.add_argument("--json", action="store_true")
@@ -241,6 +306,12 @@ def main():
     prc.add_argument("--timeout", type=int, default=15, help="seconds to await the reply")
     prc.add_argument("--ports", help="comma list (default: auto-discover)")
     prc.set_defaults(func=cmd_rcmd)
+    pn = sub.add_parser("reset-net", help="coordinated clean fleet restart: prep-restart EVERY node (dormant) then reboot every node")
+    pn.add_argument("--settle", type=float, default=3.0, help="seconds to wait after prep-restart before the reboots")
+    pn.add_argument("--timeout", type=float, default=3.0, help="per-node prep-restart confirm timeout (s)")
+    pn.add_argument("--reboot-timeout", type=float, default=3.0, help="per-node reboot confirm timeout (s)")
+    pn.add_argument("--ports", help="comma list (default: auto-discover)")
+    pn.set_defaults(func=cmd_reset_net)
     args = ap.parse_args()
     args.func(args)
 

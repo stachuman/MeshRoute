@@ -9,6 +9,7 @@
 #include <WebServer.h>
 #include <Update.h>
 #include "device_ota.h"
+#include "console_sink.h"   // `mrcon` guarded sink
 
 namespace mrota {
 
@@ -57,13 +58,13 @@ static void handle_update() {
         total = s_server.client().available();
         if (total == 0) {
             s_server.send(400, "text/plain", "Empty upload — select a firmware.bin file");
-            Serial.println(F("OTA: empty upload"));
+            mrcon.println(F("OTA: empty upload"));
             return;
         }
     }
-    Serial.printf("OTA: receiving %u bytes\n", (unsigned)total);
+    mrcon.printf("OTA: receiving %u bytes\n", (unsigned)total);
     if (!Update.begin(total, U_FLASH)) {
-        Serial.print("OTA: begin failed: "); Update.printError(Serial);
+        mrcon.print("OTA: begin failed: "); Update.printError(mrcon);
         s_server.send(500, "text/plain", "OTA begin failed"); return;
     }
     // Read body in chunks
@@ -76,20 +77,20 @@ static void handle_update() {
         size_t r = client.read(buf, chunk);
         if (r == 0) break;
         if (Update.write(buf, r) != r) {
-            Serial.print("OTA: write failed: "); Update.printError(Serial);
+            mrcon.print("OTA: write failed: "); Update.printError(mrcon);
             s_server.send(500, "text/plain", "OTA write failed"); Update.abort(); return;
         }
         written += r; remaining -= r;
     }
-    Serial.printf("OTA: %u bytes written\n", (unsigned)written);
+    mrcon.printf("OTA: %u bytes written\n", (unsigned)written);
     if (written > 0 && Update.end(true)) {
-        Serial.printf("OTA: %u bytes flashed — rebooting\n", (unsigned)written);
+        mrcon.printf("OTA: %u bytes flashed — rebooting\n", (unsigned)written);
         s_server.send(200, "text/plain", "OK — rebooting now");
-        Serial.flush(); delay(500);
+        mrcon.flush(); delay(500);
         if (s_pre_reboot_hook) s_pre_reboot_hook();   // mark the reset deliberate -> classifies as REBOOT, not UNEXPECTED
         ESP.restart();
     } else {
-        Serial.println(F("OTA: end failed or 0 bytes"));
+        mrcon.println(F("OTA: end failed or 0 bytes"));
         Update.abort();
         s_server.send(400, "text/plain", "Upload failed");
     }
@@ -102,16 +103,16 @@ static void handle_root() {
 bool ota_start() {
     if (s_active) return true;
     if (!WiFi.softAP("MeshRoute-OTA")) {
-        Serial.println(F("OTA: SoftAP start FAILED"));
+        mrcon.println(F("OTA: SoftAP start FAILED"));
         return false;
     }
-    Serial.print(F("OTA: SoftAP 'MeshRoute-OTA' IP="));
-    Serial.println(WiFi.softAPIP());
+    mrcon.print(F("OTA: SoftAP 'MeshRoute-OTA' IP="));
+    mrcon.println(WiFi.softAPIP());
     s_server.on("/",       HTTP_GET,  handle_root);
     s_server.on("/update", HTTP_POST, handle_update);
     s_server.begin();
     s_active = true;
-    Serial.println(F("OTA: browse to the IP above, upload firmware.bin"));
+    mrcon.println(F("OTA: browse to the IP above, upload firmware.bin"));
     return true;
 }
 
@@ -120,7 +121,7 @@ void ota_stop() {
     s_server.stop();
     WiFi.softAPdisconnect(true);
     s_active = false;
-    Serial.println(F("OTA: stopped"));
+    mrcon.println(F("OTA: stopped"));
 }
 
 void ota_loop() {

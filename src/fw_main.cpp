@@ -35,6 +35,8 @@
 #include "device_ota.h"      // WiFi OTA (Heltec ESP32-S3); inert no-op on XIAO/native
 #include "fault_log.h"       // persistent fault log — platform-neutral ring/decode/formatters (lib/core)
 #include "device_fault.h"    // nRF52 HW glue: retained scratch + 8 s watchdog + HardFault capture (empty on ESP32)
+#include "sched_send.h"      // firmware scheduled-send CORE (on-node test workload; pure logic, host-unit-tested)
+#include "console_sink.h"    // `mrcon` — the ONE guarded console-output sink (drop-never-block; MR_CONSOLE compile-out)
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -57,6 +59,17 @@ static bool                 g_halted = false;
 // `rcmd` deferred recovery action: respond FIRST, then act ~3 s later so the response DM airs. 0=none, 1=reboot, 2=prep-restart.
 static uint8_t              g_remote_action = 0;
 static uint64_t             g_remote_action_at = 0;
+
+// firmware scheduled-send (testsend/testch): the on-node test workload. RAM-only (transient); the loop tick fires
+// due entries through the real send path (queue-gated). Lost on reboot — acceptable (the durable inbox tells the story).
+static mrsched::Schedule    g_sched;
+
+// ---- Radio-Module corruption canary (debug instrument, spec 2026-06-25; MR_RADIO_CANARY, default OFF) ------------
+// Where (which loop subsystem) the Module-corruption was first SEEN. The id is stored in the durable canary record;
+// the live message prints the name. Keep in sync with the canary() calls scattered through loop().
+enum CanaryWhere : uint8_t { CW_loop_top = 0, CW_poll_rx = 1, CW_tx_done = 2, CW_node_tick = 3,
+                             CW_console = 4, CW_ble = 5, CW_nv = 6, CW_sched = 7, CW_noise = 8 };
+// canary_where_name() + canary() are defined just before loop() — they use g_iradio/mrcon/mrfault (declared later).
 
 // Step 4 light-sleep — platform sleep primitives (radio stays in continuous RX; DIO1 RxDone wakes the MCU).
 #if !defined(MR_NO_POWERSAVE)
@@ -162,114 +175,114 @@ static void handle_route_cmd(const char* args) {
         long score = strtol(p, &e, 10); if (e == p) score = 160;          // optional; default ~10 dB (Q4) = a sticky primary
         if (d1 && d2 && d3 && dest >= 1 && dest <= 254 && next >= 1 && next <= 254 && hops >= 1 && hops <= 255) {
             const bool ok = g_node.route_inject((uint8_t)dest, (uint8_t)next, (uint8_t)hops, (int16_t)score);
-            Serial.print(F("> route add dest=")); Serial.print(dest); Serial.print(F(" via=")); Serial.print(next);
-            Serial.print(F(" hops="));            Serial.print(hops); Serial.print(F(" score=")); Serial.print(score);
-            Serial.println(ok ? F(" — installed (see `routes`)") : F(" — REJECTED (better candidates hold the slots)"));
+            mrcon.print(F("> route add dest=")); mrcon.print(dest); mrcon.print(F(" via=")); mrcon.print(next);
+            mrcon.print(F(" hops="));            mrcon.print(hops); mrcon.print(F(" score=")); mrcon.print(score);
+            mrcon.println(ok ? F(" — installed (see `routes`)") : F(" — REJECTED (better candidates hold the slots)"));
             return;
         }
     } else if (!strncmp(args, "del", 3) && (args[3] == ' ' || args[3] == '\0')) {
         const long dest = strtol(args + 3, &e, 10);
         if (e != args + 3 && dest >= 1 && dest <= 254) {
             const bool ok = g_node.route_remove((uint8_t)dest);
-            Serial.print(F("> route del dest=")); Serial.print(dest); Serial.println(ok ? F(" — removed") : F(" — not found"));
+            mrcon.print(F("> route del dest=")); mrcon.print(dest); mrcon.println(ok ? F(" — removed") : F(" — not found"));
             return;
         }
     }
-    Serial.println(F("> route err usage: route add <dest> <next_hop> <hops> [score_q4] | route del <dest>"));
+    mrcon.println(F("> route err usage: route add <dest> <next_hop> <hops> [score_q4] | route del <dest>"));
 }
 
 static void dump_routes() {
     const uint64_t now = g_hal.now();
-    Serial.print(F("[routes] n=")); Serial.println(g_node.rt_count());
+    mrcon.print(F("[routes] n=")); mrcon.println(g_node.rt_count());
     for (uint8_t i = 0; i < g_node.rt_count(); ++i) {
         const meshroute::RtEntry& e = g_node.rt_at(i);
         const meshroute::RtCandidate& c = e.candidates[0];           // candidates[0] = the primary next-hop
-        Serial.print(F("[route] dest="));   Serial.print(e.dest);
-        Serial.print(F(" next="));          Serial.print(c.next_hop);
-        Serial.print(F(" hops="));          Serial.print(c.hops);
-        Serial.print(F(" score="));         Serial.print(c.score);
-        Serial.print(F(" pen="));           Serial.print(g_node.peer_penalty_q4(c.next_hop));   // liveness penalty on this next-hop (effective = score - pen)
-        Serial.print(F(" gw="));            Serial.print(c.is_gateway ? 1 : 0);
-        Serial.print(F(" layer="));         Serial.print(c.learned_layer_id);
-        Serial.print(F(" age_ms="));        Serial.print((uint32_t)(now - c.last_seen_ms));
-        Serial.print(F(" cand="));          Serial.println(e.n);
+        mrcon.print(F("[route] dest="));   mrcon.print(e.dest);
+        mrcon.print(F(" next="));          mrcon.print(c.next_hop);
+        mrcon.print(F(" hops="));          mrcon.print(c.hops);
+        mrcon.print(F(" score="));         mrcon.print(c.score);
+        mrcon.print(F(" pen="));           mrcon.print(g_node.peer_penalty_q4(c.next_hop));   // liveness penalty on this next-hop (effective = score - pen)
+        mrcon.print(F(" gw="));            mrcon.print(c.is_gateway ? 1 : 0);
+        mrcon.print(F(" layer="));         mrcon.print(c.learned_layer_id);
+        mrcon.print(F(" age_ms="));        mrcon.print((uint32_t)(now - c.last_seen_ms));
+        mrcon.print(F(" cand="));          mrcon.println(e.n);
         // A gateway route carries unique state: its advertised window schedule (period + per-leaf windows) — known
         // when we've heard the gateway 1-hop. Print it on a continuation line so a node can see when the gw is reachable.
         if (c.is_gateway) {
             const meshroute::GatewaySchedule* gs = g_node.rt_gateway_schedule(e.dest);
             if (gs && gs->valid) {
-                Serial.print(F("[route]   gw_sched period="));  Serial.print(gs->period_ms);
-                Serial.print(F("ms heard_ms="));                Serial.print((uint32_t)(now - gs->heard_ms));
-                Serial.print(F(" defer_ms="));                  Serial.print(g_node.rt_gateway_defer_ms(e.dest));
-                Serial.print(F(" n_rec="));                     Serial.print(gs->n_rec);
+                mrcon.print(F("[route]   gw_sched period="));  mrcon.print(gs->period_ms);
+                mrcon.print(F("ms heard_ms="));                mrcon.print((uint32_t)(now - gs->heard_ms));
+                mrcon.print(F(" defer_ms="));                  mrcon.print(g_node.rt_gateway_defer_ms(e.dest));
+                mrcon.print(F(" n_rec="));                     mrcon.print(gs->n_rec);
                 for (uint8_t r = 0; r < gs->n_rec; ++r) {
-                    Serial.print(F(" [leaf"));   Serial.print(gs->rec[r].leaf_id);
-                    Serial.print(F(" win"));     Serial.print(gs->rec[r].window_ms);
-                    Serial.print(F("@"));        Serial.print(gs->rec[r].offset_ms);
-                    Serial.print(F("]"));
+                    mrcon.print(F(" [leaf"));   mrcon.print(gs->rec[r].leaf_id);
+                    mrcon.print(F(" win"));     mrcon.print(gs->rec[r].window_ms);
+                    mrcon.print(F("@"));        mrcon.print(gs->rec[r].offset_ms);
+                    mrcon.print(F("]"));
                 }
-                Serial.println();
+                mrcon.println();
             } else {
-                Serial.println(F("[route]   gw_sched unknown (not heard 1-hop)"));
+                mrcon.println(F("[route]   gw_sched unknown (not heard 1-hop)"));
             }
         }
     }
-    Serial.println(F("[routes] end"));
+    mrcon.println(F("[routes] end"));
 }
 
 // allowed_sf_bitmap -> "7,12" CSV (SF index = bit position). 0 = unconfigured.
 static void print_sf_list(uint16_t bitmap) {
     bool first = true;
     for (uint8_t sf = 5; sf <= 12; ++sf)
-        if (bitmap & (1u << sf)) { if (!first) Serial.print(','); Serial.print(sf); first = false; }
-    if (first) Serial.print('-');
+        if (bitmap & (1u << sf)) { if (!first) mrcon.print(','); mrcon.print(sf); first = false; }
+    if (first) mrcon.print('-');
 }
 
 static void dump_cfg() {
     const meshroute::NodeConfig& c = g_node.config();
     // Grouped, one section per line — readable on a raw serial monitor. Keys match the `cfg set <key>` names.
-    Serial.print(F("[cfg] node_id="));     Serial.println(g_node.node_id());
-    Serial.print(F("  radio : freq="));    Serial.print(g_freq_mhz, 4);
-    Serial.print(F(" routing_sf="));       Serial.print(c.routing_sf);
-    Serial.print(F(" sf_list="));          print_sf_list(c.allowed_sf_bitmap);
-    Serial.print(F(" bw="));               Serial.print(c.radio_bw_hz);
-    Serial.print(F(" cr="));               Serial.print(c.radio_cr);
-    Serial.print(F(" tx_power="));         Serial.println((int)g_tx_power);
-    Serial.print(F("  proto : duty="));    Serial.print(c.duty_cycle, 3);
-    Serial.print(F(" beacon_ms="));        Serial.print(c.beacon_period_ms);
-    Serial.print(F(" hop_cap="));          Serial.print(c.dv_hop_cap);
-    Serial.print(F(" lbt="));              Serial.print(c.lbt_enabled ? 1 : 0);
-    Serial.print(F(" nav="));              Serial.print(c.nav_enabled ? 1 : 0);
-    Serial.print(F(" nav_ignore="));       Serial.println(c.nav_ignore_rts ? 1 : 0);
-    Serial.print(F("  leaf  : leaf_id=")); Serial.print(c.leaf_id);
+    mrcon.print(F("[cfg] node_id="));     mrcon.println(g_node.node_id());
+    mrcon.print(F("  radio : freq="));    mrcon.print(g_freq_mhz, 4);
+    mrcon.print(F(" routing_sf="));       mrcon.print(c.routing_sf);
+    mrcon.print(F(" sf_list="));          print_sf_list(c.allowed_sf_bitmap);
+    mrcon.print(F(" bw="));               mrcon.print(c.radio_bw_hz);
+    mrcon.print(F(" cr="));               mrcon.print(c.radio_cr);
+    mrcon.print(F(" tx_power="));         mrcon.println((int)g_tx_power);
+    mrcon.print(F("  proto : duty="));    mrcon.print(c.duty_cycle, 3);
+    mrcon.print(F(" beacon_ms="));        mrcon.print(c.beacon_period_ms);
+    mrcon.print(F(" hop_cap="));          mrcon.print(c.dv_hop_cap);
+    mrcon.print(F(" lbt="));              mrcon.print(c.lbt_enabled ? 1 : 0);
+    mrcon.print(F(" nav="));              mrcon.print(c.nav_enabled ? 1 : 0);
+    mrcon.print(F(" nav_ignore="));       mrcon.println(c.nav_ignore_rts ? 1 : 0);
+    mrcon.print(F("  leaf  : leaf_id=")); mrcon.print(c.leaf_id);
     { mrnv::Blob lb{}; if (mrnv::load(lb) && lb.layer0_id) {                  // R6.3 §3: show the full level_id + its wire nibble (clash check)
-        Serial.print(F(" level_id=")); Serial.print(lb.layer0_id);
-        Serial.print(F(" (→nibble ")); Serial.print(lb.layer0_id & 0x0F); Serial.print(F(")")); } }
-    Serial.print(F(" gateway="));          Serial.print(c.is_gateway ? 1 : 0);
-    Serial.print(F(" gateway_only="));     Serial.print(c.gateway_only ? 1 : 0);
-    Serial.print(F(" mobile="));           Serial.println(c.is_mobile ? 1 : 0);
-    Serial.print(F("  ble   : ble_mode=")); Serial.print(g_ble_mode == 0 ? F("off") : g_ble_mode == 1 ? F("on") : F("periodic"));
-    Serial.print(F(" ble_period="));       Serial.print(g_ble_period_min);
-    Serial.print(F(" ble_pin="));          Serial.println(g_ble_pin);
+        mrcon.print(F(" level_id=")); mrcon.print(lb.layer0_id);
+        mrcon.print(F(" (→nibble ")); mrcon.print(lb.layer0_id & 0x0F); mrcon.print(F(")")); } }
+    mrcon.print(F(" gateway="));          mrcon.print(c.is_gateway ? 1 : 0);
+    mrcon.print(F(" gateway_only="));     mrcon.print(c.gateway_only ? 1 : 0);
+    mrcon.print(F(" mobile="));           mrcon.println(c.is_mobile ? 1 : 0);
+    mrcon.print(F("  ble   : ble_mode=")); mrcon.print(g_ble_mode == 0 ? F("off") : g_ble_mode == 1 ? F("on") : F("periodic"));
+    mrcon.print(F(" ble_period="));       mrcon.print(g_ble_period_min);
+    mrcon.print(F(" ble_pin="));          mrcon.println(g_ble_pin);
     // Arduino Print formats floats via its own dtostrf (NOT newlib printf), so 7-decimal degrees print fine.
-    Serial.print(F("  loc   : loc_dm="));  Serial.print(c.loc_in_dm ? 1 : 0);
-    Serial.print(F(" e2e_dm="));           Serial.print(c.e2e_dm ? 1 : 0);
-    Serial.print(F(" lat="));              Serial.print(g_lat_e7 / 1e7, 7);
-    Serial.print(F(" lon="));              Serial.println(g_lon_e7 / 1e7, 7);
+    mrcon.print(F("  loc   : loc_dm="));  mrcon.print(c.loc_in_dm ? 1 : 0);
+    mrcon.print(F(" e2e_dm="));           mrcon.print(c.e2e_dm ? 1 : 0);
+    mrcon.print(F(" lat="));              mrcon.print(g_lat_e7 / 1e7, 7);
+    mrcon.print(F(" lon="));              mrcon.println(g_lon_e7 / 1e7, 7);
     // Dual-layer gateway: an ADDITIVE second line per leaf (single-layer dump above is unchanged). Prints each
     // leaf's node_id/layer_id/routing_sf + the (possibly on_init-derived) window_ms/offset of the active config.
     if (c.n_layers == 2) {
         for (uint8_t li = 0; li < 2; ++li) {
             const meshroute::LayerConfig& L = c.layers[li];
-            Serial.print(F("[cfg.layer")); Serial.print(li);
-            Serial.print(F("] node_id="));    Serial.print(L.node_id);
-            Serial.print(F(" layer_id="));    Serial.print(L.layer_id);
-            Serial.print(F(" routing_sf="));  Serial.print(L.routing_sf);
-            Serial.print(F(" sf_list="));     print_sf_list(L.allowed_sf_bitmap);
-            Serial.print(F(" beacon_ms="));   Serial.print(L.beacon_period_ms);
-            Serial.print(F(" window_period_ms=")); Serial.print(L.window_period_ms);
-            Serial.print(F(" window_ms="));   Serial.print(L.window_ms);
-            Serial.print(F(" window_offset_ms=")); Serial.println(L.window_offset_ms);
+            mrcon.print(F("[cfg.layer")); mrcon.print(li);
+            mrcon.print(F("] node_id="));    mrcon.print(L.node_id);
+            mrcon.print(F(" layer_id="));    mrcon.print(L.layer_id);
+            mrcon.print(F(" routing_sf="));  mrcon.print(L.routing_sf);
+            mrcon.print(F(" sf_list="));     print_sf_list(L.allowed_sf_bitmap);
+            mrcon.print(F(" beacon_ms="));   mrcon.print(L.beacon_period_ms);
+            mrcon.print(F(" window_period_ms=")); mrcon.print(L.window_period_ms);
+            mrcon.print(F(" window_ms="));   mrcon.print(L.window_ms);
+            mrcon.print(F(" window_offset_ms=")); mrcon.println(L.window_offset_ms);
         }
     }
 }
@@ -290,51 +303,68 @@ static const char* board_name() {
 static void print_banner() {
     char buf[160];
     mrfault::format_version_banner(buf, sizeof buf, __DATE__ " " __TIME__, GIT_REV, board_name());
-    Serial.println(buf);
+    mrcon.println(buf);
     mrfault::format_last_reset(g_last_reset_valid ? &g_last_reset : nullptr, buf, sizeof buf);
-    Serial.println(buf);
+    mrcon.println(buf);
+}
+
+// ADDENDUM 4 (2026-06-25) instrument — the FreeRTOS loop-task stack high-water mark: the SMALLEST number of free bytes
+// the loop task has ever had. The fleet-wide jump-to-0x0 was THIS 4 KB stack silently overflowing in do_post_ack into
+// the adjacent heap radio HAL. A healthy margin (hundreds of bytes) confirms the frame-shrink held; a near-zero value
+// means escalate to a dedicated bigger-stack task. uxTaskGetStackHighWaterMark returns words. nRF52 only (the cramped
+// platform; ESP32's loopTask is large, native has no task) -> 0 elsewhere. Read it over-the-air via `rcmd <id> status`.
+static uint32_t loop_stack_free_bytes() {
+#if defined(NRF52_PLATFORM) || defined(ARDUINO_ARCH_NRF52)
+    return (uint32_t)uxTaskGetStackHighWaterMark(nullptr) * sizeof(StackType_t);
+#else
+    return 0;
+#endif
 }
 
 static void dump_status() {
-    Serial.print(F("[status] uptime_ms="));  Serial.print((uint32_t)g_hal.now());
-    Serial.print(F(" rx="));                 Serial.print(g_rx_count);
-    Serial.print(F(" tx="));                 Serial.print(g_iradio.tx_count());
-    Serial.print(F(" isr="));                Serial.print(g_iradio.isr_count());   // DIO1 edges — isr=0 ⇒ pin/mask; isr>0 & rx=0 ⇒ drain/re-arm
-    Serial.print(F(" txq="));                Serial.print(g_hal.txq_depth());      // async-TX queue depth (should idle at 0)
-    Serial.print(F(" txdrop="));             Serial.print(g_hal.txq_drops());      // outbound-queue overflow drops (should stay 0)
-    Serial.print(F(" txto="));               Serial.print(g_hal.tx_timeouts());    // TX-watchdog recoveries — a missed TxDone (should stay 0)
-    Serial.print(F(" slept="));              Serial.print(g_sleep_count);          // idle light-sleep entries — climbs = the gate fires (0 = never sleeps)
-    Serial.print(F(" sleep="));              Serial.print(g_force_sleep ? F("forced") : (g_host_present ? F("off-host") : F("auto"))); // policy: auto=headless→sleeps, off-host=awake (host seen), forced=`sleep` cmd
-    Serial.print(F(" lbt="));                Serial.print(g_node.config().lbt_enabled ? 1 : 0);
-    Serial.print(F(" nf="));                 Serial.print(g_iradio.noise_floor(), 0); // LBT noise floor (dBm)
-    Serial.print(F(" duty_ms="));            Serial.print((uint32_t)g_hal.airtime_used_ms(3600000));
-    Serial.print(F(" routes="));             Serial.print(g_node.rt_count());
-    Serial.print(F(" pending="));            Serial.print(g_node.has_pending_tx() ? 1 : 0);
-    Serial.print(F(" reset="));                                                     // v2: the fault-log's newest CAUSE ("-" = none)
-    if (g_last_reset_valid) Serial.print(mrfault::fault_cause_str(g_last_reset.cause));
-    else                    Serial.print('-');
-    Serial.print(F(" halted="));             Serial.print(g_halted ? 1 : 0);        // prep-restart: 1 = intentionally dormant, not wedged
-    if (g_fs_reformatted) Serial.print(F(" fs=REFORMATTED"));                        // Part 2: InternalFS was corrupt this boot -> reformatted (re-provision)
+    mrcon.print(F("[status] uptime_ms="));  mrcon.print((uint32_t)g_hal.now());
+    mrcon.print(F(" rx="));                 mrcon.print(g_rx_count);
+    mrcon.print(F(" tx="));                 mrcon.print(g_iradio.tx_count());
+    mrcon.print(F(" isr="));                mrcon.print(g_iradio.isr_count());   // DIO1 edges — isr=0 ⇒ pin/mask; isr>0 & rx=0 ⇒ drain/re-arm
+    mrcon.print(F(" rxbad="));              mrcon.print(g_iradio.rxbad_count());  // failed-decode RX (CRC storm) — a clean counter delta (per-event print is `debug on`-gated)
+    mrcon.print(F(" txq="));                mrcon.print(g_hal.txq_depth());      // async-TX queue depth (should idle at 0)
+    mrcon.print(F(" txdrop="));             mrcon.print(g_hal.txq_drops());      // outbound-queue overflow drops (should stay 0)
+    mrcon.print(F(" txto="));               mrcon.print(g_hal.tx_timeouts());    // TX-watchdog recoveries — a missed TxDone (should stay 0)
+    mrcon.print(F(" slept="));              mrcon.print(g_sleep_count);          // idle light-sleep entries — climbs = the gate fires (0 = never sleeps)
+    mrcon.print(F(" sleep="));              mrcon.print(g_force_sleep ? F("forced") : (g_host_present ? F("off-host") : F("auto"))); // policy: auto=headless→sleeps, off-host=awake (host seen), forced=`sleep` cmd
+    mrcon.print(F(" lbt="));                mrcon.print(g_node.config().lbt_enabled ? 1 : 0);
+    mrcon.print(F(" nf="));                 mrcon.print(g_iradio.noise_floor(), 0); // LBT noise floor (dBm)
+    mrcon.print(F(" duty_ms="));            mrcon.print((uint32_t)g_hal.airtime_used_ms(3600000));
+    mrcon.print(F(" routes="));             mrcon.print(g_node.rt_count());
+    mrcon.print(F(" pending="));            mrcon.print(g_node.has_pending_tx() ? 1 : 0);
+    mrcon.print(F(" reset="));                                                     // v2: the fault-log's newest CAUSE ("-" = none)
+    if (g_last_reset_valid) mrcon.print(mrfault::fault_cause_str(g_last_reset.cause));
+    else                    mrcon.print('-');
+    mrcon.print(F(" halted="));             mrcon.print(g_halted ? 1 : 0);        // prep-restart: 1 = intentionally dormant, not wedged
+#if defined(NRF52_PLATFORM) || defined(ARDUINO_ARCH_NRF52)
+    mrcon.print(F(" stackhw="));            mrcon.print(loop_stack_free_bytes()); // ADDENDUM 4: loop-task min free stack bytes — the jump-to-0x0 was this overflowing; must stay well >0
+#endif
+    if (g_fs_reformatted) mrcon.print(F(" fs=REFORMATTED"));                        // Part 2: InternalFS was corrupt this boot -> reformatted (re-provision)
 #if defined(NRF52_PLATFORM) && defined(PIN_VBAT) && !defined(MR_NO_BATT)
     // Battery diagnostic. VBAT (P0.31) reads the CELL through a ÷3 divider — NEVER USB's 5 V (max ~4.2 V).
     // Verify vs a multimeter on the battery: mv = raw × ADC_MULTIPLIER(3.0) × AREF_VOLTAGE(3.0) / 4.096.
     pinMode(VBAT_ENABLE, OUTPUT); digitalWrite(VBAT_ENABLE, LOW);
     analogReadResolution(12); analogReference(AR_INTERNAL_3_0);
     const int braw = analogRead(PIN_VBAT);
-    Serial.print(F(" batt_raw="));           Serial.print(braw);
-    Serial.print(F(" batt_mv="));            Serial.print((int)((braw * ADC_MULTIPLIER * AREF_VOLTAGE) / 4.096f));
+    mrcon.print(F(" batt_raw="));           mrcon.print(braw);
+    mrcon.print(F(" batt_mv="));            mrcon.print((int)((braw * ADC_MULTIPLIER * AREF_VOLTAGE) / 4.096f));
 #endif
-    Serial.println();
+    mrcon.println();
 }
 
 // `duty` — duty-cycle consumption readout: 0..100% of the rolling-window budget (100 = the node must stay silent),
 // + when at 100% how long until airtime ages back in. `disabled` when there is no duty limit.
 static void dump_duty() {
     const auto d = g_node.duty_status();
-    if (!d.enabled) { Serial.println(F("[duty] disabled (no duty limit)")); return; }
-    Serial.print(F("[duty] ")); Serial.print(d.pct); Serial.print('%');
-    if (d.pct >= 100) { Serial.print(F(" — SILENT, ~")); Serial.print((d.avail_ms + 500) / 1000); Serial.print(F(" s to availability")); }
-    Serial.println();
+    if (!d.enabled) { mrcon.println(F("[duty] disabled (no duty limit)")); return; }
+    mrcon.print(F("[duty] ")); mrcon.print(d.pct); mrcon.print('%');
+    if (d.pct >= 100) { mrcon.print(F(" — SILENT, ~")); mrcon.print((d.avail_ms + 500) / 1000); mrcon.print(F(" s to availability")); }
+    mrcon.println();
 }
 
 // "7,12" -> allowed_sf_bitmap (bit per SF index 5..12); 0 if none valid.
@@ -369,13 +399,13 @@ static void apply_radio_live(const mrnv::Blob& b, bool reconfig) {
 static void print_identity(const mrnv::IdBlob& idb) {
     char hx[9];
     snprintf(hx, sizeof hx, "%08lX", (unsigned long)g_identity.key_hash32);
-    Serial.print(F("  key_hash32= 0x")); Serial.print(hx);
+    mrcon.print(F("  key_hash32= 0x")); mrcon.print(hx);
     if (idb.name_len > 0 && idb.name_len <= sizeof idb.name) {
-        Serial.print(F("  name=\""));
-        for (uint16_t i = 0; i < idb.name_len; ++i) Serial.print(idb.name[i]);
-        Serial.print(F("\""));
+        mrcon.print(F("  name=\""));
+        for (uint16_t i = 0; i < idb.name_len; ++i) mrcon.print(idb.name[i]);
+        mrcon.print(F("\""));
     }
-    Serial.println();
+    mrcon.println();
 }
 
 // `regen` — mint a NEW identity (fresh HW-RNG seed) -> persist /mrid -> re-derive -> re-seed the node's
@@ -386,11 +416,11 @@ static void do_regen() {
     mrnv::load_id(idb);                                          // preserve the existing name (if any)
     mrrng::fill(idb.seed, sizeof idb.seed);
     idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
-    if (!mrnv::save_id(idb)) { Serial.println(F("> regen err nv_save_failed")); return; }
+    if (!mrnv::save_id(idb)) { mrcon.println(F("> regen err nv_save_failed")); return; }
     meshroute::identity_from_seed(g_identity, idb.seed);
     g_node.set_identity(g_node.node_id(), g_identity.key_hash32);
     g_node.set_crypto_identity(g_identity.x_secret, g_identity.ed_pub);   // DP1: re-install the E2E crypto identity
-    Serial.print(F("> regen ok"));
+    mrcon.print(F("> regen ok"));
     print_identity(idb);
 }
 
@@ -403,7 +433,7 @@ static void handle_cfg_set(const char* args) {
     while (args[k] && args[k] != ' ' && k < sizeof(key) - 1) { key[k] = args[k]; ++k; }
     key[k] = '\0';
     const char* val = (args[k] == ' ') ? (args + k + 1) : (args + k);
-    if (!*val) { Serial.println(F("> cfg err bad_args")); return; }
+    if (!*val) { mrcon.println(F("> cfg err bad_args")); return; }
 
     // `lat`/`lon` live in the IDENTITY record (/mrid) alongside `name`, NOT the config blob — handle early.
     // Input is decimal degrees (e.g. `cfg set lat 52.2297`); stored as int32 degrees×1e7. atof is fine on
@@ -415,7 +445,7 @@ static void handle_cfg_set(const char* args) {
         if (key[2] == 't') { idb.lat_e7 = e7; g_lat_e7 = e7; g_node.mutable_config().lat_e7 = e7; }   // "lat" (also LIVE)
         else               { idb.lon_e7 = e7; g_lon_e7 = e7; g_node.mutable_config().lon_e7 = e7; }   // "lon" (also LIVE)
         idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
-        Serial.println(mrnv::save_id(idb) ? F("> cfg ok (saved to /mrid)") : F("> cfg err nv_save_failed"));
+        mrcon.println(mrnv::save_id(idb) ? F("> cfg ok (saved to /mrid)") : F("> cfg err nv_save_failed"));
         return;
     }
 
@@ -426,7 +456,7 @@ static void handle_cfg_set(const char* args) {
         size_t l = strlen(val); if (l > sizeof idb.name) l = sizeof idb.name;
         memcpy(idb.name, val, l); idb.name_len = (uint16_t)l;
         idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
-        Serial.println(mrnv::save_id(idb) ? F("> cfg ok name (saved to /mrid)") : F("> cfg err nv_save_failed"));
+        mrcon.println(mrnv::save_id(idb) ? F("> cfg ok name (saved to /mrid)") : F("> cfg err nv_save_failed"));
         return;
     }
 
@@ -461,9 +491,9 @@ static void handle_cfg_set(const char* args) {
     if      (!strcmp(key, "node_id")) {
         const int v = atoi(val);
 #if MR_N_LAYERS >= 2   // gateway build: layer-0 node_id IS a gateway id (R6.3/G1: 1..16)
-        if (v != 0 && (v < 1 || v > P::gateway_node_id_max)) { Serial.println(F("> cfg err bad_value (gateway node_id 1..16; 0=unprovisioned)")); return; }
+        if (v != 0 && (v < 1 || v > P::gateway_node_id_max)) { mrcon.println(F("> cfg err bad_value (gateway node_id 1..16; 0=unprovisioned)")); return; }
 #else                  // normal build: 17..254 (1..16 reserved for gateways)
-        if (v < 0 || v > 254 || (v >= 1 && v <= P::gateway_node_id_max)) { Serial.println(F("> cfg err bad_value (node_id 0 or 17..254; 1..16 reserved for gateways)")); return; }
+        if (v < 0 || v > 254 || (v >= 1 && v <= P::gateway_node_id_max)) { mrcon.println(F("> cfg err bad_value (node_id 0 or 17..254; 1..16 reserved for gateways)")); return; }
 #endif
         b.node_id = (uint8_t)v; b.joined = 0; live = false;        // operator-pinned id -> NOT DAD-adopted (won't auto-yield)
     }
@@ -479,7 +509,7 @@ static void handle_cfg_set(const char* args) {
     else if (!strcmp(key, "cr"))                                       { b.cr = (uint8_t)atoi(val);         reconfig = radio = true; }
     else if (!strcmp(key, "tx_power")) {
         const int v = atoi(val);
-        if (v < -9 || v > 22) { Serial.println(F("> cfg err bad_value (tx_power -9..22 dBm)")); return; }
+        if (v < -9 || v > 22) { mrcon.println(F("> cfg err bad_value (tx_power -9..22 dBm)")); return; }
         b.tx_power = (int8_t)v; radio = true;                         // live, but no radio re-tune
     }
     // --- node-config knobs: LIVE via mutable_config() (the MAC re-reads each field per use), + persisted ---
@@ -516,17 +546,17 @@ static void handle_cfg_set(const char* args) {
         if      (!strcmp(val, "off"))      m = 0;
         else if (!strcmp(val, "on"))       m = 1;
         else if (!strcmp(val, "periodic")) m = 2;
-        else { Serial.println(F("> cfg err bad_value (ble_mode off|on|periodic)")); return; }
+        else { mrcon.println(F("> cfg err bad_value (ble_mode off|on|periodic)")); return; }
         b.ble_mode = m; live = false;
     }
     else if (!strcmp(key, "ble_period")) {
         const int v = atoi(val);
-        if (v < 1 || v > 255) { Serial.println(F("> cfg err bad_value (ble_period 1..255 min)")); return; }
+        if (v < 1 || v > 255) { mrcon.println(F("> cfg err bad_value (ble_period 1..255 min)")); return; }
         b.ble_period_min = (uint8_t)v; live = false;
     }
     else if (!strcmp(key, "ble_pin")) {
         const long v = atol(val);
-        if (v < 0 || v > 999999) { Serial.println(F("> cfg err bad_value (ble_pin 0..999999, 6-digit passkey)")); return; }
+        if (v < 0 || v > 999999) { mrcon.println(F("> cfg err bad_value (ble_pin 0..999999, 6-digit passkey)")); return; }
         b.ble_pin = (uint32_t)v; live = false;
     }
     // --- v8 DUAL-LAYER GATEWAY: PERSISTED raw per-layer fields, reboot-to-apply (on_init validates + derives the
@@ -534,81 +564,81 @@ static void handle_cfg_set(const char* args) {
     //     legacy node_id/routing_sf/sf_list/beacon_ms keys; these are the layer-1 + shared-schedule extras. ---
     else if (!strcmp(key, "n_layers")) {
         const int v = atoi(val);
-        if (v != 1 && v != 2) { Serial.println(F("> cfg err bad_value (n_layers 1|2)")); return; }
+        if (v != 1 && v != 2) { mrcon.println(F("> cfg err bad_value (n_layers 1|2)")); return; }
         b.n_layers = (uint8_t)v; live = false;
     }
     else if (!strcmp(key, "layer0_id")) {
         const int v = atoi(val);
-        if (v < 0 || v > 255) { Serial.println(F("> cfg err bad_value (layer0_id 0..255)")); return; }
+        if (v < 0 || v > 255) { mrcon.println(F("> cfg err bad_value (layer0_id 0..255)")); return; }
         b.layer0_id = (uint8_t)v; live = false;
     }
     else if (!strcmp(key, "window_period_ms")) {
         const long v = atol(val);
-        if (v < 1) { Serial.println(F("> cfg err bad_value (window_period_ms >= 1)")); return; }
+        if (v < 1) { mrcon.println(F("> cfg err bad_value (window_period_ms >= 1)")); return; }
         b.window_period_ms = (uint32_t)v; live = false;
     }
     else if (!strcmp(key, "l0_window_ms")) {
         const long v = atol(val);
-        if (v < 0) { Serial.println(F("> cfg err bad_value (l0_window_ms 0=derive)")); return; }
+        if (v < 0) { mrcon.println(F("> cfg err bad_value (l0_window_ms 0=derive)")); return; }
         b.l0_window_ms = (uint32_t)v; live = false;
     }
     else if (!strcmp(key, "l0_window_offset_ms")) {
         const long v = atol(val);
-        if (v < 0) { Serial.println(F("> cfg err bad_value (l0_window_offset_ms 0=derive)")); return; }
+        if (v < 0) { mrcon.println(F("> cfg err bad_value (l0_window_offset_ms 0=derive)")); return; }
         b.l0_window_offset_ms = (uint32_t)v; live = false;
     }
     else if (!strcmp(key, "l1_layer_id")) {
         const int v = atoi(val);
-        if (v < 0 || v > 255) { Serial.println(F("> cfg err bad_value (l1_layer_id 0..255)")); return; }
+        if (v < 0 || v > 255) { mrcon.println(F("> cfg err bad_value (l1_layer_id 0..255)")); return; }
         b.l1_layer_id = (uint8_t)v; live = false;
     }
     else if (!strcmp(key, "l1_node_id")) {                          // R6.3/G1: the gateway's layer-1 id is also a gateway id (1..16)
         const int v = atoi(val);
-        if (v != 0 && (v < 1 || v > P::gateway_node_id_max)) { Serial.println(F("> cfg err bad_value (l1_node_id 1..16; 0=unprovisioned)")); return; }
+        if (v != 0 && (v < 1 || v > P::gateway_node_id_max)) { mrcon.println(F("> cfg err bad_value (l1_node_id 1..16; 0=unprovisioned)")); return; }
         b.l1_node_id = (uint8_t)v; live = false;
     }
     else if (!strcmp(key, "l1_routing_sf")) {
         const int v = atoi(val);
-        if (v < 5 || v > 12) { Serial.println(F("> cfg err bad_value (l1_routing_sf 5..12)")); return; }
+        if (v < 5 || v > 12) { mrcon.println(F("> cfg err bad_value (l1_routing_sf 5..12)")); return; }
         b.l1_routing_sf = (uint8_t)v; live = false;
     }
     else if (!strcmp(key, "l1_sf_list")) {
         const uint16_t bm = parse_sf_list(val);
-        if (!bm) { Serial.println(F("> cfg err bad_value (l1_sf_list: comma SFs 5..12, e.g. 7,9)")); return; }
+        if (!bm) { mrcon.println(F("> cfg err bad_value (l1_sf_list: comma SFs 5..12, e.g. 7,9)")); return; }
         b.l1_allowed_sf_bitmap = bm; live = false;
     }
     else if (!strcmp(key, "l1_beacon_ms")) {
         const long v = atol(val);
-        if (v < 1) { Serial.println(F("> cfg err bad_value (l1_beacon_ms >= 1)")); return; }
+        if (v < 1) { mrcon.println(F("> cfg err bad_value (l1_beacon_ms >= 1)")); return; }
         b.l1_beacon_period_ms = (uint32_t)v; live = false;
     }
     else if (!strcmp(key, "l1_window_ms")) {
         const long v = atol(val);
-        if (v < 0) { Serial.println(F("> cfg err bad_value (l1_window_ms 0=derive)")); return; }
+        if (v < 0) { mrcon.println(F("> cfg err bad_value (l1_window_ms 0=derive)")); return; }
         b.l1_window_ms = (uint32_t)v; live = false;
     }
     else if (!strcmp(key, "l1_window_offset_ms")) {
         const long v = atol(val);
-        if (v < 0) { Serial.println(F("> cfg err bad_value (l1_window_offset_ms 0=derive)")); return; }
+        if (v < 0) { mrcon.println(F("> cfg err bad_value (l1_window_offset_ms 0=derive)")); return; }
         b.l1_window_offset_ms = (uint32_t)v; live = false;
     }
     else if (!strcmp(key, "l1_freq")) {                          // v12 per-layer freq: layer-1 RF carrier (0 = inherit layer 0/`freq`)
         const double f = atof(val);
-        if (f < 0.0) { Serial.println(F("> cfg err bad_value (l1_freq MHz; 0=inherit)")); return; }
+        if (f < 0.0) { mrcon.println(F("> cfg err bad_value (l1_freq MHz; 0=inherit)")); return; }
         b.l1_freq_mhz = f; live = false;
     }
-    else { Serial.print(F("> cfg err unknown_key ")); Serial.println(key); return; }
+    else { mrcon.print(F("> cfg err unknown_key ")); mrcon.println(key); return; }
 
-    if (persist && !mrnv::save(b)) { Serial.println(F("> cfg err nv_save_failed")); return; }
+    if (persist && !mrnv::save(b)) { mrcon.println(F("> cfg err nv_save_failed")); return; }
     if (radio && live) apply_radio_live(b, reconfig);
-    Serial.print(F("> cfg ")); Serial.print(key); Serial.print('='); Serial.print(val);
-    if      (!live)   Serial.println(F(" ok (reboot to apply)"));
-    else if (persist) Serial.println(F(" ok (live + saved)"));
-    else              Serial.println(F(" ok (live, not persisted)"));
+    mrcon.print(F("> cfg ")); mrcon.print(key); mrcon.print('='); mrcon.print(val);
+    if      (!live)   mrcon.println(F(" ok (reboot to apply)"));
+    else if (persist) mrcon.println(F(" ok (live + saved)"));
+    else              mrcon.println(F(" ok (live, not persisted)"));
 }
 
 static void do_reboot() {
-    Serial.println(F("> rebooting")); Serial.flush(); delay(100);
+    mrcon.println(F("> rebooting")); mrcon.flush(); delay(100);
 #if defined(MRFAULT_HW)
     mrfault::mark_expected_reset();   // v2 fault log: classify the upcoming reset as REBOOT, not UNEXPECTED
 #endif
@@ -624,34 +654,34 @@ static void do_reboot() {
 static void handle_factory_reset(const char* arg, size_t n) {
     while (n && *arg == ' ') { ++arg; --n; }
     if (n == 7 && !strncmp(arg, "confirm", 7)) {
-        Serial.println(F("> factory reset — erasing all NV, rebooting…"));
+        mrcon.println(F("> factory reset — erasing all NV, rebooting…"));
         g_inbox_dm.wipe(); g_inbox_ch.wipe();   // §5: drop the QSPI inbox RECORDS (their store's domain); factory_erase does the InternalFS slots + meta
-        if (!mrnv::factory_erase()) Serial.println(F("> factory_reset WARN: an NV slot did not erase (boot re-defaults it)"));
+        if (!mrnv::factory_erase()) mrcon.println(F("> factory_reset WARN: an NV slot did not erase (boot re-defaults it)"));
         do_reboot();
     } else {
-        Serial.println(F("> factory_reset WIPES ALL flash (config + identity + peers + inbox) and reboots to factory. Type 'factory_reset confirm' to proceed."));
+        mrcon.println(F("> factory_reset WIPES ALL flash (config + identity + peers + inbox) and reboots to factory. Type 'factory_reset confirm' to proceed."));
     }
 }
 
 // `ota` — platform-native firmware update. XIAO: BLE DFU; Heltec: WiFi SoftAP + web upload.
 static void do_ota() {
 #if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
-    Serial.println(F("> OTA: rebooting into BLE DFU now — this USB console will drop here."));
-    Serial.println(F(">      Push firmware.zip via the Nordic DFU app (enable its auto-reboot). Double-tap RESET to abort."));
-    Serial.flush(); delay(500);
+    mrcon.println(F("> OTA: rebooting into BLE DFU now — this USB console will drop here."));
+    mrcon.println(F(">      Push firmware.zip via the Nordic DFU app (enable its auto-reboot). Double-tap RESET to abort."));
+    mrcon.flush(); delay(500);
     mrfault::mark_expected_reset();   // v2 fault log: the OTA reset is a REBOOT, not UNEXPECTED
     NRF_POWER->GPREGRET = 0xA8;   // DFU_MAGIC_OTA_RESET
     NVIC_SystemReset();
 #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
     if (mrota::ota_active()) {
         mrota::ota_stop();
-        Serial.println(F("> OTA: stopped"));
+        mrcon.println(F("> OTA: stopped"));
     } else {
         if (mrota::ota_start()) {
             mrota::set_pre_reboot_hook([] { mrfault::mark_expected_reset(); });   // v2 fault log: a WiFi-OTA reboot is a REBOOT, not UNEXPECTED
-            Serial.println(F("> OTA: browse to the IP above, upload firmware.bin — node reboots on success"));
+            mrcon.println(F("> OTA: browse to the IP above, upload firmware.bin — node reboots on success"));
         } else
-            Serial.println(F("> OTA: start FAILED"));
+            mrcon.println(F("> OTA: start FAILED"));
     }
 #endif
 }
@@ -665,10 +695,10 @@ static void handle_sleep(const char* arg, size_t n) {
     while (n && *arg == ' ') { ++arg; --n; }
     if (n >= 3 && !strncmp(arg, "off", 3)) {
         g_force_sleep = false;
-        Serial.println(F("> sleep off — staying awake while a host is connected"));
+        mrcon.println(F("> sleep off — staying awake while a host is connected"));
     } else {
         g_force_sleep = true;
-        Serial.println(F("> sleep on — light-sleeping when idle; reconnect to wake the console (still wakes on RX)"));
+        mrcon.println(F("> sleep on — light-sleeping when idle; reconnect to wake the console (still wakes on RX)"));
     }
 }
 
@@ -678,7 +708,7 @@ static void handle_debug(const char* arg, size_t n) {
     while (n && *arg == ' ') { ++arg; --n; }
     const bool off = (n >= 3 && !strncmp(arg, "off", 3)) || (n >= 1 && arg[0] == '0');
     meshroute::g_mr_trace_on = !off;
-    Serial.println(off ? F("> debug off — RX/TX frame trace silenced") : F("> debug on — tracing RX/TX frames"));
+    mrcon.println(off ? F("> debug off — RX/TX frame trace silenced") : F("> debug on — tracing RX/TX frames"));
 }
 
 // `lookup <hash>` — local id_bind cache peek (NO airtime): resolve a key_hash32 -> node short-id from what
@@ -686,50 +716,50 @@ static void handle_debug(const char* arg, size_t n) {
 // resolve of an unknown hash, use `resolve` (floods H).
 static void handle_lookup(const char* arg, size_t n) {
     while (n && *arg == ' ') { ++arg; --n; }
-    if (!n) { Serial.println(F("> lookup err bad_args (hex hash)")); return; }
+    if (!n) { mrcon.println(F("> lookup err bad_args (hex hash)")); return; }
     const uint32_t hash = (uint32_t)strtoul(arg, nullptr, 16);
     meshroute::Node::IdBindConf conf = meshroute::Node::IdBindConf::claimed;
     const int id = g_node.id_bind_find_by_hash(hash, &conf);
-    Serial.print(F("[lookup] 0x")); Serial.print(hash, HEX);
-    if (id < 0) { Serial.println(F(" -> miss")); return; }
-    Serial.print(F(" -> id=")); Serial.print(id);
-    Serial.println(conf == meshroute::Node::IdBindConf::authoritative ? F(" (authoritative)") : F(" (claimed)"));
+    mrcon.print(F("[lookup] 0x")); mrcon.print(hash, HEX);
+    if (id < 0) { mrcon.println(F(" -> miss")); return; }
+    mrcon.print(F(" -> id=")); mrcon.print(id);
+    mrcon.println(conf == meshroute::Node::IdBindConf::authoritative ? F(" (authoritative)") : F(" (claimed)"));
 }
 
 // `hashof <id>` — reverse lookup: a node short-id -> its key_hash32 (AUTHORITATIVE bindings only — a node we
 // can vouch for). Decimal id 0..254.
 static void handle_hashof(const char* arg, size_t n) {
     while (n && *arg == ' ') { ++arg; --n; }
-    if (!n) { Serial.println(F("> hashof err bad_args (id 0..254)")); return; }
+    if (!n) { mrcon.println(F("> hashof err bad_args (id 0..254)")); return; }
     const int id = atoi(arg);
     uint32_t hash = 0;
-    Serial.print(F("[hashof] id=")); Serial.print(id);
-    if (id >= 0 && id <= 254 && g_node.key_hash_of_id((uint8_t)id, hash)) { Serial.print(F(" -> 0x")); Serial.println(hash, HEX); }
-    else                                                                  Serial.println(F(" -> unknown"));
+    mrcon.print(F("[hashof] id=")); mrcon.print(id);
+    if (id >= 0 && id <= 254 && g_node.key_hash_of_id((uint8_t)id, hash)) { mrcon.print(F(" -> 0x")); mrcon.println(hash, HEX); }
+    else                                                                  mrcon.println(F(" -> unknown"));
 }
 
 // `whoami` — this node's own identity + role. The hash printed here is what a peer types into `sendhash` to
 // reach you (the device can't surface its own key_hash32 any other way). Name is read from /mrid.
 static void handle_whoami() {
-    Serial.print(F("[whoami] id=")); Serial.print(g_node.node_id());
-    Serial.print(F(" hash=0x"));     Serial.print(g_node.key_hash32(), HEX);
+    mrcon.print(F("[whoami] id=")); mrcon.print(g_node.node_id());
+    mrcon.print(F(" hash=0x"));     mrcon.print(g_node.key_hash32(), HEX);
     mrnv::IdBlob idb{};
-    if (mrnv::load_id(idb) && idb.name_len) { Serial.print(F(" name=\"")); Serial.write(idb.name, idb.name_len); Serial.print('"'); }
+    if (mrnv::load_id(idb) && idb.name_len) { mrcon.print(F(" name=\"")); mrcon.write(idb.name, idb.name_len); mrcon.print('"'); }
     const meshroute::NodeConfig& c = g_node.config();
-    Serial.print(F(" leaf="));   Serial.print(c.leaf_id);
-    Serial.print(F(" gw="));     Serial.print(c.is_gateway ? 1 : 0);
-    Serial.print(F(" gwonly=")); Serial.print(c.gateway_only ? 1 : 0);
-    Serial.print(F(" mobile=")); Serial.println(c.is_mobile ? 1 : 0);
+    mrcon.print(F(" leaf="));   mrcon.print(c.leaf_id);
+    mrcon.print(F(" gw="));     mrcon.print(c.is_gateway ? 1 : 0);
+    mrcon.print(F(" gwonly=")); mrcon.print(c.gateway_only ? 1 : 0);
+    mrcon.print(F(" mobile=")); mrcon.println(c.is_mobile ? 1 : 0);
     // Dual-layer gateway: an ADDITIVE per-leaf line. Single-layer whoami above is BYTE-IDENTICAL to before.
     if (c.n_layers == 2) {
         for (uint8_t li = 0; li < 2; ++li) {
             const meshroute::LayerConfig& L = c.layers[li];
-            Serial.print(F("[whoami.layer")); Serial.print(li);
-            Serial.print(F("] node_id="));   Serial.print(L.node_id);
-            Serial.print(F(" layer_id="));   Serial.print(L.layer_id);
-            Serial.print(F(" routing_sf=")); Serial.print(L.routing_sf);
-            Serial.print(F(" window_ms="));  Serial.print(L.window_ms);
-            Serial.print(F(" window_offset_ms=")); Serial.println(L.window_offset_ms);
+            mrcon.print(F("[whoami.layer")); mrcon.print(li);
+            mrcon.print(F("] node_id="));   mrcon.print(L.node_id);
+            mrcon.print(F(" layer_id="));   mrcon.print(L.layer_id);
+            mrcon.print(F(" routing_sf=")); mrcon.print(L.routing_sf);
+            mrcon.print(F(" window_ms="));  mrcon.print(L.window_ms);
+            mrcon.print(F(" window_offset_ms=")); mrcon.println(L.window_offset_ms);
         }
     }
 }
@@ -778,12 +808,12 @@ static const char* gw_val_err_str(meshroute::GwValErr e) {
 static void handle_gateway(const char* args) {
 #if MR_N_LAYERS < 2
     (void)args;
-    Serial.println(F("> gateway err not_gateway_build (flash the [env:gateway] -DMR_N_LAYERS=2 firmware)"));
+    mrcon.println(F("> gateway err not_gateway_build (flash the [env:gateway] -DMR_N_LAYERS=2 firmware)"));
 #else
     using namespace meshroute;
     GatewayProvision g{};
     const GwParseErr pe = parse_gateway_cmd(args, g);
-    if (pe != GwParseErr::ok) { Serial.print(F("> gateway err ")); Serial.println(gw_parse_err_str(pe)); return; }
+    if (pe != GwParseErr::ok) { mrcon.print(F("> gateway err ")); mrcon.println(gw_parse_err_str(pe)); return; }
 
     // Base = the PENDING blob so radio/freq/identity-adjacent fields survive; seed from the live config if none.
     mrnv::Blob b{};
@@ -796,7 +826,7 @@ static void handle_gateway(const char* args) {
     const uint32_t bw = b.bw_hz ? b.bw_hz : static_cast<uint32_t>(LORA_BW * 1000.0);
     const uint8_t  cr = b.cr    ? b.cr    : 5;
     const GwValErr ve = validate_gateway_layers(g.l0, g.l1, bw, cr);   // SAME gate on_init runs (derives windows)
-    if (ve != GwValErr::ok) { Serial.print(F("> gateway err ")); Serial.println(gw_val_err_str(ve)); return; }
+    if (ve != GwValErr::ok) { mrcon.print(F("> gateway err ")); mrcon.println(gw_val_err_str(ve)); return; }
 
     b.n_layers = 2;
     b.layer0_id = g.l0.layer_id; b.node_id = g.l0.node_id; b.routing_sf = g.l0.routing_sf; b.allowed_sf_bitmap = g.l0.allowed_sf_bitmap;
@@ -810,19 +840,19 @@ static void handle_gateway(const char* args) {
     b.l1_freq_mhz = g.l1.freq_mhz;                           // 0 = inherit layer 0's freq at boot
     b.bw_hz = bw; b.cr = cr;
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
-    if (!mrnv::save(b)) { Serial.println(F("> gateway err nv_save_failed")); return; }
+    if (!mrnv::save(b)) { mrcon.println(F("> gateway err nv_save_failed")); return; }
 
-    Serial.print(F("> gateway OK — L0 leaf")); Serial.print(g.l0.layer_id); Serial.print(F(" id")); Serial.print(g.l0.node_id);
-    Serial.print(F(" sf")); Serial.print(g.l0.routing_sf);
-    Serial.print(F(" | L1 leaf")); Serial.print(g.l1.layer_id); Serial.print(F(" id")); Serial.print(g.l1.node_id);
-    Serial.print(F(" sf")); Serial.print(g.l1.routing_sf);
-    Serial.print(F(" | period")); Serial.print(g.l0.window_period_ms);
-    Serial.print(F("ms: L0 ")); Serial.print(g.l0.window_ms); Serial.print(F("@")); Serial.print(g.l0.window_offset_ms);
-    Serial.print(F(" / L1 ")); Serial.print(g.l1.window_ms); Serial.print(F("@")); Serial.print(g.l1.window_offset_ms);
-    Serial.print(F(" | freq L0 ")); Serial.print(g.l0.freq_mhz > 0.0 ? g.l0.freq_mhz : (double)g_freq_mhz, 4);
-    Serial.print(F(" / L1 ")); Serial.print(g.l1.freq_mhz > 0.0 ? g.l1.freq_mhz : (g.l0.freq_mhz > 0.0 ? g.l0.freq_mhz : (double)g_freq_mhz), 4);
-    if (g.gateway_only) Serial.print(F(" | gateway_only"));
-    Serial.println(F(" — reboot to apply"));
+    mrcon.print(F("> gateway OK — L0 leaf")); mrcon.print(g.l0.layer_id); mrcon.print(F(" id")); mrcon.print(g.l0.node_id);
+    mrcon.print(F(" sf")); mrcon.print(g.l0.routing_sf);
+    mrcon.print(F(" | L1 leaf")); mrcon.print(g.l1.layer_id); mrcon.print(F(" id")); mrcon.print(g.l1.node_id);
+    mrcon.print(F(" sf")); mrcon.print(g.l1.routing_sf);
+    mrcon.print(F(" | period")); mrcon.print(g.l0.window_period_ms);
+    mrcon.print(F("ms: L0 ")); mrcon.print(g.l0.window_ms); mrcon.print(F("@")); mrcon.print(g.l0.window_offset_ms);
+    mrcon.print(F(" / L1 ")); mrcon.print(g.l1.window_ms); mrcon.print(F("@")); mrcon.print(g.l1.window_offset_ms);
+    mrcon.print(F(" | freq L0 ")); mrcon.print(g.l0.freq_mhz > 0.0 ? g.l0.freq_mhz : (double)g_freq_mhz, 4);
+    mrcon.print(F(" / L1 ")); mrcon.print(g.l1.freq_mhz > 0.0 ? g.l1.freq_mhz : (g.l0.freq_mhz > 0.0 ? g.l0.freq_mhz : (double)g_freq_mhz), 4);
+    if (g.gateway_only) mrcon.print(F(" | gateway_only"));
+    mrcon.println(F(" — reboot to apply"));
 #endif
 }
 
@@ -854,18 +884,18 @@ static void handle_leaf(const char* args) {
         b.config_epoch = 1;                               // §4.3 catastrophe re-mint: a FRESH lineage starts at epoch 1
                                                           // (reset even if re-minting over an old managed leaf — the dead
                                                           // lineage stops being beaconed here + ages out of route/id_bind)
-        if (!mrnv::save(b)) { Serial.println(F("> leaf err nv_save_failed")); return; }
-        Serial.print(F("> leaf created lineage=")); Serial.print(lin); Serial.print(F(" epoch=")); Serial.print(b.config_epoch);
-        Serial.println(F(" — reboot to apply"));
+        if (!mrnv::save(b)) { mrcon.println(F("> leaf err nv_save_failed")); return; }
+        mrcon.print(F("> leaf created lineage=")); mrcon.print(lin); mrcon.print(F(" epoch=")); mrcon.print(b.config_epoch);
+        mrcon.println(F(" — reboot to apply"));
     } else if (!strncmp(args, "name ", 5)) {
         const char* nm = args + 5;
         uint8_t len = 0; while (nm[len] && len < meshroute::protocol::leaf_name_max) { b.leaf_name[len] = (uint8_t)nm[len]; ++len; }   // §5: cut at 10 (the C-frame/hash cap)
         b.leaf_name_len = len;
         if (b.lineage_id) b.config_epoch = (uint16_t)(b.config_epoch + 1);   // R6.3 §4.1: leaf_name is in the config_hash -> a managed write bumps epoch
-        if (!mrnv::save(b)) { Serial.println(F("> leaf err nv_save_failed")); return; }
-        Serial.print(F("> leaf name set (")); Serial.print(len); Serial.println(F(" B) — reboot to apply"));
+        if (!mrnv::save(b)) { mrcon.println(F("> leaf err nv_save_failed")); return; }
+        mrcon.print(F("> leaf name set (")); mrcon.print(len); mrcon.println(F(" B) — reboot to apply"));
     } else {
-        Serial.println(F("> leaf err usage: leaf create | leaf name <text>"));
+        mrcon.println(F("> leaf err usage: leaf create | leaf name <text>"));
     }
 }
 
@@ -928,18 +958,18 @@ static void provision_apply_live(const mrnv::Blob& b, bool do_dad) {
 static void handle_join(const char* args) {
     const char* p = args; double freq; uint32_t bw_hz; uint8_t ctrl_sf, level_id;
     if (!parse_radio_floor(p, freq, bw_hz, ctrl_sf, level_id)) {
-        Serial.println(F("> join err usage: join <freq_MHz> <bw_kHz> <ctrl_sf 5..12> <level_id 1..255>")); return;
+        mrcon.println(F("> join err usage: join <freq_MHz> <bw_kHz> <ctrl_sf 5..12> <level_id 1..255>")); return;
     }
     mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
     b.freq_mhz = freq; b.bw_hz = bw_hz; b.routing_sf = ctrl_sf;
     b.leaf_id = (uint8_t)(level_id & 0x0F); b.layer0_id = level_id;          // full level_id stored for display (§3)
     b.node_id = 0; b.joined = 0; b.lineage_id = 0; b.config_epoch = 0;       // unprovisioned -> DAD + adopt the leaf's lineage via pull
-    if (!mrnv::save(b)) { Serial.println(F("> join err nv_save_failed")); return; }
+    if (!mrnv::save(b)) { mrcon.println(F("> join err nv_save_failed")); return; }
     provision_apply_live(b, /*do_dad=*/true);
-    Serial.print(F("> join freq=")); Serial.print(freq, 3); Serial.print(F(" bw=")); Serial.print(bw_hz / 1000);
-    Serial.print(F(" ctrl_sf=")); Serial.print(ctrl_sf); Serial.print(F(" level_id=")); Serial.print(level_id);
-    Serial.print(F(" (leaf nibble ")); Serial.print(level_id & 0x0F); Serial.println(F(") — DADing id + pulling config (live)"));
+    mrcon.print(F("> join freq=")); mrcon.print(freq, 3); mrcon.print(F(" bw=")); mrcon.print(bw_hz / 1000);
+    mrcon.print(F(" ctrl_sf=")); mrcon.print(ctrl_sf); mrcon.print(F(" level_id=")); mrcon.print(level_id);
+    mrcon.print(F(" (leaf nibble ")); mrcon.print(level_id & 0x0F); mrcon.println(F(") — DADing id + pulling config (live)"));
 }
 
 // `create <freq> <bw> <ctrl_sf> <level_id> <sf_list> <duty%> "<name>"` — join's floor + mint a MANAGED leaf (mother).
@@ -967,15 +997,15 @@ static void handle_create(const char* args) {
         uint16_t lin = 0; do { mrrng::fill(reinterpret_cast<uint8_t*>(&lin), sizeof lin); } while (lin == 0);   // mint managed lineage
         b.lineage_id = lin; b.config_epoch = 1;                              // a fresh managed leaf starts at epoch 1
         b.node_id = 0; b.joined = 0;
-        if (!mrnv::save(b)) { Serial.println(F("> create err nv_save_failed")); return; }
+        if (!mrnv::save(b)) { mrcon.println(F("> create err nv_save_failed")); return; }
         provision_apply_live(b, /*do_dad=*/true);
-        Serial.print(F("> create leaf lineage=")); Serial.print(lin); Serial.print(F(" level_id=")); Serial.print(level_id);
-        Serial.print(F(" (leaf nibble ")); Serial.print(level_id & 0x0F); Serial.print(F(") name=\""));
-        for (uint8_t i = 0; i < nl; ++i) Serial.print((char)b.leaf_name[i]); Serial.println(F("\" — mother live"));
+        mrcon.print(F("> create leaf lineage=")); mrcon.print(lin); mrcon.print(F(" level_id=")); mrcon.print(level_id);
+        mrcon.print(F(" (leaf nibble ")); mrcon.print(level_id & 0x0F); mrcon.print(F(") name=\""));
+        for (uint8_t i = 0; i < nl; ++i) mrcon.print((char)b.leaf_name[i]); mrcon.println(F("\" — mother live"));
         return;
     }
 usage:
-    Serial.println(F("> create err usage: create <freq_MHz> <bw_kHz 7..500> <ctrl_sf 5..12> <level_id 1..255> <sf_list e.g.7,9> <duty_percent> \"<name>\""));
+    mrcon.println(F("> create err usage: create <freq_MHz> <bw_kHz 7..500> <ctrl_sf 5..12> <level_id 1..255> <sf_list e.g.7,9> <duty_percent> \"<name>\""));
 }
 
 // `leave` — wipe to default, keep ONLY freq; go unprovisioned + idle (the clean managed->managed re-join primitive).
@@ -987,31 +1017,32 @@ static void handle_leave() {
     b.freq_mhz = keep_freq;                                                  // ...keep only freq
     b.bw_hz = (uint32_t)(LORA_BW * 1000.0); b.routing_sf = LORA_SF; b.cr = LORA_CR; b.tx_power = LORA_TX_POWER;
     b.beacon_ms = 900000; b.duty = (double)LORA_DUTY_CYCLE_PCT / 100.0;       // NodeConfig defaults (15 min, 10%)
-    if (!mrnv::save(b)) { Serial.println(F("> leave err nv_save_failed")); return; }
+    if (!mrnv::save(b)) { mrcon.println(F("> leave err nv_save_failed")); return; }
     provision_apply_live(b, /*do_dad=*/false);                              // unprovisioned + idle (no DAD)
-    Serial.print(F("> left network (kept freq=")); Serial.print(keep_freq, 3); Serial.println(F(") — idle; `join` to re-provision (live)"));
+    mrcon.print(F("> left network (kept freq=")); mrcon.print(keep_freq, 3); mrcon.println(F(") — idle; `join` to re-provision (live)"));
 }
 
 // `help` / `?` — a small command + cfg-key reference for the live console session.
 static void dump_help() {
-    Serial.println(F("[help] messaging:  send <id|hash> \"<text>\" [-a] [-e]   (-a=ack, -e=encrypt[hash only]; id<=254 / hash=8hex auto-detected)"));
-    Serial.println(F("[help] channel:    send_channel <ch> \"<text>\""));
-    Serial.println(F("[help] cross-layer: send_layer <hash> <l1,l2,…> \"<text>\" [-a]   (explicit destination layer path)"));
-    Serial.println(F("[help] e2e keys:   peerkey <ed_pub hex64> (install a scanned/QR pubkey = pinned) | reqpubkey <hash> (request a peer's key on-air)"));
-    Serial.println(F("[help] hash/id:    whoami | lookup <hash> | hashof <id> | resolve <hash> [hard]"));
-    Serial.println(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
-    Serial.println(F("[help] diag:       routes | status | duty | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
-    Serial.println(F("[help] faults:     version (build/git/board + last reset, no reset) | faults (the flash fault ring) | crashtest <hang|fault|reboot> (needs `debug on`)"));
-    Serial.println(F("[help] fleet:      prep-restart   (clear routes+inbox, KEEP the join, go DORMANT — run fleet-wide then power-cycle for a clean restart; un-halt via power-cycle/reboot)"));
-    Serial.println(F("[help] remote:     rcmd <dst> <query>   (over-the-air diagnostics via a DM: status|faults|version|uptime|cfg|duty|reboot|prep-restart -> the node DMs back `[rcmd <from>] …`)"));
-    Serial.println(F("[help] test:       route add <dest> <next_hop> <hops> [score_q4] | route del <dest>   (force/drop a route to stress routing)"));
-    Serial.println(F("[help] reset:      factory_reset confirm   (WIPE all flash — config + identity + peers + inbox — and reboot to factory)"));
-    Serial.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack   (bool keys take on|off; identity via regen)"));
-    Serial.println(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
-    Serial.println(F("[help] provision:  join <freq_MHz> <bw_kHz> <ctrl_sf> <level_id> | create <freq> <bw> <ctrl_sf> <level_id> <sf_list> <duty%> \"<name>\" | leave   (LIVE, no reboot: join a net / mint a managed leaf [mother] / reset & keep freq)"));
-    Serial.println(F("[help] gateway:    gateway l0=<leaf>:<node>:<ctrl_sf>:<data_sfs> l1=<leaf>:<node>:<ctrl_sf>:<data_sfs> [period=ms] [win0=ms:off] [win1=ms:off] [beacon=ms] [freq0=MHz] [freq1=MHz] [gateway_only=0|1]"));
-    Serial.println(F("  one-shot dual-layer provisioning -> NV, reboot to apply (windows auto-derive SF-weighted anti-phase if win0/win1 omitted). e.g. gateway l0=1:1:8:7,9 l1=2:1:9:9,10"));
-    Serial.println(F("[help] leaf:       leaf create (mint a lineage) | leaf name <text>   (low-level, reboot to apply; the live one-shot front-door is the `create` verb above)"));
+    mrcon.println(F("[help] messaging:  send <id|hash> \"<text>\" [-a] [-e]   (-a=ack, -e=encrypt[hash only]; id<=254 / hash=8hex auto-detected)"));
+    mrcon.println(F("[help] channel:    send_channel <ch> \"<text>\""));
+    mrcon.println(F("[help] cross-layer: send_layer <hash> <l1,l2,…> \"<text>\" [-a]   (explicit destination layer path)"));
+    mrcon.println(F("[help] e2e keys:   peerkey <ed_pub hex64> (install a scanned/QR pubkey = pinned) | reqpubkey <hash> (request a peer's key on-air)"));
+    mrcon.println(F("[help] hash/id:    whoami | lookup <hash> | hashof <id> | resolve <hash> [hard]"));
+    mrcon.println(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
+    mrcon.println(F("[help] diag:       routes | status | duty | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
+    mrcon.println(F("[help] faults:     version (build/git/board + last reset, no reset) | faults (the flash fault ring) | crashtest <hang|fault|reboot> (needs `debug on`)"));
+    mrcon.println(F("[help] fleet:      prep-restart   (clear routes+inbox, KEEP the join, go DORMANT — run fleet-wide then power-cycle for a clean restart; un-halt via power-cycle/reboot)"));
+    mrcon.println(F("[help] remote:     rcmd <dst> <query>   (over-the-air diagnostics via a DM: status|faults|version|uptime|cfg|duty|reboot|prep-restart -> the node DMs back `[rcmd <from>] …`)"));
+    mrcon.println(F("[help] testsched:  testsend <dst> <run> [-a] [-e] -t ms1,ms2,… | testch <ch> <run> -t ms1,ms2,… | teststatus | testclear   (on-node scheduled workload, fires over the radio; arm once, read the inbox later)"));
+    mrcon.println(F("[help] test:       route add <dest> <next_hop> <hops> [score_q4] | route del <dest>   (force/drop a route to stress routing)"));
+    mrcon.println(F("[help] reset:      factory_reset confirm   (WIPE all flash — config + identity + peers + inbox — and reboot to factory)"));
+    mrcon.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack   (bool keys take on|off; identity via regen)"));
+    mrcon.println(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
+    mrcon.println(F("[help] provision:  join <freq_MHz> <bw_kHz> <ctrl_sf> <level_id> | create <freq> <bw> <ctrl_sf> <level_id> <sf_list> <duty%> \"<name>\" | leave   (LIVE, no reboot: join a net / mint a managed leaf [mother] / reset & keep freq)"));
+    mrcon.println(F("[help] gateway:    gateway l0=<leaf>:<node>:<ctrl_sf>:<data_sfs> l1=<leaf>:<node>:<ctrl_sf>:<data_sfs> [period=ms] [win0=ms:off] [win1=ms:off] [beacon=ms] [freq0=MHz] [freq1=MHz] [gateway_only=0|1]"));
+    mrcon.println(F("  one-shot dual-layer provisioning -> NV, reboot to apply (windows auto-derive SF-weighted anti-phase if win0/win1 omitted). e.g. gateway l0=1:1:8:7,9 l1=2:1:9:9,10"));
+    mrcon.println(F("[help] leaf:       leaf create (mint a lineage) | leaf name <text>   (low-level, reboot to apply; the live one-shot front-door is the `create` verb above)"));
 }
 
 // ---- Phase-3 inbox sync (schema: ios-companion/INBOX_SYNC_CONTRACT.md) -----------------------------------
@@ -1020,7 +1051,7 @@ static void dump_help() {
 // transport SINK (USB Serial OR the BLE NUS), so one handler serves both consoles. The companion link is JSON;
 // on USB it's structured output for the host harness.
 using JsonSink = void (*)(const char* s, size_t n);
-static void usb_sink(const char* s, size_t n) { Serial.write(reinterpret_cast<const uint8_t*>(s), n); }
+static void usb_sink(const char* s, size_t n) { mrcon.write(reinterpret_cast<const uint8_t*>(s), n); }
 static void ble_sink(const char* s, size_t n) { mrble::tx_line(s, n); }   // inert off-XIAO / when no client
 
 namespace { struct PullCtx { JsonSink sink; uint32_t count; }; }
@@ -1080,12 +1111,12 @@ static void dump_faults() {
         const mrfault::FaultRecord* r = mrfault::fault_log_at(g_fault_log, i);
         if (!r) break;
         mrfault::format_fault_record(*r, buf, sizeof buf);
-        Serial.print(F("[fault] ")); Serial.println(buf);
+        mrcon.print(F("[fault] ")); mrcon.println(buf);
     }
     mrfault::format_fault_summary(g_fault_log, buf, sizeof buf);
-    Serial.print(F("[faults] ")); Serial.println(buf);
+    mrcon.print(F("[faults] ")); mrcon.println(buf);
 #else
-    Serial.println(F("[faults] unsupported on this build (no HW fault backend)"));
+    mrcon.println(F("[faults] unsupported on this build (no HW fault backend)"));
 #endif
 }
 
@@ -1093,26 +1124,26 @@ static void dump_faults() {
 // metal. Gated behind `debug on` (ALWAYS compiled, active only after `debug on` — so the bench exercises the real
 // deployable image, not a separate crashtest build). spec 2026-06-24 §9.
 static void handle_crashtest(const char* args) {
-    if (!meshroute::g_mr_trace_on) { Serial.println(F("> crashtest err (enable `debug on` first — gated to avoid an accidental crash)")); return; }
+    if (!meshroute::g_mr_trace_on) { mrcon.println(F("> crashtest err (enable `debug on` first — gated to avoid an accidental crash)")); return; }
     while (*args == ' ') ++args;
     if (!strncmp(args, "hang", 4)) {
-        Serial.println(F("> crashtest hang — spinning; the watchdog should reset in ~8 s")); Serial.flush();
+        mrcon.println(F("> crashtest hang — spinning; the watchdog should reset in ~8 s")); mrcon.flush();
         for (;;) { /* no WDT feed -> DOG reset (nRF52); on a no-WDT build this hangs until power-cycle) */ }
     } else if (!strncmp(args, "fault", 5)) {
-        Serial.println(F("> crashtest fault — forcing a crash")); Serial.flush();
+        mrcon.println(F("> crashtest fault — forcing a crash")); mrcon.flush();
 #if defined(NRF52_PLATFORM)
         volatile uint32_t* p = reinterpret_cast<volatile uint32_t*>(0xFFFFFFF0u); (void)*p;   // bad-address read -> BusFault -> HardFault capture
         __asm volatile("udf #0");                                                              // belt+braces: undefined instruction
 #elif defined(MRFAULT_ESP32)
         abort();                                                                               // -> the IDF panic handler -> reboot, ESP_RST_PANIC (recorded as PANIC)
 #else
-        Serial.println(F("> (no HW fault path on this build)"));
+        mrcon.println(F("> (no HW fault path on this build)"));
 #endif
     } else if (!strncmp(args, "reboot", 6)) {
-        Serial.println(F("> crashtest reboot — NVIC_SystemReset (SREQ)")); Serial.flush();
+        mrcon.println(F("> crashtest reboot — NVIC_SystemReset (SREQ)")); mrcon.flush();
         do_reboot();
     } else {
-        Serial.println(F("> crashtest err usage: crashtest <hang|fault|reboot>"));
+        mrcon.println(F("> crashtest err usage: crashtest <hang|fault|reboot>"));
     }
 }
 
@@ -1124,7 +1155,7 @@ static void handle_prep_restart() {
     g_node.clear_learned_state();                 // routes + channel buffer + liveness + pending + dedup -> empty (KEEPS _cfg + identity + join)
     g_inbox_dm.wipe(); g_inbox_ch.wipe();         // QSPI inbox RECORDS (no-op on the RAM/ESP32 store); the boot epoch bumps -> companion re-syncs
     g_halted = true;                              // the loop now skips the operating block (dormant) but stays console-responsive
-    Serial.println(F("> prep-restart — routes + inbox cleared, network membership KEPT, node HALTED. Power-cycle the fleet to restart clean."));
+    mrcon.println(F("> prep-restart — routes + inbox cleared, network membership KEPT, node HALTED. Power-cycle the fleet to restart clean."));
 }
 
 // OTA remote diagnostics — execute a whitelisted query for `from` and DM the response back. Reads build a compact
@@ -1146,11 +1177,12 @@ static void remote_exec(uint8_t from, const uint8_t* query, uint8_t qlen) {
 
     char resp[224]; int n = 0;                                         // ≤ inbox_max_body (241)
     if (!strcmp(q, "status")) {
-        n = snprintf(resp, sizeof resp, "up=%lus rx=%lu tx=%lu txq=%u txto=%lu routes=%u duty_ms=%lu reset=%s",
+        n = snprintf(resp, sizeof resp, "up=%lus rx=%lu tx=%lu txq=%u txto=%lu rxbad=%lu routes=%u duty_ms=%lu reset=%s stackhw=%lu",
             (unsigned long)(g_hal.now() / 1000), (unsigned long)g_rx_count, (unsigned long)g_iradio.tx_count(),
-            (unsigned)g_hal.txq_depth(), (unsigned long)g_hal.tx_timeouts(), (unsigned)g_node.rt_count(),
-            (unsigned long)g_hal.airtime_used_ms(3600000),
-            g_last_reset_valid ? mrfault::fault_cause_str(g_last_reset.cause) : "-");
+            (unsigned)g_hal.txq_depth(), (unsigned long)g_hal.tx_timeouts(), (unsigned long)g_iradio.rxbad_count(),
+            (unsigned)g_node.rt_count(), (unsigned long)g_hal.airtime_used_ms(3600000),
+            g_last_reset_valid ? mrfault::fault_cause_str(g_last_reset.cause) : "-",
+            (unsigned long)loop_stack_free_bytes());   // ADDENDUM 4: loop-task stack headroom, USB-independent (the jump-to-0x0 was this stack overflowing)
     } else if (!strcmp(q, "uptime")) {
         n = snprintf(resp, sizeof resp, "uptime=%lus", (unsigned long)(g_hal.now() / 1000));
     } else if (!strcmp(q, "version")) {
@@ -1187,15 +1219,81 @@ static void remote_exec(uint8_t from, const uint8_t* query, uint8_t qlen) {
 static void handle_rcmd(const char* args) {
     while (*args == ' ') ++args;
     char* end; const long dst = strtol(args, &end, 10);
-    if (end == args || dst < 1 || dst > 254) { Serial.println(F("> rcmd err usage: rcmd <dst 1..254> <query>  (status|faults|version|uptime|cfg|duty|reboot|prep-restart)")); return; }
+    if (end == args || dst < 1 || dst > 254) { mrcon.println(F("> rcmd err usage: rcmd <dst 1..254> <query>  (status|faults|version|uptime|cfg|duty|reboot|prep-restart)")); return; }
     while (*end == ' ') ++end;
     uint8_t qn = (uint8_t)strlen(end);
     while (qn && (end[qn - 1] == '\r' || end[qn - 1] == '\n' || end[qn - 1] == ' ')) --qn;
-    if (qn == 0) { Serial.println(F("> rcmd err: empty query")); return; }
+    if (qn == 0) { mrcon.println(F("> rcmd err: empty query")); return; }
     if (qn > meshroute::protocol::inbox_max_body) qn = meshroute::protocol::inbox_max_body;
     const uint16_t ctr = g_node.send_remote_cmd((uint8_t)dst, (const uint8_t*)end, qn);
-    Serial.print(F("> rcmd -> ")); Serial.print(dst); Serial.print(F(" \"")); Serial.write((const uint8_t*)end, qn);
-    Serial.print(F("\" ctr=")); Serial.println(ctr);
+    mrcon.print(F("> rcmd -> ")); mrcon.print(dst); mrcon.print(F(" \"")); mrcon.write((const uint8_t*)end, qn);
+    mrcon.print(F("\" ctr=")); mrcon.println(ctr);
+}
+
+// Firmware scheduled-send (spec 2026-06-24): arm the node to fire DMs/channel posts on an ms-offset schedule OVER THE
+// RADIO, so the oracle touches USB only to arm + read (killing the continuous-stream USB-CDC death). `testsend <dst>
+// <run> [-a] [-e] -t ms1,ms2,…` / `testch <ch> <run> -t ms1,ms2,…` — APPENDS (seq keeps counting). Offsets are ms
+// from NOW (arm). The fired body = the harness tag `T<run>S<self>#<seq>` + `@<sendms>` (built in the loop tick).
+static void handle_testsched(char* args, bool is_channel) {
+    char* toks[12]; int nt = 0;
+    for (char* p = strtok(args, " "); p && nt < 12; p = strtok(nullptr, " ")) toks[nt++] = p;
+    if (nt < 2) { mrcon.println(F("> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,…  |  testch <ch> <run> -t ms1,ms2,…")); return; }
+    const char* dst_s = toks[0];
+    const char* run_s = toks[1];
+    const char* list_s = nullptr; bool ack = false, enc = false;
+    for (int i = 2; i < nt; ++i) {
+        if      (!strcmp(toks[i], "-a")) ack = true;
+        else if (!strcmp(toks[i], "-e")) enc = true;
+        else if (!strcmp(toks[i], "-t") && i + 1 < nt) list_s = toks[i + 1];
+    }
+    if (!list_s) { mrcon.println(F("> testsched err: missing -t <ms,ms,…>")); return; }
+    // <run> must be ALNUM — the host reconcile regex `T([0-9A-Za-z]+)S…` only matches alnum, so a hyphen/dot/_ run
+    // would send a body the harness CAN'T parse -> every message silently unreconciled. Fail loud instead.
+    for (const char* q = run_s; *q; ++q)
+        if (!((*q >= '0' && *q <= '9') || (*q >= 'a' && *q <= 'z') || (*q >= 'A' && *q <= 'Z'))) {
+            mrcon.println(F("> testsched err: <run> must be alphanumeric (the host tag regex)")); return; }
+    uint32_t target = 0, v = 0; uint8_t flags = 0;
+    if (is_channel) {
+        if (ack || enc) { mrcon.println(F("> testch err: -a/-e not valid on a channel")); return; }   // matches send_channel (rejects them)
+        if (!mrsched::parse_dec(dst_s, 255, v)) { mrcon.println(F("> testch err: channel 0..255")); return; }
+        target = v; flags |= mrsched::kChannel;
+    } else {
+        uint32_t h;
+        if (mrsched::parse_hash8(dst_s, h)) { target = h; flags |= mrsched::kHash; }
+        else if (mrsched::parse_dec(dst_s, 254, v) && v >= 1) { target = v; }
+        else { mrcon.println(F("> testsend err: dst 1..254 or 8-hex hash")); return; }
+        if (enc && !(flags & mrsched::kHash)) { mrcon.println(F("> testsend err: -e (encrypt) needs an 8-hex hash dst")); return; }   // matches `send` (allow_e=by_hash)
+        if (ack) flags |= mrsched::kAck;
+        if (enc) flags |= mrsched::kEnc;
+    }
+    g_sched.set_run(run_s);
+    uint32_t offs[128];
+    const uint16_t no = mrsched::parse_offsets(list_s, offs, 128);
+    if (no == 0) { mrcon.println(F("> testsched err: no offsets parsed")); return; }
+    if (no == 128) mrcon.println(F("> testsched warn: offset list capped at 128 — split into more lines"));   // never silent
+    const uint32_t base = (uint32_t)g_hal.now();
+    uint16_t added = 0;
+    for (uint16_t i = 0; i < no; ++i) if (g_sched.add(base + offs[i], target, flags) >= 0) ++added;
+    mrcon.print(F("> ")); mrcon.print(is_channel ? F("testch") : F("testsend"));
+    mrcon.print(F(" run="));   mrcon.print(g_sched.run);
+    mrcon.print(is_channel ? F(" ch=") : F(" dst=")); mrcon.print(dst_s);
+    mrcon.print(F(" +"));      mrcon.print(added);
+    mrcon.print(F(" armed=")); mrcon.print(g_sched.armed());
+    if (added < no) mrcon.print(F(" (SCHED FULL — rest dropped)"));
+    mrcon.println();
+}
+
+static void handle_teststatus() {
+    const uint32_t mnow = (uint32_t)g_hal.now();
+    const int32_t nx = g_sched.next_offset_ms(mnow);
+    const char* state = (g_sched.armed() == 0) ? "idle" : (g_sched.done() ? "done" : "running");
+    mrcon.print(F("[teststatus] run=")); mrcon.print(g_sched.run[0] ? g_sched.run : "-");
+    mrcon.print(F(" armed="));    mrcon.print(g_sched.armed());
+    mrcon.print(F(" fired="));    mrcon.print(g_sched.fired);
+    mrcon.print(F(" deferred=")); mrcon.print(g_sched.deferred);
+    mrcon.print(F(" dropped="));  mrcon.print(g_sched.dropped);
+    mrcon.print(F(" next="));     if (nx < 0) mrcon.print('-'); else { mrcon.print('+'); mrcon.print(nx); }
+    mrcon.print(F(" state="));    mrcon.println(state);
 }
 
 static bool service_debug(const char* line, size_t len) {
@@ -1204,6 +1302,12 @@ static bool service_debug(const char* line, size_t len) {
     if (len == 6 && !strncmp(line, "faults", 6))   { dump_faults();  return true; }
     if (len == 12 && !strncmp(line, "prep-restart", 12)) { handle_prep_restart(); return true; }
     if ((len == 4 || (len > 4 && line[4] == ' ')) && !strncmp(line, "rcmd", 4)) { handle_rcmd(line + 4); return true; }
+    if (len == 9 && !strncmp(line, "testclear", 9))    { g_sched.clear(); mrcon.println(F("> testsched cleared")); return true; }
+    if (len == 10 && !strncmp(line, "teststatus", 10)) { handle_teststatus(); return true; }
+    if ((len == 8 || (len > 8 && line[8] == ' ')) && !strncmp(line, "testsend", 8)) {   // strtok needs a mutable copy
+        static char tb[512]; strncpy(tb, line + 8, sizeof tb - 1); tb[sizeof tb - 1] = '\0'; handle_testsched(tb, /*channel=*/false); return true; }
+    if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "testch", 6)) {
+        static char tb[512]; strncpy(tb, line + 6, sizeof tb - 1); tb[sizeof tb - 1] = '\0'; handle_testsched(tb, /*channel=*/true);  return true; }
     if ((len == 9 || (len > 9 && line[9] == ' ')) && !strncmp(line, "crashtest", 9)) { handle_crashtest(line + 9); return true; }
     if (len == 6 && !strncmp(line, "routes", 6))   { dump_routes(); return true; }
     if (len > 6 && !strncmp(line, "route ", 6))     { handle_route_cmd(line + 6); return true; }   // manual route inject/del (testing)
@@ -1405,7 +1509,9 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
 }
 
 void setup() {
+#if MR_CONSOLE
     Serial.begin(115200);
+#endif
     // §5.1: capture + CLEAR the reset reason FIRST — before BLE/SoftDevice (direct NRF_POWER access must be safe;
     // on ESP32 it's the IDF-latched esp_reset_reason(), read-only). MRFAULT_HW = nRF52 OR ESP32.
 #if defined(MRFAULT_HW)
@@ -1415,8 +1521,10 @@ void setup() {
     // Arduino-free (it can't read frame_trace.h's g_mr_trace_on). The log sink itself gates on g_mr_trace_on so
     // `debug off` stays fully silent (as before — DeviceHal::log was a no-op). Captureless lambdas -> fn-pointers.
     g_hal.set_debug_hooks([]() -> bool { return meshroute::g_mr_trace_on; },
-                          [](const char* m) { if (meshroute::g_mr_trace_on) Serial.println(m); });
+                          [](const char* m) { if (meshroute::g_mr_trace_on) mrcon.println(m); });
+#if MR_CONSOLE
     while (!Serial && millis() < 3000) { /* wait for USB CDC, but don't block forever */ }
+#endif
     delay(2000);   // Settle: the USB-CDC port re-enumerates on every reset, and the host serial
                    // monitor reattaches AFTER that — so without a pause the one-time boot banner
                    // prints into the void. 2 s lets the monitor catch up before we print it.
@@ -1427,7 +1535,7 @@ void setup() {
     // /mrid too -> the node re-mints identity + loses its join -> re-provision (cfg set + join, or the harness).
     if (mrnv::mount_or_repair()) {
         g_fs_reformatted = true;
-        Serial.println(F("\n\xe2\x9a\xa0 INTERNALFS CORRUPT \xe2\x80\x94 REFORMATTED (re-provision needed: `cfg set` + `join`, or the harness `provision`)"));
+        mrcon.println(F("\n\xe2\x9a\xa0 INTERNALFS CORRUPT \xe2\x80\x94 REFORMATTED (re-provision needed: `cfg set` + `join`, or the harness `provision`)"));
     }
 
 #if defined(MRFAULT_HW)
@@ -1446,9 +1554,9 @@ void setup() {
     print_banner();   // §6: version (build/git/board) + the last reset reason — replaces the old boot banner + board lines
     // These are the COMPILE-TIME build defaults, printed BEFORE the NV blob loads — NOT the live config.
     // A persisted `cfg set` overrides them; the real operating point prints below (control sf / data sf / `cfg`).
-    Serial.print(F("  build def = ")); Serial.print((double)LORA_FREQ, 4); Serial.print(F(" MHz  sf"));
-    Serial.print(LORA_SF); Serial.print(F("/bw")); Serial.print((double)LORA_BW, 1); Serial.print(F("/cr"));
-    Serial.print(LORA_CR); Serial.println(F("  (NV cfg overrides — live values below)"));
+    mrcon.print(F("  build def = ")); mrcon.print((double)LORA_FREQ, 4); mrcon.print(F(" MHz  sf"));
+    mrcon.print(LORA_SF); mrcon.print(F("/bw")); mrcon.print((double)LORA_BW, 1); mrcon.print(F("/cr"));
+    mrcon.print(LORA_CR); mrcon.println(F("  (NV cfg overrides — live values below)"));
 
     // Bring up the SX1262 (begin/CRC/TCXO/DIO2-rf-switch/RXEN/RX-boost) then arm continuous RX.
 #if defined(P_LORA_SCLK)
@@ -1456,7 +1564,7 @@ void setup() {
 #else
     bool ok = g_radio.std_init();
 #endif
-    Serial.print(F("  radio     = ")); Serial.println(ok ? F("OK") : F("INIT FAILED"));
+    mrcon.print(F("  radio     = ")); mrcon.println(ok ? F("OK") : F("INIT FAILED"));
     g_radio_ok = ok;
     // Device config from compile-time defaults; a persisted `cfg set` (NV) then overrides the radio/protocol
     // knobs AND the node identity. node_id 0 = unprovisioned (sends refused; provision via NV or join).
@@ -1520,16 +1628,16 @@ void setup() {
             cfg.layers[1].window_offset_ms  = nv.l1_window_offset_ms;
             cfg.layers[1].freq_mhz          = (nv.l1_freq_mhz > 0.0) ? nv.l1_freq_mhz : nv.freq_mhz;  // v12: 0 = inherit layer 0's freq
         }
-        Serial.println(F("  config    = loaded from NV"));
+        mrcon.println(F("  config    = loaded from NV"));
     }
     // Identity (/mrid): load the 32-byte master seed, or mint one from the HW-RNG on first boot.
     mrnv::IdBlob idb{};
     if (mrnv::load_id(idb)) {
-        Serial.println(F("  identity  = loaded from NV (/mrid)"));
+        mrcon.println(F("  identity  = loaded from NV (/mrid)"));
     } else {
         mrrng::fill(idb.seed, sizeof idb.seed);                 // first boot -> generate a fresh seed
         idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion; idb.name_len = 0;
-        Serial.println(mrnv::save_id(idb) ? F("  identity  = generated (first boot -> /mrid)")
+        mrcon.println(mrnv::save_id(idb) ? F("  identity  = generated (first boot -> /mrid)")
                                           : F("  identity  = generated (first boot, NV SAVE FAILED — volatile)"));
     }
     meshroute::identity_from_seed(g_identity, idb.seed);        // key_hash32 = ed_pub[:4]
@@ -1545,14 +1653,14 @@ void setup() {
     // REFUSED the live ctr stays 0 while a here-primed lease (nv.channel_ctr) would read as "due" and REGRESS the
     // persisted lease to 64. Priming only alongside the restore keeps live ctr == lease -> no spurious/regressing write.
     print_identity(idb);                                        // key_hash32 (hex) + name
-    Serial.print(F("  node id   = ")); Serial.print(node_id);
-    Serial.println(node_id == 0 ? F("  (UNPROVISIONED: cfg set node_id <1..254> + reboot, or join)") : F(""));
-    Serial.print(F("  control sf= ")); Serial.print(cfg.routing_sf); Serial.println(F("  (RTS/CTS/ACK + beacons)"));
-    Serial.print(F("  data sf   = "));
-    if (cfg.allowed_sf_bitmap) { print_sf_list(cfg.allowed_sf_bitmap); Serial.println(F("  (receiver picks the fastest by SNR)")); }
-    else                       { Serial.println(F("(none — set sf_list; data send is REFUSED until configured)")); }
+    mrcon.print(F("  node id   = ")); mrcon.print(node_id);
+    mrcon.println(node_id == 0 ? F("  (UNPROVISIONED: cfg set node_id <1..254> + reboot, or join)") : F(""));
+    mrcon.print(F("  control sf= ")); mrcon.print(cfg.routing_sf); mrcon.println(F("  (RTS/CTS/ACK + beacons)"));
+    mrcon.print(F("  data sf   = "));
+    if (cfg.allowed_sf_bitmap) { print_sf_list(cfg.allowed_sf_bitmap); mrcon.println(F("  (receiver picks the fastest by SNR)")); }
+    else                       { mrcon.println(F("(none — set sf_list; data send is REFUSED until configured)")); }
 
-    Serial.print(F("  tx power  = ")); Serial.print((int)g_tx_power); Serial.println(F(" dBm"));
+    mrcon.print(F("  tx power  = ")); mrcon.print((int)g_tx_power); mrcon.println(F(" dBm"));
 
     // Apply the operating point to the radio (freq/SF/BW/CR), re-arm RX, and match the Hal airtime ledger.
     if (ok) {
@@ -1572,7 +1680,7 @@ void setup() {
     // on_init REFUSES a bad dual-layer config (§3.2 fail-loud). Today the device builds cfg with n_layers==1
     // (always valid), so this never fires — but Slice 3 (per-layer cfg keys) can produce an invalid gateway, and
     // the device must NOT operate on a half-applied config. Print loud + leave the node unconfigured.
-    if (!g_node.on_init(cfg)) Serial.println(F("  config    = REFUSED (invalid layer config — node NOT operational)"));
+    if (!g_node.on_init(cfg)) mrcon.println(F("  config    = REFUSED (invalid layer config — node NOT operational)"));
     else { g_node.restore_channel_ctr(nv.channel_ctr);          // v15: continue the channel send-ctr across reboot (no id-reuse); after on_init so _active+_node_id are valid
            g_ctr_lease = nv.channel_ctr; }                      // prime the lease = the (leased) ctr ONLY now that the live ctr was restored -> live == lease, no spurious/regressing write
     // Install the inbox stores so record-on-delivery + pull_inbox work. With the interim RAM store: give it a
@@ -1589,10 +1697,10 @@ void setup() {
         for (uint16_t i = 0; i < pb.count; ++i)
             g_node.peer_key_set(pb.rec[i].key_hash32, pb.rec[i].ed_pub, meshroute::Node::PeerKeyConf::pinned); }
 #if defined(MRINBOX_QSPI_READY)
-    Serial.println(F("  inbox     = QSPI (durable)"));
+    mrcon.println(F("  inbox     = QSPI (durable)"));
 #else
-    Serial.print(F("  inbox     = RAM volatile, ")); Serial.print(MR_RAM_INBOX_SLOTS);
-    Serial.println(F(" msgs/store (interim — lost on reboot; durable QSPI store is a bench-TODO)"));
+    mrcon.print(F("  inbox     = RAM volatile, ")); mrcon.print(MR_RAM_INBOX_SLOTS);
+    mrcon.println(F(" msgs/store (interim — lost on reboot; durable QSPI store is a bench-TODO)"));
 #endif
     // node_id DAD auto-join: an UNPROVISIONED node (no persisted id) self-assigns one via the claim state machine.
     // A node that rebooted WITH a persisted id skips this — it already owns it (restored above). BUT a freshly-flashed
@@ -1606,9 +1714,9 @@ void setup() {
         if (configured) {
             meshroute::Command jc{}; jc.kind = meshroute::CmdKind::join;
             g_node.on_command(jc);
-            Serial.println(F("  join      = auto-DAD started (unprovisioned)"));
+            mrcon.println(F("  join      = auto-DAD started (unprovisioned)"));
         } else {
-            Serial.println(F("  join      = IDLE — unconfigured (level_id=0). Set freq/bw/ctrl_sf/level_id via 'join' or 'create'."));
+            mrcon.println(F("  join      = IDLE — unconfigured (level_id=0). Set freq/bw/ctrl_sf/level_id via 'join' or 'create'."));
         }
     }
     // Step 5: BLE companion transport (XIAO nRF52840 only; an inert no-op on ESP32/native). Brings up the
@@ -1621,27 +1729,41 @@ void setup() {
         if (idb.name_len) { const size_t k = idb.name_len < 19 ? (size_t)idb.name_len : 19; memcpy(ble_name, idb.name, k); ble_name[k] = '\0'; }
         else              { snprintf(ble_name, sizeof ble_name, "MeshRoute-%u", (unsigned)node_id); }
         const bool up = mrble::begin(g_ble_mode, g_ble_period_min, g_ble_pin, ble_name, &ble_dispatch_line);
-        Serial.print(F("  ble       = "));
-        if (up) { Serial.print(g_ble_mode == 1 ? F("on") : F("periodic"));
-                  Serial.println(F("  (secured: MITM passkey pairing — PIN in `cfg`)")); }
-        else    { Serial.println(F("INIT FAILED")); }      // fail loud: NO silent fall-back to bare-metal/insecure
+        mrcon.print(F("  ble       = "));
+        if (up) { mrcon.print(g_ble_mode == 1 ? F("on") : F("periodic"));
+                  mrcon.println(F("  (secured: MITM passkey pairing — PIN in `cfg`)")); }
+        else    { mrcon.println(F("INIT FAILED")); }      // fail loud: NO silent fall-back to bare-metal/insecure
     }
     // OTA rollback safety (ESP32 only — inert on nRF52): tell the bootloader this firmware is healthy.
     // If we crash before reaching here (bad config, radio fail), the bootloader boots the previous slot.
     #if defined(ARDUINO_ARCH_ESP32) || defined(ESP32)
     esp_ota_mark_app_valid_cancel_rollback();
     #endif
-    Serial.println(F("  node      = up. Type 'help' for commands."));
+    mrcon.println(F("  node      = up. Type 'help' for commands."));
 }
 
 // Accumulate a USB-CDC line; on '\n' parse it into a Command + hand it to the Node.
+// USB console input present? false in a production (MR_CONSOLE=0) build — there IS no USB serial — so a console-free
+// node latches/sleeps like a headless node. (The real input drain is service_console, #if'd out below.)
+#if MR_CONSOLE
+static inline bool serial_has_input() { return Serial.available(); }
+#else
+static inline bool serial_has_input() { return false; }
+#endif
+
+#if MR_CONSOLE
 static void service_console() {
-    static char   line[160];
+    static char   line[1024];  // 1024 (Part 4): matched to CFG_TUD_CDC_RX_BUFSIZE so a long `testsend … -t ms,…` arm line fits
     static size_t pos = 0;
+    static bool   overflow = false;
     while (Serial.available()) {
         char c = (char)Serial.read();
         if (c == '\r') continue;
         if (c == '\n') {
+            if (overflow) {                              // a line longer than the buffer: REJECT loudly — never process a
+                mrcon.println(F("> err: line too long (>1023) — rejected (chunk the testsend offsets)"));   // silently-truncated command (a cut offset would fire at the wrong time)
+                pos = 0; overflow = false; continue;
+            }
             line[pos] = '\0';                            // null-terminate (pos <= sizeof-1) for the debug cmds
             if (!service_debug(line, pos)) {             // routes/cfg/status handled here; else a Node command
                 meshroute::Command cmd{};
@@ -1649,30 +1771,35 @@ static void service_console() {
                 if (e == meshroute::console::ParseErr::ok) {
                     if (cmd.kind == meshroute::CmdKind::peerkey) {       // §2/§3: install + persist + the contract ack
                         char jb[80]; const size_t m = handle_peerkey(jb, sizeof jb, cmd);
-                        Serial.write(reinterpret_cast<const uint8_t*>(jb), m);
+                        mrcon.write(reinterpret_cast<const uint8_t*>(jb), m);
                     } else {
                     const meshroute::CmdResult r = g_node.on_command(cmd);
-                    Serial.print(F("> "));
-                    Serial.print(r.code == meshroute::CmdCode::queued ? F("queued ctr=") : F("err ctr="));
-                    Serial.print(r.ctr); Serial.print(F(" depth=")); Serial.print(r.queue_depth);
+                    mrcon.print(F("> "));
+                    mrcon.print(r.code == meshroute::CmdCode::queued ? F("queued ctr=") : F("err ctr="));
+                    mrcon.print(r.ctr); mrcon.print(F(" depth=")); mrcon.print(r.queue_depth);
                     // The send handle for hash/layer-addressed sends (dh != 0 = correlate by hash, not id).
-                    if (r.dst_hash) { Serial.print(F(" dh=0x")); Serial.print(r.dst_hash, HEX); }
-                    if (r.layer_path) { Serial.print(F(" lp=0x")); Serial.print(r.layer_path, HEX); }
-                    Serial.println();
+                    if (r.dst_hash) { mrcon.print(F(" dh=0x")); mrcon.print(r.dst_hash, HEX); }
+                    if (r.layer_path) { mrcon.print(F(" lp=0x")); mrcon.print(r.layer_path, HEX); }
+                    mrcon.println();
                     }
                 } else if (e != meshroute::console::ParseErr::empty) {
                     if (pos >= 8 && !strncmp(line, "peerkey ", 8))       // §3: a malformed peerkey -> the contract's peerkey_err
-                        Serial.println(F("{\"ev\":\"peerkey_err\",\"reason\":\"bad_hex\"}"));
+                        mrcon.println(F("{\"ev\":\"peerkey_err\",\"reason\":\"bad_hex\"}"));
                     else
-                        Serial.println(F("> parse error"));
+                        mrcon.println(F("> parse error"));
                 }
             }
             pos = 0;
         } else if (pos < sizeof(line) - 1) {
             line[pos++] = c;
+        } else {
+            overflow = true;   // [5] mark + reject on '\n' — don't silently truncate (a cut multi-digit offset = a wrong-time fire)
         }
     }
 }
+#else
+static void service_console() {}   // production (MR_CONSOLE=0): NO USB console — diagnostics over the air (BLE-NUS + rcmd + the fault-log)
+#endif
 
 // node_id DAD: persist the lease state (node_id + claim_epoch + joined) to /mrcfg WHEN it changes (adopt /
 // epoch bump / forced rejoin), so a reboot keeps its id + seniority. Load-modify-save so the config fields
@@ -1741,6 +1868,46 @@ static void board_sleep_until([[maybe_unused]] uint64_t deadline_ms, [[maybe_unu
 }
 #endif  // !MR_NO_POWERSAVE
 
+// ---- Radio-Module corruption canary (MR_RADIO_CANARY): re-check + on the FIRST trip record DURABLY (the fault-log —
+// this node's USB is dying) + print + reset CLEANLY (don't ride the corruption into the opaque SPItransferStream
+// crash). No-op when MR_RADIO_CANARY=0. Defined HERE (after g_iradio/mrcon/mrfault are declared). spec 2026-06-25.
+#if MR_RADIO_CANARY
+static const char* canary_where_name(uint8_t w) {
+    switch (w) {
+        case CW_loop_top: return "loop_top";         case CW_poll_rx: return "after_poll_rx"; case CW_tx_done: return "after_tx_done";
+        case CW_node_tick: return "after_node_tick"; case CW_console:  return "after_console"; case CW_ble:     return "after_ble";
+        case CW_nv:        return "after_nv";         case CW_sched:    return "after_sched";   case CW_noise:   return "after_noise";
+        default:           return "?";
+    }
+}
+#endif
+static void canary([[maybe_unused]] uint8_t where) {
+#if MR_RADIO_CANARY
+    const int off = g_iradio.radio_canary_check();
+    if (off < 0) return;
+    const uint32_t before = g_iradio.radio_canary_before(off), after = g_iradio.radio_canary_after(off);
+    mrcon.print(F("\nCANARY @"));
+    if (where >= 100) { mrcon.print(F("timer")); mrcon.print(where - 100); }   // ADDENDUM: a per-timer-id trip (where = 100+id)
+    else                mrcon.print(canary_where_name(where));
+    mrcon.print(F(" off=")); mrcon.print(off);
+    mrcon.print(F(" 0x")); mrcon.print(before, HEX); mrcon.print(F("->0x")); mrcon.println(after, HEX); mrcon.flush();
+    mrfault::radio_canary_record(where, (uint16_t)off, before, after);   // durable: `faults`/`rcmd faults` -> CANARY @<where>/timer id=N off=N before->after
+    #if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
+    NVIC_SystemReset();
+    #elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
+    ESP.restart();
+    #endif
+#endif
+}
+// ADDENDUM 2026-06-25: the coarse canary named CW_node_tick (the timer drain) as the corruptor. canary_timer() is the
+// FINER check — call it after EACH g_node.on_timer(id) so the trip records the EXACT timer id (where = 100+id; the
+// formatter prints `timer id=N`). No-op when MR_RADIO_CANARY=0.
+static inline void canary_timer([[maybe_unused]] uint32_t id) {
+#if MR_RADIO_CANARY
+    canary(static_cast<uint8_t>(100 + id));
+#endif
+}
+
 void loop() {
     const uint64_t now = g_hal.now();
 #if defined(MRFAULT_HW)
@@ -1751,6 +1918,7 @@ void loop() {
     // `prep-restart` halt: skip the WHOLE operating block (RX/timers/tx/beacon/push) while dormant. The WDT-feed above
     // + service_console/BLE below still run, so the deliberate halt is NOT a hang and the node stays console-responsive.
     if (!g_halted) {
+    canary(CW_loop_top);                                         // radio-Module canary checkpoints (no-op unless MR_RADIO_CANARY)
     // 1) RX: drain received frames into the Node (+ the preamble-detect throttle/LBT witness).
     size_t len = 0; float snr = 0, rssi = 0;
     while (g_iradio.poll_rx(g_rxbuf, sizeof(g_rxbuf), len, snr, rssi)) {
@@ -1762,9 +1930,10 @@ void loop() {
         g_node.on_recv(g_rxbuf, len, meta);
     }
     if (g_iradio.take_preamble()) g_node.on_preamble_detected(now);
+    canary(CW_poll_rx);
 
     // 2) Timers: fire every elapsed Node timer (beacons, RTS/ACK timeouts, retries, the duty/LBT defers).
-    for (int id; (id = g_hal.pop_due_timer()) >= 0; ) g_node.on_timer((uint32_t)id);
+    for (int id; (id = g_hal.pop_due_timer()) >= 0; ) { g_node.on_timer((uint32_t)id); canary_timer((uint32_t)id); }   // ADDENDUM: per-timer-id fine canary -> names the exact handler that corrupts the HAL
 
     // 2a) Gateway visibility (`debug on`): a dual-layer gateway alternates which leaf it LISTENS on per the window
     //     schedule (window_switch_fire, a timer above). Announce each switch — active layer/leaf/node_id/routing_sf
@@ -1775,21 +1944,68 @@ void loop() {
         if (cur != s_last_layer) {
             s_last_layer = cur;
             const meshroute::NodeConfig& c = g_node.config();
-            Serial.print(F("\n t=")); Serial.print((uint32_t)now); Serial.print(F(" ms [gw] now LISTENING layer="));
-            Serial.print(cur);                  Serial.print(F(" leaf="));       Serial.print(c.leaf_id);
-            Serial.print(F(" node_id="));       Serial.print(g_node.node_id());
-            Serial.print(F(" routing_sf="));    Serial.print(c.routing_sf);
-            Serial.print(F(" data_sf="));       print_sf_list(c.allowed_sf_bitmap);
-            Serial.flush();
+            mrcon.print(F("\n t=")); mrcon.print((uint32_t)now); mrcon.print(F(" ms [gw] now LISTENING layer="));
+            mrcon.print(cur);                  mrcon.print(F(" leaf="));       mrcon.print(c.leaf_id);
+            mrcon.print(F(" node_id="));       mrcon.print(g_node.node_id());
+            mrcon.print(F(" routing_sf="));    mrcon.print(c.routing_sf);
+            mrcon.print(F(" data_sf="));       print_sf_list(c.allowed_sf_bitmap);
+            mrcon.println();   // (was Serial.flush() — dropped Part 3: a loop-body flush only risks a stall; the USB task drains the FIFO)
         }
     }
 
     // 2b) Async TX: drain the in-flight TX completion (radio re-arms RX) + start the next queued frame.
     //     After RX + timers, since both enqueue TX. The loop stays live during a long TX (no freeze).
     g_hal.service_tx();
+    canary(CW_tx_done);
+
+    // 2b2) Firmware scheduled-send (testsend/testch): fire the next DUE entry through the REAL send path so it rides
+    //      normal routing/duty/ACK. One per loop + gated on tx-queue SPACE (enqueue_data silently drops a full queue,
+    //      node_mac.cpp:159) so a burst respects backpressure (counted `deferred` when it fires late); an entry overdue
+    //      past the slack window while the queue stays full is DROPPED (visible in teststatus, never silent). The body
+    //      is the harness tag + `@<sendms>` stamped at THIS instant (latency truth). Halt-gated (in the operating block).
+    if (g_sched.armed() > 0 && !g_sched.done()) {
+        const uint32_t mnow = (uint32_t)now;
+        const int si = g_sched.next_due(mnow);
+        if (si >= 0) {
+            // Queue-gate ONLY DMs: enqueue_data silently drops a DM on a full tx_queue, but do_send_channel always
+            // BUFFERS a channel post (repair digest is the delivery backstop) so it never hard-fails on a full queue.
+            const bool dm = !(g_sched.items[si].flags & mrsched::kChannel);
+            if (dm && g_node.tx_queue_full()) {
+                if (g_sched.overdue(si, mnow)) g_sched.mark_dropped(si);   // sustained-full -> give up (don't snowball)
+            } else {
+                char body[48];
+                const uint8_t blen = mrsched::build_body(body, sizeof body, g_sched.run, g_node.node_id(),
+                                                         g_sched.items[si].seq, mnow);
+                meshroute::Command cmd{};
+                const uint8_t fl = g_sched.items[si].flags;
+                if (fl & mrsched::kChannel) {
+                    cmd.kind = meshroute::CmdKind::send_channel;
+                    cmd.u.channel.channel_id = (uint8_t)g_sched.items[si].target;
+                } else {
+                    cmd.kind = meshroute::CmdKind::send;
+                    // Match console_parse EXACTLY: dst_id (id) XOR dst_hash (8-hex; on_command routes by dst_hash!=0,
+                    // NO DST_HASH flag here — enqueue_data sets it). flags = ack only; -e -> crypt=on (hash dst only).
+                    if (fl & mrsched::kHash) cmd.u.send.dst_hash = g_sched.items[si].target;   // dst_id stays 0 (Command{} zero-init)
+                    else                     cmd.u.send.dst_id   = (uint8_t)g_sched.items[si].target;
+                    cmd.u.send.flags = (fl & mrsched::kAck) ? meshroute::DATA_FLAG_E2E_ACK_REQ : 0;
+                    cmd.crypt = (fl & mrsched::kEnc) ? meshroute::CryptIntent::on : meshroute::CryptIntent::def;
+                }
+                cmd.body = (const uint8_t*)body; cmd.body_len = blen;
+                const meshroute::CmdResult r = g_node.on_command(cmd);
+                // NB on_command returns `queued` even for the rare enqueue_data EARLY-OUTs (an unsynced managed joiner;
+                // an -e seal-fail with no authoritative pubkey) — those count `fired` here though no DM aired. The
+                // DURABLE INBOX is the delivery truth (spec); teststatus `fired` = "handed to the send path". For the
+                // headline workload (plain DMs on a provisioned node) neither early-out can trigger.
+                if (r.code == meshroute::CmdCode::queued) g_sched.mark_fired(si, mnow);
+                else                                       g_sched.mark_dropped(si);   // a permanent error (unprovisioned/no_data_sf/…) -> retry won't help
+            }
+        }
+    }
+    canary(CW_sched);
 
     // 2c) LBT noise-floor sampler (only when LBT is on — it feeds channel_busy()). Self-paced (≤1 RSSI/10 ms).
     if (g_node.config().lbt_enabled) g_iradio.sample_noise();
+    canary(CW_noise);
 
     // 2d) Inbox meta: COALESCED slow persist (InternalFS self-heal Part 3, 2026-06-24). Inbox::flush() is now a
     //     no-op unless a store actually appended, so this writes /mri_* only when the cursor advanced — at a relaxed
@@ -1797,33 +2013,34 @@ void loop() {
     //     live on QSPI; a power-loss costs ≤ one cycle of cursor advance, which the harness re-pull tolerates.
     static uint32_t s_nv_flush_ms = 0;
     if ((uint32_t)now - s_nv_flush_ms >= 120000u) { s_nv_flush_ms = (uint32_t)now; g_node.inbox().flush(); }
+    canary(CW_nv);
 
     // 3) App pushes: surface deliveries / ACKs over the console.
     meshroute::Push pu{};
     while (g_node.next_push(pu)) {
         switch (pu.kind) {
             case meshroute::PushKind::msg_recv:
-                Serial.print(F("RECV from="));   Serial.print(pu.origin); Serial.print(F(": "));
-                Serial.write(pu.body, pu.body_len); Serial.println();
+                mrcon.print(F("RECV from="));   mrcon.print(pu.origin); mrcon.print(F(": "));
+                mrcon.write(pu.body, pu.body_len); mrcon.println();
                 break;
             case meshroute::PushKind::channel_recv:
-                Serial.print(F("CH ")); Serial.print(pu.channel_id);
-                Serial.print(F(" from=")); Serial.print(pu.origin); Serial.print(F(": "));
-                Serial.write(pu.body, pu.body_len); Serial.println();
+                mrcon.print(F("CH ")); mrcon.print(pu.channel_id);
+                mrcon.print(F(" from=")); mrcon.print(pu.origin); mrcon.print(F(": "));
+                mrcon.write(pu.body, pu.body_len); mrcon.println();
                 break;
             case meshroute::PushKind::send_acked:
-                Serial.print(F("ACKED ctr="));    Serial.println(pu.ctr); break;
+                mrcon.print(F("ACKED ctr="));    mrcon.println(pu.ctr); break;
             case meshroute::PushKind::send_failed:
-                Serial.print(F("FAILED ctr="));   Serial.println(pu.ctr); break;
+                mrcon.print(F("FAILED ctr="));   mrcon.println(pu.ctr); break;
             case meshroute::PushKind::send_e2e_acked:   // the END-TO-END ack arrived (dest confirmed) — distinct from the hop ACK
-                Serial.print(F("E2E-ACKED ctr=")); Serial.print(pu.ctr); Serial.print(F(" from=")); Serial.println(pu.dst); break;
+                mrcon.print(F("E2E-ACKED ctr=")); mrcon.print(pu.ctr); mrcon.print(F(" from=")); mrcon.println(pu.dst); break;
             case meshroute::PushKind::hash_resolved: {
                 const uint32_t hash = (uint32_t)pu.body[0] | ((uint32_t)pu.body[1] << 8)
                                     | ((uint32_t)pu.body[2] << 16) | ((uint32_t)pu.body[3] << 24);
-                if (pu.origin == 0) { Serial.print(F("UNRESOLVED 0x")); Serial.print(hash, HEX); Serial.println(F(" (timeout)")); }
-                else { Serial.print(F("RESOLVED 0x")); Serial.print(hash, HEX);
-                       Serial.print(F(" -> id=")); Serial.print(pu.origin);
-                       Serial.println(pu.dst ? F(" (auth)") : F(" (cached)")); }
+                if (pu.origin == 0) { mrcon.print(F("UNRESOLVED 0x")); mrcon.print(hash, HEX); mrcon.println(F(" (timeout)")); }
+                else { mrcon.print(F("RESOLVED 0x")); mrcon.print(hash, HEX);
+                       mrcon.print(F(" -> id=")); mrcon.print(pu.origin);
+                       mrcon.println(pu.dst ? F(" (auth)") : F(" (cached)")); }
                 break;
             }
             case meshroute::PushKind::config_adopted: {   // R6.2: a pulled leaf config was adopted -> persist to NV
@@ -1837,16 +2054,16 @@ void loop() {
                     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
                     mrnv::save(b);
                 }
-                Serial.print(F("LEAF-CONFIG adopted lineage=")); Serial.print(nc.lineage_id);
-                Serial.print(F(" epoch=")); Serial.println(nc.config_epoch);
+                mrcon.print(F("LEAF-CONFIG adopted lineage=")); mrcon.print(nc.lineage_id);
+                mrcon.print(F(" epoch=")); mrcon.println(nc.config_epoch);
                 break;
             }
             case meshroute::PushKind::join_refused:        // R6.3 §7c: refusal feedback (telemetry is invisible on metal)
                 if (pu.join_reason == meshroute::JoinRefuseReason::wire_version) {
-                    Serial.print(F("⚠ JOIN REFUSED: network wire v")); Serial.print(pu.origin);
-                    Serial.print(F(", this node v")); Serial.print(pu.dst); Serial.println(F(" — update firmware"));
+                    mrcon.print(F("⚠ JOIN REFUSED: network wire v")); mrcon.print(pu.origin);
+                    mrcon.print(F(", this node v")); mrcon.print(pu.dst); mrcon.println(F(" — update firmware"));
                 } else {
-                    Serial.println(F("⚠ JOIN REFUSED: leaf full — no id available"));
+                    mrcon.println(F("⚠ JOIN REFUSED: leaf full — no id available"));
                 }
                 break;
         }
@@ -1866,13 +2083,13 @@ void loop() {
                    mrble::tx_line(kOvf, sizeof(kOvf) - 1); }                            // input; LOUD, never silent
         }
     }
-    Serial.flush();
+    // (was Serial.flush() — dropped Part 3: the Adafruit USB task drains the FIFO; a loop-body flush only risks a stall)
 
     // OTA remote diagnostics: drain the inbound rcmd slot — a response PRINTS (parseable line for the harness), a
     // command EXECUTES here on the main loop (never the RX path). static = the ~244 B slot is off the hot-path stack.
     { static meshroute::Node::RemoteInbound ri;
       if (g_node.take_remote_inbound(ri)) {
-          if (ri.is_response) { Serial.print(F("[rcmd ")); Serial.print(ri.from); Serial.print(F("] ")); Serial.write(ri.body, ri.len); Serial.println(); }
+          if (ri.is_response) { mrcon.print(F("[rcmd ")); mrcon.print(ri.from); mrcon.print(F("] ")); mrcon.write(ri.body, ri.len); mrcon.println(); }
           else                remote_exec(ri.from, ri.body, ri.len);
       } }
     // deferred recovery action (respond-first-then-act): fire reboot / prep-restart once its ~3 s defer elapses, so
@@ -1885,12 +2102,14 @@ void loop() {
 
     // 4) Console input -> commands. A byte means a host is here -> latch awake so the console stays usable
     //    (service_console() drains Serial, so we must note it BEFORE; the sleep gate below honors the latch).
-    if (Serial.available()) g_host_present = true;
+    if (serial_has_input()) g_host_present = true;
     service_console();
+    canary(CW_console);
 
     // 4c) BLE companion: advance the advertising-window policy + drain inbound NUS lines (both inert off-XIAO).
     mrble::on_tick(now);
     mrble::service_rx();
+    canary(CW_ble);
 
     #if defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
     // 4c2) WiFi OTA server (Heltec ESP32 only; inert on XIAO): handle one HTTP client request.
@@ -1909,7 +2128,7 @@ void loop() {
     // explicit `sleep` command forces it even with a host present. A host that has typed latches us awake so
     // the console stays usable (ESP32 light-sleep would otherwise gate the UART and strand it). See MR_BOOT_GRACE_MS.
     const bool may_sleep = !g_halted && (g_force_sleep || (!g_host_present && s_now >= MR_BOOT_GRACE_MS));   // halted -> stay awake (console-responsive)
-    if (may_sleep && !g_iradio.tx_busy() && g_hal.txq_depth() == 0 && !Serial.available() && !mrble::connected()) {
+    if (may_sleep && !g_iradio.tx_busy() && g_hal.txq_depth() == 0 && !serial_has_input() && !mrble::connected()) {
         uint64_t due = g_hal.next_due_ms();                    // UINT64_MAX if no timer armed
         const uint64_t cap = s_now + MR_MAX_SLEEP_MS;
         if (due > cap) due = cap;

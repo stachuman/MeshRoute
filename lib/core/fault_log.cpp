@@ -69,6 +69,8 @@ const char* fault_cause_str(uint8_t cause) {
         case kCauseWatchdog:   return "WATCHDOG";
         case kCauseReboot:     return "REBOOT";
         case kCauseUnexpected: return "UNEXPECTED";
+        case kCauseCanary:     return "CANARY";
+        case kCauseWatchpoint: return "WATCHPOINT";
         default:               return "?";
     }
 }
@@ -92,7 +94,7 @@ size_t reset_reason_str(uint16_t reason_bits, char* buf, size_t cap) {
 size_t format_fault_record(const FaultRecord& r, char* buf, size_t cap) {
     size_t pos = 0;
     if (cap) buf[0] = '\0';
-    char tmp[64];
+    char tmp[80];                                               // holds " · pc=0x… lr=0x… cfsr=0x… @0x…" (4×8 hex + literals)
     snprintf(tmp, sizeof tmp, "boot %lu \xc2\xb7 ", (unsigned long)r.boot_seq);   // "boot <seq> · "
     put(buf, cap, &pos, tmp);
     put(buf, cap, &pos, fault_cause_str(r.cause));               // the scratch-derived CAUSE is the headline
@@ -100,8 +102,21 @@ size_t format_fault_record(const FaultRecord& r, char* buf, size_t cap) {
     if (r.cause == kCausePowerCycle) put(buf, cap, &pos, "\xe2\x80\x94");   // RAM lost -> uptime unknown (em-dash)
     else                             put_hms(buf, cap, &pos, r.ran_ms);
     if (r.had_fault) {
-        snprintf(tmp, sizeof tmp, " \xc2\xb7 pc=0x%lx cfsr=0x%lx @0x%lx",
-                 (unsigned long)r.fault_pc, (unsigned long)r.cfsr, (unsigned long)r.fault_addr);
+        snprintf(tmp, sizeof tmp, " \xc2\xb7 pc=0x%lx lr=0x%lx cfsr=0x%lx @0x%lx",     // v3: lr = the caller (addr2line)
+                 (unsigned long)r.fault_pc, (unsigned long)r.fault_lr, (unsigned long)r.cfsr, (unsigned long)r.fault_addr);
+        put(buf, cap, &pos, tmp);
+    }
+    if (r.cause == kCauseCanary) {                              // the radio-Module canary: where/off + the corrupted dword (before->after)
+        if (r.cfsr >= 100)                                      // ADDENDUM: where>=100 = a per-timer-id trip -> print the timer id
+            snprintf(tmp, sizeof tmp, " \xc2\xb7 timer id=%lu off=%lu 0x%lx\xe2\x86\x92" "0x%lx",
+                     (unsigned long)(r.cfsr - 100), (unsigned long)r.fault_addr, (unsigned long)r.fault_pc, (unsigned long)r.fault_lr);
+        else
+            snprintf(tmp, sizeof tmp, " \xc2\xb7 @w%lu off=%lu 0x%lx\xe2\x86\x92" "0x%lx",   // "→"; split so \x92 doesn't absorb the '0'. cfsr=where, fault_addr=off, fault_pc=before, fault_lr=after
+                     (unsigned long)r.cfsr, (unsigned long)r.fault_addr, (unsigned long)r.fault_pc, (unsigned long)r.fault_lr);
+        put(buf, cap, &pos, tmp);
+    }
+    if (r.cause == kCauseWatchpoint) {                          // ADDENDUM 2: the DWT watchpoint — pc/lr of the exact store (addr2line the pc)
+        snprintf(tmp, sizeof tmp, " \xc2\xb7 pc=0x%lx lr=0x%lx", (unsigned long)r.fault_pc, (unsigned long)r.fault_lr);
         put(buf, cap, &pos, tmp);
     }
     if (r.reason_bits) {                                         // the RESETREAS HINT (0 on the UF2-bootloader nRF52; real elsewhere)
@@ -134,8 +149,9 @@ size_t format_last_reset(const FaultRecord* last, char* buf, size_t cap) {
     put(buf, cap, &pos, fault_cause_str(last->cause));
     if (last->cause != kCausePowerCycle) { put(buf, cap, &pos, " \xc2\xb7 ran "); put_hms(buf, cap, &pos, last->ran_ms); }
     if (last->had_fault) {
-        char tmp[48];
-        snprintf(tmp, sizeof tmp, " \xc2\xb7 HARDFAULT pc=0x%lx cfsr=0x%lx", (unsigned long)last->fault_pc, (unsigned long)last->cfsr);
+        char tmp[72];
+        snprintf(tmp, sizeof tmp, " \xc2\xb7 HARDFAULT pc=0x%lx lr=0x%lx cfsr=0x%lx",     // v3: lr = the caller (addr2line)
+                 (unsigned long)last->fault_pc, (unsigned long)last->fault_lr, (unsigned long)last->cfsr);
         put(buf, cap, &pos, tmp);
     }
     return pos;

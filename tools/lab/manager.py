@@ -57,20 +57,35 @@ class NodeManager:
 
     def request(self, node, cmd, expect, timeout=2.0):
         """One command in flight per node (writer-lock); marker-aware (Amendment 2: `expect` = the substring
-        that marks the real response, e.g. '[cfg]' / '[whoami]' / '> '). Returns the raw response-burst lines."""
+        that marks the real response, e.g. '[cfg]' / '[whoami]' / '> '). Returns the raw response-burst lines (or []
+        if the port dropped mid-exchange — the node is marked DEAD, never crashes the caller)."""
         with node.lock:
             if node.client is None:
                 return []
             if node.client._on_line is not None:
                 raise RuntimeError(f"{node.port}: client in live mode — stop_live() before request()")
-            return collect_burst(node.client, cmd, expect, timeout)
+            try:
+                return collect_burst(node.client, cmd, expect, timeout)
+            except Exception as e:                       # serial.SerialException / OSError / termios.error -> port gone
+                node.responsive = False
+                node.error = f"request: {e}"
+                return []
 
     def send(self, node, line):
         """Write-only under the writer-lock, for use IN LIVE MODE (no collect — the ack/RECV/CH arrive async on the
-        live stream). One command in flight per node still holds (the lock)."""
+        live stream). One command in flight per node still holds (the lock). A serial-write failure (the USB-CDC link
+        dropped — the node reset/re-enumerated, a hub glitch, or the USB-CDC wedge) marks the node DEAD and is
+        SWALLOWED: a lost port must NOT crash the fleet (the same resilience broadcast() has). Returns True on write."""
         with node.lock:
-            if node.client is not None:
+            if node.client is None:
+                return False
+            try:
                 node.client.send_line(line)
+                return True
+            except Exception as e:                       # serial.SerialException / OSError / termios.error -> port gone
+                node.responsive = False
+                node.error = f"send: {e}"
+                return False
 
     def broadcast(self, cmd, expect, timeout=2.0, nodes=None):
         """request() to every (or `nodes`) responsive node CONCURRENTLY. Returns {node.port: lines}

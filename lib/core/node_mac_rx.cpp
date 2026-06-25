@@ -605,7 +605,12 @@ void Node::do_post_ack() {
         // peer keys; the Poly1305 tag identifies the sender + opens the sealed {source_hash + location + body}. The seed
         // rides the trailer. FAIL LOUD: no cached key opens it -> SILENT DROP (never deliver ciphertext to the app).
         uint32_t dec_source_hash = 0; bool dec_has_loc = false; int32_t dec_lat = 0, dec_lon = 0;
-        uint8_t dec_body[protocol::max_payload_bytes_hard_cap]; uint8_t dec_body_len = 0;
+        // ADDENDUM 4 (2026-06-25): static, NOT stack. do_post_ack is non-reentrant (one timer fires at a time in the
+        // single loop task) and is the deepest path on the cramped 4 KB FreeRTOS loop stack; the DWT watchpoint caught
+        // route_strictly_better (reached via send_e2e_ack, below) overflowing right here. Moving these ~480 B of
+        // payload buffers off the frame restores the headroom at the exact overflow point. e2e_open_trial fills
+        // dec_body before any read; dec_body_len stays a fresh local (re-set each call).
+        static uint8_t dec_body[protocol::max_payload_bytes_hard_cap]; uint8_t dec_body_len = 0;
         uint32_t dec_origin = pa.origin;   // §1a: for CRYPTED the trial recovers origin (== cleartext now; from the seal at 1c)
         bool crypted_ok = false;
         if (pa.flags & DATA_FLAG_CRYPTED) {
@@ -619,7 +624,7 @@ void Node::do_post_ack() {
             crypted_ok = true; (void)trial_sender;   // dec_source_hash (sealed, anti-spoof-verified) == trial_sender = the sender
         }
         // deliver: body from the parsed inner (raw inner[1..] fallback — origin at inner[0] — if it didn't parse).
-        char body[protocol::max_payload_bytes_hard_cap + 1];
+        static char body[protocol::max_payload_bytes_hard_cap + 1];   // ADDENDUM 4: static (non-reentrant) — paired with dec_body, off the do_post_ack stack frame
         uint8_t blen;
         if (crypted_ok) { blen = dec_body_len;                              // the DECRYPTED body (sealed region opened above)
                           for (uint8_t i = 0; i < blen; ++i) body[i] = static_cast<char>(dec_body[i]); }

@@ -55,6 +55,7 @@ inline bool connected() { return false; }
 #include <bluefruit.h>
 #include "companion_policy.h"   // meshroute::CompanionPolicy / BleMode (lib/core) — the off/on/periodic scheduler
 #include "device_rng.h"         // mrrng::sd_enabled() — the SD-RNG keystone flag
+#include "console_sink.h"       // `mrcon` guarded sink (the BLE-path debug prints route through it too)
 #include <string.h>
 #include <stdio.h>              // snprintf — format the 6-digit passkey
 
@@ -80,12 +81,12 @@ size_t                     g_pos        = 0;
 bool                       g_overflow   = false;
 char                       g_out[256];        // outbound JSON scratch (one NDJSON line)
 
-// Bluefruit callbacks — run in the Bluefruit event-task context (NOT a hard ISR), so Serial.print is safe here
+// Bluefruit callbacks — run in the Bluefruit event-task context (NOT a hard ISR), so mrcon.print is safe here
 // (the stock pairing_pin.ino example prints from these too). Concise on-USB signal for the bench bring-up.
-void on_connect(uint16_t h)            { if (g_conn_count < 255) ++g_conn_count; g_conn_handle = h; Serial.println(F("[ble] connected (pairing required before GATT)")); }
-void on_disconnect(uint16_t, uint8_t r){ if (g_conn_count > 0)  --g_conn_count; g_conn_handle = BLE_CONN_HANDLE_INVALID; Serial.print(F("[ble] disconnected reason=0x")); Serial.println(r, HEX); }
-void on_secured(uint16_t)             { Serial.println(F("[ble] link secured (paired/bonded)")); }
-void on_pair_complete(uint16_t, uint8_t st) { Serial.print(F("[ble] pairing ")); Serial.println(st == BLE_GAP_SEC_STATUS_SUCCESS ? F("OK") : F("FAILED")); }
+void on_connect(uint16_t h)            { if (g_conn_count < 255) ++g_conn_count; g_conn_handle = h; mrcon.println(F("[ble] connected (pairing required before GATT)")); }
+void on_disconnect(uint16_t, uint8_t r){ if (g_conn_count > 0)  --g_conn_count; g_conn_handle = BLE_CONN_HANDLE_INVALID; mrcon.print(F("[ble] disconnected reason=0x")); mrcon.println(r, HEX); }
+void on_secured(uint16_t)             { mrcon.println(F("[ble] link secured (paired/bonded)")); }
+void on_pair_complete(uint16_t, uint8_t st) { mrcon.print(F("[ble] pairing ")); mrcon.println(st == BLE_GAP_SEC_STATUS_SUCCESS ? F("OK") : F("FAILED")); }
 
 void dispatch_current_line() {
     g_line[g_pos] = '\0';

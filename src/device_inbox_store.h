@@ -298,8 +298,12 @@ bool DeviceInboxStore::qspi_seg_size(uint16_t idx, uint32_t* size) const {
 bool DeviceInboxStore::qspi_seg_append(uint16_t idx, const uint8_t* b, uint16_t n) {
     using namespace Adafruit_LittleFS_Namespace;
     char p[40]; seg_path(idx, p, sizeof p);
-    File f(QSPIFlash); if (!f.open(p, FILE_O_WRITE)) return false;  // create/open (FILE_O_WRITE does NOT truncate — cf. save_meta)
-    f.seek(f.size());                                               // -> APPEND at the end of the segment
+    // ADDENDUM 4 (2026-06-25): REVERTED ADDENDUM 3 — the inbox was NEVER the corruptor. The DWT watchpoint named the
+    // real root cause as a loop-task STACK OVERFLOW in do_post_ack (route_strictly_better's prologue tipped past the
+    // 4 KB FreeRTOS loop stack into the adjacent heap ArduinoHal), not this heap File path. Adafruit File::close is
+    // idempotent (no double-free) and the per-record malloc/free is fine. So this stays the simple, correct File path.
+    File f(QSPIFlash); if (!f.open(p, FILE_O_WRITE)) return false;
+    f.seek(f.size());
     const size_t w = f.write(b, n);
     f.close(); return w == n;
 }

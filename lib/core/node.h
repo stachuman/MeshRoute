@@ -484,6 +484,7 @@ public:
     size_t            test_build_suspect_ext(uint8_t* out, size_t cap) { return build_suspect_ext(out, cap); }                 // §P4 test: drive the gossip encoder
     void              test_apply_suspect_gossip(const SuspectEntry* e, uint8_t n, uint8_t src) { apply_suspect_gossip(e, n, src); }   // §P4 test: drive the gossip apply
     bool              has_pending_tx() const { return _active->_pending_tx.has_value(); }
+    bool              tx_queue_full()  const { return _active->_tx_queue_n >= kTxQueueCap; }   // enqueue_data SILENTLY drops when full -> callers (firmware scheduled-send) gate on this before originating
     uint64_t          nav_until_ms()   const { return _nav_until_ms; }  // NAV reservation deadline (0 = clear); test/status accessor
     // ---- channel-plane inspection (public, like rt_count) + the two seams tests drive directly ----
     uint16_t          channel_buffer_count() const { return _active->_channel_buffer_n; }

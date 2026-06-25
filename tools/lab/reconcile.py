@@ -58,9 +58,13 @@ def _receipts(inboxes, leaf_ids):
 
 
 def reconcile(send_ledger, inboxes_eventual, inboxes_immediate, acks, deliveries, leaf_ids, run_id,
-              hangs=None, eventual_s=None, e2e_ack_live=None):
+              hangs=None, eventual_s=None, e2e_ack_live=None, duty=None, rxbad=None, measured=None):
     hangs = list(hangs or [])
     e2e_live = e2e_ack_live or {}
+    # `measured` = nodes whose eventual inbox we actually READ. An UNMEASURED node (flaky USB-CDC at the final pull) is
+    # NOT a delivery miss — exclude it from every denominator (else it false-deflates delivery + false-ORPHANs every
+    # origin, as it did in run 3c1a64 where 4/8 nodes were unread). Default = all measured (offline/unit use).
+    meas = set(measured) if measured is not None else set(leaf_ids)
     dm_evt = _tagsets(inboxes_eventual, leaf_ids, "dm")                # DM delivery: judged on the most-complete pull
     src_receipts = _receipts(inboxes_eventual, leaf_ids)              # E2E ack: the sender's durable receipts
     chan_imm = _tagsets(inboxes_immediate, leaf_ids, "chan")
@@ -75,7 +79,7 @@ def reconcile(send_ledger, inboxes_eventual, inboxes_immediate, acks, deliveries
         deliv_first[nid] = d
 
     per_msg = []
-    dm_total = dm_delivered = dm_ack_req = dm_e2e_acked = dm_hop_acked = 0
+    dm_total = dm_delivered = dm_deliv_den = dm_ack_den = dm_e2e_acked = dm_hop_acked = 0
     dm_fails, dm_warns, dm_lats, dm_rtts = [], [], [], []
     chan_total = chan_imm_hits = chan_evt_hits = chan_flood_hits = chan_exp = 0
     chan_fails = []
@@ -85,19 +89,30 @@ def reconcile(send_ledger, inboxes_eventual, inboxes_immediate, acks, deliveries
         if row["kind"] == "dm":
             dm_total += 1
             dst, ctr = row["dst"], row.get("ctr")
-            delivered = tag in dm_evt.get(dst, set())                 # the dst's inbox holds the message (the oracle truth)
-            if delivered:
-                dm_delivered += 1
+            dst_meas, src_meas = dst in meas, src in meas
+            delivered = (tag in dm_evt.get(dst, set())) if dst_meas else None   # unknown if we could not read the dst
+            if dst_meas:
+                dm_deliv_den += 1                                     # delivery-rate denominator = readable destinations
+                if delivered:
+                    dm_delivered += 1
             e2e_acked = hop_acked = status = None
             if row.get("ack"):
-                dm_ack_req += 1
-                e2e_acked = (ctr is not None) and ((dst, ctr) in src_receipts.get(src, set()))  # the durable receipt
-                hop_acked = acks.get(src, {}).get(ctr) == "ACKED"     # the first-hop ack (reported, not gated)
-                if e2e_acked:
-                    dm_e2e_acked += 1
+                hop_acked = acks.get(src, {}).get(ctr) == "ACKED"     # live hop-ack (reported; not inbox-dependent)
                 if hop_acked:
                     dm_hop_acked += 1
-                status = "acked" if e2e_acked else ("delivered_no_ack" if delivered else "lost")
+                if src_meas:                                          # the e2e receipt sits in the SRC inbox -> need it read
+                    dm_ack_den += 1
+                    e2e_acked = (ctr is not None) and ((dst, ctr) in src_receipts.get(src, set()))
+                    if e2e_acked:
+                        dm_e2e_acked += 1
+                if not dst_meas:
+                    status = "unmeasured"                             # dst unread -> delivery unknown (NOT a loss)
+                elif delivered:
+                    status = "acked" if e2e_acked else ("delivered_no_ack" if src_meas else "delivered_ack_unknown")
+                else:
+                    status = "lost"                                   # dst READ + message absent = a real total loss
+            elif not dst_meas:
+                status = "unmeasured"
             ft = deliv_first.get(dst, {}).get(tag)                    # delivery latency: send -> first RECV at the dst
             lat = (ft - row["host_send_ts"]) if (ft is not None and row.get("host_send_ts") is not None) else None
             if lat is not None:
@@ -115,7 +130,7 @@ def reconcile(send_ledger, inboxes_eventual, inboxes_immediate, acks, deliveries
                 dm_fails.append(rv)
         else:
             chan_total += 1
-            receivers = [nid for nid in leaf_ids if nid != src]
+            receivers = [nid for nid in leaf_ids if nid != src and nid in meas]   # measured receivers only (unread ≠ miss)
             reached, missed, immediate, flood = [], [], [], []
             for nid in receivers:
                 chan_exp += 1
@@ -144,19 +159,88 @@ def reconcile(send_ledger, inboxes_eventual, inboxes_immediate, acks, deliveries
         xs = sorted(xs)
         return round(xs[min(len(xs) - 1, int(q * len(xs)))], 3) if xs else None
 
+    def _mean(xs):
+        return round(sum(xs) / len(xs), 2) if xs else None
+
+    # --- PER-NODE receiver rollup: DM-rx% (addressed→arrived), CH-rx% (others' broadcasts→reached), received-delay,
+    #     duty (start→final + airtime delta), rxbad (the CRC-storm count). duty/rxbad are oracle-captured side-channels. ---
+    send_ts_by_tag = {row["tag"]: row.get("host_send_ts") for row in send_ledger}
+    duty, rxbad = duty or {}, rxbad or {}
+    dm_rx = {nid: [0, 0] for nid in leaf_ids}                          # nid -> [received, addressed-to-it]
+    ch_rx = {nid: [0, 0] for nid in leaf_ids}                          # nid -> [reached, broadcast-by-others]
+    node_lat = {nid: [] for nid in leaf_ids}                           # nid -> [delay of each msg IT received]
+    for row in send_ledger:
+        tag = row["tag"]
+        if row["kind"] == "dm":
+            if row["dst"] in dm_rx:
+                dm_rx[row["dst"]][1] += 1
+                if tag in dm_evt.get(row["dst"], set()):
+                    dm_rx[row["dst"]][0] += 1
+        else:
+            for nid in leaf_ids:
+                if nid == row["src"]:
+                    continue
+                ch_rx[nid][1] += 1
+                if tag in chan_evt.get(nid, set()):
+                    ch_rx[nid][0] += 1
+    for nid in leaf_ids:                                               # received-message delay from the live pushes
+        for tg, ts in deliv_first.get(nid, {}).items():
+            sts = send_ts_by_tag.get(tg)
+            if sts is not None:
+                node_lat[nid].append(ts - sts)
+    per_node = []
+    for nid in leaf_ids:
+        d = duty.get(nid, {})
+        at0, at1 = d.get("start_airtime_ms"), d.get("final_airtime_ms")
+        per_node.append({
+            "node": nid, "measured": nid in meas,                     # UNMEASURED -> the report shows that, not a false 0
+            "dm_rx": dm_rx[nid][0], "dm_addressed": dm_rx[nid][1], "dm_rx_pct": _pct(dm_rx[nid][0], dm_rx[nid][1]),
+            "ch_rx": ch_rx[nid][0], "ch_expected": ch_rx[nid][1], "ch_rx_pct": _pct(ch_rx[nid][0], ch_rx[nid][1]),
+            "delay_mean_s": _mean(node_lat[nid]),
+            "delay_max_s": round(max(node_lat[nid]), 2) if node_lat[nid] else None,
+            "duty_start_pct": d.get("start_pct"), "duty_final_pct": d.get("final_pct"),
+            "airtime_delta_s": (round((at1 - at0) / 1000.0, 1) if at0 is not None and at1 is not None else None),
+            "rxbad": rxbad.get(nid),
+        })
+
+    # --- PER-ORIGIN channel coverage (the orphaning) + time-to-coverage (best-effort, from the live CH pushes) ---
+    cov, t2c = {}, []
+    for m in per_msg:
+        if m["kind"] != "chan":
+            continue
+        c = cov.setdefault(m["src"], {"imm": [], "evt": [], "recv": m["receivers"]})
+        c["imm"].append(len(m["immediate"]))
+        c["evt"].append(m["eventual"])
+        pushes = [deliv_first[nid][m["tag"]] for nid in leaf_ids                      # receivers whose live CH push we caught
+                  if nid != m["src"] and m["tag"] in deliv_first.get(nid, {})]
+        sts = send_ts_by_tag.get(m["tag"])
+        if pushes and sts is not None:
+            t2c.append(max(pushes) - sts)                             # send -> the latest receiver we timed (propagation span)
+    chan_coverage = [{"origin": s, "msgs": len(c["evt"]), "receivers": c["recv"],
+                      "flood_avg": _mean(c["imm"]), "eventual_avg": _mean(c["evt"]),
+                      "worst": min(c["evt"]) if c["evt"] else None}
+                     for s, c in sorted(cov.items())]
+    repair_rescued = chan_evt_hits - chan_imm_hits                    # eventual-only = what the slow digest-repair added
+
     acked_ok = not dm_fails                                            # lenient: only TOTAL losses fail (warns don't)
     chan_ok = not chan_fails
     return {
         "run_id": run_id,
-        "dm": {"total": dm_total, "delivered": dm_delivered, "delivered_pct": _pct(dm_delivered, dm_total),
-               "ack_required": dm_ack_req, "e2e_acked": dm_e2e_acked, "hop_acked": dm_hop_acked,
+        "dm": {"total": dm_total, "delivered": dm_delivered, "deliv_den": dm_deliv_den,
+               "delivered_pct": _pct(dm_delivered, dm_deliv_den),
+               "ack_required": dm_ack_den, "e2e_acked": dm_e2e_acked, "hop_acked": dm_hop_acked,
                "warnings": dm_warns, "fails": dm_fails,
                "latency_p50_s": _p(dm_lats, 0.50), "latency_p95_s": _p(dm_lats, 0.95),
                "ack_rtt_p50_s": _p(dm_rtts, 0.50), "ack_rtt_p95_s": _p(dm_rtts, 0.95)},
         "chan": {"total": chan_total, "expected": chan_exp, "eventual_s": eventual_s,
                  "immediate_hits": chan_imm_hits, "immediate_pct": _pct(chan_imm_hits, chan_exp),
                  "eventual_hits": chan_evt_hits, "eventual_pct": _pct(chan_evt_hits, chan_exp),
-                 "flood_pct": _pct(chan_flood_hits, chan_exp), "fails": chan_fails},
+                 "flood_pct": _pct(chan_flood_hits, chan_exp),
+                 "repair_rescued": repair_rescued, "repair_rescued_pct": _pct(repair_rescued, chan_exp),
+                 "t2c_mean_s": _mean(t2c), "t2c_p95_s": _p(t2c, 0.95), "t2c_timed": len(t2c),
+                 "coverage": chan_coverage, "fails": chan_fails},
+        "per_node": per_node,
+        "measured": sorted(meas), "unmeasured": sorted(set(leaf_ids) - meas),
         "verdict": {"acked_dms_ok": acked_ok, "channels_eventual_ok": chan_ok, "hangs": hangs,
                     "pass": acked_ok and chan_ok and not hangs},
         "per_msg": per_msg,
@@ -199,6 +283,22 @@ def _selftest():
     assert r["chan"]["immediate_hits"] == 1 and r["chan"]["eventual_hits"] == 2 and r["chan"]["expected"] == 3, r["chan"]
     assert len(r["chan"]["fails"]) == 1 and r["chan"]["fails"][0]["missed"] == [4], r["chan"]
     assert r["verdict"]["acked_dms_ok"] is False and r["verdict"]["pass"] is False, r["verdict"]   # the total loss fails
+    # per-node receiver rollup + per-origin channel coverage + flood-vs-repair
+    pn = {p["node"]: p for p in r["per_node"]}
+    assert pn[2]["dm_rx_pct"] == 100.0 and pn[2]["ch_rx_pct"] == 100.0, pn[2]   # node2 got its DM + the channel
+    assert pn[4]["dm_rx_pct"] == 0.0 and pn[4]["ch_rx_pct"] == 0.0, pn[4]       # node4 missed both (addressed/expected, 0 rx)
+    assert pn[2]["delay_mean_s"] == 0.5, pn[2]                                   # node2 received-delays [0.4, 0.6] -> mean 0.5
+    cov = {c["origin"]: c for c in r["chan"]["coverage"]}
+    assert cov[1]["flood_avg"] == 1.0 and cov[1]["eventual_avg"] == 2.0 and cov[1]["worst"] == 2, cov[1]
+    assert r["chan"]["repair_rescued"] == 1, r["chan"]                           # node3 was eventual-only = the repair rescued it
+    # UNMEASURED node4 (flaky pull): its DM#1 loss + the channel-miss become UNKNOWN (not fails) -> the run now PASSES,
+    # and node4 is excluded from the channel denominator (3 receivers -> 2). The false-orphan/false-loss fix.
+    rm = reconcile(send_ledger, inboxes_evt, inboxes_imm, acks, deliveries, leaf, rid, eventual_s=300,
+                   e2e_ack_live=e2e_live, measured=[1, 2, 3])
+    assert rm["dm"]["fails"] == [] and rm["dm"]["deliv_den"] == 2, rm["dm"]       # DM#1 to the unread node4 = unmeasured
+    assert rm["chan"]["expected"] == 2 and rm["chan"]["fails"] == [], rm["chan"]  # node4 dropped from the denominator
+    assert rm["unmeasured"] == [4] and rm["verdict"]["pass"] is True, rm["verdict"]
+    assert {p["node"]: p["measured"] for p in rm["per_node"]}[4] is False, rm["per_node"]
 
     # WARNING does NOT fail the run: a delivered DM whose e2e-ack never returned, channel all-reached, no total loss.
     slw = [{"tag": "Tw1S1#0", "src": 1, "kind": "dm", "dst": 2, "ack": True, "enc": False, "ctr": 5, "host_send_ts": 0.0}]

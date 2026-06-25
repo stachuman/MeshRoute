@@ -1,0 +1,12 @@
+# MeshRoute lab — ARM-MODE sanity run (quick): ./tools/meshroute_lab.py armrun tools/scenario-armtest.txt -v
+# A short, low-volume realistic run to confirm the firmware scheduled-send <-> harness tag contract end-to-end BEFORE
+# committing to the full 5-min run. ~4 msgs/node over 30 s -> easy to eyeball that delivery is non-zero + tags match.
+workload: realistic
+duration_s: 30                  # each node emits over this short window
+rate_per_min: 8                 # ~4 msgs/node in 30 s
+dm_fraction: 0.6                # 60% DMs / 40% channel
+channel: 0
+ack: true
+enc: false
+seed: 1
+settle_s: 20                    # let the last sends + the channel repair settle before the read

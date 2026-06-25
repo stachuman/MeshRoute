@@ -40,11 +40,20 @@ class SendAction:
 
 
 def build_actions(scenario, nodes, run):
+    """Dispatch on scenario['workload']: 'oracle' (Phase 2 — deterministic round-robin, 1 DM + 1 CH per node) or
+    'realistic' (Phase 3 — each node an INDEPENDENT Poisson message STREAM). `nodes` = responsive [NodeInfo].
+    'realistic' sets each action's intrinsic `.at`; 'oracle' leaves it 0 for schedule() to pace."""
+    wl = str(scenario.get("workload", "oracle")).strip().lower()
+    if wl == "oracle":
+        return _build_oracle(scenario, nodes, run)
+    if wl == "realistic":
+        return _build_realistic(scenario, nodes, run)
+    raise ValueError(f"workload '{wl}' not supported (oracle | realistic)")
+
+
+def _build_oracle(scenario, nodes, run):
     """Phase 2 `oracle`: each node sends `dm_per_node` DMs (round-robin to OTHER nodes) + `chan_per_node` channels.
-    Deterministic (round-robin, not random) so a bench-run is exactly reproducible. `nodes` = responsive [NodeInfo]."""
-    wl = scenario.get("workload", "oracle")
-    if wl != "oracle":
-        raise ValueError(f"workload '{wl}' not supported in Phase 2 (only 'oracle')")
+    Deterministic (round-robin, not random) so a bench-run is exactly reproducible."""
     dm_n = int(scenario.get("dm_per_node", 1))
     chan_n = int(scenario.get("chan_per_node", 1))
     chan_id = int(scenario.get("channel", 0))
@@ -66,12 +75,49 @@ def build_actions(scenario, nodes, run):
     return actions
 
 
+def _build_realistic(scenario, nodes, run):
+    """Phase 3 `realistic`: each node INDEPENDENTLY Poisson-generates a message STREAM over [0, duration_s] — per
+    message a DM (prob `dm_fraction`, to a UNIFORM-RANDOM other node) or a channel, each at its OWN arrival time
+    (set on `.at`). The superposition of independent per-node streams = real mesh traffic: no synchronized
+    1-DM-1-CH, no 'DM then CH 0.3 s'. Seeded → reproducible. Returns SORTED by arrival (schedule() leaves `.at`)."""
+    rng = random.Random(int(scenario.get("seed", 0)))
+    duration = float(scenario.get("duration_s", 300))
+    rate = float(scenario.get("rate_per_min", 6)) / 60.0           # → msgs/sec/node (the per-node Poisson rate λ)
+    dm_frac = float(scenario.get("dm_fraction", 0.6))
+    chan_id = int(scenario.get("channel", 0))
+    ack = _truthy(scenario.get("ack", "true"), default=True)
+    enc = _truthy(scenario.get("enc", "false"), default=False)
+
+    actions = []
+    nseq = {n.node_id: 0 for n in nodes}
+    for n in nodes:
+        others = [o for o in nodes if o.node_id != n.node_id]
+        t = 0.0
+        while rate > 0:
+            t += rng.expovariate(rate)                             # exponential inter-arrival → a Poisson stream
+            if t > duration:
+                break
+            seq = nseq[n.node_id]; nseq[n.node_id] += 1
+            tag = make_tag(run, n.node_id, seq)
+            if others and rng.random() < dm_frac:                  # a DM to a uniform-random OTHER node
+                a = SendAction(n.node_id, "dm", tag, dst=rng.choice(others).node_id, ack=ack, enc=enc)
+            else:                                                  # else a channel broadcast
+                a = SendAction(n.node_id, "chan", tag, chan=chan_id, ack=False, enc=enc)
+            a.at = t
+            actions.append(a)
+    actions.sort(key=lambda a: a.at)                               # issue in arrival order
+    return actions
+
+
 def schedule(actions, scenario):
     """Set each action's `.at` (offset seconds from the issue-phase start) per scenario['pacing'], and SORT by it.
       - 'burst' (default): .at = i * inter_gap_s -> the Phase-2 back-to-back behaviour (all transmit ~at once).
       - 'poisson': a Poisson process over `spread_s` (exponential inter-arrivals, mean spread_s/N) -> sends DESYNCHRONIZE.
         Seeded (scenario['seed'], default 0) so a run is reproducible; the action ORDER is shuffled so node assignment
-        isn't biased by the round-robin build order. N.B. the oracle's active window must outlast spread_s + settle."""
+        isn't biased by the round-robin build order. N.B. the oracle's active window must outlast spread_s + settle.
+      The `realistic` workload sets each message's intrinsic per-node Poisson `.at` already → schedule() leaves it."""
+    if str(scenario.get("workload", "oracle")).strip().lower() == "realistic":
+        return actions                                                # intrinsic per-message timing — don't re-pace
     pacing = str(scenario.get("pacing", "burst")).strip().lower()
     n = len(actions)
     if pacing in ("", "burst", "none"):
@@ -132,6 +178,18 @@ def _selftest():
         schedule(build_actions({"workload": "oracle"}, nodes, "r1"), {"pacing": "nope"}); assert False
     except ValueError:
         pass
+
+    # realistic: per-node Poisson STREAM — variable count, DM/channel mix, all .at in [0,duration], sorted, reproducible
+    rl = build_actions({"workload": "realistic", "duration_s": 200, "rate_per_min": 12, "dm_fraction": 0.5, "seed": 3}, nodes, "r1")
+    assert len(rl) > 0, "realistic generated nothing"
+    rats = [a.at for a in rl]
+    assert rats == sorted(rats) and all(0 <= a <= 200 for a in rats), rats        # sorted, within the window
+    assert all(a.dst != a.src for a in rl if a.kind == "dm"), "DM never to self"
+    assert {a.kind for a in rl} == {"dm", "chan"}, "both types appear at 50/50"
+    schedule(rl, {"workload": "realistic"})                                        # schedule() is a NO-OP for realistic
+    assert [a.at for a in rl] == rats, "schedule must leave realistic .at intact"
+    rl2 = build_actions({"workload": "realistic", "duration_s": 200, "rate_per_min": 12, "dm_fraction": 0.5, "seed": 3}, nodes, "r1")
+    assert [a.at for a in rl2] == rats, "same seed -> reproducible stream"
     print("workload selftest OK")
 
 

@@ -40,10 +40,23 @@ struct RetainedScratch {
     uint8_t  had_fault;          // the HardFault handler set it
     uint8_t  expected;           // v2: mark_expected_reset() set it (a deliberate reset -> REBOOT, not UNEXPECTED)
     uint8_t  wdt_fired;          // v2: the WDT pre-reset IRQ set it (the watchdog caught a hang -> WATCHDOG, despite the masked RESETREAS)
-    uint8_t  _pad;
-    uint32_t fault_pc, fault_lr, cfsr, fault_addr;   // the ARM fault frame (0 if no fault)
+    uint8_t  canary;             // radio-Module canary trip: the fault frame fields below carry before/after/where/off (was _pad)
+    uint8_t  watchpoint;         // ADDENDUM 2: a DWT data-write watchpoint fired -> fault_pc/fault_lr = the exact store + caller
+    uint32_t fault_pc, fault_lr, cfsr, fault_addr;   // the ARM fault frame (0 if no fault) — OR canary before/after/where/off
 };
 __attribute__((section(".noinit"))) static volatile RetainedScratch g_scratch;
+
+// Radio-Module canary trip (spec 2026-06-25): stash where/off + the before/after dword in the retained scratch, then
+// the caller resets — so `faults`/`rcmd faults` reports `CANARY @w<where> off=<off> <before>-><after>` durably (this
+// node's USB is dying). Reuses the fault-frame fields: fault_pc=before, fault_lr=after, cfsr=where, fault_addr=off.
+inline void radio_canary_record(uint8_t where, uint16_t off, uint32_t before, uint32_t after) {
+    g_scratch.canary     = 1;
+    g_scratch.fault_pc   = before;
+    g_scratch.fault_lr   = after;
+    g_scratch.cfsr       = where;
+    g_scratch.fault_addr = off;
+    g_scratch.magic      = kScratchMagic;
+}
 
 // ---- HardFault-family capture: grab the active stack frame into the scratch, then reset (flash can't be written
 // from a fault handler — IRQs off / SoftDevice mid-state — so it's capture -> reboot -> persist-at-boot). ----
@@ -64,6 +77,23 @@ extern "C" __attribute__((naked)) void HardFault_Handler(void) {
 extern "C" void MemManage_Handler(void) __attribute__((alias("HardFault_Handler")));
 extern "C" void BusFault_Handler(void)  __attribute__((alias("HardFault_Handler")));
 extern "C" void UsageFault_Handler(void) __attribute__((alias("HardFault_Handler")));
+
+#if defined(MR_RADIO_CANARY) && MR_RADIO_CANARY
+// ADDENDUM 2: the DWT data-write watchpoint (armed on the HAL vtable word in device_radio.h::radio_canary_arm) fires
+// a DebugMonitor exception on the exact store that corrupts the HAL — capture its stacked PC/LR (same frame walk as
+// the HardFault) into the scratch with the WATCHPOINT cause, then reset. Next boot `faults` -> `WATCHPOINT pc=… lr=…`,
+// `addr2line` the pc = the offending store. (Self-hosted: requires the SoftDevice to permit the DebugMonitor exception.)
+extern "C" void watchpoint_capture(uint32_t* sp) {   // sp[6]=PC, sp[5]=LR (the exception stack frame)
+    g_scratch.fault_pc   = sp[6];
+    g_scratch.fault_lr   = sp[5];
+    g_scratch.watchpoint = 1;
+    g_scratch.magic      = kScratchMagic;
+    NVIC_SystemReset();
+}
+extern "C" __attribute__((naked)) void DebugMon_Handler(void) {
+    __asm volatile("tst lr, #4 \n ite eq \n mrseq r0, msp \n mrsne r0, psp \n b watchpoint_capture \n");
+}
+#endif
 
 // v2: the WDT raises a TIMEOUT IRQ ~2 LFCLK cycles BEFORE it resets — just enough to set a RAM flag, so a watchdog
 // reset is detectable despite the bootloader-masked RESETREAS. JUST set the flag (a couple cycles; no flash/logging).
@@ -118,10 +148,22 @@ inline FaultRecord fault_compose_record(uint16_t reason_bits, uint32_t boot_seq)
     const bool wdt_fired = ctx && g_scratch.wdt_fired;
     const bool expected  = ctx && g_scratch.expected;
     r.ran_ms = ctx ? g_scratch.last_uptime_ms : 0;         // unknown (0) after a true power-off
+    if (ctx && g_scratch.watchpoint) {                     // ADDENDUM 2: a DWT watchpoint trip — its own cause; pc/lr = the exact store + caller
+        r.cause = static_cast<uint8_t>(kCauseWatchpoint);
+        r.fault_pc = g_scratch.fault_pc; r.fault_lr = g_scratch.fault_lr;
+        return r;
+    }
+    if (ctx && g_scratch.canary) {                         // a radio-Module canary trip — its own cause; the fields carry before/after/where/off
+        r.cause = static_cast<uint8_t>(kCauseCanary);
+        r.fault_pc = g_scratch.fault_pc; r.fault_lr = g_scratch.fault_lr;   // before / after
+        r.cfsr = g_scratch.cfsr; r.fault_addr = g_scratch.fault_addr;       // where / off
+        return r;
+    }
     r.cause  = static_cast<uint8_t>(classify_cause(ctx, had_fault, wdt_fired, expected));
     if (had_fault) {
         r.had_fault  = 1;
         r.fault_pc   = g_scratch.fault_pc;
+        r.fault_lr   = g_scratch.fault_lr;   // v3: the stacked caller return addr (already captured at fault time, device_fault.h fault_capture)
         r.cfsr       = g_scratch.cfsr;
         r.fault_addr = g_scratch.fault_addr;
     }
@@ -130,7 +172,7 @@ inline FaultRecord fault_compose_record(uint16_t reason_bits, uint32_t boot_seq)
 
 // §5.4: clear the per-life flags, re-prime the magic + uptime for this life.
 inline void fault_scratch_reset_after_capture() {
-    g_scratch.had_fault = g_scratch.expected = g_scratch.wdt_fired = 0;
+    g_scratch.had_fault = g_scratch.expected = g_scratch.wdt_fired = g_scratch.canary = g_scratch.watchpoint = 0;
     g_scratch.fault_pc = g_scratch.fault_lr = g_scratch.cfsr = g_scratch.fault_addr = 0;
     g_scratch.last_uptime_ms = 0;
     g_scratch.magic = kScratchMagic;
@@ -172,6 +214,7 @@ inline void fault_wdt_start() {
 inline void fault_wdt_feed() { esp_task_wdt_reset(); }
 inline void fault_scratch_alive(uint32_t uptime_ms) { g_scratch.last_uptime_ms = uptime_ms; g_scratch.magic = kScratchMagic; }
 inline void mark_expected_reset() { g_scratch.expected = 1; g_scratch.magic = kScratchMagic; }   // v2: a deliberate reset -> REBOOT
+inline void radio_canary_record(uint8_t, uint16_t, uint32_t, uint32_t) {}   // ESP32 STUB: the canary is print-only here (no durable record; nRF52 is the target)
 
 // esp_reset_reason() is IDF-latched per boot (auto-cleared next boot) — read-only, nothing to clear (the name is the
 // cross-platform shape). Maps the esp_reset_reason_t onto the compact mrfault bits.

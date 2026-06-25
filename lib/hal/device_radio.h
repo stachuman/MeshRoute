@@ -29,6 +29,8 @@
 #include <RadioLib.h>
 #include "helpers/radiolib/CustomSX1262.h"   // vendored — getIrqFlags() + SX126X_IRQ_PREAMBLE_DETECTED
 #include "../core/frame_trace.h"             // mr_trace_frame() — shared decoded RX/TX console trace
+#include "radio_canary.h"                    // mrcanary::diff/dword_at — the Module-corruption canary (MR_RADIO_CANARY)
+#include <string.h>                          // memcpy (the canary snapshot)
 
 namespace meshroute {
 
@@ -45,6 +47,19 @@ namespace meshroute {
 #endif
 static volatile bool     g_dio1_fired = false;   // set by the ISR on a DIO1 edge; consumed by poll_rx
 static volatile uint32_t g_isr_count  = 0;       // diagnostic: # of DIO1 edges seen (console `status isr=`)
+static volatile uint32_t g_rxbad_count = 0;      // diagnostic: # of RX frames that failed to decode (the CRC storm). COUNTED unconditionally even though the per-event print is now `debug on`-gated -> `status rxbad=` is a clean counter delta, not a flood.
+
+#if defined(MR_RADIO_CANARY) && MR_RADIO_CANARY
+// Radio-Module corruption canary (debug, spec 2026-06-25). Snapshot the Module's + its HAL's first kCanaryN bytes at
+// begin(); re-check after each loop() subsystem -> the first trip names the corruptor. File-scope so the const check
+// is cheap; the live Module/HAL pointers are captured at arm (they don't move after init).
+static constexpr size_t kCanaryN = 64;
+static uint8_t        g_canary_mod[kCanaryN];
+static uint8_t        g_canary_hal[kCanaryN];
+static const uint8_t* g_canary_mod_p = nullptr;   // the live Module bytes (== getMod())
+static const uint8_t* g_canary_hal_p = nullptr;   // the live HAL bytes (== mod->hal — SPItransferStream derefs the vtable here)
+static bool           g_canary_armed = false;
+#endif
 static void MR_ISR_ATTR mr_on_dio1() { g_dio1_fired = true; g_isr_count = g_isr_count + 1; }  // ++ on volatile is C++20-deprecated
 #undef MR_ISR_ATTR
 
@@ -56,7 +71,60 @@ public:
     bool begin() {
         _radio.setPacketReceivedAction(mr_on_dio1);              // DIO1 -> mr_on_dio1 (RxDone while in RX)
         g_dio1_fired = false;
-        return _radio.startReceive() == RADIOLIB_ERR_NONE;       // arms the RxDone IRQ on DIO1
+        const bool ok = _radio.startReceive() == RADIOLIB_ERR_NONE;   // arms the RxDone IRQ on DIO1
+        radio_canary_arm();                                     // snapshot the Module/HAL critical bytes (no-op unless MR_RADIO_CANARY)
+        return ok;
+    }
+
+    // ---- Radio-Module corruption canary (MR_RADIO_CANARY; no-ops otherwise) ----------------------------------
+    void radio_canary_arm() {
+#if defined(MR_RADIO_CANARY) && MR_RADIO_CANARY
+        Module* mod = _radio.getMod();                          // RADIOLIB_GODMODE exposes getMod()
+        if (!mod) return;
+        g_canary_mod_p = reinterpret_cast<const uint8_t*>(mod);
+        memcpy(g_canary_mod, g_canary_mod_p, kCanaryN);
+        g_canary_hal_p = reinterpret_cast<const uint8_t*>(mod->hal);   // the SPI HAL (its vtable ptr is what dies)
+        if (g_canary_hal_p) memcpy(g_canary_hal, g_canary_hal_p, kCanaryN);
+        g_canary_armed = true;
+        // ADDENDUM 2: arm a DWT data-write watchpoint on the HAL's vtable-ptr WORD (g_canary_hal_p[0..3]) — the byte
+        // that dies. On the corrupting store, DebugMon_Handler (device_fault.h) captures the pc -> `faults` shows
+        // WATCHPOINT pc=… = addr2line -> the exact offending line (the inbox LittleFS heap path, per ADDENDUM 3).
+        #if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
+        if (g_canary_hal_p) {
+            CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk | CoreDebug_DEMCR_MON_EN_Msk;   // enable DWT + the self-hosted DebugMonitor
+            DWT->COMP0     = static_cast<uint32_t>(reinterpret_cast<uintptr_t>(g_canary_hal_p));   // the watched address
+            DWT->MASK0     = 2;                                            // 4-byte (2^2) range
+            DWT->FUNCTION0 = 0x6u;                                         // 0b0110 = data-write watchpoint -> a debug event
+        }
+        #endif
+#endif
+    }
+    // -1 = intact. Else the differing byte offset: 0..kCanaryN-1 = the Module region, kCanaryN+.. = the HAL region.
+    // PURE read — no SPI, safe to call every loop. (No-op -> always -1 unless the canary is compiled in + armed.)
+    int radio_canary_check() const {
+#if defined(MR_RADIO_CANARY) && MR_RADIO_CANARY
+        if (!g_canary_armed) return -1;
+        int d = mrcanary::diff(g_canary_mod, g_canary_mod_p, kCanaryN);
+        if (d >= 0) return d;
+        if (g_canary_hal_p) { d = mrcanary::diff(g_canary_hal, g_canary_hal_p, kCanaryN);
+                              if (d >= 0) return static_cast<int>(kCanaryN) + d; }
+#endif
+        return -1;
+    }
+    // The before (snapshot) / after (live) dword at a tripped offset — for the durable canary record.
+    uint32_t radio_canary_before(int off) const {
+#if defined(MR_RADIO_CANARY) && MR_RADIO_CANARY
+        if (off >= static_cast<int>(kCanaryN)) return mrcanary::dword_at(g_canary_hal, off - kCanaryN, kCanaryN);
+        if (off >= 0)                          return mrcanary::dword_at(g_canary_mod, off,             kCanaryN);
+#endif
+        (void)off; return 0;
+    }
+    uint32_t radio_canary_after(int off) const {
+#if defined(MR_RADIO_CANARY) && MR_RADIO_CANARY
+        if (off >= static_cast<int>(kCanaryN)) return mrcanary::dword_at(g_canary_hal_p, off - kCanaryN, kCanaryN);
+        if (off >= 0)                          return mrcanary::dword_at(g_canary_mod_p, off,             kCanaryN);
+#endif
+        (void)off; return 0;
     }
 
     // Async TX (Step 2): apply the per-frame params + arm a NON-BLOCKING startTransmit(); return at once.
@@ -76,7 +144,7 @@ public:
         g_dio1_fired = false;                                                      // clear any stale RX edge before arming TX (else poll_tx_done sees it as a premature TxDone)
         const int16_t st = _radio.startTransmit(const_cast<uint8_t*>(b), n);       // NON-BLOCKING; DIO1 -> TxDone
         if (st != RADIOLIB_ERR_NONE) {
-            Serial.print(F("[txerr st=")); Serial.print(st); Serial.print(F(" t=")); Serial.print(millis()); Serial.println(F("]"));   // arm failed — recover to RX
+            if (g_mr_trace_on) { Serial.print(F("[txerr st=")); Serial.print(st); Serial.print(F(" t=")); Serial.print(millis()); Serial.println(F("]")); }   // arm failed — recover to RX. GATED (the radio hot path stays silent by default — the MeshCore lesson; `debug on` restores it)
             _radio.startReceive();
             return TxResult::radio_error;
         }
@@ -106,7 +174,7 @@ public:
     // Watchdog recovery: the in-flight TX overran its deadline (TxDone never came). Stop it, restore the
     // listening SF, re-arm RX — mirrors poll_tx_done's tail without waiting for the (lost) edge.
     void abort_tx() override {
-        Serial.print(F("[txabort t=")); Serial.print(millis()); Serial.println(F("]"));   // TX stuck -> forced recover
+        if (g_mr_trace_on) { Serial.print(F("[txabort t=")); Serial.print(millis()); Serial.println(F("]")); }   // TX stuck -> forced recover. GATED
         _radio.standby();                                                         // stop the (stuck) transmit
         _tx_in_flight = false;
         g_dio1_fired = false;
@@ -117,7 +185,7 @@ public:
 
     void set_rx_sf(int sf) override {
         _cur_sf = sf; _rx_sf = sf;                                                 // _rx_sf = the LISTENING SF; transmit() restores it post-TX (so we don't sit on the data SF after a DATA)
-        Serial.print(F("↻ rx-sf → ")); Serial.print(sf); Serial.print(F("  t=")); Serial.print(millis()); Serial.println(F("ms"));   // RX listening-SF hop (data-SF window = Δt between hops)
+        // Serial.print(F("↻ rx-sf → ")); Serial.print(sf); Serial.print(F("  t=")); Serial.print(millis()); Serial.println(F("ms"));   // RX listening-SF hop (data-SF window = Δt between hops)
         _radio.standby();                                                          // SX1262: SetModulationParams (the SF) only latches in STANDBY — issued mid-RX it is dropped, so set_rx_sf was re-arming on the OLD SF (the data-leg bug)
         _radio.setSpreadingFactor(static_cast<uint8_t>(sf));
         g_dio1_fired = false;                                                      // drop any stale edge before re-arming on the new SF
@@ -129,7 +197,7 @@ public:
     // issued mid-RX it is dropped — so standby -> setFrequency -> re-arm RX. The latched freq carries into the next TX
     // (start_transmit never sets frequency), so DATA on this layer flies on this freq even as the SF varies in-flight.
     void set_rx_freq(double mhz) override {
-        Serial.print(F("↻ rx-freq → ")); Serial.print(mhz, 4); Serial.print(F("  t=")); Serial.print(millis()); Serial.println(F("ms"));
+        if (g_mr_trace_on) { Serial.print(F("↻ rx-freq → ")); Serial.print(mhz, 4); Serial.print(F("  t=")); Serial.print(millis()); Serial.println(F("ms")); }   // GATED
         _radio.standby();
         _radio.setFrequency(static_cast<float>(mhz));
         g_dio1_fired = false;                                                      // drop any stale edge before re-arming on the new freq
@@ -202,7 +270,7 @@ public:
         rssi_dbm = _radio.getRSSI();
         _radio.startReceive();                                          // re-arm RX (MeshCore discipline: startReceive after every read)
         _pre_seen = false;
-        if (st != RADIOLIB_ERR_NONE) { Serial.print(F("[rxbad st=")); Serial.print(st); Serial.print(F(" t=")); Serial.print(millis()); Serial.println(F("]")); return false; }   // TEMP DEBUG: frame arrived but failed to decode + ms timestamp
+        if (st != RADIOLIB_ERR_NONE) { ++g_rxbad_count; if (g_mr_trace_on) { Serial.print(F("[rxbad st=")); Serial.print(st); Serial.print(F(" t=")); Serial.print(millis()); Serial.println(F("]")); } return false; }   // count the CRC-storm event ALWAYS; the per-event print is GATED behind `debug on` (don't flood Serial when the radio is busiest)
         out_len  = l;
         return true;
     }
@@ -212,6 +280,7 @@ public:
 
     uint32_t tx_count() const { return _tx_count; }    // status diagnostic (frames transmitted)
     uint32_t isr_count() const { return g_isr_count; } // status diagnostic (DIO1 edges) — proves the IRQ line fires
+    uint32_t rxbad_count() const { return g_rxbad_count; } // status diagnostic: failed-decode RX (CRC storm) — a clean counter delta, read by `status rxbad=` / `rcmd status`
 
 private:
     // Software-LBT tunables (bench-tunable). Threshold too low -> false-busy/starvation; too high -> missed
