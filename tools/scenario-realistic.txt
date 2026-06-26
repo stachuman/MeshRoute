@@ -4,9 +4,9 @@
 # real mesh traffic: NO synchronized "1 DM + 1 CH per node", NO "DM then CH 0.3 s later". (Contrast scenario-oracle.txt,
 # the deterministic round-robin probe used to validate the oracle machinery.)
 workload: realistic
-duration_s: 100                 # each node emits messages across this window
-rate_per_min: 3                 # ~6 msgs/node/min (moderate; ≈48 msgs/min across 8 nodes) — raise/lower to dial load
-dm_fraction: 0.6                # 60% DMs (uniform-random other node), 40% channel broadcasts
+duration_s: 120                 # each node emits messages across this window
+rate_per_min: 1.5                 
+dm_fraction: 0.5
 channel: 0
 ack: true                       # -a on the DMs (drives the e2e-acked criterion)
 enc: false

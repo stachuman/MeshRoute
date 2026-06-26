@@ -246,6 +246,7 @@ void Node::ingest_channel_m(const m_out& m, uint8_t from) {
         }
     } else {                                                   // ALREADY HAVE IT -> just track the holder
         channel_mark_seen_by(id, from);
+        channel_reoffer_confirm(id);                           // Part 2: a relay of OUR message (DATA-M/M-frame from `from`) was overheard -> stop re-offering
         MR_TELEMETRY(
             EventField f[] = { { .key = "id",   .type = EventField::T::i64, .i = static_cast<int64_t>(id) },
                                { .key = "from", .type = EventField::T::i64, .i = from } };
@@ -280,14 +281,20 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
                            { .key = "payload",    .type = EventField::T::str, .s = pbuf },
                            { .key = "source",     .type = EventField::T::str, .s = "self_originate" } };
         _hal.emit("channel_msg_received", f, 4); );
-    // FLOOD origination (§4.1): seed the coverage bitmap {me + my hops==1 neighbours} and broadcast the
-    // FLOOD RTS-M + DATA-M. A data-incapable node (no data SF) is non-operational (user rule) -> skip the
-    // flood, buffer-only; the repair digest still covers it. No default-SF fallback.
+    // FLOOD origination (§4.1): seed the coverage bitmap {me + my hops==1 neighbours} and broadcast the FLOOD RTS-M +
+    // DATA-M. A data-incapable node (no data SF) is non-operational (user rule) -> skip the flood, buffer-only; the
+    // repair digest still covers it. No default-SF fallback.
+    // 2026-06-26: the {neighbours} seed is a DELIBERATE divergence from the Lua's empty seed (frugality — a relay skips
+    // the origin's OWN neighbours, which got the post directly from the origin). A 24-seed asymmetric sweep proved the
+    // "honest"/empty seed REGRESSES coverage (it drops the neighbour skip -> more rebroadcast contention -> collisions
+    // kill deliveries: 247 mean reach 4.04 -> 3.17) with NO orphan benefit, so it was dropped (spec Part 1). The origin
+    // RE-OFFER (Part 2) + the repair-pull cover the asymmetric case the Lua handles via heavier flooding. Re-offer
+    // confirmation is the dedicated "overheard a relay" flag (channel_reoffer_confirm) — INDEPENDENT of this seed.
     if (max_data_sf() != 0) {
         uint8_t bm[32] = {};
-        flood_set_my_coverage(bm);
-        // FLOOD-DBG disabled 2026-06-23 (re-enable for bench diag): if (_hal.trace_on()) flood_log_coverage("SEED", e.id, bm);   // B (DEBUG): what the ORIGINATOR stamps covered (suspect: "nodes I hear", one-way)
+        flood_set_my_coverage(bm);                           // {self + hops==1 neighbours} — the frugal seed (KEPT; the honest seed regressed)
         enqueue_flood_m(e.channel_id, e.flavor, e.id, e.payload, static_cast<uint8_t>(e.payload_len), bm, protocol::flood_hop_max);
+        channel_reoffer_register(e.id);                      // Part 2: own this message's propagation until a RELAY of it is overheard
     }
     schedule_triggered_beacon();                              // §4.1.7: make the repair digest prompt, not 15-min
     return c;
@@ -569,6 +576,52 @@ void Node::flood_state_free(uint8_t slot) {
     _active->_flood[slot] = FloodState{};   // active = false
 }
 
+// ---- Part 2: channel ORIGIN re-offer (spec 2026-06-25-channel-origin-reoffer.md) -------------------------------
+// The origin owns its message's propagation until seen_by proves it got out. channel_reoffer_register arms a slot at
+// flood origination; channel_reoffer_fire re-floods the cached body while seen_by stays empty, up to N retries.
+void Node::channel_reoffer_register(uint32_t id) {
+    for (uint8_t s = 0; s < protocol::cap_channel_reoffer_pending; ++s) {
+        ChannelReofferPending& rp = _active->_channel_reoffer_pending[s];
+        if (rp.active) continue;
+        rp.active = true; rp.id = id; rp.retries_left = protocol::channel_reoffer_max_retries;
+        const uint32_t jitter = static_cast<uint32_t>(_hal.rand_range(0, static_cast<int32_t>(protocol::channel_reoffer_jitter_ms) + 1));
+        (void)_hal.after(protocol::channel_reoffer_delay_ms + jitter, kChannelReofferTimerId + s);
+        return;
+    }
+    MR_EMIT("channel_reoffer_table_full", EF_I("id", static_cast<int64_t>(id)));   // >cap un-confirmed originations -> repair digest covers this one (rare)
+}
+
+void Node::channel_reoffer_fire(uint8_t slot) {
+    if (slot >= protocol::cap_channel_reoffer_pending) return;
+    ChannelReofferPending& rp = _active->_channel_reoffer_pending[slot];
+    if (!rp.active) return;                                                         // confirmed (a relay was overheard) or freed -> done
+    const int i = channel_buffer_find(rp.id);
+    if (i < 0) { rp.active = false; return; }                                      // entry evicted -> nothing to re-offer
+    const ChannelEntry& e = _active->_channel_buffer[i];
+    if (rp.retries_left == 0 || max_data_sf() == 0) { rp.active = false; return; } // exhausted (or data-incapable) -> give up; repair digest is the last resort
+    // RE-FLOOD the cached body with the SAME frugal seed as origination (flood_set_my_coverage — NOT empty, which the
+    // fail-loud zero-bitmap guard in tx_m_broadcast_rts would refuse). Receivers dedup by originator_retry_dedup_ms
+    // (no double-inbox) but DO re-broadcast for coverage; LBT is applied by the TX path (enqueue_flood_m -> become_free).
+    uint8_t bm[32] = {};
+    flood_set_my_coverage(bm);
+    enqueue_flood_m(e.channel_id, e.flavor, e.id, e.payload, static_cast<uint8_t>(e.payload_len), bm, protocol::flood_hop_max);
+    --rp.retries_left;
+    MR_EMIT("channel_reoffer_tx", EF_I("id", static_cast<int64_t>(e.id)), EF_I("retries_left", rp.retries_left));
+    const uint32_t jitter = static_cast<uint32_t>(_hal.rand_range(0, static_cast<int32_t>(protocol::channel_reoffer_jitter_ms) + 1));
+    (void)_hal.after(protocol::channel_reoffer_delay_ms + jitter, kChannelReofferTimerId + slot);   // re-arm for the next retry
+}
+
+// Part 2 CONFIRMATION: the origin OVERHEARD A RELAY of its message (another node transmitting it — a flood RTS-M /
+// DATA-M / M-frame) -> a holder formed, it propagated -> cancel the pending re-offer. A DEDICATED signal, NOT seen_by:
+// immune to the {neighbours} seed and to digest/pull marks, so the re-offer stops ONLY on real relay activity (and
+// keeps trying until then, up to the cap). No-ops on any node with no slot for `id` (every node except the origin).
+void Node::channel_reoffer_confirm(uint32_t id) {
+    for (uint8_t s = 0; s < protocol::cap_channel_reoffer_pending; ++s) {
+        ChannelReofferPending& rp = _active->_channel_reoffer_pending[s];
+        if (rp.active && rp.id == id) { rp.active = false; _hal.cancel(kChannelReofferTimerId + s); return; }
+    }
+}
+
 // set my bit + my hops==1 neighbour bits (idempotent: originate-seed on a zeroed bm, OR-in on rebroadcast).
 void Node::flood_set_my_coverage(uint8_t* bm) const {
     seen_set(bm, _node_id);
@@ -618,6 +671,7 @@ bool Node::handle_flood_rts(const rts_out& r, const uint8_t* in_bm, int16_t snr_
     }
     if (channel_buffer_find(id) >= 0) {                          // already in the buffer, no state -> already forwarded, drop
         // FLOOD-DBG disabled 2026-06-23 (re-enable for bench diag): if (_hal.trace_on()) { char b[48]; snprintf(b, sizeof b, "flood %08lX already-buffered", (unsigned long)id); _hal.log(b); }   // D (DEBUG)
+        channel_reoffer_confirm(id);                            // Part 2: a relay of OUR message (its FLOOD RTS-M) was overheard -> stop re-offering
         return false;
     }
     const int slot = flood_state_alloc(id);

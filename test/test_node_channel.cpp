@@ -142,6 +142,7 @@ constexpr uint32_t kChannelPullTimerId  = 48;
 constexpr uint32_t kMBcastClearTimerId  = 56;
 constexpr uint32_t kOverhearRetuneTimerId = 57;
 constexpr uint32_t kFloodRebcastTimerId = 61;   // base of the [61..63] rebroadcast ring
+constexpr uint32_t kChannelReofferTimerId = 70;  // base of the [70..73] origin re-offer ring (Part 2)
 
 // 2026-06-08 redesign: send_channel now FLOODS first (a fire-and-forget m-broadcast flight), THEN the digest
 // is the repair backstop. Repair-layer tests must let that flight complete (RTS->DATA gap -> clear) so the
@@ -397,9 +398,12 @@ TEST_CASE("digest emit: a dirty entry is advertised in the BCN digest TLV; with 
     CHECK(hal.count("channel_dirty_cleared") == 1);
 }
 
-// (A) the bench regression: an UNCOVERED live 1-hop neighbour keeps the entry advertising PAST the old K=3 (no orphan);
-// once that neighbour is known to hold it (seen_by covered via its digest cross-ref) the next aired ad retires it.
-TEST_CASE("digest holder-aware: an uncovered 1-hop neighbour keeps it dirty past K=3; coverage then retires it") {
+// (A) holder-aware EARLY retire (still valid under the reverted K=3): while a live 1-hop neighbour is UNCOVERED the
+// entry keeps advertising (dirty), and once that neighbour is known to HOLD it (seen_by covered via its digest
+// cross-ref) the next aired ad retires it with reason "seen" — earlier than the K=3 horizon backstop would.
+// (The old "stays dirty PAST 3 ads" assertion is gone: with K reverted 16→3 the horizon now retires at 3, and the
+// re-offer — not a long K — is the orphan lever; the horizon path is covered by the next test.)
+TEST_CASE("digest holder-aware: a covered 1-hop neighbour retires the entry early (reason seen), before the K=3 horizon") {
     TestHal hal; Node node(hal, 3, 0x1234ABCDu);
     NodeConfig cfg = basic_cfg(); cfg.quiet_threshold_ms = 0;
     node.on_init(cfg);
@@ -407,11 +411,11 @@ TEST_CASE("digest holder-aware: an uncovered 1-hop neighbour keeps it dirty past
     const CmdResult r = send_channel(node, 5, "hi");
     const uint32_t id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
     drain_originate_flood(node);
-    for (int k = 0; k < 4; ++k) node.on_timer(kBeaconTimerId);        // 4 aired ads > the OLD K=3 (would have retired then)
-    CHECK(node.channel_entry_dirty(id));                              // STILL advertising: 7 hasn't pulled (seen_by[7] unset)
+    node.on_timer(kBeaconTimerId);                                   // 1 aired ad: 7 still uncovered -> stays dirty (1 < K=3)
+    CHECK(node.channel_entry_dirty(id));
     CHECK(hal.count("channel_dirty_cleared") == 0);
     std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_beacon_digest(7, &id, 1, db), meta_at(20));  // 7 advertises id -> it HOLDS it -> mark seen_by[7]
-    node.on_timer(kBeaconTimerId);                                    // next aired ad: now fully covered -> retire (reason "seen")
+    node.on_timer(kBeaconTimerId);                                    // next aired ad (2nd, < horizon 3): now fully covered -> retire EARLY (reason "seen")
     CHECK(!node.channel_entry_dirty(id));
     CHECK(hal.count("channel_dirty_cleared") == 1);
 }
@@ -612,6 +616,9 @@ TEST_CASE("M-frame leaf gate: an M frame for a FOREIGN leaf is dropped at ingest
 
 // ===================== FLOOD plane (2026-06-08 redesign) — the fast-primary state machine =====================
 
+// 2026-06-26: the originator seeds {self + hops==1 neighbours} (the FRUGAL seed — KEPT). Part 1's "honest" empty/
+// {self}-only seed was DROPPED: a 24-seed sweep showed it regresses coverage (more rebroadcast contention) with no
+// orphan benefit. The {neighbours} seed is a deliberate divergence from the Lua's empty seed; the re-offer covers the gap.
 TEST_CASE("FLOOD originate: do_send_channel seeds {self + hops==1 neighbours} into the RTS-M bitmap, broadcasts") {
     TestHal hal; Node node(hal, /*id=*/3, 0x1234ABCDu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
     std::array<uint8_t,64> bb{}; node.on_recv(bb.data(), mk_beacon(7, bb), meta_at(10));   // neighbour 7 (hops==1)
@@ -627,7 +634,7 @@ TEST_CASE("FLOOD originate: do_send_channel seeds {self + hops==1 neighbours} in
             auto bm = rts_flood_bitmap(std::span<const uint8_t>(rts->data(), rts->size()), *o);
             CHECK(bm.size() == 32);
             CHECK(bm_bit(bm.data(), 3));    // my bit
-            CHECK(bm_bit(bm.data(), 7));    // neighbour
+            CHECK(bm_bit(bm.data(), 7));    // neighbour (frugal seed)
         }
     }
 }
@@ -782,4 +789,56 @@ TEST_CASE("prep-restart: clear_learned_state empties routes/channel/pending, KEE
     CHECK(node.key_hash32() == key0);
     std::array<uint8_t,64> nb2{}; node.on_recv(nb2.data(), mk_beacon(9, nb2), meta_at(20));   // re-learns (clean reset, not a break)
     CHECK(node.rt_count() > 0);
+}
+
+// ===================== Part 2: channel ORIGIN RE-OFFER (spec 2026-06-25-channel-origin-reoffer.md) =====================
+// 2026-06-26: confirmation is a DEDICATED "did I overhear a RELAY of my message?" signal (channel_reoffer_confirm),
+// NOT the seen_by set — so it is independent of the {neighbours} seed and of digest/pull marks. Until a relay of the
+// post is overheard the origin re-floods the cached body up to channel_reoffer_max_retries; the moment it is, ZERO.
+
+TEST_CASE("RE-OFFER: an unconfirmed origin re-floods on each timer fire up to the cap, then frees the slot") {
+    TestHal hal; Node node(hal, /*id=*/3, 0x1234ABCDu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    std::array<uint8_t,64> bb{}; node.on_recv(bb.data(), mk_beacon(7, bb), meta_at(10));   // a live neighbour = a flood target
+    send_channel(node, 5, "hi");
+    drain_originate_flood(node);
+    CHECK(hal.armed(kChannelReofferTimerId));                         // a re-offer slot was armed at origination
+    CHECK(hal.count("channel_reoffer_tx") == 0);                      // the origination flood is not itself a re-offer
+    for (int k = 0; k < protocol::channel_reoffer_max_retries; ++k) { // no relay overheard -> a re-flood each fire
+        node.on_timer(kChannelReofferTimerId);
+        drain_originate_flood(node);
+        CHECK(hal.count("channel_reoffer_tx") == k + 1);
+    }
+    const int reoffers = hal.count("channel_reoffer_tx");
+    node.on_timer(kChannelReofferTimerId);                           // retries exhausted -> free, NO re-flood
+    CHECK(hal.count("channel_reoffer_tx") == reoffers);              // unchanged
+    CHECK(hal.count("channel_reoffer_tx") == protocol::channel_reoffer_max_retries);
+}
+
+TEST_CASE("RE-OFFER: a confirmed origin (it overhears a RELAY of its message) never re-floods") {
+    TestHal hal; Node node(hal, /*id=*/3, 0x1234ABCDu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    std::array<uint8_t,64> bb{}; node.on_recv(bb.data(), mk_beacon(7, bb), meta_at(10));
+    const CmdResult r = send_channel(node, 5, "hi");
+    const uint32_t id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
+    drain_originate_flood(node);
+    // OVERHEAR a relay (node 7) rebroadcasting OUR message: a FLOOD RTS-M for our id from another node -> confirmation.
+    // (NOT a digest advert and NOT a seen_by mark — the dedicated relay-overheard signal.)
+    uint8_t fbm[32] = {}; bm_set(fbm, 7); bm_set(fbm, 3);
+    std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, /*src=*/7, id, fbm, 8, /*sf_index=*/3, rb), meta_at(20));
+    for (int k = 0; k < protocol::channel_reoffer_max_retries + 2; ++k) {   // fire well past the cap
+        node.on_timer(kChannelReofferTimerId);
+        drain_originate_flood(node);
+    }
+    CHECK(hal.count("channel_reoffer_tx") == 0);                     // confirmed (relay overheard) -> ZERO re-offers
+}
+
+TEST_CASE("RE-OFFER: the re-offer timer delay is channel_reoffer_delay_ms + the deterministic jitter (mt19937 path)") {
+    TestHal hal; hal._rand_ret = 0;                                  // pin jitter to 0 -> delay == base (deterministic, not Math.random)
+    Node node(hal, /*id=*/3, 0x1234ABCDu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    std::array<uint8_t,64> bb{}; node.on_recv(bb.data(), mk_beacon(7, bb), meta_at(10));
+    send_channel(node, 5, "hi");
+    drain_originate_flood(node);
+    bool found = false;
+    for (const auto& t : hal.timers)
+        if (t.first == kChannelReofferTimerId) { CHECK(t.second == protocol::channel_reoffer_delay_ms); found = true; break; }
+    CHECK(found);
 }

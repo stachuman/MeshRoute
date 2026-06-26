@@ -2,7 +2,19 @@
 
 # Channel flood — honest seeding (port-fix) + origin re-offer (single/contended-link reliability)
 
-**Status:** coder instruction. The user commits + flashes; I gate. Two parts: **(1) a PORT-CORRECTION** (the C++ diverged from the Lua's flood-origination seed) and **(2) a deliberate DIVERGENCE** (an origin re-offer the Lua doesn't have). No wire change; both are TX-scheduling/coverage logic.
+**Status:** coder instruction. The user commits + flashes; I gate. No wire change; TX-scheduling/coverage logic only.
+
+> ## ★ FINAL DESIGN (2026-06-26, post-experiment) — supersedes Parts 1+2 below
+> The Lua-sim experiment (24-seed A/B sweep on the asymmetric `topo_3d7377`, meshroute engine) **reversed Part 1** and refined Part 2's confirmation signal. The shipped design is:
+> - **Part 1 (honest empty seed): DROPPED.** Keep the existing **`{self + hops==1 neighbours}` frugal seed** — now a *documented deliberate divergence* from the Lua's empty seed (frugality: a relay skips the origin's own neighbours, which got the post directly). The "honest" seed REGRESSED coverage in the sweep (it removes the neighbour-skip → more rebroadcast contention → collisions drop deliveries: 247 mean reach **4.04 → 3.17**, *coverage* not just airtime) with **no** orphan benefit. (It also can't be the literal empty `{}` anyway — `tx_m_broadcast_rts`'s fail-loud zero-bitmap guard refuses an all-zero flood.) The parked **bidirectional-seed** spec drops to a *deferred latency optimisation* (it would deliver asymmetric nodes via the fast flood instead of the slower pull) — revisit only if pull-latency proves to matter.
+> - **Part 2 (origin re-offer): KEPT, and is the WHOLE fix** — with one adjustment: its confirmation is a **dedicated "did I overhear a RELAY of my message?" boolean** (`channel_reoffer_confirm`, set when the origin overhears another node's flood RTS-M / DATA-M / M-frame of its post), **NOT** the `seen_by` set. This decouples it from the seed and from digest/pull marks, so the re-offer stops *only* on real relay activity (and keeps trying until then, up to the cap). The re-flood reuses the same frugal seed.
+> - **K revert (`channel_dirty_max_advertisements` 16→3): KEPT** (Lua-parity + frugal; the re-offer supersedes the inflated horizon backstop).
+> - **Result:** asymmetric 247-orphan **8/24 → 0/24 seeds**, mean reach **4.04 → 5.29**; nearly every origin up (79: 4.08→5.93). s15 symmetric no-regression: **223 vs 224 deliveries** (delivery-neutral), re-offers bounded. native **524/524**. *The boolean confirmation is what closed the orphan — with `seen_by`-confirm it only reached 6/24.*
+> - **Status: IMPLEMENTED + sim-gated, uncommitted.** Sites: `node_channel.cpp` (frugal seed kept · `channel_reoffer_register/fire/confirm` · confirm hooks at the two overhear sites) · `node.h` (`ChannelReofferPending`, ring `[70..73]`, decls) · `node.cpp` (on_timer dispatch) · `protocol_constants.h` (constants + K=3) · `test_node_channel.cpp` (+3 re-offer tests).
+>
+> The original two-part text below is kept for the record (Part 1 is historical).
+
+Two parts (ORIGINAL — Part 1 superseded): **(1) a PORT-CORRECTION** (the C++ diverged from the Lua's flood-origination seed) and **(2) a deliberate DIVERGENCE** (an origin re-offer the Lua doesn't have).
 
 ## Why
 Oracle run 3d7377: channel origin **247 reaches 0/7**, and the sim reproduces it **with perfect RF** → it's logic, not RF. The full sim trace (`/tmp/sim_3d7377.ndjson`) shows: 247 floods (RTS @t=91071, broadcast DATA @t=91256), but **54 — the only node that hears 247 — was mid-DM-exchange and missed it.** The flood is fire-once (no retry); the repair-pull can't help because 54 is *also* too contended to hear 247's beacon digest. A node whose only link is the mesh's busiest is cut off at one chokepoint.
@@ -36,10 +48,19 @@ inline constexpr uint32_t channel_reoffer_jitter_ms   = 2000;   // +/- spread so
 ```
 Jitter applied as `delay + rand(0, jitter)` (or `delay ± jitter/2`) via the existing retry-jitter PRNG path (NOT `Math.random` — the deterministic `std::mt19937`, for sim parity).
 
+## Also revert: `channel_dirty_max_advertisements` 16 → 3 (the Lua value)
+The C++ raised K 3→16 as the holder-aware-retire **backstop** (advertise an orphan longer before giving up). Metal (run 3b9abc) proved it insufficient — the permanent-orphan case is "**no holder exists at all**" (247's flood reached 0 nodes), so K is irrelevant. The origin re-offer is the correct lever (it re-injects the message so a holder *forms*) and **supersedes** the inflated K. Revert to the Lua's 3; it also isolates the re-offer's effect in the seed sweep below.
+
+## Experimental design (READ THIS — it splits the gate)
+**The existing Lua scenarios are SYMMETRIC — no asymmetric links — so they CANNOT reproduce the orphaning.** Two consequences:
+- On symmetric links the honest seed still *changes behaviour*: the empty seed means relays no longer skip the origin's direct neighbours (which got it from the origin directly), so expect **more redundant re-broadcasting = more airtime for the same coverage**. This is exactly the Lua's behaviour (it seeds empty) — parity, not a bug — **but it must be bounded.**
+- So the existing scenarios' only job is **NO-REGRESSION**, and the orphan-recovery must come from a **new asymmetric scenario** we build.
+
 ## Tests / gate
 - **Native:** the re-offer table + the seed change are pure logic — unit-test: empty seed → `seen_by` starts 0; a re-offer fires when `seen_by` empty + retries remain; stops on first mark or at the cap; jitter is deterministic.
-- **★ Lua-parity (the key gate for Part 1):** run the s18-family scenarios under `lus --engine lua` vs `--engine meshroute`; the honest seed should bring channel coverage to **parity-or-better** (mr ≥ lua), not regress. The current keystone md5 WILL change (the seed changes the flood) — that's expected; gate on the **lua-parity delta**, not the old md5.
-- **Sim repro (the payoff):** re-run `topo_to_sim.py /tmp/topo_3d7377.json --ledger runs/3d7377/send_ledger.jsonl` → **247 should recover** (the re-offer hits a 54-idle window within ~3 retries). Confirm the well-connected origins (79, 48) still re-offer ~0 times (no airtime regression).
+- **★ NO-REGRESSION SEED SWEEP (the gate on existing symmetric scenarios):** run a **≥24-seed sweep** (the s15 precedent) on the baseline scenarios (s15/s12, lua + meshroute engines). Pass = **channel coverage ≥ baseline AND flood/digest airtime ≤ baseline + a ceiling, ACROSS THE DISTRIBUTION** (worst-seed, not just mean — a single seed hides regressions). Part 2 (re-offer) must fire **~0 times** here (everything confirms fast) — confirm no spurious re-offers inflate airtime. Gate vs the **lua-engine** (the seed is now the Lua's), NOT the old C++ keystone md5 (which WILL change — expected).
+- **★ ASYMMETRIC ORPHAN-RECOVERY (a NEW scenario — the actual purpose):** the existing scenarios can't test this. Build an asymmetric scenario — **a node heard by only one busy node** (mirror 3d7377), as a synthetic Lua scenario (with one-way links) OR the `topo_3d7377` topology. **Metric, lexicographic:** (1) zero permanent orphans — the orphan's final coverage goes 0 → reached within the cap; (2) lowest airtime among passers; (3) time-to-coverage tiebreak. This is where re-offer variants (retries/delay/jitter/trigger) get ranked apples-to-apples.
+- **Final cross-check (meshroute engine):** `topo_to_sim.py /tmp/topo_3d7377.json --ledger runs/3d7377/send_ledger.jsonl` → **247 recovers** (~3 retries into a 54-idle window); 79/48 re-offer ~0×.
 - **Boards:** all 4 build (it's lib/core).
 
 ## Caveats (known, accepted)

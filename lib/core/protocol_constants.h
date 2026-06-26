@@ -222,7 +222,7 @@ inline constexpr uint8_t  channel_dirty_max_per_bcn     = 3;      // dirty ids a
 inline constexpr uint32_t channel_pull_window_ms        = 60000;  // re-pull dedup window (dv:1009) [Phase 2]
 inline constexpr uint16_t channel_pull_jitter_ms        = 5000;   // pull backoff: rand(0, jitter+1) (dv:1019) [Phase 2]
 inline constexpr uint8_t  cap_channel_pulls_per_bcn_cycle = 3;    // new pulls/digest (dv:1022) [Phase 2]
-inline constexpr uint8_t  channel_dirty_max_advertisements = 16;  // 2026-06-23 (holder-aware retire): NO LONGER the primary trigger — a digest entry retires on HOLDER COVERAGE (channel_entry_fully_seen). This is the horizon SAFETY backstop for the asymmetric case (a neighbour we hear but that never pulls from us → never covered). 3→16 (was the blind K, dv:1034 — orphaned held-by-nobody origins; bench run 3ad5d2). Tune vs s15/s17 airtime.
+inline constexpr uint8_t  channel_dirty_max_advertisements = 3;   // 2026-06-25 REVERTED 16→3 (the Lua value, dv:1034). The 3→16 inflation was a holder-aware-retire backstop ("advertise an orphan longer"), but metal run 3b9abc proved it useless: the permanent-orphan case is "NO HOLDER EXISTS AT ALL" (the flood reached 0 nodes), so K is irrelevant. The origin RE-OFFER (channel_reoffer_*) is the correct lever — it re-injects the message so a holder forms — and supersedes the inflated K. (Reverting also isolates the re-offer's effect in the seed sweep.) Entry still retires on HOLDER COVERAGE (channel_entry_fully_seen); this is the horizon backstop.
 inline constexpr uint8_t  cap_channel_pull_pending      = 8;      // bounded pending-pull ring (Lua: unbounded table)
 inline constexpr uint8_t  bcn_ext_type_suspect_nodes   = 1;      // §P4 BCN ext-TLV type 1: gossip locally-observed SILENT peers (1B/id), applied as SUSPECT (dv:1241)
 inline constexpr uint8_t  bcn_ext_type_liveness_state  = 2;      // §P4 BCN ext-TLV type 2: gossip peers incl. DEAD ([id, state&0x03] 2B/entry) (dv:1242)
@@ -239,6 +239,17 @@ inline constexpr uint8_t  flood_hop_max     = 16;       // TTL safety cap (≈ d
 inline constexpr uint32_t flood_backoff_ms  = 2000;     // T_backoff: max rebroadcast jitter; >= one RTS-M+DATA-M airtime so an overhearer can cancel first
 inline constexpr int16_t  flood_snr_lo_q4   = -15 * 16; // SNR-norm range lo (dB, Q4)
 inline constexpr int16_t  flood_snr_hi_q4   =  10 * 16; // SNR-norm range hi (dB, Q4)
+
+// ---- channel ORIGIN RE-OFFER (2026-06-25, spec 2026-06-25-channel-origin-reoffer.md, Part 2) ----
+// A DIVERGENCE from the Lua (which relies on the pull). The origin owns its message's propagation until it sees
+// proof it got out: with the honest empty flood seed (Part 1), ChannelEntry.seen_by starts empty; the FIRST
+// overheard relay sets a bit -> non-empty seen_by = "it propagated" = confirmed. While seen_by stays empty the
+// origin re-floods the cached body up to N times — re-injecting a message whose only link was too contended to
+// hear it (the 247→0/7 orphan). The well-connected case confirms within the first delay and re-offers ZERO times.
+inline constexpr uint8_t  cap_channel_reoffer_pending = 4;       // bounded per-origin re-offer table (timer ring [70..73]); a node rarely has >cap_flood_pending un-confirmed originations in flight
+inline constexpr uint8_t  channel_reoffer_max_retries = 1;       // cap — bounds the airtime cost of a fragile message
+inline constexpr uint32_t channel_reoffer_delay_ms    = 10000;   // base cadence (>= originator_retry_dedup_ms=10000 so re-floods dedup receiver-side, not double-inbox)
+inline constexpr uint32_t channel_reoffer_jitter_ms   = 2000;    // +rand(0,jitter) spread so multiple origins don't re-offer in lockstep
 // channel_msg_id flavor (encryption variant; crypto deferred — all plaintext v1, dv:2229-2231)
 inline constexpr uint8_t  channel_flavor_public  = 0;
 inline constexpr uint8_t  channel_flavor_group   = 1;

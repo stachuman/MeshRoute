@@ -1,0 +1,30 @@
+# MeshRoute lab — SUSTAINABLE BASE load (meshroute_lab.py armrun tools/scenario-base.txt [-v])
+#
+# THE pinned, known-good baseline for channel-flood / origin-re-offer / coverage testing. Same Poisson per-node
+# model as scenario-realistic.txt — only the RATE is dialed to where the network is NOT saturated, so the re-offer
+# (and any future channel-reliability change) is evaluated against a clean baseline instead of a congestion cliff.
+#
+# WHY these values (2026-06-26, 9-node metal bench):
+#   - rate_per_min 3 (the old realistic) × 9 nodes saturated the channel → base DM collapsed to
+#     70-78%, e2e to 35-43%, channel flood to 45-70%. At that load the re-offer can only shuffle scarce airtime —
+#     you measure the saturation, not the mechanism. The network-wide sf=9 channel broadcasts are the airtime hog.
+#   - rate_per_min 1.5 + dm_fraction 0.5 (= 1.5 × 9 × 120/60 = 27 msgs/120s, the observed 12 DM + 15 chan) → DM 100%
+#     (saturation gone) AND a live topological orphan (asymmetric-RX
+#     node 204 at 0/8) — the exact regime where the re-offer's value is real and its cost is attributable.
+#   ★ VALIDATED here: cap=0 → 204 0/8, channel 71.7%; cap=1 → 204 8/8 (both repeat runs), channel ~89-90%,
+#     DMs unscathed. The re-offer is FREE at this load (spare airtime absorbs the re-floods).
+#
+# ⚠ rate_per_min is PER NODE — total airtime scales with node count. 1.5/node is sustainable at ~9 nodes; if you
+#   ADD nodes, dial the rate DOWN to stay under the channel's capacity (or you re-hit the saturation cliff).
+# ⚠ Metal has RF run-to-run variance even at a fixed seed (the workload reproduces, the radio timing doesn't) —
+#   judge a change by the metrics it CONTROLS (orphan reach, channel coverage), not the RF-noisy ones (DM p95, ±1 e2e).
+workload: realistic
+duration_s: 120                 # each node emits messages across this window
+rate_per_min: 1.5               # SUSTAINABLE at ~9 nodes (was 3 = saturated). Per-node — scale DOWN if nodes are added.
+dm_fraction: 0.5                # balanced: enough channel from the asymmetric nodes to orphan + enough DM for the contention that causes it
+channel: 0
+ack: true                       # -a on the DMs (drives the e2e-acked criterion)
+enc: false
+seed: 0                         # reproducible; change to resample the stream
+settle_s: 30                    # after the LAST scheduled message
+eventual_s: 100                 # > duration + settle + repair — late messages still get a fair eventual window

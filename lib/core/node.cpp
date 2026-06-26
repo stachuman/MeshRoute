@@ -745,6 +745,8 @@ void Node::on_timer(uint32_t timer_id) {
             channel_pull_fire(static_cast<uint8_t>(timer_id - kChannelPullTimerId));             // channel CHANNEL_PULL jittered fire
         } else if (timer_id >= kFloodRebcastTimerId && timer_id < kFloodRebcastTimerId + protocol::cap_flood_pending) {
             flood_rebroadcast_fire(static_cast<uint8_t>(timer_id - kFloodRebcastTimerId));       // channel FLOOD rebroadcast ring slot
+        } else if (timer_id >= kChannelReofferTimerId && timer_id < kChannelReofferTimerId + kChannelReofferSlots) {
+            channel_reoffer_fire(static_cast<uint8_t>(timer_id - kChannelReofferTimerId));       // Part 2: channel origin re-offer ring slot
         }
         break;
     }

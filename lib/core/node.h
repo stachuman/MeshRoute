@@ -603,7 +603,13 @@ private:
     static constexpr uint32_t kLayerWindowTimerId      = 64;  // per-layer window-OPEN / leaf-switch fire; BASE of [64..65]
     static constexpr uint32_t kLayerWindowCloseTimerId = 66;  // per-layer window-CLOSE / return fire;      BASE of [66..67]
     static constexpr uint32_t kLayerBeaconTimerId      = 68;  // per-leaf beacon cadence (gateway);         BASE of [68..69]
-    // [70..79] free for future per-layer timers.
+    // The gateway band [64..69] and the channel re-offer ring [70..73] are ROLE-EXCLUSIVE: a gateway (n_layers==2)
+    // is out of the channel provider plane (§7 — never originates a flood, so never arms re-offer), and a normal node
+    // (n_layers==1) never arms the gateway timers. So they coexist within kCap=80 with no overlap; the after() id<kCap
+    // bound stays intact (the canary era: the wheel is exonerated only because it bounds).
+    static constexpr uint32_t kChannelReofferTimerId   = 70;  // channel ORIGIN re-offer jittered fire; BASE of a ring [70..73] (slot = id - base)
+    static constexpr uint8_t  kChannelReofferSlots     = protocol::cap_channel_reoffer_pending;
+    // [74..79] free for future per-layer timers.
 
     // ---- beacon emit / ingest ----------------------------------------------
     void emit_beacon(const char* kind);                            // "periodic" | "triggered"
@@ -737,6 +743,10 @@ private:
     };
     struct ChannelPullPending  { bool active; uint32_t id; uint8_t target; uint64_t requested_at; uint64_t fire_at; };
     struct ChannelPullRecent   { uint32_t id; uint64_t t_ms; };    // re-pull dedup (Lua channel_pull_recent)
+    struct ChannelReofferPending { bool active; uint32_t id; uint8_t retries_left; };   // Part 2: per-origin re-offer (timer kChannelReofferTimerId+slot)
+    void    channel_reoffer_register(uint32_t id);                 // Part 2: arm a re-offer slot on flood origination (retries_left=channel_reoffer_max_retries)
+    void    channel_reoffer_fire(uint8_t slot);                    // Part 2: timer fire — re-flood if not yet confirmed + retries remain, else free
+    void    channel_reoffer_confirm(uint32_t id);                  // Part 2: a relay of OUR message was overheard -> cancel its pending re-offer (dedicated signal, NOT seen_by)
     int     channel_buffer_find(uint32_t id) const;                // index of the entry, or -1 (dv:3426)
     bool    channel_mark_seen_by(uint32_t id, uint8_t neighbour);  // set seen_by bit; true if newly set (dv:3434)
     bool    channel_origin_admit(uint8_t origin, uint32_t msg_id); // per-origin distinct-count anti-spam (dv:3456)
@@ -1112,6 +1122,7 @@ private:
         ChannelPullRecent  _channel_pull_recent[protocol::cap_channel_pull_recent] = {};
         uint8_t            _channel_pull_recent_n = 0;
         FloodState         _flood[protocol::cap_flood_pending] = {};   // channel-flood in-progress table (slot i -> timer kFloodRebcastTimerId+i)
+        ChannelReofferPending _channel_reoffer_pending[protocol::cap_channel_reoffer_pending] = {};  // Part 2: per-origin re-offer table (slot i -> timer kChannelReofferTimerId+i)
         // dedup maps.
         std::map<uint8_t, uint16_t>  _peer_send_counter;   // next_ctr per dst
         std::map<uint32_t, LastAcked> _last_acked_from;    // key (src<<24|dst<<16|ctr_lo<<8|len)
