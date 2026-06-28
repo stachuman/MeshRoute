@@ -180,22 +180,25 @@ inline bool save_peers(const PeerBlob& b) {
     return n == static_cast<int>(sizeof(b));
 }
 // `factory_reset confirm`: erase EVERY persisted NV slot -> the node boots brand-new (default config, fresh
-// identity, no peers, empty inbox). TARGETED removal of the known files (NOT InternalFS.format()) so it can't
-// nuke unrelated FS state (e.g. OTA). This wipes the InternalFS slots — config + identity + peers + the inbox
-// META (/mri_dm, /mri_ch, the next_seq/epoch). The inbox RECORDS live on the SEPARATE external QSPI chip (a
-// different FS), so they are wiped by the inbox stores' wipe() in the `factory_reset confirm` command (their
-// domain) — together that leaves the inbox truly empty. Best-effort: a remove() of a never-written file no-ops;
-// the next boot re-defaults any blob whose magic/version no longer validates regardless.
+// identity, no peers, empty inbox). FULL InternalFS.format() (spec 2026-06-28-factory-reset-format.md): the prior
+// TARGETED remove()s could NOT recover FS-METADATA corruption (the bench brick: `cfg set` -> nv_save_failed that
+// survived a reboot AND factory_reset). A format rebuilds the FS metadata -> recovers it; the net file outcome is the
+// SAME as the old remove() path (config + identity + peers + inbox META /mri_dm,/mri_ch all gone) EXCEPT it also clears
+// the corruption. /mrfault (HW fault history) is preserved across the format (choice B). The inbox RECORDS live on the
+// SEPARATE external QSPI chip (a different FS) -> wiped by the inbox stores' wipe() in the command (their domain).
+// VERIFIED SAFE: device_ota does not use InternalFS (the format won't touch OTA/DFU). format()==false => the flash
+// cannot be formatted => WORN flash (handle_factory_reset surfaces the WARN = the real dead-node signal).
+inline bool load_faults(mrfault::FaultLog& out);                // fwd-decls (defined below): factory_erase preserves /mrfault
+inline bool save_faults(const mrfault::FaultLog& b);
 inline bool factory_erase() {
     using namespace Adafruit_LittleFS_Namespace;
     InternalFS.begin();
-    InternalFS.remove("/mrcfg");                            // config + node_id
-    InternalFS.remove("/mrid");                             // identity master seed (a fresh key/address is minted on boot)
-    InternalFS.remove("/mrpeers");                          // pinned peer keys
-    InternalFS.remove("/mri_dm");                           // inbox DM meta (next_seq / epoch / read cursor)
-    InternalFS.remove("/mri_ch");                           // inbox channel meta  (the QSPI records: command -> store.wipe())
-    return true;                                            // best-effort; load-time magic/version re-defaults anything left
-    // NB: /mrfault is DELIBERATELY left — the fault history is HW diagnostic, orthogonal to a config/identity reset.
+    static mrfault::FaultLog fl;                            // STATIC, not stack — keep the console-path frame small (the do_post_ack overflow lesson)
+    const bool had = load_faults(fl);                      // preserve /mrfault across the format (best-effort)
+    const bool ok  = InternalFS.format();                  // FULL format: clears FS-metadata corruption that remove() can't. false => WORN flash.
+    InternalFS.begin();                                    // re-mount the clean FS so the load*() at boot run normally
+    if (had) save_faults(fl);                              // restore the fault history onto the clean FS (choice B: preserve /mrfault)
+    return ok;
 }
 // Persistent fault log (`/mrfault`) — whole-blob R/W like Blob (a kFaultVersion bump rejects an old record -> init fresh).
 inline bool load_faults(mrfault::FaultLog& out) {

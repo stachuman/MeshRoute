@@ -80,7 +80,19 @@ inline constexpr int16_t  sf_margin_q4   = 80;   //  5.0 dB
 // ---- MAC / channel access --------------------------------------------------
 inline constexpr uint16_t cts_to_data_gap_ms = 5;
 inline constexpr uint16_t rts_busy_retry_ms  = 30;
-inline constexpr uint8_t  rts_max_retries    = 3;
+inline constexpr uint8_t  rts_max_retries    = 2;
+// Same-hop RTS/ACK retry — capped exponential backoff (spec 2026-06-26-rts-retry-backoff.md). The retry window would
+// DOUBLE per attempt (1x,2x,4x,...) up to this shift cap. 0 = FLAT (the Lua-faithful current behaviour).
+// ★ SHIPPED AT 0 (no-op): the 24-seed twin_9node_dm A/B REFUTED the BEB hypothesis — delivery falls MONOTONICALLY with
+// the shift (flat 47.1% > 1:45.6 > 2/3:43.5). With only 3 same-hop retries before giveup->cascade, growing the window
+// just makes a node loiter on a doomed retry (delaying the cascade/giveup, holding pending_tx) -> lower throughput under
+// saturation; fast-fail wins. The machinery stays const-gated (tested, ready) for a future METAL experiment, where the
+// real-RF contention dynamics may differ from the idealized-RF sim. Flip to 3 to re-enable.
+inline constexpr uint8_t  retry_backoff_max_shift = 0;
+// PURE: the per-attempt backoff window = base << min(attempt, max_shift). Host-unit-tested. max_shift=0 -> always base.
+inline constexpr uint32_t retry_backoff_window(uint32_t base, uint8_t attempt, uint8_t max_shift) {
+    return base << (attempt < max_shift ? attempt : max_shift);
+}
 
 // ---- Beacon plane ----------------------------------------------------------
 inline constexpr uint32_t discovery_beacon_period_ms     = 5000;
@@ -373,6 +385,20 @@ inline constexpr uint8_t  max_payload_bytes_hard_cap =
 // [dst_key_hash32 4][origin]=5-B prefix has its own explicit fit-check in enqueue_data). Exceeding it overruns inner[].
 inline constexpr uint8_t  dm_inner_prefix_bytes = 2;                                      // conservative cap (>= the [origin] prefix)
 inline constexpr uint8_t  dm_max_body_bytes = max_payload_bytes_hard_cap - dm_inner_prefix_bytes;  // = 239
+
+// ---- Overheard-reserve YIELD (spec 2026-06-28-overheard-reserve-yield.md) ----------------------------------
+// When a node mid-handshake (awaiting_cts/awaiting_ack) overhears its NEXT-HOP get reserved (an overheard CTS the
+// next-hop sent, or an overheard RTS targeting the next-hop), it PUSHES its own pending timeout past the reserve
+// WITHOUT burning a retry — CSMA politeness: yield to the in-progress exchange, retry once it's free. Bounded by the
+// flight's total-lifetime giveup so a saturated cell can't make it yield forever. Const-gated A/B (each flippable).
+// ★ SHIPPED OFF: the 24-seed twin_9node_dm A/B REFUTED Part A — yield ON 45.5% < OFF 47.1% (same direction as BEB).
+// Yielding extends a flight's lifetime (it keeps yielding/retrying instead of fast-failing), holding pending_tx +
+// blocking the node's tx-queue up to the 60s giveup horizon -> lower throughput under saturation. Fast-fail wins
+// (the BEB + yield double-refutation points the opposite way: FEWER/faster retries). Const-gated + tested, kept for a
+// METAL re-test (real-RF contention may differ) and for moderate-contention scenarios the extreme twin doesn't cover.
+inline constexpr uint8_t  reserve_yield_enable      = 0;   // Part A (unicast reserve): 0 = off = today's blind-timeout behaviour
+inline constexpr uint8_t  flood_yield_grab_enable   = 0;   // Part B (flood RTS-M grab while awaiting_cts): UNTESTED (twin has no floods) -> shipped off; needs a channel-bearing twin to A/B
+inline constexpr uint16_t reserve_est_payload_bytes = max_payload_bytes_hard_cap / 2;   // ½-max DATA-length estimate for the reserve duration D (actual len unknown; LBT backstops an under-estimate)
 
 // ---- Persistent inbox (DM + channel durable history; 2026-06-10 spec) -------
 // Two independent flash stores: DMs are large + durable, channels persisted but freely evicted.

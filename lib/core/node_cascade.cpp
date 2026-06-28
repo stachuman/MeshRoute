@@ -102,6 +102,7 @@ void Node::cascade_to_alt(const char* giveup_event) {
             _hal.emit("path_cascade", f, 5); );
         pt.next = alt;
         pt.retries_left = effective_rts_max_retries(pt.requeue_count);   // requeue-aware budget on the alt
+        pt.retry_attempt = 0;                            // the alt is a NEW contention context -> reset the backoff growth
         tx_rts_retry();                                  // re-RTS on the alt — NO jitter (re-arms kRtsTimeoutTimerId)
     } else {
         // §P3 active rediscovery: all candidates exhausted AND the primary that just failed is SILENT/DEAD (confirmed
@@ -279,8 +280,13 @@ void Node::rts_timeout_fire() {
             return;
         }
         --_active->_pending_tx->retries_left;
-        const int jit = _hal.rand_range(0, static_cast<int>(retry_jitter_ms()) + 1);   // RNG site #1
+        // Capped exponential backoff (spec 2026-06-26): the same-hop retry window doubles per attempt up to
+        // retry_backoff_max_shift, so saturated contenders spread out instead of re-colliding in a flat window.
+        // max_shift=0 -> window == retry_jitter_ms() == today's flat retry (the rand_range call/order is unchanged -> sim parity).
+        const uint32_t window = protocol::retry_backoff_window(retry_jitter_ms(), _active->_pending_tx->retry_attempt, protocol::retry_backoff_max_shift);
+        const int jit = _hal.rand_range(0, static_cast<int>(window) + 1);   // RNG site #1 (SAME call/order)
         (void)_hal.after(static_cast<uint32_t>(jit), kRetryBackoffTimerId);
+        ++_active->_pending_tx->retry_attempt;
     } else {
         record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo);   // §P1: same-hop RTS giveup = liveness evidence
         cascade_to_alt("rts_giveup");                    // same-hop retries exhausted -> walk to an alternate (§P3: + RREQ if it's silent)
@@ -301,8 +307,11 @@ void Node::ack_timeout_fire() {
         }
         --_active->_pending_tx->retries_left;
         _active->_pending_tx->awaiting_ack = false; _active->_pending_tx->awaiting_cts = false; _active->_pending_tx->chosen_data_sf = 0;
-        const int jit = _hal.rand_range(0, static_cast<int>(retry_jitter_ms()) + 1);   // RNG site #2
+        // Capped exponential backoff (spec 2026-06-26) — identical to RNG site #1; max_shift=0 -> today's flat retry.
+        const uint32_t window = protocol::retry_backoff_window(retry_jitter_ms(), _active->_pending_tx->retry_attempt, protocol::retry_backoff_max_shift);
+        const int jit = _hal.rand_range(0, static_cast<int>(window) + 1);   // RNG site #2 (SAME call/order)
         (void)_hal.after(static_cast<uint32_t>(jit), kRetryBackoffTimerId);
+        ++_active->_pending_tx->retry_attempt;
     } else {
         record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo);   // §P1: same-hop ACK giveup = liveness evidence
         cascade_to_alt("data_ack_giveup");               // same-hop retries exhausted -> walk to an alternate (§P3: + RREQ if it's silent)

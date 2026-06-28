@@ -1,0 +1,577 @@
+{
+ "_name": "topo_match_base9",
+ "_desc": "metal topology + realistic workload, 1:1 \u2014 firmware-logic vs metal-specific isolator",
+ "simulation": {
+  "duration_ms": 219373,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "beacon_period_ms": 8000,
+  "seed": 0,
+  "node_startup_jitter_ms": 2000,
+  "radio": {
+   "sf": 8,
+   "bw": 125,
+   "cr": 5,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 0.1
+  }
+ },
+ "config": {
+  "debug_start_ms": 0,
+  "debug_end_ms": 219373
+ },
+ "nodes": [
+  {
+   "name": "n48",
+   "node_id": 1,
+   "engine": "meshroute",
+   "lat": 0.0,
+   "lon": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "n72",
+   "node_id": 2,
+   "engine": "meshroute",
+   "lat": 0.0,
+   "lon": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "n79",
+   "node_id": 3,
+   "engine": "meshroute",
+   "lat": 0.0,
+   "lon": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "n106",
+   "node_id": 4,
+   "engine": "meshroute",
+   "lat": 0.0,
+   "lon": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "n138",
+   "node_id": 5,
+   "engine": "meshroute",
+   "lat": 0.0,
+   "lon": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "n156",
+   "node_id": 6,
+   "engine": "meshroute",
+   "lat": 0.0,
+   "lon": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "n170",
+   "node_id": 7,
+   "engine": "meshroute",
+   "lat": 0.0,
+   "lon": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "n204",
+   "node_id": 8,
+   "engine": "meshroute",
+   "lat": 0.0,
+   "lon": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "n247",
+   "node_id": 9,
+   "engine": "meshroute",
+   "lat": 0.0,
+   "lon": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  }
+ ],
+ "topology": {
+  "links": [
+   {
+    "from": "n204",
+    "to": "n48",
+    "snr": 8.2,
+    "rssi": -101.8,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n156",
+    "to": "n48",
+    "snr": 7.2,
+    "rssi": -102.8,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n72",
+    "to": "n48",
+    "snr": -2.8,
+    "rssi": -112.8,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n106",
+    "to": "n48",
+    "snr": -3.5,
+    "rssi": -113.5,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n204",
+    "to": "n72",
+    "snr": 14.0,
+    "rssi": -96.0,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n156",
+    "to": "n72",
+    "snr": 9.8,
+    "rssi": -100.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n79",
+    "to": "n72",
+    "snr": 9.5,
+    "rssi": -100.5,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n138",
+    "to": "n72",
+    "snr": 9.5,
+    "rssi": -100.5,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n48",
+    "to": "n72",
+    "snr": -1.5,
+    "rssi": -111.5,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n106",
+    "to": "n72",
+    "snr": -3.2,
+    "rssi": -113.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n170",
+    "to": "n72",
+    "snr": -4.8,
+    "rssi": -114.8,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n138",
+    "to": "n79",
+    "snr": 12.5,
+    "rssi": -97.5,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n72",
+    "to": "n79",
+    "snr": 10.8,
+    "rssi": -99.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n156",
+    "to": "n79",
+    "snr": 4.8,
+    "rssi": -105.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n106",
+    "to": "n79",
+    "snr": -1.8,
+    "rssi": -111.8,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n204",
+    "to": "n106",
+    "snr": 10.5,
+    "rssi": -99.5,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n156",
+    "to": "n106",
+    "snr": 7.0,
+    "rssi": -103.0,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n48",
+    "to": "n106",
+    "snr": -2.0,
+    "rssi": -112.0,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n79",
+    "to": "n106",
+    "snr": -2.5,
+    "rssi": -112.5,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n79",
+    "to": "n138",
+    "snr": 11.8,
+    "rssi": -98.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n72",
+    "to": "n138",
+    "snr": 9.5,
+    "rssi": -100.5,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n156",
+    "to": "n138",
+    "snr": -0.5,
+    "rssi": -110.5,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n170",
+    "to": "n138",
+    "snr": -2.0,
+    "rssi": -112.0,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n72",
+    "to": "n156",
+    "snr": 9.0,
+    "rssi": -101.0,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n48",
+    "to": "n156",
+    "snr": 8.8,
+    "rssi": -101.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n106",
+    "to": "n156",
+    "snr": 6.2,
+    "rssi": -103.8,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n79",
+    "to": "n156",
+    "snr": 3.2,
+    "rssi": -106.8,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n138",
+    "to": "n156",
+    "snr": -1.2,
+    "rssi": -111.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n79",
+    "to": "n170",
+    "snr": -2.5,
+    "rssi": -112.5,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n138",
+    "to": "n170",
+    "snr": -4.0,
+    "rssi": -114.0,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n138",
+    "to": "n204",
+    "snr": 6.8,
+    "rssi": -103.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n79",
+    "to": "n204",
+    "snr": -5.0,
+    "rssi": -115.0,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n204",
+    "to": "n247",
+    "snr": 12.8,
+    "rssi": -97.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n156",
+    "to": "n247",
+    "snr": -1.2,
+    "rssi": -111.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   }
+  ]
+ },
+ "commands": [
+  {
+   "at_ms": 54350,
+   "node": "n204",
+   "command": "send_e2e 2 Tbase9S204#0"
+  },
+  {
+   "at_ms": 63766,
+   "node": "n170",
+   "command": "send_e2e 6 Tbase9S170#0"
+  },
+  {
+   "at_ms": 65896,
+   "node": "n72",
+   "command": "send_channel 0 Tbase9S72#0"
+  },
+  {
+   "at_ms": 65928,
+   "node": "n138",
+   "command": "send_channel 0 Tbase9S138#0"
+  },
+  {
+   "at_ms": 68103,
+   "node": "n79",
+   "command": "send_e2e 2 Tbase9S79#0"
+  },
+  {
+   "at_ms": 76282,
+   "node": "n247",
+   "command": "send_e2e 4 Tbase9S247#0"
+  },
+  {
+   "at_ms": 77859,
+   "node": "n156",
+   "command": "send_channel 0 Tbase9S156#0"
+  },
+  {
+   "at_ms": 77999,
+   "node": "n138",
+   "command": "send_channel 0 Tbase9S138#1"
+  },
+  {
+   "at_ms": 86063,
+   "node": "n204",
+   "command": "send_channel 0 Tbase9S204#1"
+  },
+  {
+   "at_ms": 86078,
+   "node": "n106",
+   "command": "send_e2e 2 Tbase9S106#0"
+  },
+  {
+   "at_ms": 90000,
+   "node": "n247",
+   "command": "send_e2e 3 Tbase9S247#1"
+  },
+  {
+   "at_ms": 91341,
+   "node": "n247",
+   "command": "send_channel 0 Tbase9S247#2"
+  },
+  {
+   "at_ms": 94066,
+   "node": "n156",
+   "command": "send_channel 0 Tbase9S156#1"
+  },
+  {
+   "at_ms": 103389,
+   "node": "n247",
+   "command": "send_e2e 3 Tbase9S247#3"
+  },
+  {
+   "at_ms": 103544,
+   "node": "n106",
+   "command": "send_e2e 5 Tbase9S106#1"
+  },
+  {
+   "at_ms": 106635,
+   "node": "n79",
+   "command": "send_e2e 4 Tbase9S79#1"
+  },
+  {
+   "at_ms": 109823,
+   "node": "n138",
+   "command": "send_e2e 8 Tbase9S138#2"
+  },
+  {
+   "at_ms": 114424,
+   "node": "n48",
+   "command": "send_channel 0 Tbase9S48#0"
+  },
+  {
+   "at_ms": 117149,
+   "node": "n204",
+   "command": "send_channel 0 Tbase9S204#2"
+  },
+  {
+   "at_ms": 121486,
+   "node": "n79",
+   "command": "send_channel 0 Tbase9S79#2"
+  },
+  {
+   "at_ms": 136253,
+   "node": "n48",
+   "command": "send_e2e 9 Tbase9S48#1"
+  },
+  {
+   "at_ms": 142714,
+   "node": "n156",
+   "command": "send_e2e 4 Tbase9S156#2"
+  },
+  {
+   "at_ms": 146972,
+   "node": "n170",
+   "command": "send_channel 0 Tbase9S170#1"
+  },
+  {
+   "at_ms": 153618,
+   "node": "n156",
+   "command": "send_channel 0 Tbase9S156#3"
+  },
+  {
+   "at_ms": 154121,
+   "node": "n204",
+   "command": "send_channel 0 Tbase9S204#3"
+  },
+  {
+   "at_ms": 157016,
+   "node": "n48",
+   "command": "send_channel 0 Tbase9S48#2"
+  },
+  {
+   "at_ms": 159373,
+   "node": "n138",
+   "command": "send_channel 0 Tbase9S138#3"
+  }
+ ],
+ "expect": [],
+ "_id_map": {
+  "48": 1,
+  "72": 2,
+  "79": 3,
+  "106": 4,
+  "138": 5,
+  "156": 6,
+  "170": 7,
+  "204": 8,
+  "247": 9
+ }
+}

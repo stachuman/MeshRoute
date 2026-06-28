@@ -101,6 +101,12 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                          static_cast<uint16_t>(r.payload_len + M_FRAME_HDR_LEN)) + 30 + _hal.rx_window_slop_ms(data_sf);
                         (void)_hal.after(back, kOverhearRetuneTimerId);
                         MR_EMIT("channel_overhear_armed", EF_I("sender", r.src), EF_I("chosen_data_sf", data_sf), EF_B("flood", true));
+                        // Part B YIELD (spec 2026-06-28): we retuned to grab a NEW flood while awaiting our CTS -> our
+                        // next-hop likely retuned for it too, so the CTS won't arrive until the flood clears. Push our
+                        // CTS-timeout past it (no retry burned) -> catch the channel msg AND keep the DM retry, instead
+                        // of today's "miss the CTS on the wrong SF -> timeout -> burn a retry" with the flood caught anyway.
+                        if (protocol::flood_yield_grab_enable && _active->_pending_tx && _active->_pending_tx->awaiting_cts)
+                            reserve_yield(nav_duration_cts(data_sf, static_cast<uint8_t>(protocol::reserve_est_payload_bytes)));
                     }
                 }
             }
@@ -139,6 +145,12 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                 : max_data_sf();                                                // ANY(3) -> conservative (the receiver picks)
             nav_arm(nav_duration_rts(nav_sf, r.payload_len));
         }
+        // Part A YIELD (spec 2026-06-28): the overheard RTS TARGETS our next-hop -> it's about to be occupied -> our
+        // CTS/ACK can't come. Push our pending timeout past the reserve (max-SF est, LBT-backstopped), no retry burned.
+        if (protocol::reserve_yield_enable && _active->_pending_tx
+            && (_active->_pending_tx->awaiting_cts || _active->_pending_tx->awaiting_ack)
+            && r.next == _active->_pending_tx->next)
+            reserve_yield(nav_duration_rts(max_data_sf(), static_cast<uint8_t>(protocol::reserve_est_payload_bytes)));
         return;
     }
     // NAV: virtually busy under someone else's reservation -> (optionally) ignore this (new) addressed RTS;
@@ -306,6 +318,13 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         // NAV: reserve the medium for the DATA+ACK this CTS just authorized (covers the hidden node near the
         // receiver that didn't hear the RTS). chosen_data_sf is exact; size assumed max (conservative).
         if (_cfg.nav_enabled) nav_arm(nav_duration_cts(c.chosen_data_sf, c.payload_len));
+        // Part A YIELD (spec 2026-06-28): the CTS sender is OUR next-hop -> it just cleared someone else and is about
+        // to receive their DATA -> busy, our CTS/ACK can't come. Push our pending timeout past the reserve (½-max est,
+        // LBT-backstopped) instead of timing out blind + burning a retry during it.
+        if (protocol::reserve_yield_enable && _active->_pending_tx
+            && (_active->_pending_tx->awaiting_cts || _active->_pending_tx->awaiting_ack)
+            && c.tx_id == _active->_pending_tx->next)
+            reserve_yield(nav_duration_cts(c.chosen_data_sf, static_cast<uint8_t>(protocol::reserve_est_payload_bytes)));
         return;
     }
     if (!_active->_pending_tx || !_active->_pending_tx->awaiting_cts) return;   // ctr_lo flight-match dropped: rx_id==me + tx_id==next (below) pin the flight
@@ -927,6 +946,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                 _hal.emit("tx_loop_alt", f, 5); );
             pt.next = alt;
             pt.retries_left = effective_rts_max_retries(pt.requeue_count);
+            pt.retry_attempt = 0;                                 // cascade -> a NEW contention context: reset the backoff growth (spec 2026-06-26)
             tx_rts_retry();
         } else {                                                  // LOOP_DUP miss -> DIRECT giveup (NOT requeue, dv:10588)
             MR_TELEMETRY(

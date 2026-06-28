@@ -242,6 +242,8 @@ struct PendingTx {                   // the in-flight sender state (one per node
     uint8_t  chosen_data_sf = 0;     // 0 = unset until the CTS arrives
     bool     m_broadcast    = false; // channel M-payload: fire-and-forget (no CTS/ACK); chosen_data_sf set at issue
     uint8_t  retries_left = 0;
+    uint8_t  retry_attempt = 0;      // same-hop retry # (0,1,2,...) -> the capped-exponential backoff shift; reset to 0 on a fresh flight / cascade-to-alt (a new contention context). Internal, NOT on-wire.
+    uint64_t timeout_deadline_ms = 0;// absolute fire time of the armed CTS/ACK timeout (start_rts/ack_timeout) -> reserve_yield extends-only (never shortens) when yielding to an overheard reserve. Internal.
     bool     awaiting_cts = false;
     bool     awaiting_ack = false;
     // Cascade-to-alt state: which next-hops this flight has already tried (so the
@@ -897,6 +899,7 @@ private:
     uint32_t nav_duration_rts(uint8_t data_sf, uint8_t payload_len) const;  // overheard RTS -> CTS+DATA+ACK+gaps
     uint32_t nav_duration_cts(uint8_t data_sf, uint8_t payload_len) const;  // overheard CTS -> DATA(exact, or max if payload_len=0)+ACK+gaps
     void     nav_arm(uint32_t duration_ms);                                 // _nav_until_ms = max(_nav_until_ms, now+dur)
+    bool     reserve_yield(uint32_t reserve_ms);                            // spec 2026-06-28: push the pending CTS/ACK timeout past an overheard reserve involving our next-hop, NO retry burned; lifetime-bounded (no starvation). Returns true if yielded.
     // R4.5b: the central TX helper (Lua tx_with_retry dv:3599) — stash the retry-eligible frame + set the
     // frame-type tag + duty pre-check + _hal.tx. Every TX except the beacon routes through it.
     bool     tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag tag);   // returns handed (false on a duty defer)

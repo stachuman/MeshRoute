@@ -121,3 +121,30 @@ TEST_CASE("Compile-time RF plan flags match the project_band_choice memory") {
     CHECK(LORA_DUTY_CYCLE_PCT == 10);
     CHECK(LORA_PREAMBLE_SYM   == 16);
 }
+
+TEST_CASE("retry_backoff_window: capped per-attempt doubling (spec 2026-06-26-rts-retry-backoff)") {
+    const uint32_t J = 600;   // an arbitrary base window (retry_jitter_ms = 3xRTS-airtime in the field)
+    // max_shift = 3 (the shipped default): 1x, 2x, 4x, 8x, then HOLD at 8x (capped).
+    CHECK(P::retry_backoff_window(J, 0, 3) == J);        // attempt 0 -> 1x
+    CHECK(P::retry_backoff_window(J, 1, 3) == 2 * J);    // 1 -> 2x
+    CHECK(P::retry_backoff_window(J, 2, 3) == 4 * J);    // 2 -> 4x
+    CHECK(P::retry_backoff_window(J, 3, 3) == 8 * J);    // 3 -> 8x (== 1<<max_shift)
+    CHECK(P::retry_backoff_window(J, 4, 3) == 8 * J);    // >= max_shift -> capped at 8x
+    CHECK(P::retry_backoff_window(J, 99, 3) == 8 * J);   // far past the cap -> still 8x (no overflow/wrap)
+    // max_shift = 0 -> FLAT: always the base (the Lua-faithful "before" leg; the A/B flip 0<->3).
+    CHECK(P::retry_backoff_window(J, 0, 0) == J);
+    CHECK(P::retry_backoff_window(J, 1, 0) == J);
+    CHECK(P::retry_backoff_window(J, 50, 0) == J);
+    // SHIPPED AT 0 (flat) — the 24-seed twin A/B refuted BEB (delivery falls monotonically with the shift), so the
+    // divergence stays const-gated OFF (== the Lua-faithful flat retry). Flip to 3 to re-enable for a metal experiment.
+    CHECK(P::retry_backoff_max_shift == 0);
+}
+
+TEST_CASE("overheard-reserve-yield: shipped OFF after the twin A/B refuted it (spec 2026-06-28)") {
+    // Part A (yield ON) measured 45.5% DM delivery vs 47.1% flat on the saturating twin — yielding extends a flight's
+    // lifetime and lowers throughput (same fast-fail-wins lesson as BEB). Both halves ship gated OFF (== today's
+    // behaviour); the machinery stays for a metal re-test. Part B untested (twin carries no floods).
+    CHECK(P::reserve_yield_enable == 0);
+    CHECK(P::flood_yield_grab_enable == 0);
+    CHECK(P::reserve_est_payload_bytes == P::max_payload_bytes_hard_cap / 2);   // ½-max D estimate (LBT backstops under-estimate)
+}

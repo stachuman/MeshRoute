@@ -96,8 +96,10 @@ if __name__ == "__main__":
     ap.add_argument("--ledger", help="a metal run's send_ledger.jsonl -> byte-identical workload (recommended)")
     ap.add_argument("--run", default="simcmp", help="run-id tag for the generated bodies")
     ap.add_argument("--converge-ms", type=int, default=40000, help="beacon-convergence window before the workload fires")
-    ap.add_argument("--snr-base", type=float, default=60.0, help="sim SNR = snr_base + real_dB (keeps relative strengths)")
+    ap.add_argument("--snr-base", type=float, default=60.0, help="sim SNR = snr_base + real_dB (default 60 lifts EVERY link decodable -> contention-only stress, like the twin)")
+    ap.add_argument("--realistic", action="store_true", help="snr_base=0: sim SNR = the raw dB, faithful to the real RF (weak links stay marginal); overrides --snr-base")
     ap.add_argument("--snr-std", type=float, default=0.0, help="per-link SNR std-dev (fading); 0 = deterministic")
+    ap.add_argument("--out", help="write the sim JSON to this path (ready to run with lus); default = stdout")
     a = ap.parse_args()
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     topo = _load_topo(a.topo)
@@ -108,5 +110,15 @@ if __name__ == "__main__":
             k, v = ln.split(":", 1)
             scen[k.strip()] = v.strip()
     sends = [json.loads(l) for l in open(a.ledger) if l.strip()] if a.ledger else None
-    print(json.dumps(build_scenario(topo, scen, a.run, sends=sends, converge_ms=a.converge_ms,
-                                    snr_base=a.snr_base, snr_std=a.snr_std), indent=1))
+    snr_base = 0.0 if a.realistic else a.snr_base
+    scn = build_scenario(topo, scen, a.run, sends=sends, converge_ms=a.converge_ms,
+                         snr_base=snr_base, snr_std=a.snr_std)
+    text = json.dumps(scn, indent=1)
+    if a.out:
+        with open(a.out, "w") as f:
+            f.write(text)
+        mode = "realistic (raw dB)" if a.realistic else f"snr_base={snr_base}"
+        print(f"wrote {a.out}  ({len(scn['nodes'])} nodes, {len(scn['topology']['links'])} links, "
+              f"{len(scn['commands'])} commands, {mode})\n  run it:  lus {a.out}")
+    else:
+        print(text)

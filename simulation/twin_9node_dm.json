@@ -1,0 +1,736 @@
+{
+ "_name": "topo_match_twin9dm",
+ "_desc": "metal topology + realistic workload, 1:1 \u2014 firmware-logic vs metal-specific isolator",
+ "simulation": {
+  "duration_ms": 199920,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "beacon_period_ms": 8000,
+  "seed": 0,
+  "node_startup_jitter_ms": 2000,
+  "radio": {
+   "sf": 8,
+   "bw": 125,
+   "cr": 5,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 0.1
+  }
+ },
+ "config": {
+  "debug_start_ms": 0,
+  "debug_end_ms": 199920
+ },
+ "nodes": [
+  {
+   "name": "n48",
+   "node_id": 1,
+   "engine": "meshroute",
+   "lat": 0.0,
+   "lon": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "n54",
+   "node_id": 2,
+   "engine": "meshroute",
+   "lat": 0.0,
+   "lon": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "n79",
+   "node_id": 3,
+   "engine": "meshroute",
+   "lat": 0.0,
+   "lon": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "n106",
+   "node_id": 4,
+   "engine": "meshroute",
+   "lat": 0.0,
+   "lon": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "n138",
+   "node_id": 5,
+   "engine": "meshroute",
+   "lat": 0.0,
+   "lon": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "n156",
+   "node_id": 6,
+   "engine": "meshroute",
+   "lat": 0.0,
+   "lon": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "n170",
+   "node_id": 7,
+   "engine": "meshroute",
+   "lat": 0.0,
+   "lon": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "n204",
+   "node_id": 8,
+   "engine": "meshroute",
+   "lat": 0.0,
+   "lon": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  },
+  {
+   "name": "n247",
+   "node_id": 9,
+   "engine": "meshroute",
+   "lat": 0.0,
+   "lon": 0.0,
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ]
+   }
+  }
+ ],
+ "topology": {
+  "links": [
+   {
+    "from": "n156",
+    "to": "n48",
+    "snr": 67.0,
+    "rssi": -43.0,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n54",
+    "to": "n48",
+    "snr": 57.8,
+    "rssi": -52.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n79",
+    "to": "n48",
+    "snr": 54.2,
+    "rssi": -55.8,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n156",
+    "to": "n54",
+    "snr": 72.8,
+    "rssi": -37.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n138",
+    "to": "n54",
+    "snr": 69.0,
+    "rssi": -41.0,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n79",
+    "to": "n54",
+    "snr": 64.2,
+    "rssi": -45.8,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n48",
+    "to": "n54",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n106",
+    "to": "n54",
+    "snr": 57.0,
+    "rssi": -53.0,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n204",
+    "to": "n79",
+    "snr": 73.5,
+    "rssi": -36.5,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n138",
+    "to": "n79",
+    "snr": 71.0,
+    "rssi": -39.0,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n54",
+    "to": "n79",
+    "snr": 65.2,
+    "rssi": -44.8,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n156",
+    "to": "n79",
+    "snr": 59.8,
+    "rssi": -50.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n48",
+    "to": "n79",
+    "snr": 55.8,
+    "rssi": -54.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n204",
+    "to": "n106",
+    "snr": 66.0,
+    "rssi": -44.0,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n156",
+    "to": "n106",
+    "snr": 63.5,
+    "rssi": -46.5,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n54",
+    "to": "n106",
+    "snr": 58.0,
+    "rssi": -52.0,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n48",
+    "to": "n106",
+    "snr": 56.0,
+    "rssi": -54.0,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n79",
+    "to": "n138",
+    "snr": 70.8,
+    "rssi": -39.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n54",
+    "to": "n138",
+    "snr": 70.2,
+    "rssi": -39.8,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n156",
+    "to": "n138",
+    "snr": 68.2,
+    "rssi": -41.8,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n48",
+    "to": "n138",
+    "snr": 56.8,
+    "rssi": -53.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n204",
+    "to": "n156",
+    "snr": 73.2,
+    "rssi": -36.8,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n54",
+    "to": "n156",
+    "snr": 71.5,
+    "rssi": -38.5,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n48",
+    "to": "n156",
+    "snr": 68.2,
+    "rssi": -41.8,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n138",
+    "to": "n156",
+    "snr": 63.5,
+    "rssi": -46.5,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n106",
+    "to": "n156",
+    "snr": 62.8,
+    "rssi": -47.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n247",
+    "to": "n156",
+    "snr": 58.0,
+    "rssi": -52.0,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n79",
+    "to": "n156",
+    "snr": 57.8,
+    "rssi": -52.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n204",
+    "to": "n170",
+    "snr": 72.0,
+    "rssi": -38.0,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n79",
+    "to": "n170",
+    "snr": 56.8,
+    "rssi": -53.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n54",
+    "to": "n170",
+    "snr": 55.8,
+    "rssi": -54.2,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n138",
+    "to": "n170",
+    "snr": 55.2,
+    "rssi": -54.8,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n138",
+    "to": "n204",
+    "snr": 67.0,
+    "rssi": -43.0,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n204",
+    "to": "n247",
+    "snr": 73.2,
+    "rssi": -36.8,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n54",
+    "to": "n247",
+    "snr": 62.2,
+    "rssi": -47.8,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n156",
+    "to": "n247",
+    "snr": 59.5,
+    "rssi": -50.5,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   },
+   {
+    "from": "n138",
+    "to": "n247",
+    "snr": 55.5,
+    "rssi": -54.5,
+    "snr_std_dev": 0.0,
+    "bidir": false
+   }
+  ]
+ },
+ "commands": [
+  {
+   "at_ms": 20461,
+   "node": "n204",
+   "command": "send_e2e 2 Ttwin9dmS204#0"
+  },
+  {
+   "at_ms": 21882,
+   "node": "n138",
+   "command": "send_e2e 3 Ttwin9dmS138#0"
+  },
+  {
+   "at_ms": 23075,
+   "node": "n106",
+   "command": "send_e2e 2 Ttwin9dmS106#0"
+  },
+  {
+   "at_ms": 23444,
+   "node": "n247",
+   "command": "send_e2e 5 Ttwin9dmS247#0"
+  },
+  {
+   "at_ms": 24752,
+   "node": "n106",
+   "command": "send_e2e 9 Ttwin9dmS106#1"
+  },
+  {
+   "at_ms": 25938,
+   "node": "n247",
+   "command": "send_e2e 3 Ttwin9dmS247#1"
+  },
+  {
+   "at_ms": 26204,
+   "node": "n247",
+   "command": "send_e2e 5 Ttwin9dmS247#2"
+  },
+  {
+   "at_ms": 26621,
+   "node": "n54",
+   "command": "send_e2e 6 Ttwin9dmS54#0"
+  },
+  {
+   "at_ms": 27061,
+   "node": "n106",
+   "command": "send_e2e 2 Ttwin9dmS106#2"
+  },
+  {
+   "at_ms": 40457,
+   "node": "n79",
+   "command": "send_e2e 9 Ttwin9dmS79#0"
+  },
+  {
+   "at_ms": 42918,
+   "node": "n106",
+   "command": "send_e2e 5 Ttwin9dmS106#3"
+  },
+  {
+   "at_ms": 47139,
+   "node": "n247",
+   "command": "send_e2e 5 Ttwin9dmS247#3"
+  },
+  {
+   "at_ms": 50470,
+   "node": "n247",
+   "command": "send_e2e 8 Ttwin9dmS247#4"
+  },
+  {
+   "at_ms": 52149,
+   "node": "n79",
+   "command": "send_e2e 1 Ttwin9dmS79#1"
+  },
+  {
+   "at_ms": 56607,
+   "node": "n204",
+   "command": "send_e2e 2 Ttwin9dmS204#1"
+  },
+  {
+   "at_ms": 57212,
+   "node": "n48",
+   "command": "send_e2e 8 Ttwin9dmS48#0"
+  },
+  {
+   "at_ms": 58039,
+   "node": "n48",
+   "command": "send_e2e 9 Ttwin9dmS48#1"
+  },
+  {
+   "at_ms": 58665,
+   "node": "n170",
+   "command": "send_e2e 2 Ttwin9dmS170#0"
+  },
+  {
+   "at_ms": 59206,
+   "node": "n170",
+   "command": "send_e2e 2 Ttwin9dmS170#1"
+  },
+  {
+   "at_ms": 65083,
+   "node": "n156",
+   "command": "send_e2e 8 Ttwin9dmS156#0"
+  },
+  {
+   "at_ms": 68420,
+   "node": "n48",
+   "command": "send_e2e 6 Ttwin9dmS48#2"
+  },
+  {
+   "at_ms": 69132,
+   "node": "n170",
+   "command": "send_e2e 2 Ttwin9dmS170#2"
+  },
+  {
+   "at_ms": 69873,
+   "node": "n170",
+   "command": "send_e2e 3 Ttwin9dmS170#3"
+  },
+  {
+   "at_ms": 73261,
+   "node": "n138",
+   "command": "send_e2e 8 Ttwin9dmS138#1"
+  },
+  {
+   "at_ms": 77428,
+   "node": "n204",
+   "command": "send_e2e 3 Ttwin9dmS204#2"
+  },
+  {
+   "at_ms": 77533,
+   "node": "n247",
+   "command": "send_e2e 1 Ttwin9dmS247#5"
+  },
+  {
+   "at_ms": 78688,
+   "node": "n204",
+   "command": "send_e2e 2 Ttwin9dmS204#3"
+  },
+  {
+   "at_ms": 82419,
+   "node": "n156",
+   "command": "send_e2e 7 Ttwin9dmS156#1"
+  },
+  {
+   "at_ms": 84138,
+   "node": "n156",
+   "command": "send_e2e 9 Ttwin9dmS156#2"
+  },
+  {
+   "at_ms": 84847,
+   "node": "n79",
+   "command": "send_e2e 1 Ttwin9dmS79#2"
+  },
+  {
+   "at_ms": 86806,
+   "node": "n79",
+   "command": "send_e2e 1 Ttwin9dmS79#3"
+  },
+  {
+   "at_ms": 93252,
+   "node": "n247",
+   "command": "send_e2e 8 Ttwin9dmS247#6"
+  },
+  {
+   "at_ms": 95198,
+   "node": "n170",
+   "command": "send_e2e 1 Ttwin9dmS170#4"
+  },
+  {
+   "at_ms": 101828,
+   "node": "n156",
+   "command": "send_e2e 4 Ttwin9dmS156#3"
+  },
+  {
+   "at_ms": 101937,
+   "node": "n247",
+   "command": "send_e2e 6 Ttwin9dmS247#7"
+  },
+  {
+   "at_ms": 102722,
+   "node": "n204",
+   "command": "send_e2e 5 Ttwin9dmS204#4"
+  },
+  {
+   "at_ms": 105735,
+   "node": "n79",
+   "command": "send_e2e 7 Ttwin9dmS79#4"
+  },
+  {
+   "at_ms": 107397,
+   "node": "n156",
+   "command": "send_e2e 2 Ttwin9dmS156#4"
+  },
+  {
+   "at_ms": 109313,
+   "node": "n106",
+   "command": "send_e2e 6 Ttwin9dmS106#4"
+  },
+  {
+   "at_ms": 109647,
+   "node": "n138",
+   "command": "send_e2e 4 Ttwin9dmS138#2"
+  },
+  {
+   "at_ms": 111327,
+   "node": "n79",
+   "command": "send_e2e 2 Ttwin9dmS79#5"
+  },
+  {
+   "at_ms": 111603,
+   "node": "n204",
+   "command": "send_e2e 3 Ttwin9dmS204#5"
+  },
+  {
+   "at_ms": 113880,
+   "node": "n54",
+   "command": "send_e2e 4 Ttwin9dmS54#1"
+  },
+  {
+   "at_ms": 115568,
+   "node": "n79",
+   "command": "send_e2e 5 Ttwin9dmS79#6"
+  },
+  {
+   "at_ms": 119782,
+   "node": "n247",
+   "command": "send_e2e 3 Ttwin9dmS247#8"
+  },
+  {
+   "at_ms": 121089,
+   "node": "n106",
+   "command": "send_e2e 8 Ttwin9dmS106#5"
+  },
+  {
+   "at_ms": 121306,
+   "node": "n54",
+   "command": "send_e2e 7 Ttwin9dmS54#2"
+  },
+  {
+   "at_ms": 128715,
+   "node": "n106",
+   "command": "send_e2e 3 Ttwin9dmS106#6"
+  },
+  {
+   "at_ms": 131835,
+   "node": "n156",
+   "command": "send_e2e 3 Ttwin9dmS156#5"
+  },
+  {
+   "at_ms": 132915,
+   "node": "n106",
+   "command": "send_e2e 6 Ttwin9dmS106#7"
+  },
+  {
+   "at_ms": 134084,
+   "node": "n54",
+   "command": "send_e2e 8 Ttwin9dmS54#3"
+  },
+  {
+   "at_ms": 135530,
+   "node": "n204",
+   "command": "send_e2e 1 Ttwin9dmS204#6"
+  },
+  {
+   "at_ms": 137136,
+   "node": "n48",
+   "command": "send_e2e 5 Ttwin9dmS48#3"
+  },
+  {
+   "at_ms": 139920,
+   "node": "n156",
+   "command": "send_e2e 2 Ttwin9dmS156#6"
+  }
+ ],
+ "expect": [],
+ "_id_map": {
+  "48": 1,
+  "54": 2,
+  "79": 3,
+  "106": 4,
+  "138": 5,
+  "156": 6,
+  "170": 7,
+  "204": 8,
+  "247": 9
+ }
+}

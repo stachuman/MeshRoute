@@ -624,6 +624,29 @@ void Node::nav_arm(uint32_t duration_ms) {
     if (until > _nav_until_ms) _nav_until_ms = until;   // extend; never shorten
 }
 
+// spec 2026-06-28: mid-handshake (awaiting_cts/awaiting_ack), we overheard our NEXT-HOP get reserved for `reserve_ms`
+// -> our CTS/ACK can't come until it clears. PUSH our pending timeout past the reserve (extend-only) WITHOUT burning a
+// retry (a yield is not an attempt) so the retry fires on a FREE medium, not blind during the reserve. SAFETY: bounded
+// by the flight's total-lifetime giveup horizon (enqueue_time_ms + cascade_requeue_total_max_ms) -> a saturated cell
+// can't make us yield forever; past the horizon we DON'T yield and the normal timeout->retry->cascade->giveup runs.
+bool Node::reserve_yield(uint32_t reserve_ms) {
+    if (!_active->_pending_tx) return false;
+    PendingTx& pt = *_active->_pending_tx;
+    const uint32_t timer_id = pt.awaiting_cts ? kRtsTimeoutTimerId
+                            : (pt.awaiting_ack ? kAckTimeoutTimerId : 0u);
+    if (timer_id == 0u) return false;                                          // not mid-handshake
+    const uint64_t now     = _hal.now();
+    const uint64_t horizon = pt.enqueue_time_ms + protocol::cascade_requeue_total_max_ms;   // the flight's giveup ceiling
+    if (now >= horizon) return false;                                          // past lifetime -> let it cascade/giveup (no infinite yield)
+    uint64_t deadline = now + reserve_ms;
+    if (deadline < pt.timeout_deadline_ms) deadline = pt.timeout_deadline_ms;  // EXTEND-ONLY (never shorten an already-later timeout)
+    if (deadline > horizon)               deadline = horizon;                  // clamp to the giveup ceiling (bounded politeness)
+    (void)_hal.after(static_cast<uint32_t>(deadline - now), timer_id);         // re-arm the SAME timeout, later — retries_left / retry_attempt UNTOUCHED
+    pt.timeout_deadline_ms = deadline;
+    MR_EMIT("reserve_yield", EF_I("reserve_ms", reserve_ms), EF_I("awaiting", pt.awaiting_cts ? 1 : 2));
+    return true;
+}
+
 // Stash a busy-channel deferred TX in a free ring slot + arm its own timer (kLbtDeferTimerId + slot), so
 // concurrent defers each fire independently (Lua per-closure semantics). false = ring full (rare; >4 defers).
 bool Node::schedule_lbt_defer(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind,
@@ -952,7 +975,9 @@ void Node::start_rts_timeout() {
     const uint8_t  attempt = static_cast<uint8_t>(protocol::rts_max_retries -
                               (_active->_pending_tx ? _active->_pending_tx->retries_left : 0));
     const uint32_t shift = attempt < 2 ? attempt : 2;                       // x2 backoff, cap x4
-    (void)_hal.after((base << shift) + 1, kRtsTimeoutTimerId);
+    const uint32_t delay = (base << shift) + 1;
+    (void)_hal.after(delay, kRtsTimeoutTimerId);
+    if (_active->_pending_tx) _active->_pending_tx->timeout_deadline_ms = _hal.now() + delay;   // for reserve_yield's extend-only push
 }
 void Node::start_ack_timeout() {
     const uint8_t  sf  = _active->_pending_tx ? _active->_pending_tx->chosen_data_sf : max_data_sf();  // pending always set here
@@ -967,6 +992,7 @@ void Node::start_ack_timeout() {
                         + airtime_routing_ms(3)
                         + _hal.rx_window_slop_ms(sf) + _hal.rx_window_slop_ms(_cfg.routing_sf);
     (void)_hal.after(base + 2, kAckTimeoutTimerId);
+    if (_active->_pending_tx) _active->_pending_tx->timeout_deadline_ms = _hal.now() + base + 2;   // for reserve_yield's extend-only push
 }
 void Node::start_pending_rx_expiry(uint8_t payload_len) {
     const uint8_t  sf  = _active->_pending_rx ? _active->_pending_rx->chosen_data_sf : max_data_sf();  // pending always set here

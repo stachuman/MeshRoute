@@ -21,7 +21,11 @@ def direct_neighbours(routes):
 
 def build(manager):
     """`routes` on every responsive node -> {node_id: {neighbour_id: score_q4}} (DIRECTED: key HEARS value)."""
-    res = manager.broadcast("routes", "[routes]", timeout=3.0)
+    # Marker = the TERMINATOR "[routes] end", NOT "[routes]" — the latter also matches the header "[routes] n=N",
+    # so collect_burst would finish phase 1 on the header and leave the whole list to its fragile quiet-gap tail
+    # (a slow node with many routes then truncates mid-list — dropping its LAST direct links). Keying on the
+    # terminator makes the read deadline-bound, capturing every route regardless of inter-line stalls.
+    res = manager.broadcast("routes", "[routes] end", timeout=5.0)
     return {n.node_id: direct_neighbours(parsers.parse_routes(res.get(n.port, [])))
             for n in manager.responsive()}
 
