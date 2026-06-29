@@ -227,6 +227,43 @@ int Node::mark_neighbor_budget_tier(uint8_t node_id, uint8_t tier, const char* s
     return reranked;
 }
 
+// Bidirectionality plane (2026-06-29): a LOCAL confirmation that next_hop hears us (a real CTS to our flight, or a
+// complete-heard-set present hit). Set confirmed + stamp the dedicated decay source, then fan out via the
+// resort_routes_for_neighbor_penalty pattern so a recovery re-sorts + re-dirties + re-advertises. Emits link_recover
+// when the link was previously one_way (the §7 recovery signal). No penalty rides effective_score yet (Slice 4).
+void Node::note_link_confirmed(uint8_t next_hop) {
+    if (next_hop == 0 || next_hop == 0xFF) return;
+    const bool was_one_way = _active->_link_bidi[next_hop] == static_cast<uint8_t>(LinkBidi::one_way);
+    _active->_link_bidi[next_hop]              = static_cast<uint8_t>(LinkBidi::confirmed);
+    _active->_link_bidi_confirmed_ms[next_hop] = _hal.now();
+    resort_routes_for_neighbor_penalty(next_hop, "link_bidi_confirm", /*local_only=*/false);
+    MR_EMIT("link_bidi_confirm", EF_I("next_hop", next_hop));
+    if (was_one_way) MR_EMIT("link_recover", EF_I("next_hop", next_hop));
+}
+
+// Bidirectionality plane: a confirmed link whose last confirmation is older than bidi_confirm_ttl_ms decays to
+// UNKNOWN — selectable + unpenalized again (a quiet-but-functional link must not self-degrade). MF6: it NEVER decays
+// to one_way (that requires positive absent+complete heard-set evidence, set only by update_link_bidi_from_beacon).
+// unknown/one_way slots are left as-is. DEFERRED: decay_link_bidi has NO wired caller in this initiative — it is a
+// no-op for routing (confirmed and unknown are selection-equivalent, both 0 penalty), so a stale confirmed costs nothing.
+// Kept for MF6-correctness; wire a lazy caller (e.g. inside candidate_degraded) ONLY if a future feature treats confirmed != unknown.
+void Node::decay_link_bidi(uint8_t next_hop) {
+    if (_active->_link_bidi[next_hop] != static_cast<uint8_t>(LinkBidi::confirmed)) return;
+    const uint64_t now = _hal.now();
+    const uint64_t conf = _active->_link_bidi_confirmed_ms[next_hop];
+    if (now - conf >= protocol::bidi_confirm_ttl_ms)
+        _active->_link_bidi[next_hop] = static_cast<uint8_t>(LinkBidi::unknown);
+}
+
+// Bidirectionality plane (MF5/OI1): the LIVE effective degraded state of a candidate — the wire-inherited component
+// (a fact about what the advertiser said, stored on the candidate) OR-ed with the local one_way verdict (recomputed
+// from _link_bidi every call). NEVER a sticky cached bool: a stuck-degraded cache would never clear on recovery and
+// defeat §7. Read by select (Slice 4) + advertise (Slice 5); no caller consumes it in this state-only slice.
+bool Node::candidate_degraded(const RtCandidate& c) const {
+    return c.degraded_from_wire
+        || _active->_link_bidi[c.next_hop] == static_cast<uint8_t>(LinkBidi::one_way);
+}
+
 Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand) {
     // ① never STORE a route that relays THROUGH a mobile peer (it roams away) — but deliver TO a mobile is fine
     // (the next_hop==dest carve-out inside the predicate). Hard skip, NOT a score penalty (Lua dv:4583).

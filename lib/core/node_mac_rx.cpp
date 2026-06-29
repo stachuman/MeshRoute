@@ -334,6 +334,7 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (c.tx_id != _active->_pending_tx->next) return;
     // Learn the CTS sender (= our next-hop) as a 1-hop neighbour (Lua learn_rx_source / cts_frame).
     if (learn_direct_neighbor(c.tx_id, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
+    note_link_confirmed(c.tx_id);                        // bidi plane: a real CTS proves our next-hop hears us -> confirmed (clears any one_way + emits link_recover)
     _hal.cancel(kRtsTimeoutTimerId);                     // else it fires same-tick and burns a retry
     _hal.cancel(kRetryBackoffTimerId);                   // drop a stale retry armed by a just-fired rts_timeout
     _active->_pending_tx->awaiting_cts = false;

@@ -144,6 +144,13 @@ inline constexpr uint32_t peer_dead_evidence_window_ms = 900000;
 inline constexpr int16_t  peer_suspect_penalty_q4      = 192;   // 12.0 dB
 inline constexpr int16_t  peer_silent_penalty_q4       = 640;   // 40.0 dB
 inline constexpr int16_t  peer_dead_penalty_q4         = 1280;  // 80.0 dB
+// ---- Asymmetric-link bidirectionality plane (2026-06-29 design) ------------
+inline constexpr int16_t  bidi_penalty_one_way_q4   = peer_silent_penalty_q4;   // 640 Q4 seed — one_way sorts below
+                                                                                // any viable confirmed/unknown route
+                                                                                // (fallback peer_suspect_penalty_q4=192 if metal strands good-RF one-way routes).
+inline constexpr uint64_t bidi_confirm_ttl_ms       = next_hop_live_ttl_ms;     // 1200000 — confirmed decays to UNKNOWN past this
+inline constexpr uint64_t link_reprobe_ttl_ms       = 60000;                    // slow-reprobe: one RTS per TTL on a one-way sole route
+inline constexpr uint8_t  heard_set_census_min_headroom = 4;                    // census engages only if the full hops==1 set fits leaving >= this many beacon slots
 inline constexpr uint8_t  peer_suspect_bcn_max         = 8;     // §P4: max suspect ids advertised per BCN (dv:1376; also clamped by the 4-bit TLV len <=15)
 inline constexpr uint8_t  peer_liveness_state_bcn_max  = 7;     // §P4: type-2 LIVENESS_STATE cap — 2B/entry must fit the 4-bit TLV len (2*7=14<=15). The Lua wraps at >=8 dead peers (shared bug, dv:1376); we clamp.
 inline constexpr uint8_t  cap_peer_liveness            = 64;    // bounded per-LayerRuntime liveness table (direct-neighbour set); LRU-evict oldest dest_seen

@@ -179,6 +179,12 @@ struct NodeConfig {
     LayerConfig layers[2];
 };
 
+// Per-next-hop bidirectionality state (asymmetric-link plane, 2026-06-29). unknown=0 so a zeroed
+// _link_bidi slot defaults to 'not yet probed' (selectable, unpenalized). confirmed = a real CTS or
+// a complete-heard-set hit; one_way = positive absent+complete evidence (NEVER mere staleness — see
+// decay_link_bidi). Packed as a uint8_t array per LayerRuntime (room to grow).
+enum class LinkBidi : uint8_t { unknown = 0, confirmed = 1, one_way = 2 };
+
 // One route candidate (DV). Mirrors the Lua rt[dest].candidates[i] fields
 // (dv_dual_sf.lua:9646-9654). score is Q4 dB. effective_score = score − budget_penalty
 // (R4.2; == score for a HEALTHY-tier next_hop) − suspect_penalty (0, deferred plane).
@@ -190,6 +196,9 @@ struct RtCandidate {
     uint8_t  n2_hop           = 0;   // advertised next-hop (for the R2 3-cycle prune)
     bool     is_gateway       = false;
     uint8_t  learned_layer_id = 0;
+    bool     degraded_from_wire = false;   // the WIRE-inherited degraded component ONLY (a fact about what the
+                                           // advertiser advertised). The LIVE degraded state is recomputed as
+                                           // degraded_from_wire || _link_bidi[next_hop]==one_way (candidate_degraded) — NEVER a sticky OR.
 };
 struct RtEntry {
     uint8_t     dest = 0;
@@ -478,11 +487,17 @@ public:
         return false;
     }
     int16_t peer_penalty_q4(uint8_t node_id) const { return liveness_penalty_q4(node_id); }   // liveness (suspect/silent/dead) penalty on a next-hop; routes dump shows effective = score - pen
+    LinkBidi          link_bidi_state(uint8_t node_id) const { return static_cast<LinkBidi>(_active->_link_bidi[node_id]); }  // bidi plane read (test/status); unknown for any unprobed link
+    uint64_t          link_bidi_confirmed_ms(uint8_t node_id) const { return _active->_link_bidi_confirmed_ms[node_id]; }    // last-confirmation ms (test/status); 0 = never confirmed
     // A heard 1-hop gateway's stored window schedule (nullptr if none known) + the ms to defer an RTS to its window.
     // For the `routes` console dump: surface a gateway route's unique state (period / per-leaf windows / heard-age).
     const GatewaySchedule* rt_gateway_schedule(uint8_t gw_node_id) const { return find_gw_schedule(gw_node_id); }
     uint32_t          rt_gateway_defer_ms(uint8_t gw_node_id) const       { return gateway_schedule_base_defer_ms(gw_node_id, nullptr); }  // base (no jitter) — stable display
     void              rt_resort_for_pick(uint8_t dest) { refresh_route_order(dest, "test_pick"); }   // test: force the pick-time re-sort (freshness/penalty applied)
+    void    note_link_confirmed(uint8_t next_hop);   // local bidi confirm (real CTS / complete-heard-set hit): set confirmed + stamp + fan out
+    void    decay_link_bidi(uint8_t next_hop);   // confirmed + stale past bidi_confirm_ttl_ms -> unknown (MF6: NEVER -> one_way)
+    void    set_link_bidi_for_test(uint8_t next_hop, LinkBidi v) { _active->_link_bidi[next_hop] = static_cast<uint8_t>(v); }  // test seam: seed a bidi state directly
+    bool    candidate_degraded(const RtCandidate& c) const;   // LIVE: c.degraded_from_wire || _link_bidi[c.next_hop]==one_way (never a sticky cache, MF5/OI1)
     size_t            test_build_suspect_ext(uint8_t* out, size_t cap) { return build_suspect_ext(out, cap); }                 // §P4 test: drive the gossip encoder
     void              test_apply_suspect_gossip(const SuspectEntry* e, uint8_t n, uint8_t src) { apply_suspect_gossip(e, n, src); }   // §P4 test: drive the gossip apply
     bool              has_pending_tx() const { return _active->_pending_tx.has_value(); }
@@ -1113,6 +1128,12 @@ private:
         // — decoupled from the bounded _peer_liveness table so seen-bitmap gossip can keep ANY peer fresh (the
         // create=false piggyback starved gossip-only peers). is_next_hop_fresh reads this. 0 = never seen.
         uint64_t      _dest_seen_ms[256] = {};
+        // Bidirectionality plane (asymmetric-link routing, 2026-06-29). Index = node_id, value = a LinkBidi.
+        // Zero-init => every link defaults to 'unknown' (selectable, unpenalized). FULL 0..254 range, NO eviction
+        // (like _dest_seen_ms) so a gossip-only or quiet peer keeps its state. _link_bidi_confirmed_ms is the
+        // DEDICATED decay source — last real-CTS / complete-heard-set confirmation time (do NOT overload _dest_seen_ms).
+        uint8_t       _link_bidi[256] = {};
+        uint64_t      _link_bidi_confirmed_ms[256] = {};
         // ① mobile-peer set (Lua mobile_peers@1325): 1 bit per node_id, SET-only (is_mobile is a static per-node config,
         // never flips at runtime — Lua dv:9603-9604 sets, never clears). Eviction-free (unlike _peer_liveness) so a
         // gossip-only mobile is still avoided. 256 bits = 32 B/layer. Read by is_mobile_peer.

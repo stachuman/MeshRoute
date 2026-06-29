@@ -3671,3 +3671,138 @@ TEST_CASE("R6.3 §7c — a foreign wire_version beacon is refused + rate-limited
     h._now = 3000; n.on_recv(ok.data(), okn, meta);
     CHECK(h.count("join_refused") == 1);                             // unchanged
 }
+
+// ============================================================================
+// SLICE 2 (asymmetric-link-aware routing, 2026-06-29): store the bidi plane.
+// State-only / delivery-neutral: no penalty rides effective_score yet.
+// ============================================================================
+
+TEST_CASE("bidi constants — LinkBidi zero-default + constant seeds") {
+    using namespace meshroute;
+    // LinkBidi: unknown MUST be 0 so a zeroed _link_bidi slot reads as 'unknown'.
+    CHECK(static_cast<uint8_t>(LinkBidi::unknown) == 0);
+    CHECK(static_cast<uint8_t>(LinkBidi::confirmed) == 1);
+    CHECK(static_cast<uint8_t>(LinkBidi::one_way) == 2);
+    // Seeds (contract): one_way penalty == peer_silent_penalty_q4 (640 Q4).
+    CHECK(protocol::bidi_penalty_one_way_q4 == protocol::peer_silent_penalty_q4);
+    CHECK(protocol::bidi_penalty_one_way_q4 == 640);
+    // Confirmation freshness TTL == next_hop_live_ttl_ms (20 min).
+    CHECK(protocol::bidi_confirm_ttl_ms == protocol::next_hop_live_ttl_ms);
+    CHECK(protocol::bidi_confirm_ttl_ms == 1200000u);
+    // Slow-reprobe TTL + census headroom seeds.
+    CHECK(protocol::link_reprobe_ttl_ms == 60000u);
+    CHECK(protocol::heard_set_census_min_headroom == 4);
+}
+
+TEST_CASE("bidi state — _link_bidi defaults to unknown; degraded_from_wire defaults false") {
+    using namespace meshroute;
+    TestHal hal;                                  // defined at top of test_node_r3.cpp
+    Node node(hal, /*node_id=*/7, /*key_hash32=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.peer_count = 0;
+    node.on_init(cfg);
+    // A zero-initialized LayerRuntime: every link reads 'unknown'.
+    CHECK(node.link_bidi_state(0)   == LinkBidi::unknown);
+    CHECK(node.link_bidi_state(42)  == LinkBidi::unknown);
+    CHECK(node.link_bidi_state(254) == LinkBidi::unknown);
+    // RtCandidate's new wire-inherited field defaults false (a value-initialized candidate).
+    RtCandidate c{};
+    CHECK(c.degraded_from_wire == false);
+}
+
+TEST_CASE("bidi note_link_confirmed — sets confirmed + stamps confirmed_ms") {
+    using namespace meshroute;
+    TestHal hal;
+    Node node(hal, /*node_id=*/7, /*key_hash32=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.peer_count = 0;
+    node.on_init(cfg);
+    hal._now = 500000;
+    CHECK(node.link_bidi_state(9) == LinkBidi::unknown);
+    node.note_link_confirmed(9);
+    CHECK(node.link_bidi_state(9) == LinkBidi::confirmed);
+    CHECK(node.link_bidi_confirmed_ms(9) == 500000u);
+    // A later re-confirm refreshes the timestamp (still confirmed).
+    hal._now = 700000;
+    node.note_link_confirmed(9);
+    CHECK(node.link_bidi_state(9) == LinkBidi::confirmed);
+    CHECK(node.link_bidi_confirmed_ms(9) == 700000u);
+    // Other links untouched.
+    CHECK(node.link_bidi_state(8) == LinkBidi::unknown);
+}
+
+TEST_CASE("bidi decay_link_bidi — confirmed decays to UNKNOWN past TTL, never to one_way") {
+    using namespace meshroute;
+    TestHal hal;
+    Node node(hal, /*node_id=*/7, /*key_hash32=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.peer_count = 0;
+    node.on_init(cfg);
+    hal._now = 100000;
+    node.note_link_confirmed(9);                                   // confirmed @ 100000
+    // Not yet stale: just under the TTL -> stays confirmed.
+    hal._now = 100000 + protocol::bidi_confirm_ttl_ms - 1;
+    node.decay_link_bidi(9);
+    CHECK(node.link_bidi_state(9) == LinkBidi::confirmed);
+    // At/over the TTL: confirmed -> UNKNOWN (MF6: never one_way — staleness is not positive absence evidence).
+    hal._now = 100000 + protocol::bidi_confirm_ttl_ms;
+    node.decay_link_bidi(9);
+    CHECK(node.link_bidi_state(9) == LinkBidi::unknown);
+    // A one_way link is NOT touched by decay (positive evidence persists until gossip/CTS flips it).
+    TestHal hal2;
+    Node n2(hal2, /*node_id=*/7, /*key_hash32=*/0xABCD);
+    n2.on_init(cfg);
+    n2.set_link_bidi_for_test(5, LinkBidi::one_way);               // test seam
+    hal2._now = 99999999;                                         // way past any TTL
+    n2.decay_link_bidi(5);
+    CHECK(n2.link_bidi_state(5) == LinkBidi::one_way);
+}
+
+TEST_CASE("bidi candidate_degraded — live OR of wire-inherited bit and local one_way") {
+    using namespace meshroute;
+    TestHal hal;
+    Node node(hal, /*node_id=*/7, /*key_hash32=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.peer_count = 0;
+    node.on_init(cfg);
+    RtCandidate c{}; c.next_hop = 9; c.score = 0; c.hops = 2;
+    // Neither component set -> not degraded.
+    CHECK(node.candidate_degraded(c) == false);
+    // Wire-inherited bit alone -> degraded.
+    c.degraded_from_wire = true;
+    CHECK(node.candidate_degraded(c) == true);
+    // Clear the wire bit; mark the local link one_way -> degraded (the LIVE component).
+    c.degraded_from_wire = false;
+    node.set_link_bidi_for_test(9, LinkBidi::one_way);
+    CHECK(node.candidate_degraded(c) == true);
+    // confirmed local link, no wire bit -> NOT degraded (recomputed live, no stuck-degraded cache).
+    node.set_link_bidi_for_test(9, LinkBidi::confirmed);
+    CHECK(node.candidate_degraded(c) == false);
+    // unknown local link, no wire bit -> NOT degraded.
+    node.set_link_bidi_for_test(9, LinkBidi::unknown);
+    CHECK(node.candidate_degraded(c) == false);
+}
+
+TEST_CASE("bidi hook — a real CTS from our flight's next-hop confirms the link") {
+    using namespace meshroute;
+    TestHal hal;
+    Node node(hal, /*node_id=*/7, /*key_hash32=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.peer_count = 0;
+    cfg.allowed_sf_bitmap = (1u << 7);                 // permit a data SF so a flight can arm
+    node.on_init(cfg);
+    hal._now = 1000;
+    // Install a route to dest 20 via next-hop 9 and originate a DM so a pending_tx awaits a CTS from 9.
+    CHECK(node.route_inject(/*dest=*/20, /*next_hop=*/9, /*hops=*/2, /*score_q4=*/(12 << 4)));
+    send_cmd(node, /*dst=*/20, "x");                   // originate via the public send_cmd helper (do_send is private)
+    CHECK(node.has_pending_tx());
+    CHECK(node.link_bidi_state(9) == LinkBidi::unknown);
+    // The real handle_cts flight-match is rx_id==self && tx_id==next (ctr_lo match was dropped — see
+    // node_mac_rx.cpp:330): a CTS from 9 (tx_id=9) clearing us (rx_id=7) pins our flight. Use the existing
+    // mk_cts idiom (the same one the RTS->CTS->DATA flight tests above use).
+    std::array<uint8_t, 8> cb{};
+    const size_t cn = mk_cts(/*rx_id=*/7, /*tx_id=*/9, /*data_sf=*/7, cb);
+    CHECK(cn > 0);
+    if (cn > 0) {
+        RxMeta meta{8.0f, -80.0f, 0, -1};
+        hal._now = 1100;
+        node.on_recv(cb.data(), cn, meta);
+        // The real CTS from our next-hop confirms 9 is bidirectional.
+        CHECK(node.link_bidi_state(9) == LinkBidi::confirmed);
+    }
+}
