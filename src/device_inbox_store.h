@@ -298,14 +298,35 @@ bool DeviceInboxStore::qspi_seg_size(uint16_t idx, uint32_t* size) const {
 bool DeviceInboxStore::qspi_seg_append(uint16_t idx, const uint8_t* b, uint16_t n) {
     using namespace Adafruit_LittleFS_Namespace;
     char p[40]; seg_path(idx, p, sizeof p);
-    // ADDENDUM 4 (2026-06-25): REVERTED ADDENDUM 3 — the inbox was NEVER the corruptor. The DWT watchpoint named the
-    // real root cause as a loop-task STACK OVERFLOW in do_post_ack (route_strictly_better's prologue tipped past the
-    // 4 KB FreeRTOS loop stack into the adjacent heap ArduinoHal), not this heap File path. Adafruit File::close is
-    // idempotent (no double-free) and the per-record malloc/free is fine. So this stays the simple, correct File path.
-    File f(QSPIFlash); if (!f.open(p, FILE_O_WRITE)) return false;
-    f.seek(f.size());
-    const size_t w = f.write(b, n);
-    f.close(); return w == n;
+    // ADDENDUM 3 RE-APPLIED (2026-06-29): keep the hot do_post_ack append OFF THE HEAP. The Adafruit `File` path
+    // malloc's the lfs file cache (prog_size) + the handle on EVERY append, churning the heap right next to the radio's
+    // heap-`new`'d ArduinoHal -> a vtable-word corruption = the jump-to-0x0 (the WATCHPOINT/SPItransferStream crash).
+    // ADDENDUM 4's STACK-OVERFLOW theory was REFUTED on metal (`status` reported stackhw=1540 B free on the current
+    // build, AND the static-buffer do_post_ack fix was flashed, yet it STILL crashed at 32m50s) -> so the heap-churn
+    // hypothesis is re-promoted, and the canary's "do_post_ack/timer-9" finding (its only device-only branch is this
+    // inbox store) points right here. Raw lfs with a STATIC caller-owned cache removes the allocation entirely. The
+    // static handle/cache are safe: qspi_seg_append runs only in the single loop task (record_dm/record_channel), never
+    // reentrant. (SOAK to confirm: if the crash stops past the ~33-min MTBF, the inbox heap churn was the corruptor.)
+    static uint8_t         s_cache[512];                            // >= prog_size (LFS_DEFAULT_BLOCK_SIZE=128, QSPI page <=256); guarded below
+    static lfs_file_t      s_file;
+    static lfs_file_config s_cfg = { s_cache };
+    lfs_t* fs = QSPIFlash._getFS();
+    if (!fs || fs->cfg->prog_size > sizeof(s_cache)) {              // fail-safe: cache too small -> the (heap) File path, never an overrun
+        File f(QSPIFlash); if (!f.open(p, FILE_O_WRITE)) return false;
+        f.seek(f.size()); const size_t w = f.write(b, n); f.close(); return w == n;
+    }
+    // Take the same FS mutex the Adafruit File path holds — so the ONLY variable vs the File path is the heap alloc
+    // (clean soak test of the heap-churn hypothesis), not the locking. FS access is loop-task-only today; defensive.
+    QSPIFlash._lockFS();
+    bool ok = false;
+    if (lfs_file_opencfg(fs, &s_file, p, LFS_O_RDWR | LFS_O_CREAT, &s_cfg) >= 0) {   // FILE_O_WRITE == RDWR|CREAT (no truncate)
+        lfs_file_seek(fs, &s_file, 0, LFS_SEEK_END);               // -> APPEND at the segment end
+        const lfs_ssize_t w = lfs_file_write(fs, &s_file, b, n);
+        lfs_file_close(fs, &s_file);
+        ok = (w == static_cast<lfs_ssize_t>(n));
+    }
+    QSPIFlash._unlockFS();
+    return ok;
 }
 uint32_t DeviceInboxStore::qspi_seg_read(uint16_t idx, uint8_t* out, uint32_t cap) const {
     using namespace Adafruit_LittleFS_Namespace;

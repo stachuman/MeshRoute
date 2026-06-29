@@ -1664,3 +1664,101 @@ TEST_CASE("BCN §7c — wire_version in byte-3 low nibble; round-trips + readabl
     auto o2 = parse_beacon(std::span<const uint8_t>(buf.data(), n));
     if (o2) CHECK(o2->wire_version == 2);                             // readable even when the format would differ
 }
+
+// ── Asymmetric-link-aware routing, SLICE 1: the two inert wire bits ───────────
+TEST_CASE("BCN — route-entry degraded bit (byte-2 b3) round-trips, default 0, leaves score/gw untouched") {
+    beacon_entry ents[2] = {
+        {0x05, 0x07, 0xC, false, 2},   // degraded defaults false in struct
+        {0x09, 0x07, 0xA, true,  3},
+    };
+    ents[0].degraded = true;
+    beacon_in in{};
+    in.leaf_id = 3; in.src = 0x11; in.key_hash32 = 0xDEADBEEF;
+    in.entries = std::span<const beacon_entry>(ents, 2);
+    std::array<uint8_t, 32> buf{};
+    size_t n = pack_beacon(in, buf);
+    CHECK(n == 22);                                          // 8 hdr + 6 leaf-cfg + 2*4 entries, no schedule/bitmap/ext
+    CHECK(buf[16] == 0xC8);   // entry0 byte2 = score(0xC<<4)|degraded(0x08)|gw(0); entries at 14 -> byte2 at 14+2
+    CHECK(buf[20] == 0xA1);   // entry1 byte2 = score(0xA<<4)|gw(0x01), NOT degraded
+    std::span<const uint8_t> fr(buf.data(), n);
+    auto o = parse_beacon(fr);
+    CHECK(o.has_value());
+    if (o) {
+        auto e0 = parse_beacon_entry(fr, *o, 0);
+        CHECK(e0.has_value());
+        if (e0) { CHECK(e0->degraded); CHECK(e0->score_bucket == 0xC); CHECK_FALSE(e0->is_gateway); }
+        auto e1 = parse_beacon_entry(fr, *o, 1);
+        CHECK(e1.has_value());
+        if (e1) { CHECK_FALSE(e1->degraded); CHECK(e1->score_bucket == 0xA); CHECK(e1->is_gateway); }  // default-0 survives
+    }
+}
+
+TEST_CASE("BCN — heard_set_complete flag (byte-3 b4) round-trips and wire_version SURVIVES") {
+    const beacon_entry ents[2] = {
+        {0x05, 0x07, 0xC, false, 2},
+        {0x09, 0x07, 0xA, true,  3},
+    };
+    beacon_in in{};
+    in.leaf_id = 3; in.src = 0x11; in.key_hash32 = 0xDEADBEEF;
+    in.entries = std::span<const beacon_entry>(ents, 2);
+    in.heard_set_complete = true;
+    std::array<uint8_t, 32> buf{};
+    size_t n = pack_beacon(in, buf);
+    CHECK(n == 22);
+    CHECK(buf[3] == uint8_t(0x10 | (protocol::wire_version & 0x0F)));   // complete(b4) | wire_version(b3..0); n_entries_hi=0
+    std::span<const uint8_t> fr(buf.data(), n);
+    auto o = parse_beacon(fr);
+    CHECK(o.has_value());
+    if (o) {
+        CHECK(o->heard_set_complete);
+        CHECK(o->wire_version == protocol::wire_version);   // b3..0 UNTOUCHED by the complete flag (MF1)
+        CHECK(o->n_entries == 2);                           // n_entries_hi (b7..5) untouched
+    }
+    // OLD-FORMAT frame: clear b4, keep wire_version -> parses as not-complete, version intact
+    std::array<uint8_t, 32> old = buf;
+    old[3] = static_cast<uint8_t>(old[3] & ~0x10);          // strip the complete bit (old emitter never set it)
+    auto oo = parse_beacon(std::span<const uint8_t>(old.data(), n));
+    CHECK(oo.has_value());
+    if (oo) {
+        CHECK_FALSE(oo->heard_set_complete);
+        CHECK(oo->wire_version == protocol::wire_version);
+        CHECK(oo->n_entries == 2);
+    }
+}
+
+TEST_CASE("BCN — both new bits coexist; old-format (all-zero new bits) parses clean") {
+    beacon_entry ents[2] = {
+        {0x12, 0x12, 0x7, false, 1},   // a hops==1 direct-neighbour-style entry, flagged degraded
+        {0x40, 0x12, 0x3, false, 2},
+    };
+    ents[0].degraded = true;
+    beacon_in in{};
+    in.leaf_id = 1; in.src = 0x12; in.key_hash32 = 0x01020304;
+    in.entries = std::span<const beacon_entry>(ents, 2);
+    in.heard_set_complete = true;
+    std::array<uint8_t, 32> buf{};
+    size_t n = pack_beacon(in, buf);
+    CHECK(n == 22);
+    std::span<const uint8_t> fr(buf.data(), n);
+    auto o = parse_beacon(fr);
+    CHECK(o.has_value());
+    if (o) {
+        CHECK(o->heard_set_complete);
+        CHECK(o->wire_version == protocol::wire_version);
+        auto e0 = parse_beacon_entry(fr, *o, 0); CHECK(e0.has_value()); if (e0) CHECK(e0->degraded);
+        auto e1 = parse_beacon_entry(fr, *o, 1); CHECK(e1.has_value()); if (e1) CHECK_FALSE(e1->degraded);
+    }
+    // OLD emitter: byte-3 b4 clear AND every entry byte-2 b3 clear -> default-0 reads, payload untouched
+    std::array<uint8_t, 32> old = buf;
+    old[3]  = static_cast<uint8_t>(old[3]  & ~0x10);   // clear complete
+    old[16] = static_cast<uint8_t>(old[16] & ~0x08);   // clear entry0 degraded (byte2 at 14+2)
+    auto oo2 = parse_beacon(std::span<const uint8_t>(old.data(), n));
+    CHECK(oo2.has_value());
+    if (oo2) {
+        CHECK_FALSE(oo2->heard_set_complete);
+        CHECK(oo2->wire_version == protocol::wire_version);
+        auto oe0 = parse_beacon_entry(std::span<const uint8_t>(old.data(), n), *oo2, 0);
+        CHECK(oe0.has_value());
+        if (oe0) { CHECK_FALSE(oe0->degraded); CHECK(oe0->score_bucket == 0x7); }   // payload bits untouched by masking
+    }
+}

@@ -40,7 +40,7 @@ namespace MESHROUTE_NS {
 //   byte 0     : cmd=0x0(7..4) | leaf_id(3..0)        [short cmd code, never 'B']
 //   byte 1     : src (8-bit node_id)
 //   byte 2     : has_schedule(b7)|self_gateway(b6)|is_mobile(b5)|has_seen_bitmap(b4)|has_ext(b3)|n_entries_lo(b2..0)
-//   byte 3     : n_entries_hi(b7..5) | rsv(b4..0)     [n_entries = lo3 | hi3<<3, 0..63]
+//   byte 3     : n_entries_hi(b7..5) | heard_set_complete(b4) | wire_version(b3..0)   [n_entries = lo3 | hi3<<3; b4 = bidi heard-set authoritative-complete; b3..0 carry wire_version — see pack/unpack_beacon, NOT spare]
 //   bytes 4-7  : key_hash32 (LITTLE-ENDIAN u32)
 //   body: [schedule if has_schedule] -> n_entries x 4-B entry -> [32-B seen-bitmap] -> [ext_len + ext bytes]
 //
@@ -48,13 +48,14 @@ namespace MESHROUTE_NS {
 // the ext-TLV block is OPAQUE (ext_len + raw bytes) — the 4 TLV body codecs land
 // with the channel/gateway/liveness iterations. n_entries kept (§10.6 drop deferred).
 
-// Route entry (4 B): dest | next | score_bucket(4 hi)|rsv(3)|is_gateway(b0) | hops(full byte).
+// Route entry (4 B): dest | next | score_bucket(4 hi)|degraded(b3)|rsv(b2..1)|is_gateway(b0) | hops(full byte).
 struct beacon_entry {
     uint8_t dest;
     uint8_t next;
     uint8_t score_bucket;   // 4-bit
     bool    is_gateway;
     uint8_t hops;           // full byte (1..255)
+    bool    degraded = false;   // WIRE = byte-2 b3 (one of the free rsv bits b3..1); one-way / transitively-bad next-hop
 };
 
 // Schedule record (4 B): b0 = layer_id(4 hi)|(routing_sf-5)(b3..1)|period_unit_5s(b0);
@@ -82,6 +83,7 @@ struct beacon_in {
     uint8_t  leaf_id;
     bool     self_gateway;
     bool     is_mobile;
+    bool     heard_set_complete = false;   // WIRE = byte-3 b4 ONLY: all hops==1 entries present this beacon (bidi census authoritative)
     uint8_t  src;
     uint32_t key_hash32;
     uint16_t lineage_id   = 0;     // R6.1: 0 = UNMANAGED leaf (peer-by-config_hash, backward-compat); else the operator-minted lineage
@@ -106,6 +108,7 @@ uint8_t beacon_max_entries(size_t frame_cap, size_t sched_bytes, size_t bitmap_b
 struct beacon_out {
     uint8_t  leaf_id; bool self_gateway; bool is_mobile; uint8_t src; uint32_t key_hash32;
     uint8_t  wire_version;   // §7c: byte-3 low nibble — cross-version handshake (checked before the format-dependent parse)
+    bool     heard_set_complete = false;   // WIRE = byte-3 b4 ONLY (independent of wire_version b3..0)
     uint16_t lineage_id; uint16_t config_epoch; uint16_t config_hash;   // R6.1 leaf-config header (u16×3 = 6 B)
     bool     has_schedule; uint8_t gateway_spread_nibble; uint8_t schedule_count;
     uint8_t  n_entries; bool has_seen_bitmap; bool has_ext;

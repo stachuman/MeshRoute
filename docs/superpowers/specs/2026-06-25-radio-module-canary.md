@@ -143,3 +143,21 @@ Implemented the parts of ADDENDUM 4 that are unambiguous + verified, and correct
 **Deferred (bench-gated, per the spec's own item 3):** the dedicated bigger-stack task. No `Scheduler` library exists in this BSP, so it would be a raw `xTaskCreate(mesh_loop, …, 8192, …)` — a threading-model change (which task then services console/BLE/USB). Hold it until the **`stackhw=` reading after the frame-shrink** says whether ~480 B of recovered headroom is enough. ★ NEXT BENCH: flash, `rcmd <id> status` (or local `status`) → read `stackhw=` under the weak-link SF9 DM repro; if it stays comfortably > a few hundred bytes and no `WATCHPOINT`/`CANARY`/`HARDFAULT` fires, the frame-shrink sufficed and the canary+DWT+inbox-revert-instruments can come out. If thin, escalate to the dedicated task.
 
 Gate: native 521/521 · s18 98/113 (identical) · all 4 boards + production build SUCCESS · 4-lens audit GO.
+
+---
+
+## ADDENDUM 5 (2026-06-29) — ⛔ ADDENDUM 4 (STACK OVERFLOW) REFUTED ON METAL → ADDENDUM 3 (inbox heap churn) RE-APPLIED + SOAK
+
+**The crash recurred WITH the ADDENDUM-4 fix flashed.** A node reported `WATCHPOINT · ran 32m50s · pc=0x0 lr=0x36789` (lr ≈ `Module::SPItransferStream`, ~the prior `0x36700`; `pc=0x0` = the branch into the zeroed HAL vtable) on the **current build** — and **`status` reported `stackhw=1540` B free** on the loop task. So the 4 KB loop stack is **NOT** overflowing, yet it crashed. **The stack-overflow root cause (ADDENDUM 4) is wrong.** The DWT's earlier `route_strictly_better` capture was misleading, and the DWT now fires POST-crash (captures `pc=0x0`, not the corrupting write) — the corrupting write lands in a **SoftDevice-masked context** the DebugMon can't catch precisely.
+
+Keep from ADDENDUM 4 (committed, harmless): the `do_post_ack` `dec_body`/`body` → `static` frame-shrink and the `stackhw=` instrument. They're not the fix, but they're cheap and `stackhw=` is what disproved the stack theory.
+
+**Root cause is back to a genuine HEAP corruption of the heap-`new`'d `ArduinoHal`** (the original §Why premise). The canary (ADDENDUM 1) named `do_post_ack`/timer-9, whose ONLY device-only branch is `record_dm → DeviceInboxStore` — the QSPI **LittleFS `File`** append, which `malloc`/`free`s the lfs cache on EVERY record next to the radio HAL. That is **ADDENDUM 3's hypothesis**, which ADDENDUM 4 dismissed on (a) the double-free refutation and (b) the now-collapsed stack-DWT. ADDENDUM 3's static-buffer fix targets the cache CHURN regardless of double-free, so it's re-promoted.
+
+**RE-APPLIED (uncommitted, compiles):** `src/device_inbox_store.h::qspi_seg_append` → a STATIC lfs cache (`s_cache[512]` + `s_file` + `lfs_file_opencfg` via `QSPIFlash._getFS()`, which is public @ Adafruit_LittleFS.h:78), NO heap alloc, wrapped in the SAME `_lockFS/_unlockFS` mutex the File path holds — so the ONLY delta vs the File path is the heap allocation (a clean test). A `prog_size > sizeof(s_cache)` guard falls back to the File path. **`pio run -e xiao_sx1262` SUCCESS** (the verification the original in-flight ADDENDUM-3 build never got).
+
+**THE SOAK (user runs):** flash the crashing node with `pio run -e xiao_sx1262` (`=0` prod: a recurrence still HardFaults → fault-log `HARDFAULT` with the same `pc=0x0`/`lr≈SPItransferStream` signature; use `MR_RADIO_CANARY=1` if you want the WATCHPOINT). Baseline `faults` → drive SUSTAINED DM delivery **TO** the node (a RECEIVED DM = `record_dm` = the suspect append; faster = accelerated) for **≥ 4–8 h (≥ 8–15× the 33-min MTBF)** → `faults` / `rcmd <id> faults`:
+- **No new HARDFAULT/WATCHPOINT → ADDENDUM 3 was the corruptor** (the inbox `File` heap churn). Drop the File-path fallback + the canary; ship.
+- **Crash recurs → not it either →** next: a **sub-step canary** (a `_hal` checkpoint inside `do_post_ack` after each callee — `record_dm`/`enqueue`/`send_e2e_ack` — names the exact one; the polled canary catches the masked write the DWT can't), or a **guard-band around the heap `ArduinoHal`** to catch the overrun directly.
+
+MTBF note: the inbox churns on every DM but the crash is ~33 min → the trigger is likely a heap-FRAGMENTATION threshold, not every append.

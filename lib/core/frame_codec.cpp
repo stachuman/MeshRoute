@@ -36,7 +36,7 @@ size_t pack_beacon(const beacon_in& in, std::span<uint8_t> out) {
     w.u8(static_cast<uint8_t>((has_schedule    ? 0x80 : 0) | (in.self_gateway ? 0x40 : 0) |
                               (in.is_mobile     ? 0x20 : 0) | (has_seen_bitmap ? 0x10 : 0) |
                               (has_ext          ? 0x08 : 0) | (n_entries & 0x07)));
-    w.u8(static_cast<uint8_t>((((n_entries >> 3) & 0x07) << 5) | (protocol::wire_version & 0x0F)));   // n_entries_hi | wire_version (b3..0, +0 B; §7c)
+    w.u8(static_cast<uint8_t>((((n_entries >> 3) & 0x07) << 5) | (in.heard_set_complete ? 0x10 : 0x00) | (protocol::wire_version & 0x0F)));   // n_entries_hi | complete(b4) | wire_version (b3..0; §7c)
     w.u32_le(in.key_hash32);
     // R6.1 leaf-config header (+6 B, FIXED, pre-schedule — never truncated): lineage_id · config_epoch · config_hash (u16×3).
     w.u16_le(in.lineage_id);
@@ -58,7 +58,7 @@ size_t pack_beacon(const beacon_in& in, std::span<uint8_t> out) {
     for (const beacon_entry& e : in.entries) {
         w.u8(e.dest);
         w.u8(e.next);
-        w.u8(static_cast<uint8_t>(((e.score_bucket & 0x0F) << 4) | (e.is_gateway ? 0x01 : 0x00)));
+        w.u8(static_cast<uint8_t>(((e.score_bucket & 0x0F) << 4) | (e.degraded ? 0x08 : 0x00) | (e.is_gateway ? 0x01 : 0x00)));
         w.u8(e.hops);
     }
     if (has_seen_bitmap) {
@@ -94,6 +94,7 @@ std::optional<beacon_out> parse_beacon(std::span<const uint8_t> frame) {
     o.has_ext         = (b2 & 0x08) != 0;
     o.n_entries       = static_cast<uint8_t>((b2 & 0x07) | (((b3 >> 5) & 0x07) << 3));
     o.wire_version    = static_cast<uint8_t>(b3 & 0x0F);   // §7c: cross-version handshake (byte-3 low nibble, fixed offset)
+    o.heard_set_complete = (b3 & 0x10) != 0;               // byte-3 b4 ONLY — does not touch wire_version / n_entries_hi
     { wire::Reader r(frame.subspan(4, 4)); o.key_hash32 = r.u32_le(); }
     // R6.1 leaf-config header (bytes 8..13, FIXED, always present): lineage_id · config_epoch · config_hash (u16×3)
     { wire::Reader r(frame.subspan(8, BCN_LEAF_HEADER_LEN));
@@ -147,6 +148,7 @@ std::optional<beacon_entry> parse_beacon_entry(std::span<const uint8_t> frame,
     e.next         = frame[off + 1];
     e.score_bucket = static_cast<uint8_t>((frame[off + 2] >> 4) & 0x0F);
     e.is_gateway   = (frame[off + 2] & 0x01) != 0;
+    e.degraded     = (frame[off + 2] & 0x08) != 0;   // byte-2 b3 (asymmetric-link-aware routing); rsv b2..1 still ignored
     e.hops         = frame[off + 3];
     return e;
 }
