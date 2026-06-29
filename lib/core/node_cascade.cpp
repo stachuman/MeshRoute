@@ -111,7 +111,38 @@ void Node::cascade_to_alt(const char* giveup_event) {
         // a dest reachable only via a departed relay). Rate-limited (rreq_rate_ok); a normal congested giveup does NOT.
         if (liveness_penalty_q4(from_next) >= protocol::peer_silent_penalty_q4)
             emit_route_request(pt.dst, _cfg.dv_hop_cap);  // full-radius requery (network-wide configured TTL, like the deferred-drain requery)
-        try_cascade_requeue(pt, giveup_event);           // all candidates tried
+        // Slow-reprobe interception (asymmetric-link slice 6, MF4): a one-way next-hop stays liveness-HEALTHY
+        // (clear_peer_suspect fires on its every beacon) so §P3 above never triggers on it -> the giveup would
+        // fall straight to the 9–80-RTS try_cascade_requeue burst. Instead: throttle to ONE RTS per
+        // link_reprobe_ttl_ms (the probe catches metal lucky-marginal deliveries + a real CTS recovers via
+        // note_link_confirmed). The single probe STILL flies (sole-route delivery must not regress).
+        if (_active->_link_bidi[from_next] == static_cast<uint8_t>(LinkBidi::one_way)) {
+            const uint64_t now  = _hal.now();
+            const uint64_t last = _active->_link_reprobe_last_ms[from_next];
+            const bool window_open = (last == 0) || (now - last >= protocol::link_reprobe_ttl_ms);
+            if (window_open) {
+                _active->_link_reprobe_last_ms[from_next] = now;
+                MR_EMIT("link_reprobe", EF_I("origin", pt.origin), EF_I("dst", pt.dst),
+                        EF_I("ctr", pt.ctr), EF_I("next", from_next));
+                pt.alts_tried_n = 0;                          // re-allow the one-way hop for the single probe
+                pt.next = from_next;
+                pt.retries_left = effective_rts_max_retries(pt.requeue_count);
+                pt.retry_attempt = 0;
+                tx_rts_retry();                                // ONE probe (re-arms kRtsTimeoutTimerId), NO jitter
+            } else {
+                // Inside the throttle window: clean giveup, NO burst. The route stays in the table (reversible).
+                MR_TELEMETRY(
+                    EventField gf[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
+                                        { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
+                    _hal.emit("path_cascade_exhausted", gf, 2);
+                    _hal.emit(giveup_event, gf, 2); );
+                { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
+                _active->_pending_tx.reset();
+                become_free();
+            }
+            return;
+        }
+        try_cascade_requeue(pt, giveup_event);           // all candidates tried (NOT one-way -> legacy burst)
     }
 }
 

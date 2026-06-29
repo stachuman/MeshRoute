@@ -1154,6 +1154,11 @@ private:
         // never flips at runtime — Lua dv:9603-9604 sets, never clears). Eviction-free (unlike _peer_liveness) so a
         // gossip-only mobile is still avoided. 256 bits = 32 B/layer. Read by is_mobile_peer.
         uint8_t       _mobile_peer[32] = {};
+        // Slow-reprobe throttle (asymmetric-link slice 6): per-next-hop last single-probe time for a
+        // _link_bidi==one_way sole route. FULL 0..255 range, eviction-free (like _dest_seen_ms) so an
+        // isolated next-hop is throttled even if its PeerLiveness slot was LRU-evicted. 0 = never reprobed
+        // (clock-at-0 -> the FIRST giveup probes immediately, then once per link_reprobe_ttl_ms).
+        uint64_t      _link_reprobe_last_ms[256] = {};
         // Channel-message gossip plane state (node_channel.cpp).
         ChannelEntry _channel_buffer[protocol::cap_channel_buffer];
         uint16_t     _channel_buffer_n = 0;

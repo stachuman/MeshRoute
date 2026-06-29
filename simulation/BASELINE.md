@@ -13,7 +13,7 @@ python3 tools/dm_delivery_breakdown.py simulation/<s>.json /tmp/<s>.ndjson --fai
 
 | scenario | role | same-layer (arr/sent) | cross-layer (deliv/sent) | leaks |
 |---|---|---|---|---|
-| `s18_meshroute` | single-layer dense — **anchor** (mean_hops ~10, cascade-inclusive — see Hop-count note) | **98/113 (87%)** | — | — |
+| `s18_meshroute` | single-layer dense — **anchor** (mean_hops ~10, cascade-inclusive — see Hop-count note) | **101/113 (89%)** (was 98 pre-bidi — see 2026-06-29 note) | — | — |
 | `s19_singlelayer_multihop_chain` | single-layer **MULTI-HOP** (redundant 3-hop chain) | **8/8 (100%)** over 2–3-hop paths | — | — |
 | `s09_two_layer_gateway` | 2-layer cross-layer | 3/3 (100%) | **2/2 (100%)** | — |
 | `s10_two_layer_separation` | 2-layer cross-layer (separated) | 3/3 (100%) | **2/2 (100%)** | — |
@@ -26,6 +26,7 @@ python3 tools/dm_delivery_breakdown.py simulation/<s>.json /tmp/<s>.ndjson --fai
 **What changed vs the old 2026-06-17 baseline (and why) — read before trusting a diff against history:**
 - **s16 cross 15% → 71%** and **s15 cross 67%(single-seed) → ≈90%(multi-seed)**: FIXED. The gateway-window beacon **align** (`3dbaa14`) carries the 2-layer dense case (s16); the **reactive route-pull** (a gateway fires REQ_SYNC + defers, instead of dropping, on a bridged-leg route-miss) carries the 3-layer case (s15). Root cause of the old lows: dirty-only steady-state beacons never re-advertise stable routes to a time-multiplexing gateway (reactive-pull spec §1; the byte-budget/truncation theory was investigated and **ruled out**).
 - **s18 same 108 → 98** and **s17 same 30 → 26**: down-shifts from the intervening gateway-rework cluster (Phase-4 / Gateway-fixes / bitmap-deffer, `93fa6c5`…`b15586a`) — airtime/timing chaos, not the cross-layer fixes (s18 multi-seed mean ≈101, keystone seed 157373 = 110 ≥ 108). ⚠ Recorded as the new reference; lifting them back is a **separate** investigation, not a cross-layer-fix regression.
+- **s18 same 98 → 101 (2026-06-29): asymmetric-link-aware routing IMPROVED it.** s18 is the realistic Seattle mesh (`SEAMESH`/`First_Hill`/`Fremont`) with genuine **directional links** (topology `bidir:false`). The new bidirectionality plane — heard-set census + the `one_way` route penalty (commit "Slice 5") — detects ~478 of these asymmetric link-instances per run and re-routes around them → **+3 delivered**, deterministic, `leaks 0` (the configured seed rises to ≈ the prior multi-seed mean). The slow-reprobe (Slice 6) is **delivery-neutral on the idealized sim** but reclaims airtime: node-72 9-node 16-seed A/B, doomed `rts_tx` to the isolated nodes (204/247) **−21%** (149→118), total channel load −16%, delivery flat. The lucky-marginal delivery tradeoff (sim has the isolated nodes at 0%, metal ~40%) is **metal-tuned** via `link_reprobe_ttl_ms` (60 s seed) + the `bidi_penalty_one_way_q4` 640→192 fallback — not a sim judgment.
 
 **Notes / how to read the gate:**
 - `s16` 71% and `s15` ≈90% are **post-fix** numbers (the old 15%/67% are superseded). Both still have headroom (s16 is a deliberate overload; s15's worst seed lands 13/21). The gate is **don't regress below these** + `leaks == 0`.

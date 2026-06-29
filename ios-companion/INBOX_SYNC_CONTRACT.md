@@ -1,10 +1,11 @@
 # Inbox sync — BLE wire contract (PROPOSED)
 
 The companion catch-up seam between the firmware persistent inbox
-(`docs/superpowers/specs/2026-06-10-persistent-inbox-spec.md`) and the iOS app. The firmware **core +
-stores** are being built; the **wire commands/pushes** below are not in `command.h` yet — this is the
-app side's concrete, tested proposal (`ios-companion/MeshRouteKit`) for the firmware to emit/parse to.
-Confirm/adjust, then it's the shared contract.
+(`docs/superpowers/specs/2026-06-10-persistent-inbox-spec.md`) and the iOS app. **STATUS (2026-06-29): the
+firmware side is IMPLEMENTED + verified against code** — the send / pull / inbox / `ready` / duty / e2e /
+provisioning commands + pushes below are live in `lib/console/console_parse.cpp`, `lib/console/console_json.cpp`,
+and `src/fw_main.cpp`. This is the shared contract; the few items still open are tagged inline (`reqpubkey_sent`
+event, `ready.bonds`, the D7 DM-`ctr` persistence).
 
 Framing matches the rest of the link: **app→node = line-ASCII commands, node→app = newline JSON.**
 
@@ -92,9 +93,9 @@ re-emit new messages at seq 1,2,3 — all < 500 — and a naive `seq > 500` woul
 So the sync layer:
 
 1. Tracks **per node** `{ epoch, dm_cursor, chan_cursor }` — cursors are meaningful only within an epoch.
-2. Reads the node's **inbox epoch** on connect. **Proposed home:** `"inbox_epoch":N` in the `ready`
-   snapshot (`{"ev":"ready",…,"inbox_epoch":3}`). The node bumps it on any store reset. Exact
-   field/command is **TBD** with the companion phase — the sync layer is abstracted over it.
+2. Reads the node's **inbox epoch** on connect — **DONE:** `"inbox_epoch":N` is in the `ready`
+   snapshot (`{"ev":"ready",…,"inbox_epoch":3}`, `console_json.cpp:237` = the firmware's `storage_epoch`).
+   The node bumps it on any store reset.
 3. If the epoch changed (or first sync of this node): **reset both cursors to 0 and re-pull the whole
    inbox**.
 4. **Dedup on import** by the **stable message identity** against the durable archive, so the re-pull-from-0
@@ -129,11 +130,12 @@ without `seq` a dropped live push is invisible until the next reconnect.
 
 From `docs/superpowers/specs/2026-06-12-companion-product-roadmap.md` (user-ratified decisions):
 
-1. **D7 — persist the DM `ctr` across reboots** (NV, the epoch+RAM write pattern from the identity
-   spec §4.4 — rate-limited flash writes). Why: dedup identity is `(sender_hash, ctr)`; today a
-   sender reboot restarts `ctr` at 1, so its next messages REUSE identities the app has already
-   archived and are **silently deduped away**. Persisting `ctr` closes this with zero wire cost.
-   (Observed live on the bench 2026-06-12 — small ctrs collide constantly under reflash cycles.)
+1. **D7 — persist the DM `ctr` across reboots — ⚠ STILL OPEN (verified 2026-06-29).** Why: dedup identity
+   is `(sender_hash, ctr)`; today a sender reboot restarts `ctr` at 1, so its next messages REUSE identities
+   the app has already archived and are **silently deduped away**. **Current state:** only the *self-keyed*
+   `channel_ctr` is NV-persisted (blob v15, the lease-write pattern at `fw_main.cpp:1811-1836`); the per-peer
+   DM counters `_peer_send_counter[dst]` (`node_mac.cpp` `next_ctr`) still reset to 0 on reboot — so D7 is
+   **unfixed for DMs**. The fix = persist the per-peer DM ctr with the same rate-limited write pattern (zero wire cost).
 2. **D10/D14 — two companions: WARN, don't design for it.** Read state is per-phone, app-side (the
    app does not send `mark_read` in v1); node-side `mark_read` stays a simple hint — do NOT build
    per-bond cursors. The only multi-phone behavior is a warning: when more than one companion is
@@ -196,7 +198,7 @@ peerkey <ed_pub hex64>      # install a verified peer key from a scanned card. h
 - Ack (node → app):
 ```json
 {"ev":"peerkey_set","hash":3735928559,"pinned":true}             // installed
-{"ev":"peerkey_err","reason":"bad_hex"|"hash_mismatch"}          // rejected, not installed
+{"ev":"peerkey_err","reason":"bad_hex"|"full"}                   // rejected (full = peer-key cache full; bad_hex = parse/length)
 ```
 - App: when a scanned `ContactCard` has `pubkeyHex`, send `peerkey <p>` alongside the app-side `addContact`.
   A first encrypted DM to a pinned contact then **seals immediately** — no `WANT_PUBKEY` round-trip, no
@@ -209,7 +211,7 @@ The firmware does **NOT** auto-flood `WANT_PUBKEY` on a failed encrypted send. O
 ```
 reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "request key" UX action)
 ```
-- Firmware: `emit_hash_query(hash, hard=true, want_pubkey=true)`; ack `{"ev":"reqpubkey_sent","hash":…}`.
+- Firmware: `emit_hash_query(hash, hard=true, want_pubkey=true)` (`node.cpp:831`). ⚠ **The dedicated `{"ev":"reqpubkey_sent"}` is NOT yet emitted** — the verb currently returns a plain `{"ack":"queued"}` (`fw_main.cpp:1503`); add the event, or have the app accept the generic ack.
 - **Mutual (Slice 2, implemented 2026-06-17):** the WANT_PUBKEY H **always appends the requester's OWN pubkey**
   (the 8→40-B H), so ONE request provisions BOTH directions: the **owner caches the requester** (key + id_bind)
   before answering, and the requester caches the owner from the TYPE-5 answer. This is the bootstrap before any
@@ -287,14 +289,14 @@ A node's leaf membership = `lineage_id` (u16; **0 = unmanaged / standalone**), `
 - `lineage:0` ⇒ app shows "unmanaged / standalone". `lineage≠0 & synced:false` ⇒ "joining…". `synced:true` ⇒ "member of <leaf>".
 - *Note:* `level` (full 1..255) lands with the provisioning-verbs spec (which stores it); until then the firmware can send the wire **leaf nibble** (`leaf_id`, 0..15) under `level` — the app should treat it as an opaque label.
 
-2. ✅ **`config_adopted` live push** (firmware ask — `PushKind::config_adopted` exists but has **no `console_json` writer** yet; add one that reads `g_node.config()`). Fires when the node adopts/updates its leaf config (on join, on a propagated operator write, on an LWW change):
+2. ✅ **`config_adopted` live push — DONE** (`console_json.cpp:157-163` reads `g_node.config()`; fired by the node at `node_query.cpp:203/219`). Fires when the node adopts/updates its leaf config (on join, on a propagated operator write, on an LWW change):
 ```json
 {"ev":"config_adopted","lineage":41153,"epoch":3,"leaf":"north field","level":2}
 ```
 - App: refresh the node's membership chip live ("synced to 'north field'").
 
 ### Node → app: a send blocked because not-yet-joined
-✅ `send_failed.reason` gains **`joining`** (firmware ask — `SendFailReason::joining` exists in `command.h` but is **missing from `console_json`'s `sendfailreason_name`**; add `case joining: return "joining"`):
+✅ `send_failed.reason` gains **`joining`** — **DONE** (`SendFailReason::joining` at `command.h:99`, mapped by `sendfailreason_name` at `console_json.cpp:86`):
 ```json
 {"ev":"send_failed","dst":2,"ctr":7,"reason":"joining"}   // managed leaf not yet config-synced — the participation gate
 ```
@@ -344,3 +346,14 @@ The node replies on TXD with one JSON line:
 
 ### Node → app: in the `ready` snapshot (so the app shows it on connect)
 `ready` also carries `"duty_pct":42` (+ `"duty_avail_ms":0`) — an immediate starting value on connect; the `duty` query above is the live truth to refresh from.
+
+## Adjacent BLE surface — implemented, not strictly "inbox" (2026-06-29)
+
+These firmware→app events ride the same BLE TXD line, so the app's parser will see them; documented so it handles (or cleanly ignores) them. Not part of the inbox sync model.
+
+- **OTA remote diagnostics:** `rcmd <dst> <query>` (BLE) → `{"ev":"rcmd_sent"}` ack (`fw_main.cpp:1465`); the multi-hop response `[rcmd <from>] …` lands on the console (`fw_main.cpp:2092`). Carried over-the-air by the `REMOTE_CMD`/`REMOTE_RESP` DATA TYPEs (see `docs/frames.md` §DATA).
+- **`{"ev":"version",…}`** (`fw`/`built`/`git`/`board`/`reset`) — the BLE `version` query (`fw_main.cpp:1457`).
+- **`{"ev":"prep_restart","halted":true}`** — the BLE `prep-restart` ack (`fw_main.cpp:1463`).
+- **`{"ev":"hash_resolved","node":…,"auth":…,"hash":…}`** — the `resolve <hash>` diagnostic answer (`write_push`, `console_json.cpp:148`). Distinct from `peer_key_cached` (the pubkey-cache event).
+- ⚠ **Firmware gap to decide:** `pushkind_name` (`console_json.cpp:65-77`) has **no case for `PushKind::send_e2e_acked`** — if that push is ever serialized over BLE it emits `{"ev":"unknown",…}`. The durable receipt path (`record_ack` → pull → `inbox_dm type:"e2e_ack"`) is the intended companion channel and works; decide whether the live `send_e2e_acked` needs a BLE case or stays USB-only.
+- `cfg` / `status` / `route`+`routes_end` writers also stream over BLE (the Node/Network screens) — orthogonal to inbox sync; see the device-console design spec.

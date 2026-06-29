@@ -540,6 +540,117 @@ TEST_CASE("cascade — single candidate: the total-AGE cap gives up before the c
     delete node;
 }
 
+// ===== Slice 6: slow-reprobe interception on a one-way sole route =====
+// A one-way next-hop stays liveness-HEALTHY (its beacons keep arriving) so §P3 never
+// fires on it; without the bidi interception the no-alt giveup would burst into the
+// 9-80-RTS try_cascade_requeue. The interception throttles to ONE RTS per
+// link_reprobe_ttl_ms while still flying the single sole-route probe.
+TEST_CASE("bidi reprobe — a one-way sole route fires its FIRST probe immediately (clock starts at 0)") {
+    TestHal hal;
+    Node* node = mk_sender_with_routes(hal, {{2,1,14}});   // sole route to dst 5 via next-hop 2
+    // Mark next-hop 2 one-way: advertiser 2's complete heard-set OMITS self(1) -> Slice 3 detection sets one_way.
+    node->test_update_link_bidi_from_beacon(/*advertiser=*/2, /*entries=*/nullptr, /*n=*/0, /*complete=*/true);
+    hal._now = 5000;
+    send_cmd(*node, /*dst=*/5, "hi");
+    const int rts_before = hal.count("rts_tx");
+    exhaust_rts_same_hop(*node);                           // no alt -> one-way interception
+    CHECK(hal.count("link_reprobe") == 1);                 // the single throttled probe fired
+    // exhaust_rts_same_hop fires 3 same-hop retry RTSs before the cascade; the interception then adds
+    // exactly ONE probe RTS (+4 total). The load-bearing point: ONE probe, no try_cascade_requeue burst.
+    CHECK(hal.count("rts_tx") == rts_before + 4);          // 3 retries + the single probe, no burst
+    CHECK(hal.count("cascade_requeue") == 0);              // the burst requeue was suppressed
+    delete node;
+}
+
+TEST_CASE("bidi reprobe — one probe per link_reprobe_ttl_ms; non-one-way keeps the legacy requeue burst") {
+    TestHal hal;
+    Node* node = mk_sender_with_routes(hal, {{2,1,14}});   // sole route to 5 via 2
+    node->test_update_link_bidi_from_beacon(/*advertiser=*/2, nullptr, 0, /*complete=*/true);  // 2 -> one_way
+    hal._now = 1000;
+    send_cmd(*node, 5, "hi");
+    exhaust_rts_same_hop(*node);                           // probe #1
+    CHECK(hal.count("link_reprobe") == 1);
+    CHECK(hal.count("cascade_requeue") == 0);              // NO burst
+    // A second giveup WITHIN the TTL window must NOT re-probe (throttled, clean giveup, no burst).
+    hal._now = 1000 + protocol::link_reprobe_ttl_ms - 1;
+    send_cmd(*node, 5, "hi2");
+    exhaust_rts_same_hop(*node);
+    CHECK(hal.count("link_reprobe") == 1);                 // STILL 1 -> throttled
+    CHECK(hal.count("cascade_requeue") == 0);              // still no burst
+    // A giveup AFTER the TTL probes again.
+    hal._now = 1000 + protocol::link_reprobe_ttl_ms + 1;
+    send_cmd(*node, 5, "hi3");
+    exhaust_rts_same_hop(*node);
+    CHECK(hal.count("link_reprobe") == 2);                 // window elapsed -> a fresh probe
+
+    // CONTROL: a sole route whose next-hop is NOT one_way still takes the legacy requeue burst (no regression).
+    TestHal hal2;
+    Node* n2 = mk_sender_with_routes(hal2, {{2,1,14}});    // 2 left unknown (never marked one_way)
+    hal2._now = 1000;
+    send_cmd(*n2, 5, "hi");
+    exhaust_rts_same_hop(*n2);
+    CHECK(hal2.count("link_reprobe") == 0);                // bidi plane not engaged
+    CHECK(hal2.count("cascade_requeue") == 1);             // legacy burst path intact
+    delete node; delete n2;
+}
+
+TEST_CASE("bidi reprobe — the single probe flies, a CTS recovers (confirmed + degraded cleared + link_recover)") {
+    TestHal hal;
+    Node* node = mk_sender_with_routes(hal, {{2,1,14}});   // sole route to 5 via 2
+    node->test_update_link_bidi_from_beacon(/*advertiser=*/2, nullptr, 0, /*complete=*/true);  // 2 -> one_way
+    // Sanity: the sole candidate to dst 5 reads degraded while 2 is one_way.
+    // rt_find is private — locate the entry via the public rt_count()/rt_at() seams.
+    auto find_rt = [&](uint8_t dest) -> const RtEntry* {
+        for (uint8_t i = 0; i < node->rt_count(); ++i) if (node->rt_at(i).dest == dest) return &node->rt_at(i);
+        return nullptr;
+    };
+    const RtEntry* e = find_rt(5);
+    CHECK(e != nullptr);
+    if (e) {
+        CHECK(e->n == 1);
+        if (e->n == 1) CHECK(node->candidate_degraded(e->candidates[0]) == true);
+    }
+    hal._now = 1000;
+    send_cmd(*node, 5, "hi");
+    const int rts_before = hal.count("rts_tx");
+    exhaust_rts_same_hop(*node);                           // one-way interception -> ONE probe RTS to 2
+    // +4 = 3 same-hop retries (exhaust_rts_same_hop) + the single lucky-marginal probe (no burst).
+    CHECK(hal.count("rts_tx") == rts_before + 4);          // the probe actually flew (its rts_tx is the +1 over the retries)
+    const Ev* probe = hal.last("rts_tx");
+    CHECK(probe != nullptr);
+    if (probe) CHECK(probe->next == 2);
+    // The probe gets a real CTS from next-hop 2 -> recovery.
+    RxMeta m2{12.0f, -70.0f, 0, static_cast<int8_t>(2)};
+    std::array<uint8_t,8> cb{};
+    const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/2, /*data_sf=*/7, cb);
+    node->on_recv(cb.data(), cn, m2);                      // CTS matched -> note_link_confirmed(2)
+    CHECK(hal.count("link_recover") == 1);                 // it WAS one_way -> recovery emitted
+    const RtEntry* e2 = find_rt(5);
+    CHECK(e2 != nullptr);
+    if (e2) {
+        CHECK(e2->n == 1);
+        if (e2->n == 1) CHECK(node->candidate_degraded(e2->candidates[0]) == false);   // recompute is live -> degraded cleared
+    }
+    delete node;
+}
+
+TEST_CASE("bidi reprobe — §P3 liveness-silent path is orthogonal (RREQ + requeue, no link_reprobe)") {
+    TestHal hal;
+    Node* node = mk_sender_with_routes(hal, {{2,1,14}});   // sole route to 5 via 2; 2 stays _link_bidi=unknown
+    send_cmd(*node, 5, "hi");
+    // Drive next-hop 2 to liveness-SILENT (>= peer_silent_penalty_q4) WITHOUT touching the bidi plane.
+    // mark_neighbor_silent_for_test does not exist; use the real liveness path (3 same-hop giveups -> SILENT,
+    // the proven §P3 idiom). peer_penalty_q4 is the public read accessor for the private liveness_penalty_q4.
+    node->record_peer_rts_timeout(2, 9); node->record_peer_rts_timeout(2, 9); node->record_peer_rts_timeout(2, 9);
+    CHECK(node->peer_penalty_q4(2) >= protocol::peer_silent_penalty_q4);   // 2 is now SILENT
+    const int rreq_before = hal.count("r_tx");             // §P3 RREQ event is r_tx (emit_route_request)
+    node->on_timer(kRtsTimeoutTimerId);                    // silent + no alt -> §P3 RREQ + legacy requeue
+    CHECK(hal.count("link_reprobe") == 0);                 // bidi plane NOT engaged (2 is unknown, not one_way)
+    CHECK(hal.count("r_tx") > rreq_before);                // §P3 RREQ fired (orthogonal, unaffected)
+    CHECK(hal.count("cascade_requeue") == 1);              // legacy requeue path intact
+    delete node;
+}
+
 TEST_CASE("cascade — ACK-timeout resets the flight (re-RTS) before walking") {
     TestHal hal;
     Node* node = mk_sender_with_routes(hal, {{2,1,14},{3,2,14}});
