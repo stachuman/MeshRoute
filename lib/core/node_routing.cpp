@@ -93,7 +93,11 @@ int16_t Node::bidi_penalty_q4(uint8_t next_hop) const {
 
 int16_t Node::effective_score(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const {
     // §P2: subtract BOTH the R4.2 budget tier AND the liveness tier (suspect/silent/dead) — Lua effective_score@4140.
-    return static_cast<int16_t>(c.score - budget_penalty_q4(c, cands, n) - liveness_penalty_q4(c.next_hop));
+    // §bidi: ALSO subtract the bidirectionality penalty (one_way next-hop). Rides the SORT only (composes here +
+    // through route_strictly_better) — NOT a next_hop_selectable hard gate, so a SOLE one_way route stays pickable.
+    return static_cast<int16_t>(c.score - budget_penalty_q4(c, cands, n)
+                                        - liveness_penalty_q4(c.next_hop)
+                                        - bidi_penalty_q4(c.next_hop));
 }
 
 // §cross-layer: is `dest` a gateway we'd use as a cross-layer egress? — a heard 1-hop schedule (_gw_schedules)

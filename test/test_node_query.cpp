@@ -330,3 +330,181 @@ TEST_CASE("Q REQ_SYNC sync beacon is FULL-TABLE out of discovery (kind=='sync' c
         if (pb) CHECK(pb->n_entries > 1);
     }
 }
+
+// ============================ SLICE 5: advertise (census + degraded propagation) ============================
+// NB (-fno-exceptions): doctest's REQUIRE is unavailable in this build — every "REQUIRE(x)" the plan used is
+// rewritten as CHECK(x); if (x) { ... } so a failed precondition can't deref a null/empty value.
+
+TEST_CASE("census seam — test_emit_beacon('periodic') drives one BCN frame out") {
+    TestHal hal; Node node(hal, /*id=*/20, /*key=*/0xC0DE);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.quiet_threshold_ms = 0;
+    node.on_init(cfg);
+    node.route_inject(/*dest=*/30, /*next=*/30, /*hops=*/1, /*score=*/96);  // a direct neighbour
+    const size_t before = hal.tx_frames.size();
+    node.test_emit_beacon("periodic");
+    CHECK(hal.tx_frames.size() == before + 1);
+    if (hal.tx_frames.size() == before + 1)
+        CHECK((hal.tx_frames.back().bytes[0] >> 4) == 0x0);   // cmd-nibble B (beacon)
+}
+
+TEST_CASE("advertise — a one_way primary next-hop emits the entry degraded bit; confirmed/unknown does not") {
+    TestHal hal; Node node(hal, /*id=*/21, /*key=*/0xBEAD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.quiet_threshold_ms = 0;
+    node.on_init(cfg);
+    node.route_inject(/*dest=*/40, /*next=*/40, /*hops=*/1, /*score=*/96);   // good route
+    node.route_inject(/*dest=*/41, /*next=*/41, /*hops=*/1, /*score=*/96);
+    node.note_link_confirmed(40);            // 40 = confirmed -> NOT degraded
+    node.test_update_link_bidi_from_beacon(41, nullptr, 0, /*complete=*/true);    // 41 absent+complete -> one_way (public Slice-3 seam)
+    node.test_emit_beacon("periodic");
+    CHECK(!hal.tx_frames.empty());
+    if (!hal.tx_frames.empty()) {
+        const auto& f = hal.tx_frames.back();
+        auto o = parse_beacon(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+        CHECK(o.has_value());
+        if (o) {
+            bool saw40 = false, saw41 = false;
+            for (uint8_t i = 0; i < o->n_entries; ++i) {
+                auto e = parse_beacon_entry(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()), *o, i);
+                CHECK(e.has_value());
+                if (e) {
+                    if (e->dest == 40) { saw40 = true; CHECK_FALSE(e->degraded); }
+                    if (e->dest == 41) { saw41 = true; CHECK(e->degraded); }
+                }
+            }
+            CHECK(saw40); CHECK(saw41);
+        }
+    }
+}
+
+TEST_CASE("census — a periodic (dirty_only) beacon force-injects ALL hops==1 entries even when none are dirty") {
+    TestHal hal; Node node(hal, /*id=*/22, /*key=*/0xCAFE);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.quiet_threshold_ms = 0;
+    node.on_init(cfg);
+    node.route_inject(50, 50, 1, 96);   // 3 direct neighbours (hops==1)
+    node.route_inject(51, 51, 1, 96);
+    node.route_inject(52, 52, 1, 96);
+    node.route_inject(60, 50, 3, 80);   // a remote (hops==3) via 50
+    node.test_emit_beacon("periodic");  // pumps a dirty page (first-learn dirtied) + clears dirty
+    hal.tx_frames.clear();
+    node.test_emit_beacon("periodic");  // STEADY state: nothing dirty -> only the census injects
+    CHECK(!hal.tx_frames.empty());
+    if (!hal.tx_frames.empty()) {
+        const auto& f = hal.tx_frames.back();
+        auto o = parse_beacon(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+        CHECK(o.has_value());
+        if (o) {
+            bool h50=false,h51=false,h52=false;
+            for (uint8_t i = 0; i < o->n_entries; ++i) {
+                auto e = parse_beacon_entry(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()), *o, i);
+                CHECK(e.has_value());
+                if (e) {
+                    if (e->dest==50) h50=true;
+                    if (e->dest==51) h51=true;
+                    if (e->dest==52) h52=true;
+                }
+            }
+            CHECK(h50); CHECK(h51); CHECK(h52);   // the full hops==1 set rides the steady-state beacon
+        }
+    }
+}
+
+TEST_CASE("census complete-flag — set when the full direct-neighbour set fit with headroom; clear when it overflowed") {
+    // (A) small set fits with room -> complete=true
+    {
+        TestHal hal; Node node(hal, 23, 0xF00D);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.quiet_threshold_ms = 0;
+        node.on_init(cfg);
+        node.route_inject(70, 70, 1, 96);
+        node.route_inject(71, 71, 1, 96);
+        hal._now = protocol::discovery_ms + 1;   // past discovery -> a periodic beacon is dirty_only (census engages); 2 routes < discovery_min_routes won't exit on their own
+        node.test_emit_beacon("periodic"); hal.tx_frames.clear();
+        node.test_emit_beacon("periodic");
+        CHECK(!hal.tx_frames.empty());
+        if (!hal.tx_frames.empty()) {
+            const auto& f = hal.tx_frames.back();
+            auto o = parse_beacon(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+            CHECK(o.has_value());
+            if (o) CHECK(o->heard_set_complete);
+        }
+    }
+    // (B) too many direct neighbours to fit the headroom rule -> complete=false
+    {
+        TestHal hal; Node node(hal, 24, 0xF00E);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.quiet_threshold_ms = 0;
+        node.on_init(cfg);
+        for (int d = 100; d < 100 + 40; ++d)              // 40 hops==1 neighbours > the live cap (34)
+            node.route_inject(static_cast<uint8_t>(d), static_cast<uint8_t>(d), 1, 96);
+        node.test_emit_beacon("periodic"); hal.tx_frames.clear();
+        node.test_emit_beacon("periodic");
+        CHECK(!hal.tx_frames.empty());
+        if (!hal.tx_frames.empty()) {
+            const auto& f = hal.tx_frames.back();
+            auto o = parse_beacon(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+            CHECK(o.has_value());
+            if (o) CHECK_FALSE(o->heard_set_complete);
+        }
+    }
+    // (C) M1: a SYNC / full-page beacon (!dirty_only) must NOT assert complete — the census runs only on dirty_only beacons.
+    {
+        TestHal hal; Node node(hal, 25, 0xF00F);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.quiet_threshold_ms = 0;
+        node.on_init(cfg);
+        node.route_inject(72, 72, 1, 96);
+        node.test_emit_beacon("sync");
+        CHECK(!hal.tx_frames.empty());
+        if (!hal.tx_frames.empty()) {
+            const auto& f = hal.tx_frames.back();
+            auto o = parse_beacon(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+            CHECK(o.has_value());
+            if (o) CHECK_FALSE(o->heard_set_complete);   // M1: non-census beacon -> never authoritative-complete
+        }
+    }
+}
+
+TEST_CASE("census — a GATEWAY (n_layers==2) skips the census: a steady-state beacon injects no hops==1 entries") {
+    // OI3 leaf-only: the census gate is `dirty_only && _cfg.n_layers != 2 && !_cfg.is_mobile`. A REAL gateway requires a
+    // valid dual-layer cfg (per-layer layer_id 1..255 / routing_sf / allowed_sf_bitmap, distinct leaf nibbles, equal
+    // non-zero window_period_ms) or on_init refuses it (§3.2). layer_id 0x10 -> active leaf nibble 0; is_gateway is DERIVED.
+    // node_id MUST be set per-layer (1..16 = gateway band): activate_layer(0) mirrors layers[0].node_id into _node_id, and
+    // emit_beacon hard-returns at _node_id==0 (unprovisioned) — leaving node_id unset would make the beacon never air.
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0x6A7E);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.quiet_threshold_ms = 0;
+    cfg.n_layers = 2;
+    cfg.layers[0].layer_id = 0x10; cfg.layers[0].node_id = 1; cfg.layers[0].routing_sf = 7; cfg.layers[0].allowed_sf_bitmap = (1u << 7);
+    cfg.layers[1].layer_id = 0x01; cfg.layers[1].node_id = 2; cfg.layers[1].routing_sf = 7; cfg.layers[1].allowed_sf_bitmap = (1u << 7);
+    CHECK(node.on_init(cfg));            // must accept -> a genuine n_layers==2 gateway (else the skip-guard isn't exercised)
+    node.route_inject(80, 80, 1, 96);    // a direct neighbour on the active leaf
+    node.route_inject(81, 81, 1, 96);
+    hal._now = protocol::discovery_ms + 1;   // out of discovery -> a periodic beacon is dirty_only (the gate's first term holds)
+    node.test_emit_beacon("periodic"); hal.tx_frames.clear();
+    node.test_emit_beacon("periodic");   // steady state: gateway must NOT census-inject (n_layers==2 skips)
+    CHECK(!hal.tx_frames.empty());
+    if (!hal.tx_frames.empty()) {
+        const auto& f = hal.tx_frames.back();
+        auto o = parse_beacon(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+        CHECK(o.has_value());
+        if (o) {
+            CHECK(o->n_entries == 0);             // nothing dirty + no census => empty page
+            CHECK_FALSE(o->heard_set_complete);   // gateways never assert authority
+        }
+    }
+}
+
+TEST_CASE("census — never overflows: a saturated direct-neighbour set still emits a valid <= beacon_max_bytes frame") {
+    TestHal hal; Node node(hal, 26, 0xBABE);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.quiet_threshold_ms = 0;
+    node.on_init(cfg);
+    for (int d = 90; d < 90 + 60; ++d)                 // 60 direct neighbours >> the live cap
+        node.route_inject(static_cast<uint8_t>(d), static_cast<uint8_t>(d), 1, 96);
+    node.test_emit_beacon("periodic"); hal.tx_frames.clear();
+    node.test_emit_beacon("periodic");
+    CHECK(!hal.tx_frames.empty());
+    if (!hal.tx_frames.empty()) {
+        const auto& f = hal.tx_frames.back();
+        CHECK(f.bytes.size() <= protocol::beacon_max_bytes);   // F2: never overflowed
+        auto o = parse_beacon(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+        CHECK(o.has_value());                                   // pack_beacon did NOT return 0
+        if (o) CHECK_FALSE(o->heard_set_complete);              // saturated -> never authoritative
+        CHECK(hal.count("beacon_pack_overflow") == 0);         // the fail-loud backstop never fired
+    }
+}

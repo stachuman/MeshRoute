@@ -386,18 +386,18 @@ std::optional<j_out> parse_j(std::span<const uint8_t> frame);
 // (which keeps visited -> DATA_HDR_LEN 14). So the C++ header is 8 B; see docs/frames.md.
 inline constexpr size_t DATA_HDR_LEN     = 8;
 inline constexpr size_t DATA_MAC_LEN     = 4;
-// byte-1 FLAGS (full byte): combinable modifiers. APP gates a TYPE byte at offset 8. CROSS_LAYER/CRYPTED/
-// SOURCE_HASH are reserved (wire position locked, behaviour lands with the feature); DST_HASH/E2E_ACK_REQ
-// are live; PRIORITY is decoded-only. The inner layout is read from these flags (no payload-flags byte).
+// byte-1 FLAGS (full byte): combinable modifiers. APP gates a TYPE byte at offset 8. CROSS_LAYER (inner
+// layer-path), CRYPTED (sealed inner), E2E_ACK_REQ, LOCATION, SOURCE_HASH, DST_HASH are all LIVE;
+// PRIORITY is decoded-only. The inner layout is read from these flags (no payload-flags byte).
 enum DataFlag : uint8_t {
     DATA_FLAG_APP         = 0x80,    // a TYPE byte (DataType) follows the 8-B header
-    DATA_FLAG_CROSS_LAYER = 0x40,    // reserved (R7: the inner carries a layer-path)
-    DATA_FLAG_CRYPTED     = 0x20,    // reserved (E2E: the inner body is sealed)
+    DATA_FLAG_CROSS_LAYER = 0x40,    // LIVE: the inner carries a cross-layer layer-path (full-byte ids, between dst_hash and origin)
+    DATA_FLAG_CRYPTED     = 0x20,    // LIVE: origin + everything after it sealed (XChaCha20-Poly1305); trailer grows to the 8-B nonce-seed
     DATA_FLAG_E2E_ACK_REQ = 0x10,    // request an end-to-end ack
     DATA_FLAG_LOCATION    = 0x08,    // opt-in 6-B sender location in the sealed inner (after source_hash); set ONLY on origination
     DATA_FLAG_SOURCE_HASH = 0x04,    // LIVE: the inner carries the origin's key_hash32 (after origin) — the STABLE
-                                     // sender identity (default-on for app DMs); the E2E-ack also reads it. Moves
-                                     // into the CRYPTED-sealed region when E2E encryption lands.
+                                     // sender identity (default-on for app DMs); the E2E-ack also reads it. Sealed
+                                     // under CRYPTED.
     DATA_FLAG_DST_HASH    = 0x02,    // the inner carries the recipient's key_hash32 (L2c verify-on-delivery)
     DATA_FLAG_PRIORITY    = 0x01,    // decoded-only (no behaviour wired yet)
 };

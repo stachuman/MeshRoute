@@ -35,7 +35,7 @@ next-hops cascade to alternates / hop-budget reroute.
 
 In **discovery** (first ~60 s, or route-starved) a node beacons fast + full-page and broadcasts `Q:REQ_SYNC` to pull
 neighbours' tables; in **steady state** it sends dirty-only differential beacons under an adaptive channel-busy
-throttle. (Gateways override this — see §5.)
+throttle. (Gateways override this — see §6.)
 - **Source:** `node_beacon.cpp` (`emit_beacon`, `periodic_beacon_fire`) · `node_query.cpp` (REQ_SYNC)
 - **Spec:** `docs/specs/2026-05-29-r1-beacon-emit-design.md` · `2026-05-29-c5-bcn-design.md` · `2026-05-31-r4.3-beacon-throttle-design.md`
 
@@ -47,7 +47,13 @@ A route's next-hop must be fresh to be viable (cross-layer gateway routes are ex
 - **Source:** `node_routing.cpp` (`is_next_hop_fresh`, `record_peer_rts_timeout`, `liveness_penalty_q4`)
 - **Spec:** `docs/superpowers/specs/2026-06-17-routing-liveness-plane-port.md` · `docs/specs/2026-05-31-r4.2-tier-penalty-design.md`
 
-## 5. Gateway dual-layer
+## 5. Asymmetric-link bidirectionality
+
+A per-next-hop plane **orthogonal to liveness**: it scores down a link that is **one-way** — we hear a neighbour but it can't hear us, so the RTS→CTS→DATA→ACK handshake can never complete (liveness is beacon-cleared, hence blind to this). Detection is **proactive gossip** — a node advertises its complete `hops==1` heard-set (its direct-neighbour route entries) under a beacon `heard_set_complete` flag; a receiver absent from a *complete* heard-set learns the link is one-way, present ⇒ confirmed bidirectional (a real CTS also confirms). The verdict adds a **sort-only** penalty (never a `next_hop_selectable` hard gate — a sole one-way route still flies) and rides a transitive `degraded` route-entry bit so the mesh routes around it; a doomed sole route slow-re-probes once per TTL instead of RTS-storming, and recovers for free when the link flips back. Keep-don't-delete + backward-compatible (both wire bits default 0). Gateways skip the census (leaf-only — the leaf→gateway direction is liveness-backstopped).
+- **Source:** `node_routing.cpp` (`bidi_penalty_q4`, `candidate_degraded`, `note_link_confirmed`) · `node_beacon.cpp` (`update_link_bidi_from_beacon`, the census in `emit_beacon`) · `node_cascade.cpp` (the one-way slow-reprobe)
+- **Spec:** `docs/superpowers/specs/2026-06-29-asymmetric-link-aware-routing-design.md`
+
+## 6. Gateway dual-layer
 
 A gateway time-multiplexes two leaves: each leaf owns a window on an **absolute grid** (`epoch + k·period`); a busy
 switch slips to protect an in-flight exchange but snaps back to the grid (bounded drift). It advertises a per-leaf
@@ -58,7 +64,7 @@ own RF frequency (provisioning-only).
 - **Source:** `node.cpp` (`window_switch_fire`, `window_grid_now`, `activate_layer`, `gateway_schedule_defer_ms`, `gateway_spread_nibble`, `exchange_airtime_ms`) · `node_beacon.cpp` (schedule emit, `maybe_emit_gateway_beacon`) · `node_cascade.cpp` (`gateway_doorstep_hold`)
 - **Spec:** `docs/superpowers/specs/2026-06-12-gateway-dual-layer-design.md` · `2026-06-14-multihop-gateway-discovery.md` · `2026-06-19-gateway-provision-command-design.md`
 
-## 6. Channel plane (group messages)
+## 7. Channel plane (group messages)
 
 Leaf-scoped broadcast groups: a message rides a managed **flood** (FLOOD RTS-M + coverage bitmap, 1-hop-suppressed
 re-flood) on the data SF; a BCN channel-digest + `Q:CHANNEL_PULL` are the repair backstop for misses. **Principle 11:**
@@ -66,7 +72,7 @@ a dual-layer gateway is entirely out of the channel plane (never originates, pul
 - **Source:** `node_channel.cpp` (`process_channel_digest`, `channel_origin_admit`, `flood_forward_decision`)
 - **Spec:** `docs/superpowers/specs/2026-06-08-channel-flood-redesign.md` · `2026-06-09-lean-channel-m-frame-design.md`
 
-## 7. E2E DM crypto
+## 8. E2E DM crypto
 
 Opt-in sealed-sender DMs: X25519 ECDH → BLAKE2b KDF → XChaCha20-Poly1305 seals `origin` + everything after it
 (only `dst_key_hash32` stays cleartext as AAD). The receiver recovers the sender by **trial decryption** over its
@@ -75,7 +81,7 @@ mutual exchange. Optional 6-B sender location rides the sealed inner.
 - **Source:** `dm_crypto.{h,cpp}` · `node_mac.cpp`/`node_mac_rx.cpp` (seal/open at enqueue/deliver) · `node_hashlocate.cpp` (pubkey resolution)
 - **Spec:** `docs/superpowers/specs/2026-06-16-e2e-sealed-sender-redesign.md` · `2026-06-15-phase1-e2e-dm-crypto.md` · `2026-06-16-e2e-peer-key-provisioning.md` · `2026-06-14-location-propagation.md`
 
-## 8. Identity / join
+## 9. Identity / join
 
 Node-ids are claimed by **Duplicate-Address-Detection** (listen → pick a free id → CLAIM → adopt unless DENY'd);
 `key_hash32`-only tiebreak (lower wins). Reserved id bands: 0 unprovisioned, 1–16 gateways, 17–254 normal, 0xFF
@@ -83,14 +89,14 @@ sentinel (the reservation is a Join-time convention, enforced there — not at c
 - **Source:** `node_join.cpp` (`join_start_claim`, `handle_j`)
 - **Spec:** `docs/specs/2026-06-05-node-id-auto-assignment-design.md` · `docs/superpowers/specs/2026-06-19-normal-node-id-reservation-design.md` · `2026-06-15-join-e2e-phase0.md`
 
-## 9. Hash-locate
+## 10. Hash-locate
 
 H-frame flood resolves an identity `key_hash32` → `node_id` (soft = any cache answers; hard = owner-only) and, with
 `WANT_PUBKEY`, the peer's E2E pubkey; the answer routes home as a DATA `H_ANSWER`. Relays cache answers on-pass.
 - **Source:** `node_hashlocate.cpp` (`handle_h`)
 - **Spec:** `docs/specs/2026-05-29-c3-h-f-floods-design.md`
 
-## 10. Anti-spam
+## 11. Anti-spam
 
 Self-measured airtime backstop: an originator that exceeds its per-sender airtime cap is warned (ACK `AIRTIME_WARN`
 → back off) and its over-budget originations are dropped at ingestion; per-origin/window caps bound channel flooding.

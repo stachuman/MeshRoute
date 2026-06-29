@@ -172,10 +172,10 @@ struct NodeConfig {
     bool     e2e_dm    = false;                  // Phase 1: originate app DMs ENCRYPTED when the recipient's pubkey is known; default OFF -> s18 byte-identical
     // ---- dual-layer gateway (2026-06-12 design). n_layers=1 = normal node (uses layers[0]); 2 = gateway.
     //      Slice 0: layers[0] MIRRORS the legacy routing_sf/allowed_sf_bitmap/leaf_id/beacon_period_ms scalars
-    //      (set in on_init). NB: `is_gateway` above is NOT derived from n_layers — it is the SINGLE-LAYER
-    //      channel-plane gateway flag (consumer/provider/pure-bridge, the old gw_env notion, used by node_channel
-    //      + test_node_channel). A DUAL-LAYER gateway is `n_layers==2`, and per Principle 11 it skips the channel
-    //      gossip plane ENTIRELY (gated on n_layers==2 at every channel entry — justifies cap_channel_buffer=8).
+    //      (set in on_init). NB: `is_gateway` is DERIVED, NOT configurable — on_init forces `is_gateway = (n_layers==2)`
+    //      (node.cpp:204; the pre-3c "single-layer channel-plane gw_env" notion is SUPERSEDED). So `is_gateway` ≡
+    //      `n_layers==2`, and per Principle 11 a dual-layer gateway skips the channel gossip plane ENTIRELY (gated on
+    //      n_layers==2 at every channel entry — justifies cap_channel_buffer=8). (The bidi census gate `n_layers!=2` ≡ `!is_gateway`.)
     uint8_t     n_layers = 1;
     LayerConfig layers[2];
 };
@@ -500,13 +500,18 @@ public:
     const GatewaySchedule* rt_gateway_schedule(uint8_t gw_node_id) const { return find_gw_schedule(gw_node_id); }
     uint32_t          rt_gateway_defer_ms(uint8_t gw_node_id) const       { return gateway_schedule_base_defer_ms(gw_node_id, nullptr); }  // base (no jitter) — stable display
     void              rt_resort_for_pick(uint8_t dest) { refresh_route_order(dest, "test_pick"); }   // test: force the pick-time re-sort (freshness/penalty applied)
+    void              test_set_link_one_way(uint8_t next_hop) {                    // §bidi test: drive a one_way transition + its fan-out (mirrors the real Slice-3 detection)
+        _active->_link_bidi[next_hop] = static_cast<uint8_t>(LinkBidi::one_way);
+        resort_routes_for_neighbor_penalty(next_hop, "test_one_way", /*local_only=*/true);
+    }
     void    note_link_confirmed(uint8_t next_hop);   // local bidi confirm (real CTS / complete-heard-set hit): set confirmed + stamp + fan out
     void    decay_link_bidi(uint8_t next_hop);   // confirmed + stale past bidi_confirm_ttl_ms -> unknown (MF6: NEVER -> one_way)
     void    set_link_bidi_for_test(uint8_t next_hop, LinkBidi v) { _active->_link_bidi[next_hop] = static_cast<uint8_t>(v); }  // test seam: seed a bidi state directly
     bool    candidate_degraded(const RtCandidate& c) const;   // LIVE: c.degraded_from_wire || _link_bidi[c.next_hop]==one_way (never a sticky cache, MF5/OI1)
-    int16_t bidi_penalty_q4(uint8_t next_hop) const;          // §bidi: one_way next-hop -> bidi_penalty_one_way_q4, unknown/confirmed -> 0 (PURE; NOT yet in effective_score — Slice 4 composes it)
+    int16_t bidi_penalty_q4(uint8_t next_hop) const;          // §bidi: one_way next-hop -> bidi_penalty_one_way_q4, unknown/confirmed -> 0 (PURE; composed into effective_score at node_routing.cpp:100, SORT-only — never a next_hop_selectable gate)
     size_t            test_build_suspect_ext(uint8_t* out, size_t cap) { return build_suspect_ext(out, cap); }                 // §P4 test: drive the gossip encoder
     void              test_apply_suspect_gossip(const SuspectEntry* e, uint8_t n, uint8_t src) { apply_suspect_gossip(e, n, src); }   // §P4 test: drive the gossip apply
+    void              test_emit_beacon(const char* kind) { emit_beacon(kind); }   // §5 census/advertise tests: drive a deterministic beacon (bypasses the throttle)
     bool              has_pending_tx() const { return _active->_pending_tx.has_value(); }
     bool              tx_queue_full()  const { return _active->_tx_queue_n >= kTxQueueCap; }   // enqueue_data SILENTLY drops when full -> callers (firmware scheduled-send) gate on this before originating
     uint64_t          nav_until_ms()   const { return _nav_until_ms; }  // NAV reservation deadline (0 = clear); test/status accessor

@@ -3910,3 +3910,67 @@ TEST_CASE("ingest_beacon drives update_link_bidi_from_beacon: complete page omit
         CHECK(node.bidi_penalty_q4(7) == protocol::bidi_penalty_one_way_q4);
     }
 }
+
+// ── Asymmetric-link-aware routing, SLICE 4: bidi penalty in effective_score ───
+TEST_CASE("§bidi — bidi_penalty_q4 is silent_penalty for one_way, 0 for unknown/confirmed") {
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    CHECK(node.bidi_penalty_q4(2) == 0);                                  // unknown (zeroed slot) -> 0
+    node.note_link_confirmed(2);                                          // confirmed (Slice 2)
+    CHECK(node.bidi_penalty_q4(2) == 0);                                  // confirmed -> 0
+    node.test_set_link_one_way(3);                                        // one_way
+    CHECK(node.bidi_penalty_q4(3) == protocol::bidi_penalty_one_way_q4);  // one_way -> the full penalty
+    CHECK(node.bidi_penalty_q4(3) == protocol::peer_silent_penalty_q4);   // seed == silent class
+}
+
+TEST_CASE("§bidi — a one_way next-hop drops effective_score by the bidi penalty (vs an unknown peer)") {
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    CHECK(node.route_inject(/*dest=*/5, /*next=*/2, /*hops=*/1, /*score=*/200));
+    CHECK(node.route_inject(/*dest=*/5, /*next=*/3, /*hops=*/1, /*score=*/200));
+    CHECK(rt_primary_for(node, 5) == 2);                 // insertion-order tie holds (no bidi state yet)
+    node.test_set_link_one_way(2);                       // via 2 is now one_way
+    node.note_link_confirmed(3);                         // via 3 confirmed (fan-out re-sorts)
+    CHECK(rt_primary_for(node, 5) == 3);                 // §bidi: confirmed via-3 now beats penalized one_way via-2
+}
+
+TEST_CASE("§bidi — a confirm/one_way transition re-ranks routes via that next-hop (fan-out)") {
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    CHECK(node.route_inject(/*dest=*/5, /*next=*/2, /*hops=*/1, /*score=*/200));   // primary via 2
+    CHECK(node.route_inject(/*dest=*/5, /*next=*/3, /*hops=*/1, /*score=*/200));   // alt via 3
+    CHECK(rt_primary_for(node, 5) == 2);
+    node.test_set_link_one_way(2);          // transition on next-hop 2 -> fans out a re-sort NOW
+    CHECK(rt_primary_for(node, 5) == 3);    // via-2 penalized, via-3 (unknown=0) promoted by the transition fan-out
+    node.note_link_confirmed(2);            // recovery transition on next-hop 2 -> fan out again (penalty clears)
+    CHECK(node.bidi_penalty_q4(2) == 0);    // via-2 recovered: no longer penalized
+    CHECK(rt_primary_for(node, 5) == 3);    // stable sort (no id tie-break) keeps via-3 primary on the now-tie — recovery clears the penalty but does NOT spuriously flap the primary back
+}
+
+TEST_CASE("§bidi — route_strictly_better ranks confirmed > unknown > one_way at equal score/hops") {
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0; node.on_init(cfg);
+    CHECK(node.route_inject(/*dest=*/5, /*next=*/2, /*hops=*/1, /*score=*/200));
+    CHECK(node.route_inject(/*dest=*/5, /*next=*/3, /*hops=*/1, /*score=*/200));
+    CHECK(node.route_inject(/*dest=*/5, /*next=*/4, /*hops=*/1, /*score=*/200));
+    node.test_set_link_one_way(2);          // via 2 = one_way
+    node.note_link_confirmed(4);            // via 4 = confirmed  [via 3 stays unknown]
+    node.rt_resort_for_pick(5);             // force the full re-sort under the bidi penalties
+    CHECK(rt_primary_for(node, 5) != 2);    // one_way is demoted out of primacy
+    const RtEntry* e = nullptr; for (uint8_t i = 0; i < node.rt_count(); ++i) if (node.rt_at(i).dest == 5) e = &node.rt_at(i);
+    CHECK(e != nullptr);
+    if (e) CHECK(e->candidates[e->n - 1].next_hop == 2);   // one_way sorts LAST among the three
+}
+
+TEST_CASE("§bidi — a SOLE one_way route stays selectable: the DM still fires an RTS (no delivery loss)") {
+    TestHal hal;
+    Node* node = mk_sender_with_routes(hal, {{2,1,14}});   // ONLY route to dst 5 is via next-hop 2
+    node->test_set_link_one_way(2);                        // that sole next-hop is now authoritatively one_way
+    CHECK(node->bidi_penalty_q4(2) == protocol::bidi_penalty_one_way_q4);   // it IS penalized in the score
+    send_cmd(*node, /*dst=*/5, "hi");                      // originate — must NOT be dropped for lack of a viable hop
+    const Ev* r = hal.last("rts_tx");
+    CHECK(r != nullptr);                                   // an RTS WAS sent (sole one_way stayed selectable)
+    if (r) CHECK(r->next == 2);                            // ...at the one_way next-hop (delivery not lost)
+    CHECK(hal.count("send_no_route") == 0);                // not failed as "no route" — the route is viable-for-pick
+    delete node;
+}

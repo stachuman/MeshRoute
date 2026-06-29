@@ -327,6 +327,7 @@ void Node::emit_beacon(const char* kind) {
     beacon_entry entries[kMaxBeaconEntries];          // array sized at the theoretical max 35; max_entries <= it
     uint8_t      pack_idx[kMaxBeaconEntries];         // _active->_rt indices packed (for dirty-clear)
     uint8_t n = 0, dirty_n = 0, stable_n = 0, total_dirty = 0;
+    bool    bidi_census_full = false;   // §5: did the FULL hops==1 set fit THIS beacon (drives heard_set_complete, Task 4)
     if (!_cfg.is_mobile) {
         if (_active->_rt_count == 0) _beacon_offset = 0;          // Lua total==0 path resets the cursor (dv:1761)
         for (uint8_t i = 0; i < _active->_rt_count; ++i) if (_active->_rt[i].dirty) ++total_dirty;
@@ -347,6 +348,26 @@ void Node::emit_beacon(const char* kind) {
             _beacon_offset = static_cast<uint8_t>(idx % _active->_rt_count);   // advance ONLY when Phase 2 ran
         }
     }
+    // §5 census (MF3): on a steady-state (dirty_only) LEAF beacon, force-inject ALL direct-neighbour (candidates[0].hops==1)
+    // entries that the dirty/stable passes did not already pack — a NEW partition pass, NOT Phase-2 reuse (Phase 2 is
+    // !dirty_only-gated => dormant here). Does NOT set dirty (the post-pack clear is untouched; no re-dirty-every-period).
+    // Gateways skip by construction (OI3 leaf-only — they already skip the bitmap/digest). bidi_census_full tracks whether
+    // the FULL hops==1 set fit (drives heard_set_complete, Task 4). M1: set true ONLY inside this gate, so a NON-census
+    // beacon (discovery/sync = !dirty_only, gateway, or mobile) leaves it false -> heard_set_complete=false (absence is
+    // authoritative ONLY on a beacon that ran the census). Bounded by the LIVE max_entries so it never overflows beacon_max_bytes.
+    if (dirty_only && _cfg.n_layers != 2 && !_cfg.is_mobile) {
+        bidi_census_full = true;
+        for (uint8_t i = 0; i < _active->_rt_count; ++i) {
+            if (_active->_rt[i].n == 0 || _active->_rt[i].candidates[0].hops != 1) continue;
+            bool already = false;
+            for (uint8_t k = 0; k < n; ++k) if (pack_idx[k] == i) { already = true; break; }
+            if (already) continue;
+            if (n >= max_entries) { bidi_census_full = false; break; }   // ran out of slots -> set incomplete (Task 4)
+            pack_idx[n++] = i;
+        }
+        // MF2 headroom: the FULL set "fit" only if it left >= heard_set_census_min_headroom free slots vs the live cap.
+        if (bidi_census_full && (max_entries - n) < protocol::heard_set_census_min_headroom) bidi_census_full = false;
+    }
     for (uint8_t k = 0; k < n; ++k) {
         const RtEntry&     re = _active->_rt[pack_idx[k]];
         const RtCandidate& pc = re.candidates[0];
@@ -355,8 +376,12 @@ void Node::emit_beacon(const char* kind) {
         entries[k].score_bucket = static_cast<uint8_t>(bucket_of_snr_4b(pc.score));
         entries[k].is_gateway   = pc.is_gateway;
         entries[k].hops         = pc.hops;
+        entries[k].degraded     = candidate_degraded(pc);   // §5 transitive: degraded_from_wire OR _link_bidi[next]==one_way (MF5 live recompute)
+        if (entries[k].degraded) MR_EMIT("degraded_advertise", EF_I("dest",re.dest),EF_I("next",pc.next_hop));
     }
     in.entries = std::span<const beacon_entry>(entries, n);
+    in.heard_set_complete = bidi_census_full;   // §5/MF1 byte-3 bit 4 — authoritative only when the full hops==1 set fit (Task 3/4)
+    if (in.heard_set_complete) MR_EMIT("link_census_complete", EF_I("n_entries",n),EF_I("max",max_entries));
 
     uint8_t buf[protocol::beacon_max_bytes];
     const size_t len = pack_beacon(in, std::span<uint8_t>(buf, sizeof(buf)));
