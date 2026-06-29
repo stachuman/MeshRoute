@@ -80,6 +80,17 @@ int16_t Node::liveness_penalty_q4(uint8_t next_hop) const {
     return 0;
 }
 
+// §bidi: the bidirectionality penalty for `next_hop`. one_way -> bidi_penalty_one_way_q4; unknown AND confirmed -> 0
+// (OI2 — the ONLY demotion is positively-confirmed one_way; a nudge on `unknown` would punish every not-yet-probed
+// link on a cold mesh). PURE/non-mutating read. NOTE: defined + tested in Slice 3 but NOT yet folded into
+// effective_score — Slice 4 composes it (Slice 3 stays delivery-neutral).
+int16_t Node::bidi_penalty_q4(uint8_t next_hop) const {
+    if (next_hop == 0 || next_hop == _node_id) return 0;
+    return _active->_link_bidi[next_hop] == static_cast<uint8_t>(LinkBidi::one_way)
+               ? protocol::bidi_penalty_one_way_q4
+               : 0;
+}
+
 int16_t Node::effective_score(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const {
     // §P2: subtract BOTH the R4.2 budget tier AND the liveness tier (suspect/silent/dead) — Lua effective_score@4140.
     return static_cast<int16_t>(c.score - budget_penalty_q4(c, cands, n) - liveness_penalty_q4(c.next_hop));
@@ -301,6 +312,7 @@ Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand) {
             entry->candidates[i].n2_hop           = cand.n2_hop;
             entry->candidates[i].is_gateway       = cand.is_gateway;
             entry->candidates[i].learned_layer_id = cand.learned_layer_id;
+            entry->candidates[i].degraded_from_wire = cand.degraded_from_wire;   // Slice 3: refresh the wire bit even on a metadata-only merge (clears on a clean re-advert)
             return MergeAction::none;
         }
     }

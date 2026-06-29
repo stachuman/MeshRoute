@@ -178,6 +178,24 @@ void Node::apply_suspect_gossip(const SuspectEntry* e, uint8_t n, uint8_t bcn_sr
     }
 }
 
+// Slice 3 §1: bidirectionality detection from a neighbour's heard-set. `advertiser` = P (we heard P's beacon, so
+// P->us works). Scan P's hops==1 entries for [dest==self]: PRESENT => P hears us => us<->P CONFIRMED. ABSENT in a
+// COMPLETE page => P does NOT hear us => us->P ONE_WAY. ABSENT in a TRUNCATED page (complete=false) => no change.
+// Keys ONLY on dest==self/presence — NEVER reads entries[i].degraded (endpoint override: our live decode of P's
+// beacon is proof P->us works, overriding any stale third-party degraded view).
+void Node::update_link_bidi_from_beacon(uint8_t advertiser, const beacon_entry* entries, uint8_t n, bool complete) {
+    if (advertiser == 0 || advertiser == 0xFF || advertiser == _node_id) return;   // §P0 sentinel / self
+    bool present = false;
+    for (uint8_t i = 0; i < n; ++i)
+        if (entries[i].hops == 1 && entries[i].dest == _node_id) { present = true; break; }
+    if (present) { note_link_confirmed(advertiser); return; }   // CONFIRMED (Slice 2 hook: fan-out + MR_EMIT)
+    if (!complete) return;                                      // truncated page -> absence is not authoritative
+    if (_active->_link_bidi[advertiser] != static_cast<uint8_t>(LinkBidi::one_way)) {
+        _active->_link_bidi[advertiser] = static_cast<uint8_t>(LinkBidi::one_way);
+        MR_EMIT("link_one_way", EF_I("next_hop", advertiser));
+    }
+}
+
 void Node::emit_beacon(const char* kind) {
     // §P0: an UNPROVISIONED node (id 0) must NEVER advertise routes — its id is the reserved sentinel, so neighbours
     // would install a route to "0" that then propagates. Guard the COMMON emit path (covers periodic + triggered +
@@ -602,6 +620,7 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         cand.is_gateway       = e.is_gateway;
         cand.last_seen_ms     = now;
         cand.learned_layer_id = _cfg.leaf_id;
+        cand.degraded_from_wire = e.degraded;   // Slice 3: inherit the advertiser's degraded wire-bit (recomputed per merge)
         const MergeAction a = rt_merge(e.dest, cand);
         if (a == MergeAction::new_dest || a == MergeAction::promote) {
             emit_rt_update(_hal, e.dest, b.src, combined_score, cand.hops, "primary");
@@ -609,6 +628,19 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         } else if (a == MergeAction::alt_install) {
             emit_rt_update(_hal, e.dest, b.src, combined_score, cand.hops, "alt");
         }
+    }
+
+    // Slice 3 §1: bidirectionality detection. Re-collect the beacon's hops==1 entries as the advertiser's heard-set
+    // and scan for our own id: present => the advertiser hears us => confirmed; absent in a complete page => one_way.
+    // (Separate from the DV-merge loop above, which split-horizon-skips dest==self and never sees the self-entry.)
+    {
+        static beacon_entry heard[kMaxBeaconEntries];   // static: ingest_beacon is non-reentrant (single loop-task RX dispatch, node.cpp:761) — keep this ~210 B OFF the loop stack (jump-to-0x0 stack-pressure discipline)
+        uint8_t hn = 0;
+        for (uint8_t i = 0; i < b.n_entries && hn < kMaxBeaconEntries; ++i) {
+            auto pe = parse_beacon_entry(std::span<const uint8_t>(bytes, len), b, i);
+            if (pe) heard[hn++] = *pe;
+        }
+        update_link_bidi_from_beacon(b.src, heard, hn, b.heard_set_complete);
     }
 
     // dv_dual_sf.lua:9680-9684 order: discovery re-check, triggered re-beacon on

@@ -32,6 +32,7 @@ namespace MESHROUTE_NS {
 struct m_out;          // frame_codec.h — fwd-decl so the channel ingest seam doesn't pull the codec into node.h
 struct rts_out;        // frame_codec.h — fwd-decl for the FLOOD RTS-M handler seam (handle_flood_rts)
 struct SuspectEntry;   // frame_codec.h — fwd-decl for the §P4 suspect-gossip apply seam (apply_suspect_gossip)
+struct beacon_entry;   // frame_codec.h — fwd-decl for the Slice 3 bidi detection scan seam (update_link_bidi_from_beacon)
 
 // Per-layer (per-leaf) config — the dual-layer gateway model (2026-06-12-gateway-dual-layer-design.md §3.1).
 // A normal node has n_layers=1 (uses layers[0]); a GATEWAY has 2 EQUAL layers (no home/guest, §0.1). One
@@ -489,6 +490,11 @@ public:
     int16_t peer_penalty_q4(uint8_t node_id) const { return liveness_penalty_q4(node_id); }   // liveness (suspect/silent/dead) penalty on a next-hop; routes dump shows effective = score - pen
     LinkBidi          link_bidi_state(uint8_t node_id) const { return static_cast<LinkBidi>(_active->_link_bidi[node_id]); }  // bidi plane read (test/status); unknown for any unprobed link
     uint64_t          link_bidi_confirmed_ms(uint8_t node_id) const { return _active->_link_bidi_confirmed_ms[node_id]; }    // last-confirmation ms (test/status); 0 = never confirmed
+#ifdef MESHROUTE_NATIVE
+    uint8_t           link_bidi_at(uint8_t node_id) const { return _active->_link_bidi[node_id]; }   // raw LinkBidi (test/white-box)
+    void              test_update_link_bidi_from_beacon(uint8_t advertiser, const beacon_entry* e, uint8_t n, bool complete) { update_link_bidi_from_beacon(advertiser, e, n, complete); }  // white-box: drive the Slice-3 detection scan directly
+    void              test_ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) { ingest_beacon(bytes, len, meta); }  // white-box: drive ingest_beacon directly (Slice 3 end-to-end)
+#endif
     // A heard 1-hop gateway's stored window schedule (nullptr if none known) + the ms to defer an RTS to its window.
     // For the `routes` console dump: surface a gateway route's unique state (period / per-leaf windows / heard-age).
     const GatewaySchedule* rt_gateway_schedule(uint8_t gw_node_id) const { return find_gw_schedule(gw_node_id); }
@@ -498,6 +504,7 @@ public:
     void    decay_link_bidi(uint8_t next_hop);   // confirmed + stale past bidi_confirm_ttl_ms -> unknown (MF6: NEVER -> one_way)
     void    set_link_bidi_for_test(uint8_t next_hop, LinkBidi v) { _active->_link_bidi[next_hop] = static_cast<uint8_t>(v); }  // test seam: seed a bidi state directly
     bool    candidate_degraded(const RtCandidate& c) const;   // LIVE: c.degraded_from_wire || _link_bidi[c.next_hop]==one_way (never a sticky cache, MF5/OI1)
+    int16_t bidi_penalty_q4(uint8_t next_hop) const;          // §bidi: one_way next-hop -> bidi_penalty_one_way_q4, unknown/confirmed -> 0 (PURE; NOT yet in effective_score — Slice 4 composes it)
     size_t            test_build_suspect_ext(uint8_t* out, size_t cap) { return build_suspect_ext(out, cap); }                 // §P4 test: drive the gossip encoder
     void              test_apply_suspect_gossip(const SuspectEntry* e, uint8_t n, uint8_t src) { apply_suspect_gossip(e, n, src); }   // §P4 test: drive the gossip apply
     bool              has_pending_tx() const { return _active->_pending_tx.has_value(); }
@@ -821,6 +828,10 @@ private:
     int16_t     effective_score(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const; // :4050
     int16_t     budget_penalty_q4(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const; // :3887
     int16_t     liveness_penalty_q4(uint8_t next_hop) const;       // §P2: suspect 192 / silent 640 / dead 1280 Q4 (const, non-mutating tier read); Lua peer_suspect_penalty_db@4008
+    // Slice 3: the bidirectionality DETECTION scan. For advertiser P's beacon heard-set (its hops==1 entries),
+    // a [dest==self] entry proves P hears us -> confirmed (note_link_confirmed); an ABSENT self in a COMPLETE
+    // page proves P does NOT hear us -> one_way; an absent self in a TRUNCATED page is unconfirmed (no change).
+    void        update_link_bidi_from_beacon(uint8_t advertiser, const beacon_entry* entries, uint8_t n, bool complete);
     int         resort_routes_for_neighbor_penalty(uint8_t node_id, const char* source, bool local_only);      // :4255
     RtEntry*    refresh_route_order(uint8_t dst, const char* reason);   // re-sort ONE dest's candidates (catch a tier change since the last sort), dv:4455
     void        maybe_emit_rt_full();

@@ -3806,3 +3806,107 @@ TEST_CASE("bidi hook — a real CTS from our flight's next-hop confirms the link
         CHECK(node.link_bidi_state(9) == LinkBidi::confirmed);
     }
 }
+
+// ---- Slice 3: detection scan + degraded-from-wire inheritance ---------------
+
+TEST_CASE("update_link_bidi_from_beacon: present->confirmed, absent+complete->one_way, absent+incomplete->no change") {
+    TestHal hal; Node node(hal, /*id=*/5, /*key=*/0xABCD);   // self = node 5
+
+    // (a) PRESENT: advertiser 7's beacon lists [dest=5, next=5] -> "7 hears 5" -> 5<->7 confirmed.
+    beacon_entry present[1] = {};
+    present[0].dest = 5; present[0].next = 5; present[0].hops = 1;
+    node.test_update_link_bidi_from_beacon(/*advertiser=*/7, present, /*n=*/1, /*complete=*/true);
+    CHECK(node.link_bidi_at(7) == static_cast<uint8_t>(LinkBidi::confirmed));
+    CHECK(node.bidi_penalty_q4(7) == 0);                     // confirmed => no penalty
+
+    // (b) ABSENT + COMPLETE: advertiser 8's COMPLETE page omits dest=5 -> 8 does NOT hear 5 -> 5->8 one_way.
+    beacon_entry other[1] = {};
+    other[0].dest = 99; other[0].next = 99; other[0].hops = 1;   // some unrelated dest, NOT self
+    node.test_update_link_bidi_from_beacon(/*advertiser=*/8, other, /*n=*/1, /*complete=*/true);
+    CHECK(node.link_bidi_at(8) == static_cast<uint8_t>(LinkBidi::one_way));
+    CHECK(node.bidi_penalty_q4(8) == protocol::bidi_penalty_one_way_q4);
+
+    // (c) ABSENT + INCOMPLETE: advertiser 9 truncated its page (complete=false) -> NO state change (stays unknown=0).
+    node.test_update_link_bidi_from_beacon(/*advertiser=*/9, other, /*n=*/1, /*complete=*/false);
+    CHECK(node.link_bidi_at(9) == static_cast<uint8_t>(LinkBidi::unknown));
+    CHECK(node.bidi_penalty_q4(9) == 0);
+}
+
+TEST_CASE("endpoint override: a [dest==self] entry confirms (never degrades) the receiver's own link") {
+    TestHal hal; Node node(hal, /*id=*/5, /*key=*/0xABCD);   // self = node 5
+
+    // Advertiser 7 lists [dest=5] WITH the degraded wire-bit set (a stale third-party view that 7->5 is one-way).
+    // The endpoint that RECEIVED 7's beacon has LIVE proof 7->5 works (it just decoded it), so the scan treats the
+    // present self-entry as a CONFIRMATION and ignores the degraded bit entirely (design §1 endpoint override).
+    beacon_entry e[1] = {};
+    e[0].dest = 5; e[0].next = 5; e[0].hops = 1; e[0].degraded = true;
+    node.test_update_link_bidi_from_beacon(/*advertiser=*/7, e, /*n=*/1, /*complete=*/true);
+    CHECK(node.link_bidi_at(7) == static_cast<uint8_t>(LinkBidi::confirmed));   // NOT one_way, despite degraded bit
+    CHECK(node.bidi_penalty_q4(7) == 0);
+}
+
+TEST_CASE("rt_merge: degraded_from_wire is inherited from the incoming entry and CLEARS on a clean re-advert") {
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+
+    // Build advertiser 2's beacon carrying [dest=9, next=8, degraded=1] -> a degraded route to 9 via 2.
+    auto make_beacon = [&](bool degraded, std::vector<uint8_t>& out) {
+        beacon_entry ent[1] = {};
+        ent[0].dest = 9; ent[0].next = 8; ent[0].hops = 2;
+        ent[0].score_bucket = 12; ent[0].degraded = degraded;
+        beacon_in in{}; in.leaf_id = node.active_layer_id() & 0x0F; in.src = 2; in.key_hash32 = 0x2222;
+        in.entries = std::span<const beacon_entry>(ent, 1);
+        out.resize(protocol::beacon_max_bytes);
+        const size_t len = pack_beacon(in, std::span<uint8_t>(out.data(), out.size()));
+        CHECK(len > 0);
+        if (len > 0) out.resize(len);
+    };
+
+    RxMeta meta{}; meta.snr_db = 6.0f;
+
+    // (1) DEGRADED advert -> the installed candidate for dest 9 via 2 carries degraded_from_wire.
+    std::vector<uint8_t> bcn1; make_beacon(/*degraded=*/true, bcn1);
+    node.test_ingest_beacon(bcn1.data(), bcn1.size(), meta);
+    const RtEntry* e1 = nullptr;
+    for (uint8_t i = 0; i < node.rt_count(); ++i) if (node.rt_at(i).dest == 9) e1 = &node.rt_at(i);
+    CHECK(e1 != nullptr);
+    if (e1 != nullptr) {
+        bool found_deg = false;
+        for (uint8_t j = 0; j < e1->n; ++j) if (e1->candidates[j].next_hop == 2) found_deg = e1->candidates[j].degraded_from_wire;
+        CHECK(found_deg == true);
+    }
+
+    // (2) CLEAN re-advert (same route, degraded=0) -> degraded_from_wire CLEARS (fresh recompute, not sticky-OR).
+    std::vector<uint8_t> bcn2; make_beacon(/*degraded=*/false, bcn2);
+    hal._now += 1000;
+    node.test_ingest_beacon(bcn2.data(), bcn2.size(), meta);
+    const RtEntry* e2 = nullptr;
+    for (uint8_t i = 0; i < node.rt_count(); ++i) if (node.rt_at(i).dest == 9) e2 = &node.rt_at(i);
+    CHECK(e2 != nullptr);
+    if (e2 != nullptr) {
+        bool still_deg = false;
+        for (uint8_t j = 0; j < e2->n; ++j) if (e2->candidates[j].next_hop == 2) still_deg = e2->candidates[j].degraded_from_wire;
+        CHECK(still_deg == false);
+    }
+}
+
+TEST_CASE("ingest_beacon drives update_link_bidi_from_beacon: complete page omitting self -> one_way") {
+    TestHal hal; Node node(hal, /*id=*/5, /*key=*/0xABCD);   // self = node 5
+
+    // Advertiser 7's COMPLETE beacon (heard_set_complete=true) lists [dest=9,next=9,hops=1] but NOT self(5)
+    // -> 7 does not hear 5 -> 5->7 one_way must be set by ingest_beacon's scan call.
+    beacon_entry ent[1] = {};
+    ent[0].dest = 9; ent[0].next = 9; ent[0].hops = 1; ent[0].score_bucket = 12;
+    beacon_in in{}; in.leaf_id = node.active_layer_id() & 0x0F; in.src = 7; in.key_hash32 = 0x7777;
+    in.heard_set_complete = true;                            // Slice 1 wire bit (byte-3 b4)
+    in.entries = std::span<const beacon_entry>(ent, 1);
+    std::vector<uint8_t> buf(protocol::beacon_max_bytes);
+    const size_t len = pack_beacon(in, std::span<uint8_t>(buf.data(), buf.size()));
+    CHECK(len > 0);
+    if (len > 0) {
+        buf.resize(len);
+        RxMeta meta{}; meta.snr_db = 6.0f;
+        node.test_ingest_beacon(buf.data(), buf.size(), meta);
+        CHECK(node.link_bidi_at(7) == static_cast<uint8_t>(LinkBidi::one_way));
+        CHECK(node.bidi_penalty_q4(7) == protocol::bidi_penalty_one_way_q4);
+    }
+}
