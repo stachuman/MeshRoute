@@ -35,6 +35,7 @@ struct JsonBuf {
 
 // Complete NDJSON line serializers (return bytes written incl. '\n', 0 on overflow).
 size_t write_ack   (char* buf, size_t cap, const CmdResult& r);
+size_t write_reqpubkey_sent(char* buf, size_t cap, uint32_t hash);   // §2: {"ev":"reqpubkey_sent","hash":…} — the on-air pubkey-request twin
 size_t write_push  (char* buf, size_t cap, const Push& p, const NodeConfig* cfg = nullptr);   // cfg: config_adopted membership fields (R6.3)
 size_t write_event (char* buf, size_t cap, const char* type, const EventField* f, size_t n);
 size_t write_log   (char* buf, size_t cap, const char* msg);

@@ -44,9 +44,10 @@ struct DeliveryBadge: View {
         case .outbox:   Image(systemName: "tray.and.arrow.up").foregroundStyle(.secondary)
         case .sending:  Image(systemName: "clock").foregroundStyle(.secondary)
         case .queued:   Image(systemName: "arrow.up.circle").foregroundStyle(.secondary)
-        case .acked:    Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
-        case .failed:   Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
-        case .received: EmptyView()
+        case .acked:        Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+        case .deliveredE2E: Image(systemName: "checkmark.seal.fill").foregroundStyle(.green)   // recipient confirmed end-to-end (D25)
+        case .failed:       Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.red)
+        case .received:     EmptyView()
         }
     }
 }

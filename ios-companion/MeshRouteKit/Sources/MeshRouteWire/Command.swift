@@ -5,11 +5,10 @@
 // "line-ASCII commands + JSON pushes" contract chosen on review: zero firmware decoder
 // work, the node already parses these. The transport appends the '\n'; `line` has none.
 //
-// Verb reference (console_parse.cpp / fw_main.cpp):
-//   send <id> <text>            send_ack <id> <text>
-//   sendhash <hex> <text>       sendhash_ack <hex> <text>
-//   send_channel <ch> <text>    resolve <hex> [hard]
-//   cfg | cfg set <k> <v> | routes | status | whoami | lookup <hex> | hashof <id>
+// Verb reference (console_parse.cpp / fw_main.cpp — 2026-06-21 unified send, D24):
+//   send <id|hash> "<text>" [-a] [-e]    send_channel <ch> "<text>"    (send_layer — explicit path, app-unused)
+//   resolve <hex> [hard] | cfg | cfg set <k> <v> | routes | status | whoami | lookup <hex> | hashof <id>
+//   peerkey <hex64> | reqpubkey <hex8> | pull_inbox <d> <c> | mark_read <dm|chan> <seq>
 
 import Foundation
 
@@ -22,9 +21,9 @@ public enum DMTarget: Hashable, Sendable {
 public struct SendDM: Hashable, Sendable {
     public var target: DMTarget
     public var body: String
-    public var requestAck: Bool     // the *_ack verbs request the E2E ack (command.h flags E2E=0x08)
-    public var encrypt: Bool        // per-message E2E crypt (2026-06-16): the `sendhashx`/`sendhashx_ack` verbs.
-                                    // Only meaningful for a HASH target (sealing needs the recipient's pubkey).
+    public var requestAck: Bool     // the `-a` flag — request the end-to-end delivery ack (wire E2E=0x08)
+    public var encrypt: Bool        // the `-e` flag — per-message E2E crypt (D24). HASH-only (sealing needs the
+                                    // recipient's pubkey; the node rejects -e on an id). Absent ⇒ the node's e2e_dm default.
     public init(target: DMTarget, body: String, requestAck: Bool = false, encrypt: Bool = false) {
         self.target = target; self.body = body; self.requestAck = requestAck; self.encrypt = encrypt
     }
@@ -60,30 +59,30 @@ public enum Command: Hashable, Sendable {
     // E2E peer-key provisioning (2026-06-16 contract). The app does NO crypto — these just hand the node bytes.
     case peerKey(pubkeyHex: String)              // install a scanned card's pubkey (PINNED) → "peerkey <hex64>"
     case reqPubkey(KeyHash)                       // user-triggered on-air key request → "reqpubkey <hex8>"
+    // Leaf provisioning (R6 / D26) — live, no reboot. freq = MHz (float); level 1..255 (wire nibble = level & 0x0F).
+    case join(freqMHz: Double, bwKHz: Int, ctrlSF: Int, level: Int)
+    case createLeaf(freqMHz: Double, bwKHz: Int, ctrlSF: Int, level: Int, sfList: String, dutyPercent: Int, name: String)
+    case leave                                    // reset membership (wipe to default, KEEP freq)
     case raw(String)                             // escape hatch — sent verbatim
 
     /// The exact console line (no trailing newline — the transport frames it).
     public var line: String {
         switch self {
         case .sendDM(let dm):
-            // encrypt is HASH-only (sealing needs the recipient's pubkey); ignored for an id target.
-            let verb: String
-            switch (dm.target, dm.requestAck, dm.encrypt) {
-            case (.id, false, _):       verb = "send"
-            case (.id, true, _):        verb = "send_ack"
-            case (.hash, false, false): verb = "sendhash"
-            case (.hash, true, false):  verb = "sendhash_ack"
-            case (.hash, false, true):  verb = "sendhashx"        // E2E-encrypted DM
-            case (.hash, true, true):   verb = "sendhashx_ack"    // E2E-encrypted + delivery ack
-            }
-            let addr: String
+            // §2 unified send (firmware 2026-06-21, D24): `send <id|hash> "<body>" [-a] [-e]`. The node
+            // AUTO-detects id (≤254 decimal) vs hash (8-hex). -a = E2E-ack; -e = encrypt (HASH-only — the
+            // node errors on -e for an id target). Body is QUOTED + sanitized (see wireBody).
+            let addr: String, isHash: Bool
             switch dm.target {
-            case .id(let i):    addr = String(i)
-            case .hash(let h):  addr = h.hex8
+            case .id(let i):    addr = String(i); isHash = false
+            case .hash(let h):  addr = h.hex8;    isHash = true
             }
-            return "\(verb) \(addr) \(dm.body)"
+            var s = "send \(addr) \"\(Self.wireBody(dm.body))\""
+            if dm.requestAck      { s += " -a" }
+            if dm.encrypt, isHash { s += " -e" }   // -e only on a hash target
+            return s
         case .sendChannel(let p):
-            return "send_channel \(p.channelID) \(p.body)"
+            return "send_channel \(p.channelID) \"\(Self.wireBody(p.body))\""
         case .resolve(let r):
             return r.hard ? "resolve \(r.hash.hex8) hard" : "resolve \(r.hash.hex8)"
         case .whoami:                       return "whoami"
@@ -97,8 +96,33 @@ public enum Command: Hashable, Sendable {
         case .markRead(let kind, let seq):  return "mark_read \(kind.commandToken) \(seq)"
         case .peerKey(let hex):             return "peerkey \(hex)"
         case .reqPubkey(let h):             return "reqpubkey \(h.hex8)"
+        case .join(let f, let bw, let sf, let lvl):
+            return "join \(Self.freqToken(f)) \(bw) \(sf) \(lvl)"
+        case .createLeaf(let f, let bw, let sf, let lvl, let sfList, let duty, let name):
+            let sfs = sfList.replacingOccurrences(of: " ", with: "")   // sf_list must be one token: "7,9"
+            return "create \(Self.freqToken(f)) \(bw) \(sf) \(lvl) \(sfs) \(duty) \"\(Self.wireBody(name))\""
+        case .leave:                        return "leave"
         case .raw(let s):                   return s
         }
+    }
+
+    /// Sanitize a body for the QUOTED wire form. The firmware's `parse_send_tail` reads verbatim bytes up to
+    /// the NEXT `"` with NO escape, and the BLE transport frames lines on `\n` — so neutralize the two chars
+    /// that would corrupt the wire: a `"` (ends the body early → `bad_args`) → `'`; CR/LF (splits the command
+    /// line) → a space. Both are 1 byte → 1 byte, so the body byte budget is unchanged. (A real wire escape is
+    /// a firmware ask — roadmap §8.2.)
+    static func wireBody(_ body: String) -> String {
+        body.replacingOccurrences(of: "\"", with: "'")
+            .replacingOccurrences(of: "\r\n", with: " ")
+            .replacingOccurrences(of: "\n", with: " ")
+            .replacingOccurrences(of: "\r", with: " ")
+    }
+
+    /// Format a MHz frequency as a locale-independent wire token (the firmware `atof`-parses it); trims a
+    /// trailing ".0" so a whole-MHz value reads "868" not "868.0".
+    public static func freqToken(_ mhz: Double) -> String {
+        let s = String(mhz)
+        return s.hasSuffix(".0") ? String(s.dropLast(2)) : s
     }
 
     /// UTF-8 body byte budget for this command's payload (nil for non-payload commands).

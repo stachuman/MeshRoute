@@ -37,6 +37,23 @@ final class InboxWireTests: XCTestCase {
         XCTAssertEqual(sealed.layerID, 23)
     }
 
+    func testInboxDMReceiptViaType() {
+        // D25: a pulled `inbox_dm type:"e2e_ack"` is a delivery RECEIPT (empty body), rides the DM cursor, matches the OUTBOX.
+        guard case .inboxEntry(let e)? = PushDecoder.decode(
+            line: #"{"ev":"inbox_dm","type":"e2e_ack","seq":43,"origin":2,"layer_id":5,"ctr":7,"sender_hash":2319391746,"rx_ms":124000,"body":""}"#) else {
+            return XCTFail("not inbox_dm receipt")
+        }
+        XCTAssertTrue(e.isReceipt)
+        XCTAssertEqual(e.origin, 2); XCTAssertEqual(e.ctr, 7); XCTAssertEqual(e.seq, 43)   // rides the DM seq-cursor
+        XCTAssertEqual(e.senderHash, 2319391746); XCTAssertEqual(e.body, "")
+        // a normal inbox_dm (no type) is NOT a receipt
+        guard case .inboxEntry(let n)? = PushDecoder.decode(
+            line: #"{"ev":"inbox_dm","seq":44,"origin":2,"ctr":8,"sender_hash":2319391746,"rx_ms":124000,"body":"hi"}"#) else {
+            return XCTFail("not inbox_dm")
+        }
+        XCTAssertFalse(n.isReceipt)
+    }
+
     func testInboxEntryChannel() {
         // channel identity is the full 32-bit channel_msg_id (no ctr field); 68298753 = 0x04020301.
         guard case .inboxEntry(let e)? = PushDecoder.decode(

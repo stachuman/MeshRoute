@@ -3,7 +3,7 @@
 // key_hash32 = ed_pub[:4] — the node's stable cryptographic id (the device has NO name map;
 // the app owns name↔hash). On the wire a hash appears two ways:
 //   • as an 8-digit lowercase hex STRING in `ready`/`status` `key` (console_json key_hex32: "%08x"),
-//     and as the hex token the app sends in `sendhash`/`resolve`/`lookup` commands.
+//     and as the hex token the app sends in `send`/`resolve`/`lookup` commands.
 //   • as a DECIMAL u32 NUMBER in the `hash_resolved` push (console_json: j.u32(hash)).
 // KeyHash therefore decodes flexibly (string-hex OR number) and renders canonical hex8.
 

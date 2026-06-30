@@ -98,6 +98,22 @@ final class PushDecoderTests: XCTestCase {
         XCTAssertEqual(r3, "no_pubkey")
     }
 
+    func testE2eAckedLiveReceipt() {
+        // D25: the live E2E delivery-receipt twin → marks the OUTBOX delivered (NOT an inbound DM). origin = the dst that confirmed.
+        guard case .e2eAcked(let dst, let ctr, let senderHash)? =
+                PushDecoder.decode(line: #"{"ev":"e2e_acked","origin":2,"ctr":7,"sender_hash":2319391746}"#) else {
+            return XCTFail("not e2e_acked")
+        }
+        XCTAssertEqual(dst, 2); XCTAssertEqual(ctr, 7)
+        XCTAssertEqual(senderHash, 2319391746)        // a cross-layer ack carries the stable key
+        // a same-layer ack sends sender_hash 0 → nil (the app then matches by (dst, ctr))
+        guard case .e2eAcked(_, _, let sh0)? =
+                PushDecoder.decode(line: #"{"ev":"e2e_acked","origin":2,"ctr":8,"sender_hash":0}"#) else {
+            return XCTFail("not e2e_acked")
+        }
+        XCTAssertNil(sh0)
+    }
+
     func testPeerKeyProvisioningEvents() {     // E2E peer-key provisioning (2026-06-16)
         XCTAssertEqual(Command.peerKey(pubkeyHex: String(repeating: "ab", count: 32)).line,
                        "peerkey " + String(repeating: "ab", count: 32))

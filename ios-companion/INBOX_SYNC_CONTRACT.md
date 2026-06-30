@@ -211,7 +211,7 @@ The firmware does **NOT** auto-flood `WANT_PUBKEY` on a failed encrypted send. O
 ```
 reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "request key" UX action)
 ```
-- Firmware: `emit_hash_query(hash, hard=true, want_pubkey=true)` (`node.cpp:831`). ⚠ **The dedicated `{"ev":"reqpubkey_sent"}` is NOT yet emitted** — the verb currently returns a plain `{"ack":"queued"}` (`fw_main.cpp:1503`); add the event, or have the app accept the generic ack.
+- Firmware: `emit_hash_query(hash, hard=true, want_pubkey=true)` (`node.cpp:831`). The verb returns the dedicated event `{"ev":"reqpubkey_sent","hash":<key_hash32>}` (`fw_main.cpp:1503` → `write_reqpubkey_sent`, landed 2026-06-29). The **no-crypto-identity** failure path keeps its existing error ack (fails loud, no flood — see below).
 - **Mutual (Slice 2, implemented 2026-06-17):** the WANT_PUBKEY H **always appends the requester's OWN pubkey**
   (the 8→40-B H), so ONE request provisions BOTH directions: the **owner caches the requester** (key + id_bind)
   before answering, and the requester caches the owner from the TYPE-5 answer. This is the bootstrap before any
@@ -355,5 +355,5 @@ These firmware→app events ride the same BLE TXD line, so the app's parser will
 - **`{"ev":"version",…}`** (`fw`/`built`/`git`/`board`/`reset`) — the BLE `version` query (`fw_main.cpp:1457`).
 - **`{"ev":"prep_restart","halted":true}`** — the BLE `prep-restart` ack (`fw_main.cpp:1463`).
 - **`{"ev":"hash_resolved","node":…,"auth":…,"hash":…}`** — the `resolve <hash>` diagnostic answer (`write_push`, `console_json.cpp:148`). Distinct from `peer_key_cached` (the pubkey-cache event).
-- ⚠ **Firmware gap to decide:** `pushkind_name` (`console_json.cpp:65-77`) has **no case for `PushKind::send_e2e_acked`** — if that push is ever serialized over BLE it emits `{"ev":"unknown",…}`. The durable receipt path (`record_ack` → pull → `inbox_dm type:"e2e_ack"`) is the intended companion channel and works; decide whether the live `send_e2e_acked` needs a BLE case or stays USB-only.
+- **`{"ev":"e2e_acked","origin":<dst>,"ctr":<n>,"sender_hash":<h>}`** — the **live twin** of the durable `inbox_dm type:"e2e_ack"` receipt (`PushKind::send_e2e_acked` → `pushkind_name`/`write_push`, `console_json.cpp`; landed 2026-06-29, replaces the former `{"ev":"unknown"}` hazard). The app marks its OUTBOX message **DELIVERED immediately** (not only on the next pull): match `(origin, ctr)` — or `(sender_hash, ctr)` when `sender_hash != 0` (cross-layer ack) — to the OUTBOX, **identical to the durable `type:"e2e_ack"` rule**. **NOT** an inbound DM — do not render it. `origin` = the dest that confirmed delivery; `sender_hash` = 0 on a same-layer ack.
 - `cfg` / `status` / `route`+`routes_end` writers also stream over BLE (the Node/Network screens) — orthogonal to inbox sync; see the device-console design spec.

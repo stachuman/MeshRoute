@@ -4085,3 +4085,17 @@ TEST_CASE("§bidi — a SOLE one_way route stays selectable: the DM still fires 
     CHECK(hal.count("send_no_route") == 0);                // not failed as "no route" — the route is viable-for-pick
     delete node;
 }
+
+// ── Companion-contract gap fixes: D7 — per-peer DM ctr survives reboot ────────
+TEST_CASE("D7 — per-peer ctr floor: a fresh peer resumes above the persisted high-water; peer_ctr_high = max") {
+    TestHal hal; Node node(hal, /*id=*/7, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; node.on_init(cfg);
+    node.restore_peer_ctr_floor(100);                      // the persisted pre-reboot high-water seeds the boot floor
+    CHECK(node.test_next_ctr(9) == 101);                   // a peer NOT yet sent-to this boot resumes ABOVE the floor (no ctr re-mint -> no companion dedup-collision)
+    CHECK(node.test_next_ctr(9) == 102);                   // continues from there
+    node.test_next_ctr(10);                                // another fresh peer is also floored -> 101
+    CHECK(node.peer_ctr_high() == 102);                    // max over ALL peers (9->102, 10->101)
+    CHECK(node.test_next_ctr(9) == 103);                   // an already-active peer above the floor is NOT reset down
+    node.restore_channel_ctr(500);                         // the self/channel counter is just one _peer_send_counter entry
+    CHECK(node.peer_ctr_high() == 500);                    // ...and it feeds the lease high-water too (channel id-reuse fix subsumed)
+}

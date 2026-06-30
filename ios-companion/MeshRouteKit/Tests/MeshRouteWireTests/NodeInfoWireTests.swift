@@ -64,6 +64,36 @@ final class NodeInfoWireTests: XCTestCase {
         XCTAssertEqual(c.longitude, -4.1, accuracy: 1e-6)       // signed
     }
 
+    func testConfigAdoptedAndJoinRefused() {     // R6 / D26
+        guard case .configAdopted(let lineage, let epoch, let leaf, let level)? = PushDecoder.decode(
+            line: #"{"ev":"config_adopted","lineage":41153,"epoch":3,"leaf":"north field","level":2}"#) else {
+            return XCTFail("not config_adopted")
+        }
+        XCTAssertEqual(lineage, 41153); XCTAssertEqual(epoch, 3); XCTAssertEqual(leaf, "north field"); XCTAssertEqual(level, 2)
+        guard case .joinRefused(let r, let their, let my)? = PushDecoder.decode(
+            line: #"{"ev":"join_refused","reason":"wire_version","their_ver":2,"my_ver":1}"#) else {
+            return XCTFail("not join_refused")
+        }
+        XCTAssertEqual(r, "wire_version"); XCTAssertEqual(their, 2); XCTAssertEqual(my, 1)
+        // leaf_full carries no versions
+        guard case .joinRefused(let r2, let their2, _)? = PushDecoder.decode(
+            line: #"{"ev":"join_refused","reason":"leaf_full"}"#) else { return XCTFail() }
+        XCTAssertEqual(r2, "leaf_full"); XCTAssertNil(their2)
+    }
+
+    func testReadyMembershipFields() {           // R6 / D26: ready carries lineage/epoch/leaf/level/synced
+        guard case .ready(let r)? = PushDecoder.decode(
+            line: #"{"ev":"ready","id":1,"key":"8a3f1c02","leaf_id":2,"mode":"node","gateway":false,"routing_sf":7,"lineage":41153,"epoch":3,"leaf":"north field","level":2,"synced":true}"#) else {
+            return XCTFail("not ready")
+        }
+        XCTAssertEqual(r.lineage, 41153); XCTAssertEqual(r.configEpoch, 3)
+        XCTAssertEqual(r.leaf, "north field"); XCTAssertEqual(r.level, 2); XCTAssertEqual(r.synced, true)
+        // pre-R6 firmware omits them → nil (membership unknown)
+        guard case .ready(let old)? = PushDecoder.decode(
+            line: #"{"ev":"ready","id":1,"key":"8a3f1c02","leaf_id":0,"mode":"node","gateway":false,"routing_sf":7}"#) else { return XCTFail() }
+        XCTAssertNil(old.lineage); XCTAssertNil(old.synced)
+    }
+
     func testCfgWithoutLocationDecodes() {     // older firmware: no lat_e7/lon_e7 → hasPosition false
         guard case .cfg(let c)? = PushDecoder.decode(
             line: #"{"ev":"cfg","node_id":5,"freq_hz":869462500,"routing_sf":7,"sf_list":"7,12","bw_hz":125000,"cr":5,"tx_power":22,"duty_x1000":100,"lbt":true,"beacon_ms":900000,"hop_cap":16,"leaf_id":0,"gateway":false,"mobile":false,"ble_mode":"on","ble_period":15,"ble_pin":123456}"#) else {

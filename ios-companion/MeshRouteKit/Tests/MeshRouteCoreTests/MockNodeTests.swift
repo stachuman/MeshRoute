@@ -34,7 +34,7 @@ final class MockNodeTests: XCTestCase {
     func testSendGetsQueuedAckThenSendAcked() async throws {
         let mock = MockNodeLink()
         await mock.connect()                            // → ready
-        try await mock.send(line: "send 2 hi")          // → ack(queued), send_acked
+        try await mock.send(line: #"send 2 "hi""#)      // unified verb + quoted body (D24) → ack(queued), send_acked
         let inbound = await drainInbound(mock, until: 3) // ready, ack, send_acked
         guard case .ack(let ack) = inbound[1] else { return XCTFail("expected ack, got \(inbound)") }
         XCTAssertEqual(ack.code, .queued)

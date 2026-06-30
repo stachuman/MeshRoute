@@ -536,6 +536,13 @@ public:
     // (when _active + _node_id are valid). Host-testable.
     uint16_t          channel_ctr() const { auto it = _active->_peer_send_counter.find(_node_id); return it != _active->_peer_send_counter.end() ? it->second : 0; }
     void              restore_channel_ctr(uint16_t v) { _active->_peer_send_counter[_node_id] = v; }
+    // D7 (companion-contract): generalize the channel_ctr lease to a per-peer high-water FLOOR — the DM dedup identity
+    // (sender_hash, ctr) must not collide after a reboot re-mints ctrs. peer_ctr_high() = the MAX ctr across ALL
+    // _peer_send_counter entries (the self/channel counter is just one of them); the lease persists THIS + margin.
+    // restore_peer_ctr_floor seeds the boot floor so every per-peer next_ctr resumes ABOVE the pre-reboot high-water.
+    uint16_t          peer_ctr_high() const { uint16_t m = 0; for (const auto& kv : _active->_peer_send_counter) if (kv.second > m) m = kv.second; return m; }
+    void              restore_peer_ctr_floor(uint16_t v) { _active->_peer_ctr_floor = v; }
+    uint16_t          test_next_ctr(uint8_t dst) { return next_ctr(dst); }   // D7 test seam: drive the (floor-applied) per-peer counter
     // §6 DAD tiebreak (pure): higher claim_epoch wins; tie -> lower key_hash32 wins. Public for the convergence test.
     static bool       join_tiebreak_wins(uint8_t my_epoch, uint32_t my_key, uint8_t their_epoch, uint32_t their_key);
     int               id_bind_find_by_hash(uint32_t key_hash32, IdBindConf* conf_out = nullptr);   // -> node_id, or -1 (skips expired); opt. out: the binding's confidence (soft/hard resolve)
@@ -1170,6 +1177,7 @@ private:
         ChannelReofferPending _channel_reoffer_pending[protocol::cap_channel_reoffer_pending] = {};  // Part 2: per-origin re-offer table (slot i -> timer kChannelReofferTimerId+i)
         // dedup maps.
         std::map<uint8_t, uint16_t>  _peer_send_counter;   // next_ctr per dst
+        uint16_t     _peer_ctr_floor = 0;                  // D7: per-peer next_ctr floor (persisted high-water; resumes DM ctrs above the pre-reboot value)
         std::map<uint32_t, LastAcked> _last_acked_from;    // key (src<<24|dst<<16|ctr_lo<<8|len)
         std::map<uint64_t, uint64_t>  _seen_origins;       // §1b TYPE-NAMESPACED flight key -> expiry_ms. PLAINTEXT =
                                                            // (origin<<24|dst<<16|ctr) in [0,2^32); CRYPTED = the full

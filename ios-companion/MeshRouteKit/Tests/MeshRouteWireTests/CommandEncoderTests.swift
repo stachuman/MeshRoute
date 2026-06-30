@@ -6,31 +6,53 @@ import XCTest
 
 final class CommandEncoderTests: XCTestCase {
 
+    // §2 unified send (D24): `send <id|hash> "<body>" [-a] [-e]` — id/hash auto-detected; flags after the body.
     func testSendDMByID() {
         XCTAssertEqual(Command.sendDM(.init(target: .id(2), body: "hello world")).line,
-                       "send 2 hello world")
+                       #"send 2 "hello world""#)
         XCTAssertEqual(Command.sendDM(.init(target: .id(2), body: "hi", requestAck: true)).line,
-                       "send_ack 2 hi")
+                       #"send 2 "hi" -a"#)
+        // -e is HASH-only: an id target never emits it even when encrypt is set (the node would error)
+        XCTAssertEqual(Command.sendDM(.init(target: .id(2), body: "yo", encrypt: true)).line,
+                       #"send 2 "yo""#)
     }
 
     func testSendDMByHash() {
         let h = KeyHash(0x8a3f1c02)
         XCTAssertEqual(Command.sendDM(.init(target: .hash(h), body: "yo")).line,
-                       "sendhash 8a3f1c02 yo")
+                       #"send 8a3f1c02 "yo""#)
         XCTAssertEqual(Command.sendDM(.init(target: .hash(h), body: "yo", requestAck: true)).line,
-                       "sendhash_ack 8a3f1c02 yo")
-        // per-message E2E crypt (2026-06-16): sendhashx / sendhashx_ack (hash-only)
+                       #"send 8a3f1c02 "yo" -a"#)
         XCTAssertEqual(Command.sendDM(.init(target: .hash(h), body: "yo", encrypt: true)).line,
-                       "sendhashx 8a3f1c02 yo")
+                       #"send 8a3f1c02 "yo" -e"#)
         XCTAssertEqual(Command.sendDM(.init(target: .hash(h), body: "yo", requestAck: true, encrypt: true)).line,
-                       "sendhashx_ack 8a3f1c02 yo")
-        // encrypt is ignored for an id target (no encrypted id-send)
-        XCTAssertEqual(Command.sendDM(.init(target: .id(2), body: "yo", encrypt: true)).line, "send 2 yo")
+                       #"send 8a3f1c02 "yo" -a -e"#)
     }
 
     func testSendChannel() {
         XCTAssertEqual(Command.sendChannel(.init(channelID: 3, body: "gm all")).line,
-                       "send_channel 3 gm all")
+                       #"send_channel 3 "gm all""#)
+    }
+
+    func testBodySanitizedForQuotedWire() {
+        // No wire escape: an embedded " would end the body early (→ bad_args), CR/LF would split the line → neutralize.
+        XCTAssertEqual(Command.sendDM(.init(target: .id(1), body: #"he said "hi""#)).line,
+                       #"send 1 "he said 'hi'""#)
+        XCTAssertEqual(Command.sendDM(.init(target: .id(1), body: "line1\nline2")).line,
+                       #"send 1 "line1 line2""#)
+        XCTAssertEqual(Command.sendDM(.init(target: .id(1), body: "a\r\nb")).line,
+                       #"send 1 "a b""#)
+    }
+
+    func testProvisioningVerbs() {     // R6 / D26: join / create / leave
+        XCTAssertEqual(Command.join(freqMHz: 868.0, bwKHz: 125, ctrlSF: 7, level: 2).line,
+                       "join 868 125 7 2")                                   // whole MHz → "868"
+        XCTAssertEqual(Command.join(freqMHz: 869.525, bwKHz: 250, ctrlSF: 9, level: 17).line,
+                       "join 869.525 250 9 17")                              // fractional MHz preserved
+        XCTAssertEqual(Command.createLeaf(freqMHz: 868.0, bwKHz: 125, ctrlSF: 7, level: 2,
+                                          sfList: "7, 9", dutyPercent: 10, name: "north field").line,
+                       #"create 868 125 7 2 7,9 10 "north field""#)         // sf_list spaces stripped; name quoted
+        XCTAssertEqual(Command.leave.line, "leave")
     }
 
     func testResolve() {
@@ -49,10 +71,10 @@ final class CommandEncoderTests: XCTestCase {
         XCTAssertEqual(Command.raw("anything goes").line, "anything goes")
     }
 
-    func testBodyPreservedVerbatim() {
-        // The firmware takes "remainder after one space, verbatim incl. spaces" — don't mangle it.
+    func testBodyQuotedVerbatim() {
+        // The firmware reads the body verbatim BETWEEN the quotes (leading/trailing spaces preserved).
         XCTAssertEqual(Command.sendDM(.init(target: .id(1), body: "  leading + trailing  ")).line,
-                       "send 1   leading + trailing  ")
+                       #"send 1 "  leading + trailing  ""#)
     }
 
     func testBodyByteLimits() {

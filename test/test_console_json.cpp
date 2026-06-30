@@ -200,3 +200,16 @@ TEST_CASE("write_push — R6.3 §7c join_refused (wire_version + leaf_full)") {
     n = write_push(b, sizeof b, f);
     CHECK(std::string(b, n) == "{\"ev\":\"join_refused\",\"reason\":\"leaf_full\"}\n");
 }
+
+// ── Companion-contract gap fixes: Gap 2 (reqpubkey_sent) + Gap 3 (e2e_acked) ──
+TEST_CASE("write_reqpubkey_sent — §2 the on-air pubkey-request event (replaces the generic ack)") {
+    char b[64];
+    size_t n = write_reqpubkey_sent(b, sizeof b, 3735928559u);   // 0xDEADBEEF
+    CHECK(std::string(b, n) == "{\"ev\":\"reqpubkey_sent\",\"hash\":3735928559}\n");
+}
+TEST_CASE("write_push — send_e2e_acked → live e2e_acked twin (origin/ctr/sender_hash; never ev:unknown)") {
+    char b[128];
+    Push p{}; p.kind = PushKind::send_e2e_acked; p.dst = 2; p.ctr = 7; p.sender_hash = 3735928559u;  // push stores the confirming node in .dst (node_mac_rx.cpp:610)
+    size_t n = write_push(b, sizeof b, p);
+    CHECK(std::string(b, n) == "{\"ev\":\"e2e_acked\",\"origin\":2,\"ctr\":7,\"sender_hash\":3735928559}\n");
+}

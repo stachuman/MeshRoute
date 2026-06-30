@@ -1500,7 +1500,10 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     const ParseErr e = parse_command(line, len, cmd);
     if (e == ParseErr::ok) {
         if (cmd.kind == meshroute::CmdKind::peerkey) return handle_peerkey(out, cap, cmd);   // §2/§3: install + persist + contract ack
-        return write_ack(out, cap, g_node.on_command(cmd));
+        const meshroute::CmdResult r = g_node.on_command(cmd);
+        if (cmd.kind == meshroute::CmdKind::reqpubkey && r.code == meshroute::CmdCode::queued)
+            return write_reqpubkey_sent(out, cap, cmd.u.resolve.dst_hash);   // §2: the contract's reqpubkey_sent event (the no-identity fail path keeps its existing error ack)
+        return write_ack(out, cap, r);
     }
     if (e == ParseErr::empty) return 0;
     if (len >= 8 && !strncmp(line, "peerkey ", 8))                                            // §3: a malformed peerkey -> the contract's peerkey_err
@@ -1682,6 +1685,7 @@ void setup() {
     // the device must NOT operate on a half-applied config. Print loud + leave the node unconfigured.
     if (!g_node.on_init(cfg)) mrcon.println(F("  config    = REFUSED (invalid layer config — node NOT operational)"));
     else { g_node.restore_channel_ctr(nv.channel_ctr);          // v15: continue the channel send-ctr across reboot (no id-reuse); after on_init so _active+_node_id are valid
+           g_node.restore_peer_ctr_floor(nv.channel_ctr);       // D7: seed the per-peer FLOOR from the same leased high-water so DM ctrs also resume above the pre-reboot value (no re-mint -> no silent companion dedup)
            g_ctr_lease = nv.channel_ctr; }                      // prime the lease = the (leased) ctr ONLY now that the live ctr was restored -> live == lease, no spurious/regressing write
     // Install the inbox stores so record-on-delivery + pull_inbox work. With the interim RAM store: give it a
     // per-boot-unique storage_epoch (HW-RNG; drawn here BEFORE BLE init, so the bare-metal NRF_RNG path is still
@@ -1806,7 +1810,7 @@ static void service_console() {}   // production (MR_CONSOLE=0): NO USB console 
 // (set via `cfg set`) are preserved. Cheap on the no-change path (3 compares); a flash write only on change.
 static void persist_cfg_if_needed() {
     const uint8_t id = g_node.node_id(), ep = g_node.claim_epoch(), jn = g_node.joined() ? 1 : 0;
-    const uint16_t cc = g_node.channel_ctr();                        // v15: the self-keyed channel send-ctr (reboot id-reuse fix)
+    const uint16_t cc = g_node.peer_ctr_high();                      // D7: the MAX ctr over ALL peers (self/channel counter is one of them) — lease covers DM ctrs too, not just channel
     const bool join_changed = (id != g_persist_id || ep != g_persist_epoch || jn != g_persist_join);   // DAD adopt/epoch/forced-rejoin — RARE, persist promptly
     const bool lease_due    = (int16_t)(uint16_t)(cc - g_ctr_lease) > 0;   // Part 3: the live ctr PASSED the persisted lease -> re-lease (every ~margin sends). wraparound-safe signed diff
     if (!join_changed && !lease_due) return;

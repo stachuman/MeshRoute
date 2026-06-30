@@ -45,7 +45,7 @@ final class MessageEntity {
                                    // pre-existing + outgoing rows read after the lightweight migration)
     var crypted: Bool = false      // E2E: incoming = the DATA CRYPTED flag (from the push, firmware-pending);
                                    // outgoing = sent encrypted. false = plaintext.
-    var ackRequested: Bool = false // outgoing: an E2E delivery ack was requested (send_ack/sendhash_ack, D16)
+    var ackRequested: Bool = false // outgoing: an E2E delivery ack was requested (the -a flag, D16)
     var failReason: String?        // outgoing fail reason (E2E): "no_pubkey" → offer Request-key/Scan; "key_ready"
                                    // → set when peer_key_cached arrives so the bubble offers a secure resend.
 

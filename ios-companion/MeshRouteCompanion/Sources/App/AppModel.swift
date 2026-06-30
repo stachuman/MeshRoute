@@ -27,6 +27,10 @@ final class AppModel {
     private(set) var latestStatus: NodeStatusSnapshot?
     private(set) var routes: [RouteInfo] = []
     private(set) var latestConfig: NodeConfigInfo?
+    // Leaf membership (R6 / D26) — from `ready` + the live `config_adopted` push.
+    private(set) var membership: LeafMembership?
+    private(set) var joinInFlight = false            // optimistic "Joining…" between a join/create and config_adopted
+    private(set) var joinRefusal: JoinRefusal?        // a banner when the node can't join (wire_version / leaf_full)
     private var routesAccumulator: [RouteInfo] = []   // fills during a `routes` stream, swapped in at routes_end
     var backend: Backend = defaultBackend
     // Navigation the notification-tap router drives (Messages = tab 0).
@@ -141,6 +145,7 @@ final class AppModel {
         switch inbound {
         case .ready(let r):
             nodeIdentity = r
+            if let m = LeafMembership.from(r) { membership = m; if m.state == .member { joinInFlight = false } }
             if let n = r.nowMs { timeAnchor = NodeTimeAnchor(nodeNowMs: n) }   // anchor BEFORE the pull streams in
             let profile = upsertNodeProfile(r)
             startInboxSync(r, profile: profile)
@@ -159,6 +164,8 @@ final class AppModel {
             setOutgoingState(ctr: ctr, to: .acked)
         case .sendFailed(_, let ctr, let reason):
             setOutgoingState(ctr: ctr, to: .failed, reason: reason)   // "no_pubkey" → the bubble offers Request-key/Scan
+        case .e2eAcked(let dst, let ctr, let senderHash):
+            markDelivered(dst: dst, ctr: ctr, senderHash: senderHash)   // recipient confirmed end-to-end (live twin, D25)
         case .peerKeyCached(let hash, _):
             markKeyReady(for: hash)                                   // failed-no_pubkey DMs to this hash → "secure resend"
         case .peerKeySet, .peerKeyError, .reqPubkeySent:
@@ -175,6 +182,12 @@ final class AppModel {
             routes = routesAccumulator.sorted { $0.dest < $1.dest }; routesAccumulator = []
         case .cfg(let c):
             latestConfig = c
+        case .configAdopted(let lineage, let epoch, let leaf, let level):
+            membership = .adopted(lineage: lineage, epoch: epoch, leaf: leaf, level: level)
+            joinInFlight = false; joinRefusal = nil           // a successful adopt clears the pending/refusal UI
+        case .joinRefused(let reason, let theirVer, let myVer):
+            joinRefusal = JoinRefusal(reason: reason, theirVer: theirVer, myVer: myVer)
+            joinInFlight = false
         default:
             break
         }
@@ -235,10 +248,30 @@ final class AppModel {
     }
 
     private func setOutgoingState(ctr: Int, to state: DeliveryState, reason: String? = nil) {
-        for m in outgoingMessages() where m.ctr == ctr {
+        for m in outgoingMessages() where m.ctr == ctr && m.state != .deliveredE2E {   // never regress a confirmed E2E delivery (D25)
             m.stateRaw = state.rawValue
             if state == .failed { m.failReason = reason } else { m.failReason = nil }
         }
+    }
+
+    /// An E2E delivery receipt (live `e2e_acked` or pulled `inbox_dm type:e2e_ack`) confirmed an `-a` DM we sent.
+    /// Match it to the OUTBOX by (sender_hash, ctr) when a hash is present (cross-layer: the 8-bit dst aliases
+    /// across leaves), else by the recipient short id; upgrade that message to `.deliveredE2E`. NEVER inserted
+    /// as an inbound message.
+    private func markDelivered(dst: Int, ctr: Int, senderHash: UInt32?) {
+        for m in outgoingMessages()
+            where m.ctr == ctr && m.ackRequested && receiptMatchesRecipient(m, dst: dst, senderHash: senderHash) {
+            m.stateRaw = DeliveryState.deliveredE2E.rawValue
+        }
+        try? context.save()
+    }
+    /// Does this outgoing DM's recipient match the receipt? hash present → the thread's hash; else the receipt
+    /// names the recipient's short id (an id-thread, or a hash-thread the contact binds to that id).
+    private func receiptMatchesRecipient(_ m: MessageEntity, dst: Int, senderHash: UInt32?) -> Bool {
+        guard m.threadKind == "dm" else { return false }
+        if let h = senderHash, h != 0 { return m.threadHash == h }            // cross-layer: the stable key
+        if m.threadHash == UInt32(clamping: dst) { return true }              // id-thread (threadHash == the short id)
+        return contact(for: KeyHash(m.threadHash))?.lastKnownID == dst        // hash-thread bound to that id
     }
 
     /// A verified key for `hash` just arrived (peer_key_cached) → any failed "no_pubkey" DM to that contact can
@@ -301,7 +334,7 @@ final class AppModel {
             guard let target = target(for: .dm(h)) else { return }
             pendingOutgoing.append(msg.id)
             sendCommand(.sendDM(.init(target: target, body: msg.body,
-                                      requestAck: msg.ackRequested, encrypt: msg.crypted)))   // crypted → sendhashx
+                                      requestAck: msg.ackRequested, encrypt: msg.crypted)))   // crypted → the -e flag (D24)
         case .channel(let c):
             pendingOutgoing.append(msg.id)
             sendCommand(.sendChannel(.init(channelID: c, body: msg.body)))
@@ -374,6 +407,23 @@ final class AppModel {
     func provisionPeerKey(_ pubkeyHex: String) { sendCommand(.peerKey(pubkeyHex: pubkeyHex)) }
     /// User-triggered on-air key request (the "Request key" action after a no-pubkey drop).
     func requestPubkey(_ hash: KeyHash) { sendCommand(.reqPubkey(hash)) }
+
+    // ---- leaf provisioning (R6 / D26): live, no reboot ----
+    func joinNetwork(freqMHz: Double, bwKHz: Int, ctrlSF: Int, level: Int) {
+        joinRefusal = nil; joinInFlight = true
+        sendCommand(.join(freqMHz: freqMHz, bwKHz: bwKHz, ctrlSF: ctrlSF, level: level))
+    }
+    func createLeaf(freqMHz: Double, bwKHz: Int, ctrlSF: Int, level: Int, sfList: String, dutyPercent: Int, name: String) {
+        joinRefusal = nil; joinInFlight = true
+        sendCommand(.createLeaf(freqMHz: freqMHz, bwKHz: bwKHz, ctrlSF: ctrlSF, level: level,
+                                sfList: sfList, dutyPercent: dutyPercent, name: name))
+    }
+    func leaveNetwork() {
+        sendCommand(.leave)
+        membership = .adopted(lineage: 0, epoch: 0, leaf: nil, level: nil)   // optimistic unmanaged; the node confirms via config_adopted/ready
+        joinInFlight = false; joinRefusal = nil
+    }
+    func dismissJoinRefusal() { joinRefusal = nil }
     /// Set the node's default DM encryption (`cfg set e2e_dm`); the per-message lock toggle overrides it.
     func setNodeEncryptDefault(_ on: Bool) {
         sendCommand(.configSet(key: "e2e_dm", value: on ? "on" : "off"))
@@ -578,6 +628,11 @@ final class AppModel {
     }
 
     private func importInboxEntry(_ e: InboxEntry) {
+        if e.isReceipt {                                 // a pulled E2E delivery receipt → match the OUTBOX, never insert (D25)
+            markDelivered(dst: e.origin, ctr: e.ctr, senderHash: e.senderHash)
+            activeSync?.advance(with: e)                 // it rides the DM seq-cursor — advance past it
+            return
+        }
         if e.kind == .dm { ensureContact(senderHash: e.senderHash, origin: e.origin) }
         if !inboxEntryExists(e) {                        // dedup-on-import by stable identity (no seq/epoch)
             let thread: ThreadKey = e.kind == .channel
@@ -626,6 +681,22 @@ struct ConsoleLine: Identifiable {
     let kind: Kind
 }
 
+/// A "can't join" banner (R6 / D26): `wire_version` ⇒ update the node's firmware; `leaf_full` ⇒ no address.
+struct JoinRefusal: Identifiable, Hashable {
+    let id = UUID()
+    let reason: String
+    let theirVer: Int?
+    let myVer: Int?
+    var message: String {
+        switch reason {
+        case "wire_version": return "Can't join — the network runs wire v\(theirVer ?? 0), this node v\(myVer ?? 0). Update the node's firmware."
+        case "leaf_full":    return "Can't join — this leaf is full (no node address available)."
+        default:             return "Can't join — \(reason)."
+        }
+    }
+    var isBlocking: Bool { reason == "wire_version" }   // a firmware update, not just a retry
+}
+
 /// Routes a tapped DM banner into the right conversation. The banner's `threadIdentifier` is "dm-<hash>".
 final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
     weak var model: AppModel?
@@ -657,6 +728,7 @@ func describe(_ inbound: Inbound) -> String {
     case .channelReceived(let o, let ch, _, _, let layer, let b): return "channel_recv ch\(ch) from \(o)\(layer.map { " L\($0)" } ?? ""): \(b)"
     case .sendAcked(let d, let c):                 return "send_acked dst=\(d) ctr=\(c)"
     case .sendFailed(let d, let c, let r):         return "send_failed dst=\(d) ctr=\(c)\(r.map { " \($0)" } ?? "")"
+    case .e2eAcked(let d, let c, let h):           return "e2e_acked dst=\(d) ctr=\(c)\(hex(h)) (delivered)"
     case .peerKeySet(let h, let p):                return "peerkey_set \(h.hex8)\(p ? " pinned" : "")"
     case .peerKeyError(let r):                     return "peerkey_err \(r)"
     case .reqPubkeySent(let h):                    return "reqpubkey_sent \(h.hex8)"
@@ -667,6 +739,8 @@ func describe(_ inbound: Inbound) -> String {
     case .route(let r):                            return "route dest=\(r.dest) next=\(r.next) hops=\(r.hops) score=\(r.score)"
     case .routesEnd(let n):                        return "routes_end count=\(n)"
     case .cfg(let c):                              return "cfg node=\(c.nodeID) sf=\(c.routingSF) freq=\(c.freqMHz)"
+    case .configAdopted(let lin, let ep, let leaf, let lvl): return "config_adopted lineage=\(lin) epoch=\(ep) leaf=\(leaf ?? "—") level=\(lvl.map(String.init) ?? "—")"
+    case .joinRefused(let r, let tv, let mv):      return "join_refused \(r)\(tv.map { " their=\($0)" } ?? "")\(mv.map { " my=\($0)" } ?? "")"
     case .inboxEntry(let e):                       return "inbox_\(e.kind.rawValue) seq=\(e.seq) from \(e.origin)\(hex(e.senderHash)) ctr=\(e.ctr): \(e.body)"
     case .inboxEnd(let dm, let chan, let epoch, let count, _): return "inbox_end dm=\(dm) chan=\(chan) epoch=\(epoch.map(String.init) ?? "—") count=\(count)"
     case .event(let t, _):                         return "event \(t)"

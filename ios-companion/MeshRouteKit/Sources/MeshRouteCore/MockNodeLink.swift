@@ -29,6 +29,11 @@ public actor MockNodeLink: NodeLink {
     private var uptimeMs: UInt64 = 1_000           // fake node uptime that climbs as records arrive
     private var mockLatE7 = 0                       // node location (degrees×1e7); 0 = unset, set via `cfg set lat/lon`
     private var mockLonE7 = 0
+    // Leaf membership (R6 / D26) — starts unmanaged; `join`/`create` set it, `leave` clears it.
+    private var mockLineage: UInt32 = 0
+    private var mockEpoch: UInt32 = 0
+    private var mockLeaf = ""
+    private var mockLevel: UInt32 = 0
 
     public init(selfID: Int = 1,
                 selfHash: KeyHash = KeyHash(0x10a0_b0c0),
@@ -66,12 +71,12 @@ public actor MockNodeLink: NodeLink {
         let verb = tokens.removeFirst()
 
         switch verb {
-        case "send", "send_ack":
-            let id = tokens.first.flatMap { Int($0) } ?? 0
-            ackThenDeliver(dst: id)
-        case "sendhash", "sendhash_ack":
-            let id = tokens.first.flatMap { KeyHash(hex: $0) }.flatMap { knownPeers[$0] } ?? 0
-            ackThenDeliver(dst: id)
+        case "send":                                         // unified (D24): id (≤254) vs hash (8-hex) auto-detected; quoted body ignored by the mock
+            let arg = tokens.first ?? ""
+            var dst = 0, ackHash: UInt32 = 0
+            if let i = Int(arg), i <= 254 { dst = i }                                         // decimal id
+            else if let h = KeyHash(hex: arg) { dst = knownPeers[h] ?? 0; ackHash = h.value } // 8-hex key_hash32
+            ackThenDeliver(dst: dst, e2eAck: tokens.contains("-a"), ackHash: ackHash)         // -a → also simulate the recipient's E2E receipt (D25)
         case "send_channel":
             sendCtr += 1
             emit(ackLine("queued", ctr: sendCtr))           // channels aren't link-acked
@@ -115,6 +120,19 @@ public actor MockNodeLink: NodeLink {
                 emit(routeLine(dest: peer.value, hops: 1 + i, score: -32 - i * 8))
             }
             emit(#"{"ev":"routes_end","count":\#(knownPeers.count)}"#)
+        case "join":          // join <freq> <bw> <ctrl_sf> <level> → pretend we joined an existing managed leaf
+            let level = UInt32(tokens.count > 3 ? tokens[3] : "0") ?? 0
+            mockLineage = 41153; mockEpoch = 3; mockLeaf = "north field"; mockLevel = level
+            emit(configAdoptedLine())
+        case "create":        // create <freq> <bw> <ctrl_sf> <level> <sf_list> <duty%> "name" → mint a leaf
+            let level = UInt32(tokens.count > 3 ? tokens[3] : "0") ?? 0
+            let quoted = line.split(separator: "\"", omittingEmptySubsequences: false)
+            mockLeaf = quoted.count >= 2 ? String(quoted[1]) : "new leaf"
+            mockLineage = 50001; mockEpoch = 1; mockLevel = level
+            emit(configAdoptedLine())
+        case "leave":         // wipe membership back to unmanaged
+            mockLineage = 0; mockEpoch = 0; mockLeaf = ""; mockLevel = 0
+            emit(configAdoptedLine())
         default:
             emit(#"{"log":"mock: unhandled '\#(verb)'"}"#)
         }
@@ -182,11 +200,15 @@ public actor MockNodeLink: NodeLink {
 
     // ---- internals ----
 
-    private func ackThenDeliver(dst: Int) {
+    private func ackThenDeliver(dst: Int, e2eAck: Bool = false, ackHash: UInt32 = 0) {
         sendCtr += 1
         let ctr = sendCtr
         emit(ackLine(dst == 0 ? "err_unknown_dst" : "queued", ctr: ctr))
-        if dst != 0 { emit(#"{"ev":"send_acked","dst":\#(dst),"ctr":\#(ctr)}"#) }
+        guard dst != 0 else { return }
+        emit(#"{"ev":"send_acked","dst":\#(dst),"ctr":\#(ctr)}"#)
+        if e2eAck {   // -a: the recipient confirms end-to-end → the live receipt twin (D25). sender_hash set for a hash-addressed send.
+            emit(#"{"ev":"e2e_acked","origin":\#(dst),"ctr":\#(ctr),"sender_hash":\#(ackHash)}"#)
+        }
     }
 
     private func emit(_ jsonLine: String) { continuation.yield(.line(jsonLine)) }
@@ -198,7 +220,12 @@ public actor MockNodeLink: NodeLink {
         #"{"ev":"hash_resolved","node":\#(node),"auth":\#(auth ? 1 : 0),"hash":\#(hash.value)}"#
     }
     private func readyLine(state: String) -> String {
-        #"{"ev":"ready","id":\#(selfID),"key":"\#(selfHash.hex8)","name":"Mock \#(selfID)","pubkey":"\#(selfHash.hex8)\#(String(repeating: "0", count: 56))","leaf_id":0,"mode":"\#(state)","gateway":false,"routing_sf":7,"inbox_epoch":\#(inboxEpoch),"now_ms":\#(uptimeMs)}"#
+        let synced = (mockLineage == 0 || mockEpoch > 0) ? "true" : "false"
+        return #"{"ev":"ready","id":\#(selfID),"key":"\#(selfHash.hex8)","name":"Mock \#(selfID)","pubkey":"\#(selfHash.hex8)\#(String(repeating: "0", count: 56))","leaf_id":0,"mode":"\#(state)","gateway":false,"routing_sf":7,"inbox_epoch":\#(inboxEpoch),"now_ms":\#(uptimeMs),"lineage":\#(mockLineage),"epoch":\#(mockEpoch)\#(leafField),"level":\#(mockLevel),"synced":\#(synced)}"#
+    }
+    private var leafField: String { (mockLineage != 0 && !mockLeaf.isEmpty) ? #","leaf":\#(jsonString(mockLeaf))"# : "" }
+    private func configAdoptedLine() -> String {
+        #"{"ev":"config_adopted","lineage":\#(mockLineage),"epoch":\#(mockEpoch)\#(leafField),"level":\#(mockLevel)}"#
     }
     private func statusLine() -> String {
         #"{"ev":"status","id":\#(selfID),"key":"\#(selfHash.hex8)","state":"operating","leaf_id":0,"gateway":false,"routing_sf":7,"uptime_ms":\#(uptimeMs),"duty_ms":1240,"txq":0,"txdrop":0,"rx":42,"tx":17,"routes":\#(knownPeers.count),"pending":false,"lbt":true,"batt_mv":4050}"#

@@ -72,6 +72,7 @@ const char* pushkind_name(PushKind k) {
         case PushKind::peer_key_cached: return "peer_key_cached";
         case PushKind::config_adopted:  return "config_adopted";   // R6.3: leaf-config membership update (live)
         case PushKind::join_refused:    return "join_refused";     // R6.3 §7c: wire-version / leaf-full refusal
+        case PushKind::send_e2e_acked:  return "e2e_acked";        // §3: live twin of the durable inbox_dm type:"e2e_ack" (no more ev:"unknown")
     }
     return "unknown";
 }
@@ -105,6 +106,11 @@ size_t write_ack(char* buf, size_t cap, const CmdResult& r) {
     j.lit(",\"dh\":"); j.u32(r.dst_hash);
     j.lit(",\"lp\":"); j.u32(r.layer_path);
     j.ch('}');
+    return j.finish();
+}
+size_t write_reqpubkey_sent(char* buf, size_t cap, uint32_t hash) {   // §2: the on-air pubkey request was flooded (replaces the generic {"ack":"queued"})
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"reqpubkey_sent\",\"hash\":"); j.u32(hash); j.ch('}');
     return j.finish();
 }
 size_t write_event(char* buf, size_t cap, const char* type, const EventField* f, size_t n) {
@@ -167,6 +173,10 @@ size_t write_push(char* buf, size_t cap, const Push& p, const NodeConfig* cfg) {
             j.lit(",\"their_ver\":"); j.u32(p.origin);
             j.lit(",\"my_ver\":");    j.u32(p.dst);
         }
+    } else if (p.kind == PushKind::send_e2e_acked) {       // §3: the live twin of the durable inbox_dm type:"e2e_ack" — app marks its OUTBOX DELIVERED immediately
+        j.lit(",\"origin\":");      j.u32(p.dst);          // the dest that CONFIRMED delivery (the -a DM's recipient; push carries it in .dst, node_mac_rx.cpp:610)
+        j.lit(",\"ctr\":");         j.u32(p.ctr);          // the acked ctr
+        j.lit(",\"sender_hash\":"); j.u32(p.sender_hash);  // the acker's key_hash32 (0 same-layer; set on a cross-layer ack). App matches (origin,ctr) or (sender_hash,ctr); NOT an inbound DM
     } else {  // send_acked / send_failed
         j.lit(",\"dst\":"); j.u32(p.dst);
         j.lit(",\"ctr\":"); j.u32(p.ctr);

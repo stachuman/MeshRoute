@@ -62,9 +62,16 @@ public struct NodeReady: Hashable, Sendable, Codable {
     /// The node's own ed25519 public key (64 hex) — so `MyCardView` can put `p` in the QR (E2E, 2026-06-16).
     /// `key_hash32` alone can't seal a DM; the full pubkey is the sealing key. nil on pre-E2E firmware.
     public let pubkey: String?
+    // ---- leaf membership (R6 / D26) — all optional; absent on pre-R6 firmware ----
+    public let lineage: Int?      // lineage_id; 0 = unmanaged/standalone; nil = pre-R6 firmware
+    public let configEpoch: Int?  // config_epoch (wire key "epoch" — distinct from inbox_epoch)
+    public let leaf: String?      // leaf_name (omitted when unset)
+    public let level: Int?        // level_id 1..255 (interim: the wire leaf nibble)
+    public let synced: Bool?      // (lineage==0 || config_epoch>0)
     enum CodingKeys: String, CodingKey {
         case id, key, leafID = "leaf_id", mode, gateway, routingSF = "routing_sf", inboxEpoch = "inbox_epoch",
-             nowMs = "now_ms", name, pubkey
+             nowMs = "now_ms", name, pubkey,
+             lineage, configEpoch = "epoch", leaf, level, synced
     }
 }
 
@@ -147,7 +154,8 @@ public enum Inbound: Hashable, Sendable {
     case messageReceived(origin: Int, ctr: Int, senderHash: UInt32?, seq: UInt32?, layerID: Int?, crypted: Bool?, body: String)   // seq iff inbox; layerID = receiving layer (D12); crypted = the DATA CRYPTED flag (E2E, firmware-pending)
     case channelReceived(origin: Int, channelID: Int, channelMsgID: UInt32?, seq: UInt32?, layerID: Int?, body: String)
     case sendAcked(dst: Int, ctr: Int)
-    case sendFailed(dst: Int, ctr: Int, reason: String?)              // reason: no_pubkey · no_identity · too_large · bad_rng · no_route (E2E 2026-06-16)
+    case sendFailed(dst: Int, ctr: Int, reason: String?)              // reason: no_pubkey · no_identity · too_large · bad_rng · no_route · joining (E2E 2026-06-16)
+    case e2eAcked(dst: Int, ctr: Int, senderHash: UInt32?)            // live E2E delivery RECEIPT (D25): mark the OUTBOX msg delivered; dst=the node that confirmed; NOT an inbound DM
     case hashResolved(node: Int, authoritative: Bool, hash: KeyHash)   // node == 0 → unresolved/timeout
     // E2E peer-key provisioning (2026-06-16): results of `peerkey`/`reqpubkey` + a key becoming available.
     case peerKeySet(hash: KeyHash, pinned: Bool)                       // a scanned card's pubkey installed
@@ -159,6 +167,8 @@ public enum Inbound: Hashable, Sendable {
     case route(RouteInfo)                                            // one row from the `routes` stream
     case routesEnd(count: Int)                                       // routes stream terminator
     case cfg(NodeConfigInfo)                                         // node config snapshot
+    case configAdopted(lineage: Int, epoch: Int, leaf: String?, level: Int?)   // R6/D26: leaf-config adopted/updated → live membership chip
+    case joinRefused(reason: String, theirVer: Int?, myVer: Int?)              // R6/D26: can't join (wire_version → update fw; leaf_full)
     case inboxEntry(InboxEntry)                                       // one record from a pull_inbox stream
     case inboxEnd(dmSeq: UInt32, chanSeq: UInt32, epoch: UInt32?, count: Int, nowMs: UInt64?)  // pull done: newest seqs, served epoch, #streamed, uptime anchor
     case event(type: String, fields: [String: JSONValue])             // generic / future events
@@ -214,6 +224,10 @@ public enum PushDecoder {
             if let m = try? decoder.decode(SendFate.self, from: data) {
                 return .sendFailed(dst: m.dst, ctr: m.ctr, reason: m.reason)
             }
+        case "e2e_acked":                                              // D25: the live delivery-receipt twin
+            if let m = try? decoder.decode(E2eAck.self, from: data) {
+                return .e2eAcked(dst: m.origin, ctr: m.ctr, senderHash: (m.sender_hash ?? 0) != 0 ? m.sender_hash : nil)
+            }
         case "hash_resolved":
             if let m = try? decoder.decode(HashResolved.self, from: data) {
                 return .hashResolved(node: m.node, authoritative: m.auth != 0, hash: KeyHash(m.hash))
@@ -240,11 +254,21 @@ public enum PushDecoder {
             if let m = try? decoder.decode(RoutesEnd.self, from: data) { return .routesEnd(count: m.count) }
         case "cfg":
             if let m = try? decoder.decode(NodeConfigInfo.self, from: data) { return .cfg(m) }
+        case "config_adopted":
+            if let m = try? decoder.decode(ConfigAdopted.self, from: data) {
+                return .configAdopted(lineage: m.lineage, epoch: m.epoch, leaf: m.leaf, level: m.level)
+            }
+        case "join_refused":
+            if let m = try? decoder.decode(JoinRefused.self, from: data) {
+                return .joinRefused(reason: m.reason, theirVer: m.their_ver, myVer: m.my_ver)
+            }
         case "inbox_dm":
             if let m = try? decoder.decode(InboxDM.self, from: data) {
+                let receipt = (m.type == "e2e_ack")     // a delivery RECEIPT rides the DM seq-cursor — NOT a message (D25)
                 return .inboxEntry(InboxEntry(seq: m.seq, kind: .dm, origin: m.origin, channelID: 0,
                                               ctr: m.ctr, senderHash: m.sender_hash, layerID: m.layer_id,
-                                              crypted: m.enc, rxTimeMs: m.rx_ms, body: m.body))
+                                              crypted: m.enc, isReceipt: receipt, rxTimeMs: m.rx_ms,
+                                              body: receipt ? "" : m.body))
             }
         case "inbox_channel":
             if let m = try? decoder.decode(InboxCh.self, from: data) {
@@ -281,8 +305,11 @@ public enum PushDecoder {
     private struct HashResolved: Decodable { let node: Int; let auth: Int; let hash: UInt32 }
     private struct PeerKeyEvent: Decodable { let hash: UInt32; let pinned: Bool? }            // peerkey_set / reqpubkey_sent / peer_key_cached
     private struct ReasonEvent: Decodable { let reason: String }                              // peerkey_err
-    private struct InboxDM: Decodable { let seq: UInt32; let origin: Int; let ctr: Int; let sender_hash: UInt32?; let layer_id: Int?; let enc: Bool?; let rx_ms: UInt64; let body: String }   // enc = the wire CRYPTED indicator
+    private struct InboxDM: Decodable { let seq: UInt32; let origin: Int; let ctr: Int; let sender_hash: UInt32?; let layer_id: Int?; let enc: Bool?; let type: String?; let rx_ms: UInt64; let body: String }   // enc = CRYPTED indicator; type "e2e_ack" = a delivery receipt (D25)
+    private struct E2eAck: Decodable { let origin: Int; let ctr: Int; let sender_hash: UInt32? }   // live e2e_acked: origin = the dst that CONFIRMED delivery
     private struct InboxCh: Decodable { let seq: UInt32; let origin: Int; let channel_id: Int; let channel_msg_id: UInt32; let layer_id: Int?; let rx_ms: UInt64; let body: String }
     private struct InboxEnd: Decodable { let dm_seq: UInt32; let chan_seq: UInt32; let epoch: UInt32?; let count: Int; let now_ms: UInt64? }
     private struct RoutesEnd: Decodable { let count: Int }
+    private struct ConfigAdopted: Decodable { let lineage: Int; let epoch: Int; let leaf: String?; let level: Int? }   // R6 membership update
+    private struct JoinRefused: Decodable { let reason: String; let their_ver: Int?; let my_ver: Int? }                // wire_version carries the versions
 }

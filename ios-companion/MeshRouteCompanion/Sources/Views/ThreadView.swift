@@ -13,7 +13,7 @@ struct ThreadView: View {
     let thread: ThreadKey
     @State private var draft = ""
     @State private var requestAck = false       // per-message E2E delivery-ack toggle (DM only, D16)
-    @State private var encrypt = false          // per-message E2E encrypt toggle (sendhashx, 2026-06-16)
+    @State private var encrypt = false          // per-message E2E encrypt toggle (the -e flag, D24)
     @AppStorage("encryptDefault") private var encryptDefault = false   // the app's default lock state (e2e_dm)
     private var isDM: Bool { if case .dm = thread { return true }; return false }
     /// Encryption seals by hash → only a real key_hash32 thread (not an unresolved pseudo-id) can encrypt.
@@ -103,7 +103,7 @@ struct MessageBubble: View {
                     Image(systemName: message.crypted ? "lock.fill" : "lock.open")
                         .font(.system(size: 9))
                         .foregroundStyle(message.crypted ? Color.green : Color.secondary)
-                    if outgoing && message.ackRequested {       // an E2E delivery ack was requested (D16)
+                    if outgoing && message.ackRequested && message.state != .deliveredE2E {   // "ack requested, pending"; once delivered the badge's filled seal shows it (D25)
                         Image(systemName: "checkmark.seal").font(.system(size: 9)).foregroundStyle(.tertiary)
                     }
                     if let c = message.ctr {                    // the node message counter, small
@@ -125,6 +125,11 @@ struct MessageBubble: View {
                         Button { model.retry(message) } label: {
                             Label("Key ready — tap to resend securely", systemImage: "lock.fill")
                                 .font(.caption2).foregroundStyle(.green)
+                        }.buttonStyle(.plain)
+                    case "joining":              // managed leaf not yet config-synced (R6/D26) — TRANSIENT, lifts on join
+                        Button { model.retry(message) } label: {
+                            Label("Still joining the network — tap to retry", systemImage: "clock.arrow.circlepath")
+                                .font(.caption2).foregroundStyle(.orange)
                         }.buttonStyle(.plain)
                     default:
                         Button { model.retry(message) } label: {
@@ -155,7 +160,7 @@ struct ComposeBar: View {
                     .padding(.horizontal, 8)
             }
             HStack(spacing: 8) {
-                if let enc = encrypt {       // seal this message E2E (sendhashx); defaults to the e2e_dm setting
+                if let enc = encrypt {       // seal this message E2E (the -e flag); defaults to the e2e_dm setting
                     Button { enc.wrappedValue.toggle() } label: {
                         Image(systemName: enc.wrappedValue ? "lock.fill" : "lock.open")
                             .font(.title3).foregroundStyle(enc.wrappedValue ? Color.green : .secondary)

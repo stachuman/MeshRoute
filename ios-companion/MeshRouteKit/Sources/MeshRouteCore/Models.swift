@@ -36,7 +36,8 @@ public enum DeliveryState: String, Hashable, Sendable, Codable {
     case outbox       // composed while DISCONNECTED — waits in the outbox, drained FIFO on connect
     case sending      // composed, line written, no ack yet
     case queued       // node accepted it (ack: queued, ctr assigned)
-    case acked        // link/E2E ack returned (send_acked)
+    case acked        // link/forward ack returned (send_acked) — accepted/relayed, not yet end-to-end confirmed
+    case deliveredE2E // an E2E delivery RECEIPT arrived (live `e2e_acked` / pulled `inbox_dm type:e2e_ack`) — the RECIPIENT confirmed (D25)
     case failed       // send_failed, or an error ack
     case received     // an inbound message
 }
@@ -97,6 +98,45 @@ public enum MessageIdentity: Hashable, Sendable {
         if let h = senderHash, h != 0 { return .dmByHash(hash: h, ctr: ctr) }
         guard let origin else { return nil }
         return .dmByID(origin: origin, ctr: ctr)
+    }
+}
+
+/// The node's leaf-membership state (R6 / D26), derived from `ready` + the live `config_adopted` push.
+/// Drives the Node-screen membership chip and gates the Leave action.
+public struct LeafMembership: Hashable, Sendable {
+    public var lineage: Int        // lineage_id; 0 = unmanaged / standalone
+    public var epoch: Int          // config_epoch
+    public var leaf: String?       // leaf name (nil when unset)
+    public var level: Int?         // level_id (1..255; interim = the wire leaf nibble)
+    public var synced: Bool
+
+    public init(lineage: Int, epoch: Int, leaf: String?, level: Int?, synced: Bool) {
+        self.lineage = lineage; self.epoch = epoch; self.leaf = leaf; self.level = level; self.synced = synced
+    }
+
+    public enum State: Hashable, Sendable { case unmanaged, joining, member }
+    public var state: State {
+        if lineage == 0 { return .unmanaged }
+        return synced ? .member : .joining
+    }
+    public var isManaged: Bool { lineage != 0 }
+    public var label: String {
+        switch state {
+        case .unmanaged: return "Unmanaged · standalone"
+        case .joining:   return leaf.map { "Joining \($0)…" } ?? "Joining…"
+        case .member:    return "Member of \(leaf ?? "leaf \(level ?? 0)")"
+        }
+    }
+
+    /// From a `ready` snapshot — nil on pre-R6 firmware (which omits `lineage`).
+    public static func from(_ r: NodeReady) -> LeafMembership? {
+        guard let lineage = r.lineage else { return nil }
+        return LeafMembership(lineage: lineage, epoch: r.configEpoch ?? 0, leaf: r.leaf, level: r.level,
+                              synced: r.synced ?? (lineage == 0 || (r.configEpoch ?? 0) > 0))
+    }
+    /// From a `config_adopted` push — `synced` is derived (`lineage==0 || epoch>0`).
+    public static func adopted(lineage: Int, epoch: Int, leaf: String?, level: Int?) -> LeafMembership {
+        LeafMembership(lineage: lineage, epoch: epoch, leaf: leaf, level: level, synced: lineage == 0 || epoch > 0)
     }
 }
 

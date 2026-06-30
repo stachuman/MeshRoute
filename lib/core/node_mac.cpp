@@ -19,6 +19,7 @@ namespace MESHROUTE_NS {
 
 uint16_t Node::next_ctr(uint8_t dst) {
     uint16_t& c = _active->_peer_send_counter[dst];
+    if (c < _active->_peer_ctr_floor) c = _active->_peer_ctr_floor;   // D7: resume above the pre-reboot per-peer high-water (no (sender_hash,ctr) dedup-collision)
     c = (c >= 65535) ? 1 : static_cast<uint16_t>(c + 1);   // wraps 65535->1 (NOT a rand site)
     return c;
 }
