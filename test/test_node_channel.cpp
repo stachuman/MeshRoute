@@ -986,3 +986,34 @@ TEST_CASE("Node::limits_snapshot — live values for a known config") {
     CHECK(s2.duty_ms == n2.channel_duty_budget_ms());
     CHECK(s2.ch_ceiling >= 1);                           // C >= 1 floor when duty enabled
 }
+
+// Slice 6 integration: the outcome-feedback machinery is reachable through a real Node — emit_send_blocked
+// enqueues a drainable send_blocked push, and the origin re-offer EXHAUSTION path (channel_reoffer_fire's
+// give-up branch) enqueues channel_sent{relayed:false}. basic_cfg has a data SF (1<<12 -> max_data_sf()==12),
+// so a posted message registers a re-offer slot whose retries exhaust via retries_left==0 (not data-incapable).
+TEST_CASE("Slice 6: emit_send_blocked + emit_channel_sent{relayed:false} reachable through a real Node") {
+    TestHal hal; Node node(hal, /*id=*/20, 0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); node.on_init(cfg);           // provisions a data SF (12) -> channel-capable
+
+    // 6a: the self-gate helper enqueues a send_blocked the companion can drain.
+    node.emit_send_blocked(/*channel=*/true, SendFailReason::min_interval, /*next_ms=*/7300);
+    Push p{};
+    CHECK(node.next_push(p));
+    CHECK(p.kind == PushKind::send_blocked);
+    CHECK(p.blocked_channel == true);
+    CHECK(p.reason == SendFailReason::min_interval);
+    CHECK(p.next_ms == 7300);
+
+    // 6c: post a channel message (registers an origin re-offer slot at slot 0, retries_left=1). Never overhear
+    // a relay; fire the re-offer timer until retries exhaust, then drain and confirm channel_sent{relayed:false}.
+    hal._now = 1000;
+    (void)send_channel(node, /*ch=*/7, "hi");                  // origination flood + channel_reoffer_register(id)
+    drain_originate_flood(node);                               // let the originate flight complete (no ACK)
+    // First fire: retries_left 1 -> 0, re-floods + re-arms. Second fire: retries_left==0 -> exhaustion give-up.
+    node.on_timer(kChannelReofferTimerId + 0);
+    node.on_timer(kChannelReofferTimerId + 0);
+    bool saw_no_relay = false;
+    while (node.next_push(p))
+        if (p.kind == PushKind::channel_sent && !p.relayed) saw_no_relay = true;
+    CHECK(saw_no_relay);
+}

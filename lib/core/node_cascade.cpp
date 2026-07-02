@@ -10,6 +10,16 @@
 
 namespace MESHROUTE_NS {
 
+// Slice 6b: a terminal cascade giveup maps its giveup_event to the DM-failure reason the companion reads.
+// The two roots are "rts_giveup"/"rts_silent_cascade" (CTS-timeout) and "data_ack_giveup"/"data_ack_silent_cascade"
+// (DATA-ACK-timeout). Prefix-keyed so a new giveup label inherits the right reason. A non-DM/legacy giveup -> none.
+SendFailReason Node::giveup_fail_reason(const char* ge) {
+    if (!ge) return SendFailReason::none;
+    if (ge[0]=='r' && ge[1]=='t' && ge[2]=='s') return SendFailReason::no_cts;                    // "rts_*"
+    if (ge[0]=='d' && ge[1]=='a' && ge[2]=='t' && ge[3]=='a' && ge[4]=='_') return SendFailReason::no_ack;  // "data_ack_*"
+    return SendFailReason::none;
+}
+
 bool Node::alt_tried(const PendingTx& pt, uint8_t hop) const {
     for (uint8_t i = 0; i < pt.alts_tried_n; ++i) if (pt.alts_tried[i] == hop) return true;
     return false;
@@ -136,7 +146,7 @@ void Node::cascade_to_alt(const char* giveup_event) {
                                         { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
                     _hal.emit("path_cascade_exhausted", gf, 2);
                     _hal.emit(giveup_event, gf, 2); );
-                { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
+                { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = giveup_fail_reason(giveup_event); pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
                 _active->_pending_tx.reset();
                 become_free();
             }
@@ -157,7 +167,7 @@ int Node::cascade_effective_max(uint8_t queue_depth) {
     return eff > 0 ? eff : 0;
 }
 
-void Node::try_cascade_requeue(const PendingTx& pt, [[maybe_unused]] const char* giveup_event) {
+void Node::try_cascade_requeue(const PendingTx& pt, const char* giveup_event) {
     const uint64_t now = _hal.now();
     const bool count_done = pt.requeue_count >= protocol::cascade_requeue_max;
     const bool age_done   = (now - pt.enqueue_time_ms) >= protocol::cascade_requeue_total_max_ms;
@@ -167,7 +177,7 @@ void Node::try_cascade_requeue(const PendingTx& pt, [[maybe_unused]] const char*
                                { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
             _hal.emit("path_cascade_exhausted", f, 2);
             _hal.emit(giveup_event, f, 2); );
-        { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
+        { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = giveup_fail_reason(giveup_event); pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
         _active->_pending_tx.reset();
         become_free();
         return;
@@ -185,7 +195,7 @@ void Node::try_cascade_requeue(const PendingTx& pt, [[maybe_unused]] const char*
             _hal.emit("cascade_load_skip", f, 4);
             _hal.emit("path_cascade_exhausted", f, 2);
             _hal.emit(giveup_event, f, 2); );
-        { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
+        { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = giveup_fail_reason(giveup_event); pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
         _active->_pending_tx.reset();
         become_free();
         return;

@@ -225,12 +225,29 @@ reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "
 {"ev":"send_failed","dst":2,"ctr":7,"reason":"no_pubkey"}     // a CRYPTED send was DROPPED — warn + offer Request-key / Scan-QR
 {"ev":"peer_key_cached","hash":3735928559,"pinned":false}    // a key arrived (request answer / cache-on-pass / QR / mutual) → enable resend
 ```
-- `send_failed.reason` ∈ `no_pubkey · no_identity · too_large · bad_rng · no_route`. App maps `no_pubkey`
+- `send_failed.reason` ∈ `no_pubkey · no_identity · too_large · bad_rng · no_route · joining · no_cts · no_ack`. App maps `no_pubkey`
   → "recipient's key unknown — Request key / Scan QR"; permanent reasons (`too_large`/`no_route`) → plain fail.
 - `peer_key_cached` lets the app prompt "secure send ready — resend" after a request resolves (or QR import).
 - **Mutual source (Slice 2):** you ALSO get `peer_key_cached` for the **requester's** hash when you ANSWER a
   contact's `reqpubkey` — you cached *their* key during the handshake, so you can now securely reply to them
   (no separate request needed). Same event/shape; the `hash` is the contact who just reached out.
+
+### Anti-spam v2 feedback — advisory `limits` + actual send-outcome (2026-06-30)
+
+`limits` (see the `limits` query) lets the app *predict* + pace; these three pushes report the *actual* outcome so it backs off. All are **local** (node → its own trusted companion; no OTA change — the node infers from what it already observes). NB the node's `send_blocked` *telemetry* is stripped on device (`MESHROUTE_NO_TELEMETRY`), so on metal the **push** below is the only send_blocked signal the companion receives:
+
+```json
+{"ev":"send_blocked","kind":"channel","reason":"min_interval","next_ms":7300}   // THIS node's own cap/floor blocked the origination pre-TX — hold + retry after next_ms
+{"ev":"send_blocked","kind":"dm","reason":"cap","next_ms":0}                     // kind ∈ channel|dm ; reason ∈ cap|min_interval ; next_ms = ms until allowed (0 = floor passed, cap/duty blocks)
+{"ev":"send_failed","dst":2,"ctr":7,"reason":"no_cts"}                           // a DM gave up after CTS-timeout retries (1st-hop backstop-drop / no route surfaces here too)
+{"ev":"send_failed","dst":4,"ctr":9,"reason":"no_ack"}                           // a DM gave up after DATA-ACK-timeout retries
+{"ev":"channel_sent","ctr":5,"relayed":true}                                     // an OWN channel post: a relay was overheard (origin re-offer confirmed) = success
+{"ev":"channel_sent","ctr":6,"relayed":false,"reason":"no_relay"}               // the re-offer exhausted with no relay (1st-hop throttle or no neighbour)
+```
+
+- The app treats **`send_blocked` / `send_failed` / `channel_sent{relayed:false}`** as **stop-and-back-off** (don't keep firing) and **`e2e_acked` / `channel_sent{relayed:true}`** as success.
+- **Enforcement is the 1st hop's** (it applies its own per-origin cap with its own `N`) **plus this node's self-gate**, so a send can still be rejected *after* the companion thought `limits` allowed it — hence the actual outcome, not just the advisory prediction.
+- `send_failed.reason` for a DM giveup ∈ `no_cts · no_ack` (this node's cascade exhausted CTS-/ACK-timeout retries). The 1st-hop's *silent* backstop drop surfaces as `no_cts` (conflated with no-route — the app's reaction, back-off-and-retry, is identical). The OTA silent-drop is KEPT (an explicit reject frame would cost airtime + help a spammer calibrate).
 
 ### Per-message crypt + the "encrypted?" indicator (2026-06-16)
 **Send — crypt is PER-MESSAGE**, not only the global `cfg set e2e_dm` default: the companion's send carries

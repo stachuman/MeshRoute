@@ -93,10 +93,16 @@ enum class PushKind : uint8_t {
                      //   resend an encrypted DM. sender_hash = the cached key_hash32; pinned=false (on-air, TOFU).
     config_adopted,  // R6.2: a CONFIG_ANSWER was adopted (lineage/epoch/sf_list/duty/name changed) -> device persists to NV.
     join_refused,    // R6.3 §7c: a join was refused (wire_version mismatch / leaf full) -> console + companion (telemetry is invisible on metal).
+    send_blocked,  // Slice 6a: this node's OWN cap / min-interval blocked an origination pre-TX
+                   //   (kind = channel|dm; reason = cap|min_interval; next_ms = ms until allowed). Companion holds + retries.
+    channel_sent,  // Slice 6c: outcome of an OWN channel post's origin re-offer. relayed=true (a relay was overheard =
+                   //   channel_reoffer_confirm) or relayed=false (the re-offer exhausted with no relay -> reason "no_relay").
 };
 // E2E §5: why a send_failed Push fired, so the app reacts (no_pubkey -> offer Request-key/Scan-QR; the permanent
 // reasons -> plain fail). Mirrors the contract `send_failed.reason`. `none` = a non-send_failed push.
-enum class SendFailReason : uint8_t { none = 0, no_pubkey, no_identity, too_large, bad_rng, no_route, joining };   // R6.2: joining = un-synced managed leaf
+enum class SendFailReason : uint8_t { none = 0, no_pubkey, no_identity, too_large, bad_rng, no_route, joining,   // R6.2: joining = un-synced managed leaf
+                                      cap, min_interval,   // Slice 6a: send_blocked reasons (per-origin cap / burst floor)
+                                      no_cts, no_ack };    // Slice 6b: DM giveup reasons (CTS- / ACK-timeout)
 // R6.3 §7c: why a join was refused (join_refused push). wire_version -> origin=their_ver, dst=my_ver; leaf_full -> no extra.
 enum class JoinRefuseReason : uint8_t { wire_version = 0, leaf_full = 1 };
 struct Push {
@@ -108,7 +114,10 @@ struct Push {
     uint8_t  channel_id = 0;   // channel_recv only
     uint8_t  layer_id = 0;     // msg_recv/channel_recv: the FULL 8-bit receiving layer id (§2/Q13 — disambiguates origin across a gateway's leaves)
     bool     enc = false;      // §8b: msg_recv -> the DM was delivered SEALED (CRYPTED + opened); channel_recv -> false (cleartext today)
+    bool     blocked_channel = false;  // send_blocked: true => "channel", false => "dm"
+    bool     relayed = false;          // channel_sent: a relay of our channel post was overheard (true) or the re-offer exhausted (false)
     uint16_t ctr = 0;
+    uint32_t next_ms = 0;              // send_blocked: ms until the origination is allowed (0 = the floor already passed but cap/duty blocks)
     uint32_t sender_hash = 0;      // msg_recv: the DM sender's stable key_hash32 (0 = no SOURCE_HASH). The app's
                                    //   DM dedup identity is (sender_hash, ctr) when set, else (origin, ctr).
     uint32_t channel_msg_id = 0;   // channel_recv: the FULL 32-bit channel message id (the app's dedup identity)

@@ -230,3 +230,38 @@ TEST_CASE("write_push — send_e2e_acked → live e2e_acked twin (origin/ctr/sen
     size_t n = write_push(b, sizeof b, p);
     CHECK(std::string(b, n) == "{\"ev\":\"e2e_acked\",\"origin\":2,\"ctr\":7,\"sender_hash\":3735928559}\n");
 }
+
+// ── Slice 6 — anti-spam v2 send-outcome feedback events (send_blocked / send_failed / channel_sent) ──
+TEST_CASE("write_push — send_blocked carries kind/reason/next_ms (Slice 6a)") {
+    char b[160];
+    Push c{}; c.kind = PushKind::send_blocked; c.blocked_channel = true;
+    c.reason = SendFailReason::min_interval; c.next_ms = 7300;
+    size_t n = write_push(b, sizeof b, c);
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"send_blocked\",\"kind\":\"channel\",\"reason\":\"min_interval\",\"next_ms\":7300}\n");
+    Push d{}; d.kind = PushKind::send_blocked; d.blocked_channel = false;   // DM
+    d.reason = SendFailReason::cap; d.next_ms = 0;
+    n = write_push(b, sizeof b, d);
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"send_blocked\",\"kind\":\"dm\",\"reason\":\"cap\",\"next_ms\":0}\n");
+}
+
+TEST_CASE("write_push — send_failed carries no_cts / no_ack DM giveup reasons (Slice 6b)") {
+    char b[128];
+    Push c{}; c.kind = PushKind::send_failed; c.dst = 2; c.ctr = 7; c.reason = SendFailReason::no_cts;
+    size_t n = write_push(b, sizeof b, c);
+    CHECK(std::string(b, n) == "{\"ev\":\"send_failed\",\"dst\":2,\"ctr\":7,\"reason\":\"no_cts\"}\n");
+    Push a{}; a.kind = PushKind::send_failed; a.dst = 4; a.ctr = 9; a.reason = SendFailReason::no_ack;
+    n = write_push(b, sizeof b, a);
+    CHECK(std::string(b, n) == "{\"ev\":\"send_failed\",\"dst\":4,\"ctr\":9,\"reason\":\"no_ack\"}\n");
+}
+
+TEST_CASE("write_push — channel_sent carries relayed bool + no_relay reason (Slice 6c)") {
+    char b[128];
+    Push t{}; t.kind = PushKind::channel_sent; t.relayed = true; t.ctr = 5;
+    size_t n = write_push(b, sizeof b, t);
+    CHECK(std::string(b, n) == "{\"ev\":\"channel_sent\",\"ctr\":5,\"relayed\":true}\n");
+    Push f{}; f.kind = PushKind::channel_sent; f.relayed = false; f.ctr = 6;
+    n = write_push(b, sizeof b, f);
+    CHECK(std::string(b, n) == "{\"ev\":\"channel_sent\",\"ctr\":6,\"relayed\":false,\"reason\":\"no_relay\"}\n");
+}

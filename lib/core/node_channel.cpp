@@ -291,6 +291,10 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
                                { .key = "reason",  .type = EventField::T::str, .s = block_reason },
                                { .key = "next_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(next_ms) } };
             _hal.emit("send_blocked", f, 3); );
+        // Slice 6a: the telemetry above is stripped on device — this Push is the send_blocked signal the companion
+        // actually receives. Map the gate's block_reason string to the SendFailReason enum (min_interval | cap).
+        const SendFailReason r = (block_reason[0] == 'm') ? SendFailReason::min_interval : SendFailReason::cap;
+        emit_send_blocked(/*channel=*/true, r, next_ms);
         return 0;                                             // not sent (no ctr minted)
     }
     const uint16_t c = next_ctr(_node_id);
@@ -334,6 +338,25 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
     }
     schedule_triggered_beacon();                              // §4.1.7: make the repair digest prompt, not 15-min
     return c;
+}
+
+// Slice 6a: the pre-TX self-gate feedback push. do_send_channel (the channel self-GATE) and become_free (the DM
+// own-origin throttle) call this when THIS node's cap / min-interval blocks an origination, so the companion holds
+// + retries after next_ms instead of firing blind. Local-only (node -> its own trusted companion; no OTA). NB the
+// gate sites ALSO keep their MR_EMIT("send_blocked") telemetry (native tests count it); that telemetry is stripped
+// on device, so this Push is the ONLY send_blocked signal the companion actually receives on metal.
+void Node::emit_send_blocked(bool channel, SendFailReason reason, uint32_t next_ms) {
+    Push pu{}; pu.kind = PushKind::send_blocked;
+    pu.blocked_channel = channel; pu.reason = reason; pu.next_ms = next_ms;
+    enqueue_push(pu);
+}
+
+// Slice 6c: the OWN-channel-post outcome push. relayed=true when a relay of our post is overheard
+// (channel_reoffer_confirm); relayed=false when the origin re-offer exhausts all retries with no relay
+// (channel_reoffer_fire's give-up branch) -> the companion backs off. Local-only (node -> its companion).
+void Node::emit_channel_sent(bool relayed, uint16_t ctr) {
+    Push pu{}; pu.kind = PushKind::channel_sent; pu.relayed = relayed; pu.ctr = ctr;
+    enqueue_push(pu);
 }
 
 // =============================================================================
@@ -634,7 +657,7 @@ void Node::channel_reoffer_fire(uint8_t slot) {
     const int i = channel_buffer_find(rp.id);
     if (i < 0) { rp.active = false; return; }                                      // entry evicted -> nothing to re-offer
     const ChannelEntry& e = _active->_channel_buffer[i];
-    if (rp.retries_left == 0 || max_data_sf() == 0) { rp.active = false; return; } // exhausted (or data-incapable) -> give up; repair digest is the last resort
+    if (rp.retries_left == 0 || max_data_sf() == 0) { emit_channel_sent(false, static_cast<uint16_t>(e.id & 0xff)); rp.active = false; return; } // Slice 6c: exhausted (or data-incapable) -> give up (channel_sent{relayed:false}); repair digest is the last resort
     // RE-FLOOD the cached body with the SAME frugal seed as origination (flood_set_my_coverage — NOT empty, which the
     // fail-loud zero-bitmap guard in tx_m_broadcast_rts would refuse). Receivers dedup by originator_retry_dedup_ms
     // (no double-inbox) but DO re-broadcast for coverage; LBT is applied by the TX path (enqueue_flood_m -> become_free).
@@ -654,7 +677,7 @@ void Node::channel_reoffer_fire(uint8_t slot) {
 void Node::channel_reoffer_confirm(uint32_t id) {
     for (uint8_t s = 0; s < protocol::cap_channel_reoffer_pending; ++s) {
         ChannelReofferPending& rp = _active->_channel_reoffer_pending[s];
-        if (rp.active && rp.id == id) { rp.active = false; _hal.cancel(kChannelReofferTimerId + s); return; }
+        if (rp.active && rp.id == id) { emit_channel_sent(true, static_cast<uint16_t>(id & 0xff)); rp.active = false; _hal.cancel(kChannelReofferTimerId + s); return; }  // Slice 6c: a relay was overheard -> channel_sent{relayed:true}
     }
 }
 

@@ -400,6 +400,9 @@ void Node::become_free() {
             const uint32_t next_ms = static_cast<uint32_t>(until - now);
             MR_EMIT("send_blocked", EF_S("kind", "dm"), EF_S("reason", "min_interval"),
                     EF_I("next_ms", next_ms), EF_I("dst", pt.dst), EF_I("ctr", pt.ctr));
+            // Slice 6a: the MR_EMIT above is device-stripped telemetry — this Push is the send_blocked signal the
+            // companion actually receives. The DM burst floor is always a min-interval block (kind=dm).
+            emit_send_blocked(/*channel=*/false, SendFailReason::min_interval, next_ms);
             become_free();                                      // re-pick (skips the now-deferred item)
             return;
         }

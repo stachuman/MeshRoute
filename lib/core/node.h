@@ -817,6 +817,10 @@ private:
     bool    channel_mark_seen_by(uint32_t id, uint8_t neighbour);  // set seen_by bit; true if newly set (dv:3434)
 public:
     bool    channel_origin_admit(uint8_t origin, uint32_t msg_id); // per-origin distinct-count anti-spam (dv:3456). Public: the receiver-HOOK test seam (drives the cap + 10s burst floor directly).
+    // Slice 6: the send-outcome feedback pushes. Public so native tests can drive them (the reoffer-exhaustion path
+    // enqueues channel_sent{relayed:false}); called internally from do_send_channel / become_free / channel_reoffer_*.
+    void    emit_send_blocked(bool channel, SendFailReason reason, uint32_t next_ms);   // Slice 6a: the send_blocked push (self-gate)
+    void    emit_channel_sent(bool relayed, uint16_t ctr);                              // Slice 6c: OWN channel post re-offer outcome
 private:
     int     channel_buffer_pick_eviction(bool* safe) const;        // oldest-all-seen else oldest; index (dv:3485)
     bool    channel_entry_fully_seen(const ChannelEntry& e) const; // 2026-06-23: every live 1-hop neighbour holds e (or none to serve) -> retire-OK (holder-aware retirement; NOT shared with pick_eviction — opposite nn==0 meaning)
@@ -985,6 +989,7 @@ private:
                                  bool allow_uphill) const;        // minimal filter :3990
     void     cascade_to_alt(const char* trigger);                 // on giveup: switch hop or requeue :6456
     void     try_cascade_requeue(const PendingTx& pt, const char* giveup_event);  // exhaustion -> requeue/giveup :6190
+    static SendFailReason giveup_fail_reason(const char* giveup_event);   // Slice 6b: "rts_*"->no_cts, "data_ack_*"->no_ack, else none
 public:
     // ④ load-adaptive cascade budget (Lua cascade_load_skip dv:6275): the effective requeue budget at a given TX-queue
     // depth = cascade_requeue_max − max(0, depth − threshold), clamped ≥0. Pure (depth + constants); static for tests.

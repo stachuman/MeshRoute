@@ -73,6 +73,8 @@ const char* pushkind_name(PushKind k) {
         case PushKind::config_adopted:  return "config_adopted";   // R6.3: leaf-config membership update (live)
         case PushKind::join_refused:    return "join_refused";     // R6.3 §7c: wire-version / leaf-full refusal
         case PushKind::send_e2e_acked:  return "e2e_acked";        // §3: live twin of the durable inbox_dm type:"e2e_ack" (no more ev:"unknown")
+        case PushKind::send_blocked:  return "send_blocked";       // Slice 6a: pre-TX self-gate feedback (cap / min-interval)
+        case PushKind::channel_sent:  return "channel_sent";       // Slice 6c: OWN channel post re-offer outcome (relayed?)
     }
     return "unknown";
 }
@@ -85,6 +87,10 @@ const char* sendfailreason_name(SendFailReason r) {
         case SendFailReason::bad_rng:     return "bad_rng";
         case SendFailReason::no_route:    return "no_route";
         case SendFailReason::joining:     return "joining";   // R6.3: managed leaf not yet config-synced (transient — gate lifts on adopt)
+        case SendFailReason::cap:          return "cap";          // Slice 6a: send_blocked — the per-origin cap
+        case SendFailReason::min_interval: return "min_interval"; // Slice 6a: send_blocked — the burst floor
+        case SendFailReason::no_cts:       return "no_cts";        // Slice 6b: DM giveup — CTS-timeout
+        case SendFailReason::no_ack:       return "no_ack";        // Slice 6b: DM giveup — DATA-ACK-timeout
         case SendFailReason::none:        return "none";
     }
     return "none";
@@ -177,6 +183,14 @@ size_t write_push(char* buf, size_t cap, const Push& p, const NodeConfig* cfg) {
         j.lit(",\"origin\":");      j.u32(p.dst);          // the dest that CONFIRMED delivery (the -a DM's recipient; push carries it in .dst, node_mac_rx.cpp:610)
         j.lit(",\"ctr\":");         j.u32(p.ctr);          // the acked ctr
         j.lit(",\"sender_hash\":"); j.u32(p.sender_hash);  // the acker's key_hash32 (0 same-layer; set on a cross-layer ack). App matches (origin,ctr) or (sender_hash,ctr); NOT an inbound DM
+    } else if (p.kind == PushKind::send_blocked) {   // Slice 6a: pre-TX self-gate feedback (kind/reason/next_ms)
+        j.lit(",\"kind\":\""); j.lit(p.blocked_channel ? "channel" : "dm"); j.ch('"');
+        j.lit(",\"reason\":\""); j.lit(sendfailreason_name(p.reason)); j.ch('"');
+        j.lit(",\"next_ms\":"); j.u32(p.next_ms);
+    } else if (p.kind == PushKind::channel_sent) {   // Slice 6c: origin re-offer outcome (relayed?)
+        j.lit(",\"ctr\":"); j.u32(p.ctr);
+        j.lit(",\"relayed\":"); j.lit(p.relayed ? "true" : "false");
+        if (!p.relayed) j.lit(",\"reason\":\"no_relay\"");   // 1st-hop throttle or no neighbour
     } else {  // send_acked / send_failed
         j.lit(",\"dst\":"); j.u32(p.dst);
         j.lit(",\"ctr\":"); j.u32(p.ctr);
