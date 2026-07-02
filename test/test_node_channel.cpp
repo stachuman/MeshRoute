@@ -228,16 +228,16 @@ TEST_CASE("per-origin anti-spam: distinct-id count caps at the window max; over-
     TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
     const uint8_t body[] = { 'm' };
     // 20 distinct ids from origin 9 (vary the low bytes) -> all admitted + buffered
-    for (int k = 0; k < protocol::channel_origin_max_per_window; ++k) {
+    for (int k = 0; k < protocol::cap_channel_origin_events; ++k) {
         const uint32_t id = (uint32_t(9) << 24) | static_cast<uint32_t>(k);
         node.ingest_channel_m(mk_m(id, 5, 0, body, 1), 9);
     }
-    CHECK(node.channel_buffer_count() == protocol::channel_origin_max_per_window);
+    CHECK(node.channel_buffer_count() == protocol::cap_channel_origin_events);
     CHECK(hal.count("channel_drop_originator_throttle") == 0);
     // the (cap+1)th DISTINCT id from origin 9 -> dropped (count stays at cap)
     const uint32_t over = (uint32_t(9) << 24) | 0xFFu;
     node.ingest_channel_m(mk_m(over, 5, 0, body, 1), 9);
-    CHECK(node.channel_buffer_count() == protocol::channel_origin_max_per_window);
+    CHECK(node.channel_buffer_count() == protocol::cap_channel_origin_events);
     CHECK(hal.count("channel_drop_originator_throttle") == 1);
     CHECK(!node.channel_has(over));
     // a DIFFERENT origin is independent -> admitted
@@ -249,18 +249,18 @@ TEST_CASE("per-origin anti-spam: distinct-id count caps at the window max; over-
 TEST_CASE("anti-spam repeat-id refreshes (not re-counts): a re-broadcast can't free a slot for a new id") {
     TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
     const uint8_t body[] = { 'm' };
-    for (int k = 0; k < protocol::channel_origin_max_per_window; ++k)   // saturate origin 9 at the cap
+    for (int k = 0; k < protocol::cap_channel_origin_events; ++k)   // saturate origin 9 at the cap
         node.ingest_channel_m(mk_m((uint32_t(9) << 24) | static_cast<uint32_t>(k), 5, 0, body, 1), 9);
-    CHECK(node.channel_buffer_count() == protocol::channel_origin_max_per_window);
+    CHECK(node.channel_buffer_count() == protocol::cap_channel_origin_events);
     // re-ingest an EXISTING id (origin 9, k=0) -> already-present (refresh), NOT a new entry, NOT a drop
     node.ingest_channel_m(mk_m((uint32_t(9) << 24) | 0u, 5, 0, body, 1), 9);
-    CHECK(node.channel_buffer_count() == protocol::channel_origin_max_per_window);   // unchanged
+    CHECK(node.channel_buffer_count() == protocol::cap_channel_origin_events);   // unchanged
     CHECK(hal.count("channel_msg_already_present") == 1);
     CHECK(hal.count("channel_drop_originator_throttle") == 0);                       // the dup was admitted, not dropped
     // a NEW distinct id from origin 9 still drops — the dup did NOT free a slot
     node.ingest_channel_m(mk_m((uint32_t(9) << 24) | 0x99u, 5, 0, body, 1), 9);
     CHECK(hal.count("channel_drop_originator_throttle") == 1);
-    CHECK(node.channel_buffer_count() == protocol::channel_origin_max_per_window);
+    CHECK(node.channel_buffer_count() == protocol::cap_channel_origin_events);
 }
 
 // ===================== Slice 2: duty-anchored channel cap + burst floors =====================

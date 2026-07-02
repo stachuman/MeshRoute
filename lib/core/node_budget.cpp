@@ -89,26 +89,4 @@ void Node::compute_originator_metric(uint8_t sender, int& apparent, uint32_t& to
     apparent = (a < 0) ? 0 : a;
 }
 
-// Inc 4 self-cap: our OWN origination ledger (DM; + channel when R5 lands). observe prunes out-of-window
-// events then appends now (bounded by cap_originator_events; the cap << that, so it never overflows).
-void Node::self_originate_observe() {
-    const uint64_t now = _hal.now();
-    const uint64_t cutoff = (now >= protocol::originator_window_ms) ? (now - protocol::originator_window_ms) : 0;
-    uint8_t w = 0;
-    for (uint8_t i = 0; i < _own_orig_count; ++i)
-        if (_own_orig_events[i] >= cutoff) _own_orig_events[w++] = _own_orig_events[i];   // compact in-window
-    if (w < protocol::cap_originator_events) _own_orig_events[w++] = now;                 // append (bounded)
-    _own_orig_count = w;
-}
-
-uint8_t Node::self_originate_count(uint64_t* oldest_in_window) const {
-    const uint64_t now = _hal.now();
-    const uint64_t cutoff = (now >= protocol::originator_window_ms) ? (now - protocol::originator_window_ms) : 0;
-    uint8_t n = 0; uint64_t oldest = now;
-    for (uint8_t i = 0; i < _own_orig_count; ++i)
-        if (_own_orig_events[i] >= cutoff) { ++n; if (_own_orig_events[i] < oldest) oldest = _own_orig_events[i]; }
-    if (oldest_in_window) *oldest_in_window = oldest;
-    return n;
-}
-
 }  // namespace meshroute

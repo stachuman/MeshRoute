@@ -169,6 +169,9 @@ inline constexpr uint32_t originator_window_ms        = 300000;
 inline constexpr float    originator_airtime_share    = 0.35f;  // 0.25->0.35: C++ delivers more -> higher per-sender airtime (s18 heaviest hit 77% of the old cap / 96% of the warn) -> bumped for headroom
 inline constexpr float    originator_airtime_warn_fraction = 0.8f;  // WARN (no drop) at 0.8x drop cap; Inc 3 carries it in the ACK warn bit
 inline constexpr uint32_t originator_ack_warn_backoff_ms = 10000;   // DM Inc 3: park new DM originations this long after a warn'd ACK
+// e2e-ack backstop exemption anti-spoof: how long a caught spoofer's RTS_FLAG_E2E_ACK is IGNORED (the backstop re-applies).
+// Reuse the 5-min originator window as the revoke TTL — one free pass, then the exemption is off for a whole originator window.
+inline constexpr uint32_t e2e_ack_spoof_penalty_ms    = originator_window_ms;
 inline constexpr uint16_t originator_retry_dedup_ms   = 10000;
 // Per-sender fixed-ring depth for the originator ledger (heap-free; evict-oldest on overflow). The metric
 // counts DISTINCT ctr_lo (16 per kind, 2 kinds = 32 ceiling), so 64 is 2x headroom: eviction only triggers
@@ -236,13 +239,13 @@ inline constexpr uint8_t  cap_parked_sends              = 8;       // send-by-ha
 inline constexpr uint16_t cap_channel_buffer            = MR_CAP_CHANNEL_BUFFER;   // default 32 FIFO gossip entries (Lua dv:988) - reduction!
 inline constexpr uint16_t channel_msg_max_payload_bytes = 200;    // dv:989
 inline constexpr uint32_t channel_origin_window_ms      = 300000; // per-origin anti-spam window, 5 min (dv:997)
-inline constexpr uint8_t  channel_origin_max_per_window = 20;     // distinct msgs/origin/window before drop (dv:998)
 // ---- Anti-spam v2 (2026-06-30 duty-channel-cap) --------------------------------
 // Per-origin channel burst floor (receiver+self enforced) and self DM burst floor. Seeds from the design spec.
 inline constexpr uint32_t channel_min_interval_ms = 10000;   // 10 s minimum spacing between an origin's floods
 inline constexpr uint32_t dm_min_interval_ms      = 3000;    // 3 s minimum spacing between own DM originations
-// MF7: array bound for ChannelOriginLedger.ev[] (replaces channel_origin_max_per_window when that is removed, Slice 3).
-inline constexpr uint8_t  cap_channel_origin_events = 20;    // == channel_origin_max_per_window for now (inert re-dimension)
+// MF7: array bound for ChannelOriginLedger.ev[] (Slice 3 removed the flat channel_origin_max_per_window cap; this const
+// carries the ledger sizing forward, and channel_origin_admit now enforces the duty-anchored channel_cap_origin()).
+inline constexpr uint8_t  cap_channel_origin_events = 20;    // distinct msgs/origin/window the ledger tracks (dv:998)
 // MF2: the legacy flat per-origin channel cap. channel_cap_origin() returns THIS when the duty plane is disabled
 // (duty_cycle<=0 -> channel_duty_budget_ms()==0), so a default node keeps the old behaviour.
 inline constexpr uint16_t cap_channel_origin_legacy = 20;

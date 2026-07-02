@@ -232,7 +232,13 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // R-C apparent-origination COUNT clause REMOVED (Inc 1): a missed CTS makes a forwarder look like an
     // originator -> 168 false-drops on s18; the airtime backstop is the robust half (honesty- and
     // CTS-loss-independent). app_orig/rts/cts kept as info-only emit fields.
-    if (!(r.rts_flags & RTS_FLAG_RELAY)) {
+    // e2e-ack backstop exemption (2026-07-02): an RTS marked RTS_FLAG_E2E_ACK (its pending DATA is a DATA_TYPE_E2E_ACK)
+    // skips the DROP — an ack must never be throttled (a throttled ack -> the sender never learns delivery -> re-send ->
+    // MORE traffic). It is still OBSERVED at :40 (honest airtime metric, no bypass). Anti-spoof: a sender caught faking
+    // the bit (DATA-time verify below) is flagged (e2e_ack_spoofer_flagged) and its exemption revoked for a whole window.
+    // The hard duty-cycle limit still binds the sender's own ack originations (the un-spoofable ceiling).
+    const bool e2e_ack_exempt = (r.rts_flags & RTS_FLAG_E2E_ACK) && !e2e_ack_spoofer_flagged(r.src);
+    if (!(r.rts_flags & RTS_FLAG_RELAY) && !e2e_ack_exempt) {
         int app_orig; uint32_t total_air; uint8_t rts_n, cts_n;
         compute_originator_metric(r.src, app_orig, total_air, rts_n, cts_n);
         const uint32_t airtime_cap = static_cast<uint32_t>(
@@ -291,6 +297,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     const uint8_t sf = select_data_sf(r.sf_index, protocol::db_to_q4(meta.snr_db));
     PendingRx prx{}; prx.from = r.src; prx.dst = r.dst; prx.ctr_lo = r.ctr_lo;
     prx.chosen_data_sf = sf; prx.payload_len = r.payload_len; prx.set_at_ms = _hal.now();
+    prx.claimed_e2e_ack = (r.rts_flags & RTS_FLAG_E2E_ACK) != 0;   // carried to DATA-time for the anti-spoof verify
     _active->_pending_rx = prx;
     start_pending_rx_expiry(r.payload_len);
     cts_in cin{}; cin.chosen_data_sf = sf; cin.already_received = false; cin.tx_id = _node_id; cin.rx_id = r.src;
@@ -386,6 +393,16 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     const data_out& d = *pd;
     if (d.next != _node_id) return;
     if (!_active->_pending_rx || _active->_pending_rx->ctr_lo != d.ctr_lo4) return;
+    // e2e-ack backstop exemption ANTI-SPOOF verify (2026-07-02): the RTS claimed RTS_FLAG_E2E_ACK (so its DROP was
+    // exempted at handle_rts), but the DATA that arrived is NOT a DATA_TYPE_E2E_ACK -> the sender lied to bypass the
+    // backstop. Flag it: while flagged, its RTS_FLAG_E2E_ACK is ignored (the backstop re-applies). Keyed on the PHYSICAL
+    // SENDER = _pending_rx->from (the cleartext RTS src, metal-correct), NOT the sealed inner origin. One free pass, revoked.
+    if (_active->_pending_rx->claimed_e2e_ack && d.type != DATA_TYPE_E2E_ACK) {
+        const uint8_t spoofer = _active->_pending_rx->from;
+        MR_EMIT("e2e_ack_spoof", EF_I("from", spoofer), EF_I("type", d.type));
+        if (PeerLiveness* s = peer_liveness_slot(spoofer, /*create=*/true))
+            s->e2e_ack_spoof_until_ms = _hal.now() + protocol::e2e_ack_spoof_penalty_ms;
+    }
     // Inc 2 anti-spam: record this inbound DATA's airtime in the sender's window — the dominant
     // airtime a sender imposes on us (RTS-only never approached the cap). Keyed on _active->_pending_rx->from
     // (== this hop's RTS src, so RTS+DATA accumulate in one entry; frame-derived, metal-correct) and

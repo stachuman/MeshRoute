@@ -111,7 +111,8 @@ struct NodeConfig {
     uint8_t  sync_response_min_routes = 0;       // responder gate (Lua nil -> 0: respond even when route-starved, dv:8067)
     uint8_t  channel_dirty_max_advertisements = protocol::channel_dirty_max_advertisements;  // K: retire a dirty channel id after this many BCN digests (Lua node.channel_dirty_max_advertisements or 3); per-node so a gate can shrink it
     uint32_t channel_pull_jitter_ms       = protocol::channel_pull_jitter_ms;        // digest-pull backoff range rand(0,J) (Lua node.channel_pull_jitter_ms); a gate shrinks it to pin pull order
-    uint8_t  channel_origin_max_per_window = protocol::channel_origin_max_per_window; // per-origin distinct-msg cap (Lua node.channel_origin_max_per_window or 20); a gate tightens it
+    // (antispam-v2 Slice 3: the flat channel_origin_max_per_window cap was removed — channel_origin_admit now
+    // enforces the duty-anchored channel_cap_origin(); the ledger is sized by protocol::cap_channel_origin_events.)
     uint32_t channel_origin_window_ms     = protocol::channel_origin_window_ms;      // sliding window for the per-origin cap (Lua node.channel_origin_window_ms)
     uint8_t  cap_route_request_last        = protocol::cap_route_request_last;        // per-dst RREQ rate-limit table cap (Lua node.cap_route_request_last); full -> refuse new dsts (table_cap_hit). Shrinkable; array stays sized at the protocol max.
     uint16_t cap_id_bind                   = protocol::cap_id_bind;                    // hash-locate binding table cap (Lua node.cap_id_bind); full -> refuse new node_ids (table_cap_hit). Shrinkable; a gate sets it to 2.
@@ -160,7 +161,6 @@ struct NodeConfig {
     // implicit slack). Default 2; cfg-tunable. 1 = bare airtime (no slack), 0 treated as 1.
     uint8_t  gw_herd_slack             = 2;
     uint16_t originator_max_per_window = 6;      // R4.4 anti-spam: apparent_origination drop threshold (T-class)
-    uint16_t originator_self_cap_per_window = 20; // Inc 4 self-cap: max OWN originations/window before defer (calibrated > s18 heaviest 7; SEPARATE from the above so tests setting that low don't false-defer)
     uint32_t beacon_silence_jitter_ms  = 10000;  // R4.3 adaptive-throttle deferred-TX spread (dv:921)
     // R4.5 listen-before-talk. lbt_enabled default true (Lua dv:8625). The two delays default to 0 = "derive
     // in on_init" (lbt_backoff_ms = max(1, retry_jitter_ms/2); flood_lbt_max_defer_ms = airtime(beacon_max_bytes)).
@@ -291,6 +291,8 @@ struct PendingRx {                   // the receiver state awaiting DATA (one pe
     uint8_t  from = 0, dst = 0, ctr_lo = 0, chosen_data_sf = 0, payload_len = 0;
     uint64_t set_at_ms = 0;
     uint64_t expiry_ms = 0;          // absolute DATA-wait expiry (for the BUSY_RX NACK busy_for calc)
+    bool     claimed_e2e_ack = false;// the RTS carried RTS_FLAG_E2E_ACK (backstop DROP exempted). Verified at DATA-time:
+                                     // if the DATA is NOT a DATA_TYPE_E2E_ACK the sender lied -> flag it (e2e_ack_spoof).
 };
 struct PostAck {                     // deferred deliver/forward after the ACK airtime
     bool     pending = false;
@@ -427,9 +429,6 @@ public:
     void       track_originator_observation(uint8_t sender, uint8_t kind, uint8_t ctr_lo, uint32_t air);
     void       compute_originator_metric(uint8_t sender, int& apparent, uint32_t& total_air,
                                          uint8_t& rts, uint8_t& cts) const;
-    // Inc 4 self-cap: our OWN origination sliding-window ledger (DM; + channel when R5 lands). Public for tests.
-    void       self_originate_observe();                          // record one own origination (prune + append)
-    uint8_t    self_originate_count(uint64_t* oldest_in_window = nullptr) const;  // count in window; opt. oldest
 
     // ---- device-console diagnostics: const LIVE reads consumed by fw_main's routes/cfg/status seam.
     uint8_t           node_id()        const { return _node_id; }
@@ -787,8 +786,6 @@ public:
         uint64_t last_flood_ms = 0;   // Slice 2: per-origin last admitted flood — the channel_min_interval_ms burst floor
     };
 private:
-    static_assert(protocol::cap_channel_origin_events == protocol::channel_origin_max_per_window,
-                  "antispam-v2 Slice 0: the re-dimension MUST stay inert (equal size) until channel_origin_max_per_window is removed in Slice 3");
     // Channel FLOOD in-progress state (2026-06-08 redesign). One slot per concurrent flood mid-backoff;
     // slot i owns rebroadcast timer kFloodRebcastTimerId+i. active while awaiting_data (overhear) OR while
     // its rebroadcast timer is armed; freed on fire / coverage-cancel / no-unmarked / anti-spam drop.
@@ -882,6 +879,7 @@ private:
     // ---- Peer-liveness internals (routing-liveness port) -------------------
     struct PeerLiveness;                                              // fwd decl (full def below, near the LayerRuntime member structs)
     PeerLiveness* peer_liveness_slot(uint8_t node_id, bool create);   // find (or LRU-create) the per-node slot; nullptr if absent + !create
+    bool          e2e_ack_spoofer_flagged(uint8_t src);               // anti-spoof: has `src` been caught faking RTS_FLAG_E2E_ACK within the penalty window? (its exemption is then revoked). Non-const: peer_liveness_slot is non-const.
     void          mark_peer_suspect(uint8_t node_id, uint8_t level, const char* source, uint8_t remote_src = 0);   // set the tier expiry + resort (§P4: remote_src!=0 => gossip-learned: local_only resort + NO advertise-table write; remote_src is also echoed in the event)
     size_t        build_suspect_ext(uint8_t* out, size_t cap);    // §P4: locally-observed suspect/dead peers -> a type-1 or type-2 BCN ext-TLV; 0 = none (dv:1373 build_suspect_nodes_ext)
     void          apply_suspect_gossip(const SuspectEntry* e, uint8_t n, uint8_t bcn_src);   // §P4: a received suspect-TLV -> mark_peer_suspect(remote); skip self + the gossiper (dv:9627)
@@ -1077,7 +1075,8 @@ private:
     // the *_until_ms routing fields but NOT these -> a node never re-gossips a suspicion it heard (anti-storm, dv:1388).
     struct PeerLiveness { uint8_t node_id; uint16_t rts_timeouts; uint64_t first_timeout_ms;
                           uint64_t suspect_until_ms; uint64_t silent_until_ms; uint64_t dead_until_ms; uint64_t dest_seen_ms;
-                          uint64_t suspect_advertise_until_ms; uint64_t dead_advertise_until_ms; };
+                          uint64_t suspect_advertise_until_ms; uint64_t dead_advertise_until_ms;
+                          uint64_t e2e_ack_spoof_until_ms = 0; };   // anti-spoof: while now < this, the peer's RTS_FLAG_E2E_ACK is IGNORED (backstop re-applies)
     // send-by-hash DMs parked awaiting a hash-bind resolution (D); drained by on_hash_bind_response, aged on the timer.
     // is_redirect=true => an L2c misdelivered DM held for FORWARD (not re-send): `body`=the full inner (incl.
     // DST_HASH), and origin/ctr/ctr_lo are preserved so the resolution forwards it identity-intact. The redirect
@@ -1248,8 +1247,7 @@ private:
 
     uint64_t _ack_warn_until = 0;   // DM Inc 3: park new DM originations until this ms (set by a warn'd ACK)
     uint64_t _last_channel_origin_ms = 0;   // Slice 2: self side of channel_min_interval_ms (own channel posts)
-    uint64_t _own_orig_events[protocol::cap_originator_events] = {};  // Inc 4 self-cap: own-origination timestamps (in-window)
-    uint8_t  _own_orig_count = 0;
+    uint64_t _last_dm_origin_ms = 0;   // Slice 3: own-DM burst floor (dm_min_interval_ms); relays/floods/e2e-ack/rcmd exempt
     // NACK BUSY_RX wait-same-hop: the captured ctr_lo the kNackWaitTimerId re-RTSes for.
     uint8_t                      _nack_wait_ctr_lo = 0;
     bool                         _nack_wait_pending = false;

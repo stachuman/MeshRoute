@@ -383,26 +383,26 @@ void Node::become_free() {
         (void)_hal.after(static_cast<uint32_t>(soonest - now), kQueueWakeupTimerId);
         return;
     }
-    // Inc 4 self-cap (enforcing): cap our OWN DM originations per window. Checked here at transmit time —
-    // become_free serializes sends, so the count never exceeds the cap (no enqueue-race overshoot). Exempt:
-    // forwards (is_forward — we stay a good relay) and channel broadcasts (M_BROADCAST, when R5 lands —
-    // governed by the per-origin channel COUNT plane). Defer-in-place (bump next_attempt_ms) until the
-    // oldest origination ages out, then re-pick; the receiver-side airtime backstop is the hard floor.
-    if (_active->_tx_queue[pick].origin == _node_id && !_active->_tx_queue[pick].is_forward
-        && !_active->_tx_queue[pick].is_channel_m) {
-        uint64_t oldest = now;
-        const uint8_t own = self_originate_count(&oldest);
-        if (own >= _cfg.originator_self_cap_per_window) {
-            uint64_t until = oldest + protocol::originator_window_ms;
-            if (until <= now) until = now + 1;
-            _active->_tx_queue[pick].next_attempt_ms = until;          // defer in place
-            MR_EMIT("originator_self_defer", EF_I("origin", _active->_tx_queue[pick].origin), EF_I("dst", _active->_tx_queue[pick].dst),
-                    EF_I("ctr", _active->_tx_queue[pick].ctr), EF_I("own_count", own),
-                    EF_I("cap", _cfg.originator_self_cap_per_window), EF_I("until_ms", until));
-            become_free();                                    // re-pick (skips the now-deferred item)
+    // Slice 3 DM burst floor (MF9): space our OWN DM originations >= dm_min_interval_ms. Living inside the
+    // own-origin guard auto-exempts forwards (is_forward) + channel floods (is_channel_m); e2e-ack / rcmd
+    // DATA are exempt by TYPE so a gateway's cross-layer ack-confirms never self-throttle. The flat per-window
+    // self-cap (Inc 4) was removed here — the duty plane governs own-origination volume; this is just a UX floor.
+    // NOTE: we only CHECK here (defer-in-place); the _last_dm_origin_ms STAMP is set in issue_send at the point
+    // the DM actually transmits, so a picked-but-deferred DM (no route yet) never falsely arms the floor.
+    {
+        TxItem& pt = _active->_tx_queue[pick];
+        const bool exempt_type = (pt.type == DATA_TYPE_E2E_ACK) || (pt.type == DATA_TYPE_REMOTE_CMD)
+                              || (pt.type == DATA_TYPE_REMOTE_RESP);
+        if (pt.origin == _node_id && !pt.is_forward && !pt.is_channel_m && !exempt_type
+            && _last_dm_origin_ms != 0 && now - _last_dm_origin_ms < protocol::dm_min_interval_ms) {
+            const uint64_t until = _last_dm_origin_ms + protocol::dm_min_interval_ms;
+            pt.next_attempt_ms = until;                         // defer in place
+            const uint32_t next_ms = static_cast<uint32_t>(until - now);
+            MR_EMIT("send_blocked", EF_S("kind", "dm"), EF_S("reason", "min_interval"),
+                    EF_I("next_ms", next_ms), EF_I("dst", pt.dst), EF_I("ctr", pt.ctr));
+            become_free();                                      // re-pick (skips the now-deferred item)
             return;
         }
-        self_originate_observe();                             // admitted -> record
     }
     TxItem item = _active->_tx_queue[pick];
     for (uint8_t i = pick + 1; i < _active->_tx_queue_n; ++i) _active->_tx_queue[i - 1] = _active->_tx_queue[i];
@@ -561,6 +561,15 @@ void Node::issue_send(const TxItem& item) {
     pt.flight_gen = ++_flight_gen;                       // #A redo: a NEW flight identity (cascade_to_alt keeps it; a requeue re-installs here -> new gen)
     _active->_pending_tx = pt;
     if (item.is_channel_m) { issue_m_broadcast(); return; }   // channel gossip (pull-response): fire-and-forget M-broadcast
+    // Slice 3 DM burst floor (MF9): stamp _last_dm_origin_ms only when our OWN DM actually commits to a flight
+    // (route resolved, RTS about to fly) — NOT at become_free pick-time, so a picked-but-deferred (no-route) DM
+    // doesn't falsely arm the floor. Forwards / channel floods / e2e-ack / rcmd are exempt (never throttled).
+    {
+        const bool exempt_type = (item.type == DATA_TYPE_E2E_ACK) || (item.type == DATA_TYPE_REMOTE_CMD)
+                              || (item.type == DATA_TYPE_REMOTE_RESP);
+        if (item.origin == _node_id && !item.is_forward && !item.is_channel_m && !exempt_type)
+            _last_dm_origin_ms = _hal.now();
+    }
     tx_rts_retry();                                      // packs+emits the RTS + start_rts_timeout
 }
 
@@ -573,6 +582,9 @@ void Node::tx_rts_retry() {
     // DM RTS; the M-broadcast RTS is tx_m_broadcast_rts. Slice 4c.2: a gateway's cross-layer re-inject sets RTS_FLAG_RELAY
     // so the receiver exempts it from the originator anti-spam (node_mac_rx :40/:199) — G is relaying, not a 1st-hop origination.
     rin.dst = pt.dst; rin.sf_index = 3 /*ANY*/; rin.rts_flags = pt.is_gw_relay ? RTS_FLAG_RELAY : 0;
+    // e2e-ack backstop exemption (2026-07-02): mark the RTS so the 1st-hop backstop skips its DROP for this ack (an ack
+    // must never be throttled — a throttled ack -> re-send -> more traffic). Verified at DATA-time (anti-spoof). Duty still binds.
+    if (pt.type == DATA_TYPE_E2E_ACK) rin.rts_flags |= RTS_FLAG_E2E_ACK;
     rin.payload_len = static_cast<uint8_t>(pt.inner_len + data_mac_len(pt.flags)); rin.m_payload_id_lo16 = 0;  // +8 under CRYPTED (nonce-seed)
     uint8_t buf[9];
     const size_t l = pack_rts(rin, std::span<uint8_t>(buf, sizeof(buf)));

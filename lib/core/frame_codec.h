@@ -195,6 +195,7 @@ std::optional<ack_out> parse_ack(std::span<const uint8_t> frame);
 //   byte 5 : sf_index(7..6) | rts_flags(5..2) | rsv(1..0)
 //            READING A (§10.3 wording is ambiguous; we pin flags to bits 5..2):
 //            within byte 5, M_BROADCAST -> bit 2 (0x04), RELAY -> bit 3 (0x08).
+//            rts_flags nibble values: 0x01=M_BROADCAST, 0x02=RELAY, 0x04=FLOOD, 0x08=E2E_ACK.
 //   byte 6 : payload_len                                   [wraps mod-256 via uint8_t]
 //   bytes 7-8 : id_lo16 (BE)  — present iff (rts_flags & RTS_FLAG_M_BROADCAST) without FLOOD
 // sf_index: 0..2 = singleton into allowed_data_sfs; 3 = ANY (receiver picks by SNR).
@@ -210,6 +211,7 @@ std::optional<ack_out> parse_ack(std::span<const uint8_t> frame);
 constexpr uint8_t RTS_FLAG_M_BROADCAST = 0x01;
 constexpr uint8_t RTS_FLAG_RELAY       = 0x02;
 constexpr uint8_t RTS_FLAG_FLOOD       = 0x04;   // channel flood: extended 43-B RTS-M tail (id + bitmap)
+constexpr uint8_t RTS_FLAG_E2E_ACK     = 0x08;   // originator hint: the pending DATA is a DATA_TYPE_E2E_ACK -> the 1st-hop backstop DROP is exempted (still OBSERVED). Anti-spoof: verified at DATA-time; a liar is flagged + the exemption revoked. 4th free bit of the rts_flags nibble; old nodes ignore it (no flag-day).
 struct rts_in {
     uint8_t  leaf_id; uint8_t src; uint8_t next; uint8_t ctr_lo;
     uint8_t  dst; uint8_t sf_index; uint8_t rts_flags; uint8_t payload_len;

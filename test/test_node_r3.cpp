@@ -139,9 +139,9 @@ static void exhaust_rts_same_hop(Node& node) {
 }
 
 static size_t mk_rts(uint8_t src, uint8_t next, uint8_t dst, uint8_t ctr_lo,
-                     uint8_t plen, std::array<uint8_t, 16>& b) {
+                     uint8_t plen, std::array<uint8_t, 16>& b, uint8_t rts_flags = 0) {
     rts_in in{}; in.leaf_id = 0; in.src = src; in.next = next; in.ctr_lo = ctr_lo; in.dst = dst;
-    in.sf_index = 3; in.rts_flags = 0; in.payload_len = plen; in.m_payload_id_lo16 = 0;
+    in.sf_index = 3; in.rts_flags = rts_flags; in.payload_len = plen; in.m_payload_id_lo16 = 0;
     return pack_rts(in, std::span<uint8_t>(b.data(), b.size()));
 }
 static size_t mk_data(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origin,
@@ -422,7 +422,9 @@ TEST_CASE("R3.x concurrency — 2nd send waits behind the in-flight one until be
     std::array<uint8_t, 8> ab{};
     const size_t an = mk_ack(/*to=*/1, /*ctr_lo=*/1, ab);
     CHECK(an > 0);
-    hal._now = 2200; node.on_recv(ab.data(), an, bob);
+    // ACK completes flight #1 -> become_free re-drains. Advance past dm_min_interval_ms from msg-a (now=2000)
+    // so msg-b (an own DM) clears the Slice 3 burst floor and its RTS issues.
+    hal._now = 5200; node.on_recv(ab.data(), an, bob);
     CHECK(hal.count("ack_rx") == 1);
     // ACK completes flight #1 -> become_free re-drains -> msg-b's RTS issues now.
     CHECK(hal.count("rts_tx") == 2);
@@ -1870,6 +1872,110 @@ TEST_CASE("R4.4 Inc 2 — DATA airtime feeds the ledger (kind=data) + warn band 
     CHECK(hal.count("cts_tx") == 1);                        // warn does not block the CTS
 }
 
+// ---- e2e-ack backstop exemption + anti-spoof (2026-07-02) ------------------
+// (c) codec round-trip: RTS_FLAG_E2E_ACK survives pack -> parse (it's the 4th free bit of the rts_flags nibble).
+TEST_CASE("e2e-ack exemption — RTS_FLAG_E2E_ACK survives the RTS codec round-trip") {
+    rts_in in{}; in.leaf_id = 0; in.src = 7; in.next = 3; in.ctr_lo = 5; in.dst = 9;
+    in.sf_index = 3; in.rts_flags = RTS_FLAG_E2E_ACK; in.payload_len = 12; in.m_payload_id_lo16 = 0;
+    std::array<uint8_t, 16> b{};
+    const size_t n = pack_rts(in, std::span<uint8_t>(b.data(), b.size()));
+    CHECK(n == 7);                                                  // plain DM RTS (no M_BROADCAST/FLOOD tail)
+    auto out = parse_rts(std::span<const uint8_t>(b.data(), n));
+    CHECK(out.has_value());
+    const rts_out o = out.value_or(rts_out{});
+    CHECK((o.rts_flags & RTS_FLAG_E2E_ACK) != 0);                  // the bit round-trips
+    CHECK((o.rts_flags & RTS_FLAG_RELAY) == 0);                    // and does NOT alias the neighbouring flags
+    CHECK((o.rts_flags & RTS_FLAG_FLOOD) == 0);
+    CHECK((o.rts_flags & RTS_FLAG_M_BROADCAST) == 0);
+    CHECK_FALSE(o.m_broadcast); CHECK_FALSE(o.flood);
+    // Sanity: an RTS with all four flag bits set carries all four (whole-nibble pack/parse).
+    in.rts_flags = static_cast<uint8_t>(RTS_FLAG_M_BROADCAST | RTS_FLAG_RELAY | RTS_FLAG_E2E_ACK);
+    const size_t n2 = pack_rts(in, std::span<uint8_t>(b.data(), b.size()));
+    auto out2 = parse_rts(std::span<const uint8_t>(b.data(), n2));
+    CHECK(out2.has_value());
+    CHECK((out2.value_or(rts_out{}).rts_flags & RTS_FLAG_E2E_ACK) != 0);
+    CHECK((out2.value_or(rts_out{}).rts_flags & RTS_FLAG_RELAY)   != 0);
+}
+
+// (a) EXEMPTION: an over-airtime sender's PLAIN DM RTS is DROPPED by the backstop, but the SAME over-budget
+// sender's RTS with RTS_FLAG_E2E_ACK set is NOT dropped (CTS proceeds) — an ack is never throttled.
+TEST_CASE("e2e-ack exemption — an over-airtime sender's RTS is dropped, but its E2E_ACK RTS is exempt") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
+    cfg.duty_cycle = 0.001; cfg.duty_cycle_window_ms = 10000;   // budget 10ms -> airtime cap floor(0.35*10)=3ms
+    node.on_init(cfg);
+    std::array<uint8_t,16> rb{};
+    RxMeta m9{8.0f,-80.0f,0,static_cast<int8_t>(9)};
+    // drive sender 9 over the airtime cap: one overheard RTS (its own airtime >> 3ms cap)
+    const size_t ov = mk_rts(/*src=*/9,/*next=*/99,/*dst=*/8,/*ctr_lo=*/0,/*plen=*/10, rb);
+    node.on_recv(rb.data(), ov, m9);
+    // a PLAIN DM RTS addressed to us -> DROPPED (backstop fires, no CTS)
+    const size_t plain = mk_rts(/*src=*/9,/*next=*/1,/*dst=*/8,/*ctr_lo=*/1,/*plen=*/10, rb);
+    node.on_recv(rb.data(), plain, m9);
+    CHECK(hal.count("rts_drop_originator_throttle") == 1);
+    CHECK(hal.count("cts_tx") == 0);
+    // the SAME over-budget sender, but the RTS marks RTS_FLAG_E2E_ACK -> NOT dropped, CTS proceeds
+    const size_t ackrts = mk_rts(/*src=*/9,/*next=*/1,/*dst=*/8,/*ctr_lo=*/2,/*plen=*/10, rb, RTS_FLAG_E2E_ACK);
+    node.on_recv(rb.data(), ackrts, m9);
+    CHECK(hal.count("rts_drop_originator_throttle") == 1);   // STILL 1 — the ack RTS was exempt (no new drop)
+    CHECK(hal.count("cts_tx") == 1);                         // CTSed
+}
+
+// (b) ANTI-SPOOF: a marked RTS -> a DATA whose type != DATA_TYPE_E2E_ACK -> e2e_ack_spoof fires + the sender is
+// flagged; a SECOND marked RTS from that sender is then DROPPED (the exemption is revoked while flagged).
+TEST_CASE("e2e-ack anti-spoof — a lied E2E_ACK bit flags the sender and revokes its exemption") {
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
+    cfg.duty_cycle = 0.001; cfg.duty_cycle_window_ms = 10000;   // budget 10ms -> cap 3ms (backstop armed)
+    node.on_init(cfg);
+    std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
+    RxMeta m9{8.0f,-80.0f,0,static_cast<int8_t>(9)};
+    // push sender 9 over the airtime cap so the backstop WOULD drop a plain RTS
+    node.on_recv(rb.data(), mk_rts(/*src=*/9,/*next=*/99,/*dst=*/8,/*ctr_lo=*/0,/*plen=*/10, rb), m9);
+    // a marked E2E_ACK RTS addressed to us -> exempt -> CTS + _pending_rx (claimed_e2e_ack)
+    hal._now = 1000;
+    node.on_recv(rb.data(), mk_rts(/*src=*/9,/*next=*/1,/*dst=*/8,/*ctr_lo=*/5,/*plen=*/10, rb, RTS_FLAG_E2E_ACK), m9);
+    CHECK(hal.count("cts_tx") == 1);
+    // the DATA that follows is a PLAIN DM (type 0, NOT DATA_TYPE_E2E_ACK) -> the sender lied
+    hal._now = 2000;
+    node.on_recv(db.data(), mk_data(/*next=*/1, /*dst=*/1, /*ctr=*/0x0005, /*origin=*/9, "hi", db), m9);
+    CHECK(hal.count("e2e_ack_spoof") == 1);                  // caught + flagged
+    const Ev* sp = hal.last("e2e_ack_spoof");
+    CHECK(sp != nullptr);
+    if (sp) CHECK(sp->from == 9);                            // keyed on the PHYSICAL sender (RTS src), not the sealed origin
+    // a SECOND marked RTS from 9 is now DROPPED — the exemption is revoked while flagged
+    hal._now = 3000;
+    node.on_recv(rb.data(), mk_rts(/*src=*/9,/*next=*/1,/*dst=*/8,/*ctr_lo=*/6,/*plen=*/10, rb, RTS_FLAG_E2E_ACK), m9);
+    CHECK(hal.count("rts_drop_originator_throttle") == 1);   // dropped despite the E2E_ACK bit (spoofer flagged)
+    CHECK(hal.count("cts_tx") == 1);                         // no new CTS
+}
+
+// (d) a GENUINE marked RTS -> a real DATA_TYPE_E2E_ACK -> NO e2e_ack_spoof, the sender is NOT flagged.
+TEST_CASE("e2e-ack anti-spoof — a genuine E2E_ACK does NOT flag the sender") {
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
+    cfg.duty_cycle = 0.001; cfg.duty_cycle_window_ms = 10000;
+    node.on_init(cfg);
+    std::array<uint8_t,16> rb{}; std::array<uint8_t,64> db{};
+    RxMeta m9{8.0f,-80.0f,0,static_cast<int8_t>(9)};
+    node.on_recv(rb.data(), mk_rts(/*src=*/9,/*next=*/99,/*dst=*/8,/*ctr_lo=*/0,/*plen=*/10, rb), m9);   // over cap
+    hal._now = 1000;
+    node.on_recv(rb.data(), mk_rts(/*src=*/9,/*next=*/1,/*dst=*/8,/*ctr_lo=*/5,/*plen=*/10, rb, RTS_FLAG_E2E_ACK), m9);
+    CHECK(hal.count("cts_tx") == 1);
+    // a REAL DATA_TYPE_E2E_ACK follows (inner body = acked ctr, 2 B) -> honest, no flag
+    hal._now = 2000;
+    const uint8_t ack_body[2] = { 0x05, 0x00 };   // acked ctr = 5
+    node.on_recv(db.data(),
+        mk_data_e2e(/*next=*/1, /*dst=*/1, /*ctr=*/0x0005, /*origin=*/9, /*flags=*/0,
+                    ack_body, 2, db, /*type=*/DATA_TYPE_E2E_ACK), m9);   // type!=0 -> pack_data auto-sets DATA_FLAG_APP
+    CHECK(hal.count("e2e_ack_spoof") == 0);                  // honest ack -> never flagged
+    // a SECOND marked RTS from 9 is STILL exempt (not flagged) -> CTS proceeds
+    hal._now = 3000;
+    node.on_recv(rb.data(), mk_rts(/*src=*/9,/*next=*/1,/*dst=*/8,/*ctr_lo=*/6,/*plen=*/10, rb, RTS_FLAG_E2E_ACK), m9);
+    CHECK(hal.count("rts_drop_originator_throttle") == 0);   // never dropped (honest sender stays exempt)
+    CHECK(hal.count("cts_tx") == 2);
+}
+
 TEST_CASE("DM Inc 3 — ACK warn bit round-trips through pack/parse (byte1 rsv nibble, ACK stays 3 B)") {
     uint8_t buf[3];
     // warn=true: fits the byte1 rsv nibble with NO growth; all other fields survive.
@@ -1892,24 +1998,106 @@ TEST_CASE("DM Inc 3 — ACK warn bit round-trips through pack/parse (byte1 rsv n
       CHECK(out.value_or(ack_out{}).warn == false); }
 }
 
-TEST_CASE("R4.4 Inc 4 self-cap — an over-cap own origination is deferred (under-cap proceeds)") {
-    // Over cap: pre-load the own-origination ledger to the cap, then originate once more -> deferred at
-    // become_free (BEFORE issue_send), so no RTS goes out. (Pre-loading avoids driving N full flights.)
-    { TestHal hal; Node node(hal, 1, 0xABCD);
-      NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
-      cfg.originator_self_cap_per_window = 3; node.on_init(cfg);
-      node.self_originate_observe(); node.self_originate_observe(); node.self_originate_observe();  // count = 3 = cap
-      uint64_t oldest; CHECK(node.self_originate_count(&oldest) == 3);
-      send_cmd(node, /*dst=*/8, "hi");
-      CHECK(hal.count("originator_self_defer") == 1);   // over cap -> deferred at the self-cap gate
-      CHECK(hal.count("rts_tx") == 0); }                // not transmitted (deferred before issue_send)
-    // Under cap: 2 < 3 -> NOT deferred; the origination proceeds past the self-cap gate.
-    { TestHal hal; Node node(hal, 1, 0xABCD);
-      NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
-      cfg.originator_self_cap_per_window = 3; node.on_init(cfg);
-      node.self_originate_observe(); node.self_originate_observe();   // count = 2 < cap
-      send_cmd(node, /*dst=*/8, "hi");
-      CHECK(hal.count("originator_self_defer") == 0); }  // under cap -> not deferred
+TEST_CASE("Slice3 — the flat self-cap is removed (no originator_self_defer; own DMs not count-capped)") {
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
+    node.on_init(cfg);
+    // Seed a direct route to bob(2) so an origination reaches issue_send.
+    std::array<uint8_t, 64> bb{};
+    const size_t bn = mk_beacon(/*src=*/2, bb);
+    CHECK(bn > 0);
+    RxMeta bmeta{ 8.0f, -80.0f, 0, static_cast<int8_t>(2) };
+    hal._now = 1000; node.on_recv(bb.data(), bn, bmeta);
+    // Fire many own DMs, each spaced well past any burst floor: none may hit the (deleted) flat count-cap.
+    for (int k = 0; k < 30; ++k) {
+        hal._now = 2000 + static_cast<uint64_t>(k) * 10000;   // 10 s apart (> dm_min_interval)
+        send_cmd(node, /*dst=*/2, "hi");
+        node.on_timer(kQueueWakeupTimerId);                   // let any deferred re-pick drain
+    }
+    CHECK(hal.count("originator_self_defer") == 0);           // the flat self-cap defer no longer exists
+}
+
+// The DM burst floor is CHECKED at become_free (defer-in-place) but only ARMED (_last_dm_origin_ms stamped)
+// when an own DM actually flies (issue_send). So it bites a 2nd own DM only once the queue is idle again
+// (the single-flight gate already holds a 2nd DM behind an in-flight one). Here DM #1 completes its flight,
+// then a 2nd own DM originated < 3 s later is deferred by the floor; one originated >= 3 s later passes.
+static void complete_dm_flight_via2(Node& node, TestHal& hal, uint8_t ctr_lo, uint64_t cts_at, uint64_t ack_at) {
+    RxMeta bob{ 8.0f, -80.0f, 0, static_cast<int8_t>(2) };
+    std::array<uint8_t, 8> cb{};
+    const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/2, /*data_sf=*/12, cb);
+    hal._now = cts_at; node.on_recv(cb.data(), cn, bob);
+    node.on_timer(kCtsToDataGapTimerId);                 // CTS->DATA gap -> DATA tx
+    std::array<uint8_t, 8> ab{};
+    const size_t an = mk_ack(/*to=*/1, ctr_lo, ab);
+    hal._now = ack_at; node.on_recv(ab.data(), an, bob);
+}
+
+TEST_CASE("Slice3 — dm_min_interval: a <3s 2nd own DM defers, a >=3s one passes") {
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    node.on_init(cfg);
+    std::array<uint8_t, 64> bb{};
+    const size_t bn = mk_beacon(/*src=*/2, bb);
+    CHECK(bn > 0);
+    RxMeta bmeta{ 8.0f, -80.0f, 0, static_cast<int8_t>(2) };
+    hal._now = 1000; node.on_recv(bb.data(), bn, bmeta);
+    // DM #1 -> issues immediately (queue idle), stamps _last_dm_origin_ms=5000; complete the flight.
+    hal._now = 5000; send_cmd(node, /*dst=*/2, "a");
+    CHECK(hal.count("rts_tx") == 1);
+    complete_dm_flight_via2(node, hal, /*ctr_lo=*/1, /*cts_at=*/5100, /*ack_at=*/5200);
+    CHECK(hal.count("ack_rx") == 1);                 // flight #1 done -> queue idle
+    // DM #2 only ~800 ms after DM #1's stamp -> picked at become_free, deferred by the 3 s floor.
+    hal._now = 5800; send_cmd(node, /*dst=*/2, "b");
+    CHECK(hal.count("rts_tx") == 1);                 // still 1 -> not issued
+    CHECK(hal.count("send_blocked") >= 1);           // the DM burst floor tripped
+    // Advance past 3 s from DM #1 (>=8000) and re-drain -> DM #2 now issues.
+    hal._now = 8001; node.on_timer(kQueueWakeupTimerId);
+    CHECK(hal.count("rts_tx") == 2);
+}
+
+// MF9: an own DM stamps _last_dm_origin_ms; an own e2e-ack originated < 3 s later must still enqueue AND
+// drain — the DM burst floor is exempt for DATA_TYPE_E2E_ACK so a bridge's cross-layer ack-confirms never
+// self-throttle. send_e2e_ack is private, so we drive it via the real RX path (an E2E_ACK_REQ DATA to us,
+// origin=2 which we have a route to) — this exercises the exemption branch when become_free picks the ack.
+TEST_CASE("Slice3 — own e2e-ack origination is NOT throttled by dm_min_interval") {
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);   // self = alice(1)
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    node.on_init(cfg);
+    // Route to bob(2) so both the DM and the e2e-ack (back to origin 2) have a next hop.
+    std::array<uint8_t, 64> bb{};
+    const size_t bn = mk_beacon(/*src=*/2, bb);
+    CHECK(bn > 0);
+    RxMeta bob{ 8.0f, -80.0f, 0, static_cast<int8_t>(2) };
+    hal._now = 1000; node.on_recv(bb.data(), bn, bob);
+
+    // An own DM to 2 -> issues + stamps _last_dm_origin_ms, then complete the flight (CTS -> DATA -> ACK)
+    // so pending_tx clears and become_free is free to drain the ack next.
+    hal._now = 5000; send_cmd(node, /*dst=*/2, "a");
+    CHECK(hal.count("rts_tx") == 1);
+    std::array<uint8_t, 8> cb{};
+    const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/2, /*data_sf=*/12, cb);
+    hal._now = 5100; node.on_recv(cb.data(), cn, bob);
+    node.on_timer(kCtsToDataGapTimerId);                 // CTS->DATA gap -> DATA tx
+    std::array<uint8_t, 8> ab{};
+    const size_t an = mk_ack(/*to=*/1, /*ctr_lo=*/1, ab);
+    hal._now = 5200; node.on_recv(ab.data(), an, bob);   // ACK -> flight done, pending_tx clears
+    CHECK(hal.count("ack_rx") == 1);
+
+    // Now, only ~300 ms after the DM stamped the floor, receive an E2E_ACK_REQ DATA addressed to us (dst=1,
+    // origin=2) -> the node originates an own e2e-ack back to 2. Exempt by TYPE -> must enqueue AND issue.
+    // The RTS/CTS handshake precedes the DATA (src=2 -> us), matching the E2E-ACK delivery path.
+    std::array<uint8_t, 16> rb{};
+    const size_t rn = mk_rts(/*src=*/2, /*next=*/1, /*dst=*/1, /*ctr_lo=*/7, /*plen=*/15, rb);
+    hal._now = 5500; node.on_recv(rb.data(), rn, bob);
+    std::array<uint8_t, 64> db{};
+    const uint8_t body[2] = { 'h', 'i' };
+    const size_t dn = mk_data_e2e(/*next=*/1, /*dst=*/1, /*ctr=*/0x0007, /*origin=*/2,
+                                  DATA_FLAG_E2E_ACK_REQ, body, 2, db);
+    hal._now = 5600; node.on_recv(db.data(), dn, bob);
+    node.on_timer(kPostAckTimerId);                      // deliver -> originate the E2E ack
+    CHECK(hal.count("e2e_ack_tx") == 1);                 // the ack was enqueued despite < dm_min_interval_ms
+    CHECK(hal.count("send_blocked") == 0);               // NOT throttled -> the DataType exemption held
+    CHECK(hal.count("rts_tx") == 2);                     // and its RTS actually issued (not deferred in place)
 }
 
 // ---- R4.3 — adaptive beacon throttle + silence-jitter (THE determinism golden) ----

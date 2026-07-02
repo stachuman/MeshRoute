@@ -152,9 +152,9 @@ TEST_CASE("overheard-reserve-yield: shipped OFF after the twin A/B refuted it (s
 TEST_CASE("Anti-spam v2 duty-channel-cap constants (Slice 0 — inert)") {
     CHECK(P::channel_min_interval_ms == 10000);   // 10 s per-origin channel spacing
     CHECK(P::dm_min_interval_ms      == 3000);     // 3 s self DM spacing
-    // MF7: the ledger array bound that REPLACES channel_origin_max_per_window. Same value (20) for now -> inert.
+    // MF7: the ledger array bound. Slice 3 removed the flat channel_origin_max_per_window cap; this const carries
+    // the ledger sizing forward (still 20).
     CHECK(P::cap_channel_origin_events == 20);
-    CHECK(P::cap_channel_origin_events == P::channel_origin_max_per_window);
 }
 
 TEST_CASE("antispam v2 — channel_cap_origin support constants (Slice 1)") {

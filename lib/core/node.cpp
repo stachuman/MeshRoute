@@ -315,7 +315,7 @@ void Node::clear_learned_state() {
     // node-global learned/pending tables beyond clear_routing_state
     for (uint8_t i = 0; i < protocol::cap_gateway_handoffs; ++i) _xl_handoffs[i].valid = false;
     _parked_sends_n = 0; _l2c_redirect_n = 0; _mediated_recent_n = 0;
-    _ack_warn_until = 0; _own_orig_count = 0;
+    _ack_warn_until = 0; _last_dm_origin_ms = 0;
     _nack_wait_pending = false; _nack_wait_ctr_lo = 0;
     // KEEP: _cfg, _node_id, _key_hash32, _x_secret/_ed_pub/_crypto_ready, _joined, _claim_epoch, channel_ctr (NV).
     //       The push ring is the app-notification channel (not learned topology) -> left intact.

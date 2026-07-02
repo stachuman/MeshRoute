@@ -503,6 +503,15 @@ Node::PeerLiveness* Node::peer_liveness_slot(uint8_t node_id, bool create) {
     return &L._peer_liveness[best];
 }
 
+// Anti-spoof for the e2e-ack backstop exemption: a peer caught faking RTS_FLAG_E2E_ACK (its DATA was NOT a
+// DATA_TYPE_E2E_ACK, verified at DATA-time in handle_data) has its e2e_ack_spoof_until_ms set = now + penalty.
+// While that window holds, its RTS_FLAG_E2E_ACK is IGNORED (the backstop DROP re-applies). One free pass, then revoked.
+// create=false: a peer never yet seen (no slot) is by definition not flagged.
+bool Node::e2e_ack_spoofer_flagged(uint8_t src) {
+    PeerLiveness* s = peer_liveness_slot(src, /*create=*/false);
+    return s && s->e2e_ack_spoof_until_ms > _hal.now();
+}
+
 uint8_t Node::peer_suspect_level(uint8_t node_id) {
     if (node_id == 0 || node_id == _node_id) return 0;
     PeerLiveness* s = peer_liveness_slot(node_id, /*create=*/false);
