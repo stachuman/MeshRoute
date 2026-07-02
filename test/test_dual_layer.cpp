@@ -255,6 +255,11 @@ struct DualLayerTestAccess {
         pr.set_at_ms = n._hal.now(); pr.expiry_ms = n._hal.now() + 100000;
         n._active->_pending_rx = pr;
     }
+    // Slice 4 gateway-exemption verification (test infra only): originate an OWN e2e-ack + peek the last-enqueued item.
+    static void           send_ack(Node& n, uint8_t to, uint16_t ctr) { n.send_e2e_ack(to, ctr); }   // an OWN e2e-ack origination (DATA_TYPE_E2E_ACK)
+    static const TxItem*  tx_back(Node& n, uint8_t leaf) {                                            // the last-enqueued item on a leaf (nullptr if empty)
+        uint8_t k = n._layers[leaf]._tx_queue_n; return k ? &n._layers[leaf]._tx_queue[k - 1] : nullptr;
+    }
 };
 }  // namespace meshroute
 
@@ -1673,4 +1678,103 @@ TEST_CASE("gw route-pull: a gateway-relay no-route leg PULLS + DEFERS (not drop)
     DualLayerTestAccess::issue(node, fwd);
     CHECK(DualLayerTestAccess::last_req_sync_ms(node) == before);            // NO pull (unchanged)
     CHECK(DualLayerTestAccess::deferred_count(node) == 1);                   // still only the gw-relay one -> the forwarder dropped
+}
+
+// ---- SLICE 4: gateway anti-spam-exemption VERIFICATION (no production change) -------------------------------
+// Invariant-pinning tests for the design's "Gateway cross-layer relays — EXEMPT" (MF5/MF6/MF9): a dual-layer
+// gateway (n_layers==2) is already OUTSIDE every anti-spam gate Slices 2/3 added. If any of these go RED, a
+// Slice-2/3 gate regressed and now bites the bridge — report it as a Slice-2/3 bug, do NOT relax the test.
+
+// Task 1 — the gateway channel plane admits NOTHING: channel_origin_admit early-returns false out-of-plane
+// (node_channel.cpp:79, n_layers==2) BEFORE any channel_cap_origin() / 10 s-floor math. So the channel cap can
+// never be reached to bite a bridged channel flood (MF5).
+TEST_CASE("gateway exemption: channel_origin_admit early-returns false out-of-plane (n_layers==2) — cap_origin never runs on a bridge") {
+    StubHal hal; Node node(hal, /*id=*/1, /*key=*/0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(/*layer_id*/ 1, /*sf*/ 8);
+    cfg.layers[1] = good_layer(/*layer_id*/ 2, /*sf*/ 9);
+    CHECK(node.on_init(cfg));                                    // valid gateway inits (-fno-exceptions => CHECK only)
+
+    // Distinct origins, first-ever ids, low count: on a NON-gateway these would ADMIT (cf. the single-layer
+    // reference in the Principle-11 case above); here every one is dropped purely by the n_layers==2 guard.
+    for (uint8_t origin = 20; origin < 30; ++origin)
+        CHECK_FALSE(DualLayerTestAccess::origin_admit(node, origin, /*msg_id=*/0xAA000000u | origin));
+    // Even the gateway's OWN node_id as origin is refused out-of-plane (the self-bypass at :80 is never reached).
+    CHECK_FALSE(DualLayerTestAccess::origin_admit(node, /*origin=*/1, /*msg_id=*/0x01000001u));
+}
+
+// Task 2 — a BRIDGED DM carries is_forward=true, so it can never enter the Slice-3 dm_min_interval branch
+// (node_mac.cpp:396, which is gated on origin==_node_id && !is_forward && !is_channel_m). NOTE (API drift vs the
+// plan): bridge_from does NOT land a forward directly on a leaf tx_queue — bridge_cross_layer buffers an XlHandoff;
+// the is_forward=true/is_gw_relay=true TxItem is only created by drain_xl_handoffs_for_leaf on the ACTIVATED target
+// leaf with the recipient bound (see node_mac_rx.cpp:823-863 + the "re-injects a cross-layer DM" case above). We
+// follow that real two-step path; the invariant under test (a bridged leg is is_forward, thus DM-floor-exempt) holds.
+TEST_CASE("gateway exemption: a bridged DM (is_forward) skips dm_min_interval — the self-throttle lives inside !is_forward") {
+    StubHal hal; hal._now = 10000;
+    Node node(hal, /*id=*/1, /*key=*/0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(/*layer_id*/ 1, /*sf*/ 8); cfg.layers[0].node_id = 5;
+    cfg.layers[1] = good_layer(/*layer_id*/ 2, /*sf*/ 9); cfg.layers[1].node_id = 12;
+    CHECK(node.on_init(cfg));
+    // Two distinct recipients bound on the FAR leaf (leaf 1) so both cross-layer resolves succeed.
+    DualLayerTestAccess::bind_on_leaf(node, /*leaf*/ 1, /*node*/ 20, /*key*/ 0x9990u);
+    DualLayerTestAccess::bind_on_leaf(node, /*leaf*/ 1, /*node*/ 21, /*key*/ 0x9991u);
+
+    // Bridge two cross-layer DM legs back-to-back at the SAME timestamp (0 ms apart). Each -> one XlHandoff.
+    const uint8_t ids[2] = { 1, 2 }; const uint8_t body[2] = { 'h', 'i' };
+    uint8_t innerA[64], innerB[64];
+    const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH);
+    const size_t ilA = pack_unicast_inner(std::span<uint8_t>(innerA, sizeof innerA), flags, 0x9990u, ids, 2, 1, /*origin*/ 40, 0, body, 2, 0, 0);
+    const size_t ilB = pack_unicast_inner(std::span<uint8_t>(innerB, sizeof innerB), flags, 0x9991u, ids, 2, 1, /*origin*/ 41, 0, body, 2, 0, 0);
+    CHECK(ilA > 0); CHECK(ilB > 0);
+    DualLayerTestAccess::bridge_from(node, /*origin=*/40, /*dst=*/5, /*ctr=*/0x11, flags, innerA, static_cast<uint8_t>(ilA));
+    DualLayerTestAccess::bridge_from(node, /*origin=*/41, /*dst=*/5, /*ctr=*/0x12, flags, innerB, static_cast<uint8_t>(ilB));
+    CHECK(DualLayerTestAccess::handoff_count(node) == 2);        // both buffered as handoffs for the far leaf
+
+    // Activate the far leaf + install routes to both recipients, then drain -> both re-inject as forward legs.
+    DualLayerTestAccess::set_active(node, 1);
+    DualLayerTestAccess::learn_neighbor(node, 20);
+    DualLayerTestAccess::learn_neighbor(node, 21);
+    DualLayerTestAccess::drain(node, 1);
+
+    // Both bridged legs landed on leaf 1's tx_queue (bridge routes to the far layer).
+    uint8_t queued = static_cast<uint8_t>(DualLayerTestAccess::leaf_tx_n(node, 0) + DualLayerTestAccess::leaf_tx_n(node, 1));
+    CHECK(queued >= 2);
+    bool both_forward = true;
+    for (uint8_t leaf = 0; leaf < 2; ++leaf)
+        for (uint8_t i = 0; i < DualLayerTestAccess::leaf_tx_n(node, leaf); ++i)
+            if (!DualLayerTestAccess::leaf_tx_at(node, leaf, i).is_forward) both_forward = false;
+    CHECK(both_forward);                                        // every bridged leg carries is_forward=true (skips the DM branch)
+}
+
+// Task 3 — a gateway's OWN e2e-ack (DATA_TYPE_E2E_ACK) DOES enter the own-origin DM branch (origin==self,
+// !is_forward, !is_channel_m) but is exempted by DataType (node_mac.cpp:394-396, MF9), so the 3 s dm_min_interval
+// can't delay a cross-layer delivery confirmation. Fire two acks < dm_min_interval apart: neither must be deferred.
+TEST_CASE("gateway exemption: OWN e2e-ack (DATA_TYPE_E2E_ACK) is dm_min_interval-exempt — bridge acks never self-throttle") {
+    StubHal hal; Node node(hal, /*id=*/1, /*key=*/0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(/*layer_id*/ 1, /*sf*/ 8);
+    cfg.layers[1] = good_layer(/*layer_id*/ 2, /*sf*/ 9);
+    CHECK(node.on_init(cfg));
+    DualLayerTestAccess::learn_neighbor(node, /*node_id=*/7);   // a 1-hop route (on the active leaf 0) so the ack drains
+
+    hal._now = 100000;
+    DualLayerTestAccess::send_ack(node, /*to_origin=*/7, /*acked_ctr=*/0x33);
+    DualLayerTestAccess::send_ack(node, /*to_origin=*/7, /*acked_ctr=*/0x34);      // < dm_min_interval_ms later
+    const TxItem* last = DualLayerTestAccess::tx_back(node, /*leaf=*/0);
+    CHECK(last != nullptr);
+    if (last) {
+        CHECK(last->type == DATA_TYPE_E2E_ACK);                 // typed as an ack (the DataType the exemption keys on)
+        CHECK_FALSE(last->is_forward);                          // an own-origination (would enter the DM branch)
+    }
+    DualLayerTestAccess::pump(node);                            // become_free must NOT defer an ack via dm_min_interval
+    DualLayerTestAccess::pump(node);
+    // If MF9 held, neither ack was deferred by dm_min_interval; if it regressed, an ack lingers with a future
+    // next_attempt_ms. Assert nothing is stuck behind a dm_min_interval defer.
+    bool any_deferred = false;
+    for (uint8_t leaf = 0; leaf < 2; ++leaf)
+        for (uint8_t i = 0; i < DualLayerTestAccess::leaf_tx_n(node, leaf); ++i)
+            if (DualLayerTestAccess::leaf_tx_at(node, leaf, i).type == DATA_TYPE_E2E_ACK &&
+                DualLayerTestAccess::leaf_tx_at(node, leaf, i).next_attempt_ms > hal._now) any_deferred = true;
+    CHECK_FALSE(any_deferred);
 }
