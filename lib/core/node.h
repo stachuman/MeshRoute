@@ -143,6 +143,10 @@ struct NodeConfig {
                                                 // (double, NOT float: floor(0.01*window) must match the Lua's
                                                 //  double exactly — float 0.01f*3.6e6 floors to 35999, not 36000)
     uint32_t duty_cycle_window_ms = 3600000;    // rolling airtime window (1 h)
+    // Anti-spam v2 (2026-06-30): the fraction of the route-table size treated as ACTIVE channel originators, for the
+    // per-origin channel cap's 1/N sharing (N_active = max(1, floor(frac * rt_count()))). A deployment knob, NOT a wire
+    // const. Seed 0.125. NOTE: N_active floors at 1, so this is INERT for rt_count() < 8.
+    float    channel_active_fraction = 0.125f;
     // Gateway noise control: a gateway is REACTIVE-ONLY in steady state (beacons on dirty state / REQ_SYNC only).
     // Its sole unsolicited steady-state announcement is a slow safety-net heartbeat, allowed ONLY when BOTH hold:
     //   (a) current rolling airtime < gw_announce_duty_pct % of the duty budget (headroom), and
@@ -527,6 +531,18 @@ public:
     // limit. Pure accessor — surfaces what duty_over_budget already computes; no state change.
     struct DutyStatus { uint8_t pct; uint32_t avail_ms; bool enabled; };
     DutyStatus        duty_status() const;
+    // Anti-spam v2 (MF1/MF8): the channel-cap duty basis D = duty_cycle * originator_window_ms — a 5-MINUTE budget
+    // (1% -> 3000 ms). Deliberately NOT _duty_cycle_budget_ms (a 1-HOUR budget, 12x too big for the 5-min cap window).
+    // Returns 0 when duty is disabled (duty_cycle <= 0) — the sentinel the legacy-flat-cap fallback (MF2) keys on.
+    uint32_t          channel_duty_budget_ms() const {
+        return (_cfg.duty_cycle > 0.0)
+            ? static_cast<uint32_t>(_cfg.duty_cycle * protocol::originator_window_ms)
+            : 0u;
+    }
+    // Anti-spam v2 (2026-06-30): the SF/mesh/duty-aware per-origin CHANNEL cap (distinct floods/origin/window). Pure,
+    // const, draw-free. MF2: duty disabled (channel_duty_budget_ms()==0) -> the legacy flat cap. Else MF1/MF3:
+    // T_ch = airtime_routing_ms(43) + airtime_ms(max_data_sf(),...); C = max(1, D/T_ch); shared C/N_active among origins.
+    uint16_t          channel_cap_origin() const;
     bool              key_hash_of_id(uint8_t id, uint32_t& out) const;  // id_bind reverse lookup (AUTHORITATIVE-only); false = unknown/claimed-only (DST_HASH omitted). Public for the send-path test.
     uint8_t           claim_epoch()   const { return _claim_epoch; }
     void              restore_join_state(uint8_t claim_epoch, bool joined) { _claim_epoch = claim_epoch; _joined = joined; }  // boot: reload persisted DAD state (NV)
@@ -763,7 +779,9 @@ private:
         uint8_t  payload[protocol::channel_msg_max_payload_bytes];
     };
     struct ChannelOriginEvent  { uint32_t id; uint64_t t_ms; };
-    struct ChannelOriginLedger { ChannelOriginEvent ev[protocol::channel_origin_max_per_window]; uint8_t n = 0; };
+    struct ChannelOriginLedger { ChannelOriginEvent ev[protocol::cap_channel_origin_events]; uint8_t n = 0; };   // MF7: sized by the new const
+    static_assert(protocol::cap_channel_origin_events == protocol::channel_origin_max_per_window,
+                  "antispam-v2 Slice 0: the re-dimension MUST stay inert (equal size) until channel_origin_max_per_window is removed in Slice 3");
     // Channel FLOOD in-progress state (2026-06-08 redesign). One slot per concurrent flood mid-backoff;
     // slot i owns rebroadcast timer kFloodRebcastTimerId+i. active while awaiting_data (overhear) OR while
     // its rebroadcast timer is armed; freed on fire / coverage-cancel / no-unmarked / anti-spam drop.

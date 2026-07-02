@@ -4099,3 +4099,87 @@ TEST_CASE("D7 — per-peer ctr floor: a fresh peer resumes above the persisted h
     node.restore_channel_ctr(500);                         // the self/channel counter is just one _peer_send_counter entry
     CHECK(node.peer_ctr_high() == 500);                    // ...and it feeds the lease high-water too (channel id-reuse fix subsumed)
 }
+
+// ── Anti-spam v2 duty-channel-cap, SLICE 0 (inert) ───────────────────────────
+TEST_CASE("Slice0 — channel_active_fraction Cfg field default + settable (inert)") {
+    NodeConfig cfg;
+    CHECK(cfg.channel_active_fraction == doctest::Approx(0.125f));   // seed default (deployment knob, not a wire const)
+    cfg.channel_active_fraction = 0.25f;
+    CHECK(cfg.channel_active_fraction == doctest::Approx(0.25f));
+}
+
+TEST_CASE("Slice0 — channel_duty_budget_ms() is the 5-min D (MF1), 0 when duty disabled (MF2)") {
+    {   // duty ENABLED at 1%: D = 0.01 * originator_window_ms(300000) = 3000 ms — the cap basis the limits JSON shows
+        TestHal hal; Node node(hal, /*id=*/1, /*key=*/0x1);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; cfg.duty_cycle = 0.01;
+        node.on_init(cfg);
+        CHECK(node.channel_duty_budget_ms() == 3000u);
+        CHECK(node.channel_duty_budget_ms() != 36000u);    // MF1 guard: NOT the 1-HOUR budget (0.01*3600000)
+    }
+    {   // duty DISABLED (shipped default 0.0) -> D == 0 (the legacy-flat-cap sentinel)
+        TestHal hal; Node node(hal, /*id=*/1, /*key=*/0x1);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+        node.on_init(cfg);
+        CHECK(node.channel_duty_budget_ms() == 0u);
+    }
+    {   // a 10% band scales linearly: 0.10 * 300000 = 30000 ms
+        TestHal hal; Node node(hal, /*id=*/1, /*key=*/0x1);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0; cfg.duty_cycle = 0.10;
+        node.on_init(cfg);
+        CHECK(node.channel_duty_budget_ms() == 30000u);
+    }
+}
+
+TEST_CASE("channel_cap_origin — MF2: duty disabled -> legacy flat cap") {
+    TestHal hal;
+    Node* off = mk_budget_node(hal, /*duty=*/0.0, /*window=*/3600000);   // duty<=0 -> channel_duty_budget_ms()==0
+    CHECK(off->channel_duty_budget_ms() == 0u);
+    CHECK(off->channel_cap_origin() == meshroute::protocol::cap_channel_origin_legacy);   // == 20
+    delete off;
+}
+
+TEST_CASE("channel_cap_origin — MF1/MF3 formula: SF, N, and C>=1 floor") {
+    // routing SF7 / BW250000 / CR5 / preamble 16; duty 1% over the 5-min window => D = 3000 ms.
+    // T_ch(SF) = airtime_routing_ms(43) + airtime_ms(SF,250000,5,16,39); C = max(1, 3000/T_ch).
+    auto mk = [](TestHal& h, int data_sf) {
+        Node* n = new Node(h, /*id=*/1, /*key=*/0xABCD);
+        NodeConfig c; c.routing_sf = 7; c.radio_bw_hz = 250000; c.radio_cr = 5;
+        c.allowed_sf_bitmap = (1u << data_sf);                 // single DATA SF -> max_data_sf()==data_sf
+        c.duty_cycle = 0.01; c.duty_cycle_window_ms = 3600000; // D (5-min) = 0.01*300000 = 3000
+        c.channel_active_fraction = 0.125f;
+        n->on_init(c);
+        return n;
+    };
+    auto inject_n = [](Node& n, int N) {
+        for (int i = 0; i < N; ++i) n.route_inject(static_cast<uint8_t>(20 + i), /*next=*/2, /*hops=*/2, /*score=*/160);
+    };
+    // pinned: SF9, small N (N_active floors at 1) -> cap == C
+    TestHal h9; Node* n9 = mk(h9, 9);
+    CHECK(n9->channel_duty_budget_ms() == 3000u);              // MF1: 5-min D, NOT the 1-h budget
+    inject_n(*n9, 4); CHECK(n9->rt_count() == 4);
+    const uint16_t cap_sf9_smallN = n9->channel_cap_origin();  // == C (N_active=1)
+    delete n9;
+    // N dependence (SF9): cap ∝ 1/N — fresh node per N for an exact ratio
+    TestHal ha; Node* na = mk(ha, 9); inject_n(*na, 40); CHECK(na->rt_count() == 40);
+    const uint16_t cap_sf9_N40 = na->channel_cap_origin(); delete na;       // N_active=floor(0.125*40)=5 -> C/5
+    TestHal hb; Node* nb = mk(hb, 9); inject_n(*nb, 100); CHECK(nb->rt_count() == 100);
+    const uint16_t cap_sf9_N100 = nb->channel_cap_origin(); delete nb;      // N_active=floor(0.125*100)=12 -> C/12
+    CHECK(cap_sf9_N100 <= cap_sf9_N40);                                     // more originators -> smaller share
+    CHECK(cap_sf9_N100 >= 1);                                              // clamp floor
+    // SF dependence: higher SF -> larger T_ch -> lower cap (same small N)
+    TestHal h7; Node* n7 = mk(h7, 7); inject_n(*n7, 4); const uint16_t cap_sf7 = n7->channel_cap_origin(); delete n7;
+    TestHal h12; Node* n12 = mk(h12, 12); inject_n(*n12, 4); const uint16_t cap_sf12 = n12->channel_cap_origin(); delete n12;
+    // RELATIONAL invariants (robust to the exact airtime): SF7 > SF9 > SF12 caps; N40 < smallN
+    CHECK(cap_sf7 > cap_sf9_smallN);
+    CHECK(cap_sf9_smallN > cap_sf12);
+    CHECK(cap_sf9_N40 < cap_sf9_smallN);
+    CHECK(cap_sf9_N40 >= 1);                                   // clamp floor
+    // C>=1 floor: tiny D (duty 0.0001 -> D=30 << T_ch) must NOT invert the clamp
+    TestHal ht; Node* nt = new Node(ht, 1, 0xABCD);
+    NodeConfig ct; ct.routing_sf = 7; ct.radio_bw_hz = 250000; ct.radio_cr = 5;
+    ct.allowed_sf_bitmap = (1u << 9); ct.duty_cycle = 0.0001; ct.duty_cycle_window_ms = 3600000;
+    ct.channel_active_fraction = 0.125f; nt->on_init(ct);
+    CHECK(nt->channel_duty_budget_ms() == 30u);               // 0.0001*300000
+    CHECK(nt->channel_cap_origin() == 1);                     // D/T_ch=0 -> C floored to 1 -> cap 1 (no inversion)
+    delete nt;
+}

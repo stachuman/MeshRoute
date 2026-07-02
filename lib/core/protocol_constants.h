@@ -237,6 +237,18 @@ inline constexpr uint16_t cap_channel_buffer            = MR_CAP_CHANNEL_BUFFER;
 inline constexpr uint16_t channel_msg_max_payload_bytes = 200;    // dv:989
 inline constexpr uint32_t channel_origin_window_ms      = 300000; // per-origin anti-spam window, 5 min (dv:997)
 inline constexpr uint8_t  channel_origin_max_per_window = 20;     // distinct msgs/origin/window before drop (dv:998)
+// ---- Anti-spam v2 (2026-06-30 duty-channel-cap) --------------------------------
+// Per-origin channel burst floor (receiver+self enforced) and self DM burst floor. Seeds from the design spec.
+inline constexpr uint32_t channel_min_interval_ms = 10000;   // 10 s minimum spacing between an origin's floods
+inline constexpr uint32_t dm_min_interval_ms      = 3000;    // 3 s minimum spacing between own DM originations
+// MF7: array bound for ChannelOriginLedger.ev[] (replaces channel_origin_max_per_window when that is removed, Slice 3).
+inline constexpr uint8_t  cap_channel_origin_events = 20;    // == channel_origin_max_per_window for now (inert re-dimension)
+// MF2: the legacy flat per-origin channel cap. channel_cap_origin() returns THIS when the duty plane is disabled
+// (duty_cycle<=0 -> channel_duty_budget_ms()==0), so a default node keeps the old behaviour.
+inline constexpr uint16_t cap_channel_origin_legacy = 20;
+// MF3: the fixed DATA-M frame length feeding T_ch's airtime term = M_FRAME_HDR_LEN(7) + a representative 32-B channel
+// body. A single deterministic length keeps channel_cap_origin() pure/SF-only (not per-message-size).
+inline constexpr uint16_t channel_flood_sample_len = 39;
 inline constexpr uint8_t  channel_dirty_max_per_bcn     = 3;      // dirty ids advertised per BCN digest (dv:1001) [Phase 2]
 inline constexpr uint32_t channel_pull_window_ms        = 60000;  // re-pull dedup window (dv:1009) [Phase 2]
 inline constexpr uint16_t channel_pull_jitter_ms        = 5000;   // pull backoff: rand(0, jitter+1) (dv:1019) [Phase 2]

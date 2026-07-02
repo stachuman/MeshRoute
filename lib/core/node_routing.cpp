@@ -6,6 +6,7 @@
 // aging/TTL eviction + 3-cycle prune. Behaviour mirrors dv_dual_sf.lua. Part of the
 // Node class (declared in node.h); split out of node.cpp for readability.
 #include "node.h"
+#include "airtime.h"   // anti-spam v2: airtime_ms() for the channel_cap_origin() T_ch term
 
 namespace MESHROUTE_NS {
 
@@ -89,6 +90,30 @@ int16_t Node::bidi_penalty_q4(uint8_t next_hop) const {
     return _active->_link_bidi[next_hop] == static_cast<uint8_t>(LinkBidi::one_way)
                ? protocol::bidi_penalty_one_way_q4
                : 0;
+}
+
+// Anti-spam v2 (2026-06-30) — the per-origin CHANNEL cap. Pure/const/draw-free. Spec
+// docs/superpowers/specs/2026-06-30-antispam-duty-channel-cap.md (MF1/MF2/MF3).
+uint16_t Node::channel_cap_origin() const {
+    // MF1: the cap basis is the 5-MINUTE channel-window duty budget D (channel_duty_budget_ms()), NOT the 1-hour
+    // _duty_cycle_budget_ms. MF2: D==0 (duty disabled) -> the legacy flat cap (the duty plane is the volume governor).
+    const uint32_t D = channel_duty_budget_ms();
+    if (D == 0) return protocol::cap_channel_origin_legacy;
+    // MF3: a re-broadcast flood airs the 43-B FLOOD RTS-M (at routing_sf) THEN the DATA-M (at max_data_sf()). Both count.
+    const uint32_t t_rts  = airtime_routing_ms(43);
+    const uint32_t t_data = airtime_ms(max_data_sf(), _cfg.radio_bw_hz, _cfg.radio_cr,
+                                       protocol::preamble_sym, protocol::channel_flood_sample_len);
+    const uint32_t T_ch = t_rts + t_data;
+    if (T_ch == 0) return protocol::cap_channel_origin_legacy;          // defensive: no SF/airtime -> no formula
+    // C = total distinct floods/window the duty plane sustains. C>=1 floor (tiny D / high SF) so the clamp can't invert.
+    const uint32_t C = (D / T_ch > 0) ? D / T_ch : 1u;
+    // Share C fairly among the ACTIVE originators: N_active = max(1, floor(frac * rt_count())); cap = clamp(C/N_active, 1, C).
+    uint32_t N_active = static_cast<uint32_t>(_cfg.channel_active_fraction * static_cast<float>(rt_count()));
+    if (N_active < 1) N_active = 1;
+    uint32_t cap = C / N_active;
+    if (cap < 1u) cap = 1u;
+    if (cap > C)  cap = C;
+    return static_cast<uint16_t>(cap);
 }
 
 int16_t Node::effective_score(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const {

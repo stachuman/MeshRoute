@@ -148,3 +148,16 @@ TEST_CASE("overheard-reserve-yield: shipped OFF after the twin A/B refuted it (s
     CHECK(P::flood_yield_grab_enable == 0);
     CHECK(P::reserve_est_payload_bytes == P::max_payload_bytes_hard_cap / 2);   // ½-max D estimate (LBT backstops under-estimate)
 }
+
+TEST_CASE("Anti-spam v2 duty-channel-cap constants (Slice 0 — inert)") {
+    CHECK(P::channel_min_interval_ms == 10000);   // 10 s per-origin channel spacing
+    CHECK(P::dm_min_interval_ms      == 3000);     // 3 s self DM spacing
+    // MF7: the ledger array bound that REPLACES channel_origin_max_per_window. Same value (20) for now -> inert.
+    CHECK(P::cap_channel_origin_events == 20);
+    CHECK(P::cap_channel_origin_events == P::channel_origin_max_per_window);
+}
+
+TEST_CASE("antispam v2 — channel_cap_origin support constants (Slice 1)") {
+    CHECK(P::cap_channel_origin_legacy == 20);   // MF2: duty-disabled fallback (was channel_origin_max_per_window's 20)
+    CHECK(P::channel_flood_sample_len == 39);     // MF3: DATA-M sample = M_FRAME_HDR_LEN(7) + 32-B body
+}
