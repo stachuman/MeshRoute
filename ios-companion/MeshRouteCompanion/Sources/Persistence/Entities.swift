@@ -9,6 +9,8 @@ import SwiftData
 import MeshRouteWire
 import MeshRouteCore
 
+// LEGACY (D28 / D-b): superseded by `NodeEntity` — a contact is now a NAMED node. Kept in the schema for the
+// one-time migration copy (AppModel.migrateContactsToNodesIfNeeded); no app logic reads it. Drop in a later store migration.
 @Model
 final class ContactEntity {
     @Attribute(.unique) var hashValue32: UInt32
@@ -22,8 +24,46 @@ final class ContactEntity {
     }
 
     var keyHash: KeyHash { KeyHash(hashValue32) }
-    var contact: Contact {
-        Contact(hash: keyHash, name: name, lastKnownID: lastKnownID.map { UInt8(clamping: $0) })
+}
+
+/// The unified Known-Nodes Directory (D28 / Option A): EVERY node the app has heard of, keyed by the stable
+/// `key_hash32`. A **contact** is just a node with a user-given `name` or `favorite`. Heard-only nodes (from a
+/// DM sender, a resolve, a route) live here too — feeding the Mesh tab's map + list. Position/battery/role stay
+/// nil until firmware provides them (the have-now sources fill the rest — see the redesign spec §3.3).
+@Model
+final class NodeEntity {
+    @Attribute(.unique) var hash32: UInt32     // key_hash32 — the directory key
+    var name: String?                          // user-given name ⇒ a "contact"; nil = heard-only
+    var favorite: Bool = false                 // pinned as a contact even without a custom name
+    var lastKnownID: Int?                      // most recent short id (reassignable; hash is the identity)
+    var role: String = "unknown"               // "normal" | "gateway" | "mobile" | "unknown"
+    var lineage: Int?                          // leaf membership (0 = unmanaged; nil = unknown)
+    var leafName: String?
+    var level: Int?
+    var latE7: Int?                            // last-known position (firmware-gated for remotes; degrees × 1e7)
+    var lonE7: Int?
+    var battMv: Int?                           // last-known battery (firmware-gated)
+    var linkScoreQ4: Int?                      // route score (Q4 dB) when reachable
+    var hops: Int?                             // route distance when reachable
+    var verified: Bool = false                 // key PINNED via a QR scan (safety-numbers) vs on-air TOFU
+    var firstSeen: Date
+    var lastSeen: Date                         // any evidence: message, resolve, route, ready, beacon
+    var positionAt: Date?                      // when lat/lon was last set (staleness / TTL)
+
+    init(hash32: UInt32, name: String? = nil, favorite: Bool = false, lastKnownID: Int? = nil,
+         role: String = "unknown", firstSeen: Date = .now, lastSeen: Date = .now) {
+        self.hash32 = hash32; self.name = name; self.favorite = favorite; self.lastKnownID = lastKnownID
+        self.role = role; self.firstSeen = firstSeen; self.lastSeen = lastSeen
+    }
+
+    var keyHash: KeyHash { KeyHash(hash32) }
+    var isContact: Bool { name != nil || favorite }
+    var hasPosition: Bool { latE7 != nil && lonE7 != nil }
+    /// Display name: the given name, else "Node <id>", else the short hash.
+    func displayName() -> String {
+        if let n = name, !n.isEmpty { return n }
+        if let id = lastKnownID { return "Node \(id)" }
+        return "0x" + keyHash.hex8
     }
 }
 

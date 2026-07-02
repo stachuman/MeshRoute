@@ -1030,7 +1030,7 @@ static void dump_help() {
     mrcon.println(F("[help] e2e keys:   peerkey <ed_pub hex64> (install a scanned/QR pubkey = pinned) | reqpubkey <hash> (request a peer's key on-air)"));
     mrcon.println(F("[help] hash/id:    whoami | lookup <hash> | hashof <id> | resolve <hash> [hard]"));
     mrcon.println(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
-    mrcon.println(F("[help] diag:       routes | status | duty | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
+    mrcon.println(F("[help] diag:       routes | status | duty | limits | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
     mrcon.println(F("[help] faults:     version (build/git/board + last reset, no reset) | faults (the flash fault ring) | crashtest <hang|fault|reboot> (needs `debug on`)"));
     mrcon.println(F("[help] fleet:      prep-restart   (clear routes+inbox, KEEP the join, go DORMANT — run fleet-wide then power-cycle for a clean restart; un-halt via power-cycle/reboot)"));
     mrcon.println(F("[help] remote:     rcmd <dst> <query>   (over-the-air diagnostics via a DM: status|faults|version|uptime|cfg|duty|reboot|prep-restart -> the node DMs back `[rcmd <from>] …`)"));
@@ -1056,6 +1056,21 @@ static void ble_sink(const char* s, size_t n) { mrble::tx_line(s, n); }   // ine
 
 namespace { struct PullCtx { JsonSink sink; uint32_t count; }; }
 static char s_inbox_jb[1700];   // shared NDJSON line scratch: pulled inbox records AND live-push lines (loop()) — sequential, single-threaded, never concurrent (241-B body 6x-escaped + envelope)
+
+// `limits` verb (USB): the companion anti-spam/headroom snapshot as one NDJSON line. Composed from limits_snapshot()
+// then serialized via write_limits() into s_inbox_jb (declared just above) — same pattern as the other JSON dumps. A
+// local-only read (no OTA change): NOT in the rcmd remote allow-list. Mirrors the BLE `limits` handler.
+static void dump_limits() {
+    const auto s = g_node.limits_snapshot();
+    meshroute::console::LimitsFields L;
+    L.win_ms = s.win_ms; L.win_left_ms = s.win_left_ms; L.n = s.n; L.ch_sf = s.ch_sf;
+    L.ch_cap = s.ch_cap; L.ch_used = s.ch_used; L.ch_min_ms = s.ch_min_ms;
+    L.ch_next_ms = s.ch_next_ms; L.ch_ceiling = s.ch_ceiling;
+    L.dm_min_ms = s.dm_min_ms; L.dm_next_ms = s.dm_next_ms;
+    L.duty_ms = s.duty_ms; L.duty_used_ms = s.duty_used_ms;
+    const size_t m = meshroute::console::write_limits(s_inbox_jb, sizeof s_inbox_jb, L);
+    if (m) mrcon.write(s_inbox_jb, m);   // JSON line to USB (mirrors the other write_* dumps)
+}
 
 // pull() callback: format ONE record -> JSON -> sink. The body ptr is valid only for this call (the encoder copies it).
 static bool inbox_pull_cb(void* vctx, const meshroute::InboxEntry& e) {
@@ -1313,6 +1328,7 @@ static bool service_debug(const char* line, size_t len) {
     if (len > 6 && !strncmp(line, "route ", 6))     { handle_route_cmd(line + 6); return true; }   // manual route inject/del (testing)
     if (len == 6 && !strncmp(line, "status", 6))   { dump_status(); return true; }
     if (len == 4 && !strncmp(line, "duty", 4))     { dump_duty();   return true; }
+    if (len == 6 && !strncmp(line, "limits", 6))   { dump_limits(); return true; }   // companion anti-spam/headroom snapshot (local-only)
     if (len == 6 && !strncmp(line, "reboot", 6))   { do_reboot();   return true; }
     if ((len == 13 || (len > 13 && line[13] == ' ')) && !strncmp(line, "factory_reset", 13)) { handle_factory_reset(line + 13, len - 13); return true; }
     if (len == 5 && !strncmp(line, "regen", 5))    { do_regen();    return true; }
@@ -1469,6 +1485,16 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     if (len == 4 && !strncmp(line, "duty", 4)) {            // companion polls this for the silent-countdown banner
         const auto ds = g_node.duty_status();
         return write_duty(out, cap, ds.pct, ds.avail_ms, ds.enabled);
+    }
+    if (len == 6 && !strncmp(line, "limits", 6)) {          // companion anti-spam/headroom screen (BLE-only, no OTA change)
+        const auto s = g_node.limits_snapshot();
+        meshroute::console::LimitsFields L;
+        L.win_ms = s.win_ms; L.win_left_ms = s.win_left_ms; L.n = s.n; L.ch_sf = s.ch_sf;
+        L.ch_cap = s.ch_cap; L.ch_used = s.ch_used; L.ch_min_ms = s.ch_min_ms;
+        L.ch_next_ms = s.ch_next_ms; L.ch_ceiling = s.ch_ceiling;
+        L.dm_min_ms = s.dm_min_ms; L.dm_next_ms = s.dm_next_ms;
+        L.duty_ms = s.duty_ms; L.duty_used_ms = s.duty_used_ms;
+        return write_limits(out, cap, L);                  // fits the 256-B `out` (13 u32 fields ~185 B)
     }
     // status/cfg/routes stream via the big s_inbox_jb scratch (NOT the 256-B `out`): an enriched status
     // is ~260 B and a gateway's status/cfg (with the layers[] array) reaches ~680 B — both overflow a

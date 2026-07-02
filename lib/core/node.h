@@ -542,6 +542,14 @@ public:
     // const, draw-free. MF2: duty disabled (channel_duty_budget_ms()==0) -> the legacy flat cap. Else MF1/MF3:
     // T_ch = airtime_routing_ms(43) + airtime_ms(max_data_sf(),...); C = max(1, D/T_ch); shared C/N_active among origins.
     uint16_t          channel_cap_origin() const;
+    // `limits` query snapshot (companion anti-spam/headroom screen). Live-computed on demand: counters +
+    // the channel_capacity_C()/channel_cap_origin() formula (cheap, idempotent, no state change). *_next_ms = the
+    // true "when can I send next" = max(burst-floor remaining, channel window cap-wait, duty recovery).
+    struct LimitsSnapshot {
+        uint32_t win_ms, win_left_ms, n, ch_sf, ch_cap, ch_used,
+                 ch_min_ms, ch_next_ms, ch_ceiling, dm_min_ms, dm_next_ms, duty_ms, duty_used_ms;
+    };
+    LimitsSnapshot    limits_snapshot() const;
     bool              key_hash_of_id(uint8_t id, uint32_t& out) const;  // id_bind reverse lookup (AUTHORITATIVE-only); false = unknown/claimed-only (DST_HASH omitted). Public for the send-path test.
     uint8_t           claim_epoch()   const { return _claim_epoch; }
     void              restore_join_state(uint8_t claim_epoch, bool joined) { _claim_epoch = claim_epoch; _joined = joined; }  // boot: reload persisted DAD state (NV)
@@ -991,6 +999,10 @@ private:
     uint16_t next_ctr(uint8_t dst);                               // per-(self,dst) counter (NOT rand)
     uint8_t  select_data_sf(uint8_t rts_sf_index, int16_t rx_snr_q4) const;  // adaptive DATA SF, Lua :3043+:3027
     uint32_t airtime_routing_ms(uint16_t len) const;             // floor-exact, for timeout sizing
+    // Anti-spam v2 (MF3/MF8): the channel-capacity C = max(1, D/T_ch) with T_ch = RTS-M + DATA-M airtime. THE single
+    // source of C — BOTH channel_cap_origin() (the enforced cap) and limits_snapshot() (the ch_ceiling shown to the
+    // user) call it, so the displayed ceiling can never drift from the enforced math. Returns 0 when duty is disabled.
+    uint32_t channel_capacity_C() const;
     // retry_jitter_ms() is declared in the public section (R3.x golden test).
 
     Hal&     _hal;

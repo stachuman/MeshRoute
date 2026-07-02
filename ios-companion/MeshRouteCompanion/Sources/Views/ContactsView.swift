@@ -8,7 +8,9 @@ import MeshRouteCore
 struct ContactsView: View {
     @Environment(AppModel.self) private var model
     @Environment(\.modelContext) private var context
-    @Query(sort: \ContactEntity.name) private var contacts: [ContactEntity]
+    // Contacts = the NAMED / favorited nodes in the directory (D28 / Option A).
+    @Query(filter: #Predicate<NodeEntity> { $0.name != nil || $0.favorite }, sort: \NodeEntity.name)
+    private var contacts: [NodeEntity]
     @State private var showAdd = false
     @State private var showMyCard = false
     @State private var showScanner = false
@@ -58,18 +60,19 @@ struct ContactsView: View {
     }
 
     private func delete(_ offsets: IndexSet) {
-        for i in offsets { context.delete(contacts[i]) }
+        // "Remove contact" in the unified model = UN-NAME: it leaves Contacts but stays in the Mesh directory.
+        for i in offsets { let n = contacts[i]; n.name = nil; n.favorite = false }
         try? context.save()
     }
 }
 
 struct ContactRow: View {
-    let contact: ContactEntity
+    let contact: NodeEntity
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "person.crop.circle.fill").font(.title2).foregroundStyle(Color.accentColor)
             VStack(alignment: .leading, spacing: 2) {
-                Text(contact.name).font(.headline)
+                Text(contact.displayName()).font(.headline)
                 Text("0x" + contact.keyHash.hex8 + (contact.lastKnownID.map { " · id \($0)" } ?? " · id unknown"))
                     .font(.caption).foregroundStyle(.secondary).monospaced()
             }

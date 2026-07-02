@@ -146,6 +146,23 @@ TEST_CASE("write_duty — pct/avail_ms/enabled query reply") {
     CHECK(std::string(b, n) == "{\"ev\":\"duty\",\"pct\":0,\"avail_ms\":0,\"enabled\":false}\n");
 }
 
+TEST_CASE("write_limits — the companion `limits` query shape/values") {
+    char b[256];
+    meshroute::console::LimitsFields L;
+    L.win_ms = 300000; L.win_left_ms = 142000; L.n = 40; L.ch_sf = 7;
+    L.ch_cap = 8; L.ch_used = 2; L.ch_min_ms = 10000; L.ch_next_ms = 0; L.ch_ceiling = 42;
+    L.dm_min_ms = 3000; L.dm_next_ms = 1200; L.duty_ms = 3000; L.duty_used_ms = 640;
+    size_t n = write_limits(b, sizeof b, L);
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"limits\",\"win_ms\":300000,\"win_left_ms\":142000,\"n\":40,\"ch_sf\":7,"
+      "\"ch_cap\":8,\"ch_used\":2,\"ch_min_ms\":10000,\"ch_next_ms\":0,\"ch_ceiling\":42,"
+      "\"dm_min_ms\":3000,\"dm_next_ms\":1200,\"duty_ms\":3000,\"duty_used_ms\":640}\n");
+    // duty-disabled node: duty_ms == 0 -> still a well-formed line (fields never omitted)
+    L.duty_ms = 0; L.duty_used_ms = 0; L.ch_cap = 20; L.ch_ceiling = 0;
+    n = write_limits(b, sizeof b, L);
+    CHECK(std::string(b, n).find("\"duty_ms\":0,\"duty_used_ms\":0}") != std::string::npos);
+}
+
 TEST_CASE("write_route / write_routes_end / write_cfg — Node+Network screens") {
     char b[400];
     meshroute::console::RouteRow r;

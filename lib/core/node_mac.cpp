@@ -801,6 +801,54 @@ Node::DutyStatus Node::duty_status() const {
     return DutyStatus{pct, avail, true};
 }
 
+// Anti-spam v2 (2026-07-02): the `limits` companion query snapshot. Live-computed, const, no state change — composes
+// the earlier-slice getters (channel_duty_budget_ms/channel_cap_origin/rt_count/max_data_sf/duty_status) + the self-gate
+// state (_channel_buffer own count / _last_channel_origin_ms / _last_dm_origin_ms). ch_ceiling reuses channel_capacity_C()
+// so the shown C is byte-identical to the enforced cap's C (MF8). *_next_ms = max(burst-floor remaining, duty recovery).
+Node::LimitsSnapshot Node::limits_snapshot() const {
+    LimitsSnapshot s{};
+    s.win_ms       = protocol::originator_window_ms;
+    s.n            = rt_count();
+    s.ch_sf        = max_data_sf();
+    s.ch_cap       = channel_cap_origin();
+    s.ch_min_ms    = protocol::channel_min_interval_ms;
+    s.dm_min_ms    = protocol::dm_min_interval_ms;
+    s.duty_ms      = channel_duty_budget_ms();                            // 5-min D basis (0 = duty disabled), MF1
+    s.duty_used_ms = static_cast<uint32_t>(_hal.airtime_used_ms(protocol::originator_window_ms));
+    // C (channel ceiling): the SAME helper channel_cap_origin() uses (0 when duty disabled -> legacy-flat-cap regime).
+    s.ch_ceiling   = channel_capacity_C();
+
+    // window_left: originator_window_ms is a rolling counter (airtime_used_ms), so there is no single reset instant —
+    // report the full window as "left" (the app reads it as the reset horizon; the cap is a sliding count, not a hard reset).
+    s.win_left_ms  = protocol::originator_window_ms;
+
+    const uint64_t now = _hal.now();
+    const DutyStatus ds = duty_status();
+
+    // ch_used = this node's OWN distinct floods currently held — the exact inline loop the do_send_channel self-gate uses.
+    uint16_t used = 0;
+    for (uint16_t i = 0; i < _active->_channel_buffer_n; ++i)
+        if (_active->_channel_buffer[i].origin == _node_id) ++used;
+    s.ch_used = used;
+
+    // ch_next_ms: the 10s channel burst-floor remaining (mirrors the self-gate's _last_channel_origin_ms check),
+    // then let duty recovery dominate when it is larger. On a fresh node both are 0 -> ready now.
+    uint32_t ch_next = 0;
+    if (_last_channel_origin_ms != 0 && now - _last_channel_origin_ms < protocol::channel_min_interval_ms)
+        ch_next = static_cast<uint32_t>(protocol::channel_min_interval_ms - (now - _last_channel_origin_ms));
+    if (ds.avail_ms > ch_next) ch_next = ds.avail_ms;                    // duty recovery dominates when silent
+    s.ch_next_ms = ch_next;
+
+    // dm_next_ms: the 3s DM burst-floor remaining (mirrors the node_mac DM self-throttle's _last_dm_origin_ms check),
+    // then duty recovery. Fresh node -> 0.
+    uint32_t dm_next = 0;
+    if (_last_dm_origin_ms != 0 && now - _last_dm_origin_ms < protocol::dm_min_interval_ms)
+        dm_next = static_cast<uint32_t>(protocol::dm_min_interval_ms - (now - _last_dm_origin_ms));
+    if (ds.avail_ms > dm_next) dm_next = ds.avail_ms;
+    s.dm_next_ms = dm_next;
+    return s;
+}
+
 // check_duty_cycle (Lua dv:3573-3593): true if a `len`-byte TX at `sf` would breach the duty budget; *wait_ms = the
 // earliest moment a fresh TX could fit (oldest in-window entry ages out), floored to 1. Disabled (budget 0) -> false.
 // Pure airtime/timestamp arithmetic — NO rand. Used by tx_with_retry (#2 duty pre-check, retry-eligible frames only).

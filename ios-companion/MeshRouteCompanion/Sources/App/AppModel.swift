@@ -51,6 +51,7 @@ final class AppModel {
 
     init(modelContainer: ModelContainer) {
         self.modelContainer = modelContainer
+        migrateContactsToNodesIfNeeded()   // one-time ContactEntity → NodeEntity copy (D28 / Option A)
     }
 
     static var defaultBackend: Backend {
@@ -194,17 +195,15 @@ final class AppModel {
         try? context.save()
     }
 
-    /// An inbound DM from a hash we don't know auto-creates a placeholder contact ("Node <id>", renameable
-    /// in Contacts) so the thread lists under a name instead of a raw hash; a known hash refreshes the
-    /// contact's lastKnownID (the id↔hash binding is reassignable, the hash is the identity).
-    private func ensureContact(senderHash: UInt32?, origin: Int) {
-        guard let h = senderHash, h != 0 else { return }     // no stable identity → nothing to pin a contact to
-        if let c = contact(for: KeyHash(h)) { c.lastKnownID = origin; return }
-        context.insert(ContactEntity(hashValue32: h, name: "Node \(origin)", lastKnownID: origin))
+    /// An inbound DM / resolve / route from a hash lands the sender in the known-nodes DIRECTORY (heard-only —
+    /// no name, so it is NOT a contact until named). The thread title falls back to "Node <id>" via displayName().
+    private func noteHeardNode(senderHash: UInt32?, origin: Int) {
+        guard let h = senderHash, h != 0 else { return }     // no stable identity → nothing to key on
+        ensureNode(hash: h, origin: origin)
     }
 
     private func insertInboundDM(origin: Int, ctr: Int, senderHash: UInt32?, crypted: Bool = false, body: String) {
-        ensureContact(senderHash: senderHash, origin: origin)
+        noteHeardNode(senderHash: senderHash, origin: origin)
         if dmExists(senderHash: senderHash, origin: origin, ctr: ctr) { return }
         let threadHash = dmThreadHash(senderHash: senderHash, origin: origin)
         let msg = MessageEntity(id: UUID(), thread: .dm(KeyHash(threadHash)),
@@ -231,7 +230,7 @@ final class AppModel {
     /// resolve), else a known id→hash binding, else a pseudo-hash == id staged until a resolve rekeys it.
     private func dmThreadHash(senderHash: UInt32?, origin: Int) -> UInt32 {
         if let h = senderHash, h != 0 { return h }
-        return contactHash(forID: origin) ?? UInt32(UInt8(clamping: origin))
+        return nodeHash(forID: origin) ?? UInt32(UInt8(clamping: origin))
     }
 
     // Dedup against the durable archive: DM by (sender_hash, ctr) | (origin, ctr); channel by channel_msg_id.
@@ -271,7 +270,7 @@ final class AppModel {
         guard m.threadKind == "dm" else { return false }
         if let h = senderHash, h != 0 { return m.threadHash == h }            // cross-layer: the stable key
         if m.threadHash == UInt32(clamping: dst) { return true }              // id-thread (threadHash == the short id)
-        return contact(for: KeyHash(m.threadHash))?.lastKnownID == dst        // hash-thread bound to that id
+        return node(for: KeyHash(m.threadHash))?.lastKnownID == dst          // hash-thread bound to that id
     }
 
     /// A verified key for `hash` just arrived (peer_key_cached) → any failed "no_pubkey" DM to that contact can
@@ -293,8 +292,8 @@ final class AppModel {
 
     private func bindAndRekey(id: Int, hash: KeyHash) {
         let shortID = UInt8(clamping: id)
-        // The resolve gave us the hash → find the contact BY HASH and record its current short id.
-        if let c = contact(for: hash) { c.lastKnownID = id }
+        // The resolve gave us the hash → upsert the directory node + record its current short id.
+        ensureNode(hash: hash.value, origin: id)
         // Fold any messages staged under the pseudo-id thread onto the real hash thread.
         let pseudo = UInt32(shortID)
         guard pseudo != hash.value else { return }
@@ -395,8 +394,8 @@ final class AppModel {
     }
 
     func addContact(name: String, hash: KeyHash) {
-        if let existing = contact(for: hash) { existing.name = name }
-        else { context.insert(ContactEntity(hashValue32: hash.value, name: name)) }
+        if let n = node(for: hash) { n.name = name; n.favorite = true; n.lastSeen = .now }
+        else { context.insert(NodeEntity(hash32: hash.value, name: name, favorite: true)) }
         try? context.save()
     }
 
@@ -469,7 +468,7 @@ final class AppModel {
 
     private func notifyInboundDM(threadHash: UInt32, origin: Int, body: String) {
         guard !isForeground else { return }              // on screen → the thread updates live, no banner
-        let title = contact(for: KeyHash(threadHash))?.name ?? "Node \(origin)"
+        let title = node(for: KeyHash(threadHash))?.name ?? "Node \(origin)"
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
@@ -572,16 +571,45 @@ final class AppModel {
         let d = FetchDescriptor<MessageEntity>(predicate: #Predicate { $0.id == id })
         return try? context.fetch(d).first
     }
-    private func contact(for hash: KeyHash) -> ContactEntity? {
+    // ---- known-nodes directory (D28 / Option A): one NodeEntity per key_hash32; a contact = a named node ----
+    private func node(for hash: KeyHash) -> NodeEntity? {
         let v = hash.value
-        let d = FetchDescriptor<ContactEntity>(predicate: #Predicate { $0.hashValue32 == v })
+        let d = FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.hash32 == v })
         return try? context.fetch(d).first
     }
-    private func contact(forID id: Int) -> ContactEntity? {
-        let d = FetchDescriptor<ContactEntity>(predicate: #Predicate { $0.lastKnownID == id })
+    private func node(forID id: Int) -> NodeEntity? {
+        let d = FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.lastKnownID == id })
         return try? context.fetch(d).first
     }
-    private func contactHash(forID id: Int) -> UInt32? { contact(forID: id)?.hashValue32 }
+    private func nodeHash(forID id: Int) -> UInt32? { node(forID: id)?.hash32 }
+
+    /// Record a HEARD node (a DM sender / resolve / route) in the directory — no name, so it is not a contact
+    /// until the user names or favorites it. Upserts + refreshes the id binding and last-seen.
+    @discardableResult
+    private func ensureNode(hash: UInt32, origin: Int?) -> NodeEntity? {
+        guard hash != 0 else { return nil }
+        if let n = node(for: KeyHash(hash)) {
+            if let o = origin { n.lastKnownID = o }
+            n.lastSeen = .now
+            return n
+        }
+        let n = NodeEntity(hash32: hash, lastKnownID: origin)
+        context.insert(n)
+        return n
+    }
+
+    /// One-time copy of the legacy `ContactEntity` rows into `NodeEntity` (as named contacts). Idempotent
+    /// (guarded by a UserDefaults flag); safe if there are none.
+    private func migrateContactsToNodesIfNeeded() {
+        let flag = "didMigrateContactsToNodes.v1"
+        guard !UserDefaults.standard.bool(forKey: flag) else { return }
+        for c in (try? context.fetch(FetchDescriptor<ContactEntity>())) ?? [] where node(for: c.keyHash) == nil {
+            context.insert(NodeEntity(hash32: c.hashValue32, name: c.name, favorite: true,
+                                      lastKnownID: c.lastKnownID, firstSeen: c.createdAt, lastSeen: c.createdAt))
+        }
+        try? context.save()
+        UserDefaults.standard.set(true, forKey: flag)
+    }
 
     @discardableResult
     private func upsertNodeProfile(_ r: NodeReady) -> NodeProfileEntity {
@@ -633,7 +661,7 @@ final class AppModel {
             activeSync?.advance(with: e)                 // it rides the DM seq-cursor — advance past it
             return
         }
-        if e.kind == .dm { ensureContact(senderHash: e.senderHash, origin: e.origin) }
+        if e.kind == .dm { noteHeardNode(senderHash: e.senderHash, origin: e.origin) }
         if !inboxEntryExists(e) {                        // dedup-on-import by stable identity (no seq/epoch)
             let thread: ThreadKey = e.kind == .channel
                 ? .channel(UInt8(clamping: e.channelID))

@@ -47,6 +47,24 @@ size_t write_ready (char* buf, size_t cap, uint8_t id, uint32_t key, const NodeC
                     uint8_t duty_pct = 0, uint32_t duty_avail_ms = 0);  // duty readout: snapshot so the app shows it on connect (refreshed via `duty`)
 // `duty` query reply (companion polls it for the silent-countdown banner): {"ev":"duty","pct":,"avail_ms":,"enabled":}.
 size_t write_duty  (char* buf, size_t cap, uint8_t pct, uint32_t avail_ms, bool enabled);
+// `limits` query reply (companion anti-spam/headroom screen). All fields are plain u32 — no float
+// on the wire (newlib-nano printf has no %f/%lld). Live-computed by Node::limits_snapshot().
+struct LimitsFields {
+    uint32_t win_ms      = 0;   // originator_window_ms (the 5-min cap window)
+    uint32_t win_left_ms = 0;   // ms until the current window rolls
+    uint32_t n           = 0;   // rt_count() — mesh size the cap divides by
+    uint32_t ch_sf       = 0;   // max_data_sf() — the DATA-M SF T_ch is priced at
+    uint32_t ch_cap      = 0;   // channel_cap_origin() — this origin's per-window channel cap
+    uint32_t ch_used     = 0;   // this node's own distinct floods this window
+    uint32_t ch_min_ms   = 0;   // channel_min_interval_ms burst floor
+    uint32_t ch_next_ms  = 0;   // ms until a channel post is actually allowed (0 = now)
+    uint32_t ch_ceiling  = 0;   // C — total channel capacity (0 when duty disabled)
+    uint32_t dm_min_ms   = 0;   // dm_min_interval_ms burst floor
+    uint32_t dm_next_ms  = 0;   // ms until an own DM is actually allowed (0 = now)
+    uint32_t duty_ms     = 0;   // channel_duty_budget_ms() — the 5-min D basis (0 = duty disabled)
+    uint32_t duty_used_ms = 0;  // airtime used this 5-min window
+};
+size_t write_limits(char* buf, size_t cap, const LimitsFields& L);
 // ---- Node / Network screens over BLE (companion Phase 3 — roadmap Theme D) ----------------------
 // Runtime telemetry not in NodeConfig, passed individually so console_json stays dependency-light.
 // batt_mv < 0 ⇒ no battery reader ⇒ the field is OMITTED (never a wrong/garbage voltage).

@@ -8,7 +8,7 @@ import MeshRouteCore
 struct ThreadView: View {
     @Environment(AppModel.self) private var model
     @Query private var messages: [MessageEntity]
-    @Query private var contacts: [ContactEntity]
+    @Query private var nodes: [NodeEntity]
     @Query private var labels: [ChannelLabelEntity]
     let thread: ThreadKey
     @State private var draft = ""
@@ -65,9 +65,9 @@ struct ThreadView: View {
     }
 
     private var title: String {
-        let byHash = Dictionary(contacts.map { ($0.hashValue32, $0) }, uniquingKeysWith: { a, _ in a })
+        let byHash = Dictionary(nodes.map { ($0.hash32, $0) }, uniquingKeysWith: { a, _ in a })
         let byChannel = Dictionary(labels.map { ($0.channelID, $0.name) }, uniquingKeysWith: { a, _ in a })
-        return threadTitle(thread, contactsByHash: byHash, channelLabels: byChannel)
+        return threadTitle(thread, nodesByHash: byHash, channelLabels: byChannel)
     }
 
     private func send() {

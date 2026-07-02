@@ -957,3 +957,32 @@ TEST_CASE("RE-OFFER: the re-offer timer delay is channel_reoffer_delay_ms + the 
         if (t.first == kChannelReofferTimerId) { CHECK(t.second == protocol::channel_reoffer_delay_ms); found = true; break; }
     CHECK(found);
 }
+
+TEST_CASE("Node::limits_snapshot — live values for a known config") {
+    TestHal hal; Node node(hal, 3, 0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); cfg.duty_cycle = 0.0;   // shipped default -> duty disabled
+    node.on_init(cfg);
+    std::array<uint8_t,64> bb{};
+    const size_t bn = mk_beacon(/*src=*/50, bb); node.on_recv(bb.data(), bn, meta_at(10));  // rt_count() -> 1
+    CHECK(node.rt_count() >= 1);
+    Node::LimitsSnapshot s = node.limits_snapshot();
+    CHECK(s.win_ms == protocol::originator_window_ms);   // 300000
+    CHECK(s.n == node.rt_count());
+    CHECK(s.ch_sf == 12);                                // basic_cfg allowed_sf_bitmap == (1u<<12) -> max_data_sf()==12 (private, pinned by value)
+    CHECK(s.ch_cap == node.channel_cap_origin());
+    CHECK(s.duty_ms == node.channel_duty_budget_ms());   // 0 when duty disabled
+    CHECK(s.duty_ms == 0);
+    CHECK(s.ch_ceiling == 0);                            // C == 0 when duty disabled (legacy-flat-cap regime)
+    CHECK(s.ch_next_ms == 0);                            // fresh node, no prior flood/DM -> ready now
+    CHECK(s.dm_next_ms == 0);
+    CHECK(s.dm_min_ms == protocol::dm_min_interval_ms);
+    CHECK(s.ch_min_ms == protocol::channel_min_interval_ms);
+
+    // duty ENABLED -> duty_ms == the 5-min D (1% * 300000 = 3000), NOT the 1-hour budget (MF1)
+    TestHal hal2; Node n2(hal2, 3, 0x1234ABCDu);
+    NodeConfig c2 = basic_cfg(); c2.duty_cycle = 0.01; n2.on_init(c2);
+    Node::LimitsSnapshot s2 = n2.limits_snapshot();
+    CHECK(s2.duty_ms == 3000);                           // == channel_duty_budget_ms(), 5-min basis
+    CHECK(s2.duty_ms == n2.channel_duty_budget_ms());
+    CHECK(s2.ch_ceiling >= 1);                           // C >= 1 floor when duty enabled
+}

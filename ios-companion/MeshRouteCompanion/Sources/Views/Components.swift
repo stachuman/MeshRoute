@@ -17,11 +17,11 @@ struct ThreadSummary: Identifiable {
 
 /// A human title for a thread: the contact's name, an unresolved "Node N", a raw hash, or the
 /// channel's local label ("Sailing crew") falling back to "Channel N".
-func threadTitle(_ key: ThreadKey, contactsByHash: [UInt32: ContactEntity],
+func threadTitle(_ key: ThreadKey, nodesByHash: [UInt32: NodeEntity],
                  channelLabels: [Int: String] = [:]) -> String {
     switch key {
     case .dm(let h):
-        if let c = contactsByHash[h.value] { return c.name }
+        if let n = nodesByHash[h.value] { return n.displayName() }
         if h.value <= 254 { return "Node \(h.value)" }      // unresolved id-only DM thread
         return "0x" + h.hex8
     case .channel(let c):

@@ -8,7 +8,7 @@ import MeshRouteCore
 struct ThreadsListView: View {
     @Environment(AppModel.self) private var model
     @Query(sort: \MessageEntity.timestamp, order: .reverse) private var messages: [MessageEntity]
-    @Query private var contacts: [ContactEntity]
+    @Query private var nodes: [NodeEntity]
     @Query private var labels: [ChannelLabelEntity]
     @State private var showNewChannel = false
     @State private var renameTarget: UInt8?         // channel id being renamed (drives the alert)
@@ -60,8 +60,8 @@ struct ThreadsListView: View {
         renameTarget = channel
     }
 
-    private var contactsByHash: [UInt32: ContactEntity] {
-        Dictionary(contacts.map { ($0.hashValue32, $0) }, uniquingKeysWith: { a, _ in a })
+    private var nodesByHash: [UInt32: NodeEntity] {
+        Dictionary(nodes.map { ($0.hash32, $0) }, uniquingKeysWith: { a, _ in a })
     }
     private var channelLabels: [Int: String] {
         Dictionary(labels.map { ($0.channelID, $0.name) }, uniquingKeysWith: { a, _ in a })
@@ -74,7 +74,7 @@ struct ThreadsListView: View {
         for m in messages where latest[m.threadKey] == nil {   // messages are reverse-sorted → first = latest
             let key = m.threadKey
             latest[key] = ThreadSummary(key: key,
-                                        title: threadTitle(key, contactsByHash: contactsByHash,
+                                        title: threadTitle(key, nodesByHash: nodesByHash,
                                                            channelLabels: channelLabels),
                                         lastBody: m.body, lastDate: m.timestamp,
                                         outgoing: m.direction == .outgoing,

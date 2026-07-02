@@ -262,6 +262,25 @@ size_t write_duty(char* buf, size_t cap, uint8_t pct, uint32_t avail_ms, bool en
     return j.finish();
 }
 
+size_t write_limits(char* buf, size_t cap, const LimitsFields& L) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"limits\",\"win_ms\":");  j.u32(L.win_ms);
+    j.lit(",\"win_left_ms\":");  j.u32(L.win_left_ms);
+    j.lit(",\"n\":");            j.u32(L.n);
+    j.lit(",\"ch_sf\":");        j.u32(L.ch_sf);
+    j.lit(",\"ch_cap\":");       j.u32(L.ch_cap);
+    j.lit(",\"ch_used\":");      j.u32(L.ch_used);
+    j.lit(",\"ch_min_ms\":");    j.u32(L.ch_min_ms);
+    j.lit(",\"ch_next_ms\":");   j.u32(L.ch_next_ms);
+    j.lit(",\"ch_ceiling\":");   j.u32(L.ch_ceiling);
+    j.lit(",\"dm_min_ms\":");    j.u32(L.dm_min_ms);
+    j.lit(",\"dm_next_ms\":");   j.u32(L.dm_next_ms);
+    j.lit(",\"duty_ms\":");      j.u32(L.duty_ms);
+    j.lit(",\"duty_used_ms\":"); j.u32(L.duty_used_ms);
+    j.ch('}');
+    return j.finish();
+}
+
 // ---- Phase-3 inbox sync: the pulled-record stream + the pull terminator + the mark_read ack ----------------
 // Schema = ios-companion/INBOX_SYNC_CONTRACT.md. sender_hash / channel_msg_id are DECIMAL u32 (not hex). rx_ms
 // is node uptime (the app stamps wall-clock on pull). Fields are passed individually so console_json stays free
