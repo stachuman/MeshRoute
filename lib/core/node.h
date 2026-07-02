@@ -778,8 +778,15 @@ private:
         uint16_t payload_len;
         uint8_t  payload[protocol::channel_msg_max_payload_bytes];
     };
+public:
+    // Public so native tests can inspect the per-origin channel ledger directly (like channel_buffer_count()).
     struct ChannelOriginEvent  { uint32_t id; uint64_t t_ms; };
-    struct ChannelOriginLedger { ChannelOriginEvent ev[protocol::cap_channel_origin_events]; uint8_t n = 0; };   // MF7: sized by the new const
+    struct ChannelOriginLedger {
+        ChannelOriginEvent ev[protocol::cap_channel_origin_events];   // MF7: sized by the new const
+        uint8_t  n = 0;
+        uint64_t last_flood_ms = 0;   // Slice 2: per-origin last admitted flood — the channel_min_interval_ms burst floor
+    };
+private:
     static_assert(protocol::cap_channel_origin_events == protocol::channel_origin_max_per_window,
                   "antispam-v2 Slice 0: the re-dimension MUST stay inert (equal size) until channel_origin_max_per_window is removed in Slice 3");
     // Channel FLOOD in-progress state (2026-06-08 redesign). One slot per concurrent flood mid-backoff;
@@ -803,7 +810,9 @@ private:
     void    channel_reoffer_confirm(uint32_t id);                  // Part 2: a relay of OUR message was overheard -> cancel its pending re-offer (dedicated signal, NOT seen_by)
     int     channel_buffer_find(uint32_t id) const;                // index of the entry, or -1 (dv:3426)
     bool    channel_mark_seen_by(uint32_t id, uint8_t neighbour);  // set seen_by bit; true if newly set (dv:3434)
-    bool    channel_origin_admit(uint8_t origin, uint32_t msg_id); // per-origin distinct-count anti-spam (dv:3456)
+public:
+    bool    channel_origin_admit(uint8_t origin, uint32_t msg_id); // per-origin distinct-count anti-spam (dv:3456). Public: the receiver-HOOK test seam (drives the cap + 10s burst floor directly).
+private:
     int     channel_buffer_pick_eviction(bool* safe) const;        // oldest-all-seen else oldest; index (dv:3485)
     bool    channel_entry_fully_seen(const ChannelEntry& e) const; // 2026-06-23: every live 1-hop neighbour holds e (or none to serve) -> retire-OK (holder-aware retirement; NOT shared with pick_eviction — opposite nn==0 meaning)
     void    channel_buffer_add(const ChannelEntry& e);             // insert; evict if full (dv:3511)
@@ -1238,6 +1247,7 @@ private:
     XlHandoff _xl_handoffs[protocol::cap_gateway_handoffs];
 
     uint64_t _ack_warn_until = 0;   // DM Inc 3: park new DM originations until this ms (set by a warn'd ACK)
+    uint64_t _last_channel_origin_ms = 0;   // Slice 2: self side of channel_min_interval_ms (own channel posts)
     uint64_t _own_orig_events[protocol::cap_originator_events] = {};  // Inc 4 self-cap: own-origination timestamps (in-window)
     uint8_t  _own_orig_count = 0;
     // NACK BUSY_RX wait-same-hop: the captured ctr_lo the kNackWaitTimerId re-RTSes for.

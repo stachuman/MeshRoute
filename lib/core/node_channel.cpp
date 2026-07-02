@@ -90,18 +90,30 @@ bool Node::channel_origin_admit(uint8_t origin, uint32_t msg_id) {
         L.ev[k++] = L.ev[i];
     }
     L.n = k;
-    if (dup) return true;                                       // repeat id -> refreshed + admitted, not re-counted
-    if (L.n >= _cfg.channel_origin_max_per_window) {            // over cap -> drop the frame entirely
+    if (dup) return true;                                       // repeat id -> refreshed + admitted, not re-counted (never interval-blocked)
+    const uint16_t cap = channel_cap_origin();                  // Slice 1: SF/mesh/duty-aware cap (or the legacy flat cap when duty disabled)
+    // Slice 2 per-origin burst floor — a new DISTINCT flood too soon after this origin's last admitted one is dropped.
+    // (Only the non-dup admit path reaches here; a refreshed dup returned above and is never interval-blocked.)
+    if (L.last_flood_ms != 0 && now - L.last_flood_ms < protocol::channel_min_interval_ms) {
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "origin",   .type = EventField::T::i64, .i = origin },
+                               { .key = "msg_id",   .type = EventField::T::i64, .i = static_cast<int64_t>(msg_id) },
+                               { .key = "since_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(now - L.last_flood_ms) },
+                               { .key = "min_ms",   .type = EventField::T::i64, .i = static_cast<int64_t>(protocol::channel_min_interval_ms) } };
+            _hal.emit("channel_min_interval_drop", f, 4); );
+        return false;
+    }
+    if (L.n >= cap) {                                           // over the computed cap -> drop the frame entirely
         MR_TELEMETRY(
             EventField f[] = { { .key = "origin",    .type = EventField::T::i64, .i = origin },
                                { .key = "msg_id",    .type = EventField::T::i64, .i = static_cast<int64_t>(msg_id) },
                                { .key = "count",     .type = EventField::T::i64, .i = L.n },
-                               { .key = "threshold", .type = EventField::T::i64, .i = _cfg.channel_origin_max_per_window },
+                               { .key = "threshold", .type = EventField::T::i64, .i = cap },
                                { .key = "window_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.channel_origin_window_ms) } };
             _hal.emit("channel_drop_originator_throttle", f, 5); );
         return false;
     }
-    if (L.n < _cfg.channel_origin_max_per_window) L.ev[L.n++] = { msg_id, now };   // record the new distinct id
+    if (L.n < cap) { L.ev[L.n++] = { msg_id, now }; L.last_flood_ms = now; }   // record the new distinct id + stamp the flood time
     return true;
 }
 
@@ -258,16 +270,40 @@ void Node::ingest_channel_m(const m_out& m, uint8_t from) {
 //      advertise it; neighbours pull on demand — no proactive broadcast). Counts toward the unified
 //      self-origination budget. Returns the per-origin ctr used. -----------------------------------
 uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t body_len) {
+    const uint64_t now = _hal.now();
+    // Slice 2 self-GATE (MF4): apply the per-origin cap + the 10s burst floor to OUR OWN posts. This path does NOT
+    // route through channel_origin_admit (which self-bypasses at :80), so the gate lives here. Blocked -> emit
+    // send_blocked{channel} and mint nothing (no ctr consumed, nothing buffered/flooded).
+    const uint16_t cap = channel_cap_origin();
+    uint16_t used = 0;                                        // own distinct floods currently held (inline; no public helper)
+    for (uint16_t i = 0; i < _active->_channel_buffer_n; ++i)
+        if (_active->_channel_buffer[i].origin == _node_id) ++used;
+    const char* block_reason = nullptr; uint32_t next_ms = 0;
+    if (_last_channel_origin_ms != 0 && now - _last_channel_origin_ms < protocol::channel_min_interval_ms) {
+        block_reason = "min_interval";
+        next_ms = static_cast<uint32_t>(protocol::channel_min_interval_ms - (now - _last_channel_origin_ms));
+    } else if (used >= cap) {
+        block_reason = "cap"; next_ms = 0;                    // window-cap wait; Slice 5 fills the exact recovery
+    }
+    if (block_reason) {
+        MR_TELEMETRY(
+            EventField f[] = { { .key = "kind",    .type = EventField::T::str, .s = "channel" },
+                               { .key = "reason",  .type = EventField::T::str, .s = block_reason },
+                               { .key = "next_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(next_ms) } };
+            _hal.emit("send_blocked", f, 3); );
+        return 0;                                             // not sent (no ctr minted)
+    }
     const uint16_t c = next_ctr(_node_id);
     const uint32_t id = channel_msg_id_mint(_node_id, _key_hash32, static_cast<uint8_t>(c & 0xff));
     ChannelEntry e{};
     e.id = id; e.channel_id = channel_id; e.flavor = protocol::channel_flavor_public; e.origin = _node_id;
-    e.dirty = true; e.bcn_ad_count = 0; e.received_at = _hal.now();
+    e.dirty = true; e.bcn_ad_count = 0; e.received_at = now;
     e.payload_len = (body_len > protocol::channel_msg_max_payload_bytes)
                     ? protocol::channel_msg_max_payload_bytes : body_len;
     if (e.payload_len) std::memcpy(e.payload, body, e.payload_len);
     channel_buffer_add(e);
-    self_originate_observe();                                  // Inc 4: channels share the DM self-cap ledger
+    _last_channel_origin_ms = now;                            // Slice 2: stamp for the next self-interval check
+    // (Slice 3 removes self_originate_observe(); do_send_channel no longer shares the removed DM self-cap ledger)
     MR_TELEMETRY(
         // `payload` carries the post text so the analyzer (dm_delivery_breakdown.py) can match a post to its
         // msg_id — emit-parity with the Lua self_originate event (the tool keys Pass 1 on the payload).

@@ -26,7 +26,7 @@ using namespace meshroute;
 namespace {
 
 struct Ev { std::string type; int64_t id = -1; int origin = -1; int count = -1; int channel_id = -1;
-            std::string source; std::string mode; };
+            std::string source; std::string mode; std::string kind; std::string reason; };
 
 class TestHal : public Hal {
 public:
@@ -58,6 +58,8 @@ public:
             else if (std::strcmp(f[i].key, "channel_id") == 0) e.channel_id = static_cast<int>(f[i].i);
             else if (std::strcmp(f[i].key, "source") == 0 && f[i].s) e.source = f[i].s;
             else if (std::strcmp(f[i].key, "mode") == 0 && f[i].s)   e.mode = f[i].s;
+            else if (std::strcmp(f[i].key, "kind") == 0 && f[i].s)   e.kind = f[i].s;
+            else if (std::strcmp(f[i].key, "reason") == 0 && f[i].s) e.reason = f[i].s;
         }
         events.push_back(std::move(e));
     }
@@ -261,14 +263,122 @@ TEST_CASE("anti-spam repeat-id refreshes (not re-counts): a re-broadcast can't f
     CHECK(node.channel_buffer_count() == protocol::channel_origin_max_per_window);
 }
 
+// ===================== Slice 2: duty-anchored channel cap + burst floors =====================
+
+TEST_CASE("Slice2 — ChannelOriginLedger carries a per-origin last_flood_ms (default 0) sized by cap_channel_origin_events") {
+    Node::ChannelOriginLedger L{};
+    CHECK(L.n == 0);
+    CHECK(L.last_flood_ms == static_cast<uint64_t>(0));   // NEW field, default-zero (the burst-floor stamp)
+    CHECK(sizeof(L.ev) / sizeof(L.ev[0]) == static_cast<size_t>(protocol::cap_channel_origin_events));
+}
+
+TEST_CASE("Slice2 — channel_origin_admit drops at channel_cap_origin() (computed, not the flat 20) when duty is enabled") {
+    TestHal hal; Node node(hal, /*id=*/2, 0xBEEFu);
+    NodeConfig cfg = basic_cfg();
+    cfg.duty_cycle = 0.01;                 // enable the duty plane -> channel_cap_origin() is computed (MF2 branch OFF)
+    node.on_init(cfg);
+    const uint16_t cap = node.channel_cap_origin();   // Slice 1 formula; small + >=1 (C>=1 floor); this SF/BW -> 2
+    CHECK(cap >= 1);
+    CHECK(cap < protocol::cap_channel_origin_events);  // strictly below the legacy flat 20 (SF12 is expensive)
+    // Admit distinct ids from origin 9, stepping >=10s per id so ONLY the count-cap (not the burst floor) can bite.
+    int admitted = 0;
+    for (int k = 0; k < cap + 3; ++k) {
+        hal._now = static_cast<uint64_t>(k + 1) * protocol::channel_min_interval_ms;
+        const uint32_t id = (uint32_t(9) << 24) | static_cast<uint32_t>(k);
+        if (node.channel_origin_admit(9, id)) ++admitted;
+    }
+    CHECK(admitted == cap);                                      // capped at the COMPUTED value, not 20
+    CHECK(hal.count("channel_drop_originator_throttle") == 3);   // the 3 over-cap ids dropped
+    CHECK(hal.count("channel_min_interval_drop") == 0);         // stepped time -> the burst floor never fired
+}
+
+TEST_CASE("Slice2 — channel_origin_admit: a too-soon (<10s) 2nd flood from an origin is dropped; >=10s is admitted") {
+    TestHal hal; Node node(hal, /*id=*/2, 0xBEEFu);
+    NodeConfig cfg = basic_cfg(); node.on_init(cfg);            // duty disabled -> roomy flat count cap; the interval is the only gate
+    // First flood from origin 9 at a NON-ZERO time (so last_flood_ms stamps non-zero and the sentinel is unambiguous).
+    hal._now = 1000;
+    CHECK(node.channel_origin_admit(9, (uint32_t(9) << 24) | 0u) == true);
+    CHECK(hal.count("channel_min_interval_drop") == 0);
+    // +5000 (<10s): a DISTINCT id from origin 9 -> dropped by the min-interval floor (count still well under cap)
+    hal._now = 6000;
+    CHECK(node.channel_origin_admit(9, (uint32_t(9) << 24) | 1u) == false);
+    CHECK(hal.count("channel_min_interval_drop") == 1);
+    // +10000 from the first (>=10s): a distinct id -> admitted, interval satisfied
+    hal._now = 1000 + static_cast<uint64_t>(protocol::channel_min_interval_ms);
+    CHECK(node.channel_origin_admit(9, (uint32_t(9) << 24) | 2u) == true);
+    CHECK(hal.count("channel_min_interval_drop") == 1);         // no new interval drop
+    // A DIFFERENT origin is independent -> its first flood soon after is fine (separate last_flood_ms)
+    hal._now = 6000;
+    CHECK(node.channel_origin_admit(10, (uint32_t(10) << 24) | 0u) == true);
+    // A refreshed DUP from origin 9 must NOT be interval-blocked even when it arrives too soon.
+    hal._now = 12000;
+    CHECK(node.channel_origin_admit(9, (uint32_t(9) << 24) | 2u) == true);   // repeat of the last-admitted id -> refresh
+    CHECK(hal.count("channel_min_interval_drop") == 1);         // still no new interval drop (the dup path bypasses the floor)
+}
+
+TEST_CASE("Slice2 — do_send_channel self-gates own posts at the cap + the 10s floor; no self_originate_observe cap") {
+    TestHal hal; Node node(hal, /*id=*/3, 0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); node.on_init(cfg);           // duty disabled -> flat count cap; the interval is the near gate
+    // First own post at a NON-ZERO time -> buffered + flooded, no block.
+    hal._now = 1000;
+    (void)send_channel(node, 7, "hello");
+    CHECK(node.channel_buffer_count() == 1);
+    CHECK(hal.count("send_blocked") == 0);
+    drain_originate_flood(node);                                // let the originate flood flight complete
+    // 2nd own post +5000 (<10s) -> self-gated by the interval floor: NOT buffered, send_blocked{channel,min_interval}.
+    hal._now = 6000;
+    (void)send_channel(node, 7, "again");
+    CHECK(node.channel_buffer_count() == 1);                    // unchanged — the post was blocked
+    CHECK(hal.count("send_blocked") == 1);
+    const Ev* b = hal.last("send_blocked");
+    CHECK(b != nullptr);
+    if (b) { CHECK(b->kind == "channel"); CHECK(b->reason == "min_interval"); }
+    // 3rd own post +10000 from the first (>=10s) -> admitted, buffered.
+    hal._now = 1000 + static_cast<uint64_t>(protocol::channel_min_interval_ms);
+    (void)send_channel(node, 7, "later");
+    CHECK(node.channel_buffer_count() == 2);
+    CHECK(hal.count("send_blocked") == 1);                      // no new block
+}
+
+TEST_CASE("Slice2 — do_send_channel self-gate: over the computed cap emits send_blocked{channel,cap}") {
+    TestHal hal; Node node(hal, /*id=*/3, 0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); cfg.duty_cycle = 0.01;       // duty on -> small computed cap (SF12 -> 2)
+    node.on_init(cfg);
+    const uint16_t cap = node.channel_cap_origin();
+    CHECK(cap >= 1);
+    CHECK(cap < protocol::cap_channel_origin_events);
+    // Fill exactly `cap` own posts, stepping >=10s each so only the count-cap (not the burst floor) can bite.
+    for (int k = 0; k < cap; ++k) {
+        hal._now = static_cast<uint64_t>(k + 1) * protocol::channel_min_interval_ms;
+        (void)send_channel(node, 7, "fill");
+        drain_originate_flood(node);
+    }
+    CHECK(node.channel_buffer_count() == cap);
+    CHECK(hal.count("send_blocked") == 0);
+    // One more own post (>=10s later, so the interval is satisfied) -> blocked by the CAP, not the interval.
+    hal._now = static_cast<uint64_t>(cap + 1) * protocol::channel_min_interval_ms;
+    (void)send_channel(node, 7, "over");
+    CHECK(node.channel_buffer_count() == cap);                  // unchanged — the post was cap-blocked
+    CHECK(hal.count("send_blocked") == 1);
+    const Ev* b = hal.last("send_blocked");
+    CHECK(b != nullptr);
+    if (b) { CHECK(b->kind == "channel"); CHECK(b->reason == "cap"); }
+}
+
 TEST_CASE("buffer eviction (fallback, no neighbours): the OLDEST goes; ALL others survive in order") {
-    TestHal hal; Node node(hal, 3, 0x1234ABCDu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    TestHal hal; Node node(hal, 3, 0x1234ABCDu); NodeConfig cfg = basic_cfg();
+    cfg.duty_cycle = 0.9;   // Slice 2: the own-post self-gate now caps distinct floods/origin; a fat duty makes
+                            // channel_cap_origin() > the buffer cap so all cap_channel_buffer+1 own posts admit (this
+                            // test exercises buffer EVICTION order, not the anti-spam cap).
+    node.on_init(cfg);
     std::vector<uint32_t> ids;                                        // every minted id in send order
     for (int k = 0; k < protocol::cap_channel_buffer; ++k) {
+        hal._now = static_cast<uint64_t>(k + 1) * protocol::channel_min_interval_ms;   // >=10s apart -> the self-interval floor never bites
         const CmdResult r = send_channel(node, 7, "fill");
         ids.push_back(Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff)));
     }
     CHECK(node.channel_buffer_count() == protocol::cap_channel_buffer);
+    hal._now += protocol::channel_min_interval_ms;
     const CmdResult ov = send_channel(node, 7, "overflow");          // cap+1 -> evict oldest (no neighbours -> fallback)
     const uint32_t ov_id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(ov.ctr & 0xff));
     CHECK(node.channel_buffer_count() == protocol::cap_channel_buffer);
@@ -281,12 +391,16 @@ TEST_CASE("buffer eviction (fallback, no neighbours): the OLDEST goes; ALL other
 }
 
 TEST_CASE("buffer eviction (safe): an entry seen by ALL 1-hop neighbours is evicted before the oldest") {
-    TestHal hal; Node node(hal, 3, 0x1234ABCDu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    TestHal hal; Node node(hal, 3, 0x1234ABCDu); NodeConfig cfg = basic_cfg();
+    cfg.duty_cycle = 0.9;   // Slice 2: fat duty -> channel_cap_origin() > buffer cap so all own posts admit (this test
+                            // exercises SAFE-vs-oldest eviction, not the anti-spam cap).
+    node.on_init(cfg);
     std::array<uint8_t,64> bb{};
     const size_t bn = mk_beacon(/*src=*/50, bb); node.on_recv(bb.data(), bn, meta_at(10));  // install 50 as a hops=1 neighbour
     CHECK(node.rt_count() >= 1);
     std::vector<uint32_t> ids;
     for (int k = 0; k < protocol::cap_channel_buffer; ++k) {
+        hal._now = static_cast<uint64_t>(k + 1) * protocol::channel_min_interval_ms;   // >=10s apart -> the self-interval floor never bites
         const CmdResult r = send_channel(node, 7, "fill");
         ids.push_back(Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff)));
     }
@@ -294,6 +408,7 @@ TEST_CASE("buffer eviction (safe): an entry seen by ALL 1-hop neighbours is evic
     // (ingest a dup of ids[5] from 50: self-origin bypasses admit; existing -> mark_seen_by(ids[5], 50).)
     const uint8_t body[] = { 'x' };
     node.ingest_channel_m(mk_m(ids[5], 7, 0, body, 1), /*from=*/50);
+    hal._now += protocol::channel_min_interval_ms;
     send_channel(node, 7, "overflow");                              // cap+1 -> pick the SAFE entry, not the oldest
     CHECK(node.channel_buffer_count() == protocol::cap_channel_buffer);
     CHECK(!node.channel_has(ids[5]));                               // the all-seen entry was evicted (safe mode)
