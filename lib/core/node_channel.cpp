@@ -762,7 +762,8 @@ void Node::flood_forward_decision(uint8_t slot) {
     // expectation (E[delay] = window/2, monotonic in SNR). Standard LBT still gates the actual TX on top.
     const int32_t lo = protocol::flood_snr_lo_q4, hi = protocol::flood_snr_hi_q4;
     int32_t num = static_cast<int32_t>(fs.rx_snr_q4) - lo;
-    if (num < 0) num = 0; if (num > (hi - lo)) num = (hi - lo);
+    if (num < 0) num = 0;
+    if (num > (hi - lo)) num = (hi - lo);   // clamp num into [0, hi-lo]
     const int64_t span = static_cast<int64_t>(hi) - lo;          // statically > 0 (compile-time constants)
     const uint32_t window  = static_cast<uint32_t>(static_cast<int64_t>(protocol::flood_backoff_ms) * num * num / (span * span));
     const uint32_t backoff = static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(window) + 1));   // random slot in [0, window]
