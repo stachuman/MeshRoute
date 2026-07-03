@@ -31,6 +31,7 @@ final class AppModel {
     private(set) var membership: LeafMembership?
     private(set) var joinInFlight = false            // optimistic "Joining…" between a join/create and config_adopted
     private(set) var joinRefusal: JoinRefusal?        // a banner when the node can't join (wire_version / leaf_full)
+    private(set) var latestDuty: DutyStatus?          // D27: airtime-budget readout (from `duty` + `ready`)
     private var routesAccumulator: [RouteInfo] = []   // fills during a `routes` stream, swapped in at routes_end
     var backend: Backend = defaultBackend
     // Navigation the notification-tap router drives (Messages = tab 0).
@@ -147,6 +148,7 @@ final class AppModel {
         case .ready(let r):
             nodeIdentity = r
             if let m = LeafMembership.from(r) { membership = m; if m.state == .member { joinInFlight = false } }
+            if let pct = r.dutyPct { latestDuty = DutyStatus(pct: pct, availMs: r.dutyAvailMs ?? 0, enabled: true) }   // D27 starting value
             if let n = r.nowMs { timeAnchor = NodeTimeAnchor(nodeNowMs: n) }   // anchor BEFORE the pull streams in
             let profile = upsertNodeProfile(r)
             startInboxSync(r, profile: profile)
@@ -189,6 +191,8 @@ final class AppModel {
         case .joinRefused(let reason, let theirVer, let myVer):
             joinRefusal = JoinRefusal(reason: reason, theirVer: theirVer, myVer: myVer)
             joinInFlight = false
+        case .duty(let pct, let availMs, let enabled):
+            latestDuty = DutyStatus(pct: pct, availMs: availMs, enabled: enabled)
         default:
             break
         }
@@ -423,6 +427,12 @@ final class AppModel {
         joinInFlight = false; joinRefusal = nil
     }
     func dismissJoinRefusal() { joinRefusal = nil }
+    /// Rename this node (`cfg set name`, persisted to /mrid) + refresh identity so the new name shows.
+    func renameNode(_ name: String) {
+        let n = name.trimmingCharacters(in: .whitespaces)
+        guard !n.isEmpty else { return }
+        sendCommand(.configSet(key: "name", value: n)); sendCommand(.whoami)
+    }
     /// Set the node's default DM encryption (`cfg set e2e_dm`); the per-message lock toggle overrides it.
     func setNodeEncryptDefault(_ on: Bool) {
         sendCommand(.configSet(key: "e2e_dm", value: on ? "on" : "off"))
@@ -490,10 +500,11 @@ final class AppModel {
     func refreshStatus() { sendCommand(.status) }
     func refreshConfig() { sendCommand(.config) }
     func refreshRoutes() { routesAccumulator = []; sendCommand(.routes) }
+    func refreshDuty()   { sendCommand(.duty) }        // D27: airtime-budget readout
     /// Pull everything the Node tab shows in one go (on appear / pull-to-refresh).
     func refreshNodeInfo() {
         guard isConnected else { return }
-        refreshStatus(); refreshConfig(); refreshRoutes()
+        refreshStatus(); refreshConfig(); refreshRoutes(); refreshDuty()
     }
 
     func sendRaw(_ line: String) {
@@ -725,6 +736,14 @@ struct JoinRefusal: Identifiable, Hashable {
     var isBlocking: Bool { reason == "wire_version" }   // a firmware update, not just a retry
 }
 
+/// D27 airtime-budget readout. `pct` 0..100 (100 = must stay silent); `availMs` = ms until it can TX again;
+/// `enabled == false` ⇒ no duty limit configured (show "—", ignore `pct`).
+struct DutyStatus: Hashable {
+    let pct: Int
+    let availMs: Int
+    let enabled: Bool
+}
+
 /// Routes a tapped DM banner into the right conversation. The banner's `threadIdentifier` is "dm-<hash>".
 final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
     weak var model: AppModel?
@@ -769,6 +788,7 @@ func describe(_ inbound: Inbound) -> String {
     case .cfg(let c):                              return "cfg node=\(c.nodeID) sf=\(c.routingSF) freq=\(c.freqMHz)"
     case .configAdopted(let lin, let ep, let leaf, let lvl): return "config_adopted lineage=\(lin) epoch=\(ep) leaf=\(leaf ?? "—") level=\(lvl.map(String.init) ?? "—")"
     case .joinRefused(let r, let tv, let mv):      return "join_refused \(r)\(tv.map { " their=\($0)" } ?? "")\(mv.map { " my=\($0)" } ?? "")"
+    case .duty(let p, let a, let e):               return "duty \(p)% avail=\(a)ms\(e ? "" : " (unlimited)")"
     case .inboxEntry(let e):                       return "inbox_\(e.kind.rawValue) seq=\(e.seq) from \(e.origin)\(hex(e.senderHash)) ctr=\(e.ctr): \(e.body)"
     case .inboxEnd(let dm, let chan, let epoch, let count, _): return "inbox_end dm=\(dm) chan=\(chan) epoch=\(epoch.map(String.init) ?? "—") count=\(count)"
     case .event(let t, _):                         return "event \(t)"

@@ -152,12 +152,15 @@ void Node::send_config_pull(uint8_t to, uint16_t lineage, uint16_t epoch) {
 void Node::send_c_config(uint8_t to) {
     if (to == 0 || to == 0xFF) return;
     CConfig cc{};
-    cc.allowed_sf_bitmap = _cfg.allowed_sf_bitmap;
-    cc.duty_bp           = duty_to_bp(_cfg.duty_cycle);
-    cc.config_epoch      = _cfg.config_epoch;
-    cc.leaf_name_len     = _cfg.leaf_name_len;
+    cc.allowed_sf_bitmap  = _cfg.allowed_sf_bitmap;
+    cc.duty_bp            = duty_to_bp(_cfg.duty_cycle);
+    cc.active_fraction_bp = frac_to_bp(_cfg.channel_active_fraction);       // anti-spam v2: promote the 3 knobs onto the wire
+    cc.ch_interval_ms     = ms_to_u16(_cfg.channel_min_interval_ms);
+    cc.dm_interval_ms     = ms_to_u16(_cfg.dm_min_interval_ms);
+    cc.config_epoch       = _cfg.config_epoch;
+    cc.leaf_name_len      = _cfg.leaf_name_len;
     for (uint8_t i = 0; i < _cfg.leaf_name_len && i < protocol::leaf_name_max; ++i) cc.leaf_name[i] = _cfg.leaf_name[i];
-    uint8_t frame[3 + 6 + protocol::leaf_name_max];                         // [cmd|leaf][src][dst] + body (sf·duty·epoch·name)
+    uint8_t frame[3 + 12 + protocol::leaf_name_max];                        // [cmd|leaf][src][dst] + body (sf·duty·frac·chI·dmI·epoch·name)
     frame[0] = wire::cmd_byte(wire::Cmd::CFG, static_cast<uint8_t>(_cfg.leaf_id & 0x0F));
     frame[1] = _node_id;
     frame[2] = to;
@@ -188,12 +191,16 @@ void Node::adopt_c_config(const uint8_t* body, size_t len) {
     if (!parse_c_config(body, len, cc)) return;
     if (cc.config_epoch < _cfg.config_epoch) return;                       // not newer -> ignore
     // No-change guard is HASH-based (not just bitmap) so a name/duty-only LWW write at the SAME epoch still adopts.
-    const uint16_t incoming_hash = leaf_config_hash(cc.allowed_sf_bitmap, cc.duty_bp, cc.leaf_name, cc.leaf_name_len);
+    const uint16_t incoming_hash = leaf_config_hash(cc.allowed_sf_bitmap, cc.duty_bp, cc.active_fraction_bp,
+                                                    cc.ch_interval_ms, cc.dm_interval_ms, cc.leaf_name, cc.leaf_name_len);
     if (_cfg.config_epoch == cc.config_epoch && incoming_hash == cfg_config_hash()) return;
     if (cc.config_epoch > _max_seen_epoch) _max_seen_epoch = cc.config_epoch;   // R6.3: adopting bumps our max-seen
     _cfg.config_epoch = cc.config_epoch;
     _cfg.allowed_sf_bitmap = cc.allowed_sf_bitmap;
     _cfg.duty_cycle = bp_to_duty(cc.duty_bp);
+    _cfg.channel_active_fraction = bp_to_frac(cc.active_fraction_bp);       // anti-spam v2: adopt the 3 promoted knobs live
+    _cfg.channel_min_interval_ms = cc.ch_interval_ms;
+    _cfg.dm_min_interval_ms      = cc.dm_interval_ms;
     recompute_duty_budget();                                                // R6.3 §2(b): adopted duty applies live (no reboot)
     _cfg.leaf_name_len = cc.leaf_name_len;
     for (uint8_t i = 0; i < cc.leaf_name_len && i < protocol::leaf_name_max; ++i) _cfg.leaf_name[i] = cc.leaf_name[i];

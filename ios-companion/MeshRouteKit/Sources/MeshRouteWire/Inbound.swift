@@ -68,10 +68,13 @@ public struct NodeReady: Hashable, Sendable, Codable {
     public let leaf: String?      // leaf_name (omitted when unset)
     public let level: Int?        // level_id 1..255 (interim: the wire leaf nibble)
     public let synced: Bool?      // (lineage==0 || config_epoch>0)
+    public let dutyPct: Int?      // D27: airtime budget used 0..100 (100 = silent); nil on older firmware
+    public let dutyAvailMs: Int?  // ms until airtime frees (0 = can TX now)
     enum CodingKeys: String, CodingKey {
         case id, key, leafID = "leaf_id", mode, gateway, routingSF = "routing_sf", inboxEpoch = "inbox_epoch",
              nowMs = "now_ms", name, pubkey,
-             lineage, configEpoch = "epoch", leaf, level, synced
+             lineage, configEpoch = "epoch", leaf, level, synced,
+             dutyPct = "duty_pct", dutyAvailMs = "duty_avail_ms"
     }
 }
 
@@ -169,6 +172,7 @@ public enum Inbound: Hashable, Sendable {
     case cfg(NodeConfigInfo)                                         // node config snapshot
     case configAdopted(lineage: Int, epoch: Int, leaf: String?, level: Int?)   // R6/D26: leaf-config adopted/updated → live membership chip
     case joinRefused(reason: String, theirVer: Int?, myVer: Int?)              // R6/D26: can't join (wire_version → update fw; leaf_full)
+    case duty(pct: Int, availMs: Int, enabled: Bool)                          // D27: airtime-budget readout (0..100; 100 = silent; enabled=false ⇒ unlimited)
     case inboxEntry(InboxEntry)                                       // one record from a pull_inbox stream
     case inboxEnd(dmSeq: UInt32, chanSeq: UInt32, epoch: UInt32?, count: Int, nowMs: UInt64?)  // pull done: newest seqs, served epoch, #streamed, uptime anchor
     case event(type: String, fields: [String: JSONValue])             // generic / future events
@@ -262,6 +266,10 @@ public enum PushDecoder {
             if let m = try? decoder.decode(JoinRefused.self, from: data) {
                 return .joinRefused(reason: m.reason, theirVer: m.their_ver, myVer: m.my_ver)
             }
+        case "duty":
+            if let m = try? decoder.decode(Duty.self, from: data) {
+                return .duty(pct: m.pct, availMs: m.avail_ms, enabled: m.enabled)
+            }
         case "inbox_dm":
             if let m = try? decoder.decode(InboxDM.self, from: data) {
                 let receipt = (m.type == "e2e_ack")     // a delivery RECEIPT rides the DM seq-cursor — NOT a message (D25)
@@ -312,4 +320,5 @@ public enum PushDecoder {
     private struct RoutesEnd: Decodable { let count: Int }
     private struct ConfigAdopted: Decodable { let lineage: Int; let epoch: Int; let leaf: String?; let level: Int? }   // R6 membership update
     private struct JoinRefused: Decodable { let reason: String; let their_ver: Int?; let my_ver: Int? }                // wire_version carries the versions
+    private struct Duty: Decodable { let pct: Int; let avail_ms: Int; let enabled: Bool }                              // D27 airtime budget
 }

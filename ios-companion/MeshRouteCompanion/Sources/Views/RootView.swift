@@ -19,9 +19,12 @@ struct RootView: View {
             ContactsView()
                 .tabItem { Label("Contacts", systemImage: "person.2") }
                 .tag(1)
-            NodeView()
-                .tabItem { Label("Node", systemImage: "antenna.radiowaves.left.and.right") }
+            MeshView()
+                .tabItem { Label("Mesh", systemImage: "point.3.connected.trianglepath.dotted") }
                 .tag(2)
+            NodeView()
+                .tabItem { Label("Device", systemImage: "antenna.radiowaves.left.and.right") }
+                .tag(3)
         }
         .tint(.accentColor)
         .onAppear {

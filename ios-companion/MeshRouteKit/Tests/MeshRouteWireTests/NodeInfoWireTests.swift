@@ -94,6 +94,20 @@ final class NodeInfoWireTests: XCTestCase {
         XCTAssertNil(old.lineage); XCTAssertNil(old.synced)
     }
 
+    func testDutyReadout() {     // D27
+        guard case .duty(let pct, let avail, let enabled)? = PushDecoder.decode(
+            line: #"{"ev":"duty","pct":100,"avail_ms":73000,"enabled":true}"#) else {
+            return XCTFail("not duty")
+        }
+        XCTAssertEqual(pct, 100); XCTAssertEqual(avail, 73000); XCTAssertTrue(enabled)   // silent + countdown
+        guard case .duty(_, _, let off)? = PushDecoder.decode(line: #"{"ev":"duty","pct":0,"avail_ms":0,"enabled":false}"#) else { return XCTFail() }
+        XCTAssertFalse(off)   // unlimited
+        // ready seeds a starting duty value on connect
+        guard case .ready(let r)? = PushDecoder.decode(
+            line: #"{"ev":"ready","id":1,"key":"8a3f1c02","leaf_id":0,"mode":"node","gateway":false,"routing_sf":7,"duty_pct":42,"duty_avail_ms":0}"#) else { return XCTFail() }
+        XCTAssertEqual(r.dutyPct, 42); XCTAssertEqual(r.dutyAvailMs, 0)
+    }
+
     func testCfgWithoutLocationDecodes() {     // older firmware: no lat_e7/lon_e7 → hasPosition false
         guard case .cfg(let c)? = PushDecoder.decode(
             line: #"{"ev":"cfg","node_id":5,"freq_hz":869462500,"routing_sf":7,"sf_list":"7,12","bw_hz":125000,"cr":5,"tx_power":22,"duty_x1000":100,"lbt":true,"beacon_ms":900000,"hop_cap":16,"leaf_id":0,"gateway":false,"mobile":false,"ble_mode":"on","ble_period":15,"ble_pin":123456}"#) else {

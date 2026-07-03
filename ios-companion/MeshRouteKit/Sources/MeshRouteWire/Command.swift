@@ -50,6 +50,7 @@ public enum Command: Hashable, Sendable {
     case routes
     case status
     case config                                 // "cfg" (dump)
+    case duty                                    // "duty" — airtime-budget readout (D27)
     case configSet(key: String, value: String)  // "cfg set <key> <value>"
     case lookup(KeyHash)                         // local id_bind peek (no airtime)
     case hashOf(UInt8)                           // reverse: id → hash (authoritative only)
@@ -89,6 +90,7 @@ public enum Command: Hashable, Sendable {
         case .routes:                       return "routes"
         case .status:                       return "status"
         case .config:                       return "cfg"
+        case .duty:                         return "duty"
         case .configSet(let k, let v):      return "cfg set \(k) \(v)"
         case .lookup(let h):                return "lookup \(h.hex8)"
         case .hashOf(let i):                return "hashof \(i)"

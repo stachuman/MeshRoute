@@ -91,15 +91,19 @@ bool Node::channel_origin_admit(uint8_t origin, uint32_t msg_id) {
     }
     L.n = k;
     if (dup) return true;                                       // repeat id -> refreshed + admitted, not re-counted (never interval-blocked)
-    const uint16_t cap = channel_cap_origin();                  // Slice 1: SF/mesh/duty-aware cap (or the legacy flat cap when duty disabled)
+    uint16_t cap = channel_cap_origin();                        // Slice 1: SF/mesh/duty-aware cap (or the legacy flat cap when duty disabled)
+    // B1 (2026-07-02 gate): the ledger L.ev[] holds only cap_channel_origin_events entries, but the policy cap
+    // (channel_cap_origin) can reach ~32 at SF7/duty-ON. `L.ev[L.n++]` below would write past the array once L.n
+    // passed 20. Clamp the ENFORCED count here to the array bound so the ledger can never be over-run (heap-OOB).
+    if (cap > protocol::cap_channel_origin_events) cap = protocol::cap_channel_origin_events;
     // Slice 2 per-origin burst floor — a new DISTINCT flood too soon after this origin's last admitted one is dropped.
     // (Only the non-dup admit path reaches here; a refreshed dup returned above and is never interval-blocked.)
-    if (L.last_flood_ms != 0 && now - L.last_flood_ms < protocol::channel_min_interval_ms) {
+    if (L.last_flood_ms != 0 && now - L.last_flood_ms < _cfg.channel_min_interval_ms) {
         MR_TELEMETRY(
             EventField f[] = { { .key = "origin",   .type = EventField::T::i64, .i = origin },
                                { .key = "msg_id",   .type = EventField::T::i64, .i = static_cast<int64_t>(msg_id) },
                                { .key = "since_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(now - L.last_flood_ms) },
-                               { .key = "min_ms",   .type = EventField::T::i64, .i = static_cast<int64_t>(protocol::channel_min_interval_ms) } };
+                               { .key = "min_ms",   .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.channel_min_interval_ms) } };
             _hal.emit("channel_min_interval_drop", f, 4); );
         return false;
     }
@@ -279,9 +283,9 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
     for (uint16_t i = 0; i < _active->_channel_buffer_n; ++i)
         if (_active->_channel_buffer[i].origin == _node_id) ++used;
     const char* block_reason = nullptr; uint32_t next_ms = 0;
-    if (_last_channel_origin_ms != 0 && now - _last_channel_origin_ms < protocol::channel_min_interval_ms) {
+    if (_last_channel_origin_ms != 0 && now - _last_channel_origin_ms < _cfg.channel_min_interval_ms) {
         block_reason = "min_interval";
-        next_ms = static_cast<uint32_t>(protocol::channel_min_interval_ms - (now - _last_channel_origin_ms));
+        next_ms = static_cast<uint32_t>(_cfg.channel_min_interval_ms - (now - _last_channel_origin_ms));
     } else if (used >= cap) {
         block_reason = "cap"; next_ms = 0;                    // window-cap wait; Slice 5 fills the exact recovery
     }

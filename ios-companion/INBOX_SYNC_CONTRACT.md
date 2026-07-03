@@ -234,7 +234,21 @@ reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "
 
 ### Anti-spam v2 feedback — advisory `limits` + actual send-outcome (2026-06-30)
 
-`limits` (see the `limits` query) lets the app *predict* + pace; these three pushes report the *actual* outcome so it backs off. All are **local** (node → its own trusted companion; no OTA change — the node infers from what it already observes). NB the node's `send_blocked` *telemetry* is stripped on device (`MESHROUTE_NO_TELEMETRY`), so on metal the **push** below is the only send_blocked signal the companion receives:
+`limits` (the query below) lets the app *predict* + pace; the three pushes after it report the *actual* outcome so it backs off. All are **local** (node → its own trusted companion; no OTA change — the node infers from what it already observes). NB the node's `send_blocked` *telemetry* is stripped on device (`MESHROUTE_NO_TELEMETRY`), so on metal the **push** below is the only send_blocked signal the companion receives.
+
+**The `limits` query** (app → node `limits`; node → app one line — the advisory snapshot the app paces against):
+```json
+{"ev":"limits","win_ms":300000,"win_left_ms":142000,"n":40,"ch_sf":7,
+ "ch_cap":8,"ch_used":2,"ch_min_ms":10000,"ch_next_ms":0,"ch_ceiling":42,
+ "dm_min_ms":3000,"dm_next_ms":1200,"duty_ms":3000,"duty_used_ms":640}
+```
+- `win_ms` = the 5-min anti-spam window; `n` = mesh size the per-origin channel cap divides by; `ch_sf` = the DATA-M SF the cap is priced at.
+- **channel:** `ch_cap` = this origin's per-window channel cap; `ch_used` = own distinct floods held this window; `ch_min_ms` = the channel burst floor; `ch_next_ms` = ms until a channel post is allowed (0 = now); `ch_ceiling` = C, the total duty-afforded channel capacity (0 = duty disabled → the legacy flat cap).
+- **DM:** `dm_min_ms` = the own-DM burst floor; `dm_next_ms` = ms until an own DM is allowed.
+- **duty:** `duty_ms` = the 5-min channel-duty budget D (0 = duty disabled); `duty_used_ms` = airtime spent this window.
+- `*_next_ms` fold the burst-floor remaining, the channel window cap-wait, AND duty recovery — the true "ready in N ms". ★ `ch_min_ms` / `dm_min_ms` (and, via the fraction, `ch_cap`) are the **leaf's configured** values (see *anti-spam leaf tunables* under Leaf-config provisioning), not fixed firmware constants — so pacing reflects the actual leaf policy.
+
+The outcome pushes:
 
 ```json
 {"ev":"send_blocked","kind":"channel","reason":"min_interval","next_ms":7300}   // THIS node's own cap/floor blocked the origination pre-TX — hold + retry after next_ms
@@ -339,6 +353,18 @@ leave                                                                           
 - After `join`/`create`, the node emits `config_adopted` + updated `ready` membership once it syncs. After `leave`, membership returns to `lineage:0` (unmanaged). A `send` before sync ⇒ `send_failed{reason:"joining"}`.
 - **Normal nodes only.** Gateways provision differently (multi-layer; a future `join_as_gateway`) — out of this contract.
 - Ack shape = firmware's choice; recommend a `{"ev":"join_ok"|"join_err","reason":…}` line per verb (consistent with the other command acks).
+
+### App → node: anti-spam leaf tunables (2026-07-03 — promoted to leaf config)
+The anti-spam v2 knobs below are now **per-leaf config** (carried in the C config frame + folded into the `config_hash`), not fixed firmware constants — so a mother provisions them and a change **re-fingerprints** the leaf (members re-pull → `config_adopted`). Set via `cfg set` (applies **live**, is **persisted to NV** so it survives reboot, and on a **managed** leaf bumps `config_epoch` + re-advertises):
+```
+cfg set active_fraction <0..1>   # channel-cap fairness divisor (default 0.125): how aggressively the per-origin channel cap shares the mesh's channel capacity C
+cfg set ch_min_ms <ms>           # channel burst floor (default 10000): min spacing between one origin's channel floods
+cfg set dm_min_ms <ms>           # own-DM burst floor (default 3000): anti-per-keystroke — e2e-ack / rcmd are exempt
+```
+- All three are in the `config_hash`: changing one on a **mother** propagates to members (they re-pull + emit `config_adopted`); on an **unmanaged** node it's a local setting only.
+- They are the source of the `ch_min_ms` / `dm_min_ms` (and via the fraction, `ch_cap`) fields the **`limits`** query reports (above) — so the app's pacing tracks the leaf's actual floors, not the defaults.
+- **Not** part of the `create` verb (which stays freq/bw/sf/duty/name) — tune these with `cfg set` after the leaf exists, so `create` stays a simple rendezvous.
+- Wire: the C config frame grew **+6 B** (`active_fraction_bp` u16 · `ch_interval_ms` u16 · `dm_interval_ms` u16); `wire_version` is **unchanged** (the test fleet reflashes together — no mixed-version compat).
 
 ### Deferred
 - **Mobile-node roaming** (auto `leave`+`join` between leaves, with hysteresis) — a later phase; the three verbs above are the primitives it builds on.

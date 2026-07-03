@@ -254,6 +254,9 @@ static void dump_cfg() {
     mrcon.print(F(" lbt="));              mrcon.print(c.lbt_enabled ? 1 : 0);
     mrcon.print(F(" nav="));              mrcon.print(c.nav_enabled ? 1 : 0);
     mrcon.print(F(" nav_ignore="));       mrcon.println(c.nav_ignore_rts ? 1 : 0);
+    mrcon.print(F("  aspam : active_fraction=")); mrcon.print(c.channel_active_fraction, 3);   // anti-spam v2 promoted knobs (in the config_hash)
+    mrcon.print(F(" ch_min_ms="));        mrcon.print(c.channel_min_interval_ms);
+    mrcon.print(F(" dm_min_ms="));        mrcon.println(c.dm_min_interval_ms);
     mrcon.print(F("  leaf  : leaf_id=")); mrcon.print(c.leaf_id);
     { mrnv::Blob lb{}; if (mrnv::load(lb) && lb.layer0_id) {                  // R6.3 §3: show the full level_id + its wire nibble (clash check)
         mrcon.print(F(" level_id=")); mrcon.print(lb.layer0_id);
@@ -480,6 +483,7 @@ static void handle_cfg_set(const char* args) {
         b.gw_herd_slack               = nc.gw_herd_slack;              // v13 §3e herd-spread slack
         b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch; b.leaf_name_len = nc.leaf_name_len;     // v14 R6.1 leaf-config
         for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
+        b.channel_active_fraction = nc.channel_active_fraction; b.channel_min_interval_ms = nc.channel_min_interval_ms; b.dm_min_interval_ms = nc.dm_min_interval_ms;   // v16 anti-spam per-leaf tunables
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;    // (re)stamp -> also upgrades a loaded v2 blob to v3
 
@@ -533,6 +537,22 @@ static void handle_cfg_set(const char* args) {
     else if (!strcmp(key, "gw_announce_pct"))      { int v = atoi(val); if (v < 1) v = 1; if (v > 100) v = 100; lc.gw_announce_duty_pct = (uint8_t)v; b.gw_announce_duty_pct = lc.gw_announce_duty_pct; }
     else if (!strcmp(key, "gw_announce_interval")) { lc.gw_announce_min_interval_ms = (uint32_t)atol(val);       b.gw_announce_min_interval_ms = lc.gw_announce_min_interval_ms; }
     else if (!strcmp(key, "gw_herd_slack"))        { int v = atoi(val); if (v < 1) v = 1; if (v > 255) v = 255; lc.gw_herd_slack = (uint8_t)v; b.gw_herd_slack = lc.gw_herd_slack; }   // §3e herd-spread slack (live; MAC re-reads)
+    // --- anti-spam v2 promoted knobs (2026-07-03): LIVE via mutable_config() (the MAC re-reads each use) + PERSISTED
+    //     (NV v16) + in the config_hash. A managed leaf's write bumps config_epoch (via leaf_config_write) so the
+    //     change re-fingerprints + propagates via the C config frame. No reboot (not radio params); b.<field> mirrors
+    //     the quantized lc.<field> so NV holds the same wire-quantized value the config_hash saw. ---
+    else if (!strcmp(key, "active_fraction")) {                                // channel_active_fraction: a 0..1 fraction (quantized to the 0.01% wire step)
+        lc.channel_active_fraction = meshroute::bp_to_frac(meshroute::frac_to_bp((float)atof(val)));
+        b.channel_active_fraction = lc.channel_active_fraction; if (lc.lineage_id) g_node.leaf_config_write();
+    }
+    else if (!strcmp(key, "ch_min_ms")) {                                      // channel_min_interval_ms in ms (u16 on the wire; clamps to 65535)
+        lc.channel_min_interval_ms = (uint32_t)meshroute::ms_to_u16((uint32_t)atol(val));
+        b.channel_min_interval_ms = lc.channel_min_interval_ms; if (lc.lineage_id) g_node.leaf_config_write();
+    }
+    else if (!strcmp(key, "dm_min_ms")) {                                      // dm_min_interval_ms in ms (u16 on the wire; clamps to 65535)
+        lc.dm_min_interval_ms = (uint32_t)meshroute::ms_to_u16((uint32_t)atol(val));
+        b.dm_min_interval_ms = lc.dm_min_interval_ms; if (lc.lineage_id) g_node.leaf_config_write();
+    }
     // --- role/topology: LIVE via mutable_config() + PERSISTED (NV v6 -> survives reboot) ---
     else if (!strcmp(key, "leaf_id"))      { lc.leaf_id = (uint8_t)atoi(val);                            b.leaf_id      = lc.leaf_id; }
     // `gateway` is NOT a cfg key — is_gateway is DERIVED = (n_layers==2) in on_init (a gateway is the dedicated
@@ -822,6 +842,7 @@ static void handle_gateway(const char* args) {
         b.freq_mhz = g_freq_mhz; b.bw_hz = nc.radio_bw_hz; b.cr = nc.radio_cr; b.duty = nc.duty_cycle;
         b.tx_power = g_tx_power;  b.lbt = nc.lbt_enabled ? 1 : 0; b.beacon_ms = nc.beacon_period_ms;
         b.ble_mode = g_ble_mode; b.ble_period_min = g_ble_period_min; b.ble_pin = g_ble_pin;
+        b.channel_active_fraction = nc.channel_active_fraction; b.channel_min_interval_ms = nc.channel_min_interval_ms; b.dm_min_interval_ms = nc.dm_min_interval_ms;   // v16 anti-spam per-leaf tunables
     }
     const uint32_t bw = b.bw_hz ? b.bw_hz : static_cast<uint32_t>(LORA_BW * 1000.0);
     const uint8_t  cr = b.cr    ? b.cr    : 5;
@@ -875,6 +896,7 @@ static void handle_leaf(const char* args) {
         b.l1_freq_mhz = nc.layers[1].freq_mhz; b.gw_herd_slack = nc.gw_herd_slack;
         b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch; b.leaf_name_len = nc.leaf_name_len;
         for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
+        b.channel_active_fraction = nc.channel_active_fraction; b.channel_min_interval_ms = nc.channel_min_interval_ms; b.dm_min_interval_ms = nc.dm_min_interval_ms;   // v16 anti-spam per-leaf tunables
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
     if (!strncmp(args, "create", 6)) {
@@ -919,6 +941,7 @@ static void seed_blob_from_live(mrnv::Blob& b) {
     b.l1_freq_mhz = nc.layers[1].freq_mhz; b.gw_herd_slack = nc.gw_herd_slack;
     b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch; b.leaf_name_len = nc.leaf_name_len;
     for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
+    b.channel_active_fraction = nc.channel_active_fraction; b.channel_min_interval_ms = nc.channel_min_interval_ms; b.dm_min_interval_ms = nc.dm_min_interval_ms;   // v16 anti-spam per-leaf tunables
 }
 
 // Parse "<freq_MHz> <bw_kHz> <ctrl_sf> <level_id>" and advance p. false (no print) on a malformed/out-of-range arg.
@@ -944,6 +967,9 @@ static void provision_apply_live(const mrnv::Blob& b, bool do_dad) {
     lc.leaf_id = b.leaf_id; lc.layers[0].layer_id = b.leaf_id; lc.layers[0].routing_sf = b.routing_sf;
     lc.allowed_sf_bitmap = b.allowed_sf_bitmap; lc.layers[0].allowed_sf_bitmap = b.allowed_sf_bitmap;
     lc.duty_cycle = b.duty;  lc.lineage_id = b.lineage_id;
+    if (b.channel_active_fraction > 0.0f) lc.channel_active_fraction = b.channel_active_fraction;   // v16: 0 => keep the NodeConfig default
+    if (b.channel_min_interval_ms)        lc.channel_min_interval_ms  = b.channel_min_interval_ms;
+    if (b.dm_min_interval_ms)             lc.dm_min_interval_ms       = b.dm_min_interval_ms;
     lc.leaf_name_len = b.leaf_name_len;
     for (uint8_t i = 0; i < b.leaf_name_len && i < sizeof(lc.leaf_name); ++i) lc.leaf_name[i] = (char)b.leaf_name[i];
     g_node.reset_leaf_epoch_state(b.config_epoch);                          // config_epoch + _max_seen_epoch (fresh-lineage numbering)
@@ -1017,6 +1043,7 @@ static void handle_leave() {
     b.freq_mhz = keep_freq;                                                  // ...keep only freq
     b.bw_hz = (uint32_t)(LORA_BW * 1000.0); b.routing_sf = LORA_SF; b.cr = LORA_CR; b.tx_power = LORA_TX_POWER;
     b.beacon_ms = 900000; b.duty = (double)LORA_DUTY_CYCLE_PCT / 100.0;       // NodeConfig defaults (15 min, 10%)
+    b.channel_active_fraction = 0.125f; b.channel_min_interval_ms = P::channel_min_interval_ms; b.dm_min_interval_ms = P::dm_min_interval_ms;   // v16 anti-spam per-leaf defaults
     if (!mrnv::save(b)) { mrcon.println(F("> leave err nv_save_failed")); return; }
     provision_apply_live(b, /*do_dad=*/false);                              // unprovisioned + idle (no DAD)
     mrcon.print(F("> left network (kept freq=")); mrcon.print(keep_freq, 3); mrcon.println(F(") — idle; `join` to re-provision (live)"));
@@ -1037,7 +1064,7 @@ static void dump_help() {
     mrcon.println(F("[help] testsched:  testsend <dst> <run> [-a] [-e] -t ms1,ms2,… | testch <ch> <run> -t ms1,ms2,… | teststatus | testclear   (on-node scheduled workload, fires over the radio; arm once, read the inbox later)"));
     mrcon.println(F("[help] test:       route add <dest> <next_hop> <hops> [score_q4] | route del <dest>   (force/drop a route to stress routing)"));
     mrcon.println(F("[help] reset:      factory_reset confirm   (WIPE all flash — config + identity + peers + inbox — and reboot to factory)"));
-    mrcon.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack   (bool keys take on|off; identity via regen)"));
+    mrcon.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack active_fraction ch_min_ms dm_min_ms   (bool keys take on|off; active_fraction=0..1, ch_min_ms/dm_min_ms in ms; identity via regen)"));
     mrcon.println(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
     mrcon.println(F("[help] provision:  join <freq_MHz> <bw_kHz> <ctrl_sf> <level_id> | create <freq> <bw> <ctrl_sf> <level_id> <sf_list> <duty%> \"<name>\" | leave   (LIVE, no reboot: join a net / mint a managed leaf [mother] / reset & keep freq)"));
     mrcon.println(F("[help] gateway:    gateway l0=<leaf>:<node>:<ctrl_sf>:<data_sfs> l1=<leaf>:<node>:<ctrl_sf>:<data_sfs> [period=ms] [win0=ms:off] [win1=ms:off] [beacon=ms] [freq0=MHz] [freq1=MHz] [gateway_only=0|1]"));
@@ -1629,6 +1656,9 @@ void setup() {
         if (nv.gw_announce_duty_pct != 0)        cfg.gw_announce_duty_pct        = nv.gw_announce_duty_pct;        // v11 gateway noise control;
         if (nv.gw_announce_min_interval_ms != 0) cfg.gw_announce_min_interval_ms = nv.gw_announce_min_interval_ms; //   0 => keep the default
         if (nv.gw_herd_slack != 0)               cfg.gw_herd_slack              = nv.gw_herd_slack;               // v13 §3e herd-spread slack (0 => default 2)
+        if (nv.channel_active_fraction > 0.0f)   cfg.channel_active_fraction    = nv.channel_active_fraction;    // v16 anti-spam per-leaf tunables;
+        if (nv.channel_min_interval_ms != 0)     cfg.channel_min_interval_ms    = nv.channel_min_interval_ms;    //   0 => keep the NodeConfig default
+        if (nv.dm_min_interval_ms != 0)          cfg.dm_min_interval_ms         = nv.dm_min_interval_ms;
         cfg.lineage_id   = nv.lineage_id;        cfg.config_epoch = nv.config_epoch;                            // v14 R6.1 leaf-config membership
         cfg.leaf_name_len = (nv.leaf_name_len <= meshroute::protocol::leaf_name_max) ? nv.leaf_name_len : 0;
         for (uint8_t i = 0; i < cfg.leaf_name_len; ++i) cfg.leaf_name[i] = (char)nv.leaf_name[i];
@@ -1859,6 +1889,7 @@ static void persist_cfg_if_needed() {
         b.gw_herd_slack               = nc.gw_herd_slack;              // v13 §3e herd-spread slack
         b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch; b.leaf_name_len = nc.leaf_name_len;     // v14 R6.1 leaf-config
         for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
+        b.channel_active_fraction = nc.channel_active_fraction; b.channel_min_interval_ms = nc.channel_min_interval_ms; b.dm_min_interval_ms = nc.dm_min_interval_ms;   // v16 anti-spam per-leaf tunables
     }
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
     const uint16_t leased = (uint16_t)(cc + kChannelCtrLeaseMargin);   // persist the ctr AHEAD: a reboot in the un-flushed window resumes here (> any id used) -> no reuse
@@ -2079,6 +2110,7 @@ void loop() {
                 if (mrnv::load(b)) {
                     b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch;
                     b.allowed_sf_bitmap = nc.allowed_sf_bitmap; b.duty = nc.duty_cycle;
+                    b.channel_active_fraction = nc.channel_active_fraction; b.channel_min_interval_ms = nc.channel_min_interval_ms; b.dm_min_interval_ms = nc.dm_min_interval_ms;   // v16: persist the adopted anti-spam knobs (they're in the C-frame)
                     b.leaf_name_len = nc.leaf_name_len;
                     for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
                     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;

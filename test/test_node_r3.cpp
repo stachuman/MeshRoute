@@ -2583,8 +2583,8 @@ TEST_CASE("R6.1 F-gate — a divergent-config F is dropped + NOT relayed; matchi
     NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
     node.on_init(cfg);
     RxMeta meta{8.0f, -80.0f, 0, -1};
-    const uint16_t my_hash  = meshroute::leaf_config_hash(cfg.allowed_sf_bitmap, 0, nullptr, 0);
-    const uint16_t diverge  = meshroute::leaf_config_hash((1u << 7), 0, nullptr, 0);   // bitmap {7} != {12} -> different hash
+    const uint16_t my_hash  = meshroute::leaf_config_hash(cfg.allowed_sf_bitmap, 0, 1250, 10000, 3000, nullptr, 0);   // NodeConfig anti-spam defaults
+    const uint16_t diverge  = meshroute::leaf_config_hash((1u << 7), 0, 1250, 10000, 3000, nullptr, 0);   // bitmap {7} != {12} -> different hash
     CHECK(diverge != my_hash); CHECK(diverge != 0);
 
     auto count_rreq = [&]() { int c = 0; for (const auto& tf : hal.tx_frames) {
@@ -3793,7 +3793,9 @@ TEST_CASE("R6.1 peering filter — divergent leaf config is not peered; matching
     NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0;
     cfg.allowed_sf_bitmap = (1u << 12); cfg.duty_cycle = 0.01;       // bitmap {12}, duty 1%, name ""
     CHECK(A.on_init(cfg));
-    const uint32_t a_hash = meshroute::leaf_config_hash(cfg.allowed_sf_bitmap, meshroute::duty_to_bp(0.01), cfg.leaf_name, cfg.leaf_name_len);
+    const uint32_t a_hash = meshroute::leaf_config_hash(cfg.allowed_sf_bitmap, meshroute::duty_to_bp(0.01),
+        meshroute::frac_to_bp(cfg.channel_active_fraction), meshroute::ms_to_u16(cfg.channel_min_interval_ms),
+        meshroute::ms_to_u16(cfg.dm_min_interval_ms), cfg.leaf_name, cfg.leaf_name_len);   // must match cfg_config_hash()
 
     auto route_to = [](Node& n, uint8_t dest) {
         for (uint8_t i = 0; i < n.rt_count(); ++i) if (n.rt_at(i).dest == dest) return true;
@@ -3809,7 +3811,9 @@ TEST_CASE("R6.1 peering filter — divergent leaf config is not peered; matching
     };
 
     // (1) DIVERGENT config (bitmap {7} != {12}) -> different hash -> NOT peered.
-    const uint32_t diverge = meshroute::leaf_config_hash((1u << 7), meshroute::duty_to_bp(0.01), nullptr, 0);
+    const uint32_t diverge = meshroute::leaf_config_hash((1u << 7), meshroute::duty_to_bp(0.01),
+        meshroute::frac_to_bp(cfg.channel_active_fraction), meshroute::ms_to_u16(cfg.channel_min_interval_ms),
+        meshroute::ms_to_u16(cfg.dm_min_interval_ms), nullptr, 0);   // only the bitmap differs -> divergent hash
     CHECK(diverge != a_hash);
     feed(diverge, /*src*/ 2);
     CHECK_FALSE(route_to(A, 2));
@@ -3859,21 +3863,33 @@ TEST_CASE("C config frame — empty-sf_list joiner adopts on a C frame; hash mat
     J.mutable_config().lineage_id = 0xABCD;
     CHECK(J.config().allowed_sf_bitmap == 0);
 
+    // anti-spam v2: the mother provisions the 3 promoted knobs at non-default values -> the joiner must adopt them.
+    const uint16_t src_frac_bp = 2500;    // 0.25
+    const uint16_t src_ch_ms   = 15000;
+    const uint16_t src_dm_ms   = 4000;
     // a C frame addressed to the joiner: [cmd 0xB | leaf 0][src=2][dst=7] + body
     meshroute::CConfig cc{}; cc.allowed_sf_bitmap = src_bitmap; cc.duty_bp = meshroute::duty_to_bp(src_duty);
+    cc.active_fraction_bp = src_frac_bp; cc.ch_interval_ms = src_ch_ms; cc.dm_interval_ms = src_dm_ms;
     cc.config_epoch = src_epoch; cc.leaf_name_len = 3; for (int i = 0; i < 3; ++i) cc.leaf_name[i] = src_name[i];
-    uint8_t frame[3 + 16]; frame[0] = static_cast<uint8_t>((0xB << 4) | 0); frame[1] = 2; frame[2] = 7;
+    uint8_t frame[3 + 12 + 16]; frame[0] = static_cast<uint8_t>((0xB << 4) | 0); frame[1] = 2; frame[2] = 7;
     const size_t bn = meshroute::pack_c_config(cc, frame + 3, sizeof(frame) - 3);
     hj._now = 1000; J.on_recv(frame, 3 + bn, meta);
 
     CHECK(J.config().allowed_sf_bitmap == src_bitmap);     // sf_list adopted (was 0)
     CHECK(J.config().config_epoch == src_epoch);           // synced (epoch>0) -> participation gate lifts
     CHECK(J.config().leaf_name_len == 3);
+    // the 3 promoted anti-spam knobs adopted live into the joiner's NodeConfig
+    CHECK(J.config().channel_active_fraction == doctest::Approx(0.25f));
+    CHECK(J.config().channel_min_interval_ms == 15000u);
+    CHECK(J.config().dm_min_interval_ms == 4000u);
     CHECK(hj.count("leaf_config_adopted") >= 1);
-    // §5: the joiner's recomputed config_hash now EQUALS the source's -> no re-pull
-    const uint16_t src_hash = meshroute::leaf_config_hash(src_bitmap, meshroute::duty_to_bp(src_duty), src_name, 3);
+    // §5: the joiner's recomputed config_hash now EQUALS the source's -> no re-pull (the round-trip-through-the-gate invariant)
+    const uint16_t src_hash = meshroute::leaf_config_hash(src_bitmap, meshroute::duty_to_bp(src_duty),
+        src_frac_bp, src_ch_ms, src_dm_ms, src_name, 3);
     const uint16_t joiner_hash = meshroute::leaf_config_hash(J.config().allowed_sf_bitmap,
-        meshroute::duty_to_bp(J.config().duty_cycle), J.config().leaf_name, J.config().leaf_name_len);
+        meshroute::duty_to_bp(J.config().duty_cycle), meshroute::frac_to_bp(J.config().channel_active_fraction),
+        meshroute::ms_to_u16(J.config().channel_min_interval_ms), meshroute::ms_to_u16(J.config().dm_min_interval_ms),
+        J.config().leaf_name, J.config().leaf_name_len);
     CHECK(joiner_hash == src_hash);
 }
 
@@ -3924,7 +3940,7 @@ TEST_CASE("R6.3 LWW tiebreak — same-epoch diff-hash: lose to a higher key (pul
         TestHal h; Node n(h, /*id*/5, my_key);
         NodeConfig c; c.routing_sf = 7; c.leaf_id = 0; c.allowed_sf_bitmap = (1u << 7); c.duty_cycle = 0.01;
         c.lineage_id = 0xABCD; c.config_epoch = 4; n.on_init(c);
-        const uint16_t my_hash = meshroute::leaf_config_hash((1u << 7), 10000, nullptr, 0);   // matches n's config inputs
+        const uint16_t my_hash = meshroute::leaf_config_hash((1u << 7), 10000, 0, 0, 0, nullptr, 0);   // arbitrary base for the XOR-diverge below
         beacon_in b{}; b.leaf_id = 0; b.src = 2; b.key_hash32 = their_key;
         b.lineage_id = 0xABCD; b.config_epoch = 4;
         b.config_hash = static_cast<uint16_t>(my_hash ^ 0x5A5A);                              // guaranteed != my_hash, non-zero

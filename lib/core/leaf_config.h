@@ -25,22 +25,39 @@ constexpr uint16_t duty_to_bp(double duty_cycle) {
                                                        : static_cast<uint16_t>(duty_cycle * 10000.0 + 0.5));
 }
 constexpr double   bp_to_duty(uint16_t duty_bp) { return static_cast<double>(duty_bp) / 10000.0; }
+// Active-fraction: `channel_active_fraction` (0..1) rides the wire/hash as basis points (0.01% units), SAME encoding
+// as duty. 0.125 -> 1250. Quantized to the 0.01% step so the wire value is exact + the config_hash matches across nodes.
+constexpr uint16_t frac_to_bp(float f) {
+    return f <= 0.0f ? 0u : (f >= 1.0f ? 10000u : static_cast<uint16_t>(f * 10000.0f + 0.5f));
+}
+constexpr float    bp_to_frac(uint16_t bp) { return static_cast<float>(bp) / 10000.0f; }
+// Burst-floor intervals ride the wire/hash as u16 milliseconds DIRECTLY (10000, 3000 both fit u16). Clamp >65535 ms
+// defensively so an over-large operator value truncates to the max u16 rather than wrapping.
+constexpr uint16_t ms_to_u16(uint32_t ms) { return ms > 0xFFFFu ? 0xFFFFu : static_cast<uint16_t>(ms); }
 
 // R6.1 leaf-config fingerprint (spec §2): the misconfiguration gate's per-leaf hash. Hashed over the EXACT C-frame
-// wire forms (§5): u8 sf_list (sf_bitmap_to_wire) ‖ u16 duty_bp LE ‖ u8 leaf_name_len ‖ leaf_name. Taken as a LE u16
-// of the first 2 BLAKE2b-512 bytes (the project's "[:N]" convention). PURE — the emit path, the membership filter,
-// and the golden test all compute the same value. leaf_name_len is clamped to leaf_name_max (10).
+// wire forms (§5): u8 sf_list (sf_bitmap_to_wire) ‖ u16 duty_bp LE ‖ u16 active_fraction_bp LE ‖ u16 ch_interval_ms LE
+// ‖ u16 dm_interval_ms LE ‖ u8 leaf_name_len ‖ leaf_name. config_epoch is EXCLUDED (it's the LWW tiebreak, not identity).
+// Taken as a LE u16 of the first 2 BLAKE2b-512 bytes (the project's "[:N]" convention). PURE — the emit path, the
+// membership filter, and the golden test all compute the same value. leaf_name_len is clamped to leaf_name_max (10).
+// Anti-spam v2 promotion (2026-07-03): the 3 forced-delay/cap knobs (active_fraction_bp / ch_interval_ms /
+// dm_interval_ms) ARE hashed -> a mother that changes any of them re-fingerprints the leaf so joiners auto-resync.
 uint16_t leaf_config_hash(uint16_t allowed_sf_bitmap, uint16_t duty_bp,
+                          uint16_t active_fraction_bp, uint16_t ch_interval_ms, uint16_t dm_interval_ms,
                           const char* leaf_name, uint8_t leaf_name_len);
 
 // The `C` config frame body (cmd 0xB; the control-plane answer to a CONFIG_PULL — replaces the routed CONFIG_ANSWER).
-// Wire body (LE): [sf_list u8][duty_bp u16][config_epoch u16][leaf_name_len u8][leaf_name ...]. NO lineage_id on the
-// wire (it's the stable leaf identity, taken from the beacon the joiner heard). config_epoch IS on the wire (race-free
-// LWW adopt). Fixed prefix = 6 B + name. Max = 6 + leaf_name_max. The struct holds the INTERNAL allowed_sf_bitmap +
-// duty_bp; pack/parse convert the SF set to/from the u8 wire form.
+// Wire body (LE): [sf_list u8][duty_bp u16][active_fraction_bp u16][ch_interval_ms u16][dm_interval_ms u16]
+// [config_epoch u16][leaf_name_len u8][leaf_name ...]. NO lineage_id on the wire (it's the stable leaf identity, taken
+// from the beacon the joiner heard). config_epoch IS on the wire (race-free LWW adopt). Fixed prefix = 12 B + name.
+// Max = 12 + leaf_name_max. The struct holds the INTERNAL allowed_sf_bitmap + the bp/ms wire forms; pack/parse convert
+// the SF set to/from the u8 wire form.
 struct CConfig {
     uint16_t allowed_sf_bitmap = 0;   // internal form (bit n = SFn); pack converts to the u8 wire SF list
     uint16_t duty_bp = 0;             // 0.01% units (the wire + hash duty form)
+    uint16_t active_fraction_bp = 0;  // channel_active_fraction as 0.01% units (frac_to_bp)
+    uint16_t ch_interval_ms = 0;      // channel_min_interval_ms as u16 ms (ms_to_u16)
+    uint16_t dm_interval_ms = 0;      // dm_min_interval_ms as u16 ms (ms_to_u16)
     uint16_t config_epoch = 0;
     uint8_t  leaf_name_len = 0;
     char     leaf_name[protocol::leaf_name_max] = {};

@@ -25,6 +25,7 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 | 0x8 | F    | 9 B | route-find RREQ/RREP flood |
 | 0x9 | J    | 6 / 8 / 11 / 15 B | join family |
 | 0xA | M    | 7+n B | channel message (lean; leaf-scoped gossip) |
+| 0xB | C    | 15+n B | leaf-config answer (the CONFIG_PULL reply) |
 
 ---
 
@@ -46,7 +47,7 @@ Fixed **8-byte header + 6-byte leaf-config header (14 B, always present)**, then
 - **`heard_set_complete` (byte 3 b4):** the bidirectionality-census flag — set when this beacon carries the sender's **complete** `hops==1` heard-set, so a receiver *absent* from a complete page learns the link **to the sender is one-way** (present ⇒ confirmed bidirectional). Default 0; gateways (`n_layers==2`) and mobiles never set it. See `2026-06-29-asymmetric-link-aware-routing-design.md`.
 - **`wire_version` (byte 3 b3..0):** the 4-bit cross-version handshake (see Conventions). It occupies the byte-3 low nibble — **not** rsv.
 
-**Leaf-config header (6 B, bytes 8..13, FIXED — pre-schedule, never truncated; `parse_beacon` rejects a beacon shorter than `8 + 6`):** `lineage_id`(u16 LE) · `config_epoch`(u16 LE) · `config_hash`(u16 LE). The same-`leaf_id`-but-divergent-config membership filter: `config_hash = BLAKE2b(allowed_sf_bitmap ‖ duty_ppm ‖ leaf_name)[:2]`. The route-entry page is byte-budgeted *after* this header (overhead = `8 + 6 + schedule + seen-bitmap + ext`) so a full page never overflows the 151-B frame and the header is always written. See `docs/specs/2026-06-05-identity-leaf-membership-join-design.md`.
+**Leaf-config header (6 B, bytes 8..13, FIXED — pre-schedule, never truncated; `parse_beacon` rejects a beacon shorter than `8 + 6`):** `lineage_id`(u16 LE) · `config_epoch`(u16 LE) · `config_hash`(u16 LE). The same-`leaf_id`-but-divergent-config membership filter: `config_hash = BLAKE2b(sf_list ‖ duty_bp ‖ active_fraction_bp ‖ ch_interval_ms ‖ dm_interval_ms ‖ leaf_name_len ‖ leaf_name)[:2]` (the three anti-spam tunables joined the fingerprint 2026-07-03 — see the **C** frame). The route-entry page is byte-budgeted *after* this header (overhead = `8 + 6 + schedule + seen-bitmap + ext`) so a full page never overflows the 151-B frame and the header is always written. See `docs/specs/2026-06-05-identity-leaf-membership-join-design.md`.
 
 **Body order:** `[schedule block if has_schedule]` → `n_entries × route entry (4 B)` → `[32-B seen-bitmap if has_seen_bitmap]` → `[ext_len (1 B) + ext payload if has_ext]`.
 
@@ -231,7 +232,7 @@ Path size = `2 + n_layers` B. *(The ids are full 8-bit bytes — **not** nibble-
 
 ## Q — query · cmd 0x6 · 4 B (+ CONFIG_PULL / CHANNEL_PULL body)
 
-**Use** — a 1-hop query. `REQ_SYNC` (dest `0xFF`): a (re)joining or mobile node asks neighbours to beacon now. `CONFIG_PULL`: pull a leaf's full config for a `{lineage, epoch}`. `CHANNEL_PULL`: request the channel msgs whose ids a BCN digest showed missing. **Reply** — `REQ_SYNC` → a **BCN**; `CONFIG_PULL` → a routed DATA `CONFIG_ANSWER`; `CHANNEL_PULL` → the holder re-broadcasts each msg as **M (M_BROADCAST)**.
+**Use** — a 1-hop query. `REQ_SYNC` (dest `0xFF`): a (re)joining or mobile node asks neighbours to beacon now. `CONFIG_PULL`: pull a leaf's full config for a `{lineage, epoch}`. `CHANNEL_PULL`: request the channel msgs whose ids a BCN digest showed missing. **Reply** — `REQ_SYNC` → a **BCN**; `CONFIG_PULL` → a **C** frame (cmd 0xB, control-plane); `CHANNEL_PULL` → the holder re-broadcasts each msg as **M (M_BROADCAST)**.
 
 | Byte | Field | Description |
 |------|-------|-------------|
@@ -325,6 +326,28 @@ DENY **reason:** `1 = CONFLICT`, `2 = PENDING_CLAIM`, `3 = OWN_ID_DEFENSE`, `4 =
 | 7..  | payload        | by `flavor` (`public` = plaintext body; `group`/encrypted = `[nonce \| ciphertext \| Poly1305 tag 16 B]` — the deferred crypto slice) |
 
 **Header = 7 B.** The announcing RTS-M's `payload_len` carries this frame's **body** length (`n`); an overhearer sizes its data-SF retune window as `airtime(payload_len + 7)`. **Leaf-scoped — never bridged across leaves** (gateways are channel consumers/providers, never flood-bridges; see the channel-flood redesign spec). `channel_msg_id` is **BE** (distinct from the LE `key_hash32`/`ctr` elsewhere).
+
+---
+
+## C — leaf-config answer · cmd 0xB · 15+n B
+
+**Use** — the control-plane reply to a `Q:CONFIG_PULL`: a mother hands a joiner its full leaf config on the **routing SF**, with no RTS/CTS/data-SF handshake — so an empty-`sf_list` joiner (no data SF yet) can still bootstrap. Replaces the old routed DATA `CONFIG_ANSWER` (DATA TYPE 6, removed 2026-06-22). **Reply** — none; a lost C is re-sent when the joiner re-pulls. Adopted only if addressed to us on our leaf nibble.
+
+| Byte | Field | Description |
+| ---- | ----- | ----------- |
+| 0 | cmd \| leaf_id | bits 7..4 = `0xB`; bits 3..0 = leaf_id |
+| 1 | src | the answering mother's node_id |
+| 2 | dst | the joiner |
+| 3 | sf_list | allowed-SF set, u8 wire form (`sf_bitmap_to_wire`) |
+| 4..5 | duty_bp | duty cycle, 0.01 % units (LE) |
+| 6..7 | active_fraction_bp | **anti-spam v2** — `channel_active_fraction`, 0.01 % units (LE) |
+| 8..9 | ch_interval_ms | **anti-spam v2** — `channel_min_interval_ms`, ms (LE u16) |
+| 10..11 | dm_interval_ms | **anti-spam v2** — `dm_min_interval_ms`, ms (LE u16) |
+| 12..13 | config_epoch | LWW config version (LE) |
+| 14 | leaf_name_len | 0..`leaf_name_max` |
+| 15.. | leaf_name | the leaf name |
+
+**Body = 12 B fixed + name** (bytes 3.., the `pack_c_config` form). The **`config_hash`** carried in the BCN leaf-header (+ the F/J frames) is `BLAKE2b(sf_list ‖ duty_bp ‖ active_fraction_bp ‖ ch_interval_ms ‖ dm_interval_ms ‖ leaf_name_len ‖ leaf_name)[:2]` — the same wire forms in the same order (**not** `config_epoch`, which is the LWW tiebreak, not identity). A mother and a joiner must derive identical bytes or the joiner re-pulls forever. The three anti-spam fields were promoted from firmware constants to per-leaf config on 2026-07-03; the frame grew +6 B but `wire_version` was **not** bumped, so **every node on a leaf must run the same firmware** (a mixed old/new fleet would misparse). See [anti-spam.md](anti-spam.md).
 
 ---
 

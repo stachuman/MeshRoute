@@ -165,6 +165,11 @@ inline constexpr uint32_t budget_blind_exhausted_ms    = 300000;
 inline constexpr uint32_t neighbor_budget_tier_ttl_ms  = 300000;
 
 // ---- Anti-spam (P-class only; originator_max_per_window is T) --------------
+// The 5-min sliding window that ALL the anti-spam planes measure over: the DM per-sender airtime backstop, the
+// e2e-ack spoof-penalty TTL, AND the channel-cap duty basis D = duty_cycle * originator_window_ms (channel_duty_budget_ms).
+// ★ INVARIANT: channel_origin_window_ms (the per-origin channel-cap ledger's aging window, below) MUST equal this —
+// channel_cap_origin() prices C against THIS window while channel_origin_admit ages the ledger against THAT one; if
+// they ever diverge the computed cap and the enforced count desync. They are two names for the same 5-min window.
 inline constexpr uint32_t originator_window_ms        = 300000;
 inline constexpr float    originator_airtime_share    = 0.35f;  // 0.25->0.35: C++ delivers more -> higher per-sender airtime (s18 heaviest hit 77% of the old cap / 96% of the warn) -> bumped for headroom
 inline constexpr float    originator_airtime_warn_fraction = 0.8f;  // WARN (no drop) at 0.8x drop cap; Inc 3 carries it in the ACK warn bit
@@ -238,11 +243,24 @@ inline constexpr uint8_t  cap_parked_sends              = 8;       // send-by-ha
 // buffer + per-origin anti-spam + DATA-M ingest + send_channel origination.
 inline constexpr uint16_t cap_channel_buffer            = MR_CAP_CHANNEL_BUFFER;   // default 32 FIFO gossip entries (Lua dv:988) - reduction!
 inline constexpr uint16_t channel_msg_max_payload_bytes = 200;    // dv:989
-inline constexpr uint32_t channel_origin_window_ms      = 300000; // per-origin anti-spam window, 5 min (dv:997)
-// ---- Anti-spam v2 (2026-06-30 duty-channel-cap) --------------------------------
-// Per-origin channel burst floor (receiver+self enforced) and self DM burst floor. Seeds from the design spec.
-inline constexpr uint32_t channel_min_interval_ms = 10000;   // 10 s minimum spacing between an origin's floods
-inline constexpr uint32_t dm_min_interval_ms      = 3000;    // 3 s minimum spacing between own DM originations
+inline constexpr uint32_t channel_origin_window_ms      = 300000; // per-origin channel-cap ledger aging window, 5 min (dv:997). ★ MUST equal originator_window_ms (see the invariant note there) — channel_cap_origin() prices C over that window.
+// ---- Anti-spam v2 (2026-06-30 duty-channel-cap) — FORCED-DELAY burst floors ----------------------
+// Two per-origin minimum-spacing "burst floors". A new DISTINCT origination arriving sooner than its floor is
+// DEFERRED in place (NOT dropped) and the node emits send_blocked{reason:"min_interval", next_ms} so a trusted
+// companion holds + retries after next_ms instead of firing blind (spec §Companion feedback). They are the
+// user-visible "forced delays" of the anti-spam plane, distinct from the SF/mesh/duty per-origin *count* cap.
+//   • channel_min_interval_ms — the CHANNEL floor, enforced at BOTH sites: the receiver-hook channel_origin_admit
+//     (others' floods) and the do_send_channel self-gate (our own posts). Purpose: anti-flood-burst — bound one
+//     origin's gossip rate. ★ LOAD-BEARING COUPLING: over the 5-min originator window this floor structurally caps
+//     ledger recording at ~window/interval ≈ 30 distinct floods/origin/window — so it (not only cap_channel_origin_events)
+//     bounds L.n. Shrinking the floor or growing the window raises that ceiling; keep both in view before changing either.
+//   • dm_min_interval_ms — the OWN-DM floor, enforced in become_free (self only). Purpose: anti-per-keystroke — a user
+//     typing fast must not emit a DM per keystroke. ★ EXEMPT by DATA type: e2e-ack + rcmd never wait on this floor (a
+//     delivery-confirm that is throttled just makes the sender re-send — self-defeating; see the e2e-ack exemption).
+// These are the FACTORY DEFAULTS; the live values are the per-leaf NodeConfig fields of the same name (a mother
+// provisions them in the C config frame — see leaf_config.h), so a deployment can tune the forced delays.
+inline constexpr uint32_t channel_min_interval_ms = 10000;   // 10 s — default channel burst floor
+inline constexpr uint32_t dm_min_interval_ms      = 3000;    // 3 s  — default own-DM burst floor
 // MF7: array bound for ChannelOriginLedger.ev[] (Slice 3 removed the flat channel_origin_max_per_window cap; this const
 // carries the ledger sizing forward, and channel_origin_admit now enforces the duty-anchored channel_cap_origin()).
 inline constexpr uint8_t  cap_channel_origin_events = 20;    // distinct msgs/origin/window the ledger tracks (dv:998)

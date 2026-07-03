@@ -73,9 +73,13 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     uint16_t config_epoch;              // v14: monotonic config version
     uint8_t  leaf_name_len;            // v14: 0..meshroute::protocol::leaf_name_max
     uint8_t  leaf_name[16];            // v14: leaf_name bytes (cap = leaf_name_max = 16)
+    // v16: anti-spam v2 per-leaf tunables (promoted to leaf config). 0 => use the NodeConfig default at boot (an old/zeroed blob stays sane).
+    float    channel_active_fraction;    // v16: per-origin channel-cap fairness divisor (0 => default 0.125)
+    uint32_t channel_min_interval_ms;    // v16: channel burst floor ms (0 => default 10000)
+    uint32_t dm_min_interval_ms;         // v16: own-DM burst floor ms (0 => default 3000)
 };
 constexpr uint32_t kMagic   = 0x4D524331u;   // 'MRC1'
-constexpr uint16_t kVersion = 15;            // v15: channel_ctr persist (reboot id-reuse fix). v14: R6.1 leaf-config (lineage_id + config_epoch + leaf_name). v13: gw_herd_slack. v12: per-layer frequency (l1_freq_mhz). v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
+constexpr uint16_t kVersion = 16;            // v16: anti-spam per-leaf tunables (channel_active_fraction + the two burst floors). v15: channel_ctr persist (reboot id-reuse fix). v14: R6.1 leaf-config (lineage_id + config_epoch + leaf_name). v13: gw_herd_slack. v12: per-layer frequency (l1_freq_mhz). v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
                                              // block). v7: BLE companion policy. v6: role/topology (is_gateway/...). The Blob
                                              // grew, so every pre-v8 blob fails the `n == sizeof(out)` size check in load()
                                              // and is rejected -> the node re-provisions from defaults (BOTH boards — the

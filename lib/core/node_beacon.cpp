@@ -411,9 +411,12 @@ void Node::emit_beacon(const char* kind) {
 // R6.1: the config fingerprint over THIS node's ACTIVE-leaf config (activate_layer mirrors a gateway's per-layer
 // allowed_sf_bitmap into _cfg, so a gateway hashes its active leaf's SF set — matching that leaf's members).
 uint16_t Node::cfg_config_hash() const {
-    // §5: hash over the EXACT C-frame wire forms — duty as duty_bp (0.01% units), SF set as the u8 list (inside
-    // leaf_config_hash). A mother + a joiner MUST derive identical bytes here or the joiner re-pulls forever.
-    return leaf_config_hash(_cfg.allowed_sf_bitmap, duty_to_bp(_cfg.duty_cycle), _cfg.leaf_name, _cfg.leaf_name_len);
+    // §5: hash over the EXACT C-frame wire forms — duty as duty_bp (0.01% units), SF set as the u8 list, plus the
+    // anti-spam v2 knobs (active_fraction_bp / ch_interval_ms / dm_interval_ms), all inside leaf_config_hash. A mother
+    // + a joiner MUST derive identical bytes here or the joiner re-pulls forever.
+    return leaf_config_hash(_cfg.allowed_sf_bitmap, duty_to_bp(_cfg.duty_cycle),
+                            frac_to_bp(_cfg.channel_active_fraction), ms_to_u16(_cfg.channel_min_interval_ms),
+                            ms_to_u16(_cfg.dm_min_interval_ms), _cfg.leaf_name, _cfg.leaf_name_len);
 }
 
 void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {

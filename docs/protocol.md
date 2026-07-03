@@ -98,10 +98,13 @@ H-frame flood resolves an identity `key_hash32` → `node_id` (soft = any cache 
 
 ## 11. Anti-spam
 
-Self-measured airtime backstop: an originator that exceeds its per-sender airtime cap is warned (ACK `AIRTIME_WARN`
-→ back off) and its over-budget originations are dropped at ingestion; per-origin/window caps bound channel flooding.
-- **Source:** `node_mac_rx.cpp` (warn emit, ingestion caps) · `node_mac.cpp` (originator self-cap)
-- **Spec:** `docs/specs/2026-05-31-r4.4-originator-antispam-design.md`
+Airtime *fairness* layered on the duty-cycle governor: the duty plane bounds each node's **volume**, anti-spam adds **fairness** (no origin hogs the shared air) + **smoothness** (burst floors). Two planes, split by what a relay can see:
+- **Channel (group) messages** — a per-**cleartext-origin** cap = a fair share of the leaf's duty-bounded channel capacity `C = D/T_ch` among the active originators (SF- and mesh-aware, `∝ 1/N`), plus a 10-s spacing floor. Enforced at the receiver (drop the over-cap re-broadcast) and self-applied at origination. A dual-layer **gateway is exempt** — it bridges, never originates.
+- **Direct messages** — the plain duty budget + a per-**physical-sender** measured-airtime backstop at each relay (keys on the immediate sender, never the **sealed** e2e origin — so it works without seeing who a DM is from), plus a 3-s self-spacing floor. **E2E delivery-acks are exempt** from the backstop (throttling an ack is self-defeating), guarded by a verify-at-DATA anti-spoof.
+- **Companion** — an advisory `limits` query ("next send in N s" + live caps) and send-outcome feedback (`send_blocked` / `send_failed` / `channel_sent`) so the app paces itself.
+- **Tunables** (per-leaf, on the C frame): `channel_active_fraction`, `channel_min_interval_ms`, `dm_min_interval_ms`.
+- **Source:** `node_routing.cpp` (`channel_cap_origin`) · `node_channel.cpp` (channel admit + self-gate) · `node_mac_rx.cpp` (DM backstop + e2e-ack exempt/anti-spoof) · `node_mac.cpp` (DM floor)
+- **Spec:** `docs/superpowers/specs/2026-06-30-antispam-duty-channel-cap.md` · **user guide:** `docs/anti-spam.md`
 
 ---
 

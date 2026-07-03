@@ -108,6 +108,8 @@ public actor MockNodeLink: NodeLink {
             emit(readyLine(state: "whoami"))
         case "status":
             emit(statusLine())
+        case "duty":          // D27: a believable airtime-budget readout
+            emit(#"{"ev":"duty","pct":42,"avail_ms":0,"enabled":true}"#)
         case "cfg":
             if tokens.first == "set", tokens.count >= 3 {       // `cfg set <key> <val>` → apply, then echo cfg
                 let key = tokens[1], val = tokens[2]
@@ -221,7 +223,7 @@ public actor MockNodeLink: NodeLink {
     }
     private func readyLine(state: String) -> String {
         let synced = (mockLineage == 0 || mockEpoch > 0) ? "true" : "false"
-        return #"{"ev":"ready","id":\#(selfID),"key":"\#(selfHash.hex8)","name":"Mock \#(selfID)","pubkey":"\#(selfHash.hex8)\#(String(repeating: "0", count: 56))","leaf_id":0,"mode":"\#(state)","gateway":false,"routing_sf":7,"inbox_epoch":\#(inboxEpoch),"now_ms":\#(uptimeMs),"lineage":\#(mockLineage),"epoch":\#(mockEpoch)\#(leafField),"level":\#(mockLevel),"synced":\#(synced)}"#
+        return #"{"ev":"ready","id":\#(selfID),"key":"\#(selfHash.hex8)","name":"Mock \#(selfID)","pubkey":"\#(selfHash.hex8)\#(String(repeating: "0", count: 56))","leaf_id":0,"mode":"\#(state)","gateway":false,"routing_sf":7,"inbox_epoch":\#(inboxEpoch),"now_ms":\#(uptimeMs),"lineage":\#(mockLineage),"epoch":\#(mockEpoch)\#(leafField),"level":\#(mockLevel),"synced":\#(synced),"duty_pct":42,"duty_avail_ms":0}"#
     }
     private var leafField: String { (mockLineage != 0 && !mockLeaf.isEmpty) ? #","leaf":\#(jsonString(mockLeaf))"# : "" }
     private func configAdoptedLine() -> String {

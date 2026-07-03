@@ -6,11 +6,8 @@ import MeshRouteCore
 
 struct NodeView: View {
     @Environment(AppModel.self) private var model
-    @State private var resolveHex = ""
-    @State private var consoleInput = ""
-    @State private var simBody = "ping from a peer"
     @AppStorage("encryptDefault") private var encryptDefault = false   // shared with the compose lock toggle
-    @FocusState private var fieldFocused: Bool      // drives the keyboard "Done" dismiss (no other tappable area)
+    @State private var renameNode = ""              // rename-this-node field (Identity)
     @State private var showJoin = false             // leaf-provisioning sheets (R6 / D26)
     @State private var showCreate = false
     @State private var showLeaveConfirm = false
@@ -47,14 +44,18 @@ struct NodeView: View {
                         LabeledContent("Control SF", value: "\(id.routingSF)")
                         LabeledContent("Mode", value: id.mode)
                         LabeledContent("Gateway", value: id.gateway ? "yes" : "no")
+                        HStack {
+                            TextField("Rename this node", text: $renameNode)
+                                .autocorrectionDisabled().submitLabel(.done)
+                                .onSubmit { model.renameNode(renameNode); renameNode = "" }
+                            Button("Set") { model.renameNode(renameNode); renameNode = "" }
+                                .disabled(renameNode.trimmingCharacters(in: .whitespaces).isEmpty)
+                        }
                     }
                 }
 
-                // ---- live status + config + network (Theme D) ----
-                if let s = model.latestStatus { StatusSection(status: s) }
-                if let c = model.latestConfig { ConfigSection(cfg: c) }
                 if model.isConnected {
-                    // ---- leaf membership / join (R6 / D26) ----
+                    // ---- network: membership + duty + routes (R6/D26 · D27) ----
                     Section {
                         if let refusal = model.joinRefusal {
                             HStack(alignment: .top, spacing: 8) {
@@ -74,6 +75,7 @@ struct NodeView: View {
                                 Text("level \(lvl)").font(.caption2).foregroundStyle(.secondary)
                             }
                         }
+                        DutyGaugeRow()
                         Button { showJoin = true } label: { Label("Join network…", systemImage: "antenna.radiowaves.left.and.right") }
                         Button { showCreate = true } label: { Label("Create leaf…", systemImage: "plus.circle") }
                         if model.membership?.isManaged == true {
@@ -81,16 +83,14 @@ struct NodeView: View {
                                 Label("Leave network", systemImage: "rectangle.portrait.and.arrow.right")
                             }
                         }
-                    } header: {
-                        Text("Network membership")
-                    }
-
-                    Section {
                         NavigationLink { RoutesView() } label: {
-                            Label("Network · \(model.latestStatus?.routes ?? model.routes.count) routes",
+                            Label("Routes · \(model.latestStatus?.routes ?? model.routes.count)",
                                   systemImage: "point.3.connected.trianglepath.dotted")
                         }
+                    } header: {
+                        Text("Network")
                     }
+
                     // ---- security (E2E) ----
                     Section {
                         Toggle("Encrypt DMs by default", isOn: Binding(
@@ -103,56 +103,19 @@ struct NodeView: View {
                     }
                 }
 
-                // ---- diagnostics ----
-                Section("Diagnostics") {
-                    HStack {
-                        TextField("resolve hash (hex)", text: $resolveHex)
-                            .autocorrectionDisabled().textInputAutocapitalization(.never).monospaced()
-                            .focused($fieldFocused)
-                        Button("Resolve") {
-                            if let h = KeyHash(hex: resolveHex) { model.resolve(h); resolveHex = "" }
-                        }.disabled(KeyHash(hex: resolveHex) == nil)
-                    }
-                }
-
-                // ---- mock demo ----
-                if model.canSimulateInbound {
-                    Section("Mock demo") {
-                        TextField("incoming body", text: $simBody).focused($fieldFocused)
-                        Button("Simulate inbound DM from id 2") { model.simulateInbound(fromID: 2, body: simBody) }
-                    }
-                }
-
-                // ---- raw console ----
-                Section("Console") {
-                    HStack {
-                        TextField("raw line, e.g. send 2 hi", text: $consoleInput)
-                            .autocorrectionDisabled().textInputAutocapitalization(.never).monospaced()
-                            .focused($fieldFocused)
-                        Button("Send") { model.sendRaw(consoleInput); consoleInput = "" }
-                            .disabled(consoleInput.isEmpty || !model.isConnected)
-                    }
-                    if model.consoleLog.isEmpty {
-                        Text("No traffic yet.").font(.caption).foregroundStyle(.tertiary)
-                    } else {
-                        ForEach(Array(model.consoleLog.suffix(40).reversed())) { line in
-                            Text(line.text)
-                                .font(.caption.monospaced())
-                                .foregroundStyle(line.kind == .outgoing ? Color.accentColor : Color.primary)
-                        }
+                // ---- details & advanced (de-cluttered into a subscreen) ----
+                Section {
+                    NavigationLink { AdvancedNodeView() } label: {
+                        Label("Diagnostics & details", systemImage: "wrench.and.screwdriver")
                     }
                 }
             }
-            .navigationTitle("Node")
-            .scrollDismissesKeyboard(.interactively)   // swipe the list down to dismiss the keyboard too
+            .navigationTitle("Device")
+            .scrollDismissesKeyboard(.interactively)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { model.refreshNodeInfo() } label: { Image(systemName: "arrow.clockwise") }
                         .disabled(!model.isConnected)
-                }
-                ToolbarItemGroup(placement: .keyboard) {   // the explicit dismiss the screen lacked
-                    Spacer()
-                    Button("Done") { fieldFocused = false }
                 }
             }
             .onChange(of: model.isConnected) { _, connected in
@@ -341,5 +304,105 @@ struct CreateLeafSheet: View {
     private var isValid: Bool {
         freqValue != nil && levelValue != nil && dutyValue != nil && !dataSFs.isEmpty
             && !name.trimmingCharacters(in: .whitespaces).isEmpty
+    }
+}
+
+// MARK: - Duty gauge (D27) + Advanced/diagnostics subscreen (D28 de-clutter)
+
+/// The airtime-budget readout (D27) — a gauge that polls `duty` while it's on screen.
+struct DutyGaugeRow: View {
+    @Environment(AppModel.self) private var model
+    var body: some View {
+        Group {
+            if let d = model.latestDuty {
+                if d.enabled {
+                    VStack(alignment: .leading, spacing: 5) {
+                        HStack {
+                            Label("Airtime budget", systemImage: d.pct >= 100 ? "wifi.slash" : "wifi")
+                                .foregroundStyle(d.pct >= 100 ? Color.red : .primary)
+                            Spacer()
+                            Text(d.pct >= 100 ? "silent" : "\(d.pct)%")
+                                .foregroundStyle(d.pct >= 100 ? Color.red : .secondary).monospaced()
+                        }
+                        Gauge(value: Double(min(d.pct, 100)), in: 0...100) { EmptyView() }
+                            .gaugeStyle(.linearCapacity).tint(dutyTint(d.pct))
+                        if d.pct >= 100 && d.availMs > 0 {
+                            Text("can transmit again in ~\(max(1, d.availMs / 1000)) s")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                    }
+                } else {
+                    LabeledContent("Airtime budget", value: "unlimited")
+                }
+            } else {
+                LabeledContent("Airtime budget", value: "—")
+            }
+        }
+        .task(id: model.isConnected) {   // poll `duty` while this row is on screen + connected (D27)
+            while !Task.isCancelled && model.isConnected {
+                model.refreshDuty()
+                try? await Task.sleep(for: .seconds((model.latestDuty?.pct ?? 0) >= 100 ? 3 : 12))
+            }
+        }
+    }
+    private func dutyTint(_ pct: Int) -> Color { pct >= 100 ? .red : (pct >= 80 ? .orange : .green) }
+}
+
+/// Node telemetry (status/config), the resolve tool, the mock demo, and the raw console — moved off the main
+/// Device screen to de-clutter it (spec §4).
+struct AdvancedNodeView: View {
+    @Environment(AppModel.self) private var model
+    @State private var resolveHex = ""
+    @State private var consoleInput = ""
+    @State private var simBody = "ping from a peer"
+    @FocusState private var fieldFocused: Bool
+
+    var body: some View {
+        List {
+            if let s = model.latestStatus { StatusSection(status: s) }
+            if let c = model.latestConfig { ConfigSection(cfg: c) }
+
+            Section("Diagnostics") {
+                HStack {
+                    TextField("resolve hash (hex)", text: $resolveHex)
+                        .autocorrectionDisabled().textInputAutocapitalization(.never).monospaced()
+                        .focused($fieldFocused)
+                    Button("Resolve") {
+                        if let h = KeyHash(hex: resolveHex) { model.resolve(h); resolveHex = "" }
+                    }.disabled(KeyHash(hex: resolveHex) == nil)
+                }
+            }
+
+            if model.canSimulateInbound {
+                Section("Mock demo") {
+                    TextField("incoming body", text: $simBody).focused($fieldFocused)
+                    Button("Simulate inbound DM from id 2") { model.simulateInbound(fromID: 2, body: simBody) }
+                }
+            }
+
+            Section("Console") {
+                HStack {
+                    TextField("raw line, e.g. send 2 \"hi\"", text: $consoleInput)
+                        .autocorrectionDisabled().textInputAutocapitalization(.never).monospaced()
+                        .focused($fieldFocused)
+                    Button("Send") { model.sendRaw(consoleInput); consoleInput = "" }
+                        .disabled(consoleInput.isEmpty || !model.isConnected)
+                }
+                if model.consoleLog.isEmpty {
+                    Text("No traffic yet.").font(.caption).foregroundStyle(.tertiary)
+                } else {
+                    ForEach(Array(model.consoleLog.suffix(40).reversed())) { line in
+                        Text(line.text).font(.caption.monospaced())
+                            .foregroundStyle(line.kind == .outgoing ? Color.accentColor : Color.primary)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Diagnostics & details")
+        .navigationBarTitleDisplayMode(.inline)
+        .scrollDismissesKeyboard(.interactively)
+        .toolbar {
+            ToolbarItemGroup(placement: .keyboard) { Spacer(); Button("Done") { fieldFocused = false } }
+        }
     }
 }

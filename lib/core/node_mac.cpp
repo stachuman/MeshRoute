@@ -394,8 +394,8 @@ void Node::become_free() {
         const bool exempt_type = (pt.type == DATA_TYPE_E2E_ACK) || (pt.type == DATA_TYPE_REMOTE_CMD)
                               || (pt.type == DATA_TYPE_REMOTE_RESP);
         if (pt.origin == _node_id && !pt.is_forward && !pt.is_channel_m && !exempt_type
-            && _last_dm_origin_ms != 0 && now - _last_dm_origin_ms < protocol::dm_min_interval_ms) {
-            const uint64_t until = _last_dm_origin_ms + protocol::dm_min_interval_ms;
+            && _last_dm_origin_ms != 0 && now - _last_dm_origin_ms < _cfg.dm_min_interval_ms) {
+            const uint64_t until = _last_dm_origin_ms + _cfg.dm_min_interval_ms;
             pt.next_attempt_ms = until;                         // defer in place
             const uint32_t next_ms = static_cast<uint32_t>(until - now);
             MR_EMIT("send_blocked", EF_S("kind", "dm"), EF_S("reason", "min_interval"),
@@ -814,8 +814,8 @@ Node::LimitsSnapshot Node::limits_snapshot() const {
     s.n            = rt_count();
     s.ch_sf        = max_data_sf();
     s.ch_cap       = channel_cap_origin();
-    s.ch_min_ms    = protocol::channel_min_interval_ms;
-    s.dm_min_ms    = protocol::dm_min_interval_ms;
+    s.ch_min_ms    = _cfg.channel_min_interval_ms;
+    s.dm_min_ms    = _cfg.dm_min_interval_ms;
     s.duty_ms      = channel_duty_budget_ms();                            // 5-min D basis (0 = duty disabled), MF1
     s.duty_used_ms = static_cast<uint32_t>(_hal.airtime_used_ms(protocol::originator_window_ms));
     // C (channel ceiling): the SAME helper channel_cap_origin() uses (0 when duty disabled -> legacy-flat-cap regime).
@@ -837,16 +837,16 @@ Node::LimitsSnapshot Node::limits_snapshot() const {
     // ch_next_ms: the 10s channel burst-floor remaining (mirrors the self-gate's _last_channel_origin_ms check),
     // then let duty recovery dominate when it is larger. On a fresh node both are 0 -> ready now.
     uint32_t ch_next = 0;
-    if (_last_channel_origin_ms != 0 && now - _last_channel_origin_ms < protocol::channel_min_interval_ms)
-        ch_next = static_cast<uint32_t>(protocol::channel_min_interval_ms - (now - _last_channel_origin_ms));
+    if (_last_channel_origin_ms != 0 && now - _last_channel_origin_ms < _cfg.channel_min_interval_ms)
+        ch_next = static_cast<uint32_t>(_cfg.channel_min_interval_ms - (now - _last_channel_origin_ms));
     if (ds.avail_ms > ch_next) ch_next = ds.avail_ms;                    // duty recovery dominates when silent
     s.ch_next_ms = ch_next;
 
     // dm_next_ms: the 3s DM burst-floor remaining (mirrors the node_mac DM self-throttle's _last_dm_origin_ms check),
     // then duty recovery. Fresh node -> 0.
     uint32_t dm_next = 0;
-    if (_last_dm_origin_ms != 0 && now - _last_dm_origin_ms < protocol::dm_min_interval_ms)
-        dm_next = static_cast<uint32_t>(protocol::dm_min_interval_ms - (now - _last_dm_origin_ms));
+    if (_last_dm_origin_ms != 0 && now - _last_dm_origin_ms < _cfg.dm_min_interval_ms)
+        dm_next = static_cast<uint32_t>(_cfg.dm_min_interval_ms - (now - _last_dm_origin_ms));
     if (ds.avail_ms > dm_next) dm_next = ds.avail_ms;
     s.dm_next_ms = dm_next;
     return s;

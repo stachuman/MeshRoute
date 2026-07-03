@@ -163,6 +163,9 @@ inline void mr_trace_frame(bool is_rx, const uint8_t* b, size_t n, int sf,
                       if (parse_c_config(b + 3, n - 3, cc)) {
                           Serial.print(F(" sf=")); Serial.print(static_cast<unsigned>(sf_bitmap_to_wire(cc.allowed_sf_bitmap)), HEX);
                           Serial.print(F(" duty_bp=")); Serial.print(cc.duty_bp);
+                          Serial.print(F(" frac_bp=")); Serial.print(cc.active_fraction_bp);
+                          Serial.print(F(" chI=")); Serial.print(cc.ch_interval_ms);
+                          Serial.print(F(" dmI=")); Serial.print(cc.dm_interval_ms);
                           Serial.print(F(" epoch=")); Serial.print(cc.config_epoch);
                           Serial.print(F(" name_len=")); Serial.print(static_cast<unsigned>(cc.leaf_name_len));
                       }

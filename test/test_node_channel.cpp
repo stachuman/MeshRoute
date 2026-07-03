@@ -316,6 +316,28 @@ TEST_CASE("Slice2 — channel_origin_admit: a too-soon (<10s) 2nd flood from an 
     CHECK(hal.count("channel_min_interval_drop") == 1);         // still no new interval drop (the dup path bypasses the floor)
 }
 
+TEST_CASE("B1 — channel_origin_admit caps recording at the ledger bound even when the policy cap exceeds it (no ev[] heap-OOB)") {
+    // Regression for the 2026-07-02 gate BLOCKER: with duty ON + a cheap flood SF, the POLICY cap channel_cap_origin()
+    // = C/N_active reaches ~32 at SF7 while the per-origin ledger ChannelOriginLedger.ev[] holds only 20. Pre-fix,
+    // admit recorded with `if (L.n < cap=32) L.ev[L.n++]` -> once L.n passed 20 it wrote past ev[19] (heap overflow,
+    // latent b/c sims run duty-off + no ASAN). The admit now clamps the enforced count to the array bound.
+    TestHal hal; Node node(hal, /*id=*/2, 0xBEEFu);
+    NodeConfig cfg = basic_cfg();
+    cfg.duty_cycle        = 0.01;                               // duty ON -> the SF/mesh formula, not the flat legacy cap
+    cfg.allowed_sf_bitmap = (1u << 7);                          // SF7 -> cheapest flood -> raw C ≈ 32 > the 20-entry ledger
+    node.on_init(cfg);
+    // The OOB PRECONDITION: rt_count()==0 -> N_active==1 -> the policy cap == C (≈32) which EXCEEDS the ledger bound.
+    CHECK(node.channel_cap_origin() > protocol::cap_channel_origin_events);
+    // Drive MORE distinct floods than the ledger holds, each spaced >= the 10s burst floor so they RECORD. The admit
+    // must cap recording at cap_channel_origin_events (ev[]'s size); without the clamp, L.ev[20++] overruns the array.
+    int admitted = 0;
+    for (int k = 0; k < protocol::cap_channel_origin_events + 8; ++k) {
+        hal._now = static_cast<uint64_t>(k + 1) * protocol::channel_min_interval_ms;   // >=10s apart -> passes the floor
+        if (node.channel_origin_admit(9, (uint32_t(9) << 24) | static_cast<uint32_t>(k))) ++admitted;
+    }
+    CHECK(admitted == protocol::cap_channel_origin_events);     // capped at the array bound; the rest dropped, no ev[] overrun
+}
+
 TEST_CASE("Slice2 — do_send_channel self-gates own posts at the cap + the 10s floor; no self_originate_observe cap") {
     TestHal hal; Node node(hal, /*id=*/3, 0x1234ABCDu);
     NodeConfig cfg = basic_cfg(); node.on_init(cfg);           // duty disabled -> flat count cap; the interval is the near gate

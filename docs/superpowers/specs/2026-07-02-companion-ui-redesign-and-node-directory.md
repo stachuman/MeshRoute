@@ -133,7 +133,7 @@ Proposed shape (to finalize with the node agent): a `nodes` command → a stream
 
 ## 7. Phasing
 
-- **Phase 1 (app-only): shell + directory spine + D27.** 4-tab restructure · Device de-clutter · `NodeEntity` + migration · Mesh **List** from have-now sources · duty gauge. *No firmware dependency.*
+- **Phase 1 (app-only): shell + directory spine + D27. ✅ DONE 2026-07-02.** 4-tab shell (`Messages · Contacts · Mesh · Device`) · unified `NodeEntity` + `ContactEntity→NodeEntity` migration (a contact = a named node; heard nodes are directory rows) · **Mesh** tab = the directory List (filter All/Contacts/Reachable + search) + a node-detail (message/rename/resolve) · **Device** de-cluttered (Connection · Identity+rename · Network[membership+**duty gauge**+routes] · Security · a *Diagnostics & details* subscreen) · **D27** duty gauge polling on screen. 84 wire tests, app builds. *Sources wired now: contacts, DM senders, resolves. Deferred: route-sourced rows (the §8.1 pseudo-id merge).*
 - **Phase 2 (app-only): Map v1 + node detail + Settings.** Fixed-node map + bearing fallback · node-detail screen (verify/block/rename/rcmd) · Settings section.
 - **Phase 3 (firmware-gated): the rich mesh.** §6.1 position broadcast + §6.2 known-nodes table → whole-mesh map/fleet · then proactive **alerts** (battery-low / duty-exhausted / peer-dead) as a follow-on.
 

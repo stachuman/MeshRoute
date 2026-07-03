@@ -190,7 +190,7 @@ A settled, healthy network therefore goes remarkably quiet: it speaks only when 
 <details>
 <summary><b>↓ deeper — the actual thresholds</b></summary>
 
-The duty-cycle tiers engage at roughly **50%** (strained), **80%** (critical), and **95%** (exhausted) of the budget, each imposing a longer enforced-silence window as it escalates. An originator is held to about a **quarter** of the shared airtime over a five-minute window, with repeat sends de-duplicated within ~10 seconds so a retry is not counted as new traffic. Triggered beacons keep a minimum gap of a couple of minutes between fires, jittered by a few seconds to break up synchrony.
+The duty-cycle tiers engage at roughly **50%** (strained), **80%** (critical), and **95%** (exhausted) of the budget, each imposing a longer enforced-silence window as it escalates. Channel (group) messages carry the tightest limit — each flood costs the *whole* leaf, so a sender gets a fair share of the leaf's duty-bounded channel capacity (fewer as the mesh grows or the SF rises), with a 10-second floor between them; direct messages ride the plain duty budget plus a per-neighbour backstop and a 3-second floor ([details](anti-spam.md)). Triggered beacons keep a minimum gap of a couple of minutes between fires, jittered by a few seconds to break up synchrony.
 </details>
 
 Put together, that is the whole point. Flooding treats airtime as free and finds out otherwise; MeshRoute treats it as a budget and manages it at every layer — the radio listens first, the node rations its own duty cycle, routing whispers only its changes, and no single talker takes more than its share. That discipline is exactly what lets a MeshRoute network stay usable where a flood would collapse: dense, busy, and real.

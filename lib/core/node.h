@@ -148,6 +148,12 @@ struct NodeConfig {
     // per-origin channel cap's 1/N sharing (N_active = max(1, floor(frac * rt_count()))). A deployment knob, NOT a wire
     // const. Seed 0.125. NOTE: N_active floors at 1, so this is INERT for rt_count() < 8.
     float    channel_active_fraction = 0.125f;
+    // Anti-spam v2 forced-delay burst floors (promoted to per-leaf provisioned config 2026-07-03). Factory defaults =
+    // the protocol_constants of the same name; a mother provisions them in the C config frame (leaf_config.{h,cpp}) and
+    // they ARE in the config_hash (a change re-fingerprints -> joiners auto-resync). Enforced live (the MAC re-reads
+    // these each use): channel floor at channel_origin_admit + do_send_channel; DM floor in become_free + issue_send.
+    uint32_t channel_min_interval_ms = protocol::channel_min_interval_ms;   // 10 s — per-origin channel burst floor
+    uint32_t dm_min_interval_ms      = protocol::dm_min_interval_ms;        //  3 s — own-DM burst floor
     // Gateway noise control: a gateway is REACTIVE-ONLY in steady state (beacons on dirty state / REQ_SYNC only).
     // Its sole unsolicited steady-state announcement is a slow safety-net heartbeat, allowed ONLY when BOTH hold:
     //   (a) current rolling airtime < gw_announce_duty_pct % of the duty budget (headroom), and
