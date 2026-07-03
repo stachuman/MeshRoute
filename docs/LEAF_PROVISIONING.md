@@ -13,8 +13,8 @@ The simple front-door is **three verbs — `join` / `create` / `leave` — that 
 
 | goal | command |
 |---|---|
-| **join** an existing network | `join <freq_MHz> <bw_kHz> <ctrl_sf> <level_id>` |
-| **create** a new managed leaf (this node = mother) | `create <freq_MHz> <bw_kHz> <ctrl_sf> <level_id> <sf_list> <duty%> "<leaf name>"` |
+| **join** an existing network | `join level=<1..255> freq=<MHz> bw=<kHz> sf=<ctrl_sf>` |
+| **create** a new managed leaf (this node = mother) | `create level=<1..255> freq=<MHz> bw=<kHz> sf=<ctrl_sf> sf_list=<7,9> duty=<pct> name="<leaf name>" [active_fraction=] [ch_min_ms=] [dm_min_ms=]` |
 | **leave** the network (reset, keep only freq) | `leave` |
 
 All three persist to NV **and take effect immediately** — the radio re-tunes, the node re-DADs, the config applies, with no reboot.
@@ -24,13 +24,14 @@ All three persist to NV **and take effect immediately** — the radio re-tunes, 
 ## 1. Join an existing network
 
 ```
-join 868.0 250 8 2
+join level=2 freq=868.0 bw=250 sf=8
 ```
+(Named `key=value` args — order-free — the same grammar as `gateway`. `level` is the 1..255 network selector; the on-wire leaf nibble is `level & 0x0F`. `bw` is kHz and **may be fractional** — `bw=62.5` seeds 62500 Hz, also 41.67 / 31.25 / 20.83 … `duty` is a percent and **may be fractional too** — `duty=0.1` for a tight EU sub-band.)
 - Sets the radio floor live (freq / bw / control SF / leaf nibble = `level_id & 0x0F`), drops any old id, and re-DADs a fresh id (normal nodes pick **17..254**; 1..16 are reserved for gateways).
 - It then hears the leaf's managed beacon (`leaf_id == mine`, `lineage_id ≠ 0`), **auto-pulls the leaf config** (data SFs / duty / name), adopts it live, and persists it.
 - Nothing else to do. `status` shows the adopted lineage/epoch once synced; a `send` before sync returns `send_failed{reason:joining}` (transient — retry once synced).
 
-> If the leaf is **unmanaged** (nobody ran `create`/`leaf create`), there is nothing to pull — the node runs on its manual floor (no data SFs until you set them).
+> If the leaf is **unmanaged** (nobody ran `create`), there is nothing to pull — the node runs on its manual floor (no data SFs until you set them).
 
 > **If a join is refused** the node prints (and the companion shows) a `JOIN REFUSED` line and stays unprovisioned:
 > - `network wire vN, this node vM — update firmware` — the network runs an incompatible wire protocol version; reflash to match.
@@ -39,9 +40,10 @@ join 868.0 250 8 2
 ## 2. Create a fresh leaf — the first "mother" node
 
 ```
-create 868.0 250 8 2 7,9 10 "north field"
+create level=2 freq=868.0 bw=250 sf=8 sf_list=7,9 duty=10 name="north field"
 ```
 - Everything `join` does, **plus** the leaf's distributed config: data SFs (`7,9`), duty (`10` = 10 %, stored as the 0..1 fraction), and the quoted leaf name (spaces allowed).
+- The three **anti-spam knobs** — `active_fraction` / `ch_min_ms` / `dm_min_ms` — are **optional**; omit them and the leaf gets the protocol **defaults** (`0.125` / `10000` / `3000`), *never* inherited from this node's current settings. Add e.g. `… active_fraction=0.2 dm_min_ms=2000` to override. (See [anti-spam.md](anti-spam.md).)
 - **Mints a managed lineage** (random, never 0) at **epoch 1** → this node becomes the leaf mother. Every node that `join`s the same `level_id` later pulls *this* config.
 - Pin a fixed id with `cfg set node_id <17..254>` if you want one; otherwise it auto-DADs.
 
@@ -49,7 +51,7 @@ create 868.0 250 8 2 7,9 10 "north field"
 
 ```
 leave
-join 869.4 125 7 5
+join level=5 freq=869.4 bw=125 sf=7
 ```
 - **`leave`** wipes membership to default (lineage / epoch / node id / data config) but **keeps the frequency**, leaving the node unprovisioned and idle.
 - Then `join <B…>` rendezvouses on network B and pulls B's config.
@@ -64,10 +66,9 @@ The verbs are the front-door over the granular knobs, which still exist (fine-tu
 | command | effect |
 |---|---|
 | `cfg set freq <MHz>` / `control_sf <sf>` / `leaf_id <0..15>` / `bw <kHz>` / `cr <5..8>` | the manual radio/control floor (reboot) |
-| `cfg set sf_list 7,9` / `cfg set duty 0.1` | data config (on a managed node a write bumps the leaf epoch → propagates) |
+| `cfg set sf_list 7,9` / `cfg set duty 0.1` | leaf data config (a managed write bumps the leaf epoch → propagates on reboot) |
+| `cfg set active_fraction 0.2` / `ch_min_ms 8000` / `dm_min_ms 2000` / `leaf_name "…"` | anti-spam knobs + the **leaf** name (a managed write bumps the epoch → propagates **live**). NB `cfg set name` is the **node** identity name — a different field. |
 | `cfg set node_id <0\|17..254>` | pin an id (0 = auto-DAD); gateways use 1..16 |
-| `leaf create` | mint a managed lineage → become a mother (epoch 1) — kept as an alias of `create`'s minting step |
-| `leaf name <text>` | set the leaf name (part of the config fingerprint) |
 | `regen` | mint a new node identity (forces a fresh DAD; does NOT clear the lineage — use `leave` for that) |
 | `status` · `cfg` · `whoami` | inspect id / level_id / lineage / epoch / radio |
 | `reboot` | apply persisted `cfg set` changes |

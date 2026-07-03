@@ -412,11 +412,11 @@ final class AppModel {
     func requestPubkey(_ hash: KeyHash) { sendCommand(.reqPubkey(hash)) }
 
     // ---- leaf provisioning (R6 / D26): live, no reboot ----
-    func joinNetwork(freqMHz: Double, bwKHz: Int, ctrlSF: Int, level: Int) {
+    func joinNetwork(freqMHz: Double, bwKHz: Double, ctrlSF: Int, level: Int) {
         joinRefusal = nil; joinInFlight = true
         sendCommand(.join(freqMHz: freqMHz, bwKHz: bwKHz, ctrlSF: ctrlSF, level: level))
     }
-    func createLeaf(freqMHz: Double, bwKHz: Int, ctrlSF: Int, level: Int, sfList: String, dutyPercent: Int, name: String) {
+    func createLeaf(freqMHz: Double, bwKHz: Double, ctrlSF: Int, level: Int, sfList: String, dutyPercent: Double, name: String) {
         joinRefusal = nil; joinInFlight = true
         sendCommand(.createLeaf(freqMHz: freqMHz, bwKHz: bwKHz, ctrlSF: ctrlSF, level: level,
                                 sfList: sfList, dutyPercent: dutyPercent, name: name))

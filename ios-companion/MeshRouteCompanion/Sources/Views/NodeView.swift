@@ -191,7 +191,7 @@ struct ConnectionPill: View {
 
 // MARK: - Leaf provisioning sheets (R6 / D26)
 
-private let kBandwidthsKHz = [125, 250, 500]
+private let kBandwidthsKHz: [Double] = [7.81, 10.42, 15.63, 20.83, 31.25, 41.67, 62.5, 125, 250, 500]   // SX126x LoRa BWs (kHz); narrow BWs are FRACTIONAL
 private let kSpreadingFactors = Array(7...12)
 
 /// Join an existing managed leaf: set the radio floor, auto-DAD an id, auto-pull the leaf's data config.
@@ -200,7 +200,7 @@ struct JoinNetworkSheet: View {
     @Environment(\.dismiss) private var dismiss
     var currentFreqMHz: Double?
     @State private var freq = ""
-    @State private var bwKHz = 125
+    @State private var bwKHz: Double = 125
     @State private var ctrlSF = 7
     @State private var level = ""
 
@@ -211,13 +211,13 @@ struct JoinNetworkSheet: View {
                     LabeledContent("Frequency (MHz)") {
                         TextField("868.0", text: $freq).keyboardType(.decimalPad).multilineTextAlignment(.trailing)
                     }
-                    Picker("Bandwidth (kHz)", selection: $bwKHz) { ForEach(kBandwidthsKHz, id: \.self) { Text("\($0)").tag($0) } }
+                    Picker("Bandwidth (kHz)", selection: $bwKHz) { ForEach(kBandwidthsKHz, id: \.self) { Text(Command.freqToken($0)).tag($0) } }
                     Picker("Control SF", selection: $ctrlSF) { ForEach(kSpreadingFactors, id: \.self) { Text("SF\($0)").tag($0) } }
                     LabeledContent("Level (1–255)") {
                         TextField("2", text: $level).keyboardType(.numberPad).multilineTextAlignment(.trailing)
                     }
                 }
-                Section { Text("Sets the rendezvous floor and joins — the node auto-pulls the leaf's data SFs, duty, and name.")
+                Section { Text("Sets the rendezvous floor and joins — the node auto-pulls the leaf's data SFs, duty, name, and rate limits.")
                     .font(.caption).foregroundStyle(.secondary) }
             }
             .scrollDismissesKeyboard(.interactively)
@@ -246,7 +246,7 @@ struct CreateLeafSheet: View {
     var currentFreqMHz: Double?
     @State private var name = ""
     @State private var freq = ""
-    @State private var bwKHz = 125
+    @State private var bwKHz: Double = 125
     @State private var ctrlSF = 7
     @State private var level = ""
     @State private var dataSFs: Set<Int> = [7, 9]
@@ -262,7 +262,7 @@ struct CreateLeafSheet: View {
                     LabeledContent("Frequency (MHz)") {
                         TextField("868.0", text: $freq).keyboardType(.decimalPad).multilineTextAlignment(.trailing)
                     }
-                    Picker("Bandwidth (kHz)", selection: $bwKHz) { ForEach(kBandwidthsKHz, id: \.self) { Text("\($0)").tag($0) } }
+                    Picker("Bandwidth (kHz)", selection: $bwKHz) { ForEach(kBandwidthsKHz, id: \.self) { Text(Command.freqToken($0)).tag($0) } }
                     Picker("Control SF", selection: $ctrlSF) { ForEach(kSpreadingFactors, id: \.self) { Text("SF\($0)").tag($0) } }
                     LabeledContent("Level (1–255)") {
                         TextField("2", text: $level).keyboardType(.numberPad).multilineTextAlignment(.trailing)
@@ -275,9 +275,9 @@ struct CreateLeafSheet: View {
                             set: { if $0 { dataSFs.insert(sf) } else { dataSFs.remove(sf) } }))
                     }
                     LabeledContent("Duty cycle (%)") {
-                        TextField("10", text: $duty).keyboardType(.numberPad).multilineTextAlignment(.trailing)
+                        TextField("10", text: $duty).keyboardType(.decimalPad).multilineTextAlignment(.trailing)   // fractional ok (0.1 = tight EU sub-band)
                     }
-                } header: { Text("Data plane") } footer: { Text("Data SFs the leaf uses (e.g. 7 + 9); duty is the legal airtime budget.") }
+                } header: { Text("Data plane") } footer: { Text("Data SFs the leaf uses (e.g. 7 + 9); duty is the legal airtime budget. The leaf's message rate-limits use protocol defaults (shared by every member).") }
             }
             .scrollDismissesKeyboard(.interactively)
             .navigationTitle("Create leaf").navigationBarTitleDisplayMode(.inline)
@@ -299,7 +299,7 @@ struct CreateLeafSheet: View {
     }
     private var freqValue: Double? { Double(freq).flatMap { $0 > 0 ? $0 : nil } }
     private var levelValue: Int? { Int(level).flatMap { (1...255).contains($0) ? $0 : nil } }
-    private var dutyValue: Int? { Int(duty).flatMap { (1...100).contains($0) ? $0 : nil } }
+    private var dutyValue: Double? { Double(duty).flatMap { $0 > 0 && $0 <= 100 ? $0 : nil } }   // fractional % (0.1..100)
     private var sfListString: String { dataSFs.sorted().map(String.init).joined(separator: ",") }
     private var isValid: Bool {
         freqValue != nil && levelValue != nil && dutyValue != nil && !dataSFs.isEmpty

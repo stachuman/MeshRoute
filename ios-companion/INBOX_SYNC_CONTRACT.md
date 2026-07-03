@@ -342,14 +342,18 @@ A node that refuses/can't join surfaces it (today a wire mismatch is telemetry-o
 - `reason` ∈ `wire_version · leaf_full` (extensible). App: **`wire_version`** → a **blocking** "update firmware to match the network (wire v\<their_ver\>)" — the node will NOT join until updated; **`leaf_full`** → "this leaf is full — no address available". The node stays unjoined until resolved (it keeps retrying, so a later success/`config_adopted` clears the banner).
 - Firmware: `wire_version` is detected from a beacon's version nibble (+0 B, version-stable), `leaf_full` from the DAD id picker (`docs/superpowers/specs/2026-06-21-leaf-provisioning-console-verbs.md` §7c).
 
-### App → node: provisioning verbs (spec `docs/superpowers/specs/2026-06-21-leaf-provisioning-console-verbs.md`)
+### App → node: provisioning verbs (**`key=value` grammar as of 2026-07-03** — mirrors `gateway`; order-free)
 For a "Join network / Create leaf / Leave" UI. All apply **live — no reboot**:
 ```
-join   <freq_MHz> <bw_kHz> <ctrl_sf> <level_id>                                   # join existing net: sets floor, auto-DADs id, auto-pulls config
-create <freq_MHz> <bw_kHz> <ctrl_sf> <level_id> <sf_list> <duty%> "<leaf name>"   # mint a managed leaf — this node becomes the mother
-leave                                                                             # reset membership (wipe to default, KEEP freq)
+join   level=<1..255> freq=<MHz> bw=<kHz> sf=<ctrl_sf>                                          # join existing net: floor, auto-DAD, auto-pull
+create level=<1..255> freq=<MHz> bw=<kHz> sf=<ctrl_sf> sf_list=<7,9> duty=<pct> name="<leaf>"   # mint a managed leaf — this node = mother
+       [active_fraction=<0..1>] [ch_min_ms=<ms>] [dm_min_ms=<ms>]                               #   anti-spam knobs OPTIONAL → protocol defaults
+leave                                                                                           # reset membership (wipe to default, KEEP freq)
 ```
-- `level_id` user-facing (1..255), wire nibble = `level_id & 0x0F`. `sf_list` = comma SFs (`7,9`). `duty` = a **percent**. CR is a fixed low default (4/5) — LoRa CRs interoperate, so it's not exposed.
+- **`key=value`, order-free** (the same grammar as `gateway`). **`level`** = the user-facing 1..255 network selector (the on-wire **leaf** nibble = `level & 0x0F`; "leaf" is reserved for that 0..15 nibble). `sf_list` = comma SFs (`7,9`, one token). `duty` = a **percent**. `name` = quoted (spaces OK). CR is a fixed low default (4/5), not exposed.
+- **Anti-spam knobs** (`active_fraction` / `ch_min_ms` / `dm_min_ms`) are **optional** on `create`; omitted ⇒ the protocol **defaults** (`0.125` / `10000` / `3000`), never inherited from the minter's current settings. The app may expose them in an "advanced" create sheet or omit them (see the *anti-spam leaf tunables* section below + `docs/anti-spam.md`).
+- **The old `leaf` command is gone:** `leaf create` folded into `create`; **rename a leaf via `cfg set leaf_name "<text>"`** (bumps the epoch, propagates live) — distinct from `cfg set name` (the **node** identity name).
+- **Swift:** `Command.join` / `Command.createLeaf` emit the `key=value` `line` (`Command.swift`); the `.createLeaf` enum still carries freq/bw/sf/level/sfList/duty/name (the anti-spam args are a future optional field — omitting them yields the firmware defaults).
 - After `join`/`create`, the node emits `config_adopted` + updated `ready` membership once it syncs. After `leave`, membership returns to `lineage:0` (unmanaged). A `send` before sync ⇒ `send_failed{reason:"joining"}`.
 - **Normal nodes only.** Gateways provision differently (multi-layer; a future `join_as_gateway`) — out of this contract.
 - Ack shape = firmware's choice; recommend a `{"ev":"join_ok"|"join_err","reason":…}` line per verb (consistent with the other command acks).

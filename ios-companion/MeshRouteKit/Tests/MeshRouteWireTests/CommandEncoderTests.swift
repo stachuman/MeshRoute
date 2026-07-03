@@ -46,12 +46,17 @@ final class CommandEncoderTests: XCTestCase {
 
     func testProvisioningVerbs() {     // R6 / D26: join / create / leave
         XCTAssertEqual(Command.join(freqMHz: 868.0, bwKHz: 125, ctrlSF: 7, level: 2).line,
-                       "join 868 125 7 2")                                   // whole MHz → "868"
+                       "join level=2 freq=868 bw=125 sf=7")                  // key=value; whole MHz → "868"
         XCTAssertEqual(Command.join(freqMHz: 869.525, bwKHz: 250, ctrlSF: 9, level: 17).line,
-                       "join 869.525 250 9 17")                              // fractional MHz preserved
+                       "join level=17 freq=869.525 bw=250 sf=9")            // key=value; fractional MHz preserved
         XCTAssertEqual(Command.createLeaf(freqMHz: 868.0, bwKHz: 125, ctrlSF: 7, level: 2,
                                           sfList: "7, 9", dutyPercent: 10, name: "north field").line,
-                       #"create 868 125 7 2 7,9 10 "north field""#)         // sf_list spaces stripped; name quoted
+                       #"create level=2 freq=868 bw=125 sf=7 sf_list=7,9 duty=10 name="north field""#)   // key=value; sf_list spaces stripped; name quoted
+        XCTAssertEqual(Command.join(freqMHz: 869.0, bwKHz: 62.5, ctrlSF: 7, level: 44).line,
+                       "join level=44 freq=869 bw=62.5 sf=7")                // FRACTIONAL bw: 62.5 kHz stays "62.5" (firmware seeds 62500 Hz, not 62000)
+        XCTAssertEqual(Command.createLeaf(freqMHz: 869.0, bwKHz: 62.5, ctrlSF: 7, level: 44,
+                                          sfList: "6,7", dutyPercent: 0.1, name: "Test").line,
+                       #"create level=44 freq=869 bw=62.5 sf=7 sf_list=6,7 duty=0.1 name="Test""#)   // FRACTIONAL bw AND duty both survive the wire
         XCTAssertEqual(Command.leave.line, "leave")
     }
 

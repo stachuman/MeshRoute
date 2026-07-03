@@ -112,7 +112,7 @@ GwParseErr parse_gateway_cmd(const char* args, GatewayProvision& out) {
         }
         return bm != 0;
     };
-    auto parse_leaf = [&](char* s, LayerConfig& L) -> GwParseErr {      // "leaf:node:ctrl_sf:data_sfs"
+    auto parse_leaf = [&](char* s, LayerConfig& L) -> GwParseErr {      // "level:node:ctrl_sf:data_sfs" (level = the 1..255 layer id; leaf nibble = level & 0x0F)
         char* part[4] = { s, nullptr, nullptr, nullptr }; int np = 1;
         for (char* p = s; *p; ++p) if (*p == ':') { if (np >= 4) return GwParseErr::bad_l0; *p = '\0'; part[np++] = p + 1; }
         if (np != 4) return GwParseErr::bad_l0;

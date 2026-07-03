@@ -553,6 +553,10 @@ static void handle_cfg_set(const char* args) {
         lc.dm_min_interval_ms = (uint32_t)meshroute::ms_to_u16((uint32_t)atol(val));
         b.dm_min_interval_ms = lc.dm_min_interval_ms; if (lc.lineage_id) g_node.leaf_config_write();
     }
+    else if (!strcmp(key, "leaf_name")) {                                      // the LEAF name (in the config_hash + C frame) — NOT `name` (the node identity in /mrid); a rename bumps the epoch live
+        uint8_t l = 0; while (val[l] && l < meshroute::protocol::leaf_name_max) { lc.leaf_name[l] = val[l]; b.leaf_name[l] = (uint8_t)val[l]; ++l; }
+        lc.leaf_name_len = l; b.leaf_name_len = l; if (lc.lineage_id) g_node.leaf_config_write();
+    }
     // --- role/topology: LIVE via mutable_config() + PERSISTED (NV v6 -> survives reboot) ---
     else if (!strcmp(key, "leaf_id"))      { lc.leaf_id = (uint8_t)atoi(val);                            b.leaf_id      = lc.leaf_id; }
     // `gateway` is NOT a cfg key — is_gateway is DERIVED = (n_layers==2) in on_init (a gateway is the dedicated
@@ -794,9 +798,9 @@ static const char* gw_parse_err_str(meshroute::GwParseErr e) {
     switch (e) {
         case E::missing_l0:  return "missing l0=";
         case E::missing_l1:  return "missing l1=";
-        case E::bad_l0:      return "bad l0 format (want leaf:node:ctrl_sf:data_sfs)";
-        case E::bad_l1:      return "bad l1 format (want leaf:node:ctrl_sf:data_sfs)";
-        case E::bad_leaf:    return "leaf out of range (1..255)";
+        case E::bad_l0:      return "bad l0 format (want level:node:ctrl_sf:data_sfs)";
+        case E::bad_l1:      return "bad l1 format (want level:node:ctrl_sf:data_sfs)";
+        case E::bad_leaf:    return "level out of range (1..255)";
         case E::bad_node:    return "node out of range (1..254)";
         case E::bad_ctrl_sf: return "ctrl_sf out of range (5..12)";
         case E::bad_data_sf: return "data SF list empty or out of range (5..12)";
@@ -810,7 +814,7 @@ static const char* gw_parse_err_str(meshroute::GwParseErr e) {
 static const char* gw_val_err_str(meshroute::GwValErr e) {
     using E = meshroute::GwValErr;
     switch (e) {
-        case E::bad_leaf:             return "leaf id 0 not allowed";
+        case E::bad_leaf:             return "level 0 not allowed";
         case E::bad_ctrl_sf:          return "ctrl_sf out of range (5..12)";
         case E::no_data_sf:           return "a layer has no data SF";
         case E::leaf_nibble_clash:    return "the two leaf nibbles (leaf & 0x0F) collide (byte-0 wire filter)";
@@ -877,54 +881,15 @@ static void handle_gateway(const char* args) {
 #endif
 }
 
-// ---- `leaf` — R6.1 leaf-config membership ops ---------------------------------------------------------------
-// `leaf create` mints a fresh random lineage_id (HW-RNG; never 0 = the unmanaged sentinel) -> a MANAGED leaf.
-// `leaf name <text>` sets the leaf_name (in the config_hash, so it re-fingerprints the leaf). Both persist + reboot.
-static void handle_leaf(const char* args) {
-    mrnv::Blob b{};
-    if (!mrnv::load(b)) {                                  // seed from the live config (same accumulation pattern as cfg set)
-        const meshroute::NodeConfig& nc = g_node.config();
-        b.freq_mhz = g_freq_mhz;        b.bw_hz = nc.radio_bw_hz;       b.beacon_ms = nc.beacon_period_ms;
-        b.duty = nc.duty_cycle;         b.allowed_sf_bitmap = nc.allowed_sf_bitmap;
-        b.routing_sf = nc.routing_sf;   b.cr = nc.radio_cr;
-        b.lbt = nc.lbt_enabled ? 1 : 0; b.node_id = g_node.node_id();   b.tx_power = g_tx_power;
-        b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;
-        b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;
-        b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;  b.ble_pin = g_ble_pin;
-        b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;  b.e2e_dm     = nc.e2e_dm ? 1 : 0;
-        b.gw_announce_duty_pct = nc.gw_announce_duty_pct; b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
-        b.l1_freq_mhz = nc.layers[1].freq_mhz; b.gw_herd_slack = nc.gw_herd_slack;
-        b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch; b.leaf_name_len = nc.leaf_name_len;
-        for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
-        b.channel_active_fraction = nc.channel_active_fraction; b.channel_min_interval_ms = nc.channel_min_interval_ms; b.dm_min_interval_ms = nc.dm_min_interval_ms;   // v16 anti-spam per-leaf tunables
-    }
-    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
-    if (!strncmp(args, "create", 6)) {
-        uint16_t lin = 0;
-        do { mrrng::fill(reinterpret_cast<uint8_t*>(&lin), sizeof lin); } while (lin == 0);   // never 0 (unmanaged sentinel); u16
-        b.lineage_id = lin;
-        b.config_epoch = 1;                               // §4.3 catastrophe re-mint: a FRESH lineage starts at epoch 1
-                                                          // (reset even if re-minting over an old managed leaf — the dead
-                                                          // lineage stops being beaconed here + ages out of route/id_bind)
-        if (!mrnv::save(b)) { mrcon.println(F("> leaf err nv_save_failed")); return; }
-        mrcon.print(F("> leaf created lineage=")); mrcon.print(lin); mrcon.print(F(" epoch=")); mrcon.print(b.config_epoch);
-        mrcon.println(F(" — reboot to apply"));
-    } else if (!strncmp(args, "name ", 5)) {
-        const char* nm = args + 5;
-        uint8_t len = 0; while (nm[len] && len < meshroute::protocol::leaf_name_max) { b.leaf_name[len] = (uint8_t)nm[len]; ++len; }   // §5: cut at 10 (the C-frame/hash cap)
-        b.leaf_name_len = len;
-        if (b.lineage_id) b.config_epoch = (uint16_t)(b.config_epoch + 1);   // R6.3 §4.1: leaf_name is in the config_hash -> a managed write bumps epoch
-        if (!mrnv::save(b)) { mrcon.println(F("> leaf err nv_save_failed")); return; }
-        mrcon.print(F("> leaf name set (")); mrcon.print(len); mrcon.println(F(" B) — reboot to apply"));
-    } else {
-        mrcon.println(F("> leaf err usage: leaf create | leaf name <text>"));
-    }
-}
+// ---- `leaf` command REMOVED (2026-07-03) --------------------------------------------------------------------
+// The low-level `leaf create` (which minted a leaf from the node's CURRENT settings) is folded into `create`
+// (explicit key=value params; anti-spam knobs default rather than inherit). `leaf name <text>` -> `cfg set
+// leaf_name "<text>"` (the config-hash rename that bumps the epoch). One leaf-mint verb now: `create`.
 
 // ---- R6.3 normal-node provisioning verbs: join / create / leave — LIVE-APPLY (no reboot). Spec
-//      2026-06-21-leaf-provisioning-console-verbs.md. The simplified front-door over cfg-set + leaf-create;
-//      normal nodes ONLY (gateways are multi-layer -> a future join_as_gateway, §5). `leaf create`/`cfg set`
-//      stay as the low-level path (§4). ---------------------------------------------------------------------
+//      2026-06-21-leaf-provisioning-console-verbs.md. `create` is the ONE leaf-mint verb (2026-07-03: the old
+//      low-level `leaf create` folded in; `key=value` args); `cfg set <key>` stays the granular per-field path
+//      (§4). Normal nodes ONLY (gateways are multi-layer -> a future join_as_gateway, §5). ------------------
 
 // Seed a fresh blob from the live config (so a save on a never-persisted node doesn't zero the non-provisioning fields).
 static void seed_blob_from_live(mrnv::Blob& b) {
@@ -944,18 +909,19 @@ static void seed_blob_from_live(mrnv::Blob& b) {
     b.channel_active_fraction = nc.channel_active_fraction; b.channel_min_interval_ms = nc.channel_min_interval_ms; b.dm_min_interval_ms = nc.dm_min_interval_ms;   // v16 anti-spam per-leaf tunables
 }
 
-// Parse "<freq_MHz> <bw_kHz> <ctrl_sf> <level_id>" and advance p. false (no print) on a malformed/out-of-range arg.
-static bool parse_radio_floor(const char*& p, double& freq, uint32_t& bw_hz, uint8_t& ctrl_sf, uint8_t& level_id) {
-    char* e;
-    freq     = strtod(p, &e); if (e == p) return false; p = e;
-    long bwk = strtol(p, &e, 10); if (e == p) return false; p = e;
-    long sf  = strtol(p, &e, 10); if (e == p) return false; p = e;
-    long lvl = strtol(p, &e, 10); if (e == p) return false; p = e;
-    if (freq < 100.0 || freq > 1000.0) return false;                         // sub-GHz ISM MHz sanity
-    if (bwk  < 7   || bwk  > 500)      return false;                         // kHz (7.8..500)
-    if (sf   < 5   || sf   > 12)       return false;
-    if (lvl  < 1   || lvl  > 255)      return false;                         // level_id 1..255 -> leaf_id = level_id & 0x0F
-    bw_hz = (uint32_t)(bwk * 1000); ctrl_sf = (uint8_t)sf; level_id = (uint8_t)lvl;
+// Yield the next `key=value` token from *p (advancing p past it). A value may be "quoted" (so it can contain
+// spaces — the leaf name). Returns false at end of string; on a malformed token (no `=`) *val is nullptr (the
+// caller reports the bad key). key/val point into the caller's mutable buffer, NUL-terminated. The shared grammar
+// for the key=value provisioning verbs (create/join), mirroring `gateway`'s l0=/win0=/… named-param style.
+static bool kv_next(char*& p, char*& key, char*& val) {
+    while (*p == ' ') ++p;
+    if (!*p) return false;
+    key = p;
+    while (*p && *p != '=' && *p != ' ') ++p;                    // key up to '=' (or space/end = malformed)
+    if (*p != '=') { if (*p == ' ') *p++ = '\0'; val = nullptr; return true; }
+    *p++ = '\0';                                                 // terminate key, step past '='
+    if (*p == '"') { ++p; val = p; while (*p && *p != '"') ++p; if (*p == '"') *p++ = '\0'; }   // quoted: spans spaces
+    else           { val = p;      while (*p && *p != ' ') ++p; if (*p == ' ') *p++ = '\0'; }    // bare: up to next space
     return true;
 }
 
@@ -980,58 +946,88 @@ static void provision_apply_live(const mrnv::Blob& b, bool do_dad) {
     if (do_dad) { meshroute::Command jc{}; jc.kind = meshroute::CmdKind::join; (void)g_node.on_command(jc); }   // re-DAD live (claim-after-listen -> J ~join_listen_ms later)
 }
 
-// `join <freq_MHz> <bw_kHz> <ctrl_sf> <level_id>` — set the radio floor + (re-)DAD; auto-pulls the leaf config (R6.2).
+// `join level=<1..255> freq=<MHz> bw=<kHz> sf=<5..12>` — set the radio floor + (re-)DAD; auto-pulls the leaf config (R6.2).
 static void handle_join(const char* args) {
-    const char* p = args; double freq; uint32_t bw_hz; uint8_t ctrl_sf, level_id;
-    if (!parse_radio_floor(p, freq, bw_hz, ctrl_sf, level_id)) {
-        mrcon.println(F("> join err usage: join <freq_MHz> <bw_kHz> <ctrl_sf 5..12> <level_id 1..255>")); return;
+    char buf[128]; size_t bn = 0; for (; args[bn] && bn < sizeof(buf) - 1; ++bn) buf[bn] = args[bn]; buf[bn] = '\0';
+    double freq = 0, bwk = 0; long sf = 0, level = 0; bool hf = false, hb = false, hs = false, hlv = false;   // bwk is kHz (FRACTIONAL — 62.5 / 41.67 / 31.25 are valid LoRa BWs)
+    char* p = buf; char* k; char* v;
+    while (kv_next(p, k, v)) {
+        if      (v && !strcmp(k, "freq"))  { freq  = atof(v); hf = true; }
+        else if (v && !strcmp(k, "bw"))    { bwk   = atof(v); hb = true; }
+        else if (v && !strcmp(k, "sf"))    { sf    = atol(v); hs = true; }
+        else if (v && !strcmp(k, "level")) { level = atol(v); hlv = true; }   // the full 1..255 selector (wire leaf nibble = level & 0x0F)
+        else { mrcon.print(F("> join err bad/unknown key: ")); mrcon.println(k); goto usage; }
     }
-    mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
-    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
-    b.freq_mhz = freq; b.bw_hz = bw_hz; b.routing_sf = ctrl_sf;
-    b.leaf_id = (uint8_t)(level_id & 0x0F); b.layer0_id = level_id;          // full level_id stored for display (§3)
-    b.node_id = 0; b.joined = 0; b.lineage_id = 0; b.config_epoch = 0;       // unprovisioned -> DAD + adopt the leaf's lineage via pull
-    if (!mrnv::save(b)) { mrcon.println(F("> join err nv_save_failed")); return; }
-    provision_apply_live(b, /*do_dad=*/true);
-    mrcon.print(F("> join freq=")); mrcon.print(freq, 3); mrcon.print(F(" bw=")); mrcon.print(bw_hz / 1000);
-    mrcon.print(F(" ctrl_sf=")); mrcon.print(ctrl_sf); mrcon.print(F(" level_id=")); mrcon.print(level_id);
-    mrcon.print(F(" (leaf nibble ")); mrcon.print(level_id & 0x0F); mrcon.println(F(") — DADing id + pulling config (live)"));
-}
-
-// `create <freq> <bw> <ctrl_sf> <level_id> <sf_list> <duty%> "<name>"` — join's floor + mint a MANAGED leaf (mother).
-static void handle_create(const char* args) {
-    const char* p = args; double freq; uint32_t bw_hz; uint8_t ctrl_sf, level_id;
-    if (!parse_radio_floor(p, freq, bw_hz, ctrl_sf, level_id)) goto usage;
+    if (!(hf && hb && hs && hlv) || freq < 100.0 || freq > 1000.0 || bwk < 7 || bwk > 500 || sf < 5 || sf > 12 || level < 1 || level > 255) goto usage;
     {
-        char* e;
-        while (*p == ' ') ++p;                                               // sf_list token (no spaces, e.g. 7,9)
-        char sfbuf[24]; uint8_t si = 0; while (*p && *p != ' ' && si < sizeof(sfbuf) - 1) sfbuf[si++] = *p++; sfbuf[si] = 0;
-        const uint16_t bm = parse_sf_list(sfbuf);
-        if (bm == 0) goto usage;
-        const double dutypct = strtod(p, &e); if (e == p) goto usage; p = e;  // duty PERCENT
-        if (dutypct < 0.0 || dutypct > 100.0) goto usage;
-        while (*p == ' ') ++p;                                               // quoted name (allows spaces)
-        if (*p != '"') goto usage; ++p;
         mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
         b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
-        b.freq_mhz = freq; b.bw_hz = bw_hz; b.routing_sf = ctrl_sf;
-        b.leaf_id = (uint8_t)(level_id & 0x0F); b.layer0_id = level_id;
-        b.allowed_sf_bitmap = bm;
-        b.duty = meshroute::bp_to_duty(meshroute::duty_to_bp(dutypct / 100.0));   // §5: percent -> 0..1, quantized to the 0.01% wire step
-        uint8_t nl = 0; while (*p && *p != '"') { if (nl < meshroute::protocol::leaf_name_max) b.leaf_name[nl++] = (uint8_t)*p; ++p; }   // §5: store ≤10, consume the rest of the quoted name
-        b.leaf_name_len = nl;
-        uint16_t lin = 0; do { mrrng::fill(reinterpret_cast<uint8_t*>(&lin), sizeof lin); } while (lin == 0);   // mint managed lineage
-        b.lineage_id = lin; b.config_epoch = 1;                              // a fresh managed leaf starts at epoch 1
-        b.node_id = 0; b.joined = 0;
-        if (!mrnv::save(b)) { mrcon.println(F("> create err nv_save_failed")); return; }
+        b.freq_mhz = freq; b.bw_hz = (uint32_t)(bwk * 1000.0 + 0.5); b.routing_sf = (uint8_t)sf;   // kHz->Hz, ROUNDED (62.5->62500, not 62000)
+        b.leaf_id = (uint8_t)(level & 0x0F); b.layer0_id = (uint8_t)level;       // full level_id stored for display (§3)
+        b.node_id = 0; b.joined = 0; b.lineage_id = 0; b.config_epoch = 0;       // unprovisioned -> DAD + adopt the leaf's lineage via pull
+        if (!mrnv::save(b)) { mrcon.println(F("> join err nv_save_failed")); return; }
         provision_apply_live(b, /*do_dad=*/true);
-        mrcon.print(F("> create leaf lineage=")); mrcon.print(lin); mrcon.print(F(" level_id=")); mrcon.print(level_id);
-        mrcon.print(F(" (leaf nibble ")); mrcon.print(level_id & 0x0F); mrcon.print(F(") name=\""));
-        for (uint8_t i = 0; i < nl; ++i) mrcon.print((char)b.leaf_name[i]); mrcon.println(F("\" — mother live"));
+        mrcon.print(F("> join level=")); mrcon.print((int)level); mrcon.print(F(" freq=")); mrcon.print(freq, 3);
+        mrcon.print(F(" bw=")); mrcon.print(b.bw_hz); mrcon.print(F("Hz sf=")); mrcon.print((int)sf);
+        mrcon.print(F(" (nibble ")); mrcon.print((int)(level & 0x0F)); mrcon.println(F(") — DADing id + pulling config (live)"));
         return;
     }
 usage:
-    mrcon.println(F("> create err usage: create <freq_MHz> <bw_kHz 7..500> <ctrl_sf 5..12> <level_id 1..255> <sf_list e.g.7,9> <duty_percent> \"<name>\""));
+    mrcon.println(F("> join err usage: join level=<1..255> freq=<MHz> bw=<kHz 7..500, fractional ok e.g. 62.5> sf=<5..12>   (wire leaf nibble = level & 0x0F)"));
+}
+
+// `create level=<1..255> freq=<MHz> bw=<kHz> sf=<5..12> sf_list=<7,9> duty=<pct> name="<text>"
+//         [active_fraction=<0..1>] [ch_min_ms=<ms>] [dm_min_ms=<ms>]` — join's floor + mint a MANAGED leaf (mother).
+// The anti-spam keys are OPTIONAL: omitted => the protocol DEFAULTS (never inherited from the node's current settings).
+static void handle_create(const char* args) {
+    char buf[192]; size_t bn = 0; for (; args[bn] && bn < sizeof(buf) - 1; ++bn) buf[bn] = args[bn]; buf[bn] = '\0';
+    double freq = 0, dutypct = -1, bwk = 0; long sf = 0, level = 0; uint16_t sfbm = 0;   // bwk is kHz (FRACTIONAL — 62.5 / 41.67 / 31.25 are valid LoRa BWs)
+    char nm[meshroute::protocol::leaf_name_max]; uint8_t nlen = 0;
+    float af = 0.125f; long chi = P::channel_min_interval_ms, dmi = P::dm_min_interval_ms;   // anti-spam DEFAULTS (overridden only if the key is given)
+    bool hf = false, hb = false, hs = false, hlv = false, hlist = false, hduty = false, hname = false;
+    char* p = buf; char* k; char* v;
+    while (kv_next(p, k, v)) {
+        if      (v && !strcmp(k, "freq"))            { freq = atof(v); hf = true; }
+        else if (v && !strcmp(k, "bw"))              { bwk = atof(v); hb = true; }
+        else if (v && !strcmp(k, "sf"))              { sf = atol(v); hs = true; }
+        else if (v && !strcmp(k, "level"))           { level = atol(v); hlv = true; }   // the full 1..255 selector (wire leaf nibble = level & 0x0F)
+        else if (v && !strcmp(k, "sf_list"))         { sfbm = parse_sf_list(v); hlist = true; }
+        else if (v && !strcmp(k, "duty"))            { dutypct = atof(v); hduty = true; }
+        else if (v && !strcmp(k, "name"))            { for (const char* c = v; *c && nlen < sizeof(nm); ++c) nm[nlen++] = *c; hname = true; }
+        else if (v && !strcmp(k, "active_fraction")) { af = (float)atof(v); }
+        else if (v && !strcmp(k, "ch_min_ms"))       { chi = atol(v); }
+        else if (v && !strcmp(k, "dm_min_ms"))       { dmi = atol(v); }
+        else { mrcon.print(F("> create err bad/unknown key: ")); mrcon.println(k); goto usage; }
+    }
+    if (!(hf && hb && hs && hlv && hlist && hduty && hname)) goto usage;
+    if (freq < 100.0 || freq > 1000.0 || bwk < 7 || bwk > 500 || sf < 5 || sf > 12 || level < 1 || level > 255 || sfbm == 0 || dutypct < 0.0 || dutypct > 100.0) goto usage;
+    if (af <= 0.0f) af = 0.125f; if (af > 1.0f) af = 1.0f;                    // clamp; 0/absent -> the default
+    if (chi < 1) chi = P::channel_min_interval_ms; if (dmi < 1) dmi = P::dm_min_interval_ms;
+    {
+        mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
+        b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
+        b.freq_mhz = freq; b.bw_hz = (uint32_t)(bwk * 1000.0 + 0.5); b.routing_sf = (uint8_t)sf;   // kHz->Hz, ROUNDED (62.5->62500, not 62000)
+        b.leaf_id = (uint8_t)(level & 0x0F); b.layer0_id = (uint8_t)level;
+        b.allowed_sf_bitmap = sfbm;
+        b.duty = meshroute::bp_to_duty(meshroute::duty_to_bp(dutypct / 100.0));   // §5: percent -> 0..1, quantized to the 0.01% wire step
+        for (uint8_t i = 0; i < nlen; ++i) b.leaf_name[i] = (uint8_t)nm[i]; b.leaf_name_len = nlen;
+        b.channel_active_fraction = meshroute::bp_to_frac(meshroute::frac_to_bp(af));   // EXPLICIT (or default) — NEVER inherited; quantized for hash parity
+        b.channel_min_interval_ms = (uint32_t)meshroute::ms_to_u16((uint32_t)chi);
+        b.dm_min_interval_ms      = (uint32_t)meshroute::ms_to_u16((uint32_t)dmi);
+        uint16_t lin = 0; do { mrrng::fill(reinterpret_cast<uint8_t*>(&lin), sizeof lin); } while (lin == 0);   // mint a managed lineage (never 0)
+        b.lineage_id = lin; b.config_epoch = 1; b.node_id = 0; b.joined = 0;      // a fresh managed leaf starts at epoch 1
+        if (!mrnv::save(b)) { mrcon.println(F("> create err nv_save_failed")); return; }
+        provision_apply_live(b, /*do_dad=*/true);
+        mrcon.print(F("> create level=")); mrcon.print((int)level); mrcon.print(F(" lineage=")); mrcon.print(lin);
+        mrcon.print(F(" (nibble ")); mrcon.print((int)(level & 0x0F)); mrcon.print(F(") name=\""));
+        for (uint8_t i = 0; i < nlen; ++i) mrcon.print((char)b.leaf_name[i]);
+        mrcon.print(F("\" af=")); mrcon.print(b.channel_active_fraction, 3);
+        mrcon.print(F(" ch_min=")); mrcon.print(b.channel_min_interval_ms); mrcon.print(F(" dm_min=")); mrcon.print(b.dm_min_interval_ms);
+        mrcon.println(F(" — mother live"));
+        return;
+    }
+usage:
+    mrcon.println(F("> create err usage: create level=<1..255> freq=<MHz> bw=<kHz 7..500, fractional ok e.g. 62.5> sf=<5..12> sf_list=<e.g.7,9> duty=<pct, fractional ok e.g. 0.1> name=\"<text>\" [active_fraction=<0..1>] [ch_min_ms=<ms>] [dm_min_ms=<ms>]   (wire leaf nibble = level & 0x0F)"));
 }
 
 // `leave` — wipe to default, keep ONLY freq; go unprovisioned + idle (the clean managed->managed re-join primitive).
@@ -1049,27 +1045,48 @@ static void handle_leave() {
     mrcon.print(F("> left network (kept freq=")); mrcon.print(keep_freq, 3); mrcon.println(F(") — idle; `join` to re-provision (live)"));
 }
 
+// A DRAINED, CHUNKED console line for the multi-line dumps: emits the WHOLE line even when it doesn't fit the
+// current CDC TX FIFO free space — writing only what fits, then yielding to the async USB drainer, and repeating.
+// mrcon's whole-chunk write DROPS a line that doesn't fit (the `help` truncation: the two LONGEST lines were
+// discarded whole while shorter ones slipped through), so the bulk dumps write here instead. Per-line budget
+// (≤40 ms) => a stalled/absent host still never hangs loop(). NOT the radio hot path; bypasses mrcon deliberately.
+static void hl(const __FlashStringHelper* fs) {
+#if MR_CONSOLE
+    if (!Serial) return;
+    const char* s = reinterpret_cast<const char*>(fs);   // nRF52/ESP32: F() is memory-mapped flash — a direct read is fine (Print::println does the same)
+    const size_t len = strlen(s); size_t off = 0; const uint32_t t0 = millis();
+    while (off < len && Serial && (uint32_t)(millis() - t0) < 40) {
+        const int a = Serial.availableForWrite();
+        if (a > 0) { const size_t rem = len - off; const size_t chunk = (static_cast<size_t>(a) < rem) ? static_cast<size_t>(a) : rem;
+                     off += Serial.write(reinterpret_cast<const uint8_t*>(s) + off, chunk); }
+        yield();
+    }
+    if (Serial && Serial.availableForWrite() >= 2) Serial.write(reinterpret_cast<const uint8_t*>("\r\n"), 2);
+#else
+    (void)fs;
+#endif
+}
+
 // `help` / `?` — a small command + cfg-key reference for the live console session.
 static void dump_help() {
-    mrcon.println(F("[help] messaging:  send <id|hash> \"<text>\" [-a] [-e]   (-a=ack, -e=encrypt[hash only]; id<=254 / hash=8hex auto-detected)"));
-    mrcon.println(F("[help] channel:    send_channel <ch> \"<text>\""));
-    mrcon.println(F("[help] cross-layer: send_layer <hash> <l1,l2,…> \"<text>\" [-a]   (explicit destination layer path)"));
-    mrcon.println(F("[help] e2e keys:   peerkey <ed_pub hex64> (install a scanned/QR pubkey = pinned) | reqpubkey <hash> (request a peer's key on-air)"));
-    mrcon.println(F("[help] hash/id:    whoami | lookup <hash> | hashof <id> | resolve <hash> [hard]"));
-    mrcon.println(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
-    mrcon.println(F("[help] diag:       routes | status | duty | limits | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
-    mrcon.println(F("[help] faults:     version (build/git/board + last reset, no reset) | faults (the flash fault ring) | crashtest <hang|fault|reboot> (needs `debug on`)"));
-    mrcon.println(F("[help] fleet:      prep-restart   (clear routes+inbox, KEEP the join, go DORMANT — run fleet-wide then power-cycle for a clean restart; un-halt via power-cycle/reboot)"));
-    mrcon.println(F("[help] remote:     rcmd <dst> <query>   (over-the-air diagnostics via a DM: status|faults|version|uptime|cfg|duty|reboot|prep-restart -> the node DMs back `[rcmd <from>] …`)"));
-    mrcon.println(F("[help] testsched:  testsend <dst> <run> [-a] [-e] -t ms1,ms2,… | testch <ch> <run> -t ms1,ms2,… | teststatus | testclear   (on-node scheduled workload, fires over the radio; arm once, read the inbox later)"));
-    mrcon.println(F("[help] test:       route add <dest> <next_hop> <hops> [score_q4] | route del <dest>   (force/drop a route to stress routing)"));
-    mrcon.println(F("[help] reset:      factory_reset confirm   (WIPE all flash — config + identity + peers + inbox — and reboot to factory)"));
-    mrcon.println(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack active_fraction ch_min_ms dm_min_ms   (bool keys take on|off; active_fraction=0..1, ch_min_ms/dm_min_ms in ms; identity via regen)"));
-    mrcon.println(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
-    mrcon.println(F("[help] provision:  join <freq_MHz> <bw_kHz> <ctrl_sf> <level_id> | create <freq> <bw> <ctrl_sf> <level_id> <sf_list> <duty%> \"<name>\" | leave   (LIVE, no reboot: join a net / mint a managed leaf [mother] / reset & keep freq)"));
-    mrcon.println(F("[help] gateway:    gateway l0=<leaf>:<node>:<ctrl_sf>:<data_sfs> l1=<leaf>:<node>:<ctrl_sf>:<data_sfs> [period=ms] [win0=ms:off] [win1=ms:off] [beacon=ms] [freq0=MHz] [freq1=MHz] [gateway_only=0|1]"));
-    mrcon.println(F("  one-shot dual-layer provisioning -> NV, reboot to apply (windows auto-derive SF-weighted anti-phase if win0/win1 omitted). e.g. gateway l0=1:1:8:7,9 l1=2:1:9:9,10"));
-    mrcon.println(F("[help] leaf:       leaf create (mint a lineage) | leaf name <text>   (low-level, reboot to apply; the live one-shot front-door is the `create` verb above)"));
+    hl(F("[help] messaging:  send <id|hash> \"<text>\" [-a] [-e]   (-a=ack, -e=encrypt[hash only]; id<=254 / hash=8hex auto-detected)"));
+    hl(F("[help] channel:    send_channel <ch> \"<text>\""));
+    hl(F("[help] cross-layer: send_layer <hash> <l1,l2,…> \"<text>\" [-a]   (explicit destination layer path)"));
+    hl(F("[help] e2e keys:   peerkey <ed_pub hex64> (install a scanned/QR pubkey = pinned) | reqpubkey <hash> (request a peer's key on-air)"));
+    hl(F("[help] hash/id:    whoami | lookup <hash> | hashof <id> | resolve <hash> [hard]"));
+    hl(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
+    hl(F("[help] diag:       routes | status | duty | limits | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
+    hl(F("[help] faults:     version (build/git/board + last reset, no reset) | faults (the flash fault ring) | crashtest <hang|fault|reboot> (needs `debug on`)"));
+    hl(F("[help] fleet:      prep-restart   (clear routes+inbox, KEEP the join, go DORMANT — run fleet-wide then power-cycle for a clean restart; un-halt via power-cycle/reboot)"));
+    hl(F("[help] remote:     rcmd <dst> <query>   (over-the-air diagnostics via a DM: status|faults|version|uptime|cfg|duty|reboot|prep-restart -> the node DMs back `[rcmd <from>] …`)"));
+    hl(F("[help] testsched:  testsend <dst> <run> [-a] [-e] -t ms1,ms2,… | testch <ch> <run> -t ms1,ms2,… | teststatus | testclear   (on-node scheduled workload, fires over the radio; arm once, read the inbox later)"));
+    hl(F("[help] test:       route add <dest> <next_hop> <hops> [score_q4] | route del <dest>   (force/drop a route to stress routing)"));
+    hl(F("[help] reset:      factory_reset confirm   (WIPE all flash — config + identity + peers + inbox — and reboot to factory)"));
+    hl(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack active_fraction ch_min_ms dm_min_ms leaf_name   (bool keys take on|off; active_fraction=0..1, ch_min_ms/dm_min_ms in ms; `name`=node identity, `leaf_name`=the managed leaf's name [bumps epoch]; identity via regen)"));
+    hl(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
+    hl(F("[help] provision:  create level= freq= bw= sf= sf_list= duty= name=\"<n>\" [active_fraction=] [ch_min_ms=] [dm_min_ms=] | join level= freq= bw= sf= | leave   (key=value, order-free; LIVE no reboot: mint a managed leaf [mother] / join a net / reset+keep freq. level=1..255 net selector [wire leaf nibble = level & 0x0F]; anti-spam opts default when omitted; rename a leaf via `cfg set leaf_name`)"));
+    hl(F("[help] gateway:    gateway l0=<level>:<node>:<ctrl_sf>:<data_sfs> l1=<level>:<node>:<ctrl_sf>:<data_sfs> [period=ms] [win0=ms:off] [win1=ms:off] [beacon=ms] [freq0=MHz] [freq1=MHz] [gateway_only=0|1]   (level=1..255 per layer; the two levels' leaf nibbles [level & 0x0F] must differ)"));
+    hl(F("  one-shot dual-layer provisioning -> NV, reboot to apply (windows auto-derive SF-weighted anti-phase if win0/win1 omitted). e.g. gateway l0=1:1:8:7,9 l1=2:1:9:9,10"));
 }
 
 // ---- Phase-3 inbox sync (schema: ios-companion/INBOX_SYNC_CONTRACT.md) -----------------------------------
@@ -1361,7 +1378,6 @@ static bool service_debug(const char* line, size_t len) {
     if (len == 5 && !strncmp(line, "regen", 5))    { do_regen();    return true; }
     if (len == 3 && !strncmp(line, "ota", 3))      { do_ota();      return true; }
     if (len >  8 && !strncmp(line, "gateway ", 8)) { handle_gateway(line + 8); return true; }
-    if (len >  5 && !strncmp(line, "leaf ", 5))    { handle_leaf(line + 5);    return true; }
     if (len >  5 && !strncmp(line, "join ", 5))    { handle_join(line + 5);    return true; }   // R6.3 provisioning verbs (normal-node, live)
     if (len >  7 && !strncmp(line, "create ", 7))  { handle_create(line + 7);  return true; }
     if (len == 5 && !strncmp(line, "leave", 5))    { handle_leave();           return true; }

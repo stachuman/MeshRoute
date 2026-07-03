@@ -60,9 +60,9 @@ public enum Command: Hashable, Sendable {
     // E2E peer-key provisioning (2026-06-16 contract). The app does NO crypto — these just hand the node bytes.
     case peerKey(pubkeyHex: String)              // install a scanned card's pubkey (PINNED) → "peerkey <hex64>"
     case reqPubkey(KeyHash)                       // user-triggered on-air key request → "reqpubkey <hex8>"
-    // Leaf provisioning (R6 / D26) — live, no reboot. freq = MHz (float); level 1..255 (wire nibble = level & 0x0F).
-    case join(freqMHz: Double, bwKHz: Int, ctrlSF: Int, level: Int)
-    case createLeaf(freqMHz: Double, bwKHz: Int, ctrlSF: Int, level: Int, sfList: String, dutyPercent: Int, name: String)
+    // Leaf provisioning (R6 / D26) — key=value wire (2026-07-03, mirrors gateway; order-free). live, no reboot. freq = MHz (float); bw = kHz (FRACTIONAL — 62.5/41.67/31.25); dutyPercent = % (FRACTIONAL — 0.1 = the tight EU sub-band); level=1..255 network selector (wire leaf nibble = level & 0x0F).
+    case join(freqMHz: Double, bwKHz: Double, ctrlSF: Int, level: Int)
+    case createLeaf(freqMHz: Double, bwKHz: Double, ctrlSF: Int, level: Int, sfList: String, dutyPercent: Double, name: String)
     case leave                                    // reset membership (wipe to default, KEEP freq)
     case raw(String)                             // escape hatch — sent verbatim
 
@@ -99,10 +99,10 @@ public enum Command: Hashable, Sendable {
         case .peerKey(let hex):             return "peerkey \(hex)"
         case .reqPubkey(let h):             return "reqpubkey \(h.hex8)"
         case .join(let f, let bw, let sf, let lvl):
-            return "join \(Self.freqToken(f)) \(bw) \(sf) \(lvl)"
+            return "join level=\(lvl) freq=\(Self.freqToken(f)) bw=\(Self.freqToken(bw)) sf=\(sf)"      // key=value; bw compact (62.5 / 125), wire leaf nibble = level & 0x0F
         case .createLeaf(let f, let bw, let sf, let lvl, let sfList, let duty, let name):
             let sfs = sfList.replacingOccurrences(of: " ", with: "")   // sf_list must be one token: "7,9"
-            return "create \(Self.freqToken(f)) \(bw) \(sf) \(lvl) \(sfs) \(duty) \"\(Self.wireBody(name))\""
+            return "create level=\(lvl) freq=\(Self.freqToken(f)) bw=\(Self.freqToken(bw)) sf=\(sf) sf_list=\(sfs) duty=\(Self.freqToken(duty)) name=\"\(Self.wireBody(name))\""   // key=value; bw + duty compact (fractional ok); anti-spam knobs omitted → firmware defaults
         case .leave:                        return "leave"
         case .raw(let s):                   return s
         }
@@ -120,10 +120,11 @@ public enum Command: Hashable, Sendable {
             .replacingOccurrences(of: "\r", with: " ")
     }
 
-    /// Format a MHz frequency as a locale-independent wire token (the firmware `atof`-parses it); trims a
-    /// trailing ".0" so a whole-MHz value reads "868" not "868.0".
-    public static func freqToken(_ mhz: Double) -> String {
-        let s = String(mhz)
+    /// Format a MHz frequency (or any kHz/decimal radio value — freq + bw both use this) as a locale-independent
+    /// wire token (the firmware `atof`-parses it); trims a trailing ".0" so a whole value reads "868"/"125" not
+    /// "868.0"/"125.0", while a fractional value keeps its decimals ("62.5", "41.67").
+    public static func freqToken(_ v: Double) -> String {
+        let s = String(v)
         return s.hasSuffix(".0") ? String(s.dropLast(2)) : s
     }
 
