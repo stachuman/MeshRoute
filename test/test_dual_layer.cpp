@@ -298,25 +298,31 @@ TEST_CASE("per-layer-bw: single-layer node — active_bw_hz()==global radio_bw_h
     CHECK(node.active_cr() == 5);
 }
 
-TEST_CASE("per-layer-bw: the window switch retunes BW/CR (set_rx_bw/set_rx_cr) for a layer with an override") {
+TEST_CASE("per-layer-bw: the window switch ALWAYS syncs BW/CR to the active leaf's effective PHY (no stale _def_bw)") {
     StubHal hal; Node node(hal, 1, 0x1);
     NodeConfig cfg; cfg.n_layers = 2; cfg.radio_bw_hz = 250000; cfg.radio_cr = 5;
-    cfg.layers[0] = good_layer(1, 8);                                              // layer 0: no BW/CR override
+    cfg.layers[0] = good_layer(1, 8);                                              // layer 0: INHERIT (bw_hz/cr = 0)
     cfg.layers[1] = good_layer(2, 9); cfg.layers[1].bw_hz = 125000; cfg.layers[1].cr = 8;
     CHECK(node.on_init(cfg));
-    // boot activated layer 0 (0-override) -> NO BW/CR retune fired (inherit the global).
-    CHECK(hal.last_set_rx_bw == 0u);
-    CHECK(hal.last_set_rx_cr == -1);
-    // swap to layer 1 (override) -> the window-switch retune drives set_rx_bw(125000) + set_rx_cr(8).
+    // boot activated layer 0 (inherit) -> retunes to the EFFECTIVE global (NOT skipped — that's the invariant).
+    CHECK(hal.last_set_rx_bw == 250000u);   // radio_bw_hz
+    CHECK(hal.last_set_rx_cr == 5);         // radio_cr
+    // swap to layer 1 (override) -> its own BW/CR.
     DualLayerTestAccess::activate(node, 1);
     CHECK(hal.last_set_rx_bw == 125000u);
     CHECK(hal.last_set_rx_cr == 8);
+    // ★ swap BACK to layer 0 (inherit) MUST reset to the global — the stale-_def_bw regression: with an `if (L.bw_hz>0)`
+    // guard this would stay 125000 and TX would fly on the wrong BW while active_bw_hz() charges 250000 (charge!=transmit).
+    DualLayerTestAccess::activate(node, 0);
+    CHECK(hal.last_set_rx_bw == 250000u);   // reset to the global, NOT stale at 125000
+    CHECK(hal.last_set_rx_cr == 5);
 }
 
-TEST_CASE("per-layer-bw: parse_gateway_cmd extracts bw0/bw1/cr0/cr1; validate gates illegal PHY") {
+TEST_CASE("per-layer-bw: parse_gateway_cmd bw0/bw1 are kHz (fractional) -> Hz; validate gates illegal PHY") {
     GatewayProvision g{};
-    CHECK(parse_gateway_cmd("l0=1:1:8:8 l1=2:1:9:9 bw0=250000 bw1=125000 cr0=5 cr1=8", g) == GwParseErr::ok);
-    CHECK(g.l0.bw_hz == 250000u); CHECK(g.l1.bw_hz == 125000u);
+    // bw in kHz, matching create/join — 250 -> 250000 Hz, 62.5 (fractional) -> 62500 Hz.
+    CHECK(parse_gateway_cmd("l0=1:1:8:8 l1=2:1:9:9 bw0=250 bw1=62.5 cr0=5 cr1=8", g) == GwParseErr::ok);
+    CHECK(g.l0.bw_hz == 250000u); CHECK(g.l1.bw_hz == 62500u);   // kHz->Hz, fractional rounded
     CHECK(g.l0.cr == 5);          CHECK(g.l1.cr == 8);
     // validate ACCEPTS legal per-layer PHY (each layer's window derives off ITS OWN bw)
     { GatewayProvision v = g; CHECK(validate_gateway_layers(v.l0, v.l1, 250000, 5) == GwValErr::ok); }
@@ -326,6 +332,21 @@ TEST_CASE("per-layer-bw: parse_gateway_cmd extracts bw0/bw1/cr0/cr1; validate ga
     { GatewayProvision v = g; v.l1.cr = 99;        CHECK(validate_gateway_layers(v.l0, v.l1, 250000, 5) == GwValErr::bad_cr); }
     // 0 = inherit is always OK (the accessor resolves it)
     { GatewayProvision v = g; v.l0.bw_hz = 0; v.l1.cr = 0; CHECK(validate_gateway_layers(v.l0, v.l1, 250000, 5) == GwValErr::ok); }
+}
+
+TEST_CASE("per-layer-bw: a 2-layer config charges each layer its OWN airtime (charge==transmit invariant)") {
+    StubHal hal; Node node(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2; cfg.radio_bw_hz = 250000; cfg.radio_cr = 5;
+    cfg.layers[0] = good_layer(1, 9); cfg.layers[0].bw_hz = 250000;   // layer 0: WIDE BW (same SF as layer 1)
+    cfg.layers[1] = good_layer(2, 9); cfg.layers[1].bw_hz = 125000;   // layer 1: NARROW BW -> ~2x airtime/byte
+    CHECK(node.on_init(cfg));
+    // active_bw_hz() tracks the active leaf; a same-size frame is charged that leaf's airtime.
+    CHECK(node.active_bw_hz() == 250000u);                            // layer 0 active
+    const double air_l0 = airtime_ms(9, node.active_bw_hz(), node.active_cr(), protocol::preamble_sym, 120);
+    DualLayerTestAccess::activate(node, 1);
+    CHECK(node.active_bw_hz() == 125000u);                            // window switch -> layer 1
+    const double air_l1 = airtime_ms(9, node.active_bw_hz(), node.active_cr(), protocol::preamble_sym, 120);
+    CHECK(air_l1 > air_l0 * 1.5);   // half the BW ~doubles airtime — each layer charged its OWN PHY, not the global
 }
 
 TEST_CASE("dual-layer dedup: the same (origin,dst,ctr) key on two leaves does NOT collide (§8; node_mac_rx.cpp:393)") {

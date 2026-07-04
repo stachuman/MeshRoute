@@ -159,8 +159,8 @@ GwParseErr parse_gateway_cmd(const char* args, GatewayProvision& out) {
         else if (!strncmp(tok, "beacon=", 7)) { const long v = atol(tok + 7); if (v < 1) return GwParseErr::bad_beacon; out.beacon_ms = static_cast<uint32_t>(v); }
         else if (!strncmp(tok, "freq0=", 6)) { const double f = atof(tok + 6); if (f <= 0.0) return GwParseErr::bad_freq; out.l0.freq_mhz = f; }
         else if (!strncmp(tok, "freq1=", 6)) { const double f = atof(tok + 6); if (f <= 0.0) return GwParseErr::bad_freq; out.l1.freq_mhz = f; }
-        else if (!strncmp(tok, "bw0=", 4)) { out.l0.bw_hz = static_cast<uint32_t>(atol(tok + 4)); }   // v17 per-layer BW (0 = inherit); validate_gateway_layers gates the value
-        else if (!strncmp(tok, "bw1=", 4)) { out.l1.bw_hz = static_cast<uint32_t>(atol(tok + 4)); }
+        else if (!strncmp(tok, "bw0=", 4)) { out.l0.bw_hz = static_cast<uint32_t>(atof(tok + 4) * 1000.0 + 0.5); }   // v17 per-layer BW in kHz (fractional ok, e.g. 62.5) -> Hz, matching create/join; 0=inherit; validate gates it
+        else if (!strncmp(tok, "bw1=", 4)) { out.l1.bw_hz = static_cast<uint32_t>(atof(tok + 4) * 1000.0 + 0.5); }
         else if (!strncmp(tok, "cr0=", 4)) { out.l0.cr    = static_cast<uint8_t>(atoi(tok + 4)); }    // v17 per-layer CR (0 = inherit)
         else if (!strncmp(tok, "cr1=", 4)) { out.l1.cr    = static_cast<uint8_t>(atoi(tok + 4)); }
         else if (!strncmp(tok, "win0=", 5) || !strncmp(tok, "win1=", 5)) {
@@ -407,15 +407,21 @@ void Node::activate_layer(uint8_t i) {
     _cfg.beacon_period_ms  = L.beacon_period_ms;
     _node_id               = L.node_id;                          // the leaf's own 8-bit address (static; GATEWAY per-leaf DAD deferred — single-layer node_id DAD is built)
     _routing_snr_floor_q4  = routing_snr_floor_for(L.routing_sf);
+    _active = &_layers[i];                                       // THE SWAP — the MAC pump now operates on leaf i
+    // ★ per-layer-bw: these SF-derived timings feed airtime_routing_ms() -> active_bw_hz()/active_cr(), which read the
+    // ACTIVE leaf via _active — so they MUST be computed AFTER the swap. Else a mixed-BW gateway pairs the ENTERING
+    // leaf's SF with the DEPARTING leaf's BW/CR (spec §7: airtime must compute at a swap-time-correct _active). Nothing
+    // between the swap and here consumes them, so the move is side-effect-free.
     _lbt_backoff_ms        = (_cfg.lbt_backoff_ms > 0) ? _cfg.lbt_backoff_ms     // SF-derived timing for the new leaf
                              : (retry_jitter_ms() / 2 > 1 ? retry_jitter_ms() / 2 : 1);
     _flood_lbt_max_defer_ms = (_cfg.flood_lbt_max_defer_ms > 0) ? _cfg.flood_lbt_max_defer_ms
                               : airtime_routing_ms(protocol::beacon_max_bytes);
-    _active = &_layers[i];                                       // THE SWAP — the MAC pump now operates on leaf i
     _hal.set_rx_sf(L.routing_sf);                               // retune RX (SF latches in standby)
     if (L.freq_mhz > 0.0) _hal.set_rx_freq(L.freq_mhz);        // per-layer channel: retune the RF carrier (0 = inherit boot freq)
-    if (L.bw_hz > 0) _hal.set_rx_bw(L.bw_hz);                  // per-layer BW retune (also updates the HAL _def_bw -> TX flies on it; 0 = inherit)
-    if (L.cr    > 0) _hal.set_rx_cr(L.cr);                     // per-layer CR retune (0 = inherit)
+    _hal.set_rx_bw(active_bw_hz());                            // ALWAYS sync to the active leaf's EFFECTIVE BW (its override OR the
+    _hal.set_rx_cr(active_cr());                               // global) — NOT `if (L.bw_hz>0)`: an inherit-leaf entered AFTER an
+                                                               // override-leaf must RESET the HAL _def_bw/_def_cr back to the global,
+                                                               // else TX keeps flying on the prior leaf's stale BW (charge != transmit).
     _hal.set_protocol_id(L.node_id);                           // Hal short-id = the active leaf's node_id
     if (L.node_id != 0)                                          // seed leaf i's OWN id_bind binding (per-leaf table)
         id_bind_set(L.node_id, _key_hash32, IdBindSource::self, IdBindConf::authoritative);
