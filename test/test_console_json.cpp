@@ -24,6 +24,71 @@ TEST_CASE("JsonBuf — primitives, escaping, overflow latch") {
     }
 }
 
+// M9 (2026-07-04 wave-3): JsonBuf::str must validate UTF-8 — legit multi-byte sequences pass VERBATIM (valid
+// inside a JSON string), invalid/truncated bytes are replaced with U+FFFD so the pushed line stays valid UTF-8
+// (an attacker DM/channel body with a lone 0xC3 must NOT make the whole NDJSON line undecodable by iOS).
+static bool is_valid_utf8(const char* p, size_t n) {   // independent re-check of the emitted line
+    const unsigned char* u = reinterpret_cast<const unsigned char*>(p);
+    for (size_t i = 0; i < n; ) {
+        unsigned char c = u[i];
+        if (c < 0x80) { ++i; continue; }
+        size_t need; unsigned char lo = 0x80, hi = 0xBF;
+        if (c >= 0xC2 && c <= 0xDF) need = 2;
+        else if (c >= 0xE0 && c <= 0xEF) { need = 3; if (c == 0xE0) lo = 0xA0; if (c == 0xED) hi = 0x9F; }
+        else if (c >= 0xF0 && c <= 0xF4) { need = 4; if (c == 0xF0) lo = 0x90; if (c == 0xF4) hi = 0x8F; }
+        else return false;
+        if (i + need > n) return false;
+        if (u[i+1] < lo || u[i+1] > hi) return false;
+        for (size_t k = 2; k < need; ++k) if (u[i+k] < 0x80 || u[i+k] > 0xBF) return false;
+        i += need;
+    }
+    return true;
+}
+TEST_CASE("M9 — JsonBuf::str UTF-8 validation (valid verbatim, invalid -> U+FFFD, escaping preserved)") {
+    char b[64];
+    // (1) valid multi-byte UTF-8 "café" (c3 a9) passes VERBATIM — NOT re-escaped as \u00xx.
+    {   const char cafe[] = { 'c','a','f',(char)0xC3,(char)0xA9, 0 };   // "café"
+        JsonBuf j(b, sizeof b); j.str(cafe, 5); size_t len = j.finish();
+        CHECK(std::string(b, len) == std::string("\"caf\xC3\xA9\"\n"));   // bytes preserved
+        CHECK(is_valid_utf8(b, len));
+    }
+    // (2) a valid 4-byte emoji U+1F600 (f0 9f 98 80) passes verbatim.
+    {   const char emoji[] = { (char)0xF0,(char)0x9F,(char)0x98,(char)0x80, 0 };
+        JsonBuf j(b, sizeof b); j.str(emoji, 4); size_t len = j.finish();
+        CHECK(std::string(b, len) == std::string("\"\xF0\x9F\x98\x80\"\n"));
+        CHECK(is_valid_utf8(b, len));
+    }
+    // (3) a lone 0xC3 (truncated 2-byte lead, no continuation) -> replaced with U+FFFD (ef bf bd); line stays valid.
+    {   const char bad[] = { 'x',(char)0xC3, 0 };
+        JsonBuf j(b, sizeof b); j.str(bad, 2); size_t len = j.finish();
+        CHECK(std::string(b, len) == std::string("\"x\xEF\xBF\xBD\"\n"));
+        CHECK(is_valid_utf8(b, len));
+    }
+    // (4) a lone 0xFF (never a valid lead) -> U+FFFD; valid.
+    {   const char bad[] = { (char)0xFF, 0 };
+        JsonBuf j(b, sizeof b); j.str(bad, 1); size_t len = j.finish();
+        CHECK(std::string(b, len) == std::string("\"\xEF\xBF\xBD\"\n"));
+        CHECK(is_valid_utf8(b, len));
+    }
+    // (5) an OVERLONG 2-byte encoding of '/' (c0 af) -> invalid lead 0xC0 -> two U+FFFD (each bad byte replaced).
+    {   const char overlong[] = { (char)0xC0,(char)0xAF, 0 };
+        JsonBuf j(b, sizeof b); j.str(overlong, 2); size_t len = j.finish();
+        CHECK(std::string(b, len) == std::string("\"\xEF\xBF\xBD\xEF\xBF\xBD\"\n"));
+        CHECK(is_valid_utf8(b, len));
+    }
+    // (6) a UTF-16 surrogate encoded as 3-byte (ed a0 80 = U+D800) -> invalid (0xED continuation > 0x9F) -> 3x U+FFFD.
+    {   const char surr[] = { (char)0xED,(char)0xA0,(char)0x80, 0 };
+        JsonBuf j(b, sizeof b); j.str(surr, 3); size_t len = j.finish();
+        CHECK(is_valid_utf8(b, len));                       // whatever the replacement, output must be valid UTF-8
+        CHECK(std::string(b, len).find("\xED\xA0\x80") == std::string::npos);   // the surrogate bytes are NOT passed through
+    }
+    // (7) the existing quote/backslash/newline/tab escaping still holds, interleaved with a valid multi-byte char.
+    {   const char mix[] = { 'a','"','\\','\n','\t',(char)0xC3,(char)0xA9, 0 };
+        JsonBuf j(b, sizeof b); j.str(mix, 7); size_t len = j.finish();
+        CHECK(std::string(b, len) == std::string("\"a\\\"\\\\\\n\\t\xC3\xA9\"\n"));
+        CHECK(is_valid_utf8(b, len));
+    }
+}
 TEST_CASE("write_ack — CmdResult → ack JSON") {
     char b[96];
     // id-addressed send: dh/lp == 0

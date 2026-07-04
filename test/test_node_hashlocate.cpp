@@ -305,6 +305,30 @@ TEST_CASE("A handle_h — unknown hash FORWARDS with TTL-1 (deduped on a re-floo
     CHECK(hal.tx_frames.size() == 1);
 }
 
+// L7 (2026-07-04 wave-3): the H `ttl` is an unauthenticated wire byte. A forged ttl=255 would re-flood with a
+// 255-hop horizon; the forward path must clamp the effective ttl to flood_hop_max before the -1 decrement.
+TEST_CASE("L7 — a forged H ttl=255 is clamped to flood_hop_max on forward") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000BBBB);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    hal.tx_frames.clear();
+
+    std::array<uint8_t, 16> q{}; const size_t n = make_h(/*origin=*/9, /*hash=*/0x0000FACE, /*ttl=*/255, q);
+    node.on_recv(q.data(), n, meta);
+
+    const Ev* fwd = find_ev(hal.events, "h_forward");
+    CHECK(fwd != nullptr);
+    if (fwd) CHECK(fwd->ttl == static_cast<int64_t>(protocol::flood_hop_max - 1));   // 255 clamped to 16, then -1 = 15
+    CHECK(hal.tx_frames.size() == 1);
+    if (!hal.tx_frames.empty()) {
+        auto pf = parse_h(std::span<const uint8_t>(hal.tx_frames[0].data(), hal.tx_frames[0].size()));
+        CHECK(pf.has_value());
+        if (pf) CHECK(pf->ttl == static_cast<uint8_t>(protocol::flood_hop_max - 1));   // the on-wire forwarded ttl is clamped
+    }
+}
+
 // R4 (review): a relay must PRESERVE want_pubkey across an H forward. Otherwise a MULTI-HOP WANT_PUBKEY E2E bootstrap
 // reaches the owner with want_pubkey=0 -> the owner answers a plain hash-bind (no ed_pub) instead of the TYPE-5 pubkey
 // -> the requester never caches the recipient's ed_pub -> e2e_seal_inner keeps returning no-pubkey. One-hop works; the

@@ -621,6 +621,11 @@ void Node::tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind k
 // reserves CTS+DATA+ACK (DATA size known from payload_len, SF taken as our max = longest), a CTS reserves
 // DATA+ACK (SF exact from chosen_data_sf, size assumed max). Per-leg turnaround gaps included.
 uint32_t Node::nav_duration_rts(uint8_t data_sf, uint8_t payload_len) const {
+    // M6: payload_len is an UNAUTHENTICATED wire byte (0..255). At max SF a forged 255 arms NAV for seconds; NAV
+    // is on by default -> a cheap overheard RTS with payload_len=255 could indefinitely silence a victim's TX.
+    // Clamp to the real hard cap (a DATA body can never exceed max_payload_bytes_hard_cap) BEFORE the airtime calc.
+    // Centralised here so every caller (the NAV arm AND the reserve-yield estimate) is covered by one guard.
+    if (payload_len > protocol::max_payload_bytes_hard_cap) payload_len = protocol::max_payload_bytes_hard_cap;
     const uint32_t cts_air  = static_cast<uint32_t>(airtime_routing_ms(3));   // CTS = 3 B on the routing SF
     const uint32_t data_air = static_cast<uint32_t>(airtime_ms(data_sf, _cfg.radio_bw_hz, _cfg.radio_cr,
                                   protocol::preamble_sym, static_cast<uint16_t>(payload_len + 13)));   // +13 = DATA header (handle_rts:57)
@@ -628,6 +633,8 @@ uint32_t Node::nav_duration_rts(uint8_t data_sf, uint8_t payload_len) const {
     return cts_air + data_air + ack_air + 3u * static_cast<uint32_t>(protocol::cts_to_data_gap_ms);   // 3 turnarounds
 }
 uint32_t Node::nav_duration_cts(uint8_t data_sf, uint8_t payload_len) const {
+    // M6: payload_len is the unauthenticated CTS wire byte on the overheard-CTS NAV path — clamp like nav_duration_rts.
+    if (payload_len > protocol::max_payload_bytes_hard_cap) payload_len = protocol::max_payload_bytes_hard_cap;
     // Exact when the CTS carried payload_len (DATA frame = inner+MAC + 13 header); else max-frame fallback.
     const uint16_t data_bytes = payload_len ? static_cast<uint16_t>(payload_len + 13) : 255;
     const uint32_t data_air = static_cast<uint32_t>(airtime_ms(data_sf, _cfg.radio_bw_hz, _cfg.radio_cr,
@@ -1059,6 +1066,9 @@ void Node::start_ack_timeout() {
     if (_active->_pending_tx) _active->_pending_tx->timeout_deadline_ms = _hal.now() + base + 2;   // for reserve_yield's extend-only push
 }
 void Node::start_pending_rx_expiry(uint8_t payload_len) {
+    // M6: payload_len can be the RTS wire byte (node_mac_rx.cpp:302, r.payload_len) — clamp it like nav_duration_rts
+    // so a forged 255 can't inflate the pending-RX expiry (and its BUSY_RX NACK busy_for) at max SF.
+    if (payload_len > protocol::max_payload_bytes_hard_cap) payload_len = protocol::max_payload_bytes_hard_cap;
     const uint8_t  sf  = _active->_pending_rx ? _active->_pending_rx->chosen_data_sf : max_data_sf();  // pending always set here
     const uint16_t len = static_cast<uint16_t>(14 + payload_len);
     // +2: the original ideal-timing margin — this is ALL the sim uses, so s18 contention is unchanged.

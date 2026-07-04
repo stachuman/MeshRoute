@@ -465,15 +465,18 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (hash_query_seen_recently(h.origin, h.key_hash32, h.hard, h.want_pubkey)) return;   // flood dedup (dv:11656) — §2: WANT_PUBKEY is its own variant
     mark_hash_query_seen(h.origin, h.key_hash32, h.hard, h.want_pubkey);                   // (dv:11657)
     if (h.ttl == 0) return;                                         // TTL exhausted (dv:11658)
+    // L7: h.ttl is an unauthenticated wire byte — a forged ttl=255 would re-flood with a 255-hop horizon. Clamp to
+    // flood_hop_max so the re-flooded ttl can't exceed the mesh diameter (dedup already bounds re-broadcasts per node).
+    const uint8_t fwd_ttl = (h.ttl > protocol::flood_hop_max ? protocol::flood_hop_max : h.ttl) - 1;
     MR_TELEMETRY(
         EventField f[] = { { .key = "origin",     .type = EventField::T::i64,     .i = h.origin },
                            { .key = "key_hash32", .type = EventField::T::i64,     .i = static_cast<int64_t>(h.key_hash32) },
-                           { .key = "ttl",        .type = EventField::T::i64,     .i = static_cast<int64_t>(h.ttl - 1) },
+                           { .key = "ttl",        .type = EventField::T::i64,     .i = static_cast<int64_t>(fwd_ttl) },
                            { .key = "hard",       .type = EventField::T::boolean, .b = h.hard } };
         _hal.emit("h_forward", f, 4); );                   // dv:11661
     h_in fwd{};
     fwd.leaf_id = _cfg.leaf_id; fwd.origin = h.origin; fwd.key_hash32 = h.key_hash32;
-    fwd.ttl = static_cast<uint8_t>(h.ttl - 1); fwd.hard = h.hard;   // preserve the variant across forwards
+    fwd.ttl = fwd_ttl; fwd.hard = h.hard;                          // preserve the variant across forwards
     fwd.want_pubkey = h.want_pubkey;   // R4: PRESERVE the E2E pubkey-request flag so a multi-hop WANT_PUBKEY reaches the owner
     if (h.want_pubkey) for (int i = 0; i < 32; ++i) fwd.requester_ed_pub[i] = h.requester_ed_pub[i];   // §2: carry the requester's pubkey across the forward
     uint8_t buf[8 + 32];               // §2: a WANT_PUBKEY H is 40 B

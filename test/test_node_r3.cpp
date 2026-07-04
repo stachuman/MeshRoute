@@ -2642,6 +2642,60 @@ TEST_CASE("F RREQ relayed (no route) -> reverse path + ttl-decremented rebroadca
     CHECK(count_rreq() == 1);                                // deduped: no second rebroadcast
 }
 
+// M4 (2026-07-04 wave-3): the RREQ hops byte is unauthenticated wire. learn_route_via stores hops = f.hops+1,
+// so a forged f.hops==255 wraps (uint8) to a 0-hop reverse route that OUT-RANKS every real route AND re-seeds
+// on each re-flood = network-wide poison from ONE crafted frame. The top-of-branch dv_hop_cap gate must drop it
+// (no reverse route learned, no rebroadcast), while a below-cap RREQ still learns normally.
+TEST_CASE("M4 — RREQ with hops==255 does NOT create a 0-hop poison route (dv_hop_cap gate); below-cap still learns") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/5, /*key_hash32=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.peer_count = 0;
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    auto find_rt = [&](uint8_t dest) -> const RtEntry* {
+        for (uint8_t i = 0; i < node.rt_count(); ++i) if (node.rt_at(i).dest == dest) return &node.rt_at(i);
+        return nullptr;
+    };
+    auto count_rreq = [&]() { int c = 0; for (const auto& tf : hal.tx_frames) {
+        auto p = parse_f(std::span<const uint8_t>(tf.bytes.data(), tf.bytes.size())); if (p && !p->is_reply) ++c; } return c; };
+
+    // (1) FORGED RREQ: origin 10, hops == 255 (wraps to 0 on +1 if unguarded).
+    f_in bad{}; bad.leaf_id = 0; bad.origin = 10; bad.is_reply = false;
+    bad.dst_id = 20; bad.ttl_or_next_hop = 4; bad.hops = 255; bad.relay = 3;
+    uint8_t bbuf[16]; const size_t bn = pack_f(bad, std::span<uint8_t>(bbuf, sizeof(bbuf)));
+    hal._now = 1000; node.on_recv(bbuf, bn, meta);
+    CHECK(hal.count("rreq_drop_hop_cap") == 1);             // gated at the top of the RREQ branch
+    CHECK(find_rt(10) == nullptr);                          // NO reverse route learned (would have been 0-hop poison)
+    CHECK(count_rreq() == 0);                               // NOT rebroadcast
+
+    // (2) a legitimate below-cap RREQ (origin 11, hops 1) still learns a sane reverse route + rebroadcasts.
+    f_in ok{}; ok.leaf_id = 0; ok.origin = 11; ok.is_reply = false;
+    ok.dst_id = 20; ok.ttl_or_next_hop = 4; ok.hops = 1; ok.relay = 3;
+    uint8_t obuf[16]; const size_t on = pack_f(ok, std::span<uint8_t>(obuf, sizeof(obuf)));
+    hal._now = 2000; node.on_recv(obuf, on, meta);
+    const RtEntry* e11 = find_rt(11);
+    CHECK(e11 != nullptr);
+    if (e11) { CHECK(e11->n >= 1); CHECK(e11->candidates[0].hops == 2); }   // f.hops(1)+1 = a sane 2, not 0
+    CHECK(count_rreq() == 1);
+}
+
+// M6 (2026-07-04 wave-3): nav_duration_rts feeds the unauthenticated RTS payload_len byte into an airtime calc at
+// max SF. A forged payload_len=255 must NOT arm NAV any longer than the real hard cap — otherwise a cheap overheard
+// RTS silences a victim's TX for seconds. The clamp lives inside nav_duration_rts, so 255 == max_payload_bytes_hard_cap.
+TEST_CASE("M6 — nav_duration_rts clamps payload_len (255 == max_payload_bytes_hard_cap, no max-SF blowup)") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/5, /*key_hash32=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);   // max SF12
+    node.on_init(cfg);
+    const uint8_t sf = 12;
+    const uint32_t d_cap = node.test_nav_duration_rts(sf, protocol::max_payload_bytes_hard_cap);
+    const uint32_t d_255 = node.test_nav_duration_rts(sf, 255);
+    CHECK(d_255 == d_cap);                                  // the forged 255 is clamped to the hard cap
+    // A below-cap value is still honoured (the clamp only caps, never floors) -> smaller than the capped duration.
+    const uint32_t d_small = node.test_nav_duration_rts(sf, 32);
+    CHECK(d_small < d_cap);
+}
+
 // R6.1 §6.4: the membership gate must cover F (route-discovery is the bypass around the beacon gate). A divergent-config
 // F is dropped + NOT relayed (1-hop flood containment); a matching one is processed normally.
 TEST_CASE("R6.1 F-gate — a divergent-config F is dropped + NOT relayed; matching is processed") {

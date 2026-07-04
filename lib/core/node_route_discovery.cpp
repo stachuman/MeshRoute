@@ -134,6 +134,15 @@ void Node::handle_f(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 
     if (!f.is_reply) {                                     // ----------------- RREQ -----------------
         if (f.origin == _node_id) return;                  // our own flood, heard back
+        // M4: f.hops is an UNAUTHENTICATED wire byte. learn_route_via below stores hops = f.hops+1, so a forged
+        // f.hops==255 wraps (uint8) to a 0-hop entry that OUT-RANKS every real route (rt sort is hops-ascending)
+        // AND re-seeds on each re-flood = network-wide poison from one crafted frame. Gate at the top (before
+        // learn_route_via AND the re-flood) exactly like the RREP dv_hop_cap backstop below. A legitimate RREQ's
+        // hops can't reach dv_hop_cap (it's the TTL bound) — beyond that it's forged/looped -> drop, don't learn.
+        if (f.hops >= _cfg.dv_hop_cap) {
+            MR_EMIT("rreq_drop_hop_cap", EF_I("origin", f.origin), EF_I("dst", f.dst_id), EF_I("hops", f.hops));
+            return;
+        }
         MR_TELEMETRY(
             EventField f2[] = { { .key = "origin", .type = EventField::T::i64, .i = f.origin },
                                 { .key = "dst",    .type = EventField::T::i64, .i = f.dst_id },

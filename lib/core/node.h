@@ -547,6 +547,7 @@ public:
     bool              has_pending_tx() const { return _active->_pending_tx.has_value(); }
     bool              tx_queue_full()  const { return _active->_tx_queue_n >= kTxQueueCap; }   // enqueue_data SILENTLY drops when full -> callers (firmware scheduled-send) gate on this before originating
     uint64_t          nav_until_ms()   const { return _nav_until_ms; }  // NAV reservation deadline (0 = clear); test/status accessor
+    uint32_t          test_nav_duration_rts(uint8_t sf, uint8_t payload_len) const { return nav_duration_rts(sf, payload_len); }  // M6: white-box the payload_len clamp
     // ---- channel-plane inspection (public, like rt_count) + the two seams tests drive directly ----
     uint16_t          channel_buffer_count() const { return _active->_channel_buffer_n; }
     bool              channel_has(uint32_t id) const { return channel_buffer_find(id) >= 0; }

@@ -12,20 +12,56 @@ void JsonBuf::ch(char c) {
     buf[pos++] = c;
 }
 void JsonBuf::lit(const char* s) { while (*s) ch(*s++); }
+// M9: how many bytes a WELL-FORMED UTF-8 sequence starting at s[i] spans (1..4), or 0 if the byte/sequence is
+// malformed. This is the Unicode-standard "well-formed byte sequence" table (RFC 3629): it rejects overlong
+// encodings, UTF-16 surrogates (U+D800..U+DFFF) and code points > U+10FFFF — not just a naive length-from-lead.
+// A lone/truncated/out-of-range byte returns 0 -> the caller emits U+FFFD and advances one byte. Bytes are
+// attacker-controlled DM/channel bodies; we PASS valid multi-byte UTF-8 through verbatim (a raw 0xC3 0xA9 = "é"
+// is valid inside a JSON string) and only sanitize invalid bytes, so legit international text/emoji survive.
+static size_t utf8_seq_len(const unsigned char* s, size_t remaining) {
+    const unsigned char c0 = s[0];
+    if (c0 < 0x80) return 1;                                  // ASCII (handled before this is called, but complete)
+    auto cont = [](unsigned char b) { return b >= 0x80 && b <= 0xBF; };
+    if (c0 >= 0xC2 && c0 <= 0xDF) {                           // 2-byte (0xC0/0xC1 = overlong -> rejected)
+        if (remaining >= 2 && cont(s[1])) return 2;
+        return 0;
+    }
+    if (c0 >= 0xE0 && c0 <= 0xEF) {                           // 3-byte
+        if (remaining < 3) return 0;
+        const unsigned char lo = (c0 == 0xE0) ? 0xA0 : 0x80;  // 0xE0: reject overlong
+        const unsigned char hi = (c0 == 0xED) ? 0x9F : 0xBF;  // 0xED: reject surrogates
+        if (s[1] >= lo && s[1] <= hi && cont(s[2])) return 3;
+        return 0;
+    }
+    if (c0 >= 0xF0 && c0 <= 0xF4) {                           // 4-byte
+        if (remaining < 4) return 0;
+        const unsigned char lo = (c0 == 0xF0) ? 0x90 : 0x80;  // 0xF0: reject overlong
+        const unsigned char hi = (c0 == 0xF4) ? 0x8F : 0xBF;  // 0xF4: reject > U+10FFFF
+        if (s[1] >= lo && s[1] <= hi && cont(s[2]) && cont(s[3])) return 4;
+        return 0;
+    }
+    return 0;                                                 // 0x80..0xC1, 0xF5..0xFF = never a valid lead
+}
 void JsonBuf::str(const char* s, size_t n) {
     ch('"');
-    for (size_t i = 0; i < n; ++i) {
-        unsigned char c = static_cast<unsigned char>(s[i]);
+    const unsigned char* u = reinterpret_cast<const unsigned char*>(s);
+    for (size_t i = 0; i < n; ) {
+        unsigned char c = u[i];
         switch (c) {
-            case '"':  lit("\\\""); break;
-            case '\\': lit("\\\\"); break;
-            case '\n': lit("\\n");  break;
-            case '\r': lit("\\r");  break;
-            case '\t': lit("\\t");  break;
-            default:
-                if (c < 0x20) { char u[8]; std::snprintf(u, sizeof u, "\\u%04x", c); lit(u); }
-                else ch(static_cast<char>(c));
+            case '"':  lit("\\\""); ++i; continue;
+            case '\\': lit("\\\\"); ++i; continue;
+            case '\n': lit("\\n");  ++i; continue;
+            case '\r': lit("\\r");  ++i; continue;
+            case '\t': lit("\\t");  ++i; continue;
         }
+        if (c < 0x20) {                                       // C0 controls -> \u00xx (JSON requires it)
+            char buf8[8]; std::snprintf(buf8, sizeof buf8, "\\u%04x", c); lit(buf8); ++i; continue;
+        }
+        if (c < 0x80) { ch(static_cast<char>(c)); ++i; continue; }   // ASCII (incl. 0x7F) -> verbatim
+        // Multi-byte lead: emit the whole sequence verbatim iff WELL-FORMED, else one U+FFFD (EF BF BD) + skip 1.
+        const size_t seq = utf8_seq_len(u + i, n - i);
+        if (seq == 0) { ch(static_cast<char>(0xEF)); ch(static_cast<char>(0xBF)); ch(static_cast<char>(0xBD)); ++i; }
+        else { for (size_t k = 0; k < seq; ++k) ch(static_cast<char>(u[i + k])); i += seq; }
     }
     ch('"');
 }

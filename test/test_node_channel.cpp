@@ -843,6 +843,26 @@ TEST_CASE("FLOOD rebroadcast: re-floods {coverage + me} with hop_left-1; hop_lef
     }
 }
 
+// L7 (2026-07-04 wave-3): the FLOOD RTS-M `dst` slot carries hop_left off the wire (unauthenticated). A forged
+// hop_left=255 must be clamped to flood_hop_max on ingest, so the re-flooded TTL can't exceed the mesh diameter.
+TEST_CASE("L7 — a forged FLOOD hop_left=255 is clamped to flood_hop_max on ingest") {
+    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    std::array<uint8_t,64> bb{}; node.on_recv(bb.data(), mk_beacon(9, bb), meta_at(5));   // a live neighbour -> flood target
+    const uint32_t id = (uint32_t(5) << 24) | 0x99u;
+    uint8_t bm[32] = {}; bm_set(bm, 1);
+    std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, 1, id, bm, /*hop_left=*/255, 3, rb), meta_at(10));
+    std::array<uint8_t,64> db{}; node.on_recv(db.data(), mk_m_frame(0, id, 5, db), meta_at(40));
+    const int before = hal.count("flood_tx");
+    node.on_timer(kFloodRebcastTimerId);                                  // slot 0 fires
+    CHECK(hal.count("flood_tx") == before + 1);                           // still re-floods (clamped, not dropped)
+    const std::vector<uint8_t>* rf = nullptr;
+    for (auto& f : hal.tx_frames) { auto o = parse_rts(std::span<const uint8_t>(f.data(), f.size())); if (o && o->flood) rf = &f; }
+    CHECK(rf != nullptr);
+    if (rf) { auto o = parse_rts(std::span<const uint8_t>(rf->data(), rf->size()));
+              // ingest clamps 255 -> flood_hop_max(16); the re-flood decrements once -> 15 on the wire dst slot.
+              if (o) CHECK(o->dst == static_cast<uint8_t>(protocol::flood_hop_max - 1)); }
+}
+
 TEST_CASE("FLOOD fast-self-pull (§4.4): caught the RTS-M, missed the DATA-M -> pull from src on retune") {
     TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
     const uint32_t id = (uint32_t(5) << 24) | 0x66u;
