@@ -41,7 +41,7 @@ uint8_t Node::select_data_sf(uint8_t rts_sf_index, int16_t rx_snr_q4) const {
 }
 
 uint32_t Node::airtime_routing_ms(uint16_t len) const {
-    return airtime_ms(_cfg.routing_sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym, len);
+    return airtime_ms(_cfg.routing_sf, active_bw_hz(), active_cr(), protocol::preamble_sym, len);
 }
 // 3*airtime(routing, Lua RTS_LEN=8) — a TIMING constant from the Lua, NOT the 7-B C++ wire,
 // so the retry rand RANGE matches the Lua and the lua-vs-meshroute streams stay aligned.
@@ -416,6 +416,10 @@ void Node::become_free() {
 // ---- M-broadcast (channel gossip) fire-and-forget tx (dv:6997/7044/7389) ----------------------
 // chosen_data_sf = max(allowed_sf_bitmap) — largest SF = most robust = most receivers decode it.
 uint8_t Node::max_data_sf() const {
+    // NOTE (per-layer-bw 2026-07-04): reads the SWAP-MIRRORED _cfg.allowed_sf_bitmap (activate_layer stamps the ACTIVE
+    // layer's bitmap into this scalar), so it stays active-layer-coherent WITH active_bw_hz()/active_cr() — the airtime
+    // sites that pair them (channel_capacity_C, exchange_airtime_ms) resolve SF and BW/CR for the SAME active leaf. If a
+    // refactor ever froze this scalar at layer-0, that coherence would break — keep the mirror.
     const uint16_t bitmap = _cfg.allowed_sf_bitmap;             // 0 -> no data SF (returns 0; origination refused upstream)
     for (uint8_t sf = 12; sf >= 5; --sf) if (bitmap & (1u << sf)) return sf;
     return 0;
@@ -627,7 +631,7 @@ uint32_t Node::nav_duration_rts(uint8_t data_sf, uint8_t payload_len) const {
     // Centralised here so every caller (the NAV arm AND the reserve-yield estimate) is covered by one guard.
     if (payload_len > protocol::max_payload_bytes_hard_cap) payload_len = protocol::max_payload_bytes_hard_cap;
     const uint32_t cts_air  = static_cast<uint32_t>(airtime_routing_ms(3));   // CTS = 3 B on the routing SF
-    const uint32_t data_air = static_cast<uint32_t>(airtime_ms(data_sf, _cfg.radio_bw_hz, _cfg.radio_cr,
+    const uint32_t data_air = static_cast<uint32_t>(airtime_ms(data_sf, active_bw_hz(), active_cr(),
                                   protocol::preamble_sym, static_cast<uint16_t>(payload_len + 13)));   // +13 = DATA header (handle_rts:57)
     const uint32_t ack_air  = static_cast<uint32_t>(airtime_routing_ms(3));   // ACK = 3 B
     return cts_air + data_air + ack_air + 3u * static_cast<uint32_t>(protocol::cts_to_data_gap_ms);   // 3 turnarounds
@@ -637,7 +641,7 @@ uint32_t Node::nav_duration_cts(uint8_t data_sf, uint8_t payload_len) const {
     if (payload_len > protocol::max_payload_bytes_hard_cap) payload_len = protocol::max_payload_bytes_hard_cap;
     // Exact when the CTS carried payload_len (DATA frame = inner+MAC + 13 header); else max-frame fallback.
     const uint16_t data_bytes = payload_len ? static_cast<uint16_t>(payload_len + 13) : 255;
-    const uint32_t data_air = static_cast<uint32_t>(airtime_ms(data_sf, _cfg.radio_bw_hz, _cfg.radio_cr,
+    const uint32_t data_air = static_cast<uint32_t>(airtime_ms(data_sf, active_bw_hz(), active_cr(),
                                   protocol::preamble_sym, data_bytes));
     const uint32_t ack_air  = static_cast<uint32_t>(airtime_routing_ms(3));
     return data_air + ack_air + 2u * static_cast<uint32_t>(protocol::cts_to_data_gap_ms);
@@ -864,7 +868,7 @@ Node::LimitsSnapshot Node::limits_snapshot() const {
 // Pure airtime/timestamp arithmetic — NO rand. Used by tx_with_retry (#2 duty pre-check, retry-eligible frames only).
 bool Node::duty_over_budget(size_t len, int16_t sf, uint32_t* wait_ms) {
     if (_duty_cycle_budget_ms == 0) return false;
-    const uint64_t airtime = airtime_ms(sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym,
+    const uint64_t airtime = airtime_ms(sf, active_bw_hz(), active_cr(), protocol::preamble_sym,
                                         static_cast<uint16_t>(len));
     const uint64_t used = _hal.airtime_used_ms(_cfg.duty_cycle_window_ms);
     if (used + airtime <= _duty_cycle_budget_ms) return false;
@@ -976,7 +980,7 @@ void Node::do_data_tx() {
         MR_EMIT("data_tx", EF_I("dst", pt.dst), EF_I("next", pt.next), EF_I("ctr", pt.ctr),
                 EF_I("sf", pt.chosen_data_sf), EF_B("m_broadcast", true));
         if (handed) {
-            const uint32_t data_air = airtime_ms(pt.chosen_data_sf, _cfg.radio_bw_hz, _cfg.radio_cr,
+            const uint32_t data_air = airtime_ms(pt.chosen_data_sf, active_bw_hz(), active_cr(),
                                                  protocol::preamble_sym, static_cast<uint16_t>(mlen));
             (void)_hal.after(data_air + 5, kMBcastClearTimerId);
         }
@@ -1059,7 +1063,7 @@ void Node::start_ack_timeout() {
     // ack-timeout landed ~70 ms BEFORE the ACK on metal -> it cleared awaiting_ack, so the real ACK was then
     // ignored (handle_ack needs awaiting_ack) and a redundant re-RTS fired on a DELIVERED flight. Mirrors
     // start_pending_rx_expiry, which already carries the slop for the symmetric DATA wait. (Bench: SF9 DATA.)
-    const uint32_t base = airtime_ms(sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym, len)
+    const uint32_t base = airtime_ms(sf, active_bw_hz(), active_cr(), protocol::preamble_sym, len)
                         + airtime_routing_ms(3)
                         + _hal.rx_window_slop_ms(sf) + _hal.rx_window_slop_ms(_cfg.routing_sf);
     (void)_hal.after(base + 2, kAckTimeoutTimerId);
@@ -1079,7 +1083,7 @@ void Node::start_pending_rx_expiry(uint8_t payload_len) {
     // over-held pending_rx on lost DATA -> 96%->69% s18 collapse) and metal-real on the device (else the
     // receiver hops back to routing before the slow DATA's RX_DONE and aborts it).
     const uint32_t t = airtime_routing_ms(4) /*CTS_LEN=4*/ + protocol::cts_to_data_gap_ms +
-                       airtime_ms(sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym, len)
+                       airtime_ms(sf, active_bw_hz(), active_cr(), protocol::preamble_sym, len)
                        + 2 + _hal.rx_window_slop_ms(sf);
     if (_active->_pending_rx) _active->_pending_rx->expiry_ms = _hal.now() + t;   // for the BUSY_RX NACK busy_for calc
     (void)_hal.after(t, kPendingRxExpiryTimerId);

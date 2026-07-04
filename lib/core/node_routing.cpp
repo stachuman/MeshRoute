@@ -102,7 +102,7 @@ uint32_t Node::channel_capacity_C() const {
     if (D == 0) return 0u;
     // MF3: a re-broadcast flood airs the 43-B FLOOD RTS-M (at routing_sf) THEN the DATA-M (at max_data_sf()). Both count.
     const uint32_t t_rts  = airtime_routing_ms(43);
-    const uint32_t t_data = airtime_ms(max_data_sf(), _cfg.radio_bw_hz, _cfg.radio_cr,
+    const uint32_t t_data = airtime_ms(max_data_sf(), active_bw_hz(), active_cr(),
                                        protocol::preamble_sym, protocol::channel_flood_sample_len);
     const uint32_t T_ch = t_rts + t_data;
     if (T_ch == 0) return 0u;                                          // defensive: no airtime -> 0 (caller falls back to the legacy cap, matching pre-refactor)

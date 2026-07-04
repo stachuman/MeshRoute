@@ -97,7 +97,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                         // (7) = the full on-air M frame (was +13 = the old DATA-M header). Sizing it short retunes
                         // back before the M frame's RX_DONE -> drop_sf_mismatch. +30 ideal margin + the metal slop.
                         const uint32_t back = protocol::cts_to_data_gap_ms
-                            + airtime_ms(data_sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym,
+                            + airtime_ms(data_sf, active_bw_hz(), active_cr(), protocol::preamble_sym,
                                          static_cast<uint16_t>(r.payload_len + M_FRAME_HDR_LEN)) + 30 + _hal.rx_window_slop_ms(data_sf);
                         (void)_hal.after(back, kOverhearRetuneTimerId);
                         MR_EMIT("channel_overhear_armed", EF_I("sender", r.src), EF_I("chosen_data_sf", data_sf), EF_B("flood", true));
@@ -121,7 +121,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             // (drop_sf_mismatch). The +30 is the sim's ideal margin; rx_window_slop_ms adds the REAL metal
             // RX_DONE/SPI turnaround (ZERO on the sim; the same slop start_pending_rx_expiry carries).
             const uint32_t back = protocol::cts_to_data_gap_ms
-                + airtime_ms(data_sf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym,
+                + airtime_ms(data_sf, active_bw_hz(), active_cr(), protocol::preamble_sym,
                              static_cast<uint16_t>(r.payload_len + M_FRAME_HDR_LEN)) + 30 + _hal.rx_window_slop_ms(data_sf);
             (void)_hal.after(back, kOverhearRetuneTimerId);
             MR_TELEMETRY(
@@ -408,7 +408,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // (== this hop's RTS src, so RTS+DATA accumulate in one entry; frame-derived, metal-correct) and
     // costed at the chosen data SF over the whole frame.
     track_originator_observation(_active->_pending_rx->from, /*kind=data*/2, d.ctr_lo4,
-        airtime_ms(_active->_pending_rx->chosen_data_sf, _cfg.radio_bw_hz, _cfg.radio_cr,
+        airtime_ms(_active->_pending_rx->chosen_data_sf, active_bw_hz(), active_cr(),
                    protocol::preamble_sym, static_cast<uint16_t>(len)));
     int oa_app_; uint32_t orig_air; uint8_t oa_rts_, oa_cts_;   // sender's windowed airtime AFTER this DATA (calibration)
     compute_originator_metric(_active->_pending_rx->from, oa_app_, orig_air, oa_rts_, oa_cts_);

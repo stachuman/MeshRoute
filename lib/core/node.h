@@ -49,6 +49,9 @@ struct LayerConfig {
     uint16_t allowed_sf_bitmap = 0;       // allowed DATA-SF set; 0 = unset/no-data-SF (REQUIRED per layer)
     double   freq_mhz          = 0.0;     // per-layer RF carrier; 0 = inherit the node's boot/global freq. A layer
                                           // is a (freq, SF, leaf) channel — the gateway retunes freq on a window switch.
+    uint32_t bw_hz             = 0;       // per-layer bandwidth (Hz); 0 = inherit the node's global radio_bw_hz.
+    uint8_t  cr                = 0;       // per-layer coding-rate (5..8); 0 = inherit radio_cr. A layer is a full
+                                          // (freq, SF, BW, CR) channel — BW/CR retune with SF/freq on a window switch.
     uint32_t beacon_period_ms  = 900000;
     uint32_t window_period_ms  = 15000;   // the full layer0->layer1 cycle (§3.2 default; cfg-overridable)
     uint32_t window_ms         = 0;       // this layer's presence in the cycle; 0 = DERIVE SF-weighted (§4)
@@ -464,6 +467,17 @@ public:
     // The FULL 8-bit layer_id of the ACTIVE leaf (a gateway alternates leaves on the window schedule). Public so the
     // device console (`debug on`) can announce which layer the gateway is currently LISTENING on. Single-layer: layers[0].layer_id.
     uint8_t           active_layer_id() const { return _cfg.layers[static_cast<size_t>(_active - &_layers[0])].layer_id; }
+    // Per-layer BW/CR (2026-07-04): the ACTIVE leaf's bandwidth/coding-rate for the airtime model — the same
+    // runtime->config index idiom as active_layer_id(). 0 in the LayerConfig = inherit the global radio_bw_hz/radio_cr
+    // (a single-layer node's sole layer inherits, so these read identically to the scalars = byte-identical behavior).
+    uint32_t          active_bw_hz()   const {
+        const uint32_t b = _cfg.layers[static_cast<size_t>(_active - &_layers[0])].bw_hz;
+        return b > 0 ? b : _cfg.radio_bw_hz;
+    }
+    uint8_t           active_cr()      const {
+        const uint8_t c = _cfg.layers[static_cast<size_t>(_active - &_layers[0])].cr;
+        return c > 0 ? c : _cfg.radio_cr;
+    }
     uint32_t          key_hash32()     const { return _key_hash32; }
     bool              crypto_ready()   const { return _crypto_ready; }   // DP1: a crypto identity is installed
     const NodeConfig& config()         const { return _cfg; }

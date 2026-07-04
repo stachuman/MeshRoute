@@ -263,6 +263,37 @@ struct DualLayerTestAccess {
 };
 }  // namespace meshroute
 
+// ---- per-layer bandwidth (+ CR): LayerConfig.bw_hz/cr + active_bw_hz()/active_cr() (2026-07-04) --------------
+// A layer becomes a full (freq, SF, BW, CR) channel. bw_hz/cr default 0 = inherit the global radio_bw_hz/radio_cr;
+// the accessor returns the ACTIVE leaf's value (config-index idiom), so a single-layer node is byte-identical.
+TEST_CASE("per-layer-bw: LayerConfig carries bw_hz/cr defaulting to 0 (inherit)") {
+    LayerConfig L{};
+    CHECK(L.bw_hz == 0u);
+    CHECK(L.cr == 0);
+}
+
+TEST_CASE("per-layer-bw: active_bw_hz/active_cr return the ACTIVE layer's value, global fallback on 0") {
+    StubHal hal; Node node(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2; cfg.radio_bw_hz = 250000; cfg.radio_cr = 5;
+    cfg.layers[0] = good_layer(1, 8);                          // bw_hz/cr left 0 -> inherit the global
+    cfg.layers[1] = good_layer(2, 9); cfg.layers[1].bw_hz = 125000; cfg.layers[1].cr = 8;
+    CHECK(node.on_init(cfg));
+    CHECK(node.active_bw_hz() == 250000u); CHECK(node.active_cr() == 5);   // layer 0 active -> inherit
+    DualLayerTestAccess::set_active(node, 1);
+    CHECK(node.active_bw_hz() == 125000u); CHECK(node.active_cr() == 8);   // layer 1 -> its override
+    DualLayerTestAccess::set_active(node, 0);
+    CHECK(node.active_bw_hz() == 250000u); CHECK(node.active_cr() == 5);   // back to inherit
+}
+
+TEST_CASE("per-layer-bw: single-layer node — active_bw_hz()==global radio_bw_hz (migration parity)") {
+    StubHal hal; Node node(hal, 2, 0xBEEF);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 12);
+    cfg.radio_bw_hz = 250000; cfg.radio_cr = 5;
+    CHECK(node.on_init(cfg));
+    CHECK(node.active_bw_hz() == 250000u);   // the sole layer inherits -> identical to _cfg.radio_bw_hz
+    CHECK(node.active_cr() == 5);
+}
+
 TEST_CASE("dual-layer dedup: the same (origin,dst,ctr) key on two leaves does NOT collide (§8; node_mac_rx.cpp:393)") {
     StubHal hal; Node node(hal, /*id*/1, /*key*/0x1);
     NodeConfig cfg; cfg.n_layers = 2;

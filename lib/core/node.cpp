@@ -599,7 +599,7 @@ uint8_t Node::count_direct_neighbors() const {
 uint32_t Node::exchange_airtime_ms() const {
     const uint8_t  dsf     = max_data_sf() ? max_data_sf() : _cfg.routing_sf;   // no data SF -> routing as a fallback
     const uint16_t payload = _dm_payload_mean ? _dm_payload_mean : protocol::gateway_herd_assumed_payload_bytes;
-    const uint32_t data_air = airtime_ms(dsf, _cfg.radio_bw_hz, _cfg.radio_cr, protocol::preamble_sym,
+    const uint32_t data_air = airtime_ms(dsf, active_bw_hz(), active_cr(), protocol::preamble_sym,
                                          static_cast<uint16_t>(DATA_HDR_LEN + payload));
     return airtime_routing_ms(8) + airtime_routing_ms(4)        // RTS + CTS (routing SF)
          + protocol::cts_to_data_gap_ms                         // CTS->DATA SF-retune gap
