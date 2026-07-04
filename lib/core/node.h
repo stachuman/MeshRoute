@@ -289,6 +289,28 @@ struct PendingTx {                   // the in-flight sender state (one per node
     uint8_t  flood_bitmap[32] = {};
     bool     is_gw_relay = false;    // Slice 4c.2: a gateway's cross-layer re-inject -> RTS carries RTS_FLAG_RELAY (receiver exempts it from anti-spam)
 };
+// S1 (2026-07-04): the ONE place a TxItem is re-materialized from an in-flight PendingTx. Every
+// requeue site (try_cascade_requeue / gateway_doorstep_hold / the long-busy same-hop requeue) MUST
+// route through this so a field added to the identity+crypto set can never be forgotten at one site
+// again — the field-drop class (H4/M7: `type`, `nonce_seed`) that made CRYPTED DMs undeliverable and
+// typed frames deliver as junk. Copies the FULL shared core; site-specific meta (requeue_count,
+// enqueue_time_ms, next_attempt_ms) is applied by the caller AFTER. When you add a shared field to
+// BOTH TxItem and PendingTx, add its copy HERE (the single update point).
+//   Shared core copied: origin, dst, ctr_lo, ctr, flags, type, inner[+inner_len], nonce_seed[8],
+//   is_forward(<-has_previous_hop)/previous_hop, is_gw_relay, fwd_remaining, fwd_committed.
+//   NOT copied (site meta, set by the caller): requeue_count, enqueue_time_ms, next_attempt_ms.
+static inline TxItem txitem_from_pending(const PendingTx& pt) {
+    TxItem it{};
+    it.origin = pt.origin; it.dst = pt.dst; it.ctr_lo = pt.ctr_lo; it.ctr = pt.ctr;
+    it.flags = pt.flags; it.type = pt.type;
+    it.inner_len = pt.inner_len;
+    for (uint8_t i = 0; i < pt.inner_len; ++i) it.inner[i] = pt.inner[i];
+    for (int i = 0; i < 8; ++i) it.nonce_seed[i] = pt.nonce_seed[i];     // CRYPTED nonce seed — the H4 drop
+    it.is_forward = pt.has_previous_hop; it.previous_hop = pt.previous_hop;
+    it.is_gw_relay = pt.is_gw_relay;                                     // a requeued cross-layer relay keeps RTS_FLAG_RELAY
+    it.fwd_remaining = pt.fwd_remaining; it.fwd_committed = pt.fwd_committed;   // carry the hop budget across the requeue
+    return it;
+}
 struct DeferredSend {                // a send with no route yet — held until one appears (or TTL)
     TxItem   item;
     uint64_t deferred_at_ms = 0;     // for the send_defer_ttl giveup (TTL checked FIRST on drain)
@@ -355,6 +377,7 @@ struct XlHandoff {
     uint8_t  ctr_lo      = 0;
     uint8_t  flags       = 0;        // verbatim (CROSS_LAYER + E2E_ACK_REQ + DST_HASH + SOURCE_HASH ...)
     uint8_t  type        = 0;
+    uint8_t  nonce_seed[8] = {};     // S1 (2026-07-04): CRYPTED only — the originator's 8-B nonce seed from the DATA trailer, kept verbatim so a cross-layer transit DM stays openable after the re-inject; zero for plaintext
     uint8_t  inner[protocol::max_payload_bytes_hard_cap] = {};
     uint8_t  inner_len   = 0;
     uint64_t queued_at_ms = 0;
@@ -743,7 +766,7 @@ private:
     void    l2c_handle_misdelivery(const PostAck& pa, uint32_t want_hash);
     void    l2c_park_redirect(uint32_t want_hash, const PostAck& pa);                 // hold a misdelivered DM for forward-on-resolution
     bool    l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint8_t ctr_lo, uint8_t flags,
-                                const uint8_t* inner, uint8_t inner_len, const uint8_t nonce_seed[8]);   // fresh ORIGINATOR-budget leg; CRYPTED carries the seed; false = dropped (queue full)
+                                uint8_t type, const uint8_t* inner, uint8_t inner_len, const uint8_t nonce_seed[8]);   // fresh ORIGINATOR-budget leg; type/nonce_seed threaded (S1: a typed/CRYPTED redirect keeps them); false = dropped (queue full)
     void    l2c_confirmed_collision(uint32_t want_hash);                              // HARD-H resolved want_hash->our id => key-only heal (called AFTER the drain loop)
     bool    l2c_redirected_recently(uint32_t want_hash);         // one redirect action per hash per window (anti-flood)
     void    l2c_mark_redirected(uint32_t want_hash);
@@ -1107,6 +1130,7 @@ private:
     // at drain = a CONFIRMED collision (the heal trigger, design §7.1).
     struct ParkedSend { uint32_t key_hash32; uint64_t parked_at_ms; uint8_t flags; uint8_t body_len;
                         bool is_redirect = false; bool is_resolve = false; bool cross_layer = false; uint8_t origin = 0; uint16_t ctr = 0; uint8_t ctr_lo = 0;
+                        uint8_t type = 0;   // S1/M7a: a redirect's DataType (E2E_ACK/H_ANSWER); preserved across park+heal so the forwarded frame keeps its type (only meaningful when is_redirect)
                         uint8_t nonce_seed[8] = {};   // §1c: a CRYPTED redirect's originator seed (preserved across the park+heal); zero for a plain send (re-sealed on drain)
                         uint8_t body[protocol::max_payload_bytes_hard_cap]; };   // is_resolve: notify-only diag (a `resolve`), no body. cross_layer (Slice 4d): a send_layer awaiting (node_id,target_layer)
     ParkedSend _parked_sends[protocol::cap_parked_sends] = {};

@@ -800,6 +800,7 @@ void Node::bridge_cross_layer(const PostAck& pa, const data_unicast_inner& ui) {
     h.dst_node_id = (dst_node > 0) ? static_cast<uint8_t>(dst_node) : 0;
     h.dst_key_hash32 = ui.dst_key_hash32;                     // 4f: re-resolve + H-flood the binding on the target leaf
     h.origin = pa.origin; h.ctr = pa.ctr; h.ctr_lo = pa.ctr_lo; h.flags = pa.flags; h.type = pa.type;
+    for (int i = 0; i < 8; ++i) h.nonce_seed[i] = pa.nonce_seed[i];   // S1: CRYPTED transit DM keeps the originator's seed across the bridge
     h.inner_len = pa.inner_len;
     for (uint8_t i = 0; i < pa.inner_len; ++i) h.inner[i] = pa.inner[i];
     if (new_cur != ui.cur) {                                   // patch cur (layer-path offset = dst_hash?4:0; cur byte at off+1)
@@ -861,6 +862,7 @@ void Node::drain_xl_handoffs_for_leaf(uint8_t leaf) {
         TxItem it{};
         it.origin = h.origin; it.dst = h.dst_node_id; it.ctr = h.ctr; it.ctr_lo = h.ctr_lo;
         it.flags = h.flags; it.type = h.type; it.is_forward = true; it.is_gw_relay = true; it.previous_hop = 0;
+        for (int i = 0; i < 8; ++i) it.nonce_seed[i] = h.nonce_seed[i];   // S1: CRYPTED transit DM keeps its nonce seed on the re-inject leg
         RtEntry* rte = rt_find(h.dst_node_id);                // FRESH budget from THIS (target) leaf's route to the recipient
         const uint8_t rt_hops = (rte && rte->n > 0) ? rte->candidates[0].hops : 1;
         const int rem = static_cast<int>(rt_hops) + protocol::hop_budget_slack;
@@ -1001,12 +1003,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             _nack_wait_ctr_lo = pt.ctr_lo; _nack_wait_pending = true;
             (void)_hal.after(wait, kNackWaitTimerId);
         } else {                                                  // long busy -> requeue SAME hop (verbatim meta)
-            TxItem it{};
-            it.origin = pt.origin; it.dst = pt.dst; it.ctr = pt.ctr; it.ctr_lo = pt.ctr_lo; it.flags = pt.flags; it.type = pt.type;
-            it.inner_len = pt.inner_len;
-            for (uint8_t i = 0; i < pt.inner_len; ++i) it.inner[i] = pt.inner[i];
-            it.is_forward = pt.has_previous_hop; it.previous_hop = pt.previous_hop;
-            it.fwd_remaining = pt.fwd_remaining; it.fwd_committed = pt.fwd_committed;   // carry hop budget (forwarder)
+            TxItem it = txitem_from_pending(pt);   // S1: full identity+crypto core (incl. nonce_seed — the uncited long-busy drop)
             it.requeue_count = pt.requeue_count; it.enqueue_time_ms = pt.enqueue_time_ms;   // VERBATIM (no ++/backoff)
             it.next_attempt_ms = 0;
             MR_TELEMETRY(

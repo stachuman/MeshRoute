@@ -200,13 +200,7 @@ void Node::try_cascade_requeue(const PendingTx& pt, const char* giveup_event) {
         become_free();
         return;
     }
-    TxItem it{};
-    it.origin = pt.origin; it.dst = pt.dst; it.ctr = pt.ctr; it.ctr_lo = pt.ctr_lo; it.flags = pt.flags;
-    it.inner_len = pt.inner_len;
-    for (uint8_t i = 0; i < pt.inner_len; ++i) it.inner[i] = pt.inner[i];
-    it.is_forward = pt.has_previous_hop; it.previous_hop = pt.previous_hop;
-    it.is_gw_relay = pt.is_gw_relay;                                            // Slice 4c.2: a requeued cross-layer relay keeps RTS_FLAG_RELAY
-    it.fwd_remaining = pt.fwd_remaining; it.fwd_committed = pt.fwd_committed;   // carry hop budget across the requeue
+    TxItem it = txitem_from_pending(pt);   // S1: full identity+crypto core (incl. type + nonce_seed — the H4 drop)
     it.requeue_count = static_cast<uint8_t>(pt.requeue_count + 1);
     it.enqueue_time_ms = pt.enqueue_time_ms;             // PRESERVE the original first-enqueue time
     // The queue ITSELF enforces the backoff: next_attempt_ms gates the dequeue
@@ -383,14 +377,7 @@ bool Node::gateway_doorstep_hold() {
     const uint32_t jitter  = static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(protocol::gateway_doorstep_retry_jitter_ms) + 1));
     uint32_t       backoff = wait + jitter;
     if (backoff < 200) backoff = 200;
-    TxItem it{};
-    it.origin = pt.origin; it.dst = pt.dst; it.ctr = pt.ctr; it.ctr_lo = pt.ctr_lo;
-    it.flags = pt.flags; it.type = pt.type;
-    it.inner_len = pt.inner_len;
-    for (uint8_t i = 0; i < pt.inner_len; ++i) it.inner[i] = pt.inner[i];
-    it.is_forward = pt.has_previous_hop; it.previous_hop = pt.previous_hop;
-    it.is_gw_relay = pt.is_gw_relay;
-    it.fwd_remaining = pt.fwd_remaining; it.fwd_committed = pt.fwd_committed;
+    TxItem it = txitem_from_pending(pt);   // S1: full identity+crypto core (incl. nonce_seed — the M7b drop)
     it.requeue_count  = pt.requeue_count;                         // preserved — NOT incremented
     it.enqueue_time_ms = enq;                                      // preserved — giveup clock spans lifetime
     it.next_attempt_ms = now + backoff;

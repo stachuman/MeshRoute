@@ -955,6 +955,73 @@ TEST_CASE("§1b cross-type non-collision: a CRYPTED seed aliasing a plaintext (o
 }
 
 // =============================================================================
+// S1 (2026-07-04) — txitem_from_pending: the ONE place a TxItem is rebuilt from
+// an in-flight PendingTx on requeue. These lock the field-drop class shut: the
+// H4/M7 bugs were requeue sites that FORGOT `type` (a typed frame re-flown as a
+// junk plain DM) or the 8-B CRYPTED `nonce_seed` (a sealed DM re-flown with a
+// zero seed -> recipient Poly1305 tag-fail -> hard delivery loss under exactly
+// the congestion that triggers a requeue). RED before the helper existed.
+// =============================================================================
+TEST_CASE("S1 helper — txitem_from_pending preserves a CRYPTED nonce_seed (not zeroed) across a requeue") {
+    PendingTx pt{};
+    pt.origin = 0x12; pt.dst = 5; pt.ctr = 0x5678; pt.ctr_lo = 8;
+    pt.flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH;
+    const uint8_t seed[8] = { 0xDE,0xAD,0xBE,0xEF, 0x01,0x02,0x03,0x04 };   // non-zero: a real XChaCha nonce seed
+    for (int i = 0; i < 8; ++i) pt.nonce_seed[i] = seed[i];
+    pt.inner[0] = 0xAA; pt.inner[1] = 0xBB; pt.inner_len = 2;
+
+    const TxItem it = txitem_from_pending(pt);
+
+    bool seed_ok = true;
+    for (int i = 0; i < 8; ++i) if (it.nonce_seed[i] != seed[i]) seed_ok = false;
+    CHECK(seed_ok);                                     // the H4 drop: seed survives -> recipient can still open the DM
+    CHECK(it.flags == (DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH));
+    // sanity: the seed is genuinely non-zero (guards against a test that would pass on an all-zero copy)
+    bool any_nonzero = false;
+    for (int i = 0; i < 8; ++i) if (it.nonce_seed[i] != 0) any_nonzero = true;
+    CHECK(any_nonzero);
+}
+
+TEST_CASE("S1 helper — txitem_from_pending preserves a typed frame's DataType across a requeue") {
+    PendingTx pt{};
+    pt.origin = 3; pt.dst = 9; pt.ctr = 0x1111; pt.ctr_lo = 4;
+    pt.type = DATA_TYPE_E2E_ACK;                        // a typed frame (ack/response) — NOT a plain DM
+    pt.flags = DATA_FLAG_APP;
+    pt.inner[0] = 0x11; pt.inner[1] = 0x00; pt.inner_len = 2;
+
+    const TxItem it = txitem_from_pending(pt);
+
+    CHECK(it.type == DATA_TYPE_E2E_ACK);                // the M7 drop: NOT downgraded to 0 (a junk plain DM, ack lost)
+    CHECK(it.type != 0);
+}
+
+TEST_CASE("S1 helper — txitem_from_pending copies the full identity + hop-budget core") {
+    PendingTx pt{};
+    pt.origin = 7; pt.dst = 21; pt.ctr = 0x9ABC; pt.ctr_lo = 12; pt.flags = 0x40; pt.type = 5;
+    pt.has_previous_hop = true; pt.previous_hop = 42;   // a relayed item -> is_forward + previous_hop
+    pt.is_gw_relay = true;                              // a cross-layer relay keeps RTS_FLAG_RELAY on the requeue
+    pt.fwd_remaining = 6; pt.fwd_committed = 2;         // the carried hop budget
+    pt.inner[0] = 1; pt.inner[1] = 2; pt.inner[2] = 3; pt.inner_len = 3;
+    const uint8_t seed[8] = { 9,8,7,6,5,4,3,2 };
+    for (int i = 0; i < 8; ++i) pt.nonce_seed[i] = seed[i];
+
+    const TxItem it = txitem_from_pending(pt);
+
+    CHECK(it.origin == 7); CHECK(it.dst == 21); CHECK(it.ctr == 0x9ABC); CHECK(it.ctr_lo == 12);
+    CHECK(it.flags == 0x40); CHECK(it.type == 5);
+    CHECK(it.is_forward == true); CHECK(it.previous_hop == 42);   // has_previous_hop -> is_forward
+    CHECK(it.is_gw_relay == true);
+    CHECK(it.fwd_remaining == 6); CHECK(it.fwd_committed == 2);
+    CHECK(it.inner_len == 3);
+    bool inner_ok = it.inner[0] == 1 && it.inner[1] == 2 && it.inner[2] == 3;
+    CHECK(inner_ok);
+    bool seed_ok = true; for (int i = 0; i < 8; ++i) if (it.nonce_seed[i] != seed[i]) seed_ok = false;
+    CHECK(seed_ok);
+    // the site meta is NOT copied by the helper (the caller applies it) -> defaults hold here
+    CHECK(it.requeue_count == 0); CHECK(it.enqueue_time_ms == 0); CHECK(it.next_attempt_ms == 0);
+}
+
+// =============================================================================
 // Phase 0 (routing-liveness-plane port) — id==0 / 0-sentinel hardening. An
 // UNPROVISIONED node (id 0) and the reserved id 0 must NEVER enter routing:
 // id-0 nodes don't beacon, src-0 beacons are dropped, dest-0/via-0 candidates

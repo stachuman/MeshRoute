@@ -669,7 +669,7 @@ void Node::l2c_park_redirect(uint32_t want_hash, const PostAck& pa) {
     ParkedSend& p = _parked_sends[_parked_sends_n++];
     p = ParkedSend{};                                           // reset the recycled slot before stamping redirect state
     p.key_hash32 = want_hash; p.flags = pa.flags; p.parked_at_ms = _hal.now();
-    p.is_redirect = true; p.origin = pa.origin; p.ctr = pa.ctr; p.ctr_lo = pa.ctr_lo;
+    p.is_redirect = true; p.origin = pa.origin; p.ctr = pa.ctr; p.ctr_lo = pa.ctr_lo; p.type = pa.type;   // S1/M7a: keep the DataType so the forwarded redirect isn't downgraded to a plain DM
     p.body_len = (pa.inner_len > protocol::max_payload_bytes_hard_cap) ? protocol::max_payload_bytes_hard_cap : pa.inner_len;
     for (uint8_t i = 0; i < p.body_len; ++i) p.body[i] = pa.inner[i];   // body[] holds the full inner for a redirect
     for (int i = 0; i < 8; ++i) p.nonce_seed[i] = pa.nonce_seed[i];     // §1c: keep the originator's seed so a CRYPTED redirect stays openable after the heal
@@ -701,7 +701,7 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t 
                     // would corrupt a sibling parked entry processed later in this same loop. The DM is dropped
                     // (forwarding-to-self loops); the sender's retry recovers it once the heal converges.
                     heal = true;
-                } else if (l2c_enqueue_forward(resolved_id, p.origin, p.ctr, p.ctr_lo, p.flags, p.body, p.body_len, p.nonce_seed)) {
+                } else if (l2c_enqueue_forward(resolved_id, p.origin, p.ctr, p.ctr_lo, p.flags, p.type, p.body, p.body_len, p.nonce_seed)) {
                     MR_TELEMETRY(
                         EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = resolved_id },
                                            { .key = "origin", .type = EventField::T::i64, .i = p.origin },
@@ -752,7 +752,7 @@ void Node::drain_resolved_parked_sends() {
             if (p.is_resolve) {
                 push_hash_resolved(p.key_hash32, static_cast<uint8_t>(id), true);   // a beacon resolved it -> answer
             } else if (p.is_redirect) {
-                if (l2c_enqueue_forward(static_cast<uint8_t>(id), p.origin, p.ctr, p.ctr_lo, p.flags, p.body, p.body_len, p.nonce_seed)) {
+                if (l2c_enqueue_forward(static_cast<uint8_t>(id), p.origin, p.ctr, p.ctr_lo, p.flags, p.type, p.body, p.body_len, p.nonce_seed)) {
                     MR_TELEMETRY(
                         EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = id },
                                            { .key = "origin", .type = EventField::T::i64, .i = p.origin },

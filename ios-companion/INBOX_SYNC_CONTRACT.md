@@ -1,11 +1,14 @@
 # Inbox sync — BLE wire contract (PROPOSED)
 
 The companion catch-up seam between the firmware persistent inbox
-(`docs/superpowers/specs/2026-06-10-persistent-inbox-spec.md`) and the iOS app. **STATUS (2026-06-29): the
+(`docs/superpowers/specs/2026-06-10-persistent-inbox-spec.md`) and the iOS app. **STATUS (2026-07-04): the
 firmware side is IMPLEMENTED + verified against code** — the send / pull / inbox / `ready` / duty / e2e /
-provisioning commands + pushes below are live in `lib/console/console_parse.cpp`, `lib/console/console_json.cpp`,
-and `src/fw_main.cpp`. This is the shared contract; the few items still open are tagged inline (`reqpubkey_sent`
-event, `ready.bonds`, the D7 DM-`ctr` persistence).
+provisioning / anti-spam commands + pushes below are live in `lib/console/console_parse.cpp`,
+`lib/console/console_json.cpp`, and `src/fw_main.cpp`. Landed since 2026-06-29: the send-verb unification,
+the `reqpubkey_sent` + `e2e_acked` events, and the D7 DM-`ctr` persistence; **added:** anti-spam v2 (the
+`limits` query + send-outcome feedback) and the `layer`/`leaf` terminology (a **layer** is the full 1..255
+network id, **leaf** is its `& 0x0F` nibble). **The one item still open: `ready.bonds`** (deferred to the
+notification slice).
 
 Framing matches the rest of the link: **app→node = line-ASCII commands, node→app = newline JSON.**
 
@@ -19,7 +22,7 @@ Framing matches the rest of the link: **app→node = line-ASCII commands, node�
 
 ## Commands (app → node)
 
-> ⚠️ **UPDATE REQUIRED — send verbs changed (firmware 2026-06-21, spec `2026-06-21-serial-interface-cleanup.md` §2).** The 9 send verbs collapsed to **3 with a QUOTED body + `-a`/`-e` flags**; the old `send_ack`/`sendhash`/`sendhash_ack`/`sendhashx`/`sendhashx_ack`/`send_layer_ack` are **REMOVED** (a node now returns `unknown_verb`). Migrate `MeshRouteWire`/`Command.swift` in lock-step:
+> ✅ **DONE — send verbs unified (firmware 2026-06-21, spec `2026-06-21-serial-interface-cleanup.md` §2; `Command.swift` migrated).** The 9 send verbs collapsed to **3 with a QUOTED body + `-a`/`-e` flags**; the old `send_ack`/`sendhash`/`sendhash_ack`/`sendhashx`/`sendhashx_ack`/`send_layer_ack` are **REMOVED** (a node now returns `unknown_verb`). `Command.swift` emits the unified form:
 > ```
 > send <id|hash> "<text>" [-a] [-e]          # id (<=254) vs hash (8-hex) AUTO-detected; -a=ack, -e=encrypt (hash only)
 > send_channel <ch> "<text>"                 # no ack/enc
@@ -246,7 +249,7 @@ reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "
 - **channel:** `ch_cap` = this origin's per-window channel cap; `ch_used` = own distinct floods held this window; `ch_min_ms` = the channel burst floor; `ch_next_ms` = ms until a channel post is allowed (0 = now); `ch_ceiling` = C, the total duty-afforded channel capacity (0 = duty disabled → the legacy flat cap).
 - **DM:** `dm_min_ms` = the own-DM burst floor; `dm_next_ms` = ms until an own DM is allowed.
 - **duty:** `duty_ms` = the 5-min channel-duty budget D (0 = duty disabled); `duty_used_ms` = airtime spent this window.
-- `*_next_ms` fold the burst-floor remaining, the channel window cap-wait, AND duty recovery — the true "ready in N ms". ★ `ch_min_ms` / `dm_min_ms` (and, via the fraction, `ch_cap`) are the **leaf's configured** values (see *anti-spam leaf tunables* under Leaf-config provisioning), not fixed firmware constants — so pacing reflects the actual leaf policy.
+- `*_next_ms` fold the burst-floor remaining AND duty recovery — the "ready in N ms". ⚠ On a channel **cap**-block (window cap reached, the floor already passed) `ch_next_ms` is currently **`0`** (the exact cap-recovery time is a deferred refinement); the `send_blocked{reason:"cap"}` push still signals the block, so the app backs off + retries anyway. ★ `ch_min_ms` / `dm_min_ms` (and, via the fraction, `ch_cap`) are the **leaf's configured** values (see *anti-spam leaf tunables* below), not fixed firmware constants — so pacing reflects the actual leaf policy.
 
 The outcome pushes:
 
@@ -306,9 +309,9 @@ byte-for-byte unchanged.)
 ### Deferred
 - `peerkeys` (list pinned) + `peerkey_del <hash>` (un-verify) — app-side contact management; v2.
 
-## Leaf-config membership + provisioning (firmware R6.1–R6.3 DONE; companion surface PROPOSED 2026-06-21)
+## Leaf-config membership + provisioning (firmware R6.1–R6.3 DONE; companion surface IMPLEMENTED + GATED 2026-07-03)
 
-R6 adds **managed leaves**: a fresh node sets a small radio floor, then **auto-joins** (DAD an id) and **auto-pulls its leaf config** — data SFs / duty / name — from the network. The operator never hand-sets the data config on a joiner; only the *rendezvous floor* (freq + control SF + leaf) is manual. Firmware how-to: `docs/LEAF_PROVISIONING.md`. The R6 firmware (R6.1–R6.3) is committed/gated; the **companion JSON surface below is DONE** - the 3 console_json additions + the join_refused push + the join/create/leave verbs (coder green-shaped, gate-pending).
+R6 adds **managed leaves**: a fresh node sets a small radio floor (freq + control SF + **layer**), then **auto-joins** (DAD an id) and **auto-pulls its leaf config** — data SFs / duty / name / anti-spam tunables — from the network. The operator never hand-sets the data config on a joiner; only the *rendezvous floor* is manual. Firmware how-to: `docs/LEAF_PROVISIONING.md`. The R6 firmware (R6.1–R6.3) is committed/gated; the **companion JSON surface below is IMPLEMENTED + GATED** - the console_json membership fields + the `join_refused` push + the **`key=value`** join/create/leave verbs (`layer=`, this session's rename + quality-gate).
 
 ### Node → app: membership state (which leaf, synced?)
 A node's leaf membership = `lineage_id` (u16; **0 = unmanaged / standalone**), `config_epoch` (u16), `leaf_name` (string), `layer` (1..255; the wire leaf nibble = `layer & 0x0F`), and **synced** (`lineage==0 || epoch>0`). Two carriers:
@@ -320,7 +323,7 @@ A node's leaf membership = `lineage_id` (u16; **0 = unmanaged / standalone**), `
 - `lineage:0` ⇒ app shows "unmanaged / standalone". `lineage≠0 & synced:false` ⇒ "joining…". `synced:true` ⇒ "member of <leaf>".
 - *Note:* `layer` (the 1..255 network id; "leaf" is its `& 0x0F` nibble) — ⚠ the firmware currently sends the wire **leaf nibble** (0..15) under `layer` (the full id is NV-side; plumbing it is a deferred follow-up). Treat as an opaque label for now.
 
-2. ✅ **`config_adopted` live push — DONE** (`console_json.cpp:157-163` reads `g_node.config()`; fired by the node at `node_query.cpp:203/219`). Fires when the node adopts/updates its leaf config (on join, on a propagated operator write, on an LWW change):
+2. ✅ **`config_adopted` live push — DONE** (`console_json.cpp` `write_push` config_adopted arm reads `g_node.config()`; fired by the node's config-adopt path in `node_query.cpp`). Fires when the node adopts/updates its leaf config (on join, on a propagated operator write, on an LWW change):
 ```json
 {"ev":"config_adopted","lineage":41153,"epoch":3,"leaf":"north field","layer":2}
 ```
@@ -350,10 +353,10 @@ create layer=<1..255> freq=<MHz> bw=<kHz> sf=<ctrl_sf> sf_list=<7,9> duty=<pct> 
        [active_fraction=<0..1>] [ch_min_ms=<ms>] [dm_min_ms=<ms>]                               #   anti-spam knobs OPTIONAL → protocol defaults
 leave                                                                                           # reset membership (wipe to default, KEEP freq)
 ```
-- **`key=value`, order-free** (the same grammar as `gateway`). **`layer`** = the 1..255 network id (the on-wire **leaf** nibble = `layer & 0x0F`; "leaf" is reserved for that 0..15 nibble). `sf_list` = comma SFs (`7,9`, one token). `duty` = a **percent**. `name` = quoted (spaces OK). CR is a fixed low default (4/5), not exposed.
+- **`key=value`, order-free** (the same grammar as `gateway`). **`layer`** = the 1..255 network id (the on-wire **leaf** nibble = `layer & 0x0F`; "leaf" is reserved for that 0..15 nibble). `sf_list` = comma SFs (`7,9`, one token). `bw` = kHz, **may be fractional** (`62.5` / `41.67` / `31.25` — the firmware `atof`-parses it → 62500 Hz). `duty` = a **percent**, **may be fractional** (`0.1` = a tight EU sub-band). `name` = quoted (spaces OK). CR is a fixed low default (4/5), not exposed.
 - **Anti-spam knobs** (`active_fraction` / `ch_min_ms` / `dm_min_ms`) are **optional** on `create`; omitted ⇒ the protocol **defaults** (`0.125` / `10000` / `3000`), never inherited from the minter's current settings. The app may expose them in an "advanced" create sheet or omit them (see the *anti-spam leaf tunables* section below + `docs/anti-spam.md`).
 - **The old `leaf` command is gone:** `leaf create` folded into `create`; **rename a leaf via `cfg set leaf_name "<text>"`** (bumps the epoch, propagates live) — distinct from `cfg set name` (the **node** identity name).
-- **Swift:** `Command.join` / `Command.createLeaf` emit the `key=value` `line` (`Command.swift`); the `.createLeaf` enum carries freq/bw/sf/layer/sfList/duty/name (the anti-spam args are a future optional field — omitting them yields the firmware defaults).
+- **Swift:** `Command.join` / `Command.createLeaf` emit the `key=value` `line` (`Command.swift`); the `.createLeaf` enum carries freq/bw/sf/layer/sfList/duty/name with **`bwKHz` + `dutyPercent` as `Double`** (fractional-capable, emitted compactly via `freqToken`). The anti-spam args are a future optional Swift field — omitting them yields the firmware defaults.
 - After `join`/`create`, the node emits `config_adopted` + updated `ready` membership once it syncs. After `leave`, membership returns to `lineage:0` (unmanaged). A `send` before sync ⇒ `send_failed{reason:"joining"}`.
 - **Normal nodes only.** Gateways provision differently (multi-layer; a future `join_as_gateway`) — out of this contract.
 - Ack shape = firmware's choice; recommend a `{"ev":"join_ok"|"join_err","reason":…}` line per verb (consistent with the other command acks).
@@ -367,13 +370,13 @@ cfg set dm_min_ms <ms>           # own-DM burst floor (default 3000): anti-per-k
 ```
 - All three are in the `config_hash`: changing one on a **mother** propagates to members (they re-pull + emit `config_adopted`); on an **unmanaged** node it's a local setting only.
 - They are the source of the `ch_min_ms` / `dm_min_ms` (and via the fraction, `ch_cap`) fields the **`limits`** query reports (above) — so the app's pacing tracks the leaf's actual floors, not the defaults.
-- **Not** part of the `create` verb (which stays freq/bw/sf/duty/name) — tune these with `cfg set` after the leaf exists, so `create` stays a simple rendezvous.
+- **Optional on the `create` verb** (`[active_fraction=] [ch_min_ms=] [dm_min_ms=]`, 2026-07-03): a mother may set them at mint time; **omitted ⇒ the protocol defaults** (`0.125` / `10000` / `3000`), *never* inherited from the minter's current settings. Or tune them later on any managed node with `cfg set` (bumps the epoch → propagates).
 - Wire: the C config frame grew **+6 B** (`active_fraction_bp` u16 · `ch_interval_ms` u16 · `dm_interval_ms` u16); `wire_version` is **unchanged** (the test fleet reflashes together — no mixed-version compat).
 
 ### Deferred
 - **Mobile-node roaming** (auto `leave`+`join` between leaves, with hysteresis) — a later phase; the three verbs above are the primitives it builds on.
 
-## ⚙️ Duty-cycle status — companion readout (PROPOSED 2026-06-21, spec `docs/superpowers/specs/2026-06-21-duty-cycle-readout.md`)
+## ⚙️ Duty-cycle status — companion readout (IMPLEMENTED — `write_duty` + `duty_pct`/`duty_avail_ms` in `ready`; spec `docs/superpowers/specs/2026-06-21-duty-cycle-readout.md`)
 
 How much of the legal airtime budget the node has spent — so the app can show a "transmitting / silent" gauge + a countdown. **0–100 %, where 100 % = the node must stay silent** (budget spent), plus the ms until it can transmit again.
 

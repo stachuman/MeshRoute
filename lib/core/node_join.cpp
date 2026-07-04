@@ -335,7 +335,7 @@ void Node::l2c_handle_misdelivery(const PostAck& pa, uint32_t want_hash) {
     IdBindConf conf = IdBindConf::claimed;
     const int rid = id_bind_find_by_hash(want_hash, &conf);
     if (rid >= 0 && conf == IdBindConf::authoritative && static_cast<uint8_t>(rid) != _node_id) {
-        if (l2c_enqueue_forward(static_cast<uint8_t>(rid), pa.origin, pa.ctr, pa.ctr_lo, pa.flags, pa.inner, pa.inner_len, pa.nonce_seed)) {
+        if (l2c_enqueue_forward(static_cast<uint8_t>(rid), pa.origin, pa.ctr, pa.ctr_lo, pa.flags, pa.type, pa.inner, pa.inner_len, pa.nonce_seed)) {
             MR_TELEMETRY(
                 EventField f[] = { { .key = "origin", .type = EventField::T::i64, .i = pa.origin },
                                    { .key = "ctr",    .type = EventField::T::i64, .i = pa.ctr },
@@ -369,7 +369,7 @@ void Node::l2c_handle_misdelivery(const PostAck& pa, uint32_t want_hash) {
 // arrived at us exhausted) would underflow to the 31-hop max. Identity rides in origin/ctr/inner. ALWAYS kicks
 // the queue (`become_free`) so the half-duplex serializer can't stall; returns false (and emits) on queue-full.
 bool Node::l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint8_t ctr_lo, uint8_t flags,
-                               const uint8_t* inner, uint8_t inner_len, const uint8_t nonce_seed[8]) {
+                               uint8_t type, const uint8_t* inner, uint8_t inner_len, const uint8_t nonce_seed[8]) {
     if (_active->_tx_queue_n >= kTxQueueCap) {
         MR_TELEMETRY(
             EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = to_id },
@@ -380,7 +380,7 @@ bool Node::l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint
         return false;
     }
     TxItem it{};
-    it.origin = origin; it.dst = to_id; it.ctr = ctr; it.ctr_lo = ctr_lo; it.flags = flags;
+    it.origin = origin; it.dst = to_id; it.ctr = ctr; it.ctr_lo = ctr_lo; it.flags = flags; it.type = type;   // S1/M7a: a misdelivered typed frame (E2E_ACK/H_ANSWER) keeps its type on the redirect
     it.is_forward = true;                                                 // forwarder: drop (not defer/push) a no-route transit DM
     it.previous_hop = 0;                                                  // re-targeted leg: no upstream-loop exclusion (node 0 is the no-op sentinel)
     RtEntry* rte = rt_find(to_id);                                        // FRESH budget from our route to the owner
