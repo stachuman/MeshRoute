@@ -76,7 +76,20 @@ void JsonBuf::i64(int64_t v) {
     lit(p);
 }
 void JsonBuf::u32(uint32_t v) { char t[12]; std::snprintf(t, sizeof t, "%u", v); lit(t); }
-void JsonBuf::f64(double v)  { char t[24]; std::snprintf(t, sizeof t, "%.4g", v); lit(t); }
+void JsonBuf::f64(double v) {
+    // L11: newlib-nano (the nRF52 device libc) has no %f/%g -> snprintf("%.4g") emits GARBAGE on device. Hand-rolled
+    // fixed-point (<=4 dp, trailing zeros trimmed) matches %.4g for the small values f64 fields carry (SNR/dB/durations).
+    if (v < 0) { ch('-'); v = -v; }
+    if (v > 429496.0) v = 429496.0;                          // clamp so v*10000 fits u32 (f64 fields are never this large)
+    const uint32_t scaled = static_cast<uint32_t>(v * 10000.0 + 0.5);
+    u32(scaled / 10000);                                     // integer part
+    const uint32_t frac = scaled % 10000;
+    if (frac) {                                              // fractional part, trailing zeros trimmed (7.2500 -> 7.25)
+        char d[4] = { char('0' + frac / 1000), char('0' + (frac / 100) % 10), char('0' + (frac / 10) % 10), char('0' + frac % 10) };
+        int len = 4; while (len > 0 && d[len - 1] == '0') --len;
+        ch('.'); for (int i = 0; i < len; ++i) ch(d[i]);
+    }
+}
 size_t JsonBuf::finish() {
     ch('\n');
     if (overflow) return 0;

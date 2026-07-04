@@ -1090,7 +1090,7 @@ private:
     // STASHED so a busy-channel block re-issues them up to TX_DEFER_MAX_RETRIES. tx_stash keyed by the retry slot.
     static constexpr uint8_t kRetrySlots = 4;   // cts, data, ack, nack
     struct TxStashSlot { bool valid = false; uint16_t len = 0; int16_t sf = 0; uint8_t retries_left = 0;
-                         uint8_t ctr_lo = 0;   // DATA slot: the pending_tx flight this DATA belongs to (re-arm guard, dv:10271)
+                         uint32_t flight_gen = 0;   // L9: DATA slot — the EXACT pending_tx flight this DATA belongs to (re-arm guard). Was the 4-bit ctr_lo (dv:10271) whose 1/16 aliasing let a re-arm fire against a since-replaced flight; flight_gen is the monotonic per-flight identity (issue_send) so the match is exact.
                          // reissue_pending: a busy/duty re-issue timer is ARMED for this slot (vs. a stale clean-sent
                          // buffer that is `valid` but already on the air). layer_swap_blocked() gates on THIS, not
                          // `valid` — else a gateway's first cleanly-sent ACK leaves `valid` set forever + the layer
@@ -1298,7 +1298,7 @@ private:
     uint64_t _last_channel_origin_ms = 0;   // Slice 2: self side of channel_min_interval_ms (own channel posts)
     uint64_t _last_dm_origin_ms = 0;   // Slice 3: own-DM burst floor (dm_min_interval_ms); relays/floods/e2e-ack/rcmd exempt
     // NACK BUSY_RX wait-same-hop: the captured ctr_lo the kNackWaitTimerId re-RTSes for.
-    uint8_t                      _nack_wait_ctr_lo = 0;
+    uint32_t                     _nack_wait_flight_gen = 0;   // L9: the EXACT flight the BUSY_RX same-hop re-RTS wait belongs to (was the 4-bit ctr_lo proxy — 1/16 alias could re-RTS a since-replaced flight)
     bool                         _nack_wait_pending = false;
     // async push ring (the app channel; drained via next_push, drop-oldest on overflow)
     Push     _push_ring[protocol::cap_push_ring];

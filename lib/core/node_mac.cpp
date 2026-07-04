@@ -887,7 +887,7 @@ bool Node::tx_with_retry(const uint8_t* bytes, size_t len, int16_t sf, FrameTag 
         TxStashSlot& s = _tx_stash[slot];
         s.valid = true; s.sf = sf; s.retries_left = protocol::tx_defer_max_retries;
         s.reissue_pending = false;   // a fresh attempt: only the duty-defer / on_radio_busy paths below arm a re-issue
-        s.ctr_lo = _active->_pending_tx ? _active->_pending_tx->ctr_lo : 0;   // READ only for the DATA slot (retry_stashed re-arm guard); for CTS/ACK/NACK this records the forwarder's OWN outbound flight + is never consulted
+        s.flight_gen = _active->_pending_tx ? _active->_pending_tx->flight_gen : 0;   // L9: the EXACT flight this DATA belongs to (the retry_stashed re-arm guard). Was the 4-bit ctr_lo (1/16 aliasing let a re-arm fire against a since-replaced flight); flight_gen is monotonic per-flight = exact. CTS/ACK/NACK slots never consult it.
         s.len = static_cast<uint16_t>(len < sizeof(s.buf) ? len : sizeof(s.buf));
         for (uint16_t i = 0; i < s.len; ++i) s.buf[i] = bytes[i];
     }
@@ -921,11 +921,11 @@ void Node::duty_defer_fire(uint8_t slot) {
     // DATA staleness guard (review #6): if the flight moved on during the duty wait (ACK/NACK/implicit-ack replaced
     // _active->_pending_tx), do NOT re-transmit the stale DATA / re-stash with a mismatched ctr_lo. Mirrors retry_stashed +
     // the Lua m_broadcast retry guard (dv:12172). CTS/ACK/NACK are idempotent responses -> no flight guard.
-    if (tag == FrameTag::data && (!_active->_pending_tx || _active->_pending_tx->ctr_lo != s.ctr_lo)) return;
+    if (tag == FrameTag::data && (!_active->_pending_tx || _active->_pending_tx->flight_gen != s.flight_gen)) return;   // L9: exact flight match (was the 4-bit ctr_lo, 1/16 alias)
     const bool handed = tx_with_retry(s.buf, s.len, s.sf, tag);       // re-runs the duty pre-check (re-defers if still over budget)
     // DATA re-hand: re-arm the ACK wait do_data_tx skipped at defer-time (the DATA now hit the air). Anchored to the
     // actual send time, matching the Lua deferred re-run replaying on_handed (dv:3633 -> 3637 -> 10274-10278).
-    if (handed && tag == FrameTag::data && _active->_pending_tx && _active->_pending_tx->ctr_lo == s.ctr_lo) {
+    if (handed && tag == FrameTag::data && _active->_pending_tx && _active->_pending_tx->flight_gen == s.flight_gen) {   // L9: exact flight match
         _active->_pending_tx->awaiting_ack = true;
         start_ack_timeout();
     }
@@ -949,8 +949,8 @@ void Node::retry_stashed(uint8_t slot) {
     // DATA re-issue: re-arm the ACK wait the on_radio_busy block cleared, exactly as the Lua DATA on_handed does
     // (dv:10270-10278) — fires on the initial tx AND on the stash retry. Without this the re-sent DATA flies but the
     // sender stays !awaiting_ack with no ack-timeout, so the returning ACK is dropped + the flight never recovers.
-    // Guarded on the pending flight (ctr_lo) so a retry against a since-replaced flight does NOT re-arm.
-    if (tag == FrameTag::data && _active->_pending_tx && _active->_pending_tx->ctr_lo == s.ctr_lo) {
+    // Guarded on the pending flight (flight_gen, exact) so a retry against a since-replaced flight does NOT re-arm.
+    if (tag == FrameTag::data && _active->_pending_tx && _active->_pending_tx->flight_gen == s.flight_gen) {   // L9: exact flight match
         _active->_pending_tx->awaiting_ack = true;
         start_ack_timeout();
     }

@@ -45,9 +45,12 @@ namespace meshroute {
 #else
   #define MR_ISR_ATTR
 #endif
-static volatile bool     g_dio1_fired = false;   // set by the ISR on a DIO1 edge; consumed by poll_rx
-static volatile uint32_t g_isr_count  = 0;       // diagnostic: # of DIO1 edges seen (console `status isr=`)
-static volatile uint32_t g_rxbad_count = 0;      // diagnostic: # of RX frames that failed to decode (the CRC storm). COUNTED unconditionally even though the per-event print is now `debug on`-gated -> `status rxbad=` is a clean counter delta, not a flood.
+// L12: inline (C++17) — ONE definition of each shared ISR flag across TUs. Were header-static (internal linkage) =
+// an ODR trap: safe only while exactly one TU included this header; a second includer would get its own copy and the
+// ISR's writes wouldn't reach the reader. inline is the correct single-definition idiom for header-global mutable state.
+inline volatile bool     g_dio1_fired = false;   // set by the ISR on a DIO1 edge; consumed by poll_rx
+inline volatile uint32_t g_isr_count  = 0;       // diagnostic: # of DIO1 edges seen (console `status isr=`)
+inline volatile uint32_t g_rxbad_count = 0;      // diagnostic: # of RX frames that failed to decode (the CRC storm). COUNTED unconditionally even though the per-event print is now `debug on`-gated -> `status rxbad=` is a clean counter delta, not a flood.
 
 #if defined(MR_RADIO_CANARY) && MR_RADIO_CANARY
 // Radio-Module corruption canary (debug, spec 2026-06-25). Snapshot the Module's + its HAL's first kCanaryN bytes at

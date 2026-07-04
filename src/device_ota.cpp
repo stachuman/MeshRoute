@@ -50,49 +50,38 @@ function msg(t,c){const m=document.getElementById('msg');m.textContent=t;m.class
 static const char kOtaTail[] PROGMEM = R"raw(</div></body></html>)raw";
 
 static void handle_update() {
-    // Read raw POST body — avoid multipart parsing which is broken on this platform fork.
-    // The HTML page below uses a simple form that posts the file as raw binary.
-    size_t total = s_server.arg("plain").length();
+    // The browser POSTs the raw firmware.bin as the request BODY (no multipart — broken on this platform fork). The
+    // WebServer has already received the FULL Content-Length body and buffered it into arg("plain"), so its length is
+    // the COMPLETE image — the authoritative size. (The old code took the size from arg("plain")/client().available()
+    // then re-read from an already-drained client(), treating a 0-length read as EOF and committing whatever partial
+    // amount it got via Update.end(true) — H2: a short/stalled upload flashed a TRUNCATED image = brick.)
+    const String& body = s_server.arg("plain");
+    const size_t total = body.length();
     if (total == 0) {
-        // Try reading the body from the raw request
-        total = s_server.client().available();
-        if (total == 0) {
-            s_server.send(400, "text/plain", "Empty upload — select a firmware.bin file");
-            mrcon.println(F("OTA: empty upload"));
-            return;
-        }
+        s_server.send(400, "text/plain", "Empty upload — select a firmware.bin file");
+        mrcon.println(F("OTA: empty upload"));
+        return;
     }
-    mrcon.printf("OTA: receiving %u bytes\n", (unsigned)total);
+    mrcon.printf("OTA: received %u bytes (complete body)\n", (unsigned)total);
     if (!Update.begin(total, U_FLASH)) {
         mrcon.print("OTA: begin failed: "); Update.printError(mrcon);
         s_server.send(500, "text/plain", "OTA begin failed"); return;
     }
-    // Read body in chunks
-    WiFiClient& client = s_server.client();
-    size_t written = 0;
-    uint8_t buf[1024];
-    size_t remaining = total;
-    while (remaining > 0) {
-        size_t chunk = remaining < sizeof(buf) ? remaining : sizeof(buf);
-        size_t r = client.read(buf, chunk);
-        if (r == 0) break;
-        if (Update.write(buf, r) != r) {
-            mrcon.print("OTA: write failed: "); Update.printError(mrcon);
-            s_server.send(500, "text/plain", "OTA write failed"); Update.abort(); return;
-        }
-        written += r; remaining -= r;
-    }
-    mrcon.printf("OTA: %u bytes written\n", (unsigned)written);
-    if (written > 0 && Update.end(true)) {
-        mrcon.printf("OTA: %u bytes flashed — rebooting\n", (unsigned)written);
+    // Write the ENTIRE received image in one pass (it's already fully buffered — no chunked re-read, so no
+    // stall-as-EOF truncation). Then finalize ONLY if the image is COMPLETE: Update.end(true) internally verifies
+    // written == begin() size (isFinished), and we also require w == total. A short/torn body -> abort, NEVER flash.
+    const size_t w = Update.write(const_cast<uint8_t*>(reinterpret_cast<const uint8_t*>(body.c_str())), total);
+    if (w == total && Update.end(true)) {   // end(true) commits ONLY a complete image; else it errors + we abort
+        mrcon.printf("OTA: %u bytes flashed (complete) — rebooting\n", (unsigned)total);
         s_server.send(200, "text/plain", "OK — rebooting now");
         mrcon.flush(); delay(500);
         if (s_pre_reboot_hook) s_pre_reboot_hook();   // mark the reset deliberate -> classifies as REBOOT, not UNEXPECTED
         ESP.restart();
     } else {
-        mrcon.println(F("OTA: end failed or 0 bytes"));
-        Update.abort();
-        s_server.send(400, "text/plain", "Upload failed");
+        mrcon.printf("OTA: INCOMPLETE (%u/%u) or verify-failed — NOT flashed\n", (unsigned)w, (unsigned)total);
+        Update.printError(mrcon);
+        Update.abort();   // discard the partial write; the running image is untouched
+        s_server.send(400, "text/plain", "Incomplete/failed upload — not flashed (image unchanged)");
     }
 }
 

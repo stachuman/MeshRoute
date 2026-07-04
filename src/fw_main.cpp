@@ -329,6 +329,7 @@ static void dump_status() {
     mrcon.print(F(" tx="));                 mrcon.print(g_iradio.tx_count());
     mrcon.print(F(" isr="));                mrcon.print(g_iradio.isr_count());   // DIO1 edges — isr=0 ⇒ pin/mask; isr>0 & rx=0 ⇒ drain/re-arm
     mrcon.print(F(" rxbad="));              mrcon.print(g_iradio.rxbad_count());  // failed-decode RX (CRC storm) — a clean counter delta (per-event print is `debug on`-gated)
+    mrcon.print(F(" rxarm="));              mrcon.print(g_iradio.rx_arm_failures());  // L5: startReceive() re-arm failures — non-zero = an SPI glitch left RX transiently un-armed (was silent before)
     mrcon.print(F(" txq="));                mrcon.print(g_hal.txq_depth());      // async-TX queue depth (should idle at 0)
     mrcon.print(F(" txdrop="));             mrcon.print(g_hal.txq_drops());      // outbound-queue overflow drops (should stay 0)
     mrcon.print(F(" txto="));               mrcon.print(g_hal.tx_timeouts());    // TX-watchdog recoveries — a missed TxDone (should stay 0)

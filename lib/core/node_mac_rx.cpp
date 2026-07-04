@@ -942,7 +942,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     const nack_out& n = *pn;
     if (n.to != _node_id) return;                                   // not for us
     if (!_active->_pending_tx) return;                                       // no flight to react on
-    if (_active->_pending_tx->ctr_lo != n.ctr_lo) return;                    // stale (different flight)
+    if (_active->_pending_tx->ctr_lo != n.ctr_lo) return;                    // stale (different flight). L9 NOTE: WIRE-bounded — a NACK carries only the 4-bit ctr_lo, not flight_gen, so a NACK for a since-replaced flight with an ALIASED ctr_lo (1/16) can still match here. Fully fixing needs more wire ctr bits (a frame change, out of scope); the LOCAL re-arm paths (retry-stash, nack-wait) are now flight_gen-exact.
     if (meta.src_hint >= 0 && static_cast<uint8_t>(meta.src_hint) != _active->_pending_tx->next) {
         MR_TELEMETRY(
             EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = static_cast<uint8_t>(meta.src_hint) } };
@@ -1005,7 +1005,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         if (busy_for <= protocol::nack_wait_threshold_ms) {        // short busy -> wait SAME hop
             const int jit = _hal.rand_range(0, static_cast<int>(retry_jitter_ms()) + 1);   // N1 (the only new draw)
             const uint32_t wait = static_cast<uint32_t>(busy_for) + 1 + static_cast<uint32_t>(jit);
-            _nack_wait_ctr_lo = pt.ctr_lo; _nack_wait_pending = true;
+            _nack_wait_flight_gen = pt.flight_gen; _nack_wait_pending = true;   // L9: key the BUSY_RX re-RTS wait on the exact flight (was pt.ctr_lo)
             (void)_hal.after(wait, kNackWaitTimerId);
         } else {                                                  // long busy -> requeue SAME hop (verbatim meta)
             TxItem it = txitem_from_pending(pt);   // S1: full identity+crypto core (incl. nonce_seed — the uncited long-busy drop)

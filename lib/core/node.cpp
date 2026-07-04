@@ -316,7 +316,7 @@ void Node::clear_learned_state() {
     for (uint8_t i = 0; i < protocol::cap_gateway_handoffs; ++i) _xl_handoffs[i].valid = false;
     _parked_sends_n = 0; _l2c_redirect_n = 0; _mediated_recent_n = 0;
     _ack_warn_until = 0; _last_dm_origin_ms = 0;
-    _nack_wait_pending = false; _nack_wait_ctr_lo = 0;
+    _nack_wait_pending = false; _nack_wait_flight_gen = 0;
     // KEEP: _cfg, _node_id, _key_hash32, _x_secret/_ed_pub/_crypto_ready, _joined, _claim_epoch, channel_ctr (NV).
     //       The push ring is the app-notification channel (not learned topology) -> left intact.
 }
@@ -723,7 +723,7 @@ void Node::on_timer(uint32_t timer_id) {
     case kNackWaitTimerId:                                          // BUSY_RX wait elapsed -> re-RTS SAME hop
         if (_nack_wait_pending) {
             _nack_wait_pending = false;
-            if (_active->_pending_tx && _active->_pending_tx->ctr_lo == _nack_wait_ctr_lo) tx_rts_retry();
+            if (_active->_pending_tx && _active->_pending_tx->flight_gen == _nack_wait_flight_gen) tx_rts_retry();   // L9: exact flight match (was the 4-bit ctr_lo)
         }
         break;
     case kLayerWindowTimerId:     window_switch_fire();    break;   // Slice 3d: gateway window scheduler — alternate the active leaf
@@ -936,7 +936,7 @@ void Node::on_radio_busy(const BusyInfo& info) {
         // no recovery timer and become_free() is blocked behind it -> the whole TX queue stalls. Release the flight
         // (mirror the DATA-M giveup, dv:12151) so the queue drains. Only DATA: a CTS/ACK/NACK giveup is a
         // receiver-side response whose pending_rx is freed by pending_rx_expiry; _active->_pending_tx may be unrelated.
-        if (tag == FrameTag::data && _active->_pending_tx && _active->_pending_tx->ctr_lo == s.ctr_lo) {
+        if (tag == FrameTag::data && _active->_pending_tx && _active->_pending_tx->flight_gen == s.flight_gen) {   // L9: exact flight match (was the 4-bit ctr_lo)
             _active->_pending_tx.reset();
             become_free();
         }

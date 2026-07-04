@@ -436,7 +436,7 @@ struct data_in {
     uint8_t  prev_fwd_rt_hops;
     uint16_t ctr;               // packed LITTLE-endian
     std::span<const uint8_t> inner;    // opaque ciphertext slot (0..max)
-    std::span<const uint8_t> mac;      // empty -> 4 zero bytes; else exactly 4 (else pack->0)
+    std::span<const uint8_t> mac;      // the DATA trailer. PLAIN DM: a 4-B MAC placeholder (empty span -> zero-filled; else exactly 4). CRYPTED: the 8-B XChaCha nonce seed (exactly 8 — the caller ALWAYS supplies it; the empty-span zero-fill is a plain-DM-only convenience, never reached under CRYPTED, per the M5 review). A wrong-size mac -> pack returns 0.
 };
 // Bytes written, or 0 on bad input (addr_len!=0 / mac size) or short out.
 size_t pack_data(const data_in& in, std::span<uint8_t> out);

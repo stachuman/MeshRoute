@@ -24,7 +24,7 @@ Companion to `docs/2026-07-04-codebase-review-findings.md`. Every finding was in
 | **4 — config validation** | M10, L2, L3, L6 | native | ✅ DONE (597, uncommitted) |
 | **5 — duty/crypto** | H5, M3, L10, L13 | native | ✅ DONE (601, uncommitted) |
 | **6 — radio (bench-verify)** | H6, M11, L5 | flash | ⚙️ CODE DONE + xiao-compiles (601 native unaffected), ⚠ **BENCH-VERIFY-PENDING** (M11 dual-SF `routing_sf=7`/`sf_list={12}` delivery A/B; H6 stress-harness delivery+rxbad under load; L5 watch `status rxarm=`); uncommitted |
-| **7 — OTA completeness** | H2 (completeness guard only; H1 skipped) | flash | — |
-| cleanup | L11, L12, M5 comment, `protocol_constants.h:362` comment | — | — |
-| deferred | L9 (4-bit ctr_lo → flight_gen migration, `risk medium`, sim-parity re-run) | — | — |
+| **7 — OTA completeness** | H2 (completeness guard only; H1 skipped) | flash | ✅ CODE DONE + esp32-compiles, ⚠ **BENCH-VERIFY** (OTA valid .bin flashes+boots; a truncated .bin is REJECTED not flashed). Kept raw-body (multipart broken on this fork); OOM for very large images = pre-existing, streaming-rewrite follow-up. uncommitted |
+| cleanup | L11 (f64 hand-roll, device-safe), L12 (inline ISR flags), M5 comment; `protocol_constants.h:362` fixed in Wave 5 | native+xiao | ✅ DONE (601, xiao builds, uncommitted) |
+| **L9 (was deferred)** | 4-bit ctr_lo → flight_gen migration: 6 LOCAL flight-match sites (TxStashSlot re-arm ×4 incl. the uncited node.cpp:939 giveup + _nack_wait re-RTS) exact-matched; the WIRE NACK match (node_mac_rx.cpp:945) stays ctr_lo (wire-bounded, documented) | native + s18 sim-parity | ✅ DONE (601; s18 BYTE-IDENTICAL pre/post — 240119 events, 0 asserts). ⚠ needed a cross-repo sim-wrapper fix (`NodeRuntimeWrapper.cpp` dropped the removed `channel_origin_max_per_window`, wired the new anti-spam knobs) — lus was broken since the anti-spam removal. uncommitted (both repos) |
 | not-fixing | M8, S3, S4 (see decisions above); **L1** deferred with S3 (decode-strictness class, benign today) | — | recorded |
