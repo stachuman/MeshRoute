@@ -22,7 +22,7 @@ Companion to `docs/2026-07-04-codebase-review-findings.md`. Every finding was in
 | **2 — flash validation (S2)** | M1, M2, L4, H3 | native | ✅ DONE (589, uncommitted) |
 | **3 — untrusted-wire** | M4, M6, M9, L7 | native | ✅ DONE (594, uncommitted) |
 | **4 — config validation** | M10, L2, L3, L6 | native | ✅ DONE (597, uncommitted) |
-| **5 — duty/crypto** | H5, M3, L10, L13 | native | — |
+| **5 — duty/crypto** | H5, M3, L10, L13 | native | ✅ DONE (601, uncommitted) |
 | **6 — radio (bench-verify)** | H6, M11, L5 | flash | — |
 | **7 — OTA completeness** | H2 (completeness guard only; H1 skipped) | flash | — |
 | cleanup | L11, L12, M5 comment, `protocol_constants.h:362` comment | — | — |

@@ -774,6 +774,11 @@ bool Node::push_xl_handoff(const XlHandoff& h) {
 }
 
 void Node::bridge_cross_layer(const PostAck& pa, const data_unicast_inner& ui) {
+    // L13 (2026-07-04): a SINGLE-layer node NEVER bridges — only a dual-layer gateway (n_layers==2) does. Without
+    // this guard a crafted CROSS_LAYER DM whose target_layer_id == our own single leaf's layer_id would match the
+    // loop below (target_leaf=0), fill the cap-1 handoff slot, and induce an H-flood for up to ~60 s (a cheap DoS).
+    // Refuse at the top (the caller relies on us to become_free()+return, matching the no-leaf-match early-refuse).
+    if (_n_layers < 2) { become_free(); return; }
     // ui.has_cross_layer is guaranteed by the caller. The next layer to ENTER = layer_ids[cur].
     const uint8_t target_layer_id = ui.layer_ids[ui.cur];
     // Which of OUR leaves carries that layer_id? (A gateway owns 2.) Not one of ours -> REFUSE loud (no default leaf).

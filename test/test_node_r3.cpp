@@ -3055,6 +3055,59 @@ TEST_CASE("§1c L2c — a misdelivered CRYPTED DM redirect carries the nonce-see
     }
 }
 
+// M3 (2026-07-04, crypto): a `sendhashx` (crypt=on) addressed to an UNRESOLVED hash PARKS, then flies when the
+// binding arrives. Before the fix ParkedSend carried no crypt intent -> both drains called do_send() with the
+// DEFAULT intent (resolves to _cfg.e2e_dm == false) -> the parked-then-drained DM went out CLEARTEXT, silently
+// downgrading a confidential send (violating the node.h "never silently falls back to cleartext" invariant).
+// The fix stamps p.crypt at park + threads it into do_send at BOTH drains. This drives the drain-on-answer path
+// (drain_parked_sends) and asserts the emitted DATA frame is CRYPTED, not plaintext.
+TEST_CASE("M3 — a PARKED crypt=on send flies CRYPTED when the binding arrives (no silent cleartext downgrade)") {
+    TestHal hal;
+    // node 1 with a route to dest 5 via next-hop 2 (the resolved id will be 5 -> uses this route).
+    Node* node = mk_sender_with_routes(hal, {{2,1,14}});           // via 2 (h1) to dest 5
+    // The recipient B's crypto identity: its key_hash32 == ed_pub[:4]; we cache B's AUTHORITATIVE pubkey so the
+    // seal can find it (else e2e_seal_inner fails no_pubkey -> refused, NEVER cleartext — the fail-loud contract).
+    uint8_t seedA[32], seedB[32];
+    for (int i = 0; i < 32; ++i) { seedA[i] = uint8_t(i + 3); seedB[i] = uint8_t(200 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, seedA); identity_from_seed(idB, seedB);
+    node->set_crypto_identity(idA.x_secret, idA.ed_pub);           // node 1 can seal
+    node->peer_key_set(idB.key_hash32, idB.ed_pub, Node::PeerKeyConf::authoritative);   // B's pubkey cached
+    hal.events.clear();
+
+    // sendhashx: address B by its key_hash32 with crypt=on. The binding (idB.key_hash32 -> 5) is UNKNOWN -> PARK.
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_hash = idB.key_hash32; c.u.send.flags = 0; c.crypt = CryptIntent::on;
+    const uint8_t body[] = { 's','e','c' };
+    c.body = body; c.body_len = sizeof(body);
+    const CmdResult r = node->on_command(c);
+    CHECK(r.code == CmdCode::queued);
+    CHECK(r.ctr == 0);                                             // parked (resolving), not sent yet
+    CHECK(hal.count("send_parked_for_hash") == 1);
+
+    // The owner's answer arrives: idB.key_hash32 -> node 5 (authoritative) -> drain_parked_sends -> do_send(5, .., p.crypt=on).
+    std::array<uint8_t, 7> hbin{};
+    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 5; hb.key_hash32 = idB.key_hash32; hb.authoritative = true;
+    const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(hbin.data(), hbin.size()));
+    node->on_hash_bind_response(hbin.data(), static_cast<uint8_t>(in), hb.authoritative);
+    CHECK(hal.count("send_hash_resolved") == 1);                   // the parked DM drained + flew
+
+    // Pump the flight: RTS went to next-hop 2; feed its CTS -> the CTS->DATA gap fires -> DATA on air.
+    const Ev* rts = hal.last("rts_tx"); CHECK(rts != nullptr); if (rts) CHECK(rts->next == 2);
+    std::array<uint8_t, 8> cb{}; const size_t cn = mk_cts(/*rx_id=*/1, /*tx_id=*/2, /*data_sf=*/7, cb);
+    RxMeta m2{ 12.0f, -70.0f, 0, static_cast<int8_t>(2) };
+    node->on_recv(cb.data(), cn, m2);
+    node->on_timer(kCtsToDataGapTimerId);
+
+    const TxFrame* dataf = nullptr;
+    for (const auto& f : hal.tx_frames) if (!f.bytes.empty() && (f.bytes[0] >> 4) == 0x3) dataf = &f;
+    CHECK(dataf != nullptr);
+    if (dataf) {
+        auto d = parse_data(std::span<const uint8_t>(dataf->bytes.data(), dataf->bytes.size()));
+        CHECK(d.has_value());
+        if (d) CHECK(d->crypted);                                 // ★ the DRAINED parked send is CRYPTED, not cleartext (M3)
+    }
+    delete node;
+}
+
 TEST_CASE("L2c — repeated misdeliveries for one hash collapse to ONE redirect action (anti-flood)") {
     TestHal hal; Node node(hal, /*id=*/2, /*key=*/0xABCD);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;

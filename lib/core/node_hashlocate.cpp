@@ -329,6 +329,12 @@ bool Node::e2e_open_inner(const uint8_t* inner, size_t inner_len, const uint8_t 
     if (!peer_key_find(sender_hash, sender_ed, &conf) || static_cast<uint8_t>(conf) < static_cast<uint8_t>(PeerKeyConf::authoritative)) return false;  // authoritative OR pinned
     uint8_t sx[32]; ed_pub_to_x25519(sx, sender_ed);               // 2. ECDH -> key (same KDF both directions)
     uint8_t shared[32]; crypto_x25519(shared, _x_secret, sx);
+    // L10 (2026-07-04, crypto): mirror the seal-side low-order/all-zero ECDH reject. A candidate sender key that
+    // is a low-order point yields an all-zero shared secret -> a key any observer can derive; NEVER open under it
+    // (a forger could otherwise craft a frame that "opens" against the degenerate key). Constant-time OR-accumulate
+    // over all 32 bytes (no early return -> no timing leak). Fails like a tag mismatch: wipe + return false.
+    uint8_t sh_acc = 0; for (int i = 0; i < 32; ++i) sh_acc |= shared[i];
+    if (sh_acc == 0) { crypto_wipe(shared, 32); return false; }     // degenerate ECDH -> hard drop
     uint8_t key[32]; dm_kdf(key, shared, _key_hash32, sender_hash);
     uint8_t nonce[24]; dm_nonce(nonce, seed8, ctr, _key_hash32);   // 3. we are dst -> dst_key_hash32 == our key
     const size_t aad_len = 4;                                       // 4. [dst_hash 4] (§1c: origin SEALED in pt[0])

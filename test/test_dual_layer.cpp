@@ -1193,6 +1193,47 @@ TEST_CASE("dual-layer bridge: a gateway re-injects a cross-layer DM onto the far
     CHECK(DualLayerTestAccess::seen(gw, 1).count(sokey) == 1);
 }
 
+// L13 (2026-07-04): a SINGLE-layer node (n_layers<2) must NEVER bridge — only a dual-layer gateway does. A
+// crafted CROSS_LAYER DM whose target layer_id == the single node's OWN leaf layer_id would (pre-fix) match the
+// leaf-scan loop (target_leaf=0), fill the cap-1 _xl_handoffs slot AND induce an H-flood for ~60 s (a cheap DoS
+// on a node that has no business bridging). bridge_cross_layer now refuses at the TOP when _n_layers<2. Assert
+// the single-layer node enqueues NO handoff for the exact frame that a dual-layer gateway WOULD bridge.
+TEST_CASE("L13 — a SINGLE-layer node refuses a crafted cross-layer handoff (no _xl_handoffs slot, no H-flood)") {
+    // The crafted CROSS_LAYER inner: dst_hash != our key, layer_ids=[1] cur=0 -> target layer_id 1. On the
+    // single-layer node below, layer 1 IS its own leaf -> the leaf-scan loop WOULD match (target_leaf=0) pre-fix.
+    const uint8_t ids[1] = { 1 };
+    const uint8_t body[2] = { 'h', 'i' };
+    uint8_t inner[64];
+    const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH);
+    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, /*dst_hash*/ 0x9999u,
+                                         ids, /*n_layers*/ 1, /*cur*/ 0, /*origin*/ 7, 0, body, 2, 0, 0);
+    CHECK(il > 0);
+
+    // --- the single-layer node (n_layers defaults to 1): MUST refuse ---
+    { StubHal hal; hal._now = 10000;
+      Node leaf(hal, /*id*/ 5, 0xABCDu);
+      NodeConfig cfg;                                       // n_layers left at 1 (a normal node)
+      cfg.routing_sf = 8; cfg.leaf_id = 1; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+      CHECK(leaf.on_init(cfg));
+      DualLayerTestAccess::bind_on_leaf(leaf, /*leaf*/ 0, /*node*/ 20, /*key*/ 0x9999u);   // even with the binding resolvable...
+      DualLayerTestAccess::bridge_from(leaf, /*origin*/ 7, /*dst*/ 5, /*ctr*/ 42, flags, inner, static_cast<uint8_t>(il));
+      CHECK(DualLayerTestAccess::handoff_count(leaf) == 0);   // ★ REFUSED at the top (n_layers<2) — no slot filled, no H-flood
+    }
+
+    // --- CONTROL: a dual-layer gateway (n_layers==2) with the SAME crafted frame DOES bridge (count 1) ---
+    // Proves the frame is otherwise valid + would fill the slot; only the single-layer guard makes the difference.
+    { StubHal hal; hal._now = 10000;
+      Node gw(hal, /*id*/ 1, 0xBEEFu);
+      NodeConfig cfg; cfg.n_layers = 2;
+      cfg.layers[0] = good_layer(/*layer_id*/ 1, 8); cfg.layers[0].node_id = 5;   // leaf 0 carries layer_id 1 (the target)
+      cfg.layers[1] = good_layer(/*layer_id*/ 2, 8); cfg.layers[1].node_id = 12;
+      CHECK(gw.on_init(cfg));
+      DualLayerTestAccess::bind_on_leaf(gw, /*leaf*/ 0, /*node*/ 20, /*key*/ 0x9999u);
+      DualLayerTestAccess::bridge_from(gw, /*origin*/ 7, /*dst*/ 5, /*ctr*/ 42, flags, inner, static_cast<uint8_t>(il));
+      CHECK(DualLayerTestAccess::handoff_count(gw) == 1);   // the dual-layer gateway DOES bridge the same frame
+    }
+}
+
 TEST_CASE("dual-layer bridge: the re-injected relay RTS carries RTS_FLAG_RELAY end-to-end (Slice 4c.2)") {
     StubHal hal; hal._now = 10000;
     Node gw(hal, /*id*/ 1, 0xABCDu);

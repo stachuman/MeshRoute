@@ -359,7 +359,7 @@ inline constexpr uint32_t gateway_handoff_reflood_ms   = 15000;   // one H query
 #if MR_N_LAYERS >= 2
 inline constexpr uint8_t cap_gateway_handoffs = 16;
 #else
-inline constexpr uint8_t cap_gateway_handoffs = 1;   // a single-layer node NEVER bridges (the fork refuses cross-layer when no leaf matches) -> 1 slot, ~4 KB reclaimed vs 16
+inline constexpr uint8_t cap_gateway_handoffs = 1;   // a single-layer node NEVER bridges (bridge_cross_layer refuses at the top when n_layers<2, L13) -> 1 slot, ~4 KB reclaimed vs 16
 #endif
 // Slice 3e F-C: the wire's schedule_record duration_100ms / offset_100ms are 8-bit ×100 ms => a 25.5 s ceiling, with NO
 // escape unit (unlike period_units' ×5000 ms mode). on_init REFUSES (fail loud, no clamp) a gateway window beyond this:

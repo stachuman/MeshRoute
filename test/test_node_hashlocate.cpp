@@ -13,6 +13,8 @@
 #include "node.h"
 #include "frame_codec.h"
 #include "identity.h"
+#include "dm_crypto.h"     // L10: forge a frame that WOULD open under the degenerate (all-zero) shared key
+#include "monocypher.h"    // L10: crypto_eddsa_to_x25519 / crypto_x25519 to derive the all-zero shared secret
 
 #include <array>
 #include <cstring>
@@ -1094,6 +1096,59 @@ TEST_CASE("e2e seal — refuses (returns 0) when the recipient pubkey is unknown
     Node::SealOutcome oc = Node::SealOutcome::ok;
     CHECK(A.e2e_seal_inner(inner, sizeof inner, s8, flags, /*dst=unknown*/ 0xDEADBEEFu, 1, 7, id.key_hash32, 0, 0, body, 3, oc) == 0);
     CHECK(oc == Node::SealOutcome::no_pubkey);                      // unknown dst -> no_pubkey (the only case that floods)
+}
+
+// L10 (2026-07-04, crypto): a peer advertising a LOW-ORDER X25519 point drives the ECDH shared secret ALL-ZERO
+// -> dm_kdf yields a key ANY observer can reproduce -> a "sealed" DM is decryptable by everyone while the sender
+// believes it confidential. The seal AND open paths now constant-time REJECT an all-zero shared secret. Seam: an
+// ALL-ZERO Ed25519 pubkey converts (crypto_eddsa_to_x25519) to a low-order X25519 point whose ECDH with ANY
+// secret is all-zero (verified against monocypher directly) — the exact reachable prod path (a cached peer key).
+TEST_CASE("L10 — an all-zero ECDH shared secret is REJECTED at seal AND open (low-order X25519 defense)") {
+    TestHal hal;
+    uint8_t seed[32]; for (int i = 0; i < 32; ++i) seed[i] = uint8_t(i + 11);
+    Identity id{}; identity_from_seed(id, seed);
+    Node A(hal, 1, id.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); A.on_init(cfg);
+    A.set_crypto_identity(id.x_secret, id.ed_pub);
+
+    // The malicious peer's ed_pub = all zeros (a low-order point). Its key_hash32 == ed_pub[:4] == 0, so
+    // peer_key_set's hash-verify accepts it; the seal/open then derive an all-zero shared secret.
+    uint8_t evil_ed[32] = {};
+    const uint32_t evil_hash = 0;                                  // ed_pub[:4] LE == 0
+    CHECK(A.peer_key_set(evil_hash, evil_ed, Node::PeerKeyConf::authoritative));   // hash-verifiable -> cached
+
+    // SEAL to the low-order peer -> must REFUSE (return 0, NOT seal under a public secret). We reuse the
+    // no_pubkey fail-loud outcome (a refuse-to-send, never cleartext) — the point is the seal produces NO frame.
+    const uint8_t flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH;
+    const uint8_t body[3] = { 9, 8, 7 };
+    uint8_t inner[64], s8[8];
+    Node::SealOutcome oc = Node::SealOutcome::ok;
+    CHECK(A.e2e_seal_inner(inner, sizeof inner, s8, flags, /*dst=*/evil_hash, /*origin=*/1, /*ctr=*/7,
+                           id.key_hash32, 0, 0, body, 3, oc) == 0);   // ★ SEAL refused under the degenerate secret
+    CHECK(oc == Node::SealOutcome::no_pubkey);                     // refuse-to-send (no frame emitted), never cleartext
+
+    // OPEN: FORGE a frame that WOULD open validly under the all-zero shared key (exactly what any observer could
+    // craft once the secret is public), then confirm e2e_open_inner REJECTS it — proving the zero-check DROPS a
+    // frame BEFORE dm_open would succeed (not merely a tag mismatch on junk).
+    uint8_t peer_x[32]; ed_pub_to_x25519(peer_x, evil_ed);         // low-order point
+    uint8_t shared[32]; crypto_x25519(shared, id.x_secret, peer_x);  // == all zeros (the public secret)
+    uint8_t fkey[32]; dm_kdf(fkey, shared, id.key_hash32, evil_hash);   // open derives dm_kdf(shared, _key_hash32, sender_hash)
+    const uint8_t seed8[8] = { 1,2,3,4,5,6,7,8 };
+    const uint16_t ctr = 7;
+    uint8_t fnonce[24]; dm_nonce(fnonce, seed8, ctr, id.key_hash32);    // open uses _key_hash32 (we are dst)
+    // The forged inner = [aad 4][ct][tag 16]. aad = [dst_hash 4 LE] = our key (matches the open's aad slice).
+    uint8_t aad[4] = { uint8_t(id.key_hash32), uint8_t(id.key_hash32 >> 8),
+                       uint8_t(id.key_hash32 >> 16), uint8_t(id.key_hash32 >> 24) };
+    const uint8_t pt[5] = { /*origin*/ 0x42, 'h','i','!','!' };    // no SOURCE_HASH set below -> just [origin][body]
+    uint8_t forged[64] = {}; for (int i = 0; i < 4; ++i) forged[i] = aad[i];
+    uint8_t ftag[DM_TAG_LEN];
+    dm_seal(forged + 4, ftag, fkey, fnonce, aad, 4, pt, sizeof pt);
+    for (int i = 0; i < DM_TAG_LEN; ++i) forged[4 + sizeof(pt) + i] = ftag[i];
+    const size_t flen = 4 + sizeof(pt) + DM_TAG_LEN;
+    const uint8_t open_flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH;   // NO SOURCE_HASH -> pt is [origin][body]
+    uint32_t got_origin = 1, got_sh = 1; bool got_loc = true; int32_t la = 1, lo = 1; uint8_t out[64] = {}; uint8_t outlen = 1;
+    CHECK_FALSE(A.e2e_open_inner(forged, flen, seed8, open_flags, ctr, /*sender_hash=*/evil_hash,
+                                 got_origin, got_sh, got_loc, la, lo, out, outlen));   // ★ OPEN rejects the zero-key frame it WOULD otherwise decrypt
 }
 
 // =============================================================================
