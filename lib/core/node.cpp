@@ -50,11 +50,22 @@ void Node::set_crypto_identity(const uint8_t x_secret[32], const uint8_t ed_pub[
 
 // The shared §3.2 dual-layer gate (see node.h). Extracted verbatim from on_init's former inline block so on_init
 // and the `gateway` console command validate IDENTICALLY. Mutates l0/l1 window fields (the SF-weighted derive).
+// v17 per-layer PHY: the legal SX1262 LoRa bandwidths (Hz). A per-layer bw_hz must be one of these (0 = inherit).
+static bool is_valid_bw_hz(uint32_t bw) {
+    switch (bw) {
+        case 7800: case 10400: case 15600: case 20800: case 31250:
+        case 41700: case 62500: case 125000: case 250000: case 500000: return true;
+        default: return false;
+    }
+}
+
 GwValErr validate_gateway_layers(LayerConfig& a, LayerConfig& b, uint32_t radio_bw_hz, uint8_t radio_cr) {
     for (LayerConfig* L : {&a, &b}) {                                            // per-layer required fields (loop order matches the original)
         if (L->layer_id == 0)                       return GwValErr::bad_leaf;     // REQUIRED: full 8-bit id (1..255)
         if (L->routing_sf < 5 || L->routing_sf > 12) return GwValErr::bad_ctrl_sf; // REQUIRED: a valid routing SF
         if (L->allowed_sf_bitmap == 0)              return GwValErr::no_data_sf;   // REQUIRED: a gateway must route data
+        if (L->cr != 0 && (L->cr < 5 || L->cr > 8)) return GwValErr::bad_cr;       // v17 per-layer CR: 0=inherit, else 5..8
+        if (L->bw_hz != 0 && !is_valid_bw_hz(L->bw_hz)) return GwValErr::bad_bw;   // v17 per-layer BW: 0=inherit, else a legal SX1262 BW
     }
     // §0.8: the two layers MUST differ in their leaf nibble (layer_id & 0x0F) — the coarse byte-0 wire filter;
     // same-nibble co-channel layers would ALIAS (frames cross).
@@ -64,11 +75,15 @@ GwValErr validate_gateway_layers(LayerConfig& a, LayerConfig& b, uint32_t radio_
     if (a.window_ms && b.window_ms && a.window_ms + b.window_ms > a.window_period_ms) return GwValErr::window_overlap;
     // SF-weighted anti-phase window derive (window_i = period * per_byte_air(sf_i) / sum; offset[1] = window[0]).
     const uint32_t period = a.window_period_ms;
-    auto per_byte_air = [&](uint8_t sf) -> uint32_t {     // marginal payload airtime for 120 B (preamble cancels)
-        return airtime_ms(sf, radio_bw_hz, radio_cr, protocol::preamble_sym, 240)
-             - airtime_ms(sf, radio_bw_hz, radio_cr, protocol::preamble_sym, 120);
+    // v17: weight each layer's window by ITS OWN effective BW/CR (a narrow-BW layer = more airtime/byte = a longer
+    // window). eff = the per-layer override, else the global fallback (mirrors active_bw_hz()/active_cr()).
+    auto eff_bw = [&](const LayerConfig& L) -> uint32_t { return L.bw_hz > 0 ? L.bw_hz : radio_bw_hz; };
+    auto eff_cr = [&](const LayerConfig& L) -> uint8_t  { return L.cr    > 0 ? L.cr    : radio_cr; };
+    auto per_byte_air = [&](const LayerConfig& L) -> uint32_t {     // marginal payload airtime for 120 B (preamble cancels)
+        return airtime_ms(L.routing_sf, eff_bw(L), eff_cr(L), protocol::preamble_sym, 240)
+             - airtime_ms(L.routing_sf, eff_bw(L), eff_cr(L), protocol::preamble_sym, 120);
     };
-    const uint32_t w0 = per_byte_air(a.routing_sf), w1 = per_byte_air(b.routing_sf);
+    const uint32_t w0 = per_byte_air(a), w1 = per_byte_air(b);
     if (w0 + w1 == 0) return GwValErr::window_degenerate;                          // guard; SFs are 5..12
     if (a.window_ms == 0 && b.window_ms == 0) {                                    // both DERIVE: SF-weighted, fill the period
         a.window_ms = static_cast<uint32_t>(static_cast<uint64_t>(period) * w0 / (w0 + w1));
@@ -144,6 +159,10 @@ GwParseErr parse_gateway_cmd(const char* args, GatewayProvision& out) {
         else if (!strncmp(tok, "beacon=", 7)) { const long v = atol(tok + 7); if (v < 1) return GwParseErr::bad_beacon; out.beacon_ms = static_cast<uint32_t>(v); }
         else if (!strncmp(tok, "freq0=", 6)) { const double f = atof(tok + 6); if (f <= 0.0) return GwParseErr::bad_freq; out.l0.freq_mhz = f; }
         else if (!strncmp(tok, "freq1=", 6)) { const double f = atof(tok + 6); if (f <= 0.0) return GwParseErr::bad_freq; out.l1.freq_mhz = f; }
+        else if (!strncmp(tok, "bw0=", 4)) { out.l0.bw_hz = static_cast<uint32_t>(atol(tok + 4)); }   // v17 per-layer BW (0 = inherit); validate_gateway_layers gates the value
+        else if (!strncmp(tok, "bw1=", 4)) { out.l1.bw_hz = static_cast<uint32_t>(atol(tok + 4)); }
+        else if (!strncmp(tok, "cr0=", 4)) { out.l0.cr    = static_cast<uint8_t>(atoi(tok + 4)); }    // v17 per-layer CR (0 = inherit)
+        else if (!strncmp(tok, "cr1=", 4)) { out.l1.cr    = static_cast<uint8_t>(atoi(tok + 4)); }
         else if (!strncmp(tok, "win0=", 5) || !strncmp(tok, "win1=", 5)) {
             LayerConfig& L = (tok[3] == '0') ? out.l0 : out.l1;       // "ms:off"
             char* c = tok + 5; char* colon = nullptr;

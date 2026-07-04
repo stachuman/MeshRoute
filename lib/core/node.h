@@ -62,7 +62,8 @@ struct LayerConfig {
 // non-ok -> refuse (bool false), the `gateway` console command maps it to a specific operator error message.
 enum class GwValErr : uint8_t {
     ok = 0, bad_leaf, bad_ctrl_sf, no_data_sf, leaf_nibble_clash,
-    period_mismatch, period_zero, window_degenerate, window_zero, window_exceeds_period, window_overlap, window_too_long
+    period_mismatch, period_zero, window_degenerate, window_zero, window_exceeds_period, window_overlap, window_too_long,
+    bad_bw, bad_cr   // v17 per-layer PHY: bw_hz not a legal SX1262 bandwidth / cr not in 5..8 (0 = inherit is always ok)
 };
 // The ONE dual-layer gate, shared by on_init AND parse_gateway_cmd (so the console command can never accept a
 // config on_init would refuse — anti-drift). Validates both layers' required fields + the leaf-nibble rule + the

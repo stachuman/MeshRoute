@@ -313,6 +313,21 @@ TEST_CASE("per-layer-bw: the window switch retunes BW/CR (set_rx_bw/set_rx_cr) f
     CHECK(hal.last_set_rx_cr == 8);
 }
 
+TEST_CASE("per-layer-bw: parse_gateway_cmd extracts bw0/bw1/cr0/cr1; validate gates illegal PHY") {
+    GatewayProvision g{};
+    CHECK(parse_gateway_cmd("l0=1:1:8:8 l1=2:1:9:9 bw0=250000 bw1=125000 cr0=5 cr1=8", g) == GwParseErr::ok);
+    CHECK(g.l0.bw_hz == 250000u); CHECK(g.l1.bw_hz == 125000u);
+    CHECK(g.l0.cr == 5);          CHECK(g.l1.cr == 8);
+    // validate ACCEPTS legal per-layer PHY (each layer's window derives off ITS OWN bw)
+    { GatewayProvision v = g; CHECK(validate_gateway_layers(v.l0, v.l1, 250000, 5) == GwValErr::ok); }
+    // REJECTS an illegal per-layer BW (100000 Hz is not an SX1262 bandwidth)
+    { GatewayProvision v = g; v.l1.bw_hz = 100000; CHECK(validate_gateway_layers(v.l0, v.l1, 250000, 5) == GwValErr::bad_bw); }
+    // REJECTS an illegal per-layer CR
+    { GatewayProvision v = g; v.l1.cr = 99;        CHECK(validate_gateway_layers(v.l0, v.l1, 250000, 5) == GwValErr::bad_cr); }
+    // 0 = inherit is always OK (the accessor resolves it)
+    { GatewayProvision v = g; v.l0.bw_hz = 0; v.l1.cr = 0; CHECK(validate_gateway_layers(v.l0, v.l1, 250000, 5) == GwValErr::ok); }
+}
+
 TEST_CASE("dual-layer dedup: the same (origin,dst,ctr) key on two leaves does NOT collide (§8; node_mac_rx.cpp:393)") {
     StubHal hal; Node node(hal, /*id*/1, /*key*/0x1);
     NodeConfig cfg; cfg.n_layers = 2;
