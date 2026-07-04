@@ -136,16 +136,17 @@ public:
         ++_tx_count;
         if (sf > 0) _cur_sf = sf;                                                  // TEMP DEBUG
         mr_trace_frame(/*is_rx=*/false, b, n, _cur_sf, 0.0f, 0.0f, millis());   // decoded arm-time trace; [txdone] below marks completion -> Δ = airtime
+        _radio.standby();   // M11: SX1262 latches SetModulationParams (SF/BW/CR) ONLY in STANDBY — issued mid-RX they're DROPPED and the frame flies on the stale (routing) SF (mirror set_rx_sf's fix). H6: it also stops continuous-RX BEFORE the clear+arm below, so no RxDone edge can land in the RX->TX gap and be mis-consumed as TxDone by poll_tx_done.
         if (sf  > 0)    _radio.setSpreadingFactor(static_cast<uint8_t>(sf));
         if (bw_hz > 0)  _radio.setBandwidth(static_cast<float>(bw_hz) / 1000.0f);   // RadioLib wants kHz
         if (cr  > 0)    _radio.setCodingRate(static_cast<uint8_t>(cr));
         if (pw  > -100) _radio.setOutputPower(static_cast<int8_t>(pw));
         if (pre > 0)    _radio.setPreambleLength(static_cast<uint16_t>(pre));
-        g_dio1_fired = false;                                                      // clear any stale RX edge before arming TX (else poll_tx_done sees it as a premature TxDone)
+        g_dio1_fired = false;                                                      // H6: clear any edge latched up to here (now in STANDBY, RX stopped) — the real TxDone re-sets it a min-airtime later; no live RX means poll_tx_done can't see a premature RxDone-as-TxDone
         const int16_t st = _radio.startTransmit(const_cast<uint8_t*>(b), n);       // NON-BLOCKING; DIO1 -> TxDone
         if (st != RADIOLIB_ERR_NONE) {
             if (g_mr_trace_on) { Serial.print(F("[txerr st=")); Serial.print(st); Serial.print(F(" t=")); Serial.print(millis()); Serial.println(F("]")); }   // arm failed — recover to RX. GATED (the radio hot path stays silent by default — the MeshCore lesson; `debug on` restores it)
-            _radio.startReceive();
+            arm_rx();
             return TxResult::radio_error;
         }
         _tx_in_flight = true;
@@ -163,7 +164,7 @@ public:
         _radio.finishTransmit();                                                  // RadioLib async-TX cleanup
         //Serial.print(F("[txdone t=")); Serial.print(millis()); Serial.println(F("]"));   // arm -> here = the airtime (loop stayed live in between)
         if (_rx_sf > 0 && _rx_sf != _cur_sf) { _cur_sf = _rx_sf; _radio.setSpreadingFactor(static_cast<uint8_t>(_rx_sf)); }
-        _radio.startReceive();                                                    // re-arm continuous RX on the listening SF
+        arm_rx();                                                    // re-arm continuous RX on the listening SF
         _pre_seen = false;
         return true;
     }
@@ -179,7 +180,7 @@ public:
         _tx_in_flight = false;
         g_dio1_fired = false;
         if (_rx_sf > 0 && _rx_sf != _cur_sf) { _cur_sf = _rx_sf; _radio.setSpreadingFactor(static_cast<uint8_t>(_rx_sf)); }
-        _radio.startReceive();                                                    // re-arm continuous RX
+        arm_rx();                                                    // re-arm continuous RX
         _pre_seen = false;
     }
 
@@ -189,7 +190,7 @@ public:
         _radio.standby();                                                          // SX1262: SetModulationParams (the SF) only latches in STANDBY — issued mid-RX it is dropped, so set_rx_sf was re-arming on the OLD SF (the data-leg bug)
         _radio.setSpreadingFactor(static_cast<uint8_t>(sf));
         g_dio1_fired = false;                                                      // drop any stale edge before re-arming on the new SF
-        _radio.startReceive();
+        arm_rx();
         _pre_seen = false;
     }
 
@@ -201,7 +202,7 @@ public:
         _radio.standby();
         _radio.setFrequency(static_cast<float>(mhz));
         g_dio1_fired = false;                                                      // drop any stale edge before re-arming on the new freq
-        _radio.startReceive();
+        arm_rx();
         _pre_seen = false;
     }
 
@@ -268,7 +269,7 @@ public:
         // channel (noise floor), not the just-received frame.
         snr_db   = _radio.getSNR();
         rssi_dbm = _radio.getRSSI();
-        _radio.startReceive();                                          // re-arm RX (MeshCore discipline: startReceive after every read)
+        arm_rx();                                          // re-arm RX (MeshCore discipline: startReceive after every read)
         _pre_seen = false;
         if (st != RADIOLIB_ERR_NONE) { ++g_rxbad_count; if (g_mr_trace_on) { Serial.print(F("[rxbad st=")); Serial.print(st); Serial.print(F(" t=")); Serial.print(millis()); Serial.println(F("]")); } return false; }   // count the CRC-storm event ALWAYS; the per-event print is GATED behind `debug on` (don't flood Serial when the radio is busiest)
         out_len  = l;
@@ -281,6 +282,7 @@ public:
     uint32_t tx_count() const { return _tx_count; }    // status diagnostic (frames transmitted)
     uint32_t isr_count() const { return g_isr_count; } // status diagnostic (DIO1 edges) — proves the IRQ line fires
     uint32_t rxbad_count() const { return g_rxbad_count; } // status diagnostic: failed-decode RX (CRC storm) — a clean counter delta, read by `status rxbad=` / `rcmd status`
+    uint32_t rx_arm_failures() const { return _rx_arm_failures; } // L5 status diagnostic: startReceive() re-arm failures (SPI glitch) — a non-zero delta means the node went transiently deaf; visible instead of silent
 
 private:
     // Software-LBT tunables (bench-tunable). Threshold too low -> false-busy/starvation; too high -> missed
@@ -292,7 +294,12 @@ private:
     static constexpr uint16_t kFloorStuckRejects = 64;   // consecutive above-window idle samples -> re-seed the floor (stuck-floor escape; MeshCore resetAGC). ~0.64s @ kFloorSampleMs; bench-tunable
 
     CustomSX1262& _radio;
+    // L5: every RX re-arm routes through here so a failed startReceive() (an SPI glitch) is COUNTED + surfaced in
+    // status, instead of silently leaving the node deaf forever. (An auto-retry loop is a noted follow-up; making
+    // the failure visible is the load-bearing half — currently a failed re-arm has no signal at all.)
+    void arm_rx() { if (_radio.startReceive() != RADIOLIB_ERR_NONE) ++_rx_arm_failures; }
     uint32_t _tx_count = 0;   // frames transmitted (status diagnostic)
+    uint32_t _rx_arm_failures = 0;   // L5: startReceive() re-arm failures (SPI glitch) — surfaced via rx_arm_failures()
     bool _preamble = false;   // latched preamble event (drained by take_preamble)
     bool _pre_seen = false;   // edge-detect: preamble already latched this RX cycle
     bool _tx_in_flight = false; // async TX armed (start_transmit) until poll_tx_done drains the TxDone edge; routes the shared DIO1 flag
