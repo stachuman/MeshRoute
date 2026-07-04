@@ -73,6 +73,12 @@ public:
     void wipe() { _blob.clear(); }    // simulate losing the meta too (full wipe -> fresh seq + epoch)
     bool saved() const { return !_blob.empty(); }
 
+    // --- test knobs for the M2 torn-meta regression: corrupt/read a stored field by byte offset (the Meta
+    //     layout is private to SegmentedInboxStore; the layout offsets are documented in its struct). ---
+    void     poke_u16(size_t off, uint16_t v) { if (off + 2 <= _blob.size()) { _blob[off] = uint8_t(v); _blob[off + 1] = uint8_t(v >> 8); } }
+    uint16_t peek_u16(size_t off) const { return (off + 2 <= _blob.size()) ? uint16_t(_blob[off] | (_blob[off + 1] << 8)) : 0; }
+    size_t   blob_size() const { return _blob.size(); }
+
 private:
     std::vector<uint8_t> _blob;
 };

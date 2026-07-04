@@ -19,7 +19,7 @@ Companion to `docs/2026-07-04-codebase-review-findings.md`. Every finding was in
 | Wave | Items | Testable | Status |
 |---|---|---|---|
 | **1 — S1 helper** | H4, M7(type), +2 uncited nonce_seed drops | native | ✅ DONE (587, uncommitted) |
-| **2 — flash validation (S2)** | M1, M2, L4, H3 | native | — |
+| **2 — flash validation (S2)** | M1, M2, L4, H3 | native | ✅ DONE (589, uncommitted) |
 | **3 — untrusted-wire** | M4, M6, M9, L7, L1 | native | — |
 | **4 — config validation** | M10, L2, L3, L6 | native | — |
 | **5 — duty/crypto** | H5, M3, L10, L13 | native | — |

@@ -136,6 +136,46 @@ TEST_CASE("SegmentedInboxStore: a torn record at a segment tail is skipped (cras
     CHECK(g.seqs == std::vector<uint32_t>{1, 2});
 }
 
+TEST_CASE("SegmentedInboxStore: M2 — a torn meta (seg_count==0 / head_seg>=seg_count) is rejected -> fresh, no DBZ/hang") {
+    // S2 flash-validation regression: load_meta() must reject a torn meta BEFORE its fields divide (% seg_count ->
+    // DBZ when seg_count==0) or bound the ring walk (i == head_seg never true when head_seg >= seg_count ->
+    // infinite boot loop). A rejected meta is treated as FRESH: begin() re-inits (next_seq back to 1, epoch 1).
+    // Meta layout offsets (private struct, documented there): head_seg@6, tail_seg@8, seg_count@10.
+
+    // (a) seg_count == 0 would divide-by-zero in the `% seg_count` ring walk.
+    {
+        FakeSegmentStore recs; FakeMetaStore meta;
+        { SegmentedInboxStore s(recs, meta, 4096, 256); CHECK(s.begin()); put(s, 1, "x"); CHECK(s.set_next_seq(9)); }
+        CHECK(meta.saved());
+        meta.poke_u16(10, 0);                                    // corrupt seg_count -> 0
+        SegmentedInboxStore s2(recs, meta, 4096, 256);
+        CHECK(s2.begin());                                       // must NOT hard-fault (DBZ) — rejected -> fresh
+        CHECK(s2.persisted_next_seq() == 1);                     // re-inited fresh (torn meta discarded)
+        CHECK(s2.storage_epoch() == 1);
+    }
+    // (b) head_seg >= seg_count would make the `i == head_seg` ring-walk terminator unreachable (infinite loop).
+    {
+        FakeSegmentStore recs; FakeMetaStore meta;
+        { SegmentedInboxStore s(recs, meta, 4096, 256); CHECK(s.begin()); put(s, 1, "y"); CHECK(s.set_next_seq(9)); }
+        const uint16_t sc = meta.peek_u16(10);                   // the valid seg_count == ring_segs()
+        CHECK(sc > 0);
+        meta.poke_u16(6, sc);                                    // head_seg = seg_count (out of range)
+        SegmentedInboxStore s2(recs, meta, 4096, 256);
+        CHECK(s2.begin());                                       // must RETURN (no infinite loop) — rejected -> fresh
+        CHECK(s2.persisted_next_seq() == 1);
+    }
+    // (c) tail_seg >= seg_count is likewise rejected.
+    {
+        FakeSegmentStore recs; FakeMetaStore meta;
+        { SegmentedInboxStore s(recs, meta, 4096, 256); CHECK(s.begin()); put(s, 1, "z"); CHECK(s.set_next_seq(9)); }
+        const uint16_t sc = meta.peek_u16(10);
+        meta.poke_u16(8, static_cast<uint16_t>(sc + 5));         // tail_seg out of range
+        SegmentedInboxStore s2(recs, meta, 4096, 256);
+        CHECK(s2.begin());
+        CHECK(s2.persisted_next_seq() == 1);
+    }
+}
+
 TEST_CASE("SegmentedInboxStore: begin() FAILS LOUD if seg_bytes exceeds the read scratch (no silent truncation)") {
     FakeSegmentStore recs; FakeMetaStore meta;
     // A segment larger than the 4 KiB read scratch would make read_since drop every record past 4 KB -> begin

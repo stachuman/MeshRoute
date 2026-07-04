@@ -14,6 +14,7 @@
 // falls back to the compile-time defaults, so an unprovisioned or mismatched-version chip still boots.
 #pragma once
 #include <stdint.h>
+#include <string.h>      // memcmp — H3 save() change-detection
 #include "fault_log.h"   // mrfault::FaultLog — the /mrfault store is whole-blob R/W, exactly like Blob
 
 namespace mrnv {
@@ -135,9 +136,15 @@ inline bool load(Blob& out) {
     f.close();
     return n == static_cast<int>(sizeof(out)) && out.magic == kMagic && (out.version >= 2 && out.version <= kVersion);
 }
-inline bool save(const Blob& b) {
+inline bool save(const Blob& b) {                       // change-detects against load() (defined just above)
     using namespace Adafruit_LittleFS_Namespace;
     InternalFS.begin();
+    // H3 change-detection: a `cfg set` (console OR companion/BLE) to the SAME value must NOT rewrite the whole
+    // blob — every remove()+open(WRITE)+write is flash wear AND widens the reset-during-write corruption window
+    // (a companion slider bound to `cfg set` hammers this). SKIP when the serialized blob is byte-identical to
+    // what's already stored. No existing/unreadable blob (cur load fails) => always write (first provision).
+    static Blob cur;                                   // STATIC not stack — keep the console-path frame small (the do_post_ack overflow lesson)
+    if (load(cur) && memcmp(&cur, &b, sizeof b) == 0) return true;   // identical -> no-op success
     InternalFS.remove("/mrcfg");                       // overwrite (LittleFS append-only otherwise)
     File f(InternalFS);
     if (!f.open("/mrcfg", FILE_O_WRITE)) return false;
@@ -264,6 +271,12 @@ inline bool load(Blob& out) {
     return n == sizeof(out) && out.magic == kMagic && (out.version >= 2 && out.version <= kVersion);
 }
 inline bool save(const Blob& b) {
+    // H3 change-detection (see the nRF52 backend): SKIP the NVS rewrite when the blob is byte-identical to what's
+    // stored — avoids flash wear + narrows the reset-during-write window on a same-value `cfg set`. No/unreadable
+    // existing blob => always write (first provision). NVS is already erase-before-write internally, so this is
+    // purely the same-value early-out.
+    static Blob cur;
+    if (load(cur) && memcmp(&cur, &b, sizeof b) == 0) return true;
     Preferences p;
     if (!p.begin("mr", /*readOnly=*/false)) return false;
     const size_t n = p.putBytes("cfg", &b, sizeof(b));

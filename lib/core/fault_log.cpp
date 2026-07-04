@@ -19,11 +19,15 @@ void fault_log_init(FaultLog& f) {
 }
 
 bool fault_log_valid(const FaultLog& f) {
-    return f.magic == kFaultMagic && f.version == kFaultVersion;
+    // S2 flash-validation rule: a struct loaded from flash MUST be range-checked BEFORE its fields index /
+    // divide / bound a loop. A torn /mrfault blob can carry a wild `head`/`count` -> push()'s f.ring[f.head]
+    // = an OOB .bss write (the wild-write the radio-canary chased), and format_fault_summary() spins on `count`.
+    return f.magic == kFaultMagic && f.version == kFaultVersion
+        && f.head < kFaultRingN && f.count <= kFaultRingN;
 }
 
 void fault_log_push(FaultLog& f, const FaultRecord& r) {
-    f.ring[f.head] = r;
+    f.ring[f.head % kFaultRingN] = r;             // mask (defense-in-depth): a validated head is < N, but never OOB even if not
     f.head = static_cast<uint16_t>((f.head + 1) % kFaultRingN);
     if (f.count < kFaultRingN) ++f.count;     // else drop-oldest (head already advanced past it)
     f.boot_seq = r.boot_seq;                  // the newest record's boot_seq is the log's high-water
@@ -128,7 +132,8 @@ size_t format_fault_record(const FaultRecord& r, char* buf, size_t cap) {
 
 size_t format_fault_summary(const FaultLog& f, char* buf, size_t cap) {
     uint16_t hf = 0, wd = 0;                                     // counted from the scratch-derived CAUSE (so watchdog is finally meaningful)
-    for (uint16_t i = 0; i < f.count; ++i) {
+    const uint16_t n = f.count < kFaultRingN ? f.count : kFaultRingN;   // S2: clamp — an unvalidated `count` could spin up to 65k
+    for (uint16_t i = 0; i < n; ++i) {
         const FaultRecord* r = fault_log_at(f, i);
         if (!r) continue;
         if (r->cause == kCauseHardfault) ++hf;

@@ -35,7 +35,8 @@ public:
     // SPI reconfig/mode-switch (SF-flat) + ~20 ms safety. Sizes the data-SF window to the real DATA
     // RX_DONE across SF5..SF12 — airtime_ms alone falls ~1 symbol + ~30 ms short on hardware.
     uint32_t rx_window_slop_ms(int sf) const override {
-        return ((1u << sf) * 1000u) / static_cast<uint32_t>(_def_bw) + 1 /*~1 symbol*/ + 50 /*~30ms reconfig + ~20ms safety*/;
+        const uint32_t bw = _def_bw > 0 ? static_cast<uint32_t>(_def_bw) : 125000u;   // S2: guard the divide (configure() clamps, this is belt-and-braces)
+        return ((1u << sf) * 1000u) / bw + 1 /*~1 symbol*/ + 50 /*~30ms reconfig + ~20ms safety*/;
     }
 
     // ---- Hal time/timers ----
@@ -75,7 +76,10 @@ public:
     // matches the Node's own airtime math). busy_hold = how long a CAD-busy channel reads as occupied.
     void     configure(int16_t def_sf, int32_t bw_hz, int8_t cr, int16_t preamble_sym,
                        int8_t power_dbm, uint32_t channel_busy_hold_ms) {
-        _def_sf = def_sf; _def_bw = bw_hz; _def_cr = cr; _def_preamble = preamble_sym;
+        // S2 flash-validation rule: bw_hz flows from an NV Blob (magic+version-only load). A corrupt persisted
+        // radio_bw_hz==0 would divide-by-zero in rx_window_slop_ms/configure on the RX hot path -> a hard fault
+        // that re-faults every boot (soft-brick). Clamp <=0 to the RF-plan default BW125 before it's stored.
+        _def_sf = def_sf; _def_bw = bw_hz > 0 ? bw_hz : 125000; _def_cr = cr; _def_preamble = preamble_sym;
         _def_power = power_dbm; _busy_hold_ms = channel_busy_hold_ms;
     }
 

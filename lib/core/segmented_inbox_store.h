@@ -80,7 +80,13 @@ private:
 
     uint16_t ring_segs() const { return static_cast<uint16_t>(_cap / _seg + 1); }
     bool save_meta() { return _meta_io->save(&_meta, sizeof _meta); }
-    bool load_meta() { return _meta_io->load(&_meta, sizeof _meta) && _meta.magic == kMagic && _meta.version == kVersion; }
+    // S2 flash-validation rule: range-check a flash-loaded struct BEFORE its fields index / divide / bound a loop.
+    // A torn /mri_* meta with seg_count==0 hard-faults the `% seg_count` below (DBZ), and head_seg>=seg_count makes
+    // the `i == head_seg` ring walk never terminate (infinite boot loop). Reject those -> begin() re-inits fresh meta.
+    bool load_meta() {
+        return _meta_io->load(&_meta, sizeof _meta) && _meta.magic == kMagic && _meta.version == kVersion
+            && _meta.seg_count == ring_segs() && _meta.head_seg < _meta.seg_count && _meta.tail_seg < _meta.seg_count;
+    }
 
     ISegmentStore* _records;
     IMetaStore*    _meta_io;

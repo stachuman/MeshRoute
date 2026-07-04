@@ -49,6 +49,23 @@ TEST_CASE("fault_log: a bad magic/version is INVALID -> the loader re-inits fres
     CHECK(kFaultVersion == 3);
 }
 
+TEST_CASE("fault_log: M1 — a torn blob with head/count out of range is INVALID (no OOB ring write)") {
+    // S2 flash-validation regression: fault_log_valid() must reject a torn /mrfault blob whose `head` (or `count`)
+    // is out of range BEFORE push() indexes f.ring[f.head] = a wild .bss write (the radio-canary wild-write).
+    FaultLog f; fault_log_init(f);
+    f.head = 0x3FFF; CHECK_FALSE(fault_log_valid(f));            // head >> kFaultRingN -> rejected
+    fault_log_init(f); f.head = kFaultRingN; CHECK_FALSE(fault_log_valid(f));      // == N is already past the end
+    fault_log_init(f); f.count = static_cast<uint16_t>(kFaultRingN + 1); CHECK_FALSE(fault_log_valid(f));
+    fault_log_init(f); f.count = 0xFFFF; CHECK_FALSE(fault_log_valid(f));          // a wild count would spin format_fault_summary
+    // Defense-in-depth: even an unvalidated wild head does NOT write out of the ring (push masks % kFaultRingN).
+    fault_log_init(f); f.head = 0x3FFF;
+    fault_log_push(f, rec(1, kCauseWatchdog));                  // must not corrupt memory; the % N masks the index
+    CHECK(f.head == static_cast<uint16_t>((0x3FFF + 1) % kFaultRingN));
+    // A valid in-range head/count still passes.
+    fault_log_init(f); fault_log_push(f, rec(1, kCauseWatchdog));
+    CHECK(fault_log_valid(f));
+}
+
 TEST_CASE("fault_log: ring push drops the oldest at kFaultRingN; newest-first order; boot_seq high-water") {
     FaultLog f; fault_log_init(f);
     const uint16_t N = kFaultRingN;
