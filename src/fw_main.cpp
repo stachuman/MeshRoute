@@ -480,6 +480,8 @@ static void handle_cfg_set(const char* args) {
         b.gw_announce_duty_pct        = nc.gw_announce_duty_pct;        // v11 gateway noise control (seed from the live config)
         b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
         b.l1_freq_mhz                 = nc.layers[1].freq_mhz;          // v12 per-layer freq (0 = inherit layer 0)
+        b.l1_bw_hz                    = nc.layers[1].bw_hz;             // v17 per-layer BW (0 = inherit the global)
+        b.l1_cr                       = nc.layers[1].cr;               // v17 per-layer CR (0 = inherit)
         b.gw_herd_slack               = nc.gw_herd_slack;              // v13 §3e herd-spread slack
         b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch; b.leaf_name_len = nc.leaf_name_len;     // v14 R6.1 leaf-config
         for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
@@ -659,6 +661,16 @@ static void handle_cfg_set(const char* args) {
         if (f < 0.0) { mrcon.println(F("> cfg err bad_value (l1_freq MHz; 0=inherit)")); return; }
         b.l1_freq_mhz = f; live = false;
     }
+    else if (!strcmp(key, "l1_bw")) {                            // v17 per-layer BW: layer-1 bandwidth Hz (0 = inherit the global bw)
+        const long v = atol(val);
+        if (v < 0) { mrcon.println(F("> cfg err bad_value (l1_bw Hz; 0=inherit)")); return; }
+        b.l1_bw_hz = (uint32_t)v; live = false;
+    }
+    else if (!strcmp(key, "l1_cr")) {                            // v17 per-layer CR: layer-1 coding-rate 5..8 (0 = inherit)
+        const int v = atoi(val);
+        if (v != 0 && (v < 5 || v > 8)) { mrcon.println(F("> cfg err bad_value (l1_cr 5..8; 0=inherit)")); return; }
+        b.l1_cr = (uint8_t)v; live = false;
+    }
     else { mrcon.print(F("> cfg err unknown_key ")); mrcon.println(key); return; }
 
     if (persist && !mrnv::save(b)) { mrcon.println(F("> cfg err nv_save_failed")); return; }
@@ -833,6 +845,8 @@ static const char* gw_val_err_str(meshroute::GwValErr e) {
         case E::window_exceeds_period:return "a window exceeds the period";
         case E::window_overlap:       return "the two windows overlap";
         case E::window_too_long:      return "windows sum exceeds the period";
+        case E::bad_bw:               return "per-layer bw not a valid SX1262 bandwidth (0=inherit)";
+        case E::bad_cr:               return "per-layer cr out of range (5..8; 0=inherit)";
         default:                      return "ok";
     }
 }
@@ -871,7 +885,9 @@ static void handle_gateway(const char* args) {
     if (g.beacon_ms) { b.beacon_ms = g.beacon_ms; b.l1_beacon_period_ms = g.beacon_ms; }   // else: preserve existing cadence
     if (g.l0.freq_mhz > 0.0) b.freq_mhz = g.l0.freq_mhz;     // v12 per-layer freq: freq0 sets the node/layer-0 carrier (else keep)
     b.l1_freq_mhz = g.l1.freq_mhz;                           // 0 = inherit layer 0's freq at boot
-    b.bw_hz = bw; b.cr = cr;
+    b.bw_hz = (g.l0.bw_hz > 0) ? g.l0.bw_hz : bw;            // v17: bw0 sets the node/layer-0 BW (else keep the global); layer 0 inherits it
+    b.cr    = (g.l0.cr    > 0) ? g.l0.cr    : cr;            //      cr0 sets the node/layer-0 CR
+    b.l1_bw_hz = g.l1.bw_hz; b.l1_cr = g.l1.cr;              //      bw1/cr1 = layer-1 (0 = inherit)
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
     if (!mrnv::save(b)) { mrcon.println(F("> gateway err nv_save_failed")); return; }
 
@@ -912,6 +928,7 @@ static void seed_blob_from_live(mrnv::Blob& b) {
     b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;  b.e2e_dm     = nc.e2e_dm ? 1 : 0;
     b.gw_announce_duty_pct = nc.gw_announce_duty_pct; b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
     b.l1_freq_mhz = nc.layers[1].freq_mhz; b.gw_herd_slack = nc.gw_herd_slack;
+    b.l1_bw_hz = nc.layers[1].bw_hz; b.l1_cr = nc.layers[1].cr;   // v17 per-layer BW/CR (0 = inherit)
     b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch; b.leaf_name_len = nc.leaf_name_len;
     for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
     b.channel_active_fraction = nc.channel_active_fraction; b.channel_min_interval_ms = nc.channel_min_interval_ms; b.dm_min_interval_ms = nc.dm_min_interval_ms;   // v16 anti-spam per-leaf tunables
@@ -1093,7 +1110,7 @@ static void dump_help() {
     hl(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack active_fraction ch_min_ms dm_min_ms leaf_name   (bool keys take on|off; active_fraction=0..1, ch_min_ms/dm_min_ms in ms; `name`=node identity, `leaf_name`=the managed leaf's name [bumps epoch]; identity via regen)"));
     hl(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
     hl(F("[help] provision:  create layer= freq= bw= sf= sf_list= duty= name=\"<n>\" [active_fraction=] [ch_min_ms=] [dm_min_ms=] | join layer= freq= bw= sf= | leave   (key=value, order-free; LIVE no reboot: mint a managed leaf [mother] / join a net / reset+keep freq. layer=1..255 network id [leaf = layer & 0x0F]; anti-spam opts default when omitted; rename a leaf via `cfg set leaf_name`)"));
-    hl(F("[help] gateway:    gateway l0=<layer>:<node>:<ctrl_sf>:<data_sfs> l1=<layer>:<node>:<ctrl_sf>:<data_sfs> [period=ms] [win0=ms:off] [win1=ms:off] [beacon=ms] [freq0=MHz] [freq1=MHz] [gateway_only=0|1]   (layer=1..255 per layer; the two layers' leaf nibbles [layer & 0x0F] must differ)"));
+    hl(F("[help] gateway:    gateway l0=<layer>:<node>:<ctrl_sf>:<data_sfs> l1=<layer>:<node>:<ctrl_sf>:<data_sfs> [period=ms] [win0=ms:off] [win1=ms:off] [beacon=ms] [freq0=MHz] [freq1=MHz] [bw0=kHz] [bw1=kHz] [cr0=5..8] [cr1=5..8] [gateway_only=0|1]   (layer=1..255; leaf nibbles [layer & 0x0F] must differ; bw per-layer in kHz [fractional ok, e.g. 62.5], cr per-layer 5..8, 0/omitted=inherit)"));
     hl(F("  one-shot dual-layer provisioning -> NV, reboot to apply (windows auto-derive SF-weighted anti-phase if win0/win1 omitted). e.g. gateway l0=1:1:8:7,9 l1=2:1:9:9,10"));
 }
 
@@ -1710,6 +1727,8 @@ void setup() {
             cfg.layers[1].window_ms         = nv.l1_window_ms;       // 0 = on_init derives
             cfg.layers[1].window_offset_ms  = nv.l1_window_offset_ms;
             cfg.layers[1].freq_mhz          = (nv.l1_freq_mhz > 0.0) ? nv.l1_freq_mhz : nv.freq_mhz;  // v12: 0 = inherit layer 0's freq
+            cfg.layers[1].bw_hz             = nv.l1_bw_hz;   // v17: 0 = inherit (active_bw_hz() resolves the inherit at read)
+            cfg.layers[1].cr                = nv.l1_cr;      // v17: 0 = inherit
         }
         mrcon.println(F("  config    = loaded from NV"));
     }
@@ -1910,6 +1929,8 @@ static void persist_cfg_if_needed() {
         b.gw_announce_duty_pct        = nc.gw_announce_duty_pct;        // v11 gateway noise control (seed from the live config)
         b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
         b.l1_freq_mhz                 = nc.layers[1].freq_mhz;          // v12 per-layer freq (0 = inherit layer 0)
+        b.l1_bw_hz                    = nc.layers[1].bw_hz;             // v17 per-layer BW (0 = inherit the global)
+        b.l1_cr                       = nc.layers[1].cr;               // v17 per-layer CR (0 = inherit)
         b.gw_herd_slack               = nc.gw_herd_slack;              // v13 §3e herd-spread slack
         b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch; b.leaf_name_len = nc.leaf_name_len;     // v14 R6.1 leaf-config
         for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];

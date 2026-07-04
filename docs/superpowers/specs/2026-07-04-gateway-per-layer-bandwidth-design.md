@@ -61,7 +61,7 @@ The plan MUST verify which, and **list every affected site explicitly** — thes
 Append `uint32_t l1_bw_hz` + `uint8_t l1_cr` to `Blob` (0 = inherit; mirrors `l1_freq_mhz`). Bump `kVersion` 16 → 17. Layer-0 BW/CR remain the existing global `bw_hz`/`cr` NV fields. (Old-blob size-reject → defaults → re-provision, the dev convention.)
 
 ### 6. Config wire (the `l0=/l1=` gateway command)
-Extend `parse_gateway_cmd` with `[bw0=Hz] [bw1=Hz] [cr0=] [cr1=]` (alongside `freq0`/`freq1`). `validate_gateway_layers` takes the per-layer BW/CR from the `LayerConfig`s (not the single global args) for its airtime/duty feasibility checks — each layer validated against its own PHY.
+Extend `parse_gateway_cmd` with `[bw0=kHz] [bw1=kHz] [cr0=] [cr1=]` (alongside `freq0`/`freq1`). ★ bw is **kHz (fractional, e.g. 62.5)** to match `create`/`join` — converted to Hz internally (`kHz*1000`). (`cfg set bw`/`cfg set l1_bw` deliberately stay Hz — the low-level cfg interface, per its existing convention.) `validate_gateway_layers` takes the per-layer BW/CR from the `LayerConfig`s (not the single global args) for its airtime/duty feasibility checks — each layer validated against its own PHY.
 
 ### 7. ★ Per-site verification — REQUIRED (walk every airtime site at plan time)
 `active_bw_hz()` returns the **currently-active** layer's BW. That is correct ONLY IF the site costs a frame flying on the active layer. Most airtime sites are TX/RX on `_active` and are fine — but the plan MUST walk all ~13 (+ the paired-SF reads) and confirm each computes at a swap-time-correct `_active`. Two concrete hazards found in review:
