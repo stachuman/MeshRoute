@@ -285,7 +285,7 @@ void Node::clear_routing_state() {
 }
 
 // prep-restart (2026-06-24): the middle-tier reset — drop EVERY volatile/learned table to a fresh-but-PROVISIONED
-// state, KEEPING _cfg (node_id/leaf/level_id/sf_list/lineage/config_epoch), the crypto identity, and the DAD join.
+// state, KEEPING _cfg (node_id/layer/sf_list/lineage/config_epoch), the crypto identity, and the DAD join.
 // IN-PLACE clears (NOT `_layers[i] = LayerRuntime{}` — that ~20 KB stack temporary would overflow the device stack):
 // reset the count/flag fields (stale array bytes are never read past the count), .clear() the maps, .reset() the
 // optionals, default-assign the SMALL per-slot rings. Leaves the node operational (it re-learns on the next beacons).

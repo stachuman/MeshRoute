@@ -33,7 +33,7 @@ public actor MockNodeLink: NodeLink {
     private var mockLineage: UInt32 = 0
     private var mockEpoch: UInt32 = 0
     private var mockLeaf = ""
-    private var mockLevel: UInt32 = 0
+    private var mockLayer: UInt32 = 0
 
     public init(selfID: Int = 1,
                 selfHash: KeyHash = KeyHash(0x10a0_b0c0),
@@ -122,18 +122,18 @@ public actor MockNodeLink: NodeLink {
                 emit(routeLine(dest: peer.value, hops: 1 + i, score: -32 - i * 8))
             }
             emit(#"{"ev":"routes_end","count":\#(knownPeers.count)}"#)
-        case "join":          // join <freq> <bw> <ctrl_sf> <level> → pretend we joined an existing managed leaf
-            let level = UInt32(tokens.count > 3 ? tokens[3] : "0") ?? 0
-            mockLineage = 41153; mockEpoch = 3; mockLeaf = "north field"; mockLevel = level
+        case "join":          // join layer=<1..255> freq= bw= sf=  (key=value, 2026-07-03) → pretend we joined an existing managed leaf
+            let layer = tokens.first(where: { $0.hasPrefix("layer=") }).flatMap { UInt32($0.dropFirst(6)) } ?? 0
+            mockLineage = 41153; mockEpoch = 3; mockLeaf = "north field"; mockLayer = layer
             emit(configAdoptedLine())
-        case "create":        // create <freq> <bw> <ctrl_sf> <level> <sf_list> <duty%> "name" → mint a leaf
-            let level = UInt32(tokens.count > 3 ? tokens[3] : "0") ?? 0
+        case "create":        // create layer=<1..255> freq= bw= sf= sf_list= duty= name="…"  (key=value) → mint a leaf
+            let layer = tokens.first(where: { $0.hasPrefix("layer=") }).flatMap { UInt32($0.dropFirst(6)) } ?? 0
             let quoted = line.split(separator: "\"", omittingEmptySubsequences: false)
             mockLeaf = quoted.count >= 2 ? String(quoted[1]) : "new leaf"
-            mockLineage = 50001; mockEpoch = 1; mockLevel = level
+            mockLineage = 50001; mockEpoch = 1; mockLayer = layer
             emit(configAdoptedLine())
         case "leave":         // wipe membership back to unmanaged
-            mockLineage = 0; mockEpoch = 0; mockLeaf = ""; mockLevel = 0
+            mockLineage = 0; mockEpoch = 0; mockLeaf = ""; mockLayer = 0
             emit(configAdoptedLine())
         default:
             emit(#"{"log":"mock: unhandled '\#(verb)'"}"#)
@@ -223,11 +223,11 @@ public actor MockNodeLink: NodeLink {
     }
     private func readyLine(state: String) -> String {
         let synced = (mockLineage == 0 || mockEpoch > 0) ? "true" : "false"
-        return #"{"ev":"ready","id":\#(selfID),"key":"\#(selfHash.hex8)","name":"Mock \#(selfID)","pubkey":"\#(selfHash.hex8)\#(String(repeating: "0", count: 56))","leaf_id":0,"mode":"\#(state)","gateway":false,"routing_sf":7,"inbox_epoch":\#(inboxEpoch),"now_ms":\#(uptimeMs),"lineage":\#(mockLineage),"epoch":\#(mockEpoch)\#(leafField),"level":\#(mockLevel),"synced":\#(synced),"duty_pct":42,"duty_avail_ms":0}"#
+        return #"{"ev":"ready","id":\#(selfID),"key":"\#(selfHash.hex8)","name":"Mock \#(selfID)","pubkey":"\#(selfHash.hex8)\#(String(repeating: "0", count: 56))","leaf_id":0,"mode":"\#(state)","gateway":false,"routing_sf":7,"inbox_epoch":\#(inboxEpoch),"now_ms":\#(uptimeMs),"lineage":\#(mockLineage),"epoch":\#(mockEpoch)\#(leafField),"layer":\#(mockLayer),"synced":\#(synced),"duty_pct":42,"duty_avail_ms":0}"#
     }
     private var leafField: String { (mockLineage != 0 && !mockLeaf.isEmpty) ? #","leaf":\#(jsonString(mockLeaf))"# : "" }
     private func configAdoptedLine() -> String {
-        #"{"ev":"config_adopted","lineage":\#(mockLineage),"epoch":\#(mockEpoch)\#(leafField),"level":\#(mockLevel)}"#
+        #"{"ev":"config_adopted","lineage":\#(mockLineage),"epoch":\#(mockEpoch)\#(leafField),"layer":\#(mockLayer)}"#
     }
     private func statusLine() -> String {
         #"{"ev":"status","id":\#(selfID),"key":"\#(selfHash.hex8)","state":"operating","leaf_id":0,"gateway":false,"routing_sf":7,"uptime_ms":\#(uptimeMs),"duty_ms":1240,"txq":0,"txdrop":0,"rx":42,"tx":17,"routes":\#(knownPeers.count),"pending":false,"lbt":true,"batt_mv":4050}"#

@@ -66,14 +66,14 @@ public struct NodeReady: Hashable, Sendable, Codable {
     public let lineage: Int?      // lineage_id; 0 = unmanaged/standalone; nil = pre-R6 firmware
     public let configEpoch: Int?  // config_epoch (wire key "epoch" — distinct from inbox_epoch)
     public let leaf: String?      // leaf_name (omitted when unset)
-    public let level: Int?        // level_id 1..255 (interim: the wire leaf nibble)
+    public let layer: Int?        // the 1..255 layer id (⚠ interim: firmware still sends the wire leaf nibble)
     public let synced: Bool?      // (lineage==0 || config_epoch>0)
     public let dutyPct: Int?      // D27: airtime budget used 0..100 (100 = silent); nil on older firmware
     public let dutyAvailMs: Int?  // ms until airtime frees (0 = can TX now)
     enum CodingKeys: String, CodingKey {
         case id, key, leafID = "leaf_id", mode, gateway, routingSF = "routing_sf", inboxEpoch = "inbox_epoch",
              nowMs = "now_ms", name, pubkey,
-             lineage, configEpoch = "epoch", leaf, level, synced,
+             lineage, configEpoch = "epoch", leaf, layer, synced,
              dutyPct = "duty_pct", dutyAvailMs = "duty_avail_ms"
     }
 }
@@ -110,10 +110,10 @@ public struct RouteInfo: Hashable, Sendable, Codable {
     public let hops: Int
     public let score: Int            // Q4 dB (÷16 for dB)
     public let gw: Bool
-    public let layer: Int
+    public let leaf: Int             // the route's learned leaf nibble (layer & 0x0F)
     public let ageMs: UInt32
     public let cand: Int
-    enum CodingKeys: String, CodingKey { case dest, next, hops, score, gw, layer, ageMs = "age_ms", cand }
+    enum CodingKeys: String, CodingKey { case dest, next, hops, score, gw, leaf, ageMs = "age_ms", cand }
 }
 
 /// The node config snapshot (the `{"ev":"cfg",…}` object — read-only display v1).
@@ -170,7 +170,7 @@ public enum Inbound: Hashable, Sendable {
     case route(RouteInfo)                                            // one row from the `routes` stream
     case routesEnd(count: Int)                                       // routes stream terminator
     case cfg(NodeConfigInfo)                                         // node config snapshot
-    case configAdopted(lineage: Int, epoch: Int, leaf: String?, level: Int?)   // R6/D26: leaf-config adopted/updated → live membership chip
+    case configAdopted(lineage: Int, epoch: Int, leaf: String?, layer: Int?)   // R6/D26: leaf-config adopted/updated → live membership chip
     case joinRefused(reason: String, theirVer: Int?, myVer: Int?)              // R6/D26: can't join (wire_version → update fw; leaf_full)
     case duty(pct: Int, availMs: Int, enabled: Bool)                          // D27: airtime-budget readout (0..100; 100 = silent; enabled=false ⇒ unlimited)
     case inboxEntry(InboxEntry)                                       // one record from a pull_inbox stream
@@ -260,7 +260,7 @@ public enum PushDecoder {
             if let m = try? decoder.decode(NodeConfigInfo.self, from: data) { return .cfg(m) }
         case "config_adopted":
             if let m = try? decoder.decode(ConfigAdopted.self, from: data) {
-                return .configAdopted(lineage: m.lineage, epoch: m.epoch, leaf: m.leaf, level: m.level)
+                return .configAdopted(lineage: m.lineage, epoch: m.epoch, leaf: m.leaf, layer: m.layer)
             }
         case "join_refused":
             if let m = try? decoder.decode(JoinRefused.self, from: data) {
@@ -318,7 +318,7 @@ public enum PushDecoder {
     private struct InboxCh: Decodable { let seq: UInt32; let origin: Int; let channel_id: Int; let channel_msg_id: UInt32; let layer_id: Int?; let rx_ms: UInt64; let body: String }
     private struct InboxEnd: Decodable { let dm_seq: UInt32; let chan_seq: UInt32; let epoch: UInt32?; let count: Int; let now_ms: UInt64? }
     private struct RoutesEnd: Decodable { let count: Int }
-    private struct ConfigAdopted: Decodable { let lineage: Int; let epoch: Int; let leaf: String?; let level: Int? }   // R6 membership update
+    private struct ConfigAdopted: Decodable { let lineage: Int; let epoch: Int; let leaf: String?; let layer: Int? }   // R6 membership update
     private struct JoinRefused: Decodable { let reason: String; let their_ver: Int?; let my_ver: Int? }                // wire_version carries the versions
     private struct Duty: Decodable { let pct: Int; let avail_ms: Int; let enabled: Bool }                              // D27 airtime budget
 }

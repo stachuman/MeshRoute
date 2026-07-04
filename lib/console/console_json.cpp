@@ -171,7 +171,7 @@ size_t write_push(char* buf, size_t cap, const Push& p, const NodeConfig* cfg) {
             j.lit(",\"lineage\":"); j.u32(cfg->lineage_id);
             j.lit(",\"epoch\":");   j.u32(cfg->config_epoch);
             if (cfg->leaf_name_len) { j.lit(",\"leaf\":"); j.str(cfg->leaf_name, cfg->leaf_name_len); }
-            j.lit(",\"level\":");   j.u32(cfg->leaf_id);   // interim: the wire leaf nibble (full level_id is NV-side)
+            j.lit(",\"layer\":");   j.u32(cfg->leaf_id);   // ⚠ still the wire LEAF NIBBLE (the full 1..255 layer id is NV-side only; sending it needs NV plumbing — deferred, NOT the wire-load-bearing layers[0].layer_id)
         }
     } else if (p.kind == PushKind::join_refused) {         // R6.3 §7c: refusal feedback (invisible-on-metal telemetry replaced)
         j.lit(",\"reason\":\""); j.lit(joinrefusereason_name(p.join_reason)); j.ch('"');
@@ -249,11 +249,11 @@ size_t write_ready(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeCo
     }
     if (name && name_len) { j.lit(",\"name\":"); j.str(name, name_len); }   // §1.3 app-level identity label
     j.lit(",\"leaf_id\":"); j.u32(c.leaf_id);
-    // R6.3 leaf-config membership (iOS contract): lineage (0=unmanaged) / epoch / leaf name / level (interim=wire nibble) / synced.
+    // R6.3 leaf-config membership (iOS contract): lineage (0=unmanaged) / epoch / leaf name / layer (⚠ interim=wire leaf nibble, full 1..255 id is NV-side) / synced.
     j.lit(",\"lineage\":"); j.u32(c.lineage_id);
     j.lit(",\"epoch\":");   j.u32(c.config_epoch);
     if (c.leaf_name_len) { j.lit(",\"leaf\":"); j.str(c.leaf_name, c.leaf_name_len); }
-    j.lit(",\"level\":");   j.u32(c.leaf_id);
+    j.lit(",\"layer\":");   j.u32(c.leaf_id);
     j.lit(",\"synced\":");  j.lit((c.lineage_id == 0 || c.config_epoch > 0) ? "true" : "false");
     j.lit(",\"mode\":"); j.str(mode, std::strlen(mode));
     j.lit(",\"gateway\":"); j.lit(c.is_gateway ? "true" : "false");
@@ -380,7 +380,7 @@ size_t write_route(char* buf, size_t cap, const RouteRow& r) {
     j.lit(",\"hops\":");  j.u32(r.hops);
     j.lit(",\"score\":"); j.i64(r.score);            // Q4 dB, may be negative
     j.lit(",\"gw\":");    j.lit(r.gw ? "true" : "false");
-    j.lit(",\"layer\":"); j.u32(r.layer);
+    j.lit(",\"leaf\":");  j.u32(r.leaf);             // the route's learned leaf nibble (layer & 0x0F)
     j.lit(",\"age_ms\":"); j.u32(r.age_ms);
     j.lit(",\"cand\":");  j.u32(r.cand);
     j.ch('}');

@@ -60,9 +60,9 @@ public enum Command: Hashable, Sendable {
     // E2E peer-key provisioning (2026-06-16 contract). The app does NO crypto — these just hand the node bytes.
     case peerKey(pubkeyHex: String)              // install a scanned card's pubkey (PINNED) → "peerkey <hex64>"
     case reqPubkey(KeyHash)                       // user-triggered on-air key request → "reqpubkey <hex8>"
-    // Leaf provisioning (R6 / D26) — key=value wire (2026-07-03, mirrors gateway; order-free). live, no reboot. freq = MHz (float); bw = kHz (FRACTIONAL — 62.5/41.67/31.25); dutyPercent = % (FRACTIONAL — 0.1 = the tight EU sub-band); level=1..255 network selector (wire leaf nibble = level & 0x0F).
-    case join(freqMHz: Double, bwKHz: Double, ctrlSF: Int, level: Int)
-    case createLeaf(freqMHz: Double, bwKHz: Double, ctrlSF: Int, level: Int, sfList: String, dutyPercent: Double, name: String)
+    // Leaf provisioning (R6 / D26) — key=value wire (2026-07-03, mirrors gateway; order-free). live, no reboot. freq = MHz (float); bw = kHz (FRACTIONAL — 62.5/41.67/31.25); dutyPercent = % (FRACTIONAL — 0.1 = the tight EU sub-band); layer=1..255 network id (wire leaf nibble = layer & 0x0F).
+    case join(freqMHz: Double, bwKHz: Double, ctrlSF: Int, layer: Int)
+    case createLeaf(freqMHz: Double, bwKHz: Double, ctrlSF: Int, layer: Int, sfList: String, dutyPercent: Double, name: String)
     case leave                                    // reset membership (wipe to default, KEEP freq)
     case raw(String)                             // escape hatch — sent verbatim
 
@@ -98,11 +98,11 @@ public enum Command: Hashable, Sendable {
         case .markRead(let kind, let seq):  return "mark_read \(kind.commandToken) \(seq)"
         case .peerKey(let hex):             return "peerkey \(hex)"
         case .reqPubkey(let h):             return "reqpubkey \(h.hex8)"
-        case .join(let f, let bw, let sf, let lvl):
-            return "join level=\(lvl) freq=\(Self.freqToken(f)) bw=\(Self.freqToken(bw)) sf=\(sf)"      // key=value; bw compact (62.5 / 125), wire leaf nibble = level & 0x0F
-        case .createLeaf(let f, let bw, let sf, let lvl, let sfList, let duty, let name):
+        case .join(let f, let bw, let sf, let lyr):
+            return "join layer=\(lyr) freq=\(Self.freqToken(f)) bw=\(Self.freqToken(bw)) sf=\(sf)"      // key=value; bw compact (62.5 / 125), wire leaf nibble = layer & 0x0F
+        case .createLeaf(let f, let bw, let sf, let lyr, let sfList, let duty, let name):
             let sfs = sfList.replacingOccurrences(of: " ", with: "")   // sf_list must be one token: "7,9"
-            return "create level=\(lvl) freq=\(Self.freqToken(f)) bw=\(Self.freqToken(bw)) sf=\(sf) sf_list=\(sfs) duty=\(Self.freqToken(duty)) name=\"\(Self.wireBody(name))\""   // key=value; bw + duty compact (fractional ok); anti-spam knobs omitted → firmware defaults
+            return "create layer=\(lyr) freq=\(Self.freqToken(f)) bw=\(Self.freqToken(bw)) sf=\(sf) sf_list=\(sfs) duty=\(Self.freqToken(duty)) name=\"\(Self.wireBody(name))\""   // key=value; bw + duty compact (fractional ok); anti-spam knobs omitted → firmware defaults
         case .leave:                        return "leave"
         case .raw(let s):                   return s
         }

@@ -39,7 +39,7 @@ final class NodeEntity {
     var role: String = "unknown"               // "normal" | "gateway" | "mobile" | "unknown"
     var lineage: Int?                          // leaf membership (0 = unmanaged; nil = unknown)
     var leafName: String?
-    var level: Int?
+    var layer: Int?                            // the 1..255 layer id (leaf = layer & 0x0F); WIP node-directory field
     var latE7: Int?                            // last-known position (firmware-gated for remotes; degrees × 1e7)
     var lonE7: Int?
     var battMv: Int?                           // last-known battery (firmware-gated)

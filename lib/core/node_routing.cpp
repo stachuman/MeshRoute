@@ -349,7 +349,7 @@ Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand) {
             entry->candidates[i].last_seen_ms     = cand.last_seen_ms;   // metadata only
             entry->candidates[i].n2_hop           = cand.n2_hop;
             entry->candidates[i].is_gateway       = cand.is_gateway;
-            entry->candidates[i].learned_layer_id = cand.learned_layer_id;
+            entry->candidates[i].learned_leaf = cand.learned_leaf;
             entry->candidates[i].degraded_from_wire = cand.degraded_from_wire;   // Slice 3: refresh the wire bit even on a metadata-only merge (clears on a clean re-advert)
             return MergeAction::none;
         }

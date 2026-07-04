@@ -71,8 +71,8 @@ struct NodeView: View {
                             Image(systemName: membershipIcon).foregroundStyle(membershipColor)
                             Text(membershipText)
                             Spacer()
-                            if model.membership?.isManaged == true, let lvl = model.membership?.level {
-                                Text("level \(lvl)").font(.caption2).foregroundStyle(.secondary)
+                            if model.membership?.isManaged == true, let lyr = model.membership?.layer {
+                                Text("layer \(lyr)").font(.caption2).foregroundStyle(.secondary)
                             }
                         }
                         DutyGaugeRow()
@@ -202,7 +202,7 @@ struct JoinNetworkSheet: View {
     @State private var freq = ""
     @State private var bwKHz: Double = 125
     @State private var ctrlSF = 7
-    @State private var level = ""
+    @State private var layer = ""
 
     var body: some View {
         NavigationStack {
@@ -213,8 +213,8 @@ struct JoinNetworkSheet: View {
                     }
                     Picker("Bandwidth (kHz)", selection: $bwKHz) { ForEach(kBandwidthsKHz, id: \.self) { Text(Command.freqToken($0)).tag($0) } }
                     Picker("Control SF", selection: $ctrlSF) { ForEach(kSpreadingFactors, id: \.self) { Text("SF\($0)").tag($0) } }
-                    LabeledContent("Level (1–255)") {
-                        TextField("2", text: $level).keyboardType(.numberPad).multilineTextAlignment(.trailing)
+                    LabeledContent("Layer (1–255)") {
+                        TextField("2", text: $layer).keyboardType(.numberPad).multilineTextAlignment(.trailing)
                     }
                 }
                 Section { Text("Sets the rendezvous floor and joins — the node auto-pulls the leaf's data SFs, duty, name, and rate limits.")
@@ -226,17 +226,17 @@ struct JoinNetworkSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Join") {
-                        if let f = freqValue, let l = levelValue {
-                            model.joinNetwork(freqMHz: f, bwKHz: bwKHz, ctrlSF: ctrlSF, level: l); dismiss()
+                        if let f = freqValue, let l = layerValue {
+                            model.joinNetwork(freqMHz: f, bwKHz: bwKHz, ctrlSF: ctrlSF, layer: l); dismiss()
                         }
-                    }.disabled(freqValue == nil || levelValue == nil)
+                    }.disabled(freqValue == nil || layerValue == nil)
                 }
             }
             .onAppear { if freq.isEmpty, let f = currentFreqMHz, f > 0 { freq = Command.freqToken(f) } }
         }
     }
     private var freqValue: Double? { Double(freq).flatMap { $0 > 0 ? $0 : nil } }
-    private var levelValue: Int? { Int(level).flatMap { (1...255).contains($0) ? $0 : nil } }
+    private var layerValue: Int? { Int(layer).flatMap { (1...255).contains($0) ? $0 : nil } }
 }
 
 /// Create (mint) a managed leaf — this node becomes the mother and sets the data config others pull.
@@ -248,7 +248,7 @@ struct CreateLeafSheet: View {
     @State private var freq = ""
     @State private var bwKHz: Double = 125
     @State private var ctrlSF = 7
-    @State private var level = ""
+    @State private var layer = ""
     @State private var dataSFs: Set<Int> = [7, 9]
     @State private var duty = "10"
 
@@ -264,8 +264,8 @@ struct CreateLeafSheet: View {
                     }
                     Picker("Bandwidth (kHz)", selection: $bwKHz) { ForEach(kBandwidthsKHz, id: \.self) { Text(Command.freqToken($0)).tag($0) } }
                     Picker("Control SF", selection: $ctrlSF) { ForEach(kSpreadingFactors, id: \.self) { Text("SF\($0)").tag($0) } }
-                    LabeledContent("Level (1–255)") {
-                        TextField("2", text: $level).keyboardType(.numberPad).multilineTextAlignment(.trailing)
+                    LabeledContent("Layer (1–255)") {
+                        TextField("2", text: $layer).keyboardType(.numberPad).multilineTextAlignment(.trailing)
                     }
                 }
                 Section {
@@ -285,8 +285,8 @@ struct CreateLeafSheet: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Create") {
-                        if let f = freqValue, let l = levelValue, let d = dutyValue {
-                            model.createLeaf(freqMHz: f, bwKHz: bwKHz, ctrlSF: ctrlSF, level: l,
+                        if let f = freqValue, let l = layerValue, let d = dutyValue {
+                            model.createLeaf(freqMHz: f, bwKHz: bwKHz, ctrlSF: ctrlSF, layer: l,
                                              sfList: sfListString, dutyPercent: d,
                                              name: name.trimmingCharacters(in: .whitespaces))
                             dismiss()
@@ -298,11 +298,11 @@ struct CreateLeafSheet: View {
         }
     }
     private var freqValue: Double? { Double(freq).flatMap { $0 > 0 ? $0 : nil } }
-    private var levelValue: Int? { Int(level).flatMap { (1...255).contains($0) ? $0 : nil } }
+    private var layerValue: Int? { Int(layer).flatMap { (1...255).contains($0) ? $0 : nil } }
     private var dutyValue: Double? { Double(duty).flatMap { $0 > 0 && $0 <= 100 ? $0 : nil } }   // fractional % (0.1..100)
     private var sfListString: String { dataSFs.sorted().map(String.init).joined(separator: ",") }
     private var isValid: Bool {
-        freqValue != nil && levelValue != nil && dutyValue != nil && !dataSFs.isEmpty
+        freqValue != nil && layerValue != nil && dutyValue != nil && !dataSFs.isEmpty
             && !name.trimmingCharacters(in: .whitespaces).isEmpty
     }
 }

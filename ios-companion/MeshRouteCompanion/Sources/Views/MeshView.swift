@@ -131,10 +131,10 @@ struct NodeDetailView: View {
                     LabeledContent("Role", value: node.role)
                     LabeledContent("Key", value: node.verified ? "verified (scanned)" : "unverified (TOFU)")
                 }
-                if node.leafName != nil || node.level != nil {
+                if node.leafName != nil || node.layer != nil {
                     Section("Membership") {
                         if let leaf = node.leafName { LabeledContent("Leaf", value: leaf) }
-                        if let lvl = node.level { LabeledContent("Level", value: "\(lvl)") }
+                        if let lyr = node.layer { LabeledContent("Layer", value: "\(lyr)") }
                     }
                 }
                 Section("Seen") {

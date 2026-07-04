@@ -185,8 +185,8 @@ final class AppModel {
             routes = routesAccumulator.sorted { $0.dest < $1.dest }; routesAccumulator = []
         case .cfg(let c):
             latestConfig = c
-        case .configAdopted(let lineage, let epoch, let leaf, let level):
-            membership = .adopted(lineage: lineage, epoch: epoch, leaf: leaf, level: level)
+        case .configAdopted(let lineage, let epoch, let leaf, let layer):
+            membership = .adopted(lineage: lineage, epoch: epoch, leaf: leaf, layer: layer)
             joinInFlight = false; joinRefusal = nil           // a successful adopt clears the pending/refusal UI
         case .joinRefused(let reason, let theirVer, let myVer):
             joinRefusal = JoinRefusal(reason: reason, theirVer: theirVer, myVer: myVer)
@@ -412,18 +412,18 @@ final class AppModel {
     func requestPubkey(_ hash: KeyHash) { sendCommand(.reqPubkey(hash)) }
 
     // ---- leaf provisioning (R6 / D26): live, no reboot ----
-    func joinNetwork(freqMHz: Double, bwKHz: Double, ctrlSF: Int, level: Int) {
+    func joinNetwork(freqMHz: Double, bwKHz: Double, ctrlSF: Int, layer: Int) {
         joinRefusal = nil; joinInFlight = true
-        sendCommand(.join(freqMHz: freqMHz, bwKHz: bwKHz, ctrlSF: ctrlSF, level: level))
+        sendCommand(.join(freqMHz: freqMHz, bwKHz: bwKHz, ctrlSF: ctrlSF, layer: layer))
     }
-    func createLeaf(freqMHz: Double, bwKHz: Double, ctrlSF: Int, level: Int, sfList: String, dutyPercent: Double, name: String) {
+    func createLeaf(freqMHz: Double, bwKHz: Double, ctrlSF: Int, layer: Int, sfList: String, dutyPercent: Double, name: String) {
         joinRefusal = nil; joinInFlight = true
-        sendCommand(.createLeaf(freqMHz: freqMHz, bwKHz: bwKHz, ctrlSF: ctrlSF, level: level,
+        sendCommand(.createLeaf(freqMHz: freqMHz, bwKHz: bwKHz, ctrlSF: ctrlSF, layer: layer,
                                 sfList: sfList, dutyPercent: dutyPercent, name: name))
     }
     func leaveNetwork() {
         sendCommand(.leave)
-        membership = .adopted(lineage: 0, epoch: 0, leaf: nil, level: nil)   // optimistic unmanaged; the node confirms via config_adopted/ready
+        membership = .adopted(lineage: 0, epoch: 0, leaf: nil, layer: nil)   // optimistic unmanaged; the node confirms via config_adopted/ready
         joinInFlight = false; joinRefusal = nil
     }
     func dismissJoinRefusal() { joinRefusal = nil }
@@ -786,7 +786,7 @@ func describe(_ inbound: Inbound) -> String {
     case .route(let r):                            return "route dest=\(r.dest) next=\(r.next) hops=\(r.hops) score=\(r.score)"
     case .routesEnd(let n):                        return "routes_end count=\(n)"
     case .cfg(let c):                              return "cfg node=\(c.nodeID) sf=\(c.routingSF) freq=\(c.freqMHz)"
-    case .configAdopted(let lin, let ep, let leaf, let lvl): return "config_adopted lineage=\(lin) epoch=\(ep) leaf=\(leaf ?? "—") level=\(lvl.map(String.init) ?? "—")"
+    case .configAdopted(let lin, let ep, let leaf, let lyr): return "config_adopted lineage=\(lin) epoch=\(ep) leaf=\(leaf ?? "—") layer=\(lyr.map(String.init) ?? "—")"
     case .joinRefused(let r, let tv, let mv):      return "join_refused \(r)\(tv.map { " their=\($0)" } ?? "")\(mv.map { " my=\($0)" } ?? "")"
     case .duty(let p, let a, let e):               return "duty \(p)% avail=\(a)ms\(e ? "" : " (unlimited)")"
     case .inboxEntry(let e):                       return "inbox_\(e.kind.rawValue) seq=\(e.seq) from \(e.origin)\(hex(e.senderHash)) ctr=\(e.ctr): \(e.body)"

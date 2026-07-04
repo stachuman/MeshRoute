@@ -311,18 +311,18 @@ byte-for-byte unchanged.)
 R6 adds **managed leaves**: a fresh node sets a small radio floor, then **auto-joins** (DAD an id) and **auto-pulls its leaf config** — data SFs / duty / name — from the network. The operator never hand-sets the data config on a joiner; only the *rendezvous floor* (freq + control SF + leaf) is manual. Firmware how-to: `docs/LEAF_PROVISIONING.md`. The R6 firmware (R6.1–R6.3) is committed/gated; the **companion JSON surface below is DONE** - the 3 console_json additions + the join_refused push + the join/create/leave verbs (coder green-shaped, gate-pending).
 
 ### Node → app: membership state (which leaf, synced?)
-A node's leaf membership = `lineage_id` (u16; **0 = unmanaged / standalone**), `config_epoch` (u16), `leaf_name` (string), `level_id` (1..255; the wire leaf nibble = `level_id & 0x0F`), and **synced** (`lineage==0 || epoch>0`). Two carriers:
+A node's leaf membership = `lineage_id` (u16; **0 = unmanaged / standalone**), `config_epoch` (u16), `leaf_name` (string), `layer` (1..255; the wire leaf nibble = `layer & 0x0F`), and **synced** (`lineage==0 || epoch>0`). Two carriers:
 
 1. ✅ **`ready` snapshot gains them** (firmware ask — add to the `ready` writer):
 ```json
-{"ev":"ready", … ,"lineage":41153,"epoch":3,"leaf":"north field","level":2,"synced":true}
+{"ev":"ready", … ,"lineage":41153,"epoch":3,"leaf":"north field","layer":2,"synced":true}
 ```
 - `lineage:0` ⇒ app shows "unmanaged / standalone". `lineage≠0 & synced:false` ⇒ "joining…". `synced:true` ⇒ "member of <leaf>".
-- *Note:* `level` (full 1..255) lands with the provisioning-verbs spec (which stores it); until then the firmware can send the wire **leaf nibble** (`leaf_id`, 0..15) under `level` — the app should treat it as an opaque label.
+- *Note:* `layer` (the 1..255 network id; "leaf" is its `& 0x0F` nibble) — ⚠ the firmware currently sends the wire **leaf nibble** (0..15) under `layer` (the full id is NV-side; plumbing it is a deferred follow-up). Treat as an opaque label for now.
 
 2. ✅ **`config_adopted` live push — DONE** (`console_json.cpp:157-163` reads `g_node.config()`; fired by the node at `node_query.cpp:203/219`). Fires when the node adopts/updates its leaf config (on join, on a propagated operator write, on an LWW change):
 ```json
-{"ev":"config_adopted","lineage":41153,"epoch":3,"leaf":"north field","level":2}
+{"ev":"config_adopted","lineage":41153,"epoch":3,"leaf":"north field","layer":2}
 ```
 - App: refresh the node's membership chip live ("synced to 'north field'").
 
@@ -345,15 +345,15 @@ A node that refuses/can't join surfaces it (today a wire mismatch is telemetry-o
 ### App → node: provisioning verbs (**`key=value` grammar as of 2026-07-03** — mirrors `gateway`; order-free)
 For a "Join network / Create leaf / Leave" UI. All apply **live — no reboot**:
 ```
-join   level=<1..255> freq=<MHz> bw=<kHz> sf=<ctrl_sf>                                          # join existing net: floor, auto-DAD, auto-pull
-create level=<1..255> freq=<MHz> bw=<kHz> sf=<ctrl_sf> sf_list=<7,9> duty=<pct> name="<leaf>"   # mint a managed leaf — this node = mother
+join   layer=<1..255> freq=<MHz> bw=<kHz> sf=<ctrl_sf>                                          # join existing net: floor, auto-DAD, auto-pull
+create layer=<1..255> freq=<MHz> bw=<kHz> sf=<ctrl_sf> sf_list=<7,9> duty=<pct> name="<leaf>"   # mint a managed leaf — this node = mother
        [active_fraction=<0..1>] [ch_min_ms=<ms>] [dm_min_ms=<ms>]                               #   anti-spam knobs OPTIONAL → protocol defaults
 leave                                                                                           # reset membership (wipe to default, KEEP freq)
 ```
-- **`key=value`, order-free** (the same grammar as `gateway`). **`level`** = the user-facing 1..255 network selector (the on-wire **leaf** nibble = `level & 0x0F`; "leaf" is reserved for that 0..15 nibble). `sf_list` = comma SFs (`7,9`, one token). `duty` = a **percent**. `name` = quoted (spaces OK). CR is a fixed low default (4/5), not exposed.
+- **`key=value`, order-free** (the same grammar as `gateway`). **`layer`** = the 1..255 network id (the on-wire **leaf** nibble = `layer & 0x0F`; "leaf" is reserved for that 0..15 nibble). `sf_list` = comma SFs (`7,9`, one token). `duty` = a **percent**. `name` = quoted (spaces OK). CR is a fixed low default (4/5), not exposed.
 - **Anti-spam knobs** (`active_fraction` / `ch_min_ms` / `dm_min_ms`) are **optional** on `create`; omitted ⇒ the protocol **defaults** (`0.125` / `10000` / `3000`), never inherited from the minter's current settings. The app may expose them in an "advanced" create sheet or omit them (see the *anti-spam leaf tunables* section below + `docs/anti-spam.md`).
 - **The old `leaf` command is gone:** `leaf create` folded into `create`; **rename a leaf via `cfg set leaf_name "<text>"`** (bumps the epoch, propagates live) — distinct from `cfg set name` (the **node** identity name).
-- **Swift:** `Command.join` / `Command.createLeaf` emit the `key=value` `line` (`Command.swift`); the `.createLeaf` enum still carries freq/bw/sf/level/sfList/duty/name (the anti-spam args are a future optional field — omitting them yields the firmware defaults).
+- **Swift:** `Command.join` / `Command.createLeaf` emit the `key=value` `line` (`Command.swift`); the `.createLeaf` enum carries freq/bw/sf/layer/sfList/duty/name (the anti-spam args are a future optional field — omitting them yields the firmware defaults).
 - After `join`/`create`, the node emits `config_adopted` + updated `ready` membership once it syncs. After `leave`, membership returns to `lineage:0` (unmanaged). A `send` before sync ⇒ `send_failed{reason:"joining"}`.
 - **Normal nodes only.** Gateways provision differently (multi-layer; a future `join_as_gateway`) — out of this contract.
 - Ack shape = firmware's choice; recommend a `{"ev":"join_ok"|"join_err","reason":…}` line per verb (consistent with the other command acks).

@@ -107,11 +107,11 @@ public struct LeafMembership: Hashable, Sendable {
     public var lineage: Int        // lineage_id; 0 = unmanaged / standalone
     public var epoch: Int          // config_epoch
     public var leaf: String?       // leaf name (nil when unset)
-    public var level: Int?         // level_id (1..255; interim = the wire leaf nibble)
+    public var layer: Int?         // the 1..255 layer id (⚠ interim = the wire leaf nibble until the firmware plumbs the full id)
     public var synced: Bool
 
-    public init(lineage: Int, epoch: Int, leaf: String?, level: Int?, synced: Bool) {
-        self.lineage = lineage; self.epoch = epoch; self.leaf = leaf; self.level = level; self.synced = synced
+    public init(lineage: Int, epoch: Int, leaf: String?, layer: Int?, synced: Bool) {
+        self.lineage = lineage; self.epoch = epoch; self.leaf = leaf; self.layer = layer; self.synced = synced
     }
 
     public enum State: Hashable, Sendable { case unmanaged, joining, member }
@@ -124,19 +124,19 @@ public struct LeafMembership: Hashable, Sendable {
         switch state {
         case .unmanaged: return "Unmanaged · standalone"
         case .joining:   return leaf.map { "Joining \($0)…" } ?? "Joining…"
-        case .member:    return "Member of \(leaf ?? "leaf \(level ?? 0)")"
+        case .member:    return "Member of \(leaf ?? "layer \(layer ?? 0)")"
         }
     }
 
     /// From a `ready` snapshot — nil on pre-R6 firmware (which omits `lineage`).
     public static func from(_ r: NodeReady) -> LeafMembership? {
         guard let lineage = r.lineage else { return nil }
-        return LeafMembership(lineage: lineage, epoch: r.configEpoch ?? 0, leaf: r.leaf, level: r.level,
+        return LeafMembership(lineage: lineage, epoch: r.configEpoch ?? 0, leaf: r.leaf, layer: r.layer,
                               synced: r.synced ?? (lineage == 0 || (r.configEpoch ?? 0) > 0))
     }
     /// From a `config_adopted` push — `synced` is derived (`lineage==0 || epoch>0`).
-    public static func adopted(lineage: Int, epoch: Int, leaf: String?, level: Int?) -> LeafMembership {
-        LeafMembership(lineage: lineage, epoch: epoch, leaf: leaf, level: level, synced: lineage == 0 || epoch > 0)
+    public static func adopted(lineage: Int, epoch: Int, leaf: String?, layer: Int?) -> LeafMembership {
+        LeafMembership(lineage: lineage, epoch: epoch, leaf: leaf, layer: layer, synced: lineage == 0 || epoch > 0)
     }
 }
 

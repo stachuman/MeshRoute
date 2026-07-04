@@ -206,7 +206,7 @@ struct RtCandidate {
     uint64_t last_seen_ms     = 0;
     uint8_t  n2_hop           = 0;   // advertised next-hop (for the R2 3-cycle prune)
     bool     is_gateway       = false;
-    uint8_t  learned_layer_id = 0;
+    uint8_t  learned_leaf = 0;            // the neighbour's leaf nibble (layer & 0x0F) — all byte-0 exposes; NOT the full layer id
     bool     degraded_from_wire = false;   // the WIRE-inherited degraded component ONLY (a fact about what the
                                            // advertiser advertised). The LIVE degraded state is recomputed as
                                            // degraded_from_wire || _link_bidi[next_hop]==one_way (candidate_degraded) — NEVER a sticky OR.
@@ -472,7 +472,7 @@ public:
     void clear_routing_state();
     // `prep-restart` middle-tier reset: drop EVERY volatile/learned table (routes + channel buffer + liveness + pending
     // TX/RX + flood + digest/pull + dedup maps + parked/l2c/mediated) to a fresh-but-PROVISIONED state. KEEPS _cfg
-    // (node_id/leaf/level_id/sf_list/lineage), the crypto identity, and the DAD join — no re-join needed. (node.cpp)
+    // (node_id/layer/sf_list/lineage), the crypto identity, and the DAD join — no re-join needed. (node.cpp)
     void clear_learned_state();
     // Set by a verb reprovision (do_dad); join_adopt consumes it to restart discovery ONCE the new id is stable, so the
     // fast-cadence beacons + the REQ_SYNC route-bootstrap go out under the adopted id (not the transient 0).
@@ -485,7 +485,7 @@ public:
     // already hold the K slots). route_remove drops a dest's whole entry.
     bool route_inject(uint8_t dest, uint8_t next_hop, uint8_t hops, int16_t score_q4) {
         RtCandidate c{}; c.next_hop = next_hop; c.hops = hops; c.score = score_q4;
-        c.last_seen_ms = _hal.now(); c.learned_layer_id = _cfg.leaf_id;
+        c.last_seen_ms = _hal.now(); c.learned_leaf = _cfg.leaf_id;
         rt_merge(dest, c);
         const RtEntry* e = rt_find(dest);
         if (e) for (uint8_t i = 0; i < e->n; ++i) if (e->candidates[i].next_hop == next_hop) return true;

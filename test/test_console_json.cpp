@@ -113,10 +113,10 @@ TEST_CASE("write_err / write_log / write_ready / write_status") {
     NodeConfig c{}; c.routing_sf = 7; c.is_gateway = false; c.leaf_id = 0;
     n = write_ready(b, sizeof b, 3, 0xa1b2c3d4u, c, "existing", 5, 123456789012ull);   // > u32: proves the 64-bit digits
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"ready\",\"id\":3,\"key\":\"a1b2c3d4\",\"leaf_id\":0,\"lineage\":0,\"epoch\":0,\"level\":0,\"synced\":true,\"mode\":\"existing\",\"gateway\":false,\"routing_sf\":7,\"inbox_epoch\":5,\"now_ms\":123456789012,\"duty_pct\":0,\"duty_avail_ms\":0}\n");
+      "{\"ev\":\"ready\",\"id\":3,\"key\":\"a1b2c3d4\",\"leaf_id\":0,\"lineage\":0,\"epoch\":0,\"layer\":0,\"synced\":true,\"mode\":\"existing\",\"gateway\":false,\"routing_sf\":7,\"inbox_epoch\":5,\"now_ms\":123456789012,\"duty_pct\":0,\"duty_avail_ms\":0}\n");
     n = write_ready(b, sizeof b, 3, 0xa1b2c3d4u, c, "existing", 5, 99ull, "Bench \"5\"", 9);  // /mrid name, escaped
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"ready\",\"id\":3,\"key\":\"a1b2c3d4\",\"name\":\"Bench \\\"5\\\"\",\"leaf_id\":0,\"lineage\":0,\"epoch\":0,\"level\":0,\"synced\":true,\"mode\":\"existing\",\"gateway\":false,\"routing_sf\":7,\"inbox_epoch\":5,\"now_ms\":99,\"duty_pct\":0,\"duty_avail_ms\":0}\n");
+      "{\"ev\":\"ready\",\"id\":3,\"key\":\"a1b2c3d4\",\"name\":\"Bench \\\"5\\\"\",\"leaf_id\":0,\"lineage\":0,\"epoch\":0,\"layer\":0,\"synced\":true,\"mode\":\"existing\",\"gateway\":false,\"routing_sf\":7,\"inbox_epoch\":5,\"now_ms\":99,\"duty_pct\":0,\"duty_avail_ms\":0}\n");
     // ready carries the duty snapshot (app shows it on connect): duty_pct + duty_avail_ms ride after now_ms.
     n = write_ready(b, sizeof b, 3, 0xa1b2c3d4u, c, "existing", 5, 99ull, nullptr, 0, nullptr, /*duty_pct=*/42, /*duty_avail_ms=*/73000);
     CHECK(std::string(b, n).find("\"duty_pct\":42,\"duty_avail_ms\":73000}") != std::string::npos);
@@ -166,10 +166,10 @@ TEST_CASE("write_limits — the companion `limits` query shape/values") {
 TEST_CASE("write_route / write_routes_end / write_cfg — Node+Network screens") {
     char b[400];
     meshroute::console::RouteRow r;
-    r.dest = 2; r.next = 4; r.hops = 2; r.score = -48; r.gw = true; r.layer = 7; r.age_ms = 5000; r.cand = 1;
+    r.dest = 2; r.next = 4; r.hops = 2; r.score = -48; r.gw = true; r.leaf = 7; r.age_ms = 5000; r.cand = 1;
     size_t n = write_route(b, sizeof b, r);
     CHECK(std::string(b, n) ==
-      "{\"ev\":\"route\",\"dest\":2,\"next\":4,\"hops\":2,\"score\":-48,\"gw\":true,\"layer\":7,\"age_ms\":5000,\"cand\":1}\n");
+      "{\"ev\":\"route\",\"dest\":2,\"next\":4,\"hops\":2,\"score\":-48,\"gw\":true,\"leaf\":7,\"age_ms\":5000,\"cand\":1}\n");
     n = write_routes_end(b, sizeof b, 3);
     CHECK(std::string(b, n) == "{\"ev\":\"routes_end\",\"count\":3}\n");
 
@@ -201,10 +201,10 @@ TEST_CASE("write_push/write_ready — R6.3 leaf-config membership (iOS contract)
     c.leaf_name_len = 3; c.leaf_name[0] = 'h'; c.leaf_name[1] = 'u'; c.leaf_name[2] = 'b';
     Push ca{}; ca.kind = PushKind::config_adopted;
     n = write_push(b, sizeof b, ca, &c);
-    CHECK(std::string(b, n) == "{\"ev\":\"config_adopted\",\"lineage\":41153,\"epoch\":3,\"leaf\":\"hub\",\"level\":2}\n");
+    CHECK(std::string(b, n) == "{\"ev\":\"config_adopted\",\"lineage\":41153,\"epoch\":3,\"leaf\":\"hub\",\"layer\":2}\n");
     // (3) managed ready carries lineage/epoch/leaf/level/synced
     n = write_ready(b, sizeof b, 17, 0xa1b2c3d4u, c, "existing", 0, 0ull);
-    CHECK(std::string(b, n).find("\"lineage\":41153,\"epoch\":3,\"leaf\":\"hub\",\"level\":2,\"synced\":true") != std::string::npos);
+    CHECK(std::string(b, n).find("\"lineage\":41153,\"epoch\":3,\"leaf\":\"hub\",\"layer\":2,\"synced\":true") != std::string::npos);
 }
 
 // R6.3 §7c: join_refused push -> reason-coded JSON (wire_version carries their/my version; leaf_full is bare).

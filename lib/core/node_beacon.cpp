@@ -61,7 +61,7 @@ void Node::learn_route_via(uint8_t dest, uint8_t via, uint8_t hops, int16_t snr_
     if (dest == 0xFF || dest == 0 || dest == _node_id || via == 0xFF || via == 0) return;   // §P0: 0 = reserved sentinel
     RtCandidate cand{};
     cand.next_hop = via; cand.score = route_score_from_snr(snr_q4); cand.hops = hops;
-    cand.is_gateway = false; cand.last_seen_ms = _hal.now(); cand.learned_layer_id = _cfg.leaf_id;
+    cand.is_gateway = false; cand.last_seen_ms = _hal.now(); cand.learned_leaf = _cfg.leaf_id;
     const MergeAction a = rt_merge(dest, cand);
     if (a == MergeAction::new_dest || a == MergeAction::promote || a == MergeAction::primary_refresh)
         emit_rt_update(_hal, dest, via, cand.score, hops, "primary");
@@ -83,7 +83,7 @@ bool Node::learn_direct_neighbor(uint8_t sender, int16_t snr_q4, bool is_gw) {
     cand.hops             = 1;
     cand.is_gateway       = is_gw;
     cand.last_seen_ms     = _hal.now();
-    cand.learned_layer_id = _cfg.leaf_id;
+    cand.learned_leaf = _cfg.leaf_id;
     const MergeAction a = rt_merge(sender, cand);
     if (a == MergeAction::new_dest || a == MergeAction::promote ||
         a == MergeAction::primary_refresh) {
@@ -647,7 +647,7 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         cand.hops             = static_cast<uint8_t>(combined_hops);
         cand.is_gateway       = e.is_gateway;
         cand.last_seen_ms     = now;
-        cand.learned_layer_id = _cfg.leaf_id;
+        cand.learned_leaf = _cfg.leaf_id;
         cand.degraded_from_wire = e.degraded;   // Slice 3: inherit the advertiser's degraded wire-bit (recomputed per merge)
         const MergeAction a = rt_merge(e.dest, cand);
         if (a == MergeAction::new_dest || a == MergeAction::promote) {

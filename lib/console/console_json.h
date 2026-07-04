@@ -88,7 +88,7 @@ struct RouteRow {
     uint8_t  dest = 0, next = 0, hops = 0;
     int16_t  score = 0;        // Q4 dB route score
     bool     gw = false;
-    uint8_t  layer = 0;
+    uint8_t  leaf = 0;         // the route's learned leaf nibble (layer & 0x0F)
     uint32_t age_ms = 0;       // since last_seen
     uint8_t  cand = 0;         // candidate next-hops held (1..K)
 };
