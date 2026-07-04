@@ -281,6 +281,14 @@ size_t Node::e2e_seal_inner(uint8_t* inner, size_t cap, uint8_t seed8[8], uint8_
     if (!peer_key_find(dst_key_hash32, peer_ed, &conf) || static_cast<uint8_t>(conf) < static_cast<uint8_t>(PeerKeyConf::authoritative)) return 0;  // authoritative OR pinned
     uint8_t peer_x[32]; ed_pub_to_x25519(peer_x, peer_ed);          // 2. ECDH -> per-pair key
     uint8_t shared[32]; crypto_x25519(shared, _x_secret, peer_x);
+    // L10 (2026-07-04, crypto): a peer advertising a LOW-ORDER X25519 point drives the ECDH shared secret to
+    // ALL-ZERO -> dm_kdf derives a key ANY observer can reproduce -> a "sealed" DM is decryptable by everyone
+    // while we believe it confidential. REFUSE loudly (fail like a missing pubkey: return 0, no cleartext send)
+    // rather than seal under a degenerate secret. Constant-time OR-accumulate over all 32 bytes (no early return
+    // -> no timing leak on WHERE the first non-zero byte is). Catches the zero result whether or not monocypher's
+    // crypto_x25519 already zeroed on the low-order point (it does for some, not all, contributory-check off).
+    uint8_t sh_acc = 0; for (int i = 0; i < 32; ++i) sh_acc |= shared[i];
+    if (sh_acc == 0) { crypto_wipe(shared, 32); outcome = SealOutcome::no_pubkey; return 0; }   // degenerate ECDH -> refuse (no seal, never cleartext)
     uint8_t key[32]; dm_kdf(key, shared, _key_hash32, dst_key_hash32);
     _hal.rand_bytes(seed8, 8);                                      // 3. fresh nonce-seed (HAL crypto RNG) -> nonce
     // R7: a broken crypto RNG returning an all-zero seed collapses nonce uniqueness to the 16-bit ctr -> keystream
@@ -607,7 +615,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     if (id >= 0 && conf == IdBindConf::authoritative)            // confident binding -> send NOW
         return do_send(static_cast<uint8_t>(id), body, body_len, flags, crypt);   // §8b: thread the per-message crypt intent
     // SOFT cached binding -> HARD verify-on-use (reach the owner for a correction); UNKNOWN -> SOFT flood.
-    park_send(key_hash32, body, body_len, flags);
+    park_send(key_hash32, body, body_len, flags, crypt);   // M3: carry the crypt intent so a parked sendhashx flies CRYPTED, not cleartext
     emit_hash_query(key_hash32, /*hard=*/(id >= 0));
     return 0;
 }
@@ -634,13 +642,14 @@ void Node::emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey) {
     tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
 }
 
-void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags) {
+void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt) {
     if (_parked_sends_n >= protocol::cap_parked_sends) return;   // full -> drop (the app can retry)
     ParkedSend& p = _parked_sends[_parked_sends_n++];
     p = ParkedSend{};                                           // reset a RECYCLED slot: the array is compacted in
     // place (drain/age-out never clear vacated slots), so a slot last used by an L2c redirect would otherwise
     // keep is_redirect=true and mis-route this plain send-by-hash through the redirect branch on drain.
     p.key_hash32 = key_hash32; p.flags = flags; p.parked_at_ms = _hal.now();
+    p.crypt = crypt;                                            // M3: stamp the per-message crypt intent -> drain re-seals CRYPTED (never a silent cleartext downgrade)
     // Clamp to the DM body cap (NOT the 241-B inner buffer): drain_parked_sends -> do_send -> enqueue_data
     // writes body at inner[2+i], so a >239 body would overrun inner[]. on_command already rejects oversize
     // (err_too_large) — this is defense-in-depth so a parked body can never exceed the deliverable size.
@@ -728,7 +737,7 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t 
                                        { .key = "node",       .type = EventField::T::i64, .i = resolved_id } };
                     _hal.emit("send_hash_resolved", f, 2); );
                 // same-layer (incl. a cross_layer park whose dst turned out to be on OUR leaf, §5.1): a plain DM.
-                do_send(resolved_id, p.body, p.body_len, p.flags);   // load-bearing (OUTSIDE the wrap): fly the held DM
+                do_send(resolved_id, p.body, p.body_len, p.flags, p.crypt);   // load-bearing (OUTSIDE the wrap): fly the held DM; M3: thread the stamped crypt so a parked sendhashx stays CRYPTED
             }
             continue;                                            // matched entry handled (forwarded / healed / kept-above / given up)
         }
@@ -770,7 +779,7 @@ void Node::drain_resolved_parked_sends() {
                     EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(p.key_hash32) },
                                        { .key = "node",       .type = EventField::T::i64, .i = id } };
                     _hal.emit("send_hash_resolved", f, 2); );
-                do_send(static_cast<uint8_t>(id), p.body, p.body_len, p.flags);   // load-bearing (OUTSIDE the wrap)
+                do_send(static_cast<uint8_t>(id), p.body, p.body_len, p.flags, p.crypt);   // load-bearing (OUTSIDE the wrap); M3: thread the stamped crypt intent (a beacon-resolved parked sendhashx still flies CRYPTED)
             }
             continue;                                            // drop the parked entry (forwarded / sent)
         }

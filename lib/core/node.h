@@ -741,7 +741,7 @@ private:
     // D — send-by-hash trigger (the deferred "address by key_hash32") + verify-on-use.
     uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def); // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify)
     void    emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey = false);   // H flood for key_hash32 (hard = verify-on-use; want_pubkey = E2E §6, ask the owner's ed_pub)
-    void    park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags);
+    void    park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def);   // M3: crypt stamped at park so a parked CRYPTED send flies sealed on drain
     void    park_send_layer(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags);   // Slice 4d: a cross-layer-capable park (resolves layer + gateway on the H-answer); flags carry the app's E2E_ACK_REQ etc.
     void    drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t target_layer = 0xFF);   // a binding arrived -> fly the parked DMs to it (target_layer from the H-answer, 0xFF = beacon re-drain / unknown)
     // Slice 4d: cross-layer origination — select a bridging gateway (schedule-verified) + build the CROSS_LAYER DM.
@@ -1132,6 +1132,7 @@ private:
     struct ParkedSend { uint32_t key_hash32; uint64_t parked_at_ms; uint8_t flags; uint8_t body_len;
                         bool is_redirect = false; bool is_resolve = false; bool cross_layer = false; uint8_t origin = 0; uint16_t ctr = 0; uint8_t ctr_lo = 0;
                         uint8_t type = 0;   // S1/M7a: a redirect's DataType (E2E_ACK/H_ANSWER); preserved across park+heal so the forwarded frame keeps its type (only meaningful when is_redirect)
+                        CryptIntent crypt = CryptIntent::def;   // M3 (2026-07-04): the per-message crypt intent stamped at park time so a `sendhashx`(crypt=on) parked awaiting a binding still flies CRYPTED on drain (never silently downgrades to cleartext, node.h invariant); threaded into both drains' do_send
                         uint8_t nonce_seed[8] = {};   // §1c: a CRYPTED redirect's originator seed (preserved across the park+heal); zero for a plain send (re-sealed on drain)
                         uint8_t body[protocol::max_payload_bytes_hard_cap]; };   // is_resolve: notify-only diag (a `resolve`), no body. cross_layer (Slice 4d): a send_layer awaiting (node_id,target_layer)
     ParkedSend _parked_sends[protocol::cap_parked_sends] = {};
