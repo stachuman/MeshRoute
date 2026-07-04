@@ -500,7 +500,9 @@ static void handle_cfg_set(const char* args) {
 #endif
         b.node_id = (uint8_t)v; b.joined = 0; live = false;        // operator-pinned id -> NOT DAD-adopted (won't auto-yield)
     }
-    else if (!strcmp(key, "freq"))                                     { b.freq_mhz = atof(val);             reconfig = radio = true; }
+    else if (!strcmp(key, "freq"))                                     { const double f = atof(val);        // mirror join/create: 100..1000 MHz — out-of-band persists an RF-dead node
+                                                                         if (f < 100.0 || f > 1000.0) { mrcon.println(F("> cfg err bad_value (freq 100..1000 MHz)")); return; }
+                                                                         b.freq_mhz = f;                      reconfig = radio = true; }
     // BENCH NOTE (2026-06-19): SF5 does NOT lock over-the-air on the tested SX1262 modules (XIAO Wio-SX1262 +
     // Heltec V3) — the receiver completes ZERO reception (`status` isr==tx, rx=0) at BW125 AND BW500, and bumping
     // the TX preamble 16→256 made no difference, while SF6/7/8+ work through this exact path. It's an SX1262 PHY
@@ -508,8 +510,12 @@ static void handle_cfg_set(const char* args) {
     // has no such floor). => the usable control-SF floor on this hardware is 6; don't set routing_sf=5 on these
     // modules. Left configurable (no hard guard) for future SF5-capable hardware. Ref: SX1262 DS §6.1.1.1.
     else if (!strcmp(key, "routing_sf") || !strcmp(key, "control_sf")) { b.routing_sf = (uint8_t)atoi(val); reconfig = radio = true; }
-    else if (!strcmp(key, "bw"))                                       { b.bw_hz = (uint32_t)atol(val);     reconfig = radio = true; }
-    else if (!strcmp(key, "cr"))                                       { b.cr = (uint8_t)atoi(val);         reconfig = radio = true; }
+    else if (!strcmp(key, "bw"))                                       { const long bw = atol(val);         // `cfg set bw` is in Hz; join/create take kHz 7..500 -> mirror as 7000..500000 Hz (bw<=0 -> downstream div-by-zero)
+                                                                         if (bw < 7000 || bw > 500000) { mrcon.println(F("> cfg err bad_value (bw 7000..500000 Hz)")); return; }
+                                                                         b.bw_hz = (uint32_t)bw;              reconfig = radio = true; }
+    else if (!strcmp(key, "cr"))                                       { const int cr = atoi(val);          // LoRa coding rate 4/5..4/8 -> 5..8 (SX1262 setCodingRate range)
+                                                                         if (cr < 5 || cr > 8) { mrcon.println(F("> cfg err bad_value (cr 5..8)")); return; }
+                                                                         b.cr = (uint8_t)cr;                  reconfig = radio = true; }
     else if (!strcmp(key, "tx_power")) {
         const int v = atoi(val);
         if (v < -9 || v > 22) { mrcon.println(F("> cfg err bad_value (tx_power -9..22 dBm)")); return; }
@@ -517,11 +523,13 @@ static void handle_cfg_set(const char* args) {
     }
     // --- node-config knobs: LIVE via mutable_config() (the MAC re-reads each field per use), + persisted ---
     else if (!strcmp(key, "sf_list"))    { b.allowed_sf_bitmap = parse_sf_list(val); lc.allowed_sf_bitmap = b.allowed_sf_bitmap;
-                                           if (b.lineage_id) b.config_epoch = (uint16_t)(b.config_epoch + 1); }   // R6.3 §4.1: a managed leaf-field write bumps epoch (propagates on reboot)
+                                           if (b.lineage_id) b.config_epoch = (uint16_t)(b.config_epoch >= 65534 ? 65534 : b.config_epoch + 1); }   // R6.3 §4.1: a managed leaf-field write bumps epoch (propagates on reboot); saturate (u16 wrap -> permanent de-sync)
     else if (!strcmp(key, "lbt"))        { b.lbt = atoi(val) != 0;            lc.lbt_enabled = (b.lbt != 0); }
-    else if (!strcmp(key, "beacon_ms"))  { b.beacon_ms = (uint32_t)atol(val); lc.beacon_period_ms = b.beacon_ms; }
+    else if (!strcmp(key, "beacon_ms"))  { const long bms = atol(val);                          // floor at the discovery cadence: 0/too-small = airtime storm after reboot
+                                           if (bms < (long)P::discovery_beacon_period_ms) { mrcon.println(F("> cfg err bad_value (beacon_ms >= 5000)")); return; }
+                                           b.beacon_ms = (uint32_t)bms; lc.beacon_period_ms = b.beacon_ms; }
     else if (!strcmp(key, "duty"))       { b.duty = meshroute::bp_to_duty(meshroute::duty_to_bp(atof(val))); live = false;   // §5: quantize to the 0.01% wire step so the config_hash matches across nodes
-                                           if (b.lineage_id) b.config_epoch = (uint16_t)(b.config_epoch + 1); }   // R6.3 §4.1: managed leaf-field write bumps epoch
+                                           if (b.lineage_id) b.config_epoch = (uint16_t)(b.config_epoch >= 65534 ? 65534 : b.config_epoch + 1); }   // R6.3 §4.1: managed leaf-field write bumps epoch; saturate (u16 wrap -> permanent de-sync)
     // --- nav/hop tuning: LIVE-only (good defaults; reboot reverts) ---
     else if (!strcmp(key, "nav"))        { lc.nav_enabled    = atoi(val) != 0; persist = false; }
     else if (!strcmp(key, "nav_ignore")) { lc.nav_ignore_rts = atoi(val) != 0; persist = false; }

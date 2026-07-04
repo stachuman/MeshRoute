@@ -219,7 +219,7 @@ void Node::adopt_c_config(const uint8_t* body, size_t len) {
 bool Node::leaf_config_write() {
     if (_cfg.lineage_id == 0) return false;                                 // unmanaged -> no epoch plane to propagate within
     uint16_t base = _max_seen_epoch > _cfg.config_epoch ? _max_seen_epoch : _cfg.config_epoch;
-    _cfg.config_epoch = static_cast<uint16_t>(base + 1);
+    _cfg.config_epoch = static_cast<uint16_t>(base >= 65534 ? 65534 : base + 1);   // saturate: a u16 wrap to 0 makes leaf_config_synced() read false forever
     _max_seen_epoch   = _cfg.config_epoch;
     MR_EMIT("leaf_config_write", EF_I("epoch", _cfg.config_epoch), EF_I("hash", static_cast<int64_t>(cfg_config_hash())));
     schedule_triggered_beacon();                                            // re-advertise immediately -> neighbours go stale -> pull

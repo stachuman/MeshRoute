@@ -22,14 +22,18 @@ bool tok_eq(const Tok& t, const char* lit) {
     return t.n == std::strlen(lit) && std::memcmp(t.s, lit, t.n) == 0;
 }
 // Parse a decimal token into [0,max]; false on empty/non-digit/overflow.
+// NB: check overflow BEFORE the multiply/add — the post-multiply `v > max` guard is inert when
+// max == 0xFFFFFFFF (a u32 accumulator can never exceed it), so `4294967296` would wrap to 0 and
+// silently "parse" instead of failing. Guarding on `v > (max - digit) / 10` catches the wrap.
 bool parse_u32_tok(const Tok& t, uint32_t max, uint32_t& out) {
     if (t.n == 0) return false;
     uint32_t v = 0;
     for (size_t i = 0; i < t.n; ++i) {
         char c = t.s[i];
         if (c < '0' || c > '9') return false;
-        v = v * 10 + static_cast<uint32_t>(c - '0');
-        if (v > max) return false;
+        const uint32_t digit = static_cast<uint32_t>(c - '0');
+        if (v > (max - digit) / 10) return false;      // would exceed max (or wrap the u32) -> reject
+        v = v * 10 + digit;
     }
     out = v;
     return true;
@@ -212,6 +216,7 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
         if (arg.n == 8 && parse_hex32_tok(arg, h)) by_hash = true;          // 8-hex -> hash (an id is <=3 digits, never 8)
         else if (parse_u32_tok(arg, 254u, id))     by_hash = false;         // decimal <=254 -> id
         else return ParseErr::bad_args;
+        if (by_hash && h == 0) return ParseErr::bad_args;   // `send 00000000`: an all-zero hash would fall through to a unicast to reserved id 0 (mirror send_layer's h==0 guard)
         bool ack = false, enc = false; const uint8_t* body = nullptr; uint8_t blen = 0;
         if (!parse_send_tail(s, /*allow_a=*/true, /*allow_e=*/by_hash, ack, enc, body, blen)) return ParseErr::bad_args;  // -e only on a hash target
         out = Command{};

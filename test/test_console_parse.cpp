@@ -207,6 +207,32 @@ TEST_CASE("parse_command — errors") {
     CHECK(parse_command("", 0, c) == ParseErr::empty);
 }
 
+// L3: `send 00000000` (an all-zero hash) must be rejected, not aliased to a unicast to reserved id 0.
+// Mirrors send_layer's h==0 guard (which already rejects `send_layer 00000000 ...`).
+TEST_CASE("parse_command — send 00000000 (all-zero hash) -> bad_args (mirror send_layer h==0)") {
+    Command c{};
+    const char* zero = "send 00000000 \"hi\"";
+    CHECK(parse_command(zero, std::strlen(zero), c) == ParseErr::bad_args);
+    const char* layerzero = "send_layer 00000000 2 \"hi\"";   // send_layer already guards this
+    CHECK(parse_command(layerzero, std::strlen(layerzero), c) == ParseErr::bad_args);
+    const char* ok = "send 00000001 \"hi\"";                  // a nonzero all-hex token still parses as a hash
+    CHECK(parse_command(ok, std::strlen(ok), c) == ParseErr::ok);
+    CHECK(c.u.send.dst_hash == 0x00000001u);
+}
+
+// L2: parse_u32_tok(max=0xFFFFFFFF) must REJECT an over-u32 token (accumulator wrap), not parse it as 0.
+// Driven through `cfg beacon_period_ms` — the only call site that passes max == 0xFFFFFFFF.
+TEST_CASE("parse_cfg — beacon_period_ms over-u32 token rejected (no mod-2^32 wrap)") {
+    NodeConfig c{}; uint8_t id = 0; uint32_t key = 0;
+    auto P = [&](const char* l) { return parse_cfg(l, std::strlen(l), c, id, key); };
+    CHECK(P("cfg beacon_period_ms 4294967296") == CfgErr::bad_value);   // 2^32: would wrap to 0 without the overflow guard
+    CHECK(P("cfg beacon_period_ms 4294967295") == CfgErr::ok);          // UINT32_MAX: the largest valid value
+    CHECK(c.beacon_period_ms == 0xFFFFFFFFu);
+    CHECK(P("cfg beacon_period_ms 99999999999") == CfgErr::bad_value);  // way over -> reject (not a wrapped truncation)
+    CHECK(P("cfg beacon_period_ms 0") == CfgErr::ok);                   // 0 still parses here (the floor is enforced at the fw_main cfg-set layer)
+    CHECK(c.beacon_period_ms == 0u);
+}
+
 TEST_CASE("parse_cfg — keys map to NodeConfig/id/key") {
     NodeConfig c{}; uint8_t id = 0; uint32_t key = 0;
     auto P = [&](const char* l) { return parse_cfg(l, std::strlen(l), c, id, key); };

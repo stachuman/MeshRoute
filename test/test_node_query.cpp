@@ -490,6 +490,31 @@ TEST_CASE("census — a GATEWAY (n_layers==2) skips the census: a steady-state b
     }
 }
 
+// L6: config_epoch (u16) must SATURATE at 65534 on a managed-leaf write. A raw base+1 wraps 65535->0,
+// and leaf_config_synced() (lineage!=0 && config_epoch>0) then reads false forever -> permanent de-sync.
+TEST_CASE("leaf_config_write — config_epoch saturates at 65534 (no u16 wrap -> permanent de-sync)") {
+    TestHal hal; Node node(hal, /*id=*/7, /*key=*/0x1234);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.lineage_id = 0xBEEF;   // MANAGED leaf (non-zero lineage)
+    node.on_init(cfg);
+    node.reset_leaf_epoch_state(65534);                            // config_epoch = _max_seen_epoch = 65534
+
+    // leaf_config_synced() (private) reads `lineage_id != 0 && config_epoch > 0`; a managed leaf stays
+    // synced iff config_epoch never wraps to 0. Assert on config_epoch directly (the load-bearing field).
+    CHECK(node.config().lineage_id == 0xBEEF);
+    CHECK(node.config().config_epoch == 65534);
+    CHECK(node.config().config_epoch > 0);                        // == leaf_config_synced() for a managed leaf
+
+    // A managed write at 65534 must STAY 65534 (saturate), not bump to 65535 and later wrap to 0.
+    CHECK(node.leaf_config_write());
+    CHECK(node.config().config_epoch == 65534);                   // saturated, did not advance
+    CHECK(node.config().config_epoch > 0);                        // still synced (never wrapped to 0)
+
+    // A second write is still saturated (idempotent at the ceiling) and never wraps to 0.
+    CHECK(node.leaf_config_write());
+    CHECK(node.config().config_epoch == 65534);
+    CHECK(node.config().config_epoch > 0);
+}
+
 TEST_CASE("census — never overflows: a saturated direct-neighbour set still emits a valid <= beacon_max_bytes frame") {
     TestHal hal; Node node(hal, 26, 0xBABE);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.quiet_threshold_ms = 0;

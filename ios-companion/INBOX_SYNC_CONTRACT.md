@@ -372,6 +372,7 @@ cfg set dm_min_ms <ms>           # own-DM burst floor (default 3000): anti-per-k
 - They are the source of the `ch_min_ms` / `dm_min_ms` (and via the fraction, `ch_cap`) fields the **`limits`** query reports (above) — so the app's pacing tracks the leaf's actual floors, not the defaults.
 - **Optional on the `create` verb** (`[active_fraction=] [ch_min_ms=] [dm_min_ms=]`, 2026-07-03): a mother may set them at mint time; **omitted ⇒ the protocol defaults** (`0.125` / `10000` / `3000`), *never* inherited from the minter's current settings. Or tune them later on any managed node with `cfg set` (bumps the epoch → propagates).
 - Wire: the C config frame grew **+6 B** (`active_fraction_bp` u16 · `ch_interval_ms` u16 · `dm_interval_ms` u16); `wire_version` is **unchanged** (the test fleet reflashes together — no mixed-version compat).
+- **★ App flash-wear note:** every `cfg set` persists to flash immediately (so a reboot keeps it). If a UI control is bound to one of these knobs, send `cfg set` on **release / commit, not during a live drag** — a slider firing per-frame would hammer flash. The firmware skips byte-identical rewrites (a wear backstop), but the app must not rely on that to spam writes.
 
 ### Deferred
 - **Mobile-node roaming** (auto `leave`+`join` between leaves, with hysteresis) — a later phase; the three verbs above are the primitives it builds on.
