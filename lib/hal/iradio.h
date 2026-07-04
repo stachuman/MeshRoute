@@ -50,6 +50,11 @@ struct IRadio {
     // (freq latches in standby, same as SF). NON-pure no-op default so an IRadio that doesn't tune freq need not override.
     virtual void set_rx_freq(double /*mhz*/) {}
 
+    // Hal::set_rx_bw / set_rx_cr -> per-layer BW/CR retune on a window switch. standby -> set -> re-arm RX (BW/CR latch
+    // in standby, same as SF). NON-pure no-op defaults (an IRadio that doesn't model BW/CR need not override).
+    virtual void set_rx_bw(uint32_t /*bw_hz*/) {}
+    virtual void set_rx_cr(uint8_t /*cr*/) {}
+
     // Hal::channel_busy_until -> Listen-Before-Talk primitive: is the channel busy RIGHT NOW? (SX1262
     // hardware CAD, or an RSSI-over-threshold sample). DeviceHal wraps this into a busy-until hold.
     virtual bool channel_busy() = 0;

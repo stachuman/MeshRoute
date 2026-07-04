@@ -209,6 +209,25 @@ public:
         _pre_seen = false;
     }
 
+    // Per-layer gateway BW/CR retune on a window switch. Like set_rx_sf/set_rx_freq, SetModulationParams (BW/CR) latches
+    // ONLY in STANDBY — issued mid-RX it is dropped — so standby -> set -> re-arm RX. The latched BW/CR carries into the
+    // next TX (start_transmit only sets them if the per-frame override >0, which it isn't), so DATA on this layer flies
+    // on this BW/CR. DeviceHal also updates its _def_bw/_def_cr so the airtime debit matches (charge==transmit).
+    void set_rx_bw(uint32_t bw_hz) override {
+        _radio.standby();
+        _radio.setBandwidth(static_cast<float>(bw_hz) / 1000.0f);                  // RadioLib wants kHz
+        g_dio1_fired = false;
+        arm_rx();
+        _pre_seen = false;
+    }
+    void set_rx_cr(uint8_t cr) override {
+        _radio.standby();
+        _radio.setCodingRate(cr);
+        g_dio1_fired = false;
+        arm_rx();
+        _pre_seen = false;
+    }
+
     // Software LBT (Step 3): NON-BLOCKING carrier sense — busy if we're transmitting, OR a frame is in
     // progress (preamble/header), OR the channel RSSI is above the rolling noise floor + threshold.
     // Replaces the blocking HW-CAD scanChannel() (which could spin on the CAD-done IRQ). Fed to the Node's

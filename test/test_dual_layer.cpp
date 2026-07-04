@@ -35,6 +35,10 @@ public:
     void     set_rx_sf(int sf) override { last_set_rx_sf = sf; }
     double   last_set_rx_freq = 0.0;                     // per-layer freq retune (dual-layer gateway)
     void     set_rx_freq(double mhz) override { last_set_rx_freq = mhz; }
+    uint32_t last_set_rx_bw = 0;                          // per-layer BW retune spy (Slice 2)
+    int      last_set_rx_cr = -1;                         // per-layer CR retune spy (-1 = never called)
+    void     set_rx_bw(uint32_t bw) override { last_set_rx_bw = bw; }
+    void     set_rx_cr(uint8_t cr) override  { last_set_rx_cr = cr; }
     uint64_t channel_busy_until() override { return 0; }
     uint64_t _airtime_used_ms = 0;                       // settable: drives the gateway-announce duty-headroom gate
     uint64_t airtime_used_ms(uint64_t) override { return _airtime_used_ms; }
@@ -292,6 +296,21 @@ TEST_CASE("per-layer-bw: single-layer node — active_bw_hz()==global radio_bw_h
     CHECK(node.on_init(cfg));
     CHECK(node.active_bw_hz() == 250000u);   // the sole layer inherits -> identical to _cfg.radio_bw_hz
     CHECK(node.active_cr() == 5);
+}
+
+TEST_CASE("per-layer-bw: the window switch retunes BW/CR (set_rx_bw/set_rx_cr) for a layer with an override") {
+    StubHal hal; Node node(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2; cfg.radio_bw_hz = 250000; cfg.radio_cr = 5;
+    cfg.layers[0] = good_layer(1, 8);                                              // layer 0: no BW/CR override
+    cfg.layers[1] = good_layer(2, 9); cfg.layers[1].bw_hz = 125000; cfg.layers[1].cr = 8;
+    CHECK(node.on_init(cfg));
+    // boot activated layer 0 (0-override) -> NO BW/CR retune fired (inherit the global).
+    CHECK(hal.last_set_rx_bw == 0u);
+    CHECK(hal.last_set_rx_cr == -1);
+    // swap to layer 1 (override) -> the window-switch retune drives set_rx_bw(125000) + set_rx_cr(8).
+    DualLayerTestAccess::activate(node, 1);
+    CHECK(hal.last_set_rx_bw == 125000u);
+    CHECK(hal.last_set_rx_cr == 8);
 }
 
 TEST_CASE("dual-layer dedup: the same (origin,dst,ctr) key on two leaves does NOT collide (§8; node_mac_rx.cpp:393)") {

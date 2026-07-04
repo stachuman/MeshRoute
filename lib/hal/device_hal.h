@@ -28,6 +28,8 @@ public:
     TxResult tx(const uint8_t* bytes, size_t len, const TxParams& p) override;
     void     set_rx_sf(int sf) override;
     void     set_rx_freq(double mhz) override;          // per-layer gateway: retune the RF carrier on a window switch
+    void     set_rx_bw(uint32_t bw_hz) override;        // per-layer gateway: retune BW (+ update _def_bw so TX flies on it)
+    void     set_rx_cr(uint8_t cr) override;            // per-layer gateway: retune CR (+ update _def_cr)
     uint64_t channel_busy_until() override;             // CAD busy -> now + busy_hold; else 0
     uint64_t airtime_used_ms(uint64_t window_ms) override;
     uint64_t oldest_tx_end_ms() override;

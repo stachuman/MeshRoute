@@ -395,6 +395,8 @@ void Node::activate_layer(uint8_t i) {
     _active = &_layers[i];                                       // THE SWAP — the MAC pump now operates on leaf i
     _hal.set_rx_sf(L.routing_sf);                               // retune RX (SF latches in standby)
     if (L.freq_mhz > 0.0) _hal.set_rx_freq(L.freq_mhz);        // per-layer channel: retune the RF carrier (0 = inherit boot freq)
+    if (L.bw_hz > 0) _hal.set_rx_bw(L.bw_hz);                  // per-layer BW retune (also updates the HAL _def_bw -> TX flies on it; 0 = inherit)
+    if (L.cr    > 0) _hal.set_rx_cr(L.cr);                     // per-layer CR retune (0 = inherit)
     _hal.set_protocol_id(L.node_id);                           // Hal short-id = the active leaf's node_id
     if (L.node_id != 0)                                          // seed leaf i's OWN id_bind binding (per-leaf table)
         id_bind_set(L.node_id, _key_hash32, IdBindSource::self, IdBindConf::authoritative);
