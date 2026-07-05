@@ -565,7 +565,7 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     }
     // beacon_rx — one per received beacon (the gate asserts src)
     MR_EMIT("beacon_rx",EF_I("src",b.src),EF_I("channel_digest_ids",dn));
-    if (in_discovery()) ++_discovery_bcn_rx_count;        // dv_dual_sf.lua:9560-9562
+    if (in_discovery()) ++_active->_discovery_bcn_rx_count;   // §per-leaf: a leaf-1 beacon counts toward leaf 1's bootstrap, not leaf 0's (dv_dual_sf.lua:9560-9562)
 
     const uint64_t now         = _hal.now();
     const int16_t  meta_snr_q4 = protocol::db_to_q4(meta.snr_db);
@@ -785,7 +785,7 @@ void Node::schedule_triggered_beacon() {
     // so the gate streams stay byte-identical; the 2nd draw is matched draw-for-draw with the Lua in steady state.
     const uint64_t now = _hal.now();
     const bool steady_state = !in_discovery()
-        && (now - _discovery_started_ms >= protocol::beacon_boot_grace_ms);
+        && (now - _active->_discovery_started_ms >= protocol::beacon_boot_grace_ms);
     if (steady_state && protocol::beacon_trigger_min_interval_ms > 0 && _last_beacon_tx_ms != 0) {
         const uint64_t earliest = _last_beacon_tx_ms + protocol::beacon_trigger_min_interval_ms;
         if (now + delay < earliest) {
@@ -803,18 +803,18 @@ void Node::schedule_triggered_beacon() {
 }
 
 void Node::maybe_exit_discovery([[maybe_unused]] const char* reason) {
-    if (!_discovery_mode) return;
+    if (!_active->_discovery_mode) return;
     const uint64_t now = _hal.now();
-    const bool timed_out = (_discovery_until_ms > 0) && (now >= _discovery_until_ms);
-    if (_discovery_bcn_rx_count >= protocol::discovery_min_bcn_rx ||
+    const bool timed_out = (_active->_discovery_until_ms > 0) && (now >= _active->_discovery_until_ms);
+    if (_active->_discovery_bcn_rx_count >= protocol::discovery_min_bcn_rx ||
         _active->_rt_count >= protocol::discovery_min_routes || timed_out) {
-        _discovery_mode = false;
+        _active->_discovery_mode = false;
         MR_TELEMETRY(
             EventField f[] = {
                 { .key = "reason",     .type = EventField::T::str, .s = reason },
-                { .key = "heard_bcn",  .type = EventField::T::i64, .i = static_cast<int64_t>(_discovery_bcn_rx_count) },
+                { .key = "heard_bcn",  .type = EventField::T::i64, .i = static_cast<int64_t>(_active->_discovery_bcn_rx_count) },
                 { .key = "rt_total",   .type = EventField::T::i64, .i = static_cast<int64_t>(_active->_rt_count) },
-                { .key = "elapsed_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(now - _discovery_started_ms) },
+                { .key = "elapsed_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(now - _active->_discovery_started_ms) },
             };
             _hal.emit("bcn_discovery_exit", f, 4); );
     }

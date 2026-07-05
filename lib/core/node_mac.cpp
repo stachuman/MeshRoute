@@ -1050,7 +1050,13 @@ void Node::start_rts_timeout() {
     const uint8_t  attempt = static_cast<uint8_t>(protocol::rts_max_retries -
                               (_active->_pending_tx ? _active->_pending_tx->retries_left : 0));
     const uint32_t shift = attempt < 2 ? attempt : 2;                       // x2 backoff, cap x4
-    const uint32_t delay = (base << shift) + 1;
+    // §CTS-wait metal slop (2026-07-05): base covers ON-AIR time only; the CTS round-trip ALSO crosses TWO radio
+    // turnarounds (sender TX->RX + gateway RX->TX) — the real-metal margin airtime_ms can't see. rx_window_slop_ms is
+    // ZERO on the sim (HAL default) => delay UNCHANGED on native/sim (s18 byte-identical); ~53ms/turnaround on metal.
+    // Was the ONLY handshake-wait omitting it -> a 62.5kHz gateway CTS landed ~204ms past the ~135ms window -> the
+    // awaiting_cts was cleared -> the arriving CTS ignored (node_mac_rx.cpp:337) -> endless RTS<->CTS. Mirrors start_ack_timeout.
+    const uint32_t slop  = _hal.rx_window_slop_ms(_cfg.routing_sf);
+    const uint32_t delay = (base << shift) + 2u * slop + 1u;
     (void)_hal.after(delay, kRtsTimeoutTimerId);
     if (_active->_pending_tx) _active->_pending_tx->timeout_deadline_ms = _hal.now() + delay;   // for reserve_yield's extend-only push
 }

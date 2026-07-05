@@ -254,10 +254,13 @@ bool Node::on_init(const NodeConfig& cfg) {
 
     // Discovery window: boot in fast-cadence / full-page mode until we have heard
     // enough of the mesh or a bounded timeout expires (dv_dual_sf.lua:8399-8401).
-    _discovery_started_ms   = _hal.now();
-    _discovery_mode         = (protocol::discovery_ms > 0);
-    _discovery_until_ms     = _discovery_started_ms + protocol::discovery_ms;
-    _discovery_bcn_rx_count = 0;
+    const uint64_t now_disc = _hal.now();
+    for (uint8_t i = 0; i < _n_layers; ++i) {                 // §per-layer discovery: n_layers==1 (normal node) => leaf 0 only = UNCHANGED;
+        _layers[i]._discovery_started_ms   = now_disc;        // a gateway arms BOTH leaves so leaf 1 runs its own fast cadence in its own windows
+        _layers[i]._discovery_mode         = (protocol::discovery_ms > 0);
+        _layers[i]._discovery_until_ms     = now_disc + protocol::discovery_ms;
+        _layers[i]._discovery_bcn_rx_count = 0;
+    }
 
     // §P2 freshness-coupling sanity (LOUD, not a refuse — the node still runs): a neighbour must beacon faster than the
     // freshness window (next_hop_live_ttl_ms) or its route is wrongly demoted as a stale next-hop. The defaults hold
@@ -345,10 +348,10 @@ void Node::clear_learned_state() {
 // a verb reprovision is pending (id is now stable). after() is replace-by-id, so re-arming kBeaconTimerId is safe.
 void Node::restart_discovery() {
     const uint64_t now = _hal.now();
-    _discovery_started_ms   = now;
-    _discovery_mode         = (protocol::discovery_ms > 0);
-    _discovery_until_ms     = now + protocol::discovery_ms;
-    _discovery_bcn_rx_count = 0;
+    _active->_discovery_started_ms   = now;
+    _active->_discovery_mode         = (protocol::discovery_ms > 0);
+    _active->_discovery_until_ms     = now + protocol::discovery_ms;
+    _active->_discovery_bcn_rx_count = 0;
     _last_req_sync_tx_ms    = 0;             // clear the rate-limit -> the bootstrap REQ_SYNC can fire immediately
     if (_cfg.n_layers != 2)                  // single-layer: a fast-cadence beacon soon (replaces the slow pending re-arm)
         (void)_hal.after(static_cast<uint32_t>(_hal.rand_range(0, static_cast<int>(protocol::discovery_beacon_period_ms))), kBeaconTimerId);

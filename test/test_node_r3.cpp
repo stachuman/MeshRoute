@@ -52,7 +52,10 @@ public:
     uint64_t _oldest_tx_end = 0;  // scriptable oldest in-window TX-end (duty_status recovery calc)
     uint64_t oldest_tx_end_ms() override { return _oldest_tx_end; }
     uint64_t now() override { return _now; }
-    bool     after(uint32_t, uint32_t) override { return true; }
+    uint32_t _slop = 0;                                                   // §CTS-wait: settable metal turnaround slop (rx_window_slop_ms)
+    uint32_t rx_window_slop_ms(int) const override { return _slop; }
+    uint32_t last_after_delay[16] = {};                                   // §CTS-wait: last after() delay per timer id (id<16)
+    bool     after(uint32_t d, uint32_t id) override { if (id < 16) last_after_delay[id] = d; return true; }
     void     cancel(uint32_t) override {}
     void     set_protocol_id(int) override {}
     int      _rand_ret = -1;   // opt-in scriptable rand (>=0 overrides the default `return lo`; -1 = default)
@@ -448,6 +451,24 @@ TEST_CASE("R3.x golden — retry_jitter_ms == 3*airtime_routing(RTS_LEN=8)") {
     NodeConfig cfg7; cfg7.routing_sf = 7; cfg7.radio_bw_hz = 125000; cfg7.radio_cr = 5;
     node7.on_init(cfg7);
     CHECK(node7.retry_jitter_ms() == 132);  // SF7/BW125/CR5
+}
+
+TEST_CASE("§CTS-wait metal slop: start_rts_timeout adds 2*rx_window_slop_ms (metal turnaround); inert at slop=0") {
+    // The CTS round-trip crosses TWO radio turnarounds (sender TX->RX + gateway RX->TX). start_rts_timeout must add
+    // 2*rx_window_slop_ms — 0 on the sim/native HAL so the delay is UNCHANGED (native + s18 byte-identical), ~53ms/turnaround on metal.
+    auto arm_cts_wait = [](uint32_t slop) -> uint32_t {
+        TestHal hal; hal._slop = slop;
+        Node node(hal, /*id=*/1, /*key=*/0xABCD);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7); cfg.leaf_id = 0;
+        node.on_init(cfg);
+        node.route_inject(/*dest*/ 20, /*next_hop*/ 20, /*hops*/ 1, /*score*/ 100);   // a direct route -> the send RTSes
+        send_cmd(node, /*dst*/ 20, "hi");                                             // originate -> RTS -> start_rts_timeout arms kRtsTimeoutTimerId (4)
+        return hal.last_after_delay[kRtsTimeoutTimerId];
+    };
+    const uint32_t d0 = arm_cts_wait(0);
+    const uint32_t dK = arm_cts_wait(37);
+    CHECK(d0 > 0);                          // the CTS-wait IS armed (base<<shift + 1)
+    CHECK(dK == d0 + 2u * 37u);             // ★ the fix: +2 turnarounds of slop; slop==0 -> inert -> native + s18 unchanged
 }
 
 // ---- Cascade-to-alt walk + no-route defer+Q (the cascade milestone) --------

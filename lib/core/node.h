@@ -572,7 +572,7 @@ public:
     // ---- id_bind (hash-locate substrate) inspection: tests + the H resolver drive these.
     uint16_t          id_bind_count() const { return _active->_id_bind_n; }
     bool              joined()        const { return _joined; }        // DAD: adopted a node_id (test/app accessor)
-    bool              in_discovery()  const { return _discovery_mode; } // fast-cadence route-bootstrap window (test/app accessor)
+    bool              in_discovery()  const { return _active && _active->_discovery_mode; } // per-active-leaf; _active-guard for pre-init safety
     // Duty-cycle consumption readout (console `duty` + companion). 0..100% of the rolling-window budget (100 = the node
     // must stay silent); avail_ms = ms until SOME airtime ages back in (0 when there's headroom); enabled=false = no
     // limit. Pure accessor — surfaces what duty_over_budget already computes; no state change.
@@ -1070,10 +1070,6 @@ private:
     bool     _rt_full_emitted = false;
     // R2 state
     uint8_t  _beacon_offset = 0;             // sliding stable-page rotation cursor
-    bool     _discovery_mode = false;        // fast cadence + full pages until exit
-    uint64_t _discovery_started_ms = 0;
-    uint64_t _discovery_until_ms = 0;
-    uint16_t _discovery_bcn_rx_count = 0;
     bool     _pending_rediscover = false;     // reprovision verb -> restart discovery at the next join_adopt (id stable)
     bool     _triggered_beacon_pending = false;  // coalesce: gates BEFORE the rand draw
     uint64_t _last_beacon_tx_ms = 0;
@@ -1291,6 +1287,14 @@ private:
         // Slice 3d per-leaf beacon: a gateway beacons each leaf on its OWN cadence at window-activation (the shared
         // kBeaconTimerId is disabled for gateways — its single deadline halves the per-leaf cadence). 0 = never beaconed.
         uint64_t _last_beacon_ms = 0;
+        // §per-layer discovery (2026-07-05): a GATEWAY bootstraps each leaf INDEPENDENTLY — the boot leaf must not trip
+        // the OTHER leaf out of fast-cadence discovery (node-global discovery starved leaf 1 -> the 3h heartbeat). A
+        // single-layer node has ONE leaf, so _active is always &_layers[0] => per-leaf ≡ the old node-global state
+        // (byte-identical, proven by s18). Gateway-only BY CONSTRUCTION (is_gateway ≡ n_layers==2), no is_gateway branch.
+        bool     _discovery_mode = false;        // fast cadence + full pages until exit
+        uint64_t _discovery_started_ms = 0;
+        uint64_t _discovery_until_ms = 0;
+        uint16_t _discovery_bcn_rx_count = 0;
         // Slice 3e: absolute ms this leaf's window NEXT opens — the anchor for the receiver-anchored countdown
         // (schedule_record.offset). Set by the scheduler on every switch + at boot. countdown = (next_open-now) % period.
         uint64_t _next_open_ms = 0;

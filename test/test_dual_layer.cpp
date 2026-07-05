@@ -262,7 +262,10 @@ struct DualLayerTestAccess {
     // gateway-window broadcast sync (2026-06-20 side-task)
     static uint32_t       align_beacon(Node& n, uint32_t nominal)  { return n.gateway_window_align_beacon(nominal); }
     static uint32_t       gw_base_defer(Node& n, uint8_t gw)        { uint32_t j = 0; return n.gateway_schedule_base_defer_ms(gw, &j); }
-    static void           force_exit_discovery(Node& n)            { n._discovery_mode = false; }
+    static void           force_exit_discovery(Node& n)            { n._active->_discovery_mode = false; }
+    static bool           disc_mode(Node& n, uint8_t i)            { return n._layers[i]._discovery_mode; }              // §per-layer discovery: read a leaf's discovery flag
+    static void           seed_disc_bcn(Node& n, uint8_t i, uint16_t c) { n._layers[i]._discovery_bcn_rx_count = c; }    // §per-layer discovery: seed a leaf's beacon-rx count
+    static void           run_exit_discovery(Node& n)              { n.maybe_exit_discovery("test"); }                   // §per-layer discovery: exit-check on the ACTIVE leaf
     // gateway reactive route-pull on a cross-layer bridge miss (spec 2026-06-21)
     static void           issue(Node& n, const TxItem& it)         { n.issue_send(it); }
     static void           req_sync(Node& n, bool force)            { n.send_req_sync_q("test", force); }
@@ -470,6 +473,30 @@ TEST_CASE("§intra-relay Edit 4: an only-a-gateway route -> pick_next_cascade_ho
     // Sanity: add a NORMAL-node route to the same dest -> now pickable (proves the 0 was the gateway rejection, not a broken route).
     CHECK(node.route_inject(/*dest*/ 50, /*next_hop*/ 5, /*hops*/ 2, /*score*/ 90));    // via a normal low-id node 5
     CHECK(DualLayerTestAccess::pick_hop(node, pt) == 5);
+}
+
+// ---- §per-layer discovery: a gateway bootstraps each leaf independently (2026-07-05) ------------------------
+TEST_CASE("§per-layer discovery: the boot leaf's exit does NOT starve the far leaf out of fast-cadence discovery") {
+    StubHal hal; Node gw(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(102, 8); cfg.layers[0].node_id = 2;
+    cfg.layers[1] = good_layer(100, 9); cfg.layers[1].node_id = 3;
+    CHECK(gw.on_init(cfg));
+    // BOTH leaves enter discovery at boot (per-leaf, not node-global).
+    CHECK(DualLayerTestAccess::disc_mode(gw, 0));
+    CHECK(DualLayerTestAccess::disc_mode(gw, 1));
+    // Drive the BOOT leaf (0, active) to its exit threshold -> it exits, but leaf 1 must STAY in discovery.
+    DualLayerTestAccess::seed_disc_bcn(gw, 0, protocol::discovery_min_bcn_rx);
+    DualLayerTestAccess::run_exit_discovery(gw);            // maybe_exit_discovery on the active leaf (0)
+    CHECK_FALSE(DualLayerTestAccess::disc_mode(gw, 0));     // leaf 0 exited
+    CHECK(DualLayerTestAccess::disc_mode(gw, 1));           // ★ leaf 1 STILL in discovery — the boot leaf did NOT starve it
+    CHECK_FALSE(gw.in_discovery());                         // active leaf 0 -> not in discovery
+    // Switch to leaf 1: still in discovery; seed IT -> it exits on its OWN bootstrap (independent).
+    DualLayerTestAccess::activate(gw, 1);
+    CHECK(gw.in_discovery());                               // leaf 1 active -> in discovery (its own fast-cadence window)
+    DualLayerTestAccess::seed_disc_bcn(gw, 1, protocol::discovery_min_bcn_rx);
+    DualLayerTestAccess::run_exit_discovery(gw);
+    CHECK_FALSE(DualLayerTestAccess::disc_mode(gw, 1));     // leaf 1 exited independently
 }
 
 TEST_CASE("dual-layer dedup: the same (origin,dst,ctr) key on two leaves does NOT collide (§8; node_mac_rx.cpp:393)") {
