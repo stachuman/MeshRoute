@@ -56,6 +56,14 @@ bool Node::next_hop_selectable(const RtCandidate& c, const PendingTx& pt, bool a
     // next-hops you TX-to-but-rarely-RX-from, dropping sole-but-functional paths: s18 108→98). It lives in the
     // SORT (route_strictly_better viability, node_routing.cpp) — stale loses to fresh but stays pickable if sole.
     // A LESS-AGGRESSIVE pick-time preference is the planned re-add (prefer-fresh-but-fall-back, never drop a sole path).
+    // §intra-layer-relay (2026-07-05): NEVER route THROUGH a gateway — it won't relay intra-leaf traffic (Edit 2 +
+    // design §6). Recognize a gateway via is_gateway_dest() — it checks _gw_schedules + _bridged_layers (populated
+    // from the gateway's self_gateway beacon + schedule/TLV), so it is the LEARNED gateway role, independent of the
+    // RtCandidate.is_gateway flag that learn_route_via zeroes on RREQ/RREP routes. ⚠ NOT the reserved id-range 1..16 —
+    // tests/sim use ids 1..16 for NORMAL nodes (bypassing DAD), and an id-range gate tanks s18 + 41 tests. is_gateway_dest
+    // is false for a normal node -> those stay green. ALLOW next_hop==pt.dst: routing TO the gateway (cross-layer egress
+    // or a DM to it) is legitimate; reject only TRANSIT. Edit 2's gateway-side drop backstops the unlearned-gateway case.
+    if (is_gateway_dest(c.next_hop) && c.next_hop != pt.dst) return false;
     return true;
 }
 

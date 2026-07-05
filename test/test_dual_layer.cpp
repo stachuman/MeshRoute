@@ -8,6 +8,8 @@
 // This file grows as the gateway slices land. NB: test_airtime.cpp provides main(); -fno-exceptions => CHECK only.
 #include "doctest.h"
 
+#include <string>
+#include <vector>
 #include "node.h"
 #include "frame_codec.h"   // Slice 3e: parse_beacon / parse_beacon_schedule to verify the gateway's advertised schedule
 #include "airtime.h"       // §3e: re-derive exchange_airtime_ms from the airtime_ms primitive
@@ -50,7 +52,9 @@ public:
     int      _rand_ret = -1;                              // >=0 => force this rand value (clamped); -1 => default (lo)
     int      rand_range(int lo, int hi) override { if (_rand_ret < 0) return lo; int v = _rand_ret; if (v < lo) v = lo; if (hi > lo && v >= hi) v = hi - 1; return v; }
     void     rand_bytes(uint8_t* o, size_t n) override { for (size_t i = 0; i < n; ++i) o[i] = static_cast<uint8_t>(rand_range(0, 256)); }
-    void     emit(const char*, const EventField*, size_t) override {}
+    std::vector<std::string> emits;                                                   // §intra-relay: record emit kinds so the drop is assertable
+    void     emit(const char* kind, const EventField*, size_t) override { emits.push_back(kind); }
+    bool     saw_emit(const char* k) const { for (auto& e : emits) if (e == k) return true; return false; }
     void     log(const char*) override {}
 };
 
@@ -196,6 +200,20 @@ struct DualLayerTestAccess {
         n.store_gateway_schedule(gs);
     }
     static void     emit(Node& n, const char* kind)         { n.emit_beacon(kind); }                  // Slice 3e F-A: force a beacon
+    static void     ingest_bcn(Node& n, const uint8_t* b, size_t len, float snr) { RxMeta m{snr, -60.0f, n._hal.now(), -1}; n.ingest_beacon(b, len, m); }   // §GW: feed a packed beacon through the RX membership filter
+    static bool     rt_has(Node& n, uint8_t dest)           { return n.rt_find(dest) != nullptr; }    // §GW: did we learn a route to `dest`?
+    static uint16_t lineage(Node& n)                        { return n._cfg.lineage_id; }             // §GW: our adopted leaf-config lineage (0 = unmanaged)
+    static bool     selectable(Node& n, const RtCandidate& c, const PendingTx& pt) { return n.next_hop_selectable(c, pt, false); }   // §intra-relay Edit 3: the sender-side gate
+    static bool     is_gwdest(Node& n, uint8_t dest)        { return n.is_gateway_dest(dest); }        // §intra-relay: learned-gateway recognition
+    static void     set_intra_relay(Node& n, bool v)        { n._cfg.intra_layer_relay = v; }          // §intra-relay Edit 2: the operator opt-in
+    static void     drive_post_ack_forward(Node& n, uint8_t dst, uint8_t origin) {                     // §intra-relay Edit 2: set up a FORWARD PostAck + run do_post_ack
+        auto& pa = n._active->_post_ack; pa = PostAck{};
+        pa.pending = true; pa.is_forward = true; pa.dst = dst; pa.origin = origin;
+        pa.ctr = 0x1234; pa.ctr_lo = static_cast<uint8_t>(0x1234 & 0x0F); pa.flags = 0; pa.type = 0;
+        pa.previous_hop = 99; pa.inner_len = 0; pa.fwd_remaining = 5; pa.fwd_committed = 1;
+        n.do_post_ack();
+    }
+    static uint8_t  pick_hop(Node& n, PendingTx& pt)        { return n.pick_next_cascade_hop(pt); }    // §intra-relay Edit 4: cascade pick (0 = no selectable hop -> rediscover)
     static void     pump(Node& n)                           { n.become_free(); }                      // Slice 4a: the kQueueWakeupTimerId handler
     // Slice 4c.1 bridge accessors
     static void     bind_on_leaf(Node& n, uint8_t leaf, uint8_t node_id, uint32_t key) {
@@ -334,6 +352,18 @@ TEST_CASE("per-layer-bw: parse_gateway_cmd bw0/bw1 are kHz (fractional) -> Hz; v
     { GatewayProvision v = g; v.l0.bw_hz = 0; v.l1.cr = 0; CHECK(validate_gateway_layers(v.l0, v.l1, 250000, 5) == GwValErr::ok); }
 }
 
+TEST_CASE("per-layer-bw: gateway parse keeps each leaf's OWN node/data_sf (no l0<->l1 bleed)") {
+    // l0 = node 2, data 7,9 ; l1 = node 3, data 6,7. parse_gateway_cmd must not bleed one leaf's node/data into the
+    // other. (Verified 2026-07-04 after a field report that traced to stale NV, not a code defect — isolation holds.)
+    GatewayProvision g{};
+    CHECK(parse_gateway_cmd("l0=102:2:8:7,9 l1=100:3:7:6,7 bw0=125 bw1=62.5 freq0=869 freq1=869", g) == GwParseErr::ok);
+    CHECK(g.l0.layer_id == 102); CHECK(g.l0.node_id == 2);  CHECK(g.l0.routing_sf == 8);
+    CHECK(g.l0.allowed_sf_bitmap == static_cast<uint16_t>((1u << 7) | (1u << 9)));   // 7,9 — NOT l1's 6,7
+    CHECK(g.l1.layer_id == 100); CHECK(g.l1.node_id == 3);  CHECK(g.l1.routing_sf == 7);
+    CHECK(g.l1.allowed_sf_bitmap == static_cast<uint16_t>((1u << 6) | (1u << 7)));   // 6,7
+    CHECK(g.l0.bw_hz == 125000u); CHECK(g.l1.bw_hz == 62500u);
+}
+
 TEST_CASE("per-layer-bw: a 2-layer config charges each layer its OWN airtime (charge==transmit invariant)") {
     StubHal hal; Node node(hal, 1, 0x1);
     NodeConfig cfg; cfg.n_layers = 2; cfg.radio_bw_hz = 250000; cfg.radio_cr = 5;
@@ -347,6 +377,99 @@ TEST_CASE("per-layer-bw: a 2-layer config charges each layer its OWN airtime (ch
     CHECK(node.active_bw_hz() == 125000u);                            // window switch -> layer 1
     const double air_l1 = airtime_ms(9, node.active_bw_hz(), node.active_cr(), protocol::preamble_sym, 120);
     CHECK(air_l1 > air_l0 * 1.5);   // half the BW ~doubles airtime — each layer charged its OWN PHY, not the global
+}
+
+// ---- §GW: gateway <-> leaf-config membership exemption (metal 2026-07-05) -----------------------------------
+// A gateway must NOT participate in the R6.1 leaf-config membership plane, in EITHER direction:
+//   (A) a gateway does not adopt a managed leaf's lineage / fire a config-pull (the stray REQ_SYNC on metal);
+//   (B) a managed member DOES route a gateway neighbour (self_gateway) despite the lineage mismatch.
+TEST_CASE("§GW exemption (A): a gateway does NOT adopt a managed leaf's lineage; it peers by nibble") {
+    // Neighbour = a MANAGED leaf (lineage != 0 -> config_hash != 0) on leaf 6.
+    StubHal halN; Node nb(halN, /*id*/ 50, 0xAAAAu);
+    NodeConfig cn; cn.routing_sf = 8; cn.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cn.leaf_id = 6;
+    cn.lineage_id = 1234; cn.config_epoch = 1;
+    CHECK(nb.on_init(cn));
+    DualLayerTestAccess::emit(nb, "periodic");                       // pack the managed-leaf beacon -> halN.last_tx
+    CHECK(halN.last_tx_len > 0);
+    // The gateway: n_layers==2, UNMANAGED (lineage 0), leaf 6 active (102 & 0x0F == 6).
+    StubHal halG; Node gw(halG, 1, 0x1u);
+    NodeConfig cg; cg.n_layers = 2;
+    cg.layers[0] = good_layer(102, 8); cg.layers[0].node_id = 2;     // leaf 6
+    cg.layers[1] = good_layer(100, 9); cg.layers[1].node_id = 3;     // leaf 4 (different nibble -> valid gateway)
+    CHECK(gw.on_init(cg));                                           // boot activates layer 0 (leaf 6)
+    CHECK(DualLayerTestAccess::lineage(gw) == 0);
+    DualLayerTestAccess::ingest_bcn(gw, halN.last_tx, halN.last_tx_len, /*snr*/ 10.0f);
+    // THE FIX: NO adopt (lineage stays 0) + a route IS learned (peer-by-nibble). Pre-fix: adopt 1234 + REQ_SYNC + NO route.
+    CHECK(DualLayerTestAccess::lineage(gw) == 0);
+    CHECK(DualLayerTestAccess::rt_has(gw, 50));
+}
+
+TEST_CASE("§GW exemption (B): a managed member DOES route a gateway neighbour despite the lineage mismatch") {
+    // Neighbour = a GATEWAY (self_gateway, lineage 0), node 2 on leaf 6.
+    StubHal halG; Node gw(halG, 1, 0x1u);
+    NodeConfig cg; cg.n_layers = 2;
+    cg.layers[0] = good_layer(102, 8); cg.layers[0].node_id = 2;     // leaf 6 active -> self_gateway beacon, src=2, lineage 0
+    cg.layers[1] = good_layer(100, 9); cg.layers[1].node_id = 3;
+    CHECK(gw.on_init(cg));
+    DualLayerTestAccess::emit(gw, "periodic");                       // pack the gateway beacon -> halG.last_tx
+    CHECK(halG.last_tx_len > 0);
+    // The member = a MANAGED leaf (lineage != 0) on leaf 6.
+    StubHal halM; Node member(halM, /*id*/ 60, 0xBBBBu);
+    NodeConfig cm; cm.routing_sf = 8; cm.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cm.leaf_id = 6;
+    cm.lineage_id = 5678; cm.config_epoch = 1;
+    CHECK(member.on_init(cm));
+    DualLayerTestAccess::ingest_bcn(member, halG.last_tx, halG.last_tx_len, /*snr*/ 10.0f);
+    // THE FIX: the managed member learns a route to the gateway (node 2) despite lineage 5678 != 0. Pre-fix: :462 return, no route.
+    CHECK(DualLayerTestAccess::rt_has(member, 2));
+}
+
+// ---- §intra-layer-relay: senders never route TRANSIT through a gateway (recognition = is_gateway_dest, NOT id-range) --
+TEST_CASE("§intra-relay Edit 3: reject TRANSIT through a LEARNED gateway; a normal low-id node is STILL accepted") {
+    StubHal hal; Node node(hal, 1, 0x1);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 0;
+    CHECK(node.on_init(cfg));
+    // Seed a LEARNED gateway (id 3) via its schedule -> is_gateway_dest(3)==true. A normal low id (5) is NOT a gateway.
+    DualLayerTestAccess::store_gw_schedule(node, /*gw_node*/ 3, /*leaf_served*/ 0);
+    CHECK(DualLayerTestAccess::is_gwdest(node, 3));
+    CHECK_FALSE(DualLayerTestAccess::is_gwdest(node, 5));   // ★ a low id (1..16) is NOT auto-a-gateway — the reservation is NOT the gate
+    PendingTx pt{}; pt.dst = 50;
+    RtCandidate viaGw{};   viaGw.next_hop   = 3;            // TRANSIT via the gateway 3 (next_hop != dst 50)
+    RtCandidate viaNorm{}; viaNorm.next_hop = 5;            // TRANSIT via a NORMAL low-id node 5 (the regression guard)
+    CHECK_FALSE(DualLayerTestAccess::selectable(node, viaGw, pt));   // REJECT: never transit through a gateway
+    CHECK(DualLayerTestAccess::selectable(node, viaNorm, pt));       // ACCEPT: a normal low-id relay (no id-range misfire -> s18 + the 41 tests stay green)
+    { PendingTx toGw{}; toGw.dst = 3; RtCandidate c{}; c.next_hop = 3;
+      CHECK(DualLayerTestAccess::selectable(node, c, toGw)); }       // routing TO the gateway (next_hop==dst) = cross-layer egress -> ACCEPT
+}
+
+TEST_CASE("§intra-relay Edit 2: a gateway DROPS an intra-leaf forward (no relay); the opt-in re-enables it") {
+    StubHal hal; Node gw(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(102, 8); cfg.layers[0].node_id = 2;   // leaf 6, our id 2
+    cfg.layers[1] = good_layer(100, 9); cfg.layers[1].node_id = 3;
+    CHECK(gw.on_init(cfg));                                          // gateway, intra_layer_relay=false (default)
+    // A FORWARD PostAck: dst=50 is a third-party same-leaf id (!= our node_id 2) -> the forward branch on a gateway.
+    DualLayerTestAccess::drive_post_ack_forward(gw, /*dst*/ 50, /*origin*/ 7);
+    CHECK(hal.saw_emit("gateway_intra_relay_drop"));                 // dropped: a gateway does NOT relay intra-leaf traffic
+    CHECK(DualLayerTestAccess::leaf_tx_n(gw, 0) == 0);              // nothing enqueued (not relayed)
+    // OPT-IN: intra_layer_relay=true -> the drop no longer fires (it proceeds to the normal forward path).
+    hal.emits.clear();
+    DualLayerTestAccess::set_intra_relay(gw, true);
+    DualLayerTestAccess::drive_post_ack_forward(gw, /*dst*/ 50, /*origin*/ 7);
+    CHECK_FALSE(hal.saw_emit("gateway_intra_relay_drop"));           // opt-in: no drop
+}
+
+TEST_CASE("§intra-relay Edit 4: an only-a-gateway route -> pick_next_cascade_hop returns 0 (the originator rediscovers)") {
+    StubHal hal; Node node(hal, 1, 0x1);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 0;
+    CHECK(node.on_init(cfg));
+    DualLayerTestAccess::store_gw_schedule(node, /*gw*/ 3, /*leaf*/ 0);          // a LEARNED gateway (id 3)
+    CHECK(node.route_inject(/*dest*/ 50, /*next_hop*/ 3, /*hops*/ 2, /*score*/ 100));   // the ONLY route to 50 is via the gateway
+    PendingTx pt{}; pt.dst = 50;
+    // Edit 3 rejects the gateway transit -> no selectable candidate -> pick returns 0 (node_mac.cpp then defers + RREQs).
+    CHECK(DualLayerTestAccess::pick_hop(node, pt) == 0);
+    // Sanity: add a NORMAL-node route to the same dest -> now pickable (proves the 0 was the gateway rejection, not a broken route).
+    CHECK(node.route_inject(/*dest*/ 50, /*next_hop*/ 5, /*hops*/ 2, /*score*/ 90));    // via a normal low-id node 5
+    CHECK(DualLayerTestAccess::pick_hop(node, pt) == 5);
 }
 
 TEST_CASE("dual-layer dedup: the same (origin,dst,ctr) key on two leaves does NOT collide (§8; node_mac_rx.cpp:393)") {

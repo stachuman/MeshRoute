@@ -715,6 +715,16 @@ void Node::do_post_ack() {
         }
         become_free();
     } else {
+        // §intra-layer-relay (2026-07-05): a GATEWAY does NOT relay other nodes' same-leaf traffic by default (design §6).
+        // A cross-layer transit DM is addressed TO the gateway (dst==_node_id -> the deliver/BRIDGE branch above), so ANY
+        // forward (dst!=_node_id) reaching HERE on a gateway is an intra-leaf relay -> DROP (unless the operator opted in).
+        // The cross-layer bridge (drain_xl_handoffs re-inject) is a SEPARATE originated-TX path, NOT this received-DATA
+        // forward, so it is unaffected. Belt-and-suspenders to the sender-side next_hop_selectable gate (Edit 3).
+        if (_cfg.is_gateway && !_cfg.intra_layer_relay) {
+            MR_EMIT("gateway_intra_relay_drop", EF_I("dst", pa.dst), EF_I("origin", pa.origin));
+            become_free();
+            return;
+        }
         // C.2 cache-on-pass: a relayed hash-bind answer is cleartext -> snoop the binding before forwarding.
         if (pa.type == DATA_TYPE_H_ANSWER || pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER)
             on_hash_bind_snoop(pa.inner, pa.inner_len, pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER);

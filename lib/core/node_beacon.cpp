@@ -441,12 +441,22 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (b.leaf_id != _cfg.leaf_id) return;                // single-layer nibble filter (R1) — coarse leaf match first
     // R6.1 leaf-config membership filter (§3.3): same nibble is NOT enough — refuse to peer across a config divergence
     // (the misconfig gate). Compares the advertised lineage/epoch/config_hash against ours.
-    if (b.config_hash != 0) {                             // config_hash==0 = NO fingerprint advertised (unprovisioned/pre-R6.1
+    // §GW (metal 2026-07-05): a GATEWAY is exempt from the R6.1 leaf-config membership plane in BOTH directions —
+    //   (A) a gateway (is_gateway ≡ n_layers==2) is NOT a member of any leaf-config plane (it bridges multiple
+    //       leaves/lineages) -> skip the whole filter; peer by nibble, never adopt a lineage or fire a config-pull
+    //       (the metal bug: an unmanaged gateway hearing a MANAGED leaf adopted its lineage + fired a stray REQ_SYNC).
+    //       ⚠ This also skips the same-lineage epoch reconcile below — correct for TODAY's explicit-config (lineage-0)
+    //       gateway; revisit if a future join_as_gateway ever makes a gateway a MANAGED member on one of its layers.
+    //   (B) a NON-gateway hearing a GATEWAY neighbour (b.self_gateway) must NOT refuse it: a gateway's lineage/config
+    //       never matches ours, so peer by nibble (fall through to route-learning), else members can't route to/from it.
+    if (b.config_hash != 0 && !_cfg.is_gateway) {         // config_hash==0 = NO fingerprint advertised (unprovisioned/pre-R6.1
                                                           // peer; BLAKE2b never yields 0, so a real configured node always
                                                           // advertises non-zero) -> peer by leaf nibble (legacy), no config gate.
         const uint16_t my_lineage = _cfg.lineage_id;
         const uint16_t my_hash    = cfg_config_hash();
-        if (my_lineage == 0 && b.lineage_id == 0) {       // BOTH UNMANAGED -> legacy: peer iff config matches (§6.2 backward-compat)
+        if (b.self_gateway) {
+            // (B) leaf-side: peer with a gateway neighbour by nibble — empty body, fall through to route-learning.
+        } else if (my_lineage == 0 && b.lineage_id == 0) {   // BOTH UNMANAGED -> legacy: peer iff config matches (§6.2 backward-compat)
             if (b.config_hash != my_hash) {
                 MR_EMIT("leaf_config_conflict", EF_I("src", b.src), EF_I("their_hash", static_cast<int64_t>(b.config_hash)),
                         EF_I("my_hash", static_cast<int64_t>(my_hash)));

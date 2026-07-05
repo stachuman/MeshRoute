@@ -214,6 +214,7 @@ public:
     // next TX (start_transmit only sets them if the per-frame override >0, which it isn't), so DATA on this layer flies
     // on this BW/CR. DeviceHal also updates its _def_bw/_def_cr so the airtime debit matches (charge==transmit).
     void set_rx_bw(uint32_t bw_hz) override {
+        if (g_mr_trace_on) { Serial.print(F("↻ rx-bw → ")); Serial.print(static_cast<float>(bw_hz) / 1000.0f, 1); Serial.print(F("kHz  t=")); Serial.print(millis()); Serial.println(F("ms")); }   // GATED
         _radio.standby();
         _radio.setBandwidth(static_cast<float>(bw_hz) / 1000.0f);                  // RadioLib wants kHz
         g_dio1_fired = false;
@@ -221,6 +222,7 @@ public:
         _pre_seen = false;
     }
     void set_rx_cr(uint8_t cr) override {
+        if (g_mr_trace_on) { Serial.print(F("↻ rx-cr → 4/")); Serial.print((int)cr); Serial.print(F("  t=")); Serial.print(millis()); Serial.println(F("ms")); }   // GATED
         _radio.standby();
         _radio.setCodingRate(cr);
         g_dio1_fired = false;

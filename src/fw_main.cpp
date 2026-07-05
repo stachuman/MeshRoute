@@ -245,14 +245,15 @@ static void dump_cfg() {
     mrcon.print(F("  radio : freq="));    mrcon.print(g_freq_mhz, 4);
     mrcon.print(F(" routing_sf="));       mrcon.print(c.routing_sf);
     mrcon.print(F(" sf_list="));          print_sf_list(c.allowed_sf_bitmap);
-    mrcon.print(F(" bw="));               mrcon.print(c.radio_bw_hz);
-    mrcon.print(F(" cr="));               mrcon.print(c.radio_cr);
+    mrcon.print(F(" bw="));               mrcon.print(g_node.active_bw_hz());   // the ACTIVE leaf's BW (a gateway alternates per window; single-layer == the global)
+    mrcon.print(F(" cr="));               mrcon.print((int)g_node.active_cr());
     mrcon.print(F(" tx_power="));         mrcon.println((int)g_tx_power);
     mrcon.print(F("  proto : duty="));    mrcon.print(c.duty_cycle, 3);
     mrcon.print(F(" beacon_ms="));        mrcon.print(c.beacon_period_ms);
     mrcon.print(F(" hop_cap="));          mrcon.print(c.dv_hop_cap);
     mrcon.print(F(" lbt="));              mrcon.print(c.lbt_enabled ? 1 : 0);
     mrcon.print(F(" nav="));              mrcon.print(c.nav_enabled ? 1 : 0);
+    mrcon.print(F(" intra_relay="));      mrcon.print(c.intra_layer_relay ? 1 : 0);   // §gateway: relay same-leaf DMs? (default OFF)
     mrcon.print(F(" nav_ignore="));       mrcon.println(c.nav_ignore_rts ? 1 : 0);
     mrcon.print(F("  aspam : active_fraction=")); mrcon.print(c.channel_active_fraction, 3);   // anti-spam v2 promoted knobs (in the config_hash)
     mrcon.print(F(" ch_min_ms="));        mrcon.print(c.channel_min_interval_ms);
@@ -263,6 +264,10 @@ static void dump_cfg() {
     mrcon.print(F(" gateway="));          mrcon.print(c.is_gateway ? 1 : 0);
     mrcon.print(F(" gateway_only="));     mrcon.print(c.gateway_only ? 1 : 0);
     mrcon.print(F(" mobile="));           mrcon.println(c.is_mobile ? 1 : 0);
+    mrcon.print(F("  member: lineage_id=")); mrcon.print(c.lineage_id);          // R6.1 leaf-config membership: 0 = UNMANAGED. A managed leaf (lineage!=0) only routes same-lineage peers -> a lineage-0 gateway is silently dropped (node_beacon.cpp:462). This is the field to compare across nodes.
+    mrcon.print(F(" config_epoch="));     mrcon.print(c.config_epoch);
+    if (c.leaf_name_len) { mrcon.print(F(" leaf_name=\"")); for (uint8_t i = 0; i < c.leaf_name_len; ++i) mrcon.print(c.leaf_name[i]); mrcon.print(F("\"")); }
+    mrcon.println();
     mrcon.print(F("  ble   : ble_mode=")); mrcon.print(g_ble_mode == 0 ? F("off") : g_ble_mode == 1 ? F("on") : F("periodic"));
     mrcon.print(F(" ble_period="));       mrcon.print(g_ble_period_min);
     mrcon.print(F(" ble_pin="));          mrcon.println(g_ble_pin);
@@ -281,6 +286,8 @@ static void dump_cfg() {
             mrcon.print(F(" layer_id="));    mrcon.print(L.layer_id);
             mrcon.print(F(" routing_sf="));  mrcon.print(L.routing_sf);
             mrcon.print(F(" sf_list="));     print_sf_list(L.allowed_sf_bitmap);
+            mrcon.print(F(" bw="));          mrcon.print(L.bw_hz > 0 ? L.bw_hz : c.radio_bw_hz);   // per-layer BW (0 = inherit -> the effective/global)
+            mrcon.print(F(" cr="));          mrcon.print((int)(L.cr > 0 ? L.cr : c.radio_cr));
             mrcon.print(F(" beacon_ms="));   mrcon.print(L.beacon_period_ms);
             mrcon.print(F(" window_period_ms=")); mrcon.print(L.window_period_ms);
             mrcon.print(F(" window_ms="));   mrcon.print(L.window_ms);
@@ -535,6 +542,7 @@ static void handle_cfg_set(const char* args) {
                                            if (b.lineage_id) b.config_epoch = (uint16_t)(b.config_epoch >= 65534 ? 65534 : b.config_epoch + 1); }   // R6.3 §4.1: managed leaf-field write bumps epoch; saturate (u16 wrap -> permanent de-sync)
     // --- nav/hop tuning: LIVE-only (good defaults; reboot reverts) ---
     else if (!strcmp(key, "nav"))        { lc.nav_enabled    = atoi(val) != 0; persist = false; }
+    else if (!strcmp(key, "intra_layer_relay")) { lc.intra_layer_relay = (atoi(val) != 0 || !strcmp(val, "on")); persist = false; }   // §gateway: LIVE-only (default OFF is the fix)
     else if (!strcmp(key, "nav_ignore")) { lc.nav_ignore_rts = atoi(val) != 0; persist = false; }
     else if (!strcmp(key, "hop_cap"))    { lc.dv_hop_cap = (uint8_t)atoi(val); persist = false; }
     // --- location piggyback: LIVE via mutable_config() + PERSISTED (NV v9). The lat/lon are set via `cfg set lat`/`lon` (-> /mrid). ---
@@ -1107,7 +1115,7 @@ static void dump_help() {
     hl(F("[help] testsched:  testsend <dst> <run> [-a] [-e] -t ms1,ms2,… | testch <ch> <run> -t ms1,ms2,… | teststatus | testclear   (on-node scheduled workload, fires over the radio; arm once, read the inbox later)"));
     hl(F("[help] test:       route add <dest> <next_hop> <hops> [score_q4] | route del <dest>   (force/drop a route to stress routing)"));
     hl(F("[help] reset:      factory_reset confirm   (WIPE all flash — config + identity + peers + inbox — and reboot to factory)"));
-    hl(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack active_fraction ch_min_ms dm_min_ms leaf_name   (bool keys take on|off; active_fraction=0..1, ch_min_ms/dm_min_ms in ms; `name`=node identity, `leaf_name`=the managed leaf's name [bumps epoch]; identity via regen)"));
+    hl(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore intra_layer_relay hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack active_fraction ch_min_ms dm_min_ms leaf_name   (bool keys take on|off; active_fraction=0..1, ch_min_ms/dm_min_ms in ms; `name`=node identity, `leaf_name`=the managed leaf's name [bumps epoch]; identity via regen)"));
     hl(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
     hl(F("[help] provision:  create layer= freq= bw= sf= sf_list= duty= name=\"<n>\" [active_fraction=] [ch_min_ms=] [dm_min_ms=] | join layer= freq= bw= sf= | leave   (key=value, order-free; LIVE no reboot: mint a managed leaf [mother] / join a net / reset+keep freq. layer=1..255 network id [leaf = layer & 0x0F]; anti-spam opts default when omitted; rename a leaf via `cfg set leaf_name`)"));
     hl(F("[help] gateway:    gateway l0=<layer>:<node>:<ctrl_sf>:<data_sfs> l1=<layer>:<node>:<ctrl_sf>:<data_sfs> [period=ms] [win0=ms:off] [win1=ms:off] [beacon=ms] [freq0=MHz] [freq1=MHz] [bw0=kHz] [bw1=kHz] [cr0=5..8] [cr1=5..8] [gateway_only=0|1]   (layer=1..255; leaf nibbles [layer & 0x0F] must differ; bw per-layer in kHz [fractional ok, e.g. 62.5], cr per-layer 5..8, 0/omitted=inherit)"));
