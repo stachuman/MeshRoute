@@ -14,11 +14,16 @@ lus is faithful to lib/core *logic* (real frame_codec, distance-RF, airtime) but
 ## ★ Non-negotiable invariant
 **No existing scenario changes behavior.** s18 stays byte-identical (240119/1149/0); s09/s10/s15/s16 delivery baselines unchanged. Both fixes are **additive + default-off**: a flag that defaults to the current value, and *new* scenario files (never edits to the existing ones).
 
-## Fix 1a — configurable RX-window slop (`~/lora-universal-simulator`)
-Make `simRxWindowSlopMs` return the **bench-measured metal slop** when a scenario opts in; **default 0** (unchanged).
-- **Config:** add a `simulation` block field, e.g. `"rx_window_slop": "metal"` (default `"idealized"` / absent → 0). Plumb it into `FirmwareNode` (via `SimController`/`SimConfig`, the same path `simAirtimeUsedMs`/positions use).
-- **FirmwareNode.cpp:205** — when the flag is `metal`, return the **device formula** (mirror `lib/hal/device_hal.h:39`): `((1u << sf) * 1000u) / bw + 1 + 50`, using the node's configured bandwidth. If wiring `bw` into `FirmwareNode` is awkward, a **fixed `53`** is acceptable (the `+50` reconfig/safety term dominates and is what the CTS-wait needs) — but the formula is preferred for fidelity. Default path unchanged (`return 0`).
-- Result: with `rx_window_slop: metal`, `start_rts_timeout`'s window must clear the real CTS latency — exactly the margin the CTS-wait fix added.
+## Fix 1a — configurable RX-window slop (`~/lora-universal-simulator`) — ALREADY PARTLY DONE, but bw is FROZEN
+A metal-slop mode already exists (FirmwareNode.cpp:216: `if (_rx_window_slop_metal && _node_bw_hz > 0) return ((1<<sf)*1000)/_node_bw_hz + 1 + 50;`, default `return 0`). ✅ the flag + the device formula are correct. **The bug: `_node_bw_hz` is set ONCE from `_sim_bw_hz` (FirmwareNode.cpp:52) and NEVER updated** — so on a GATEWAY it does not follow the per-layer 62.5↔125 kHz switching, and the slop is wrong on one layer. The device's `_def_bw` is updated by `set_rx_bw` on every window switch; the sim treats `set_rx_bw` as a **no-op** (iradio.h:55 default, not overridden). **NOT `#53` hardcoded, but effectively frozen-per-node — same defect for a gateway.**
+
+**Edit — make the sim track the ACTIVE-layer bw, mirroring the device `_def_bw`:**
+- **Override `set_rx_bw(bw_hz)`** in the sim's HAL/radio so it **updates `_node_bw_hz`** (exactly as `device_radio.h:216` updates `_def_bw`). Then `simRxWindowSlopMs` reads the current per-layer bw, not the frozen config value. Single-layer nodes are unaffected (one `set_rx_bw`, or none → the `_sim_bw_hz` seed stands).
+- **Seed `_node_bw_hz` = the node's layer-0 bw** at init (already via `_sim_bw_hz`) so it's correct before the first switch.
+- Keep the default path (`return 0`) so idealized scenarios stay byte-identical.
+- Result: a metal gateway scenario computes the slop from whichever layer's bw is active — so `start_rts_timeout`'s window is checked against the *correct* per-layer CTS latency (the narrow-BW layer being the one that exposed the bug).
+
+✅ **Path verified — the fix is a clean 1-liner.** The Node already calls `_hal.set_rx_bw(active_bw_hz())` on every window switch (node.cpp:424), so the per-layer bw signal *arrives* at the sim; `FirmwareNode` simply doesn't override `set_rx_bw`, so it hits the `iradio.h:55` no-op default and is dropped. The edit is just: add `void set_rx_bw(uint32_t bw_hz) override { _node_bw_hz = static_cast<int>(bw_hz); }` to `FirmwareNode` (mirror `device_radio.h:216`). No deeper wiring.
 
 ## Fix 1b — realistic-id cross-layer scenario variants (`~/MeshRoute/simulation`)
 **New files** (do NOT edit s09/s15): `s09_two_layer_gateway_metal.json`, `s15_three_layer_metal.json` (+ s16 if cheap). Clone the existing scenario, then:

@@ -7,6 +7,7 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 **Conventions**
 - Byte 0's **high nibble (bits 7..4) is the command nibble (`cmd`)** that identifies the frame; the low nibble (bits 3..0) usually carries `leaf_id` (layer id, 0..15).
 - Node ids are 8-bit short-ids. Reserved allocation: **`0`** = unprovisioned / no-use · **`1`–`16`** = GATEWAYS only (statically provisioned) · **`17`–`254`** = normal nodes (auto-assigned via DAD) · **`0xFF`** = unknown / broadcast sentinel. The reservation is enforced at pick time — `join_choose_candidate_id` scans `17..254` and never re-prefers a legacy `1..16` id (R6.3/G1).
+- **Mobile last-mile addressing [PLANNED — mobile-node feature].** A mobile uses a **home-assigned LOCAL id** (not a DAD'd global id), which may collide with some normal node's global id — so a last-mile frame carrying that local id in a *receiver* field self-describes with a **mobile mark**: **`addr_len = 1`** on **RTS** & **DATA** (the `next` is a local id), a **rsv bit** on **ACK** (the `to` is a local id), and **CTS by context** (no spare bit — see CTS). Not yet in `parse_*`. See `docs/superpowers/specs/2026-07-07-mobile-node-handling-assumptions.md` §13/§14.
 - **`wire_version`** (a 4-bit cross-version handshake, currently `1`) rides two frames: **BCN** byte 3 (b3..0) and **J** byte 1 (b3..0). A neighbour whose `wire_version` differs is not interoperated with (no cross-version join; a `join_refused{wire_version}` push is rate-limited).
 - Multi-byte integers are **little-endian** unless marked **BE**.
 - `rsv` = reserved (zero on pack, ignored on parse).
@@ -71,25 +72,29 @@ Fixed **8-byte header + 6-byte leaf-config header (14 B, always present)**, then
 
 **Use** — reserve the single TX slot with the chosen `next` hop before DATA (after listen-before-talk + a budget check). **Reply** — **CTS** to proceed, or **NACK** if refused. The M_BROADCAST variant (channel re-broadcast) expects *no* CTS — overhearers retune to the data SF to catch the DATA. The **FLOOD** variant (channel-flood primary path) likewise expects no CTS, and carries a 4-B flood id + 32-B coverage bitmap (see below).
 
-| Byte | Field | Description |
-|------|-------|-------------|
-| 0 | cmd \| leaf_id | bits 7..4 = `0x1`; bits 3..0 = leaf_id |
-| 1 | src | immediate sender (the requester; for a FLOOD, the relaying forwarder — changes each hop) |
-| 2 | next | next-hop being requested (**FLOOD: `0xFF`** broadcast) |
-| 3 | ctr_lo \| addr_len | b7..4 = ctr_lo · b3..1 = addr_len (0 only, today) · b0 rsv |
-| 4 | dst | final destination (**FLOOD: `hop_left`** TTL cap, decremented each forward) |
-| 5 | sf_index \| rts_flags | b7..6 = sf_index · b5..2 = rts_flags · b1..0 rsv |
-| 6 | payload_len | length of the DATA(-M) payload to follow (wraps mod-256) |
-| 7..8 | m_payload_id | **BE**, present **iff** `M_BROADCAST` **without** `FLOOD` |
-| 7..10 | channel_msg_id | **BE**, present **iff** `FLOOD` — the immutable flood id |
-| 11..42 | coverage bitmap | present **iff** `FLOOD` — 32 B (256 bits): bit `id` = node `id` already covered in this leaf (byte `id/8`, mask `1<<(id%8)`); OR'd-in at each hop |
+| Byte   | Field                 | Description                                                                                                                                       |
+| ------ | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0      | cmd \| leaf_id        | bits 7..4 = `0x1`; bits 3..0 = leaf_id                                                                                                            |
+| 1      | src                   | immediate sender (the requester; for a FLOOD, the relaying forwarder — changes each hop)                                                          |
+| 2      | next                  | next-hop being requested (**FLOOD: `0xFF`** broadcast)                                                                                            |
+| 3      | ctr_lo \| addr_len    | b7..4 = ctr_lo · b3..1 = addr_len (`0` = normal; **`1` = mobile-addressed** — `next` is a LOCAL id, PLANNED) · b0 rsv                             |
+| 4      | dst                   | final destination (**FLOOD: `hop_left`** TTL cap, decremented each forward)                                                                       |
+| 5      | sf_index \| rts_flags | b7..6 = sf_index · b5..2 = rts_flags · b1..0 rsv                                                                                                  |
+| 6      | payload_len           | length of the DATA(-M) payload to follow (wraps mod-256)                                                                                          |
+| 7..8   | m_payload_id          | **BE**, present **iff** `M_BROADCAST` **without** `FLOOD`                                                                                         |
+| 7..10  | channel_msg_id        | **BE**, present **iff** `FLOOD` — the immutable flood id                                                                                          |
+| 11..42 | coverage bitmap       | present **iff** `FLOOD` — 32 B (256 bits): bit `id` = node `id` already covered in this leaf (byte `id/8`, mask `1<<(id%8)`); OR'd-in at each hop |
 
 **sf_index:** 0..2 = singleton index into `allowed_data_sfs`; 3 = ANY (receiver picks data SF by SNR). A FLOOD pins `sf_index` to the sender's `max_data_sf` (every flood DATA-M rides the largest allowed SF).
 **rts_flags:** `M_BROADCAST = 0x01`, `RELAY = 0x02`, `FLOOD = 0x04`, `E2E_ACK = 0x08` (the constant values; positioned at byte-5 bits 2 (0x04), 3 (0x08), 4 (0x10), 5 (0x20) after the `<<2` shift).
 
+**★ Flag space (RTS is out of nibble):** the 4-bit `rts_flags` nibble is **FULL** — all four bits are allocated (`E2E_ACK` took the last one). The remaining free wire bits in RTS are the **`rsv` bits**: **byte 5 b1..0 (2 bits)** and **byte 3 b0 (1 bit)** — packed `0`, ignored on parse (`pack_rts`/`parse_rts`), so a new node can claim one **backward-compatibly** (old senders send 0, old receivers ignore — the `E2E_ACK` precedent, no flag-day). `addr_len` (byte 3 b3..1) is earmarked for alternate addressing — `parse_rts` **rejects** `addr_len != 0` today; the **mobile-node** feature claims **`addr_len = 1` = mobile-addressed** (the `next` is a home-assigned LOCAL id — see Conventions), leaving `2..7` for the deferred hierarchy. Beyond those 3 `rsv` bits, a new RTS flag means widening the frame.
+
 **`E2E_ACK = 0x08`** — an originator hint that the pending DATA is a `DATA_TYPE_E2E_ACK`. The 1st-hop neighbour's airtime backstop drops an over-budget sender's RTS *before* the DATA type is known; this bit lets the backstop **exempt an e2e-ack from the DROP** (throttling an ack is self-defeating — the sender never learns delivery and re-sends, creating the very traffic the throttle meant to suppress). The RTS is still **observed** (honest airtime metric — no bypass) and the hard duty-cycle limit still binds the sender's own ack originations. **Anti-spoof:** the relay verifies at DATA-time that the frame really is a `DATA_TYPE_E2E_ACK`; if not, the sender is flagged (`e2e_ack_spoof`) and its `E2E_ACK` bit is **ignored** for one originator window (the backstop re-applies). Backward-compatible — the 4th free bit of the nibble; old nodes ignore it (no flag-day) and simply keep applying the backstop.
 
 **FLOOD (`M_BROADCAST | FLOOD`, 43 B)** — the channel-flood primary path (managed flood; the BCN digest + `Q:CHANNEL_PULL` are the repair backstop). It sets **both** flags: `M_BROADCAST` reuses the overhear-retune (receivers retune to the data SF to catch the DATA-M), `FLOOD` selects the 43-B tail and the bitmap-suppressed forward. The 4-B `channel_msg_id` + 32-B coverage bitmap replace the 2-B `m_payload_id` tail; `next` is the broadcast `0xFF` and the `dst` slot carries `hop_left`, so `pack_rts`/`parse_rts` keep the same byte positions and only the tail length branches on `FLOOD`. Forward rule: a receiver with an unmarked 1-hop neighbour re-floods (SNR-weighted backoff, OR-ing its own coverage into the bitmap and decrementing `hop_left`); all neighbours already marked → stay silent. The data-SF frame that follows is the lean **M frame** (cmd 0xA — see M), **not** a DATA frame; the RTS-M's `payload_len` carries that M frame's body length. **Leaf-scoped — never bridged across leaves.**
+
+**Mobile-originated M_BROADCAST [PLANNED — mobile-node feature].** When a **mobile** sends an M_BROADCAST (team-formation / team-broadcast), it self-marks the RTS-M as mobile-originated via a **rsv bit** (byte-5 b1..0 or byte-3 b0 — the `rts_flags` nibble is full). Effect: **static nodes do NOT re-flood it** (the relation-based transit rule — a mobile's broadcast is not the static backbone's load); only mobiles / the team relay it within the cluster, and the co-located team receives it in one shot. See `docs/superpowers/specs/2026-07-07-mobile-node-handling-assumptions.md` §8/§12.
 
 ---
 
@@ -106,6 +111,8 @@ Fixed **8-byte header + 6-byte leaf-config header (14 B, always present)**, then
 
 `chosen_data_sf` in 5..12. `already_received` short-circuits a resend whose ACK was lost. No `ctr_lo`: `tx_id + rx_id` pin the flight under single-slot stop-and-wait, and `tx_id` disambiguates cascade alternates. The 4th byte is omitted (3-B CTS) when NAV is off or no length is attached; `parse_cts` accepts 3 **or** 4 bytes.
 
+**Mobile last-mile — no mark, by design [PLANNED].** The CTS flags nibble is **full** (`(sf−5)` + `already_received`), so a CTS whose `rx_id` is a mobile's LOCAL id carries **no** mobile mark. It doesn't need one: the only node that could mis-fire on it is a home_node neighbour with a live flight, which almost always heard the **marked RTS** (`addr_len=1`) that opened the exchange and so knows local-id X is a mobile; the residual (a *hidden* colliding node with a coincident pending TX) costs at most a collision + retry, **never a mis-delivery**. See Conventions.
+
 ---
 
 ## DATA — data plane · cmd 0x3 · 12+ B
@@ -114,7 +121,7 @@ Fixed **8-byte header + 6-byte leaf-config header (14 B, always present)**, then
 
 | Byte   | Field                            | Description                                                                                   |
 | ------ | -------------------------------- | --------------------------------------------------------------------------------------------- |
-| 0      | cmd \| addr_len                  | bits 7..4 = `0x3`; b3..1 = addr_len (0 this phase); b0 rsv                                    |
+| 0      | cmd \| addr_len                  | bits 7..4 = `0x3`; b3..1 = addr_len (`0` = normal; **`1` = mobile-addressed**, `next` is a LOCAL id — PLANNED); b0 rsv       |
 | 1      | flags                            | full byte (see **flags**) — `APP` gates a TYPE byte                                            |
 | 2      | next                             | next-hop short-id                                                                             |
 | 3      | dst                              | final destination short-id                                                                    |
@@ -153,6 +160,8 @@ Bytes 2..7 are the **fixed routing header** (`DATA_HDR_LEN = 8`) — relays read
 | 7    | `REMOTE_RESP`                         | OTA remote-diagnostics: the response text (plaintext inner)          |
 
 *(code 0 = invalid — `APP=0` means no TYPE byte.)*
+
+**[PLANNED — mobile-node feature]** a **`TEAM_ANNOUNCE`** TYPE (code TBD) carries a **team-id** in `body` for self-asserted-proximity team formation, sent via a mobile-originated M_BROADCAST (see RTS). Co-located mobiles adopt the team-id. See mobile design §12.
 
 ### Inner layouts
 
@@ -206,7 +215,7 @@ Path size = `2 + n_layers` B. *(The ids are full 8-bit bytes — **not** nibble-
 | Byte | Field | Description |
 |------|-------|-------------|
 | 0 | cmd \| ctr_lo | bits 7..4 = `0x4`; bits 3..0 = ctr_lo |
-| 1 | budget_hint \| snr_bucket \| warn | b7..6 = budget_hint (2-bit) · b5..4 = snr_bucket (2-bit) · b3..1 rsv · b0 = `AIRTIME_WARN` |
+| 1 | budget_hint \| snr_bucket \| warn | b7..6 = budget_hint (2-bit) · b5..4 = snr_bucket (2-bit) · b3..1 rsv (**one bit = mobile mark** when `to` is a LOCAL id, PLANNED) · b0 = `AIRTIME_WARN` |
 | 2 | to | addressed recipient node_id |
 
 `ctr_lo` is retained (unlike CTS): the long ACK window with no sender field needs it to reject stale ACKs.
@@ -310,6 +319,8 @@ Shared 2-byte header; body and length depend on opcode. All multi-byte fields **
 DENY **reason:** `1 = CONFLICT`, `2 = PENDING_CLAIM`, `3 = OWN_ID_DEFENSE`, `4 = MEDIATED` (a third-party shared-neighbour heal).
 
 **node_id assignment is Duplicate-Address-Detection (DAD), not OTAA:** a node listens, picks a free id (excluding every id in `id_bind` + the routing table, and the gateway band 1–16), broadcasts a **CLAIM**, and adopts it after a guard window unless **DENY**'d; a same-id collision heals by one side renumbering. **Tiebreak is `key_hash32`-only — lower key wins/keeps, higher yields** (`claim_epoch`/`lease_age_seconds` are carried but reserved/telemetry, not consulted). `DISCOVER`/`OFFER` are deferred (the listen + CLAIM/heal core is what's used). See `docs/specs/2026-06-05-node-id-auto-assignment-design.md`.
+
+**Mobile registration [PLANNED — mobile-node feature].** A mobile REUSES this family with `is_mobile` set, **activating the deferred DISCOVER/OFFER** for active discovery: its DISCOVER is **leaf-exempt** (processed by any node on the freq/sf/bw, not just the same `leaf_id`); willing hosts reply with a mobile OFFER carrying a **LOCAL `proposed_mobile_id`** (from the host's local pool — Option B; a small OFFER wire-add), with SNR-weighted backoff + suppression to tame the response storm; the mobile CLAIMs the strongest, **adopts the offer's `leaf_id`**, and learns gateways from the host's BCN. Local ids need no global DAD and live in a separate id-space (see the mobile mark, Conventions). See `docs/superpowers/specs/2026-07-07-mobile-node-handling-assumptions.md` §13.
 
 ---
 
