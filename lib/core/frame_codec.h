@@ -179,8 +179,8 @@ std::optional<cts_out> parse_cts(std::span<const uint8_t> frame);
 // snr_q4 -> bucket mapping is protocol-layer (wired when ACK is used at R3).
 // warn (DM Inc 3): "you're near my airtime cap" — rides the byte1 rsv nibble, NO size change. The C++
 // cmd-nibble has the room the Lua ACK lacked, so the Lua GREW to 4 B while this stays 3 B.
-struct ack_in  { uint8_t ctr_lo; uint8_t budget_hint; uint8_t snr_bucket; uint8_t to; bool warn = false; };
-struct ack_out { uint8_t ctr_lo; uint8_t budget_hint; uint8_t snr_bucket; uint8_t to; bool warn = false; };
+struct ack_in  { uint8_t ctr_lo; uint8_t budget_hint; uint8_t snr_bucket; uint8_t to; bool warn = false; bool mobile_to = false; };  // §mobile Slice 1: mobile_to (byte-1 b1) — the `to` is a mobile local-id
+struct ack_out { uint8_t ctr_lo; uint8_t budget_hint; uint8_t snr_bucket; uint8_t to; bool warn = false; bool mobile_to = false; };
 size_t pack_ack(const ack_in& in, std::span<uint8_t> out);
 std::optional<ack_out> parse_ack(std::span<const uint8_t> frame);
 
@@ -190,9 +190,9 @@ std::optional<ack_out> parse_ack(std::span<const uint8_t> frame);
 //   byte 0 : cmd=0x1(7..4) | leaf_id(3..0)
 //   byte 1 : src
 //   byte 2 : next
-//   byte 3 : ctr_lo(7..4) | addr_len(3..1) | rsv(0)        [addr_len=0 only today]
+//   byte 3 : ctr_lo(7..4) | addr_len(3..1) | rsv(0)        [addr_len 0=normal, 1=mobile-next; 2..7 hierarchy-deferred]
 //   byte 4 : dst
-//   byte 5 : sf_index(7..6) | rts_flags(5..2) | rsv(1..0)
+//   byte 5 : sf_index(7..6) | rts_flags(5..2) | MOBILE(1) | rsv(0)   [MOBILE b1: src is a mobile local-id §mobile Slice 1]
 //            READING A (§10.3 wording is ambiguous; we pin flags to bits 5..2):
 //            within byte 5, M_BROADCAST -> bit 2 (0x04), RELAY -> bit 3 (0x08).
 //            rts_flags nibble values: 0x01=M_BROADCAST, 0x02=RELAY, 0x04=FLOOD, 0x08=E2E_ACK.
@@ -200,7 +200,7 @@ std::optional<ack_out> parse_ack(std::span<const uint8_t> frame);
 //   bytes 7-8 : id_lo16 (BE)  — present iff (rts_flags & RTS_FLAG_M_BROADCAST) without FLOOD
 // sf_index: 0..2 = singleton into allowed_data_sfs; 3 = ANY (receiver picks by SNR).
 // Contract: all fields MASK/wrap (no clamp); payload_len wraps; parse rejects
-// addr_len != 0 (hierarchy deferred).
+// addr_len > 1 (0=normal, 1=mobile-next §mobile Slice 1; 2..7 hierarchy-deferred).
 //
 // FLOOD RTS-M (channel-flood, 2026-06-08 redesign) — sets BOTH M_BROADCAST|FLOOD; 43 B total.
 // The FLOOD tail REPLACES the 2-B id_lo16 tail (flood is checked first):
@@ -218,9 +218,13 @@ struct rts_in {
     uint16_t m_payload_id_lo16 = 0;        // appended (BE) iff M_BROADCAST and NOT FLOOD
     uint32_t flood_channel_msg_id = 0;     // FLOOD tail: channel_msg_id (BE, bytes 7-10)
     std::span<const uint8_t> flood_bitmap = {};   // FLOOD tail: exactly 32 B (bytes 11-42); pack->0 if FLOOD and size != 32
+    // §mobile Slice 1 fields at struct END so existing positional aggregate-inits (rts_in{…,m_payload_id}) are unaffected:
+    uint8_t  addr_len = 0;                 // 0=normal, 1=mobile-next (`next` is a local id); 2..7 reserved (hierarchy)
+    bool     mobile_src = false;           // MOBILE mark — src is a mobile local-id / mobile-originated (byte-5 b1)
 };
 struct rts_out {
     uint8_t  leaf_id; uint8_t src; uint8_t next; uint8_t ctr_lo; uint8_t addr_len;
+    bool     mobile_src = false;           // §mobile Slice 1: MOBILE mark (byte-5 b1) — src is a mobile local-id
     uint8_t  dst; uint8_t sf_index; uint8_t rts_flags; uint8_t payload_len;
     bool     m_broadcast; uint16_t m_payload_id_lo16;
     bool     flood = false;                // rts_flags & RTS_FLAG_FLOOD (43-B tail present)

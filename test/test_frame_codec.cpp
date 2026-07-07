@@ -197,9 +197,9 @@ TEST_CASE("RTS — golden hex (§10.3, byte-5 reading A)") {
     for (int i = 0; i < 9; ++i) CHECK(buf[i] == ex3[i]);
 }
 
-TEST_CASE("RTS — rejects addr_len != 0 and wrong cmd / short frame") {
-    std::array<uint8_t, 7> f{0x12, 0x0A, 0x0B, uint8_t(0x50 | (1 << 1)), 0x0C, 0xC0, 0x14};
-    CHECK_FALSE(parse_rts(f).has_value());                 // addr_len = 1
+TEST_CASE("RTS — rejects addr_len > 1 and wrong cmd / short frame") {
+    std::array<uint8_t, 7> f{0x12, 0x0A, 0x0B, uint8_t(0x50 | (2 << 1)), 0x0C, 0xC0, 0x14};
+    CHECK_FALSE(parse_rts(f).has_value());                 // addr_len = 2 (0/1 valid §mobile Slice 1; 2..7 hierarchy-deferred)
     std::array<uint8_t, 4> nack{};
     CHECK(pack_nack({0, 0, 0, 0}, nack) == 4);
     CHECK_FALSE(parse_rts(nack).has_value());              // len < 7 (and wrong cmd)
@@ -1095,8 +1095,8 @@ TEST_CASE("DATA — reject: wrong cmd / <12 / addr_len!=0 / bad span sizes; 12-B
 
     std::array<uint8_t, 15> al{};
     for (int i = 0; i < 15; ++i) al[i] = buf[i];
-    al[0] = static_cast<uint8_t>(al[0] | 0x02);   // addr_len=1 in byte0 bits 3..1
-    CHECK_FALSE(parse_data(al).has_value());                                   // addr_len != 0
+    al[0] = static_cast<uint8_t>(al[0] | 0x04);   // addr_len=2 in byte0 bits 3..1
+    CHECK_FALSE(parse_data(al).has_value());                                   // addr_len > 1 (0/1 valid §mobile Slice 1; 2..7 deferred)
     std::array<uint8_t, 15> al7{};
     for (int i = 0; i < 15; ++i) al7[i] = buf[i];
     al7[0] = static_cast<uint8_t>(wire::cmd_byte(wire::Cmd::D, 0) | (0x07 << 1));  // addr_len=7
@@ -1116,8 +1116,8 @@ TEST_CASE("DATA — reject: wrong cmd / <12 / addr_len!=0 / bad span sizes; 12-B
     CHECK(mo.has_value());
     if (mo) { CHECK(mo->inner_len == 0); CHECK(data_inner(mbuf, *mo).empty()); }
 
-    data_in bad_al = in; bad_al.addr_len = 1;
-    CHECK(pack_data(bad_al, buf) == 0);                                        // addr_len != 0
+    data_in bad_al = in; bad_al.addr_len = 2;
+    CHECK(pack_data(bad_al, buf) == 0);                                        // addr_len > 1 (0/1 valid §mobile Slice 1; 2..7 deferred)
     std::array<uint8_t, 3> mac3{};
     data_in bad_mac = in; bad_mac.mac = mac3;
     CHECK(pack_data(bad_mac, buf) == 0);                                       // mac size 3 != 4
@@ -1774,4 +1774,60 @@ TEST_CASE("BCN — both new bits coexist; old-format (all-zero new bits) parses 
         CHECK(oe0.has_value());
         if (oe0) { CHECK_FALSE(oe0->degraded); CHECK(oe0->score_bucket == 0x7); }   // payload bits untouched by masking
     }
+}
+
+TEST_CASE("mobile marks — RTS/DATA addr_len + RTS/ACK MOBILE round-trip (Slice 1)") {
+    uint8_t buf[43];
+
+    // RTS: addr_len=1 (mobile-next) + mobile_src round-trips
+    rts_in ri{}; ri.leaf_id=4; ri.src=17; ri.next=42; ri.ctr_lo=3;
+    ri.dst=42; ri.sf_index=0; ri.rts_flags=0; ri.payload_len=10;
+    ri.addr_len=1; ri.mobile_src=true;
+    size_t n = pack_rts(ri, buf); CHECK(n == 7);
+    auto ro = parse_rts({buf, n});
+    CHECK(ro.has_value());
+    if (ro) { CHECK(ro->addr_len == 1); CHECK(ro->mobile_src == true);
+              CHECK(ro->src == 17); CHECK(ro->next == 42); }
+
+    // RTS marks default clear (backward-compat)
+    rts_in ri0{}; ri0.leaf_id=4; ri0.src=17; ri0.next=42; ri0.ctr_lo=3; ri0.dst=42; ri0.payload_len=1;
+    n = pack_rts(ri0, buf); CHECK(n == 7);
+    auto ro0 = parse_rts({buf, n});
+    CHECK(ro0.has_value());
+    if (ro0) { CHECK(ro0->addr_len == 0); CHECK(ro0->mobile_src == false); }
+
+    // addr_len=2 rejected: craft byte-3 with addr_len=2 in an otherwise-valid RTS -> parse nullopt
+    buf[0] = wire::cmd_byte(wire::Cmd::R, 4);
+    buf[1] = 17; buf[2] = 42;
+    buf[3] = static_cast<uint8_t>((3u << 4) | (2u << 1));   // ctr_lo=3 | addr_len=2
+    buf[4] = 42; buf[5] = 0; buf[6] = 1;
+    CHECK_FALSE(parse_rts({buf, 7}).has_value());
+
+    // ACK: mobile_to round-trips, and warn stays independent
+    ack_in ai{}; ai.ctr_lo=3; ai.budget_hint=1; ai.snr_bucket=2; ai.to=42; ai.warn=true; ai.mobile_to=true;
+    n = pack_ack(ai, buf); CHECK(n == 3);
+    auto ao = parse_ack({buf, n});
+    CHECK(ao.has_value());
+    if (ao) { CHECK(ao->mobile_to == true); CHECK(ao->warn == true); CHECK(ao->to == 42); }
+    // ACK mobile_to defaults clear
+    ack_in ai0{}; ai0.ctr_lo=3; ai0.to=42;
+    n = pack_ack(ai0, buf); CHECK(n == 3);
+    auto ao0 = parse_ack({buf, n});
+    CHECK(ao0.has_value());
+    if (ao0) { CHECK(ao0->mobile_to == false); }
+
+    // DATA: addr_len=1 (mobile-next) round-trips; addr_len=2 rejected at pack
+    const uint8_t inner[] = {0x07, 0xAA, 0xBB};
+    const uint8_t mac[]   = {0, 0, 0, 0};
+    data_in di{};
+    di.addr_len = 1; di.flags = 0; di.next = 0x0B; di.dst = 0x0C;
+    di.hops_remaining = 10; di.committed_hops = 2; di.prev_fwd_rt_hops = 3;
+    di.ctr = 0x1234; di.inner = inner; di.mac = mac;
+    std::array<uint8_t, 32> dbuf{};
+    size_t dn = pack_data(di, dbuf); CHECK(dn == 15);
+    auto dobj = parse_data({dbuf.data(), dn});
+    CHECK(dobj.has_value());
+    if (dobj) CHECK(dobj->addr_len == 1);
+    di.addr_len = 2;                                  // 2..7 hierarchy-deferred -> pack refuses
+    CHECK(pack_data(di, dbuf) == 0);
 }

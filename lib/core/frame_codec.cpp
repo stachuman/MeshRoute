@@ -361,7 +361,7 @@ size_t pack_ack(const ack_in& in, std::span<uint8_t> out) {
     // inherently 0..3 from the mapping, so its & 0x03 matches the Lua's no-op.
     const uint8_t bh = in.budget_hint > 3 ? 3 : in.budget_hint;
     w.u8(wire::cmd_byte(wire::Cmd::K, static_cast<uint8_t>(in.ctr_lo & 0x0F)));
-    w.u8(static_cast<uint8_t>((bh << 6) | ((in.snr_bucket & 0x03) << 4) | (in.warn ? 0x01 : 0)));  // bit0 = AIRTIME_WARN (Inc 3)
+    w.u8(static_cast<uint8_t>((bh << 6) | ((in.snr_bucket & 0x03) << 4) | (in.mobile_to ? 0x02 : 0) | (in.warn ? 0x01 : 0)));  // b1 MOBILE (to is a mobile local-id §mobile Slice 1) · b0 AIRTIME_WARN
     w.u8(in.to);
     return w.ok() ? w.size() : 0;
 }
@@ -380,6 +380,7 @@ std::optional<ack_out> parse_ack(std::span<const uint8_t> frame) {
     o.snr_bucket  = static_cast<uint8_t>((b1 >> 4) & 0x03);
     o.to          = to;
     o.warn        = (b1 & 0x01) != 0;   // DM Inc 3 airtime warn (byte1 rsv-nibble bit 0)
+    o.mobile_to   = (b1 & 0x02) != 0;   // §mobile Slice 1: MOBILE mark (byte-1 b1) — the `to` is a mobile local-id
     return o;
 }
 
@@ -392,14 +393,16 @@ size_t pack_rts(const rts_in& in, std::span<uint8_t> out) {
     if (flood && in.flood_bitmap.size() != 32) return 0;          // no-fallback: the 32-B bitmap must be exactly 32 B
     const size_t need = flood ? 43 : (m_bcast ? 9 : 7);
     if (out.size() < need) return 0;
+    if (in.addr_len > 1) return 0;                                 // §mobile Slice 1: 0=normal, 1=mobile-next; 2..7 hierarchy-deferred (keep the pack honest)
     wire::Writer w(out);
     w.u8(wire::cmd_byte(wire::Cmd::R, static_cast<uint8_t>(in.leaf_id & 0x0F)));
     w.u8(in.src);
     w.u8(in.next);
-    w.u8(static_cast<uint8_t>((in.ctr_lo & 0x0F) << 4));            // ctr_lo hi; addr_len=0, rsv=0
+    w.u8(static_cast<uint8_t>(((in.ctr_lo & 0x0F) << 4) | ((in.addr_len & 0x07) << 1)));  // ctr_lo hi | addr_len b3..1 (1=mobile-next) | rsv b0
     w.u8(in.dst);                                                  // FLOOD: hop_left rides this slot
     w.u8(static_cast<uint8_t>(((in.sf_index & 0x03) << 6) |        // reading A: sf_index 7..6,
-                              ((in.rts_flags & 0x0F) << 2)));      //            rts_flags 5..2, rsv 1..0
+                              ((in.rts_flags & 0x0F) << 2) |       //            rts_flags 5..2,
+                              (in.mobile_src ? 0x02 : 0)));        // §mobile: MOBILE b1 (src is a mobile local-id), rsv b0
     w.u8(in.payload_len);                                          // mod-256 enforced by uint8_t
     if (flood) { w.u32_be(in.flood_channel_msg_id); for (uint8_t b : in.flood_bitmap) w.u8(b); }  // 4 B id + 32 B bitmap
     else if (m_bcast) w.u16_be(in.m_payload_id_lo16);
@@ -422,9 +425,10 @@ std::optional<rts_out> parse_rts(std::span<const uint8_t> frame) {
     if (!r.ok()) return std::nullopt;
     o.ctr_lo   = static_cast<uint8_t>((b3 >> 4) & 0x0F);
     o.addr_len = static_cast<uint8_t>((b3 >> 1) & 0x07);
-    if (o.addr_len != 0) return std::nullopt;                      // hierarchy deferred
+    if (o.addr_len > 1) return std::nullopt;                       // §mobile Slice 1: 0=normal, 1=mobile-next; 2..7 hierarchy-deferred -> reject
     o.sf_index  = static_cast<uint8_t>((b5 >> 6) & 0x03);
     o.rts_flags = static_cast<uint8_t>((b5 >> 2) & 0x0F);          // reading A
+    o.mobile_src = (b5 & 0x02) != 0;                               // §mobile: MOBILE mark (byte-5 b1) — src is a mobile local-id
     o.m_broadcast = (o.rts_flags & RTS_FLAG_M_BROADCAST) != 0;
     o.flood       = (o.rts_flags & RTS_FLAG_FLOOD) != 0;
     o.m_payload_id_lo16 = 0;
@@ -716,7 +720,7 @@ std::optional<j_out> parse_j(std::span<const uint8_t> frame) {
 // DATA — cmd=0x3, 12+n B (ROADMAP §10.3). See frame_codec.h for layout.
 // -----------------------------------------------------------------------------
 size_t pack_data(const data_in& in, std::span<uint8_t> out) {
-    if (in.addr_len != 0) return 0;                               // hierarchy deferred this phase
+    if (in.addr_len > 1) return 0;                                // §mobile Slice 1: 0=normal, 1=mobile-next (`next` is a local id); 2..7 hierarchy-deferred
     // CRYPTED ⇒ DST_HASH: the per-DM nonce derives from the CLEARTEXT dst_key_hash32, so it MUST be present
     // (spec §3 DP2). Refuse — never emit a sealed frame the recipient can't reconstruct the nonce for.
     if ((in.flags & DATA_FLAG_CRYPTED) && !(in.flags & DATA_FLAG_DST_HASH)) return 0;
@@ -752,7 +756,7 @@ std::optional<data_out> parse_data(std::span<const uint8_t> frame) {
 
     data_out o{};
     o.addr_len = static_cast<uint8_t>((frame[0] >> 1) & 0x07);    // byte0 bits 3..1
-    if (o.addr_len != 0) return std::nullopt;                     // hierarchy deferred
+    if (o.addr_len > 1) return std::nullopt;                      // §mobile Slice 1: 0=normal, 1=mobile-next; 2..7 hierarchy-deferred
     o.flags          = frame[1];                                 // full byte-1 flags
     o.app            = (o.flags & DATA_FLAG_APP)         != 0;
     o.cross_layer    = (o.flags & DATA_FLAG_CROSS_LAYER) != 0;
