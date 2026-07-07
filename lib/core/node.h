@@ -468,6 +468,11 @@ public:
 
     // ---- device-console diagnostics: const LIVE reads consumed by fw_main's routes/cfg/status seam.
     uint8_t           node_id()        const { return _node_id; }
+    // §per-layer-id (2026-07-05): the id to PERSIST as nv.node_id (restore maps it to layers[0].node_id). A GATEWAY's
+    // node_id() is the ACTIVE-leaf mirror (activate_layer stamps _node_id = _active leaf's node_id, flipping with the
+    // window) — persisting it clobbers layer0's canonical id. layers[0].node_id is the stable, explicit gateway id (no
+    // per-leaf DAD writes it back). A single-layer node has NO per-leaf id + DAD updates only _node_id, so persist that.
+    uint8_t           canonical_node_id() const { return _cfg.is_gateway ? _cfg.layers[0].node_id : _node_id; }
     // The FULL 8-bit layer_id of the ACTIVE leaf (a gateway alternates leaves on the window schedule). Public so the
     // device console (`debug on`) can announce which layer the gateway is currently LISTENING on. Single-layer: layers[0].layer_id.
     uint8_t           active_layer_id() const { return _cfg.layers[static_cast<size_t>(_active - &_layers[0])].layer_id; }

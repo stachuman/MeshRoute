@@ -792,8 +792,13 @@ void Node::bridge_cross_layer(const PostAck& pa, const data_unicast_inner& ui) {
     // ui.has_cross_layer is guaranteed by the caller. The next layer to ENTER = layer_ids[cur].
     const uint8_t target_layer_id = ui.layer_ids[ui.cur];
     // Which of OUR leaves carries that layer_id? (A gateway owns 2.) Not one of ours -> REFUSE loud (no default leaf).
+    // §xl-nibble-match (2026-07-05, metal): match by the LEAF NIBBLE, not the full 8-bit id. A single-layer originator
+    // reports active_layer_id() == leaf_id (the NIBBLE, since layers[0].layer_id = leaf_id when n_layers==1), so a
+    // reversed 4e path can carry a nibble (e.g. 4) where the gateway holds the full id (100). The nibble is the canonical
+    // wire identity; validate_gateway_layers (node.cpp) guarantees DISTINCT nibbles, so it's unambiguous — and it aligns
+    // with select_gateway_for_leaf + the 4e's own `rev[1] & 0x0F`.
     int target_leaf = -1;
-    for (uint8_t i = 0; i < _n_layers; ++i) if (_cfg.layers[i].layer_id == target_layer_id) { target_leaf = i; break; }
+    for (uint8_t i = 0; i < _n_layers; ++i) if ((_cfg.layers[i].layer_id & 0x0F) == (target_layer_id & 0x0F)) { target_leaf = i; break; }
     if (target_leaf < 0) {
         MR_EMIT("xl_bridge_refused", EF_I("reason", 1), EF_I("target_layer", target_layer_id), EF_I("origin", pa.origin), EF_I("ctr", pa.ctr));
         become_free(); return;

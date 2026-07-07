@@ -477,7 +477,7 @@ static void handle_cfg_set(const char* args) {
         b.freq_mhz = g_freq_mhz;        b.bw_hz = nc.radio_bw_hz;       b.beacon_ms = nc.beacon_period_ms;
         b.duty = nc.duty_cycle;         b.allowed_sf_bitmap = nc.allowed_sf_bitmap;
         b.routing_sf = nc.routing_sf;   b.cr = nc.radio_cr;
-        b.lbt = nc.lbt_enabled ? 1 : 0; b.node_id = g_node.node_id();   b.tx_power = g_tx_power;
+        b.lbt = nc.lbt_enabled ? 1 : 0; b.node_id = g_node.canonical_node_id();   b.tx_power = g_tx_power;
         b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;   // v6 role/topology
         b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;
         b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;        // v7 BLE policy (live globals)
@@ -929,7 +929,7 @@ static void seed_blob_from_live(mrnv::Blob& b) {
     b.freq_mhz = g_freq_mhz;        b.bw_hz = nc.radio_bw_hz;       b.beacon_ms = nc.beacon_period_ms;
     b.duty = nc.duty_cycle;         b.allowed_sf_bitmap = nc.allowed_sf_bitmap;
     b.routing_sf = nc.routing_sf;   b.cr = nc.radio_cr;
-    b.lbt = nc.lbt_enabled ? 1 : 0; b.node_id = g_node.node_id();   b.tx_power = g_tx_power;
+    b.lbt = nc.lbt_enabled ? 1 : 0; b.node_id = g_node.canonical_node_id();   b.tx_power = g_tx_power;
     b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;
     b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;
     b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;  b.ble_pin = g_ble_pin;
@@ -946,6 +946,7 @@ static void seed_blob_from_live(mrnv::Blob& b) {
 // spaces — the leaf name). Returns false at end of string; on a malformed token (no `=`) *val is nullptr (the
 // caller reports the bad key). key/val point into the caller's mutable buffer, NUL-terminated. The shared grammar
 // for the key=value provisioning verbs (create/join), mirroring `gateway`'s l0=/win0=/… named-param style.
+#if MR_N_LAYERS < 2   // §config-integrity: the create/join key=value grammar helper — normal-node only (guarded with its only callers handle_join/handle_create)
 static bool kv_next(char*& p, char*& key, char*& val) {
     while (*p == ' ') ++p;
     if (!*p) return false;
@@ -957,6 +958,7 @@ static bool kv_next(char*& p, char*& key, char*& val) {
     else           { val = p;      while (*p && *p != ' ') ++p; if (*p == ' ') *p++ = '\0'; }    // bare: up to next space
     return true;
 }
+#endif   // MR_N_LAYERS < 2 — kv_next (create/join grammar)
 
 // Apply a just-saved provisioning blob LIVE (no reboot): radio re-tune + membership + config + (re-)DAD. The four
 // §2 sub-paths. do_dad=false only for `leave` (stays unprovisioned, idle awaiting a join).
@@ -980,6 +982,7 @@ static void provision_apply_live(const mrnv::Blob& b, bool do_dad) {
 }
 
 // `join layer=<1..255> freq=<MHz> bw=<kHz> sf=<5..12>` — set the radio floor + (re-)DAD; auto-pulls the leaf config (R6.2).
+#if MR_N_LAYERS < 2   // §config-integrity: create/join are normal-node-only — compiled out on the gateway build (refused at dispatch)
 static void handle_join(const char* args) {
     char buf[128]; size_t bn = 0; for (; args[bn] && bn < sizeof(buf) - 1; ++bn) buf[bn] = args[bn]; buf[bn] = '\0';
     double freq = 0, bwk = 0; long sf = 0, layer = 0; bool hf = false, hb = false, hs = false, hlv = false;   // bwk is kHz (FRACTIONAL — 62.5 / 41.67 / 31.25 are valid LoRa BWs)
@@ -1062,6 +1065,7 @@ static void handle_create(const char* args) {
 usage:
     mrcon.println(F("> create err usage: create layer=<1..255> freq=<MHz> bw=<kHz 7..500, fractional ok e.g. 62.5> sf=<5..12> sf_list=<e.g.7,9> duty=<pct, fractional ok e.g. 0.1> name=\"<text>\" [active_fraction=<0..1>] [ch_min_ms=<ms>] [dm_min_ms=<ms>]   (leaf = layer & 0x0F)"));
 }
+#endif   // MR_N_LAYERS < 2 — handle_join / handle_create (normal-node provisioning)
 
 // `leave` — wipe to default, keep ONLY freq; go unprovisioned + idle (the clean managed->managed re-join primitive).
 static void handle_leave() {
@@ -1411,8 +1415,15 @@ static bool service_debug(const char* line, size_t len) {
     if (len == 5 && !strncmp(line, "regen", 5))    { do_regen();    return true; }
     if (len == 3 && !strncmp(line, "ota", 3))      { do_ota();      return true; }
     if (len >  8 && !strncmp(line, "gateway ", 8)) { handle_gateway(line + 8); return true; }
+#if MR_N_LAYERS < 2
     if (len >  5 && !strncmp(line, "join ", 5))    { handle_join(line + 5);    return true; }   // R6.3 provisioning verbs (normal-node, live)
     if (len >  7 && !strncmp(line, "create ", 7))  { handle_create(line + 7);  return true; }
+#else   // §config-integrity: create/join are normal-node provisioning -> refuse on the gateway build (mirrors how `gateway` errors on a normal build) — else `create` silently re-provisions the gateway into a managed leaf.
+    if ((len > 5 && !strncmp(line, "join ", 5)) || (len > 7 && !strncmp(line, "create ", 7))) {
+        mrcon.println(F("> err gateway_build (create/join are normal-node only; use `gateway l0=<layer>:<node>:<sf>:<sfs> l1=…`)"));
+        return true;
+    }
+#endif
     if (len == 5 && !strncmp(line, "leave", 5))    { handle_leave();           return true; }
     if (len >  8 && !strncmp(line, "cfg set ", 8)) { handle_cfg_set(line + 8); return true; }
     if (len == 3 && !strncmp(line, "cfg", 3))      { dump_cfg();    return true; }
@@ -1916,7 +1927,7 @@ static void service_console() {}   // production (MR_CONSOLE=0): NO USB console 
 // epoch bump / forced rejoin), so a reboot keeps its id + seniority. Load-modify-save so the config fields
 // (set via `cfg set`) are preserved. Cheap on the no-change path (3 compares); a flash write only on change.
 static void persist_cfg_if_needed() {
-    const uint8_t id = g_node.node_id(), ep = g_node.claim_epoch(), jn = g_node.joined() ? 1 : 0;
+    const uint8_t id = g_node.canonical_node_id(), ep = g_node.claim_epoch(), jn = g_node.joined() ? 1 : 0;   // §config-integrity: the canonical (layer0) id, NOT the active-leaf mirror — else a gateway's window switch flips `id` -> join_changed thrashes nv.node_id every ~8s and collapses both layers. Single-layer: canonical == _node_id (unchanged).
     const uint16_t cc = g_node.peer_ctr_high();                      // D7: the MAX ctr over ALL peers (self/channel counter is one of them) — lease covers DM ctrs too, not just channel
     const bool join_changed = (id != g_persist_id || ep != g_persist_epoch || jn != g_persist_join);   // DAD adopt/epoch/forced-rejoin — RARE, persist promptly
     const bool lease_due    = (int16_t)(uint16_t)(cc - g_ctr_lease) > 0;   // Part 3: the live ctr PASSED the persisted lease -> re-lease (every ~margin sends). wraparound-safe signed diff

@@ -471,6 +471,15 @@ TEST_CASE("§CTS-wait metal slop: start_rts_timeout adds 2*rx_window_slop_ms (me
     CHECK(dK == d0 + 2u * 37u);             // ★ the fix: +2 turnarounds of slop; slop==0 -> inert -> native + s18 unchanged
 }
 
+TEST_CASE("§per-layer-id: single-layer canonical_node_id() == node_id() (persist unchanged)") {
+    TestHal hal; Node node(hal, /*id=*/7, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7); cfg.leaf_id = 0;
+    node.on_init(cfg);
+    CHECK_FALSE(node.config().is_gateway);                 // single-layer node (not a gateway)
+    CHECK(node.canonical_node_id() == node.node_id());     // single-layer persists _node_id (the current/DAD-adopted id) — UNCHANGED
+    CHECK(node.canonical_node_id() == 7);
+}
+
 // ---- Cascade-to-alt walk + no-route defer+Q (the cascade milestone) --------
 // Seed a sender (alice=1) with K candidates to dest=5 via distinct next-hops,
 // ordered by hops so the candidate order is unambiguous (no score tie).

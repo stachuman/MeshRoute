@@ -229,6 +229,10 @@ struct DualLayerTestAccess {
         auto ui = parse_unicast_inner(std::span<const uint8_t>(inner, inner_len), flags);
         if (ui) n.bridge_cross_layer(pa, *ui);
     }
+    static void     bridge_ui(Node& n, const data_unicast_inner& ui) {   // §xl-nibble-match: drive bridge_cross_layer with a hand-built cross-layer inner (bypasses wire encode)
+        PostAck pa{}; pa.is_forward = false; pa.origin = ui.origin; pa.ctr = 1; pa.ctr_lo = 1; pa.flags = DATA_FLAG_CROSS_LAYER;
+        n.bridge_cross_layer(pa, ui);
+    }
     static int            handoff_count(Node& n) { int c = 0; for (auto& h : n._xl_handoffs) if (h.valid) ++c; return c; }
     static const XlHandoff* handoff_first(Node& n) { for (auto& h : n._xl_handoffs) if (h.valid) return &h; return nullptr; }
     static void           drain(Node& n, uint8_t leaf)          { n.drain_xl_handoffs_for_leaf(leaf); }
@@ -497,6 +501,47 @@ TEST_CASE("§per-layer discovery: the boot leaf's exit does NOT starve the far l
     DualLayerTestAccess::seed_disc_bcn(gw, 1, protocol::discovery_min_bcn_rx);
     DualLayerTestAccess::run_exit_discovery(gw);
     CHECK_FALSE(DualLayerTestAccess::disc_mode(gw, 1));     // leaf 1 exited independently
+}
+
+// ---- §per-layer-id: persist layer0's canonical id, not the active-window mirror (2026-07-05) ----------------
+TEST_CASE("§per-layer-id: canonical_node_id() is layer0's id, INDEPENDENT of the active window (no persist clobber)") {
+    StubHal hal; Node gw(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(100, 8); cfg.layers[0].node_id = 4;   // layer 0 = leaf 4, id 4 (the canonical nv.node_id)
+    cfg.layers[1] = good_layer(102, 9); cfg.layers[1].node_id = 5;   // layer 1 = leaf 6, id 5
+    CHECK(gw.on_init(cfg));                                          // boot activates layer 0 -> node_id()==4
+    CHECK(gw.node_id() == 4);
+    CHECK(gw.canonical_node_id() == 4);
+    // Switch to layer 1: node_id() mirrors to 5, but canonical_node_id() MUST stay 4 (the persist-while-on-layer1 case).
+    DualLayerTestAccess::activate(gw, 1);
+    CHECK(gw.node_id() == 5);                                       // active mirror flipped with the window
+    CHECK(gw.canonical_node_id() == 4);                            // ★ a cfg-set snapshot while on layer1 now records 4, not the mirror 5
+    DualLayerTestAccess::activate(gw, 0);
+    CHECK(gw.canonical_node_id() == 4);
+}
+
+// ---- §xl-nibble-match: the cross-layer bridge matches the target leaf by NIBBLE, not the full 8-bit id (2026-07-05) --
+TEST_CASE("§xl-nibble-match: bridge resolves the target leaf by NIBBLE (metal full-id gateway; the reverse ack bridges home)") {
+    StubHal hal; hal._now = 10000;
+    Node g(hal, /*id*/ 1, 0xABCDu);
+    NodeConfig gc; gc.n_layers = 2;
+    gc.layers[0] = good_layer(100, 8); gc.layers[0].node_id = 5;    // FULL id 100 -> leaf nibble 4
+    gc.layers[1] = good_layer(102, 8); gc.layers[1].node_id = 12;   // FULL id 102 -> leaf nibble 6
+    CHECK(g.on_init(gc));
+    // A reversed 4e ack path targeting the NIBBLE 4 (a single-layer originator reported its layer as leaf_id=4).
+    data_unicast_inner ui{}; ui.origin = 7; ui.has_cross_layer = true; ui.n_layers = 2; ui.cur = 1;
+    ui.layer_ids[0] = 6; ui.layer_ids[1] = 4;                       // [came-from 102(nibble 6), target = origin nibble 4]
+    ui.has_dst_hash = true; ui.dst_key_hash32 = 0x9999u;
+    hal.emits.clear();
+    DualLayerTestAccess::bridge_ui(g, ui);
+    CHECK_FALSE(hal.saw_emit("xl_bridge_refused"));                 // ★ nibble 4 matches layer0 (100&0x0F) -> NOT refused (pre-fix: refused reason=1)
+    CHECK(DualLayerTestAccess::handoff_count(g) == 1);             // bridged toward leaf 0 (4f defer -> handoff)
+    // Forward path unaffected: a FULL-id target (102) still resolves to leaf 1 (matches pre- AND post-fix).
+    data_unicast_inner uf{}; uf.origin = 7; uf.has_cross_layer = true; uf.n_layers = 2; uf.cur = 1;
+    uf.layer_ids[0] = 4; uf.layer_ids[1] = 102; uf.has_dst_hash = true; uf.dst_key_hash32 = 0x8888u;
+    hal.emits.clear();
+    DualLayerTestAccess::bridge_ui(g, uf);
+    CHECK_FALSE(hal.saw_emit("xl_bridge_refused"));                 // full-id 102 -> nibble 6 -> leaf 1, still bridges
 }
 
 TEST_CASE("dual-layer dedup: the same (origin,dst,ctr) key on two leaves does NOT collide (§8; node_mac_rx.cpp:393)") {
