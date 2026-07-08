@@ -50,7 +50,7 @@ uint32_t Node::retry_jitter_ms() const { return 3 * airtime_routing_ms(8); }
 // Build + enqueue an app DATA. `tx_event` separates an app send ("tx_enqueue", the dm_delivery
 // record-creation key) from an internal protocol DATA like the E2E ack ("e2e_ack_tx") that must NOT
 // be counted as an app DM.
-uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, [[maybe_unused]] const char* tx_event, bool app_dm, uint8_t type, CryptIntent crypt) {
+uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, [[maybe_unused]] const char* tx_event, bool app_dm, uint8_t type, CryptIntent crypt, uint32_t override_dst_hash) {
     // R6.1 §6.4 join-participation gate: an un-synced managed joiner must CONFIG_PULL before it originates app DMs (no
     // pre-membership pollution). Inert for UNMANAGED/adopted nodes (leaf_config_synced()). Internal DATA (app_dm=false:
     // E2E acks, forwards) is NEVER gated — only originations.
@@ -61,7 +61,7 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     }
     const uint16_t ctr = next_ctr(dst);
     TxItem item{};
-    item.origin = _node_id; item.dst = dst; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
+    stamp_origin(item); item.dst = dst; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
     item.flags = flags; item.type = type;
     // Inner = [dst_key_hash32 (4 B LE, iff DST_HASH)][origin][body] — NO payload-flags byte. DST_HASH (L2c
     // verify-on-delivery) is default-on for app DMs when we know the recipient's stable key (id_bind) and the
@@ -74,7 +74,9 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     // SOURCE_HASH carries the sender's STABLE key_hash32 AFTER origin (the 8-bit origin is reassignable). NOT for
     // internal DATA (E2E acks): app_dm=false. NO CROSS_LAYER here — that path is Slice 4d (origination) / 4c (bridge).
     uint32_t dh = 0;
-    if (app_dm && key_hash_of_id(dst, dh)
+    if (override_dst_hash) {                                    // §mobile 3c: carry the QUERIED (mobile) hash M so the home last-mile-forwards (dst_hash != home's key) instead of consuming
+        dh = override_dst_hash; item.flags |= DATA_FLAG_DST_HASH;
+    } else if (app_dm && key_hash_of_id(dst, dh)
         && static_cast<size_t>(4 + 1 + body_len) <= protocol::max_payload_bytes_hard_cap) {
         item.flags |= DATA_FLAG_DST_HASH;
     }
@@ -165,8 +167,8 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
 }
 
 // E2E/PRIORITY ride the wire via `flags`; the E2E ACK behaviour lives in do_post_ack + send_e2e_ack.
-uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt) {
-    return enqueue_data(dst, body, body_len, flags, "tx_enqueue", /*app_dm=*/true, /*type=*/0, crypt);   // app DM (dm_delivery record key); DST_HASH default-on
+uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t override_dst_hash) {
+    return enqueue_data(dst, body, body_len, flags, "tx_enqueue", /*app_dm=*/true, /*type=*/0, crypt, override_dst_hash);   // app DM (dm_delivery record key); DST_HASH default-on (or the §3c mobile override)
 }
 
 // ---- Slice 4d: cross-layer DM origination -------------------------------------------------------------------
@@ -228,7 +230,7 @@ bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t
     }
     TxItem item{};
     const uint16_t ctr = next_ctr(gw_node);          // MAC ctr vs the next-hop gateway (= the e2e (source_hash, ctr) identity)
-    item.origin = _node_id; item.dst = gw_node; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
+    stamp_origin(item); item.dst = gw_node; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
     item.flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH
                                       | (flags & DATA_FLAG_E2E_ACK_REQ));   // 4d/e2e: honor the app's E2E-ack request -> Y acks over the reversed path (4e)
     const size_t n = pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), item.flags, dst_hash,
@@ -348,7 +350,7 @@ void Node::send_e2e_ack_cross_layer(const data_unicast_inner& dm, uint16_t acked
     }
     TxItem item{};
     const uint16_t ctr = next_ctr(gw);                                   // a fresh MAC ctr vs the gateway (the ack's own identity)
-    item.origin = _node_id; item.dst = gw; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
+    stamp_origin(item); item.dst = gw; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
     item.flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH);
     item.type  = DATA_TYPE_E2E_ACK;
     const uint8_t abody[2] = { static_cast<uint8_t>(acked_ctr & 0xFF), static_cast<uint8_t>(acked_ctr >> 8) };
@@ -505,6 +507,7 @@ void Node::issue_send(const TxItem& item) {
     pt.awaiting_cts = true; pt.awaiting_ack = false;
     pt.alts_tried_n = 0;
     pt.previous_hop = item.previous_hop; pt.has_previous_hop = item.is_forward;
+    pt.addr_len = item.addr_len; pt.mobile_src = item.mobile_src;   // §mobile 3a: carry the mobile marks TxItem -> flight -> RTS
     pt.requeue_count = item.requeue_count; pt.enqueue_time_ms = item.enqueue_time_ms;
     pt.fwd_remaining = item.fwd_remaining; pt.fwd_committed = item.fwd_committed;   // hop budget (forwarder)
     pt.flood = item.flood; pt.hop_left = item.hop_left;                             // channel FLOOD: the 43-B RTS-M tail
@@ -521,7 +524,9 @@ void Node::issue_send(const TxItem& item) {
         return;
     }
 
-    const uint8_t first = pick_next_cascade_hop(pt);     // first SELECTABLE candidate (skips previous_hop)
+    const uint8_t first = (pt.addr_len == 1) ? pt.dst     // §mobile 3a Fix 4: a mobile-next (local-id) is a DIRECT 1-hop send to the registrar — NEVER rt_find'd (a local-id can collide a global id). addr_len==0 for every normal TxItem.
+                        : (_cfg.is_mobile && _my_mobile_reg.active) ? _my_mobile_reg.home_id   // §mobile 3b: a REGISTERED MOBILE is a leaf -> reach the mesh through its 1-hop home_node (no global route table). Inert for a static/unregistered node.
+                        : pick_next_cascade_hop(pt);     // first SELECTABLE candidate (skips previous_hop)
     if (first == 0) {
         // No usable route yet. A FORWARDER drops (dv_dual_sf.lua:7041-7048 — it
         // can't hold someone else's transit); an ORIGINATOR defers the message
@@ -589,6 +594,7 @@ void Node::tx_rts_retry() {
     // DM RTS; the M-broadcast RTS is tx_m_broadcast_rts. Slice 4c.2: a gateway's cross-layer re-inject sets RTS_FLAG_RELAY
     // so the receiver exempts it from the originator anti-spam (node_mac_rx :40/:199) — G is relaying, not a 1st-hop origination.
     rin.dst = pt.dst; rin.sf_index = 3 /*ANY*/; rin.rts_flags = pt.is_gw_relay ? RTS_FLAG_RELAY : 0;
+    rin.addr_len = pt.addr_len; rin.mobile_src = pt.mobile_src;   // §mobile 3a: 1 on a host's last-mile forward to a mobile; mobile_src set only by a mobile's own outbound (3b). Both 0 on a normal TxItem -> identical wire.
     // e2e-ack backstop exemption (2026-07-02): mark the RTS so the 1st-hop backstop skips its DROP for this ack (an ack
     // must never be throttled — a throttled ack -> re-send -> more traffic). Verified at DATA-time (anti-spoof). Duty still binds.
     if (pt.type == DATA_TYPE_E2E_ACK) rin.rts_flags |= RTS_FLAG_E2E_ACK;
@@ -1007,7 +1013,7 @@ void Node::do_data_tx() {
     }
     const uint8_t mac[4] = { 0, 0, 0, 0 };
     data_in din{};
-    din.addr_len = 0; din.flags = pt.flags; din.type = pt.type; din.next = pt.next; din.dst = pt.dst;
+    din.addr_len = pt.addr_len; din.flags = pt.flags; din.type = pt.type; din.next = pt.next; din.dst = pt.dst;   // §mobile 3b: the last-mile DATA carries the mobile mark (addr_len=1) so the mobile accepts it + a colliding static rejects it; 0 on every normal flight -> identical wire
     din.hops_remaining = hb_remaining; din.committed_hops = hb_committed;
     din.prev_fwd_rt_hops = hb_prev_fwd; din.ctr = pt.ctr;
     din.inner = std::span<const uint8_t>(pt.inner, pt.inner_len);

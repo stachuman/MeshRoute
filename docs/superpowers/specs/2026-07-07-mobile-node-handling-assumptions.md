@@ -119,8 +119,8 @@ These CORRECT the reuse-claims in §13/§14 and define the previously-undefined 
 **Registration (corrects "reuses id_bind"):**
 - **`_mobile_reg` = a NEW table** (`hash → {local-id, epoch, last-heard}`) at the host — **NOT `id_bind`** (one-id-per-hash + evicts other holders, `node_hashlocate.cpp:37-45`). Proxy H-answer = "I'm the registrar → answer my own id" (any holder may answer, marked `claimed`). Last-mile = `_mobile_reg` → local-id. `id_bind` still caches `hash→home_id` **sender-side** (fine).
 - **9-B mobile OFFER** = the J-OFFER + a `proposed_mobile_id` byte; `parse_j` widened to accept 9 B when `is_mobile` (**no compat break** — OFFER is a deferred opcode; `frame_codec.cpp:688` exact-parse must be widened).
-- **Confirmation:** the mobile CLAIMs the chosen host → the host **records it in `_mobile_reg` + confirms**; registered **on the confirm** (retry CLAIM if none). No silent claim-stands.
-- **Epoch:** a mobile-incremented **registration epoch** rides the CLAIM + the proxy H-answer; a sender holding two answers (old + new registrar in the 24 h overlap) takes the **highest**.
+- **Confirmation [REVISED 2026-07-08 → CLAIM-STANDS, matches the static DAD]:** the mobile CLAIMs the chosen host → the host **records it in `_mobile_reg`** (no reply) → the mobile **adopts after the guard window unless DENY'd** — byte-for-byte the static DAD's claim-stands; a lost CLAIM self-heals via the periodic re-CLAIM. *(Supersedes the earlier "positive confirm / no claim-stands": after checking how the static mesh confirms, a bespoke confirm was over-engineering. 2a/2b implement claim-stands, GATED.)*
+- **Epoch:** a mobile-incremented **registration epoch** rides the CLAIM (**implemented, 2b**). It will ALSO ride the **proxy H-answer** so a sender holding two answers (old + new registrar in the 24 h overlap) takes the **highest** — **DEFERRED to Slice 4**: an epoch can't be *always-packed* into the H-answer (it would grow the frame and break the s18 byte-identity); it needs a **distinct mobile-H-answer TYPE**, folded with the redirect.
 
 **Delivery:**
 - **Sleep:** the mobile **declares its wake interval** at registration; the host retries the last-mile aligned to it, up to **N**, then fails (best-effort; mailbox parked).
@@ -139,7 +139,21 @@ These CORRECT the reuse-claims in §13/§14 and define the previously-undefined 
 
 **Also NEEDS-NEW-CODE (not "free" reuse):** the team group-chat needs a **new M-frame mobile-variant** (`team_id`+`is_mobile` fields + ingest keyed on them) — the M-frame is strictly `leaf_id`-gated (`node_channel.cpp:190`).
 
-## Open questions rollup  [updated 2026-07-07]
+## 18. Addressing across the id namespaces + the local-id collision  [DISCUSSED 2026-07-08]
+**Hash is universal; a raw id is namespace-scoped.** A mobile juggles THREE overlapping 8-bit id namespaces — static **global** ids (DAD'd 17..254), its own home-assigned **local** id (the inbound last-mile), and **team-plane** ids (§9 DV). A raw id is therefore ambiguous across planes; a **hash names exactly one target regardless of plane**.
+**What a mobile can send to:**
+- **Global net** — by a static node's **hash** (home_node → mesh hash-locate + route) OR its **global DAD id** (home_node → route). Both work.
+- **Whole team** — by the **team-id** (F1 = a 32-bit hash) → a group fan-out / channel-on-T (§11/§12: "the team-id IS the address", roster-free).
+- **One team member** — by their **mobile-hash** (team-plane DV or their home_node). Individual-member-by-raw-8bit-id is **not** a first-class path (roster-free — use the hash).
+- **Rule of thumb:** address by **hash** and it always works; by **raw id** and the mobile must know which plane you mean.
+
+**★ E2E-ACK / reply collision [the concrete Option-B case] — HANDLED (3a Fix 4 + §17 A1):** a mobile's local id (e.g. 20) can equal the reply-dest's GLOBAL id (also 20) → `src==dst` on the wire; any raw `id==id` compare mis-fires. Kept clean by holding the local id OUT of every global table + doing all identity by hash: (a) **last-mile = a DIRECT send** — `addr_len==1` → `next=dst` (Slice **3a Fix 4**), never `rt_find`/`pick_next_cascade_hop` (which could resolve to the global 20); (b) **`handle_rts` skips `learn_direct_neighbor` for `mobile_src`** (**§17 A1**, already sealed) → the outbound local id never pollutes the global rt, so a mobile's reply routes to the RIGHT global node; (c) already-true: `id_bind` excludes a mobile beacon (node_beacon.cpp:517), "for-me" is by-hash (node_mac_rx.cpp:612), the E2E-ACK is hash-addressed. **TEST (Slice 3b):** an E2E-ACK from a mobile (local 20) to an origin whose global id is 20 MUST reach the origin.
+
+**⚠ NEW — to address later:**
+- **P1 — plane-selection on send [Slice 6]:** the mobile's send must route BY PLANE — a global DM → the home_node (1 hop); a team DM → the `is_mobile`+`team_id` plane. The dst hash/id alone doesn't carry the plane; the send logic picks it (team-routing-table-first-then-home, or app-specified). Nail down in the teams slice.
+- **P2 — the team plane is a THIRD id namespace [Slice 6]:** team-plane node_ids overlap the global-DAD + home-local namespaces — the SAME collision class as the E2E-ACK. The mark / by-hash / rt-isolation discipline above MUST extend to the team plane (team frames are `is_mobile`+`team_id`-scoped, but the team routing table and the mobile's own home-local id must stay mutually isolated). Verify when designing teams.
+
+## Open questions rollup  [updated 2026-07-08]
 - **✅ §13 redirect breadcrumb — RESOLVED:** special-app-type DM to the previous registrar with the new `home_id`; best-effort; H-query fallback.
 - **✅ §4 home model — RESOLVED:** `home_id` = the DYNAMIC current registrar (storage-free); mailbox = a SEPARATE owned node.
 - **✅ §13 mobile id — RESOLVED (Option B):** home-assigned LOCAL id (no mobile DAD), `origin=home_node` stamp on outbound.
@@ -150,6 +164,8 @@ These CORRECT the reuse-claims in §13/§14 and define the previously-undefined 
 - **✅ Edge cases — RESOLVED:** M1 mid-move (re-register+breadcrumb+redirect, cadence-gated); home_node death (detect via **beacon-loss** ≪ 24 h TTL → re-register: any-PHY for a lone mobile, **same-PHY-or-leave** for a team member); two-mobiles-same-local-id = non-issue (per-host-distinct-id invariant).
 - **§13 registration cadence [minor]:** event-driven-on-settle is the v1 default; a slow refresh timer is a tuning option (freshness ↔ battery) — fold into the spec.
 - **✅ §11 cross-layer — RESOLVED:** re-register on the new layer (cheap under Option B); reach via the existing cross-layer DM (H-query → new-layer home_node → gateway → last mile); brief park accepted.
+- **✅ §18 local-id collision (E2E-ACK / reply, `src==dst`) — RESOLVED (2026-07-08):** last-mile DIRECT-send (**3a Fix 4**) + `mobile_src`→skip-neighbour-learn (**§17 A1**) + by-hash identity; the colliding-id test lands in **3b**.
+- **⚠ §18 addressing — NEW Slice-6 items:** **P1** plane-selection on send (global vs team); **P2** the team plane = a THIRD id namespace (extend the mark / by-hash / rt-isolation discipline).
 
 **⏭ DEFERRED to v2 (not in the v1 spec):** mailbox store/forward/discovery (app-level DM flag); split re-mint; registration slow-timer. *(Intra-team routing is now §9-RESOLVED by reuse of the DV stack on the mobile plane — no longer a v2 item.)*
 

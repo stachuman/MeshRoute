@@ -195,6 +195,51 @@ void Node::id_bind_age_out() {
     _active->_id_bind_n = w;
 }
 
+// ---- §mobile 3c: sender-side mobile_hash -> home_id cache -------------------------------------------------------
+// id_bind is one-hash-per-node_id and a home already owns its own AUTHORITATIVE hash, so a mobile's stable hash ->
+// its home_node can't live in id_bind. This small TTL'd cache holds it. No bijection (many mobiles -> one home).
+// SILENT: emits NO telemetry, so even a stray write can't change byte output (s18 byte-identical).
+int Node::mobile_home_find(uint32_t mobile_hash) const {
+    const uint64_t now = _hal.now();
+    for (uint8_t i = 0; i < _active->_mobile_home_cache_n; ++i) {
+        const auto& e = _active->_mobile_home_cache[i];
+        if (e.mobile_hash != mobile_hash) continue;
+        if ((now - e.last_seen_ms) >= protocol::mobile_home_cache_ttl_ms) return -1;   // expired -> miss
+        return static_cast<int>(e.home_id);
+    }
+    return -1;
+}
+
+void Node::mobile_home_set(uint32_t mobile_hash, uint8_t home_id) {
+    const uint64_t now = _hal.now();
+    for (uint8_t i = 0; i < _active->_mobile_home_cache_n; ++i)
+        if (_active->_mobile_home_cache[i].mobile_hash == mobile_hash) {          // refresh in place
+            _active->_mobile_home_cache[i].home_id = home_id;
+            _active->_mobile_home_cache[i].last_seen_ms = now;
+            return;
+        }
+    uint8_t slot;
+    if (_active->_mobile_home_cache_n < protocol::cap_mobile_home_cache) {
+        slot = _active->_mobile_home_cache_n++;
+    } else {                                                                       // full -> evict the OLDEST
+        slot = 0;
+        for (uint8_t i = 1; i < _active->_mobile_home_cache_n; ++i)
+            if (_active->_mobile_home_cache[i].last_seen_ms < _active->_mobile_home_cache[slot].last_seen_ms) slot = i;
+    }
+    _active->_mobile_home_cache[slot] = { mobile_hash, now, home_id };
+}
+
+void Node::mobile_home_age_out() {
+    const uint64_t now = _hal.now();
+    uint8_t w = 0;
+    for (uint8_t r = 0; r < _active->_mobile_home_cache_n; ++r) {
+        const auto e = _active->_mobile_home_cache[r];
+        if ((now - e.last_seen_ms) >= protocol::mobile_home_cache_ttl_ms) continue;   // drop expired
+        _active->_mobile_home_cache[w++] = e;
+    }
+    _active->_mobile_home_cache_n = w;
+}
+
 // ---- E2E peer-pubkey cache (Phase 1 §6): key_hash32 -> ed_pub, hash-verified + authoritative-never-downgraded ----
 bool Node::peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyConf conf) {
     // Hash-verifiable: key_hash32 == LE(ed_pub[0..3]) (== identity.h key_hash32_of). A forged binding is REFUSED.
@@ -445,6 +490,13 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         const int found = id_bind_find_by_hash(h.key_hash32, &conf);
         if (found >= 0) { node_id = found; authoritative = (conf == IdBindConf::authoritative); }
     }
+    // §mobile 3a: HOST proxy — if still unresolved (soft) and I HOST this mobile, answer with MY id (home_id) as a
+    // CLAIMED (not authoritative) binding, so the querier caches mobile_hash -> home_id and routes the DM to me (the host),
+    // which then last-mile-forwards it (do_post_ack). Gated on _mobile_reg_n>0 -> a non-host is byte-identical (no wire change).
+    if (node_id < 0 && !h.hard && _active->_mobile_reg_n > 0) {
+        for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+            if (_active->_mobile_reg[i].key_hash32 == h.key_hash32) { node_id = _node_id; authoritative = false; break; }
+    }
 
     if (node_id >= 0) {                                    // RESOLVER path (dv:11644) — answer + SUPPRESS the forward
         mark_hash_query_seen(h.origin, h.key_hash32, h.hard, h.want_pubkey);   // mark BEFORE replying so a re-flood doesn't double-answer (dv:11647)
@@ -577,6 +629,14 @@ void Node::on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool a
     // claimed -> verify-on-use).
     id_bind_set(hb->node_id, hb->key_hash32, IdBindSource::h_query,
                 authoritative ? IdBindConf::authoritative : IdBindConf::claimed);
+    // §mobile 3c: a CLAIMED answer M->N where N owns a DIFFERENT authoritative hash = a host PROXYing for a mobile it
+    // hosts (id_bind just REFUSED M because N already holds its own hash). Cache M->N separately so send_by_hash can
+    // reach the home (which then last-mile-forwards, 3a). key_hash_of_id returns AUTHORITATIVE-only -> exactly the test.
+    if (!authoritative) {
+        uint32_t nhash = 0;
+        if (key_hash_of_id(hb->node_id, nhash) && nhash != hb->key_hash32)
+            mobile_home_set(hb->key_hash32, hb->node_id);                     // M -> N (home)
+    }
     MR_TELEMETRY(
         EventField f[] = { { .key = "node",          .type = EventField::T::i64,     .i = hb->node_id },
                            { .key = "key_hash32",    .type = EventField::T::i64,     .i = static_cast<int64_t>(hb->key_hash32) },
@@ -620,6 +680,9 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     const int id = id_bind_find_by_hash(key_hash32, &conf);
     if (id >= 0 && conf == IdBindConf::authoritative)            // confident binding -> send NOW
         return do_send(static_cast<uint8_t>(id), body, body_len, flags, crypt);   // §8b: thread the per-message crypt intent
+    const int home = mobile_home_find(key_hash32);              // §mobile 3c: a cached mobile -> its home_node?
+    if (home >= 0)                                              // send to the home carrying the MOBILE's hash (so home forwards, not consumes); NO hard-verify (a mobile has no authoritative global binding — the proxy is claimed by design)
+        return do_send(static_cast<uint8_t>(home), body, body_len, flags, crypt, /*override_dst_hash=*/key_hash32);
     // SOFT cached binding -> HARD verify-on-use (reach the owner for a correction); UNKNOWN -> SOFT flood.
     park_send(key_hash32, body, body_len, flags, crypt);   // M3: carry the crypt intent so a parked sendhashx flies CRYPTED, not cleartext
     emit_hash_query(key_hash32, /*hard=*/(id >= 0));
@@ -743,7 +806,7 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t 
                                        { .key = "node",       .type = EventField::T::i64, .i = resolved_id } };
                     _hal.emit("send_hash_resolved", f, 2); );
                 // same-layer (incl. a cross_layer park whose dst turned out to be on OUR leaf, §5.1): a plain DM.
-                do_send(resolved_id, p.body, p.body_len, p.flags, p.crypt);   // load-bearing (OUTSIDE the wrap): fly the held DM; M3: thread the stamped crypt so a parked sendhashx stays CRYPTED
+                do_send(resolved_id, p.body, p.body_len, p.flags, p.crypt, /*override_dst_hash=*/p.key_hash32);   // load-bearing (OUTSIDE the wrap): fly the held DM; M3: thread crypt; §mobile 3c: carry the queried hash so even the FIRST flood-resolved send to a mobile stamps DST_HASH=M (home forwards, not consumes). For a normal send p.key_hash32 == key_hash_of_id(resolved_id) -> byte-identical.
             }
             continue;                                            // matched entry handled (forwarded / healed / kept-above / given up)
         }

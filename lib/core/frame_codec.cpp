@@ -654,7 +654,7 @@ size_t pack_j_claim(const j_claim_in& in, std::span<uint8_t> out) {
     w.u8(in.proposed_node_id);
     w.u16_le(in.lease_age_seconds);     // u16: producer saturates at 65535
     w.u8(in.claim_epoch);               // wrapping u8 counter (not saturated)
-    w.u8(in.nonce);
+    w.u8(in.is_mobile ? in.chosen_host_id : in.nonce);   // §mobile: a mobile CLAIM carries the CHOSEN host id in byte-10 (not a nonce) so only that host records it; static packs the nonce (byte-identical)
     return w.ok() ? w.size() : 0;
 }
 
@@ -702,7 +702,7 @@ std::optional<j_out> parse_j(std::span<const uint8_t> frame) {
             o.proposed_node_id  = r.u8();
             o.lease_age_seconds = r.u16_le();
             o.claim_epoch       = r.u8();
-            o.nonce             = r.u8();
+            { const uint8_t b = r.u8(); o.nonce = b; o.chosen_host_id = b; }   // §mobile: same byte-10 -> static reads nonce, a mobile CLAIM reads chosen_host_id (the handler picks by is_mobile)
             break;
         case j_opcode::deny:
             if (frame.size() != 15) return std::nullopt;

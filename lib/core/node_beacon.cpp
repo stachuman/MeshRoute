@@ -494,11 +494,13 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         }
     }
     if (b.src == 0) return;                               // §P0: a BCN from the reserved sentinel id (an unprovisioned node) -> DROP (never learn a route via/to 0)
-    // §mobile 2b (static-safety): a mobile beacons with a LOCAL id that MAY collide a global id — the last-mile MARK
-    // disambiguates it, NOT the global id-plane. So a mobile's beacon MUST NOT drive the DAD self-defense OR the global
-    // id_bind (else a colliding global node wrongly DENYs the mobile / pollutes hash-locate). It STILL sets the
-    // mobile-peer bit below (avoid-as-transit). s18 has no mobiles -> b.is_mobile==false -> this runs exactly as before (byte-identical).
-    if (!b.is_mobile && b.src == _node_id) {              // beacon carrying OUR short id (a real global collision)...
+    // §mobile 2b (static-safety): a mobile's LOCAL id MAY collide a global id — the last-mile MARK disambiguates it,
+    // NOT the global id-plane. TWO directions must be gated: (a) a mobile's beacon must not drive OUR DAD self-defense
+    // (!b.is_mobile), AND (b) WE (if a mobile) must NEVER defend our own local id against a colliding global node
+    // (!_cfg.is_mobile) — else the mobile DENYs the legit global owner and that DENY leaks id_bind(local-id -> our-hash)
+    // fleet-wide (node_join.cpp:261), which then out-answers the home's own proxy. It STILL sets the mobile-peer bit
+    // below. s18 has no mobiles -> both flags false -> this runs exactly as before (byte-identical).
+    if (!b.is_mobile && b.src == _node_id && !_cfg.is_mobile) {   // a beacon carrying OUR (global) short id = a real DAD collision...
         if (b.key_hash32 == _key_hash32) return;          // ...and our hash -> a true self-echo; drop
         // ...but a DIFFERENT hash -> an ADDRESS COLLISION (node_id DAD §7). The old guard swallowed this.
         // Defend our id: a J_DENY(OWN_ID_DEFENSE) carrying our claim_epoch makes the impostor run the

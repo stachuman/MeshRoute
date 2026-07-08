@@ -258,12 +258,16 @@ struct TxItem {                      // a queued message awaiting a flight
     uint8_t  hop_left = 0;           // FLOOD TTL safety cap (rides the RTS `dst` slot, §3.1)
     uint8_t  flood_bitmap[32] = {};  // FLOOD coverage bitmap (carried into the RTS-M tail)
     bool     is_gw_relay = false;    // Slice 4c.1: a gateway's cross-layer re-inject -> exempt from originator anti-spam (wired 4c.2)
+    uint8_t  addr_len   = 0;         // §mobile 3a: 0=normal, 1=mobile-next (this DM's next-hop is a mobile LOCAL id) -> RTS byte-3
+    bool     mobile_src = false;     // §mobile 3a: originator is a mobile (set in 3b outbound; 0 for a host forward) -> RTS byte-5 b1
 };
 struct PendingTx {                   // the in-flight sender state (one per node)
     uint8_t  origin = 0, dst = 0, next = 0, ctr_lo = 0;
     uint16_t ctr = 0;
     uint8_t  flags = 0;
     uint8_t  type = 0;               // DataType (0 = normal DM); carried into pack_data at do_data_tx
+    uint8_t  addr_len   = 0;         // §mobile 3a: 0=normal, 1=mobile-next (carried from the TxItem -> RTS byte-3)
+    bool     mobile_src = false;     // §mobile 3a: originator is a mobile (-> RTS byte-5 b1); 0 for a host forward
     uint8_t  inner[protocol::max_payload_bytes_hard_cap] = {};
     uint8_t  inner_len = 0;
     uint8_t  nonce_seed[8] = {};     // CRYPTED only: the 8-B nonce-seed (from the TxItem) -> the DATA trailer at do_data_tx
@@ -317,6 +321,7 @@ static inline TxItem txitem_from_pending(const PendingTx& pt) {
     it.is_forward = pt.has_previous_hop; it.previous_hop = pt.previous_hop;
     it.is_gw_relay = pt.is_gw_relay;                                     // a requeued cross-layer relay keeps RTS_FLAG_RELAY
     it.fwd_remaining = pt.fwd_remaining; it.fwd_committed = pt.fwd_committed;   // carry the hop budget across the requeue
+    it.addr_len = pt.addr_len; it.mobile_src = pt.mobile_src;            // §mobile 3a: a requeued last-mile forward keeps the mobile marks
     return it;
 }
 struct DeferredSend {                // a send with no route yet — held until one appears (or TTL)
@@ -608,6 +613,9 @@ public:
     };
     LimitsSnapshot    limits_snapshot() const;
     bool              key_hash_of_id(uint8_t id, uint32_t& out) const;  // id_bind reverse lookup (AUTHORITATIVE-only); false = unknown/claimed-only (DST_HASH omitted). Public for the send-path test.
+    int               mobile_home_find(uint32_t mobile_hash) const;     // §mobile 3c: cached mobile_hash -> home_id, or -1 (TTL-checked). Public for the send-path test.
+    void              mobile_home_set(uint32_t mobile_hash, uint8_t home_id);  // §mobile 3c: insert/refresh (evict oldest if full). SILENT (no telemetry).
+    void              mobile_home_age_out();                            // §mobile 3c: TTL drop (alongside id_bind_age_out)
     uint8_t           claim_epoch()   const { return _claim_epoch; }
     void              restore_join_state(uint8_t claim_epoch, bool joined) { _claim_epoch = claim_epoch; _joined = joined; }  // boot: reload persisted DAD state (NV)
     // Channel send-ctr persistence (metal reboot id-reuse fix): the self-keyed _peer_send_counter entry = the LAST
@@ -813,6 +821,14 @@ private:
     void    mobile_discover_fire();                             // DISCOVER + open the collect-OFFERs window
     void    mobile_claim_guard_fire();                         // window close: pick strongest OFFER -> CLAIM + adopt; else backoff
     void    mobile_reset_registration(const char* reason);     // drop registration -> re-enter discovery
+    // §mobile 3b/4: stamp a fresh outbound TxItem's origin + self-mark. A REGISTERED MOBILE bills its home_node (an
+    // accountable GLOBAL id; the mobile's E2E identity still rides sender_hash) and self-marks (mobile_src -> the host
+    // keeps our local-id out of the global rt, Fix 2). A static/host node = _node_id, unmarked (byte-identical).
+    void    stamp_origin(TxItem& item) const {
+        const bool mob = _cfg.is_mobile && _my_mobile_reg.active;
+        item.origin = mob ? _my_mobile_reg.home_id : _node_id;
+        item.mobile_src = mob;
+    }
     void    join_deny_id(uint8_t id);                            // add to the denied list (1-day TTL)
     bool    join_id_denied(uint8_t id) const;                    // is this id currently denied (not expired)?
     void    age_out_denied_ids();                                // drop denied entries past dad_denied_id_ttl_ms
@@ -962,9 +978,12 @@ private:
     void     maybe_exit_discovery(const char* reason);            // :7517
 
     // ---- R3 data plane (MAC: RTS-CTS-DATA-ACK) -----------------------------
-    uint16_t do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def);  // returns the ctr
+    // override_dst_hash (§mobile 3c): when non-zero, the DM's DST_HASH is stamped with THIS hash (the queried mobile hash M)
+    // instead of key_hash_of_id(dst) — so a mobile's home_node sees dst_hash != its key and last-mile-forwards (not consumes).
+    uint16_t do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def,
+                     uint32_t override_dst_hash = 0);  // returns the ctr
     uint16_t enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, const char* tx_event,
-                          bool app_dm = false, uint8_t type = 0, CryptIntent crypt = CryptIntent::def);
+                          bool app_dm = false, uint8_t type = 0, CryptIntent crypt = CryptIntent::def, uint32_t override_dst_hash = 0);
     void     send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr);          // E2E ACK reply (TYPE=E2E_ACK; e2e_ack_tx)
     void     send_e2e_ack_cross_layer(const data_unicast_inner& dm, uint16_t acked_ctr);  // Slice 4e: reversed-path CROSS_LAYER E2E ack back to the original sender
     void     enqueue_push(const Push& p);                                  // append to the bounded ring
@@ -1139,6 +1158,8 @@ private:
     // (array sized at the protocol max; _cfg.cap_id_bind gates additions). One timestamp: id_bind_set
     // always carries the key, so last_seen == last_key_seen (the plain-refresh split lands with C.2). Member in LayerRuntime.
     struct IdBind { uint32_t key_hash32; uint64_t last_seen_ms; uint8_t node_id; uint8_t source; uint8_t confidence; };
+    // §mobile 3c: a mobile's stable hash -> its home_node id (sender-side proxy cache; id_bind can't hold it). No bijection.
+    struct MobileHomeBinding { uint32_t mobile_hash; uint64_t last_seen_ms; uint8_t home_id; };
     // E2E peer-pubkey cache (Phase 1 §6): key_hash32 -> ed_pub. Immutable + hash-verifiable (ed_pub[:4]==key_hash32),
     // so a TYPE-5 owner answer is cached AUTHORITATIVE even relayed/cached-on-pass (can't decay). Member in LayerRuntime.
     struct PeerKey { uint32_t key_hash32; uint64_t last_seen_ms; uint8_t ed_pub[32]; uint8_t confidence; };
@@ -1259,6 +1280,11 @@ private:
         // Hash-locate id_bind table (Lua dv:4677): key_hash32 -> node_id, beacon-populated.
         IdBind   _id_bind[protocol::cap_id_bind] = {};
         uint16_t _id_bind_n = 0;
+        // §mobile 3c: sender-side mobile_hash -> home_id cache. id_bind CAN'T hold this (one-hash-per-id, and the home
+        // owns its own authoritative hash), so a mobile's stable hash -> its home_node lives here. NO bijection (many
+        // mobiles -> one home). Populated by the proxy-answer signature; read by send_by_hash. SILENT (no telemetry).
+        MobileHomeBinding _mobile_home_cache[protocol::cap_mobile_home_cache] = {};
+        uint8_t           _mobile_home_cache_n = 0;
         // E2E peer-pubkey cache (Phase 1 §6): key_hash32 -> ed_pub (authoritative, hash-verified).
         PeerKey  _peer_keys[protocol::cap_peer_keys] = {};
         uint16_t _peer_keys_n = 0;

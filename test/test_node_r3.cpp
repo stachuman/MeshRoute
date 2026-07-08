@@ -4612,7 +4612,7 @@ TEST_CASE("§mobile 2a — host accepts a mobile (DISCOVER->OFFER, CLAIM registe
 
     // (3) a mobile CLAIM -> claim-stands: registered, NO reply; idempotent re-CLAIM keeps ONE slot
     std::array<uint8_t, 11> cb{};
-    size_t cn = pack_j_claim({ /*leaf_id=*/4, false, /*is_mobile=*/true, /*key=*/0xB0B1u, /*proposed=*/40, /*lease=*/0, /*epoch=*/1, /*nonce=*/0 }, cb);
+    size_t cn = pack_j_claim({ /*leaf_id=*/4, false, /*is_mobile=*/true, /*key=*/0xB0B1u, /*proposed=*/40, /*lease=*/0, /*epoch=*/1, /*nonce=*/0, /*chosen_host=*/20 }, cb);
     hal._now = 3000; host.on_recv(cb.data(), cn, meta);
     CHECK(hal.count("mobile_registered") == 1);
     CHECK(host.mobile_reg_count() == 1);
@@ -4625,6 +4625,14 @@ TEST_CASE("§mobile 2a — host accepts a mobile (DISCOVER->OFFER, CLAIM registe
     hal._now = 5000; host.on_recv(sc.data(), scn, meta);
     CHECK(host.mobile_reg_count() == 1);                      // static CLAIM did NOT touch the mobile registry
     CHECK(hal.count("mobile_registered") == 2);               // still 2 (from the two mobile CLAIMs in step 3) — the static CLAIM added NO mobile registration
+
+    // (5) §chosen-host fix: a mobile CLAIM addressed at a DIFFERENT host (chosen_host_id != us) -> NOT recorded.
+    // We are only a flood-hearer, not the host the mobile chose — so we must not mint ourselves a host (else we'd falsely proxy).
+    std::array<uint8_t, 11> fb{};
+    size_t fn = pack_j_claim({ /*leaf=*/4, false, /*is_mobile=*/true, /*key=*/0xF00Du, /*proposed=*/41, 0, 1, 0, /*chosen_host=*/99 }, fb);
+    hal._now = 6000; host.on_recv(fb.data(), fn, meta);
+    CHECK(host.mobile_reg_count() == 1);                      // ★ NOT recorded (host 20 != chosen 99)
+    CHECK(hal.count("mobile_registered") == 2);               // unchanged — no false host minted
 }
 
 TEST_CASE("§mobile 2b — mobile FSM: DISCOVER, collect OFFERs, CLAIM the strongest, adopt; static never arms") {
@@ -4667,4 +4675,48 @@ TEST_CASE("§mobile 2b — mobile FSM: DISCOVER, collect OFFERs, CLAIM the stron
     h3._now=1000; stat.on_timer(kMobDisc); stat.on_timer(kMobGuard);
     CHECK(h3.count("mobile_discover_tx") == 0);             // a static node never DISCOVERs
     CHECK(stat.mobile_home_id() == 0);
+}
+
+TEST_CASE("§mobile 3a — host H-query proxy: answers for a hosted mobile; a non-host does not") {
+    TestHal hal; Node host(hal, /*id=*/20, /*key=*/0xAA20u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4;
+    host.on_init(cfg);
+    RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(-1) };
+    // register a mobile (a mobile CLAIM -> _mobile_reg[0xB0B1 -> local 40])
+    std::array<uint8_t, 11> cb{};
+    size_t cn = pack_j_claim({ /*leaf_id=*/4, false, /*is_mobile=*/true, /*key=*/0xB0B1u, /*proposed=*/40, 0, 1, 0, /*chosen_host=*/20 }, cb);
+    hal._now = 1000; host.on_recv(cb.data(), cn, meta);
+    CHECK(host.mobile_reg_count() == 1);
+
+    // feed a SOFT H-query for the mobile's hash -> the host PROXY-answers (the mobile's own beacon id_bind is skipped, 2b)
+    std::array<uint8_t, 8> hb{};
+    size_t hn = pack_h({ /*leaf_id=*/4, /*origin=*/30, /*key=*/0xB0B1u, /*ttl=*/3, /*hard=*/false }, hb);
+    hal._now = 2000; host.on_recv(hb.data(), hn, meta);
+    CHECK(hal.count("h_resolved") == 1);      // the host answered as a proxy for its hosted mobile
+
+    // control: a node hosting NO mobile cannot resolve the mobile's hash -> no answer (byte-identical)
+    TestHal h2; Node host2(h2, 21, 0xBB21u);
+    NodeConfig c2; c2.routing_sf=8; c2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c2.leaf_id=4; host2.on_init(c2);
+    h2._now=2000; host2.on_recv(hb.data(), hn, meta);
+    CHECK(h2.count("h_resolved") == 0);       // _mobile_reg_n==0 -> no proxy
+}
+
+TEST_CASE("§mobile 3b A1 — a mobile_src RTS's local-id stays OUT of the global rt (the collision fix); a normal RTS learns") {
+    TestHal hal; Node node(hal, /*id=*/30, /*key=*/0x3030u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4;
+    node.on_init(cfg);
+    RxMeta meta{ 9.0f, -70.0f, 0, static_cast<int8_t>(-1) };
+    auto feed_rts = [&](uint8_t src, bool mobile_src) {
+        rts_in r{}; r.leaf_id=4; r.src=src; r.next=99; r.ctr_lo=1; r.dst=99; r.sf_index=0; r.rts_flags=0; r.payload_len=1;
+        r.mobile_src=mobile_src;
+        uint8_t b[9]; size_t n = pack_rts(r, b); node.on_recv(b, n, meta);
+    };
+    // a NORMAL RTS from src 50 -> learned as a 1-hop neighbour (rt grows)
+    const uint8_t rc0 = node.rt_count();
+    hal._now=1000; feed_rts(/*src*/ 50, /*mobile_src*/ false);
+    CHECK(node.rt_count() == rc0 + 1);        // learned
+    // a MOBILE_SRC RTS from src 51 (a LOCAL id) -> NOT learned (A1: stays out of the global rt)
+    const uint8_t rc1 = node.rt_count();
+    hal._now=2000; feed_rts(/*src*/ 51, /*mobile_src*/ true);
+    CHECK(node.rt_count() == rc1);            // ★ NOT learned -> a mobile's local-id can't collide the global rt
 }

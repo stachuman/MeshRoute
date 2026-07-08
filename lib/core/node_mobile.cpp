@@ -55,7 +55,7 @@ void Node::mobile_claim_guard_fire() {
     // CLAIM the offered local-id (is_mobile) — mirrors join_start_claim's emit shape (node_join.cpp).
     j_claim_in c{}; c.leaf_id = _cfg.leaf_id; c.gateway_capable = false; c.is_mobile = true; c.key_hash32 = _key_hash32;
     c.proposed_node_id = o.proposed_local_id; c.claim_epoch = static_cast<uint8_t>(++_my_mobile_reg.epoch);
-    c.nonce = static_cast<uint8_t>(_hal.rand_range(0, 256));
+    c.chosen_host_id = o.responder_id;   // §mobile: address the CLAIM at the host we CHOSE (was a random nonce) -> only that host records us, not every flood-hearer
     uint8_t buf[11]; const size_t n = pack_j_claim(c, std::span<uint8_t>(buf, sizeof buf));
     if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
     // claim-stands: adopt now (no DENY-listen for v1 — the host recorded us on the CLAIM, Slice 2a).

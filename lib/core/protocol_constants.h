@@ -402,6 +402,8 @@ inline constexpr uint32_t mobile_discover_backoff_max_ms = 120000;   //   ceilin
 inline constexpr uint32_t mobile_offer_window_ms         = 2000;     // collect-OFFERs window before deciding (≈ B4)
 inline constexpr uint32_t mobile_home_lost_ms            = 90000;    // no BCN from home -> re-register
 inline constexpr uint32_t mobile_reclaim_ms              = 600000;   // 10-min periodic re-CLAIM (self-heal + refresh)
+inline constexpr uint8_t  cap_mobile_home_cache          = 16;       // §mobile 3c: sender-side mobile_hash->home_id cache (id_bind can't hold a 2nd hash per node)
+inline constexpr uint32_t mobile_home_cache_ttl_ms       = 300000;   // §mobile 3c: 5-min TTL (§17-C2 "short, minutes")
 // L2a mediation airtime guard: one mediated DENY per (id, loser-hash) per window — else a flapping binding
 // re-DENYs on EVERY beacon (a dense-storm airtime sink). Re-mediates after the window if the loser hasn't
 // yet renumbered (covers a lost DENY). Bounded ring (evict-oldest); 32 covers realistic churn.

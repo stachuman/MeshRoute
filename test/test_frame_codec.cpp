@@ -416,18 +416,23 @@ TEST_CASE("J CLAIM — round-trip (LE u16 lease) + golden") {
             for (uint16_t lease : {0u, 300u, 65535u})
                 for (uint8_t epoch : {0, 7, 255}) {
                     std::array<uint8_t, 11> buf{};
-                    CHECK(pack_j_claim({leaf, false, mob, 0xDEADBEEFu, 0x2A, lease, epoch, 0x99}, buf) == 11);
+                    // §mobile: byte-10 is the NONCE for a static CLAIM, the CHOSEN_HOST_ID for a mobile CLAIM (same slot)
+                    j_claim_in in{leaf, false, mob, 0xDEADBEEFu, 0x2A, lease, epoch, /*nonce=*/0x99};
+                    if (mob) in.chosen_host_id = 0x77;
+                    CHECK(pack_j_claim(in, buf) == 11);
                     auto o = parse_j(buf);
                     CHECK(o.has_value());
                     if (o) {
                         CHECK(o->opcode == 1); CHECK(o->leaf_id == leaf); CHECK(o->is_mobile == mob);
                         CHECK(o->key_hash32 == 0xDEADBEEFu); CHECK(o->proposed_node_id == 0x2A);
                         CHECK(o->lease_age_seconds == lease);
-                        CHECK(o->claim_epoch == epoch); CHECK(o->nonce == 0x99);
+                        CHECK(o->claim_epoch == epoch);
+                        if (mob) CHECK(o->chosen_host_id == 0x77);   // §mobile: byte-10 carries the chosen host
+                        else     CHECK(o->nonce == 0x99);            // static: byte-10 is the nonce (byte-identical)
                     }
                 }
-    std::array<uint8_t, 11> g{};
-    CHECK(pack_j_claim({5, false, true, 0xDEADBEEFu, 0x2A, 300, 7, 0x99}, g) == 11);
+    std::array<uint8_t, 11> g{};   // golden: a mobile CLAIM with chosen_host_id=0x99 -> byte-10 == 0x99 (same bytes as the pre-fix static golden)
+    CHECK(pack_j_claim({5, false, true, 0xDEADBEEFu, 0x2A, 300, 7, /*nonce=*/0x99, /*chosen_host=*/0x99}, g) == 11);
     const uint8_t ex[] = {0x95, 0x51, 0xEF, 0xBE, 0xAD, 0xDE, 0x2A, 0x2C, 0x01, 0x07, 0x99};
     for (int i = 0; i < 11; ++i) CHECK(g[i] == ex[i]);
 }

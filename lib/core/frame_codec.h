@@ -342,7 +342,8 @@ struct j_offer_in    { uint8_t leaf_id; bool gateway_capable; bool is_mobile;
                        uint8_t proposed_mobile_id = 0; };   // §mobile 2a: appended (9-B frame) iff is_mobile — the host-assigned LOCAL id
 // CLAIM (11 B): key_hash32(LE), proposed_node_id, lease_age_seconds(u16 LE), claim_epoch, nonce.
 struct j_claim_in    { uint8_t leaf_id; bool gateway_capable; bool is_mobile; uint32_t key_hash32;
-                       uint8_t proposed_node_id; uint16_t lease_age_seconds; uint8_t claim_epoch; uint8_t nonce; };
+                       uint8_t proposed_node_id; uint16_t lease_age_seconds; uint8_t claim_epoch; uint8_t nonce;
+                       uint8_t chosen_host_id = 0; };   // §mobile: reuses the byte-10 NONCE slot iff is_mobile (nonce is dead on the mobile path); at struct END to preserve positional aggregate-inits
 // DENY (15 B): denied_node_id, owner_key_hash32(LE), claimant_key_hash32(LE),
 //              owner_lease_age_seconds(u16 LE), owner_claim_epoch, reason.
 struct j_deny_in     { uint8_t leaf_id; bool gateway_capable; bool is_mobile; uint8_t denied_node_id;
@@ -363,6 +364,7 @@ struct j_out {
     uint8_t  responder_node_id; uint32_t responder_key_hash32; uint8_t data_sf_bitmap;  // OFFER
     uint8_t  proposed_mobile_id = 0;                                           // OFFER §mobile 2a: valid iff opcode==OFFER && is_mobile (9-B)
     uint8_t  proposed_node_id; uint16_t lease_age_seconds; uint8_t claim_epoch; uint8_t nonce;  // CLAIM
+    uint8_t  chosen_host_id = 0;                                               // CLAIM §mobile: byte-10 read here too (a mobile CLAIM addresses its chosen host; static reads nonce)
     uint8_t  denied_node_id; uint32_t owner_key_hash32; uint32_t claimant_key_hash32;
     uint16_t owner_lease_age_seconds; uint8_t owner_claim_epoch; uint8_t reason;            // DENY
 };

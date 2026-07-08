@@ -715,6 +715,7 @@ void Node::on_timer(uint32_t timer_id) {
     case kAgingTimerId:
         age_out_stale_routes();
         id_bind_age_out();            // hash-locate A0: drop expired bindings on the same periodic sweep
+        mobile_home_age_out();        // §mobile 3c: TTL-drop the sender-side mobile_hash->home cache on the same sweep
         age_out_parked_sends();       // hash-locate D: give up on DMs whose hash never resolved
         age_out_denied_ids();         // node_id DAD: a denied slot becomes reusable after dad_denied_id_ttl_ms
         age_out_mediated();           // L2a: drop mediation-suppression records past the window

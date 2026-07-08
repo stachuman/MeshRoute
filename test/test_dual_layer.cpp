@@ -213,6 +213,28 @@ struct DualLayerTestAccess {
         pa.previous_hop = 99; pa.inner_len = 0; pa.fwd_remaining = 5; pa.fwd_committed = 1;
         n.do_post_ack();
     }
+    static void     store_mobile(Node& n, uint32_t key_hash, uint8_t local_id) {                       // §mobile 3a: register a mobile on this host
+        auto& L = *n._active; L._mobile_reg[L._mobile_reg_n++] = { key_hash, local_id, 1, n._hal.now() };
+    }
+    static void     drive_post_ack_deliver(Node& n, uint8_t origin, uint32_t dst_hash) {               // §mobile 3a: a DM addressed to me carrying a DST_HASH -> run do_post_ack
+        auto& pa = n._active->_post_ack; pa = PostAck{};
+        pa.pending = true; pa.is_forward = false; pa.origin = origin; pa.dst = n._node_id;
+        pa.ctr = 0x1234; pa.ctr_lo = 4; pa.flags = DATA_FLAG_DST_HASH; pa.type = 0;
+        pa.inner[0] = static_cast<uint8_t>(dst_hash); pa.inner[1] = static_cast<uint8_t>(dst_hash >> 8);
+        pa.inner[2] = static_cast<uint8_t>(dst_hash >> 16); pa.inner[3] = static_cast<uint8_t>(dst_hash >> 24);
+        pa.inner[4] = origin; pa.inner[5] = 0xAA; pa.inner_len = 6;   // [dst_hash 4B LE][origin][body]
+        n.do_post_ack();
+    }
+    static const PendingTx* pending(Node& n) { return n._active->_pending_tx ? &*n._active->_pending_tx : nullptr; }  // §mobile 3a: the in-flight item (after become_free issues the forward)
+    static void     make_registered_mobile(Node& n, uint8_t local_id, uint8_t home_id, uint32_t home_hash) {   // §mobile 3b: a mobile that has adopted a local-id + homed
+        n._cfg.is_mobile = true; n.set_identity(local_id, n._key_hash32); n._joined = true;
+        n._my_mobile_reg = { true, home_id, local_id, home_hash, n._cfg.leaf_id, 0, n._hal.now() };
+    }
+    static uint16_t do_send(Node& n, uint8_t dst, const uint8_t* body, uint8_t body_len) { return n.do_send(dst, body, body_len, 0); }  // §mobile 3b: originate a plaintext DM
+    static uint16_t do_send_override(Node& n, uint8_t dst, const uint8_t* body, uint8_t len, uint32_t oh) { return n.do_send(dst, body, len, 0, CryptIntent::def, oh); }  // §mobile 3c: DM with override_dst_hash
+    static uint16_t send_by_hash(Node& n, uint32_t h, const uint8_t* body, uint8_t len) { return n.send_by_hash(h, body, len, 0, CryptIntent::def); }  // §mobile 3c: send-by-hash trigger
+    static void     send_e2e_ack(Node& n, uint8_t to_origin, uint16_t ctr) { n.send_e2e_ack(to_origin, ctr); }  // §mobile Fix 5: originate an E2E-ACK to an origin
+    static bool     has_pending_rx(Node& n) { return static_cast<bool>(n._active->_pending_rx); }  // §mobile 3b: a receiver flight opened => the RTS was ADDRESSED (accepted), not overheard
     static uint8_t  pick_hop(Node& n, PendingTx& pt)        { return n.pick_next_cascade_hop(pt); }    // §intra-relay Edit 4: cascade pick (0 = no selectable hop -> rediscover)
     static void     pump(Node& n)                           { n.become_free(); }                      // Slice 4a: the kQueueWakeupTimerId handler
     // Slice 4c.1 bridge accessors
@@ -2099,4 +2121,139 @@ TEST_CASE("gateway exemption: OWN e2e-ack (DATA_TYPE_E2E_ACK) is dm_min_interval
             if (DualLayerTestAccess::leaf_tx_at(node, leaf, i).type == DATA_TYPE_E2E_ACK &&
                 DualLayerTestAccess::leaf_tx_at(node, leaf, i).next_attempt_ms > hal._now) any_deferred = true;
     CHECK_FALSE(any_deferred);
+}
+
+TEST_CASE("§mobile 3a — host last-mile forward: re-address a DM for a hosted mobile to its local-id + addr_len=1") {
+    StubHal hal; Node host(hal, 1, 0xAA01u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=0;
+    CHECK(host.on_init(cfg));
+    DualLayerTestAccess::store_mobile(host, /*key*/ 0xB0Bu, /*local*/ 17);   // this host registers mobile 0xB0B -> local 17
+    // NB: NO route to 17 installed -> the forward can only fly via Fix 4 (mobile-next is a DIRECT 1-hop send, no rt_find).
+    hal.emits.clear();
+    DualLayerTestAccess::drive_post_ack_deliver(host, /*origin*/ 42, /*dst_hash*/ 0xB0Bu);
+    CHECK(hal.saw_emit("mobile_lastmile_fwd"));
+    const PendingTx* pt = DualLayerTestAccess::pending(host);   // become_free issued the forward -> the in-flight state
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->dst == 17);            // ★ re-addressed to the mobile's LOCAL id
+        CHECK(pt->addr_len == 1);        // ★ the mobile mark rides the forward RTS (byte-3)
+        CHECK(pt->mobile_src == false);  // a host forward, NOT a mobile origination
+        CHECK(pt->origin == 42);         // the real originator is preserved (anti-spam)
+    }
+
+    // control: a host with NO registered mobile -> the fork is dormant (_mobile_reg_n==0) -> no re-address here
+    StubHal hal2; Node host2(hal2, 1, 0xAA02u);
+    NodeConfig c2; c2.routing_sf=8; c2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c2.leaf_id=0; host2.on_init(c2);
+    hal2.emits.clear();
+    DualLayerTestAccess::drive_post_ack_deliver(host2, 42, 0xB0Bu);
+    CHECK_FALSE(hal2.saw_emit("mobile_lastmile_fwd"));   // _mobile_reg_n==0 -> byte-identical (no fork)
+    CHECK(DualLayerTestAccess::leaf_tx_n(host2, 0) == 0);
+}
+
+TEST_CASE("§mobile 3b outbound — a registered mobile bills home (origin), self-marks, and routes via home_node") {
+    StubHal hal; Node mob(hal, /*id=*/0, /*key=*/0x9999u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true;
+    CHECK(mob.on_init(cfg));
+    DualLayerTestAccess::make_registered_mobile(mob, /*local*/ 20, /*home*/ 5, /*home_hash*/ 0x5050u);
+    const uint8_t body[] = { 0x01, 0x02, 0x03 };
+    DualLayerTestAccess::do_send(mob, /*dst*/ 99, body, sizeof body);   // originate a DM to any dst -> routed via home
+    const PendingTx* pt = DualLayerTestAccess::pending(mob);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->origin == 5);          // ★ Fix 4: billed to the home_node (an accountable GLOBAL id; E2E identity rides sender_hash)
+        CHECK(pt->next == 5);            // ★ Fix 3: routed via the 1-hop home_node (NOT rt_find(99))
+        CHECK(pt->mobile_src == true);   // ★ Fix 3: self-marked -> the host keeps our local-id out of the global rt (A1)
+    }
+}
+
+TEST_CASE("§mobile 3b receive — the mark disambiguates a colliding id: a mobile accepts addr_len=1, a static accepts addr_len=0") {
+    auto accepts = [](bool is_mobile, uint8_t addr_len) -> bool {
+        StubHal hal; Node node(hal, /*id=*/20, /*key=*/0x2020u);
+        NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=is_mobile;
+        node.on_init(cfg);
+        RxMeta meta{ 9.0f, -70.0f, 0, static_cast<int8_t>(-1) };
+        rts_in r{}; r.leaf_id=4; r.src=50; r.next=20; r.ctr_lo=1; r.dst=20; r.sf_index=0; r.rts_flags=0; r.payload_len=1; r.addr_len=addr_len;
+        uint8_t b[9]; size_t n = pack_rts(r, b); node.on_recv(b, n, meta);
+        return DualLayerTestAccess::has_pending_rx(node);   // a receiver flight opened => ADDRESSED (accepted)
+    };
+    CHECK(accepts(/*is_mobile*/ true,  /*addr_len*/ 1));       // ★ the mobile accepts the marked last-mile RTS
+    CHECK_FALSE(accepts(/*is_mobile*/ false, /*addr_len*/ 1)); // ★ a colliding STATIC id 20 treats the marked RTS as overheard
+    CHECK(accepts(/*is_mobile*/ false, /*addr_len*/ 0));       // a normal (unmarked) RTS to static id 20 -> accepted (unchanged)
+    CHECK_FALSE(accepts(/*is_mobile*/ true,  /*addr_len*/ 0)); // a mobile ignores a global-addressed (unmarked) frame merely matching its local-id
+}
+
+TEST_CASE("§mobile 3c — mobile_home cache: find/set/coexist/TTL") {
+    StubHal hal; Node n(hal, 5, 0x5050u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=0; CHECK(n.on_init(cfg));
+    CHECK(n.mobile_home_find(0xAAAAu) == -1);              // empty -> miss
+    hal._now = 1000; n.mobile_home_set(0xAAAAu, 19);
+    CHECK(n.mobile_home_find(0xAAAAu) == 19);              // M -> home 19
+    n.mobile_home_set(0xBBBBu, 19);                        // a 2nd mobile sharing the SAME home (no bijection)
+    CHECK(n.mobile_home_find(0xBBBBu) == 19);
+    CHECK(n.mobile_home_find(0xAAAAu) == 19);              // both coexist
+    hal._now = 1000 + protocol::mobile_home_cache_ttl_ms;  // TTL expiry
+    CHECK(n.mobile_home_find(0xAAAAu) == -1);              // dropped on read
+}
+
+TEST_CASE("§mobile 3c — Fix 5: override_dst_hash stamps the DM's DST_HASH = M (not key_hash_of_id(N))") {
+    StubHal hal; Node n(hal, 5, 0x5050u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=0; CHECK(n.on_init(cfg));
+    DualLayerTestAccess::learn_neighbor(n, 19);           // a route to the home so the DM flies
+    const uint8_t body[] = {0xAA};
+    DualLayerTestAccess::do_send_override(n, /*dst*/19, body, 1, /*override=*/0xB0B1u);
+    const PendingTx* pt = DualLayerTestAccess::pending(n);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK((pt->flags & DATA_FLAG_DST_HASH) != 0);
+        const uint32_t inner_hash = pt->inner[0] | (pt->inner[1]<<8) | (pt->inner[2]<<16) | (static_cast<uint32_t>(pt->inner[3])<<24);
+        CHECK(inner_hash == 0xB0B1u);                     // ★ the QUERIED mobile hash M (so the home forwards), NOT N's own hash
+    }
+}
+
+TEST_CASE("§mobile 3c — Fix 4: send_by_hash hits the mobile_home cache -> sends to home with DST_HASH=M, no giveup") {
+    StubHal hal; Node n(hal, 5, 0x5050u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=0; CHECK(n.on_init(cfg));
+    DualLayerTestAccess::learn_neighbor(n, 19);
+    n.mobile_home_set(0xB0B1u, 19);                       // cached: mobile M -> home 19
+    hal.emits.clear();
+    const uint8_t body[] = {0xAA};
+    DualLayerTestAccess::send_by_hash(n, 0xB0B1u, body, 1);
+    const PendingTx* pt = DualLayerTestAccess::pending(n);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->dst == 19);                             // ★ routed to the HOME (the cache hit), NOT parked/flooded
+        CHECK((pt->flags & DATA_FLAG_DST_HASH) != 0);
+        const uint32_t inner_hash = pt->inner[0] | (pt->inner[1]<<8) | (pt->inner[2]<<16) | (static_cast<uint32_t>(pt->inner[3])<<24);
+        CHECK(inner_hash == 0xB0B1u);                     // ★ carries M so the home last-mile-forwards, not consumes
+    }
+    CHECK_FALSE(hal.saw_emit("send_hash_giveup"));        // resolved via the cache -> no park/giveup
+}
+
+TEST_CASE("§mobile Fix 5 (§18) — E2E-ACK when the origin's GLOBAL id == the mobile's LOCAL id: via home, no loop, no self-drop") {
+    // The mobile is local-id 20; it received a DM from a GLOBAL origin ALSO numbered 20. It must ack origin 20 WITHOUT
+    // (a) self-dropping (dst 20 == its own local id) or (b) looping back to itself. Fix 3 routes the ack via the home;
+    // A1 keeps the mobile's local-20 out of the home's rt so the forward resolves to the GLOBAL node 20.
+    StubHal hal; Node mob(hal, 0, 0x2020u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true;
+    CHECK(mob.on_init(cfg));
+    DualLayerTestAccess::make_registered_mobile(mob, /*local*/20, /*home*/30, /*home_hash*/0x3030u);
+    DualLayerTestAccess::send_e2e_ack(mob, /*to_origin*/20, /*ctr*/0x1234);
+    const PendingTx* pt = DualLayerTestAccess::pending(mob);
+    CHECK(pt != nullptr);                     // ★ NOT self-dropped — the mobile acks even though dst(20)==its own local id
+    if (pt) {
+        CHECK(pt->dst == 20);                 // the origin (the ack's final dest)
+        CHECK(pt->next == 30);                // ★ routed via the HOME_node (Fix 3), NEVER rt_find(20)->itself
+        CHECK(pt->mobile_src == true);        // ★ self-marked -> the home keeps 20 out of its rt (A1)
+        CHECK(pt->origin == 30);              // ★ billed to the home (Fix 4)
+        CHECK(pt->type == DATA_TYPE_E2E_ACK);
+    }
+    // at the HOME: the ack's RTS (mobile_src=1, src=20) must NOT add an rt entry for 20 -> rt_find(20) stays the GLOBAL node
+    StubHal hhal; Node home(hhal, 30, 0x3030u);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
+    RxMeta meta{9.0f,-70.0f,0,static_cast<int8_t>(-1)};
+    rts_in r{}; r.leaf_id=4; r.src=20; r.next=30; r.ctr_lo=4; r.dst=20; r.sf_index=0; r.rts_flags=RTS_FLAG_E2E_ACK; r.payload_len=2; r.mobile_src=true;
+    uint8_t b[9]; size_t n=pack_rts(r,b);
+    const uint8_t rc0 = home.rt_count();
+    home.on_recv(b, n, meta);
+    CHECK(home.rt_count() == rc0);            // ★ A1: the home did NOT learn the mobile's local-20 -> the ack forwards to GLOBAL-20, no loop
 }

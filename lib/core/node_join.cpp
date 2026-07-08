@@ -215,6 +215,7 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 
     if (j.opcode == static_cast<uint8_t>(j_opcode::claim)) {
         if (j.is_mobile) {                                            // §mobile 2a: a mobile CLAIM = claim-stands (record/refresh — NO reply)
+            if (j.chosen_host_id != _node_id) return;                 // §mobile: only the host the mobile CHOSE records it — a flood-hearer (relay) is NOT a host (else it proxies for a mobile it doesn't serve)
             int slot = -1;
             for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
                 if (_active->_mobile_reg[i].key_hash32 == j.key_hash32) { slot = static_cast<int>(i); break; }

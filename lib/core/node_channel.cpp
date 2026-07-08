@@ -566,7 +566,7 @@ bool Node::channel_m_in_flight(uint32_t id) const {
 void Node::enqueue_channel_m(uint8_t target, const ChannelEntry& e) {
     if (_active->_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (the puller can re-pull)
     TxItem item{};
-    item.origin = _node_id; item.dst = target; item.is_channel_m = true;
+    stamp_origin(item); item.dst = target; item.is_channel_m = true;
     item.ctr    = static_cast<uint16_t>(e.id & 0xff); item.ctr_lo = static_cast<uint8_t>(e.id & 0x0F);  // id-derived (M frame has no ctr)
     item.inner[0] = static_cast<uint8_t>(e.id >> 24); item.inner[1] = static_cast<uint8_t>(e.id >> 16);
     item.inner[2] = static_cast<uint8_t>(e.id >> 8);  item.inner[3] = static_cast<uint8_t>(e.id);
@@ -703,7 +703,7 @@ void Node::enqueue_flood_m(uint8_t channel_id, uint8_t flavor, uint32_t id, cons
                            const uint8_t* bitmap32, uint8_t hop_left) {
     if (_active->_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (repair covers it)
     TxItem item{};
-    item.origin = _node_id; item.dst = 0xFF;                      // broadcast; the RTS dst slot carries hop_left
+    stamp_origin(item); item.dst = 0xFF;                      // broadcast; the RTS dst slot carries hop_left
     item.ctr = static_cast<uint16_t>(id & 0xff); item.ctr_lo = static_cast<uint8_t>(id & 0x0F);
     item.is_channel_m = true;
     item.flood = true; item.hop_left = hop_left;

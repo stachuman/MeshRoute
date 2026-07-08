@@ -1,0 +1,169 @@
+{
+ "_name": "s21_mobile_dm_milestone",
+ "_desc": "Focused reachability milestone: Sender-Relay-Home static line + 1 near-stationary mobile (~0.1 m/s) ~33m from Home; Sender send_hash to the mobile hash. Verifies locate+last-mile+receive (3a/3b/3c).",
+ "simulation": {
+  "duration_ms": 300000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "beacon_period_ms": 20000,
+  "seed": 21,
+  "node_startup_jitter_ms": 0,
+  "radio": {
+   "sf": 8,
+   "bw": 62.5,
+   "cr": 5,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 0.01
+  },
+  "path_loss": {
+   "model": "log_distance",
+   "mobile_only": true,
+   "alpha": 3.0,
+   "sigma_db": 1.0,
+   "ref_distance_m": 1.0,
+   "ref_loss_db": 40.0,
+   "noise_floor_db": -120.0,
+   "tx_power_dbm": 14.0,
+   "node_tx_offset_sigma_db": 1.0,
+   "node_rx_offset_sigma_db": 1.0,
+   "asymmetry_coherence_ms": 60000
+  }
+ },
+ "commands": [
+  {
+   "at_ms": 150000,
+   "node": "Sender",
+   "command": "send_hash e27bc270 milestone_ping"
+  },
+  {
+   "at_ms": 210000,
+   "node": "Sender",
+   "command": "send_hash e27bc270 milestone_ping"
+  },
+  {
+   "at_ms": 270000,
+   "node": "Sender",
+   "command": "send_hash e27bc270 milestone_ping"
+  }
+ ],
+ "expect": [
+  {"type": "script_emit_contains", "node": "MobileM", "emit_type": "push", "value": "milestone_ping"},
+  {"type": "script_emit_contains", "node": "Home", "emit_type": "mobile_lastmile_fwd", "value": "local"}
+ ],
+ "nodes": [
+  {
+   "name": "Sender",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.62,
+   "lon": -122.3,
+   "start_at_ms": 1000,
+   "node_id": 17,
+   "key_hash32": "0x11111111",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9,
+     10
+    ],
+    "beacon_period_ms": 20000
+   }
+  },
+  {
+   "name": "Relay",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.61,
+   "lon": -122.3,
+   "start_at_ms": 1000,
+   "node_id": 18,
+   "key_hash32": "0x22222222",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9,
+     10
+    ],
+    "beacon_period_ms": 20000
+   }
+  },
+  {
+   "name": "Home",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.3,
+   "start_at_ms": 1000,
+   "node_id": 19,
+   "key_hash32": "0x33333333",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9,
+     10
+    ],
+    "beacon_period_ms": 20000
+   }
+  },
+  {
+   "name": "MobileM",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6003,
+   "lon": -122.3,
+   "start_at_ms": 1000,
+   "node_id": 50,
+   "key_hash32": "0xe27bc270",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9,
+     10
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   },
+   "velocity_mps": 0.1,
+   "direction_deg": 0.0
+  }
+ ],
+ "topology": {
+  "links": [
+   {
+    "from": "Sender",
+    "to": "Relay",
+    "snr": 38.0,
+    "rssi": -82.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "Relay",
+    "to": "Sender",
+    "snr": 38.0,
+    "rssi": -82.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "Relay",
+    "to": "Home",
+    "snr": 38.0,
+    "rssi": -82.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "Home",
+    "to": "Relay",
+    "snr": 38.0,
+    "rssi": -82.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   }
+  ]
+ }
+}

@@ -37,11 +37,14 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // is not a DM originator; counting it would DM-throttle honest gossipers (Lua dv:9709 `elseif
     // r.m_broadcast`). The become_free self-cap already exempts M_BROADCAST (Inc 4); this is the
     // RTS-observation half. Draw-free + inert until M_BROADCAST RTS flows (Phase 2 channel responder).
-    if (!(r.rts_flags & RTS_FLAG_RELAY) && !r.m_broadcast)
+    if (!(r.rts_flags & RTS_FLAG_RELAY) && !r.m_broadcast && !r.mobile_src)   // §mobile 3b A1: a mobile_src RTS's src is a LOCAL id, not a global identity -> skip the src-keyed track (accountability rides origin=home_id)
         track_originator_observation(r.src, /*kind=rts*/0, r.ctr_lo,
                                      static_cast<uint32_t>(airtime_routing_ms(static_cast<int>(len))));
     // Learn the RTS sender as a 1-hop neighbour — any RTS, overheard or addressed (Lua learn_rx_source).
-    if (learn_direct_neighbor(r.src, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
+    // §mobile 3b A1 (the load-bearing collision fix): NEVER learn a mobile's LOCAL id as a global neighbour — it can
+    // collide a global id, and then rt_find(that id) would resolve to the mobile so a mobile's E2E-ACK to the colliding
+    // GLOBAL id would loop back. The mobile reaches the mesh via its home_node; its src never enters the global rt.
+    if (!r.mobile_src && learn_direct_neighbor(r.src, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
     // ② implicit-ACK from an overheard forward-RTS (Lua dv:9863-9893): if we have a flight in progress and overhear
     // OUR next-hop forwarding the SAME DATA onward (its relay RTS), the hop decoded -> cancel our pending timeout
     // instead of waiting out the ACK timer + firing a redundant retry that collides with its downstream DATA. Match
@@ -130,12 +133,12 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                    { .key = "target",         .type = EventField::T::i64,     .i = r.next },
                                    { .key = "chosen_data_sf", .type = EventField::T::i64,     .i = data_sf },          // advertised SF we retuned to (t69)
                                    { .key = "guard_ms",       .type = EventField::T::i64,     .i = static_cast<int64_t>(back) },
-                                   { .key = "addressed",      .type = EventField::T::boolean, .b = (r.next == _node_id) } };
+                                   { .key = "addressed",      .type = EventField::T::boolean, .b = (r.next == _node_id && ((r.addr_len == 1) == _cfg.is_mobile)) } };   // §mobile 3b: mark-aware addressed
                 _hal.emit("channel_overhear_armed", f, 6); );
         }
         return;                                          // M_BROADCAST RTS never CTSes
     }
-    if (r.next != _node_id) {                             // not addressed to us as next-hop = overheard
+    if (r.next != _node_id || ((r.addr_len == 1) != _cfg.is_mobile)) {   // §mobile 3b: addressed iff next==my id AND the mark matches my kind (a mobile accepts addr_len=1, a static addr_len=0) -> a colliding id is disambiguated; else overheard
         // NAV (virtual carrier sense): an overheard UNICAST RTS reserves the medium for the rest of the
         // exchange (CTS+DATA+ACK) — M_BROADCAST already returned above, so this is unicast. Defer own
         // unsolicited TX until then (tx_initiating/tx_flood) so we don't step on the CTS in the silent gap.
@@ -391,7 +394,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (!pd) return;
     
     const data_out& d = *pd;
-    if (d.next != _node_id) return;
+    if (d.next != _node_id || ((d.addr_len == 1) != _cfg.is_mobile)) return;   // §mobile 3b: mark-aware DATA accept (a mobile accepts addr_len=1; the flight-context below also gates it). Byte-identical when both 0.
     if (!_active->_pending_rx || _active->_pending_rx->ctr_lo != d.ctr_lo4) return;
     // e2e-ack backstop exemption ANTI-SPOOF verify (2026-07-02): the RTS claimed RTS_FLAG_E2E_ACK (so its DROP was
     // exempted at handle_rts), but the DATA that arrived is NOT a DATA_TYPE_E2E_ACK -> the sender lied to bypass the
@@ -577,6 +580,32 @@ void Node::do_post_ack() {
     if (!pa.is_forward) {
         // Parse the inner up-front (the optional DST_HASH prefix + the cross-layer layer-path, read from pa.flags).
         auto ui = parse_unicast_inner(std::span<const uint8_t>(pa.inner, pa.inner_len), pa.flags);
+        // §mobile 3a: HOST last-mile forward — a DM addressed to ME whose inner dst_hash is a mobile I HOST -> re-address it
+        // to the mobile's LOCAL id with the addr_len=1 mark (Slice 1). The inner rides VERBATIM (E2E-sealed to the mobile;
+        // the host re-addresses, never decrypts — like the cross-layer bridge). Gated on _mobile_reg_n>0 -> a non-host is
+        // byte-identical. Runs BEFORE the cross-layer/H-answer/deliver forks (the DM's dst_hash != our key routed us here as proxy).
+        if (ui && ui->has_dst_hash && ui->dst_key_hash32 != _key_hash32 && _active->_mobile_reg_n > 0) {
+            for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i) {
+                if (_active->_mobile_reg[i].key_hash32 == ui->dst_key_hash32) {
+                    if (_active->_tx_queue_n < kTxQueueCap) {              // best-effort (match the bridge: drop if full)
+                        TxItem it{};
+                        it.origin     = pa.origin;                        // PRESERVE the real originator (anti-spam)
+                        it.dst        = _active->_mobile_reg[i].mobile_local_id;
+                        it.addr_len   = 1;                                // §mobile: next is a mobile local-id (Fix 1 -> RTS mark)
+                        it.mobile_src = false;                            // a host forward, NOT a mobile origination
+                        it.is_forward = true;
+                        it.ctr = pa.ctr; it.ctr_lo = pa.ctr_lo;           // carry the flight id
+                        it.flags = pa.flags; it.type = pa.type;
+                        it.inner_len = pa.inner_len;
+                        for (uint8_t j = 0; j < pa.inner_len; ++j) it.inner[j] = pa.inner[j];   // inner VERBATIM (E2E-sealed)
+                        _active->_tx_queue[_active->_tx_queue_n++] = it;
+                        MR_EMIT("mobile_lastmile_fwd", EF_I("local", it.dst), EF_I("origin", it.origin));
+                    }
+                    become_free();
+                    return;                                              // handled -> do NOT fall into bridge/H-answer/deliver
+                }
+            }
+        }
         // Slice 4c.1 (the bridge KEYSTONE): a CROSS_LAYER DM in TRANSIT through this gateway -> BRIDGE it to the next
         // layer BEFORE any type-based consume (so a 4e cross-layer E2E-ack passing through bridges, not gets consumed).
         // dst_hash == our key => we ARE the recipient: fall through to the normal handling (E2E-ack confirm / deliver to
@@ -902,7 +931,7 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto pk = parse_ack(std::span<const uint8_t>(bytes, len));
     if (!pk) return;
     const ack_out& k = *pk;
-    if (k.to != _node_id) return;
+    if (k.to != _node_id || ((k.mobile_to == 1) != _cfg.is_mobile)) return;   // §mobile 3b: an ACK to a mobile carries mobile_to=1 -> accepted by the mobile, ignored by a colliding static id (byte-identical when both 0)
     if (!_active->_pending_tx || !_active->_pending_tx->awaiting_ack || _active->_pending_tx->ctr_lo != k.ctr_lo) return;
     // src-less by design (see handle_cts): to+ctr_lo already identifies the ACK as our next-hop's. The
     // src_hint cross-check is SIM-ONLY, so gate it on availability rather than REJECTING when absent — the
@@ -911,7 +940,9 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     _hal.cancel(kAckTimeoutTimerId);
     _hal.cancel(kRetryBackoffTimerId);                   // drop a stale retry armed by a just-fired ack_timeout
     // Learn the ACK sender (= our next-hop) as a 1-hop neighbour (Lua learn_rx_source / ack_frame).
-    if (learn_direct_neighbor(_active->_pending_tx->next, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
+    // §mobile 3b A1: a last-mile flight's next-hop is a mobile LOCAL id -> keep it OUT of the global rt (same principle as
+    // the RTS-learn skip at :44; else rt_find(that id) resolves to the mobile). addr_len==0 on every normal flight -> unchanged.
+    if (_active->_pending_tx->addr_len != 1 && learn_direct_neighbor(_active->_pending_tx->next, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
     // R4.2: consume the ACK's piggybacked budget_hint -> learn the next-hop's tier in the FORWARD
     // direction (the NACK only covers the reverse). local_only=true: rerank routes but DON'T dirty /
     // schedule a beacon (so NO triggered-beacon draw on the forward path). Lua dv:10341-10344.
