@@ -494,7 +494,11 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         }
     }
     if (b.src == 0) return;                               // §P0: a BCN from the reserved sentinel id (an unprovisioned node) -> DROP (never learn a route via/to 0)
-    if (b.src == _node_id) {                              // beacon carrying OUR short id...
+    // §mobile 2b (static-safety): a mobile beacons with a LOCAL id that MAY collide a global id — the last-mile MARK
+    // disambiguates it, NOT the global id-plane. So a mobile's beacon MUST NOT drive the DAD self-defense OR the global
+    // id_bind (else a colliding global node wrongly DENYs the mobile / pollutes hash-locate). It STILL sets the
+    // mobile-peer bit below (avoid-as-transit). s18 has no mobiles -> b.is_mobile==false -> this runs exactly as before (byte-identical).
+    if (!b.is_mobile && b.src == _node_id) {              // beacon carrying OUR short id (a real global collision)...
         if (b.key_hash32 == _key_hash32) return;          // ...and our hash -> a true self-echo; drop
         // ...but a DIFFERENT hash -> an ADDRESS COLLISION (node_id DAD §7). The old guard swallowed this.
         // Defend our id: a J_DENY(OWN_ID_DEFENSE) carrying our claim_epoch makes the impostor run the
@@ -510,7 +514,11 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // Hash-locate A0 (Lua dv:9577): every BCN carries the sender's key_hash32 — learn the binding so we can
     // later answer an H query for this node WITHOUT the flood reaching the owner. (parse_beacon already
     // decodes b.key_hash32; this is the "stop discarding the received one" the review called for.)
-    id_bind_set(b.src, b.key_hash32, IdBindSource::bcn, IdBindConf::authoritative);   // the owner's own beacon = FIRST-HAND assertion of its key_hash32 (authoritative); a relayed/snooped binding is the claimed second-hand one
+    if (!b.is_mobile)                                     // §mobile 2b: a mobile's LOCAL id stays OUT of the global hash-locate plane
+        id_bind_set(b.src, b.key_hash32, IdBindSource::bcn, IdBindConf::authoritative);   // the owner's own beacon = FIRST-HAND assertion of its key_hash32 (authoritative); a relayed/snooped binding is the claimed second-hand one
+    // §mobile 2b: a mobile stamps hearing its HOME's (static) beacon -> reset the home-lost timeout (the FSM checks it).
+    if (_cfg.is_mobile && _my_mobile_reg.active && b.src == _my_mobile_reg.home_id && b.key_hash32 == _my_mobile_reg.home_key_hash32)
+        _my_mobile_reg.last_heard_home_ms = _hal.now();
     // Parse the channel-digest ext-TLV ONCE (draw-free) so beacon_rx can report how many ids the beacon
     // carries (dv:9614 `channel_digest_ids = #b.channel_digest_ids or 0`); reused by the reaction below.
     // Reported for ALL nodes (even gateways); only the process_channel_digest reaction is gateway-gated.

@@ -4591,3 +4591,80 @@ TEST_CASE("channel_cap_origin — MF1/MF3 formula: SF, N, and C>=1 floor") {
     CHECK(nt->channel_cap_origin() == 1);                     // D/T_ch=0 -> C floored to 1 -> cap 1 (no inversion)
     delete nt;
 }
+
+TEST_CASE("§mobile 2a — host accepts a mobile (DISCOVER->OFFER, CLAIM registers); static mesh unaffected") {
+    TestHal hal; Node host(hal, /*id=*/20, /*key=*/0xAA20);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 4;  // host_mobiles default true
+    host.on_init(cfg);
+    RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(-1) };
+
+    // (1) a mobile DISCOVER on a FOREIGN leaf (7) -> leaf-exempt -> the host emits a mobile OFFER
+    std::array<uint8_t, 6> db{};
+    size_t dn = pack_j_discover({ /*leaf_id=*/7, /*gw=*/false, /*is_mobile=*/true, /*key=*/0xB0B1u }, db);
+    hal._now = 1000; host.on_recv(db.data(), dn, meta);
+    CHECK(hal.count("mobile_offer_tx") == 1);                 // leaf-exempt worked (a foreign-leaf mobile DISCOVER is accepted)
+
+    // (2) a NON-mobile DISCOVER on a foreign leaf -> leaf filter still applies -> NO offer (static path byte-unchanged)
+    std::array<uint8_t, 6> db2{};
+    size_t dn2 = pack_j_discover({ 7, false, /*is_mobile=*/false, 0xBEEFu }, db2);
+    hal._now = 2000; host.on_recv(db2.data(), dn2, meta);
+    CHECK(hal.count("mobile_offer_tx") == 1);                 // unchanged -> the non-mobile foreign DISCOVER was leaf-filtered
+
+    // (3) a mobile CLAIM -> claim-stands: registered, NO reply; idempotent re-CLAIM keeps ONE slot
+    std::array<uint8_t, 11> cb{};
+    size_t cn = pack_j_claim({ /*leaf_id=*/4, false, /*is_mobile=*/true, /*key=*/0xB0B1u, /*proposed=*/40, /*lease=*/0, /*epoch=*/1, /*nonce=*/0 }, cb);
+    hal._now = 3000; host.on_recv(cb.data(), cn, meta);
+    CHECK(hal.count("mobile_registered") == 1);
+    CHECK(host.mobile_reg_count() == 1);
+    hal._now = 4000; host.on_recv(cb.data(), cn, meta);       // same key -> refresh, not a new slot
+    CHECK(host.mobile_reg_count() == 1);
+
+    // (4) STATIC regression: a non-mobile CLAIM is handled by the static path (learns the binding); _mobile_reg untouched
+    std::array<uint8_t, 11> sc{};
+    size_t scn = pack_j_claim({ 4, false, /*is_mobile=*/false, 0xC0C0u, /*proposed=*/50, 0, 1, 0 }, sc);
+    hal._now = 5000; host.on_recv(sc.data(), scn, meta);
+    CHECK(host.mobile_reg_count() == 1);                      // static CLAIM did NOT touch the mobile registry
+    CHECK(hal.count("mobile_registered") == 2);               // still 2 (from the two mobile CLAIMs in step 3) — the static CLAIM added NO mobile registration
+}
+
+TEST_CASE("§mobile 2b — mobile FSM: DISCOVER, collect OFFERs, CLAIM the strongest, adopt; static never arms") {
+    constexpr uint32_t kMobDisc = 74, kMobGuard = 75;        // mirror node.h's kMobileDiscover/ClaimGuardTimerId
+    TestHal hal; Node mob(hal, /*id=*/0, /*key=*/0x7777);   // unprovisioned mobile
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 4; cfg.is_mobile = true;
+    mob.on_init(cfg);
+    RxMeta m5{ 5.0f, -80.0f, 0, static_cast<int8_t>(-1) }, m9{ 9.0f, -70.0f, 0, static_cast<int8_t>(-1) };
+
+    // (1) DISCOVER fires (a DISCOVER frame goes out)
+    hal._now = 1000; mob.on_timer(kMobDisc);
+    CHECK(hal.count("mobile_discover_tx") == 1);
+
+    // (2) collect two OFFERs (from a FOREIGN leaf 7 -> the mobile-OFFER leaf-exemption lets them in)
+    auto feed_offer = [&](uint8_t resp, uint32_t rk, uint8_t local, RxMeta& meta) {
+        j_offer_in o{}; o.leaf_id=7; o.is_mobile=true; o.responder_node_id=resp; o.responder_key_hash32=rk;
+        o.data_sf_bitmap=0x06; o.proposed_mobile_id=local;
+        uint8_t buf[9]; size_t n = pack_j_offer(o, buf); mob.on_recv(buf, n, meta);
+    };
+    feed_offer(30, 0x3030u, 100, m5);
+    feed_offer(31, 0x3131u, 101, m9);                       // stronger SNR
+    CHECK(mob.mobile_offers_n() == 2);
+
+    // (3) the guard fires -> CLAIM the STRONGEST (local 101 from responder 31) + adopt
+    hal._now = 4000; mob.on_timer(kMobGuard);
+    CHECK(hal.count("mobile_adopted") == 1);
+    CHECK(mob.node_id() == 101);                            // adopted the stronger offer's local-id
+    CHECK(mob.mobile_home_id() == 31);                      // homed to the stronger responder
+
+    // (4) no-host: a fresh mobile with no OFFERs -> no adopt, re-arms (backoff)
+    TestHal h2; Node mob2(h2, 0, 0x8888u);
+    NodeConfig c2; c2.routing_sf=8; c2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c2.leaf_id=4; c2.is_mobile=true; mob2.on_init(c2);
+    h2._now=1000; mob2.on_timer(kMobDisc); h2._now=4000; mob2.on_timer(kMobGuard);
+    CHECK(mob2.mobile_home_id() == 0);                      // not adopted (no host)
+    CHECK(h2.count("mobile_no_host") == 1);
+
+    // (5) STATIC: a non-mobile node never arms the FSM -> on_timer(kMobDisc) is a no-op
+    TestHal h3; Node stat(h3, 20, 0xAA20u);
+    NodeConfig c3; c3.routing_sf=8; c3.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c3.leaf_id=4; c3.is_mobile=false; stat.on_init(c3);
+    h3._now=1000; stat.on_timer(kMobDisc); stat.on_timer(kMobGuard);
+    CHECK(h3.count("mobile_discover_tx") == 0);             // a static node never DISCOVERs
+    CHECK(stat.mobile_home_id() == 0);
+}

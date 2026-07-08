@@ -1831,3 +1831,19 @@ TEST_CASE("mobile marks — RTS/DATA addr_len + RTS/ACK MOBILE round-trip (Slice
     di.addr_len = 2;                                  // 2..7 hierarchy-deferred -> pack refuses
     CHECK(pack_data(di, dbuf) == 0);
 }
+
+TEST_CASE("J mobile OFFER — 9-B round-trip (Slice 2a); normal OFFER stays 8-B") {
+    j_offer_in m{}; m.leaf_id=4; m.is_mobile=true; m.responder_node_id=7; m.responder_key_hash32=0xABCD1234;
+    m.data_sf_bitmap=0x06; m.proposed_mobile_id=33;
+    uint8_t buf[16]; size_t n = pack_j_offer(m, buf); CHECK(n == 9);
+    auto o = parse_j({buf, n}); CHECK(o.has_value());
+    if (o) { CHECK(o->opcode == (uint8_t)j_opcode::offer); CHECK(o->is_mobile); CHECK(o->proposed_mobile_id == 33);
+             CHECK(o->responder_node_id == 7); }
+    j_offer_in s{}; s.leaf_id=4; s.is_mobile=false; s.responder_node_id=7; s.responder_key_hash32=0xABCD1234; s.data_sf_bitmap=0x06;
+    n = pack_j_offer(s, buf); CHECK(n == 8);                 // static OFFER unchanged (8-B)
+    auto o2 = parse_j({buf, n}); CHECK(o2.has_value());
+    if (o2) { CHECK_FALSE(o2->is_mobile); }
+    // a 9-B frame parsed as an 8-B (is_mobile=0) offer is length-rejected, and vice-versa (exact-length per opcode)
+    m.is_mobile=true; n = pack_j_offer(m, buf); buf[1] = static_cast<uint8_t>(buf[1] & ~0x40);   // clear is_mobile in byte1
+    CHECK_FALSE(parse_j({buf, n}).has_value());              // 9-B body but is_mobile=0 -> length mismatch
+}

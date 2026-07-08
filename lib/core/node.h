@@ -99,6 +99,7 @@ struct NodeConfig {
     bool     gateway_only        = false;       // §7 flood switch: true = PURE bridge (out of the channel plane);
                                                 // false (default) = gateway ALSO serves its owner (consumer half on, provider half off)
     bool     is_mobile           = false;
+    bool     host_mobiles        = true;        // §mobile 2a: this static node accepts/hosts mobiles (activates the J DISCOVER->OFFER->CLAIM host side). Opt-out = false; a mobile itself never hosts.
     bool     join_required       = false;
     bool     req_sync_on_boot    = true;
     bool     seen_bitmap_enabled = false;   // OFF by default 2026-06-19: no measurable delivery benefit in ANY scenario
@@ -525,6 +526,9 @@ public:
     void set_rediscover_pending(bool v) { _pending_rediscover = v; }
     void restart_discovery();    // re-enter discovery (fast beacon cadence + REQ_SYNC pull) to rebuild routes
     uint8_t           rt_count()       const { return _active->_rt_count; }
+    uint8_t           mobile_reg_count() const { return _active ? _active->_mobile_reg_n : 0; }   // §mobile 2a: mobiles registered to this host (test/diagnostic accessor)
+    uint8_t           mobile_home_id() const { return _my_mobile_reg.active ? _my_mobile_reg.home_id : 0; }   // §mobile 2b: our host (0 = unregistered)
+    uint8_t           mobile_offers_n() const { return _mobile_offers_n; }                        // §mobile 2b: OFFERs collected this window (test/diag)
     const RtEntry&    rt_at(uint8_t i) const { return _active->_rt[i]; }   // 0..rt_count()-1; candidates[0] is the primary
     // Console testing aid: manually force / drop a route, to stress the routing algorithms with arbitrary or
     // inconsistent routes. route_inject returns true if the candidate took (rt_merge can reject if better candidates
@@ -721,7 +725,9 @@ private:
     // bound stays intact (the canary era: the wheel is exonerated only because it bounds).
     static constexpr uint32_t kChannelReofferTimerId   = 70;  // channel ORIGIN re-offer jittered fire; BASE of a ring [70..73] (slot = id - base)
     static constexpr uint8_t  kChannelReofferSlots     = protocol::cap_channel_reoffer_pending;
-    // [74..79] free for future per-layer timers.
+    static constexpr uint32_t kMobileDiscoverTimerId   = 74;  // §mobile 2b: registration FSM — DISCOVER kick / periodic re-CLAIM
+    static constexpr uint32_t kMobileClaimGuardTimerId = 75;  // §mobile 2b: collect-OFFERs window close -> pick strongest + CLAIM
+    // [76..79] free for future per-layer timers.
 
     // ---- beacon emit / ingest ----------------------------------------------
     void emit_beacon(const char* kind);                            // "periodic" | "triggered"
@@ -796,12 +802,17 @@ private:
     void    l2c_mark_redirected(uint32_t want_hash);
     // node_id auto-assignment (DAD + heal) — node_join.cpp.
     int     join_choose_candidate_id();                          // prefer previous id, else a random free slot (-1 = leaf full)
+    uint8_t find_free_mobile_id(uint32_t key_hash32);            // §mobile 2a: host-assign a free LOCAL id (17..254) for a mobile (0 = pool full; idempotent for a known key)
     bool    join_start_claim(const char* reason);                // pick a candidate, bump epoch, broadcast J_CLAIM, arm the guard
     void    join_claim_guard_fire();                             // kJoinClaimGuardTimerId: adopt (no objection) or deny+retry
     void    join_adopt(uint8_t node_id);                         // set_identity + joined + self-bind + beacon
     void    handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta);   // J RX dispatch (CLAIM/DENY; DISCOVER/OFFER later)
     void    addr_conflict_send_deny(uint8_t node_id, uint32_t owner_key, uint32_t claimant_key, uint8_t reason);  // owner defends its id
     void    forced_rejoin(const char* reason);                   // lost the heal tiebreak -> yield id + re-claim
+    // §mobile 2b: the mobile-side registration FSM (node_mobile.cpp). Armed only for _cfg.is_mobile (static never enters).
+    void    mobile_discover_fire();                             // DISCOVER + open the collect-OFFERs window
+    void    mobile_claim_guard_fire();                         // window close: pick strongest OFFER -> CLAIM + adopt; else backoff
+    void    mobile_reset_registration(const char* reason);     // drop registration -> re-enter discovery
     void    join_deny_id(uint8_t id);                            // add to the denied list (1-day TTL)
     bool    join_id_denied(uint8_t id) const;                    // is this id currently denied (not expired)?
     void    age_out_denied_ids();                                // drop denied entries past dad_denied_id_ttl_ms
@@ -1167,6 +1178,22 @@ private:
     uint8_t  _claim_epoch = 0;                                   // VESTIGIAL (key-only tiebreak): reserved on wire/NV, not consulted
     struct JoinClaim { bool active; uint8_t proposed; uint32_t key_hash32; uint8_t claim_epoch; uint8_t nonce; uint64_t started_ms; };
     JoinClaim _join_claim{};                                     // the single in-flight claim (active=false when none)
+    // §mobile 2b (mobile-side registration): a mobile has ONE attachment (identity-level, single-layer). DORMANT unless
+    // _cfg.is_mobile — the FSM timer is armed only for a mobile, so a static node never touches any of this.
+    struct MyMobileReg {
+        bool     active = false;              // registered to a host?
+        uint8_t  home_id = 0;                 // the host's node_id (our registrar / home)
+        uint8_t  my_local_id = 0;             // our host-assigned local-id (== _node_id once adopted)
+        uint32_t home_key_hash32 = 0;         // stable home identity (home-lost / redirect)
+        uint8_t  home_leaf_id = 0;            // the leaf we registered on
+        uint16_t epoch = 0;                   // §17 registration epoch (mobile-incremented per (re)register)
+        uint64_t last_heard_home_ms = 0;      // last BCN from home_id (home-lost timeout)
+    };
+    MyMobileReg _my_mobile_reg{};
+    struct OfferCand { uint8_t responder_id; uint32_t responder_hash; uint8_t proposed_local_id; float snr_db; };
+    OfferCand _mobile_offers[protocol::cap_mobile_offers] = {};   // OFFERs collected during a DISCOVER window
+    uint8_t   _mobile_offers_n = 0;
+    uint32_t  _mobile_backoff_ms = 0;                             // exp-backoff when no host answers (0 = first try)
     struct DeniedId { uint8_t id; uint64_t denied_at_ms; };      // a slot that lost a claim/heal (§13: 1-day TTL)
     DeniedId _join_denied[protocol::cap_join_denied] = {};
     uint8_t  _join_denied_n = 0;
@@ -1292,6 +1319,12 @@ private:
         // Slice 3d per-leaf beacon: a gateway beacons each leaf on its OWN cadence at window-activation (the shared
         // kBeaconTimerId is disabled for gateways — its single deadline halves the per-leaf cadence). 0 = never beaconed.
         uint64_t _last_beacon_ms = 0;
+        // §mobile 2a (host registration): mobiles this host has accepted. Populated on a mobile CLAIM (claim-stands, no
+        // reply); mobile_local_id is host-assigned from 17..254 (may overlap a global id — the Slice-1 mark disambiguates).
+        // Per-leaf (a host serves one leaf). DORMANT unless a mobile registers -> the static mesh is unaffected.
+        struct HostMobileEntry { uint32_t key_hash32; uint8_t mobile_local_id; uint16_t epoch; uint64_t last_heard_ms; };
+        HostMobileEntry _mobile_reg[protocol::cap_host_mobiles] = {};
+        uint8_t         _mobile_reg_n = 0;
         // §per-layer discovery (2026-07-05): a GATEWAY bootstraps each leaf INDEPENDENTLY — the boot leaf must not trip
         // the OTHER leaf out of fast-cadence discovery (node-global discovery starved leaf 1 -> the 3h heartbeat). A
         // single-layer node has ONE leaf, so _active is always &_layers[0] => per-leaf ≡ the old node-global state

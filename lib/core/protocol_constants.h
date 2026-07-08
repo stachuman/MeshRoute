@@ -394,6 +394,14 @@ inline constexpr uint8_t  unjoined_node_id     = 0;           // 0 = unprovision
 // sim suite — static scenario ids bypass the picker). docs/superpowers/specs/2026-06-19-normal-node-id-reservation-design.md
 inline constexpr uint8_t  gateway_node_id_max  = 16;          // 1..16 reserved for gateways
 inline constexpr uint8_t  normal_node_id_min   = 17;          // normal nodes pick from 17..254
+inline constexpr uint8_t  cap_host_mobiles     = 16;          // §mobile 2a: per-leaf host registry capacity (mobiles accepted by this host)
+// §mobile 2b (mobile-side registration FSM):
+inline constexpr uint8_t  cap_mobile_offers              = 8;        // OFFERs collected in one DISCOVER window
+inline constexpr uint32_t mobile_discover_backoff_min_ms = 5000;     // exp-backoff floor when no host answers (B3)
+inline constexpr uint32_t mobile_discover_backoff_max_ms = 120000;   //   ceiling
+inline constexpr uint32_t mobile_offer_window_ms         = 2000;     // collect-OFFERs window before deciding (≈ B4)
+inline constexpr uint32_t mobile_home_lost_ms            = 90000;    // no BCN from home -> re-register
+inline constexpr uint32_t mobile_reclaim_ms              = 600000;   // 10-min periodic re-CLAIM (self-heal + refresh)
 // L2a mediation airtime guard: one mediated DENY per (id, loser-hash) per window — else a flapping binding
 // re-DENYs on EVERY beacon (a dense-storm airtime sink). Re-mediates after the window if the loser hasn't
 // yet renumbered (covers a lost DENY). Bounded ring (evict-oldest); 32 covers realistic churn.

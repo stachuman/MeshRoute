@@ -254,6 +254,7 @@ static void dump_cfg() {
     mrcon.print(F(" lbt="));              mrcon.print(c.lbt_enabled ? 1 : 0);
     mrcon.print(F(" nav="));              mrcon.print(c.nav_enabled ? 1 : 0);
     mrcon.print(F(" intra_relay="));      mrcon.print(c.intra_layer_relay ? 1 : 0);   // §gateway: relay same-leaf DMs? (default OFF)
+    mrcon.print(F(" host_mobiles="));     mrcon.print(c.host_mobiles ? 1 : 0);        // §mobile 2a: accept/host mobiles? (default ON)
     mrcon.print(F(" nav_ignore="));       mrcon.println(c.nav_ignore_rts ? 1 : 0);
     mrcon.print(F("  aspam : active_fraction=")); mrcon.print(c.channel_active_fraction, 3);   // anti-spam v2 promoted knobs (in the config_hash)
     mrcon.print(F(" ch_min_ms="));        mrcon.print(c.channel_min_interval_ms);
@@ -543,6 +544,7 @@ static void handle_cfg_set(const char* args) {
     // --- nav/hop tuning: LIVE-only (good defaults; reboot reverts) ---
     else if (!strcmp(key, "nav"))        { lc.nav_enabled    = atoi(val) != 0; persist = false; }
     else if (!strcmp(key, "intra_layer_relay")) { lc.intra_layer_relay = (atoi(val) != 0 || !strcmp(val, "on")); persist = false; }   // §gateway: LIVE-only (default OFF is the fix)
+    else if (!strcmp(key, "host_mobiles"))     { lc.host_mobiles   = (atoi(val) != 0 || !strcmp(val, "on")); persist = false; }   // §mobile 2a: accept/host mobiles? LIVE-only (default ON; reverts on reboot — a mobile itself never hosts)
     else if (!strcmp(key, "nav_ignore")) { lc.nav_ignore_rts = atoi(val) != 0; persist = false; }
     else if (!strcmp(key, "hop_cap"))    { lc.dv_hop_cap = (uint8_t)atoi(val); persist = false; }
     // --- location piggyback: LIVE via mutable_config() + PERSISTED (NV v9). The lat/lon are set via `cfg set lat`/`lon` (-> /mrid). ---
@@ -1119,7 +1121,7 @@ static void dump_help() {
     hl(F("[help] testsched:  testsend <dst> <run> [-a] [-e] -t ms1,ms2,… | testch <ch> <run> -t ms1,ms2,… | teststatus | testclear   (on-node scheduled workload, fires over the radio; arm once, read the inbox later)"));
     hl(F("[help] test:       route add <dest> <next_hop> <hops> [score_q4] | route del <dest>   (force/drop a route to stress routing)"));
     hl(F("[help] reset:      factory_reset confirm   (WIPE all flash — config + identity + peers + inbox — and reboot to factory)"));
-    hl(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore intra_layer_relay hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack active_fraction ch_min_ms dm_min_ms leaf_name   (bool keys take on|off; active_fraction=0..1, ch_min_ms/dm_min_ms in ms; `name`=node identity, `leaf_name`=the managed leaf's name [bumps epoch]; identity via regen)"));
+    hl(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore intra_layer_relay host_mobiles hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack active_fraction ch_min_ms dm_min_ms leaf_name   (bool keys take on|off; active_fraction=0..1, ch_min_ms/dm_min_ms in ms; `name`=node identity, `leaf_name`=the managed leaf's name [bumps epoch]; identity via regen)"));
     hl(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
     hl(F("[help] provision:  create layer= freq= bw= sf= sf_list= duty= name=\"<n>\" [active_fraction=] [ch_min_ms=] [dm_min_ms=] | join layer= freq= bw= sf= | leave   (key=value, order-free; LIVE no reboot: mint a managed leaf [mother] / join a net / reset+keep freq. layer=1..255 network id [leaf = layer & 0x0F]; anti-spam opts default when omitted; rename a leaf via `cfg set leaf_name`)"));
     hl(F("[help] gateway:    gateway l0=<layer>:<node>:<ctrl_sf>:<data_sfs> l1=<layer>:<node>:<ctrl_sf>:<data_sfs> [period=ms] [win0=ms:off] [win1=ms:off] [beacon=ms] [freq0=MHz] [freq1=MHz] [bw0=kHz] [bw1=kHz] [cr0=5..8] [cr1=5..8] [gateway_only=0|1]   (layer=1..255; leaf nibbles [layer & 0x0F] must differ; bw per-layer in kHz [fractional ok, e.g. 62.5], cr per-layer 5..8, 0/omitted=inherit)"));

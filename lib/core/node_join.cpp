@@ -80,6 +80,22 @@ void Node::age_out_mediated() {
     _mediated_recent_n = w;
 }
 
+// §mobile 2a: host-assign a free LOCAL id (17..254) for a mobile — distinct across THIS host's registered mobiles + not
+// our own id. Returns 0 if the pool is full. Idempotent: a known key_hash returns its existing id (a re-DISCOVER re-offers
+// the same id). The id MAY overlap a neighbour's global id — the Slice-1 mobile mark disambiguates (§17 A3), no global DAD.
+uint8_t Node::find_free_mobile_id(uint32_t key_hash32) {
+    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+        if (_active->_mobile_reg[i].key_hash32 == key_hash32) return _active->_mobile_reg[i].mobile_local_id;
+    for (int id = protocol::normal_node_id_min; id <= 254; ++id) {
+        if (static_cast<uint8_t>(id) == _node_id) continue;
+        bool taken = false;
+        for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+            if (_active->_mobile_reg[i].mobile_local_id == id) { taken = true; break; }
+        if (!taken) return static_cast<uint8_t>(id);
+    }
+    return 0;   // pool full
+}
+
 // ---- §3 candidate selection: prefer our previous id, else a random free slot (-1 = leaf full) ----------
 int Node::join_choose_candidate_id() {
     const int prev = id_bind_find_by_hash(_key_hash32);                 // the network/NV may remember our old id
@@ -182,17 +198,34 @@ void Node::join_adopt(uint8_t node_id) {
 
 // ---- §5 receive: J dispatch + CLAIM/DENY handlers ----------------------------------------------------
 void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
-    (void)meta;
     auto pj = parse_j(std::span<const uint8_t>(bytes, len));
     if (!pj) return;
     const j_out& j = *pj;
-    if (j.leaf_id != _cfg.leaf_id) return;                             // foreign layer
+    // §mobile: a mobile DISCOVER is LEAF-EXEMPT on the HOST side (2a — a mobile probes any host on the freq/sf/bw, §17);
+    // a mobile OFFER is LEAF-EXEMPT on the MOBILE side (2b — the mobile hasn't adopted the host's leaf yet). Every other J
+    // frame (static DISCOVER + CLAIM/DENY, + an OFFER to a non-mobile) stays leaf-filtered -> the static mesh is byte-unaffected.
+    const bool mobile_exempt =
+        (j.is_mobile && j.opcode == static_cast<uint8_t>(j_opcode::discover)) ||
+        (j.is_mobile && j.opcode == static_cast<uint8_t>(j_opcode::offer) && _cfg.is_mobile);
+    if (!mobile_exempt && j.leaf_id != _cfg.leaf_id) return;           // foreign layer
     if (j.wire_version != protocol::wire_version) {                    // R6.2 §5.2: never join across a wire-version gap
         MR_EMIT("j_wire_incompatible", EF_I("src_op", j.opcode), EF_I("their_ver", j.wire_version), EF_I("my_ver", protocol::wire_version));
         return;
     }
 
     if (j.opcode == static_cast<uint8_t>(j_opcode::claim)) {
+        if (j.is_mobile) {                                            // §mobile 2a: a mobile CLAIM = claim-stands (record/refresh — NO reply)
+            int slot = -1;
+            for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+                if (_active->_mobile_reg[i].key_hash32 == j.key_hash32) { slot = static_cast<int>(i); break; }
+            if (slot < 0 && _active->_mobile_reg_n < protocol::cap_host_mobiles) slot = _active->_mobile_reg_n++;
+            if (slot < 0) return;                                     // registry full -> drop (the mobile re-DISCOVERs elsewhere)
+            _active->_mobile_reg[static_cast<uint8_t>(slot)] =
+                { j.key_hash32, j.proposed_node_id, j.claim_epoch, _hal.now() };
+            MR_EMIT("mobile_registered", EF_I("key", static_cast<int64_t>(j.key_hash32)),
+                    EF_I("local_id", j.proposed_node_id), EF_I("epoch", j.claim_epoch));
+            return;                                                   // do NOT fall into the static DAD tie-break
+        }
         const uint8_t proposed = j.proposed_node_id;
         bool conflict = false; uint32_t owner_key = _key_hash32; uint8_t reason = J_DENY_CONFLICT;
         if (_joined && proposed == _node_id && j.key_hash32 != _key_hash32) {           // (a) my adopted id
@@ -239,7 +272,29 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         }
         return;
     }
-    // DISCOVER / OFFER: deferred (beacon-listen + Q-pull + DAD model) — ignored this slice.
+    if (j.opcode == static_cast<uint8_t>(j_opcode::discover)) {       // §mobile 2a: host side of mobile registration
+        if (!j.is_mobile) return;                                     // a static node never DISCOVERs -> ignore (still deferred)
+        if (_cfg.is_mobile || !_cfg.host_mobiles) return;             // a mobile never hosts; a static node can opt OUT (B3)
+        const uint8_t local = find_free_mobile_id(j.key_hash32);
+        if (local == 0) return;                                       // pool full -> stay silent (the mobile picks another host)
+        j_offer_in off{}; off.leaf_id = _cfg.leaf_id; off.gateway_capable = false; off.is_mobile = true;
+        off.responder_node_id = _node_id; off.responder_key_hash32 = _key_hash32;
+        off.data_sf_bitmap = static_cast<uint8_t>(_cfg.allowed_sf_bitmap & 0xFF);   // low byte (Slice 2b defines how the mobile consumes it)
+        off.proposed_mobile_id = local;
+        uint8_t buf[9]; const size_t n = pack_j_offer(off, std::span<uint8_t>(buf, sizeof buf));
+        if (n) {
+            MR_EMIT("mobile_offer_tx", EF_I("to_key", static_cast<int64_t>(j.key_hash32)), EF_I("local_id", local));
+            tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);   // SNR-backoff/suppress = a 2b/host-tuning knob
+        }
+        return;
+    }
+    if (j.opcode == static_cast<uint8_t>(j_opcode::offer)) {          // §mobile 2b: mobile-side OFFER collector
+        if (!_cfg.is_mobile || !j.is_mobile || _my_mobile_reg.active) return;   // only an UNREGISTERED mobile collects; a static node -> ignore (deferred)
+        if (_mobile_offers_n < protocol::cap_mobile_offers)
+            _mobile_offers[_mobile_offers_n++] = { j.responder_node_id, j.responder_key_hash32,
+                                                   j.proposed_mobile_id, meta.snr_db };
+        return;
+    }
 }
 
 // The id's owner defends it: send a J_DENY carrying our claim_epoch so the impostor runs the tiebreak (§6)

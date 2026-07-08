@@ -279,6 +279,7 @@ bool Node::on_init(const NodeConfig& cfg) {
                                                                  : _cfg.beacon_period_ms);
         (void)_hal.after(static_cast<uint32_t>(_hal.rand_range(0, first_period)), kBeaconTimerId);
     }
+    if (_cfg.is_mobile) (void)_hal.after(0, kMobileDiscoverTimerId);   // §mobile 2b: kick the registration FSM (mobile only; static never arms it)
     // Periodic route-aging sweep (dv_dual_sf.lua:9080-9086).
     (void)_hal.after(_cfg.rt_aging_check_period_ms, kAgingTimerId);
     // REQ_SYNC bootstrap (dv_dual_sf.lua:9166-9175): after a listen window, broadcast a REQ_SYNC Q
@@ -733,6 +734,8 @@ void Node::on_timer(uint32_t timer_id) {
     case kRetryBackoffTimerId:    tx_rts_retry();          break;
     case kDeferredDrainTimerId:   try_drain_deferred();    break;   // periodic no-route drain / TTL giveup
     case kReqSyncTimerId:         req_sync_loop_fire();    break;   // REQ_SYNC boot loop: send + re-arm while starved
+    case kMobileDiscoverTimerId:  mobile_discover_fire();  break;   // §mobile 2b: registration FSM (armed only for a mobile)
+    case kMobileClaimGuardTimerId: mobile_claim_guard_fire(); break;
     case kMBcastClearTimerId:                                       // M-broadcast fire-and-forget: clear the flight (no ACK)
         if (_active->_pending_tx && _active->_pending_tx->m_broadcast) { _active->_pending_tx.reset(); become_free(); }
         break;
