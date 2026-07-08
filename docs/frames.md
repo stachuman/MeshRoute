@@ -158,10 +158,14 @@ Bytes 2..7 are the **fixed routing header** (`DATA_HDR_LEN = 8`) — relays read
 | 5    | `AUTHORITATIVE_H_ANSWER_PUBKEY`       | same shape — **the v1-emitted pubkey answer** (owner-authoritative)  |
 | 6    | `REMOTE_CMD`                          | OTA remote-diagnostics: a console query keyword (plaintext inner)    |
 | 7    | `REMOTE_RESP`                         | OTA remote-diagnostics: the response text (plaintext inner)          |
+| 8    | `MOBILE_H_ANSWER`                     | `[target_layer 1][node_id=home 1][key_hash32=M 4 LE][epoch 1]` (7 B) — the registrar-proxy answer (§mobile §4a) |
+| 9    | `MOBILE_BREADCRUMB`                   | `body [new_home_id 1][new_epoch 1]` (2 B), rides `SOURCE_HASH`=M — mobile→old-home on re-register (§mobile §4b) |
 
 *(code 0 = invalid — `APP=0` means no TYPE byte.)*
 
-**[PLANNED — mobile-node feature]** a **`TEAM_ANNOUNCE`** TYPE (code TBD) carries a **team-id** in `body` for self-asserted-proximity team formation, sent via a mobile-originated M_BROADCAST (see RTS). Co-located mobiles adopt the team-id. See mobile design §12.
+**[mobile-node §4 — locate + staleness]** `MOBILE_H_ANSWER` (8) is how a **registrar proxies a mobile's hash**: it answers `M → home_id` (always **CLAIMED** — the registrar isn't the hash's owner, so there's no authoritative variant), and the **distinct TYPE is the signal** that lets the sender cache `M → home` in a **separate mobile-home cache — NOT `id_bind`** (a mobile's LOCAL id must stay out of the global id-plane), with the trailing **`epoch`** (§17-C1) picking the freshest home during an old+new-home overlap. `MOBILE_BREADCRUMB` (9): on re-register the mobile tells its **old** home "I moved to `new_home_id` (epoch)"; the old home records a redirect and thereafter answers `MOBILE_H_ANSWER (M → new_home)` instead of dead-ending. Best-effort (TTL + re-query is the fallback). See `2026-07-08-mobile-slice4a-mobile-h-answer-type.md` / `-slice4b-redirect-breadcrumb.md`.
+
+**[PLANNED — mobile-node feature]** a **`TEAM_ANNOUNCE`** TYPE (code TBD, ≥10) carries a **team-id** in `body` for self-asserted-proximity team formation, sent via a mobile-originated M_BROADCAST (see RTS). Co-located mobiles adopt the team-id. See mobile design §12.
 
 ### Inner layouts
 

@@ -614,6 +614,22 @@ void Node::do_post_ack() {
             if (!ui || !ui->has_cross_layer) { become_free(); return; }
             if (!(ui->has_dst_hash && ui->dst_key_hash32 == _key_hash32)) { bridge_cross_layer(pa, *ui); return; }
         }
+        if (pa.type == DATA_TYPE_MOBILE_H_ANSWER) {   // §mobile 4a: a mobile-proxy answer -> cache M->home only (NO id_bind, NO deliver)
+            on_mobile_hash_bind_response(pa.inner, pa.inner_len);
+            become_free();
+            return;
+        }
+        if (pa.type == DATA_TYPE_MOBILE_BREADCRUMB) {   // §mobile 4b: a moved mobile's redirect note -> record it against my _mobile_reg[M]
+            if (ui && ui->has_source_hash && ui->body.size() >= 2 && _active->_mobile_reg_n > 0)
+                for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+                    if (_active->_mobile_reg[i].key_hash32 == ui->source_hash) {   // attribute: only M can move M (SOURCE_HASH)
+                        _active->_mobile_reg[i].redirect_home_id = ui->body[0];
+                        _active->_mobile_reg[i].redirect_epoch   = ui->body[1];
+                        MR_EMIT("mobile_redirect_recorded", EF_I("m", i), EF_I("to", ui->body[0]), EF_I("epoch", ui->body[1]));
+                        break;
+                    }
+            become_free(); return;   // consumed (routing info, NOT delivered/inbox'd); no match / non-host -> just drop
+        }
         if (pa.type == DATA_TYPE_H_ANSWER || pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER) {   // a hash-bind answer for us -> consume (routing info, NOT a DM)
             on_hash_bind_response(pa.inner, pa.inner_len, pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER);
             become_free();

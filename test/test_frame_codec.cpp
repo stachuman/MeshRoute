@@ -1852,3 +1852,20 @@ TEST_CASE("J mobile OFFER — 9-B round-trip (Slice 2a); normal OFFER stays 8-B"
     m.is_mobile=true; n = pack_j_offer(m, buf); buf[1] = static_cast<uint8_t>(buf[1] & ~0x40);   // clear is_mobile in byte1
     CHECK_FALSE(parse_j({buf, n}).has_value());              // 9-B body but is_mobile=0 -> length mismatch
 }
+
+TEST_CASE("§mobile 4a — hash_bind_inner: mobile variant packs the epoch (7 B); normal is byte-identical (6 B)") {
+    hash_bind_inner in{}; in.target_layer=4; in.node_id=19; in.key_hash32=0xDEADBEEFu; in.epoch=42;
+    // normal (6 B, no epoch) — byte-identical to before
+    std::array<uint8_t,7> nb{};
+    CHECK(pack_hash_bind_inner(in, nb, /*mobile=*/false) == 6);
+    auto no = parse_hash_bind_inner(std::span<const uint8_t>(nb.data(), 6));
+    CHECK(no.has_value());
+    if (no) { CHECK(no->node_id==19); CHECK(no->key_hash32==0xDEADBEEFu); CHECK(no->epoch==0); }   // the 6-B form has no epoch
+    // mobile (7 B, +epoch)
+    std::array<uint8_t,7> mb{};
+    CHECK(pack_hash_bind_inner(in, mb, /*mobile=*/true) == 7);
+    auto mo = parse_hash_bind_inner(std::span<const uint8_t>(mb.data(), 7));
+    CHECK(mo.has_value());
+    if (mo) { CHECK(mo->node_id==19); CHECK(mo->key_hash32==0xDEADBEEFu); CHECK(mo->epoch==42); }   // ★ epoch round-trips
+    for (int i=0;i<6;i++) CHECK(nb[i]==mb[i]);               // ★ the 6-B prefix is identical (normal answer untouched)
+}

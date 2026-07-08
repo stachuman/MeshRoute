@@ -235,6 +235,18 @@ struct DualLayerTestAccess {
     static uint16_t send_by_hash(Node& n, uint32_t h, const uint8_t* body, uint8_t len) { return n.send_by_hash(h, body, len, 0, CryptIntent::def); }  // §mobile 3c: send-by-hash trigger
     static void     send_e2e_ack(Node& n, uint8_t to_origin, uint16_t ctr) { n.send_e2e_ack(to_origin, ctr); }  // §mobile Fix 5: originate an E2E-ACK to an origin
     static bool     has_pending_rx(Node& n) { return static_cast<bool>(n._active->_pending_rx); }  // §mobile 3b: a receiver flight opened => the RTS was ADDRESSED (accepted), not overheard
+    static void     deactivate_mobile_reg(Node& n) { n._my_mobile_reg.active = false; }  // §mobile 4b: simulate the 2b home-lost reset (active=false, home_id kept) so the guard re-CLAIMs
+    static uint8_t  mobile_reg_redirect(Node& n, uint8_t slot) { return n._active->_mobile_reg[slot].redirect_home_id; }  // §mobile 4b
+    static void     drive_post_ack_breadcrumb(Node& n, uint32_t source_hash, uint8_t new_home, uint8_t epoch) {  // §mobile 4b: run do_post_ack for a BREADCRUMB DM
+        auto& pa = n._active->_post_ack; pa = PostAck{};
+        pa.pending = true; pa.is_forward = false; pa.origin = 5; pa.dst = n._node_id;
+        pa.ctr = 0x1234; pa.ctr_lo = 4; pa.flags = DATA_FLAG_SOURCE_HASH; pa.type = DATA_TYPE_MOBILE_BREADCRUMB;
+        pa.inner[0] = 5;   // [origin][source_hash 4B LE][body: new_home, epoch]
+        pa.inner[1]=static_cast<uint8_t>(source_hash); pa.inner[2]=static_cast<uint8_t>(source_hash>>8);
+        pa.inner[3]=static_cast<uint8_t>(source_hash>>16); pa.inner[4]=static_cast<uint8_t>(source_hash>>24);
+        pa.inner[5]=new_home; pa.inner[6]=epoch; pa.inner_len=7;
+        n.do_post_ack();
+    }
     static uint8_t  pick_hop(Node& n, PendingTx& pt)        { return n.pick_next_cascade_hop(pt); }    // §intra-relay Edit 4: cascade pick (0 = no selectable hop -> rediscover)
     static void     pump(Node& n)                           { n.become_free(); }                      // Slice 4a: the kQueueWakeupTimerId handler
     // Slice 4c.1 bridge accessors
@@ -2256,4 +2268,106 @@ TEST_CASE("§mobile Fix 5 (§18) — E2E-ACK when the origin's GLOBAL id == the 
     const uint8_t rc0 = home.rt_count();
     home.on_recv(b, n, meta);
     CHECK(home.rt_count() == rc0);            // ★ A1: the home did NOT learn the mobile's local-20 -> the ack forwards to GLOBAL-20, no loop
+}
+
+TEST_CASE("§mobile 4a — mobile_home cache: freshest-epoch wins (wrap-aware)") {
+    StubHal hal; Node n(hal, 5, 0x5050u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=0; CHECK(n.on_init(cfg));
+    n.mobile_home_set(0xAAAAu, 11, 5); CHECK(n.mobile_home_find(0xAAAAu) == 11);
+    n.mobile_home_set(0xAAAAu, 12, 6); CHECK(n.mobile_home_find(0xAAAAu) == 12);   // fresher epoch -> re-home
+    n.mobile_home_set(0xAAAAu, 13, 4); CHECK(n.mobile_home_find(0xAAAAu) == 12);   // stale (older epoch, diff home) -> ignored
+    n.mobile_home_set(0xBBBBu, 11, 255); CHECK(n.mobile_home_find(0xBBBBu) == 11); // fresh hash
+    n.mobile_home_set(0xBBBBu, 12, 0);   CHECK(n.mobile_home_find(0xBBBBu) == 12); // ★ wrap: epoch 0 is fresher than 255
+}
+
+TEST_CASE("§mobile 4a — MOBILE_H_ANSWER caches M->home+epoch with NO id_bind; a plain H_ANSWER id_binds + no cache") {
+    StubHal hal; Node n(hal, 5, 0x5050u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=0; CHECK(n.on_init(cfg));
+    // a MOBILE_H_ANSWER: M1=0xB0B1 -> home 30, epoch 7
+    hash_bind_inner hb{}; hb.target_layer=0; hb.node_id=30; hb.key_hash32=0xB0B1u; hb.epoch=7;
+    uint8_t inner[7]; size_t il = pack_hash_bind_inner(hb, inner, /*mobile=*/true);
+    const uint16_t ib0 = n.id_bind_count();
+    n.on_mobile_hash_bind_response(inner, static_cast<uint8_t>(il));
+    CHECK(n.mobile_home_find(0xB0B1u) == 30);       // ★ cached M->home
+    CHECK(n.id_bind_count() == ib0);                // ★ NO id_bind (a mobile proxy stays out of id_bind -> no repeat hard-verify)
+    // a plain H_ANSWER: M2=0xC0C0 -> 40 -> the id_bind path, NO cache (the 3c heuristic is gone)
+    hash_bind_inner hb2{}; hb2.target_layer=0; hb2.node_id=40; hb2.key_hash32=0xC0C0u;
+    uint8_t inner2[6]; size_t il2 = pack_hash_bind_inner(hb2, inner2, /*mobile=*/false);
+    n.on_hash_bind_response(inner2, static_cast<uint8_t>(il2), /*authoritative=*/false);
+    CHECK(n.id_bind_count() == ib0 + 1);            // ★ the plain H_ANSWER DID id_bind (40->M2)
+    CHECK(n.mobile_home_find(0xC0C0u) == -1);       // ★ and did NOT populate the mobile-home cache (heuristic retired)
+}
+
+TEST_CASE("§mobile 4a — a host proxying a hosted mobile emits DATA_TYPE_MOBILE_H_ANSWER + the epoch") {
+    StubHal hal; Node host(hal, 30, 0x3030u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; CHECK(host.on_init(cfg));
+    DualLayerTestAccess::store_mobile(host, /*key*/0xB0B1u, /*local*/17);   // store_mobile records epoch=1
+    DualLayerTestAccess::learn_neighbor(host, 50);                          // a route to the querier so the answer flies
+    std::array<uint8_t,8> hbuf{};
+    size_t hn = pack_h({/*leaf*/4, /*origin*/50, /*key*/0xB0B1u, /*ttl*/3, /*hard*/false}, hbuf);
+    host.on_recv(hbuf.data(), hn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    const PendingTx* pt = DualLayerTestAccess::pending(host);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->type == DATA_TYPE_MOBILE_H_ANSWER);   // ★ the distinct mobile-proxy TYPE (not a plain H_ANSWER)
+        auto o = parse_hash_bind_inner(std::span<const uint8_t>(pt->inner, pt->inner_len));
+        CHECK(o.has_value());
+        if (o) { CHECK(o->node_id == 30); CHECK(o->key_hash32 == 0xB0B1u); CHECK(o->epoch == 1); }   // M -> home(30), epoch 1
+    }
+}
+
+TEST_CASE("§mobile 4b — breadcrumb: re-homing H1->H2 emits a BREADCRUMB to H1 (SOURCE_HASH=M); a first registration -> none") {
+    StubHal hal; Node mob(hal, 0, 0x9999u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; CHECK(mob.on_init(cfg));
+    DualLayerTestAccess::make_registered_mobile(mob, /*local*/20, /*home H1*/30, /*hash*/0x3030u);
+    DualLayerTestAccess::deactivate_mobile_reg(mob);          // 2b home-lost reset: active=false, home_id=30 preserved
+    // collect one OFFER from H2=40 then fire the CLAIM guard -> re-home to 40 -> breadcrumb to 30
+    j_offer_in off{}; off.leaf_id=4; off.is_mobile=true; off.responder_node_id=40; off.responder_key_hash32=0x4040u; off.data_sf_bitmap=0x06; off.proposed_mobile_id=21;
+    uint8_t ob[9]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    hal.emits.clear();
+    mob.on_timer(75 /*kMobileClaimGuardTimerId*/);
+    CHECK(hal.saw_emit("mobile_breadcrumb_tx"));              // ★ moved H1->H2 -> breadcrumb emitted
+    DualLayerTestAccess::pump(mob);                           // service the queue -> the breadcrumb becomes the flight
+    const PendingTx* pt = DualLayerTestAccess::pending(mob);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->type == DATA_TYPE_MOBILE_BREADCRUMB);
+        CHECK(pt->dst == 30);                                // ★ addressed to the OLD home H1
+        CHECK(pt->next == 40);                               // routed VIA the new home (Fix 3)
+        const uint32_t sh = pt->inner[1] | (pt->inner[2]<<8) | (pt->inner[3]<<16) | (static_cast<uint32_t>(pt->inner[4])<<24);
+        CHECK(sh == 0x9999u);                                // ★ SOURCE_HASH=M (the old home attributes the move)
+        CHECK(pt->inner[5] == 40);                           // body[0] = the new home H2
+    }
+    // first registration (no prior home, home_id==0) -> NO breadcrumb
+    StubHal h2; Node mob2(h2, 0, 0x8888u);
+    NodeConfig c2; c2.routing_sf=8; c2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c2.leaf_id=4; c2.is_mobile=true; CHECK(mob2.on_init(c2));
+    j_offer_in of2{}; of2.leaf_id=4; of2.is_mobile=true; of2.responder_node_id=40; of2.responder_key_hash32=0x4040u; of2.data_sf_bitmap=0x06; of2.proposed_mobile_id=22;
+    uint8_t ob2[9]; size_t on2 = pack_j_offer(of2, ob2); mob2.on_recv(ob2, on2, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    h2.emits.clear();
+    mob2.on_timer(75);
+    CHECK_FALSE(h2.saw_emit("mobile_breadcrumb_tx"));        // ★ first reg -> no old home -> no breadcrumb
+}
+
+TEST_CASE("§mobile 4b — the old home records the redirect + answers future H-queries with the NEW home") {
+    StubHal hal; Node home(hal, 30, 0x3030u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; CHECK(home.on_init(cfg));
+    DualLayerTestAccess::store_mobile(home, /*M*/0xB0B1u, /*local*/17);   // this host hosts mobile M
+    DualLayerTestAccess::learn_neighbor(home, 50);                        // a route to a future querier
+    // feed a breadcrumb: M moved to new home 99, epoch 7
+    DualLayerTestAccess::drive_post_ack_breadcrumb(home, /*source_hash*/0xB0B1u, /*new_home*/99, /*epoch*/7);
+    CHECK(DualLayerTestAccess::mobile_reg_redirect(home, 0) == 99);       // ★ redirect recorded against _mobile_reg[M]
+    // an H-query for M now resolves to M->99 (the redirect), NOT M->30
+    std::array<uint8_t,8> hbuf{}; size_t hn = pack_h({/*leaf*/4, /*origin*/50, /*key*/0xB0B1u, /*ttl*/3, /*hard*/false}, hbuf);
+    home.on_recv(hbuf.data(), hn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    const PendingTx* pt = DualLayerTestAccess::pending(home);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->type == DATA_TYPE_MOBILE_H_ANSWER);
+        auto o = parse_hash_bind_inner(std::span<const uint8_t>(pt->inner, pt->inner_len));
+        CHECK(o.has_value());
+        if (o) { CHECK(o->node_id == 99); CHECK(o->epoch == 7); }         // ★ redirect answer M -> new home 99, epoch 7 (NOT 30)
+    }
+    // a breadcrumb whose SOURCE_HASH is NOT a hosted mobile -> ignored (no redirect change)
+    DualLayerTestAccess::drive_post_ack_breadcrumb(home, /*source_hash*/0xDEADu, /*new_home*/88, /*epoch*/9);
+    CHECK(DualLayerTestAccess::mobile_reg_redirect(home, 0) == 99);       // unchanged (0xDEAD isn't hosted -> dropped)
 }

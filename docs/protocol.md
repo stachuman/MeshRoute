@@ -94,7 +94,9 @@ sentinel (the reservation is a Join-time convention, enforced there — not at c
 
 H-frame flood resolves an identity `key_hash32` → `node_id` (soft = any cache answers; hard = owner-only) and, with
 `WANT_PUBKEY`, the peer's E2E pubkey; the answer routes home as a DATA `H_ANSWER`. Relays cache answers on-pass.
-- **Source:** `node_hashlocate.cpp` (`handle_h`)
+
+**Mobile locate (§mobile §4).** A mobile has no global id — it's addressed by its stable `key_hash32`. Its **registrar (home_node) proxies** that hash: on an H-query for `M` the home answers a **`MOBILE_H_ANSWER (M → home_id)`** (a distinct DATA TYPE, always *claimed*). The sender caches `M → home` in a **separate mobile-home cache — NOT `id_bind`** (the mobile's LOCAL id must stay out of the global id-plane), keyed by the registration **epoch** so the **freshest** home wins during an old+new-home overlap. A DM to the mobile then routes `dst=home, dst_hash=M` and the home does the last mile (the `addr_len=1` mark). **Staleness:** on re-register the mobile drops a `MOBILE_BREADCRUMB` to its **old** home, which thereafter **redirects** (`MOBILE_H_ANSWER (M → new_home)`) rather than dead-ending — best-effort, with TTL + re-query as the fallback. Spec `2026-07-08-mobile-slice4a/4b`.
+- **Source:** `node_hashlocate.cpp` (`handle_h`, the proxy + `on_mobile_hash_bind_response`) · `node_mobile.cpp` (breadcrumb)
 - **Spec:** `docs/specs/2026-05-29-c3-h-f-floods-design.md`
 
 ## 11. Anti-spam

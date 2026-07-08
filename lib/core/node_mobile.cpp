@@ -59,10 +59,21 @@ void Node::mobile_claim_guard_fire() {
     uint8_t buf[11]; const size_t n = pack_j_claim(c, std::span<uint8_t>(buf, sizeof buf));
     if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
     // claim-stands: adopt now (no DENY-listen for v1 — the host recorded us on the CLAIM, Slice 2a).
+    const uint8_t old_home = _my_mobile_reg.home_id;             // §mobile 4b: capture BEFORE the overwrite (0 = first registration -> no old home)
     set_identity(o.proposed_local_id, _key_hash32);               // _node_id := the host-assigned local-id (like join_adopt)
     _joined = true;
     _my_mobile_reg = { true, o.responder_id, o.proposed_local_id, o.responder_hash, _cfg.leaf_id,
                        _my_mobile_reg.epoch, _hal.now() };
+    // §mobile 4b: if we re-homed to a DIFFERENT node, tell the OLD home we moved (best-effort — no ack/retry; TTL is the
+    // fallback). Sent AFTER the adopt so issue_send routes it via the NEW home (active now) -> mesh -> old home; SOURCE_HASH=M
+    // lets the old home attribute it; the epoch is the NEW (post-increment) one the sender must adopt. NB: the 2b FSM resets
+    // _my_mobile_reg.active on home-loss BEFORE the re-CLAIM, so we key on the CAPTURED old_home, not `.active`.
+    if (old_home != 0 && old_home != o.responder_id) {
+        uint8_t body[2] = { o.responder_id, static_cast<uint8_t>(_my_mobile_reg.epoch) };
+        (void)enqueue_data(old_home, body, 2, DATA_FLAG_SOURCE_HASH, "mobile_breadcrumb",
+                           /*app_dm=*/false, DATA_TYPE_MOBILE_BREADCRUMB, CryptIntent::off);
+        MR_EMIT("mobile_breadcrumb_tx", EF_I("old_home", old_home), EF_I("new_home", o.responder_id));
+    }
     MR_EMIT("mobile_adopted", EF_I("home", o.responder_id), EF_I("local_id", o.proposed_local_id),
             EF_I("epoch", _my_mobile_reg.epoch));
     schedule_triggered_beacon();                                  // announce the adopted id (peers re-bind on it)

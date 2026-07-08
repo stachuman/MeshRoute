@@ -210,12 +210,22 @@ int Node::mobile_home_find(uint32_t mobile_hash) const {
     return -1;
 }
 
-void Node::mobile_home_set(uint32_t mobile_hash, uint8_t home_id) {
+void Node::mobile_home_set(uint32_t mobile_hash, uint8_t home_id, uint8_t epoch) {
     const uint64_t now = _hal.now();
     for (uint8_t i = 0; i < _active->_mobile_home_cache_n; ++i)
-        if (_active->_mobile_home_cache[i].mobile_hash == mobile_hash) {          // refresh in place
-            _active->_mobile_home_cache[i].home_id = home_id;
-            _active->_mobile_home_cache[i].last_seen_ms = now;
+        if (_active->_mobile_home_cache[i].mobile_hash == mobile_hash) {          // existing entry
+            // §mobile 4a: freshest-proxy wins. SAME home -> refresh (keep the newer epoch). A FRESHER epoch for a
+            // DIFFERENT home -> the mobile re-homed, adopt it. A STALE (older-epoch) answer for a different home -> IGNORE
+            // (the old home's overlap answer must not overwrite the new home). Wrap-aware compare (int8_t(a-b)>0).
+            const bool fresher = static_cast<int8_t>(epoch - _active->_mobile_home_cache[i].epoch) > 0;
+            if (home_id == _active->_mobile_home_cache[i].home_id) {
+                if (fresher) _active->_mobile_home_cache[i].epoch = epoch;
+                _active->_mobile_home_cache[i].last_seen_ms = now;
+            } else if (fresher) {
+                _active->_mobile_home_cache[i].home_id = home_id;
+                _active->_mobile_home_cache[i].epoch = epoch;
+                _active->_mobile_home_cache[i].last_seen_ms = now;
+            }
             return;
         }
     uint8_t slot;
@@ -226,7 +236,7 @@ void Node::mobile_home_set(uint32_t mobile_hash, uint8_t home_id) {
         for (uint8_t i = 1; i < _active->_mobile_home_cache_n; ++i)
             if (_active->_mobile_home_cache[i].last_seen_ms < _active->_mobile_home_cache[slot].last_seen_ms) slot = i;
     }
-    _active->_mobile_home_cache[slot] = { mobile_hash, now, home_id };
+    _active->_mobile_home_cache[slot] = { mobile_hash, now, home_id, epoch };
 }
 
 void Node::mobile_home_age_out() {
@@ -483,7 +493,7 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // (verify-on-use, dv §3.7a): resolve ONLY via own-hash — SKIP the cache so it reaches the OWNER for an
     // authoritative correction. A cached binding carries its own confidence (beacon = authoritative/first-hand;
     // snooped hash-bind = claimed/second-hand, Phase C).
-    int node_id = -1; bool authoritative = false;
+    int node_id = -1; bool authoritative = false; bool mobile_proxy = false; uint8_t mobile_epoch = 0;   // §mobile 4a: proxy flag + registration epoch
     if (h.key_hash32 == _key_hash32) { node_id = _node_id; authoritative = true; }   // own-hash: resolves either variant
     else if (!h.hard) {                                                              // HARD skips the cache -> flood to the owner
         IdBindConf conf = IdBindConf::claimed;
@@ -495,7 +505,16 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // which then last-mile-forwards it (do_post_ack). Gated on _mobile_reg_n>0 -> a non-host is byte-identical (no wire change).
     if (node_id < 0 && !h.hard && _active->_mobile_reg_n > 0) {
         for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
-            if (_active->_mobile_reg[i].key_hash32 == h.key_hash32) { node_id = _node_id; authoritative = false; break; }
+            if (_active->_mobile_reg[i].key_hash32 == h.key_hash32) {   // §mobile 4a: a MOBILE_H_ANSWER carrying the registration epoch (freshest-proxy wins)
+                if (_active->_mobile_reg[i].redirect_home_id != 0) {    // §mobile 4b: we're STALE -> redirect to the mobile's NEW home
+                    node_id = _active->_mobile_reg[i].redirect_home_id;
+                    mobile_epoch = _active->_mobile_reg[i].redirect_epoch;
+                } else {                                                // §mobile 4a: we ARE the home
+                    node_id = _node_id;
+                    mobile_epoch = static_cast<uint8_t>(_active->_mobile_reg[i].epoch);
+                }
+                authoritative = false; mobile_proxy = true; break;
+            }
     }
 
     if (node_id >= 0) {                                    // RESOLVER path (dv:11644) — answer + SUPPRESS the forward
@@ -522,7 +541,7 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             }
             send_hash_bind_pubkey_response(h.origin, _cfg.leaf_id, static_cast<uint8_t>(node_id), _ed_pub);
         } else
-            send_hash_bind_response(h.origin, _cfg.leaf_id, static_cast<uint8_t>(node_id), h.key_hash32, authoritative);
+            send_hash_bind_response(h.origin, _cfg.leaf_id, static_cast<uint8_t>(node_id), h.key_hash32, authoritative, mobile_proxy, mobile_epoch);
         return;                                            // SUPPRESS — the whole point: the flood stops here
     }
 
@@ -559,18 +578,20 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 // hop-by-hop on the existing rt[origin] (the H flood lays no reverse path). AUTHORITATIVE = the resolver
 // answered as the owner (matches_self), not from a cached binding. (Lua send_hash_bind_response dv:5877.)
 void Node::send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id,
-                                   uint32_t key_hash32, bool authoritative) {
+                                   uint32_t key_hash32, bool authoritative, bool mobile_proxy, uint8_t epoch) {
     if (_active->_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (the querier can re-flood)
     hash_bind_inner hb{};
     hb.target_layer = target_layer; hb.node_id = node_id; hb.key_hash32 = key_hash32;   // authoritative rides the frame TYPE, not the inner
-    uint8_t inner[6];
-    const size_t n = pack_hash_bind_inner(hb, std::span<uint8_t>(inner, sizeof(inner)));
+    hb.epoch = epoch;                                           // §mobile 4a: packed only for the mobile variant (7 B)
+    uint8_t inner[7];                                          // 7 for the mobile variant (+epoch); the normal answer packs 6 -> byte-identical
+    const size_t n = pack_hash_bind_inner(hb, std::span<uint8_t>(inner, sizeof(inner)), mobile_proxy);
     if (n == 0) return;
     TxItem item{};
     item.origin = _node_id; item.dst = to_origin;
     item.ctr = next_ctr(to_origin); item.ctr_lo = static_cast<uint8_t>(item.ctr & 0x0F);
     item.flags = 0;                                              // byte-1 flags clear; the H_ANSWER TYPE byte (below) types it
-    item.type  = authoritative ? DATA_TYPE_AUTHORITATIVE_H_ANSWER : DATA_TYPE_H_ANSWER;
+    item.type  = mobile_proxy ? DATA_TYPE_MOBILE_H_ANSWER
+               : authoritative ? DATA_TYPE_AUTHORITATIVE_H_ANSWER : DATA_TYPE_H_ANSWER;
     for (size_t i = 0; i < n; ++i) item.inner[i] = inner[i];
     item.inner_len = static_cast<uint8_t>(n);
     item.enqueue_time_ms = _hal.now();
@@ -629,14 +650,8 @@ void Node::on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool a
     // claimed -> verify-on-use).
     id_bind_set(hb->node_id, hb->key_hash32, IdBindSource::h_query,
                 authoritative ? IdBindConf::authoritative : IdBindConf::claimed);
-    // §mobile 3c: a CLAIMED answer M->N where N owns a DIFFERENT authoritative hash = a host PROXYing for a mobile it
-    // hosts (id_bind just REFUSED M because N already holds its own hash). Cache M->N separately so send_by_hash can
-    // reach the home (which then last-mile-forwards, 3a). key_hash_of_id returns AUTHORITATIVE-only -> exactly the test.
-    if (!authoritative) {
-        uint32_t nhash = 0;
-        if (key_hash_of_id(hb->node_id, nhash) && nhash != hb->key_hash32)
-            mobile_home_set(hb->key_hash32, hb->node_id);                     // M -> N (home)
-    }
+    // §mobile 4a: the 3c key_hash_of_id heuristic is GONE — a mobile proxy now carries the distinct DATA_TYPE_MOBILE_H_ANSWER
+    // (handled in on_mobile_hash_bind_response), so a plain H_ANSWER for a hash we don't own is NEVER treated as a mobile proxy.
     MR_TELEMETRY(
         EventField f[] = { { .key = "node",          .type = EventField::T::i64,     .i = hb->node_id },
                            { .key = "key_hash32",    .type = EventField::T::i64,     .i = static_cast<int64_t>(hb->key_hash32) },
@@ -647,6 +662,18 @@ void Node::on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool a
     // Slice 4f: the binding for a DEFERRED cross-layer handoff just arrived on THIS leaf -> re-resolve + drain it now
     // (else it waits a full visit period). _active is the leaf the answer arrived on; the caller become_free()s next.
     drain_xl_handoffs_for_leaf(static_cast<uint8_t>(_active - &_layers[0]));
+}
+
+// §mobile 4a: a MOBILE_H_ANSWER (a host PROXYing for a hosted mobile) -> cache M->home + its registration epoch, and
+// NOTHING else. Crucially NO id_bind_set: a mobile-proxy binding must stay OUT of id_bind, or a repeat send-by-hash
+// would find the claimed M->home id_bind and hard-verify (which the soft-only proxy never answers -> send_hash_giveup).
+// The cache (freshest-wins) is the sole store; drain lets a parked first send fly now (do_send override_dst_hash=M, 3c Fix5).
+void Node::on_mobile_hash_bind_response(const uint8_t* inner, uint8_t inner_len) {
+    auto hb = parse_hash_bind_inner(std::span<const uint8_t>(inner, inner_len));
+    if (!hb) return;
+    mobile_home_set(hb->key_hash32, hb->node_id, hb->epoch);              // M -> home (freshest-proxy wins)
+    MR_EMIT("mobile_home_cached", EF_I("key", static_cast<int64_t>(hb->key_hash32)), EF_I("home", hb->node_id), EF_I("epoch", hb->epoch));
+    drain_parked_sends(hb->key_hash32, hb->node_id, hb->target_layer);    // a parked first send can now fly via the cache/override
 }
 
 // C.2 cache-on-pass (NEW, beyond the Lua's gateway-only caching): a RELAYED hash-bind answer is

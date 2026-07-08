@@ -429,6 +429,8 @@ enum DataType : uint8_t {
     DATA_TYPE_REMOTE_CMD             = 6,   // OTA remote diagnostics (2026-06-24): inner body = a console-style query keyword
     DATA_TYPE_REMOTE_RESP            = 7,   //   its response text. Plain inner, cleartext (honest-net diagnostic; E2E-seal is a later option).
     // (TYPE 6 was CONFIG_ANSWER, removed 2026-06-22 — leaf config now rides the C control frame cmd 0xB; reused here.)
+    DATA_TYPE_MOBILE_H_ANSWER        = 8,   // §mobile 4a: a host PROXYING for a hosted mobile (M -> home_id, always CLAIMED); inner carries the registration epoch (7 B). Distinct TYPE -> the sender caches M->home + NEVER id_binds (repeat-robust) + freshest-epoch wins.
+    DATA_TYPE_MOBILE_BREADCRUMB      = 9,   // §mobile 4b: a moved mobile tells its OLD home "I re-homed"; body [new_home_id:u8][new_epoch:u8], rides a DM carrying SOURCE_HASH=M. Old home records the redirect + answers future H-queries with the new home (4a MOBILE_H_ANSWER).
 };
 
 struct data_in {
@@ -529,9 +531,9 @@ std::optional<m_out> parse_m(std::span<const uint8_t> frame);   // nullopt: len 
 // so relays cache-on-pass. key_hash32 is LITTLE-endian (matches pack_h / the beacon). `authoritative` here is
 // a caller convenience (set the frame type from it on pack; the parse leaves it default — the caller knows it
 // from the frame TYPE).
-struct hash_bind_inner { uint8_t target_layer; uint8_t node_id; uint32_t key_hash32; bool authoritative = false; };
-size_t pack_hash_bind_inner(const hash_bind_inner& in, std::span<uint8_t> out);          // 6; 0 on short buf
-std::optional<hash_bind_inner> parse_hash_bind_inner(std::span<const uint8_t> inner);    // nullopt: < 6 B
+struct hash_bind_inner { uint8_t target_layer; uint8_t node_id; uint32_t key_hash32; bool authoritative = false; uint8_t epoch = 0; };  // §mobile 4a: epoch packed ONLY for the mobile TYPE (7 B); normal = 6 B unchanged
+size_t pack_hash_bind_inner(const hash_bind_inner& in, std::span<uint8_t> out, bool mobile = false);  // 6; 7 if mobile (+epoch); 0 on short buf
+std::optional<hash_bind_inner> parse_hash_bind_inner(std::span<const uint8_t> inner);    // nullopt: < 6 B; reads a 7th epoch byte when present (mobile)
 
 // Hash-bind PUBKEY answer inner (E2E §6, DATA TYPE 5): [target_layer 1][node_id 1][ed_pub 32] = 34 B. The key_hash32
 // is DROPPED (== ed_pub[:4]; the cacher derives + verifies it). CLEARTEXT (CRYPTED=0) so relays cache-on-pass.

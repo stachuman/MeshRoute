@@ -961,12 +961,13 @@ std::optional<m_out> parse_m(std::span<const uint8_t> frame) {
 
 // 6-B hash-bind inner: NO payload-flags byte (H_ANSWER + AUTHORITATIVE ride the frame TYPE). The caller
 // sets the frame's data_in.type from `in.authoritative` (H_ANSWER vs AUTHORITATIVE_H_ANSWER).
-size_t pack_hash_bind_inner(const hash_bind_inner& in, std::span<uint8_t> out) {
-    if (out.size() < 6) return 0;
+size_t pack_hash_bind_inner(const hash_bind_inner& in, std::span<uint8_t> out, bool mobile) {
+    if (out.size() < (mobile ? 7u : 6u)) return 0;
     wire::Writer w(out);
     w.u8(in.target_layer);
     w.u8(in.node_id);
     w.u32_le(in.key_hash32);                                      // LITTLE-endian (matches pack_h / beacon)
+    if (mobile) w.u8(in.epoch);                                   // §mobile 4a: the registration epoch (freshest-proxy wins); normal answer omits it -> 6 B, byte-identical
     return w.ok() ? w.size() : 0;
 }
 // The caller already knows it's a hash-bind from the frame TYPE, so there's no flags byte to check here.
@@ -977,6 +978,7 @@ std::optional<hash_bind_inner> parse_hash_bind_inner(std::span<const uint8_t> in
     o.target_layer = inner[0];
     o.node_id      = inner[1];
     { wire::Reader r(inner.subspan(2, 4)); o.key_hash32 = r.u32_le(); }
+    o.epoch = (inner.size() >= 7) ? inner[6] : 0;                 // §mobile 4a: trailing epoch (present on the MOBILE_H_ANSWER TYPE only)
     return o;
 }
 
