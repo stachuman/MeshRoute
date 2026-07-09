@@ -21,6 +21,7 @@
 #include "command.h"
 #include "inbox.h"
 #include "protocol_constants.h"
+#include "frame_codec.h"   // §mobile 5a: LayerRecord (the learned-directory record) — codec structs are header-only
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -99,6 +100,8 @@ struct NodeConfig {
     bool     gateway_only        = false;       // §7 flood switch: true = PURE bridge (out of the channel plane);
                                                 // false (default) = gateway ALSO serves its owner (consumer half on, provider half off)
     bool     is_mobile           = false;
+    uint32_t team_id             = 0;           // §mobile 6.1: an is_mobile+team_id overlay; 0 = no team (lone mobile / any static node) = today's behaviour. team_id = hash(creator_key‖nonce). Read by 6.2 (routing) / 6.3 (channel).
+    bool     mobile_autoregister = true;        // §mobile console: gate ALL autonomous mobile behaviour (boot-arm + home-lost re-scan + re-CLAIM + auto layer-pull). ON = today. OFF = the app drives every step via `mobile register`/`query`.
     bool     host_mobiles        = true;        // §mobile 2a: this static node accepts/hosts mobiles (activates the J DISCOVER->OFFER->CLAIM host side). Opt-out = false; a mobile itself never hosts.
     bool     join_required       = false;
     bool     req_sync_on_boot    = true;
@@ -533,6 +536,22 @@ public:
     uint8_t           rt_count()       const { return _active->_rt_count; }
     uint8_t           mobile_reg_count() const { return _active ? _active->_mobile_reg_n : 0; }   // §mobile 2a: mobiles registered to this host (test/diagnostic accessor)
     uint8_t           mobile_home_id() const { return _my_mobile_reg.active ? _my_mobile_reg.home_id : 0; }   // §mobile 2b: our host (0 = unregistered)
+    // §mobile console: user/app-driven network control (fw_main handle_mobile reuses the FSM + the pull; NO new wire).
+    bool              mobile_autoregister_on() const { return _cfg.mobile_autoregister; }
+    bool              mobile_registered()      const { return _my_mobile_reg.active; }
+    uint8_t           mobile_local_id()        const { return _my_mobile_reg.my_local_id; }
+    uint16_t          mobile_reg_epoch()       const { return _my_mobile_reg.epoch; }
+    uint8_t           mobile_home_layer()      const { return _my_mobile_reg.home_leaf_id; }
+    uint8_t           learned_layers_count()   const { return _learned_layers_n; }
+    const LayerRecord& learned_layer(uint8_t i) const { return _learned_layers[i]; }
+    uint8_t           bridged_layer_cap()      const { return protocol::cap_bridged_layers; }
+    const BridgedLayer& bridged_layer(uint8_t i) const { return _bridged_layers[i]; }
+    void              mobile_register_current() { (void)_hal.after(0, kMobileDiscoverTimerId); }             // DISCOVER on the current PHY now
+    void              mobile_register_phy(const LayerConfig& phy) { adopt_mobile_phy(phy); (void)_hal.after(0, kMobileDiscoverTimerId); }  // retune + DISCOVER
+    void              mobile_register_scan()    { _mobile_scan_idx = 0; (void)_hal.after(0, kMobileDiscoverTimerId); }  // cycle [current] ∪ learned
+    void              mobile_send_layer_query(uint8_t gw) {                                                  // manual pull: MOBILE_LAYER_QUERY -> gw
+        uint8_t q = 0; (void)enqueue_data(gw, &q, 0, DATA_FLAG_SOURCE_HASH, "mobile_layer_query", false, DATA_TYPE_MOBILE_LAYER_QUERY, CryptIntent::off);
+    }
     uint8_t           mobile_offers_n() const { return _mobile_offers_n; }                        // §mobile 2b: OFFERs collected this window (test/diag)
     const RtEntry&    rt_at(uint8_t i) const { return _active->_rt[i]; }   // 0..rt_count()-1; candidates[0] is the primary
     // Console testing aid: manually force / drop a route, to stress the routing algorithms with arbitrary or
@@ -613,9 +632,10 @@ public:
     };
     LimitsSnapshot    limits_snapshot() const;
     bool              key_hash_of_id(uint8_t id, uint32_t& out) const;  // id_bind reverse lookup (AUTHORITATIVE-only); false = unknown/claimed-only (DST_HASH omitted). Public for the send-path test.
-    int               mobile_home_find(uint32_t mobile_hash) const;     // §mobile 3c: cached mobile_hash -> home_id, or -1 (TTL-checked). Public for the send-path test.
-    void              mobile_home_set(uint32_t mobile_hash, uint8_t home_id, uint8_t epoch = 0);  // §mobile 3c/4a: insert/refresh (evict oldest if full); freshest-epoch wins. SILENT (no telemetry).
+    int               mobile_home_find(uint32_t mobile_hash, uint8_t* home_layer_out = nullptr) const;   // §mobile 3c/5b: cached mobile_hash -> home_id (+layer out-param), or -1 (TTL-checked). Public for the send-path test.
+    void              mobile_home_set(uint32_t mobile_hash, uint8_t home_id, uint8_t epoch = 0, uint8_t home_layer = 0);  // §mobile 3c/4a/5b: insert/refresh (evict oldest if full); freshest-epoch wins. SILENT.
     void              mobile_home_age_out();                            // §mobile 3c: TTL drop (alongside id_bind_age_out)
+    int               mobile_home_on_leaf(uint8_t leaf, uint32_t mobile_hash) const;    // §5b: mobile_home_cache lookup on a SPECIFIC leaf (the cross-layer bridge, not _active)
     void              on_mobile_hash_bind_response(const uint8_t* inner, uint8_t inner_len);  // §mobile 4a: a MOBILE_H_ANSWER -> cache M->home (epoch), NO id_bind. public = deliver seam + test
     uint8_t           claim_epoch()   const { return _claim_epoch; }
     void              restore_join_state(uint8_t claim_epoch, bool joined) { _claim_epoch = claim_epoch; _joined = joined; }  // boot: reload persisted DAD state (NV)
@@ -736,6 +756,7 @@ private:
     static constexpr uint8_t  kChannelReofferSlots     = protocol::cap_channel_reoffer_pending;
     static constexpr uint32_t kMobileDiscoverTimerId   = 74;  // §mobile 2b: registration FSM — DISCOVER kick / periodic re-CLAIM
     static constexpr uint32_t kMobileClaimGuardTimerId = 75;  // §mobile 2b: collect-OFFERs window close -> pick strongest + CLAIM
+    static constexpr uint32_t kMobileLayerQueryTimerId = 76;  // §mobile 5a: pull the layer directory from a gateway (periodic while registered)
     // [76..79] free for future per-layer timers.
 
     // ---- beacon emit / ingest ----------------------------------------------
@@ -822,6 +843,21 @@ private:
     void    mobile_discover_fire();                             // DISCOVER + open the collect-OFFERs window
     void    mobile_claim_guard_fire();                         // window close: pick strongest OFFER -> CLAIM + adopt; else backoff
     void    mobile_reset_registration(const char* reason);     // drop registration -> re-enter discovery
+    // §mobile 5a: the scan-set = [the mobile's own/bootstrap PHY] ∪ [the LEARNED layer directory]. On boot (nothing learned)
+    // that's just layers[0] -> single-PHY = 2b-identical; neighbours appear only after a successful directory pull.
+    uint8_t scan_set_count() const { return static_cast<uint8_t>(1 + _learned_layers_n); }
+    LayerConfig scan_phy(uint8_t idx) const {                  // BY VALUE (a learned record is synthesized into a LayerConfig); idx 0 = own layer, 1..n = learned
+        if (idx == 0 || _learned_layers_n == 0) return _cfg.layers[0];
+        const LayerRecord& r = _learned_layers[(idx - 1) % _learned_layers_n];
+        LayerConfig c{}; c.layer_id = r.layer_id; c.routing_sf = r.sf;
+        c.freq_mhz = static_cast<double>(r.freq_khz) / 1000.0; c.bw_hz = r.bw_hz;
+        c.allowed_sf_bitmap = static_cast<uint16_t>(1u << r.sf);   // the learned control SF as the DATA-SF set
+        return c;
+    }
+    void    adopt_mobile_phy(const LayerConfig& phy, bool retune_radio = true);   // §mobile 5a: adopt the host's PHY (config scalars leaf/sf_list ALWAYS; radio retune only when retune_radio — single-PHY is already tuned)
+    void    mobile_layer_query_fire();                         // §mobile 5a: pull the layer directory from a gateway (armed while registered)
+    int     nearest_bridging_gateway();                        // §mobile 5a: a bridging gateway we can route to (learned type-4 TLV), or -1
+    void    learned_layers_ingest(const uint8_t* body, size_t len);   // §mobile 5a: parse [count][record…] -> upsert _learned_layers (dedup, TTL, evict-oldest)
     // §mobile 3b/4: stamp a fresh outbound TxItem's origin + self-mark. A REGISTERED MOBILE bills its home_node (an
     // accountable GLOBAL id; the mobile's E2E identity still rides sender_hash) and self-marks (mobile_src -> the host
     // keeps our local-id out of the global rt, Fix 2). A static/host node = _node_id, unmarked (byte-identical).
@@ -1160,7 +1196,7 @@ private:
     // always carries the key, so last_seen == last_key_seen (the plain-refresh split lands with C.2). Member in LayerRuntime.
     struct IdBind { uint32_t key_hash32; uint64_t last_seen_ms; uint8_t node_id; uint8_t source; uint8_t confidence; };
     // §mobile 3c: a mobile's stable hash -> its home_node id (sender-side proxy cache; id_bind can't hold it). No bijection.
-    struct MobileHomeBinding { uint32_t mobile_hash; uint64_t last_seen_ms; uint8_t home_id; uint8_t epoch = 0; };  // §mobile 4a: registration epoch (freshest-proxy wins the old+new-home overlap)
+    struct MobileHomeBinding { uint32_t mobile_hash; uint64_t last_seen_ms; uint8_t home_id; uint8_t epoch = 0; uint8_t home_layer = 0; };  // §mobile 4a epoch (freshest-proxy wins) + §5b home_layer (the home's full layer_id, for cross-layer routing)
     // E2E peer-pubkey cache (Phase 1 §6): key_hash32 -> ed_pub. Immutable + hash-verifiable (ed_pub[:4]==key_hash32),
     // so a TYPE-5 owner answer is cached AUTHORITATIVE even relayed/cached-on-pass (can't decay). Member in LayerRuntime.
     struct PeerKey { uint32_t key_hash32; uint64_t last_seen_ms; uint8_t ed_pub[32]; uint8_t confidence; };
@@ -1212,10 +1248,15 @@ private:
         uint64_t last_heard_home_ms = 0;      // last BCN from home_id (home-lost timeout)
     };
     MyMobileReg _my_mobile_reg{};
-    struct OfferCand { uint8_t responder_id; uint32_t responder_hash; uint8_t proposed_local_id; float snr_db; };
+    struct OfferCand { uint8_t responder_id; uint32_t responder_hash; uint8_t proposed_local_id; float snr_db;
+                       uint8_t leaf_id; uint8_t data_sf_bitmap; };   // §mobile: the HOST's layer (leaf + sf_list, from the OFFER) — adopted on registration
     OfferCand _mobile_offers[protocol::cap_mobile_offers] = {};   // OFFERs collected during a DISCOVER window
     uint8_t   _mobile_offers_n = 0;
     uint32_t  _mobile_backoff_ms = 0;                             // exp-backoff when no host answers (0 = first try)
+    uint8_t   _mobile_scan_idx = 0;                              // §mobile 5a: which scan-set PHY the home-lost mobile is currently DISCOVERing on
+    LayerRecord _learned_layers[protocol::cap_learned_layers] = {};   // §mobile 5a: neighbouring layers pulled from a gateway (candidate cross-layer PHYs, dedup by composite id)
+    uint8_t   _learned_layers_n = 0;
+    uint64_t  _learned_layers_ms = 0;                           // §mobile 5a: last directory refresh (TTL)
     struct DeniedId { uint8_t id; uint64_t denied_at_ms; };      // a slot that lost a claim/heal (§13: 1-day TTL)
     DeniedId _join_denied[protocol::cap_join_denied] = {};
     uint8_t  _join_denied_n = 0;
@@ -1350,7 +1391,7 @@ private:
         // reply); mobile_local_id is host-assigned from 17..254 (may overlap a global id — the Slice-1 mark disambiguates).
         // Per-leaf (a host serves one leaf). DORMANT unless a mobile registers -> the static mesh is unaffected.
         struct HostMobileEntry { uint32_t key_hash32; uint8_t mobile_local_id; uint16_t epoch; uint64_t last_heard_ms;
-                                 uint8_t redirect_home_id = 0; uint8_t redirect_epoch = 0; };  // §mobile 4b: redirect to the mobile's new home (0 = not redirected); at struct END for positional aggregate-inits
+                                 uint8_t redirect_home_id = 0; uint8_t redirect_epoch = 0; uint8_t redirect_home_layer = 0; };  // §mobile 4b redirect (0 home = none) + §5b the new home's LAYER; at struct END for positional aggregate-inits
         HostMobileEntry _mobile_reg[protocol::cap_host_mobiles] = {};
         uint8_t         _mobile_reg_n = 0;
         // §per-layer discovery (2026-07-05): a GATEWAY bootstraps each leaf INDEPENDENTLY — the boot leaf must not trip

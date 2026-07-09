@@ -293,7 +293,8 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         if (!_cfg.is_mobile || !j.is_mobile || _my_mobile_reg.active) return;   // only an UNREGISTERED mobile collects; a static node -> ignore (deferred)
         if (_mobile_offers_n < protocol::cap_mobile_offers)
             _mobile_offers[_mobile_offers_n++] = { j.responder_node_id, j.responder_key_hash32,
-                                                   j.proposed_mobile_id, meta.snr_db };
+                                                   j.proposed_mobile_id, meta.snr_db,
+                                                   j.leaf_id, j.data_sf_bitmap };   // §mobile: keep the host's leaf + sf_list to adopt on CLAIM
         return;
     }
 }

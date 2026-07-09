@@ -430,8 +430,23 @@ enum DataType : uint8_t {
     DATA_TYPE_REMOTE_RESP            = 7,   //   its response text. Plain inner, cleartext (honest-net diagnostic; E2E-seal is a later option).
     // (TYPE 6 was CONFIG_ANSWER, removed 2026-06-22 — leaf config now rides the C control frame cmd 0xB; reused here.)
     DATA_TYPE_MOBILE_H_ANSWER        = 8,   // §mobile 4a: a host PROXYING for a hosted mobile (M -> home_id, always CLAIMED); inner carries the registration epoch (7 B). Distinct TYPE -> the sender caches M->home + NEVER id_binds (repeat-robust) + freshest-epoch wins.
-    DATA_TYPE_MOBILE_BREADCRUMB      = 9,   // §mobile 4b: a moved mobile tells its OLD home "I re-homed"; body [new_home_id:u8][new_epoch:u8], rides a DM carrying SOURCE_HASH=M. Old home records the redirect + answers future H-queries with the new home (4a MOBILE_H_ANSWER).
+    DATA_TYPE_MOBILE_BREADCRUMB      = 9,   // §mobile 4b: a moved mobile tells its OLD home "I re-homed"; body [new_home_id:u8][new_epoch:u8][new_home_layer:u8], rides a DM carrying SOURCE_HASH=M. Old home records the redirect + answers future H-queries with the new home (4a MOBILE_H_ANSWER).
+    DATA_TYPE_MOBILE_LAYER_QUERY     = 10,  // §mobile 5a: a mobile asks a gateway "list the layers you bridge" (SOURCE_HASH=M). Empty body.
+    DATA_TYPE_MOBILE_LAYER_ANSWER    = 11,  // §mobile 5a: a gateway's reply = [count u8][ count × LayerRecord ]; the mobile unions it into its learned directory.
 };
+
+// §mobile 5a: a neighbouring-layer record (the composite network identity — layer_id alone isn't unique across areas).
+// Wire: [layer_id u8][freq_khz u32 LE][sf u8][bw_hz u32 LE][name_len u8][name … name_len]. freq_khz = MHz×1000.
+struct LayerRecord {
+    uint8_t  layer_id = 0;
+    uint32_t freq_khz = 0;
+    uint8_t  sf       = 0;
+    uint32_t bw_hz    = 0;
+    uint8_t  name_len = 0;
+    char     name[protocol::leaf_name_max] = {};
+};
+size_t pack_layer_record(const LayerRecord& in, std::span<uint8_t> out);          // 11 + name_len; 0 on short buf
+std::optional<LayerRecord> parse_layer_record(std::span<const uint8_t> in, size_t& consumed);  // reads one record; consumed = bytes used
 
 struct data_in {
     uint8_t  addr_len;          // 0 this phase (pack returns 0 if != 0)

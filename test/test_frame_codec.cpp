@@ -1869,3 +1869,22 @@ TEST_CASE("§mobile 4a — hash_bind_inner: mobile variant packs the epoch (7 B)
     if (mo) { CHECK(mo->node_id==19); CHECK(mo->key_hash32==0xDEADBEEFu); CHECK(mo->epoch==42); }   // ★ epoch round-trips
     for (int i=0;i<6;i++) CHECK(nb[i]==mb[i]);               // ★ the 6-B prefix is identical (normal answer untouched)
 }
+
+TEST_CASE("§mobile 5a — LayerRecord codec round-trips (with a name, and name-less)") {
+    LayerRecord r{}; r.layer_id=7; r.freq_khz=868100; r.sf=9; r.bw_hz=125000; r.name_len=4;
+    r.name[0]='t'; r.name[1]='e'; r.name[2]='s'; r.name[3]='t';
+    std::array<uint8_t,32> buf{};
+    const size_t n = pack_layer_record(r, buf);
+    CHECK(n == 15);                                          // 11 + name(4)
+    size_t consumed = 0;
+    auto o = parse_layer_record(std::span<const uint8_t>(buf.data(), n), consumed);
+    CHECK(o.has_value());
+    CHECK(consumed == 15);
+    if (o) { CHECK(o->layer_id==7); CHECK(o->freq_khz==868100u); CHECK(o->sf==9); CHECK(o->bw_hz==125000u);
+             CHECK(o->name_len==4); CHECK(o->name[0]=='t'); CHECK(o->name[3]=='t'); }
+    LayerRecord r2{}; r2.layer_id=3; r2.freq_khz=915000; r2.sf=7; r2.bw_hz=250000;   // name-less = 11 B
+    std::array<uint8_t,16> b2{};
+    CHECK(pack_layer_record(r2, b2) == 11);
+    size_t c2=0; auto o2 = parse_layer_record(std::span<const uint8_t>(b2.data(), 11), c2);
+    CHECK(o2.has_value()); if (o2) { CHECK(o2->layer_id==3); CHECK(o2->name_len==0); }
+}

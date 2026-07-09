@@ -242,7 +242,8 @@ static void dump_cfg() {
     const meshroute::NodeConfig& c = g_node.config();
     // Grouped, one section per line — readable on a raw serial monitor. Keys match the `cfg set <key>` names.
     mrcon.print(F("[cfg] node_id="));     mrcon.println(g_node.node_id());
-    mrcon.print(F("  radio : freq="));    mrcon.print(g_freq_mhz, 4);
+    const double show_freq = (c.is_mobile && c.layers[0].freq_mhz > 0.0) ? c.layers[0].freq_mhz : g_freq_mhz;   // §mobile: a retune stores the live freq in layers[0]; g_freq_mhz stays the boot/global
+    mrcon.print(F("  radio : freq="));    mrcon.print(show_freq, 4);
     mrcon.print(F(" routing_sf="));       mrcon.print(c.routing_sf);
     mrcon.print(F(" sf_list="));          print_sf_list(c.allowed_sf_bitmap);
     mrcon.print(F(" bw="));               mrcon.print(g_node.active_bw_hz());   // the ACTIVE leaf's BW (a gateway alternates per window; single-layer == the global)
@@ -265,6 +266,12 @@ static void dump_cfg() {
     mrcon.print(F(" gateway="));          mrcon.print(c.is_gateway ? 1 : 0);
     mrcon.print(F(" gateway_only="));     mrcon.print(c.gateway_only ? 1 : 0);
     mrcon.print(F(" mobile="));           mrcon.println(c.is_mobile ? 1 : 0);
+    if (c.team_id) { char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)c.team_id); mrcon.print(F(" team=0x")); mrcon.println(tx); }   // §mobile 6.1
+    if (c.is_mobile) {                                                        // §mobile: registration state (bench diagnostic) — did we register, and with whom?
+        const uint8_t h = g_node.mobile_home_id();
+        mrcon.print(F("  mobile-reg: ")); if (h) { mrcon.print(F("REGISTERED home=")); mrcon.println(h); } else mrcon.println(F("UNREGISTERED (scanning)"));
+    }
+    if (g_node.mobile_reg_count()) { mrcon.print(F("  hosting=")); mrcon.print(g_node.mobile_reg_count()); mrcon.println(F(" mobile(s)")); }   // §mobile: this node is a host with registered mobiles
     mrcon.print(F("  member: lineage_id=")); mrcon.print(c.lineage_id);          // R6.1 leaf-config membership: 0 = UNMANAGED. A managed leaf (lineage!=0) only routes same-lineage peers -> a lineage-0 gateway is silently dropped (node_beacon.cpp:462). This is the field to compare across nodes.
     mrcon.print(F(" config_epoch="));     mrcon.print(c.config_epoch);
     if (c.leaf_name_len) { mrcon.print(F(" leaf_name=\"")); for (uint8_t i = 0; i < c.leaf_name_len; ++i) mrcon.print(c.leaf_name[i]); mrcon.print(F("\"")); }
@@ -480,7 +487,7 @@ static void handle_cfg_set(const char* args) {
         b.routing_sf = nc.routing_sf;   b.cr = nc.radio_cr;
         b.lbt = nc.lbt_enabled ? 1 : 0; b.node_id = g_node.canonical_node_id();   b.tx_power = g_tx_power;
         b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;   // v6 role/topology
-        b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;
+        b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;  b.team_id = nc.team_id; b.mobile_autoregister = nc.mobile_autoregister ? 1 : 0;   // §mobile: preserve team + autoreg across create/join
         b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;        // v7 BLE policy (live globals)
         b.ble_pin    = g_ble_pin;
         b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;                  // v9 location toggle (seed from the live config)
@@ -583,6 +590,8 @@ static void handle_cfg_set(const char* args) {
     // gateway BUILD, MR_GATEWAY_BUILD; non-configurable so the companion's reported `gateway` is reliable).
     else if (!strcmp(key, "gateway_only")) { lc.gateway_only = (atoi(val) != 0 || !strcmp(val, "true")); b.gateway_only = lc.gateway_only ? 1 : 0; }
     else if (!strcmp(key, "mobile"))       { lc.is_mobile    = (atoi(val) != 0 || !strcmp(val, "true")); b.is_mobile    = lc.is_mobile    ? 1 : 0; }
+    else if (!strcmp(key, "team_id"))      { lc.team_id      = (uint32_t)strtoul(val, nullptr, 0); b.team_id = lc.team_id; }   // §mobile 6.1: JOIN a team (LIVE + persist; reboot-to-apply like `mobile`)
+    else if (!strcmp(key, "mobile_autoregister")) { lc.mobile_autoregister = (atoi(val)!=0 || !strcmp(val,"true")); b.mobile_autoregister = lc.mobile_autoregister?1:0; }   // §mobile console: autonomy toggle (LIVE + persist)
     // --- BLE companion policy: PERSISTED, reboot-to-apply (the stack inits at boot from these). Invalid input
     //     is REJECTED (fail loud), never silently defaulted. ---
     else if (!strcmp(key, "ble_mode")) {
@@ -933,7 +942,7 @@ static void seed_blob_from_live(mrnv::Blob& b) {
     b.routing_sf = nc.routing_sf;   b.cr = nc.radio_cr;
     b.lbt = nc.lbt_enabled ? 1 : 0; b.node_id = g_node.canonical_node_id();   b.tx_power = g_tx_power;
     b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;
-    b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;
+    b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;  b.team_id = nc.team_id; b.mobile_autoregister = nc.mobile_autoregister ? 1 : 0;   // §mobile: preserve team + autoreg across create/join
     b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;  b.ble_pin = g_ble_pin;
     b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;  b.e2e_dm     = nc.e2e_dm ? 1 : 0;
     b.gw_announce_duty_pct = nc.gw_announce_duty_pct; b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
@@ -1067,6 +1076,104 @@ static void handle_create(const char* args) {
 usage:
     mrcon.println(F("> create err usage: create layer=<1..255> freq=<MHz> bw=<kHz 7..500, fractional ok e.g. 62.5> sf=<5..12> sf_list=<e.g.7,9> duty=<pct, fractional ok e.g. 0.1> name=\"<text>\" [active_fraction=<0..1>] [ch_min_ms=<ms>] [dm_min_ms=<ms>]   (leaf = layer & 0x0F)"));
 }
+
+// §mobile 6.1: FNV-1a over (key_hash32 ‖ nonce) = the 32-bit team_id.
+static uint32_t team_fnv1a32(uint32_t a, uint32_t b) {
+    uint32_t h = 2166136261u;
+    const uint8_t by[8] = { (uint8_t)a, (uint8_t)(a>>8), (uint8_t)(a>>16), (uint8_t)(a>>24),
+                            (uint8_t)b, (uint8_t)(b>>8), (uint8_t)(b>>16), (uint8_t)(b>>24) };
+    for (int i = 0; i < 8; ++i) { h ^= by[i]; h *= 16777619u; }
+    return h;
+}
+// `team new` = MINT a fresh team_id = hash(our key ‖ HW-RNG nonce). `team <id>` = JOIN an existing team. `team 0` = leave.
+static void handle_team(const char* args) {
+    while (*args == ' ') ++args;
+    uint32_t t;
+    if (!strncmp(args, "new", 3)) {
+        uint32_t nonce = 0; g_hal.rand_bytes(reinterpret_cast<uint8_t*>(&nonce), 4);
+        t = team_fnv1a32(g_node.key_hash32(), nonce);
+    } else if (args[0]) {
+        t = (uint32_t)strtoul(args, nullptr, 0);
+    } else {
+        mrcon.println(F("> team err usage: `team new` (mint) | `team <id>` (join) | `team 0` (leave)"));
+        return;
+    }
+    mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
+    b.team_id = t; mrnv::save(b); g_node.mutable_config().team_id = t;       // LIVE + PERSISTED
+    char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)t);
+    mrcon.print(F("> team -> team_id=0x")); mrcon.println(tx);
+}
+
+// §mobile console: `mobile register [freq=<MHz> sf=<5-12> bw=<kHz> | scan]` · `gateways` · `query <gw>` · `status`.
+static void handle_mobile(const char* args) {
+    while (*args == ' ') ++args;
+    const meshroute::NodeConfig& c = g_node.config();
+    if (!c.is_mobile) { mrcon.println(F("> mobile err: not a mobile (cfg set mobile 1 + reboot)")); return; }
+    if (!strncmp(args, "register", 8)) {
+        const char* p = args + 8; while (*p == ' ') ++p;
+        if (!strncmp(p, "scan", 4)) {
+            g_node.mobile_register_scan();
+            mrcon.print(F("> mobile register: scanning current + ")); mrcon.print(g_node.learned_layers_count()); mrcon.println(F(" known networks"));
+        } else if (strstr(p, "freq=")) {
+            const char* fs = strstr(p, "freq="); const char* ss = strstr(p, "sf="); const char* bs = strstr(p, "bw=");
+            double freq = fs ? strtod(fs + 5, nullptr) : 0.0;
+            int sf = ss ? atoi(ss + 3) : 0;
+            double bw = bs ? strtod(bs + 3, nullptr) : 125.0;   // FRACTIONAL kHz — 62.5 / 41.67 / 31.25 are valid LoRa BWs (atof like join/create, NOT atoi which truncates 62.5->62)
+            if (freq < 100.0 || freq > 1000.0 || sf < 5 || sf > 12 || bw < 7.0 || bw > 500.0) { mrcon.println(F("> mobile register err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")); return; }
+            meshroute::LayerConfig phy{};
+            phy.layer_id = c.leaf_id; phy.routing_sf = (uint8_t)sf; phy.freq_mhz = freq;
+            phy.bw_hz = (uint32_t)(bw * 1000.0 + 0.5); phy.allowed_sf_bitmap = (uint16_t)(1u << sf);   // kHz->Hz ROUNDED (62.5->62500, not 62000)
+            g_node.mobile_register_phy(phy);
+            mrcon.print(F("> mobile register: on freq=")); mrcon.print(freq, 3); mrcon.print(F(" sf=")); mrcon.print(sf); mrcon.print(F(" bw=")); mrcon.print(bw, 2); mrcon.println(F(" kHz"));
+        } else {
+            g_node.mobile_register_current();
+            mrcon.println(F("> mobile register: DISCOVER on the current PHY"));
+        }
+        return;
+    }
+    if (!strcmp(args, "gateways")) {
+        uint8_t shown = 0;
+        for (uint8_t i = 0; i < g_node.bridged_layer_cap(); ++i) {
+            const auto& b = g_node.bridged_layer(i);
+            if (!b.valid) continue;
+            mrcon.print(F("  gw ")); mrcon.print(b.gw_id); mrcon.print(F(" -> leaf ")); mrcon.println(b.dest_leaf); ++shown;
+        }
+        if (!shown) mrcon.println(F("  no gateways learned"));
+        const uint8_t nl = g_node.learned_layers_count();
+        for (uint8_t i = 0; i < nl; ++i) {
+            const auto& r = g_node.learned_layer(i);
+            mrcon.print(F("  net layer=")); mrcon.print(r.layer_id); mrcon.print(F(" \""));
+            for (uint8_t k = 0; k < r.name_len; ++k) mrcon.print((char)r.name[k]);
+            mrcon.print(F("\" freq=")); mrcon.print((double)r.freq_khz / 1000.0, 3); mrcon.print(F(" sf=")); mrcon.print(r.sf);
+            mrcon.print(F(" bw=")); mrcon.println(r.bw_hz / 1000);
+        }
+        if (!nl) mrcon.println(F("  no networks learned (use 'mobile query <gw>')"));
+        return;
+    }
+    if (!strncmp(args, "query", 5)) {
+        const uint8_t gw = (uint8_t)strtoul(args + 5, nullptr, 0);
+        if (!gw) { mrcon.println(F("> mobile query err: usage 'mobile query <gw_id>'")); return; }
+        g_node.mobile_send_layer_query(gw);
+        mrcon.print(F("> mobile query gw=")); mrcon.print(gw); mrcon.println(F(" sent (answer async -> 'mobile gateways')"));
+        return;
+    }
+    if (!strcmp(args, "status")) {
+        if (g_node.mobile_registered()) {
+            mrcon.print(F("  REGISTERED home=")); mrcon.print(g_node.mobile_home_id());
+            mrcon.print(F(" local=")); mrcon.print(g_node.mobile_local_id());
+            mrcon.print(F(" epoch=")); mrcon.print(g_node.mobile_reg_epoch());
+            mrcon.print(F(" home_layer=")); mrcon.println(g_node.mobile_home_layer());
+        } else mrcon.println(F("  UNREGISTERED"));
+        mrcon.print(F("  current PHY: layer=")); mrcon.print(c.layers[0].layer_id);
+        const double pf = c.layers[0].freq_mhz > 0.0 ? c.layers[0].freq_mhz : g_freq_mhz;   // §mobile: live layer freq (fallback to boot/global if not yet adopted)
+        mrcon.print(F(" freq=")); mrcon.print(pf, 3); mrcon.print(F(" sf=")); mrcon.print(c.routing_sf);
+        mrcon.print(F(" bw=")); mrcon.print((double)g_node.active_bw_hz() / 1000.0, 2); mrcon.println(F(" kHz"));
+        mrcon.print(F("  autoregister=")); mrcon.println(c.mobile_autoregister ? 1 : 0);
+        mrcon.print(F("  known networks=")); mrcon.println(g_node.learned_layers_count());
+        return;
+    }
+    mrcon.println(F("> mobile err usage: register [freq= sf= bw= | scan] | gateways | query <gw> | status"));
+}
 #endif   // MR_N_LAYERS < 2 — handle_join / handle_create (normal-node provisioning)
 
 // `leave` — wipe to default, keep ONLY freq; go unprovisioned + idle (the clean managed->managed re-join primitive).
@@ -1106,26 +1213,61 @@ static void hl(const __FlashStringHelper* fs) {
 #endif
 }
 
-// `help` / `?` — a small command + cfg-key reference for the live console session.
+// `help` / `?` — the command + cfg-key reference for the live console session. Grouped with blank separators for
+// readability; a category label starts each group, continuation lines indent under it. (hl() writes per-line.)
 static void dump_help() {
-    hl(F("[help] messaging:  send <id|hash> \"<text>\" [-a] [-e]   (-a=ack, -e=encrypt[hash only]; id<=254 / hash=8hex auto-detected)"));
-    hl(F("[help] channel:    send_channel <ch> \"<text>\""));
-    hl(F("[help] cross-layer: send_layer <hash> <l1,l2,…> \"<text>\" [-a]   (explicit destination layer path)"));
-    hl(F("[help] e2e keys:   peerkey <ed_pub hex64> (install a scanned/QR pubkey = pinned) | reqpubkey <hash> (request a peer's key on-air)"));
-    hl(F("[help] hash/id:    whoami | lookup <hash> | hashof <id> | resolve <hash> [hard]"));
-    hl(F("[help] inbox:      pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>  (NDJSON out)"));
-    hl(F("[help] diag:       routes | status | duty | limits | cfg | cfg set <k> <v> | sleep [on|off] | debug [on|off] | regen | reboot | ota"));
-    hl(F("[help] faults:     version (build/git/board + last reset, no reset) | faults (the flash fault ring) | crashtest <hang|fault|reboot> (needs `debug on`)"));
-    hl(F("[help] fleet:      prep-restart   (clear routes+inbox, KEEP the join, go DORMANT — run fleet-wide then power-cycle for a clean restart; un-halt via power-cycle/reboot)"));
-    hl(F("[help] remote:     rcmd <dst> <query>   (over-the-air diagnostics via a DM: status|faults|version|uptime|cfg|duty|reboot|prep-restart -> the node DMs back `[rcmd <from>] …`)"));
-    hl(F("[help] testsched:  testsend <dst> <run> [-a] [-e] -t ms1,ms2,… | testch <ch> <run> -t ms1,ms2,… | teststatus | testclear   (on-node scheduled workload, fires over the radio; arm once, read the inbox later)"));
-    hl(F("[help] test:       route add <dest> <next_hop> <hops> [score_q4] | route del <dest>   (force/drop a route to stress routing)"));
-    hl(F("[help] reset:      factory_reset confirm   (WIPE all flash — config + identity + peers + inbox — and reboot to factory)"));
-    hl(F("  cfg keys: node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore intra_layer_relay host_mobiles hop_cap leaf_id gateway_only mobile lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack active_fraction ch_min_ms dm_min_ms leaf_name   (bool keys take on|off; active_fraction=0..1, ch_min_ms/dm_min_ms in ms; `name`=node identity, `leaf_name`=the managed leaf's name [bumps epoch]; identity via regen)"));
-    hl(F("  cfg keys (dual-layer gw): n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
-    hl(F("[help] provision:  create layer= freq= bw= sf= sf_list= duty= name=\"<n>\" [active_fraction=] [ch_min_ms=] [dm_min_ms=] | join layer= freq= bw= sf= | leave   (key=value, order-free; LIVE no reboot: mint a managed leaf [mother] / join a net / reset+keep freq. layer=1..255 network id [leaf = layer & 0x0F]; anti-spam opts default when omitted; rename a leaf via `cfg set leaf_name`)"));
-    hl(F("[help] gateway:    gateway l0=<layer>:<node>:<ctrl_sf>:<data_sfs> l1=<layer>:<node>:<ctrl_sf>:<data_sfs> [period=ms] [win0=ms:off] [win1=ms:off] [beacon=ms] [freq0=MHz] [freq1=MHz] [bw0=kHz] [bw1=kHz] [cr0=5..8] [cr1=5..8] [gateway_only=0|1]   (layer=1..255; leaf nibbles [layer & 0x0F] must differ; bw per-layer in kHz [fractional ok, e.g. 62.5], cr per-layer 5..8, 0/omitted=inherit)"));
-    hl(F("  one-shot dual-layer provisioning -> NV, reboot to apply (windows auto-derive SF-weighted anti-phase if win0/win1 omitted). e.g. gateway l0=1:1:8:7,9 l1=2:1:9:9,10"));
+    hl(F("[help] ===== MeshRoute console ====="));
+    hl(F(""));
+    hl(F("[help] MESSAGING"));
+    hl(F("[help]   send <id|hash> \"<text>\" [-a] [-e]        -a=ack  -e=encrypt (hash only);  id<=254 or 8-hex hash (auto-detected)"));
+    hl(F("[help]   send_channel <ch> \"<text>\""));
+    hl(F("[help]   send_layer <hash> <l1,l2,…> \"<text>\" [-a]     explicit cross-layer destination path"));
+    hl(F(""));
+    hl(F("[help] IDENTITY / KEYS"));
+    hl(F("[help]   whoami | lookup <hash> | hashof <id> | resolve <hash> [hard]"));
+    hl(F("[help]   peerkey <ed_pub hex64>      pin a scanned/QR pubkey"));
+    hl(F("[help]   reqpubkey <hash>            request a peer's key on-air"));
+#if MR_N_LAYERS < 2
+    hl(F(""));
+    hl(F("[help] MOBILE / TEAM  (normal-node only)"));
+    hl(F("[help]   mobile register [freq=<MHz> sf=<5-12> bw=<kHz> | scan]     arm registration: current PHY / a given PHY / scan known networks"));
+    hl(F("[help]   mobile gateways            list learned gateways + networks"));
+    hl(F("[help]   mobile query <gw>          pull a gateway's network directory"));
+    hl(F("[help]   mobile status              registration + current PHY + autoregister"));
+    hl(F("[help]   team new                   mint a team (become its creator)"));
+    hl(F("[help]   team <id> | team 0         join an existing team / leave"));
+#endif
+    hl(F(""));
+    hl(F("[help] INBOX"));
+    hl(F("[help]   pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>       NDJSON out"));
+    hl(F(""));
+    hl(F("[help] DIAGNOSTICS"));
+    hl(F("[help]   routes | status | duty | limits | cfg | cfg set <k> <v>"));
+    hl(F("[help]   sleep [on|off] | debug [on|off] | regen | reboot | ota"));
+    hl(F("[help]   version            build/git/board + last reset (no reset)"));
+    hl(F("[help]   faults             the flash fault ring"));
+    hl(F("[help]   crashtest <hang|fault|reboot>      (needs `debug on`)"));
+    hl(F("[help]   rcmd <dst> <query>     OTA diagnostics via DM (status|faults|version|uptime|cfg|duty|reboot|prep-restart -> DMs back)"));
+    hl(F("[help]   prep-restart       clear routes+inbox, KEEP join, go DORMANT (run fleet-wide, then power-cycle)"));
+    hl(F(""));
+    hl(F("[help] TEST"));
+    hl(F("[help]   route add <dest> <next_hop> <hops> [score_q4] | route del <dest>"));
+    hl(F("[help]   testsend <dst> <run> [-a] [-e] -t ms1,ms2,… | testch <ch> <run> -t ms1,ms2,… | teststatus | testclear"));
+    hl(F("[help]   factory_reset confirm      WIPE all flash (config+identity+peers+inbox) -> factory reboot"));
+    hl(F(""));
+    hl(F("[help] PROVISIONING     (key=value, order-free; LIVE, no reboot)"));
+    hl(F("[help]   create layer= freq= bw= sf= sf_list= duty= name=\"<n>\" [active_fraction=] [ch_min_ms=] [dm_min_ms=]"));
+    hl(F("[help]   join layer= freq= bw= sf=      |  leave              layer=1..255 network id (leaf = layer & 0x0F)"));
+    hl(F("[help]   gateway l0=<layer>:<node>:<ctrl_sf>:<data_sfs> l1=…  [period=] [win0=ms:off] [win1=] [beacon=] [freq0=] [freq1=] [bw0=] [bw1=] [cr0=] [cr1=] [gateway_only=]"));
+    hl(F("[help]     dual-layer -> NV, reboot to apply.  e.g. gateway l0=1:1:8:7,9 l1=2:1:9:9,10"));
+    hl(F(""));
+    hl(F("[help] CFG KEYS  (`cfg set <key> <val>`; bool keys take on|off / 1|0)"));
+    hl(F("[help]   node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id"));
+    hl(F("[help]   mobile team_id mobile_autoregister host_mobiles intra_layer_relay gateway_only"));
+    hl(F("[help]   lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack"));
+    hl(F("[help]   active_fraction ch_min_ms dm_min_ms leaf_name"));
+    hl(F("[help]     `name`=node identity · `leaf_name`=managed leaf (bumps epoch) · team_id=0x-hex (`team new` mints) · identity via `regen`"));
+    hl(F("[help]   gateway-only keys: n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
 }
 
 // ---- Phase-3 inbox sync (schema: ios-companion/INBOX_SYNC_CONTRACT.md) -----------------------------------
@@ -1420,6 +1562,8 @@ static bool service_debug(const char* line, size_t len) {
 #if MR_N_LAYERS < 2
     if (len >  5 && !strncmp(line, "join ", 5))    { handle_join(line + 5);    return true; }   // R6.3 provisioning verbs (normal-node, live)
     if (len >  7 && !strncmp(line, "create ", 7))  { handle_create(line + 7);  return true; }
+    if (len >  5 && !strncmp(line, "team ", 5))     { handle_team(line + 5);    return true; }   // §mobile 6.1: `team new` (mint) / `team <id>` (join)
+    if (len >  7 && !strncmp(line, "mobile ", 7))   { handle_mobile(line + 7);  return true; }   // §mobile console: register/gateways/query/status
 #else   // §config-integrity: create/join are normal-node provisioning -> refuse on the gateway build (mirrors how `gateway` errors on a normal build) — else `create` silently re-provisions the gateway into a managed leaf.
     if ((len > 5 && !strncmp(line, "join ", 5)) || (len > 7 && !strncmp(line, "create ", 7))) {
         mrcon.println(F("> err gateway_build (create/join are normal-node only; use `gateway l0=<layer>:<node>:<sf>:<sfs> l1=…`)"));
@@ -1711,6 +1855,8 @@ void setup() {
         g_tx_power            = (nv.version >= 3) ? nv.tx_power : (int8_t)LORA_TX_POWER;   // v2 blob had no tx_power -> keep the default
         cfg.is_gateway        = nv.is_gateway != 0;   cfg.gateway_only = nv.gateway_only != 0;   // v6 role/topology (only v6 blobs load -> always present)
         cfg.is_mobile         = nv.is_mobile != 0;    cfg.leaf_id      = nv.leaf_id;
+        cfg.team_id           = nv.team_id;           // §mobile 6.1: team-id overlay (0 = no team)
+        cfg.mobile_autoregister = nv.mobile_autoregister != 0;   // §mobile console: autonomy toggle (a valid v18 NV was seeded from the ON default)
         g_ble_mode            = nv.ble_mode;          g_ble_period_min = nv.ble_period_min;      // v7 BLE policy (only v7 blobs load)
         g_ble_pin             = nv.ble_pin;
         cfg.loc_in_dm         = (nv.loc_in_dm != 0);                                                // v9 location piggyback toggle
@@ -1942,7 +2088,7 @@ static void persist_cfg_if_needed() {
         b.routing_sf = nc.routing_sf;   b.cr = nc.radio_cr;
         b.lbt = nc.lbt_enabled ? 1 : 0; b.tx_power = g_tx_power;
         b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;   // v6 role/topology
-        b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;
+        b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;  b.team_id = nc.team_id; b.mobile_autoregister = nc.mobile_autoregister ? 1 : 0;   // §mobile: preserve team + autoreg across create/join
         b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;        // v7 BLE policy (live globals)
         b.ble_pin    = g_ble_pin;
         b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;                  // v9 location toggle (seed from the live config)

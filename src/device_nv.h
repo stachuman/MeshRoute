@@ -82,9 +82,11 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     // accessor resolves the inherit at READ time (so load just copies 0 through). Layer 0 reuses the global bw_hz/radio_cr.
     uint32_t l1_bw_hz;                    // v17: layer-1 bandwidth (Hz). 0 = inherit.
     uint8_t  l1_cr;                       // v17: layer-1 coding-rate (5..8). 0 = inherit.
+    uint32_t team_id;                     // v18: §mobile 6.1 team-id overlay (0 = no team)
+    uint8_t  mobile_autoregister;         // v18: §mobile console autonomy toggle (1 = ON default; seeded from the live cfg on reprovision)
 };
 constexpr uint32_t kMagic   = 0x4D524331u;   // 'MRC1'
-constexpr uint16_t kVersion = 17;            // v17: per-layer BW+CR (l1_bw_hz + l1_cr). v16: anti-spam per-leaf tunables (channel_active_fraction + the two burst floors). v15: channel_ctr persist (reboot id-reuse fix). v14: R6.1 leaf-config (lineage_id + config_epoch + leaf_name). v13: gw_herd_slack. v12: per-layer frequency (l1_freq_mhz). v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
+constexpr uint16_t kVersion = 18;            // v18: team_id (§mobile 6.1). v17: per-layer BW+CR (l1_bw_hz + l1_cr). v16: anti-spam per-leaf tunables (channel_active_fraction + the two burst floors). v15: channel_ctr persist (reboot id-reuse fix). v14: R6.1 leaf-config (lineage_id + config_epoch + leaf_name). v13: gw_herd_slack. v12: per-layer frequency (l1_freq_mhz). v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
                                              // block). v7: BLE companion policy. v6: role/topology (is_gateway/...). The Blob
                                              // grew, so every pre-v8 blob fails the `n == sizeof(out)` size check in load()
                                              // and is rejected -> the node re-provisions from defaults (BOTH boards — the

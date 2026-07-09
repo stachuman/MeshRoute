@@ -982,6 +982,28 @@ std::optional<hash_bind_inner> parse_hash_bind_inner(std::span<const uint8_t> in
     return o;
 }
 
+// §mobile 5a: a neighbouring-layer record [layer_id][freq_khz u32 LE][sf][bw_hz u32 LE][name_len][name…].
+size_t pack_layer_record(const LayerRecord& in, std::span<uint8_t> out) {
+    const uint8_t nlen = in.name_len > protocol::leaf_name_max ? protocol::leaf_name_max : in.name_len;
+    if (out.size() < 11u + nlen) return 0;
+    wire::Writer w(out);
+    w.u8(in.layer_id); w.u32_le(in.freq_khz); w.u8(in.sf); w.u32_le(in.bw_hz); w.u8(nlen);
+    for (uint8_t i = 0; i < nlen; ++i) w.u8(static_cast<uint8_t>(in.name[i]));
+    return w.ok() ? w.size() : 0;
+}
+std::optional<LayerRecord> parse_layer_record(std::span<const uint8_t> in, size_t& consumed) {
+    consumed = 0;
+    if (in.size() < 11) return std::nullopt;
+    wire::Reader r(in);
+    LayerRecord o{};
+    o.layer_id = r.u8(); o.freq_khz = r.u32_le(); o.sf = r.u8(); o.bw_hz = r.u32_le();
+    const uint8_t nlen = r.u8();
+    if (nlen > protocol::leaf_name_max || in.size() < 11u + nlen) return std::nullopt;
+    for (uint8_t i = 0; i < nlen; ++i) o.name[i] = static_cast<char>(r.u8());
+    o.name_len = nlen; consumed = 11u + nlen;
+    return o;
+}
+
 // Hash-bind PUBKEY answer inner (E2E §6, TYPE 5): [target_layer][node_id][ed_pub 32] = 34 B (key_hash32 dropped).
 size_t pack_hash_bind_pubkey_inner(const hash_bind_pubkey_inner& in, std::span<uint8_t> out) {
     if (out.size() < 34) return 0;

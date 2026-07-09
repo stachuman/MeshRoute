@@ -237,14 +237,36 @@ struct DualLayerTestAccess {
     static bool     has_pending_rx(Node& n) { return static_cast<bool>(n._active->_pending_rx); }  // §mobile 3b: a receiver flight opened => the RTS was ADDRESSED (accepted), not overheard
     static void     deactivate_mobile_reg(Node& n) { n._my_mobile_reg.active = false; }  // §mobile 4b: simulate the 2b home-lost reset (active=false, home_id kept) so the guard re-CLAIMs
     static uint8_t  mobile_reg_redirect(Node& n, uint8_t slot) { return n._active->_mobile_reg[slot].redirect_home_id; }  // §mobile 4b
-    static void     drive_post_ack_breadcrumb(Node& n, uint32_t source_hash, uint8_t new_home, uint8_t epoch) {  // §mobile 4b: run do_post_ack for a BREADCRUMB DM
+    static uint8_t  mobile_scan_idx(Node& n)      { return n._mobile_scan_idx; }              // §mobile 5a
+    static void     add_learned_layer(Node& n, uint8_t layer_id, uint8_t sf) {                // §mobile 5a: inject a learned-directory entry
+        LayerRecord& r = n._learned_layers[n._learned_layers_n++]; r.layer_id=layer_id; r.sf=sf; r.freq_khz=868100; r.bw_hz=125000;
+    }
+    static void     learned_ingest(Node& n, const uint8_t* b, size_t len) { n.learned_layers_ingest(b, len); }  // §mobile 5a
+    static uint8_t  learned_layers_n(Node& n) { return n._learned_layers_n; }                 // §mobile 5a
+    static void     drive_post_ack_query(Node& n, uint8_t origin, uint32_t source_hash) {     // §mobile 5a: run do_post_ack for a LAYER_QUERY DM
+        auto& pa = n._active->_post_ack; pa = PostAck{};
+        pa.pending=true; pa.is_forward=false; pa.origin=origin; pa.dst=n._node_id;
+        pa.ctr=0x1234; pa.ctr_lo=4; pa.flags=DATA_FLAG_SOURCE_HASH; pa.type=DATA_TYPE_MOBILE_LAYER_QUERY;
+        pa.inner[0]=origin;   // [origin][source_hash 4B LE][body(0)]
+        pa.inner[1]=static_cast<uint8_t>(source_hash); pa.inner[2]=static_cast<uint8_t>(source_hash>>8);
+        pa.inner[3]=static_cast<uint8_t>(source_hash>>16); pa.inner[4]=static_cast<uint8_t>(source_hash>>24);
+        pa.inner_len=5;
+        n.do_post_ack();
+    }
+    static uint8_t  my_mobile_home_leaf(Node& n)  { return n._my_mobile_reg.home_leaf_id; }   // §mobile 5a: the host's LAYER
+    static uint8_t  cfg_leaf_id(Node& n)          { return n._cfg.leaf_id; }                  // §mobile 5a: the adopted operating leaf
+    static uint16_t cfg_allowed_sf(Node& n)       { return n._cfg.allowed_sf_bitmap; }        // §mobile: the adopted sf_list
+    static void     store_mobile_home_on_leaf(Node& n, uint8_t leaf, uint32_t hash, uint8_t home, uint8_t layer) {  // §5b: cache M->home on a SPECIFIC leaf (the bridge target)
+        auto& L = n._layers[leaf]; L._mobile_home_cache[L._mobile_home_cache_n++] = { hash, n._hal.now(), home, 0, layer };
+    }
+    static void     drive_post_ack_breadcrumb(Node& n, uint32_t source_hash, uint8_t new_home, uint8_t epoch, uint8_t new_home_layer = 0) {  // §mobile 4b/5b: run do_post_ack for a BREADCRUMB DM
         auto& pa = n._active->_post_ack; pa = PostAck{};
         pa.pending = true; pa.is_forward = false; pa.origin = 5; pa.dst = n._node_id;
         pa.ctr = 0x1234; pa.ctr_lo = 4; pa.flags = DATA_FLAG_SOURCE_HASH; pa.type = DATA_TYPE_MOBILE_BREADCRUMB;
-        pa.inner[0] = 5;   // [origin][source_hash 4B LE][body: new_home, epoch]
+        pa.inner[0] = 5;   // [origin][source_hash 4B LE][body: new_home, epoch, new_home_layer]
         pa.inner[1]=static_cast<uint8_t>(source_hash); pa.inner[2]=static_cast<uint8_t>(source_hash>>8);
         pa.inner[3]=static_cast<uint8_t>(source_hash>>16); pa.inner[4]=static_cast<uint8_t>(source_hash>>24);
-        pa.inner[5]=new_home; pa.inner[6]=epoch; pa.inner_len=7;
+        pa.inner[5]=new_home; pa.inner[6]=epoch; pa.inner[7]=new_home_layer; pa.inner_len=8;
         n.do_post_ack();
     }
     static uint8_t  pick_hop(Node& n, PendingTx& pt)        { return n.pick_next_cascade_hop(pt); }    // §intra-relay Edit 4: cascade pick (0 = no selectable hop -> rediscover)
@@ -2354,7 +2376,7 @@ TEST_CASE("§mobile 4b — the old home records the redirect + answers future H-
     DualLayerTestAccess::store_mobile(home, /*M*/0xB0B1u, /*local*/17);   // this host hosts mobile M
     DualLayerTestAccess::learn_neighbor(home, 50);                        // a route to a future querier
     // feed a breadcrumb: M moved to new home 99, epoch 7
-    DualLayerTestAccess::drive_post_ack_breadcrumb(home, /*source_hash*/0xB0B1u, /*new_home*/99, /*epoch*/7);
+    DualLayerTestAccess::drive_post_ack_breadcrumb(home, /*source_hash*/0xB0B1u, /*new_home*/99, /*epoch*/7, /*new_home_layer*/6);
     CHECK(DualLayerTestAccess::mobile_reg_redirect(home, 0) == 99);       // ★ redirect recorded against _mobile_reg[M]
     // an H-query for M now resolves to M->99 (the redirect), NOT M->30
     std::array<uint8_t,8> hbuf{}; size_t hn = pack_h({/*leaf*/4, /*origin*/50, /*key*/0xB0B1u, /*ttl*/3, /*hard*/false}, hbuf);
@@ -2365,9 +2387,176 @@ TEST_CASE("§mobile 4b — the old home records the redirect + answers future H-
         CHECK(pt->type == DATA_TYPE_MOBILE_H_ANSWER);
         auto o = parse_hash_bind_inner(std::span<const uint8_t>(pt->inner, pt->inner_len));
         CHECK(o.has_value());
-        if (o) { CHECK(o->node_id == 99); CHECK(o->epoch == 7); }         // ★ redirect answer M -> new home 99, epoch 7 (NOT 30)
+        if (o) { CHECK(o->node_id == 99); CHECK(o->epoch == 7); CHECK(o->target_layer == 6); }   // ★ redirect answer M -> new home 99, epoch 7, LAYER 6 (§5b)
     }
     // a breadcrumb whose SOURCE_HASH is NOT a hosted mobile -> ignored (no redirect change)
     DualLayerTestAccess::drive_post_ack_breadcrumb(home, /*source_hash*/0xDEADu, /*new_home*/88, /*epoch*/9);
     CHECK(DualLayerTestAccess::mobile_reg_redirect(home, 0) == 99);       // unchanged (0xDEAD isn't hosted -> dropped)
+}
+
+TEST_CASE("§mobile 5a — scan cycles [own PHY] ∪ LEARNED directory; adopt the host's layer") {
+    StubHal hal; Node mob(hal, 0, 0x7777u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=3; cfg.is_mobile=true;
+    cfg.layers[0].layer_id=3; cfg.layers[0].routing_sf=8; cfg.layers[0].allowed_sf_bitmap=static_cast<uint16_t>(1u<<8);
+    CHECK(mob.on_init(cfg));
+    DualLayerTestAccess::add_learned_layer(mob, /*layer*/5, /*sf*/9);   // learned directory = [layer 5 / SF9]; a host lives ONLY there
+    RxMeta meta{9.0f,-70.0f,0,static_cast<int8_t>(-1)};
+    // DISCOVER on idx 0 (own layer 3) -> no host -> the guard advances to the learned entry
+    hal._now=1000; mob.on_timer(74 /*kMobileDiscoverTimerId*/);
+    CHECK(DualLayerTestAccess::mobile_scan_idx(mob) == 0);
+    hal._now=1500; mob.on_timer(75 /*kMobileClaimGuardTimerId*/);
+    CHECK(DualLayerTestAccess::mobile_scan_idx(mob) == 1);  // ★ no host on our own layer -> advanced to the learned layer
+    // DISCOVER on idx 1 (learned layer 5) -> a host offers -> CLAIM + adopt layer 5
+    hal._now=2000; mob.on_timer(74);
+    j_offer_in off{}; off.leaf_id=5; off.is_mobile=true; off.responder_node_id=45; off.responder_key_hash32=0x4545u;
+    off.data_sf_bitmap=static_cast<uint8_t>(1u<<1); off.proposed_mobile_id=21;
+    uint8_t ob[9]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, meta);
+    hal._now=2500; mob.on_timer(75);                        // guard -> adopt
+    CHECK(mob.mobile_home_id() == 45);
+    CHECK(DualLayerTestAccess::my_mobile_home_leaf(mob) == 5);   // ★ home_leaf_id == the LEARNED layer 5, NOT the start layer 3 (E1 fix)
+    CHECK(DualLayerTestAccess::cfg_leaf_id(mob) == (5 & 0x0F));  // ★ adopted the host's operating layer (adopt_mobile_phy)
+}
+
+TEST_CASE("§mobile 5b — the mobile_home cache stores the home's LAYER (from MOBILE_H_ANSWER.target_layer)") {
+    StubHal hal; Node n(hal, 5, 0x5050u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=0; CHECK(n.on_init(cfg));
+    hash_bind_inner hb{}; hb.target_layer=7; hb.node_id=30; hb.key_hash32=0xB0B1u; hb.epoch=3;   // home 30 on layer 7
+    uint8_t inner[7]; size_t il = pack_hash_bind_inner(hb, inner, /*mobile=*/true);
+    n.on_mobile_hash_bind_response(inner, static_cast<uint8_t>(il));
+    uint8_t layer = 0;
+    CHECK(n.mobile_home_find(0xB0B1u, &layer) == 30);
+    CHECK(layer == 7);                                           // ★ the home's layer is cached (for cross-layer routing)
+}
+
+TEST_CASE("§mobile 5b — sender routes cross-layer when the home is on another layer; same-layer stays the 4a path") {
+    StubHal hal; Node n(hal, 5, 0x5050u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; CHECK(n.on_init(cfg));
+    const uint8_t body[] = {0xAA};
+    // cross-layer: cached M -> home 20 on layer 7 (!= our layer 4) -> send_cross_layer (no gateway here -> xl_send_no_gateway), NOT a same-layer DM
+    n.mobile_home_set(0xB0B1u, 20, /*epoch*/1, /*home_layer*/7);
+    hal.emits.clear();
+    DualLayerTestAccess::send_by_hash(n, 0xB0B1u, body, 1);
+    CHECK(hal.saw_emit("xl_send_no_gateway"));                   // ★ went the cross-layer path (not a same-layer do_send)
+    CHECK(DualLayerTestAccess::pending(n) == nullptr);           // no same-layer flight to 20
+    // same-layer: cached M2 -> home 21 on OUR layer (active_layer_id) -> the 4a same-layer path (do_send override=M2)
+    uint8_t al = n.active_layer_id();
+    n.mobile_home_set(0xC0C0u, 21, /*epoch*/1, /*home_layer*/al);
+    DualLayerTestAccess::learn_neighbor(n, 21);
+    DualLayerTestAccess::send_by_hash(n, 0xC0C0u, body, 1);
+    const PendingTx* pt = DualLayerTestAccess::pending(n);
+    CHECK(pt != nullptr);
+    if (pt) CHECK(pt->dst == 21);                               // ★ same-layer -> do_send to the home (4a)
+}
+
+TEST_CASE("§mobile 5b — the cross-layer bridge resolves a MOBILE on the target leaf to its home") {
+    StubHal hal; hal._now = 10000;
+    Node g(hal, /*id*/1, 0xABCDu);
+    NodeConfig gc; gc.n_layers=2;
+    gc.layers[0]=good_layer(100,8); gc.layers[0].node_id=5;      // FULL id 100 -> leaf nibble 4
+    gc.layers[1]=good_layer(102,8); gc.layers[1].node_id=12;     // FULL id 102 -> leaf nibble 6
+    CHECK(g.on_init(gc));
+    DualLayerTestAccess::store_mobile_home_on_leaf(g, /*leaf*/1, /*M*/0xB0B1u, /*home*/40, /*layer*/102);   // M's home 40 is on the TARGET leaf
+    data_unicast_inner ui{}; ui.origin=7; ui.has_cross_layer=true; ui.n_layers=2; ui.cur=1;
+    ui.layer_ids[0]=4; ui.layer_ids[1]=6;                        // target = leaf nibble 6 (leaf 1)
+    ui.has_dst_hash=true; ui.dst_key_hash32=0xB0B1u;
+    hal.emits.clear();
+    DualLayerTestAccess::bridge_ui(g, ui);
+    CHECK_FALSE(hal.saw_emit("xl_bridge_refused"));
+    CHECK(DualLayerTestAccess::handoff_count(g) == 1);
+    const XlHandoff* h = DualLayerTestAccess::handoff_first(g);
+    CHECK(h != nullptr);
+    if (h) { CHECK(h->dst_node_id == 40); CHECK(h->dst_key_hash32 == 0xB0B1u); }   // ★ resolved to the mobile's HOME (40) on the target leaf; inner dst_hash=M rides intact
+}
+
+TEST_CASE("§mobile 5a — a gateway answers a LAYER_QUERY with its bridged layers (dst_hash=M); a non-gateway ignores") {
+    StubHal hal; Node g(hal, 1, 0xABCDu);
+    NodeConfig gc; gc.n_layers=2;
+    gc.layers[0]=good_layer(100,8); gc.layers[0].node_id=5; gc.layers[0].freq_mhz=868.1;
+    gc.layers[1]=good_layer(102,9); gc.layers[1].node_id=12; gc.layers[1].freq_mhz=915.0;
+    CHECK(g.on_init(gc));
+    DualLayerTestAccess::learn_neighbor(g, 30);                 // a route to the home (origin) so the answer flies
+    hal.emits.clear();
+    DualLayerTestAccess::drive_post_ack_query(g, /*origin=home*/30, /*source_hash=M*/0xB0B1u);
+    CHECK(hal.saw_emit("mobile_layer_answer_tx"));
+    const PendingTx* pt = DualLayerTestAccess::pending(g);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->type == DATA_TYPE_MOBILE_LAYER_ANSWER);
+        const uint32_t dh = pt->inner[0] | (pt->inner[1]<<8) | (pt->inner[2]<<16) | (static_cast<uint32_t>(pt->inner[3])<<24);
+        CHECK(dh == 0xB0B1u);                                  // ★ DST_HASH = M -> the home last-mile-forwards the answer to the mobile
+    }
+    StubHal h2; Node s(h2, 2, 0xEEEEu);                         // a non-gateway (n_layers != 2) ignores the query
+    NodeConfig sc; sc.routing_sf=8; sc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); sc.leaf_id=0; CHECK(s.on_init(sc));
+    h2.emits.clear();
+    DualLayerTestAccess::drive_post_ack_query(s, 30, 0xB0B1u);
+    CHECK_FALSE(h2.saw_emit("mobile_layer_answer_tx"));
+}
+
+TEST_CASE("§mobile 5a — the mobile ingests a LAYER_ANSWER into its learned directory (dedup)") {
+    StubHal hal; Node mob(hal, 20, 0x2020u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=0; cfg.is_mobile=true; CHECK(mob.on_init(cfg));
+    uint8_t body[64]; body[0]=2; size_t off=1;                  // [count=2][record A][record B]
+    LayerRecord ra{}; ra.layer_id=5; ra.freq_khz=868100; ra.sf=9; ra.bw_hz=125000;
+    LayerRecord rb{}; rb.layer_id=7; rb.freq_khz=915000; rb.sf=7; rb.bw_hz=250000;
+    off += pack_layer_record(ra, std::span<uint8_t>(body+off, sizeof(body)-off));
+    off += pack_layer_record(rb, std::span<uint8_t>(body+off, sizeof(body)-off));
+    DualLayerTestAccess::learned_ingest(mob, body, off);
+    CHECK(DualLayerTestAccess::learned_layers_n(mob) == 2);     // ★ 2 records learned
+    DualLayerTestAccess::learned_ingest(mob, body, off);        // re-ingest the SAME -> upsert, not duplicate
+    CHECK(DualLayerTestAccess::learned_layers_n(mob) == 2);     // ★ still 2
+}
+
+TEST_CASE("§mobile console — mobile_autoregister gates the boot-arm; OFF -> only `mobile register` arms the FSM") {
+    { StubHal hal; Node mob(hal, 0, 0x7777u);                   // ON (default): on_init auto-arms the discover FSM (today)
+      NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true;
+      CHECK(mob.on_init(cfg));
+      CHECK(mob.mobile_autoregister_on());
+      CHECK(hal.armed[74]);                                    // ★ boot-armed the discover FSM (autoregister ON)
+    }
+    { StubHal hal; Node mob(hal, 0, 0x8888u);                   // OFF: no autonomy; the app drives it
+      NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.mobile_autoregister=false;
+      CHECK(mob.on_init(cfg));
+      CHECK_FALSE(mob.mobile_autoregister_on());
+      CHECK_FALSE(hal.armed[74]);                              // ★ NO boot-arm (autoregister OFF)
+      hal.emits.clear();
+      mob.mobile_register_current();                           // the app command
+      CHECK(hal.armed[74]);                                    // ★ the command arms the FSM
+      hal._now=1000; mob.on_timer(74);
+      CHECK(hal.saw_emit("mobile_discover_tx"));               // ★ + it DISCOVERs (works even with autoregister OFF)
+    }
+}
+
+TEST_CASE("§mobile offer-adopt — a mobile adopts the HOST's leaf + sf_list from the OFFER (not its own)") {
+    StubHal hal; Node mob(hal, 0, 0x7777u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true;  // SEED: leaf 0, sf_list SF7-only
+    cfg.layers[0].layer_id=0; cfg.layers[0].routing_sf=8; cfg.layers[0].allowed_sf_bitmap=static_cast<uint16_t>(1u<<7);
+    CHECK(mob.on_init(cfg));
+    RxMeta meta{9.0f,-70.0f,0,static_cast<int8_t>(-1)};
+    hal._now=1000; mob.on_timer(74);                          // DISCOVER (resets offers, arms the guard)
+    j_offer_in off{}; off.leaf_id=4; off.is_mobile=true; off.responder_node_id=222; off.responder_key_hash32=0xDDDDu;
+    off.data_sf_bitmap=static_cast<uint8_t>((1u<<6)|(1u<<7)); off.proposed_mobile_id=17;   // host on leaf 4, sf_list {SF6|SF7}
+    uint8_t ob[9]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, meta);
+    mob.on_timer(75);                                          // guard -> adopt
+    CHECK(mob.mobile_home_id() == 222);
+    CHECK(DualLayerTestAccess::cfg_leaf_id(mob) == 4);        // ★ adopted the HOST's leaf 4 (was 0)
+    CHECK(DualLayerTestAccess::my_mobile_home_leaf(mob) == 4);// ★ home_leaf_id = the host's leaf
+    const uint16_t sf = DualLayerTestAccess::cfg_allowed_sf(mob);
+    CHECK((sf & (1u<<6)) != 0);                               // ★ SF6 adopted (from the host's list — else last-mile SF6 DATA is missed)
+    CHECK((sf & (1u<<7)) != 0);                               // ★ SF7 present
+}
+
+TEST_CASE("§mobile offer-adopt — single-PHY adopt sets the config but does NOT retune the radio (no blind window)") {
+    StubHal hal; Node mob(hal, 0, 0x8888u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true;
+    cfg.layers[0].layer_id=0; cfg.layers[0].routing_sf=8; cfg.layers[0].allowed_sf_bitmap=static_cast<uint16_t>(1u<<7);
+    CHECK(mob.on_init(cfg));
+    RxMeta meta{9.0f,-70.0f,0,static_cast<int8_t>(-1)};
+    hal._now=1000; mob.on_timer(74);
+    j_offer_in off{}; off.leaf_id=4; off.is_mobile=true; off.responder_node_id=222; off.responder_key_hash32=0xDDDDu;
+    off.data_sf_bitmap=static_cast<uint8_t>((1u<<6)|(1u<<7)); off.proposed_mobile_id=17;
+    uint8_t ob[9]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, meta);
+    hal.last_set_rx_freq = 999.0;                             // sentinel — a retune would overwrite it
+    mob.on_timer(75);                                          // adopt (single-PHY -> retune_radio=false)
+    CHECK(DualLayerTestAccess::cfg_leaf_id(mob) == 4);        // ★ config adopted (leaf)
+    CHECK(hal.last_set_rx_freq == 999.0);                    // ★ NO radio retune (single-PHY is already tuned -> no spurious blind window)
 }

@@ -620,15 +620,41 @@ void Node::do_post_ack() {
             return;
         }
         if (pa.type == DATA_TYPE_MOBILE_BREADCRUMB) {   // §mobile 4b: a moved mobile's redirect note -> record it against my _mobile_reg[M]
-            if (ui && ui->has_source_hash && ui->body.size() >= 2 && _active->_mobile_reg_n > 0)
+            if (ui && ui->has_source_hash && ui->body.size() >= 3 && _active->_mobile_reg_n > 0)
                 for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
                     if (_active->_mobile_reg[i].key_hash32 == ui->source_hash) {   // attribute: only M can move M (SOURCE_HASH)
-                        _active->_mobile_reg[i].redirect_home_id = ui->body[0];
-                        _active->_mobile_reg[i].redirect_epoch   = ui->body[1];
+                        _active->_mobile_reg[i].redirect_home_id    = ui->body[0];
+                        _active->_mobile_reg[i].redirect_epoch      = ui->body[1];
+                        _active->_mobile_reg[i].redirect_home_layer = ui->body[2];   // §5b: the new home's LAYER
                         MR_EMIT("mobile_redirect_recorded", EF_I("m", i), EF_I("to", ui->body[0]), EF_I("epoch", ui->body[1]));
                         break;
                     }
             become_free(); return;   // consumed (routing info, NOT delivered/inbox'd); no match / non-host -> just drop
+        }
+        if (pa.type == DATA_TYPE_MOBILE_LAYER_QUERY && _cfg.n_layers == 2 && ui && ui->has_source_hash) {   // §mobile 5a: a mobile asks THIS gateway for its bridged layers
+            uint8_t body[protocol::max_payload_bytes_hard_cap]; uint8_t off = 1; body[0] = 0;   // [count][records…]
+            uint8_t cnt = 0;
+            for (uint8_t i = 0; i < _cfg.n_layers; ++i) {
+                LayerRecord r{};
+                r.layer_id = _cfg.layers[i].layer_id; r.sf = _cfg.layers[i].routing_sf;
+                r.freq_khz = static_cast<uint32_t>(_cfg.layers[i].freq_mhz * 1000.0 + 0.5);
+                r.bw_hz = _cfg.layers[i].bw_hz ? _cfg.layers[i].bw_hz : _cfg.radio_bw_hz;
+                r.name_len = _cfg.leaf_name_len;
+                for (uint8_t k = 0; k < r.name_len && k < protocol::leaf_name_max; ++k) r.name[k] = _cfg.leaf_name[k];
+                const size_t n = pack_layer_record(r, std::span<uint8_t>(body + off, sizeof(body) - off));
+                if (n == 0) break;
+                off = static_cast<uint8_t>(off + n); ++cnt;
+            }
+            body[0] = cnt;
+            // reply to origin (=home_id) with dst_hash=M -> the home last-mile-forwards it to the mobile (reuse the mobile-delivery path)
+            (void)enqueue_data(pa.origin, body, off, DATA_FLAG_DST_HASH, "mobile_layer_answer",
+                               /*app_dm=*/false, DATA_TYPE_MOBILE_LAYER_ANSWER, CryptIntent::off, /*override_dst_hash=*/ui->source_hash);
+            MR_EMIT("mobile_layer_answer_tx", EF_I("to", pa.origin), EF_I("count", cnt));
+            become_free(); return;
+        }
+        if (pa.type == DATA_TYPE_MOBILE_LAYER_ANSWER && _cfg.is_mobile) {   // §mobile 5a: the mobile ingests the learned layer directory
+            if (ui) learned_layers_ingest(ui->body.data(), ui->body.size());
+            become_free(); return;
         }
         if (pa.type == DATA_TYPE_H_ANSWER || pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER) {   // a hash-bind answer for us -> consume (routing info, NOT a DM)
             on_hash_bind_response(pa.inner, pa.inner_len, pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER);
@@ -854,7 +880,11 @@ void Node::bridge_cross_layer(const PostAck& pa, const data_unicast_inner& ui) {
         MR_EMIT("xl_bridge_refused", EF_I("reason", 2), EF_I("origin", pa.origin), EF_I("ctr", pa.ctr));
         become_free(); return;
     }
-    const int dst_node = id_on_leaf_by_hash(static_cast<uint8_t>(target_leaf), ui.dst_key_hash32);   // -1 = unknown -> 4f DEFERS (resolve at drain + H-flood), never drops
+    int dst_node = id_on_leaf_by_hash(static_cast<uint8_t>(target_leaf), ui.dst_key_hash32);   // -1 = unknown -> 4f DEFERS (resolve at drain + H-flood), never drops
+    if (dst_node < 0) {                                          // §5b: a MOBILE? resolve to its home on the target leaf (the home last-mile-forwards; inner dst_hash=M rides intact)
+        const int mhome = mobile_home_on_leaf(static_cast<uint8_t>(target_leaf), ui.dst_key_hash32);
+        if (mhome > 0) dst_node = mhome;
+    }
     // Advance cur ONLY if a further gateway hop remains (multi-gateway, reserved). v1: cur == n_layers-1 -> unchanged.
     uint8_t new_cur = ui.cur;
     if (static_cast<uint8_t>(ui.cur + 1) < ui.n_layers) new_cur = static_cast<uint8_t>(ui.cur + 1);
@@ -897,8 +927,12 @@ void Node::drain_xl_handoffs_for_leaf(uint8_t leaf) {
         // + keep deferred; on the TTL -> give up LOUD (X's DM retry recovers it — an ack/transit DM never floods home).
         if (h.dst_node_id == 0) {
             const int rid = id_bind_find_by_hash(h.dst_key_hash32);   // _active == &_layers[leaf] here
+            const int mhome = (rid > 0) ? -1 : mobile_home_find(h.dst_key_hash32);   // §5b: a mobile? resolve to its home on THIS (target) leaf
             if (rid > 0) {
                 h.dst_node_id = static_cast<uint8_t>(rid);
+            } else if (mhome > 0) {                                  // §5b: the mobile's home on this leaf -> deliver there (home last-mile-forwards; inner dst_hash=M intact)
+                h.dst_node_id = static_cast<uint8_t>(mhome);
+                MR_EMIT("xl_mobile_resolved", EF_I("home", mhome), EF_I("ctr", h.ctr), EF_I("leaf", leaf));
             } else if (now - h.queued_at_ms >= protocol::gateway_handoff_defer_ttl_ms) {
                 MR_EMIT("xl_handoff_giveup", EF_I("origin", h.origin), EF_I("ctr", h.ctr), EF_I("dst_hash", static_cast<int64_t>(h.dst_key_hash32)), EF_I("leaf", leaf));
                 h.valid = false;                                     // TTL exceeded -> DROP loud

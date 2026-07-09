@@ -279,7 +279,7 @@ bool Node::on_init(const NodeConfig& cfg) {
                                                                  : _cfg.beacon_period_ms);
         (void)_hal.after(static_cast<uint32_t>(_hal.rand_range(0, first_period)), kBeaconTimerId);
     }
-    if (_cfg.is_mobile) (void)_hal.after(0, kMobileDiscoverTimerId);   // §mobile 2b: kick the registration FSM (mobile only; static never arms it)
+    if (_cfg.is_mobile && _cfg.mobile_autoregister) (void)_hal.after(0, kMobileDiscoverTimerId);   // §mobile 2b/console: kick the FSM (mobile + autoregister ON; OFF -> the app arms it via `mobile register`)
     // Periodic route-aging sweep (dv_dual_sf.lua:9080-9086).
     (void)_hal.after(_cfg.rt_aging_check_period_ms, kAgingTimerId);
     // REQ_SYNC bootstrap (dv_dual_sf.lua:9166-9175): after a listen window, broadcast a REQ_SYNC Q
@@ -392,6 +392,24 @@ bool Node::layer_swap_blocked() const {
 //      layer_swap_blocked() — none in flight here; the channel rings are gateway-skipped, Principle 11.)
 //  (2) make the active-layer scalars + SF-derived timing (the Lua active_*) reflect leaf i;  (3) swap _active;
 //  (4) retune the radio + the Hal short-id;  (5) re-seed the now-active leaf's own id_bind binding.
+// §mobile 5a: a mobile adopts the host's PHY (single-leaf; NO layer swap). Sets the active-layer scalars the shared MAC
+// reads + retunes the radio to (freq, SF, BW, CR). For the single-entry default (phy == layers[0]) this is a no-op -> 2b.
+void Node::adopt_mobile_phy(const LayerConfig& phy, bool retune_radio) {
+    _cfg.layers[0].layer_id = phy.layer_id; _cfg.layers[0].routing_sf = phy.routing_sf;
+    _cfg.layers[0].allowed_sf_bitmap = phy.allowed_sf_bitmap; _cfg.layers[0].freq_mhz = phy.freq_mhz;
+    _cfg.layers[0].bw_hz = phy.bw_hz; _cfg.layers[0].cr = phy.cr;
+    _cfg.routing_sf        = phy.routing_sf;                      // active-layer scalars (the shared MAC reads these) — ADOPTED ALWAYS
+    _cfg.allowed_sf_bitmap = phy.allowed_sf_bitmap;              // §mobile: the host's sf_list (so last-mile DATA-SF negotiation works)
+    _cfg.leaf_id           = static_cast<uint8_t>(phy.layer_id & 0x0F);   // the byte-0 wire leaf filter — the host's leaf
+    _routing_snr_floor_q4  = routing_snr_floor_for(phy.routing_sf);
+    if (retune_radio) {                                          // §mobile: single-PHY is already tuned; retuning would arm a spurious blind window
+        _hal.set_rx_sf(phy.routing_sf);
+        if (phy.freq_mhz > 0.0) _hal.set_rx_freq(phy.freq_mhz);
+        _hal.set_rx_bw(phy.bw_hz ? phy.bw_hz : _cfg.radio_bw_hz);
+        _hal.set_rx_cr(phy.cr ? phy.cr : _cfg.radio_cr);
+    }
+}
+
 void Node::activate_layer(uint8_t i) {
     if (i >= _n_layers) return;                                  // defensive: n_layers==2 only; single-layer never swaps
     for (uint8_t s = 0; s < protocol::cap_sync_response_pending; ++s)
@@ -737,6 +755,7 @@ void Node::on_timer(uint32_t timer_id) {
     case kReqSyncTimerId:         req_sync_loop_fire();    break;   // REQ_SYNC boot loop: send + re-arm while starved
     case kMobileDiscoverTimerId:  mobile_discover_fire();  break;   // §mobile 2b: registration FSM (armed only for a mobile)
     case kMobileClaimGuardTimerId: mobile_claim_guard_fire(); break;
+    case kMobileLayerQueryTimerId: mobile_layer_query_fire(); break;   // §mobile 5a: pull the layer directory from a gateway
     case kMBcastClearTimerId:                                       // M-broadcast fire-and-forget: clear the flight (no ACK)
         if (_active->_pending_tx && _active->_pending_tx->m_broadcast) { _active->_pending_tx.reset(); become_free(); }
         break;

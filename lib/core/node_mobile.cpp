@@ -22,16 +22,25 @@ void Node::mobile_discover_fire() {
     if (!_cfg.is_mobile) return;                                   // hard guard — a static node never enters
     if (_my_mobile_reg.active &&
         (_hal.now() - _my_mobile_reg.last_heard_home_ms) < protocol::mobile_home_lost_ms) {
-        (void)_hal.after(protocol::mobile_reclaim_ms, kMobileDiscoverTimerId);   // still homed -> refresh later
+        if (_cfg.mobile_autoregister) (void)_hal.after(protocol::mobile_reclaim_ms, kMobileDiscoverTimerId);   // §console: still homed -> refresh later (autonomy)
         return;
     }
     if (_my_mobile_reg.active) mobile_reset_registration("home_lost");           // home lost -> re-enter discovery
     _mobile_offers_n = 0;
+    // §mobile 5a: retune to the CURRENT scan-set PHY, then DISCOVER on ITS control SF. Only when >1 candidate — a
+    // single-entry scan-set stays on the mobile's own PHY (phy == layers[0], phy.routing_sf == _cfg.routing_sf) = 2b.
+    const LayerConfig& phy = scan_phy(_mobile_scan_idx);
+    if (scan_set_count() > 1) {
+        _hal.set_rx_sf(phy.routing_sf);
+        if (phy.freq_mhz > 0.0) _hal.set_rx_freq(phy.freq_mhz);
+        _hal.set_rx_bw(phy.bw_hz ? phy.bw_hz : _cfg.radio_bw_hz);
+        _hal.set_rx_cr(phy.cr ? phy.cr : _cfg.radio_cr);
+    }
     j_discover_in d{}; d.leaf_id = _cfg.leaf_id; d.gateway_capable = false; d.is_mobile = true; d.key_hash32 = _key_hash32;
     uint8_t buf[6]; const size_t n = pack_j_discover(d, std::span<uint8_t>(buf, sizeof buf));
     if (n) {
         MR_EMIT("mobile_discover_tx", EF_I("key", static_cast<int64_t>(_key_hash32)));
-        tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
+        tx_initiating(buf, n, static_cast<int16_t>(phy.routing_sf), LbtKind::flood, 0);
     }
     (void)_hal.after(protocol::mobile_offer_window_ms, kMobileClaimGuardTimerId);   // collect, then decide
 }
@@ -39,12 +48,19 @@ void Node::mobile_discover_fire() {
 // Window close: pick the strongest OFFER, CLAIM its local-id, and adopt (claim-stands). No host -> exp-backoff.
 void Node::mobile_claim_guard_fire() {
     if (!_cfg.is_mobile || _my_mobile_reg.active) return;
-    if (_mobile_offers_n == 0) {                                   // no host answered -> exp-backoff re-DISCOVER (B3)
-        _mobile_backoff_ms = _mobile_backoff_ms
-            ? std::min(2u * _mobile_backoff_ms, protocol::mobile_discover_backoff_max_ms)
-            : protocol::mobile_discover_backoff_min_ms;
-        (void)_hal.after(_mobile_backoff_ms, kMobileDiscoverTimerId);
-        MR_EMIT("mobile_no_host", EF_I("backoff_ms", static_cast<int64_t>(_mobile_backoff_ms)));
+    if (_mobile_offers_n == 0) {                                   // no host on THIS PHY -> §mobile 5a: advance the scan-set; exp-backoff only after a FULL cycle
+        _mobile_scan_idx = static_cast<uint8_t>((_mobile_scan_idx + 1) % scan_set_count());
+        uint32_t delay;
+        if (_mobile_scan_idx == 0) {                               // full cycle (or single-entry) with no host anywhere -> exp-backoff (B3)
+            _mobile_backoff_ms = _mobile_backoff_ms
+                ? std::min(2u * _mobile_backoff_ms, protocol::mobile_discover_backoff_max_ms)
+                : protocol::mobile_discover_backoff_min_ms;
+            delay = _mobile_backoff_ms;
+        } else {                                                   // mid-cycle -> a short inter-PHY gap so the scan sweeps promptly
+            delay = protocol::mobile_offer_window_ms;
+        }
+        if (_cfg.mobile_autoregister) (void)_hal.after(delay, kMobileDiscoverTimerId);   // §console: backoff retry-DISCOVER (autonomy)
+        MR_EMIT("mobile_no_host", EF_I("backoff_ms", static_cast<int64_t>(delay)));
         return;
     }
     _mobile_backoff_ms = 0;
@@ -60,24 +76,32 @@ void Node::mobile_claim_guard_fire() {
     if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
     // claim-stands: adopt now (no DENY-listen for v1 — the host recorded us on the CLAIM, Slice 2a).
     const uint8_t old_home = _my_mobile_reg.home_id;             // §mobile 4b: capture BEFORE the overwrite (0 = first registration -> no old home)
+    LayerConfig phy = scan_phy(_mobile_scan_idx);               // BY VALUE (mutated below) — freq/bw/routing_sf from the scanned PHY (already tuned here)
+    phy.layer_id          = o.leaf_id;                          // §mobile: adopt the HOST's leaf (from the OFFER), NOT our own (scan_phy(0) = self)
+    phy.allowed_sf_bitmap = o.data_sf_bitmap;                   // §mobile: adopt the HOST's sf_list (so last-mile DATA-SF negotiation works)
     set_identity(o.proposed_local_id, _key_hash32);               // _node_id := the host-assigned local-id (like join_adopt)
     _joined = true;
-    _my_mobile_reg = { true, o.responder_id, o.proposed_local_id, o.responder_hash, _cfg.leaf_id,
+    _my_mobile_reg = { true, o.responder_id, o.proposed_local_id, o.responder_hash,
+                       o.leaf_id,                                // §mobile: the HOST's leaf (from the OFFER; was phy.layer_id = self on single-PHY)
                        _my_mobile_reg.epoch, _hal.now() };
+    adopt_mobile_phy(phy, /*retune_radio=*/scan_set_count() > 1);   // §mobile: config (leaf+sf_list) ALWAYS; radio retune only for a multi-PHY scan (single-PHY already tuned)
     // §mobile 4b: if we re-homed to a DIFFERENT node, tell the OLD home we moved (best-effort — no ack/retry; TTL is the
     // fallback). Sent AFTER the adopt so issue_send routes it via the NEW home (active now) -> mesh -> old home; SOURCE_HASH=M
     // lets the old home attribute it; the epoch is the NEW (post-increment) one the sender must adopt. NB: the 2b FSM resets
     // _my_mobile_reg.active on home-loss BEFORE the re-CLAIM, so we key on the CAPTURED old_home, not `.active`.
     if (old_home != 0 && old_home != o.responder_id) {
-        uint8_t body[2] = { o.responder_id, static_cast<uint8_t>(_my_mobile_reg.epoch) };
-        (void)enqueue_data(old_home, body, 2, DATA_FLAG_SOURCE_HASH, "mobile_breadcrumb",
+        uint8_t body[3] = { o.responder_id, static_cast<uint8_t>(_my_mobile_reg.epoch), _my_mobile_reg.home_leaf_id };  // §5b: +new_home_layer (so a stale OLD-layer home redirects with the RIGHT leaf)
+        (void)enqueue_data(old_home, body, 3, DATA_FLAG_SOURCE_HASH, "mobile_breadcrumb",
                            /*app_dm=*/false, DATA_TYPE_MOBILE_BREADCRUMB, CryptIntent::off);
         MR_EMIT("mobile_breadcrumb_tx", EF_I("old_home", old_home), EF_I("new_home", o.responder_id));
     }
     MR_EMIT("mobile_adopted", EF_I("home", o.responder_id), EF_I("local_id", o.proposed_local_id),
             EF_I("epoch", _my_mobile_reg.epoch));
     schedule_triggered_beacon();                                  // announce the adopted id (peers re-bind on it)
-    (void)_hal.after(protocol::mobile_reclaim_ms, kMobileDiscoverTimerId);   // periodic re-CLAIM (self-heal + refresh)
+    if (_cfg.mobile_autoregister) {                              // §console: autonomy — periodic re-CLAIM + auto layer-pull (OFF -> the app drives)
+        (void)_hal.after(protocol::mobile_reclaim_ms, kMobileDiscoverTimerId);   // periodic re-CLAIM (self-heal + refresh)
+        (void)_hal.after(0, kMobileLayerQueryTimerId);           // §mobile 5a: pull the layer directory now (+ periodic refresh)
+    }
 }
 
 // Drop registration + go unprovisioned (transient) so the FSM re-DISCOVERs. Reuses reset_join_for_reprovision
@@ -88,6 +112,55 @@ void Node::mobile_reset_registration([[maybe_unused]] const char* reason) {
     _joined = false;
     set_identity(protocol::unjoined_node_id, _key_hash32);        // 0 = unprovisioned (transient; a re-CLAIM follows)
     MR_EMIT("mobile_reset", EF_S("reason", reason ? reason : ""));
+}
+
+// §mobile 5a: pull the neighbouring-layer directory from a gateway (a DM query; the gateway answers with its bridged
+// layers). Armed while registered; re-arms at the refresh period. If no gateway is known yet -> no query, just re-arm.
+void Node::mobile_layer_query_fire() {
+    if (!_cfg.is_mobile || !_my_mobile_reg.active) return;
+    const int gw = nearest_bridging_gateway();
+    if (gw >= 0) {
+        uint8_t q = 0;                                             // empty/reserved body; SOURCE_HASH=M lets the gw reply to us
+        (void)enqueue_data(static_cast<uint8_t>(gw), &q, 0, DATA_FLAG_SOURCE_HASH, "mobile_layer_query",
+                           /*app_dm=*/false, DATA_TYPE_MOBILE_LAYER_QUERY, CryptIntent::off);
+        MR_EMIT("mobile_layer_query_tx", EF_I("gw", gw));
+    }
+    if (_cfg.mobile_autoregister) (void)_hal.after(protocol::mobile_layer_query_period_ms, kMobileLayerQueryTimerId);   // §console: periodic refresh (autonomy)
+}
+
+// §mobile 5a: a bridging gateway we can ROUTE to, from the learned type-4 TLV (gw_id -> dest_leaf). -1 = none known yet.
+int Node::nearest_bridging_gateway() {
+    for (uint8_t i = 0; i < protocol::cap_bridged_layers; ++i)
+        if (_bridged_layers[i].valid && _bridged_layers[i].gw_id != 0 && _bridged_layers[i].gw_id != _node_id) {
+            RtEntry* e = rt_find(_bridged_layers[i].gw_id);
+            if (e && e->n > 0) return static_cast<int>(_bridged_layers[i].gw_id);
+        }
+    return -1;
+}
+
+// §mobile 5a: ingest a MOBILE_LAYER_ANSWER body = [count u8][ count × LayerRecord ]. Upsert by composite id
+// (layer_id+freq+sf+bw); skip our own current layer; evict slot 0 when full (records are static, TTL-refreshed).
+void Node::learned_layers_ingest(const uint8_t* body, size_t len) {
+    if (len < 1) return;
+    const uint8_t count = body[0];
+    size_t off = 1;
+    for (uint8_t c = 0; c < count && off < len; ++c) {
+        size_t consumed = 0;
+        auto rec = parse_layer_record(std::span<const uint8_t>(body + off, len - off), consumed);
+        if (!rec || consumed == 0) break;
+        off += consumed;
+        if (rec->layer_id == active_layer_id()) continue;         // we're already on this one
+        bool found = false;
+        for (uint8_t i = 0; i < _learned_layers_n; ++i)
+            if (_learned_layers[i].layer_id == rec->layer_id && _learned_layers[i].freq_khz == rec->freq_khz
+                && _learned_layers[i].sf == rec->sf && _learned_layers[i].bw_hz == rec->bw_hz) { _learned_layers[i] = *rec; found = true; break; }
+        if (!found) {
+            if (_learned_layers_n < protocol::cap_learned_layers) _learned_layers[_learned_layers_n++] = *rec;
+            else _learned_layers[0] = *rec;                       // full -> evict slot 0
+        }
+    }
+    _learned_layers_ms = _hal.now();
+    MR_EMIT("mobile_layers_learned", EF_I("n", _learned_layers_n));
 }
 
 }  // namespace MESHROUTE_NS
