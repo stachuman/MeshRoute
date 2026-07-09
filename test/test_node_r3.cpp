@@ -1542,7 +1542,7 @@ TEST_CASE("duty_status — pct/avail/enabled surface the rolling-window budget")
     delete off;
 }
 
-TEST_CASE("① mobile-as-transit — learn is_mobile, exclude as transit, allow as dest (dv:1325-1334)") {
+TEST_CASE("① mobile-as-transit — learn is_mobile, exclude as transit; §Fix 3 NO dest route from a beacon (dv:1325-1334)") {
     TestHal hal;
     Node* node = mk_budget_node(hal, /*duty=*/0.0, /*window=*/3600000);   // id=1, leaf 0
     RxMeta meta{8.0f, -80.0f, 0, -1};
@@ -1562,9 +1562,29 @@ TEST_CASE("① mobile-as-transit — learn is_mobile, exclude as transit, allow 
 
     auto has = [&](uint8_t d){ for (uint8_t i = 0; i < node->rt_count(); ++i) if (node->rt_at(i).dest == d) return true; return false; };
     CHECK_FALSE(has(9));                                     // rt_merge SKIPPED the 9-via-mobile-5 candidate (dv:4583)
-    CHECK(has(5));                                           // but 5 itself is reachable (direct neighbour; next==dest)
+    CHECK_FALSE(has(5));                                     // §mobile Fix 3: a mobile's LOCAL id NEVER enters the static rt (supersedes ①'s allow-as-dest) — a static node reaches a mobile ONLY as home_id+dst_hash; the home last-miles via a DIRECT addr_len=1 send
     CHECK(hal.count("rt_skip_mobile_transit") >= 1);
     delete node;
+}
+
+TEST_CASE("§mobile Fix 3 — a mobile's beacon mints NO static route to its local id; a non-mobile beacon still does") {
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    auto has_dest = [](Node* n, uint8_t d){ for (uint8_t i = 0; i < n->rt_count(); ++i) if (n->rt_at(i).dest == d) return true; return false; };
+    // (a) MOBILE beacon (src=17) -> NO rt[17] (the local id stays off the static plane; reached only as home_id+dst_hash)
+    { TestHal hal; Node* node = mk_budget_node(hal, /*duty=*/0.0, /*window=*/3600000);
+      beacon_in in{}; in.leaf_id = 0; in.src = 17; in.key_hash32 = 0xB0B1u; in.is_mobile = true;
+      std::array<uint8_t, 64> bb{}; size_t bn = pack_beacon(in, std::span<uint8_t>(bb.data(), bb.size()));
+      node->on_recv(bb.data(), bn, meta);
+      CHECK_FALSE(has_dest(node, 17));                      // ★ Fix 3: learn_direct_neighbor SKIPPED for a mobile beacon
+      CHECK(node->is_mobile_peer(17));                      // but the mobility bit IS still learned (line 634 unchanged)
+      delete node; }
+    // (b) NON-mobile beacon (src=17) -> rt[17] as before (proves the guard is is_mobile-specific, not a blanket drop)
+    { TestHal hal; Node* node = mk_budget_node(hal, 0.0, 3600000);
+      beacon_in in{}; in.leaf_id = 0; in.src = 17; in.key_hash32 = 0xB0B1u; in.is_mobile = false;
+      std::array<uint8_t, 64> bb{}; size_t bn = pack_beacon(in, std::span<uint8_t>(bb.data(), bb.size()));
+      node->on_recv(bb.data(), bn, meta);
+      CHECK(has_dest(node, 17));                            // ★ a static neighbour -> a normal direct route
+      delete node; }
 }
 
 TEST_CASE("② implicit-ACK — overhearing the next-hop forward our DATA cancels the pending flight (dv:9863)") {

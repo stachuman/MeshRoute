@@ -402,6 +402,7 @@ inline constexpr uint32_t mobile_discover_backoff_max_ms = 120000;   //   ceilin
 inline constexpr uint32_t mobile_offer_window_ms         = 2000;     // collect-OFFERs window before deciding (≈ B4)
 inline constexpr uint32_t mobile_home_lost_ms            = 90000;    // no BCN from home -> re-register
 inline constexpr uint32_t mobile_reclaim_ms              = 600000;   // 10-min periodic re-CLAIM (self-heal + refresh)
+inline constexpr uint32_t mobile_liveness_ms            = 1500000;  // §mobile hash-locate: the home proxies for a mobile ONLY if heard within 25 min (≈2.5× re-CLAIM) — kills the long-term black hole; a just-died mobile is proxied ≤~25 min then goes silent
 inline constexpr uint8_t  cap_learned_layers             = 4;        // §mobile 5a: neighbouring layers a mobile LEARNS (pulls from a gateway) to cross to on home-lost
 inline constexpr uint32_t learned_layer_ttl_ms           = 3600000;  // §mobile 5a: 1 h (layer records are static)
 inline constexpr uint32_t mobile_layer_query_period_ms   = 600000;   // §mobile 5a: 10-min directory refresh while connected

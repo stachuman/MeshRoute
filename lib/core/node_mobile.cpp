@@ -69,7 +69,7 @@ void Node::mobile_claim_guard_fire() {
         if (_mobile_offers[i].snr_db > _mobile_offers[best].snr_db) best = i;
     const OfferCand o = _mobile_offers[best];
     // CLAIM the offered local-id (is_mobile) — mirrors join_start_claim's emit shape (node_join.cpp).
-    j_claim_in c{}; c.leaf_id = _cfg.leaf_id; c.gateway_capable = false; c.is_mobile = true; c.key_hash32 = _key_hash32;
+    j_claim_in c{}; c.leaf_id = o.leaf_id; c.gateway_capable = false; c.is_mobile = true; c.key_hash32 = _key_hash32;   // §mobile: CLAIM on the CHOSEN HOST's leaf (o.leaf_id from the OFFER), NOT our own pre-adopt leaf — else the leaf-4 home drops our leaf-0 CLAIM as "foreign layer" (node_join.cpp:210, CLAIM not leaf-exempt) and never records us
     c.proposed_node_id = o.proposed_local_id; c.claim_epoch = static_cast<uint8_t>(++_my_mobile_reg.epoch);
     c.chosen_host_id = o.responder_id;   // §mobile: address the CLAIM at the host we CHOSE (was a random nonce) -> only that host records us, not every flood-hearer
     uint8_t buf[11]; const size_t n = pack_j_claim(c, std::span<uint8_t>(buf, sizeof buf));
@@ -95,6 +95,12 @@ void Node::mobile_claim_guard_fire() {
                            /*app_dm=*/false, DATA_TYPE_MOBILE_BREADCRUMB, CryptIntent::off);
         MR_EMIT("mobile_breadcrumb_tx", EF_I("old_home", old_home), EF_I("new_home", o.responder_id));
     }
+    // §mobile hash-locate Part 2 (Fix 6): push our E2E pubkey to the (new) home so it can answer WANT_PUBKEY locates on our
+    // behalf (Option 1 — the home carries the key; the local id never leaves the home↔mobile link). A 1-hop DM to the home,
+    // SOURCE_HASH=M so the home matches _mobile_reg[M] + caches ed_pub. Re-sent on EVERY (re-)adopt so a new home learns it.
+    if (_crypto_ready)
+        (void)enqueue_data(o.responder_id, _ed_pub, 32, DATA_FLAG_SOURCE_HASH, "mobile_pubkey_push",
+                           /*app_dm=*/false, DATA_TYPE_MOBILE_PUBKEY_PUSH, CryptIntent::off);
     MR_EMIT("mobile_adopted", EF_I("home", o.responder_id), EF_I("local_id", o.proposed_local_id),
             EF_I("epoch", _my_mobile_reg.epoch));
     schedule_triggered_beacon();                                  // announce the adopted id (peers re-bind on it)

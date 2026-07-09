@@ -140,10 +140,11 @@ That is how MeshRoute scales past a single mesh **without** collapsing the whole
 
 MeshRoute is more than these five steps. A few other pieces, in brief:
 
+- **Static network** — part of network which rarely change, that's the backbone infrastructure of the network
+- **Mobile network** — these are either individual mobile nodes, which through attaching to static node, are accessing the network **or** mobile teams - which are created ad-hoc, ensure routing, are treated as mobile, provide localized channel message, location service, connection to the static network
 - **Joining** — a new node claims a local address through a short handshake, with no central authority handing them out.
 - **Anti-spam** — a per-node airtime budget keeps one chatty device from crowding out everyone else.
 - **End-to-end delivery** — optionally, the *final* destination confirms receipt, not just the next hop along the way.
-- **Mobility** — nodes that move, sleep, or drop in and out are absorbed as the topology shifts under them.
 
 ## How a node builds its routing table
 

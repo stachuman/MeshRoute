@@ -288,11 +288,14 @@ std::optional<uint32_t> parse_q_channel_id(std::span<const uint8_t> frame,
 //   byte 7   : H flags — bit 0 = HARD (skip the id_bind cache; resolve own-hash only -> reach the OWNER for
 //              an authoritative correction; the verify-on-use escalation). soft (default) consults the cache.
 enum HFlag : uint8_t { H_FLAG_HARD = 0x01,
-                       H_FLAG_WANT_PUBKEY = 0x02 };   // E2E §6: request the owner's ed_pub (set WITH HARD; owner answers DATA TYPE 5)
+                       H_FLAG_WANT_PUBKEY = 0x02,     // E2E §6: request the owner's ed_pub (set WITH HARD; owner answers DATA TYPE 5)
+                       H_FLAG_TEAM = 0x04 };          // §mobile-team: a teammate's locate -> appends team_id (4 B); a registered mobile answers ONLY a same-team query (else the home proxies)
 // §2 mutual reqpubkey: when want_pubkey is set, the H frame APPENDS the requester's ed_pub[32] (so the owner caches
 // the requester + can decrypt its future sealed DMs). requester_ed_pub is meaningful ONLY when want_pubkey.
-struct h_in  { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; bool want_pubkey = false; uint8_t requester_ed_pub[32] = {}; };
-struct h_out { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; bool want_pubkey = false; uint8_t requester_ed_pub[32] = {}; };
+struct h_in  { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; bool want_pubkey = false; uint8_t requester_ed_pub[32] = {};
+               bool team_scoped = false; uint32_t team_id = 0; };   // §mobile-team: appended team_id (4 B) iff team_scoped — a teammate's locate
+struct h_out { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; bool want_pubkey = false; uint8_t requester_ed_pub[32] = {};
+               bool team_scoped = false; uint32_t team_id = 0; };
 size_t pack_h(const h_in& in, std::span<uint8_t> out);            // 8, or 8+32=40 when want_pubkey; 0 on short buf
 std::optional<h_out> parse_h(std::span<const uint8_t> frame);     // nullopt: len<7 / cmd / (want_pubkey && len<40); hard+flags from byte 7
 
@@ -433,6 +436,8 @@ enum DataType : uint8_t {
     DATA_TYPE_MOBILE_BREADCRUMB      = 9,   // §mobile 4b: a moved mobile tells its OLD home "I re-homed"; body [new_home_id:u8][new_epoch:u8][new_home_layer:u8], rides a DM carrying SOURCE_HASH=M. Old home records the redirect + answers future H-queries with the new home (4a MOBILE_H_ANSWER).
     DATA_TYPE_MOBILE_LAYER_QUERY     = 10,  // §mobile 5a: a mobile asks a gateway "list the layers you bridge" (SOURCE_HASH=M). Empty body.
     DATA_TYPE_MOBILE_LAYER_ANSWER    = 11,  // §mobile 5a: a gateway's reply = [count u8][ count × LayerRecord ]; the mobile unions it into its learned directory.
+    DATA_TYPE_MOBILE_PUBKEY_PUSH     = 12,  // §mobile hash-locate Part 2 (Fix 6): a mobile pushes its ed_pub[32] to its home (1-hop DM, SOURCE_HASH=M) so the home can answer WANT_PUBKEY locates on its behalf. Re-sent on re-home. Body = ed_pub[32].
+    DATA_TYPE_MOBILE_H_ANSWER_PUBKEY = 13,  // §mobile hash-locate Part 2 (Fix 7): a home's WANT_PUBKEY answer for its LIVE mobile — inner = the mobile hash_bind (7 B: home routing + epoch) ‖ the mobile's ed_pub[32] = 39 B. Sender caches peer_key(M)+mobile_home(M->home), NEVER id_binds the local id.
 };
 
 // §mobile 5a: a neighbouring-layer record (the composite network identity — layer_id alone isn't unique across areas).

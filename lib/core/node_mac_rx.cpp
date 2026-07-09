@@ -619,6 +619,11 @@ void Node::do_post_ack() {
             become_free();
             return;
         }
+        if (pa.type == DATA_TYPE_MOBILE_H_ANSWER_PUBKEY) {   // §mobile Part 2 Fix 8: a home's WANT_PUBKEY answer -> cache peer_key(M) + M->home (NO id_bind, NO deliver)
+            on_mobile_hash_bind_pubkey_response(pa.inner, pa.inner_len);
+            become_free();
+            return;
+        }
         if (pa.type == DATA_TYPE_MOBILE_BREADCRUMB) {   // §mobile 4b: a moved mobile's redirect note -> record it against my _mobile_reg[M]
             if (ui && ui->has_source_hash && ui->body.size() >= 3 && _active->_mobile_reg_n > 0)
                 for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
@@ -630,6 +635,21 @@ void Node::do_post_ack() {
                         break;
                     }
             become_free(); return;   // consumed (routing info, NOT delivered/inbox'd); no match / non-host -> just drop
+        }
+        if (pa.type == DATA_TYPE_MOBILE_PUBKEY_PUSH) {   // §mobile Part 2 (Fix 6): a hosted mobile pushed its E2E pubkey -> cache it on _mobile_reg[M] so I can answer WANT_PUBKEY locates on its behalf
+            if (ui && ui->has_source_hash && ui->body.size() >= 32 && _active->_mobile_reg_n > 0) {
+                const uint32_t pk_hash = uint32_t(ui->body[0]) | (uint32_t(ui->body[1]) << 8)
+                                       | (uint32_t(ui->body[2]) << 16) | (uint32_t(ui->body[3]) << 24);
+                if (pk_hash == ui->source_hash)                          // the pushed key MUST hash to M (source_hash) — reject an inconsistent/spoofed push (matches peer_key_set's self-consistency)
+                    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+                        if (_active->_mobile_reg[i].key_hash32 == ui->source_hash) {   // attribute: only M's own key, for a mobile I host
+                            for (uint8_t k = 0; k < 32; ++k) _active->_mobile_reg[i].ed_pub[k] = ui->body[k];
+                            _active->_mobile_reg[i].has_pubkey = true;
+                            MR_EMIT("mobile_pubkey_cached", EF_I("m", i));
+                            break;
+                        }
+            }
+            become_free(); return;   // consumed (key info, NOT delivered/inbox'd)
         }
         if (pa.type == DATA_TYPE_MOBILE_LAYER_QUERY && _cfg.n_layers == 2 && ui && ui->has_source_hash) {   // §mobile 5a: a mobile asks THIS gateway for its bridged layers
             uint8_t body[protocol::max_payload_bytes_hard_cap]; uint8_t off = 1; body[0] = 0;   // [count][records…]

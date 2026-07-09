@@ -237,6 +237,22 @@ struct DualLayerTestAccess {
     static bool     has_pending_rx(Node& n) { return static_cast<bool>(n._active->_pending_rx); }  // §mobile 3b: a receiver flight opened => the RTS was ADDRESSED (accepted), not overheard
     static void     deactivate_mobile_reg(Node& n) { n._my_mobile_reg.active = false; }  // §mobile 4b: simulate the 2b home-lost reset (active=false, home_id kept) so the guard re-CLAIMs
     static uint8_t  mobile_reg_redirect(Node& n, uint8_t slot) { return n._active->_mobile_reg[slot].redirect_home_id; }  // §mobile 4b
+    static void     set_mobile_last_heard(Node& n, uint8_t slot, uint64_t ms) { n._active->_mobile_reg[slot].last_heard_ms = ms; }  // §mobile hash-locate: age/refresh the liveness clock
+    static uint8_t  mobile_reg_n(Node& n) { return n._active->_mobile_reg_n; }  // §mobile Part 2: count of hosted mobiles
+    static bool     mobile_reg_has_pubkey(Node& n, uint8_t slot) { return n._active->_mobile_reg[slot].has_pubkey; }  // §mobile Part 2 Fix 6
+    static const uint8_t* mobile_reg_ed_pub(Node& n, uint8_t slot) { return n._active->_mobile_reg[slot].ed_pub; }   // §mobile Part 2 Fix 6
+    static void     set_mobile_pubkey(Node& n, uint8_t slot, const uint8_t ed[32]) { for (uint8_t k=0;k<32;++k) n._active->_mobile_reg[slot].ed_pub[k]=ed[k]; n._active->_mobile_reg[slot].has_pubkey=true; }  // §mobile Part 2 Fix 7 setup
+    static void     drive_post_ack_pubkey_push(Node& n, uint32_t source_hash, const uint8_t ed[32]) {   // §mobile Part 2 Fix 6: run do_post_ack for a MOBILE_PUBKEY_PUSH DM
+        auto& pa = n._active->_post_ack; pa = PostAck{};
+        pa.pending = true; pa.is_forward = false; pa.origin = 5; pa.dst = n._node_id;
+        pa.ctr = 0x1234; pa.ctr_lo = 4; pa.flags = DATA_FLAG_SOURCE_HASH; pa.type = DATA_TYPE_MOBILE_PUBKEY_PUSH;
+        pa.inner[0] = 5;   // [origin][source_hash 4B LE][ed_pub 32]
+        pa.inner[1]=static_cast<uint8_t>(source_hash); pa.inner[2]=static_cast<uint8_t>(source_hash>>8);
+        pa.inner[3]=static_cast<uint8_t>(source_hash>>16); pa.inner[4]=static_cast<uint8_t>(source_hash>>24);
+        for (uint8_t k = 0; k < 32; ++k) pa.inner[5+k] = ed[k];
+        pa.inner_len = 37;
+        n.do_post_ack();
+    }
     static uint8_t  mobile_scan_idx(Node& n)      { return n._mobile_scan_idx; }              // §mobile 5a
     static void     add_learned_layer(Node& n, uint8_t layer_id, uint8_t sf) {                // §mobile 5a: inject a learned-directory entry
         LayerRecord& r = n._learned_layers[n._learned_layers_n++]; r.layer_id=layer_id; r.sf=sf; r.freq_khz=868100; r.bw_hz=125000;
@@ -2336,6 +2352,246 @@ TEST_CASE("§mobile 4a — a host proxying a hosted mobile emits DATA_TYPE_MOBIL
         CHECK(o.has_value());
         if (o) { CHECK(o->node_id == 30); CHECK(o->key_hash32 == 0xB0B1u); CHECK(o->epoch == 1); }   // M -> home(30), epoch 1
     }
+}
+
+TEST_CASE("§mobile hash-locate Fix 1/2 — a registered mobile is SILENT on a static HARD locate for its own hash; the home proxies it (HARD too)") {
+    // (a) the MOBILE: a HARD static locate for its OWN hash -> forward, NEVER answer with its LOCAL id (the local id is off the static plane)
+    StubHal hm; Node mob(hm, 17, 0xB0B1u);
+    NodeConfig mc; mc.routing_sf=8; mc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); mc.leaf_id=4; mc.is_mobile=true; CHECK(mob.on_init(mc));
+    DualLayerTestAccess::make_registered_mobile(mob, /*local*/17, /*home*/30, /*home_hash*/0x3030u);
+    DualLayerTestAccess::learn_neighbor(mob, 50);                 // a route so an answer COULD fly -> proves the silence is a choice, not a dead link
+    h_in q{}; q.leaf_id=4; q.origin=50; q.key_hash32=0xB0B1u; q.ttl=3; q.hard=true;   // ★ HARD (an e2e_ack_req locate drives this)
+    std::array<uint8_t,16> qb{}; size_t qn = pack_h(q, std::span<uint8_t>(qb.data(), qb.size()));
+    mob.on_recv(qb.data(), qn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    CHECK_FALSE(hm.saw_emit("h_resolved"));                       // ★ Fix 1: a registered mobile skips its own-hash resolution on the static plane
+    CHECK(hm.saw_emit("h_forward"));                              // forwarded instead -> the HOME is the location authority
+
+    // (b) the HOME hosting M (live) answers the SAME HARD locate with a MOBILE_H_ANSWER(home_id) — Fix 2 dropped the old !h.hard gate
+    StubHal hh; Node home(hh, 30, 0x3030u);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
+    DualLayerTestAccess::store_mobile(home, /*M*/0xB0B1u, /*local*/17);   // last_heard = now -> live
+    DualLayerTestAccess::learn_neighbor(home, 50);
+    home.on_recv(qb.data(), qn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    const PendingTx* pt = DualLayerTestAccess::pending(home);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->type == DATA_TYPE_MOBILE_H_ANSWER);            // ★ proxy answer -> resolves to the HOME, never the local id 17
+        auto o = parse_hash_bind_inner(std::span<const uint8_t>(pt->inner, pt->inner_len));
+        CHECK(o.has_value());
+        if (o) { CHECK(o->node_id == 30); CHECK(o->key_hash32 == 0xB0B1u); }
+    }
+}
+
+TEST_CASE("§mobile hash-locate Fix 2 — the home proxies a HARD locate ONLY while the mobile is live (liveness gate, not a black hole)") {
+    StubHal hal; Node home(hal, 30, 0x3030u);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
+    DualLayerTestAccess::store_mobile(home, /*M*/0xB0B1u, /*local*/17);   // last_heard = now(=0)
+    DualLayerTestAccess::learn_neighbor(home, 50);
+    // (a) STALE: advance the clock past mobile_liveness_ms -> NO proxy answer (node_id stays -1 -> forward -> the locate times out = "unreachable")
+    hal._now = protocol::mobile_liveness_ms + 1;
+    h_in q{}; q.leaf_id=4; q.origin=50; q.key_hash32=0xB0B1u; q.ttl=3; q.hard=true;
+    std::array<uint8_t,16> qb{}; size_t qn = pack_h(q, std::span<uint8_t>(qb.data(), qb.size()));
+    home.on_recv(qb.data(), qn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    CHECK_FALSE(hal.saw_emit("h_resolved"));
+    CHECK(hal.saw_emit("h_forward"));
+    CHECK(DualLayerTestAccess::pending(home) == nullptr);        // no MOBILE_H_ANSWER queued
+    // (b) refresh last_heard (a re-CLAIM heartbeat) -> the proxy answers again (fresh origin sidesteps flood-dedup; give it a route so the answer can promote)
+    hal.emits.clear();
+    DualLayerTestAccess::set_mobile_last_heard(home, 0, hal._now);
+    DualLayerTestAccess::learn_neighbor(home, 51);
+    h_in q2 = q; q2.origin = 51;
+    std::array<uint8_t,16> qb2{}; size_t qn2 = pack_h(q2, std::span<uint8_t>(qb2.data(), qb2.size()));
+    home.on_recv(qb2.data(), qn2, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    const PendingTx* pt = DualLayerTestAccess::pending(home);
+    CHECK(pt != nullptr);
+    if (pt) CHECK(pt->type == DATA_TYPE_MOBILE_H_ANSWER);        // ★ live again -> proxy resumes
+}
+
+TEST_CASE("§mobile hash-locate liveness — a hosted mobile's BEACON refreshes the proxy clock (a STATIONARY mobile never black-holes)") {
+    // Regression for the black-hole: a homed mobile that stays put never re-CLAIMs (the discover timer short-circuits while the
+    // home is heard), so CLAIM would be the ONLY last_heard_ms write -> the proxy goes stale ~mobile_liveness_ms later even
+    // though the mobile is alive. The mobile's periodic BEACON (beacon_period_ms < mobile_liveness_ms) must refresh it.
+    StubHal hal; Node home(hal, 30, 0x3030u);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
+    DualLayerTestAccess::store_mobile(home, /*M*/0xB0B1u, /*local*/17);   // last_heard = now(=0)
+    DualLayerTestAccess::learn_neighbor(home, 50);
+    hal._now = protocol::mobile_liveness_ms + 100;                        // age past liveness -> WITHOUT a refresh the proxy is stale
+    // the hosted mobile beacons (key_hash32=M). ★ config_hash is DIVERGENT (a mobile adopts only the host's PHY, not its
+    // config-plane) -> the beacon must survive the R6.1 membership filter via the is_mobile exemption to reach the refresh.
+    beacon_in bin{}; bin.leaf_id=4; bin.src=17; bin.key_hash32=0xB0B1u; bin.is_mobile=true; bin.config_hash=0xDEADBEEFu;
+    std::array<uint8_t,64> bb{}; size_t bn = pack_beacon(bin, std::span<uint8_t>(bb.data(), bb.size()));
+    home.on_recv(bb.data(), bn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    // a HARD locate now RESOLVES (the beacon proved liveness) -> a MOBILE_H_ANSWER, not "unreachable"
+    h_in q{}; q.leaf_id=4; q.origin=50; q.key_hash32=0xB0B1u; q.ttl=3; q.hard=true;
+    std::array<uint8_t,16> qb{}; size_t qn = pack_h(q, std::span<uint8_t>(qb.data(), qb.size()));
+    home.on_recv(qb.data(), qn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    const PendingTx* pt = DualLayerTestAccess::pending(home);
+    CHECK(pt != nullptr);
+    if (pt) CHECK(pt->type == DATA_TYPE_MOBILE_H_ANSWER);
+    // a mobile beacon for a DIFFERENT hash does NOT refresh M (no false liveness)
+    StubHal h2; Node home2(h2, 30, 0x3030u); CHECK(home2.on_init(hc));
+    DualLayerTestAccess::store_mobile(home2, 0xB0B1u, 17);
+    h2._now = protocol::mobile_liveness_ms + 100;
+    beacon_in other{}; other.leaf_id=4; other.src=18; other.key_hash32=0xC0C0u; other.is_mobile=true; other.config_hash=0xDEADBEEFu;   // some OTHER mobile
+    std::array<uint8_t,64> ob{}; size_t obn = pack_beacon(other, std::span<uint8_t>(ob.data(), ob.size()));
+    home2.on_recv(ob.data(), obn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    home2.on_recv(qb.data(), qn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    CHECK(DualLayerTestAccess::pending(home2) == nullptr);               // ★ M still stale (the other mobile's beacon didn't refresh it)
+    CHECK(h2.saw_emit("h_forward"));
+}
+
+TEST_CASE("§mobile hash-locate Fix 1/1b — a TEAM-scoped locate gets the mobile's authoritative answer; a wrong/absent team_id stays silent") {
+    StubHal hal; Node mob(hal, 17, 0xB0B1u);
+    NodeConfig mc; mc.routing_sf=8; mc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); mc.leaf_id=4; mc.is_mobile=true; mc.team_id=0xABCD1234u; CHECK(mob.on_init(mc));
+    DualLayerTestAccess::make_registered_mobile(mob, /*local*/17, /*home*/30, /*home_hash*/0x3030u);
+    DualLayerTestAccess::learn_neighbor(mob, 50);
+    // team-scoped locate for the mobile's own hash, MATCHING team_id -> the mobile IS the endpoint on the team plane -> answers AUTHORITATIVELY with its local id
+    h_in tq{}; tq.leaf_id=4; tq.origin=50; tq.key_hash32=0xB0B1u; tq.ttl=3; tq.hard=true; tq.team_scoped=true; tq.team_id=0xABCD1234u;
+    std::array<uint8_t,16> tb{}; size_t tn = pack_h(tq, std::span<uint8_t>(tb.data(), tb.size()));
+    mob.on_recv(tb.data(), tn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    CHECK(hal.saw_emit("h_resolved"));
+    const PendingTx* pt = DualLayerTestAccess::pending(mob);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->type == DATA_TYPE_AUTHORITATIVE_H_ANSWER);    // ★ authoritative binding to the LOCAL id (teammates route to it via the 6.2 team table)
+        auto o = parse_hash_bind_inner(std::span<const uint8_t>(pt->inner, pt->inner_len));
+        CHECK(o.has_value());
+        if (o) CHECK(o->node_id == 17);
+    }
+    // a WRONG team_id -> treated as a static locate -> silent (fresh origin sidesteps dedup)
+    hal.emits.clear();
+    h_in wq = tq; wq.origin=51; wq.team_id=0x00009999u;
+    std::array<uint8_t,16> wb{}; size_t wn = pack_h(wq, std::span<uint8_t>(wb.data(), wb.size()));
+    mob.on_recv(wb.data(), wn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    CHECK_FALSE(hal.saw_emit("h_resolved"));                     // ★ wrong team -> static plane -> stays silent
+    CHECK(hal.saw_emit("h_forward"));
+}
+
+TEST_CASE("§mobile Part 2 Fix 6 — a home caches a hosted mobile's pushed pubkey (hash-verified); rejects an inconsistent key + a non-hosted M") {
+    StubHal hal; Node home(hal, 30, 0x3030u);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
+    DualLayerTestAccess::store_mobile(home, /*M*/0xB0B1u, /*local*/17);
+    uint8_t ed[32] = {}; ed[0]=0xB1; ed[1]=0xB0; for (int i=4;i<32;++i) ed[i]=static_cast<uint8_t>(i);   // ed_pub[:4] LE == 0x0000B0B1 == M
+    DualLayerTestAccess::drive_post_ack_pubkey_push(home, /*source_hash=M*/0xB0B1u, ed);
+    CHECK(DualLayerTestAccess::mobile_reg_has_pubkey(home, 0));
+    { const uint8_t* c = DualLayerTestAccess::mobile_reg_ed_pub(home, 0); bool same=true; for (int i=0;i<32;++i) if (c[i]!=ed[i]) same=false; CHECK(same); }
+    // an INCONSISTENT push (ed_pub[:4] != source_hash) -> rejected (the key must hash to M)
+    StubHal h2; Node home2(h2, 30, 0x3030u); CHECK(home2.on_init(hc));
+    DualLayerTestAccess::store_mobile(home2, 0xB0B1u, 17);
+    uint8_t bad[32] = {}; bad[0]=0xFF; bad[1]=0xFF;   // hashes to 0x0000FFFF != 0xB0B1
+    DualLayerTestAccess::drive_post_ack_pubkey_push(home2, 0xB0B1u, bad);
+    CHECK_FALSE(DualLayerTestAccess::mobile_reg_has_pubkey(home2, 0));   // ★ rejected
+    // a push for a NON-hosted M -> dropped (no _mobile_reg entry created / touched)
+    StubHal h3; Node home3(h3, 30, 0x3030u); CHECK(home3.on_init(hc));
+    DualLayerTestAccess::drive_post_ack_pubkey_push(home3, 0xB0B1u, ed);
+    CHECK(DualLayerTestAccess::mobile_reg_n(home3) == 0);   // ★ non-host: no cache, byte-identical
+}
+
+TEST_CASE("§mobile Part 2 Fix 7 — a home answers a WANT_PUBKEY locate for its LIVE mobile with a MOBILE_H_ANSWER_PUBKEY; silent without the key") {
+    StubHal hal; Node home(hal, 30, 0x3030u);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
+    // ★ the home is CRYPTO-READY with its OWN key -> if Fix 7 didn't precede the owner branch, a live proxy (node_id==_node_id) would fall into it and leak the HOME's key (TYPE 5). The TYPE-13 + mobile-ed assertions below catch that reordering regression.
+    uint8_t hxs[32]; for (int i=0;i<32;++i) hxs[i]=static_cast<uint8_t>(0x80+i);
+    uint8_t hed[32] = {}; hed[0]=0x30; hed[1]=0x30; for (int i=4;i<32;++i) hed[i]=static_cast<uint8_t>(0xC0);   // home ed_pub[:4]==0x3030 (the home's key), distinct from the mobile's
+    home.set_crypto_identity(hxs, hed);
+    CHECK(home.crypto_ready());
+    DualLayerTestAccess::store_mobile(home, /*M*/0xB0B1u, /*local*/17);
+    DualLayerTestAccess::learn_neighbor(home, 50);
+    uint8_t ed[32] = {}; ed[0]=0xB1; ed[1]=0xB0; for (int i=4;i<32;++i) ed[i]=static_cast<uint8_t>(0x40+i);
+    // (a) NO cached key yet -> a WANT_PUBKEY HARD locate gets NO answer (silent; the sender's reqpubkey retries)
+    h_in wq{}; wq.leaf_id=4; wq.origin=50; wq.key_hash32=0xB0B1u; wq.ttl=3; wq.hard=true; wq.want_pubkey=true;
+    std::array<uint8_t,48> wb{}; size_t wn = pack_h(wq, std::span<uint8_t>(wb.data(), wb.size()));
+    home.on_recv(wb.data(), wn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    CHECK(DualLayerTestAccess::pending(home) == nullptr);        // ★ no answer without the key
+    CHECK_FALSE(hal.saw_emit("mobile_pubkey_answer_tx"));
+    // (b) cache the key (a Fix 6 push) -> the SAME locate now gets the pubkey answer (fresh origin sidesteps dedup)
+    DualLayerTestAccess::set_mobile_pubkey(home, 0, ed);
+    DualLayerTestAccess::learn_neighbor(home, 51);
+    h_in wq2 = wq; wq2.origin = 51;
+    std::array<uint8_t,48> wb2{}; size_t wn2 = pack_h(wq2, std::span<uint8_t>(wb2.data(), wb2.size()));
+    home.on_recv(wb2.data(), wn2, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    const PendingTx* pt = DualLayerTestAccess::pending(home);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->type == DATA_TYPE_MOBILE_H_ANSWER_PUBKEY);
+        CHECK(pt->inner_len == 7 + 32);
+        auto o = parse_hash_bind_inner(std::span<const uint8_t>(pt->inner, 7));
+        CHECK(o.has_value());
+        if (o) { CHECK(o->node_id == 30); CHECK(o->key_hash32 == 0xB0B1u); }   // ★ home routing
+        bool same=true; for (int i=0;i<32;++i) if (pt->inner[7+i]!=ed[i]) same=false; CHECK(same);   // ★ carries the mobile's ed_pub
+    }
+}
+
+TEST_CASE("§mobile Part 2 — a STALE (redirect) home FORWARDS a WANT_PUBKEY locate (to the new home) instead of answering/suppressing; a PLAIN locate still redirects") {
+    StubHal hal; Node home(hal, 30, 0x3030u);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
+    DualLayerTestAccess::store_mobile(home, /*M*/0xB0B1u, /*local*/17);
+    DualLayerTestAccess::learn_neighbor(home, 50);
+    DualLayerTestAccess::drive_post_ack_breadcrumb(home, /*source_hash*/0xB0B1u, /*new_home*/99, /*epoch*/7, /*new_home_layer*/4);   // M re-homed to 99 -> this home is now STALE (redirect)
+    CHECK(DualLayerTestAccess::mobile_reg_redirect(home, 0) == 99);
+    // (a) a WANT_PUBKEY locate: the stale home holds NO key -> FORWARD the flood (so it reaches the NEW home which cached the key), do NOT answer/suppress -> no black hole
+    h_in wq{}; wq.leaf_id=4; wq.origin=50; wq.key_hash32=0xB0B1u; wq.ttl=3; wq.hard=true; wq.want_pubkey=true;
+    std::array<uint8_t,48> wb{}; size_t wn = pack_h(wq, std::span<uint8_t>(wb.data(), wb.size()));
+    home.on_recv(wb.data(), wn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    CHECK(hal.saw_emit("h_forward"));                            // ★ forwarded on to the new home
+    CHECK_FALSE(hal.saw_emit("mobile_pubkey_answer_tx"));
+    CHECK(DualLayerTestAccess::pending(home) == nullptr);        // ★ no keyless answer queued
+    // (b) a PLAIN (location) locate still gets the redirect answer -> new home 99 (unchanged; fresh origin sidesteps dedup)
+    hal.emits.clear();
+    DualLayerTestAccess::learn_neighbor(home, 51);
+    h_in pq{}; pq.leaf_id=4; pq.origin=51; pq.key_hash32=0xB0B1u; pq.ttl=3; pq.hard=false;
+    std::array<uint8_t,16> pb{}; size_t pn = pack_h(pq, std::span<uint8_t>(pb.data(), pb.size()));
+    home.on_recv(pb.data(), pn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    const PendingTx* pt = DualLayerTestAccess::pending(home);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->type == DATA_TYPE_MOBILE_H_ANSWER);
+        auto o = parse_hash_bind_inner(std::span<const uint8_t>(pt->inner, pt->inner_len));
+        CHECK(o.has_value());
+        if (o) CHECK(o->node_id == 99);                         // ★ redirect -> the new home
+    }
+}
+
+TEST_CASE("§mobile Part 2 Fix 8 — a MOBILE_H_ANSWER_PUBKEY caches peer_key(M) + M->home, NEVER an id_bind to the local id") {
+    StubHal hal; Node sender(hal, 7, 0x0707u);
+    NodeConfig sc; sc.routing_sf=8; sc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); sc.leaf_id=4; CHECK(sender.on_init(sc));
+    uint8_t ed[32] = {}; ed[0]=0xB1; ed[1]=0xB0; for (int i=4;i<32;++i) ed[i]=static_cast<uint8_t>(0x20+i);
+    // build the answer inner: [7B hash_bind: layer=4, home=30, hash=M, epoch=2][ed_pub 32]
+    hash_bind_inner hb{}; hb.target_layer=4; hb.node_id=30; hb.key_hash32=0xB0B1u; hb.epoch=2;
+    uint8_t inner[7+32]; size_t n = pack_hash_bind_inner(hb, std::span<uint8_t>(inner,7), /*mobile=*/true);
+    for (int i=0;i<32;++i) inner[n+i]=ed[i];
+    sender.on_mobile_hash_bind_pubkey_response(inner, static_cast<uint8_t>(n+32));
+    // peer_key[M] cached authoritative
+    uint8_t got[32]; Node::PeerKeyConf conf;
+    CHECK(sender.peer_key_find(0xB0B1u, got, &conf));
+    { bool same=true; for (int i=0;i<32;++i) if (got[i]!=ed[i]) same=false; CHECK(same); }
+    CHECK(static_cast<uint8_t>(conf) >= static_cast<uint8_t>(Node::PeerKeyConf::authoritative));
+    // M -> home(30, layer 4) cached; and NO id_bind to a local id
+    uint8_t hl=0; CHECK(sender.mobile_home_find(0xB0B1u, &hl) == 30);
+    CHECK(hl == 4);
+    CHECK(sender.id_bind_find_by_hash(0xB0B1u) == -1);   // ★ never id_bind'd -> the local id stays off the sender's static plane
+}
+
+TEST_CASE("§mobile Part 2 Fix 6 — a mobile with a crypto identity pushes its ed_pub to the (new) home on adopt; no identity -> no push") {
+    StubHal hal; Node mob(hal, 0, 0x9999u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; CHECK(mob.on_init(cfg));
+    uint8_t xs[32]; for (int i=0;i<32;++i) xs[i]=static_cast<uint8_t>(i+1);
+    uint8_t ed[32] = {}; ed[0]=0x99; ed[1]=0x99; for (int i=4;i<32;++i) ed[i]=static_cast<uint8_t>(i);   // ed_pub[:4] == 0x00009999 == the mobile's key
+    mob.set_crypto_identity(xs, ed);
+    CHECK(mob.crypto_ready());
+    j_offer_in off{}; off.leaf_id=4; off.is_mobile=true; off.responder_node_id=40; off.responder_key_hash32=0x4040u; off.data_sf_bitmap=0x06; off.proposed_mobile_id=21;
+    uint8_t ob[9]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    hal.emits.clear();
+    mob.on_timer(75 /*kMobileClaimGuardTimerId*/);
+    CHECK(hal.saw_emit("mobile_pubkey_push"));   // ★ pushed the key to the (new) home
+    // a keyless mobile -> no push (byte-identical for a mobile without a crypto identity)
+    StubHal h2; Node mob2(h2, 0, 0x8888u);
+    NodeConfig c2; c2.routing_sf=8; c2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c2.leaf_id=4; c2.is_mobile=true; CHECK(mob2.on_init(c2));
+    j_offer_in of2{}; of2.leaf_id=4; of2.is_mobile=true; of2.responder_node_id=40; of2.responder_key_hash32=0x4040u; of2.data_sf_bitmap=0x06; of2.proposed_mobile_id=22;
+    uint8_t ob2[9]; size_t on2 = pack_j_offer(of2, ob2); mob2.on_recv(ob2, on2, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    h2.emits.clear();
+    mob2.on_timer(75);
+    CHECK_FALSE(h2.saw_emit("mobile_pubkey_push"));   // ★ no identity -> no push
 }
 
 TEST_CASE("§mobile 4b — breadcrumb: re-homing H1->H2 emits a BREADCRUMB to H1 (SOURCE_HASH=M); a first registration -> none") {

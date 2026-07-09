@@ -637,6 +637,7 @@ public:
     void              mobile_home_age_out();                            // §mobile 3c: TTL drop (alongside id_bind_age_out)
     int               mobile_home_on_leaf(uint8_t leaf, uint32_t mobile_hash) const;    // §5b: mobile_home_cache lookup on a SPECIFIC leaf (the cross-layer bridge, not _active)
     void              on_mobile_hash_bind_response(const uint8_t* inner, uint8_t inner_len);  // §mobile 4a: a MOBILE_H_ANSWER -> cache M->home (epoch), NO id_bind. public = deliver seam + test
+    void              on_mobile_hash_bind_pubkey_response(const uint8_t* inner, uint8_t inner_len);  // §mobile Part 2 Fix 8: a MOBILE_H_ANSWER_PUBKEY -> cache peer_key(M) + M->home, NO id_bind. public = deliver seam + test
     uint8_t           claim_epoch()   const { return _claim_epoch; }
     void              restore_join_state(uint8_t claim_epoch, bool joined) { _claim_epoch = claim_epoch; _joined = joined; }  // boot: reload persisted DAD state (NV)
     // Channel send-ctr persistence (metal reboot id-reuse fix): the self-keyed _peer_send_counter entry = the LAST
@@ -797,6 +798,8 @@ private:
     void    mark_hash_query_seen(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey);
     void    send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, uint32_t key_hash32, bool authoritative, bool mobile_proxy = false, uint8_t epoch = 0); // B: routed DATA(H_ANSWER inner) home; §mobile 4a: mobile_proxy -> MOBILE_H_ANSWER TYPE + epoch
     void    send_hash_bind_pubkey_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, const uint8_t ed_pub[32]);  // E2E §6: routed DATA TYPE 5 (the owner's ed_pub)
+    const uint8_t* host_mobile_ed_pub(uint32_t key_hash32) const;  // §mobile Part 2 Fix 7: the cached ed_pub for a hosted mobile (live direct proxy + has_pubkey), else nullptr
+    void    send_mobile_pubkey_answer(uint8_t to_origin, uint8_t target_layer, uint8_t home_id, uint32_t key_hash32, uint8_t epoch, const uint8_t ed_pub[32]);  // §mobile Part 2 Fix 7: DATA TYPE 13 (home routing ‖ the mobile's ed_pub)
     // D — send-by-hash trigger (the deferred "address by key_hash32") + verify-on-use.
     uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def); // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify)
     void    emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey = false);   // H flood for key_hash32 (hard = verify-on-use; want_pubkey = E2E §6, ask the owner's ed_pub)
@@ -1391,7 +1394,8 @@ private:
         // reply); mobile_local_id is host-assigned from 17..254 (may overlap a global id — the Slice-1 mark disambiguates).
         // Per-leaf (a host serves one leaf). DORMANT unless a mobile registers -> the static mesh is unaffected.
         struct HostMobileEntry { uint32_t key_hash32; uint8_t mobile_local_id; uint16_t epoch; uint64_t last_heard_ms;
-                                 uint8_t redirect_home_id = 0; uint8_t redirect_epoch = 0; uint8_t redirect_home_layer = 0; };  // §mobile 4b redirect (0 home = none) + §5b the new home's LAYER; at struct END for positional aggregate-inits
+                                 uint8_t redirect_home_id = 0; uint8_t redirect_epoch = 0; uint8_t redirect_home_layer = 0;
+                                 uint8_t ed_pub[32] = {}; bool has_pubkey = false; };  // §mobile 4b redirect (0 home = none) + §5b the new home's LAYER + §Part 2 the mobile's E2E pubkey (Fix 5); at struct END for positional aggregate-inits
         HostMobileEntry _mobile_reg[protocol::cap_host_mobiles] = {};
         uint8_t         _mobile_reg_n = 0;
         // §per-layer discovery (2026-07-05): a GATEWAY bootstraps each leaf INDEPENDENTLY — the boot leaf must not trip

@@ -542,15 +542,16 @@ std::optional<uint32_t> parse_q_channel_id(std::span<const uint8_t> frame,
 // H — cmd 0x7, 8 B (§3.7a). key_hash32 LE; byte 7 = H flags (bit 0 = HARD: skip the cache, reach the owner).
 // -----------------------------------------------------------------------------
 size_t pack_h(const h_in& in, std::span<uint8_t> out) {
-    const size_t need = in.want_pubkey ? 8 + 32 : 8;       // §2: a WANT_PUBKEY H appends the requester's ed_pub[32]
+    const size_t need = 8u + (in.want_pubkey ? 32u : 0u) + (in.team_scoped ? 4u : 0u);   // §2 WANT_PUBKEY appends ed_pub[32]; §mobile-team appends team_id[4]
     if (out.size() < need) return 0;
     wire::Writer w(out);
     w.u8(wire::cmd_byte(wire::Cmd::H, static_cast<uint8_t>(in.leaf_id & 0x0F)));
     w.u8(in.origin);
     w.u32_le(in.key_hash32);
     w.u8(in.ttl);                          // u8: config caps ttl <= 16
-    w.u8(static_cast<uint8_t>((in.hard ? H_FLAG_HARD : 0) | (in.want_pubkey ? H_FLAG_WANT_PUBKEY : 0)));   // byte 7: H flags
+    w.u8(static_cast<uint8_t>((in.hard ? H_FLAG_HARD : 0) | (in.want_pubkey ? H_FLAG_WANT_PUBKEY : 0) | (in.team_scoped ? H_FLAG_TEAM : 0)));   // byte 7: H flags
     if (in.want_pubkey) for (int i = 0; i < 32; ++i) w.u8(in.requester_ed_pub[i]);   // bytes 8..39: the requester's ed_pub
+    if (in.team_scoped) w.u32_le(in.team_id);   // §mobile-team: after the ed_pub (if any) -> the querier's team_id
     return w.ok() ? w.size() : 0;
 }
 
@@ -570,6 +571,12 @@ std::optional<h_out> parse_h(std::span<const uint8_t> frame) {
     if (o.want_pubkey) {                                                      // §2: a WANT_PUBKEY H MUST carry the 32-B requester pubkey
         if (frame.size() < 8 + 32) return std::nullopt;                      // flag set but pubkey missing -> reject (fail loud)
         for (int i = 0; i < 32; ++i) o.requester_ed_pub[i] = frame[8 + i];
+    }
+    o.team_scoped = (frame.size() >= 8) && (frame[7] & H_FLAG_TEAM);          // §mobile-team: a teammate's locate
+    if (o.team_scoped) {                                                      // team_id appended AFTER the ed_pub (if want_pubkey)
+        const size_t off = 8u + (o.want_pubkey ? 32u : 0u);
+        if (frame.size() < off + 4u) return std::nullopt;                    // flag set but team_id missing -> reject
+        wire::Reader tr(frame.subspan(off, 4)); o.team_id = tr.u32_le();
     }
     return o;
 }

@@ -454,8 +454,14 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                                           // advertises non-zero) -> peer by leaf nibble (legacy), no config gate.
         const uint16_t my_lineage = _cfg.lineage_id;
         const uint16_t my_hash    = cfg_config_hash();
-        if (b.self_gateway) {
+        if (b.self_gateway || b.is_mobile) {
             // (B) leaf-side: peer with a gateway neighbour by nibble — empty body, fall through to route-learning.
+            // (C) §mobile: a hosted mobile is NOT a config-plane member of this leaf — it adopts only the HOST's PHY
+            //     (adopt_mobile_phy), never its lineage/duty/anti-spam/leaf_name, so its config_hash legitimately diverges.
+            //     Exempt it from the membership gate (like a gateway) so its beacon reaches the mobility-bit learn + the
+            //     hash-locate LIVENESS refresh below (line ~636). WITHOUT this exemption a managed/named/duty-limited home
+            //     drops its own mobile's beacon here -> last_heard_ms never refreshes -> the mobile black-holes after
+            //     mobile_liveness_ms. b.is_mobile is false across the whole static suite -> s18/s09/s15 byte-identical.
         } else if (my_lineage == 0 && b.lineage_id == 0) {   // BOTH UNMANAGED -> legacy: peer iff config matches (§6.2 backward-compat)
             if (b.config_hash != my_hash) {
                 MR_EMIT("leaf_config_conflict", EF_I("src", b.src), EF_I("their_hash", static_cast<int64_t>(b.config_hash)),
@@ -630,8 +636,12 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // Direct route via the beacon sender, hops=1 (dv_dual_sf.lua:9584-9618). A DIRECT-route
     // promote/primary_refresh counts as a change (re-beacon) — the carried-DV merge below omits
     // primary_refresh (matches the Lua entry loop :9656).
-    if (learn_direct_neighbor(b.src, meta_snr_q4, b.self_gateway)) rt_changed = true;
-    if (b.is_mobile) _active->_mobile_peer[b.src >> 3] |= static_cast<uint8_t>(1u << (b.src & 7));   // ① learn mobility (SET-only, dv:9603-9604) -> avoid as transit
+    if (!b.is_mobile && learn_direct_neighbor(b.src, meta_snr_q4, b.self_gateway)) rt_changed = true;   // §mobile Fix 3: a mobile's LOCAL id NEVER enters the static rt — a static node reaches a mobile ONLY as home_id+dst_hash (the home last-miles via a DIRECT addr_len=1 send, not rt_find). Kills the dest=<local id> leak (supersedes ①'s allow-as-dest).
+    if (b.is_mobile) {
+        _active->_mobile_peer[b.src >> 3] |= static_cast<uint8_t>(1u << (b.src & 7));   // ① learn mobility (SET-only, dv:9603-9604) -> avoid as transit
+        for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)   // §mobile hash-locate liveness refresh: a hosted mobile's periodic beacon (key_hash32=M) proves it's alive + present -> refresh the proxy-liveness clock. WITHOUT this a STATIONARY mobile black-holes ~mobile_liveness_ms after homing: it never re-CLAIMs while its home stays heard, so CLAIM is the only other last_heard_ms write (beacon_period_ms < mobile_liveness_ms keeps a live mobile fresh). Gated on _mobile_reg_n>0 -> a non-host is byte-identical.
+            if (_active->_mobile_reg[i].key_hash32 == b.key_hash32) { _active->_mobile_reg[i].last_heard_ms = now; break; }
+    }
 
     // DV merge: each carried entry is a route via the sender (dv_dual_sf.lua:9620-9678).
     for (uint8_t i = 0; i < b.n_entries; ++i) {

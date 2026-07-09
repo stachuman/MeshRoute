@@ -509,28 +509,37 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // authoritative correction. A cached binding carries its own confidence (beacon = authoritative/first-hand;
     // snooped hash-bind = claimed/second-hand, Phase C).
     int node_id = -1; bool authoritative = false; bool mobile_proxy = false; uint8_t mobile_epoch = 0; uint8_t mobile_layer = 0;   // §mobile 4a proxy flag + epoch; §5b the home's layer
-    if (h.key_hash32 == _key_hash32) { node_id = _node_id; authoritative = true; }   // own-hash: resolves either variant
+    const bool same_team = h.team_scoped && _cfg.team_id != 0 && h.team_id == _cfg.team_id;   // §mobile-team: a teammate's locate (the mobile IS the endpoint on the team plane)
+    // §mobile: a REGISTERED mobile is INVISIBLE to the static plane — it SKIPS own-hash resolution (the home proxies) so its
+    // LOCAL id never leaks. It DOES answer a same-team locate (the 6.2 team-scoped table routes to its local id). A static
+    // node (is_mobile=false) is unchanged. This also suppresses its want_pubkey owner-answer -> the home answers it (Part 2).
+    if (h.key_hash32 == _key_hash32 && (!(_cfg.is_mobile && _my_mobile_reg.active) || same_team)) { node_id = _node_id; authoritative = true; }   // own-hash: resolves either variant
     else if (!h.hard) {                                                              // HARD skips the cache -> flood to the owner
         IdBindConf conf = IdBindConf::claimed;
         const int found = id_bind_find_by_hash(h.key_hash32, &conf);
         if (found >= 0) { node_id = found; authoritative = (conf == IdBindConf::authoritative); }
     }
-    // §mobile 3a: HOST proxy — if still unresolved (soft) and I HOST this mobile, answer with MY id (home_id) as a
-    // CLAIMED (not authoritative) binding, so the querier caches mobile_hash -> home_id and routes the DM to me (the host),
-    // which then last-mile-forwards it (do_post_ack). Gated on _mobile_reg_n>0 -> a non-host is byte-identical (no wire change).
-    if (node_id < 0 && !h.hard && _active->_mobile_reg_n > 0) {
+    // §mobile 3a: HOST proxy — I HOST this mobile, so answer with MY id (home_id) as a CLAIMED binding; the querier caches
+    // mobile_hash -> home_id and routes the DM to me (the host), which then last-mile-forwards it (do_post_ack). The home is
+    // the mobile's LOCATION AUTHORITY, soft AND hard (was `!h.hard`, which let a HARD locate — e2e_ack_req drives it — bypass
+    // the home + flood to the mobile owner). Redirect forwards unconditionally; the DIRECT proxy is LIVENESS-gated so a
+    // long-dead mobile's entry stops black-holing. Gated on _mobile_reg_n>0 -> a non-host is byte-identical (no wire change).
+    if (node_id < 0 && _active->_mobile_reg_n > 0) {
         for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
             if (_active->_mobile_reg[i].key_hash32 == h.key_hash32) {   // §mobile 4a: a MOBILE_H_ANSWER carrying the registration epoch (freshest-proxy wins)
-                if (_active->_mobile_reg[i].redirect_home_id != 0) {    // §mobile 4b/5b: we're STALE -> redirect to the mobile's NEW home + ITS layer
+                if (_active->_mobile_reg[i].redirect_home_id != 0) {    // §mobile 4b/5b: we're STALE -> redirect to the mobile's NEW home + ITS layer (NOT liveness-gated)
+                    if (h.want_pubkey) break;                          // §Part 2: a STALE home holds NO key for M -> do NOT answer/suppress a WANT_PUBKEY locate (that black-holes the encrypted DM when we're a flood cut-vertex). Leave node_id=-1 -> FORWARD the flood on to the NEW home, which cached M's key (Fix 6) and answers with the pubkey. The plain (location) redirect below is unaffected.
                     node_id = _active->_mobile_reg[i].redirect_home_id;
                     mobile_epoch = _active->_mobile_reg[i].redirect_epoch;
                     mobile_layer = _active->_mobile_reg[i].redirect_home_layer;
-                } else {                                                // §mobile 4a: we ARE the home -> our own full layer_id (§5b)
+                    authoritative = false; mobile_proxy = true;
+                } else if (_hal.now() - _active->_mobile_reg[i].last_heard_ms < protocol::mobile_liveness_ms) {   // §mobile: I'm the home -> proxy ONLY if the mobile is recently alive
                     node_id = _node_id;
                     mobile_epoch = static_cast<uint8_t>(_active->_mobile_reg[i].epoch);
                     mobile_layer = active_layer_id();
+                    authoritative = false; mobile_proxy = true;
                 }
-                authoritative = false; mobile_proxy = true; break;
+                break;   // matched (live/stale/redirect) — STALE leaves node_id=-1 -> forward -> the locate times out = "unreachable" (NOT a black hole)
             }
     }
 
@@ -543,7 +552,11 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                { .key = "target_layer",  .type = EventField::T::i64,     .i = _cfg.leaf_id },
                                { .key = "authoritative", .type = EventField::T::boolean, .b = authoritative } };
             _hal.emit("h_resolved", f, 5); );              // dv:11649
-        if (h.want_pubkey && node_id == _node_id && _crypto_ready) {   // §6 + review#1: ONLY the OWNER (own-hash) answers WANT_PUBKEY
+        if (h.want_pubkey && mobile_proxy) {                        // §Part 2 Fix 7: the HOME answers WANT_PUBKEY on behalf of its LIVE mobile (Option 1 — the home carries the key). MUST precede the owner branch: a live proxy has node_id==_node_id, so the owner branch would otherwise leak the HOME's own key under the mobile's hash.
+            const uint8_t* mk = host_mobile_ed_pub(h.key_hash32);  // the mobile's cached ed_pub (Fix 6 push), iff a LIVE direct proxy has_pubkey (a redirect carries no local key)
+            if (mk) send_mobile_pubkey_answer(h.origin, mobile_layer, static_cast<uint8_t>(node_id), h.key_hash32, mobile_epoch, mk);
+            // no cached key (the push hasn't arrived yet, or this is a redirect) -> stay SILENT on WANT_PUBKEY: the locate times out and the sender's reqpubkey retries (the push races registration). The flood is still suppressed by the return below.
+        } else if (h.want_pubkey && node_id == _node_id && _crypto_ready) {   // §6 + review#1: ONLY the OWNER (own-hash) answers WANT_PUBKEY
             // §2 MUTUAL: cache the requester's key + id_bind (from the H's appended ed_pub) BEFORE answering, so we can
             // both DECRYPT and ADDRESS its future sealed DMs -> the exchange provisions BOTH directions in one round.
             // requester_hash = requester_ed_pub[:4] LE (self-consistent: peer_key_set derives/checks the same hash).
@@ -581,7 +594,8 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     fwd.ttl = fwd_ttl; fwd.hard = h.hard;                          // preserve the variant across forwards
     fwd.want_pubkey = h.want_pubkey;   // R4: PRESERVE the E2E pubkey-request flag so a multi-hop WANT_PUBKEY reaches the owner
     if (h.want_pubkey) for (int i = 0; i < 32; ++i) fwd.requester_ed_pub[i] = h.requester_ed_pub[i];   // §2: carry the requester's pubkey across the forward
-    uint8_t buf[8 + 32];               // §2: a WANT_PUBKEY H is 40 B
+    fwd.team_scoped = h.team_scoped; fwd.team_id = h.team_id;   // §mobile-team Fix 1b: PRESERVE team scope across a multi-hop forward, else a same_team mobile >1 hop away sees a plain query + stays silent (Fix 1). Inert today (no originator sets team_scoped -> byte-identical) until 6.2 turns it on.
+    uint8_t buf[8 + 32 + 4];           // §2: WANT_PUBKEY H is 40 B; §mobile-team: +4 B for team_id (a team_scoped WANT_PUBKEY is 44 B)
     const size_t n = pack_h(fwd, std::span<uint8_t>(buf, sizeof(buf)));
     if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
 }
@@ -691,6 +705,59 @@ void Node::on_mobile_hash_bind_response(const uint8_t* inner, uint8_t inner_len)
     mobile_home_set(hb->key_hash32, hb->node_id, hb->epoch, hb->target_layer);   // §5b: M -> home + the home's LAYER (freshest-proxy wins)
     MR_EMIT("mobile_home_cached", EF_I("key", static_cast<int64_t>(hb->key_hash32)), EF_I("home", hb->node_id), EF_I("epoch", hb->epoch));
     drain_parked_sends(hb->key_hash32, hb->node_id, hb->target_layer);    // a parked first send can now fly via the cache/override
+}
+
+// §mobile hash-locate Part 2 (Fix 7): the cached ed_pub for a hosted mobile M (hash), IFF we hold it (Fix 6 push) AND this is
+// a LIVE DIRECT proxy (redirect_home_id==0 — a redirect points elsewhere and carries no local key). Returns nullptr otherwise.
+const uint8_t* Node::host_mobile_ed_pub(uint32_t key_hash32) const {
+    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+        if (_active->_mobile_reg[i].key_hash32 == key_hash32 && _active->_mobile_reg[i].has_pubkey
+            && _active->_mobile_reg[i].redirect_home_id == 0)
+            return _active->_mobile_reg[i].ed_pub;
+    return nullptr;
+}
+
+// §mobile hash-locate Part 2 (Fix 7): a WANT_PUBKEY answer for a hosted mobile — inner = the mobile hash_bind (7 B: home
+// routing + epoch) ‖ the mobile's ed_pub[32] (39 B), TYPE 13. Distinct from the owner's TYPE-5 answer: the sender must learn
+// BOTH the mobile's key AND that it routes via the HOME (not to the local id). Mirrors send_hash_bind_response's TxItem shape.
+void Node::send_mobile_pubkey_answer(uint8_t to_origin, uint8_t target_layer, uint8_t home_id,
+                                     uint32_t key_hash32, uint8_t epoch, const uint8_t ed_pub[32]) {
+    if (_active->_tx_queue_n >= kTxQueueCap) return;
+    hash_bind_inner hb{}; hb.target_layer = target_layer; hb.node_id = home_id; hb.key_hash32 = key_hash32; hb.epoch = epoch;
+    uint8_t inner[7 + 32];
+    const size_t n = pack_hash_bind_inner(hb, std::span<uint8_t>(inner, 7), /*mobile=*/true);   // 7 B mobile variant (home routing + epoch)
+    if (n == 0) return;
+    for (int i = 0; i < 32; ++i) inner[n + i] = ed_pub[i];                                      // ‖ the mobile's ed_pub
+    TxItem item{};
+    item.origin = _node_id; item.dst = to_origin;
+    item.ctr = next_ctr(to_origin); item.ctr_lo = static_cast<uint8_t>(item.ctr & 0x0F);
+    item.flags = 0; item.type = DATA_TYPE_MOBILE_H_ANSWER_PUBKEY;
+    const size_t total = n + 32;
+    for (size_t i = 0; i < total; ++i) item.inner[i] = inner[i];
+    item.inner_len = static_cast<uint8_t>(total);
+    item.enqueue_time_ms = _hal.now();
+    _active->_tx_queue[_active->_tx_queue_n++] = item;
+    MR_EMIT("mobile_pubkey_answer_tx", EF_I("to", to_origin), EF_I("home", home_id));
+    become_free();
+}
+
+// §mobile hash-locate Part 2 (Fix 8): the querier received a home's MOBILE_H_ANSWER_PUBKEY -> cache the mobile's key
+// (hash-verified, authoritative) AND route via the home (mobile_home_set). NEVER id_bind the local id. Combines the owner
+// pubkey ingest (on_hash_bind_pubkey) with the mobile-home cache (on_mobile_hash_bind_response) — the sender can now seal
+// to M and address the sealed DM to the home (do_send override_dst_hash=M seals under peer_key[M]).
+void Node::on_mobile_hash_bind_pubkey_response(const uint8_t* inner, uint8_t inner_len) {
+    if (inner_len < 7 + 32) return;
+    auto hb = parse_hash_bind_inner(std::span<const uint8_t>(inner, 7));   // the mobile 7 B: home routing + epoch (ignores the ed_pub tail)
+    if (!hb) return;
+    const uint8_t* ed = inner + 7;
+    const uint32_t kh = uint32_t(ed[0]) | (uint32_t(ed[1]) << 8) | (uint32_t(ed[2]) << 16) | (uint32_t(ed[3]) << 24);
+    if (kh == hb->key_hash32 && peer_key_set(kh, ed, PeerKeyConf::authoritative)) {   // the key MUST hash to M (self-consistent) — never id_bind the LOCAL id
+        MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(kh)), EF_I("node", hb->node_id));
+        Push pu{}; pu.kind = PushKind::peer_key_cached; pu.sender_hash = kh; enqueue_push(pu);   // §7: app prompts "secure send ready — resend"
+    }
+    mobile_home_set(hb->key_hash32, hb->node_id, hb->epoch, hb->target_layer);   // M -> home (+layer): the sealed DM routes via the home, not to the local id
+    MR_EMIT("mobile_home_cached", EF_I("key", static_cast<int64_t>(hb->key_hash32)), EF_I("home", hb->node_id), EF_I("epoch", hb->epoch));
+    drain_parked_sends(hb->key_hash32, hb->node_id, hb->target_layer);   // a parked CRYPTED send can now seal (peer_key[M]) + fly (via home)
 }
 
 // C.2 cache-on-pass (NEW, beyond the Lua's gateway-only caching): a RELAYED hash-bind answer is
