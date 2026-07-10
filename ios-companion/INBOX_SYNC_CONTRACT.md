@@ -8,7 +8,7 @@ provisioning / anti-spam commands + pushes below are live in `lib/console/consol
 the `reqpubkey_sent` + `e2e_acked` events, and the D7 DM-`ctr` persistence; **added:** anti-spam v2 (the
 `limits` query + send-outcome feedback) and the `layer`/`leaf` terminology (a **layer** is the full 1..255
 network id, **leaf** is its `& 0x0F` nibble). **The one item still open: `ready.bonds`** (deferred to the
-notification slice).
+notification slice). **★ ADDED 2026-07-09 — a *Mobile node + teams* section** (below, after leaf-config): the mobile console verbs (`cfg set mobile`, `mobile register/gateways/query/status`, `mobile_autoregister`) + team provisioning (`team new`/`team <id>`/`cfg set team_id`) are **LIVE**; the app-facing **JSON surface** (mobile state in `ready`, a `mobile_reg` push, `mobile status`/`gateways` as JSON) + the **team-channel `team_id` tag** are **PROPOSED** firmware asks; team routing/channel (6.2/6.3) + the hash-locate addressing spine are **in progress**.
 
 Framing matches the rest of the link: **app→node = line-ASCII commands, node→app = newline JSON.**
 
@@ -375,7 +375,49 @@ cfg set dm_min_ms <ms>           # own-DM burst floor (default 3000): anti-per-k
 - **★ App flash-wear note:** every `cfg set` persists to flash immediately (so a reboot keeps it). If a UI control is bound to one of these knobs, send `cfg set` on **release / commit, not during a live drag** — a slider firing per-frame would hammer flash. The firmware skips byte-identical rewrites (a wear backstop), but the app must not rely on that to spam writes.
 
 ### Deferred
-- **Mobile-node roaming** (auto `leave`+`join` between leaves, with hysteresis) — a later phase; the three verbs above are the primitives it builds on.
+- Static-node cross-leaf roaming (auto `leave`+`join` with hysteresis) — subsumed by the **mobile node** below (a mobile IS the roaming primitive; a static node stays put).
+
+## Mobile node + teams (mobile IMPLEMENTED + metal-verified; teams 6.1 LIVE, 6.2/6.3 IN PROGRESS — 2026-07-09)
+
+A **mobile** is a roaming endpoint: a **stable hash** but a **home-assigned local id**, reachable by any node via its hash — the firmware resolves the hash to the mobile's current **home** node, which does the last-mile. A **team** is a `team_id`-scoped overlay of mobiles on one layer, for **member-to-member routing** + **group chat**. The mobile spine (register → locate → last-mile) is metal-verified; team **provisioning** (6.1) is live; team **routing/channel** (6.2/6.3) is being implemented; the **hash-locate addressing spine** (the local id never leaves the mobile↔home link) is spec'd + landing (`docs/superpowers/specs/2026-07-09-mobile-hash-locate-via-home.md`).
+
+### App → node: mobile provisioning + control (console verbs LIVE; JSON writers PROPOSED)
+```
+cfg set mobile 1                      # make this node a mobile (persisted NV v6; REBOOT to start the FSM)
+cfg set mobile_autoregister <0|1>     # 1 (default)=node auto-registers/roams; 0=the APP drives it
+mobile register [freq=<MHz> sf=<5-12> bw=<kHz> | scan]   # (re-)register: current PHY / a given PHY / cycle learned nets
+mobile gateways                       # list learned gateways + neighbouring networks (cross-layer)
+mobile query <gw_id>                  # pull the layer directory from a gateway
+mobile status                         # this mobile's registration + current PHY + known networks
+```
+- **App-driven model (`mobile_autoregister=0`):** the node does nothing autonomously — the app orchestrates register/roam via these verbs. Default-ON keeps a hands-off node self-registering. `mobile`/`mobile_autoregister` are preserved across `join`/`create` (same as any role config).
+- ⚠ **Current output is HUMAN console text**, not JSON — the firmware ask below adds the app surface.
+
+### Node → app: mobile state (PROPOSED — the JSON surface)
+`ready` gains the role + registration; a live push tracks roaming:
+```json
+{"ev":"ready", … ,"mobile":true,"mobile_home":222,"mobile_local":17,"mobile_registered":true,"hosting":0,"team":305419896}
+{"ev":"mobile_reg","home":222,"local":17,"registered":true}   // PROPOSED push: on register / home-loss / re-home
+```
+- `mobile:true` ⇒ this node is a mobile (omit/false = static). `mobile_home` = current home id (0 = unregistered). `mobile_local` = the home-assigned local id. `mobile_registered` = has a live home. `hosting` = mobiles THIS node hosts (for a static host). `team` = the team_id (0/omit = none).
+- **`mobile status` as JSON (PROPOSED):** the full view — current PHY (freq/sf/bw/leaf), home, epoch, and the learned-networks directory (for a roam UI). `mobile gateways` likewise → a JSON list.
+
+### App → node: team provisioning (LIVE — 6.1)
+```
+team new              # MINT a fresh team_id = hash(key‖nonce) → this node is the team creator
+team <hex_id>         # JOIN an existing team by id
+team 0                # LEAVE
+cfg set team_id <hex> # same as `team <hex>` (granular setter; preserved across join/create like `mobile`)
+```
+- Persisted (NV v18). A team is `is_mobile`+`team_id` — a mobile joins a team on its layer. **State:** the `team` field in `ready` (above) + `status` shows `team=0x…`.
+
+### Team channel — group chat (6.3, IN PROGRESS)
+A team channel = a `team_id`-scoped channel: any member broadcasts, only same-team members receive; static nodes never see it. Rides the existing channel surface with a **team_id** tag:
+- **Send:** `send_channel <ch> "<text>"` on a team mobile broadcasts to the team (the firmware scopes it by `_cfg.team_id`).
+- **Receive (PROPOSED):** `channel_recv` / `inbox_channel` gain **`"team_id":305419896`** when the message is team-scoped (omit ⇒ a normal leaf channel — byte-identical). The app threads a team channel into its team view; DM/channel identity keys are unchanged.
+
+### Reaching a mobile — normal send-by-hash (NO app change)
+Messaging a mobile is a plain **send-by-hash** (`send <hash> "…"` / `-e` to encrypt) — the firmware resolves the hash to the mobile's home and last-mile-forwards. The mobile's local id never appears app-side. If the mobile is **unreachable** (its home reports it stale via the liveness check, or it has no home), the send surfaces `send_failed{reason:"no_route"}` — the app's existing back-off-and-retry. Encrypted DMs to a mobile use the same `peerkey`/`reqpubkey` key path (the home carries the mobile's pubkey, Option 1 — transparent to the app).
 
 ## ⚙️ Duty-cycle status — companion readout (IMPLEMENTED — `write_duty` + `duty_pct`/`duty_avail_ms` in `ready`; spec `docs/superpowers/specs/2026-06-21-duty-cycle-readout.md`)
 

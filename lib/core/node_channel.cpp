@@ -188,6 +188,13 @@ void Node::cancel_channel_pull(uint32_t id, [[maybe_unused]] uint8_t overheard_f
 void Node::ingest_channel_m(const m_out& m, uint8_t from) {
     if (_cfg.n_layers == 2) return;                            // Principle 11: a dual-layer gateway never ingests channel gossip
     if (m.leaf_id != _cfg.leaf_id) return;                     // defensive leaf gate (dispatch already gated; tests call directly)
+    if (m.team_id != 0) {                                      // §mobile 6.3: a TEAM-scoped M — only a member of THAT team ingests it. A static node / lone mobile / a DIFFERENT team drops it (never buffers, never re-floods -> team traffic stays off the static plane + out of other teams). A normal leaf M (team_id==0) falls through -> ingested by everyone incl. team members (planes = BOTH).
+        if (!_cfg.is_mobile || _cfg.team_id != m.team_id) {
+            const int fs = flood_state_find(m.channel_msg_id); // free any flood-state a DIFFERENT-team member alloc'd at the RTS, so it doesn't re-flood a foreign-team message
+            if (fs >= 0) flood_state_free(static_cast<uint8_t>(fs));
+            return;
+        }
+    }
     const uint32_t id     = m.channel_msg_id;
     const uint8_t  origin = static_cast<uint8_t>((id >> 24) & 0xff);    // the minter (dv:2912)
     if (!channel_origin_admit(origin, id)) {                   // over per-origin budget -> drop (not buffered/forwarded)
@@ -205,7 +212,8 @@ void Node::ingest_channel_m(const m_out& m, uint8_t from) {
     const int existing = channel_buffer_find(id);
     if (existing < 0) {                                        // NEW -> buffer it
         ChannelEntry e{};
-        e.id = id; e.channel_id = m.channel_id; e.flavor = m.flavor; e.origin = origin;
+        e.id = id; e.channel_id = m.channel_id; e.flavor = m.flavor; e.origin = origin;   // §6.3: e.flavor carries the team bit; e.team_id below scopes the buffered entry so a re-broadcast/pull re-stamps it
+        e.team_id = m.team_id;
         e.dirty = true; e.bcn_ad_count = 0; e.received_at = _hal.now();
         seen_set(e.seen_by, from);                            // the immediate sender holds it
         e.payload_len = static_cast<uint16_t>(m.body.size() > protocol::channel_msg_max_payload_bytes
@@ -305,6 +313,9 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
     const uint32_t id = channel_msg_id_mint(_node_id, _key_hash32, static_cast<uint8_t>(c & 0xff));
     ChannelEntry e{};
     e.id = id; e.channel_id = channel_id; e.flavor = protocol::channel_flavor_public; e.origin = _node_id;
+    if (_cfg.is_mobile && _cfg.team_id != 0) {                    // §mobile 6.3: a team member's channel post IS the team broadcast — scope it to the team + set the team flavor bit (the M-frame carries team_id; the RTS-M gets mobile_src). A static/lone node: team_id 0, flavor unchanged -> byte-identical.
+        e.team_id = _cfg.team_id; e.flavor |= protocol::channel_flavor_team;
+    }
     e.dirty = true; e.bcn_ad_count = 0; e.received_at = now;
     e.payload_len = (body_len > protocol::channel_msg_max_payload_bytes)
                     ? protocol::channel_msg_max_payload_bytes : body_len;
@@ -567,6 +578,7 @@ void Node::enqueue_channel_m(uint8_t target, const ChannelEntry& e) {
     if (_active->_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (the puller can re-pull)
     TxItem item{};
     stamp_origin(item); item.dst = target; item.is_channel_m = true;
+    item.mobile_src = (e.flavor & protocol::channel_flavor_team) != 0;   // §mobile 6.3: a TEAM pull-response is team traffic -> mobile_src (static overhearers skip)
     item.ctr    = static_cast<uint16_t>(e.id & 0xff); item.ctr_lo = static_cast<uint8_t>(e.id & 0x0F);  // id-derived (M frame has no ctr)
     item.inner[0] = static_cast<uint8_t>(e.id >> 24); item.inner[1] = static_cast<uint8_t>(e.id >> 16);
     item.inner[2] = static_cast<uint8_t>(e.id >> 8);  item.inner[3] = static_cast<uint8_t>(e.id);
@@ -706,6 +718,7 @@ void Node::enqueue_flood_m(uint8_t channel_id, uint8_t flavor, uint32_t id, cons
     stamp_origin(item); item.dst = 0xFF;                      // broadcast; the RTS dst slot carries hop_left
     item.ctr = static_cast<uint16_t>(id & 0xff); item.ctr_lo = static_cast<uint8_t>(id & 0x0F);
     item.is_channel_m = true;
+    item.mobile_src = (flavor & protocol::channel_flavor_team) != 0;   // §mobile 6.3: mark a TEAM channel flood -> a static overhearer skips it (no re-flood, keeps team traffic off the static plane). Non-team flood -> 0, byte-identical.
     item.flood = true; item.hop_left = hop_left;
     for (uint8_t i = 0; i < 32; ++i) item.flood_bitmap[i] = bitmap32[i];
     item.inner[0] = static_cast<uint8_t>(id >> 24); item.inner[1] = static_cast<uint8_t>(id >> 16);

@@ -39,7 +39,7 @@
 		69E57ACBFD76D391F3B1D0A0 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		76FE05DE01E564E0101E2F60 /* BLENodeLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLENodeLink.swift; sourceTree = "<group>"; };
 		B5C578558F1BC38A4B6A34A4 /* ThreadsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadsListView.swift; sourceTree = "<group>"; };
-		B8225CE27BA54D448E76BED2 /* MeshRouteCompanion.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MeshRouteCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B8225CE27BA54D448E76BED2 /* MeshRouteCompanion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MeshRouteCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CE9556D47DD04EC1DB189B90 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D4B3F52A980322A539C9B67E /* MeshRouteKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MeshRouteKit; path = ../MeshRouteKit; sourceTree = SOURCE_ROOT; };
 		D54D0288A1A610CC38F2276D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -177,7 +177,6 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					1EC0E0A42B8AB3C80FA66DEB = {
-						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -248,7 +247,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = AD2S36C934;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/App/Info.plist;
@@ -272,7 +271,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = AD2S36C934;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/App/Info.plist;

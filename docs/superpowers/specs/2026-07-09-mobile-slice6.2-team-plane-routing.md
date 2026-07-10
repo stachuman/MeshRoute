@@ -2,7 +2,9 @@
 
 # Mobile v1 — Slice 6.2: team-plane DV routing + beacon team-TLV — DIRECTLY IMPLEMENTABLE
 
-**Status:** coder instruction (2026-07-09). **The team becomes a network.** 6.1 gave `team_id` config/NV (inert); 6.2 gives it *routing behaviour*: team members find and route to each other on their own DV plane, with member-to-member locate resolving directly (not via a static home). The user commits; I quality-gate. **DEPENDS ON** the hash-locate spec (`2026-07-09-mobile-hash-locate-via-home.md`) — 6.2 refines its Fix 3 and turns on its `team_scoped` hook (both noted below). A team = `is_mobile`+`team_id` on one leaf; `team_id==0` is a lone mobile / any static node = today, byte-identical.
+**Status:** coder instruction (2026-07-09; **REVISED 2026-07-10 → SEPARATE `_rt_team` TABLE**). **The team becomes a network.** 6.1 gave `team_id` config/NV (inert); 6.2 gives it *routing behaviour*: team members find and route to each other on their own DV plane, with member-to-member locate resolving directly (not via a static home). The user commits; I quality-gate. **DEPENDS ON** the hash-locate spec (`2026-07-09-mobile-hash-locate-via-home.md`) — 6.2 refines its Fix 3 and turns on its `team_scoped` hook (both noted below). A team = `is_mobile`+`team_id` on one leaf; `team_id==0` is a lone mobile / any static node = today, byte-identical.
+
+**★ ARCHITECTURE (user-decided 2026-07-10): a SEPARATE `_rt_team` routing table, NOT a shared `_rt`+bitset.** A team-plane id (a teammate's home-assigned LOCAL id) can COLLIDE with a static global id (§18 three namespaces) — sharing one `_rt` keyed by `dest` would clash. So the team plane gets its OWN `RtEntry _rt_team[]` table; the static `_rt` is untouched. Implementation: **REUSE the DV core via a `(RtEntry* tbl, uint8_t& cnt)` parameter defaulting to `_rt`/`_rt_count`** (`rt_find`/`rt_merge`/`rt_insert`/`rt_remove`/`rt_prune_cycle` gain the overload; the existing 1-arg signatures delegate → the static path is byte-identical). The transit-relax (old Fix 4) is GONE: team transit lives in `_rt_team` (which never applies the `route_uses_mobile_as_transit` block); the SEND path DISPATCHES `rt_find` by `is_team_peer(final_dst)` → `_rt_team` for a teammate, `_rt` for the home/static.
 
 ## Principle
 Two mobile regimes on the same PHY:
@@ -54,6 +56,21 @@ The hash-locate spec defined `h_in.team_scoped`/`team_id` (inert). 6.2 sets them
 if (_cfg.is_mobile && _cfg.team_id != 0) { in.team_scoped = true; in.team_id = _cfg.team_id; }
 ```
 A same-team target then answers directly (its local id, for the team plane, per the hash-locate Fix 1); a different-team or static target falls through to the home/normal answer (harmless — team_id mismatch). No roster needed: the answer side self-selects on `team_id` match.
+
+## AS-BUILT (2026-07-10 — SEPARATE `_rt_team`, supersedes the shared-`_rt` Fix 2/3/4 above)
+The routing plane is a SEPARATE `_rt_team` table (not the shared `_rt`+`_team_peer` the Fix text sketched), because a teammate's local id can collide a static global id (§18). Implementation:
+- **DV core parameterized** (`node_routing.cpp`): `rt_find`/`rt_insert`/`rt_merge`/`rt_remove`/`rt_prune_cycle` gained a `(RtEntry* rt, uint8_t& rt_count)` overload; the 1-arg forms are wrappers over `_active->_rt`/`_rt_count` (static path byte-identical). `rt_merge(...,team_plane)` skips the mobile-transit block for the team plane.
+- **★ the 1-arg `rt_find(dest)` wrapper DISPATCHES:** `is_team_peer(dest) ? _rt_team : _rt`. This makes EVERY send-path lookup plane-aware with one change; `is_team_peer` is false for any static/non-team node (a `_team_peer` bit is set only when `_cfg.team_id != 0`) → byte-identical. `rt_merge`/`rt_prune_cycle`/beacon-emit use the EXPLICIT-table overloads so ingest/emit don't route through the dispatch.
+- **Data** (`node.h`): `RtEntry _rt_team[cap_routes]` + `_rt_team_count` + `_team_peer[32]` + `is_team_peer`.
+- **Emit** (`node_beacon.cpp`): a team mobile advertises FROM `_rt_team` via a `src_rt`/`src_cnt` local (team → `_rt_team`, else `_rt`) across the route-pack loop + census-skip + pack + dirty-clear; the entry gate `!_cfg.is_mobile` → `!_cfg.is_mobile || team_emit`. + the type-5 team-TLV.
+- **Ingest** (`node_beacon.cpp`): `same_team_beacon` → `_team_peer` set + `learn_direct_neighbor(...,team_plane=true)` + the carried-DV-merge into `_rt_team` (`merge_rt`/`merge_cnt`); else the hash-locate Fix 3 (`!b.is_mobile` → `_rt`).
+- **Transit (old Fix 4) — RESTORED after the adversarial verify.** I first dropped it thinking the separate table made it moot, but `route_uses_mobile_as_transit` gates BOTH merge AND send-time selection (`next_hop_selectable`), and a teammate is also a `mobile_peer`, so the select gate rejected a teammate transit → multi-hop A→B→C was defeated. FIX: `route_uses_mobile_as_transit` gains `&& !is_team_peer(next_hop)` (byte-identical for static; `is_team_peer` is team-only).
+- **Multi-hop dispatch:** `_team_peer[dest]` is set for ANY team-reachable dest (direct OR a carried multi-hop route, gated on `rt_find(dest,_rt_team)!=null`), so `rt_find` dispatches a multi-hop teammate to `_rt_team` too (not just direct neighbours).
+- **Team-plane AGING — IMPLEMENTED** (adversarial-verify follow-up): `age_out_stale_routes` is parameterized + ages `_rt_team` on the same `kAgingTimerId`; a full eviction CLEARS the `_team_peer` bit (maintains the `_team_peer ⟺ _rt_team-route` invariant → a roamed-away teammate stops shadowing the static plane; no table exhaustion).
+- **Reprovision:** `clear_routing_state` now wipes `_rt_team_count` + scrubs `_team_peer` (join/create/leave + prep-restart) — a stale team plane no longer shadows a fresh config.
+
+## Adversarial-verify findings (2026-07-10) — all FIXED
+A 4-dim workflow (static-safety + refactor-correctness found ZERO issues) confirmed 5 findings, all now fixed: **🟠 HIGH** multi-hop team transit blocked at select-time (the `!is_team_peer` carve-out, above) + the multi-hop dispatch bit; **🟡 MEDIUM** reprovision didn't wipe the team plane; **🟡 MEDIUM×2 / LOW** `_rt_team` never aged + `_team_peer` set-only (the aging + clear-on-eviction, above). Gate: native **665** (+3 tests incl. multi-hop transit + §18 collision), s18/s09/s15 byte-identical, s07/s21 0-fail, 4 boards.
 
 ## Tests
 - **Team-TLV round-trip:** `pack/parse_team_id_tlv`; a team mobile's beacon carries type-5, a lone mobile's / static's does NOT.

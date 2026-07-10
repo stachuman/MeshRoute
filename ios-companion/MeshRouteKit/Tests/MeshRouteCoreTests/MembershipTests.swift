@@ -28,7 +28,7 @@ final class MembershipTests: XCTestCase {
     }
 
     func testMemberFallsBackToLevelWhenLeafless() {
-        let m = LeafMembership.adopted(lineage: 41153, epoch: 3, leaf: nil, level: 5)
-        XCTAssertEqual(m.label, "Member of leaf 5")
+        let m = LeafMembership.adopted(lineage: 41153, epoch: 3, leaf: nil, layer: 5)
+        XCTAssertEqual(m.label, "Member of layer 5")
     }
 }

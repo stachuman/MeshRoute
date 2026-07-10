@@ -453,6 +453,7 @@ void Node::tx_m_broadcast_rts() {
     rts_in rin{};
     rin.leaf_id = _cfg.leaf_id; rin.src = _node_id; rin.ctr_lo = pt.ctr_lo;
     rin.sf_index = max_data_sf_index();
+    rin.mobile_src = pt.mobile_src;   // §mobile 6.3: carry the TEAM-channel mark onto the M_BROADCAST/FLOOD RTS-M so a static overhearer skips it (0 on a normal channel -> byte-identical)
     // payload_len announces the BODY length of the lean M frame to follow (pt.inner = [id 4][ch 1][fl 1][body]).
     // The overhearer sizes its retune window as airtime(payload_len + M_FRAME_HDR_LEN) = the full 7+body M frame.
     rin.payload_len = static_cast<uint8_t>(pt.inner_len - 6);
@@ -525,6 +526,7 @@ void Node::issue_send(const TxItem& item) {
     }
 
     const uint8_t first = (pt.addr_len == 1) ? pt.dst     // §mobile 3a Fix 4: a mobile-next (local-id) is a DIRECT 1-hop send to the registrar — NEVER rt_find'd (a local-id can collide a global id). addr_len==0 for every normal TxItem.
+                        : is_team_peer(pt.dst) ? pick_next_cascade_hop(pt)   // §6.4: a TEAM-plane dst routes via _rt_team (rt_find dispatches on is_team_peer). A dual (registered) member must NOT push it through the static home_id.
                         : (_cfg.is_mobile && _my_mobile_reg.active) ? _my_mobile_reg.home_id   // §mobile 3b: a REGISTERED MOBILE is a leaf -> reach the mesh through its 1-hop home_node (no global route table). Inert for a static/unregistered node.
                         : pick_next_cascade_hop(pt);     // first SELECTABLE candidate (skips previous_hop)
     if (first == 0) {
@@ -594,7 +596,10 @@ void Node::tx_rts_retry() {
     // DM RTS; the M-broadcast RTS is tx_m_broadcast_rts. Slice 4c.2: a gateway's cross-layer re-inject sets RTS_FLAG_RELAY
     // so the receiver exempts it from the originator anti-spam (node_mac_rx :40/:199) — G is relaying, not a 1st-hop origination.
     rin.dst = pt.dst; rin.sf_index = 3 /*ANY*/; rin.rts_flags = pt.is_gw_relay ? RTS_FLAG_RELAY : 0;
-    rin.addr_len = pt.addr_len; rin.mobile_src = pt.mobile_src;   // §mobile 3a: 1 on a host's last-mile forward to a mobile; mobile_src set only by a mobile's own outbound (3b). Both 0 on a normal TxItem -> identical wire.
+    // §mobile 3a: addr_len=1 on a host's last-mile forward to a mobile; §6.4: also when the NEXT hop is a team peer, so the
+    // receiver's mark-accept treats `next` as a team-plane local-id (its team_local_id==node_id off-grid). mobile_src set only
+    // by a mobile's own outbound (3b). All 0 on a normal TxItem -> identical wire.
+    rin.addr_len = (pt.addr_len == 0 && is_team_peer(pt.next)) ? 1 : pt.addr_len; rin.mobile_src = pt.mobile_src;
     // e2e-ack backstop exemption (2026-07-02): mark the RTS so the 1st-hop backstop skips its DROP for this ack (an ack
     // must never be throttled — a throttled ack -> re-send -> more traffic). Verified at DATA-time (anti-spoof). Duty still binds.
     if (pt.type == DATA_TYPE_E2E_ACK) rin.rts_flags |= RTS_FLAG_E2E_ACK;
@@ -978,6 +983,7 @@ void Node::do_data_tx() {
         m_in min{};
         min.leaf_id = _cfg.leaf_id; min.channel_id = pt.inner[4]; min.flavor = pt.inner[5];
         min.channel_msg_id = id;
+        if (min.flavor & protocol::channel_flavor_team) min.team_id = _cfg.team_id;   // §mobile 6.3: a team frame carries team_id (pack_m appends it). We only EMIT our own team's messages (originated, or relayed after the ingest team-match), so _cfg.team_id is always the right one.
         min.body = std::span<const uint8_t>(pt.inner + 6, static_cast<size_t>(pt.inner_len - 6));
         uint8_t mbuf[protocol::lora_max_frame_bytes];
         const size_t mlen = pack_m(min, std::span<uint8_t>(mbuf, sizeof(mbuf)));
@@ -1013,7 +1019,9 @@ void Node::do_data_tx() {
     }
     const uint8_t mac[4] = { 0, 0, 0, 0 };
     data_in din{};
-    din.addr_len = pt.addr_len; din.flags = pt.flags; din.type = pt.type; din.next = pt.next; din.dst = pt.dst;   // §mobile 3b: the last-mile DATA carries the mobile mark (addr_len=1) so the mobile accepts it + a colliding static rejects it; 0 on every normal flight -> identical wire
+    // §mobile 3b: the last-mile DATA carries the mobile mark (addr_len=1) so the mobile accepts it + a colliding static rejects
+    // it; §6.4: also when `next` is a team peer (team-plane local-id). 0 on every normal flight -> identical wire.
+    din.addr_len = (pt.addr_len == 0 && is_team_peer(pt.next)) ? 1 : pt.addr_len; din.flags = pt.flags; din.type = pt.type; din.next = pt.next; din.dst = pt.dst;
     din.hops_remaining = hb_remaining; din.committed_hops = hb_committed;
     din.prev_fwd_rt_hops = hb_prev_fwd; din.ctr = pt.ctr;
     din.inner = std::span<const uint8_t>(pt.inner, pt.inner_len);

@@ -13,23 +13,32 @@ namespace MESHROUTE_NS {
 // ---- route table ------------------------------------------------------------
 
 RtEntry* Node::rt_find(uint8_t dest) {
-    for (uint8_t i = 0; i < _active->_rt_count; ++i) {
-        if (_active->_rt[i].dest == dest) return &_active->_rt[i];
-        if (_active->_rt[i].dest > dest)  return nullptr;          // sorted ascending
+    // §mobile 6.2: a KNOWN same-team peer's route lives in the TEAM plane (_rt_team), NOT _rt (§18: its local id can
+    // collide a static global id). Dispatch every route lookup by plane. is_team_peer is ALWAYS false for a static node
+    // / non-team member (a team_peer bit is set only when _cfg.team_id != 0) -> byte-identical. rt_merge/rt_prune_cycle
+    // use the EXPLICIT-table overloads (not this wrapper), so ingest/emit are unaffected.
+    if (is_team_peer(dest)) return rt_find(dest, _active->_rt_team, _active->_rt_team_count);
+    return rt_find(dest, _active->_rt, _active->_rt_count);
+}
+RtEntry* Node::rt_find(uint8_t dest, RtEntry* rt, uint8_t rt_count) {
+    for (uint8_t i = 0; i < rt_count; ++i) {
+        if (rt[i].dest == dest) return &rt[i];
+        if (rt[i].dest > dest)  return nullptr;          // sorted ascending
     }
     return nullptr;
 }
 
-RtEntry* Node::rt_insert(uint8_t dest) {
+RtEntry* Node::rt_insert(uint8_t dest) { return rt_insert(dest, _active->_rt, _active->_rt_count); }
+RtEntry* Node::rt_insert(uint8_t dest, RtEntry* rt, uint8_t& rt_count) {
     if (dest == 0 || dest == 0xFF) return nullptr;        // §P0: never store a route to the reserved sentinel ids (defense-in-depth)
-    if (_active->_rt_count >= protocol::cap_routes) return nullptr;
+    if (rt_count >= protocol::cap_routes) return nullptr;
     uint8_t pos = 0;
-    while (pos < _active->_rt_count && _active->_rt[pos].dest < dest) ++pos;
-    for (uint8_t i = _active->_rt_count; i > pos; --i) _active->_rt[i] = _active->_rt[i - 1];   // shift right
-    _active->_rt[pos]      = RtEntry{};
-    _active->_rt[pos].dest = dest;
-    _active->_rt_count++;
-    return &_active->_rt[pos];
+    while (pos < rt_count && rt[pos].dest < dest) ++pos;
+    for (uint8_t i = rt_count; i > pos; --i) rt[i] = rt[i - 1];   // shift right
+    rt[pos]      = RtEntry{};
+    rt[pos].dest = dest;
+    rt_count++;
+    return &rt[pos];
 }
 
 // R4.2 tier penalty table [tier][viable_alts], Q4 dB (Lua dv:3843-3848). tier 0 = no penalty.
@@ -313,20 +322,22 @@ bool Node::candidate_degraded(const RtCandidate& c) const {
         || _active->_link_bidi[c.next_hop] == static_cast<uint8_t>(LinkBidi::one_way);
 }
 
-Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand) {
+Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand) { return rt_merge(dest, cand, _active->_rt, _active->_rt_count, /*team_plane=*/false); }
+Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand, RtEntry* rt, uint8_t& rt_count, bool team_plane) {
     // ① never STORE a route that relays THROUGH a mobile peer (it roams away) — but deliver TO a mobile is fine
     // (the next_hop==dest carve-out inside the predicate). Hard skip, NOT a score penalty (Lua dv:4583).
-    if (route_uses_mobile_as_transit(dest, cand.next_hop)) {
+    // §6.2: SKIP on the team plane — a same-team peer IS a legal transit in its own table (the whole point).
+    if (!team_plane && route_uses_mobile_as_transit(dest, cand.next_hop)) {
         MR_TELEMETRY(
             EventField f[] = { { .key = "dest", .type = EventField::T::i64, .i = dest },
                                { .key = "next", .type = EventField::T::i64, .i = cand.next_hop } };
             _hal.emit("rt_skip_mobile_transit", f, 2); );
         return MergeAction::none;
     }
-    RtEntry* entry = rt_find(dest);
+    RtEntry* entry = rt_find(dest, rt, rt_count);
     const bool gw_dest = is_gateway_dest(dest);          // §cross-layer: a gateway-dest route is freshness-exempt
     if (entry == nullptr) {
-        entry = rt_insert(dest);
+        entry = rt_insert(dest, rt, rt_count);
         if (entry == nullptr) { _hal.log("rt full, route dropped"); return MergeAction::none; }
         entry->candidates[0] = cand;
         entry->n     = 1;
@@ -385,11 +396,12 @@ void Node::maybe_emit_rt_full() {
 
 // ---- R2 route-plane hardening -----------------------------------------------
 
-void Node::rt_remove(uint8_t idx) {
-    if (idx >= _active->_rt_count) return;
-    for (uint8_t k = idx; k + 1 < _active->_rt_count; ++k) _active->_rt[k] = _active->_rt[k + 1];   // shift down (reverse of rt_insert)
-    --_active->_rt_count;
-    _active->_rt[_active->_rt_count] = RtEntry{};                                          // scrub vacated slot
+void Node::rt_remove(uint8_t idx) { rt_remove(idx, _active->_rt, _active->_rt_count); }
+void Node::rt_remove(uint8_t idx, RtEntry* rt, uint8_t& rt_count) {
+    if (idx >= rt_count) return;
+    for (uint8_t k = idx; k + 1 < rt_count; ++k) rt[k] = rt[k + 1];   // shift down (reverse of rt_insert)
+    --rt_count;
+    rt[rt_count] = RtEntry{};                                          // scrub vacated slot
 }
 
 uint32_t Node::ttl_for_hops(uint8_t hops) const {
@@ -397,6 +409,13 @@ uint32_t Node::ttl_for_hops(uint8_t hops) const {
 }
 
 void Node::age_out_stale_routes() {
+    age_out_stale_routes(_active->_rt, _active->_rt_count, /*team_plane=*/false);   // static plane (byte-identical to the old body)
+    // §mobile 6.2: age the TEAM plane too — else a roamed-away teammate's route lingers forever (rt_find dispatches on
+    // is_team_peer with NO _rt fallback, so a stale team route black-holes that id + eventually exhausts _rt_team). A full
+    // eviction clears the _team_peer bit so the dispatch stops shadowing the static plane. A static node has _rt_team empty -> no-op.
+    if (_active->_rt_team_count) age_out_stale_routes(_active->_rt_team, _active->_rt_team_count, /*team_plane=*/true);
+}
+void Node::age_out_stale_routes(RtEntry* rt, uint8_t& rt_count, bool team_plane) {
     // Walk rt[], evict each candidate past its hop-class TTL, drop empty entries,
     // dirty on primary eviction, one triggered re-beacon if any evicted
     // (dv_dual_sf.lua:5249-5302). ttl<=0 disables aging for that class.
@@ -404,8 +423,8 @@ void Node::age_out_stale_routes() {
     const uint64_t now = _hal.now();
     bool any_evicted = false;
     uint8_t i = 0;
-    while (i < _active->_rt_count) {
-        RtEntry& e = _active->_rt[i];
+    while (i < rt_count) {
+        RtEntry& e = rt[i];
         uint8_t w = 0;                    // compact survivors forward (preserves sort)
         bool primary_evicted = false;
         for (uint8_t r = 0; r < e.n; ++r) {
@@ -431,7 +450,8 @@ void Node::age_out_stale_routes() {
         }
         e.n = w;
         if (e.n == 0) {
-            rt_remove(i);                 // do NOT advance i (entries shifted down)
+            if (team_plane) _active->_team_peer[e.dest >> 3] &= static_cast<uint8_t>(~(1u << (e.dest & 7)));   // §6.2: no team route to e.dest left -> clear the dispatch bit (rt_find falls back to the static _rt; keeps the _team_peer <-> _rt_team invariant)
+            rt_remove(i, rt, rt_count);   // do NOT advance i (entries shifted down)
         } else {
             if (primary_evicted) e.dirty = true;
             ++i;
@@ -440,13 +460,14 @@ void Node::age_out_stale_routes() {
     if (any_evicted) schedule_triggered_beacon();
 }
 
-void Node::rt_prune_cycle(uint8_t dest, uint8_t sender) {
+void Node::rt_prune_cycle(uint8_t dest, uint8_t sender) { rt_prune_cycle(dest, sender, _active->_rt, _active->_rt_count); }
+void Node::rt_prune_cycle(uint8_t dest, uint8_t sender, RtEntry* rt, uint8_t& rt_count) {
     // A beacon from `sender` reaching `dest` via US closes a me->X->sender->me
     // loop for any of our candidates for `dest` whose advertised next-hop
     // (n2_hop) is `sender`. Drop them (dv_dual_sf.lua:5193-5227). Direct
     // candidates (hops==1, n2_hop==0) carry no n2_hop, so the hops>1 guard skips
     // them even when sender==0.
-    RtEntry* e = rt_find(dest);
+    RtEntry* e = rt_find(dest, rt, rt_count);
     if (e == nullptr) return;
     uint8_t w = 0;
     bool primary_pruned = false, mutated = false;
@@ -470,8 +491,8 @@ void Node::rt_prune_cycle(uint8_t dest, uint8_t sender) {
     if (!mutated) return;
     e->n = w;
     if (e->n == 0) {
-        for (uint8_t i = 0; i < _active->_rt_count; ++i)            // e dangles after rt_remove — find idx first
-            if (_active->_rt[i].dest == dest) { rt_remove(i); break; }
+        for (uint8_t i = 0; i < rt_count; ++i)            // e dangles after rt_remove — find idx first
+            if (rt[i].dest == dest) { rt_remove(i, rt, rt_count); break; }
     } else if (primary_pruned) {
         e->dirty = true;
     }
@@ -612,10 +633,17 @@ bool Node::is_next_hop_fresh(uint8_t node_id) const {
 bool Node::is_mobile_peer(uint8_t id) const {
     return (_active->_mobile_peer[id >> 3] >> (id & 7)) & 1u;
 }
+bool Node::is_team_peer(uint8_t id) const {   // §mobile 6.2: a known same-team peer -> route via _rt_team
+    return (_active->_team_peer[id >> 3] >> (id & 7)) & 1u;
+}
 // True iff routing to `dest` via `next_hop` would relay THROUGH a mobile peer. The next_hop != dest carve-out is the
 // whole point: deliver TO a mobile (it's the dest) is fine; relaying THROUGH one (it'll roam away) is not. (dv:1329-1334)
 bool Node::route_uses_mobile_as_transit(uint8_t dest, uint8_t next_hop) const {
-    return next_hop != 0 && dest != 0 && next_hop != dest && is_mobile_peer(next_hop);
+    // §mobile 6.2: a SAME-TEAM peer IS a legal transit — the whole point of the team plane is A->B->C through teammates.
+    // This predicate gates BOTH merge (rt_merge) AND send-time selection (next_hop_selectable); without the carve-out the
+    // select gate rejects a teammate transit even though the route lives in _rt_team. is_team_peer is false for any static
+    // node / non-team member (a team_peer bit is set only when _cfg.team_id != 0), so the static plane is byte-identical.
+    return next_hop != 0 && dest != 0 && next_hop != dest && is_mobile_peer(next_hop) && !is_team_peer(next_hop);
 }
 
 }  // namespace meshroute

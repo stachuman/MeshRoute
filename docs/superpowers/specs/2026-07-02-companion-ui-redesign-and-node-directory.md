@@ -149,6 +149,9 @@ Proposed shape (to finalize with the node agent): a `nodes` command → a stream
 
 ## 9. Non-goals (this spec)
 
-- Gateway dual-layer UI (R7), mobile-node roaming (R8) — separate, firmware-gated.
+- Gateway dual-layer UI (R7) — firmware-gated.
+- **Mobile nodes + teams (D29)** — a future theme once the JSON surface lands: the directory already models **role=mobile** (§3.1), **team channels** (`team_id`-tagged) thread into a team view on the Messages side, and a mobile roam/register UI is separate. Messaging a mobile is plain `send <hash>` (no app change).
+- **Anti-spam send-pacing (D29)** — a messaging-reliability slice (decode `send_blocked`/`channel_sent`/`limits`, back off, "retry in N s") tracked in the roadmap, not part of this UI redesign.
+- *Terminology note (D29, done):* this spec's `level` reads as **`layer`** everywhere now (the 1..255 net id; a *leaf* = its `& 0x0F` nibble); the `join`/`create` verbs are `key=value` with fractional `bw`/`duty`.
 - OTA / remote-admin *write* path — the node detail exposes `rcmd` *read* diagnostics; the signed `TYPE=ADMIN` write path is its own spec (roadmap §7.1) with the authorization-model decision.
 - Message-depth features (search/reply/drafts/reactions) — app-only quick wins, tracked in roadmap §7.3; can slot into Messages independently.

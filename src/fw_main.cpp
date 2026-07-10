@@ -147,6 +147,7 @@ static uint32_t g_ble_pin = 123456;        // 6-digit pairing passkey
 static int32_t  g_lat_e7 = 0;
 static int32_t  g_lon_e7 = 0;
 static uint8_t  g_persist_id = 0, g_persist_epoch = 0, g_persist_join = 0;   // last DAD lease state written to NV (change-detect)
+static uint8_t  g_persist_team_local_id = 0;   // §mobile 6.4: last team-DAD id written to NV (change-detect -> persist across a power-cycle)
 // InternalFS self-heal Part 3 (2026-06-24): the channel-ctr is no longer written every send — instead /mrcfg holds a
 // LEASE (the live ctr + margin). g_ctr_lease = that persisted leased value; a write fires only when the live ctr
 // catches it (every ~margin sends), and a reboot resumes FROM the lease (≥ any id used pre-crash -> no v15 id-reuse).
@@ -228,6 +229,26 @@ static void dump_routes() {
         }
     }
     mrcon.println(F("[routes] end"));
+    // §mobile 6.2: the TEAM-plane routing table (_rt_team) — populated only on a team member (is_mobile + team_id).
+    // Same RtEntry fields as the static plane; team routes are never gateways (no gw schedule). Header carries the
+    // team_id that scopes the plane. Empty on a static / lone-mobile node (nothing printed -> `routes` unchanged there).
+    if (g_node.rt_team_count() > 0) {
+        char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)g_node.config().team_id);
+        mrcon.print(F("[team-routes] team_id=0x")); mrcon.print(tx);
+        mrcon.print(F(" n=")); mrcon.println(g_node.rt_team_count());
+        for (uint8_t i = 0; i < g_node.rt_team_count(); ++i) {
+            const meshroute::RtEntry& e = g_node.rt_team_at(i);
+            const meshroute::RtCandidate& c = e.candidates[0];       // candidates[0] = the primary next-hop
+            mrcon.print(F("[team-route] dest="));   mrcon.print(e.dest);
+            mrcon.print(F(" next="));                mrcon.print(c.next_hop);
+            mrcon.print(F(" hops="));                mrcon.print(c.hops);
+            mrcon.print(F(" score="));               mrcon.print(c.score);
+            mrcon.print(F(" leaf="));                mrcon.print(c.learned_leaf);
+            mrcon.print(F(" age_ms="));              mrcon.print((uint32_t)(now - c.last_seen_ms));
+            mrcon.print(F(" cand="));                mrcon.println(e.n);
+        }
+        mrcon.println(F("[team-routes] end"));
+    }
 }
 
 // allowed_sf_bitmap -> "7,12" CSV (SF index = bit position). 0 = unconfigured.
@@ -266,7 +287,18 @@ static void dump_cfg() {
     mrcon.print(F(" gateway="));          mrcon.print(c.is_gateway ? 1 : 0);
     mrcon.print(F(" gateway_only="));     mrcon.print(c.gateway_only ? 1 : 0);
     mrcon.print(F(" mobile="));           mrcon.println(c.is_mobile ? 1 : 0);
-    if (c.team_id) { char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)c.team_id); mrcon.print(F(" team=0x")); mrcon.println(tx); }   // §mobile 6.1
+    if (c.team_id) {   // §mobile 6.1/6.4: team plane — the team scope + OUR id on it. team_local_id 0 = not team-DAD'd yet
+        char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)c.team_id);
+        const uint8_t tid = g_node.team_local_id();
+        mrcon.print(F(" team=0x")); mrcon.print(tx);
+        mrcon.print(F(" team_local_id=")); mrcon.print(tid);
+        // §6.4 Option X: off-grid the team-DAD'd id IS node_id (the mobile link-layer carries team DMs). Flag the plane state
+        // so a bench operator can tell an off-grid member (node_id==team id) from a dual one (static node_id + separate team id).
+        if (tid == 0)                       mrcon.print(F(" (team-DAD pending)"));
+        else if (g_node.node_id() == tid)   mrcon.print(F(" (off-grid: node_id==team id)"));
+        else                                mrcon.print(F(" (dual: static node_id + team id)"));
+        mrcon.println();
+    }
     if (c.is_mobile) {                                                        // §mobile: registration state (bench diagnostic) — did we register, and with whom?
         const uint8_t h = g_node.mobile_home_id();
         mrcon.print(F("  mobile-reg: ")); if (h) { mrcon.print(F("REGISTERED home=")); mrcon.println(h); } else mrcon.println(F("UNREGISTERED (scanning)"));
@@ -487,7 +519,7 @@ static void handle_cfg_set(const char* args) {
         b.routing_sf = nc.routing_sf;   b.cr = nc.radio_cr;
         b.lbt = nc.lbt_enabled ? 1 : 0; b.node_id = g_node.canonical_node_id();   b.tx_power = g_tx_power;
         b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;   // v6 role/topology
-        b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;  b.team_id = nc.team_id; b.mobile_autoregister = nc.mobile_autoregister ? 1 : 0;   // §mobile: preserve team + autoreg across create/join
+        b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;  b.team_id = nc.team_id; b.mobile_autoregister = nc.mobile_autoregister ? 1 : 0; b.team_local_id = g_node.team_local_id();   // §mobile: preserve team + autoreg + team-DAD id across create/join
         b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;        // v7 BLE policy (live globals)
         b.ble_pin    = g_ble_pin;
         b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;                  // v9 location toggle (seed from the live config)
@@ -942,7 +974,7 @@ static void seed_blob_from_live(mrnv::Blob& b) {
     b.routing_sf = nc.routing_sf;   b.cr = nc.radio_cr;
     b.lbt = nc.lbt_enabled ? 1 : 0; b.node_id = g_node.canonical_node_id();   b.tx_power = g_tx_power;
     b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;
-    b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;  b.team_id = nc.team_id; b.mobile_autoregister = nc.mobile_autoregister ? 1 : 0;   // §mobile: preserve team + autoreg across create/join
+    b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;  b.team_id = nc.team_id; b.mobile_autoregister = nc.mobile_autoregister ? 1 : 0; b.team_local_id = g_node.team_local_id();   // §mobile: preserve team + autoreg + team-DAD id across create/join
     b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;  b.ble_pin = g_ble_pin;
     b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;  b.e2e_dm     = nc.e2e_dm ? 1 : 0;
     b.gw_announce_duty_pct = nc.gw_announce_duty_pct; b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
@@ -1088,20 +1120,48 @@ static uint32_t team_fnv1a32(uint32_t a, uint32_t b) {
 // `team new` = MINT a fresh team_id = hash(our key ‖ HW-RNG nonce). `team <id>` = JOIN an existing team. `team 0` = leave.
 static void handle_team(const char* args) {
     while (*args == ' ') ++args;
+    const meshroute::NodeConfig& c = g_node.config();
     uint32_t t;
+    const char* phy_args = nullptr;
     if (!strncmp(args, "new", 3)) {
         uint32_t nonce = 0; g_hal.rand_bytes(reinterpret_cast<uint8_t*>(&nonce), 4);
         t = team_fnv1a32(g_node.key_hash32(), nonce);
+        phy_args = args + 3;   // §mobile 6.4: `team new [freq=<MHz> sf=<5-12> bw=<kHz>]` — optional team PHY
     } else if (args[0]) {
         t = (uint32_t)strtoul(args, nullptr, 0);
     } else {
-        mrcon.println(F("> team err usage: `team new` (mint) | `team <id>` (join) | `team 0` (leave)"));
+        mrcon.println(F("> team err usage: `team new [freq= sf= bw=]` (mint) | `team <id>` (join) | `team 0` (leave)"));
         return;
     }
     mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
-    b.team_id = t; mrnv::save(b); g_node.mutable_config().team_id = t;       // LIVE + PERSISTED
+    b.team_id = t;
+    // §mobile 6.4 Fix 6: set the team PHY so teammates hear each other (AND a member can later register with a compatible
+    // static network). Mirror `mobile register freq=`. Omitted -> keep the current PHY. Requires is_mobile (a team is mobile).
+    if (phy_args && strstr(phy_args, "freq=") && c.is_mobile) {
+        const char* fs = strstr(phy_args, "freq="); const char* ss = strstr(phy_args, "sf="); const char* bs = strstr(phy_args, "bw=");
+        double freq = strtod(fs + 5, nullptr);
+        int    sf   = ss ? atoi(ss + 3) : 0;
+        double bw   = bs ? strtod(bs + 3, nullptr) : 125.0;   // FRACTIONAL kHz (62.5 valid)
+        if (freq < 100.0 || freq > 1000.0 || sf < 5 || sf > 12 || bw < 7.0 || bw > 500.0) {
+            mrcon.println(F("> team new err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")); return;
+        }
+        meshroute::LayerConfig phy{};
+        phy.layer_id = c.leaf_id; phy.routing_sf = (uint8_t)sf; phy.freq_mhz = freq;
+        phy.bw_hz = (uint32_t)(bw * 1000.0 + 0.5); phy.allowed_sf_bitmap = (uint16_t)(1u << sf);
+        g_node.mobile_register_phy(phy);                       // retune the radio (+ kick the FSM -> team-DAD via the no-host path)
+        b.freq_mhz = freq; b.routing_sf = (uint8_t)sf; b.bw_hz = phy.bw_hz; b.allowed_sf_bitmap = phy.allowed_sf_bitmap;   // PERSIST the team PHY
+        mrcon.print(F("> team PHY: freq=")); mrcon.print(freq, 3); mrcon.print(F(" sf=")); mrcon.print(sf); mrcon.print(F(" bw=")); mrcon.print(bw, 2); mrcon.println(F(" kHz"));
+    }
+    const bool team_switched = (c.team_id != t);              // §6.4: capture BEFORE the mutable set (c is a live ref)
+    if (team_switched) g_node.set_team_local_id(0);           // §6.4: leaving OR switching teams -> drop the stale team-DAD id (0 = left; a re-DAD picks a fresh one for the new team)
+    g_node.mutable_config().team_id = t;                     // LIVE (team_dad_fire reads _cfg.team_id)
+    if (c.is_mobile && t != 0 && team_switched) g_node.team_dad_fire();   // §6.4: bootstrap the team plane (self-assign a _team_local_id, no static host needed)
+    b.node_id       = g_node.canonical_node_id();            // §6.4: team_dad_fire may have MOVED node_id (off-grid: node_id==team id) -> persist the live id, don't re-save the stale one loaded at entry
+    b.team_local_id = g_node.team_local_id();                // §6.4: persist the fresh id (or 0 on leave) alongside team_id
+    mrnv::save(b);                                            // PERSISTED
     char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)t);
     mrcon.print(F("> team -> team_id=0x")); mrcon.println(tx);
+    if (c.is_mobile && t != 0) { mrcon.print(F("  team-DAD: local_id=")); mrcon.println(g_node.team_local_id()); }
 }
 
 // §mobile console: `mobile register [freq=<MHz> sf=<5-12> bw=<kHz> | scan]` · `gateways` · `query <gw>` · `status`.
@@ -1918,6 +1978,10 @@ void setup() {
     g_node.restore_join_state(nv.claim_epoch, (node_id != 0) && (nv.joined != 0));
     g_persist_id = node_id; g_persist_epoch = nv.claim_epoch;        // prime the persist tracker -> no spurious boot write
     g_persist_join = ((node_id != 0) && (nv.joined != 0)) ? 1 : 0;
+    // §mobile 6.4: restore the PERSISTED team-DAD id so a power-cycle (hiker switches off) keeps a STABLE team-plane id
+    // (no re-DAD churn). Non-zero -> CONFIRMED (the no-host trigger is guarded on _team_local_id==0, so no re-DAD; it
+    // announces via periodic beacons + defends). 0 -> team-DAD picks fresh on the no-host path.
+    g_node.set_team_local_id(nv.team_local_id); g_persist_team_local_id = nv.team_local_id;
     // NB g_ctr_lease is primed on the on_init-SUCCESS path below (after restore_channel_ctr), NOT here: if on_init is
     // REFUSED the live ctr stays 0 while a here-primed lease (nv.channel_ctr) would read as "due" and REGRESS the
     // persisted lease to 64. Priming only alongside the restore keeps live ctr == lease -> no spurious/regressing write.
@@ -2078,8 +2142,9 @@ static void persist_cfg_if_needed() {
     const uint8_t id = g_node.canonical_node_id(), ep = g_node.claim_epoch(), jn = g_node.joined() ? 1 : 0;   // §config-integrity: the canonical (layer0) id, NOT the active-leaf mirror — else a gateway's window switch flips `id` -> join_changed thrashes nv.node_id every ~8s and collapses both layers. Single-layer: canonical == _node_id (unchanged).
     const uint16_t cc = g_node.peer_ctr_high();                      // D7: the MAX ctr over ALL peers (self/channel counter is one of them) — lease covers DM ctrs too, not just channel
     const bool join_changed = (id != g_persist_id || ep != g_persist_epoch || jn != g_persist_join);   // DAD adopt/epoch/forced-rejoin — RARE, persist promptly
+    const bool team_changed = g_node.team_local_id() != g_persist_team_local_id;   // §mobile 6.4: the team-DAD id (re-)assigned / re-picked / cleared -> persist promptly (a power-cycle keeps it)
     const bool lease_due    = (int16_t)(uint16_t)(cc - g_ctr_lease) > 0;   // Part 3: the live ctr PASSED the persisted lease -> re-lease (every ~margin sends). wraparound-safe signed diff
-    if (!join_changed && !lease_due) return;
+    if (!join_changed && !team_changed && !lease_due) return;
     mrnv::Blob b{};
     if (!mrnv::load(b)) {                                            // no blob yet -> seed from live config
         const meshroute::NodeConfig& nc = g_node.config();
@@ -2088,7 +2153,7 @@ static void persist_cfg_if_needed() {
         b.routing_sf = nc.routing_sf;   b.cr = nc.radio_cr;
         b.lbt = nc.lbt_enabled ? 1 : 0; b.tx_power = g_tx_power;
         b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;   // v6 role/topology
-        b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;  b.team_id = nc.team_id; b.mobile_autoregister = nc.mobile_autoregister ? 1 : 0;   // §mobile: preserve team + autoreg across create/join
+        b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;  b.team_id = nc.team_id; b.mobile_autoregister = nc.mobile_autoregister ? 1 : 0; b.team_local_id = g_node.team_local_id();   // §mobile: preserve team + autoreg + team-DAD id across create/join
         b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;        // v7 BLE policy (live globals)
         b.ble_pin    = g_ble_pin;
         b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;                  // v9 location toggle (seed from the live config)
@@ -2106,7 +2171,8 @@ static void persist_cfg_if_needed() {
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
     const uint16_t leased = (uint16_t)(cc + kChannelCtrLeaseMargin);   // persist the ctr AHEAD: a reboot in the un-flushed window resumes here (> any id used) -> no reuse
     b.node_id = id; b.claim_epoch = ep; b.joined = jn; b.channel_ctr = leased;
-    if (mrnv::save(b)) { g_persist_id = id; g_persist_epoch = ep; g_persist_join = jn; g_ctr_lease = leased; }
+    b.team_local_id = g_node.team_local_id();   // §mobile 6.4: persist the team-DAD id
+    if (mrnv::save(b)) { g_persist_id = id; g_persist_epoch = ep; g_persist_join = jn; g_ctr_lease = leased; g_persist_team_local_id = g_node.team_local_id(); }
 }
 
 // Step 4 — idle light-sleep: halt the CPU until `deadline_ms` OR a radio/console IRQ. The radio stays in

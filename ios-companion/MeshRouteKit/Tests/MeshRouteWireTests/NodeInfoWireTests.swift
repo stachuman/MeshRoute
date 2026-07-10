@@ -37,11 +37,11 @@ final class NodeInfoWireTests: XCTestCase {
 
     func testRouteStreamDecodes() {
         guard case .route(let r)? = PushDecoder.decode(
-            line: #"{"ev":"route","dest":2,"next":4,"hops":2,"score":-48,"gw":true,"layer":7,"age_ms":5000,"cand":1}"#) else {
+            line: #"{"ev":"route","dest":2,"next":4,"hops":2,"score":-48,"gw":true,"leaf":7,"age_ms":5000,"cand":1}"#) else {
             return XCTFail("not route")
         }
         XCTAssertEqual(r.dest, 2); XCTAssertEqual(r.next, 4); XCTAssertEqual(r.hops, 2)
-        XCTAssertEqual(r.score, -48); XCTAssertTrue(r.gw); XCTAssertEqual(r.layer, 7)
+        XCTAssertEqual(r.score, -48); XCTAssertTrue(r.gw); XCTAssertEqual(r.leaf, 7)
 
         guard case .routesEnd(let count)? = PushDecoder.decode(line: #"{"ev":"routes_end","count":3}"#) else {
             return XCTFail("not routes_end")
@@ -65,11 +65,11 @@ final class NodeInfoWireTests: XCTestCase {
     }
 
     func testConfigAdoptedAndJoinRefused() {     // R6 / D26
-        guard case .configAdopted(let lineage, let epoch, let leaf, let level)? = PushDecoder.decode(
-            line: #"{"ev":"config_adopted","lineage":41153,"epoch":3,"leaf":"north field","level":2}"#) else {
+        guard case .configAdopted(let lineage, let epoch, let leaf, let layer)? = PushDecoder.decode(
+            line: #"{"ev":"config_adopted","lineage":41153,"epoch":3,"leaf":"north field","layer":2}"#) else {
             return XCTFail("not config_adopted")
         }
-        XCTAssertEqual(lineage, 41153); XCTAssertEqual(epoch, 3); XCTAssertEqual(leaf, "north field"); XCTAssertEqual(level, 2)
+        XCTAssertEqual(lineage, 41153); XCTAssertEqual(epoch, 3); XCTAssertEqual(leaf, "north field"); XCTAssertEqual(layer, 2)
         guard case .joinRefused(let r, let their, let my)? = PushDecoder.decode(
             line: #"{"ev":"join_refused","reason":"wire_version","their_ver":2,"my_ver":1}"#) else {
             return XCTFail("not join_refused")
@@ -83,11 +83,11 @@ final class NodeInfoWireTests: XCTestCase {
 
     func testReadyMembershipFields() {           // R6 / D26: ready carries lineage/epoch/leaf/level/synced
         guard case .ready(let r)? = PushDecoder.decode(
-            line: #"{"ev":"ready","id":1,"key":"8a3f1c02","leaf_id":2,"mode":"node","gateway":false,"routing_sf":7,"lineage":41153,"epoch":3,"leaf":"north field","level":2,"synced":true}"#) else {
+            line: #"{"ev":"ready","id":1,"key":"8a3f1c02","leaf_id":2,"mode":"node","gateway":false,"routing_sf":7,"lineage":41153,"epoch":3,"leaf":"north field","layer":2,"synced":true}"#) else {
             return XCTFail("not ready")
         }
         XCTAssertEqual(r.lineage, 41153); XCTAssertEqual(r.configEpoch, 3)
-        XCTAssertEqual(r.leaf, "north field"); XCTAssertEqual(r.level, 2); XCTAssertEqual(r.synced, true)
+        XCTAssertEqual(r.leaf, "north field"); XCTAssertEqual(r.layer, 2); XCTAssertEqual(r.synced, true)
         // pre-R6 firmware omits them → nil (membership unknown)
         guard case .ready(let old)? = PushDecoder.decode(
             line: #"{"ev":"ready","id":1,"key":"8a3f1c02","leaf_id":0,"mode":"node","gateway":false,"routing_sf":7}"#) else { return XCTFail() }

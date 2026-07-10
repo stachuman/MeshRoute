@@ -20,6 +20,9 @@ namespace MESHROUTE_NS {
 // (a recent BCN from home), just re-arm the refresh; else (home lost / never registered) re-enter discovery.
 void Node::mobile_discover_fire() {
     if (!_cfg.is_mobile) return;                                   // hard guard — a static node never enters
+    // §mobile 6.4: bring the TEAM plane up on the first FSM tick, independent of the static registration outcome (and of
+    // mobile_autoregister — a team member still team-DADs). A persisted/confirmed _team_local_id -> no-op (guarded).
+    if (_cfg.team_id != 0 && _team_local_id == 0 && !_team_dad_pending) team_dad_fire();
     if (_my_mobile_reg.active &&
         (_hal.now() - _my_mobile_reg.last_heard_home_ms) < protocol::mobile_home_lost_ms) {
         if (_cfg.mobile_autoregister) (void)_hal.after(protocol::mobile_reclaim_ms, kMobileDiscoverTimerId);   // §console: still homed -> refresh later (autonomy)
@@ -61,6 +64,9 @@ void Node::mobile_claim_guard_fire() {
         }
         if (_cfg.mobile_autoregister) (void)_hal.after(delay, kMobileDiscoverTimerId);   // §console: backoff retry-DISCOVER (autonomy)
         MR_EMIT("mobile_no_host", EF_I("backoff_ms", static_cast<int64_t>(delay)));
+        // §mobile 6.4: no static host -> ensure the TEAM plane comes up regardless (a team member self-DADs a _team_local_id
+        // so an off-grid team routes among itself). Independent of the static registration; fires once (guarded on !pending && ==0).
+        if (_cfg.team_id != 0 && _team_local_id == 0 && !_team_dad_pending) team_dad_fire();
         return;
     }
     _mobile_backoff_ms = 0;
@@ -108,6 +114,46 @@ void Node::mobile_claim_guard_fire() {
         (void)_hal.after(protocol::mobile_reclaim_ms, kMobileDiscoverTimerId);   // periodic re-CLAIM (self-heal + refresh)
         (void)_hal.after(0, kMobileLayerQueryTimerId);           // §mobile 5a: pull the layer directory now (+ periodic refresh)
     }
+}
+
+// §mobile 6.4 — team-DAD: a team member self-assigns a persistent id on the team plane (no static host), so an
+// off-grid team self-bootstraps. Reuses the static-DAD shape (candidate pick -> tentative claim beacon -> guard window),
+// but team-SCOPED: "taken" = a known _team_peer / _rt_team dest (NOT the static id_bind/_rt). No wire change — the claim
+// IS a normal team beacon (src=_team_local_id + type-5 TLV), which teammates already parse.
+int Node::team_dad_choose_candidate_id() {
+    auto id_taken = [&](uint8_t id) -> bool {
+        if (is_team_peer(id)) return true;                                  // a known teammate holds it
+        for (uint8_t i = 0; i < _active->_rt_team_count; ++i) if (_active->_rt_team[i].dest == id) return true;
+        return id == _team_local_id;                                       // our current (so a re-pick on conflict avoids it)
+    };
+    uint8_t free_list[254]; uint16_t nfree = 0;
+    for (int id = protocol::normal_node_id_min; id <= 254; ++id)           // 17..254 (1..16 = gateways)
+        if (!id_taken(static_cast<uint8_t>(id))) free_list[nfree++] = static_cast<uint8_t>(id);
+    if (nfree == 0) return -1;
+    return free_list[_hal.rand_range(0, static_cast<int>(nfree))];
+}
+void Node::team_dad_fire() {
+    if (!_cfg.is_mobile || _cfg.team_id == 0) return;
+    const uint8_t old_tid = _team_local_id;
+    const int cand = team_dad_choose_candidate_id();
+    if (cand < 0) { MR_EMIT("team_dad_no_free_id", EF_I("team_id", static_cast<int64_t>(_cfg.team_id))); return; }   // 17..254 all taken on the team plane (huge team)
+    _team_local_id = static_cast<uint8_t>(cand);
+    // §6.4: OFF-GRID, the team-DAD'd id IS the node's link-layer id (node_id). With node_id==_team_local_id the whole
+    // existing mobile link-layer — RTS/CTS/DATA/ACK src+match, deliver, cascade-route — carries team unicast DMs with NO
+    // per-frame team-plane plumbing. Provision node_id whenever this member is OFF-GRID: node_id unset (first DAD), still
+    // OUR previous team id (a conflict re-pick), OR never registered with a static host (a team SWITCH / leave-then-rejoin,
+    // where the console cleared _team_local_id so old_tid is lost — !_my_mobile_reg.active is the durable off-grid signal).
+    // A DUAL member (registered) keeps its host-assigned static id; only _team_local_id re-picks.
+    if (_node_id == 0 || _node_id == old_tid || !_my_mobile_reg.active) set_identity(_team_local_id, _key_hash32);
+    _team_dad_pending = true;
+    emit_beacon("triggered");                                            // ★ announce the claim NOW (src=_team_local_id, §6.4 Fix 4). NOT schedule_triggered_beacon() — that is a NO-OP for a mobile (node_beacon.cpp), so the DAD would confirm before it ever announced. emit_beacon is called from a timer/console context (radio ready).
+    (void)_hal.after(protocol::mobile_offer_window_ms, kTeamDadGuardTimerId);   // guard window (replace-by-id: a re-pick re-arms it)
+    MR_EMIT("team_dad_claim", EF_I("id", _team_local_id));
+}
+void Node::team_dad_guard_fire() {
+    if (!_team_dad_pending) return;                                        // already cleared (a re-pick re-armed a newer window, or set_team_local_id on boot-load/leave) -> nothing to confirm
+    _team_dad_pending = false;                                            // no same-team conflict during the window -> CONFIRMED (a routable team peer; 6.2 runs)
+    MR_EMIT("team_dad_adopted", EF_I("id", _team_local_id));
 }
 
 // Drop registration + go unprovisioned (transient) so the FSM re-DISCOVERs. Reuses reset_join_for_reprovision

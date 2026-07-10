@@ -465,6 +465,10 @@ public:
     // ① mobile-as-transit avoidance (Lua dv:1325-1334): learn the is_mobile beacon bit; NEVER relay THROUGH a mobile
     // peer (it roams away), but DO deliver TO one (the next_hop==dest carve-out). Hard-exclude, not a score penalty.
     bool       is_mobile_peer(uint8_t id) const;
+    bool       is_team_peer(uint8_t id) const;   // §mobile 6.2: id is a KNOWN same-team peer (route to it via _rt_team)
+    // §6.4: a unicast dst is FOR US — our static node_id OR our team-plane id. Off-grid node_id==_team_local_id so the
+    // first term already covers it; this matters for a DUAL member (node_id=static id) delivering a DM sent to its team id.
+    bool       for_me_dst(uint8_t dst) const { return dst == _node_id || (_cfg.team_id != 0 && _team_local_id != 0 && dst == _team_local_id); }
     bool       route_uses_mobile_as_transit(uint8_t dest, uint8_t next_hop) const;
     uint8_t    get_neighbor_tier(uint8_t node_id) const;                 // R4.2 tier read (TTL-expiring lazy-prune); public for tests
     void       schedule_triggered_beacon();                             // R4.3 trigger jitter + min-interval defer; public for tests
@@ -477,6 +481,8 @@ public:
 
     // ---- device-console diagnostics: const LIVE reads consumed by fw_main's routes/cfg/status seam.
     uint8_t           node_id()        const { return _node_id; }
+    uint8_t           team_local_id()  const { return _team_local_id; }   // §mobile 6.4: the team-plane id (0 = not team-DAD'd)
+    void              set_team_local_id(uint8_t id) { _team_local_id = id; _team_dad_pending = false; }   // §mobile 6.4: load a PERSISTED id at boot (id!=0 -> CONFIRMED, no re-DAD, announce + defend) OR ZERO it on leaving the team (id==0)
     // §per-layer-id (2026-07-05): the id to PERSIST as nv.node_id (restore maps it to layers[0].node_id). A GATEWAY's
     // node_id() is the ACTIVE-leaf mirror (activate_layer stamps _node_id = _active leaf's node_id, flipping with the
     // window) — persisting it clobbers layer0's canonical id. layers[0].node_id is the stable, explicit gateway id (no
@@ -554,6 +560,8 @@ public:
     }
     uint8_t           mobile_offers_n() const { return _mobile_offers_n; }                        // §mobile 2b: OFFERs collected this window (test/diag)
     const RtEntry&    rt_at(uint8_t i) const { return _active->_rt[i]; }   // 0..rt_count()-1; candidates[0] is the primary
+    uint8_t           rt_team_count()  const { return _active->_rt_team_count; }   // §mobile 6.2: the TEAM plane (test/diag)
+    const RtEntry&    rt_team_at(uint8_t i) const { return _active->_rt_team[i]; }
     // Console testing aid: manually force / drop a route, to stress the routing algorithms with arbitrary or
     // inconsistent routes. route_inject returns true if the candidate took (rt_merge can reject if better candidates
     // already hold the K slots). route_remove drops a dest's whole entry.
@@ -758,6 +766,7 @@ private:
     static constexpr uint32_t kMobileDiscoverTimerId   = 74;  // §mobile 2b: registration FSM — DISCOVER kick / periodic re-CLAIM
     static constexpr uint32_t kMobileClaimGuardTimerId = 75;  // §mobile 2b: collect-OFFERs window close -> pick strongest + CLAIM
     static constexpr uint32_t kMobileLayerQueryTimerId = 76;  // §mobile 5a: pull the layer directory from a gateway (periodic while registered)
+    static constexpr uint32_t kTeamDadGuardTimerId     = 77;  // §mobile 6.4: team-DAD claim guard window close -> confirm _team_local_id
     // [76..79] free for future per-layer timers.
 
     // ---- beacon emit / ingest ----------------------------------------------
@@ -778,7 +787,7 @@ private:
     // refresh) so the caller can fire the triggered beacon. sender must be a real id (0..254);
     // 0xFF (unknown/reserved) and self are no-ops. C++ has no id-bind/dest-seen/liveness plane,
     // so (unlike the Lua) those sub-actions are absent.
-    bool    learn_direct_neighbor(uint8_t sender, int16_t snr_q4, bool is_gw);
+    bool    learn_direct_neighbor(uint8_t sender, int16_t snr_q4, bool is_gw, bool team_plane = false);   // §6.2: team_plane -> learn into _rt_team
     void    learn_route_via(uint8_t dest, uint8_t via, uint8_t hops, int16_t snr_q4);  // multi-hop install (F path)
     // F route discovery (AODV RREQ/RREP) — node_route_discovery.cpp.
     void    handle_f(const uint8_t* bytes, size_t len, const RxMeta& meta);
@@ -845,6 +854,12 @@ private:
     // §mobile 2b: the mobile-side registration FSM (node_mobile.cpp). Armed only for _cfg.is_mobile (static never enters).
     void    mobile_discover_fire();                             // DISCOVER + open the collect-OFFERs window
     void    mobile_claim_guard_fire();                         // window close: pick strongest OFFER -> CLAIM + adopt; else backoff
+    // §mobile 6.4: team-DAD — a team member self-assigns a persistent _team_local_id on the team plane (no static host).
+    int     team_dad_choose_candidate_id();                    // a free team id (not a _team_peer / _rt_team dest / our current), 17..254; -1 if full
+    void    team_dad_guard_fire();                            // guard-window close -> confirm _team_local_id (team_dad_adopted)
+public:
+    void    team_dad_fire();                                  // (re-)pick + tentatively claim a _team_local_id + arm the guard (public: handle_team / tests)
+private:
     void    mobile_reset_registration(const char* reason);     // drop registration -> re-enter discovery
     // §mobile 5a: the scan-set = [the mobile's own/bootstrap PHY] ∪ [the LEARNED layer directory]. On boot (nothing learned)
     // that's just layers[0] -> single-PHY = 2b-identical; neighbours appear only after a successful directory pull.
@@ -904,6 +919,7 @@ private:
         uint8_t  seen_by[32];        // 256-bit set of neighbours known to hold this msg (eviction safety)
         uint16_t payload_len;
         uint8_t  payload[protocol::channel_msg_max_payload_bytes];
+        uint32_t team_id = 0;        // §mobile 6.3: 0 = a normal leaf channel message; !=0 = a team-scoped message (flavor has channel_flavor_team). Re-emitted on gossip/re-broadcast.
     };
 public:
     // Public so native tests can inspect the per-origin channel ledger directly (like channel_buffer_count()).
@@ -986,6 +1002,13 @@ private:
     RtEntry*    rt_insert(uint8_t dest);                           // sorted insert; nullptr if full
     void        rt_remove(uint8_t idx);                            // R2: drop _rt[idx], keep sort
     MergeAction rt_merge(uint8_t dest, const RtCandidate& cand);   // dv_dual_sf.lua:4484
+    // §mobile 6.2: the SAME DV core, over an arbitrary (table,count) — default via the wrappers above = `_active->_rt`
+    // (static plane, byte-identical). The §6.2 team plane passes `_rt_team`/`_rt_team_count`. team_plane skips the
+    // route_uses_mobile_as_transit block (a same-team peer IS a legal transit in its own table).
+    RtEntry*    rt_find(uint8_t dest, RtEntry* rt, uint8_t rt_count);
+    RtEntry*    rt_insert(uint8_t dest, RtEntry* rt, uint8_t& rt_count);
+    void        rt_remove(uint8_t idx, RtEntry* rt, uint8_t& rt_count);
+    MergeAction rt_merge(uint8_t dest, const RtCandidate& cand, RtEntry* rt, uint8_t& rt_count, bool team_plane);
     void        sort_candidates(RtEntry& e);
     // route_strictly_better/effective_score take the candidate LIST (cands,n) as context so the
     // R4.2 budget penalty can count viable alternatives (Lua signature (a,b,viab,candidates)). The
@@ -1005,9 +1028,11 @@ private:
     void        maybe_emit_rt_full();
 
     // ---- R2 route-plane hardening ------------------------------------------
-    void     age_out_stale_routes();                               // dv_dual_sf.lua:5249
+    void     age_out_stale_routes();                               // dv_dual_sf.lua:5249 — ages BOTH planes
+    void     age_out_stale_routes(RtEntry* rt, uint8_t& rt_count, bool team_plane);   // §6.2: over an arbitrary table; team_plane clears the _team_peer bit on a full eviction
     uint32_t ttl_for_hops(uint8_t hops) const;                     // hops<=1 neighbor else remote
     void     rt_prune_cycle(uint8_t dest, uint8_t sender);         // 3-cycle prune  :5193
+    void     rt_prune_cycle(uint8_t dest, uint8_t sender, RtEntry* rt, uint8_t& rt_count);   // §6.2: over an arbitrary table
     // ---- Peer-liveness internals (routing-liveness port) -------------------
     struct PeerLiveness;                                              // fwd decl (full def below, near the LayerRuntime member structs)
     PeerLiveness* peer_liveness_slot(uint8_t node_id, bool create);   // find (or LRU-create) the per-node slot; nullptr if absent + !create
@@ -1135,6 +1160,8 @@ private:
 
     Hal&     _hal;
     uint8_t  _node_id;            // reassignable via _hal.set_protocol_id (join/lease)
+    uint8_t  _team_local_id = 0;  // §mobile 6.4: the member's id on the TEAM plane (self-assigned by team-DAD, no host; persistent). 0 = not team-DAD'd (a non-team node, or a team member mid-DAD). The 6.2 team plane (_team_peer/_rt_team, team beacon src, team frames) keys on THIS; the static plane keeps _node_id. §18: _rt_team keeps the two id-spaces from colliding.
+    bool     _team_dad_pending = false;  // §mobile 6.4: true during the team-DAD guard window (tentative _team_local_id) -> a same-team src collision RE-PICKS; after (confirmed) -> DEFEND (DENY).
     uint32_t _key_hash32;         // stable long identity
     uint8_t  _x_secret[32] = {};  // DP1: X25519 ECDH secret (Phase-1 E2E DM crypto)
     uint8_t  _ed_pub[32]   = {};  // DP1: our Ed25519 pubkey (advertised so peers can ECDH to us)
@@ -1306,6 +1333,12 @@ private:
         // Routing table (DV).
         RtEntry  _rt[protocol::cap_routes];
         uint8_t  _rt_count = 0;       // distinct dests, kept sorted ascending by dest
+        // §mobile 6.2: a SEPARATE team-plane DV table (a teammate's LOCAL id can collide with a static global id — §18 —
+        // so the two planes MUST NOT share `_rt`). A team mobile (is_mobile+team_id) learns/advertises/routes here; a
+        // static node / lone mobile leaves it empty (byte-identical). Same RtEntry + the same DV core (table-param).
+        RtEntry  _rt_team[protocol::cap_routes] = {};
+        uint8_t  _rt_team_count = 0;
+        uint8_t  _team_peer[32] = {};   // 256-bit set of KNOWN same-team peers (by beacon src) — mirror _mobile_peer; read by is_team_peer
         // R3 data-plane state (single flight per node).
         TxItem                   _tx_queue[kTxQueueCap];
         uint8_t                  _tx_queue_n = 0;          // FIFO depth

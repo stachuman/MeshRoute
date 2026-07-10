@@ -88,7 +88,8 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             // bug). Gate the whole flood handling on the SAME condition as the retune. §7 CONSUMER half: a
             // gateway+owner participates (catches the DATA-M for its owner); a pure bridge (gateway_only) +
             // a data-incapable node (no data SF) stay out.
-            if (!(_cfg.is_gateway && _cfg.gateway_only) && _cfg.n_layers != 2 && _cfg.allowed_sf_bitmap != 0) {   // Principle 11: a dual-layer gateway never overhears channel floods
+            if (!(_cfg.is_gateway && _cfg.gateway_only) && _cfg.n_layers != 2 && _cfg.allowed_sf_bitmap != 0
+                && !(r.mobile_src && _cfg.team_id == 0)) {   // §mobile 6.3: a static / non-team node does NOT participate in a TEAM channel flood (mobile_src) — no flood-state, no re-flood, no retune. Keeps team traffic off the static plane. s18 has no mobile_src floods -> byte-identical.
                 auto fbm = rts_flood_bitmap(std::span<const uint8_t>(bytes, len), r);
                 if (fbm.size() == 32) {
                     const int16_t snr_q4 = protocol::db_to_q4(meta.snr_db);
@@ -99,9 +100,13 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                         // The data-SF frame is the lean M frame: payload_len carries its BODY length, +M_FRAME_HDR_LEN
                         // (7) = the full on-air M frame (was +13 = the old DATA-M header). Sizing it short retunes
                         // back before the M frame's RX_DONE -> drop_sf_mismatch. +30 ideal margin + the metal slop.
+                        // §mobile 6.3: a TEAM M-frame (mobile_src is the exact proxy — set IFF the frame is team-scoped)
+                        // is +4 B (the team_id tail, M_FRAME_TEAM_HDR_LEN=11) -> size the window for it or the frame is
+                        // dropped at data SF>=10 (the +4 B airtime exceeds the 30 ms margin).
+                        const uint16_t m_hdr = r.mobile_src ? M_FRAME_TEAM_HDR_LEN : M_FRAME_HDR_LEN;
                         const uint32_t back = protocol::cts_to_data_gap_ms
                             + airtime_ms(data_sf, active_bw_hz(), active_cr(), protocol::preamble_sym,
-                                         static_cast<uint16_t>(r.payload_len + M_FRAME_HDR_LEN)) + 30 + _hal.rx_window_slop_ms(data_sf);
+                                         static_cast<uint16_t>(r.payload_len + m_hdr)) + 30 + _hal.rx_window_slop_ms(data_sf);
                         (void)_hal.after(back, kOverhearRetuneTimerId);
                         MR_EMIT("channel_overhear_armed", EF_I("sender", r.src), EF_I("chosen_data_sf", data_sf), EF_B("flood", true));
                         // Part B YIELD (spec 2026-06-28): we retuned to grab a NEW flood while awaiting our CTS -> our
@@ -115,7 +120,9 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             }
             return;                                          // FLOOD RTS never CTSes
         }
-        if (!(_cfg.is_gateway && _cfg.gateway_only) && _cfg.n_layers != 2 && !channel_have_id_lo16(r.m_payload_id_lo16)) {   // §7 consumer / Principle 11: a dual-layer gateway never overhears a channel pull-response
+        if (!(_cfg.is_gateway && _cfg.gateway_only) && _cfg.n_layers != 2 && !channel_have_id_lo16(r.m_payload_id_lo16)
+            && !(r.mobile_src && _cfg.team_id == 0)) {   // §mobile 6.3: a static / non-team node does not overhear a TEAM pull-response (mobile_src) — §7 consumer / Principle 11: a dual-layer gateway never overhears a channel pull-response
+
             const uint8_t data_sf = select_data_sf(r.sf_index, protocol::db_to_q4(meta.snr_db));
             _hal.set_rx_sf(data_sf);
             // Stay on the data SF until the M frame lands: gap (RTS->DATA) + the FULL M-frame airtime
@@ -123,9 +130,10 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             // Sizing it short retunes back ~one header's airtime too early -> the M frame is dropped
             // (drop_sf_mismatch). The +30 is the sim's ideal margin; rx_window_slop_ms adds the REAL metal
             // RX_DONE/SPI turnaround (ZERO on the sim; the same slop start_pending_rx_expiry carries).
+            const uint16_t m_hdr = r.mobile_src ? M_FRAME_TEAM_HDR_LEN : M_FRAME_HDR_LEN;   // §mobile 6.3: a team M-frame is +4 B (team_id tail) — size for it or it drops at data SF>=10
             const uint32_t back = protocol::cts_to_data_gap_ms
                 + airtime_ms(data_sf, active_bw_hz(), active_cr(), protocol::preamble_sym,
-                             static_cast<uint16_t>(r.payload_len + M_FRAME_HDR_LEN)) + 30 + _hal.rx_window_slop_ms(data_sf);
+                             static_cast<uint16_t>(r.payload_len + m_hdr)) + 30 + _hal.rx_window_slop_ms(data_sf);
             (void)_hal.after(back, kOverhearRetuneTimerId);
             MR_TELEMETRY(
                 EventField f[] = { { .key = "id_lo16",        .type = EventField::T::i64,     .i = r.m_payload_id_lo16 },
@@ -138,7 +146,13 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         }
         return;                                          // M_BROADCAST RTS never CTSes
     }
-    if (r.next != _node_id || ((r.addr_len == 1) != _cfg.is_mobile)) {   // §mobile 3b: addressed iff next==my id AND the mark matches my kind (a mobile accepts addr_len=1, a static addr_len=0) -> a colliding id is disambiguated; else overheard
+    // §mobile 3b/6.4: addressed iff the frame targets EITHER of my plane ids. for_static = next==_node_id AND the mark
+    // matches my kind (a mobile accepts addr_len=1, a static addr_len=0). for_team = next==_team_local_id AND addr_len=1
+    // (a team member's team-plane id; off-grid it's the only id). A non-team node has _team_local_id==0 -> for_team false
+    // -> this is byte-identical to the old `next != _node_id || (addr_len==1)!=is_mobile`.
+    const bool for_static_rts = r.next == _node_id && ((r.addr_len == 1) == _cfg.is_mobile);
+    const bool for_team_rts   = _cfg.team_id != 0 && _team_local_id && r.next == _team_local_id && r.addr_len == 1;
+    if (!for_static_rts && !for_team_rts) {   // else overheard
         // NAV (virtual carrier sense): an overheard UNICAST RTS reserves the medium for the rest of the
         // exchange (CTS+DATA+ACK) — M_BROADCAST already returned above, so this is unicast. Defer own
         // unsolicited TX until then (tx_initiating/tx_flood) so we don't step on the CTS in the silent gap.
@@ -394,7 +408,11 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (!pd) return;
     
     const data_out& d = *pd;
-    if (d.next != _node_id || ((d.addr_len == 1) != _cfg.is_mobile)) return;   // §mobile 3b: mark-aware DATA accept (a mobile accepts addr_len=1; the flight-context below also gates it). Byte-identical when both 0.
+    // §mobile 3b/6.4: mark-aware DATA accept — addressed to EITHER plane id (for_team on a team member's team-plane id).
+    // Non-team node: _team_local_id==0 -> for_team_data false -> byte-identical to the old `next != _node_id || (addr_len==1)!=is_mobile`.
+    const bool for_static_data = d.next == _node_id && ((d.addr_len == 1) == _cfg.is_mobile);
+    const bool for_team_data   = _cfg.team_id != 0 && _team_local_id && d.next == _team_local_id && d.addr_len == 1;
+    if (!for_static_data && !for_team_data) return;
     if (!_active->_pending_rx || _active->_pending_rx->ctr_lo != d.ctr_lo4) return;
     // e2e-ack backstop exemption ANTI-SPOOF verify (2026-07-02): the RTS claimed RTS_FLAG_E2E_ACK (so its DROP was
     // exempted at handle_rts), but the DATA that arrived is NOT a DATA_TYPE_E2E_ACK -> the sender lied to bypass the
@@ -478,7 +496,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     const int     hb_new_remaining = static_cast<int>(d.hops_remaining) - 1;
     const uint8_t hb_new_committed = (d.committed_hops >= 7) ? 7
                                      : static_cast<uint8_t>(d.committed_hops + 1);
-    if (d.dst != _node_id && hb_new_remaining < 0) {
+    if (!for_me_dst(d.dst) && hb_new_remaining < 0) {   // §6.4: the destination (static OR team-plane id) is exempt from the hop-budget NACK
         MR_TELEMETRY(
             EventField ef[] = { { .key = "origin", .type = EventField::T::i64, .i = origin },
                                 { .key = "dst",    .type = EventField::T::i64, .i = d.dst },
@@ -556,7 +574,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     record_seen_origin(sokey, from, nowm);                                          // record + roll-evict-oldest if full
     // defer deliver/forward by the ACK airtime so it doesn't share a sim step with the ACK.
     _active->_post_ack = PostAck{};
-    _active->_post_ack.pending = true; _active->_post_ack.is_forward = (d.dst != _node_id);
+    _active->_post_ack.pending = true; _active->_post_ack.is_forward = !for_me_dst(d.dst);   // §6.4: deliver a DM addressed to our team-plane id too (dual member)
     _active->_post_ack.origin = origin; _active->_post_ack.dst = d.dst; _active->_post_ack.ctr_lo = d.ctr_lo4;
     _active->_post_ack.ctr = d.ctr; _active->_post_ack.flags = d.flags; _active->_post_ack.type = d.type; _active->_post_ack.previous_hop = from;
     _active->_post_ack.inner_len = static_cast<uint8_t>(inner.size() <= protocol::max_payload_bytes_hard_cap

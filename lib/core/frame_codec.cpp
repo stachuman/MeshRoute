@@ -192,6 +192,27 @@ size_t pack_channel_digest_tlv(const uint32_t* ids, uint8_t count, std::span<uin
     return w.ok() ? w.size() : 0;
 }
 // Scan the ext block for the type-3 TLV; extract up to `max` ids. Skips other TLV types (forward-compat).
+size_t pack_team_id_tlv(uint32_t team_id, std::span<uint8_t> out) {   // §mobile 6.2: type-5 team-id TLV [(<<4)|4][team_id 4 B LE]
+    wire::Writer w(out);
+    w.u8(static_cast<uint8_t>((protocol::bcn_ext_type_team_id << 4) | 4));
+    w.u32_le(team_id);
+    return w.ok() ? w.size() : 0;
+}
+uint32_t parse_team_id_tlv(std::span<const uint8_t> ext) {           // §mobile 6.2: scan for a type-5 TLV; 0 = absent
+    size_t o = 0;
+    while (o < ext.size()) {
+        const uint8_t type = static_cast<uint8_t>(ext[o] >> 4);
+        const uint8_t blen = static_cast<uint8_t>(ext[o] & 0x0f);
+        if (o + 1 + blen > ext.size()) break;                       // truncated TLV -> stop
+        if (type == protocol::bcn_ext_type_team_id) {
+            if (blen < 4) return 0;                                 // malformed -> absent
+            const std::span<const uint8_t> body = ext.subspan(o + 1, blen);
+            return uint32_t(body[0]) | (uint32_t(body[1]) << 8) | (uint32_t(body[2]) << 16) | (uint32_t(body[3]) << 24);
+        }
+        o += 1u + blen;                                             // skip other TLV types
+    }
+    return 0;
+}
 uint8_t parse_channel_digest_tlv(std::span<const uint8_t> ext, uint32_t* ids_out, uint8_t max) {
     size_t o = 0;
     while (o < ext.size()) {
@@ -945,12 +966,15 @@ size_t pack_unicast_inner(std::span<uint8_t> out, uint8_t flags, uint32_t dst_ke
 // moved off the DATA frame onto their own cmd. leaf_id rides byte-0 (the leak gate).
 // -----------------------------------------------------------------------------
 size_t pack_m(const m_in& in, std::span<uint8_t> out) {
-    if (out.size() < M_FRAME_HDR_LEN + in.body.size()) return 0;
+    const bool team = (in.flavor & protocol::channel_flavor_team) != 0;   // §6.3: a team-scoped M carries a 4-B team_id tail after the id
+    const size_t hdr = team ? M_FRAME_TEAM_HDR_LEN : M_FRAME_HDR_LEN;
+    if (out.size() < hdr + in.body.size()) return 0;
     wire::Writer w(out);
     w.u8(wire::cmd_byte(wire::Cmd::M, static_cast<uint8_t>(in.leaf_id & 0x0F)));
     w.u8(in.channel_id);
     w.u8(in.flavor);
     w.u32_be(in.channel_msg_id);                                  // BIG-endian (origin = byte 3)
+    if (team) w.u32_be(in.team_id);                              // §6.3: team_id (BE, matches the id convention) — present ONLY when the team flavor bit is set (else byte-identical)
     for (uint8_t b : in.body) w.u8(b);
     return w.ok() ? w.size() : 0;
 }
@@ -962,7 +986,13 @@ std::optional<m_out> parse_m(std::span<const uint8_t> frame) {
     o.channel_id = frame[1];
     o.flavor     = frame[2];
     { wire::Reader r(frame.subspan(3, 4)); o.channel_msg_id = r.u32_be(); }   // BIG-endian
-    o.body       = frame.subspan(M_FRAME_HDR_LEN);
+    size_t hdr = M_FRAME_HDR_LEN;
+    if (o.flavor & protocol::channel_flavor_team) {              // §6.3: a team frame carries a 4-B team_id after the id
+        if (frame.size() < M_FRAME_TEAM_HDR_LEN) return std::nullopt;
+        wire::Reader r(frame.subspan(7, 4)); o.team_id = r.u32_be();
+        hdr = M_FRAME_TEAM_HDR_LEN;
+    }
+    o.body       = frame.subspan(hdr);
     return o;
 }
 

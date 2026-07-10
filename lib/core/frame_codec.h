@@ -137,6 +137,8 @@ uint8_t parse_channel_digest_tlv(std::span<const uint8_t> ext, uint32_t* ids_out
 struct GwLayerEntry { uint8_t gw_id; uint8_t dest_leaf; };
 size_t  pack_gateway_layer_tlv(const GwLayerEntry* e, uint8_t n, std::span<uint8_t> out);       // bytes written, or 0 (n==0 -> 0)
 uint8_t parse_gateway_layer_tlv(std::span<const uint8_t> ext, GwLayerEntry* out, uint8_t max);  // entries found (0 if no type-4 TLV)
+size_t  pack_team_id_tlv(uint32_t team_id, std::span<uint8_t> out);    // §mobile 6.2: type-5 [(<<4)|4][team_id 4B LE] = 5 B; 0 on short buf
+uint32_t parse_team_id_tlv(std::span<const uint8_t> ext);             // §mobile 6.2: the team_id from a type-5 TLV, or 0 (absent)
 
 // §P4 BCN suspect-node gossip ext-TLVs (dv:1373 build / 1949 parse). A beacon carries EITHER a type-1 OR a type-2 TLV:
 //   type 1 SUSPECT_NODES : [type<<4 | N][N × node_id(1B)]              — applied by the receiver as SUSPECT (level 1).
@@ -537,13 +539,14 @@ size_t pack_unicast_inner(std::span<uint8_t> out, uint8_t flags, uint32_t dst_ke
 //   byte 2   : flavor    (0=public plaintext, 1=group/encrypted, … — encryption deferred)
 //   bytes 3-6: channel_msg_id (4 B, BIG-ENDIAN; origin = byte 3)
 //   bytes 7..: payload   (by flavor; public = plaintext body)
-inline constexpr size_t M_FRAME_HDR_LEN = 7;   // cmd|leaf + channel_id + flavor + channel_msg_id(4)
+inline constexpr size_t M_FRAME_HDR_LEN      = 7;    // cmd|leaf + channel_id + flavor + channel_msg_id(4)
+inline constexpr size_t M_FRAME_TEAM_HDR_LEN = 11;   // §mobile 6.3: + team_id(4 B BE) iff (flavor & channel_flavor_team)
 struct m_in  { uint8_t leaf_id; uint8_t channel_id; uint8_t flavor; uint32_t channel_msg_id;  // id BIG-endian on wire
-               std::span<const uint8_t> body; };
+               std::span<const uint8_t> body; uint32_t team_id = 0; };   // §6.3: packed (BE) iff (flavor & channel_flavor_team); at struct END for aggregate-inits
 struct m_out { uint8_t leaf_id; uint8_t channel_id; uint8_t flavor; uint32_t channel_msg_id;  // id BIG-endian
-               std::span<const uint8_t> body; };
-size_t pack_m(const m_in& in, std::span<uint8_t> out);          // 7 + body; 0 on short buf
-std::optional<m_out> parse_m(std::span<const uint8_t> frame);   // nullopt: len < 7 / cmd != M
+               std::span<const uint8_t> body; uint32_t team_id = 0; };   // §6.3: 0 unless the team flavor bit was set
+size_t pack_m(const m_in& in, std::span<uint8_t> out);          // 7 (+4 team) + body; 0 on short buf
+std::optional<m_out> parse_m(std::span<const uint8_t> frame);   // nullopt: len < 7 (or < 11 for a team frame) / cmd != M
 
 // Hash-bind answer inner (H §3.7a): [target_layer][node_id][key_hash32 LE] = 6 B. NO payload-flags byte —
 // the frame TYPE (DATA_TYPE_H_ANSWER vs DATA_TYPE_AUTHORITATIVE_H_ANSWER) carries H_ANSWER + AUTHORITATIVE,

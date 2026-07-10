@@ -1587,6 +1587,101 @@ TEST_CASE("§mobile Fix 3 — a mobile's beacon mints NO static route to its loc
       delete node; }
 }
 
+TEST_CASE("§mobile 6.2 — team-id TLV round-trips (type 5, 5 B); a non-team ext -> 0") {
+    uint8_t buf[8];
+    const size_t n = pack_team_id_tlv(0xABCD1234u, std::span<uint8_t>(buf, sizeof buf));
+    CHECK(n == 5);   // [ (5<<4)|4 ][ team_id 4 B LE ]
+    CHECK(parse_team_id_tlv(std::span<const uint8_t>(buf, n)) == 0xABCD1234u);
+    uint32_t ids[1] = { 0x11223344u };
+    uint8_t other[8]; const size_t on = pack_channel_digest_tlv(ids, 1, std::span<uint8_t>(other, sizeof other));
+    CHECK(parse_team_id_tlv(std::span<const uint8_t>(other, on)) == 0);   // a type-3 TLV carries no type-5 -> absent
+}
+
+TEST_CASE("§mobile 6.2 — a same-team peer routes via _rt_team (not _rt); §18 collision avoided; a different team is ignored") {
+    TestHal hal;
+    Node node(hal, /*id=*/30, /*key=*/0x3030u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=0xABCD1234u;
+    CHECK(node.on_init(cfg));
+    RxMeta meta{8.0f,-80.0f,0,-1};
+    auto in_team = [&](uint8_t d){ for (uint8_t i=0;i<node.rt_team_count();++i) if (node.rt_team_at(i).dest==d) return true; return false; };
+    auto in_stat = [&](uint8_t d){ for (uint8_t i=0;i<node.rt_count();++i)      if (node.rt_at(i).dest==d)      return true; return false; };
+    // (a) a SAME-TEAM peer (local id 20) beacons with the type-5 team TLV -> learned as a team peer + a route in _rt_team, NOT _rt
+    uint8_t ext[8]; size_t en = pack_team_id_tlv(0xABCD1234u, std::span<uint8_t>(ext, sizeof ext));
+    beacon_in tb{}; tb.leaf_id=0; tb.src=20; tb.key_hash32=0x9999u; tb.is_mobile=true; tb.ext=std::span<const uint8_t>(ext, en);
+    std::array<uint8_t,64> b{}; size_t bn = pack_beacon(tb, std::span<uint8_t>(b.data(), b.size()));
+    node.on_recv(b.data(), bn, meta);
+    CHECK(node.is_team_peer(20));
+    CHECK(in_team(20)); CHECK_FALSE(in_stat(20));           // ★ the team plane has 20; the static plane does not
+    // (b) §18 collision: a STATIC node ALSO has global id 20 -> its route lands in _rt and COEXISTS with team-20 in _rt_team
+    beacon_in sb{}; sb.leaf_id=0; sb.src=20; sb.key_hash32=0x2020u; sb.is_mobile=false;
+    std::array<uint8_t,64> sbb{}; size_t sbn = pack_beacon(sb, std::span<uint8_t>(sbb.data(), sbb.size()));
+    node.on_recv(sbb.data(), sbn, meta);
+    CHECK(in_stat(20));                                     // ★ static-20 in _rt
+    CHECK(in_team(20));                                     // ★ team-20 STILL in _rt_team (NOT evicted — the whole point of the separate table)
+    // (c) a DIFFERENT-team peer (21) -> not a team peer, no _rt_team route
+    uint8_t ext2[8]; size_t en2 = pack_team_id_tlv(0x99999999u, std::span<uint8_t>(ext2, sizeof ext2));
+    beacon_in ob{}; ob.leaf_id=0; ob.src=21; ob.key_hash32=0x2121u; ob.is_mobile=true; ob.ext=std::span<const uint8_t>(ext2, en2);
+    std::array<uint8_t,64> obb{}; size_t obn = pack_beacon(ob, std::span<uint8_t>(obb.data(), obb.size()));
+    node.on_recv(obb.data(), obn, meta);
+    CHECK_FALSE(node.is_team_peer(21));
+    CHECK_FALSE(in_team(21));
+}
+
+TEST_CASE("§mobile 6.2 — a same-team peer is a LEGAL transit (multi-hop A->B->C); a multi-hop teammate gets a dispatch bit") {
+    TestHal hal;
+    Node node(hal, /*id=*/30, /*key=*/0x3030u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=0xABCD1234u;
+    CHECK(node.on_init(cfg));
+    RxMeta meta{8.0f,-80.0f,0,-1};
+    // teammate B (id 20) beacons WITH a carried route to teammate C (id 25) -> at us, "25 via B(20)", 2 hops
+    uint8_t ext[8]; size_t en = pack_team_id_tlv(0xABCD1234u, std::span<uint8_t>(ext, sizeof ext));
+    beacon_entry ce{}; ce.dest=25; ce.next=26; ce.score_bucket=12; ce.hops=1;
+    beacon_in tb{}; tb.leaf_id=0; tb.src=20; tb.key_hash32=0x9999u; tb.is_mobile=true;
+    tb.ext=std::span<const uint8_t>(ext, en); tb.entries=std::span<const beacon_entry>(&ce, 1);
+    std::array<uint8_t,64> b{}; size_t bn = pack_beacon(tb, std::span<uint8_t>(b.data(), b.size()));
+    node.on_recv(b.data(), bn, meta);
+    CHECK(node.is_team_peer(20));                            // B (direct teammate)
+    CHECK(node.is_team_peer(25));                            // ★ C (MULTI-HOP) also gets a dispatch bit -> rt_find(25) -> _rt_team
+    // the _rt_team route to 25 is via B(20)
+    bool team25=false; uint8_t via25=0;
+    for (uint8_t i=0;i<node.rt_team_count();++i) if (node.rt_team_at(i).dest==25){ team25=true; via25=node.rt_team_at(i).candidates[0].next_hop; }
+    CHECK(team25); CHECK(via25 == 20);
+    // ★ THE FIX: B (a same-team peer) is a LEGAL transit — route_uses_mobile_as_transit(C, B) must be FALSE (else the
+    // send-time next_hop_selectable rejects B and multi-hop team routing is defeated).
+    CHECK_FALSE(node.route_uses_mobile_as_transit(25, 20));  // C via teammate B -> allowed
+    CHECK(node.is_mobile_peer(20));                          // (B is still a mobile peer — the carve-out is is_team_peer, not is_mobile_peer)
+}
+
+TEST_CASE("§mobile 6.4 — team UNICAST DM: the sender routes via _rt_team + marks the RTS addr_len=1 (team-plane next); a member's own team id is a delivery dst") {
+    TestHal hal;
+    Node node(hal, /*id=*/0, /*key=*/0x3030u);              // OFF-GRID (node_id 0) team member — no static host
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=0xABCD1234u;
+    CHECK(node.on_init(cfg));
+    node.team_dad_fire();                                    // §6.4 Option X: self-DAD provisions node_id = _team_local_id
+    const uint8_t a_tid = node.team_local_id();
+    CHECK(a_tid >= 17);
+    CHECK(node.node_id() == a_tid);                          // ★ off-grid: the team-DAD'd id IS the node's link-layer id
+    // learn a DIRECT teammate C (id 25) via a same-team beacon -> a route in _rt_team
+    RxMeta meta{12.0f,-70.0f,0,static_cast<int8_t>(25)};
+    uint8_t ext[8]; size_t en = pack_team_id_tlv(0xABCD1234u, std::span<uint8_t>(ext, sizeof ext));
+    beacon_in tb{}; tb.leaf_id=0; tb.src=25; tb.key_hash32=0x2525u; tb.is_mobile=true; tb.ext=std::span<const uint8_t>(ext, en);
+    std::array<uint8_t,64> b{}; size_t bn = pack_beacon(tb, std::span<uint8_t>(b.data(), b.size()));
+    node.on_recv(b.data(), bn, meta);
+    CHECK(node.is_team_peer(25));
+    // (B) originate a DM to the teammate -> the RTS routes via _rt_team (NOT dropped, NOT via a static home) and carries
+    // addr_len=1 so the teammate's mark-accept treats `next` as its team-plane id. src = our team id (a_tid).
+    hal.tx_frames.clear();
+    send_cmd(node, /*dst=*/25, "hi");
+    bool got_rts=false;
+    for (auto& f : hal.tx_frames) { auto pr = parse_rts(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+        if (pr && pr->next == 25) { got_rts=true; CHECK(pr->addr_len == 1); CHECK(pr->src == a_tid); } }
+    CHECK(got_rts);                                          // ★ B: the team-plane last-mile is addressed, not black-holed
+    // (D) a DM addressed to our team-plane id is FOR US (delivered, not forwarded). Off-grid a_tid==node_id so the static
+    // term already covers it; for_me_dst also carries the DUAL case (node_id=static id, dst=team id).
+    CHECK(node.for_me_dst(a_tid));
+    CHECK_FALSE(node.for_me_dst(static_cast<uint8_t>(a_tid ^ 0x0F)));
+}
+
 TEST_CASE("② implicit-ACK — overhearing the next-hop forward our DATA cancels the pending flight (dv:9863)") {
     TestHal hal;
     Node* node = mk_sender_with_routes(hal, {{2,1,14},{3,2,14}});   // dest 5 via 2 (primary) + 3 (alt)

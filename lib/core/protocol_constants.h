@@ -280,6 +280,7 @@ inline constexpr uint8_t  bcn_ext_type_suspect_nodes   = 1;      // §P4 BCN ext
 inline constexpr uint8_t  bcn_ext_type_liveness_state  = 2;      // §P4 BCN ext-TLV type 2: gossip peers incl. DEAD ([id, state&0x03] 2B/entry) (dv:1242)
 inline constexpr uint8_t  bcn_ext_type_channel_digest  = 3;      // BCN ext-TLV type for the channel digest (dv:1248)
 inline constexpr uint8_t  bcn_ext_type_gateway_layer   = 4;      // BCN ext-TLV type 4: multi-hop gateway-layer propagation (dv:1249) — gw_id->dest_leaf, re-gossiped by ALL nodes
+inline constexpr uint8_t  bcn_ext_type_team_id         = 5;      // §mobile 6.2 BCN ext-TLV type 5: a team mobile's team_id (4 B LE) — the receiver scopes its team plane by it. Only a team mobile emits it (static/lone beacon has no type-5 -> byte-identical). An old parser skips it (forward-compat).
 inline constexpr uint8_t  cap_bridged_layers           = 8;      // Node-global gw_id->dest_leaf table (mirror _gw_schedules); leaves carry it (they ORIGINATE cross-layer DMs)
 inline constexpr uint8_t  bridged_layers_max_per_tlv   = 9;      // N entries per type-4 TLV: 9 gw_ids + ceil(9/2)=5 nibble bytes = 14 <= the 4-bit len cap (15)
 inline constexpr uint32_t bridged_layers_ttl_ms        = 172800000;  // 48 h (Lua); a sim gate may shrink to exercise aging
@@ -306,6 +307,7 @@ inline constexpr uint32_t channel_reoffer_jitter_ms   = 2000;    // +rand(0,jitt
 inline constexpr uint8_t  channel_flavor_public  = 0;
 inline constexpr uint8_t  channel_flavor_group   = 1;
 inline constexpr uint8_t  channel_flavor_private = 2;
+inline constexpr uint8_t  channel_flavor_team    = 0x80;   // §mobile 6.3: a FLAG bit OR-ed into the M-frame flavor byte -> the frame is TEAM-scoped + carries a 4-B team_id tail (parse reads it). Low bits keep the flavor value; a non-team M has this clear -> byte-identical.
 
 // ---- Identity binding ------------------------------------------------------
 inline constexpr uint32_t id_bind_ttl_ms = 172800000;   // 48 h

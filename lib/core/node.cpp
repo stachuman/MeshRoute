@@ -279,7 +279,7 @@ bool Node::on_init(const NodeConfig& cfg) {
                                                                  : _cfg.beacon_period_ms);
         (void)_hal.after(static_cast<uint32_t>(_hal.rand_range(0, first_period)), kBeaconTimerId);
     }
-    if (_cfg.is_mobile && _cfg.mobile_autoregister) (void)_hal.after(0, kMobileDiscoverTimerId);   // §mobile 2b/console: kick the FSM (mobile + autoregister ON; OFF -> the app arms it via `mobile register`)
+    if (_cfg.is_mobile && (_cfg.mobile_autoregister || _cfg.team_id != 0)) (void)_hal.after(0, kMobileDiscoverTimerId);   // §mobile 2b/console: kick the FSM (autoregister ON; OFF -> the app arms it via `mobile register`). §6.4: a TEAM member ALSO kicks it regardless of the toggle so team-DAD runs (the FSM's discover-start fires team_dad_fire; a persisted _team_local_id makes it a no-op).
     // Periodic route-aging sweep (dv_dual_sf.lua:9080-9086).
     (void)_hal.after(_cfg.rt_aging_check_period_ms, kAgingTimerId);
     // REQ_SYNC bootstrap (dv_dual_sf.lua:9166-9175): after a listen window, broadcast a REQ_SYNC Q
@@ -299,6 +299,8 @@ bool Node::on_init(const NodeConfig& cfg) {
 void Node::clear_routing_state() {
     for (uint8_t i = 0; i < _n_layers; ++i) {
         _layers[i]._rt_count   = 0;          // routes
+        _layers[i]._rt_team_count = 0;       // §mobile 6.2: the TEAM plane too — a reprovision may change team_id; a stale _rt_team + _team_peer bit would SHADOW the fresh static plane (rt_find dispatches on is_team_peer with no _rt fallback).
+        for (auto& v : _layers[i]._team_peer) v = 0;   // §6.2: scrub the set-only team-peer bitset (mirror the _mobile_peer clear in clear_learned_state)
         _layers[i]._id_bind_n  = 0;          // id -> key bindings (old neighbours)
         _layers[i]._deferred_n = 0;          // parked no-route sends
         _layers[i]._drain_armed = false;
@@ -756,6 +758,7 @@ void Node::on_timer(uint32_t timer_id) {
     case kMobileDiscoverTimerId:  mobile_discover_fire();  break;   // §mobile 2b: registration FSM (armed only for a mobile)
     case kMobileClaimGuardTimerId: mobile_claim_guard_fire(); break;
     case kMobileLayerQueryTimerId: mobile_layer_query_fire(); break;   // §mobile 5a: pull the layer directory from a gateway
+    case kTeamDadGuardTimerId:     team_dad_guard_fire();     break;   // §mobile 6.4: team-DAD guard window close -> confirm _team_local_id
     case kMBcastClearTimerId:                                       // M-broadcast fire-and-forget: clear the flight (no ACK)
         if (_active->_pending_tx && _active->_pending_tx->m_broadcast) { _active->_pending_tx.reset(); become_free(); }
         break;

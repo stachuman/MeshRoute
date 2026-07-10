@@ -2594,6 +2594,127 @@ TEST_CASE("§mobile Part 2 Fix 6 — a mobile with a crypto identity pushes its 
     CHECK_FALSE(h2.saw_emit("mobile_pubkey_push"));   // ★ no identity -> no push
 }
 
+TEST_CASE("§mobile 6.4 — team-DAD self-assigns a persistent _team_local_id (no host); the guard confirms; a non-team node is a no-op") {
+    StubHal hal; Node mob(hal, 0, 0xAAAAu);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.team_id=0xABCD1234u; CHECK(mob.on_init(cfg));
+    CHECK(mob.team_local_id() == 0);
+    mob.team_dad_fire();
+    CHECK(mob.team_local_id() >= 17);                         // ★ self-assigned a normal team-plane id, NO static host
+    CHECK(hal.armed[77]);                                     // the guard window (kTeamDadGuardTimerId=77) is armed
+    CHECK(hal.saw_emit("team_dad_claim"));
+    // ★ the claim beacon is EMITTED NOW (src=_team_local_id), not deferred to a triggered-beacon (which is a mobile no-op)
+    { auto cb = parse_beacon(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len));
+      CHECK(cb.has_value()); if (cb) CHECK(cb->src == mob.team_local_id()); }
+    hal.emits.clear();
+    mob.on_timer(77);
+    CHECK(hal.saw_emit("team_dad_adopted"));                  // ★ no same-team conflict during the window -> confirmed
+    // a non-team node -> team_dad_fire is a no-op
+    StubHal h2; Node stat(h2, 5, 0x5555u); NodeConfig c2; c2.routing_sf=8; c2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c2.leaf_id=4; CHECK(stat.on_init(c2));
+    stat.team_dad_fire();
+    CHECK(stat.team_local_id() == 0);
+}
+
+TEST_CASE("§mobile 6.4 — an OFF-GRID team member self-provisions node_id = _team_local_id (so the existing mobile link-layer carries team DMs); beacon src = team id; a static beacon src=node_id") {
+    StubHal hal; Node mob(hal, 0, 0xAAAAu);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.team_id=0xABCD1234u; CHECK(mob.on_init(cfg));
+    CHECK(mob.node_id() == 0);                                // pre-DAD: unprovisioned (no static host, no team id yet)
+    mob.team_dad_fire();
+    const uint8_t tid = mob.team_local_id();
+    CHECK(mob.node_id() == tid);                              // ★ §6.4 Option X: off-grid, the team-DAD'd id IS the node_id -> the whole mobile link-layer delivers team unicast DMs
+    mob.test_emit_beacon("periodic");
+    CHECK(hal.last_tx_len > 0);                               // ★ it DID beacon (provisioned on the off-grid team plane)
+    auto pb = parse_beacon(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len));
+    CHECK(pb.has_value());
+    if (pb) { CHECK(pb->src == tid); CHECK(pb->is_mobile); }  // ★ src = _team_local_id (== node_id off-grid)
+    // a static node -> src = node_id (unchanged)
+    StubHal h2; Node stat(h2, 30, 0x3030u); NodeConfig c2; c2.routing_sf=8; c2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c2.leaf_id=4; CHECK(stat.on_init(c2));
+    stat.test_emit_beacon("periodic");
+    auto sb = parse_beacon(std::span<const uint8_t>(h2.last_tx, h2.last_tx_len));
+    CHECK(sb.has_value());
+    if (sb) CHECK(sb->src == 30);
+}
+
+TEST_CASE("§mobile 6.4 — team-DAD DEFENSE: a same-team claim of our CONFIRMED id -> DENY; TENTATIVE -> re-pick; other-team -> ignore") {
+    auto mk_team_bcn = [](uint8_t src, uint32_t key, uint32_t team, std::array<uint8_t,64>& buf) -> size_t {
+        uint8_t ext[8]; size_t en = pack_team_id_tlv(team, std::span<uint8_t>(ext, sizeof ext));
+        beacon_in in{}; in.leaf_id=4; in.src=src; in.key_hash32=key; in.is_mobile=true; in.ext=std::span<const uint8_t>(ext, en);
+        return pack_beacon(in, std::span<uint8_t>(buf.data(), buf.size())); };
+    const RxMeta m{8.0f,-80.0f,0,static_cast<int8_t>(-1)};
+    // (a) CONFIRMED + a same-team claim (different key) -> DENY (defend), keep our id
+    { StubHal hal; Node mob(hal, 0, 0xAAAAu);
+      NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.team_id=0xABCD1234u; CHECK(mob.on_init(cfg));
+      mob.team_dad_fire(); mob.on_timer(77);                 // confirm
+      const uint8_t tid = mob.team_local_id(); hal.emits.clear();
+      std::array<uint8_t,64> b{}; size_t bn = mk_team_bcn(tid, 0xBBBBu, 0xABCD1234u, b);
+      mob.on_recv(b.data(), bn, m);
+      CHECK(hal.saw_emit("team_dad_defense"));
+      CHECK(mob.team_local_id() == tid); }
+    // (b) TENTATIVE (guard open) + a same-team claim -> yield + re-pick a DIFFERENT id
+    { StubHal hal; Node mob(hal, 0, 0xAAAAu);
+      NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.team_id=0xABCD1234u; CHECK(mob.on_init(cfg));
+      mob.team_dad_fire();
+      const uint8_t tid = mob.team_local_id(); hal.emits.clear();
+      std::array<uint8_t,64> b{}; size_t bn = mk_team_bcn(tid, 0xBBBBu, 0xABCD1234u, b);
+      mob.on_recv(b.data(), bn, m);
+      CHECK(hal.saw_emit("team_dad_repick"));
+      CHECK(mob.team_local_id() != tid); CHECK(mob.team_local_id() >= 17); }
+    // (c) a DIFFERENT-team beacon claiming our id -> NO defense (not our team plane)
+    { StubHal hal; Node mob(hal, 0, 0xAAAAu);
+      NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.team_id=0xABCD1234u; CHECK(mob.on_init(cfg));
+      mob.team_dad_fire(); mob.on_timer(77);
+      const uint8_t tid = mob.team_local_id(); hal.emits.clear();
+      std::array<uint8_t,64> b{}; size_t bn = mk_team_bcn(tid, 0xBBBBu, 0x99999999u, b);
+      mob.on_recv(b.data(), bn, m);
+      CHECK_FALSE(hal.saw_emit("team_dad_defense")); }
+    // (d) CONFIRMED but our key LOSES the tiebreak (claimant key < ours) -> WE re-pick (deterministic convergence, no dead DENY)
+    { StubHal hal; Node mob(hal, 0, 0xAAAAu);   // our key 0xAAAA
+      NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.team_id=0xABCD1234u; CHECK(mob.on_init(cfg));
+      mob.team_dad_fire(); mob.on_timer(77);
+      const uint8_t tid = mob.team_local_id(); hal.emits.clear();
+      std::array<uint8_t,64> b{}; size_t bn = mk_team_bcn(tid, 0x1111u, 0xABCD1234u, b);   // claimant key 0x1111 < our 0xAAAA -> we lose
+      mob.on_recv(b.data(), bn, m);
+      CHECK(hal.saw_emit("team_dad_repick"));
+      CHECK(mob.team_local_id() != tid); }
+}
+
+TEST_CASE("§mobile 6.4 — a static registration moves node_id but leaves _team_local_id / team_id intact (dual plane)") {
+    StubHal hal; Node mob(hal, 0, 0xAAAAu);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.team_id=0xABCD1234u; CHECK(mob.on_init(cfg));
+    mob.team_dad_fire(); mob.on_timer(77);
+    const uint8_t tid = mob.team_local_id();
+    CHECK(tid >= 17);
+    mob.set_identity(42, 0xAAAAu);                            // simulate the static CLAIM adopt (home-assigned id 42)
+    CHECK(mob.node_id() == 42);                               // ★ static plane moved
+    CHECK(mob.team_local_id() == tid);                       // ★ team plane UNCHANGED
+    CHECK(mob.config().team_id == 0xABCD1234u);              // team_id intact
+}
+
+TEST_CASE("§mobile 6.4 — an OFF-GRID team SWITCH / leave-then-rejoin re-provisions node_id to the NEW team id (Option X invariant survives the console clearing _team_local_id)") {
+    // (A) direct switch team-A -> team-B (mirrors handle_team: pre-zero _team_local_id, set new team_id, re-DAD)
+    { StubHal hal; Node mob(hal, 0, 0xAAAAu);
+      NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.team_id=0xAAAA1111u; CHECK(mob.on_init(cfg));
+      mob.team_dad_fire();
+      const uint8_t tid_a = mob.team_local_id();
+      CHECK(mob.node_id() == tid_a);                         // off-grid: node_id == team id (Option X)
+      mob.set_team_local_id(0);                              // handle_team pre-zeroes the stale team-DAD id...
+      mob.mutable_config().team_id = 0xBBBB2222u;            // ...then joins team-B...
+      mob.team_dad_fire();                                   // ...and re-DADs. old_tid is now 0, but !_my_mobile_reg.active still moves node_id.
+      const uint8_t tid_b = mob.team_local_id();
+      CHECK(tid_b >= 17);
+      CHECK(mob.node_id() == tid_b);                         // ★ node_id MOVED to the new team id (NOT the stale tid_a) -> the team-DM handshake src matches the beacon src
+    }
+    // (B) leave (team 0) then rejoin a different team
+    { StubHal hal; Node mob(hal, 0, 0xCCCCu);
+      NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.team_id=0xAAAA1111u; CHECK(mob.on_init(cfg));
+      mob.team_dad_fire();
+      mob.set_team_local_id(0);                              // `team 0` (leave)
+      mob.mutable_config().team_id = 0xBBBB2222u;            // `team <B>` (rejoin)
+      mob.team_dad_fire();
+      CHECK(mob.team_local_id() >= 17);
+      CHECK(mob.node_id() == mob.team_local_id());           // ★ Option X invariant restored after leave-then-rejoin
+    }
+}
+
 TEST_CASE("§mobile 4b — breadcrumb: re-homing H1->H2 emits a BREADCRUMB to H1 (SOURCE_HASH=M); a first registration -> none") {
     StubHal hal; Node mob(hal, 0, 0x9999u);
     NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; CHECK(mob.on_init(cfg));

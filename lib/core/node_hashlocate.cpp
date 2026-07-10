@@ -818,7 +818,8 @@ void Node::emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey) {
     in.leaf_id = _cfg.leaf_id; in.origin = _node_id; in.key_hash32 = key_hash32;
     in.ttl = protocol::hash_query_max_ttl; in.hard = hard; in.want_pubkey = want_pubkey;
     if (want_pubkey) for (int i = 0; i < 32; ++i) in.requester_ed_pub[i] = _ed_pub[i];   // §2: attach our pubkey so the owner caches us (mutual)
-    uint8_t buf[8 + 32];                                         // §2: a WANT_PUBKEY H is 40 B (8 hdr + 32 pubkey)
+    if (_cfg.is_mobile && _cfg.team_id != 0) { in.team_scoped = true; in.team_id = _cfg.team_id; }   // §mobile 6.2 Fix 5: a team member's locate is TEAM-scoped -> a same-team target answers directly (its local id, for the team plane); others fall through to the home/normal answer. team_id==0 (static/lone) -> unset -> byte-identical H.
+    uint8_t buf[8 + 32 + 4];                                     // §2: WANT_PUBKEY H = 40 B; §mobile 6.2: +4 B team_id (a team_scoped WANT_PUBKEY is 44 B)
     const size_t n = pack_h(in, std::span<uint8_t>(buf, sizeof(buf)));
     if (n == 0) return;
     MR_TELEMETRY(

@@ -202,6 +202,120 @@ TEST_CASE("DATA-M ingest: a received channel msg is admitted + buffered; a gatew
     //  so a single-layer node is NEVER a channel gateway — the gw_env consumer/provider/pure-bridge role is gone.)
 }
 
+// ============================ §mobile 6.3 — team channel =====================================
+
+TEST_CASE("§mobile 6.3 — team M-frame codec: team_id round-trips (BE, 11-B hdr); a non-team M is 7-B byte-identical") {
+    const uint8_t body[3] = { 'h', 'i', '!' };
+    // non-team (flavor without the team bit) -> 7-B header, byte-identical to today
+    { m_in in{}; in.leaf_id = 2; in.channel_id = 5; in.flavor = protocol::channel_flavor_public;
+      in.channel_msg_id = 0x11223344u; in.body = std::span<const uint8_t>(body, 3);
+      std::array<uint8_t, 32> b{}; size_t n = pack_m(in, std::span<uint8_t>(b.data(), b.size()));
+      CHECK(n == 7 + 3);
+      auto o = parse_m(std::span<const uint8_t>(b.data(), n));
+      CHECK(o.has_value());
+      if (o) { CHECK(o->team_id == 0); CHECK(o->channel_msg_id == 0x11223344u); CHECK(o->body.size() == 3); } }
+    // team (flavor has the team bit) -> 11-B header + team_id (BIG-endian at bytes 7..10)
+    { m_in in{}; in.leaf_id = 2; in.channel_id = 5;
+      in.flavor = static_cast<uint8_t>(protocol::channel_flavor_public | protocol::channel_flavor_team);
+      in.channel_msg_id = 0x11223344u; in.team_id = 0xABCD1234u; in.body = std::span<const uint8_t>(body, 3);
+      std::array<uint8_t, 32> b{}; size_t n = pack_m(in, std::span<uint8_t>(b.data(), b.size()));
+      CHECK(n == 11 + 3);
+      CHECK(b[7] == 0xAB); CHECK(b[8] == 0xCD); CHECK(b[9] == 0x12); CHECK(b[10] == 0x34);   // team_id BE
+      auto o = parse_m(std::span<const uint8_t>(b.data(), n));
+      CHECK(o.has_value());
+      if (o) { CHECK(o->team_id == 0xABCD1234u); CHECK((o->flavor & protocol::channel_flavor_team));
+               CHECK(o->body.size() == 3); CHECK(o->body[0] == 'h'); }
+      // a truncated team frame (team flag set, < 11 B) -> nullopt (no OOB read of the team_id)
+      CHECK_FALSE(parse_m(std::span<const uint8_t>(b.data(), 9)).has_value()); }
+}
+
+TEST_CASE("§mobile 6.3 — ingest team gate: same-team ingests; static + other-team drop; a non-team leaf M is ingested by all (planes=both)") {
+    const uint8_t body[2] = { 'h', 'i' };
+    const uint32_t T = 0xABCD1234u, U = 0x00009999u;
+    auto mk_team = [&](uint32_t id, uint32_t team) {
+        m_out m = mk_m(id, /*ch=*/5, static_cast<uint8_t>(protocol::channel_flavor_public | protocol::channel_flavor_team), body, 2);
+        m.team_id = team; return m; };
+    const uint32_t id = Node::channel_msg_id_mint(9, 0x1u, 1);
+    // (a) static node + team frame -> DROPPED
+    { TestHal hal; Node n(hal, 2, 0xBEEFu); NodeConfig c = basic_cfg(); n.on_init(c);
+      n.ingest_channel_m(mk_team(id, T), 9); CHECK(n.channel_buffer_count() == 0); }
+    // (b) team-T member + team-T frame -> BUFFERED
+    { TestHal hal; Node n(hal, 2, 0xBEEFu); NodeConfig c = basic_cfg(); c.is_mobile = true; c.team_id = T; n.on_init(c);
+      n.ingest_channel_m(mk_team(id, T), 9); CHECK(n.channel_buffer_count() == 1); }
+    // (c) team-T member + team-U frame -> DROPPED (a different team)
+    { TestHal hal; Node n(hal, 2, 0xBEEFu); NodeConfig c = basic_cfg(); c.is_mobile = true; c.team_id = T; n.on_init(c);
+      n.ingest_channel_m(mk_team(id, U), 9); CHECK(n.channel_buffer_count() == 0); }
+    // (d) team-T member + a NON-team leaf frame -> BUFFERED (★ planes=both: a team member still hears the leaf channel)
+    { TestHal hal; Node n(hal, 2, 0xBEEFu); NodeConfig c = basic_cfg(); c.is_mobile = true; c.team_id = T; n.on_init(c);
+      n.ingest_channel_m(mk_m(id, 5, protocol::channel_flavor_public, body, 2), 9); CHECK(n.channel_buffer_count() == 1); }
+    // (e) static node + a non-team leaf frame -> BUFFERED (unchanged)
+    { TestHal hal; Node n(hal, 2, 0xBEEFu); NodeConfig c = basic_cfg(); n.on_init(c);
+      n.ingest_channel_m(mk_m(id, 5, protocol::channel_flavor_public, body, 2), 9); CHECK(n.channel_buffer_count() == 1); }
+}
+
+TEST_CASE("§mobile 6.3 — a team member's channel post emits a mobile_src RTS-M + a team_id M-frame; a static post does neither") {
+    // team member: the FLOOD RTS-M carries mobile_src, the M-frame carries team_id
+    { TestHal hal; Node n(hal, 3, 0x1234ABCDu); NodeConfig c = basic_cfg(); c.is_mobile = true; c.team_id = 0xABCD1234u; n.on_init(c);
+      const CmdResult r = send_channel(n, 7, "team-hi"); CHECK(r.code == CmdCode::queued);
+      const std::vector<uint8_t>* rts = hal.last_tx_cmd(0x1);   // the FLOOD RTS-M
+      CHECK(rts != nullptr);
+      if (rts) { auto pr = parse_rts(std::span<const uint8_t>(rts->data(), rts->size())); CHECK(pr.has_value()); if (pr) CHECK(pr->mobile_src); }
+      drain_originate_flood(n);                                 // fire the M-frame on the data SF
+      const std::vector<uint8_t>* mf = hal.last_tx_cmd(0xA);
+      CHECK(mf != nullptr);
+      if (mf) { auto pm = parse_m(std::span<const uint8_t>(mf->data(), mf->size())); CHECK(pm.has_value());
+                if (pm) { CHECK(pm->team_id == 0xABCD1234u); CHECK((pm->flavor & protocol::channel_flavor_team)); } } }
+    // static node: no mobile_src, no team_id (byte-identical origination)
+    { TestHal hal; Node n(hal, 3, 0x1234ABCDu); NodeConfig c = basic_cfg(); n.on_init(c);
+      CHECK(send_channel(n, 7, "hi").code == CmdCode::queued);
+      const std::vector<uint8_t>* rts = hal.last_tx_cmd(0x1);
+      if (rts) { auto pr = parse_rts(std::span<const uint8_t>(rts->data(), rts->size())); if (pr) CHECK_FALSE(pr->mobile_src); }
+      drain_originate_flood(n);
+      const std::vector<uint8_t>* mf = hal.last_tx_cmd(0xA);
+      if (mf) { auto pm = parse_m(std::span<const uint8_t>(mf->data(), mf->size())); if (pm) CHECK(pm->team_id == 0); } }
+}
+
+TEST_CASE("§mobile 6.3 — a static / non-team node does NOT participate in a TEAM (mobile_src) channel flood; a team member does") {
+    uint8_t bm[32] = {};   // empty coverage (the receiver is not marked)
+    const uint32_t id = Node::channel_msg_id_mint(9, 0x1u, 1);
+    auto mk_team_flood = [&](std::array<uint8_t,64>& b) {
+        rts_in in{}; in.leaf_id = 0; in.src = 9; in.next = 0xFF; in.ctr_lo = static_cast<uint8_t>(id & 0x0F);
+        in.dst = 3 /*hop_left*/; in.sf_index = 0; in.rts_flags = static_cast<uint8_t>(RTS_FLAG_M_BROADCAST | RTS_FLAG_FLOOD);
+        in.payload_len = 8; in.flood_channel_msg_id = id; in.flood_bitmap = std::span<const uint8_t>(bm, 32); in.mobile_src = true;
+        return pack_rts(in, std::span<uint8_t>(b.data(), b.size())); };
+    // static node -> skips: never arms the overhear retune (so it never buffers/re-floods the team message)
+    { TestHal hal; Node n(hal, 2, 0xBEEFu); NodeConfig c = basic_cfg(); n.on_init(c);
+      std::array<uint8_t,64> b{}; size_t bn = mk_team_flood(b);
+      n.on_recv(b.data(), bn, meta_at(1000));
+      CHECK(hal.count("channel_overhear_armed") == 0); }       // ★ did not participate in the team flood
+    // team member -> participates: arms the overhear retune to catch the M-frame
+    { TestHal hal; Node n(hal, 2, 0xBEEFu); NodeConfig c = basic_cfg(); c.is_mobile = true; c.team_id = 0xABCD1234u; n.on_init(c);
+      std::array<uint8_t,64> b{}; size_t bn = mk_team_flood(b);
+      n.on_recv(b.data(), bn, meta_at(1000));
+      CHECK(hal.count("channel_overhear_armed") == 1); }       // ★ participating
+}
+
+TEST_CASE("§mobile 6.3 — the overhear-retune window sizes for the +4-B team M-frame (mobile_src) so it isn't dropped at high SF") {
+    uint8_t bm[32] = {}; bm_set(bm, 5);
+    const uint32_t id = Node::channel_msg_id_mint(9, 0x1u, 1);
+    // A team member catches a FLOOD RTS-M; return the armed overhear-retune delay. mobile_src=true is a TEAM frame
+    // (+4-B team_id tail on the M-frame); mobile_src=false is a plain leaf frame (7-B). Same body/SF -> the team
+    // window MUST be larger (it accounts for the extra 4 header bytes), else the team M-frame drops at data SF>=10.
+    auto arm_delay = [&](bool mobile_src) -> uint32_t {
+        TestHal hal; Node n(hal, 2, 0xBEEFu); NodeConfig c = basic_cfg(); c.is_mobile = true; c.team_id = 0xABCD1234u; n.on_init(c);
+        std::array<uint8_t,64> b{}; rts_in in{}; in.leaf_id=0; in.src=9; in.next=0xFF; in.ctr_lo=static_cast<uint8_t>(id & 0x0F);
+        in.dst=3; in.sf_index=0; in.rts_flags=static_cast<uint8_t>(RTS_FLAG_M_BROADCAST | RTS_FLAG_FLOOD);
+        in.payload_len=20; in.flood_channel_msg_id=id; in.flood_bitmap=std::span<const uint8_t>(bm,32); in.mobile_src=mobile_src;
+        size_t bn = pack_rts(in, std::span<uint8_t>(b.data(), b.size()));
+        n.on_recv(b.data(), bn, meta_at(1000));
+        for (const auto& t : hal.timers) if (t.first == kOverhearRetuneTimerId) return t.second;
+        return 0; };
+    const uint32_t team_delay = arm_delay(true);
+    const uint32_t plain_delay = arm_delay(false);
+    CHECK(team_delay > 0); CHECK(plain_delay > 0);
+    CHECK(team_delay > plain_delay);   // ★ the team window accounts for the +4-B team_id tail
+}
+
 TEST_CASE("DATA-M ingest pushes a channel_recv to the app (origin/channel_id/body); dup raises no 2nd push") {
     const uint8_t body[] = { 'h', 'i' };
     TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);
