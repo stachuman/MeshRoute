@@ -331,7 +331,11 @@ void Node::rts_timeout_fire() {
         (void)_hal.after(static_cast<uint32_t>(jit), kRetryBackoffTimerId);
         ++_active->_pending_tx->retry_attempt;
     } else {
-        record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo);   // §P1: same-hop RTS giveup = liveness evidence
+        // §mobile (plane-separation re-audit): a mobile/team flight's next-hop is a LOCAL id -> keep it OUT of the static
+        // _peer_liveness plane (else a §18-colliding static node gets suspected/DEAD-marked from a mobile flight's timeout,
+        // penalising its real route via liveness_penalty_q4). Mirror the RX-side learn/blind guards.
+        if (!(_active->_pending_tx->addr_len == 1 || is_team_peer(_active->_pending_tx->next)))
+            record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo);   // §P1: same-hop RTS giveup = liveness evidence
         cascade_to_alt("rts_giveup");                    // same-hop retries exhausted -> walk to an alternate (§P3: + RREQ if it's silent)
     }
 }
@@ -356,7 +360,9 @@ void Node::ack_timeout_fire() {
         (void)_hal.after(static_cast<uint32_t>(jit), kRetryBackoffTimerId);
         ++_active->_pending_tx->retry_attempt;
     } else {
-        record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo);   // §P1: same-hop ACK giveup = liveness evidence
+        // §mobile (plane-separation re-audit): a mobile/team LOCAL-id next-hop must not enter the static _peer_liveness plane.
+        if (!(_active->_pending_tx->addr_len == 1 || is_team_peer(_active->_pending_tx->next)))
+            record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo);   // §P1: same-hop ACK giveup = liveness evidence
         cascade_to_alt("data_ack_giveup");               // same-hop retries exhausted -> walk to an alternate (§P3: + RREQ if it's silent)
     }
 }

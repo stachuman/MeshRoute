@@ -1742,6 +1742,33 @@ TEST_CASE("§mobile — H mobile_req + NACK mobile_to wire bits round-trip (back
       if (o) { CHECK_FALSE(o->mobile_to); CHECK(o->ctr_lo == 0x0A); } }
 }
 
+// §18 plane-separation re-audit (spec §9.5): a mobile/team flight whose next-hop is a LOCAL id must not pollute the STATIC
+// liveness plane when it TIMES OUT (the class the RX-only audit missed — the write is in the timer handler, node_cascade.cpp).
+// This is the test that would have caught it. FALSIFIABILITY control below.
+TEST_CASE("§18 — a TEAM flight's LOCAL-id next-hop timing out does NOT suspect the static _peer_liveness plane; a static flight DOES (control)") {
+    // (leak path) a team node with a TEAM peer at LOCAL id 40; a team DM to 40 that gives up must NOT record liveness on 40
+    TestHal hal;
+    Node node(hal, /*id=*/30, /*key=*/0x3030u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=0xABCD1234u; CHECK(node.on_init(cfg));
+    uint8_t ext[8]; size_t en = pack_team_id_tlv(0xABCD1234u, std::span<uint8_t>(ext, sizeof ext));
+    beacon_in tb{}; tb.leaf_id=0; tb.src=40; tb.key_hash32=0x4040u; tb.is_mobile=true; tb.ext=std::span<const uint8_t>(ext, en);
+    std::array<uint8_t,64> b{}; size_t bn = pack_beacon(tb, std::span<uint8_t>(b.data(), b.size()));
+    node.on_recv(b.data(), bn, RxMeta{12.0f,-70.0f,0,static_cast<int8_t>(40)});
+    CHECK(node.is_team_peer(40));
+    CHECK(node.peer_suspect_level(40) == 0);
+    send_cmd(node, /*dst=*/40, "hi");                 // team DM -> RTS to 40 (addr_len=1, is_team_peer)
+    exhaust_rts_same_hop(node);                       // same-hop retries exhausted -> the giveup path (guarded record_peer_rts_timeout)
+    // ★ 40 (a team LOCAL id) is NOT suspected. FALSIFIABILITY: revert the node_cascade.cpp guard -> record_peer_rts_timeout(40)
+    //   fires -> peer_suspect_level(40) >= 1 -> this CHECK FAILS. (Same shape guards _link_bidi / _blind_until / budget.)
+    CHECK(node.peer_suspect_level(40) == 0);
+    // (positive control) a STATIC flight's GLOBAL next-hop IS suspected -> the guard is scoped to local-id flights, not a blanket skip
+    TestHal h2; Node* stat = mk_sender_with_routes(h2, {{2,1,14}});   // static node, dest 5 via global next 2
+    send_cmd(*stat, /*dst=*/5, "hi");
+    exhaust_rts_same_hop(*stat);
+    CHECK(stat->peer_suspect_level(2) >= 1);          // a static next-hop giveup DOES record liveness evidence (proves teeth)
+    delete stat;
+}
+
 TEST_CASE("② implicit-ACK — overhearing the next-hop forward our DATA cancels the pending flight (dv:9863)") {
     TestHal hal;
     Node* node = mk_sender_with_routes(hal, {{2,1,14},{3,2,14}});   // dest 5 via 2 (primary) + 3 (alt)

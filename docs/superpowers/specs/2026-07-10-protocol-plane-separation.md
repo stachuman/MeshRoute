@@ -65,6 +65,16 @@ Every place a received frame writes peer/id/route/dedup/anti-spam state was audi
 | `node_join.cpp` static-CLAIM defense (grep `if (_cfg.is_mobile) return;` in the claim branch) | DENY / id_bind | a mobile never defends its local id vs a static CLAIM |
 | `node_hashlocate.cpp` WANT_PUBKEY id_bind (grep `if (!h.team_scoped && !h.mobile_req)`) | `id_bind` | skip for a team-scoped or `mobile_req` requester |
 
+**Re-audit-by-plane additions (liveness / bidi / budget / blind — the sibling writes the by-mutator sweep missed; see `2026-07-10-plane-separation-addendum-reaudit.md`):** the predicate here is the FLIGHT's next-hop being a LOCAL id = `_pending_tx->addr_len==1 \|\| is_team_peer(_pending_tx->next)`.
+
+| `node_mac_rx.cpp` DATA anti-spam (grep `track_originator_observation(_active->_pending_rx->from`) | ledger | `!_pending_rx->mobile_from` |
+| `node_mac_rx.cpp` `note_link_confirmed(c.tx_id)` (CTS) | `_link_bidi[]` | `!(addr_len==1 \|\| is_team_peer(next))` |
+| `node_mac_rx.cpp` `mark_neighbor_budget_tier` (ACK & NACK) | budget-tier | `!(addr_len==1 \|\| is_team_peer(next))` |
+| `node_mac_rx.cpp` `_blind_until[pt.next]` (BUSY_RX **and** HOP_BUDGET/BUDGET NACK) | `_blind_until` | `!(pt.addr_len==1 \|\| is_team_peer(pt.next))` |
+| `node_cascade.cpp` `record_peer_rts_timeout` (**rts_timeout_fire & ack_timeout_fire** — timer handlers, not RX) | `_peer_liveness` | `!(addr_len==1 \|\| is_team_peer(next))` |
+
+*(Related READs — no write, not a leak, documented not fixed: `compute_originator_metric(_pending_rx->from)` `node_mac_rx.cpp:454`; `liveness_penalty_q4(_pending_tx->next)` in the timeout cascade decision `node_cascade.cpp`. A §18 hit reads a stale/foreign entry → at most a suboptimal cascade/warn, never a plane write.)*
+
 **Deliver/for-me (invariant E):** `for_me_dst(dst)` = `dst == _node_id || (team && dst == _team_local_id)` (`node.h`) gates DATA deliver + hop-budget. ACK accept: `(mobile_to==1)==is_mobile` (`node_mac_rx.cpp` grep `k.mobile_to`). NACK accept: `(n.mobile_to==1)==is_mobile` (`handle_nack`). Route dispatch: `rt_find(dest)` dispatches to `_rt_team` when `is_team_peer(dest)` (`node_routing.cpp`).
 
 ---
@@ -112,11 +122,14 @@ Each is documented in-code and needs a wire change (a flag-day or a new bit) not
 ## 9. QA checklist
 
 1. **Grep each §4/§5 guard token** — confirm the guard is present and matches the predicate. A missing/weakened guard on any learn/bill/id_bind/dedup site is a break.
-2. **New frame types / learn sites** — any NEW site that writes peer/id/route/dedup/anti-spam state from a received frame MUST carry the local-id guard. This is the recurring regression class (a new namespace must thread through EVERY id decision).
+2. **Audit BY PLANE, not by mutator** — for EACH shared id-keyed structure (`_rt`, `_rt_team`, `_id_bind`, anti-spam ledger, `_seen_origins`, `_peer_liveness`, `_link_bidi[]`, `_blind_until`, budget-tier), grep EVERY mutator and confirm the local-id guard. The recurring regression: a handler guards its route-learn but a SIBLING write (liveness/bidi/budget/blind), sometimes in a **timer handler** (not RX), is one line away and keys on the same local id. This is what the addendum re-audit caught.
 3. **s18 byte-identity** — `lus -e meshroute simulation/s18_meshroute.json | md5sum` == `3ac88d40e00d2605ff66659f696d52bf`. Any drift means a mobile/team path is NOT properly gated on the static plane.
 4. **Marks default 0** — confirm every mark packs `0` for a static node (the source of the s18 invariant).
-5. **§18 collision traces** — for each of {RTS-learn, DATA-learn, CTS/ACK/NACK match, dedup, id_bind, deliver}, construct a trace where a team/mobile local id numerically equals a static global id and confirm no misroute/misdeliver/mis-bill.
+5. **§18 collision traces** — for each of {RTS-learn, DATA-learn, CTS/ACK/NACK match, dedup, id_bind, deliver, liveness/bidi/budget/blind}, construct a trace where a team/mobile local id numerically equals a static global id and confirm no misroute/misdeliver/mis-bill/mis-suspect.
 6. **Residual scope** — confirm the §8 residuals are still throttle/airtime-only (no path escalates them to a delivery/routing decision).
 
+### §9.5 — the realized §18-collision test (must have teeth)
+`test/test_node_r3.cpp` grep `§18 — a TEAM flight's LOCAL-id next-hop` — a team flight to a LOCAL id that numerically equals a static neighbour, timed out; asserts the static `_peer_liveness` is untouched, with a **positive control** (a static flight DOES suspect its global next) and a **falsifiability** note (reverting the guard makes it FAIL — verified). QA should extend it to `_link_bidi` / `_blind_until` / budget / dedup / ACK-NACK-consume collisions.
+
 ## 10. Gates (as of this doc)
-native **675/675** · s18 byte-identical · s07/s21/s09/s15 **0 assertion failures** · 4 boards SUCCESS. Regression tests: team-DM `mobile_src`, mobile-originator ACK acceptance, mobile-not-static-CLAIM, mobile-not-config-member, mobile-marked-Q-not-learned, H `mobile_req`/NACK `mobile_to` codec round-trip (`test/test_node_r3.cpp`, `test/test_dual_layer.cpp`).
+native **676/676** · s18 byte-identical `3ac88d40…` · s07/s21/s09/s15 **0 assertion failures** · 4 boards SUCCESS. Regression tests: team-DM `mobile_src`, mobile-originator ACK acceptance, mobile-not-static-CLAIM, mobile-not-config-member, mobile-marked-Q-not-learned, H `mobile_req`/NACK `mobile_to` codec round-trip, **§18 liveness-collision (falsifiability-verified)** (`test/test_node_r3.cpp`, `test/test_dual_layer.cpp`).

@@ -1169,7 +1169,10 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                 { .key = "reason", .type = EventField::T::i64, .i = protocol::nack_reason_busy_rx },
                                 { .key = "busy_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(busy_for) } };
             _hal.emit("nack_rx", rf, 3); );
-        if (busy_for > 0) {                                        // mark the peer blind, max-merge (dv:10627)
+        // §mobile (plane-separation re-audit): only blind a GLOBAL next-hop. A mobile/team LOCAL-id next (addr_len=1 /
+        // is_team_peer) must not write the static _blind_until plane (a §18-colliding static route would be blinded).
+        // Mirrors the OTHER blind guard (the HOP_BUDGET/BUDGET NACK path). Inert on s18 -> byte-identical.
+        if (busy_for > 0 && !(pt.addr_len == 1 || is_team_peer(pt.next))) {   // mark the peer blind, max-merge (dv:10627)
             const uint64_t until = now + busy_for;
             auto bit = _active->_blind_until.find(pt.next);
             _active->_blind_until[pt.next] = (bit != _active->_blind_until.end() && bit->second > until) ? bit->second : until;
