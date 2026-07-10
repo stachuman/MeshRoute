@@ -565,7 +565,12 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             bool req_zero = true; for (int i = 0; i < 32; ++i) if (h.requester_ed_pub[i]) { req_zero = false; break; }
             if (!req_zero && requester_hash != 0                       // review#15: never cache a zero/degenerate requester key
                 && peer_key_set(requester_hash, h.requester_ed_pub, PeerKeyConf::authoritative)) {
-                id_bind_set(h.origin, requester_hash, IdBindSource::h_query, IdBindConf::authoritative);   // review#3: the ADDRESSING half (seal-back w/o waiting for a beacon)
+                // review#3: the ADDRESSING half (seal-back w/o waiting for a beacon). §mobile: a MOBILE/TEAM requester's
+                // origin (h.mobile_req, or a team_scoped locate) is a LOCAL id -> do NOT id_bind it into the global plane;
+                // the KEY half (peer_key_set, hash-keyed) still runs, and the seal-back routes by hash via home / _rt_team.
+                // Only a STATIC requester (global id) is id_bound. Closes the WANT_PUBKEY local-id leak (was deferred Finding-2).
+                if (!h.team_scoped && !h.mobile_req)
+                    id_bind_set(h.origin, requester_hash, IdBindSource::h_query, IdBindConf::authoritative);
                 MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(requester_hash)), EF_I("node", h.origin));   // review#11: schema aligned with §7
                 Push pu{}; pu.kind = PushKind::peer_key_cached; pu.sender_hash = requester_hash; enqueue_push(pu);   // review#10: app-notify on device too
             }
@@ -595,6 +600,7 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     fwd.want_pubkey = h.want_pubkey;   // R4: PRESERVE the E2E pubkey-request flag so a multi-hop WANT_PUBKEY reaches the owner
     if (h.want_pubkey) for (int i = 0; i < 32; ++i) fwd.requester_ed_pub[i] = h.requester_ed_pub[i];   // §2: carry the requester's pubkey across the forward
     fwd.team_scoped = h.team_scoped; fwd.team_id = h.team_id;   // §mobile-team Fix 1b: PRESERVE team scope across a multi-hop forward, else a same_team mobile >1 hop away sees a plain query + stays silent (Fix 1). Inert today (no originator sets team_scoped -> byte-identical) until 6.2 turns it on.
+    fwd.mobile_req = h.mobile_req;   // §mobile: PRESERVE the "origin is a LOCAL id" mark across a multi-hop forward so the OWNER (>1 hop away) still skips the id_bind.
     uint8_t buf[8 + 32 + 4];           // §2: WANT_PUBKEY H is 40 B; §mobile-team: +4 B for team_id (a team_scoped WANT_PUBKEY is 44 B)
     const size_t n = pack_h(fwd, std::span<uint8_t>(buf, sizeof(buf)));
     if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
@@ -817,6 +823,7 @@ void Node::emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey) {
     h_in in{};
     in.leaf_id = _cfg.leaf_id; in.origin = _node_id; in.key_hash32 = key_hash32;
     in.ttl = protocol::hash_query_max_ttl; in.hard = hard; in.want_pubkey = want_pubkey;
+    in.mobile_req = _cfg.is_mobile;                              // §mobile: OUR origin (in.origin=_node_id) is a mobile/team LOCAL id -> tell the owner NOT to id_bind it (the seal-back caches by hash + routes via home/_rt_team). Static -> 0 -> byte-identical H.
     if (want_pubkey) for (int i = 0; i < 32; ++i) in.requester_ed_pub[i] = _ed_pub[i];   // §2: attach our pubkey so the owner caches us (mutual)
     if (_cfg.is_mobile && _cfg.team_id != 0) { in.team_scoped = true; in.team_id = _cfg.team_id; }   // §mobile 6.2 Fix 5: a team member's locate is TEAM-scoped -> a same-team target answers directly (its local id, for the team plane); others fall through to the home/normal answer. team_id==0 (static/lone) -> unset -> byte-identical H.
     uint8_t buf[8 + 32 + 4];                                     // §2: WANT_PUBKEY H = 40 B; §mobile 6.2: +4 B team_id (a team_scoped WANT_PUBKEY is 44 B)

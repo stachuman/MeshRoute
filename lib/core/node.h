@@ -337,6 +337,8 @@ struct PendingRx {                   // the receiver state awaiting DATA (one pe
     uint64_t expiry_ms = 0;          // absolute DATA-wait expiry (for the BUSY_RX NACK busy_for calc)
     bool     claimed_e2e_ack = false;// the RTS carried RTS_FLAG_E2E_ACK (backstop DROP exempted). Verified at DATA-time:
                                      // if the DATA is NOT a DATA_TYPE_E2E_ACK the sender lied -> flag it (e2e_ack_spoof).
+    bool     mobile_from = false;    // §mobile: the RTS was mobile_src -> `from` is a home-assigned LOCAL id, NOT a global
+                                     // identity -> the DATA-time learn (node_mac_rx.cpp) MUST NOT install it in the static _rt.
 };
 struct PostAck {                     // deferred deliver/forward after the ACK airtime
     bool     pending = false;
@@ -936,6 +938,7 @@ private:
     struct FloodState {
         bool     active = false;
         bool     awaiting_data = false;   // RTS-M seen, DATA-M not yet (fast-self-pull candidate)
+        bool     team_flood = false;      // §mobile 6.3: the RTS-M was mobile_src (a TEAM channel flood). The RTS carries no team_id (only the DATA-M does), so we CANNOT know if it is OUR team until the DATA-M -> do NOT fast-self-pull (would emit a CHANNEL_PULL for a possibly-FOREIGN team). ingest_channel_m team-gates the DATA-M + frees a foreign state.
         uint32_t id = 0;                  // channel_msg_id
         uint8_t  src = 0;                 // who relayed it to us (pull target / neighbour-learn)
         int16_t  rx_snr_q4 = 0;           // SNR of the winning RTS-M (drives the backoff)

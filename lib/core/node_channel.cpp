@@ -760,6 +760,7 @@ bool Node::handle_flood_rts(const rts_out& r, const uint8_t* in_bm, int16_t snr_
     // re-flood TTL — clamp to flood_hop_max so a crafted RTS-M can't inflate the flood horizon past the mesh diameter.
     const uint8_t wire_hop_left = r.dst > protocol::flood_hop_max ? protocol::flood_hop_max : r.dst;
     fs.awaiting_data = true; fs.src = r.src; fs.rx_snr_q4 = snr_q4; fs.hop_left = wire_hop_left;  // §3.1: dst slot = hop_left
+    fs.team_flood = r.mobile_src;                                // §mobile 6.3: a mobile_src RTS-M is a TEAM flood -> tag it so fast-self-pull DEFERS (team unknown until the DATA-M's team_id)
     for (uint8_t i = 0; i < 32; ++i) fs.bitmap[i] = in_bm[i];
     // FLOOD-DBG disabled 2026-06-23 (re-enable for bench diag): if (_hal.trace_on()) { char b[56]; snprintf(b, sizeof b, "flood %08lX caught RTS-M from %u, awaiting DATA-M", (unsigned long)id, (unsigned)r.src); _hal.log(b); }   // F (DEBUG): this node will TRY to catch the flood body
     return true;                                                 // fresh -> catch the DATA-M (retune in the caller)

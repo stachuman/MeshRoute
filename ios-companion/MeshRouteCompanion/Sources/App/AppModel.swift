@@ -32,6 +32,7 @@ final class AppModel {
     private(set) var joinInFlight = false            // optimistic "Joining…" between a join/create and config_adopted
     private(set) var joinRefusal: JoinRefusal?        // a banner when the node can't join (wire_version / leaf_full)
     private(set) var latestDuty: DutyStatus?          // D27: airtime-budget readout (from `duty` + `ready`)
+    private(set) var latestLimits: LimitsInfo?        // D29: anti-spam pacing snapshot (the app paces sends against it)
     private var routesAccumulator: [RouteInfo] = []   // fills during a `routes` stream, swapped in at routes_end
     var backend: Backend = defaultBackend
     // Navigation the notification-tap router drives (Messages = tab 0).
@@ -169,6 +170,12 @@ final class AppModel {
             setOutgoingState(ctr: ctr, to: .failed, reason: reason)   // "no_pubkey" → the bubble offers Request-key/Scan
         case .e2eAcked(let dst, let ctr, let senderHash):
             markDelivered(dst: dst, ctr: ctr, senderHash: senderHash)   // recipient confirmed end-to-end (live twin, D25)
+        case .sendBlocked(let kind, let reason, let nextMs):
+            handleSendBlocked(kind: kind, reason: reason, nextMs: nextMs)   // D29 anti-spam back-off
+        case .channelSent(let ctr, let relayed, let reason):
+            setOutgoingState(ctr: ctr, to: relayed ? .acked : .failed, reason: relayed ? nil : (reason ?? "no_relay"))   // D29 own channel-post outcome
+        case .limits(let l):
+            latestLimits = l
         case .peerKeyCached(let hash, _):
             markKeyReady(for: hash)                                   // failed-no_pubkey DMs to this hash → "secure resend"
         case .peerKeySet, .peerKeyError, .reqPubkeySent:
@@ -275,6 +282,24 @@ final class AppModel {
         if let h = senderHash, h != 0 { return m.threadHash == h }            // cross-layer: the stable key
         if m.threadHash == UInt32(clamping: dst) { return true }              // id-thread (threadHash == the short id)
         return node(for: KeyHash(m.threadHash))?.lastKnownID == dst          // hash-thread bound to that id
+    }
+
+    /// A send was blocked pre-TX by this node's own anti-spam cap/floor (D29). It never got a `queued` ack, so
+    /// free the FIFO slot (like `attachAck`), mark the message paused, and auto-retry after the back-off.
+    private func handleSendBlocked(kind: String, reason: String, nextMs: Int) {
+        guard !pendingOutgoing.isEmpty else { return }
+        let id = pendingOutgoing.removeFirst()
+        guard let m = message(id: id) else { return }
+        m.stateRaw = DeliveryState.failed.rawValue
+        m.failReason = "blocked"
+        try? context.save()
+        scheduleAutoRetry(id: id, afterMs: nextMs > 0 ? nextMs : 5000)   // 0 = cap/duty block (time unknown) → a sane default
+    }
+    private func scheduleAutoRetry(id: UUID, afterMs: Int) {
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(min(max(afterMs, 500), 300_000)))
+            if let m = message(id: id), m.state == .failed, m.failReason == "blocked" { retry(m) }   // still paused → retry
+        }
     }
 
     /// A verified key for `hash` just arrived (peer_key_cached) → any failed "no_pubkey" DM to that contact can
@@ -501,10 +526,11 @@ final class AppModel {
     func refreshConfig() { sendCommand(.config) }
     func refreshRoutes() { routesAccumulator = []; sendCommand(.routes) }
     func refreshDuty()   { sendCommand(.duty) }        // D27: airtime-budget readout
+    func refreshLimits() { sendCommand(.limits) }      // D29: anti-spam pacing snapshot
     /// Pull everything the Node tab shows in one go (on appear / pull-to-refresh).
     func refreshNodeInfo() {
         guard isConnected else { return }
-        refreshStatus(); refreshConfig(); refreshRoutes(); refreshDuty()
+        refreshStatus(); refreshConfig(); refreshRoutes(); refreshDuty(); refreshLimits()
     }
 
     func sendRaw(_ line: String) {
@@ -776,6 +802,9 @@ func describe(_ inbound: Inbound) -> String {
     case .sendAcked(let d, let c):                 return "send_acked dst=\(d) ctr=\(c)"
     case .sendFailed(let d, let c, let r):         return "send_failed dst=\(d) ctr=\(c)\(r.map { " \($0)" } ?? "")"
     case .e2eAcked(let d, let c, let h):           return "e2e_acked dst=\(d) ctr=\(c)\(hex(h)) (delivered)"
+    case .sendBlocked(let k, let r, let n):        return "send_blocked \(k) \(r) next=\(n)ms"
+    case .channelSent(let c, let rel, let r):      return "channel_sent ctr=\(c) \(rel ? "relayed ✓" : "no_relay\(r.map { " (\($0))" } ?? "")")"
+    case .limits(let l):                           return "limits ch_next=\(l.chNextMs)ms dm_next=\(l.dmNextMs)ms"
     case .peerKeySet(let h, let p):                return "peerkey_set \(h.hex8)\(p ? " pinned" : "")"
     case .peerKeyError(let r):                     return "peerkey_err \(r)"
     case .reqPubkeySent(let h):                    return "reqpubkey_sent \(h.hex8)"

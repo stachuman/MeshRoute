@@ -245,8 +245,8 @@ std::span<const uint8_t> rts_flood_bitmap(std::span<const uint8_t> frame, const 
 //   byte 2 : payload   (reason-specific; encoded by the protocol layer, packed verbatim)
 //   byte 3 : to
 // payload is a u8 (0..255) so the Lua's clamp-to-[0,255] is satisfied by the type.
-struct nack_in  { uint8_t reason; uint8_t ctr_lo; uint8_t payload; uint8_t to; };
-struct nack_out { uint8_t reason; uint8_t ctr_lo; uint8_t payload; uint8_t to; };
+struct nack_in  { uint8_t reason; uint8_t ctr_lo; uint8_t payload; uint8_t to; bool mobile_to = false; };  // §mobile: mobile_to (byte-1 b0) — the `to` is a mobile/team LOCAL id (mirror the ACK's mobile_to). A colliding static id ignores it, the mobile accepts it.
+struct nack_out { uint8_t reason; uint8_t ctr_lo; uint8_t payload; uint8_t to; bool mobile_to = false; };
 size_t pack_nack(const nack_in& in, std::span<uint8_t> out);
 std::optional<nack_out> parse_nack(std::span<const uint8_t> frame);
 
@@ -291,13 +291,14 @@ std::optional<uint32_t> parse_q_channel_id(std::span<const uint8_t> frame,
 //              an authoritative correction; the verify-on-use escalation). soft (default) consults the cache.
 enum HFlag : uint8_t { H_FLAG_HARD = 0x01,
                        H_FLAG_WANT_PUBKEY = 0x02,     // E2E §6: request the owner's ed_pub (set WITH HARD; owner answers DATA TYPE 5)
-                       H_FLAG_TEAM = 0x04 };          // §mobile-team: a teammate's locate -> appends team_id (4 B); a registered mobile answers ONLY a same-team query (else the home proxies)
+                       H_FLAG_TEAM = 0x04,            // §mobile-team: a teammate's locate -> appends team_id (4 B); a registered mobile answers ONLY a same-team query (else the home proxies)
+                       H_FLAG_MOBILE_REQ = 0x08 };    // §mobile: the requester (origin) is a MOBILE/team member -> its origin is a LOCAL id, not a global identity. The owner-answerer MUST NOT id_bind it (a WANT_PUBKEY seal-back caches by hash + routes via home/_rt_team, never the static id-plane). Backward-compat rsv bit (old senders 0, old receivers ignore).
 // §2 mutual reqpubkey: when want_pubkey is set, the H frame APPENDS the requester's ed_pub[32] (so the owner caches
 // the requester + can decrypt its future sealed DMs). requester_ed_pub is meaningful ONLY when want_pubkey.
 struct h_in  { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; bool want_pubkey = false; uint8_t requester_ed_pub[32] = {};
-               bool team_scoped = false; uint32_t team_id = 0; };   // §mobile-team: appended team_id (4 B) iff team_scoped — a teammate's locate
+               bool team_scoped = false; uint32_t team_id = 0; bool mobile_req = false; };   // §mobile-team: appended team_id (4 B) iff team_scoped — a teammate's locate; mobile_req = origin is a LOCAL id (owner must not id_bind it)
 struct h_out { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; bool want_pubkey = false; uint8_t requester_ed_pub[32] = {};
-               bool team_scoped = false; uint32_t team_id = 0; };
+               bool team_scoped = false; uint32_t team_id = 0; bool mobile_req = false; };
 size_t pack_h(const h_in& in, std::span<uint8_t> out);            // 8, or 8+32=40 when want_pubkey; 0 on short buf
 std::optional<h_out> parse_h(std::span<const uint8_t> frame);     // nullopt: len<7 / cmd / (want_pubkey && len<40); hard+flags from byte 7
 

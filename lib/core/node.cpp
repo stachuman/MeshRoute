@@ -200,6 +200,11 @@ bool Node::on_init(const NodeConfig& cfg) {
                                            // loud, never silently single-layer. Build [env:gateway] (-DMR_N_LAYERS=2).
 #endif
     _cfg = cfg;
+    // §mobile Option A: a MOBILE is NEVER a leaf-config-plane member (it adopts only the host's PHY, never lineage/config —
+    // node_beacon.cpp membership exemption). Normalize UNMANAGED at init so (a) a mobile that adopted a lineage before this
+    // rule self-heals, and (b) a stale managed epoch can never leave it un-synced -> leaf_config_synced() true -> it can
+    // originate DMs. A mobile advertises lineage 0 (unmanaged) in its beacon. Inert for a static node (is_mobile false).
+    if (_cfg.is_mobile) { _cfg.lineage_id = 0; _cfg.config_epoch = 0; }
     // Slice 0: a single-layer node mirrors its legacy scalars into layers[0] (backward-compat until Slice 2a migrates
     // the readers). A GATEWAY (n_layers==2) supplies layers[0..1] explicitly, validated by the SHARED §3.2 gate —
     // the SAME predicate the `gateway` console command runs, so the command can never accept a config on_init refuses.
@@ -769,7 +774,7 @@ void Node::on_timer(uint32_t timer_id) {
         // resolve ALL of them — never strand an awaiting_data slot if that invariant is ever broken (2nd radio /
         // a retune-logic change), which would otherwise leak the slot until reboot. (Defense-in-depth.)
         for (uint8_t i = 0; i < protocol::cap_flood_pending; ++i)
-            if (_active->_flood[i].active && _active->_flood[i].awaiting_data) flood_fast_self_pull(i);
+            if (_active->_flood[i].active && _active->_flood[i].awaiting_data && !_active->_flood[i].team_flood) flood_fast_self_pull(i);   // §mobile 6.3: never fast-pull a TEAM flood (team unknown until the DATA-M) -> no CHANNEL_PULL for a possibly-foreign team
         break;
     case kJoinClaimGuardTimerId:  join_claim_guard_fire();         break;   // node_id DAD: guard elapsed -> adopt-or-deny
     case kJoinRetryTimerId:       join_start_claim("retry");       break;   // node_id DAD: re-claim after a lost claim/heal

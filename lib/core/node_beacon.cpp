@@ -470,14 +470,21 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                                           // advertises non-zero) -> peer by leaf nibble (legacy), no config gate.
         const uint16_t my_lineage = _cfg.lineage_id;
         const uint16_t my_hash    = cfg_config_hash();
-        if (b.self_gateway || b.is_mobile) {
+        if (b.self_gateway || b.is_mobile || _cfg.is_mobile) {
             // (B) leaf-side: peer with a gateway neighbour by nibble — empty body, fall through to route-learning.
             // (C) §mobile: a hosted mobile is NOT a config-plane member of this leaf — it adopts only the HOST's PHY
             //     (adopt_mobile_phy), never its lineage/duty/anti-spam/leaf_name, so its config_hash legitimately diverges.
             //     Exempt it from the membership gate (like a gateway) so its beacon reaches the mobility-bit learn + the
             //     hash-locate LIVENESS refresh below (line ~636). WITHOUT this exemption a managed/named/duty-limited home
             //     drops its own mobile's beacon here -> last_heard_ms never refreshes -> the mobile black-holes after
-            //     mobile_liveness_ms. b.is_mobile is false across the whole static suite -> s18/s09/s15 byte-identical.
+            //     mobile_liveness_ms.
+            // (C') §mobile Option A: WE are mobile (_cfg.is_mobile) -> we too are NOT a config-plane member. Exempt OURSELVES
+            //     so hearing a MANAGED leaf beacon does NOT adopt its lineage / fire a CONFIG_PULL (the :487 branch) and does
+            //     NOT enter the epoch-reconcile config-pull (:496+). A mobile stays UNMANAGED (its own/default config) + peers
+            //     by nibble + falls through to route-learning (so it still learns a route to its home). This is what keeps a
+            //     mobile OFF the static config plane — no CONFIG_PULL broadcast -> no local-id leak, and unmanaged => always
+            //     leaf_config_synced() => it can originate DMs (a stale managed epoch would otherwise BLOCK origination).
+            //     Both b.is_mobile and _cfg.is_mobile are false across the whole static suite -> s18/s09/s15 byte-identical.
         } else if (my_lineage == 0 && b.lineage_id == 0) {   // BOTH UNMANAGED -> legacy: peer iff config matches (§6.2 backward-compat)
             if (b.config_hash != my_hash) {
                 MR_EMIT("leaf_config_conflict", EF_I("src", b.src), EF_I("their_hash", static_cast<int64_t>(b.config_hash)),
@@ -693,6 +700,11 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         if (!pe) continue;
         const beacon_entry& e = *pe;
         if (e.dest == _node_id) continue;                 // split-horizon
+        // §mobile: a NON-team mobile beacon's SELF-advertised route (e.dest==b.src, the sender's own LOCAL id) bypasses
+        // route_uses_mobile_as_transit (its next_hop==dest = deliver-TO-a-mobile carve-out) and would install a mobile
+        // LOCAL id into the static _rt. Skip it (a same-team beacon's self-route is fine -> _rt_team; transit-through-mobile
+        // entries are still handled by route_uses_mobile_as_transit below). Latent today (a lone mobile emits n==0).
+        if (b.is_mobile && !same_team_beacon && e.dest == b.src) continue;
         if (e.next == _node_id) {                         // sender reaches e.dest via US (incl. e.next==0 when WE are unprovisioned)
             rt_prune_cycle(e.dest, b.src, merge_rt, merge_cnt);   // §6.2: prune in the same plane
             continue;

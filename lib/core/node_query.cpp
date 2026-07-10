@@ -59,6 +59,10 @@ void Node::send_req_sync_q(const char* reason, bool force) {
     // addressed to 0. A node REQ_SYNCs only once it has claimed a short id (boot discovery LISTENs + DADs first).
     // The force path (gw-relay no-route reactive pull) is gateway-only -> always id != 0, so it is unaffected.
     if (_node_id == 0) return;
+    // §mobile Option A: a MOBILE never route-bootstraps on the static plane — its src is a home-assigned LOCAL id (a REQ_SYNC
+    // broadcast would leak it into every static _rt, the dest=17 bench bug). A mobile reaches the mesh via its home (route
+    // learned from registration + beacons); it needs no full-table pull. The force path is gateway-only (never mobile).
+    if (_cfg.is_mobile) return;
     if (!force && !_cfg.req_sync_on_boot) return;
     const uint64_t now = _hal.now();
     if (_last_req_sync_tx_ms != 0 && (now - _last_req_sync_tx_ms) < protocol::req_sync_retry_ms) return;
@@ -94,7 +98,10 @@ void Node::handle_q(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (q.leaf_id != _cfg.leaf_id) return;                       // cross-network filter — drop foreign Q first
     // Learn the Q sender as a 1-hop neighbour (Lua learn_rx_source -> learn_direct_from_frame, which
     // fires the triggered beacon internally on a real learn; self / invalid id are no-ops inside).
-    if (learn_direct_neighbor(q.src, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
+    // §mobile: a mobile-marked Q's src is a home-assigned LOCAL id, NOT a global static identity -> NEVER learn it into
+    // the static _rt (a mobile is reached via home_id+hash; a local id §18-collides a static id + goes stale as it roams).
+    // Mirrors the RTS guard node_mac_rx.cpp:47 (`!r.mobile_src`). q.mobile==false for a static Q -> unchanged (s18 byte-identical).
+    if (!q.mobile && learn_direct_neighbor(q.src, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
     if (q.src == _node_id) return;                               // loop guard — never answer ourselves
     if (q_responded_recently(q.opcode, q.src, q.dest)) return;   // recently answered this query -> skip
     mark_q_responded(q.opcode, q.src, q.dest);

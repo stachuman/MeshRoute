@@ -1674,12 +1674,72 @@ TEST_CASE("§mobile 6.4 — team UNICAST DM: the sender routes via _rt_team + ma
     send_cmd(node, /*dst=*/25, "hi");
     bool got_rts=false;
     for (auto& f : hal.tx_frames) { auto pr = parse_rts(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
-        if (pr && pr->next == 25) { got_rts=true; CHECK(pr->addr_len == 1); CHECK(pr->src == a_tid); } }
-    CHECK(got_rts);                                          // ★ B: the team-plane last-mile is addressed, not black-holed
+        if (pr && pr->next == 25) { got_rts=true; CHECK(pr->addr_len == 1); CHECK(pr->src == a_tid); CHECK(pr->mobile_src); } }
+    CHECK(got_rts);                                          // ★ B: the team-plane last-mile is addressed (addr_len=1) AND its src is marked a LOCAL id (mobile_src) -> kept out of every static _rt/ledger
     // (D) a DM addressed to our team-plane id is FOR US (delivered, not forwarded). Off-grid a_tid==node_id so the static
     // term already covers it; for_me_dst also carries the DUAL case (node_id=static id, dst=team id).
     CHECK(node.for_me_dst(a_tid));
     CHECK_FALSE(node.for_me_dst(static_cast<uint8_t>(a_tid ^ 0x0F)));
+}
+
+TEST_CASE("§mobile — a MOBILE-marked Q's src (a home-assigned LOCAL id) is NEVER learned into the static _rt; a static Q IS (the dest=17 bench leak)") {
+    auto learned = [](Node& n, uint8_t d){ for (uint8_t i=0;i<n.rt_count();++i) if (n.rt_at(i).dest==d) return true; return false; };
+    auto send_q = [](Node& n, uint8_t src, bool mobile){
+        q_in qi{}; qi.leaf_id=5; qi.src=src; qi.dest=0xFF; qi.opcode=q_opcode::req_sync; qi.mobile=mobile;
+        uint8_t qb[8]; size_t qn = pack_q(qi, std::span<uint8_t>(qb, sizeof qb));
+        n.on_recv(qb, qn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(src)});
+    };
+    // (a) a MOBILE-marked REQ_SYNC (the mobile's src=17 is a home-assigned local id) must NOT leak into the static plane
+    { TestHal hal; Node node(hal, /*id=*/30, /*key=*/0x3030u);
+      NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=5; CHECK(node.on_init(cfg));
+      send_q(node, /*src=*/17, /*mobile=*/true);
+      CHECK_FALSE(learned(node, 17)); }                       // ★ no dest=17 in the static _rt (the fixed leak)
+    // (b) a NORMAL static REQ_SYNC from the same id IS learned (behaviour unchanged for static peers)
+    { TestHal hal; Node node(hal, /*id=*/30, /*key=*/0x3030u);
+      NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=5; CHECK(node.on_init(cfg));
+      send_q(node, /*src=*/17, /*mobile=*/false);
+      CHECK(learned(node, 17)); }                             // a static Q sender is a routable neighbour
+}
+
+// §mobile — the ACK to a mobile/team ORIGINATOR must carry mobile_to=1 (else the originator's gate rejects it, so EVERY
+// mobile/team-originated DM fails at the ACK step). The receiver sets mobile_to from the mobile_src RTS (via PendingRx.mobile_from).
+TEST_CASE("§mobile — a receiver ACKs a mobile_src originator with mobile_to=1 (so a mobile/team-originated DM completes)") {
+    TestHal hal;
+    Node R(hal, /*id=*/2, /*key=*/0x0002u);                  // the next-hop / dest that ACKs the originator
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; CHECK(R.on_init(cfg));
+    RxMeta meta{8.0f,-80.0f,0,static_cast<int8_t>(20)};      // originator = a mobile/team member with LOCAL id 20
+    rts_in r{}; r.leaf_id=0; r.src=20; r.next=2; r.ctr_lo=5; r.dst=2; r.sf_index=0; r.payload_len=6; r.mobile_src=true;  // ★ mobile_src RTS
+    uint8_t rb[9]; size_t rn = pack_rts(r, std::span<uint8_t>(rb, sizeof rb));
+    hal._now=1000; R.on_recv(rb, rn, meta);
+    CHECK(hal.count("rts_rx") == 1);
+    std::array<uint8_t,64> db{}; size_t dn = mk_data(/*next=*/2, /*dst=*/2, /*ctr=*/0x0005, /*origin=*/20, "hi", db);
+    hal._now=2000; R.on_recv(db.data(), dn, meta);
+    CHECK(hal.count("ack_tx") == 1);
+    bool got_ack=false;
+    for (auto& f : hal.tx_frames) { auto pa = parse_ack(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+        if (pa && pa->to == 20) { got_ack=true; CHECK(pa->mobile_to); } }   // ★ mobile_to set -> the mobile originator accepts the ACK
+    CHECK(got_ack);
+}
+
+TEST_CASE("§mobile — H mobile_req + NACK mobile_to wire bits round-trip (backward-compat rsv bits; plain frame -> 0)") {
+    // H mobile_req (byte-7 b3) — the requester's origin is a LOCAL id -> owner skips id_bind
+    { h_in in{}; in.leaf_id=4; in.origin=17; in.key_hash32=0xABCDu; in.ttl=3; in.mobile_req=true;
+      uint8_t buf[8]; size_t n = pack_h(in, std::span<uint8_t>(buf, sizeof buf));
+      auto o = parse_h(std::span<const uint8_t>(buf, n)); CHECK(o.has_value());
+      if (o) { CHECK(o->mobile_req); CHECK_FALSE(o->team_scoped); CHECK_FALSE(o->hard); CHECK_FALSE(o->want_pubkey); } }
+    { h_in in{}; in.leaf_id=4; in.origin=17; in.key_hash32=0xABCDu; in.ttl=3;   // plain H -> mobile_req false
+      uint8_t buf[8]; size_t n = pack_h(in, std::span<uint8_t>(buf, sizeof buf));
+      auto o = parse_h(std::span<const uint8_t>(buf, n)); CHECK(o.has_value());
+      if (o) CHECK_FALSE(o->mobile_req); }
+    // NACK mobile_to (byte-1 b0) — the `to` is a LOCAL id; a colliding static ignores it
+    { nack_in in{}; in.reason=3; in.ctr_lo=0x0A; in.payload=42; in.to=17; in.mobile_to=true;
+      uint8_t buf[4]; size_t n = pack_nack(in, std::span<uint8_t>(buf, sizeof buf));
+      auto o = parse_nack(std::span<const uint8_t>(buf, n)); CHECK(o.has_value());
+      if (o) { CHECK(o->mobile_to); CHECK(o->ctr_lo == 0x0A); CHECK(o->to == 17); CHECK(o->payload == 42); } }
+    { nack_in in{}; in.reason=3; in.ctr_lo=0x0A; in.payload=42; in.to=17;   // plain NACK -> mobile_to false + ctr_lo intact
+      uint8_t buf[4]; size_t n = pack_nack(in, std::span<uint8_t>(buf, sizeof buf));
+      auto o = parse_nack(std::span<const uint8_t>(buf, n)); CHECK(o.has_value());
+      if (o) { CHECK_FALSE(o->mobile_to); CHECK(o->ctr_lo == 0x0A); } }
 }
 
 TEST_CASE("② implicit-ACK — overhearing the next-hop forward our DATA cancels the pending flight (dv:9863)") {
@@ -4164,6 +4224,26 @@ TEST_CASE("R6.2 config-sync — unmanaged node pulls on hearing a managed beacon
     std::array<uint8_t, 16> qb{}; size_t qn = pack_q(q, std::span<uint8_t>(qb.data(), qb.size()));
     hm._now = 1000; M.on_recv(qb.data(), qn, meta);
     CHECK(hm.count("c_config_tx") >= 1);                    // a member answers the pull with a C frame
+}
+
+// §mobile Option A: a MOBILE is NOT a leaf-config-plane member. Unlike the static joiner above, hearing a MANAGED beacon it
+// must NOT adopt the lineage or fire a CONFIG_PULL — it stays UNMANAGED (lineage 0, always synced -> can originate DMs) and
+// peers by nibble. This is what keeps a mobile OFF the static config plane (no CONFIG_PULL/REQ_SYNC broadcast -> no local-id leak).
+TEST_CASE("§mobile Option A — a mobile hearing a MANAGED beacon does NOT adopt the lineage / does NOT CONFIG_PULL (stays unmanaged, still routes)") {
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    TestHal hm; Node M(hm, /*id=*/7, 0x7777);
+    NodeConfig mc; mc.routing_sf = 7; mc.leaf_id = 0; mc.allowed_sf_bitmap = (1u << 7); mc.is_mobile = true;
+    M.on_init(mc);
+    CHECK(M.config().lineage_id == 0);                      // a mobile starts (and stays) unmanaged
+    beacon_in bin{}; bin.leaf_id = 0; bin.src = 2; bin.key_hash32 = 0x2002;
+    bin.lineage_id = 0xABCD; bin.config_epoch = 3; bin.config_hash = 0x9999;   // a MANAGED static leaf neighbour (e.g. the mobile's home)
+    std::array<uint8_t, 64> bb{}; size_t bn = pack_beacon(bin, std::span<uint8_t>(bb.data(), bb.size()));
+    hm._now = 1000; M.on_recv(bb.data(), bn, meta);
+    CHECK(hm.count("config_pull_tx") == 0);                 // ★ NO config pull (Option A: a mobile is never a config member)
+    CHECK(hm.count("leaf_join_pull") == 0);                 // ★ NO lineage-join
+    CHECK(M.config().lineage_id == 0);                      // ★ did NOT adopt the lineage -> stays unmanaged -> leaf_config_synced() -> can originate DMs
+    bool learned=false; for (uint8_t i=0;i<M.rt_count();++i) if (M.rt_at(i).dest==2) learned=true;
+    CHECK(learned);                                         // ★ still PEERS by nibble -> learns the static route (reaches the mesh via its home), just not as a config member
 }
 
 // ★ C config frame (cmd 0xB) BOOTSTRAP: a managed joiner with allowed_sf_bitmap==0 (no data SF — the old routed

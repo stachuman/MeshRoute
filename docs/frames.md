@@ -7,7 +7,7 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 **Conventions**
 - Byte 0's **high nibble (bits 7..4) is the command nibble (`cmd`)** that identifies the frame; the low nibble (bits 3..0) usually carries `leaf_id` (layer id, 0..15).
 - Node ids are 8-bit short-ids. Reserved allocation: **`0`** = unprovisioned / no-use · **`1`–`16`** = GATEWAYS only (statically provisioned) · **`17`–`254`** = normal nodes (auto-assigned via DAD) · **`0xFF`** = unknown / broadcast sentinel. The reservation is enforced at pick time — `join_choose_candidate_id` scans `17..254` and never re-prefers a legacy `1..16` id (R6.3/G1).
-- **Mobile last-mile addressing.** A mobile uses a **home-assigned LOCAL id** (not a DAD'd global id), which may collide with some normal node's global id — so a last-mile frame self-describes with a **mobile mark**: **`addr_len = 1`** on **RTS** & **DATA** (the `next` is a local id), a **`MOBILE` bit** on **RTS byte-5 b1** (the `src` is a mobile / mobile-originated) and on **ACK byte-1 b1** (the `to` is a local id), and **CTS by context** (no spare bit — see CTS). The codec round-trips these (marks default `0` → backward-compatible); how a node *acts* on them is in the mobile-node behaviour slices. See `docs/superpowers/specs/2026-07-07-mobile-node-handling-assumptions.md` §13/§14/§17.
+- **Mobile/team LOCAL-id addressing (the plane-separation marks).** A mobile (home-assigned local id) and a team member (`_team_local_id`) both use a **LOCAL id** that may collide a normal node's global id (§18), so a frame carrying one self-describes so no static node learns/bills/routes it as a global identity. **`mobile_src` (RTS byte-5 b1)** = *the `src` is a LOCAL id* — set by a registered mobile **and** by a team unicast DM (§6.4: `mobile_src = pt.mobile_src || is_team_peer(pt.next)`). **`addr_len = 1` (RTS & DATA)** = *the `next` is a LOCAL id* (a home last-mile or a team peer). **`mobile_to`** = *the `to` is a LOCAL id* on **ACK byte-1 b1** and **NACK byte-1 b0** (a colliding static id ignores it). **`H_FLAG_MOBILE_REQ`** = *the H querier's origin is a LOCAL id* (owner won't id_bind it). **CTS/NACK-overhear by context** (the CTS has no spare bit — see CTS). All marks default `0` → backward-compatible. **Every learn/bill/id_bind site that could pollute the static plane checks these marks** (see the separation spec). See `docs/superpowers/specs/2026-07-10-protocol-plane-separation.md` (canonical) + `2026-07-07-mobile-node-handling-assumptions.md`.
 - **`wire_version`** (a 4-bit cross-version handshake, currently `1`) rides two frames: **BCN** byte 3 (b3..0) and **J** byte 1 (b3..0). A neighbour whose `wire_version` differs is not interoperated with (no cross-version join; a `join_refused{wire_version}` push is rate-limited).
 - Multi-byte integers are **little-endian** unless marked **BE**.
 - `rsv` = reserved (zero on pack, ignored on parse).
@@ -160,12 +160,16 @@ Bytes 2..7 are the **fixed routing header** (`DATA_HDR_LEN = 8`) — relays read
 | 7    | `REMOTE_RESP`                         | OTA remote-diagnostics: the response text (plaintext inner)          |
 | 8    | `MOBILE_H_ANSWER`                     | `[target_layer 1][node_id=home 1][key_hash32=M 4 LE][epoch 1]` (7 B) — the registrar-proxy answer (§mobile §4a) |
 | 9    | `MOBILE_BREADCRUMB`                   | `body [new_home_id 1][new_epoch 1][new_home_layer 1]` (3 B), rides `SOURCE_HASH`=M — mobile→old-home on re-register (§mobile §4b; the `new_home_layer` is §5b — so a stale OLD-layer home redirects to the right leaf) |
+| 10   | `MOBILE_LAYER_QUERY`                  | empty body — a mobile asks a gateway "list the layers you bridge" (§mobile §5a, `SOURCE_HASH`=M) |
+| 11   | `MOBILE_LAYER_ANSWER`                 | `[count u8][ count × LayerRecord ]` — a gateway's layer directory (§mobile §5a) |
+| 12   | `MOBILE_PUBKEY_PUSH`                  | `ed_pub[32]` — a mobile pushes its E2E pubkey to its HOME (`SOURCE_HASH`=M) so the home can answer WANT_PUBKEY on its behalf (§mobile hash-locate P2) |
+| 13   | `MOBILE_H_ANSWER_PUBKEY`              | the mobile hash_bind (7 B) ‖ the mobile's `ed_pub[32]` = 39 B — a home's WANT_PUBKEY answer for its LIVE mobile (§mobile hash-locate P2). Sender caches `peer_key(M)`+`mobile_home(M→home)`, **never** id_binds the local id |
 
 *(code 0 = invalid — `APP=0` means no TYPE byte.)*
 
 **[mobile-node §4 — locate + staleness]** `MOBILE_H_ANSWER` (8) is how a **registrar proxies a mobile's hash**: it answers `M → home_id` (always **CLAIMED** — the registrar isn't the hash's owner, so there's no authoritative variant), and the **distinct TYPE is the signal** that lets the sender cache `M → home` in a **separate mobile-home cache — NOT `id_bind`** (a mobile's LOCAL id must stay out of the global id-plane), with the trailing **`epoch`** (§17-C1) picking the freshest home during an old+new-home overlap. `MOBILE_BREADCRUMB` (9): on re-register the mobile tells its **old** home "I moved to `new_home_id` (epoch)"; the old home records a redirect and thereafter answers `MOBILE_H_ANSWER (M → new_home)` instead of dead-ending. Best-effort (TTL + re-query is the fallback). **Cross-layer (§5b):** the answer's header `target_layer` carries the home's LAYER, so a sender on another layer reaches the home via a **gateway** (the existing cross-layer DM — the bridge resolves the mobile on the target leaf via the home's proxy); the breadcrumb's `new_home_layer` lets a stale OLD-layer home redirect to the right leaf. See `2026-07-08-mobile-slice4a-mobile-h-answer-type.md` / `-slice4b-redirect-breadcrumb.md`.
 
-**[PLANNED — mobile-node feature]** a **`TEAM_ANNOUNCE`** TYPE (code TBD, ≥10) carries a **team-id** in `body` for self-asserted-proximity team formation, sent via a mobile-originated M_BROADCAST (see RTS). Co-located mobiles adopt the team-id. See mobile design §12.
+**[mobile-node §6 — teams, IMPLEMENTED]** Team formation is **not** a dedicated `TEAM_ANNOUNCE` DATA type. A team is an `is_mobile`+`team_id` overlay; the wire carriers are: the beacon **team-id EXT-TLV (type 5)** (§6.2), the **`channel_flavor_team`** M-frame variant with a 4-B `team_id` tail (`M_FRAME_TEAM_HDR_LEN=11`, §6.3), the **`H_FLAG_TEAM`** team-scoped locate (§6.2), and — for team unicast DMs — the RTS/DATA **`addr_len=1` + `mobile_src=1`** marks (§6.4). A team member self-assigns a persistent `_team_local_id` via a team-scoped DAD (§6.4). See `docs/superpowers/specs/2026-07-10-protocol-plane-separation.md`.
 
 ### Inner layouts
 
@@ -235,17 +239,21 @@ Path size = `2 + n_layers` B. *(The ids are full 8-bit bytes — **not** nibble-
 | Byte | Field | Description |
 |------|-------|-------------|
 | 0 | cmd \| reason | bits 7..4 = `0x5`; bits 3..0 = reason |
-| 1 | ctr_lo | b7..4 = ctr_lo; b3..0 rsv |
+| 1 | ctr_lo \| mobile_to | b7..4 = ctr_lo · b3..1 rsv · **b0 = `mobile_to`** (the `to` is a mobile/team LOCAL id) |
 | 2 | payload | reason-specific byte (0..255) |
 | 3 | to | addressed recipient node_id |
 
 **reason:** `0 = BUSY_RX`, `1 = BUDGET`, `2 = HOP_BUDGET`, `3 = LOOP_DUP`.
 
+**`mobile_to` (byte 1 b0, §mobile):** mirrors the ACK's `mobile_to`. When a NACK is addressed to a mobile/team originator (a LOCAL id), `mobile_to=1` — the mobile accepts it, a **colliding static** id ignores it (`handle_nack` gate `(mobile_to==1)==is_mobile`). Without it a static node whose global id equals a mobile's local id could mis-consume a NACK meant for the mobile. Default `0` → backward-compatible.
+
 ---
 
 ## Q — query · cmd 0x6 · 4 B (+ CONFIG_PULL / CHANNEL_PULL body)
 
-**Use** — a 1-hop query. `REQ_SYNC` (dest `0xFF`): a (re)joining or mobile node asks neighbours to beacon now. `CONFIG_PULL`: pull a leaf's full config for a `{lineage, epoch}`. `CHANNEL_PULL`: request the channel msgs whose ids a BCN digest showed missing. **Reply** — `REQ_SYNC` → a **BCN**; `CONFIG_PULL` → a **C** frame (cmd 0xB, control-plane); `CHANNEL_PULL` → the holder re-broadcasts each msg as **M (M_BROADCAST)**.
+**Use** — a 1-hop query. `REQ_SYNC` (dest `0xFF`): a (re)joining **static** node asks neighbours to beacon now. `CONFIG_PULL`: pull a leaf's full config for a `{lineage, epoch}`. `CHANNEL_PULL`: request the channel msgs whose ids a BCN digest showed missing. **Reply** — `REQ_SYNC` → a **BCN**; `CONFIG_PULL` → a **C** frame (cmd 0xB, control-plane); `CHANNEL_PULL` → the holder re-broadcasts each msg as **M (M_BROADCAST)**.
+
+**§mobile Option A — a mobile does NOT emit Q on the static plane.** A mobile is not a leaf-config-plane member: it never sends `REQ_SYNC` (it reaches the mesh via its home, not a full-table pull) nor `CONFIG_PULL` (it adopts only the host PHY, runs its own/default config). So the byte-3 `mobile` bit, though defined, is effectively **inert** — kept as a defensive marker (any learn site still skips a `mobile`-marked Q so a mobile's LOCAL id can never enter a static `_rt`). See `node_beacon.cpp` membership exemption + `send_req_sync_q` guard.
 
 | Byte | Field | Description |
 |------|-------|-------------|
@@ -271,8 +279,11 @@ Path size = `2 + n_layers` B. *(The ids are full 8-bit bytes — **not** nibble-
 | 1 | origin | querier node_id, preserved across forwards |
 | 2..5 | key_hash32 | identity hash being located (**LE**) |
 | 6 | ttl | decremented per forward; 0 = drop |
-| 7 | flags | b0 `HARD` · b1 `WANT_PUBKEY`; b7..2 rsv |
+| 7 | flags | b0 `HARD` · b1 `WANT_PUBKEY` · b2 `TEAM` (§mobile-team: appends `team_id[4]`) · **b3 `MOBILE_REQ`** (§mobile: origin is a LOCAL id — owner must NOT id_bind it); b7..4 rsv |
 | 8..39 | requester ed_pub | 32 B — present **iff `WANT_PUBKEY`** (`parse_h` rejects a WANT_PUBKEY frame < 40 B) |
+| … | team_id | 4 B **LE**, present **iff `TEAM`** (after the ed_pub, if any) |
+
+**`MOBILE_REQ` (b3, §mobile):** the querier is a mobile/team member, so `origin` is a home-assigned/team **LOCAL** id, not a global identity. The owner-answerer caches the requester's key by **hash** (`peer_key_set`) but must **not** `id_bind` its local id (the seal-back routes by hash via the home / `_rt_team`). Set for any `is_mobile` querier (a `TEAM`-scoped locate implies it too). Default `0` → backward-compatible.
 
 There is **no separate REQ_PUBKEY flag**: `WANT_PUBKEY` alone both requests the owner's pubkey and appends the requester's `ed_pub[32]`.
 

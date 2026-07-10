@@ -475,7 +475,7 @@ size_t pack_nack(const nack_in& in, std::span<uint8_t> out) {
     if (out.size() < 4) return 0;
     wire::Writer w(out);
     w.u8(wire::cmd_byte(wire::Cmd::N, static_cast<uint8_t>(in.reason & 0x0F)));
-    w.u8(static_cast<uint8_t>((in.ctr_lo & 0x0F) << 4));           // ctr_lo hi, rsv lo
+    w.u8(static_cast<uint8_t>(((in.ctr_lo & 0x0F) << 4) | (in.mobile_to ? 0x01 : 0)));   // ctr_lo hi · §mobile: mobile_to = b0 (rsv lo)
     w.u8(in.payload);                                              // reason-specific, packed verbatim
     w.u8(in.to);
     return w.ok() ? w.size() : 0;
@@ -489,9 +489,10 @@ std::optional<nack_out> parse_nack(std::span<const uint8_t> frame) {
     nack_out o{};
     o.reason  = wire::flags_of(b0);
     const uint8_t b1 = r.u8();
-    o.ctr_lo  = static_cast<uint8_t>((b1 >> 4) & 0x0F);
-    o.payload = r.u8();
-    o.to      = r.u8();
+    o.ctr_lo    = static_cast<uint8_t>((b1 >> 4) & 0x0F);
+    o.mobile_to = (b1 & 0x01) != 0;                               // §mobile: b0 = the `to` is a LOCAL id
+    o.payload   = r.u8();
+    o.to        = r.u8();
     if (!r.ok()) return std::nullopt;
     return o;
 }
@@ -570,7 +571,7 @@ size_t pack_h(const h_in& in, std::span<uint8_t> out) {
     w.u8(in.origin);
     w.u32_le(in.key_hash32);
     w.u8(in.ttl);                          // u8: config caps ttl <= 16
-    w.u8(static_cast<uint8_t>((in.hard ? H_FLAG_HARD : 0) | (in.want_pubkey ? H_FLAG_WANT_PUBKEY : 0) | (in.team_scoped ? H_FLAG_TEAM : 0)));   // byte 7: H flags
+    w.u8(static_cast<uint8_t>((in.hard ? H_FLAG_HARD : 0) | (in.want_pubkey ? H_FLAG_WANT_PUBKEY : 0) | (in.team_scoped ? H_FLAG_TEAM : 0) | (in.mobile_req ? H_FLAG_MOBILE_REQ : 0)));   // byte 7: H flags
     if (in.want_pubkey) for (int i = 0; i < 32; ++i) w.u8(in.requester_ed_pub[i]);   // bytes 8..39: the requester's ed_pub
     if (in.team_scoped) w.u32_le(in.team_id);   // §mobile-team: after the ed_pub (if any) -> the querier's team_id
     return w.ok() ? w.size() : 0;
@@ -594,6 +595,7 @@ std::optional<h_out> parse_h(std::span<const uint8_t> frame) {
         for (int i = 0; i < 32; ++i) o.requester_ed_pub[i] = frame[8 + i];
     }
     o.team_scoped = (frame.size() >= 8) && (frame[7] & H_FLAG_TEAM);          // §mobile-team: a teammate's locate
+    o.mobile_req  = (frame.size() >= 8) && (frame[7] & H_FLAG_MOBILE_REQ);    // §mobile: the requester's origin is a LOCAL id -> the owner must not id_bind it
     if (o.team_scoped) {                                                      // team_id appended AFTER the ed_pub (if want_pubkey)
         const size_t off = 8u + (o.want_pubkey ? 32u : 0u);
         if (frame.size() < off + 4u) return std::nullopt;                    // flag set but team_id missing -> reject

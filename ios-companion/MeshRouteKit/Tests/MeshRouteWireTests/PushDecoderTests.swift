@@ -114,6 +114,27 @@ final class PushDecoderTests: XCTestCase {
         XCTAssertNil(sh0)
     }
 
+    func testAntiSpamPacingEvents() {     // D29
+        guard case .sendBlocked(let kind, let reason, let nextMs)? = PushDecoder.decode(
+            line: #"{"ev":"send_blocked","kind":"channel","reason":"min_interval","next_ms":7300}"#) else {
+            return XCTFail("not send_blocked")
+        }
+        XCTAssertEqual(kind, "channel"); XCTAssertEqual(reason, "min_interval"); XCTAssertEqual(nextMs, 7300)
+        guard case .channelSent(let ctr, let relayed, let r)? = PushDecoder.decode(
+            line: #"{"ev":"channel_sent","ctr":6,"relayed":false,"reason":"no_relay"}"#) else {
+            return XCTFail("not channel_sent")
+        }
+        XCTAssertEqual(ctr, 6); XCTAssertFalse(relayed); XCTAssertEqual(r, "no_relay")
+        guard case .limits(let l)? = PushDecoder.decode(
+            line: #"{"ev":"limits","win_ms":300000,"win_left_ms":142000,"n":40,"ch_sf":7,"ch_cap":8,"ch_used":2,"ch_min_ms":10000,"ch_next_ms":0,"ch_ceiling":42,"dm_min_ms":3000,"dm_next_ms":1200,"duty_ms":3000,"duty_used_ms":640}"#) else {
+            return XCTFail("not limits")
+        }
+        XCTAssertEqual(l.chCap, 8); XCTAssertEqual(l.dmNextMs, 1200); XCTAssertEqual(l.dutyMs, 3000)
+        // the new DM-giveup reasons ride the existing send_failed
+        guard case .sendFailed(_, _, let fr)? = PushDecoder.decode(line: #"{"ev":"send_failed","dst":2,"ctr":7,"reason":"no_cts"}"#) else { return XCTFail() }
+        XCTAssertEqual(fr, "no_cts")
+    }
+
     func testPeerKeyProvisioningEvents() {     // E2E peer-key provisioning (2026-06-16)
         XCTAssertEqual(Command.peerKey(pubkeyHex: String(repeating: "ab", count: 32)).line,
                        "peerkey " + String(repeating: "ab", count: 32))

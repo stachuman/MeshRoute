@@ -79,7 +79,9 @@ public actor MockNodeLink: NodeLink {
             ackThenDeliver(dst: dst, e2eAck: tokens.contains("-a"), ackHash: ackHash)         // -a → also simulate the recipient's E2E receipt (D25)
         case "send_channel":
             sendCtr += 1
-            emit(ackLine("queued", ctr: sendCtr))           // channels aren't link-acked
+            let ctr = sendCtr
+            emit(ackLine("queued", ctr: ctr))               // channels aren't link-acked
+            emit(#"{"ev":"channel_sent","ctr":\#(ctr),"relayed":true}"#)   // D29: a relay was overheard = success (demo)
         case "pull_inbox":
             let dmSince  = tokens.count > 0 ? (UInt32(tokens[0]) ?? 0) : 0
             let chanSince = tokens.count > 1 ? (UInt32(tokens[1]) ?? 0) : 0
@@ -110,6 +112,8 @@ public actor MockNodeLink: NodeLink {
             emit(statusLine())
         case "duty":          // D27: a believable airtime-budget readout
             emit(#"{"ev":"duty","pct":42,"avail_ms":0,"enabled":true}"#)
+        case "limits":        // D29: a believable anti-spam pacing snapshot (headroom → next_ms 0)
+            emit(#"{"ev":"limits","win_ms":300000,"win_left_ms":142000,"n":40,"ch_sf":7,"ch_cap":8,"ch_used":2,"ch_min_ms":10000,"ch_next_ms":0,"ch_ceiling":42,"dm_min_ms":3000,"dm_next_ms":0,"duty_ms":3000,"duty_used_ms":640}"#)
         case "cfg":
             if tokens.first == "set", tokens.count >= 3 {       // `cfg set <key> <val>` → apply, then echo cfg
                 let key = tokens[1], val = tokens[2]

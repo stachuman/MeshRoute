@@ -597,9 +597,15 @@ void Node::tx_rts_retry() {
     // so the receiver exempts it from the originator anti-spam (node_mac_rx :40/:199) — G is relaying, not a 1st-hop origination.
     rin.dst = pt.dst; rin.sf_index = 3 /*ANY*/; rin.rts_flags = pt.is_gw_relay ? RTS_FLAG_RELAY : 0;
     // §mobile 3a: addr_len=1 on a host's last-mile forward to a mobile; §6.4: also when the NEXT hop is a team peer, so the
-    // receiver's mark-accept treats `next` as a team-plane local-id (its team_local_id==node_id off-grid). mobile_src set only
-    // by a mobile's own outbound (3b). All 0 on a normal TxItem -> identical wire.
-    rin.addr_len = (pt.addr_len == 0 && is_team_peer(pt.next)) ? 1 : pt.addr_len; rin.mobile_src = pt.mobile_src;
+    // receiver's mark-accept treats `next` as a team-plane local-id (its team_local_id==node_id off-grid). All 0 on a normal
+    // TxItem -> identical wire.
+    const bool team_next = (pt.addr_len == 0 && is_team_peer(pt.next));   // §6.4: routing/forwarding to a team peer -> OUR src is a team LOCAL id
+    rin.addr_len   = team_next ? 1 : pt.addr_len;
+    // §6.4: mark the src a LOCAL id when it is one — a registered mobile (pt.mobile_src) OR a team-plane send (team_next; an
+    // off-grid team member's node_id IS its team local id). Team DMs previously carried mobile_src=0 (only addr_len=1), so the
+    // mobile_src-keyed guards (learn/anti-spam node_mac_rx :40/:47, the receiver's mobile_from, the ACK's mobile_to) MISSED
+    // them -> a team local id leaked into the static _rt/ledger. This closes it uniformly. Non-team/static flight -> 0 -> identical wire.
+    rin.mobile_src = pt.mobile_src || team_next;
     // e2e-ack backstop exemption (2026-07-02): mark the RTS so the 1st-hop backstop skips its DROP for this ack (an ack
     // must never be throttled — a throttled ack -> re-send -> more traffic). Verified at DATA-time (anti-spoof). Duty still binds.
     if (pt.type == DATA_TYPE_E2E_ACK) rin.rts_flags |= RTS_FLAG_E2E_ACK;

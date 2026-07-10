@@ -49,19 +49,32 @@ struct ThreadView: View {
                 }
             }
             Divider()
+            if let hint = pacingHint {
+                Text(hint).font(.caption2).foregroundStyle(.orange)
+                    .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.top, 3)
+            }
             ComposeBar(text: $draft, byteLimit: byteLimit,
                        requestAck: isDM ? $requestAck : nil,
                        encrypt: canEncrypt ? $encrypt : nil, onSend: send)
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear { model.markThreadRead(thread); encrypt = canEncrypt && encryptDefault }
+        .onAppear { model.markThreadRead(thread); encrypt = canEncrypt && encryptDefault; model.refreshLimits() }
         .onChange(of: messages.count) { _, _ in model.markThreadRead(thread) }   // arrivals while viewing
     }
 
     private var byteLimit: Int {
         if case .channel = thread { return WireConstants.channelMaxBodyBytes }
         return WireConstants.dmMaxBodyBytes
+    }
+
+    /// A proactive "wait ~N s" from the last `limits` snapshot (D29) — advisory; the `send_blocked` push is authoritative.
+    private var pacingHint: String? {
+        guard let l = model.latestLimits else { return nil }
+        switch thread {
+        case .channel: return l.chNextMs > 0 ? "Channel busy — wait ~\(l.chNextMs / 1000 + 1) s" : nil
+        case .dm:      return l.dmNextMs > 0 ? "Sending fast — wait ~\(l.dmNextMs / 1000 + 1) s" : nil
+        }
     }
 
     private var title: String {
@@ -130,6 +143,21 @@ struct MessageBubble: View {
                         Button { model.retry(message) } label: {
                             Label("Still joining the network — tap to retry", systemImage: "clock.arrow.circlepath")
                                 .font(.caption2).foregroundStyle(.orange)
+                        }.buttonStyle(.plain)
+                    case "blocked":              // D29 anti-spam: this node's own cap/floor held it — auto-retries after the back-off
+                        Button { model.retry(message) } label: {
+                            Label("Paused (rate limit) — retrying…", systemImage: "hourglass")
+                                .font(.caption2).foregroundStyle(.orange)
+                        }.buttonStyle(.plain)
+                    case "no_relay":             // D29: an own channel post had no relay overheard
+                        Button { model.retry(message) } label: {
+                            Label("No relay heard — tap to retry", systemImage: "dot.radiowaves.left.and.right")
+                                .font(.caption2).foregroundStyle(.red)
+                        }.buttonStyle(.plain)
+                    case "no_cts", "no_ack":     // D29: a DM gave up after CTS/ACK-timeout retries
+                        Button { model.retry(message) } label: {
+                            Label("Not delivered (\(message.failReason == "no_cts" ? "no route/CTS" : "no ACK")) — tap to retry",
+                                  systemImage: "arrow.clockwise").font(.caption2).foregroundStyle(.red)
                         }.buttonStyle(.plain)
                     default:
                         Button { model.retry(message) } label: {

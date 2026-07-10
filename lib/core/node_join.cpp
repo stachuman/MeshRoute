@@ -227,6 +227,11 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                     EF_I("local_id", j.proposed_node_id), EF_I("epoch", j.claim_epoch));
             return;                                                   // do NOT fall into the static DAD tie-break
         }
+        // §mobile separation: a MOBILE (incl. an off-grid team member, node_id==_team_local_id) is NOT on the static DAD
+        // plane — its id is a LOCAL id, not a global identity. It must NEVER defend/learn a STATIC claimant against that
+        // local id: a DENY would leak id_bind(local_id -> mobile_hash) fleet-wide + evict the legit static node claiming
+        // its own global id. Mirror the beacon self-defense guard (node_beacon.cpp `!_cfg.is_mobile`).
+        if (_cfg.is_mobile) return;
         const uint8_t proposed = j.proposed_node_id;
         bool conflict = false; uint32_t owner_key = _key_hash32; uint8_t reason = J_DENY_CONFLICT;
         if (_joined && proposed == _node_id && j.key_hash32 != _key_hash32) {           // (a) my adopted id

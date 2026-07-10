@@ -103,6 +103,29 @@ public struct NodeStatusSnapshot: Hashable, Sendable, Codable {
     }
 }
 
+/// The advisory anti-spam pacing snapshot (`limits` query, D29). The app paces sends against it; the ACTUAL
+/// outcome (`send_blocked` / `send_failed` / `channel_sent`) is authoritative. `*_next_ms` = ms until allowed.
+public struct LimitsInfo: Hashable, Sendable, Codable {
+    public let winMs: Int          // the anti-spam window (≈5 min)
+    public let winLeftMs: Int
+    public let n: Int              // mesh size the per-origin channel cap divides by
+    public let chSF: Int
+    public let chCap: Int          // this origin's per-window channel cap
+    public let chUsed: Int
+    public let chMinMs: Int        // channel burst floor (leaf-configured)
+    public let chNextMs: Int       // ms until a channel post is allowed (0 = now)
+    public let chCeiling: Int
+    public let dmMinMs: Int        // own-DM burst floor (leaf-configured)
+    public let dmNextMs: Int       // ms until an own DM is allowed
+    public let dutyMs: Int         // 5-min channel-duty budget (0 = disabled)
+    public let dutyUsedMs: Int
+    enum CodingKeys: String, CodingKey {
+        case winMs = "win_ms", winLeftMs = "win_left_ms", n, chSF = "ch_sf", chCap = "ch_cap", chUsed = "ch_used",
+             chMinMs = "ch_min_ms", chNextMs = "ch_next_ms", chCeiling = "ch_ceiling",
+             dmMinMs = "dm_min_ms", dmNextMs = "dm_next_ms", dutyMs = "duty_ms", dutyUsedMs = "duty_used_ms"
+    }
+}
+
 /// One route-table row (a `{"ev":"route",…}` line from the `routes` stream).
 public struct RouteInfo: Hashable, Sendable, Codable {
     public let dest: Int
@@ -159,6 +182,9 @@ public enum Inbound: Hashable, Sendable {
     case sendAcked(dst: Int, ctr: Int)
     case sendFailed(dst: Int, ctr: Int, reason: String?)              // reason: no_pubkey · no_identity · too_large · bad_rng · no_route · joining (E2E 2026-06-16)
     case e2eAcked(dst: Int, ctr: Int, senderHash: UInt32?)            // live E2E delivery RECEIPT (D25): mark the OUTBOX msg delivered; dst=the node that confirmed; NOT an inbound DM
+    case sendBlocked(kind: String, reason: String, nextMs: Int)       // D29 anti-spam: this node's cap/floor blocked a send PRE-TX → back off + retry after nextMs (0 = cap/duty, unknown)
+    case channelSent(ctr: Int, relayed: Bool, reason: String?)        // D29: own channel-post outcome — relayed:true = a relay was overheard (success); false = no relay (fail)
+    case limits(LimitsInfo)                                           // D29: the advisory pacing snapshot (the app paces against it; the outcome pushes are authoritative)
     case hashResolved(node: Int, authoritative: Bool, hash: KeyHash)   // node == 0 → unresolved/timeout
     // E2E peer-key provisioning (2026-06-16): results of `peerkey`/`reqpubkey` + a key becoming available.
     case peerKeySet(hash: KeyHash, pinned: Bool)                       // a scanned card's pubkey installed
@@ -232,6 +258,16 @@ public enum PushDecoder {
             if let m = try? decoder.decode(E2eAck.self, from: data) {
                 return .e2eAcked(dst: m.origin, ctr: m.ctr, senderHash: (m.sender_hash ?? 0) != 0 ? m.sender_hash : nil)
             }
+        case "send_blocked":                                           // D29 anti-spam back-off
+            if let m = try? decoder.decode(SendBlocked.self, from: data) {
+                return .sendBlocked(kind: m.kind, reason: m.reason, nextMs: m.next_ms)
+            }
+        case "channel_sent":                                           // D29 own channel-post outcome
+            if let m = try? decoder.decode(ChannelSent.self, from: data) {
+                return .channelSent(ctr: m.ctr, relayed: m.relayed, reason: m.reason)
+            }
+        case "limits":
+            if let m = try? decoder.decode(LimitsInfo.self, from: data) { return .limits(m) }
         case "hash_resolved":
             if let m = try? decoder.decode(HashResolved.self, from: data) {
                 return .hashResolved(node: m.node, authoritative: m.auth != 0, hash: KeyHash(m.hash))
@@ -315,6 +351,8 @@ public enum PushDecoder {
     private struct ReasonEvent: Decodable { let reason: String }                              // peerkey_err
     private struct InboxDM: Decodable { let seq: UInt32; let origin: Int; let ctr: Int; let sender_hash: UInt32?; let layer_id: Int?; let enc: Bool?; let type: String?; let rx_ms: UInt64; let body: String }   // enc = CRYPTED indicator; type "e2e_ack" = a delivery receipt (D25)
     private struct E2eAck: Decodable { let origin: Int; let ctr: Int; let sender_hash: UInt32? }   // live e2e_acked: origin = the dst that CONFIRMED delivery
+    private struct SendBlocked: Decodable { let kind: String; let reason: String; let next_ms: Int }   // D29: kind ∈ channel|dm ; reason ∈ cap|min_interval
+    private struct ChannelSent: Decodable { let ctr: Int; let relayed: Bool; let reason: String? }      // D29: own channel-post outcome
     private struct InboxCh: Decodable { let seq: UInt32; let origin: Int; let channel_id: Int; let channel_msg_id: UInt32; let layer_id: Int?; let rx_ms: UInt64; let body: String }
     private struct InboxEnd: Decodable { let dm_seq: UInt32; let chan_seq: UInt32; let epoch: UInt32?; let count: Int; let now_ms: UInt64? }
     private struct RoutesEnd: Decodable { let count: Int }
