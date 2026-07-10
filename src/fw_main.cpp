@@ -229,12 +229,13 @@ static void dump_routes() {
         }
     }
     mrcon.println(F("[routes] end"));
-    // §mobile 6.2: the TEAM-plane routing table (_rt_team) — populated only on a team member (is_mobile + team_id).
-    // Same RtEntry fields as the static plane; team routes are never gateways (no gw schedule). Header carries the
-    // team_id that scopes the plane. Empty on a static / lone-mobile node (nothing printed -> `routes` unchanged there).
-    if (g_node.rt_team_count() > 0) {
+    // §mobile 6.2: the TEAM-plane routing table (_rt_team) — same RtEntry fields as the static plane; team routes are never
+    // gateways (no gw schedule). Printed for ANY team member (team_id!=0) EVEN WHEN EMPTY (n=0) so the operator can tell a
+    // team member with no peers-yet (a PHY mismatch / just-joined) from a non-team node — a static/non-team node prints nothing.
+    if (g_node.config().team_id != 0) {
         char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)g_node.config().team_id);
         mrcon.print(F("[team-routes] team_id=0x")); mrcon.print(tx);
+        mrcon.print(F(" team_local_id=")); mrcon.print(g_node.team_local_id());
         mrcon.print(F(" n=")); mrcon.println(g_node.rt_team_count());
         for (uint8_t i = 0; i < g_node.rt_team_count(); ++i) {
             const meshroute::RtEntry& e = g_node.rt_team_at(i);
@@ -1128,9 +1129,11 @@ static void handle_team(const char* args) {
         t = team_fnv1a32(g_node.key_hash32(), nonce);
         phy_args = args + 3;   // §mobile 6.4: `team new [freq=<MHz> sf=<5-12> bw=<kHz>]` — optional team PHY
     } else if (args[0]) {
-        t = (uint32_t)strtoul(args, nullptr, 0);
+        char* endp = nullptr;
+        t = (uint32_t)strtoul(args, &endp, 0);
+        phy_args = endp;   // §6.4: `team <id> [freq= sf= bw=]` — a JOIN can set the shared team PHY too (mirrors `team new`)
     } else {
-        mrcon.println(F("> team err usage: `team new [freq= sf= bw=]` (mint) | `team <id>` (join) | `team 0` (leave)"));
+        mrcon.println(F("> team err usage: `team new [freq= sf= bw=]` (mint) | `team <id> [freq= sf= bw=]` (join) | `team 0` (leave)"));
         return;
     }
     mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
@@ -1151,6 +1154,17 @@ static void handle_team(const char* args) {
         g_node.mobile_register_phy(phy);                       // retune the radio (+ kick the FSM -> team-DAD via the no-host path)
         b.freq_mhz = freq; b.routing_sf = (uint8_t)sf; b.bw_hz = phy.bw_hz; b.allowed_sf_bitmap = phy.allowed_sf_bitmap;   // PERSIST the team PHY
         mrcon.print(F("> team PHY: freq=")); mrcon.print(freq, 3); mrcon.print(F(" sf=")); mrcon.print(sf); mrcon.print(F(" bw=")); mrcon.print(bw, 2); mrcon.println(F(" kHz"));
+    }
+    // §6.4: a team is a SHARED-PHY overlay — members can only hear each other on a COMMON freq/routing_sf/sf_list/bw, and an
+    // empty sf_list blocks DATA entirely ([[data-sf-removed]]). Refuse to mint/join (t!=0) with an INCOMPLETE PHY so a member
+    // never lands on an isolated island (the 250-vs-125 kHz / empty-sf_list state seen on the bench). Leave (t==0) is exempt.
+    if (t != 0) {
+        const double eff_freq = (c.is_mobile && c.layers[0].freq_mhz > 0.0) ? c.layers[0].freq_mhz : g_freq_mhz;
+        if (eff_freq <= 0.0 || c.routing_sf < 5 || c.routing_sf > 12 || c.allowed_sf_bitmap == 0 || g_node.active_bw_hz() == 0) {
+            mrcon.println(F("> team err: incomplete PHY — need freq, routing_sf(5..12), sf_list(DATA SF), bw."));
+            mrcon.println(F(">   set them inline: `team new freq=869.0 sf=7 bw=125` — ALL members MUST use the SAME freq/sf/bw."));
+            return;   // NOT joined/minted: team_id, _team_local_id, NV all unchanged
+        }
     }
     const bool team_switched = (c.team_id != t);              // §6.4: capture BEFORE the mutable set (c is a live ref)
     if (team_switched) g_node.set_team_local_id(0);           // §6.4: leaving OR switching teams -> drop the stale team-DAD id (0 = left; a re-DAD picks a fresh one for the new team)
