@@ -1,0 +1,40 @@
+{
+ "_name": "s23_mobile_team_multihop",
+ "_desc": "MULTI-HOP team routing: 3 off-grid team mobiles wired in a line TeamA<->TeamB<->TeamC with NO A<->C link (explicit topology, s19-style). A team DM from A to C MUST relay through B via the _rt_team plane (A has no direct path to C). Proves team routing is genuinely multi-hop, not just 1-hop broadcast. Companion to s22 (the 1-hop functional suite).",
+ "simulation": {
+  "duration_ms": 300000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "beacon_period_ms": 20000,
+  "seed": 23,
+  "node_startup_jitter_ms": 0,
+  "radio": { "sf": 8, "bw": 62.5, "cr": 5, "max_packet_bytes": 255, "snr_coherence_ms": 0, "duty_cycle": 0.01 }
+ },
+ "commands": [
+  { "_c": "team DM A -> C: no direct A-C link, so it must route A->B->C via _rt_team", "at_ms": 150000, "node": "TeamA", "command": "send_hash cccc0003 hop_test" },
+  { "at_ms": 180000, "node": "TeamA", "command": "send_hash cccc0003 hop_test" },
+  { "at_ms": 215000, "node": "TeamA", "command": "send_hash cccc0003 hop_test" }
+ ],
+ "expect": [
+  { "_c": "team-DAD on all 3 off-grid members", "type": "script_emit_contains", "node": "TeamA", "emit_type": "team_dad_adopted", "value": "id" },
+  { "type": "script_emit_contains", "node": "TeamB", "emit_type": "team_dad_adopted", "value": "id" },
+  { "type": "script_emit_contains", "node": "TeamC", "emit_type": "team_dad_adopted", "value": "id" },
+  { "_c": "MULTI-HOP: C receives A's team DM. With NO A<->C link, delivery PROVES it relayed through B via _rt_team.", "type": "script_emit_contains", "node": "TeamC", "emit_type": "push", "value": "hop_test" }
+ ],
+ "nodes": [
+  { "name": "TeamA", "script": "scenarios/dv_dual_sf.lua", "lat": 47.60000, "lon": -122.30000, "start_at_ms": 1000, "node_id": 50, "key_hash32": "0xaaaa0001",
+    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9, 10], "beacon_period_ms": 20000, "is_mobile": true, "team_id": 305419896, "mobile_autoregister": false, "discovery_min_routes": 1, "req_sync_min_routes": 1 } },
+  { "name": "TeamB", "script": "scenarios/dv_dual_sf.lua", "lat": 47.60010, "lon": -122.30000, "start_at_ms": 1000, "node_id": 51, "key_hash32": "0xbbbb0002",
+    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9, 10], "beacon_period_ms": 20000, "is_mobile": true, "team_id": 305419896, "mobile_autoregister": false, "discovery_min_routes": 1, "req_sync_min_routes": 1 } },
+  { "name": "TeamC", "script": "scenarios/dv_dual_sf.lua", "lat": 47.60020, "lon": -122.30000, "start_at_ms": 1000, "node_id": 52, "key_hash32": "0xcccc0003",
+    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9, 10], "beacon_period_ms": 20000, "is_mobile": true, "team_id": 305419896, "mobile_autoregister": false, "discovery_min_routes": 1, "req_sync_min_routes": 1 } }
+ ],
+ "topology": {
+  "links": [
+   { "from": "TeamA", "to": "TeamB", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "TeamB", "to": "TeamA", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "TeamB", "to": "TeamC", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "TeamC", "to": "TeamB", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false }
+  ]
+ }
+}
