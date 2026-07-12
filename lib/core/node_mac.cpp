@@ -64,12 +64,14 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     // would stamp origin=_node_id — a mobile LOCAL id no static node can route to -> the target floods RREQ for it (storm)
     // and the ack never returns. FAIL LOUD instead. A team dst (is_team_peer) is routable on the team plane; a registered
     // mobile (home_id set, not self) makes the reverse-ack work. Gated on is_mobile -> a static node is byte-identical.
+#if MR_FEAT_MOBILE
     if (app_dm && (flags & DATA_FLAG_E2E_ACK_REQ) && _cfg.is_mobile && !is_team_peer(dst)
         && !(_my_mobile_reg.active && _my_mobile_reg.home_id != 0 && _my_mobile_reg.home_id != _node_id)) {
         MR_EMIT("send_failed", EF_I("dst", dst), EF_S("reason", "mobile_no_home"));
         Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::mobile_no_home; pu.dst = dst; pu.ctr = 0; enqueue_push(pu);
         return 0;
     }
+#endif
     const uint16_t ctr = next_ctr(dst);
     TxItem item{};
     stamp_origin(item); item.dst = dst; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
@@ -564,7 +566,7 @@ void Node::issue_send(const TxItem& item) {
 
     const uint8_t first = (pt.addr_len == 1) ? pt.dst     // §mobile 3a Fix 4: a mobile-next (local-id) is a DIRECT 1-hop send to the registrar — NEVER rt_find'd (a local-id can collide a global id). addr_len==0 for every normal TxItem.
                         : is_team_peer(pt.dst) ? pick_next_cascade_hop(pt)   // §6.4: a TEAM-plane dst routes via _rt_team (rt_find dispatches on is_team_peer). A dual (registered) member must NOT push it through the static home_id.
-                        : (_cfg.is_mobile && _my_mobile_reg.active) ? _my_mobile_reg.home_id   // §mobile 3b: a REGISTERED MOBILE is a leaf -> reach the mesh through its 1-hop home_node (no global route table). Inert for a static/unregistered node.
+                        : mobile_registered() ? mobile_home_id()   // §mobile 3b: a REGISTERED MOBILE is a leaf -> reach the mesh through its 1-hop home_node (no global route table). Inert for a static/unregistered node (and compiled out on a static/gateway build -> falls through to cascade).
                         : pick_next_cascade_hop(pt);     // first SELECTABLE candidate (skips previous_hop)
     if (first == 0) {
         // No usable route yet. A FORWARDER drops (dv_dual_sf.lua:7041-7048 — it

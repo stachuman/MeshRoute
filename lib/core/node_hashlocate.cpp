@@ -519,7 +519,7 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // §mobile: a REGISTERED mobile is INVISIBLE to the static plane — it SKIPS own-hash resolution (the home proxies) so its
     // LOCAL id never leaks. It DOES answer a same-team locate (the 6.2 team-scoped table routes to its local id). A static
     // node (is_mobile=false) is unchanged. This also suppresses its want_pubkey owner-answer -> the home answers it (Part 2).
-    if (h.key_hash32 == _key_hash32 && (!(_cfg.is_mobile && _my_mobile_reg.active) || same_team)) { node_id = _node_id; authoritative = true; }   // own-hash: resolves either variant
+    if (h.key_hash32 == _key_hash32 && (!mobile_registered() || same_team)) { node_id = _node_id; authoritative = true; }   // own-hash: resolves either variant (mobile_registered() is false on a static/gateway build -> always resolves)
     else if (!h.hard) {                                                              // HARD skips the cache -> flood to the owner
         IdBindConf conf = IdBindConf::claimed;
         const int found = id_bind_find_by_hash(h.key_hash32, &conf);
@@ -810,8 +810,10 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     // LOCAL id -> the answer can't route back -> RREQ storm). Hand it to the HOME as DATA_TYPE_MOBILE_SEND (dst=home_id,
     // DST_HASH=target); the home resolves + re-originates on our behalf, and the target's reply routes back via SOURCE_HASH
     // (=our hash, stamped by stamp_origin). The HOME re-originating (reply_to_hash!=0) falls through to the resolve+flood below.
+#if MR_FEAT_MOBILE
     if (reply_to_hash == 0 && _cfg.is_mobile && _my_mobile_reg.active)
         return do_send(_my_mobile_reg.home_id, body, body_len, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/DATA_TYPE_MOBILE_SEND);
+#endif
     uint8_t home_layer = 0;
     const int home = mobile_home_find(key_hash32, &home_layer);  // §mobile 3c/5b: a cached mobile -> its home_node (+layer)?
     if (home >= 0) {

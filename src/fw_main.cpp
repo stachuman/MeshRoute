@@ -33,6 +33,7 @@
 #include "console_json.h"    // write_ack/write_push/write_ready/write_err — the BLE companion's JSON twin
 #include "device_ble.h"      // BLE companion transport (XIAO nRF52840; an inert no-op on ESP32/native)
 #include "device_ota.h"      // WiFi OTA (Heltec ESP32-S3); inert no-op on XIAO/native
+#include "mr_ui.h"           // §featuresplit slice 4: board-UI hooks (real on MR_FEAT_OLED boards, inline no-ops elsewhere)
 #include "fault_log.h"       // persistent fault log — platform-neutral ring/decode/formatters (lib/core)
 #include "device_fault.h"    // nRF52 HW glue: retained scratch + 8 s watchdog + HardFault capture (empty on ESP32)
 #include "sched_send.h"      // firmware scheduled-send CORE (on-node test workload; pure logic, host-unit-tested)
@@ -232,6 +233,7 @@ static void dump_routes() {
     // §mobile 6.2: the TEAM-plane routing table (_rt_team) — same RtEntry fields as the static plane; team routes are never
     // gateways (no gw schedule). Printed for ANY team member (team_id!=0) EVEN WHEN EMPTY (n=0) so the operator can tell a
     // team member with no peers-yet (a PHY mismatch / just-joined) from a non-team node — a static/non-team node prints nothing.
+#if MR_FEAT_TEAM   // §featuresplit: the [team-routes] diagnostic is compiled out on a static-only build (no _rt_team)
     if (g_node.config().team_id != 0) {
         char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)g_node.config().team_id);
         mrcon.print(F("[team-routes] team_id=0x")); mrcon.print(tx);
@@ -250,6 +252,7 @@ static void dump_routes() {
         }
         mrcon.println(F("[team-routes] end"));
     }
+#endif   // MR_FEAT_TEAM
 }
 
 // allowed_sf_bitmap -> "7,12" CSV (SF index = bit position). 0 = unconfigured.
@@ -1142,6 +1145,7 @@ static void handle_team(const char* args) {
     b.team_id = t;
     // §mobile 6.4 Fix 6: set the team PHY so teammates hear each other (AND a member can later register with a compatible
     // static network). Mirror `mobile register freq=`. Omitted -> keep the current PHY. Requires is_mobile (a team is mobile).
+#if MR_FEAT_MOBILE
     if (phy_args && strstr(phy_args, "freq=") && c.is_mobile) {
         const char* fs = strstr(phy_args, "freq="); const char* ss = strstr(phy_args, "sf="); const char* bs = strstr(phy_args, "bw=");
         double freq = strtod(fs + 5, nullptr);
@@ -1157,6 +1161,7 @@ static void handle_team(const char* args) {
         b.freq_mhz = freq; b.routing_sf = (uint8_t)sf; b.bw_hz = phy.bw_hz; b.allowed_sf_bitmap = phy.allowed_sf_bitmap;   // PERSIST the team PHY
         mrcon.print(F("> team PHY: freq=")); mrcon.print(freq, 3); mrcon.print(F(" sf=")); mrcon.print(sf); mrcon.print(F(" bw=")); mrcon.print(bw, 2); mrcon.println(F(" kHz"));
     }
+#endif
     // §6.4: a team is a SHARED-PHY overlay — members can only hear each other on a COMMON freq/routing_sf/sf_list/bw, and an
     // empty sf_list blocks DATA entirely ([[data-sf-removed]]). Refuse to mint/join (t!=0) with an INCOMPLETE PHY so a member
     // never lands on an isolated island (the 250-vs-125 kHz / empty-sf_list state seen on the bench). Leave (t==0) is exempt.
@@ -1181,6 +1186,7 @@ static void handle_team(const char* args) {
 }
 
 // §mobile console: `mobile register [freq=<MHz> sf=<5-12> bw=<kHz> | scan]` · `gateways` · `query <gw>` · `status`.
+#if MR_FEAT_MOBILE   // §featuresplit: the whole mobile console command compiles out on a static build (the FSM/accessors it drives are gone)
 static void handle_mobile(const char* args) {
     while (*args == ' ') ++args;
     const meshroute::NodeConfig& c = g_node.config();
@@ -1250,6 +1256,7 @@ static void handle_mobile(const char* args) {
     }
     mrcon.println(F("> mobile err usage: register [freq= sf= bw= | scan] | gateways | query <gw> | status"));
 }
+#endif   // MR_FEAT_MOBILE (handle_mobile)
 #endif   // MR_N_LAYERS < 2 — handle_join / handle_create (normal-node provisioning)
 
 // `leave` — wipe to default, keep ONLY freq; go unprovisioned + idle (the clean managed->managed re-join primitive).
@@ -1639,7 +1646,9 @@ static bool service_debug(const char* line, size_t len) {
     if (len >  5 && !strncmp(line, "join ", 5))    { handle_join(line + 5);    return true; }   // R6.3 provisioning verbs (normal-node, live)
     if (len >  7 && !strncmp(line, "create ", 7))  { handle_create(line + 7);  return true; }
     if (len >  5 && !strncmp(line, "team ", 5))     { handle_team(line + 5);    return true; }   // §mobile 6.1: `team new` (mint) / `team <id>` (join)
+#if MR_FEAT_MOBILE
     if (len >  7 && !strncmp(line, "mobile ", 7))   { handle_mobile(line + 7);  return true; }   // §mobile console: register/gateways/query/status
+#endif
 #else   // §config-integrity: create/join are normal-node provisioning -> refuse on the gateway build (mirrors how `gateway` errors on a normal build) — else `create` silently re-provisions the gateway into a managed leaf.
     if ((len > 5 && !strncmp(line, "join ", 5)) || (len > 7 && !strncmp(line, "create ", 7))) {
         mrcon.println(F("> err gateway_build (create/join are normal-node only; use `gateway l0=<layer>:<node>:<sf>:<sfs> l1=…`)"));
@@ -2092,6 +2101,7 @@ void setup() {
     #if defined(ARDUINO_ARCH_ESP32) || defined(ESP32)
     esp_ota_mark_app_valid_cancel_rollback();
     #endif
+    mr_ui_init();   // §featuresplit slice 4: bring up the board display (no-op unless MR_FEAT_OLED)
     mrcon.println(F("  node      = up. Type 'help' for commands."));
 }
 
@@ -2380,6 +2390,7 @@ static void mesh_service_once() {
     // 3) App pushes: surface deliveries / ACKs over the console.
     meshroute::Push pu{};
     while (g_node.next_push(pu)) {
+        mr_ui_on_push(pu);   // §featuresplit slice 4: surface the delivery/ACK on the board display (no-op unless MR_FEAT_OLED)
         switch (pu.kind) {
             case meshroute::PushKind::msg_recv:
                 mrcon.print(F("RECV from="));   mrcon.print(pu.origin); mrcon.print(F(": "));
@@ -2455,6 +2466,7 @@ static void mesh_service_once() {
                    mrble::tx_line(kOvf, sizeof(kOvf) - 1); }                            // input; LOUD, never silent
         }
     }
+    mr_ui_tick((uint32_t)now);   // §featuresplit slice 4: periodic board-display refresh (no-op unless MR_FEAT_OLED; throttled inside)
     // (was Serial.flush() — dropped Part 3: the Adafruit USB task drains the FIFO; a loop-body flush only risks a stall)
 
     // OTA remote diagnostics: drain the inbound rcmd slot — a response PRINTS (parseable line for the harness), a

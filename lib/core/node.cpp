@@ -304,8 +304,10 @@ bool Node::on_init(const NodeConfig& cfg) {
 void Node::clear_routing_state() {
     for (uint8_t i = 0; i < _n_layers; ++i) {
         _layers[i]._rt_count   = 0;          // routes
+#if MR_FEAT_TEAM
         _layers[i]._rt_team_count = 0;       // §mobile 6.2: the TEAM plane too — a reprovision may change team_id; a stale _rt_team + _team_peer bit would SHADOW the fresh static plane (rt_find dispatches on is_team_peer with no _rt fallback).
         for (auto& v : _layers[i]._team_peer) v = 0;   // §6.2: scrub the set-only team-peer bitset (mirror the _mobile_peer clear in clear_learned_state)
+#endif
         _layers[i]._id_bind_n  = 0;          // id -> key bindings (old neighbours)
         _layers[i]._deferred_n = 0;          // parked no-route sends
         _layers[i]._drain_armed = false;
@@ -401,6 +403,7 @@ bool Node::layer_swap_blocked() const {
 //  (4) retune the radio + the Hal short-id;  (5) re-seed the now-active leaf's own id_bind binding.
 // §mobile 5a: a mobile adopts the host's PHY (single-leaf; NO layer swap). Sets the active-layer scalars the shared MAC
 // reads + retunes the radio to (freq, SF, BW, CR). For the single-entry default (phy == layers[0]) this is a no-op -> 2b.
+#if MR_FEAT_MOBILE
 void Node::adopt_mobile_phy(const LayerConfig& phy, bool retune_radio) {
     _cfg.layers[0].layer_id = phy.layer_id; _cfg.layers[0].routing_sf = phy.routing_sf;
     _cfg.layers[0].allowed_sf_bitmap = phy.allowed_sf_bitmap; _cfg.layers[0].freq_mhz = phy.freq_mhz;
@@ -416,6 +419,7 @@ void Node::adopt_mobile_phy(const LayerConfig& phy, bool retune_radio) {
         _hal.set_rx_cr(phy.cr ? phy.cr : _cfg.radio_cr);
     }
 }
+#endif
 
 void Node::activate_layer(uint8_t i) {
     if (i >= _n_layers) return;                                  // defensive: n_layers==2 only; single-layer never swaps
@@ -760,9 +764,11 @@ void Node::on_timer(uint32_t timer_id) {
     case kRetryBackoffTimerId:    tx_rts_retry();          break;
     case kDeferredDrainTimerId:   try_drain_deferred();    break;   // periodic no-route drain / TTL giveup
     case kReqSyncTimerId:         req_sync_loop_fire();    break;   // REQ_SYNC boot loop: send + re-arm while starved
+#if MR_FEAT_MOBILE
     case kMobileDiscoverTimerId:  mobile_discover_fire();  break;   // §mobile 2b: registration FSM (armed only for a mobile)
     case kMobileClaimGuardTimerId: mobile_claim_guard_fire(); break;
     case kMobileLayerQueryTimerId: mobile_layer_query_fire(); break;   // §mobile 5a: pull the layer directory from a gateway
+#endif
     case kTeamDadGuardTimerId:     team_dad_guard_fire();     break;   // §mobile 6.4: team-DAD guard window close -> confirm _team_local_id
     case kMBcastClearTimerId:                                       // M-broadcast fire-and-forget: clear the flight (no ACK)
         if (_active->_pending_tx && _active->_pending_tx->m_broadcast) { _active->_pending_tx.reset(); become_free(); }

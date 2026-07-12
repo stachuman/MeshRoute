@@ -187,7 +187,7 @@ TEST_CASE("fault_log: format_last_reset + format_version_banner") {
 
     format_version_banner(b, sizeof b, "Jun 24 2026 10:00:00", "abc123-dirty", "xiao_sx1262");
     std::string v(b);
-    CHECK(v.find("MeshRoute fw v0.1") != std::string::npos);
+    CHECK(v.find("MeshRoute fw v") != std::string::npos);   // version-agnostic (the banner version bumps independently)
     CHECK(v.find("built Jun 24 2026 10:00:00") != std::string::npos);
     CHECK(v.find("abc123-dirty") != std::string::npos);
     CHECK(v.find("board=xiao_sx1262") != std::string::npos);

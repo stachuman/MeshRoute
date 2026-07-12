@@ -17,6 +17,7 @@
 #ifndef MESHROUTE_NS
 #define MESHROUTE_NS meshroute   // Slice 5 faithful two-lib: gateway variant compiles with -DMESHROUTE_NS=meshroute_gw
 #endif
+#include "mr_features.h"   // compile-time feature split (MR_FEAT_*); state/APIs below are #if-gated by these
 #include "hal.h"
 #include "command.h"
 #include "inbox.h"
@@ -467,12 +468,24 @@ public:
     // ① mobile-as-transit avoidance (Lua dv:1325-1334): learn the is_mobile beacon bit; NEVER relay THROUGH a mobile
     // peer (it roams away), but DO deliver TO one (the next_hop==dest carve-out). Hard-exclude, not a score penalty.
     bool       is_mobile_peer(uint8_t id) const;
+#if MR_FEAT_TEAM   // §featuresplit: the TEAM API stubs to inert when off -> call sites (route-select/enqueue_data/handle_rts) unchanged
     bool       is_team_peer(uint8_t id) const;   // §mobile 6.2: id is a KNOWN same-team peer (route to it via _rt_team)
     void       team_key_set(uint8_t id, uint32_t key_hash32);        // §enc: cache a same-team peer's key_hash32 (from its beacon); team-scoped, NOT _id_bind
     bool       team_key_of_id(uint8_t id, uint32_t& out) const;      // §enc: team-scoped id->key_hash32 (for a CRYPTED send BY team_local_id); false = unknown
+#else
+    bool       is_team_peer(uint8_t) const { return false; }
+    void       team_key_set(uint8_t, uint32_t) {}
+    bool       team_key_of_id(uint8_t, uint32_t&) const { return false; }
+#endif
     // §6.4: a unicast dst is FOR US — our static node_id OR our team-plane id. Off-grid node_id==_team_local_id so the
     // first term already covers it; this matters for a DUAL member (node_id=static id) delivering a DM sent to its team id.
-    bool       for_me_dst(uint8_t dst) const { return dst == _node_id || (_cfg.team_id != 0 && _team_local_id != 0 && dst == _team_local_id); }
+    bool       for_me_dst(uint8_t dst) const {
+#if MR_FEAT_TEAM
+        return dst == _node_id || (_cfg.team_id != 0 && _team_local_id != 0 && dst == _team_local_id);
+#else
+        return dst == _node_id;   // no team plane -> only our static id
+#endif
+    }
     bool       route_uses_mobile_as_transit(uint8_t dest, uint8_t next_hop) const;
     uint8_t    get_neighbor_tier(uint8_t node_id) const;                 // R4.2 tier read (TTL-expiring lazy-prune); public for tests
     void       schedule_triggered_beacon();                             // R4.3 trigger jitter + min-interval defer; public for tests
@@ -485,8 +498,13 @@ public:
 
     // ---- device-console diagnostics: const LIVE reads consumed by fw_main's routes/cfg/status seam.
     uint8_t           node_id()        const { return _node_id; }
+#if MR_FEAT_TEAM
     uint8_t           team_local_id()  const { return _team_local_id; }   // §mobile 6.4: the team-plane id (0 = not team-DAD'd)
     void              set_team_local_id(uint8_t id) { _team_local_id = id; _team_dad_pending = false; }   // §mobile 6.4: load a PERSISTED id at boot (id!=0 -> CONFIRMED, no re-DAD, announce + defend) OR ZERO it on leaving the team (id==0)
+#else
+    uint8_t           team_local_id()  const { return 0; }
+    void              set_team_local_id(uint8_t) {}
+#endif
     // §per-layer-id (2026-07-05): the id to PERSIST as nv.node_id (restore maps it to layers[0].node_id). A GATEWAY's
     // node_id() is the ACTIVE-leaf mirror (activate_layer stamps _node_id = _active leaf's node_id, flipping with the
     // window) — persisting it clobbers layer0's canonical id. layers[0].node_id is the stable, explicit gateway id (no
@@ -545,17 +563,27 @@ public:
     void restart_discovery();    // re-enter discovery (fast beacon cadence + REQ_SYNC pull) to rebuild routes
     uint8_t           rt_count()       const { return _active->_rt_count; }
     uint8_t           mobile_reg_count() const { return _active ? _active->_mobile_reg_n : 0; }   // §mobile 2a: mobiles registered to this host (test/diagnostic accessor)
-    uint8_t           mobile_home_id() const { return _my_mobile_reg.active ? _my_mobile_reg.home_id : 0; }   // §mobile 2b: our host (0 = unregistered)
     // §mobile console: user/app-driven network control (fw_main handle_mobile reuses the FSM + the pull; NO new wire).
     bool              mobile_autoregister_on() const { return _cfg.mobile_autoregister; }
+#if MR_FEAT_MOBILE
+    uint8_t           mobile_home_id() const { return _my_mobile_reg.active ? _my_mobile_reg.home_id : 0; }   // §mobile 2b: our host (0 = unregistered)
     bool              mobile_registered()      const { return _my_mobile_reg.active; }
     uint8_t           mobile_local_id()        const { return _my_mobile_reg.my_local_id; }
     uint16_t          mobile_reg_epoch()       const { return _my_mobile_reg.epoch; }
     uint8_t           mobile_home_layer()      const { return _my_mobile_reg.home_leaf_id; }
     uint8_t           learned_layers_count()   const { return _learned_layers_n; }
     const LayerRecord& learned_layer(uint8_t i) const { return _learned_layers[i]; }
+#else
+    uint8_t           mobile_home_id()         const { return 0; }
+    bool              mobile_registered()      const { return false; }
+    uint8_t           mobile_local_id()        const { return 0; }
+    uint16_t          mobile_reg_epoch()       const { return 0; }
+    uint8_t           mobile_home_layer()      const { return 0; }
+    uint8_t           learned_layers_count()   const { return 0; }
+#endif
     uint8_t           bridged_layer_cap()      const { return protocol::cap_bridged_layers; }
     const BridgedLayer& bridged_layer(uint8_t i) const { return _bridged_layers[i]; }
+#if MR_FEAT_MOBILE
     void              mobile_register_current() { (void)_hal.after(0, kMobileDiscoverTimerId); }             // DISCOVER on the current PHY now
     void              mobile_register_phy(const LayerConfig& phy) { adopt_mobile_phy(phy); (void)_hal.after(0, kMobileDiscoverTimerId); }  // retune + DISCOVER
     void              mobile_register_scan()    { _mobile_scan_idx = 0; (void)_hal.after(0, kMobileDiscoverTimerId); }  // cycle [current] ∪ learned
@@ -563,9 +591,17 @@ public:
         uint8_t q = 0; (void)enqueue_data(gw, &q, 0, DATA_FLAG_SOURCE_HASH, "mobile_layer_query", false, DATA_TYPE_MOBILE_LAYER_QUERY, CryptIntent::off);
     }
     uint8_t           mobile_offers_n() const { return _mobile_offers_n; }                        // §mobile 2b: OFFERs collected this window (test/diag)
+#else
+    uint8_t           mobile_offers_n() const { return 0; }
+#endif
     const RtEntry&    rt_at(uint8_t i) const { return _active->_rt[i]; }   // 0..rt_count()-1; candidates[0] is the primary
+#if MR_FEAT_TEAM
     uint8_t           rt_team_count()  const { return _active->_rt_team_count; }   // §mobile 6.2: the TEAM plane (test/diag)
     const RtEntry&    rt_team_at(uint8_t i) const { return _active->_rt_team[i]; }
+#else
+    uint8_t           rt_team_count()  const { return 0; }
+    // rt_team_at: no stub — a !MR_FEAT_TEAM build has no _rt_team; its (test/fw_main-diag) callers are guarded #if MR_FEAT_TEAM
+#endif
     // Console testing aid: manually force / drop a route, to stress the routing algorithms with arbitrary or
     // inconsistent routes. route_inject returns true if the candidate took (rt_merge can reject if better candidates
     // already hold the K slots). route_remove drops a dest's whole entry.
@@ -856,14 +892,27 @@ private:
     void    addr_conflict_send_deny(uint8_t node_id, uint32_t owner_key, uint32_t claimant_key, uint8_t reason);  // owner defends its id
     void    forced_rejoin(const char* reason);                   // lost the heal tiebreak -> yield id + re-claim
     // §mobile 2b: the mobile-side registration FSM (node_mobile.cpp). Armed only for _cfg.is_mobile (static never enters).
+    // §featuresplit: dropped (with the whole registration FSM) on a static/gateway build; the timer-dispatch cases are gated too.
+#if MR_FEAT_MOBILE
     void    mobile_discover_fire();                             // DISCOVER + open the collect-OFFERs window
     void    mobile_claim_guard_fire();                         // window close: pick strongest OFFER -> CLAIM + adopt; else backoff
+#endif
     // §mobile 6.4: team-DAD — a team member self-assigns a persistent _team_local_id on the team plane (no static host).
+#if MR_FEAT_TEAM
     int     team_dad_choose_candidate_id();                    // a free team id (not a _team_peer / _rt_team dest / our current), 17..254; -1 if full
     void    team_dad_guard_fire();                            // guard-window close -> confirm _team_local_id (team_dad_adopted)
+#else
+    int     team_dad_choose_candidate_id() { return -1; }
+    void    team_dad_guard_fire() {}
+#endif
 public:
+#if MR_FEAT_TEAM
     void    team_dad_fire();                                  // (re-)pick + tentatively claim a _team_local_id + arm the guard (public: handle_team / tests)
+#else
+    void    team_dad_fire() {}
+#endif
 private:
+#if MR_FEAT_MOBILE
     void    mobile_reset_registration(const char* reason);     // drop registration -> re-enter discovery
     // §mobile 5a: the scan-set = [the mobile's own/bootstrap PHY] ∪ [the LEARNED layer directory]. On boot (nothing learned)
     // that's just layers[0] -> single-PHY = 2b-identical; neighbours appear only after a successful directory pull.
@@ -880,13 +929,19 @@ private:
     void    mobile_layer_query_fire();                         // §mobile 5a: pull the layer directory from a gateway (armed while registered)
     int     nearest_bridging_gateway();                        // §mobile 5a: a bridging gateway we can route to (learned type-4 TLV), or -1
     void    learned_layers_ingest(const uint8_t* body, size_t len);   // §mobile 5a: parse [count][record…] -> upsert _learned_layers (dedup, TTL, evict-oldest)
+#endif
     // §mobile 3b/4: stamp a fresh outbound TxItem's origin + self-mark. A REGISTERED MOBILE bills its home_node (an
     // accountable GLOBAL id; the mobile's E2E identity still rides sender_hash) and self-marks (mobile_src -> the host
     // keeps our local-id out of the global rt, Fix 2). A static/host node = _node_id, unmarked (byte-identical).
     void    stamp_origin(TxItem& item) const {
+#if MR_FEAT_MOBILE
         const bool mob = _cfg.is_mobile && _my_mobile_reg.active;
         item.origin = mob ? _my_mobile_reg.home_id : _node_id;
         item.mobile_src = mob;
+#else
+        item.origin = _node_id;   // §featuresplit: a static/gateway node never bills a home — always self-origin, unmarked
+        item.mobile_src = false;
+#endif
     }
     void    join_deny_id(uint8_t id);                            // add to the denied list (1-day TTL)
     bool    join_id_denied(uint8_t id) const;                    // is this id currently denied (not expired)?
@@ -1171,8 +1226,10 @@ private:
 
     Hal&     _hal;
     uint8_t  _node_id;            // reassignable via _hal.set_protocol_id (join/lease)
+#if MR_FEAT_TEAM
     uint8_t  _team_local_id = 0;  // §mobile 6.4: the member's id on the TEAM plane (self-assigned by team-DAD, no host; persistent). 0 = not team-DAD'd (a non-team node, or a team member mid-DAD). The 6.2 team plane (_team_peer/_rt_team, team beacon src, team frames) keys on THIS; the static plane keeps _node_id. §18: _rt_team keeps the two id-spaces from colliding.
     bool     _team_dad_pending = false;  // §mobile 6.4: true during the team-DAD guard window (tentative _team_local_id) -> a same-team src collision RE-PICKS; after (confirmed) -> DEFEND (DENY).
+#endif
     uint32_t _key_hash32;         // stable long identity
     uint8_t  _x_secret[32] = {};  // DP1: X25519 ECDH secret (Phase-1 E2E DM crypto)
     uint8_t  _ed_pub[32]   = {};  // DP1: our Ed25519 pubkey (advertised so peers can ECDH to us)
@@ -1288,6 +1345,9 @@ private:
     JoinClaim _join_claim{};                                     // the single in-flight claim (active=false when none)
     // §mobile 2b (mobile-side registration): a mobile has ONE attachment (identity-level, single-layer). DORMANT unless
     // _cfg.is_mobile — the FSM timer is armed only for a mobile, so a static node never touches any of this.
+    // §featuresplit: the whole mobile-MEMBER (roaming endpoint) plane compiles out on a static/gateway build (MR_FEAT_MOBILE=0);
+    // the header stubs the accessors + FSM to inert, so the static routing plane is untouched.
+#if MR_FEAT_MOBILE
     struct MyMobileReg {
         bool     active = false;              // registered to a host?
         uint8_t  home_id = 0;                 // the host's node_id (our registrar / home)
@@ -1307,6 +1367,7 @@ private:
     LayerRecord _learned_layers[protocol::cap_learned_layers] = {};   // §mobile 5a: neighbouring layers pulled from a gateway (candidate cross-layer PHYs, dedup by composite id)
     uint8_t   _learned_layers_n = 0;
     uint64_t  _learned_layers_ms = 0;                           // §mobile 5a: last directory refresh (TTL)
+#endif
     struct DeniedId { uint8_t id; uint64_t denied_at_ms; };      // a slot that lost a claim/heal (§13: 1-day TTL)
     DeniedId _join_denied[protocol::cap_join_denied] = {};
     uint8_t  _join_denied_n = 0;
@@ -1356,6 +1417,7 @@ private:
         // §mobile 6.2: a SEPARATE team-plane DV table (a teammate's LOCAL id can collide with a static global id — §18 —
         // so the two planes MUST NOT share `_rt`). A team mobile (is_mobile+team_id) learns/advertises/routes here; a
         // static node / lone mobile leaves it empty (byte-identical). Same RtEntry + the same DV core (table-param).
+#if MR_FEAT_TEAM   // §featuresplit: the team plane compiles out on a static-only build (gateway) -> frees ~45 KB (_rt_team ×2)
         RtEntry  _rt_team[protocol::cap_routes] = {};
         uint8_t  _rt_team_count = 0;
         uint8_t  _team_peer[32] = {};   // 256-bit set of KNOWN same-team peers (by beacon src) — mirror _mobile_peer; read by is_team_peer
@@ -1366,6 +1428,7 @@ private:
         struct TeamKey { uint8_t id = 0; uint32_t key_hash32 = 0; uint64_t last_seen_ms = 0; };
         TeamKey  _team_keys[16] = {};
         uint8_t  _team_keys_n = 0;
+#endif
         // R3 data-plane state (single flight per node).
         TxItem                   _tx_queue[kTxQueueCap];
         uint8_t                  _tx_queue_n = 0;          // FIFO depth

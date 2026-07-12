@@ -85,8 +85,13 @@ bool Node::learn_direct_neighbor(uint8_t sender, int16_t snr_q4, bool is_gw, boo
     cand.last_seen_ms     = _hal.now();
     cand.learned_leaf = _cfg.leaf_id;
     // §6.2: a same-team peer is learned into the TEAM plane (_rt_team); everything else into the static _rt (default, byte-identical).
+#if MR_FEAT_TEAM
     const MergeAction a = team_plane ? rt_merge(sender, cand, _active->_rt_team, _active->_rt_team_count, /*team_plane=*/true)
                                      : rt_merge(sender, cand);
+#else
+    (void)team_plane;   // §featuresplit: no team plane -> always the static table
+    const MergeAction a = rt_merge(sender, cand);
+#endif
     if (a == MergeAction::new_dest || a == MergeAction::promote ||
         a == MergeAction::primary_refresh) {
         emit_rt_update(_hal, sender, sender, cand.score, 1, "primary");
@@ -206,7 +211,11 @@ void Node::emit_beacon(const char* kind) {
     // §mobile 6.4: an OFF-GRID team member has node_id==0 (never registered with a static host) but a team-DAD'd
     // _team_local_id — it MUST beacon (src=_team_local_id, §6.4 Fix 4) so the team plane comes up. A non-team node
     // (_team_local_id==0) still returns on id 0 -> byte-identical.
+#if MR_FEAT_TEAM
     if (_node_id == 0 && !(_cfg.is_mobile && _cfg.team_id != 0 && _team_local_id != 0)) return;
+#else
+    if (_node_id == 0) return;   // §featuresplit: no off-grid team beacon (an unprovisioned static node never beacons)
+#endif
     // Half-duplex busy skip (Lua send_beacon_page dv:7585): never beacon mid data-exchange. periodic_beacon_fire
     // already guards this, but the TRIGGERED path (kTriggeredBeaconTimerId) reaches here directly — without this
     // the C++ would TX a triggered beacon while busy where the Lua skips, diverging beacon timing (review #02).
@@ -237,7 +246,11 @@ void Node::emit_beacon(const char* kind) {
     // §mobile 6.4: a team member's beacon is its TEAM-plane presence -> src = _team_local_id (the id the 6.2 team plane
     // keys on: _team_peer[b.src] + the _rt_team dest/next). Off-grid it's the ONLY id; dual, node_id lives on the static
     // plane. _team_local_id==0 (static / lone / mid-DAD) -> falls to _node_id -> byte-identical.
-    in.src          = (_cfg.is_mobile && _cfg.team_id != 0 && _team_local_id) ? _team_local_id : _node_id;
+#if MR_FEAT_TEAM
+    in.src          = (_cfg.is_mobile && _cfg.team_id != 0 && _team_local_id) ? _team_local_id : _node_id;   // team member beacons on its team id
+#else
+    in.src          = _node_id;
+#endif
     in.key_hash32   = _key_hash32;
     in.lineage_id   = _cfg.lineage_id;                  // R6.1 leaf-config header (FLAG-DAY: always present)
     in.config_epoch = _cfg.config_epoch;
@@ -341,9 +354,15 @@ void Node::emit_beacon(const char* kind) {
     uint8_t      pack_idx[kMaxBeaconEntries];         // src_rt indices packed (for dirty-clear)
     uint8_t n = 0, dirty_n = 0, stable_n = 0, total_dirty = 0;
     bool    bidi_census_full = false;   // §5: did the FULL hops==1 set fit THIS beacon (drives heard_set_complete, Task 4)
+#if MR_FEAT_TEAM
     const bool     team_emit = _cfg.is_mobile && _cfg.team_id != 0;   // §6.2: emit the TEAM plane
     RtEntry* const src_rt  = team_emit ? _active->_rt_team : _active->_rt;
     const uint8_t  src_cnt = team_emit ? _active->_rt_team_count : _active->_rt_count;
+#else
+    const bool     team_emit = false;   // §featuresplit
+    RtEntry* const src_rt  = _active->_rt;
+    const uint8_t  src_cnt = _active->_rt_count;
+#endif
     if (!_cfg.is_mobile || team_emit) {
         if (src_cnt == 0) _beacon_offset = 0;                    // Lua total==0 path resets the cursor (dv:1761)
         for (uint8_t i = 0; i < src_cnt; ++i) if (src_rt[i].dirty) ++total_dirty;
@@ -548,8 +567,10 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (!b.is_mobile)                                     // §mobile 2b: a mobile's LOCAL id stays OUT of the global hash-locate plane
         id_bind_set(b.src, b.key_hash32, IdBindSource::bcn, IdBindConf::authoritative);   // the owner's own beacon = FIRST-HAND assertion of its key_hash32 (authoritative); a relayed/snooped binding is the claimed second-hand one
     // §mobile 2b: a mobile stamps hearing its HOME's (static) beacon -> reset the home-lost timeout (the FSM checks it).
+#if MR_FEAT_MOBILE
     if (_cfg.is_mobile && _my_mobile_reg.active && b.src == _my_mobile_reg.home_id && b.key_hash32 == _my_mobile_reg.home_key_hash32)
         _my_mobile_reg.last_heard_home_ms = _hal.now();
+#endif
     // Parse the channel-digest ext-TLV ONCE (draw-free) so beacon_rx can report how many ids the beacon
     // carries (dv:9614 `channel_digest_ids = #b.channel_digest_ids or 0`); reused by the reaction below.
     // Reported for ALL nodes (even gateways); only the process_channel_digest reaction is gateway-gated.
@@ -665,7 +686,8 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // (peer_team from the type-5 TLV; requires WE are a team member.) Else keep the hash-locate Fix 3: a static beacon
     // learns into _rt (byte-identical for a non-team receiver, team_id==0 -> same_team_beacon always false); a mobile's
     // LOCAL id never enters the static rt (reached only as home_id+dst_hash; the home last-miles via a DIRECT addr_len=1 send).
-    const bool same_team_beacon = b.is_mobile && _cfg.team_id != 0 && peer_team == _cfg.team_id;
+    [[maybe_unused]] const bool same_team_beacon = b.is_mobile && _cfg.team_id != 0 && peer_team == _cfg.team_id;   // §featuresplit: uses below are team-only
+#if MR_FEAT_TEAM
     // §mobile 6.4 team-DAD: a same-team beacon whose src == OUR _team_local_id but a DIFFERENT key = a team-plane address
     // collision. TENTATIVE (guard window still open) -> yield + re-pick; CONFIRMED -> DEFEND (team-scoped DENY). Either
     // way DROP this beacon (do NOT learn a claimant on our own id). Never fires vs a static/other-team beacon.
@@ -686,6 +708,9 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         team_key_set(b.src, b.key_hash32);   // §enc: cache the teammate's key_hash32 (the beacon carries it — dropped for is_mobile at :548) so an ENCRYPTED send BY team_local_id can derive DST_HASH
         if (learn_direct_neighbor(b.src, meta_snr_q4, false, /*team_plane=*/true)) rt_changed = true;
     } else if (!b.is_mobile && learn_direct_neighbor(b.src, meta_snr_q4, b.self_gateway)) rt_changed = true;
+#else   // §featuresplit: no team plane -> a static beacon learns into _rt (a mobile beacon is not route-learned here)
+    if (!b.is_mobile && learn_direct_neighbor(b.src, meta_snr_q4, b.self_gateway)) rt_changed = true;
+#endif
     if (b.is_mobile) {
         _active->_mobile_peer[b.src >> 3] |= static_cast<uint8_t>(1u << (b.src & 7));   // ① learn mobility (SET-only, dv:9603-9604) -> avoid as transit
         for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)   // §mobile hash-locate liveness refresh: a hosted mobile's periodic beacon (key_hash32=M) proves it's alive + present -> refresh the proxy-liveness clock. WITHOUT this a STATIONARY mobile black-holes ~mobile_liveness_ms after homing: it never re-CLAIMs while its home stays heard, so CLAIM is the only other last_heard_ms write (beacon_period_ms < mobile_liveness_ms keeps a live mobile fresh). Gated on _mobile_reg_n>0 -> a non-host is byte-identical.
@@ -694,8 +719,13 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 
     // DV merge: each carried entry is a route via the sender (dv_dual_sf.lua:9620-9678).
     // §6.2: a SAME-TEAM beacon's carried routes merge into the TEAM plane (_rt_team); a static beacon -> _rt (byte-identical).
+#if MR_FEAT_TEAM
     RtEntry* const merge_rt  = same_team_beacon ? _active->_rt_team       : _active->_rt;
     uint8_t&       merge_cnt = same_team_beacon ? _active->_rt_team_count : _active->_rt_count;
+#else
+    RtEntry* const merge_rt  = _active->_rt;
+    uint8_t&       merge_cnt = _active->_rt_count;
+#endif
     for (uint8_t i = 0; i < b.n_entries; ++i) {
         auto pe = parse_beacon_entry(std::span<const uint8_t>(bytes, len), b, i);
         if (!pe) continue;
@@ -739,8 +769,10 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         const MergeAction a = rt_merge(e.dest, cand, merge_rt, merge_cnt, same_team_beacon);   // §6.2: team plane for a same-team beacon (skips the mobile-transit block)
         // §mobile 6.2: mark e.dest a team peer IFF it now has a _rt_team route -> rt_find(e.dest) dispatches to the team
         // plane even for a MULTI-HOP teammate (not just a direct beacon sender). Invariant: _team_peer bit <-> _rt_team route.
+#if MR_FEAT_TEAM
         if (same_team_beacon && rt_find(e.dest, _active->_rt_team, _active->_rt_team_count) != nullptr)
             _active->_team_peer[e.dest >> 3] |= static_cast<uint8_t>(1u << (e.dest & 7));
+#endif
         if (a == MergeAction::new_dest || a == MergeAction::promote) {
             emit_rt_update(_hal, e.dest, b.src, combined_score, cand.hops, "primary");
             rt_changed = true;

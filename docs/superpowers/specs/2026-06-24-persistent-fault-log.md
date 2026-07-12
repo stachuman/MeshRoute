@@ -77,7 +77,7 @@ struct FaultLog { uint32_t magic, boot_seq; uint16_t version, count, head; Fault
 
 ### 6. Commands + banner
 - **Refactor** the boot-banner prints (fw_main.cpp:1210-1222) into a reusable `print_banner()` and call it from both `setup` and the new command.
-- **`version`** (text console + the JSON console): `print_banner()` → `MeshRoute fw v0.1 · built <__DATE__ __TIME__> · <GIT_REV> · board=<…>` then `last reset: <reason>[ · ran <…>][ · HARDFAULT pc=0x… cfsr=0x…]`. **On demand, no reset.**
+- **`version`** (text console + the JSON console): `print_banner()` → `MeshRoute fw v0.2 · built <__DATE__ __TIME__> · <GIT_REV> · board=<…>` then `last reset: <reason>[ · ran <…>][ · HARDFAULT pc=0x… cfsr=0x…]`. **On demand, no reset.**
 - **`faults`** (text console): dump the `/mrfault` ring newest-first — `boot <seq> · <reason> · ran <h m s|—>[ · pc=0x… cfsr=0x… @0x…]` per record; a one-line summary (N records, M faults, P watchdog resets).
 - **`status`**: add a compact ` reset=<reason>` field (the last record's reason).
 - Wire all into the dispatch table (:1011+), `dump_help`, and the JSON console for `version`.

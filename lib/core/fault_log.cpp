@@ -164,7 +164,7 @@ size_t format_last_reset(const FaultRecord* last, char* buf, size_t cap) {
 
 size_t format_version_banner(char* buf, size_t cap, const char* build, const char* git, const char* board) {
     size_t pos = 0; if (cap) buf[0] = '\0';
-    put(buf, cap, &pos, "MeshRoute fw v0.1+mhl2 \xc2\xb7 built ");   // +mhl2 = mobile-home-liveness fix flashed (bench flash-verify tag)
+    put(buf, cap, &pos, "MeshRoute fw v0.2 \xc2\xb7 built ");   // +mhl2 = mobile-home-liveness fix flashed (bench flash-verify tag)
     put(buf, cap, &pos, build ? build : "?");
     put(buf, cap, &pos, " \xc2\xb7 ");
     put(buf, cap, &pos, git ? git : "nogit");

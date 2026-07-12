@@ -32,12 +32,18 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // spans leaves (an off-grid member on leaf 0 + a registered member on its home's adopted leaf) yet shares the PHY +
     // team_id. Do NOT drop it on leaf mismatch; the rest of the exchange (CTS/DATA/ACK) matches on pending state, not leaf.
     // A non-team frame, or a member whose team_local_id differs, hits the normal leaf gate -> s18/static byte-identical.
+#if MR_FEAT_TEAM
     const bool team_rts_for_us = r.addr_len == 1 && _cfg.team_id != 0 && _team_local_id != 0 && r.next == _team_local_id;
+#else
+    const bool team_rts_for_us = false;   // §featuresplit: no team plane -> the normal leaf gate applies
+#endif
     if (r.leaf_id != _cfg.leaf_id && !team_rts_for_us) return;
     // §mobile: any RTS FROM our HOME (it relays our DMs onward + originates its own) proves the home is alive -> refresh
-    // the home-lost clock (see handle_cts). is_mobile+active gated -> s18/static byte-identical.
+    // the home-lost clock (see handle_cts). is_mobile+active gated -> s18/static byte-identical (compiled out on a static build).
+#if MR_FEAT_MOBILE
     if (_cfg.is_mobile && _my_mobile_reg.active && r.src == _my_mobile_reg.home_id)
         _my_mobile_reg.last_heard_home_ms = _hal.now();
+#endif
     // R4.4 anti-spam: track this RTS in the sender's window even when it's NOT addressed to us (we
     // overhear routing-SF broadcasts) so all 1st-hop neighbours accumulate evidence. Gateway cross-layer
     // relays (RTS_FLAG_RELAY) are exempt — not a 1st-hop origination (dv:9709-9712). Keyed on the decoded
@@ -61,11 +67,13 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // entirely. Gated on r.next==_team_local_id (NOT our MOBILE local id) -> never a home last-mile; mobile_src+addr_len=1
     // keeps it off the static _rt (s18/mobile-DM sims have no such frame -> byte-identical). A NEW peer also triggers our
     // beacon (Fix a) so the peer learns us back.
+#if MR_FEAT_TEAM
     else if (r.mobile_src && r.addr_len == 1 && _cfg.team_id != 0 && _team_local_id != 0 && r.next == _team_local_id
              && r.src != 0 && r.src != 0xFF) {
         _active->_team_peer[r.src >> 3] |= static_cast<uint8_t>(1u << (r.src & 7));   // known same-team peer (is_team_peer reads this)
         if (learn_direct_neighbor(r.src, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/true)) schedule_triggered_beacon();
     }
+#endif
     // ② implicit-ACK from an overheard forward-RTS (Lua dv:9863-9893): if we have a flight in progress and overhear
     // OUR next-hop forwarding the SAME DATA onward (its relay RTS), the hop decoded -> cancel our pending timeout
     // instead of waiting out the ACK timer + firing a redundant retry that collides with its downstream DATA. Match
@@ -179,7 +187,11 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // (a team member's team-plane id; off-grid it's the only id). A non-team node has _team_local_id==0 -> for_team false
     // -> this is byte-identical to the old `next != _node_id || (addr_len==1)!=is_mobile`.
     const bool for_static_rts = r.next == _node_id && ((r.addr_len == 1) == _cfg.is_mobile);
+#if MR_FEAT_TEAM
     const bool for_team_rts   = _cfg.team_id != 0 && _team_local_id && r.next == _team_local_id && r.addr_len == 1;
+#else
+    const bool for_team_rts   = false;   // §featuresplit
+#endif
     if (!for_static_rts && !for_team_rts) {   // else overheard
         // NAV (virtual carrier sense): an overheard UNICAST RTS reserves the medium for the rest of the
         // exchange (CTS+DATA+ACK) — M_BROADCAST already returned above, so this is unicast. Defer own
@@ -365,8 +377,10 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // home-lost clock. The mobile routes all its DMs via the home, so this fires FAR more often than the home's (possibly
     // 15-min) beacon — the beacon-only refresh (node_beacon.cpp:551) is what let a live-but-slow-beaconing home be
     // declared "lost". is_mobile+active gated -> s18/static byte-identical.
+#if MR_FEAT_MOBILE
     if (_cfg.is_mobile && _my_mobile_reg.active && c.rx_id == _node_id && c.tx_id == _my_mobile_reg.home_id)
         _my_mobile_reg.last_heard_home_ms = _hal.now();
+#endif
     // R4.4 anti-spam: track this CTS in the CTS sender's (c.tx_id) window (overheard, addressed to us or
     // not). CTS is the forwarder fingerprint — a legit forwarder emits ~1 CTS per inbound flight (dv:10149).
     // Unconditional now: tx_id is on the wire (no PHY-sender god-view). Dedup key is rx_id (the cleared
@@ -458,7 +472,11 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // §mobile 3b/6.4: mark-aware DATA accept — addressed to EITHER plane id (for_team on a team member's team-plane id).
     // Non-team node: _team_local_id==0 -> for_team_data false -> byte-identical to the old `next != _node_id || (addr_len==1)!=is_mobile`.
     const bool for_static_data = d.next == _node_id && ((d.addr_len == 1) == _cfg.is_mobile);
+#if MR_FEAT_TEAM
     const bool for_team_data   = _cfg.team_id != 0 && _team_local_id && d.next == _team_local_id && d.addr_len == 1;
+#else
+    const bool for_team_data   = false;   // §featuresplit
+#endif
     if (!for_static_data && !for_team_data) return;
     if (!_active->_pending_rx || _active->_pending_rx->ctr_lo != d.ctr_lo4) return;
     // e2e-ack backstop exemption ANTI-SPOOF verify (2026-07-02): the RTS claimed RTS_FLAG_E2E_ACK (so its DROP was
@@ -766,10 +784,12 @@ void Node::do_post_ack() {
             MR_EMIT("mobile_layer_answer_tx", EF_I("to", pa.origin), EF_I("count", cnt));
             become_free(); return;
         }
+#if MR_FEAT_MOBILE
         if (pa.type == DATA_TYPE_MOBILE_LAYER_ANSWER && _cfg.is_mobile) {   // §mobile 5a: the mobile ingests the learned layer directory
             if (ui) learned_layers_ingest(ui->body.data(), ui->body.size());
             become_free(); return;
         }
+#endif
         if (pa.type == DATA_TYPE_H_ANSWER || pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER) {   // a hash-bind answer for us -> consume (routing info, NOT a DM)
             on_hash_bind_response(pa.inner, pa.inner_len, pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER);
             become_free();

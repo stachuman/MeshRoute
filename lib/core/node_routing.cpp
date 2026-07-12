@@ -17,7 +17,9 @@ RtEntry* Node::rt_find(uint8_t dest) {
     // collide a static global id). Dispatch every route lookup by plane. is_team_peer is ALWAYS false for a static node
     // / non-team member (a team_peer bit is set only when _cfg.team_id != 0) -> byte-identical. rt_merge/rt_prune_cycle
     // use the EXPLICIT-table overloads (not this wrapper), so ingest/emit are unaffected.
+#if MR_FEAT_TEAM
     if (is_team_peer(dest)) return rt_find(dest, _active->_rt_team, _active->_rt_team_count);
+#endif
     return rt_find(dest, _active->_rt, _active->_rt_count);
 }
 RtEntry* Node::rt_find(uint8_t dest, RtEntry* rt, uint8_t rt_count) {
@@ -413,9 +415,14 @@ void Node::age_out_stale_routes() {
     // §mobile 6.2: age the TEAM plane too — else a roamed-away teammate's route lingers forever (rt_find dispatches on
     // is_team_peer with NO _rt fallback, so a stale team route black-holes that id + eventually exhausts _rt_team). A full
     // eviction clears the _team_peer bit so the dispatch stops shadowing the static plane. A static node has _rt_team empty -> no-op.
+#if MR_FEAT_TEAM
     if (_active->_rt_team_count) age_out_stale_routes(_active->_rt_team, _active->_rt_team_count, /*team_plane=*/true);
+#endif
 }
 void Node::age_out_stale_routes(RtEntry* rt, uint8_t& rt_count, bool team_plane) {
+#if !MR_FEAT_TEAM
+    (void)team_plane;   // §featuresplit: the team-plane _team_peer clear (below) is compiled out on a static build -> param unused
+#endif
     // Walk rt[], evict each candidate past its hop-class TTL, drop empty entries,
     // dirty on primary eviction, one triggered re-beacon if any evicted
     // (dv_dual_sf.lua:5249-5302). ttl<=0 disables aging for that class.
@@ -450,7 +457,9 @@ void Node::age_out_stale_routes(RtEntry* rt, uint8_t& rt_count, bool team_plane)
         }
         e.n = w;
         if (e.n == 0) {
+#if MR_FEAT_TEAM
             if (team_plane) _active->_team_peer[e.dest >> 3] &= static_cast<uint8_t>(~(1u << (e.dest & 7)));   // §6.2: no team route to e.dest left -> clear the dispatch bit (rt_find falls back to the static _rt; keeps the _team_peer <-> _rt_team invariant)
+#endif
             rt_remove(i, rt, rt_count);   // do NOT advance i (entries shifted down)
         } else {
             if (primary_evicted) e.dirty = true;
@@ -633,6 +642,7 @@ bool Node::is_next_hop_fresh(uint8_t node_id) const {
 bool Node::is_mobile_peer(uint8_t id) const {
     return (_active->_mobile_peer[id >> 3] >> (id & 7)) & 1u;
 }
+#if MR_FEAT_TEAM   // §featuresplit: bodies compiled out on a static-only build (the header inline-stubs these to inert)
 bool Node::is_team_peer(uint8_t id) const {   // §mobile 6.2: a known same-team peer -> route via _rt_team
     return (_active->_team_peer[id >> 3] >> (id & 7)) & 1u;
 }
@@ -658,6 +668,7 @@ bool Node::team_key_of_id(uint8_t id, uint32_t& out) const {   // §enc: team-sc
         if (_active->_team_keys[i].id == id) { out = _active->_team_keys[i].key_hash32; return true; }
     return false;
 }
+#endif   // MR_FEAT_TEAM
 // True iff routing to `dest` via `next_hop` would relay THROUGH a mobile peer. The next_hop != dest carve-out is the
 // whole point: deliver TO a mobile (it's the dest) is fine; relaying THROUGH one (it'll roam away) is not. (dv:1329-1334)
 bool Node::route_uses_mobile_as_transit(uint8_t dest, uint8_t next_hop) const {

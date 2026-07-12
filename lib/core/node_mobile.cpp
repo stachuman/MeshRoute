@@ -16,13 +16,19 @@
 
 namespace MESHROUTE_NS {
 
+// §featuresplit: the entire mobile-MEMBER registration FSM compiles out on a static/gateway build (MR_FEAT_MOBILE=0).
+// A team member IS a mobile, so MR_FEAT_TEAM implies MR_FEAT_MOBILE — the inner `#if MR_FEAT_TEAM` blocks stay valid.
+#if MR_FEAT_MOBILE
+
 // DISCOVER on our PHY + open the collect-OFFERs window. Also the periodic-refresh tick: if still homed
 // (a recent BCN from home), just re-arm the refresh; else (home lost / never registered) re-enter discovery.
 void Node::mobile_discover_fire() {
     if (!_cfg.is_mobile) return;                                   // hard guard — a static node never enters
     // §mobile 6.4: bring the TEAM plane up on the first FSM tick, independent of the static registration outcome (and of
     // mobile_autoregister — a team member still team-DADs). A persisted/confirmed _team_local_id -> no-op (guarded).
-    if (_cfg.team_id != 0 && _team_local_id == 0 && !_team_dad_pending) team_dad_fire();
+#if MR_FEAT_TEAM
+    if (_cfg.team_id != 0 && _team_local_id == 0 && !_team_dad_pending) team_dad_fire();   // §featuresplit: team plane only
+#endif
     // Home-lost threshold: NEVER declare the home lost faster than ~2 of ITS beacon periods — else a slow-beaconing home
     // (e.g. beacon_ms=900000 / 15 min) trips the 90 s default every reclaim and the mobile flaps registration (drops ->
     // stamps origin=_node_id, an unroutable local id -> the reverse-ack storms). last_heard_home_ms is refreshed by any
@@ -73,7 +79,9 @@ void Node::mobile_claim_guard_fire() {
         MR_EMIT("mobile_no_host", EF_I("backoff_ms", static_cast<int64_t>(delay)));
         // §mobile 6.4: no static host -> ensure the TEAM plane comes up regardless (a team member self-DADs a _team_local_id
         // so an off-grid team routes among itself). Independent of the static registration; fires once (guarded on !pending && ==0).
-        if (_cfg.team_id != 0 && _team_local_id == 0 && !_team_dad_pending) team_dad_fire();
+#if MR_FEAT_TEAM
+        if (_cfg.team_id != 0 && _team_local_id == 0 && !_team_dad_pending) team_dad_fire();   // §featuresplit: team plane only
+#endif
         return;
     }
     _mobile_backoff_ms = 0;
@@ -127,6 +135,7 @@ void Node::mobile_claim_guard_fire() {
 // off-grid team self-bootstraps. Reuses the static-DAD shape (candidate pick -> tentative claim beacon -> guard window),
 // but team-SCOPED: "taken" = a known _team_peer / _rt_team dest (NOT the static id_bind/_rt). No wire change — the claim
 // IS a normal team beacon (src=_team_local_id + type-5 TLV), which teammates already parse.
+#if MR_FEAT_TEAM   // §featuresplit: team-DAD compiled out on a static-only build (the header inline-stubs these)
 int Node::team_dad_choose_candidate_id() {
     auto id_taken = [&](uint8_t id) -> bool {
         if (is_team_peer(id)) return true;                                  // a known teammate holds it
@@ -162,6 +171,7 @@ void Node::team_dad_guard_fire() {
     _team_dad_pending = false;                                            // no same-team conflict during the window -> CONFIRMED (a routable team peer; 6.2 runs)
     MR_EMIT("team_dad_adopted", EF_I("id", _team_local_id));
 }
+#endif   // MR_FEAT_TEAM
 
 // Drop registration + go unprovisioned (transient) so the FSM re-DISCOVERs. Reuses reset_join_for_reprovision
 // semantics (set_identity(unjoined)), mobile-gated.
@@ -221,5 +231,7 @@ void Node::learned_layers_ingest(const uint8_t* body, size_t len) {
     _learned_layers_ms = _hal.now();
     MR_EMIT("mobile_layers_learned", EF_I("n", _learned_layers_n));
 }
+
+#endif  // MR_FEAT_MOBILE
 
 }  // namespace MESHROUTE_NS

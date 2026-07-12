@@ -294,6 +294,7 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         }
         return;
     }
+#if MR_FEAT_MOBILE
     if (j.opcode == static_cast<uint8_t>(j_opcode::offer)) {          // §mobile 2b: mobile-side OFFER collector
         if (!_cfg.is_mobile || !j.is_mobile || _my_mobile_reg.active) return;   // only an UNREGISTERED mobile collects; a static node -> ignore (deferred)
         if (_mobile_offers_n < protocol::cap_mobile_offers)
@@ -302,6 +303,7 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                                    j.leaf_id, j.data_sf_bitmap };   // §mobile: keep the host's leaf + sf_list to adopt on CLAIM
         return;
     }
+#endif
 }
 
 // The id's owner defends it: send a J_DENY carrying our claim_epoch so the impostor runs the tiebreak (§6)
