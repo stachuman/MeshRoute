@@ -149,21 +149,21 @@ Bytes 2..7 are the **fixed routing header** (`DATA_HDR_LEN = 8`) — relays read
 
 **TYPE (byte 8, enum, present iff `APP`):** mutually-exclusive message kinds. `AUTHORITATIVE` is folded into the H-answer code (1 vs 2); the old `E2E_IS_ACK` flag became the `E2E_ACK` type.
 
-| code | type                                  | inner shape                                                          |
-| ---- | ------------------------------------- | ------------------------------------------------------------------- |
-| 1    | `H_ANSWER`                            | `[target_layer 1][node_id 1][key_hash32 4 LE]` (6 B)                |
-| 2    | `AUTHORITATIVE_H_ANSWER`              | same as `H_ANSWER`; the answer is the owner's (authoritative)        |
-| 3    | `E2E_ACK`                             | normal-unicast inner, `body` = the acked `ctr` (2 B LE)             |
-| 4    | `H_ANSWER_PUBKEY`                     | `[target_layer 1][node_id 1][ed_pub 32]` — **reserved, not emitted in v1** |
-| 5    | `AUTHORITATIVE_H_ANSWER_PUBKEY`       | same shape — **the v1-emitted pubkey answer** (owner-authoritative)  |
-| 6    | `REMOTE_CMD`                          | OTA remote-diagnostics: a console query keyword (plaintext inner)    |
-| 7    | `REMOTE_RESP`                         | OTA remote-diagnostics: the response text (plaintext inner)          |
-| 8    | `MOBILE_H_ANSWER`                     | `[target_layer 1][node_id=home 1][key_hash32=M 4 LE][epoch 1]` (7 B) — the registrar-proxy answer (§mobile §4a) |
-| 9    | `MOBILE_BREADCRUMB`                   | `body [new_home_id 1][new_epoch 1][new_home_layer 1]` (3 B), rides `SOURCE_HASH`=M — mobile→old-home on re-register (§mobile §4b; the `new_home_layer` is §5b — so a stale OLD-layer home redirects to the right leaf) |
-| 10   | `MOBILE_LAYER_QUERY`                  | empty body — a mobile asks a gateway "list the layers you bridge" (§mobile §5a, `SOURCE_HASH`=M) |
-| 11   | `MOBILE_LAYER_ANSWER`                 | `[count u8][ count × LayerRecord ]` — a gateway's layer directory (§mobile §5a) |
-| 12   | `MOBILE_PUBKEY_PUSH`                  | `ed_pub[32]` — a mobile pushes its E2E pubkey to its HOME (`SOURCE_HASH`=M) so the home can answer WANT_PUBKEY on its behalf (§mobile hash-locate P2) |
-| 13   | `MOBILE_H_ANSWER_PUBKEY`              | the mobile hash_bind (7 B) ‖ the mobile's `ed_pub[32]` = 39 B — a home's WANT_PUBKEY answer for its LIVE mobile (§mobile hash-locate P2). Sender caches `peer_key(M)`+`mobile_home(M→home)`, **never** id_binds the local id |
+| code | type                            | inner shape                                                                                                                                                                                                                  |
+| ---- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1    | `H_ANSWER`                      | `[target_layer 1][node_id 1][key_hash32 4 LE]` (6 B)                                                                                                                                                                         |
+| 2    | `AUTHORITATIVE_H_ANSWER`        | same as `H_ANSWER`; the answer is the owner's (authoritative)                                                                                                                                                                |
+| 3    | `E2E_ACK`                       | normal-unicast inner, `body` = the acked `ctr` (2 B LE)                                                                                                                                                                      |
+| 4    | `H_ANSWER_PUBKEY`               | `[target_layer 1][node_id 1][ed_pub 32]` — **reserved, not emitted in v1**                                                                                                                                                   |
+| 5    | `AUTHORITATIVE_H_ANSWER_PUBKEY` | same shape — **the v1-emitted pubkey answer** (owner-authoritative)                                                                                                                                                          |
+| 6    | `REMOTE_CMD`                    | OTA remote-diagnostics: a console query keyword (plaintext inner)                                                                                                                                                            |
+| 7    | `REMOTE_RESP`                   | OTA remote-diagnostics: the response text (plaintext inner)                                                                                                                                                                  |
+| 8    | `MOBILE_H_ANSWER`               | `[target_layer 1][node_id=home 1][key_hash32=M 4 LE][epoch 1]` (7 B) — the registrar-proxy answer (§mobile §4a)                                                                                                              |
+| 9    | `MOBILE_BREADCRUMB`             | `body [new_home_id 1][new_epoch 1][new_home_layer 1]` (3 B), rides `SOURCE_HASH`=M — mobile→old-home on re-register (§mobile §4b; the `new_home_layer` is §5b — so a stale OLD-layer home redirects to the right leaf)       |
+| 10   | `MOBILE_LAYER_QUERY`            | empty body — a mobile asks a gateway "list the layers you bridge" (§mobile §5a, `SOURCE_HASH`=M)                                                                                                                             |
+| 11   | `MOBILE_LAYER_ANSWER`           | `[count u8][ count × LayerRecord ]` — a gateway's layer directory (§mobile §5a)                                                                                                                                              |
+| 12   | `MOBILE_PUBKEY_PUSH`            | `ed_pub[32]` — a mobile pushes its E2E pubkey to its HOME (`SOURCE_HASH`=M) so the home can answer WANT_PUBKEY on its behalf (§mobile hash-locate P2)                                                                        |
+| 13   | `MOBILE_H_ANSWER_PUBKEY`        | the mobile hash_bind (7 B) ‖ the mobile's `ed_pub[32]` = 39 B — a home's WANT_PUBKEY answer for its LIVE mobile (§mobile hash-locate P2). Sender caches `peer_key(M)`+`mobile_home(M→home)`, **never** id_binds the local id |
 
 *(code 0 = invalid — `APP=0` means no TYPE byte.)*
 

@@ -142,13 +142,16 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
     }
 
     //   reqpubkey <hash> — §6: user-triggered on-air pubkey request (a HARD WANT_PUBKEY H flood). The only auto-source.
-    if (tok_eq(verb, "reqpubkey")) {
+    if (tok_eq(verb, "reqpubkey")) {                            // reqpubkey <hash|team-id> — 8-hex => key_hash32; decimal <=254 => a teammate's team_local_id (resolve the hash from the team key cache)
         Tok arg = token(s);
-        uint32_t hash = 0;
-        if (!parse_hex32_tok(arg, hash)) return ParseErr::bad_args;
+        uint32_t hash = 0, id = 0;
         out = Command{};
         out.kind = CmdKind::reqpubkey;
-        out.u.resolve.dst_hash = hash;
+        if (arg.n == 8 && parse_hex32_tok(arg, hash) && hash != 0) {   // 8-hex -> a key_hash32
+            out.u.resolve.dst_hash = hash; out.u.resolve.dst_id = 0;
+        } else if (parse_u32_tok(arg, 254u, id) && id != 0) {         // decimal <=254 -> a team_local_id
+            out.u.resolve.dst_hash = 0; out.u.resolve.dst_id = static_cast<uint8_t>(id);
+        } else return ParseErr::bad_args;
         return ParseErr::ok;
     }
 

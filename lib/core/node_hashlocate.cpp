@@ -504,6 +504,12 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                            { .key = "hard",       .type = EventField::T::boolean, .b = h.hard } };
         _hal.emit("h_rx", f, 4); );                        // dv:11638
 
+    // §mobile (2026-07-11): a MOBILE is a LEAF on the static plane — it does NOT participate in a STATIC hash-locate flood:
+    // it never ANSWERS (its local id is invisible + home-proxied) and it never RELAYS (re-flooding puts a leaf on the static
+    // flood plane + drains its battery; bench: a mobile re-tx'd its home's H). It DOES process a TEAM-scoped locate (the 6.2
+    // team plane, where a teammate relays to reach a >1-hop teammate). A static node (is_mobile=false) is unchanged.
+    if (_cfg.is_mobile && !h.team_scoped) return;
+
     // Resolve. SOFT query (default): own-hash OR any cached binding answers ("anyone who knows"). HARD query
     // (verify-on-use, dv §3.7a): resolve ONLY via own-hash — SKIP the cache so it reaches the OWNER for an
     // authoritative correction. A cached binding carries its own confidence (beacon = authoritative/first-hand;
@@ -792,11 +798,20 @@ void Node::on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool auth
 
 // on_command(send) routes here when dst_hash != 0 (the deferred "address by key_hash32"). Returns the DM ctr
 // if sent immediately, else 0 (parked/resolving — the ctr is assigned when the binding arrives).
-uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt) {
+uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr) {
     IdBindConf conf = IdBindConf::claimed;
     const int id = id_bind_find_by_hash(key_hash32, &conf);
-    if (id >= 0 && conf == IdBindConf::authoritative)            // confident binding -> send NOW
-        return do_send(static_cast<uint8_t>(id), body, body_len, flags, crypt);   // §8b: thread the per-message crypt intent
+    if (id >= 0 && conf == IdBindConf::authoritative) {         // confident binding -> send NOW (a mobile still routes via its home; the reply returns by SOURCE_HASH -> no H-query, no storm)
+        const uint16_t ch = do_send(static_cast<uint8_t>(id), body, body_len, flags, crypt, /*override_dst_hash=*/0, /*type=*/0, /*override_source_hash=*/reply_to_hash);   // §8b: thread the per-message crypt intent
+        if (reply_to_hash != 0) deleg_ack_put(static_cast<uint8_t>(id), ch, mobile_ctr);   // §mobile reverse-ack: HOME re-originating for its mobile toward a STATIC target -> map ctr_H->ctr_M (no-op if mobile_ctr==0)
+        return ch;
+    }
+    // §mobile delegate (2026-07-11): UNRESOLVED + we are the MOBILE (reply_to_hash==0) -> DO NOT flood an H query (origin=our
+    // LOCAL id -> the answer can't route back -> RREQ storm). Hand it to the HOME as DATA_TYPE_MOBILE_SEND (dst=home_id,
+    // DST_HASH=target); the home resolves + re-originates on our behalf, and the target's reply routes back via SOURCE_HASH
+    // (=our hash, stamped by stamp_origin). The HOME re-originating (reply_to_hash!=0) falls through to the resolve+flood below.
+    if (reply_to_hash == 0 && _cfg.is_mobile && _my_mobile_reg.active)
+        return do_send(_my_mobile_reg.home_id, body, body_len, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/DATA_TYPE_MOBILE_SEND);
     uint8_t home_layer = 0;
     const int home = mobile_home_find(key_hash32, &home_layer);  // §mobile 3c/5b: a cached mobile -> its home_node (+layer)?
     if (home >= 0) {
@@ -805,12 +820,47 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
             return 0;
         }
         // same layer (4a path): send to the home carrying the MOBILE's hash (so home forwards, not consumes). NO hard-verify.
-        return do_send(static_cast<uint8_t>(home), body, body_len, flags, crypt, /*override_dst_hash=*/key_hash32);
+        return do_send(static_cast<uint8_t>(home), body, body_len, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/0, /*override_source_hash=*/reply_to_hash);
     }
-    // SOFT cached binding -> HARD verify-on-use (reach the owner for a correction); UNKNOWN -> SOFT flood.
-    park_send(key_hash32, body, body_len, flags, crypt);   // M3: carry the crypt intent so a parked sendhashx flies CRYPTED, not cleartext
+    // SOFT cached binding -> HARD verify-on-use (reach the owner for a correction); UNKNOWN -> SOFT flood. (The HOME re-originating
+    // for its mobile floods as ITSELF, origin=home_id -> the answer routes back; the parked send keeps the mobile's reply hash.)
+    park_send(key_hash32, body, body_len, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr);
     emit_hash_query(key_hash32, /*hard=*/(id >= 0));
     return 0;
+}
+
+// §mobile reverse-ack (delegated) ctr map. A home re-originates a hosted mobile's delegated send under its OWN ctr
+// (ctr_H); the target's E2E-ack (for ctr_H) comes home, and this map recovers the mobile's original ctr (ctr_M) so the
+// last-miled ack matches what the mobile awaits. The TTL keeps a stale entry from mistranslating a much-later ack to the
+// same target that happens to reuse ctr_H.
+static constexpr uint64_t kDelegAckTtlMs = 180000;   // 3 min — well past the e2e-ack round trip
+
+void Node::deleg_ack_put(uint8_t acker, uint16_t ctr_h, uint16_t ctr_m) {
+    if (ctr_m == 0) return;                                    // 0 = not a delegated send (guard)
+    const uint64_t now = _hal.now();
+    uint8_t pick = 0; uint64_t oldest = ~0ull;                 // reuse a free/expired slot, else evict the OLDEST
+    for (uint8_t i = 0; i < kDelegAckCap; ++i) {
+        DelegAck& e = _deleg_acks[i];
+        if (!e.valid || (now - e.ts_ms) > kDelegAckTtlMs) { pick = i; break; }
+        if (e.ts_ms < oldest) { oldest = e.ts_ms; pick = i; }
+    }
+    _deleg_acks[pick] = { acker, ctr_h, ctr_m, now, true };
+    MR_EMIT("deleg_ack_put", EF_I("acker", acker), EF_I("ctr_h", ctr_h), EF_I("ctr_m", ctr_m));
+}
+
+bool Node::deleg_ack_translate(uint8_t acker, uint16_t acked_ctr, uint16_t& out_mobile_ctr) {
+    const uint64_t now = _hal.now();
+    for (uint8_t i = 0; i < kDelegAckCap; ++i) {
+        DelegAck& e = _deleg_acks[i];
+        if (!e.valid) continue;
+        if ((now - e.ts_ms) > kDelegAckTtlMs) { e.valid = false; continue; }   // prune expired
+        if (e.acker == acker && e.ctr_h == acked_ctr) {
+            out_mobile_ctr = e.ctr_m;
+            e.valid = false;                                                    // one-shot: this ack is delivered
+            return true;
+        }
+    }
+    return false;
 }
 
 // Originate an H flood for key_hash32 (Lua send_hash_query dv:5625). hard = the verify-on-use escalation.
@@ -837,13 +887,15 @@ void Node::emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey) {
     tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
 }
 
-void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt) {
+void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr) {
     if (_parked_sends_n >= protocol::cap_parked_sends) return;   // full -> drop (the app can retry)
     ParkedSend& p = _parked_sends[_parked_sends_n++];
     p = ParkedSend{};                                           // reset a RECYCLED slot: the array is compacted in
     // place (drain/age-out never clear vacated slots), so a slot last used by an L2c redirect would otherwise
     // keep is_redirect=true and mis-route this plain send-by-hash through the redirect branch on drain.
     p.key_hash32 = key_hash32; p.flags = flags; p.parked_at_ms = _hal.now();
+    p.reply_to_hash = reply_to_hash;                            // §mobile delegate: the mobile's hash (home re-originating) -> SOURCE_HASH on drain
+    p.mobile_ctr = mobile_ctr;                                  // §mobile reverse-ack: the mobile's original ctr -> the drain's ctr_H->ctr_M map
     p.crypt = crypt;                                            // M3: stamp the per-message crypt intent -> drain re-seals CRYPTED (never a silent cleartext downgrade)
     // Clamp to the DM body cap (NOT the 241-B inner buffer): drain_parked_sends -> do_send -> enqueue_data
     // writes body at inner[2+i], so a >239 body would overrun inner[]. on_command already rejects oversize
@@ -932,7 +984,8 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t 
                                        { .key = "node",       .type = EventField::T::i64, .i = resolved_id } };
                     _hal.emit("send_hash_resolved", f, 2); );
                 // same-layer (incl. a cross_layer park whose dst turned out to be on OUR leaf, §5.1): a plain DM.
-                do_send(resolved_id, p.body, p.body_len, p.flags, p.crypt, /*override_dst_hash=*/p.key_hash32);   // load-bearing (OUTSIDE the wrap): fly the held DM; M3: thread crypt; §mobile 3c: carry the queried hash so even the FIRST flood-resolved send to a mobile stamps DST_HASH=M (home forwards, not consumes). For a normal send p.key_hash32 == key_hash_of_id(resolved_id) -> byte-identical.
+                const uint16_t ch = do_send(resolved_id, p.body, p.body_len, p.flags, p.crypt, /*override_dst_hash=*/p.key_hash32, /*type=*/0, /*override_source_hash=*/p.reply_to_hash);   // load-bearing (OUTSIDE the wrap): fly the held DM; M3: thread crypt; §mobile 3c: carry the queried hash so even the FIRST flood-resolved send to a mobile stamps DST_HASH=M (home forwards, not consumes); §mobile delegate: reply_to_hash -> SOURCE_HASH so the target's reply routes back to the mobile. For a normal send p.key_hash32 == key_hash_of_id(resolved_id) + reply_to_hash==0 -> byte-identical.
+                if (p.reply_to_hash != 0) deleg_ack_put(resolved_id, ch, p.mobile_ctr);   // §mobile reverse-ack: a parked delegated re-origination resolved -> map ctr_H->ctr_M (no-op if mobile_ctr==0)
             }
             continue;                                            // matched entry handled (forwarded / healed / kept-above / given up)
         }
@@ -974,7 +1027,8 @@ void Node::drain_resolved_parked_sends() {
                     EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(p.key_hash32) },
                                        { .key = "node",       .type = EventField::T::i64, .i = id } };
                     _hal.emit("send_hash_resolved", f, 2); );
-                do_send(static_cast<uint8_t>(id), p.body, p.body_len, p.flags, p.crypt);   // load-bearing (OUTSIDE the wrap); M3: thread the stamped crypt intent (a beacon-resolved parked sendhashx still flies CRYPTED)
+                const uint16_t ch = do_send(static_cast<uint8_t>(id), p.body, p.body_len, p.flags, p.crypt, /*override_dst_hash=*/0, /*type=*/0, /*override_source_hash=*/p.reply_to_hash);   // load-bearing (OUTSIDE the wrap); M3: thread the stamped crypt intent (a beacon-resolved parked sendhashx still flies CRYPTED); §mobile delegate: reply_to_hash -> SOURCE_HASH
+                if (p.reply_to_hash != 0) deleg_ack_put(static_cast<uint8_t>(id), ch, p.mobile_ctr);   // §mobile reverse-ack: a beacon-resolved parked delegated re-origination -> map ctr_H->ctr_M
             }
             continue;                                            // drop the parked entry (forwarded / sent)
         }

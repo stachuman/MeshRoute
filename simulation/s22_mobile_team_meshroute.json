@@ -1,0 +1,94 @@
+{
+ "_name": "s22_mobile_team",
+ "_desc": "Off-grid team of 3 near-stationary mobiles (same team_id, NO static host) + 1 co-located static witness. Tests: team-DAD (self-assigned _team_local_id), team CHANNEL broadcast (all teammates receive, the static does NOT), and a member->member team DM. Paired with the s18 byte-identity tripwire: static-plane containment here + s18 identical there = teams are inert on the static plane.",
+ "simulation": {
+  "duration_ms": 300000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "beacon_period_ms": 20000,
+  "seed": 22,
+  "node_startup_jitter_ms": 0,
+  "radio": {
+   "sf": 8,
+   "bw": 62.5,
+   "cr": 5,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 0.01
+  },
+  "path_loss": {
+   "model": "log_distance",
+   "mobile_only": true,
+   "alpha": 3.0,
+   "sigma_db": 1.0,
+   "ref_distance_m": 1.0,
+   "ref_loss_db": 40.0,
+   "noise_floor_db": -120.0,
+   "tx_power_dbm": 14.0,
+   "node_tx_offset_sigma_db": 1.0,
+   "node_rx_offset_sigma_db": 1.0,
+   "asymmetry_coherence_ms": 60000
+  }
+ },
+ "commands": [
+  { "at_ms": 130000, "node": "TeamA", "command": "send_channel 5 team_bcast_hello" },
+  { "at_ms": 165000, "node": "TeamA", "command": "send_channel 5 team_bcast_hello" },
+  { "at_ms": 205000, "node": "TeamA", "command": "send_hash cccc0003 team_dm_ping" },
+  { "at_ms": 245000, "node": "TeamA", "command": "send_hash cccc0003 team_dm_ping" }
+ ],
+ "expect": [
+  { "_c": "team-DAD: each off-grid team member self-assigns a _team_local_id (no static host)",
+    "type": "script_emit_contains", "node": "TeamA", "emit_type": "team_dad_adopted", "value": "id" },
+  { "type": "script_emit_contains", "node": "TeamB", "emit_type": "team_dad_adopted", "value": "id" },
+  { "type": "script_emit_contains", "node": "TeamC", "emit_type": "team_dad_adopted", "value": "id" },
+  { "_c": "team CHANNEL: both teammates ingest the team-scoped channel-5 broadcast",
+    "type": "script_emit_contains", "node": "TeamB", "emit_type": "channel_msg_received", "value": "\"channel_id\":5" },
+  { "type": "script_emit_contains", "node": "TeamC", "emit_type": "channel_msg_received", "value": "\"channel_id\":5" },
+  { "_c": "CONTAINMENT: the co-located static node ingests ZERO team-channel messages (team gate drops them)",
+    "type": "event_count", "event_type": "script_emit", "emit_type": "channel_msg_received", "node": "Static1", "count": 0 },
+  { "_c": "team DM: a member->member DM (send_hash by teammate hash) delivers the payload",
+    "type": "script_emit_contains", "node": "TeamC", "emit_type": "push", "value": "team_dm_ping" }
+ ],
+ "nodes": [
+  {
+   "name": "Static1",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.60015, "lon": -122.30018,
+   "start_at_ms": 1000,
+   "node_id": 17,
+   "key_hash32": "0x11110017",
+   "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9, 10], "beacon_period_ms": 20000 }
+  },
+  {
+   "name": "TeamA",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.60000, "lon": -122.30000,
+   "start_at_ms": 1000,
+   "node_id": 50,
+   "key_hash32": "0xaaaa0001",
+   "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9, 10], "beacon_period_ms": 20000, "is_mobile": true, "team_id": 305419896, "mobile_autoregister": false, "discovery_min_routes": 1, "req_sync_min_routes": 1 },
+   "velocity_mps": 0.1, "direction_deg": 0.0
+  },
+  {
+   "name": "TeamB",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.60015, "lon": -122.30000,
+   "start_at_ms": 1000,
+   "node_id": 51,
+   "key_hash32": "0xbbbb0002",
+   "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9, 10], "beacon_period_ms": 20000, "is_mobile": true, "team_id": 305419896, "mobile_autoregister": false, "discovery_min_routes": 1, "req_sync_min_routes": 1 },
+   "velocity_mps": 0.1, "direction_deg": 0.0
+  },
+  {
+   "name": "TeamC",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.60030, "lon": -122.30000,
+   "start_at_ms": 1000,
+   "node_id": 52,
+   "key_hash32": "0xcccc0003",
+   "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9, 10], "beacon_period_ms": 20000, "is_mobile": true, "team_id": 305419896, "mobile_autoregister": false, "discovery_min_routes": 1, "req_sync_min_routes": 1 },
+   "velocity_mps": 0.1, "direction_deg": 0.0
+  }
+ ],
+ "topology": { "links": [] }
+}

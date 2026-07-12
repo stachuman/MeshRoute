@@ -23,8 +23,15 @@ void Node::mobile_discover_fire() {
     // §mobile 6.4: bring the TEAM plane up on the first FSM tick, independent of the static registration outcome (and of
     // mobile_autoregister — a team member still team-DADs). A persisted/confirmed _team_local_id -> no-op (guarded).
     if (_cfg.team_id != 0 && _team_local_id == 0 && !_team_dad_pending) team_dad_fire();
+    // Home-lost threshold: NEVER declare the home lost faster than ~2 of ITS beacon periods — else a slow-beaconing home
+    // (e.g. beacon_ms=900000 / 15 min) trips the 90 s default every reclaim and the mobile flaps registration (drops ->
+    // stamps origin=_node_id, an unroutable local id -> the reverse-ack storms). last_heard_home_ms is refreshed by any
+    // frame FROM the home (its beacon + the CTS/RTS the mobile hears routing through it), so this only matters when the
+    // mobile is truly silent AND the home beacons slowly.
+    const uint32_t two_beacons  = 2u * _cfg.beacon_period_ms;
+    const uint32_t home_lost_ms = two_beacons > protocol::mobile_home_lost_ms ? two_beacons : protocol::mobile_home_lost_ms;
     if (_my_mobile_reg.active &&
-        (_hal.now() - _my_mobile_reg.last_heard_home_ms) < protocol::mobile_home_lost_ms) {
+        (_hal.now() - _my_mobile_reg.last_heard_home_ms) < home_lost_ms) {
         if (_cfg.mobile_autoregister) (void)_hal.after(protocol::mobile_reclaim_ms, kMobileDiscoverTimerId);   // §console: still homed -> refresh later (autonomy)
         return;
     }
@@ -146,7 +153,7 @@ void Node::team_dad_fire() {
     // A DUAL member (registered) keeps its host-assigned static id; only _team_local_id re-picks.
     if (_node_id == 0 || _node_id == old_tid || !_my_mobile_reg.active) set_identity(_team_local_id, _key_hash32);
     _team_dad_pending = true;
-    emit_beacon("triggered");                                            // ★ announce the claim NOW (src=_team_local_id, §6.4 Fix 4). NOT schedule_triggered_beacon() — that is a NO-OP for a mobile (node_beacon.cpp), so the DAD would confirm before it ever announced. emit_beacon is called from a timer/console context (radio ready).
+    emit_beacon("triggered");                                            // ★ announce the claim NOW (src=_team_local_id, §6.4 Fix 4). emit_beacon (not schedule_triggered_beacon) so the announce is IMMEDIATE — schedule_triggered_beacon jitters the send (and pre-Fix-a was a full no-op for a mobile), so the DAD guard could confirm before it ever announced. Called from a timer/console context (radio ready).
     (void)_hal.after(protocol::mobile_offer_window_ms, kTeamDadGuardTimerId);   // guard window (replace-by-id: a re-pick re-arms it)
     MR_EMIT("team_dad_claim", EF_I("id", _team_local_id));
 }

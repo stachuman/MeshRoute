@@ -468,6 +468,8 @@ public:
     // peer (it roams away), but DO deliver TO one (the next_hop==dest carve-out). Hard-exclude, not a score penalty.
     bool       is_mobile_peer(uint8_t id) const;
     bool       is_team_peer(uint8_t id) const;   // §mobile 6.2: id is a KNOWN same-team peer (route to it via _rt_team)
+    void       team_key_set(uint8_t id, uint32_t key_hash32);        // §enc: cache a same-team peer's key_hash32 (from its beacon); team-scoped, NOT _id_bind
+    bool       team_key_of_id(uint8_t id, uint32_t& out) const;      // §enc: team-scoped id->key_hash32 (for a CRYPTED send BY team_local_id); false = unknown
     // §6.4: a unicast dst is FOR US — our static node_id OR our team-plane id. Off-grid node_id==_team_local_id so the
     // first term already covers it; this matters for a DUAL member (node_id=static id) delivering a DM sent to its team id.
     bool       for_me_dst(uint8_t dst) const { return dst == _node_id || (_cfg.team_id != 0 && _team_local_id != 0 && dst == _team_local_id); }
@@ -812,9 +814,9 @@ private:
     const uint8_t* host_mobile_ed_pub(uint32_t key_hash32) const;  // §mobile Part 2 Fix 7: the cached ed_pub for a hosted mobile (live direct proxy + has_pubkey), else nullptr
     void    send_mobile_pubkey_answer(uint8_t to_origin, uint8_t target_layer, uint8_t home_id, uint32_t key_hash32, uint8_t epoch, const uint8_t ed_pub[32]);  // §mobile Part 2 Fix 7: DATA TYPE 13 (home routing ‖ the mobile's ed_pub)
     // D — send-by-hash trigger (the deferred "address by key_hash32") + verify-on-use.
-    uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def); // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify)
+    uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def, uint32_t reply_to_hash = 0, uint16_t mobile_ctr = 0); // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify). §mobile: reply_to_hash!=0 = the HOME re-originating for its mobile (stamps SOURCE_HASH=mobile hash); reply_to_hash==0 + is_mobile+registered = the mobile ITSELF -> delegate to its home (DATA_TYPE_MOBILE_SEND). mobile_ctr = the mobile's original ctr (ctr_M) -> the ctr_H->ctr_M reverse-ack map (0 = not delegated)
     void    emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey = false);   // H flood for key_hash32 (hard = verify-on-use; want_pubkey = E2E §6, ask the owner's ed_pub)
-    void    park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def);   // M3: crypt stamped at park so a parked CRYPTED send flies sealed on drain
+    void    park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def, uint32_t reply_to_hash = 0, uint16_t mobile_ctr = 0);   // M3: crypt stamped at park so a parked CRYPTED send flies sealed on drain. §mobile: reply_to_hash carried so a parked delegated send keeps the mobile's reply address; mobile_ctr -> the ctr_H->ctr_M reverse-ack map on drain
     void    park_send_layer(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags);   // Slice 4d: a cross-layer-capable park (resolves layer + gateway on the H-answer); flags carry the app's E2E_ACK_REQ etc.
     void    drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t target_layer = 0xFF);   // a binding arrived -> fly the parked DMs to it (target_layer from the H-answer, 0xFF = beacon re-drain / unknown)
     // Slice 4d: cross-layer origination — select a bridging gateway (schedule-verified) + build the CROSS_LAYER DM.
@@ -1049,11 +1051,17 @@ private:
     // override_dst_hash (§mobile 3c): when non-zero, the DM's DST_HASH is stamped with THIS hash (the queried mobile hash M)
     // instead of key_hash_of_id(dst) — so a mobile's home_node sees dst_hash != its key and last-mile-forwards (not consumes).
     uint16_t do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def,
-                     uint32_t override_dst_hash = 0);  // returns the ctr
+                     uint32_t override_dst_hash = 0, uint8_t type = 0, uint32_t override_source_hash = 0);  // returns the ctr. §mobile delegate: type=MOBILE_SEND + override_source_hash=the mobile's hash (home re-originating on its behalf)
     uint16_t enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, const char* tx_event,
-                          bool app_dm = false, uint8_t type = 0, CryptIntent crypt = CryptIntent::def, uint32_t override_dst_hash = 0);
-    void     send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr);          // E2E ACK reply (TYPE=E2E_ACK; e2e_ack_tx)
+                          bool app_dm = false, uint8_t type = 0, CryptIntent crypt = CryptIntent::def, uint32_t override_dst_hash = 0, uint32_t override_source_hash = 0,
+                          uint8_t addr_len = 0);   // §mobile: addr_len=1 ORIGINATES a last-mile DM to a hosted mobile's LOCAL id (E2E-ack back to a mobile); 0 = normal global-id send (byte-identical)
+    void     send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr, uint32_t sender_hash = 0);   // E2E ACK reply (TYPE=E2E_ACK; e2e_ack_tx). §mobile: sender_hash a hosted mobile -> last-mile the ack to it (origin was home-stamped == a self-send)
     void     send_e2e_ack_cross_layer(const data_unicast_inner& dm, uint16_t acked_ctr);  // Slice 4e: reversed-path CROSS_LAYER E2E ack back to the original sender
+    // §mobile reverse-ack (delegated): a home re-originates a hosted mobile's send under its OWN ctr (ctr_H). When the
+    // target's E2E-ack (for ctr_H) comes home, translate ctr_H -> the mobile's original ctr (ctr_M) so the last-miled ack
+    // matches what the mobile is waiting on. A DIRECT send (home only forwarded) has NO entry -> out stays acked_ctr.
+    void     deleg_ack_put(uint8_t acker, uint16_t ctr_h, uint16_t ctr_m);                        // record a delegated re-origination's {acker,ctr_H}->ctr_M (evict oldest/expired)
+    bool     deleg_ack_translate(uint8_t acker, uint16_t acked_ctr, uint16_t& out_mobile_ctr);   // true = translated (delegated); false = pass-through (direct/miss)
     void     enqueue_push(const Push& p);                                  // append to the bounded ring
     void     become_free();                                       // dv_dual_sf.lua:7433 (FIFO single-drain)
     void     issue_send(const TxItem& item);                      // :7018 pending_tx + RTS
@@ -1251,12 +1259,21 @@ private:
     // leg is re-budgeted as a fresh route (originator-style), so no hop fields are carried. resolved_id==our id
     // at drain = a CONFIRMED collision (the heal trigger, design §7.1).
     struct ParkedSend { uint32_t key_hash32; uint64_t parked_at_ms; uint8_t flags; uint8_t body_len;
+                        uint32_t reply_to_hash = 0;   // §mobile delegate: the HOME re-originating for its mobile parks with the mobile's hash -> SOURCE_HASH on drain, so the target's reply routes back to the mobile (0 = our own hash)
                         bool is_redirect = false; bool is_resolve = false; bool cross_layer = false; uint8_t origin = 0; uint16_t ctr = 0; uint8_t ctr_lo = 0;
                         uint8_t type = 0;   // S1/M7a: a redirect's DataType (E2E_ACK/H_ANSWER); preserved across park+heal so the forwarded frame keeps its type (only meaningful when is_redirect)
                         CryptIntent crypt = CryptIntent::def;   // M3 (2026-07-04): the per-message crypt intent stamped at park time so a `sendhashx`(crypt=on) parked awaiting a binding still flies CRYPTED on drain (never silently downgrades to cleartext, node.h invariant); threaded into both drains' do_send
                         uint8_t nonce_seed[8] = {};   // §1c: a CRYPTED redirect's originator seed (preserved across the park+heal); zero for a plain send (re-sealed on drain)
+                        uint16_t mobile_ctr = 0;      // §mobile reverse-ack: a delegated re-origination carries the MOBILE's original ctr (ctr_M) so the drain records ctr_H->ctr_M (0 = not a delegated send)
                         uint8_t body[protocol::max_payload_bytes_hard_cap]; };   // is_resolve: notify-only diag (a `resolve`), no body. cross_layer (Slice 4d): a send_layer awaiting (node_id,target_layer)
     ParkedSend _parked_sends[protocol::cap_parked_sends] = {};
+    // §mobile reverse-ack (delegated): {acker (the static target's id), ctr_H} -> ctr_M. Populated when THIS home
+    // re-originates a hosted mobile's delegated send under its OWN ctr (ctr_H); consumed when the target's E2E-ack (for
+    // ctr_H) comes home -> translate to ctr_M so the last-miled ack matches the ctr the mobile is waiting on. A small TTL
+    // ring; empty on a node that hosts no mobiles -> inert (s18 byte-identical). See deleg_ack_put/deleg_ack_translate.
+    struct DelegAck { uint8_t acker = 0; uint16_t ctr_h = 0; uint16_t ctr_m = 0; uint64_t ts_ms = 0; bool valid = false; };
+    static constexpr uint8_t kDelegAckCap = 8;
+    DelegAck _deleg_acks[kDelegAckCap] = {};
     uint8_t    _parked_sends_n = 0;
     // L2c redirect-suppression ring: a misdelivered DM we've already redirected for this hash recently,
     // so a still-poisoned binding (collision unhealed) can't re-trigger an endless redirect→deliver→redirect.
@@ -1342,6 +1359,13 @@ private:
         RtEntry  _rt_team[protocol::cap_routes] = {};
         uint8_t  _rt_team_count = 0;
         uint8_t  _team_peer[32] = {};   // 256-bit set of KNOWN same-team peers (by beacon src) — mirror _mobile_peer; read by is_team_peer
+        // §enc: a same-team peer's key_hash32 (its beacon carries it — we were DROPPING it for is_mobile beacons). A
+        // team-SCOPED id->key map, NEVER _id_bind (the static plane, §18). Lets an ENCRYPTED send BY team_local_id derive
+        // DST_HASH (the pubkey still arrives via the team-scoped WANT_PUBKEY, cached by this same hash). Empty for a
+        // static/lone node (team_id==0) -> s18-inert.
+        struct TeamKey { uint8_t id = 0; uint32_t key_hash32 = 0; uint64_t last_seen_ms = 0; };
+        TeamKey  _team_keys[16] = {};
+        uint8_t  _team_keys_n = 0;
         // R3 data-plane state (single flight per node).
         TxItem                   _tx_queue[kTxQueueCap];
         uint8_t                  _tx_queue_n = 0;          // FIFO depth

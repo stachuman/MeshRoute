@@ -889,7 +889,11 @@ CmdResult Node::on_command(const Command& c) {
         }
         case CmdKind::reqpubkey: {   // §6: user-triggered on-air pubkey request — the ONLY auto-source of WANT_PUBKEY now
             if (_node_id == 0) return CmdResult{ CmdCode::err_unprovisioned, 0, _active->_tx_queue_n };
-            emit_hash_query(c.u.resolve.dst_hash, /*hard=*/true, /*want_pubkey=*/true);
+            uint32_t h = c.u.resolve.dst_hash;
+            if (h == 0 && c.u.resolve.dst_id != 0                       // §enc: reqpubkey BY team_local_id -> resolve the hash from the team key cache (heard on the teammate's beacon)
+                && !team_key_of_id(c.u.resolve.dst_id, h))              // unknown team peer (no beacon heard yet) -> fail loud, don't flood a 0-hash query
+                return CmdResult{ CmdCode::err_no_binding, 0, _active->_tx_queue_n };
+            emit_hash_query(h, /*hard=*/true, /*want_pubkey=*/true);
             return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };
         }
         case CmdKind::peerkey: {     // §3: QR import — install the scanned full pubkey as a PINNED (verified) key.

@@ -28,7 +28,16 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto pr = parse_rts(std::span<const uint8_t>(bytes, len));
     if (!pr) return;
     const rts_out& r = *pr;
-    if (r.leaf_id != _cfg.leaf_id) return;
+    // §mobile 6.4: a TEAM RTS addressed to our team_local_id (addr_len=1) rides the leaf-AGNOSTIC team plane — a MIXED team
+    // spans leaves (an off-grid member on leaf 0 + a registered member on its home's adopted leaf) yet shares the PHY +
+    // team_id. Do NOT drop it on leaf mismatch; the rest of the exchange (CTS/DATA/ACK) matches on pending state, not leaf.
+    // A non-team frame, or a member whose team_local_id differs, hits the normal leaf gate -> s18/static byte-identical.
+    const bool team_rts_for_us = r.addr_len == 1 && _cfg.team_id != 0 && _team_local_id != 0 && r.next == _team_local_id;
+    if (r.leaf_id != _cfg.leaf_id && !team_rts_for_us) return;
+    // §mobile: any RTS FROM our HOME (it relays our DMs onward + originates its own) proves the home is alive -> refresh
+    // the home-lost clock (see handle_cts). is_mobile+active gated -> s18/static byte-identical.
+    if (_cfg.is_mobile && _my_mobile_reg.active && r.src == _my_mobile_reg.home_id)
+        _my_mobile_reg.last_heard_home_ms = _hal.now();
     // R4.4 anti-spam: track this RTS in the sender's window even when it's NOT addressed to us (we
     // overhear routing-SF broadcasts) so all 1st-hop neighbours accumulate evidence. Gateway cross-layer
     // relays (RTS_FLAG_RELAY) are exempt — not a 1st-hop origination (dv:9709-9712). Keyed on the decoded
@@ -45,6 +54,18 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // collide a global id, and then rt_find(that id) would resolve to the mobile so a mobile's E2E-ACK to the colliding
     // GLOBAL id would loop back. The mobile reaches the mesh via its home_node; its src never enters the global rt.
     if (!r.mobile_src && learn_direct_neighbor(r.src, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
+    // §6.4 team reverse-learn: a team RTS ADDRESSED to OUR team-local id (mobile_src + addr_len=1 + next==our team id) ->
+    // its src is a reachable same-team peer. Mark it a team peer (the _team_peer bitmap that is_team_peer/route-selection
+    // read) AND learn a 1-hop TEAM route (_rt_team) so we can REPLY — mirrors the beacon path (node_beacon.cpp:685-686).
+    // Team routes are otherwise beacon-only, and an off-grid team's 15-min periodic beacons + join-order can miss a peer
+    // entirely. Gated on r.next==_team_local_id (NOT our MOBILE local id) -> never a home last-mile; mobile_src+addr_len=1
+    // keeps it off the static _rt (s18/mobile-DM sims have no such frame -> byte-identical). A NEW peer also triggers our
+    // beacon (Fix a) so the peer learns us back.
+    else if (r.mobile_src && r.addr_len == 1 && _cfg.team_id != 0 && _team_local_id != 0 && r.next == _team_local_id
+             && r.src != 0 && r.src != 0xFF) {
+        _active->_team_peer[r.src >> 3] |= static_cast<uint8_t>(1u << (r.src & 7));   // known same-team peer (is_team_peer reads this)
+        if (learn_direct_neighbor(r.src, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/true)) schedule_triggered_beacon();
+    }
     // ② implicit-ACK from an overheard forward-RTS (Lua dv:9863-9893): if we have a flight in progress and overhear
     // OUR next-hop forwarding the SAME DATA onward (its relay RTS), the hop decoded -> cancel our pending timeout
     // instead of waiting out the ACK timer + firing a redundant retry that collides with its downstream DATA. Match
@@ -340,6 +361,12 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto pc = parse_cts(std::span<const uint8_t>(bytes, len));
     if (!pc) return;
     const cts_out& c = *pc;
+    // §mobile: a CTS from our HOME clearing OUR flight (c.tx_id=home, c.rx_id=us) proves the home is alive -> refresh the
+    // home-lost clock. The mobile routes all its DMs via the home, so this fires FAR more often than the home's (possibly
+    // 15-min) beacon — the beacon-only refresh (node_beacon.cpp:551) is what let a live-but-slow-beaconing home be
+    // declared "lost". is_mobile+active gated -> s18/static byte-identical.
+    if (_cfg.is_mobile && _my_mobile_reg.active && c.rx_id == _node_id && c.tx_id == _my_mobile_reg.home_id)
+        _my_mobile_reg.last_heard_home_ms = _hal.now();
     // R4.4 anti-spam: track this CTS in the CTS sender's (c.tx_id) window (overheard, addressed to us or
     // not). CTS is the forwarder fingerprint — a legit forwarder emits ~1 CTS per inbound flight (dv:10149).
     // Unconditional now: tx_id is on the wire (no PHY-sender god-view). Dedup key is rx_id (the cleared
@@ -631,6 +658,22 @@ void Node::do_post_ack() {
     if (!pa.is_forward) {
         // Parse the inner up-front (the optional DST_HASH prefix + the cross-layer layer-path, read from pa.flags).
         auto ui = parse_unicast_inner(std::span<const uint8_t>(pa.inner, pa.inner_len), pa.flags);
+        // §mobile delegated hash-locate (2026-07-11): a hosted mobile handed us (its home) a PLAINTEXT payload to send to
+        // ui->dst_key_hash32 (the target). RE-ORIGINATE via send_by_hash (existing resolve/park machinery), stamping
+        // SOURCE_HASH = the requesting mobile's hash (ui->source_hash) so the target's E2E-ack routes back to the MOBILE,
+        // not us. VERIFY source_hash is one of OUR mobiles (else the reply couldn't return here + reject a spoof). Checked
+        // BEFORE the last-mile fork so a MOBILE_SEND wrapper is never forwarded verbatim. _mobile_reg_n>0 -> non-host inert.
+        if (pa.type == DATA_TYPE_MOBILE_SEND && _active->_mobile_reg_n > 0 && ui && ui->has_dst_hash && ui->has_source_hash) {
+            bool ours = false;
+            for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+                if (_active->_mobile_reg[i].key_hash32 == ui->source_hash) { ours = true; break; }
+            if (ours)
+                (void)send_by_hash(ui->dst_key_hash32, ui->body.data(), static_cast<uint8_t>(ui->body.size()),
+                                   pa.flags & (DATA_FLAG_E2E_ACK_REQ | DATA_FLAG_PRIORITY), CryptIntent::off,
+                                   /*reply_to_hash=*/ui->source_hash, /*mobile_ctr=*/pa.ctr);   // plaintext-only (v1); the reply routes back by SOURCE_HASH -> our proxy -> last-mile; mobile_ctr -> the ctr_H->ctr_M reverse-ack map so the target's E2E-ack reaches the mobile with ITS ctr
+            become_free();
+            return;
+        }
         // §mobile 3a: HOST last-mile forward — a DM addressed to ME whose inner dst_hash is a mobile I HOST -> re-address it
         // to the mobile's LOCAL id with the addr_len=1 mark (Slice 1). The inner rides VERBATIM (E2E-sealed to the mobile;
         // the host re-addresses, never decrypts — like the cross-layer bridge). Gated on _mobile_reg_n>0 -> a non-host is
@@ -759,9 +802,31 @@ void Node::do_post_ack() {
             // The acked ctr: a same-layer E2E_ACK inner is [origin][ctr_lo][ctr_hi] (ctr at inner[1..2]); a 4e
             // CROSS_LAYER ack is ...[origin][source_hash][body=ctr_lo,ctr_hi] -> the ctr is the parsed BODY (ui).
             // Computed ALWAYS (was telemetry-only): the durable receipt + the live push need it on metal (NO_TELEMETRY).
-            const uint16_t acked = ((pa.flags & DATA_FLAG_CROSS_LAYER) && ui && ui->body.size() >= 2)
+            // A plain same-layer ack inner is [origin][ctr_lo][ctr_hi] (ctr at inner[1..2]); a 4e CROSS_LAYER ack OR a
+            // §mobile reverse-ack carries a SOURCE_HASH before the body -> the ctr is the parsed BODY (ui->body[0..1]).
+            const bool ack_has_sh = ui && ui->has_source_hash && ui->body.size() >= 2;
+            const uint16_t acked = (((pa.flags & DATA_FLAG_CROSS_LAYER) && ui && ui->body.size() >= 2) || ack_has_sh)
                                    ? static_cast<uint16_t>(ui->body[0] | (ui->body[1] << 8))
                                    : ((pa.inner_len >= 3) ? static_cast<uint16_t>(pa.inner[1] | (pa.inner[2] << 8)) : 0);
+            // §mobile reverse-ack: a SAME-layer ack whose carried SOURCE_HASH names a mobile I HOST -> it's really for
+            // that mobile (which stamped origin=my id, so the ack came home to me). Re-address it as a last-mile to the
+            // mobile. A DELEGATED send's ctr (H re-originated under its OWN ctr) is translated back to the mobile's ctr
+            // via the map; a DIRECT send has no map entry -> the ctr passes through. Consume — NOT my own send's ack.
+            // (CROSS_LAYER acks keep their own 4e handling below; s18 has no hosted mobiles -> this never fires.)
+            if (ack_has_sh && !(pa.flags & DATA_FLAG_CROSS_LAYER) && _active->_mobile_reg_n > 0) {
+                for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+                    if (_active->_mobile_reg[i].key_hash32 == ui->source_hash) {
+                        uint16_t m_ctr = acked;
+                        deleg_ack_translate(pa.origin, acked, m_ctr);   // delegated: ctr_H -> ctr_M (no-op miss => as-is)
+                        const uint8_t mb[2] = { static_cast<uint8_t>(m_ctr & 0xFF), static_cast<uint8_t>(m_ctr >> 8) };
+                        (void)enqueue_data(_active->_mobile_reg[i].mobile_local_id, mb, 2, /*flags=*/0, "e2e_ack_tx",
+                                           /*app_dm=*/false, DATA_TYPE_E2E_ACK, CryptIntent::def,
+                                           /*override_dst_hash=*/0, /*override_source_hash=*/0, /*addr_len=*/1);
+                        MR_EMIT("mobile_reverse_ack", EF_I("m", _active->_mobile_reg[i].mobile_local_id), EF_I("ctr", m_ctr));
+                        become_free();
+                        return;
+                    }
+            }
             // Cross-layer: the acker's STABLE key (the 8-bit origin aliases across leaves) -> the companion's match key.
             // Same-layer: (origin, ctr) suffices, acker_hash=0.
             const uint32_t acker_hash = ((pa.flags & DATA_FLAG_CROSS_LAYER) && ui && ui->has_source_hash) ? ui->source_hash : 0;
@@ -853,7 +918,7 @@ void Node::do_post_ack() {
         // same-layer ack home on the F reverse path.
         if (pa.flags & DATA_FLAG_E2E_ACK_REQ) {
             if ((pa.flags & DATA_FLAG_CROSS_LAYER) && ui) send_e2e_ack_cross_layer(*ui, pa.ctr);
-            else                                          send_e2e_ack(dec_origin, pa.ctr);   // §1a: ack the recovered origin
+            else                                          send_e2e_ack(dec_origin, pa.ctr, sender_hash);   // §1a: ack the recovered origin; §mobile: sender_hash a hosted mobile -> last-mile the ack (origin==my id => self-send)
         }
         become_free();
     } else {

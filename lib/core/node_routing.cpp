@@ -636,6 +636,28 @@ bool Node::is_mobile_peer(uint8_t id) const {
 bool Node::is_team_peer(uint8_t id) const {   // §mobile 6.2: a known same-team peer -> route via _rt_team
     return (_active->_team_peer[id >> 3] >> (id & 7)) & 1u;
 }
+// §enc: cache a same-team peer's key_hash32 (from its beacon). Team-SCOPED — NEVER _id_bind (the static plane, §18).
+// Upsert by id; on a full ring evict the OLDEST. Read by team_key_of_id for an ENCRYPTED send BY team_local_id.
+void Node::team_key_set(uint8_t id, uint32_t key_hash32) {
+    if (id == 0 || id == 0xFF || key_hash32 == 0) return;
+    auto& L = *_active;
+    for (uint8_t i = 0; i < L._team_keys_n; ++i)
+        if (L._team_keys[i].id == id) { L._team_keys[i].key_hash32 = key_hash32; L._team_keys[i].last_seen_ms = _hal.now(); return; }
+    uint8_t slot;
+    if (L._team_keys_n < static_cast<uint8_t>(sizeof(L._team_keys) / sizeof(L._team_keys[0]))) {
+        slot = L._team_keys_n++;
+    } else {                                                     // full -> evict the OLDEST
+        slot = 0; uint64_t oldest = ~0ull;
+        for (uint8_t i = 0; i < L._team_keys_n; ++i) if (L._team_keys[i].last_seen_ms < oldest) { oldest = L._team_keys[i].last_seen_ms; slot = i; }
+    }
+    L._team_keys[slot] = { id, key_hash32, _hal.now() };
+}
+bool Node::team_key_of_id(uint8_t id, uint32_t& out) const {   // §enc: team-scoped id->key (for a CRYPTED send by team_local_id)
+    if (_cfg.team_id == 0 || !is_team_peer(id)) return false;   // only a known same-team peer (gate on team membership + the peer bitmap)
+    for (uint8_t i = 0; i < _active->_team_keys_n; ++i)
+        if (_active->_team_keys[i].id == id) { out = _active->_team_keys[i].key_hash32; return true; }
+    return false;
+}
 // True iff routing to `dest` via `next_hop` would relay THROUGH a mobile peer. The next_hop != dest carve-out is the
 // whole point: deliver TO a mobile (it's the dest) is fine; relaying THROUGH one (it'll roam away) is not. (dv:1329-1334)
 bool Node::route_uses_mobile_as_transit(uint8_t dest, uint8_t next_hop) const {

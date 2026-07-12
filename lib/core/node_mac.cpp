@@ -50,7 +50,7 @@ uint32_t Node::retry_jitter_ms() const { return 3 * airtime_routing_ms(8); }
 // Build + enqueue an app DATA. `tx_event` separates an app send ("tx_enqueue", the dm_delivery
 // record-creation key) from an internal protocol DATA like the E2E ack ("e2e_ack_tx") that must NOT
 // be counted as an app DM.
-uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, [[maybe_unused]] const char* tx_event, bool app_dm, uint8_t type, CryptIntent crypt, uint32_t override_dst_hash) {
+uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, [[maybe_unused]] const char* tx_event, bool app_dm, uint8_t type, CryptIntent crypt, uint32_t override_dst_hash, uint32_t override_source_hash, uint8_t addr_len) {
     // R6.1 §6.4 join-participation gate: an un-synced managed joiner must CONFIG_PULL before it originates app DMs (no
     // pre-membership pollution). Inert for UNMANAGED/adopted nodes (leaf_config_synced()). Internal DATA (app_dm=false:
     // E2E acks, forwards) is NEVER gated — only originations.
@@ -59,10 +59,22 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
         Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::joining; pu.dst = dst; pu.ctr = 0; enqueue_push(pu);
         return 0;
     }
+    // §mobile: a mobile is reachable for a REPLY only via a valid HOME (it stamps origin=home_id, and the home last-miles
+    // the reverse leg). Originating a reply-expecting DM (E2E_ACK_REQ) to a NON-team target while we have no routable home
+    // would stamp origin=_node_id — a mobile LOCAL id no static node can route to -> the target floods RREQ for it (storm)
+    // and the ack never returns. FAIL LOUD instead. A team dst (is_team_peer) is routable on the team plane; a registered
+    // mobile (home_id set, not self) makes the reverse-ack work. Gated on is_mobile -> a static node is byte-identical.
+    if (app_dm && (flags & DATA_FLAG_E2E_ACK_REQ) && _cfg.is_mobile && !is_team_peer(dst)
+        && !(_my_mobile_reg.active && _my_mobile_reg.home_id != 0 && _my_mobile_reg.home_id != _node_id)) {
+        MR_EMIT("send_failed", EF_I("dst", dst), EF_S("reason", "mobile_no_home"));
+        Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::mobile_no_home; pu.dst = dst; pu.ctr = 0; enqueue_push(pu);
+        return 0;
+    }
     const uint16_t ctr = next_ctr(dst);
     TxItem item{};
     stamp_origin(item); item.dst = dst; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
     item.flags = flags; item.type = type;
+    item.addr_len = addr_len;   // §mobile: 1 => `dst` is a hosted mobile's LOCAL id -> route as a direct 1-hop last-mile (node_mac.cpp:529). 0 for every normal origination (byte-identical).
     // Inner = [dst_key_hash32 (4 B LE, iff DST_HASH)][origin][body] — NO payload-flags byte. DST_HASH (L2c
     // verify-on-delivery) is default-on for app DMs when we know the recipient's stable key (id_bind) and the
     // +4 B still fits the inner buffer — when present, set the byte-1 HEADER flag (item.flags) and prefix the
@@ -76,7 +88,7 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     uint32_t dh = 0;
     if (override_dst_hash) {                                    // §mobile 3c: carry the QUERIED (mobile) hash M so the home last-mile-forwards (dst_hash != home's key) instead of consuming
         dh = override_dst_hash; item.flags |= DATA_FLAG_DST_HASH;
-    } else if (app_dm && key_hash_of_id(dst, dh)
+    } else if (app_dm && (key_hash_of_id(dst, dh) || team_key_of_id(dst, dh))   // §enc: a team peer's key isn't in _id_bind (static plane) -> fall back to the team-scoped key cache so an ENCRYPTED send BY team_local_id gets DST_HASH (and a plaintext team DM gains verify-on-delivery). team_key_of_id is false for a static node / non-team-peer dst -> s18 byte-identical.
         && static_cast<size_t>(4 + 1 + body_len) <= protocol::max_payload_bytes_hard_cap) {
         item.flags |= DATA_FLAG_DST_HASH;
     }
@@ -109,8 +121,8 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
         item.flags |= DATA_FLAG_CRYPTED;                                   // SOURCE_HASH (+LOCATION if loc_in_dm) already decided above
         uint8_t seed[8];
         SealOutcome oc = SealOutcome::ok;
-        const size_t n = e2e_seal_inner(item.inner, sizeof item.inner, seed, item.flags, dh, _node_id, ctr,
-                                        _key_hash32, _cfg.lat_e7, _cfg.lon_e7, body, body_len, oc);
+        const size_t n = e2e_seal_inner(item.inner, sizeof item.inner, seed, item.flags, dh, item.origin, ctr,
+                                        _key_hash32, _cfg.lat_e7, _cfg.lon_e7, body, body_len, oc);   // §mobile: item.origin (stamp_origin) = home_id for a registered mobile so the SEALED inner origin is the ROUTABLE home, not our node_id (== _node_id for a static node -> byte-identical). The reverse-ack routes to this origin.
         if (n == 0) {                                                      // seal failed -> FAIL LOUD distinctly, NEVER cleartext
             switch (oc) {
                 case SealOutcome::no_pubkey:                               // E2E §5: NO auto-query. Key acquisition is USER-driven:
@@ -140,8 +152,9 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     } else {
         item.inner_len = static_cast<uint8_t>(
             pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), item.flags, dh,
-                               /*layer_ids*/ nullptr, /*n_layers*/ 0, /*cur*/ 0, _node_id, _key_hash32, body, body_len,
-                               _cfg.lat_e7, _cfg.lon_e7));   // written iff DATA_FLAG_LOCATION was set above (origination-only)
+                               /*layer_ids*/ nullptr, /*n_layers*/ 0, /*cur*/ 0, item.origin,   // §mobile: item.origin (stamp_origin) = home_id for a registered mobile -> the INNER origin is the ROUTABLE home, so the target's E2E-ack routes to the home (which last-miles it), not to our static-invisible node_id. == _node_id for a static node -> s18 byte-identical.
+                               override_source_hash ? override_source_hash : _key_hash32,   // §mobile delegate: the HOME re-originating for its mobile stamps SOURCE_HASH = the mobile's hash so the target's E2E-ack routes back to the mobile (0 = our own hash, byte-identical)
+                               body, body_len, _cfg.lat_e7, _cfg.lon_e7));   // written iff DATA_FLAG_LOCATION was set above (origination-only)
     }
     item.enqueue_time_ms = _hal.now();                   // first-enqueue time (cascade-requeue total-age cap)
     // Inc 3 back-off: a warn'd ACK (a downstream neighbour says we're near its airtime cap) parks new DM
@@ -167,8 +180,8 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
 }
 
 // E2E/PRIORITY ride the wire via `flags`; the E2E ACK behaviour lives in do_post_ack + send_e2e_ack.
-uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t override_dst_hash) {
-    return enqueue_data(dst, body, body_len, flags, "tx_enqueue", /*app_dm=*/true, /*type=*/0, crypt, override_dst_hash);   // app DM (dm_delivery record key); DST_HASH default-on (or the §3c mobile override)
+uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t override_dst_hash, uint8_t type, uint32_t override_source_hash) {
+    return enqueue_data(dst, body, body_len, flags, "tx_enqueue", /*app_dm=*/true, type, crypt, override_dst_hash, override_source_hash);   // app DM (dm_delivery record key); DST_HASH default-on (or the §3c mobile override); §mobile delegate: type/override_source_hash for MOBILE_SEND + the home re-originate
 }
 
 // ---- Slice 4d: cross-layer DM origination -------------------------------------------------------------------
@@ -299,8 +312,32 @@ CmdCode Node::originate_layer_path(uint32_t dst_hash, const uint8_t* hops, uint8
 // End-to-end ACK: a tiny DATA back to the DM's origin carrying the acked ctr. Typed by the frame TYPE
 // (DATA_TYPE_E2E_ACK -> APP byte), NOT a byte-1 flag. Emits e2e_ack_tx (NOT tx_enqueue) so dm_delivery
 // doesn't miscount the ack as an app DM; it routes home on the reverse path F discovery laid toward the origin.
-void Node::send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr) {
+void Node::send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr, uint32_t sender_hash) {
     const uint8_t body[2] = { static_cast<uint8_t>(acked_ctr & 0xFF), static_cast<uint8_t>(acked_ctr >> 8) };
+    // §mobile: the DM's sender is one of MY hosted mobiles (sender_hash matches its stable key). A registered mobile
+    // stamps origin=home_id (== MY id when it DMs its own home) -> acking `to_origin` is a self-send that never leaves.
+    // Re-address the E2E-ack as a direct last-mile DM to the mobile's LOCAL id (addr_len=1), the way the host relays TO
+    // a mobile (do_post_ack §3a). Gated on sender_hash!=0 + a match -> a static node (no _mobile_reg) is byte-identical.
+    if (sender_hash != 0)
+        for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+            if (_active->_mobile_reg[i].key_hash32 == sender_hash) {
+                (void)enqueue_data(_active->_mobile_reg[i].mobile_local_id, body, 2, /*flags=*/0, "e2e_ack_tx",
+                                   /*app_dm=*/false, DATA_TYPE_E2E_ACK, CryptIntent::def,
+                                   /*override_dst_hash=*/0, /*override_source_hash=*/0, /*addr_len=*/1);
+                return;
+            }
+    // §mobile reverse-ack: the acked DM's SENDER differs from its origin -> `origin` is a mobile's home-stamped id and
+    // `sender_hash` is the MOBILE itself. Carry the mobile's stable hash ON the ack (DATA_FLAG_SOURCE_HASH — the same
+    // on-wire identity the cross-layer 4e ack uses) so the mobile's HOME (== `to_origin`, where this ack already routes)
+    // recognizes it and last-miles to the mobile. A STATIC sender has source_hash == key_hash_of_id(origin) -> gate
+    // FALSE -> plain ack (byte-identical; s18 has no mobiles so this never fires). Unknown origin key -> plain ack.
+    uint32_t oh = 0;
+    if (sender_hash != 0 && key_hash_of_id(to_origin, oh) && oh != sender_hash) {
+        (void)enqueue_data(to_origin, body, 2, /*flags=*/DATA_FLAG_SOURCE_HASH, "e2e_ack_tx",
+                           /*app_dm=*/false, DATA_TYPE_E2E_ACK, CryptIntent::def,
+                           /*override_dst_hash=*/0, /*override_source_hash=*/sender_hash);
+        return;
+    }
     (void)enqueue_data(to_origin, body, 2, /*flags=*/0, "e2e_ack_tx", /*app_dm=*/false, DATA_TYPE_E2E_ACK);
 }
 

@@ -441,6 +441,7 @@ enum DataType : uint8_t {
     DATA_TYPE_MOBILE_LAYER_ANSWER    = 11,  // §mobile 5a: a gateway's reply = [count u8][ count × LayerRecord ]; the mobile unions it into its learned directory.
     DATA_TYPE_MOBILE_PUBKEY_PUSH     = 12,  // §mobile hash-locate Part 2 (Fix 6): a mobile pushes its ed_pub[32] to its home (1-hop DM, SOURCE_HASH=M) so the home can answer WANT_PUBKEY locates on its behalf. Re-sent on re-home. Body = ed_pub[32].
     DATA_TYPE_MOBILE_H_ANSWER_PUBKEY = 13,  // §mobile hash-locate Part 2 (Fix 7): a home's WANT_PUBKEY answer for its LIVE mobile — inner = the mobile hash_bind (7 B: home routing + epoch) ‖ the mobile's ed_pub[32] = 39 B. Sender caches peer_key(M)+mobile_home(M->home), NEVER id_binds the local id.
+    DATA_TYPE_MOBILE_SEND            = 14,   // §mobile delegated hash-locate (2026-07-11): a registered mobile asks its HOME to send the enclosed PLAINTEXT payload to DST_HASH (the target). dst=home_id, SOURCE_HASH=mobile_hash. The home re-originates via send_by_hash (resolve/park) stamping source_hash=mobile_hash so the target's E2E-ack routes back to the mobile. A mobile NEVER hash-locates on the static plane (origin=local id -> RREQ storm). Home-only (_mobile_reg_n>0) -> static-inert.
 };
 
 // §mobile 5a: a neighbouring-layer record (the composite network identity — layer_id alone isn't unique across areas).

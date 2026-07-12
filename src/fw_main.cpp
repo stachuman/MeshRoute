@@ -984,6 +984,7 @@ static void seed_blob_from_live(mrnv::Blob& b) {
     b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch; b.leaf_name_len = nc.leaf_name_len;
     for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
     b.channel_active_fraction = nc.channel_active_fraction; b.channel_min_interval_ms = nc.channel_min_interval_ms; b.dm_min_interval_ms = nc.dm_min_interval_ms;   // v16 anti-spam per-leaf tunables
+    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;   // ★ STAMP here so EVERY caller gets a VALID blob. Without it a save path that seeds (load failed / fresh chip) but forgets to re-stamp — e.g. handle_team — persists magic=0/version=0, which the next boot's load() REJECTS => the whole config resets to defaults (the `cfg set mobile 1` -> reboot -> mobile=0 bug). The other callers also re-stamp (harmless/redundant now).
 }
 
 // Yield the next `key=value` token from *p (advancing p past it). A value may be "quoted" (so it can contain
@@ -1137,6 +1138,7 @@ static void handle_team(const char* args) {
         return;
     }
     mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
+    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;   // ★ was MISSING (the only save path without a stamp) -> a `team` command on a fresh/rejected blob persisted magic=0 => next boot's load() rejected it => the whole config reset (mobile=0). seed_blob_from_live now also stamps; this is belt-and-suspenders + matches the other 6 save paths.
     b.team_id = t;
     // §mobile 6.4 Fix 6: set the team PHY so teammates hear each other (AND a member can later register with a compatible
     // static network). Mirror `mobile register freq=`. Omitted -> keep the current PHY. Requires is_mobile (a team is mobile).
@@ -1300,7 +1302,7 @@ static void dump_help() {
     hl(F("[help] IDENTITY / KEYS"));
     hl(F("[help]   whoami | lookup <hash> | hashof <id> | resolve <hash> [hard]"));
     hl(F("[help]   peerkey <ed_pub hex64>      pin a scanned/QR pubkey"));
-    hl(F("[help]   reqpubkey <hash>            request a peer's key on-air"));
+    hl(F("[help]   reqpubkey <hash|team-id>    request a peer's key on-air (team-id: resolve via the team cache)"));
 #if MR_N_LAYERS < 2
     hl(F(""));
     hl(F("[help] MOBILE / TEAM  (normal-node only)"));
@@ -1834,8 +1836,11 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     if (e == ParseErr::ok) {
         if (cmd.kind == meshroute::CmdKind::peerkey) return handle_peerkey(out, cap, cmd);   // §2/§3: install + persist + contract ack
         const meshroute::CmdResult r = g_node.on_command(cmd);
-        if (cmd.kind == meshroute::CmdKind::reqpubkey && r.code == meshroute::CmdCode::queued)
-            return write_reqpubkey_sent(out, cap, cmd.u.resolve.dst_hash);   // §2: the contract's reqpubkey_sent event (the no-identity fail path keeps its existing error ack)
+        if (cmd.kind == meshroute::CmdKind::reqpubkey && r.code == meshroute::CmdCode::queued) {
+            uint32_t rh = cmd.u.resolve.dst_hash;                                       // §enc: a by-team-id reqpubkey resolved the hash at execution -> echo the RESOLVED hash
+            if (rh == 0 && cmd.u.resolve.dst_id != 0) (void)g_node.team_key_of_id(cmd.u.resolve.dst_id, rh);
+            return write_reqpubkey_sent(out, cap, rh);   // §2: the contract's reqpubkey_sent event (the no-identity fail path keeps its existing error ack)
+        }
         return write_ack(out, cap, r);
     }
     if (e == ParseErr::empty) return 0;
@@ -2261,7 +2266,11 @@ static inline void canary_timer([[maybe_unused]] uint32_t id) {
 #endif
 }
 
-void loop() {
+// §stability (2026-07-11): one pass of the mesh service (RX drain / timers / tx / console / BLE / persist / sleep). Was
+// the body of loop(); extracted so it can run in a DEDICATED 8 KB task on nRF52 (see the loop() variants at the bottom) —
+// the 4 KB Arduino loop stack overflows on the deepest RX path (hash-locate -> RREQ route-discovery + do_post_ack), bench
+// stackhw fell to 72 B -> HARDFAULT. Behaviour is byte-identical to the old loop(); only the STACK it runs on changes.
+static void mesh_service_once() {
     const uint64_t now = g_hal.now();
 #if defined(MRFAULT_HW)
     mrfault::fault_wdt_feed();                       // kick the 8 s watchdog; a hang freezes the loop -> DOG reset + auto-recovery
@@ -2384,7 +2393,16 @@ void loop() {
             case meshroute::PushKind::send_acked:
                 mrcon.print(F("ACKED ctr="));    mrcon.println(pu.ctr); break;
             case meshroute::PushKind::send_failed:
-                mrcon.print(F("FAILED ctr="));   mrcon.println(pu.ctr); break;
+                mrcon.print(F("FAILED ctr="));   mrcon.print(pu.ctr);
+                switch (pu.reason) {   // §mobile: surface WHY so a fail-loud is actionable (was ctr-only)
+                    case meshroute::SendFailReason::mobile_no_home: mrcon.print(F(" (mobile not registered — no home to route the reply; register first)")); break;
+                    case meshroute::SendFailReason::no_pubkey:      mrcon.print(F(" (no recipient pubkey)")); break;
+                    case meshroute::SendFailReason::no_identity:    mrcon.print(F(" (no crypto identity)")); break;
+                    case meshroute::SendFailReason::too_large:      mrcon.print(F(" (payload too large)")); break;
+                    case meshroute::SendFailReason::joining:        mrcon.print(F(" (joining — config not synced)")); break;
+                    default: break;
+                }
+                mrcon.println(); break;
             case meshroute::PushKind::send_e2e_acked:   // the END-TO-END ack arrived (dest confirmed) — distinct from the hop ACK
                 mrcon.print(F("E2E-ACKED ctr=")); mrcon.print(pu.ctr); mrcon.print(F(" from=")); mrcon.println(pu.dst); break;
             case meshroute::PushKind::hash_resolved: {
@@ -2491,3 +2509,25 @@ void loop() {
     }
 #endif
 }
+
+// §stability (2026-07-11): WHERE mesh_service_once() runs.
+// nRF52 (Adafruit): the Arduino loop task stack is a fixed 4 KB (LOOP_STACK_SZ = 256*4, cores/nRF5/main.cpp — not
+//   overridable by a -D flag). The deepest mesh RX path (hash-locate answer -> RREQ route-discovery flood + do_post_ack
+//   forwarding) nests ~1.4 KB, so `status stackhw=` fell to 72 B on the bench and the next nested frame HARDFAULTed
+//   (cfsr=0x8200, wild BFAR). Run the mesh in a DEDICATED 8 KB FreeRTOS task; the 4 KB Arduino loop task then just idles.
+//   Created lazily on the first loop() so it starts AFTER setup() finished radio/node/BLE init. `stackhw=` (uxTaskGet-
+//   StackHighWaterMark of the CURRENT task) is read from the console handler, which now runs in the mesh task -> it
+//   reports the 8 KB task's headroom (should read thousands free, confirming the fix).
+#if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
+static TaskHandle_t g_mesh_task = nullptr;
+static void mesh_task_fn(void*) {
+    for (;;) { mesh_service_once(); yield(); }        // yield -> let the idle task run (FreeRTOS housekeeping / tickless idle)
+}
+void loop() {
+    if (!g_mesh_task)                                 // lazy create: setup() has finished; inherit a fully-initialized world
+        xTaskCreate(mesh_task_fn, "mesh", 8192 / sizeof(StackType_t), nullptr, tskIDLE_PRIORITY + 1, &g_mesh_task);
+    delay(1000);                                      // the 4 KB Arduino loop task idles; the mesh runs in g_mesh_task
+}
+#else
+void loop() { mesh_service_once(); }                  // ESP32 / other: the loopTask already has a large (~8 KB) stack
+#endif

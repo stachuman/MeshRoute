@@ -37,7 +37,7 @@ struct JoinCmd        { enum Op : uint8_t { discover, claim, deny } op; uint8_t 
 // Diagnostic: locate the node owning key_hash32 (the hash-locate H flood); the answer rides
 // PushKind::hash_resolved. hard = skip caches, reach the owner (verify-on-use). NO body — notify-only,
 // distinct from a send-by-hash (which carries a DM and rides CmdKind::send with dst_hash set).
-struct ResolveCmd     { uint32_t dst_hash; bool hard; };
+struct ResolveCmd     { uint32_t dst_hash; uint8_t dst_id; bool hard; };   // §enc: dst_id!=0 (dst_hash==0) = reqpubkey BY team_local_id -> resolve the hash from the team key cache at execution
 // E2E §3 (QR import): install a scanned peer's full Ed25519 pubkey as a PINNED (verified) key. key_hash32 = ed_pub[:4]
 // is derived (never trusted from the wire), so only the 32-byte pubkey rides the command.
 struct PeerkeyCmd     { uint8_t ed_pub[32]; };
@@ -102,7 +102,8 @@ enum class PushKind : uint8_t {
 // reasons -> plain fail). Mirrors the contract `send_failed.reason`. `none` = a non-send_failed push.
 enum class SendFailReason : uint8_t { none = 0, no_pubkey, no_identity, too_large, bad_rng, no_route, joining,   // R6.2: joining = un-synced managed leaf
                                       cap, min_interval,   // Slice 6a: send_blocked reasons (per-origin cap / burst floor)
-                                      no_cts, no_ack };    // Slice 6b: DM giveup reasons (CTS- / ACK-timeout)
+                                      no_cts, no_ack,      // Slice 6b: DM giveup reasons (CTS- / ACK-timeout)
+                                      mobile_no_home };    // §mobile: a reply-expecting DM from a mobile with no routable home -> unreachable for the reply (would storm)
 // R6.3 §7c: why a join was refused (join_refused push). wire_version -> origin=their_ver, dst=my_ver; leaf_full -> no extra.
 enum class JoinRefuseReason : uint8_t { wire_version = 0, leaf_full = 1 };
 struct Push {

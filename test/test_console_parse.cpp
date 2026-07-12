@@ -163,6 +163,24 @@ TEST_CASE("parse_command — reqpubkey <hash> (user-triggered WANT_PUBKEY reques
     CHECK(c.u.resolve.dst_hash == 0xa1b2c3d4u);
     const char* bad = "reqpubkey zz";
     CHECK(parse_command(bad, std::strlen(bad), c) == ParseErr::bad_args);
+    CHECK(c.u.resolve.dst_id == 0);   // a hash-addressed request leaves dst_id 0
+}
+
+// §enc: reqpubkey <team-id> — a decimal <=254 is a teammate's team_local_id (the hash is resolved from the team key
+// cache at execution). Mirrors the send verb's id-vs-hash auto-detect.
+TEST_CASE("parse_command — reqpubkey <team-id> (decimal -> dst_id, resolved from the team cache at execution)") {
+    Command c{};
+    const char* line = "reqpubkey 25";
+    CHECK(parse_command(line, std::strlen(line), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::reqpubkey);
+    CHECK(c.u.resolve.dst_id == 25);       // ★ the team_local_id
+    CHECK(c.u.resolve.dst_hash == 0);      // ★ resolved later, not a hash
+    const char* h = "reqpubkey a1b2c3d4";  // 8-hex still routes to the hash path
+    CHECK(parse_command(h, std::strlen(h), c) == ParseErr::ok);
+    CHECK(c.u.resolve.dst_hash == 0xa1b2c3d4u);
+    CHECK(c.u.resolve.dst_id == 0);
+    const char* z = "reqpubkey 0";         // id 0 is reserved -> bad_args
+    CHECK(parse_command(z, std::strlen(z), c) == ParseErr::bad_args);
 }
 
 // §3 (E2E peer-key provisioning): peerkey <ed_pub hex64> — install a scanned peer's full pubkey (QR import, PINNED).

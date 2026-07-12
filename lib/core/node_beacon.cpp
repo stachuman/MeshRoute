@@ -683,6 +683,7 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     }
     if (same_team_beacon) {
         _active->_team_peer[b.src >> 3] |= static_cast<uint8_t>(1u << (b.src & 7));   // §6.2: a known same-team peer
+        team_key_set(b.src, b.key_hash32);   // §enc: cache the teammate's key_hash32 (the beacon carries it — dropped for is_mobile at :548) so an ENCRYPTED send BY team_local_id can derive DST_HASH
         if (learn_direct_neighbor(b.src, meta_snr_q4, false, /*team_plane=*/true)) rt_changed = true;
     } else if (!b.is_mobile && learn_direct_neighbor(b.src, meta_snr_q4, b.self_gateway)) rt_changed = true;
     if (b.is_mobile) {
@@ -853,7 +854,7 @@ void Node::deferred_beacon_jitter_fire(uint8_t slot) {
 }
 
 void Node::schedule_triggered_beacon() {
-    if (_cfg.is_mobile) return;                            // mobiles never trigger (dv_dual_sf.lua:7878)
+    if (_cfg.is_mobile && _cfg.team_id == 0) return;       // a roaming/lone mobile never triggers (dv_dual_sf.lua:7878); a TEAM member MUST — an off-grid team of mobiles has no static node to carry convergence, so hearing a new team peer has to fire the reciprocal beacon. The beacon is is_mobile -> the STATIC plane still drops it from _rt (node_beacon.cpp:687). team_id==0 keeps s18 + the mobile-DM sims byte-identical.
     if (_triggered_beacon_pending) return;                // coalesce BEFORE the rand draw
     _triggered_beacon_pending = true;
     const int lo = protocol::beacon_trigger_jitter_min_ms;

@@ -231,11 +231,15 @@ struct DualLayerTestAccess {
         n._my_mobile_reg = { true, home_id, local_id, home_hash, n._cfg.leaf_id, 0, n._hal.now() };
     }
     static uint16_t do_send(Node& n, uint8_t dst, const uint8_t* body, uint8_t body_len) { return n.do_send(dst, body, body_len, 0); }  // §mobile 3b: originate a plaintext DM
+    static uint16_t do_send_ack(Node& n, uint8_t dst, const uint8_t* body, uint8_t body_len) { return n.do_send(dst, body, body_len, DATA_FLAG_E2E_ACK_REQ); }  // §mobile: a reply-expecting (E2E_ACK) DM
     static uint16_t do_send_override(Node& n, uint8_t dst, const uint8_t* body, uint8_t len, uint32_t oh) { return n.do_send(dst, body, len, 0, CryptIntent::def, oh); }  // §mobile 3c: DM with override_dst_hash
+    static void     emit_rreq(Node& n, uint8_t dst) { n.emit_route_request(dst, 16); }  // §mobile: drive route-discovery (test the mobile-local-id RREQ guard)
     static uint16_t send_by_hash(Node& n, uint32_t h, const uint8_t* body, uint8_t len) { return n.send_by_hash(h, body, len, 0, CryptIntent::def); }  // §mobile 3c: send-by-hash trigger
-    static void     send_e2e_ack(Node& n, uint8_t to_origin, uint16_t ctr) { n.send_e2e_ack(to_origin, ctr); }  // §mobile Fix 5: originate an E2E-ACK to an origin
+    static void     send_e2e_ack(Node& n, uint8_t to_origin, uint16_t ctr, uint32_t sender_hash = 0) { n.send_e2e_ack(to_origin, ctr, sender_hash); }  // §mobile Fix 5: originate an E2E-ACK to an origin; sender_hash a hosted mobile -> last-mile
     static bool     has_pending_rx(Node& n) { return static_cast<bool>(n._active->_pending_rx); }  // §mobile 3b: a receiver flight opened => the RTS was ADDRESSED (accepted), not overheard
     static void     deactivate_mobile_reg(Node& n) { n._my_mobile_reg.active = false; }  // §mobile 4b: simulate the 2b home-lost reset (active=false, home_id kept) so the guard re-CLAIMs
+    static uint64_t mobile_last_heard_home(Node& n) { return n._my_mobile_reg.last_heard_home_ms; }  // §mobile: the home-lost liveness clock
+    static void     mobile_discover_fire(Node& n) { n.mobile_discover_fire(); }  // §mobile: drive the reclaim/home-lost FSM tick
     static uint8_t  mobile_reg_redirect(Node& n, uint8_t slot) { return n._active->_mobile_reg[slot].redirect_home_id; }  // §mobile 4b
     static void     set_mobile_last_heard(Node& n, uint8_t slot, uint64_t ms) { n._active->_mobile_reg[slot].last_heard_ms = ms; }  // §mobile hash-locate: age/refresh the liveness clock
     static uint8_t  mobile_reg_n(Node& n) { return n._active->_mobile_reg_n; }  // §mobile Part 2: count of hosted mobiles
@@ -285,6 +289,35 @@ struct DualLayerTestAccess {
         pa.inner[5]=new_home; pa.inner[6]=epoch; pa.inner[7]=new_home_layer; pa.inner_len=8;
         n.do_post_ack();
     }
+    static void     drive_post_ack_e2e_ack(Node& n, uint8_t acker, uint32_t source_hash, uint16_t acked_ctr) {   // §mobile reverse-ack: run do_post_ack for a same-layer E2E_ACK carrying SOURCE_HASH
+        auto& pa = n._active->_post_ack; pa = PostAck{};
+        pa.pending=true; pa.is_forward=false; pa.origin=acker; pa.dst=n._node_id;
+        pa.ctr=acked_ctr; pa.ctr_lo=static_cast<uint8_t>(acked_ctr & 0x0F); pa.flags=DATA_FLAG_SOURCE_HASH; pa.type=DATA_TYPE_E2E_ACK;
+        pa.inner[0]=acker;   // [origin][source_hash 4B LE][ctr_lo][ctr_hi]
+        pa.inner[1]=static_cast<uint8_t>(source_hash); pa.inner[2]=static_cast<uint8_t>(source_hash>>8);
+        pa.inner[3]=static_cast<uint8_t>(source_hash>>16); pa.inner[4]=static_cast<uint8_t>(source_hash>>24);
+        pa.inner[5]=static_cast<uint8_t>(acked_ctr & 0xFF); pa.inner[6]=static_cast<uint8_t>(acked_ctr >> 8); pa.inner_len=7;
+        n.do_post_ack();
+    }
+    static void     deleg_ack_put(Node& n, uint8_t acker, uint16_t ctr_h, uint16_t ctr_m) { n.deleg_ack_put(acker, ctr_h, ctr_m); }   // §mobile reverse-ack: seed the delegated ctr map
+    static void     drive_post_ack_mobile_send(Node& n, uint32_t source_hash_M, uint32_t dst_hash_X, uint16_t ctr_M, uint8_t body0) {   // §mobile reverse-ack: a hosted mobile's MOBILE_SEND arriving at its home
+        auto& pa = n._active->_post_ack; pa = PostAck{};
+        pa.pending=true; pa.is_forward=false; pa.origin=n._node_id; pa.dst=n._node_id;   // a registered mobile stamps origin=home_id (== this home)
+        pa.ctr=ctr_M; pa.ctr_lo=static_cast<uint8_t>(ctr_M & 0x0F);
+        pa.flags=DATA_FLAG_DST_HASH|DATA_FLAG_SOURCE_HASH|DATA_FLAG_E2E_ACK_REQ; pa.type=DATA_TYPE_MOBILE_SEND;
+        pa.inner[0]=static_cast<uint8_t>(dst_hash_X); pa.inner[1]=static_cast<uint8_t>(dst_hash_X>>8);   // [dst_hash 4B LE]...
+        pa.inner[2]=static_cast<uint8_t>(dst_hash_X>>16); pa.inner[3]=static_cast<uint8_t>(dst_hash_X>>24);
+        pa.inner[4]=n._node_id;   // [origin]
+        pa.inner[5]=static_cast<uint8_t>(source_hash_M); pa.inner[6]=static_cast<uint8_t>(source_hash_M>>8);   // [source_hash 4B LE]
+        pa.inner[7]=static_cast<uint8_t>(source_hash_M>>16); pa.inner[8]=static_cast<uint8_t>(source_hash_M>>24);
+        pa.inner[9]=body0; pa.inner_len=10;   // [body]
+        n.do_post_ack();
+    }
+    static void     bind_authoritative(Node& n, uint8_t node_id, uint32_t key) {   // authoritative id_bind on the ACTIVE leaf (so key_hash_of_id succeeds)
+        auto& L = *n._active;
+        L._id_bind[L._id_bind_n].key_hash32 = key; L._id_bind[L._id_bind_n].node_id = node_id;
+        L._id_bind[L._id_bind_n].last_seen_ms = n._hal.now(); L._id_bind[L._id_bind_n].confidence = 1; ++L._id_bind_n;
+    }
     static uint8_t  pick_hop(Node& n, PendingTx& pt)        { return n.pick_next_cascade_hop(pt); }    // §intra-relay Edit 4: cascade pick (0 = no selectable hop -> rediscover)
     static void     pump(Node& n)                           { n.become_free(); }                      // Slice 4a: the kQueueWakeupTimerId handler
     // Slice 4c.1 bridge accessors
@@ -311,6 +344,13 @@ struct DualLayerTestAccess {
     static uint8_t        leaf_tx_n(Node& n, uint8_t leaf)      { return n._layers[leaf]._tx_queue_n; }
     static const TxItem&  leaf_tx_at(Node& n, uint8_t leaf, uint8_t i) { return n._layers[leaf]._tx_queue[i]; }
     static void           learn_neighbor(Node& n, uint8_t node_id) { n.learn_direct_neighbor(node_id, 40, false); }   // 1-hop route on the ACTIVE leaf
+    static bool           is_team_peer(Node& n, uint8_t id) { return n.is_team_peer(id); }   // §6.4: known same-team peer (route via _rt_team)?
+    static bool           team_key_of_id(Node& n, uint8_t id, uint32_t& out) { return n.team_key_of_id(id, out); }   // §enc: team-scoped id->key
+    static void           learn_team_neighbor(Node& n, uint8_t id, uint32_t key_hash) {   // §enc: a same-team peer as its beacon would leave it — bitmap + _rt_team route + key cache
+        n._active->_team_peer[id >> 3] |= static_cast<uint8_t>(1u << (id & 7));
+        (void)n.learn_direct_neighbor(id, 40, false, /*team_plane=*/true);
+        n.team_key_set(id, key_hash);
+    }
     static void           send_xl(Node& n, uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t len, uint8_t flags = 0) { n.send_cross_layer(dst_node, dst_hash, target_layer, body, len, flags); }
     static CmdCode        originate(Node& n, uint32_t dst_hash, const uint8_t* hops, uint8_t hc, const uint8_t* body, uint8_t len, uint8_t flags = 0) { uint16_t ctr = 0; return n.originate_layer_path(dst_hash, hops, hc, body, len, flags, ctr); }
     // Multi-hop gateway discovery (type-4 TLV) accessors.
@@ -2308,6 +2348,191 @@ TEST_CASE("§mobile Fix 5 (§18) — E2E-ACK when the origin's GLOBAL id == the 
     CHECK(home.rt_count() == rc0);            // ★ A1: the home did NOT learn the mobile's local-20 -> the ack forwards to GLOBAL-20, no loop
 }
 
+TEST_CASE("§mobile — a home E2E-acks its OWN hosted mobile's DM via a last-mile (addr_len=1), NOT a self-send to its own id") {
+    // The reported bug: a registered mobile DMs its HOME; the mobile stamps origin=home_id, so the home delivered the
+    // message then tried send_e2e_ack(to_origin=home_id) == a self-send (31->31) that never leaves -> the mobile never
+    // learns its DM arrived. Fix: the home recognizes sender_hash as one of ITS hosted mobiles and re-addresses the ack
+    // as a direct last-mile DM to the mobile's LOCAL id (addr_len=1), the way it relays TO a mobile.
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);   // this IS the home (its own key hash)
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
+    DualLayerTestAccess::store_mobile(home, /*key*/0xC0FFEEu, /*local*/17);   // the home hosts mobile 0xC0FFEE -> local 17
+    // the mobile's DM arrived stamped origin=home_id(31), source_hash=the mobile's hash. The home acks with sender_hash set.
+    DualLayerTestAccess::send_e2e_ack(home, /*to_origin*/31, /*ctr*/0x0006, /*sender_hash*/0xC0FFEEu);
+    const PendingTx* pt = DualLayerTestAccess::pending(home);
+    CHECK(pt != nullptr);                     // ★ NOT a dropped self-send
+    if (pt) {
+        CHECK(pt->dst == 17);                 // ★ re-addressed to the mobile's LOCAL id (not to_origin=31=self)
+        CHECK(pt->addr_len == 1);             // ★ the last-mile mark (dst is a mobile local id)
+        CHECK(pt->mobile_src == false);       // a HOST last-mile origination, NOT a mobile self-origination
+        CHECK(pt->origin == 31);              // billed to the home (this node)
+        CHECK(pt->type == DATA_TYPE_E2E_ACK);
+    }
+}
+
+TEST_CASE("§mobile reverse-ack Piece 1 — the acker echoes the mobile's source_hash on the E2E-ack (sender != origin); a static sender does NOT (s18-safe gate)") {
+    // X (static, id 70) acks a DM whose origin is a mobile's home (31, hash AD20B6EA) but whose SENDER is the MOBILE
+    // (hash C0FFEE). sender_hash != key_hash_of_id(origin) -> X stamps SOURCE_HASH=M on the ack so M's home recognizes +
+    // last-miles it. A STATIC sender (source_hash == the origin's own key) trips the gate FALSE -> plain ack.
+    StubHal hal; Node x(hal, 70, 0x7070u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; CHECK(x.on_init(cfg));
+    DualLayerTestAccess::bind_authoritative(x, /*home id*/31, /*home hash*/0xAD20B6EAu);   // X knows the home's key
+    DualLayerTestAccess::learn_neighbor(x, 31);                                            // ...and a 1-hop route to it
+    DualLayerTestAccess::send_e2e_ack(x, /*to_origin=home*/31, /*ctr*/0x0006, /*sender_hash=M*/0xC0FFEEu);
+    const PendingTx* pt = DualLayerTestAccess::pending(x);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->dst == 31);                              // routes to the home (the mobile's stamped origin)
+        CHECK((pt->flags & DATA_FLAG_SOURCE_HASH) != 0);   // ★ carries the mobile's stable identity ON the wire
+        CHECK(pt->type == DATA_TYPE_E2E_ACK);
+        const uint32_t sh = pt->inner[1] | (pt->inner[2]<<8) | (pt->inner[3]<<16) | (static_cast<uint32_t>(pt->inner[4])<<24);
+        CHECK(sh == 0xC0FFEEu);                            // inner = [origin][source_hash=M 4B LE][ctr] -> M at inner[1..4]
+    }
+    // STATIC sender: origin(31) IS the sender -> source_hash == key_hash_of_id(31) -> NO echo (byte-identical plain ack)
+    StubHal hal2; Node x2(hal2, 70, 0x7070u);
+    NodeConfig c2; c2.routing_sf=8; c2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c2.leaf_id=4; CHECK(x2.on_init(c2));
+    DualLayerTestAccess::bind_authoritative(x2, 31, 0xAD20B6EAu);
+    DualLayerTestAccess::learn_neighbor(x2, 31);
+    DualLayerTestAccess::send_e2e_ack(x2, /*to_origin*/31, /*ctr*/0x0006, /*sender_hash=origin's own key*/0xAD20B6EAu);
+    const PendingTx* pt2 = DualLayerTestAccess::pending(x2);
+    CHECK(pt2 != nullptr);
+    if (pt2) CHECK((pt2->flags & DATA_FLAG_SOURCE_HASH) == 0);   // ★ no echo -> plain ack
+}
+
+TEST_CASE("§mobile reverse-ack Piece 2 — a home last-miles an E2E-ack whose source_hash is a hosted mobile (direct: ctr passes through)") {
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
+    DualLayerTestAccess::store_mobile(home, /*M*/0xC0FFEEu, /*local*/17);
+    // an E2E-ack arrives from X(70) carrying source_hash=M(C0FFEE), acking ctr 6 (M's own ctr — a DIRECT send)
+    DualLayerTestAccess::drive_post_ack_e2e_ack(home, /*acker*/70, /*source_hash=M*/0xC0FFEEu, /*acked_ctr*/0x0006);
+    const PendingTx* pt = DualLayerTestAccess::pending(home);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->dst == 17);                    // ★ last-miled to the mobile's local id
+        CHECK(pt->addr_len == 1);
+        CHECK(pt->type == DATA_TYPE_E2E_ACK);
+        CHECK(pt->inner[1] == 0x06);             // ctr passes through (direct) — last-mile inner = [origin][ctr_lo][ctr_hi]
+        CHECK(pt->inner[2] == 0x00);
+    }
+    CHECK(hal.saw_emit("mobile_reverse_ack"));
+    // a NON-hosted source_hash -> NOT intercepted (falls through to normal ack receipt; no last-mile)
+    StubHal hal2; Node home2(hal2, 31, 0xAD20B6EAu);
+    NodeConfig hc2; hc2.routing_sf=8; hc2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc2.leaf_id=4; CHECK(home2.on_init(hc2));
+    DualLayerTestAccess::store_mobile(home2, 0xC0FFEEu, 17);
+    DualLayerTestAccess::drive_post_ack_e2e_ack(home2, 70, /*source_hash*/0xDEADu, 0x0006);
+    CHECK_FALSE(hal2.saw_emit("mobile_reverse_ack"));
+}
+
+TEST_CASE("§mobile reverse-ack Step 3 — a home re-originating a delegated MOBILE_SEND records the ctr_H->ctr_M map") {
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
+    DualLayerTestAccess::store_mobile(home, /*M*/0xC0FFEEu, /*local*/17);   // the home hosts M
+    DualLayerTestAccess::bind_authoritative(home, /*X id*/70, /*X hash*/0x7070u);   // ...and knows the target X
+    DualLayerTestAccess::learn_neighbor(home, 70);                                  // ...with a 1-hop route (resolves NOW, no park)
+    DualLayerTestAccess::drive_post_ack_mobile_send(home, /*M*/0xC0FFEEu, /*X hash*/0x7070u, /*ctr_M*/0x0006, /*body*/0xAB);
+    CHECK(hal.saw_emit("deleg_ack_put"));       // ★ the re-origination recorded ctr_H->ctr_M
+    const PendingTx* pt = DualLayerTestAccess::pending(home);
+    CHECK(pt != nullptr);                       // the re-originated DM is in flight to X
+    if (pt) {
+        CHECK(pt->dst == 70);                                  // routed to the target X
+        CHECK((pt->flags & DATA_FLAG_SOURCE_HASH) != 0);       // carries SOURCE_HASH=M so X's ack echoes M's identity
+    }
+}
+
+TEST_CASE("§mobile reverse-ack Step 3 — a home translates a delegated target-ack (ctr_H) back to the mobile's ctr (ctr_M) on the last-mile") {
+    StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
+    DualLayerTestAccess::store_mobile(home, /*M*/0xC0FFEEu, /*local*/17);
+    DualLayerTestAccess::deleg_ack_put(home, /*acker X*/70, /*ctr_H*/0x000Cu, /*ctr_M*/0x0006u);   // a prior delegated re-origination
+    // X(70) acks ctr_H=0x0C, carrying source_hash=M -> the home last-miles to M but with the MOBILE's own ctr (6)
+    DualLayerTestAccess::drive_post_ack_e2e_ack(home, /*acker*/70, /*source_hash=M*/0xC0FFEEu, /*acked=ctr_H*/0x000Cu);
+    const PendingTx* pt = DualLayerTestAccess::pending(home);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->dst == 17); CHECK(pt->addr_len == 1); CHECK(pt->type == DATA_TYPE_E2E_ACK);
+        CHECK(pt->inner[1] == 0x06);   // ★ TRANSLATED to ctr_M=6 (NOT the wire ctr_H=0x0C)
+        CHECK(pt->inner[2] == 0x00);
+    }
+    CHECK(hal.saw_emit("mobile_reverse_ack"));
+}
+
+TEST_CASE("§mobile — a reply-expecting static send FAILS LOUD when the mobile has no routable home (no RREQ storm); a registered mobile proceeds") {
+    // An UNREGISTERED mobile stamps origin=_node_id (a mobile local id no static node routes to). A reply-expecting DM to
+    // a STATIC target would make the target flood RREQ for that origin (storm) + the ack never returns. Refuse it loud.
+    StubHal hal; Node m(hal, 17, 0x1717u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=4; cfg.is_mobile=true; CHECK(m.on_init(cfg));
+    const uint8_t body[2] = {'h','i'};
+    DualLayerTestAccess::do_send_ack(m, /*static dst*/70, body, 2);
+    CHECK(hal.saw_emit("send_failed"));                       // ★ fail loud (reason=mobile_no_home)
+    CHECK(DualLayerTestAccess::pending(m) == nullptr);        // ★ nothing enqueued -> no un-ackable DM, no storm
+    // a REGISTERED mobile (home=146) makes the reverse-ack routable -> the same send proceeds (origin=home_id, via home)
+    StubHal h2; Node m2(h2, 0, 0x1717u);
+    NodeConfig c2; c2.routing_sf=7; c2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); c2.leaf_id=4; c2.is_mobile=true; CHECK(m2.on_init(c2));
+    DualLayerTestAccess::make_registered_mobile(m2, /*local*/17, /*home*/146, /*home_hash*/0x9292u);
+    DualLayerTestAccess::learn_neighbor(m2, 146);            // a route to the home (first hop)
+    h2.emits.clear();
+    DualLayerTestAccess::do_send_ack(m2, /*static dst*/70, body, 2);
+    CHECK_FALSE(h2.saw_emit("send_failed"));                 // ★ registered -> NOT blocked (proceeds via the home)
+    // a PLAIN (no-ack) send from the unregistered mobile is still allowed best-effort (only reply-expecting is gated)
+    StubHal h3; Node m3(h3, 17, 0x1717u);
+    NodeConfig c3; c3.routing_sf=7; c3.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); c3.leaf_id=4; c3.is_mobile=true; CHECK(m3.on_init(c3));
+    DualLayerTestAccess::learn_neighbor(m3, 70);
+    DualLayerTestAccess::do_send(m3, /*static dst*/70, body, 2);
+    CHECK_FALSE(h3.saw_emit("send_failed"));                 // ★ plain send not gated (one-way best-effort)
+}
+
+TEST_CASE("§mobile — a registered mobile does NOT drop its home when the home beacons slowly (home-lost tolerates ~2 beacon periods)") {
+    // Bench: home beacons every 15 min (beacon_ms=900000) but the 90 s default home-lost timeout tripped every reclaim →
+    // the mobile flapped registration → stamped origin=_node_id (unroutable) → the reverse-ack stormed.
+    StubHal hal;   // _now = 0
+    Node mob(hal, 0, 0x1717u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=4; cfg.is_mobile=true; cfg.beacon_period_ms=900000; CHECK(mob.on_init(cfg));
+    DualLayerTestAccess::make_registered_mobile(mob, /*local*/17, /*home*/146, /*home_hash*/0x9292u);   // last_heard_home_ms = 0
+    CHECK(mob.mobile_home_id() == 146);
+    hal._now = 100000;                            // 100 s: > the 90 s default, « 2×900 000
+    DualLayerTestAccess::mobile_discover_fire(mob);
+    CHECK(mob.mobile_home_id() == 146);           // ★ STILL homed (pre-fix: dropped at 90 s → origin=node_id)
+    hal._now = 2000000;                           // > 2×900 000 = 1 800 000 with no home contact
+    DualLayerTestAccess::mobile_discover_fire(mob);
+    CHECK(mob.mobile_home_id() == 0);             // ★ a genuine home-loss is still detected
+}
+
+TEST_CASE("§mobile — a registered mobile packs the DM INNER origin as its HOME (routable), not its node_id (the reverse-ack dest)") {
+    // THE root-cause bug: stamp_origin set item.origin=home_id, but the inner was packed with _node_id -> the recipient
+    // delivered on / E2E-acked to the mobile's static-invisible node_id (17) -> RREQ storm. The inner origin must be the
+    // home (routable) so the ack reaches the home (which last-miles it).
+    StubHal hal0; Node mob0(hal0, 0, 0x1717u);
+    NodeConfig cfg0; cfg0.routing_sf=7; cfg0.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg0.leaf_id=4; cfg0.is_mobile=true; CHECK(mob0.on_init(cfg0));
+    DualLayerTestAccess::make_registered_mobile(mob0, /*local*/17, /*home*/31, /*home_hash*/0x3131u);
+    DualLayerTestAccess::learn_neighbor(mob0, 31);            // a route to the home (first hop)
+    const uint8_t body0[2] = {'h','i'};
+    DualLayerTestAccess::do_send(mob0, /*static dst*/70, body0, 2);
+    const PendingTx* pt0 = DualLayerTestAccess::pending(mob0);
+    CHECK(pt0 != nullptr);
+    if (pt0) {
+        CHECK(pt0->origin == 31);        // the RTS/billing origin was already home_id
+        CHECK(pt0->inner[0] == 31);      // ★ the INNER origin is now the HOME too (was node_id 17) -> the ack is routable
+    }
+}
+
+TEST_CASE("§mobile — the home-lost clock is refreshed by the home's CTS (not only its sparse beacon)") {
+    StubHal hal;   // _now = 0
+    Node mob(hal, 0, 0x1717u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=4; cfg.is_mobile=true; CHECK(mob.on_init(cfg));
+    DualLayerTestAccess::make_registered_mobile(mob, /*local*/17, /*home*/146, /*home_hash*/0x9292u);   // last_heard_home_ms = 0
+    CHECK(DualLayerTestAccess::mobile_last_heard_home(mob) == 0);
+    hal._now = 500000;
+    cts_in c{}; c.tx_id = 146; c.rx_id = 17; c.chosen_data_sf = 7; c.payload_len = 2;   // a CTS from the HOME clearing OUR flight
+    uint8_t buf[8]; size_t n = pack_cts(c, buf);
+    mob.on_recv(buf, n, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    CHECK(DualLayerTestAccess::mobile_last_heard_home(mob) == 500000);   // ★ refreshed by the CTS, no beacon needed
+    // a CTS from a NON-home id does NOT refresh
+    hal._now = 900000;
+    cts_in c2{}; c2.tx_id = 70; c2.rx_id = 17; c2.chosen_data_sf = 7; c2.payload_len = 2;
+    uint8_t buf2[8]; size_t n2 = pack_cts(c2, buf2);
+    mob.on_recv(buf2, n2, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    CHECK(DualLayerTestAccess::mobile_last_heard_home(mob) == 500000);   // ★ unchanged (not our home)
+}
+
 TEST_CASE("§mobile 4a — mobile_home cache: freshest-epoch wins (wrap-aware)") {
     StubHal hal; Node n(hal, 5, 0x5050u);
     NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=0; CHECK(n.on_init(cfg));
@@ -2355,7 +2580,7 @@ TEST_CASE("§mobile 4a — a host proxying a hosted mobile emits DATA_TYPE_MOBIL
 }
 
 TEST_CASE("§mobile hash-locate Fix 1/2 — a registered mobile is SILENT on a static HARD locate for its own hash; the home proxies it (HARD too)") {
-    // (a) the MOBILE: a HARD static locate for its OWN hash -> forward, NEVER answer with its LOCAL id (the local id is off the static plane)
+    // (a) the MOBILE: a HARD static locate for its OWN hash -> IGNORED — no answer (local id off the static plane) AND no relay (a mobile is a leaf, not a flood relay). The HOME is the location authority.
     StubHal hm; Node mob(hm, 17, 0xB0B1u);
     NodeConfig mc; mc.routing_sf=8; mc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); mc.leaf_id=4; mc.is_mobile=true; CHECK(mob.on_init(mc));
     DualLayerTestAccess::make_registered_mobile(mob, /*local*/17, /*home*/30, /*home_hash*/0x3030u);
@@ -2364,7 +2589,7 @@ TEST_CASE("§mobile hash-locate Fix 1/2 — a registered mobile is SILENT on a s
     std::array<uint8_t,16> qb{}; size_t qn = pack_h(q, std::span<uint8_t>(qb.data(), qb.size()));
     mob.on_recv(qb.data(), qn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
     CHECK_FALSE(hm.saw_emit("h_resolved"));                       // ★ Fix 1: a registered mobile skips its own-hash resolution on the static plane
-    CHECK(hm.saw_emit("h_forward"));                              // forwarded instead -> the HOME is the location authority
+    CHECK_FALSE(hm.saw_emit("h_forward"));                        // ★ 2026-07-11: a mobile does NOT relay a static H-flood either (leaf) -> the HOME hears it via static nodes + proxies
 
     // (b) the HOME hosting M (live) answers the SAME HARD locate with a MOBILE_H_ANSWER(home_id) — Fix 2 dropped the old !h.hard gate
     StubHal hh; Node home(hh, 30, 0x3030u);
@@ -2594,6 +2819,30 @@ TEST_CASE("§mobile Part 2 Fix 6 — a mobile with a crypto identity pushes its 
     CHECK_FALSE(h2.saw_emit("mobile_pubkey_push"));   // ★ no identity -> no push
 }
 
+TEST_CASE("§mobile delegate — a registered mobile's send_by_hash hands off to its HOME (MOBILE_SEND), it does NOT self-hash-locate (no RREQ storm)") {
+    StubHal hal; Node mob(hal, 0, 0xAAAAu);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=4; cfg.is_mobile=true; CHECK(mob.on_init(cfg));
+    DualLayerTestAccess::make_registered_mobile(mob, /*local*/17, /*home*/31, /*home_hash*/0x3131u);
+    const uint8_t body[] = { 'h','i' };
+    DualLayerTestAccess::send_by_hash(mob, /*target_hash=*/0x8CC9BDFFu, body, 2);
+    // ★ the send is wrapped as a MOBILE_SEND DM to the HOME (31) — the mobile never emits an H query (origin=local id) that
+    //   would trigger the RREQ storm. The home resolves + re-originates (do_post_ack fork), reply returns by SOURCE_HASH.
+    const meshroute::PendingTx* pt = DualLayerTestAccess::pending(mob);
+    CHECK(pt != nullptr);
+    if (pt) { CHECK(pt->dst == 31); CHECK(pt->type == DATA_TYPE_MOBILE_SEND); }
+}
+
+TEST_CASE("§mobile — a host NEVER RREQs a hosted mobile's LOCAL id (last-mile, not route discovery); a non-hosted id DOES") {
+    StubHal hal; Node host(hal, 31, 0x3131u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=4; CHECK(host.on_init(cfg));
+    DualLayerTestAccess::store_mobile(host, /*key*/0x1717u, /*local*/17);       // host hosts mobile 0x1717 -> local id 17
+    hal.last_tx_len = 0;
+    DualLayerTestAccess::emit_rreq(host, /*dst=*/17);                            // route-discovery for the hosted mobile's LOCAL id
+    CHECK(hal.last_tx_len == 0);                                                 // ★ NO F/RREQ emitted (the storm guard)
+    DualLayerTestAccess::emit_rreq(host, /*dst=*/50);                            // a NON-hosted id -> discovery proceeds
+    CHECK(hal.last_tx_len > 0);                                                  // control: proves the guard is scoped to hosted mobiles
+}
+
 TEST_CASE("§mobile 6.4 — team-DAD self-assigns a persistent _team_local_id (no host); the guard confirms; a non-team node is a no-op") {
     StubHal hal; Node mob(hal, 0, 0xAAAAu);
     NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.team_id=0xABCD1234u; CHECK(mob.on_init(cfg));
@@ -2612,6 +2861,85 @@ TEST_CASE("§mobile 6.4 — team-DAD self-assigns a persistent _team_local_id (n
     StubHal h2; Node stat(h2, 5, 0x5555u); NodeConfig c2; c2.routing_sf=8; c2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c2.leaf_id=4; CHECK(stat.on_init(c2));
     stat.team_dad_fire();
     CHECK(stat.team_local_id() == 0);
+}
+
+TEST_CASE("§mobile 6.4 — a TEAM mobile triggers beacons (off-grid convergence); a lone/roaming mobile does NOT") {
+    // Fix (a): an off-grid team of mobiles has no static node to carry convergence, so hearing a new team peer MUST fire
+    // the reciprocal beacon. A team mobile's schedule_triggered_beacon arms the triggered-beacon timer (id 3).
+    StubHal hal; Node tm(hal, 0, 0xAAAAu);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.team_id=0xABCD1234u; CHECK(tm.on_init(cfg));
+    tm.schedule_triggered_beacon();
+    CHECK(hal.armed[3u /*kTriggeredBeaconTimerId*/]);          // ★ a TEAM mobile DOES trigger (its is_mobile beacon is still dropped from a static _rt)
+    // a lone/roaming mobile (no team) still never triggers -> s18 + the mobile-DM sims stay byte-identical
+    StubHal h2; Node lm(h2, 0, 0xBBBBu);
+    NodeConfig c2; c2.routing_sf=8; c2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c2.leaf_id=4; c2.is_mobile=true; CHECK(lm.on_init(c2));   // team_id=0
+    lm.schedule_triggered_beacon();
+    CHECK_FALSE(h2.armed[3u /*kTriggeredBeaconTimerId*/]);     // ★ a lone mobile does NOT trigger (Lua parity)
+}
+
+TEST_CASE("§mobile 6.4 — a team RTS addressed to our team-local id reverse-learns a _rt_team route to its src (so we can reply)") {
+    // Fix (b): team routes are otherwise beacon-only; an off-grid team's 15-min periodic beacons + join-order can miss a
+    // peer, so a received team RTS (mobile_src + addr_len=1, addressed to OUR team id) learns a 1-hop reverse team route.
+    StubHal hal; Node b(hal, 0, 0xB0B0u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.team_id=0xC036D02Bu; CHECK(b.on_init(cfg));
+    b.team_dad_fire();
+    const uint8_t tid = b.team_local_id();                   // B's team local id (== node_id off-grid)
+    CHECK(tid >= 17);
+    const uint8_t peer = (tid >= 100) ? static_cast<uint8_t>(tid - 1) : static_cast<uint8_t>(tid + 1);   // A's team local id (!= tid; avoid 0/0xFF so learn_direct_neighbor doesn't reject it)
+    CHECK_FALSE(DualLayerTestAccess::is_team_peer(b, peer));  // not known yet
+    RxMeta meta{9.0f,-70.0f,0,static_cast<int8_t>(-1)};
+    rts_in r{}; r.leaf_id=4; r.src=peer; r.next=tid; r.dst=tid; r.ctr_lo=3; r.sf_index=0; r.rts_flags=0; r.payload_len=10; r.addr_len=1; r.mobile_src=true;
+    uint8_t buf[9]; size_t n = pack_rts(r, buf);
+    b.on_recv(buf, n, meta);
+    CHECK(DualLayerTestAccess::is_team_peer(b, peer));        // ★ learned into _rt_team -> B can now route a reply to A
+    // control: a STATIC RTS (mobile_src=0, addr_len=0) to our id learns into the static _rt, NOT _rt_team
+    rts_in r2{}; r2.leaf_id=4; r2.src=50; r2.next=tid; r2.dst=tid; r2.ctr_lo=4; r2.sf_index=0; r2.rts_flags=0; r2.payload_len=10; r2.addr_len=0; r2.mobile_src=false;
+    uint8_t buf2[9]; size_t n2 = pack_rts(r2, buf2);
+    b.on_recv(buf2, n2, meta);
+    CHECK_FALSE(DualLayerTestAccess::is_team_peer(b, 50));    // ★ a static-marked RTS never becomes a team peer
+}
+
+TEST_CASE("§enc — a team peer's key (from its beacon) is cached team-scoped -> a send BY team_local_id gets DST_HASH (so it can be ENCRYPTED)") {
+    // A teammate's key_hash32 rides its beacon but was DROPPED for is_mobile beacons -> an encrypted send by team_local_id
+    // had no DST_HASH -> couldn't seal (had to use the hash). Cache it team-scoped (NOT _id_bind) -> DST_HASH derivable.
+    StubHal hal; Node m(hal, 0, 0x1111u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=4; cfg.is_mobile=true; cfg.team_id=0xC036D02Bu; CHECK(m.on_init(cfg));
+    m.team_dad_fire();                                        // our own team_local_id
+    DualLayerTestAccess::learn_team_neighbor(m, /*peer*/25, /*key*/0x9E47BBDEu);   // as a same-team beacon would
+    uint32_t k = 0;
+    CHECK(DualLayerTestAccess::team_key_of_id(m, 25, k));     // ★ resolved from the team-scoped cache
+    CHECK(k == 0x9E47BBDEu);
+    // a plaintext send by team_local_id 25 now carries DST_HASH = 25's key (the CRYPTED path REQUIRES this before it seals)
+    const uint8_t body[2] = {'h','i'};
+    DualLayerTestAccess::do_send(m, /*team dst*/25, body, 2);
+    const PendingTx* pt = DualLayerTestAccess::pending(m);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK((pt->flags & DATA_FLAG_DST_HASH) != 0);        // ★ DST_HASH now set (was absent -> encrypt couldn't seal)
+        const uint32_t dh = pt->inner[0] | (pt->inner[1]<<8) | (pt->inner[2]<<16) | (static_cast<uint32_t>(pt->inner[3])<<24);
+        CHECK(dh == 0x9E47BBDEu);                            // inner = [dst_hash 4B][origin]... -> the teammate's key
+    }
+    // a NON-team-peer id -> no team key -> no DST_HASH from this path (never the static plane)
+    uint32_t k2 = 0;
+    CHECK_FALSE(DualLayerTestAccess::team_key_of_id(m, /*not a peer*/99, k2));
+}
+
+TEST_CASE("§mobile 6.4 — a team RTS from a DIFFERENT leaf is accepted (a mixed-registration team spans leaves)") {
+    // Bench: a registered dual member (adopted its home's leaf=5) heard an off-grid teammate's team RTS (leaf=0) but
+    // DROPPED it at the leaf gate -> no CTS -> the sender retried -> FAILED. The team plane is leaf-agnostic (shared PHY +
+    // team_id); a team RTS to our team_local_id must be accepted regardless of leaf.
+    StubHal hal; Node rcv(hal, 0, 0x9E47u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=5; cfg.is_mobile=true; cfg.team_id=0x631C4F86u; CHECK(rcv.on_init(cfg));
+    DualLayerTestAccess::make_registered_mobile(rcv, /*local*/17, /*home*/31, /*home_hash*/0x3131u);   // DUAL: registered (node_id=17), leaf 5
+    rcv.team_dad_fire();                                      // assign a team_local_id (keeps node_id=17)
+    const uint8_t tid = rcv.team_local_id();
+    CHECK(tid >= 17);
+    RxMeta meta{9.0f,-70.0f,0,static_cast<int8_t>(-1)};
+    // an off-grid teammate on leaf=0 sends a team RTS to our team_local_id (addr_len=1)
+    rts_in r{}; r.leaf_id=0; r.src=251; r.next=tid; r.dst=tid; r.ctr_lo=0; r.sf_index=0; r.rts_flags=0; r.payload_len=1; r.addr_len=1; r.mobile_src=true;
+    uint8_t b[9]; size_t n = pack_rts(r, b);
+    rcv.on_recv(b, n, meta);
+    CHECK(DualLayerTestAccess::has_pending_rx(rcv));          // ★ accepted despite leaf 0 != 5 (opens a receiver flight -> will CTS)
 }
 
 TEST_CASE("§mobile 6.4 — an OFF-GRID team member self-provisions node_id = _team_local_id (so the existing mobile link-layer carries team DMs); beacon src = team id; a static beacon src=node_id") {

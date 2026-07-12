@@ -37,3 +37,17 @@ python3 tools/dm_delivery_breakdown.py simulation/<s>.json /tmp/<s>.ndjson --fai
 - Gateway scenarios were translated from `~/lora-universal-simulator/scenarios/` via `tools/translate_gateways.py` (adds the C++ `n_layers:2 + layers[]` dual-layer schema). `s18`/`s17` are the untranslated sources.
 
 **Removed as obsolete/non-working:** `s09_two_layer_gateway_debug` (1-DM debug), `s15_three_layer_dual` (engine-untagged Lua-comparison variant), `s20_crosslayer` / `s21_multihop_xl` (0 gateways → non-functional cross-layer), `s22_location` (2-node/1-DM, too thin). Note `s21_leaf_config_divergence` + `s22_leaf_config_join` (R6) are membership-gate scenarios, not part of this delivery suite.
+
+## Self-checking scenarios (expect-based) — mobile / team
+
+These carry a JSON `expect[]` block evaluated by the orchestrator's ExpectRunner; the gate is **0 assertion failures** — no `dm_delivery_breakdown` needed. Run:
+```
+lus -e meshroute simulation/<s>.json /tmp/<s>.ndjson   # the "… N assertion failure(s)" line must be N=0
+```
+
+| scenario | covers | gate |
+|---|---|---|
+| `s21_mobile_dm_milestone` | single mobile ↔ static via its HOME (locate + last-mile + receive; §3a/3b/3c) | 2/2 expect · 0 failures |
+| `s22_mobile_team` | **mobile config + communication within a team**: off-grid team-DAD (3 mobiles, NO host, self-assign `_team_local_id`) + team CHANNEL broadcast (both teammates ingest channel-5, the co-located static ingests **0**) + a member→member team DM (`send_hash` by teammate hash → `msg_recv`) | 7/7 expect · 0 failures · deterministic (seed 22, md5 `f3b73d26…`) |
+
+**Static-plane coupling:** `s22`'s containment assertion (Static1 ingests **0** team-channel messages) + the **s18 byte-identity tripwire** (`md5 3ac88d40e00d2605ff66659f696d52bf`) together prove teams are inert on the static plane — the functional half (teams work) here, the isolation half (statics unaffected) there. Configuring a team in a scenario requires the `NodeRuntimeWrapper` `team_id` + `mobile_autoregister` config mapping (added 2026-07-12); a scenario without a `team_id` key is byte-identical to before (s18 unchanged).

@@ -69,6 +69,12 @@ bool Node::rreq_rate_ok(uint8_t dst, uint8_t ttl) {
 // Originate an RREQ for `dst` (Lua emit_route_request). relay=self (we are the first forwarder).
 void Node::emit_route_request(uint8_t dst, uint8_t ttl) {
     if (dst == 0xFF || dst == _node_id) return;
+    // §mobile (2026-07-11): NEVER RREQ a HOSTED mobile's LOCAL id. A mobile local id is INVISIBLE to the static plane, so the
+    // RREQ can never resolve -> it re-floods forever (the bench airtime storm + the deep path that overflowed the loop stack).
+    // A hosted mobile is reached by the last-mile (addr_len=1), not route discovery. Defense-in-depth: the delegate model
+    // already keeps a mobile off the hash-locate plane. Inert for a non-host (_mobile_reg_n==0).
+    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+        if (_active->_mobile_reg[i].mobile_local_id == dst) return;
     if (!leaf_config_synced()) return;                            // R6.1 §6.4: an un-synced managed joiner must not flood F
     if (!rreq_rate_ok(dst, ttl)) return;
     f_in in{};
@@ -120,6 +126,11 @@ void Node::handle_f(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (!pf) return;
     const f_out& f = *pf;
     if (f.leaf_id != _cfg.leaf_id) return;
+    // §mobile (2026-07-11): a MOBILE is a LEAF — it does NOT participate in static route discovery (F: RREQ/RREP). It never
+    // relays a flood, never learns a static reverse-path, and never RREPs its own (static-invisible) LOCAL id. It reaches the
+    // mesh via its home (learned from registration + beacons, not RREQ); the team plane routes via _rt_team (beacons), not F.
+    // Same leaf-principle as the H-flood guard (node_hashlocate.cpp). A static node (is_mobile=false) is unchanged.
+    if (_cfg.is_mobile) return;
     // R6.1 §6.4: the membership gate must cover F (route-discovery flood is the bypass around the beacon gate). Drop +
     // do-NOT-relay an F whose leaf fingerprint diverges from ours -> contains a misconfigured node's flood to 1 hop.
     // config_hash==0 = "no fingerprint" (BLAKE2b never yields 0; only an unprovisioned/legacy F) -> no gate (legacy).
