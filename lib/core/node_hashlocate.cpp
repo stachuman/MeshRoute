@@ -806,6 +806,16 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
         if (reply_to_hash != 0) deleg_ack_put(static_cast<uint8_t>(id), ch, mobile_ctr);   // §mobile reverse-ack: HOME re-originating for its mobile toward a STATIC target -> map ctr_H->ctr_M (no-op if mobile_ctr==0)
         return ch;
     }
+#if MR_FEAT_TEAM
+    // §mobile 6.4: a same-team peer we've HEARD is directly routable on the TEAM plane — the team_key cache resolves
+    // hash->team_local_id and is_team_peer -> _rt_team. Deliver via the proven `send <team_local_id>` path WITHOUT an
+    // H-flood or a home (an off-grid team has neither). Reached only after an id_bind miss (a mobile's hash isn't in id_bind).
+    if (_cfg.is_mobile && _cfg.team_id != 0) {
+        uint8_t tid = 0;
+        if (team_id_of_key(key_hash32, tid))
+            return do_send(tid, body, body_len, flags, crypt, /*override_dst_hash=*/0, /*type=*/0, /*override_source_hash=*/reply_to_hash);
+    }
+#endif
     // §mobile delegate (2026-07-11): UNRESOLVED + we are the MOBILE (reply_to_hash==0) -> DO NOT flood an H query (origin=our
     // LOCAL id -> the answer can't route back -> RREQ storm). Hand it to the HOME as DATA_TYPE_MOBILE_SEND (dst=home_id,
     // DST_HASH=target); the home resolves + re-originates on our behalf, and the target's reply routes back via SOURCE_HASH
@@ -826,6 +836,16 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     }
     // SOFT cached binding -> HARD verify-on-use (reach the owner for a correction); UNKNOWN -> SOFT flood. (The HOME re-originating
     // for its mobile floods as ITSELF, origin=home_id -> the answer routes back; the parked send keeps the mobile's reply hash.)
+#if MR_FEAT_TEAM
+    // §mobile 6.4: an off-grid team member (unregistered, no home) reaches teammates ONLY via a HEARD team beacon (resolved
+    // above). Unheard -> FAIL LOUD, not an H-flood storm: origin=_node_id is unroutable on the team plane, so the flood can
+    // never be answered — it just storms the channel until timeout. The app retries once the teammate's beacon arrives.
+    if (reply_to_hash == 0 && _cfg.is_mobile && _cfg.team_id != 0 && !mobile_registered()) {
+        MR_EMIT("team_send_unresolved", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
+        Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::mobile_no_home; pu.dst = 0; pu.ctr = 0; enqueue_push(pu);
+        return 0;
+    }
+#endif
     park_send(key_hash32, body, body_len, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr);
     emit_hash_query(key_hash32, /*hard=*/(id >= 0));
     return 0;

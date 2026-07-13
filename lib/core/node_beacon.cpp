@@ -75,6 +75,9 @@ void Node::learn_route_via(uint8_t dest, uint8_t via, uint8_t hops, int16_t snr_
 // beacon. The C++ has no id-bind/dest-seen/liveness plane, so those Lua sub-actions are absent.
 bool Node::learn_direct_neighbor(uint8_t sender, int16_t snr_q4, bool is_gw, bool team_plane) {
     if (sender == 0xFF || sender == 0 || sender == _node_id) return false;   // unknown/reserved id (0/0xFF), or self (§P0)
+#if MR_FEAT_TEAM
+    if (team_plane && _team_local_id != 0 && sender == _team_local_id) return false;   // §mobile 6.4: never a team-plane self-route to our OWN team id (a same-key echo)
+#endif
     mark_dest_seen(sender);                          // §P1: a frame heard FROM a direct neighbour -> freshness stamp...
     clear_peer_suspect(sender, "rx_frame");          // ...and it's demonstrably alive -> clear any timeout/suspect state (Lua dv:9325-9326)
     RtCandidate cand{};
@@ -335,9 +338,14 @@ void Node::emit_beacon(const char* kind) {
     // non-mobile nodes gossip (the liveness plane is universal, unlike the gateway-gated digest). Order-independent at
     // parse. Empty when we have no fresh advertise window -> no TLV (s18 keeps its routing/delivery, see the gate).
     if (!_cfg.is_mobile) ext_n += build_suspect_ext(ext_buf + ext_n, sizeof(ext_buf) - ext_n);
+    // §mobile 6.4: a team member announces on the TEAM plane (the type-5 TLV + its _rt_team routes) ONLY once it has ADOPTED a
+    // team_local_id (tentative team-DAD or confirmed). Pre-DAD / lone / left-team (_team_local_id==0) -> identity-only, so our
+    // STATIC node_id never rides a team-tagged beacon into a peer's _rt_team (the mixed-id leak). team_local_id()==0 in a
+    // non-team build -> byte-identical.
+    const bool team_active = _cfg.is_mobile && _cfg.team_id != 0 && team_local_id() != 0;
     // §mobile 6.2: a TEAM mobile advertises its team_id (type-5 TLV) so same-team peers scope their team plane by it.
-    // A static node / lone mobile emits NO type-5 -> zero bytes -> beacon byte-identical.
-    if (_cfg.is_mobile && _cfg.team_id != 0)
+    // A static node / lone mobile / pre-DAD member emits NO type-5 -> zero bytes -> beacon byte-identical.
+    if (team_active)
         ext_n += pack_team_id_tlv(_cfg.team_id, std::span<uint8_t>(ext_buf + ext_n, sizeof(ext_buf) - ext_n));
     in.ext = std::span<const uint8_t>(ext_buf, ext_n);
 
@@ -355,7 +363,7 @@ void Node::emit_beacon(const char* kind) {
     uint8_t n = 0, dirty_n = 0, stable_n = 0, total_dirty = 0;
     bool    bidi_census_full = false;   // §5: did the FULL hops==1 set fit THIS beacon (drives heard_set_complete, Task 4)
 #if MR_FEAT_TEAM
-    const bool     team_emit = _cfg.is_mobile && _cfg.team_id != 0;   // §6.2: emit the TEAM plane
+    const bool     team_emit = team_active;   // §6.2/6.4: emit the TEAM plane — requires an ADOPTED team_local_id (see team_active)
     RtEntry* const src_rt  = team_emit ? _active->_rt_team : _active->_rt;
     const uint8_t  src_cnt = team_emit ? _active->_rt_team_count : _active->_rt_count;
 #else
@@ -730,11 +738,14 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         auto pe = parse_beacon_entry(std::span<const uint8_t>(bytes, len), b, i);
         if (!pe) continue;
         const beacon_entry& e = *pe;
-        if (e.dest == _node_id) continue;                 // split-horizon
+        if (e.dest == _node_id) continue;                 // split-horizon (static-plane id)
+#if MR_FEAT_TEAM
+        if (same_team_beacon && _team_local_id != 0 && e.dest == _team_local_id) continue;   // §mobile 6.4: team-plane split-horizon — never learn a route to our OWN team id (a teammate reflecting us back)
+#endif
         // §mobile: a NON-team mobile beacon's SELF-advertised route (e.dest==b.src, the sender's own LOCAL id) bypasses
         // route_uses_mobile_as_transit (its next_hop==dest = deliver-TO-a-mobile carve-out) and would install a mobile
-        // LOCAL id into the static _rt. Skip it (a same-team beacon's self-route is fine -> _rt_team; transit-through-mobile
-        // entries are still handled by route_uses_mobile_as_transit below). Latent today (a lone mobile emits n==0).
+        // LOCAL id into the static _rt. Skip it (transit-through-mobile entries are still handled by
+        // route_uses_mobile_as_transit below). Latent today (a lone mobile emits n==0).
         if (b.is_mobile && !same_team_beacon && e.dest == b.src) continue;
         if (e.next == _node_id) {                         // sender reaches e.dest via US (incl. e.next==0 when WE are unprovisioned)
             rt_prune_cycle(e.dest, b.src, merge_rt, merge_cnt);   // §6.2: prune in the same plane

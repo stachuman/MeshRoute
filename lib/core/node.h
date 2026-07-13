@@ -489,10 +489,12 @@ public:
     bool       is_team_peer(uint8_t id) const;   // §mobile 6.2: id is a KNOWN same-team peer (route to it via _rt_team)
     void       team_key_set(uint8_t id, uint32_t key_hash32);        // §enc: cache a same-team peer's key_hash32 (from its beacon); team-scoped, NOT _id_bind
     bool       team_key_of_id(uint8_t id, uint32_t& out) const;      // §enc: team-scoped id->key_hash32 (for a CRYPTED send BY team_local_id); false = unknown
+    bool       team_id_of_key(uint32_t key_hash32, uint8_t& out_id) const;   // §mobile 6.4: reverse team-scoped hash->team_local_id (a PLAINTEXT send-by-hash to a HEARD teammate); false = unknown
 #else
     bool       is_team_peer(uint8_t) const { return false; }
     void       team_key_set(uint8_t, uint32_t) {}
     bool       team_key_of_id(uint8_t, uint32_t&) const { return false; }
+    bool       team_id_of_key(uint32_t, uint8_t&) const { return false; }
 #endif
     // §6.4: a unicast dst is FOR US — our static node_id OR our team-plane id. Off-grid node_id==_team_local_id so the
     // first term already covers it; this matters for a DUAL member (node_id=static id) delivering a DM sent to its team id.

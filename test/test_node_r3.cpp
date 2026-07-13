@@ -1652,6 +1652,50 @@ TEST_CASE("§mobile 6.2 — a same-team peer is a LEGAL transit (multi-hop A->B-
     CHECK(node.is_mobile_peer(20));                          // (B is still a mobile peer — the carve-out is is_team_peer, not is_mobile_peer)
 }
 
+TEST_CASE("§mobile 6.4 — a team mobile emits its team-id TLV ONLY after adopting a team_local_id (pre-DAD -> identity-only, keeps its static node_id OUT of peers' _rt_team)") {
+    TestHal hal; Node node(hal, /*id=*/17, /*key=*/0x1717u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.quiet_threshold_ms=0;
+    cfg.is_mobile=true; cfg.team_id=0xA930CA2Du;
+    CHECK(node.on_init(cfg));
+    auto emit_team_tlv = [&]() -> uint32_t {                  // force a beacon out; return the type-5 team_id it carries (0 = absent)
+        const size_t before = hal.tx_frames.size();
+        node.test_emit_beacon("periodic");
+        if (hal.tx_frames.size() != before + 1) return 0xDEADu;   // no beacon aired -> sentinel (fails either assertion)
+        const auto& f = hal.tx_frames.back();
+        auto pb = parse_beacon(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+        if (!pb) return 0xDEADu;
+        auto ext = beacon_ext(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()), *pb);
+        return parse_team_id_tlv(ext);
+    };
+    // (a) team_local_id == 0 (pre-DAD / not yet adopted): NO team TLV — else a peer learns our STATIC node_id 17 into _rt_team.
+    CHECK(node.team_local_id() == 0);
+    CHECK(emit_team_tlv() == 0u);                             // ★ THE FIX: no type-5 TLV until the team id is adopted
+    // (b) adopt a team_local_id -> the beacon now carries the team TLV (the team plane comes alive).
+    node.set_team_local_id(196);
+    CHECK(emit_team_tlv() == 0xA930CA2Du);                    // now present
+}
+
+TEST_CASE("§mobile 6.4 — a team member never learns a _rt_team route to its OWN team-local id (a teammate re-advertising us -> team-plane split-horizon)") {
+    TestHal hal; Node node(hal, /*id=*/17, /*key=*/0x1717u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=0xA930CA2Du;
+    CHECK(node.on_init(cfg));
+    node.set_team_local_id(196);                             // OUR team-plane id
+    RxMeta meta{8.0f,-80.0f,0,-1};
+    // teammate B (id 131) beacons a carried route whose dest == OUR team id 196 (B reflecting a route back to us).
+    uint8_t ext[8]; size_t en = pack_team_id_tlv(0xA930CA2Du, std::span<uint8_t>(ext, sizeof ext));
+    beacon_entry ce{}; ce.dest=196; ce.next=200; ce.score_bucket=12; ce.hops=1;   // "196 via 200" — dest is us
+    beacon_in tb{}; tb.leaf_id=0; tb.src=131; tb.key_hash32=0x8888u; tb.is_mobile=true;
+    tb.ext=std::span<const uint8_t>(ext, en); tb.entries=std::span<const beacon_entry>(&ce, 1);
+    std::array<uint8_t,64> b{}; size_t bn = pack_beacon(tb, std::span<uint8_t>(b.data(), b.size()));
+    node.on_recv(b.data(), bn, meta);
+    CHECK(node.is_team_peer(131));                            // B itself is a legit direct teammate
+    // ★ THE FIX: no self-route to our OWN team id 196 (and no dispatch bit for it).
+    bool self_route=false;
+    for (uint8_t i=0;i<node.rt_team_count();++i) if (node.rt_team_at(i).dest==196) self_route=true;
+    CHECK_FALSE(self_route);
+    CHECK_FALSE(node.is_team_peer(196));
+}
+
 TEST_CASE("§mobile 6.4 — team UNICAST DM: the sender routes via _rt_team + marks the RTS addr_len=1 (team-plane next); a member's own team id is a delivery dst") {
     TestHal hal;
     Node node(hal, /*id=*/0, /*key=*/0x3030u);              // OFF-GRID (node_id 0) team member — no static host
@@ -1680,6 +1724,33 @@ TEST_CASE("§mobile 6.4 — team UNICAST DM: the sender routes via _rt_team + ma
     // term already covers it; for_me_dst also carries the DUAL case (node_id=static id, dst=team id).
     CHECK(node.for_me_dst(a_tid));
     CHECK_FALSE(node.for_me_dst(static_cast<uint8_t>(a_tid ^ 0x0F)));
+}
+
+TEST_CASE("§mobile 6.4 — PLAINTEXT delivery-BY-HASH within a team: send 0x<teammate-hash> resolves to its team_local_id + routes via _rt_team (no H-flood)") {
+    TestHal hal;
+    Node node(hal, /*id=*/0, /*key=*/0x3030u);              // OFF-GRID team member (no static home)
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=0xABCD1234u;
+    CHECK(node.on_init(cfg));
+    node.team_dad_fire();                                    // adopt our team_local_id
+    // learn a DIRECT teammate C (id 25, key_hash 0x2525) via a same-team beacon -> is_team_peer + team_key cache (id->hash)
+    RxMeta meta{12.0f,-70.0f,0,static_cast<int8_t>(25)};
+    uint8_t ext[8]; size_t en = pack_team_id_tlv(0xABCD1234u, std::span<uint8_t>(ext, sizeof ext));
+    beacon_in tb{}; tb.leaf_id=0; tb.src=25; tb.key_hash32=0x2525u; tb.is_mobile=true; tb.ext=std::span<const uint8_t>(ext, en);
+    std::array<uint8_t,64> b{}; size_t bn = pack_beacon(tb, std::span<uint8_t>(b.data(), b.size()));
+    node.on_recv(b.data(), bn, meta);
+    CHECK(node.is_team_peer(25));
+    // send BY HASH (plaintext, crypt=def) to the teammate's key_hash -> must resolve to id 25 + route via _rt_team (an RTS
+    // to next==25), NOT flood an H-query. = the proven `send 25` path, reached from a 0x-hash target.
+    hal.tx_frames.clear();
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 0; c.u.send.dst_hash = 0x2525u; c.u.send.flags = 0;
+    c.crypt = CryptIntent::def; c.body = reinterpret_cast<const uint8_t*>("hi"); c.body_len = 2;
+    node.on_command(c);
+    bool got_rts=false;
+    for (auto& f : hal.tx_frames) {
+        auto pr = parse_rts(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+        if (pr && pr->next == 25) { got_rts=true; CHECK(pr->addr_len == 1); CHECK(pr->mobile_src); }   // team-plane last-mile, marked LOCAL id
+    }
+    CHECK(got_rts);   // ★ THE FIX: 0x<hash> resolved to team id 25 (team_id_of_key) + routed via _rt_team — no H-flood storm
 }
 
 TEST_CASE("§mobile — a MOBILE-marked Q's src (a home-assigned LOCAL id) is NEVER learned into the static _rt; a static Q IS (the dest=17 bench leak)") {

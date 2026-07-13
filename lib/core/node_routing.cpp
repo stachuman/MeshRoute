@@ -668,6 +668,12 @@ bool Node::team_key_of_id(uint8_t id, uint32_t& out) const {   // §enc: team-sc
         if (_active->_team_keys[i].id == id) { out = _active->_team_keys[i].key_hash32; return true; }
     return false;
 }
+bool Node::team_id_of_key(uint32_t key_hash32, uint8_t& out_id) const {   // §mobile 6.4: reverse (hash->team_local_id) for a PLAINTEXT send-by-hash to a HEARD teammate
+    if (_cfg.team_id == 0 || key_hash32 == 0) return false;
+    for (uint8_t i = 0; i < _active->_team_keys_n; ++i)                     // require BOTH the cached hash AND a live team-peer route (is_team_peer <-> _rt_team route) -> do_send routes via _rt_team
+        if (_active->_team_keys[i].key_hash32 == key_hash32 && is_team_peer(_active->_team_keys[i].id)) { out_id = _active->_team_keys[i].id; return true; }
+    return false;
+}
 #endif   // MR_FEAT_TEAM
 // True iff routing to `dest` via `next_hop` would relay THROUGH a mobile peer. The next_hop != dest carve-out is the
 // whole point: deliver TO a mobile (it's the dest) is fine; relaying THROUGH one (it'll roam away) is not. (dv:1329-1334)

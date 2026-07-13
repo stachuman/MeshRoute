@@ -28,3 +28,41 @@ Companion to `docs/2026-07-04-codebase-review-findings.md`. Every finding was in
 | cleanup | L11 (f64 hand-roll, device-safe), L12 (inline ISR flags), M5 comment; `protocol_constants.h:362` fixed in Wave 5 | native+xiao | ✅ DONE (601, xiao builds, uncommitted) |
 | **L9 (was deferred)** | 4-bit ctr_lo → flight_gen migration: 6 LOCAL flight-match sites (TxStashSlot re-arm ×4 incl. the uncited node.cpp:939 giveup + _nack_wait re-RTS) exact-matched; the WIRE NACK match (node_mac_rx.cpp:945) stays ctr_lo (wire-bounded, documented) | native + s18 sim-parity | ✅ DONE (601; s18 BYTE-IDENTICAL pre/post — 240119 events, 0 asserts). ⚠ needed a cross-repo sim-wrapper fix (`NodeRuntimeWrapper.cpp` dropped the removed `channel_origin_max_per_window`, wired the new anti-spam knobs) — lus was broken since the anti-spam removal. uncommitted (both repos) |
 | not-fixing | M8, S3, S4 (see decisions above); **L1** deferred with S3 (decode-strictness class, benign today) | — | recorded |
+
+## Cleanup preparation review (2026-07-13)
+
+This is a maintainability-focused follow-up, not a new correctness/security finding pass. It was read against the current worktree and is deliberately separate from the verified waves above. Do not mix these changes with a radio/protocol behaviour change.
+
+### Current boundary
+
+- The worktree contains an in-progress command/remote-management feature set, including the command-sink consolidation work. `src/fw_main.cpp` has a large uncommitted refactor (about 1,100 changed lines) that is already consolidating serial, BLE, and remote command dispatch through `dispatch(line, len, Print&)`.
+- **Finish, output-parity-test, and commit that refactor before starting the structural cleanup below.** Do not overlap a broad file move or handler rewrite with it.
+- The feature-profile split is also current work. Retain its rule: feature state is compiled out, while the public API supplies inert stubs, so callers remain stable.
+
+### Confirmed structural hotspots
+
+| Area | Evidence | Cleanup implication |
+|---|---|---|
+| `Node` ownership | `lib/core/node.h` is ~1,595 lines and owns routing, MAC flights, timers, channel flood, join, identity/hash lookup, mobile/team, gateway scheduling, and their state | The existing `.cpp` partition is useful, but it is not a module boundary while every plane reaches the same private state. Keep `Node` as the façade; introduce explicit state ownership before extracting classes. |
+| Timer dispatch | `Node::on_timer()` owns 77 timer ids/ranges and their slot arithmetic | Replace raw numeric ids/ranges incrementally with typed, plane-owned timer declarations. Preserve the numeric allocation and add collision/range checks before changing behaviour. |
+| Firmware integration | `src/fw_main.cpp` is ~2,698 lines: hardware lifecycle, persistence, config mutation, console commands, BLE, remote management, serialization, and mesh loop | After command-sink consolidation, split by responsibility: command/config logic, transports, and board/runtime orchestration. Do not create a generic framework. |
+| Firmware test seam | Native tests intentionally set `test_build_src = no`; thus `fw_main.cpp` is not compiled by the unit suite | Extract pure parsing/config-validation/formatting units first and add native tests. Device-dependent handlers remain board-tested. |
+| Test coupling | `test/test_dual_layer.cpp` uses a broad `DualLayerTestAccess` friend seam into `Node`/`LayerRuntime` | For new tests, prefer observable protocol outcomes or small purpose-built seams. Reduce the broad friend seam only as affected state gains stable accessors. |
+| CI coverage | `.github/workflows/firmware.yml` builds six board environments but excludes `production`; the simulation driver is also not built in CI | Add `production` and a `pio run -e native` build step before broad cleanup. Add static analysis/format enforcement separately from protocol changes. |
+| Repo hygiene | 89 tracked AppleDouble/metadata files (`._*`/`.DS_Store`) remain despite ignore rules | Remove them in one hygiene-only change, then add a CI guard that prevents reintroduction. |
+| Tooling | `tools/dm_delivery_breakdown.py` is ~2,516 lines and untested | Defer its split until firmware/core cleanup is stable; it is isolated from the embedded critical path. |
+
+### Recommended cleanup sequence
+
+1. **Land the active command-sink consolidation.** Capture the documented serial/BLE output-parity battery first; verify all supported board profiles. This removes active duplication and creates the safe command boundary.
+2. **Improve the guardrails.** Add the missing CI builds (`production`, native simulation driver), a formatter/static-analysis configuration, and focused native tests for any newly extracted pure firmware logic.
+3. **Split firmware by responsibility.** Extract `firmware_config` (parse/validate/apply/persist), `firmware_commands` (dispatch and human-facing handlers), and transport adapters. Leave startup, radio polling, sleep scheduling, and board glue in a deliberately small `fw_main.cpp`.
+4. **Make `Node`'s private state legible.** First move state records/`LayerRuntime` into dedicated private headers; then group state and helpers by routing, MAC, channel, identity, join, mobile/team, and gateway planes. Maintain the `Node` public façade and fixed-memory layout.
+5. **Clean recurring data-transfer hazards.** Continue using a single conversion path for `TxItem`, `PendingTx`, and `PostAck`; never hand-rebuild these data carriers at a new call site. This is the structural prevention for the already-fixed field-drop class (S1/L9).
+6. **Perform isolated hygiene/documentation work.** Untrack AppleDouble files, add a short current architecture/index document, and label historical plans/specs as archival rather than deleting design history.
+
+### Constraints for every cleanup wave
+
+- A cleanup must be behavior-preserving unless it is explicitly tracked as a protocol/robustness fix above.
+- Keep the native all-features build and simulator byte-identity gates used by the feature-split plan; run device/profile builds for firmware-facing work.
+- Avoid combining file moves, formatting churn, and semantic edits in one change.
