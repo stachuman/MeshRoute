@@ -85,9 +85,13 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     uint32_t team_id;                     // v18: §mobile 6.1 team-id overlay (0 = no team)
     uint8_t  mobile_autoregister;         // v18: §mobile console autonomy toggle (1 = ON default; seeded from the live cfg on reprovision)
     uint8_t  team_local_id;               // v19: §mobile 6.4 the team-DAD'd team-plane id — PERSISTED so a power-cycle (hiker switches off) keeps a STABLE team id (no re-DAD churn). 0 = not team-DAD'd / left the team.
+    // v20: remote-management admin auth (spec 2026-07-13). A v19 blob loads with these zero-defaulted = UNPROVISIONED.
+    uint8_t  admin_pubkey[32];            // v20: pinned admin Ed25519 pubkey (trust anchor for gated rcmds); all-zero + admin_provisioned=0 = unset
+    uint32_t admin_counter_floor;        // v20: highest accepted admin-command counter (replay floor; write-coalesced like channel_ctr)
+    uint8_t  admin_provisioned;          // v20: 1 once `password` pinned the pubkey (distinguishes "all-zero pubkey" from "unset")
 };
 constexpr uint32_t kMagic   = 0x4D524331u;   // 'MRC1'
-constexpr uint16_t kVersion = 19;            // v19: team_local_id (§mobile 6.4 — persist the team-DAD id across reboot). v18: team_id (§mobile 6.1). v17: per-layer BW+CR (l1_bw_hz + l1_cr). v16: anti-spam per-leaf tunables (channel_active_fraction + the two burst floors). v15: channel_ctr persist (reboot id-reuse fix). v14: R6.1 leaf-config (lineage_id + config_epoch + leaf_name). v13: gw_herd_slack. v12: per-layer frequency (l1_freq_mhz). v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
+constexpr uint16_t kVersion = 20;            // v20: remote-mgmt admin auth (admin_pubkey + admin_counter_floor + admin_provisioned). v19: team_local_id (§mobile 6.4 — persist the team-DAD id across reboot). v18: team_id (§mobile 6.1). v17: per-layer BW+CR (l1_bw_hz + l1_cr). v16: anti-spam per-leaf tunables (channel_active_fraction + the two burst floors). v15: channel_ctr persist (reboot id-reuse fix). v14: R6.1 leaf-config (lineage_id + config_epoch + leaf_name). v13: gw_herd_slack. v12: per-layer frequency (l1_freq_mhz). v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
                                              // block). v7: BLE companion policy. v6: role/topology (is_gateway/...). The Blob
                                              // grew, so every pre-v8 blob fails the `n == sizeof(out)` size check in load()
                                              // and is rejected -> the node re-provisions from defaults (BOTH boards — the

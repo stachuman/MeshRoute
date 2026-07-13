@@ -1,0 +1,25 @@
+# MeshRoute — command-sink-consolidation output-parity battery
+# Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
+#
+# Feed these lines to a board over USB (one per line) BEFORE the refactor (committed baseline) and AFTER, and diff the
+# captured output — it must be BYTE-IDENTICAL on USB (the canonical anchor, spec §2a/§5). Read-only verbs only, so the
+# battery is deterministic (no cfg-set / reboot / factory_reset / testsend that would mutate state or vary run-to-run).
+# The '#' lines are comments — skip them when replaying. Also replay over BLE and diff the companion-JSON verbs
+# (duty/limits/routes/pull_inbox/whoami/version/cfg) — those must stay byte-identical (the iOS contract).
+help
+?
+version
+status
+cfg
+routes
+duty
+limits
+faults
+whoami
+teststatus
+lookup 1
+hashof abc
+pull_inbox 0 0
+mark_read dm 0
+bogusverb
+cfg set

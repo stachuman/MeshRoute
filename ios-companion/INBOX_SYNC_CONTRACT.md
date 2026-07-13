@@ -24,10 +24,11 @@ Framing matches the rest of the link: **app→node = line-ASCII commands, node�
 
 > ✅ **DONE — send verbs unified (firmware 2026-06-21, spec `2026-06-21-serial-interface-cleanup.md` §2; `Command.swift` migrated).** The 9 send verbs collapsed to **3 with a QUOTED body + `-a`/`-e` flags**; the old `send_ack`/`sendhash`/`sendhash_ack`/`sendhashx`/`sendhashx_ack`/`send_layer_ack` are **REMOVED** (a node now returns `unknown_verb`). `Command.swift` emits the unified form:
 > ```
-> send <id|hash> "<text>" [-a] [-e]          # id (<=254) vs hash (8-hex) AUTO-detected; -a=ack, -e=encrypt (hash only)
+> send <id|0xhash> "<text>" [-a] [-e]         # id (<=254 bare decimal) vs a 0x-PREFIXED hash; -a=ack, -e=encrypt (hash only)
 > send_channel <ch> "<text>"                 # no ack/enc
-> send_layer <hash> <l1,l2,…> "<text>" [-a]  # explicit cross-layer path
+> send_layer <0xhash> <l1,l2,…> "<text>" [-a] # explicit cross-layer path
 > ```
+> ⚠ **HASH FORMAT CHANGE (2026-07-13): a key_hash32 argument MUST be `0x`-prefixed** (e.g. `0x8a3f1c02`) — on `send`, `send_layer`, `resolve`, `reqpubkey`, and `lookup`. This KILLS the id-vs-hash ambiguity: a **bare decimal is always a node id** (or a team-id for `reqpubkey`), a **`0x…` token is always a hash**. The old "exactly-8-hex auto-detected" form is GONE (a bare 8-hex now parses as an out-of-range decimal → `bad_args`). **`Command.swift` must prefix every hash argument with `0x`** (`hashof` on the node prints the `0x…` form for copy-paste).
 > Crypt: `-e` ⇒ CRYPTED; **absent ⇒ the node's `e2e_dm` default** (the old `sendhash` force-PLAIN semantic is dropped — `cfg set e2e_dm off` + no `-e` = plain). Ack: `-a` ⇒ E2E-ack-req (valid on `send`/`send_layer`). The emitted intents (ack/crypt/hash) are unchanged — only the wire syntax. The §"Per-message crypt" block below (which named `sendhashx`/`sendhashx_ack`) is superseded by `-e`.
 
 ```

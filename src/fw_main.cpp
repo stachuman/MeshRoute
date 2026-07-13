@@ -34,6 +34,11 @@
 #include "device_ble.h"      // BLE companion transport (XIAO nRF52840; an inert no-op on ESP32/native)
 #include "device_ota.h"      // WiFi OTA (Heltec ESP32-S3); inert no-op on XIAO/native
 #include "mr_ui.h"           // §featuresplit slice 4: board-UI hooks (real on MR_FEAT_OLED boards, inline no-ops elsewhere)
+#include "dispatch_sink.h"   // §command-sink-consolidation: BufferSink (remote/rcmd capture) + LineSink (BLE streaming)
+#if MR_FEAT_REMOTE_MGMT
+#include "admin_auth.h"      // §remote-mgmt: password KDF + sealed-command seal/open/verify
+#include "console_binary.h"  // §remote-mgmt: the binary TLV response encoders (enc_status/enc_routes/…)
+#endif
 #include "fault_log.h"       // persistent fault log — platform-neutral ring/decode/formatters (lib/core)
 #include "device_fault.h"    // nRF52 HW glue: retained scratch + 8 s watchdog + HardFault capture (empty on ESP32)
 #include "sched_send.h"      // firmware scheduled-send CORE (on-node test workload; pure logic, host-unit-tested)
@@ -166,7 +171,7 @@ static bool     g_fs_reformatted = false;   // Part 2: mount_or_repair() reforma
 // `route add <dest> <next_hop> <hops> [score_q4]` / `route del <dest>` — manually force / drop a route. A TESTING lever
 // to stress the routing algorithms with arbitrary or deliberately-inconsistent routes. `score_q4` is the same Q4-dB
 // value the `routes` dump shows; rt_merge competes the injected candidate like any learned one (high score -> primary).
-static void handle_route_cmd(const char* args) {
+static void handle_route_cmd(const char* args, Print& out) {
     while (*args == ' ') ++args;
     char* e;
     if (!strncmp(args, "add", 3) && (args[3] == ' ' || args[3] == '\0')) {
@@ -177,80 +182,81 @@ static void handle_route_cmd(const char* args) {
         long score = strtol(p, &e, 10); if (e == p) score = 160;          // optional; default ~10 dB (Q4) = a sticky primary
         if (d1 && d2 && d3 && dest >= 1 && dest <= 254 && next >= 1 && next <= 254 && hops >= 1 && hops <= 255) {
             const bool ok = g_node.route_inject((uint8_t)dest, (uint8_t)next, (uint8_t)hops, (int16_t)score);
-            mrcon.print(F("> route add dest=")); mrcon.print(dest); mrcon.print(F(" via=")); mrcon.print(next);
-            mrcon.print(F(" hops="));            mrcon.print(hops); mrcon.print(F(" score=")); mrcon.print(score);
-            mrcon.println(ok ? F(" — installed (see `routes`)") : F(" — REJECTED (better candidates hold the slots)"));
+            out.print(F("> route add dest=")); out.print(dest); out.print(F(" via=")); out.print(next);
+            out.print(F(" hops="));            out.print(hops); out.print(F(" score=")); out.print(score);
+            out.println(ok ? F(" — installed (see `routes`)") : F(" — REJECTED (better candidates hold the slots)"));
             return;
         }
     } else if (!strncmp(args, "del", 3) && (args[3] == ' ' || args[3] == '\0')) {
         const long dest = strtol(args + 3, &e, 10);
         if (e != args + 3 && dest >= 1 && dest <= 254) {
             const bool ok = g_node.route_remove((uint8_t)dest);
-            mrcon.print(F("> route del dest=")); mrcon.print(dest); mrcon.println(ok ? F(" — removed") : F(" — not found"));
+            out.print(F("> route del dest=")); out.print(dest); out.println(ok ? F(" — removed") : F(" — not found"));
             return;
         }
     }
-    mrcon.println(F("> route err usage: route add <dest> <next_hop> <hops> [score_q4] | route del <dest>"));
+    out.println(F("> route err usage: route add <dest> <next_hop> <hops> [score_q4] | route del <dest>"));
 }
 
-static void dump_routes() {
+static void dump_routes(Print& out) {
     const uint64_t now = g_hal.now();
-    mrcon.print(F("[routes] n=")); mrcon.println(g_node.rt_count());
+    //out.print(F("[routes] n=")); out.println(g_node.rt_count());
+    if (!g_node.rt_count()) out.println(F("empty"));
     for (uint8_t i = 0; i < g_node.rt_count(); ++i) {
         const meshroute::RtEntry& e = g_node.rt_at(i);
         const meshroute::RtCandidate& c = e.candidates[0];           // candidates[0] = the primary next-hop
-        mrcon.print(F("[route] dest="));   mrcon.print(e.dest);
-        mrcon.print(F(" next="));          mrcon.print(c.next_hop);
-        mrcon.print(F(" hops="));          mrcon.print(c.hops);
-        mrcon.print(F(" score="));         mrcon.print(c.score);
-        mrcon.print(F(" pen="));           mrcon.print(g_node.peer_penalty_q4(c.next_hop));   // liveness penalty on this next-hop (effective = score - pen)
-        mrcon.print(F(" gw="));            mrcon.print(c.is_gateway ? 1 : 0);
-        mrcon.print(F(" leaf="));          mrcon.print(c.learned_leaf);
-        mrcon.print(F(" age_ms="));        mrcon.print((uint32_t)(now - c.last_seen_ms));
-        mrcon.print(F(" cand="));          mrcon.println(e.n);
+        out.print(F("[route] dest="));   out.print(e.dest);
+        out.print(F(" next="));          out.print(c.next_hop);
+        out.print(F(" hops="));          out.print(c.hops);
+        out.print(F(" score="));         out.print(c.score);
+        out.print(F(" pen="));           out.print(g_node.peer_penalty_q4(c.next_hop));   // liveness penalty on this next-hop (effective = score - pen)
+        out.print(F(" gw="));            out.print(c.is_gateway ? 1 : 0);
+        out.print(F(" leaf="));          out.print(c.learned_leaf);
+        out.print(F(" age_ms="));        out.print((uint32_t)(now - c.last_seen_ms));
+        out.print(F(" cand="));          out.println(e.n);
         // A gateway route carries unique state: its advertised window schedule (period + per-leaf windows) — known
         // when we've heard the gateway 1-hop. Print it on a continuation line so a node can see when the gw is reachable.
         if (c.is_gateway) {
             const meshroute::GatewaySchedule* gs = g_node.rt_gateway_schedule(e.dest);
             if (gs && gs->valid) {
-                mrcon.print(F("[route]   gw_sched period="));  mrcon.print(gs->period_ms);
-                mrcon.print(F("ms heard_ms="));                mrcon.print((uint32_t)(now - gs->heard_ms));
-                mrcon.print(F(" defer_ms="));                  mrcon.print(g_node.rt_gateway_defer_ms(e.dest));
-                mrcon.print(F(" n_rec="));                     mrcon.print(gs->n_rec);
+                out.print(F("[route]   gw_sched period="));  out.print(gs->period_ms);
+                out.print(F("ms heard_ms="));                out.print((uint32_t)(now - gs->heard_ms));
+                out.print(F(" defer_ms="));                  out.print(g_node.rt_gateway_defer_ms(e.dest));
+                out.print(F(" n_rec="));                     out.print(gs->n_rec);
                 for (uint8_t r = 0; r < gs->n_rec; ++r) {
-                    mrcon.print(F(" [leaf"));   mrcon.print(gs->rec[r].leaf_id);
-                    mrcon.print(F(" win"));     mrcon.print(gs->rec[r].window_ms);
-                    mrcon.print(F("@"));        mrcon.print(gs->rec[r].offset_ms);
-                    mrcon.print(F("]"));
+                    out.print(F(" [leaf"));   out.print(gs->rec[r].leaf_id);
+                    out.print(F(" win"));     out.print(gs->rec[r].window_ms);
+                    out.print(F("@"));        out.print(gs->rec[r].offset_ms);
+                    out.print(F("]"));
                 }
-                mrcon.println();
+                out.println();
             } else {
-                mrcon.println(F("[route]   gw_sched unknown (not heard 1-hop)"));
+                out.println(F("[route]   gw_sched unknown (not heard 1-hop)"));
             }
         }
     }
-    mrcon.println(F("[routes] end"));
+    //out.println(F("[routes] end"));
     // §mobile 6.2: the TEAM-plane routing table (_rt_team) — same RtEntry fields as the static plane; team routes are never
     // gateways (no gw schedule). Printed for ANY team member (team_id!=0) EVEN WHEN EMPTY (n=0) so the operator can tell a
     // team member with no peers-yet (a PHY mismatch / just-joined) from a non-team node — a static/non-team node prints nothing.
-#if MR_FEAT_TEAM   // §featuresplit: the [team-routes] diagnostic is compiled out on a static-only build (no _rt_team)
+#if MR_FEAT_TEAM   // §featuresplit: the diagnostic is compiled out on a static-only build (no _rt_team)
     if (g_node.config().team_id != 0) {
         char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)g_node.config().team_id);
-        mrcon.print(F("[team-routes] team_id=0x")); mrcon.print(tx);
-        mrcon.print(F(" team_local_id=")); mrcon.print(g_node.team_local_id());
-        mrcon.print(F(" n=")); mrcon.println(g_node.rt_team_count());
+        out.print(F("team_id=0x")); out.print(tx);
+        out.print(F(" team_local_id=")); out.print(g_node.team_local_id());
+        out.print(F(" n=")); out.println(g_node.rt_team_count());
         for (uint8_t i = 0; i < g_node.rt_team_count(); ++i) {
             const meshroute::RtEntry& e = g_node.rt_team_at(i);
             const meshroute::RtCandidate& c = e.candidates[0];       // candidates[0] = the primary next-hop
-            mrcon.print(F("[team-route] dest="));   mrcon.print(e.dest);
-            mrcon.print(F(" next="));                mrcon.print(c.next_hop);
-            mrcon.print(F(" hops="));                mrcon.print(c.hops);
-            mrcon.print(F(" score="));               mrcon.print(c.score);
-            mrcon.print(F(" leaf="));                mrcon.print(c.learned_leaf);
-            mrcon.print(F(" age_ms="));              mrcon.print((uint32_t)(now - c.last_seen_ms));
-            mrcon.print(F(" cand="));                mrcon.println(e.n);
+            out.print(F("[team-route] dest="));   out.print(e.dest);
+            out.print(F(" next="));                out.print(c.next_hop);
+            out.print(F(" hops="));                out.print(c.hops);
+            out.print(F(" score="));               out.print(c.score);
+            out.print(F(" leaf="));                out.print(c.learned_leaf);
+            out.print(F(" age_ms="));              out.print((uint32_t)(now - c.last_seen_ms));
+            out.print(F(" cand="));                out.println(e.n);
         }
-        mrcon.println(F("[team-routes] end"));
+
     }
 #endif   // MR_FEAT_TEAM
 }
@@ -263,79 +269,79 @@ static void print_sf_list(uint16_t bitmap) {
     if (first) mrcon.print('-');
 }
 
-static void dump_cfg() {
+static void dump_cfg(Print& out) {
     const meshroute::NodeConfig& c = g_node.config();
     // Grouped, one section per line — readable on a raw serial monitor. Keys match the `cfg set <key>` names.
-    mrcon.print(F("[cfg] node_id="));     mrcon.println(g_node.node_id());
+    out.print(F("node_id="));     out.println(g_node.node_id());
     const double show_freq = (c.is_mobile && c.layers[0].freq_mhz > 0.0) ? c.layers[0].freq_mhz : g_freq_mhz;   // §mobile: a retune stores the live freq in layers[0]; g_freq_mhz stays the boot/global
-    mrcon.print(F("  radio : freq="));    mrcon.print(show_freq, 4);
-    mrcon.print(F(" routing_sf="));       mrcon.print(c.routing_sf);
-    mrcon.print(F(" sf_list="));          print_sf_list(c.allowed_sf_bitmap);
-    mrcon.print(F(" bw="));               mrcon.print(g_node.active_bw_hz());   // the ACTIVE leaf's BW (a gateway alternates per window; single-layer == the global)
-    mrcon.print(F(" cr="));               mrcon.print((int)g_node.active_cr());
-    mrcon.print(F(" tx_power="));         mrcon.println((int)g_tx_power);
-    mrcon.print(F("  proto : duty="));    mrcon.print(c.duty_cycle, 3);
-    mrcon.print(F(" beacon_ms="));        mrcon.print(c.beacon_period_ms);
-    mrcon.print(F(" hop_cap="));          mrcon.print(c.dv_hop_cap);
-    mrcon.print(F(" lbt="));              mrcon.print(c.lbt_enabled ? 1 : 0);
-    mrcon.print(F(" nav="));              mrcon.print(c.nav_enabled ? 1 : 0);
-    mrcon.print(F(" intra_relay="));      mrcon.print(c.intra_layer_relay ? 1 : 0);   // §gateway: relay same-leaf DMs? (default OFF)
-    mrcon.print(F(" host_mobiles="));     mrcon.print(c.host_mobiles ? 1 : 0);        // §mobile 2a: accept/host mobiles? (default ON)
-    mrcon.print(F(" nav_ignore="));       mrcon.println(c.nav_ignore_rts ? 1 : 0);
-    mrcon.print(F("  aspam : active_fraction=")); mrcon.print(c.channel_active_fraction, 3);   // anti-spam v2 promoted knobs (in the config_hash)
-    mrcon.print(F(" ch_min_ms="));        mrcon.print(c.channel_min_interval_ms);
-    mrcon.print(F(" dm_min_ms="));        mrcon.println(c.dm_min_interval_ms);
-    mrcon.print(F("  layer : "));                                            // R6.3 §3: the full 1..255 layer id (NV-side) + its wire leaf nibble (clash check)
-    { mrnv::Blob lb{}; if (mrnv::load(lb) && lb.layer0_id) { mrcon.print(F("layer=")); mrcon.print(lb.layer0_id); mrcon.print(F(" ")); } }
-    mrcon.print(F("leaf="));              mrcon.print(c.leaf_id);            // leaf = layer & 0x0F (the byte-0 wire filter)
-    mrcon.print(F(" gateway="));          mrcon.print(c.is_gateway ? 1 : 0);
-    mrcon.print(F(" gateway_only="));     mrcon.print(c.gateway_only ? 1 : 0);
-    mrcon.print(F(" mobile="));           mrcon.println(c.is_mobile ? 1 : 0);
+    out.print(F("  radio : freq="));    out.print(show_freq, 4);
+    out.print(F(" routing_sf="));       out.print(c.routing_sf);
+    out.print(F(" sf_list="));          print_sf_list(c.allowed_sf_bitmap);
+    out.print(F(" bw="));               out.print(g_node.active_bw_hz());   // the ACTIVE leaf's BW (a gateway alternates per window; single-layer == the global)
+    out.print(F(" cr="));               out.print((int)g_node.active_cr());
+    out.print(F(" tx_power="));         out.println((int)g_tx_power);
+    out.print(F("  proto : duty="));    out.print(c.duty_cycle, 3);
+    out.print(F(" beacon_ms="));        out.print(c.beacon_period_ms);
+    out.print(F(" hop_cap="));          out.print(c.dv_hop_cap);
+    out.print(F(" lbt="));              out.print(c.lbt_enabled ? 1 : 0);
+    out.print(F(" nav="));              out.print(c.nav_enabled ? 1 : 0);
+    out.print(F(" intra_relay="));      out.print(c.intra_layer_relay ? 1 : 0);   // §gateway: relay same-leaf DMs? (default OFF)
+    out.print(F(" host_mobiles="));     out.print(c.host_mobiles ? 1 : 0);        // §mobile 2a: accept/host mobiles? (default ON)
+    out.print(F(" nav_ignore="));       out.println(c.nav_ignore_rts ? 1 : 0);
+    out.print(F("  aspam : active_fraction=")); out.print(c.channel_active_fraction, 3);   // anti-spam v2 promoted knobs (in the config_hash)
+    out.print(F(" ch_min_ms="));        out.print(c.channel_min_interval_ms);
+    out.print(F(" dm_min_ms="));        out.println(c.dm_min_interval_ms);
+    out.print(F("  layer : "));                                            // R6.3 §3: the full 1..255 layer id (NV-side) + its wire leaf nibble (clash check)
+    { mrnv::Blob lb{}; if (mrnv::load(lb) && lb.layer0_id) { out.print(F("layer=")); out.print(lb.layer0_id); out.print(F(" ")); } }
+    out.print(F("leaf="));              out.print(c.leaf_id);            // leaf = layer & 0x0F (the byte-0 wire filter)
+    out.print(F(" gateway="));          out.print(c.is_gateway ? 1 : 0);
+    out.print(F(" gateway_only="));     out.print(c.gateway_only ? 1 : 0);
+    out.print(F(" mobile="));           out.println(c.is_mobile ? 1 : 0);
     if (c.team_id) {   // §mobile 6.1/6.4: team plane — the team scope + OUR id on it. team_local_id 0 = not team-DAD'd yet
         char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)c.team_id);
         const uint8_t tid = g_node.team_local_id();
-        mrcon.print(F(" team=0x")); mrcon.print(tx);
-        mrcon.print(F(" team_local_id=")); mrcon.print(tid);
+        out.print(F(" team=0x")); out.print(tx);
+        out.print(F(" team_local_id=")); out.print(tid);
         // §6.4 Option X: off-grid the team-DAD'd id IS node_id (the mobile link-layer carries team DMs). Flag the plane state
         // so a bench operator can tell an off-grid member (node_id==team id) from a dual one (static node_id + separate team id).
-        if (tid == 0)                       mrcon.print(F(" (team-DAD pending)"));
-        else if (g_node.node_id() == tid)   mrcon.print(F(" (off-grid: node_id==team id)"));
-        else                                mrcon.print(F(" (dual: static node_id + team id)"));
-        mrcon.println();
+        if (tid == 0)                       out.print(F(" (team-DAD pending)"));
+        else if (g_node.node_id() == tid)   out.print(F(" (off-grid: node_id==team id)"));
+        else                                out.print(F(" (dual: static node_id + team id)"));
+        out.println();
     }
     if (c.is_mobile) {                                                        // §mobile: registration state (bench diagnostic) — did we register, and with whom?
         const uint8_t h = g_node.mobile_home_id();
-        mrcon.print(F("  mobile-reg: ")); if (h) { mrcon.print(F("REGISTERED home=")); mrcon.println(h); } else mrcon.println(F("UNREGISTERED (scanning)"));
+        out.print(F("  mobile-reg: ")); if (h) { out.print(F("REGISTERED home=")); out.println(h); } else out.println(F("UNREGISTERED (scanning)"));
     }
-    if (g_node.mobile_reg_count()) { mrcon.print(F("  hosting=")); mrcon.print(g_node.mobile_reg_count()); mrcon.println(F(" mobile(s)")); }   // §mobile: this node is a host with registered mobiles
-    mrcon.print(F("  member: lineage_id=")); mrcon.print(c.lineage_id);          // R6.1 leaf-config membership: 0 = UNMANAGED. A managed leaf (lineage!=0) only routes same-lineage peers -> a lineage-0 gateway is silently dropped (node_beacon.cpp:462). This is the field to compare across nodes.
-    mrcon.print(F(" config_epoch="));     mrcon.print(c.config_epoch);
-    if (c.leaf_name_len) { mrcon.print(F(" leaf_name=\"")); for (uint8_t i = 0; i < c.leaf_name_len; ++i) mrcon.print(c.leaf_name[i]); mrcon.print(F("\"")); }
-    mrcon.println();
-    mrcon.print(F("  ble   : ble_mode=")); mrcon.print(g_ble_mode == 0 ? F("off") : g_ble_mode == 1 ? F("on") : F("periodic"));
-    mrcon.print(F(" ble_period="));       mrcon.print(g_ble_period_min);
-    mrcon.print(F(" ble_pin="));          mrcon.println(g_ble_pin);
+    if (g_node.mobile_reg_count()) { out.print(F("  hosting=")); out.print(g_node.mobile_reg_count()); out.println(F(" mobile(s)")); }   // §mobile: this node is a host with registered mobiles
+    out.print(F("  member: lineage_id=")); out.print(c.lineage_id);          // R6.1 leaf-config membership: 0 = UNMANAGED. A managed leaf (lineage!=0) only routes same-lineage peers -> a lineage-0 gateway is silently dropped (node_beacon.cpp:462). This is the field to compare across nodes.
+    out.print(F(" config_epoch="));     out.print(c.config_epoch);
+    if (c.leaf_name_len) { out.print(F(" leaf_name=\"")); for (uint8_t i = 0; i < c.leaf_name_len; ++i) out.print(c.leaf_name[i]); out.print(F("\"")); }
+    out.println();
+    out.print(F("  ble   : ble_mode=")); out.print(g_ble_mode == 0 ? F("off") : g_ble_mode == 1 ? F("on") : F("periodic"));
+    out.print(F(" ble_period="));       out.print(g_ble_period_min);
+    out.print(F(" ble_pin="));          out.println(g_ble_pin);
     // Arduino Print formats floats via its own dtostrf (NOT newlib printf), so 7-decimal degrees print fine.
-    mrcon.print(F("  loc   : loc_dm="));  mrcon.print(c.loc_in_dm ? 1 : 0);
-    mrcon.print(F(" e2e_dm="));           mrcon.print(c.e2e_dm ? 1 : 0);
-    mrcon.print(F(" lat="));              mrcon.print(g_lat_e7 / 1e7, 7);
-    mrcon.print(F(" lon="));              mrcon.println(g_lon_e7 / 1e7, 7);
+    out.print(F("  loc   : loc_dm="));  out.print(c.loc_in_dm ? 1 : 0);
+    out.print(F(" e2e_dm="));           out.print(c.e2e_dm ? 1 : 0);
+    out.print(F(" lat="));              out.print(g_lat_e7 / 1e7, 7);
+    out.print(F(" lon="));              out.println(g_lon_e7 / 1e7, 7);
     // Dual-layer gateway: an ADDITIVE second line per leaf (single-layer dump above is unchanged). Prints each
     // leaf's node_id/layer_id/routing_sf + the (possibly on_init-derived) window_ms/offset of the active config.
     if (c.n_layers == 2) {
         for (uint8_t li = 0; li < 2; ++li) {
             const meshroute::LayerConfig& L = c.layers[li];
-            mrcon.print(F("[cfg.layer")); mrcon.print(li);
-            mrcon.print(F("] node_id="));    mrcon.print(L.node_id);
-            mrcon.print(F(" layer_id="));    mrcon.print(L.layer_id);
-            mrcon.print(F(" routing_sf="));  mrcon.print(L.routing_sf);
-            mrcon.print(F(" sf_list="));     print_sf_list(L.allowed_sf_bitmap);
-            mrcon.print(F(" bw="));          mrcon.print(L.bw_hz > 0 ? L.bw_hz : c.radio_bw_hz);   // per-layer BW (0 = inherit -> the effective/global)
-            mrcon.print(F(" cr="));          mrcon.print((int)(L.cr > 0 ? L.cr : c.radio_cr));
-            mrcon.print(F(" beacon_ms="));   mrcon.print(L.beacon_period_ms);
-            mrcon.print(F(" window_period_ms=")); mrcon.print(L.window_period_ms);
-            mrcon.print(F(" window_ms="));   mrcon.print(L.window_ms);
-            mrcon.print(F(" window_offset_ms=")); mrcon.println(L.window_offset_ms);
+            out.print(F("[cfg.layer")); out.print(li);
+            out.print(F("] node_id="));    out.print(L.node_id);
+            out.print(F(" layer_id="));    out.print(L.layer_id);
+            out.print(F(" routing_sf="));  out.print(L.routing_sf);
+            out.print(F(" sf_list="));     print_sf_list(L.allowed_sf_bitmap);
+            out.print(F(" bw="));          out.print(L.bw_hz > 0 ? L.bw_hz : c.radio_bw_hz);   // per-layer BW (0 = inherit -> the effective/global)
+            out.print(F(" cr="));          out.print((int)(L.cr > 0 ? L.cr : c.radio_cr));
+            out.print(F(" beacon_ms="));   out.print(L.beacon_period_ms);
+            out.print(F(" window_period_ms=")); out.print(L.window_period_ms);
+            out.print(F(" window_ms="));   out.print(L.window_ms);
+            out.print(F(" window_offset_ms=")); out.println(L.window_offset_ms);
         }
     }
 }
@@ -353,12 +359,12 @@ static const char* board_name() {
 }
 // The `version` banner — build stamp + git rev + board + the last reset reason (ON DEMAND, no reset). Refactored
 // from the old boot prints so setup() and the `version` command share one source. (spec 2026-06-24 §6)
-static void print_banner() {
+static void print_banner(Print& out) {
     char buf[160];
     mrfault::format_version_banner(buf, sizeof buf, __DATE__ " " __TIME__, GIT_REV, board_name());
-    mrcon.println(buf);
+    out.println(buf);
     mrfault::format_last_reset(g_last_reset_valid ? &g_last_reset : nullptr, buf, sizeof buf);
-    mrcon.println(buf);
+    out.println(buf);
 }
 
 // ADDENDUM 4 (2026-06-25) instrument — the FreeRTOS loop-task stack high-water mark: the SMALLEST number of free bytes
@@ -374,51 +380,51 @@ static uint32_t loop_stack_free_bytes() {
 #endif
 }
 
-static void dump_status() {
-    mrcon.print(F("[status] uptime_ms="));  mrcon.print((uint32_t)g_hal.now());
-    mrcon.print(F(" rx="));                 mrcon.print(g_rx_count);
-    mrcon.print(F(" tx="));                 mrcon.print(g_iradio.tx_count());
-    mrcon.print(F(" isr="));                mrcon.print(g_iradio.isr_count());   // DIO1 edges — isr=0 ⇒ pin/mask; isr>0 & rx=0 ⇒ drain/re-arm
-    mrcon.print(F(" rxbad="));              mrcon.print(g_iradio.rxbad_count());  // failed-decode RX (CRC storm) — a clean counter delta (per-event print is `debug on`-gated)
-    mrcon.print(F(" rxarm="));              mrcon.print(g_iradio.rx_arm_failures());  // L5: startReceive() re-arm failures — non-zero = an SPI glitch left RX transiently un-armed (was silent before)
-    mrcon.print(F(" txq="));                mrcon.print(g_hal.txq_depth());      // async-TX queue depth (should idle at 0)
-    mrcon.print(F(" txdrop="));             mrcon.print(g_hal.txq_drops());      // outbound-queue overflow drops (should stay 0)
-    mrcon.print(F(" txto="));               mrcon.print(g_hal.tx_timeouts());    // TX-watchdog recoveries — a missed TxDone (should stay 0)
-    mrcon.print(F(" slept="));              mrcon.print(g_sleep_count);          // idle light-sleep entries — climbs = the gate fires (0 = never sleeps)
-    mrcon.print(F(" sleep="));              mrcon.print(g_force_sleep ? F("forced") : (g_host_present ? F("off-host") : F("auto"))); // policy: auto=headless→sleeps, off-host=awake (host seen), forced=`sleep` cmd
-    mrcon.print(F(" lbt="));                mrcon.print(g_node.config().lbt_enabled ? 1 : 0);
-    mrcon.print(F(" nf="));                 mrcon.print(g_iradio.noise_floor(), 0); // LBT noise floor (dBm)
-    mrcon.print(F(" duty_ms="));            mrcon.print((uint32_t)g_hal.airtime_used_ms(3600000));
-    mrcon.print(F(" routes="));             mrcon.print(g_node.rt_count());
-    mrcon.print(F(" pending="));            mrcon.print(g_node.has_pending_tx() ? 1 : 0);
-    mrcon.print(F(" reset="));                                                     // v2: the fault-log's newest CAUSE ("-" = none)
-    if (g_last_reset_valid) mrcon.print(mrfault::fault_cause_str(g_last_reset.cause));
-    else                    mrcon.print('-');
-    mrcon.print(F(" halted="));             mrcon.print(g_halted ? 1 : 0);        // prep-restart: 1 = intentionally dormant, not wedged
+static void dump_status(Print& out) {
+    out.print(F("uptime_ms="));  out.print((uint32_t)g_hal.now());
+    out.print(F(" rx="));                 out.print(g_rx_count);
+    out.print(F(" tx="));                 out.print(g_iradio.tx_count());
+    out.print(F(" isr="));                out.print(g_iradio.isr_count());   // DIO1 edges — isr=0 ⇒ pin/mask; isr>0 & rx=0 ⇒ drain/re-arm
+    out.print(F(" rxbad="));              out.print(g_iradio.rxbad_count());  // failed-decode RX (CRC storm) — a clean counter delta (per-event print is `debug on`-gated)
+    out.print(F(" rxarm="));              out.print(g_iradio.rx_arm_failures());  // L5: startReceive() re-arm failures — non-zero = an SPI glitch left RX transiently un-armed (was silent before)
+    out.print(F(" txq="));                out.print(g_hal.txq_depth());      // async-TX queue depth (should idle at 0)
+    out.print(F(" txdrop="));             out.print(g_hal.txq_drops());      // outbound-queue overflow drops (should stay 0)
+    out.print(F(" txto="));               out.print(g_hal.tx_timeouts());    // TX-watchdog recoveries — a missed TxDone (should stay 0)
+    out.print(F(" slept="));              out.print(g_sleep_count);          // idle light-sleep entries — climbs = the gate fires (0 = never sleeps)
+    out.print(F(" sleep="));              out.print(g_force_sleep ? F("forced") : (g_host_present ? F("off-host") : F("auto"))); // policy: auto=headless→sleeps, off-host=awake (host seen), forced=`sleep` cmd
+    out.print(F(" lbt="));                out.print(g_node.config().lbt_enabled ? 1 : 0);
+    out.print(F(" nf="));                 out.print(g_iradio.noise_floor(), 0); // LBT noise floor (dBm)
+    out.print(F(" duty_ms="));            out.print((uint32_t)g_hal.airtime_used_ms(3600000));
+    out.print(F(" routes="));             out.print(g_node.rt_count());
+    out.print(F(" pending="));            out.print(g_node.has_pending_tx() ? 1 : 0);
+    out.print(F(" reset="));                                                     // v2: the fault-log's newest CAUSE ("-" = none)
+    if (g_last_reset_valid) out.print(mrfault::fault_cause_str(g_last_reset.cause));
+    else                    out.print('-');
+    out.print(F(" halted="));             out.print(g_halted ? 1 : 0);        // prep-restart: 1 = intentionally dormant, not wedged
 #if defined(NRF52_PLATFORM) || defined(ARDUINO_ARCH_NRF52)
-    mrcon.print(F(" stackhw="));            mrcon.print(loop_stack_free_bytes()); // ADDENDUM 4: loop-task min free stack bytes — the jump-to-0x0 was this overflowing; must stay well >0
+    out.print(F(" stackhw="));            out.print(loop_stack_free_bytes()); // ADDENDUM 4: loop-task min free stack bytes — the jump-to-0x0 was this overflowing; must stay well >0
 #endif
-    if (g_fs_reformatted) mrcon.print(F(" fs=REFORMATTED"));                        // Part 2: InternalFS was corrupt this boot -> reformatted (re-provision)
+    if (g_fs_reformatted) out.print(F(" fs=REFORMATTED"));                        // Part 2: InternalFS was corrupt this boot -> reformatted (re-provision)
 #if defined(NRF52_PLATFORM) && defined(PIN_VBAT) && !defined(MR_NO_BATT)
     // Battery diagnostic. VBAT (P0.31) reads the CELL through a ÷3 divider — NEVER USB's 5 V (max ~4.2 V).
     // Verify vs a multimeter on the battery: mv = raw × ADC_MULTIPLIER(3.0) × AREF_VOLTAGE(3.0) / 4.096.
     pinMode(VBAT_ENABLE, OUTPUT); digitalWrite(VBAT_ENABLE, LOW);
     analogReadResolution(12); analogReference(AR_INTERNAL_3_0);
     const int braw = analogRead(PIN_VBAT);
-    mrcon.print(F(" batt_raw="));           mrcon.print(braw);
-    mrcon.print(F(" batt_mv="));            mrcon.print((int)((braw * ADC_MULTIPLIER * AREF_VOLTAGE) / 4.096f));
+    out.print(F(" batt_raw="));           out.print(braw);
+    out.print(F(" batt_mv="));            out.print((int)((braw * ADC_MULTIPLIER * AREF_VOLTAGE) / 4.096f));
 #endif
-    mrcon.println();
+    out.println();
 }
 
 // `duty` — duty-cycle consumption readout: 0..100% of the rolling-window budget (100 = the node must stay silent),
 // + when at 100% how long until airtime ages back in. `disabled` when there is no duty limit.
-static void dump_duty() {
+static void dump_duty(Print& out) {
     const auto d = g_node.duty_status();
-    if (!d.enabled) { mrcon.println(F("[duty] disabled (no duty limit)")); return; }
-    mrcon.print(F("[duty] ")); mrcon.print(d.pct); mrcon.print('%');
-    if (d.pct >= 100) { mrcon.print(F(" — SILENT, ~")); mrcon.print((d.avail_ms + 500) / 1000); mrcon.print(F(" s to availability")); }
-    mrcon.println();
+    if (!d.enabled) { out.println(F("disabled (no duty limit)")); return; }
+    out.print(d.pct); out.print('%');
+    if (d.pct >= 100) { out.print(F(" — SILENT, ~")); out.print((d.avail_ms + 500) / 1000); out.print(F(" s to availability")); }
+    out.println();
 }
 
 // "7,12" -> allowed_sf_bitmap (bit per SF index 5..12); 0 if none valid.
@@ -482,12 +488,12 @@ static void do_regen() {
 // applies LIVE to the running node where possible. RADIO knobs (freq/routing_sf|control_sf/bw/cr/tx_power) +
 // MAC knobs (sf_list/lbt/beacon_ms) take effect NOW; node_id + duty need a reboot (identity / on_init budget).
 // Extra protocol knobs (nav/nav_ignore/hop_cap/leaf_id/gateway) apply live but are NOT persisted yet (reboot reverts).
-static void handle_cfg_set(const char* args) {
+static void handle_cfg_set(const char* args, Print& out) {
     char key[20]; size_t k = 0;
     while (args[k] && args[k] != ' ' && k < sizeof(key) - 1) { key[k] = args[k]; ++k; }
     key[k] = '\0';
     const char* val = (args[k] == ' ') ? (args + k + 1) : (args + k);
-    if (!*val) { mrcon.println(F("> cfg err bad_args")); return; }
+    if (!*val) { out.println(F("> cfg err bad_args")); return; }
 
     // `lat`/`lon` live in the IDENTITY record (/mrid) alongside `name`, NOT the config blob — handle early.
     // Input is decimal degrees (e.g. `cfg set lat 52.2297`); stored as int32 degrees×1e7. atof is fine on
@@ -499,7 +505,7 @@ static void handle_cfg_set(const char* args) {
         if (key[2] == 't') { idb.lat_e7 = e7; g_lat_e7 = e7; g_node.mutable_config().lat_e7 = e7; }   // "lat" (also LIVE)
         else               { idb.lon_e7 = e7; g_lon_e7 = e7; g_node.mutable_config().lon_e7 = e7; }   // "lon" (also LIVE)
         idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
-        mrcon.println(mrnv::save_id(idb) ? F("> cfg ok (saved to /mrid)") : F("> cfg err nv_save_failed"));
+        out.println(mrnv::save_id(idb) ? F("> cfg ok (saved to /mrid)") : F("> cfg err nv_save_failed"));
         return;
     }
 
@@ -510,7 +516,7 @@ static void handle_cfg_set(const char* args) {
         size_t l = strlen(val); if (l > sizeof idb.name) l = sizeof idb.name;
         memcpy(idb.name, val, l); idb.name_len = (uint16_t)l;
         idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
-        mrcon.println(mrnv::save_id(idb) ? F("> cfg ok name (saved to /mrid)") : F("> cfg err nv_save_failed"));
+        out.println(mrnv::save_id(idb) ? F("> cfg ok name (saved to /mrid)") : F("> cfg err nv_save_failed"));
         return;
     }
 
@@ -548,14 +554,14 @@ static void handle_cfg_set(const char* args) {
     if      (!strcmp(key, "node_id")) {
         const int v = atoi(val);
 #if MR_N_LAYERS >= 2   // gateway build: layer-0 node_id IS a gateway id (R6.3/G1: 1..16)
-        if (v != 0 && (v < 1 || v > P::gateway_node_id_max)) { mrcon.println(F("> cfg err bad_value (gateway node_id 1..16; 0=unprovisioned)")); return; }
+        if (v != 0 && (v < 1 || v > P::gateway_node_id_max)) { out.println(F("> cfg err bad_value (gateway node_id 1..16; 0=unprovisioned)")); return; }
 #else                  // normal build: 17..254 (1..16 reserved for gateways)
-        if (v < 0 || v > 254 || (v >= 1 && v <= P::gateway_node_id_max)) { mrcon.println(F("> cfg err bad_value (node_id 0 or 17..254; 1..16 reserved for gateways)")); return; }
+        if (v < 0 || v > 254 || (v >= 1 && v <= P::gateway_node_id_max)) { out.println(F("> cfg err bad_value (node_id 0 or 17..254; 1..16 reserved for gateways)")); return; }
 #endif
         b.node_id = (uint8_t)v; b.joined = 0; live = false;        // operator-pinned id -> NOT DAD-adopted (won't auto-yield)
     }
     else if (!strcmp(key, "freq"))                                     { const double f = atof(val);        // mirror join/create: 100..1000 MHz — out-of-band persists an RF-dead node
-                                                                         if (f < 100.0 || f > 1000.0) { mrcon.println(F("> cfg err bad_value (freq 100..1000 MHz)")); return; }
+                                                                         if (f < 100.0 || f > 1000.0) { out.println(F("> cfg err bad_value (freq 100..1000 MHz)")); return; }
                                                                          b.freq_mhz = f;                      reconfig = radio = true; }
     // BENCH NOTE (2026-06-19): SF5 does NOT lock over-the-air on the tested SX1262 modules (XIAO Wio-SX1262 +
     // Heltec V3) — the receiver completes ZERO reception (`status` isr==tx, rx=0) at BW125 AND BW500, and bumping
@@ -565,14 +571,14 @@ static void handle_cfg_set(const char* args) {
     // modules. Left configurable (no hard guard) for future SF5-capable hardware. Ref: SX1262 DS §6.1.1.1.
     else if (!strcmp(key, "routing_sf") || !strcmp(key, "control_sf")) { b.routing_sf = (uint8_t)atoi(val); reconfig = radio = true; }
     else if (!strcmp(key, "bw"))                                       { const long bw = atol(val);         // `cfg set bw` is in Hz; join/create take kHz 7..500 -> mirror as 7000..500000 Hz (bw<=0 -> downstream div-by-zero)
-                                                                         if (bw < 7000 || bw > 500000) { mrcon.println(F("> cfg err bad_value (bw 7000..500000 Hz)")); return; }
+                                                                         if (bw < 7000 || bw > 500000) { out.println(F("> cfg err bad_value (bw 7000..500000 Hz)")); return; }
                                                                          b.bw_hz = (uint32_t)bw;              reconfig = radio = true; }
     else if (!strcmp(key, "cr"))                                       { const int cr = atoi(val);          // LoRa coding rate 4/5..4/8 -> 5..8 (SX1262 setCodingRate range)
-                                                                         if (cr < 5 || cr > 8) { mrcon.println(F("> cfg err bad_value (cr 5..8)")); return; }
+                                                                         if (cr < 5 || cr > 8) { out.println(F("> cfg err bad_value (cr 5..8)")); return; }
                                                                          b.cr = (uint8_t)cr;                  reconfig = radio = true; }
     else if (!strcmp(key, "tx_power")) {
         const int v = atoi(val);
-        if (v < -9 || v > 22) { mrcon.println(F("> cfg err bad_value (tx_power -9..22 dBm)")); return; }
+        if (v < -9 || v > 22) { out.println(F("> cfg err bad_value (tx_power -9..22 dBm)")); return; }
         b.tx_power = (int8_t)v; radio = true;                         // live, but no radio re-tune
     }
     // --- node-config knobs: LIVE via mutable_config() (the MAC re-reads each field per use), + persisted ---
@@ -580,7 +586,7 @@ static void handle_cfg_set(const char* args) {
                                            if (b.lineage_id) b.config_epoch = (uint16_t)(b.config_epoch >= 65534 ? 65534 : b.config_epoch + 1); }   // R6.3 §4.1: a managed leaf-field write bumps epoch (propagates on reboot); saturate (u16 wrap -> permanent de-sync)
     else if (!strcmp(key, "lbt"))        { b.lbt = atoi(val) != 0;            lc.lbt_enabled = (b.lbt != 0); }
     else if (!strcmp(key, "beacon_ms"))  { const long bms = atol(val);                          // floor at the discovery cadence: 0/too-small = airtime storm after reboot
-                                           if (bms < (long)P::discovery_beacon_period_ms) { mrcon.println(F("> cfg err bad_value (beacon_ms >= 5000)")); return; }
+                                           if (bms < (long)P::discovery_beacon_period_ms) { out.println(F("> cfg err bad_value (beacon_ms >= 5000)")); return; }
                                            b.beacon_ms = (uint32_t)bms; lc.beacon_period_ms = b.beacon_ms; }
     else if (!strcmp(key, "duty"))       { b.duty = meshroute::bp_to_duty(meshroute::duty_to_bp(atof(val))); live = false;   // §5: quantize to the 0.01% wire step so the config_hash matches across nodes
                                            if (b.lineage_id) b.config_epoch = (uint16_t)(b.config_epoch >= 65534 ? 65534 : b.config_epoch + 1); }   // R6.3 §4.1: managed leaf-field write bumps epoch; saturate (u16 wrap -> permanent de-sync)
@@ -635,17 +641,17 @@ static void handle_cfg_set(const char* args) {
         if      (!strcmp(val, "off"))      m = 0;
         else if (!strcmp(val, "on"))       m = 1;
         else if (!strcmp(val, "periodic")) m = 2;
-        else { mrcon.println(F("> cfg err bad_value (ble_mode off|on|periodic)")); return; }
+        else { out.println(F("> cfg err bad_value (ble_mode off|on|periodic)")); return; }
         b.ble_mode = m; live = false;
     }
     else if (!strcmp(key, "ble_period")) {
         const int v = atoi(val);
-        if (v < 1 || v > 255) { mrcon.println(F("> cfg err bad_value (ble_period 1..255 min)")); return; }
+        if (v < 1 || v > 255) { out.println(F("> cfg err bad_value (ble_period 1..255 min)")); return; }
         b.ble_period_min = (uint8_t)v; live = false;
     }
     else if (!strcmp(key, "ble_pin")) {
         const long v = atol(val);
-        if (v < 0 || v > 999999) { mrcon.println(F("> cfg err bad_value (ble_pin 0..999999, 6-digit passkey)")); return; }
+        if (v < 0 || v > 999999) { out.println(F("> cfg err bad_value (ble_pin 0..999999, 6-digit passkey)")); return; }
         b.ble_pin = (uint32_t)v; live = false;
     }
     // --- v8 DUAL-LAYER GATEWAY: PERSISTED raw per-layer fields, reboot-to-apply (on_init validates + derives the
@@ -653,87 +659,87 @@ static void handle_cfg_set(const char* args) {
     //     legacy node_id/routing_sf/sf_list/beacon_ms keys; these are the layer-1 + shared-schedule extras. ---
     else if (!strcmp(key, "n_layers")) {
         const int v = atoi(val);
-        if (v != 1 && v != 2) { mrcon.println(F("> cfg err bad_value (n_layers 1|2)")); return; }
+        if (v != 1 && v != 2) { out.println(F("> cfg err bad_value (n_layers 1|2)")); return; }
         b.n_layers = (uint8_t)v; live = false;
     }
     else if (!strcmp(key, "layer0_id")) {
         const int v = atoi(val);
-        if (v < 0 || v > 255) { mrcon.println(F("> cfg err bad_value (layer0_id 0..255)")); return; }
+        if (v < 0 || v > 255) { out.println(F("> cfg err bad_value (layer0_id 0..255)")); return; }
         b.layer0_id = (uint8_t)v; live = false;
     }
     else if (!strcmp(key, "window_period_ms")) {
         const long v = atol(val);
-        if (v < 1) { mrcon.println(F("> cfg err bad_value (window_period_ms >= 1)")); return; }
+        if (v < 1) { out.println(F("> cfg err bad_value (window_period_ms >= 1)")); return; }
         b.window_period_ms = (uint32_t)v; live = false;
     }
     else if (!strcmp(key, "l0_window_ms")) {
         const long v = atol(val);
-        if (v < 0) { mrcon.println(F("> cfg err bad_value (l0_window_ms 0=derive)")); return; }
+        if (v < 0) { out.println(F("> cfg err bad_value (l0_window_ms 0=derive)")); return; }
         b.l0_window_ms = (uint32_t)v; live = false;
     }
     else if (!strcmp(key, "l0_window_offset_ms")) {
         const long v = atol(val);
-        if (v < 0) { mrcon.println(F("> cfg err bad_value (l0_window_offset_ms 0=derive)")); return; }
+        if (v < 0) { out.println(F("> cfg err bad_value (l0_window_offset_ms 0=derive)")); return; }
         b.l0_window_offset_ms = (uint32_t)v; live = false;
     }
     else if (!strcmp(key, "l1_layer_id")) {
         const int v = atoi(val);
-        if (v < 0 || v > 255) { mrcon.println(F("> cfg err bad_value (l1_layer_id 0..255)")); return; }
+        if (v < 0 || v > 255) { out.println(F("> cfg err bad_value (l1_layer_id 0..255)")); return; }
         b.l1_layer_id = (uint8_t)v; live = false;
     }
     else if (!strcmp(key, "l1_node_id")) {                          // R6.3/G1: the gateway's layer-1 id is also a gateway id (1..16)
         const int v = atoi(val);
-        if (v != 0 && (v < 1 || v > P::gateway_node_id_max)) { mrcon.println(F("> cfg err bad_value (l1_node_id 1..16; 0=unprovisioned)")); return; }
+        if (v != 0 && (v < 1 || v > P::gateway_node_id_max)) { out.println(F("> cfg err bad_value (l1_node_id 1..16; 0=unprovisioned)")); return; }
         b.l1_node_id = (uint8_t)v; live = false;
     }
     else if (!strcmp(key, "l1_routing_sf")) {
         const int v = atoi(val);
-        if (v < 5 || v > 12) { mrcon.println(F("> cfg err bad_value (l1_routing_sf 5..12)")); return; }
+        if (v < 5 || v > 12) { out.println(F("> cfg err bad_value (l1_routing_sf 5..12)")); return; }
         b.l1_routing_sf = (uint8_t)v; live = false;
     }
     else if (!strcmp(key, "l1_sf_list")) {
         const uint16_t bm = parse_sf_list(val);
-        if (!bm) { mrcon.println(F("> cfg err bad_value (l1_sf_list: comma SFs 5..12, e.g. 7,9)")); return; }
+        if (!bm) { out.println(F("> cfg err bad_value (l1_sf_list: comma SFs 5..12, e.g. 7,9)")); return; }
         b.l1_allowed_sf_bitmap = bm; live = false;
     }
     else if (!strcmp(key, "l1_beacon_ms")) {
         const long v = atol(val);
-        if (v < 1) { mrcon.println(F("> cfg err bad_value (l1_beacon_ms >= 1)")); return; }
+        if (v < 1) { out.println(F("> cfg err bad_value (l1_beacon_ms >= 1)")); return; }
         b.l1_beacon_period_ms = (uint32_t)v; live = false;
     }
     else if (!strcmp(key, "l1_window_ms")) {
         const long v = atol(val);
-        if (v < 0) { mrcon.println(F("> cfg err bad_value (l1_window_ms 0=derive)")); return; }
+        if (v < 0) { out.println(F("> cfg err bad_value (l1_window_ms 0=derive)")); return; }
         b.l1_window_ms = (uint32_t)v; live = false;
     }
     else if (!strcmp(key, "l1_window_offset_ms")) {
         const long v = atol(val);
-        if (v < 0) { mrcon.println(F("> cfg err bad_value (l1_window_offset_ms 0=derive)")); return; }
+        if (v < 0) { out.println(F("> cfg err bad_value (l1_window_offset_ms 0=derive)")); return; }
         b.l1_window_offset_ms = (uint32_t)v; live = false;
     }
     else if (!strcmp(key, "l1_freq")) {                          // v12 per-layer freq: layer-1 RF carrier (0 = inherit layer 0/`freq`)
         const double f = atof(val);
-        if (f < 0.0) { mrcon.println(F("> cfg err bad_value (l1_freq MHz; 0=inherit)")); return; }
+        if (f < 0.0) { out.println(F("> cfg err bad_value (l1_freq MHz; 0=inherit)")); return; }
         b.l1_freq_mhz = f; live = false;
     }
     else if (!strcmp(key, "l1_bw")) {                            // v17 per-layer BW: layer-1 bandwidth Hz (0 = inherit the global bw)
         const long v = atol(val);
-        if (v < 0) { mrcon.println(F("> cfg err bad_value (l1_bw Hz; 0=inherit)")); return; }
+        if (v < 0) { out.println(F("> cfg err bad_value (l1_bw Hz; 0=inherit)")); return; }
         b.l1_bw_hz = (uint32_t)v; live = false;
     }
     else if (!strcmp(key, "l1_cr")) {                            // v17 per-layer CR: layer-1 coding-rate 5..8 (0 = inherit)
         const int v = atoi(val);
-        if (v != 0 && (v < 5 || v > 8)) { mrcon.println(F("> cfg err bad_value (l1_cr 5..8; 0=inherit)")); return; }
+        if (v != 0 && (v < 5 || v > 8)) { out.println(F("> cfg err bad_value (l1_cr 5..8; 0=inherit)")); return; }
         b.l1_cr = (uint8_t)v; live = false;
     }
-    else { mrcon.print(F("> cfg err unknown_key ")); mrcon.println(key); return; }
+    else { out.print(F("> cfg err unknown_key ")); out.println(key); return; }
 
-    if (persist && !mrnv::save(b)) { mrcon.println(F("> cfg err nv_save_failed")); return; }
+    if (persist && !mrnv::save(b)) { out.println(F("> cfg err nv_save_failed")); return; }
     if (radio && live) apply_radio_live(b, reconfig);
-    mrcon.print(F("> cfg ")); mrcon.print(key); mrcon.print('='); mrcon.print(val);
-    if      (!live)   mrcon.println(F(" ok (reboot to apply)"));
-    else if (persist) mrcon.println(F(" ok (live + saved)"));
-    else              mrcon.println(F(" ok (live, not persisted)"));
+    out.print(F("> cfg ")); out.print(key); out.print('='); out.print(val);
+    if      (!live)   out.println(F(" ok (reboot to apply)"));
+    else if (persist) out.println(F(" ok (live + saved)"));
+    else              out.println(F(" ok (live, not persisted)"));
 }
 
 static void do_reboot() {
@@ -750,15 +756,15 @@ static void do_reboot() {
 
 // `factory_reset` — confirm-gated full NV wipe -> reboot factory-fresh (default config + a NEW identity + no peers
 // + empty inbox). The literal `confirm` token guards against an accidental paste (irreversible).
-static void handle_factory_reset(const char* arg, size_t n) {
+static void handle_factory_reset(const char* arg, size_t n, Print& out) {
     while (n && *arg == ' ') { ++arg; --n; }
     if (n == 7 && !strncmp(arg, "confirm", 7)) {
-        mrcon.println(F("> factory reset — erasing all NV, rebooting…"));
+        out.println(F("> factory reset — erasing all NV, rebooting…"));
         g_inbox_dm.wipe(); g_inbox_ch.wipe();   // §5: drop the QSPI inbox RECORDS (their store's domain); factory_erase does the InternalFS slots + meta
-        if (!mrnv::factory_erase()) mrcon.println(F("> factory_reset WARN: an NV slot did not erase (boot re-defaults it)"));
+        if (!mrnv::factory_erase()) out.println(F("> factory_reset WARN: an NV slot did not erase (boot re-defaults it)"));
         do_reboot();
     } else {
-        mrcon.println(F("> factory_reset WIPES ALL flash (config + identity + peers + inbox) and reboots to factory. Type 'factory_reset confirm' to proceed."));
+        out.println(F("> factory_reset WIPES ALL flash (config + identity + peers + inbox) and reboots to factory. Type 'factory_reset confirm' to proceed."));
     }
 }
 
@@ -790,75 +796,75 @@ static void do_ota() {
 // on its own — this command is only for a node you're connected to. After `sleep on` the console goes quiet
 // (light-sleep gates the UART) — reconnect to get it back (DTR resets the board). The node still wakes on RX
 // (a peer DM prints RECV) and on its scheduled timers. No-op on -DMR_NO_POWERSAVE builds (the gate is gone).
-static void handle_sleep(const char* arg, size_t n) {
+static void handle_sleep(const char* arg, size_t n, Print& out) {
     while (n && *arg == ' ') { ++arg; --n; }
     if (n >= 3 && !strncmp(arg, "off", 3)) {
         g_force_sleep = false;
-        mrcon.println(F("> sleep off — staying awake while a host is connected"));
+        out.println(F("> sleep off — staying awake while a host is connected"));
     } else {
         g_force_sleep = true;
-        mrcon.println(F("> sleep on — light-sleeping when idle; reconnect to wake the console (still wakes on RX)"));
+        out.println(F("> sleep on — light-sleeping when idle; reconnect to wake the console (still wakes on RX)"));
     }
 }
 
 // `debug on` / `debug off` (also `debug 1`/`debug 0`) — gate the decoded per-frame «rx/»tx console trace
 // (frame_trace.h g_mr_trace_on). §3: default OFF at boot; `debug on` enables it for the session.
-static void handle_debug(const char* arg, size_t n) {
+static void handle_debug(const char* arg, size_t n, Print& out) {
     while (n && *arg == ' ') { ++arg; --n; }
     const bool off = (n >= 3 && !strncmp(arg, "off", 3)) || (n >= 1 && arg[0] == '0');
     meshroute::g_mr_trace_on = !off;
-    mrcon.println(off ? F("> debug off — RX/TX frame trace silenced") : F("> debug on — tracing RX/TX frames"));
+    out.println(off ? F("> debug off — RX/TX frame trace silenced") : F("> debug on — tracing RX/TX frames"));
 }
 
 // `lookup <hash>` — local id_bind cache peek (NO airtime): resolve a key_hash32 -> node short-id from what
 // this node already knows (beacons / prior H answers). Hash is hex (e.g. `lookup 8a3f1c02`). For a network
 // resolve of an unknown hash, use `resolve` (floods H).
-static void handle_lookup(const char* arg, size_t n) {
+static void handle_lookup(const char* arg, size_t n, Print& out) {
     while (n && *arg == ' ') { ++arg; --n; }
-    if (!n) { mrcon.println(F("> lookup err bad_args (hex hash)")); return; }
-    const uint32_t hash = (uint32_t)strtoul(arg, nullptr, 16);
+    if (n < 3 || arg[0] != '0' || (arg[1] != 'x' && arg[1] != 'X')) { out.println(F("> lookup err: hash must be 0x-prefixed (e.g. lookup 0x8a3f1c02)")); return; }
+    const uint32_t hash = (uint32_t)strtoul(arg + 2, nullptr, 16);   // 0x-only (kills id-vs-hash ambiguity)
     meshroute::Node::IdBindConf conf = meshroute::Node::IdBindConf::claimed;
     const int id = g_node.id_bind_find_by_hash(hash, &conf);
-    mrcon.print(F("[lookup] 0x")); mrcon.print(hash, HEX);
-    if (id < 0) { mrcon.println(F(" -> miss")); return; }
-    mrcon.print(F(" -> id=")); mrcon.print(id);
-    mrcon.println(conf == meshroute::Node::IdBindConf::authoritative ? F(" (authoritative)") : F(" (claimed)"));
+    out.print(F("[lookup] 0x")); out.print(hash, HEX);
+    if (id < 0) { out.println(F(" -> miss")); return; }
+    out.print(F(" -> id=")); out.print(id);
+    out.println(conf == meshroute::Node::IdBindConf::authoritative ? F(" (authoritative)") : F(" (claimed)"));
 }
 
 // `hashof <id>` — reverse lookup: a node short-id -> its key_hash32 (AUTHORITATIVE bindings only — a node we
 // can vouch for). Decimal id 0..254.
-static void handle_hashof(const char* arg, size_t n) {
+static void handle_hashof(const char* arg, size_t n, Print& out) {
     while (n && *arg == ' ') { ++arg; --n; }
-    if (!n) { mrcon.println(F("> hashof err bad_args (id 0..254)")); return; }
+    if (!n) { out.println(F("> hashof err bad_args (id 0..254)")); return; }
     const int id = atoi(arg);
     uint32_t hash = 0;
-    mrcon.print(F("[hashof] id=")); mrcon.print(id);
-    if (id >= 0 && id <= 254 && g_node.key_hash_of_id((uint8_t)id, hash)) { mrcon.print(F(" -> 0x")); mrcon.println(hash, HEX); }
-    else                                                                  mrcon.println(F(" -> unknown"));
+    out.print(F("[hashof] id=")); out.print(id);
+    if (id >= 0 && id <= 254 && g_node.key_hash_of_id((uint8_t)id, hash)) { out.print(F(" -> 0x")); out.println(hash, HEX); }
+    else                                                                  out.println(F(" -> unknown"));
 }
 
 // `whoami` — this node's own identity + role. The hash printed here is what a peer types into `sendhash` to
 // reach you (the device can't surface its own key_hash32 any other way). Name is read from /mrid.
-static void handle_whoami() {
-    mrcon.print(F("[whoami] id=")); mrcon.print(g_node.node_id());
-    mrcon.print(F(" hash=0x"));     mrcon.print(g_node.key_hash32(), HEX);
+static void handle_whoami(Print& out) {
+    out.print(F("[whoami] id=")); out.print(g_node.node_id());
+    out.print(F(" hash=0x"));     out.print(g_node.key_hash32(), HEX);
     mrnv::IdBlob idb{};
-    if (mrnv::load_id(idb) && idb.name_len) { mrcon.print(F(" name=\"")); mrcon.write(idb.name, idb.name_len); mrcon.print('"'); }
+    if (mrnv::load_id(idb) && idb.name_len) { out.print(F(" name=\"")); out.write(idb.name, idb.name_len); out.print('"'); }
     const meshroute::NodeConfig& c = g_node.config();
-    mrcon.print(F(" leaf="));   mrcon.print(c.leaf_id);
-    mrcon.print(F(" gw="));     mrcon.print(c.is_gateway ? 1 : 0);
-    mrcon.print(F(" gwonly=")); mrcon.print(c.gateway_only ? 1 : 0);
-    mrcon.print(F(" mobile=")); mrcon.println(c.is_mobile ? 1 : 0);
+    out.print(F(" leaf="));   out.print(c.leaf_id);
+    out.print(F(" gw="));     out.print(c.is_gateway ? 1 : 0);
+    out.print(F(" gwonly=")); out.print(c.gateway_only ? 1 : 0);
+    out.print(F(" mobile=")); out.println(c.is_mobile ? 1 : 0);
     // Dual-layer gateway: an ADDITIVE per-leaf line. Single-layer whoami above is BYTE-IDENTICAL to before.
     if (c.n_layers == 2) {
         for (uint8_t li = 0; li < 2; ++li) {
             const meshroute::LayerConfig& L = c.layers[li];
-            mrcon.print(F("[whoami.layer")); mrcon.print(li);
-            mrcon.print(F("] node_id="));   mrcon.print(L.node_id);
-            mrcon.print(F(" layer_id="));   mrcon.print(L.layer_id);
-            mrcon.print(F(" routing_sf=")); mrcon.print(L.routing_sf);
-            mrcon.print(F(" window_ms="));  mrcon.print(L.window_ms);
-            mrcon.print(F(" window_offset_ms=")); mrcon.println(L.window_offset_ms);
+            out.print(F("[whoami.layer")); out.print(li);
+            out.print(F("] node_id="));   out.print(L.node_id);
+            out.print(F(" layer_id="));   out.print(L.layer_id);
+            out.print(F(" routing_sf=")); out.print(L.routing_sf);
+            out.print(F(" window_ms="));  out.print(L.window_ms);
+            out.print(F(" window_offset_ms=")); out.println(L.window_offset_ms);
         }
     }
 }
@@ -906,15 +912,15 @@ static const char* gw_val_err_str(meshroute::GwValErr e) {
     }
 }
 #endif
-static void handle_gateway(const char* args) {
+static void handle_gateway(const char* args, Print& out) {
 #if MR_N_LAYERS < 2
     (void)args;
-    mrcon.println(F("> gateway err not_gateway_build (flash the [env:gateway] -DMR_N_LAYERS=2 firmware)"));
+    out.println(F("> gateway err not_gateway_build (flash the [env:gateway] -DMR_N_LAYERS=2 firmware)"));
 #else
     using namespace meshroute;
     GatewayProvision g{};
     const GwParseErr pe = parse_gateway_cmd(args, g);
-    if (pe != GwParseErr::ok) { mrcon.print(F("> gateway err ")); mrcon.println(gw_parse_err_str(pe)); return; }
+    if (pe != GwParseErr::ok) { out.print(F("> gateway err ")); out.println(gw_parse_err_str(pe)); return; }
 
     // Base = the PENDING blob so radio/freq/identity-adjacent fields survive; seed from the live config if none.
     mrnv::Blob b{};
@@ -928,7 +934,7 @@ static void handle_gateway(const char* args) {
     const uint32_t bw = b.bw_hz ? b.bw_hz : static_cast<uint32_t>(LORA_BW * 1000.0);
     const uint8_t  cr = b.cr    ? b.cr    : 5;
     const GwValErr ve = validate_gateway_layers(g.l0, g.l1, bw, cr);   // SAME gate on_init runs (derives windows)
-    if (ve != GwValErr::ok) { mrcon.print(F("> gateway err ")); mrcon.println(gw_val_err_str(ve)); return; }
+    if (ve != GwValErr::ok) { out.print(F("> gateway err ")); out.println(gw_val_err_str(ve)); return; }
 
     b.n_layers = 2;
     b.layer0_id = g.l0.layer_id; b.node_id = g.l0.node_id; b.routing_sf = g.l0.routing_sf; b.allowed_sf_bitmap = g.l0.allowed_sf_bitmap;
@@ -944,19 +950,19 @@ static void handle_gateway(const char* args) {
     b.cr    = (g.l0.cr    > 0) ? g.l0.cr    : cr;            //      cr0 sets the node/layer-0 CR
     b.l1_bw_hz = g.l1.bw_hz; b.l1_cr = g.l1.cr;              //      bw1/cr1 = layer-1 (0 = inherit)
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
-    if (!mrnv::save(b)) { mrcon.println(F("> gateway err nv_save_failed")); return; }
+    if (!mrnv::save(b)) { out.println(F("> gateway err nv_save_failed")); return; }
 
-    mrcon.print(F("> gateway OK — L0 leaf")); mrcon.print(g.l0.layer_id); mrcon.print(F(" id")); mrcon.print(g.l0.node_id);
-    mrcon.print(F(" sf")); mrcon.print(g.l0.routing_sf);
-    mrcon.print(F(" | L1 leaf")); mrcon.print(g.l1.layer_id); mrcon.print(F(" id")); mrcon.print(g.l1.node_id);
-    mrcon.print(F(" sf")); mrcon.print(g.l1.routing_sf);
-    mrcon.print(F(" | period")); mrcon.print(g.l0.window_period_ms);
-    mrcon.print(F("ms: L0 ")); mrcon.print(g.l0.window_ms); mrcon.print(F("@")); mrcon.print(g.l0.window_offset_ms);
-    mrcon.print(F(" / L1 ")); mrcon.print(g.l1.window_ms); mrcon.print(F("@")); mrcon.print(g.l1.window_offset_ms);
-    mrcon.print(F(" | freq L0 ")); mrcon.print(g.l0.freq_mhz > 0.0 ? g.l0.freq_mhz : (double)g_freq_mhz, 4);
-    mrcon.print(F(" / L1 ")); mrcon.print(g.l1.freq_mhz > 0.0 ? g.l1.freq_mhz : (g.l0.freq_mhz > 0.0 ? g.l0.freq_mhz : (double)g_freq_mhz), 4);
-    if (g.gateway_only) mrcon.print(F(" | gateway_only"));
-    mrcon.println(F(" — reboot to apply"));
+    out.print(F("> gateway OK — L0 leaf")); out.print(g.l0.layer_id); out.print(F(" id")); out.print(g.l0.node_id);
+    out.print(F(" sf")); out.print(g.l0.routing_sf);
+    out.print(F(" | L1 leaf")); out.print(g.l1.layer_id); out.print(F(" id")); out.print(g.l1.node_id);
+    out.print(F(" sf")); out.print(g.l1.routing_sf);
+    out.print(F(" | period")); out.print(g.l0.window_period_ms);
+    out.print(F("ms: L0 ")); out.print(g.l0.window_ms); out.print(F("@")); out.print(g.l0.window_offset_ms);
+    out.print(F(" / L1 ")); out.print(g.l1.window_ms); out.print(F("@")); out.print(g.l1.window_offset_ms);
+    out.print(F(" | freq L0 ")); out.print(g.l0.freq_mhz > 0.0 ? g.l0.freq_mhz : (double)g_freq_mhz, 4);
+    out.print(F(" / L1 ")); out.print(g.l1.freq_mhz > 0.0 ? g.l1.freq_mhz : (g.l0.freq_mhz > 0.0 ? g.l0.freq_mhz : (double)g_freq_mhz), 4);
+    if (g.gateway_only) out.print(F(" | gateway_only"));
+    out.println(F(" — reboot to apply"));
 #endif
 }
 
@@ -1031,7 +1037,7 @@ static void provision_apply_live(const mrnv::Blob& b, bool do_dad) {
 
 // `join layer=<1..255> freq=<MHz> bw=<kHz> sf=<5..12>` — set the radio floor + (re-)DAD; auto-pulls the leaf config (R6.2).
 #if MR_N_LAYERS < 2   // §config-integrity: create/join are normal-node-only — compiled out on the gateway build (refused at dispatch)
-static void handle_join(const char* args) {
+static void handle_join(const char* args, Print& out) {
     char buf[128]; size_t bn = 0; for (; args[bn] && bn < sizeof(buf) - 1; ++bn) buf[bn] = args[bn]; buf[bn] = '\0';
     double freq = 0, bwk = 0; long sf = 0, layer = 0; bool hf = false, hb = false, hs = false, hlv = false;   // bwk is kHz (FRACTIONAL — 62.5 / 41.67 / 31.25 are valid LoRa BWs)
     char* p = buf; char* k; char* v;
@@ -1040,7 +1046,7 @@ static void handle_join(const char* args) {
         else if (v && !strcmp(k, "bw"))    { bwk   = atof(v); hb = true; }
         else if (v && !strcmp(k, "sf"))    { sf    = atol(v); hs = true; }
         else if (v && !strcmp(k, "layer")) { layer = atol(v); hlv = true; }   // the full 1..255 layer id (wire leaf nibble = layer & 0x0F)
-        else { mrcon.print(F("> join err bad/unknown key: ")); mrcon.println(k); goto usage; }
+        else { out.print(F("> join err bad/unknown key: ")); out.println(k); goto usage; }
     }
     if (!(hf && hb && hs && hlv) || freq < 100.0 || freq > 1000.0 || bwk < 7 || bwk > 500 || sf < 5 || sf > 12 || layer < 1 || layer > 255) goto usage;
     {
@@ -1049,21 +1055,21 @@ static void handle_join(const char* args) {
         b.freq_mhz = freq; b.bw_hz = (uint32_t)(bwk * 1000.0 + 0.5); b.routing_sf = (uint8_t)sf;   // kHz->Hz, ROUNDED (62.5->62500, not 62000)
         b.leaf_id = (uint8_t)(layer & 0x0F); b.layer0_id = (uint8_t)layer;       // full layer id stored; leaf = layer & 0x0F (byte-0 wire filter)
         b.node_id = 0; b.joined = 0; b.lineage_id = 0; b.config_epoch = 0;       // unprovisioned -> DAD + adopt the leaf's lineage via pull
-        if (!mrnv::save(b)) { mrcon.println(F("> join err nv_save_failed")); return; }
+        if (!mrnv::save(b)) { out.println(F("> join err nv_save_failed")); return; }
         provision_apply_live(b, /*do_dad=*/true);
-        mrcon.print(F("> join layer=")); mrcon.print((int)layer); mrcon.print(F(" freq=")); mrcon.print(freq, 3);
-        mrcon.print(F(" bw=")); mrcon.print(b.bw_hz); mrcon.print(F("Hz sf=")); mrcon.print((int)sf);
-        mrcon.print(F(" (leaf ")); mrcon.print((int)(layer & 0x0F)); mrcon.println(F(") — DADing id + pulling config (live)"));
+        out.print(F("> join layer=")); out.print((int)layer); out.print(F(" freq=")); out.print(freq, 3);
+        out.print(F(" bw=")); out.print(b.bw_hz); out.print(F("Hz sf=")); out.print((int)sf);
+        out.print(F(" (leaf ")); out.print((int)(layer & 0x0F)); out.println(F(") — DADing id + pulling config (live)"));
         return;
     }
 usage:
-    mrcon.println(F("> join err usage: join layer=<1..255> freq=<MHz> bw=<kHz 7..500, fractional ok e.g. 62.5> sf=<5..12>   (leaf = layer & 0x0F)"));
+    out.println(F("> join err usage: join layer=<1..255> freq=<MHz> bw=<kHz 7..500, fractional ok e.g. 62.5> sf=<5..12>   (leaf = layer & 0x0F)"));
 }
 
 // `create layer=<1..255> freq=<MHz> bw=<kHz> sf=<5..12> sf_list=<7,9> duty=<pct> name="<text>"
 //         [active_fraction=<0..1>] [ch_min_ms=<ms>] [dm_min_ms=<ms>]` — join's floor + mint a MANAGED leaf (mother).
 // The anti-spam keys are OPTIONAL: omitted => the protocol DEFAULTS (never inherited from the node's current settings).
-static void handle_create(const char* args) {
+static void handle_create(const char* args, Print& out) {
     char buf[192]; size_t bn = 0; for (; args[bn] && bn < sizeof(buf) - 1; ++bn) buf[bn] = args[bn]; buf[bn] = '\0';
     double freq = 0, dutypct = -1, bwk = 0; long sf = 0, layer = 0; uint16_t sfbm = 0;   // bwk is kHz (FRACTIONAL — 62.5 / 41.67 / 31.25 are valid LoRa BWs)
     char nm[meshroute::protocol::leaf_name_max]; uint8_t nlen = 0;
@@ -1081,7 +1087,7 @@ static void handle_create(const char* args) {
         else if (v && !strcmp(k, "active_fraction")) { af = (float)atof(v); }
         else if (v && !strcmp(k, "ch_min_ms"))       { chi = atol(v); }
         else if (v && !strcmp(k, "dm_min_ms"))       { dmi = atol(v); }
-        else { mrcon.print(F("> create err bad/unknown key: ")); mrcon.println(k); goto usage; }
+        else { out.print(F("> create err bad/unknown key: ")); out.println(k); goto usage; }
     }
     if (!(hf && hb && hs && hlv && hlist && hduty && hname)) goto usage;
     if (freq < 100.0 || freq > 1000.0 || bwk < 7 || bwk > 500 || sf < 5 || sf > 12 || layer < 1 || layer > 255 || sfbm == 0 || dutypct < 0.0 || dutypct > 100.0) goto usage;
@@ -1100,18 +1106,18 @@ static void handle_create(const char* args) {
         b.dm_min_interval_ms      = (uint32_t)meshroute::ms_to_u16((uint32_t)dmi);
         uint16_t lin = 0; do { mrrng::fill(reinterpret_cast<uint8_t*>(&lin), sizeof lin); } while (lin == 0);   // mint a managed lineage (never 0)
         b.lineage_id = lin; b.config_epoch = 1; b.node_id = 0; b.joined = 0;      // a fresh managed leaf starts at epoch 1
-        if (!mrnv::save(b)) { mrcon.println(F("> create err nv_save_failed")); return; }
+        if (!mrnv::save(b)) { out.println(F("> create err nv_save_failed")); return; }
         provision_apply_live(b, /*do_dad=*/true);
-        mrcon.print(F("> create layer=")); mrcon.print((int)layer); mrcon.print(F(" lineage=")); mrcon.print(lin);
-        mrcon.print(F(" (leaf ")); mrcon.print((int)(layer & 0x0F)); mrcon.print(F(") name=\""));
-        for (uint8_t i = 0; i < nlen; ++i) mrcon.print((char)b.leaf_name[i]);
-        mrcon.print(F("\" af=")); mrcon.print(b.channel_active_fraction, 3);
-        mrcon.print(F(" ch_min=")); mrcon.print(b.channel_min_interval_ms); mrcon.print(F(" dm_min=")); mrcon.print(b.dm_min_interval_ms);
-        mrcon.println(F(" — mother live"));
+        out.print(F("> create layer=")); out.print((int)layer); out.print(F(" lineage=")); out.print(lin);
+        out.print(F(" (leaf ")); out.print((int)(layer & 0x0F)); out.print(F(") name=\""));
+        for (uint8_t i = 0; i < nlen; ++i) out.print((char)b.leaf_name[i]);
+        out.print(F("\" af=")); out.print(b.channel_active_fraction, 3);
+        out.print(F(" ch_min=")); out.print(b.channel_min_interval_ms); out.print(F(" dm_min=")); out.print(b.dm_min_interval_ms);
+        out.println(F(" — mother live"));
         return;
     }
 usage:
-    mrcon.println(F("> create err usage: create layer=<1..255> freq=<MHz> bw=<kHz 7..500, fractional ok e.g. 62.5> sf=<5..12> sf_list=<e.g.7,9> duty=<pct, fractional ok e.g. 0.1> name=\"<text>\" [active_fraction=<0..1>] [ch_min_ms=<ms>] [dm_min_ms=<ms>]   (leaf = layer & 0x0F)"));
+    out.println(F("> create err usage: create layer=<1..255> freq=<MHz> bw=<kHz 7..500, fractional ok e.g. 62.5> sf=<5..12> sf_list=<e.g.7,9> duty=<pct, fractional ok e.g. 0.1> name=\"<text>\" [active_fraction=<0..1>] [ch_min_ms=<ms>] [dm_min_ms=<ms>]   (leaf = layer & 0x0F)"));
 }
 
 // §mobile 6.1: FNV-1a over (key_hash32 ‖ nonce) = the 32-bit team_id.
@@ -1123,7 +1129,7 @@ static uint32_t team_fnv1a32(uint32_t a, uint32_t b) {
     return h;
 }
 // `team new` = MINT a fresh team_id = hash(our key ‖ HW-RNG nonce). `team <id>` = JOIN an existing team. `team 0` = leave.
-static void handle_team(const char* args) {
+static void handle_team(const char* args, Print& out) {
     while (*args == ' ') ++args;
     const meshroute::NodeConfig& c = g_node.config();
     uint32_t t;
@@ -1137,7 +1143,7 @@ static void handle_team(const char* args) {
         t = (uint32_t)strtoul(args, &endp, 0);
         phy_args = endp;   // §6.4: `team <id> [freq= sf= bw=]` — a JOIN can set the shared team PHY too (mirrors `team new`)
     } else {
-        mrcon.println(F("> team err usage: `team new [freq= sf= bw=]` (mint) | `team <id> [freq= sf= bw=]` (join) | `team 0` (leave)"));
+        out.println(F("> team err usage: `team new [freq= sf= bw=]` (mint) | `team <id> [freq= sf= bw=]` (join) | `team 0` (leave)"));
         return;
     }
     mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
@@ -1152,14 +1158,14 @@ static void handle_team(const char* args) {
         int    sf   = ss ? atoi(ss + 3) : 0;
         double bw   = bs ? strtod(bs + 3, nullptr) : 125.0;   // FRACTIONAL kHz (62.5 valid)
         if (freq < 100.0 || freq > 1000.0 || sf < 5 || sf > 12 || bw < 7.0 || bw > 500.0) {
-            mrcon.println(F("> team new err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")); return;
+            out.println(F("> team new err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")); return;
         }
         meshroute::LayerConfig phy{};
         phy.layer_id = c.leaf_id; phy.routing_sf = (uint8_t)sf; phy.freq_mhz = freq;
         phy.bw_hz = (uint32_t)(bw * 1000.0 + 0.5); phy.allowed_sf_bitmap = (uint16_t)(1u << sf);
         g_node.mobile_register_phy(phy);                       // retune the radio (+ kick the FSM -> team-DAD via the no-host path)
         b.freq_mhz = freq; b.routing_sf = (uint8_t)sf; b.bw_hz = phy.bw_hz; b.allowed_sf_bitmap = phy.allowed_sf_bitmap;   // PERSIST the team PHY
-        mrcon.print(F("> team PHY: freq=")); mrcon.print(freq, 3); mrcon.print(F(" sf=")); mrcon.print(sf); mrcon.print(F(" bw=")); mrcon.print(bw, 2); mrcon.println(F(" kHz"));
+        out.print(F("> team PHY: freq=")); out.print(freq, 3); out.print(F(" sf=")); out.print(sf); out.print(F(" bw=")); out.print(bw, 2); out.println(F(" kHz"));
     }
 #endif
     // §6.4: a team is a SHARED-PHY overlay — members can only hear each other on a COMMON freq/routing_sf/sf_list/bw, and an
@@ -1168,8 +1174,8 @@ static void handle_team(const char* args) {
     if (t != 0) {
         const double eff_freq = (c.is_mobile && c.layers[0].freq_mhz > 0.0) ? c.layers[0].freq_mhz : g_freq_mhz;
         if (eff_freq <= 0.0 || c.routing_sf < 5 || c.routing_sf > 12 || c.allowed_sf_bitmap == 0 || g_node.active_bw_hz() == 0) {
-            mrcon.println(F("> team err: incomplete PHY — need freq, routing_sf(5..12), sf_list(DATA SF), bw."));
-            mrcon.println(F(">   set them inline: `team new freq=869.0 sf=7 bw=125` — ALL members MUST use the SAME freq/sf/bw."));
+            out.println(F("> team err: incomplete PHY — need freq, routing_sf(5..12), sf_list(DATA SF), bw."));
+            out.println(F(">   set them inline: `team new freq=869.0 sf=7 bw=125` — ALL members MUST use the SAME freq/sf/bw."));
             return;   // NOT joined/minted: team_id, _team_local_id, NV all unchanged
         }
     }
@@ -1181,35 +1187,35 @@ static void handle_team(const char* args) {
     b.team_local_id = g_node.team_local_id();                // §6.4: persist the fresh id (or 0 on leave) alongside team_id
     mrnv::save(b);                                            // PERSISTED
     char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)t);
-    mrcon.print(F("> team -> team_id=0x")); mrcon.println(tx);
-    if (c.is_mobile && t != 0) { mrcon.print(F("  team-DAD: local_id=")); mrcon.println(g_node.team_local_id()); }
+    out.print(F("> team -> team_id=0x")); out.println(tx);
+    if (c.is_mobile && t != 0) { out.print(F("  team-DAD: local_id=")); out.println(g_node.team_local_id()); }
 }
 
 // §mobile console: `mobile register [freq=<MHz> sf=<5-12> bw=<kHz> | scan]` · `gateways` · `query <gw>` · `status`.
 #if MR_FEAT_MOBILE   // §featuresplit: the whole mobile console command compiles out on a static build (the FSM/accessors it drives are gone)
-static void handle_mobile(const char* args) {
+static void handle_mobile(const char* args, Print& out) {
     while (*args == ' ') ++args;
     const meshroute::NodeConfig& c = g_node.config();
-    if (!c.is_mobile) { mrcon.println(F("> mobile err: not a mobile (cfg set mobile 1 + reboot)")); return; }
+    if (!c.is_mobile) { out.println(F("> mobile err: not a mobile (cfg set mobile 1 + reboot)")); return; }
     if (!strncmp(args, "register", 8)) {
         const char* p = args + 8; while (*p == ' ') ++p;
         if (!strncmp(p, "scan", 4)) {
             g_node.mobile_register_scan();
-            mrcon.print(F("> mobile register: scanning current + ")); mrcon.print(g_node.learned_layers_count()); mrcon.println(F(" known networks"));
+            out.print(F("> mobile register: scanning current + ")); out.print(g_node.learned_layers_count()); out.println(F(" known networks"));
         } else if (strstr(p, "freq=")) {
             const char* fs = strstr(p, "freq="); const char* ss = strstr(p, "sf="); const char* bs = strstr(p, "bw=");
             double freq = fs ? strtod(fs + 5, nullptr) : 0.0;
             int sf = ss ? atoi(ss + 3) : 0;
             double bw = bs ? strtod(bs + 3, nullptr) : 125.0;   // FRACTIONAL kHz — 62.5 / 41.67 / 31.25 are valid LoRa BWs (atof like join/create, NOT atoi which truncates 62.5->62)
-            if (freq < 100.0 || freq > 1000.0 || sf < 5 || sf > 12 || bw < 7.0 || bw > 500.0) { mrcon.println(F("> mobile register err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")); return; }
+            if (freq < 100.0 || freq > 1000.0 || sf < 5 || sf > 12 || bw < 7.0 || bw > 500.0) { out.println(F("> mobile register err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")); return; }
             meshroute::LayerConfig phy{};
             phy.layer_id = c.leaf_id; phy.routing_sf = (uint8_t)sf; phy.freq_mhz = freq;
             phy.bw_hz = (uint32_t)(bw * 1000.0 + 0.5); phy.allowed_sf_bitmap = (uint16_t)(1u << sf);   // kHz->Hz ROUNDED (62.5->62500, not 62000)
             g_node.mobile_register_phy(phy);
-            mrcon.print(F("> mobile register: on freq=")); mrcon.print(freq, 3); mrcon.print(F(" sf=")); mrcon.print(sf); mrcon.print(F(" bw=")); mrcon.print(bw, 2); mrcon.println(F(" kHz"));
+            out.print(F("> mobile register: on freq=")); out.print(freq, 3); out.print(F(" sf=")); out.print(sf); out.print(F(" bw=")); out.print(bw, 2); out.println(F(" kHz"));
         } else {
             g_node.mobile_register_current();
-            mrcon.println(F("> mobile register: DISCOVER on the current PHY"));
+            out.println(F("> mobile register: DISCOVER on the current PHY"));
         }
         return;
     }
@@ -1218,49 +1224,49 @@ static void handle_mobile(const char* args) {
         for (uint8_t i = 0; i < g_node.bridged_layer_cap(); ++i) {
             const auto& b = g_node.bridged_layer(i);
             if (!b.valid) continue;
-            mrcon.print(F("  gw ")); mrcon.print(b.gw_id); mrcon.print(F(" -> leaf ")); mrcon.println(b.dest_leaf); ++shown;
+            out.print(F("  gw ")); out.print(b.gw_id); out.print(F(" -> leaf ")); out.println(b.dest_leaf); ++shown;
         }
-        if (!shown) mrcon.println(F("  no gateways learned"));
+        if (!shown) out.println(F("  no gateways learned"));
         const uint8_t nl = g_node.learned_layers_count();
         for (uint8_t i = 0; i < nl; ++i) {
             const auto& r = g_node.learned_layer(i);
-            mrcon.print(F("  net layer=")); mrcon.print(r.layer_id); mrcon.print(F(" \""));
-            for (uint8_t k = 0; k < r.name_len; ++k) mrcon.print((char)r.name[k]);
-            mrcon.print(F("\" freq=")); mrcon.print((double)r.freq_khz / 1000.0, 3); mrcon.print(F(" sf=")); mrcon.print(r.sf);
-            mrcon.print(F(" bw=")); mrcon.println(r.bw_hz / 1000);
+            out.print(F("  net layer=")); out.print(r.layer_id); out.print(F(" \""));
+            for (uint8_t k = 0; k < r.name_len; ++k) out.print((char)r.name[k]);
+            out.print(F("\" freq=")); out.print((double)r.freq_khz / 1000.0, 3); out.print(F(" sf=")); out.print(r.sf);
+            out.print(F(" bw=")); out.println(r.bw_hz / 1000);
         }
-        if (!nl) mrcon.println(F("  no networks learned (use 'mobile query <gw>')"));
+        if (!nl) out.println(F("  no networks learned (use 'mobile query <gw>')"));
         return;
     }
     if (!strncmp(args, "query", 5)) {
         const uint8_t gw = (uint8_t)strtoul(args + 5, nullptr, 0);
-        if (!gw) { mrcon.println(F("> mobile query err: usage 'mobile query <gw_id>'")); return; }
+        if (!gw) { out.println(F("> mobile query err: usage 'mobile query <gw_id>'")); return; }
         g_node.mobile_send_layer_query(gw);
-        mrcon.print(F("> mobile query gw=")); mrcon.print(gw); mrcon.println(F(" sent (answer async -> 'mobile gateways')"));
+        out.print(F("> mobile query gw=")); out.print(gw); out.println(F(" sent (answer async -> 'mobile gateways')"));
         return;
     }
     if (!strcmp(args, "status")) {
         if (g_node.mobile_registered()) {
-            mrcon.print(F("  REGISTERED home=")); mrcon.print(g_node.mobile_home_id());
-            mrcon.print(F(" local=")); mrcon.print(g_node.mobile_local_id());
-            mrcon.print(F(" epoch=")); mrcon.print(g_node.mobile_reg_epoch());
-            mrcon.print(F(" home_layer=")); mrcon.println(g_node.mobile_home_layer());
-        } else mrcon.println(F("  UNREGISTERED"));
-        mrcon.print(F("  current PHY: layer=")); mrcon.print(c.layers[0].layer_id);
+            out.print(F("  REGISTERED home=")); out.print(g_node.mobile_home_id());
+            out.print(F(" local=")); out.print(g_node.mobile_local_id());
+            out.print(F(" epoch=")); out.print(g_node.mobile_reg_epoch());
+            out.print(F(" home_layer=")); out.println(g_node.mobile_home_layer());
+        } else out.println(F("  UNREGISTERED"));
+        out.print(F("  current PHY: layer=")); out.print(c.layers[0].layer_id);
         const double pf = c.layers[0].freq_mhz > 0.0 ? c.layers[0].freq_mhz : g_freq_mhz;   // §mobile: live layer freq (fallback to boot/global if not yet adopted)
-        mrcon.print(F(" freq=")); mrcon.print(pf, 3); mrcon.print(F(" sf=")); mrcon.print(c.routing_sf);
-        mrcon.print(F(" bw=")); mrcon.print((double)g_node.active_bw_hz() / 1000.0, 2); mrcon.println(F(" kHz"));
-        mrcon.print(F("  autoregister=")); mrcon.println(c.mobile_autoregister ? 1 : 0);
-        mrcon.print(F("  known networks=")); mrcon.println(g_node.learned_layers_count());
+        out.print(F(" freq=")); out.print(pf, 3); out.print(F(" sf=")); out.print(c.routing_sf);
+        out.print(F(" bw=")); out.print((double)g_node.active_bw_hz() / 1000.0, 2); out.println(F(" kHz"));
+        out.print(F("  autoregister=")); out.println(c.mobile_autoregister ? 1 : 0);
+        out.print(F("  known networks=")); out.println(g_node.learned_layers_count());
         return;
     }
-    mrcon.println(F("> mobile err usage: register [freq= sf= bw= | scan] | gateways | query <gw> | status"));
+    out.println(F("> mobile err usage: register [freq= sf= bw= | scan] | gateways | query <gw> | status"));
 }
 #endif   // MR_FEAT_MOBILE (handle_mobile)
 #endif   // MR_N_LAYERS < 2 — handle_join / handle_create (normal-node provisioning)
 
 // `leave` — wipe to default, keep ONLY freq; go unprovisioned + idle (the clean managed->managed re-join primitive).
-static void handle_leave() {
+static void handle_leave(Print& out) {
     mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
     const double keep_freq = b.freq_mhz;
     b = mrnv::Blob{};                                                        // zero everything...
@@ -1269,9 +1275,9 @@ static void handle_leave() {
     b.bw_hz = (uint32_t)(LORA_BW * 1000.0); b.routing_sf = LORA_SF; b.cr = LORA_CR; b.tx_power = LORA_TX_POWER;
     b.beacon_ms = 900000; b.duty = (double)LORA_DUTY_CYCLE_PCT / 100.0;       // NodeConfig defaults (15 min, 10%)
     b.channel_active_fraction = 0.125f; b.channel_min_interval_ms = P::channel_min_interval_ms; b.dm_min_interval_ms = P::dm_min_interval_ms;   // v16 anti-spam per-leaf defaults
-    if (!mrnv::save(b)) { mrcon.println(F("> leave err nv_save_failed")); return; }
+    if (!mrnv::save(b)) { out.println(F("> leave err nv_save_failed")); return; }
     provision_apply_live(b, /*do_dad=*/false);                              // unprovisioned + idle (no DAD)
-    mrcon.print(F("> left network (kept freq=")); mrcon.print(keep_freq, 3); mrcon.println(F(") — idle; `join` to re-provision (live)"));
+    out.print(F("> left network (kept freq=")); out.print(keep_freq, 3); out.println(F(") — idle; `join` to re-provision (live)"));
 }
 
 // A DRAINED, CHUNKED console line for the multi-line dumps: emits the WHOLE line even when it doesn't fit the
@@ -1298,59 +1304,66 @@ static void hl(const __FlashStringHelper* fs) {
 
 // `help` / `?` — the command + cfg-key reference for the live console session. Grouped with blank separators for
 // readability; a category label starts each group, continuation lines indent under it. (hl() writes per-line.)
-static void dump_help() {
-    hl(F("[help] ===== MeshRoute console ====="));
+static void dump_help(Print& out) {
+    hl(F("===== MeshRoute console ====="));
     hl(F(""));
-    hl(F("[help] MESSAGING"));
-    hl(F("[help]   send <id|hash> \"<text>\" [-a] [-e]        -a=ack  -e=encrypt (hash only);  id<=254 or 8-hex hash (auto-detected)"));
-    hl(F("[help]   send_channel <ch> \"<text>\""));
-    hl(F("[help]   send_layer <hash> <l1,l2,…> \"<text>\" [-a]     explicit cross-layer destination path"));
+    hl(F("MESSAGING"));
+    hl(F("  send <id|0xhash> \"<text>\" [-a] [-e]      -a=ack  -e=encrypt (hash only);  bare id<=254, or a 0x-prefixed hash"));
+    hl(F("  send_channel <ch> \"<text>\""));
+    hl(F("  send_layer <0xhash> <l1,l2,…> \"<text>\" [-a]   explicit cross-layer destination path"));
     hl(F(""));
-    hl(F("[help] IDENTITY / KEYS"));
-    hl(F("[help]   whoami | lookup <hash> | hashof <id> | resolve <hash> [hard]"));
-    hl(F("[help]   peerkey <ed_pub hex64>      pin a scanned/QR pubkey"));
-    hl(F("[help]   reqpubkey <hash|team-id>    request a peer's key on-air (team-id: resolve via the team cache)"));
+    hl(F("IDENTITY / KEYS"));
+    hl(F("  whoami | lookup 0x<hash> | hashof <id> | resolve 0x<hash> [hard]   (hashes are 0x-prefixed; hashof prints 0x…)"));
+    hl(F("  peerkey <ed_pub hex64>      pin a scanned/QR pubkey"));
+    hl(F("  reqpubkey <0xhash|team-id>  request a peer's key on-air (0xhash, or a bare team-id via the team cache)"));
 #if MR_N_LAYERS < 2
     hl(F(""));
-    hl(F("[help] MOBILE / TEAM  (normal-node only)"));
-    hl(F("[help]   mobile register [freq=<MHz> sf=<5-12> bw=<kHz> | scan]     arm registration: current PHY / a given PHY / scan known networks"));
-    hl(F("[help]   mobile gateways            list learned gateways + networks"));
-    hl(F("[help]   mobile query <gw>          pull a gateway's network directory"));
-    hl(F("[help]   mobile status              registration + current PHY + autoregister"));
-    hl(F("[help]   team new                   mint a team (become its creator)"));
-    hl(F("[help]   team <id> | team 0         join an existing team / leave"));
+    hl(F("MOBILE / TEAM  (normal-node only)"));
+    hl(F("  mobile register [freq=<MHz> sf=<5-12> bw=<kHz> | scan]     arm registration: current PHY / a given PHY / scan known networks"));
+    hl(F("  mobile gateways            list learned gateways + networks"));
+    hl(F("  mobile query <gw>          pull a gateway's network directory"));
+    hl(F("  mobile status              registration + current PHY + autoregister"));
+    hl(F("  team new                   mint a team (become its creator)"));
+    hl(F("  team <id> | team 0         join an existing team / leave"));
 #endif
     hl(F(""));
-    hl(F("[help] INBOX"));
-    hl(F("[help]   pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>       NDJSON out"));
+    hl(F("INBOX"));
+    hl(F("  pull_inbox <dm_since> <chan_since> | mark_read <dm|chan> <seq>       NDJSON out"));
     hl(F(""));
-    hl(F("[help] DIAGNOSTICS"));
-    hl(F("[help]   routes | status | duty | limits | cfg | cfg set <k> <v>"));
-    hl(F("[help]   sleep [on|off] | debug [on|off] | regen | reboot | ota"));
-    hl(F("[help]   version            build/git/board + last reset (no reset)"));
-    hl(F("[help]   faults             the flash fault ring"));
-    hl(F("[help]   crashtest <hang|fault|reboot>      (needs `debug on`)"));
-    hl(F("[help]   rcmd <dst> <query>     OTA diagnostics via DM (status|faults|version|uptime|cfg|duty|reboot|prep-restart -> DMs back)"));
-    hl(F("[help]   prep-restart       clear routes+inbox, KEEP join, go DORMANT (run fleet-wide, then power-cycle)"));
+    hl(F("DIAGNOSTICS"));
+    hl(F("  routes | status | duty | limits | cfg | cfg set <k> <v>"));
+    hl(F("  sleep [on|off] | debug [on|off] | regen | reboot | ota"));
+    hl(F("  version            build/git/board + last reset (no reset)"));
+    hl(F("  faults             the flash fault ring"));
+    hl(F("  crashtest <hang|fault|reboot>      (needs `debug on`)"));
+    hl(F("  rcmd <dst> <verb>      remote command via DM. status/routes = OPEN (cleartext); everything else = SEALED (needs `unlock`)"));
+    hl(F("  prep-restart       clear routes+inbox, KEEP join, go DORMANT (run fleet-wide, then power-cycle)"));
+#if MR_FEAT_REMOTE_MGMT
     hl(F(""));
-    hl(F("[help] TEST"));
-    hl(F("[help]   route add <dest> <next_hop> <hops> [score_q4] | route del <dest>"));
-    hl(F("[help]   testsend <dst> <run> [-a] [-e] -t ms1,ms2,… | testch <ch> <run> -t ms1,ms2,… | teststatus | testclear"));
-    hl(F("[help]   factory_reset confirm      WIPE all flash (config+identity+peers+inbox) -> factory reboot"));
+    hl(F("REMOTE MANAGEMENT  (authenticated; static/gateway builds only)"));
+    hl(F("  password <pass>        LOCAL-only: pin the fleet admin pubkey (derive from the passphrase) — set on every node"));
+    hl(F("  unlock <pass> | lock   operator device: derive the admin key into RAM to sign `rcmd`s / wipe it"));
+    hl(F("    then: `rcmd <dst> reboot` (etc.) is sealed to <dst>; `reqpubkey 0x<hash>` first if the target's pubkey isn't cached"));
+#endif
     hl(F(""));
-    hl(F("[help] PROVISIONING     (key=value, order-free; LIVE, no reboot)"));
-    hl(F("[help]   create layer= freq= bw= sf= sf_list= duty= name=\"<n>\" [active_fraction=] [ch_min_ms=] [dm_min_ms=]"));
-    hl(F("[help]   join layer= freq= bw= sf=      |  leave              layer=1..255 network id (leaf = layer & 0x0F)"));
-    hl(F("[help]   gateway l0=<layer>:<node>:<ctrl_sf>:<data_sfs> l1=…  [period=] [win0=ms:off] [win1=] [beacon=] [freq0=] [freq1=] [bw0=] [bw1=] [cr0=] [cr1=] [gateway_only=]"));
-    hl(F("[help]     dual-layer -> NV, reboot to apply.  e.g. gateway l0=1:1:8:7,9 l1=2:1:9:9,10"));
+    hl(F("TEST"));
+    hl(F("  route add <dest> <next_hop> <hops> [score_q4] | route del <dest>"));
+    hl(F("  testsend <dst> <run> [-a] [-e] -t ms1,ms2,… | testch <ch> <run> -t ms1,ms2,… | teststatus | testclear"));
+    hl(F("  factory_reset confirm      WIPE all flash (config+identity+peers+inbox) -> factory reboot"));
     hl(F(""));
-    hl(F("[help] CFG KEYS  (`cfg set <key> <val>`; bool keys take on|off / 1|0)"));
-    hl(F("[help]   node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id"));
-    hl(F("[help]   mobile team_id mobile_autoregister host_mobiles intra_layer_relay gateway_only"));
-    hl(F("[help]   lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack"));
-    hl(F("[help]   active_fraction ch_min_ms dm_min_ms leaf_name"));
-    hl(F("[help]     `name`=node identity · `leaf_name`=managed leaf (bumps epoch) · team_id=0x-hex (`team new` mints) · identity via `regen`"));
-    hl(F("[help]   gateway-only keys: n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
+    hl(F("PROVISIONING     (key=value, order-free; LIVE, no reboot)"));
+    hl(F("  create layer= freq= bw= sf= sf_list= duty= name=\"<n>\" [active_fraction=] [ch_min_ms=] [dm_min_ms=]"));
+    hl(F("  join layer= freq= bw= sf=      |  leave              layer=1..255 network id (leaf = layer & 0x0F)"));
+    hl(F("  gateway l0=<layer>:<node>:<ctrl_sf>:<data_sfs> l1=…  [period=] [win0=ms:off] [win1=] [beacon=] [freq0=] [freq1=] [bw0=] [bw1=] [cr0=] [cr1=] [gateway_only=]"));
+    hl(F("    dual-layer -> NV, reboot to apply.  e.g. gateway l0=1:1:8:7,9 l1=2:1:9:9,10"));
+    hl(F(""));
+    hl(F("CFG KEYS  (`cfg set <key> <val>`; bool keys take on|off / 1|0)"));
+    hl(F("  node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id"));
+    hl(F("  mobile team_id mobile_autoregister host_mobiles intra_layer_relay gateway_only"));
+    hl(F("  lat lon loc_in_dm e2e_dm ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack"));
+    hl(F("  active_fraction ch_min_ms dm_min_ms leaf_name"));
+    hl(F("    `name`=node identity · `leaf_name`=managed leaf (bumps epoch) · team_id=0x-hex (`team new` mints) · identity via `regen`"));
+    hl(F("  gateway-only keys: n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));
 }
 
 // ---- Phase-3 inbox sync (schema: ios-companion/INBOX_SYNC_CONTRACT.md) -----------------------------------
@@ -1358,17 +1371,17 @@ static void dump_help() {
 // inbox_end terminator; `mark_read <dm|chan> <seq>` advances the per-store read cursor. Both stream NDJSON to a
 // transport SINK (USB Serial OR the BLE NUS), so one handler serves both consoles. The companion link is JSON;
 // on USB it's structured output for the host harness.
-using JsonSink = void (*)(const char* s, size_t n);
-static void usb_sink(const char* s, size_t n) { mrcon.write(reinterpret_cast<const uint8_t*>(s), n); }
+// §command-sink-consolidation: the JSON handlers take `Print& out` (mrcon on USB, a LineSink over BLE). ble_sink is the
+// LineSink flush callback — ship one NDJSON line over BLE NUS. (usb_sink is gone: USB callers pass the global `mrcon`.)
 static void ble_sink(const char* s, size_t n) { mrble::tx_line(s, n); }   // inert off-XIAO / when no client
 
-namespace { struct PullCtx { JsonSink sink; uint32_t count; }; }
+namespace { struct PullCtx { Print& out; uint32_t count; }; }
 static char s_inbox_jb[1700];   // shared NDJSON line scratch: pulled inbox records AND live-push lines (loop()) — sequential, single-threaded, never concurrent (241-B body 6x-escaped + envelope)
 
 // `limits` verb (USB): the companion anti-spam/headroom snapshot as one NDJSON line. Composed from limits_snapshot()
 // then serialized via write_limits() into s_inbox_jb (declared just above) — same pattern as the other JSON dumps. A
 // local-only read (no OTA change): NOT in the rcmd remote allow-list. Mirrors the BLE `limits` handler.
-static void dump_limits() {
+static void dump_limits(Print& out) {
     const auto s = g_node.limits_snapshot();
     meshroute::console::LimitsFields L;
     L.win_ms = s.win_ms; L.win_left_ms = s.win_left_ms; L.n = s.n; L.ch_sf = s.ch_sf;
@@ -1377,7 +1390,7 @@ static void dump_limits() {
     L.dm_min_ms = s.dm_min_ms; L.dm_next_ms = s.dm_next_ms;
     L.duty_ms = s.duty_ms; L.duty_used_ms = s.duty_used_ms;
     const size_t m = meshroute::console::write_limits(s_inbox_jb, sizeof s_inbox_jb, L);
-    if (m) mrcon.write(s_inbox_jb, m);   // JSON line to USB (mirrors the other write_* dumps)
+    if (m) out.write(s_inbox_jb, m);   // JSON line to USB (mirrors the other write_* dumps)
 }
 
 // pull() callback: format ONE record -> JSON -> sink. The body ptr is valid only for this call (the encoder copies it).
@@ -1389,28 +1402,28 @@ static bool inbox_pull_cb(void* vctx, const meshroute::InboxEntry& e) {
               reinterpret_cast<const char*>(e.body), e.body_len, e.enc != 0, e.type)   // §8b enc + the DATA_TYPE (E2E-ack receipt = "e2e_ack")
         : meshroute::console::write_inbox_channel(s_inbox_jb, sizeof s_inbox_jb, e.seq, e.origin, e.layer_id,
               e.channel_id, e.msg_id, e.rx_time_ms, reinterpret_cast<const char*>(e.body), e.body_len);
-    if (n) { c->sink(s_inbox_jb, n); ++c->count; }
+    if (n) { c->out.write(s_inbox_jb, n); ++c->count; }
     else {                                                // UNREACHABLE for a valid body (<=241 B fits 1700), but
         char eb[48];                                      // NEVER drop a record silently: tell the app one didn't encode.
         const size_t en = meshroute::console::write_err(eb, sizeof eb, "inbox_encode", nullptr);
-        if (en) c->sink(eb, en);
+        if (en) c->out.write(eb, en);
     }
     return true;                                          // never stop early — the app pulls the whole delta
 }
-static void handle_pull_inbox(const char* args, JsonSink sink) {
+static void handle_pull_inbox(const char* args, Print& out) {
     char* end;
     const uint32_t dm_since   = strtoul(args, &end, 10);  // missing/garbled args -> 0 (a full pull is always safe; the app dedups)
     const uint32_t chan_since = strtoul(end, nullptr, 10);
     meshroute::Inbox& ib = g_node.inbox();
-    PullCtx ctx{ sink, 0 };
+    PullCtx ctx{ out, 0 };
     ib.pull(dm_since, chan_since, inbox_pull_cb, &ctx);
     // inbox_end carries the store's NEWEST seq per store (contract §"newest seq per store"), NOT a cursor echo —
     // so an empty store / a stale-high cursor self-heals (the app advances to the real high-water, re-syncing).
     const size_t n = meshroute::console::write_inbox_end(s_inbox_jb, sizeof s_inbox_jb,
                        ib.dm_newest_seq(), ib.chan_newest_seq(), ib.storage_epoch(), ctx.count, g_hal.now());
-    if (n) sink(s_inbox_jb, n);
+    if (n) out.write(s_inbox_jb, n);
 }
-static void handle_mark_read(const char* args, JsonSink sink) {
+static void handle_mark_read(const char* args, Print& out) {
     while (*args == ' ') ++args;
     // The kind must be EXACTLY "dm" or "chan" (word boundary = next char is space or end). Without the boundary
     // check, "dm5"/"dme" match strncmp("dm",2) and "channel" matches strncmp("chan",4) -> wrong/zero seq parsed.
@@ -1418,55 +1431,55 @@ static void handle_mark_read(const char* args, JsonSink sink) {
     if      (!strncmp(args, "dm", 2)   && (args[2] == ' ' || args[2] == '\0')) { kind = meshroute::InboxKind::dm;      kstr = "dm";   args += 2; }
     else if (!strncmp(args, "chan", 4) && (args[4] == ' ' || args[4] == '\0')) { kind = meshroute::InboxKind::channel; kstr = "chan"; args += 4; }
     else { char eb[64]; const size_t n = meshroute::console::write_err(eb, sizeof eb, "mark_read", "kind must be dm|chan");
-           if (n) sink(eb, n); return; }                 // fail loud on a bad kind
+           if (n) out.write(eb, n); return; }             // fail loud on a bad kind
     const uint32_t seq = strtoul(args, nullptr, 10);
     g_node.inbox().mark_read(kind, seq);
     char ab[64]; const size_t n = meshroute::console::write_inbox_marked(ab, sizeof ab, kstr, seq);
-    if (n) sink(ab, n);
+    if (n) out.write(ab, n);
 }
 
 // Handle a debug/diagnostic console line (help/routes/cfg/status/cfg set/reboot/sleep/debug). Returns true if consumed.
 // `faults` — dump the /mrfault ring newest-first + a one-line summary. nRF52 only; ESP32 = unsupported.
-static void dump_faults() {
+static void dump_faults(Print& out) {
 #if defined(MRFAULT_HW)
     char buf[160];
     for (uint16_t i = 0; i < g_fault_log.count; ++i) {
         const mrfault::FaultRecord* r = mrfault::fault_log_at(g_fault_log, i);
         if (!r) break;
         mrfault::format_fault_record(*r, buf, sizeof buf);
-        mrcon.print(F("[fault] ")); mrcon.println(buf);
+        out.print(F("[fault] ")); out.println(buf);
     }
     mrfault::format_fault_summary(g_fault_log, buf, sizeof buf);
-    mrcon.print(F("[faults] ")); mrcon.println(buf);
+    out.println(buf);
 #else
-    mrcon.println(F("[faults] unsupported on this build (no HW fault backend)"));
+    out.println(F("unsupported on this build (no HW fault backend)"));
 #endif
 }
 
 // `crashtest <hang|fault|reboot>` — deliberate fault injection to exercise the WDT / HardFault / reset paths on
 // metal. Gated behind `debug on` (ALWAYS compiled, active only after `debug on` — so the bench exercises the real
 // deployable image, not a separate crashtest build). spec 2026-06-24 §9.
-static void handle_crashtest(const char* args) {
-    if (!meshroute::g_mr_trace_on) { mrcon.println(F("> crashtest err (enable `debug on` first — gated to avoid an accidental crash)")); return; }
+static void handle_crashtest(const char* args, Print& out) {
+    if (!meshroute::g_mr_trace_on) { out.println(F("> crashtest err (enable `debug on` first — gated to avoid an accidental crash)")); return; }
     while (*args == ' ') ++args;
     if (!strncmp(args, "hang", 4)) {
-        mrcon.println(F("> crashtest hang — spinning; the watchdog should reset in ~8 s")); mrcon.flush();
+        out.println(F("> crashtest hang — spinning; the watchdog should reset in ~8 s")); out.flush();
         for (;;) { /* no WDT feed -> DOG reset (nRF52); on a no-WDT build this hangs until power-cycle) */ }
     } else if (!strncmp(args, "fault", 5)) {
-        mrcon.println(F("> crashtest fault — forcing a crash")); mrcon.flush();
+        out.println(F("> crashtest fault — forcing a crash")); out.flush();
 #if defined(NRF52_PLATFORM)
         volatile uint32_t* p = reinterpret_cast<volatile uint32_t*>(0xFFFFFFF0u); (void)*p;   // bad-address read -> BusFault -> HardFault capture
         __asm volatile("udf #0");                                                              // belt+braces: undefined instruction
 #elif defined(MRFAULT_ESP32)
         abort();                                                                               // -> the IDF panic handler -> reboot, ESP_RST_PANIC (recorded as PANIC)
 #else
-        mrcon.println(F("> (no HW fault path on this build)"));
+        out.println(F("> (no HW fault path on this build)"));
 #endif
     } else if (!strncmp(args, "reboot", 6)) {
-        mrcon.println(F("> crashtest reboot — NVIC_SystemReset (SREQ)")); mrcon.flush();
+        out.println(F("> crashtest reboot — NVIC_SystemReset (SREQ)")); out.flush();
         do_reboot();
     } else {
-        mrcon.println(F("> crashtest err usage: crashtest <hang|fault|reboot>"));
+        out.println(F("> crashtest err usage: crashtest <hang|fault|reboot>"));
     }
 }
 
@@ -1474,93 +1487,201 @@ static void handle_crashtest(const char* args) {
 // records, KEEP the provisioning (node_id/layer/sf_list/lineage + identity), then go DORMANT (no reboot).
 // Run on every node -> the net falls silent (no stale beacons to cross-poison) -> power-cycle the whole fleet ->
 // everyone converges from true zero. spec 2026-06-24.
-static void handle_prep_restart() {
+static void handle_prep_restart(Print& out) {
     g_node.clear_learned_state();                 // routes + channel buffer + liveness + pending + dedup -> empty (KEEPS _cfg + identity + join)
     g_inbox_dm.wipe(); g_inbox_ch.wipe();         // QSPI inbox RECORDS (no-op on the RAM/ESP32 store); the boot epoch bumps -> companion re-syncs
     g_halted = true;                              // the loop now skips the operating block (dormant) but stays console-responsive
-    mrcon.println(F("> prep-restart — routes + inbox cleared, network membership KEPT, node HALTED. Power-cycle the fleet to restart clean."));
+    out.println(F("> prep-restart — routes + inbox cleared, network membership KEPT, node HALTED. Power-cycle the fleet to restart clean."));
 }
 
 // OTA remote diagnostics — execute a whitelisted query for `from` and DM the response back. Reads build a compact
 // one-DM body (≤ inbox_max_body, truncated with "…"); the two recovery WRITES respond FIRST then DEFER the action
 // ~3 s (so the response actually airs). Anything else -> `err: <q> not allowed`. spec 2026-06-24.
-static void remote_exec(uint8_t from, const uint8_t* query, uint8_t qlen) {
-    char q[24]; uint8_t qn = qlen < sizeof(q) - 1 ? qlen : sizeof(q) - 1;
-    for (uint8_t i = 0; i < qn; ++i) q[i] = (char)query[i];
-    while (qn && (q[qn - 1] == ' ' || q[qn - 1] == '\r' || q[qn - 1] == '\n')) --qn;   // trim
-    q[qn] = '\0';
+#if MR_FEAT_REMOTE_MGMT
+// §remote-mgmt: 0x1B (NOT 0x01 — the console_binary TLV starts with ver=0x01, so an UNSEALED data response would be
+//   misread as a sealed frame; 0x1B is also < any verb-keyword char, so a cleartext command is never ambiguous either).
+// body[0]==REMOTE_FLAG_SEALED -> an AEAD-sealed admin command (query+1 = the admin_cmd frame); else a
+// cleartext verb keyword (OPEN reads only). Responses ride the same flag: gated answers are sealed back to the admin.
+static constexpr uint8_t REMOTE_FLAG_SEALED = 0x1B;
 
-    if (!strcmp(q, "reboot") || !strcmp(q, "prep-restart")) {           // WRITE: respond FIRST, then defer
-        const char* ok = !strcmp(q, "reboot") ? "ok reboot" : "ok prep-restart";
-        g_node.send_remote_response(from, (const uint8_t*)ok, (uint8_t)strlen(ok));
-        g_remote_action    = !strcmp(q, "reboot") ? 1 : 2;
-        g_remote_action_at = g_hal.now() + 3000;                        // ~3 s for the response DM to route + air
+// Encode a data verb -> binary TLV (console_binary). Returns len, 0 if not handled / overflow. Open: status, routes.
+static size_t remote_encode(const char* v, uint8_t* tlv, size_t cap) {
+    using namespace meshroute::console;
+    if (!strcmp(v, "status")) {
+        StatusFields s{}; bin::StatusDiag d{};
+        s.uptime_ms = g_hal.now(); s.rx = g_rx_count; s.tx = g_iradio.tx_count();
+        s.txq = (uint16_t)g_hal.txq_depth(); s.txdrop = (uint16_t)g_hal.txq_drops();
+        s.routes = g_node.rt_count(); s.pending = g_node.has_pending_tx(); s.lbt = g_node.config().lbt_enabled;
+        s.duty_ms = (uint32_t)g_hal.airtime_used_ms(3600000); s.batt_mv = -1;
+        d.txto = (uint32_t)g_hal.tx_timeouts(); d.rxbad = (uint32_t)g_iradio.rxbad_count();
+        d.isr = (uint32_t)g_iradio.isr_count(); d.rxarm = (uint32_t)g_iradio.rx_arm_failures();
+        d.slept = (uint32_t)g_sleep_count; d.stackhw = (uint16_t)loop_stack_free_bytes();
+        d.reset_cause = g_last_reset_valid ? (uint8_t)g_last_reset.cause : 0; d.halted = g_halted ? 1 : 0;
+        d.nf_dbm = (int8_t)g_iradio.noise_floor();
+        return bin::enc_status(tlv, cap, g_node.node_id(), g_node.key_hash32(), s, d);
+    }
+    if (!strcmp(v, "routes")) {
+        RouteRow rows[32]; uint8_t nr = 0; const uint64_t now = g_hal.now(); const uint8_t rc = g_node.rt_count();
+        for (uint8_t i = 0; i < rc && nr < 32; ++i) {
+            const meshroute::RtEntry& e = g_node.rt_at(i); const meshroute::RtCandidate& c = e.candidates[0];
+            rows[nr++] = { e.dest, c.next_hop, c.hops, c.score, c.is_gateway, c.learned_leaf, (uint32_t)(now - c.last_seen_ms), e.n };
+        }
+        uint8_t tr = 0; return bin::enc_routes(tlv, cap, rows, nr, &tr);
+    }
+    if (!strcmp(v, "duty")) {
+        const auto ds = g_node.duty_status(); return bin::enc_duty(tlv, cap, ds.pct, (uint32_t)ds.avail_ms, ds.enabled);
+    }
+    if (!strcmp(v, "limits")) {
+        const auto ss = g_node.limits_snapshot(); LimitsFields L;
+        L.win_ms=ss.win_ms; L.win_left_ms=ss.win_left_ms; L.n=ss.n; L.ch_sf=ss.ch_sf; L.ch_cap=ss.ch_cap;
+        L.ch_used=ss.ch_used; L.ch_min_ms=ss.ch_min_ms; L.ch_next_ms=ss.ch_next_ms; L.ch_ceiling=ss.ch_ceiling;
+        L.dm_min_ms=ss.dm_min_ms; L.dm_next_ms=ss.dm_next_ms; L.duty_ms=ss.duty_ms; L.duty_used_ms=ss.duty_used_ms;
+        return bin::enc_limits(tlv, cap, L);
+    }
+    return 0;   // cfg / faults / gateway: same enc_* pattern (make_cfg_extras etc.) — add here as needed. version/uptime stay out (string/trivial).
+}
+static bool remote_verb_open(const char* v) { return !strcmp(v, "status") || !strcmp(v, "routes"); }   // spec §4
+
+// Seal a response blob back to the admin (node -> admin; admin_cmd_seal is symmetric). Prefix REMOTE_FLAG_SEALED.
+static size_t remote_seal_resp(uint8_t* out, size_t cap, const uint8_t* body, uint8_t body_len) {
+    const uint8_t* apk = g_node.admin_pubkey(); if (!apk || cap < 1) return 0;
+    out[0] = REMOTE_FLAG_SEALED;
+    uint8_t rand8[8]; mrrng::fill(rand8, sizeof rand8);
+    static uint16_t s_resp_ctr = 0;
+    const uint32_t ah = (uint32_t)apk[0] | ((uint32_t)apk[1]<<8) | ((uint32_t)apk[2]<<16) | ((uint32_t)apk[3]<<24);
+    const size_t sn = meshroute::admin_cmd_seal(out + 1, cap - 1, g_identity, apk, ah, 0, body, body_len, rand8, ++s_resp_ctr);
+    return sn ? sn + 1 : 0;
+}
+
+static void remote_exec(uint8_t from, const uint8_t* query, uint8_t qlen) {
+    char v[64]; uint8_t vn = 0; bool authed = false; uint8_t pt[64];
+    if (qlen >= 1 && query[0] == REMOTE_FLAG_SEALED) {                  // ---- sealed admin command ----
+        if (!g_node.admin_provisioned()) return;                        // no admin pinned -> silent drop
+        meshroute::AdminCmd ac{};
+        const meshroute::AdminVerdict verdict = meshroute::admin_cmd_verify(
+            query + 1, qlen - 1, g_node.admin_pubkey(), g_identity, g_node.admin_counter_floor(), ac, pt, sizeof pt);
+        if (verdict == meshroute::AdminVerdict::replay) {               // valid open, stale counter -> the reject-hint
+            char hint[32]; int hn = snprintf(hint, sizeof hint, "floor=%lu", (unsigned long)g_node.admin_counter_floor());
+            uint8_t sr[64]; size_t sl = remote_seal_resp(sr, sizeof sr, (const uint8_t*)hint, (uint8_t)(hn > 0 ? hn : 0));
+            if (sl) g_node.send_remote_response(from, sr, (uint8_t)sl);
+            return;
+        }
+        if (verdict != meshroute::AdminVerdict::ok) return;             // bad_tag / wrong_node -> silent drop (no oracle)
+        if (g_node.admin_counter_check_advance(ac.counter)) {           // advance + persist the replay floor
+            mrnv::Blob b{}; if (mrnv::load(b)) { b.admin_counter_floor = g_node.admin_counter_floor(); mrnv::save(b); }
+        }
+        vn = ac.cmd_len < sizeof v - 1 ? ac.cmd_len : (uint8_t)(sizeof v - 1);
+        memcpy(v, ac.cmd, vn); v[vn] = '\0'; authed = true;
+    } else {                                                            // ---- cleartext -> OPEN reads only ----
+        vn = qlen < sizeof v - 1 ? qlen : (uint8_t)(sizeof v - 1);
+        memcpy(v, query, vn);
+        while (vn && (v[vn-1]==' '||v[vn-1]=='\r'||v[vn-1]=='\n')) --vn;
+        v[vn] = '\0';
+        if (!remote_verb_open(v)) return;                               // a gated verb unsealed -> silent drop
+    }
+
+    if (authed && !strncmp(v, "password rotate ", 16)) {                // gated: rotate the pinned admin pubkey (sealed by the OLD admin)
+        auto nib = [](char c) -> int { if (c>='0'&&c<='9') return c-'0'; if (c>='a'&&c<='f') return c-'a'+10; if (c>='A'&&c<='F') return c-'A'+10; return -1; };
+        uint8_t newpk[32]; bool okhex = strlen(v + 16) >= 64;
+        for (int i = 0; i < 32 && okhex; ++i) { int hi = nib(v[16 + 2*i]), lo = nib(v[16 + 2*i + 1]);
+            if (hi < 0 || lo < 0) okhex = false; else newpk[i] = (uint8_t)((hi << 4) | lo); }
+        if (okhex) {
+            const char* ok = "ok rotate";                              // seal the ack with the OLD key FIRST (the issuing admin can open it)
+            uint8_t sr[64]; size_t sl = remote_seal_resp(sr, sizeof sr, (const uint8_t*)ok, (uint8_t)strlen(ok));
+            if (sl) g_node.send_remote_response(from, sr, (uint8_t)sl);
+            g_node.admin_set_pubkey(newpk);                            // THEN pin the new key + reset the replay floor + persist
+            mrnv::Blob b{}; if (mrnv::load(b)) { for (int i = 0; i < 32; ++i) b.admin_pubkey[i] = newpk[i]; b.admin_provisioned = 1; b.admin_counter_floor = 0; mrnv::save(b); }
+        }
+        return;
+    }
+    if (!strcmp(v, "reboot") || !strcmp(v, "prep-restart")) {           // action (gated): respond FIRST, then defer
+        if (!authed) return;
+        const char* ok = !strcmp(v, "reboot") ? "ok reboot" : "ok prep-restart";
+        uint8_t sr[64]; size_t sl = remote_seal_resp(sr, sizeof sr, (const uint8_t*)ok, (uint8_t)strlen(ok));
+        if (sl) g_node.send_remote_response(from, sr, (uint8_t)sl);
+        g_remote_action = !strcmp(v, "reboot") ? 1 : 2; g_remote_action_at = g_hal.now() + 3000;
         return;
     }
 
-    char resp[224]; int n = 0;                                         // ≤ inbox_max_body (241)
-    if (!strcmp(q, "status")) {
-        n = snprintf(resp, sizeof resp, "up=%lus rx=%lu tx=%lu txq=%u txto=%lu rxbad=%lu routes=%u duty_ms=%lu reset=%s stackhw=%lu",
-            (unsigned long)(g_hal.now() / 1000), (unsigned long)g_rx_count, (unsigned long)g_iradio.tx_count(),
-            (unsigned)g_hal.txq_depth(), (unsigned long)g_hal.tx_timeouts(), (unsigned long)g_iradio.rxbad_count(),
-            (unsigned)g_node.rt_count(), (unsigned long)g_hal.airtime_used_ms(3600000),
-            g_last_reset_valid ? mrfault::fault_cause_str(g_last_reset.cause) : "-",
-            (unsigned long)loop_stack_free_bytes());   // ADDENDUM 4: loop-task stack headroom, USB-independent (the jump-to-0x0 was this stack overflowing)
-    } else if (!strcmp(q, "uptime")) {
-        n = snprintf(resp, sizeof resp, "uptime=%lus", (unsigned long)(g_hal.now() / 1000));
-    } else if (!strcmp(q, "version")) {
-        char vb[120], lr[80];
-        mrfault::format_version_banner(vb, sizeof vb, __DATE__ " " __TIME__, GIT_REV, board_name());
-        mrfault::format_last_reset(g_last_reset_valid ? &g_last_reset : nullptr, lr, sizeof lr);
-        n = snprintf(resp, sizeof resp, "%s | %s", vb, lr);
-    } else if (!strcmp(q, "faults")) {
-        char sm[100], rr[120]; mrfault::format_fault_summary(g_fault_log, sm, sizeof sm);
-        const mrfault::FaultRecord* nr = mrfault::fault_log_at(g_fault_log, 0);
-        if (nr) mrfault::format_fault_record(*nr, rr, sizeof rr); else rr[0] = '\0';
-        n = snprintf(resp, sizeof resp, "%s%s%s", sm, nr ? " | " : "", rr);
-    } else if (!strcmp(q, "cfg")) {
-        const meshroute::NodeConfig& c = g_node.config();
-        char sf[32]; int sp = 0;
-        for (uint8_t s = 5; s <= 12; ++s) if (c.allowed_sf_bitmap & (1u << s)) sp += snprintf(sf + sp, (int)sizeof sf - sp, sp ? ",%u" : "%u", s);
-        if (sp == 0) { sf[0] = '-'; sf[1] = '\0'; }
-        const unsigned fmhz = (unsigned)g_freq_mhz;                                       // the live operating freq (g_freq_mhz); %f is unavailable on newlib-nano
-        const unsigned fkhz = (unsigned)((g_freq_mhz - (double)fmhz) * 1000.0 + 0.5);
-        n = snprintf(resp, sizeof resp, "id=%u leaf=%u routing_sf=%u sf=%s freq=%u.%03u halted=%u",
-                     g_node.node_id(), c.leaf_id, c.routing_sf, sf, fmhz, fkhz, g_halted ? 1 : 0);
-    } else if (!strcmp(q, "duty")) {
-        const auto ds = g_node.duty_status();
-        n = snprintf(resp, sizeof resp, "duty=%u%% avail=%lums enabled=%u", ds.pct, (unsigned long)ds.avail_ms, ds.enabled ? 1 : 0);
-    } else {
-        n = snprintf(resp, sizeof resp, "err: %s not allowed", q);
-    }
-    if (n < 0) n = 0;
-    if (n >= (int)sizeof resp) { n = (int)sizeof resp - 1; resp[n - 1] = '.'; resp[n - 2] = '.'; resp[n - 3] = '.'; }   // snprintf clipped -> mark "..."
-    g_node.send_remote_response(from, (const uint8_t*)resp, (uint8_t)n);
+    uint8_t tlv[241]; size_t tn = remote_encode(v, tlv, sizeof tlv);    // data verb -> binary TLV
+    if (tn == 0) return;                                               // unknown / overflow -> silent drop
+    if (authed) { uint8_t sr[241]; size_t sl = remote_seal_resp(sr, sizeof sr, tlv, (uint8_t)tn);
+                  if (sl) g_node.send_remote_response(from, sr, (uint8_t)sl); }
+    else        { g_node.send_remote_response(from, tlv, (uint8_t)tn); }   // open read -> unsealed TLV
 }
+#else
+static void remote_exec(uint8_t, const uint8_t*, uint8_t) {}   // §featuresplit: remote-mgmt off (mobile) -> inert
+#endif
 
-// Origin: `rcmd <dst> <query>` — DM a remote query to a node (incl. multi-hop) and await the `[rcmd <from>] …` reply.
-static void handle_rcmd(const char* args) {
+#if MR_FEAT_REMOTE_MGMT
+// §remote-mgmt admin-ISSUE side (operator device): `unlock <pw>` derives the admin key into RAM; a gated `rcmd` then
+// seals the command to the target. Transient — wiped on `lock`/reboot (the credential lives in the operator's head).
+static meshroute::Identity g_admin_id{};
+static bool     g_admin_unlocked = false;
+static uint32_t g_admin_tx_ctr   = 0;      // monotonic command counter (bumped past a target's reject-hint floor)
+
+static void handle_unlock(const char* args, Print& out) {
+    while (*args == ' ') ++args;
+    size_t n = strlen(args);
+    while (n && (args[n-1]=='\r'||args[n-1]=='\n'||args[n-1]==' ')) --n;
+    if (n == 0) { out.println(F("> unlock err: usage `unlock <passphrase>`")); return; }
+    out.println(F("> deriving admin key (a few seconds)..."));
+    meshroute::admin_key_from_password(args, n, g_admin_id, []{ mrfault::fault_wdt_feed(); });
+    g_admin_unlocked = true;
+    if (g_admin_tx_ctr == 0) g_admin_tx_ctr = (uint32_t)(g_hal.now() / 1000);   // seed above a likely floor; the reject-hint corrects it
+    out.print(F("> admin unlocked (fp "));
+    for (int i = 0; i < 4; ++i) { char hx[3]; snprintf(hx, sizeof hx, "%02X", g_admin_id.ed_pub[i]); out.print(hx); }
+    out.println(F(") — `lock` to wipe"));
+}
+static void handle_lock(Print& out) { memset(&g_admin_id, 0, sizeof g_admin_id); g_admin_unlocked = false; out.println(F("> admin locked")); }
+static bool admin_verb_gated(const char* v) { return strcmp(v, "status") != 0 && strcmp(v, "routes") != 0; }   // spec §4: only status/routes are open
+#endif
+
+// Origin: `rcmd <dst> <verb>` — DM a remote command to a node (incl. multi-hop). status/routes ride cleartext (open);
+// every other verb is SEALED to the target's pinned admin key (needs `unlock <pw>` + the target's ed_pub cached).
+static void handle_rcmd(const char* args, Print& out) {
     while (*args == ' ') ++args;
     char* end; const long dst = strtol(args, &end, 10);
-    if (end == args || dst < 1 || dst > 254) { mrcon.println(F("> rcmd err usage: rcmd <dst 1..254> <query>  (status|faults|version|uptime|cfg|duty|reboot|prep-restart)")); return; }
+    if (end == args || dst < 1 || dst > 254) { out.println(F("> rcmd err usage: rcmd <dst 1..254> <verb>  (status/routes open; others need `unlock`)")); return; }
     while (*end == ' ') ++end;
     uint8_t qn = (uint8_t)strlen(end);
     while (qn && (end[qn - 1] == '\r' || end[qn - 1] == '\n' || end[qn - 1] == ' ')) --qn;
-    if (qn == 0) { mrcon.println(F("> rcmd err: empty query")); return; }
-    if (qn > meshroute::protocol::inbox_max_body) qn = meshroute::protocol::inbox_max_body;
+    if (qn == 0) { out.println(F("> rcmd err: empty query")); return; }
+    char verb[64]; uint8_t vl = qn < sizeof verb - 1 ? qn : (uint8_t)(sizeof verb - 1);
+    memcpy(verb, end, vl); verb[vl] = '\0';
+#if MR_FEAT_REMOTE_MGMT
+    if (admin_verb_gated(verb)) {                                      // seal it to the target
+        if (!g_admin_unlocked) { out.println(F("> rcmd err: gated verb needs `unlock <pw>` first")); return; }
+        const uint32_t th = g_node.key_hash_for_id((uint8_t)dst);
+        if (!th) { out.println(F("> rcmd err: unknown id (no beacon heard from it yet)")); return; }
+        uint8_t tpk[32];
+        if (!g_node.peer_key_find(th, tpk)) { out.print(F("> rcmd err: no pubkey for ")); out.print(dst); out.println(F(" — `reqpubkey 0x<hash>` first")); return; }
+        uint8_t frame[241]; frame[0] = REMOTE_FLAG_SEALED;
+        uint8_t rand8[8]; mrrng::fill(rand8, sizeof rand8);
+        static uint16_t nonce_ctr = 0;
+        const uint32_t tctr = ++g_admin_tx_ctr;
+        const size_t fl = meshroute::admin_cmd_seal(frame + 1, sizeof frame - 1, g_admin_id, tpk, th, tctr, (const uint8_t*)verb, vl, rand8, ++nonce_ctr);
+        if (!fl) { out.println(F("> rcmd err: seal overflow")); return; }
+        const uint16_t c = g_node.send_remote_cmd((uint8_t)dst, frame, (uint8_t)(fl + 1));
+        out.print(F("> rcmd(sealed) -> ")); out.print(dst); out.print(F(" \"")); out.print(verb);
+        out.print(F("\" ctr=")); out.print(tctr); out.print(F(" dm=")); out.println(c);
+        return;
+    }
+#endif
+    if (qn > meshroute::protocol::inbox_max_body) qn = meshroute::protocol::inbox_max_body;   // open read -> cleartext
     const uint16_t ctr = g_node.send_remote_cmd((uint8_t)dst, (const uint8_t*)end, qn);
-    mrcon.print(F("> rcmd -> ")); mrcon.print(dst); mrcon.print(F(" \"")); mrcon.write((const uint8_t*)end, qn);
-    mrcon.print(F("\" ctr=")); mrcon.println(ctr);
+    out.print(F("> rcmd -> ")); out.print(dst); out.print(F(" \"")); out.write((const uint8_t*)end, qn);
+    out.print(F("\" ctr=")); out.println(ctr);
 }
 
 // Firmware scheduled-send (spec 2026-06-24): arm the node to fire DMs/channel posts on an ms-offset schedule OVER THE
 // RADIO, so the oracle touches USB only to arm + read (killing the continuous-stream USB-CDC death). `testsend <dst>
 // <run> [-a] [-e] -t ms1,ms2,…` / `testch <ch> <run> -t ms1,ms2,…` — APPENDS (seq keeps counting). Offsets are ms
 // from NOW (arm). The fired body = the harness tag `T<run>S<self>#<seq>` + `@<sendms>` (built in the loop tick).
-static void handle_testsched(char* args, bool is_channel) {
+static void handle_testsched(char* args, bool is_channel, Print& out) {
     char* toks[12]; int nt = 0;
     for (char* p = strtok(args, " "); p && nt < 12; p = strtok(nullptr, " ")) toks[nt++] = p;
-    if (nt < 2) { mrcon.println(F("> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,…  |  testch <ch> <run> -t ms1,ms2,…")); return; }
+    if (nt < 2) { out.println(F("> err usage: testsend <dst> <run> [-a] [-e] -t ms1,ms2,…  |  testch <ch> <run> -t ms1,ms2,…")); return; }
     const char* dst_s = toks[0];
     const char* run_s = toks[1];
     const char* list_s = nullptr; bool ack = false, enc = false;
@@ -1569,102 +1690,134 @@ static void handle_testsched(char* args, bool is_channel) {
         else if (!strcmp(toks[i], "-e")) enc = true;
         else if (!strcmp(toks[i], "-t") && i + 1 < nt) list_s = toks[i + 1];
     }
-    if (!list_s) { mrcon.println(F("> testsched err: missing -t <ms,ms,…>")); return; }
+    if (!list_s) { out.println(F("> testsched err: missing -t <ms,ms,…>")); return; }
     // <run> must be ALNUM — the host reconcile regex `T([0-9A-Za-z]+)S…` only matches alnum, so a hyphen/dot/_ run
     // would send a body the harness CAN'T parse -> every message silently unreconciled. Fail loud instead.
     for (const char* q = run_s; *q; ++q)
         if (!((*q >= '0' && *q <= '9') || (*q >= 'a' && *q <= 'z') || (*q >= 'A' && *q <= 'Z'))) {
-            mrcon.println(F("> testsched err: <run> must be alphanumeric (the host tag regex)")); return; }
+            out.println(F("> testsched err: <run> must be alphanumeric (the host tag regex)")); return; }
     uint32_t target = 0, v = 0; uint8_t flags = 0;
     if (is_channel) {
-        if (ack || enc) { mrcon.println(F("> testch err: -a/-e not valid on a channel")); return; }   // matches send_channel (rejects them)
-        if (!mrsched::parse_dec(dst_s, 255, v)) { mrcon.println(F("> testch err: channel 0..255")); return; }
+        if (ack || enc) { out.println(F("> testch err: -a/-e not valid on a channel")); return; }   // matches send_channel (rejects them)
+        if (!mrsched::parse_dec(dst_s, 255, v)) { out.println(F("> testch err: channel 0..255")); return; }
         target = v; flags |= mrsched::kChannel;
     } else {
         uint32_t h;
         if (mrsched::parse_hash8(dst_s, h)) { target = h; flags |= mrsched::kHash; }
         else if (mrsched::parse_dec(dst_s, 254, v) && v >= 1) { target = v; }
-        else { mrcon.println(F("> testsend err: dst 1..254 or 8-hex hash")); return; }
-        if (enc && !(flags & mrsched::kHash)) { mrcon.println(F("> testsend err: -e (encrypt) needs an 8-hex hash dst")); return; }   // matches `send` (allow_e=by_hash)
+        else { out.println(F("> testsend err: dst 1..254 or 8-hex hash")); return; }
+        if (enc && !(flags & mrsched::kHash)) { out.println(F("> testsend err: -e (encrypt) needs an 8-hex hash dst")); return; }   // matches `send` (allow_e=by_hash)
         if (ack) flags |= mrsched::kAck;
         if (enc) flags |= mrsched::kEnc;
     }
     g_sched.set_run(run_s);
     uint32_t offs[128];
     const uint16_t no = mrsched::parse_offsets(list_s, offs, 128);
-    if (no == 0) { mrcon.println(F("> testsched err: no offsets parsed")); return; }
-    if (no == 128) mrcon.println(F("> testsched warn: offset list capped at 128 — split into more lines"));   // never silent
+    if (no == 0) { out.println(F("> testsched err: no offsets parsed")); return; }
+    if (no == 128) out.println(F("> testsched warn: offset list capped at 128 — split into more lines"));   // never silent
     const uint32_t base = (uint32_t)g_hal.now();
     uint16_t added = 0;
     for (uint16_t i = 0; i < no; ++i) if (g_sched.add(base + offs[i], target, flags) >= 0) ++added;
-    mrcon.print(F("> ")); mrcon.print(is_channel ? F("testch") : F("testsend"));
-    mrcon.print(F(" run="));   mrcon.print(g_sched.run);
-    mrcon.print(is_channel ? F(" ch=") : F(" dst=")); mrcon.print(dst_s);
-    mrcon.print(F(" +"));      mrcon.print(added);
-    mrcon.print(F(" armed=")); mrcon.print(g_sched.armed());
-    if (added < no) mrcon.print(F(" (SCHED FULL — rest dropped)"));
-    mrcon.println();
+    out.print(F("> ")); out.print(is_channel ? F("testch") : F("testsend"));
+    out.print(F(" run="));   out.print(g_sched.run);
+    out.print(is_channel ? F(" ch=") : F(" dst=")); out.print(dst_s);
+    out.print(F(" +"));      out.print(added);
+    out.print(F(" armed=")); out.print(g_sched.armed());
+    if (added < no) out.print(F(" (SCHED FULL — rest dropped)"));
+    out.println();
 }
 
-static void handle_teststatus() {
+static void handle_teststatus(Print& out) {
     const uint32_t mnow = (uint32_t)g_hal.now();
     const int32_t nx = g_sched.next_offset_ms(mnow);
     const char* state = (g_sched.armed() == 0) ? "idle" : (g_sched.done() ? "done" : "running");
-    mrcon.print(F("[teststatus] run=")); mrcon.print(g_sched.run[0] ? g_sched.run : "-");
-    mrcon.print(F(" armed="));    mrcon.print(g_sched.armed());
-    mrcon.print(F(" fired="));    mrcon.print(g_sched.fired);
-    mrcon.print(F(" deferred=")); mrcon.print(g_sched.deferred);
-    mrcon.print(F(" dropped="));  mrcon.print(g_sched.dropped);
-    mrcon.print(F(" next="));     if (nx < 0) mrcon.print('-'); else { mrcon.print('+'); mrcon.print(nx); }
-    mrcon.print(F(" state="));    mrcon.println(state);
+    out.print(F("[teststatus] run=")); out.print(g_sched.run[0] ? g_sched.run : "-");
+    out.print(F(" armed="));    out.print(g_sched.armed());
+    out.print(F(" fired="));    out.print(g_sched.fired);
+    out.print(F(" deferred=")); out.print(g_sched.deferred);
+    out.print(F(" dropped="));  out.print(g_sched.dropped);
+    out.print(F(" next="));     if (nx < 0) out.print('-'); else { out.print('+'); out.print(nx); }
+    out.print(F(" state="));    out.println(state);
 }
 
-static bool service_debug(const char* line, size_t len) {
-    if ((len == 4 && !strncmp(line, "help", 4)) || (len == 1 && line[0] == '?')) { dump_help(); return true; }
-    if (len == 7 && !strncmp(line, "version", 7))  { print_banner(); return true; }
-    if (len == 6 && !strncmp(line, "faults", 6))   { dump_faults();  return true; }
-    if (len == 12 && !strncmp(line, "prep-restart", 12)) { handle_prep_restart(); return true; }
-    if ((len == 4 || (len > 4 && line[4] == ' ')) && !strncmp(line, "rcmd", 4)) { handle_rcmd(line + 4); return true; }
-    if (len == 9 && !strncmp(line, "testclear", 9))    { g_sched.clear(); mrcon.println(F("> testsched cleared")); return true; }
-    if (len == 10 && !strncmp(line, "teststatus", 10)) { handle_teststatus(); return true; }
+#if MR_FEAT_REMOTE_MGMT
+// `password <passphrase>` — LOCAL-ONLY (a dispatch verb; NEVER accepted over the mesh — remote_exec has no such verb).
+// Derive the admin keypair (iterated-BLAKE2b -> identity_from_seed), pin admin_pubkey to NV, reset the replay floor,
+// then discard the derived keypair (the credential lives in the operator's head, not the node — spec §2/§8).
+static void handle_password(const char* args, Print& out) {
+    while (*args == ' ') ++args;
+    size_t n = strlen(args);
+    while (n && (args[n-1]=='\r' || args[n-1]=='\n' || args[n-1]==' ')) --n;
+    if (n == 0) { out.println(F("> password err: usage `password <passphrase>` (local only)")); return; }
+    meshroute::Identity admin{};
+    out.println(F("> deriving admin key (a few seconds)..."));   // the KDF blocks; tell the operator it's not hung
+    meshroute::admin_key_from_password(args, n, admin, []{ mrfault::fault_wdt_feed(); });   // feed the WDT during the multi-second stretch
+    g_node.admin_set_pubkey(admin.ed_pub);
+    mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
+    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
+    for (int i = 0; i < 32; ++i) b.admin_pubkey[i] = admin.ed_pub[i];
+    b.admin_provisioned = 1; b.admin_counter_floor = 0;      // fresh credential -> reset the replay floor
+    const bool saved = mrnv::save(b);
+    memset(&admin, 0, sizeof admin);                          // discard the derived keypair (best-effort local wipe)
+    if (!saved) { out.println(F("> password err: nv_save_failed")); return; }
+    out.print(F("> admin pubkey pinned (fp "));               // print only a 4-byte fingerprint, NEVER the pubkey/pw
+    const uint8_t* pk = g_node.admin_pubkey();
+    for (int i = 0; i < 4 && pk; ++i) { char hx[3]; snprintf(hx, sizeof hx, "%02X", pk[i]); out.print(hx); }
+    out.println(F(")"));
+}
+#endif
+
+static bool dispatch(const char* line, size_t len, Print& out) {   // §command-sink-consolidation: the single line->handler verb map (was service_debug); every response goes to `out`
+    if ((len == 4 && !strncmp(line, "help", 4)) || (len == 1 && line[0] == '?')) { dump_help(out); return true; }
+    if (len == 7 && !strncmp(line, "version", 7))  { print_banner(out); return true; }
+    if (len == 6 && !strncmp(line, "faults", 6))   { dump_faults(out);  return true; }
+    if (len == 12 && !strncmp(line, "prep-restart", 12)) { handle_prep_restart(out); return true; }
+    if ((len == 4 || (len > 4 && line[4] == ' ')) && !strncmp(line, "rcmd", 4)) { handle_rcmd(line + 4, out); return true; }
+    if (len == 9 && !strncmp(line, "testclear", 9))    { g_sched.clear(); out.println(F("> testsched cleared")); return true; }
+    if (len == 10 && !strncmp(line, "teststatus", 10)) { handle_teststatus(out); return true; }
     if ((len == 8 || (len > 8 && line[8] == ' ')) && !strncmp(line, "testsend", 8)) {   // strtok needs a mutable copy
-        static char tb[512]; strncpy(tb, line + 8, sizeof tb - 1); tb[sizeof tb - 1] = '\0'; handle_testsched(tb, /*channel=*/false); return true; }
+        static char tb[512]; strncpy(tb, line + 8, sizeof tb - 1); tb[sizeof tb - 1] = '\0'; handle_testsched(tb, /*channel=*/false, out); return true; }
     if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "testch", 6)) {
-        static char tb[512]; strncpy(tb, line + 6, sizeof tb - 1); tb[sizeof tb - 1] = '\0'; handle_testsched(tb, /*channel=*/true);  return true; }
-    if ((len == 9 || (len > 9 && line[9] == ' ')) && !strncmp(line, "crashtest", 9)) { handle_crashtest(line + 9); return true; }
-    if (len == 6 && !strncmp(line, "routes", 6))   { dump_routes(); return true; }
-    if (len > 6 && !strncmp(line, "route ", 6))     { handle_route_cmd(line + 6); return true; }   // manual route inject/del (testing)
-    if (len == 6 && !strncmp(line, "status", 6))   { dump_status(); return true; }
-    if (len == 4 && !strncmp(line, "duty", 4))     { dump_duty();   return true; }
-    if (len == 6 && !strncmp(line, "limits", 6))   { dump_limits(); return true; }   // companion anti-spam/headroom snapshot (local-only)
+        static char tb[512]; strncpy(tb, line + 6, sizeof tb - 1); tb[sizeof tb - 1] = '\0'; handle_testsched(tb, /*channel=*/true, out);  return true; }
+    if ((len == 9 || (len > 9 && line[9] == ' ')) && !strncmp(line, "crashtest", 9)) { handle_crashtest(line + 9, out); return true; }
+    if (len == 6 && !strncmp(line, "routes", 6))   { dump_routes(out); return true; }
+    if (len > 6 && !strncmp(line, "route ", 6))     { handle_route_cmd(line + 6, out); return true; }   // manual route inject/del (testing)
+    if (len == 6 && !strncmp(line, "status", 6))   { dump_status(out); return true; }
+    if (len == 4 && !strncmp(line, "duty", 4))     { dump_duty(out);   return true; }
+    if (len == 6 && !strncmp(line, "limits", 6))   { dump_limits(out); return true; }   // companion anti-spam/headroom snapshot (local-only)
     if (len == 6 && !strncmp(line, "reboot", 6))   { do_reboot();   return true; }
-    if ((len == 13 || (len > 13 && line[13] == ' ')) && !strncmp(line, "factory_reset", 13)) { handle_factory_reset(line + 13, len - 13); return true; }
+    if ((len == 13 || (len > 13 && line[13] == ' ')) && !strncmp(line, "factory_reset", 13)) { handle_factory_reset(line + 13, len - 13, out); return true; }
     if (len == 5 && !strncmp(line, "regen", 5))    { do_regen();    return true; }
     if (len == 3 && !strncmp(line, "ota", 3))      { do_ota();      return true; }
-    if (len >  8 && !strncmp(line, "gateway ", 8)) { handle_gateway(line + 8); return true; }
+    if (len >  8 && !strncmp(line, "gateway ", 8)) { handle_gateway(line + 8, out); return true; }
 #if MR_N_LAYERS < 2
-    if (len >  5 && !strncmp(line, "join ", 5))    { handle_join(line + 5);    return true; }   // R6.3 provisioning verbs (normal-node, live)
-    if (len >  7 && !strncmp(line, "create ", 7))  { handle_create(line + 7);  return true; }
-    if (len >  5 && !strncmp(line, "team ", 5))     { handle_team(line + 5);    return true; }   // §mobile 6.1: `team new` (mint) / `team <id>` (join)
+    if (len >  5 && !strncmp(line, "join ", 5))    { handle_join(line + 5, out);    return true; }   // R6.3 provisioning verbs (normal-node, live)
+    if (len >  7 && !strncmp(line, "create ", 7))  { handle_create(line + 7, out);  return true; }
+    if (len >  5 && !strncmp(line, "team ", 5))     { handle_team(line + 5, out);    return true; }   // §mobile 6.1: `team new` (mint) / `team <id>` (join)
 #if MR_FEAT_MOBILE
-    if (len >  7 && !strncmp(line, "mobile ", 7))   { handle_mobile(line + 7);  return true; }   // §mobile console: register/gateways/query/status
+    if (len >  7 && !strncmp(line, "mobile ", 7))   { handle_mobile(line + 7, out);  return true; }   // §mobile console: register/gateways/query/status
 #endif
 #else   // §config-integrity: create/join are normal-node provisioning -> refuse on the gateway build (mirrors how `gateway` errors on a normal build) — else `create` silently re-provisions the gateway into a managed leaf.
     if ((len > 5 && !strncmp(line, "join ", 5)) || (len > 7 && !strncmp(line, "create ", 7))) {
-        mrcon.println(F("> err gateway_build (create/join are normal-node only; use `gateway l0=<layer>:<node>:<sf>:<sfs> l1=…`)"));
+        out.println(F("> err gateway_build (create/join are normal-node only; use `gateway l0=<layer>:<node>:<sf>:<sfs> l1=…`)"));
         return true;
     }
 #endif
-    if (len == 5 && !strncmp(line, "leave", 5))    { handle_leave();           return true; }
-    if (len >  8 && !strncmp(line, "cfg set ", 8)) { handle_cfg_set(line + 8); return true; }
-    if (len == 3 && !strncmp(line, "cfg", 3))      { dump_cfg();    return true; }
-    if ((len == 5 || (len > 5 && line[5] == ' ')) && !strncmp(line, "sleep", 5)) { handle_sleep(line + 5, len - 5); return true; }
-    if ((len == 5 || (len > 5 && line[5] == ' ')) && !strncmp(line, "debug", 5)) { handle_debug(line + 5, len - 5); return true; }
-    if (len == 6 && !strncmp(line, "whoami", 6)) { handle_whoami(); return true; }
-    if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "lookup", 6)) { handle_lookup(line + 6, len - 6); return true; }
-    if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "hashof", 6)) { handle_hashof(line + 6, len - 6); return true; }
-    if ((len == 10 || (len > 10 && line[10] == ' ')) && !strncmp(line, "pull_inbox", 10)) { handle_pull_inbox(line + 10, usb_sink); return true; }
-    if ((len ==  9 || (len >  9 && line[9]  == ' ')) && !strncmp(line, "mark_read",   9)) { handle_mark_read(line + 9,  usb_sink); return true; }
+    if (len == 5 && !strncmp(line, "leave", 5))    { handle_leave(out);           return true; }
+    if (len >  8 && !strncmp(line, "cfg set ", 8)) { handle_cfg_set(line + 8, out); return true; }
+    if (len == 3 && !strncmp(line, "cfg", 3))      { dump_cfg(out);    return true; }
+    if ((len == 5 || (len > 5 && line[5] == ' ')) && !strncmp(line, "sleep", 5)) { handle_sleep(line + 5, len - 5, out); return true; }
+    if ((len == 5 || (len > 5 && line[5] == ' ')) && !strncmp(line, "debug", 5)) { handle_debug(line + 5, len - 5, out); return true; }
+    if (len == 6 && !strncmp(line, "whoami", 6)) { handle_whoami(out); return true; }
+    if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "lookup", 6)) { handle_lookup(line + 6, len - 6, out); return true; }
+    if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "hashof", 6)) { handle_hashof(line + 6, len - 6, out); return true; }
+    if ((len == 10 || (len > 10 && line[10] == ' ')) && !strncmp(line, "pull_inbox", 10)) { handle_pull_inbox(line + 10, out); return true; }
+    if ((len ==  9 || (len >  9 && line[9]  == ' ')) && !strncmp(line, "mark_read",   9)) { handle_mark_read(line + 9,  out); return true; }
+#if MR_FEAT_REMOTE_MGMT
+    if (len > 9 && !strncmp(line, "password ", 9)) { handle_password(line + 9, out); return true; }   // §remote-mgmt: LOCAL-only admin credential set
+    if (len > 7 && !strncmp(line, "unlock ", 7))   { handle_unlock(line + 7, out);   return true; }   // admin-issue: derive the admin key into RAM
+    if (len == 4 && !strncmp(line, "lock", 4))     { handle_lock(out);               return true; }   // wipe the unlocked admin key
+#endif
     return false;
 }
 
@@ -1712,7 +1865,7 @@ static meshroute::console::StatusFields make_status_fields() {
 static const char* node_state_str() { return g_node.node_id() == 0 ? "unprovisioned" : "operating"; }
 
 // `routes` over BLE: stream one {"ev":"route",...} per table entry then {"ev":"routes_end","count":N}.
-static void handle_routes(JsonSink sink) {
+static void handle_routes(Print& out) {
     const uint64_t now = g_hal.now();
     const uint8_t n = g_node.rt_count();
     for (uint8_t i = 0; i < n; ++i) {
@@ -1723,10 +1876,10 @@ static void handle_routes(JsonSink sink) {
         r.gw = c.is_gateway; r.leaf = c.learned_leaf;
         r.age_ms = static_cast<uint32_t>(now - c.last_seen_ms); r.cand = e.n;
         const size_t m = meshroute::console::write_route(s_inbox_jb, sizeof s_inbox_jb, r);
-        if (m) sink(s_inbox_jb, m);
+        if (m) out.write(s_inbox_jb, m);
     }
     const size_t m = meshroute::console::write_routes_end(s_inbox_jb, sizeof s_inbox_jb, n);
-    if (m) sink(s_inbox_jb, m);
+    if (m) out.write(s_inbox_jb, m);
 }
 
 // Build the cfg extras (device globals not in NodeConfig) for write_cfg.
@@ -1793,11 +1946,11 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
             __DATE__ " " __TIME__, GIT_REV, board_name(), g_last_reset_valid ? mrfault::fault_cause_str(g_last_reset.cause) : "-");
     }
     if (len == 12 && !strncmp(line, "prep-restart", 12)) {  // clear routes+inbox, keep join, go dormant (companion/harness can issue it)
-        handle_prep_restart();
+        handle_prep_restart(mrcon);
         return (size_t)snprintf(out, cap, "{\"ev\":\"prep_restart\",\"halted\":true}\n");
     }
     if ((len == 4 || (len > 4 && line[4] == ' ')) && !strncmp(line, "rcmd", 4)) {   // issue an OTA remote query; the `[rcmd <from>]` reply lands on USB
-        handle_rcmd(line + 4);
+        handle_rcmd(line + 4, mrcon);
         return (size_t)snprintf(out, cap, "{\"ev\":\"rcmd_sent\"}\n");
     }
     if (len == 4 && !strncmp(line, "duty", 4)) {            // companion polls this for the silent-countdown banner
@@ -1826,7 +1979,7 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     // `cfg set <key> <val>` from the app (e.g. `cfg set lat 52.2297`): apply + persist via the shared handler
     // (its `> cfg ...` lines go to USB; harmless), then reply with the FRESH cfg object so the app's view updates.
     if (len > 8 && !strncmp(line, "cfg set ", 8)) {
-        handle_cfg_set(line + 8);
+        handle_cfg_set(line + 8, mrcon);
         const size_t m = write_cfg(s_inbox_jb, sizeof s_inbox_jb, g_node.config(), make_cfg_extras());
         if (m) ble_sink(s_inbox_jb, m);
         return 0;
@@ -1836,10 +1989,10 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
         if (m) ble_sink(s_inbox_jb, m);
         return 0;
     }
-    if (len == 6 && !strncmp(line, "routes", 6)) { handle_routes(ble_sink); return 0; }
+    if (len == 6 && !strncmp(line, "routes", 6)) { LineSink ls(ble_sink); handle_routes(ls); ls.flush(); return 0; }
     // Inbox sync (companion-only): stream the reply via mrble::tx_line and return 0 (no buffered single-line ack).
-    if ((len == 10 || (len > 10 && line[10] == ' ')) && !strncmp(line, "pull_inbox", 10)) { handle_pull_inbox(line + 10, ble_sink); return 0; }
-    if ((len ==  9 || (len >  9 && line[9]  == ' ')) && !strncmp(line, "mark_read",   9)) { handle_mark_read(line + 9,  ble_sink); return 0; }
+    if ((len == 10 || (len > 10 && line[10] == ' ')) && !strncmp(line, "pull_inbox", 10)) { LineSink ls(ble_sink); handle_pull_inbox(line + 10, ls); ls.flush(); return 0; }
+    if ((len ==  9 || (len >  9 && line[9]  == ' ')) && !strncmp(line, "mark_read",   9)) { LineSink ls(ble_sink); handle_mark_read(line + 9,  ls); ls.flush(); return 0; }
     meshroute::Command cmd{};
     const ParseErr e = parse_command(line, len, cmd);
     if (e == ParseErr::ok) {
@@ -1855,6 +2008,15 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     if (e == ParseErr::empty) return 0;
     if (len >= 8 && !strncmp(line, "peerkey ", 8))                                            // §3: a malformed peerkey -> the contract's peerkey_err
         return (size_t)snprintf(out, cap, "{\"ev\":\"peerkey_err\",\"reason\":\"bad_hex\"}\n");
+    // §command-sink-consolidation: not a companion JSON verb and not a Node command -> offer the FULL console surface as
+    // canonical text over BLE via the unified dispatch. ADDITIVE: every companion verb is handled above, so this only
+    // catches lines that previously returned "unknown_cmd" (team/mobile/gateway/faults/help/lookup/…). The BLE link is
+    // the authenticated (MITM-passkey) admin transport. (reboot/regen/ota/factory_reset become reachable here too —
+    // factory_reset still requires its `confirm` token; flag for review if the console should stay USB-only.)
+    if (e == ParseErr::unknown_verb) {
+        LineSink ls(ble_sink);
+        if (dispatch(line, len, ls)) { ls.flush(); return 0; }
+    }
     return write_err(out, cap, "parse", e == ParseErr::unknown_verb ? "unknown_cmd" : "bad_args");
 }
 
@@ -1901,7 +2063,7 @@ void setup() {
     mrfault::fault_wdt_start();
 #endif
 
-    print_banner();   // §6: version (build/git/board) + the last reset reason — replaces the old boot banner + board lines
+    print_banner(mrcon);   // §6: version (build/git/board) + the last reset reason — replaces the old boot banner + board lines
     // These are the COMPILE-TIME build defaults, printed BEFORE the NV blob loads — NOT the live config.
     // A persisted `cfg set` overrides them; the real operating point prints below (control sf / data sf / `cfg`).
     mrcon.print(F("  build def = ")); mrcon.print((double)LORA_FREQ, 4); mrcon.print(F(" MHz  sf"));
@@ -2002,6 +2164,8 @@ void setup() {
     g_node.set_crypto_identity(g_identity.x_secret, g_identity.ed_pub);   // DP1: install the E2E crypto identity (X25519 + ed_pub)
     g_lat_e7 = idb.lat_e7; g_lon_e7 = idb.lon_e7;              // node location (persisted in /mrid; 0,0 on first boot)
     cfg.lat_e7 = g_lat_e7; cfg.lon_e7 = g_lon_e7;             // feed the node's location to the DM piggyback (loc_in_dm)
+    // §remote-mgmt (v20): restore the pinned admin pubkey + replay counter floor (no-op stub when MR_FEAT_REMOTE_MGMT=0).
+    g_node.admin_load(nv.admin_pubkey, nv.admin_counter_floor, nv.admin_provisioned);
     // node_id DAD: restore the persisted lease state so a reboot KEEPS its id + tiebreak seniority (NV blob v4).
     g_node.restore_join_state(nv.claim_epoch, (node_id != 0) && (nv.joined != 0));
     g_persist_id = node_id; g_persist_epoch = nv.claim_epoch;        // prime the persist tracker -> no spurious boot write
@@ -2128,7 +2292,7 @@ static void service_console() {
                 pos = 0; overflow = false; continue;
             }
             line[pos] = '\0';                            // null-terminate (pos <= sizeof-1) for the debug cmds
-            if (!service_debug(line, pos)) {             // routes/cfg/status handled here; else a Node command
+            if (!dispatch(line, pos, mrcon)) {             // routes/cfg/status handled here; else a Node command
                 meshroute::Command cmd{};
                 const meshroute::console::ParseErr e = meshroute::console::parse_command(line, pos, cmd);
                 if (e == meshroute::console::ParseErr::ok) {
@@ -2473,14 +2637,34 @@ static void mesh_service_once() {
     // command EXECUTES here on the main loop (never the RX path). static = the ~244 B slot is off the hot-path stack.
     { static meshroute::Node::RemoteInbound ri;
       if (g_node.take_remote_inbound(ri)) {
-          if (ri.is_response) { mrcon.print(F("[rcmd ")); mrcon.print(ri.from); mrcon.print(F("] ")); mrcon.write(ri.body, ri.len); mrcon.println(); }
-          else                remote_exec(ri.from, ri.body, ri.len);
+          if (ri.is_response) {
+#if MR_FEAT_REMOTE_MGMT
+              if (ri.len >= 1 && ri.body[0] == REMOTE_FLAG_SEALED && g_admin_unlocked) {   // sealed ack/hint -> open with the admin key
+                  const uint32_t sh = g_node.key_hash_for_id(ri.from); uint8_t spk[32];
+                  meshroute::AdminCmd ac{}; static uint8_t pt[241];
+                  if (sh && g_node.peer_key_find(sh, spk) && meshroute::admin_cmd_open(ri.body + 1, ri.len - 1, spk, g_admin_id, ac, pt, sizeof pt)) {
+                      if (ac.cmd_len > 6 && !memcmp(ac.cmd, "floor=", 6)) {                // reject-hint: bump our tx counter past N; the command did NOT run
+                          char nb[16]; uint8_t k = (uint8_t)(ac.cmd_len - 6 < 15 ? ac.cmd_len - 6 : 15); memcpy(nb, ac.cmd + 6, k); nb[k] = '\0';
+                          uint32_t fl = (uint32_t)strtoul(nb, nullptr, 10); if (fl >= g_admin_tx_ctr) g_admin_tx_ctr = fl + 1;
+                          mrcon.print(F("[rcmd ")); mrcon.print(ri.from); mrcon.print(F("] not run — counter was stale, resynced to "));
+                          mrcon.print(g_admin_tx_ctr); mrcon.println(F("; re-issue the command to run it"));
+                      } else {                                                             // a real sealed response
+                          mrcon.print(F("[rcmd ")); mrcon.print(ri.from); mrcon.print(F("] ")); mrcon.write(ac.cmd, ac.cmd_len); mrcon.println();
+                      }
+                  } else { mrcon.print(F("[rcmd ")); mrcon.print(ri.from); mrcon.println(F("] <sealed; open failed / no pubkey>")); }
+              } else if (ri.len >= 2 && ri.body[0] == 0x01 /*console_binary TLV ver*/) {   // an OPEN read's unsealed TLV -> not decodable on-device
+                  mrcon.print(F("[rcmd ")); mrcon.print(ri.from); mrcon.print(F("] <binary TLV, ")); mrcon.print(ri.len); mrcon.println(F(" B — decode with the host tool>"));
+              } else
+#endif
+              { mrcon.print(F("[rcmd ")); mrcon.print(ri.from); mrcon.print(F("] ")); mrcon.write(ri.body, ri.len); mrcon.println(); }
+          }
+          else remote_exec(ri.from, ri.body, ri.len);
       } }
     // deferred recovery action (respond-first-then-act): fire reboot / prep-restart once its ~3 s defer elapses, so
     // the `ok …` response DM has aired first.
     if (g_remote_action && g_hal.now() >= g_remote_action_at) {
         const uint8_t act = g_remote_action; g_remote_action = 0;
-        if (act == 1) do_reboot(); else handle_prep_restart();
+        if (act == 1) do_reboot(); else handle_prep_restart(mrcon);
     }
     }  // end if (!g_halted) — the operating block
 

@@ -417,6 +417,23 @@ public:
     // seal/open FAILS LOUD (never silently falls back to cleartext). Backends derive these from the /mrid seed
     // (device) or the per-node scenario seed (sim).
     void set_crypto_identity(const uint8_t x_secret[32], const uint8_t ed_pub[32]);
+    // §remote-mgmt (spec 2026-07-13): the pinned admin pubkey (trust anchor for gated rcmds) + the replay counter floor.
+    // RAM state; fw_main loads from / persists to the NV Blob (admin_pubkey/admin_counter_floor/admin_provisioned).
+#if MR_FEAT_REMOTE_MGMT
+    bool           admin_provisioned() const { return _admin_provisioned; }
+    const uint8_t* admin_pubkey()      const { return _admin_provisioned ? _admin_pubkey : nullptr; }
+    uint32_t       admin_counter_floor() const { return _admin_counter_floor; }
+    void admin_set_pubkey(const uint8_t ed_pub[32]) { for (int i=0;i<32;++i) _admin_pubkey[i]=ed_pub[i]; _admin_provisioned = true; }
+    void admin_load(const uint8_t ed_pub[32], uint32_t floor, bool provisioned) { for (int i=0;i<32;++i) _admin_pubkey[i]=ed_pub[i]; _admin_counter_floor = floor; _admin_provisioned = provisioned; }
+    bool admin_counter_check_advance(uint32_t counter) { if (counter > _admin_counter_floor) { _admin_counter_floor = counter; return true; } return false; }
+#else
+    bool           admin_provisioned() const { return false; }
+    const uint8_t* admin_pubkey()      const { return nullptr; }
+    uint32_t       admin_counter_floor() const { return 0; }
+    void admin_set_pubkey(const uint8_t*) {}
+    void admin_load(const uint8_t*, uint32_t, bool) {}
+    bool admin_counter_check_advance(uint32_t) { return false; }
+#endif
     void on_recv(const uint8_t* bytes, size_t len, const RxMeta& meta);  // bytes valid during call only
     void on_timer(uint32_t timer_id);                                    // dispatch on Node-owned id
     void on_radio_busy(const BusyInfo& info);                            // deferred-TX retry/giveup
@@ -708,6 +725,14 @@ public:
     // authoritative-never-downgraded, evict-oldest at cap_peer_keys, TTL-aged. Per the ACTIVE layer.
     bool              peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyConf conf);   // false: ed_pub[:4]!=hash
     bool              peer_key_find(uint32_t key_hash32, uint8_t ed_pub_out[32], PeerKeyConf* conf_out = nullptr);  // false: absent/aged
+    // §remote-mgmt: node_id -> its learned key_hash32 (from the _id_bind beacon table), 0 if we've heard no beacon for it.
+    // Lets the admin-issue path resolve a target id -> hash -> ed_pub (peer_key_find) to seal a command to it.
+    uint32_t          key_hash_for_id(uint8_t id) const {
+        if (!_active || id == 0) return 0;
+        for (uint8_t i = 0; i < protocol::cap_id_bind; ++i)
+            if (_active->_id_bind[i].node_id == id && _active->_id_bind[i].key_hash32) return _active->_id_bind[i].key_hash32;
+        return 0;
+    }
     void              peer_key_age_out();                                                              // drop entries past peer_key_ttl_ms
     uint16_t          peer_key_count() const { return _active->_peer_keys_n; }
     // E2E seal/open (Phase 1 §4/§5). Public for the send/receive paths + tests. SAME-LAYER DMs only in v1
@@ -1234,6 +1259,11 @@ private:
     uint8_t  _x_secret[32] = {};  // DP1: X25519 ECDH secret (Phase-1 E2E DM crypto)
     uint8_t  _ed_pub[32]   = {};  // DP1: our Ed25519 pubkey (advertised so peers can ECDH to us)
     bool     _crypto_ready = false;
+#if MR_FEAT_REMOTE_MGMT
+    uint8_t  _admin_pubkey[32] = {};   // §remote-mgmt: pinned admin Ed25519 pubkey (trust anchor)
+    uint32_t _admin_counter_floor = 0; // §remote-mgmt: replay floor (persisted, write-coalesced)
+    bool     _admin_provisioned = false;
+#endif
     NodeConfig _cfg;             // borrowed copy from on_init
     Inbox    _inbox;             // persistent inbox (disabled until a backend installs stores; see inbox())
     int16_t  _routing_snr_floor_q4 = 0;   // SF_DEMOD_THRESHOLD[routing_sf] + sf_margin_q4

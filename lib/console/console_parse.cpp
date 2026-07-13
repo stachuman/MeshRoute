@@ -55,6 +55,14 @@ bool parse_hex32_tok(const Tok& t, uint32_t& out) {
     return true;
 }
 
+// Parse a 0x-PREFIXED hex u32 (`0x` + 1..8 hex digits) -> out. false if the `0x`/`0X` prefix is absent or the hex is
+// bad. Requiring the prefix KILLS the id-vs-hash ambiguity: a bare decimal is always an id, `0x…` is always a hash.
+bool parse_hex32_0x(const Tok& t, uint32_t& out) {
+    if (t.n < 3 || t.s[0] != '0' || (t.s[1] != 'x' && t.s[1] != 'X')) return false;
+    Tok sub{ t.s + 2, t.n - 2 };
+    return parse_hex32_tok(sub, out);
+}
+
 // Decode EXACTLY 2*n hex chars into out[0..n). false on a wrong length or a non-hex char (e.g. peerkey's 64-hex ed_pub).
 bool parse_hex_bytes_tok(const Tok& t, uint8_t* out, size_t n) {
     if (t.n != 2 * n) return false;
@@ -119,7 +127,7 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
     if (tok_eq(verb, "resolve")) {
         Tok arg = token(s);
         uint32_t hash = 0;
-        if (!parse_hex32_tok(arg, hash)) return ParseErr::bad_args;
+        if (!parse_hex32_0x(arg, hash)) return ParseErr::bad_args;   // hash MUST be 0x-prefixed
         Tok opt = token(s);
         const bool hard = (opt.n != 0) && tok_eq(opt, "hard");
         if (opt.n != 0 && !hard) return ParseErr::bad_args;        // the only valid 2nd arg is `hard`
@@ -142,12 +150,12 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
     }
 
     //   reqpubkey <hash> — §6: user-triggered on-air pubkey request (a HARD WANT_PUBKEY H flood). The only auto-source.
-    if (tok_eq(verb, "reqpubkey")) {                            // reqpubkey <hash|team-id> — 8-hex => key_hash32; decimal <=254 => a teammate's team_local_id (resolve the hash from the team key cache)
+    if (tok_eq(verb, "reqpubkey")) {                            // reqpubkey <0xhash|team-id> — 0x-hex => key_hash32; bare decimal <=254 => a teammate's team_local_id (resolve the hash from the team key cache)
         Tok arg = token(s);
         uint32_t hash = 0, id = 0;
         out = Command{};
         out.kind = CmdKind::reqpubkey;
-        if (arg.n == 8 && parse_hex32_tok(arg, hash) && hash != 0) {   // 8-hex -> a key_hash32
+        if (parse_hex32_0x(arg, hash) && hash != 0) {                 // 0x-hex -> a key_hash32
             out.u.resolve.dst_hash = hash; out.u.resolve.dst_id = 0;
         } else if (parse_u32_tok(arg, 254u, id) && id != 0) {         // decimal <=254 -> a team_local_id
             out.u.resolve.dst_hash = 0; out.u.resolve.dst_id = static_cast<uint8_t>(id);
@@ -157,9 +165,9 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
 
     //   §2 send cleanup — 3 orthogonal verbs, QUOTED body, -a (ack) / -e (encrypt) flags in ANY order. HARD SWITCH:
     //   the old send_ack/sendhash/sendhash_ack/sendhashx/sendhashx_ack/send_layer_ack verbs are GONE (-> unknown_verb).
-    //   send <id|hash> "<text>" [-a] [-e]          — id (<=254 dec) vs hash (8-hex) AUTO-detected; -e=crypt (hash only)
+    //   send <id|0xhash> "<text>" [-a] [-e]        — id (<=254 dec) vs hash (0x-prefixed); -e=crypt (hash only)
     //   send_channel <ch> "<text>"                 — channel gossip (no ack/enc)
-    //   send_layer <hash> <l1,l2,…> "<text>" [-a]  — explicit cross-layer path
+    //   send_layer <0xhash> <l1,l2,…> "<text>" [-a] — explicit cross-layer path
     {
         const bool is_send    = tok_eq(verb, "send");
         const bool is_channel = tok_eq(verb, "send_channel");
@@ -178,9 +186,9 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
             return ParseErr::ok;
         }
 
-        if (is_layer) {                                        // send_layer <hash> <l1,l2,…> "<text>" [-a]
+        if (is_layer) {                                        // send_layer <0xhash> <l1,l2,…> "<text>" [-a]
             uint32_t h = 0;
-            if (!parse_hex32_tok(token(s), h) || h == 0) return ParseErr::bad_args;   // <hash>: key_hash32, nonzero
+            if (!parse_hex32_0x(token(s), h) || h == 0) return ParseErr::bad_args;   // <0xhash>: key_hash32, nonzero, 0x-prefixed
             Tok ptok = token(s);
             if (ptok.n == 0) return ParseErr::bad_args;                               // <l1,l2,…> required (no empty path)
             out = Command{};
@@ -213,11 +221,11 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
             return ParseErr::ok;
         }
 
-        // send <id|hash> "<text>" [-a] [-e]: AUTO-detect — EXACTLY 8 hex chars => key_hash32; else decimal <=254 => id.
+        // send <id|0xhash> "<text>" [-a] [-e]: `0x…` => key_hash32; a bare decimal <=254 => id (no ambiguity).
         Tok arg = token(s);
         uint32_t h = 0, id = 0; bool by_hash = false;
-        if (arg.n == 8 && parse_hex32_tok(arg, h)) by_hash = true;          // 8-hex -> hash (an id is <=3 digits, never 8)
-        else if (parse_u32_tok(arg, 254u, id))     by_hash = false;         // decimal <=254 -> id
+        if (parse_hex32_0x(arg, h))            by_hash = true;              // 0x-hex -> hash
+        else if (parse_u32_tok(arg, 254u, id)) by_hash = false;            // bare decimal <=254 -> id
         else return ParseErr::bad_args;
         if (by_hash && h == 0) return ParseErr::bad_args;   // `send 00000000`: an all-zero hash would fall through to a unicast to reserved id 0 (mirror send_layer's h==0 guard)
         bool ack = false, enc = false; const uint8_t* body = nullptr; uint8_t blen = 0;
