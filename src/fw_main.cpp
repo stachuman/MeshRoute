@@ -36,6 +36,7 @@
 #include "mr_ui.h"           // §featuresplit slice 4: board-UI hooks (real on MR_FEAT_OLED boards, inline no-ops elsewhere)
 #include "dispatch_sink.h"   // §command-sink-consolidation: BufferSink (remote/rcmd capture) + LineSink (BLE streaming)
 #include "firmware_config_parse.h"   // §cleanup 2026-07-14: pure config/provisioning parse primitives (native-tested)
+#include "fw_context.h"              // §cleanup 2026-07-14: extern decls of the shared device-stack/runtime globals defined below (static→extern seam)
 using mrfw::parse_sf_list;   // keep call sites unchanged (extracted verbatim from this file)
 using mrfw::kv_next;
 using mrfw::team_fnv1a32;
@@ -58,21 +59,21 @@ using mrfw::team_fnv1a32;
 // Persistent fault log (spec 2026-06-24). The boot-capture loads/records/persists into g_fault_log on BOTH HW platforms
 // (MRFAULT_HW = nRF52 [.noinit + WDT + HardFault] OR ESP32 [RTC scratch + esp_task_wdt + esp_reset_reason]). On a
 // native/unknown build the calls are #if MRFAULT_HW-guarded out (and fw_main isn't compiled there anyway).
-static mrfault::FaultLog    g_fault_log;
-static mrfault::FaultRecord g_last_reset{};
-static bool                 g_last_reset_valid = false;
+mrfault::FaultLog    g_fault_log;                // extern in fw_context.h
+mrfault::FaultRecord g_last_reset{};
+bool                 g_last_reset_valid = false;
 
 // `prep-restart`: when true the loop SKIPS the operating block (RX/timers/tx/beacon/sleep) — the node is intentionally
 // DORMANT — but still feeds the WDT (not a hang) + services the console. RAM only, so a power-cycle clears it.
-static bool                 g_halted = false;
+bool                 g_halted = false;           // extern in fw_context.h
 
 // `rcmd` deferred recovery action: respond FIRST, then act ~3 s later so the response DM airs. 0=none, 1=reboot, 2=prep-restart.
-static uint8_t              g_remote_action = 0;
-static uint64_t             g_remote_action_at = 0;
+uint8_t              g_remote_action = 0;        // extern in fw_context.h
+uint64_t             g_remote_action_at = 0;
 
 // firmware scheduled-send (testsend/testch): the on-node test workload. RAM-only (transient); the loop tick fires
 // due entries through the real send path (queue-gated). Lost on reboot — acceptable (the durable inbox tells the story).
-static mrsched::Schedule    g_sched;
+mrsched::Schedule    g_sched;                    // extern in fw_context.h
 
 // ---- Radio-Module corruption canary (debug instrument, spec 2026-06-25; MR_RADIO_CANARY, default OFF) ------------
 // Where (which loop subsystem) the Module-corruption was first SEEN. The id is stored in the durable canary record;
@@ -117,58 +118,56 @@ namespace P = meshroute::protocol;
 static constexpr uint8_t MESHROUTE_SYNC_WORD = 0x4D;   // 'M'
 
 // ---- the device stack (global ctor order = declaration order; refs bind to already-built objects) ----
-static Module                  g_mod(LORA_PIN_NSS, LORA_PIN_DIO1, LORA_PIN_RST, LORA_PIN_BUSY);
-static CustomSX1262            g_radio(&g_mod);
-static meshroute::ArduinoClock g_clock;
-static meshroute::Sx1262Radio  g_iradio(g_radio);
-static meshroute::DeviceHal    g_hal(g_clock, g_iradio);
-static meshroute::Node         g_node(g_hal, /*node_id=*/0, /*key_hash32=*/0, "node");   // identity set in setup() from /mrid
+Module                  g_mod(LORA_PIN_NSS, LORA_PIN_DIO1, LORA_PIN_RST, LORA_PIN_BUSY);   // all extern in fw_context.h
+CustomSX1262            g_radio(&g_mod);
+meshroute::ArduinoClock g_clock;
+meshroute::Sx1262Radio  g_iradio(g_radio);
+meshroute::DeviceHal    g_hal(g_clock, g_iradio);
+meshroute::Node         g_node(g_hal, /*node_id=*/0, /*key_hash32=*/0, "node");   // identity set in setup() from /mrid
 // Inbox stores. The durable QSPI/LittleFS DeviceInboxStore records backend is a bench-TODO (its begin() fails ->
 // inbox disabled), so until MRINBOX_QSPI_READY lands we install the INTERIM volatile FixedInboxStore: a bounded
 // RAM ring so record-on-delivery + pull_inbox actually WORK on metal (session-scoped history the iOS companion
 // can sync today). Lost on reboot; the per-boot epoch (set in setup) makes the app re-pull after a node reboot.
-#ifndef MR_RAM_INBOX_SLOTS
-#define MR_RAM_INBOX_SLOTS 32           // interim RAM inbox depth per store (~8.5 KB/store at 272-B slots)
-#endif
+// MR_RAM_INBOX_SLOTS + the guard now live in fw_context.h (so the extern decls match); definitions below (extern in fw_context.h).
 #if defined(MRINBOX_QSPI_READY)
-static mrinbox::DeviceInboxStore g_inbox_dm("/dm", "/mri_dm", meshroute::protocol::inbox_dm_store_bytes,   mrinbox::kSegScratchBytes);
-static mrinbox::DeviceInboxStore g_inbox_ch("/ch", "/mri_ch", meshroute::protocol::inbox_chan_store_bytes, mrinbox::kSegScratchBytes);
+mrinbox::DeviceInboxStore g_inbox_dm("/dm", "/mri_dm", meshroute::protocol::inbox_dm_store_bytes,   mrinbox::kSegScratchBytes);
+mrinbox::DeviceInboxStore g_inbox_ch("/ch", "/mri_ch", meshroute::protocol::inbox_chan_store_bytes, mrinbox::kSegScratchBytes);
 #else
-static meshroute::FixedInboxStore<MR_RAM_INBOX_SLOTS> g_inbox_dm;
-static meshroute::FixedInboxStore<MR_RAM_INBOX_SLOTS> g_inbox_ch;
+meshroute::FixedInboxStore<MR_RAM_INBOX_SLOTS> g_inbox_dm;
+meshroute::FixedInboxStore<MR_RAM_INBOX_SLOTS> g_inbox_ch;
 #endif
-static meshroute::Identity     g_identity{};                                            // seed -> Ed25519/X25519 + key_hash32
+meshroute::Identity     g_identity{};                                            // seed -> Ed25519/X25519 + key_hash32; extern in fw_context.h
 
-static uint8_t  g_rxbuf[P::max_payload_bytes_hard_cap + 32];
-static bool     g_radio_ok = false;   // SX1262 std_init result — surfaced in the heartbeat below
-static uint32_t g_rx_count = 0;       // frames received (status diagnostic)
-static uint32_t g_sleep_count = 0;    // idle light-sleep entries (status `slept=`); climbs = the gate fires, stuck = never sleeps
-static bool     g_host_present = false; // a console byte was seen this boot -> a human is here -> stay awake (MeshCore inhibit_sleep)
-static bool     g_force_sleep  = false; // the `sleep` console command -> light-sleep when idle even with a host present
-static double   g_freq_mhz = LORA_FREQ;   // live operating freq (compile default; Slice-2 NV will override at boot)
-static int8_t   g_tx_power = LORA_TX_POWER;   // live TX power (dBm); NV `cfg set tx_power` overrides at boot
+uint8_t  g_rxbuf[P::max_payload_bytes_hard_cap + 32];   // block below all extern in fw_context.h
+bool     g_radio_ok = false;   // SX1262 std_init result — surfaced in the heartbeat below
+uint32_t g_rx_count = 0;       // frames received (status diagnostic)
+uint32_t g_sleep_count = 0;    // idle light-sleep entries (status `slept=`); climbs = the gate fires, stuck = never sleeps
+bool     g_host_present = false; // a console byte was seen this boot -> a human is here -> stay awake (MeshCore inhibit_sleep)
+bool     g_force_sleep  = false; // the `sleep` console command -> light-sleep when idle even with a host present
+double   g_freq_mhz = LORA_FREQ;   // live operating freq (compile default; Slice-2 NV will override at boot)
+int8_t   g_tx_power = LORA_TX_POWER;   // live TX power (dBm); NV `cfg set tx_power` overrides at boot
 // BLE companion policy (NV v7; read at boot, reboot-to-apply). Compile defaults = the documented bare-metal
 // node: off / 15-min periodic window / PIN 123456 (spec §4 + §A.3). A v7 blob overrides these at boot.
-static uint8_t  g_ble_mode = 0;            // 0=off (bare-metal), 1=on, 2=periodic
-static uint8_t  g_ble_period_min = 15;     // periodic-mode advertising period (minutes)
-static uint32_t g_ble_pin = 123456;        // 6-digit pairing passkey
+uint8_t  g_ble_mode = 0;            // 0=off (bare-metal), 1=on, 2=periodic — all extern in fw_context.h
+uint8_t  g_ble_period_min = 15;     // periodic-mode advertising period (minutes)
+uint32_t g_ble_pin = 123456;        // 6-digit pairing passkey
 // Node location (deployment metadata, persisted in the /mrid record alongside name). Degrees × 1e7;
 // (0,0) = unset. A FIXED node is set once (`cfg set lat`/`lon` or the app); a mobile node is fed by its phone.
-static int32_t  g_lat_e7 = 0;
-static int32_t  g_lon_e7 = 0;
-static uint8_t  g_persist_id = 0, g_persist_epoch = 0, g_persist_join = 0;   // last DAD lease state written to NV (change-detect)
-static uint8_t  g_persist_team_local_id = 0;   // §mobile 6.4: last team-DAD id written to NV (change-detect -> persist across a power-cycle)
+int32_t  g_lat_e7 = 0;             // all extern in fw_context.h
+int32_t  g_lon_e7 = 0;
+uint8_t  g_persist_id = 0, g_persist_epoch = 0, g_persist_join = 0;   // last DAD lease state written to NV (change-detect)
+uint8_t  g_persist_team_local_id = 0;   // §mobile 6.4: last team-DAD id written to NV (change-detect -> persist across a power-cycle)
 // InternalFS self-heal Part 3 (2026-06-24): the channel-ctr is no longer written every send — instead /mrcfg holds a
 // LEASE (the live ctr + margin). g_ctr_lease = that persisted leased value; a write fires only when the live ctr
 // catches it (every ~margin sends), and a reboot resumes FROM the lease (≥ any id used pre-crash -> no v15 id-reuse).
-static uint16_t g_ctr_lease = 0;
+uint16_t g_ctr_lease = 0;          // extern in fw_context.h
 // ids reserved per /mrcfg write. MUST exceed the max channel originations one loop() can drain before the post-drain
 // re-lease (persist_cfg_if_needed runs at the loop tail, AFTER service_console + mrble::service_rx). That count is
 // RX-buffer-capped: USB-CDC + BLE-NUS buffers (≤ ~1 KB total) / a `send_channel …` line (≈18 B) -> a few dozen, so
 // 256 is a >5x margin (and a reboot mid-burst resumes from the lease ≥ any id minted -> no v15 id-reuse). Also bounds
 // the /mrcfg write rate to 1 per `margin` channel sends.
 static constexpr uint16_t kChannelCtrLeaseMargin = 256;
-static bool     g_fs_reformatted = false;   // Part 2: mount_or_repair() reformatted a corrupt InternalFS this boot (surfaced in status; RAM)
+bool     g_fs_reformatted = false;   // Part 2: mount_or_repair() reformatted a corrupt InternalFS this boot (surfaced in status; RAM); extern in fw_context.h
 
 // ---- device-console diagnostics (host tool: tools/meshroute_client.py) ---------------------------
 // Print the live routing table in the meshroute_client `routes` wire format.
@@ -1374,7 +1373,7 @@ static void dump_help(Print& out) {
 static void ble_sink(const char* s, size_t n) { mrble::tx_line(s, n); }   // inert off-XIAO / when no client
 
 namespace { struct PullCtx { Print& out; uint32_t count; }; }
-static char s_inbox_jb[1700];   // shared NDJSON line scratch: pulled inbox records AND live-push lines (loop()) — sequential, single-threaded, never concurrent (241-B body 6x-escaped + envelope)
+char s_inbox_jb[1700];   // shared NDJSON line scratch: pulled inbox records AND live-push lines (loop()) — sequential, single-threaded, never concurrent (241-B body 6x-escaped + envelope); extern in fw_context.h
 
 // `limits` verb (USB): the companion anti-spam/headroom snapshot as one NDJSON line. Composed from limits_snapshot()
 // then serialized via write_limits() into s_inbox_jb (declared just above) — same pattern as the other JSON dumps. A
@@ -1614,9 +1613,9 @@ static void remote_exec(uint8_t, const uint8_t*, uint8_t) {}   // §featuresplit
 #if MR_FEAT_REMOTE_MGMT
 // §remote-mgmt admin-ISSUE side (operator device): `unlock <pw>` derives the admin key into RAM; a gated `rcmd` then
 // seals the command to the target. Transient — wiped on `lock`/reboot (the credential lives in the operator's head).
-static meshroute::Identity g_admin_id{};
-static bool     g_admin_unlocked = false;
-static uint32_t g_admin_tx_ctr   = 0;      // monotonic command counter (bumped past a target's reject-hint floor)
+meshroute::Identity g_admin_id{};          // all extern in fw_context.h
+bool     g_admin_unlocked = false;
+uint32_t g_admin_tx_ctr   = 0;      // monotonic command counter (bumped past a target's reject-hint floor)
 
 static void handle_unlock(const char* args, Print& out) {
     while (*args == ' ') ++args;
@@ -2715,7 +2714,7 @@ static void mesh_service_once() {
 //   StackHighWaterMark of the CURRENT task) is read from the console handler, which now runs in the mesh task -> it
 //   reports the 8 KB task's headroom (should read thousands free, confirming the fix).
 #if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
-static TaskHandle_t g_mesh_task = nullptr;
+TaskHandle_t g_mesh_task = nullptr;   // extern in fw_context.h (nRF52 FreeRTOS only)
 static void mesh_task_fn(void*) {
     for (;;) { mesh_service_once(); yield(); }        // yield -> let the idle task run (FreeRTOS housekeeping / tickless idle)
 }
