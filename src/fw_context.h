@@ -25,8 +25,8 @@
 #include "device_hal.h"           // meshroute::DeviceHal
 #include "node.h"                 // meshroute::Node
 #include "identity.h"             // meshroute::Identity
-#include "device_inbox_store.h"   // mrinbox::DeviceInboxStore
-#include "fixed_inbox_store.h"    // meshroute::FixedInboxStore
+#include "device_inbox_store.h"   // mrinbox::DeviceInboxStore (nRF52 QSPIFLASH=1 => the LIVE QSPI/LittleFS backend)
+#include "fixed_inbox_store.h"    // meshroute::FixedInboxStore (the ESP32 RAM-ring fallback)
 #include "fault_log.h"            // mrfault::FaultLog / FaultRecord
 #include "sched_send.h"           // mrsched::Schedule
 
@@ -47,9 +47,11 @@ extern meshroute::Sx1262Radio  g_iradio;
 extern meshroute::DeviceHal    g_hal;
 extern meshroute::Node         g_node;
 
-// Inbox stores — guard MUST match the fw_main.cpp definitions (durable QSPI backend vs the interim RAM ring).
+// Inbox stores — guard MUST match the fw_main.cpp definitions: the durable QSPI/LittleFS DeviceInboxStore backend
+// (nRF52, QSPIFLASH=1 => MRINBOX_QSPI_READY, the LIVE backend there) vs the FixedInboxStore RAM ring (ESP32 fallback).
+// device_inbox_store.h's member defs are `inline`, so it is safe to include across TUs (fw_main + firmware_remote via here).
 #ifndef MR_RAM_INBOX_SLOTS
-#define MR_RAM_INBOX_SLOTS 32           // interim RAM inbox depth per store (~8.5 KB/store at 272-B slots)
+#define MR_RAM_INBOX_SLOTS 32           // ESP32 RAM inbox depth per store (~8.5 KB/store at 272-B slots)
 #endif
 #if defined(MRINBOX_QSPI_READY)
 extern mrinbox::DeviceInboxStore g_inbox_dm;
@@ -84,11 +86,20 @@ extern bool     g_fs_reformatted;                               // mount_or_repa
 extern char s_inbox_jb[1700];
 
 // ---- §remote-mgmt admin-ISSUE side (operator device): transient, wiped on lock/reboot ----
+// Guarded to match the definitions (fw_main.cpp, #if MR_FEAT_REMOTE_MGMT). SHARED across the firmware_remote
+// cluster (rcmd/unlock/lock) AND fw_main's mesh_service_once (opens sealed ACK/hint replies) — hence extern, not
+// cluster-private. The definitions stay in fw_main.cpp; firmware_remote.cpp references them through here.
+#if MR_FEAT_REMOTE_MGMT
 extern meshroute::Identity g_admin_id;
 extern bool                g_admin_unlocked;
 extern uint32_t            g_admin_tx_ctr;
+#endif
 
 // ---- mesh loop task handle (nRF52 FreeRTOS only) ----
 #if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(BOARD_XIAO_WIO_SX1262)
 extern TaskHandle_t g_mesh_task;
 #endif
+
+// ---- shared fw_main helpers (defined in fw_main.cpp; referenced across a cluster boundary) ----
+uint32_t loop_stack_free_bytes();   // nRF52 loop-task min free stack bytes (0 elsewhere) — used by dump_status AND firmware_remote's status TLV
+void     fw_wdt_feed();             // kick the watchdog (wraps mrfault::fault_wdt_feed; device_fault.h defines ISR vectors so it can't be pulled into a 2nd TU) — used during firmware_remote's multi-second admin-key KDF

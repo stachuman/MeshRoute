@@ -235,7 +235,7 @@ namespace mrinbox {
 
 // ---- META on InternalFS (REAL — the proven device_nv File API; lives SEPARATE from the records so it
 //      survives a QSPI records wipe → §10.1's high-water/epoch survival). ----------------------------------
-bool DeviceInboxStore::load_meta() {
+inline bool DeviceInboxStore::load_meta() {
     using namespace Adafruit_LittleFS_Namespace;
     InternalFS.begin();
     File f(InternalFS); if (!f.open(_meta_path, FILE_O_READ)) return false;
@@ -244,7 +244,7 @@ bool DeviceInboxStore::load_meta() {
     // UPGRADE and wipe+re-epoch the records while preserving next_seq. A bad magic = no/garbage meta = a fresh init.
     return n == static_cast<int>(sizeof(_meta)) && _meta.magic == kMagic;
 }
-bool DeviceInboxStore::save_meta() {
+inline bool DeviceInboxStore::save_meta() {
     using namespace Adafruit_LittleFS_Namespace;
     InternalFS.begin();
     InternalFS.remove(_meta_path);
@@ -263,17 +263,17 @@ bool DeviceInboxStore::save_meta() {
 // Until wired, these return false → begin() fails → the inbox is disabled on device (record_* inert), like
 // an unprovisioned device_nv. Define MRINBOX_QSPI_READY once the six methods are real.
 #ifndef MRINBOX_QSPI_READY
-bool     DeviceInboxStore::qspi_mount(bool*) { return false; }                       // QSPIFLASH not set -> inbox disabled
-bool     DeviceInboxStore::qspi_seg_size(uint16_t, uint32_t*) const { return false; }
-bool     DeviceInboxStore::qspi_seg_append(uint16_t, const uint8_t*, uint16_t) { return false; }
-uint32_t DeviceInboxStore::qspi_seg_read(uint16_t, uint8_t*, uint32_t) const { return 0; }
-void     DeviceInboxStore::qspi_seg_erase(uint16_t) {}
-bool     DeviceInboxStore::qspi_any_segments() const { return false; }
+inline bool     DeviceInboxStore::qspi_mount(bool*) { return false; }                       // QSPIFLASH not set -> inbox disabled
+inline bool     DeviceInboxStore::qspi_seg_size(uint16_t, uint32_t*) const { return false; }
+inline bool     DeviceInboxStore::qspi_seg_append(uint16_t, const uint8_t*, uint16_t) { return false; }
+inline uint32_t DeviceInboxStore::qspi_seg_read(uint16_t, uint8_t*, uint32_t) const { return 0; }
+inline void     DeviceInboxStore::qspi_seg_erase(uint16_t) {}
+inline bool     DeviceInboxStore::qspi_any_segments() const { return false; }
 #else
 // ---- REAL QSPI records backend: File ops on the `QSPIFlash` (CustomLFS) instance, MIRRORING load_meta/save_meta
 //      on InternalFS. The store's ring/seq/cap math is platform-neutral + host-tested; these are pure file ops.
 //      ★ The on-metal flash behaviour is USER BENCH-VERIFIED (the reality-split; the host can't drive QSPI). ----
-bool DeviceInboxStore::qspi_mount(bool* formatted) {
+inline bool DeviceInboxStore::qspi_mount(bool* formatted) {
     if (formatted) *formatted = false;   // begin() format-on-fail is internal; the §10.1 wipe-detect uses qspi_any_segments()
     // begin() is ONE-SHOT (CustomLFS_QSPIFlash::begin rejects re-entry with `_qspi_initialized`), but BOTH stores
     // (DM + channel) call qspi_mount -> guard so begin() runs exactly once; the 2nd store reuses the result.
@@ -288,14 +288,14 @@ bool DeviceInboxStore::qspi_mount(bool* formatted) {
     }
     return s_ok;
 }
-bool DeviceInboxStore::qspi_seg_size(uint16_t idx, uint32_t* size) const {
+inline bool DeviceInboxStore::qspi_seg_size(uint16_t idx, uint32_t* size) const {
     using namespace Adafruit_LittleFS_Namespace;
     char p[40]; seg_path(idx, p, sizeof p);
     File f(QSPIFlash); if (!f.open(p, FILE_O_READ)) return false;   // absent (not an error)
     if (size) *size = static_cast<uint32_t>(f.size());
     f.close(); return true;
 }
-bool DeviceInboxStore::qspi_seg_append(uint16_t idx, const uint8_t* b, uint16_t n) {
+inline bool DeviceInboxStore::qspi_seg_append(uint16_t idx, const uint8_t* b, uint16_t n) {
     using namespace Adafruit_LittleFS_Namespace;
     char p[40]; seg_path(idx, p, sizeof p);
     // ADDENDUM 3 RE-APPLIED (2026-06-29): keep the hot do_post_ack append OFF THE HEAP. The Adafruit `File` path
@@ -328,7 +328,7 @@ bool DeviceInboxStore::qspi_seg_append(uint16_t idx, const uint8_t* b, uint16_t 
     QSPIFlash._unlockFS();
     return ok;
 }
-uint32_t DeviceInboxStore::qspi_seg_read(uint16_t idx, uint8_t* out, uint32_t cap) const {
+inline uint32_t DeviceInboxStore::qspi_seg_read(uint16_t idx, uint8_t* out, uint32_t cap) const {
     using namespace Adafruit_LittleFS_Namespace;
     char p[40]; seg_path(idx, p, sizeof p);
     File f(QSPIFlash); if (!f.open(p, FILE_O_READ)) return 0;       // absent
@@ -336,11 +336,11 @@ uint32_t DeviceInboxStore::qspi_seg_read(uint16_t idx, uint8_t* out, uint32_t ca
     const int r = f.read(out, sz);
     f.close(); return r > 0 ? static_cast<uint32_t>(r) : 0;
 }
-void DeviceInboxStore::qspi_seg_erase(uint16_t idx) {
+inline void DeviceInboxStore::qspi_seg_erase(uint16_t idx) {
     char p[40]; seg_path(idx, p, sizeof p);
     QSPIFlash.remove(p);                                            // remove = empty (the next append re-creates it)
 }
-bool DeviceInboxStore::qspi_any_segments() const {
+inline bool DeviceInboxStore::qspi_any_segments() const {
     for (uint16_t i = 0; i < ring_segs(); ++i) {                    // any ring segment with bytes? (§10.1 wipe-detect)
         uint32_t sz = 0;
         if (qspi_seg_size(i, &sz) && sz > 0) return true;
@@ -352,14 +352,14 @@ bool DeviceInboxStore::qspi_any_segments() const {
 }  // namespace mrinbox
 #else   // ESP32 (Heltec) + any other board: the records backend is the NEXT slice -> begin() fails (Inbox disabled)
 namespace mrinbox {
-bool DeviceInboxStore::qspi_mount(bool*) { return false; }
-bool DeviceInboxStore::qspi_seg_size(uint16_t, uint32_t*) const { return false; }
-bool DeviceInboxStore::qspi_seg_append(uint16_t, const uint8_t*, uint16_t) { return false; }
-uint32_t DeviceInboxStore::qspi_seg_read(uint16_t, uint8_t*, uint32_t) const { return 0; }
-void DeviceInboxStore::qspi_seg_erase(uint16_t) {}
-bool DeviceInboxStore::qspi_any_segments() const { return false; }
-bool DeviceInboxStore::load_meta() { return false; }
-bool DeviceInboxStore::save_meta() { return false; }
+inline bool DeviceInboxStore::qspi_mount(bool*) { return false; }
+inline bool DeviceInboxStore::qspi_seg_size(uint16_t, uint32_t*) const { return false; }
+inline bool DeviceInboxStore::qspi_seg_append(uint16_t, const uint8_t*, uint16_t) { return false; }
+inline uint32_t DeviceInboxStore::qspi_seg_read(uint16_t, uint8_t*, uint32_t) const { return 0; }
+inline void DeviceInboxStore::qspi_seg_erase(uint16_t) {}
+inline bool DeviceInboxStore::qspi_any_segments() const { return false; }
+inline bool DeviceInboxStore::load_meta() { return false; }
+inline bool DeviceInboxStore::save_meta() { return false; }
 }  // namespace mrinbox
 #endif
 
