@@ -551,6 +551,9 @@ public:
         return c > 0 ? c : _cfg.radio_cr;
     }
     uint32_t          key_hash32()     const { return _key_hash32; }
+    void              set_name(const char* name, uint8_t len) { _name_len = len > sizeof _name ? (uint8_t)sizeof _name : len; for (uint8_t i = 0; i < _name_len; ++i) _name[i] = name[i]; }   // §1.3: load the /mrid name into the core (for the pubkey exchange + display)
+    uint8_t           name_len()       const { return _name_len; }
+    uint8_t           effective_name(char* out, uint8_t cap) const;   // §1.3: the stored name, or "MeshRoute node: 0x<hash>" (the STABLE hash — the id can change) when empty. Returns the length written (never null-terminates).
     bool              crypto_ready()   const { return _crypto_ready; }   // DP1: a crypto identity is installed
     const NodeConfig& config()         const { return _cfg; }
     NodeConfig&       mutable_config()       { return _cfg; }   // LIVE tweak of dynamically-read cfg (device `cfg set`):
@@ -735,7 +738,8 @@ public:
     int               id_bind_find_by_hash(uint32_t key_hash32, IdBindConf* conf_out = nullptr);   // -> node_id, or -1 (skips expired); opt. out: the binding's confidence (soft/hard resolve)
     // E2E peer-pubkey cache (Phase 1 §6). Public for the seal/open paths + tests. hash-verified (ed_pub[:4]==hash),
     // authoritative-never-downgraded, evict-oldest at cap_peer_keys, TTL-aged. Per the ACTIVE layer.
-    bool              peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyConf conf);   // false: ed_pub[:4]!=hash
+    bool              peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyConf conf, const char* name = nullptr, uint8_t name_len = 0);   // false: ed_pub[:4]!=hash. §1.3: name (if given) is REFRESHED on every call (mutable), the key never downgrades.
+    uint8_t           peer_name_find(uint32_t key_hash32, char* out, uint8_t cap) const;   // §1.3: the cached name for a peer hash (0 = unknown/none); for `nameof`
     bool              peer_key_find(uint32_t key_hash32, uint8_t ed_pub_out[32], PeerKeyConf* conf_out = nullptr);  // false: absent/aged
     // §remote-mgmt: node_id -> its learned key_hash32 (from the _id_bind beacon table), 0 if we've heard no beacon for it.
     // Lets the admin-issue path resolve a target id -> hash -> ed_pub (peer_key_find) to seal a command to it.
@@ -883,7 +887,7 @@ private:
     bool    hash_query_seen_recently(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey);   // per-(origin,hash,VARIANT) dedup; VARIANT = hard + want_pubkey (§2: a WANT_PUBKEY isn't suppressed by a prior plain HARD)
     void    mark_hash_query_seen(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey);
     void    send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, uint32_t key_hash32, bool authoritative, bool mobile_proxy = false, uint8_t epoch = 0); // B: routed DATA(H_ANSWER inner) home; §mobile 4a: mobile_proxy -> MOBILE_H_ANSWER TYPE + epoch
-    void    send_hash_bind_pubkey_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, const uint8_t ed_pub[32]);  // E2E §6: routed DATA TYPE 5 (the owner's ed_pub)
+    void    send_hash_bind_pubkey_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, const uint8_t ed_pub[32], uint32_t dst_hash = 0);  // E2E §6: routed DATA TYPE 5 (the owner's ed_pub). Wave 2: dst_hash!=0 (mobile requester) -> DST_HASH so the home last-miles it
     const uint8_t* host_mobile_ed_pub(uint32_t key_hash32) const;  // §mobile Part 2 Fix 7: the cached ed_pub for a hosted mobile (live direct proxy + has_pubkey), else nullptr
     void    send_mobile_pubkey_answer(uint8_t to_origin, uint8_t target_layer, uint8_t home_id, uint32_t key_hash32, uint8_t epoch, const uint8_t ed_pub[32]);  // §mobile Part 2 Fix 7: DATA TYPE 13 (home routing ‖ the mobile's ed_pub)
     // D — send-by-hash trigger (the deferred "address by key_hash32") + verify-on-use.
@@ -1268,6 +1272,8 @@ private:
     bool     _team_dad_pending = false;  // §mobile 6.4: true during the team-DAD guard window (tentative _team_local_id) -> a same-team src collision RE-PICKS; after (confirmed) -> DEFEND (DENY).
 #endif
     uint32_t _key_hash32;         // stable long identity
+    char     _name[32] = {};      // §1.3: human label (the /mrid IdBlob.name, <=32 B); empty -> effective_name() defaults to "MeshRoute node: 0x<hash>"
+    uint8_t  _name_len = 0;
     uint8_t  _x_secret[32] = {};  // DP1: X25519 ECDH secret (Phase-1 E2E DM crypto)
     uint8_t  _ed_pub[32]   = {};  // DP1: our Ed25519 pubkey (advertised so peers can ECDH to us)
     bool     _crypto_ready = false;
@@ -1339,7 +1345,7 @@ private:
     struct MobileHomeBinding { uint32_t mobile_hash; uint64_t last_seen_ms; uint8_t home_id; uint8_t epoch = 0; uint8_t home_layer = 0; };  // §mobile 4a epoch (freshest-proxy wins) + §5b home_layer (the home's full layer_id, for cross-layer routing)
     // E2E peer-pubkey cache (Phase 1 §6): key_hash32 -> ed_pub. Immutable + hash-verifiable (ed_pub[:4]==key_hash32),
     // so a TYPE-5 owner answer is cached AUTHORITATIVE even relayed/cached-on-pass (can't decay). Member in LayerRuntime.
-    struct PeerKey { uint32_t key_hash32; uint64_t last_seen_ms; uint8_t ed_pub[32]; uint8_t confidence; };
+    struct PeerKey { uint32_t key_hash32; uint64_t last_seen_ms; uint8_t ed_pub[32]; uint8_t confidence; char name[32]; uint8_t name_len; };   // §1.3: name rides with the key — IMMUTABLE key, MUTABLE name (refreshed on every pubkey message)
     // H hash-locate flood dedup (Lua hash_query_seen): per-(origin,key_hash32), hash_query_seen_ttl_ms window. Member in LayerRuntime.
     struct HashQuerySeen { uint8_t origin; uint32_t key_hash32; uint64_t t_ms; bool hard; bool want_pubkey; };   // §2: WANT_PUBKEY is its own variant
     // Peer-liveness + freshness plane (routing-liveness port, Lua dv:3986-4545): per-next-hop RTS/ACK-timeout
@@ -1560,7 +1566,8 @@ private:
         // Per-leaf (a host serves one leaf). DORMANT unless a mobile registers -> the static mesh is unaffected.
         struct HostMobileEntry { uint32_t key_hash32; uint8_t mobile_local_id; uint16_t epoch; uint64_t last_heard_ms;
                                  uint8_t redirect_home_id = 0; uint8_t redirect_epoch = 0; uint8_t redirect_home_layer = 0;
-                                 uint8_t ed_pub[32] = {}; bool has_pubkey = false; };  // §mobile 4b redirect (0 home = none) + §5b the new home's LAYER + §Part 2 the mobile's E2E pubkey (Fix 5); at struct END for positional aggregate-inits
+                                 uint8_t ed_pub[32] = {}; bool has_pubkey = false;
+                                 char name[32] = {}; uint8_t name_len = 0; };  // §mobile 4b redirect (0 home = none) + §5b the new home's LAYER + §Part 2 the mobile's E2E pubkey (Fix 5) + §1.3 the mobile's name (pushed w/ the key); at struct END for positional aggregate-inits
         HostMobileEntry _mobile_reg[protocol::cap_host_mobiles] = {};
         uint8_t         _mobile_reg_n = 0;
         // §per-layer discovery (2026-07-05): a GATEWAY bootstraps each leaf INDEPENDENTLY — the boot leaf must not trip

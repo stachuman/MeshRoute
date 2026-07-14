@@ -26,11 +26,28 @@ namespace MESHROUTE_NS {
 
 Node::Node(Hal& hal, uint8_t node_id, uint32_t key_hash32, const char* name)
     : _hal(hal), _node_id(node_id), _key_hash32(key_hash32) {
-    (void)name;  // sim-debug only; the node identifies by node_id / key_hash32
+    if (name) { uint8_t l = 0; while (name[l] && l < sizeof _name) ++l; set_name(name, l); }   // §1.3: keep the ctor/sim name (was discarded) so effective_name + the pubkey exchange can carry it
     // 0xFF is RESERVED — never a valid node id. It is the "unknown PHY source"
     // sentinel: RxMeta.src_hint=-1 casts to 0xFF, and real LoRa carries no link
     // source. The console `cfg id` already caps at 254; this guards the ctor too.
     if (node_id == 0xFF) _hal.panic("node_id 0xFF is reserved (invalid)");
+}
+
+// §1.3: the node's human name for display + the pubkey exchange. An empty name defaults to "MeshRoute node: 0x<hash>" —
+// the key_hash32 is STABLE (the node_id can change via join/lease), so the default is a persistent identity.
+uint8_t Node::effective_name(char* out, uint8_t cap) const {
+    if (cap == 0) return 0;
+    if (_name_len > 0) {                                          // an explicit name
+        const uint8_t n = _name_len < cap ? _name_len : cap;
+        for (uint8_t i = 0; i < n; ++i) out[i] = _name[i];
+        return n;
+    }
+    static const char pfx[] = "MeshRoute node: 0x";
+    const char hex[] = "0123456789ABCDEF";
+    uint8_t k = 0;
+    for (uint8_t i = 0; pfx[i] && k < cap; ++i) out[k++] = pfx[i];
+    for (int sh = 28; sh >= 0 && k < cap; sh -= 4) out[k++] = hex[(_key_hash32 >> sh) & 0xF];
+    return k;
 }
 
 // Reassign identity post-construct: the device boots id=0 then loads it from NV; the join runtime sets

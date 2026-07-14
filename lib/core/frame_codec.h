@@ -295,12 +295,15 @@ enum HFlag : uint8_t { H_FLAG_HARD = 0x01,
                        H_FLAG_MOBILE_REQ = 0x08 };    // §mobile: the requester (origin) is a MOBILE/team member -> its origin is a LOCAL id, not a global identity. The owner-answerer MUST NOT id_bind it (a WANT_PUBKEY seal-back caches by hash + routes via home/_rt_team, never the static id-plane). Backward-compat rsv bit (old senders 0, old receivers ignore).
 // §2 mutual reqpubkey: when want_pubkey is set, the H frame APPENDS the requester's ed_pub[32] (so the owner caches
 // the requester + can decrypt its future sealed DMs). requester_ed_pub is meaningful ONLY when want_pubkey.
+// §name: WITH the pubkey, a WANT_PUBKEY H also appends the requester's [name_len u8][name…] (iff name_len>0), AFTER the
+// team_id — so the owner caches hash->name too, symmetric to the TYPE-5/12/13 pubkey ANSWER frames. Optional/trailing:
+// an old WANT_PUBKEY H (or one with no name) carries none -> name_len parses 0.
 struct h_in  { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; bool want_pubkey = false; uint8_t requester_ed_pub[32] = {};
-               bool team_scoped = false; uint32_t team_id = 0; bool mobile_req = false; };   // §mobile-team: appended team_id (4 B) iff team_scoped — a teammate's locate; mobile_req = origin is a LOCAL id (owner must not id_bind it)
+               bool team_scoped = false; uint32_t team_id = 0; bool mobile_req = false; uint8_t name[32] = {}; uint8_t name_len = 0; };   // §mobile-team: appended team_id (4 B) iff team_scoped; mobile_req = origin is a LOCAL id; §name: [name_len][name] iff want_pubkey&&name_len>0
 struct h_out { uint8_t leaf_id; uint8_t origin; uint32_t key_hash32; uint8_t ttl; bool hard = false; bool want_pubkey = false; uint8_t requester_ed_pub[32] = {};
-               bool team_scoped = false; uint32_t team_id = 0; bool mobile_req = false; };
-size_t pack_h(const h_in& in, std::span<uint8_t> out);            // 8, or 8+32=40 when want_pubkey; 0 on short buf
-std::optional<h_out> parse_h(std::span<const uint8_t> frame);     // nullopt: len<7 / cmd / (want_pubkey && len<40); hard+flags from byte 7
+               bool team_scoped = false; uint32_t team_id = 0; bool mobile_req = false; uint8_t name[32] = {}; uint8_t name_len = 0; };
+size_t pack_h(const h_in& in, std::span<uint8_t> out);            // 8; +32 want_pubkey; +4 team_scoped; +1+name_len when want_pubkey&&name_len>0; 0 on short buf
+std::optional<h_out> parse_h(std::span<const uint8_t> frame);     // nullopt: len<7 / cmd / (want_pubkey && len<40) / bad-name-len; hard+flags from byte 7
 
 // -----------------------------------------------------------------------------
 // F — route-find RREQ/RREP flood (cmd-nibble 0x8, 7 B) — ROADMAP §10.3

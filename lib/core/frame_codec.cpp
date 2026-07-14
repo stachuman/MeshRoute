@@ -564,7 +564,8 @@ std::optional<uint32_t> parse_q_channel_id(std::span<const uint8_t> frame,
 // H — cmd 0x7, 8 B (§3.7a). key_hash32 LE; byte 7 = H flags (bit 0 = HARD: skip the cache, reach the owner).
 // -----------------------------------------------------------------------------
 size_t pack_h(const h_in& in, std::span<uint8_t> out) {
-    const size_t need = 8u + (in.want_pubkey ? 32u : 0u) + (in.team_scoped ? 4u : 0u);   // §2 WANT_PUBKEY appends ed_pub[32]; §mobile-team appends team_id[4]
+    const size_t need = 8u + (in.want_pubkey ? 32u : 0u) + (in.team_scoped ? 4u : 0u)
+                      + ((in.want_pubkey && in.name_len) ? 1u + in.name_len : 0u);   // §2 WANT_PUBKEY appends ed_pub[32]; §mobile-team appends team_id[4]; §name appends [name_len][name] WITH the pubkey
     if (out.size() < need) return 0;
     wire::Writer w(out);
     w.u8(wire::cmd_byte(wire::Cmd::H, static_cast<uint8_t>(in.leaf_id & 0x0F)));
@@ -574,6 +575,7 @@ size_t pack_h(const h_in& in, std::span<uint8_t> out) {
     w.u8(static_cast<uint8_t>((in.hard ? H_FLAG_HARD : 0) | (in.want_pubkey ? H_FLAG_WANT_PUBKEY : 0) | (in.team_scoped ? H_FLAG_TEAM : 0) | (in.mobile_req ? H_FLAG_MOBILE_REQ : 0)));   // byte 7: H flags
     if (in.want_pubkey) for (int i = 0; i < 32; ++i) w.u8(in.requester_ed_pub[i]);   // bytes 8..39: the requester's ed_pub
     if (in.team_scoped) w.u32_le(in.team_id);   // §mobile-team: after the ed_pub (if any) -> the querier's team_id
+    if (in.want_pubkey && in.name_len) { w.u8(in.name_len); for (uint8_t i = 0; i < in.name_len; ++i) w.u8(in.name[i]); }   // §name: [name_len][name] AFTER the team_id — the requester's name rides WITH its pubkey (mirrors the answer frames)
     return w.ok() ? w.size() : 0;
 }
 
@@ -600,6 +602,16 @@ std::optional<h_out> parse_h(std::span<const uint8_t> frame) {
         const size_t off = 8u + (o.want_pubkey ? 32u : 0u);
         if (frame.size() < off + 4u) return std::nullopt;                    // flag set but team_id missing -> reject
         wire::Reader tr(frame.subspan(off, 4)); o.team_id = tr.u32_le();
+    }
+    if (o.want_pubkey) {                                                      // §name: OPTIONAL trailing [name_len][name] AFTER ed_pub(+team_id). Old/nameless WANT_PUBKEY H has none -> name_len 0.
+        const size_t noff = 8u + 32u + (o.team_scoped ? 4u : 0u);
+        if (frame.size() > noff) {
+            const uint8_t nl = frame[noff];
+            if (nl > 32) return std::nullopt;                                // guard: name_len <= 32
+            if (frame.size() < noff + 1u + nl) return std::nullopt;          // truncated name -> reject (fail loud)
+            o.name_len = nl;
+            for (uint8_t i = 0; i < nl; ++i) o.name[i] = frame[noff + 1u + i];
+        }
     }
     return o;
 }

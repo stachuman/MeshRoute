@@ -266,7 +266,7 @@ void Node::mobile_home_age_out() {
 }
 
 // ---- E2E peer-pubkey cache (Phase 1 §6): key_hash32 -> ed_pub, hash-verified + authoritative-never-downgraded ----
-bool Node::peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyConf conf) {
+bool Node::peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyConf conf, const char* name, uint8_t name_len) {
     // Hash-verifiable: key_hash32 == LE(ed_pub[0..3]) (== identity.h key_hash32_of). A forged binding is REFUSED.
     const uint32_t derived = static_cast<uint32_t>(ed_pub[0]) | (static_cast<uint32_t>(ed_pub[1]) << 8) |
                              (static_cast<uint32_t>(ed_pub[2]) << 16) | (static_cast<uint32_t>(ed_pub[3]) << 24);
@@ -278,6 +278,7 @@ bool Node::peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyCo
             const bool existing_pinned = (L._peer_keys[i].confidence == static_cast<uint8_t>(PeerKeyConf::pinned));
             if (existing_pinned && conf != PeerKeyConf::pinned) return true;   // §1: PINNED is IMMUTABLE to an on-air set (no-op, no refresh)
             L._peer_keys[i].last_seen_ms = now;
+            if (name && name_len) { const uint8_t nl = name_len > 32 ? 32 : name_len; for (uint8_t b = 0; b < nl; ++b) L._peer_keys[i].name[b] = name[b]; L._peer_keys[i].name_len = nl; }   // §1.3: REFRESH the name (mutable) even when the key is unchanged
             if (conf == PeerKeyConf::pinned || static_cast<uint8_t>(conf) > L._peer_keys[i].confidence) {  // upgrade, or a user re-pin
                 for (int b = 0; b < 32; ++b) L._peer_keys[i].ed_pub[b] = ed_pub[b];
                 L._peer_keys[i].confidence = static_cast<uint8_t>(conf);
@@ -306,7 +307,19 @@ bool Node::peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyCo
     for (int b = 0; b < 32; ++b) L._peer_keys[slot].ed_pub[b] = ed_pub[b];
     L._peer_keys[slot].confidence = static_cast<uint8_t>(conf);
     L._peer_keys[slot].last_seen_ms = now;
+    L._peer_keys[slot].name_len = 0;
+    if (name && name_len) { const uint8_t nl = name_len > 32 ? 32 : name_len; for (uint8_t b = 0; b < nl; ++b) L._peer_keys[slot].name[b] = name[b]; L._peer_keys[slot].name_len = nl; }   // §1.3: cache the peer's name with the key
     return true;
+}
+
+uint8_t Node::peer_name_find(uint32_t key_hash32, char* out, uint8_t cap) const {   // §1.3: the cached name for a peer hash (0 = unknown)
+    for (uint16_t i = 0; i < _active->_peer_keys_n; ++i)
+        if (_active->_peer_keys[i].key_hash32 == key_hash32) {
+            const uint8_t n = _active->_peer_keys[i].name_len < cap ? _active->_peer_keys[i].name_len : cap;
+            for (uint8_t b = 0; b < n; ++b) out[b] = _active->_peer_keys[i].name[b];
+            return n;
+        }
+    return 0;
 }
 
 bool Node::peer_key_find(uint32_t key_hash32, uint8_t ed_pub_out[32], PeerKeyConf* conf_out) {
@@ -570,7 +583,8 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                           | (uint32_t(h.requester_ed_pub[2]) << 16) | (uint32_t(h.requester_ed_pub[3]) << 24);
             bool req_zero = true; for (int i = 0; i < 32; ++i) if (h.requester_ed_pub[i]) { req_zero = false; break; }
             if (!req_zero && requester_hash != 0                       // review#15: never cache a zero/degenerate requester key
-                && peer_key_set(requester_hash, h.requester_ed_pub, PeerKeyConf::authoritative)) {
+                && peer_key_set(requester_hash, h.requester_ed_pub, PeerKeyConf::authoritative,
+                                reinterpret_cast<const char*>(h.name), h.name_len)) {   // §name: cache hash->name too (WITH the pubkey), symmetric to the TYPE-5 answer
                 // review#3: the ADDRESSING half (seal-back w/o waiting for a beacon). §mobile: a MOBILE/TEAM requester's
                 // origin (h.mobile_req, or a team_scoped locate) is a LOCAL id -> do NOT id_bind it into the global plane;
                 // the KEY half (peer_key_set, hash-keyed) still runs, and the seal-back routes by hash via home / _rt_team.
@@ -580,7 +594,7 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                 MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(requester_hash)), EF_I("node", h.origin));   // review#11: schema aligned with §7
                 Push pu{}; pu.kind = PushKind::peer_key_cached; pu.sender_hash = requester_hash; enqueue_push(pu);   // review#10: app-notify on device too
             }
-            send_hash_bind_pubkey_response(h.origin, _cfg.leaf_id, static_cast<uint8_t>(node_id), _ed_pub);
+            send_hash_bind_pubkey_response(h.origin, _cfg.leaf_id, static_cast<uint8_t>(node_id), _ed_pub, h.mobile_req ? requester_hash : 0);   // §mobile: a MOBILE requester -> DST_HASH=the mobile so the answer routes to origin (=the mobile's home) + last-miles
         } else
             send_hash_bind_response(h.origin, mobile_proxy ? mobile_layer : _cfg.leaf_id, static_cast<uint8_t>(node_id), h.key_hash32, authoritative, mobile_proxy, mobile_epoch);   // §5b: a mobile answer carries the HOME's full layer_id (not the proxy's leaf)
         return;                                            // SUPPRESS — the whole point: the flood stops here
@@ -605,9 +619,10 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     fwd.ttl = fwd_ttl; fwd.hard = h.hard;                          // preserve the variant across forwards
     fwd.want_pubkey = h.want_pubkey;   // R4: PRESERVE the E2E pubkey-request flag so a multi-hop WANT_PUBKEY reaches the owner
     if (h.want_pubkey) for (int i = 0; i < 32; ++i) fwd.requester_ed_pub[i] = h.requester_ed_pub[i];   // §2: carry the requester's pubkey across the forward
+    if (h.want_pubkey) { fwd.name_len = h.name_len; for (uint8_t i = 0; i < h.name_len; ++i) fwd.name[i] = h.name[i]; }   // §name: carry the requester's name across the forward (WITH the pubkey)
     fwd.team_scoped = h.team_scoped; fwd.team_id = h.team_id;   // §mobile-team Fix 1b: PRESERVE team scope across a multi-hop forward, else a same_team mobile >1 hop away sees a plain query + stays silent (Fix 1). Inert today (no originator sets team_scoped -> byte-identical) until 6.2 turns it on.
     fwd.mobile_req = h.mobile_req;   // §mobile: PRESERVE the "origin is a LOCAL id" mark across a multi-hop forward so the OWNER (>1 hop away) still skips the id_bind.
-    uint8_t buf[8 + 32 + 4];           // §2: WANT_PUBKEY H is 40 B; §mobile-team: +4 B for team_id (a team_scoped WANT_PUBKEY is 44 B)
+    uint8_t buf[8 + 32 + 4 + 1 + 32];  // §2: WANT_PUBKEY H is 40 B; §mobile-team: +4 B team_id; §name: +1+name_len (max 33) -> up to 77 B
     const size_t n = pack_h(fwd, std::span<uint8_t>(buf, sizeof(buf)));
     if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
 }
@@ -649,23 +664,19 @@ void Node::send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint
 }
 
 // E2E §6: the owner answers a WANT_PUBKEY query with its ed_pub — a routed DATA TYPE 5 (cleartext; cache-on-pass).
-void Node::send_hash_bind_pubkey_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, const uint8_t ed_pub[32]) {
-    if (_active->_tx_queue_n >= kTxQueueCap) return;
+// Wave 2: built as a STANDARD DM (enqueue_data -> [dst_hash?][origin][body]) not a raw inner, so a MOBILE requester's
+// answer can carry dst_hash=the mobile -> route to origin (=the mobile's HOME) -> the home last-mile-forwards it
+// (do_post_ack). dst_hash==0 (a static requester) -> a plain [origin][body] DM to to_origin. The consumer reads ui->body.
+void Node::send_hash_bind_pubkey_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, const uint8_t ed_pub[32], uint32_t dst_hash) {
     hash_bind_pubkey_inner hb{}; hb.target_layer = target_layer; hb.node_id = node_id;
     for (int i = 0; i < 32; ++i) hb.ed_pub[i] = ed_pub[i];
-    uint8_t inner[34];
-    const size_t n = pack_hash_bind_pubkey_inner(hb, std::span<uint8_t>(inner, sizeof inner));
+    uint8_t body[34 + 1 + 32];                                     // the pubkey answer BODY; enqueue_data wraps it in the standard inner
+    size_t n = pack_hash_bind_pubkey_inner(hb, std::span<uint8_t>(body, 34));
     if (n == 0) return;
-    TxItem item{};
-    item.origin = _node_id; item.dst = to_origin;
-    item.ctr = next_ctr(to_origin); item.ctr_lo = static_cast<uint8_t>(item.ctr & 0x0F);
-    item.flags = 0; item.type = DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY;   // TYPE 5 (owner-only; the query rode HARD)
-    for (size_t i = 0; i < n; ++i) item.inner[i] = inner[i];
-    item.inner_len = static_cast<uint8_t>(n);
-    item.enqueue_time_ms = _hal.now();
-    _active->_tx_queue[_active->_tx_queue_n++] = item;
-    MR_EMIT("hash_bind_pubkey_response_enqueued", EF_I("to", to_origin), EF_I("node", node_id));
-    become_free();
+    const uint8_t nlen = effective_name(reinterpret_cast<char*>(body + n + 1), 32);   // §1.3: ‖ [name_len][name] (OUR name; the owner answers its own key)
+    body[n] = nlen; n += 1u + nlen;
+    (void)enqueue_data(to_origin, body, static_cast<uint8_t>(n), /*flags=*/0, "hash_bind_pubkey_response_enqueued",
+                       /*app_dm=*/false, DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY, CryptIntent::off, /*override_dst_hash=*/dst_hash);
 }
 
 // E2E §6: a DATA TYPE 5 (delivered to us OR relayed-through) -> cache the owner's ed_pub AUTHORITATIVE. The pubkey is
@@ -675,7 +686,9 @@ void Node::on_hash_bind_pubkey(const uint8_t* inner, uint8_t inner_len) {
     if (!o) return;
     const uint32_t kh = static_cast<uint32_t>(o->ed_pub[0]) | (static_cast<uint32_t>(o->ed_pub[1]) << 8)
                       | (static_cast<uint32_t>(o->ed_pub[2]) << 16) | (static_cast<uint32_t>(o->ed_pub[3]) << 24);
-    if (peer_key_set(kh, o->ed_pub, PeerKeyConf::authoritative)) {
+    const char* nm = nullptr; uint8_t nlen = 0;                            // §1.3: appended [name_len][name] after the 34-B base
+    if (inner_len > 34) { nlen = inner[34]; if (nlen > 32) nlen = 32; if (35u + nlen <= inner_len) nm = reinterpret_cast<const char*>(inner + 35); else nlen = 0; }
+    if (peer_key_set(kh, o->ed_pub, PeerKeyConf::authoritative, nm, nlen)) {
         MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(kh)), EF_I("node", o->node_id));
         Push pu{}; pu.kind = PushKind::peer_key_cached; pu.sender_hash = kh; enqueue_push(pu);   // §7: app prompts "secure send ready — resend"
     }
@@ -736,15 +749,20 @@ void Node::send_mobile_pubkey_answer(uint8_t to_origin, uint8_t target_layer, ui
                                      uint32_t key_hash32, uint8_t epoch, const uint8_t ed_pub[32]) {
     if (_active->_tx_queue_n >= kTxQueueCap) return;
     hash_bind_inner hb{}; hb.target_layer = target_layer; hb.node_id = home_id; hb.key_hash32 = key_hash32; hb.epoch = epoch;
-    uint8_t inner[7 + 32];
+    uint8_t inner[7 + 32 + 1 + 32];
     const size_t n = pack_hash_bind_inner(hb, std::span<uint8_t>(inner, 7), /*mobile=*/true);   // 7 B mobile variant (home routing + epoch)
     if (n == 0) return;
     for (int i = 0; i < 32; ++i) inner[n + i] = ed_pub[i];                                      // ‖ the mobile's ed_pub
+    uint8_t nlen = 0;                                                                            // §1.3: ‖ the hosted MOBILE's name (from _mobile_reg, pushed with the key)
+    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+        if (_active->_mobile_reg[i].key_hash32 == key_hash32) { nlen = _active->_mobile_reg[i].name_len > 32 ? 32 : _active->_mobile_reg[i].name_len;
+            for (uint8_t b = 0; b < nlen; ++b) inner[n + 32 + 1 + b] = static_cast<uint8_t>(_active->_mobile_reg[i].name[b]); break; }
+    inner[n + 32] = nlen;
     TxItem item{};
     item.origin = _node_id; item.dst = to_origin;
     item.ctr = next_ctr(to_origin); item.ctr_lo = static_cast<uint8_t>(item.ctr & 0x0F);
     item.flags = 0; item.type = DATA_TYPE_MOBILE_H_ANSWER_PUBKEY;
-    const size_t total = n + 32;
+    const size_t total = n + 32 + 1u + nlen;
     for (size_t i = 0; i < total; ++i) item.inner[i] = inner[i];
     item.inner_len = static_cast<uint8_t>(total);
     item.enqueue_time_ms = _hal.now();
@@ -763,7 +781,9 @@ void Node::on_mobile_hash_bind_pubkey_response(const uint8_t* inner, uint8_t inn
     if (!hb) return;
     const uint8_t* ed = inner + 7;
     const uint32_t kh = uint32_t(ed[0]) | (uint32_t(ed[1]) << 8) | (uint32_t(ed[2]) << 16) | (uint32_t(ed[3]) << 24);
-    if (kh == hb->key_hash32 && peer_key_set(kh, ed, PeerKeyConf::authoritative)) {   // the key MUST hash to M (self-consistent) — never id_bind the LOCAL id
+    const char* nm = nullptr; uint8_t nlen = 0;                            // §1.3: appended [name_len][name] after the 39-B base
+    if (inner_len > 39) { nlen = inner[39]; if (nlen > 32) nlen = 32; if (40u + nlen <= inner_len) nm = reinterpret_cast<const char*>(inner + 40); else nlen = 0; }
+    if (kh == hb->key_hash32 && peer_key_set(kh, ed, PeerKeyConf::authoritative, nm, nlen)) {   // the key MUST hash to M (self-consistent) — never id_bind the LOCAL id
         MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(kh)), EF_I("node", hb->node_id));
         Push pu{}; pu.kind = PushKind::peer_key_cached; pu.sender_hash = kh; enqueue_push(pu);   // §7: app prompts "secure send ready — resend"
     }
@@ -916,7 +936,10 @@ void Node::emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey, Pla
     in.leaf_id = _cfg.leaf_id; in.origin = _node_id; in.key_hash32 = key_hash32;
     in.ttl = protocol::hash_query_max_ttl; in.hard = hard; in.want_pubkey = want_pubkey;
     in.mobile_req = _cfg.is_mobile;                              // §mobile: OUR origin (in.origin=_node_id) is a mobile/team LOCAL id -> tell the owner NOT to id_bind it (the seal-back caches by hash + routes via home/_rt_team). Static -> 0 -> byte-identical H.
-    if (want_pubkey) for (int i = 0; i < 32; ++i) in.requester_ed_pub[i] = _ed_pub[i];   // §2: attach our pubkey so the owner caches us (mutual)
+    if (want_pubkey) {
+        for (int i = 0; i < 32; ++i) in.requester_ed_pub[i] = _ed_pub[i];   // §2: attach our pubkey so the owner caches us (mutual)
+        in.name_len = effective_name(reinterpret_cast<char*>(in.name), 32);   // §name: our name rides WITH our pubkey -> the owner caches hash->name too (mirrors the TYPE-5/12/13 answer frames)
+    }
     // §mobile 6.2 Fix 5 / Wave 2: a team-scoped locate answers directly on the team plane. TEAM (explicit `-t`) forces it +
     // sets origin=team_local_id so the owner's answer routes back via _rt_team (a static node_id origin is unroutable on the
     // team plane — the reqpubkey/encrypted-team gap). GLOBAL is NEVER team-scoped. AUTO keeps the pre-split default (a team
@@ -924,7 +947,20 @@ void Node::emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey, Pla
     const bool team_q = (plane == Plane::TEAM) || (plane == Plane::AUTO && _cfg.is_mobile && _cfg.team_id != 0);
     if (team_q && _cfg.team_id != 0) { in.team_scoped = true; in.team_id = _cfg.team_id; }
     if (plane == Plane::TEAM && team_local_id() != 0) in.origin = team_local_id();   // team-scoped -> answer routes back on the team plane (is_team_peer(origin) -> _rt_team)
-    uint8_t buf[8 + 32 + 4];                                     // §2: WANT_PUBKEY H = 40 B; §mobile 6.2: +4 B team_id (a team_scoped WANT_PUBKEY is 44 B)
+#if MR_FEAT_MOBILE
+    // §mobile: a REGISTERED mobile stamps origin=home_id (GLOBAL/non-team) so the owner's answer routes to the HOME, which
+    // last-mile-forwards it. The mobile's own node_id is a LOCAL id — unroutable + collision-prone on the static plane.
+    if (plane != Plane::TEAM && mobile_registered() && _my_mobile_reg.home_id != 0) in.origin = _my_mobile_reg.home_id;
+#endif
+    // §mobile step 2: a WANT_PUBKEY answer is a ROUTED DM back to in.origin. If we're a mobile and origin is STILL our own
+    // LOCAL node_id — no home overrode it above, and it's not team-scoped (so no team return path) — the owner has NO way
+    // back: routing/RREQ for a local id can even resolve a WRONG static node (the user's "F query does not make sense").
+    // Fail loud, do NOT flood. (Registered => origin=home_id; TEAM/AUTO-team => team_scoped — both skip this.)
+    if (want_pubkey && in.mobile_req && in.origin == _node_id && !in.team_scoped) {
+        MR_EMIT("h_want_pubkey_mobile_no_route", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
+        return;
+    }
+    uint8_t buf[8 + 32 + 4 + 1 + 32];                            // §2: WANT_PUBKEY H = 40 B; §mobile 6.2: +4 B team_id; §name: +1+name_len (max 33) -> a named team_scoped WANT_PUBKEY is up to 77 B
     const size_t n = pack_h(in, std::span<uint8_t>(buf, sizeof(buf)));
     if (n == 0) return;
     MR_TELEMETRY(

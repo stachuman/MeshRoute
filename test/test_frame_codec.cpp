@@ -328,6 +328,42 @@ TEST_CASE("§2 H — a WANT_PUBKEY query appends the requester's ed_pub[32] (mut
     if (o8) CHECK_FALSE(o8->want_pubkey);
 }
 
+TEST_CASE("§name — a WANT_PUBKEY H appends the requester's [name_len][name] WITH the pubkey (after team_id); nameless stays 40 B (backward-compatible); round-trips") {
+    uint8_t reqpub[32]; for (int i = 0; i < 32; ++i) reqpub[i] = uint8_t(0x50 + i);
+    h_in in{}; in.leaf_id = 1; in.origin = 9; in.key_hash32 = 0xCAFEBABEu; in.ttl = 12; in.want_pubkey = true;
+    for (int i = 0; i < 32; ++i) in.requester_ed_pub[i] = reqpub[i];
+    const char* nm = "Alice-Rover"; in.name_len = 11; for (int i = 0; i < 11; ++i) in.name[i] = uint8_t(nm[i]);
+    std::array<uint8_t, 8 + 32 + 1 + 32> buf{};
+    const size_t n = pack_h(in, buf);
+    CHECK(n == 8 + 32 + 1 + 11);                                    // hdr + ed_pub + [name_len=11] + name
+    auto o = parse_h(std::span<const uint8_t>(buf.data(), n));
+    CHECK(o.has_value());
+    if (o) {
+        CHECK(o->want_pubkey); CHECK(o->name_len == 11);
+        bool nameok = true; for (int i = 0; i < 11; ++i) if (o->name[i] != uint8_t(nm[i])) nameok = false;
+        CHECK(nameok);                                             // §name: the requester's name round-trips
+        bool epub = true; for (int i = 0; i < 32; ++i) if (o->requester_ed_pub[i] != reqpub[i]) epub = false;
+        CHECK(epub);                                               // ed_pub still intact before the name
+    }
+    // nameless WANT_PUBKEY H is UNCHANGED at 40 B (an old sender / no name -> no trailing block)
+    h_in bare = in; bare.name_len = 0;
+    std::array<uint8_t, 48> b2{};
+    CHECK(pack_h(bare, b2) == 40);
+    auto o2 = parse_h(std::span<const uint8_t>(b2.data(), 40));
+    CHECK(o2.has_value()); if (o2) CHECK(o2->name_len == 0);       // old/nameless -> no trailing name, name_len 0
+    // team_scoped + named: name is appended AFTER the team_id (offset unchanged)
+    h_in tn = in; tn.team_scoped = true; tn.team_id = 0x99AABBCCu;
+    std::array<uint8_t, 8 + 32 + 4 + 1 + 32> b3{};
+    const size_t n3 = pack_h(tn, b3);
+    CHECK(n3 == 8 + 32 + 4 + 1 + 11);
+    auto o3 = parse_h(std::span<const uint8_t>(b3.data(), n3));
+    CHECK(o3.has_value());
+    if (o3) { CHECK(o3->team_scoped); CHECK(o3->team_id == 0x99AABBCCu); CHECK(o3->name_len == 11); }
+    // a name_len byte present but the name truncated -> REJECT (fail loud)
+    std::array<uint8_t, 8 + 32 + 2> trunc{}; for (size_t i = 0; i < 40; ++i) trunc[i] = buf[i]; trunc[40] = 11; trunc[41] = 'A';
+    CHECK_FALSE(parse_h(std::span<const uint8_t>(trunc.data(), trunc.size())).has_value());   // says name_len=11 but only 1 name byte
+}
+
 TEST_CASE("F — RREQ/RREP round-trip + golden + is_reply isolation + reject") {
     for (uint8_t leaf : {0, 3, 15})
         for (uint8_t origin : {0, 0x11, 255})

@@ -5087,7 +5087,7 @@ TEST_CASE("§mobile Wave 2 fix — a HOME sending to its OWN hosted mobile by ha
     CHECK(hal.count("h_tx") == 0);           // ★ NO H flood (no home<->mobile deadlock)
 }
 
-TEST_CASE("§mobile 6.4 / Wave 2 — reqpubkey -t emits a TEAM-scoped WANT_PUBKEY with origin=team_local_id (so the owner's answer routes back via _rt_team); plain reqpubkey = GLOBAL (origin=node_id)") {
+TEST_CASE("§mobile 6.4 / Wave 2 + step 2 — reqpubkey -t emits a TEAM-scoped WANT_PUBKEY with origin=team_local_id (answer routes back via _rt_team); plain reqpubkey (GLOBAL) from an UNREGISTERED mobile is SUPPRESSED (no return path -> fail loud, no flood)") {
     TestHal hal;
     uint8_t seedM1[32], seedM2[32];
     for (int i=0;i<32;++i){ seedM1[i]=uint8_t(i+1); seedM2[i]=uint8_t(200-i); }
@@ -5107,14 +5107,42 @@ TEST_CASE("§mobile 6.4 / Wave 2 — reqpubkey -t emits a TEAM-scoped WANT_PUBKE
         if (ph) { got_h=true; CHECK(ph->team_scoped); CHECK(ph->want_pubkey); CHECK(ph->origin == 93); }
     }
     CHECK(got_h);
-    // control: plain reqpubkey (GLOBAL) -> NOT team-scoped, origin = node_id 17
+    // control / §mobile step 2: plain reqpubkey (GLOBAL) from this UNREGISTERED mobile has NO return path — origin would be
+    // our LOCAL node_id 17 (not team-scoped), which the owner cannot route back to (an F/RREQ for a local id can even resolve
+    // a WRONG static node). So we FAIL LOUD and do NOT flood. (A REGISTERED mobile would instead stamp origin=home_id.)
     hal.tx_frames.clear();
     Command cg{}; cg.kind = CmdKind::reqpubkey; cg.u.resolve.dst_hash = idM2.key_hash32; cg.u.resolve.plane = 2 /*GLOBAL*/;
     m1.on_command(cg);
-    for (auto& f : hal.tx_frames) if ((f.bytes[0] >> 4) == 0x7) {
-        auto ph = parse_h(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
-        if (ph) { CHECK_FALSE(ph->team_scoped); CHECK(ph->origin == 17); }
-    }
+    bool got_global_h=false;
+    for (auto& f : hal.tx_frames) if ((f.bytes[0] >> 4) == 0x7) got_global_h=true;
+    CHECK_FALSE(got_global_h);   // ★ step 2: the unroutable-origin WANT_PUBKEY is suppressed, not flooded
+}
+
+TEST_CASE("§1.3 — effective_name defaults to 'MeshRoute node: 0x<hash>' (the STABLE hash) when empty; returns the set/ctor name otherwise") {
+    TestHal hal; Node node(hal, /*id=*/17, /*key=*/0xDEADBEEFu);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; CHECK(node.on_init(cfg));
+    char buf[40];
+    uint8_t n = node.effective_name(buf, sizeof buf);
+    CHECK(std::string(buf, n) == "MeshRoute node: 0xDEADBEEF");   // ★ empty -> hash default (uppercase 8-hex)
+    node.set_name("Alice", 5);
+    n = node.effective_name(buf, sizeof buf);
+    CHECK(std::string(buf, n) == "Alice");
+    Node named(hal, 3, 0x11u, "Bob");                            // ★ a ctor/sim name is kept (was discarded)
+    n = named.effective_name(buf, sizeof buf);
+    CHECK(std::string(buf, n) == "Bob");
+}
+
+TEST_CASE("§1.3 — peer_key_set caches a peer's name and REFRESHES it on every call (immutable key, MUTABLE name); peer_name_find reads it") {
+    TestHal hal; Node node(hal, /*id=*/5, /*key=*/0x1234u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; CHECK(node.on_init(cfg));
+    uint8_t ed[32] = {}; ed[0]=0xEF; ed[1]=0xBE; ed[2]=0xAD; ed[3]=0xDE; for (int i=4;i<32;++i) ed[i]=static_cast<uint8_t>(i);  // ed[:4] LE = 0xDEADBEEF
+    const uint32_t h = 0xDEADBEEFu;
+    char nm[32];
+    CHECK(node.peer_key_set(h, ed, Node::PeerKeyConf::authoritative, "Alice", 5));
+    CHECK(std::string(nm, node.peer_name_find(h, nm, sizeof nm)) == "Alice");
+    CHECK(node.peer_key_set(h, ed, Node::PeerKeyConf::authoritative, "Alice-2", 7));   // same key, NEW name -> refreshed
+    CHECK(std::string(nm, node.peer_name_find(h, nm, sizeof nm)) == "Alice-2");
+    CHECK(node.peer_name_find(0x99u, nm, sizeof nm) == 0);                              // unknown hash -> 0
 }
 
 TEST_CASE("§mobile 2b — mobile FSM: DISCOVER, collect OFFERs, CLAIM the strongest, adopt; static never arms") {

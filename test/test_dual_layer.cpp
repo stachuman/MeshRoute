@@ -2739,7 +2739,7 @@ TEST_CASE("§mobile Part 2 Fix 7 — a home answers a WANT_PUBKEY locate for its
     CHECK(pt != nullptr);
     if (pt) {
         CHECK(pt->type == DATA_TYPE_MOBILE_H_ANSWER_PUBKEY);
-        CHECK(pt->inner_len == 7 + 32);
+        CHECK(pt->inner_len == 7 + 32 + 1);   // §1.3: + the appended [name_len] byte (this hosted mobile has no name -> name_len=0, no name bytes)
         auto o = parse_hash_bind_inner(std::span<const uint8_t>(pt->inner, 7));
         CHECK(o.has_value());
         if (o) { CHECK(o->node_id == 30); CHECK(o->key_hash32 == 0xB0B1u); }   // ★ home routing
@@ -2817,6 +2817,60 @@ TEST_CASE("§mobile Part 2 Fix 6 — a mobile with a crypto identity pushes its 
     h2.emits.clear();
     mob2.on_timer(75);
     CHECK_FALSE(h2.saw_emit("mobile_pubkey_push"));   // ★ no identity -> no push
+}
+
+TEST_CASE("§mobile Wave 2 — the owner's WANT_PUBKEY answer to a MOBILE requester is a DST_HASH DM (routes to origin=the mobile's home, which last-miles it — NOT the unroutable mobile local id)") {
+    StubHal hal; Node owner(hal, /*id=*/155, /*key=*/0x3030u);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(owner.on_init(hc));
+    uint8_t xs[32]; for (int i=0;i<32;++i) xs[i]=static_cast<uint8_t>(0x80+i);
+    uint8_t ed[32] = {}; ed[0]=0x30; ed[1]=0x30; for (int i=4;i<32;++i) ed[i]=static_cast<uint8_t>(0xC0);   // ed_pub[:4]==0x3030 == owner's key
+    owner.set_crypto_identity(xs, ed);
+    DualLayerTestAccess::learn_neighbor(owner, 99);                              // a route to the mobile's home (99)
+    // a MOBILE requester (mobile_req=1), origin=99 (its home), requesting the owner's (0x3030) pubkey
+    uint8_t red[32] = {}; red[0]=0xCD; red[1]=0xAB; for (int i=4;i<32;++i) red[i]=static_cast<uint8_t>(i);   // requester key 0xABCD (the mobile)
+    h_in wq{}; wq.leaf_id=4; wq.origin=99; wq.key_hash32=0x3030u; wq.ttl=3; wq.hard=true; wq.want_pubkey=true; wq.mobile_req=true;
+    for (int i=0;i<32;++i) wq.requester_ed_pub[i]=red[i];
+    std::array<uint8_t,48> wb{}; size_t wn = pack_h(wq, std::span<uint8_t>(wb.data(), wb.size()));
+    owner.on_recv(wb.data(), wn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    const PendingTx* pt = DualLayerTestAccess::pending(owner);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->type == DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY);
+        CHECK((pt->flags & DATA_FLAG_DST_HASH) != 0);                            // ★ DST_HASH set (=the mobile) -> routes to origin(=home 99) + the home last-miles
+        CHECK(pt->next == 99);                                                   // ★ addressed to the home, not the mobile's local id
+    }
+}
+
+TEST_CASE("§name — a WANT_PUBKEY H carrying the requester's name -> the OWNER caches hash->name (peer_name_find), WITH the pubkey (symmetric to the answer frames)") {
+    StubHal hal; Node owner(hal, /*id=*/155, /*key=*/0x3030u);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(owner.on_init(hc));
+    uint8_t xs[32]; for (int i=0;i<32;++i) xs[i]=static_cast<uint8_t>(0x80+i);
+    uint8_t ed[32] = {}; ed[0]=0x30; ed[1]=0x30; for (int i=4;i<32;++i) ed[i]=static_cast<uint8_t>(0xC0);   // owner's own key 0x3030
+    owner.set_crypto_identity(xs, ed);
+    // a requester with key 0xABCD (ed[:4] LE) + name "Rover"
+    uint8_t red[32] = {}; red[0]=0xCD; red[1]=0xAB; for (int i=4;i<32;++i) red[i]=static_cast<uint8_t>(i);
+    h_in wq{}; wq.leaf_id=4; wq.origin=99; wq.key_hash32=0x3030u; wq.ttl=3; wq.hard=true; wq.want_pubkey=true;
+    for (int i=0;i<32;++i) wq.requester_ed_pub[i]=red[i];
+    const char* nm = "Rover"; wq.name_len=5; for (int i=0;i<5;++i) wq.name[i]=static_cast<uint8_t>(nm[i]);
+    std::array<uint8_t,64> wb{}; size_t wn = pack_h(wq, std::span<uint8_t>(wb.data(), wb.size()));
+    CHECK(wn > 40);                                                          // the H carries the appended name
+    owner.on_recv(wb.data(), wn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    char out[32]; uint8_t on = owner.peer_name_find(0xABCDu, out, sizeof out);
+    CHECK(std::string(out, on) == "Rover");                                  // ★ the owner cached the requester's NAME alongside its pubkey
+}
+
+TEST_CASE("§mobile step 1 — a REGISTERED mobile's plain GLOBAL reqpubkey DOES flood, stamping origin=home_id (routable) — the step-2 guard suppresses ONLY the no-return-path (unregistered) case") {
+    StubHal hal; Node m(hal, /*id=*/17, /*key=*/0x1111u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; CHECK(m.on_init(cfg));
+    DualLayerTestAccess::make_registered_mobile(m, /*local_id=*/17, /*home_id=*/138, /*home_hash=*/0xBEEFu);
+    uint8_t xs[32], ed[32]; for (int i=0;i<32;++i){ xs[i]=static_cast<uint8_t>(0x40+i); ed[i]=static_cast<uint8_t>(0x11+i); }
+    m.set_crypto_identity(xs, ed);
+    Command cg{}; cg.kind = CmdKind::reqpubkey; cg.u.resolve.dst_hash = 0x2222u; cg.u.resolve.plane = 2 /*GLOBAL*/;
+    m.on_command(cg);
+    CHECK(hal.saw_emit("h_tx"));                                          // ★ NOT suppressed — a registered mobile has a return path (its home)
+    auto ph = parse_h(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len));
+    CHECK(ph.has_value());
+    if (ph) { CHECK(ph->want_pubkey); CHECK(ph->mobile_req); CHECK_FALSE(ph->team_scoped); CHECK(ph->origin == 138); }   // ★ origin=home_id 138 (routable), NOT the mobile's LOCAL id 17
 }
 
 TEST_CASE("§mobile Part 2 / Wave 2 — a HOME reqpubkey'ing its OWN hosted mobile resolves the pubkey from _mobile_reg (no H flood; the home can then seal to it)") {

@@ -529,7 +529,8 @@ static void handle_cfg_set(const char* args, Print& out) {
         size_t l = strlen(val); if (l > sizeof idb.name) l = sizeof idb.name;
         memcpy(idb.name, val, l); idb.name_len = (uint16_t)l;
         idb.magic = mrnv::kIdMagic; idb.version = mrnv::kIdVersion;
-        out.println(mrnv::save_id(idb) ? F("> cfg ok name (saved to /mrid)") : F("> cfg err nv_save_failed"));
+        if (mrnv::save_id(idb)) { g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len)); out.println(F("> cfg ok name (saved to /mrid)")); }   // §1.3: live-update the core name (pubkey exchange + display)
+        else out.println(F("> cfg err nv_save_failed"));
         return;
     }
 
@@ -844,6 +845,17 @@ static void handle_lookup(const char* arg, size_t n, Print& out) {
     out.println(conf == meshroute::Node::IdBindConf::authoritative ? F(" (authoritative)") : F(" (claimed)"));
 }
 
+// §1.3 `nameof 0x<hash>` — the cached human name for a peer's key_hash32 (learned via the pubkey exchange, refreshed on each).
+static void handle_nameof(const char* arg, size_t n, Print& out) {
+    while (n && *arg == ' ') { ++arg; --n; }
+    if (n < 3 || arg[0] != '0' || (arg[1] != 'x' && arg[1] != 'X')) { out.println(F("> nameof err: hash must be 0x-prefixed (e.g. nameof 0x8a3f1c02)")); return; }
+    const uint32_t hash = (uint32_t)strtoul(arg + 2, nullptr, 16);
+    char nm[32]; const uint8_t nl = g_node.peer_name_find(hash, nm, sizeof nm);
+    out.print(F("[nameof] 0x")); out.print(hash, HEX); out.print(F(" = "));
+    if (nl) { out.print('"'); out.write(nm, nl); out.println('"'); }
+    else     out.println(F("<unknown — reqpubkey it first>"));
+}
+
 // `hashof <id>` — reverse lookup: a node short-id -> its key_hash32 (AUTHORITATIVE bindings only — a node we
 // can vouch for). Decimal id 0..254.
 static void handle_hashof(const char* arg, size_t n, Print& out) {
@@ -861,8 +873,7 @@ static void handle_hashof(const char* arg, size_t n, Print& out) {
 static void handle_whoami(Print& out) {
     out.print(F("[whoami] id=")); out.print(g_node.node_id());
     out.print(F(" hash=0x"));     out.print(g_node.key_hash32(), HEX);
-    mrnv::IdBlob idb{};
-    if (mrnv::load_id(idb) && idb.name_len) { out.print(F(" name=\"")); out.write(idb.name, idb.name_len); out.print('"'); }
+    { char nm[32]; uint8_t nn = g_node.effective_name(nm, sizeof nm); out.print(F(" name=\"")); out.write(nm, nn); out.print('"'); }   // §1.3: always show the effective name (the MeshRoute node: 0x<hash> default when unset)
     const meshroute::NodeConfig& c = g_node.config();
     out.print(F(" leaf="));   out.print(c.leaf_id);
     out.print(F(" gw="));     out.print(c.is_gateway ? 1 : 0);
@@ -1326,7 +1337,7 @@ static void dump_help(Print& out) {
     hl(F("  send_layer <0xhash> <l1,l2,…> \"<text>\" [-a]   explicit cross-layer destination path"));
     hl(F(""));
     hl(F("IDENTITY / KEYS"));
-    hl(F("  whoami | lookup 0x<hash> | hashof <id> | resolve 0x<hash> [hard]   (hashes are 0x-prefixed; hashof prints 0x…)"));
+    hl(F("  whoami | lookup 0x<hash> | hashof <id> | nameof 0x<hash> | resolve 0x<hash> [hard]   (hashes are 0x-prefixed; hashof prints 0x…)"));
     hl(F("  peerkey <ed_pub hex64>      pin a scanned/QR pubkey"));
     hl(F("  reqpubkey <0xhash|team-id>  request a peer's key on-air (0xhash, or a bare team-id via the team cache)"));
 #if MR_N_LAYERS < 2
@@ -1823,6 +1834,7 @@ static bool dispatch(const char* line, size_t len, Print& out) {   // §command-
     if ((len == 5 || (len > 5 && line[5] == ' ')) && !strncmp(line, "debug", 5)) { handle_debug(line + 5, len - 5, out); return true; }
     if (len == 6 && !strncmp(line, "whoami", 6)) { handle_whoami(out); return true; }
     if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "lookup", 6)) { handle_lookup(line + 6, len - 6, out); return true; }
+    if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "nameof", 6)) { handle_nameof(line + 6, len - 6, out); return true; }   // §1.3 peer name by hash
     if ((len == 6 || (len > 6 && line[6] == ' ')) && !strncmp(line, "hashof", 6)) { handle_hashof(line + 6, len - 6, out); return true; }
     if ((len == 10 || (len > 10 && line[10] == ' ')) && !strncmp(line, "pull_inbox", 10)) { handle_pull_inbox(line + 10, out); return true; }
     if ((len ==  9 || (len >  9 && line[9]  == ' ')) && !strncmp(line, "mark_read",   9)) { handle_mark_read(line + 9,  out); return true; }
@@ -2175,6 +2187,7 @@ void setup() {
     meshroute::identity_from_seed(g_identity, idb.seed);        // key_hash32 = ed_pub[:4]
     g_node.set_identity(node_id, g_identity.key_hash32);        // node_id 0 stays unprovisioned -> do_send refused
     g_node.set_crypto_identity(g_identity.x_secret, g_identity.ed_pub);   // DP1: install the E2E crypto identity (X25519 + ed_pub)
+    g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); empty -> effective_name defaults to MeshRoute node: 0x<hash>
     g_lat_e7 = idb.lat_e7; g_lon_e7 = idb.lon_e7;              // node location (persisted in /mrid; 0,0 on first boot)
     cfg.lat_e7 = g_lat_e7; cfg.lon_e7 = g_lon_e7;             // feed the node's location to the DM piggyback (loc_in_dm)
     // §remote-mgmt (v20): restore the pinned admin pubkey + replay counter floor (no-op stub when MR_FEAT_REMOTE_MGMT=0).

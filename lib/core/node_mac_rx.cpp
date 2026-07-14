@@ -757,6 +757,8 @@ void Node::do_post_ack() {
                         if (_active->_mobile_reg[i].key_hash32 == ui->source_hash) {   // attribute: only M's own key, for a mobile I host
                             for (uint8_t k = 0; k < 32; ++k) _active->_mobile_reg[i].ed_pub[k] = ui->body[k];
                             _active->_mobile_reg[i].has_pubkey = true;
+                            if (ui->body.size() > 32) { uint8_t nl = ui->body[32]; if (nl > 32) nl = 32;   // §1.3: the pushed name (body[32]=len, body[33..]) -> refresh (mutable)
+                                if (33u + nl <= ui->body.size()) { for (uint8_t b = 0; b < nl; ++b) _active->_mobile_reg[i].name[b] = static_cast<char>(ui->body[33 + b]); _active->_mobile_reg[i].name_len = nl; } }
                             MR_EMIT("mobile_pubkey_cached", EF_I("m", i));
                             break;
                         }
@@ -796,7 +798,7 @@ void Node::do_post_ack() {
             return;
         }
         if (pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY) {   // E2E §6: the owner's pubkey answer -> cache (routing/key info, NOT a DM)
-            on_hash_bind_pubkey(pa.inner, pa.inner_len);
+            if (ui) on_hash_bind_pubkey(ui->body.data(), static_cast<uint8_t>(ui->body.size()));   // Wave 2: TYPE 5 is now a standard DM -> the pubkey is the BODY (past [dst_hash?][origin])
             become_free();
             return;
         }
@@ -955,8 +957,10 @@ void Node::do_post_ack() {
         // C.2 cache-on-pass: a relayed hash-bind answer is cleartext -> snoop the binding before forwarding.
         if (pa.type == DATA_TYPE_H_ANSWER || pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER)
             on_hash_bind_snoop(pa.inner, pa.inner_len, pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER);
-        else if (pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY)
-            on_hash_bind_pubkey(pa.inner, pa.inner_len);            // E2E §6: cache-on-pass the owner's pubkey
+        else if (pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY) {   // E2E §6: cache-on-pass — no `ui` on the forward path, so skip [dst_hash?][origin] to reach the pubkey BODY (Wave 2 standard DM; no SOURCE_HASH on this app_dm=false type)
+            const uint8_t off = static_cast<uint8_t>((pa.flags & DATA_FLAG_DST_HASH ? 4 : 0) + 1);
+            if (pa.inner_len > off) on_hash_bind_pubkey(pa.inner + off, static_cast<uint8_t>(pa.inner_len - off));
+        }
         TxItem it{};
         it.origin = pa.origin; it.dst = pa.dst; it.ctr = pa.ctr; it.ctr_lo = pa.ctr_lo;
         it.flags = pa.flags; it.type = pa.type; it.is_forward = true; it.previous_hop = pa.previous_hop;

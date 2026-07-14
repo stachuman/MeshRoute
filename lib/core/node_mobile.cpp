@@ -119,9 +119,14 @@ void Node::mobile_claim_guard_fire() {
     // §mobile hash-locate Part 2 (Fix 6): push our E2E pubkey to the (new) home so it can answer WANT_PUBKEY locates on our
     // behalf (Option 1 — the home carries the key; the local id never leaves the home↔mobile link). A 1-hop DM to the home,
     // SOURCE_HASH=M so the home matches _mobile_reg[M] + caches ed_pub. Re-sent on EVERY (re-)adopt so a new home learns it.
-    if (_crypto_ready)
-        (void)enqueue_data(o.responder_id, _ed_pub, 32, DATA_FLAG_SOURCE_HASH, "mobile_pubkey_push",
+    if (_crypto_ready) {
+        uint8_t body[32 + 1 + 32];                                        // §1.3: ed_pub[32] ‖ [name_len][name] (so the home can proxy our name in TYPE 13)
+        for (int i = 0; i < 32; ++i) body[i] = _ed_pub[i];
+        const uint8_t nlen = effective_name(reinterpret_cast<char*>(body + 33), 32);
+        body[32] = nlen;
+        (void)enqueue_data(o.responder_id, body, static_cast<uint8_t>(33 + nlen), DATA_FLAG_SOURCE_HASH, "mobile_pubkey_push",
                            /*app_dm=*/false, DATA_TYPE_MOBILE_PUBKEY_PUSH, CryptIntent::off);
+    }
     MR_EMIT("mobile_adopted", EF_I("home", o.responder_id), EF_I("local_id", o.proposed_local_id),
             EF_I("epoch", _my_mobile_reg.epoch));
     schedule_triggered_beacon();                                  // announce the adopted id (peers re-bind on it)
