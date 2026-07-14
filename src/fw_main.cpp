@@ -35,6 +35,10 @@
 #include "device_ota.h"      // WiFi OTA (Heltec ESP32-S3); inert no-op on XIAO/native
 #include "mr_ui.h"           // §featuresplit slice 4: board-UI hooks (real on MR_FEAT_OLED boards, inline no-ops elsewhere)
 #include "dispatch_sink.h"   // §command-sink-consolidation: BufferSink (remote/rcmd capture) + LineSink (BLE streaming)
+#include "firmware_config_parse.h"   // §cleanup 2026-07-14: pure config/provisioning parse primitives (native-tested)
+using mrfw::parse_sf_list;   // keep call sites unchanged (extracted verbatim from this file)
+using mrfw::kv_next;
+using mrfw::team_fnv1a32;
 #if MR_FEAT_REMOTE_MGMT
 #include "admin_auth.h"      // §remote-mgmt: password KDF + sealed-command seal/open/verify
 #include "console_binary.h"  // §remote-mgmt: the binary TLV response encoders (enc_status/enc_routes/…)
@@ -441,15 +445,7 @@ static void dump_duty(Print& out) {
 }
 
 // "7,12" -> allowed_sf_bitmap (bit per SF index 5..12); 0 if none valid.
-static uint16_t parse_sf_list(const char* s) {
-    uint16_t bm = 0; int v = 0; bool have = false;
-    for (;; ++s) {
-        const char ch = *s;
-        if (ch >= '0' && ch <= '9') { v = v * 10 + (ch - '0'); have = true; }
-        else { if (have && v >= 5 && v <= 12) bm |= static_cast<uint16_t>(1u << v); v = 0; have = false; if (!ch) break; }
-    }
-    return bm;
-}
+// parse_sf_list moved to firmware_config_parse.h (pure, native-tested); `using mrfw::parse_sf_list` above.
 
 // Apply the RADIO operating point from the (just-saved) NV blob LIVE — no reboot. `reconfig` re-tunes the
 // radio (freq/SF/BW/CR changed); a tx_power-only change skips the re-tune (it's set per-TX via the Hal).
@@ -1020,23 +1016,7 @@ static void seed_blob_from_live(mrnv::Blob& b) {
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;   // ★ STAMP here so EVERY caller gets a VALID blob. Without it a save path that seeds (load failed / fresh chip) but forgets to re-stamp — e.g. handle_team — persists magic=0/version=0, which the next boot's load() REJECTS => the whole config resets to defaults (the `cfg set mobile 1` -> reboot -> mobile=0 bug). The other callers also re-stamp (harmless/redundant now).
 }
 
-// Yield the next `key=value` token from *p (advancing p past it). A value may be "quoted" (so it can contain
-// spaces — the leaf name). Returns false at end of string; on a malformed token (no `=`) *val is nullptr (the
-// caller reports the bad key). key/val point into the caller's mutable buffer, NUL-terminated. The shared grammar
-// for the key=value provisioning verbs (create/join), mirroring `gateway`'s l0=/win0=/… named-param style.
-#if MR_N_LAYERS < 2   // §config-integrity: the create/join key=value grammar helper — normal-node only (guarded with its only callers handle_join/handle_create)
-static bool kv_next(char*& p, char*& key, char*& val) {
-    while (*p == ' ') ++p;
-    if (!*p) return false;
-    key = p;
-    while (*p && *p != '=' && *p != ' ') ++p;                    // key up to '=' (or space/end = malformed)
-    if (*p != '=') { if (*p == ' ') *p++ = '\0'; val = nullptr; return true; }
-    *p++ = '\0';                                                 // terminate key, step past '='
-    if (*p == '"') { ++p; val = p; while (*p && *p != '"') ++p; if (*p == '"') *p++ = '\0'; }   // quoted: spans spaces
-    else           { val = p;      while (*p && *p != ' ') ++p; if (*p == ' ') *p++ = '\0'; }    // bare: up to next space
-    return true;
-}
-#endif   // MR_N_LAYERS < 2 — kv_next (create/join grammar)
+// kv_next (the key=value provisioning-verb tokenizer) moved to firmware_config_parse.h (pure, native-tested); `using mrfw::kv_next` above.
 
 // Apply a just-saved provisioning blob LIVE (no reboot): radio re-tune + membership + config + (re-)DAD. The four
 // §2 sub-paths. do_dad=false only for `leave` (stays unprovisioned, idle awaiting a join).
@@ -1145,13 +1125,7 @@ usage:
 }
 
 // §mobile 6.1: FNV-1a over (key_hash32 ‖ nonce) = the 32-bit team_id.
-static uint32_t team_fnv1a32(uint32_t a, uint32_t b) {
-    uint32_t h = 2166136261u;
-    const uint8_t by[8] = { (uint8_t)a, (uint8_t)(a>>8), (uint8_t)(a>>16), (uint8_t)(a>>24),
-                            (uint8_t)b, (uint8_t)(b>>8), (uint8_t)(b>>16), (uint8_t)(b>>24) };
-    for (int i = 0; i < 8; ++i) { h ^= by[i]; h *= 16777619u; }
-    return h;
-}
+// team_fnv1a32 moved to firmware_config_parse.h (pure, native-tested); `using mrfw::team_fnv1a32` above.
 // `team new` = MINT a fresh team_id = hash(our key ‖ HW-RNG nonce). `team <id>` = JOIN an existing team. `team 0` = leave.
 static void handle_team(const char* args, Print& out) {
     while (*args == ' ') ++args;

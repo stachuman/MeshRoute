@@ -2,6 +2,14 @@
 
 Companion to `docs/2026-07-04-codebase-review-findings.md`. Every finding was independently re-verified against the CURRENT source (34-agent verification workflow, 2026-07-04). This doc is the implementation tracker.
 
+## ★ Status update (2026-07-14) — reconciled vs `HEAD`; this doc is the plan for the NEXT (cleanup) task
+- **Waves 1–5 + cleanup + L9: DONE + COMMITTED** (native 587→601, since folded into the mobile / plane-sep / feature-split / command-sink commits; native now ~692+). Closed.
+- **Waves 6 (radio H6/M11/L5) + 7 (OTA H2): still `BENCH-VERIFY-PENDING`** — code is in, but the on-metal A/B is not confirmable from source. The lingering open item from the original triage.
+- **M8: NO LONGER "keep-as-is" — IN PROGRESS / CLOSING.** Remote-admin is being built: designs `2026-07-13-remote-management-auth-design.md` / `-command-sink-consolidation-design.md` / `-remote-binary-response-encoders-design.md` close M8, and commit **`4a99db0`** is a committed **first version with authentication (not yet fully tested).** Supersedes the line-14 decision below.
+- **Other not-fixing calls stand** (H1 OTA-auth, S3, S4, L1 — accepted honest-node risk). The sealed-DM remote-auth is a first concrete step toward S4's deferred signing initiative (admin surface only).
+- **Cleanup-prep numbers re-verified 2026-07-14:** `node.h` **1614** (↑ from 1595), `fw_main.cpp` **2755** (↑ from 2698 — growing *during* the consolidation churn), tracked `._*`/metadata **89** (exact), CI still **6 board envs (no `production`, no `lus` sim**, and behind the ~8-env feature-split set). The growth reinforces the split.
+- **★ CLEANUP GATE CLEARED (2026-07-14):** the command-sink consolidation (`4a99db0`) is now **tested** (user-confirmed — behaviour/output-parity verified), so the structural cleanup PROCEEDS. **Focus = fully code cleanup.** Front of the sequence: the two cheap guardrails (`._*` untrack + CI `production`/`native`/`lus`/profile-envs), then the `fw_main` responsibility split → `Node` state legibility → data-carrier hygiene → docs. Behavior-preserving; keep s18 + native gates.
+
 ## Verified counts
 **30 confirmed · 1 false-positive · 0 already-fixed.** Corrections worth noting:
 - **M5 — FALSE POSITIVE** (was marked `[verified]`). `pack_data`'s empty-mac zero-fill is unreachable for CRYPTED (the sole caller `node_mac.cpp:1003` always passes an 8-byte seed) *and* the seed has an all-zero `bad_rng` reject at seal (`node_hashlocate.cpp:285-289`). No nonce reuse. Only the `frame_codec.h:439` comment is stale.
@@ -11,7 +19,7 @@ Companion to `docs/2026-07-04-codebase-review-findings.md`. Every finding was in
 ## Product decisions (2026-07-04, user)
 - **H1 (OTA auth / signature): WON'T IMPLEMENT.** Matches MeshCore's honest-node model (no OTA auth there either). Accepted risk.
 - **H2 (OTA partial-image commit): FIX** — ensure the image is COMPLETE before `Update.end(true)` (the completeness guard; NOT the auth rewrite).
-- **M8 (remote `reboot`/`prep-restart` auth): KEEP AS-IS** for now — address when remote-admin is implemented.
+- **M8 (remote `reboot`/`prep-restart` auth): ~~KEEP AS-IS~~ → NOW IN PROGRESS (2026-07-14).** The "address when remote-admin is implemented" condition is now met — remote-admin is being built (2026-07-13 designs + committed first version `4a99db0`), which closes M8. See the status update above.
 - **S4 (control-plane signing): KEEP** — accepted honest-node design; the signing layer is a future initiative (the MeshCore signed-advert PUSH is the blueprint).
 - **S3 (decode strictness): NOTE only** — not a priority now.
 
