@@ -798,22 +798,34 @@ void Node::on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool auth
 
 // on_command(send) routes here when dst_hash != 0 (the deferred "address by key_hash32"). Returns the DM ctr
 // if sent immediately, else 0 (parked/resolving — the ctr is assigned when the binding arrives).
-uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr) {
+uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr, Plane plane) {
+#if MR_FEAT_TEAM
+    // §6.4 HARD SPLIT: `send -t 0x<hash>` (TEAM plane) resolves a HEARD teammate from the team-key cache ONLY (beacon-only,
+    // NO id_bind / home / H-flood / global fallback). An unheard teammate FAILS LOUD -> the app retries when a beacon arrives.
+    if (plane == Plane::TEAM) {
+        uint8_t tid = 0;
+        if (_cfg.team_id != 0 && team_id_of_key(key_hash32, tid))
+            return do_send(tid, body, body_len, flags, crypt, /*override_dst_hash=*/0, /*type=*/0, /*override_source_hash=*/reply_to_hash, Plane::TEAM);
+        MR_EMIT("team_send_unresolved", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
+        Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::mobile_no_home; pu.dst = 0; pu.ctr = 0; enqueue_push(pu);
+        return 0;
+    }
+#endif
     IdBindConf conf = IdBindConf::claimed;
     const int id = id_bind_find_by_hash(key_hash32, &conf);
     if (id >= 0 && conf == IdBindConf::authoritative) {         // confident binding -> send NOW (a mobile still routes via its home; the reply returns by SOURCE_HASH -> no H-query, no storm)
-        const uint16_t ch = do_send(static_cast<uint8_t>(id), body, body_len, flags, crypt, /*override_dst_hash=*/0, /*type=*/0, /*override_source_hash=*/reply_to_hash);   // §8b: thread the per-message crypt intent
+        const uint16_t ch = do_send(static_cast<uint8_t>(id), body, body_len, flags, crypt, /*override_dst_hash=*/0, /*type=*/0, /*override_source_hash=*/reply_to_hash, plane);   // §8b: thread the per-message crypt intent + Wave 2 plane
         if (reply_to_hash != 0) deleg_ack_put(static_cast<uint8_t>(id), ch, mobile_ctr);   // §mobile reverse-ack: HOME re-originating for its mobile toward a STATIC target -> map ctr_H->ctr_M (no-op if mobile_ctr==0)
         return ch;
     }
 #if MR_FEAT_TEAM
-    // §mobile 6.4: a same-team peer we've HEARD is directly routable on the TEAM plane — the team_key cache resolves
-    // hash->team_local_id and is_team_peer -> _rt_team. Deliver via the proven `send <team_local_id>` path WITHOUT an
-    // H-flood or a home (an off-grid team has neither). Reached only after an id_bind miss (a mobile's hash isn't in id_bind).
-    if (_cfg.is_mobile && _cfg.team_id != 0) {
+    // §mobile 6.4: AUTO cascade — try a HEARD teammate (team_key cache -> team_local_id, is_team_peer -> _rt_team) BEFORE the
+    // global path. GLOBAL (a plain `send`) SKIPS this so a teammate never shadows the intended global target; TEAM was already
+    // handled + returned at the top. Reached only after an id_bind miss (a mobile's hash isn't in id_bind).
+    if (plane != Plane::GLOBAL && _cfg.is_mobile && _cfg.team_id != 0) {
         uint8_t tid = 0;
         if (team_id_of_key(key_hash32, tid))
-            return do_send(tid, body, body_len, flags, crypt, /*override_dst_hash=*/0, /*type=*/0, /*override_source_hash=*/reply_to_hash);
+            return do_send(tid, body, body_len, flags, crypt, /*override_dst_hash=*/0, /*type=*/0, /*override_source_hash=*/reply_to_hash, /*plane=*/Plane::TEAM);   // resolved to a teammate -> force the team plane
     }
 #endif
     // §mobile delegate (2026-07-11): UNRESOLVED + we are the MOBILE (reply_to_hash==0) -> DO NOT flood an H query (origin=our
@@ -823,6 +835,14 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
 #if MR_FEAT_MOBILE
     if (reply_to_hash == 0 && _cfg.is_mobile && _my_mobile_reg.active)
         return do_send(_my_mobile_reg.home_id, body, body_len, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/DATA_TYPE_MOBILE_SEND);
+    // §mobile: a mobile WE HOST (in our _mobile_reg) is reached by a DIRECT last-mile (addr_len=1 -> its local id), NOT an H
+    // query — the home is BOTH the querier and the proxy, so a flood deadlocks (the registered mobile suppresses its own-hash
+    // H answer, node_hashlocate.cpp handle_h). Mirrors do_post_ack's forwarded last-mile. redirect_home_id==0 = a LIVE local
+    // hosting (a migrated mobile falls through to the mobile_home_find redirect below). Gated on _mobile_reg_n -> non-host byte-identical.
+    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+        if (_active->_mobile_reg[i].key_hash32 == key_hash32 && _active->_mobile_reg[i].redirect_home_id == 0)
+            return enqueue_data(_active->_mobile_reg[i].mobile_local_id, body, body_len, flags, "tx_enqueue", /*app_dm=*/true,
+                                /*type=*/0, crypt, /*override_dst_hash=*/0, /*override_source_hash=*/reply_to_hash, /*addr_len=*/1, plane);
 #endif
     uint8_t home_layer = 0;
     const int home = mobile_home_find(key_hash32, &home_layer);  // §mobile 3c/5b: a cached mobile -> its home_node (+layer)?
@@ -847,7 +867,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     }
 #endif
     park_send(key_hash32, body, body_len, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr);
-    emit_hash_query(key_hash32, /*hard=*/(id >= 0));
+    emit_hash_query(key_hash32, /*hard=*/(id >= 0), /*want_pubkey=*/false, plane);   // Wave 2: GLOBAL flood is NOT team-scoped; AUTO keeps today's behavior
     return 0;
 }
 
@@ -886,7 +906,7 @@ bool Node::deleg_ack_translate(uint8_t acker, uint16_t acked_ctr, uint16_t& out_
 }
 
 // Originate an H flood for key_hash32 (Lua send_hash_query dv:5625). hard = the verify-on-use escalation.
-void Node::emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey) {
+void Node::emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey, Plane plane) {
     if (key_hash32 == 0 || key_hash32 == _key_hash32) return;    // nothing to locate (degenerate / it's us)
     if (want_pubkey && !_crypto_ready) {                         // §2: the mutual exchange needs OUR pubkey -> fail loud, no flood
         MR_EMIT("h_want_pubkey_no_identity", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
@@ -897,7 +917,13 @@ void Node::emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey) {
     in.ttl = protocol::hash_query_max_ttl; in.hard = hard; in.want_pubkey = want_pubkey;
     in.mobile_req = _cfg.is_mobile;                              // §mobile: OUR origin (in.origin=_node_id) is a mobile/team LOCAL id -> tell the owner NOT to id_bind it (the seal-back caches by hash + routes via home/_rt_team). Static -> 0 -> byte-identical H.
     if (want_pubkey) for (int i = 0; i < 32; ++i) in.requester_ed_pub[i] = _ed_pub[i];   // §2: attach our pubkey so the owner caches us (mutual)
-    if (_cfg.is_mobile && _cfg.team_id != 0) { in.team_scoped = true; in.team_id = _cfg.team_id; }   // §mobile 6.2 Fix 5: a team member's locate is TEAM-scoped -> a same-team target answers directly (its local id, for the team plane); others fall through to the home/normal answer. team_id==0 (static/lone) -> unset -> byte-identical H.
+    // §mobile 6.2 Fix 5 / Wave 2: a team-scoped locate answers directly on the team plane. TEAM (explicit `-t`) forces it +
+    // sets origin=team_local_id so the owner's answer routes back via _rt_team (a static node_id origin is unroutable on the
+    // team plane — the reqpubkey/encrypted-team gap). GLOBAL is NEVER team-scoped. AUTO keeps the pre-split default (a team
+    // mobile team-scopes, origin=node_id) for the sim/companion -> byte-identical. team_id==0 (static/lone) -> unset.
+    const bool team_q = (plane == Plane::TEAM) || (plane == Plane::AUTO && _cfg.is_mobile && _cfg.team_id != 0);
+    if (team_q && _cfg.team_id != 0) { in.team_scoped = true; in.team_id = _cfg.team_id; }
+    if (plane == Plane::TEAM && team_local_id() != 0) in.origin = team_local_id();   // team-scoped -> answer routes back on the team plane (is_team_peer(origin) -> _rt_team)
     uint8_t buf[8 + 32 + 4];                                     // §2: WANT_PUBKEY H = 40 B; §mobile 6.2: +4 B team_id (a team_scoped WANT_PUBKEY is 44 B)
     const size_t n = pack_h(in, std::span<uint8_t>(buf, sizeof(buf)));
     if (n == 0) return;

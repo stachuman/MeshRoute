@@ -30,14 +30,14 @@ enum class CryptIntent : uint8_t { def = 0, on, off };
 // never a name (the device has no name map; that is forever a backend concern).
 // Plain PODs (no in-class initializers) so the union has a trivial default ctor and
 // the header stays C++17-includable by the sim (hal.h discipline). flags = wire DATA_FLAG_* (E2E_ACK_REQ=0x10, DST_HASH=0x02, PRIORITY=0x01; 0x08 free).
-struct SendCmd        { uint8_t dst_id; uint32_t dst_hash; uint8_t flags; };
+struct SendCmd        { uint8_t dst_id; uint32_t dst_hash; uint8_t flags; uint8_t plane; };   // Wave 2: plane 0=AUTO (companion/sim default -> today's cascade), 1=TEAM (`-t`), 2=GLOBAL (plain `send`). Host-side only, NOT on the wire.
 struct SendLayerCmd   { uint8_t hops[protocol::gw_env_max_hops]; uint8_t hop_count; uint32_t dst_hash; uint8_t flags; };   // flags honored on the cross-layer DM (E2E_ACK_REQ -> Y acks via the reversed path, Slice 4d/e2e)
 struct SendChannelCmd { uint8_t channel_id; };
 struct JoinCmd        { enum Op : uint8_t { discover, claim, deny } op; uint8_t node_id; uint32_t claimant_hash; };
 // Diagnostic: locate the node owning key_hash32 (the hash-locate H flood); the answer rides
 // PushKind::hash_resolved. hard = skip caches, reach the owner (verify-on-use). NO body — notify-only,
 // distinct from a send-by-hash (which carries a DM and rides CmdKind::send with dst_hash set).
-struct ResolveCmd     { uint32_t dst_hash; uint8_t dst_id; bool hard; };   // §enc: dst_id!=0 (dst_hash==0) = reqpubkey BY team_local_id -> resolve the hash from the team key cache at execution
+struct ResolveCmd     { uint32_t dst_hash; uint8_t dst_id; bool hard; uint8_t plane; };   // §enc: dst_id!=0 (dst_hash==0) = reqpubkey BY team_local_id -> resolve the hash from the team key cache at execution. Wave 2 plane: 0=AUTO/1=TEAM(-t)/2=GLOBAL
 // E2E §3 (QR import): install a scanned peer's full Ed25519 pubkey as a PINNED (verified) key. key_hash32 = ed_pub[:4]
 // is derived (never trusted from the wire), so only the 32-byte pubkey rides the command.
 struct PeerkeyCmd     { uint8_t ed_pub[32]; };

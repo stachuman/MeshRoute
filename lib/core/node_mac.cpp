@@ -50,7 +50,7 @@ uint32_t Node::retry_jitter_ms() const { return 3 * airtime_routing_ms(8); }
 // Build + enqueue an app DATA. `tx_event` separates an app send ("tx_enqueue", the dm_delivery
 // record-creation key) from an internal protocol DATA like the E2E ack ("e2e_ack_tx") that must NOT
 // be counted as an app DM.
-uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, [[maybe_unused]] const char* tx_event, bool app_dm, uint8_t type, CryptIntent crypt, uint32_t override_dst_hash, uint32_t override_source_hash, uint8_t addr_len) {
+uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, [[maybe_unused]] const char* tx_event, bool app_dm, uint8_t type, CryptIntent crypt, uint32_t override_dst_hash, uint32_t override_source_hash, uint8_t addr_len, Plane plane) {
     // R6.1 §6.4 join-participation gate: an un-synced managed joiner must CONFIG_PULL before it originates app DMs (no
     // pre-membership pollution). Inert for UNMANAGED/adopted nodes (leaf_config_synced()). Internal DATA (app_dm=false:
     // E2E acks, forwards) is NEVER gated — only originations.
@@ -77,6 +77,7 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     stamp_origin(item); item.dst = dst; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
     item.flags = flags; item.type = type;
     item.addr_len = addr_len;   // §mobile: 1 => `dst` is a hosted mobile's LOCAL id -> route as a direct 1-hop last-mile (node_mac.cpp:529). 0 for every normal origination (byte-identical).
+    item.plane = plane;         // Wave 2: the addressing plane forced by the caller (AUTO for every existing caller -> byte-identical)
     // Inner = [dst_key_hash32 (4 B LE, iff DST_HASH)][origin][body] — NO payload-flags byte. DST_HASH (L2c
     // verify-on-delivery) is default-on for app DMs when we know the recipient's stable key (id_bind) and the
     // +4 B still fits the inner buffer — when present, set the byte-1 HEADER flag (item.flags) and prefix the
@@ -182,8 +183,8 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
 }
 
 // E2E/PRIORITY ride the wire via `flags`; the E2E ACK behaviour lives in do_post_ack + send_e2e_ack.
-uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t override_dst_hash, uint8_t type, uint32_t override_source_hash) {
-    return enqueue_data(dst, body, body_len, flags, "tx_enqueue", /*app_dm=*/true, type, crypt, override_dst_hash, override_source_hash);   // app DM (dm_delivery record key); DST_HASH default-on (or the §3c mobile override); §mobile delegate: type/override_source_hash for MOBILE_SEND + the home re-originate
+uint16_t Node::do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t override_dst_hash, uint8_t type, uint32_t override_source_hash, Plane plane) {
+    return enqueue_data(dst, body, body_len, flags, "tx_enqueue", /*app_dm=*/true, type, crypt, override_dst_hash, override_source_hash, /*addr_len=*/0, plane);   // app DM (dm_delivery record key); DST_HASH default-on (or the §3c mobile override); §mobile delegate: type/override_source_hash for MOBILE_SEND + the home re-originate; Wave 2: plane forced by the caller
 }
 
 // ---- Slice 4d: cross-layer DM origination -------------------------------------------------------------------
@@ -548,6 +549,7 @@ void Node::issue_send(const TxItem& item) {
     pt.alts_tried_n = 0;
     pt.previous_hop = item.previous_hop; pt.has_previous_hop = item.is_forward;
     pt.addr_len = item.addr_len; pt.mobile_src = item.mobile_src;   // §mobile 3a: carry the mobile marks TxItem -> flight -> RTS
+    pt.plane = item.plane;   // Wave 2: carry the addressing plane TxItem -> flight -> route dispatch below (AUTO for every existing caller)
     pt.requeue_count = item.requeue_count; pt.enqueue_time_ms = item.enqueue_time_ms;
     pt.fwd_remaining = item.fwd_remaining; pt.fwd_committed = item.fwd_committed;   // hop budget (forwarder)
     pt.flood = item.flood; pt.hop_left = item.hop_left;                             // channel FLOOD: the 43-B RTS-M tail
@@ -564,8 +566,12 @@ void Node::issue_send(const TxItem& item) {
         return;
     }
 
+    // Wave 2: route by the flight's PLANE. AUTO = dispatch on is_team_peer (today's behaviour, byte-identical); TEAM =
+    // the team plane (pick_next_cascade_hop -> rt_find(_,TEAM) -> _rt_team); GLOBAL = never the team plane (a registered
+    // mobile reaches the mesh via its home; a static node cascades on _rt), even for an id that collides a teammate's.
+    const bool team_route = (pt.plane == Plane::TEAM) || (pt.plane == Plane::AUTO && is_team_peer(pt.dst));
     const uint8_t first = (pt.addr_len == 1) ? pt.dst     // §mobile 3a Fix 4: a mobile-next (local-id) is a DIRECT 1-hop send to the registrar — NEVER rt_find'd (a local-id can collide a global id). addr_len==0 for every normal TxItem.
-                        : is_team_peer(pt.dst) ? pick_next_cascade_hop(pt)   // §6.4: a TEAM-plane dst routes via _rt_team (rt_find dispatches on is_team_peer). A dual (registered) member must NOT push it through the static home_id.
+                        : team_route ? pick_next_cascade_hop(pt)   // §6.4: a TEAM-plane dst routes via _rt_team. A dual (registered) member must NOT push it through the static home_id.
                         : mobile_registered() ? mobile_home_id()   // §mobile 3b: a REGISTERED MOBILE is a leaf -> reach the mesh through its 1-hop home_node (no global route table). Inert for a static/unregistered node (and compiled out on a static/gateway build -> falls through to cascade).
                         : pick_next_cascade_hop(pt);     // first SELECTABLE candidate (skips previous_hop)
     if (first == 0) {
@@ -645,6 +651,7 @@ void Node::tx_rts_retry() {
     // mobile_src-keyed guards (learn/anti-spam node_mac_rx :40/:47, the receiver's mobile_from, the ACK's mobile_to) MISSED
     // them -> a team local id leaked into the static _rt/ledger. This closes it uniformly. Non-team/static flight -> 0 -> identical wire.
     rin.mobile_src = pt.mobile_src || team_next;
+    if (team_next) rin.src = team_local_id();   // §6.4: team-plane RTS src = OUR team local id, NOT _node_id (a static node_id may collide across teammates; off-grid team_local_id==node_id -> no-op)
     // e2e-ack backstop exemption (2026-07-02): mark the RTS so the 1st-hop backstop skips its DROP for this ack (an ack
     // must never be throttled — a throttled ack -> re-send -> more traffic). Verified at DATA-time (anti-spoof). Duty still binds.
     if (pt.type == DATA_TYPE_E2E_ACK) rin.rts_flags |= RTS_FLAG_E2E_ACK;
@@ -1047,7 +1054,7 @@ void Node::do_data_tx() {
     // remaining = min(31, rt_hops + slack); a FORWARDER carries the already-decremented
     // values (threaded from handle_data). prev_fwd_rt_hops is ALWAYS re-stamped to
     // self's own rt[dst].hops (never inherited). Pure arithmetic — no rand.
-    RtEntry* rte = rt_find(pt.dst);
+    RtEntry* rte = rt_find(pt.dst, pt.plane);   // Wave 2: this flight's plane (a GLOBAL flight reads _rt, never _rt_team for a colliding id)
     const bool have_rt = (rte != nullptr && rte->n > 0);
     uint8_t hb_remaining, hb_committed, hb_prev_fwd;
     if (pt.has_previous_hop) {                            // forwarder: inherit, re-stamp prev (fallback 0)

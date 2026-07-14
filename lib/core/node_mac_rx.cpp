@@ -227,7 +227,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         // Fresh within the 10s TTL (dv_dual_sf.lua:9861) — the TTL gate is what stops a
         // stale 4-bit ctr_lo alias from false-positiving on slow sustained traffic.
         cts_in cin{}; cin.chosen_data_sf = la->second.chosen_data_sf;
-        cin.already_received = true; cin.tx_id = _node_id; cin.rx_id = r.src;
+        cin.already_received = true; cin.tx_id = for_team_rts ? team_local_id() : _node_id; cin.rx_id = r.src;
         cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0;   // NAV: size the overhearer's DATA reservation
         uint8_t cbuf[4]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, sizeof cbuf));
         tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b
@@ -242,7 +242,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (_active->_pending_rx && _active->_pending_rx->from == r.src && _active->_pending_rx->dst == r.dst &&
         _active->_pending_rx->ctr_lo == r.ctr_lo) {
         cts_in cin{}; cin.chosen_data_sf = _active->_pending_rx->chosen_data_sf;
-        cin.already_received = false; cin.tx_id = _node_id; cin.rx_id = r.src;
+        cin.already_received = false; cin.tx_id = for_team_rts ? team_local_id() : _node_id; cin.rx_id = r.src;
         cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0;   // NAV: size the overhearer's DATA reservation
         uint8_t cbuf[4]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, sizeof cbuf));
         tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b
@@ -358,7 +358,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     prx.mobile_from = r.mobile_src;                               // §mobile: carry the mobile-src mark -> DATA-time learn skips a mobile local id (mirror the RTS learn guard :47)
     _active->_pending_rx = prx;
     start_pending_rx_expiry(r.payload_len);
-    cts_in cin{}; cin.chosen_data_sf = sf; cin.already_received = false; cin.tx_id = _node_id; cin.rx_id = r.src;
+    cts_in cin{}; cin.chosen_data_sf = sf; cin.already_received = false; cin.tx_id = for_team_rts ? team_local_id() : _node_id; cin.rx_id = r.src;
     cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0;   // NAV: size the overhearer's DATA reservation
     uint8_t cbuf[4]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, sizeof cbuf));
     tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b: stash + tag the CTS
@@ -390,12 +390,12 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // a local id here — the CTS carries no mark (flags nibble full, frames.md CTS-by-context) so an overhearer can't tell.
     // THROTTLE-ONLY (a stale window entry), never a route/deliver decision -> no misroute/misdeliver; a full fix needs a
     // CTS wire bit (a flag-day, not worth it for a throttle). own_mobile_team_cts is false on s18 -> byte-identical.
-    const bool own_mobile_team_cts = (c.rx_id == _node_id) && _active->_pending_tx
+    const bool own_mobile_team_cts = for_me_dst(c.rx_id) && _active->_pending_tx
         && (_active->_pending_tx->addr_len == 1 || is_team_peer(_active->_pending_tx->next));
     if (!own_mobile_team_cts)
         track_originator_observation(c.tx_id, /*kind=cts*/1, /*dedup_key=*/c.rx_id,
                                      static_cast<uint32_t>(airtime_routing_ms(4)));
-    if (c.rx_id != _node_id) {                            // overheard CTS (not clearing us)
+    if (!for_me_dst(c.rx_id)) {                           // overheard CTS (not clearing EITHER of our plane ids: node_id or team_local_id)
         // NAV: reserve the medium for the DATA+ACK this CTS just authorized (covers the hidden node near the
         // receiver that didn't hear the RTS). chosen_data_sf is exact; size assumed max (conservative).
         if (_cfg.nav_enabled) nav_arm(nav_duration_cts(c.chosen_data_sf, c.payload_len));
@@ -1137,7 +1137,7 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto pk = parse_ack(std::span<const uint8_t>(bytes, len));
     if (!pk) return;
     const ack_out& k = *pk;
-    if (k.to != _node_id || ((k.mobile_to == 1) != _cfg.is_mobile)) return;   // §mobile 3b: an ACK to a mobile carries mobile_to=1 -> accepted by the mobile, ignored by a colliding static id (byte-identical when both 0)
+    if (!for_me_dst(k.to) || ((k.mobile_to == 1) != _cfg.is_mobile)) return;   // §mobile 3b/6.4: an ACK to EITHER of our plane ids (node_id OR team_local_id), mobile_to matching our kind; a colliding static id ignores it (byte-identical when _team_local_id==0)
     if (!_active->_pending_tx || !_active->_pending_tx->awaiting_ack || _active->_pending_tx->ctr_lo != k.ctr_lo) return;
     // src-less by design (see handle_cts): to+ctr_lo already identifies the ACK as our next-hop's. The
     // src_hint cross-check is SIM-ONLY, so gate it on availability rather than REJECTING when absent — the
@@ -1198,7 +1198,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // §mobile: mirror the ACK gate — a NACK to a mobile/team LOCAL id carries mobile_to=1 (accepted by the mobile, IGNORED
     // by a colliding STATIC id). Without this a static node whose global id == a mobile's local id could mis-consume a NACK
     // meant for the mobile (a spurious back-off/reroute). mobile_to==0 for a static originator -> byte-identical.
-    if (n.to != _node_id || ((n.mobile_to == 1) != _cfg.is_mobile)) return;   // not for us
+    if (!for_me_dst(n.to) || ((n.mobile_to == 1) != _cfg.is_mobile)) return;   // §6.4: not for EITHER of our plane ids (node_id / team_local_id)
     if (!_active->_pending_tx) return;                                       // no flight to react on
     if (_active->_pending_tx->ctr_lo != n.ctr_lo) return;                    // stale (different flight). L9 NOTE: WIRE-bounded — a NACK carries only the 4-bit ctr_lo, not flight_gen, so a NACK for a since-replaced flight with an ALIASED ctr_lo (1/16) can still match here. Fully fixing needs more wire ctr bits (a frame change, out of scope); the LOCAL re-arm paths (retry-stash, nack-wait) are now flight_gen-exact.
     if (meta.src_hint >= 0 && static_cast<uint8_t>(meta.src_hint) != _active->_pending_tx->next) {

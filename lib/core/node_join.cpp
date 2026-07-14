@@ -216,6 +216,24 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (j.opcode == static_cast<uint8_t>(j_opcode::claim)) {
         if (j.is_mobile) {                                            // §mobile 2a: a mobile CLAIM = claim-stands (record/refresh — NO reply)
             if (j.chosen_host_id != _node_id) return;                 // §mobile: only the host the mobile CHOSE records it — a flood-hearer (relay) is NOT a host (else it proxies for a mobile it doesn't serve)
+            // §6.4 S6: reject a CLAIM whose local id collides a DIFFERENTLY-keyed hosted mobile (the concurrent-OFFER race —
+            // find_free_mobile_id reserves nothing until CLAIM, so two mobiles can be offered the same free id). Do NOT
+            // last-write-wins (two hosted mobiles sharing one local id -> the home last-miles ambiguously). Re-OFFER a FRESH
+            // id (find_free_mobile_id excludes the taken one) so the mobile re-claims; do NOT record the colliding entry.
+            for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+                if (_active->_mobile_reg[i].mobile_local_id == j.proposed_node_id && _active->_mobile_reg[i].key_hash32 != j.key_hash32) {
+                    const uint8_t fresh = find_free_mobile_id(j.key_hash32);   // idempotent for THIS key; skips the taken id
+                    if (fresh != 0) {
+                        j_offer_in off{}; off.leaf_id = _cfg.leaf_id; off.gateway_capable = false; off.is_mobile = true;
+                        off.responder_node_id = _node_id; off.responder_key_hash32 = _key_hash32;
+                        off.data_sf_bitmap = static_cast<uint8_t>(_cfg.allowed_sf_bitmap & 0xFF);
+                        off.proposed_mobile_id = fresh;
+                        uint8_t buf[9]; const size_t n = pack_j_offer(off, std::span<uint8_t>(buf, sizeof buf));
+                        if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
+                    }
+                    MR_EMIT("mobile_id_collision_reoffer", EF_I("claimed", j.proposed_node_id), EF_I("fresh", fresh));
+                    return;   // do NOT record the colliding claim; the mobile re-claims the fresh id
+                }
             int slot = -1;
             for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
                 if (_active->_mobile_reg[i].key_hash32 == j.key_hash32) { slot = static_cast<int>(i); break; }

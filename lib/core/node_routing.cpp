@@ -12,13 +12,17 @@ namespace MESHROUTE_NS {
 
 // ---- route table ------------------------------------------------------------
 
-RtEntry* Node::rt_find(uint8_t dest) {
+RtEntry* Node::rt_find(uint8_t dest, Plane plane) {
     // §mobile 6.2: a KNOWN same-team peer's route lives in the TEAM plane (_rt_team), NOT _rt (§18: its local id can
-    // collide a static global id). Dispatch every route lookup by plane. is_team_peer is ALWAYS false for a static node
-    // / non-team member (a team_peer bit is set only when _cfg.team_id != 0) -> byte-identical. rt_merge/rt_prune_cycle
-    // use the EXPLICIT-table overloads (not this wrapper), so ingest/emit are unaffected.
+    // collide a static global id). Dispatch every route lookup by plane. Wave 2: AUTO dispatches by is_team_peer (today's
+    // behaviour — is_team_peer is ALWAYS false for a static/non-team node -> byte-identical); TEAM forces _rt_team; GLOBAL
+    // forces _rt (so a global send to an id that COLLIDES a teammate's team id still routes on the STATIC plane).
+    // rt_merge/rt_prune_cycle use the EXPLICIT-table overloads (not this wrapper), so ingest/emit are unaffected.
 #if MR_FEAT_TEAM
-    if (is_team_peer(dest)) return rt_find(dest, _active->_rt_team, _active->_rt_team_count);
+    const bool team = (plane == Plane::TEAM) || (plane == Plane::AUTO && is_team_peer(dest));
+    if (team) return rt_find(dest, _active->_rt_team, _active->_rt_team_count);
+#else
+    (void)plane;
 #endif
     return rt_find(dest, _active->_rt, _active->_rt_count);
 }
@@ -249,8 +253,8 @@ int Node::resort_routes_for_neighbor_penalty(uint8_t node_id, [[maybe_unused]] c
 // `or entry` fallback, which our pick-based callers don't need). A primary change dirties + emits + schedules ONE
 // triggered beacon (the conditional draw), exactly like resort_routes_for_neighbor_penalty. Gate-inert: no tier change
 // in a gate -> the re-sort keeps the primary -> no draw -> byte-identical.
-RtEntry* Node::refresh_route_order(uint8_t dst, [[maybe_unused]] const char* reason) {
-    RtEntry* e = rt_find(dst);
+RtEntry* Node::refresh_route_order(uint8_t dst, [[maybe_unused]] const char* reason, Plane plane) {
+    RtEntry* e = rt_find(dst, plane);
     if (e == nullptr || e->n < 2) return e;              // <2 candidates: nothing to re-rank
     const uint8_t old_primary = e->candidates[0].next_hop;
     sort_candidates(*e);                                 // penalty-aware re-sort (draw-free)

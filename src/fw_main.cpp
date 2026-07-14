@@ -259,6 +259,19 @@ static void dump_routes(Print& out) {
 
     }
 #endif   // MR_FEAT_TEAM
+    // §mobile: the hosted-mobile registry (this node is a HOME) — mobiles reachable by a DIRECT last-mile from here.
+    // mobile_reg_count()==0 on a non-host / static build -> nothing printed.
+    if (g_node.mobile_reg_count()) {
+        out.print(F("hosted-mobiles n=")); out.println(g_node.mobile_reg_count());
+        for (uint8_t i = 0; i < g_node.mobile_reg_count(); ++i) {
+            uint32_t kh = 0; uint8_t lid = 0; bool hpk = false;
+            if (!g_node.mobile_reg_at(i, kh, lid, hpk)) continue;
+            char hx[9]; snprintf(hx, sizeof hx, "%08lX", (unsigned long)kh);
+            out.print(F("[hosted-mobile] hash=0x")); out.print(hx);
+            out.print(F(" local_id="));              out.print(lid);
+            out.print(F(" pubkey="));                out.println(hpk ? F("yes") : F("no"));
+        }
+    }
 }
 
 // allowed_sf_bitmap -> "7,12" CSV (SF index = bit position). 0 = unconfigured.
@@ -1308,7 +1321,7 @@ static void dump_help(Print& out) {
     hl(F("===== MeshRoute console ====="));
     hl(F(""));
     hl(F("MESSAGING"));
-    hl(F("  send <id|0xhash> \"<text>\" [-a] [-e]      -a=ack  -e=encrypt (hash only);  bare id<=254, or a 0x-prefixed hash"));
+    hl(F("  send <id|0xhash> \"<text>\" [-a] [-e] [-t] -a=ack  -e=encrypt(hash only)  -t=team plane; plain send=global/home (fails if no home)"));
     hl(F("  send_channel <ch> \"<text>\""));
     hl(F("  send_layer <0xhash> <l1,l2,…> \"<text>\" [-a]   explicit cross-layer destination path"));
     hl(F(""));

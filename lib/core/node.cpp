@@ -860,11 +860,14 @@ CmdResult Node::on_command(const Command& c) {
                 return CmdResult{ CmdCode::err_no_data_sf, 0, _active->_tx_queue_n };
             if (c.body_len > protocol::dm_max_body_bytes)         // body + the 2-B inner prefix must fit inner[] (no OOB)
                 return CmdResult{ CmdCode::err_too_large, 0, _active->_tx_queue_n };
+            const Plane plane = static_cast<Plane>(c.u.send.plane);   // Wave 2 HARD SPLIT: 0=AUTO (companion/sim) / 1=TEAM (`-t`) / 2=GLOBAL (plain `send`)
             if (c.u.send.dst_hash != 0) {                         // address-by-hash (hash-locate): resolve, then send
-                const uint16_t ctr = send_by_hash(c.u.send.dst_hash, c.body, c.body_len, c.u.send.flags, c.crypt);
+                const uint16_t ctr = send_by_hash(c.u.send.dst_hash, c.body, c.body_len, c.u.send.flags, c.crypt, /*reply_to_hash=*/0, /*mobile_ctr=*/0, plane);
                 return CmdResult{ CmdCode::queued, ctr, _active->_tx_queue_n, c.u.send.dst_hash, /*layer_path*/ 0 };
             }
-            const uint16_t ctr = do_send(c.u.send.dst_id, c.body, c.body_len, c.u.send.flags, c.crypt);   // §8b: per-message crypt
+            if (plane == Plane::TEAM && !is_team_peer(c.u.send.dst_id))   // §6.4: `send -t <id>` to a non-teammate (no _rt_team route) -> fail loud, don't storm the static plane
+                return CmdResult{ CmdCode::err_no_binding, 0, _active->_tx_queue_n };
+            const uint16_t ctr = do_send(c.u.send.dst_id, c.body, c.body_len, c.u.send.flags, c.crypt, /*override_dst_hash=*/0, /*type=*/0, /*override_source_hash=*/0, plane);   // §8b: per-message crypt + Wave 2 plane
             return CmdResult{ CmdCode::queued, ctr, _active->_tx_queue_n };   // id-addressed: dst_hash/layer_path = 0
         }
         case CmdKind::send_channel: {                         // ROADMAP §3 channel gossip (single-layer)
@@ -899,7 +902,17 @@ CmdResult Node::on_command(const Command& c) {
             if (h == 0 && c.u.resolve.dst_id != 0                       // §enc: reqpubkey BY team_local_id -> resolve the hash from the team key cache (heard on the teammate's beacon)
                 && !team_key_of_id(c.u.resolve.dst_id, h))              // unknown team peer (no beacon heard yet) -> fail loud, don't flood a 0-hash query
                 return CmdResult{ CmdCode::err_no_binding, 0, _active->_tx_queue_n };
-            emit_hash_query(h, /*hard=*/true, /*want_pubkey=*/true);
+#if MR_FEAT_MOBILE
+            // §mobile Part 2: a mobile WE HOST already pushed us its pubkey -> cache it LOCALLY, no flood (the home is the key
+            // authority for its hosted mobiles). Lets the home send ENCRYPTED to its own hosted mobile. Mirrors the send-side _mobile_reg last-mile.
+            if (const uint8_t* mk = host_mobile_ed_pub(h)) {
+                peer_key_set(h, mk, PeerKeyConf::authoritative);
+                MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(h)), EF_I("node", 0));   // mirror the handle_h path (telemetry + push)
+                Push pu{}; pu.kind = PushKind::peer_key_cached; pu.sender_hash = h; enqueue_push(pu);
+                return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };
+            }
+#endif
+            emit_hash_query(h, /*hard=*/true, /*want_pubkey=*/true, static_cast<Plane>(c.u.resolve.plane));   // §6.4: -t=TEAM (team_scoped, origin=team_local_id); else GLOBAL
             return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };
         }
         case CmdKind::peerkey: {     // §3: QR import — install the scanned full pubkey as a PINNED (verified) key.

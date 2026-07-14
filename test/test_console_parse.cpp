@@ -27,6 +27,36 @@ TEST_CASE("parse_command — send <id> \"text\" [-a] (id target; quoted body; fl
     CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "hi");
 }
 
+TEST_CASE("parse_command — Wave 2 `-t` sets the TEAM plane; plain send = GLOBAL; -t rejected on send_channel") {
+    Command c{};
+    const char* g = "send 5 \"hi\"";                     // plain send -> GLOBAL (2)
+    CHECK(parse_command(g, std::strlen(g), c) == ParseErr::ok);
+    CHECK(c.u.send.plane == 2);
+    const char* t = "send 5 \"hi\" -t";                  // -t (tail flag, like -a/-e) on an id target -> TEAM (1)
+    CHECK(parse_command(t, std::strlen(t), c) == ParseErr::ok);
+    CHECK(c.u.send.plane == 1); CHECK(c.u.send.dst_id == 5);
+    const char* th = "send 0x4be09089 \"hi\" -e -t";     // -t + -e together on a hash target
+    CHECK(parse_command(th, std::strlen(th), c) == ParseErr::ok);
+    CHECK(c.u.send.plane == 1); CHECK(c.u.send.dst_hash == 0x4be09089u); CHECK(c.crypt == CryptIntent::on);
+    const char* sc = "send_channel 3 \"hi\" -t";         // -t is send-only -> rejected elsewhere
+    CHECK(parse_command(sc, std::strlen(sc), c) == ParseErr::bad_args);
+}
+
+TEST_CASE("parse_command — reqpubkey -t = TEAM plane; plain = GLOBAL; a bare team-id is implicitly TEAM") {
+    Command c{};
+    const char* g = "reqpubkey 0xdeadbeef";                  // plain -> GLOBAL (2)
+    CHECK(parse_command(g, std::strlen(g), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::reqpubkey); CHECK(c.u.resolve.plane == 2); CHECK(c.u.resolve.dst_hash == 0xdeadbeefu);
+    const char* t = "reqpubkey 0xdeadbeef -t";               // -t -> TEAM (1)
+    CHECK(parse_command(t, std::strlen(t), c) == ParseErr::ok);
+    CHECK(c.u.resolve.plane == 1);
+    const char* bid = "reqpubkey 93";                        // bare team-id -> implicitly TEAM
+    CHECK(parse_command(bid, std::strlen(bid), c) == ParseErr::ok);
+    CHECK(c.u.resolve.plane == 1); CHECK(c.u.resolve.dst_id == 93);
+    const char* bad = "reqpubkey 0xdeadbeef -x";             // unknown trailing flag -> error
+    CHECK(parse_command(bad, std::strlen(bad), c) == ParseErr::bad_args);
+}
+
 TEST_CASE("parse_command — send 0xhash + -e (CRYPTED, hash-only)") {
     Command c{};
     const char* h = "send 0x1a2b3c4d \"hi\" -e";

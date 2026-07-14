@@ -2819,6 +2819,20 @@ TEST_CASE("§mobile Part 2 Fix 6 — a mobile with a crypto identity pushes its 
     CHECK_FALSE(h2.saw_emit("mobile_pubkey_push"));   // ★ no identity -> no push
 }
 
+TEST_CASE("§mobile Part 2 / Wave 2 — a HOME reqpubkey'ing its OWN hosted mobile resolves the pubkey from _mobile_reg (no H flood; the home can then seal to it)") {
+    StubHal hal; Node home(hal, /*id=*/155, /*key=*/0x9999u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; CHECK(home.on_init(cfg));
+    uint8_t ed[32] = {}; ed[0]=0xB6; ed[1]=0x31; ed[2]=0x09; ed[3]=0xCD; for (int i=4;i<32;++i) ed[i]=static_cast<uint8_t>(i);  // ed_pub[:4] LE == the mobile's key_hash32
+    const uint32_t mhash = 0xCD0931B6u;
+    DualLayerTestAccess::store_mobile(home, mhash, 40);               // host the mobile @ local id 40
+    DualLayerTestAccess::set_mobile_pubkey(home, 0, ed);             // the mobile pushed its pubkey
+    Command c{}; c.kind = CmdKind::reqpubkey; c.u.resolve.dst_hash = mhash; c.u.resolve.plane = 2 /*GLOBAL*/;
+    home.on_command(c);
+    CHECK_FALSE(hal.saw_emit("h_tx"));                                // ★ NO H flood
+    CHECK(hal.saw_emit("peer_key_cached"));                           // ★ resolved locally from _mobile_reg
+    uint8_t pk[32]; CHECK(home.peer_key_find(mhash, pk));            // ★ the home can now seal to its hosted mobile
+}
+
 TEST_CASE("§mobile delegate — a registered mobile's send_by_hash hands off to its HOME (MOBILE_SEND), it does NOT self-hash-locate (no RREQ storm)") {
     StubHal hal; Node mob(hal, 0, 0xAAAAu);
     NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=4; cfg.is_mobile=true; CHECK(mob.on_init(cfg));

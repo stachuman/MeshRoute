@@ -1753,6 +1753,105 @@ TEST_CASE("§mobile 6.4 — PLAINTEXT delivery-BY-HASH within a team: send 0x<te
     CHECK(got_rts);   // ★ THE FIX: 0x<hash> resolved to team id 25 (team_id_of_key) + routed via _rt_team — no H-flood storm
 }
 
+TEST_CASE("§mobile 6.4 / §18 — a DUAL team member (node_id != team_local_id) stamps the team-plane RTS src with team_local_id, NOT node_id") {
+    TestHal hal;
+    Node node(hal, /*id=*/17, /*key=*/0x1717u);              // static node_id 17 (can collide a teammate's node_id)
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=0xABCD1234u;
+    CHECK(node.on_init(cfg));
+    node.set_team_local_id(93);                              // DUAL: node_id=17, team_local_id=93 (distinct)
+    CHECK(node.node_id() == 17); CHECK(node.team_local_id() == 93);
+    RxMeta meta{12.0f,-70.0f,0,static_cast<int8_t>(238)};    // learn teammate C (team id 238)
+    uint8_t ext[8]; size_t en = pack_team_id_tlv(0xABCD1234u, std::span<uint8_t>(ext, sizeof ext));
+    beacon_in tb{}; tb.leaf_id=0; tb.src=238; tb.key_hash32=0xEE38u; tb.is_mobile=true; tb.ext=std::span<const uint8_t>(ext, en);
+    std::array<uint8_t,64> b{}; size_t bn = pack_beacon(tb, std::span<uint8_t>(b.data(), b.size()));
+    node.on_recv(b.data(), bn, meta);
+    CHECK(node.is_team_peer(238));
+    hal.tx_frames.clear();
+    send_cmd(node, /*dst=*/238, "hi");
+    bool got_rts=false;
+    for (auto& f : hal.tx_frames) { auto pr = parse_rts(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+        if (pr && pr->next == 238) { got_rts=true; CHECK(pr->src == 93); CHECK(pr->addr_len == 1); CHECK(pr->mobile_src); } }  // ★ src is OUR team id 93, not node_id 17
+    CHECK(got_rts);
+}
+
+TEST_CASE("§mobile 6.4 / §18 — a DUAL team member answers a team RTS with a CTS whose tx_id is its team_local_id (not node_id)") {
+    TestHal hal;
+    Node node(hal, /*id=*/17, /*key=*/0x1717u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=0xABCD1234u;
+    CHECK(node.on_init(cfg));
+    node.set_team_local_id(238);                             // our team id 238, node_id 17
+    RxMeta meta{12.0f,-70.0f,0,static_cast<int8_t>(93)};
+    rts_in r{}; r.leaf_id=0; r.src=93; r.next=238; r.ctr_lo=5; r.dst=238; r.sf_index=3; r.payload_len=7; r.mobile_src=true; r.addr_len=1;  // team RTS to our team id
+    uint8_t rb[9]; size_t rn = pack_rts(r, std::span<uint8_t>(rb, sizeof rb));
+    hal.tx_frames.clear();
+    node.on_recv(rb, rn, meta);
+    bool got_cts=false;
+    for (auto& f : hal.tx_frames) { auto pc = parse_cts(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+        if (pc) { got_cts=true; CHECK(pc->tx_id == 238); CHECK(pc->rx_id == 93); } }   // ★ CTS from OUR team id 238 back to the sender's team id 93
+    CHECK(got_cts);
+}
+
+TEST_CASE("§mobile 6.4 / §18 — end-to-end: two team mobiles sharing node_id=17 complete a team DM (CTS accepted -> DATA; team ACK to team_local_id accepted -> no storm)") {
+    TestHal hal;
+    Node node(hal, /*id=*/17, /*key=*/0x1717u);              // sender: node_id=17, team id 93 (peer ALSO has node_id 17)
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=0xABCD1234u;
+    CHECK(node.on_init(cfg));
+    node.set_team_local_id(93);
+    RxMeta meta{12.0f,-70.0f,0,static_cast<int8_t>(238)};
+    uint8_t ext[8]; size_t en = pack_team_id_tlv(0xABCD1234u, std::span<uint8_t>(ext, sizeof ext));
+    beacon_in tb{}; tb.leaf_id=0; tb.src=238; tb.key_hash32=0xEE38u; tb.is_mobile=true; tb.ext=std::span<const uint8_t>(ext, en);
+    std::array<uint8_t,64> b{}; size_t bn = pack_beacon(tb, std::span<uint8_t>(b.data(), b.size()));
+    node.on_recv(b.data(), bn, meta);
+    hal.tx_frames.clear();
+    send_cmd(node, /*dst=*/238, "hi");
+    uint8_t fctr=0; for (auto& f : hal.tx_frames) { auto pr = parse_rts(std::span<const uint8_t>(f.bytes.data(), f.bytes.size())); if (pr && pr->next==238) fctr=pr->ctr_lo; }
+    // teammate 238 answers our RTS: CTS rx_id=93 (our team id, echoing our RTS src), tx_id=238. Must clear OUR flight -> DATA.
+    RxMeta m238{12.0f,-70.0f,0,static_cast<int8_t>(238)};
+    std::array<uint8_t,8> cb{}; const size_t cn = mk_cts(/*rx_id=*/93, /*tx_id=*/238, /*data_sf=*/7, cb);
+    node.on_recv(cb.data(), cn, m238);
+    node.on_timer(kCtsToDataGapTimerId);
+    CHECK(hal.count("data_tx") == 1);                         // ★ S0: the teammate's CTS (rx_id=our team id) cleared the flight -> DATA sent (was 0 pre-fix: dropped as self/overheard)
+    // teammate ACKs to our TEAM id 93 with mobile_to=1 -> the ACK gate must accept it (S1).
+    ack_in ai{}; ai.ctr_lo = fctr; ai.to = 93; ai.mobile_to = true;
+    uint8_t ab[8]; size_t an = pack_ack(ai, std::span<uint8_t>(ab, sizeof ab));
+    node.on_recv(ab, an, m238);
+    const int rts_before = hal.count("rts_tx");
+    node.on_timer(kAckTimeoutTimerId); node.on_timer(kRetryBackoffTimerId);
+    CHECK(hal.count("rts_tx") == rts_before);                // ★ S1: the team ACK (to=team_local_id) was accepted -> flight complete -> NO re-RTS storm
+}
+
+TEST_CASE("§mobile 6.4 / Wave 2 — the plane hard split: GLOBAL routes via _rt even for an id colliding a team peer; TEAM via _rt_team; TEAM to a non-teammate fails loud") {
+    // §18 collision: id 50 lives on BOTH planes — a STATIC route via 60 (_rt) AND a team peer via 50 (_rt_team). A fresh node
+    // per send (a pending flight blocks a second origination) so the two plane routings are observed independently.
+    auto setup = [](Node& n) {
+        NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=0xABCD1234u;
+        CHECK(n.on_init(cfg));
+        n.set_team_local_id(93);
+        CHECK(n.route_inject(/*dest=*/50, /*next=*/60, /*hops=*/1, /*score=*/160));
+        RxMeta meta{12.0f,-70.0f,0,static_cast<int8_t>(50)};
+        uint8_t ext[8]; size_t en = pack_team_id_tlv(0xABCD1234u, std::span<uint8_t>(ext, sizeof ext));
+        beacon_in tb{}; tb.leaf_id=0; tb.src=50; tb.key_hash32=0x5050u; tb.is_mobile=true; tb.ext=std::span<const uint8_t>(ext, en);
+        std::array<uint8_t,64> b{}; size_t bn = pack_beacon(tb, std::span<uint8_t>(b.data(), b.size()));
+        n.on_recv(b.data(), bn, meta);
+        CHECK(n.is_team_peer(50));
+    };
+    auto rts_next = [&](uint8_t plane) -> int {          // fresh node; issue `send 50 (plane)`; return the RTS next-hop
+        TestHal hal; Node n(hal, /*id=*/30, /*key=*/0x3030u); setup(n);
+        Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 50; c.u.send.plane = plane;
+        c.body = reinterpret_cast<const uint8_t*>("hi"); c.body_len = 2;
+        n.on_command(c);
+        for (auto& f : hal.tx_frames) { auto pr = parse_rts(std::span<const uint8_t>(f.bytes.data(), f.bytes.size())); if (pr) return pr->next; }
+        return -1;
+    };
+    CHECK(rts_next(2 /*GLOBAL*/) == 60);                 // ★ GLOBAL -> the STATIC route (via 60), never the colliding team peer
+    CHECK(rts_next(1 /*TEAM*/)   == 50);                 // ★ TEAM -> the team plane (_rt_team, direct to 50)
+    // TEAM to a non-teammate (id 77) -> fail loud (err_no_binding), no storm.
+    TestHal hal; Node n(hal, /*id=*/30, /*key=*/0x3030u); setup(n);
+    Command c2{}; c2.kind = CmdKind::send; c2.u.send.dst_id = 77; c2.u.send.plane = 1;
+    c2.body = reinterpret_cast<const uint8_t*>("hi"); c2.body_len = 2;
+    CHECK(n.on_command(c2).code == CmdCode::err_no_binding);
+}
+
 TEST_CASE("§mobile — a MOBILE-marked Q's src (a home-assigned LOCAL id) is NEVER learned into the static _rt; a static Q IS (the dest=17 bench leak)") {
     auto learned = [](Node& n, uint8_t d){ for (uint8_t i=0;i<n.rt_count();++i) if (n.rt_at(i).dest==d) return true; return false; };
     auto send_q = [](Node& n, uint8_t src, bool mobile){
@@ -4926,6 +5025,96 @@ TEST_CASE("§mobile 2a — host accepts a mobile (DISCOVER->OFFER, CLAIM registe
     hal._now = 6000; host.on_recv(fb.data(), fn, meta);
     CHECK(host.mobile_reg_count() == 1);                      // ★ NOT recorded (host 20 != chosen 99)
     CHECK(hal.count("mobile_registered") == 2);               // unchanged — no false host minted
+}
+
+TEST_CASE("§mobile 6.4 / Wave 2 S6 — a CLAIM whose local id collides a DIFFERENT hosted mobile is NOT last-write-wins: the host keeps the owner + re-OFFERs a fresh id") {
+    TestHal hal; Node host(hal, /*id=*/20, /*key=*/0xAA20);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 4;
+    host.on_init(cfg);
+    RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(-1) };
+    // mobile A (key 0xAAAA) claims local id 40 -> registered
+    std::array<uint8_t,11> ca{}; size_t cna = pack_j_claim({ 4, false, /*is_mobile=*/true, /*key=*/0xAAAAu, /*proposed=*/40, 0, 1, 0, /*chosen_host=*/20 }, ca);
+    hal._now = 1000; host.on_recv(ca.data(), cna, meta);
+    CHECK(host.mobile_reg_count() == 1);
+    CHECK(hal.count("mobile_registered") == 1);
+    // mobile B (key 0xBBBB) claims the SAME local id 40 (the concurrent-offer race) -> collision -> re-OFFER, do NOT overwrite A
+    std::array<uint8_t,11> cbf{}; size_t cnb = pack_j_claim({ 4, false, /*is_mobile=*/true, /*key=*/0xBBBBu, /*proposed=*/40, 0, 1, 0, /*chosen_host=*/20 }, cbf);
+    hal._now = 2000; host.on_recv(cbf.data(), cnb, meta);
+    CHECK(host.mobile_reg_count() == 1);                       // ★ B NOT added at the colliding id (only A remains)
+    CHECK(hal.count("mobile_registered") == 1);               // ★ B was NOT last-write-wins recorded
+    CHECK(hal.count("mobile_id_collision_reoffer") == 1);     // ★ the host detected it + re-OFFERed a fresh id for B
+}
+
+TEST_CASE("§mobile 6.4 / Wave 2 fix — the deferred drain honors the item's plane: a GLOBAL send to a team-peer id is NOT falsely drained via _rt_team (the RREQ-storm regression)") {
+    TestHal hal; Node node(hal, /*id=*/18, /*key=*/0x1818u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=0xABCD1234u;
+    CHECK(node.on_init(cfg));
+    node.set_team_local_id(200);
+    // learn 93 as a TEAM peer (_rt_team) — there is NO static route to 93 (_rt has none)
+    RxMeta meta{12.0f,-70.0f,0,static_cast<int8_t>(93)};
+    uint8_t ext[8]; size_t en = pack_team_id_tlv(0xABCD1234u, std::span<uint8_t>(ext, sizeof ext));
+    beacon_in tb{}; tb.leaf_id=0; tb.src=93; tb.key_hash32=0x9393u; tb.is_mobile=true; tb.ext=std::span<const uint8_t>(ext, en);
+    std::array<uint8_t,64> b{}; size_t bn = pack_beacon(tb, std::span<uint8_t>(b.data(), b.size()));
+    node.on_recv(b.data(), bn, meta);
+    CHECK(node.is_team_peer(93));
+    // a GLOBAL send to 93 -> no static route -> defers. Firing the drain must NOT match the team route (else the item is
+    // drained, re-issued GLOBAL, re-deferred -> re-stamped -> never ages out = the infinite ttl=1 RREQ storm).
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 93; c.u.send.plane = 2 /*GLOBAL*/;
+    c.body = reinterpret_cast<const uint8_t*>("x"); c.body_len = 1;
+    node.on_command(c);
+    node.on_timer(kDeferredDrainTimerId);
+    CHECK(hal.count("send_drained") == 0);   // ★ a GLOBAL item is NOT drained via _rt_team (was 1 pre-fix -> the storm loop)
+}
+
+TEST_CASE("§mobile Wave 2 fix — a HOME sending to its OWN hosted mobile by hash last-miles directly (addr_len=1), NOT an H flood (the home<->mobile deadlock)") {
+    TestHal hal; Node host(hal, /*id=*/155, /*key=*/0x9999u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=7;
+    host.on_init(cfg);
+    RxMeta meta{8.0f,-80.0f,0,static_cast<int8_t>(-1)};
+    // a mobile (hash 0x30740D91) registers with THIS host, claiming local id 40
+    std::array<uint8_t,11> cb{}; size_t cn = pack_j_claim({ 7, false, /*is_mobile=*/true, /*key=*/0x30740D91u, /*proposed=*/40, 0, 1, 0, /*chosen_host=*/155 }, cb);
+    host.on_recv(cb.data(), cn, meta);
+    CHECK(host.mobile_reg_count() == 1);
+    // the home originates a DM to the hosted mobile BY HASH -> direct last-mile (RTS next=40, addr_len=1), NO H flood
+    hal.tx_frames.clear();
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 0; c.u.send.dst_hash = 0x30740D91u; c.u.send.plane = 2 /*GLOBAL*/;
+    c.body = reinterpret_cast<const uint8_t*>("to m"); c.body_len = 4;
+    host.on_command(c);
+    bool got_rts=false;
+    for (auto& f : hal.tx_frames) { auto pr = parse_rts(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+        if (pr && pr->next == 40) { got_rts=true; CHECK(pr->addr_len == 1); } }
+    CHECK(got_rts);                          // ★ direct last-mile to the hosted mobile's local id 40
+    CHECK(hal.count("h_tx") == 0);           // ★ NO H flood (no home<->mobile deadlock)
+}
+
+TEST_CASE("§mobile 6.4 / Wave 2 — reqpubkey -t emits a TEAM-scoped WANT_PUBKEY with origin=team_local_id (so the owner's answer routes back via _rt_team); plain reqpubkey = GLOBAL (origin=node_id)") {
+    TestHal hal;
+    uint8_t seedM1[32], seedM2[32];
+    for (int i=0;i<32;++i){ seedM1[i]=uint8_t(i+1); seedM2[i]=uint8_t(200-i); }
+    Identity idM1{}, idM2{}; identity_from_seed(idM1, seedM1); identity_from_seed(idM2, seedM2);
+    Node m1(hal, /*id=*/17, idM1.key_hash32);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=0xABCD1234u;
+    CHECK(m1.on_init(cfg));
+    m1.set_crypto_identity(idM1.x_secret, idM1.ed_pub);
+    m1.set_team_local_id(93);
+    // reqpubkey <M2 hash> -t -> team-scoped WANT_PUBKEY, origin = OUR team id 93 (NOT node_id 17)
+    hal.tx_frames.clear();
+    Command c{}; c.kind = CmdKind::reqpubkey; c.u.resolve.dst_hash = idM2.key_hash32; c.u.resolve.dst_id = 0; c.u.resolve.plane = 1 /*TEAM*/;
+    m1.on_command(c);
+    bool got_h=false;
+    for (auto& f : hal.tx_frames) if ((f.bytes[0] >> 4) == 0x7) {
+        auto ph = parse_h(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+        if (ph) { got_h=true; CHECK(ph->team_scoped); CHECK(ph->want_pubkey); CHECK(ph->origin == 93); }
+    }
+    CHECK(got_h);
+    // control: plain reqpubkey (GLOBAL) -> NOT team-scoped, origin = node_id 17
+    hal.tx_frames.clear();
+    Command cg{}; cg.kind = CmdKind::reqpubkey; cg.u.resolve.dst_hash = idM2.key_hash32; cg.u.resolve.plane = 2 /*GLOBAL*/;
+    m1.on_command(cg);
+    for (auto& f : hal.tx_frames) if ((f.bytes[0] >> 4) == 0x7) {
+        auto ph = parse_h(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+        if (ph) { CHECK_FALSE(ph->team_scoped); CHECK(ph->origin == 17); }
+    }
 }
 
 TEST_CASE("§mobile 2b — mobile FSM: DISCOVER, collect OFFERs, CLAIM the strongest, adopt; static never arms") {

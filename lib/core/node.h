@@ -233,6 +233,11 @@ struct RtEntry {
 // ---- R3 data-plane state (MAC) ---------------------------------------------
 // inner = [dst_key_hash32 (iff DST_HASH)]|origin(1)|body — the DATA unicast inner (parse_unicast_inner;
 // no payload-flags byte). flags = the byte-1 DataFlag set; type = the byte-8 DataType (0 = normal DM).
+// §mobile 6.4 / Wave 2: the addressing PLANE a send/route uses. AUTO = dispatch by is_team_peer (today's behaviour,
+// byte-identical); TEAM = force the team plane (_rt_team + team_local_id link src); GLOBAL = force the global/static
+// plane (_rt + node_id), never the team plane even for an id that COLLIDES a teammate's team id.
+enum class Plane : uint8_t { AUTO = 0, TEAM = 1, GLOBAL = 2 };
+
 struct TxItem {                      // a queued message awaiting a flight
     uint8_t  origin = 0, dst = 0, ctr_lo = 0;
     uint16_t ctr = 0;
@@ -264,6 +269,7 @@ struct TxItem {                      // a queued message awaiting a flight
     bool     is_gw_relay = false;    // Slice 4c.1: a gateway's cross-layer re-inject -> exempt from originator anti-spam (wired 4c.2)
     uint8_t  addr_len   = 0;         // §mobile 3a: 0=normal, 1=mobile-next (this DM's next-hop is a mobile LOCAL id) -> RTS byte-3
     bool     mobile_src = false;     // §mobile 3a: originator is a mobile (set in 3b outbound; 0 for a host forward) -> RTS byte-5 b1
+    Plane    plane      = Plane::AUTO;// Wave 2: the addressing plane (AUTO=dispatch by is_team_peer; TEAM/GLOBAL forced)
 };
 struct PendingTx {                   // the in-flight sender state (one per node)
     uint8_t  origin = 0, dst = 0, next = 0, ctr_lo = 0;
@@ -272,6 +278,7 @@ struct PendingTx {                   // the in-flight sender state (one per node
     uint8_t  type = 0;               // DataType (0 = normal DM); carried into pack_data at do_data_tx
     uint8_t  addr_len   = 0;         // §mobile 3a: 0=normal, 1=mobile-next (carried from the TxItem -> RTS byte-3)
     bool     mobile_src = false;     // §mobile 3a: originator is a mobile (-> RTS byte-5 b1); 0 for a host forward
+    Plane    plane      = Plane::AUTO;// Wave 2: carried from the TxItem -> plane-aware route dispatch (pick_next_cascade_hop)
     uint8_t  inner[protocol::max_payload_bytes_hard_cap] = {};
     uint8_t  inner_len = 0;
     uint8_t  nonce_seed[8] = {};     // CRYPTED only: the 8-B nonce-seed (from the TxItem) -> the DATA trailer at do_data_tx
@@ -582,6 +589,9 @@ public:
     void restart_discovery();    // re-enter discovery (fast beacon cadence + REQ_SYNC pull) to rebuild routes
     uint8_t           rt_count()       const { return _active->_rt_count; }
     uint8_t           mobile_reg_count() const { return _active ? _active->_mobile_reg_n : 0; }   // §mobile 2a: mobiles registered to this host (test/diagnostic accessor)
+    bool              mobile_reg_at(uint8_t i, uint32_t& key_hash, uint8_t& local_id, bool& has_pubkey) const {   // §mobile: read a hosted-mobile entry (the `routes` dump)
+        if (!_active || i >= _active->_mobile_reg_n) return false;
+        const auto& e = _active->_mobile_reg[i]; key_hash = e.key_hash32; local_id = e.mobile_local_id; has_pubkey = e.has_pubkey; return true; }
     // §mobile console: user/app-driven network control (fw_main handle_mobile reuses the FSM + the pull; NO new wire).
     bool              mobile_autoregister_on() const { return _cfg.mobile_autoregister; }
 #if MR_FEAT_MOBILE
@@ -877,8 +887,8 @@ private:
     const uint8_t* host_mobile_ed_pub(uint32_t key_hash32) const;  // §mobile Part 2 Fix 7: the cached ed_pub for a hosted mobile (live direct proxy + has_pubkey), else nullptr
     void    send_mobile_pubkey_answer(uint8_t to_origin, uint8_t target_layer, uint8_t home_id, uint32_t key_hash32, uint8_t epoch, const uint8_t ed_pub[32]);  // §mobile Part 2 Fix 7: DATA TYPE 13 (home routing ‖ the mobile's ed_pub)
     // D — send-by-hash trigger (the deferred "address by key_hash32") + verify-on-use.
-    uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def, uint32_t reply_to_hash = 0, uint16_t mobile_ctr = 0); // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify). §mobile: reply_to_hash!=0 = the HOME re-originating for its mobile (stamps SOURCE_HASH=mobile hash); reply_to_hash==0 + is_mobile+registered = the mobile ITSELF -> delegate to its home (DATA_TYPE_MOBILE_SEND). mobile_ctr = the mobile's original ctr (ctr_M) -> the ctr_H->ctr_M reverse-ack map (0 = not delegated)
-    void    emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey = false);   // H flood for key_hash32 (hard = verify-on-use; want_pubkey = E2E §6, ask the owner's ed_pub)
+    uint16_t send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def, uint32_t reply_to_hash = 0, uint16_t mobile_ctr = 0, Plane plane = Plane::AUTO); // authoritative binding -> send now; soft/unknown -> park + flood (soft binding -> HARD verify). §mobile: reply_to_hash!=0 = the HOME re-originating for its mobile (stamps SOURCE_HASH=mobile hash); reply_to_hash==0 + is_mobile+registered = the mobile ITSELF -> delegate to its home (DATA_TYPE_MOBILE_SEND). mobile_ctr = the mobile's original ctr (ctr_M) -> the ctr_H->ctr_M reverse-ack map (0 = not delegated)
+    void    emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey = false, Plane plane = Plane::AUTO);   // H flood for key_hash32 (hard = verify-on-use; want_pubkey = E2E §6, ask the owner's ed_pub). Wave 2: TEAM => team_scoped + origin=team_local_id (answer routes via _rt_team); GLOBAL => not team-scoped
     void    park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def, uint32_t reply_to_hash = 0, uint16_t mobile_ctr = 0);   // M3: crypt stamped at park so a parked CRYPTED send flies sealed on drain. §mobile: reply_to_hash carried so a parked delegated send keeps the mobile's reply address; mobile_ctr -> the ctr_H->ctr_M reverse-ack map on drain
     void    park_send_layer(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags);   // Slice 4d: a cross-layer-capable park (resolves layer + gateway on the H-answer); flags carry the app's E2E_ACK_REQ etc.
     void    drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t target_layer = 0xFF);   // a binding arrived -> fly the parked DMs to it (target_layer from the H-answer, 0xFF = beacon re-drain / unknown)
@@ -1085,7 +1095,7 @@ private:
 
     // ---- route table (DV merge) --------------------------------------------
     enum class MergeAction : uint8_t { none, new_dest, primary_refresh, promote, alt_install };
-    RtEntry*    rt_find(uint8_t dest);
+    RtEntry*    rt_find(uint8_t dest, Plane plane = Plane::AUTO);   // Wave 2: plane-aware dispatch (AUTO=is_team_peer, TEAM=_rt_team, GLOBAL=_rt)
     RtEntry*    rt_insert(uint8_t dest);                           // sorted insert; nullptr if full
     void        rt_remove(uint8_t idx);                            // R2: drop _rt[idx], keep sort
     MergeAction rt_merge(uint8_t dest, const RtCandidate& cand);   // dv_dual_sf.lua:4484
@@ -1111,7 +1121,7 @@ private:
     // page proves P does NOT hear us -> one_way; an absent self in a TRUNCATED page is unconfirmed (no change).
     void        update_link_bidi_from_beacon(uint8_t advertiser, const beacon_entry* entries, uint8_t n, bool complete);
     int         resort_routes_for_neighbor_penalty(uint8_t node_id, const char* source, bool local_only);      // :4255
-    RtEntry*    refresh_route_order(uint8_t dst, const char* reason);   // re-sort ONE dest's candidates (catch a tier change since the last sort), dv:4455
+    RtEntry*    refresh_route_order(uint8_t dst, const char* reason, Plane plane = Plane::AUTO);   // re-sort ONE dest's candidates (catch a tier change since the last sort), dv:4455
     void        maybe_emit_rt_full();
 
     // ---- R2 route-plane hardening ------------------------------------------
@@ -1133,10 +1143,10 @@ private:
     // override_dst_hash (§mobile 3c): when non-zero, the DM's DST_HASH is stamped with THIS hash (the queried mobile hash M)
     // instead of key_hash_of_id(dst) — so a mobile's home_node sees dst_hash != its key and last-mile-forwards (not consumes).
     uint16_t do_send(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt = CryptIntent::def,
-                     uint32_t override_dst_hash = 0, uint8_t type = 0, uint32_t override_source_hash = 0);  // returns the ctr. §mobile delegate: type=MOBILE_SEND + override_source_hash=the mobile's hash (home re-originating on its behalf)
+                     uint32_t override_dst_hash = 0, uint8_t type = 0, uint32_t override_source_hash = 0, Plane plane = Plane::AUTO);  // returns the ctr. §mobile delegate: type=MOBILE_SEND + override_source_hash=the mobile's hash (home re-originating on its behalf)
     uint16_t enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, uint8_t flags, const char* tx_event,
                           bool app_dm = false, uint8_t type = 0, CryptIntent crypt = CryptIntent::def, uint32_t override_dst_hash = 0, uint32_t override_source_hash = 0,
-                          uint8_t addr_len = 0);   // §mobile: addr_len=1 ORIGINATES a last-mile DM to a hosted mobile's LOCAL id (E2E-ack back to a mobile); 0 = normal global-id send (byte-identical)
+                          uint8_t addr_len = 0, Plane plane = Plane::AUTO);   // §mobile: addr_len=1 ORIGINATES a last-mile DM to a hosted mobile's LOCAL id (E2E-ack back to a mobile); 0 = normal global-id send (byte-identical)
     void     send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr, uint32_t sender_hash = 0);   // E2E ACK reply (TYPE=E2E_ACK; e2e_ack_tx). §mobile: sender_hash a hosted mobile -> last-mile the ack to it (origin was home-stamped == a self-send)
     void     send_e2e_ack_cross_layer(const data_unicast_inner& dm, uint16_t acked_ctr);  // Slice 4e: reversed-path CROSS_LAYER E2E ack back to the original sender
     // §mobile reverse-ack (delegated): a home re-originates a hosted mobile's send under its OWN ctr (ctr_H). When the

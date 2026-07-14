@@ -69,7 +69,7 @@ bool Node::next_hop_selectable(const RtCandidate& c, const PendingTx& pt, bool a
 
 uint8_t Node::pick_next_cascade_hop(const PendingTx& pt) {
     // Cleanup #B (dv:5434): refresh the route order FIRST — catch a tier change since the last sort before walking.
-    RtEntry* e = refresh_route_order(pt.dst, "cascade_order");
+    RtEntry* e = refresh_route_order(pt.dst, "cascade_order", pt.plane);   // Wave 2: dispatch on the flight's plane (GLOBAL never uses _rt_team even for a colliding id)
     if (e == nullptr) return 0;
     // Two-pass (dv:5430-5450): pass 1 gradient-respecting, pass 2 uphill fallback.
     // candidates[] is kept sorted by route_strictly_better (stable: ties keep insertion
@@ -273,7 +273,7 @@ void Node::try_drain_deferred() {
             { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = d.item.dst; pu.ctr = d.item.ctr; enqueue_push(pu); }
             continue;                                    // drop (don't keep)
         }
-        RtEntry* e = rt_find(d.item.dst);
+        RtEntry* e = rt_find(d.item.dst, d.item.plane);   // Wave 2: drain on the item's OWN plane — a GLOBAL item must NOT be drained by a team route (AUTO would match _rt_team for a colliding team id -> drain -> re-issue GLOBAL -> no route -> re-defer -> re-stamp -> never ages out = the RREQ storm)
         if (e != nullptr && e->n > 0) {
             MR_TELEMETRY(
                 EventField sf[] = { { .key = "origin",    .type = EventField::T::i64, .i = d.item.origin },
