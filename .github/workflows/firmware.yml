@@ -9,6 +9,20 @@ on:
   workflow_dispatch:   # manual "Run workflow" button
 
 jobs:
+  # ---- repo hygiene: no tracked macOS AppleDouble / .DS_Store metadata (.gitignore covers them; this blocks re-introduction) ----
+  hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No tracked ._* / .DS_Store metadata
+        run: |
+          hits=$(git ls-files | grep -E '(^|/)\._|\.DS_Store' || true)
+          if [ -n "$hits" ]; then
+            echo "::error::Tracked macOS metadata files found (untrack with 'git rm --cached'):"
+            echo "$hits"
+            exit 1
+          fi
+
   # ---- native unit tests (doctest, test_framework=native) ----
   test:
     runs-on: ubuntu-latest
@@ -35,7 +49,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        env: [xiao_sx1262, heltec_v3, xiao_esp32s3, gateway, gateway_heltec, gateway_esp32s3]
+        env: [xiao_sx1262, heltec_v3, xiao_esp32s3, gateway, gateway_heltec, gateway_esp32s3, production, xiao_mobile, heltec_mobile, xiao_esp32s3_mobile]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
