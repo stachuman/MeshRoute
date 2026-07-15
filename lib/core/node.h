@@ -1265,39 +1265,62 @@ private:
     uint32_t channel_capacity_C() const;
     // retry_jitter_ms() is declared in the public section (R3.x golden test).
 
-    Hal&     _hal;
-    uint8_t  _node_id;            // reassignable via _hal.set_protocol_id (join/lease)
+    // ============================ Node-global state (cleanup 2026-07-15: by-concern sections; behavior-preserving) ============================
+    Hal&     _hal;                // injected platform (radio/clock/timers) — ctor init-list [1]
+
+    // ---- IDENTITY (Node-global) ----
+    uint8_t  _node_id;            // ctor init-list [2]; reassignable via _hal.set_protocol_id (join/lease)
+    // TEAM-plane id — DELIBERATELY kept HERE (between _node_id & _key_hash32): on 4B-pointer targets these two bytes
+    // fill the pre-_key_hash32 padding, so relocating them costs +8 B on the team/mobile builds (measured via the
+    // per-board .bss diff — native's 8B alignment hides it). Layout-invariance wins over grouping; do NOT move this pair.
+    // (The rest of the team/mobile-member plane groups in a later increment; this stays put.)
 #if MR_FEAT_TEAM
     uint8_t  _team_local_id = 0;  // §mobile 6.4: the member's id on the TEAM plane (self-assigned by team-DAD, no host; persistent). 0 = not team-DAD'd (a non-team node, or a team member mid-DAD). The 6.2 team plane (_team_peer/_rt_team, team beacon src, team frames) keys on THIS; the static plane keeps _node_id. §18: _rt_team keeps the two id-spaces from colliding.
     bool     _team_dad_pending = false;  // §mobile 6.4: true during the team-DAD guard window (tentative _team_local_id) -> a same-team src collision RE-PICKS; after (confirmed) -> DEFEND (DENY).
 #endif
-    uint32_t _key_hash32;         // stable long identity
+    uint32_t _key_hash32;         // ctor init-list [3]; stable long identity
     char     _name[32] = {};      // §1.3: human label (the /mrid IdBlob.name, <=32 B); empty -> effective_name() defaults to "MeshRoute node: 0x<hash>"
     uint8_t  _name_len = 0;
+
+    // ---- E2E CRYPTO (Node-global) ----
     uint8_t  _x_secret[32] = {};  // DP1: X25519 ECDH secret (Phase-1 E2E DM crypto)
     uint8_t  _ed_pub[32]   = {};  // DP1: our Ed25519 pubkey (advertised so peers can ECDH to us)
     bool     _crypto_ready = false;
+
+    // ---- REMOTE-MGMT (Node-global) ----
 #if MR_FEAT_REMOTE_MGMT
     uint8_t  _admin_pubkey[32] = {};   // §remote-mgmt: pinned admin Ed25519 pubkey (trust anchor)
     uint32_t _admin_counter_floor = 0; // §remote-mgmt: replay floor (persisted, write-coalesced)
     bool     _admin_provisioned = false;
 #endif
+    RemoteInbound _remote_inbound{};   // §remote-mgmt: single inbound `rcmd`/resp slot (one in flight; a 2nd while pending drops). Drained by fw_main. UNCONDITIONAL — NOT `#if MR_FEAT_REMOTE_MGMT`-gated (relocated from the class tail, cleanup 2026-07-15).
+
+    // ---- CONFIG ----
     NodeConfig _cfg;             // borrowed copy from on_init
+
+    // ---- INBOX ----
     Inbox    _inbox;             // persistent inbox (disabled until a backend installs stores; see inbox())
+
+    // ======== ROUTING witnesses (Node-global) ========
     int16_t  _routing_snr_floor_q4 = 0;   // SF_DEMOD_THRESHOLD[routing_sf] + sf_margin_q4
     bool     _rt_full_emitted = false;
-    // R2 state
+
+    // ======== BEACON / R2 discovery (Node-global) ========
     uint8_t  _beacon_offset = 0;             // sliding stable-page rotation cursor
     bool     _pending_rediscover = false;     // reprovision verb -> restart discovery at the next join_adopt (id stable)
     bool     _triggered_beacon_pending = false;  // coalesce: gates BEFORE the rand draw
     uint64_t _last_beacon_tx_ms = 0;
+
+    // ======== DUTY / airtime (Node-global) ========
     uint64_t _duty_cycle_budget_ms = 0;          // R4.0: floor(duty_cycle*window), derived in on_init; 0 = disabled
     uint16_t _dm_payload_mean = 0;               // §3e: EWMA (alpha 5/16) of DATA payloads we pass; 0 = no sample (use assumption)
-    uint64_t _window_epoch_ms = 0;               // Slice 3d GRID: the absolute anchor (boot instant = leaf-0's first window open).
-                                                 // Switch times live on the grid epoch + k·period (+window0); a busy slip never ratchets it.
+    // (_window_epoch_ms relocated to the GATEWAY / CROSS-LAYER scheduler section below — it was orphaned here among the duty/R4.3 witnesses; cleanup 2026-07-15.)
+    // ---- R4.3 CHANNEL-BUSY witnesses (adaptive throttle; pure timestamps, no rand) ----
     // R4.3 adaptive-throttle witnesses (channel-busy detector). Pure timestamps, no rand.
     uint64_t _last_rx_routing_sf_ms = 0;         // any successful decode OR preamble-detect (dv:9164/12231); 0 = never
     uint64_t _last_rx_bcn_ms        = 0;         // last beacon ingest (the max-idle B+C filter; dv:9559)
+
+    // ======== MAC / FLIGHT witnesses (Node-global): LBT ring · duty-defer · tx-stash · flight_gen ========
     // R4.5 LBT: derived delays (on_init) + a small RING of deferred-TX slots. The Lua uses independent
     // per-defer closures (dv:3704/3808), so two concurrent busy-channel defers BOTH fire — a single stash
     // would drop the first + desync the rand stream. Each slot has its own timer id (kLbtDeferTimerId+slot).
@@ -1334,6 +1357,9 @@ private:
     // kTxQueueCap stays a Node-level static constexpr (compile-time array dim, identical for every layer;
     // visible by unqualified name inside the nested LayerRuntime + in Node member fns — no per-layer state).
     static constexpr uint8_t kTxQueueCap = 8;
+
+    // ======== LayerRuntime member TYPE defs — defined here for def-before-use; the INSTANCES live in LayerRuntime, ========
+    //          NOT in Node (0 Node-layout impact). Struct-extraction to a private header is a later, separate slice.
     // F route-discovery dedup state (Lua route_request_seen / route_request_last). Members in LayerRuntime.
     struct RReqSeen { uint8_t origin; uint8_t dst; uint64_t t_ms; };   // relay flood-dedup
     struct RReqLast { uint8_t dst; uint8_t ttl; uint64_t t_ms; };      // per-dst origination rate-limit
@@ -1358,6 +1384,8 @@ private:
                           uint64_t suspect_until_ms; uint64_t silent_until_ms; uint64_t dead_until_ms; uint64_t dest_seen_ms;
                           uint64_t suspect_advertise_until_ms; uint64_t dead_advertise_until_ms;
                           uint64_t e2e_ack_spoof_until_ms = 0; };   // anti-spoof: while now < this, the peer's RTS_FLAG_E2E_ACK is IGNORED (backstop re-applies)
+
+    // ======== PARKED-SEND / hash-resolve + L2c redirect + deleg-ack (Node-global) ========
     // send-by-hash DMs parked awaiting a hash-bind resolution (D); drained by on_hash_bind_response, aged on the timer.
     // is_redirect=true => an L2c misdelivered DM held for FORWARD (not re-send): `body`=the full inner (incl.
     // DST_HASH), and origin/ctr/ctr_lo are preserved so the resolution forwards it identity-intact. The redirect
@@ -1385,12 +1413,16 @@ private:
     struct L2cRedirect { uint32_t key_hash32; uint64_t t_ms; };
     L2cRedirect _l2c_redirect[protocol::cap_l2c_redirect] = {};
     uint8_t     _l2c_redirect_n = 0;
+
+    // ======== JOIN / DAD id-assignment (Node-global — node_join.cpp; also _join_denied/_mediated_recent below, past the mobile block) ========
     // node_id auto-assignment (DAD + heal) — node_join.cpp; design 2026-06-05-node-id-auto-assignment-design.md.
     bool     _joined = false;                                    // adopted a node_id via DAD (vs cfg/NV-provisioned)
     bool     _join_listen_pending = false;                       // a join was requested; listening before the first claim (L1)
     uint8_t  _claim_epoch = 0;                                   // VESTIGIAL (key-only tiebreak): reserved on wire/NV, not consulted
     struct JoinClaim { bool active; uint8_t proposed; uint32_t key_hash32; uint8_t claim_epoch; uint8_t nonce; uint64_t started_ms; };
     JoinClaim _join_claim{};                                     // the single in-flight claim (active=false when none)
+
+    // ======== MOBILE-MEMBER identity (Node-global, #if MR_FEAT_MOBILE — roaming-endpoint plane; compiles out on static/gateway) ========
     // §mobile 2b (mobile-side registration): a mobile has ONE attachment (identity-level, single-layer). DORMANT unless
     // _cfg.is_mobile — the FSM timer is armed only for a mobile, so a static node never touches any of this.
     // §featuresplit: the whole mobile-MEMBER (roaming endpoint) plane compiles out on a static/gateway build (MR_FEAT_MOBILE=0);
@@ -1459,12 +1491,17 @@ private:
     // FloodState, OrigRing, ...) stay visible by unqualified name. Node is never copied, so the raw _active
     // pointer + default member initializer is safe.
     struct LayerRuntime {
+        // ============ PER-LEAF runtime state — one instance per _layers[i]; _active selects the current leaf (a leaf build ============
+        // ============ has 1, a gateway 2, non-aliasing). By-concern sections (cleanup 2026-07-15); member TYPE defs are above. ============
+
+        // ==== ROUTING — static DV plane ====
         // Routing table (DV).
         RtEntry  _rt[protocol::cap_routes];
         uint8_t  _rt_count = 0;       // distinct dests, kept sorted ascending by dest
         // §mobile 6.2: a SEPARATE team-plane DV table (a teammate's LOCAL id can collide with a static global id — §18 —
         // so the two planes MUST NOT share `_rt`). A team mobile (is_mobile+team_id) learns/advertises/routes here; a
         // static node / lone mobile leaves it empty (byte-identical). Same RtEntry + the same DV core (table-param).
+        // ==== ROUTING — team DV plane (#if MR_FEAT_TEAM; a team local-id can collide a static global id → §18 keeps them SEPARATE) ====
 #if MR_FEAT_TEAM   // §featuresplit: the team plane compiles out on a static-only build (gateway) -> frees ~45 KB (_rt_team ×2)
         RtEntry  _rt_team[protocol::cap_routes] = {};
         uint8_t  _rt_team_count = 0;
@@ -1477,6 +1514,7 @@ private:
         TeamKey  _team_keys[16] = {};
         uint8_t  _team_keys_n = 0;
 #endif
+        // ==== MAC / FLIGHT pipeline (single flight per node): tx-queue · pending-tx/rx · post-ack · no-route defer ====
         // R3 data-plane state (single flight per node).
         TxItem                   _tx_queue[kTxQueueCap];
         uint8_t                  _tx_queue_n = 0;          // FIFO depth
@@ -1488,14 +1526,19 @@ private:
         DeferredSend             _deferred[protocol::cap_deferred_sends];
         uint8_t                  _deferred_n = 0;
         bool                     _drain_armed = false;
+        // ==== ROUTE-DISCOVERY (F) dedup ====
         // F route-discovery dedup state (Lua route_request_seen / route_request_last).
         RReqSeen _rreq_seen[protocol::cap_route_request_seen] = {};
         uint8_t  _rreq_seen_n = 0;
         RReqLast _rreq_last[protocol::cap_route_request_last] = {};
         uint8_t  _rreq_last_n = 0;
+
+        // ==== DAD / id-bind (hash-locate: key_hash32 → node_id) — STRADDLES crypto: also feeds key_hash_for_id + E2E DST_HASH ====
         // Hash-locate id_bind table (Lua dv:4677): key_hash32 -> node_id, beacon-populated.
         IdBind   _id_bind[protocol::cap_id_bind] = {};
         uint16_t _id_bind_n = 0;
+
+        // ==== CRYPTO / PEERS (sender-side hash→home · E2E pubkey cache · H flood dedup) — _mobile_home_cache ships in the STATIC build (not #if MR_FEAT_MOBILE) ====
         // §mobile 3c: sender-side mobile_hash -> home_id cache. id_bind CAN'T hold this (one-hash-per-id, and the home
         // owns its own authoritative hash), so a mobile's stable hash -> its home_node lives here. NO bijection (many
         // mobiles -> one home). Populated by the proxy-answer signature; read by send_by_hash. SILENT (no telemetry).
@@ -1507,6 +1550,14 @@ private:
         // H hash-locate flood dedup (Lua hash_query_seen): per-(origin,key_hash32), hash_query_seen_ttl_ms window.
         HashQuerySeen _hash_query_seen[protocol::cap_hash_query_seen] = {};
         uint8_t       _hash_query_seen_n = 0;
+
+        // ==== LIVENESS / freshness + CROSS-PLANE-SHARED substrate (node_id-indexed, NO plane discriminator) ====
+        // ★ KNOWN LEAK SITE (tech-debt, fix deferred to the PlaneRuntime split — NOT this legibility pass): the node_id-indexed
+        //   arrays below (_dest_seen_ms/_link_bidi/_link_bidi_confirmed_ms/_mobile_peer/_link_reprobe_last_ms) AND the maps
+        //   _blind_until/_neighbor_budget_tier(_set_at)/_per_sender_originator (in the DEDUP-MAPS section) carry NO plane
+        //   discriminator — a team/mobile LOCAL-id write (e.g. _blind_until[team_local_id]; note_link_confirmed → _link_bidi[next_hop])
+        //   aliases the SAME slot a colliding static node_id uses. Correct today (planes rarely co-active on one link); do NOT read
+        //   these as plane-clean. See [[meshroute-plane-separation]].
         // Peer-liveness + freshness plane (routing-liveness port): per-next-hop timeout tiers. Bounded LRU.
         PeerLiveness  _peer_liveness[protocol::cap_peer_liveness] = {};
         uint8_t       _peer_liveness_n = 0;
@@ -1525,10 +1576,13 @@ private:
         // gossip-only mobile is still avoided. 256 bits = 32 B/layer. Read by is_mobile_peer.
         uint8_t       _mobile_peer[32] = {};
         // Slow-reprobe throttle (asymmetric-link slice 6): per-next-hop last single-probe time for a
-        // _link_bidi==one_way sole route. FULL 0..255 range, eviction-free (like _dest_seen_ms) so an
+        // _link_bidi==one_way sole route. FULL 0..254 range (index 255/0xFF is the reserved id, never written — matches the
+        // sibling _dest_seen_ms/_link_bidi arrays; the "0..255" was a stale off-by-one comment), eviction-free (like _dest_seen_ms) so an
         // isolated next-hop is throttled even if its PeerLiveness slot was LRU-evicted. 0 = never reprobed
         // (clock-at-0 -> the FIRST giveup probes immediately, then once per link_reprobe_ttl_ms).
         uint64_t      _link_reprobe_last_ms[256] = {};
+
+        // ==== CHANNEL / FLOOD (gossip plane: buffer · per-origin ledger · pull/re-offer rings · flood table) ====
         // Channel-message gossip plane state (node_channel.cpp).
         ChannelEntry _channel_buffer[protocol::cap_channel_buffer];
         uint16_t     _channel_buffer_n = 0;
@@ -1538,6 +1592,8 @@ private:
         uint8_t            _channel_pull_recent_n = 0;
         FloodState         _flood[protocol::cap_flood_pending] = {};   // channel-flood in-progress table (slot i -> timer kFloodRebcastTimerId+i)
         ChannelReofferPending _channel_reoffer_pending[protocol::cap_channel_reoffer_pending] = {};  // Part 2: per-origin re-offer table (slot i -> timer kChannelReofferTimerId+i)
+
+        // ==== DEDUP / ctr maps (node_id- or flight-keyed). ★ _blind_until / _neighbor_budget_tier / _per_sender_originator are part of the no-plane-discriminator LEAK cluster (see the LIVENESS section header above) ====
         // dedup maps.
         std::map<uint8_t, uint16_t>  _peer_send_counter;   // next_ctr per dst
         uint16_t     _peer_ctr_floor = 0;                  // D7: per-peer next_ctr floor (persisted high-water; resumes DM ctrs above the pre-reboot value)
@@ -1553,11 +1609,15 @@ private:
         mutable std::map<uint8_t, uint64_t> _neighbor_budget_tier_set_at; // next_hop -> absolute_ms the mark was set
         // R4.4 originator anti-spam: per-sender sliding-window ledger of overheard RTS/CTS (fixed ring).
         std::map<uint8_t, OrigRing> _per_sender_originator;  // sender_id -> recent events (fixed ring)
+
+        // ==== Q REQ_SYNC plane dedup ====
         // Q REQ_SYNC plane dedup (Slice 2b — moved from Node scope; keyed by a REMOTE leaf-local q.src/requester,
         // so per-layer: a gateway's two leaves must not alias the same 8-bit id across distinct physical nodes).
         QResponded  _q_responded[protocol::cap_q_responded_to] = {};            // responder dedup ring (opcode|src|dest)
         uint8_t     _q_responded_n = 0;
         SyncPending _sync_pending[protocol::cap_sync_response_pending] = {};    // jittered full-table reply ring (per requester)
+
+        // ==== per-leaf BEACON · HOST-MOBILE registry (#if MR_FEAT_MOBILE host side) · DISCOVERY · WINDOW timing ====
         // Slice 3d per-leaf beacon: a gateway beacons each leaf on its OWN cadence at window-activation (the shared
         // kBeaconTimerId is disabled for gateways — its single deadline halves the per-leaf cadence). 0 = never beaconed.
         uint64_t _last_beacon_ms = 0;
@@ -1588,6 +1648,7 @@ private:
     // Slice-2b non-aliasing property (§8). The gateway's real leaf-swap (activate_layer) lands in Slice 3.
     friend struct DualLayerTestAccess;
 #endif
+    // ======== GATEWAY / CROSS-LAYER scheduler (Node-global — spans leaves; survives a window swap) ========
     LayerRuntime  _layers[MR_N_LAYERS];
     LayerRuntime* _active = &_layers[0];
     uint8_t       _n_layers = 1;
@@ -1598,7 +1659,9 @@ private:
     // Slice 4c.1: cross-layer re-inject HANDOFFS (node-global — they span leaves; survive a window swap, drained on the
     // TARGET leaf's activate). A SMALL bounded ring (refuse-when-full LOUD, never drop-oldest a transit DM silently).
     XlHandoff _xl_handoffs[protocol::cap_gateway_handoffs];
+    uint64_t _window_epoch_ms = 0;  // Slice 3d GRID anchor (boot instant = leaf-0's first window open); switch times = grid epoch + k·period (+window0), a busy slip never ratchets it. Grouped here w/ the cross-layer scheduler (was orphaned among the duty/R4.3 witnesses — cleanup 2026-07-15).
 
+    // ---- own-origin anti-spam floors (Node-global timestamps; duty/anti-spam concern) ----
     uint64_t _ack_warn_until = 0;   // DM Inc 3: park new DM originations until this ms (set by a warn'd ACK)
     uint64_t _last_channel_origin_ms = 0;   // Slice 2: self side of channel_min_interval_ms (own channel posts)
     uint64_t _last_dm_origin_ms = 0;   // Slice 3: own-DM burst floor (dm_min_interval_ms); relays/floods/e2e-ack/rcmd exempt
@@ -1608,7 +1671,7 @@ private:
     // async push ring (the app channel; drained via next_push, drop-oldest on overflow)
     Push     _push_ring[protocol::cap_push_ring];
     uint8_t  _push_head = 0, _push_count = 0;
-    RemoteInbound _remote_inbound{};   // `rcmd`: single inbound slot (one in flight; a 2nd while pending drops). Drained by fw_main.
+    // _remote_inbound relocated to the REMOTE-MGMT section (identity block above) — cleanup 2026-07-15.
 };
 
 #ifdef MESHROUTE_NATIVE
