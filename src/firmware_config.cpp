@@ -9,13 +9,18 @@
 #include "firmware_config_parse.h"   // mrfw::parse_sf_list
 #include "protocol_constants.h"      // meshroute::protocol::* (preamble_sym, gateway_node_id_max, discovery_beacon_period_ms, leaf_name_max)
 #include "leaf_config.h"             // meshroute::duty_to_bp/bp_to_duty/frac_to_bp/bp_to_frac/ms_to_u16
+#include "admin_auth.h"              // meshroute::Identity, admin_key_from_password (handle_password)
+#include "device_rng.h"             // mrrng::fill (handle_create lineage mint)
 #include <Arduino.h>                 // Print, F()
 #include <cstdlib>                   // atoi/atof/atol/strtoul
 #include <cstring>                   // strcmp/strlen/memcpy
+#include <cstdio>                    // snprintf
 
 namespace mrfw {
 
-void apply_radio_live(const mrnv::Blob& b, bool reconfig) {
+// Increment B internalized apply_radio_live: its only callers (handle_cfg_set + provision_apply_live) now both
+// live in this TU, so it reverts to file-static (was header-exposed only to bridge to fw_main's provision_apply_live).
+static void apply_radio_live(const mrnv::Blob& b, bool reconfig) {
     g_freq_mhz = b.freq_mhz;
     g_tx_power = b.tx_power;
     if (reconfig && g_radio_ok) {
@@ -385,5 +390,311 @@ void handle_gateway(const char* args, Print& out) {
     out.println(F(" — reboot to apply"));
 #endif
 }
+
+// Seed a fresh blob from the live config (so a save on a never-persisted node doesn't zero the non-provisioning fields).
+static void seed_blob_from_live(mrnv::Blob& b) {
+    const meshroute::NodeConfig& nc = g_node.config();
+    b.freq_mhz = g_freq_mhz;        b.bw_hz = nc.radio_bw_hz;       b.beacon_ms = nc.beacon_period_ms;
+    b.duty = nc.duty_cycle;         b.allowed_sf_bitmap = nc.allowed_sf_bitmap;
+    b.routing_sf = nc.routing_sf;   b.cr = nc.radio_cr;
+    b.lbt = nc.lbt_enabled ? 1 : 0; b.node_id = g_node.canonical_node_id();   b.tx_power = g_tx_power;
+    b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;
+    b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;  b.team_id = nc.team_id; b.mobile_autoregister = nc.mobile_autoregister ? 1 : 0; b.team_local_id = g_node.team_local_id();   // §mobile: preserve team + autoreg + team-DAD id across create/join
+    b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;  b.ble_pin = g_ble_pin;
+    b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;  b.e2e_dm     = nc.e2e_dm ? 1 : 0;
+    b.gw_announce_duty_pct = nc.gw_announce_duty_pct; b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
+    b.l1_freq_mhz = nc.layers[1].freq_mhz; b.gw_herd_slack = nc.gw_herd_slack;
+    b.l1_bw_hz = nc.layers[1].bw_hz; b.l1_cr = nc.layers[1].cr;   // v17 per-layer BW/CR (0 = inherit)
+    b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch; b.leaf_name_len = nc.leaf_name_len;
+    for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
+    b.channel_active_fraction = nc.channel_active_fraction; b.channel_min_interval_ms = nc.channel_min_interval_ms; b.dm_min_interval_ms = nc.dm_min_interval_ms;   // v16 anti-spam per-leaf tunables
+    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;   // ★ STAMP here so EVERY caller gets a VALID blob. Without it a save path that seeds (load failed / fresh chip) but forgets to re-stamp — e.g. handle_team — persists magic=0/version=0, which the next boot's load() REJECTS => the whole config resets to defaults (the `cfg set mobile 1` -> reboot -> mobile=0 bug). The other callers also re-stamp (harmless/redundant now).
+}
+
+// Apply a just-saved provisioning blob LIVE (no reboot): radio re-tune + membership + config + (re-)DAD. The four
+// §2 sub-paths. do_dad=false only for `leave` (stays unprovisioned, idle awaiting a join).
+static void provision_apply_live(const mrnv::Blob& b, bool do_dad) {
+    apply_radio_live(b, /*reconfig=*/true);                                  // §2 radio: freq/bw/ctrl_sf live (sets routing_sf/bw/cr)
+    meshroute::NodeConfig& lc = g_node.mutable_config();                     // §2 config: MAC re-reads these each use
+    lc.leaf_id = b.leaf_id; lc.layers[0].layer_id = b.leaf_id; lc.layers[0].routing_sf = b.routing_sf;
+    lc.allowed_sf_bitmap = b.allowed_sf_bitmap; lc.layers[0].allowed_sf_bitmap = b.allowed_sf_bitmap;
+    lc.duty_cycle = b.duty;  lc.lineage_id = b.lineage_id;
+    if (b.channel_active_fraction > 0.0f) lc.channel_active_fraction = b.channel_active_fraction;   // v16: 0 => keep the NodeConfig default
+    if (b.channel_min_interval_ms)        lc.channel_min_interval_ms  = b.channel_min_interval_ms;
+    if (b.dm_min_interval_ms)             lc.dm_min_interval_ms       = b.dm_min_interval_ms;
+    lc.leaf_name_len = b.leaf_name_len;
+    for (uint8_t i = 0; i < b.leaf_name_len && i < sizeof(lc.leaf_name); ++i) lc.leaf_name[i] = (char)b.leaf_name[i];
+    g_node.reset_leaf_epoch_state(b.config_epoch);                          // config_epoch + _max_seen_epoch (fresh-lineage numbering)
+    g_node.recompute_duty_budget();                                         // §2(b) duty enforcement live
+    g_node.reset_join_for_reprovision(); lc.layers[0].node_id = 0;          // §2 membership: drop id + CLEAR _joined so the re-DAD actually runs (set_identity alone leaves _joined -> join no-ops)
+    g_node.clear_routing_state();                                           // the old network's routes/bindings/schedules are stale -> wipe
+    g_node.set_rediscover_pending(do_dad);                                  // join/create: restart discovery once the new id is adopted (NOT leave -> idle)
+    if (do_dad) { meshroute::Command jc{}; jc.kind = meshroute::CmdKind::join; (void)g_node.on_command(jc); }   // re-DAD live (claim-after-listen -> J ~join_listen_ms later)
+}
+
+// `join layer=<1..255> freq=<MHz> bw=<kHz> sf=<5..12>` — set the radio floor + (re-)DAD; auto-pulls the leaf config (R6.2).
+#if MR_N_LAYERS < 2   // §config-integrity: create/join are normal-node-only — compiled out on the gateway build (refused at dispatch)
+void handle_join(const char* args, Print& out) {
+    char buf[128]; size_t bn = 0; for (; args[bn] && bn < sizeof(buf) - 1; ++bn) buf[bn] = args[bn]; buf[bn] = '\0';
+    double freq = 0, bwk = 0; long sf = 0, layer = 0; bool hf = false, hb = false, hs = false, hlv = false;   // bwk is kHz (FRACTIONAL — 62.5 / 41.67 / 31.25 are valid LoRa BWs)
+    char* p = buf; char* k; char* v;
+    while (kv_next(p, k, v)) {
+        if      (v && !strcmp(k, "freq"))  { freq  = atof(v); hf = true; }
+        else if (v && !strcmp(k, "bw"))    { bwk   = atof(v); hb = true; }
+        else if (v && !strcmp(k, "sf"))    { sf    = atol(v); hs = true; }
+        else if (v && !strcmp(k, "layer")) { layer = atol(v); hlv = true; }   // the full 1..255 layer id (wire leaf nibble = layer & 0x0F)
+        else { out.print(F("> join err bad/unknown key: ")); out.println(k); goto usage; }
+    }
+    if (!(hf && hb && hs && hlv) || freq < 100.0 || freq > 1000.0 || bwk < 7 || bwk > 500 || sf < 5 || sf > 12 || layer < 1 || layer > 255) goto usage;
+    {
+        mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
+        b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
+        b.freq_mhz = freq; b.bw_hz = (uint32_t)(bwk * 1000.0 + 0.5); b.routing_sf = (uint8_t)sf;   // kHz->Hz, ROUNDED (62.5->62500, not 62000)
+        b.leaf_id = (uint8_t)(layer & 0x0F); b.layer0_id = (uint8_t)layer;       // full layer id stored; leaf = layer & 0x0F (byte-0 wire filter)
+        b.node_id = 0; b.joined = 0; b.lineage_id = 0; b.config_epoch = 0;       // unprovisioned -> DAD + adopt the leaf's lineage via pull
+        if (!mrnv::save(b)) { out.println(F("> join err nv_save_failed")); return; }
+        provision_apply_live(b, /*do_dad=*/true);
+        out.print(F("> join layer=")); out.print((int)layer); out.print(F(" freq=")); out.print(freq, 3);
+        out.print(F(" bw=")); out.print(b.bw_hz); out.print(F("Hz sf=")); out.print((int)sf);
+        out.print(F(" (leaf ")); out.print((int)(layer & 0x0F)); out.println(F(") — DADing id + pulling config (live)"));
+        return;
+    }
+usage:
+    out.println(F("> join err usage: join layer=<1..255> freq=<MHz> bw=<kHz 7..500, fractional ok e.g. 62.5> sf=<5..12>   (leaf = layer & 0x0F)"));
+}
+
+// `create layer=<1..255> freq=<MHz> bw=<kHz> sf=<5..12> sf_list=<7,9> duty=<pct> name="<text>"
+//         [active_fraction=<0..1>] [ch_min_ms=<ms>] [dm_min_ms=<ms>]` — join's floor + mint a MANAGED leaf (mother).
+// The anti-spam keys are OPTIONAL: omitted => the protocol DEFAULTS (never inherited from the node's current settings).
+void handle_create(const char* args, Print& out) {
+    char buf[192]; size_t bn = 0; for (; args[bn] && bn < sizeof(buf) - 1; ++bn) buf[bn] = args[bn]; buf[bn] = '\0';
+    double freq = 0, dutypct = -1, bwk = 0; long sf = 0, layer = 0; uint16_t sfbm = 0;   // bwk is kHz (FRACTIONAL — 62.5 / 41.67 / 31.25 are valid LoRa BWs)
+    char nm[meshroute::protocol::leaf_name_max]; uint8_t nlen = 0;
+    float af = 0.125f; long chi = meshroute::protocol::channel_min_interval_ms, dmi = meshroute::protocol::dm_min_interval_ms;   // anti-spam DEFAULTS (overridden only if the key is given)
+    bool hf = false, hb = false, hs = false, hlv = false, hlist = false, hduty = false, hname = false;
+    char* p = buf; char* k; char* v;
+    while (kv_next(p, k, v)) {
+        if      (v && !strcmp(k, "freq"))            { freq = atof(v); hf = true; }
+        else if (v && !strcmp(k, "bw"))              { bwk = atof(v); hb = true; }
+        else if (v && !strcmp(k, "sf"))              { sf = atol(v); hs = true; }
+        else if (v && !strcmp(k, "layer"))           { layer = atol(v); hlv = true; }   // the full 1..255 layer id (wire leaf nibble = layer & 0x0F)
+        else if (v && !strcmp(k, "sf_list"))         { sfbm = parse_sf_list(v); hlist = true; }
+        else if (v && !strcmp(k, "duty"))            { dutypct = atof(v); hduty = true; }
+        else if (v && !strcmp(k, "name"))            { for (const char* c = v; *c && nlen < sizeof(nm); ++c) nm[nlen++] = *c; hname = true; }
+        else if (v && !strcmp(k, "active_fraction")) { af = (float)atof(v); }
+        else if (v && !strcmp(k, "ch_min_ms"))       { chi = atol(v); }
+        else if (v && !strcmp(k, "dm_min_ms"))       { dmi = atol(v); }
+        else { out.print(F("> create err bad/unknown key: ")); out.println(k); goto usage; }
+    }
+    if (!(hf && hb && hs && hlv && hlist && hduty && hname)) goto usage;
+    if (freq < 100.0 || freq > 1000.0 || bwk < 7 || bwk > 500 || sf < 5 || sf > 12 || layer < 1 || layer > 255 || sfbm == 0 || dutypct < 0.0 || dutypct > 100.0) goto usage;
+    if (af <= 0.0f) af = 0.125f; if (af > 1.0f) af = 1.0f;                    // clamp; 0/absent -> the default
+    if (chi < 1) chi = meshroute::protocol::channel_min_interval_ms; if (dmi < 1) dmi = meshroute::protocol::dm_min_interval_ms;
+    {
+        mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
+        b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
+        b.freq_mhz = freq; b.bw_hz = (uint32_t)(bwk * 1000.0 + 0.5); b.routing_sf = (uint8_t)sf;   // kHz->Hz, ROUNDED (62.5->62500, not 62000)
+        b.leaf_id = (uint8_t)(layer & 0x0F); b.layer0_id = (uint8_t)layer;    // full layer id; leaf = layer & 0x0F
+        b.allowed_sf_bitmap = sfbm;
+        b.duty = meshroute::bp_to_duty(meshroute::duty_to_bp(dutypct / 100.0));   // §5: percent -> 0..1, quantized to the 0.01% wire step
+        for (uint8_t i = 0; i < nlen; ++i) b.leaf_name[i] = (uint8_t)nm[i]; b.leaf_name_len = nlen;
+        b.channel_active_fraction = meshroute::bp_to_frac(meshroute::frac_to_bp(af));   // EXPLICIT (or default) — NEVER inherited; quantized for hash parity
+        b.channel_min_interval_ms = (uint32_t)meshroute::ms_to_u16((uint32_t)chi);
+        b.dm_min_interval_ms      = (uint32_t)meshroute::ms_to_u16((uint32_t)dmi);
+        uint16_t lin = 0; do { mrrng::fill(reinterpret_cast<uint8_t*>(&lin), sizeof lin); } while (lin == 0);   // mint a managed lineage (never 0)
+        b.lineage_id = lin; b.config_epoch = 1; b.node_id = 0; b.joined = 0;      // a fresh managed leaf starts at epoch 1
+        if (!mrnv::save(b)) { out.println(F("> create err nv_save_failed")); return; }
+        provision_apply_live(b, /*do_dad=*/true);
+        out.print(F("> create layer=")); out.print((int)layer); out.print(F(" lineage=")); out.print(lin);
+        out.print(F(" (leaf ")); out.print((int)(layer & 0x0F)); out.print(F(") name=\""));
+        for (uint8_t i = 0; i < nlen; ++i) out.print((char)b.leaf_name[i]);
+        out.print(F("\" af=")); out.print(b.channel_active_fraction, 3);
+        out.print(F(" ch_min=")); out.print(b.channel_min_interval_ms); out.print(F(" dm_min=")); out.print(b.dm_min_interval_ms);
+        out.println(F(" — mother live"));
+        return;
+    }
+usage:
+    out.println(F("> create err usage: create layer=<1..255> freq=<MHz> bw=<kHz 7..500, fractional ok e.g. 62.5> sf=<5..12> sf_list=<e.g.7,9> duty=<pct, fractional ok e.g. 0.1> name=\"<text>\" [active_fraction=<0..1>] [ch_min_ms=<ms>] [dm_min_ms=<ms>]   (leaf = layer & 0x0F)"));
+}
+
+// §mobile 6.1: FNV-1a over (key_hash32 ‖ nonce) = the 32-bit team_id (team_fnv1a32, firmware_config_parse.h).
+// `team new` = MINT a fresh team_id = hash(our key ‖ HW-RNG nonce). `team <id>` = JOIN an existing team. `team 0` = leave.
+void handle_team(const char* args, Print& out) {
+    while (*args == ' ') ++args;
+    const meshroute::NodeConfig& c = g_node.config();
+    uint32_t t;
+    const char* phy_args = nullptr;
+    if (!strncmp(args, "new", 3)) {
+        uint32_t nonce = 0; g_hal.rand_bytes(reinterpret_cast<uint8_t*>(&nonce), 4);
+        t = team_fnv1a32(g_node.key_hash32(), nonce);
+        phy_args = args + 3;   // §mobile 6.4: `team new [freq=<MHz> sf=<5-12> bw=<kHz>]` — optional team PHY
+    } else if (args[0]) {
+        char* endp = nullptr;
+        t = (uint32_t)strtoul(args, &endp, 0);
+        phy_args = endp;   // §6.4: `team <id> [freq= sf= bw=]` — a JOIN can set the shared team PHY too (mirrors `team new`)
+    } else {
+        out.println(F("> team err usage: `team new [freq= sf= bw=]` (mint) | `team <id> [freq= sf= bw=]` (join) | `team 0` (leave)"));
+        return;
+    }
+    mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
+    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;   // ★ was MISSING (the only save path without a stamp) -> a `team` command on a fresh/rejected blob persisted magic=0 => next boot's load() rejected it => the whole config reset (mobile=0). seed_blob_from_live now also stamps; this is belt-and-suspenders + matches the other 6 save paths.
+    b.team_id = t;
+    // §mobile 6.4 Fix 6: set the team PHY so teammates hear each other (AND a member can later register with a compatible
+    // static network). Mirror `mobile register freq=`. Omitted -> keep the current PHY. Requires is_mobile (a team is mobile).
+#if MR_FEAT_MOBILE
+    if (phy_args && strstr(phy_args, "freq=") && c.is_mobile) {
+        const char* fs = strstr(phy_args, "freq="); const char* ss = strstr(phy_args, "sf="); const char* bs = strstr(phy_args, "bw=");
+        double freq = strtod(fs + 5, nullptr);
+        int    sf   = ss ? atoi(ss + 3) : 0;
+        double bw   = bs ? strtod(bs + 3, nullptr) : 125.0;   // FRACTIONAL kHz (62.5 valid)
+        if (freq < 100.0 || freq > 1000.0 || sf < 5 || sf > 12 || bw < 7.0 || bw > 500.0) {
+            out.println(F("> team new err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")); return;
+        }
+        meshroute::LayerConfig phy{};
+        phy.layer_id = c.leaf_id; phy.routing_sf = (uint8_t)sf; phy.freq_mhz = freq;
+        phy.bw_hz = (uint32_t)(bw * 1000.0 + 0.5); phy.allowed_sf_bitmap = (uint16_t)(1u << sf);
+        g_node.mobile_register_phy(phy);                       // retune the radio (+ kick the FSM -> team-DAD via the no-host path)
+        b.freq_mhz = freq; b.routing_sf = (uint8_t)sf; b.bw_hz = phy.bw_hz; b.allowed_sf_bitmap = phy.allowed_sf_bitmap;   // PERSIST the team PHY
+        out.print(F("> team PHY: freq=")); out.print(freq, 3); out.print(F(" sf=")); out.print(sf); out.print(F(" bw=")); out.print(bw, 2); out.println(F(" kHz"));
+    }
+#endif
+    // §6.4: a team is a SHARED-PHY overlay — members can only hear each other on a COMMON freq/routing_sf/sf_list/bw, and an
+    // empty sf_list blocks DATA entirely ([[data-sf-removed]]). Refuse to mint/join (t!=0) with an INCOMPLETE PHY so a member
+    // never lands on an isolated island (the 250-vs-125 kHz / empty-sf_list state seen on the bench). Leave (t==0) is exempt.
+    if (t != 0) {
+        const double eff_freq = (c.is_mobile && c.layers[0].freq_mhz > 0.0) ? c.layers[0].freq_mhz : g_freq_mhz;
+        if (eff_freq <= 0.0 || c.routing_sf < 5 || c.routing_sf > 12 || c.allowed_sf_bitmap == 0 || g_node.active_bw_hz() == 0) {
+            out.println(F("> team err: incomplete PHY — need freq, routing_sf(5..12), sf_list(DATA SF), bw."));
+            out.println(F(">   set them inline: `team new freq=869.0 sf=7 bw=125` — ALL members MUST use the SAME freq/sf/bw."));
+            return;   // NOT joined/minted: team_id, _team_local_id, NV all unchanged
+        }
+    }
+    const bool team_switched = (c.team_id != t);              // §6.4: capture BEFORE the mutable set (c is a live ref)
+    if (team_switched) g_node.set_team_local_id(0);           // §6.4: leaving OR switching teams -> drop the stale team-DAD id (0 = left; a re-DAD picks a fresh one for the new team)
+    g_node.mutable_config().team_id = t;                     // LIVE (team_dad_fire reads _cfg.team_id)
+    if (c.is_mobile && t != 0 && team_switched) g_node.team_dad_fire();   // §6.4: bootstrap the team plane (self-assign a _team_local_id, no static host needed)
+    b.node_id       = g_node.canonical_node_id();            // §6.4: team_dad_fire may have MOVED node_id (off-grid: node_id==team id) -> persist the live id, don't re-save the stale one loaded at entry
+    b.team_local_id = g_node.team_local_id();                // §6.4: persist the fresh id (or 0 on leave) alongside team_id
+    mrnv::save(b);                                            // PERSISTED
+    char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)t);
+    out.print(F("> team -> team_id=0x")); out.println(tx);
+    if (c.is_mobile && t != 0) { out.print(F("  team-DAD: local_id=")); out.println(g_node.team_local_id()); }
+}
+
+// §mobile console: `mobile register [freq=<MHz> sf=<5-12> bw=<kHz> | scan]` · `gateways` · `query <gw>` · `status`.
+#if MR_FEAT_MOBILE   // §featuresplit: the whole mobile console command compiles out on a static build (the FSM/accessors it drives are gone)
+void handle_mobile(const char* args, Print& out) {
+    while (*args == ' ') ++args;
+    const meshroute::NodeConfig& c = g_node.config();
+    if (!c.is_mobile) { out.println(F("> mobile err: not a mobile (cfg set mobile 1 + reboot)")); return; }
+    if (!strncmp(args, "register", 8)) {
+        const char* p = args + 8; while (*p == ' ') ++p;
+        if (!strncmp(p, "scan", 4)) {
+            g_node.mobile_register_scan();
+            out.print(F("> mobile register: scanning current + ")); out.print(g_node.learned_layers_count()); out.println(F(" known networks"));
+        } else if (strstr(p, "freq=")) {
+            const char* fs = strstr(p, "freq="); const char* ss = strstr(p, "sf="); const char* bs = strstr(p, "bw=");
+            double freq = fs ? strtod(fs + 5, nullptr) : 0.0;
+            int sf = ss ? atoi(ss + 3) : 0;
+            double bw = bs ? strtod(bs + 3, nullptr) : 125.0;   // FRACTIONAL kHz — 62.5 / 41.67 / 31.25 are valid LoRa BWs (atof like join/create, NOT atoi which truncates 62.5->62)
+            if (freq < 100.0 || freq > 1000.0 || sf < 5 || sf > 12 || bw < 7.0 || bw > 500.0) { out.println(F("> mobile register err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")); return; }
+            meshroute::LayerConfig phy{};
+            phy.layer_id = c.leaf_id; phy.routing_sf = (uint8_t)sf; phy.freq_mhz = freq;
+            phy.bw_hz = (uint32_t)(bw * 1000.0 + 0.5); phy.allowed_sf_bitmap = (uint16_t)(1u << sf);   // kHz->Hz ROUNDED (62.5->62500, not 62000)
+            g_node.mobile_register_phy(phy);
+            out.print(F("> mobile register: on freq=")); out.print(freq, 3); out.print(F(" sf=")); out.print(sf); out.print(F(" bw=")); out.print(bw, 2); out.println(F(" kHz"));
+        } else {
+            g_node.mobile_register_current();
+            out.println(F("> mobile register: DISCOVER on the current PHY"));
+        }
+        return;
+    }
+    if (!strcmp(args, "gateways")) {
+        uint8_t shown = 0;
+        for (uint8_t i = 0; i < g_node.bridged_layer_cap(); ++i) {
+            const auto& b = g_node.bridged_layer(i);
+            if (!b.valid) continue;
+            out.print(F("  gw ")); out.print(b.gw_id); out.print(F(" -> leaf ")); out.println(b.dest_leaf); ++shown;
+        }
+        if (!shown) out.println(F("  no gateways learned"));
+        const uint8_t nl = g_node.learned_layers_count();
+        for (uint8_t i = 0; i < nl; ++i) {
+            const auto& r = g_node.learned_layer(i);
+            out.print(F("  net layer=")); out.print(r.layer_id); out.print(F(" \""));
+            for (uint8_t k = 0; k < r.name_len; ++k) out.print((char)r.name[k]);
+            out.print(F("\" freq=")); out.print((double)r.freq_khz / 1000.0, 3); out.print(F(" sf=")); out.print(r.sf);
+            out.print(F(" bw=")); out.println(r.bw_hz / 1000);
+        }
+        if (!nl) out.println(F("  no networks learned (use 'mobile query <gw>')"));
+        return;
+    }
+    if (!strncmp(args, "query", 5)) {
+        const uint8_t gw = (uint8_t)strtoul(args + 5, nullptr, 0);
+        if (!gw) { out.println(F("> mobile query err: usage 'mobile query <gw_id>'")); return; }
+        g_node.mobile_send_layer_query(gw);
+        out.print(F("> mobile query gw=")); out.print(gw); out.println(F(" sent (answer async -> 'mobile gateways')"));
+        return;
+    }
+    if (!strcmp(args, "status")) {
+        if (g_node.mobile_registered()) {
+            out.print(F("  REGISTERED home=")); out.print(g_node.mobile_home_id());
+            out.print(F(" local=")); out.print(g_node.mobile_local_id());
+            out.print(F(" epoch=")); out.print(g_node.mobile_reg_epoch());
+            out.print(F(" home_layer=")); out.println(g_node.mobile_home_layer());
+        } else out.println(F("  UNREGISTERED"));
+        out.print(F("  current PHY: layer=")); out.print(c.layers[0].layer_id);
+        const double pf = c.layers[0].freq_mhz > 0.0 ? c.layers[0].freq_mhz : g_freq_mhz;   // §mobile: live layer freq (fallback to boot/global if not yet adopted)
+        out.print(F(" freq=")); out.print(pf, 3); out.print(F(" sf=")); out.print(c.routing_sf);
+        out.print(F(" bw=")); out.print((double)g_node.active_bw_hz() / 1000.0, 2); out.println(F(" kHz"));
+        out.print(F("  autoregister=")); out.println(c.mobile_autoregister ? 1 : 0);
+        out.print(F("  known networks=")); out.println(g_node.learned_layers_count());
+        return;
+    }
+    out.println(F("> mobile err usage: register [freq= sf= bw= | scan] | gateways | query <gw> | status"));
+}
+#endif   // MR_FEAT_MOBILE (handle_mobile)
+#endif   // MR_N_LAYERS < 2 — handle_join / handle_create (normal-node provisioning)
+
+// `leave` — wipe to default, keep ONLY freq; go unprovisioned + idle (the clean managed->managed re-join primitive).
+void handle_leave(Print& out) {
+    mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
+    const double keep_freq = b.freq_mhz;
+    b = mrnv::Blob{};                                                        // zero everything...
+    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
+    b.freq_mhz = keep_freq;                                                  // ...keep only freq
+    b.bw_hz = (uint32_t)(LORA_BW * 1000.0); b.routing_sf = LORA_SF; b.cr = LORA_CR; b.tx_power = LORA_TX_POWER;
+    b.beacon_ms = 900000; b.duty = (double)LORA_DUTY_CYCLE_PCT / 100.0;       // NodeConfig defaults (15 min, 10%)
+    b.channel_active_fraction = 0.125f; b.channel_min_interval_ms = meshroute::protocol::channel_min_interval_ms; b.dm_min_interval_ms = meshroute::protocol::dm_min_interval_ms;   // v16 anti-spam per-leaf defaults
+    if (!mrnv::save(b)) { out.println(F("> leave err nv_save_failed")); return; }
+    provision_apply_live(b, /*do_dad=*/false);                              // unprovisioned + idle (no DAD)
+    out.print(F("> left network (kept freq=")); out.print(keep_freq, 3); out.println(F(") — idle; `join` to re-provision (live)"));
+}
+
+#if MR_FEAT_REMOTE_MGMT
+// `password <passphrase>` — LOCAL-ONLY (a dispatch verb; NEVER accepted over the mesh — remote_exec has no such verb).
+// Derive the admin keypair (iterated-BLAKE2b -> identity_from_seed), pin admin_pubkey to NV, reset the replay floor,
+// then discard the derived keypair (the credential lives in the operator's head, not the node — spec §2/§8).
+void handle_password(const char* args, Print& out) {
+    while (*args == ' ') ++args;
+    size_t n = strlen(args);
+    while (n && (args[n-1]=='\r' || args[n-1]=='\n' || args[n-1]==' ')) --n;
+    if (n == 0) { out.println(F("> password err: usage `password <passphrase>` (local only)")); return; }
+    meshroute::Identity admin{};
+    out.println(F("> deriving admin key (a few seconds)..."));   // the KDF blocks; tell the operator it's not hung
+    meshroute::admin_key_from_password(args, n, admin, []{ fw_wdt_feed(); });   // feed the WDT during the multi-second stretch
+    g_node.admin_set_pubkey(admin.ed_pub);
+    mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
+    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
+    for (int i = 0; i < 32; ++i) b.admin_pubkey[i] = admin.ed_pub[i];
+    b.admin_provisioned = 1; b.admin_counter_floor = 0;      // fresh credential -> reset the replay floor
+    const bool saved = mrnv::save(b);
+    memset(&admin, 0, sizeof admin);                          // discard the derived keypair (best-effort local wipe)
+    if (!saved) { out.println(F("> password err: nv_save_failed")); return; }
+    out.print(F("> admin pubkey pinned (fp "));               // print only a 4-byte fingerprint, NEVER the pubkey/pw
+    const uint8_t* pk = g_node.admin_pubkey();
+    for (int i = 0; i < 4 && pk; ++i) { char hx[3]; snprintf(hx, sizeof hx, "%02X", pk[i]); out.print(hx); }
+    out.println(F(")"));
+}
+#endif
 
 }  // namespace mrfw
