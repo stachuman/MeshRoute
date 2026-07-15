@@ -5037,12 +5037,12 @@ TEST_CASE("§mobile 6.4 / Wave 2 S6 — a CLAIM whose local id collides a DIFFER
     hal._now = 1000; host.on_recv(ca.data(), cna, meta);
     CHECK(host.mobile_reg_count() == 1);
     CHECK(hal.count("mobile_registered") == 1);
-    // mobile B (key 0xBBBB) claims the SAME local id 40 (the concurrent-offer race) -> collision -> re-OFFER, do NOT overwrite A
+    // mobile B (key 0xBBBB) claims the SAME local id 40 (the concurrent-offer race) -> collision -> targeted DENY the loser, do NOT overwrite A
     std::array<uint8_t,11> cbf{}; size_t cnb = pack_j_claim({ 4, false, /*is_mobile=*/true, /*key=*/0xBBBBu, /*proposed=*/40, 0, 1, 0, /*chosen_host=*/20 }, cbf);
     hal._now = 2000; host.on_recv(cbf.data(), cnb, meta);
     CHECK(host.mobile_reg_count() == 1);                       // ★ B NOT added at the colliding id (only A remains)
     CHECK(hal.count("mobile_registered") == 1);               // ★ B was NOT last-write-wins recorded
-    CHECK(hal.count("mobile_id_collision_reoffer") == 1);     // ★ the host detected it + re-OFFERed a fresh id for B
+    CHECK(hal.count("mobile_id_collision_deny") == 1);     // ★ the host detected it + targeted-DENYed the loser (B re-registers)
 }
 
 TEST_CASE("§mobile 6.4 / Wave 2 fix — the deferred drain honors the item's plane: a GLOBAL send to a team-peer id is NOT falsely drained via _rt_team (the RREQ-storm regression)") {
@@ -5160,7 +5160,7 @@ TEST_CASE("§mobile 2b — mobile FSM: DISCOVER, collect OFFERs, CLAIM the stron
     auto feed_offer = [&](uint8_t resp, uint32_t rk, uint8_t local, RxMeta& meta) {
         j_offer_in o{}; o.leaf_id=7; o.is_mobile=true; o.responder_node_id=resp; o.responder_key_hash32=rk;
         o.data_sf_bitmap=0x06; o.proposed_mobile_id=local;
-        uint8_t buf[9]; size_t n = pack_j_offer(o, buf); mob.on_recv(buf, n, meta);
+        o.target_key_hash32 = mob.key_hash32(); uint8_t buf[13]; size_t n = pack_j_offer(o, buf); mob.on_recv(buf, n, meta);
     };
     feed_offer(30, 0x3030u, 100, m5);
     feed_offer(31, 0x3131u, 101, m9);                       // stronger SNR
@@ -5185,6 +5185,40 @@ TEST_CASE("§mobile 2b — mobile FSM: DISCOVER, collect OFFERs, CLAIM the stron
     h3._now=1000; stat.on_timer(kMobDisc); stat.on_timer(kMobGuard);
     CHECK(h3.count("mobile_discover_tx") == 0);             // a static node never DISCOVERs
     CHECK(stat.mobile_home_id() == 0);
+}
+
+TEST_CASE("§S6 — a registered mobile re-registers on a TARGETED DENY (concurrent-offer collision recovery); a foreign DENY is ignored") {
+    constexpr uint32_t kMobDisc = 74, kMobGuard = 75;
+    TestHal hal; Node mob(hal, /*id=*/0, /*key=*/0x7777);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true;
+    mob.on_init(cfg);
+    RxMeta m9{ 9.0f, -70.0f, 0, static_cast<int8_t>(-1) };
+    // register: DISCOVER -> a TARGETED OFFER (local 101, home 31) -> guard -> adopt
+    hal._now = 1000; mob.on_timer(kMobDisc);
+    { j_offer_in o{}; o.leaf_id=7; o.is_mobile=true; o.responder_node_id=31; o.responder_key_hash32=0x3131u;
+      o.data_sf_bitmap=0x06; o.proposed_mobile_id=101; o.target_key_hash32=mob.key_hash32();
+      uint8_t buf[13]; size_t n = pack_j_offer(o, buf); mob.on_recv(buf, n, m9); }
+    hal._now = 4000; mob.on_timer(kMobGuard);
+    CHECK(mob.mobile_registered());
+    CHECK(mob.node_id() == 101);
+    const uint32_t disc_before = hal.count("mobile_discover_tx");
+
+    // (A) a FOREIGN DENY (claimant != our key) for our id -> IGNORED (only the LOSER, addressed by its hash, yields — the
+    //     recorded mobile must NOT re-register off a DENY meant for someone else)
+    { j_deny_in d{}; d.leaf_id=7; d.denied_node_id=101; d.owner_key_hash32=0x9999u; d.claimant_key_hash32=0xBEEFu; d.reason=1;
+      uint8_t buf[15]; size_t n = pack_j_deny(d, buf); mob.on_recv(buf, n, m9); }
+    CHECK(mob.mobile_registered());                          // untouched
+    CHECK(hal.count("mobile_id_denied") == 0);
+
+    // (B) our TARGETED DENY (claimant == our key) for our adopted id -> re-register (reset -> unprovisioned + re-DISCOVER)
+    hal._now = 5000;
+    { j_deny_in d{}; d.leaf_id=7; d.denied_node_id=101; d.owner_key_hash32=0x9999u; d.claimant_key_hash32=mob.key_hash32(); d.reason=1;
+      uint8_t buf[15]; size_t n = pack_j_deny(d, buf); mob.on_recv(buf, n, m9); }
+    CHECK(hal.count("mobile_id_denied") == 1);               // ★ the mobile-side S6 branch fired
+    CHECK_FALSE(mob.mobile_registered());                    // ★ registration reset (the host never recorded us)
+    CHECK(mob.node_id() == 0);                               // ★ unprovisioned (a re-CLAIM follows)
+    mob.on_timer(kMobDisc);                                  // the DENY armed a re-DISCOVER (@0); fire it
+    CHECK(hal.count("mobile_discover_tx") == disc_before + 1);  // ★ a fresh registration cycle begins (-> a distinct id, 101 now taken)
 }
 
 TEST_CASE("§mobile 3a — host H-query proxy: answers for a hosted mobile; a non-host does not") {

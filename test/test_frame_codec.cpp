@@ -1873,12 +1873,12 @@ TEST_CASE("mobile marks — RTS/DATA addr_len + RTS/ACK MOBILE round-trip (Slice
     CHECK(pack_data(di, dbuf) == 0);
 }
 
-TEST_CASE("J mobile OFFER — 9-B round-trip (Slice 2a); normal OFFER stays 8-B") {
+TEST_CASE("J mobile OFFER — 13-B round-trip (Slice 2a + §S6 target hash); normal OFFER stays 8-B") {
     j_offer_in m{}; m.leaf_id=4; m.is_mobile=true; m.responder_node_id=7; m.responder_key_hash32=0xABCD1234;
-    m.data_sf_bitmap=0x06; m.proposed_mobile_id=33;
-    uint8_t buf[16]; size_t n = pack_j_offer(m, buf); CHECK(n == 9);
+    m.data_sf_bitmap=0x06; m.proposed_mobile_id=33; m.target_key_hash32=0xFEEDBEEFu;
+    uint8_t buf[16]; size_t n = pack_j_offer(m, buf); CHECK(n == 13);
     auto o = parse_j({buf, n}); CHECK(o.has_value());
-    if (o) { CHECK(o->opcode == (uint8_t)j_opcode::offer); CHECK(o->is_mobile); CHECK(o->proposed_mobile_id == 33);
+    if (o) { CHECK(o->opcode == (uint8_t)j_opcode::offer); CHECK(o->is_mobile); CHECK(o->proposed_mobile_id == 33); CHECK(o->target_key_hash32 == 0xFEEDBEEFu);
              CHECK(o->responder_node_id == 7); }
     j_offer_in s{}; s.leaf_id=4; s.is_mobile=false; s.responder_node_id=7; s.responder_key_hash32=0xABCD1234; s.data_sf_bitmap=0x06;
     n = pack_j_offer(s, buf); CHECK(n == 8);                 // static OFFER unchanged (8-B)

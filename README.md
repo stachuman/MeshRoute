@@ -8,6 +8,8 @@
 
   > 📖 **Do you want to start from details? [Frame details →](docs/frames.md)** — comprehensive walk-through frames used in protocol (protocol rules will come soon).
 
+  > 🛠️ **Working on the code? [Architecture →](ARCHITECTURE.md)** — the source-module map: where everything lives and how the pieces fit.
+
   ## Why MeshRoute?
 
   MeshRoute was born out of frustration with the way existing LoRa mesh solutions struggle as interest and network density grow.

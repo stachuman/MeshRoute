@@ -216,23 +216,18 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (j.opcode == static_cast<uint8_t>(j_opcode::claim)) {
         if (j.is_mobile) {                                            // §mobile 2a: a mobile CLAIM = claim-stands (record/refresh — NO reply)
             if (j.chosen_host_id != _node_id) return;                 // §mobile: only the host the mobile CHOSE records it — a flood-hearer (relay) is NOT a host (else it proxies for a mobile it doesn't serve)
-            // §6.4 S6: reject a CLAIM whose local id collides a DIFFERENTLY-keyed hosted mobile (the concurrent-OFFER race —
+            // §6.4 S6: a CLAIM whose local id collides a DIFFERENTLY-keyed hosted mobile (the concurrent-OFFER race —
             // find_free_mobile_id reserves nothing until CLAIM, so two mobiles can be offered the same free id). Do NOT
-            // last-write-wins (two hosted mobiles sharing one local id -> the home last-miles ambiguously). Re-OFFER a FRESH
-            // id (find_free_mobile_id excludes the taken one) so the mobile re-claims; do NOT record the colliding entry.
+            // last-write-wins (two hosted mobiles sharing one id -> the home last-miles ambiguously) and do NOT record the
+            // colliding claim. TARGETED DENY the LOSER (claimant_key_hash32 = its hash) so ONLY it yields + re-registers
+            // (re-DISCOVER -> a fresh id, now excluding the taken one); the RECORDED mobile ignores the DENY (hash mismatch).
+            // This makes the mobile-home path recover like static/team DAD (collision -> the loser re-picks) instead of the
+            // old broadcast re-OFFER, which the recorded mobile would ALSO adopt (it isn't addressed). See node_join DENY handler.
             for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
                 if (_active->_mobile_reg[i].mobile_local_id == j.proposed_node_id && _active->_mobile_reg[i].key_hash32 != j.key_hash32) {
-                    const uint8_t fresh = find_free_mobile_id(j.key_hash32);   // idempotent for THIS key; skips the taken id
-                    if (fresh != 0) {
-                        j_offer_in off{}; off.leaf_id = _cfg.leaf_id; off.gateway_capable = false; off.is_mobile = true;
-                        off.responder_node_id = _node_id; off.responder_key_hash32 = _key_hash32;
-                        off.data_sf_bitmap = static_cast<uint8_t>(_cfg.allowed_sf_bitmap & 0xFF);
-                        off.proposed_mobile_id = fresh;
-                        uint8_t buf[9]; const size_t n = pack_j_offer(off, std::span<uint8_t>(buf, sizeof buf));
-                        if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
-                    }
-                    MR_EMIT("mobile_id_collision_reoffer", EF_I("claimed", j.proposed_node_id), EF_I("fresh", fresh));
-                    return;   // do NOT record the colliding claim; the mobile re-claims the fresh id
+                    addr_conflict_send_deny(j.proposed_node_id, _active->_mobile_reg[i].key_hash32, j.key_hash32, J_DENY_CONFLICT);
+                    MR_EMIT("mobile_id_collision_deny", EF_I("id", j.proposed_node_id), EF_I("loser", static_cast<int64_t>(j.key_hash32)));
+                    return;   // do NOT record the colliding claim; the targeted DENY re-registers the loser
                 }
             int slot = -1;
             for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
@@ -281,6 +276,18 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     }
 
     if (j.opcode == static_cast<uint8_t>(j_opcode::deny)) {
+#if MR_FEAT_MOBILE
+        // §S6: our HOST bounced our local id (concurrent-OFFER collision) — a DENY TARGETED at us (claimant == our hash) for
+        // our adopted id. Re-register (mobile_reset_registration -> re-DISCOVER -> a fresh, collision-free id). Handled BEFORE
+        // id_bind_set so a mobile LOCAL id never enters the static id_bind plane (§mobile separation), and before the static
+        // tiebreak (which would forced_rejoin onto the STATIC DAD plane — wrong for a host-registered mobile).
+        if (_cfg.is_mobile && _my_mobile_reg.active && j.denied_node_id == _node_id && j.claimant_key_hash32 == _key_hash32) {
+            MR_EMIT("mobile_id_denied", EF_I("id", _node_id), EF_I("home", _my_mobile_reg.home_id));
+            mobile_reset_registration("mobile_id_collision");
+            (void)_hal.after(0, kMobileDiscoverTimerId);          // re-DISCOVER now -> a fresh id (find_free_mobile_id excludes the id the recorded mobile holds)
+            return;
+        }
+#endif
         id_bind_set(j.denied_node_id, j.owner_key_hash32, IdBindSource::bcn, IdBindConf::claimed);   // learn the owner
         if (_joined && j.denied_node_id == _node_id
             && j.claimant_key_hash32 == _key_hash32 && j.owner_key_hash32 != _key_hash32) {
@@ -305,7 +312,8 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         off.responder_node_id = _node_id; off.responder_key_hash32 = _key_hash32;
         off.data_sf_bitmap = static_cast<uint8_t>(_cfg.allowed_sf_bitmap & 0xFF);   // low byte (Slice 2b defines how the mobile consumes it)
         off.proposed_mobile_id = local;
-        uint8_t buf[9]; const size_t n = pack_j_offer(off, std::span<uint8_t>(buf, sizeof buf));
+        off.target_key_hash32  = j.key_hash32;                        // §S6: ADDRESS the OFFER at the discovering mobile (only its hash adopts it — a broadcast OFFER heard by another mobile is now ignored, killing the "wrong mobile adopts a foreign id" leg of the concurrent-register race)
+        uint8_t buf[13]; const size_t n = pack_j_offer(off, std::span<uint8_t>(buf, sizeof buf));
         if (n) {
             MR_EMIT("mobile_offer_tx", EF_I("to_key", static_cast<int64_t>(j.key_hash32)), EF_I("local_id", local));
             tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);   // SNR-backoff/suppress = a 2b/host-tuning knob
@@ -315,6 +323,7 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 #if MR_FEAT_MOBILE
     if (j.opcode == static_cast<uint8_t>(j_opcode::offer)) {          // §mobile 2b: mobile-side OFFER collector
         if (!_cfg.is_mobile || !j.is_mobile || _my_mobile_reg.active) return;   // only an UNREGISTERED mobile collects; a static node -> ignore (deferred)
+        if (j.target_key_hash32 != _key_hash32) return;              // §S6: only collect an OFFER ADDRESSED TO US — a broadcast OFFER meant for a concurrently-registering mobile no longer gets adopted by the wrong one
         if (_mobile_offers_n < protocol::cap_mobile_offers)
             _mobile_offers[_mobile_offers_n++] = { j.responder_node_id, j.responder_key_hash32,
                                                    j.proposed_mobile_id, meta.snr_db,

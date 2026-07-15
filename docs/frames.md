@@ -24,7 +24,7 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 | 0x6 | Q    | 4 B (+ pull/config body) | query (REQ_SYNC / CONFIG_PULL / CHANNEL_PULL) |
 | 0x7 | H    | 8 B · +32 B if WANT_PUBKEY | hash-locate flood (soft/hard) |
 | 0x8 | F    | 9 B | route-find RREQ/RREP flood |
-| 0x9 | J    | 6 / 8 / 11 / 15 B | join family |
+| 0x9 | J    | 6 / 8·13 / 11 / 15 B | join family (OFFER 13 B iff `is_mobile`) |
 | 0xA | M    | 7+n B | channel message (lean; leaf-scoped gossip) |
 | 0xB | C    | 15+n B | leaf-config answer (the CONFIG_PULL reply) |
 
@@ -65,6 +65,8 @@ Fixed **8-byte header + 6-byte leaf-config header (14 B, always present)**, then
 - **Type 2 — liveness-state gossip:** `[type<<4 | 2N] [node_id 1 B, state 1 B] × N` — peers at a worse tier, `state` = `2` SILENT / `3` DEAD. `N ≤ 7` (`peer_liveness_state_bcn_max`; 2 B/entry must fit the 4-bit TLV len).
 - **Type 3 — channel digest:** `[count 1 B] [channel_msg_id 4 B BE] × count` — this node's dirty channel-msg ids; an unseen id triggers a `Q:CHANNEL_PULL`. `count ≤ 3` (`channel_dirty_max_per_bcn`). Gateways do **not** emit it (channel-plane consumer, Principle 11).
 - **Type 4 — gateway-layer:** `[gw_id 1 B] × N`, then `⌈N/2⌉` packed leaf-nibble bytes (entry *2i* → low nibble, entry *2i+1* → high nibble). Each `(gw_id, dest_leaf)` pair = "gateway `gw_id` (its node_id on **this** leaf) bridges to `dest_leaf`." A gateway self-advertises the other leaf it serves; **every** node re-gossips its learned entries, so the mapping propagates **multi-hop** — the originator of a cross-layer DM reads it to choose a gateway it has a route to. `N ≤ 9` (9 + ⌈9/2⌉ = 14 B ≤ the cap); entries age out after `bridged_layers_ttl_ms`. A single-layer node has nothing to advertise → emits no type-4 TLV (wire-inert).
+
+To be implemented - for mobile teams - BCN should include lat/lon
 
 ---
 
@@ -310,7 +312,7 @@ There is **no separate REQ_PUBKEY flag**: `WANT_PUBKEY` alone both requests the 
 
 ---
 
-## J — join family · cmd 0x9 · 6 / 8 / 11 / 15 B
+## J — join family · cmd 0x9 · 6 / 8·13 / 11 / 15 B
 
 **Use** — OTAA-style join: a new node claims a layer short-id with no central authority. **Flow** — **DISCOVER** (broadcast) → **OFFER** (a responder proposes terms) → **CLAIM** (claims a `proposed_node_id`) → **DENY** (on conflict, with `reason`) or the claim stands.
 
@@ -326,7 +328,7 @@ Shared 2-byte header; body and length depend on opcode. All multi-byte fields **
 
 **DISCOVER (6 B):** bytes 2..5 = `key_hash32`.
 
-**OFFER (8 B):** byte 2 = `responder_node_id` · bytes 3..6 = `responder_key_hash32` · byte 7 = `data_sf_bitmap`.
+**OFFER (8 B static / 13 B mobile):** byte 2 = `responder_node_id` · bytes 3..6 = `responder_key_hash32` · byte 7 = `data_sf_bitmap` · **[iff `is_mobile`:** byte 8 = `proposed_mobile_id` (host-assigned LOCAL id) · bytes 9..12 = `target_key_hash32` (the mobile this OFFER is addressed to — a mobile adopts only an OFFER for its own `key_hash32`)**]**.
 
 **CLAIM (11 B):** bytes 2..5 = `key_hash32` · byte 6 = `proposed_node_id` · bytes 7..8 = `lease_age_seconds` (u16) · byte 9 = `claim_epoch` · byte 10 = `nonce`.
 

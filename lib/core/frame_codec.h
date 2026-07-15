@@ -345,10 +345,11 @@ constexpr uint8_t J_DENY_CONFLICT = 1, J_DENY_PENDING_CLAIM = 2, J_DENY_OWN_ID_D
 
 // DISCOVER (6 B): key_hash32(LE).
 struct j_discover_in { uint8_t leaf_id; bool gateway_capable; bool is_mobile; uint32_t key_hash32; };
-// OFFER (8 B): responder_node_id, responder_key_hash32(LE), data_sf_bitmap.
+// OFFER (8 B static / 13 B mobile): responder_node_id, responder_key_hash32(LE), data_sf_bitmap
+//              [+ proposed_mobile_id, target_key_hash32(LE) iff is_mobile].
 struct j_offer_in    { uint8_t leaf_id; bool gateway_capable; bool is_mobile;
                        uint8_t responder_node_id; uint32_t responder_key_hash32; uint8_t data_sf_bitmap;
-                       uint8_t proposed_mobile_id = 0; };   // §mobile 2a: appended (9-B frame) iff is_mobile — the host-assigned LOCAL id
+                       uint8_t proposed_mobile_id = 0; uint32_t target_key_hash32 = 0; };   // §mobile 2a: proposed_mobile_id (host-assigned LOCAL id) + §S6 target_key_hash32 (the mobile this OFFER is FOR) — appended iff is_mobile (13-B frame); at struct END to preserve positional aggregate-inits
 // CLAIM (11 B): key_hash32(LE), proposed_node_id, lease_age_seconds(u16 LE), claim_epoch, nonce.
 struct j_claim_in    { uint8_t leaf_id; bool gateway_capable; bool is_mobile; uint32_t key_hash32;
                        uint8_t proposed_node_id; uint16_t lease_age_seconds; uint8_t claim_epoch; uint8_t nonce;
@@ -359,7 +360,7 @@ struct j_deny_in     { uint8_t leaf_id; bool gateway_capable; bool is_mobile; ui
                        uint32_t owner_key_hash32; uint32_t claimant_key_hash32;
                        uint16_t owner_lease_age_seconds; uint8_t owner_claim_epoch; uint8_t reason; };
 size_t pack_j_discover(const j_discover_in& in, std::span<uint8_t> out);   // 6
-size_t pack_j_offer   (const j_offer_in&    in, std::span<uint8_t> out);   // 8 / 9 if is_mobile (§mobile 2a)
+size_t pack_j_offer   (const j_offer_in&    in, std::span<uint8_t> out);   // 8 / 13 if is_mobile (§mobile 2a + §S6 target hash)
 size_t pack_j_claim   (const j_claim_in&    in, std::span<uint8_t> out);   // 11
 size_t pack_j_deny    (const j_deny_in&     in, std::span<uint8_t> out);   // 15
 
@@ -371,7 +372,7 @@ struct j_out {
     uint8_t  wire_version;                                                     // R6.2 §5.2 (byte-1 rsv nibble)
     uint32_t key_hash32;                                                       // DISCOVER, CLAIM
     uint8_t  responder_node_id; uint32_t responder_key_hash32; uint8_t data_sf_bitmap;  // OFFER
-    uint8_t  proposed_mobile_id = 0;                                           // OFFER §mobile 2a: valid iff opcode==OFFER && is_mobile (9-B)
+    uint8_t  proposed_mobile_id = 0; uint32_t target_key_hash32 = 0;           // OFFER §mobile 2a/S6: valid iff opcode==OFFER && is_mobile (13-B): host-assigned id + the target mobile's hash
     uint8_t  proposed_node_id; uint16_t lease_age_seconds; uint8_t claim_epoch; uint8_t nonce;  // CLAIM
     uint8_t  chosen_host_id = 0;                                               // CLAIM §mobile: byte-10 read here too (a mobile CLAIM addresses its chosen host; static reads nonce)
     uint8_t  denied_node_id; uint32_t owner_key_hash32; uint32_t claimant_key_hash32;

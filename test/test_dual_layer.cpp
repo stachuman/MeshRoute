@@ -2805,7 +2805,7 @@ TEST_CASE("§mobile Part 2 Fix 6 — a mobile with a crypto identity pushes its 
     mob.set_crypto_identity(xs, ed);
     CHECK(mob.crypto_ready());
     j_offer_in off{}; off.leaf_id=4; off.is_mobile=true; off.responder_node_id=40; off.responder_key_hash32=0x4040u; off.data_sf_bitmap=0x06; off.proposed_mobile_id=21;
-    uint8_t ob[9]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    off.target_key_hash32 = mob.key_hash32(); uint8_t ob[13]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
     hal.emits.clear();
     mob.on_timer(75 /*kMobileClaimGuardTimerId*/);
     CHECK(hal.saw_emit("mobile_pubkey_push"));   // ★ pushed the key to the (new) home
@@ -2813,7 +2813,7 @@ TEST_CASE("§mobile Part 2 Fix 6 — a mobile with a crypto identity pushes its 
     StubHal h2; Node mob2(h2, 0, 0x8888u);
     NodeConfig c2; c2.routing_sf=8; c2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c2.leaf_id=4; c2.is_mobile=true; CHECK(mob2.on_init(c2));
     j_offer_in of2{}; of2.leaf_id=4; of2.is_mobile=true; of2.responder_node_id=40; of2.responder_key_hash32=0x4040u; of2.data_sf_bitmap=0x06; of2.proposed_mobile_id=22;
-    uint8_t ob2[9]; size_t on2 = pack_j_offer(of2, ob2); mob2.on_recv(ob2, on2, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    of2.target_key_hash32 = mob2.key_hash32(); uint8_t ob2[13]; size_t on2 = pack_j_offer(of2, ob2); mob2.on_recv(ob2, on2, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
     h2.emits.clear();
     mob2.on_timer(75);
     CHECK_FALSE(h2.saw_emit("mobile_pubkey_push"));   // ★ no identity -> no push
@@ -3118,7 +3118,7 @@ TEST_CASE("§mobile 4b — breadcrumb: re-homing H1->H2 emits a BREADCRUMB to H1
     DualLayerTestAccess::deactivate_mobile_reg(mob);          // 2b home-lost reset: active=false, home_id=30 preserved
     // collect one OFFER from H2=40 then fire the CLAIM guard -> re-home to 40 -> breadcrumb to 30
     j_offer_in off{}; off.leaf_id=4; off.is_mobile=true; off.responder_node_id=40; off.responder_key_hash32=0x4040u; off.data_sf_bitmap=0x06; off.proposed_mobile_id=21;
-    uint8_t ob[9]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    off.target_key_hash32 = mob.key_hash32(); uint8_t ob[13]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
     hal.emits.clear();
     mob.on_timer(75 /*kMobileClaimGuardTimerId*/);
     CHECK(hal.saw_emit("mobile_breadcrumb_tx"));              // ★ moved H1->H2 -> breadcrumb emitted
@@ -3137,7 +3137,7 @@ TEST_CASE("§mobile 4b — breadcrumb: re-homing H1->H2 emits a BREADCRUMB to H1
     StubHal h2; Node mob2(h2, 0, 0x8888u);
     NodeConfig c2; c2.routing_sf=8; c2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c2.leaf_id=4; c2.is_mobile=true; CHECK(mob2.on_init(c2));
     j_offer_in of2{}; of2.leaf_id=4; of2.is_mobile=true; of2.responder_node_id=40; of2.responder_key_hash32=0x4040u; of2.data_sf_bitmap=0x06; of2.proposed_mobile_id=22;
-    uint8_t ob2[9]; size_t on2 = pack_j_offer(of2, ob2); mob2.on_recv(ob2, on2, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    of2.target_key_hash32 = mob2.key_hash32(); uint8_t ob2[13]; size_t on2 = pack_j_offer(of2, ob2); mob2.on_recv(ob2, on2, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
     h2.emits.clear();
     mob2.on_timer(75);
     CHECK_FALSE(h2.saw_emit("mobile_breadcrumb_tx"));        // ★ first reg -> no old home -> no breadcrumb
@@ -3183,7 +3183,7 @@ TEST_CASE("§mobile 5a — scan cycles [own PHY] ∪ LEARNED directory; adopt th
     hal._now=2000; mob.on_timer(74);
     j_offer_in off{}; off.leaf_id=5; off.is_mobile=true; off.responder_node_id=45; off.responder_key_hash32=0x4545u;
     off.data_sf_bitmap=static_cast<uint8_t>(1u<<1); off.proposed_mobile_id=21;
-    uint8_t ob[9]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, meta);
+    off.target_key_hash32 = mob.key_hash32(); uint8_t ob[13]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, meta);
     hal._now=2500; mob.on_timer(75);                        // guard -> adopt
     CHECK(mob.mobile_home_id() == 45);
     CHECK(DualLayerTestAccess::my_mobile_home_leaf(mob) == 5);   // ★ home_leaf_id == the LEARNED layer 5, NOT the start layer 3 (E1 fix)
@@ -3308,7 +3308,7 @@ TEST_CASE("§mobile offer-adopt — a mobile adopts the HOST's leaf + sf_list fr
     hal._now=1000; mob.on_timer(74);                          // DISCOVER (resets offers, arms the guard)
     j_offer_in off{}; off.leaf_id=4; off.is_mobile=true; off.responder_node_id=222; off.responder_key_hash32=0xDDDDu;
     off.data_sf_bitmap=static_cast<uint8_t>((1u<<6)|(1u<<7)); off.proposed_mobile_id=17;   // host on leaf 4, sf_list {SF6|SF7}
-    uint8_t ob[9]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, meta);
+    off.target_key_hash32 = mob.key_hash32(); uint8_t ob[13]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, meta);
     mob.on_timer(75);                                          // guard -> adopt
     CHECK(mob.mobile_home_id() == 222);
     CHECK(DualLayerTestAccess::cfg_leaf_id(mob) == 4);        // ★ adopted the HOST's leaf 4 (was 0)
@@ -3327,7 +3327,7 @@ TEST_CASE("§mobile offer-adopt — single-PHY adopt sets the config but does NO
     hal._now=1000; mob.on_timer(74);
     j_offer_in off{}; off.leaf_id=4; off.is_mobile=true; off.responder_node_id=222; off.responder_key_hash32=0xDDDDu;
     off.data_sf_bitmap=static_cast<uint8_t>((1u<<6)|(1u<<7)); off.proposed_mobile_id=17;
-    uint8_t ob[9]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, meta);
+    off.target_key_hash32 = mob.key_hash32(); uint8_t ob[13]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, meta);
     hal.last_set_rx_freq = 999.0;                             // sentinel — a retune would overwrite it
     mob.on_timer(75);                                          // adopt (single-PHY -> retune_radio=false)
     CHECK(DualLayerTestAccess::cfg_leaf_id(mob) == 4);        // ★ config adopted (leaf)

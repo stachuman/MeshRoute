@@ -676,14 +676,15 @@ size_t pack_j_discover(const j_discover_in& in, std::span<uint8_t> out) {
 }
 
 size_t pack_j_offer(const j_offer_in& in, std::span<uint8_t> out) {
-    if (out.size() < (in.is_mobile ? 9u : 8u)) return 0;          // §mobile 2a: a mobile OFFER is 9 B (+proposed_mobile_id)
+    if (out.size() < (in.is_mobile ? 13u : 8u)) return 0;        // §mobile 2a/S6: a mobile OFFER is 13 B (+proposed_mobile_id +target_key_hash32)
     wire::Writer w(out);
     w.u8(j_b0(in.leaf_id));
     w.u8(j_b1(in.gateway_capable, in.is_mobile, j_opcode::offer));
     w.u8(in.responder_node_id);
     w.u32_le(in.responder_key_hash32);
     w.u8(in.data_sf_bitmap);
-    if (in.is_mobile) w.u8(in.proposed_mobile_id);               // §mobile 2a: the host-assigned LOCAL id (9-B mobile OFFER)
+    if (in.is_mobile) { w.u8(in.proposed_mobile_id);            // §mobile 2a: the host-assigned LOCAL id
+                        w.u32_le(in.target_key_hash32); }      // §S6: the mobile this OFFER is addressed to (13-B mobile OFFER)
     return w.ok() ? w.size() : 0;
 }
 
@@ -732,11 +733,12 @@ std::optional<j_out> parse_j(std::span<const uint8_t> frame) {
             o.key_hash32 = r.u32_le();
             break;
         case j_opcode::offer:
-            if (frame.size() != (o.is_mobile ? 9u : 8u)) return std::nullopt;   // §mobile 2a: mobile OFFER is 9 B (exact-length per opcode)
+            if (frame.size() != (o.is_mobile ? 13u : 8u)) return std::nullopt;  // §mobile 2a/S6: mobile OFFER is 13 B (exact-length per opcode)
             o.responder_node_id    = r.u8();
             o.responder_key_hash32 = r.u32_le();
             o.data_sf_bitmap       = r.u8();
-            if (o.is_mobile) o.proposed_mobile_id = r.u8();       // §mobile 2a: host-assigned LOCAL id
+            if (o.is_mobile) { o.proposed_mobile_id   = r.u8();   // §mobile 2a: host-assigned LOCAL id
+                               o.target_key_hash32 = r.u32_le(); }  // §S6: the mobile this OFFER is addressed to
             break;
         case j_opcode::claim:
             if (frame.size() != 11) return std::nullopt;
