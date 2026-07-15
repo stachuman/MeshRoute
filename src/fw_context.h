@@ -103,3 +103,13 @@ extern TaskHandle_t g_mesh_task;
 // ---- shared fw_main helpers (defined in fw_main.cpp; referenced across a cluster boundary) ----
 uint32_t loop_stack_free_bytes();   // nRF52 loop-task min free stack bytes (0 elsewhere) — used by dump_status AND firmware_remote's status TLV
 void     fw_wdt_feed();             // kick the watchdog (wraps mrfault::fault_wdt_feed; device_fault.h defines ISR vectors so it can't be pulled into a 2nd TU) — used during firmware_remote's multi-second admin-key KDF
+
+// ---- firmware_commands seam wrappers (fw_wdt_feed pattern): the moved firmware_commands (dispatch etc.) reaches the
+//      STAY-set board-glue through these. do_reboot/do_ota/dump_faults/handle_crashtest can't live in a 2nd TU
+//      (device_fault.h ISR-vector + MRFAULT_HW/MRFAULT_ESP32 MACRO trap — both #defined inside device_fault.h);
+//      handle_prep_restart is loop-coupled (writes the loop's g_halted latch). Defined in fw_main.cpp.
+void fw_reboot();                              // -> do_reboot()   (`reboot` verb + moved handle_factory_reset's terminal reset)
+void fw_ota();                                 // -> do_ota()      (`ota` verb)
+void fw_faults_dump(Print& out);               // -> dump_faults() (`faults` verb; MRFAULT_HW macro trap)
+void fw_crashtest(const char* args, Print& out); // -> handle_crashtest() (`crashtest` verb; MRFAULT_ESP32 macro trap + do_reboot)
+void fw_prep_restart(Print& out);              // -> handle_prep_restart() (`prep-restart` verb; loop g_halted)

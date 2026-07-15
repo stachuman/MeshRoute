@@ -41,7 +41,12 @@ using mrfw::parse_sf_list;   // keep call sites unchanged (extracted verbatim fr
 using mrfw::kv_next;
 using mrfw::team_fnv1a32;
 #include "firmware_remote.h"         // §cleanup 2026-07-14: remote-mgmt cluster moved out; REMOTE_FLAG_SEALED (used by mesh_service) lives here
-#include "firmware_config.h"         // §cleanup 2026-07-14: config/provisioning cluster (Increment A: apply_radio_live so far)
+#include "firmware_config.h"         // §cleanup 2026-07-14: config/provisioning cluster
+#include "firmware_inbox.h"          // §cleanup 2026-07-14: inbox/companion-sync cluster (pull_inbox / mark_read)
+using mrfw::handle_pull_inbox;       // dispatch + ble_dispatch_line verbs; call sites unchanged
+using mrfw::handle_mark_read;
+#include "firmware_commands.h"       // §cleanup 2026-07-15: console command cluster (dispatch + diagnostics) — moved in batches
+using mrfw::handle_peerkey;          // §3 export; call sites (service_console + ble_dispatch_line) unchanged
 using mrfw::remote_exec;             // keep call sites unchanged (mesh_service_once + dispatch)
 using mrfw::handle_rcmd;
 using mrfw::handle_cfg_set;          // dispatch verbs (moved to firmware_config); call sites unchanged
@@ -408,6 +413,21 @@ static void print_banner(Print& out) {
 
 void fw_wdt_feed() { mrfault::fault_wdt_feed(); }   // extern in fw_context.h — the WDT kick exposed for firmware_remote (device_fault.h's ISR vectors can't be pulled into a 2nd TU)
 
+// §cleanup 2026-07-15: firmware_commands seam wrappers (fw_context.h). The moved firmware_commands reaches these
+// STAY-set board-glue fns through here — do_reboot/do_ota/dump_faults/handle_crashtest carry the device_fault.h
+// ISR-vector + MRFAULT_HW/MRFAULT_ESP32 MACRO trap; handle_prep_restart writes the loop's g_halted latch. Forward-
+// declared here (defined below); the wrappers themselves are the ONLY cross-TU entry points.
+static void do_reboot();
+static void do_ota();
+static void dump_faults(Print& out);
+static void handle_crashtest(const char* args, Print& out);
+static void handle_prep_restart(Print& out);
+void fw_reboot()                                { do_reboot(); }
+void fw_ota()                                   { do_ota(); }
+void fw_faults_dump(Print& out)                 { dump_faults(out); }
+void fw_crashtest(const char* args, Print& out) { handle_crashtest(args, out); }
+void fw_prep_restart(Print& out)                { handle_prep_restart(out); }
+
 // ADDENDUM 4 (2026-06-25) instrument — the FreeRTOS loop-task stack high-water mark: the SMALLEST number of free bytes
 // the loop task has ever had. The fleet-wide jump-to-0x0 was THIS 4 KB stack silently overflowing in do_post_ack into
 // the adjacent heap radio HAL. A healthy margin (hundreds of bytes) confirms the frame-shrink held; a near-zero value
@@ -760,7 +780,6 @@ static void dump_help(Print& out) {
 // LineSink flush callback — ship one NDJSON line over BLE NUS. (usb_sink is gone: USB callers pass the global `mrcon`.)
 static void ble_sink(const char* s, size_t n) { mrble::tx_line(s, n); }   // inert off-XIAO / when no client
 
-namespace { struct PullCtx { Print& out; uint32_t count; }; }
 char s_inbox_jb[1700];   // shared NDJSON line scratch: pulled inbox records AND live-push lines (loop()) — sequential, single-threaded, never concurrent (241-B body 6x-escaped + envelope); extern in fw_context.h
 
 // `limits` verb (USB): the companion anti-spam/headroom snapshot as one NDJSON line. Composed from limits_snapshot()
@@ -778,50 +797,7 @@ static void dump_limits(Print& out) {
     if (m) out.write(s_inbox_jb, m);   // JSON line to USB (mirrors the other write_* dumps)
 }
 
-// pull() callback: format ONE record -> JSON -> sink. The body ptr is valid only for this call (the encoder copies it).
-static bool inbox_pull_cb(void* vctx, const meshroute::InboxEntry& e) {
-    PullCtx* c = static_cast<PullCtx*>(vctx);
-    const size_t n = (e.kind == meshroute::InboxKind::dm)
-        ? meshroute::console::write_inbox_dm(s_inbox_jb, sizeof s_inbox_jb, e.seq, e.origin, e.layer_id,
-              static_cast<uint16_t>(e.msg_id), e.sender_hash, e.rx_time_ms,
-              reinterpret_cast<const char*>(e.body), e.body_len, e.enc != 0, e.type)   // §8b enc + the DATA_TYPE (E2E-ack receipt = "e2e_ack")
-        : meshroute::console::write_inbox_channel(s_inbox_jb, sizeof s_inbox_jb, e.seq, e.origin, e.layer_id,
-              e.channel_id, e.msg_id, e.rx_time_ms, reinterpret_cast<const char*>(e.body), e.body_len);
-    if (n) { c->out.write(s_inbox_jb, n); ++c->count; }
-    else {                                                // UNREACHABLE for a valid body (<=241 B fits 1700), but
-        char eb[48];                                      // NEVER drop a record silently: tell the app one didn't encode.
-        const size_t en = meshroute::console::write_err(eb, sizeof eb, "inbox_encode", nullptr);
-        if (en) c->out.write(eb, en);
-    }
-    return true;                                          // never stop early — the app pulls the whole delta
-}
-static void handle_pull_inbox(const char* args, Print& out) {
-    char* end;
-    const uint32_t dm_since   = strtoul(args, &end, 10);  // missing/garbled args -> 0 (a full pull is always safe; the app dedups)
-    const uint32_t chan_since = strtoul(end, nullptr, 10);
-    meshroute::Inbox& ib = g_node.inbox();
-    PullCtx ctx{ out, 0 };
-    ib.pull(dm_since, chan_since, inbox_pull_cb, &ctx);
-    // inbox_end carries the store's NEWEST seq per store (contract §"newest seq per store"), NOT a cursor echo —
-    // so an empty store / a stale-high cursor self-heals (the app advances to the real high-water, re-syncing).
-    const size_t n = meshroute::console::write_inbox_end(s_inbox_jb, sizeof s_inbox_jb,
-                       ib.dm_newest_seq(), ib.chan_newest_seq(), ib.storage_epoch(), ctx.count, g_hal.now());
-    if (n) out.write(s_inbox_jb, n);
-}
-static void handle_mark_read(const char* args, Print& out) {
-    while (*args == ' ') ++args;
-    // The kind must be EXACTLY "dm" or "chan" (word boundary = next char is space or end). Without the boundary
-    // check, "dm5"/"dme" match strncmp("dm",2) and "channel" matches strncmp("chan",4) -> wrong/zero seq parsed.
-    meshroute::InboxKind kind; const char* kstr;
-    if      (!strncmp(args, "dm", 2)   && (args[2] == ' ' || args[2] == '\0')) { kind = meshroute::InboxKind::dm;      kstr = "dm";   args += 2; }
-    else if (!strncmp(args, "chan", 4) && (args[4] == ' ' || args[4] == '\0')) { kind = meshroute::InboxKind::channel; kstr = "chan"; args += 4; }
-    else { char eb[64]; const size_t n = meshroute::console::write_err(eb, sizeof eb, "mark_read", "kind must be dm|chan");
-           if (n) out.write(eb, n); return; }             // fail loud on a bad kind
-    const uint32_t seq = strtoul(args, nullptr, 10);
-    g_node.inbox().mark_read(kind, seq);
-    char ab[64]; const size_t n = meshroute::console::write_inbox_marked(ab, sizeof ab, kstr, seq);
-    if (n) out.write(ab, n);
-}
+// inbox_pull_cb / handle_pull_inbox / handle_mark_read (+ PullCtx) moved to firmware_inbox.{h,cpp} (cleanup 2026-07-14); `using mrfw::handle_pull_inbox/handle_mark_read` above. (ble_sink + s_inbox_jb stay — shared by routes/status/cfg/live-push.)
 
 // Handle a debug/diagnostic console line (help/routes/cfg/status/cfg set/reboot/sleep/debug). Returns true if consumed.
 // `faults` — dump the /mrfault ring newest-first + a one-line summary. nRF52 only; ESP32 = unsupported.
@@ -1100,25 +1076,7 @@ static meshroute::console::CfgExtras make_cfg_extras() {
 
 // E2E §2: persist a freshly-installed PINNED peer key to /mrpeers (whole-blob rewrite; update-in-place or append).
 // Best-effort — a full store / no-NV target just means it won't survive a reboot (the RAM PINNED key still works).
-static bool persist_pinned_peer(uint32_t kh, const uint8_t ed_pub[32]) {
-    mrnv::PeerBlob pb{};
-    if (!mrnv::load_peers(pb)) { pb = mrnv::PeerBlob{}; pb.magic = mrnv::kPeersMagic; pb.version = mrnv::kPeersVersion; pb.count = 0; }
-    for (uint16_t i = 0; i < pb.count && i < mrnv::kMaxPinnedPeers; ++i)
-        if (pb.rec[i].key_hash32 == kh) { memcpy(pb.rec[i].ed_pub, ed_pub, 32); return mrnv::save_peers(pb); }   // update in place
-    if (pb.count >= mrnv::kMaxPinnedPeers) return false;                                                          // store full
-    pb.rec[pb.count].key_hash32 = kh; memcpy(pb.rec[pb.count].ed_pub, ed_pub, 32); pb.count++;
-    pb.magic = mrnv::kPeersMagic; pb.version = mrnv::kPeersVersion;
-    return mrnv::save_peers(pb);
-}
-// E2E §3: a `peerkey` command -> install the RAM PINNED key (Node::on_command) + persist to /mrpeers + the contract ack.
-static size_t handle_peerkey(char* out, size_t cap, const meshroute::Command& cmd) {
-    const uint8_t* ep = cmd.u.peerkey.ed_pub;
-    const uint32_t kh = (uint32_t)ep[0] | ((uint32_t)ep[1] << 8) | ((uint32_t)ep[2] << 16) | ((uint32_t)ep[3] << 24);
-    if (g_node.on_command(cmd).code != meshroute::CmdCode::queued)        // false only when the cache is full of pinned keys
-        return (size_t)snprintf(out, cap, "{\"ev\":\"peerkey_err\",\"reason\":\"full\"}\n");
-    persist_pinned_peer(kh, ep);                                          // best-effort NV (bench); the RAM key works regardless
-    return (size_t)snprintf(out, cap, "{\"ev\":\"peerkey_set\",\"hash\":%lu,\"pinned\":true}\n", (unsigned long)kh);
-}
+// persist_pinned_peer + handle_peerkey moved to firmware_commands.{h,cpp} (cleanup 2026-07-15); `using mrfw::handle_peerkey` above.
 
 // BLE companion inbound: handle ONE console line, emitting a single NDJSON response (the schema of
 // docs/specs/2026-05-30-device-console-design.md §4). Reuses the USB command engine — parse_command +

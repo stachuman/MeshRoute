@@ -35,6 +35,8 @@ static void apply_radio_live(const mrnv::Blob& b, bool reconfig) {
     g_node.set_radio_cfg((uint8_t)b.routing_sf, (uint32_t)b.bw_hz, (uint8_t)b.cr);
 }
 
+static void seed_blob_from_live(mrnv::Blob& b);   // fwd decl — defined below (with the provisioning block); handle_cfg_set's seed path calls it
+
 // `cfg set <key> <value>` — ACCUMULATES onto the pending NV blob (so several sets + ONE reboot works), then
 // applies LIVE to the running node where possible. RADIO knobs (freq/routing_sf|control_sf/bw/cr/tx_power) +
 // MAC knobs (sf_list/lbt/beacon_ms) take effect NOW; node_id + duty need a reboot (identity / on_init budget).
@@ -73,29 +75,12 @@ void handle_cfg_set(const char* args, Print& out) {
     }
 
     // Base = the PENDING NV blob so consecutive sets ACCUMULATE (else each snapshot reverts the others).
+    // §cleanup 2026-07-15: the load-failed seed is unified with seed_blob_from_live (its field set is byte-identical
+    // to the former inline block — verified — matching the 5 other save sites). The unconditional (re)stamp BELOW is
+    // KEPT: it runs on the load-SUCCESS path too, upgrading a loaded older-version blob to kVersion (seed_blob_from_live
+    // never runs when load() succeeds, so it can't do that).
     mrnv::Blob b{};
-    if (!mrnv::load(b)) {                                  // nothing persisted yet -> seed from the live config
-        const meshroute::NodeConfig& nc = g_node.config();
-        b.freq_mhz = g_freq_mhz;        b.bw_hz = nc.radio_bw_hz;       b.beacon_ms = nc.beacon_period_ms;
-        b.duty = nc.duty_cycle;         b.allowed_sf_bitmap = nc.allowed_sf_bitmap;
-        b.routing_sf = nc.routing_sf;   b.cr = nc.radio_cr;
-        b.lbt = nc.lbt_enabled ? 1 : 0; b.node_id = g_node.canonical_node_id();   b.tx_power = g_tx_power;
-        b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;   // v6 role/topology
-        b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;  b.team_id = nc.team_id; b.mobile_autoregister = nc.mobile_autoregister ? 1 : 0; b.team_local_id = g_node.team_local_id();   // §mobile: preserve team + autoreg + team-DAD id across create/join
-        b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;        // v7 BLE policy (live globals)
-        b.ble_pin    = g_ble_pin;
-        b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;                  // v9 location toggle (seed from the live config)
-        b.e2e_dm     = nc.e2e_dm ? 1 : 0;                     // v10 e2e encrypt toggle (seed from the live config)
-        b.gw_announce_duty_pct        = nc.gw_announce_duty_pct;        // v11 gateway noise control (seed from the live config)
-        b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
-        b.l1_freq_mhz                 = nc.layers[1].freq_mhz;          // v12 per-layer freq (0 = inherit layer 0)
-        b.l1_bw_hz                    = nc.layers[1].bw_hz;             // v17 per-layer BW (0 = inherit the global)
-        b.l1_cr                       = nc.layers[1].cr;               // v17 per-layer CR (0 = inherit)
-        b.gw_herd_slack               = nc.gw_herd_slack;              // v13 §3e herd-spread slack
-        b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch; b.leaf_name_len = nc.leaf_name_len;     // v14 R6.1 leaf-config
-        for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
-        b.channel_active_fraction = nc.channel_active_fraction; b.channel_min_interval_ms = nc.channel_min_interval_ms; b.dm_min_interval_ms = nc.dm_min_interval_ms;   // v16 anti-spam per-leaf tunables
-    }
+    if (!mrnv::load(b)) seed_blob_from_live(b);            // nothing persisted yet -> seed from the live config
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;    // (re)stamp -> also upgrades a loaded v2 blob to v3
 
     // live = takes effect on the RUNNING node now (else reboot); radio = needs apply_radio_live; persist = write NV.
@@ -348,6 +333,12 @@ void handle_gateway(const char* args, Print& out) {
     if (pe != GwParseErr::ok) { out.print(F("> gateway err ")); out.println(gw_parse_err_str(pe)); return; }
 
     // Base = the PENDING blob so radio/freq/identity-adjacent fields survive; seed from the live config if none.
+    // §cleanup 2026-07-15: this is a DELIBERATE SUBSET of seed_blob_from_live — do NOT unify it. The full helper also
+    // seeds is_mobile/node_id/leaf_id/team_id/gw_announce_*/gw_herd_slack/lineage/leaf_name/l1_*; here those are left
+    // 0 (b{}) and handle_gateway overwrites the gateway-relevant ones below. Switching to seed_blob_from_live would
+    // change the PERSISTED bytes (verified): is_mobile flips 0->1 with NO boot-side !=0 guard (inert only because a
+    // gateway build compiles mobile out) + gw_announce_*/gw_herd_slack persist non-zero. Behaviourally harmless on a
+    // gateway, but NOT byte-identical, so it stays a subset (a hygiene unify would be a real state change).
     mrnv::Blob b{};
     if (!mrnv::load(b)) {
         const NodeConfig& nc = g_node.config();
