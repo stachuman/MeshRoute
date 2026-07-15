@@ -16,10 +16,24 @@
 #include <Arduino.h>   // Print
 #include <cstddef>     // size_t
 #include "command.h"   // meshroute::Command (handle_peerkey)
+#include <cstdint>     // uint16_t (print_sf_list)
+#include "device_nv.h" // mrnv::IdBlob (print_identity)
+#include "console_json.h" // meshroute::console::StatusFields / CfgExtras
 
 namespace mrfw {
 
 // E2E §3: a `peerkey` command -> install the RAM PINNED key + persist to /mrpeers + the contract ack.
 size_t handle_peerkey(char* out, size_t cap, const meshroute::Command& cmd);
+
+// §3 exports reached by the STAYING fw_main callers (setup / service_console / ble_dispatch_line / mesh_service_once):
+bool dispatch(const char* line, size_t len, Print& out);            // the console verb-router
+void print_banner(Print& out);                                      // setup() + `version`
+void print_identity(const mrnv::IdBlob& idb);                       // setup()
+void print_sf_list(uint16_t bitmap);                                // setup() + mesh_service_once()
+const char* board_name();                                           // ble_dispatch_line `version`
+void handle_routes(Print& out);                                     // ble_dispatch_line `routes`
+meshroute::console::StatusFields make_status_fields();              // ble_dispatch_line `status`
+const char* node_state_str();                                       // ble_dispatch_line `status`
+meshroute::console::CfgExtras make_cfg_extras();                    // ble_dispatch_line `cfg`
 
 }  // namespace mrfw

@@ -1611,4 +1611,12 @@ private:
     RemoteInbound _remote_inbound{};   // `rcmd`: single inbound slot (one in flight; a 2nd while pending drops). Drained by fw_main.
 };
 
+#ifdef MESHROUTE_NATIVE
+// LAYOUT-INVARIANCE tripwire (native layout ONLY — NOT a RAM budget: native sizeof != nRF52 sizeof, different
+// pointer/enum/alignment). Purpose: the node.h legibility reorder (2026-07-15 by-concern member reorder) must not
+// change Node's layout. If this fires after a *deliberate* member add/remove/type change, update the baseline
+// consciously — it is a tripwire, not a frozen contract. The real nRF52 RAM check is the firmware.map .bss/.data diff.
+static_assert(sizeof(Node) == 214720, "node.h: Node native layout changed — if intentional, update the baseline");
+#endif
+
 }  // namespace meshroute
