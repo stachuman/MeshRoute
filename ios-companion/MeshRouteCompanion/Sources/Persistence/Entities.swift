@@ -46,6 +46,11 @@ final class NodeEntity {
     var linkScoreQ4: Int?                      // route score (Q4 dB) when reachable
     var hops: Int?                             // route distance when reachable
     var verified: Bool = false                 // key PINNED via a QR scan (safety-numbers) vs on-air TOFU
+    var peerName: String?                      // the peer's SELF-REPORTED name (rides the pubkey exchange, D30/S6).
+                                               // Distinct from `name` (user-given) — auto-label ≠ auto-contact.
+    var teamID: String?                        // D30 three-plane contacts: this node is a TEAMMATE on team_id (hex string).
+    var teamLocalID: Int?                      // its id on the team overlay — a DISTINCT id space from static node ids.
+                                               // A DM to a node whose teamID == ours dispatches with `-t`.
     var firstSeen: Date
     var lastSeen: Date                         // any evidence: message, resolve, route, ready, beacon
     var positionAt: Date?                      // when lat/lon was last set (staleness / TTL)
@@ -59,9 +64,10 @@ final class NodeEntity {
     var keyHash: KeyHash { KeyHash(hash32) }
     var isContact: Bool { name != nil || favorite }
     var hasPosition: Bool { latE7 != nil && lonE7 != nil }
-    /// Display name: the given name, else "Node <id>", else the short hash.
+    /// Display name: the user-given name, else the peer's self-reported name, else "Node <id>", else the hash.
     func displayName() -> String {
         if let n = name, !n.isEmpty { return n }
+        if let p = peerName, !p.isEmpty { return p }
         if let id = lastKnownID { return "Node \(id)" }
         return "0x" + keyHash.hex8
     }
@@ -88,6 +94,8 @@ final class MessageEntity {
     var ackRequested: Bool = false // outgoing: an E2E delivery ack was requested (the -a flag, D16)
     var failReason: String?        // outgoing fail reason (E2E): "no_pubkey" → offer Request-key/Scan; "key_ready"
                                    // → set when peer_key_cached arrives so the bubble offers a secure resend.
+    var teamID: String?            // channel messages only (D30): the team_id hex string when team-scoped;
+                                   // nil = a leaf channel. Display scoping for team chat (identity keys unchanged).
 
     init(id: UUID, thread: ThreadKey, direction: MessageDirection, body: String,
          timestamp: Date, state: DeliveryState, origin: Int?, ctr: Int?, channelMsgID: Int? = nil,
@@ -98,6 +106,8 @@ final class MessageEntity {
         switch thread {
         case .dm(let h):      self.threadKind = "dm";      self.threadHash = h.value; self.threadChannel = -1
         case .channel(let c): self.threadKind = "channel"; self.threadHash = 0;       self.threadChannel = Int(c)
+        case .teamChannel(let t, let c):                   // D30: a team channel threads APART from the leaf channel
+            self.threadKind = "channel"; self.threadHash = 0; self.threadChannel = Int(c); self.teamID = t
         }
         self.directionRaw = direction.rawValue
         self.body = body
@@ -108,7 +118,9 @@ final class MessageEntity {
     }
 
     var threadKey: ThreadKey {
-        threadKind == "channel" ? .channel(UInt8(clamping: threadChannel)) : .dm(KeyHash(threadHash))
+        guard threadKind == "channel" else { return .dm(KeyHash(threadHash)) }
+        if let t = teamID { return .teamChannel(team: t, channel: UInt8(clamping: threadChannel)) }   // D30
+        return .channel(UInt8(clamping: threadChannel))
     }
     var direction: MessageDirection { MessageDirection(rawValue: directionRaw) ?? .incoming }
     var state: DeliveryState { DeliveryState(rawValue: stateRaw) ?? .received }

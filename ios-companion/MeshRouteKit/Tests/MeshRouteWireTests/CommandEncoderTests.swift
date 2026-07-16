@@ -20,18 +20,30 @@ final class CommandEncoderTests: XCTestCase {
     func testSendDMByHash() {
         let h = KeyHash(0x8a3f1c02)
         XCTAssertEqual(Command.sendDM(.init(target: .hash(h), body: "yo")).line,
-                       #"send 8a3f1c02 "yo""#)
+                       #"send 0x8a3f1c02 "yo""#)
         XCTAssertEqual(Command.sendDM(.init(target: .hash(h), body: "yo", requestAck: true)).line,
-                       #"send 8a3f1c02 "yo" -a"#)
+                       #"send 0x8a3f1c02 "yo" -a"#)
         XCTAssertEqual(Command.sendDM(.init(target: .hash(h), body: "yo", encrypt: true)).line,
-                       #"send 8a3f1c02 "yo" -e"#)
+                       #"send 0x8a3f1c02 "yo" -e"#)
         XCTAssertEqual(Command.sendDM(.init(target: .hash(h), body: "yo", requestAck: true, encrypt: true)).line,
-                       #"send 8a3f1c02 "yo" -a -e"#)
+                       #"send 0x8a3f1c02 "yo" -a -e"#)
     }
 
     func testSendChannel() {
         XCTAssertEqual(Command.sendChannel(.init(channelID: 3, body: "gm all")).line,
                        #"send_channel 3 "gm all""#)
+    }
+
+    func testTeamPlaneSends() {     // D30 ★ HARD PLANE SPLIT: -t = the team overlay
+        // by team_local_id (a DISTINCT id space; the node reads a bare id under -t as a teammate)
+        XCTAssertEqual(Command.sendDM(.init(target: .id(9), body: "yo", teamPlane: true)).line,
+                       #"send 9 "yo" -t"#)
+        // by hash → the team-scoped H-flood; encrypted team DM = -t -e (flag order: -a, -e, -t)
+        let h = KeyHash(0x8a3f1c02)
+        XCTAssertEqual(Command.sendDM(.init(target: .hash(h), body: "yo", teamPlane: true)).line,
+                       #"send 0x8a3f1c02 "yo" -t"#)
+        XCTAssertEqual(Command.sendDM(.init(target: .hash(h), body: "yo", encrypt: true, teamPlane: true)).line,
+                       #"send 0x8a3f1c02 "yo" -e -t"#)
     }
 
     func testBodySanitizedForQuotedWire() {
@@ -60,9 +72,22 @@ final class CommandEncoderTests: XCTestCase {
         XCTAssertEqual(Command.leave.line, "leave")
     }
 
+    func testTeammateAndRoamVerbs() {     // D30 c2: the teammate bootstrap + the roam screen's verbs
+        XCTAssertEqual(Command.reqPubkeyTeam(localID: 9).line, "reqpubkey 9")   // BARE decimal = implicitly TEAM-scoped
+        XCTAssertEqual(Command.mobileStatus.line, "mobile status")
+        XCTAssertEqual(Command.mobileGateways.line, "mobile gateways")
+        XCTAssertEqual(Command.mobileRegister.line, "mobile register")
+        XCTAssertEqual(Command.mobileRegisterScan.line, "mobile register scan")
+        // integer wire units → MHz/kHz tokens; fractional bw survives (62500 Hz → "62.5")
+        XCTAssertEqual(Command.mobileRegisterTarget(freqKHz: 869525, sf: 9, bwHz: 125000).line,
+                       "mobile register freq=869.525 sf=9 bw=125")
+        XCTAssertEqual(Command.mobileRegisterTarget(freqKHz: 869000, sf: 7, bwHz: 62500).line,
+                       "mobile register freq=869 sf=7 bw=62.5")
+    }
+
     func testResolve() {
-        XCTAssertEqual(Command.resolve(.init(hash: KeyHash(0x01))).line, "resolve 00000001")
-        XCTAssertEqual(Command.resolve(.init(hash: KeyHash(0x01), hard: true)).line, "resolve 00000001 hard")
+        XCTAssertEqual(Command.resolve(.init(hash: KeyHash(0x01))).line, "resolve 0x00000001")
+        XCTAssertEqual(Command.resolve(.init(hash: KeyHash(0x01), hard: true)).line, "resolve 0x00000001 hard")
     }
 
     func testDiagnostics() {
@@ -71,7 +96,7 @@ final class CommandEncoderTests: XCTestCase {
         XCTAssertEqual(Command.status.line, "status")
         XCTAssertEqual(Command.config.line, "cfg")
         XCTAssertEqual(Command.configSet(key: "node_id", value: "5").line, "cfg set node_id 5")
-        XCTAssertEqual(Command.lookup(KeyHash(0xdeadbeef)).line, "lookup deadbeef")
+        XCTAssertEqual(Command.lookup(KeyHash(0xdeadbeef)).line, "lookup 0xdeadbeef")
         XCTAssertEqual(Command.hashOf(7).line, "hashof 7")
         XCTAssertEqual(Command.raw("anything goes").line, "anything goes")
     }

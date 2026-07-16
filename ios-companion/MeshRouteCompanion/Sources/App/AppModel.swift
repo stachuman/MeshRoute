@@ -33,6 +33,19 @@ final class AppModel {
     private(set) var joinRefusal: JoinRefusal?        // a banner when the node can't join (wire_version / leaf_full)
     private(set) var latestDuty: DutyStatus?          // D27: airtime-budget readout (from `duty` + `ready`)
     private(set) var latestLimits: LimitsInfo?        // D29: anti-spam pacing snapshot (the app paces sends against it)
+    // Mobile + team state (D30) — from `ready` / `mobile_reg` / `team_reg` / `mobile_status`.
+    private(set) var mobileState: MobileState?        // nil = the connected node is not a mobile
+    private(set) var teamID: String?                  // team_id hex string; nil = no team
+    private(set) var teamLocal: Int?                  // our own id on the team overlay
+    private(set) var latestMobileStatus: MobileStatusInfo?
+    // Roam screen data (D30/S3): the `mobile gateways` stream, swapped in at mobile_gw_end (the routes pattern).
+    private(set) var mobileGateways: [MobileGatewayRow] = []
+    private(set) var mobileNets: [MobileNetRow] = []
+    private var mobileGwAccum: [MobileGatewayRow] = []
+    private var mobileNetAccum: [MobileNetRow] = []
+    // Teammate bootstrap (D30): the team-local id we just fired `reqpubkey <id>` for — the next
+    // peer_key_cached stamps it onto the answering node. (Single-user bench flow; overwritten by a re-request.)
+    private var pendingTeammateLocalID: Int?
     private var routesAccumulator: [RouteInfo] = []   // fills during a `routes` stream, swapped in at routes_end
     var backend: Backend = defaultBackend
     // Navigation the notification-tap router drives (Messages = tab 0).
@@ -150,6 +163,11 @@ final class AppModel {
             nodeIdentity = r
             if let m = LeafMembership.from(r) { membership = m; if m.state == .member { joinInFlight = false } }
             if let pct = r.dutyPct { latestDuty = DutyStatus(pct: pct, availMs: r.dutyAvailMs ?? 0, enabled: true) }   // D27 starting value
+            if r.mobile == true {   // D30/S1: the connected node is a mobile — seed the connectivity chip
+                mobileState = MobileState(home: r.mobileHome ?? 0, local: r.mobileLocal ?? 0,
+                                          homeLayer: r.mobileHomeLayer, registered: r.mobileRegistered ?? false)
+            } else { mobileState = nil }
+            teamID = r.team; teamLocal = r.teamLocal
             if let n = r.nowMs { timeAnchor = NodeTimeAnchor(nodeNowMs: n) }   // anchor BEFORE the pull streams in
             let profile = upsertNodeProfile(r)
             startInboxSync(r, profile: profile)
@@ -161,8 +179,8 @@ final class AppModel {
         case .messageReceived(let origin, let ctr, let senderHash, let seq, _, let crypted, let body):
             insertInboundDM(origin: origin, ctr: ctr, senderHash: senderHash, crypted: crypted ?? false, body: body)
             applyLiveSeq(kind: .dm, seq: seq)
-        case .channelReceived(let origin, let channelID, let channelMsgID, let seq, _, let body):
-            insertChannel(origin: origin, channelID: channelID, channelMsgID: channelMsgID, body: body)
+        case .channelReceived(let origin, let channelID, let channelMsgID, let seq, _, let teamID, let body):
+            insertChannel(origin: origin, channelID: channelID, channelMsgID: channelMsgID, teamID: teamID, body: body)
             applyLiveSeq(kind: .channel, seq: seq)
         case .sendAcked(_, let ctr):
             setOutgoingState(ctr: ctr, to: .acked)
@@ -176,8 +194,28 @@ final class AppModel {
             setOutgoingState(ctr: ctr, to: relayed ? .acked : .failed, reason: relayed ? nil : (reason ?? "no_relay"))   // D29 own channel-post outcome
         case .limits(let l):
             latestLimits = l
-        case .peerKeyCached(let hash, _):
+        case .peerKeyCached(let hash, _, let name):
             markKeyReady(for: hash)                                   // failed-no_pubkey DMs to this hash → "secure resend"
+            applyPeerName(hash: hash, name: name)                     // D30/S6: auto-label the directory node
+            stampPendingTeammate(hash: hash)                          // an Add-teammate answer → mark the node a teammate
+        case .peerName(let hash, let name):
+            applyPeerName(hash: hash, name: name)                     // the `nameof` answer
+        case .mobileReg(let home, let local, let homeLayer, _, let registered):
+            mobileState = MobileState(home: home, local: local, homeLayer: homeLayer, registered: registered)   // D30/S2: the connectivity chip
+        case .teamReg(let team, let local):
+            teamID = team; teamLocal = local                          // team-DAD adopted / re-picked
+        case .mobileStatus(let s):
+            latestMobileStatus = s
+            mobileState = MobileState(home: s.home, local: s.local, homeLayer: s.homeLayer, registered: s.registered)
+        case .mobileGateway(let gw, let leaf):
+            mobileGwAccum.append(MobileGatewayRow(gw: gw, leaf: leaf))
+        case .mobileNet(let layer, let name, let freqKHz, let sf, let bwHz):
+            mobileNetAccum.append(MobileNetRow(layer: layer, name: name, freqKHz: freqKHz, sf: sf, bwHz: bwHz))
+        case .mobileGatewaysEnd:
+            mobileGateways = mobileGwAccum; mobileNets = mobileNetAccum   // swap in complete (the routes pattern)
+            mobileGwAccum = []; mobileNetAccum = []
+        case .mobileError:
+            break   // e.g. not_mobile — visible in the console
         case .peerKeySet, .peerKeyError, .reqPubkeySent:
             break   // provisioning results — visible in the console for now
         case .hashResolved(let node, _, let hash) where node != 0:
@@ -228,13 +266,25 @@ final class AppModel {
         notifyInboundDM(threadHash: threadHash, origin: origin, body: body)
     }
 
-    private func insertChannel(origin: Int, channelID: Int, channelMsgID: UInt32?, body: String) {
+    private func insertChannel(origin: Int, channelID: Int, channelMsgID: UInt32?, teamID: String? = nil, body: String) {
         if let mid = channelMsgID, channelExists(msgID: mid) { return }   // dedup by channel_msg_id
-        let msg = MessageEntity(id: UUID(), thread: .channel(UInt8(clamping: channelID)), direction: .incoming,
+        // D30/S4: a team-scoped post threads under the TEAM conversation (the init stamps MessageEntity.teamID).
+        let ch = UInt8(clamping: channelID)
+        let thread: ThreadKey = teamID.map { .teamChannel(team: $0, channel: ch) } ?? .channel(ch)
+        let msg = MessageEntity(id: UUID(), thread: thread, direction: .incoming,
                                 body: body, timestamp: .now, state: .received, origin: origin, ctr: nil,
                                 channelMsgID: channelMsgID.map(Int.init))
         msg.isRead = false
         context.insert(msg)
+    }
+
+    /// A peer's self-reported name arrived (rides the pubkey exchange, D30/S6). Stored as `peerName` — NOT the
+    /// user-given `name` — so auto-labeling never auto-promotes a heard node into Contacts.
+    private func applyPeerName(hash: KeyHash, name: String?) {
+        guard let n = name, !n.isEmpty else { return }
+        let node = ensureNode(hash: hash.value, origin: nil)
+        node?.peerName = n
+        try? context.save()
     }
 
     /// A DM thread key: the sender's STABLE hash when present (→ straight into the contact's thread, no
@@ -339,7 +389,10 @@ final class AppModel {
     }
 
     func sendChannel(_ channelID: UInt8, body: String) {
-        compose(thread: .channel(channelID), body: body)
+        // On a TEAM mobile every channel post is team-scoped by the firmware (D30 — `send_channel`
+        // auto-broadcasts to the team), so the sent copy threads under the TEAM conversation.
+        let thread: ThreadKey = teamID.map { .teamChannel(team: $0, channel: channelID) } ?? .channel(channelID)
+        compose(thread: thread, body: body)
     }
 
     /// Insert the outgoing message and dispatch it — or park it in the OUTBOX when there's no link
@@ -362,8 +415,12 @@ final class AppModel {
             guard let target = target(for: .dm(h)) else { return }
             pendingOutgoing.append(msg.id)
             sendCommand(.sendDM(.init(target: target, body: msg.body,
-                                      requestAck: msg.ackRequested, encrypt: msg.crypted)))   // crypted → the -e flag (D24)
+                                      requestAck: msg.ackRequested, encrypt: msg.crypted,
+                                      teamPlane: isTeammate(h))))   // crypted → -e (D24); teammate → -t (D30 plane split)
         case .channel(let c):
+            pendingOutgoing.append(msg.id)
+            sendCommand(.sendChannel(.init(channelID: c, body: msg.body)))
+        case .teamChannel(_, let c):                // same verb — the firmware team-scopes it (D30)
             pendingOutgoing.append(msg.id)
             sendCommand(.sendChannel(.init(channelID: c, body: msg.body)))
         }
@@ -417,7 +474,10 @@ final class AppModel {
             d = FetchDescriptor(predicate: #Predicate { $0.threadKind == "dm" && $0.threadHash == hv })
         case .channel(let c):
             let ci = Int(c)
-            d = FetchDescriptor(predicate: #Predicate { $0.threadKind == "channel" && $0.threadChannel == ci })
+            d = FetchDescriptor(predicate: #Predicate { $0.threadKind == "channel" && $0.threadChannel == ci && $0.teamID == nil })
+        case .teamChannel(let t, let c):            // D30: the same channel number on a team is a SEPARATE thread
+            let ci = Int(c)
+            d = FetchDescriptor(predicate: #Predicate { $0.threadKind == "channel" && $0.threadChannel == ci && $0.teamID == t })
         }
         return (try? context.fetch(d)) ?? []
     }
@@ -434,7 +494,44 @@ final class AppModel {
     /// Install a scanned card's pubkey on the node (PINNED) so a first encrypted DM seals with no round-trip.
     func provisionPeerKey(_ pubkeyHex: String) { sendCommand(.peerKey(pubkeyHex: pubkeyHex)) }
     /// User-triggered on-air key request (the "Request key" action after a no-pubkey drop).
-    func requestPubkey(_ hash: KeyHash) { sendCommand(.reqPubkey(hash)) }
+    func requestPubkey(_ hash: KeyHash, team: Bool = false) { sendCommand(.reqPubkey(hash, team: team)) }   // team: the -t scoped request (D30)
+
+    // ---- three-plane contacts + roam (D30 c2) ----
+
+    /// A DM to this hash rides the TEAM plane (`-t`) iff the directory marks the node a teammate on OUR team.
+    /// A pseudo-id thread (hash ≤ 254) is static by construction — a teammate contact always has a real hash.
+    private func isTeammate(_ h: KeyHash) -> Bool {
+        guard let myTeam = teamID, h.value > 254 else { return false }
+        return node(for: h)?.teamID == myTeam
+    }
+
+    /// Teammate bootstrap: fire the BARE-id team-scoped key request (`reqpubkey <team_local_id>`). The mutual
+    /// handshake answers with `peer_key_cached{hash,name}` → `stampPendingTeammate` marks the node.
+    func addTeammate(localID: Int) {
+        guard teamID != nil, (1...254).contains(localID) else { return }
+        pendingTeammateLocalID = localID
+        sendCommand(.reqPubkeyTeam(localID: UInt8(localID)))
+    }
+    private func stampPendingTeammate(hash: KeyHash) {
+        guard let localID = pendingTeammateLocalID, let myTeam = teamID else { return }
+        pendingTeammateLocalID = nil
+        guard let n = node(for: hash) else { return }        // ensured by applyPeerName / markKeyReady paths
+        n.teamID = myTeam; n.teamLocalID = localID; n.role = "mobile"   // a teammate is a team mobile
+        try? context.save()
+    }
+
+    /// Roam screen: pull registration + the learned-networks directory.
+    func refreshMobile() {
+        guard isConnected else { return }
+        sendCommand(.mobileStatus)
+        mobileGwAccum = []; mobileNetAccum = []
+        sendCommand(.mobileGateways)
+    }
+    func mobileRegister()      { sendCommand(.mobileRegister) }        // re-register on the current PHY
+    func mobileRegisterScan()  { sendCommand(.mobileRegisterScan) }    // cycle the learned networks
+    func mobileRegister(to net: MobileNetRow) {                        // target a specific learned network
+        sendCommand(.mobileRegisterTarget(freqKHz: net.freqKHz, sf: net.sf, bwHz: net.bwHz))
+    }
 
     // ---- leaf provisioning (R6 / D26): live, no reboot ----
     func joinNetwork(freqMHz: Double, bwKHz: Double, ctrlSF: Int, layer: Int) {
@@ -572,6 +669,11 @@ final class AppModel {
         guard let mock = activeMockLink else { return }
         Task { await mock.simulateIncomingDM(fromID: id, body: body) }
     }
+    /// Demo the D30 team-thread split: a `team_id`-tagged channel post lands in its OWN "Team · Channel 3" thread.
+    func simulateTeamChannel(body: String) {
+        guard let mock = activeMockLink else { return }
+        Task { await mock.simulateChannel(channelID: 3, fromID: 2, teamID: "cccc0001", body: body) }
+    }
 
     // ---- private ----
 
@@ -700,9 +802,13 @@ final class AppModel {
         }
         if e.kind == .dm { noteHeardNode(senderHash: e.senderHash, origin: e.origin) }
         if !inboxEntryExists(e) {                        // dedup-on-import by stable identity (no seq/epoch)
-            let thread: ThreadKey = e.kind == .channel
-                ? .channel(UInt8(clamping: e.channelID))
-                : .dm(KeyHash(dmThreadHash(senderHash: e.senderHash, origin: e.origin)))
+            let thread: ThreadKey
+            if e.kind == .channel {
+                let ch = UInt8(clamping: e.channelID)
+                thread = e.teamID.map { .teamChannel(team: $0, channel: ch) } ?? .channel(ch)   // D30/S5: team threads apart
+            } else {
+                thread = .dm(KeyHash(dmThreadHash(senderHash: e.senderHash, origin: e.origin)))
+            }
             // True receive time via the uptime anchor (ready/inbox_end now_ms); pull-time as the fallback
             // on firmware without the field.
             let received = timeAnchor?.wallClock(rxMs: e.rxTimeMs) ?? .now
@@ -711,7 +817,7 @@ final class AppModel {
                                     channelMsgID: e.channelMsgID.map(Int.init),
                                     senderHash: e.senderHash.map(Int.init))
             msg.isRead = false
-            msg.crypted = e.crypted ?? false
+            msg.crypted = e.crypted ?? false             // (teamID is stamped by the MessageEntity init from the thread key)
             context.insert(msg)
         }
         activeSync?.advance(with: e)                     // advance the cursor for the store we just saw
@@ -770,6 +876,38 @@ struct DutyStatus: Hashable {
     let enabled: Bool
 }
 
+/// One gateway row from the `mobile gateways` stream (D30/S3).
+struct MobileGatewayRow: Identifiable, Hashable {
+    let gw: Int
+    let leaf: Int
+    var id: String { "\(gw)-\(leaf)" }
+}
+
+/// One learned network from the `mobile gateways` stream — the roam target (`mobile register freq= sf= bw=`).
+struct MobileNetRow: Identifiable, Hashable {
+    let layer: Int
+    let name: String?
+    let freqKHz: Int
+    let sf: Int
+    let bwHz: Int
+    var id: String { "\(layer)-\(freqKHz)-\(sf)-\(bwHz)" }
+    var label: String { name ?? "Layer \(layer)" }
+    var phyLabel: String {
+        let mhz = Double(freqKHz) / 1000
+        let bwKHz = Double(bwHz) / 1000
+        return String(format: "%.4g MHz · SF%d · %.4g kHz", mhz, sf, bwKHz)
+    }
+}
+
+/// D30: the connected mobile's registration — drives the connectivity chip ("home 222 · L4" / "searching for home…").
+struct MobileState: Hashable {
+    let home: Int          // 0 = unregistered
+    let local: Int         // home-assigned local id (informational; never used for addressing)
+    let homeLayer: Int?
+    let registered: Bool
+    var label: String { registered ? "Registered · home \(home)\(homeLayer.map { " · L\($0)" } ?? "")" : "Searching for home…" }
+}
+
 /// Routes a tapped DM banner into the right conversation. The banner's `threadIdentifier` is "dm-<hash>".
 final class NotificationRouter: NSObject, UNUserNotificationCenterDelegate {
     weak var model: AppModel?
@@ -798,7 +936,7 @@ func describe(_ inbound: Inbound) -> String {
     switch inbound {
     case .ack(let a):                              return "ack \(a.code) ctr=\(a.ctr) qd=\(a.queueDepth)"
     case .messageReceived(let o, let c, let h, _, let layer, let cr, let b):  return "msg_recv from \(o)\(hex(h))\(layer.map { " L\($0)" } ?? "")\(cr == true ? " 🔒" : "") ctr=\(c): \(b)"
-    case .channelReceived(let o, let ch, _, _, let layer, let b): return "channel_recv ch\(ch) from \(o)\(layer.map { " L\($0)" } ?? ""): \(b)"
+    case .channelReceived(let o, let ch, _, _, let layer, let team, let b): return "channel_recv ch\(ch) from \(o)\(layer.map { " L\($0)" } ?? "")\(team.map { " team \($0)" } ?? ""): \(b)"
     case .sendAcked(let d, let c):                 return "send_acked dst=\(d) ctr=\(c)"
     case .sendFailed(let d, let c, let r):         return "send_failed dst=\(d) ctr=\(c)\(r.map { " \($0)" } ?? "")"
     case .e2eAcked(let d, let c, let h):           return "e2e_acked dst=\(d) ctr=\(c)\(hex(h)) (delivered)"
@@ -808,7 +946,15 @@ func describe(_ inbound: Inbound) -> String {
     case .peerKeySet(let h, let p):                return "peerkey_set \(h.hex8)\(p ? " pinned" : "")"
     case .peerKeyError(let r):                     return "peerkey_err \(r)"
     case .reqPubkeySent(let h):                    return "reqpubkey_sent \(h.hex8)"
-    case .peerKeyCached(let h, let p):             return "peer_key_cached \(h.hex8)\(p ? " pinned" : "")"
+    case .peerKeyCached(let h, let p, let n):      return "peer_key_cached \(h.hex8)\(p ? " pinned" : "")\(n.map { " \"\($0)\"" } ?? "")"
+    case .peerName(let h, let n):                  return "peer_name \(h.hex8) = \(n ?? "(unknown)")"
+    case .mobileReg(let h, let l, let ly, _, let reg): return reg ? "mobile_reg home=\(h) local=\(l)\(ly.map { " L\($0)" } ?? "")" : "mobile_reg UNREGISTERED (searching for home)"
+    case .teamReg(let t, let l):                   return "team_reg team=\(t) local=\(l)"
+    case .mobileStatus(let s):                     return "mobile_status \(s.registered ? "home=\(s.home)" : "unregistered") \(s.freqKHz)kHz SF\(s.sf) nets=\(s.nets)"
+    case .mobileGateway(let g, let l):             return "mobile_gw gw=\(g) leaf=\(l)"
+    case .mobileNet(let ly, let n, let f, let sf, _): return "mobile_net L\(ly) \(n ?? "?") \(f)kHz SF\(sf)"
+    case .mobileGatewaysEnd(let g, let n):         return "mobile_gw_end gws=\(g) nets=\(n)"
+    case .mobileError(let r):                      return "mobile_err \(r)"
     case .hashResolved(let n, let a, let h):       return "hash_resolved \(h.hex8) → node \(n)\(a ? " (auth)" : "")"
     case .ready(let r):                            return "ready id=\(r.id) key=\(r.key.hex8) sf=\(r.routingSF)"
     case .status(let s):                           return "status id=\(s.id) \(s.state) up=\(s.uptimeMs.map(String.init) ?? "—") routes=\(s.routes.map(String.init) ?? "—")"

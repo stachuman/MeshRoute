@@ -26,13 +26,16 @@ func threadTitle(_ key: ThreadKey, nodesByHash: [UInt32: NodeEntity],
         return "0x" + h.hex8
     case .channel(let c):
         return channelLabels[Int(c)] ?? "Channel \(c)"
+    case .teamChannel(_, let c):                 // D30: the team conversation (labels stay per-channel-number)
+        return "Team · " + (channelLabels[Int(c)] ?? "Channel \(c)")
     }
 }
 
 func threadSubtitle(_ key: ThreadKey) -> String {
     switch key {
-    case .dm(let h):      return "0x" + h.hex8
-    case .channel(let c): return "broadcast · ch \(c)"
+    case .dm(let h):                 return "0x" + h.hex8
+    case .channel(let c):            return "broadcast · ch \(c)"
+    case .teamChannel(let t, let c): return "team \(t) · ch \(c)"
     }
 }
 

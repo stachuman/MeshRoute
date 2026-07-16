@@ -28,7 +28,10 @@ struct ThreadView: View {
             predicate = #Predicate<MessageEntity> { $0.threadKind == "dm" && $0.threadHash == hv }
         case .channel(let c):
             let ci = Int(c)
-            predicate = #Predicate<MessageEntity> { $0.threadKind == "channel" && $0.threadChannel == ci }
+            predicate = #Predicate<MessageEntity> { $0.threadKind == "channel" && $0.threadChannel == ci && $0.teamID == nil }
+        case .teamChannel(let t, let c):     // D30: the team conversation — same channel number, separate thread
+            let ci = Int(c)
+            predicate = #Predicate<MessageEntity> { $0.threadKind == "channel" && $0.threadChannel == ci && $0.teamID == t }
         }
         _messages = Query(filter: predicate, sort: \MessageEntity.timestamp, order: .forward)
     }
@@ -64,16 +67,18 @@ struct ThreadView: View {
     }
 
     private var byteLimit: Int {
-        if case .channel = thread { return WireConstants.channelMaxBodyBytes }
-        return WireConstants.dmMaxBodyBytes
+        switch thread {
+        case .channel, .teamChannel: return WireConstants.channelMaxBodyBytes
+        case .dm:                    return WireConstants.dmMaxBodyBytes
+        }
     }
 
     /// A proactive "wait ~N s" from the last `limits` snapshot (D29) — advisory; the `send_blocked` push is authoritative.
     private var pacingHint: String? {
         guard let l = model.latestLimits else { return nil }
         switch thread {
-        case .channel: return l.chNextMs > 0 ? "Channel busy — wait ~\(l.chNextMs / 1000 + 1) s" : nil
-        case .dm:      return l.dmNextMs > 0 ? "Sending fast — wait ~\(l.dmNextMs / 1000 + 1) s" : nil
+        case .channel, .teamChannel: return l.chNextMs > 0 ? "Channel busy — wait ~\(l.chNextMs / 1000 + 1) s" : nil
+        case .dm:                    return l.dmNextMs > 0 ? "Sending fast — wait ~\(l.dmNextMs / 1000 + 1) s" : nil
         }
     }
 
@@ -87,8 +92,9 @@ struct ThreadView: View {
         let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { return }
         switch thread {
-        case .dm:             model.sendDM(to: thread, body: body, requestAck: requestAck, encrypt: encrypt)
-        case .channel(let c): model.sendChannel(c, body: body)
+        case .dm:                     model.sendDM(to: thread, body: body, requestAck: requestAck, encrypt: encrypt)
+        case .channel(let c):         model.sendChannel(c, body: body)
+        case .teamChannel(_, let c):  model.sendChannel(c, body: body)   // same verb — the firmware team-scopes it (D30)
         }
         draft = ""
     }
@@ -111,6 +117,9 @@ struct MessageBubble: View {
                 HStack(spacing: 4) {
                     if let o = message.origin, !outgoing {
                         Text("id \(o)").font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    if message.teamID != nil {              // D30: a team-scoped channel message
+                        Image(systemName: "person.3").font(.system(size: 9)).foregroundStyle(Color.accentColor)
                     }
                     // crypted/plaintext marker (E2E): a closed lock when encrypted, open when not
                     Image(systemName: message.crypted ? "lock.fill" : "lock.open")
@@ -153,6 +162,11 @@ struct MessageBubble: View {
                         Button { model.retry(message) } label: {
                             Label("No relay heard — tap to retry", systemImage: "dot.radiowaves.left.and.right")
                                 .font(.caption2).foregroundStyle(.red)
+                        }.buttonStyle(.plain)
+                    case "mobile_no_home":       // D30: this mobile has no home — register first (roam screen)
+                        Button { model.retry(message) } label: {
+                            Label("No home network — register on the Device tab, then retry", systemImage: "antenna.radiowaves.left.and.right.slash")
+                                .font(.caption2).foregroundStyle(.orange)
                         }.buttonStyle(.plain)
                     case "no_cts", "no_ack":     // D29: a DM gave up after CTS/ACK-timeout retries
                         Button { model.retry(message) } label: {

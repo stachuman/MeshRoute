@@ -109,7 +109,7 @@ final class InboxCoreTests: XCTestCase {
 
     func testLiveChannelThenInboxPullDedups() {
         var store = ConversationStore()
-        store.ingest(.channelReceived(origin: 4, channelID: 3, channelMsgID: 0x0400_0009, seq: nil, layerID: nil, body: "gm"), now: now)
+        store.ingest(.channelReceived(origin: 4, channelID: 3, channelMsgID: 0x0400_0009, seq: nil, layerID: nil, teamID: nil, body: "gm"), now: now)
         // the same channel message later arrives via pull_inbox (same full id) → must NOT duplicate
         let dup = store.ingestInbox(InboxEntry(seq: 5, kind: .channel, origin: 4, channelID: 3,
                                                ctr: 9, channelMsgID: 0x0400_0009, rxTimeMs: 1, body: "gm"), now: now)

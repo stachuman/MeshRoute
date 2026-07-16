@@ -70,11 +70,23 @@ public struct NodeReady: Hashable, Sendable, Codable {
     public let synced: Bool?      // (lineage==0 || config_epoch>0)
     public let dutyPct: Int?      // D27: airtime budget used 0..100 (100 = silent); nil on older firmware
     public let dutyAvailMs: Int?  // ms until airtime frees (0 = can TX now)
+    // ---- mobile + team (D30 / S1) — ALL omit-when-inactive (a static, teamless node omits the whole block) ----
+    public let mobile: Bool?             // true ⇒ this node is a mobile (roaming endpoint)
+    public let mobileRegistered: Bool?
+    public let mobileHome: Int?          // current home node id (0 = unregistered)
+    public let mobileLocal: Int?         // the home-assigned local id (never used app-side for addressing)
+    public let mobileHomeLayer: Int?     // present only when registered
+    public let hosting: Int?             // static host: mobiles registered to US (omit when 0)
+    public let team: String?             // team_id as a lowercase hex string (like `key`); omit = no team
+    public let teamLocal: Int?           // our OWN id on the team overlay — teammates address us by it
     enum CodingKeys: String, CodingKey {
         case id, key, leafID = "leaf_id", mode, gateway, routingSF = "routing_sf", inboxEpoch = "inbox_epoch",
              nowMs = "now_ms", name, pubkey,
              lineage, configEpoch = "epoch", leaf, layer, synced,
-             dutyPct = "duty_pct", dutyAvailMs = "duty_avail_ms"
+             dutyPct = "duty_pct", dutyAvailMs = "duty_avail_ms",
+             mobile, mobileRegistered = "mobile_registered", mobileHome = "mobile_home",
+             mobileLocal = "mobile_local", mobileHomeLayer = "mobile_home_layer", hosting,
+             team, teamLocal = "team_local"
     }
 }
 
@@ -126,6 +138,27 @@ public struct LimitsInfo: Hashable, Sendable, Codable {
     }
 }
 
+/// The `mobile status` answer (D30/S3) — this mobile's registration + live PHY + learned-networks count.
+/// Integer kHz/Hz on the wire (no floats); `homeLayer` present only when registered.
+public struct MobileStatusInfo: Hashable, Sendable, Codable {
+    public let mobile: Bool
+    public let registered: Bool
+    public let home: Int            // 0 when unregistered
+    public let local: Int
+    public let epoch: Int
+    public let homeLayer: Int?
+    public let autoregister: Bool
+    public let layer: Int           // the live PHY layer
+    public let freqKHz: Int
+    public let sf: Int
+    public let bwHz: Int
+    public let nets: Int            // learned networks (rows come from `mobile gateways`)
+    enum CodingKeys: String, CodingKey {
+        case mobile, registered, home, local, epoch, homeLayer = "home_layer", autoregister,
+             layer, freqKHz = "freq_khz", sf, bwHz = "bw_hz", nets
+    }
+}
+
 /// One route-table row (a `{"ev":"route",…}` line from the `routes` stream).
 public struct RouteInfo: Hashable, Sendable, Codable {
     public let dest: Int
@@ -161,11 +194,14 @@ public struct NodeConfigInfo: Hashable, Sendable, Codable {
     public let latE7: Int?       // node location, degrees × 1e7 (nil on older firmware; 0 = unset)
     public let lonE7: Int?
     public let e2eDm: Bool?      // the node's default DM-encrypt toggle (`cfg set e2e_dm`); nil until firmware emits it
+    public let mobileAutoregister: Bool?   // D30/S1: 1 = node self-registers/roams; 0 = the APP drives it (nil = pre-mobile fw)
+    public let teamID: String?             // D30/S1: team_id hex string — ALWAYS present in cfg ("00000000" = unset)
     enum CodingKeys: String, CodingKey {
         case nodeID = "node_id", freqHz = "freq_hz", routingSF = "routing_sf", sfList = "sf_list",
              bwHz = "bw_hz", cr, txPower = "tx_power", dutyX1000 = "duty_x1000", lbt, beaconMs = "beacon_ms",
              hopCap = "hop_cap", leafID = "leaf_id", gateway, mobile, bleMode = "ble_mode",
-             blePeriod = "ble_period", blePin = "ble_pin", latE7 = "lat_e7", lonE7 = "lon_e7", e2eDm = "e2e_dm"
+             blePeriod = "ble_period", blePin = "ble_pin", latE7 = "lat_e7", lonE7 = "lon_e7", e2eDm = "e2e_dm",
+             mobileAutoregister = "mobile_autoregister", teamID = "team_id"
     }
     public var freqMHz: Double { Double(freqHz) / 1_000_000 }
     public var dutyPercent: Double { Double(dutyX1000) / 10 }   // 100 → 10.0 %
@@ -178,7 +214,7 @@ public struct NodeConfigInfo: Hashable, Sendable, Codable {
 public enum Inbound: Hashable, Sendable {
     case ack(CommandAck)
     case messageReceived(origin: Int, ctr: Int, senderHash: UInt32?, seq: UInt32?, layerID: Int?, crypted: Bool?, body: String)   // seq iff inbox; layerID = receiving layer (D12); crypted = the DATA CRYPTED flag (E2E, firmware-pending)
-    case channelReceived(origin: Int, channelID: Int, channelMsgID: UInt32?, seq: UInt32?, layerID: Int?, body: String)
+    case channelReceived(origin: Int, channelID: Int, channelMsgID: UInt32?, seq: UInt32?, layerID: Int?, teamID: String?, body: String)   // teamID (hex string, D30/S4): team-scoped group chat; nil = a leaf channel
     case sendAcked(dst: Int, ctr: Int)
     case sendFailed(dst: Int, ctr: Int, reason: String?)              // reason: no_pubkey · no_identity · too_large · bad_rng · no_route · joining (E2E 2026-06-16)
     case e2eAcked(dst: Int, ctr: Int, senderHash: UInt32?)            // live E2E delivery RECEIPT (D25): mark the OUTBOX msg delivered; dst=the node that confirmed; NOT an inbound DM
@@ -190,7 +226,8 @@ public enum Inbound: Hashable, Sendable {
     case peerKeySet(hash: KeyHash, pinned: Bool)                       // a scanned card's pubkey installed
     case peerKeyError(reason: String)                                 // bad_hex | hash_mismatch — not installed
     case reqPubkeySent(hash: KeyHash)                                 // an on-air key request went out
-    case peerKeyCached(hash: KeyHash, pinned: Bool)                   // a key arrived → "secure send ready, resend"
+    case peerKeyCached(hash: KeyHash, pinned: Bool, name: String?)    // a key arrived → "secure send ready, resend"; name (D30/S6) = the peer's self-reported name, captured at cache time
+    case peerName(hash: KeyHash, name: String?)                       // `nameof 0x<hash>` answer (D30/S6); name omitted when unknown
     case ready(NodeReady)
     case status(NodeStatusSnapshot)
     case route(RouteInfo)                                            // one row from the `routes` stream
@@ -199,6 +236,14 @@ public enum Inbound: Hashable, Sendable {
     case configAdopted(lineage: Int, epoch: Int, leaf: String?, layer: Int?)   // R6/D26: leaf-config adopted/updated → live membership chip
     case joinRefused(reason: String, theirVer: Int?, myVer: Int?)              // R6/D26: can't join (wire_version → update fw; leaf_full)
     case duty(pct: Int, availMs: Int, enabled: Bool)                          // D27: airtime-budget readout (0..100; 100 = silent; enabled=false ⇒ unlimited)
+    // ---- mobile + team pushes/queries (D30 / S2+S3) ----
+    case mobileReg(home: Int, local: Int, homeLayer: Int?, epoch: Int?, registered: Bool)   // register / roam / home-loss — the connectivity chip
+    case teamReg(team: String, local: Int)                                    // team-DAD id adopted / conflict re-pick
+    case mobileStatus(MobileStatusInfo)                                       // `mobile status` answer
+    case mobileGateway(gw: Int, leaf: Int)                                    // one row of the `mobile gateways` stream
+    case mobileNet(layer: Int, name: String?, freqKHz: Int, sf: Int, bwHz: Int)   // a learned network row (roam-UI target)
+    case mobileGatewaysEnd(gws: Int, nets: Int)                               // gateways-stream terminator
+    case mobileError(reason: String)                                          // e.g. "not_mobile" — a `mobile` verb on a static node
     case inboxEntry(InboxEntry)                                       // one record from a pull_inbox stream
     case inboxEnd(dmSeq: UInt32, chanSeq: UInt32, epoch: UInt32?, count: Int, nowMs: UInt64?)  // pull done: newest seqs, served epoch, #streamed, uptime anchor
     case event(type: String, fields: [String: JSONValue])             // generic / future events
@@ -244,7 +289,8 @@ public enum PushDecoder {
         case "channel_recv":
             if let m = try? decoder.decode(ChannelRecv.self, from: data) {
                 return .channelReceived(origin: m.origin, channelID: m.channel_id,
-                                        channelMsgID: m.channel_msg_id, seq: m.seq, layerID: m.layer_id, body: m.body)
+                                        channelMsgID: m.channel_msg_id, seq: m.seq, layerID: m.layer_id,
+                                        teamID: m.team_id, body: m.body)
             }
         case "send_acked":
             if let m = try? decoder.decode(SendFate.self, from: data) {
@@ -282,7 +328,11 @@ public enum PushDecoder {
             if let m = try? decoder.decode(PeerKeyEvent.self, from: data) { return .reqPubkeySent(hash: KeyHash(m.hash)) }
         case "peer_key_cached":
             if let m = try? decoder.decode(PeerKeyEvent.self, from: data) {
-                return .peerKeyCached(hash: KeyHash(m.hash), pinned: m.pinned ?? false)
+                return .peerKeyCached(hash: KeyHash(m.hash), pinned: m.pinned ?? false, name: m.name)
+            }
+        case "peer_name":                                              // D30/S6: the `nameof` answer
+            if let m = try? decoder.decode(PeerKeyEvent.self, from: data) {
+                return .peerName(hash: KeyHash(m.hash), name: m.name)
             }
         case "ready":
             if let m = try? decoder.decode(NodeReady.self, from: data) { return .ready(m) }
@@ -306,6 +356,27 @@ public enum PushDecoder {
             if let m = try? decoder.decode(Duty.self, from: data) {
                 return .duty(pct: m.pct, availMs: m.avail_ms, enabled: m.enabled)
             }
+        case "mobile_reg":                                             // D30/S2: register / roam / home-loss
+            if let m = try? decoder.decode(MobileReg.self, from: data) {
+                return .mobileReg(home: m.home, local: m.local, homeLayer: m.home_layer, epoch: m.epoch,
+                                  registered: m.registered)
+            }
+        case "team_reg":                                               // D30/S2: team-DAD
+            if let m = try? decoder.decode(TeamReg.self, from: data) {
+                return .teamReg(team: m.team, local: m.local)
+            }
+        case "mobile_status":
+            if let m = try? decoder.decode(MobileStatusInfo.self, from: data) { return .mobileStatus(m) }
+        case "mobile_gw":
+            if let m = try? decoder.decode(MobileGw.self, from: data) { return .mobileGateway(gw: m.gw, leaf: m.leaf) }
+        case "mobile_net":
+            if let m = try? decoder.decode(MobileNet.self, from: data) {
+                return .mobileNet(layer: m.layer, name: m.name, freqKHz: m.freq_khz, sf: m.sf, bwHz: m.bw_hz)
+            }
+        case "mobile_gw_end":
+            if let m = try? decoder.decode(MobileGwEnd.self, from: data) { return .mobileGatewaysEnd(gws: m.gws, nets: m.nets) }
+        case "mobile_err":
+            if let m = try? decoder.decode(ReasonEvent.self, from: data) { return .mobileError(reason: m.reason) }
         case "inbox_dm":
             if let m = try? decoder.decode(InboxDM.self, from: data) {
                 let receipt = (m.type == "e2e_ack")     // a delivery RECEIPT rides the DM seq-cursor — NOT a message (D25)
@@ -318,7 +389,7 @@ public enum PushDecoder {
             if let m = try? decoder.decode(InboxCh.self, from: data) {
                 return .inboxEntry(InboxEntry(seq: m.seq, kind: .channel, origin: m.origin, channelID: m.channel_id,
                                               ctr: Int(m.channel_msg_id & 0xFF), channelMsgID: m.channel_msg_id,
-                                              layerID: m.layer_id, rxTimeMs: m.rx_ms, body: m.body))
+                                              layerID: m.layer_id, teamID: m.team_id, rxTimeMs: m.rx_ms, body: m.body))
             }
         case "inbox_end":
             if let m = try? decoder.decode(InboxEnd.self, from: data) {
@@ -344,16 +415,21 @@ public enum PushDecoder {
         let err: String?; let msg: String?
     }
     private struct MsgRecv: Decodable { let origin: Int; let ctr: Int; let sender_hash: UInt32?; let seq: UInt32?; let layer_id: Int?; let enc: Bool?; let body: String }   // enc = the wire CRYPTED indicator
-    private struct ChannelRecv: Decodable { let origin: Int; let channel_id: Int; let channel_msg_id: UInt32?; let seq: UInt32?; let layer_id: Int?; let body: String }
+    private struct ChannelRecv: Decodable { let origin: Int; let channel_id: Int; let channel_msg_id: UInt32?; let seq: UInt32?; let layer_id: Int?; let team_id: String?; let body: String }   // team_id (hex string) ⇒ team-scoped (D30/S4)
     private struct SendFate: Decodable { let dst: Int; let ctr: Int; let reason: String? }   // reason on send_failed (E2E)
     private struct HashResolved: Decodable { let node: Int; let auth: Int; let hash: UInt32 }
-    private struct PeerKeyEvent: Decodable { let hash: UInt32; let pinned: Bool? }            // peerkey_set / reqpubkey_sent / peer_key_cached
+    private struct PeerKeyEvent: Decodable { let hash: UInt32; let pinned: Bool?; let name: String? }   // peerkey_set / reqpubkey_sent / peer_key_cached / peer_name (name = D30/S6)
+    private struct MobileReg: Decodable { let home: Int; let local: Int; let home_layer: Int?; let epoch: Int?; let registered: Bool }
+    private struct TeamReg: Decodable { let team: String; let local: Int }
+    private struct MobileGw: Decodable { let gw: Int; let leaf: Int }
+    private struct MobileNet: Decodable { let layer: Int; let name: String?; let freq_khz: Int; let sf: Int; let bw_hz: Int }
+    private struct MobileGwEnd: Decodable { let gws: Int; let nets: Int }
     private struct ReasonEvent: Decodable { let reason: String }                              // peerkey_err
     private struct InboxDM: Decodable { let seq: UInt32; let origin: Int; let ctr: Int; let sender_hash: UInt32?; let layer_id: Int?; let enc: Bool?; let type: String?; let rx_ms: UInt64; let body: String }   // enc = CRYPTED indicator; type "e2e_ack" = a delivery receipt (D25)
     private struct E2eAck: Decodable { let origin: Int; let ctr: Int; let sender_hash: UInt32? }   // live e2e_acked: origin = the dst that CONFIRMED delivery
     private struct SendBlocked: Decodable { let kind: String; let reason: String; let next_ms: Int }   // D29: kind ∈ channel|dm ; reason ∈ cap|min_interval
     private struct ChannelSent: Decodable { let ctr: Int; let relayed: Bool; let reason: String? }      // D29: own channel-post outcome
-    private struct InboxCh: Decodable { let seq: UInt32; let origin: Int; let channel_id: Int; let channel_msg_id: UInt32; let layer_id: Int?; let rx_ms: UInt64; let body: String }
+    private struct InboxCh: Decodable { let seq: UInt32; let origin: Int; let channel_id: Int; let channel_msg_id: UInt32; let layer_id: Int?; let team_id: String?; let rx_ms: UInt64; let body: String }   // team_id ⇒ team-scoped (D30/S5)
     private struct InboxEnd: Decodable { let dm_seq: UInt32; let chan_seq: UInt32; let epoch: UInt32?; let count: Int; let now_ms: UInt64? }
     private struct RoutesEnd: Decodable { let count: Int }
     private struct ConfigAdopted: Decodable { let lineage: Int; let epoch: Int; let leaf: String?; let layer: Int? }   // R6 membership update

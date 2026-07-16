@@ -21,10 +21,13 @@ public struct Contact: Identifiable, Hashable, Sendable {
     }
 }
 
-/// A conversation: a DM thread (keyed by the peer's hash) or a channel feed (by channel id).
+/// A conversation: a DM thread (keyed by the peer's hash), a leaf-channel feed (by channel id), or a
+/// TEAM-channel feed (D30/S4: `team_id`-scoped group chat — the same channel number on a team is a
+/// SEPARATE conversation from the leaf channel; static nodes never see it).
 public enum ThreadKey: Hashable, Sendable {
     case dm(KeyHash)
     case channel(UInt8)
+    case teamChannel(team: String, channel: UInt8)   // team = the team_id hex string (as on the wire)
 }
 
 public enum MessageDirection: String, Hashable, Sendable, Codable {
@@ -77,9 +80,9 @@ public struct ChatMessage: Identifiable, Hashable, Sendable {
         case .dm:
             guard let ctr else { return nil }
             return .dm(senderHash: senderHash, origin: origin, ctr: ctr)
-        case .channel:
+        case .channel, .teamChannel:
             guard let channelMsgID else { return nil }
-            return .channel(msgID: channelMsgID)
+            return .channel(msgID: channelMsgID)     // identity keys unchanged for team channels (D30/S4)
         }
     }
 }

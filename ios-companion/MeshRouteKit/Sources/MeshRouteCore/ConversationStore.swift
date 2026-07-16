@@ -27,9 +27,9 @@ public struct ConversationStore: Sendable {
         case .messageReceived(let origin, let ctr, let senderHash, let seq, _, _, let body):
             return insertInboundDM(origin: UInt8(clamping: origin), ctr: ctr, senderHash: senderHash,
                                    seq: seq, body: body, now: now)
-        case .channelReceived(let origin, let channelID, let channelMsgID, let seq, _, let body):
+        case .channelReceived(let origin, let channelID, let channelMsgID, let seq, _, let teamID, let body):
             return insertChannel(origin: UInt8(clamping: origin), channelID: UInt8(clamping: channelID),
-                                 channelMsgID: channelMsgID, seq: seq, body: body, now: now)
+                                 channelMsgID: channelMsgID, seq: seq, teamID: teamID, body: body, now: now)
         case .sendAcked(_, let ctr):
             updateOutgoing(ctr: ctr, to: .acked); return nil
         case .sendFailed(_, let ctr, _):
@@ -68,7 +68,7 @@ public struct ConversationStore: Sendable {
         case .channel:
             guard let mid = entry.channelMsgID else { return nil }   // a channel record must carry its id
             key = .channel(msgID: mid)
-            thread = .channel(UInt8(clamping: entry.channelID))
+            thread = channelThread(channelID: UInt8(clamping: entry.channelID), teamID: entry.teamID)
         }
         guard !seenInbound.contains(key) else { return nil }   // dedup-on-import vs the live + prior-pull archive
         seenInbound.insert(key)
@@ -88,17 +88,23 @@ public struct ConversationStore: Sendable {
     }
 
     private mutating func insertChannel(origin: UInt8, channelID: UInt8, channelMsgID: UInt32?,
-                                        seq: UInt32?, body: String, now: Date) -> ChatMessage? {
+                                        seq: UInt32?, teamID: String? = nil, body: String, now: Date) -> ChatMessage? {
         if let mid = channelMsgID {                            // dedup live channels too, now we have the id
             let key = MessageIdentity.channel(msgID: mid)
             guard !seenInbound.contains(key) else { return nil }
             seenInbound.insert(key)
         }
-        let msg = ChatMessage(thread: .channel(channelID), direction: .incoming, body: body,
-                              timestamp: now, state: .received, origin: origin, ctr: nil, seq: seq,
+        let msg = ChatMessage(thread: channelThread(channelID: channelID, teamID: teamID), direction: .incoming,
+                              body: body, timestamp: now, state: .received, origin: origin, ctr: nil, seq: seq,
                               channelMsgID: channelMsgID)
         append(msg)
         return msg
+    }
+
+    /// A channel thread key: team-scoped (D30/S4 — a SEPARATE conversation) when the push carried a team_id.
+    private func channelThread(channelID: UInt8, teamID: String?) -> ThreadKey {
+        if let t = teamID { return .teamChannel(team: t, channel: channelID) }
+        return .channel(channelID)
     }
 
     // ---- outbound ----

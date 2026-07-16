@@ -71,11 +71,15 @@ public actor MockNodeLink: NodeLink {
         let verb = tokens.removeFirst()
 
         switch verb {
-        case "send":                                         // unified (D24): id (≤254) vs hash (8-hex) auto-detected; quoted body ignored by the mock
+        case "send":                                         // unified (D24/D30): bare decimal = id; 0x… = hash; -t = team plane
             let arg = tokens.first ?? ""
             var dst = 0, ackHash: UInt32 = 0
-            if let i = Int(arg), i <= 254 { dst = i }                                         // decimal id
-            else if let h = KeyHash(hex: arg) { dst = knownPeers[h] ?? 0; ackHash = h.value } // 8-hex key_hash32
+            if let i = Int(arg), i <= 254 { dst = i }                                         // decimal id (static, or team-local under -t)
+            else if let h = KeyHash(hex: arg) {
+                ackHash = h.value
+                if (h.value & 0xFFFF_0000) == 0x7EA0_0000 { dst = Int(h.value & 0xFF) }       // a demo teammate (Add-teammate synthetic hash)
+                else { dst = knownPeers[h] ?? 0 }
+            }
             ackThenDeliver(dst: dst, e2eAck: tokens.contains("-a"), ackHash: ackHash)         // -a → also simulate the recipient's E2E receipt (D25)
         case "send_channel":
             sendCtr += 1
@@ -103,8 +107,32 @@ public actor MockNodeLink: NodeLink {
                 emit(#"{"ev":"peerkey_err","reason":"bad_hex"}"#)
             }
         case "reqpubkey":
-            if let h = tokens.first.flatMap({ KeyHash(hex: $0) }) {
+            if let arg = tokens.first, let id = Int(arg), id <= 254 {   // BARE decimal = a team-local id (D30) → the teammate handshake
+                let hash: UInt32 = 0x7EA0_0000 | UInt32(id)             // a synthetic stable teammate hash for the demo
+                emit(#"{"ev":"reqpubkey_sent","hash":\#(hash)}"#)
+                emit(#"{"ev":"peer_key_cached","hash":\#(hash),"pinned":false,"name":"Teammate \#(id)"}"#)
+            } else if let h = tokens.first.flatMap({ KeyHash(hex: $0) }) {   // 0x form; -t ignored by the mock
                 emit(#"{"ev":"reqpubkey_sent","hash":\#(h.value)}"#)
+                emit(#"{"ev":"peer_key_cached","hash":\#(h.value),"pinned":false,"name":"Peer \#(knownPeers[h] ?? 0)"}"#)   // mutual answer + the S6 name
+            }
+        case "mobile":                                       // D30/S3: roam-screen demo data (a registered team mobile)
+            switch tokens.first {
+            case "status":
+                emit(#"{"ev":"mobile_status","mobile":true,"registered":true,"home":222,"local":17,"epoch":6,"home_layer":4,"autoregister":true,"layer":4,"freq_khz":869525,"sf":9,"bw_hz":125000,"nets":2}"#)
+            case "gateways":
+                emit(#"{"ev":"mobile_gw","gw":3,"leaf":4}"#)
+                emit(#"{"ev":"mobile_net","layer":7,"name":"north field","freq_khz":869525,"sf":9,"bw_hz":125000}"#)
+                emit(#"{"ev":"mobile_net","layer":12,"name":"harbour","freq_khz":868100,"sf":7,"bw_hz":250000}"#)
+                emit(#"{"ev":"mobile_gw_end","gws":1,"nets":2}"#)
+            case "register":
+                emit(#"{"ev":"mobile_reg","home":222,"local":17,"home_layer":4,"epoch":7,"registered":true}"#)
+            default:
+                emit(#"{"ev":"mobile_err","reason":"not_mobile"}"#)
+            }
+        case "nameof":                                       // D30/S6: the cached peer name as JSON
+            if let h = tokens.first.flatMap({ KeyHash(hex: $0) }) {
+                if let id = knownPeers[h] { emit(#"{"ev":"peer_name","hash":\#(h.value),"name":"Peer \#(id)"}"#) }
+                else { emit(#"{"ev":"peer_name","hash":\#(h.value)}"#) }   // unknown → name omitted
             }
         case "whoami":
             emit(readyLine(state: "whoami"))
@@ -179,12 +207,13 @@ public actor MockNodeLink: NodeLink {
         dmSeq = 0; chanSeq = 0
     }
 
-    public func simulateChannel(channelID: UInt8, fromID id: UInt8, body: String) {
+    public func simulateChannel(channelID: UInt8, fromID id: UInt8, teamID: String? = nil, body: String) {
         let ctr = (inboundCtr[id] ?? 0) + 1
         inboundCtr[id] = ctr
         let msgID = Self.channelMsgID(origin: id, ctr: ctr)
-        recordChannel(channelID: channelID, origin: id, ctr: ctr, body: body)   // record BEFORE push (assigns chanSeq)
-        emit(#"{"ev":"channel_recv","origin":\#(id),"layer_id":0,"channel_id":\#(channelID),"channel_msg_id":\#(msgID),"seq":\#(chanSeq),"body":\#(jsonString(body))}"#)
+        recordChannel(channelID: channelID, origin: id, ctr: ctr, teamID: teamID, body: body)   // record BEFORE push (assigns chanSeq)
+        let team = teamID.map { #","team_id":"\#($0)""# } ?? ""    // D30/S4: omit-when-absent, exactly like the firmware
+        emit(#"{"ev":"channel_recv","origin":\#(id),"layer_id":0,"channel_id":\#(channelID),"channel_msg_id":\#(msgID),"seq":\#(chanSeq)\#(team),"body":\#(jsonString(body))}"#)
     }
 
     // A stand-in for the firmware's 32-bit channel_msg_id (origin<<24 | key_hash16<<8 | ctr).
@@ -197,11 +226,11 @@ public actor MockNodeLink: NodeLink {
         dmRecords.append(InboxEntry(seq: dmSeq, kind: .dm, origin: Int(origin), channelID: 0,
                                     ctr: ctr, senderHash: hashForID(origin), rxTimeMs: uptimeMs, body: body))
     }
-    private func recordChannel(channelID: UInt8, origin: UInt8, ctr: Int, body: String) {
+    private func recordChannel(channelID: UInt8, origin: UInt8, ctr: Int, teamID: String? = nil, body: String) {
         uptimeMs += 1_000; chanSeq += 1
         chanRecords.append(InboxEntry(seq: chanSeq, kind: .channel, origin: Int(origin), channelID: Int(channelID),
                                       ctr: ctr, channelMsgID: Self.channelMsgID(origin: origin, ctr: ctr),
-                                      rxTimeMs: uptimeMs, body: body))
+                                      teamID: teamID, rxTimeMs: uptimeMs, body: body))
     }
 
     // ---- internals ----
@@ -227,7 +256,9 @@ public actor MockNodeLink: NodeLink {
     }
     private func readyLine(state: String) -> String {
         let synced = (mockLineage == 0 || mockEpoch > 0) ? "true" : "false"
-        return #"{"ev":"ready","id":\#(selfID),"key":"\#(selfHash.hex8)","name":"Mock \#(selfID)","pubkey":"\#(selfHash.hex8)\#(String(repeating: "0", count: 56))","leaf_id":0,"mode":"\#(state)","gateway":false,"routing_sf":7,"inbox_epoch":\#(inboxEpoch),"now_ms":\#(uptimeMs),"lineage":\#(mockLineage),"epoch":\#(mockEpoch)\#(leafField),"layer":\#(mockLayer),"synced":\#(synced),"duty_pct":42,"duty_avail_ms":0}"#
+        return #"{"ev":"ready","id":\#(selfID),"key":"\#(selfHash.hex8)","name":"Mock \#(selfID)","pubkey":"\#(selfHash.hex8)\#(String(repeating: "0", count: 56))","leaf_id":0,"mode":"\#(state)","gateway":false,"routing_sf":7,"inbox_epoch":\#(inboxEpoch),"now_ms":\#(uptimeMs),"lineage":\#(mockLineage),"epoch":\#(mockEpoch)\#(leafField),"layer":\#(mockLayer),"synced":\#(synced),"duty_pct":42,"duty_avail_ms":0,"mobile":true,"mobile_registered":true,"mobile_home":222,"mobile_local":17,"mobile_home_layer":4,"team":"cccc0001","team_local":1}"#
+        // ^ the mock plays a REGISTERED TEAM MOBILE (D30) so the roam screen, team chips, Add-teammate,
+        //   and team-plane sends are all demoable in the simulator.
     }
     private var leafField: String { (mockLineage != 0 && !mockLeaf.isEmpty) ? #","leaf":\#(jsonString(mockLeaf))"# : "" }
     private func configAdoptedLine() -> String {
@@ -246,7 +277,8 @@ public actor MockNodeLink: NodeLink {
         #"{"ev":"inbox_dm","seq":\#(e.seq),"origin":\#(e.origin),"layer_id":\#(e.layerID ?? 0),"ctr":\#(e.ctr),"sender_hash":\#(e.senderHash ?? 0),"rx_ms":\#(e.rxTimeMs),"body":\#(jsonString(e.body))}"#
     }
     private func inboxChLine(_ e: InboxEntry) -> String {
-        #"{"ev":"inbox_channel","seq":\#(e.seq),"origin":\#(e.origin),"layer_id":\#(e.layerID ?? 0),"channel_id":\#(e.channelID),"channel_msg_id":\#(e.channelMsgID ?? 0),"rx_ms":\#(e.rxTimeMs),"body":\#(jsonString(e.body))}"#
+        let team = e.teamID.map { #","team_id":"\#($0)""# } ?? ""   // D30/S5: durable team tag, omit-when-absent
+        return #"{"ev":"inbox_channel","seq":\#(e.seq),"origin":\#(e.origin),"layer_id":\#(e.layerID ?? 0),"channel_id":\#(e.channelID),"channel_msg_id":\#(e.channelMsgID ?? 0)\#(team),"rx_ms":\#(e.rxTimeMs),"body":\#(jsonString(e.body))}"#
     }
     private func inboxEndLine(count: Int) -> String {
         #"{"ev":"inbox_end","dm_seq":\#(dmSeq),"chan_seq":\#(chanSeq),"epoch":\#(inboxEpoch),"count":\#(count),"now_ms":\#(uptimeMs)}"#

@@ -75,6 +75,23 @@ struct NodeView: View {
                                 Text("layer \(lyr)").font(.caption2).foregroundStyle(.secondary)
                             }
                         }
+                        if let ms = model.mobileState {   // D30: the mobile connectivity chip → the roam screen
+                            NavigationLink { MobileRoamView() } label: {
+                                HStack {
+                                    Image(systemName: ms.registered ? "antenna.radiowaves.left.and.right.circle.fill"
+                                                                    : "antenna.radiowaves.left.and.right.slash")
+                                        .foregroundStyle(ms.registered ? Color.green : .orange)
+                                    Text(ms.label)
+                                }
+                            }
+                        }
+                        if let team = model.teamID {      // D30: team membership (id + our overlay id)
+                            HStack {
+                                Image(systemName: "person.3.fill").foregroundStyle(Color.accentColor)
+                                Text("Team \(team)\(model.teamLocal.map { " · id \($0)" } ?? "")")
+                                    .font(.callout).monospaced()
+                            }
+                        }
                         DutyGaugeRow()
                         Button { showJoin = true } label: { Label("Join network…", systemImage: "antenna.radiowaves.left.and.right") }
                         Button { showCreate = true } label: { Label("Create leaf…", systemImage: "plus.circle") }
@@ -377,6 +394,7 @@ struct AdvancedNodeView: View {
                 Section("Mock demo") {
                     TextField("incoming body", text: $simBody).focused($fieldFocused)
                     Button("Simulate inbound DM from id 2") { model.simulateInbound(fromID: 2, body: simBody) }
+                    Button("Simulate team channel post") { model.simulateTeamChannel(body: simBody) }   // D30: the team-thread split
                 }
             }
 

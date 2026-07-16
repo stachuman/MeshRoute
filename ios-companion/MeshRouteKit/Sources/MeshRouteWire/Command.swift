@@ -5,10 +5,11 @@
 // "line-ASCII commands + JSON pushes" contract chosen on review: zero firmware decoder
 // work, the node already parses these. The transport appends the '\n'; `line` has none.
 //
-// Verb reference (console_parse.cpp / fw_main.cpp — 2026-06-21 unified send, D24):
-//   send <id|hash> "<text>" [-a] [-e]    send_channel <ch> "<text>"    (send_layer — explicit path, app-unused)
-//   resolve <hex> [hard] | cfg | cfg set <k> <v> | routes | status | whoami | lookup <hex> | hashof <id>
-//   peerkey <hex64> | reqpubkey <hex8> | pull_inbox <d> <c> | mark_read <dm|chan> <seq>
+// Verb reference (console_parse.cpp / fw_main.cpp — D24 unified send + D30 plane split; hashes 0x-PREFIXED):
+//   send <id|0xhash> "<text>" [-a] [-e] [-t]   send_channel <ch> "<text>"   (send_layer — explicit path, app-unused)
+//   resolve 0x<hex8> [hard] | cfg | cfg set <k> <v> | routes | status | whoami | lookup 0x<hex8> | hashof <id>
+//   peerkey <hex64> | reqpubkey 0x<hex8> [-t] | pull_inbox <d> <c> | mark_read <dm|chan> <seq>
+//   -t = the TEAM plane (D30): a bare id under -t is a team_local_id (a distinct id space from static node ids).
 
 import Foundation
 
@@ -24,8 +25,13 @@ public struct SendDM: Hashable, Sendable {
     public var requestAck: Bool     // the `-a` flag — request the end-to-end delivery ack (wire E2E=0x08)
     public var encrypt: Bool        // the `-e` flag — per-message E2E crypt (D24). HASH-only (sealing needs the
                                     // recipient's pubkey; the node rejects -e on an id). Absent ⇒ the node's e2e_dm default.
-    public init(target: DMTarget, body: String, requestAck: Bool = false, encrypt: Bool = false) {
+    public var teamPlane: Bool      // the `-t` flag (D30 plane split): route on the TEAM overlay. With .id the id
+                                    // is a team_local_id (a DISTINCT id space); with .hash it team-H-flood-resolves.
+                                    // Without -t a teammate is NOT reachable (global/home plane → no_route).
+    public init(target: DMTarget, body: String, requestAck: Bool = false, encrypt: Bool = false,
+                teamPlane: Bool = false) {
         self.target = target; self.body = body; self.requestAck = requestAck; self.encrypt = encrypt
+        self.teamPlane = teamPlane
     }
 }
 
@@ -60,7 +66,15 @@ public enum Command: Hashable, Sendable {
     case markRead(kind: InboxKind, seq: UInt32)
     // E2E peer-key provisioning (2026-06-16 contract). The app does NO crypto — these just hand the node bytes.
     case peerKey(pubkeyHex: String)              // install a scanned card's pubkey (PINNED) → "peerkey <hex64>"
-    case reqPubkey(KeyHash)                       // user-triggered on-air key request → "reqpubkey <hex8>"
+    case reqPubkey(KeyHash, team: Bool)           // on-air key request → "reqpubkey 0x<hex8> [-t]" (-t = team-scoped, D30)
+    case reqPubkeyTeam(localID: UInt8)            // "reqpubkey <id>" — a BARE decimal is implicitly TEAM-scoped (D30):
+                                                  // the teammate-bootstrap (mutual handshake → peer_key_cached{hash,name})
+    // Mobile roam / status (D30 / S3) — the roam screen's verbs.
+    case mobileStatus                             // "mobile status"  → {"ev":"mobile_status",…}
+    case mobileGateways                           // "mobile gateways" → mobile_gw* / mobile_net* / mobile_gw_end
+    case mobileRegister                           // "mobile register" — (re-)register on the current PHY
+    case mobileRegisterScan                       // "mobile register scan" — cycle the learned networks
+    case mobileRegisterTarget(freqKHz: Int, sf: Int, bwHz: Int)   // target a `mobile_net` row (integer wire units → MHz/kHz tokens)
     // Leaf provisioning (R6 / D26) — key=value wire (2026-07-03, mirrors gateway; order-free). live, no reboot. freq = MHz (float); bw = kHz (FRACTIONAL — 62.5/41.67/31.25); dutyPercent = % (FRACTIONAL — 0.1 = the tight EU sub-band); layer=1..255 network id (wire leaf nibble = layer & 0x0F).
     case join(freqMHz: Double, bwKHz: Double, ctrlSF: Int, layer: Int)
     case createLeaf(freqMHz: Double, bwKHz: Double, ctrlSF: Int, layer: Int, sfList: String, dutyPercent: Double, name: String)
@@ -71,22 +85,23 @@ public enum Command: Hashable, Sendable {
     public var line: String {
         switch self {
         case .sendDM(let dm):
-            // §2 unified send (firmware 2026-06-21, D24): `send <id|hash> "<body>" [-a] [-e]`. The node
-            // AUTO-detects id (≤254 decimal) vs hash (8-hex). -a = E2E-ack; -e = encrypt (HASH-only — the
-            // node errors on -e for an id target). Body is QUOTED + sanitized (see wireBody).
+            // Unified send (D24) + plane split (D30): `send <id|0xhash> "<body>" [-a] [-e] [-t]`.
+            // ⚠ 2026-07-13: a hash MUST be 0x-prefixed (bare decimal = always an id; the 8-hex autodetect is
+            // GONE). -a = E2E-ack; -e = encrypt (HASH-only); -t = the TEAM plane (id ⇒ team_local_id).
             let addr: String, isHash: Bool
             switch dm.target {
-            case .id(let i):    addr = String(i); isHash = false
-            case .hash(let h):  addr = h.hex8;    isHash = true
+            case .id(let i):    addr = String(i);        isHash = false
+            case .hash(let h):  addr = "0x" + h.hex8;    isHash = true
             }
             var s = "send \(addr) \"\(Self.wireBody(dm.body))\""
             if dm.requestAck      { s += " -a" }
             if dm.encrypt, isHash { s += " -e" }   // -e only on a hash target
+            if dm.teamPlane       { s += " -t" }   // the ONLY way onto the team overlay
             return s
         case .sendChannel(let p):
             return "send_channel \(p.channelID) \"\(Self.wireBody(p.body))\""
         case .resolve(let r):
-            return r.hard ? "resolve \(r.hash.hex8) hard" : "resolve \(r.hash.hex8)"
+            return r.hard ? "resolve 0x\(r.hash.hex8) hard" : "resolve 0x\(r.hash.hex8)"   // 0x-prefixed (D30)
         case .whoami:                       return "whoami"
         case .routes:                       return "routes"
         case .status:                       return "status"
@@ -94,12 +109,20 @@ public enum Command: Hashable, Sendable {
         case .duty:                         return "duty"
         case .limits:                       return "limits"
         case .configSet(let k, let v):      return "cfg set \(k) \(v)"
-        case .lookup(let h):                return "lookup \(h.hex8)"
+        case .lookup(let h):                return "lookup 0x\(h.hex8)"
         case .hashOf(let i):                return "hashof \(i)"
         case .pullInbox(let dm, let chan):  return "pull_inbox \(dm) \(chan)"
         case .markRead(let kind, let seq):  return "mark_read \(kind.commandToken) \(seq)"
         case .peerKey(let hex):             return "peerkey \(hex)"
-        case .reqPubkey(let h):             return "reqpubkey \(h.hex8)"
+        case .reqPubkey(let h, let team):   return "reqpubkey 0x\(h.hex8)\(team ? " -t" : "")"
+        case .reqPubkeyTeam(let id):        return "reqpubkey \(id)"
+        case .mobileStatus:                 return "mobile status"
+        case .mobileGateways:               return "mobile gateways"
+        case .mobileRegister:               return "mobile register"
+        case .mobileRegisterScan:           return "mobile register scan"
+        case .mobileRegisterTarget(let khz, let sf, let bwHz):
+            // wire args: freq in MHz (float token), bw in kHz (may be fractional — 62500 Hz → "62.5")
+            return "mobile register freq=\(Self.freqToken(Double(khz) / 1000)) sf=\(sf) bw=\(Self.freqToken(Double(bwHz) / 1000))"
         case .join(let f, let bw, let sf, let lyr):
             return "join layer=\(lyr) freq=\(Self.freqToken(f)) bw=\(Self.freqToken(bw)) sf=\(sf)"      // key=value; bw compact (62.5 / 125), wire leaf nibble = layer & 0x0F
         case .createLeaf(let f, let bw, let sf, let lyr, let sfList, let duty, let name):

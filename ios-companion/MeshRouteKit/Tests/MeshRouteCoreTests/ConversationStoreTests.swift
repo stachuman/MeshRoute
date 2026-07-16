@@ -38,9 +38,22 @@ final class ConversationStoreTests: XCTestCase {
 
     func testChannelIngest() {
         var store = ConversationStore()
-        store.ingest(.channelReceived(origin: 4, channelID: 3, channelMsgID: 0x0400_0001, seq: nil, layerID: nil, body: "gm"), now: now)
+        store.ingest(.channelReceived(origin: 4, channelID: 3, channelMsgID: 0x0400_0001, seq: nil, layerID: nil, teamID: nil, body: "gm"), now: now)
         XCTAssertEqual(store.messages(in: .channel(3)).count, 1)
         XCTAssertEqual(store.messages(in: .channel(3)).first?.origin, 4)
+    }
+
+    func testTeamChannelThreadsApartFromLeafChannel() {   // D30: same channel number, SEPARATE conversations
+        var store = ConversationStore()
+        store.ingest(.channelReceived(origin: 4, channelID: 3, channelMsgID: 0x0400_0001, seq: nil, layerID: nil, teamID: nil, body: "gm leaf"), now: now)
+        store.ingest(.channelReceived(origin: 5, channelID: 3, channelMsgID: 0x0500_0001, seq: nil, layerID: nil, teamID: "cccc0001", body: "gm team"), now: now)
+        XCTAssertEqual(store.messages(in: .channel(3)).map(\.body), ["gm leaf"])
+        XCTAssertEqual(store.messages(in: .teamChannel(team: "cccc0001", channel: 3)).map(\.body), ["gm team"])
+        // the durable pull path threads identically (a team inbox record → the team thread)
+        store.ingestInbox(InboxEntry(seq: 9, kind: .channel, origin: 5, channelID: 3, ctr: 2,
+                                     channelMsgID: 0x0500_0002, teamID: "cccc0001", rxTimeMs: 1000, body: "pulled team"), now: now)
+        XCTAssertEqual(store.messages(in: .teamChannel(team: "cccc0001", channel: 3)).map(\.body), ["gm team", "pulled team"])
+        XCTAssertEqual(store.messages(in: .channel(3)).count, 1)   // the leaf thread is untouched
     }
 
     func testRekeyDMFromIDToHash() {

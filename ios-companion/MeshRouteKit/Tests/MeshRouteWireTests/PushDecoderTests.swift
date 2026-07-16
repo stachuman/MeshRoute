@@ -66,13 +66,13 @@ final class PushDecoderTests: XCTestCase {
 
     func testChannelRecv() {
         // without channel_msg_id/seq (pre-companion firmware) → both nil, still decodes
-        guard case .channelReceived(let origin, let ch, let mid, let seq, _, let body)? =
+        guard case .channelReceived(let origin, let ch, let mid, let seq, _, _, let body)? =
                 PushDecoder.decode(line: #"{"ev":"channel_recv","origin":4,"channel_id":3,"body":"gm"}"#) else {
             return XCTFail("not channel_recv")
         }
         XCTAssertEqual(origin, 4); XCTAssertEqual(ch, 3); XCTAssertNil(mid); XCTAssertNil(seq); XCTAssertEqual(body, "gm")
         // with channel_msg_id + seq + layer_id (companion firmware) → full identity + live high-water + layer
-        guard case .channelReceived(_, _, let mid2, let seq2, let layer2, _)? =
+        guard case .channelReceived(_, _, let mid2, let seq2, let layer2, _, _)? =
                 PushDecoder.decode(line: #"{"ev":"channel_recv","origin":4,"layer_id":9,"channel_id":3,"channel_msg_id":68298753,"seq":7,"body":"gm"}"#) else {
             return XCTFail("not channel_recv")
         }
@@ -135,10 +135,71 @@ final class PushDecoderTests: XCTestCase {
         XCTAssertEqual(fr, "no_cts")
     }
 
+    func testMobileTeamEvents() {     // D30 / S2+S3+S4+S6 — pinned to console_json.cpp's writers
+        // mobile_reg: registered (roam detail present) vs home-loss (home_layer/epoch omitted)
+        guard case .mobileReg(let home, let local, let layer, let epoch, let reg)? = PushDecoder.decode(
+            line: #"{"ev":"mobile_reg","home":222,"local":17,"home_layer":4,"epoch":6,"registered":true}"#) else {
+            return XCTFail("not mobile_reg")
+        }
+        XCTAssertEqual(home, 222); XCTAssertEqual(local, 17); XCTAssertEqual(layer, 4)
+        XCTAssertEqual(epoch, 6); XCTAssertTrue(reg)
+        guard case .mobileReg(let h0, _, let l0, _, let r0)? = PushDecoder.decode(
+            line: #"{"ev":"mobile_reg","home":0,"local":0,"registered":false}"#) else { return XCTFail() }
+        XCTAssertEqual(h0, 0); XCTAssertNil(l0); XCTAssertFalse(r0)     // "searching for home…"
+        // team_reg — the team id is a HEX STRING like `key`
+        guard case .teamReg(let team, let tl)? = PushDecoder.decode(
+            line: #"{"ev":"team_reg","team":"cccc0001","local":9}"#) else { return XCTFail("not team_reg") }
+        XCTAssertEqual(team, "cccc0001"); XCTAssertEqual(tl, 9)
+        // mobile_status (integer kHz/Hz; home_layer present only when registered)
+        guard case .mobileStatus(let s)? = PushDecoder.decode(
+            line: #"{"ev":"mobile_status","mobile":true,"registered":true,"home":222,"local":17,"epoch":6,"home_layer":4,"autoregister":true,"layer":4,"freq_khz":869525,"sf":9,"bw_hz":125000,"nets":2}"#) else {
+            return XCTFail("not mobile_status")
+        }
+        XCTAssertEqual(s.home, 222); XCTAssertEqual(s.freqKHz, 869525); XCTAssertEqual(s.nets, 2); XCTAssertEqual(s.homeLayer, 4)
+        // the gateways stream (mobile_gw* → mobile_net* → mobile_gw_end)
+        guard case .mobileGateway(let gw, let leaf)? = PushDecoder.decode(line: #"{"ev":"mobile_gw","gw":3,"leaf":4}"#) else { return XCTFail() }
+        XCTAssertEqual(gw, 3); XCTAssertEqual(leaf, 4)
+        guard case .mobileNet(let ly, let n, let f, let sf, let bw)? = PushDecoder.decode(
+            line: #"{"ev":"mobile_net","layer":7,"name":"north field","freq_khz":869525,"sf":9,"bw_hz":125000}"#) else { return XCTFail() }
+        XCTAssertEqual(ly, 7); XCTAssertEqual(n, "north field"); XCTAssertEqual(f, 869525); XCTAssertEqual(sf, 9); XCTAssertEqual(bw, 125000)
+        guard case .mobileGatewaysEnd(let gws, let nets)? = PushDecoder.decode(line: #"{"ev":"mobile_gw_end","gws":1,"nets":2}"#) else { return XCTFail() }
+        XCTAssertEqual(gws, 1); XCTAssertEqual(nets, 2)
+        guard case .mobileError(let reason)? = PushDecoder.decode(line: #"{"ev":"mobile_err","reason":"not_mobile"}"#) else { return XCTFail() }
+        XCTAssertEqual(reason, "not_mobile")
+        // a team-scoped channel push carries team_id as a hex string; a leaf push omits it → nil
+        guard case .channelReceived(_, _, _, _, _, let team1, _)? = PushDecoder.decode(
+            line: #"{"ev":"channel_recv","origin":4,"layer_id":9,"channel_id":3,"channel_msg_id":68298753,"seq":7,"team_id":"cccc0001","body":"gm team"}"#) else { return XCTFail() }
+        XCTAssertEqual(team1, "cccc0001")
+        // peer names (S6): on peer_key_cached + the nameof answer (name omitted ⇒ nil)
+        guard case .peerKeyCached(let pk, _, let pn)? = PushDecoder.decode(
+            line: #"{"ev":"peer_key_cached","hash":3735928559,"pinned":false,"name":"Alice's tracker"}"#) else { return XCTFail() }
+        XCTAssertEqual(pk, KeyHash(0xDEAD_BEEF)); XCTAssertEqual(pn, "Alice's tracker")
+        guard case .peerName(let ph, let n2)? = PushDecoder.decode(
+            line: #"{"ev":"peer_name","hash":3735928559,"name":"Alice's tracker"}"#) else { return XCTFail() }
+        XCTAssertEqual(ph, KeyHash(0xDEAD_BEEF)); XCTAssertEqual(n2, "Alice's tracker")
+        guard case .peerName(_, let unknown)? = PushDecoder.decode(line: #"{"ev":"peer_name","hash":3735928559}"#) else { return XCTFail() }
+        XCTAssertNil(unknown)
+    }
+
+    func testReadyMobileTeamFields() {     // D30 / S1 — omit-when-inactive
+        guard case .ready(let r)? = PushDecoder.decode(
+            line: #"{"ev":"ready","id":17,"key":"8a3f1c02","leaf_id":0,"mode":"mobile","gateway":false,"routing_sf":9,"mobile":true,"mobile_registered":true,"mobile_home":222,"mobile_local":17,"mobile_home_layer":4,"hosting":2,"team":"cccc0001","team_local":9}"#) else {
+            return XCTFail("not ready")
+        }
+        XCTAssertEqual(r.mobile, true); XCTAssertEqual(r.mobileRegistered, true)
+        XCTAssertEqual(r.mobileHome, 222); XCTAssertEqual(r.mobileLocal, 17); XCTAssertEqual(r.mobileHomeLayer, 4)
+        XCTAssertEqual(r.hosting, 2); XCTAssertEqual(r.team, "cccc0001"); XCTAssertEqual(r.teamLocal, 9)
+        // a static, teamless node omits the whole block → all nil (byte-identical JSON before D30)
+        guard case .ready(let s)? = PushDecoder.decode(
+            line: #"{"ev":"ready","id":1,"key":"8a3f1c02","leaf_id":0,"mode":"node","gateway":false,"routing_sf":7}"#) else { return XCTFail() }
+        XCTAssertNil(s.mobile); XCTAssertNil(s.team); XCTAssertNil(s.teamLocal); XCTAssertNil(s.hosting)
+    }
+
     func testPeerKeyProvisioningEvents() {     // E2E peer-key provisioning (2026-06-16)
         XCTAssertEqual(Command.peerKey(pubkeyHex: String(repeating: "ab", count: 32)).line,
                        "peerkey " + String(repeating: "ab", count: 32))
-        XCTAssertEqual(Command.reqPubkey(KeyHash(0xff60_9d5c)).line, "reqpubkey ff609d5c")
+        XCTAssertEqual(Command.reqPubkey(KeyHash(0xff60_9d5c), team: false).line, "reqpubkey 0xff609d5c")
+        XCTAssertEqual(Command.reqPubkey(KeyHash(0xff60_9d5c), team: true).line, "reqpubkey 0xff609d5c -t")
         guard case .peerKeySet(let h, let pinned)? =
                 PushDecoder.decode(line: #"{"ev":"peerkey_set","hash":3735928559,"pinned":true}"#) else {
             return XCTFail("not peerkey_set")
@@ -149,7 +210,7 @@ final class PushDecoderTests: XCTestCase {
             return XCTFail("not peerkey_err")
         }
         XCTAssertEqual(reason, "hash_mismatch")
-        guard case .peerKeyCached(let hc, _)? =
+        guard case .peerKeyCached(let hc, _, _)? =
                 PushDecoder.decode(line: #"{"ev":"peer_key_cached","hash":3735928559,"pinned":false}"#) else {
             return XCTFail("not peer_key_cached")
         }

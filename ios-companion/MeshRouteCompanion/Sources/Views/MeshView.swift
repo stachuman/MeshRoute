@@ -12,6 +12,7 @@ struct MeshView: View {
     @Query(sort: \NodeEntity.lastSeen, order: .reverse) private var nodes: [NodeEntity]
     @State private var filter: MeshFilter = .all
     @State private var search = ""
+    @State private var showAddTeammate = false
 
     enum MeshFilter: String, CaseIterable, Identifiable {
         case all = "All", contacts = "Contacts", reachable = "Reachable"
@@ -40,7 +41,15 @@ struct MeshView: View {
             .navigationTitle("Mesh")
             .navigationDestination(for: UInt32.self) { NodeDetailView(hash32: $0) }
             .searchable(text: $search, prompt: "Name or hash")
-            .toolbar { ToolbarItem(placement: .topBarLeading) { ConnectionPill() } }
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) { ConnectionPill() }
+                if model.teamID != nil {          // D30: teammate bootstrap (bare-id team-scoped reqpubkey)
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { showAddTeammate = true } label: { Image(systemName: "person.3.sequence") }
+                    }
+                }
+            }
+            .sheet(isPresented: $showAddTeammate) { AddTeammateSheet() }
         }
     }
 
@@ -79,6 +88,7 @@ struct MeshNodeRow: View {
         .padding(.vertical, 2)
     }
     private var roleIcon: String {
+        if node.teamID != nil { return "person.3.fill" }   // a teammate (D30)
         switch node.role {
         case "gateway": return "arrow.triangle.branch"
         case "mobile":  return "figure.walk"
@@ -87,7 +97,8 @@ struct MeshNodeRow: View {
     }
     private var subtitle: String {
         var parts = ["0x" + node.keyHash.hex8]
-        if let id = node.lastKnownID { parts.append("id \(id)") }
+        if let tl = node.teamLocalID { parts.append("team id \(tl)") }
+        else if let id = node.lastKnownID { parts.append("id \(id)") }
         if let leaf = node.leafName { parts.append(leaf) }
         if let h = node.hops { parts.append("\(h) hop\(h == 1 ? "" : "s")") }
         parts.append(node.lastSeen.shortRelative)
@@ -123,6 +134,11 @@ struct NodeDetailView: View {
                     Button { model.resolve(node.keyHash) } label: {
                         Label("Resolve id (on-air)", systemImage: "location.magnifyingglass")
                     }
+                    if model.teamID != nil {   // D30: the team-scoped handshake (provisions E2E + names, both ways)
+                        Button { model.requestPubkey(node.keyHash, team: true) } label: {
+                            Label("Request key (team)", systemImage: "person.3.sequence")
+                        }
+                    }
                 }
                 Section("Identity") {
                     LabeledContent("Name", value: node.displayName())
@@ -131,10 +147,14 @@ struct NodeDetailView: View {
                     LabeledContent("Role", value: node.role)
                     LabeledContent("Key", value: node.verified ? "verified (scanned)" : "unverified (TOFU)")
                 }
-                if node.leafName != nil || node.layer != nil {
+                if node.leafName != nil || node.layer != nil || node.teamID != nil {
                     Section("Membership") {
                         if let leaf = node.leafName { LabeledContent("Leaf", value: leaf) }
                         if let lyr = node.layer { LabeledContent("Layer", value: "\(lyr)") }
+                        if let t = node.teamID {   // D30: a teammate — DMs ride the team plane (-t)
+                            LabeledContent("Team", value: t)
+                            if let tl = node.teamLocalID { LabeledContent("Team id", value: "\(tl)") }
+                        }
                     }
                 }
                 Section("Seen") {

@@ -14,6 +14,7 @@
 		4213601359384378EBE25DCE /* MeshView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D3173A4991A1218AC36FFB7 /* MeshView.swift */; };
 		45442516FE409FF6E12263F9 /* MeshRouteCompanionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33249ED1CF44D17B65F03D14 /* MeshRouteCompanionApp.swift */; };
 		48C496667DD1226C3A10B762 /* AddContactView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E324A919DFB410717DD80F85 /* AddContactView.swift */; };
+		55BAC7C48B98337F961C29B4 /* MobileViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = ACA27017381AA74F317CAB3E /* MobileViews.swift */; };
 		66F3F975BC52C37A81F2E738 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B4730354D9A65EF3E727116 /* Components.swift */; };
 		92C5427E2985D7CD43EA5C5F /* LocationViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = EF0F7937DD477821D501E831 /* LocationViews.swift */; };
 		9BF85C796DE7014D69A95C5E /* MeshRouteWire in Frameworks */ = {isa = PBXBuildFile; productRef = CEE4E3611DAC80F444AD31E9 /* MeshRouteWire */; };
@@ -38,8 +39,9 @@
 		67E8C842CD555400A322FFFA /* NodeInfoViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeInfoViews.swift; sourceTree = "<group>"; };
 		69E57ACBFD76D391F3B1D0A0 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
 		76FE05DE01E564E0101E2F60 /* BLENodeLink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BLENodeLink.swift; sourceTree = "<group>"; };
+		ACA27017381AA74F317CAB3E /* MobileViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MobileViews.swift; sourceTree = "<group>"; };
 		B5C578558F1BC38A4B6A34A4 /* ThreadsListView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ThreadsListView.swift; sourceTree = "<group>"; };
-		B8225CE27BA54D448E76BED2 /* MeshRouteCompanion.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MeshRouteCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		B8225CE27BA54D448E76BED2 /* MeshRouteCompanion.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MeshRouteCompanion.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		CE9556D47DD04EC1DB189B90 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		D4B3F52A980322A539C9B67E /* MeshRouteKit */ = {isa = PBXFileReference; lastKnownFileType = folder; name = MeshRouteKit; path = ../MeshRouteKit; sourceTree = SOURCE_ROOT; };
 		D54D0288A1A610CC38F2276D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
@@ -70,6 +72,7 @@
 				138E35B5551DC91916B70B8C /* ContactsView.swift */,
 				EF0F7937DD477821D501E831 /* LocationViews.swift */,
 				2D3173A4991A1218AC36FFB7 /* MeshView.swift */,
+				ACA27017381AA74F317CAB3E /* MobileViews.swift */,
 				67E8C842CD555400A322FFFA /* NodeInfoViews.swift */,
 				4AD285ABA097FFD10C738217 /* NodeView.swift */,
 				3053E61FBD049383E94E111C /* QRViews.swift */,
@@ -177,6 +180,7 @@
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
 					1EC0E0A42B8AB3C80FA66DEB = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
@@ -228,6 +232,7 @@
 				92C5427E2985D7CD43EA5C5F /* LocationViews.swift in Sources */,
 				45442516FE409FF6E12263F9 /* MeshRouteCompanionApp.swift in Sources */,
 				4213601359384378EBE25DCE /* MeshView.swift in Sources */,
+				55BAC7C48B98337F961C29B4 /* MobileViews.swift in Sources */,
 				E411878F35A865288B62B6AA /* NodeInfoViews.swift in Sources */,
 				9C6FEBD4AE1DD462A347C81E /* NodeView.swift in Sources */,
 				03AD8931137D46286A121223 /* QRViews.swift in Sources */,
@@ -247,7 +252,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = AD2S36C934;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/App/Info.plist;
@@ -271,7 +276,7 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = AD2S36C934;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Sources/App/Info.plist;

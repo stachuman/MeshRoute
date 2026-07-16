@@ -54,6 +54,21 @@ final class InboxWireTests: XCTestCase {
         XCTAssertFalse(n.isReceipt)
     }
 
+    func testInboxEntryTeamChannel() {
+        // D30/S5: a durable team-scoped channel record carries team_id (hex string); a leaf record omits it → nil
+        guard case .inboxEntry(let e)? = PushDecoder.decode(
+            line: #"{"ev":"inbox_channel","seq":8,"origin":4,"layer_id":7,"channel_id":3,"channel_msg_id":68298754,"team_id":"cccc0001","rx_ms":123456,"body":"gm team"}"#) else {
+            return XCTFail("not team inbox_channel")
+        }
+        XCTAssertEqual(e.teamID, "cccc0001")
+        XCTAssertEqual(e.channelMsgID, 68298754)     // identity keys unchanged
+        guard case .inboxEntry(let leaf)? = PushDecoder.decode(
+            line: #"{"ev":"inbox_channel","seq":9,"origin":4,"layer_id":7,"channel_id":3,"channel_msg_id":68298755,"rx_ms":123456,"body":"gm leaf"}"#) else {
+            return XCTFail("not inbox_channel")
+        }
+        XCTAssertNil(leaf.teamID)
+    }
+
     func testInboxEntryChannel() {
         // channel identity is the full 32-bit channel_msg_id (no ctr field); 68298753 = 0x04020301.
         guard case .inboxEntry(let e)? = PushDecoder.decode(

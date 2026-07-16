@@ -88,8 +88,7 @@ struct ThreadRow: View {
     let summary: ThreadSummary
     var body: some View {
         HStack(spacing: 12) {
-            Image(systemName: isChannel ? "number.circle.fill" : "person.crop.circle.fill")
-                .font(.title2).foregroundStyle(isChannel ? Color.orange : Color.accentColor)
+            Image(systemName: rowIcon).font(.title2).foregroundStyle(rowColor)
             VStack(alignment: .leading, spacing: 2) {
                 Text(summary.title).font(.headline).fontWeight(summary.unread > 0 ? .bold : .regular)
                 Text((summary.outgoing ? "You: " : "") + summary.lastBody)
@@ -110,7 +109,20 @@ struct ThreadRow: View {
         }
         .padding(.vertical, 2)
     }
-    private var isChannel: Bool { if case .channel = summary.key { return true }; return false }
+    private var rowIcon: String {
+        switch summary.key {
+        case .dm:          return "person.crop.circle.fill"
+        case .channel:     return "number.circle.fill"
+        case .teamChannel: return "person.3.fill"          // D30: team group chat
+        }
+    }
+    private var rowColor: Color {
+        switch summary.key {
+        case .dm:          return Color.accentColor
+        case .channel:     return .orange
+        case .teamChannel: return .teal
+        }
+    }
 }
 
 private struct NewChannelSheet: View {
