@@ -154,6 +154,7 @@ inline constexpr uint8_t  heard_set_census_min_headroom = 4;                    
 inline constexpr uint8_t  peer_suspect_bcn_max         = 8;     // §P4: max suspect ids advertised per BCN (dv:1376; also clamped by the 4-bit TLV len <=15)
 inline constexpr uint8_t  peer_liveness_state_bcn_max  = 7;     // §P4: type-2 LIVENESS_STATE cap — 2B/entry must fit the 4-bit TLV len (2*7=14<=15). The Lua wraps at >=8 dead peers (shared bug, dv:1376); we clamp.
 inline constexpr uint8_t  cap_peer_liveness            = 64;    // bounded per-LayerRuntime liveness table (direct-neighbour set); LRU-evict oldest dest_seen
+inline constexpr uint8_t  cap_team_liveness           = 16;    // §team-multihop 2c: the TEAM-plane liveness table (team_local_id-keyed, self-slotted mirror of _peer_liveness); right-sized to team scale, NEVER shares the static plane
 
 // ---- Duty-cycle budget tiers -----------------------------------------------
 inline constexpr uint8_t  budget_strained_pct          = 50;

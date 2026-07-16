@@ -1,4 +1,48 @@
-# MeshRoute iOS Companion — Session Handover (2026-06-12)
+# MeshRoute iOS Companion — Session Handover (2026-06-12; ★ firmware-delta addendum 2026-07-16)
+
+## ★ 2026-07-16 — firmware deltas the app MUST adopt + what's coming (read this first)
+
+The firmware grew a **mobile-node + team plane** (roaming endpoints with a stable hash + a home
+node; `team_id`-scoped overlays with member-to-member routing and group chat). Authoritative
+app-facing doc: `INBOX_SYNC_CONTRACT.md` §*Mobile node + teams* (updated through 2026-07-16).
+What it means for the app, in three buckets:
+
+### 1. Breaking command changes — adopt in `Command.swift` NOW (already live in firmware)
+- **★ HARD PLANE SPLIT:** `send`/`reqpubkey` gained a **`-t` tail flag** = TEAM plane. A teammate is
+  reachable **only** with `-t` (`send <team_local_id> "…" -t` or `send <0xhash> "…" -t`); a plain
+  send is the global/home plane and will `no_route` on a teammate. A home-attached mobile that is
+  NOT your teammate stays plain `send <0xhash>` — no app change for that one case. `Command.send`
+  needs a `teamPlane: Bool`; a team contact is a *distinct id space* (`{team_id, team_local_id}` +
+  hash) — don't mix with static node ids in one contact model.
+- **Hash args must be `0x`-prefixed** on `send`/`send_layer`/`resolve`/`reqpubkey`/`lookup` (the
+  bare-8-hex autodetect is GONE → `bad_args`). Prefix every hash the app emits.
+- `send_channel` on a team mobile auto-broadcasts to the team (no flag; it *rejects* `-t`).
+- `rcmd` is now **authenticated** (sealed except `status`/`routes`) — treat as fire-and-observe.
+- New `send_failed.reason` values to decode: `no_cts · no_ack · mobile_no_home` (+ the anti-spam
+  `send_blocked`/`channel_sent`/`limits` surface — see the contract §Anti-spam v2).
+
+### 2. Already-live JSON the app can use today
+- `ready` carries **`name`** (node human name — use for the QR `n=`) + `pubkey` + leaf membership
+  (`lineage`/`epoch`/`leaf`/`layer`/`synced`) + `duty_pct`/`duty_avail_ms`.
+- `cfg set name "<text>"` = node identity name (distinct from `cfg set leaf_name`). Mobile/team
+  console verbs (`cfg set mobile/team_id/mobile_autoregister`, `mobile register/gateways/query/
+  status`, `team new/<id>/0`) are live — but their *output* is still human text (bucket 3).
+
+### 3. Coming next — SPEC'D for the firmware coder, build the app side against it
+**Spec: `docs/superpowers/specs/2026-07-16-companion-mobile-team-json-surface.md`** (supersedes the
+contract's PROPOSED sketches; team ids ride as quoted hex strings like `key`, new `ready` fields are
+omit-when-inactive). Slices: **S1** `ready`+`cfg` mobile/team fields (incl. `team_local` — our own
+overlay id) · **S2** `mobile_reg`/`team_reg` pushes (registration/roam/home-loss — the mobile
+connectivity chip) · **S3** `mobile status`/`mobile gateways` as JSON (the roam UI data;
+`mobile_gw`/`mobile_net` streamed + `mobile_gw_end`) · **S4/S5** `team_id` tag on `channel_recv` +
+`inbox_channel` (thread team chat separately; identity keys unchanged) · **S6** peer names as JSON
+(`peer_key_cached` gains `name`; `nameof` → `{"ev":"peer_name",…}`) → contacts auto-label, QR `n`
+stays the manual/override path. App prep that needs no firmware: model the three-plane contact
+space, decode-and-ignore unknown fields (all additions are additive/omit-based), and plan the team
+chat view keyed by `team_id`.
+**Context:** a screenless SenseCAP T1000-E mobile-only tracker variant is feasibility-assessed
+(PARKED) — if built, the companion is its ONLY management UI, so the mobile screens above should be
+designed phone-first, not as a debug panel.
 
 A native iOS app that is the human face of a MeshRoute LoRa node: connect over BLE, read/send DMs +
 channel posts, view node status, (later) OTA. The node is name-agnostic (short ids + `key_hash32`), so

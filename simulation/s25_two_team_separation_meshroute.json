@@ -1,0 +1,349 @@
+{
+ "_name": "s25_two_team_separation",
+ "_desc": "OTHER-TEAM separation PROOF (the cross-team gate, exercised \u2014 not just code-read). TWO co-located teams on shared RF: Team-X {X1,X2,X3} team_id 0x11111111 in a chain X1-X2-X3 (no X1-X3), and Team-Y {Y1,Y2} team_id 0x22222222, positioned so Y1/Y2 HEAR the whole Team-X flood. X1 send_hash X3 (a 2-hop teammate) forces a TEAM-scoped H flood (X3 unheard -> no key cache -> the Plane 1 team H-locate). Team-Y receives that flood but MUST DROP it (the f.team_id / h.team_id gate): Y never relays (h_forward) or answers (h_resolved) Team-X's flood, and never id_binds a Team-X key. Proves team<->team separation the way s24 proves static<->team. (The wrong-team F-drop uses the identical handle_f_team gate and is covered by the native unit test; H is the sim-forcible flood.)",
+ "simulation": {
+  "duration_ms": 600000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "beacon_period_ms": 20000,
+  "seed": 25,
+  "node_startup_jitter_ms": 0,
+  "radio": {
+   "sf": 8,
+   "bw": 62.5,
+   "cr": 5,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 0.01
+  }
+ },
+ "commands": [
+  {
+   "_c": "Team-X: X1 -> X3 by hash (2-hop, X3 unheard) -> forces a TEAM-X-scoped H flood heard by co-located Team-Y",
+   "at_ms": 300000,
+   "node": "X1",
+   "command": "send_hash aaaa0003 hop_x"
+  },
+  {
+   "_c": "Team-X: X1 -> X3 by hash (2-hop, X3 unheard) -> forces a TEAM-X-scoped H flood heard by co-located Team-Y",
+   "at_ms": 360000,
+   "node": "X1",
+   "command": "send_hash aaaa0003 hop_x"
+  },
+  {
+   "_c": "Team-X: X1 -> X3 by hash (2-hop, X3 unheard) -> forces a TEAM-X-scoped H flood heard by co-located Team-Y",
+   "at_ms": 420000,
+   "node": "X1",
+   "command": "send_hash aaaa0003 hop_x"
+  }
+ ],
+ "expect": [
+  {
+   "_c": "team-DAD on both teams",
+   "type": "script_emit_contains",
+   "node": "X1",
+   "emit_type": "team_dad_adopted",
+   "value": "id"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "X3",
+   "emit_type": "team_dad_adopted",
+   "value": "id"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "Y1",
+   "emit_type": "team_dad_adopted",
+   "value": "id"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "Y2",
+   "emit_type": "team_dad_adopted",
+   "value": "id"
+  },
+  {
+   "_c": "INTRA-TEAM: X3 receives X1's team DM (the flood + team route works within Team-X)",
+   "type": "script_emit_contains",
+   "node": "X3",
+   "emit_type": "push",
+   "value": "hop_x"
+  },
+  {
+   "_c": "\u2605 CROSS-TEAM SEPARATION: Team-Y RELAYS nothing of Team-X's H flood (h_forward==0) \u2014 Y1 hears X1+X2, Y2 hears X2+X3, both DROP it on the team_id gate",
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "h_forward",
+   "node": "Y1",
+   "count": 0
+  },
+  {
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "h_forward",
+   "node": "Y2",
+   "count": 0
+  },
+  {
+   "_c": "\u2605 CROSS-TEAM SEPARATION: Team-Y ANSWERS nothing of Team-X's flood (h_resolved==0)",
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "h_resolved",
+   "node": "Y1",
+   "count": 0
+  },
+  {
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "h_resolved",
+   "node": "Y2",
+   "count": 0
+  },
+  {
+   "_c": "NON-LEAK: Team-Y never id_binds a Team-X key (X1 key 0xaaaa0001 = 2863267841) into any plane",
+   "type": "script_emit_not_contains",
+   "node": "Y1",
+   "emit_type": "id_bind_set",
+   "value": "2863267841"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "Y2",
+   "emit_type": "id_bind_set",
+   "value": "2863267841"
+  }
+ ],
+ "nodes": [
+  {
+   "name": "X1",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.3,
+   "start_at_ms": 1000,
+   "node_id": 50,
+   "key_hash32": "0xaaaa0001",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "team_id": 286331153,
+    "mobile_autoregister": false,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "X2",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6001,
+   "lon": -122.3,
+   "start_at_ms": 1000,
+   "node_id": 51,
+   "key_hash32": "0xaaaa0002",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "team_id": 286331153,
+    "mobile_autoregister": false,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "X3",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6002,
+   "lon": -122.3,
+   "start_at_ms": 1000,
+   "node_id": 52,
+   "key_hash32": "0xaaaa0003",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "team_id": 286331153,
+    "mobile_autoregister": false,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "Y1",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.60005,
+   "lon": -122.2999,
+   "start_at_ms": 1000,
+   "node_id": 60,
+   "key_hash32": "0xbbbb0001",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "team_id": 572662306,
+    "mobile_autoregister": false,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "Y2",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.60015,
+   "lon": -122.2999,
+   "start_at_ms": 1000,
+   "node_id": 61,
+   "key_hash32": "0xbbbb0002",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "team_id": 572662306,
+    "mobile_autoregister": false,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  }
+ ],
+ "topology": {
+  "links": [
+   {
+    "_c": "Team-X chain X1-X2-X3 (NO X1-X3)",
+    "from": "X1",
+    "to": "X2",
+    "snr": 40.0,
+    "rssi": -80.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "X2",
+    "to": "X1",
+    "snr": 40.0,
+    "rssi": -80.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "X2",
+    "to": "X3",
+    "snr": 40.0,
+    "rssi": -80.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "X3",
+    "to": "X2",
+    "snr": 40.0,
+    "rssi": -80.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "_c": "Team-Y pair",
+    "from": "Y1",
+    "to": "Y2",
+    "snr": 40.0,
+    "rssi": -80.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "Y2",
+    "to": "Y1",
+    "snr": 40.0,
+    "rssi": -80.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "_c": "Y1 overhears the near end of Team-X's flood (X1,X2)",
+    "from": "X1",
+    "to": "Y1",
+    "snr": 40.0,
+    "rssi": -80.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "Y1",
+    "to": "X1",
+    "snr": 40.0,
+    "rssi": -80.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "X2",
+    "to": "Y1",
+    "snr": 40.0,
+    "rssi": -80.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "Y1",
+    "to": "X2",
+    "snr": 40.0,
+    "rssi": -80.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "_c": "Y2 overhears the far end of Team-X's flood (X2,X3)",
+    "from": "X2",
+    "to": "Y2",
+    "snr": 40.0,
+    "rssi": -80.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "Y2",
+    "to": "X2",
+    "snr": 40.0,
+    "rssi": -80.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "X3",
+    "to": "Y2",
+    "snr": 40.0,
+    "rssi": -80.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "Y2",
+    "to": "X3",
+    "snr": 40.0,
+    "rssi": -80.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   }
+  ]
+ }
+}

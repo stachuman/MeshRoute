@@ -331,7 +331,7 @@ void Node::rts_timeout_fire() {
         // don't burn same-hop retries on a confirmed-dead path; cascade to a viable alt NOW (or RREQ on no-alt).
         // Reads the persisted tier (no per-timeout counting — that churned the suite). DRIFT from the spec's literal
         // per-failure/suspect trigger: gated on SILENT (confirmed flaky), not suspect; see the phase report.
-        if (liveness_penalty_q4(_active->_pending_tx->next) >= protocol::peer_silent_penalty_q4) {
+        if (liveness_penalty_q4(_active->_pending_tx->next, _active->_pending_tx->plane == Plane::TEAM) >= protocol::peer_silent_penalty_q4) {   // §2c: a TEAM flight reads TEAM liveness (mirror of ack_timeout_fire; audit-caught missed twin)
             cascade_to_alt("rts_silent_cascade");
             return;
         }
@@ -349,6 +349,10 @@ void Node::rts_timeout_fire() {
         // penalising its real route via liveness_penalty_q4). Mirror the RX-side learn/blind guards.
         if (!(_active->_pending_tx->addr_len == 1 || is_team_peer(_active->_pending_tx->next)))
             record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo);   // §P1: same-hop RTS giveup = liveness evidence
+#if MR_FEAT_TEAM
+        else if (is_team_peer(_active->_pending_tx->next))
+            record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo, /*team_plane=*/true);   // §2c: a team next-hop's giveup accrues TEAM liveness (proactive-demotion evidence)
+#endif
         cascade_to_alt("rts_giveup");                    // same-hop retries exhausted -> walk to an alternate (§P3: + RREQ if it's silent)
     }
 }
@@ -361,7 +365,7 @@ void Node::ack_timeout_fire() {
     if (_active->_pending_tx->retries_left > 0) {
         // §P3 silent-next cascade (mirror of rts_timeout_fire): a missed DATA-ACK on an ALREADY-silent primary
         // cascades immediately rather than re-RTSing the dead path. Persisted-tier read, no per-timeout counting.
-        if (liveness_penalty_q4(_active->_pending_tx->next) >= protocol::peer_silent_penalty_q4) {
+        if (liveness_penalty_q4(_active->_pending_tx->next, _active->_pending_tx->plane == Plane::TEAM) >= protocol::peer_silent_penalty_q4) {   // §2c: a TEAM flight reads TEAM liveness (not static _peer_liveness[team_id])
             cascade_to_alt("data_ack_silent_cascade");
             return;
         }
@@ -376,6 +380,10 @@ void Node::ack_timeout_fire() {
         // §mobile (plane-separation re-audit): a mobile/team LOCAL-id next-hop must not enter the static _peer_liveness plane.
         if (!(_active->_pending_tx->addr_len == 1 || is_team_peer(_active->_pending_tx->next)))
             record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo);   // §P1: same-hop ACK giveup = liveness evidence
+#if MR_FEAT_TEAM
+        else if (is_team_peer(_active->_pending_tx->next))
+            record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo, /*team_plane=*/true);   // §2c: a team next-hop's giveup accrues TEAM liveness
+#endif
         cascade_to_alt("data_ack_giveup");               // same-hop retries exhausted -> walk to an alternate (§P3: + RREQ if it's silent)
     }
 }

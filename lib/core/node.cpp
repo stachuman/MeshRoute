@@ -298,7 +298,7 @@ bool Node::on_init(const NodeConfig& cfg) {
         maybe_emit_gateway_beacon();
     } else {
         const int first_period = static_cast<int>(in_discovery() ? protocol::discovery_beacon_period_ms
-                                                                 : _cfg.beacon_period_ms);
+                                                                 : steady_beacon_period_ms());
         (void)_hal.after(static_cast<uint32_t>(_hal.rand_range(0, first_period)), kBeaconTimerId);
     }
     if (_cfg.is_mobile && (_cfg.mobile_autoregister || _cfg.team_id != 0)) (void)_hal.after(0, kMobileDiscoverTimerId);   // §mobile 2b/console: kick the FSM (autoregister ON; OFF -> the app arms it via `mobile register`). §6.4: a TEAM member ALSO kicks it regardless of the toggle so team-DAD runs (the FSM's discover-start fires team_dad_fire; a persisted _team_local_id makes it a no-op).
@@ -748,7 +748,7 @@ void Node::on_timer(uint32_t timer_id) {
         // Period reflects the (possibly just-exited) discovery state. Integer
         // floor division; +1 makes hi inclusive (rand_range is [lo,hi)).
         const uint32_t P  = in_discovery() ? protocol::discovery_beacon_period_ms
-                                           : _cfg.beacon_period_ms;
+                                           : steady_beacon_period_ms();
         const int      lo = static_cast<int>(P * 4 / 5);
         const int      hi = static_cast<int>(P * 6 / 5);
         const uint32_t nominal = static_cast<uint32_t>(_hal.rand_range(lo, hi + 1));

@@ -83,11 +83,20 @@ int16_t Node::budget_penalty_q4(const RtCandidate& c, const RtCandidate* cands, 
 }
 
 // §P2: the liveness tier penalty for `next_hop` (const, non-mutating — checks the untils against now w/o lazy-clearing).
-int16_t Node::liveness_penalty_q4(uint8_t next_hop) const {
+int16_t Node::liveness_penalty_q4(uint8_t next_hop, bool team_plane) const {
     if (next_hop == 0 || next_hop == _node_id) return 0;
+#if MR_FEAT_TEAM
+    if (team_plane && next_hop == team_local_id()) return 0;   // §2c: never penalize our OWN team id (dual member: team_local_id != _node_id)
+#endif
     const auto& L = *_active;
     const PeerLiveness* s = nullptr;
-    for (uint8_t i = 0; i < L._peer_liveness_n; ++i) if (L._peer_liveness[i].node_id == next_hop) { s = &L._peer_liveness[i]; break; }
+#if MR_FEAT_TEAM
+    if (team_plane) { for (uint8_t i = 0; i < L._team_liveness_n; ++i) if (L._team_liveness[i].node_id == next_hop) { s = &L._team_liveness[i]; break; } }
+    else
+#else
+    (void)team_plane;
+#endif
+    { for (uint8_t i = 0; i < L._peer_liveness_n; ++i) if (L._peer_liveness[i].node_id == next_hop) { s = &L._peer_liveness[i]; break; } }
     if (!s) return 0;
     const uint64_t now = _hal.now();
     if (s->dead_until_ms    > now) return protocol::peer_dead_penalty_q4;
@@ -140,13 +149,16 @@ uint16_t Node::channel_cap_origin() const {
     return static_cast<uint16_t>(cap);
 }
 
-int16_t Node::effective_score(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const {
+int16_t Node::effective_score(const RtCandidate& c, const RtCandidate* cands, uint8_t n, bool team_plane) const {
     // §P2: subtract BOTH the R4.2 budget tier AND the liveness tier (suspect/silent/dead) — Lua effective_score@4140.
     // §bidi: ALSO subtract the bidirectionality penalty (one_way next-hop). Rides the SORT only (composes here +
     // through route_strictly_better) — NOT a next_hop_selectable hard gate, so a SOLE one_way route stays pickable.
-    return static_cast<int16_t>(c.score - budget_penalty_q4(c, cands, n)
-                                        - liveness_penalty_q4(c.next_hop)
-                                        - bidi_penalty_q4(c.next_hop));
+    // §2c: on the TEAM plane use the TEAM liveness tier + subtract NEITHER budget_penalty_q4 (_neighbor_budget_tier[id])
+    // NOR bidi_penalty_q4 (_link_bidi[id]) — both are static-node_id-indexed arrays the team plane does not track;
+    // reading them for a team candidate is the §18 read-alias. So a team candidate reads ONLY _team_liveness.
+    return static_cast<int16_t>(c.score - (team_plane ? 0 : budget_penalty_q4(c, cands, n))
+                                        - liveness_penalty_q4(c.next_hop, team_plane)
+                                        - (team_plane ? 0 : bidi_penalty_q4(c.next_hop)));
 }
 
 // §cross-layer: is `dest` a gateway we'd use as a cross-layer egress? — a heard 1-hop schedule (_gw_schedules)
@@ -161,9 +173,9 @@ bool Node::is_gateway_dest(uint8_t dest) const {
 }
 
 bool Node::route_strictly_better(const RtCandidate& a, const RtCandidate& b,
-                                 const RtCandidate* cands, uint8_t n, bool gw_dest) const {
-    const int16_t av = effective_score(a, cands, n);     // R4.2 + §P2: budget + liveness penalty-adjusted
-    const int16_t bv = effective_score(b, cands, n);
+                                 const RtCandidate* cands, uint8_t n, bool gw_dest, bool team_plane) const {
+    const int16_t av = effective_score(a, cands, n, team_plane);     // R4.2 + §P2: budget + liveness penalty-adjusted (§2c team_plane -> team liveness)
+    const int16_t bv = effective_score(b, cands, n, team_plane);
     // §P2 freshness eligibility: a candidate whose next-hop hasn't been heard within next_hop_live_ttl is NON-viable
     // (loses to any fresh candidate). Subsumes the A↔B mutual-refresh trap: an unconditionally-refreshed-but-stale
     // next-hop route can no longer be SELECTED. NB this is the SPEC's chosen layer (gate freshness in the SORT) — a
@@ -174,8 +186,11 @@ bool Node::route_strictly_better(const RtCandidate& a, const RtCandidate& b,
     // freshness — gateways are intentionally quiet on our leaf (time-multiplexed windows), and freshness was never
     // meant to govern cross-layer route selection (it wrongly demoted viable gateway paths → s15/s16 regression).
     // gw_dest short-circuits the is_next_hop_fresh viability check for those routes.
-    const bool a_viable = av >= _routing_snr_floor_q4 && (gw_dest || is_next_hop_fresh(a.next_hop));
-    const bool b_viable = bv >= _routing_snr_floor_q4 && (gw_dest || is_next_hop_fresh(b.next_hop));
+    // §2c: a TEAM candidate SKIPS the is_next_hop_fresh viability gate — the team plane keeps no _dest_seen_ms (freshness
+    // omitted), so reading it for a team_local_id is the §18 read-alias; the cleanly-dead relay is demoted by the team
+    // liveness PENALTY instead (via effective_score above). team_plane => always fresh-viable.
+    const bool a_viable = av >= _routing_snr_floor_q4 && (gw_dest || team_plane || is_next_hop_fresh(a.next_hop));
+    const bool b_viable = bv >= _routing_snr_floor_q4 && (gw_dest || team_plane || is_next_hop_fresh(b.next_hop));
     if (a_viable != b_viable) return a_viable;            // viable beats non-viable (a penalty/staleness CAN flip viability)
     if (a_viable) {                                       // both viable: hops-asc, eff-score-desc
         if (a.hops != b.hops) return a.hops < b.hops;
@@ -191,7 +206,7 @@ bool Node::route_strictly_better(const RtCandidate& a, const RtCandidate& b,
     return false;
 }
 
-void Node::sort_candidates(RtEntry& e) {
+void Node::sort_candidates(RtEntry& e, bool team_plane) {
     // Lua comparator (dv:4248-4252):
     //   less(a,b) = strictly_better(a,b) or (not strictly_better(b,a) and eff_score(a) > eff_score(b))
     // viable_alts is a SET property (order-invariant); snapshot the candidate set so the penalty
@@ -205,9 +220,9 @@ void Node::sort_candidates(RtEntry& e) {
         int j = static_cast<int>(i) - 1;
         while (j >= 0) {
             const RtCandidate& cur = e.candidates[j];
-            const bool key_less = route_strictly_better(key, cur, snap, e.n, gw_dest) ||
-                                  (!route_strictly_better(cur, key, snap, e.n, gw_dest) &&
-                                   effective_score(key, snap, e.n) > effective_score(cur, snap, e.n));
+            const bool key_less = route_strictly_better(key, cur, snap, e.n, gw_dest, team_plane) ||
+                                  (!route_strictly_better(cur, key, snap, e.n, gw_dest, team_plane) &&
+                                   effective_score(key, snap, e.n, team_plane) > effective_score(cur, snap, e.n, team_plane));
             if (!key_less) break;
             e.candidates[j + 1] = e.candidates[j];
             --j;
@@ -247,6 +262,22 @@ int Node::resort_routes_for_neighbor_penalty(uint8_t node_id, [[maybe_unused]] c
     return changed;
 }
 
+#if MR_FEAT_TEAM
+// §2c: re-sort the TEAM routes (_rt_team) whose candidates include `team_local_id` after its liveness tier changed —
+// a self-contained mirror of resort_routes_for_neighbor_penalty over the team table (team_plane sort). Keeps
+// candidates[0] current so the NEXT team flight picks the fresh alt, not the just-demoted primary. Team-plane only;
+// no beacon re-advertise (a team route change re-advertises on the team member's own beacon cadence).
+void Node::team_resort_routes_through(uint8_t team_local_id) {
+    for (uint8_t e = 0; e < _active->_rt_team_count; ++e) {
+        RtEntry& entry = _active->_rt_team[e];
+        if (entry.n < 2) continue;                       // single candidate can't rerank
+        bool affected = false;
+        for (uint8_t i = 0; i < entry.n; ++i) if (entry.candidates[i].next_hop == team_local_id) { affected = true; break; }
+        if (affected) sort_candidates(entry, /*team_plane=*/true);
+    }
+}
+#endif
+
 // Cleanup #B (Lua refresh_route_order dv:4455): re-sort ONE dest's candidates right before a cascade/issue pick, so a
 // tier change since the last sort (a TTL-expiry between the mark-time re-sort and the cascade) is caught. Returns the
 // entry (NEVER null for an existing dest, even <2 candidates — callers walk it; the Lua's <2->nil is its issue_send
@@ -257,7 +288,7 @@ RtEntry* Node::refresh_route_order(uint8_t dst, [[maybe_unused]] const char* rea
     RtEntry* e = rt_find(dst, plane);
     if (e == nullptr || e->n < 2) return e;              // <2 candidates: nothing to re-rank
     const uint8_t old_primary = e->candidates[0].next_hop;
-    sort_candidates(*e);                                 // penalty-aware re-sort (draw-free)
+    sort_candidates(*e, plane == Plane::TEAM);           // penalty-aware re-sort (draw-free). §2c: TEAM -> team liveness in the sort
     const uint8_t new_primary = e->candidates[0].next_hop;
     if (new_primary != old_primary) {
         e->dirty = true;
@@ -323,7 +354,8 @@ void Node::decay_link_bidi(uint8_t next_hop) {
 // (a fact about what the advertiser said, stored on the candidate) OR-ed with the local one_way verdict (recomputed
 // from _link_bidi every call). NEVER a sticky cached bool: a stuck-degraded cache would never clear on recovery and
 // defeat §7. Read by select (Slice 4) + advertise (Slice 5); no caller consumes it in this state-only slice.
-bool Node::candidate_degraded(const RtCandidate& c) const {
+bool Node::candidate_degraded(const RtCandidate& c, bool team_plane) const {
+    if (team_plane) return c.degraded_from_wire;   // §2c: the team plane keeps no _link_bidi -> wire-only (closes the static _link_bidi[team_local_id] read-alias)
     return c.degraded_from_wire
         || _active->_link_bidi[c.next_hop] == static_cast<uint8_t>(LinkBidi::one_way);
 }
@@ -354,10 +386,10 @@ Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand, RtEntry*
     // Match-by-next_hop: refresh in place if cand strictly better.
     for (uint8_t i = 0; i < entry->n; ++i) {
         if (entry->candidates[i].next_hop == cand.next_hop) {
-            if (route_strictly_better(cand, entry->candidates[i], entry->candidates, entry->n, gw_dest)) {
+            if (route_strictly_better(cand, entry->candidates[i], entry->candidates, entry->n, gw_dest, team_plane)) {
                 const bool was_primary = (i == 0);
                 entry->candidates[i] = cand;
-                sort_candidates(*entry);
+                sort_candidates(*entry, team_plane);
                 const bool now_primary = (entry->candidates[0].next_hop == cand.next_hop);
                 if (now_primary) { entry->dirty = true; return MergeAction::primary_refresh; }
                 if (was_primary) { entry->dirty = true; return MergeAction::promote; }
@@ -376,16 +408,16 @@ Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand, RtEntry*
     if (entry->n < protocol::max_rt_candidates) {
         entry->candidates[entry->n] = cand;
         entry->n++;
-        sort_candidates(*entry);
+        sort_candidates(*entry, team_plane);
         if (entry->candidates[0].next_hop == cand.next_hop) { entry->dirty = true; return MergeAction::promote; }
         return MergeAction::alt_install;
     }
 
     // Full table: replace the worst (last) only if cand strictly beats it.
     RtCandidate& worst = entry->candidates[entry->n - 1];
-    if (!route_strictly_better(cand, worst, entry->candidates, entry->n, gw_dest)) return MergeAction::none;
+    if (!route_strictly_better(cand, worst, entry->candidates, entry->n, gw_dest, team_plane)) return MergeAction::none;
     worst = cand;
-    sort_candidates(*entry);
+    sort_candidates(*entry, team_plane);
     if (entry->candidates[0].next_hop == cand.next_hop) { entry->dirty = true; return MergeAction::promote; }
     return MergeAction::alt_install;
 }
@@ -546,6 +578,31 @@ Node::PeerLiveness* Node::peer_liveness_slot(uint8_t node_id, bool create) {
     return &L._peer_liveness[best];
 }
 
+#if MR_FEAT_TEAM
+// §2c: the TEAM-plane liveness slot — a self-contained mirror of peer_liveness_slot over _team_liveness, keyed by
+// team_local_id with its OWN on-demand LRU. NEVER reads _peer_liveness / _team_keys (that ring evicts by crypto-key
+// recency = a different lifetime; sharing it would rebind suspect/dead state onto whoever next takes the slot).
+Node::PeerLiveness* Node::team_liveness_slot(uint8_t team_local_id, bool create) {
+    auto& L = *_active;
+    for (uint8_t i = 0; i < L._team_liveness_n; ++i)
+        if (L._team_liveness[i].node_id == team_local_id) return &L._team_liveness[i];
+    if (!create) return nullptr;
+    if (L._team_liveness_n < protocol::cap_team_liveness) {
+        PeerLiveness& s = L._team_liveness[L._team_liveness_n++]; s = PeerLiveness{}; s.node_id = team_local_id; return &s;
+    }
+    const uint64_t now = _hal.now();                       // full -> evict the least valuable (healthy before a live tier; stalest first)
+    int best = 0; bool best_healthy = false; uint64_t best_seen = 0;
+    for (uint8_t i = 0; i < L._team_liveness_n; ++i) {
+        const PeerLiveness& c = L._team_liveness[i];
+        const bool healthy = !(c.dead_until_ms > now || c.silent_until_ms > now || c.suspect_until_ms > now);
+        const bool better = (i == 0) || (healthy && !best_healthy) || (healthy == best_healthy && c.dest_seen_ms < best_seen);
+        if (better) { best = i; best_healthy = healthy; best_seen = c.dest_seen_ms; }
+    }
+    L._team_liveness[best] = PeerLiveness{}; L._team_liveness[best].node_id = team_local_id;
+    return &L._team_liveness[best];
+}
+#endif
+
 // Anti-spoof for the e2e-ack backstop exemption: a peer caught faking RTS_FLAG_E2E_ACK (its DATA was NOT a
 // DATA_TYPE_E2E_ACK, verified at DATA-time in handle_data) has its e2e_ack_spoof_until_ms set = now + penalty.
 // While that window holds, its RTS_FLAG_E2E_ACK is IGNORED (the backstop DROP re-applies). One free pass, then revoked.
@@ -591,8 +648,34 @@ void Node::mark_peer_suspect(uint8_t node_id, uint8_t level, const char* source,
             EF_S("source", source ? source : "unknown"), EF_I("rts_timeouts", s->rts_timeouts), EF_I("remote_src", remote_src));
 }
 
-void Node::record_peer_rts_timeout(uint8_t node_id, uint8_t ctr_lo) {
+void Node::record_peer_rts_timeout(uint8_t node_id, uint8_t ctr_lo, bool team_plane) {
     if (node_id == 0 || node_id == _node_id) return;
+#if MR_FEAT_TEAM
+    if (team_plane) {
+        // §2c: accrue TEAM liveness on _team_liveness (self-slotted). Set the tier untils INLINE — mirroring the static
+        // tier map — with NO static mark_peer_suspect/resort. The demotion takes effect at the next refresh_route_order(
+        // Plane::TEAM) in cascade_to_alt (effective_score reads the team penalty). Same tiers: silent@3 / dead@6-over-window / suspect@1.
+        PeerLiveness* ts = team_liveness_slot(node_id, /*create=*/true);
+        if (!ts) return;
+        ts->rts_timeouts = static_cast<uint16_t>(ts->rts_timeouts + 1);
+        const uint16_t tn = ts->rts_timeouts;
+        const uint64_t tnow = _hal.now();
+        MR_EMIT("peer_rts_timeout_count", EF_I("node", node_id), EF_I("ctr_lo", ctr_lo), EF_I("count", tn), EF_S("plane", "team"));
+        if (tn >= protocol::peer_silent_rts_timeouts) {
+            if (ts->first_timeout_ms == 0) ts->first_timeout_ms = tnow;
+            if (tn >= protocol::peer_dead_rts_timeouts && (tnow - ts->first_timeout_ms) >= protocol::peer_dead_evidence_window_ms)
+                ts->dead_until_ms   = tnow + protocol::peer_dead_ttl_ms;
+            else
+                ts->silent_until_ms = tnow + protocol::peer_silent_ttl_ms;
+        } else if (tn >= protocol::peer_suspect_rts_timeouts) {
+            ts->suspect_until_ms = tnow + protocol::peer_suspect_ttl_ms;
+        }
+        team_resort_routes_through(node_id);   // §2c: proactively re-sort _rt_team so candidates[0] updates NOW (else the next flight re-picks the demoted primary)
+        return;
+    }
+#else
+    (void)team_plane;
+#endif
     PeerLiveness* s = peer_liveness_slot(node_id, /*create=*/true);
     if (!s) return;
     s->rts_timeouts = static_cast<uint16_t>(s->rts_timeouts + 1);
@@ -610,8 +693,24 @@ void Node::record_peer_rts_timeout(uint8_t node_id, uint8_t ctr_lo) {
     }
 }
 
-void Node::clear_peer_suspect(uint8_t node_id, const char* source) {
+void Node::clear_peer_suspect(uint8_t node_id, const char* source, bool team_plane) {
     if (node_id == 0 || node_id == _node_id) return;
+#if MR_FEAT_TEAM
+    if (team_plane) {
+        // §2c: recovery-on-heard on the TEAM liveness (mandatory — else a transiently-missed team relay stays demoted
+        // forever). Clear the team slot's tiers inline; no static resort (the recovery lands at the next refresh_route_order(TEAM)).
+        PeerLiveness* ts = team_liveness_slot(node_id, /*create=*/false);
+        if (!ts) return;
+        const bool thad = ts->rts_timeouts || ts->first_timeout_ms || ts->suspect_until_ms || ts->silent_until_ms || ts->dead_until_ms;
+        if (!thad) return;
+        ts->rts_timeouts = 0; ts->first_timeout_ms = 0; ts->suspect_until_ms = 0; ts->silent_until_ms = 0; ts->dead_until_ms = 0;
+        team_resort_routes_through(node_id);   // §2c: recovery -> re-sort _rt_team (the recovered relay may regain primacy)
+        MR_EMIT("peer_suspect_clear", EF_I("node", node_id), EF_S("source", source ? source : "team_rx"), EF_S("plane", "team"));
+        return;
+    }
+#else
+    (void)team_plane;
+#endif
     PeerLiveness* s = peer_liveness_slot(node_id, /*create=*/false);
     if (!s) return;
     const bool had = s->rts_timeouts != 0 || s->first_timeout_ms != 0 ||

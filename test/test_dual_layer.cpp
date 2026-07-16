@@ -352,6 +352,24 @@ struct DualLayerTestAccess {
         (void)n.learn_direct_neighbor(id, 40, false, /*team_plane=*/true);
         n.team_key_set(id, key_hash);
     }
+    // §2c team-liveness seams
+    static void           team_rts_timeout(Node& n, uint8_t id) { n.record_peer_rts_timeout(id, 0, /*team_plane=*/true); }
+    static void           team_clear(Node& n, uint8_t id)       { n.clear_peer_suspect(id, "test", /*team_plane=*/true); }
+    static int16_t        team_penalty(Node& n, uint8_t id)     { return n.liveness_penalty_q4(id, /*team_plane=*/true); }
+    static int16_t        static_penalty(Node& n, uint8_t id)   { return n.liveness_penalty_q4(id, /*static*/false); }
+    static bool           static_liveness_absent(Node& n, uint8_t id) { return n.peer_liveness_slot(id, /*create=*/false) == nullptr; }
+    static void           team_route2(Node& n, uint8_t dest, uint8_t next1, uint8_t next2) {   // an _rt_team entry: two 2-hop candidates (next1 primary, next2 alt), equal score
+        auto& L = *n._active;
+        RtEntry& e = L._rt_team[L._rt_team_count++]; e = RtEntry{}; e.dest = dest; e.n = 2;
+        e.candidates[0].next_hop = next1; e.candidates[0].hops = 2; e.candidates[0].score = 100; e.candidates[0].last_seen_ms = 1;
+        e.candidates[1].next_hop = next2; e.candidates[1].hops = 2; e.candidates[1].score = 100; e.candidates[1].last_seen_ms = 1;
+        L._team_peer[next1 >> 3] |= static_cast<uint8_t>(1u << (next1 & 7));
+        L._team_peer[next2 >> 3] |= static_cast<uint8_t>(1u << (next2 & 7));
+    }
+    static uint8_t        team_primary(Node& n, uint8_t dest) {   // candidates[0].next_hop of the _rt_team route to dest (0 if none)
+        for (uint8_t i = 0; i < n._active->_rt_team_count; ++i) if (n._active->_rt_team[i].dest == dest) return n._active->_rt_team[i].candidates[0].next_hop;
+        return 0;
+    }
     static void           send_xl(Node& n, uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t len, uint8_t flags = 0) { n.send_cross_layer(dst_node, dst_hash, target_layer, body, len, flags); }
     static CmdCode        originate(Node& n, uint32_t dst_hash, const uint8_t* hops, uint8_t hc, const uint8_t* body, uint8_t len, uint8_t flags = 0) { uint16_t ctr = 0; return n.originate_layer_path(dst_hash, hops, hc, body, len, flags, ctr); }
     // Multi-hop gateway discovery (type-4 TLV) accessors.
@@ -2972,6 +2990,23 @@ TEST_CASE("§team-multihop Plane 2 — a team-scoped F: a same-team member proce
     hw.emits.clear();
     wt.on_recv(buf.data(), n, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
     CHECK_FALSE(hw.saw_emit("rreq_rx")); CHECK_FALSE(hw.saw_emit("rreq_resolved_self"));   // ★ other team -> dropped
+}
+
+TEST_CASE("§team-multihop 2c — team liveness demotes a dead relay (candidates flip proactively) + recovery-on-heard; the STATIC plane is untouched") {
+    const uint32_t T = 0x12345678u;
+    StubHal h; Node n(h, 0, 0xA0A0u);
+    NodeConfig c; c.routing_sf=8; c.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c.leaf_id=4; c.is_mobile=true; c.team_id=T; CHECK(n.on_init(c));
+    n.team_dad_fire();
+    DualLayerTestAccess::team_route2(n, /*dest=*/200, /*R=*/50, /*R2=*/51);   // a team route to B via R (primary) + R2 (alt), equal score
+    CHECK(DualLayerTestAccess::team_primary(n, 200) == 50);                   // R is the primary
+    for (int i = 0; i < 3; ++i) DualLayerTestAccess::team_rts_timeout(n, 50); // R times out 3x -> SILENT (the proactive-demotion evidence)
+    CHECK(DualLayerTestAccess::team_penalty(n, 50) == protocol::peer_silent_penalty_q4);   // ★ TEAM liveness demoted R
+    CHECK(DualLayerTestAccess::team_primary(n, 200) == 51);                   // ★ the demotion re-sorted _rt_team NOW -> candidates[0] = R2 (the next flight skips the dead relay)
+    // ★ SEPARATION: the STATIC plane is byte-untouched — no static _peer_liveness slot for id 50, static penalty 0
+    CHECK(DualLayerTestAccess::static_penalty(n, 50) == 0);
+    CHECK(DualLayerTestAccess::static_liveness_absent(n, 50));
+    DualLayerTestAccess::team_clear(n, 50);                                   // recovery-on-heard (a team frame from R)
+    CHECK(DualLayerTestAccess::team_penalty(n, 50) == 0);                     // ★ recovery cleared the demotion -> R usable again
 }
 
 TEST_CASE("§mobile 6.4 — a TEAM mobile triggers beacons (off-grid convergence); a lone/roaming mobile does NOT") {

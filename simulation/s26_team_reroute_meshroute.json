@@ -1,0 +1,47 @@
+{
+ "_name": "s26_team_reroute",
+ "_desc": "TEAM-plane REROUTE on relay death (the dynamic-team resilience — spec 2026-07-15 Plane 2 / 2d). A team line A-R-B (no A-B direct): initially R is the SOLE relay. R is KILLED mid-run (dies_at_ms=400000). A parallel relay R2 (also A-R2-B) APPEARS ONLY AFTER the kill (start_at_ms=410000) — so it is NOT a pre-learned alt: A must genuinely REROUTE from the dead R onto the newly-arrived R2 (via _rt_team cascade + the team F backstop). A sends to B by hash BEFORE the kill (rr_pre, delivers via R) and AFTER (rr_post @ 500k/560k, MUST reroute via R2). Proves the team plane recovers a broken route on a real topology change — the hiking-group case. Team beacon 60 s (team_beacon_period_ms).",
+ "simulation": {
+  "duration_ms": 700000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "beacon_period_ms": 20000,
+  "seed": 26,
+  "node_startup_jitter_ms": 0,
+  "radio": { "sf": 8, "bw": 62.5, "cr": 5, "max_packet_bytes": 255, "snr_coherence_ms": 0, "duty_cycle": 0.1 }
+ },
+ "commands": [
+  { "_c": "PRE-kill: A -> B by hash (delivers via the SOLE relay R; caches B's key)", "at_ms": 350000, "node": "A", "command": "send_hash dddd0004 rr_pre" },
+  { "_c": "POST-kill (R dead @400k, R2 arrived @410k): A -> B MUST reroute onto the newly-arrived R2", "at_ms": 500000, "node": "A", "command": "send_hash dddd0004 rr_post" },
+  { "at_ms": 560000, "node": "A", "command": "send_hash dddd0004 rr_post" },
+  { "at_ms": 620000, "node": "A", "command": "send_hash dddd0004 rr_post" }
+ ],
+ "expect": [
+  { "_c": "team-DAD on the always-on members", "type": "script_emit_contains", "node": "A", "emit_type": "team_dad_adopted", "value": "id" },
+  { "type": "script_emit_contains", "node": "B", "emit_type": "team_dad_adopted", "value": "id" },
+  { "_c": "PRE-kill delivery via R (baseline: the sole path works)", "type": "script_emit_contains", "node": "B", "emit_type": "push", "value": "rr_pre" },
+  { "_c": "★ POST-kill delivery: A -> B reaches B AFTER R died, via the newly-arrived R2 -> a GENUINE reroute onto a NOT-pre-learned path", "type": "script_emit_contains", "node": "B", "emit_type": "push", "value": "rr_post" }
+ ],
+ "nodes": [
+  { "name": "A", "script": "scenarios/dv_dual_sf.lua", "lat": 47.60000, "lon": -122.30000, "start_at_ms": 1000, "node_id": 50, "key_hash32": "0xdddd0001",
+    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9], "beacon_period_ms": 20000, "team_beacon_period_ms": 60000, "is_mobile": true, "team_id": 858993459, "mobile_autoregister": false, "discovery_min_routes": 1, "req_sync_min_routes": 1 } },
+  { "name": "R", "script": "scenarios/dv_dual_sf.lua", "lat": 47.60010, "lon": -122.30010, "start_at_ms": 1000, "dies_at_ms": 400000, "node_id": 51, "key_hash32": "0xdddd0002",
+    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9], "beacon_period_ms": 20000, "team_beacon_period_ms": 60000, "is_mobile": true, "team_id": 858993459, "mobile_autoregister": false, "discovery_min_routes": 1, "req_sync_min_routes": 1 } },
+  { "name": "R2", "script": "scenarios/dv_dual_sf.lua", "lat": 47.60010, "lon": -122.29990, "start_at_ms": 410000, "node_id": 52, "key_hash32": "0xdddd0003",
+    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9], "beacon_period_ms": 20000, "team_beacon_period_ms": 60000, "is_mobile": true, "team_id": 858993459, "mobile_autoregister": false, "discovery_min_routes": 1, "req_sync_min_routes": 1 } },
+  { "name": "B", "script": "scenarios/dv_dual_sf.lua", "lat": 47.60020, "lon": -122.30000, "start_at_ms": 1000, "node_id": 53, "key_hash32": "0xdddd0004",
+    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9], "beacon_period_ms": 20000, "team_beacon_period_ms": 60000, "is_mobile": true, "team_id": 858993459, "mobile_autoregister": false, "discovery_min_routes": 1, "req_sync_min_routes": 1 } }
+ ],
+ "topology": {
+  "links": [
+   { "_c": "path A-R-B (the initial sole path; R dies at 400k)", "from": "A", "to": "R", "snr": 55.0, "rssi": -60.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "R", "to": "A", "snr": 55.0, "rssi": -60.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "R", "to": "B", "snr": 55.0, "rssi": -60.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "B", "to": "R", "snr": 55.0, "rssi": -60.0, "snr_std_dev": 0, "bidir": false },
+   { "_c": "path A-R2-B (R2 arrives at 410k — the reroute target, NOT pre-learned)", "from": "A", "to": "R2", "snr": 55.0, "rssi": -60.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "R2", "to": "A", "snr": 55.0, "rssi": -60.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "R2", "to": "B", "snr": 55.0, "rssi": -60.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "B", "to": "R2", "snr": 55.0, "rssi": -60.0, "snr_std_dev": 0, "bidir": false }
+  ]
+ }
+}

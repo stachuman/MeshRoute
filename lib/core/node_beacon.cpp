@@ -91,9 +91,15 @@ bool Node::learn_direct_neighbor(uint8_t sender, int16_t snr_q4, bool is_gw, boo
     if (sender == 0xFF || sender == 0 || sender == _node_id) return false;   // unknown/reserved id (0/0xFF), or self (§P0)
 #if MR_FEAT_TEAM
     if (team_plane && _team_local_id != 0 && sender == _team_local_id) return false;   // §mobile 6.4: never a team-plane self-route to our OWN team id (a same-key echo)
+    if (team_plane) {
+        // §2c LEAK FIX: a TEAM sender is a team_local_id — the static mark_dest_seen/clear_peer_suspect would write
+        // _dest_seen_ms[team_id]/_peer_liveness (the §18 write-alias committed pre-2c). Route recovery-on-heard to the
+        // TEAM liveness instead; NO static freshness stamp (team freshness is omitted — route_strictly_better skips it for team).
+        clear_peer_suspect(sender, "team_rx", /*team_plane=*/true);
+    } else
 #endif
-    mark_dest_seen(sender);                          // §P1: a frame heard FROM a direct neighbour -> freshness stamp...
-    clear_peer_suspect(sender, "rx_frame");          // ...and it's demonstrably alive -> clear any timeout/suspect state (Lua dv:9325-9326)
+    { mark_dest_seen(sender);                         // §P1: a frame heard FROM a direct neighbour -> freshness stamp...
+      clear_peer_suspect(sender, "rx_frame"); }       // ...and it's demonstrably alive -> clear any timeout/suspect state (Lua dv:9325-9326)
     RtCandidate cand{};
     cand.next_hop         = sender;
     cand.score            = route_score_from_snr(snr_q4);
@@ -433,7 +439,7 @@ void Node::emit_beacon(const char* kind) {
         entries[k].score_bucket = static_cast<uint8_t>(bucket_of_snr_4b(pc.score));
         entries[k].is_gateway   = pc.is_gateway;
         entries[k].hops         = pc.hops;
-        entries[k].degraded     = candidate_degraded(pc);   // §5 transitive: degraded_from_wire OR _link_bidi[next]==one_way (MF5 live recompute)
+        entries[k].degraded     = candidate_degraded(pc, team_emit);   // §5 transitive: degraded_from_wire OR _link_bidi[next]==one_way. §2c: team_emit -> wire-only (pc.next_hop is a team_local_id; audit-caught static _link_bidi read)
         if (entries[k].degraded) MR_EMIT("degraded_advertise", EF_I("dest",re.dest),EF_I("next",pc.next_hop));
     }
     in.entries = std::span<const beacon_entry>(entries, n);
@@ -771,7 +777,7 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         // silent/dead by the receiver — the sender's path A→B→C is compromised when B is
         // dead (Lua dv:9770-9776). Installing this route would leak a broken path into the
         // table and waste RTS attempts before the timeout cascade fires its own RREQ.
-        if (liveness_penalty_q4(e.next) >= protocol::peer_silent_penalty_q4) {
+        if (liveness_penalty_q4(e.next, same_team_beacon) >= protocol::peer_silent_penalty_q4) {   // §2c: a same-team beacon's carried e.next is a team_local_id -> read TEAM liveness (audit-caught pre-existing static _peer_liveness alias). MR_FEAT_TEAM-off: same_team_beacon==false -> byte-identical.
             MR_EMIT("rt_skip_silent_n2", EF_I("dest", e.dest), EF_I("via", b.src),
                     EF_I("advertised_next", e.next));
             continue;
@@ -816,7 +822,8 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             auto pe = parse_beacon_entry(std::span<const uint8_t>(bytes, len), b, i);
             if (pe) heard[hn++] = *pe;
         }
-        update_link_bidi_from_beacon(b.src, heard, hn, b.heard_set_complete);
+        if (!same_team_beacon)   // §2c LEAK FIX: a team beacon's b.src is a team_local_id — update_link_bidi_from_beacon would write the static _link_bidi[team_id] (§18 write-alias). The team plane keeps no bidi array (deferred). A static beacon (same_team_beacon==false, always so for team_id==0) is unchanged -> s18-inert.
+            update_link_bidi_from_beacon(b.src, heard, hn, b.heard_set_complete);
     }
 
     // dv_dual_sf.lua:9680-9684 order: discovery re-check, triggered re-beacon on

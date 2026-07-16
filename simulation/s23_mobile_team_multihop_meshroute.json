@@ -1,61 +1,353 @@
 {
  "_name": "s23_mobile_team_multihop",
- "_desc": "TEAM-plane MULTI-HOP routing parity with the static net (s19 analogue). 6 off-grid team mobiles in a redundant 3-hop chain TeamA-{TeamL,TeamL2}-{TeamR,TeamR2}-TeamB with TWO disjoint A<->B paths and NO A<->B direct link => every A->B team DM MUST relay >=2 hops through the _rt_team plane. Mirrors s19 (the static 3-hop chain) node-for-node, but on the TEAM plane, to PROVE team routing works the same way as static routing at real hop counts. Addressed by team-local-id (send <id> -t) = the PRIMARY routing mechanism (mirrors s19's send-by-id; hash is a neighbour-only secondary), routed multi-hop via _rt_team beacon-DV. team-DAD ids (seed 23, deterministic): TeamA=115 TeamL=118 TeamL2=17 TeamR=196 TeamR2=227 TeamB=254.",
+ "_desc": "TEAM-plane MULTI-HOP routing parity with the static net (s19 analogue). 6 off-grid team mobiles in a redundant 3-hop chain TeamA-{TeamL,TeamL2}-{TeamR,TeamR2}-TeamB with TWO disjoint A<->B paths and NO A<->B direct link => every A->B team DM MUST relay >=2 hops through the _rt_team plane. Mirrors s19 (the static 3-hop chain) node-for-node, but on the TEAM plane, to PROVE team routing works the same way as static routing at real hop counts. Addressed by team-local-id (send <id> -t) = the PRIMARY routing mechanism (mirrors s19's send-by-id), routed multi-hop via _rt_team beacon-DV. Send-by-hash is the SECONDARY path: it resolves near peers via the reactive team H-flood (s24 delivers a 2-hop send_hash) but attenuates beyond ~2 hops (fire-once flood, no retry) \u2014 which is why routing is by id. team-DAD ids (seed 23, deterministic): TeamA=115 TeamL=118 TeamL2=17 TeamR=196 TeamR2=227 TeamB=254.",
  "simulation": {
-  "duration_ms": 600000,
+  "duration_ms": 900000,
   "step_ms": 1,
   "warmup_ms": 0,
   "beacon_period_ms": 20000,
   "seed": 23,
   "node_startup_jitter_ms": 0,
-  "radio": { "sf": 8, "bw": 62.5, "cr": 5, "max_packet_bytes": 255, "snr_coherence_ms": 0, "duty_cycle": 0.1 }
+  "radio": {
+   "sf": 8,
+   "bw": 62.5,
+   "cr": 5,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 0.1
+  }
  },
  "commands": [
-  { "_c": "TEAM 3-hop DM A -> B by team-local-id 254 (primary): no direct A-B link, must relay A->{L|L2}->{R|R2}->B via _rt_team DV", "at_ms": 300000, "node": "TeamA", "command": "send 254 -t hop_test" },
-  { "at_ms": 360000, "node": "TeamA", "command": "send 254 -t hop_test" },
-  { "at_ms": 420000, "node": "TeamA", "command": "send 254 -t hop_test" },
-  { "_c": "reverse 3-hop DM B -> A by team-local-id 115 (parity: bidirectional multi-hop)", "at_ms": 480000, "node": "TeamB", "command": "send 115 -t hop_back" }
+  {
+   "_c": "TEAM 3-hop DM A -> B by team-local-id 254 (primary): no direct A-B link, must relay A->{L|L2}->{R|R2}->B via _rt_team DV",
+   "at_ms": 600000,
+   "node": "TeamA",
+   "command": "send 254 -t hop_test"
+  },
+  {
+   "_c": "TEAM 3-hop DM A -> B by team-local-id 254 (primary): no direct A-B link, must relay A->{L|L2}->{R|R2}->B via _rt_team DV",
+   "at_ms": 660000,
+   "node": "TeamA",
+   "command": "send 254 -t hop_test"
+  },
+  {
+   "_c": "TEAM 3-hop DM A -> B by team-local-id 254 (primary): no direct A-B link, must relay A->{L|L2}->{R|R2}->B via _rt_team DV",
+   "at_ms": 720000,
+   "node": "TeamA",
+   "command": "send 254 -t hop_test"
+  },
+  {
+   "_c": "reverse 3-hop DM B -> A by team-local-id 115 (parity: bidirectional multi-hop)",
+   "at_ms": 780000,
+   "node": "TeamB",
+   "command": "send 115 -t hop_back"
+  }
  ],
  "expect": [
-  { "_c": "team-DAD on all 6 members", "type": "script_emit_contains", "node": "TeamA", "emit_type": "team_dad_adopted", "value": "id" },
-  { "type": "script_emit_contains", "node": "TeamB", "emit_type": "team_dad_adopted", "value": "id" },
-  { "type": "script_emit_contains", "node": "TeamL", "emit_type": "team_dad_adopted", "value": "id" },
-  { "type": "script_emit_contains", "node": "TeamR", "emit_type": "team_dad_adopted", "value": "id" },
-  { "_c": "★ MULTI-HOP: B receives A's team DM over >=2 relay hops (proves team routing == static routing)", "type": "script_emit_contains", "node": "TeamB", "emit_type": "push", "value": "hop_test" },
-  { "_c": "★ reverse multi-hop: A receives B's team DM", "type": "script_emit_contains", "node": "TeamA", "emit_type": "push", "value": "hop_back" }
+  {
+   "_c": "team-DAD on all 6 members",
+   "type": "script_emit_contains",
+   "node": "TeamA",
+   "emit_type": "team_dad_adopted",
+   "value": "id"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "TeamB",
+   "emit_type": "team_dad_adopted",
+   "value": "id"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "TeamL",
+   "emit_type": "team_dad_adopted",
+   "value": "id"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "TeamR",
+   "emit_type": "team_dad_adopted",
+   "value": "id"
+  },
+  {
+   "_c": "\u2605 MULTI-HOP: B receives A's team DM over >=2 relay hops (proves team routing == static routing)",
+   "type": "script_emit_contains",
+   "node": "TeamB",
+   "emit_type": "push",
+   "value": "hop_test"
+  },
+  {
+   "_c": "\u2605 reverse multi-hop: A receives B's team DM",
+   "type": "script_emit_contains",
+   "node": "TeamA",
+   "emit_type": "push",
+   "value": "hop_back"
+  }
  ],
  "nodes": [
-  { "name": "TeamA", "script": "scenarios/dv_dual_sf.lua", "lat": 47.60000, "lon": -122.33000, "start_at_ms": 1000, "node_id": 50, "key_hash32": "0xaaaa0001",
-    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9], "beacon_period_ms": 20000, "is_mobile": true, "team_id": 305419896, "mobile_autoregister": false, "discovery_min_routes": 1, "req_sync_min_routes": 1 } },
-  { "name": "TeamL", "script": "scenarios/dv_dual_sf.lua", "lat": 47.61000, "lon": -122.32000, "start_at_ms": 1000, "node_id": 51, "key_hash32": "0xaaaa0002",
-    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9], "beacon_period_ms": 20000, "is_mobile": true, "team_id": 305419896, "mobile_autoregister": false, "discovery_min_routes": 1, "req_sync_min_routes": 1 } },
-  { "name": "TeamL2", "script": "scenarios/dv_dual_sf.lua", "lat": 47.61000, "lon": -122.34000, "start_at_ms": 1000, "node_id": 52, "key_hash32": "0xaaaa0003",
-    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9], "beacon_period_ms": 20000, "is_mobile": true, "team_id": 305419896, "mobile_autoregister": false, "discovery_min_routes": 1, "req_sync_min_routes": 1 } },
-  { "name": "TeamR", "script": "scenarios/dv_dual_sf.lua", "lat": 47.62000, "lon": -122.32000, "start_at_ms": 1000, "node_id": 53, "key_hash32": "0xaaaa0004",
-    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9], "beacon_period_ms": 20000, "is_mobile": true, "team_id": 305419896, "mobile_autoregister": false, "discovery_min_routes": 1, "req_sync_min_routes": 1 } },
-  { "name": "TeamR2", "script": "scenarios/dv_dual_sf.lua", "lat": 47.62000, "lon": -122.34000, "start_at_ms": 1000, "node_id": 54, "key_hash32": "0xaaaa0005",
-    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9], "beacon_period_ms": 20000, "is_mobile": true, "team_id": 305419896, "mobile_autoregister": false, "discovery_min_routes": 1, "req_sync_min_routes": 1 } },
-  { "name": "TeamB", "script": "scenarios/dv_dual_sf.lua", "lat": 47.63000, "lon": -122.33000, "start_at_ms": 1000, "node_id": 55, "key_hash32": "0xaaaa0006",
-    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9], "beacon_period_ms": 20000, "is_mobile": true, "team_id": 305419896, "mobile_autoregister": false, "discovery_min_routes": 1, "req_sync_min_routes": 1 } }
+  {
+   "name": "TeamA",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.33,
+   "start_at_ms": 1000,
+   "node_id": 50,
+   "key_hash32": "0xaaaa0001",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "team_id": 305419896,
+    "mobile_autoregister": false,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "TeamL",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.61,
+   "lon": -122.32,
+   "start_at_ms": 1000,
+   "node_id": 51,
+   "key_hash32": "0xaaaa0002",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "team_id": 305419896,
+    "mobile_autoregister": false,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "TeamL2",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.61,
+   "lon": -122.34,
+   "start_at_ms": 1000,
+   "node_id": 52,
+   "key_hash32": "0xaaaa0003",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "team_id": 305419896,
+    "mobile_autoregister": false,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "TeamR",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.62,
+   "lon": -122.32,
+   "start_at_ms": 1000,
+   "node_id": 53,
+   "key_hash32": "0xaaaa0004",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "team_id": 305419896,
+    "mobile_autoregister": false,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "TeamR2",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.62,
+   "lon": -122.34,
+   "start_at_ms": 1000,
+   "node_id": 54,
+   "key_hash32": "0xaaaa0005",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "team_id": 305419896,
+    "mobile_autoregister": false,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "TeamB",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.63,
+   "lon": -122.33,
+   "start_at_ms": 1000,
+   "node_id": 55,
+   "key_hash32": "0xaaaa0006",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "team_id": 305419896,
+    "mobile_autoregister": false,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  }
  ],
  "topology": {
   "links": [
-   { "from": "TeamA", "to": "TeamL", "snr": 60.0, "rssi": -50.0, "snr_std_dev": 0, "bidir": false },
-   { "from": "TeamL", "to": "TeamA", "snr": 60.0, "rssi": -50.0, "snr_std_dev": 0, "bidir": false },
-   { "from": "TeamA", "to": "TeamL2", "snr": 60.0, "rssi": -50.0, "snr_std_dev": 0, "bidir": false },
-   { "from": "TeamL2", "to": "TeamA", "snr": 60.0, "rssi": -50.0, "snr_std_dev": 0, "bidir": false },
-   { "from": "TeamL", "to": "TeamR", "snr": 60.0, "rssi": -50.0, "snr_std_dev": 0, "bidir": false },
-   { "from": "TeamR", "to": "TeamL", "snr": 60.0, "rssi": -50.0, "snr_std_dev": 0, "bidir": false },
-   { "from": "TeamL", "to": "TeamR2", "snr": 60.0, "rssi": -50.0, "snr_std_dev": 0, "bidir": false },
-   { "from": "TeamR2", "to": "TeamL", "snr": 60.0, "rssi": -50.0, "snr_std_dev": 0, "bidir": false },
-   { "from": "TeamL2", "to": "TeamR", "snr": 60.0, "rssi": -50.0, "snr_std_dev": 0, "bidir": false },
-   { "from": "TeamR", "to": "TeamL2", "snr": 60.0, "rssi": -50.0, "snr_std_dev": 0, "bidir": false },
-   { "from": "TeamL2", "to": "TeamR2", "snr": 60.0, "rssi": -50.0, "snr_std_dev": 0, "bidir": false },
-   { "from": "TeamR2", "to": "TeamL2", "snr": 60.0, "rssi": -50.0, "snr_std_dev": 0, "bidir": false },
-   { "from": "TeamR", "to": "TeamB", "snr": 60.0, "rssi": -50.0, "snr_std_dev": 0, "bidir": false },
-   { "from": "TeamB", "to": "TeamR", "snr": 60.0, "rssi": -50.0, "snr_std_dev": 0, "bidir": false },
-   { "from": "TeamR2", "to": "TeamB", "snr": 60.0, "rssi": -50.0, "snr_std_dev": 0, "bidir": false },
-   { "from": "TeamB", "to": "TeamR2", "snr": 60.0, "rssi": -50.0, "snr_std_dev": 0, "bidir": false }
+   {
+    "from": "TeamA",
+    "to": "TeamL",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "TeamL",
+    "to": "TeamA",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "TeamA",
+    "to": "TeamL2",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "TeamL2",
+    "to": "TeamA",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "TeamL",
+    "to": "TeamR",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "TeamR",
+    "to": "TeamL",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "TeamL",
+    "to": "TeamR2",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "TeamR2",
+    "to": "TeamL",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "TeamL2",
+    "to": "TeamR",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "TeamR",
+    "to": "TeamL2",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "TeamL2",
+    "to": "TeamR2",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "TeamR2",
+    "to": "TeamL2",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "TeamR",
+    "to": "TeamB",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "TeamB",
+    "to": "TeamR",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "TeamR2",
+    "to": "TeamB",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "TeamB",
+    "to": "TeamR2",
+    "snr": 60.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   }
   ]
  }
 }

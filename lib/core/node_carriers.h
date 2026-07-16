@@ -94,6 +94,7 @@ struct NodeConfig {
     uint16_t allowed_sf_bitmap   = 0;            // allowed DATA-SF set (bit=sf), from config allowed_data_sfs (sf_list);
                                                  // 0 = no data SF -> node refuses to originate data + ignores data RTS
     uint32_t beacon_period_ms    = 900000;
+    uint32_t team_beacon_period_ms = 300000;     // §team-multihop (spec 2026-07-15 Change A): a TEAM member's STEADY-state beacon period (5 min default) — 3× more responsive than static's 15 min (a roaming team) yet safely under the 20-min freshness (next_hop_live_ttl_ms) + 15-min silent (peer_silent_ttl_ms) ceilings. Team members drop to THIS after the 5 s discovery burst instead of beacon_period_ms; a static node never uses it. Per-scenario configurable (sim uses a faster value so DV converges in-run).
     uint32_t beacon_max_idle_ms  = 900000;
     uint8_t  req_sync_min_routes = 8;            // originator: stop REQ_SYNC once rt reaches this (Lua dv:8039)
     bool     sync_response_enabled    = true;    // responder: answer an overheard REQ_SYNC with a jittered full-table beacon (Lua dv:8936)

@@ -299,7 +299,7 @@ public:
     void    note_link_confirmed(uint8_t next_hop);   // local bidi confirm (real CTS / complete-heard-set hit): set confirmed + stamp + fan out
     void    decay_link_bidi(uint8_t next_hop);   // confirmed + stale past bidi_confirm_ttl_ms -> unknown (MF6: NEVER -> one_way)
     void    set_link_bidi_for_test(uint8_t next_hop, LinkBidi v) { _active->_link_bidi[next_hop] = static_cast<uint8_t>(v); }  // test seam: seed a bidi state directly
-    bool    candidate_degraded(const RtCandidate& c) const;   // LIVE: c.degraded_from_wire || _link_bidi[c.next_hop]==one_way (never a sticky cache, MF5/OI1)
+    bool    candidate_degraded(const RtCandidate& c, bool team_plane = false) const;   // LIVE: c.degraded_from_wire || _link_bidi[c.next_hop]==one_way (never a sticky cache, MF5/OI1). §2c: team_plane -> wire-only (no static _link_bidi read)
     int16_t bidi_penalty_q4(uint8_t next_hop) const;          // §bidi: one_way next-hop -> bidi_penalty_one_way_q4, unknown/confirmed -> 0 (PURE; composed into effective_score at node_routing.cpp:100, SORT-only — never a next_hop_selectable gate)
     size_t            test_build_suspect_ext(uint8_t* out, size_t cap) { return build_suspect_ext(out, cap); }                 // §P4 test: drive the gossip encoder
     void              test_apply_suspect_gossip(const SuspectEntry* e, uint8_t n, uint8_t src) { apply_suspect_gossip(e, n, src); }   // §P4 test: drive the gossip apply
@@ -315,6 +315,8 @@ public:
     uint16_t          id_bind_count() const { return _active->_id_bind_n; }
     bool              joined()        const { return _joined; }        // DAD: adopted a node_id (test/app accessor)
     bool              in_discovery()  const { return _active && _active->_discovery_mode; } // per-active-leaf; _active-guard for pre-init safety
+    uint32_t          steady_beacon_period_ms() const {   // §team-multihop (spec 2026-07-15 Change A): a TEAM member's steady cadence = team_beacon_period_ms (more responsive than static's 15 min, for a roaming team); a static node (team_id==0) keeps beacon_period_ms -> s18-inert
+        return (_cfg.is_mobile && _cfg.team_id != 0) ? _cfg.team_beacon_period_ms : _cfg.beacon_period_ms; }
     // Duty-cycle consumption readout (console `duty` + companion). 0..100% of the rolling-window budget (100 = the node
     // must stay silent); avail_ms = ms until SOME airtime ages back in (0 when there's headroom); enabled=false = no
     // limit. Pure accessor — surfaces what duty_over_budget already computes; no state change.
@@ -420,8 +422,8 @@ public:
 
     // ---- Peer-liveness + freshness plane (routing-liveness port). Public for tests + the hooks. PHASE 1 = STATE
     // ONLY: tracked + emitted, NOT yet applied to scoring/selection/cascade (that is Phase 2/3). ----
-    void    record_peer_rts_timeout(uint8_t node_id, uint8_t ctr_lo);   // a same-hop RTS/ACK giveup -> count + tier (suspect@2/silent@3/dead@6 over the evidence window)
-    void    clear_peer_suspect(uint8_t node_id, const char* source);   // a frame heard FROM node_id -> it's alive -> clear its timeout state + tiers
+    void    record_peer_rts_timeout(uint8_t node_id, uint8_t ctr_lo, bool team_plane = false);   // a same-hop RTS/ACK giveup -> count + tier (suspect@1/silent@3/dead@6). §2c: team_plane -> _team_liveness
+    void    clear_peer_suspect(uint8_t node_id, const char* source, bool team_plane = false);   // a frame heard FROM node_id -> alive -> clear its tiers. §2c: team_plane -> _team_liveness (recovery-on-heard)
     void    mark_dest_seen(uint8_t node_id);                           // stamp last-seen-as-transmitter (freshness input)
     uint8_t peer_suspect_level(uint8_t node_id);                       // 0 healthy / 1 suspect / 2 silent / 3 dead (clears expired tiers lazily)
     bool    is_next_hop_fresh(uint8_t node_id) const;                  // now - dest_seen <= next_hop_live_ttl_ms (self = always fresh); DEFINED, not consulted in P1
@@ -743,21 +745,24 @@ private:
     RtEntry*    rt_insert(uint8_t dest, RtEntry* rt, uint8_t& rt_count);
     void        rt_remove(uint8_t idx, RtEntry* rt, uint8_t& rt_count);
     MergeAction rt_merge(uint8_t dest, const RtCandidate& cand, RtEntry* rt, uint8_t& rt_count, bool team_plane);
-    void        sort_candidates(RtEntry& e);
+    void        sort_candidates(RtEntry& e, bool team_plane = false);   // §2c: team_plane threads to route_strictly_better/effective_score (team liveness + skip freshness + wire-only degraded)
     // route_strictly_better/effective_score take the candidate LIST (cands,n) as context so the
     // R4.2 budget penalty can count viable alternatives (Lua signature (a,b,viab,candidates)). The
     // penalty is 0 for every HEALTHY-tier next_hop, so effective_score == score until a tier is marked.
     bool        route_strictly_better(const RtCandidate& a, const RtCandidate& b,
-                                      const RtCandidate* cands, uint8_t n, bool gw_dest = false) const;  // :4227 (gw_dest: cross-layer freshness-exempt)
+                                      const RtCandidate* cands, uint8_t n, bool gw_dest = false, bool team_plane = false) const;  // :4227 (gw_dest: cross-layer freshness-exempt). §2c: team_plane -> team liveness in effective_score + SKIP the is_next_hop_fresh viability gate (no team freshness array)
     bool        is_gateway_dest(uint8_t dest) const;          // §cross-layer: dest is a gateway egress (freshness-exempt)
-    int16_t     effective_score(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const; // :4050
+    int16_t     effective_score(const RtCandidate& c, const RtCandidate* cands, uint8_t n, bool team_plane = false) const; // :4050. §2c: team_plane -> liveness_penalty_q4(team) + NO static bidi_penalty_q4
     int16_t     budget_penalty_q4(const RtCandidate& c, const RtCandidate* cands, uint8_t n) const; // :3887
-    int16_t     liveness_penalty_q4(uint8_t next_hop) const;       // §P2: suspect 192 / silent 640 / dead 1280 Q4 (const, non-mutating tier read); Lua peer_suspect_penalty_db@4008
+    int16_t     liveness_penalty_q4(uint8_t next_hop, bool team_plane = false) const;   // §P2: suspect 192 / silent 640 / dead 1280 Q4 (const read). §2c: team_plane -> scans _team_liveness
     // Slice 3: the bidirectionality DETECTION scan. For advertiser P's beacon heard-set (its hops==1 entries),
     // a [dest==self] entry proves P hears us -> confirmed (note_link_confirmed); an ABSENT self in a COMPLETE
     // page proves P does NOT hear us -> one_way; an absent self in a TRUNCATED page is unconfirmed (no change).
     void        update_link_bidi_from_beacon(uint8_t advertiser, const beacon_entry* entries, uint8_t n, bool complete);
     int         resort_routes_for_neighbor_penalty(uint8_t node_id, const char* source, bool local_only);      // :4255
+#if MR_FEAT_TEAM
+    void        team_resort_routes_through(uint8_t team_local_id);   // §2c: re-sort _rt_team routes through a demoted/recovered team next-hop (proactive candidates[0] update)
+#endif
     RtEntry*    refresh_route_order(uint8_t dst, const char* reason, Plane plane = Plane::AUTO);   // re-sort ONE dest's candidates (catch a tier change since the last sort), dv:4455
     void        maybe_emit_rt_full();
 
@@ -770,6 +775,9 @@ private:
     // ---- Peer-liveness internals (routing-liveness port) -------------------
     struct PeerLiveness;                                              // fwd decl (full def below, near the LayerRuntime member structs)
     PeerLiveness* peer_liveness_slot(uint8_t node_id, bool create);   // find (or LRU-create) the per-node slot; nullptr if absent + !create
+#if MR_FEAT_TEAM
+    PeerLiveness* team_liveness_slot(uint8_t team_local_id, bool create);   // §2c: self-slotted mirror over _team_liveness (team_local_id-keyed, own LRU); NEVER _peer_liveness / _team_keys
+#endif
     bool          e2e_ack_spoofer_flagged(uint8_t src);               // anti-spoof: has `src` been caught faking RTS_FLAG_E2E_ACK within the penalty window? (its exemption is then revoked). Non-const: peer_liveness_slot is non-const.
     void          mark_peer_suspect(uint8_t node_id, uint8_t level, const char* source, uint8_t remote_src = 0);   // set the tier expiry + resort (§P4: remote_src!=0 => gossip-learned: local_only resort + NO advertise-table write; remote_src is also echoed in the event)
     size_t        build_suspect_ext(uint8_t* out, size_t cap);    // §P4: locally-observed suspect/dead peers -> a type-1 or type-2 BCN ext-TLV; 0 = none (dv:1373 build_suspect_nodes_ext)
@@ -1153,6 +1161,11 @@ private:
         uint8_t  _rreq_seen_team_n = 0;
         RReqLast _rreq_last_team[16] = {};
         uint8_t  _rreq_last_team_n = 0;
+        // §team-multihop 2c (spec 2026-07-16): the TEAM-plane liveness table — a self-contained mirror of _peer_liveness,
+        // keyed by team_local_id, with its OWN on-demand LRU (team_liveness_slot). NEVER _peer_liveness / _team_keys
+        // (which evicts by crypto-key recency — a different lifetime). Proactive dead-relay demotion; empty for a static node.
+        PeerLiveness _team_liveness[protocol::cap_team_liveness] = {};
+        uint8_t      _team_liveness_n = 0;
 #endif
         // ==== MAC / FLIGHT pipeline (single flight per node): tx-queue · pending-tx/rx · post-ack · no-route defer ====
         // R3 data-plane state (single flight per node).
@@ -1319,7 +1332,7 @@ private:
 // pointer/enum/alignment). Purpose: the node.h legibility reorder (2026-07-15 by-concern member reorder) must not
 // change Node's layout. If this fires after a *deliberate* member add/remove/type change, update the baseline
 // consciously — it is a tripwire, not a frozen contract. The real nRF52 RAM check is the firmware.map .bss/.data diff.
-static_assert(sizeof(Node) == 215776, "node.h: Node native layout changed — if intentional, update the baseline");   // 214720 -> 215776 (+1056): §team-multihop Plane 2 team-private _rreq_seen_team/_rreq_last_team [16] × n_layers (the deliberate [cap_team] RAM add)
+static_assert(sizeof(Node) == 218104, "node.h: Node native layout changed — if intentional, update the baseline");   // …215784 -> 218104 (+2320 §team-multihop 2c: _team_liveness[cap_team_liveness=16] × n_layers, sizeof(PeerLiveness)≈72)
 #endif
 
 }  // namespace meshroute
