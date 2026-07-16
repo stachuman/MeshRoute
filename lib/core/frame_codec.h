@@ -323,10 +323,12 @@ std::optional<h_out> parse_h(std::span<const uint8_t> frame);     // nullopt: le
 // NB: is_reply is at bit 7 here (the Lua had it at byte2 bit 0) — re-placed, not bit-copied.
 struct f_in  { uint8_t leaf_id; uint8_t origin; bool is_reply; uint8_t dst_id;
                uint8_t ttl_or_next_hop; uint8_t hops; uint8_t relay;
-               uint16_t config_hash = 0; };   // R6.1 §6.4: the leaf fingerprint — handle_f gates a divergent F (flood-bypass closure)
+               uint16_t config_hash = 0;      // R6.1 §6.4: the leaf fingerprint — handle_f gates a divergent F (flood-bypass closure)
+               bool team_scoped = false; uint32_t team_id = 0; };   // §team-multihop (spec §5): TEAM-plane F — byte-2 b6 = TEAM, team_id appended (4 B) at offset 9 after config_hash. Static F (team_scoped=false) = byte-identical.
 struct f_out { uint8_t leaf_id; uint8_t origin; bool is_reply; uint8_t dst_id;
                uint8_t ttl_or_next_hop; uint8_t hops; uint8_t relay;
-               uint16_t config_hash; };
+               uint16_t config_hash;
+               bool team_scoped = false; uint32_t team_id = 0; };   // §team-multihop: parse mirrors pack — team_id read only when byte-2 b6 set
 size_t pack_f(const f_in& in, std::span<uint8_t> out);            // 9 (7 + config_hash u16); 0 on short buf
 std::optional<f_out> parse_f(std::span<const uint8_t> frame);     // nullopt: len<9 / cmd
 

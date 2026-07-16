@@ -202,6 +202,7 @@ struct DualLayerTestAccess {
     static void     emit(Node& n, const char* kind)         { n.emit_beacon(kind); }                  // Slice 3e F-A: force a beacon
     static void     ingest_bcn(Node& n, const uint8_t* b, size_t len, float snr) { RxMeta m{snr, -60.0f, n._hal.now(), -1}; n.ingest_beacon(b, len, m); }   // §GW: feed a packed beacon through the RX membership filter
     static bool     rt_has(Node& n, uint8_t dest)           { return n.rt_find(dest) != nullptr; }    // §GW: did we learn a route to `dest`?
+    static bool     rt_has_global(Node& n, uint8_t dest)    { return n.rt_find(dest, Plane::GLOBAL) != nullptr; }   // §team-multihop: the STATIC _rt ONLY (force GLOBAL past the is_team_peer AUTO dispatch)
     static uint16_t lineage(Node& n)                        { return n._cfg.lineage_id; }             // §GW: our adopted leaf-config lineage (0 = unmanaged)
     static bool     selectable(Node& n, const RtCandidate& c, const PendingTx& pt) { return n.next_hop_selectable(c, pt, false); }   // §intra-relay Edit 3: the sender-side gate
     static bool     is_gwdest(Node& n, uint8_t dest)        { return n.is_gateway_dest(dest); }        // §intra-relay: learned-gateway recognition
@@ -2683,13 +2684,23 @@ TEST_CASE("§mobile hash-locate Fix 1/1b — a TEAM-scoped locate gets the mobil
         CHECK(o.has_value());
         if (o) CHECK(o->node_id == 17);
     }
-    // a WRONG team_id -> treated as a static locate -> silent (fresh origin sidesteps dedup)
+    // a WRONG team_id -> a team-scoped H is TEAM-plane-only (spec 2026-07-15 §2 separation): a non-member DROPS it before any
+    // answer OR forward, so team traffic never rides the static plane. (fresh origin sidesteps dedup.)
     hal.emits.clear();
     h_in wq = tq; wq.origin=51; wq.team_id=0x00009999u;
     std::array<uint8_t,16> wb{}; size_t wn = pack_h(wq, std::span<uint8_t>(wb.data(), wb.size()));
     mob.on_recv(wb.data(), wn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
-    CHECK_FALSE(hal.saw_emit("h_resolved"));                     // ★ wrong team -> static plane -> stays silent
-    CHECK(hal.saw_emit("h_forward"));
+    CHECK_FALSE(hal.saw_emit("h_resolved"));                     // ★ wrong team -> not our locate -> no answer
+    CHECK_FALSE(hal.saw_emit("h_forward"));                      // ★ §2 separation: a wrong-team node DROPS a team H (does NOT re-flood it onto the static plane)
+    // a pure STATIC node (team_id==0) likewise DROPS a team-scoped H — the s24 assertion-2 axis at unit scope.
+    StubHal hs; Node st(hs, 40, 0x4040u);
+    NodeConfig sc; sc.routing_sf=8; sc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); sc.leaf_id=4; CHECK(st.on_init(sc));   // is_mobile=false, team_id=0
+    DualLayerTestAccess::learn_neighbor(st, 50);
+    h_in sq = tq; sq.origin=52; sq.key_hash32=0x9AA9u;           // a team locate the static node can neither own nor answer
+    std::array<uint8_t,16> sb{}; size_t sn = pack_h(sq, std::span<uint8_t>(sb.data(), sb.size()));
+    st.on_recv(sb.data(), sn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    CHECK_FALSE(hs.saw_emit("h_forward"));                       // ★ a static node never relays a team-scoped H
+    CHECK_FALSE(hs.saw_emit("h_resolved"));
 }
 
 TEST_CASE("§mobile Part 2 Fix 6 — a home caches a hosted mobile's pushed pubkey (hash-verified); rejects an inconsistent key + a non-hosted M") {
@@ -2929,6 +2940,38 @@ TEST_CASE("§mobile 6.4 — team-DAD self-assigns a persistent _team_local_id (n
     StubHal h2; Node stat(h2, 5, 0x5555u); NodeConfig c2; c2.routing_sf=8; c2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c2.leaf_id=4; CHECK(stat.on_init(c2));
     stat.team_dad_fire();
     CHECK(stat.team_local_id() == 0);
+}
+
+TEST_CASE("§team-multihop Plane 2 — a team-scoped F: a same-team member processes it on _rt_team; a STATIC node + a WRONG-team member DROP it (full separation)") {
+    const uint32_t T = 0x12345678u;
+    // A same-team member team-DADs an id, then receives a team RREQ TARGETING it -> answers on the TEAM plane; the reverse
+    // route lands in _rt_team, NEVER the static _rt (the §18 separation).
+    StubHal hb; Node b(hb, 0, 0xB0B0u);
+    NodeConfig bc; bc.routing_sf=8; bc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); bc.leaf_id=4; bc.is_mobile=true; bc.team_id=T; CHECK(b.on_init(bc));
+    b.team_dad_fire();
+    const uint8_t tid = b.team_local_id();
+    CHECK(tid >= 17);
+    f_in tf{}; tf.leaf_id=4; tf.origin=201; tf.is_reply=false; tf.dst_id=tid; tf.ttl_or_next_hop=8; tf.hops=0; tf.relay=201;
+    tf.config_hash=0; tf.team_scoped=true; tf.team_id=T;
+    std::array<uint8_t,13> buf{}; const size_t n = pack_f(tf, std::span<uint8_t>(buf.data(), buf.size())); CHECK(n == 13);
+    hb.emits.clear();
+    b.on_recv(buf.data(), n, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    CHECK(hb.saw_emit("rreq_resolved_self"));                    // ★ B is the target -> a team RREP
+    CHECK(DualLayerTestAccess::is_team_peer(b, 201));            // ★ reverse route learned on the TEAM plane (_rt_team)
+    CHECK_FALSE(DualLayerTestAccess::rt_has_global(b, 201));     // ★ SEPARATION: the team F never wrote the static _rt (GLOBAL-forced)
+    // (1) a STATIC node (team_id==0) DROPS the same team F — no processing, no static route.
+    StubHal hs; Node st(hs, 40, 0x4040u);
+    NodeConfig sc; sc.routing_sf=8; sc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); sc.leaf_id=4; CHECK(st.on_init(sc));
+    st.on_recv(buf.data(), n, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    CHECK_FALSE(hs.saw_emit("rreq_rx")); CHECK_FALSE(hs.saw_emit("rreq_resolved_self"));
+    CHECK_FALSE(DualLayerTestAccess::rt_has(st, 201));          // ★ a team F never touches a static node's _rt
+    // (2) a WRONG-team member (team_id != T) DROPS it — no cross-team leakage.
+    StubHal hw; Node wt(hw, 0, 0x7070u);
+    NodeConfig wc; wc.routing_sf=8; wc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); wc.leaf_id=4; wc.is_mobile=true; wc.team_id=0x99999999u; CHECK(wt.on_init(wc));
+    wt.team_dad_fire();
+    hw.emits.clear();
+    wt.on_recv(buf.data(), n, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    CHECK_FALSE(hw.saw_emit("rreq_rx")); CHECK_FALSE(hw.saw_emit("rreq_resolved_self"));   // ★ other team -> dropped
 }
 
 TEST_CASE("§mobile 6.4 — a TEAM mobile triggers beacons (off-grid convergence); a lone/roaming mobile does NOT") {

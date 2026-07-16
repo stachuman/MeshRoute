@@ -621,16 +621,18 @@ std::optional<h_out> parse_h(std::span<const uint8_t> frame) {
 // byte6 = relay (immediate forwarder) for metal-correct reverse/forward path learning.
 // -----------------------------------------------------------------------------
 size_t pack_f(const f_in& in, std::span<uint8_t> out) {
-    if (out.size() < 9) return 0;          // R6.1: 7 + config_hash u16
+    const size_t need = in.team_scoped ? 13u : 9u;   // §team-multihop: +4 B team_id when TEAM (spec §5)
+    if (out.size() < need) return 0;       // R6.1: 7 + config_hash u16 (+ 4 team_id if team_scoped)
     wire::Writer w(out);
     w.u8(wire::cmd_byte(wire::Cmd::F, static_cast<uint8_t>(in.leaf_id & 0x0F)));
     w.u8(in.origin);
-    w.u8(in.is_reply ? 0x80 : 0x00);       // is_reply = bit 7; rsv = 0
+    w.u8(static_cast<uint8_t>((in.is_reply ? 0x80 : 0x00) | (in.team_scoped ? 0x40 : 0x00)));   // b7 = is_reply; b6 = TEAM (rsv otherwise). Static F -> b6=0 -> byte-identical.
     w.u8(in.dst_id);
     w.u8(in.ttl_or_next_hop);              // raw dual byte (ttl | next_hop)
     w.u8(in.hops);
     w.u8(in.relay);                        // byte 6: immediate forwarder's node_id
     w.u16_le(in.config_hash);              // bytes 7..8: R6.1 §6.4 leaf fingerprint (the F-flood membership gate)
+    if (in.team_scoped) w.u32_le(in.team_id);   // bytes 9..12: TEAM-plane scope (a receiver requires same team_id). Appended ONLY when b6 set -> static F unchanged.
     return w.ok() ? w.size() : 0;
 }
 
@@ -649,7 +651,13 @@ std::optional<f_out> parse_f(std::span<const uint8_t> frame) {
     o.relay           = r.u8();            // byte 6: immediate forwarder
     o.config_hash     = r.u16_le();        // bytes 7..8: R6.1 §6.4 leaf fingerprint
     if (!r.ok()) return std::nullopt;
-    o.is_reply = (b2 & 0x80) != 0;
+    o.is_reply    = (b2 & 0x80) != 0;
+    o.team_scoped = (b2 & 0x40) != 0;      // §team-multihop: b6 = TEAM-plane F
+    if (o.team_scoped) {                   // team_id appended at bytes 9..12 (spec §5)
+        if (frame.size() < 13) return std::nullopt;
+        o.team_id = r.u32_le();
+        if (!r.ok()) return std::nullopt;
+    }
     return o;
 }
 

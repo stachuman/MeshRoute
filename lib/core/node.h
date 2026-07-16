@@ -498,14 +498,18 @@ private:
     // 0xFF (unknown/reserved) and self are no-ops. C++ has no id-bind/dest-seen/liveness plane,
     // so (unlike the Lua) those sub-actions are absent.
     bool    learn_direct_neighbor(uint8_t sender, int16_t snr_q4, bool is_gw, bool team_plane = false);   // §6.2: team_plane -> learn into _rt_team
-    void    learn_route_via(uint8_t dest, uint8_t via, uint8_t hops, int16_t snr_q4);  // multi-hop install (F path)
-    // F route discovery (AODV RREQ/RREP) — node_route_discovery.cpp.
+    void    learn_route_via(uint8_t dest, uint8_t via, uint8_t hops, int16_t snr_q4, bool team_plane = false);  // multi-hop install (F path); §team-multihop: team_plane -> _rt_team + _team_peer bit
+    // F route discovery (AODV RREQ/RREP) — node_route_discovery.cpp. §team-multihop (spec 2026-07-15 Plane 2): team_plane forks
+    // the whole family onto the TEAM plane (team_scoped F, origin/dst = team_local_id, _rt_team, team-private _rreq state).
     void    handle_f(const uint8_t* bytes, size_t len, const RxMeta& meta);
-    void    emit_route_request(uint8_t dst, uint8_t ttl);
-    void    send_route_reply(uint8_t origin, uint8_t dst, uint8_t hops_to_dst);
-    bool    rreq_seen_recently(uint8_t origin, uint8_t dst);
-    void    mark_rreq_seen(uint8_t origin, uint8_t dst);
-    bool    rreq_rate_ok(uint8_t dst, uint8_t ttl);
+    void    emit_route_request(uint8_t dst, uint8_t ttl, bool team_plane = false);
+    void    send_route_reply(uint8_t origin, uint8_t dst, uint8_t hops_to_dst, bool team_plane = false);
+    bool    rreq_seen_recently(uint8_t origin, uint8_t dst, bool team_plane = false);
+    void    mark_rreq_seen(uint8_t origin, uint8_t dst, bool team_plane = false);
+    bool    rreq_rate_ok(uint8_t dst, uint8_t ttl, bool team_plane = false);
+#if MR_FEAT_TEAM
+    void    handle_f_team(const struct f_out& f, const RxMeta& meta);   // §team-multihop: same-team-only F handler (gated on team_id, on _rt_team) — full static/other-team separation
+#endif
     // Hash-locate (H) plane — node_hashlocate.cpp. id_bind = the key_hash32->node_id binding table, the
     // substrate the H resolver answers from (Lua dv:4677+). Populated by beacons (every BCN carries the
     // sender's key_hash32) + self + hash-bind responses.
@@ -1142,6 +1146,13 @@ private:
         struct TeamKey { uint8_t id = 0; uint32_t key_hash32 = 0; uint64_t last_seen_ms = 0; };
         TeamKey  _team_keys[16] = {};
         uint8_t  _team_keys_n = 0;
+        // §team-multihop (spec 2026-07-15 Plane 2 / §5): TEAM-plane F route-discovery dedup + rate-limit — team-PRIVATE
+        // copies of _rreq_seen/_rreq_last (keyed by a team_local_id origin/dst) so a team RREQ can NEVER alias a static one
+        // (§18 the two id-spaces can collide). Right-sized to team scale (16), NOT the static caps. Empty for a static node.
+        RReqSeen _rreq_seen_team[16] = {};
+        uint8_t  _rreq_seen_team_n = 0;
+        RReqLast _rreq_last_team[16] = {};
+        uint8_t  _rreq_last_team_n = 0;
 #endif
         // ==== MAC / FLIGHT pipeline (single flight per node): tx-queue · pending-tx/rx · post-ack · no-route defer ====
         // R3 data-plane state (single flight per node).
@@ -1308,7 +1319,7 @@ private:
 // pointer/enum/alignment). Purpose: the node.h legibility reorder (2026-07-15 by-concern member reorder) must not
 // change Node's layout. If this fires after a *deliberate* member add/remove/type change, update the baseline
 // consciously — it is a tripwire, not a frozen contract. The real nRF52 RAM check is the firmware.map .bss/.data diff.
-static_assert(sizeof(Node) == 214720, "node.h: Node native layout changed — if intentional, update the baseline");
+static_assert(sizeof(Node) == 215776, "node.h: Node native layout changed — if intentional, update the baseline");   // 214720 -> 215776 (+1056): §team-multihop Plane 2 team-private _rreq_seen_team/_rreq_last_team [16] × n_layers (the deliberate [cap_team] RAM add)
 #endif
 
 }  // namespace meshroute

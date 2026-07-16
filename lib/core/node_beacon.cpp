@@ -57,11 +57,25 @@ int16_t Node::route_score_from_snr(int16_t snr_q4) const {
 // Install a multi-hop route to `dest` via `via` (the immediate forwarder), hops as given — the F
 // reverse/forward-path learner. Like learn_direct_neighbor but multi-hop, and it does NOT fire a
 // triggered beacon (the F path relies on the periodic dirty-beacon to re-advertise).
-void Node::learn_route_via(uint8_t dest, uint8_t via, uint8_t hops, int16_t snr_q4) {
-    if (dest == 0xFF || dest == 0 || dest == _node_id || via == 0xFF || via == 0) return;   // §P0: 0 = reserved sentinel
+void Node::learn_route_via(uint8_t dest, uint8_t via, uint8_t hops, int16_t snr_q4, bool team_plane) {
+    // §team-multihop: on the TEAM plane the self-id is _team_local_id (dest==us must not self-route). (void) on !MR_FEAT_TEAM.
+    const uint8_t self_id = team_plane ? team_local_id() : _node_id;
+    if (dest == 0xFF || dest == 0 || dest == self_id || via == 0xFF || via == 0) return;   // §P0: 0 = reserved sentinel
     RtCandidate cand{};
     cand.next_hop = via; cand.score = route_score_from_snr(snr_q4); cand.hops = hops;
     cand.is_gateway = false; cand.last_seen_ms = _hal.now(); cand.learned_leaf = _cfg.leaf_id;
+#if MR_FEAT_TEAM
+    if (team_plane) {
+        const MergeAction a = rt_merge(dest, cand, _active->_rt_team, _active->_rt_team_count, /*team_plane=*/true);
+        if (a != MergeAction::none) {
+            _active->_team_peer[dest >> 3] |= static_cast<uint8_t>(1u << (dest & 7));   // §6.2 invariant: an _rt_team route => the _team_peer dispatch bit is set (is_team_peer <-> _rt_team)
+            emit_rt_update(_hal, dest, via, cand.score, hops, (a == MergeAction::alt_install) ? "team_alt" : "team");
+        }
+        return;
+    }
+#else
+    (void)team_plane;
+#endif
     const MergeAction a = rt_merge(dest, cand);
     if (a == MergeAction::new_dest || a == MergeAction::promote || a == MergeAction::primary_refresh)
         emit_rt_update(_hal, dest, via, cand.score, hops, "primary");

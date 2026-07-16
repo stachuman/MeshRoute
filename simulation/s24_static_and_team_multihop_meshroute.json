@@ -1,0 +1,76 @@
+{
+ "_name": "s24_static_and_team_multihop",
+ "_desc": "SEPARATION + dual-multi-hop on shared RF (spec 2026-07-15-team-plane-routing-parity §8). Two co-located multi-hop nets: a STATIC line S1<->S2<->S3 (no S1<->S3) and a TEAM line T1<->T2<->T3 (no T1<->T3). The team relay T2 is HOME-ATTACHED (DUAL: registered to home H AND a team member) -> the hardest separation case (one node live on BOTH the mobile-home plane and the team plane). S2 OVERHEARS all three team nodes (the would-be static bridge that must NOT relay the team plane). H hears the team ONLY via T2's relay, so it is the h_forward sentinel: any team-scoped H it re-floods = a static-plane leak. RED target (until Plane 1 lands): T3 receives T1's team DM by hash (send_hash). Everything else is green from day one. Companion to s22 (1-hop suite) + s23 (team-only multihop).",
+ "simulation": {
+  "duration_ms": 300000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "beacon_period_ms": 20000,
+  "seed": 24,
+  "node_startup_jitter_ms": 0,
+  "radio": { "sf": 8, "bw": 62.5, "cr": 5, "max_packet_bytes": 255, "snr_coherence_ms": 0, "duty_cycle": 0.01 }
+ },
+ "commands": [
+  { "_c": "STATIC multi-hop (sanity, green from day one): S1 -> S3 by hash, 2 hops via S2", "at_ms": 150000, "node": "S1", "command": "send_hash 11110023 stat24" },
+  { "at_ms": 180000, "node": "S1", "command": "send_hash 11110023 stat24" },
+  { "_c": "TEAM multi-hop (RED target): T1 -> T3 by hash. No T1<->T3 link, so delivery PROVES it relayed through the DUAL T2 on the team plane (NOT via a static bridge, NOT via T2's home).", "at_ms": 155000, "node": "T1", "command": "send_hash cccc0003 hop24" },
+  { "at_ms": 185000, "node": "T1", "command": "send_hash cccc0003 hop24" },
+  { "at_ms": 215000, "node": "T1", "command": "send_hash cccc0003 hop24" }
+ ],
+ "expect": [
+  { "_c": "team-DAD on all 3 team members (T2 dual still team-DADs)", "type": "script_emit_contains", "node": "T1", "emit_type": "team_dad_adopted", "value": "id" },
+  { "type": "script_emit_contains", "node": "T2", "emit_type": "team_dad_adopted", "value": "id" },
+  { "type": "script_emit_contains", "node": "T3", "emit_type": "team_dad_adopted", "value": "id" },
+
+  { "_c": "ASSERTION 1a — STATIC multi-hop delivers (S1 -> S3 via S2). Green from day one (static plane complete).", "type": "script_emit_contains", "node": "S3", "emit_type": "push", "value": "stat24" },
+
+  { "_c": "ASSERTION 1b — TEAM multi-hop delivers (T1 -> T3 via T2). THE RED TARGET: needs Plane 1 (team-scoped hash resolution) + the return path. Flips green when the spec lands.", "type": "script_emit_contains", "node": "T3", "emit_type": "push", "value": "hop24" },
+
+  { "_c": "ASSERTION 2 — SEPARATION: H (static, T2's home) hears the team ONLY via T2; it must NEVER re-flood a team-scoped H. h_forward==0 on H proves no static relay of the team plane. (S2 legitimately forwards the STATIC H for S1->S3, so H not S2 is the h_forward sentinel.)", "type": "event_count", "event_type": "script_emit", "emit_type": "h_forward", "node": "H", "count": 0 },
+
+  { "_c": "ASSERTION 2 (cont.) — non-leak: the would-be bridge S2 overhears the whole team but NEVER id_binds a team member's key (T1 key 0xaaaa0001 = 2863267841) into its static id_bind.", "type": "script_emit_not_contains", "node": "S2", "emit_type": "id_bind_set", "value": "2863267841" },
+  { "_c": "non-leak: T2's home H never id_binds T1's team key either", "type": "script_emit_not_contains", "node": "H", "emit_type": "id_bind_set", "value": "2863267841" },
+
+  { "_c": "ASSERTION 3 — DUAL-plane separation: T1->T3 routes team-DIRECT through T2, NOT via T2's home H. H (the home) must never receive/relay the team DM.", "type": "script_emit_not_contains", "node": "H", "emit_type": "push", "value": "hop24" },
+  { "_c": "CONTAINMENT: the would-be static bridge S2 never delivers the team DM (it is not a team endpoint and must not bridge).", "type": "script_emit_not_contains", "node": "S2", "emit_type": "push", "value": "hop24" }
+ ],
+ "nodes": [
+  { "name": "H", "script": "scenarios/dv_dual_sf.lua", "lat": 47.60000, "lon": -122.30000, "start_at_ms": 1000, "node_id": 17, "key_hash32": "0x11110017",
+    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9, 10], "beacon_period_ms": 20000 } },
+  { "name": "S1", "script": "scenarios/dv_dual_sf.lua", "lat": 47.60010, "lon": -122.30020, "start_at_ms": 1000, "node_id": 21, "key_hash32": "0x11110021",
+    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9, 10], "beacon_period_ms": 20000 } },
+  { "name": "S2", "script": "scenarios/dv_dual_sf.lua", "lat": 47.60010, "lon": -122.30010, "start_at_ms": 1000, "node_id": 22, "key_hash32": "0x11110022",
+    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9, 10], "beacon_period_ms": 20000 } },
+  { "name": "S3", "script": "scenarios/dv_dual_sf.lua", "lat": 47.60010, "lon": -122.30000, "start_at_ms": 1000, "node_id": 23, "key_hash32": "0x11110023",
+    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9, 10], "beacon_period_ms": 20000 } },
+  { "name": "T1", "script": "scenarios/dv_dual_sf.lua", "lat": 47.60000, "lon": -122.30020, "start_at_ms": 1000, "node_id": 50, "key_hash32": "0xaaaa0001",
+    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9, 10], "beacon_period_ms": 20000, "is_mobile": true, "team_id": 305419896, "mobile_autoregister": false, "discovery_min_routes": 1, "req_sync_min_routes": 1 } },
+  { "name": "T2", "script": "scenarios/dv_dual_sf.lua", "lat": 47.60000, "lon": -122.30010, "start_at_ms": 1000, "node_id": 51, "key_hash32": "0xbbbb0002",
+    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9, 10], "beacon_period_ms": 20000, "is_mobile": true, "team_id": 305419896, "mobile_autoregister": true, "discovery_min_routes": 1, "req_sync_min_routes": 1 } },
+  { "name": "T3", "script": "scenarios/dv_dual_sf.lua", "lat": 47.59990, "lon": -122.30010, "start_at_ms": 1000, "node_id": 52, "key_hash32": "0xcccc0003",
+    "config": { "routing_sf": 8, "allowed_data_sfs": [7, 9, 10], "beacon_period_ms": 20000, "is_mobile": true, "team_id": 305419896, "mobile_autoregister": false, "discovery_min_routes": 1, "req_sync_min_routes": 1 } }
+ ],
+ "topology": {
+  "links": [
+   { "_c": "team line T1<->T2<->T3 (NO T1<->T3)", "from": "T1", "to": "T2", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "T2", "to": "T1", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "T2", "to": "T3", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "T3", "to": "T2", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false },
+
+   { "_c": "static line S1<->S2<->S3 (NO S1<->S3)", "from": "S1", "to": "S2", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "S2", "to": "S1", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "S2", "to": "S3", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "S3", "to": "S2", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false },
+
+   { "_c": "T2 registers to home H (dual) + H overhears T2's team beacon/relay (the h_forward sentinel)", "from": "T2", "to": "H", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "H", "to": "T2", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false },
+
+   { "_c": "S2 overhears the WHOLE team (would-be static bridge that must NOT relay the team plane)", "from": "S2", "to": "T1", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "T1", "to": "S2", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "S2", "to": "T2", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "T2", "to": "S2", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "S2", "to": "T3", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "T3", "to": "S2", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false }
+  ]
+ }
+}

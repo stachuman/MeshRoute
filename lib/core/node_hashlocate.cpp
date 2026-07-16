@@ -529,6 +529,12 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // snooped hash-bind = claimed/second-hand, Phase C).
     int node_id = -1; bool authoritative = false; bool mobile_proxy = false; uint8_t mobile_epoch = 0; uint8_t mobile_layer = 0;   // §mobile 4a proxy flag + epoch; §5b the home's layer
     const bool same_team = h.team_scoped && _cfg.team_id != 0 && h.team_id == _cfg.team_id;   // §mobile-team: a teammate's locate (the mobile IS the endpoint on the team plane)
+    // §team-multihop (spec 2026-07-15 §2): a team-scoped H is a TEAM-plane flood — only same-team members answer/relay it.
+    // A static node (team_id==0) or a wrong-team member DROPS it here, BEFORE any answer, forward, or mark_hash_query_seen,
+    // so a team locate never rides the static plane (the s24 assertion-2 separation axis). UNCONDITIONAL (NOT #if MR_FEAT_TEAM):
+    // a !MR_FEAT_TEAM gateway build has team_id==0 -> same_team false -> it still DROPS any team-scoped H (the co-located-team
+    // leak the separation audit caught). same_team is false for every non-team-scoped H (s18-inert: no static H is team_scoped).
+    if (h.team_scoped && !same_team) return;
     // §mobile: a REGISTERED mobile is INVISIBLE to the static plane — it SKIPS own-hash resolution (the home proxies) so its
     // LOCAL id never leaks. It DOES answer a same-team locate (the 6.2 team-scoped table routes to its local id). A static
     // node (is_mobile=false) is unchanged. This also suppresses its want_pubkey owner-answer -> the home answers it (Part 2).
@@ -877,12 +883,15 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     // SOFT cached binding -> HARD verify-on-use (reach the owner for a correction); UNKNOWN -> SOFT flood. (The HOME re-originating
     // for its mobile floods as ITSELF, origin=home_id -> the answer routes back; the parked send keeps the mobile's reply hash.)
 #if MR_FEAT_TEAM
-    // §mobile 6.4: an off-grid team member (unregistered, no home) reaches teammates ONLY via a HEARD team beacon (resolved
-    // above). Unheard -> FAIL LOUD, not an H-flood storm: origin=_node_id is unroutable on the team plane, so the flood can
-    // never be answered — it just storms the channel until timeout. The app retries once the teammate's beacon arrives.
+    // §team-multihop (spec 2026-07-15 Plane 1): an off-grid team member with an UNHEARD teammate (not in the team-key cache
+    // above) RESOLVES it via a TEAM-SCOPED hash-locate — restore what 98f71dd did before this became a fail-loud. park + a
+    // team-scoped H flood (origin=team_local_id, routes back via _rt_team); same-team members relay it multi-hop (handle_h,
+    // team-scope preserved), the owner answers, and the parked send delivers on the returned binding. Forcing Plane::TEAM
+    // (vs the AUTO param) guarantees the team scope + the team_local_id origin. (reply_to_hash==0 = our own origination; a
+    // HOME re-originating for its mobile falls through to the global flood below.)
     if (reply_to_hash == 0 && _cfg.is_mobile && _cfg.team_id != 0 && !mobile_registered()) {
-        MR_EMIT("team_send_unresolved", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
-        Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::mobile_no_home; pu.dst = 0; pu.ctr = 0; enqueue_push(pu);
+        park_send(key_hash32, body, body_len, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr);
+        emit_hash_query(key_hash32, /*hard=*/false, /*want_pubkey=*/false, Plane::TEAM);
         return 0;
     }
 #endif

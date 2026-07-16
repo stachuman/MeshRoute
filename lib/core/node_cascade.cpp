@@ -123,6 +123,19 @@ void Node::cascade_to_alt(const char* giveup_event) {
         pt.retry_attempt = 0;                            // the alt is a NEW contention context -> reset the backoff growth
         tx_rts_retry();                                  // re-RTS on the alt — NO jitter (re-arms kRtsTimeoutTimerId)
     } else {
+#if MR_FEAT_TEAM
+        if (pt.plane == Plane::TEAM) {
+            // §team-multihop (spec 2026-07-15 Plane 2): a TEAM flight with all _rt_team paths exhausted -> reactively
+            // re-discover (the dynamic-team reroute — the user's hiking-group case) via a TEAM RREQ, then requeue to retry
+            // once the RREP installs a fresh route. SKIP the static §P3 liveness gate + slow-reprobe below: from_next is a
+            // team_local_id and those index the STATIC _peer_liveness / _link_bidi arrays (§18 aliasing). Full team<->static
+            // separation on the reroute path; team liveness is 2c (for 2b, cascade-exhaustion is the trigger, rate-limited
+            // by the team _rreq ledger).
+            emit_route_request(pt.dst, _cfg.dv_hop_cap, /*team_plane=*/true);
+            try_cascade_requeue(pt, giveup_event);
+            return;
+        }
+#endif
         // §P3 active rediscovery: all candidates exhausted AND the primary that just failed is SILENT/DEAD (confirmed
         // flaky, not merely congested) -> the route table holds only dead paths to dst. Flood an RREQ to find a FRESH
         // path NOW rather than stalling on the requeue / 3h aging — closes the no-alt dead-relay case (the user's bug:

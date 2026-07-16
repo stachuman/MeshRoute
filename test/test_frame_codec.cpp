@@ -397,6 +397,27 @@ TEST_CASE("F — RREQ/RREP round-trip + golden + is_reply isolation + reject") {
     CHECK(a[4] == b[4]); CHECK(a[5] == b[5]); CHECK(a[6] == b[6]); CHECK(a[7] == b[7]); CHECK(a[8] == b[8]);
     std::array<uint8_t, 8> sh{0x83, 0x11, 0x00, 0x2A, 0x08, 0x00, 0x07, 0x00};
     CHECK_FALSE(parse_f(sh).has_value());                 // len < 9 (R6.1: config_hash mandatory)
+    // §team-multihop (spec §5): TEAM-plane F — byte-2 b6 = TEAM + team_id (4 B) appended at offset 9 (team F = 13 B).
+    std::array<uint8_t, 13> tf{};
+    CHECK(pack_f({3, 0x77, false, 0x2A, 8, 0, /*relay=*/0x07, /*config_hash=*/0xABCD, /*team_scoped=*/true, /*team_id=*/0x12345678u}, tf) == 13);
+    CHECK((tf[2] & 0x40) != 0);                           // b6 = TEAM
+    CHECK((tf[2] & 0x80) == 0);                           // b7 = is_reply stays 0
+    const uint8_t ext[] = {0x78, 0x56, 0x34, 0x12};       // team_id LE at bytes 9..12
+    for (int i = 0; i < 4; ++i) CHECK(tf[9 + i] == ext[i]);
+    auto to = parse_f(tf);
+    CHECK(to.has_value());
+    if (to) { CHECK(to->team_scoped); CHECK(to->team_id == 0x12345678u);
+              CHECK(to->origin == 0x77); CHECK(to->config_hash == 0xABCD); CHECK_FALSE(to->is_reply); }
+    // static F (team_scoped defaults false) packs 9 B with b6=0 — byte-identical to the pre-team wire.
+    std::array<uint8_t, 13> sf{};
+    CHECK(pack_f({3, 0x11, false, 0x2A, 8, 0, /*relay=*/0x07, /*config_hash=*/0}, sf) == 9);
+    CHECK((sf[2] & 0x40) == 0);
+    auto so = parse_f(std::span<const uint8_t>(sf.data(), 9));
+    CHECK(so.has_value());
+    if (so) { CHECK_FALSE(so->team_scoped); CHECK(so->team_id == 0); }
+    // a team-flagged F truncated to 9 B (b6 set but no appended team_id) -> reject.
+    std::array<uint8_t, 9> tt{0x83, 0x11, 0x40, 0x2A, 0x08, 0x00, 0x07, 0x00, 0x00};
+    CHECK_FALSE(parse_f(tt).has_value());
 }
 
 // ===== C4: J join family (§10 cmd-nibble 0x9; byte1 reading A) ===============
