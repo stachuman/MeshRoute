@@ -306,6 +306,7 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (j.opcode == static_cast<uint8_t>(j_opcode::discover)) {       // §mobile 2a: host side of mobile registration
         if (!j.is_mobile) return;                                     // a static node never DISCOVERs -> ignore (still deferred)
         if (_cfg.is_mobile || !_cfg.host_mobiles) return;             // a mobile never hosts; a static node can opt OUT (B3)
+        if (_node_id == 0) return;                                    // §clean-join: no host OFFER while unprovisioned/mid-DAD (reset_join_for_reprovision set_identity(0)'d us; adopt restores the id right before _joined). NOT `!_joined`: an operator-pinned host (`cfg set node_id` -> b.joined=0, "won't auto-yield") has _joined==false FOREVER and must keep hosting. Bonus: kills the absurd responder_node_id=0 OFFER.
         const uint8_t local = find_free_mobile_id(j.key_hash32);
         if (local == 0) return;                                       // pool full -> stay silent (the mobile picks another host)
         j_offer_in off{}; off.leaf_id = _cfg.leaf_id; off.gateway_capable = false; off.is_mobile = true;

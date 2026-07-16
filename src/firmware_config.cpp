@@ -444,6 +444,7 @@ void handle_join(const char* args, Print& out) {
         b.freq_mhz = freq; b.bw_hz = (uint32_t)(bwk * 1000.0 + 0.5); b.routing_sf = (uint8_t)sf;   // kHz->Hz, ROUNDED (62.5->62500, not 62000)
         b.leaf_id = (uint8_t)(layer & 0x0F); b.layer0_id = (uint8_t)layer;       // full layer id stored; leaf = layer & 0x0F (byte-0 wire filter)
         b.node_id = 0; b.joined = 0; b.lineage_id = 0; b.config_epoch = 0;       // unprovisioned -> DAD + adopt the leaf's lineage via pull
+        b.leaf_name_len = 0;                                                     // §clean-join: don't carry the OLD leaf's name into the new network — present as freshly-joined (config-not-yet-pulled). A managed leaf repopulates via the config pull; an unmanaged one shows blank until `cfg set leaf_name`. (Bytes need not be zeroed — len-gated.)
         if (!mrnv::save(b)) { out.println(F("> join err nv_save_failed")); return; }
         provision_apply_live(b, /*do_dad=*/true);
         out.print(F("> join layer=")); out.print((int)layer); out.print(F(" freq=")); out.print(freq, 3);

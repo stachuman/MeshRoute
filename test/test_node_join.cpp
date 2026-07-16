@@ -25,6 +25,8 @@ namespace {
 
 constexpr uint32_t kJoinClaimGuardTimerId = 58;   // mirrors Node's private DAD guard timer id
 constexpr uint32_t kJoinListenTimerId     = 60;   // claim-after-listen window (L1)
+constexpr uint32_t kMobileDiscoverTimerId   = 74; // mirrors Node's private mobile-registration DISCOVER kick (node.h:479)
+constexpr uint32_t kMobileClaimGuardTimerId = 75; // mirrors Node's private collect-OFFERs window close (node.h:480)
 constexpr uint32_t kBeaconTimerId         = 1;    // periodic beacon tick (drives maybe_exit_discovery)
 
 struct Ev { std::string type; int64_t node = -1; int64_t proposed = -1; int64_t denied = -1;
@@ -98,6 +100,25 @@ int count_j_deny(const std::vector<std::vector<uint8_t>>& frames) {
     for (const auto& f : frames) { auto p = parse_j(std::span<const uint8_t>(f.data(), f.size()));
         if (p && p->opcode == static_cast<uint8_t>(j_opcode::deny)) ++c; }
     return c;
+}
+// §clean-join: a MOBILE DISCOVER (host-side registration probe).
+size_t make_j_discover_mobile(uint32_t key_hash32, std::array<uint8_t, 16>& buf) {
+    j_discover_in in{}; in.leaf_id = 0; in.gateway_capable = false; in.is_mobile = true; in.key_hash32 = key_hash32;
+    return pack_j_discover(in, std::span<uint8_t>(buf.data(), buf.size()));
+}
+// §clean-join: a MOBILE CLAIM addressed at `host` (records the mobile in the host's _mobile_reg — the append-only path).
+size_t make_j_claim_mobile(uint8_t host_id, uint8_t local_id, uint32_t key_hash32, std::array<uint8_t, 16>& buf) {
+    j_claim_in in{}; in.leaf_id = 0; in.gateway_capable = false; in.is_mobile = true; in.key_hash32 = key_hash32;
+    in.proposed_node_id = local_id; in.lease_age_seconds = 0; in.claim_epoch = 1; in.nonce = 0; in.chosen_host_id = host_id;
+    return pack_j_claim(in, std::span<uint8_t>(buf.data(), buf.size()));
+}
+// §clean-join: a MOBILE OFFER addressed at `target` (the mobile-side collector adopts it on the claim-guard fire).
+size_t make_j_offer_mobile(uint8_t responder_id, uint32_t responder_hash, uint8_t local_id, uint32_t target_hash,
+                           std::array<uint8_t, 16>& buf) {
+    j_offer_in in{}; in.leaf_id = 0; in.gateway_capable = false; in.is_mobile = true;
+    in.responder_node_id = responder_id; in.responder_key_hash32 = responder_hash; in.data_sf_bitmap = (1u << 7);
+    in.proposed_mobile_id = local_id; in.target_key_hash32 = target_hash;
+    return pack_j_offer(in, std::span<uint8_t>(buf.data(), buf.size()));
 }
 
 }  // namespace
@@ -411,4 +432,140 @@ TEST_CASE("join — reprovision wipes routes + restarts discovery at id-adopt; t
     node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);
     CHECK(node.joined());
     CHECK_FALSE(node.in_discovery());                          // heal kept routes -> no rediscover
+}
+
+// ============ §clean-join reset (spec 2026-07-16) — the `join` clean-slate wipe ============
+
+// Change 1 (+ R3): clear_routing_state() wipes the hosted-mobile registry (append-only bug) AND the team-plane
+// liveness mirror (2c), alongside the routes/id-binds it already clears. The old-network state must be void.
+TEST_CASE("clean-join — clear_routing_state wipes the hosted-mobile registry + team liveness (Change 1 + R3)") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000A1A1);
+    node.on_init(join_cfg());                                  // static host (host_mobiles defaults true), _node_id==0
+    Command c{}; c.kind = CmdKind::join; node.on_command(c);
+    node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);   // adopt id 17 (so a CLAIM can address us)
+    CHECK(node.node_id() == protocol::normal_node_id_min);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    // register a mobile: a mobile CLAIM addressed at us (chosen_host_id == our id) appends to _mobile_reg (node_join.cpp:235)
+    std::array<uint8_t, 16> jc{};
+    const size_t jn = make_j_claim_mobile(/*host=*/protocol::normal_node_id_min, /*local=*/200, /*hash=*/0x00C0FFEEu, jc);
+    node.on_recv(jc.data(), jn, meta);
+    CHECK(node.mobile_reg_count() == 1);
+
+    // learn a route + accrue a TEAM-plane liveness penalty on a next-hop
+    std::array<uint8_t, 64> bcn{}; const size_t bn = make_beacon(/*src=*/210, /*key=*/0x00009999u, bcn);
+    node.on_recv(bcn.data(), bn, meta);
+    CHECK(node.rt_count() >= 1);
+#if MR_FEAT_TEAM
+    node.record_peer_rts_timeout(/*id=*/50, /*ctr_lo=*/1, /*team_plane=*/true);
+    CHECK(node.test_team_penalty_q4(50) > 0);                  // suspect tier accrued
+#endif
+
+    node.clear_routing_state();
+    CHECK(node.mobile_reg_count() == 0);                       // ★ Change 1: the hosted-mobile registry is gone
+    CHECK(node.rt_count() == 0);                               // routes wiped (existing behavior, re-asserted)
+#if MR_FEAT_TEAM
+    CHECK(node.test_team_penalty_q4(50) == 0);                 // ★ R3: the team-liveness mirror is gone
+#endif
+    CHECK_FALSE(node.mobile_registered());                     // a static host is never a registered mobile
+}
+
+// R2: a REGISTERED node's clear emits exactly ONE mobile_reg deregistration push (registered:false);
+// an unregistered node's clear emits NONE (active-guarded — no spurious push).
+TEST_CASE("clean-join R2 — a registered node's clear pushes one mobile_reg deregister; unregistered pushes none") {
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    // (a) a MOBILE that has registered to a home
+    {
+        TestHal hal;
+        Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000B7B7u);
+        NodeConfig mcfg = join_cfg(); mcfg.is_mobile = true;
+        node.on_init(mcfg);
+        node.on_timer(kMobileDiscoverTimerId);                // DISCOVER kick -> arms the offer-collect window
+        std::array<uint8_t, 16> off{};
+        const size_t on = make_j_offer_mobile(/*responder=*/30, /*resp_hash=*/0x0000C0C0u, /*local=*/201, /*target=*/0x0000B7B7u, off);
+        node.on_recv(off.data(), on, meta);                   // collect the OFFER
+        node.on_timer(kMobileClaimGuardTimerId);              // window close -> CLAIM + adopt
+        CHECK(node.mobile_registered());
+        Push p{}; while (node.next_push(p)) {}                // drain the registration push(es)
+
+        node.clear_routing_state();
+        int dereg = 0, reg = 0;
+        while (node.next_push(p)) if (p.kind == PushKind::mobile_reg) { if (!p.relayed) ++dereg; else ++reg; }
+        CHECK(dereg == 1);                                    // ★ R2: exactly one registered:false push
+        CHECK(reg == 0);
+        CHECK_FALSE(node.mobile_registered());
+    }
+    // (b) a static node that never registered -> no mobile_reg push
+    {
+        TestHal hal;
+        Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000B8B8u);
+        node.on_init(join_cfg());
+        Push p{}; while (node.next_push(p)) {}
+        node.clear_routing_state();
+        int mreg = 0; while (node.next_push(p)) if (p.kind == PushKind::mobile_reg) ++mreg;
+        CHECK(mreg == 0);                                     // ★ R2: no spurious push when never registered
+    }
+}
+
+// Change 3 (R1-revised predicate): the host suspends OFFERs while _node_id==0 (unprovisioned / mid-DAD), but a
+// pinned host (_node_id!=0, _joined==false forever) MUST keep hosting — the gate is on _node_id, NOT !_joined.
+TEST_CASE("clean-join Change 3 — no OFFER while _node_id==0; a pinned id keeps hosting (R1)") {
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    std::array<uint8_t, 16> disc{};
+    const size_t dn = make_j_discover_mobile(/*hash=*/0x0000D1D1u, disc);
+
+    // (1) unprovisioned host (_node_id==0) -> NO offer
+    {
+        TestHal hal; Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000A2A2u);
+        node.on_init(join_cfg());
+        CHECK(node.node_id() == 0);
+        node.on_recv(disc.data(), dn, meta);
+        CHECK(hal.count("mobile_offer_tx") == 0);            // ★ suspended: unprovisioned
+    }
+    // (2) mid-DAD after a reprovision (adopt, then reset -> _node_id==0) -> NO offer
+    {
+        TestHal hal; Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000A3A3u);
+        node.on_init(join_cfg());
+        Command c{}; c.kind = CmdKind::join; node.on_command(c);
+        node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);
+        CHECK(node.joined());
+        node.reset_join_for_reprovision();                   // set_identity(0) + _joined=false -> mid-DAD window
+        CHECK(node.node_id() == 0);
+        hal.events.clear();
+        node.on_recv(disc.data(), dn, meta);
+        CHECK(hal.count("mobile_offer_tx") == 0);            // ★ suspended: mid-DAD
+    }
+    // (3) an operator-PINNED host (`cfg set node_id`): _node_id!=0, _joined==false FOREVER -> MUST keep hosting
+    {
+        TestHal hal; Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000A4A4u);
+        node.on_init(join_cfg());
+        node.set_identity(/*node_id=*/50, /*key_hash32=*/0x0000A4A4u);   // pinned: id set, joined stays false
+        CHECK_FALSE(node.joined());
+        CHECK(node.node_id() == 50);
+        hal.events.clear();
+        node.on_recv(disc.data(), dn, meta);
+        CHECK(hal.count("mobile_offer_tx") == 1);            // ★ R1: !_joined would have wrongly refused this host
+    }
+}
+
+// R4: the channel plane is old-network state — clear_routing_state (the reprovision verbs) must wipe the buffered
+// channel messages so they can't flood into the NEW network (moved from clear_learned_state; prep-restart unchanged).
+TEST_CASE("clean-join R4 — clear_routing_state wipes the buffered channel messages") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000E1E1u);
+    NodeConfig ccfg = join_cfg(); ccfg.allowed_sf_bitmap = (1u << 7);   // send_channel refuses on an empty sf_list (err_no_data_sf, node.cpp:910) — the fail-loud data-SF rule
+    node.on_init(ccfg);
+    Command jc{}; jc.kind = CmdKind::join; node.on_command(jc);
+    node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);   // adopt id 17 (send_channel needs provisioning)
+    CHECK(node.joined());
+
+    Command c{}; c.kind = CmdKind::send_channel; c.u.channel.channel_id = 7;
+    const char* text = "old-network-msg"; c.body = reinterpret_cast<const uint8_t*>(text);
+    c.body_len = static_cast<uint8_t>(std::strlen(text));
+    node.on_command(c);
+    CHECK(node.channel_buffer_count() >= 1);
+
+    node.clear_routing_state();
+    CHECK(node.channel_buffer_count() == 0);                 // ★ R4: no old-network channel content survives the reprovision
 }

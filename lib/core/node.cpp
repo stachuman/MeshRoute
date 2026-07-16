@@ -324,13 +324,31 @@ void Node::clear_routing_state() {
 #if MR_FEAT_TEAM
         _layers[i]._rt_team_count = 0;       // §mobile 6.2: the TEAM plane too — a reprovision may change team_id; a stale _rt_team + _team_peer bit would SHADOW the fresh static plane (rt_find dispatches on is_team_peer with no _rt fallback).
         for (auto& v : _layers[i]._team_peer) v = 0;   // §6.2: scrub the set-only team-peer bitset (mirror the _mobile_peer clear in clear_learned_state)
+        _layers[i]._team_liveness_n = 0;     // §clean-join R3: the team-plane liveness mirror (2c) is old-network state too — a stale dead/silent tier would misrank the fresh team's _rt_team. Same disease as the mobile registry; count-reset only (self-slotted LRU, stale bytes never read past _n).
 #endif
         _layers[i]._id_bind_n  = 0;          // id -> key bindings (old neighbours)
         _layers[i]._deferred_n = 0;          // parked no-route sends
         _layers[i]._drain_armed = false;
+        _layers[i]._mobile_reg_n = 0;        // §clean-join: the hosted-mobile registry is old-network state — the mobiles registered to us on the PREVIOUS network are void. UNGUARDED: _mobile_reg is compiled into every build (node.h:1285). Count-reset only (stale bytes never read past _mobile_reg_n), matching the codebase's count-based clear idiom.
+        // §clean-join R4: the CHANNEL plane is old-network state too — buffered channel messages would flood into the NEW
+        // network (a beacon digest advertises their ids + a pull re-broadcasts them, both stamped with the CURRENT leaf; a
+        // shared-key network then ingests old content), and the per-origin anti-spam ledgers would mis-account recycled ids.
+        // MOVED here from clear_learned_state (which calls us) so the reprovision verbs wipe it too; prep-restart unchanged.
+        _layers[i]._channel_buffer_n = 0; _layers[i]._per_origin_channel.clear();          // channel buffer (+ its seen_by) + per-origin anti-spam ledgers
+        for (auto& p : _layers[i]._channel_pull_pending) p = ChannelPullPending{};          // digest/pull pending
+        _layers[i]._channel_pull_recent_n = 0;
+        for (auto& f : _layers[i]._flood) f = FloodState{};                                 // channel-flood in-progress
     }
     for (uint8_t i = 0; i < protocol::cap_gateway_neighbor_schedules; ++i) _gw_schedules[i].valid = false;
     for (uint8_t i = 0; i < protocol::cap_bridged_layers; ++i)             _bridged_layers[i].valid = false;
+#if MR_FEAT_MOBILE
+    // §clean-join R2: drop OUR registration to a home too (this node may itself be a mobile). Push the deregistration
+    // FIRST (active-guarded → registered:false shape, S2) so a `leave`/re-`join` doesn't leave the companion chip's
+    // registration state stale forever; then reset. Plain struct reset — NOT mobile_reset_registration() (whose
+    // re-DISCOVER/set_identity side-effects don't belong on a verb reprovision; the join's own re-DAD drives rediscovery).
+    if (_my_mobile_reg.active) { Push pu{}; pu.kind = PushKind::mobile_reg; enqueue_push(pu); }   // registered:false (relayed defaults false)
+    _my_mobile_reg = MyMobileReg{};
+#endif
 }
 
 // prep-restart (2026-06-24): the middle-tier reset — drop EVERY volatile/learned table to a fresh-but-PROVISIONED
@@ -349,10 +367,9 @@ void Node::clear_learned_state() {
         L._peer_liveness_n = 0;                             // liveness tiers
         for (auto& v : L._dest_seen_ms) v = 0;              // freshness map (256 × u64)
         for (auto& v : L._mobile_peer)  v = 0;              // mobile-peer set (32 B)
-        L._channel_buffer_n = 0; L._per_origin_channel.clear();          // channel buffer (+ its seen_by) + per-origin anti-spam ledgers
-        for (auto& p : L._channel_pull_pending) p = ChannelPullPending{}; // digest/pull pending
-        L._channel_pull_recent_n = 0;
-        for (auto& f : L._flood) f = FloodState{};          // channel-flood in-progress
+        // (§clean-join R4: the channel-plane cluster — buffer/per-origin ledger/pull-pending/pull-recent/flood — MOVED
+        //  to clear_routing_state so the reprovision verbs wipe it too; clear_routing_state runs first here, so
+        //  prep-restart still clears it.)
         L._peer_send_counter.clear(); L._last_acked_from.clear();
         L._seen_origins.clear(); L._seen_origin_from.clear(); L._blind_until.clear();
         L._neighbor_budget_tier.clear(); L._neighbor_budget_tier_set_at.clear();
