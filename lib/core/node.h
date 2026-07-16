@@ -800,6 +800,7 @@ private:
     void     deleg_ack_put(uint8_t acker, uint16_t ctr_h, uint16_t ctr_m);                        // record a delegated re-origination's {acker,ctr_H}->ctr_M (evict oldest/expired)
     bool     deleg_ack_translate(uint8_t acker, uint16_t acked_ctr, uint16_t& out_mobile_ctr);   // true = translated (delegated); false = pass-through (direct/miss)
     void     enqueue_push(const Push& p);                                  // append to the bounded ring
+    void     push_peer_key_cached(uint32_t key_hash32);                    // §S6: peer_key_cached push carrying the cached name (copied at cache time; body empty when unknown)
     void     become_free();                                       // dv_dual_sf.lua:7433 (FIFO single-drain)
     void     issue_send(const TxItem& item);                      // :7018 pending_tx + RTS
     void     clear_nack_wait() { _hal.cancel(kNackWaitTimerId); _nack_wait_pending = false; }   // drop a stale BUSY_RX wait
@@ -1332,7 +1333,7 @@ private:
 // pointer/enum/alignment). Purpose: the node.h legibility reorder (2026-07-15 by-concern member reorder) must not
 // change Node's layout. If this fires after a *deliberate* member add/remove/type change, update the baseline
 // consciously — it is a tripwire, not a frozen contract. The real nRF52 RAM check is the firmware.map .bss/.data diff.
-static_assert(sizeof(Node) == 218104, "node.h: Node native layout changed — if intentional, update the baseline");   // …215784 -> 218104 (+2320 §team-multihop 2c: _team_liveness[cap_team_liveness=16] × n_layers, sizeof(PeerLiveness)≈72)
+static_assert(sizeof(Node) == 218232, "node.h: Node native layout changed — if intentional, update the baseline");   // …215784 -> 218104 (§team-multihop 2c) -> 218232 (+128 §S4: Push +4 B team_id × _push_ring[cap_push_ring=32])
 #endif
 
 }  // namespace meshroute

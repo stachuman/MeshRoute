@@ -232,11 +232,12 @@ void Node::ingest_channel_m(const m_out& m, uint8_t from) {
             // the SAME channel_msg_id + seq -> the app unifies live+pulled + detects gaps (model B).
             const uint8_t rx_layer = active_layer_id();   // §2/Q13: the receiving layer (leaf-local; gateways skip channels)
             const uint32_t seq = _inbox.record_channel(m.channel_id, id, rx_layer, e.payload,
-                                                       static_cast<uint8_t>(e.payload_len), _hal.now());
+                                                       static_cast<uint8_t>(e.payload_len), _hal.now(), m.team_id);   // §S5: durable team scoping
             Push pu{};
             pu.kind = PushKind::channel_recv; pu.origin = origin; pu.channel_id = m.channel_id;
             pu.layer_id = rx_layer;            // §2/Q13: the receiving layer
             pu.channel_msg_id = id;            // the FULL 32-bit channel id — the app's dedup identity (matches the inbox record)
+            pu.team_id = m.team_id;            // §S4: team scoping (0 = a leaf channel -> write_push omits it)
             pu.seq = seq;                      // the inbox per-store seq (0 = inbox disabled -> write_push omits it)
             pu.body_len = static_cast<uint8_t>(e.payload_len > protocol::max_payload_bytes_hard_cap
                                                ? protocol::max_payload_bytes_hard_cap : e.payload_len);

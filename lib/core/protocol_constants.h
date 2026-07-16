@@ -460,7 +460,7 @@ inline constexpr uint16_t reserve_est_payload_bytes = max_payload_bytes_hard_cap
 // ---- Persistent inbox (DM + channel durable history; 2026-06-10 spec) -------
 // Two independent flash stores: DMs are large + durable, channels persisted but freely evicted.
 // Both drop-oldest at the byte cap. The store is a segmented append-log (delete-oldest-segment, no
-// rewrite); segment <= store cap. A record = a 24-B header + body, body <= inbox_max_body, so a
+// rewrite); segment <= store cap. A record = a 31-B header (inbox_record_header_bytes) + body, body <= inbox_max_body, so a
 // single record always fits a segment (the "record > segment" path is a defensive guard, never hit).
 inline constexpr uint32_t inbox_dm_store_bytes     = 512u * 1024;   // ~thousands of short DMs
 inline constexpr uint32_t inbox_chan_store_bytes   = 128u * 1024;   // freer (channels evict sooner)

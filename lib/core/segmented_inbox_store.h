@@ -71,7 +71,7 @@ private:
         uint32_t epoch;               // §10.1 storage epoch (bumps on a records-store wipe)
     };
     static constexpr uint32_t kMagic       = 0x4D524958u;  // 'MRIX'
-    static constexpr uint16_t kVersion     = 1;
+    static constexpr uint16_t kVersion     = 2;            // v2 (2026-07-16 §S5): record header gained team_id -> old-format records unparseable -> begin() wipes + bumps epoch on a version mismatch.
     // read_since loads a WHOLE segment into this scratch, so a segment must be <= it (begin() guards _seg).
     // Tied to protocol::inbox_segment_bytes so the segment size and the scratch are ONE value — a larger
     // segment would silently truncate the read (drop every record past the scratch). .bss, single-threaded.
@@ -83,8 +83,11 @@ private:
     // S2 flash-validation rule: range-check a flash-loaded struct BEFORE its fields index / divide / bound a loop.
     // A torn /mri_* meta with seg_count==0 hard-faults the `% seg_count` below (DBZ), and head_seg>=seg_count makes
     // the `i == head_seg` ring walk never terminate (infinite boot loop). Reject those -> begin() re-inits fresh meta.
+    // MAGIC + STRUCTURE only (NOT version): begin() needs the prior _meta (incl. version) to detect a record-format
+    // UPGRADE and wipe+re-epoch the records while preserving next_seq (§S5, mirrors src/device_inbox_store.h). The
+    // structural checks stay — a torn meta (seg_count==0 / head|tail out of range) must still be rejected as fresh.
     bool load_meta() {
-        return _meta_io->load(&_meta, sizeof _meta) && _meta.magic == kMagic && _meta.version == kVersion
+        return _meta_io->load(&_meta, sizeof _meta) && _meta.magic == kMagic
             && _meta.seg_count == ring_segs() && _meta.head_seg < _meta.seg_count && _meta.tail_seg < _meta.seg_count;
     }
 
@@ -108,19 +111,30 @@ inline bool SegmentedInboxStore::begin() {
     bool formatted = false;
     if (!_records->mount(&formatted)) return false;             // records store unmountable -> fail loud (Inbox stays disabled)
 
-    const bool had_meta = load_meta();
+    const bool had_meta   = load_meta();                       // magic + structure matched -> _meta holds the PRIOR values (incl. version)
+    const bool version_ok = had_meta && _meta.version == kVersion;
     if (!had_meta) {                                            // fresh / unreadable meta -> initialize
         _meta = Meta{};
         _meta.magic = kMagic; _meta.version = kVersion;
         _meta.seg_count = ring_segs();
         _meta.head_seg = _meta.tail_seg = 0;
         _meta.next_seq = 1; _meta.read_cursor = 0; _meta.epoch = 1;
+    } else if (!version_ok) {                                   // §S5 UPGRADE: the record header layout changed (+team_id) -> the old
+        for (uint16_t i = 0; i < ring_segs(); ++i) _records->seg_erase(i);   //  QSPI records can't be parsed by the new deserializer -> WIPE them.
+        _meta.version   = kVersion;                            //  KEEP next_seq (survives on the meta store) so seq never reuses, and BUMP
+        _meta.epoch    += 1;                                   //  the epoch so the companion sees the wipe + re-pulls cleanly (mirrors device_inbox_store.h).
+        _meta.head_seg  = _meta.tail_seg = 0;
+        _meta.seg_count = ring_segs();
+        _meta.read_cursor = 0;
+        save_meta();
+        formatted = true;                                      // records are now empty -> the §10.1 detect below is a no-op (don't double-bump)
     }
     // §10.1 wipe detection: the records store came up EMPTY but the (separate) meta says we had records -> the
     // records were wiped (format-on-dirty / OTAFIX QSPI erase). BUMP the epoch, reset the ring; KEEP next_seq
     // (it survived on the meta store) so seq never reuses. The companion sees the new epoch + re-syncs from 0.
+    // ONLY the version-OK path — the upgrade branch above already wiped + bumped.
     const bool records_empty = formatted || !_records->any_segments();
-    if (had_meta && records_empty && _meta.next_seq > 1) {
+    if (version_ok && records_empty && _meta.next_seq > 1) {
         _meta.epoch += 1;
         _meta.head_seg = _meta.tail_seg = 0;
         _meta.seg_count = ring_segs();

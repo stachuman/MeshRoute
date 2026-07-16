@@ -322,6 +322,14 @@ uint8_t Node::peer_name_find(uint32_t key_hash32, char* out, uint8_t cap) const 
     return 0;
 }
 
+// §S6: enqueue a peer_key_cached push carrying the peer's cached NAME (copied NOW, at cache time — the cache may
+// age by drain time). body empty (body_len 0) when unknown -> write_push omits "name". One path for all 4 cache sites.
+void Node::push_peer_key_cached(uint32_t key_hash32) {
+    Push pu{}; pu.kind = PushKind::peer_key_cached; pu.sender_hash = key_hash32;
+    pu.body_len = peer_name_find(key_hash32, reinterpret_cast<char*>(pu.body), 32);
+    enqueue_push(pu);
+}
+
 bool Node::peer_key_find(uint32_t key_hash32, uint8_t ed_pub_out[32], PeerKeyConf* conf_out) {
     const uint64_t now = _hal.now();
     auto& L = *_active;
@@ -598,7 +606,7 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                 if (!h.team_scoped && !h.mobile_req)
                     id_bind_set(h.origin, requester_hash, IdBindSource::h_query, IdBindConf::authoritative);
                 MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(requester_hash)), EF_I("node", h.origin));   // review#11: schema aligned with §7
-                Push pu{}; pu.kind = PushKind::peer_key_cached; pu.sender_hash = requester_hash; enqueue_push(pu);   // review#10: app-notify on device too
+                push_peer_key_cached(requester_hash);   // review#10: app-notify on device too (§S6: + the cached name)
             }
             send_hash_bind_pubkey_response(h.origin, _cfg.leaf_id, static_cast<uint8_t>(node_id), _ed_pub, h.mobile_req ? requester_hash : 0);   // §mobile: a MOBILE requester -> DST_HASH=the mobile so the answer routes to origin (=the mobile's home) + last-miles
         } else
@@ -696,7 +704,7 @@ void Node::on_hash_bind_pubkey(const uint8_t* inner, uint8_t inner_len) {
     if (inner_len > 34) { nlen = inner[34]; if (nlen > 32) nlen = 32; if (35u + nlen <= inner_len) nm = reinterpret_cast<const char*>(inner + 35); else nlen = 0; }
     if (peer_key_set(kh, o->ed_pub, PeerKeyConf::authoritative, nm, nlen)) {
         MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(kh)), EF_I("node", o->node_id));
-        Push pu{}; pu.kind = PushKind::peer_key_cached; pu.sender_hash = kh; enqueue_push(pu);   // §7: app prompts "secure send ready — resend"
+        push_peer_key_cached(kh);   // §7: app prompts "secure send ready — resend" (§S6: + the cached name)
     }
     // [#38b park/drain follow-up: on a fresh authoritative insert, drain parked CRYPTED sends to kh -> seal + send.]
 }
@@ -791,7 +799,7 @@ void Node::on_mobile_hash_bind_pubkey_response(const uint8_t* inner, uint8_t inn
     if (inner_len > 39) { nlen = inner[39]; if (nlen > 32) nlen = 32; if (40u + nlen <= inner_len) nm = reinterpret_cast<const char*>(inner + 40); else nlen = 0; }
     if (kh == hb->key_hash32 && peer_key_set(kh, ed, PeerKeyConf::authoritative, nm, nlen)) {   // the key MUST hash to M (self-consistent) — never id_bind the LOCAL id
         MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(kh)), EF_I("node", hb->node_id));
-        Push pu{}; pu.kind = PushKind::peer_key_cached; pu.sender_hash = kh; enqueue_push(pu);   // §7: app prompts "secure send ready — resend"
+        push_peer_key_cached(kh);   // §7: app prompts "secure send ready — resend" (§S6: + the cached name)
     }
     mobile_home_set(hb->key_hash32, hb->node_id, hb->epoch, hb->target_layer);   // M -> home (+layer): the sealed DM routes via the home, not to the local id
     MR_EMIT("mobile_home_cached", EF_I("key", static_cast<int64_t>(hb->key_hash32)), EF_I("home", hb->node_id), EF_I("epoch", hb->epoch));

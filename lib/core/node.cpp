@@ -925,7 +925,7 @@ CmdResult Node::on_command(const Command& c) {
             if (const uint8_t* mk = host_mobile_ed_pub(h)) {
                 peer_key_set(h, mk, PeerKeyConf::authoritative);
                 MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(h)), EF_I("node", 0));   // mirror the handle_h path (telemetry + push)
-                Push pu{}; pu.kind = PushKind::peer_key_cached; pu.sender_hash = h; enqueue_push(pu);
+                push_peer_key_cached(h);   // §S6: + the cached name
                 return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };
             }
 #endif

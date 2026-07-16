@@ -113,6 +113,34 @@ TEST_CASE("SegmentedInboxStore: FULL wipe (records + meta) -> fresh epoch + seq 
     CHECK(s2.storage_epoch() == 1);                         // fresh epoch — a CHANGE from the app's last-seen (2) -> it re-pulls
 }
 
+TEST_CASE("SegmentedInboxStore: §S5 record-format VERSION mismatch -> records wiped + epoch bumped + next_seq preserved") {
+    // The §S5 team_id record-header growth bumps the store version. On the next boot the OLD-format records can't be
+    // parsed by the new deserializer, so begin() must WIPE them, BUMP the epoch (companion re-pulls from 0), and KEEP
+    // next_seq (monotonic — seq never reuses). Meta layout: magic@0, version@4 (a private struct; offset documented there).
+    FakeSegmentStore recs; FakeMetaStore meta;
+    {
+        SegmentedInboxStore s(recs, meta, 4096, 256);
+        CHECK(s.begin());
+        put(s, 1, "x"); put(s, 2, "y");
+        CHECK(s.set_next_seq(3));                             // high-water persisted to the (separate) meta store
+        CHECK(s.storage_epoch() == 1);
+    }
+    CHECK(recs.any_segments());                              // the old-format records ARE present on "flash"
+    meta.poke_u16(4, 99);                                    // simulate an OLD store version (record header layout changed under it)
+    SegmentedInboxStore s2(recs, meta, 4096, 256);
+    CHECK(s2.begin());
+    CHECK(s2.storage_epoch() == 2);                          // BUMPED -> the companion sees the wipe + re-syncs
+    CHECK(s2.persisted_next_seq() == 3);                     // next_seq PRESERVED (never reuses a seq)
+    Got g; CHECK(s2.read_since(0, got_cb, &g) == 0);         // the unparseable old records are gone
+    CHECK_FALSE(recs.any_segments());                        // records store wiped
+    // A SUBSEQUENT reboot at the new version is stable (no repeated wipe/bump).
+    put(s2, 3, "z"); CHECK(s2.set_next_seq(4));
+    SegmentedInboxStore s3(recs, meta, 4096, 256);
+    CHECK(s3.begin());
+    CHECK(s3.storage_epoch() == 2);                          // NOT re-bumped (version now matches)
+    Got g3; CHECK(s3.read_since(0, got_cb, &g3) == 1);
+}
+
 TEST_CASE("SegmentedInboxStore: records span multiple segments (roll), all readable oldest-first") {
     FakeSegmentStore recs; FakeMetaStore meta;
     SegmentedInboxStore s(recs, meta, /*cap*/4096, /*seg*/24);   // tiny segs -> forced rolls; big cap -> no eviction

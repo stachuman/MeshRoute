@@ -436,8 +436,8 @@ started**. "Unblocks" = the companion feature(s) that cannot ship without it.
 | **Node-side alert events** (battery-low / duty-exhausted / peer-dead) pushed to BLE | S | proactive alerts (§7.1) |
 | **Channel directory / subscription** (PORT_PLAN "channel subscriptions") | M | channel management UI |
 | **Dynamic leaf-config write path** (R6.3) | M | leaf management UI (operator) |
-| 📝 **Mobile/team state JSON surface** — **SPEC'D 2026-07-16** (`2026-07-16-companion-mobile-team-json-surface.md` S1–S5: `ready`/`cfg` mobile+team fields · `mobile_reg`/`team_reg` pushes · `mobile status`/`gateways` JSON · `team_id` channel tag live+durable) | M | mobile connectivity chip, roam UI (`mobile_autoregister=0` app-driven mode), team chat threading; **the entire management UI for the proposed screenless T1000-E tracker variant** |
-| 📝 **Peer names as JSON** — **SPEC'D 2026-07-16** (same spec §7: `peer_key_cached`+`name`, `nameof`→`peer_name`) | S | contacts auto-label from the mesh (QR `n` stays the manual path); closes the §1.3 name arc |
+| ✅ **Mobile/team state JSON surface** — **DONE 2026-07-16** (spec'd + implemented + gated same day; `2026-07-16-companion-mobile-team-json-surface.md` S1–S5: `ready`/`cfg` mobile+team fields · `mobile_reg`/`team_reg` pushes · `mobile status`/`gateways` JSON · `team_id` channel tag live+durable; uncommitted, bench pending) | M | mobile connectivity chip, roam UI (`mobile_autoregister=0` app-driven mode), team chat threading; **the entire management UI for the proposed screenless T1000-E tracker variant** |
+| ✅ **Peer names as JSON** — **DONE 2026-07-16** (same spec §7: `peer_key_cached`+`name`, `nameof`→`peer_name`; uncommitted) | S | contacts auto-label from the mesh (QR `n` stays the manual path); closes the §1.3 name arc |
 
 ### 8.3 Decisions these firmware asks need FIRST (block the spec)
 - **Remote admin (`TYPE=ADMIN`) authorization model** — who is "owner"? provisioning identity / a

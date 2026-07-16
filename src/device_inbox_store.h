@@ -38,7 +38,7 @@ struct Meta {
     uint32_t epoch;        // §10.1 storage epoch (bumps on a records-store wipe)
 };
 constexpr uint32_t kMagic   = 0x4D524958u;  // 'MRIX'
-constexpr uint16_t kVersion = 4;            // v4 (2026-06-23): record header gained `type` (E2E-ack receipts). v3: +enc (§8b). v2: +layer_id (§2/Q13).
+constexpr uint16_t kVersion = 5;            // v5 (2026-07-16 §S5): record header gained `team_id` (channel team scoping). v4: +type (E2E-ack receipts). v3: +enc (§8b). v2: +layer_id (§2/Q13).
                                             // A version mismatch on an upgrade flash WIPES the QSPI records (old header layout) + BUMPS the epoch (companion re-pulls); next_seq is preserved (monotonic).
 
 }  // namespace mrinbox

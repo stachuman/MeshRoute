@@ -97,6 +97,9 @@ enum class PushKind : uint8_t {
                    //   (kind = channel|dm; reason = cap|min_interval; next_ms = ms until allowed). Companion holds + retries.
     channel_sent,  // Slice 6c: outcome of an OWN channel post's origin re-offer. relayed=true (a relay was overheard =
                    //   channel_reoffer_confirm) or relayed=false (the re-offer exhausted with no relay -> reason "no_relay").
+    mobile_reg,    // §S2: mobile registration changed. origin=home, dst=local, layer_id=home_layer, ctr=epoch,
+                   //   relayed=registered (home_layer/epoch emitted only when registered). registered:false = home lost/dereg.
+    team_reg,      // §S2: team-DAD id adopted/re-picked. team_id = _cfg.team_id (hex string), dst=team_local_id.
 };
 // E2E §5: why a send_failed Push fired, so the app reacts (no_pubkey -> offer Request-key/Scan-QR; the permanent
 // reasons -> plain fail). Mirrors the contract `send_failed.reason`. `none` = a non-send_failed push.
@@ -122,6 +125,7 @@ struct Push {
     uint32_t sender_hash = 0;      // msg_recv: the DM sender's stable key_hash32 (0 = no SOURCE_HASH). The app's
                                    //   DM dedup identity is (sender_hash, ctr) when set, else (origin, ctr).
     uint32_t channel_msg_id = 0;   // channel_recv: the FULL 32-bit channel message id (the app's dedup identity)
+    uint32_t team_id = 0;          // §S4: channel_recv team scoping (0 = a plain leaf channel -> omitted); §S2 team_reg carries the team id here
     uint32_t seq = 0;              // msg_recv/channel_recv: the inbox per-store seq (0 = inbox disabled -> omit).
                                    //   The app unifies live + pulled by seq + detects a dropped live push (model B).
     bool     has_location = false; // msg_recv: the sender piggybacked a 6-B location (DATA_FLAG_LOCATION).

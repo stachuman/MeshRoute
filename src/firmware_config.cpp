@@ -10,6 +10,7 @@
 #include "protocol_constants.h"      // meshroute::protocol::* (preamble_sym, gateway_node_id_max, discovery_beacon_period_ms, leaf_name_max)
 #include "leaf_config.h"             // meshroute::duty_to_bp/bp_to_duty/frac_to_bp/bp_to_frac/ms_to_u16
 #include "admin_auth.h"              // meshroute::Identity, admin_key_from_password (handle_password)
+#include "console_json.h"            // §S3: write_mobile_status/_gw/_net/_gw_end/_err (companion JSON for `mobile status`/`gateways`)
 #include "device_rng.h"             // mrrng::fill (handle_create lineage mint)
 #include <Arduino.h>                 // Print, F()
 #include <cstdlib>                   // atoi/atof/atol/strtoul
@@ -577,7 +578,11 @@ void handle_team(const char* args, Print& out) {
 void handle_mobile(const char* args, Print& out) {
     while (*args == ' ') ++args;
     const meshroute::NodeConfig& c = g_node.config();
-    if (!c.is_mobile) { out.println(F("> mobile err: not a mobile (cfg set mobile 1 + reboot)")); return; }
+    if (!c.is_mobile) {   // §S3: JSON error (app-facing) — the whole `mobile` verb needs a mobile
+        const size_t m = meshroute::console::write_mobile_err(s_inbox_jb, sizeof s_inbox_jb, "not_mobile");
+        if (m) out.write(s_inbox_jb, m);
+        return;
+    }
     if (!strncmp(args, "register", 8)) {
         const char* p = args + 8; while (*p == ' ') ++p;
         if (!strncmp(p, "scan", 4)) {
@@ -600,23 +605,23 @@ void handle_mobile(const char* args, Print& out) {
         }
         return;
     }
-    if (!strcmp(args, "gateways")) {
-        uint8_t shown = 0;
+    if (!strcmp(args, "gateways")) {   // §S3: streamed JSON — mobile_gw* then mobile_net* then mobile_gw_end (routes/routes_end pattern)
+        uint8_t gws = 0;
         for (uint8_t i = 0; i < g_node.bridged_layer_cap(); ++i) {
             const auto& b = g_node.bridged_layer(i);
             if (!b.valid) continue;
-            out.print(F("  gw ")); out.print(b.gw_id); out.print(F(" -> leaf ")); out.println(b.dest_leaf); ++shown;
+            const size_t m = meshroute::console::write_mobile_gw(s_inbox_jb, sizeof s_inbox_jb, b.gw_id, b.dest_leaf);
+            if (m) out.write(s_inbox_jb, m); ++gws;
         }
-        if (!shown) out.println(F("  no gateways learned"));
         const uint8_t nl = g_node.learned_layers_count();
         for (uint8_t i = 0; i < nl; ++i) {
             const auto& r = g_node.learned_layer(i);
-            out.print(F("  net layer=")); out.print(r.layer_id); out.print(F(" \""));
-            for (uint8_t k = 0; k < r.name_len; ++k) out.print((char)r.name[k]);
-            out.print(F("\" freq=")); out.print((double)r.freq_khz / 1000.0, 3); out.print(F(" sf=")); out.print(r.sf);
-            out.print(F(" bw=")); out.println(r.bw_hz / 1000);
+            const size_t m = meshroute::console::write_mobile_net(s_inbox_jb, sizeof s_inbox_jb, r.layer_id,
+                                 reinterpret_cast<const char*>(r.name), r.name_len, r.freq_khz, r.sf, r.bw_hz);
+            if (m) out.write(s_inbox_jb, m);
         }
-        if (!nl) out.println(F("  no networks learned (use 'mobile query <gw>')"));
+        const size_t m = meshroute::console::write_mobile_gw_end(s_inbox_jb, sizeof s_inbox_jb, gws, nl);
+        if (m) out.write(s_inbox_jb, m);
         return;
     }
     if (!strncmp(args, "query", 5)) {
@@ -626,19 +631,22 @@ void handle_mobile(const char* args, Print& out) {
         out.print(F("> mobile query gw=")); out.print(gw); out.println(F(" sent (answer async -> 'mobile gateways')"));
         return;
     }
-    if (!strcmp(args, "status")) {
-        if (g_node.mobile_registered()) {
-            out.print(F("  REGISTERED home=")); out.print(g_node.mobile_home_id());
-            out.print(F(" local=")); out.print(g_node.mobile_local_id());
-            out.print(F(" epoch=")); out.print(g_node.mobile_reg_epoch());
-            out.print(F(" home_layer=")); out.println(g_node.mobile_home_layer());
-        } else out.println(F("  UNREGISTERED"));
-        out.print(F("  current PHY: layer=")); out.print(c.layers[0].layer_id);
+    if (!strcmp(args, "status")) {   // §S3: JSON status (integer kHz/Hz PHY block)
+        meshroute::console::MobileStatusFields m{};
+        m.registered = g_node.mobile_registered();
+        if (m.registered) {
+            m.home = g_node.mobile_home_id(); m.local = g_node.mobile_local_id();
+            m.epoch = g_node.mobile_reg_epoch(); m.home_layer = g_node.mobile_home_layer();
+        }
+        m.autoregister = c.mobile_autoregister;
+        m.layer   = c.layers[0].layer_id;
         const double pf = c.layers[0].freq_mhz > 0.0 ? c.layers[0].freq_mhz : g_freq_mhz;   // §mobile: live layer freq (fallback to boot/global if not yet adopted)
-        out.print(F(" freq=")); out.print(pf, 3); out.print(F(" sf=")); out.print(c.routing_sf);
-        out.print(F(" bw=")); out.print((double)g_node.active_bw_hz() / 1000.0, 2); out.println(F(" kHz"));
-        out.print(F("  autoregister=")); out.println(c.mobile_autoregister ? 1 : 0);
-        out.print(F("  known networks=")); out.println(g_node.learned_layers_count());
+        m.freq_khz = static_cast<uint32_t>(pf * 1000.0 + 0.5);   // MHz double -> integer kHz (rounded; no float on the wire)
+        m.sf      = c.routing_sf;
+        m.bw_hz   = g_node.active_bw_hz();
+        m.nets    = g_node.learned_layers_count();
+        const size_t mm = meshroute::console::write_mobile_status(s_inbox_jb, sizeof s_inbox_jb, m);
+        if (mm) out.write(s_inbox_jb, mm);
         return;
     }
     out.println(F("> mobile err usage: register [freq= sf= bw= | scan] | gateways | query <gw> | status"));

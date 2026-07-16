@@ -40,11 +40,24 @@ size_t write_push  (char* buf, size_t cap, const Push& p, const NodeConfig* cfg 
 size_t write_event (char* buf, size_t cap, const char* type, const EventField* f, size_t n);
 size_t write_log   (char* buf, size_t cap, const char* msg);
 size_t write_err   (char* buf, size_t cap, const char* code, const char* msg);  // msg nullable
+// §S1: mobile/team snapshot for `ready` — ALL fields omit-when-inactive (a static/teamless node stays byte-identical).
+// Sourced from the Node's !MR_FEAT_MOBILE-stubbed accessors (0/false), so the writer needs no #if.
+struct MobileReadyFields {
+    bool     is_mobile   = false;   // c.is_mobile — gates the mobile_* block
+    bool     registered  = false;   // mobile_registered()
+    uint8_t  home        = 0;       // mobile_home_id() (0 = unregistered)
+    uint8_t  local       = 0;       // mobile_local_id()
+    uint8_t  home_layer  = 0;       // mobile_home_layer() (emitted only when registered)
+    uint8_t  hosting     = 0;       // mobile_reg_count() — static host: mobiles registered to us (omit when 0)
+    uint32_t team_id     = 0;       // c.team_id (omit when 0; hex string)
+    uint8_t  team_local  = 0;       // team_local_id() — our own id on the team overlay (omit when 0)
+};
 size_t write_ready (char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* mode,
                     uint32_t inbox_epoch, uint64_t now_ms,
                     const char* name = nullptr, size_t name_len = 0,    // /mrid node name; omitted when empty
                     const uint8_t* ed_pub = nullptr,                    // §4: full Ed25519 pubkey (64 hex) for the QR `p`; omitted when null
-                    uint8_t duty_pct = 0, uint32_t duty_avail_ms = 0);  // duty readout: snapshot so the app shows it on connect (refreshed via `duty`)
+                    uint8_t duty_pct = 0, uint32_t duty_avail_ms = 0,   // duty readout: snapshot so the app shows it on connect (refreshed via `duty`)
+                    MobileReadyFields mob = MobileReadyFields{});       // §S1: mobile/team state (default = all-omit -> byte-identical)
 // `duty` query reply (companion polls it for the silent-countdown banner): {"ev":"duty","pct":,"avail_ms":,"enabled":}.
 size_t write_duty  (char* buf, size_t cap, uint8_t pct, uint32_t avail_ms, bool enabled);
 // `limits` query reply (companion anti-spam/headroom screen). All fields are plain u32 — no float
@@ -110,6 +123,29 @@ struct CfgExtras {
 };
 size_t write_cfg(char* buf, size_t cap, const NodeConfig& c, const CfgExtras& x);
 
+// §S3: `mobile status` + `mobile gateways` JSON (PODs in; src/ calls these from handle_mobile — no node.h dep here).
+struct MobileStatusFields {
+    bool     registered   = false;
+    uint8_t  home         = 0, local = 0;
+    uint16_t epoch        = 0;
+    uint8_t  home_layer   = 0;      // omitted unless registered
+    bool     autoregister = false;
+    uint8_t  layer        = 0;      // the live PHY layer
+    uint32_t freq_khz     = 0;      // integer kHz (no float on the wire)
+    uint8_t  sf           = 0;
+    uint32_t bw_hz        = 0;
+    uint8_t  nets         = 0;      // learned-networks count
+};
+size_t write_mobile_status(char* buf, size_t cap, const MobileStatusFields& m);
+size_t write_mobile_err   (char* buf, size_t cap, const char* reason);   // {"ev":"mobile_err","reason":"…"}
+// `mobile gateways` streamed rows (routes/routes_end pattern): mobile_gw* then mobile_net* then mobile_gw_end.
+size_t write_mobile_gw    (char* buf, size_t cap, uint8_t gw, uint8_t leaf);
+size_t write_mobile_net   (char* buf, size_t cap, uint8_t layer, const char* name, size_t name_len,
+                           uint32_t freq_khz, uint8_t sf, uint32_t bw_hz);
+size_t write_mobile_gw_end(char* buf, size_t cap, uint8_t gws, uint8_t nets);
+// §S6: `nameof` answer — {"ev":"peer_name","hash":<dec u32>[,"name":"…"]} (name omitted when unknown).
+size_t write_peer_name    (char* buf, size_t cap, uint32_t hash, const char* name, size_t name_len);
+
 // Phase-3 inbox sync (schema: ios-companion/INBOX_SYNC_CONTRACT.md). The pull stream = inbox_dm* then
 // inbox_channel* (oldest-first) then inbox_end; mark_read acks via write_inbox_marked. Fields individual to
 // keep this file free of inbox.h.
@@ -118,7 +154,8 @@ size_t write_inbox_dm     (char* buf, size_t cap, uint32_t seq, uint8_t origin, 
                            bool enc = false,    // §8b: "enc":true when the DM was delivered sealed; omitted (=false) otherwise
                            uint8_t type = 0);   // the frame DATA_TYPE: 0 = a normal DM (field omitted); 3 (DATA_TYPE_E2E_ACK) -> "type":"e2e_ack" (a receipt)
 size_t write_inbox_channel(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8_t layer_id, uint8_t channel_id,
-                           uint32_t channel_msg_id, uint64_t rx_ms, const char* body, size_t body_len);
+                           uint32_t channel_msg_id, uint64_t rx_ms, const char* body, size_t body_len,
+                           uint32_t team_id = 0);   // §S5: "team_id":"…" emitted only when non-zero (omit-when-0, same rule as the live channel_recv)
 size_t write_inbox_end    (char* buf, size_t cap, uint32_t dm_seq, uint32_t chan_seq, uint32_t epoch, uint32_t count,
                            uint64_t now_ms);
 size_t write_inbox_marked (char* buf, size_t cap, const char* kind, uint32_t seq);

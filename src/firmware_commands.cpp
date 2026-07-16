@@ -403,9 +403,9 @@ static void handle_nameof(const char* arg, size_t n, Print& out) {
     if (n < 3 || arg[0] != '0' || (arg[1] != 'x' && arg[1] != 'X')) { out.println(F("> nameof err: hash must be 0x-prefixed (e.g. nameof 0x8a3f1c02)")); return; }
     const uint32_t hash = (uint32_t)strtoul(arg + 2, nullptr, 16);
     char nm[32]; const uint8_t nl = g_node.peer_name_find(hash, nm, sizeof nm);
-    out.print(F("[nameof] 0x")); out.print(hash, HEX); out.print(F(" = "));
-    if (nl) { out.print('"'); out.write(nm, nl); out.println('"'); }
-    else     out.println(F("<unknown — reqpubkey it first>"));
+    // §S6: JSON answer {"ev":"peer_name","hash":<dec u32>[,"name":"…"]} (name omitted when unknown) — app-facing query verb.
+    const size_t m = meshroute::console::write_peer_name(s_inbox_jb, sizeof s_inbox_jb, hash, nm, nl);
+    if (m) out.write(s_inbox_jb, m);
 }
 
 // `hashof <id>` — reverse lookup: a node short-id -> its key_hash32 (AUTHORITATIVE bindings only — a node we

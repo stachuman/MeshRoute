@@ -6,6 +6,8 @@
 
 namespace meshroute::console {
 
+static void key_hex32(JsonBuf& j, uint32_t key);   // fwd: quoted "%08x" hex (defined below; used by write_push team_id + write_ready/status/cfg)
+
 void JsonBuf::ch(char c) {
     if (overflow) return;
     if (pos + 1 >= cap) { overflow = true; return; }  // keep 1 byte for NUL
@@ -124,6 +126,8 @@ const char* pushkind_name(PushKind k) {
         case PushKind::send_e2e_acked:  return "e2e_acked";        // §3: live twin of the durable inbox_dm type:"e2e_ack" (no more ev:"unknown")
         case PushKind::send_blocked:  return "send_blocked";       // Slice 6a: pre-TX self-gate feedback (cap / min-interval)
         case PushKind::channel_sent:  return "channel_sent";       // Slice 6c: OWN channel post re-offer outcome (relayed?)
+        case PushKind::mobile_reg:    return "mobile_reg";         // §S2: mobile registration change (registered/home-lost)
+        case PushKind::team_reg:      return "team_reg";           // §S2: team-DAD id adopted/re-picked
     }
     return "unknown";
 }
@@ -205,6 +209,7 @@ size_t write_push(char* buf, size_t cap, const Push& p, const NodeConfig* cfg) {
         j.lit(",\"channel_id\":");     j.u32(p.channel_id);
         j.lit(",\"channel_msg_id\":"); j.u32(p.channel_msg_id);   // Phase-3: the full 32-bit channel dedup identity
         if (p.seq) { j.lit(",\"seq\":"); j.u32(p.seq); }          // model B: the inbox seq (gap detector). OMITTED if 0 = inbox disabled
+        if (p.team_id) { j.lit(",\"team_id\":"); key_hex32(j, p.team_id); }   // §S4: team scoping (omit-when-0 -> a leaf channel push is byte-identical)
         j.lit(",\"body\":");           j.str(reinterpret_cast<const char*>(p.body), body_n);
     } else if (p.kind == PushKind::hash_resolved) {
         const uint32_t hash = static_cast<uint32_t>(p.body[0]) | (static_cast<uint32_t>(p.body[1]) << 8)
@@ -215,6 +220,7 @@ size_t write_push(char* buf, size_t cap, const Push& p, const NodeConfig* cfg) {
     } else if (p.kind == PushKind::peer_key_cached) {      // E2E §7: a recipient key arrived -> the app can resend encrypted
         j.lit(",\"hash\":");   j.u32(p.sender_hash);
         j.lit(",\"pinned\":false");                        // on-air (TOFU); a QR import is the separate peerkey_set ack (pinned:true)
+        if (body_n) { j.lit(",\"name\":"); j.str(reinterpret_cast<const char*>(p.body), body_n); }   // §S6: the peer's cached name (copied at cache time; omit-when-unknown)
     } else if (p.kind == PushKind::config_adopted) {       // R6.3: leaf-config adopted/updated -> the app's membership chip
         if (cfg) {
             j.lit(",\"lineage\":"); j.u32(cfg->lineage_id);
@@ -240,6 +246,17 @@ size_t write_push(char* buf, size_t cap, const Push& p, const NodeConfig* cfg) {
         j.lit(",\"ctr\":"); j.u32(p.ctr);
         j.lit(",\"relayed\":"); j.lit(p.relayed ? "true" : "false");
         if (!p.relayed) j.lit(",\"reason\":\"no_relay\"");   // 1st-hop throttle or no neighbour
+    } else if (p.kind == PushKind::mobile_reg) {   // §S2: registration change — the mobile's connectivity chip
+        j.lit(",\"home\":");  j.u32(p.origin);
+        j.lit(",\"local\":"); j.u32(p.dst);
+        if (p.relayed) {                            // registered -> the roam detail; home_layer/epoch omitted on a home-loss
+            j.lit(",\"home_layer\":"); j.u32(p.layer_id);
+            j.lit(",\"epoch\":");      j.u32(p.ctr);
+        }
+        j.lit(",\"registered\":"); j.lit(p.relayed ? "true" : "false");
+    } else if (p.kind == PushKind::team_reg) {     // §S2: team-DAD id adopted/re-picked
+        j.lit(",\"team\":");  key_hex32(j, p.team_id);
+        j.lit(",\"local\":"); j.u32(p.dst);
     } else {  // send_acked / send_failed
         j.lit(",\"dst\":"); j.u32(p.dst);
         j.lit(",\"ctr\":"); j.u32(p.ctr);
@@ -287,7 +304,7 @@ static void write_layers_array(JsonBuf& j, const NodeConfig& c) {
 }
 size_t write_ready(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* mode,
                    uint32_t inbox_epoch, uint64_t now_ms, const char* name, size_t name_len, const uint8_t* ed_pub,
-                   uint8_t duty_pct, uint32_t duty_avail_ms) {
+                   uint8_t duty_pct, uint32_t duty_avail_ms, MobileReadyFields mob) {
     JsonBuf j(buf, cap);
     j.lit("{\"ev\":\"ready\",\"id\":"); j.u32(id);
     j.lit(",\"key\":"); key_hex32(j, key);
@@ -311,6 +328,17 @@ size_t write_ready(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeCo
     j.lit(",\"now_ms\":"); j.i64(static_cast<int64_t>(now_ms));  // node uptime at emit: the app's rx_ms->wall-clock anchor (no RTC)
     j.lit(",\"duty_pct\":"); j.u32(duty_pct);          // duty readout snapshot (refresh via the `duty` query); 100 -> the node is silent
     j.lit(",\"duty_avail_ms\":"); j.u32(duty_avail_ms);// ms until airtime ages back in (drives the app's silent-countdown banner)
+    // §S1: mobile/team state, ALL omit-when-inactive -> a static, teamless node's ready stays byte-identical.
+    if (mob.is_mobile) {
+        j.lit(",\"mobile\":true");
+        j.lit(",\"mobile_registered\":"); j.lit(mob.registered ? "true" : "false");
+        j.lit(",\"mobile_home\":");  j.u32(mob.home);     // 0 = unregistered
+        j.lit(",\"mobile_local\":"); j.u32(mob.local);
+        if (mob.registered) { j.lit(",\"mobile_home_layer\":"); j.u32(mob.home_layer); }
+    }
+    if (mob.hosting)    { j.lit(",\"hosting\":"); j.u32(mob.hosting); }        // static host: mobiles registered to us
+    if (mob.team_id)    { j.lit(",\"team\":"); key_hex32(j, mob.team_id); }    // key_hex32 style (hex string, like key)
+    if (mob.team_local) { j.lit(",\"team_local\":"); j.u32(mob.team_local); }  // our OWN id on the team overlay
     write_layers_array(j, c);                         // dual-layer gateway: additive "layers":[...] (omitted when n_layers==1)
     j.ch('}');
     return j.finish();
@@ -368,7 +396,7 @@ size_t write_inbox_dm(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8
     return j.finish();
 }
 size_t write_inbox_channel(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8_t layer_id, uint8_t channel_id,
-                           uint32_t channel_msg_id, uint64_t rx_ms, const char* body, size_t body_len) {
+                           uint32_t channel_msg_id, uint64_t rx_ms, const char* body, size_t body_len, uint32_t team_id) {
     JsonBuf j(buf, cap);
     j.lit("{\"ev\":\"inbox_channel\",\"seq\":"); j.u32(seq);
     j.lit(",\"origin\":");         j.u32(origin);
@@ -376,6 +404,7 @@ size_t write_inbox_channel(char* buf, size_t cap, uint32_t seq, uint8_t origin, 
     j.lit(",\"channel_id\":");     j.u32(channel_id);
     j.lit(",\"channel_msg_id\":"); j.u32(channel_msg_id);
     j.lit(",\"rx_ms\":");          j.i64(static_cast<int64_t>(rx_ms));
+    if (team_id) { j.lit(",\"team_id\":"); key_hex32(j, team_id); }   // §S5: durable team scoping (omit-when-0)
     j.lit(",\"body\":");           j.str(body, body_len);
     j.ch('}');
     return j.finish();
@@ -466,12 +495,70 @@ size_t write_cfg(char* buf, size_t cap, const NodeConfig& c, const CfgExtras& x)
     j.lit(",\"leaf_id\":");    j.u32(c.leaf_id);
     j.lit(",\"gateway\":");    j.lit(c.is_gateway ? "true" : "false");
     j.lit(",\"mobile\":");     j.lit(c.is_mobile ? "true" : "false");
+    j.lit(",\"mobile_autoregister\":"); j.lit(c.mobile_autoregister ? "true" : "false");   // §S1: always present (cfg is the explicit dump) — round-trips `cfg set mobile_autoregister`
+    j.lit(",\"team_id\":");    key_hex32(j, c.team_id);   // §S1: hex string; "00000000" when unset (explicit, unlike ready's omit)
     j.lit(",\"ble_mode\":");   j.str(x.ble_mode, std::strlen(x.ble_mode));
     j.lit(",\"ble_period\":"); j.u32(x.ble_period);
     j.lit(",\"ble_pin\":");    j.u32(x.ble_pin);
     j.lit(",\"lat_e7\":");     j.i64(x.lat_e7);   // signed; degrees×1e7, 0 = unset
     j.lit(",\"lon_e7\":");     j.i64(x.lon_e7);
     write_layers_array(j, c);
+    j.ch('}');
+    return j.finish();
+}
+
+// ---- §S3: `mobile status` + `mobile gateways` as JSON (PODs in; no node.h dep; src/-only call-site swap) ----
+size_t write_mobile_status(char* buf, size_t cap, const MobileStatusFields& m) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"mobile_status\",\"mobile\":true,\"registered\":"); j.lit(m.registered ? "true" : "false");
+    j.lit(",\"home\":");  j.u32(m.home);              // 0 when unregistered
+    j.lit(",\"local\":"); j.u32(m.local);
+    j.lit(",\"epoch\":"); j.u32(m.epoch);
+    if (m.registered) { j.lit(",\"home_layer\":"); j.u32(m.home_layer); }
+    j.lit(",\"autoregister\":"); j.lit(m.autoregister ? "true" : "false");
+    j.lit(",\"layer\":");    j.u32(m.layer);          // the live PHY layer
+    j.lit(",\"freq_khz\":"); j.u32(m.freq_khz);       // integer kHz (no float on the wire)
+    j.lit(",\"sf\":");       j.u32(m.sf);
+    j.lit(",\"bw_hz\":");    j.u32(m.bw_hz);
+    j.lit(",\"nets\":");     j.u32(m.nets);           // learned-networks count (rows come from `mobile gateways`)
+    j.ch('}');
+    return j.finish();
+}
+size_t write_mobile_err(char* buf, size_t cap, const char* reason) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"mobile_err\",\"reason\":\""); j.lit(reason); j.ch('"'); j.ch('}');
+    return j.finish();
+}
+size_t write_mobile_gw(char* buf, size_t cap, uint8_t gw, uint8_t leaf) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"mobile_gw\",\"gw\":"); j.u32(gw);
+    j.lit(",\"leaf\":"); j.u32(leaf);
+    j.ch('}');
+    return j.finish();
+}
+size_t write_mobile_net(char* buf, size_t cap, uint8_t layer, const char* name, size_t name_len,
+                        uint32_t freq_khz, uint8_t sf, uint32_t bw_hz) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"mobile_net\",\"layer\":"); j.u32(layer);
+    j.lit(",\"name\":");     j.str(name ? name : "", name ? name_len : 0);
+    j.lit(",\"freq_khz\":"); j.u32(freq_khz);         // already integer kHz in the LayerRecord
+    j.lit(",\"sf\":");       j.u32(sf);
+    j.lit(",\"bw_hz\":");    j.u32(bw_hz);
+    j.ch('}');
+    return j.finish();
+}
+size_t write_mobile_gw_end(char* buf, size_t cap, uint8_t gws, uint8_t nets) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"mobile_gw_end\",\"gws\":"); j.u32(gws);
+    j.lit(",\"nets\":"); j.u32(nets);
+    j.ch('}');
+    return j.finish();
+}
+// §S6: `nameof` answer — decimal-u32 hash + the cached name (omitted when unknown, same rule as peer_key_cached).
+size_t write_peer_name(char* buf, size_t cap, uint32_t hash, const char* name, size_t name_len) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"peer_name\",\"hash\":"); j.u32(hash);
+    if (name && name_len) { j.lit(",\"name\":"); j.str(name, name_len); }
     j.ch('}');
     return j.finish();
 }

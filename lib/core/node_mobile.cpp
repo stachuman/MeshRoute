@@ -129,6 +129,8 @@ void Node::mobile_claim_guard_fire() {
     }
     MR_EMIT("mobile_adopted", EF_I("home", o.responder_id), EF_I("local_id", o.proposed_local_id),
             EF_I("epoch", _my_mobile_reg.epoch));
+    { Push pu{}; pu.kind = PushKind::mobile_reg; pu.origin = o.responder_id; pu.dst = o.proposed_local_id;   // §S2: registered (also a roam -> a changed home)
+      pu.layer_id = _my_mobile_reg.home_leaf_id; pu.ctr = _my_mobile_reg.epoch; pu.relayed = true; enqueue_push(pu); }
     schedule_triggered_beacon();                                  // announce the adopted id (peers re-bind on it)
     if (_cfg.mobile_autoregister) {                              // §console: autonomy — periodic re-CLAIM + auto layer-pull (OFF -> the app drives)
         (void)_hal.after(protocol::mobile_reclaim_ms, kMobileDiscoverTimerId);   // periodic re-CLAIM (self-heal + refresh)
@@ -175,6 +177,7 @@ void Node::team_dad_guard_fire() {
     if (!_team_dad_pending) return;                                        // already cleared (a re-pick re-armed a newer window, or set_team_local_id on boot-load/leave) -> nothing to confirm
     _team_dad_pending = false;                                            // no same-team conflict during the window -> CONFIRMED (a routable team peer; 6.2 runs)
     MR_EMIT("team_dad_adopted", EF_I("id", _team_local_id));
+    { Push pu{}; pu.kind = PushKind::team_reg; pu.team_id = _cfg.team_id; pu.dst = _team_local_id; enqueue_push(pu); }   // §S2: team-DAD adopted / conflict re-pick
 }
 #endif   // MR_FEAT_TEAM
 
@@ -182,10 +185,12 @@ void Node::team_dad_guard_fire() {
 // semantics (set_identity(unjoined)), mobile-gated.
 void Node::mobile_reset_registration([[maybe_unused]] const char* reason) {
     if (!_cfg.is_mobile) return;
+    const bool was_active = _my_mobile_reg.active;               // §S2: only push the deregistration on a REAL transition (no spurious repeat)
     _my_mobile_reg.active = false;
     _joined = false;
     set_identity(protocol::unjoined_node_id, _key_hash32);        // 0 = unprovisioned (transient; a re-CLAIM follows)
     MR_EMIT("mobile_reset", EF_S("reason", reason ? reason : ""));
+    if (was_active) { Push pu{}; pu.kind = PushKind::mobile_reg; pu.relayed = false; enqueue_push(pu); }   // §S2: home lost / dereg -> home=0,local=0,registered:false
 }
 
 // §mobile 5a: pull the neighbouring-layer directory from a gateway (a DM query; the gateway answers with its bridged

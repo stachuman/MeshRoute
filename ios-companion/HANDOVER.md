@@ -28,18 +28,29 @@ What it means for the app, in three buckets:
   console verbs (`cfg set mobile/team_id/mobile_autoregister`, `mobile register/gateways/query/
   status`, `team new/<id>/0`) are live — but their *output* is still human text (bucket 3).
 
-### 3. Coming next — SPEC'D for the firmware coder, build the app side against it
-**Spec: `docs/superpowers/specs/2026-07-16-companion-mobile-team-json-surface.md`** (supersedes the
-contract's PROPOSED sketches; team ids ride as quoted hex strings like `key`, new `ready` fields are
-omit-when-inactive). Slices: **S1** `ready`+`cfg` mobile/team fields (incl. `team_local` — our own
-overlay id) · **S2** `mobile_reg`/`team_reg` pushes (registration/roam/home-loss — the mobile
-connectivity chip) · **S3** `mobile status`/`mobile gateways` as JSON (the roam UI data;
-`mobile_gw`/`mobile_net` streamed + `mobile_gw_end`) · **S4/S5** `team_id` tag on `channel_recv` +
-`inbox_channel` (thread team chat separately; identity keys unchanged) · **S6** peer names as JSON
-(`peer_key_cached` gains `name`; `nameof` → `{"ev":"peer_name",…}`) → contacts auto-label, QR `n`
-stays the manual/override path. App prep that needs no firmware: model the three-plane contact
-space, decode-and-ignore unknown fields (all additions are additive/omit-based), and plan the team
-chat view keyed by `team_id`.
+### 3. ✅ LANDED IN FIRMWARE (2026-07-16, gated, uncommitted) — build the app side against these NOW
+**Spec: `docs/superpowers/specs/2026-07-16-companion-mobile-team-json-surface.md` — IMPLEMENTED +
+GATED** (native 743/25450 · s18 byte-identical · s22–s26 0-fail · boards 10/10; QA-verified). The
+final shapes are folded into `INBOX_SYNC_CONTRACT.md` §*Mobile node + teams* — that doc is the
+authority. Summary of what the app can now decode:
+- **S1** `ready` gains `mobile`/`mobile_registered`/`mobile_home`/`mobile_local`/`mobile_home_layer`/
+  `hosting`/`team`/`team_local` — ALL omit-when-inactive (absent ⇒ false/0); `cfg` gains
+  `mobile_autoregister` + `team_id` (always present, `"00000000"` = unset). Team ids are **quoted
+  hex strings like `key`** everywhere.
+- **S2** `{"ev":"mobile_reg",…,"registered":true|false}` (register/roam/home-loss — the mobile
+  connectivity chip) + `{"ev":"team_reg","team":"…","local":N}` (team-DAD).
+- **S3** `mobile status` → `{"ev":"mobile_status",…}` (integer `freq_khz`/`bw_hz`, no floats);
+  `mobile gateways` → streamed `mobile_gw`* / `mobile_net`* / `mobile_gw_end` (the roam-UI data);
+  any `mobile` verb on a non-mobile → `{"ev":"mobile_err","reason":"not_mobile"}`.
+- **S4/S5** `channel_recv` + `inbox_channel` gain `"team_id":"…"` (hex, omit ⇒ leaf channel) —
+  thread team chat separately; identity keys unchanged. ⚠ The store-version bump means the first
+  boot after reflash wipes the on-node inbox + bumps `inbox_epoch` — the app's normal epoch re-pull
+  handles it.
+- **S6** `peer_key_cached` gains `"name"` (omit-when-unknown) and `nameof 0x<hash>` answers
+  `{"ev":"peer_name","hash":…[,"name":…]}` → contacts auto-label; QR `n` stays the manual path.
+App work this unblocks: the three-plane contact model, the mobile connectivity chip + roam UI, the
+team chat view keyed by `team_id`, contact auto-labeling. All additions are additive/omit-based —
+decode-and-ignore keeps old app builds safe.
 **Context:** a screenless SenseCAP T1000-E mobile-only tracker variant is feasibility-assessed
 (PARKED) — if built, the companion is its ONLY management UI, so the mobile screens above should be
 designed phone-first, not as a debug panel.

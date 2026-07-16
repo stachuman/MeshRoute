@@ -397,9 +397,19 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
         const auto ds = g_node.duty_status();               // duty snapshot in the ready object (app shows it on connect)
         // ready carries the 64-hex pubkey + the duty snapshot -> ~280 B, over the 256-B `out`; stream via the big
         // scratch like status/cfg (return 0 = no buffered single-line ack).
+        meshroute::console::MobileReadyFields mob{};   // §S1: mobile/team snapshot (all omit-when-inactive -> a static node's ready is byte-identical)
+        const meshroute::NodeConfig& rc = g_node.config();
+        mob.is_mobile  = rc.is_mobile;
+        mob.registered = g_node.mobile_registered();
+        mob.home       = g_node.mobile_home_id();
+        mob.local      = g_node.mobile_local_id();
+        mob.home_layer = g_node.mobile_home_layer();
+        mob.hosting    = g_node.mobile_reg_count();
+        mob.team_id    = rc.team_id;
+        mob.team_local = g_node.team_local_id();
         const size_t m = write_ready(s_inbox_jb, sizeof s_inbox_jb, g_node.node_id(), g_node.key_hash32(), g_node.config(),
                                      "existing", g_node.inbox().storage_epoch(), g_hal.now(), idb.name, nl,
-                                     g_identity.ed_pub, ds.pct, ds.avail_ms);   // §4: export pubkey for the QR `p`
+                                     g_identity.ed_pub, ds.pct, ds.avail_ms, mob);   // §4: export pubkey for the QR `p`; §S1: mobile/team state
         if (m) ble_sink(s_inbox_jb, m);
         return 0;
     }

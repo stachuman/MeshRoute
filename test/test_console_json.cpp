@@ -249,8 +249,110 @@ TEST_CASE("write_route / write_routes_end / write_cfg — Node+Network screens")
     CHECK(std::string(b, n) ==
       "{\"ev\":\"cfg\",\"node_id\":5,\"freq_hz\":869462500,\"routing_sf\":7,\"sf_list\":\"7,12\",\"bw_hz\":125000,\"cr\":5,"
       "\"tx_power\":22,\"duty_x1000\":100,\"lbt\":true,\"beacon_ms\":900000,\"hop_cap\":16,\"leaf_id\":0,"
-      "\"gateway\":false,\"mobile\":false,\"ble_mode\":\"on\",\"ble_period\":15,\"ble_pin\":123456,"
+      "\"gateway\":false,\"mobile\":false,\"mobile_autoregister\":true,\"team_id\":\"00000000\",\"ble_mode\":\"on\",\"ble_period\":15,\"ble_pin\":123456,"
       "\"lat_e7\":522297000,\"lon_e7\":-41000000}\n");
+    // §S1: cfg team_id round-trips as a hex string; mobile_autoregister always present.
+    cc.is_mobile = true; cc.mobile_autoregister = true; cc.team_id = 0xcccc0001u;
+    n = write_cfg(b, sizeof b, cc, x);
+    CHECK(std::string(b, n).find("\"mobile\":true,\"mobile_autoregister\":true,\"team_id\":\"cccc0001\"") != std::string::npos);
+}
+
+// §S1 — ready mobile/team snapshot: static/teamless node byte-identical (default mob); mobile + team add omit-gated fields.
+TEST_CASE("write_ready — §S1 mobile/team fields (omit-when-inactive; static byte-identical)") {
+    char b[512];
+    NodeConfig c{}; c.routing_sf = 7; c.leaf_id = 0;
+    // (a) default mob = a static, teamless node -> NO mobile_*/team fields at all.
+    size_t n = write_ready(b, sizeof b, 3, 0xa1b2c3d4u, c, "existing", 0, 0ull);
+    std::string s(b, n);
+    CHECK(s.find("mobile") == std::string::npos);
+    CHECK(s.find("team") == std::string::npos);
+    CHECK(s.find("hosting") == std::string::npos);
+    // (b) a registered mobile in a team.
+    meshroute::console::MobileReadyFields mob{};
+    mob.is_mobile = true; mob.registered = true; mob.home = 222; mob.local = 17; mob.home_layer = 4;
+    mob.team_id = 0xcccc0001u; mob.team_local = 9;
+    n = write_ready(b, sizeof b, 17, 0xa1b2c3d4u, c, "existing", 0, 0ull, nullptr, 0, nullptr, 0, 0, mob);
+    s.assign(b, n);
+    CHECK(s.find("\"mobile\":true,\"mobile_registered\":true,\"mobile_home\":222,\"mobile_local\":17,\"mobile_home_layer\":4") != std::string::npos);
+    CHECK(s.find("\"team\":\"cccc0001\",\"team_local\":9") != std::string::npos);
+    // (c) unregistered mobile -> home/local 0, NO mobile_home_layer; a static host with hosting>0.
+    meshroute::console::MobileReadyFields un{}; un.is_mobile = true; un.registered = false;
+    n = write_ready(b, sizeof b, 0, 0u, c, "existing", 0, 0ull, nullptr, 0, nullptr, 0, 0, un);
+    s.assign(b, n);
+    CHECK(s.find("\"mobile\":true,\"mobile_registered\":false,\"mobile_home\":0,\"mobile_local\":0") != std::string::npos);
+    CHECK(s.find("mobile_home_layer") == std::string::npos);
+    meshroute::console::MobileReadyFields host{}; host.hosting = 2;
+    n = write_ready(b, sizeof b, 5, 0u, c, "existing", 0, 0ull, nullptr, 0, nullptr, 0, 0, host);
+    s.assign(b, n);
+    CHECK(s.find("\"hosting\":2") != std::string::npos);
+    CHECK(s.find("\"mobile\":") == std::string::npos);   // hosting is independent of is_mobile
+}
+
+// §S2 — mobile_reg / team_reg pushes; §S4 — channel_recv team_id; §S6 — peer_key_cached name.
+TEST_CASE("write_push — §S2 mobile_reg/team_reg, §S4 channel_recv team_id, §S6 peer name") {
+    char b[256];
+    // mobile_reg registered
+    Push r{}; r.kind = PushKind::mobile_reg; r.origin = 222; r.dst = 17; r.layer_id = 4; r.ctr = 6; r.relayed = true;
+    size_t n = write_push(b, sizeof b, r);
+    CHECK(std::string(b, n) == "{\"ev\":\"mobile_reg\",\"home\":222,\"local\":17,\"home_layer\":4,\"epoch\":6,\"registered\":true}\n");
+    // mobile_reg home-loss
+    Push d{}; d.kind = PushKind::mobile_reg; d.relayed = false;
+    n = write_push(b, sizeof b, d);
+    CHECK(std::string(b, n) == "{\"ev\":\"mobile_reg\",\"home\":0,\"local\":0,\"registered\":false}\n");
+    // team_reg
+    Push t{}; t.kind = PushKind::team_reg; t.team_id = 0xcccc0001u; t.dst = 9;
+    n = write_push(b, sizeof b, t);
+    CHECK(std::string(b, n) == "{\"ev\":\"team_reg\",\"team\":\"cccc0001\",\"local\":9}\n");
+    // channel_recv WITH team_id (hex, omit-when-0 proven by the existing channel_recv test)
+    Push ch{}; ch.kind = PushKind::channel_recv; ch.origin = 4; ch.layer_id = 4; ch.channel_id = 0;
+    ch.channel_msg_id = 12345; ch.seq = 7; ch.team_id = 0xcccc0001u;
+    const char* body = "hi"; ch.body_len = 2; ch.body[0] = 'h'; ch.body[1] = 'i'; (void)body;
+    n = write_push(b, sizeof b, ch);
+    CHECK(std::string(b, n).find("\"team_id\":\"cccc0001\",\"body\":\"hi\"") != std::string::npos);
+    // peer_key_cached with a cached name (body carries the name)
+    Push pk{}; pk.kind = PushKind::peer_key_cached; pk.sender_hash = 3735928559u;
+    const char* nm = "Alice"; pk.body_len = 5; for (int i = 0; i < 5; ++i) pk.body[i] = (uint8_t)nm[i];
+    n = write_push(b, sizeof b, pk);
+    CHECK(std::string(b, n) == "{\"ev\":\"peer_key_cached\",\"hash\":3735928559,\"pinned\":false,\"name\":\"Alice\"}\n");
+    // peer_key_cached with NO name -> omitted (byte-identical to the pre-S6 shape)
+    Push pk0{}; pk0.kind = PushKind::peer_key_cached; pk0.sender_hash = 3735928559u;
+    n = write_push(b, sizeof b, pk0);
+    CHECK(std::string(b, n) == "{\"ev\":\"peer_key_cached\",\"hash\":3735928559,\"pinned\":false}\n");
+}
+
+// §S3 — mobile_status / mobile_gw stream / mobile_err; §S6 — peer_name; §S5 — inbox_channel team_id.
+TEST_CASE("write_mobile_* / write_peer_name / inbox_channel team_id — §S3/S5/S6") {
+    char b[256];
+    meshroute::console::MobileStatusFields m{};
+    m.registered = true; m.home = 222; m.local = 17; m.epoch = 6; m.home_layer = 4;
+    m.autoregister = true; m.layer = 4; m.freq_khz = 869525; m.sf = 9; m.bw_hz = 125000; m.nets = 2;
+    size_t n = write_mobile_status(b, sizeof b, m);
+    CHECK(std::string(b, n) == "{\"ev\":\"mobile_status\",\"mobile\":true,\"registered\":true,\"home\":222,\"local\":17,"
+                               "\"epoch\":6,\"home_layer\":4,\"autoregister\":true,\"layer\":4,\"freq_khz\":869525,"
+                               "\"sf\":9,\"bw_hz\":125000,\"nets\":2}\n");
+    meshroute::console::MobileStatusFields un{}; un.autoregister = false; un.layer = 0; un.freq_khz = 868000; un.sf = 7; un.bw_hz = 125000;
+    n = write_mobile_status(b, sizeof b, un);
+    CHECK(std::string(b, n).find("\"registered\":false,\"home\":0,\"local\":0,\"epoch\":0,\"autoregister\":false") != std::string::npos);
+    CHECK(std::string(b, n).find("home_layer") == std::string::npos);
+    n = write_mobile_err(b, sizeof b, "not_mobile");
+    CHECK(std::string(b, n) == "{\"ev\":\"mobile_err\",\"reason\":\"not_mobile\"}\n");
+    n = write_mobile_gw(b, sizeof b, 3, 4);
+    CHECK(std::string(b, n) == "{\"ev\":\"mobile_gw\",\"gw\":3,\"leaf\":4}\n");
+    const char* net = "north field";
+    n = write_mobile_net(b, sizeof b, 7, net, 11, 869525, 9, 125000);
+    CHECK(std::string(b, n) == "{\"ev\":\"mobile_net\",\"layer\":7,\"name\":\"north field\",\"freq_khz\":869525,\"sf\":9,\"bw_hz\":125000}\n");
+    n = write_mobile_gw_end(b, sizeof b, 1, 2);
+    CHECK(std::string(b, n) == "{\"ev\":\"mobile_gw_end\",\"gws\":1,\"nets\":2}\n");
+    // §S6 peer_name
+    n = write_peer_name(b, sizeof b, 3735928559u, "Alice", 5);
+    CHECK(std::string(b, n) == "{\"ev\":\"peer_name\",\"hash\":3735928559,\"name\":\"Alice\"}\n");
+    n = write_peer_name(b, sizeof b, 3735928559u, nullptr, 0);
+    CHECK(std::string(b, n) == "{\"ev\":\"peer_name\",\"hash\":3735928559}\n");
+    // §S5 inbox_channel team_id omit-when-0 vs present
+    n = write_inbox_channel(b, sizeof b, 5, 4, 4, 0, 12345, 99ull, "hi", 2);
+    CHECK(std::string(b, n).find("team_id") == std::string::npos);
+    n = write_inbox_channel(b, sizeof b, 5, 4, 4, 0, 12345, 99ull, "hi", 2, 0xcccc0001u);
+    CHECK(std::string(b, n).find("\"team_id\":\"cccc0001\",\"body\":\"hi\"") != std::string::npos);
 }
 
 // R6.3 leaf-config membership — the iOS companion contract additions (INBOX_SYNC_CONTRACT.md): send_failed{joining},
