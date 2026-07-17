@@ -447,9 +447,11 @@ void handle_join(const char* args, Print& out) {
         b.leaf_name_len = 0;                                                     // §clean-join: don't carry the OLD leaf's name into the new network — present as freshly-joined (config-not-yet-pulled). A managed leaf repopulates via the config pull; an unmanaged one shows blank until `cfg set leaf_name`. (Bytes need not be zeroed — len-gated.)
         if (!mrnv::save(b)) { out.println(F("> join err nv_save_failed")); return; }
         provision_apply_live(b, /*do_dad=*/true);
-        out.print(F("> join layer=")); out.print((int)layer); out.print(F(" freq=")); out.print(freq, 3);
-        out.print(F(" bw=")); out.print(b.bw_hz); out.print(F("Hz sf=")); out.print((int)sf);
-        out.print(F(" (leaf ")); out.print((int)(layer & 0x0F)); out.println(F(") — DADing id + pulling config (live)"));
+        meshroute::console::JoinStartedFields js{};   // JSON verb ack (replaces the human line): the app's start-of-DAD event
+        js.layer = (uint8_t)layer; js.leaf = (uint8_t)(layer & 0x0F);
+        js.freq_khz = (uint32_t)(freq * 1000.0 + 0.5); js.sf = (uint8_t)sf; js.bw_hz = b.bw_hz;
+        const size_t m = meshroute::console::write_join_started(s_inbox_jb, sizeof s_inbox_jb, js);
+        if (m) out.write(s_inbox_jb, m);
         return;
     }
 usage:
@@ -498,12 +500,13 @@ void handle_create(const char* args, Print& out) {
         b.lineage_id = lin; b.config_epoch = 1; b.node_id = 0; b.joined = 0;      // a fresh managed leaf starts at epoch 1
         if (!mrnv::save(b)) { out.println(F("> create err nv_save_failed")); return; }
         provision_apply_live(b, /*do_dad=*/true);
-        out.print(F("> create layer=")); out.print((int)layer); out.print(F(" lineage=")); out.print(lin);
-        out.print(F(" (leaf ")); out.print((int)(layer & 0x0F)); out.print(F(") name=\""));
-        for (uint8_t i = 0; i < nlen; ++i) out.print((char)b.leaf_name[i]);
-        out.print(F("\" af=")); out.print(b.channel_active_fraction, 3);
-        out.print(F(" ch_min=")); out.print(b.channel_min_interval_ms); out.print(F(" dm_min=")); out.print(b.dm_min_interval_ms);
-        out.println(F(" — mother live"));
+        meshroute::console::JoinStartedFields js{};   // JSON verb ack (replaces the human line): create adds create/lineage/leaf_name
+        js.create = true;
+        js.layer = (uint8_t)layer; js.leaf = (uint8_t)(layer & 0x0F);
+        js.lineage = lin; js.leaf_name = nm; js.leaf_name_len = nlen;
+        js.freq_khz = (uint32_t)(freq * 1000.0 + 0.5); js.sf = (uint8_t)sf; js.bw_hz = b.bw_hz;
+        const size_t m = meshroute::console::write_join_started(s_inbox_jb, sizeof s_inbox_jb, js);
+        if (m) out.write(s_inbox_jb, m);
         return;
     }
 usage:

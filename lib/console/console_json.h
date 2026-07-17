@@ -37,6 +37,21 @@ struct JsonBuf {
 size_t write_ack   (char* buf, size_t cap, const CmdResult& r);
 size_t write_reqpubkey_sent(char* buf, size_t cap, uint32_t hash);   // §2: {"ev":"reqpubkey_sent","hash":…} — the on-air pubkey-request twin
 size_t write_push  (char* buf, size_t cap, const Push& p, const NodeConfig* cfg = nullptr);   // cfg: config_adopted membership fields (R6.3)
+// join_started — the JSON verb ack for `join`/`create` (replaces the human success line so the app gets a parseable
+// start-of-DAD event; the adopt itself rides the async join_adopted push). freq_khz/bw_hz are integer (no float on
+// the wire). create -> "create":true + lineage + leaf_name (both omitted for a plain join).
+struct JoinStartedFields {
+    bool        create        = false;
+    uint8_t     layer         = 0;       // full 1..255 layer id
+    uint8_t     leaf          = 0;       // layer & 0x0F (the wire leaf nibble)
+    uint32_t    lineage       = 0;       // create only
+    const char* leaf_name     = nullptr; // create only
+    size_t      leaf_name_len = 0;
+    uint32_t    freq_khz      = 0;
+    uint8_t     sf            = 0;
+    uint32_t    bw_hz         = 0;
+};
+size_t write_join_started(char* buf, size_t cap, const JoinStartedFields& j);
 size_t write_event (char* buf, size_t cap, const char* type, const EventField* f, size_t n);
 size_t write_log   (char* buf, size_t cap, const char* msg);
 size_t write_err   (char* buf, size_t cap, const char* code, const char* msg);  // msg nullable

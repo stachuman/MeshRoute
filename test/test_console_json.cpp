@@ -318,6 +318,25 @@ TEST_CASE("write_push — §S2 mobile_reg/team_reg, §S4 channel_recv team_id, �
     Push pk0{}; pk0.kind = PushKind::peer_key_cached; pk0.sender_hash = 3735928559u;
     n = write_push(b, sizeof b, pk0);
     CHECK(std::string(b, n) == "{\"ev\":\"peer_key_cached\",\"hash\":3735928559,\"pinned\":false}\n");
+    // join_adopted — a DAD/join adopt landed (dst=id, layer_id=leaf, ctr=epoch)
+    Push ja{}; ja.kind = PushKind::join_adopted; ja.dst = 17; ja.layer_id = 4; ja.ctr = 3;
+    n = write_push(b, sizeof b, ja);
+    CHECK(std::string(b, n) == "{\"ev\":\"join_adopted\",\"id\":17,\"layer\":4,\"epoch\":3}\n");
+}
+
+TEST_CASE("write_join_started — join vs create verb-ack shape (integer freq/bw, create-only fields)") {
+    char b[256];
+    // plain join: no create/lineage/leaf_name
+    JoinStartedFields jn{}; jn.layer = 4; jn.leaf = 4; jn.freq_khz = 869500; jn.sf = 9; jn.bw_hz = 125000;
+    size_t n = write_join_started(b, sizeof b, jn);
+    CHECK(std::string(b, n) == "{\"ev\":\"join_started\",\"layer\":4,\"leaf\":4,\"freq_khz\":869500,\"sf\":9,\"bw_hz\":125000}\n");
+    // create: "create":true + lineage + leaf_name inserted additively
+    JoinStartedFields cr{}; cr.create = true; cr.layer = 4; cr.leaf = 4; cr.lineage = 41153;
+    const char* nm = "north field"; cr.leaf_name = nm; cr.leaf_name_len = 11;
+    cr.freq_khz = 869500; cr.sf = 9; cr.bw_hz = 125000;
+    n = write_join_started(b, sizeof b, cr);
+    CHECK(std::string(b, n) == "{\"ev\":\"join_started\",\"create\":true,\"layer\":4,\"leaf\":4,\"lineage\":41153,"
+                               "\"leaf_name\":\"north field\",\"freq_khz\":869500,\"sf\":9,\"bw_hz\":125000}\n");
 }
 
 // §S3 — mobile_status / mobile_gw stream / mobile_err; §S6 — peer_name; §S5 — inbox_channel team_id.

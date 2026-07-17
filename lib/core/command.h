@@ -100,6 +100,8 @@ enum class PushKind : uint8_t {
     mobile_reg,    // §S2: mobile registration changed. origin=home, dst=local, layer_id=home_layer, ctr=epoch,
                    //   relayed=registered (home_layer/epoch emitted only when registered). registered:false = home lost/dereg.
     team_reg,      // §S2: team-DAD id adopted/re-picked. team_id = _cfg.team_id (hex string), dst=team_local_id.
+    join_adopted,  // a static/DAD adopt landed (verb join/create, boot DAD, OR the heal re-adopt): dst=adopted node_id,
+                   //   layer_id=leaf_id, ctr=claim_epoch. The app refreshes ready.id (an id change mid-session was silent).
 };
 // E2E §5: why a send_failed Push fired, so the app reacts (no_pubkey -> offer Request-key/Scan-QR; the permanent
 // reasons -> plain fail). Mirrors the contract `send_failed.reason`. `none` = a non-send_failed push.

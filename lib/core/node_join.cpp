@@ -189,6 +189,10 @@ void Node::join_adopt(uint8_t node_id) {
                            { .key = "key_hash32",  .type = EventField::T::i64, .i = static_cast<int64_t>(_key_hash32) },
                            { .key = "claim_epoch", .type = EventField::T::i64, .i = _claim_epoch } };
         _hal.emit("join_adopted", f, 3); );
+    // Companion feedback: fires on EVERY adopt path — verb join/create, the boot DAD, and the heal re-adopt (id-change
+    // staleness fix). The MOBILE adopt (node_mobile.cpp set_identity) does NOT route through here -> no mobile_reg double-push.
+    Push pu{}; pu.kind = PushKind::join_adopted; pu.dst = node_id; pu.layer_id = _cfg.leaf_id; pu.ctr = _claim_epoch;
+    enqueue_push(pu);
     schedule_triggered_beacon();                                       // announce the new id (peers re-bind on it)
     if (_pending_rediscover) {                                         // a verb reprovision -> the id is now stable: rebuild routes
         _pending_rediscover = false;

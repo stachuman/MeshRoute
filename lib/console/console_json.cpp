@@ -128,6 +128,7 @@ const char* pushkind_name(PushKind k) {
         case PushKind::channel_sent:  return "channel_sent";       // Slice 6c: OWN channel post re-offer outcome (relayed?)
         case PushKind::mobile_reg:    return "mobile_reg";         // §S2: mobile registration change (registered/home-lost)
         case PushKind::team_reg:      return "team_reg";           // §S2: team-DAD id adopted/re-picked
+        case PushKind::join_adopted:  return "join_adopted";       // a DAD/join adopt landed (id may have changed)
     }
     return "unknown";
 }
@@ -170,6 +171,22 @@ size_t write_ack(char* buf, size_t cap, const CmdResult& r) {
 size_t write_reqpubkey_sent(char* buf, size_t cap, uint32_t hash) {   // §2: the on-air pubkey request was flooded (replaces the generic {"ack":"queued"})
     JsonBuf j(buf, cap);
     j.lit("{\"ev\":\"reqpubkey_sent\",\"hash\":"); j.u32(hash); j.ch('}');
+    return j.finish();
+}
+size_t write_join_started(char* buf, size_t cap, const JoinStartedFields& s) {   // the JSON verb ack for join/create
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"join_started\"");
+    if (s.create) j.lit(",\"create\":true");
+    j.lit(",\"layer\":"); j.u32(s.layer);
+    j.lit(",\"leaf\":");  j.u32(s.leaf);
+    if (s.create) {                                                  // create-only: lineage + the minted leaf name
+        j.lit(",\"lineage\":");   j.u32(s.lineage);
+        j.lit(",\"leaf_name\":"); j.str(s.leaf_name ? s.leaf_name : "", s.leaf_name ? s.leaf_name_len : 0);
+    }
+    j.lit(",\"freq_khz\":"); j.u32(s.freq_khz);
+    j.lit(",\"sf\":");       j.u32(s.sf);
+    j.lit(",\"bw_hz\":");    j.u32(s.bw_hz);
+    j.ch('}');
     return j.finish();
 }
 size_t write_event(char* buf, size_t cap, const char* type, const EventField* f, size_t n) {
@@ -257,6 +274,10 @@ size_t write_push(char* buf, size_t cap, const Push& p, const NodeConfig* cfg) {
     } else if (p.kind == PushKind::team_reg) {     // §S2: team-DAD id adopted/re-picked
         j.lit(",\"team\":");  key_hex32(j, p.team_id);
         j.lit(",\"local\":"); j.u32(p.dst);
+    } else if (p.kind == PushKind::join_adopted) {  // a DAD/join adopt landed -> the app refreshes ready.id (staleness fix)
+        j.lit(",\"id\":");    j.u32(p.dst);         // the adopted node_id
+        j.lit(",\"layer\":"); j.u32(p.layer_id);    // _cfg.leaf_id (the wire leaf nibble)
+        j.lit(",\"epoch\":"); j.u32(p.ctr);         // _claim_epoch
     } else {  // send_acked / send_failed
         j.lit(",\"dst\":"); j.u32(p.dst);
         j.lit(",\"ctr\":"); j.u32(p.ctr);

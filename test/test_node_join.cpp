@@ -384,6 +384,39 @@ TEST_CASE("join — reprovision: a joined node re-DADs after reset_join_for_repr
     CHECK(claim_tx);
 }
 
+// join_adopted push: fires exactly once per adopt — the verb/boot DAD AND the heal re-adopt (the id-change
+// staleness fix). reset_join_for_reprovision() is the clean heal seam (drops _joined + denies the prior id).
+TEST_CASE("join_adopted push — one per adopt, carrying the (re)adopted id (verb DAD + heal re-adopt)") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000E5E5);
+    node.on_init(join_cfg());
+    Command c{}; c.kind = CmdKind::join;
+    CHECK(node.on_command(c).code == CmdCode::queued);
+    node.on_timer(kJoinListenTimerId);
+    node.on_timer(kJoinClaimGuardTimerId);                       // adopt unopposed
+    CHECK(node.joined());
+    const uint8_t first = node.node_id();
+
+    Push p{}; int adopts = 0; uint8_t pushed_id = 0;
+    while (node.next_push(p)) if (p.kind == PushKind::join_adopted) { ++adopts; pushed_id = p.dst; }
+    CHECK(adopts == 1);
+    CHECK(pushed_id == first);
+
+    // heal / reprovision: a fresh DAD picks a NEW id -> a SECOND join_adopted with the re-adopted id
+    node.reset_join_for_reprovision();
+    CHECK(node.on_command(c).code == CmdCode::queued);
+    node.on_timer(kJoinListenTimerId);
+    node.on_timer(kJoinClaimGuardTimerId);
+    CHECK(node.joined());
+    const uint8_t second = node.node_id();
+    CHECK(second != first);                                      // the deny worked -> a different id
+
+    adopts = 0; pushed_id = 0;
+    while (node.next_push(p)) if (p.kind == PushKind::join_adopted) { ++adopts; pushed_id = p.dst; }
+    CHECK(adopts == 1);
+    CHECK(pushed_id == second);
+}
+
 // leave path: reset_join_for_reprovision() alone (no re-DAD) -> unprovisioned + idle (no claim).
 TEST_CASE("join — reprovision: reset alone (leave) leaves the node unprovisioned, no claim") {
     TestHal hal;
