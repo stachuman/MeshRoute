@@ -13,17 +13,27 @@ struct MeshView: View {
     @State private var filter: MeshFilter = .all
     @State private var search = ""
     @State private var showAddTeammate = false
+    @State private var appliedTeamDefault = false   // D31 adaptive: default to the Team filter once per session
 
     enum MeshFilter: String, CaseIterable, Identifiable {
-        case all = "All", contacts = "Contacts", reachable = "Reachable"
+        case all = "All", team = "Team", contacts = "Contacts", reachable = "Reachable"
         var id: String { rawValue }
+    }
+    /// The Team segment only exists while the connected node is on a team.
+    private var availableFilters: [MeshFilter] {
+        model.teamID != nil ? MeshFilter.allCases : MeshFilter.allCases.filter { $0 != .team }
     }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
+                if let team = model.teamID {   // D31/P3: the team status card — badge · pinned chat · add teammate
+                    TeamStatusCard(teamID: team, memberCount: teamMemberCount,
+                                   onAddTeammate: { showAddTeammate = true })
+                        .padding(.horizontal).padding(.bottom, 6)
+                }
                 Picker("Filter", selection: $filter) {
-                    ForEach(MeshFilter.allCases) { Text($0.rawValue).tag($0) }
+                    ForEach(availableFilters) { Text($0.rawValue).tag($0) }
                 }
                 .pickerStyle(.segmented).padding(.horizontal).padding(.bottom, 6)
 
@@ -40,7 +50,15 @@ struct MeshView: View {
             }
             .navigationTitle("Mesh")
             .navigationDestination(for: UInt32.self) { NodeDetailView(hash32: $0) }
+            .navigationDestination(for: ThreadKey.self) { ThreadView(thread: $0) }   // the pinned team chat
             .searchable(text: $search, prompt: "Name or hash")
+            .onAppear {
+                if !appliedTeamDefault, model.teamID != nil { filter = .team; appliedTeamDefault = true }   // D31 adaptive default
+            }
+            .onChange(of: model.teamID) { _, team in
+                if team == nil, filter == .team { filter = .all }     // the segment vanished under us — fall back
+                else if team != nil, !appliedTeamDefault { filter = .team; appliedTeamDefault = true }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { ConnectionPill() }
                 if model.teamID != nil {          // D30: teammate bootstrap (bare-id team-scoped reqpubkey)
@@ -57,6 +75,7 @@ struct MeshView: View {
         nodes.filter { n in
             switch filter {
             case .all:       return true
+            case .team:      return n.teamID != nil && n.teamID == model.teamID   // teammates on OUR team
             case .contacts:  return n.isContact
             case .reachable: return n.hops != nil
             }
@@ -66,6 +85,60 @@ struct MeshView: View {
                 || n.keyHash.hex8.localizedCaseInsensitiveContains(search)
         }
     }
+    private var teamMemberCount: Int {
+        guard let t = model.teamID else { return 0 }
+        return nodes.filter { $0.teamID == t }.count
+    }
+}
+
+/// The P3 team home (D31): who we are on the team, whether the wider network is reachable (homed vs
+/// off-grid), one tap into the pinned team chat, and the teammate bootstrap.
+private struct TeamStatusCard: View {
+    @Environment(AppModel.self) private var model
+    let teamID: String
+    let memberCount: Int
+    var onAddTeammate: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "person.3.fill").foregroundStyle(.teal)
+                Text("Team \(teamID)").font(.headline).monospaced()
+                Spacer()
+                if let tl = model.teamLocal {
+                    Text("you: id \(tl)").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            HStack(spacing: 6) {
+                Image(systemName: homed ? "antenna.radiowaves.left.and.right.circle.fill" : "point.3.filled.connected.trianglepath.dotted")
+                    .foregroundStyle(homed ? Color.green : .orange)
+                Text(homed ? "Team + network — homed via node \(model.mobileState?.home ?? 0)"
+                           : "Team only — off-grid (no home)")
+                    .font(.caption)
+                Spacer()
+                Text("\(memberCount) member\(memberCount == 1 ? "" : "s")")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            HStack(spacing: 10) {
+                if let chat = model.teamChatThread() {
+                    NavigationLink(value: chat) {
+                        Label("Team chat", systemImage: "bubble.left.and.bubble.right.fill")
+                            .font(.callout.weight(.medium))
+                    }
+                    .buttonStyle(.borderedProminent).tint(.teal)
+                }
+                Button(action: onAddTeammate) {
+                    Label("Add teammate", systemImage: "person.3.sequence").font(.callout)
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .padding(12)
+        .background(Color.teal.opacity(0.08), in: RoundedRectangle(cornerRadius: 12))
+    }
+
+    /// Homed ⇒ the wider network is reachable too (plain sends via the home); off-grid ⇒ team-plane only.
+    private var homed: Bool { model.mobileState?.registered == true }
 }
 
 struct MeshNodeRow: View {

@@ -276,6 +276,8 @@ final class AppModel {
                                 channelMsgID: channelMsgID.map(Int.init))
         msg.isRead = false
         context.insert(msg)
+        // A team post's origin is the sender's TEAM-LOCAL id → refresh that teammate's last-seen (D31/P3).
+        if let t = teamID, let member = teamMember(localID: origin, team: t) { member.lastSeen = .now }
     }
 
     /// A peer's self-reported name arrived (rides the pubkey exchange, D30/S6). Stored as `peerName` — NOT the
@@ -531,6 +533,23 @@ final class AppModel {
     func mobileRegisterScan()  { sendCommand(.mobileRegisterScan) }    // cycle the learned networks
     func mobileRegister(to net: MobileNetRow) {                        // target a specific learned network
         sendCommand(.mobileRegisterTarget(freqKHz: net.freqKHz, sf: net.sf, bwHz: net.bwHz))
+    }
+
+    /// The pinned team conversation (D31/P3): the most recently active team thread, else the app's
+    /// default team channel (1 — self-fulfilling: every member runs this app, so the group converges on it).
+    func teamChatThread() -> ThreadKey? {
+        guard let team = teamID else { return nil }
+        var d = FetchDescriptor<MessageEntity>(predicate: #Predicate { $0.teamID == team },
+                                               sortBy: [SortDescriptor(\.timestamp, order: .reverse)])
+        d.fetchLimit = 1
+        if let m = (try? context.fetch(d))?.first { return m.threadKey }
+        return .teamChannel(team: team, channel: 1)
+    }
+
+    /// A teammate row by their team-local id (a DISTINCT id space — never matched against static ids).
+    private func teamMember(localID: Int, team: String) -> NodeEntity? {
+        let d = FetchDescriptor<NodeEntity>(predicate: #Predicate { $0.teamLocalID == localID && $0.teamID == team })
+        return try? context.fetch(d).first
     }
 
     // ---- leaf provisioning (R6 / D26): live, no reboot ----

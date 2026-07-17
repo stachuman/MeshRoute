@@ -67,12 +67,14 @@ struct NodeView: View {
                                 }
                             }
                         }
-                        HStack {
-                            Image(systemName: membershipIcon).foregroundStyle(membershipColor)
-                            Text(membershipText)
-                            Spacer()
-                            if model.membership?.isManaged == true, let lyr = model.membership?.layer {
-                                Text("layer \(lyr)").font(.caption2).foregroundStyle(.secondary)
+                        if model.mobileState == nil {   // D31 adaptive: leaf membership is a STATIC-node concept —
+                            HStack {                    // a mobile registers to a HOME (the chip below), it never joins a leaf
+                                Image(systemName: membershipIcon).foregroundStyle(membershipColor)
+                                Text(membershipText)
+                                Spacer()
+                                if model.membership?.isManaged == true, let lyr = model.membership?.layer {
+                                    Text("layer \(lyr)").font(.caption2).foregroundStyle(.secondary)
+                                }
                             }
                         }
                         if let ms = model.mobileState {   // D30: the mobile connectivity chip → the roam screen
@@ -93,11 +95,13 @@ struct NodeView: View {
                             }
                         }
                         DutyGaugeRow()
-                        Button { showJoin = true } label: { Label("Join network…", systemImage: "antenna.radiowaves.left.and.right") }
-                        Button { showCreate = true } label: { Label("Create leaf…", systemImage: "plus.circle") }
-                        if model.membership?.isManaged == true {
-                            Button(role: .destructive) { showLeaveConfirm = true } label: {
-                                Label("Leave network", systemImage: "rectangle.portrait.and.arrow.right")
+                        if model.mobileState == nil {   // D31 adaptive: join/create/leave = static provisioning only
+                            Button { showJoin = true } label: { Label("Join network…", systemImage: "antenna.radiowaves.left.and.right") }
+                            Button { showCreate = true } label: { Label("Create leaf…", systemImage: "plus.circle") }
+                            if model.membership?.isManaged == true {
+                                Button(role: .destructive) { showLeaveConfirm = true } label: {
+                                    Label("Leave network", systemImage: "rectangle.portrait.and.arrow.right")
+                                }
                             }
                         }
                         NavigationLink { RoutesView() } label: {

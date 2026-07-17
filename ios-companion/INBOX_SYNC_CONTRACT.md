@@ -374,7 +374,18 @@ leave                                                                           
 - **Swift:** `Command.join` / `Command.createLeaf` emit the `key=value` `line` (`Command.swift`); the `.createLeaf` enum carries freq/bw/sf/layer/sfList/duty/name with **`bwKHz` + `dutyPercent` as `Double`** (fractional-capable, emitted compactly via `freqToken`). The anti-spam args are a future optional Swift field — omitting them yields the firmware defaults.
 - After `join`/`create`, the node emits `config_adopted` + updated `ready` membership once it syncs. After `leave`, membership returns to `lineage:0` (unmanaged). A `send` before sync ⇒ `send_failed{reason:"joining"}`.
 - **Normal nodes only.** Gateways provision differently (multi-layer; a future `join_as_gateway`) — out of this contract.
-- Ack shape = firmware's choice; recommend a `{"ev":"join_ok"|"join_err","reason":…}` line per verb (consistent with the other command acks).
+- ~~Ack shape = firmware's choice~~ **→ ✅ IMPLEMENTED + GATED 2026-07-16 (uncommitted): the join/DAD progress bracket.** The DAD takes ~6 s (3 s listen + 3 s claim-guard) and used to complete with NO app-visible event on an unmanaged leaf; now:
+
+### ✅ Join/DAD feedback — `join_started` (verb ack) + `join_adopted` (push), 2026-07-16
+```json
+{"ev":"join_started","layer":4,"leaf":4,"freq_khz":869500,"sf":9,"bw_hz":125000}                                          // join accepted — DAD begins
+{"ev":"join_started","create":true,"layer":4,"leaf":4,"lineage":41153,"leaf_name":"north field","freq_khz":869500,"sf":9,"bw_hz":125000}   // create variant
+{"ev":"join_adopted","id":17,"layer":4,"epoch":3}                                                                          // the node adopted its id — DAD complete
+```
+- **`join_started`** REPLACES the human success line on `join`/`create` (usage / `nv_save_failed` errors stay human text). `"create":true` + `lineage` + `leaf_name` appear only for create. Integer `freq_khz`/`bw_hz`.
+- **`join_adopted`** is a push, fired at the adopt itself — so it also arrives on the **boot DAD** (app connected at power-on) and on a **heal re-adopt** (address-conflict loser re-picks an id). ★ **App rule: on `join_adopted`, refresh identity state** (`ready.id` may have silently changed mid-session — before this push an id change was invisible). `epoch` = the DAD claim epoch.
+- **The app's join spinner:** send `join`/`create` → `join_started` opens the bracket → `join_adopted` closes it (~6 s later; retries on a congested leaf just lengthen it) → on a **managed** leaf `config_adopted` then flips "joining…"→"synced" as before (an unmanaged leaf is done at `join_adopted`). Failure terminals unchanged: `join_refused{wire_version|leaf_full}`; a send meanwhile ⇒ `send_failed{joining}`.
+- `leave`'s ack stays human text (deferred — it completes instantly; membership shows in the next `ready`).
 
 ### App → node: anti-spam leaf tunables (2026-07-03 — promoted to leaf config)
 The anti-spam v2 knobs below are now **per-leaf config** (carried in the C config frame + folded into the `config_hash`), not fixed firmware constants — so a mother provisions them and a change **re-fingerprints** the leaf (members re-pull → `config_adopted`). Set via `cfg set` (applies **live**, is **persisted to NV** so it survives reboot, and on a **managed** leaf bumps `config_epoch` + re-advertises):
@@ -469,6 +480,42 @@ The node replies on TXD with one JSON line:
 
 ### Node → app: in the `ready` snapshot (so the app shows it on connect)
 `ready` also carries `"duty_pct":42` (+ `"duty_avail_ms":0`) — an immediate starting value on connect; the `duty` query above is the live truth to refresh from.
+
+## Firmware asks — profiles wave (app → node agent, 2026-07-16 · roadmap D31/§8.2)
+
+Two asks from the user-profiles decision (D31). App needs stated; the wire/design shape is the node agent's call —
+please update this doc with the final shapes (the app builds decode-after-contract, never ahead of it).
+
+### Ask 1 — remote-admin app surface (P1-remote: configure a node THROUGH another node)
+The authenticated `rcmd` spine exists (open reads cleartext; sealed writes behind `unlock`; binary-TLV responses).
+The app needs an app-consumable shape on the BLE side:
+1. **`rcmd` responses as JSON lines** the companion can decode (e.g. `{"ev":"rcmd_resp","from":<id>,"verb":"…","ok":…,…}`
+   — or a documented envelope), replacing the dead `[rcmd <from>]` console echo. Open reads (`status`/`routes`)
+   ideally reuse the existing `status`/`route` writers tagged with `from`.
+2. **`unlock <passphrase>` / `lock` over BLE with JSON acks** (+ an unlocked-state flag somewhere readable, e.g.
+   in `ready` or an ack), so the app can gate its remote-write UI.
+3. **An error model** the app can render: `no_admin_key` (target has none pinned) · `locked` (unlock first) ·
+   `stale` (replay-rejected) · timeout behaviour (silent? push?).
+4. Verb coverage for the P1 use cases: remote `cfg get/set`, `reboot`, `status`, `routes` (what else is cheap?).
+
+### Ask 2 — team position sharing (P3 hike mode) — ★ DECIDED 2026-07-16: TEAM-PLANE ONLY
+User decision (D31, confirmed): **(b) team-scoped distribution, fully separated — visible IN-TEAM ONLY** (works
+off-grid per 6.4; plane separation keeps the static mesh byte-identical/s18-inert; privacy = one toggle; airtime
+stays inside the team). The mesh-wide BCN ext-TLV stays the SEPARATE Theme-C fleet-map rail (operator visibility,
+opt-in, later). Sparse-team caveat accepted: team-plane propagation is member-to-member — islands connected only
+via homes won't see each other's positions (fine for hike mode; note in the design).
+
+**Position storage model (user-decided): RAM = live, FLASH = a user-set default.**
+- **RAM (volatile) = the LIVE position** — phone-fed (e.g. `pos <lat> <lon>`, RAM-only, never persisted; lost on
+  reboot — the phone simply re-feeds). This is the only path the periodic GPS feed uses (no flash wear).
+- **NV lat/lon (the existing `/mrid` via `cfg set lat/lon`) = the DEFAULT** — set only by a dedicated user action,
+  NEVER auto-updated by the feed. Effective position = RAM-live when fresh, else the NV default when set, else none.
+1. The volatile feed verb (above) + its freshness window (when does a stale RAM fix fall back to the default?).
+2. **Team-plane distribution** of the effective position, with a cadence/on-move knob (**opt-in**; off = never
+   transmits position — the toggle is the whole privacy model).
+3. **A member-position push to the app** (e.g. `{"ev":"peer_pos","hash":…,"lat_e7":…,"lon_e7":…,"age_ms":…}` or
+   folded into a future known-nodes surface) — the app's directory already stores `latE7/lonE7/positionAt` per node.
+4. Bounded staleness semantics (TTL / age) so the app can grey out old fixes.
 
 ## Adjacent BLE surface — implemented, not strictly "inbox" (2026-06-29)
 

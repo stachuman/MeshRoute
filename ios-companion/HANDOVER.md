@@ -51,6 +51,15 @@ authority. Summary of what the app can now decode:
 App work this unblocks: the three-plane contact model, the mobile connectivity chip + roam UI, the
 team chat view keyed by `team_id`, contact auto-labeling. All additions are additive/omit-based —
 decode-and-ignore keeps old app builds safe.
+- **JOIN/DAD FEEDBACK (landed 2026-07-16, gated, uncommitted):** the join flow is now fully
+  event-driven — no more `whoami` polling. `join`/`create` answer a JSON
+  `{"ev":"join_started",…}` (create adds `create:true`/`lineage`/`leaf_name`), and the adopt fires
+  `{"ev":"join_adopted","id":…,"layer":…,"epoch":…}` (~6 s later; a managed leaf then emits
+  `config_adopted` as before — unmanaged is DONE at `join_adopted`). Failures unchanged
+  (`join_refused{wire_version|leaf_full}`). ★ **App rule: on `join_adopted` always refresh the
+  cached node identity — it ALSO fires on a boot DAD and on a silent mid-session id change (the
+  address-conflict heal), which previously had no signal at all.** Shapes + spinner recipe in
+  `INBOX_SYNC_CONTRACT.md` §Join/DAD feedback.
 **Context:** a screenless SenseCAP T1000-E mobile-only tracker variant is feasibility-assessed
 (PARKED) — if built, the companion is its ONLY management UI, so the mobile screens above should be
 designed phone-first, not as a debug panel.
