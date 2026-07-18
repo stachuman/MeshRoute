@@ -59,6 +59,80 @@ of scope here.
 6. **INTRO on an un-upgraded node renders the pubkey bytes as message text:** the type dispatch is an if-chain (node_mac_rx.cpp:684-815) and unmatched types fall through to normal DM delivery. Covered by the fleet-reflashes-together policy (`wire_version` unchanged, per house rule) — but it's a visible artifact, not a silent one; note for the rollout.
 7. **reqpubkey-XL as spec'd was under-designed → DEFERRED (v2).** Today `reqpubkey` only floods (H); a routed XL variant needs want_pubkey threaded through the gateway's far-leaf resolve (the :1102 `emit_hash_query` is plain) — a whole extra mechanism. INTRO (S2) already covers first contact, including encrypted-first: send the plaintext INTRO round first (the D1 flow). Dropping reqpubkey-XL removes a mechanism and its airtime; revisit only if a real "must encrypt the very first frame cross-layer" need appears.
 
+## 1c. ★ POST-S6 FOUNDATION RE-REVIEW (2026-07-18, after S6 landed + committed `eae48cb`) — code-verified
+
+S6's landing changed the ground under S0–S4. Full re-walk of M1→M2/M3/M4 plaintext+encrypted against
+the current code:
+
+**S6 SUBSUMED part of S3.** S3-(1) push-until-acked is DEAD — key custody rides the probe's
+HAS_PUBKEY, confirmed by the roster's `has_key` bit, retried for free on every probe until confirmed.
+Consequence: the home's Fix-7 WANT_PUBKEY answering is now RELIABLE (the metal `pubkey=no` hole is
+closed), which strengthens the S2/S4 key flows. **S3 shrinks to:** (2) the home caches the
+requester's key from a WANT_PUBKEY it proxies + forwards it to the mobile
+(`MOBILE_KEY_FORWARD`(16), 1-hop) — still required for the reqpubkey-initiated (encrypt-first)
+same-layer flow; (3) the TX-free overhear cache at the mobile's H early-return
+(node_hashlocate.cpp:**532** — anchor drifted −1 post-S6).
+
+**★ NEW GAP A — the XL origin layer is DISCARDED at delivery.** The recipient of a cross-layer DM
+parses the full path (`ui->has_cross_layer`, `layer_ids[]` — the sender's layer is `layer_ids[0]`,
+since the full path prepends it, node.cpp:971) but nothing surfaces it: `Push` has NO origin-layer
+field (command.h) — so the recipient **cannot construct the `(layer, hash)` reply address**. s27
+masks this by hardcoding reply layers; a real app can't. **Fix (S1 scope):** Push +
+`origin_layer` from `layer_ids[0]` (omit-when-0 on the JSON, the additive convention) + the
+companion-contract field; the reply then rides S1's own mechanism.
+
+**★ NEW GAP B — the delegated-XL ack reaches the mobile with the WRONG ctr** *(mechanism corrected
+2026-07-18 after evaluating solutions — the first write-up misattributed it to the :824 guard).*
+The 4e XL ack is addressed BY HASH: `send_e2e_ack_cross_layer` sets `DST_HASH = dm.source_hash`
+(node_mac.cpp:365-395) = the MOBILE's hash on a delegated send. Arriving at the home it therefore
+hits the generic hosted-mobile last-mile fork FIRST (node_mac_rx.cpp:699 — before any ack
+handling) and is forwarded **verbatim** — carrying `acked_ctr = ctr_H` (the home's re-origination
+ctr). The mobile's outbox holds `ctr_M` ⇒ no match ⇒ the app shows undelivered forever, retries
+duplicate. The translation map (`deleg_ack_put` ctr_H→ctr_M) exists at the home but the verbatim
+fork bypasses it; the :824 same-layer fork is NOT on this path (its `!CROSS_LAYER` guard is
+correct as-is). **FINAL DESIGN (user principle, 2026-07-18): an E2E ack IS a normal DM from receiver to sender —
+NO ack-specific addressing.** Two parts:
+1. **Unify the ack origination onto the normal send machinery.** Today's
+   `send_e2e_ack_cross_layer` is a hand-rolled parallel path — the code admits it
+   ("does NOT funnel through enqueue_cross_layer", node_mac.cpp:371) — and it is
+   static-recipient-only: under S1 a MOBILE recipient (M3) would SELF-ORIGINATE an XL frame with
+   its local-id origin — the exact plane-leak class delegation prevents (latent until S1; every
+   solution evaluated above inherited it). Instead: the XL ack = the NORMAL send to
+   `(reversed path, dm.source_hash)` with `type=E2E_ACK`, `body=acked_ctr` — a static recipient
+   via `originate_layer_path` (retiring the parallel origination), a MOBILE recipient via the
+   MOBILE_SEND **delegation** through its own home, like every other mobile send. This also
+   collapses a FIFTH S4 refusal site the §1b-2 list missed (the ack's own `e2e_dm` refusal,
+   node_mac.cpp:372-377 `e2e_cross_layer_refused`) into the normal path's handling.
+2. **The ctr reconciliation stays at the DELEGATING home** (orthogonal to addressing — the
+   delegation split creates it, the home reconciles it): inside the :699 hosted-mobile last-mile
+   fork, `type == E2E_ACK` ⇒ match the delegation map by (mobile_hash [= dst_hash], ctr_H) —
+   NOT acker_id, XL ids alias — and REWRITE the 2-B body ctr_H→ctr_M before forwarding;
+   map-miss ⇒ verbatim best-effort. Native test = the full delegated-XL `-a` round trip in BOTH
+   directions (M1→M3 acked, M3→M1 acked), asserting the ctr each mobile finally receives.
+3. **SAME-LAYER ack unification (the type-blind-addressing audit, 2026-07-18 — READY-TO-CODE
+   gate).** The same-layer delegated ack today smuggles the mobile's hash through **SOURCE_HASH**
+   (node_mac.cpp:337-344) and needs the type-specific redirect fork at node_mac_rx.cpp:824 to
+   interpret it — the ONE violation found by the full DATA_TYPE addressing audit (every other
+   type conforms: endpoint-consume or delegation-boundary only). Unify: the reverse-ack branch
+   attaches **DST_HASH = the mobile's hash** instead (the correct "for whom" field) ⇒ the ack is
+   a plain DM "to origin-id, for dst_hash=M" ⇒ the generic :699 fork last-miles it with the SAME
+   ctr rewrite as the XL case ⇒ **RETIRE the :824 fork AND the :337-344 SOURCE_HASH-mark**. The
+   existing `oh != sender_hash` gate becomes the conditional-attach guard — static↔static acks
+   byte-identical, s18-inert by construction. One delivery path for ALL acks. (The app-facing
+   receipt fields — `e2e_acked`/`inbox type:"e2e_ack"` origin/sender_hash — must be re-derived at
+   the RECIPIENT from the unified wire; coder verifies the companion contract's `(sender_hash,
+   ctr)` matching still holds, contract update if the shape shifts.)
+(Evaluated + rejected: preserving ctr_M end-to-end = wire change + forks the "ack acks the
+delivered ctr" rule; returning ctr_H to the mobile = recurring airtime; loosened app matching =
+breaks two in-flight sends.)
+
+**Re-verified unchanged:** S0 (the id-alias bug) untouched by S6 — still first. The §1b-3
+wrapper-seal breakage still present (`want_crypt` seal at node_mac.cpp:**116**, anchor −3). The
+unwrap-first ordering survived the TYPE-12 handler deletion (MOBILE_SEND still consumed first,
+node_mac_rx.cpp:684). D8/D10 landed in S6 exactly as this spec assumed (j_discover +3 B live,
+home-originated notify live same-layer). Slice order becomes: **S0 → S1 (now incl. gaps A+B) →
+S3(2)+(3) → S2 → S4.**
+
 ## 3. Slices
 
 ### S1 — delegate `send_layer` from a registered mobile (unlocks plaintext M→XL→M; NO new verb, NO new format)

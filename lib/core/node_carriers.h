@@ -237,6 +237,11 @@ struct TxItem {                      // a queued message awaiting a flight
     uint8_t  requeue_count = 0;
     uint64_t enqueue_time_ms = 0;
     uint64_t next_attempt_ms = 0;
+    // §S0 defer-loop giveup: how many times this logical send has DRAINED (route appeared) then re-deferred (route
+    // unusable at select — an aliased-mobile / gateway transit next-hop). Survives the drain->tx_queue->issue->defer
+    // round trip on the TxItem (NOT reset by txitem_from_pending — it is defer meta, like requeue_count). defer_send
+    // fails loud once it reaches send_defer_max_redrains, breaking the "re-drain every 1s forever" restamp loop.
+    uint8_t  redrain_count = 0;
     // Hop-budget carried forward on a relayed item (a forwarder's already-decremented
     // values; originators recompute from rt). Ignored unless is_forward.
     uint8_t  fwd_remaining = 0;

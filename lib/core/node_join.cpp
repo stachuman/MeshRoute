@@ -82,18 +82,53 @@ void Node::age_out_mediated() {
 
 // §mobile 2a: host-assign a free LOCAL id (17..254) for a mobile — distinct across THIS host's registered mobiles + not
 // our own id. Returns 0 if the pool is full. Idempotent: a known key_hash returns its existing id (a re-DISCOVER re-offers
-// the same id). The id MAY overlap a neighbour's global id — the Slice-1 mobile mark disambiguates (§17 A3), no global DAD.
+// the same id). The id MAY overlap a neighbour's global id — the mobile mark disambiguates (§17 A3), no global DAD.
+//
+// §S0 CONVENTION (cold-boot alias fix): the two id-pickers share the 17..254 range but grow from OPPOSITE ends —
+// static DAD (join_choose_candidate_id) picks BOTTOM-UP from 17, hosted-mobile allocation picks TOP-DOWN from 254.
+// Keeping them disjoint in spirit makes a mobile/static collision improbable until the pool is nearly exhausted
+// (>238 combined). The metal bug was cold-boot allocation at t~8s handing a mobile local 18 (== static S2) BEFORE
+// S2's beacon populated id_bind/_rt, so the picker "knew" nothing to exclude. Fix: exclude every id we have evidence
+// is a static (id_bind + the routing table, same wide view as the static picker), AND allocate top-down. Two further
+// backstops make this self-healing: (b) a LATER static binding for an id we already gave a mobile EVICTS the mobile
+// (evict_aliased_hosted_mobile at id_bind_set) -> it re-registers onto a fresh top id via the presence plane; and
+// route_uses_mobile_as_transit's static carve stops false-rejecting a route THROUGH such an aliased static meanwhile.
 uint8_t Node::find_free_mobile_id(uint32_t key_hash32) {
     for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
         if (_active->_mobile_reg[i].key_hash32 == key_hash32) return _active->_mobile_reg[i].mobile_local_id;
-    for (int id = protocol::normal_node_id_min; id <= 254; ++id) {
-        if (static_cast<uint8_t>(id) == _node_id) continue;
-        bool taken = false;
-        for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
-            if (_active->_mobile_reg[i].mobile_local_id == id) { taken = true; break; }
-        if (!taken) return static_cast<uint8_t>(id);
-    }
+    auto id_taken = [&](uint8_t id) -> bool {
+        if (id == _node_id) return true;
+        if (join_id_denied(id)) return true;                                                                    // an id under active DAD denial (a static conflict) — mirror the static picker
+        for (uint8_t  i = 0; i < _active->_mobile_reg_n; ++i) if (_active->_mobile_reg[i].mobile_local_id == id) return true;
+        for (uint16_t i = 0; i < _active->_id_bind_n;    ++i) if (_active->_id_bind[i].node_id == id)            return true;   // a known static (direct/heard) binding
+        for (uint8_t  i = 0; i < _active->_rt_count;     ++i) if (_active->_rt[i].dest == id)                    return true;   // a DV-reachable static within dv_hop_cap
+        return false;
+    };
+    for (int id = 254; id >= protocol::normal_node_id_min; --id)   // TOP-DOWN (statics climb from 17 -> the pools stay disjoint until near-full)
+        if (!id_taken(static_cast<uint8_t>(id))) return static_cast<uint8_t>(id);
     return 0;   // pool full
+}
+
+// §S0 (b): a hosted mobile's local id ALIASES a real static's node_id (the cold-boot pool collision, or a static that
+// arrives AFTER we allocated the id). When an AUTHORITATIVE static binding lands for that id, evict the aliasing mobile
+// from the registry so it re-registers onto a fresh (top-of-range) id — it notices its own absence from the next
+// P-roster (S6 absent-from-roster rule) and re-DISCOVERs. The static keeps its own id; route_uses_mobile_as_transit's
+// carve already un-poisons routes through it in the interim. No-op unless we host a mobile on that id (static-inert).
+void Node::evict_aliased_hosted_mobile(uint8_t node_id, uint32_t static_key_hash32) {
+    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i) {
+        if (_active->_mobile_reg[i].mobile_local_id != node_id)     continue;
+        if (_active->_mobile_reg[i].key_hash32 == static_key_hash32) return;   // it IS this mobile (own beacon/rebind), not an alias
+        MR_EMIT("mobile_evict_alias", EF_I("local_id", node_id),
+                EF_I("mobile_key", static_cast<int64_t>(_active->_mobile_reg[i].key_hash32)),
+                EF_I("static_key", static_cast<int64_t>(static_key_hash32)));
+        for (uint8_t k = i; k + 1 < _active->_mobile_reg_n; ++k) {             // compact out the evicted slot (parallel arrays)
+            _active->_mobile_reg[k]    = _active->_mobile_reg[k + 1];
+            _active->_mobile_snr_q4[k] = _active->_mobile_snr_q4[k + 1];
+        }
+        --_active->_mobile_reg_n;
+        presence_schedule_roster();   // the next roster omits it -> the mobile re-registers (absent-from-roster)
+        return;
+    }
 }
 
 // ---- §3 candidate selection: prefer our previous id, else a random free slot (-1 = leaf full) ----------

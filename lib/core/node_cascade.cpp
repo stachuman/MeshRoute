@@ -241,6 +241,15 @@ void Node::try_cascade_requeue(const PendingTx& pt, const char* giveup_event) {
 // An ORIGINATOR send with no usable route yet: hold it until a beacon installs a
 // route (drain-on-rt_changed) or the periodic 1s drain ages it out by send_defer_ttl.
 void Node::defer_send(const TxItem& item) {
+    // §S0 giveup: this send has drained (a route appeared) then bounced back here too many times — a route EXISTS but is
+    // never selectable (an aliased-mobile / gateway transit next-hop). Each re-defer RE-STAMPS deferred_at_ms, so the
+    // send_defer_ttl giveup below can never age it out (the metal "re-drain every 1s forever" burn). Fail loud instead of
+    // re-parking. s18-inert: s18 never drains a deferred send (redrain_count stays 0). See send_defer_max_redrains.
+    if (item.redrain_count >= protocol::send_defer_max_redrains) {
+        MR_EMIT("send_deferred_giveup", EF_I("dst", item.dst), EF_I("ctr", item.ctr));
+        { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::no_route; pu.dst = item.dst; pu.ctr = item.ctr; enqueue_push(pu); }
+        return;
+    }
     if (_active->_deferred_n >= protocol::cap_deferred_sends) {   // full -> REFUSE the NEW send (Lua table_cap_hit
         MR_TELEMETRY(
             EventField cf[] = {                          // dv:5549-5553), NOT drop-oldest. Complete the
@@ -294,6 +303,7 @@ void Node::try_drain_deferred() {
                                     { .key = "ctr",       .type = EventField::T::i64, .i = d.item.ctr },
                                     { .key = "waited_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(now - d.deferred_at_ms) } };
                 _hal.emit("send_drained", sf, 4); );      // route appeared (dv:6953) — the held send flies
+            d.item.redrain_count++;                      // §S0: count this drain — if the route proves unusable at select and the item bounces back to defer_send, the giveup bound breaks the 1s restamp loop
             drained[drained_n++] = d.item;               // route appeared -> drain to the queue HEAD below
             continue;
         }

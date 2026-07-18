@@ -112,6 +112,7 @@ bool Node::id_bind_set(uint8_t node_id, uint32_t key_hash32, IdBindSource source
         _active->_id_bind[i].source       = static_cast<uint8_t>(source);
         _active->_id_bind[i].confidence   = static_cast<uint8_t>(confidence);
         id_bind_evict_other_hash_holders(key_hash32, node_id);  // one hash -> one id (heal a same-hash rehome)
+        if (authoritative) evict_aliased_hosted_mobile(node_id, key_hash32);   // §S0(b): a confirmed static reclaims an id we gave a mobile
         return true;
     }
     // NEW node_id: heal any stale holder of this hash FIRST (a pure rehome frees its slot), then cap-check.
@@ -133,6 +134,7 @@ bool Node::id_bind_set(uint8_t node_id, uint32_t key_hash32, IdBindSource source
                            { .key = "source",     .type = EventField::T::str, .s = id_bind_source_str(source) },
                            { .key = "confidence", .type = EventField::T::str, .s = id_bind_conf_str(confidence) } };
         _hal.emit("id_bind_set", f, 4); );
+    if (authoritative) evict_aliased_hosted_mobile(node_id, key_hash32);   // §S0(b): a confirmed static reclaims an id we gave a mobile
     return true;
 }
 

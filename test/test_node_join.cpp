@@ -602,3 +602,114 @@ TEST_CASE("clean-join R4 — clear_routing_state wipes the buffered channel mess
     node.clear_routing_state();
     CHECK(node.channel_buffer_count() == 0);                 // ★ R4: no old-network channel content survives the reprovision
 }
+
+// ============================================================================
+// §S0 — the hosted-mobile local-id ALIAS bug (spec 2026-07-17 §6; metal-exposed at static ids 17..20).
+// Three parts: (1) find_free_mobile_id allocates TOP-DOWN + excludes known statics; (1b) an authoritative
+// static binding EVICTS an aliasing hosted mobile; (2) the transit filter carves out a confirmed static
+// next-hop; (3) the drain->re-defer oscillation gives up (send_failed{no_route}) at the bound.
+// ============================================================================
+
+// PART 1a — cold-boot / empty-knowledge allocation starts at the TOP of the range (254), never 17 (the metal
+// bug picked 18 == static S2). And it EXCLUDES ids the node knows are static (id_bind + routes).
+TEST_CASE("§S0 find_free_mobile_id — TOP-DOWN allocation (254), excludes known-static ids") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x00005151u);
+    node.on_init(join_cfg());
+    Command c{}; c.kind = CmdKind::join; node.on_command(c);
+    node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);   // adopt id 17
+    CHECK(node.node_id() == protocol::normal_node_id_min);
+
+    // empty knowledge (no id_bind, no routes yet, no hosted mobiles) -> the TOP id, NOT 17..
+    CHECK(node.test_find_free_mobile_id(0x00AA0001u) == 254);
+    // idempotent: the same key re-offers the same id (it is not yet registered, so still the top)
+    CHECK(node.test_find_free_mobile_id(0x00AA0001u) == 254);
+
+    // a known STATIC binding for 254 (a beacon-heard neighbour) must be skipped -> next id down
+    CHECK(node.test_id_bind_set(254, 0x00BB00BBu, /*authoritative=*/true));
+    CHECK(node.test_find_free_mobile_id(0x00AA0002u) == 253);
+    // and a route dest at 253 is also excluded (DV-reachable static) -> 252
+    std::array<uint8_t, 64> bcn{}; const size_t bn = make_beacon(/*src=*/253, /*key=*/0x00CC00CCu, bcn);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    node.on_recv(bcn.data(), bn, meta);                       // learns a direct route to 253
+    CHECK(node.test_find_free_mobile_id(0x00AA0003u) == 252);
+}
+
+// PART 1b — an AUTHORITATIVE static binding landing for an id we already gave a hosted mobile EVICTS the mobile
+// (it re-registers via the presence plane). This is the "later binding conflict" self-heal.
+TEST_CASE("§S0 id_bind_set — an authoritative static binding evicts an aliasing hosted mobile") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x00005252u);
+    node.on_init(join_cfg());
+    Command c{}; c.kind = CmdKind::join; node.on_command(c);
+    node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);   // adopt id 17
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+
+    // host a mobile whose local id is 200 (the alias-to-be)
+    std::array<uint8_t, 16> jc{};
+    const size_t jn = make_j_claim_mobile(/*host=*/protocol::normal_node_id_min, /*local=*/200, /*hash=*/0x00C0FFEEu, jc);
+    node.on_recv(jc.data(), jn, meta);
+    CHECK(node.mobile_reg_count() == 1);
+
+    // a CLAIMED (second-hand) binding for 200 must NOT evict (too weak a signal — only a first-hand authoritative
+    // beacon reclaims the id). The binding is accepted as a NEW entry (mobiles keep no static id_bind), but the
+    // hosted mobile stays put.
+    CHECK(node.test_id_bind_set(200, 0x00DEAD01u, /*authoritative=*/false));
+    CHECK(node.mobile_reg_count() == 1);
+    CHECK(hal.count("mobile_evict_alias") == 0);
+    // ... but an AUTHORITATIVE static binding (the real static's own beacon) DOES evict the aliasing mobile
+    CHECK(node.test_id_bind_set(200, 0x00DEAD01u, /*authoritative=*/true));
+    CHECK(node.mobile_reg_count() == 0);                      // ★ evicted -> it re-registers onto a fresh (top) id
+    CHECK(hal.count("mobile_evict_alias") == 1);
+    // re-binding the SAME static hash is a no-op eviction (already gone) — no crash, no double emit
+    CHECK(node.test_id_bind_set(200, 0x00DEAD01u, /*authoritative=*/true));
+    CHECK(hal.count("mobile_evict_alias") == 1);
+}
+
+// PART 2 — the transit filter must NOT reject a route through a CONFIRMED STATIC just because its id also set the
+// mobile-peer bit (the alias). It MUST still reject a genuine mobile transit (an other-home mobile, no static binding).
+TEST_CASE("§S0 route_uses_mobile_as_transit — static carve keeps a confirmed static transit legal") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x00005353u);
+    node.on_init(join_cfg());
+    Command c{}; c.kind = CmdKind::join; node.on_command(c);
+    node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);   // adopt id 17
+
+    // id 50 set the mobile-peer bit (an is_mobile beacon) but has NO static binding -> a genuine mobile transit
+    node.test_mark_mobile_peer(50);
+    CHECK(node.test_route_uses_mobile_as_transit(/*dest=*/60, /*next=*/50) == true);   // reject: relay THROUGH a mobile
+
+    // now an AUTHORITATIVE static binding for 50 arrives (no hosted mobile on 50 -> no eviction) -> it is a
+    // CONFIRMED STATIC; the alias carve makes it a LEGAL transit again (the metal "can't route dest via S2" fix)
+    CHECK(node.test_id_bind_set(50, 0x00577A71u, /*authoritative=*/true));
+    CHECK(node.test_route_uses_mobile_as_transit(/*dest=*/60, /*next=*/50) == false);  // ★ carve: real static -> allow
+
+    // deliver-TO-a-mobile (next==dest) is always fine, regardless (the existing carve-out)
+    node.test_mark_mobile_peer(70);
+    CHECK(node.test_route_uses_mobile_as_transit(/*dest=*/70, /*next=*/70) == false);
+}
+
+// PART 3 — the defer-loop giveup: a send re-drained past the bound fails loud (send_failed{no_route}) and is NOT
+// re-parked, breaking the "send_deferred/send_drained every 1s FOREVER" burn.
+TEST_CASE("§S0 defer_send — bounded re-drains give up with send_failed{no_route}") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x00005454u);
+    node.on_init(join_cfg());
+    Command c{}; c.kind = CmdKind::join; node.on_command(c);
+    node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);   // adopt id 17
+    Push p{}; while (node.next_push(p)) {}                     // drain any adopt push
+
+    // below the bound: parks normally (no giveup)
+    node.test_defer_send(/*dst=*/60, /*ctr=*/1, /*redrain_count=*/protocol::send_defer_max_redrains - 1);
+    CHECK(node.test_deferred_count() == 1);
+    { bool saw_fail = false; while (node.next_push(p)) if (p.kind == PushKind::send_failed) saw_fail = true; CHECK_FALSE(saw_fail); }
+
+    // AT the bound: fails loud, does NOT park (deferred count unchanged)
+    node.test_defer_send(/*dst=*/61, /*ctr=*/2, /*redrain_count=*/protocol::send_defer_max_redrains);
+    CHECK(node.test_deferred_count() == 1);                    // still just the first one
+    bool giveup = false;
+    while (node.next_push(p))
+        if (p.kind == PushKind::send_failed && p.dst == 61 && p.ctr == 2 && p.reason == SendFailReason::no_route) giveup = true;
+    CHECK(giveup);                                            // ★ send_failed{no_route}
+    CHECK(hal.count("send_deferred_giveup") == 1);
+}

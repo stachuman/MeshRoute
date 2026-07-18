@@ -30,7 +30,7 @@ talk (LBT) + NAV virtual carrier sense gate the TX; a rolling duty-cycle budget 
 next-hops cascade to alternates / hop-budget reroute.
 - **Source:** `node_mac.cpp` (`do_data_tx`, `duty_over_budget`, budget tiers) · `node_mac_rx.cpp` (RX handlers) · `node_cascade.cpp` (alt-walk)
 - **Spec:** `docs/specs/2026-05-30-r3-data-plane-design.md` · `2026-05-31-r4.5-lbt-design.md` · `2026-06-07-nav-virtual-carrier-sense-design.md` · `2026-05-31-r4-budget-nack-design.md`
-- **Mobile marks (codec — §mobile Slice 1).** A mobile uses a home-assigned LOCAL id that can collide with a global id, so **RTS/DATA carry `addr_len=1`** (`next` is a mobile local-id), **RTS a `MOBILE` bit** (byte-5 b1 — the `src`/originator is a mobile), and **ACK a `MOBILE` bit** (byte-1 b1 — the `to` is a mobile local-id); **CTS relies on the marked-RTS context**. These keep the mobile plane's local-ids distinct from global ids. The codec round-trips them (marks default `0` → backward-compatible); wire layout = `frames.md`. The behaviour (registration, last-mile, the mobile plane) lands in later mobile-node slices — design `docs/superpowers/specs/2026-07-07-mobile-node-handling-assumptions.md`.
+- **Mobile marks (codec — §mobile Slice 1).** A mobile uses a home-assigned LOCAL id that can collide with a global id, so **RTS/DATA carry `addr_len=1`** (`next` is a mobile local-id), **RTS a `MOBILE` bit** (byte-5 b1 — the `src`/originator is a mobile), and **ACK a `MOBILE` bit** (byte-1 b1 — the `to` is a mobile local-id); **CTS relies on the marked-RTS context**. These keep the mobile plane's local-ids distinct from global ids. The codec round-trips them (marks default `0` → backward-compatible); wire layout = `frames.md`. The mobile plane itself (registration, last-mile, presence) is **§12–14** below.
 
 ## 3. Beacons
 
@@ -95,8 +95,8 @@ sentinel (the reservation is a Join-time convention, enforced there — not at c
 H-frame flood resolves an identity `key_hash32` → `node_id` (soft = any cache answers; hard = owner-only) and, with
 `WANT_PUBKEY`, the peer's E2E pubkey; the answer routes home as a DATA `H_ANSWER`. Relays cache answers on-pass.
 
-**Mobile locate (§mobile §4).** A mobile has no global id — it's addressed by its stable `key_hash32`. Its **registrar (home_node) proxies** that hash: on an H-query for `M` the home answers a **`MOBILE_H_ANSWER (M → home_id)`** (a distinct DATA TYPE, always *claimed*). The sender caches `M → home` in a **separate mobile-home cache — NOT `id_bind`** (the mobile's LOCAL id must stay out of the global id-plane), keyed by the registration **epoch** so the **freshest** home wins during an old+new-home overlap. A DM to the mobile then routes `dst=home, dst_hash=M` and the home does the last mile (the `addr_len=1` mark). **Staleness:** on re-register the mobile drops a `MOBILE_BREADCRUMB` to its **old** home, which thereafter **redirects** (`MOBILE_H_ANSWER (M → new_home)`) rather than dead-ending — best-effort, with TTL + re-query as the fallback. Spec `2026-07-08-mobile-slice4a/4b`.
-- **Source:** `node_hashlocate.cpp` (`handle_h`, the proxy + `on_mobile_hash_bind_response`) · `node_mobile.cpp` (breadcrumb)
+**Mobile locate (§mobile §4).** A mobile has no global id — it's addressed by its stable `key_hash32`. Its **registrar (home_node) proxies** that hash: on an H-query for `M` the home answers a **`MOBILE_H_ANSWER (M → home_id)`** (a distinct DATA TYPE, always *claimed*). The sender caches `M → home` in a **separate mobile-home cache — NOT `id_bind`** (the mobile's LOCAL id must stay out of the global id-plane), keyed by the registration **epoch** so the **freshest** home wins during an old+new-home overlap. A DM to the mobile then routes `dst=home, dst_hash=M` and the home does the last mile (the `addr_len=1` mark). **Staleness (three overlapping heals, §S6):** the **NEW home** sends the `MOBILE_BREADCRUMB` to the old home on adopt (home-originated since S6 — survives a sleeping mobile; same-layer today), the old home thereafter **redirecting** (`MOBILE_H_ANSWER (M → new_home)`); the mobile's next **P-probe** naming its selected home makes any OTHER registry holding its hash **prune instantly** (§14); the liveness prune is the backstop. Spec `2026-07-08-mobile-slice4a/4b` + `2026-07-17-…-first-contact` §S6.4-D.
+- **Source:** `node_hashlocate.cpp` (`handle_h`, the proxy + `on_mobile_hash_bind_response`) · `node_join.cpp` (`presence_notify_old_home`)
 - **Spec:** `docs/specs/2026-05-29-c3-h-f-floods-design.md`
 
 ## 11. Anti-spam
@@ -108,6 +108,42 @@ Airtime *fairness* layered on the duty-cycle governor: the duty plane bounds eac
 - **Tunables** (per-leaf, on the C frame): `channel_active_fraction`, `channel_min_interval_ms`, `dm_min_interval_ms`.
 - **Source:** `node_routing.cpp` (`channel_cap_origin`) · `node_channel.cpp` (channel admit + self-gate) · `node_mac_rx.cpp` (DM backstop + e2e-ack exempt/anti-spoof) · `node_mac.cpp` (DM floor)
 - **Spec:** `docs/superpowers/specs/2026-06-30-antispam-duty-channel-cap.md` · **user guide:** `docs/anti-spam.md`
+
+## 12. Mobile node (home / care-of)
+
+A **mobile** is a roaming endpoint: a stable `key_hash32`, a home-assigned LOCAL id, reachable by hash — the
+mesh resolves hash → its current **home** (§10 proxy), routes the DM to the home, and the home does the
+`addr_len=1` last mile. A registered mobile never floods on the static plane itself: hash-addressed sends are
+**delegated** to the home (`DATA_TYPE_MOBILE_SEND` wrapper), which re-originates with `SOURCE_HASH`=M so replies
+and E2E-acks route back (the delegated ctr map translates them). Registration rides the J family (leaf-exempt
+DISCOVER + targeted, jitter-stashed OFFER + CLAIM); a reprovision (`join`/`create`/`leave`) wipes the host's
+registry + suspends OFFERs and rosters while `_node_id == 0`.
+- **Source:** `node_mobile.cpp` (the FSM) · `node_join.cpp` (host side) · `node_hashlocate.cpp` (delegation, `:866`) · `node_mac_rx.cpp` (`MOBILE_SEND` unwrap, last-mile)
+- **Spec:** `docs/superpowers/specs/2026-07-07-mobile-node-handling-assumptions.md` · `2026-07-17-cross-layer-mobile-first-contact-design.md`
+
+## 13. Team plane
+
+A `team_id`-scoped overlay of mobiles (member-to-member routing + group chat), fully **separated** from the
+static plane and from other teams: team beacons/DV (`_rt_team`), team F discovery, a team-scoped H-flood, and a
+`team_id`-tagged channel — a static node never learns, relays, or ingests any of it (the s18 byte-identity
+tripwire + s22/s24/s25 assert both axes). Members self-assign `team_local_id`s by team-DAD (no host needed —
+an off-grid team routes among itself); a DUAL member (also home-registered) keeps the two id spaces distinct.
+Reaching a teammate REQUIRES the team plane (`send -t`); a plain send is global/home.
+- **Source:** `node_beacon.cpp` (team beacon/DV) · `node_route_discovery.cpp` (team F) · `node_hashlocate.cpp` (team H) · `node_channel.cpp` (team M) · `node_mobile.cpp` (team-DAD)
+- **Spec:** `docs/superpowers/specs/2026-07-15-team-plane-routing-parity-design.md` · `2026-07-16-team-plane-liveness-2c-design.md` · `2026-07-10-protocol-plane-separation.md`
+
+## 14. Presence plane (mobile ↔ home)
+
+Replaces every periodic mobile↔home poll (the 10-min re-CLAIM keepalive, the 10-min layer-directory pull, the
+pubkey push — all retired) with two **leaf-free, unacked 1-hop broadcasts**: a mobile's tiny **P-probe**
+(quality-adaptive period, jittered; carries its selected-home pair, optionally its last home + its pubkey =
+key custody) and the home's coalesced **P-roster** (its hosted list + per-mobile 2-bit link quality + `has_key`
++ the layer-directory `dir_epoch`; one roster refreshes every listener). Semantics: absent-from-roster ⇒
+re-register now; probe naming ANOTHER home ⇒ that registry prunes instantly; unanswered probes ⇒ home lost in
+minutes (not the old 30); weak quality ⇒ pre-scan and **proactively re-home** (bottleneck-direction ranking,
+dwell + hysteresis) while both homes are alive — the new home then notifies the old (§10 staleness).
+- **Source:** `node_mobile.cpp` (`presence_probe_fire`, `presence_ingest_roster`, `presence_maybe_rehome`) · `node_join.cpp` (`presence_ingest_probe`, `presence_emit_roster`) · `frame_codec.cpp` (`pack/parse_p_*`)
+- **Spec:** `docs/superpowers/specs/2026-07-17-cross-layer-mobile-first-contact-design.md` §S6 (wire = `frames.md` §P)
 
 ---
 

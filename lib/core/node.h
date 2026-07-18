@@ -287,6 +287,13 @@ public:
     void              test_update_link_bidi_from_beacon(uint8_t advertiser, const beacon_entry* e, uint8_t n, bool complete) { update_link_bidi_from_beacon(advertiser, e, n, complete); }  // white-box: drive the Slice-3 detection scan directly
     void              test_ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) { ingest_beacon(bytes, len, meta); }  // white-box: drive ingest_beacon directly (Slice 3 end-to-end)
     int16_t           test_team_penalty_q4(uint8_t next_hop) const { return liveness_penalty_q4(next_hop, /*team_plane=*/true); }   // white-box: the team-plane liveness penalty (§clean-join R3 reset check)
+    // §S0 (cold-boot mobile-id alias) white-box seams.
+    uint8_t           test_find_free_mobile_id(uint32_t key_hash32) { return find_free_mobile_id(key_hash32); }   // top-down allocation + static-exclusion
+    bool              test_route_uses_mobile_as_transit(uint8_t dest, uint8_t next) const { return route_uses_mobile_as_transit(dest, next); }   // the transit filter (alias carve)
+    void              test_mark_mobile_peer(uint8_t id) { _active->_mobile_peer[id >> 3] |= static_cast<uint8_t>(1u << (id & 7)); }   // simulate an is_mobile beacon setting the SET-only bit
+    bool              test_id_bind_set(uint8_t id, uint32_t key_hash32, bool authoritative) { return id_bind_set(id, key_hash32, IdBindSource::bcn, authoritative ? IdBindConf::authoritative : IdBindConf::claimed); }
+    void              test_defer_send(uint8_t dst, uint16_t ctr, uint8_t redrain_count) { TxItem it{}; it.dst = dst; it.ctr = ctr; it.redrain_count = redrain_count; defer_send(it); }   // drive the defer-loop giveup directly
+    uint8_t           test_deferred_count() const { return _active->_deferred_n; }
 #endif
     // A heard 1-hop gateway's stored window schedule (nullptr if none known) + the ms to defer an RTS to its window.
     // For the `routes` console dump: surface a gateway route's unique state (period / per-leaf windows / heard-age).
@@ -564,7 +571,8 @@ private:
     void    l2c_mark_redirected(uint32_t want_hash);
     // node_id auto-assignment (DAD + heal) — node_join.cpp.
     int     join_choose_candidate_id();                          // prefer previous id, else a random free slot (-1 = leaf full)
-    uint8_t find_free_mobile_id(uint32_t key_hash32);            // §mobile 2a: host-assign a free LOCAL id (17..254) for a mobile (0 = pool full; idempotent for a known key)
+    uint8_t find_free_mobile_id(uint32_t key_hash32);            // §mobile 2a: host-assign a free LOCAL id, TOP-DOWN 254..17 (0 = pool full; idempotent for a known key); §S0 excludes id_bind/_rt statics
+    void    evict_aliased_hosted_mobile(uint8_t node_id, uint32_t static_key_hash32);   // §S0(b): an authoritative static binding lands for a hosted mobile's local id -> evict the mobile (it re-registers)
     bool    join_start_claim(const char* reason);                // pick a candidate, bump epoch, broadcast J_CLAIM, arm the guard
     void    join_claim_guard_fire();                             // kJoinClaimGuardTimerId: adopt (no objection) or deny+retry
     void    join_adopt(uint8_t node_id);                         // set_identity + joined + self-bind + beacon

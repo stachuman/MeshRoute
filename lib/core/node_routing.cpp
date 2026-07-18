@@ -785,7 +785,22 @@ bool Node::route_uses_mobile_as_transit(uint8_t dest, uint8_t next_hop) const {
     // This predicate gates BOTH merge (rt_merge) AND send-time selection (next_hop_selectable); without the carve-out the
     // select gate rejects a teammate transit even though the route lives in _rt_team. is_team_peer is false for any static
     // node / non-team member (a team_peer bit is set only when _cfg.team_id != 0), so the static plane is byte-identical.
-    return next_hop != 0 && dest != 0 && next_hop != dest && is_mobile_peer(next_hop) && !is_team_peer(next_hop);
+    if (!(next_hop != 0 && dest != 0 && next_hop != dest && is_mobile_peer(next_hop) && !is_team_peer(next_hop)))
+        return false;
+    // §S0 ALIAS CARVE: is_mobile_peer is a SET-only per-id bitset — a hosted mobile's local id (e.g. 18) sets it when the
+    // mobile beacons, but that SAME numeric id can be a real STATIC neighbour's node_id (the cold-boot pool alias). If we
+    // hold an AUTHORITATIVE id_bind for next_hop whose hash is NOT one of OUR hosted mobiles, next_hop is a CONFIRMED
+    // static -> a legitimate transit; do NOT reject it (the metal bug: home couldn't route dest 19 via next 18==S2 at all).
+    // This does NOT rescue a genuine roaming mobile: a mobile's LOCAL id never enters the static id_bind plane (§18), so a
+    // real is_mobile peer has no authoritative binding here and still returns true. Static-inert: with no hosted mobiles
+    // nothing set the bit for a static id, so the guard above already returned false before reaching here.
+    uint32_t bound_hash = 0;
+    if (key_hash_of_id(next_hop, bound_hash)) {
+        for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+            if (_active->_mobile_reg[i].key_hash32 == bound_hash) return true;   // the binding IS a hosted mobile -> genuine mobile transit
+        return false;                                                            // authoritative binding to a non-hosted (static) hash -> real static transit
+    }
+    return true;
 }
 
 }  // namespace meshroute

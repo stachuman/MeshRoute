@@ -210,6 +210,13 @@ inline constexpr uint16_t sync_response_suppress_window_ms         = 12000;
 // ---- Defer / dedup ---------------------------------------------------------
 inline constexpr uint32_t send_defer_ttl_ms = 30000;
 inline constexpr uint32_t send_defer_drain_period_ms = 1000;   // periodic _deferred drain / TTL giveup
+// §S0 giveup: bound the drain->re-defer oscillation. A held send whose route APPEARS (drains) but is then UNUSABLE at
+// select (an aliased-mobile or gateway transit next-hop) re-defers with a FRESH deferred_at_ms every cycle, so the
+// send_defer_ttl_ms giveup above never fires -> the metal "send_deferred/send_drained every 1s FOREVER" burn. Cap the
+// re-drain cycles at the SAME ~30s horizon as the TTL (ttl/drain_period) so a genuinely-flapping route still recovers
+// inside the TTL window, while a truly-unroutable one ages out to send_failed{no_route}. s18-inert: s18 never drains a
+// deferred send (0 send_drained), so redrain_count stays 0 and this bound is never reached.
+inline constexpr uint8_t  send_defer_max_redrains = static_cast<uint8_t>(send_defer_ttl_ms / send_defer_drain_period_ms);   // 30
 
 // ---- NACK plane ------------------------------------------------------------
 inline constexpr uint8_t  nack_reason_busy_rx    = 0;          // receiver busy with a DIFFERENT flight
