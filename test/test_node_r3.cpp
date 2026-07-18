@@ -4991,7 +4991,7 @@ TEST_CASE("§mobile 2a — host accepts a mobile (DISCOVER->OFFER, CLAIM registe
     RxMeta meta{ 8.0f, -80.0f, 0, static_cast<int8_t>(-1) };
 
     // (1) a mobile DISCOVER on a FOREIGN leaf (7) -> leaf-exempt -> the host emits a mobile OFFER
-    std::array<uint8_t, 6> db{};
+    std::array<uint8_t, 9> db{};   // §S6: mobile DISCOVER = 9 B (last-home block)
     size_t dn = pack_j_discover({ /*leaf_id=*/7, /*gw=*/false, /*is_mobile=*/true, /*key=*/0xB0B1u }, db);
     hal._now = 1000; host.on_recv(db.data(), dn, meta);
     CHECK(hal.count("mobile_offer_tx") == 1);                 // leaf-exempt worked (a foreign-leaf mobile DISCOVER is accepted)

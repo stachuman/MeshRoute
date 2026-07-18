@@ -27,6 +27,7 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 | 0x9 | J    | 6 / 8·13 / 11 / 15 B | join family (OFFER 13 B iff `is_mobile`) |
 | 0xA | M    | 7+n B | channel message (lean; leaf-scoped gossip) |
 | 0xB | C    | 15+n B | leaf-config answer (the CONFIG_PULL reply) |
+| 0xC | P    | probe 8 / 10 / 42 B · roster 5 + 6·N (+ bitmaps) (+5 echo) B | presence plane (probe dir=0 / roster dir=1); **LEAF-FREE** |
 
 ---
 
@@ -378,6 +379,39 @@ DENY **reason:** `1 = CONFLICT`, `2 = PENDING_CLAIM`, `3 = OWN_ID_DEFENSE`, `4 =
 **Body = 12 B fixed + name** (bytes 3.., the `pack_c_config` form). The **`config_hash`** carried in the BCN leaf-header (+ the F/J frames) is `BLAKE2b(sf_list ‖ duty_bp ‖ active_fraction_bp ‖ ch_interval_ms ‖ dm_interval_ms ‖ leaf_name_len ‖ leaf_name)[:2]` — the same wire forms in the same order (**not** `config_epoch`, which is the LWW tiebreak, not identity). A mother and a joiner must derive identical bytes or the joiner re-pulls forever. The three anti-spam fields were promoted from firmware constants to per-leaf config on 2026-07-03; the frame grew +6 B but `wire_version` was **not** bumped, so **every node on a leaf must run the same firmware** (a mixed old/new fleet would misparse). See [anti-spam.md](anti-spam.md).
 
 ---
+
+## P — presence plane · cmd 0xC · **LEAF-FREE**
+
+Two frames on one nibble, split by byte-0 bit 3 (`dir`). LOCAL 1-hop broadcasts (LBT only; no CTS/ACK/relay/flood, TTL-free). **Leaf-free**: byte-0's low nibble is FLAGS, not a leaf gate — the rx dispatch routes cmd 0xC before the standard leaf filter (a non-hosting static drops on frame type). LE where multi-byte.
+
+**P-probe (mobile → broadcast, `dir`=0):**
+
+| Byte  | Field | Description |
+| ----- | ----- | ----------- |
+| 0     | cmd \| flags | b7..4 = `0xC`; b3 = `dir`=0 (probe); b2 = `HAS_LAST_HOME`; b1 = `HAS_PUBKEY`; b0 rsv |
+| 1     | selected_home_id | **always** — 0 = searching; else the mobile's chosen home id |
+| 2     | selected_home_layer | **always** — the FULL 8-bit layer (leaf-free ⇒ id alone aliases) |
+| 3..6  | key_hash32 | the mobile identity (**LE**) |
+| 7     | reg_epoch | low byte of the registration epoch |
+| 8..9  | last_home_id · last_home_layer | iff `HAS_LAST_HOME` |
+| 8/10.. | ed_pub[32] | iff `HAS_PUBKEY` (fields in flag-bit order) |
+
+Sizes: check = 8 B · searching+last-home = 10 B · registering (+key) = 42 B. `searching` is derived: `selected_home_id == 0`.
+
+**P-roster (home → broadcast, `dir`=1):**
+
+| Byte  | Field | Description |
+| ----- | ----- | ----------- |
+| 0     | cmd \| flags | b7..4 = `0xC`; b3 = `dir`=1 (roster); b2 = `TRUNC` (rsv, unused at cap 16); b1 = `HAS_ECHO`; b0 rsv |
+| 1     | home_id | |
+| 2     | home_layer | FULL 8-bit |
+| 3     | dir_epoch | layer-directory version (mobiles pull only on change) |
+| 4     | count | ≤ `cap_host_mobiles` |
+| 5..   | count × [ key_hash32(4 **LE**) · local_id(1) · reg_epoch(1) ] | 6-B entries |
+| tail  | quality bitmap 2b/mobile `ceil(count/4)` B, then has_key bitmap 1b/mobile `ceil(count/8)` B | entry order; quality 0=critical 1=weak 2=ok 3=strong |
+| +5    | echo_hash32(4 **LE**) · echo_quality(2b)\|rsv(6b) | iff `HAS_ECHO` — "the probe I answer, RX'd at quality X" |
+
+Sizes: 3 mobiles = 25 B (+5 echo) · 16 = 107 B. Behaviour/rationale in `docs/protocol.md` (§S6 presence plane).
 
 ## Planned wire extensions
 

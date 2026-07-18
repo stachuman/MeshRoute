@@ -241,6 +241,18 @@ struct DualLayerTestAccess {
     static void     deactivate_mobile_reg(Node& n) { n._my_mobile_reg.active = false; }  // §mobile 4b: simulate the 2b home-lost reset (active=false, home_id kept) so the guard re-CLAIMs
     static uint64_t mobile_last_heard_home(Node& n) { return n._my_mobile_reg.last_heard_home_ms; }  // §mobile: the home-lost liveness clock
     static void     mobile_discover_fire(Node& n) { n.mobile_discover_fire(); }  // §mobile: drive the reclaim/home-lost FSM tick
+    static void     presence_probe_fire(Node& n) { n.presence_probe_fire(); }    // §S6: drive a mobile presence check/probe tick (k_miss -> HOME LOST)
+    static void     presence_ingest_probe(Node& n, const uint8_t* f, size_t l, const RxMeta& m) { n.presence_ingest_probe(f, l, m); }  // §S6: feed a home a probe
+    static void     presence_roster_fire(Node& n) { n.presence_roster_fire(); }  // §S6: force the home's coalesced roster emit
+    static uint8_t  presence_miss(Node& n) { return n._presence_miss; }          // §S6: consecutive unanswered probes
+    static int16_t  mobile_snr_q4(Node& n, uint8_t slot) { return n._active->_mobile_snr_q4[slot]; }  // §S6: per-mobile SNR EWMA
+    static uint8_t  active_layer(Node& n) { return n.active_layer_id(); }         // §S6: this node's active leaf's full layer id
+    static void     presence_setup_prescan(Node& n, uint8_t my_tier, int16_t home_rx_q4) {  // §S6.4-C: force a prescan (weak home) with dwell elapsed
+        n._presence_prescan = true; n._presence_my_tier = my_tier; n._presence_home_rx_q4 = home_rx_q4; n._last_adopt_ms = 0; }
+    static void     presence_add_cand(Node& n, uint8_t home_id, uint8_t layer, int16_t snr_q4, uint8_t echo_tier, uint64_t first_seen) {  // §S6.4-C D14: inject a candidate (echo_tier 0xFF = unknown)
+        uint8_t s = n._presence_cand_n < protocol::cap_presence_candidates ? n._presence_cand_n++ : 0;
+        n._presence_cand[s] = { home_id, layer, snr_q4, echo_tier, first_seen, first_seen }; }
+    static void     presence_maybe_rehome(Node& n) { n.presence_maybe_rehome(); }
     static uint8_t  mobile_reg_redirect(Node& n, uint8_t slot) { return n._active->_mobile_reg[slot].redirect_home_id; }  // §mobile 4b
     static void     set_mobile_last_heard(Node& n, uint8_t slot, uint64_t ms) { n._active->_mobile_reg[slot].last_heard_ms = ms; }  // §mobile hash-locate: age/refresh the liveness clock
     static uint8_t  mobile_reg_n(Node& n) { return n._active->_mobile_reg_n; }  // §mobile Part 2: count of hosted mobiles
@@ -2499,20 +2511,21 @@ TEST_CASE("§mobile — a reply-expecting static send FAILS LOUD when the mobile
     CHECK_FALSE(h3.saw_emit("send_failed"));                 // ★ plain send not gated (one-way best-effort)
 }
 
-TEST_CASE("§mobile — a registered mobile does NOT drop its home when the home beacons slowly (home-lost tolerates ~2 beacon periods)") {
-    // Bench: home beacons every 15 min (beacon_ms=900000) but the 90 s default home-lost timeout tripped every reclaim →
-    // the mobile flapped registration → stamped origin=_node_id (unroutable) → the reverse-ack stormed.
+TEST_CASE("§S6 — home-loss is PROBE-driven (the beacon-timeout rule is RETIRED): mobile_discover_fire never drops a homed mobile; k_miss unanswered probes do") {
+    // The old max(90s, 2×beacon_ms) beacon-timeout home-lost rule is GONE. mobile_discover_fire is now a REGISTRATION-EVENT
+    // entry only — calling it while homed is a no-op (never drops). Home-loss is detected by the presence probe cycle:
+    // presence_probe_fire escalates and, after k_miss+1 unanswered probes, drops the home (mobile_reg{registered:false}).
     StubHal hal;   // _now = 0
     Node mob(hal, 0, 0x1717u);
     NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=4; cfg.is_mobile=true; cfg.beacon_period_ms=900000; CHECK(mob.on_init(cfg));
-    DualLayerTestAccess::make_registered_mobile(mob, /*local*/17, /*home*/146, /*home_hash*/0x9292u);   // last_heard_home_ms = 0
+    DualLayerTestAccess::make_registered_mobile(mob, /*local*/17, /*home*/146, /*home_hash*/0x9292u);
     CHECK(mob.mobile_home_id() == 146);
-    hal._now = 100000;                            // 100 s: > the 90 s default, « 2×900 000
+    hal._now = 2000000;                           // way past any old beacon-timeout
     DualLayerTestAccess::mobile_discover_fire(mob);
-    CHECK(mob.mobile_home_id() == 146);           // ★ STILL homed (pre-fix: dropped at 90 s → origin=node_id)
-    hal._now = 2000000;                           // > 2×900 000 = 1 800 000 with no home contact
-    DualLayerTestAccess::mobile_discover_fire(mob);
-    CHECK(mob.mobile_home_id() == 0);             // ★ a genuine home-loss is still detected
+    CHECK(mob.mobile_home_id() == 146);           // ★ mobile_discover_fire NO LONGER drops (retired beacon-timeout rule)
+    // probe cycle with no roster answer: send k_miss+1 probes, then HOME LOST
+    for (uint8_t i = 0; i <= protocol::presence_probe_k_miss + 1; ++i) { hal._now += 6000; DualLayerTestAccess::presence_probe_fire(mob); }
+    CHECK(mob.mobile_home_id() == 0);             // ★ a genuine home-loss IS detected by the probe cycle (minutes)
 }
 
 TEST_CASE("§mobile — a registered mobile packs the DM INNER origin as its HOME (routable), not its node_id (the reverse-ack dest)") {
@@ -2721,23 +2734,35 @@ TEST_CASE("§mobile hash-locate Fix 1/1b — a TEAM-scoped locate gets the mobil
     CHECK_FALSE(hs.saw_emit("h_resolved"));
 }
 
-TEST_CASE("§mobile Part 2 Fix 6 — a home caches a hosted mobile's pushed pubkey (hash-verified); rejects an inconsistent key + a non-hosted M") {
+TEST_CASE("§S6 — a home caches a hosted mobile's key from the PROBE's HAS_PUBKEY block (hash-verified); rejects an inconsistent key + a non-hosted M") {
+    // §S6 A.4: key custody rides the presence probe (RETIRES the TYPE-12 push). presence_ingest_probe caches ed_pub on
+    // the hosted mobile's registry entry iff ed_pub[:4] LE == key_hash32 (self-consistency), then schedules a roster whose
+    // has_key bit confirms custody. Same self-check + host-gating the old push handler had.
+    const RxMeta m8{8.0f, -80.0f, 0, static_cast<int8_t>(-1)};
+    auto mk_probe = [](uint32_t key, const uint8_t ed[32], std::array<uint8_t,42>& buf) -> size_t {
+        p_probe_in p{}; p.selected_home_id = 30; p.selected_home_layer = 4;   // rev2: a CHECK probe selecting home 30 (else searching -> no key cache)
+        p.key_hash32 = key; p.reg_epoch = 0; p.has_pubkey = true; for (int i=0;i<32;++i) p.ed_pub[i]=ed[i];
+        return pack_p_probe(p, std::span<uint8_t>(buf.data(), buf.size()));
+    };
     StubHal hal; Node home(hal, 30, 0x3030u);
     NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
     DualLayerTestAccess::store_mobile(home, /*M*/0xB0B1u, /*local*/17);
     uint8_t ed[32] = {}; ed[0]=0xB1; ed[1]=0xB0; for (int i=4;i<32;++i) ed[i]=static_cast<uint8_t>(i);   // ed_pub[:4] LE == 0x0000B0B1 == M
-    DualLayerTestAccess::drive_post_ack_pubkey_push(home, /*source_hash=M*/0xB0B1u, ed);
+    std::array<uint8_t,42> pb{}; size_t pn = mk_probe(0xB0B1u, ed, pb);
+    DualLayerTestAccess::presence_ingest_probe(home, pb.data(), pn, m8);
     CHECK(DualLayerTestAccess::mobile_reg_has_pubkey(home, 0));
     { const uint8_t* c = DualLayerTestAccess::mobile_reg_ed_pub(home, 0); bool same=true; for (int i=0;i<32;++i) if (c[i]!=ed[i]) same=false; CHECK(same); }
-    // an INCONSISTENT push (ed_pub[:4] != source_hash) -> rejected (the key must hash to M)
+    // an INCONSISTENT key (ed_pub[:4] != key_hash32) -> rejected
     StubHal h2; Node home2(h2, 30, 0x3030u); CHECK(home2.on_init(hc));
     DualLayerTestAccess::store_mobile(home2, 0xB0B1u, 17);
     uint8_t bad[32] = {}; bad[0]=0xFF; bad[1]=0xFF;   // hashes to 0x0000FFFF != 0xB0B1
-    DualLayerTestAccess::drive_post_ack_pubkey_push(home2, 0xB0B1u, bad);
+    std::array<uint8_t,42> bb{}; size_t bn = mk_probe(0xB0B1u, bad, bb);
+    DualLayerTestAccess::presence_ingest_probe(home2, bb.data(), bn, m8);
     CHECK_FALSE(DualLayerTestAccess::mobile_reg_has_pubkey(home2, 0));   // ★ rejected
-    // a push for a NON-hosted M -> dropped (no _mobile_reg entry created / touched)
+    // a probe for a NON-hosted M -> dropped (empty registry -> cheap return)
     StubHal h3; Node home3(h3, 30, 0x3030u); CHECK(home3.on_init(hc));
-    DualLayerTestAccess::drive_post_ack_pubkey_push(home3, 0xB0B1u, ed);
+    std::array<uint8_t,42> nb{}; size_t nn = mk_probe(0xB0B1u, ed, nb);
+    DualLayerTestAccess::presence_ingest_probe(home3, nb.data(), nn, m8);
     CHECK(DualLayerTestAccess::mobile_reg_n(home3) == 0);   // ★ non-host: no cache, byte-identical
 }
 
@@ -2837,15 +2862,22 @@ TEST_CASE("§mobile Part 2 Fix 6 — a mobile with a crypto identity pushes its 
     off.target_key_hash32 = mob.key_hash32(); uint8_t ob[13]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
     hal.emits.clear();
     mob.on_timer(75 /*kMobileClaimGuardTimerId*/);
-    CHECK(hal.saw_emit("mobile_pubkey_push"));   // ★ pushed the key to the (new) home
-    // a keyless mobile -> no push (byte-identical for a mobile without a crypto identity)
+    CHECK_FALSE(hal.saw_emit("mobile_pubkey_push"));   // ★ §S6: the TYPE-12 push is RETIRED — no push on adopt
+    // §S6 A.4: the key now rides the FIRST presence probe (HAS_PUBKEY). Firing the probe timer emits a probe.
+    hal.emits.clear();
+    mob.on_timer(78 /*kPresenceProbeTimerId*/);
+    CHECK(hal.saw_emit("presence_probe_tx"));          // ★ the crypto mobile probes (carrying its key until the roster confirms)
+    // a keyless mobile still probes, just without the key block (byte-identical presence, no crypto)
     StubHal h2; Node mob2(h2, 0, 0x8888u);
     NodeConfig c2; c2.routing_sf=8; c2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c2.leaf_id=4; c2.is_mobile=true; CHECK(mob2.on_init(c2));
     j_offer_in of2{}; of2.leaf_id=4; of2.is_mobile=true; of2.responder_node_id=40; of2.responder_key_hash32=0x4040u; of2.data_sf_bitmap=0x06; of2.proposed_mobile_id=22;
     of2.target_key_hash32 = mob2.key_hash32(); uint8_t ob2[13]; size_t on2 = pack_j_offer(of2, ob2); mob2.on_recv(ob2, on2, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
     h2.emits.clear();
     mob2.on_timer(75);
-    CHECK_FALSE(h2.saw_emit("mobile_pubkey_push"));   // ★ no identity -> no push
+    CHECK_FALSE(h2.saw_emit("mobile_pubkey_push"));    // ★ no push path exists any more
+    h2.emits.clear();
+    mob2.on_timer(78);
+    CHECK(h2.saw_emit("presence_probe_tx"));           // ★ keyless mobile still probes (presence works without crypto)
 }
 
 TEST_CASE("§mobile Wave 2 — the owner's WANT_PUBKEY answer to a MOBILE requester is a DST_HASH DM (routes to origin=the mobile's home, which last-miles it — NOT the unroutable mobile local id)") {
@@ -3189,36 +3221,142 @@ TEST_CASE("§mobile 6.4 — an OFF-GRID team SWITCH / leave-then-rejoin re-provi
     }
 }
 
-TEST_CASE("§mobile 4b — breadcrumb: re-homing H1->H2 emits a BREADCRUMB to H1 (SOURCE_HASH=M); a first registration -> none") {
+TEST_CASE("§S6/D10 — the mobile-sent breadcrumb is RETIRED; a re-home carries last_home in the j_discover (the NEW home notifies)") {
+    // D10: the OLD-home notify is now originated by the NEW home (survives a mobile sleeping right after adopting).
+    // The mobile-side emit (mobile_breadcrumb_tx) is GONE; last_home rides the mobile's DISCOVER +3-B block instead.
     StubHal hal; Node mob(hal, 0, 0x9999u);
     NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; CHECK(mob.on_init(cfg));
     DualLayerTestAccess::make_registered_mobile(mob, /*local*/20, /*home H1*/30, /*hash*/0x3030u);
-    DualLayerTestAccess::deactivate_mobile_reg(mob);          // 2b home-lost reset: active=false, home_id=30 preserved
-    // collect one OFFER from H2=40 then fire the CLAIM guard -> re-home to 40 -> breadcrumb to 30
+    DualLayerTestAccess::deactivate_mobile_reg(mob);          // home-lost reset: active=false, home_id=30 preserved
     j_offer_in off{}; off.leaf_id=4; off.is_mobile=true; off.responder_node_id=40; off.responder_key_hash32=0x4040u; off.data_sf_bitmap=0x06; off.proposed_mobile_id=21;
     off.target_key_hash32 = mob.key_hash32(); uint8_t ob[13]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
     hal.emits.clear();
     mob.on_timer(75 /*kMobileClaimGuardTimerId*/);
-    CHECK(hal.saw_emit("mobile_breadcrumb_tx"));              // ★ moved H1->H2 -> breadcrumb emitted
-    DualLayerTestAccess::pump(mob);                           // service the queue -> the breadcrumb becomes the flight
-    const PendingTx* pt = DualLayerTestAccess::pending(mob);
+    CHECK_FALSE(hal.saw_emit("mobile_breadcrumb_tx"));        // ★ RETIRED — the mobile no longer originates the breadcrumb
+    CHECK(mob.mobile_home_id() == 40);                       // adopted the new home
+}
+
+TEST_CASE("§S6/D10 — the NEW home originates the old-home notify: a re-home DISCOVER (last_home=30) + CLAIM -> presence_notify_tx to 30") {
+    StubHal hal; Node home(hal, 40, 0x4040u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.host_mobiles=true; CHECK(home.on_init(cfg));
+    DualLayerTestAccess::learn_neighbor(home, 30);           // a route to the OLD home
+    // a mobile DISCOVERs at this (new) home carrying last_home=30 (same layer 4) -> the home OFFERs + STASHES the notify.
+    j_discover_in d{}; d.leaf_id=4; d.is_mobile=true; d.key_hash32=0xB0B1u; d.last_home_id=30; d.last_home_layer=4; d.last_reg_epoch=3;
+    uint8_t db[9]; size_t dn = pack_j_discover(d, db); home.on_recv(db, dn, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    CHECK(hal.saw_emit("mobile_offer_tx"));
+    // the mobile CLAIMs the offered id at this host -> record -> the NEW home fires the breadcrumb to 30.
+    hal.emits.clear();
+    j_claim_in c{}; c.leaf_id=4; c.is_mobile=true; c.key_hash32=0xB0B1u; c.proposed_node_id=21; c.claim_epoch=4; c.chosen_host_id=40;
+    uint8_t cb[11]; size_t cn = pack_j_claim(c, cb); home.on_recv(cb, cn, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    CHECK(hal.saw_emit("presence_notify_tx"));               // ★ NEW home -> old-home (30) redirect breadcrumb (D10)
+    DualLayerTestAccess::pump(home);
+    const PendingTx* pt = DualLayerTestAccess::pending(home);
     CHECK(pt != nullptr);
     if (pt) {
         CHECK(pt->type == DATA_TYPE_MOBILE_BREADCRUMB);
-        CHECK(pt->dst == 30);                                // ★ addressed to the OLD home H1
-        CHECK(pt->next == 40);                               // routed VIA the new home (Fix 3)
+        CHECK(pt->dst == 30);                                // ★ addressed to the OLD home
         const uint32_t sh = pt->inner[1] | (pt->inner[2]<<8) | (pt->inner[3]<<16) | (static_cast<uint32_t>(pt->inner[4])<<24);
-        CHECK(sh == 0x9999u);                                // ★ SOURCE_HASH=M (the old home attributes the move)
-        CHECK(pt->inner[5] == 40);                           // body[0] = the new home H2
+        CHECK(sh == 0xB0B1u);                                // ★ SOURCE_HASH=M (the old home attributes it to _mobile_reg[M])
+        CHECK(pt->inner[5] == 40);                           // body[0] = the NEW home id
     }
-    // first registration (no prior home, home_id==0) -> NO breadcrumb
-    StubHal h2; Node mob2(h2, 0, 0x8888u);
-    NodeConfig c2; c2.routing_sf=8; c2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c2.leaf_id=4; c2.is_mobile=true; CHECK(mob2.on_init(c2));
-    j_offer_in of2{}; of2.leaf_id=4; of2.is_mobile=true; of2.responder_node_id=40; of2.responder_key_hash32=0x4040u; of2.data_sf_bitmap=0x06; of2.proposed_mobile_id=22;
-    of2.target_key_hash32 = mob2.key_hash32(); uint8_t ob2[13]; size_t on2 = pack_j_offer(of2, ob2); mob2.on_recv(ob2, on2, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    // a FIRST registration (no last_home) -> no notify
+    StubHal h2; Node home2(h2, 41, 0x4141u); NodeConfig c2=cfg; CHECK(home2.on_init(c2));
+    j_discover_in d2{}; d2.leaf_id=4; d2.is_mobile=true; d2.key_hash32=0xC0C1u;   // last_home = 0 (fresh)
+    uint8_t d2b[9]; size_t d2n = pack_j_discover(d2, d2b); home2.on_recv(d2b, d2n, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
     h2.emits.clear();
-    mob2.on_timer(75);
-    CHECK_FALSE(h2.saw_emit("mobile_breadcrumb_tx"));        // ★ first reg -> no old home -> no breadcrumb
+    j_claim_in c3{}; c3.leaf_id=4; c3.is_mobile=true; c3.key_hash32=0xC0C1u; c3.proposed_node_id=22; c3.claim_epoch=1; c3.chosen_host_id=41;
+    uint8_t c3b[11]; size_t c3n = pack_j_claim(c3, c3b); home2.on_recv(c3b, c3n, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    CHECK_FALSE(h2.saw_emit("presence_notify_tx"));          // ★ fresh reg -> no old home -> no notify
+}
+
+TEST_CASE("§S6 rev2 — a home PRUNES its stale entry when a probe SELECTS a different home (instant registry self-heal); only the selected home answers") {
+    // Two homes both hold M. M's next CHECK probe selects home B (50). Home A (40), seeing selected != self, prunes M NOW
+    // and does NOT answer; home B refreshes + answers. Backstops the D10 notify + the liveness prune.
+    StubHal ha; Node homeA(ha, 40, 0x4040u);
+    NodeConfig ca; ca.routing_sf=8; ca.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); ca.leaf_id=4; ca.host_mobiles=true; CHECK(homeA.on_init(ca));
+    DualLayerTestAccess::store_mobile(homeA, /*M*/0xB0B1u, /*local*/17);
+    CHECK(DualLayerTestAccess::mobile_reg_n(homeA) == 1);
+    // a CHECK probe selecting home 50 (NOT homeA) -> homeA prunes M, stays silent
+    p_probe_in p{}; p.selected_home_id = 50; p.selected_home_layer = 4; p.key_hash32 = 0xB0B1u; p.reg_epoch = 0;
+    std::array<uint8_t,42> pb{}; size_t pn = pack_p_probe(p, pb);
+    ha.emits.clear();
+    DualLayerTestAccess::presence_ingest_probe(homeA, pb.data(), pn, RxMeta{20.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    CHECK(DualLayerTestAccess::mobile_reg_n(homeA) == 0);   // ★ stale entry pruned
+    CHECK(ha.saw_emit("presence_prune_stale"));
+    // the SELECTED home (B=50) refreshes + schedules a roster (answers)
+    StubHal hb; Node homeB(hb, 50, 0x5050u); NodeConfig cb=ca; CHECK(homeB.on_init(cb));
+    DualLayerTestAccess::store_mobile(homeB, 0xB0B1u, 17);
+    DualLayerTestAccess::presence_ingest_probe(homeB, pb.data(), pn, RxMeta{20.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    CHECK(DualLayerTestAccess::mobile_reg_n(homeB) == 1);   // ★ selected home keeps + refreshes
+    DualLayerTestAccess::presence_roster_fire(homeB);
+    CHECK(hb.saw_emit("presence_roster_tx"));               // ★ only the selected home answers
+}
+
+TEST_CASE("§S6 rev2/D14 — proactive re-home ranks by the WORSE of the two directions: a strong->me but weak-echo candidate must NOT win") {
+    // home is WEAK both ways (tier weak). A candidate with strong cand->me but a WEAK echo (me->cand) has bottleneck=weak
+    // -> must NOT trigger a re-home; a candidate strong BOTH ways does.
+    StubHal hal; Node mob(hal, 0, 0x9999u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.mobile_autoregister=true; CHECK(mob.on_init(cfg));
+    DualLayerTestAccess::make_registered_mobile(mob, /*local*/17, /*home*/30, /*hash*/0x3030u);
+    const uint8_t L = DualLayerTestAccess::active_layer(mob);
+    hal._now = 1000000;                                                        // dwell elapsed (last_adopt=0)
+    // candidate A: strong cand->me (snr 55) but echo WEAK (me->A) -> bottleneck weak
+    DualLayerTestAccess::presence_setup_prescan(mob, /*my_tier=*/protocol::presence_q_weak, /*home_rx_q4=*/protocol::db_to_q4(14.0f));
+    DualLayerTestAccess::presence_add_cand(mob, /*home*/60, L, /*snr*/protocol::db_to_q4(55.0f), /*echo_tier*/protocol::presence_q_weak, /*first_seen*/0);
+    hal.emits.clear();
+    DualLayerTestAccess::presence_maybe_rehome(mob);
+    CHECK_FALSE(hal.saw_emit("presence_rehome"));                               // ★ asymmetric candidate rejected on the bottleneck
+    // candidate C: strong BOTH ways -> bottleneck strong -> re-home
+    DualLayerTestAccess::presence_setup_prescan(mob, protocol::presence_q_weak, protocol::db_to_q4(14.0f));
+    DualLayerTestAccess::presence_add_cand(mob, /*home*/70, L, protocol::db_to_q4(55.0f), /*echo_tier*/protocol::presence_q_strong, /*first_seen*/0);
+    hal.emits.clear();
+    DualLayerTestAccess::presence_maybe_rehome(mob);
+    CHECK(hal.saw_emit("presence_rehome"));                                     // ★ balanced-strong candidate wins
+}
+
+TEST_CASE("§S6/QA-1 — reprovision -> probe -> roster-absent -> staggered re-register (join<->presence integration)") {
+    // A re-joined home's registry is wiped (clear_routing_state) + it is briefly _node_id==0 (mid-DAD). The presence plane
+    // must (a) suspend roster/probe while _node_id==0, and (b) a former mobile whose hash is absent from the (empty) roster
+    // re-registers (staggered). Here: a home with node_id==0 ingests a probe -> NO roster/state; a mobile hearing a roster
+    // WITHOUT its hash re-registers.
+    StubHal hh; Node home(hh, 0 /*unprovisioned*/, 0x3030u);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; hc.host_mobiles=true; CHECK(home.on_init(hc));
+    p_probe_in p{}; p.selected_home_id = 0; p.key_hash32 = 0xB0B1u; std::array<uint8_t,42> pb{}; size_t pn = pack_p_probe(p, pb);
+    hh.emits.clear();
+    DualLayerTestAccess::presence_ingest_probe(home, pb.data(), pn, RxMeta{20.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    DualLayerTestAccess::presence_roster_fire(home);
+    CHECK_FALSE(hh.saw_emit("presence_roster_tx"));            // ★ QA-1: _node_id==0 -> no roster (no home_id=0 garbage), no re-accept
+    // a registered mobile hears its home's roster that does NOT contain it -> re-register (staggered)
+    StubHal hm; Node mob(hm, 0, 0xB0B1u);
+    NodeConfig mc; mc.routing_sf=8; mc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); mc.leaf_id=4; mc.is_mobile=true; mc.mobile_autoregister=true; CHECK(mob.on_init(mc));
+    DualLayerTestAccess::make_registered_mobile(mob, /*local*/17, /*home*/30, /*hash*/0x3030u);
+    // roster from home 30 with a DIFFERENT mobile (our hash ABSENT)
+    PRosterEntry other[1] = {{ 0xCAFEu, 18, 0, protocol::presence_q_ok, false }};
+    p_roster_in ri{}; ri.home_id = 30; ri.home_layer = DualLayerTestAccess::active_layer(mob); ri.entries = other; ri.count = 1;
+    std::array<uint8_t,40> rb{}; size_t rn = pack_p_roster(ri, rb);
+    hm.emits.clear();
+    mob.on_recv(rb.data(), rn, RxMeta{20.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    CHECK(hm.saw_emit("presence_roster_absent"));             // ★ hash absent -> re-register triggered
+    CHECK(mob.mobile_home_id() == 0);                         // dropped registration (re-DISCOVER staggered)
+}
+
+TEST_CASE("§S6/QA-2a — a non-hosting STATIC node fed P frames: no crash, no TX, no registry state (leaf-free dispatch is type-gated)") {
+    StubHal hal; Node st(hal, 42, 0x4242u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.host_mobiles=false; CHECK(st.on_init(cfg));  // a true NON-HOST (is_mobile=false, host_mobiles=false)
+    // a CHECK probe (not hosted), a SEARCHING probe, and a roster — all via on_recv (the real leaf-free dispatch)
+    p_probe_in cp{}; cp.selected_home_id=99; cp.selected_home_layer=4; cp.key_hash32=0x1234u; std::array<uint8_t,42> cb{}; size_t cn=pack_p_probe(cp,cb);
+    p_probe_in sp{}; sp.key_hash32=0x1234u; std::array<uint8_t,42> sbf{}; size_t sn=pack_p_probe(sp,sbf);
+    PRosterEntry e1[1]={{0x1234u,17,0,protocol::presence_q_ok,false}}; p_roster_in ro{}; ro.home_id=99; ro.home_layer=4; ro.entries=e1; ro.count=1;
+    std::array<uint8_t,40> rb{}; size_t rn=pack_p_roster(ro,rb);
+    hal.emits.clear();
+    st.on_recv(cb.data(), cn, RxMeta{10.0f,-80.0f,0,static_cast<int8_t>(-1)});   // check probe: not hosted -> ignore
+    // a SEARCHING probe DOES make ANY node with host_mobiles echo; a pure non-host with 0 registry + host_mobiles default:
+    st.on_recv(sbf.data(), sn, RxMeta{10.0f,-80.0f,0,static_cast<int8_t>(-1)});
+    st.on_recv(rb.data(), rn, RxMeta{10.0f,-80.0f,0,static_cast<int8_t>(-1)});   // roster: a non-mobile ignores (dispatch is_mobile-gated)
+    CHECK(DualLayerTestAccess::mobile_reg_n(st) == 0);                            // ★ no registry state created
+    CHECK(st.mobile_home_id() == 0);                                             // not a mobile -> no reg
+    // (host_mobiles default OFF -> even the searching probe schedules nothing; if a deployment enables hosting, an empty
+    //  home answering a search is intentional and rate-limited.)
 }
 
 TEST_CASE("§mobile 4b — the old home records the redirect + answers future H-queries with the NEW home") {

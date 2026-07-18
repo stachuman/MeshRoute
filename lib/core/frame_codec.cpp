@@ -675,11 +675,12 @@ static inline uint8_t j_b1(bool gw, bool mob, j_opcode op) {
 }
 
 size_t pack_j_discover(const j_discover_in& in, std::span<uint8_t> out) {
-    if (out.size() < 6) return 0;
+    if (out.size() < (in.is_mobile ? 9u : 6u)) return 0;       // §S6: a mobile DISCOVER appends the 3-B last-home block
     wire::Writer w(out);
     w.u8(j_b0(in.leaf_id));
     w.u8(j_b1(in.gateway_capable, in.is_mobile, j_opcode::discover));
     w.u32_le(in.key_hash32);
+    if (in.is_mobile) { w.u8(in.last_home_id); w.u8(in.last_home_layer); w.u8(in.last_reg_epoch); }   // 0/0/0 = fresh (D10 notify feed)
     return w.ok() ? w.size() : 0;
 }
 
@@ -737,8 +738,10 @@ std::optional<j_out> parse_j(std::span<const uint8_t> frame) {
     o.wire_version    = static_cast<uint8_t>(b1 & 0x0F);   // R6.2 §5.2 wire-compat (rsv nibble)
     switch (static_cast<j_opcode>(o.opcode)) {
         case j_opcode::discover:
-            if (frame.size() != 6) return std::nullopt;
+            // §S6: 6 B (static/legacy/fresh) OR 9 B (mobile + last-home block). Absent block parses as fresh (0/0/0).
+            if (frame.size() != 6 && frame.size() != 9) return std::nullopt;
             o.key_hash32 = r.u32_le();
+            if (frame.size() == 9) { o.last_home_id = r.u8(); o.last_home_layer = r.u8(); o.last_reg_epoch = r.u8(); }
             break;
         case j_opcode::offer:
             if (frame.size() != (o.is_mobile ? 13u : 8u)) return std::nullopt;  // §mobile 2a/S6: mobile OFFER is 13 B (exact-length per opcode)
@@ -1078,6 +1081,112 @@ std::optional<hash_bind_pubkey_inner> parse_hash_bind_pubkey_inner(std::span<con
     o.target_layer = inner[0]; o.node_id = inner[1];
     for (int i = 0; i < 32; ++i) o.ed_pub[i] = inner[2 + i];
     return o;
+}
+
+// -----------------------------------------------------------------------------
+// P — presence plane, cmd 0xC (§S6). Probe (dir=0) / roster (dir=1) share the nibble; fields flag-gated.
+// -----------------------------------------------------------------------------
+size_t pack_p_probe(const p_probe_in& in, std::span<uint8_t> out) {
+    const size_t need = 8u + (in.has_last_home ? 2u : 0u) + (in.has_pubkey ? 32u : 0u);
+    if (out.size() < need) return 0;
+    const uint8_t flags4 = static_cast<uint8_t>((in.has_last_home ? P_PROBE_HAS_LAST_HOME : 0)
+                          | (in.has_pubkey ? P_PROBE_HAS_PUBKEY : 0));   // dir bit (b3) = 0 for a probe; rsv b0 = 0
+    wire::Writer w(out);
+    w.u8(wire::cmd_byte(wire::Cmd::P, flags4));
+    w.u8(in.selected_home_id);        // byte 1 — always (0 = searching)
+    w.u8(in.selected_home_layer);     // byte 2 — always
+    w.u32_le(in.key_hash32);          // bytes 3..6 — always (identity)
+    w.u8(in.reg_epoch);               // byte 7 — always
+    if (in.has_last_home) { w.u8(in.last_home_id); w.u8(in.last_home_layer); }   // flag-bit order: last_home (b2) before pubkey (b1)
+    if (in.has_pubkey)    for (int i = 0; i < 32; ++i) w.u8(in.ed_pub[i]);
+    return w.ok() ? w.size() : 0;
+}
+std::optional<p_probe_out> parse_p_probe(std::span<const uint8_t> frame) {
+    if (frame.size() < 8) return std::nullopt;
+    const uint8_t b0 = frame[0];
+    if (wire::cmd_of(b0) != wire::Cmd::P) return std::nullopt;
+    const uint8_t f = wire::flags_of(b0);
+    if (f & P_DIR_ROSTER) return std::nullopt;                 // dir=1 is a roster, not a probe
+    p_probe_out o{};
+    o.has_last_home = (f & P_PROBE_HAS_LAST_HOME) != 0;
+    o.has_pubkey    = (f & P_PROBE_HAS_PUBKEY) != 0;
+    wire::Reader r(frame.subspan(1));
+    o.selected_home_id    = r.u8();
+    o.selected_home_layer = r.u8();
+    o.key_hash32 = r.u32_le();
+    o.reg_epoch  = r.u8();
+    if (o.has_last_home) { o.last_home_id = r.u8(); o.last_home_layer = r.u8(); }   // fail-loud below via r.ok()
+    if (o.has_pubkey)    for (int i = 0; i < 32; ++i) o.ed_pub[i] = r.u8();
+    if (!r.ok()) return std::nullopt;                          // flag set but bytes missing -> reject (fail loud)
+    return o;
+}
+
+static inline size_t p_roster_quality_bytes(uint8_t count) { return (static_cast<size_t>(count) + 3u) / 4u; }  // 2 bits/mobile
+static inline size_t p_roster_haskey_bytes (uint8_t count) { return (static_cast<size_t>(count) + 7u) / 8u; }  // 1 bit/mobile
+
+size_t pack_p_roster(const p_roster_in& in, std::span<uint8_t> out) {
+    const size_t need = 5u + static_cast<size_t>(in.count) * 6u
+                      + p_roster_quality_bytes(in.count) + p_roster_haskey_bytes(in.count)
+                      + (in.has_echo ? 5u : 0u);
+    if (out.size() < need) return 0;
+    const uint8_t flags4 = static_cast<uint8_t>(P_DIR_ROSTER | (in.trunc ? P_ROSTER_TRUNC : 0) | (in.has_echo ? P_ROSTER_HAS_ECHO : 0));
+    wire::Writer w(out);
+    w.u8(wire::cmd_byte(wire::Cmd::P, flags4));
+    w.u8(in.home_id); w.u8(in.home_layer); w.u8(in.dir_epoch); w.u8(in.count);
+    for (uint8_t i = 0; i < in.count; ++i) { w.u32_le(in.entries[i].key_hash32); w.u8(in.entries[i].local_id); w.u8(in.entries[i].reg_epoch); }
+    // quality bitmap (2b/mobile, entry order), then has_key bitmap (1b/mobile) — both packed after the entries.
+    const size_t qb = p_roster_quality_bytes(in.count);
+    for (size_t b = 0; b < qb; ++b) {
+        uint8_t v = 0;
+        for (uint8_t k = 0; k < 4; ++k) { const size_t e = b * 4 + k; if (e >= in.count) break;
+            v = static_cast<uint8_t>(v | ((in.entries[e].quality & 0x03) << (k * 2))); }
+        w.u8(v);
+    }
+    const size_t hb = p_roster_haskey_bytes(in.count);
+    for (size_t b = 0; b < hb; ++b) {
+        uint8_t v = 0;
+        for (uint8_t k = 0; k < 8; ++k) { const size_t e = b * 8 + k; if (e >= in.count) break;
+            if (in.entries[e].has_key) v = static_cast<uint8_t>(v | (1u << k)); }
+        w.u8(v);
+    }
+    if (in.has_echo) { w.u32_le(in.echo_hash32); w.u8(static_cast<uint8_t>(in.echo_quality & 0x03)); }   // ECHO block: the answered probe's RX quality (D14 reverse direction)
+    return w.ok() ? w.size() : 0;
+}
+std::optional<p_roster_out> parse_p_roster(std::span<const uint8_t> frame) {
+    if (frame.size() < 5) return std::nullopt;
+    const uint8_t b0 = frame[0];
+    if (wire::cmd_of(b0) != wire::Cmd::P) return std::nullopt;
+    const uint8_t f = wire::flags_of(b0);
+    if (!(f & P_DIR_ROSTER)) return std::nullopt;              // dir=0 is a probe, not a roster
+    p_roster_out o{};
+    o.trunc      = (f & P_ROSTER_TRUNC) != 0;
+    o.has_echo   = (f & P_ROSTER_HAS_ECHO) != 0;
+    o.home_id    = frame[1];
+    o.home_layer = frame[2];
+    o.dir_epoch  = frame[3];
+    o.count      = frame[4];
+    o.entries_off = 5u;
+    o.quality_off = o.entries_off + static_cast<size_t>(o.count) * 6u;
+    o.haskey_off  = o.quality_off + p_roster_quality_bytes(o.count);
+    o.echo_off    = o.haskey_off + p_roster_haskey_bytes(o.count);
+    o.frame_len   = o.echo_off + (o.has_echo ? 5u : 0u);
+    if (frame.size() < o.frame_len) return std::nullopt;       // short for the declared count + bitmaps [+ echo] -> reject
+    if (o.has_echo) {
+        wire::Reader er(frame.subspan(o.echo_off, 5));
+        o.echo_hash32  = er.u32_le();
+        o.echo_quality = static_cast<uint8_t>(er.u8() & 0x03);
+    }
+    return o;
+}
+std::optional<PRosterEntry> parse_p_roster_entry(std::span<const uint8_t> frame, const p_roster_out& r, uint8_t i) {
+    if (i >= r.count || frame.size() < r.frame_len) return std::nullopt;
+    const size_t eo = r.entries_off + static_cast<size_t>(i) * 6u;
+    wire::Reader rd(frame.subspan(eo, 6));
+    PRosterEntry e{};
+    e.key_hash32 = rd.u32_le(); e.local_id = rd.u8(); e.reg_epoch = rd.u8();
+    e.quality = static_cast<uint8_t>((frame[r.quality_off + i / 4] >> ((i % 4) * 2)) & 0x03);
+    e.has_key = (frame[r.haskey_off + i / 8] >> (i % 8)) & 0x01;
+    return e;
 }
 
 }  // namespace meshroute

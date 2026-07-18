@@ -222,29 +222,42 @@ layer-query re-arm, node_mobile.cpp:198-208) · home roster emit + probe ingest 
 
 #### S6.1 — exact wire design (byte-level; LE where multi-byte, per house rule)
 
-**P-probe (mobile → 1-hop broadcast, leaf-free):**
+**P-probe (mobile → 1-hop broadcast, leaf-free) — rev 2 (multi-home, 2026-07-18):**
 | off | field | notes |
 |---|---|---|
-| 0 | `cmd(7..4) \| dir(3)=0 \| LOST(2) \| HAS_LAST_HOME(1) \| HAS_PUBKEY(0)` | the low nibble is FLAGS, not leaf (leaf-free); dir=0 ⇒ probe |
-| 1..4 | mobile `key_hash32` (LE) | always |
-| 5 | `reg_epoch` (low byte of the u16 — the breadcrumb precedent) | always |
-| 6 | `last_home_id` | iff HAS_LAST_HOME |
-| 7 | `last_home_layer` (FULL 8-bit) | iff HAS_LAST_HOME |
-| 6/8.. | `ed_pub[32]` | iff HAS_PUBKEY (fields in flag-bit order; parse fail-loud on short) |
-Sizes: `check` = **6 B** · `lost` = 8 B · registering (`lost`+key) = 40 B.
+| 0 | `cmd(7..4) \| dir(3)=0 \| HAS_LAST_HOME(2) \| HAS_PUBKEY(1) \| rsv(0)` | the low nibble is FLAGS, not leaf; dir=0 ⇒ probe. The former LOST bit is GONE — searching is DERIVED: `selected_home_id == 0` |
+| 1 | `selected_home_id` | **always** — 0 = no home selected (searching); else "THIS is my home" |
+| 2 | `selected_home_layer` (FULL 8-bit) | always — the PAIR, because leaf-free means a bare id aliases across co-located layers |
+| 3..6 | mobile `key_hash32` (LE) | always |
+| 7 | `reg_epoch` (low byte) | always |
+| 8..9 | `last_home_id` + `last_home_layer` | iff HAS_LAST_HOME |
+| 8/10.. | `ed_pub[32]` | iff HAS_PUBKEY (flag-bit order; parse fail-loud on short) |
+Sizes: `check` = **8 B** · searching+last-home = 10 B · registering (+key) = 42 B.
+**selected_home semantics (the multi-home resolution):** a home holding this hash sees
+`selected == me` ⇒ normal refresh, and ONLY the selected home answers a check probe (no duplicate
+rosters when two registries hold the hash); `selected == another (id,layer)` ⇒ **prune my stale
+entry NOW** — instant registry self-heal on the mobile's next probe, backstopping BOTH the D10
+notify (losable) and the liveness prune; `selected == 0` ⇒ searching ⇒ every home answers (the
+candidate canvass), with the roster ECHO below.
 
 **P-roster (home → 1-hop broadcast, leaf-free):**
 | off | field | notes |
 |---|---|---|
-| 0 | `cmd(7..4) \| dir(3)=1 \| TRUNC(2) \| rsv(1..0)` | TRUNC reserved for a future cap > frame capacity (unused at cap 16) |
+| 0 | `cmd(7..4) \| dir(3)=1 \| TRUNC(2) \| HAS_ECHO(1) \| rsv(0)` | TRUNC reserved for a future cap > frame capacity (unused at cap 16) |
 | 1 | `home_id` | + |
 | 2 | `home_layer` (FULL 8-bit) | leaf-free ⇒ id alone aliases across co-located layers; this pair is the home identity AND what a scanner would adopt |
 | 3 | `dir_epoch` | the layer-directory version (pull only on change) |
 | 4 | `count` (≤ cap_host_mobiles) | + |
 | 5.. | count × [ `key_hash32`(4) `local_id`(1) `reg_epoch`(1) ] | fixed 6 B entries |
 | tail | quality bitmap: 2 bits/mobile, `ceil(count/4)` B; then has_key bitmap: 1 bit/mobile, `ceil(count/8)` B | entry order; quality 0=critical 1=weak 2=ok 3=strong |
-Sizes: 3 mobiles = **24 B** · 16 = **107 B**. Approx airtime @ SF7/BW62.5 (the fleet's): probe ≈ 60 ms,
-24-B roster ≈ 130 ms, 107-B ≈ 420 ms (implementation uses `airtime_ms` — these are sizing guides).
+| tail+1 | **ECHO block**: `echo_hash32`(4) + `echo_quality(2b)\|rsv(6b)`(1) = 5 B | iff HAS_ECHO — "the probe this roster answers, I received at quality X". THE CANDIDATE-DIRECTION FIX: a searching mobile hears the roster (candidate→me) AND gets how the candidate hears IT (me→candidate) — BOTH directions rankable BEFORE registering (this mesh has proven-asymmetric links). Echoes the coalesce window's FIRST probe (D15) |
+Sizes: 3 mobiles = **24 B** (+5 echoing) · 16 = **107 B**. Approx airtime @ SF7/BW62.5 (the fleet's):
+probe ≈ 60-70 ms, 24-B roster ≈ 130 ms, 107-B ≈ 420 ms (implementation uses `airtime_ms`).
+**Selection rule (FSM B/C, D14):** rank current-home and candidates by the WORSE of the two
+directions (the bottleneck link) — current home's pair = my RX EWMA of its frames + my roster
+quality bit; a candidate's pair = my RX EWMA of its roster + its echo. Cold-boot registration
+(no rosters heard yet) still selects at the J-plane OFFER — the OFFER strongest-pick
+investigation (QA item 3b) stands.
 
 #### S6.2 — capacity: what actually limits hosted mobiles
 - **Frame-bound ceiling: 39 entries** (5 + 6.375·N ≤ 255).
@@ -370,6 +383,10 @@ zero-blackhole guard. When green: add to `BASELINE.md` (md5-anchored) + the gate
   mobile, and the home holds the mesh/XL route) vs mobile-sent as today (node_mobile.cpp:110-121).
 - **D11** (S6) the 2-bit quality tiers: source = the home's per-mobile SNR EWMA; thresholds TBD at
   bench (map to strong/ok/weak/critical; WEAK is the mobile's pre-scan trigger).
+- **D14** (S6 rev 2) the bidirectional selection rule: rank by the WORSE direction (recommended —
+  the bottleneck governs deliverability) vs a weighted average.
+- **D15** (S6 rev 2) roster echo depth: echo the coalesce window's FIRST probe only (recommended —
+  searchers re-probe; multi-echo adds size for a rare case) vs up to 2.
 - **Slice order:** **S6 first** (independent, retires the measured 60% duty burn + the Loop-B NACK
   storm — the biggest airtime win per line of code), then S0 → S1 → S3 → S2 → S4 (s27 asserts
   phases as they land — it runs RED-partially throughout).

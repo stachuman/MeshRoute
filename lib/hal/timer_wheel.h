@@ -22,8 +22,9 @@ namespace meshroute {
 
 class TimerWheel {
 public:
-    static constexpr uint32_t kCap = 80;   // matches the Hal "cap 80" caller-id contract (raised 64->80 in Slice 3b
-                                           // to open the 64..79 band for the dual-layer gateway scheduler; ids 1..63 are dense)
+    static constexpr uint32_t kCap = 82;   // matches the Hal "cap" caller-id contract (64->80 in Slice 3b for the dual-layer
+                                           // gateway band; 80->82 in §S6 for the presence probe/roster [78,79] + the mobile
+                                           // OFFER-backoff de-storm [80]; ids 1..63 are dense)
 
     // false ONLY if timer_id is out of range (>= kCap); otherwise (re)arms id to fire at now+delay.
     bool after(uint32_t delay_ms, uint32_t timer_id, uint64_t now_ms);

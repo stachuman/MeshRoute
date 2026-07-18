@@ -427,9 +427,10 @@ TEST_CASE("J DISCOVER — round-trip (key_hash32 LE) + golden") {
         for (bool gw : {false, true})
             for (bool mob : {false, true})
                 for (uint32_t kh : {0u, 0x11223344u, 0xDEADBEEFu}) {
-                    std::array<uint8_t, 6> buf{};
-                    CHECK(pack_j_discover({leaf, gw, mob, kh}, buf) == 6);
-                    auto o = parse_j(buf);
+                    std::array<uint8_t, 9> buf{};
+                    const size_t want = mob ? 9u : 6u;      // §S6: a mobile DISCOVER carries the +3-B last-home block
+                    CHECK(pack_j_discover({leaf, gw, mob, kh}, buf) == want);
+                    auto o = parse_j(std::span<const uint8_t>(buf.data(), want));
                     CHECK(o.has_value());
                     if (o) {
                         CHECK(o->opcode == 0); CHECK(o->leaf_id == leaf);
@@ -437,10 +438,10 @@ TEST_CASE("J DISCOVER — round-trip (key_hash32 LE) + golden") {
                         CHECK(o->key_hash32 == kh);
                     }
                 }
-    std::array<uint8_t, 6> g{};
-    CHECK(pack_j_discover({3, true, true, 0x11223344u}, g) == 6);
-    const uint8_t ex[] = {0x93, 0xC1, 0x44, 0x33, 0x22, 0x11};
-    for (int i = 0; i < 6; ++i) CHECK(g[i] == ex[i]);
+    std::array<uint8_t, 9> g{};                              // §S6: mobile DISCOVER = 9 B (last-home block = 0/0/0 fresh)
+    CHECK(pack_j_discover({3, true, true, 0x11223344u}, g) == 9);
+    const uint8_t ex[] = {0x93, 0xC1, 0x44, 0x33, 0x22, 0x11, 0x00, 0x00, 0x00};
+    for (int i = 0; i < 9; ++i) CHECK(g[i] == ex[i]);
 }
 
 TEST_CASE("J OFFER — round-trip + golden") {
@@ -515,11 +516,11 @@ TEST_CASE("J DENY — round-trip (two LE key_hash32 + LE lease) + golden") {
 }
 
 TEST_CASE("J — header flag/opcode isolation + strict-length + wrong-cmd reject") {
-    std::array<uint8_t, 6> a{}, b{}, c{};
+    std::array<uint8_t, 6> a{}, b{}; std::array<uint8_t, 9> c{};   // §S6: mobile DISCOVER = 9 B
     CHECK(pack_j_discover({3, false, false, 0}, a) == 6);
     CHECK(pack_j_discover({3, true,  false, 0}, b) == 6);
     CHECK((a[1] ^ b[1]) == 0x80);                          // gateway_capable = bit 7
-    CHECK(pack_j_discover({3, false, true,  0}, c) == 6);
+    CHECK(pack_j_discover({3, false, true,  0}, c) == 9);
     CHECK((a[1] ^ c[1]) == 0x40);                          // is_mobile = bit 6
     std::array<uint8_t, 11> cl{};
     CHECK(pack_j_claim({3, false, false, 0, 0, 0, 0, 0}, cl) == 11);
@@ -1944,4 +1945,149 @@ TEST_CASE("§mobile 5a — LayerRecord codec round-trips (with a name, and name-
     CHECK(pack_layer_record(r2, b2) == 11);
     size_t c2=0; auto o2 = parse_layer_record(std::span<const uint8_t>(b2.data(), 11), c2);
     CHECK(o2.has_value()); if (o2) { CHECK(o2->layer_id==3); CHECK(o2->name_len==0); }
+}
+
+// ---------------------------------------------------------------------------
+// §S6 presence plane — P-probe / P-roster (cmd 0xC) + j_discover +3 B last-home
+// ---------------------------------------------------------------------------
+TEST_CASE("P-probe rev2 — check (8 B) golden + round-trip; searching derived from selected==0") {
+    p_probe_in in{}; in.selected_home_id = 103; in.selected_home_layer = 4; in.key_hash32 = 0x2716EFCD; in.reg_epoch = 5;
+    std::array<uint8_t, 42> buf{};
+    const size_t n = pack_p_probe(in, buf);
+    CHECK(n == 8);
+    CHECK(buf[0] == 0xC0);                                   // cmd P, dir=probe, no flags
+    CHECK(buf[1] == 103); CHECK(buf[2] == 4);                // selected pair
+    CHECK(buf[3] == 0xCD); CHECK(buf[4] == 0xEF); CHECK(buf[5] == 0x16); CHECK(buf[6] == 0x27);  // key LE
+    CHECK(buf[7] == 5);
+    auto o = parse_p_probe(std::span<const uint8_t>(buf.data(), n));
+    CHECK(o.has_value());
+    if (o) { CHECK(o->key_hash32 == 0x2716EFCD); CHECK(o->reg_epoch == 5);
+             CHECK(o->selected_home_id == 103); CHECK(o->selected_home_layer == 4);
+             CHECK_FALSE(o->searching()); CHECK_FALSE(o->has_last_home); CHECK_FALSE(o->has_pubkey); }
+    // searching (selected==0)
+    p_probe_in s{}; s.key_hash32 = 1; std::array<uint8_t,42> sb{}; CHECK(pack_p_probe(s, sb) == 8);
+    auto so = parse_p_probe(std::span<const uint8_t>(sb.data(), 8));
+    CHECK(so.has_value()); if (so) CHECK(so->searching());
+}
+TEST_CASE("P-probe rev2 — searching + last_home (10 B) flag order") {
+    p_probe_in in{}; in.has_last_home = true;   // selected 0/0 = searching
+    in.key_hash32 = 0x11223344; in.reg_epoch = 9; in.last_home_id = 103; in.last_home_layer = 7;
+    std::array<uint8_t, 42> buf{};
+    const size_t n = pack_p_probe(in, buf);
+    CHECK(n == 10);
+    CHECK(buf[0] == (0xC0 | P_PROBE_HAS_LAST_HOME));
+    CHECK(buf[8] == 103); CHECK(buf[9] == 7);
+    auto o = parse_p_probe(std::span<const uint8_t>(buf.data(), n));
+    CHECK(o.has_value());
+    if (o) { CHECK(o->searching()); CHECK(o->has_last_home); CHECK_FALSE(o->has_pubkey);
+             CHECK(o->last_home_id == 103); CHECK(o->last_home_layer == 7); }
+}
+TEST_CASE("P-probe rev2 — registering: selected + last_home + pubkey (42 B) fields in flag-bit order") {
+    p_probe_in in{}; in.selected_home_id = 40; in.selected_home_layer = 4; in.has_last_home = true; in.has_pubkey = true;
+    in.key_hash32 = 0xAABBCCDD; in.reg_epoch = 1; in.last_home_id = 50; in.last_home_layer = 4;
+    in.ed_pub[0] = 0xDD; in.ed_pub[1] = 0xCC; in.ed_pub[2] = 0xBB; in.ed_pub[3] = 0xAA;  // self-consistent w/ key LE
+    for (int i = 4; i < 32; ++i) in.ed_pub[i] = static_cast<uint8_t>(0xDD + i);
+    std::array<uint8_t, 64> buf{};
+    const size_t n = pack_p_probe(in, buf);
+    CHECK(n == 42);
+    CHECK(buf[8] == 50); CHECK(buf[9] == 4);                 // last_home block first
+    CHECK(buf[10] == 0xDD); CHECK(buf[13] == 0xAA);          // then ed_pub
+    auto o = parse_p_probe(std::span<const uint8_t>(buf.data(), n));
+    CHECK(o.has_value());
+    if (o) { CHECK(o->has_pubkey); CHECK(o->ed_pub[0] == 0xDD); CHECK(o->ed_pub[3] == 0xAA); }
+}
+TEST_CASE("P-probe/P-roster — reject wrong cmd / wrong dir / short-for-flag") {
+    // a roster frame must not parse as a probe (dir bit)
+    std::array<uint8_t, 40> rb{};
+    PRosterEntry ents[1] = {{0x01020304, 20, 3, protocol::presence_q_ok, true}};
+    p_roster_in ri{}; ri.home_id = 103; ri.home_layer = 4; ri.dir_epoch = 2; ri.entries = ents; ri.count = 1;
+    const size_t rn = pack_p_roster(ri, rb);
+    CHECK(parse_p_probe(std::span<const uint8_t>(rb.data(), rn)) == std::nullopt);
+    // a probe must not parse as a roster
+    p_probe_in pi{}; pi.key_hash32 = 1; std::array<uint8_t, 10> pb{};
+    const size_t pn = pack_p_probe(pi, pb);
+    CHECK(parse_p_roster(std::span<const uint8_t>(pb.data(), pn)) == std::nullopt);
+    // HAS_PUBKEY set but frame too short -> fail loud (8-B frame, pubkey flag)
+    std::array<uint8_t, 8> shortpk = { (0xC0 | P_PROBE_HAS_PUBKEY), 40, 4, 1, 2, 3, 4, 5 };
+    CHECK(parse_p_probe(shortpk) == std::nullopt);
+    // a <8-B P frame is rejected outright
+    std::array<uint8_t, 6> tooshort = { 0xC0, 0, 0, 0, 0, 0 };
+    CHECK(parse_p_probe(tooshort) == std::nullopt);
+    // wrong cmd nibble
+    std::array<uint8_t, 8> wrong = { 0x30, 0, 0, 0, 0, 0, 0, 0 };
+    CHECK(parse_p_probe(wrong) == std::nullopt);
+    CHECK(parse_p_roster(wrong) == std::nullopt);
+}
+TEST_CASE("P-roster rev2 — ECHO block round-trip + size") {
+    PRosterEntry ents[1] = {{ 0x2716EFCD, 20, 5, protocol::presence_q_strong, true }};
+    p_roster_in in{}; in.home_id = 103; in.home_layer = 4; in.dir_epoch = 9; in.entries = ents; in.count = 1;
+    in.has_echo = true; in.echo_hash32 = 0x44070031; in.echo_quality = protocol::presence_q_weak;
+    std::array<uint8_t, 40> buf{};
+    const size_t n = pack_p_roster(in, buf);
+    CHECK(n == 5u + 6u + 1u + 1u + 5u);                      // hdr + 1 entry + 1 qual + 1 haskey + 5 echo = 18
+    auto r = parse_p_roster(std::span<const uint8_t>(buf.data(), n));
+    CHECK(r.has_value());
+    if (r) { CHECK(r->has_echo); CHECK(r->echo_hash32 == 0x44070031u); CHECK(r->echo_quality == protocol::presence_q_weak);
+             auto e0 = parse_p_roster_entry(std::span<const uint8_t>(buf.data(), n), *r, 0);
+             CHECK(e0.has_value()); if (e0) CHECK(e0->quality == protocol::presence_q_strong); }
+    // a no-echo roster of the same entry is 5 B shorter and has_echo=false
+    p_roster_in ne = in; ne.has_echo = false; std::array<uint8_t,40> nb{};
+    const size_t nn = pack_p_roster(ne, nb); CHECK(nn == n - 5u);
+    auto rr = parse_p_roster(std::span<const uint8_t>(nb.data(), nn)); CHECK(rr.has_value()); if (rr) CHECK_FALSE(rr->has_echo);
+}
+TEST_CASE("P-roster — 3 mobiles (24 B) golden size + bitmap round-trip") {
+    PRosterEntry ents[3] = {
+        { 0x2716EFCD, 20, 5, protocol::presence_q_strong, true  },
+        { 0x3A3E77A3, 21, 6, protocol::presence_q_weak,   false },
+        { 0xBCC13CC5, 22, 7, protocol::presence_q_critical, true },
+    };
+    p_roster_in in{}; in.home_id = 103; in.home_layer = 4; in.dir_epoch = 9; in.entries = ents; in.count = 3;
+    std::array<uint8_t, 64> buf{};
+    const size_t n = pack_p_roster(in, buf);
+    CHECK(n == 25);                                          // 5 hdr + 3*6 entries(18) + ceil(3/4)=1 quality + ceil(3/8)=1 has_key
+    auto r = parse_p_roster(std::span<const uint8_t>(buf.data(), n));
+    CHECK(r.has_value());
+    if (r) {
+        CHECK(r->home_id == 103); CHECK(r->home_layer == 4); CHECK(r->dir_epoch == 9); CHECK(r->count == 3);
+        auto e0 = parse_p_roster_entry(std::span<const uint8_t>(buf.data(), n), *r, 0);
+        auto e1 = parse_p_roster_entry(std::span<const uint8_t>(buf.data(), n), *r, 1);
+        auto e2 = parse_p_roster_entry(std::span<const uint8_t>(buf.data(), n), *r, 2);
+        CHECK(e0.has_value()); CHECK(e1.has_value()); CHECK(e2.has_value());
+        if (e0) { CHECK(e0->key_hash32 == 0x2716EFCD); CHECK(e0->local_id == 20); CHECK(e0->reg_epoch == 5);
+                  CHECK(e0->quality == protocol::presence_q_strong); CHECK(e0->has_key); }
+        if (e1) { CHECK(e1->quality == protocol::presence_q_weak); CHECK_FALSE(e1->has_key); }
+        if (e2) { CHECK(e2->key_hash32 == 0xBCC13CC5); CHECK(e2->quality == protocol::presence_q_critical); CHECK(e2->has_key); }
+        CHECK(parse_p_roster_entry(std::span<const uint8_t>(buf.data(), n), *r, 3) == std::nullopt);  // OOB
+    }
+}
+TEST_CASE("P-roster — 16 mobiles = 107 B (frame-size guide)") {
+    PRosterEntry ents[16];
+    for (uint8_t i = 0; i < 16; ++i) ents[i] = { 0x1000u + i, static_cast<uint8_t>(20 + i), i, static_cast<uint8_t>(i & 3), (i & 1) != 0 };
+    p_roster_in in{}; in.home_id = 5; in.home_layer = 20; in.dir_epoch = 0; in.entries = ents; in.count = 16;
+    std::array<uint8_t, 128> buf{};
+    const size_t n = pack_p_roster(in, buf);
+    CHECK(n == 5u + 16u * 6u + 4u + 2u);                     // 5 + 96 + ceil(16/4)=4 + ceil(16/8)=2 = 107
+    auto r = parse_p_roster(std::span<const uint8_t>(buf.data(), n));
+    CHECK(r.has_value());
+    if (r) { auto e15 = parse_p_roster_entry(std::span<const uint8_t>(buf.data(), n), *r, 15);
+             CHECK(e15.has_value()); if (e15) { CHECK(e15->local_id == 35); CHECK(e15->quality == (15 & 3)); CHECK(e15->has_key); } }
+}
+TEST_CASE("j_discover — mobile +3 B last-home block; static/legacy 6 B parses fresh") {
+    j_discover_in m{}; m.leaf_id = 4; m.is_mobile = true; m.key_hash32 = 0x44070031;
+    m.last_home_id = 103; m.last_home_layer = 4; m.last_reg_epoch = 7;
+    std::array<uint8_t, 16> buf{};
+    const size_t n = pack_j_discover(m, buf);
+    CHECK(n == 9);
+    auto o = parse_j(std::span<const uint8_t>(buf.data(), n));
+    CHECK(o.has_value());
+    if (o) { CHECK(o->is_mobile); CHECK(o->key_hash32 == 0x44070031u);
+             CHECK(o->last_home_id == 103); CHECK(o->last_home_layer == 4); CHECK(o->last_reg_epoch == 7); }
+    // legacy 6-B (fresh): static discover, or a 6-B mobile frame -> block parses as 0
+    j_discover_in s{}; s.leaf_id = 4; s.is_mobile = false; s.key_hash32 = 0x1234;
+    std::array<uint8_t, 16> sb{};
+    const size_t sn = pack_j_discover(s, sb);
+    CHECK(sn == 6);
+    auto so = parse_j(std::span<const uint8_t>(sb.data(), sn));
+    CHECK(so.has_value());
+    if (so) { CHECK(so->last_home_id == 0); CHECK(so->last_home_layer == 0); CHECK(so->last_reg_epoch == 0); }
 }

@@ -598,6 +598,10 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 #if MR_FEAT_MOBILE
     if (_cfg.is_mobile && _my_mobile_reg.active && b.src == _my_mobile_reg.home_id && b.key_hash32 == _my_mobile_reg.home_key_hash32)
         _my_mobile_reg.last_heard_home_ms = _hal.now();
+    // §S6.4-C: a registered mobile passively collects candidate HOMES from overheard STATIC beacons on this PHY (this
+    // beacon already passed the leaf filter -> same layer). A stronger-sustained candidate drives the proactive re-home.
+    if (_cfg.is_mobile && _my_mobile_reg.active && !b.is_mobile && b.src != _my_mobile_reg.home_id)
+        presence_note_candidate(b.src, b.leaf_id, protocol::db_to_q4(meta.snr_db));
 #endif
     // Parse the channel-digest ext-TLV ONCE (draw-free) so beacon_rx can report how many ids the beacon
     // carries (dv:9614 `channel_digest_ids = #b.channel_digest_ids or 0`); reused by the reaction below.

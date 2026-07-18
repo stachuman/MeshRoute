@@ -345,8 +345,11 @@ std::optional<f_out> parse_f(std::span<const uint8_t> frame);     // nullopt: le
 enum class j_opcode : uint8_t { discover = 0, claim = 1, deny = 2, offer = 3 };
 constexpr uint8_t J_DENY_CONFLICT = 1, J_DENY_PENDING_CLAIM = 2, J_DENY_OWN_ID_DEFENSE = 3, J_DENY_MEDIATED = 4;  // 4 = third-party shared-neighbour heal (L2a)
 
-// DISCOVER (6 B): key_hash32(LE).
-struct j_discover_in { uint8_t leaf_id; bool gateway_capable; bool is_mobile; uint32_t key_hash32; };
+// DISCOVER (6 B static/legacy · 9 B mobile): key_hash32(LE) [+ §S6 last_home_id/layer/reg_epoch iff is_mobile].
+// The +3-B last-home block feeds the new-home→old-home notify (D10). Conditional-append (mirrors j_offer's
+// target_key_hash32): a 6-B DISCOVER parses with a 0/absent block = a FRESH mobile.
+struct j_discover_in { uint8_t leaf_id; bool gateway_capable; bool is_mobile; uint32_t key_hash32;
+                       uint8_t last_home_id = 0; uint8_t last_home_layer = 0; uint8_t last_reg_epoch = 0; };  // §S6: appended iff is_mobile (9-B); at struct END for positional aggregate-inits
 // OFFER (8 B static / 13 B mobile): responder_node_id, responder_key_hash32(LE), data_sf_bitmap
 //              [+ proposed_mobile_id, target_key_hash32(LE) iff is_mobile].
 struct j_offer_in    { uint8_t leaf_id; bool gateway_capable; bool is_mobile;
@@ -361,7 +364,7 @@ struct j_claim_in    { uint8_t leaf_id; bool gateway_capable; bool is_mobile; ui
 struct j_deny_in     { uint8_t leaf_id; bool gateway_capable; bool is_mobile; uint8_t denied_node_id;
                        uint32_t owner_key_hash32; uint32_t claimant_key_hash32;
                        uint16_t owner_lease_age_seconds; uint8_t owner_claim_epoch; uint8_t reason; };
-size_t pack_j_discover(const j_discover_in& in, std::span<uint8_t> out);   // 6
+size_t pack_j_discover(const j_discover_in& in, std::span<uint8_t> out);   // 6 static/legacy; 9 if is_mobile (§S6 last-home block)
 size_t pack_j_offer   (const j_offer_in&    in, std::span<uint8_t> out);   // 8 / 13 if is_mobile (§mobile 2a + §S6 target hash)
 size_t pack_j_claim   (const j_claim_in&    in, std::span<uint8_t> out);   // 11
 size_t pack_j_deny    (const j_deny_in&     in, std::span<uint8_t> out);   // 15
@@ -373,6 +376,7 @@ struct j_out {
     uint8_t  leaf_id; bool gateway_capable; bool is_mobile; uint8_t opcode;
     uint8_t  wire_version;                                                     // R6.2 §5.2 (byte-1 rsv nibble)
     uint32_t key_hash32;                                                       // DISCOVER, CLAIM
+    uint8_t  last_home_id = 0; uint8_t last_home_layer = 0; uint8_t last_reg_epoch = 0;  // DISCOVER §S6: valid iff is_mobile && 9-B frame (0 = fresh)
     uint8_t  responder_node_id; uint32_t responder_key_hash32; uint8_t data_sf_bitmap;  // OFFER
     uint8_t  proposed_mobile_id = 0; uint32_t target_key_hash32 = 0;           // OFFER §mobile 2a/S6: valid iff opcode==OFFER && is_mobile (13-B): host-assigned id + the target mobile's hash
     uint8_t  proposed_node_id; uint16_t lease_age_seconds; uint8_t claim_epoch; uint8_t nonce;  // CLAIM
@@ -555,6 +559,61 @@ struct m_out { uint8_t leaf_id; uint8_t channel_id; uint8_t flavor; uint32_t cha
                std::span<const uint8_t> body; uint32_t team_id = 0; };   // §6.3: 0 unless the team flavor bit was set
 size_t pack_m(const m_in& in, std::span<uint8_t> out);          // 7 (+4 team) + body; 0 on short buf
 std::optional<m_out> parse_m(std::span<const uint8_t> frame);   // nullopt: len < 7 (or < 11 for a team frame) / cmd != M
+
+// -----------------------------------------------------------------------------
+// P — presence plane (cmd-nibble 0xC) — §S6. TWO frames on ONE nibble, split by the byte-0 dir bit (b3).
+// LOCAL 1-hop broadcasts: no CTS/ACK/relay/flood, TTL-free. ⚠ LEAF-FREE — byte-0's low nibble is FLAGS, not a
+// leaf gate; the rx dispatch routes the P nibble BEFORE the standard leaf filter (non-hosting statics drop on
+// frame type). LE where multi-byte, per house rule.
+// -----------------------------------------------------------------------------
+// P-probe (mobile -> broadcast, dir=0) — REV 2 (multi-home, 2026-07-18):
+//   byte 0     : cmd=0xC(7..4) | dir(3)=0 | HAS_LAST_HOME(2) | HAS_PUBKEY(1) | rsv(0)   [former LOST bit GONE]
+//   byte 1     : selected_home_id                 — always (0 = searching; else "THIS is my home")
+//   byte 2     : selected_home_layer (FULL 8-bit)  — always (the PAIR — leaf-free ⇒ a bare id aliases)
+//   bytes 3..6 : mobile key_hash32 (LE)           — always (the identity)
+//   byte 7     : reg_epoch (low byte of the u16)   — always
+//   bytes 8..9 : last_home_id + last_home_layer    — iff HAS_LAST_HOME
+//   8/10..     : ed_pub[32]                         — iff HAS_PUBKEY (flag-bit order; parse fail-loud on short)
+// Sizes: check = 8 B · searching+last_home = 10 B · registering (+key) = 42 B. `searching` is DERIVED: selected_home_id==0.
+// P-roster (home -> broadcast, dir=1):
+//   byte 0     : cmd=0xC(7..4) | dir(3)=1 | TRUNC(2) | HAS_ECHO(1) | rsv(0)
+//   byte 1     : home_id
+//   byte 2     : home_layer (FULL 8-bit)
+//   byte 3     : dir_epoch
+//   byte 4     : count (<= cap_host_mobiles)
+//   5..        : count × [ key_hash32(4 LE) | local_id(1) | reg_epoch(1) ]   (6-B entries)
+//   tail       : quality bitmap 2b/mobile ceil(count/4) B, then has_key bitmap 1b/mobile ceil(count/8) B (entry order)
+//   +ECHO      : iff HAS_ECHO — echo_hash32(4 LE) + [echo_quality(2b) | rsv(6b)] (1 B) = 5 B ("the probe I answer, RX'd at quality X")
+// quality: 0=critical 1=weak 2=ok 3=strong.  Sizes: 3 mobiles = 24 B (+5 echo) · 16 = 107 B.
+constexpr uint8_t P_DIR_ROSTER          = 0x08;   // byte-0 b3: 0=probe, 1=roster
+constexpr uint8_t P_PROBE_HAS_LAST_HOME = 0x04;   // probe b2
+constexpr uint8_t P_PROBE_HAS_PUBKEY    = 0x02;   // probe b1
+constexpr uint8_t P_ROSTER_TRUNC        = 0x04;   // roster b2: reserved for a future cap > frame capacity (unused at cap 16)
+constexpr uint8_t P_ROSTER_HAS_ECHO     = 0x02;   // roster b1: the ECHO block (echo_hash32 + echo_quality) is appended
+
+struct p_probe_in  { uint8_t selected_home_id = 0; uint8_t selected_home_layer = 0;   // 0 = searching
+                     bool has_last_home = false; bool has_pubkey = false;
+                     uint32_t key_hash32 = 0; uint8_t reg_epoch = 0;
+                     uint8_t last_home_id = 0, last_home_layer = 0; uint8_t ed_pub[32] = {}; };
+struct p_probe_out { uint8_t selected_home_id; uint8_t selected_home_layer;
+                     bool has_last_home; bool has_pubkey;
+                     uint32_t key_hash32; uint8_t reg_epoch;
+                     uint8_t last_home_id, last_home_layer; uint8_t ed_pub[32];
+                     bool searching() const { return selected_home_id == 0; } };
+size_t pack_p_probe(const p_probe_in& in, std::span<uint8_t> out);        // 8 / 10 / 42; 0 on short buf
+std::optional<p_probe_out> parse_p_probe(std::span<const uint8_t> frame); // nullopt: cmd!=P / dir!=probe / short-for-flags
+
+struct PRosterEntry { uint32_t key_hash32; uint8_t local_id; uint8_t reg_epoch; uint8_t quality; bool has_key; };
+struct p_roster_in  { uint8_t home_id; uint8_t home_layer; uint8_t dir_epoch; bool trunc = false;
+                      const PRosterEntry* entries = nullptr; uint8_t count = 0;
+                      bool has_echo = false; uint32_t echo_hash32 = 0; uint8_t echo_quality = 0; };
+struct p_roster_out { uint8_t home_id; uint8_t home_layer; uint8_t dir_epoch; bool trunc; uint8_t count;
+                      bool has_echo; uint32_t echo_hash32; uint8_t echo_quality;
+                      size_t entries_off; size_t quality_off; size_t haskey_off; size_t echo_off; size_t frame_len; };
+size_t pack_p_roster(const p_roster_in& in, std::span<uint8_t> out);          // 5 + 6*count + ceil(count/4) + ceil(count/8) [+5 echo]; 0 on short buf
+std::optional<p_roster_out> parse_p_roster(std::span<const uint8_t> frame);   // nullopt: cmd!=P / dir!=roster / len short for count+bitmaps[+echo]
+// i-th roster entry (i < count) incl. its quality tier + has_key bit; nullopt if out of range.
+std::optional<PRosterEntry> parse_p_roster_entry(std::span<const uint8_t> frame, const p_roster_out& r, uint8_t i);
 
 // Hash-bind answer inner (H §3.7a): [target_layer][node_id][key_hash32 LE] = 6 B. NO payload-flags byte —
 // the frame TYPE (DATA_TYPE_H_ANSWER vs DATA_TYPE_AUTHORITATIVE_H_ANSWER) carries H_ANSWER + AUTHORITATIVE,

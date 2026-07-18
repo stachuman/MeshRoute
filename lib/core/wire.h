@@ -23,7 +23,9 @@ namespace MESHROUTE_NS::wire {
 // §10.1 primary command codes (byte 0 high nibble).
 enum class Cmd : uint8_t {
     B = 0x0, R = 0x1, C = 0x2, D = 0x3, K = 0x4,
-    N = 0x5, Q = 0x6, H = 0x7, F = 0x8, J = 0x9, M = 0xA, CFG = 0xB, EXT = 0xF
+    N = 0x5, Q = 0x6, H = 0x7, F = 0x8, J = 0x9, M = 0xA, CFG = 0xB,
+    P = 0xC,   // §S6 presence plane (P-probe dir=0 / P-roster dir=1); byte-0 low nibble = flags, NOT a leaf gate (leaf-free)
+    EXT = 0xF
 };
 
 constexpr uint8_t cmd_byte(Cmd c, uint8_t flags4) {

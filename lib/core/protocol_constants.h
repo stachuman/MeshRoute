@@ -411,6 +411,39 @@ inline constexpr uint32_t learned_layer_ttl_ms           = 3600000;  // §mobile
 inline constexpr uint32_t mobile_layer_query_period_ms   = 600000;   // §mobile 5a: 10-min directory refresh while connected
 inline constexpr uint8_t  cap_mobile_home_cache          = 16;       // §mobile 3c: sender-side mobile_hash->home_id cache (id_bind can't hold a 2nd hash per node)
 inline constexpr uint32_t mobile_home_cache_ttl_ms       = 300000;   // §mobile 3c: 5-min TTL (§17-C2 "short, minutes")
+// §S6 presence plane (P-probe / P-roster) — the periodic-sync REPLACEMENT (spec 2026-07-17 §S6.3).
+// All bench-tunable; named per the S6.3 table. Timing is DECOUPLED from beacon_ms — home-loss is now
+// detected in ~T+15 s (was max(90 s, 2×beacon_ms) = 30 min at the fleet's 15-min beacons).
+inline constexpr uint32_t presence_check_base_ms       = 120000;   // the mobile's probe/check period T at quality=ok
+inline constexpr uint32_t presence_check_min_ms        = 60000;    // T clamp: weak/critical tier (aggressive)
+inline constexpr uint32_t presence_check_max_ms        = 480000;   // T clamp: strong tier (min(4·base,max))
+inline constexpr uint32_t presence_probe_jitter_ms     = 8000;     // 0..this drawn per probe — desynchronizes the fleet
+inline constexpr uint32_t presence_probe_retry_ms      = 5000;     // unanswered-probe retry spacing
+inline constexpr uint8_t  presence_probe_k_miss        = 2;        // retries before HOME LOST (detection ≈ T + k·retry)
+inline constexpr uint8_t  presence_claim_max_retries   = 3;        // §S6: same-home re-CLAIMs when the roster never confirms registration (heals a CLAIM lost to an RX collision — the retired reclaim keepalive's job), before a full re-DISCOVER
+inline constexpr uint32_t presence_roster_coalesce_min_ms = 500;   // home: collect probes this long, then answer ONCE
+inline constexpr uint32_t presence_roster_coalesce_max_ms = 1500;
+inline constexpr uint32_t presence_roster_min_interval_ms = 10000; // home: roster rate-limit floor (spoof/burst)
+inline constexpr uint32_t presence_reregister_stagger_ms  = 5000;  // 0..this after a roster-absent (home reboot) so N mobiles don't DISCOVER in lockstep
+inline constexpr uint32_t presence_rehome_dwell_ms     = 300000;   // anti-flap: min time (since last adopt) before a VOLUNTARY re-home
+inline constexpr uint32_t presence_candidate_hold_ms   = 60000;    // §S6.4-C: a better candidate must be sustained this long before re-homing
+inline constexpr uint32_t presence_safety_pull_ms      = 21600000; // D6: 6-h layer-directory safety pull (else purely dir_epoch-driven)
+// §S6 / D11 link-quality tiers (2 bits on the wire): the home maps its per-mobile SNR EWMA to a tier; the mobile
+// maps its heard-SNR EWMA of candidate homes to the same tiers for the re-home compare. Bench-tunable (dB, Q4).
+enum PresenceQuality : uint8_t { presence_q_critical = 0, presence_q_weak = 1, presence_q_ok = 2, presence_q_strong = 3 };
+inline constexpr int16_t  presence_q_weak_min_q4      = db_to_q4(0.0f);    //   0 dB — below = critical
+inline constexpr int16_t  presence_q_ok_min_q4        = db_to_q4(20.0f);   //  20 dB — weak..ok boundary
+inline constexpr int16_t  presence_q_strong_min_q4    = db_to_q4(40.0f);   //  40 dB — ok..strong boundary
+inline constexpr uint8_t  presence_rehome_tier_delta  = 2;                 // §S6.4-C: candidate must be >= this many tiers better
+inline constexpr uint8_t  cap_presence_candidates     = 8;                 // §S6.4-C: overheard candidate-home table (RAM-bound)
+// Pure: SNR (Q4 dB) -> 2-bit presence tier. Shared by home (per-mobile EWMA) + mobile (heard candidate EWMA).
+inline constexpr uint8_t presence_quality_tier(int16_t snr_q4) {
+    return snr_q4 >= presence_q_strong_min_q4 ? presence_q_strong
+         : snr_q4 >= presence_q_ok_min_q4     ? presence_q_ok
+         : snr_q4 >= presence_q_weak_min_q4   ? presence_q_weak
+                                              : presence_q_critical;
+}
+
 // L2a mediation airtime guard: one mediated DENY per (id, loser-hash) per window — else a flapping binding
 // re-DENYs on EVERY beacon (a dense-storm airtime sink). Re-mediates after the window if the loser hasn't
 // yet renumbered (covers a lost DENY). Bounded ring (evict-oldest); 32 covers realistic churn.

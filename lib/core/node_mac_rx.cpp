@@ -748,23 +748,9 @@ void Node::do_post_ack() {
                     }
             become_free(); return;   // consumed (routing info, NOT delivered/inbox'd); no match / non-host -> just drop
         }
-        if (pa.type == DATA_TYPE_MOBILE_PUBKEY_PUSH) {   // §mobile Part 2 (Fix 6): a hosted mobile pushed its E2E pubkey -> cache it on _mobile_reg[M] so I can answer WANT_PUBKEY locates on its behalf
-            if (ui && ui->has_source_hash && ui->body.size() >= 32 && _active->_mobile_reg_n > 0) {
-                const uint32_t pk_hash = uint32_t(ui->body[0]) | (uint32_t(ui->body[1]) << 8)
-                                       | (uint32_t(ui->body[2]) << 16) | (uint32_t(ui->body[3]) << 24);
-                if (pk_hash == ui->source_hash)                          // the pushed key MUST hash to M (source_hash) — reject an inconsistent/spoofed push (matches peer_key_set's self-consistency)
-                    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
-                        if (_active->_mobile_reg[i].key_hash32 == ui->source_hash) {   // attribute: only M's own key, for a mobile I host
-                            for (uint8_t k = 0; k < 32; ++k) _active->_mobile_reg[i].ed_pub[k] = ui->body[k];
-                            _active->_mobile_reg[i].has_pubkey = true;
-                            if (ui->body.size() > 32) { uint8_t nl = ui->body[32]; if (nl > 32) nl = 32;   // §1.3: the pushed name (body[32]=len, body[33..]) -> refresh (mutable)
-                                if (33u + nl <= ui->body.size()) { for (uint8_t b = 0; b < nl; ++b) _active->_mobile_reg[i].name[b] = static_cast<char>(ui->body[33 + b]); _active->_mobile_reg[i].name_len = nl; } }
-                            MR_EMIT("mobile_pubkey_cached", EF_I("m", i));
-                            break;
-                        }
-            }
-            become_free(); return;   // consumed (key info, NOT delivered/inbox'd)
-        }
+        // §S6: DATA_TYPE_MOBILE_PUBKEY_PUSH (TYPE 12) is RETIRED — key custody now rides the presence probe's HAS_PUBKEY
+        // block (presence_ingest_probe), confirmed by the roster's has_key bit. No mobile emits TYPE 12 any more; a stray
+        // one from an un-upgraded peer falls through to normal DM handling (harmless — the fleet reflashes together).
         if (pa.type == DATA_TYPE_MOBILE_LAYER_QUERY && _cfg.n_layers == 2 && ui && ui->has_source_hash) {   // §mobile 5a: a mobile asks THIS gateway for its bridged layers
             uint8_t body[protocol::max_payload_bytes_hard_cap]; uint8_t off = 1; body[0] = 0;   // [count][records…]
             uint8_t cnt = 0;

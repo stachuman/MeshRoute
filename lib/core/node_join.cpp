@@ -240,8 +240,11 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             if (slot < 0) return;                                     // registry full -> drop (the mobile re-DISCOVERs elsewhere)
             _active->_mobile_reg[static_cast<uint8_t>(slot)] =
                 { j.key_hash32, j.proposed_node_id, j.claim_epoch, _hal.now() };
+            _active->_mobile_snr_q4[static_cast<uint8_t>(slot)] = protocol::db_to_q4(meta.snr_db);   // §S6: seed the per-mobile SNR EWMA from the CLAIM
             MR_EMIT("mobile_registered", EF_I("key", static_cast<int64_t>(j.key_hash32)),
                     EF_I("local_id", j.proposed_node_id), EF_I("epoch", j.claim_epoch));
+            presence_notify_old_home(j.key_hash32, j.proposed_node_id, j.claim_epoch);   // §S6.4-D: NEW home -> old-home redirect breadcrumb (D10; stashed at OFFER time)
+            presence_schedule_roster();                               // §S6: roster on a registry change (coalesced)
             return;                                                   // do NOT fall into the static DAD tie-break
         }
         // §mobile separation: a MOBILE (incl. an off-grid team member, node_id==_team_local_id) is NOT on the static DAD
@@ -318,10 +321,25 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         off.data_sf_bitmap = static_cast<uint8_t>(_cfg.allowed_sf_bitmap & 0xFF);   // low byte (Slice 2b defines how the mobile consumes it)
         off.proposed_mobile_id = local;
         off.target_key_hash32  = j.key_hash32;                        // §S6: ADDRESS the OFFER at the discovering mobile (only its hash adopts it — a broadcast OFFER heard by another mobile is now ignored, killing the "wrong mobile adopts a foreign id" leg of the concurrent-register race)
+        // §S6.4-D: if this DISCOVER carries a last_home (a re-home), stash it so a subsequent CLAIM (adopt) makes THIS
+        // (new) home originate the old-home notify (D10). Dedup/refresh by mobile hash; evict-oldest on overflow.
+        if (j.last_home_id != 0 && j.last_home_id != _node_id) {
+            int ni = -1;
+            for (uint8_t i = 0; i < _active->_notify_pending_n; ++i)
+                if (_active->_notify_pending[i].mobile_hash == j.key_hash32) { ni = i; break; }
+            if (ni < 0) { ni = (_active->_notify_pending_n < protocol::cap_host_mobiles) ? _active->_notify_pending_n++ : 0; }
+            _active->_notify_pending[ni] = { j.key_hash32, j.last_home_id, j.last_home_layer };
+        }
         uint8_t buf[13]; const size_t n = pack_j_offer(off, std::span<uint8_t>(buf, sizeof buf));
         if (n) {
+            // §S6/QA-3b: DE-STORM the OFFER — stash it + fire after a random backoff so two co-located hosts don't answer
+            // this DISCOVER at the SAME ms (the same-ms PHY collision that made a mobile adopt the WEAKER home). Reuses the
+            // join OFFER-backoff window. Single-slot (last DISCOVER wins). The EMIT stays here (the OFFER is committed).
             MR_EMIT("mobile_offer_tx", EF_I("to_key", static_cast<int64_t>(j.key_hash32)), EF_I("local_id", local));
-            tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);   // SNR-backoff/suppress = a 2b/host-tuning knob
+            _active->_pending_offer_len = static_cast<uint8_t>(n);
+            for (size_t b = 0; b < n; ++b) _active->_pending_offer[b] = buf[b];
+            const uint32_t jit = static_cast<uint32_t>(_hal.rand_range(protocol::join_offer_backoff_min_ms, protocol::join_offer_backoff_max_ms + 1));
+            (void)_hal.after(jit, kMobileOfferBackoffTimerId);
         }
         return;
     }
@@ -511,6 +529,146 @@ void Node::l2c_confirmed_collision(uint32_t want_hash) {
         _hal.emit("l2c_collision_confirmed", f, 5); );
     if (i_win) addr_conflict_send_deny(_node_id, _key_hash32, want_hash, J_DENY_MEDIATED);  // squatter must yield
     else       forced_rejoin("l2c_collision_confirmed");                                    // we are the squatter -> yield
+}
+
+// ============================================================================
+// §S6 presence plane — HOME side (always compiled; a home is a static node). Host-gated by _active->_mobile_reg_n /
+// host_mobiles -> a non-host is a cheap type-drop + a static-only mesh is byte-identical (no probes exist).
+// ============================================================================
+
+// §S6/D6: the layer-directory version this node advertises in its roster. A gateway derives a 1-byte epoch over its
+// own layer PHY set (bump on a provisioning change); a plain home has n_layers==1 -> 0 (the full type-4-TLV
+// gw-epoch propagation + XOR aggregate is DEFERRED — this keeps the roster's dir_epoch stable, no spurious pulls).
+uint8_t Node::presence_compute_dir_epoch() const {
+    if (_n_layers < 2) return 0;
+    uint8_t e = 0;
+    for (uint8_t i = 0; i < _n_layers; ++i) {
+        e ^= _cfg.layers[i].layer_id;
+        e ^= static_cast<uint8_t>(static_cast<uint32_t>(_cfg.layers[i].freq_mhz * 1000.0 + 0.5));
+        e ^= static_cast<uint8_t>(_cfg.layers[i].routing_sf);
+    }
+    return e;
+}
+
+// A probe heard (LEAF-FREE): refresh the hosted mobile's liveness + SNR EWMA + key custody, then schedule ONE
+// coalesced roster. Answers ONLY for a mobile we CURRENTLY host (a `lost` probe from a hosted mobile = the
+// one-way-deaf recovery). A probe from a non-hosted mobile is ignored (registration is the J plane's job, D8).
+void Node::presence_ingest_probe(const uint8_t* frame, size_t len, const RxMeta& meta) {
+    if (_cfg.is_mobile || !_cfg.host_mobiles) return;                // §S6/QA-2: only a HOST answers probes — SAME gate as the J DISCOVER->OFFER host side (a mobile never hosts; host_mobiles=0 opts out)
+    if (_node_id == 0) return;                                       // §S6/QA-1: mid-join/unprovisioned (reset_join_for_reprovision set_identity(0)) — do NOT re-accept registry state mid-transition. SAME predicate as the mobile-OFFER suspend (node_join DISCOVER), NOT _joined (a pinned host keeps _joined==false forever).
+    auto p = parse_p_probe(std::span<const uint8_t>(frame, len));
+    if (!p) return;
+    const int16_t snr_q4 = protocol::db_to_q4(meta.snr_db);
+    const uint8_t rx_tier = protocol::presence_quality_tier(snr_q4);
+    const bool searching  = p->searching();
+    const bool sel_me     = (p->selected_home_id == _node_id && p->selected_home_layer == active_layer_id());
+    // find our hosted entry for this hash
+    int mine = -1;
+    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+        if (_active->_mobile_reg[i].key_hash32 == p->key_hash32) { mine = static_cast<int>(i); break; }
+    if (mine >= 0 && !searching) {
+        if (!sel_me) {                                              // §S6 rev2: the mobile selected ANOTHER home -> PRUNE my stale entry NOW (instant registry self-heal)
+            const uint8_t m = static_cast<uint8_t>(mine);
+            for (uint8_t k = m; k + 1 < _active->_mobile_reg_n; ++k) { _active->_mobile_reg[k] = _active->_mobile_reg[k+1]; _active->_mobile_snr_q4[k] = _active->_mobile_snr_q4[k+1]; }
+            _active->_mobile_reg_n--;
+            MR_EMIT("presence_prune_stale", EF_I("was", m), EF_I("selected", p->selected_home_id));
+            return;                                                 // do NOT answer (only the selected home does)
+        }
+        // sel_me: normal refresh + custody + SNR EWMA, then answer (ONLY the selected home answers a check probe)
+        _active->_mobile_reg[mine].last_heard_ms = _hal.now();      // liveness refresh (kills the 25-min black hole via the probe cadence)
+        int16_t& ew = _active->_mobile_snr_q4[mine];
+        ew = (ew == 0) ? snr_q4 : static_cast<int16_t>(ew + (((snr_q4 - ew) * protocol::snr_ewma_alpha_q4) >> 4));
+        if (p->has_pubkey) {                                        // §S6 A.4: key custody rides the probe (RETIRES TYPE-12) — self-consistency check ed_pub[:4]==hash
+            const uint32_t pk_hash = uint32_t(p->ed_pub[0]) | (uint32_t(p->ed_pub[1]) << 8)
+                                   | (uint32_t(p->ed_pub[2]) << 16) | (uint32_t(p->ed_pub[3]) << 24);
+            if (pk_hash == p->key_hash32) {
+                for (uint8_t k = 0; k < 32; ++k) _active->_mobile_reg[mine].ed_pub[k] = p->ed_pub[k];
+                _active->_mobile_reg[mine].has_pubkey = true;
+            }
+        }
+        MR_EMIT("presence_probe_rx", EF_I("m", mine), EF_I("snr_q4", ew));
+        presence_schedule_roster();                                 // coalesced answer (rate-limit floored)
+        return;
+    }
+    if (searching) {                                                // §S6 rev2: EVERY home answers a searching probe (candidate canvass), incl. non-hosts — with the ECHO of how WE heard IT (D14/D15)
+        if (!_active->_roster_echo_pending) {                       // first probe of the window wins the echo (D15)
+            _active->_roster_echo_hash = p->key_hash32; _active->_roster_echo_q = rx_tier; _active->_roster_echo_pending = true;
+        }
+        MR_EMIT("presence_probe_rx", EF_I("searching", 1), EF_I("snr_q4", snr_q4));
+        presence_schedule_roster();
+        return;
+    }
+    // a check probe for a hash we don't host -> ignore
+}
+
+// Arm the coalesce timer so a burst of probes -> ONE roster; obey the rate-limit floor (spoof/burst).
+void Node::presence_schedule_roster() {
+    if (_active->_roster_coalesce_pending) return;                            // one window already open
+    const uint64_t now = _hal.now();
+    uint32_t delay = static_cast<uint32_t>(_hal.rand_range(protocol::presence_roster_coalesce_min_ms,
+                                                           protocol::presence_roster_coalesce_max_ms + 1));
+    const uint64_t earliest = _active->_last_roster_ms + protocol::presence_roster_min_interval_ms;
+    if (now + delay < earliest) delay = static_cast<uint32_t>(earliest - now);   // rate-limit floor
+    if (_hal.after(delay, kPresenceRosterTimerId)) _active->_roster_coalesce_pending = true;
+}
+
+void Node::presence_roster_fire() {
+    _active->_roster_coalesce_pending = false;
+    presence_emit_roster();
+}
+
+// Build + LBT-broadcast the roster from the host registry + the per-mobile quality tier + has_key + dir_epoch.
+void Node::presence_emit_roster() {
+    if (_node_id == 0) return;                                       // §S6/QA-1: never broadcast a roster with home_id=0 garbage while mid-join/unprovisioned (SAME suspend as the OFFER gate)
+    if (_active->_mobile_reg_n == 0 && !_active->_roster_echo_pending) return;   // §S6 rev2: an EMPTY home still answers a searching-probe canvass (echo only)
+    PRosterEntry ents[protocol::cap_host_mobiles];
+    uint8_t n = 0;
+    for (uint8_t i = 0; i < _active->_mobile_reg_n && n < protocol::cap_host_mobiles; ++i) {
+        ents[n].key_hash32 = _active->_mobile_reg[i].key_hash32;
+        ents[n].local_id   = _active->_mobile_reg[i].mobile_local_id;
+        ents[n].reg_epoch  = static_cast<uint8_t>(_active->_mobile_reg[i].epoch);
+        ents[n].quality    = protocol::presence_quality_tier(_active->_mobile_snr_q4[i]);
+        ents[n].has_key    = _active->_mobile_reg[i].has_pubkey;
+        ++n;
+    }
+    p_roster_in in{}; in.home_id = _node_id; in.home_layer = active_layer_id();
+    in.dir_epoch = presence_compute_dir_epoch(); in.entries = ents; in.count = n;
+    if (_active->_roster_echo_pending) { in.has_echo = true; in.echo_hash32 = _active->_roster_echo_hash; in.echo_quality = _active->_roster_echo_q; }
+    uint8_t buf[protocol::lora_max_frame_bytes];
+    const size_t sz = pack_p_roster(in, std::span<uint8_t>(buf, sizeof buf));
+    if (sz) {
+        _active->_last_roster_ms = _hal.now();
+        MR_EMIT("presence_roster_tx", EF_I("count", n), EF_I("home", _node_id), EF_I("echo", _active->_roster_echo_pending ? 1 : 0));
+        tx_initiating(buf, sz, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
+    }
+    _active->_roster_echo_pending = false;                          // one echo per window (consumed)
+}
+
+// §S6.4-D: the NEW home originates the redirect breadcrumb to the mobile's stashed last_home (D10 — home-sent
+// REPLACES the old mobile-sent breadcrumb; survives a mobile that sleeps right after adopting). Payload =
+// [new_home_id][new_epoch][new_home_layer], SOURCE_HASH = the mobile (so the old home attributes it to _mobile_reg[M]).
+void Node::presence_notify_old_home(uint32_t mobile_hash, uint8_t /*new_local_id*/, uint16_t new_epoch) {
+    for (uint8_t i = 0; i < _active->_notify_pending_n; ++i) {
+        if (_active->_notify_pending[i].mobile_hash != mobile_hash) continue;
+        const uint8_t old_home  = _active->_notify_pending[i].last_home_id;
+        const uint8_t old_layer = _active->_notify_pending[i].last_home_layer;
+        // remove the entry (swap-with-last)
+        _active->_notify_pending[i] = _active->_notify_pending[--_active->_notify_pending_n];
+        if (old_home == 0 || old_home == _node_id) return;           // fresh / self -> nothing to notify
+        // CROSS-LAYER old home (old_layer != ours): DEFERRED — originate_layer_path is HASH-addressed and the
+        // breadcrumb carries only the old home's id+layer, not its key_hash32. Same-layer (the common re-home) is
+        // routed by id below; the dead-home cross-layer case self-heals via the mobile_liveness prune (spec §S6.4-D).
+        if (old_layer != active_layer_id() && old_layer != 0) {
+            MR_EMIT("presence_notify_xl_deferred", EF_I("old_home", old_home), EF_I("old_layer", old_layer));
+            return;
+        }
+        uint8_t body[3] = { _node_id, static_cast<uint8_t>(new_epoch), active_layer_id() };   // new_home_id/new_epoch/new_home_layer
+        (void)enqueue_data(old_home, body, 3, DATA_FLAG_SOURCE_HASH, "presence_notify",
+                           /*app_dm=*/false, DATA_TYPE_MOBILE_BREADCRUMB, CryptIntent::off,
+                           /*override_dst_hash=*/0, /*override_source_hash=*/mobile_hash);
+        MR_EMIT("presence_notify_tx", EF_I("old_home", old_home), EF_I("new_home", _node_id));
+        return;
+    }
 }
 
 }  // namespace meshroute

@@ -802,7 +802,12 @@ void Node::on_timer(uint32_t timer_id) {
     case kMobileDiscoverTimerId:  mobile_discover_fire();  break;   // §mobile 2b: registration FSM (armed only for a mobile)
     case kMobileClaimGuardTimerId: mobile_claim_guard_fire(); break;
     case kMobileLayerQueryTimerId: mobile_layer_query_fire(); break;   // §mobile 5a: pull the layer directory from a gateway
+    case kPresenceProbeTimerId:   presence_probe_fire();  break;   // §S6: mobile presence check/probe/retry (REPLACES the re-CLAIM tick)
 #endif
+    case kPresenceRosterTimerId:  presence_roster_fire(); break;   // §S6: home coalesced-roster emit (always compiled — a home is a static)
+    case kMobileOfferBackoffTimerId:                              // §S6/QA-3b: fire the de-stormed (jittered) mobile OFFER
+        if (_active->_pending_offer_len) { tx_initiating(_active->_pending_offer, _active->_pending_offer_len, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0); _active->_pending_offer_len = 0; }
+        break;
     case kTeamDadGuardTimerId:     team_dad_guard_fire();     break;   // §mobile 6.4: team-DAD guard window close -> confirm _team_local_id
     case kMBcastClearTimerId:                                       // M-broadcast fire-and-forget: clear the flight (no ACK)
         if (_active->_pending_tx && _active->_pending_tx->m_broadcast) { _active->_pending_tx.reset(); become_free(); }
@@ -871,6 +876,18 @@ void Node::on_recv(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         case wire::Cmd::J: handle_j  (bytes, len, meta); break;     // J node_id DAD (CLAIM/DENY -> claim/heal)
         case wire::Cmd::M: handle_channel_data(bytes, len, meta); break;  // M lean channel-message frame (cmd 0xA) -> leaf gate + ingest
         case wire::Cmd::CFG: handle_c(bytes, len, meta); break;     // C leaf-config frame (cmd 0xB) -> control-plane CONFIG_PULL answer -> adopt
+        case wire::Cmd::P: {                                         // §S6 presence plane — LEAF-FREE (byte-0 low nibble is FLAGS, not a leaf gate)
+            // Routed HERE, before any per-handler leaf filter. Type-gated: a non-hosting static drops cheaply inside the
+            // ingest (no _mobile_reg + not is_mobile). Roster (dir=1) vs probe (dir=0) split on the byte-0 dir bit.
+            if (wire::flags_of(bytes[0]) & P_DIR_ROSTER) {
+#if MR_FEAT_MOBILE
+                if (_cfg.is_mobile) presence_ingest_roster(bytes, len, meta);   // a mobile consumes rosters (its own home + candidates)
+#endif
+            } else {
+                presence_ingest_probe(bytes, len, meta);            // a home (host) answers probes; a non-host drops on the empty registry
+            }
+            break;
+        }
         default: break;                                              // rest ignored
     }
 }

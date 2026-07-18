@@ -480,7 +480,10 @@ private:
     static constexpr uint32_t kMobileClaimGuardTimerId = 75;  // §mobile 2b: collect-OFFERs window close -> pick strongest + CLAIM
     static constexpr uint32_t kMobileLayerQueryTimerId = 76;  // §mobile 5a: pull the layer directory from a gateway (periodic while registered)
     static constexpr uint32_t kTeamDadGuardTimerId     = 77;  // §mobile 6.4: team-DAD claim guard window close -> confirm _team_local_id
-    // [76..79] free for future per-layer timers.
+    static constexpr uint32_t kPresenceProbeTimerId    = 78;  // §S6: mobile presence check period T (dynamic) + probe retry re-arm
+    static constexpr uint32_t kPresenceRosterTimerId   = 79;  // §S6: home roster-coalesce window close -> emit ONE roster
+    static constexpr uint32_t kMobileOfferBackoffTimerId = 80;// §S6/QA-3b: host OFFER de-storm — jitter the OFFER so two hosts don't answer a DISCOVER at the SAME ms (the same-ms collision that made a mobile adopt the WEAK home)
+    // [78..80] = the presence plane + OFFER de-storm; the timer wheel cap is 82 (kCap in timer_wheel.h).
 
     // ---- beacon emit / ingest ----------------------------------------------
     void emit_beacon(const char* kind);                            // "periodic" | "triggered"
@@ -573,7 +576,21 @@ private:
 #if MR_FEAT_MOBILE
     void    mobile_discover_fire();                             // DISCOVER + open the collect-OFFERs window
     void    mobile_claim_guard_fire();                         // window close: pick strongest OFFER -> CLAIM + adopt; else backoff
+    // §S6 presence plane (mobile side) — node_presence.cpp. REPLACES the periodic re-CLAIM + layer poll.
+    void    presence_probe_fire();                             // kPresenceProbeTimerId: send a probe (jittered/suppressed) or retry; k_miss -> HOME LOST
+    void    presence_arm_check(uint32_t delay_ms);             // (re)arm the check timer at now+delay (dynamic T)
+    void    presence_ingest_roster(const uint8_t* frame, size_t len, const RxMeta& meta);   // mobile: a roster heard -> refresh/re-register/re-home eval
+    void    presence_note_candidate(uint8_t home_id, uint8_t home_layer, int16_t snr_q4);   // §S6.4-C: overheard beacon/roster -> candidate home
+    void    presence_maybe_rehome();                           // §S6.4-C: sustained-better candidate + dwell -> voluntary re-DISCOVER
+    void    presence_on_adopt();                               // called from the mobile adopt path: seed clocks + arm the first check probe
 #endif
+    // §S6 presence plane (home side) — always compiled (a home is a static); host-gated (dormant on a non-host).
+    void    presence_ingest_probe(const uint8_t* frame, size_t len, const RxMeta& meta);   // home: a probe heard -> refresh registry + SNR EWMA + custody; schedule a coalesced roster
+    void    presence_roster_fire();                            // kPresenceRosterTimerId: emit ONE coalesced roster
+    void    presence_schedule_roster();                        // arm the coalesce timer (rate-limit floored)
+    void    presence_emit_roster();                            // build + LBT-broadcast the roster from _mobile_reg + tiers + has_key + dir_epoch
+    void    presence_notify_old_home(uint32_t mobile_hash, uint8_t new_local_id, uint16_t new_epoch);  // §S6.4-D: NEW home originates the redirect breadcrumb to the stashed last_home
+    uint8_t presence_compute_dir_epoch() const;               // §S6/D6: XOR aggregate of known gateway dir_epochs (a gateway derives its own layer-set epoch)
     // §mobile 6.4: team-DAD — a team member self-assigns a persistent _team_local_id on the team plane (no static host).
 #if MR_FEAT_TEAM
     int     team_dad_choose_candidate_id();                    // a free team id (not a _team_peer / _rt_team dest / our current), 17..254; -1 if full
@@ -1090,6 +1107,23 @@ private:
     LayerRecord _learned_layers[protocol::cap_learned_layers] = {};   // §mobile 5a: neighbouring layers pulled from a gateway (candidate cross-layer PHYs, dedup by composite id)
     uint8_t   _learned_layers_n = 0;
     uint64_t  _learned_layers_ms = 0;                           // §mobile 5a: last directory refresh (TTL)
+    // §S6 presence plane (mobile side): the probe/check FSM that REPLACES the periodic re-CLAIM + layer poll.
+    uint8_t   _presence_miss     = 0;                           // consecutive unanswered probes (k_miss -> HOME LOST)
+    uint32_t  _presence_T_ms     = protocol::presence_check_base_ms;   // current dynamic check period (quality-driven)
+    uint8_t   _presence_my_tier  = protocol::presence_q_ok;     // my link tier from the last roster
+    uint8_t   _presence_dir_epoch = 0;                          // last-seen layer-directory aggregate (pull on change)
+    bool      _presence_dir_epoch_seen = false;                 // have we seen ANY roster dir_epoch yet
+    bool      _presence_prescan  = false;                       // weak/critical -> collect candidate homes from beacons/rosters
+    bool      _presence_key_confirmed = false;                  // §S6 A.4: home confirmed our key (roster has_key=1) -> stop attaching ed_pub to probes
+    bool      _presence_reg_confirmed = false;                  // §S6: home confirmed our REGISTRATION (our hash seen in ITS roster) — else a lost CLAIM is re-sent (replaces the retired reclaim keepalive's heal role)
+    uint8_t   _presence_claim_retries = 0;                      // bounded same-home re-CLAIMs before a full home-lost re-DISCOVER
+    uint64_t  _last_adopt_ms     = 0;                           // §S6.4-C dwell anchor (last (re)adopt)
+    uint64_t  _presence_last_pull_ms = 0;                       // D6 safety-pull clock
+    int16_t   _presence_home_rx_q4 = 0;                         // §S6/D14: my RX EWMA (Q4) of my HOME's frames (home->me direction; paired with _presence_my_tier = me->home)
+    // §S6.4-C candidate home. D14 bidirectional: snr_q4 = my RX of its roster/beacon (cand->me); echo_tier = its echo of MY probe (me->cand), 0xFF = unknown. Selection ranks by the WORSE of the two.
+    struct PresenceCand { uint8_t home_id; uint8_t home_layer; int16_t snr_q4; uint8_t echo_tier; uint64_t first_seen_ms; uint64_t last_seen_ms; };
+    PresenceCand _presence_cand[protocol::cap_presence_candidates] = {};   // §S6.4-C overheard candidate homes (strongest-sustained wins)
+    uint8_t   _presence_cand_n   = 0;
 #endif
     struct DeniedId { uint8_t id; uint64_t denied_at_ms; };      // a slot that lost a claim/heal (§13: 1-day TTL)
     DeniedId _join_denied[protocol::cap_join_denied] = {};
@@ -1285,6 +1319,28 @@ private:
                                  char name[32] = {}; uint8_t name_len = 0; };  // §mobile 4b redirect (0 home = none) + §5b the new home's LAYER + §Part 2 the mobile's E2E pubkey (Fix 5) + §1.3 the mobile's name (pushed w/ the key); at struct END for positional aggregate-inits
         HostMobileEntry _mobile_reg[protocol::cap_host_mobiles] = {};
         uint8_t         _mobile_reg_n = 0;
+        // §S6 presence plane (home side): per-mobile SNR EWMA (Q4) PARALLEL to _mobile_reg (HostMobileEntry stays unchanged),
+        // mapped to the roster's 2-bit quality tier; plus the roster coalesce/rate-limit clocks. All host-gated (dormant on
+        // a non-host -> static-inert). INT16_MIN = no sample yet (seeds to the first probe SNR).
+        int16_t         _mobile_snr_q4[protocol::cap_host_mobiles] = {};
+        uint64_t        _last_roster_ms       = 0;    // rate-limit floor (presence_roster_min_interval_ms)
+        bool            _roster_coalesce_pending = false;   // a probe opened a coalesce window; the timer will emit ONE roster
+        // §S6.4-D new-home->old-home notify: on OFFERing a discovering mobile whose last_home != 0 != self, stash the
+        // last-home so the CLAIM (adopt) can originate the breadcrumb (D10). Small ring; evict-oldest.
+        struct PendingNotify { uint32_t mobile_hash; uint8_t last_home_id; uint8_t last_home_layer; };
+        PendingNotify   _notify_pending[protocol::cap_host_mobiles] = {};
+        uint8_t         _notify_pending_n = 0;
+        uint8_t         _dir_epoch = 0;               // §S6/D6: gateway-derived layer-directory version this node advertises in the roster (XOR aggregate of known gw epochs; a gateway derives its own)
+        // §S6 rev2 ECHO (D14/D15): the coalesce window's FIRST probe echo — echo_hash32 + its RX quality tier. Emitted in
+        // the next roster iff pending (a searching-probe canvass answer). One echo per window (first wins).
+        uint32_t        _roster_echo_hash = 0;
+        uint8_t         _roster_echo_q = 0;
+        bool            _roster_echo_pending = false;
+        // §S6/QA-3b OFFER de-storm: a jittered mobile OFFER (stashed, fired by kMobileOfferBackoffTimerId) so co-located
+        // hosts don't answer one DISCOVER at the SAME ms (the collision that let a mobile adopt the WEAK home). Single-slot
+        // (last DISCOVER wins) — a v1 limitation; concurrent multi-mobile DISCOVERs at one host are rare.
+        uint8_t         _pending_offer[13] = {};
+        uint8_t         _pending_offer_len = 0;
         // §per-layer discovery (2026-07-05): a GATEWAY bootstraps each leaf INDEPENDENTLY — the boot leaf must not trip
         // the OTHER leaf out of fast-cadence discovery (node-global discovery starved leaf 1 -> the 3h heartbeat). A
         // single-layer node has ONE leaf, so _active is always &_layers[0] => per-leaf ≡ the old node-global state
@@ -1334,7 +1390,7 @@ private:
 // pointer/enum/alignment). Purpose: the node.h legibility reorder (2026-07-15 by-concern member reorder) must not
 // change Node's layout. If this fires after a *deliberate* member add/remove/type change, update the baseline
 // consciously — it is a tripwire, not a frozen contract. The real nRF52 RAM check is the firmware.map .bss/.data diff.
-static_assert(sizeof(Node) == 218232, "node.h: Node native layout changed — if intentional, update the baseline");   // …215784 -> 218104 (§team-multihop 2c) -> 218232 (+128 §S4: Push +4 B team_id × _push_ring[cap_push_ring=32])
+static_assert(sizeof(Node) == 218872, "node.h: Node native layout changed — if intentional, update the baseline");   // …218232 (§S4) -> 218872 (+640 §S6 presence: mobile probe/candidate+echo state; home SNR EWMA/notify-pending/dir_epoch/roster-echo/offer-destorm stash)
 #endif
 
 }  // namespace meshroute
