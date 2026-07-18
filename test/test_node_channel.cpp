@@ -103,6 +103,19 @@ static size_t mk_beacon_digest(uint8_t src, const uint32_t* ids, uint8_t count, 
     in.ext = std::span<const uint8_t>(ext, en);
     return pack_beacon(in, std::span<uint8_t>(b.data(), b.size()));
 }
+// A beacon from `src` carrying a CHANNEL_DIGEST ext-TLV *and* a type-5 team_id TLV (peer_team = team_id) — i.e.
+// a team member's beacon (the team plane rides on the mobile beacon, so is_mobile is set). Drives the §team digest
+// gate at node_beacon.cpp:835 (metal 2026-07-17): a FOREIGN-team digest must NOT provoke a CHANNEL_PULL.
+static size_t mk_beacon_digest_team(uint8_t src, const uint32_t* ids, uint8_t count, uint32_t team_id,
+                                    std::array<uint8_t,64>& b) {
+    uint8_t ext[32];
+    size_t en = pack_channel_digest_tlv(ids, count, std::span<uint8_t>(ext, sizeof(ext)));
+    en += pack_team_id_tlv(team_id, std::span<uint8_t>(ext + en, sizeof(ext) - en));
+    beacon_in in{}; in.leaf_id = 0; in.src = src; in.key_hash32 = 0x1000u + src; in.is_mobile = true;
+    in.entries = std::span<const beacon_entry>();
+    in.ext = std::span<const uint8_t>(ext, en);
+    return pack_beacon(in, std::span<uint8_t>(b.data(), b.size()));
+}
 // A CHANNEL_PULL Q from `src` to `dest` requesting `ids`.
 static size_t mk_q_pull(uint8_t src, uint8_t dest, const uint32_t* ids, uint8_t count, std::array<uint8_t,32>& b) {
     q_in in{}; in.leaf_id = 0; in.src = src; in.dest = dest; in.opcode = q_opcode::channel_pull; in.mobile = false;
@@ -747,6 +760,52 @@ TEST_CASE("digest ingest -> recent dedup: a 2nd digest for the same id within th
     hal._now = 200;                                                  // within channel_pull_window_ms (60s)
     bn = mk_beacon_digest(50, &X, 1, bb); node.on_recv(bb.data(), bn, meta_at(200));
     CHECK(hal.count("channel_pull_scheduled") == 1);                 // unchanged -> recent gate blocked the re-pull
+}
+
+// §team digest gate (metal 2026-07-17): the digest REACTION (process_channel_digest) is team-gated at
+// node_beacon.cpp:835. A node must NEVER react to a FOREIGN-team digest — the served M could never pass our
+// ingest containment gate (node_channel.cpp:192), so a MISSING->pull ping-pong would run forever (metal: static
+// 43 pulled 12ADA20C from team members 106/218 every beacon cycle, indefinitely). These four cases pin the truth
+// table. The observable is channel_pull_scheduled (0 = the gate blocked the reaction; 1 = the pull is preserved).
+TEST_CASE("digest team-gate: a STATIC node (team_id=0) hearing a TEAM digest does NOT pull (the fix)") {
+    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);   // team_id=0 -> static
+    hal._now = 100; hal._rand_ret = 1234;
+    const uint32_t X = (uint32_t(9) << 24) | 0x123456u;                    // origin 9 -> node 2 lacks it (and, being static, could NEVER hold a team M)
+    std::array<uint8_t,64> bb{};
+    const size_t bn = mk_beacon_digest_team(50, &X, 1, 0xAAAAAAAAu, bb);   // a team member (peer_team=0xAAAAAAAA) advertises X
+    node.on_recv(bb.data(), bn, meta_at(100));
+    CHECK(hal.count("channel_pull_scheduled") == 0);                       // FOREIGN-team digest -> no reaction (breaks the ping-pong)
+    CHECK(!hal.armed(kChannelPullTimerId));
+}
+TEST_CASE("digest team-gate: a TEAM member hearing an OTHER-team digest does NOT pull (same disease)") {
+    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); cfg.is_mobile = true; cfg.team_id = 0xAAAAAAAAu; node.on_init(cfg);
+    hal._now = 100; hal._rand_ret = 1234;
+    const uint32_t X = (uint32_t(9) << 24) | 0x123456u;
+    std::array<uint8_t,64> bb{};
+    const size_t bn = mk_beacon_digest_team(50, &X, 1, 0xBBBBBBBBu, bb);   // a DIFFERENT team (peer_team=0xBBBBBBBB != ours)
+    node.on_recv(bb.data(), bn, meta_at(100));
+    CHECK(hal.count("channel_pull_scheduled") == 0);
+    CHECK(!hal.armed(kChannelPullTimerId));
+}
+TEST_CASE("digest team-gate: a TEAM member hearing a SAME-team digest DOES pull (team repair backstop preserved)") {
+    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); cfg.is_mobile = true; cfg.team_id = 0xAAAAAAAAu; node.on_init(cfg);
+    hal._now = 100; hal._rand_ret = 1234;
+    const uint32_t X = (uint32_t(9) << 24) | 0x123456u;
+    std::array<uint8_t,64> bb{};
+    const size_t bn = mk_beacon_digest_team(50, &X, 1, 0xAAAAAAAAu, bb);   // SAME team (peer_team == ours) -> gate lets it through
+    node.on_recv(bb.data(), bn, meta_at(100));
+    CHECK(hal.count("channel_pull_scheduled") == 1);
+    CHECK(hal.armed(kChannelPullTimerId));
+}
+TEST_CASE("digest team-gate: a TEAM member hearing a STATIC digest (peer_team=0) DOES pull (leaf msgs reach a registered mobile)") {
+    TestHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = basic_cfg(); cfg.is_mobile = true; cfg.team_id = 0xAAAAAAAAu; node.on_init(cfg);
+    hal._now = 100; hal._rand_ret = 1234;
+    const uint32_t X = (uint32_t(9) << 24) | 0x123456u;
+    std::array<uint8_t,64> bb{};
+    const size_t bn = mk_beacon_digest(50, &X, 1, bb);                     // a STATIC beacon (no team TLV -> peer_team==0) -> pullable by everyone
+    node.on_recv(bb.data(), bn, meta_at(100));
+    CHECK(hal.count("channel_pull_scheduled") == 1);
+    CHECK(hal.armed(kChannelPullTimerId));
 }
 
 TEST_CASE("pull overhear-cancel: receiving the msg before the jitter fires suppresses the pull") {

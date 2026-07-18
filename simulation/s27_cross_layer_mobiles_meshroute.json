@@ -1,0 +1,1099 @@
+{
+ "_name": "s27_cross_layer_mobiles",
+ "_desc": "FUTURE-PROTOCOL scenario (spec 2026-07-17-cross-layer-mobile-first-contact-design.md) — PARTIALLY RED until slices S1-S4 land; then joins BASELINE.md as mandatory. Two static layers, leaf 4 {S1..S4 = ids 101..104} + leaf 7 {T1..T4 = ids 111..114}, bridged by dual-layer gateway G1 (id 10, windows). Four REAL-CRYPTO mobiles (seed-derived key_hash32): M1@S1 0x2716EFCD, M2@S4 0x3A3E77A3, M3@T1 0xBCC13CC5, M4@T4 0x455FCF59. M1 knows only (layer,hash) addresses. ⚠ Static ids are HIGH (101+) DELIBERATELY: hosted-mobile local ids allocate from 17.. and a cold-boot allocation can alias a static id, poisoning rt_skip_mobile_transit at the home (defer-loop, no delivery) — a REAL pre-existing bug found by this scenario's first dry run (2026-07-17, see the spec's findings note); it needs its own fix+test, not this scenario. Spare late-start homes S5=105/T5=115/T6=116 (start_at_ms 560000) keep the INITIAL home picks deterministic (exactly one host in range per mobile at registration) and provide unambiguous re-home targets. PHASES: (A) register (homes 101/104/111/114); (B) PLAINTEXT-FIRST with INTRO auto-pubkey-attach (spec S2/D1): M1->M2 same-layer, M1->M3 + M1->M4 cross-layer via the DELEGATED send_layer (spec S1; the EXISTING layer-path format, frame_codec.h:519); replies attach keys back — NO WANT_PUBKEY flood anywhere; (C) ENCRYPTED both directions incl. CROSS-LAYER sealed (spec S4); (D) 3-of-4 RE-HOME: S4/T1/T4 die (dies_at_ms 600k/620k/640k) -> M2->S5(105), M3->T5(115), M4->T6(116); M1's home S1 SURVIVES = stable sender anchor; (E) ENCRYPTED again post-re-home (stale home caches re-resolve; re-pushed keys serve at the NEW homes — spec S3). ⚠ SIM-REPO PREREQ: the EXISTING wrapper verb `send_layer <l1,l2,..> <hash-decimal> <body>` (s09/s16) is reused for plaintext XL (S1 makes it legal FROM a mobile via delegation); ONE new wrapper verb `send_layerx <l1,l2,..> <hash-decimal> <body>` is needed for the sealed variant (mirrors send_hash/send_hashx). NOTE the wrapper's send_layer takes DECIMAL hashes (send_hash takes hex) - each verb keeps its own convention. Assertions use ONLY existing emit names (mobile_adopted / peer_key_cached / push). ⚠ TODAY-STATE (pre-slices, dry-runs 2026-07-17/18): ~12-13 of 30 asserts green = the today-protocol subset (4+1 initial adopts, hello-m2/re-m2 same-layer, 3 death-driven re-homes, M5's initial adopt + hello-m5-moved via the stale proxy); the cross-layer plaintext trio (hello-m3/re-m3/re-m4) is ACCIDENTALLY green-ish — today's mobile send_layer originates on the static plane with a local-id origin (the S1 plane-leak) and is TIMING-FRAGILE (adding M5 flipped re-m4 red with zero functional change). Do NOT chase flips within that trio; they become deterministic under S1's delegation. PHASE F (proactive re-home, spec FSM S6.4-C): M5 (fake hash 0x44070031, plaintext-only) registers to S3 over a DELIBERATELY WEAK link (snr 14 -> quality tier weak -> T=min + pre-scan); strong spare home SX (id 106, snr 55 to M5) starts at 800k with BOTH homes alive -> sustained-better + rehome-dwell -> VOLUNTARY re-home S3(103)->SX(106) -> the NEW home notifies the OLD (breadcrumb-9, D10) -> S1's send_hash to M5 at 1150k must deliver THROUGH the redirect chain (zero-blackhole handoff; this last assert is GREEN today via S3's static proxy and MUST STAY green across the F implementation).",
+ "simulation": {
+  "duration_ms": 1450000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "seed": 27,
+  "node_startup_jitter_ms": 0,
+  "radio": {
+   "sf": 8,
+   "bw": 62.5,
+   "cr": 5,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 0.1
+  }
+ },
+ "commands": [
+  {
+   "_c": "PHASE B — plaintext-first, INTRO auto-attaches M1's pubkey (D1: no sealed frame from dst yet). Same-layer by hash.",
+   "at_ms": 220000,
+   "node": "M1",
+   "command": "send_hash 3a3e77a3 hello-m2"
+  },
+  {
+   "_c": "cross-layer (leaf 7) via the S1 layer-qualified delegated send",
+   "at_ms": 240000,
+   "node": "M1",
+   "command": "send_layer 7 3166780613 hello-m3"
+  },
+  {
+   "at_ms": 260000,
+   "node": "M1",
+   "command": "send_layer 7 1163906905 hello-m4"
+  },
+  {
+   "_c": "replies — INTRO attaches each replier's key back to M1 (mutual keys, zero floods)",
+   "at_ms": 300000,
+   "node": "M2",
+   "command": "send_hash 2716efcd re-m2"
+  },
+  {
+   "at_ms": 320000,
+   "node": "M3",
+   "command": "send_layer 4 655814605 re-m3"
+  },
+  {
+   "at_ms": 340000,
+   "node": "M4",
+   "command": "send_layer 4 655814605 re-m4"
+  },
+  {
+   "_c": "PHASE C — encrypted (both sides hold both keys from phase B). Same-layer sealed.",
+   "at_ms": 420000,
+   "node": "M1",
+   "command": "send_hashx 3a3e77a3 sealed-to-m2"
+  },
+  {
+   "_c": "CROSS-LAYER sealed (spec S4: XL seal lift + hash-keyed ack)",
+   "at_ms": 440000,
+   "node": "M1",
+   "command": "send_layerx 7 3166780613 sealed-to-m3"
+  },
+  {
+   "at_ms": 460000,
+   "node": "M1",
+   "command": "send_layerx 7 1163906905 sealed-to-m4"
+  },
+  {
+   "_c": "encrypted the OTHER way too (proves the mutual half of INTRO)",
+   "at_ms": 500000,
+   "node": "M3",
+   "command": "send_layerx 4 655814605 sealed-re-m3"
+  },
+  {
+   "_c": "PHASE E — after the phase-D re-homes (S4 dies 600k, T1 620k, T4 640k; spares up at 560k): senders' cached homes are STALE-DEAD -> re-resolve; the NEW homes must hold the re-pushed keys (spec S3)",
+   "at_ms": 950000,
+   "node": "M1",
+   "command": "send_hashx 3a3e77a3 post-m2"
+  },
+  {
+   "at_ms": 980000,
+   "node": "M1",
+   "command": "send_layerx 7 3166780613 post-m3"
+  },
+  {
+   "at_ms": 1010000,
+   "node": "M1",
+   "command": "send_layerx 7 1163906905 post-m4"
+  },
+  {
+   "_c": "and one reverse post-re-home (a re-homed mobile sends cross-layer)",
+   "at_ms": 1060000,
+   "node": "M4",
+   "command": "send_layerx 4 655814605 post-re-m4"
+  },
+  {
+   "_c": "PHASE F — after M5's voluntary re-home (~950k): a static sender reaches M5 by hash; must ride S3's redirect -> SX (green today via the stale proxy; must SURVIVE the handoff)",
+   "at_ms": 1150000,
+   "node": "S1",
+   "command": "send_hash 44070031 hello-m5-moved"
+  }
+ ],
+ "expect": [
+  {
+   "_c": "PHASE A — deterministic initial homes (exactly one host in range each)",
+   "type": "script_emit_contains",
+   "node": "M1",
+   "emit_type": "mobile_adopted",
+   "value": "\"home\":101"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M2",
+   "emit_type": "mobile_adopted",
+   "value": "\"home\":104"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M3",
+   "emit_type": "mobile_adopted",
+   "value": "\"home\":111"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M4",
+   "emit_type": "mobile_adopted",
+   "value": "\"home\":114"
+  },
+  {
+   "_c": "PHASE B — plaintext-first deliveries (same-layer + BOTH cross-layer)",
+   "type": "script_emit_contains",
+   "node": "M2",
+   "emit_type": "push",
+   "value": "hello-m2"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M3",
+   "emit_type": "push",
+   "value": "hello-m3"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M4",
+   "emit_type": "push",
+   "value": "hello-m4"
+  },
+  {
+   "_c": "INTRO attached M1's key at every recipient (existing peer_key_cached emit; hash decimal = 0x2716EFCD)",
+   "type": "script_emit_contains",
+   "node": "M2",
+   "emit_type": "peer_key_cached",
+   "value": "655814605"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M3",
+   "emit_type": "peer_key_cached",
+   "value": "655814605"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M4",
+   "emit_type": "peer_key_cached",
+   "value": "655814605"
+  },
+  {
+   "_c": "replies delivered to M1 + their INTROs gave M1 all three keys (decimals of M2/M3/M4 hashes)",
+   "type": "script_emit_contains",
+   "node": "M1",
+   "emit_type": "push",
+   "value": "re-m2"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M1",
+   "emit_type": "push",
+   "value": "re-m3"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M1",
+   "emit_type": "push",
+   "value": "re-m4"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M1",
+   "emit_type": "peer_key_cached",
+   "value": "977172387"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M1",
+   "emit_type": "peer_key_cached",
+   "value": "3166780613"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M1",
+   "emit_type": "peer_key_cached",
+   "value": "1163906905"
+  },
+  {
+   "_c": "PHASE C — encrypted deliveries (sealed bodies visible in the recipient push post-open)",
+   "type": "script_emit_contains",
+   "node": "M2",
+   "emit_type": "push",
+   "value": "sealed-to-m2"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M3",
+   "emit_type": "push",
+   "value": "sealed-to-m3"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M4",
+   "emit_type": "push",
+   "value": "sealed-to-m4"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M1",
+   "emit_type": "push",
+   "value": "sealed-re-m3"
+  },
+  {
+   "_c": "PHASE D — the three re-homes onto the late-start spares (ids unique to the re-home, no spurious match)",
+   "type": "script_emit_contains",
+   "node": "M2",
+   "emit_type": "mobile_adopted",
+   "value": "\"home\":105"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M3",
+   "emit_type": "mobile_adopted",
+   "value": "\"home\":115"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M4",
+   "emit_type": "mobile_adopted",
+   "value": "\"home\":116"
+  },
+  {
+   "_c": "PHASE E — encrypted deliveries AFTER re-home (stale-home re-resolution + key custody at the new homes)",
+   "type": "script_emit_contains",
+   "node": "M2",
+   "emit_type": "push",
+   "value": "post-m2"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M3",
+   "emit_type": "push",
+   "value": "post-m3"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M4",
+   "emit_type": "push",
+   "value": "post-m4"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M1",
+   "emit_type": "push",
+   "value": "post-re-m4"
+  },
+  {
+   "_c": "PHASE F — M5's initial (weak) home is S3",
+   "type": "script_emit_contains",
+   "node": "M5",
+   "emit_type": "mobile_adopted",
+   "value": "\"home\":103"
+  },
+  {
+   "_c": "★ the PROACTIVE re-home: a SECOND adopt onto SX(106) while S3 is still alive (FSM S6.4-C: weak tier -> pre-scan -> sustained-better + dwell)",
+   "type": "script_emit_contains",
+   "node": "M5",
+   "emit_type": "mobile_adopted",
+   "value": "\"home\":106"
+  },
+  {
+   "_c": "reachability SURVIVES the voluntary handoff (notify -> redirect)",
+   "type": "script_emit_contains",
+   "node": "M5",
+   "emit_type": "push",
+   "value": "hello-m5-moved"
+  }
+ ],
+ "nodes": [
+  {
+   "name": "S1",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.31,
+   "start_at_ms": 1000,
+   "node_id": 101,
+   "key_hash32": "0x44070011",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "S2",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.308,
+   "start_at_ms": 1000,
+   "node_id": 102,
+   "key_hash32": "0x44070012",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "S3",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.306,
+   "start_at_ms": 1000,
+   "node_id": 103,
+   "key_hash32": "0x44070013",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "S4",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.304,
+   "start_at_ms": 1000,
+   "dies_at_ms": 600000,
+   "node_id": 104,
+   "key_hash32": "0x44070014",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "S5",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.5999,
+   "lon": -122.303,
+   "start_at_ms": 560000,
+   "node_id": 105,
+   "key_hash32": "0x44070015",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "G1",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6001,
+   "lon": -122.307,
+   "start_at_ms": 1000,
+   "node_id": 10,
+   "key_hash32": "0x44070001",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1,
+    "is_gateway": true,
+    "n_layers": 2,
+    "layers": [
+     {
+      "layer_id": 4,
+      "node_id": 10,
+      "routing_sf": 8,
+      "allowed_data_sfs": [
+       7,
+       9
+      ],
+      "period_ms": 12000,
+      "duration_ms": 5000,
+      "offset_ms": 0
+     },
+     {
+      "layer_id": 7,
+      "node_id": 10,
+      "routing_sf": 8,
+      "allowed_data_sfs": [
+       7,
+       9
+      ],
+      "period_ms": 12000,
+      "duration_ms": 5000,
+      "offset_ms": 6000
+     }
+    ],
+    "gateway_layers": [
+     {
+      "layer_id": 7,
+      "routing_sf": 8,
+      "allowed_data_sfs": [
+       7,
+       9
+      ],
+      "period_ms": 12000,
+      "duration_ms": 5000,
+      "offset_ms": 6000
+     }
+    ]
+   }
+  },
+  {
+   "name": "T1",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6002,
+   "lon": -122.306,
+   "start_at_ms": 1000,
+   "dies_at_ms": 620000,
+   "node_id": 111,
+   "key_hash32": "0x44070021",
+   "config": {
+    "layer_id": 7,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "T2",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6002,
+   "lon": -122.308,
+   "start_at_ms": 1000,
+   "node_id": 112,
+   "key_hash32": "0x44070022",
+   "config": {
+    "layer_id": 7,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "T3",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6002,
+   "lon": -122.31,
+   "start_at_ms": 1000,
+   "node_id": 113,
+   "key_hash32": "0x44070023",
+   "config": {
+    "layer_id": 7,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "T4",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6002,
+   "lon": -122.312,
+   "start_at_ms": 1000,
+   "dies_at_ms": 640000,
+   "node_id": 114,
+   "key_hash32": "0x44070024",
+   "config": {
+    "layer_id": 7,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "T5",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6003,
+   "lon": -122.305,
+   "start_at_ms": 560000,
+   "node_id": 115,
+   "key_hash32": "0x44070025",
+   "config": {
+    "layer_id": 7,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "T6",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6003,
+   "lon": -122.313,
+   "start_at_ms": 560000,
+   "node_id": 116,
+   "key_hash32": "0x44070026",
+   "config": {
+    "layer_id": 7,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "M1",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.5999,
+   "lon": -122.3105,
+   "start_at_ms": 1000,
+   "node_id": 0,
+   "key_hash32": "0x2716EFCD",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "mobile_autoregister": true,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1,
+    "seed": "d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1"
+   }
+  },
+  {
+   "name": "M2",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.5999,
+   "lon": -122.3035,
+   "start_at_ms": 1000,
+   "node_id": 0,
+   "key_hash32": "0x3A3E77A3",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "mobile_autoregister": true,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1,
+    "seed": "d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2"
+   }
+  },
+  {
+   "name": "M3",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6003,
+   "lon": -122.3055,
+   "start_at_ms": 1000,
+   "node_id": 0,
+   "key_hash32": "0xBCC13CC5",
+   "config": {
+    "layer_id": 7,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "mobile_autoregister": true,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1,
+    "seed": "d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3"
+   }
+  },
+  {
+   "name": "M4",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6003,
+   "lon": -122.3125,
+   "start_at_ms": 1000,
+   "node_id": 0,
+   "key_hash32": "0x455FCF59",
+   "config": {
+    "layer_id": 7,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "mobile_autoregister": true,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1,
+    "seed": "d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4"
+   }
+  },
+  {
+   "name": "SX",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.5998,
+   "lon": -122.3065,
+   "start_at_ms": 800000,
+   "node_id": 106,
+   "key_hash32": "0x44070016",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "M5",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.59985,
+   "lon": -122.3064,
+   "start_at_ms": 1000,
+   "node_id": 0,
+   "key_hash32": "0x44070031",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "mobile_autoregister": true,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  }
+ ],
+ "topology": {
+  "links": [
+   {
+    "_c": "layer-4 chain S1-S2-S3-S4",
+    "from": "S1",
+    "to": "S2",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S2",
+    "to": "S1",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S2",
+    "to": "S3",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S3",
+    "to": "S2",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S3",
+    "to": "S4",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S4",
+    "to": "S3",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "_c": "spare S5 near the S4 end, joined to the chain via S3",
+    "from": "S5",
+    "to": "S3",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S3",
+    "to": "S5",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "_c": "layer-7 chain T1-T2-T3-T4",
+    "from": "T1",
+    "to": "T2",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "T2",
+    "to": "T1",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "T2",
+    "to": "T3",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "T3",
+    "to": "T2",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "T3",
+    "to": "T4",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "T4",
+    "to": "T3",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "_c": "spares T5 (near T1 end via T2) + T6 (near T4 end via T3)",
+    "from": "T5",
+    "to": "T2",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "T2",
+    "to": "T5",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "T6",
+    "to": "T3",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "T3",
+    "to": "T6",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "_c": "the gateway bridges: G1 sits between the chains (S2/S3 side + T2/T3 side)",
+    "from": "G1",
+    "to": "S2",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S2",
+    "to": "G1",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "G1",
+    "to": "S3",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S3",
+    "to": "G1",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "G1",
+    "to": "T2",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "T2",
+    "to": "G1",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "G1",
+    "to": "T3",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "T3",
+    "to": "G1",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "_c": "M1 at the S1 end (home survives all phases; the ONLY host M1 hears)",
+    "from": "M1",
+    "to": "S1",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S1",
+    "to": "M1",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "_c": "M2: initial home S4 (sole host until S5 starts @560k); re-home target S5",
+    "from": "M2",
+    "to": "S4",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S4",
+    "to": "M2",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "M2",
+    "to": "S5",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S5",
+    "to": "M2",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "_c": "M3: initial home T1; re-home target T5",
+    "from": "M3",
+    "to": "T1",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "T1",
+    "to": "M3",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "M3",
+    "to": "T5",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "T5",
+    "to": "M3",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "_c": "M4: initial home T4; re-home target T6",
+    "from": "M4",
+    "to": "T4",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "T4",
+    "to": "M4",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "M4",
+    "to": "T6",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "T6",
+    "to": "M4",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "_c": "PHASE F — M5's WEAK sole home link (quality tier weak); SX = the late strong candidate; SX joins the mesh via S3",
+    "from": "M5",
+    "to": "S3",
+    "snr": 14.0,
+    "rssi": -104.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S3",
+    "to": "M5",
+    "snr": 14.0,
+    "rssi": -104.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "M5",
+    "to": "SX",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "SX",
+    "to": "M5",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "SX",
+    "to": "S3",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S3",
+    "to": "SX",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   }
+  ]
+ }
+}

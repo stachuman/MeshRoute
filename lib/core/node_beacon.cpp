@@ -832,7 +832,9 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // ROADMAP §3 channel gossip: react to a CHANNEL_DIGEST ext-TLV. Placed BEFORE the triggered-beacon
     // trigger below so the pull-jitter DRAW precedes the triggered-beacon draw, matching the Lua stream
     // (dv:9617 calls process_channel_digest before the triggered re-beacon). Gateways skip (Principle 11).
-    if (dn && !(_cfg.is_gateway && _cfg.gateway_only)) process_channel_digest(b.src, dids, dn);  // §7 consumer: a gateway+owner consumes digests to pull its own holes; a pure bridge skips
+    if (dn && !(_cfg.is_gateway && _cfg.gateway_only)  // §7 consumer: a gateway+owner consumes digests to pull its own holes; a pure bridge skips
+           && !(peer_team != 0 && peer_team != _cfg.team_id))   // §team digest gate (metal 2026-07-17): never react to a FOREIGN-team digest — the served M could never pass our ingest containment gate (node_channel.cpp:192), so a MISSING->pull ping-pong would run forever. Teammate digests (peer_team==team_id) keep the team repair backstop; a static's digest (peer_team==0) stays pullable by everyone incl. team mobiles (leaf-plane channel messages flow to a registered mobile).
+        process_channel_digest(b.src, dids, dn);
     maybe_exit_discovery(rt_changed ? "rt_update" : "beacon_rx");
     if (rt_changed) {
         schedule_triggered_beacon();
