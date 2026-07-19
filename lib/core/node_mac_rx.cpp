@@ -699,6 +699,7 @@ void Node::do_post_ack() {
                 for (uint8_t i = 0; valid && i < ui->n_layers; ++i) if (ui->layer_ids[i] == 0) valid = false;
                 if (!valid) {
                     MR_EMIT("xl_delegate_bad_path", EF_I("n", ui->n_layers), EF_I("m", static_cast<int64_t>(ui->source_hash)));
+                    presence_mark_deleg_fail(ui->source_hash);   // §B2: signal the mobile via the next roster's deleg_fail bit
                 } else {
                     uint16_t hctr = 0;
                     const uint8_t reflags = (etype == DATA_TYPE_E2E_ACK) ? 0
@@ -711,15 +712,27 @@ void Node::do_post_ack() {
                             deleg_ack_put(ui->source_hash, hctr, pa.ctr);   // ctr_H -> ctr_M for the returning far ack
                     } else {
                         MR_EMIT("xl_delegate_no_route", EF_I("m", static_cast<int64_t>(ui->source_hash)), EF_I("code", static_cast<int>(code)));
+                        presence_mark_deleg_fail(ui->source_hash);   // §B2: signal the mobile via the next roster's deleg_fail bit
                     }
                 }
                 become_free();
                 return;
             }
-            if (ours)
-                (void)send_by_hash(ui->dst_key_hash32, ui->body.data(), static_cast<uint8_t>(ui->body.size()),
-                                   pa.flags & (DATA_FLAG_E2E_ACK_REQ | DATA_FLAG_PRIORITY), CryptIntent::off,
-                                   /*reply_to_hash=*/ui->source_hash, /*mobile_ctr=*/pa.ctr);   // plaintext-only (v1); the reply routes back by SOURCE_HASH -> our proxy -> last-mile; mobile_ctr -> the ctr_H->ctr_M reverse-ack map so the target's E2E-ack reaches the mobile with ITS ctr
+            if (ours) {
+                // §S2: a SAME-LAYER delegated send. Default = a plain re-origination (byte-identical). If the wrapper
+                // set DATA_FLAG_MS_ENCLOSED_TYPE, its body is [enclosed_type:1][payload] (a delegated INTRO): strip the
+                // marker + the type byte, and re-originate with that TYPE (send_by_hash type=etype -> no re-attach, the
+                // key prefix rode from the mobile). The reply routes back by SOURCE_HASH -> our proxy -> last-mile;
+                // mobile_ctr -> the ctr_H->ctr_M reverse-ack map so the target's E2E-ack reaches the mobile with ITS ctr.
+                const uint8_t* wb = ui->body.data(); uint8_t wl = static_cast<uint8_t>(ui->body.size()); uint8_t etype = 0;
+                uint8_t reflags = pa.flags & (DATA_FLAG_E2E_ACK_REQ | DATA_FLAG_PRIORITY);   // plain path: unchanged (byte-identical)
+                if ((pa.flags & DATA_FLAG_MS_ENCLOSED_TYPE) && wl >= 1) {
+                    etype = wb[0]; wb += 1; wl = static_cast<uint8_t>(wl - 1);
+                    reflags = pa.flags & DATA_FLAG_E2E_ACK_REQ;                              // strip the marker from the re-originated flags
+                }
+                (void)send_by_hash(ui->dst_key_hash32, wb, wl, reflags, CryptIntent::off,
+                                   /*reply_to_hash=*/ui->source_hash, /*mobile_ctr=*/pa.ctr, Plane::AUTO, /*type=*/etype);   // plaintext-only (v1)
+            }
             become_free();
             return;
         }
@@ -824,6 +837,10 @@ void Node::do_post_ack() {
             if (ui) learned_layers_ingest(ui->body.data(), ui->body.size());
             become_free(); return;
         }
+        if (pa.type == DATA_TYPE_MOBILE_KEY_FORWARD && _cfg.is_mobile) {   // §S3 part2: the home forwarded a reqpubkey requester's key -> cache it (closes the recipient-side decrypt gap)
+            if (ui) on_mobile_key_forward(ui->body.data(), static_cast<uint8_t>(ui->body.size()));
+            become_free(); return;
+        }
 #endif
         if (pa.type == DATA_TYPE_H_ANSWER || pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER) {   // a hash-bind answer for us -> consume (routing info, NOT a DM)
             on_hash_bind_response(pa.inner, pa.inner_len, pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER);
@@ -881,6 +898,34 @@ void Node::do_post_ack() {
             l2c_handle_misdelivery(pa, ui->dst_key_hash32);     // forward to the real owner (identity-preserving)
             return;                                             // l2c re-kicks the queue itself (become_free)
         }
+        // §S2 INTRO (type 15): a PLAINTEXT first-contact DM addressed to US, body = [ed_pub 32][name_len][name][text].
+        // Verify ed_pub[:4] == SOURCE_HASH (the peerkey self-consistency rule), cache the sender's key AUTHORITATIVE +
+        // name (fires peer_key_cached), STRIP the prefix, and fall through to the NORMAL deliver (enc absent; dedup
+        // (sender_hash,ctr) unchanged; the INTRO framing is transport detail). Malformed/inconsistent/short -> DROP
+        // loud (telemetry), never deliver raw key bytes. NOT crypto-gated on the receive side: a node WITHOUT an
+        // identity can still cache a peer's key (peer_key_set) — but s18 never receives one (nobody attaches, §S2 gate).
+        if (pa.type == DATA_TYPE_INTRO) {
+            if (!ui || !ui->has_source_hash || ui->body.size() < 33) {                          // needs SOURCE_HASH + at least [ed_pub 32][name_len]
+                MR_EMIT("intro_reject", EF_I("reason", 1), EF_I("ctr", pa.ctr)); become_free(); return;
+            }
+            const uint8_t* ed = ui->body.data();
+            const uint32_t ed_hash = static_cast<uint32_t>(ed[0]) | (static_cast<uint32_t>(ed[1]) << 8)
+                                   | (static_cast<uint32_t>(ed[2]) << 16) | (static_cast<uint32_t>(ed[3]) << 24);
+            if (ed_hash != ui->source_hash) {                                                    // self-consistency: the attached key MUST hash to the claimed sender
+                MR_EMIT("intro_reject", EF_I("reason", 2), EF_I("hash", static_cast<int64_t>(ui->source_hash))); become_free(); return;
+            }
+            uint8_t nlen = ui->body[32]; if (nlen > 32) nlen = 32;
+            if (static_cast<size_t>(33) + nlen > ui->body.size()) {                              // the name field overruns the frame
+                MR_EMIT("intro_reject", EF_I("reason", 3), EF_I("nlen", nlen)); become_free(); return;
+            }
+            const char* nm = nlen ? reinterpret_cast<const char*>(ui->body.data() + 33) : nullptr;
+            if (!peer_key_set(ui->source_hash, ed, PeerKeyConf::authoritative, nm, nlen)) {       // (re-derives + re-checks ed_pub[:4]==hash)
+                MR_EMIT("intro_reject", EF_I("reason", 4), EF_I("hash", static_cast<int64_t>(ui->source_hash))); become_free(); return;
+            }
+            MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(ui->source_hash)), EF_I("node", pa.origin));
+            push_peer_key_cached(ui->source_hash);                                               // §7: the app's "secure send ready" (+ the cached name)
+            ui->body = ui->body.subspan(static_cast<size_t>(33) + nlen);                         // STRIP -> deliver the remaining message as a plain DM (fall through)
+        }
         // E2E OPEN (§1a sealed-sender): a CRYPTED DM carries NO cleartext sender hint -> TRIAL DECRYPT over the cached
         // peer keys; the Poly1305 tag identifies the sender + opens the sealed {source_hash + location + body}. The seed
         // rides the trailer. FAIL LOUD: no cached key opens it -> SILENT DROP (never deliver ciphertext to the app).
@@ -893,6 +938,19 @@ void Node::do_post_ack() {
         static uint8_t dec_body[protocol::max_payload_bytes_hard_cap]; uint8_t dec_body_len = 0;
         uint32_t dec_origin = pa.origin;   // §1a: for CRYPTED the trial recovers origin (== cleartext now; from the seal at 1c)
         bool crypted_ok = false;
+        // §S4 SEALED_RELAY (type 17): a PLAINTEXT-framed DM whose BODY = [seal_ctr 2][seed8 8][ct‖tag], sealed to US by
+        // the CLEAR SOURCE_HASH (a mobile delegating via its home, or a static crossing a layer). DIRECTED open (no trial:
+        // the sender is named in the clear); e2e_open_relay verifies the SEALED source_hash == the clear one (anti-spoof)
+        // and IGNORES the sealed origin byte (§1c layer-local garbage). Success -> crypted_ok + fall into the shared
+        // deliver as an ENCRYPTED DM (enc=1). Fail/short/spoof -> SILENT DROP (never deliver ciphertext). NOT gated on
+        // _crypto_ready in the wire dispatch, but e2e_open_relay refuses without an identity -> s18-inert (no seals).
+        if (pa.type == DATA_TYPE_SEALED_RELAY) {
+            if (!ui || !ui->has_source_hash || !e2e_open_relay(ui->body.data(), ui->body.size(), ui->source_hash, dec_body, dec_body_len)) {
+                MR_EMIT("e2e_open_no_key", EF_I("ctr", pa.ctr), EF_I("relay", 1));   // no key / tag fail / spoof -> DROP
+                become_free(); return;
+            }
+            crypted_ok = true; dec_source_hash = ui->source_hash;   // the CLEAR (and seal-verified) sender is the identity
+        }
         if (pa.flags & DATA_FLAG_CRYPTED) {
             // §1a sealed-sender: no cleartext sender hint -> TRIAL DECRYPTION over the cached keys; the tag identifies it.
             uint32_t trial_sender = 0;
@@ -927,13 +985,14 @@ void Node::do_post_ack() {
         // inbox seq (0 if disabled). The live msg_recv push then carries the SAME sender_hash + seq as the pulled
         // record -> the app dedups by (sender_hash, ctr) and detects a dropped live push by the seq (model B).
         const uint8_t rx_layer = active_layer_id();   // §2/Q13: which layer this DM arrived on (disambiguates origin on a gateway)
+        // §GapA: the SENDER's layer (the preserved XL path's first entry) so the recipient can build the (layer_path, hash)
+        // REPLY address. 0 for a same-layer / non-XL DM. Computed BEFORE record so the durable record carries it too (§GapA-durable).
+        const uint8_t origin_layer = (ui && ui->has_cross_layer && ui->n_layers >= 1) ? ui->layer_ids[0] : 0;
         const uint32_t seq = _inbox.record_dm(dec_origin, sender_hash, pa.ctr, rx_layer,
-                                              reinterpret_cast<const uint8_t*>(body), blen, _hal.now(), /*enc=*/crypted_ok ? 1 : 0);  // §8b
+                                              reinterpret_cast<const uint8_t*>(body), blen, _hal.now(), /*enc=*/crypted_ok ? 1 : 0, origin_layer);  // §8b + §GapA-durable
         Push pu{}; pu.kind = PushKind::msg_recv; pu.origin = dec_origin; pu.dst = pa.dst; pu.ctr = pa.ctr;   // §1a: recovered origin for CRYPTED
         pu.layer_id = rx_layer; pu.sender_hash = sender_hash; pu.seq = seq; pu.enc = crypted_ok;   // §8b: was this DM sealed?
-        // §GapA: surface the SENDER's layer (the preserved XL path's first entry) so the recipient can build the
-        // (layer_path, hash) REPLY address. 0 for a same-layer / non-XL DM -> the JSON omits it (byte-identical).
-        pu.origin_layer = (ui && ui->has_cross_layer && ui->n_layers >= 1) ? ui->layer_ids[0] : 0;
+        pu.origin_layer = origin_layer;   // 0 -> the JSON omits it (byte-identical)
         pu.body_len = blen; for (uint8_t i = 0; i < blen; ++i) pu.body[i] = static_cast<uint8_t>(body[i]);
         // LOCATION (spec §5): the sender piggybacked its 6-B location -> surface it to the app on the Push (always
         // compiled — the companion renders it) + a peer_location telemetry for the sim/gate (device-stripped).

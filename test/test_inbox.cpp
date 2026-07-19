@@ -22,11 +22,11 @@ namespace {
 
 // pull collector: copy the decoded entry (body points into transient store bytes -> copy to a std::string).
 struct Collected { uint32_t seq; InboxKind kind; uint8_t origin; uint8_t channel_id; uint32_t msg_id;
-                   uint32_t sender_hash; uint8_t layer_id; uint8_t enc; uint8_t type; uint64_t rx; std::string body; };
+                   uint32_t sender_hash; uint8_t layer_id; uint8_t enc; uint8_t type; uint8_t origin_layer; uint64_t rx; std::string body; };
 struct Collector { std::vector<Collected> items; };
 bool collect_cb(void* ctx, const InboxEntry& e) {
     auto* c = static_cast<Collector*>(ctx);
-    c->items.push_back({ e.seq, e.kind, e.origin, e.channel_id, e.msg_id, e.sender_hash, e.layer_id, e.enc, e.type, e.rx_time_ms,
+    c->items.push_back({ e.seq, e.kind, e.origin, e.channel_id, e.msg_id, e.sender_hash, e.layer_id, e.enc, e.type, e.origin_layer, e.rx_time_ms,
                          std::string(reinterpret_cast<const char*>(e.body ? e.body : reinterpret_cast<const uint8_t*>("")), e.body_len) });
     return true;
 }
@@ -57,6 +57,20 @@ TEST_CASE("inbox: §8b enc flag survives the record round-trip (DM enc 0/1; chan
         CHECK(c.items[0].body == "sealed"); CHECK(c.items[0].enc == 1);   // CRYPTED DM
         CHECK(c.items[1].body == "plain");  CHECK(c.items[1].enc == 0);   // plaintext DM
         CHECK(c.items[2].kind == InboxKind::channel); CHECK(c.items[2].enc == 0);  // channel (cleartext)
+    }
+}
+
+// §GapA-durable (B3): the XL sender's origin_layer round-trips serialize -> store -> pull (0 = same-layer / non-XL).
+TEST_CASE("inbox: §GapA-durable origin_layer survives the record round-trip (XL sender's layer; 0 for same-layer)") {
+    RamInboxStore dm(protocol::inbox_dm_store_bytes), ch(protocol::inbox_chan_store_bytes);
+    Inbox ib; ib.on_init(&dm, &ch);
+    ib.record_dm(101, /*sender_hash*/0x2716EFCDu, /*ctr*/7, /*layer_id*/23, reinterpret_cast<const uint8_t*>("xl"), 2, /*now*/1000, /*enc*/1, /*origin_layer*/4);
+    ib.record_dm(102, /*sender_hash*/0x3A3E77A3u, /*ctr*/8, /*layer_id*/23, reinterpret_cast<const uint8_t*>("same"), 4, /*now*/1001, /*enc*/0, /*origin_layer*/0);
+    Collector c; ib.pull(0, 0, collect_cb, &c);
+    CHECK(c.items.size() == 2);
+    if (c.items.size() == 2) {
+        CHECK(c.items[0].body == "xl");   CHECK(c.items[0].origin_layer == 4);   // ★ the cross-layer sender's layer preserved durably
+        CHECK(c.items[1].body == "same"); CHECK(c.items[1].origin_layer == 0);   // same-layer -> 0
     }
 }
 

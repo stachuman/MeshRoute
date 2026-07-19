@@ -237,13 +237,12 @@ uint8_t Node::select_gateway_for_leaf(uint8_t target_leaf) {
 // only the cursor advances, so the destination can reverse it for the 4e E2E ack) + dst_hash + SOURCE_HASH (REQUIRED
 // for that reversed ack). pack_unicast_inner's size-first overflow is the cross-layer fit-check (returns 0 -> fail loud).
 bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t* layer_ids, uint8_t n_layers, uint8_t cur, const uint8_t* body, uint8_t body_len, uint8_t flags, uint16_t* out_ctr, uint8_t type, uint32_t override_source_hash) {
-    // R1 defense-in-depth: v1 cross-layer DMs are CLEARTEXT-only (no CRYPTED). The on_command send_layer path already
-    // refuses when e2e_dm is on; this is the universal choke so NO origination path (parked-drain, send_cross_layer)
-    // can ever put a cleartext cross-layer DM on the air while e2e_dm advertises confidentiality. Fail loud, never send.
-    if (_cfg.e2e_dm) {
-        MR_EMIT("e2e_cross_layer_refused", EF_I("dst", gw_node), EF_I("target_layer", layer_ids[cur]));
-        return false;
-    }
+    // §S4: the old v1 "no cleartext XL when e2e_dm on" choke is LIFTED. Cross-layer confidentiality now rides
+    // DATA_TYPE_SEALED_RELAY (a PLAINTEXT-framed frame carrying a SEALED body — routed here like any XL DM), so the
+    // no-downgrade guarantee is enforced at the COMMAND level instead (node.cpp send_layer: want_crypt -> the sealed
+    // relay, never a cleartext app DM). The only genuinely-cleartext frames reaching here under e2e_dm are the reverse
+    // E2E ACK (send_xl_ack) — cleartext BY PARITY with same-layer acks, which already carry (dst_hash, acked_ctr) in
+    // clear; sealing acks is out of scope — and the sealed-relay frame itself (confidential content). Both are correct.
     TxItem item{};
     const uint16_t ctr = next_ctr(gw_node);          // MAC ctr vs the next-hop gateway (= the e2e (source_hash, ctr) identity)
     stamp_origin(item); item.dst = gw_node; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
@@ -273,7 +272,7 @@ bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t
 // reactive ROUTE_QUERY): enqueue anyway; issue_send's no-route path defers the origination (park in _deferred + an
 // expanding-ring RREQ for G via emit_route_request) and try_drain_deferred re-flies it when a route to G appears
 // (the Lua Pass-2; an EXPLICIT recovery, not a silent fallback — it ages out to send_failed on the deferred TTL).
-void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags) {
+void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags, uint8_t type) {
     const uint8_t target_leaf = static_cast<uint8_t>(target_layer & 0x0F);
     const uint8_t gw = select_gateway_for_leaf(target_leaf);
     if (gw == 0) {                                   // no gateway serves the target leaf at all -> fail loud
@@ -284,7 +283,7 @@ void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_
     // gw != 0: enqueue regardless of route. A live route -> issue_send fires (4a defers to G's window). No route ->
     // issue_send -> defer_send parks it + RREQs G (4d.2 park+reactive), re-flown by try_drain_deferred on the route.
     const uint8_t ids[2] = { active_layer_id(), target_layer };   // the 2-element path [our_layer, target_layer], cur=1
-    if (!enqueue_cross_layer(gw, dst_hash, ids, /*n_layers*/ 2, /*cur*/ 1, body, body_len, flags)) {
+    if (!enqueue_cross_layer(gw, dst_hash, ids, /*n_layers*/ 2, /*cur*/ 1, body, body_len, flags, /*out_ctr=*/nullptr, /*type=*/type)) {
         MR_EMIT("xl_send_too_large", EF_I("target_layer", target_layer), EF_I("gw", gw));
         Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::too_large; pu.dst = dst_node; pu.ctr = 0; enqueue_push(pu);
     }

@@ -113,10 +113,10 @@ TEST_CASE("SegmentedInboxStore: FULL wipe (records + meta) -> fresh epoch + seq 
     CHECK(s2.storage_epoch() == 1);                         // fresh epoch — a CHANGE from the app's last-seen (2) -> it re-pulls
 }
 
-TEST_CASE("SegmentedInboxStore: §S5 record-format VERSION mismatch -> records wiped + epoch bumped + next_seq preserved") {
-    // The §S5 team_id record-header growth bumps the store version. On the next boot the OLD-format records can't be
-    // parsed by the new deserializer, so begin() must WIPE them, BUMP the epoch (companion re-pulls from 0), and KEEP
-    // next_seq (monotonic — seq never reuses). Meta layout: magic@0, version@4 (a private struct; offset documented there).
+TEST_CASE("SegmentedInboxStore: §GapA-durable record-format VERSION mismatch (v2->v3) -> records wiped + epoch bumped + next_seq preserved") {
+    // The §GapA-durable origin_layer record-header growth bumps the store version (v2 -> v3, after §S5's team_id v2). On the
+    // next boot the OLD-format records can't be parsed by the new deserializer, so begin() must WIPE them, BUMP the epoch
+    // (companion re-pulls from 0), and KEEP next_seq (monotonic — seq never reuses). Meta layout: magic@0, version@4.
     FakeSegmentStore recs; FakeMetaStore meta;
     {
         SegmentedInboxStore s(recs, meta, 4096, 256);
@@ -126,7 +126,7 @@ TEST_CASE("SegmentedInboxStore: §S5 record-format VERSION mismatch -> records w
         CHECK(s.storage_epoch() == 1);
     }
     CHECK(recs.any_segments());                              // the old-format records ARE present on "flash"
-    meta.poke_u16(4, 99);                                    // simulate an OLD store version (record header layout changed under it)
+    meta.poke_u16(4, 2);                                     // simulate the PRIOR store version v2 (§S5 team_id; record header grew under it -> +origin_layer v3)
     SegmentedInboxStore s2(recs, meta, 4096, 256);
     CHECK(s2.begin());
     CHECK(s2.storage_epoch() == 2);                          // BUMPED -> the companion sees the wipe + re-syncs

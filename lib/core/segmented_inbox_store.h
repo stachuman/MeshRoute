@@ -71,7 +71,7 @@ private:
         uint32_t epoch;               // §10.1 storage epoch (bumps on a records-store wipe)
     };
     static constexpr uint32_t kMagic       = 0x4D524958u;  // 'MRIX'
-    static constexpr uint16_t kVersion     = 2;            // v2 (2026-07-16 §S5): record header gained team_id -> old-format records unparseable -> begin() wipes + bumps epoch on a version mismatch.
+    static constexpr uint16_t kVersion     = 3;            // v3 (2026-07-19 §GapA-durable): record header gained origin_layer. v2 (§S5): +team_id. Old-format records unparseable -> begin() wipes + bumps epoch on a version mismatch.
     // read_since loads a WHOLE segment into this scratch, so a segment must be <= it (begin() guards _seg).
     // Tied to protocol::inbox_segment_bytes so the segment size and the scratch are ONE value — a larger
     // segment would silently truncate the read (drop every record past the scratch). .bss, single-threaded.

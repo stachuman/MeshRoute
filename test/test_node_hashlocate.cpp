@@ -117,6 +117,7 @@ int count_h_tx(const std::vector<std::vector<uint8_t>>& frames) {
 constexpr uint32_t kAgingTimerId = 2;                     // mirrors Node's private aging-sweep timer id
 constexpr uint32_t kHForwardTimerBase = 81;               // §F-XL-1: mirrors Node::kHForwardTimerId (ring base)
 constexpr uint32_t kHForwardSlots     = 4;                // §F-XL-1: mirrors Node::kHForwardSlots
+constexpr uint32_t kParkRefloodTimerId = 89;              // §F-SL-1: mirrors Node::kParkRefloodTimerId
 
 // §F-XL-1: the H forward is now STASHED + released by a jittered timer (kHForwardTimerId+slot). The in-memory
 // Hal never auto-fires timers, so a test that expects the re-broadcast on-air must drive the armed h_forward
@@ -1075,6 +1076,116 @@ TEST_CASE("e2e seal/open — A seals a DM to B, B opens it; the inner is actuall
 }
 
 // =============================================================================
+// §S4 SEALED_RELAY — the delegated / cross-layer sealed carrier. A seals a relay
+// BODY to B under A's own identity; the seal ctr is CARRIED (not the frame ctr);
+// B opens it DIRECTED (source_hash names the sender, no trial). The sealed origin
+// byte is IGNORED; the sealed source_hash is anti-spoof-verified against the
+// clear one the caller passes.
+// =============================================================================
+TEST_CASE("§S4 SEALED_RELAY — A seals a relay body to B, B opens it directed; the body is actually encrypted") {
+    TestHal halA, halB;
+    uint8_t sA[32], sB[32]; for (int i = 0; i < 32; ++i) { sA[i] = uint8_t(i + 3); sB[i] = uint8_t(90 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, sA); identity_from_seed(idB, sB);
+    Node A(halA, 1, idA.key_hash32), B(halB, 2, idB.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    A.on_init(cfg); B.on_init(cfg);
+    A.set_crypto_identity(idA.x_secret, idA.ed_pub); B.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    A.peer_key_set(idB.key_hash32, idB.ed_pub, Node::PeerKeyConf::authoritative);   // A knows B (to seal)
+    B.peer_key_set(idA.key_hash32, idA.ed_pub, Node::PeerKeyConf::authoritative);   // B knows A (directed open)
+    const uint8_t body[10] = { 'x','l','-','s','e','a','l','e','d','!' };
+    uint8_t rbody[128]; Node::SealOutcome oc = Node::SealOutcome::ok;
+    const uint8_t rn = A.build_sealed_relay_body(/*target=*/idB.key_hash32, body, sizeof body, rbody, sizeof rbody, oc);
+    CHECK(oc == Node::SealOutcome::ok);
+    CHECK(rn == 2 + 8 + (1 + 4 + 10) + 16);                        // [seal_ctr 2][seed8 8][ct{origin 1+source_hash 4+body 10}+tag 16]
+    bool leaked = false;                                           // the plaintext must not appear in the relay body
+    for (size_t i = 0; i + 10 <= rn; ++i) { bool m = true; for (int j = 0; j < 10; ++j) if (rbody[i+j] != body[j]) m = false; if (m) leaked = true; }
+    CHECK_FALSE(leaked);
+    uint8_t out[64] = {}; uint8_t ol = 0;
+    CHECK(B.e2e_open_relay(rbody, rn, /*source_hash=*/idA.key_hash32, out, ol));   // directed by the clear sender
+    CHECK(ol == 10);
+    bool same = true; for (int i = 0; i < 10; ++i) if (out[i] != body[i]) same = false; CHECK(same);
+}
+
+TEST_CASE("§S4 SEALED_RELAY — the directed open under the WRONG source_hash fails loud (anti-spoof / no key)") {
+    TestHal halA, halB, halC;
+    uint8_t sA[32], sB[32], sC[32]; for (int i = 0; i < 32; ++i) { sA[i]=uint8_t(i+3); sB[i]=uint8_t(90-i); sC[i]=uint8_t(i+40); }
+    Identity idA{}, idB{}, idC{}; identity_from_seed(idA, sA); identity_from_seed(idB, sB); identity_from_seed(idC, sC);
+    Node A(halA, 1, idA.key_hash32), B(halB, 2, idB.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    A.on_init(cfg); B.on_init(cfg);
+    A.set_crypto_identity(idA.x_secret, idA.ed_pub); B.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    A.peer_key_set(idB.key_hash32, idB.ed_pub, Node::PeerKeyConf::authoritative);
+    B.peer_key_set(idA.key_hash32, idA.ed_pub, Node::PeerKeyConf::authoritative);
+    B.peer_key_set(idC.key_hash32, idC.ed_pub, Node::PeerKeyConf::authoritative);   // B also holds a DECOY key
+    const uint8_t body[4] = { 't','e','s','t' };
+    uint8_t rbody[128]; Node::SealOutcome oc = Node::SealOutcome::ok;
+    const uint8_t rn = A.build_sealed_relay_body(idB.key_hash32, body, sizeof body, rbody, sizeof rbody, oc);
+    CHECK(rn > 0);
+    uint8_t out[64]; uint8_t ol = 0;
+    CHECK_FALSE(B.e2e_open_relay(rbody, rn, /*wrong sender=*/idC.key_hash32, out, ol));   // C's key won't open A's seal
+    CHECK(ol == 0);
+    CHECK(B.e2e_open_relay(rbody, rn, /*right sender=*/idA.key_hash32, out, ol));         // A's key does
+}
+
+TEST_CASE("§S4 SEALED_RELAY — a GARBAGE sealed origin byte does NOT break identity (origin is ignored; source_hash rules)") {
+    TestHal halA, halB;
+    uint8_t sA[32], sB[32]; for (int i = 0; i < 32; ++i) { sA[i]=uint8_t(i+3); sB[i]=uint8_t(90-i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, sA); identity_from_seed(idB, sB);
+    Node A(halA, 1, idA.key_hash32), B(halB, 2, idB.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    A.on_init(cfg); B.on_init(cfg);
+    A.set_crypto_identity(idA.x_secret, idA.ed_pub); B.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    B.peer_key_set(idA.key_hash32, idA.ed_pub, Node::PeerKeyConf::authoritative);
+    // Hand-build a relay body with a GARBAGE sealed origin (0xAB): seal [origin=0xAB][source_hash=A][body] to B.
+    const uint8_t body[5] = { 'h','e','l','l','o' };
+    uint8_t inner[96], seed[8]; Node::SealOutcome oc = Node::SealOutcome::ok;
+    A.peer_key_set(idB.key_hash32, idB.ed_pub, Node::PeerKeyConf::authoritative);
+    const size_t sn = A.e2e_seal_inner(inner, sizeof inner, seed,
+                                       DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH, /*dst=*/idB.key_hash32,
+                                       /*origin=*/0xAB, /*ctr=*/321, /*source_hash=*/idA.key_hash32, 0, 0, body, sizeof body, oc);
+    CHECK(sn > 0);
+    uint8_t rbody[128]; rbody[0] = 321 & 0xFF; rbody[1] = (321 >> 8) & 0xFF;   // seal_ctr = 321
+    for (int i = 0; i < 8; ++i) rbody[2 + i] = seed[i];
+    for (size_t i = 0; i < sn - 4; ++i) rbody[10 + i] = inner[4 + i];          // ct||tag (skip the 4-B aad prefix)
+    const uint8_t rn = static_cast<uint8_t>(10 + (sn - 4));
+    uint8_t out[64]; uint8_t ol = 0;
+    CHECK(B.e2e_open_relay(rbody, rn, /*source_hash=*/idA.key_hash32, out, ol));   // opens despite the garbage origin
+    CHECK(ol == 5);
+    bool same = true; for (int i = 0; i < 5; ++i) if (out[i] != body[i]) same = false; CHECK(same);
+}
+
+TEST_CASE("§S4 -K — suppresses the INTRO attach for one plaintext send; -K on a sealed send is a harmless no-op") {
+    TestHal hal;
+    uint8_t sA[32], sB[32]; for (int i = 0; i < 32; ++i) { sA[i] = uint8_t(i + 5); sB[i] = uint8_t(70 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, sA); identity_from_seed(idB, sB);
+    Node A(hal, /*id=*/1, idA.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    A.on_init(cfg); A.set_crypto_identity(idA.x_secret, idA.ed_pub);
+    A.peer_key_set(idB.key_hash32, idB.ed_pub, Node::PeerKeyConf::authoritative);   // A holds B's key (so -e can seal to B)
+    A.test_id_bind_set(9, idB.key_hash32, /*authoritative=*/true);
+    A.test_suspend_tx_drain(true);
+    const uint8_t body[2] = { 'h', 'i' };
+    // Baseline: a first-contact plaintext send WITHOUT -K attaches INTRO (B unconfirmed).
+    { Command c{}; c.kind = CmdKind::send; c.u.send.dst_hash = idB.key_hash32; c.body = body; c.body_len = 2;
+      const uint8_t n0 = A.test_tx_queue_n(); (void)A.on_command(c);
+      CHECK(A.test_tx_queue_n() > n0);
+      if (A.test_tx_queue_n() > n0) CHECK(A.test_tx_type(n0) == DATA_TYPE_INTRO); }
+    // -K suppresses the attach -> a PLAIN DM (type 0), no key prefix.
+    { Command c{}; c.kind = CmdKind::send; c.u.send.dst_hash = idB.key_hash32; c.body = body; c.body_len = 2; c.no_intro = true;
+      const uint8_t n1 = A.test_tx_queue_n(); (void)A.on_command(c);
+      CHECK(A.test_tx_queue_n() > n1);
+      if (A.test_tx_queue_n() > n1) CHECK(A.test_tx_type(n1) == 0); }
+    // -K -e (sealed) is a no-op: a sealed send never attaches INTRO anyway -> a CRYPTED frame (type 0, CRYPTED flag).
+    { Command c{}; c.kind = CmdKind::send; c.u.send.dst_hash = idB.key_hash32; c.body = body; c.body_len = 2; c.no_intro = true; c.crypt = CryptIntent::on;
+      const uint8_t n2 = A.test_tx_queue_n(); (void)A.on_command(c);
+      CHECK(A.test_tx_queue_n() > n2);
+      if (A.test_tx_queue_n() > n2) {
+          CHECK(A.test_tx_type(n2) != DATA_TYPE_INTRO);
+          uint8_t il = 0; (void)A.test_tx_inner(n2, il);
+          CHECK((A.test_tx_flags(n2) & DATA_FLAG_CRYPTED) != 0); } }   // sealed, not attached
+}
+
+// =============================================================================
 // §1a sealed-sender — TRIAL DECRYPTION: there is no cleartext sender hint on a
 // CRYPTED frame; the receiver tries each cached peer key and the Poly1305 tag
 // is the oracle that identifies the sender. A node that doesn't hold the
@@ -1405,3 +1516,366 @@ TEST_CASE("§3 peerkey — on_command installs a PINNED (verified) peer key") {
     bool same = true; for (int i = 0; i < 32; ++i) if (out[i] != id.ed_pub[i]) same = false; CHECK(same);
 }
 
+
+// =============================================================================
+// §S3 (cross-layer mobile first-contact, parts 2+3) — the home as key custodian:
+// the reqpubkey requester's key reaches the hosted mobile so the mobile can DECRYPT
+// its future sealed DMs (closes the recipient-side decrypt gap, node_hashlocate).
+// =============================================================================
+
+// §S3 part2 — the HOME proxy-answer branch was DROPPING the requester's appended key. Now it CACHES it AND
+// FORWARDS it to the hosted mobile as a 1-hop DATA_TYPE_MOBILE_KEY_FORWARD last-mile (wire golden below).
+TEST_CASE("§S3 part2 — the HOME proxy-answer caches the requester key AND forwards it to the hosted mobile (wire golden)") {
+    TestHal hal;
+    uint8_t mseed[32], sseed[32]; for (int i = 0; i < 32; ++i) { mseed[i] = uint8_t(i + 40); sseed[i] = uint8_t(90 - i); }
+    Identity M{}, S{}; identity_from_seed(M, mseed); identity_from_seed(S, sseed);
+    Node home(hal, /*id=*/5, /*key=*/0x00005555);                    // a static HOST (not is_mobile)
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    home.on_init(cfg);
+    home.test_add_host_mobile(M.key_hash32, /*local_id=*/200, M.ed_pub);   // a LIVE hosted mobile with its pubkey
+    home.test_suspend_tx_drain(true);                                // keep the forward in the queue so the wire golden can read it
+    hal.tx_frames.clear(); hal.events.clear();
+    std::array<uint8_t, 40> q{};                                     // a HARD WANT_PUBKEY H for M's hash from requester S(9), carrying S's ed_pub
+    const size_t n = make_h(/*origin=*/9, M.key_hash32, /*ttl=*/4, q, /*hard=*/true, /*want_pubkey=*/true, S.ed_pub);
+    home.on_recv(q.data(), n, RxMeta{8.0f, -80.0f, 0, -1});
+    // (a) the home CACHED the requester's authoritative key (was DROPPED before this fix)
+    uint8_t out[32]; Node::PeerKeyConf conf{};
+    CHECK(home.peer_key_find(S.key_hash32, out, &conf));
+    CHECK(conf == Node::PeerKeyConf::authoritative);
+    // (b) it answered the requester (TYPE-13) AND forwarded the requester's key to the mobile (TYPE-16)
+    CHECK(find_ev(hal.events, "mobile_pubkey_answer_tx") != nullptr);
+    CHECK(find_ev(hal.events, "mobile_key_forward_tx")   != nullptr);
+    // (c) wire golden: the queued TYPE-16 item -> addr_len=1, dst=local_id, inner = [origin][S.ed_pub 32][name_len=0]
+    int fwd = -1;
+    for (uint8_t i = 0; i < home.test_tx_queue_n(); ++i) if (home.test_tx_type(i) == DATA_TYPE_MOBILE_KEY_FORWARD) { fwd = i; break; }
+    CHECK(fwd >= 0);
+    if (fwd >= 0) {
+        CHECK(home.test_tx_addr_len(static_cast<uint8_t>(fwd)) == 1);
+        CHECK(home.test_tx_dst(static_cast<uint8_t>(fwd)) == 200);
+        uint8_t len = 0; const uint8_t* inr = home.test_tx_inner(static_cast<uint8_t>(fwd), len);
+        CHECK(len == 1 + 32 + 1);                                    // [origin][ed_pub 32][name_len=0]
+        bool same = true; for (int i = 0; i < 32; ++i) if (inr[1 + i] != S.ed_pub[i]) same = false; CHECK(same);
+        CHECK(inr[1 + 32] == 0);                                     // make_h attaches no name -> name_len 0
+    }
+}
+
+// §S3 part2 (mobile side) — the KEY_FORWARD handler caches the forwarded key + pushes peer_key_cached; a too-short
+// or all-zero (degenerate) body is rejected (the key is self-derived, so an independent-hash mismatch cannot occur).
+TEST_CASE("§S3 part2 — the mobile KEY_FORWARD handler caches + pushes; malformed/degenerate rejected") {
+    TestHal hal;
+    uint8_t sseed[32]; for (int i = 0; i < 32; ++i) sseed[i] = uint8_t(70 - i);
+    Identity S{}; identity_from_seed(S, sseed);
+    Node m(hal, /*id=*/200, /*key=*/0x00001234);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.is_mobile = true;
+    m.on_init(cfg);
+    uint8_t body[33 + 3]; for (int i = 0; i < 32; ++i) body[i] = S.ed_pub[i]; body[32] = 3; body[33] = 'a'; body[34] = 'b'; body[35] = 'c';
+    m.on_mobile_key_forward(body, 36);
+    uint8_t out[32]; Node::PeerKeyConf conf{};
+    CHECK(m.peer_key_find(S.key_hash32, out, &conf));
+    CHECK(conf == Node::PeerKeyConf::authoritative);
+    bool same = true; for (int i = 0; i < 32; ++i) if (out[i] != S.ed_pub[i]) same = false; CHECK(same);
+    Push p{}; bool cached = false;
+    while (m.next_push(p)) if (p.kind == PushKind::peer_key_cached && p.sender_hash == S.key_hash32) { cached = true; break; }
+    CHECK(cached);
+    // too short (< 33 B) -> dropped (no crash, nothing cached beyond the valid one above)
+    const uint16_t before = 0; (void)before;
+    m.on_mobile_key_forward(body, 10);
+    // an all-zero key -> rejected
+    uint8_t zero[33] = {}; zero[32] = 0;
+    m.on_mobile_key_forward(zero, 33);
+    uint8_t z[32]; Node::PeerKeyConf zc{};
+    CHECK_FALSE(m.peer_key_find(0, z, &zc));                         // hash 0 (the all-zero key) never cached
+}
+
+// §S3 part3 — a REGISTERED mobile overhearing a WANT_PUBKEY H for its OWN hash caches the requester's key TX-free:
+// no answer, no relay, no TX (the home answers on its behalf, part 2). Covers the sender-in-RF-range case for free.
+TEST_CASE("§S3 part3 — a mobile overhearing a WANT_PUBKEY for its OWN hash caches the requester key WITHOUT any TX") {
+    TestHal hal;
+    uint8_t sseed[32]; for (int i = 0; i < 32; ++i) sseed[i] = uint8_t(33 + i);
+    Identity S{}; identity_from_seed(S, sseed);
+    Node m(hal, /*id=*/200, /*key=*/0x0000ABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.is_mobile = true;
+    m.on_init(cfg);
+    hal.tx_frames.clear(); hal.events.clear();
+    std::array<uint8_t, 40> q{};                                     // a WANT_PUBKEY H for M's OWN hash (0xABCD), carrying S's key
+    const size_t n = make_h(/*origin=*/9, /*hash=*/0x0000ABCD, /*ttl=*/4, q, /*hard=*/true, /*want_pubkey=*/true, S.ed_pub);
+    m.on_recv(q.data(), n, RxMeta{8.0f, -80.0f, 0, -1});
+    uint8_t out[32]; Node::PeerKeyConf conf{};
+    CHECK(m.peer_key_find(S.key_hash32, out, &conf));                // cached the requester's key
+    CHECK(conf == Node::PeerKeyConf::authoritative);
+    CHECK(hal.tx_frames.empty());                                    // NO TX at all (no answer)
+    CHECK(find_ev(hal.events, "h_resolved") == nullptr);             // did not answer/resolve
+    CHECK(find_ev(hal.events, "h_forward")  == nullptr);             // did not relay the flood
+    CHECK(m.test_tx_queue_n() == 0);                                 // nothing queued either
+}
+
+// §S3 ★ ACCEPTANCE — the END-TO-END gap closure: a static S reqpubkeys mobile M (via M's home); S gets M's key
+// (existing), and M gets S's key (NEW, via the forward) -> S's sealed DM now OPENS at M (was a silent drop).
+TEST_CASE("§S3 acceptance — static->registered-mobile reqpubkey: M gets S's key -> S's sealed DM OPENS at M") {
+    TestHal hhal, mhal, shal;
+    uint8_t mseed[32], sseed[32]; for (int i = 0; i < 32; ++i) { mseed[i] = uint8_t(i + 11); sseed[i] = uint8_t(200 - i); }
+    Identity M{}, S{}; identity_from_seed(M, mseed); identity_from_seed(S, sseed);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    Node home(hhal, /*id=*/5, /*key=*/0x00005555); home.on_init(cfg);
+    home.test_add_host_mobile(M.key_hash32, /*local_id=*/200, M.ed_pub);
+    NodeConfig mcfg = cfg; mcfg.is_mobile = true;
+    Node m(mhal, /*id=*/200, M.key_hash32); m.on_init(mcfg); m.set_crypto_identity(M.x_secret, M.ed_pub);
+    Node sender(shal, /*id=*/9, S.key_hash32); sender.on_init(cfg); sender.set_crypto_identity(S.x_secret, S.ed_pub);
+    sender.peer_key_set(M.key_hash32, M.ed_pub, Node::PeerKeyConf::authoritative);   // S already holds M's key (the pubkey answer)
+    home.test_suspend_tx_drain(true);                                // keep the forward queued so we can read its body
+    const uint8_t flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH;
+    const uint8_t body[7] = { 's','e','a','l','e','d','!' };
+    uint8_t inner[128], seed[8]; Node::SealOutcome oc = Node::SealOutcome::ok;
+    const size_t sn = sender.e2e_seal_inner(inner, sizeof inner, seed, flags, /*dst=*/M.key_hash32, /*origin=*/9,
+                                            /*ctr=*/7, /*source_hash=*/S.key_hash32, 0, 0, body, sizeof body, oc);
+    CHECK(sn > 0); CHECK(oc == Node::SealOutcome::ok);
+    // BEFORE M holds S's key -> trial decrypt has no candidate -> FAILS (the silent-drop gap)
+    { uint32_t snd = 0, org = 0, src = 0; bool loc = false; int32_t la = 0, lo = 0; uint8_t o[64]; uint8_t ol = 0;
+      CHECK_FALSE(m.e2e_open_trial(inner, sn, seed, flags, /*ctr=*/7, snd, org, src, loc, la, lo, o, ol)); }
+    // the reqpubkey flow: S's WANT_PUBKEY reaches M's home -> the home forwards S's key to M
+    std::array<uint8_t, 40> q{};
+    const size_t qn = make_h(/*origin=*/9, M.key_hash32, /*ttl=*/4, q, /*hard=*/true, /*want_pubkey=*/true, S.ed_pub);
+    home.on_recv(q.data(), qn, RxMeta{8.0f, -80.0f, 0, -1});
+    int fwd = -1; for (uint8_t i = 0; i < home.test_tx_queue_n(); ++i) if (home.test_tx_type(i) == DATA_TYPE_MOBILE_KEY_FORWARD) { fwd = i; break; }
+    CHECK(fwd >= 0);
+    if (fwd >= 0) {
+        uint8_t len = 0; const uint8_t* inr = home.test_tx_inner(static_cast<uint8_t>(fwd), len);   // inner = [origin][body]
+        m.on_mobile_key_forward(inr + 1, static_cast<uint8_t>(len - 1));                            // deliver the last-mile body to M
+    }
+    // NOW M holds S's key -> the sealed DM OPENS (gap closed)
+    uint32_t snd = 0, org = 0, src = 0; bool loc = false; int32_t la = 0, lo = 0; uint8_t o[64]; uint8_t ol = 0;
+    CHECK(m.e2e_open_trial(inner, sn, seed, flags, /*ctr=*/7, snd, org, src, loc, la, lo, o, ol));
+    CHECK(snd == S.key_hash32);
+    CHECK(ol == 7);
+    bool same = true; for (int i = 0; i < 7; ++i) if (o[i] != body[i]) same = false; CHECK(same);
+}
+
+// §S3 part2 dedup — a same-requester second reqpubkey (retry) re-answers the requester but does NOT re-forward the key.
+TEST_CASE("§S3 part2 dedup — a same-requester second reqpubkey does NOT re-forward") {
+    TestHal hal;
+    uint8_t mseed[32], sseed[32]; for (int i = 0; i < 32; ++i) { mseed[i] = uint8_t(i + 40); sseed[i] = uint8_t(90 - i); }
+    Identity M{}, S{}; identity_from_seed(M, mseed); identity_from_seed(S, sseed);
+    Node home(hal, /*id=*/5, /*key=*/0x00005555);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    home.on_init(cfg);
+    home.test_add_host_mobile(M.key_hash32, /*local_id=*/200, M.ed_pub);
+    std::array<uint8_t, 40> q{};
+    const size_t n = make_h(/*origin=*/9, M.key_hash32, /*ttl=*/4, q, /*hard=*/true, /*want_pubkey=*/true, S.ed_pub);
+    home.on_recv(q.data(), n, RxMeta{8.0f, -80.0f, 0, -1});
+    CHECK(hal.countType("mobile_key_forward_tx") == 1);
+    home.on_recv(q.data(), n, RxMeta{8.0f, -80.0f, 0, -1});          // identical retry
+    CHECK(hal.countType("mobile_key_forward_tx") == 1);              // still 1 -> deduped (last_key_fwd_hash32)
+}
+
+// =============================================================================
+// §S2 — DATA_TYPE_INTRO first-contact pubkey attach (SEND side + D1 attach rule +
+// peer_confirmed). The RECEIVE / strip-deliver / delegation round-trip lives in
+// test_dual_layer.cpp (it needs the do_post_ack drivers). NB: CHECK only (this
+// TU builds -fno-exceptions -> REQUIRE is illegal); guard derefs with `if`.
+// =============================================================================
+TEST_CASE("§S2 INTRO wire golden — a first-contact plaintext hash send rides as INTRO: [ed_pub 32][name_len][name] before the body") {
+    TestHal hal;
+    uint8_t seedA[32]; for (int i = 0; i < 32; ++i) seedA[i] = uint8_t(i + 1);
+    Identity idA{}; identity_from_seed(idA, seedA);
+    Node A(hal, /*id=*/1, idA.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    A.on_init(cfg); A.set_crypto_identity(idA.x_secret, idA.ed_pub);
+    const uint32_t Bhash = 0x1234ABCDu;
+    A.test_id_bind_set(9, Bhash, /*authoritative=*/true);   // A holds an AUTHORITATIVE binding -> send NOW (do_send), not park
+    A.test_suspend_tx_drain(true);                          // keep the frame queued to read it
+    const uint8_t body[3] = { 'h', 'i', '!' };
+    (void)send_by_hash_cmd(A, Bhash, body, 3);
+    CHECK(A.test_tx_queue_n() >= 1);
+    if (A.test_tx_queue_n() >= 1) {
+        CHECK(A.test_tx_type(0) == DATA_TYPE_INTRO);
+        uint8_t ilen = 0; const uint8_t* inner = A.test_tx_inner(0, ilen);
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(inner, ilen), DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH);
+        CHECK(ui.has_value());
+        if (ui) {
+            CHECK(ui->has_dst_hash);    CHECK(ui->dst_key_hash32 == Bhash);
+            CHECK(ui->has_source_hash); CHECK(ui->source_hash == idA.key_hash32);
+            const size_t want = static_cast<size_t>(33) + ui->body[32] + 3;
+            CHECK(ui->body.size() >= static_cast<size_t>(35));
+            if (ui->body.size() >= 33) {
+                bool edok = true; for (int i = 0; i < 32; ++i) if (ui->body[i] != idA.ed_pub[i]) edok = false; CHECK(edok);
+                const uint32_t edh = uint32_t(ui->body[0]) | (uint32_t(ui->body[1]) << 8) | (uint32_t(ui->body[2]) << 16) | (uint32_t(ui->body[3]) << 24);
+                CHECK(edh == idA.key_hash32);                    // ed_pub[:4] == source_hash (the receiver's self-consistency check)
+                const uint8_t nlen = ui->body[32];
+                CHECK(want == ui->body.size());
+                if (ui->body.size() == want) {
+                    const uint8_t* msg = ui->body.data() + 33 + nlen;
+                    CHECK(msg[0] == 'h'); CHECK(msg[1] == 'i'); CHECK(msg[2] == '!');   // the app message rides UNCHANGED after the prefix
+                }
+            }
+        }
+    }
+}
+
+TEST_CASE("§S2 D1 attach rule — unknown/unconfirmed peer attaches INTRO; a CONFIRMED (sealed-opened) peer is PLAIN; a plaintext cache never confirms") {
+    TestHal halA, halB;
+    uint8_t sA[32], sB[32]; for (int i = 0; i < 32; ++i) { sA[i] = uint8_t(i + 1); sB[i] = uint8_t(100 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, sA); identity_from_seed(idB, sB);
+    Node A(halA, 1, idA.key_hash32), B(halB, 2, idB.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    A.on_init(cfg); B.on_init(cfg);
+    A.set_crypto_identity(idA.x_secret, idA.ed_pub); B.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    A.peer_key_set(idB.key_hash32, idB.ed_pub, Node::PeerKeyConf::authoritative);   // A KNOWS B's key (cache) ...
+    B.peer_key_set(idA.key_hash32, idA.ed_pub, Node::PeerKeyConf::authoritative);   // B holds A's key (so B can seal TO A below)
+    CHECK_FALSE(A.peer_confirmed(idB.key_hash32));                                  // ... but a plaintext cache does NOT confirm
+    A.test_id_bind_set(2, idB.key_hash32, /*authoritative=*/true);
+    A.test_suspend_tx_drain(true);
+    const uint8_t body[2] = { 'y', 'o' };
+    const uint8_t n0 = A.test_tx_queue_n();
+    (void)send_by_hash_cmd(A, idB.key_hash32, body, 2);
+    CHECK(A.test_tx_queue_n() > n0);
+    if (A.test_tx_queue_n() > n0) CHECK(A.test_tx_type(n0) == DATA_TYPE_INTRO);     // unconfirmed -> attaches
+    // B seals a DM to A; A opens it (trial decrypt) -> peer_confirmed(B) is set HERE (only on a sealed open)
+    const uint8_t flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH;
+    const uint8_t sb[4] = { 'p', 'o', 'n', 'g' }; uint8_t inner[96], seed[8]; Node::SealOutcome oc = Node::SealOutcome::ok;
+    const size_t sn = B.e2e_seal_inner(inner, sizeof inner, seed, flags, /*dst=*/idA.key_hash32, 2, 7, idB.key_hash32, 0, 0, sb, 4, oc);
+    CHECK(sn > 0);
+    uint32_t snd = 0, org = 0, src = 0; bool loc = false; int32_t la = 0, lo = 0; uint8_t o[64]; uint8_t ol = 0;
+    CHECK(A.e2e_open_trial(inner, sn, seed, flags, 7, snd, org, src, loc, la, lo, o, ol));
+    CHECK(A.peer_confirmed(idB.key_hash32));                                        // NOW confirmed
+    const uint8_t n1 = A.test_tx_queue_n();
+    (void)send_by_hash_cmd(A, idB.key_hash32, body, 2);
+    CHECK(A.test_tx_queue_n() > n1);
+    if (A.test_tx_queue_n() > n1) {
+        CHECK(A.test_tx_type(n1) == 0);                                             // CONFIRMED -> plain DM, no INTRO prefix
+        uint8_t il = 0; const uint8_t* in2 = A.test_tx_inner(n1, il);
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(in2, il), DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH);
+        CHECK(ui.has_value());
+        if (ui) CHECK(ui->body.size() == 2);                                        // just "yo" — no key prefix
+    }
+}
+
+TEST_CASE("§S2 too-large fallback — an INTRO that would overflow the DM body cap sends PLAIN (delivery beats key bootstrap) + telemetry") {
+    TestHal hal;
+    uint8_t seedA[32]; for (int i = 0; i < 32; ++i) seedA[i] = uint8_t(i + 7);
+    Identity idA{}; identity_from_seed(idA, seedA);
+    Node A(hal, 1, idA.key_hash32);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    A.on_init(cfg); A.set_crypto_identity(idA.x_secret, idA.ed_pub);
+    const uint32_t Bhash = 0x22223333u;
+    A.test_id_bind_set(9, Bhash, /*authoritative=*/true);
+    A.test_suspend_tx_drain(true);
+    uint8_t big[meshroute::protocol::dm_max_body_bytes];                            // a body at the cap -> prefix can't fit
+    for (size_t i = 0; i < sizeof big; ++i) big[i] = uint8_t('a' + (i % 26));
+    (void)send_by_hash_cmd(A, Bhash, big, static_cast<uint8_t>(sizeof big));
+    CHECK(A.test_tx_queue_n() >= 1);
+    if (A.test_tx_queue_n() >= 1) CHECK(A.test_tx_type(0) == 0);                    // sent PLAIN (no attach)
+    CHECK(hal.countType("intro_attach_too_large") == 1);                           // fail-loud telemetry
+}
+
+TEST_CASE("§S2 intro_attach cfg OFF + no-identity — never attach (the escape hatch + the s18-inert gate)") {
+    // cfg off, with an identity -> plain
+    { TestHal hal; uint8_t s[32]; for (int i = 0; i < 32; ++i) s[i] = uint8_t(i + 3); Identity id{}; identity_from_seed(id, s);
+      Node A(hal, 1, id.key_hash32); NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false; cfg.intro_attach = false;
+      A.on_init(cfg); A.set_crypto_identity(id.x_secret, id.ed_pub);
+      A.test_id_bind_set(9, 0x55556666u, true); A.test_suspend_tx_drain(true);
+      const uint8_t b[2] = { 'h', 'i' }; (void)send_by_hash_cmd(A, 0x55556666u, b, 2);
+      CHECK(A.test_tx_queue_n() >= 1); if (A.test_tx_queue_n() >= 1) CHECK(A.test_tx_type(0) == 0); }   // cfg off -> plain
+    // cfg on (default) but NO crypto identity -> plain (s18-inert gate)
+    { TestHal hal; Node A(hal, 1, 0x0000ABCD); NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+      A.on_init(cfg);   // NO set_crypto_identity -> _crypto_ready false
+      A.test_id_bind_set(9, 0x77778888u, true); A.test_suspend_tx_drain(true);
+      const uint8_t b[2] = { 'h', 'i' }; (void)send_by_hash_cmd(A, 0x77778888u, b, 2);
+      CHECK(A.test_tx_queue_n() >= 1); if (A.test_tx_queue_n() >= 1) CHECK(A.test_tx_type(0) == 0); }   // no identity -> plain (never attach)
+}
+
+// ==== F-SL-1 (2026-07-19): bounded jittered H re-flood for a parked unresolved send ==============
+// A send-by-hash to an UNKNOWN hash parks + floods ONE soft H at park time. In a quiet net that single
+// flood can die; without a retry the parked send just ages out to send_hash_giveup. F-SL-1 re-emits the H
+// every park_reflood_retry_ms (jittered) while parked, bounded to park_reflood_max_retries, then the giveup
+// still fires. This test drives the reflood scan timer (kParkRefloodTimerId) — TestHal never auto-fires.
+TEST_CASE("§F-SL-1 — a parked unresolved send re-floods (bounded + jittered) then still gives up") {
+    TestHal hal;
+    Node A(hal, /*id=*/1, /*key_hash32=*/0xAAAA1111u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    A.on_init(cfg);
+    hal._now = 1000;
+    const uint32_t unknown = 0x1234ABCDu;
+    const uint8_t body[3] = { 'h', 'i', '!' };
+    (void)send_by_hash_cmd(A, unknown, body, 3);
+    CHECK(hal.countType("send_parked_for_hash") == 1);          // parked (no binding)
+    const int h_at_park = count_h_tx(hal.tx_frames);
+    CHECK(h_at_park == 1);                                       // ONE soft H flood at park time
+
+    // the reflood scan timer is armed at exactly park_reflood_retry_ms (jitter draw returns lo=0 by default)
+    uint32_t reflood_delay = 0; bool armed_reflood = false;
+    for (auto& [d, id] : hal.armed) if (id == kParkRefloodTimerId) { reflood_delay = d; armed_reflood = true; }
+    CHECK(armed_reflood);
+    CHECK(reflood_delay == protocol::park_reflood_retry_ms);
+
+    // retry 1: advance to the deadline + fire the scan -> a SECOND H flood + the telemetry (the first deadline is a
+    // FIXED offset — no park-time jitter draw)
+    hal._now = 1000 + protocol::park_reflood_retry_ms;
+    A.on_timer(kParkRefloodTimerId);
+    CHECK(hal.countType("send_hash_reflood") == 1);
+    CHECK(count_h_tx(hal.tx_frames) == 2);
+
+    // retry 2: the entry re-armed itself ~one interval later (+ the deterministic jitter, bounded by park_reflood_jitter_ms)
+    hal._now = 1000 + 2 * protocol::park_reflood_retry_ms + protocol::park_reflood_jitter_ms;
+    A.on_timer(kParkRefloodTimerId);
+    CHECK(hal.countType("send_hash_reflood") == 2);
+    CHECK(count_h_tx(hal.tx_frames) == 3);
+
+    // retry 3: BOUNDED — park_reflood_max_retries=2, so no third re-flood
+    hal._now = 1000 + 4 * protocol::park_reflood_retry_ms + protocol::park_reflood_jitter_ms;
+    A.on_timer(kParkRefloodTimerId);
+    CHECK(hal.countType("send_hash_reflood") == 2);             // unchanged
+    CHECK(count_h_tx(hal.tx_frames) == 3);                      // unchanged
+
+    // the giveup still fires after the TTL (the re-flood never removed the bound); _now is already well past the TTL
+    A.on_timer(kAgingTimerId);
+    CHECK(hal.countType("send_hash_giveup") >= 1);
+}
+
+// F-SL-1: the re-flood resolves the send on a retry — a binding that arrives between park and giveup drains the
+// parked DM, and no further re-flood fires (stop-on-resolve). Mirrors the s27 post-re-home quiet-net recovery.
+TEST_CASE("§F-SL-1 — a binding arriving after a re-flood drains the parked send; re-flood then stops") {
+    TestHal hal;
+    Node A(hal, /*id=*/1, /*key_hash32=*/0xAAAA2222u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    A.on_init(cfg);
+    hal._now = 1000;
+    const uint32_t target = 0x5678BEEFu;
+    const uint8_t body[2] = { 'y', 'o' };
+    (void)send_by_hash_cmd(A, target, body, 2);
+    CHECK(hal.countType("send_parked_for_hash") == 1);
+
+    // one re-flood fires
+    hal._now = 1000 + protocol::park_reflood_retry_ms;
+    A.on_timer(kParkRefloodTimerId);
+    CHECK(hal.countType("send_hash_reflood") == 1);
+
+    // the owner (node 9) beacons carrying `target` -> authoritative binding + the beacon-tick re-drain
+    // flies the parked DM (the resolution the re-flood was fishing for) -> the parked entry is removed
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    std::array<uint8_t, 64> bcn; const size_t bn = make_beacon(/*src=*/9, target, bcn);
+    A.on_recv(bcn.data(), bn, meta);
+
+    // the next scan finds nothing to re-flood -> the count stays put (stop-on-resolve)
+    hal._now = 1000 + 2 * protocol::park_reflood_retry_ms;
+    A.on_timer(kParkRefloodTimerId);
+    CHECK(hal.countType("send_hash_reflood") == 1);            // no further re-flood
+    CHECK(hal.countType("send_hash_giveup") == 0);            // resolved, never gave up
+}
+
+// F-SL-1 s18-inertness: an AUTHORITATIVE binding sends immediately — no park, so NO re-flood timer is armed
+// (the mechanism is dormant on the static-plane no-park path that dominates s18).
+TEST_CASE("§F-SL-1 — a resolved send never parks -> no re-flood timer armed (s18-class inert)") {
+    TestHal hal;
+    Node A(hal, /*id=*/1, /*key_hash32=*/0xAAAA3333u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    A.on_init(cfg);
+    const uint32_t known = 0x0A0B0C0Du;
+    A.test_id_bind_set(9, known, /*authoritative=*/true);
+    hal._now = 1000;
+    const uint8_t body[2] = { 'o', 'k' };
+    (void)send_by_hash_cmd(A, known, body, 2);
+    CHECK(hal.countType("send_parked_for_hash") == 0);         // sent NOW, not parked
+    bool armed_reflood = false;
+    for (auto& [d, id] : hal.armed) { (void)d; if (id == kParkRefloodTimerId) armed_reflood = true; }
+    CHECK_FALSE(armed_reflood);
+}

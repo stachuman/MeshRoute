@@ -55,6 +55,7 @@ struct Command {
     const uint8_t* body     = nullptr;   // BORROWED for the call only (mirrors hal.h on_recv)
     uint8_t        body_len = 0;
     CryptIntent    crypt    = CryptIntent::def;   // §8b: per-message crypt override (send/sendhash = def/off, sendhashx = on)
+    bool           no_intro = false;     // §S4/D1 `-K`: suppress the INTRO first-contact pubkey attach for THIS send (send/send_layer). Message-level ceremony for the app; a no-op on a sealed send (sealed never attaches). Host-side only, NOT on the wire.
 };
 
 // ---- synchronous result (the token; matches MeshCore RESP_CODE_*) ----

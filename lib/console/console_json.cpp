@@ -399,7 +399,7 @@ size_t write_limits(char* buf, size_t cap, const LimitsFields& L) {
 // is node uptime (the app stamps wall-clock on pull). Fields are passed individually so console_json stays free
 // of an inbox.h dependency. Bodies are JSON-escaped + bounded like write_push.
 size_t write_inbox_dm(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8_t layer_id, uint16_t ctr,
-                      uint32_t sender_hash, uint64_t rx_ms, const char* body, size_t body_len, bool enc, uint8_t type) {
+                      uint32_t sender_hash, uint64_t rx_ms, const char* body, size_t body_len, bool enc, uint8_t type, uint8_t origin_layer) {
     JsonBuf j(buf, cap);
     j.lit("{\"ev\":\"inbox_dm\"");
     // The DATA_TYPE rides right after "ev". 0 = normal DM -> OMITTED (common case; wire-unchanged). 3 = DATA_TYPE_E2E_ACK
@@ -412,6 +412,7 @@ size_t write_inbox_dm(char* buf, size_t cap, uint32_t seq, uint8_t origin, uint8
     j.lit(",\"ctr\":");         j.u32(ctr);
     j.lit(",\"sender_hash\":"); j.u32(sender_hash);
     j.lit(",\"rx_ms\":");       j.i64(static_cast<int64_t>(rx_ms));
+    if (origin_layer) { j.lit(",\"origin_layer\":"); j.u32(origin_layer); }   // §GapA-durable: the XL sender's layer; omitted (=0) for same-layer
     if (enc) j.lit(",\"enc\":true");                  // §8b: sealed-delivery flag; omitted (=false) for plaintext
     j.lit(",\"body\":");        j.str(body, body_len);
     j.ch('}');

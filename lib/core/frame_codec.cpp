@@ -675,12 +675,14 @@ static inline uint8_t j_b1(bool gw, bool mob, j_opcode op) {
 }
 
 size_t pack_j_discover(const j_discover_in& in, std::span<uint8_t> out) {
-    if (out.size() < (in.is_mobile ? 9u : 6u)) return 0;       // §S6: a mobile DISCOVER appends the 3-B last-home block
+    const bool has_hash = in.is_mobile && in.last_home_id != 0;   // §B4: the old-home hash rides only on a re-home (byte-identical for fresh)
+    if (out.size() < (in.is_mobile ? (has_hash ? 13u : 9u) : 6u)) return 0;   // §S6: a mobile DISCOVER appends the 3-B last-home block [+ §B4 4-B hash on a re-home]
     wire::Writer w(out);
     w.u8(j_b0(in.leaf_id));
     w.u8(j_b1(in.gateway_capable, in.is_mobile, j_opcode::discover));
     w.u32_le(in.key_hash32);
-    if (in.is_mobile) { w.u8(in.last_home_id); w.u8(in.last_home_layer); w.u8(in.last_reg_epoch); }   // 0/0/0 = fresh (D10 notify feed)
+    if (in.is_mobile) { w.u8(in.last_home_id); w.u8(in.last_home_layer); w.u8(in.last_reg_epoch);   // 0/0/0 = fresh (D10 notify feed)
+                        if (has_hash) w.u32_le(in.last_home_key_hash32); }                          // §B4: old-home hash for a cross-layer breadcrumb
     return w.ok() ? w.size() : 0;
 }
 
@@ -738,10 +740,11 @@ std::optional<j_out> parse_j(std::span<const uint8_t> frame) {
     o.wire_version    = static_cast<uint8_t>(b1 & 0x0F);   // R6.2 §5.2 wire-compat (rsv nibble)
     switch (static_cast<j_opcode>(o.opcode)) {
         case j_opcode::discover:
-            // §S6: 6 B (static/legacy/fresh) OR 9 B (mobile + last-home block). Absent block parses as fresh (0/0/0).
-            if (frame.size() != 6 && frame.size() != 9) return std::nullopt;
+            // §S6/B4: 6 B (static/legacy/fresh) · 9 B (mobile + last-home block) · 13 B (re-home + old-home hash). Absent block = fresh (0/0/0).
+            if (frame.size() != 6 && frame.size() != 9 && frame.size() != 13) return std::nullopt;
             o.key_hash32 = r.u32_le();
-            if (frame.size() == 9) { o.last_home_id = r.u8(); o.last_home_layer = r.u8(); o.last_reg_epoch = r.u8(); }
+            if (frame.size() >= 9) { o.last_home_id = r.u8(); o.last_home_layer = r.u8(); o.last_reg_epoch = r.u8(); }
+            if (frame.size() == 13) o.last_home_key_hash32 = r.u32_le();   // §B4: the old home's hash (cross-layer breadcrumb address)
             break;
         case j_opcode::offer:
             if (frame.size() != (o.is_mobile ? 13u : 8u)) return std::nullopt;  // §mobile 2a/S6: mobile OFFER is 13 B (exact-length per opcode)
@@ -1125,16 +1128,19 @@ static inline size_t p_roster_quality_bytes(uint8_t count) { return (static_cast
 static inline size_t p_roster_haskey_bytes (uint8_t count) { return (static_cast<size_t>(count) + 7u) / 8u; }  // 1 bit/mobile
 
 size_t pack_p_roster(const p_roster_in& in, std::span<uint8_t> out) {
-    const size_t need = 5u + static_cast<size_t>(in.count) * 6u
-                      + p_roster_quality_bytes(in.count) + p_roster_haskey_bytes(in.count)
+    bool any_deleg = false;   // §B2: the deleg_fail bitmap is FLAG-GATED — only ridden when some entry actually failed (steady-state roster stays airtime-minimal + byte-neutral vs pre-B2)
+    for (uint8_t i = 0; i < in.count; ++i) if (in.entries[i].deleg_fail) { any_deleg = true; break; }
+    const size_t hb = p_roster_haskey_bytes(in.count);
+    const size_t need = 6u + static_cast<size_t>(in.count) * 6u    // §D16: 6-B header now (wire_version rides at byte 4)
+                      + p_roster_quality_bytes(in.count) + hb + (any_deleg ? hb : 0u)   // §B2: has_key bitmap always; deleg_fail bitmap iff any_deleg
                       + (in.has_echo ? 5u : 0u);
     if (out.size() < need) return 0;
-    const uint8_t flags4 = static_cast<uint8_t>(P_DIR_ROSTER | (in.trunc ? P_ROSTER_TRUNC : 0) | (in.has_echo ? P_ROSTER_HAS_ECHO : 0));
+    const uint8_t flags4 = static_cast<uint8_t>(P_DIR_ROSTER | (in.trunc ? P_ROSTER_TRUNC : 0) | (in.has_echo ? P_ROSTER_HAS_ECHO : 0) | (any_deleg ? P_ROSTER_HAS_DELEG : 0));
     wire::Writer w(out);
     w.u8(wire::cmd_byte(wire::Cmd::P, flags4));
-    w.u8(in.home_id); w.u8(in.home_layer); w.u8(in.dir_epoch); w.u8(in.count);
+    w.u8(in.home_id); w.u8(in.home_layer); w.u8(in.dir_epoch); w.u8(in.wire_version); w.u8(in.count);   // §D16: wire_version between dir_epoch and count
     for (uint8_t i = 0; i < in.count; ++i) { w.u32_le(in.entries[i].key_hash32); w.u8(in.entries[i].local_id); w.u8(in.entries[i].reg_epoch); }
-    // quality bitmap (2b/mobile, entry order), then has_key bitmap (1b/mobile) — both packed after the entries.
+    // quality bitmap (2b/mobile, entry order), then has_key bitmap (1b/mobile), then (iff any_deleg) deleg_fail bitmap (1b/mobile).
     const size_t qb = p_roster_quality_bytes(in.count);
     for (size_t b = 0; b < qb; ++b) {
         uint8_t v = 0;
@@ -1142,33 +1148,41 @@ size_t pack_p_roster(const p_roster_in& in, std::span<uint8_t> out) {
             v = static_cast<uint8_t>(v | ((in.entries[e].quality & 0x03) << (k * 2))); }
         w.u8(v);
     }
-    const size_t hb = p_roster_haskey_bytes(in.count);
     for (size_t b = 0; b < hb; ++b) {
         uint8_t v = 0;
         for (uint8_t k = 0; k < 8; ++k) { const size_t e = b * 8 + k; if (e >= in.count) break;
             if (in.entries[e].has_key) v = static_cast<uint8_t>(v | (1u << k)); }
         w.u8(v);
     }
+    if (any_deleg) for (size_t b = 0; b < hb; ++b) {           // §B2: deleg_fail bitmap (same ceil(count/8) shape, entry order) — only when present
+        uint8_t v = 0;
+        for (uint8_t k = 0; k < 8; ++k) { const size_t e = b * 8 + k; if (e >= in.count) break;
+            if (in.entries[e].deleg_fail) v = static_cast<uint8_t>(v | (1u << k)); }
+        w.u8(v);
+    }
     if (in.has_echo) { w.u32_le(in.echo_hash32); w.u8(static_cast<uint8_t>(in.echo_quality & 0x03)); }   // ECHO block: the answered probe's RX quality (D14 reverse direction)
     return w.ok() ? w.size() : 0;
 }
 std::optional<p_roster_out> parse_p_roster(std::span<const uint8_t> frame) {
-    if (frame.size() < 5) return std::nullopt;
+    if (frame.size() < 6) return std::nullopt;                 // §D16: 6-B header (cmd + home_id/layer + dir_epoch + wire_version + count)
     const uint8_t b0 = frame[0];
     if (wire::cmd_of(b0) != wire::Cmd::P) return std::nullopt;
     const uint8_t f = wire::flags_of(b0);
     if (!(f & P_DIR_ROSTER)) return std::nullopt;              // dir=0 is a probe, not a roster
     p_roster_out o{};
-    o.trunc      = (f & P_ROSTER_TRUNC) != 0;
-    o.has_echo   = (f & P_ROSTER_HAS_ECHO) != 0;
-    o.home_id    = frame[1];
-    o.home_layer = frame[2];
-    o.dir_epoch  = frame[3];
-    o.count      = frame[4];
-    o.entries_off = 5u;
+    o.trunc        = (f & P_ROSTER_TRUNC) != 0;
+    o.has_echo     = (f & P_ROSTER_HAS_ECHO) != 0;
+    o.has_deleg    = (f & P_ROSTER_HAS_DELEG) != 0;            // §B2: flag-gated deleg_fail bitmap
+    o.home_id      = frame[1];
+    o.home_layer   = frame[2];
+    o.dir_epoch    = frame[3];
+    o.wire_version = frame[4];                                 // §D16: read BEFORE the caller interprets any field (the P-plane parse gate)
+    o.count        = frame[5];
+    o.entries_off = 6u;
     o.quality_off = o.entries_off + static_cast<size_t>(o.count) * 6u;
     o.haskey_off  = o.quality_off + p_roster_quality_bytes(o.count);
-    o.echo_off    = o.haskey_off + p_roster_haskey_bytes(o.count);
+    o.deleg_off   = o.haskey_off  + p_roster_haskey_bytes(o.count);                       // §B2: valid iff has_deleg
+    o.echo_off    = o.deleg_off   + (o.has_deleg ? p_roster_haskey_bytes(o.count) : 0u);
     o.frame_len   = o.echo_off + (o.has_echo ? 5u : 0u);
     if (frame.size() < o.frame_len) return std::nullopt;       // short for the declared count + bitmaps [+ echo] -> reject
     if (o.has_echo) {
@@ -1186,6 +1200,7 @@ std::optional<PRosterEntry> parse_p_roster_entry(std::span<const uint8_t> frame,
     e.key_hash32 = rd.u32_le(); e.local_id = rd.u8(); e.reg_epoch = rd.u8();
     e.quality = static_cast<uint8_t>((frame[r.quality_off + i / 4] >> ((i % 4) * 2)) & 0x03);
     e.has_key = (frame[r.haskey_off + i / 8] >> (i % 8)) & 0x01;
+    e.deleg_fail = r.has_deleg && ((frame[r.deleg_off + i / 8] >> (i % 8)) & 0x01);   // §B2: absent bitmap -> no failure
     return e;
 }
 

@@ -464,6 +464,12 @@ zero-blackhole guard. When green: add to `BASELINE.md` (md5-anchored) + the gate
 
 ## 5. Decisions for review
 - **D1** INTRO attach rule: recommended = auto on `!peer_confirmed(dst)` (§S2); alternatives: explicit `-k` only, or `cfg set intro_attach off` as an escape hatch (recommend shipping the cfg toggle anyway, default ON).
+  **RATIFIED 2026-07-19 (post-implementation review with the user): default stays ON** (exposure
+  analysis: the attach is unicast to a chosen correspondent who already gets SOURCE_HASH; strictly
+  less promiscuous than the existing WANT_PUBKEY cleartext-flood attach; TOFU/PINNED model
+  unchanged) **+ a PER-SEND SUPPRESS flag `-K`** on `send`/`send_layer` (rides with S4): suppresses
+  the attach for that one send regardless of the D1 state — message-level ceremony for the app.
+  (`-k` force-attach remains a possible future twin; not requested.)
 - **D2** push confirmation = reuse `-a`/E2E-ack on the 1-hop push (recommended; zero new frames) vs a dedicated ack type.
 - **D3** requester-key forward: eager 1-hop frame (recommended) vs piggyback-on-next-DM.
 - **D4** ~~XL origin-layer carriage~~ **RESOLVED (user correction folded in):** the CROSS_LAYER inner already carries the full preserved path + cursor (frame_codec.h:519) — the ack/answer return path = the traversed path reversed, same as static XL. Remaining implementation check only: verify the reverse-walk against frame_codec.cpp/the static XL ack path.
@@ -485,6 +491,23 @@ zero-blackhole guard. When green: add to `BASELINE.md` (md5-anchored) + the gate
   the bottleneck governs deliverability) vs a weighted average.
 - **D15** (S6 rev 2) roster echo depth: echo the coalesce window's FIRST probe only (recommended —
   searchers re-probe; multi-echo adds size for a rare case) vs up to 2.
+- **D16 (ACCEPTED 2026-07-19) — roster `wire_version` byte.** Present state, code-verified: mobiles
+  already inherit the HARD version wall — the J gate (node_join.cpp:250-253) runs before the opcode
+  dispatch and after the mobile leaf-exemption, so a cross-version registration is impossible in
+  BOTH directions today. What's missing: (1) the failure is SILENT+LATE for a mobile (a static
+  joiner gets `join_refused{wire_version}` off the beacon nibble; a searching mobile just burns
+  probe/DISCOVER rounds forever, no feedback); (2) the P plane is self-versionless (it rev-2'd
+  before it even shipped — evolution is certain); (3) ROAMING mobiles are the one node class that
+  crosses administrative domains, exactly where reflash-together doesn't hold. **Design:** +1 B
+  `wire_version` in the P-ROSTER header (beside `dir_epoch`; 24→25 B @ 3 mobiles). Consumption:
+  a mismatched roster ⇒ (a) drop before field interpretation (the P plane's own parse gate —
+  future roster layout changes become non-bricking), (b) mark the candidate home INCOMPATIBLE in
+  FSM B/C (skip its DISCOVER entirely — no wasted J rounds), (c) surface the mobile-flavored
+  `join_refused{wire_version}` push (the app says "this network needs different firmware"). The
+  PROBE stays versionless in v1 (hosts don't choose mobiles; the home's existing J gate rejects a
+  wrong-version CLAIM — if probes ever need it, take a full byte then, never the spare bit).
+  Implementation: a small RIDER on whichever slice next touches the roster codec (not its own
+  dispatch); native tests = the parse gate + the candidate-skip + the push.
 - **Slice order:** **S6 first** (independent, retires the measured 60% duty burn + the Loop-B NACK
   storm — the biggest airtime win per line of code), then S0 → S1 → S3 → S2 → S4 (s27 asserts
   phases as they land — it runs RED-partially throughout).

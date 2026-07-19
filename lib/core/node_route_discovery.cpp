@@ -107,6 +107,38 @@ bool Node::rreq_rate_ok(uint8_t dst, uint8_t ttl, bool team_plane) {
     return true;
 }
 
+// §F-XL-2: stash a built RREQ-forward frame into the round-robin ring + arm a de-stormed fire (kRreqForwardTimerId+slot).
+// Called by BOTH the static and team relay-forward paths — the packed F frame is self-contained (pack_f baked in the
+// leaf_id + team scope), so ONE ring serves both planes. Only the RELAY forward is de-stormed; an ORIGINATED RREQ
+// (emit_route_request) and an RREP (send_route_reply) tx immediately as before (they are not the same-ms sibling class).
+//
+// ★ De-storm ONLY a forward that still PROPAGATES (forwarded ttl > 0): a terminal forward (ttl now 0) is not re-sent
+// by whoever hears it, so the multi-hop sibling-collision the de-storm targets cannot occur past it — delaying it buys
+// nothing and only shifts the event schedule of a timing-fragile scenario. The caller passes the forwarded ttl and
+// sends a terminal forward immediately (see the two call sites). The jitter is a rand_range draw, mirroring F-XL-1;
+// because a terminal forward is NOT stashed, the draw is only consumed on a propagating forward.
+void Node::rreq_forward_stash(const uint8_t* buf, size_t n) {
+    if (n == 0 || n > sizeof(_rreq_forward_stash[0].buf)) return;
+    const uint8_t slot = _rreq_forward_rr;
+    _rreq_forward_rr = static_cast<uint8_t>((_rreq_forward_rr + 1) % kRreqForwardSlots);
+    RreqForwardStash& st = _rreq_forward_stash[slot];
+    for (size_t i = 0; i < n; ++i) st.buf[i] = buf[i];
+    st.len = static_cast<uint8_t>(n);
+    const uint32_t jit = static_cast<uint32_t>(_hal.rand_range(protocol::rreq_forward_jitter_min_ms,
+                                                               protocol::rreq_forward_jitter_max_ms + 1));
+    (void)_hal.after(jit, kRreqForwardTimerId + slot);
+}
+
+// §F-XL-2: fire a de-stormed (jittered) rreq_forward from its ring slot. The frame is self-contained (leaf_id / team
+// scope packed in), so it tx's regardless of the currently-active layer. A slot with len==0 has already fired / never armed.
+void Node::rreq_forward_fire(uint8_t slot) {
+    if (slot >= kRreqForwardSlots) return;
+    RreqForwardStash& st = _rreq_forward_stash[slot];
+    if (st.len == 0) return;
+    tx_initiating(st.buf, st.len, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
+    st.len = 0;
+}
+
 // Originate an RREQ for `dst` (Lua emit_route_request). relay=self (we are the first forwarder).
 void Node::emit_route_request(uint8_t dst, uint8_t ttl, bool team_plane) {
 #if MR_FEAT_TEAM
@@ -266,7 +298,8 @@ void Node::handle_f(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         fwd.config_hash = f.config_hash;                          // preserve the originator's fingerprint (gate-passed -> == ours)
         uint8_t buf[16];
         const size_t n = pack_f(fwd, std::span<uint8_t>(buf, sizeof(buf)));
-        if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
+        if (n) { if (fwd.ttl_or_next_hop > 0) rreq_forward_stash(buf, n);       // §F-XL-2: de-storm a PROPAGATING forward (jitter so sibling relays don't collide same-ms; LBT defers the later)
+                 else tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0); }  // a TERMINAL forward (ttl now 0) never re-propagates -> no downstream collision to de-storm -> send now
     } else {                                               // ----------------- RREP -----------------
         if (f.ttl_or_next_hop != _node_id) return;         // unicast: only the addressed next-hop acts
         // Loop/over-cap backstop: unlike the RREQ (TTL-bounded + rreq_seen-deduped), the unicast RREP relay had NO
@@ -346,7 +379,8 @@ void Node::handle_f_team(const f_out& f, const RxMeta& meta) {
         fwd.config_hash = f.config_hash; fwd.team_scoped = true; fwd.team_id = f.team_id;   // preserve the TEAM scope across the forward
         uint8_t buf[16];
         const size_t n = pack_f(fwd, std::span<uint8_t>(buf, sizeof(buf)));
-        if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
+        if (n) { if (fwd.ttl_or_next_hop > 0) rreq_forward_stash(buf, n);       // §F-XL-2: same de-storm as the static path (propagating forward only; shared self-contained-frame ring)
+                 else tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0); }  // terminal team forward -> send now
     } else {                                               // ----------------- team RREP -----------------
         if (f.ttl_or_next_hop != me) return;                                           // unicast: only the addressed next-hop acts
         if (f.hops > static_cast<uint8_t>(2 * _cfg.dv_hop_cap)) { MR_EMIT("rrep_drop_hop_cap", EF_I("origin", f.origin), EF_I("dst", f.dst_id), EF_I("hops", f.hops)); return; }

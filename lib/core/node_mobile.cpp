@@ -46,8 +46,10 @@ void Node::mobile_discover_fire() {
     }
     j_discover_in d{}; d.leaf_id = _cfg.leaf_id; d.gateway_capable = false; d.is_mobile = true; d.key_hash32 = _key_hash32;
     // §S6 D10: carry the last home (id/layer/epoch) so a NEW home can originate the old-home notify. 0/0/0 = fresh.
-    if (_my_mobile_reg.home_id != 0) { d.last_home_id = _my_mobile_reg.home_id; d.last_home_layer = _my_mobile_reg.home_leaf_id; d.last_reg_epoch = static_cast<uint8_t>(_my_mobile_reg.epoch); }
-    uint8_t buf[9]; const size_t n = pack_j_discover(d, std::span<uint8_t>(buf, sizeof buf));
+    // §B4: + the old home's HASH so the new home can address a CROSS-LAYER breadcrumb by hash (we know it from our reg).
+    if (_my_mobile_reg.home_id != 0) { d.last_home_id = _my_mobile_reg.home_id; d.last_home_layer = _my_mobile_reg.home_leaf_id;
+                                       d.last_reg_epoch = static_cast<uint8_t>(_my_mobile_reg.epoch); d.last_home_key_hash32 = _my_mobile_reg.home_key_hash32; }
+    uint8_t buf[13]; const size_t n = pack_j_discover(d, std::span<uint8_t>(buf, sizeof buf));
     if (n) {
         MR_EMIT("mobile_discover_tx", EF_I("key", static_cast<int64_t>(_key_hash32)));
         tx_initiating(buf, n, static_cast<int16_t>(phy.routing_sf), LbtKind::flood, 0);
@@ -284,6 +286,17 @@ void Node::presence_ingest_roster(const uint8_t* frame, size_t len, const RxMeta
     if (!_cfg.is_mobile) return;
     auto r = parse_p_roster(std::span<const uint8_t>(frame, len));
     if (!r) return;
+    if (r->wire_version != protocol::wire_version) {   // §D16: a foreign-wire roster -> DROP before interpreting any field (the P-plane's own version wall)
+        presence_mark_incompatible(r->home_id, r->home_layer);   // FSM B/C never DISCOVERs at this home (no wasted J rounds)
+        const uint64_t now = _hal.now();               // surface the mobile-flavored join_refused (rate-limited like the beacon path)
+        if (_last_join_refused_ms == 0 || now - _last_join_refused_ms >= protocol::join_refused_retry_ms) {
+            _last_join_refused_ms = now;
+            Push pu{}; pu.kind = PushKind::join_refused; pu.join_reason = JoinRefuseReason::wire_version;
+            pu.origin = r->wire_version; pu.dst = protocol::wire_version; enqueue_push(pu);
+            MR_EMIT("join_refused", EF_S("reason", "wire_version"), EF_I("their_ver", r->wire_version), EF_I("my_ver", protocol::wire_version));
+        }
+        return;
+    }
     const int16_t snr_q4 = protocol::db_to_q4(meta.snr_db);
     if (_my_mobile_reg.active && r->home_id == _my_mobile_reg.home_id && r->home_layer == _my_mobile_reg.home_leaf_id) {
         int mine = -1;
@@ -303,6 +316,10 @@ void Node::presence_ingest_roster(const uint8_t* frame, size_t len, const RxMeta
                 _presence_home_rx_q4 = (_presence_home_rx_q4 == 0) ? snr_q4                 // D14: home->me direction (my RX EWMA of the home's roster)
                                        : static_cast<int16_t>(_presence_home_rx_q4 + (((snr_q4 - _presence_home_rx_q4) * protocol::snr_ewma_alpha_q4) >> 4));
                 if (e->has_key) _presence_key_confirmed = true;
+                if (e->deleg_fail) {   // §B2: the home dropped a delegated send for us (loud, one-shot) -> surface send_failed{no_route} to the app's back-off
+                    MR_EMIT("presence_deleg_fail", EF_I("home", r->home_id));
+                    Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::no_route; enqueue_push(pu);
+                }
                 _presence_prescan = (e->quality <= protocol::presence_q_weak);
                 // dynamic T (§S6.3): strong -> min(4·base,max) · ok -> base · weak/critical -> min
                 _presence_T_ms = (e->quality == protocol::presence_q_strong)
@@ -349,6 +366,18 @@ void Node::presence_note_candidate(uint8_t home_id, uint8_t home_layer, int16_t 
     _presence_cand[slot] = { home_id, home_layer, snr_q4, /*echo_tier=*/0xFF, now, now };
 }
 
+// §D16: a wrong-wire_version roster from this home -> mark the candidate INCOMPATIBLE (find-or-add). presence_maybe_rehome
+// skips incompatible candidates, so a foreign-firmware home is never a re-home/DISCOVER target (spec D16 (b)).
+void Node::presence_mark_incompatible(uint8_t home_id, uint8_t home_layer) {
+    if (!_cfg.is_mobile || home_id == 0) return;
+    for (uint8_t i = 0; i < _presence_cand_n; ++i)
+        if (_presence_cand[i].home_id == home_id && _presence_cand[i].home_layer == home_layer) { _presence_cand[i].incompatible = true; return; }
+    const uint64_t now = _hal.now();
+    uint8_t slot = _presence_cand_n < protocol::cap_presence_candidates ? _presence_cand_n++ : 0;
+    _presence_cand[slot] = { home_id, home_layer, /*snr_q4=*/0, /*echo_tier=*/0xFF, now, now };
+    _presence_cand[slot].incompatible = true;
+}
+
 // §S6.4-C: a candidate sustainedly >= presence_rehome_tier_delta tiers better than my (weak) home, held >= candidate_hold,
 // AND the anti-flap dwell elapsed -> a VOLUNTARY re-home = reset + re-DISCOVER (the FSM adopts the STRONGEST OFFER).
 void Node::presence_maybe_rehome() {
@@ -358,6 +387,7 @@ void Node::presence_maybe_rehome() {
     // D14 current-home bottleneck = WORSE of (home->me = my RX EWMA of its rosters) and (me->home = my roster tier).
     const uint8_t home_worst = std::min<uint8_t>(protocol::presence_quality_tier(_presence_home_rx_q4), _presence_my_tier);
     for (uint8_t i = 0; i < _presence_cand_n; ++i) {
+        if (_presence_cand[i].incompatible) continue;                                       // §D16: wrong-wire_version home -> never DISCOVER at it
         if (_presence_cand[i].home_id == _my_mobile_reg.home_id) continue;
         if (_presence_cand[i].home_layer != active_layer_id()) continue;                    // same-PHY candidates only (cross-layer proactive re-home deferred)
         // D14 candidate bottleneck = WORSE of (cand->me = my RX of its roster) and (me->cand = its echo, if known).

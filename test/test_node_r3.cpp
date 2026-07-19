@@ -55,7 +55,8 @@ public:
     uint32_t _slop = 0;                                                   // §CTS-wait: settable metal turnaround slop (rx_window_slop_ms)
     uint32_t rx_window_slop_ms(int) const override { return _slop; }
     uint32_t last_after_delay[16] = {};                                   // §CTS-wait: last after() delay per timer id (id<16)
-    bool     after(uint32_t d, uint32_t id) override { if (id < 16) last_after_delay[id] = d; return true; }
+    std::vector<std::pair<uint32_t, uint32_t>> armed;                     // §F-XL-2: (delay_ms, timer_id) captured from after() (any id)
+    bool     after(uint32_t d, uint32_t id) override { if (id < 16) last_after_delay[id] = d; armed.emplace_back(d, id); return true; }
     void     cancel(uint32_t) override {}
     void     set_protocol_id(int) override {}
     int      _rand_ret = -1;   // opt-in scriptable rand (>=0 overrides the default `return lo`; -1 = default)
@@ -111,6 +112,15 @@ constexpr uint32_t kLbtDeferTimerId      = 15;    // R4.5 LBT busy-channel defer
 constexpr uint32_t kRadioBusyRetryTimerId = 19;   // R4.5b on_radio_busy stash-retry (slot base)
 constexpr uint32_t kDutyDeferTimerId      = 23;   // #2 tx_with_retry duty-defer re-run (slot base)
 constexpr uint32_t kRtsDutyDeferTimerId   = 31;   // #A redo: over-budget RTS duty-defer re-check/hand
+constexpr uint32_t kRreqForwardTimerBase  = 85;   // §F-XL-2: rreq_forward de-storm ring [85..88]
+constexpr uint32_t kRreqForwardSlots      = 4;
+
+// §F-XL-2: an RREQ relay no longer re-broadcasts immediately — it stashes the built frame + arms a jittered timer
+// (kRreqForwardTimerBase+slot). TestHal never auto-fires, so a test expecting the re-broadcast on-air must drive the
+// ring (a spent/never-armed slot is a no-op). Mirrors fire_h_forwards in test_node_hashlocate.cpp.
+static void fire_rreq_forwards(Node& node) {
+    for (uint32_t id = kRreqForwardTimerBase; id < kRreqForwardTimerBase + kRreqForwardSlots; ++id) node.on_timer(id);
+}
 
 static size_t mk_nack(uint8_t to, uint8_t ctr_lo, uint8_t reason, uint8_t payload,
                       std::array<uint8_t, 8>& b) {
@@ -3026,6 +3036,7 @@ TEST_CASE("F RREQ relayed (no route) -> reverse path + ttl-decremented rebroadca
     in.dst_id = 20; in.ttl_or_next_hop = 4; in.hops = 1; in.relay = 3;
     uint8_t buf[16]; const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
     hal._now = 1000; node.on_recv(buf, n, meta);
+    fire_rreq_forwards(node);                                // §F-XL-2: release the jittered (stashed) rreq_forward
 
     bool saw_rev = false; for (const auto& e : hal.events) if (e.type == "rt_update" && e.dst == 10) saw_rev = true;
     CHECK(saw_rev);
@@ -3075,6 +3086,7 @@ TEST_CASE("M4 — RREQ with hops==255 does NOT create a 0-hop poison route (dv_h
     ok.dst_id = 20; ok.ttl_or_next_hop = 4; ok.hops = 1; ok.relay = 3;
     uint8_t obuf[16]; const size_t on = pack_f(ok, std::span<uint8_t>(obuf, sizeof(obuf)));
     hal._now = 2000; node.on_recv(obuf, on, meta);
+    fire_rreq_forwards(node);                               // §F-XL-2: release the jittered (stashed) rreq_forward
     const RtEntry* e11 = find_rt(11);
     CHECK(e11 != nullptr);
     if (e11) { CHECK(e11->n >= 1); CHECK(e11->candidates[0].hops == 2); }   // f.hops(1)+1 = a sane 2, not 0
@@ -3126,9 +3138,62 @@ TEST_CASE("R6.1 F-gate — a divergent-config F is dropped + NOT relayed; matchi
     CHECK(hal.count("leaf_config_conflict") >= 1);
     // (2) MATCHING F -> processed: reverse path + rebroadcast.
     hal._now = 2000; feed_rreq(my_hash, /*origin=*/11);
+    fire_rreq_forwards(node);                                // §F-XL-2: release the jittered (stashed) rreq_forward
     bool rev11 = false; for (const auto& e : hal.events) if (e.type == "rt_update" && e.dst == 11) rev11 = true;
     CHECK(rev11);
     CHECK(count_rreq() == 1);
+}
+
+// §F-XL-2 (2026-07-19): a PROPAGATING RREQ forward (forwarded ttl > 0) is de-stormed — stashed + fired after a small
+// delay in [rreq_forward_jitter_min_ms, max_ms] (the ring id band [85..88]) — NOT re-tx'd at the receive instant, so
+// sibling relays that heard the same flood don't collide at the identical ms. The fired frame is byte-identical to the
+// immediate tx (same pack_f bytes). A TERMINAL forward (forwarded ttl == 0) is NOT de-stormed (nothing re-propagates
+// past it) -> it tx's immediately. The team plane shares the same ring + gate.
+TEST_CASE("§F-XL-2 — a propagating RREQ forward is jittered (in-window) + byte-identical; a terminal forward is immediate") {
+    auto count_rreq = [](TestHal& h){ int c = 0; for (const auto& tf : h.tx_frames) {
+        auto p = parse_f(std::span<const uint8_t>(tf.bytes.data(), tf.bytes.size())); if (p && !p->is_reply) ++c; } return c; };
+
+    // (1) PROPAGATING forward (rx ttl=4 -> fwd ttl=3): stashed, not immediate.
+    TestHal hal;
+    Node node(hal, /*node_id=*/5, /*key_hash32=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.peer_count = 0;
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    f_in in{}; in.leaf_id = 0; in.origin = 10; in.is_reply = false;
+    in.dst_id = 20; in.ttl_or_next_hop = 4; in.hops = 1; in.relay = 3;
+    uint8_t buf[16]; const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
+    hal._now = 1000; node.on_recv(buf, n, meta);
+    CHECK(count_rreq(hal) == 0);                             // NOT re-tx'd at the receive instant (de-stormed)
+    uint32_t delay = 0; bool armed_ring = false;
+    for (auto& [d, id] : hal.armed) if (id >= kRreqForwardTimerBase && id < kRreqForwardTimerBase + kRreqForwardSlots) { delay = d; armed_ring = true; }
+    CHECK(armed_ring);
+    CHECK(delay >= protocol::rreq_forward_jitter_min_ms);
+    CHECK(delay <= protocol::rreq_forward_jitter_max_ms);
+    fire_rreq_forwards(node);                                // release the stash
+    CHECK(count_rreq(hal) == 1);                             // now on-air
+    // byte-identity: the fired frame equals the immediate pack_f of the same forward
+    f_in ref{}; ref.leaf_id = 0; ref.origin = 10; ref.is_reply = false;
+    ref.dst_id = 20; ref.ttl_or_next_hop = 3; ref.hops = 2; ref.relay = 5;   // ttl 4->3, hops 1->2, relay=us
+    uint8_t rbuf[16]; const size_t rn = pack_f(ref, std::span<uint8_t>(rbuf, sizeof(rbuf)));
+    const TxFrame* fwd_tx = nullptr;
+    for (const auto& tf : hal.tx_frames) { auto p = parse_f(std::span<const uint8_t>(tf.bytes.data(), tf.bytes.size())); if (p && !p->is_reply) fwd_tx = &tf; }
+    CHECK(fwd_tx != nullptr);
+    if (fwd_tx) {
+        CHECK(fwd_tx->bytes.size() == rn);
+        if (fwd_tx->bytes.size() == rn) { bool same = true; for (size_t i = 0; i < rn; ++i) if (fwd_tx->bytes[i] != rbuf[i]) same = false; CHECK(same); }
+    }
+
+    // (2) TERMINAL forward (rx ttl=1 -> fwd ttl=0): immediate, NO ring timer armed.
+    TestHal hal2;
+    Node node2(hal2, /*node_id=*/5, /*key_hash32=*/0xBEEF);
+    node2.on_init(cfg);
+    f_in t{}; t.leaf_id = 0; t.origin = 12; t.is_reply = false;
+    t.dst_id = 22; t.ttl_or_next_hop = 1; t.hops = 1; t.relay = 3;
+    uint8_t tbuf[16]; const size_t tn = pack_f(t, std::span<uint8_t>(tbuf, sizeof(tbuf)));
+    hal2._now = 1000; node2.on_recv(tbuf, tn, meta);
+    CHECK(count_rreq(hal2) == 1);                            // terminal forward tx'd IMMEDIATELY
+    bool ring2 = false; for (auto& [d, id] : hal2.armed) { (void)d; if (id >= kRreqForwardTimerBase && id < kRreqForwardTimerBase + kRreqForwardSlots) ring2 = true; }
+    CHECK_FALSE(ring2);                                      // no de-storm timer for a terminal forward
 }
 
 TEST_CASE("F RREP addressed to the origin -> forward path + rrep_arrived") {

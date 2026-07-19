@@ -580,6 +580,7 @@ void setup() {
         cfg.is_mobile         = nv.is_mobile != 0;    cfg.leaf_id      = nv.leaf_id;
         cfg.team_id           = nv.team_id;           // §mobile 6.1: team-id overlay (0 = no team)
         cfg.mobile_autoregister = nv.mobile_autoregister != 0;   // §mobile console: autonomy toggle (a valid v18 NV was seeded from the ON default)
+        cfg.intro_attach      = nv.intro_attach != 0;            // §S2: first-contact INTRO auto-attach (a valid v21 NV was seeded from the ON default)
         g_ble_mode            = nv.ble_mode;          g_ble_period_min = nv.ble_period_min;      // v7 BLE policy (only v7 blobs load)
         g_ble_pin             = nv.ble_pin;
         cfg.loc_in_dm         = (nv.loc_in_dm != 0);                                                // v9 location piggyback toggle
@@ -821,6 +822,7 @@ static void persist_cfg_if_needed() {
         b.lbt = nc.lbt_enabled ? 1 : 0; b.tx_power = g_tx_power;
         b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;   // v6 role/topology
         b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;  b.team_id = nc.team_id; b.mobile_autoregister = nc.mobile_autoregister ? 1 : 0; b.team_local_id = g_node.team_local_id();   // §mobile: preserve team + autoreg + team-DAD id across create/join
+        b.intro_attach = nc.intro_attach ? 1 : 0;   // v21 §S2: preserve the first-contact INTRO toggle across create/join
         b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;        // v7 BLE policy (live globals)
         b.ble_pin    = g_ble_pin;
         b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;                  // v9 location toggle (seed from the live config)

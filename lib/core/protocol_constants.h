@@ -252,7 +252,28 @@ inline constexpr uint8_t  cap_hash_query_seen           = 64;
 // negligible. (Third instance of the same-ms disease: mobile OFFERs -> S6 stash; probes/rosters -> by design.)
 inline constexpr uint16_t h_forward_jitter_min_ms       = 20;
 inline constexpr uint16_t h_forward_jitter_max_ms       = 150;
+// F-XL-2 (2026-07-19): rreq_forward de-storm — the IDENTICAL zero-jitter disease as F-XL-1, on the AODV RREQ relay
+// (node_route_discovery.cpp: static + team). Sibling relays that heard the SAME RREQ flood re-broadcast it at the
+// identical ms -> deterministic collision at any common/downstream receiver (no capture). A small per-relay delay
+// decorrelates them; the existing LBT then defers the later one. RREQ is on the CRITICAL PATH of a first send (route
+// discovery gates the parked DM), so the window is TIGHTER than F-XL-1's H-flood. ★ Unlike F-XL-1, the delay is
+// DETERMINISTIC (a frame-byte mix — sibling relays differ in their `relay` id byte, so always land apart), NOT a
+// rand_range() draw: RREQ discovery gates timing-fragile cross-layer deliveries, and consuming a shared-mt19937 draw
+// on this hot path reorders the whole downstream sequence -> a phantom delivery flip with no functional cause. The
+// frame-derived spread breaks the same-ms tie without perturbing the RNG order. See rreq_forward_stash for the rationale.
+inline constexpr uint16_t rreq_forward_jitter_min_ms    = 10;
+inline constexpr uint16_t rreq_forward_jitter_max_ms    = 80;
 inline constexpr uint8_t  cap_parked_sends              = 8;       // send-by-hash DMs parked awaiting a hash-bind
+// F-SL-1 (2026-07-19): bounded re-flood retry for a parked unresolved send. The park path fires ONE soft H at park
+// time; in a QUIET net that single flood can die (RX timing) and the parked send ages out to send_hash_giveup (~TTL)
+// with NO retry — the failure hits any sender whose contact RE-HOMED (s27 post-m2). Re-emit the H every
+// park_reflood_retry_ms while parked, bounded to park_reflood_max_retries, with a DETERMINISTIC per-(hash,node,try)
+// jitter of ≤ park_reflood_jitter_ms (batch B: the re-fire must not land on a fixed beat that re-collides). The jitter
+// is deterministic (NOT a shared-mt19937 draw) — see park_reflood_fire for why. The send_defer_ttl_ms giveup still
+// fires (bounded, no runaway). No park-time draw either: the FIRST deadline is a fixed offset (park times differ).
+inline constexpr uint32_t park_reflood_retry_ms         = send_defer_ttl_ms / 3;   // 10s @ TTL 30s -> up to 2 retries inside the window
+inline constexpr uint16_t park_reflood_jitter_ms        = 3000;    // deterministic spread ceiling (break the fixed re-fire beat)
+inline constexpr uint8_t  park_reflood_max_retries      = 2;       // bounded; TTL/3 spacing lands the retries before the giveup
 
 // ---- Channel-message gossip plane (ROADMAP §3) -----------------------------
 // Single-layer only — gateways skip the whole plane (Principle 11). Phase 1 = the

@@ -363,7 +363,7 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             for (uint8_t i = 0; i < _active->_notify_pending_n; ++i)
                 if (_active->_notify_pending[i].mobile_hash == j.key_hash32) { ni = i; break; }
             if (ni < 0) { ni = (_active->_notify_pending_n < protocol::cap_host_mobiles) ? _active->_notify_pending_n++ : 0; }
-            _active->_notify_pending[ni] = { j.key_hash32, j.last_home_id, j.last_home_layer };
+            _active->_notify_pending[ni] = { j.key_hash32, j.last_home_id, j.last_home_layer, j.last_home_key_hash32 };   // §B4: + old-home hash for a cross-layer breadcrumb
         }
         uint8_t buf[13]; const size_t n = pack_j_offer(off, std::span<uint8_t>(buf, sizeof buf));
         if (n) {
@@ -653,6 +653,17 @@ void Node::presence_roster_fire() {
 }
 
 // Build + LBT-broadcast the roster from the host registry + the per-mobile quality tier + has_key + dir_epoch.
+// §B2: a delegated send this home tried to route for a hosted mobile failed LOUD (no gateway / bad path). Set the
+// per-entry deleg_fail bit + schedule a coalesced roster; the mobile seeing ITS bit fires send_failed{no_route} once.
+void Node::presence_mark_deleg_fail(uint32_t mobile_hash) {
+    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+        if (_active->_mobile_reg[i].key_hash32 == mobile_hash) {
+            _active->_mobile_reg[i].deleg_fail = true;
+            presence_schedule_roster();
+            return;
+        }
+}
+
 void Node::presence_emit_roster() {
     if (_node_id == 0) return;                                       // §S6/QA-1: never broadcast a roster with home_id=0 garbage while mid-join/unprovisioned (SAME suspend as the OFFER gate)
     if (_active->_mobile_reg_n == 0 && !_active->_roster_echo_pending) return;   // §S6 rev2: an EMPTY home still answers a searching-probe canvass (echo only)
@@ -664,10 +675,11 @@ void Node::presence_emit_roster() {
         ents[n].reg_epoch  = static_cast<uint8_t>(_active->_mobile_reg[i].epoch);
         ents[n].quality    = protocol::presence_quality_tier(_active->_mobile_snr_q4[i]);
         ents[n].has_key    = _active->_mobile_reg[i].has_pubkey;
+        ents[n].deleg_fail = _active->_mobile_reg[i].deleg_fail;   // §B2: a delegated send this home dropped loud (one-shot; cleared below after this roster carries it)
         ++n;
     }
     p_roster_in in{}; in.home_id = _node_id; in.home_layer = active_layer_id();
-    in.dir_epoch = presence_compute_dir_epoch(); in.entries = ents; in.count = n;
+    in.dir_epoch = presence_compute_dir_epoch(); in.wire_version = protocol::wire_version; in.entries = ents; in.count = n;   // §D16
     if (_active->_roster_echo_pending) { in.has_echo = true; in.echo_hash32 = _active->_roster_echo_hash; in.echo_quality = _active->_roster_echo_q; }
     uint8_t buf[protocol::lora_max_frame_bytes];
     const size_t sz = pack_p_roster(in, std::span<uint8_t>(buf, sizeof buf));
@@ -675,6 +687,7 @@ void Node::presence_emit_roster() {
         _active->_last_roster_ms = _hal.now();
         MR_EMIT("presence_roster_tx", EF_I("count", n), EF_I("home", _node_id), EF_I("echo", _active->_roster_echo_pending ? 1 : 0));
         tx_initiating(buf, sz, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
+        for (uint8_t i = 0; i < n; ++i) _active->_mobile_reg[i].deleg_fail = false;   // §B2: one-shot — this roster carried the bit (entry i maps 1:1 to _mobile_reg[i]); a probe between set and here just re-fires the roster
     }
     _active->_roster_echo_pending = false;                          // one echo per window (consumed)
 }
@@ -687,17 +700,26 @@ void Node::presence_notify_old_home(uint32_t mobile_hash, uint8_t /*new_local_id
         if (_active->_notify_pending[i].mobile_hash != mobile_hash) continue;
         const uint8_t old_home  = _active->_notify_pending[i].last_home_id;
         const uint8_t old_layer = _active->_notify_pending[i].last_home_layer;
+        const uint32_t old_hash = _active->_notify_pending[i].last_home_hash;
         // remove the entry (swap-with-last)
         _active->_notify_pending[i] = _active->_notify_pending[--_active->_notify_pending_n];
         if (old_home == 0 || old_home == _node_id) return;           // fresh / self -> nothing to notify
-        // CROSS-LAYER old home (old_layer != ours): DEFERRED — originate_layer_path is HASH-addressed and the
-        // breadcrumb carries only the old home's id+layer, not its key_hash32. Same-layer (the common re-home) is
-        // routed by id below; the dead-home cross-layer case self-heals via the mobile_liveness prune (spec §S6.4-D).
-        if (old_layer != active_layer_id() && old_layer != 0) {
-            MR_EMIT("presence_notify_xl_deferred", EF_I("old_home", old_home), EF_I("old_layer", old_layer));
+        uint8_t body[3] = { _node_id, static_cast<uint8_t>(new_epoch), active_layer_id() };   // new_home_id/new_epoch/new_home_layer
+        // §B4: CROSS-LAYER old home (old_layer != ours) — S1 UNBLOCKED this. Address the breadcrumb BY HASH (the mobile
+        // carried its old home's hash in the +4-B j_discover block) via a bridging gateway; SOURCE_HASH = the mobile so the
+        // old home's redirect machinery attributes it. Best-effort: no gateway / no hash -> drop (a dead old home can't
+        // black-hole; the mobile_liveness prune backstops an alive-but-unreachable one, spec §S6.4-D). Never park an ack.
+        if (old_layer != 0 && old_layer != active_layer_id()) {
+            const uint8_t target_leaf = static_cast<uint8_t>(old_layer & 0x0F);
+            const uint8_t gw = old_hash ? select_gateway_for_leaf(target_leaf) : 0;
+            if (gw == 0) { MR_EMIT("presence_notify_xl_no_route", EF_I("old_home", old_home), EF_I("old_layer", old_layer)); return; }
+            const uint8_t ids[2] = { active_layer_id(), old_layer };   // path [our_layer, old_layer], cur=1
+            (void)enqueue_cross_layer(gw, old_hash, ids, /*n_layers=*/2, /*cur=*/1, body, 3, /*flags=*/0,
+                                      /*out_ctr=*/nullptr, DATA_TYPE_MOBILE_BREADCRUMB, /*override_source_hash=*/mobile_hash);
+            MR_EMIT("presence_notify_xl_tx", EF_I("old_home", old_home), EF_I("old_layer", old_layer), EF_I("new_home", _node_id));
             return;
         }
-        uint8_t body[3] = { _node_id, static_cast<uint8_t>(new_epoch), active_layer_id() };   // new_home_id/new_epoch/new_home_layer
+        // Same-layer old home (the common re-home): routed by id.
         (void)enqueue_data(old_home, body, 3, DATA_FLAG_SOURCE_HASH, "presence_notify",
                            /*app_dm=*/false, DATA_TYPE_MOBILE_BREADCRUMB, CryptIntent::off,
                            /*override_dst_hash=*/0, /*override_source_hash=*/mobile_hash);

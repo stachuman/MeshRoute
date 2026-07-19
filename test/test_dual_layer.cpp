@@ -13,6 +13,7 @@
 #include "node.h"
 #include "frame_codec.h"   // Slice 3e: parse_beacon / parse_beacon_schedule to verify the gateway's advertised schedule
 #include "airtime.h"       // §3e: re-derive exchange_airtime_ms from the airtime_ms primitive
+#include "identity.h"      // §S2: Identity / identity_from_seed — self-consistent ed_pub for the INTRO receive/attach tests
 
 using namespace meshroute;
 
@@ -226,6 +227,19 @@ struct DualLayerTestAccess {
         pa.inner[4] = origin; pa.inner[5] = 0xAA; pa.inner_len = 6;   // [dst_hash 4B LE][origin][body]
         n.do_post_ack();
     }
+    static void     drive_post_ack_intro(Node& n, uint8_t origin, uint32_t src_hash, const uint8_t* body, uint8_t body_len) {   // §S2: a received INTRO (type 15) addressed to US: inner = [dst_hash 4][origin][source_hash 4][body...]
+        auto& pa = n._active->_post_ack; pa = PostAck{};
+        pa.pending = true; pa.is_forward = false; pa.origin = origin; pa.dst = n._node_id;
+        pa.ctr = 0x1234; pa.ctr_lo = 4; pa.flags = DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH; pa.type = DATA_TYPE_INTRO;
+        uint8_t o = 0; const uint32_t dh = n._key_hash32;   // addressed to US (dst_hash == our key -> not misdelivery)
+        pa.inner[o++]=static_cast<uint8_t>(dh); pa.inner[o++]=static_cast<uint8_t>(dh>>8); pa.inner[o++]=static_cast<uint8_t>(dh>>16); pa.inner[o++]=static_cast<uint8_t>(dh>>24);
+        pa.inner[o++]=origin;
+        pa.inner[o++]=static_cast<uint8_t>(src_hash); pa.inner[o++]=static_cast<uint8_t>(src_hash>>8); pa.inner[o++]=static_cast<uint8_t>(src_hash>>16); pa.inner[o++]=static_cast<uint8_t>(src_hash>>24);
+        for (uint8_t i = 0; i < body_len; ++i) pa.inner[o++] = body[i];
+        pa.inner_len = o;
+        n.do_post_ack();
+    }
+    static uint16_t send_by_hash_intent(Node& n, uint32_t h, const uint8_t* body, uint8_t len, CryptIntent ci) { return n.send_by_hash(h, body, len, 0, ci); }   // §S2: drive a plaintext/crypted hash send (attach decision)
     static const PendingTx* pending(Node& n) { return n._active->_pending_tx ? &*n._active->_pending_tx : nullptr; }  // §mobile 3a: the in-flight item (after become_free issues the forward)
     static void     make_registered_mobile(Node& n, uint8_t local_id, uint8_t home_id, uint32_t home_hash) {   // §mobile 3b: a mobile that has adopted a local-id + homed
         n._cfg.is_mobile = true; n.set_identity(local_id, n._key_hash32); n._joined = true;
@@ -253,6 +267,11 @@ struct DualLayerTestAccess {
         uint8_t s = n._presence_cand_n < protocol::cap_presence_candidates ? n._presence_cand_n++ : 0;
         n._presence_cand[s] = { home_id, layer, snr_q4, echo_tier, first_seen, first_seen }; }
     static void     presence_maybe_rehome(Node& n) { n.presence_maybe_rehome(); }
+    static void     mark_deleg_fail(Node& n, uint32_t mobile_hash) { n.presence_mark_deleg_fail(mobile_hash); }   // §B2: set a hosted mobile's deleg_fail + schedule a roster
+    static bool     mobile_reg_deleg_fail(Node& n, uint8_t slot) { return n._active->_mobile_reg[slot].deleg_fail; }   // §B2: inspect the one-shot bit
+    static void     stash_notify(Node& n, uint32_t mobile_hash, uint8_t old_home, uint8_t old_layer, uint32_t old_hash) {   // §B4: seed a pending old-home notify (skip the DISCOVER/CLAIM dance)
+        auto& L = *n._active; L._notify_pending[L._notify_pending_n++] = { mobile_hash, old_home, old_layer, old_hash }; }
+    static void     notify_old_home(Node& n, uint32_t mobile_hash, uint16_t epoch) { n.presence_notify_old_home(mobile_hash, 0, epoch); }   // §B4: drive the breadcrumb origination
     static uint8_t  mobile_reg_redirect(Node& n, uint8_t slot) { return n._active->_mobile_reg[slot].redirect_home_id; }  // §mobile 4b
     static void     set_mobile_last_heard(Node& n, uint8_t slot, uint64_t ms) { n._active->_mobile_reg[slot].last_heard_ms = ms; }  // §mobile hash-locate: age/refresh the liveness clock
     static uint8_t  mobile_reg_n(Node& n) { return n._active->_mobile_reg_n; }  // §mobile Part 2: count of hosted mobiles
@@ -1291,29 +1310,59 @@ TEST_CASE("dual-layer origination: send_layer parks a cross-layer send + floods 
     CHECK(hal.last_tx_len > 0);                               // an H query went out
 }
 
-// R1 (review ship-blocker): cross-layer DM origination has NO CRYPTED in v1 (same-layer only). A node with
-// e2e_dm ON must REFUSE send_layer loudly — NOT silently park/originate a CLEARTEXT cross-layer DATA (which is
-// what enqueue_cross_layer does, ignoring _cfg.e2e_dm). Both sub-paths (park-first hop_count==0 + explicit-path
-// hop_count>0) must return err_unsupported with nothing parked and no H flood.
-TEST_CASE("R1 fail-loud: e2e_dm refuses cross-layer send_layer (v1 same-layer CRYPTED only — NEVER cleartext)") {
-    StubHal hal; hal._now = 10000;
-    Node x(hal, /*id*/ 7, 0x7777u);
+// §S4 (was "R1 fail-loud"): the v1 e2e_dm-refuses-send_layer choke is LIFTED. An e2e_dm node now SEALS the
+// cross-layer send — it rides DATA_TYPE_SEALED_RELAY (a PLAINTEXT-framed frame carrying a SEALED body sealed to
+// the target HERE, before the frame ctr exists; the frame ctr stays the originator's for MAC dedup). Fail-loud is
+// preserved: hop_count==0 (no explicit path) and a missing recipient pubkey both refuse — NEVER a cleartext DM.
+TEST_CASE("§S4 send_layer seals under e2e_dm: DATA_TYPE_SEALED_RELAY (the v1 refusal is lifted; fail-loud on no-path / no-key)") {
+    // a bridging gateway G (serves leaves 1+2) beacons -> X learns its schedule + a route.
+    StubHal ghal; ghal._now = 10000;
+    Node gw(ghal, /*id*/ 1, 0xABCDu);
+    NodeConfig gcfg; gcfg.n_layers = 2;
+    gcfg.layers[0] = good_layer(1, 8); gcfg.layers[0].node_id = 5;
+    gcfg.layers[1] = good_layer(2, 8); gcfg.layers[1].node_id = 12;
+    CHECK(gw.on_init(gcfg)); CHECK(ghal.last_tx_len > 0);
+    StubHal hal; hal._now = 50000; hal._rand_ret = 7;   // non-zero seed bytes (the crypto RNG never returns all-zero -> R7)
+    uint8_t sX[32], sY[32]; for (int i = 0; i < 32; ++i) { sX[i] = uint8_t(i + 3); sY[i] = uint8_t(80 - i); }
+    Identity idX{}, idY{}; identity_from_seed(idX, sX); identity_from_seed(idY, sY);
+    Node x(hal, /*id*/ 7, idX.key_hash32);
     NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
-    cfg.e2e_dm = true;                                         // E2E on: no cross-layer CRYPTED in v1 -> must REFUSE
-    CHECK(x.on_init(cfg));
-    hal.last_tx_len = 0;
+    cfg.e2e_dm = true;                                          // E2E on -> send_layer SEALS (no longer refused)
+    CHECK(x.on_init(cfg)); x.set_crypto_identity(idX.x_secret, idX.ed_pub);
+    RxMeta meta{}; meta.snr_db = 9.0f; meta.rssi_dbm = -70.0f; meta.recv_ms = hal._now; meta.src_hint = -1;
+    x.on_recv(ghal.last_tx, ghal.last_tx_len, meta);
+    CHECK(x.rt_count() >= 1);
     const char* body = "hi";
-    // park-first sub-path (hop_count == 0): pre-fix would PARK + flood an H query (a silent cleartext-bound accept).
-    Command c0{}; c0.kind = CmdKind::send_layer; c0.u.layer.dst_hash = 0x9999u; c0.u.layer.hop_count = 0;
+    // (a) hop_count == 0 under want_crypt -> REFUSE (a sealed XL needs an explicit path; no park+H-flood).
+    hal.last_tx_len = 0;
+    Command c0{}; c0.kind = CmdKind::send_layer; c0.u.layer.dst_hash = idY.key_hash32; c0.u.layer.hop_count = 0;
     c0.body = reinterpret_cast<const uint8_t*>(body); c0.body_len = 2;
-    const CmdResult r0 = x.on_command(c0);
-    CHECK(r0.code == CmdCode::err_unsupported);                // REFUSED loudly
-    CHECK(DualLayerTestAccess::parked_count(x) == 0);          // nothing parked (no cleartext drain later)
-    CHECK(hal.last_tx_len == 0);                               // NO H flood
-    // explicit-path sub-path (hop_count > 0): pre-fix would originate_layer_path -> a cleartext cross-layer DATA.
-    Command c1{}; c1.kind = CmdKind::send_layer; c1.u.layer.dst_hash = 0x9999u; c1.u.layer.hop_count = 1; c1.u.layer.hops[0] = 2;
+    CHECK(x.on_command(c0).code == CmdCode::err_unsupported);
+    CHECK(DualLayerTestAccess::parked_count(x) == 0);          // nothing parked
+    CHECK(hal.last_tx_len == 0);                               // no H flood
+    // (b) explicit path but NO recipient pubkey -> FAIL LOUD (never cleartext).
+    Command c1{}; c1.kind = CmdKind::send_layer; c1.u.layer.dst_hash = idY.key_hash32; c1.u.layer.hop_count = 1; c1.u.layer.hops[0] = 2;
     c1.body = reinterpret_cast<const uint8_t*>(body); c1.body_len = 2;
-    CHECK(x.on_command(c1).code == CmdCode::err_unsupported);  // REFUSED loudly (no cleartext cross-layer DATA enqueued)
+    CHECK(x.on_command(c1).code == CmdCode::err_unsupported);
+    // (c) explicit path + the recipient's key cached -> the send SEALS: queued + a DATA_TYPE_SEALED_RELAY XL frame.
+    CHECK(x.peer_key_set(idY.key_hash32, idY.ed_pub, Node::PeerKeyConf::authoritative));
+    hal._now = 58000;                                          // G on its foreign leaf -> the DM defers (held, inspectable)
+    Command c2{}; c2.kind = CmdKind::send_layer; c2.u.layer.dst_hash = idY.key_hash32; c2.u.layer.hop_count = 1; c2.u.layer.hops[0] = 2;
+    c2.body = reinterpret_cast<const uint8_t*>(body); c2.body_len = 2;
+    CHECK(x.on_command(c2).code == CmdCode::queued);           // SEALED + enqueued (was err_unsupported pre-S4)
+    CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 1);
+    const TxItem& it = DualLayerTestAccess::leaf_tx_at(x, 0, 0);
+    CHECK(it.type == DATA_TYPE_SEALED_RELAY);                  // the sealed-relay carrier
+    CHECK((it.flags & DATA_FLAG_CROSS_LAYER) != 0);
+    CHECK((it.flags & DATA_FLAG_CRYPTED) == 0);                // plaintext-FRAMED (the seal is in the body, not the frame flag)
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(it.inner, it.inner_len), it.flags);
+    CHECK(ui.has_value());
+    if (ui) { CHECK(ui->has_cross_layer);
+              CHECK(ui->has_source_hash); CHECK(ui->source_hash == idX.key_hash32);   // X (the sealer) in the clear -> directed open + reversed ack
+              // the body is [seal_ctr 2][seed8 8][ct||tag] — the cleartext "hi" must NOT appear anywhere in it.
+              bool leaked = false;
+              for (size_t i = 0; i + 2 <= ui->body.size(); ++i) if (ui->body[i] == 'h' && ui->body[i+1] == 'i') leaked = true;
+              CHECK_FALSE(leaked); }
 }
 
 
@@ -1530,24 +1579,29 @@ TEST_CASE("dual-layer ack: a cross-layer DM WITHOUT SOURCE_HASH -> NO ack (never
     CHECK(DualLayerTestAccess::leaf_tx_n(y, 0) == 0);        // FAIL LOUD: no ack built (not a wrong-node ack)
 }
 
-// R1 gap (adversarial review of the R1 fix): send_e2e_ack_cross_layer is a PARALLEL hand-built cross-layer
-// origination that does NOT funnel through enqueue_cross_layer's e2e_dm choke. An e2e_dm node that receives a
-// cleartext cross-layer DM with E2E_ACK_REQ would emit a CLEARTEXT cross-layer ack (leaking the acked_ctr),
-// breaching the R1 "no cleartext cross-layer frame while e2e_dm" invariant. With e2e_dm on it must REFUSE.
-TEST_CASE("R1 gap: e2e_dm refuses the cross-layer E2E ack (no cleartext cross-layer frame on air)") {
+// §S4 (was "R1 gap"): the cross-layer E2E ack is now EMITTED under e2e_dm — CLEARTEXT, by parity with the
+// same-layer E2E ack, which already carries (dst_hash, acked_ctr) in the clear. The old v1 refusal is LIFTED
+// (Part A #5): sealing acks is out of scope, and an XL ack is a normal DM from receiver to sender that must fly
+// so the sender's delivery receipt closes. The ack leaks only (source_hash, acked_ctr) — exactly what a same-layer
+// ack leaks — never message content. XL CONFIDENTIALITY rides DATA_TYPE_SEALED_RELAY on the DATA path, not the ack.
+TEST_CASE("§S4: e2e_dm EMITS the cross-layer E2E ack cleartext (parity with same-layer acks; the v1 refusal is lifted)") {
     StubHal hal; hal._now = 50000;
     Node y(hal, /*id*/ 30, 0x9999u);
     NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 2;
-    cfg.e2e_dm = true;                                       // E2E on: v1 has no cross-layer CRYPTED -> never emit a cleartext xl ack
+    cfg.e2e_dm = true;                                       // E2E on: the ack still flies (cleartext, by same-layer parity)
     CHECK(y.on_init(cfg));
-    DualLayerTestAccess::store_gw_schedule_pair(y, /*gw*/ 5, /*leafA*/ 1, /*leafB*/ 2);   // a reverse gateway + route EXIST,
-    DualLayerTestAccess::learn_neighbor(y, 5);              // so ONLY e2e_dm can block the ack (rules out no-gateway).
+    DualLayerTestAccess::store_gw_schedule_pair(y, /*gw*/ 5, /*leafA*/ 1, /*leafB*/ 2);
+    DualLayerTestAccess::learn_neighbor(y, 5);
     data_unicast_inner dm{};
     dm.origin = 7; dm.has_cross_layer = true; dm.n_layers = 2; dm.cur = 1; dm.layer_ids[0] = 1; dm.layer_ids[1] = 2;
     dm.has_source_hash = true; dm.source_hash = 0x7777u;
     dm.has_dst_hash = true; dm.dst_key_hash32 = 0x9999u;
     DualLayerTestAccess::send_xl_ack(y, dm, /*acked_ctr*/ 42);
-    CHECK(DualLayerTestAccess::leaf_tx_n(y, 0) == 0);       // REFUSED loudly: no cleartext cross-layer ack on the air
+    CHECK(DualLayerTestAccess::leaf_tx_n(y, 0) == 1);        // EMITTED (was refused pre-S4)
+    const TxItem& it = DualLayerTestAccess::leaf_tx_at(y, 0, 0);
+    CHECK(it.type == DATA_TYPE_E2E_ACK);
+    CHECK((it.flags & DATA_FLAG_CROSS_LAYER) != 0);
+    CHECK((it.flags & DATA_FLAG_CRYPTED) == 0);              // cleartext ack (never sealed)
 }
 
 TEST_CASE("dual-layer origination: a routeless bridging gateway -> PARK + reactive RREQ, not give-up (Slice 4d.2)") {
@@ -2601,6 +2655,37 @@ TEST_CASE("§GapB — the home unwraps an XL ACK delegation (enclosed_type=E2E_A
     CHECK_FALSE(hal.saw_emit("deleg_ack_put"));                                    // an ack re-origination creates NO map entry
 }
 
+TEST_CASE("§S4 — the home unwraps an XL SEALED delegation (enclosed_type=SEALED_RELAY): re-originates DATA_TYPE_SEALED_RELAY VERBATIM (no re-seal), SOURCE_HASH=mobile, ctr_H->ctr_M map recorded") {
+    StubHal hal; hal._now = 50000; Node home(hal, /*id*/101, /*hash*/0x44070011u);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
+    DualLayerTestAccess::store_mobile(home, /*M1*/0x2716EFCDu, /*local*/17);        // the home hosts the delegating mobile M1
+    DualLayerTestAccess::store_gw_schedule_pair(home, /*gw*/10, /*leafA*/4, /*leafB*/7);
+    DualLayerTestAccess::learn_neighbor(home, 10);
+    const uint8_t hops[1] = { 7 };
+    // a pre-sealed relay body [seal_ctr 2][seed8 8][ct||tag] — opaque to the home (it never re-seals). Distinctive bytes.
+    uint8_t rbody[2 + 8 + 20]; for (size_t i = 0; i < sizeof rbody; ++i) rbody[i] = static_cast<uint8_t>(0xB0 + (i & 0x0F));
+    DualLayerTestAccess::drive_post_ack_mobile_send_xl(home, /*M1*/0x2716EFCDu, /*X=target*/0xBCC13CC5u, /*ctr_M*/0x0006,
+                                                       hops, 1, /*etype=*/DATA_TYPE_SEALED_RELAY, rbody, sizeof rbody, /*wrapper_flags=*/DATA_FLAG_E2E_ACK_REQ);
+    const PendingTx* pt = DualLayerTestAccess::pending(home);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->dst == 10);
+        CHECK(pt->type == DATA_TYPE_SEALED_RELAY);                                 // ★ the enclosed sealed-relay TYPE threaded through
+        CHECK((pt->flags & DATA_FLAG_CROSS_LAYER) != 0);
+        CHECK((pt->flags & DATA_FLAG_CRYPTED) == 0);                               // plaintext-FRAMED (the body carries the seal)
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+        CHECK(ui.has_value());
+        if (ui) {
+            CHECK(ui->dst_key_hash32 == 0xBCC13CC5u);
+            CHECK(ui->has_source_hash); CHECK(ui->source_hash == 0x2716EFCDu);     // SOURCE_HASH = the MOBILE (directed open + reversed ack)
+            CHECK(ui->has_cross_layer); CHECK(ui->layer_ids[0] == 4); CHECK(ui->layer_ids[1] == 7);
+            CHECK(ui->body.size() == sizeof rbody);                                // the pre-sealed blob rode VERBATIM (never re-sealed)
+            bool same = true; for (size_t i = 0; i < ui->body.size(); ++i) if (ui->body[i] != rbody[i]) same = false; CHECK(same);
+        }
+    }
+    CHECK(hal.saw_emit("deleg_ack_put"));                                          // ★ ctr_H->ctr_M recorded so the far ack (acks ctr_H) reaches M1 as ctr_M
+}
+
 TEST_CASE("§S1 — the home REFUSES a delegated XL path fail-loud (hops[0] == its own layer)") {
     StubHal hal; hal._now = 50000; Node home(hal, /*id*/101, /*hash*/0x44070011u);
     NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
@@ -3434,8 +3519,8 @@ TEST_CASE("§S6/D10 — the NEW home originates the old-home notify: a re-home D
     NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.host_mobiles=true; CHECK(home.on_init(cfg));
     DualLayerTestAccess::learn_neighbor(home, 30);           // a route to the OLD home
     // a mobile DISCOVERs at this (new) home carrying last_home=30 (same layer 4) -> the home OFFERs + STASHES the notify.
-    j_discover_in d{}; d.leaf_id=4; d.is_mobile=true; d.key_hash32=0xB0B1u; d.last_home_id=30; d.last_home_layer=4; d.last_reg_epoch=3;
-    uint8_t db[9]; size_t dn = pack_j_discover(d, db); home.on_recv(db, dn, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    j_discover_in d{}; d.leaf_id=4; d.is_mobile=true; d.key_hash32=0xB0B1u; d.last_home_id=30; d.last_home_layer=4; d.last_reg_epoch=3; d.last_home_key_hash32=0x3030u;
+    uint8_t db[13]; size_t dn = pack_j_discover(d, db); home.on_recv(db, dn, RxMeta{9.0f,-70.0f,0,static_cast<int8_t>(-1)});   // §B4: a re-home DISCOVER is 13 B (carries the old-home hash)
     CHECK(hal.saw_emit("mobile_offer_tx"));
     // the mobile CLAIMs the offered id at this host -> record -> the NEW home fires the breadcrumb to 30.
     hal.emits.clear();
@@ -3524,13 +3609,154 @@ TEST_CASE("§S6/QA-1 — reprovision -> probe -> roster-absent -> staggered re-r
     NodeConfig mc; mc.routing_sf=8; mc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); mc.leaf_id=4; mc.is_mobile=true; mc.mobile_autoregister=true; CHECK(mob.on_init(mc));
     DualLayerTestAccess::make_registered_mobile(mob, /*local*/17, /*home*/30, /*hash*/0x3030u);
     // roster from home 30 with a DIFFERENT mobile (our hash ABSENT)
-    PRosterEntry other[1] = {{ 0xCAFEu, 18, 0, protocol::presence_q_ok, false }};
-    p_roster_in ri{}; ri.home_id = 30; ri.home_layer = DualLayerTestAccess::active_layer(mob); ri.entries = other; ri.count = 1;
+    PRosterEntry other[1] = {{ 0xCAFEu, 18, 0, protocol::presence_q_ok, false, false }};
+    p_roster_in ri{}; ri.home_id = 30; ri.home_layer = DualLayerTestAccess::active_layer(mob); ri.wire_version = protocol::wire_version; ri.entries = other; ri.count = 1;   // §D16: a mobile drops a wrong-version roster
     std::array<uint8_t,40> rb{}; size_t rn = pack_p_roster(ri, rb);
     hm.emits.clear();
     mob.on_recv(rb.data(), rn, RxMeta{20.0f,-70.0f,0,static_cast<int8_t>(-1)});
     CHECK(hm.saw_emit("presence_roster_absent"));             // ★ hash absent -> re-register triggered
     CHECK(mob.mobile_home_id() == 0);                         // dropped registration (re-DISCOVER staggered)
+}
+
+// ---- §D16 (B1): roster wire_version gate --------------------------------------------------------------------
+TEST_CASE("§D16/B1 — a wrong-wire_version roster from MY home is DROPPED before interpretation + fires join_refused, no liveness/absent handling") {
+    StubHal hm; Node mob(hm, 0, 0xB0B1u);
+    NodeConfig mc; mc.routing_sf=8; mc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); mc.leaf_id=4; mc.is_mobile=true; mc.mobile_autoregister=true; CHECK(mob.on_init(mc));
+    DualLayerTestAccess::make_registered_mobile(mob, /*local*/17, /*home*/30, /*hash*/0x3030u);
+    // a roster from home 30 that CONTAINS us but carries a FOREIGN wire_version -> must be dropped whole (never re-register, never refresh)
+    PRosterEntry mine[1] = {{ 0xB0B1u, 17, 0, protocol::presence_q_ok, false, false }};
+    p_roster_in ri{}; ri.home_id = 30; ri.home_layer = DualLayerTestAccess::active_layer(mob); ri.wire_version = static_cast<uint8_t>(protocol::wire_version + 7); ri.entries = mine; ri.count = 1;
+    std::array<uint8_t,40> rb{}; size_t rn = pack_p_roster(ri, rb);
+    hm.emits.clear();
+    mob.on_recv(rb.data(), rn, RxMeta{20.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    CHECK(hm.saw_emit("join_refused"));                       // ★ the mobile-flavored refusal (app: "this network needs different firmware")
+    CHECK_FALSE(hm.saw_emit("presence_roster_rx"));           // ★ NOT interpreted as a valid roster (no liveness refresh)
+    CHECK_FALSE(hm.saw_emit("presence_roster_absent"));       // ★ NOT mis-read as hash-absent -> no spurious re-register
+    CHECK(mob.mobile_home_id() == 30);                        // registration untouched
+    Push p{}; bool saw = false;
+    while (mob.next_push(p)) if (p.kind == PushKind::join_refused) { saw = true; CHECK(p.join_reason == JoinRefuseReason::wire_version);
+        CHECK(p.origin == static_cast<uint8_t>(protocol::wire_version + 7)); CHECK(p.dst == protocol::wire_version); }
+    CHECK(saw);
+    // a MATCHING-version roster on the same setup takes the normal path (refresh, no refusal)
+    ri.wire_version = protocol::wire_version; rn = pack_p_roster(ri, rb); hm.emits.clear();
+    mob.on_recv(rb.data(), rn, RxMeta{20.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    CHECK(hm.saw_emit("presence_roster_rx"));                 // ★ matched version -> interpreted normally
+    CHECK_FALSE(hm.saw_emit("join_refused"));
+}
+
+TEST_CASE("§D16/B1 — an INCOMPATIBLE candidate home (wrong-version roster) is SKIPPED for re-home even when strong") {
+    StubHal hal; Node mob(hal, 0, 0x9999u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.mobile_autoregister=true; CHECK(mob.on_init(cfg));
+    DualLayerTestAccess::make_registered_mobile(mob, /*local*/17, /*home*/30, /*hash*/0x3030u);
+    const uint8_t L = DualLayerTestAccess::active_layer(mob);
+    hal._now = 1000000;                                                        // dwell elapsed
+    // candidate home 60 is STRONG both ways...
+    DualLayerTestAccess::presence_setup_prescan(mob, protocol::presence_q_weak, protocol::db_to_q4(14.0f));
+    DualLayerTestAccess::presence_add_cand(mob, /*home*/60, L, protocol::db_to_q4(55.0f), /*echo_tier*/protocol::presence_q_strong, /*first_seen*/0);
+    // ...but a wrong-version roster from 60 marks it INCOMPATIBLE (found + flagged, snr preserved)
+    PRosterEntry none0[1] = {{ 0xDEADu, 18, 0, protocol::presence_q_ok, false, false }};
+    p_roster_in bad{}; bad.home_id = 60; bad.home_layer = L; bad.wire_version = static_cast<uint8_t>(protocol::wire_version + 1); bad.entries = none0; bad.count = 1;
+    std::array<uint8_t,40> bb{}; size_t bn = pack_p_roster(bad, bb);
+    mob.on_recv(bb.data(), bn, RxMeta{55.0f,-40.0f,0,static_cast<int8_t>(-1)});
+    hal.emits.clear();
+    DualLayerTestAccess::presence_maybe_rehome(mob);
+    CHECK_FALSE(hal.saw_emit("presence_rehome"));                              // ★ incompatible candidate never wins
+}
+
+// ---- §B2: delegated-failure roster bit ----------------------------------------------------------------------
+TEST_CASE("§B2 — home sets deleg_fail -> roster carries the bit -> CLEARED after one roster (one-shot)") {
+    StubHal hal; Node home(hal, 40, 0x4040u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.host_mobiles=true; CHECK(home.on_init(cfg));
+    DualLayerTestAccess::store_mobile(home, /*M*/0xB0B1u, /*local*/17);
+    DualLayerTestAccess::mark_deleg_fail(home, 0xB0B1u);
+    CHECK(DualLayerTestAccess::mobile_reg_deleg_fail(home, 0));                // ★ set
+    hal.emits.clear();
+    DualLayerTestAccess::presence_roster_fire(home);
+    CHECK(hal.saw_emit("presence_roster_tx"));
+    auto r = parse_p_roster(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len));
+    CHECK(r.has_value());
+    if (r) { auto e = parse_p_roster_entry(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len), *r, 0);
+             CHECK(e.has_value()); if (e) CHECK(e->deleg_fail); }              // ★ the emitted roster carried the bit
+    CHECK_FALSE(DualLayerTestAccess::mobile_reg_deleg_fail(home, 0));          // ★ cleared after ONE roster (one-shot)
+}
+
+TEST_CASE("§B2 — a mobile seeing ITS deleg_fail bit fires send_failed{no_route} once; a clear roster fires nothing") {
+    StubHal hm; Node mob(hm, 0, 0xB0B1u);
+    NodeConfig mc; mc.routing_sf=8; mc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); mc.leaf_id=4; mc.is_mobile=true; mc.mobile_autoregister=true; CHECK(mob.on_init(mc));
+    DualLayerTestAccess::make_registered_mobile(mob, /*local*/17, /*home*/30, /*hash*/0xB0B1u);
+    const uint8_t L = DualLayerTestAccess::active_layer(mob);
+    // a roster from home 30 with OUR entry + deleg_fail=1
+    PRosterEntry ent[1] = {{ 0xB0B1u, 17, 0, protocol::presence_q_ok, false, /*deleg_fail=*/true }};
+    p_roster_in ri{}; ri.home_id = 30; ri.home_layer = L; ri.wire_version = protocol::wire_version; ri.entries = ent; ri.count = 1;
+    std::array<uint8_t,40> rb{}; size_t rn = pack_p_roster(ri, rb);
+    hm.emits.clear();
+    mob.on_recv(rb.data(), rn, RxMeta{20.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    CHECK(hm.saw_emit("presence_deleg_fail"));
+    Push p{}; int fails = 0;
+    while (mob.next_push(p)) if (p.kind == PushKind::send_failed && p.reason == SendFailReason::no_route) ++fails;
+    CHECK(fails == 1);                                                         // ★ exactly one send_failed{no_route}
+    // a subsequent CLEAR roster (bit 0) -> NO push
+    ent[0].deleg_fail = false; rn = pack_p_roster(ri, rb); hm.emits.clear();
+    mob.on_recv(rb.data(), rn, RxMeta{20.0f,-70.0f,0,static_cast<int8_t>(-1)});
+    CHECK_FALSE(hm.saw_emit("presence_deleg_fail"));
+    int fails2 = 0; while (mob.next_push(p)) if (p.kind == PushKind::send_failed) ++fails2;
+    CHECK(fails2 == 0);                                                        // ★ no spurious push when clear
+}
+
+// ---- §B4: cross-layer old-home notify -----------------------------------------------------------------------
+TEST_CASE("§B4 — a re-home whose old home is CROSS-LAYER originates the breadcrumb as an XL DM addressed by the old-home HASH") {
+    // gateway G serves leaves 1+2; the NEW home X is on leaf 1; the OLD home was on leaf 2.
+    StubHal ghal; ghal._now = 10000; Node gw(ghal, /*id*/1, 0xABCDu);
+    NodeConfig gcfg; gcfg.n_layers = 2; gcfg.layers[0] = good_layer(1, 8); gcfg.layers[0].node_id = 5;
+    gcfg.layers[1] = good_layer(2, 8); gcfg.layers[1].node_id = 12; CHECK(gw.on_init(gcfg)); CHECK(ghal.last_tx_len > 0);
+    StubHal hal; hal._now = 50000; Node x(hal, /*id*/7, 0x7777u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=1; cfg.host_mobiles=true; CHECK(x.on_init(cfg));
+    x.on_recv(ghal.last_tx, ghal.last_tx_len, RxMeta{9.0f,-70.0f,50000,static_cast<int8_t>(-1)});   // learn G's route
+    CHECK(x.rt_count() >= 1);
+    hal._now = 58000;                                                          // G on its foreign leaf -> the XL DM DEFERS (inspectable)
+    // a mobile re-homed to X; its old home (id 30) lived on layer 2 with hash 0x3030
+    DualLayerTestAccess::stash_notify(x, /*mobile*/0xB0B1u, /*old_home*/30, /*old_layer*/2, /*old_hash*/0x3030u);
+    hal.emits.clear();
+    DualLayerTestAccess::notify_old_home(x, /*mobile*/0xB0B1u, /*epoch*/4);
+    CHECK(hal.saw_emit("presence_notify_xl_tx"));                              // ★ the XL leg (S1 UNBLOCKED it)
+    CHECK_FALSE(hal.saw_emit("presence_notify_tx"));                           // NOT the same-layer path
+    CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 1);
+    const TxItem& it = DualLayerTestAccess::leaf_tx_at(x, 0, 0);
+    CHECK(it.dst == 5);                                                        // MAC dst = gateway G
+    CHECK((it.flags & DATA_FLAG_CROSS_LAYER) != 0);
+    CHECK(it.type == DATA_TYPE_MOBILE_BREADCRUMB);
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(it.inner, it.inner_len), it.flags);
+    CHECK(ui.has_value());
+    if (ui) { CHECK(ui->has_cross_layer); CHECK(ui->n_layers == 2); CHECK(ui->cur == 1);
+              CHECK(ui->layer_ids[0] == 1); CHECK(ui->layer_ids[1] == 2);      // path [our_layer, old_layer]
+              CHECK(ui->dst_key_hash32 == 0x3030u);                            // ★ addressed to the OLD HOME's HASH
+              CHECK(ui->has_source_hash); CHECK(ui->source_hash == 0xB0B1u);   // ★ SOURCE_HASH = the mobile (old home attributes it)
+              CHECK(ui->body.size() >= 1); if (ui->body.size() >= 1) CHECK(ui->body[0] == 7); }   // body[0] = the NEW home id
+}
+
+TEST_CASE("§B4 — a SAME-LAYER old home stays on the id-routed path (unchanged); a CROSS-LAYER old home with an unknown hash drops best-effort") {
+    StubHal hal; Node x(hal, /*id*/7, 0x7777u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=1; cfg.host_mobiles=true; CHECK(x.on_init(cfg));
+    DualLayerTestAccess::learn_neighbor(x, 30);                               // a same-layer route to the old home
+    // (a) same-layer old home (layer 1 == ours) -> id-routed breadcrumb (byte-identical to pre-B4)
+    DualLayerTestAccess::stash_notify(x, /*mobile*/0xB0B1u, /*old_home*/30, /*old_layer*/1, /*old_hash*/0x3030u);
+    hal.emits.clear();
+    DualLayerTestAccess::notify_old_home(x, 0xB0B1u, 4);
+    CHECK(hal.saw_emit("presence_notify_tx"));                                // ★ same-layer path
+    CHECK_FALSE(hal.saw_emit("presence_notify_xl_tx"));
+    // (b) cross-layer old home but NO gateway to that leaf (and here no hash-driven route) -> best-effort drop, no crash/park
+    DualLayerTestAccess::stash_notify(x, /*mobile*/0xC0C1u, /*old_home*/31, /*old_layer*/2, /*old_hash*/0x3131u);
+    hal.emits.clear();
+    DualLayerTestAccess::notify_old_home(x, 0xC0C1u, 4);
+    CHECK(hal.saw_emit("presence_notify_xl_no_route"));                       // ★ no bridging gateway -> dropped (a dead old home can't black-hole)
+    CHECK_FALSE(hal.saw_emit("presence_notify_tx"));
+    // (c) a FRESH registration (old_home == 0) -> nothing at all
+    DualLayerTestAccess::stash_notify(x, /*mobile*/0xD0D1u, /*old_home*/0, /*old_layer*/0, /*old_hash*/0);
+    hal.emits.clear();
+    DualLayerTestAccess::notify_old_home(x, 0xD0D1u, 4);
+    CHECK_FALSE(hal.saw_emit("presence_notify_tx"));
+    CHECK_FALSE(hal.saw_emit("presence_notify_xl_tx"));
+    CHECK_FALSE(hal.saw_emit("presence_notify_xl_no_route"));
 }
 
 TEST_CASE("§S6/QA-2a — a non-hosting STATIC node fed P frames: no crash, no TX, no registry state (leaf-free dispatch is type-gated)") {
@@ -3741,4 +3967,120 @@ TEST_CASE("§mobile offer-adopt — single-PHY adopt sets the config but does NO
     mob.on_timer(75);                                          // adopt (single-PHY -> retune_radio=false)
     CHECK(DualLayerTestAccess::cfg_leaf_id(mob) == 4);        // ★ config adopted (leaf)
     CHECK(hal.last_set_rx_freq == 999.0);                    // ★ NO radio retune (single-PHY is already tuned -> no spurious blind window)
+}
+
+// =============================================================================
+// §S2 — DATA_TYPE_INTRO first-contact pubkey attach: RECEIVE (strip + deliver +
+// cache) and the DELEGATED-wrapper enclosed-type carriage (byte-identity for a
+// plain wrapper; the enclosed type for an INTRO). The D1 attach rule + wire
+// golden live in test_node_hashlocate.cpp; the full XL round-trip is s27.
+// NB: CHECK only (this TU builds -fno-exceptions -> REQUIRE is illegal).
+// =============================================================================
+TEST_CASE("§S2 receive — an INTRO caches the sender's key (authoritative) + name, STRIPS the prefix, delivers the plain message") {
+    StubHal halB;
+    uint8_t sA[32]; for (int i = 0; i < 32; ++i) sA[i] = uint8_t(i + 1);
+    Identity idA{}; identity_from_seed(idA, sA);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    Node B(halB, /*id=*/20, /*key=*/0x0000B0B0); B.on_init(cfg);   // B has NO crypto identity -> still caches a peer key (receive is not crypto-gated)
+    uint8_t body[33 + 3 + 8]; for (int i = 0; i < 32; ++i) body[i] = idA.ed_pub[i];
+    body[32] = 3; body[33] = 'A'; body[34] = 'n'; body[35] = 'n';                  // [ed_pub 32][name_len=3]["Ann"]["hi-there"]
+    const char* msg = "hi-there"; for (int i = 0; i < 8; ++i) body[36 + i] = uint8_t(msg[i]);
+    DualLayerTestAccess::drive_post_ack_intro(B, /*origin=*/5, /*src_hash=*/idA.key_hash32, body, sizeof body);
+    uint8_t pk[32]; Node::PeerKeyConf conf = Node::PeerKeyConf::overheard;
+    CHECK(B.peer_key_find(idA.key_hash32, pk, &conf));                             // key cached ...
+    CHECK(static_cast<uint8_t>(conf) >= static_cast<uint8_t>(Node::PeerKeyConf::authoritative));   // ... authoritative
+    bool edok = true; for (int i = 0; i < 32; ++i) if (pk[i] != idA.ed_pub[i]) edok = false; CHECK(edok);
+    char nm[32]; CHECK(B.peer_name_find(idA.key_hash32, nm, 32) == 3);             // name cached
+    CHECK(halB.saw_emit("peer_key_cached"));
+    CHECK_FALSE(B.peer_confirmed(idA.key_hash32));                                 // a plaintext INTRO does NOT confirm (only a sealed open does)
+    Push p{}; bool delivered = false;
+    while (B.next_push(p)) if (p.kind == PushKind::msg_recv) {
+        delivered = true;
+        CHECK(p.body_len == 8);
+        if (p.body_len == 8) { bool same = true; for (int i = 0; i < 8; ++i) if (p.body[i] != uint8_t(msg[i])) same = false; CHECK(same); }   // STRIPPED -> just "hi-there"
+        CHECK(p.sender_hash == idA.key_hash32); CHECK_FALSE(p.enc);                // dedup identity intact; enc absent
+    }
+    CHECK(delivered);
+}
+
+TEST_CASE("§S2 receive rejects — a self-inconsistent ed_pub (ed[:4] != source_hash) and a too-short body are DROPPED (no cache, no deliver)") {
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    uint8_t sA[32]; for (int i = 0; i < 32; ++i) sA[i] = uint8_t(i + 1); Identity idA{}; identity_from_seed(idA, sA);
+    { StubHal hal; Node B(hal, 20, 0x0000B0B0); B.on_init(cfg);
+      uint8_t body[33 + 2]; for (int i = 0; i < 32; ++i) body[i] = idA.ed_pub[i]; body[32] = 0; body[33] = 'x'; body[34] = 'y';
+      DualLayerTestAccess::drive_post_ack_intro(B, 5, /*WRONG src*/ idA.key_hash32 ^ 0x1u, body, sizeof body);
+      uint8_t pk[32]; CHECK_FALSE(B.peer_key_find(idA.key_hash32, pk));            // NOT cached
+      CHECK(hal.saw_emit("intro_reject"));
+      Push p{}; bool got = false; while (B.next_push(p)) if (p.kind == PushKind::msg_recv) got = true; CHECK_FALSE(got); }   // NOT delivered
+    { StubHal hal; Node B(hal, 20, 0x0000B0B0); B.on_init(cfg);
+      uint8_t body[10] = {0};                                                      // < 33 -> too short for [ed_pub 32]
+      DualLayerTestAccess::drive_post_ack_intro(B, 5, idA.key_hash32, body, sizeof body);
+      CHECK(hal.saw_emit("intro_reject"));
+      Push p{}; bool got = false; while (B.next_push(p)) if (p.kind == PushKind::msg_recv) got = true; CHECK_FALSE(got); }
+}
+
+TEST_CASE("§S2 delegation wrapper — a PLAIN same-layer MOBILE_SEND is byte-identical (no marker); an INTRO sets DATA_FLAG_MS_ENCLOSED_TYPE + prefixes the enclosed type") {
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    const uint32_t TGT = 0x4444AAAAu;
+    const uint8_t msg[4] = { 'p', 'i', 'n', 'g' };
+    // (a) a registered mobile with NO crypto identity -> plain wrapper (byte-identical to pre-S2): no marker, body verbatim
+    { StubHal hal; Node M(hal, 200, 0x0000AAA1u); M.on_init(cfg);
+      DualLayerTestAccess::make_registered_mobile(M, /*local_id=*/200, /*home=*/5, /*home_hash=*/0x00005555);
+      M.test_suspend_tx_drain(true);
+      (void)DualLayerTestAccess::send_by_hash_intent(M, TGT, msg, 4, CryptIntent::off);
+      CHECK(M.test_tx_queue_n() >= 1);
+      if (M.test_tx_queue_n() >= 1) {
+          CHECK(M.test_tx_type(0) == DATA_TYPE_MOBILE_SEND);
+          uint8_t il = 0; const uint8_t* in = M.test_tx_inner(0, il);
+          auto ui = parse_unicast_inner(std::span<const uint8_t>(in, il), DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH);
+          CHECK(ui.has_value());
+          if (ui) { CHECK(ui->dst_key_hash32 == TGT); CHECK(ui->body.size() == 4);
+                    if (ui->body.size() == 4) for (int i = 0; i < 4; ++i) CHECK(ui->body[i] == msg[i]); } } }   // raw body, NO enclosed-type byte
+    // (b) a registered mobile WITH a crypto identity, first contact -> INTRO delegation: marker set + [enclosed_type=INTRO][ed_pub][name][ping]
+    { StubHal hal; uint8_t sM[32]; for (int i = 0; i < 32; ++i) sM[i] = uint8_t(i + 9); Identity idM{}; identity_from_seed(idM, sM);
+      Node M(hal, 200, idM.key_hash32); M.on_init(cfg); M.set_crypto_identity(idM.x_secret, idM.ed_pub);
+      DualLayerTestAccess::make_registered_mobile(M, 200, 5, 0x00005555);
+      M.test_suspend_tx_drain(true);
+      (void)DualLayerTestAccess::send_by_hash_intent(M, TGT, msg, 4, CryptIntent::off);
+      CHECK(M.test_tx_queue_n() >= 1);
+      if (M.test_tx_queue_n() >= 1) {
+          CHECK(M.test_tx_type(0) == DATA_TYPE_MOBILE_SEND);
+          uint8_t il = 0; const uint8_t* in = M.test_tx_inner(0, il);
+          auto ui = parse_unicast_inner(std::span<const uint8_t>(in, il), DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH);
+          CHECK(ui.has_value());
+          if (ui) {
+              CHECK(ui->dst_key_hash32 == TGT); CHECK(ui->source_hash == idM.key_hash32);
+              CHECK(ui->body.size() >= static_cast<size_t>(1 + 33 + 4));
+              if (ui->body.size() >= 34) {
+                  CHECK(ui->body[0] == DATA_TYPE_INTRO);                            // enclosed type
+                  bool edok = true; for (int i = 0; i < 32; ++i) if (ui->body[1 + i] != idM.ed_pub[i]) edok = false; CHECK(edok);
+                  const uint8_t nlen = ui->body[1 + 32];
+                  const size_t want = static_cast<size_t>(1 + 33) + nlen + 4;
+                  CHECK(ui->body.size() == want);
+                  if (ui->body.size() == want) { const uint8_t* tail = ui->body.data() + 1 + 33 + nlen;
+                                                 for (int i = 0; i < 4; ++i) CHECK(tail[i] == msg[i]); } } } } }   // message rides after the prefix
+}
+
+TEST_CASE("§S2 XL delegation — delegate_send_layer(enclosed_type=INTRO) carries the enclosed type as body[0] under the CROSS_LAYER wrapper") {
+    StubHal hal; uint8_t sM[32]; for (int i = 0; i < 32; ++i) sM[i] = uint8_t(i + 5); Identity idM{}; identity_from_seed(idM, sM);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 4; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    Node M(hal, 200, idM.key_hash32); M.on_init(cfg); M.set_crypto_identity(idM.x_secret, idM.ed_pub);
+    DualLayerTestAccess::make_registered_mobile(M, 200, 5, 0x00005555);
+    M.test_suspend_tx_drain(true);
+    const uint8_t hops[1] = { 7 };                                                 // destination layer 7 (the home prepends its own)
+    uint8_t pbody[33 + 5]; for (int i = 0; i < 32; ++i) pbody[i] = idM.ed_pub[i]; pbody[32] = 0;   // [ed_pub][name_len=0][hello]
+    const char* m = "hello"; for (int i = 0; i < 5; ++i) pbody[33 + i] = uint8_t(m[i]);
+    (void)DualLayerTestAccess::delegate_send_layer(M, /*dst_hash=*/0x99990000u, hops, 1, DATA_TYPE_INTRO, pbody, sizeof pbody, 0);
+    CHECK(M.test_tx_queue_n() >= 1);
+    if (M.test_tx_queue_n() >= 1) {
+        CHECK(M.test_tx_type(0) == DATA_TYPE_MOBILE_SEND);
+        uint8_t il = 0; const uint8_t* in = M.test_tx_inner(0, il);
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(in, il), DATA_FLAG_DST_HASH | DATA_FLAG_CROSS_LAYER | DATA_FLAG_SOURCE_HASH);
+        CHECK(ui.has_value());
+        if (ui) {
+            CHECK(ui->has_cross_layer); CHECK(ui->n_layers == 1); CHECK(ui->layer_ids[0] == 7);
+            CHECK(ui->body.size() >= static_cast<size_t>(1 + 33 + 5));
+            if (ui->body.size() >= 1) CHECK(ui->body[0] == DATA_TYPE_INTRO);        // XL enclosed type (S1 threading)
+        }
+    }
 }

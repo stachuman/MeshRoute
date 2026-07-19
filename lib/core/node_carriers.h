@@ -173,6 +173,7 @@ struct NodeConfig {
     bool     loc_in_dm = false;                  // piggyback location on originated DMs (DATA_FLAG_LOCATION, sealed inner)
     bool     loc_in_m  = false;                  // piggyback location on originated channel M frames (flavor 0x08, public)
     bool     e2e_dm    = false;                  // Phase 1: originate app DMs ENCRYPTED when the recipient's pubkey is known; default OFF -> s18 byte-identical
+    bool     intro_attach = true;                // §S2 D1 escape hatch: attach our pubkey (DATA_TYPE_INTRO) to a PLAINTEXT hash-addressed first-contact DM (no peer_confirmed(dst) yet). Default ON. OFF = never attach (the app must reqpubkey/QR-import). Inert without a crypto identity (_crypto_ready) -> s18 byte-identical.
     // ---- dual-layer gateway (2026-06-12 design). n_layers=1 = normal node (uses layers[0]); 2 = gateway.
     //      Slice 0: layers[0] MIRRORS the legacy routing_sf/allowed_sf_bitmap/leaf_id/beacon_period_ms scalars
     //      (set in on_init). NB: `is_gateway` is DERIVED, NOT configurable — on_init forces `is_gateway = (n_layers==2)`

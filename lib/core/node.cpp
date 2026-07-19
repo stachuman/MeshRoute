@@ -797,6 +797,7 @@ void Node::on_timer(uint32_t timer_id) {
     case kPostAckTimerId:         do_post_ack();           break;
     case kRetryBackoffTimerId:    tx_rts_retry();          break;
     case kDeferredDrainTimerId:   try_drain_deferred();    break;   // periodic no-route drain / TTL giveup
+    case kParkRefloodTimerId:     park_reflood_fire();     break;   // §F-SL-1: bounded jittered H re-flood for still-parked sends
     case kReqSyncTimerId:         req_sync_loop_fire();    break;   // REQ_SYNC boot loop: send + re-arm while starved
 #if MR_FEAT_MOBILE
     case kMobileDiscoverTimerId:  mobile_discover_fire();  break;   // §mobile 2b: registration FSM (armed only for a mobile)
@@ -855,6 +856,8 @@ void Node::on_timer(uint32_t timer_id) {
             channel_reoffer_fire(static_cast<uint8_t>(timer_id - kChannelReofferTimerId));       // Part 2: channel origin re-offer ring slot
         } else if (timer_id >= kHForwardTimerId && timer_id < kHForwardTimerId + kHForwardSlots) {
             h_forward_fire(static_cast<uint8_t>(timer_id - kHForwardTimerId));                    // §F-XL-1: jittered h_forward de-storm ring slot
+        } else if (timer_id >= kRreqForwardTimerId && timer_id < kRreqForwardTimerId + kRreqForwardSlots) {
+            rreq_forward_fire(static_cast<uint8_t>(timer_id - kRreqForwardTimerId));              // §F-XL-2: jittered rreq_forward de-storm ring slot
         }
         break;
     }
@@ -915,7 +918,7 @@ CmdResult Node::on_command(const Command& c) {
                 return CmdResult{ CmdCode::err_too_large, 0, _active->_tx_queue_n };
             const Plane plane = static_cast<Plane>(c.u.send.plane);   // Wave 2 HARD SPLIT: 0=AUTO (companion/sim) / 1=TEAM (`-t`) / 2=GLOBAL (plain `send`)
             if (c.u.send.dst_hash != 0) {                         // address-by-hash (hash-locate): resolve, then send
-                const uint16_t ctr = send_by_hash(c.u.send.dst_hash, c.body, c.body_len, c.u.send.flags, c.crypt, /*reply_to_hash=*/0, /*mobile_ctr=*/0, plane);
+                const uint16_t ctr = send_by_hash(c.u.send.dst_hash, c.body, c.body_len, c.u.send.flags, c.crypt, /*reply_to_hash=*/0, /*mobile_ctr=*/0, plane, /*type=*/0, /*suppress_intro=*/c.no_intro);   // §D1 `-K`
                 return CmdResult{ CmdCode::queued, ctr, _active->_tx_queue_n, c.u.send.dst_hash, /*layer_path*/ 0 };
             }
             if (plane == Plane::TEAM && !is_team_peer(c.u.send.dst_id))   // §6.4: `send -t <id>` to a non-teammate (no _rt_team route) -> fail loud, don't storm the static plane
@@ -980,22 +983,60 @@ CmdResult Node::on_command(const Command& c) {
             if (_node_id == 0)                               return CmdResult{ CmdCode::err_unprovisioned, 0, _active->_tx_queue_n };
             if (_cfg.allowed_sf_bitmap == 0)                 return CmdResult{ CmdCode::err_no_data_sf, 0, _active->_tx_queue_n };
             if (c.body_len > protocol::dm_max_body_bytes)    return CmdResult{ CmdCode::err_too_large, 0, _active->_tx_queue_n };
-            // R1 (review ship-blocker): cross-layer DMs have NO CRYPTED in v1 (same-layer only). When e2e_dm is ON,
-            // REFUSE the cross-layer send loudly rather than silently originate/park a CLEARTEXT cross-layer DATA —
-            // never downgrade the advertised confidentiality guarantee without telling the app.
-            if (_cfg.e2e_dm)                                 return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n, c.u.layer.dst_hash, 0 };
             // Every send_layer return echoes the dst_hash (and, once known, the layer_path) so the app holds the
             // full "send handle" (CmdResult.dst_hash + layer_path); async pushes then correlate by CmdResult.ctr.
             if (c.u.layer.dst_hash == 0)                     return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };  // a layer send needs a stable dst key
+            // §S4: a CRYPTED cross-layer send (e2e_dm ON, or per-message `-e`) SEALS the body to the target HERE and rides
+            // a DATA_TYPE_SEALED_RELAY plaintext frame [seal_ctr][seed8][ct‖tag] — there is NO CRYPTED-flagged XL frame
+            // (the crypto core stays same-layer; XL confidentiality layers on top via the relay type). This LIFTS the old
+            // v1 e2e_dm-ON refusal: an e2e_dm node now seals cross-layer (never a cleartext downgrade — want_crypt below
+            // always steers to the seal path). The seal ctr is CARRIED (the frame ctr stays the originator/home's for MAC
+            // dedup). FAIL LOUD on seal failure (no pubkey / identity / too large), never cleartext.
+            const bool want_crypt = (c.crypt == CryptIntent::on)  ? true
+                                  : (c.crypt == CryptIntent::off) ? false
+                                                                  : _cfg.e2e_dm;
+            const uint8_t* dbody = c.body; uint8_t dblen = c.body_len; uint8_t etype = 0;
+            uint8_t rbuf[protocol::max_payload_bytes_hard_cap];
+            if (want_crypt) {
+                if (c.u.layer.hop_count == 0)                return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n, c.u.layer.dst_hash, 0 };  // sealed XL needs an explicit path (no park+H-flood)
+                SealOutcome oc = SealOutcome::ok;
+                const uint8_t rn = build_sealed_relay_body(c.u.layer.dst_hash, c.body, c.body_len, rbuf, sizeof rbuf, oc);
+                if (rn == 0) {                               // fail loud (no_pubkey/no_identity/too_large) — NEVER cleartext
+                    MR_EMIT("e2e_xl_seal_failed", EF_I("dst_hash", static_cast<int64_t>(c.u.layer.dst_hash)), EF_I("oc", static_cast<int>(oc)));
+                    Push pu{}; pu.kind = PushKind::send_failed;
+                    pu.reason = (oc == SealOutcome::no_pubkey) ? SendFailReason::no_pubkey
+                              : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity : SendFailReason::too_large;
+                    pu.dst = 0; pu.ctr = 0; enqueue_push(pu);
+                    return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n, c.u.layer.dst_hash, 0 };
+                }
+                dbody = rbuf; dblen = rn; etype = DATA_TYPE_SEALED_RELAY;
+            }
 #if MR_FEAT_MOBILE
-            // §S1: a REGISTERED mobile must NOT originate a cross-layer DM on the static plane (origin = local id -> the
-            // answer can't route back -> RREQ storm). WRAP it to the HOME (DATA_TYPE_MOBILE_SEND + the path); the home
-            // prepends its own layer, re-validates, and originates. Requires an explicit path (a mobile can't park+H-flood).
+            // §S1/§S4: a REGISTERED mobile must NOT originate a cross-layer DM on the static plane (origin = local id ->
+            // the answer can't route back -> RREQ storm). WRAP it to the HOME (DATA_TYPE_MOBILE_SEND + the path); the home
+            // prepends its own layer, re-validates, and re-originates with the enclosed TYPE. Requires an explicit path.
             if (_cfg.is_mobile) {
                 if (!_my_mobile_reg.active)  return CmdResult{ CmdCode::err_no_gateway, 0, _active->_tx_queue_n, c.u.layer.dst_hash, 0 };   // no home -> can't delegate (fail loud)
                 if (c.u.layer.hop_count == 0) return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n, c.u.layer.dst_hash, 0 };  // no park-resolve on a mobile
+                // §S2: auto-attach INTRO on a first-contact PLAINTEXT XL send (not for a sealed relay — a sealed body must
+                // never carry a cleartext key prefix). Ride enclosed_type=INTRO through the wrapper (§1b-4).
+                if (!want_crypt) {
+                    uint8_t ibody[protocol::max_payload_bytes_hard_cap]; uint8_t pfx[33 + 32];
+                    const uint8_t pn = c.no_intro ? 0 : intro_attach_prefix(c.u.layer.dst_hash, CryptIntent::off, c.body_len, pfx, sizeof pfx);   // §D1 `-K`: suppress the attach for this send
+                    if (pn && static_cast<size_t>(pn) + c.body_len <= sizeof ibody) {
+                        for (uint8_t i = 0; i < pn; ++i)         ibody[i]      = pfx[i];
+                        for (uint8_t i = 0; i < c.body_len; ++i) ibody[pn + i] = c.body[i];
+                        dbody = ibody; dblen = static_cast<uint8_t>(pn + c.body_len); etype = DATA_TYPE_INTRO;
+                    }
+                    const uint16_t ctr = delegate_send_layer(c.u.layer.dst_hash, c.u.layer.hops, c.u.layer.hop_count,
+                                                             /*enclosed_type=*/etype, dbody, dblen, c.u.layer.flags);
+                    const uint32_t lp = pack_layer_path(c.u.layer.hops, c.u.layer.hop_count);
+                    return CmdResult{ ctr ? CmdCode::queued : CmdCode::err_no_gateway, ctr, _active->_tx_queue_n, c.u.layer.dst_hash, lp };
+                }
+                // §S4: the SEALED relay (dbody/dblen/etype already built above) — the home re-originates DATA_TYPE_SEALED_RELAY
+                // WITHOUT re-sealing (it can't; only the mobile holds the target's ECDH pair). Wrapper stays PLAINTEXT.
                 const uint16_t ctr = delegate_send_layer(c.u.layer.dst_hash, c.u.layer.hops, c.u.layer.hop_count,
-                                                         /*enclosed_type=*/0, c.body, c.body_len, c.u.layer.flags);
+                                                         /*enclosed_type=*/etype, dbody, dblen, c.u.layer.flags);
                 const uint32_t lp = pack_layer_path(c.u.layer.hops, c.u.layer.hop_count);
                 return CmdResult{ ctr ? CmdCode::queued : CmdCode::err_no_gateway, ctr, _active->_tx_queue_n, c.u.layer.dst_hash, lp };
             }
@@ -1012,8 +1053,10 @@ CmdResult Node::on_command(const Command& c) {
                     if (c.u.layer.hops[i] == 0)              return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n, c.u.layer.dst_hash, 0 };  // layer id 0 is unset (path invalid -> layer_path omitted)
                 if (c.u.layer.hops[0] == active_layer_id())  return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n, c.u.layer.dst_hash, lp };  // self-layer = misconfig
                 // Synchronous: queued (+ ctr to correlate) / err_no_gateway / err_too_large. NO orphan push.
+                // §S4: dbody/dblen/etype = the SEALED relay body + DATA_TYPE_SEALED_RELAY when want_crypt (a static
+                // originating a sealed XL DM directly); else c.body/0 = plaintext, byte-identical to before.
                 uint16_t ctr = 0;
-                const CmdCode code = originate_layer_path(c.u.layer.dst_hash, c.u.layer.hops, hc, c.body, c.body_len, c.u.layer.flags, ctr);
+                const CmdCode code = originate_layer_path(c.u.layer.dst_hash, c.u.layer.hops, hc, dbody, dblen, c.u.layer.flags, ctr, /*type=*/etype);
                 return CmdResult{ code, ctr, _active->_tx_queue_n, c.u.layer.dst_hash, lp };
             }
             // hop_count == 0: park-first (§5 / user 2026-06-13): resolve the dst's (node_id, target_layer) via an H

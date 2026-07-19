@@ -85,8 +85,8 @@ bool parse_hex_bytes_tok(const Tok& t, uint8_t* out, size_t n) {
 // text between the quotes (spaces allowed). Returns false on: a disallowed/unknown flag, an unquoted token, an
 // unterminated/duplicate quote, or no body at all (the body is required).
 bool parse_send_tail(Scan& s, bool allow_a, bool allow_e, bool& ack, bool& enc,
-                     const uint8_t*& body, uint8_t& body_len, bool* team = nullptr) {
-    ack = false; enc = false; if (team) *team = false; body = nullptr; body_len = 0; bool body_seen = false;
+                     const uint8_t*& body, uint8_t& body_len, bool* team = nullptr, bool* no_intro = nullptr) {
+    ack = false; enc = false; if (team) *team = false; if (no_intro) *no_intro = false; body = nullptr; body_len = 0; bool body_seen = false;
     for (;;) {
         skip_ws(s);
         if (s.p >= s.end) break;
@@ -109,6 +109,7 @@ bool parse_send_tail(Scan& s, bool allow_a, bool allow_e, bool& ack, bool& enc,
             if      (f == 'a') { if (!allow_a) return false; ack = true; }
             else if (f == 'e') { if (!allow_e) return false; enc = true; }
             else if (f == 't') { if (!team) return false; *team = true; }   // §6.4: -t = TEAM plane (only the `send` verb passes a team ptr; send_channel/send_layer reject it)
+            else if (f == 'K') { if (!no_intro) return false; *no_intro = true; }   // §D1: -K = suppress the INTRO first-contact attach for this send (send/send_layer only; a no-op on a sealed send)
             else return false;                                   // unknown flag
         } else {
             return false;                                        // unquoted text -> error (body must be quoted)
@@ -221,9 +222,10 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
             if (!digit || v == 0 || v > 255) return ParseErr::bad_args;
             if (out.u.layer.hop_count >= protocol::gw_env_max_hops - 1) return ParseErr::bad_args;
             out.u.layer.hops[out.u.layer.hop_count++] = static_cast<uint8_t>(v);
-            bool ack = false, enc = false; const uint8_t* body = nullptr; uint8_t blen = 0;
-            if (!parse_send_tail(s, /*allow_a=*/true, /*allow_e=*/false, ack, enc, body, blen)) return ParseErr::bad_args;
+            bool ack = false, enc = false, no_intro = false; const uint8_t* body = nullptr; uint8_t blen = 0;
+            if (!parse_send_tail(s, /*allow_a=*/true, /*allow_e=*/false, ack, enc, body, blen, /*team=*/nullptr, /*no_intro=*/&no_intro)) return ParseErr::bad_args;
             out.u.layer.flags = static_cast<uint8_t>(ack ? DATA_FLAG_E2E_ACK_REQ : 0);
+            out.no_intro = no_intro;   // §D1 `-K`
             out.body = body; out.body_len = blen;
             return ParseErr::ok;
         }
@@ -235,14 +237,15 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
         else if (parse_u32_tok(arg, 254u, id)) by_hash = false;            // bare decimal <=254 -> id
         else return ParseErr::bad_args;
         if (by_hash && h == 0) return ParseErr::bad_args;   // `send 00000000`: an all-zero hash would fall through to a unicast to reserved id 0 (mirror send_layer's h==0 guard)
-        bool ack = false, enc = false, team = false; const uint8_t* body = nullptr; uint8_t blen = 0;
-        if (!parse_send_tail(s, /*allow_a=*/true, /*allow_e=*/by_hash, ack, enc, body, blen, &team)) return ParseErr::bad_args;  // -e only on a hash target; -t = team plane
+        bool ack = false, enc = false, team = false, no_intro = false; const uint8_t* body = nullptr; uint8_t blen = 0;
+        if (!parse_send_tail(s, /*allow_a=*/true, /*allow_e=*/by_hash, ack, enc, body, blen, &team, &no_intro)) return ParseErr::bad_args;  // -e only on a hash target; -t = team plane; -K = suppress INTRO attach
         out = Command{};
         out.kind = CmdKind::send;
         out.u.send.dst_id   = by_hash ? 0 : static_cast<uint8_t>(id);
         out.u.send.dst_hash = by_hash ? h : 0u;            // on_command routes dst_hash!=0 to send_by_hash
         out.u.send.flags    = static_cast<uint8_t>(ack ? DATA_FLAG_E2E_ACK_REQ : 0);
         out.u.send.plane    = team ? 1 /*TEAM*/ : 2 /*GLOBAL*/;   // §6.4 HARD SPLIT: -t => team-only; plain send => global/home (fails loud if no home)
+        out.no_intro = no_intro;   // §D1 `-K`: suppress the INTRO attach for this send (accepted on a sealed send too -> harmless no-op)
         out.body = body; out.body_len = blen;
         out.crypt = enc ? CryptIntent::on : CryptIntent::def;   // -e => CRYPTED; absent => the node's e2e_dm default (force-plain dropped)
         return ParseErr::ok;

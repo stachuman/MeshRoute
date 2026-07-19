@@ -34,17 +34,19 @@ struct InboxEntry {
     uint8_t        enc;          // §8b: 1 = this DM was delivered SEALED (DATA_FLAG_CRYPTED + a successful e2e_open); 0 = plaintext / channel
     uint8_t        type;         // the frame DATA_TYPE: 0 = a normal app DM / channel; DATA_TYPE_E2E_ACK = an E2E-ack RECEIPT (no body, origin = the dest that confirmed, msg_id = the acked ctr). Room for H_ANSWER etc. later.
     uint32_t       team_id;      // §S5: a channel message's team scoping (0 = a plain leaf channel / DM). Carries the ACTUAL id (not a flag) so post-team-switch history stays correctly labelled.
+    uint8_t        origin_layer; // §GapA durable: the cross-layer SENDER's layer (layer_ids[0] of the preserved XL path; 0 = same-layer / non-XL). Durable twin of Push.origin_layer so a pulled record still yields the (layer_path, hash) reply address.
     uint64_t       rx_time_ms;
     const uint8_t* body;
     uint8_t        body_len;
 };
 
 // Serialized record = [seq u32][kind u8][origin u8][channel_id u8][msg_id u32][sender_hash u32][rx_time_ms u64]
-// [layer_id u8][enc u8][type u8][team_id u32][body_len u8][body], all LITTLE-endian. Fixed 31-B header + body. The STORE
-// adds the on-flash framing ([u16 total_len] …); Inbox owns this record (de)serialization. The app's DM identity is (sender_hash,
-// ctr) when sender_hash != 0, else (origin, ctr); channel identity is the full msg_id. (§2/Q13: +layer_id 2026-06-13;
-// §8b: +enc 2026-06-16; +type 2026-06-23 (E2E-ack receipts); §S5: +team_id 2026-07-16 — each bumps the device store version so old records are rejected.)
-inline constexpr uint16_t inbox_record_header_bytes = 4 + 1 + 1 + 1 + 4 + 4 + 8 + 1 + 1 + 1 + 4 + 1; // = 31
+// [layer_id u8][enc u8][type u8][team_id u32][origin_layer u8][body_len u8][body], all LITTLE-endian. Fixed 32-B header + body.
+// The STORE adds the on-flash framing ([u16 total_len] …); Inbox owns this record (de)serialization. The app's DM identity is
+// (sender_hash, ctr) when sender_hash != 0, else (origin, ctr); channel identity is the full msg_id. (§2/Q13: +layer_id 2026-06-13;
+// §8b: +enc 2026-06-16; +type 2026-06-23 (E2E-ack receipts); §S5: +team_id 2026-07-16; §GapA-durable: +origin_layer 2026-07-19 —
+// each bumps the device store version so old records are rejected.)
+inline constexpr uint16_t inbox_record_header_bytes = 4 + 1 + 1 + 1 + 4 + 4 + 8 + 1 + 1 + 1 + 4 + 1 + 1; // = 32
 inline constexpr uint16_t inbox_record_max_bytes    = inbox_record_header_bytes + protocol::inbox_max_body;  // 272 (31 + 241)
 
 // ---- the storage HAL: a bounded, crash-safe append + iterate + drop-oldest record log -------------
@@ -94,7 +96,7 @@ public:
     // can unify live + pulled by seq + detect a dropped live push (the contract's model "B"); hence record
     // BEFORE enqueue_push. `sender_hash` = the DM sender's key_hash32 (stable identity, 0 if SOURCE_HASH absent).
     // The channel identity is the FULL channel_msg_id (origin = its high byte) — store it whole, not the ctr.
-    uint32_t record_dm(uint8_t origin, uint32_t sender_hash, uint16_t ctr, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms, uint8_t enc = 0);   // §8b: enc=1 if the DM was delivered sealed
+    uint32_t record_dm(uint8_t origin, uint32_t sender_hash, uint16_t ctr, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms, uint8_t enc = 0, uint8_t origin_layer = 0);   // §8b: enc=1 if the DM was delivered sealed; §GapA-durable: origin_layer = the XL sender's layer (0 = same-layer)
     uint32_t record_channel(uint8_t channel_id, uint32_t channel_msg_id, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms, uint32_t team_id = 0);   // channels are cleartext today -> enc always 0; §S5 team_id scopes the durable record
     // Record an E2E-ack RECEIPT for a -a DM WE originated (the dest `from_origin` confirmed delivery of our ctr `acked_ctr`).
     // A DM-store entry under the DM seq-cursor: kind=dm, type=DATA_TYPE_E2E_ACK, origin=from_origin, msg_id=acked_ctr, body_len=0,
@@ -120,7 +122,7 @@ public:
 
 private:
     uint32_t record(InboxStore* store, uint32_t& next, uint8_t& unpersisted, InboxKind kind, uint8_t origin,
-                    uint8_t channel_id, uint32_t msg_id, uint32_t sender_hash, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms, uint8_t enc, uint8_t type, uint32_t team_id);
+                    uint8_t channel_id, uint32_t msg_id, uint32_t sender_hash, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms, uint8_t enc, uint8_t type, uint32_t team_id, uint8_t origin_layer);
 
     InboxStore* _dm   = nullptr;
     InboxStore* _chan = nullptr;

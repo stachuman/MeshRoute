@@ -310,6 +310,7 @@ bool Node::peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyCo
     L._peer_keys[slot].confidence = static_cast<uint8_t>(conf);
     L._peer_keys[slot].last_seen_ms = now;
     L._peer_keys[slot].name_len = 0;
+    L._peer_keys[slot].peer_confirmed = false;   // §S2: a fresh (or evicted-recycled) entry is UNCONFIRMED until we open a sealed frame from it (a plaintext/INTRO cache never confirms)
     if (name && name_len) { const uint8_t nl = name_len > 32 ? 32 : name_len; for (uint8_t b = 0; b < nl; ++b) L._peer_keys[slot].name[b] = name[b]; L._peer_keys[slot].name_len = nl; }   // §1.3: cache the peer's name with the key
     return true;
 }
@@ -346,6 +347,41 @@ bool Node::peer_key_find(uint32_t key_hash32, uint8_t ed_pub_out[32], PeerKeyCon
         }
     }
     return false;
+}
+
+bool Node::peer_confirmed(uint32_t key_hash32) const {
+    // §S2: no cached entry -> unconfirmed -> INTRO attaches (first contact). An entry confirmed once (a sealed
+    // open, e2e_open_trial) stays confirmed for its lifetime (a plaintext/INTRO cache never sets the bit).
+    for (uint16_t i = 0; i < _active->_peer_keys_n; ++i)
+        if (_active->_peer_keys[i].key_hash32 == key_hash32) return _active->_peer_keys[i].peer_confirmed;
+    return false;
+}
+
+// §S2 INTRO first-contact attach (D1): build [ed_pub 32][name_len 1][name] into pfx (the sender's key prefix), or
+// return 0 = no attach. Gates: intro_attach cfg ON · a crypto identity exists (_crypto_ready — ALSO the s18-inert
+// gate: an identity-less node has no key to attach) · the send resolves to PLAINTEXT (a sealed body must never carry
+// a cleartext key prefix) · dst is a real other peer · we have NOT peer_confirmed(dst) (no sealed frame opened from
+// them yet) · prefix+body fits the DM body cap (else send WITHOUT the attach — message delivery beats key bootstrap).
+uint8_t Node::intro_attach_prefix(uint32_t dst_hash, CryptIntent crypt, uint8_t body_len, uint8_t* pfx, uint8_t pfx_cap) {
+    if (!_cfg.intro_attach) return 0;
+    if (!_crypto_ready) return 0;                                  // no identity -> nothing to attach (== s18-inert)
+    const bool want_crypt = (crypt == CryptIntent::on)  ? true
+                          : (crypt == CryptIntent::off) ? false
+                                                        : _cfg.e2e_dm;
+    if (want_crypt) return 0;                                      // sealed send -> NEVER prefix a cleartext key (leak)
+    if (dst_hash == 0 || dst_hash == _key_hash32) return 0;        // degenerate / self
+    if (peer_confirmed(dst_hash)) return 0;                        // they already hold our key -> plain send
+    char nm[32]; const uint8_t nlen = effective_name(nm, 32);      // INTRO name field is <=32 B (matches the PeerKey name cap)
+    const uint8_t need = static_cast<uint8_t>(33 + nlen);          // ed_pub 32 + name_len 1 + name
+    if (need > pfx_cap) return 0;
+    if (static_cast<size_t>(need) + body_len > protocol::dm_max_body_bytes) {   // too large -> deliver the message plain
+        MR_EMIT("intro_attach_too_large", EF_I("hash", static_cast<int64_t>(dst_hash)), EF_I("body_len", body_len));
+        return 0;
+    }
+    for (uint8_t i = 0; i < 32; ++i) pfx[i] = _ed_pub[i];
+    pfx[32] = nlen;
+    for (uint8_t i = 0; i < nlen; ++i) pfx[33 + i] = static_cast<uint8_t>(nm[i]);
+    return need;
 }
 
 void Node::peer_key_age_out() {
@@ -471,10 +507,61 @@ bool Node::e2e_open_trial(const uint8_t* inner, size_t inner_len, const uint8_t 
         if (e2e_open_inner(inner, inner_len, seed8, flags, ctr, L._peer_keys[i].key_hash32, origin_out,
                            source_hash_out, has_location_out, lat_out, lon_out, body_out, body_len_out)) {
             sender_hash_out = L._peer_keys[i].key_hash32;          // the opening key's owner is the authenticated sender
+            L._peer_keys[i].peer_confirmed = true;                 // §S2: a SEALED frame opened from this peer => they hold OUR key => stop attaching INTRO to plaintext sends toward them (set ONLY here, never on a plaintext receipt)
             return true;
         }
     }
     return false;
+}
+
+// §S4 SEALED_RELAY seal: seal `body` to `target_hash` under OUR identity + pack the relay body [seal_ctr 2 LE][seed8 8]
+// [ct‖tag]. The seal is SAME-LAYER-shaped (aad = target_hash, pt = [origin][source_hash=_key_hash32][body]); a
+// dedicated CARRIED ctr (++_relay_seal_ctr) drives the nonce so a delegating home can re-originate under its OWN frame
+// ctr (MAC dedup) while the recipient still reproduces the nonce from the carried ctr + seed8. e2e_seal_inner does the
+// key lookup / fail-loud (no_pubkey / no_identity); we reuse its [target_hash 4][ct‖tag] output, dropping the 4-B aad
+// prefix (the recipient re-derives the aad from its own key_hash32). origin byte = 0 (layer-local, IGNORED on open).
+uint8_t Node::build_sealed_relay_body(uint32_t target_hash, const uint8_t* body, uint8_t body_len,
+                                      uint8_t* out, uint8_t out_cap, SealOutcome& outcome) {
+    outcome = SealOutcome::ok;
+    if (out_cap < 10) { outcome = SealOutcome::too_large; return 0; }
+    const uint16_t seal_ctr = ++_relay_seal_ctr;
+    uint8_t seed[8];
+    // Seal IN PLACE (no scratch buffer): e2e_seal_inner writes [aad(dst_hash) 4][ct‖tag] at out+6, so ct‖tag lands at
+    // out[10..]; we then overwrite out[0..9] with [seal_ctr 2][seed8 8] (the aad at out[6..9] is discardable — the
+    // recipient re-derives the aad from its own key_hash32). Net relay body = [seal_ctr 2][seed8 8][ct‖tag].
+    const size_t n = e2e_seal_inner(out + 6, static_cast<size_t>(out_cap) - 6, seed,
+                                    static_cast<uint8_t>(DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH),
+                                    target_hash, /*origin*/ 0, seal_ctr, _key_hash32,
+                                    /*lat*/ 0, /*lon*/ 0, body, body_len, outcome);
+    if (n == 0) return 0;                                          // outcome set (no_pubkey/no_identity/too_large/bad_rng)
+    // n = [aad 4][ct‖tag]; ct‖tag now sits at out[10..] (out+6 offset 4). Stamp the clear header over out[0..9].
+    out[0] = static_cast<uint8_t>(seal_ctr); out[1] = static_cast<uint8_t>(seal_ctr >> 8);
+    for (int i = 0; i < 8; ++i) out[2 + i] = seed[i];
+    return static_cast<uint8_t>(static_cast<size_t>(2) + 8 + (n - 4));   // 10 + (ct‖tag len)
+}
+
+// §S4 SEALED_RELAY open (directed — the CLEAR SOURCE_HASH names the sender, no trial). Rebuild the SAME-LAYER-shaped
+// sealed inner [our_hash 4 (aad)][ct‖tag] the seal produced and hand it to e2e_open_inner: nonce = dm_nonce(seed8,
+// seal_ctr, our_hash), aad = our_hash, and e2e_open_inner's own check enforces the SEALED source_hash == source_hash
+// (anti-spoof, §S4 Part B). The sealed origin byte is recovered-but-IGNORED (layer-local garbage). false = drop.
+bool Node::e2e_open_relay(const uint8_t* relay_body, size_t len, uint32_t source_hash,
+                          uint8_t* body_out, uint8_t& body_len_out) {
+    body_len_out = 0;
+    if (!_crypto_ready) return false;
+    if (len < static_cast<size_t>(2) + 8 + DM_TAG_LEN) return false;   // [seal_ctr 2][seed8 8][>=tag]
+    const uint16_t seal_ctr = static_cast<uint16_t>(relay_body[0] | (relay_body[1] << 8));
+    const uint8_t* seed     = relay_body + 2;
+    const uint8_t* sealed   = relay_body + 10;
+    const size_t   sealed_len = len - 10;
+    static uint8_t tmp[protocol::max_payload_bytes_hard_cap];   // static (non-reentrant loop task) — this opens on the cramped do_post_ack stack (ADDENDUM 4); keep the ~241 B out of the frame
+    if (static_cast<size_t>(4) + sealed_len > sizeof tmp) return false;
+    tmp[0] = static_cast<uint8_t>(_key_hash32);       tmp[1] = static_cast<uint8_t>(_key_hash32 >> 8);
+    tmp[2] = static_cast<uint8_t>(_key_hash32 >> 16); tmp[3] = static_cast<uint8_t>(_key_hash32 >> 24);
+    for (size_t i = 0; i < sealed_len; ++i) tmp[4 + i] = sealed[i];
+    uint32_t origin_ignored = 0, src_out = 0; bool hl = false; int32_t la = 0, lo = 0;
+    return e2e_open_inner(tmp, static_cast<size_t>(4) + sealed_len, seed,
+                          static_cast<uint8_t>(DATA_FLAG_SOURCE_HASH), seal_ctr, source_hash,
+                          origin_ignored, src_out, hl, la, lo, body_out, body_len_out);
 }
 
 // =============================================================================
@@ -531,7 +618,13 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // it never ANSWERS (its local id is invisible + home-proxied) and it never RELAYS (re-flooding puts a leaf on the static
     // flood plane + drains its battery; bench: a mobile re-tx'd its home's H). It DOES process a TEAM-scoped locate (the 6.2
     // team plane, where a teammate relays to reach a >1-hop teammate). A static node (is_mobile=false) is unchanged.
-    if (_cfg.is_mobile && !h.team_scoped) return;
+    if (_cfg.is_mobile && !h.team_scoped) {
+        // §S3 part3 (TX-free overhear): a WANT_PUBKEY H for OUR OWN hash carries the requester's appended key. Cache it
+        // BEFORE returning (no answer, no relay, no TX — the home answers on our behalf, Part 2). Covers the sender-in-RF-range
+        // case at zero cost; redundant with the Part-2 forward when the home is in range, kept for the home-momentarily-deaf case.
+        if (h.key_hash32 == _key_hash32 && h.want_pubkey) (void)cache_want_pubkey_requester(h);
+        return;
+    }
 
     // Resolve. SOFT query (default): own-hash OR any cached binding answers ("anyone who knows"). HARD query
     // (verify-on-use, dv §3.7a): resolve ONLY via own-hash — SKIP the cache so it reaches the OWNER for an
@@ -591,6 +684,11 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             const uint8_t* mk = host_mobile_ed_pub(h.key_hash32);  // the mobile's cached ed_pub (Fix 6 push), iff a LIVE direct proxy has_pubkey (a redirect carries no local key)
             if (mk) send_mobile_pubkey_answer(h.origin, mobile_layer, static_cast<uint8_t>(node_id), h.key_hash32, mobile_epoch, mk);
             // no cached key (the push hasn't arrived yet, or this is a redirect) -> stay SILENT on WANT_PUBKEY: the locate times out and the sender's reqpubkey retries (the push races registration). The flood is still suppressed by the return below.
+            // §S3 part2 (D3 eager): the requester needs OUR mobile's key (above) AND our mobile needs the REQUESTER's key to
+            // DECRYPT its future sealed DM. Cache the requester here (the owner branch's mutual-exchange, which this proxy
+            // branch replaces for a hosted mobile) + FORWARD it to the mobile as a 1-hop last-mile so the mobile can e2e_open.
+            const uint32_t rq = cache_want_pubkey_requester(h);
+            if (rq != 0) forward_requester_key_to_mobile(h.key_hash32, h.requester_ed_pub, reinterpret_cast<const char*>(h.name), h.name_len);
         } else if (h.want_pubkey && node_id == _node_id && _crypto_ready) {   // §6 + review#1: ONLY the OWNER (own-hash) answers WANT_PUBKEY
             // §2 MUTUAL: cache the requester's key + id_bind (from the H's appended ed_pub) BEFORE answering, so we can
             // both DECRYPT and ADDRESS its future sealed DMs -> the exchange provisions BOTH directions in one round.
@@ -810,6 +908,69 @@ void Node::send_mobile_pubkey_answer(uint8_t to_origin, uint8_t target_layer, ui
     become_free();
 }
 
+// §S3 part2/3: validate + cache a WANT_PUBKEY H's appended requester key, mirroring the owner branch's peer_key_set + name +
+// the mobile/team id_bind gate. Self-consistent by construction: peer_key_set derives + checks ed_pub[:4]==requester_hash (so
+// a mismatched/degenerate key is REFUSED there). Fires the peer_key_cached telemetry + push (the app's "secure send ready"
+// surface). Returns the requester hash on a successful cache, 0 on reject. Only the NEW paths call this (the home proxy-answer
+// branch + the mobile TX-free overhear cache) — the owner branch keeps its inline logic byte-identical (s18-inert).
+uint32_t Node::cache_want_pubkey_requester(const h_out& h) {
+    const uint32_t requester_hash = uint32_t(h.requester_ed_pub[0]) | (uint32_t(h.requester_ed_pub[1]) << 8)
+                                  | (uint32_t(h.requester_ed_pub[2]) << 16) | (uint32_t(h.requester_ed_pub[3]) << 24);
+    bool req_zero = true; for (int i = 0; i < 32; ++i) if (h.requester_ed_pub[i]) { req_zero = false; break; }
+    if (req_zero || requester_hash == 0) return 0;                 // never cache a zero/degenerate requester key
+    if (!peer_key_set(requester_hash, h.requester_ed_pub, PeerKeyConf::authoritative,
+                      reinterpret_cast<const char*>(h.name), h.name_len)) return 0;   // ed_pub[:4]!=hash -> refused
+    // The ADDRESSING half: a MOBILE/TEAM requester's origin is a LOCAL id -> do NOT id_bind it into the global plane (the KEY
+    // half is hash-keyed + routes by hash). Only a STATIC requester (global id) is id_bound. Mirrors the owner branch's gate.
+    if (!h.team_scoped && !h.mobile_req)
+        id_bind_set(h.origin, requester_hash, IdBindSource::h_query, IdBindConf::authoritative);
+    MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(requester_hash)), EF_I("node", h.origin));
+    push_peer_key_cached(requester_hash);
+    return requester_hash;
+}
+
+// §S3 part2: FORWARD a WANT_PUBKEY requester's key to a hosted mobile as a 1-hop last-mile DM (DATA_TYPE_MOBILE_KEY_FORWARD,
+// addr_len=1, plaintext). Body = [requester_ed_pub 32][name_len u8][name <=32]. Dedup: skip if we ALREADY forwarded this same
+// requester to this mobile last (per-entry last_key_fwd_hash32) — the cheapest guard against a reqpubkey-retry re-forwarding.
+void Node::forward_requester_key_to_mobile(uint32_t mobile_hash, const uint8_t requester_ed_pub[32],
+                                           const char* name, uint8_t name_len) {
+    const uint32_t rq = uint32_t(requester_ed_pub[0]) | (uint32_t(requester_ed_pub[1]) << 8)
+                      | (uint32_t(requester_ed_pub[2]) << 16) | (uint32_t(requester_ed_pub[3]) << 24);
+    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+        if (_active->_mobile_reg[i].key_hash32 == mobile_hash && _active->_mobile_reg[i].redirect_home_id == 0) {
+            if (_active->_mobile_reg[i].last_key_fwd_hash32 == rq) return;   // already forwarded this requester -> dedup (no re-forward)
+            _active->_mobile_reg[i].last_key_fwd_hash32 = rq;
+            const uint8_t local_id = _active->_mobile_reg[i].mobile_local_id;
+            uint8_t nlen = name_len > 32 ? 32 : name_len;
+            uint8_t body[32 + 1 + 32];
+            for (int b = 0; b < 32; ++b) body[b] = requester_ed_pub[b];
+            body[32] = nlen;
+            for (uint8_t b = 0; b < nlen; ++b) body[33 + b] = static_cast<uint8_t>(name[b]);
+            (void)enqueue_data(local_id, body, static_cast<uint8_t>(33 + nlen), /*flags=*/0, "mobile_key_forward",
+                               /*app_dm=*/false, DATA_TYPE_MOBILE_KEY_FORWARD, CryptIntent::off,
+                               /*override_dst_hash=*/0, /*override_source_hash=*/0, /*addr_len=*/1);
+            MR_EMIT("mobile_key_forward_tx", EF_I("local", local_id), EF_I("req", static_cast<int64_t>(rq)));
+            return;
+        }
+}
+
+// §S3 part2 (mobile side): the home forwarded a WANT_PUBKEY requester's key to us. Cache it (self-consistency-checked via
+// peer_key_set: ed_pub[:4] must equal the derived hash) + name, then fire peer_key_cached (the app's "secure send ready"
+// surface). Closes the recipient-side decrypt gap: we can now e2e_open the requester's sealed DM. body = [ed_pub 32][name_len][name].
+void Node::on_mobile_key_forward(const uint8_t* body, uint8_t len) {
+    if (len < 33) return;                                          // need ed_pub[32] + name_len
+    const uint8_t* ed = body;
+    const uint32_t rq = uint32_t(ed[0]) | (uint32_t(ed[1]) << 8) | (uint32_t(ed[2]) << 16) | (uint32_t(ed[3]) << 24);
+    bool zero = true; for (int i = 0; i < 32; ++i) if (ed[i]) { zero = false; break; }
+    if (zero || rq == 0) return;                                   // degenerate key -> reject
+    uint8_t nlen = body[32];
+    if (nlen > 32) nlen = 32;
+    if (static_cast<size_t>(33) + nlen > len) nlen = static_cast<uint8_t>(len - 33);   // clamp a claimed len past the frame
+    if (!peer_key_set(rq, ed, PeerKeyConf::authoritative, reinterpret_cast<const char*>(body + 33), nlen)) return;   // ed_pub[:4]!=hash -> reject
+    MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(rq)), EF_I("node", 0));
+    push_peer_key_cached(rq);
+}
+
 // §mobile hash-locate Part 2 (Fix 8): the querier received a home's MOBILE_H_ANSWER_PUBKEY -> cache the mobile's key
 // (hash-verified, authoritative) AND route via the home (mobile_home_set). NEVER id_bind the local id. Combines the owner
 // pubkey ingest (on_hash_bind_pubkey) with the mobile-home cache (on_mobile_hash_bind_response) — the sender can now seal
@@ -857,14 +1018,31 @@ void Node::on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool auth
 
 // on_command(send) routes here when dst_hash != 0 (the deferred "address by key_hash32"). Returns the DM ctr
 // if sent immediately, else 0 (parked/resolving — the ctr is assigned when the binding arrives).
-uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr, Plane plane) {
+uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr, Plane plane, uint8_t type, bool suppress_intro) {
+    // §S2 INTRO first-contact attach (D1): at ORIGINATION (type==0 = not a pre-built INTRO; reply_to_hash==0 = not a
+    // HOME re-originating for its mobile), a PLAINTEXT hash-addressed send rides as DATA_TYPE_INTRO carrying our
+    // pubkey iff intro_attach_prefix says so (no peer_confirmed(dst), a crypto identity exists, cfg on, plaintext,
+    // fits). itype/sbody thread through every dispatch below; the delegation wraps enclosed_type=itype. sbuf is
+    // static (non-reentrant loop task) so the ~241 B stays off the cramped do_post_ack stack — the home
+    // re-originate reaches here with type!=0 so it never allocates the prefix / touches sbuf (byte-identical).
+    const uint8_t* sbody = body; uint8_t sblen = body_len; uint8_t itype = type;
+    if (type == 0 && reply_to_hash == 0 && !suppress_intro) {   // §D1 `-K`: suppress_intro skips the attach for this one send (a no-op on a sealed send — intro_attach_prefix already returns 0 for want_crypt)
+        static uint8_t sbuf[protocol::max_payload_bytes_hard_cap];
+        uint8_t pfx[33 + 32];
+        const uint8_t pn = intro_attach_prefix(key_hash32, crypt, body_len, pfx, sizeof pfx);
+        if (pn && static_cast<size_t>(pn) + body_len <= sizeof sbuf) {
+            for (uint8_t i = 0; i < pn; ++i)       sbuf[i]      = pfx[i];
+            for (uint8_t i = 0; i < body_len; ++i) sbuf[pn + i] = body[i];
+            sbody = sbuf; sblen = static_cast<uint8_t>(pn + body_len); itype = DATA_TYPE_INTRO;
+        }
+    }
 #if MR_FEAT_TEAM
     // §6.4 HARD SPLIT: `send -t 0x<hash>` (TEAM plane) resolves a HEARD teammate from the team-key cache ONLY (beacon-only,
     // NO id_bind / home / H-flood / global fallback). An unheard teammate FAILS LOUD -> the app retries when a beacon arrives.
     if (plane == Plane::TEAM) {
         uint8_t tid = 0;
         if (_cfg.team_id != 0 && team_id_of_key(key_hash32, tid))
-            return do_send(tid, body, body_len, flags, crypt, /*override_dst_hash=*/0, /*type=*/0, /*override_source_hash=*/reply_to_hash, Plane::TEAM);
+            return do_send(tid, sbody, sblen, flags, crypt, /*override_dst_hash=*/0, /*type=*/itype, /*override_source_hash=*/reply_to_hash, Plane::TEAM);
         MR_EMIT("team_send_unresolved", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
         Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::mobile_no_home; pu.dst = 0; pu.ctr = 0; enqueue_push(pu);
         return 0;
@@ -873,7 +1051,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     IdBindConf conf = IdBindConf::claimed;
     const int id = id_bind_find_by_hash(key_hash32, &conf);
     if (id >= 0 && conf == IdBindConf::authoritative) {         // confident binding -> send NOW (a mobile still routes via its home; the reply returns by SOURCE_HASH -> no H-query, no storm)
-        const uint16_t ch = do_send(static_cast<uint8_t>(id), body, body_len, flags, crypt, /*override_dst_hash=*/0, /*type=*/0, /*override_source_hash=*/reply_to_hash, plane);   // §8b: thread the per-message crypt intent + Wave 2 plane
+        const uint16_t ch = do_send(static_cast<uint8_t>(id), sbody, sblen, flags, crypt, /*override_dst_hash=*/0, /*type=*/itype, /*override_source_hash=*/reply_to_hash, plane);   // §8b: thread the per-message crypt intent + Wave 2 plane; §S2: itype threads an auto-attached INTRO
         if (reply_to_hash != 0) deleg_ack_put(reply_to_hash, ch, mobile_ctr);   // §mobile reverse-ack: HOME re-originating for its mobile toward a STATIC target -> map ctr_H->ctr_M keyed by the MOBILE's hash (no-op if mobile_ctr==0)
         return ch;
     }
@@ -884,7 +1062,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     if (plane != Plane::GLOBAL && _cfg.is_mobile && _cfg.team_id != 0) {
         uint8_t tid = 0;
         if (team_id_of_key(key_hash32, tid))
-            return do_send(tid, body, body_len, flags, crypt, /*override_dst_hash=*/0, /*type=*/0, /*override_source_hash=*/reply_to_hash, /*plane=*/Plane::TEAM);   // resolved to a teammate -> force the team plane
+            return do_send(tid, sbody, sblen, flags, crypt, /*override_dst_hash=*/0, /*type=*/itype, /*override_source_hash=*/reply_to_hash, /*plane=*/Plane::TEAM);   // resolved to a teammate -> force the team plane
     }
 #endif
     // §mobile delegate (2026-07-11): UNRESOLVED + we are the MOBILE (reply_to_hash==0) -> DO NOT flood an H query (origin=our
@@ -892,26 +1070,62 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     // DST_HASH=target); the home resolves + re-originates on our behalf, and the target's reply routes back via SOURCE_HASH
     // (=our hash, stamped by stamp_origin). The HOME re-originating (reply_to_hash!=0) falls through to the resolve+flood below.
 #if MR_FEAT_MOBILE
-    if (reply_to_hash == 0 && _cfg.is_mobile && _my_mobile_reg.active)
-        return do_send(_my_mobile_reg.home_id, body, body_len, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/DATA_TYPE_MOBILE_SEND);
+    if (reply_to_hash == 0 && _cfg.is_mobile && _my_mobile_reg.active) {
+        // §S4 delegated SEALED (fixes the §1b-3 TODAY-broken path): seal the body to the target HERE — only the mobile
+        // holds the ECDH pair — and wrap the sealed blob under a PLAINTEXT MOBILE_SEND (enclosed_type=SEALED_RELAY). The
+        // home re-originates the type-17 relay WITHOUT re-sealing. CRITICAL: the wrapper is PLAINTEXT (CryptIntent::off);
+        // the old code passed `crypt` into the wrapper do_send, which sealed the WRAPPER to the target so the home could
+        // never read source_hash -> the frame fell through to deliver -> e2e_open_no_key SILENT DROP at the home.
+        const bool want_crypt = (crypt == CryptIntent::on) ? true : (crypt == CryptIntent::off) ? false : _cfg.e2e_dm;
+        if (want_crypt) {
+            uint8_t rbody[protocol::max_payload_bytes_hard_cap]; SealOutcome oc = SealOutcome::ok;
+            const uint8_t rn = build_sealed_relay_body(key_hash32, body, body_len, rbody, sizeof rbody, oc);
+            if (rn == 0) {                                                   // fail loud (no pubkey / identity / too large) — NEVER cleartext
+                MR_EMIT("e2e_no_pubkey", EF_I("hash", static_cast<int64_t>(key_hash32)), EF_I("oc", static_cast<int>(oc)));
+                Push pu{}; pu.kind = PushKind::send_failed;
+                pu.reason = (oc == SealOutcome::no_pubkey) ? SendFailReason::no_pubkey
+                          : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity : SendFailReason::too_large;
+                pu.dst = 0; pu.ctr = 0; enqueue_push(pu);
+                return 0;
+            }
+            uint8_t wbody[protocol::max_payload_bytes_hard_cap];
+            wbody[0] = DATA_TYPE_SEALED_RELAY;
+            for (uint8_t i = 0; i < rn; ++i) wbody[1 + i] = rbody[i];
+            return do_send(_my_mobile_reg.home_id, wbody, static_cast<uint8_t>(rn + 1),
+                           static_cast<uint8_t>(flags | DATA_FLAG_MS_ENCLOSED_TYPE), CryptIntent::off,
+                           /*override_dst_hash=*/key_hash32, /*type=*/DATA_TYPE_MOBILE_SEND);
+        }
+        if (itype != 0) {
+            // §S2 same-layer delegated INTRO (spec §3b): the SAME-LAYER MOBILE_SEND wrapper has no enclosed-type byte,
+            // so mark it with DATA_FLAG_MS_ENCLOSED_TYPE + prefix the wrapper body with the enclosed TYPE. The home
+            // strips both and re-originates with that TYPE (send_by_hash type=itype). sbody already holds the INTRO prefix.
+            uint8_t wbody[protocol::max_payload_bytes_hard_cap];
+            wbody[0] = itype;
+            for (uint8_t i = 0; i < sblen; ++i) wbody[1 + i] = sbody[i];
+            return do_send(_my_mobile_reg.home_id, wbody, static_cast<uint8_t>(sblen + 1),
+                           static_cast<uint8_t>(flags | DATA_FLAG_MS_ENCLOSED_TYPE), crypt,
+                           /*override_dst_hash=*/key_hash32, /*type=*/DATA_TYPE_MOBILE_SEND);
+        }
+        return do_send(_my_mobile_reg.home_id, sbody, sblen, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/DATA_TYPE_MOBILE_SEND);
+    }
     // §mobile: a mobile WE HOST (in our _mobile_reg) is reached by a DIRECT last-mile (addr_len=1 -> its local id), NOT an H
     // query — the home is BOTH the querier and the proxy, so a flood deadlocks (the registered mobile suppresses its own-hash
     // H answer, node_hashlocate.cpp handle_h). Mirrors do_post_ack's forwarded last-mile. redirect_home_id==0 = a LIVE local
     // hosting (a migrated mobile falls through to the mobile_home_find redirect below). Gated on _mobile_reg_n -> non-host byte-identical.
     for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
         if (_active->_mobile_reg[i].key_hash32 == key_hash32 && _active->_mobile_reg[i].redirect_home_id == 0)
-            return enqueue_data(_active->_mobile_reg[i].mobile_local_id, body, body_len, flags, "tx_enqueue", /*app_dm=*/true,
-                                /*type=*/0, crypt, /*override_dst_hash=*/0, /*override_source_hash=*/reply_to_hash, /*addr_len=*/1, plane);
+            return enqueue_data(_active->_mobile_reg[i].mobile_local_id, sbody, sblen, flags, "tx_enqueue", /*app_dm=*/true,
+                                /*type=*/itype, crypt, /*override_dst_hash=*/0, /*override_source_hash=*/reply_to_hash, /*addr_len=*/1, plane);
 #endif
     uint8_t home_layer = 0;
     const int home = mobile_home_find(key_hash32, &home_layer);  // §mobile 3c/5b: a cached mobile -> its home_node (+layer)?
     if (home >= 0) {
         if (home_layer != 0 && home_layer != active_layer_id()) {   // §5b: the home is on ANOTHER layer -> reach it via a gateway (the bridge resolves M on the target leaf, Fix 3)
-            send_cross_layer(static_cast<uint8_t>(home), key_hash32, home_layer, body, body_len, flags);
+            send_cross_layer(static_cast<uint8_t>(home), key_hash32, home_layer, sbody, sblen, flags, itype);
             return 0;
         }
         // same layer (4a path): send to the home carrying the MOBILE's hash (so home forwards, not consumes). NO hard-verify.
-        return do_send(static_cast<uint8_t>(home), body, body_len, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/0, /*override_source_hash=*/reply_to_hash);
+        return do_send(static_cast<uint8_t>(home), sbody, sblen, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/itype, /*override_source_hash=*/reply_to_hash);
     }
     // SOFT cached binding -> HARD verify-on-use (reach the owner for a correction); UNKNOWN -> SOFT flood. (The HOME re-originating
     // for its mobile floods as ITSELF, origin=home_id -> the answer routes back; the parked send keeps the mobile's reply hash.)
@@ -923,12 +1137,14 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     // (vs the AUTO param) guarantees the team scope + the team_local_id origin. (reply_to_hash==0 = our own origination; a
     // HOME re-originating for its mobile falls through to the global flood below.)
     if (reply_to_hash == 0 && _cfg.is_mobile && _cfg.team_id != 0 && !mobile_registered()) {
-        park_send(key_hash32, body, body_len, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr);
+        park_send(key_hash32, sbody, sblen, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr, /*type=*/itype,
+                  /*reflood=*/true, /*reflood_hard=*/false, /*reflood_plane=*/Plane::TEAM);   // §F-SL-1: a quiet-net team flood miss re-tries before giveup
         emit_hash_query(key_hash32, /*hard=*/false, /*want_pubkey=*/false, Plane::TEAM);
         return 0;
     }
 #endif
-    park_send(key_hash32, body, body_len, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr);
+    park_send(key_hash32, sbody, sblen, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr, /*type=*/itype,
+              /*reflood=*/true, /*reflood_hard=*/(id >= 0), /*reflood_plane=*/plane);   // §F-SL-1: bounded jittered retry so a re-homed contact re-resolves in a quiet net
     emit_hash_query(key_hash32, /*hard=*/(id >= 0), /*want_pubkey=*/false, plane);   // Wave 2: GLOBAL flood is NOT team-scoped; AUTO keeps today's behavior
     return 0;
 }
@@ -1013,7 +1229,7 @@ void Node::emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey, Pla
     tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
 }
 
-void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr) {
+void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr, uint8_t type, bool reflood, bool reflood_hard, Plane reflood_plane) {
     if (_parked_sends_n >= protocol::cap_parked_sends) return;   // full -> drop (the app can retry)
     ParkedSend& p = _parked_sends[_parked_sends_n++];
     p = ParkedSend{};                                           // reset a RECYCLED slot: the array is compacted in
@@ -1023,6 +1239,16 @@ void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len,
     p.reply_to_hash = reply_to_hash;                            // §mobile delegate: the mobile's hash (home re-originating) -> SOURCE_HASH on drain
     p.mobile_ctr = mobile_ctr;                                  // §mobile reverse-ack: the mobile's original ctr -> the drain's ctr_H->ctr_M map
     p.crypt = crypt;                                            // M3: stamp the per-message crypt intent -> drain re-seals CRYPTED (never a silent cleartext downgrade)
+    p.type = type;                                             // §S2: a parked INTRO re-originates with its TYPE (+ the already-built key prefix in body) on drain
+    // §F-SL-1: schedule the first bounded H re-flood so a QUIET-net single-flood miss self-heals before giveup. The
+    // FIRST deadline is a FIXED offset (NO rand draw here): park times already differ across nodes, and drawing at park
+    // time would perturb the shared-mt19937 draw ORDER for the rest of the run even when no re-flood ever fires (the sim
+    // is draw-order-deterministic) — a phantom behaviour shift. The per-retry jitter is drawn in park_reflood_fire, i.e.
+    // ONLY when a re-flood actually happens, so a run with no re-floods is RNG-identical to before this fix.
+    if (reflood) {
+        p.reflood = true; p.reflood_hard = reflood_hard; p.reflood_plane = reflood_plane;
+        p.reflood_at_ms = p.parked_at_ms + protocol::park_reflood_retry_ms;
+    }
     // Clamp to the DM body cap (NOT the 241-B inner buffer): drain_parked_sends -> do_send -> enqueue_data
     // writes body at inner[2+i], so a >239 body would overrun inner[]. on_command already rejects oversize
     // (err_too_large) — this is defense-in-depth so a parked body can never exceed the deliverable size.
@@ -1031,6 +1257,48 @@ void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len,
     MR_TELEMETRY(
         EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) } };
         _hal.emit("send_parked_for_hash", f, 1); );
+    if (reflood) park_reflood_arm();
+}
+
+// §F-SL-1: (re)arm the shared re-flood scan timer to the EARLIEST pending re-flood among parked sends. A one-shot
+// (re-armed after each fire) so the parked sends can carry INDEPENDENT jittered re-flood deadlines through one timer
+// id — exactly like earliest_due bounds the idle sleep. No pending re-flood -> cancel (idempotent).
+void Node::park_reflood_arm() {
+    uint64_t earliest = ~0ull;
+    for (uint8_t i = 0; i < _parked_sends_n; ++i) {
+        const ParkedSend& p = _parked_sends[i];
+        if (p.reflood && p.reflood_count < protocol::park_reflood_max_retries && p.reflood_at_ms < earliest)
+            earliest = p.reflood_at_ms;
+    }
+    if (earliest == ~0ull) { _hal.cancel(kParkRefloodTimerId); return; }
+    const uint64_t now = _hal.now();
+    const uint32_t delay = (earliest > now) ? static_cast<uint32_t>(earliest - now) : 0;
+    (void)_hal.after(delay, kParkRefloodTimerId);
+}
+
+// §F-SL-1: re-flood every parked send whose deadline elapsed (bounded by park_reflood_max_retries), then re-arm. The
+// re-emitted H reproduces the parked send's ORIGINAL query (hard bit + plane) so a re-homed contact is re-located the
+// same way the first flood tried. Resolution removes the entry (drain) => it simply stops being re-flooded. In a QUIET
+// net (the F-SL-1 case) this is the retry the single park-time flood lacked; the send_defer_ttl_ms giveup still bounds it.
+void Node::park_reflood_fire() {
+    const uint64_t now = _hal.now();
+    for (uint8_t i = 0; i < _parked_sends_n; ++i) {
+        ParkedSend& p = _parked_sends[i];
+        if (!p.reflood || p.reflood_count >= protocol::park_reflood_max_retries || p.reflood_at_ms > now) continue;
+        emit_hash_query(p.key_hash32, p.reflood_hard, /*want_pubkey=*/false, p.reflood_plane);
+        MR_EMIT("send_hash_reflood", EF_I("key_hash32", static_cast<int64_t>(p.key_hash32)), EF_I("try", p.reflood_count + 1));
+        p.reflood_count++;
+        // §F-SL-1: DETERMINISTIC per-(hash,node,try) jitter — NOT a rand_range() draw. The re-flood targets a QUIET net,
+        // where the flood's own LBT never draws (LBT only draws when busy), so this would be the re-flood's ONLY shared
+        // -mt19937 consumption; drawing here reorders the whole downstream draw sequence and phantom-flips timing-fragile
+        // deliveries that occur LATER (s27 post-m4, +49 s after the re-flood — the flood's transient event-ordering has
+        // long settled by then, but a stream reorder is permanent). The mix decorrelates the re-fire beat across hashes,
+        // nodes, and retries (batch B's "not the same beat" requirement) without touching the RNG stream.
+        const uint32_t djit = (p.key_hash32 * 2654435761u + static_cast<uint32_t>(_node_id) * 40503u
+                               + p.reflood_count * 2246822519u) % (protocol::park_reflood_jitter_ms + 1);
+        p.reflood_at_ms = now + protocol::park_reflood_retry_ms + djit;
+    }
+    park_reflood_arm();
 }
 
 // Slice 4d: park a CROSS-LAYER-capable send. Identical to park_send but marks cross_layer, so when the H-answer
@@ -1103,14 +1371,14 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t 
                     _hal.emit("send_hash_giveup", f, 1); );
             } else if (p.cross_layer && target_layer != 0xFF && target_layer != _cfg.leaf_id) {
                 // Slice 4d (§5): the dst lives on ANOTHER layer -> originate a CROSS_LAYER DM via a bridging gateway.
-                send_cross_layer(resolved_id, key_hash32, target_layer, p.body, p.body_len, p.flags);
+                send_cross_layer(resolved_id, key_hash32, target_layer, p.body, p.body_len, p.flags, p.type);
             } else {
                 MR_TELEMETRY(
                     EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) },
                                        { .key = "node",       .type = EventField::T::i64, .i = resolved_id } };
                     _hal.emit("send_hash_resolved", f, 2); );
                 // same-layer (incl. a cross_layer park whose dst turned out to be on OUR leaf, §5.1): a plain DM.
-                const uint16_t ch = do_send(resolved_id, p.body, p.body_len, p.flags, p.crypt, /*override_dst_hash=*/p.key_hash32, /*type=*/0, /*override_source_hash=*/p.reply_to_hash);   // load-bearing (OUTSIDE the wrap): fly the held DM; M3: thread crypt; §mobile 3c: carry the queried hash so even the FIRST flood-resolved send to a mobile stamps DST_HASH=M (home forwards, not consumes); §mobile delegate: reply_to_hash -> SOURCE_HASH so the target's reply routes back to the mobile. For a normal send p.key_hash32 == key_hash_of_id(resolved_id) + reply_to_hash==0 -> byte-identical.
+                const uint16_t ch = do_send(resolved_id, p.body, p.body_len, p.flags, p.crypt, /*override_dst_hash=*/p.key_hash32, /*type=*/p.type, /*override_source_hash=*/p.reply_to_hash);   // §S2: p.type re-originates a parked INTRO with its TYPE (0 = plain, byte-identical); load-bearing (OUTSIDE the wrap): fly the held DM; M3: thread crypt; §mobile 3c: carry the queried hash so even the FIRST flood-resolved send to a mobile stamps DST_HASH=M (home forwards, not consumes); §mobile delegate: reply_to_hash -> SOURCE_HASH so the target's reply routes back to the mobile. For a normal send p.key_hash32 == key_hash_of_id(resolved_id) + reply_to_hash==0 -> byte-identical.
                 if (p.reply_to_hash != 0) deleg_ack_put(p.reply_to_hash, ch, p.mobile_ctr);   // §mobile reverse-ack: a parked delegated re-origination resolved -> map ctr_H->ctr_M keyed by the MOBILE's hash (no-op if mobile_ctr==0)
             }
             continue;                                            // matched entry handled (forwarded / healed / kept-above / given up)
@@ -1153,7 +1421,7 @@ void Node::drain_resolved_parked_sends() {
                     EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(p.key_hash32) },
                                        { .key = "node",       .type = EventField::T::i64, .i = id } };
                     _hal.emit("send_hash_resolved", f, 2); );
-                const uint16_t ch = do_send(static_cast<uint8_t>(id), p.body, p.body_len, p.flags, p.crypt, /*override_dst_hash=*/0, /*type=*/0, /*override_source_hash=*/p.reply_to_hash);   // load-bearing (OUTSIDE the wrap); M3: thread the stamped crypt intent (a beacon-resolved parked sendhashx still flies CRYPTED); §mobile delegate: reply_to_hash -> SOURCE_HASH
+                const uint16_t ch = do_send(static_cast<uint8_t>(id), p.body, p.body_len, p.flags, p.crypt, /*override_dst_hash=*/0, /*type=*/p.type, /*override_source_hash=*/p.reply_to_hash);   // §S2: p.type re-originates a parked INTRO with its TYPE (0 = plain, byte-identical); load-bearing (OUTSIDE the wrap); M3: thread the stamped crypt intent (a beacon-resolved parked sendhashx still flies CRYPTED); §mobile delegate: reply_to_hash -> SOURCE_HASH
                 if (p.reply_to_hash != 0) deleg_ack_put(p.reply_to_hash, ch, p.mobile_ctr);   // §mobile reverse-ack: a beacon-resolved parked delegated re-origination -> map ctr_H->ctr_M keyed by the MOBILE's hash
             }
             continue;                                            // drop the parked entry (forwarded / sent)

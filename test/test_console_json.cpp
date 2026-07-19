@@ -168,6 +168,14 @@ TEST_CASE("write_inbox_* — pull stream records + terminator + mark_read ack") 
     CHECK(std::string(b, n) ==
       "{\"ev\":\"inbox_dm\",\"type\":\"e2e_ack\",\"seq\":9,\"origin\":5,\"layer_id\":1,\"ctr\":55,\"sender_hash\":12648430,\"rx_ms\":222,\"body\":\"\"}\n");
 
+    // §GapA-durable: origin_layer rides after rx_ms (before enc), OMITTED when 0.
+    n = write_inbox_dm(b, sizeof b, 42, 2, /*layer_id*/ 23, 7, 3735928559u, 123456ull, "hi", 2, /*enc=*/false, /*type=*/0, /*origin_layer=*/4);
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"inbox_dm\",\"seq\":42,\"origin\":2,\"layer_id\":23,\"ctr\":7,\"sender_hash\":3735928559,\"rx_ms\":123456,\"origin_layer\":4,\"body\":\"hi\"}\n");
+    n = write_inbox_dm(b, sizeof b, 42, 2, /*layer_id*/ 23, 7, 3735928559u, 123456ull, "hi", 2, /*enc=*/true, /*type=*/0, /*origin_layer=*/4);
+    CHECK(std::string(b, n) ==   // XL + sealed: origin_layer then enc
+      "{\"ev\":\"inbox_dm\",\"seq\":42,\"origin\":2,\"layer_id\":23,\"ctr\":7,\"sender_hash\":3735928559,\"rx_ms\":123456,\"origin_layer\":4,\"enc\":true,\"body\":\"hi\"}\n");
+
     n = write_inbox_channel(b, sizeof b, 7, 4, /*layer_id*/ 7, 3, 68298753u, 123456ull, "yo", 2);
     CHECK(std::string(b, n) ==
       "{\"ev\":\"inbox_channel\",\"seq\":7,\"origin\":4,\"layer_id\":7,\"channel_id\":3,\"channel_msg_id\":68298753,\"rx_ms\":123456,\"body\":\"yo\"}\n");

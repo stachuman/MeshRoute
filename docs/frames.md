@@ -27,7 +27,7 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 | 0x9 | J    | 6 / 8·13 / 11 / 15 B | join family (OFFER 13 B iff `is_mobile`) |
 | 0xA | M    | 7+n B | channel message (lean; leaf-scoped gossip) |
 | 0xB | C    | 15+n B | leaf-config answer (the CONFIG_PULL reply) |
-| 0xC | P    | probe 8 / 10 / 42 B · roster 5 + 6·N (+ bitmaps) (+5 echo) B | presence plane (probe dir=0 / roster dir=1); **LEAF-FREE** |
+| 0xC | P    | probe 8 / 10 / 42 B · roster **6** + 6·N (+ bitmaps; deleg bitmap iff HAS_DELEG) (+5 echo) B | presence plane (probe dir=0 / roster dir=1); **LEAF-FREE**; roster byte 4 = `wire_version` (D16), byte-0 b0 = `HAS_DELEG` |
 
 ---
 
@@ -167,6 +167,9 @@ Bytes 2..7 are the **fixed routing header** (`DATA_HDR_LEN = 8`) — relays read
 | 11   | `MOBILE_LAYER_ANSWER`           | `[count u8][ count × LayerRecord ]` — a gateway's layer directory (§mobile §5a)                                                                                                                                              |
 | 12   | `MOBILE_PUBKEY_PUSH`            | **RETIRED 2026-07-18 (§S6)** — key custody rides the P-probe `HAS_PUBKEY` block; the handler is deleted. Code 12 stays reserved, do not reuse                                                                                 |
 | 13   | `MOBILE_H_ANSWER_PUBKEY`        | the mobile hash_bind (7 B) ‖ the mobile's `ed_pub[32]` = 39 B — a home's WANT_PUBKEY answer for its LIVE mobile (§mobile hash-locate P2). Sender caches `peer_key(M)`+`mobile_home(M→home)`, **never** id_binds the local id |
+| 15   | `INTRO`                         | a PLAINTEXT app DM whose body is prefixed `[ed_pub 32][name_len u8][name ≤32]` before the text (requires SOURCE_HASH; receiver checks `ed_pub[:4]==source_hash`, caches authoritative, STRIPS the prefix, delivers the rest as a normal DM). Auto-attached on a first-contact plaintext hash-send until a sealed frame from that peer confirms custody (§S2 D1; `cfg set intro_attach` opt-out). Delegated same-layer via the `MS_ENCLOSED_TYPE` wrapper marker (aliases the decode-only PRIORITY bit — 1-hop wrapper leg only, stripped at the home) |
+| 17   | `SEALED_RELAY`                  | `[seal_ctr 2 LE][seed8 8][ct‖tag]` — a PLAINTEXT-framed sealed-body carrier (clear DST_HASH + SOURCE_HASH; the CARRIED `seal_ctr` drives the nonce so a delegating home re-originates under its OWN frame ctr without re-sealing). Directed open by the clear SOURCE_HASH (no trial); sealed-vs-clear source_hash cross-checked. Serves delegated same-layer AND cross-layer sealed DMs (§S4). ⚠ attributable envelope — sealed CONTENT, visible sender; sealed-SENDER privacy is the same-layer direct path only |
+| 16   | `MOBILE_KEY_FORWARD`            | `[requester_ed_pub 32][name_len u8][name ≤32]` — home→hosted-mobile 1-hop last-mile (addr_len=1, plaintext, no DST_HASH/SOURCE_HASH): a WANT_PUBKEY requester's key, so the mobile can open that requester's sealed DMs (§S3)                    |
 
 *(code 0 = invalid — `APP=0` means no TYPE byte.)*
 
@@ -327,7 +330,7 @@ Shared 2-byte header; body and length depend on opcode. All multi-byte fields **
 
 **opcode:** `0 = DISCOVER`, `1 = CLAIM`, `2 = DENY`, `3 = OFFER`. **`wire_version`** (b3..0) is the cross-version handshake (see Conventions) — **not** rsv.
 
-**DISCOVER (6 B static / 9 B mobile):** bytes 2..5 = `key_hash32`; a MOBILE discover appends `[last_home_id 1][last_home_layer 1][last_reg_epoch 1]` (0-filled when fresh — §S6.4-D feeds the new-home→old-home notify; a 6-B frame parses as all-zero last-home).
+**DISCOVER (6 B static / 9 B mobile / 13 B re-home):** bytes 2..5 = `key_hash32`; a MOBILE discover appends `[last_home_id 1][last_home_layer 1][last_reg_epoch 1]` (0-filled when fresh) and, iff `last_home_id != 0`, `[last_home_key_hash32 4 LE]` (B4 — the XL old-home notify is hash-addressed — §S6.4-D feeds the new-home→old-home notify; a 6-B frame parses as all-zero last-home).
 
 **OFFER (8 B static / 13 B mobile):** byte 2 = `responder_node_id` · bytes 3..6 = `responder_key_hash32` · byte 7 = `data_sf_bitmap` · **[iff `is_mobile`:** byte 8 = `proposed_mobile_id` (host-assigned LOCAL id) · bytes 9..12 = `target_key_hash32` (the mobile this OFFER is addressed to — a mobile adopts only an OFFER for its own `key_hash32`)**]**.
 

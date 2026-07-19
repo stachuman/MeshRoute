@@ -20,7 +20,7 @@ static bool inbox_pull_cb(void* vctx, const meshroute::InboxEntry& e) {
     const size_t n = (e.kind == meshroute::InboxKind::dm)
         ? meshroute::console::write_inbox_dm(s_inbox_jb, sizeof s_inbox_jb, e.seq, e.origin, e.layer_id,
               static_cast<uint16_t>(e.msg_id), e.sender_hash, e.rx_time_ms,
-              reinterpret_cast<const char*>(e.body), e.body_len, e.enc != 0, e.type)   // §8b enc + the DATA_TYPE (E2E-ack receipt = "e2e_ack")
+              reinterpret_cast<const char*>(e.body), e.body_len, e.enc != 0, e.type, e.origin_layer)   // §8b enc + the DATA_TYPE (E2E-ack receipt = "e2e_ack") + §GapA-durable origin_layer
         : meshroute::console::write_inbox_channel(s_inbox_jb, sizeof s_inbox_jb, e.seq, e.origin, e.layer_id,
               e.channel_id, e.msg_id, e.rx_time_ms, reinterpret_cast<const char*>(e.body), e.body_len, e.team_id);   // §S5 durable team scoping
     if (n) { c->out.write(s_inbox_jb, n); ++c->count; }

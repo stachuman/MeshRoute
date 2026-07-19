@@ -76,13 +76,13 @@ TEST_CASE("TimerWheel — a fired timer that re-arms with a positive delay does 
     CHECK(w.pop_due(5020) == 1);                   // fires next tick
 }
 
-TEST_CASE("TimerWheel — out-of-range caller id is rejected (bounded cap 85)") {
+TEST_CASE("TimerWheel — out-of-range caller id is rejected (bounded cap 90)") {
     TimerWheel w;
-    CHECK(w.after(10, /*id=*/84, 0));              // last valid id (kCap=85; §F-XL-1 added the h_forward de-storm ring [81..84])
-    CHECK_FALSE(w.after(10, /*id=*/85, 0));        // == kCap -> rejected
+    CHECK(w.after(10, /*id=*/89, 0));              // last valid id (kCap=90; §F-XL-2 added the rreq_forward ring [85..88], §F-SL-1 the parked-send re-flood scan [89])
+    CHECK_FALSE(w.after(10, /*id=*/90, 0));        // == kCap -> rejected
     CHECK_FALSE(w.after(10, /*id=*/255, 0));
-    CHECK(!w.active(85));
-    CHECK(w.pop_due(100) == 84);                   // the valid one still fires
+    CHECK(!w.active(90));
+    CHECK(w.pop_due(100) == 89);                   // the valid one still fires
 }
 
 TEST_CASE("TimerWheel — a Slice-3 gateway-band id (64..79) arms + fires (kCap raised 64->80)") {

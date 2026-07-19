@@ -2019,12 +2019,12 @@ TEST_CASE("P-probe/P-roster — reject wrong cmd / wrong dir / short-for-flag") 
     CHECK(parse_p_roster(wrong) == std::nullopt);
 }
 TEST_CASE("P-roster rev2 — ECHO block round-trip + size") {
-    PRosterEntry ents[1] = {{ 0x2716EFCD, 20, 5, protocol::presence_q_strong, true }};
+    PRosterEntry ents[1] = {{ 0x2716EFCD, 20, 5, protocol::presence_q_strong, true, false }};
     p_roster_in in{}; in.home_id = 103; in.home_layer = 4; in.dir_epoch = 9; in.entries = ents; in.count = 1;
     in.has_echo = true; in.echo_hash32 = 0x44070031; in.echo_quality = protocol::presence_q_weak;
     std::array<uint8_t, 40> buf{};
     const size_t n = pack_p_roster(in, buf);
-    CHECK(n == 5u + 6u + 1u + 1u + 5u);                      // hdr + 1 entry + 1 qual + 1 haskey + 5 echo = 18
+    CHECK(n == 6u + 6u + 1u + 1u + 5u);                     // §D16: hdr(6) + 1 entry + 1 qual + 1 haskey + 5 echo = 19 (no deleg failures -> §B2 bitmap OMITTED)
     auto r = parse_p_roster(std::span<const uint8_t>(buf.data(), n));
     CHECK(r.has_value());
     if (r) { CHECK(r->has_echo); CHECK(r->echo_hash32 == 0x44070031u); CHECK(r->echo_quality == protocol::presence_q_weak);
@@ -2035,53 +2035,67 @@ TEST_CASE("P-roster rev2 — ECHO block round-trip + size") {
     const size_t nn = pack_p_roster(ne, nb); CHECK(nn == n - 5u);
     auto rr = parse_p_roster(std::span<const uint8_t>(nb.data(), nn)); CHECK(rr.has_value()); if (rr) CHECK_FALSE(rr->has_echo);
 }
-TEST_CASE("P-roster — 3 mobiles (24 B) golden size + bitmap round-trip") {
+TEST_CASE("P-roster — 3 mobiles (27 B) golden size + bitmap round-trip") {
     PRosterEntry ents[3] = {
-        { 0x2716EFCD, 20, 5, protocol::presence_q_strong, true  },
-        { 0x3A3E77A3, 21, 6, protocol::presence_q_weak,   false },
-        { 0xBCC13CC5, 22, 7, protocol::presence_q_critical, true },
+        { 0x2716EFCD, 20, 5, protocol::presence_q_strong, true,  false },
+        { 0x3A3E77A3, 21, 6, protocol::presence_q_weak,   false, true  },   // §B2: this one carries the deleg_fail bit
+        { 0xBCC13CC5, 22, 7, protocol::presence_q_critical, true, false },
     };
-    p_roster_in in{}; in.home_id = 103; in.home_layer = 4; in.dir_epoch = 9; in.entries = ents; in.count = 3;
+    p_roster_in in{}; in.home_id = 103; in.home_layer = 4; in.dir_epoch = 9; in.wire_version = 1; in.entries = ents; in.count = 3;
     std::array<uint8_t, 64> buf{};
     const size_t n = pack_p_roster(in, buf);
-    CHECK(n == 25);                                          // 5 hdr + 3*6 entries(18) + ceil(3/4)=1 quality + ceil(3/8)=1 has_key
+    CHECK(n == 27);                                          // §D16/B2: 6 hdr + 3*6 entries(18) + ceil(3/4)=1 quality + ceil(3/8)=1 has_key + ceil(3/8)=1 deleg
     auto r = parse_p_roster(std::span<const uint8_t>(buf.data(), n));
     CHECK(r.has_value());
     if (r) {
-        CHECK(r->home_id == 103); CHECK(r->home_layer == 4); CHECK(r->dir_epoch == 9); CHECK(r->count == 3);
+        CHECK(r->home_id == 103); CHECK(r->home_layer == 4); CHECK(r->dir_epoch == 9); CHECK(r->wire_version == 1); CHECK(r->count == 3);
         auto e0 = parse_p_roster_entry(std::span<const uint8_t>(buf.data(), n), *r, 0);
         auto e1 = parse_p_roster_entry(std::span<const uint8_t>(buf.data(), n), *r, 1);
         auto e2 = parse_p_roster_entry(std::span<const uint8_t>(buf.data(), n), *r, 2);
         CHECK(e0.has_value()); CHECK(e1.has_value()); CHECK(e2.has_value());
         if (e0) { CHECK(e0->key_hash32 == 0x2716EFCD); CHECK(e0->local_id == 20); CHECK(e0->reg_epoch == 5);
                   CHECK(e0->quality == protocol::presence_q_strong); CHECK(e0->has_key); }
-        if (e1) { CHECK(e1->quality == protocol::presence_q_weak); CHECK_FALSE(e1->has_key); }
-        if (e2) { CHECK(e2->key_hash32 == 0xBCC13CC5); CHECK(e2->quality == protocol::presence_q_critical); CHECK(e2->has_key); }
+        if (e0) CHECK_FALSE(e0->deleg_fail);
+        if (e1) { CHECK(e1->quality == protocol::presence_q_weak); CHECK_FALSE(e1->has_key); CHECK(e1->deleg_fail); }   // §B2
+        if (e2) { CHECK(e2->key_hash32 == 0xBCC13CC5); CHECK(e2->quality == protocol::presence_q_critical); CHECK(e2->has_key); CHECK_FALSE(e2->deleg_fail); }
         CHECK(parse_p_roster_entry(std::span<const uint8_t>(buf.data(), n), *r, 3) == std::nullopt);  // OOB
     }
 }
-TEST_CASE("P-roster — 16 mobiles = 107 B (frame-size guide)") {
+TEST_CASE("P-roster — 16 mobiles = 108 B no-deleg / 110 B with-deleg (frame-size guide)") {
     PRosterEntry ents[16];
-    for (uint8_t i = 0; i < 16; ++i) ents[i] = { 0x1000u + i, static_cast<uint8_t>(20 + i), i, static_cast<uint8_t>(i & 3), (i & 1) != 0 };
+    for (uint8_t i = 0; i < 16; ++i) ents[i] = { 0x1000u + i, static_cast<uint8_t>(20 + i), i, static_cast<uint8_t>(i & 3), (i & 1) != 0, false };
     p_roster_in in{}; in.home_id = 5; in.home_layer = 20; in.dir_epoch = 0; in.entries = ents; in.count = 16;
     std::array<uint8_t, 128> buf{};
-    const size_t n = pack_p_roster(in, buf);
-    CHECK(n == 5u + 16u * 6u + 4u + 2u);                     // 5 + 96 + ceil(16/4)=4 + ceil(16/8)=2 = 107
+    size_t n = pack_p_roster(in, buf);
+    CHECK(n == 6u + 16u * 6u + 4u + 2u);                     // §D16: 6 + 96 + ceil(16/4)=4 + ceil(16/8)=2 has_key = 108 (no deleg failures -> §B2 bitmap OMITTED)
+    ents[3].deleg_fail = true;                               // §B2: one failure -> the deleg bitmap rides (+ceil(16/8)=2)
+    n = pack_p_roster(in, buf);
+    CHECK(n == 6u + 16u * 6u + 4u + 2u + 2u);                // = 110
     auto r = parse_p_roster(std::span<const uint8_t>(buf.data(), n));
     CHECK(r.has_value());
     if (r) { auto e15 = parse_p_roster_entry(std::span<const uint8_t>(buf.data(), n), *r, 15);
              CHECK(e15.has_value()); if (e15) { CHECK(e15->local_id == 35); CHECK(e15->quality == (15 & 3)); CHECK(e15->has_key); } }
 }
-TEST_CASE("j_discover — mobile +3 B last-home block; static/legacy 6 B parses fresh") {
+TEST_CASE("j_discover — re-home +3 B last-home block +4 B old-home hash (§B4); fresh mobile 9 B; static 6 B") {
+    // §B4: last_home_id != 0 (a re-home) -> the 4-B old-home hash rides -> 13 B
     j_discover_in m{}; m.leaf_id = 4; m.is_mobile = true; m.key_hash32 = 0x44070031;
-    m.last_home_id = 103; m.last_home_layer = 4; m.last_reg_epoch = 7;
+    m.last_home_id = 103; m.last_home_layer = 4; m.last_reg_epoch = 7; m.last_home_key_hash32 = 0xDEADBEEF;
     std::array<uint8_t, 16> buf{};
     const size_t n = pack_j_discover(m, buf);
-    CHECK(n == 9);
+    CHECK(n == 13);
     auto o = parse_j(std::span<const uint8_t>(buf.data(), n));
     CHECK(o.has_value());
     if (o) { CHECK(o->is_mobile); CHECK(o->key_hash32 == 0x44070031u);
-             CHECK(o->last_home_id == 103); CHECK(o->last_home_layer == 4); CHECK(o->last_reg_epoch == 7); }
+             CHECK(o->last_home_id == 103); CHECK(o->last_home_layer == 4); CHECK(o->last_reg_epoch == 7);
+             CHECK(o->last_home_key_hash32 == 0xDEADBEEFu); }
+    // FRESH mobile (last_home_id == 0): 9-B last-home block all-zero, NO hash (byte-identical to pre-B4)
+    j_discover_in f{}; f.leaf_id = 4; f.is_mobile = true; f.key_hash32 = 0x1111;
+    std::array<uint8_t, 16> fb{};
+    const size_t fn = pack_j_discover(f, fb);
+    CHECK(fn == 9);
+    auto fo = parse_j(std::span<const uint8_t>(fb.data(), fn));
+    CHECK(fo.has_value());
+    if (fo) { CHECK(fo->last_home_id == 0); CHECK(fo->last_home_key_hash32 == 0u); }
     // legacy 6-B (fresh): static discover, or a 6-B mobile frame -> block parses as 0
     j_discover_in s{}; s.leaf_id = 4; s.is_mobile = false; s.key_hash32 = 0x1234;
     std::array<uint8_t, 16> sb{};

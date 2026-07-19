@@ -78,7 +78,19 @@ a dual-layer gateway is entirely out of the channel plane (never originates, pul
 Opt-in sealed-sender DMs: X25519 ECDH → BLAKE2b KDF → XChaCha20-Poly1305 seals `origin` + everything after it
 (only `dst_key_hash32` stays cleartext as AAD). The receiver recovers the sender by **trial decryption** over its
 cached peer keys; no candidate opens ⇒ silent drop. Peer keys are provisioned via the H `WANT_PUBKEY`/`REQ_PUBKEY`
-mutual exchange. Optional 6-B sender location rides the sealed inner.
+mutual exchange; for a **registered mobile** the mutual half is home-mediated (§S3): the home answering on the
+mobile's behalf also caches the requester's attached key and last-miles it to the mobile
+(`MOBILE_KEY_FORWARD`), and the mobile TX-free-caches a requester key it overhears for its own hash — so a
+sealed DM to a mobile opens. **First contact needs no key round at all (§S2 INTRO):** a plaintext
+hash-addressed DM to a peer whose custody is unconfirmed auto-attaches the sender's pubkey (+33 B once);
+the reply attaches back by the same rule ⇒ mutual keys in one round trip, then sealed traffic sets
+`peer_confirmed` and attaching stops. `cfg set intro_attach` opts out; `-K` suppresses one send.
+**Cross-layer + delegated sealed DMs ride `SEALED_RELAY` (§S4):** the sealer seals same-layer-shaped under a
+CARRIED `seal_ctr` (so a delegating home re-originates under its own frame ctr without re-sealing) and the
+recipient does a DIRECTED open keyed by the clear `SOURCE_HASH` (sealed-vs-clear cross-checked). ⚠ these are
+sealed-CONTENT but attributable-envelope; sealed-SENDER privacy (trial-decrypt, origin hidden) holds only for
+same-layer direct sealed DMs. XL E2E-acks are cleartext, parity with same-layer acks. Optional 6-B sender
+location rides the sealed inner.
 - **Source:** `dm_crypto.{h,cpp}` · `node_mac.cpp`/`node_mac_rx.cpp` (seal/open at enqueue/deliver) · `node_hashlocate.cpp` (pubkey resolution)
 - **Spec:** `docs/superpowers/specs/2026-06-16-e2e-sealed-sender-redesign.md` · `2026-06-15-phase1-e2e-dm-crypto.md` · `2026-06-16-e2e-peer-key-provisioning.md` · `2026-06-14-location-propagation.md`
 

@@ -19,9 +19,9 @@ inline uint16_t r_u16(const uint8_t* p) { return uint16_t(p[0] | (uint16_t(p[1])
 inline uint32_t r_u32(const uint8_t* p) { uint32_t v = 0; for (int i = 3; i >= 0; --i) v = (v << 8) | p[i]; return v; }
 inline uint64_t r_u64(const uint8_t* p) { uint64_t v = 0; for (int i = 7; i >= 0; --i) v = (v << 8) | p[i]; return v; }
 
-// [seq u32][kind u8][origin u8][channel_id u8][msg_id u32][sender_hash u32][rx_time_ms u64][layer_id u8][enc u8][type u8][team_id u32][body_len u8][body] — all LE.
+// [seq u32][kind u8][origin u8][channel_id u8][msg_id u32][sender_hash u32][rx_time_ms u64][layer_id u8][enc u8][type u8][team_id u32][origin_layer u8][body_len u8][body] — all LE.
 uint16_t serialize(uint8_t* out, uint32_t seq, InboxKind kind, uint8_t origin, uint8_t channel_id,
-                   uint32_t msg_id, uint32_t sender_hash, uint64_t rx_time_ms, uint8_t layer_id, uint8_t enc, uint8_t type, uint32_t team_id, const uint8_t* body, uint8_t len) {
+                   uint32_t msg_id, uint32_t sender_hash, uint64_t rx_time_ms, uint8_t layer_id, uint8_t enc, uint8_t type, uint32_t team_id, uint8_t origin_layer, const uint8_t* body, uint8_t len) {
     uint8_t* p = out;
     w_u32(p, seq);
     *p++ = static_cast<uint8_t>(kind);
@@ -34,6 +34,7 @@ uint16_t serialize(uint8_t* out, uint32_t seq, InboxKind kind, uint8_t origin, u
     *p++ = enc;                                                   // §8b: sealed-delivery flag
     *p++ = type;                                                  // the frame DATA_TYPE (0 = normal DM; DATA_TYPE_E2E_ACK = receipt)
     w_u32(p, team_id);                                            // §S5: channel team scoping (0 = leaf channel / DM)
+    *p++ = origin_layer;                                          // §GapA-durable: the XL sender's layer (0 = same-layer / non-XL)
     *p++ = len;
     for (uint8_t i = 0; i < len; ++i) *p++ = body ? body[i] : 0;
     return static_cast<uint16_t>(p - out);
@@ -54,6 +55,7 @@ bool deserialize(const uint8_t* rec, uint16_t len, InboxEntry& e) {
     e.enc = *p++;                                                 // §8b
     e.type = *p++;                                                // the frame DATA_TYPE (E2E-ack receipt vs normal DM)
     e.team_id = r_u32(p); p += 4;                                 // §S5: channel team scoping
+    e.origin_layer = *p++;                                        // §GapA-durable: the XL sender's layer
     e.body_len = *p++;
     if (static_cast<uint16_t>(inbox_record_header_bytes + e.body_len) > len) return false;   // body truncated
     e.body = (e.body_len > 0) ? p : nullptr;
@@ -109,11 +111,11 @@ void Inbox::on_init(InboxStore* dm, InboxStore* chan) {
 }
 
 uint32_t Inbox::record(InboxStore* store, uint32_t& next, uint8_t& unpersisted, InboxKind kind, uint8_t origin,
-                       uint8_t channel_id, uint32_t msg_id, uint32_t sender_hash, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms, uint8_t enc, uint8_t type, uint32_t team_id) {
+                       uint8_t channel_id, uint32_t msg_id, uint32_t sender_hash, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms, uint8_t enc, uint8_t type, uint32_t team_id, uint8_t origin_layer) {
     if (len > protocol::inbox_max_body) len = protocol::inbox_max_body;   // callers already bound the body; defensive
     uint8_t buf[inbox_record_max_bytes];
     const uint32_t seq = next++;                                  // monotonic; assign-then-advance
-    const uint16_t n = serialize(buf, seq, kind, origin, channel_id, msg_id, sender_hash, now_ms, layer_id, enc, type, team_id, body, len);
+    const uint16_t n = serialize(buf, seq, kind, origin, channel_id, msg_id, sender_hash, now_ms, layer_id, enc, type, team_id, origin_layer, body, len);
     (void)store->append(seq, buf, n);                             // drop-oldest within; a flash failure drops THIS record (seq still advances — monotonic, not gapless)
     // Batched persist (§6): reset the batch ONLY on a SUCCESSFUL set_next_seq — a failed flash write keeps
     // `unpersisted` high so the next append RETRIES, instead of swallowing the failure + skipping a batch.
@@ -121,9 +123,9 @@ uint32_t Inbox::record(InboxStore* store, uint32_t& next, uint8_t& unpersisted, 
     return seq;                                                   // the live Push stamps this -> the app's gap detector (model B)
 }
 
-uint32_t Inbox::record_dm(uint8_t origin, uint32_t sender_hash, uint16_t ctr, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms, uint8_t enc) {
+uint32_t Inbox::record_dm(uint8_t origin, uint32_t sender_hash, uint16_t ctr, uint8_t layer_id, const uint8_t* body, uint8_t len, uint64_t now_ms, uint8_t enc, uint8_t origin_layer) {
     if (!enabled()) return 0;
-    return record(_dm, _dm_next, _dm_unpersisted, InboxKind::dm, origin, /*channel_id*/ 0, /*msg_id*/ ctr, sender_hash, layer_id, body, len, now_ms, enc, /*type*/ 0, /*team_id*/ 0);
+    return record(_dm, _dm_next, _dm_unpersisted, InboxKind::dm, origin, /*channel_id*/ 0, /*msg_id*/ ctr, sender_hash, layer_id, body, len, now_ms, enc, /*type*/ 0, /*team_id*/ 0, origin_layer);
 }
 
 uint32_t Inbox::record_channel(uint8_t channel_id, uint32_t channel_msg_id, uint8_t layer_id,
@@ -131,14 +133,14 @@ uint32_t Inbox::record_channel(uint8_t channel_id, uint32_t channel_msg_id, uint
     if (!enabled()) return 0;
     const uint8_t origin = static_cast<uint8_t>(channel_msg_id >> 24);   // the minter (channel_msg_id high byte)
     return record(_chan, _chan_next, _chan_unpersisted, InboxKind::channel, origin, channel_id, channel_msg_id,
-                  /*sender_hash*/ 0, layer_id, body, len, now_ms, /*enc*/ 0, /*type*/ 0, team_id);   // channels are cleartext today; §S5 team scoping
+                  /*sender_hash*/ 0, layer_id, body, len, now_ms, /*enc*/ 0, /*type*/ 0, team_id, /*origin_layer*/ 0);   // channels are cleartext today; §S5 team scoping
 }
 
 uint32_t Inbox::record_ack(uint8_t from_origin, uint16_t acked_ctr, uint8_t layer_id, uint64_t now_ms, uint32_t acker_hash) {
     if (!enabled()) return 0;
     // A receipt rides the DM seq-space (an E2E ack IS a DATA frame): kind=dm, type=E2E_ACK, no body, origin = the acker.
     return record(_dm, _dm_next, _dm_unpersisted, InboxKind::dm, from_origin, /*channel_id*/ 0, /*msg_id*/ acked_ctr,
-                  /*sender_hash*/ acker_hash, layer_id, /*body*/ nullptr, /*len*/ 0, now_ms, /*enc*/ 0, /*type*/ DATA_TYPE_E2E_ACK, /*team_id*/ 0);
+                  /*sender_hash*/ acker_hash, layer_id, /*body*/ nullptr, /*len*/ 0, now_ms, /*enc*/ 0, /*type*/ DATA_TYPE_E2E_ACK, /*team_id*/ 0, /*origin_layer*/ 0);
 }
 
 uint16_t Inbox::pull(uint32_t dm_since, uint32_t chan_since, PullCb cb, void* ctx) const {
