@@ -853,6 +853,8 @@ void Node::on_timer(uint32_t timer_id) {
             flood_rebroadcast_fire(static_cast<uint8_t>(timer_id - kFloodRebcastTimerId));       // channel FLOOD rebroadcast ring slot
         } else if (timer_id >= kChannelReofferTimerId && timer_id < kChannelReofferTimerId + kChannelReofferSlots) {
             channel_reoffer_fire(static_cast<uint8_t>(timer_id - kChannelReofferTimerId));       // Part 2: channel origin re-offer ring slot
+        } else if (timer_id >= kHForwardTimerId && timer_id < kHForwardTimerId + kHForwardSlots) {
+            h_forward_fire(static_cast<uint8_t>(timer_id - kHForwardTimerId));                    // §F-XL-1: jittered h_forward de-storm ring slot
         }
         break;
     }
@@ -985,6 +987,19 @@ CmdResult Node::on_command(const Command& c) {
             // Every send_layer return echoes the dst_hash (and, once known, the layer_path) so the app holds the
             // full "send handle" (CmdResult.dst_hash + layer_path); async pushes then correlate by CmdResult.ctr.
             if (c.u.layer.dst_hash == 0)                     return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };  // a layer send needs a stable dst key
+#if MR_FEAT_MOBILE
+            // §S1: a REGISTERED mobile must NOT originate a cross-layer DM on the static plane (origin = local id -> the
+            // answer can't route back -> RREQ storm). WRAP it to the HOME (DATA_TYPE_MOBILE_SEND + the path); the home
+            // prepends its own layer, re-validates, and originates. Requires an explicit path (a mobile can't park+H-flood).
+            if (_cfg.is_mobile) {
+                if (!_my_mobile_reg.active)  return CmdResult{ CmdCode::err_no_gateway, 0, _active->_tx_queue_n, c.u.layer.dst_hash, 0 };   // no home -> can't delegate (fail loud)
+                if (c.u.layer.hop_count == 0) return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n, c.u.layer.dst_hash, 0 };  // no park-resolve on a mobile
+                const uint16_t ctr = delegate_send_layer(c.u.layer.dst_hash, c.u.layer.hops, c.u.layer.hop_count,
+                                                         /*enclosed_type=*/0, c.body, c.body_len, c.u.layer.flags);
+                const uint32_t lp = pack_layer_path(c.u.layer.hops, c.u.layer.hop_count);
+                return CmdResult{ ctr ? CmdCode::queued : CmdCode::err_no_gateway, ctr, _active->_tx_queue_n, c.u.layer.dst_hash, lp };
+            }
+#endif
             if (c.u.layer.hop_count > 0) {
                 // EXPLICIT-PATH origination (the user supplied the destination layer path) — route by it, no H-query.
                 // Validate the path fail-loud (§5, no silent fix): the full path (1 + hop_count, after prepending our

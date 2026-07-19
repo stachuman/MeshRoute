@@ -490,7 +490,8 @@ private:
     static constexpr uint32_t kPresenceProbeTimerId    = 78;  // §S6: mobile presence check period T (dynamic) + probe retry re-arm
     static constexpr uint32_t kPresenceRosterTimerId   = 79;  // §S6: home roster-coalesce window close -> emit ONE roster
     static constexpr uint32_t kMobileOfferBackoffTimerId = 80;// §S6/QA-3b: host OFFER de-storm — jitter the OFFER so two hosts don't answer a DISCOVER at the SAME ms (the same-ms collision that made a mobile adopt the WEAK home)
-    // [78..80] = the presence plane + OFFER de-storm; the timer wheel cap is 82 (kCap in timer_wheel.h).
+    static constexpr uint32_t kHForwardTimerId         = 81;  // §F-XL-1: jittered h_forward de-storm — BASE of a kHForwardSlots ring [81..84] (slot = id - base)
+    // [78..80] = the presence plane + OFFER de-storm; [81..84] = the h_forward de-storm ring; the timer wheel cap is 85 (kCap in timer_wheel.h).
 
     // ---- beacon emit / ingest ----------------------------------------------
     void emit_beacon(const char* kind);                            // "periodic" | "triggered"
@@ -530,6 +531,7 @@ private:
     uint8_t id_bind_evict_other_hash_holders(uint32_t key_hash32, uint8_t keep_node_id);   // rejoin self-heal: one hash -> one node_id
     void    id_bind_age_out();                                    // drop expired (TTL); emit id_bind_aged
     void    handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta);   // H flood: resolve (own-hash OR id_bind) + suppress, else forward TTL-1
+    void    h_forward_fire(uint8_t slot);                                     // §F-XL-1: fire the jittered (de-stormed) h_forward stashed in ring slot
     bool    hash_query_seen_recently(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey);   // per-(origin,hash,VARIANT) dedup; VARIANT = hard + want_pubkey (§2: a WANT_PUBKEY isn't suppressed by a prior plain HARD)
     void    mark_hash_query_seen(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey);
     void    send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, uint32_t key_hash32, bool authoritative, bool mobile_proxy = false, uint8_t epoch = 0); // B: routed DATA(H_ANSWER inner) home; §mobile 4a: mobile_proxy -> MOBILE_H_ANSWER TYPE + epoch
@@ -549,8 +551,12 @@ private:
     // layer path [our_layer, hops...] cur=1, NO H-query. Returns SYNCHRONOUSLY (no orphan push): CmdCode::queued (+
     // out_ctr = the MAC ctr the app correlates async pushes by), err_no_gateway (no gateway serves hops[0]'s leaf),
     // or err_too_large (the inner overflows). The handler validates the path before calling (hop_count, layer!=0, hops[0]!=ours).
-    CmdCode originate_layer_path(uint32_t dst_hash, const uint8_t* hops, uint8_t hop_count, const uint8_t* body, uint8_t body_len, uint8_t flags, uint16_t& out_ctr);
-    bool    enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t* layer_ids, uint8_t n_layers, uint8_t cur, const uint8_t* body, uint8_t body_len, uint8_t flags, uint16_t* out_ctr = nullptr);  // build the layer-path inner -> next-hop G; honors flags & E2E_ACK_REQ; *out_ctr=ctr on success; false = fit/queue fail
+    CmdCode originate_layer_path(uint32_t dst_hash, const uint8_t* hops, uint8_t hop_count, const uint8_t* body, uint8_t body_len, uint8_t flags, uint16_t& out_ctr, uint8_t type = 0, uint32_t override_source_hash = 0);   // §GapB: type (E2E_ACK for a re-originated ack) + override_source_hash (the delegating mobile's hash) thread through to enqueue_cross_layer
+    bool    enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t* layer_ids, uint8_t n_layers, uint8_t cur, const uint8_t* body, uint8_t body_len, uint8_t flags, uint16_t* out_ctr = nullptr, uint8_t type = 0, uint32_t override_source_hash = 0);  // build the layer-path inner -> next-hop G; honors flags & E2E_ACK_REQ; *out_ctr=ctr on success; false = fit/queue fail. §GapB: type stamps the frame TYPE; override_source_hash (!=0) sets the inner SOURCE_HASH (the delegating mobile) instead of _key_hash32
+    void     send_xl_ack(const data_unicast_inner& dm, uint16_t acked_ctr);   // §GapB: a cross-layer E2E-ack = a NORMAL send to (reversed path, dm.source_hash) type=E2E_ACK. STATIC recipient -> enqueue_cross_layer; MOBILE recipient -> delegate_send_layer (never self-originate an XL frame).
+#if MR_FEAT_MOBILE
+    uint16_t delegate_send_layer(uint32_t dst_hash, const uint8_t* hops, uint8_t hop_count, uint8_t enclosed_type, const uint8_t* body, uint8_t body_len, uint8_t flags);   // §S1: a REGISTERED mobile WRAPS a cross-layer send to its HOME (DATA_TYPE_MOBILE_SEND + CROSS_LAYER path, body prefixed by enclosed_type). Returns the wrapper ctr (0 = no home / invalid). The home unwraps + re-originates via originate_layer_path.
+#endif
     void    drain_resolved_parked_sends();                       // beacon-tick re-drain: any parked hash now authoritatively bound
     void    age_out_parked_sends();                              // give up on parked sends past send_defer_ttl_ms
     // Diagnostic `resolve` (CmdKind::resolve): locate a hash WITHOUT sending a DM. Authoritative cache hit (or
@@ -819,12 +825,12 @@ private:
                           bool app_dm = false, uint8_t type = 0, CryptIntent crypt = CryptIntent::def, uint32_t override_dst_hash = 0, uint32_t override_source_hash = 0,
                           uint8_t addr_len = 0, Plane plane = Plane::AUTO);   // §mobile: addr_len=1 ORIGINATES a last-mile DM to a hosted mobile's LOCAL id (E2E-ack back to a mobile); 0 = normal global-id send (byte-identical)
     void     send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr, uint32_t sender_hash = 0);   // E2E ACK reply (TYPE=E2E_ACK; e2e_ack_tx). §mobile: sender_hash a hosted mobile -> last-mile the ack to it (origin was home-stamped == a self-send)
-    void     send_e2e_ack_cross_layer(const data_unicast_inner& dm, uint16_t acked_ctr);  // Slice 4e: reversed-path CROSS_LAYER E2E ack back to the original sender
+    // §GapB (2026-07-18): send_e2e_ack_cross_layer RETIRED — the reversed-path XL ack is now a normal send via send_xl_ack (declared above).
     // §mobile reverse-ack (delegated): a home re-originates a hosted mobile's send under its OWN ctr (ctr_H). When the
     // target's E2E-ack (for ctr_H) comes home, translate ctr_H -> the mobile's original ctr (ctr_M) so the last-miled ack
     // matches what the mobile is waiting on. A DIRECT send (home only forwarded) has NO entry -> out stays acked_ctr.
-    void     deleg_ack_put(uint8_t acker, uint16_t ctr_h, uint16_t ctr_m);                        // record a delegated re-origination's {acker,ctr_H}->ctr_M (evict oldest/expired)
-    bool     deleg_ack_translate(uint8_t acker, uint16_t acked_ctr, uint16_t& out_mobile_ctr);   // true = translated (delegated); false = pass-through (direct/miss)
+    void     deleg_ack_put(uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m);                 // §GapB p2: keyed by the MOBILE's hash (XL acker ids alias across leaves — id-keying is WRONG). Record {mobile_hash,ctr_H}->ctr_M (evict oldest/expired)
+    bool     deleg_ack_translate(uint32_t mobile_hash, uint16_t acked_ctr, uint16_t& out_mobile_ctr);   // true = translated (delegated); false = pass-through (direct/miss)
     void     enqueue_push(const Push& p);                                  // append to the bounded ring
     void     push_peer_key_cached(uint32_t key_hash32);                    // §S6: peer_key_cached push carrying the cached name (copied at cache time; body empty when unknown)
     void     become_free();                                       // dv_dual_sf.lua:7433 (FIFO single-drain)
@@ -1072,7 +1078,7 @@ private:
     // re-originates a hosted mobile's delegated send under its OWN ctr (ctr_H); consumed when the target's E2E-ack (for
     // ctr_H) comes home -> translate to ctr_M so the last-miled ack matches the ctr the mobile is waiting on. A small TTL
     // ring; empty on a node that hosts no mobiles -> inert (s18 byte-identical). See deleg_ack_put/deleg_ack_translate.
-    struct DelegAck { uint8_t acker = 0; uint16_t ctr_h = 0; uint16_t ctr_m = 0; uint64_t ts_ms = 0; bool valid = false; };
+    struct DelegAck { uint32_t mobile_hash = 0; uint16_t ctr_h = 0; uint16_t ctr_m = 0; uint64_t ts_ms = 0; bool valid = false; };
     static constexpr uint8_t kDelegAckCap = 8;
     DelegAck _deleg_acks[kDelegAckCap] = {};
     uint8_t    _parked_sends_n = 0;
@@ -1387,6 +1393,16 @@ private:
     // NACK BUSY_RX wait-same-hop: the captured ctr_lo the kNackWaitTimerId re-RTSes for.
     uint32_t                     _nack_wait_flight_gen = 0;   // L9: the EXACT flight the BUSY_RX same-hop re-RTS wait belongs to (was the 4-bit ctr_lo proxy — 1/16 alias could re-RTS a since-replaced flight)
     bool                         _nack_wait_pending = false;
+    // §F-XL-1 (2026-07-18): jittered h_forward de-storm. Sibling relays that heard the SAME H flood copy re-tx it
+    // with ZERO jitter today -> a deterministic same-ms collision at any common/downstream receiver (s27 hello-m4:
+    // T2+T3 forward at the identical ms every handoff retry, T4 behind T3 decodes neither). Stash the built frame,
+    // fire after a small random delay (kHForwardTimerId+slot); the existing LBT then defers the later sibling. A
+    // small RING (not single-slot): a dense mesh has concurrent floods for DIFFERENT hashes, which single-slot would
+    // clobber. Node-global (the H frame is self-contained incl. its leaf_id; a gateway's two leaves share the radio).
+    static constexpr uint8_t kHForwardSlots = 4;
+    struct HForwardStash { uint8_t buf[8 + 32 + 4 + 1 + 32]; uint8_t len = 0; };   // <=77 B H frame (matches pack_h)
+    HForwardStash _h_forward_stash[kHForwardSlots];
+    uint8_t       _h_forward_rr = 0;   // round-robin write cursor
     // async push ring (the app channel; drained via next_push, drop-oldest on overflow)
     Push     _push_ring[protocol::cap_push_ring];
     uint8_t  _push_head = 0, _push_count = 0;
@@ -1398,7 +1414,7 @@ private:
 // pointer/enum/alignment). Purpose: the node.h legibility reorder (2026-07-15 by-concern member reorder) must not
 // change Node's layout. If this fires after a *deliberate* member add/remove/type change, update the baseline
 // consciously — it is a tripwire, not a frozen contract. The real nRF52 RAM check is the firmware.map .bss/.data diff.
-static_assert(sizeof(Node) == 218872, "node.h: Node native layout changed — if intentional, update the baseline");   // …218232 (§S4) -> 218872 (+640 §S6 presence: mobile probe/candidate+echo state; home SNR EWMA/notify-pending/dir_epoch/roster-echo/offer-destorm stash)
+static_assert(sizeof(Node) == 219312, "node.h: Node native layout changed — if intentional, update the baseline");   // …218872 (§S6) -> 219000 (§GapA) -> 219312 (+312 §F-XL-1: HForwardStash[4] = 4×(77+1) de-storm ring; _h_forward_rr fits existing padding)
 #endif
 
 }  // namespace meshroute

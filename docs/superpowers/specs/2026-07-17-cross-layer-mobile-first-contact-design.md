@@ -428,6 +428,30 @@ a static `send_hash` to M5 at 1150 k must deliver THROUGH the redirect chain. Th
 green TODAY (via the stale proxy) and must STAY green across the implementation — it is the
 zero-blackhole guard. When green: add to `BASELINE.md` (md5-anchored) + the gate recipe.
 
+## 3b. S1 QA CLOSE-OUT (2026-07-18) — deviations ratified + new findings
+- **Enclosed-type byte** (coder deviation, ACCEPTED): `pa.type` at the unwrap is `MOBILE_SEND` itself, so the
+  wrapper's XL body carries a 1-B enclosed-type prefix instead (0=data, E2E_ACK=ack). ⚠ the SAME-LAYER wrapper
+  carries NO such byte (byte-identity) — **S2's same-layer delegated INTRO must extend it** (coder note honored).
+- **Delegated-send failure signaling** (DEFERRED): a home that can't route a delegated XL send fails loud via
+  telemetry only (`xl_delegate_no_route`/`_bad_path`) — no wire frame tells the MOBILE. App-level retry covers
+  v1; candidate v2 = a status bit on the next roster.
+- **Gap A durable variant** (DEFERRED): `origin_layer` rides the live push only; the inbox record needs a
+  store-version bump — bundle with the next inbox-format change.
+- **★ F-XL-1 — ✅ IMPLEMENTED + QA-GATED 2026-07-18** (was: `h_forward` relays had NO jitter → same-ms
+  sibling collisions; s27's `hello-m4` unreachable across 4 handoff retries). Landed: 4-slot round-robin
+  stash ring + `rand(20..150 ms)` fire (node_hashlocate.cpp; timer ring [81..84], wheel kCap 82→85;
+  +312 B .bss). **Jitter-only — suppression evaluated + REJECTED** (a chain relay is the sole path to its
+  downstream: suppress-on-overhear kills exactly s27's T3→T4 leg; jitter + the existing LBT break the
+  same-ms tie sufficiently). ★ The dispatch premise "s18 forwards H floods" was FALSE (0 events) — **s18
+  stays BYTE-IDENTICAL**, the keystone tripwire survives. Acceptance met: `hello-m4` GREEN → s27 16/30,
+  deterministic, zero newly-red.
+- **★ F-XL-2 (deferred, own slice, coder-audited): `rreq_forward` has the IDENTICAL zero-jitter flaw**
+  (static node_route_discovery.cpp:269, team :349). s18-inert (0 events) BUT it fires in the DELIVERY suite
+  (s09=9 · s10=9 · s15=1) — jittering it changes the delivery-critical route-discovery plane, so its gate is
+  s09/s10 delivery + the 7-seed s15 mean (~90%), NOT the mobile scenario set. Same ring pattern, own
+  `rreq_forward_jitter_*` constants. Deliberately NOT folded into F-XL-1 (one cohesive increment; the risky
+  axis isolated).
+
 ## 4. Airtime accounting (the aim, made checkable)
 
 | Event | Cost today | Cost after |

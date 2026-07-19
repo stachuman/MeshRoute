@@ -302,17 +302,17 @@ struct DualLayerTestAccess {
         pa.inner[5]=new_home; pa.inner[6]=epoch; pa.inner[7]=new_home_layer; pa.inner_len=8;
         n.do_post_ack();
     }
-    static void     drive_post_ack_e2e_ack(Node& n, uint8_t acker, uint32_t source_hash, uint16_t acked_ctr) {   // §mobile reverse-ack: run do_post_ack for a same-layer E2E_ACK carrying SOURCE_HASH
+    static void     drive_post_ack_e2e_ack(Node& n, uint8_t acker, uint32_t mobile_hash, uint16_t acked_ctr) {   // §GapB: run do_post_ack for a same-layer E2E_ACK addressed FOR a hosted mobile (DST_HASH=mobile) at its home
         auto& pa = n._active->_post_ack; pa = PostAck{};
         pa.pending=true; pa.is_forward=false; pa.origin=acker; pa.dst=n._node_id;
-        pa.ctr=acked_ctr; pa.ctr_lo=static_cast<uint8_t>(acked_ctr & 0x0F); pa.flags=DATA_FLAG_SOURCE_HASH; pa.type=DATA_TYPE_E2E_ACK;
-        pa.inner[0]=acker;   // [origin][source_hash 4B LE][ctr_lo][ctr_hi]
-        pa.inner[1]=static_cast<uint8_t>(source_hash); pa.inner[2]=static_cast<uint8_t>(source_hash>>8);
-        pa.inner[3]=static_cast<uint8_t>(source_hash>>16); pa.inner[4]=static_cast<uint8_t>(source_hash>>24);
+        pa.ctr=acked_ctr; pa.ctr_lo=static_cast<uint8_t>(acked_ctr & 0x0F); pa.flags=DATA_FLAG_DST_HASH; pa.type=DATA_TYPE_E2E_ACK;
+        pa.inner[0]=static_cast<uint8_t>(mobile_hash); pa.inner[1]=static_cast<uint8_t>(mobile_hash>>8);   // [dst_hash 4B LE][origin][ctr_lo][ctr_hi]
+        pa.inner[2]=static_cast<uint8_t>(mobile_hash>>16); pa.inner[3]=static_cast<uint8_t>(mobile_hash>>24);
+        pa.inner[4]=acker;   // [origin]
         pa.inner[5]=static_cast<uint8_t>(acked_ctr & 0xFF); pa.inner[6]=static_cast<uint8_t>(acked_ctr >> 8); pa.inner_len=7;
         n.do_post_ack();
     }
-    static void     deleg_ack_put(Node& n, uint8_t acker, uint16_t ctr_h, uint16_t ctr_m) { n.deleg_ack_put(acker, ctr_h, ctr_m); }   // §mobile reverse-ack: seed the delegated ctr map
+    static void     deleg_ack_put(Node& n, uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m) { n.deleg_ack_put(mobile_hash, ctr_h, ctr_m); }   // §GapB: seed the delegated ctr map (keyed by the mobile's hash)
     static void     drive_post_ack_mobile_send(Node& n, uint32_t source_hash_M, uint32_t dst_hash_X, uint16_t ctr_M, uint8_t body0) {   // §mobile reverse-ack: a hosted mobile's MOBILE_SEND arriving at its home
         auto& pa = n._active->_post_ack; pa = PostAck{};
         pa.pending=true; pa.is_forward=false; pa.origin=n._node_id; pa.dst=n._node_id;   // a registered mobile stamps origin=home_id (== this home)
@@ -324,6 +324,37 @@ struct DualLayerTestAccess {
         pa.inner[5]=static_cast<uint8_t>(source_hash_M); pa.inner[6]=static_cast<uint8_t>(source_hash_M>>8);   // [source_hash 4B LE]
         pa.inner[7]=static_cast<uint8_t>(source_hash_M>>16); pa.inner[8]=static_cast<uint8_t>(source_hash_M>>24);
         pa.inner[9]=body0; pa.inner_len=10;   // [body]
+        n.do_post_ack();
+    }
+    static uint16_t delegate_send_layer(Node& n, uint32_t dst_hash, const uint8_t* hops, uint8_t hc, uint8_t etype, const uint8_t* body, uint8_t len, uint8_t flags) { return n.delegate_send_layer(dst_hash, hops, hc, etype, body, len, flags); }   // §S1: mobile builds the XL wrapper to its home
+    static void     drive_post_ack_mobile_send_xl(Node& n, uint32_t M, uint32_t X, uint16_t ctr, const uint8_t* hops, uint8_t hc, uint8_t etype, const uint8_t* body, uint8_t len, uint8_t wrapper_flags) {   // §S1: a MOBILE_SEND+CROSS_LAYER wrapper arriving at the home
+        auto& pa = n._active->_post_ack; pa = PostAck{};
+        pa.pending=true; pa.is_forward=false; pa.origin=n._node_id; pa.dst=n._node_id;   // a registered mobile stamps origin=home_id (== this home)
+        pa.ctr=ctr; pa.ctr_lo=static_cast<uint8_t>(ctr & 0x0F);
+        pa.flags=static_cast<uint8_t>(DATA_FLAG_DST_HASH|DATA_FLAG_SOURCE_HASH|DATA_FLAG_CROSS_LAYER|wrapper_flags); pa.type=DATA_TYPE_MOBILE_SEND;
+        uint8_t wbody[protocol::max_payload_bytes_hard_cap]; wbody[0]=etype;
+        for (uint8_t i=0;i<len;++i) wbody[1+i]=body[i];
+        const size_t nn = pack_unicast_inner(std::span<uint8_t>(pa.inner, sizeof pa.inner), pa.flags, X, hops, hc, /*cur*/0, n._node_id, M, wbody, static_cast<uint8_t>(len+1), 0, 0);
+        pa.inner_len=static_cast<uint8_t>(nn);
+        n.do_post_ack();
+    }
+    static void     drive_post_ack_xl_ack(Node& n, uint8_t origin, uint32_t mobile_hash, uint32_t acker_hash, uint16_t ctr, const uint8_t* revpath, uint8_t nrev) {   // §GapB: a CROSS_LAYER E2E_ACK addressed FOR a mobile (DST_HASH=mobile), arriving at its home for the :699 rewrite
+        auto& pa = n._active->_post_ack; pa = PostAck{};
+        pa.pending=true; pa.is_forward=false; pa.origin=origin; pa.dst=n._node_id;
+        pa.ctr=ctr; pa.ctr_lo=static_cast<uint8_t>(ctr & 0x0F);
+        pa.flags=DATA_FLAG_DST_HASH|DATA_FLAG_SOURCE_HASH|DATA_FLAG_CROSS_LAYER; pa.type=DATA_TYPE_E2E_ACK;
+        const uint8_t abody[2]={static_cast<uint8_t>(ctr & 0xFF), static_cast<uint8_t>(ctr>>8)};
+        const size_t nn = pack_unicast_inner(std::span<uint8_t>(pa.inner, sizeof pa.inner), pa.flags, mobile_hash, revpath, nrev, /*cur*/1, origin, acker_hash, abody, 2, 0, 0);
+        pa.inner_len=static_cast<uint8_t>(nn);
+        n.do_post_ack();
+    }
+    static void     drive_post_ack_xl_deliver(Node& n, uint8_t origin, uint32_t my_hash, uint32_t src_hash, const uint8_t* path, uint8_t np, const char* body) {   // §GapA: a CROSS_LAYER DM delivered to US (dst_hash == our key)
+        auto& pa = n._active->_post_ack; pa = PostAck{};
+        pa.pending=true; pa.is_forward=false; pa.origin=origin; pa.dst=n._node_id;
+        pa.ctr=0x0042; pa.ctr_lo=2; pa.flags=DATA_FLAG_DST_HASH|DATA_FLAG_SOURCE_HASH|DATA_FLAG_CROSS_LAYER; pa.type=0;
+        uint8_t blen=0; while (body[blen] != '\0') ++blen;
+        const size_t nn = pack_unicast_inner(std::span<uint8_t>(pa.inner, sizeof pa.inner), pa.flags, my_hash, path, np, static_cast<uint8_t>(np-1), origin, src_hash, reinterpret_cast<const uint8_t*>(body), blen, 0, 0);
+        pa.inner_len=static_cast<uint8_t>(nn);
         n.do_post_ack();
     }
     static void     bind_authoritative(Node& n, uint8_t node_id, uint32_t key) {   // authoritative id_bind on the ACTIVE leaf (so key_hash_of_id succeeds)
@@ -405,7 +436,7 @@ struct DualLayerTestAccess {
         gs.rec[1].leaf_id = leafB; gs.rec[1].window_ms = 7500; gs.rec[1].offset_ms = 7500;   // leafB opens later -> a node on leafB defers (held)
         n.store_gateway_schedule(gs);
     }
-    static void           send_xl_ack(Node& n, const data_unicast_inner& dm, uint16_t ctr) { n.send_e2e_ack_cross_layer(dm, ctr); }
+    static void           send_xl_ack(Node& n, const data_unicast_inner& dm, uint16_t ctr) { n.send_xl_ack(dm, ctr); }
     // gateway-window broadcast sync (2026-06-20 side-task)
     static uint32_t       align_beacon(Node& n, uint32_t nominal)  { return n.gateway_window_align_beacon(nominal); }
     static uint32_t       gw_base_defer(Node& n, uint8_t gw)        { uint32_t j = 0; return n.gateway_schedule_base_defer_ms(gw, &j); }
@@ -2400,10 +2431,10 @@ TEST_CASE("§mobile — a home E2E-acks its OWN hosted mobile's DM via a last-mi
     }
 }
 
-TEST_CASE("§mobile reverse-ack Piece 1 — the acker echoes the mobile's source_hash on the E2E-ack (sender != origin); a static sender does NOT (s18-safe gate)") {
+TEST_CASE("§GapB p3 Piece 1 — the acker addresses the E2E-ack FOR the mobile via DST_HASH (sender != origin); a static sender does NOT (s18-safe gate)") {
     // X (static, id 70) acks a DM whose origin is a mobile's home (31, hash AD20B6EA) but whose SENDER is the MOBILE
-    // (hash C0FFEE). sender_hash != key_hash_of_id(origin) -> X stamps SOURCE_HASH=M on the ack so M's home recognizes +
-    // last-miles it. A STATIC sender (source_hash == the origin's own key) trips the gate FALSE -> plain ack.
+    // (hash C0FFEE). sender_hash != key_hash_of_id(origin) -> X attaches DST_HASH=M on the ack (the "for whom" field) so
+    // M's home last-miles it via the generic hosted-mobile fork. A STATIC sender (source == origin's key) -> plain ack.
     StubHal hal; Node x(hal, 70, 0x7070u);
     NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; CHECK(x.on_init(cfg));
     DualLayerTestAccess::bind_authoritative(x, /*home id*/31, /*home hash*/0xAD20B6EAu);   // X knows the home's key
@@ -2413,12 +2444,13 @@ TEST_CASE("§mobile reverse-ack Piece 1 — the acker echoes the mobile's source
     CHECK(pt != nullptr);
     if (pt) {
         CHECK(pt->dst == 31);                              // routes to the home (the mobile's stamped origin)
-        CHECK((pt->flags & DATA_FLAG_SOURCE_HASH) != 0);   // ★ carries the mobile's stable identity ON the wire
+        CHECK((pt->flags & DATA_FLAG_DST_HASH) != 0);      // ★ addressed FOR the mobile (DST_HASH), NOT the old SOURCE_HASH mark
+        CHECK((pt->flags & DATA_FLAG_SOURCE_HASH) == 0);
         CHECK(pt->type == DATA_TYPE_E2E_ACK);
-        const uint32_t sh = pt->inner[1] | (pt->inner[2]<<8) | (pt->inner[3]<<16) | (static_cast<uint32_t>(pt->inner[4])<<24);
-        CHECK(sh == 0xC0FFEEu);                            // inner = [origin][source_hash=M 4B LE][ctr] -> M at inner[1..4]
+        const uint32_t dh = pt->inner[0] | (pt->inner[1]<<8) | (pt->inner[2]<<16) | (static_cast<uint32_t>(pt->inner[3])<<24);
+        CHECK(dh == 0xC0FFEEu);                            // inner = [dst_hash=M 4B LE][origin][ctr] -> M at inner[0..3]
     }
-    // STATIC sender: origin(31) IS the sender -> source_hash == key_hash_of_id(31) -> NO echo (byte-identical plain ack)
+    // STATIC sender: origin(31) IS the sender -> source_hash == key_hash_of_id(31) -> NO attach (byte-identical plain ack)
     StubHal hal2; Node x2(hal2, 70, 0x7070u);
     NodeConfig c2; c2.routing_sf=8; c2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c2.leaf_id=4; CHECK(x2.on_init(c2));
     DualLayerTestAccess::bind_authoritative(x2, 31, 0xAD20B6EAu);
@@ -2426,31 +2458,31 @@ TEST_CASE("§mobile reverse-ack Piece 1 — the acker echoes the mobile's source
     DualLayerTestAccess::send_e2e_ack(x2, /*to_origin*/31, /*ctr*/0x0006, /*sender_hash=origin's own key*/0xAD20B6EAu);
     const PendingTx* pt2 = DualLayerTestAccess::pending(x2);
     CHECK(pt2 != nullptr);
-    if (pt2) CHECK((pt2->flags & DATA_FLAG_SOURCE_HASH) == 0);   // ★ no echo -> plain ack
+    if (pt2) CHECK((pt2->flags & DATA_FLAG_DST_HASH) == 0);   // ★ no attach -> plain ack
 }
 
-TEST_CASE("§mobile reverse-ack Piece 2 — a home last-miles an E2E-ack whose source_hash is a hosted mobile (direct: ctr passes through)") {
+TEST_CASE("§GapB p2 Piece 2 — a home last-miles a DST_HASH-addressed E2E-ack for a hosted mobile (direct: ctr passes through the :699 fork)") {
     StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
     NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
     DualLayerTestAccess::store_mobile(home, /*M*/0xC0FFEEu, /*local*/17);
-    // an E2E-ack arrives from X(70) carrying source_hash=M(C0FFEE), acking ctr 6 (M's own ctr — a DIRECT send)
-    DualLayerTestAccess::drive_post_ack_e2e_ack(home, /*acker*/70, /*source_hash=M*/0xC0FFEEu, /*acked_ctr*/0x0006);
+    // an E2E-ack arrives from X(70) addressed DST_HASH=M(C0FFEE), acking ctr 6 (M's own ctr — a DIRECT send, no map)
+    DualLayerTestAccess::drive_post_ack_e2e_ack(home, /*acker*/70, /*mobile_hash=M*/0xC0FFEEu, /*acked_ctr*/0x0006);
     const PendingTx* pt = DualLayerTestAccess::pending(home);
     CHECK(pt != nullptr);
     if (pt) {
-        CHECK(pt->dst == 17);                    // ★ last-miled to the mobile's local id
+        CHECK(pt->dst == 17);                    // ★ last-miled to the mobile's local id (the generic :699 fork)
         CHECK(pt->addr_len == 1);
         CHECK(pt->type == DATA_TYPE_E2E_ACK);
-        CHECK(pt->inner[1] == 0x06);             // ctr passes through (direct) — last-mile inner = [origin][ctr_lo][ctr_hi]
-        CHECK(pt->inner[2] == 0x00);
+        CHECK(pt->inner[5] == 0x06);             // ctr passes through (direct/no map) — forwarded VERBATIM: inner = [dst_hash 4][origin][ctr_lo][ctr_hi]
+        CHECK(pt->inner[6] == 0x00);
     }
-    CHECK(hal.saw_emit("mobile_reverse_ack"));
-    // a NON-hosted source_hash -> NOT intercepted (falls through to normal ack receipt; no last-mile)
+    CHECK(hal.saw_emit("mobile_lastmile_fwd"));
+    // a NON-hosted dst_hash -> NOT intercepted (falls through to normal ack receipt; no last-mile)
     StubHal hal2; Node home2(hal2, 31, 0xAD20B6EAu);
     NodeConfig hc2; hc2.routing_sf=8; hc2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc2.leaf_id=4; CHECK(home2.on_init(hc2));
     DualLayerTestAccess::store_mobile(home2, 0xC0FFEEu, 17);
-    DualLayerTestAccess::drive_post_ack_e2e_ack(home2, 70, /*source_hash*/0xDEADu, 0x0006);
-    CHECK_FALSE(hal2.saw_emit("mobile_reverse_ack"));
+    DualLayerTestAccess::drive_post_ack_e2e_ack(home2, 70, /*mobile_hash*/0xDEADu, 0x0006);
+    CHECK_FALSE(hal2.saw_emit("mobile_lastmile_fwd"));
 }
 
 TEST_CASE("§mobile reverse-ack Step 3 — a home re-originating a delegated MOBILE_SEND records the ctr_H->ctr_M map") {
@@ -2469,21 +2501,182 @@ TEST_CASE("§mobile reverse-ack Step 3 — a home re-originating a delegated MOB
     }
 }
 
-TEST_CASE("§mobile reverse-ack Step 3 — a home translates a delegated target-ack (ctr_H) back to the mobile's ctr (ctr_M) on the last-mile") {
+TEST_CASE("§GapB p2 Step 3 — a home translates a delegated target-ack (ctr_H) back to the mobile's ctr (ctr_M) on the :699 last-mile") {
     StubHal hal; Node home(hal, 31, 0xAD20B6EAu);
     NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
     DualLayerTestAccess::store_mobile(home, /*M*/0xC0FFEEu, /*local*/17);
-    DualLayerTestAccess::deleg_ack_put(home, /*acker X*/70, /*ctr_H*/0x000Cu, /*ctr_M*/0x0006u);   // a prior delegated re-origination
-    // X(70) acks ctr_H=0x0C, carrying source_hash=M -> the home last-miles to M but with the MOBILE's own ctr (6)
-    DualLayerTestAccess::drive_post_ack_e2e_ack(home, /*acker*/70, /*source_hash=M*/0xC0FFEEu, /*acked=ctr_H*/0x000Cu);
+    DualLayerTestAccess::deleg_ack_put(home, /*mobile_hash=M*/0xC0FFEEu, /*ctr_H*/0x000Cu, /*ctr_M*/0x0006u);   // a prior delegated re-origination (keyed by the mobile's hash)
+    // X(70) acks ctr_H=0x0C addressed DST_HASH=M -> the home last-miles to M but with the MOBILE's own ctr (6)
+    DualLayerTestAccess::drive_post_ack_e2e_ack(home, /*acker*/70, /*mobile_hash=M*/0xC0FFEEu, /*acked=ctr_H*/0x000Cu);
     const PendingTx* pt = DualLayerTestAccess::pending(home);
     CHECK(pt != nullptr);
     if (pt) {
         CHECK(pt->dst == 17); CHECK(pt->addr_len == 1); CHECK(pt->type == DATA_TYPE_E2E_ACK);
-        CHECK(pt->inner[1] == 0x06);   // ★ TRANSLATED to ctr_M=6 (NOT the wire ctr_H=0x0C)
-        CHECK(pt->inner[2] == 0x00);
+        CHECK(pt->inner[5] == 0x06);   // ★ TRANSLATED to ctr_M=6 (NOT the wire ctr_H=0x0C), in the verbatim-forwarded inner [dst_hash 4][origin][ctr]
+        CHECK(pt->inner[6] == 0x00);
     }
     CHECK(hal.saw_emit("mobile_reverse_ack"));
+}
+
+// ============================ §S1 + §GapA + §GapB (2026-07-18) ============================
+
+TEST_CASE("§S1 — a registered mobile WRAPS send_layer to its home (DATA_TYPE_MOBILE_SEND + CROSS_LAYER path; user hops verbatim, own layer NOT prepended)") {
+    StubHal hal; Node m(hal, /*local*/17, /*M hash*/0x2716EFCDu);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; CHECK(m.on_init(cfg));
+    DualLayerTestAccess::make_registered_mobile(m, /*local*/17, /*home*/101, /*home hash*/0x44070011u);
+    DualLayerTestAccess::learn_neighbor(m, 101);                                   // a 1-hop route to the home so become_free issues the RTS
+    const uint8_t hops[1] = { 7 };                                                 // the DEST layer (leaf 7)
+    const char* b = "hello-m3";
+    const uint16_t ctr = DualLayerTestAccess::delegate_send_layer(m, /*target*/0xBCC13CC5u, hops, 1, /*etype=*/0, reinterpret_cast<const uint8_t*>(b), 8, /*flags=*/0);
+    CHECK(ctr != 0);
+    const PendingTx* pt = DualLayerTestAccess::pending(m);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->dst == 101);                                                     // routed to the HOME (1-hop delegation)
+        CHECK(pt->type == DATA_TYPE_MOBILE_SEND);
+        CHECK((pt->flags & DATA_FLAG_CROSS_LAYER) != 0);
+        CHECK((pt->flags & DATA_FLAG_DST_HASH) != 0);
+        CHECK((pt->flags & DATA_FLAG_SOURCE_HASH) != 0);
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+        CHECK(ui.has_value());
+        if (ui) {
+            CHECK(ui->dst_key_hash32 == 0xBCC13CC5u);                              // the TARGET
+            CHECK(ui->has_cross_layer); CHECK(ui->n_layers == 1); CHECK(ui->layer_ids[0] == 7);   // user hops VERBATIM (own layer 4 NOT prepended)
+            CHECK(ui->has_source_hash); CHECK(ui->source_hash == 0x2716EFCDu);     // the MOBILE's identity
+            CHECK(ui->origin == 101);                                             // stamp_origin -> home_id
+            CHECK(ui->body.size() == 9);                                          // [enclosed_type=0][hello-m3]
+            CHECK(ui->body[0] == 0); CHECK(ui->body[1] == 'h');
+        }
+    }
+    CHECK(hal.saw_emit("mobile_delegate_xl"));
+}
+
+TEST_CASE("§S1 — the home unwraps an XL data delegation -> re-originates a CROSS_LAYER DM (SOURCE_HASH=mobile) + records the ctr_H->ctr_M map") {
+    StubHal hal; hal._now = 50000; Node home(hal, /*id*/101, /*hash*/0x44070011u);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
+    DualLayerTestAccess::store_mobile(home, /*M*/0x2716EFCDu, /*local*/17);         // the home hosts M1
+    DualLayerTestAccess::store_gw_schedule_pair(home, /*gw*/10, /*leafA*/4, /*leafB*/7);   // G1 bridges 4<->7
+    DualLayerTestAccess::learn_neighbor(home, 10);                                  // ...with a route
+    const uint8_t hops[1] = { 7 };
+    const char* b = "hello-m3";
+    DualLayerTestAccess::drive_post_ack_mobile_send_xl(home, /*M*/0x2716EFCDu, /*X*/0xBCC13CC5u, /*ctr_M*/0x0006, hops, 1, /*etype=*/0, reinterpret_cast<const uint8_t*>(b), 8, /*wrapper_flags=*/DATA_FLAG_E2E_ACK_REQ);
+    const PendingTx* pt = DualLayerTestAccess::pending(home);                       // the re-originated XL DM went in-flight (route + window open)
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->dst == 10);                                                      // -> the bridging gateway
+        CHECK((pt->flags & DATA_FLAG_CROSS_LAYER) != 0);
+        CHECK(pt->type == 0);                                                      // a normal cross-layer DM (enclosed_type 0)
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+        CHECK(ui.has_value());
+        if (ui) {
+            CHECK(ui->dst_key_hash32 == 0xBCC13CC5u);                              // the target
+            CHECK(ui->has_cross_layer); CHECK(ui->n_layers == 2);                  // home PREPENDED its own layer -> [4,7]
+            CHECK(ui->layer_ids[0] == 4); CHECK(ui->layer_ids[1] == 7); CHECK(ui->cur == 1);
+            CHECK(ui->has_source_hash); CHECK(ui->source_hash == 0x2716EFCDu);     // SOURCE_HASH = the MOBILE (so the far ack routes back to it)
+            CHECK((pt->flags & DATA_FLAG_E2E_ACK_REQ) != 0);                        // the wrapper's ack request threaded through
+        }
+    }
+    CHECK(hal.saw_emit("deleg_ack_put"));                                          // ★ ctr_H->ctr_M recorded (keyed by M's hash)
+}
+
+TEST_CASE("§GapB — the home unwraps an XL ACK delegation (enclosed_type=E2E_ACK): re-originates type=E2E_ACK, no ack-of-ack, no deleg map") {
+    StubHal hal; hal._now = 50000; Node home(hal, /*id*/111, /*hash*/0x44070021u);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=7; CHECK(home.on_init(hc));
+    DualLayerTestAccess::store_mobile(home, /*M3*/0xBCC13CC5u, /*local*/17);        // hosts M3
+    DualLayerTestAccess::store_gw_schedule_pair(home, /*gw*/10, /*leafA*/4, /*leafB*/7);
+    DualLayerTestAccess::learn_neighbor(home, 10);
+    const uint8_t hops[1] = { 4 };                                                 // reversed dest = M1's layer
+    const uint8_t abody[2] = { 0x0C, 0x00 };                                       // acked ctr_H = 0x0C
+    DualLayerTestAccess::drive_post_ack_mobile_send_xl(home, /*M3*/0xBCC13CC5u, /*M1*/0x2716EFCDu, /*ctr*/0x0009, hops, 1, /*etype=*/DATA_TYPE_E2E_ACK, abody, 2, /*wrapper_flags=*/0);
+    // the re-originated ack is deferred to G1's window on this leaf -> held in the leaf tx queue, inspectable
+    CHECK(DualLayerTestAccess::leaf_tx_n(home, 0) == 1);
+    const TxItem& it = DualLayerTestAccess::leaf_tx_at(home, 0, 0);
+    CHECK(it.type == DATA_TYPE_E2E_ACK);                                           // ★ enclosed TYPE threaded through (§1b-4)
+    CHECK((it.flags & DATA_FLAG_E2E_ACK_REQ) == 0);                                // an ack is never itself acked
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(it.inner, it.inner_len), it.flags);
+    CHECK(ui.has_value());
+    if (ui) { CHECK(ui->has_source_hash); CHECK(ui->source_hash == 0xBCC13CC5u);   // SOURCE_HASH = the acking mobile M3
+              CHECK(ui->dst_key_hash32 == 0x2716EFCDu);                            // addressed back to M1
+              CHECK(ui->body.size() == 2); CHECK(ui->body[0] == 0x0C); }          // the acked ctr rides verbatim
+    CHECK_FALSE(hal.saw_emit("deleg_ack_put"));                                    // an ack re-origination creates NO map entry
+}
+
+TEST_CASE("§S1 — the home REFUSES a delegated XL path fail-loud (hops[0] == its own layer)") {
+    StubHal hal; hal._now = 50000; Node home(hal, /*id*/101, /*hash*/0x44070011u);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
+    DualLayerTestAccess::store_mobile(home, /*M*/0x2716EFCDu, /*local*/17);
+    DualLayerTestAccess::store_gw_schedule_pair(home, /*gw*/10, /*leafA*/4, /*leafB*/7);
+    DualLayerTestAccess::learn_neighbor(home, 10);
+    const uint8_t bad_hops[1] = { 4 };                                             // hops[0] == the home's OWN layer -> a same-layer misconfig
+    const char* b = "x";
+    DualLayerTestAccess::drive_post_ack_mobile_send_xl(home, 0x2716EFCDu, 0xBCC13CC5u, 0x0006, bad_hops, 1, 0, reinterpret_cast<const uint8_t*>(b), 1, DATA_FLAG_E2E_ACK_REQ);
+    CHECK(DualLayerTestAccess::leaf_tx_n(home, 0) == 0);                            // nothing re-originated
+    CHECK(hal.saw_emit("xl_delegate_bad_path"));
+}
+
+TEST_CASE("§GapB — send_xl_ack from a MOBILE recipient DELEGATES the ack via its home (never self-originates an XL frame)") {
+    StubHal hal; Node m3(hal, /*local*/17, /*M3 hash*/0xBCC13CC5u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=7; cfg.is_mobile=true; CHECK(m3.on_init(cfg));
+    DualLayerTestAccess::make_registered_mobile(m3, /*local*/17, /*home*/111, /*home hash*/0x44070021u);
+    DualLayerTestAccess::learn_neighbor(m3, 111);
+    // M3 received an XL DM from M1: path=[4,7] (M1 on 4, M3 on 7), SOURCE_HASH=M1, ctr_H=0x0C
+    data_unicast_inner dm{};
+    dm.origin = 101; dm.has_cross_layer = true; dm.n_layers = 2; dm.cur = 1; dm.layer_ids[0] = 4; dm.layer_ids[1] = 7;
+    dm.has_source_hash = true; dm.source_hash = 0x2716EFCDu;
+    dm.has_dst_hash = true; dm.dst_key_hash32 = 0xBCC13CC5u;
+    DualLayerTestAccess::send_xl_ack(m3, dm, /*acked_ctr*/0x000C);
+    const PendingTx* pt = DualLayerTestAccess::pending(m3);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->dst == 111);                                                     // ★ delegated to M3's HOME, not self-originated to a gateway
+        CHECK(pt->type == DATA_TYPE_MOBILE_SEND);
+        CHECK((pt->flags & DATA_FLAG_CROSS_LAYER) != 0);
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+        CHECK(ui.has_value());
+        if (ui) { CHECK(ui->dst_key_hash32 == 0x2716EFCDu);                        // addressed to M1
+                  CHECK(ui->n_layers == 1); CHECK(ui->layer_ids[0] == 4);         // reversed dest path (own layer 7 stripped)
+                  CHECK(ui->source_hash == 0xBCC13CC5u);                          // the ack's sender = M3
+                  CHECK(ui->body.size() == 3); CHECK(ui->body[0] == DATA_TYPE_E2E_ACK);   // [enclosed E2E_ACK][ctr_lo][ctr_hi]
+                  CHECK(ui->body[1] == 0x0C); }
+    }
+}
+
+TEST_CASE("§GapB — the delegating home rewrites a returning XL ack ctr_H->ctr_M + last-miles it to the mobile (:699 unified path)") {
+    StubHal hal; Node home(hal, /*id*/101, /*hash*/0x44070011u);
+    NodeConfig hc; hc.routing_sf=8; hc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); hc.leaf_id=4; CHECK(home.on_init(hc));
+    DualLayerTestAccess::store_mobile(home, /*M1*/0x2716EFCDu, /*local*/17);
+    DualLayerTestAccess::deleg_ack_put(home, /*mobile_hash=M1*/0x2716EFCDu, /*ctr_H*/0x000Cu, /*ctr_M*/0x0006u);
+    // a CROSS_LAYER E2E_ACK returns, addressed DST_HASH=M1, source_hash=M3 (the acker), carrying ctr_H=0x0C
+    const uint8_t revpath[2] = { 7, 4 };                                           // reversed [M3_layer, M1_layer], cur=1
+    DualLayerTestAccess::drive_post_ack_xl_ack(home, /*origin*/111, /*mobile=M1*/0x2716EFCDu, /*acker=M3*/0xBCC13CC5u, /*ctr_H*/0x000C, revpath, 2);
+    const PendingTx* pt = DualLayerTestAccess::pending(home);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->dst == 17);                                                      // last-miled to M1's local id
+        CHECK(pt->addr_len == 1);
+        CHECK(pt->type == DATA_TYPE_E2E_ACK);
+        auto ui = parse_unicast_inner(std::span<const uint8_t>(pt->inner, pt->inner_len), pt->flags);
+        CHECK(ui.has_value());
+        if (ui) { CHECK(ui->body.size() >= 2); CHECK(ui->body[0] == 0x06); CHECK(ui->body[1] == 0x00); }   // ★ ctr rewritten ctr_H(0x0C) -> ctr_M(0x06)
+    }
+    CHECK(hal.saw_emit("mobile_reverse_ack"));
+}
+
+TEST_CASE("§GapA — an XL delivery surfaces the SENDER's layer as origin_layer; a same-layer DM does NOT") {
+    StubHal hal; Node m3(hal, /*id*/30, /*hash*/0xBCC13CC5u);
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=7; CHECK(m3.on_init(cfg));
+    const uint8_t path[2] = { 4, 7 };                                              // sender M1 on layer 4, recipient on 7
+    DualLayerTestAccess::drive_post_ack_xl_deliver(m3, /*origin*/101, /*my hash*/0xBCC13CC5u, /*src=M1*/0x2716EFCDu, path, 2, "hello-m3");
+    Push p{}; bool got = false, seen_origin_layer = false;
+    while (m3.next_push(p)) { if (p.kind == PushKind::msg_recv) { got = true; if (p.origin_layer == 4) seen_origin_layer = true; } }
+    CHECK(got); CHECK(seen_origin_layer);                                          // ★ origin_layer == layer_ids[0] == 4
+    // a SAME-layer DM (no CROSS_LAYER) -> origin_layer stays 0
+    StubHal hal2; Node y(hal2, /*id*/31, /*hash*/0x9999u);
+    NodeConfig c2; c2.routing_sf=8; c2.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); c2.leaf_id=7; CHECK(y.on_init(c2));
+    DualLayerTestAccess::drive_post_ack_deliver(y, /*origin*/40, /*dst_hash*/0x9999u);   // same-layer DM addressed to y
+    Push p2{}; bool got2 = false;
+    while (y.next_push(p2)) { if (p2.kind == PushKind::msg_recv) { got2 = true; CHECK(p2.origin_layer == 0); } }
+    CHECK(got2);
 }
 
 TEST_CASE("§mobile — a reply-expecting static send FAILS LOUD when the mobile has no routable home (no RREQ storm); a registered mobile proceeds") {

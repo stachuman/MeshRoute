@@ -141,6 +141,19 @@ TEST_CASE("write_push — msg_recv/channel_recv carry identity + seq (model B); 
       "{\"ev\":\"msg_recv\",\"origin\":3,\"layer_id\":5,\"ctr\":7,\"sender_hash\":3735928559,\"seq\":42,\"enc\":true,\"body\":\"x\"}\n");
 }
 
+TEST_CASE("§GapA — msg_recv emits origin_layer on a cross-layer DM (after layer_id, before ctr); OMITTED when 0") {
+    char b[300];
+    Push x{}; x.kind = PushKind::msg_recv; x.origin = 101; x.layer_id = 7; x.origin_layer = 4; x.ctr = 9; x.sender_hash = 0x2716EFCDu;
+    const char* body = "hi"; x.body_len = 2; std::memcpy(x.body, body, 2);
+    size_t n = write_push(b, sizeof b, x);
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"msg_recv\",\"origin\":101,\"layer_id\":7,\"origin_layer\":4,\"ctr\":9,\"sender_hash\":655814605,\"body\":\"hi\"}\n");
+    x.origin_layer = 0;                                                      // same-layer / non-XL -> OMITTED (byte-identical to pre-GapA)
+    n = write_push(b, sizeof b, x);
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"msg_recv\",\"origin\":101,\"layer_id\":7,\"ctr\":9,\"sender_hash\":655814605,\"body\":\"hi\"}\n");
+}
+
 TEST_CASE("write_inbox_* — pull stream records + terminator + mark_read ack") {
     char b[400];
     size_t n = write_inbox_dm(b, sizeof b, 42, 2, /*layer_id*/ 23, 7, 3735928559u, 123456ull, "hi", 2);

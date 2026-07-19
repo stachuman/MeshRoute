@@ -244,6 +244,14 @@ inline constexpr uint16_t cap_id_bind                   = 256;
 inline constexpr uint8_t  hash_query_max_ttl            = 16;
 inline constexpr uint32_t hash_query_seen_ttl_ms        = 10000;   // ~2x q_query_ttl_ms
 inline constexpr uint8_t  cap_hash_query_seen           = 64;
+// F-XL-1 (2026-07-18): h_forward jitter. Sibling relays that heard the SAME H flood copy re-tx it with ZERO
+// jitter today -> their forwards collide at the identical ms on any common/downstream receiver (deterministic —
+// no capture; s27 hello-m4: T2+T3 forward same-ms every handoff retry, T4 behind T3 gets neither -> giveup).
+// A small per-relay random delay decorrelates the siblings; the existing LBT then defers the later one. Bounded
+// far below the 15-s handoff retry and comparable to a routing-frame's airtime, so the added per-hop latency is
+// negligible. (Third instance of the same-ms disease: mobile OFFERs -> S6 stash; probes/rosters -> by design.)
+inline constexpr uint16_t h_forward_jitter_min_ms       = 20;
+inline constexpr uint16_t h_forward_jitter_max_ms       = 150;
 inline constexpr uint8_t  cap_parked_sends              = 8;       // send-by-hash DMs parked awaiting a hash-bind
 
 // ---- Channel-message gossip plane (ROADMAP §3) -----------------------------

@@ -215,6 +215,7 @@ size_t write_push(char* buf, size_t cap, const Push& p, const NodeConfig* cfg) {
     if (p.kind == PushKind::msg_recv) {
         j.lit(",\"origin\":");      j.u32(p.origin);
         j.lit(",\"layer_id\":");    j.u32(p.layer_id);      // §2/Q13: which layer this DM arrived on (matches the pulled inbox_dm)
+        if (p.origin_layer) { j.lit(",\"origin_layer\":"); j.u32(p.origin_layer); }   // §GapA: the SENDER's layer on a cross-layer DM -> the app's (layer,hash) reply address. OMITTED when 0 (same-layer/non-XL -> byte-identical)
         j.lit(",\"ctr\":");         j.u32(p.ctr);
         j.lit(",\"sender_hash\":"); j.u32(p.sender_hash);   // Phase-3: live↔pulled DM dedup identity (0 if no SOURCE_HASH)
         if (p.seq) { j.lit(",\"seq\":"); j.u32(p.seq); }    // model B: the inbox seq (gap detector). OMITTED if 0 = inbox disabled

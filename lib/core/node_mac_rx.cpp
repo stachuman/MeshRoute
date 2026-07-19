@@ -685,6 +685,37 @@ void Node::do_post_ack() {
             bool ours = false;
             for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
                 if (_active->_mobile_reg[i].key_hash32 == ui->source_hash) { ours = true; break; }
+            if (ours && ui->has_cross_layer) {
+                // §S1: a CROSS_LAYER delegation. The wrapper carries the DEST path (user hops) + an enclosed-type body
+                // prefix. Prepend OUR layer + re-validate fail-loud (== the node.cpp send_layer rules), then originate via
+                // the explicit-path machinery stamping SOURCE_HASH = the mobile (so the far recipient's ack routes back
+                // here) + the ctr_H->ctr_M map so the ack reaches the mobile with its own ctr (§GapB p2). enclosed_type
+                // (0 = plain DM, E2E_ACK = a delegated ack) is threaded through as the re-originated frame TYPE (§1b-4).
+                const uint8_t  etype   = ui->body.size() >= 1 ? ui->body[0] : 0;
+                const uint8_t* payload = ui->body.size() >= 1 ? ui->body.data() + 1 : nullptr;
+                const uint8_t  plen    = ui->body.size() >= 1 ? static_cast<uint8_t>(ui->body.size() - 1) : 0;
+                bool valid = ui->n_layers >= 1 && ui->n_layers <= protocol::gw_env_max_hops - 1
+                             && ui->layer_ids[0] != active_layer_id();   // 1 + n_layers must fit; hops[0] != our own layer
+                for (uint8_t i = 0; valid && i < ui->n_layers; ++i) if (ui->layer_ids[i] == 0) valid = false;
+                if (!valid) {
+                    MR_EMIT("xl_delegate_bad_path", EF_I("n", ui->n_layers), EF_I("m", static_cast<int64_t>(ui->source_hash)));
+                } else {
+                    uint16_t hctr = 0;
+                    const uint8_t reflags = (etype == DATA_TYPE_E2E_ACK) ? 0
+                                            : static_cast<uint8_t>(pa.flags & (DATA_FLAG_E2E_ACK_REQ | DATA_FLAG_PRIORITY));
+                    const CmdCode code = originate_layer_path(ui->dst_key_hash32, ui->layer_ids, ui->n_layers,
+                                                              payload, plen, reflags, hctr,
+                                                              /*type=*/etype, /*override_source_hash=*/ui->source_hash);
+                    if (code == CmdCode::queued) {
+                        if (etype != DATA_TYPE_E2E_ACK && (pa.flags & DATA_FLAG_E2E_ACK_REQ))
+                            deleg_ack_put(ui->source_hash, hctr, pa.ctr);   // ctr_H -> ctr_M for the returning far ack
+                    } else {
+                        MR_EMIT("xl_delegate_no_route", EF_I("m", static_cast<int64_t>(ui->source_hash)), EF_I("code", static_cast<int>(code)));
+                    }
+                }
+                become_free();
+                return;
+            }
             if (ours)
                 (void)send_by_hash(ui->dst_key_hash32, ui->body.data(), static_cast<uint8_t>(ui->body.size()),
                                    pa.flags & (DATA_FLAG_E2E_ACK_REQ | DATA_FLAG_PRIORITY), CryptIntent::off,
@@ -710,6 +741,22 @@ void Node::do_post_ack() {
                         it.flags = pa.flags; it.type = pa.type;
                         it.inner_len = pa.inner_len;
                         for (uint8_t j = 0; j < pa.inner_len; ++j) it.inner[j] = pa.inner[j];   // inner VERBATIM (E2E-sealed)
+                        // §GapB p2: a DELEGATED-send ack arrives here addressed to the mobile (DST_HASH=M). It carries
+                        // ctr_H (the home's re-origination ctr); the mobile awaits ctr_M. Rewrite the 2-B body in place
+                        // via the (mobile_hash, ctr_H)->ctr_M map (keying by hash, NOT the acker id — XL ids alias). A
+                        // map miss (a DIRECT send, or a plain DM) leaves the bytes verbatim. Covers same-layer AND XL acks.
+                        if (pa.type == DATA_TYPE_E2E_ACK && ui->body.size() >= 2) {
+                            const uint16_t acked = static_cast<uint16_t>(ui->body[0] | (ui->body[1] << 8));
+                            uint16_t m_ctr = acked;
+                            if (deleg_ack_translate(ui->dst_key_hash32, acked, m_ctr)) {
+                                const size_t boff = static_cast<size_t>(ui->body.data() - pa.inner);
+                                if (boff + 1 < sizeof it.inner) {
+                                    it.inner[boff]     = static_cast<uint8_t>(m_ctr & 0xFF);
+                                    it.inner[boff + 1] = static_cast<uint8_t>(m_ctr >> 8);
+                                }
+                                MR_EMIT("mobile_reverse_ack", EF_I("local", it.dst), EF_I("ctr", m_ctr));
+                            }
+                        }
                         _active->_tx_queue[_active->_tx_queue_n++] = it;
                         MR_EMIT("mobile_lastmile_fwd", EF_I("local", it.dst), EF_I("origin", it.origin));
                     }
@@ -807,39 +854,20 @@ void Node::do_post_ack() {
             return;
         }
         if (pa.type == DATA_TYPE_E2E_ACK) {              // an end-to-end ACK for a DM we originated -> confirm + RECORD a receipt, not deliver
-            // The acked ctr: a same-layer E2E_ACK inner is [origin][ctr_lo][ctr_hi] (ctr at inner[1..2]); a 4e
-            // CROSS_LAYER ack is ...[origin][source_hash][body=ctr_lo,ctr_hi] -> the ctr is the parsed BODY (ui).
-            // Computed ALWAYS (was telemetry-only): the durable receipt + the live push need it on metal (NO_TELEMETRY).
-            // A plain same-layer ack inner is [origin][ctr_lo][ctr_hi] (ctr at inner[1..2]); a 4e CROSS_LAYER ack OR a
-            // §mobile reverse-ack carries a SOURCE_HASH before the body -> the ctr is the parsed BODY (ui->body[0..1]).
-            const bool ack_has_sh = ui && ui->has_source_hash && ui->body.size() >= 2;
-            const uint16_t acked = (((pa.flags & DATA_FLAG_CROSS_LAYER) && ui && ui->body.size() >= 2) || ack_has_sh)
+            // The acked ctr from the parsed inner BODY — uniform across all ack shapes now (§GapB): whatever optional
+            // fields precede it (DST_HASH / CROSS_LAYER path / SOURCE_HASH), parse_unicast_inner lands ui->body on the
+            // 2-B ctr. A raw fallback (no parse) reads [origin][ctr_lo][ctr_hi]. Same value on the plain path -> s18-safe.
+            const uint16_t acked = (ui && ui->body.size() >= 2)
                                    ? static_cast<uint16_t>(ui->body[0] | (ui->body[1] << 8))
                                    : ((pa.inner_len >= 3) ? static_cast<uint16_t>(pa.inner[1] | (pa.inner[2] << 8)) : 0);
-            // §mobile reverse-ack: a SAME-layer ack whose carried SOURCE_HASH names a mobile I HOST -> it's really for
-            // that mobile (which stamped origin=my id, so the ack came home to me). Re-address it as a last-mile to the
-            // mobile. A DELEGATED send's ctr (H re-originated under its OWN ctr) is translated back to the mobile's ctr
-            // via the map; a DIRECT send has no map entry -> the ctr passes through. Consume — NOT my own send's ack.
-            // (CROSS_LAYER acks keep their own 4e handling below; s18 has no hosted mobiles -> this never fires.)
-            if (ack_has_sh && !(pa.flags & DATA_FLAG_CROSS_LAYER) && _active->_mobile_reg_n > 0) {
-                for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
-                    if (_active->_mobile_reg[i].key_hash32 == ui->source_hash) {
-                        uint16_t m_ctr = acked;
-                        deleg_ack_translate(pa.origin, acked, m_ctr);   // delegated: ctr_H -> ctr_M (no-op miss => as-is)
-                        const uint8_t mb[2] = { static_cast<uint8_t>(m_ctr & 0xFF), static_cast<uint8_t>(m_ctr >> 8) };
-                        (void)enqueue_data(_active->_mobile_reg[i].mobile_local_id, mb, 2, /*flags=*/0, "e2e_ack_tx",
-                                           /*app_dm=*/false, DATA_TYPE_E2E_ACK, CryptIntent::def,
-                                           /*override_dst_hash=*/0, /*override_source_hash=*/0, /*addr_len=*/1);
-                        MR_EMIT("mobile_reverse_ack", EF_I("m", _active->_mobile_reg[i].mobile_local_id), EF_I("ctr", m_ctr));
-                        become_free();
-                        return;
-                    }
-            }
+            // §GapB: the same-layer reverse-ack fork (SOURCE_HASH-marked) is RETIRED. A delegated-recipient ack now
+            // arrives DST_HASH-addressed and is last-miled + ctr-rewritten by the generic hosted-mobile fork (:699),
+            // BEFORE reaching here. So an ack that reaches HERE is genuinely for one of OUR own sends -> record + push.
             // Cross-layer: the acker's STABLE key (the 8-bit origin aliases across leaves) -> the companion's match key.
             // Same-layer: (origin, ctr) suffices, acker_hash=0.
             const uint32_t acker_hash = ((pa.flags & DATA_FLAG_CROSS_LAYER) && ui && ui->has_source_hash) ? ui->source_hash : 0;
             _inbox.record_ack(pa.origin, acked, active_layer_id(), _hal.now(), acker_hash);   // durable receipt (DM store); inert if no backend (sim)
-            Push pu{}; pu.kind = PushKind::send_e2e_acked; pu.dst = pa.origin; pu.ctr = acked; enqueue_push(pu);   // live fast-path (E2E-ACKED ctr=X from=D)
+            Push pu{}; pu.kind = PushKind::send_e2e_acked; pu.dst = pa.origin; pu.ctr = acked; pu.sender_hash = acker_hash; enqueue_push(pu);   // live fast-path (E2E-ACKED ctr=X from=D); sender_hash = the acker's stable key (XL) so the app matches (sender_hash,ctr)
             MR_TELEMETRY(                                                                       // KEEP for the sim analyzer (free on metal)
                 EventField ef[] = { { .key = "from", .type = EventField::T::i64, .i = pa.origin },
                                     { .key = "ctr",  .type = EventField::T::i64, .i = acked } };
@@ -903,6 +931,9 @@ void Node::do_post_ack() {
                                               reinterpret_cast<const uint8_t*>(body), blen, _hal.now(), /*enc=*/crypted_ok ? 1 : 0);  // §8b
         Push pu{}; pu.kind = PushKind::msg_recv; pu.origin = dec_origin; pu.dst = pa.dst; pu.ctr = pa.ctr;   // §1a: recovered origin for CRYPTED
         pu.layer_id = rx_layer; pu.sender_hash = sender_hash; pu.seq = seq; pu.enc = crypted_ok;   // §8b: was this DM sealed?
+        // §GapA: surface the SENDER's layer (the preserved XL path's first entry) so the recipient can build the
+        // (layer_path, hash) REPLY address. 0 for a same-layer / non-XL DM -> the JSON omits it (byte-identical).
+        pu.origin_layer = (ui && ui->has_cross_layer && ui->n_layers >= 1) ? ui->layer_ids[0] : 0;
         pu.body_len = blen; for (uint8_t i = 0; i < blen; ++i) pu.body[i] = static_cast<uint8_t>(body[i]);
         // LOCATION (spec §5): the sender piggybacked its 6-B location -> surface it to the app on the Push (always
         // compiled — the companion renders it) + a peer_location telemetry for the sim/gate (device-stripped).
@@ -922,10 +953,10 @@ void Node::do_post_ack() {
                 _hal.emit("peer_location", pf, 4); );
         }
         enqueue_push(pu);                                // app channel: the inbound message (live notify, seq-stamped)
-        // E2E ACK requested -> reply with the acked ctr. CROSS_LAYER -> a reversed-path cross-layer ack (4e); else the
-        // same-layer ack home on the F reverse path.
+        // E2E ACK requested -> reply with the acked ctr. §GapB: CROSS_LAYER -> a NORMAL send on the reversed path
+        // (send_xl_ack: STATIC recipient originates, MOBILE recipient delegates via its home); else the same-layer ack.
         if (pa.flags & DATA_FLAG_E2E_ACK_REQ) {
-            if ((pa.flags & DATA_FLAG_CROSS_LAYER) && ui) send_e2e_ack_cross_layer(*ui, pa.ctr);
+            if ((pa.flags & DATA_FLAG_CROSS_LAYER) && ui) send_xl_ack(*ui, pa.ctr);
             else                                          send_e2e_ack(dec_origin, pa.ctr, sender_hash);   // §1a: ack the recovered origin; §mobile: sender_hash a hosted mobile -> last-mile the ack (origin==my id => self-send)
         }
         become_free();

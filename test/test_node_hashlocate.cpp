@@ -38,16 +38,18 @@ public:
     std::vector<Ev> events;
     std::vector<std::vector<uint8_t>> tx_frames;          // captured TX bytes (the H forward)
 
+    std::vector<std::pair<uint32_t, uint32_t>> armed;     // §F-XL-1: (delay_ms, timer_id) captured from after()
+    int      _rand_ret = -1;                              // §F-XL-1: >=0 overrides rand_range (else returns lo)
     TxResult tx(const uint8_t* b, size_t n, const TxParams&) override { tx_frames.emplace_back(b, b + n); return TxResult::ok; }
     void     set_rx_sf(int) override {}
     uint64_t channel_busy_until() override { return 0; }
     uint64_t airtime_used_ms(uint64_t) override { return 0; }
     uint64_t oldest_tx_end_ms() override { return 0; }
     uint64_t now() override { return _now; }
-    bool     after(uint32_t, uint32_t) override { return true; }
+    bool     after(uint32_t delay, uint32_t id) override { armed.emplace_back(delay, id); return true; }
     void     cancel(uint32_t) override {}
     void     set_protocol_id(int) override {}
-    int      rand_range(int lo, int) override { return lo; }
+    int      rand_range(int lo, int) override { return _rand_ret >= 0 ? _rand_ret : lo; }
     // Crypto RNG: a real HW RNG never returns all-zeros (which e2e_seal_inner now refuses, R7). Emulate a
     // non-degenerate deterministic stream so the e2e seal/open round-trip uses a realistic nonce-seed.
     uint8_t  _rb = 0x11;
@@ -113,6 +115,16 @@ int count_h_tx(const std::vector<std::vector<uint8_t>>& frames) {
 }
 
 constexpr uint32_t kAgingTimerId = 2;                     // mirrors Node's private aging-sweep timer id
+constexpr uint32_t kHForwardTimerBase = 81;               // §F-XL-1: mirrors Node::kHForwardTimerId (ring base)
+constexpr uint32_t kHForwardSlots     = 4;                // §F-XL-1: mirrors Node::kHForwardSlots
+
+// §F-XL-1: the H forward is now STASHED + released by a jittered timer (kHForwardTimerId+slot). The in-memory
+// Hal never auto-fires timers, so a test that expects the re-broadcast on-air must drive the armed h_forward
+// timer(s) to release the stash. (Re-firing a spent slot is a safe no-op — the fire clears the slot len.)
+static void fire_h_forwards(Node& node, TestHal& hal) {
+    for (auto& [delay, id] : hal.armed)
+        if (id >= kHForwardTimerBase && id < kHForwardTimerBase + kHForwardSlots) node.on_timer(id);
+}
 
 // Drive a send-by-hash app command (CmdKind::send with dst_hash set, the address-by-hash path).
 static CmdResult send_by_hash_cmd(Node& node, uint32_t dst_hash, const uint8_t* body, uint8_t body_len) {
@@ -291,6 +303,7 @@ TEST_CASE("A handle_h — unknown hash FORWARDS with TTL-1 (deduped on a re-floo
 
     std::array<uint8_t, 16> q{}; const size_t n = make_h(/*origin=*/9, /*hash=*/0x0000FACE, /*ttl=*/4, q);
     node.on_recv(q.data(), n, meta);
+    fire_h_forwards(node, hal);                          // §F-XL-1: release the jittered (stashed) forward
 
     const Ev* fwd = find_ev(hal.events, "h_forward");
     CHECK(fwd != nullptr);
@@ -319,6 +332,7 @@ TEST_CASE("L7 — a forged H ttl=255 is clamped to flood_hop_max on forward") {
 
     std::array<uint8_t, 16> q{}; const size_t n = make_h(/*origin=*/9, /*hash=*/0x0000FACE, /*ttl=*/255, q);
     node.on_recv(q.data(), n, meta);
+    fire_h_forwards(node, hal);                          // §F-XL-1: release the jittered (stashed) forward
 
     const Ev* fwd = find_ev(hal.events, "h_forward");
     CHECK(fwd != nullptr);
@@ -347,6 +361,7 @@ TEST_CASE("R4 handle_h — a forwarded WANT_PUBKEY query PRESERVES the flag (mul
     uint8_t reqpub[32]; for (int i = 0; i < 32; ++i) reqpub[i] = uint8_t(0x50 + i);
     const size_t n = make_h(/*origin=*/9, /*hash=*/0x0000FACE, /*ttl=*/4, q, /*hard=*/true, /*want_pubkey=*/true, reqpub);
     node.on_recv(q.data(), n, meta);
+    fire_h_forwards(node, hal);                          // §F-XL-1: release the jittered (stashed) forward
 
     CHECK(find_ev(hal.events, "h_forward") != nullptr);
     CHECK(hal.tx_frames.size() == 1);
@@ -393,6 +408,7 @@ TEST_CASE("A handle_h HARD — skips the cache and forwards to the owner (verify
     // A HARD query for the cached hash must NOT be answered from cache — it forwards to reach the owner.
     std::array<uint8_t, 16> q{}; const size_t n = make_h(/*origin=*/9, /*hash=*/0x0000CCCC, /*ttl=*/4, q, /*hard=*/true);
     node.on_recv(q.data(), n, meta);
+    fire_h_forwards(node, hal);                          // §F-XL-1: release the jittered (stashed) forward
 
     CHECK(find_ev(hal.events, "h_resolved") == nullptr); // cache SKIPPED — not answered here
     const Ev* fwd = find_ev(hal.events, "h_forward");
@@ -423,14 +439,94 @@ TEST_CASE("A handle_h — variant-aware dedup: a HARD query is not suppressed by
 
     std::array<uint8_t, 16> qs{}; const size_t ns = make_h(/*origin=*/9, /*hash=*/0x0000FACE, /*ttl=*/4, qs, /*hard=*/false);
     node.on_recv(qs.data(), ns, meta);                   // SOFT: forwards (unknown) + marks soft-seen
+    fire_h_forwards(node, hal);                          // §F-XL-1: release the jittered (stashed) forward
     CHECK(count_h_tx(hal.tx_frames) == 1);
 
     std::array<uint8_t, 16> qh{}; const size_t nh = make_h(/*origin=*/9, /*hash=*/0x0000FACE, /*ttl=*/4, qh, /*hard=*/true);
     node.on_recv(qh.data(), nh, meta);                   // HARD: a DIFFERENT variant -> NOT suppressed -> forwards
+    fire_h_forwards(node, hal);                          // §F-XL-1: release the second (different-slot) forward
     CHECK(count_h_tx(hal.tx_frames) == 2);
 
     node.on_recv(qh.data(), nh, meta);                   // a repeat HARD IS suppressed by its own seen-entry
+    fire_h_forwards(node, hal);                          // (no new forward armed -> spent slots are a no-op)
     CHECK(count_h_tx(hal.tx_frames) == 2);
+}
+
+// ==== F-XL-1 (2026-07-18): jittered h_forward de-storm ==========================================
+// Sibling relays that heard the SAME H flood copy used to re-tx it at the identical ms — a deterministic
+// collision (no capture) at any common/downstream receiver (s27 hello-m4: T4 behind T3 got neither of
+// T2+T3's same-ms forwards). The forward is now STASHED + released by a timer armed at a random delay in
+// [h_forward_jitter_min_ms, h_forward_jitter_max_ms]; two siblings drawing different values re-tx apart.
+TEST_CASE("F-XL-1 handle_h — the forward is jittered (stashed + timer-armed in [min,max]); no immediate TX") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000BBBB);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    hal.tx_frames.clear(); hal.armed.clear();
+    hal._rand_ret = 90;                                  // a deterministic jitter draw inside [20,150]
+
+    std::array<uint8_t, 16> q{}; const size_t n = make_h(/*origin=*/9, /*hash=*/0x0000FACE, /*ttl=*/4, q);
+    node.on_recv(q.data(), n, meta);
+
+    CHECK(find_ev(hal.events, "h_forward") != nullptr);  // the DECISION event still fires at receive time
+    CHECK(hal.tx_frames.empty());                        // but NOTHING went on air yet — the re-tx is DEFERRED
+    // exactly one h_forward-ring timer armed, at the drawn delay, inside the named window
+    int armed_fwd = 0; uint32_t armed_delay = 0, armed_id = 0;
+    for (auto& [d, id] : hal.armed)
+        if (id >= kHForwardTimerBase && id < kHForwardTimerBase + kHForwardSlots) { ++armed_fwd; armed_delay = d; armed_id = id; }
+    CHECK(armed_fwd == 1);
+    CHECK(armed_id == kHForwardTimerBase);               // first forward -> ring slot 0
+    CHECK(armed_delay == 90);                            // == the rand draw
+    CHECK(armed_delay >= protocol::h_forward_jitter_min_ms);
+    CHECK(armed_delay <= protocol::h_forward_jitter_max_ms);
+    // firing the armed timer releases the stashed re-broadcast
+    fire_h_forwards(node, hal);
+    CHECK(count_h_tx(hal.tx_frames) == 1);
+}
+
+TEST_CASE("F-XL-1 handle_h — two sibling relays draw DIFFERENT jitter -> they re-tx at different ms") {
+    // two independent relays hearing the identical H flood copy; each draws its own delay (no same-ms collision)
+    auto arm_delay_for = [](int rand_ret) -> uint32_t {
+        TestHal hal; Node node(hal, /*id=*/5, /*hash=*/0x0000BBBB);
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+        node.on_init(cfg);
+        hal._rand_ret = rand_ret; hal.armed.clear();
+        std::array<uint8_t, 16> q{}; const size_t n = make_h(/*origin=*/9, /*hash=*/0x0000FACE, /*ttl=*/4, q);
+        node.on_recv(q.data(), n, RxMeta{8.0f, -80.0f, 0, -1});
+        for (auto& [d, id] : hal.armed)
+            if (id >= kHForwardTimerBase && id < kHForwardTimerBase + kHForwardSlots) return d;
+        return 0xFFFFFFFFu;
+    };
+    const uint32_t da = arm_delay_for(30);               // sibling A's draw
+    const uint32_t db = arm_delay_for(140);              // sibling B's draw
+    CHECK(da == 30);
+    CHECK(db == 140);
+    CHECK(da != db);                                     // the whole point: the siblings do NOT key up together
+    CHECK(da >= protocol::h_forward_jitter_min_ms); CHECK(da <= protocol::h_forward_jitter_max_ms);
+    CHECK(db >= protocol::h_forward_jitter_min_ms); CHECK(db <= protocol::h_forward_jitter_max_ms);
+}
+
+TEST_CASE("F-XL-1 handle_h — the fired (jittered) frame is byte-identical to an immediate forward") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000BBBB);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    node.on_init(cfg);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    hal.tx_frames.clear(); hal.armed.clear();
+    std::array<uint8_t, 16> q{}; const size_t n = make_h(/*origin=*/9, /*hash=*/0x0000FACE, /*ttl=*/4, q);
+    node.on_recv(q.data(), n, meta);
+    fire_h_forwards(node, hal);
+    CHECK(hal.tx_frames.size() == 1);
+    // the exact bytes the OLD immediate re-tx would have sent: fwd{leaf 0, origin 9, hash FACE, ttl 4-1=3}
+    h_in expect{}; expect.leaf_id = 0; expect.origin = 9; expect.key_hash32 = 0x0000FACE; expect.ttl = 3; expect.hard = false;
+    uint8_t eb[8 + 32 + 4 + 1 + 32]; const size_t en = pack_h(expect, std::span<uint8_t>(eb, sizeof(eb)));
+    if (!hal.tx_frames.empty()) {
+        CHECK(en == hal.tx_frames[0].size());
+        bool same = (en == hal.tx_frames[0].size());
+        for (size_t i = 0; same && i < en; ++i) if (eb[i] != hal.tx_frames[0][i]) same = false;
+        CHECK(same);
+    }
 }
 
 // ---- Phase B: the hash-bind response (codec round-trip + send-side + receive-side) ----------------
@@ -1281,12 +1377,14 @@ TEST_CASE("§2 review#14 — a prior plain HARD H does NOT suppress a later WANT
     // a plain HARD H for (origin 9, hash 0xFACE) -> the relay forwards + marks (9,0xFACE,hard,!wp) seen
     std::array<uint8_t, 16> q1{}; const size_t n1 = make_h(/*origin=*/9, 0x0000FACE, /*ttl=*/4, q1, /*hard=*/true);
     relay.on_recv(q1.data(), n1, meta);
+    fire_h_forwards(relay, hal);                                    // §F-XL-1: release the jittered (stashed) forward
     const int fwd_after_plain = count_h_tx(hal.tx_frames);
     CHECK(fwd_after_plain >= 1);
     // a HARD WANT_PUBKEY H for the SAME (origin, hash) -> a DIFFERENT variant -> must STILL forward (not deduped)
     uint8_t reqpub[32]; for (int i = 0; i < 32; ++i) reqpub[i] = uint8_t(0x70 + i);
     std::array<uint8_t, 40> q2{}; const size_t n2 = make_h(/*origin=*/9, 0x0000FACE, /*ttl=*/4, q2, /*hard=*/true, /*want_pubkey=*/true, reqpub);
     relay.on_recv(q2.data(), n2, meta);
+    fire_h_forwards(relay, hal);                                    // §F-XL-1: release the second (different-slot) forward
     int wp_fwd = 0;
     for (const auto& f : hal.tx_frames) { auto pf = parse_h(std::span<const uint8_t>(f.data(), f.size())); if (pf && pf->want_pubkey) ++wp_fwd; }
     CHECK(wp_fwd == 1);                                              // the WANT_PUBKEY variant was forwarded despite the prior plain HARD

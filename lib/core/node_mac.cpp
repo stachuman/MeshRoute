@@ -236,7 +236,7 @@ uint8_t Node::select_gateway_for_leaf(uint8_t target_leaf) {
 // next layer to enter), routed (MAC dst) to gateway gw_node. The inner carries the FULL path (immutable in transit;
 // only the cursor advances, so the destination can reverse it for the 4e E2E ack) + dst_hash + SOURCE_HASH (REQUIRED
 // for that reversed ack). pack_unicast_inner's size-first overflow is the cross-layer fit-check (returns 0 -> fail loud).
-bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t* layer_ids, uint8_t n_layers, uint8_t cur, const uint8_t* body, uint8_t body_len, uint8_t flags, uint16_t* out_ctr) {
+bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t* layer_ids, uint8_t n_layers, uint8_t cur, const uint8_t* body, uint8_t body_len, uint8_t flags, uint16_t* out_ctr, uint8_t type, uint32_t override_source_hash) {
     // R1 defense-in-depth: v1 cross-layer DMs are CLEARTEXT-only (no CRYPTED). The on_command send_layer path already
     // refuses when e2e_dm is on; this is the universal choke so NO origination path (parked-drain, send_cross_layer)
     // can ever put a cleartext cross-layer DM on the air while e2e_dm advertises confidentiality. Fail loud, never send.
@@ -247,10 +247,13 @@ bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t
     TxItem item{};
     const uint16_t ctr = next_ctr(gw_node);          // MAC ctr vs the next-hop gateway (= the e2e (source_hash, ctr) identity)
     stamp_origin(item); item.dst = gw_node; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
+    item.type = type;   // §GapB: a re-originated E2E-ack stamps DATA_TYPE_E2E_ACK (0 = a normal cross-layer DM, byte-identical)
     item.flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH
                                       | (flags & DATA_FLAG_E2E_ACK_REQ));   // 4d/e2e: honor the app's E2E-ack request -> Y acks over the reversed path (4e)
     const size_t n = pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), item.flags, dst_hash,
-                                        layer_ids, n_layers, cur, _node_id, _key_hash32, body, body_len,
+                                        layer_ids, n_layers, cur, _node_id,
+                                        override_source_hash ? override_source_hash : _key_hash32,   // §GapB delegate: the HOME re-originating for its mobile stamps SOURCE_HASH = the mobile's hash so the far recipient's ack routes back to the mobile (0 = our own hash -> byte-identical)
+                                        body, body_len,
                                         /*lat_e7*/ 0, /*lon_e7*/ 0);   // v1 scope: cross-layer DMs carry NO location
                                                                        // (same-layer DM + M only; cross-layer = documented follow-up)
     if (n == 0) return false;                         // overflow (228-B body cap with the layer-path) -> fail loud
@@ -293,7 +296,7 @@ void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_
 // then "just works": the 4c.1 bridge advances `cur` at each gateway along the preserved path. Fail loud (send_failed
 // Push) if no gateway serves hops[0] or the inner overflows. The handler validated the path (hop_count <= max-1,
 // each layer != 0, hops[0] != our layer) before calling, so building path[1+hop_count] stays in bounds.
-CmdCode Node::originate_layer_path(uint32_t dst_hash, const uint8_t* hops, uint8_t hop_count, const uint8_t* body, uint8_t body_len, uint8_t flags, uint16_t& out_ctr) {
+CmdCode Node::originate_layer_path(uint32_t dst_hash, const uint8_t* hops, uint8_t hop_count, const uint8_t* body, uint8_t body_len, uint8_t flags, uint16_t& out_ctr, uint8_t type, uint32_t override_source_hash) {
     out_ctr = 0;
     uint8_t path[protocol::gw_env_max_hops] = {};
     path[0] = active_layer_id();
@@ -305,7 +308,7 @@ CmdCode Node::originate_layer_path(uint32_t dst_hash, const uint8_t* hops, uint8
         MR_EMIT("xl_send_no_gateway", EF_I("target_layer", hops[0]), EF_I("dst_hash", static_cast<int64_t>(dst_hash)));
         return CmdCode::err_no_gateway;                                  // SYNCHRONOUS (the app holds the CmdResult handle); NO orphan push
     }
-    if (!enqueue_cross_layer(gw, dst_hash, path, n_layers, /*cur*/ 1, body, body_len, flags, &out_ctr)) {
+    if (!enqueue_cross_layer(gw, dst_hash, path, n_layers, /*cur*/ 1, body, body_len, flags, &out_ctr, type, override_source_hash)) {
         MR_EMIT("xl_send_too_large", EF_I("target_layer", hops[0]), EF_I("gw", gw));
         return CmdCode::err_too_large;
     }
@@ -329,16 +332,17 @@ void Node::send_e2e_ack(uint8_t to_origin, uint16_t acked_ctr, uint32_t sender_h
                                    /*override_dst_hash=*/0, /*override_source_hash=*/0, /*addr_len=*/1);
                 return;
             }
-    // §mobile reverse-ack: the acked DM's SENDER differs from its origin -> `origin` is a mobile's home-stamped id and
-    // `sender_hash` is the MOBILE itself. Carry the mobile's stable hash ON the ack (DATA_FLAG_SOURCE_HASH — the same
-    // on-wire identity the cross-layer 4e ack uses) so the mobile's HOME (== `to_origin`, where this ack already routes)
-    // recognizes it and last-miles to the mobile. A STATIC sender has source_hash == key_hash_of_id(origin) -> gate
-    // FALSE -> plain ack (byte-identical; s18 has no mobiles so this never fires). Unknown origin key -> plain ack.
+    // §GapB p3 (ack unification): the acked DM's SENDER differs from its origin -> `origin` is a mobile's home-stamped id
+    // and `sender_hash` is the MOBILE itself. Address the ack "to the home, FOR the mobile" by attaching the mobile's
+    // stable hash as DST_HASH (the correct "for whom" field — NOT the old SOURCE_HASH mark). The home's generic
+    // hosted-mobile last-mile fork (node_mac_rx.cpp) then last-miles it to the mobile (with the ctr_H->ctr_M rewrite),
+    // the SAME path every hosted-mobile DM takes. A STATIC sender has source_hash == key_hash_of_id(origin) -> gate FALSE
+    // -> plain ack (byte-identical; s18 has no mobiles so this never fires). Unknown origin key -> plain ack.
     uint32_t oh = 0;
     if (sender_hash != 0 && key_hash_of_id(to_origin, oh) && oh != sender_hash) {
-        (void)enqueue_data(to_origin, body, 2, /*flags=*/DATA_FLAG_SOURCE_HASH, "e2e_ack_tx",
+        (void)enqueue_data(to_origin, body, 2, /*flags=*/0, "e2e_ack_tx",
                            /*app_dm=*/false, DATA_TYPE_E2E_ACK, CryptIntent::def,
-                           /*override_dst_hash=*/0, /*override_source_hash=*/sender_hash);
+                           /*override_dst_hash=*/sender_hash);   // DST_HASH = the mobile's hash -> the home last-miles it (generic :699 fork)
         return;
     }
     (void)enqueue_data(to_origin, body, 2, /*flags=*/0, "e2e_ack_tx", /*app_dm=*/false, DATA_TYPE_E2E_ACK);
@@ -361,50 +365,79 @@ bool Node::take_remote_inbound(RemoteInbound& out) {
     return true;
 }
 
-// Slice 4e: the reversed-path CROSS_LAYER E2E ack. The inbound DM `dm` preserved the full layer-path (§0.10), so Y
-// REVERSES it and acks the ORIGINAL sender X over a gateway bridging back. dst = X's stable key (dm.source_hash) —
-// FAIL LOUD if absent (NEVER ack pa.origin on the local leaf — that's a different node on the wrong layer). The ack
-// is a CROSS_LAYER TYPE=E2E_ACK DATA, bridged by 4c.1 exactly like any forward cross-layer DATA. Best-effort: no
-// reverse gateway / route -> DROP loud (X's DM retry recovers it; an ack never floods/parks).
-void Node::send_e2e_ack_cross_layer(const data_unicast_inner& dm, uint16_t acked_ctr) {
-    if (!dm.has_cross_layer || dm.n_layers == 0) return;                  // not a cross-layer DM (caller already gated, defensive)
-    // R1 (this is the parallel cross-layer origination that does NOT funnel through enqueue_cross_layer): an e2e_dm
-    // node emits NO cleartext cross-layer frame in v1 (same-layer CRYPTED only) — a cleartext ack would leak the
-    // acked_ctr and breach the invariant. Refuse loudly. (The sender's DM retry recovers a dropped ack; acks never park.)
-    if (_cfg.e2e_dm) {
-        MR_EMIT("e2e_cross_layer_refused", EF_I("acked_ctr", acked_ctr), EF_I("reason_ack", 1));
-        return;
-    }
-    if (!dm.has_source_hash || dm.source_hash == 0) {                     // no stable sender key -> can't address the ack. FAIL LOUD.
+// §GapB (2026-07-18): the cross-layer E2E ack, UNIFIED onto the normal send machinery — "an E2E ack IS a normal DM
+// from receiver to sender, NO ack-specific addressing." The inbound DM `dm` preserved the full layer-path (§0.10), so
+// the recipient REVERSES it and sends type=E2E_ACK, body=acked_ctr, to (reversed path, dm.source_hash). A STATIC
+// recipient originates directly via enqueue_cross_layer (retiring the old hand-built parallel origination); a MOBILE
+// recipient DELEGATES through its home (delegate_send_layer) — a mobile must never self-originate an XL frame (the
+// local-id-origin plane leak). Best-effort: no reverse gateway/route -> DROP loud (the sender's DM retry recovers it).
+void Node::send_xl_ack(const data_unicast_inner& dm, uint16_t acked_ctr) {
+    if (!dm.has_cross_layer || dm.n_layers < 2) return;                  // not a cross-layer DM (caller gated, defensive)
+    if (!dm.has_source_hash || dm.source_hash == 0) {                    // no stable sender key -> can't address the ack. FAIL LOUD.
         MR_EMIT("xl_ack_no_source", EF_I("acked_ctr", acked_ctr));
         return;
     }
-    // Reverse the preserved path: [A,B] -> [B,A]; cur reset to 1 (Y on rev[0], enters rev[1] = X's origin layer).
+    // Reverse the preserved path: [A,B] -> [B,A]; the recipient sits on rev[0], the ORIGINAL sender X on rev[n-1].
     uint8_t rev[protocol::gw_env_max_hops] = {};
     for (uint8_t i = 0; i < dm.n_layers; ++i) rev[i] = dm.layer_ids[dm.n_layers - 1 - i];
+    const uint8_t abody[2] = { static_cast<uint8_t>(acked_ctr & 0xFF), static_cast<uint8_t>(acked_ctr >> 8) };
+#if MR_FEAT_MOBILE
+    if (_cfg.is_mobile && _my_mobile_reg.active) {   // MOBILE recipient -> delegate the ack to the home (own layer rev[0] stripped)
+        (void)delegate_send_layer(dm.source_hash, rev + 1, static_cast<uint8_t>(dm.n_layers - 1),
+                                  DATA_TYPE_E2E_ACK, abody, 2, /*flags=*/0);
+        return;
+    }
+#endif
+    // STATIC recipient -> the normal XL origination (enqueue_cross_layer), best-effort: no reverse gateway/route -> DROP
+    // loud (never park/flood an ack). enqueue_cross_layer's e2e_dm choke keeps a cleartext ack off the air when e2e_dm on.
     const uint8_t target_leaf = static_cast<uint8_t>(rev[1] & 0x0F);      // the next layer to enter (cur=1)
     const uint8_t gw = select_gateway_for_leaf(target_leaf);
-    if (gw == 0 || rt_find(gw) == nullptr) {                              // no reverse gateway / route -> DROP loud (never park/flood an ack)
+    if (gw == 0 || rt_find(gw) == nullptr) {
         MR_EMIT("xl_ack_no_gateway", EF_I("target_leaf", target_leaf), EF_I("acked_ctr", acked_ctr), EF_I("to_hash", static_cast<int64_t>(dm.source_hash)));
         return;
     }
+    if (enqueue_cross_layer(gw, dm.source_hash, rev, dm.n_layers, /*cur*/ 1, abody, 2, /*flags=*/0,
+                            /*out_ctr=*/nullptr, /*type=*/DATA_TYPE_E2E_ACK, /*override_source_hash=*/0))
+        MR_EMIT("xl_e2e_ack_tx", EF_I("to_hash", static_cast<int64_t>(dm.source_hash)), EF_I("gw", gw), EF_I("acked_ctr", acked_ctr));
+}
+
+#if MR_FEAT_MOBILE
+// §S1: a REGISTERED mobile delegates a cross-layer send to its HOME. The wrapper is DATA_TYPE_MOBILE_SEND to home_id
+// carrying the EXISTING cross-layer path block (n|cur|ids) via DATA_FLAG_CROSS_LAYER (so the home's parse_unicast_inner
+// extracts the path for free), the target as DST_HASH, the mobile as SOURCE_HASH, and the body PREFIXED by an
+// enclosed-type byte (0 = plain DM, DATA_TYPE_E2E_ACK = a delegated ack) so the home re-originates with that TYPE
+// (§1b-4). `hops` = the DESTINATION path (the mobile's own layer NOT prepended — the home prepends it + re-validates).
+// The wire is byte-identical to today's SAME-LAYER wrapper only when there is NO path (that path stays in send_by_hash).
+uint16_t Node::delegate_send_layer(uint32_t dst_hash, const uint8_t* hops, uint8_t hop_count, uint8_t enclosed_type,
+                                   const uint8_t* body, uint8_t body_len, uint8_t flags) {
+    if (!_my_mobile_reg.active) return 0;                                // no home to delegate to
+    if (hop_count == 0 || hop_count > protocol::gw_env_max_hops - 1) return 0;   // the home prepends its own layer -> 1+hop_count must fit
+    if (static_cast<size_t>(body_len) + 1 > protocol::max_payload_bytes_hard_cap) return 0;
+    const uint8_t home = _my_mobile_reg.home_id;
     TxItem item{};
-    const uint16_t ctr = next_ctr(gw);                                   // a fresh MAC ctr vs the gateway (the ack's own identity)
-    stamp_origin(item); item.dst = gw; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
-    item.flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH);
-    item.type  = DATA_TYPE_E2E_ACK;
-    const uint8_t abody[2] = { static_cast<uint8_t>(acked_ctr & 0xFF), static_cast<uint8_t>(acked_ctr >> 8) };
-    const size_t n = pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), item.flags, dm.source_hash,
-                                        rev, dm.n_layers, /*cur*/ 1, _node_id, _key_hash32, abody, 2,
-                                        /*lat_e7*/ 0, /*lon_e7*/ 0);   // E2E ack: NEVER carries location
-    if (n == 0) return;                                                  // overflow (never for a 2-B ack) -> fail loud
+    const uint16_t ctr = next_ctr(home);
+    stamp_origin(item);   // registered mobile -> origin = home_id, mobile_src = true (the same identity the same-layer wrapper uses)
+    item.dst = home; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
+    item.type = DATA_TYPE_MOBILE_SEND;
+    item.flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH
+                                      | (flags & (DATA_FLAG_E2E_ACK_REQ | DATA_FLAG_PRIORITY)));
+    uint8_t wbody[protocol::max_payload_bytes_hard_cap];
+    wbody[0] = enclosed_type;                                            // the enclosed TYPE (§1b-4 threading)
+    for (uint8_t i = 0; i < body_len; ++i) wbody[1 + i] = body[i];
+    const size_t n = pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), item.flags, dst_hash,
+                                        hops, hop_count, /*cur*/ 0, item.origin, _key_hash32,
+                                        wbody, static_cast<uint8_t>(body_len + 1), /*lat_e7*/ 0, /*lon_e7*/ 0);
+    if (n == 0) return 0;                                                // overflow -> fail loud (caller sees ctr 0)
     item.inner_len = static_cast<uint8_t>(n);
     item.enqueue_time_ms = _hal.now();
-    if (_active->_tx_queue_n >= kTxQueueCap) return;
+    if (_active->_tx_queue_n >= kTxQueueCap) return 0;
     _active->_tx_queue[_active->_tx_queue_n++] = item;
-    MR_EMIT("xl_e2e_ack_tx", EF_I("to_hash", static_cast<int64_t>(dm.source_hash)), EF_I("gw", gw), EF_I("acked_ctr", acked_ctr));
-    become_free();                                                       // 4a defers the RTS to the gateway's window
+    MR_EMIT("mobile_delegate_xl", EF_I("home", home), EF_I("ctr", ctr), EF_I("enclosed_type", enclosed_type),
+            EF_I("dst_hash", static_cast<int64_t>(dst_hash)));
+    become_free();
+    return ctr;
 }
+#endif
 
 void Node::become_free() {
     if (_active->_pending_tx || _active->_pending_rx) return;              // half-duplex serialize
