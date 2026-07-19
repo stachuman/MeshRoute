@@ -1,0 +1,747 @@
+{
+ "_name": "s28_mixed_team_channels",
+ "_desc": "ENRICHED TEAM SIM (user 2026-07-19): ONE team with MIXED membership \u2014 homed ends XH1@S1/XH2@S3 (dual: static registration + team plane) bridged by an OFF-GRID middle chain XO3-XO4-XO5 (4 team hops end-to-end) \u2014 plus co-located team Y {YO1,YO2} and statics S1-S3. NEW COVERAGE vs s22-s27: (1) MULTI-HOP team CHANNEL propagation (s22 proved 1-hop only) in BOTH origin directions (homed-origin + off-grid-origin); (2) mixed-membership team DMs (by team id homed->off-grid, by hash off-grid->homed); (3) leaf-vs-team channel interplay at DUAL members (a dual member receives BOTH planes) + DOCUMENTED current behavior: an off-grid mobile configured with the leaf's layer_id ingests leaf broadcasts (XO4 assert \u2014 RF-local broadcast; if that's undesired it's a design change, not a bug); (4) \u2605 TEAM-SURVIVES-HOME-DEATH: S1 dies @700k, XH1's post-death team post must still cross the chain (the team plane is independent of home-registration state); (5) digest-gate + containment regression in a RICHER topology (Y + statics hear team-X floods directly; zero ingest, zero static pulls). Wrapper note: team DMs by HASH (no by-id wrapper verb exists; by-id -t is native-covered). Channel asserts key on UNIQUE channel_id per message (relayed channel_msg_received emits carry no payload). Fake hashes (channels are cleartext; encrypted team DMs covered by s22). CANDIDATE for the mandatory suite once green + anchored. \u2605 S7 EXTENSION (user-ratified): XO4 leaf assert FLIPPED to not-receive (off-grid \u2260 leaf member; homed XH1 stays MUST-receive); + send-side coverage ch6 (plain send_channel from a homed mobile = GLOBAL, delegated via home, team skipped) + ch7 (both-mode). Wrapper verbs send_channel_g/_b are PLACEHOLDERS \u2014 the coder names the real console flags (-t/-g) + adds the wrapper verbs. QA fix 2026-07-19: XO4->S2 link made ONE-WAY (S2 hears XO4 for containment; XO4 stays genuinely OFF-GRID) + S2 count 1->3 (delegated globals land). KNOWN BLOCKER F-SF-1: the OFFER data_sf_bitmap is 1 byte (frame_codec.cpp:696, mask node_join.cpp:356) -> SF>=8 truncated -> registered members adopt SF7-only vs off-grid SF7/9 -> mixed-chain flood SF mismatches block the remaining multi-hop asserts until the SF-bitmap slice lands.",
+ "simulation": {
+  "duration_ms": 950000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "seed": 28,
+  "node_startup_jitter_ms": 0,
+  "radio": {
+   "sf": 8,
+   "bw": 62.5,
+   "cr": 5,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 0.1
+  }
+ },
+ "commands": [
+  {
+   "_c": "PHASE B \u2014 team channel from a HOMED member: must cross the full MIXED chain (4 team hops) to the far homed end; zero at team Y / statics",
+   "at_ms": 420000,
+   "node": "XH1",
+   "command": "send_channel 3 tx-chan-from-homed"
+  },
+  {
+   "_c": "team channel from an OFF-GRID middle member: both homed ends + all off-grid must receive",
+   "at_ms": 480000,
+   "node": "XO4",
+   "command": "send_channel 4 tx-chan-from-offgrid"
+  },
+  {
+   "_c": "LEAF channel from a static: the on-leaf plane (dual members are on the leaf; asserts document CURRENT off-grid behavior)",
+   "at_ms": 540000,
+   "node": "S2",
+   "command": "send_channel 1 leaf-chan-hello"
+  },
+  {
+   "_c": "mixed team DMs BY HASH both directions (by-id -t has no wrapper verb; covered natively)",
+   "at_ms": 600000,
+   "node": "XH1",
+   "command": "send_hash ee000004 tx-dm-h2o"
+  },
+  {
+   "at_ms": 620000,
+   "node": "XO4",
+   "command": "send_hash ee000002 tx-dm-o2h",
+   "_c": "off-grid->homed team DM by hash, 2 team hops (XO4-XO5-XH2; \u22653-hop team-hash is the DOCUMENTED s23 attenuation boundary, not asserted)"
+  },
+  {
+   "_c": "PHASE C \u2014 S1 dies @700k: XH1 loses its home; the TEAM must be unaffected (a post-death team post still crosses the chain)",
+   "at_ms": 800000,
+   "node": "XH1",
+   "command": "send_channel 5 tx-chan-after-homeloss"
+  },
+  {
+   "_c": "S7 send-side: plain = GLOBAL from a homed mobile (delegated); wrapper verb TBD by the coder (send_channel_g?)",
+   "at_ms": 660000,
+   "node": "XH1",
+   "command": "send_channel_g 6 global-from-mobile"
+  },
+  {
+   "_c": "S7 both-mode",
+   "at_ms": 680000,
+   "node": "XH1",
+   "command": "send_channel_b 7 both-planes-post"
+  }
+ ],
+ "expect": [
+  {
+   "type": "script_emit_contains",
+   "node": "XH1",
+   "emit_type": "mobile_adopted",
+   "value": "\"home\":101",
+   "_c": "homed members register"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XH2",
+   "emit_type": "mobile_adopted",
+   "value": "\"home\":103"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XO3",
+   "emit_type": "team_dad_adopted",
+   "value": "id",
+   "_c": "off-grid members team-DAD"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XO4",
+   "emit_type": "team_dad_adopted",
+   "value": "id"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XO5",
+   "emit_type": "team_dad_adopted",
+   "value": "id"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "YO1",
+   "emit_type": "team_dad_adopted",
+   "value": "id"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "YO2",
+   "emit_type": "team_dad_adopted",
+   "value": "id"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XO3",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":3",
+   "_c": "homed-origin team channel crosses the MIXED multi-hop chain (relayed emits carry no payload -> assert the unique channel id)"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XO4",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":3"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XO5",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":3"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XH2",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":3"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XH1",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":4",
+   "_c": "off-grid-origin reaches both homed ends"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XO3",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":4"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XO5",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":4"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XH2",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":4"
+  },
+  {
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "channel_msg_received",
+   "node": "YO1",
+   "count": 0,
+   "_c": "containment: team Y ingests ZERO (co-located with XO4)"
+  },
+  {
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "channel_msg_received",
+   "node": "YO2",
+   "count": 0
+  },
+  {
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "channel_msg_received",
+   "node": "S2",
+   "count": 3,
+   "_c": "S2 = its own self_originate + the delegated GLOBAL ch6+ch7 (team containment pinned by the not_contains ch3/4/5)"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "S2",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":3",
+   "_c": "containment: the static never ingests a team channel id"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "S2",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":4"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "S2",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":5"
+  },
+  {
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "channel_pull_sent",
+   "node": "S2",
+   "count": 0,
+   "_c": "digest-gate regression: no static pulls of team ids"
+  },
+  {
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "channel_pull_sent",
+   "node": "S1",
+   "count": 0
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "S1",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":1",
+   "_c": "leaf plane intact among statics"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "S3",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":1"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XH1",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":1",
+   "_c": "a DUAL member is on the leaf -> receives leaf channels"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "XO4",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":1",
+   "_c": "RATIFIED: an OFF-GRID mobile does NOT receive leaf channels (not a member)"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XO4",
+   "emit_type": "push",
+   "value": "tx-dm-h2o",
+   "_c": "homed->off-grid team DM by hash"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XH2",
+   "emit_type": "push",
+   "value": "tx-dm-o2h",
+   "_c": "off-grid->homed team DM by hash"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XO3",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":5",
+   "_c": "\u2605 the team plane survives XH1's HOME DEATH (post-death post crosses the chain)"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XO4",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":5"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XO5",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":5"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XH2",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":5"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "S1",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":6",
+   "_c": "S7 send-side: a HOMED mobile's PLAIN send_channel = GLOBAL (delegated via home; home mints)"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "S3",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":6"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "XO4",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":6",
+   "_c": "the global post SKIPS the team (and off-grid members are non-members anyway)"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "S1",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":7",
+   "_c": "S7 both-mode: statics get the global half"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XO4",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":7",
+   "_c": "\u2026and the team gets the team half (multi-hop, needs T-A)"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "XH2",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":7"
+  }
+ ],
+ "nodes": [
+  {
+   "name": "S1",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.31,
+   "start_at_ms": 1000,
+   "node_id": 101,
+   "key_hash32": "0x51000001",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   },
+   "dies_at_ms": 700000
+  },
+  {
+   "name": "S2",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.308,
+   "start_at_ms": 1000,
+   "node_id": 102,
+   "key_hash32": "0x51000002",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "S3",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.306,
+   "start_at_ms": 1000,
+   "node_id": 103,
+   "key_hash32": "0x51000003",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "XH1",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.311,
+   "start_at_ms": 1000,
+   "node_id": 0,
+   "key_hash32": "0xEE000001",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1,
+    "is_mobile": true,
+    "mobile_autoregister": true,
+    "team_beacon_period_ms": 60000,
+    "team_id": 858980353
+   }
+  },
+  {
+   "name": "XO3",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.3095,
+   "start_at_ms": 1000,
+   "node_id": 0,
+   "key_hash32": "0xEE000003",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1,
+    "is_mobile": true,
+    "mobile_autoregister": true,
+    "team_beacon_period_ms": 60000,
+    "team_id": 858980353
+   }
+  },
+  {
+   "name": "XO4",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.3085,
+   "start_at_ms": 1000,
+   "node_id": 0,
+   "key_hash32": "0xEE000004",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1,
+    "is_mobile": true,
+    "mobile_autoregister": true,
+    "team_beacon_period_ms": 60000,
+    "team_id": 858980353
+   }
+  },
+  {
+   "name": "XO5",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.307,
+   "start_at_ms": 1000,
+   "node_id": 0,
+   "key_hash32": "0xEE000005",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1,
+    "is_mobile": true,
+    "mobile_autoregister": true,
+    "team_beacon_period_ms": 60000,
+    "team_id": 858980353
+   }
+  },
+  {
+   "name": "XH2",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.3055,
+   "start_at_ms": 1000,
+   "node_id": 0,
+   "key_hash32": "0xEE000002",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1,
+    "is_mobile": true,
+    "mobile_autoregister": true,
+    "team_beacon_period_ms": 60000,
+    "team_id": 858980353
+   }
+  },
+  {
+   "name": "YO1",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6002,
+   "lon": -122.3086,
+   "start_at_ms": 1000,
+   "node_id": 0,
+   "key_hash32": "0xEE000011",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1,
+    "is_mobile": true,
+    "mobile_autoregister": true,
+    "team_beacon_period_ms": 60000,
+    "team_id": 1145307138
+   }
+  },
+  {
+   "name": "YO2",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6002,
+   "lon": -122.3084,
+   "start_at_ms": 1000,
+   "node_id": 0,
+   "key_hash32": "0xEE000012",
+   "config": {
+    "layer_id": 4,
+    "routing_sf": 8,
+    "allowed_data_sfs": [
+     7,
+     9
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1,
+    "is_mobile": true,
+    "mobile_autoregister": true,
+    "team_beacon_period_ms": 60000,
+    "team_id": 1145307138
+   }
+  }
+ ],
+ "topology": {
+  "links": [
+   {
+    "from": "S1",
+    "to": "S2",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S2",
+    "to": "S1",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S2",
+    "to": "S3",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S3",
+    "to": "S2",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "XH1",
+    "to": "S1",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S1",
+    "to": "XH1",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "XH2",
+    "to": "S3",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S3",
+    "to": "XH2",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "XH1",
+    "to": "XO3",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "XO3",
+    "to": "XH1",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "XO3",
+    "to": "XO4",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "XO4",
+    "to": "XO3",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "XO4",
+    "to": "XO5",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "XO5",
+    "to": "XO4",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "XO5",
+    "to": "XH2",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "XH2",
+    "to": "XO5",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "YO1",
+    "to": "XO4",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "XO4",
+    "to": "YO1",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "YO2",
+    "to": "XO4",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "XO4",
+    "to": "YO2",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "YO1",
+    "to": "YO2",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "YO2",
+    "to": "YO1",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "XO4",
+    "to": "S2",
+    "snr": 55.0,
+    "rssi": -60.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   }
+  ]
+ }
+}

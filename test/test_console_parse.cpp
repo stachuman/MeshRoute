@@ -27,7 +27,7 @@ TEST_CASE("parse_command — send <id> \"text\" [-a] (id target; quoted body; fl
     CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "hi");
 }
 
-TEST_CASE("parse_command — Wave 2 `-t` sets the TEAM plane; plain send = GLOBAL; -t rejected on send_channel") {
+TEST_CASE("parse_command — Wave 2 `-t` sets the TEAM plane; plain send = GLOBAL; §S7 send_channel accepts -t/-g") {
     Command c{};
     const char* g = "send 5 \"hi\"";                     // plain send -> GLOBAL (2)
     CHECK(parse_command(g, std::strlen(g), c) == ParseErr::ok);
@@ -38,8 +38,21 @@ TEST_CASE("parse_command — Wave 2 `-t` sets the TEAM plane; plain send = GLOBA
     const char* th = "send 0x4be09089 \"hi\" -e -t";     // -t + -e together on a hash target
     CHECK(parse_command(th, std::strlen(th), c) == ParseErr::ok);
     CHECK(c.u.send.plane == 1); CHECK(c.u.send.dst_hash == 0x4be09089u); CHECK(c.crypt == CryptIntent::on);
-    const char* sc = "send_channel 3 \"hi\" -t";         // -t is send-only -> rejected elsewhere
-    CHECK(parse_command(sc, std::strlen(sc), c) == ParseErr::bad_args);
+    // §S7 T-B: send_channel now ACCEPTS -t (TEAM) / -g (explicit GLOBAL) / `-t -g` (BOTH); plain leaves both clear (=> GLOBAL).
+    const char* scp = "send_channel 3 \"hi\"";           // plain
+    CHECK(parse_command(scp, std::strlen(scp), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::send_channel); CHECK(!c.u.channel.team); CHECK(!c.u.channel.global);
+    const char* sct = "send_channel 3 \"hi\" -t";        // TEAM
+    CHECK(parse_command(sct, std::strlen(sct), c) == ParseErr::ok);
+    CHECK(c.u.channel.team); CHECK(!c.u.channel.global);
+    const char* scg = "send_channel 3 \"hi\" -g";        // explicit GLOBAL
+    CHECK(parse_command(scg, std::strlen(scg), c) == ParseErr::ok);
+    CHECK(!c.u.channel.team); CHECK(c.u.channel.global);
+    const char* scb = "send_channel 3 \"hi\" -t -g";     // BOTH
+    CHECK(parse_command(scb, std::strlen(scb), c) == ParseErr::ok);
+    CHECK(c.u.channel.team); CHECK(c.u.channel.global);
+    const char* scx = "send_channel 3 \"hi\" -e";        // -e still rejected on a channel (no ack/enc)
+    CHECK(parse_command(scx, std::strlen(scx), c) == ParseErr::bad_args);
 }
 
 TEST_CASE("parse_command — reqpubkey -t = TEAM plane; plain = GLOBAL; a bare team-id is implicitly TEAM") {

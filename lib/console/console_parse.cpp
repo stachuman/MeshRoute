@@ -85,8 +85,9 @@ bool parse_hex_bytes_tok(const Tok& t, uint8_t* out, size_t n) {
 // text between the quotes (spaces allowed). Returns false on: a disallowed/unknown flag, an unquoted token, an
 // unterminated/duplicate quote, or no body at all (the body is required).
 bool parse_send_tail(Scan& s, bool allow_a, bool allow_e, bool& ack, bool& enc,
-                     const uint8_t*& body, uint8_t& body_len, bool* team = nullptr, bool* no_intro = nullptr) {
-    ack = false; enc = false; if (team) *team = false; if (no_intro) *no_intro = false; body = nullptr; body_len = 0; bool body_seen = false;
+                     const uint8_t*& body, uint8_t& body_len, bool* team = nullptr, bool* no_intro = nullptr,
+                     bool* global = nullptr) {
+    ack = false; enc = false; if (team) *team = false; if (no_intro) *no_intro = false; if (global) *global = false; body = nullptr; body_len = 0; bool body_seen = false;
     for (;;) {
         skip_ws(s);
         if (s.p >= s.end) break;
@@ -108,7 +109,8 @@ bool parse_send_tail(Scan& s, bool allow_a, bool allow_e, bool& ack, bool& enc,
             if (s.p < s.end && *s.p != ' ' && *s.p != '\t') return false;   // must be a lone token
             if      (f == 'a') { if (!allow_a) return false; ack = true; }
             else if (f == 'e') { if (!allow_e) return false; enc = true; }
-            else if (f == 't') { if (!team) return false; *team = true; }   // §6.4: -t = TEAM plane (only the `send` verb passes a team ptr; send_channel/send_layer reject it)
+            else if (f == 't') { if (!team) return false; *team = true; }   // §6.4: -t = TEAM plane (send + §S7 send_channel; send_layer rejects it)
+            else if (f == 'g') { if (!global) return false; *global = true; }   // §S7 T-B: -g = explicit GLOBAL plane (send_channel only; `-t -g` => BOTH)
             else if (f == 'K') { if (!no_intro) return false; *no_intro = true; }   // §D1: -K = suppress the INTRO first-contact attach for this send (send/send_layer only; a no-op on a sealed send)
             else return false;                                   // unknown flag
         } else {
@@ -182,14 +184,15 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
         const bool is_layer   = tok_eq(verb, "send_layer");
         if (!is_send && !is_channel && !is_layer) return ParseErr::unknown_verb;
 
-        if (is_channel) {                                       // send_channel <ch> "<text>" — no ack/enc
+        if (is_channel) {                                       // §S7 send_channel <ch> "<text>" [-t] [-g] — no ack/enc; -t=TEAM, -g=explicit GLOBAL, `-t -g`=BOTH, plain=GLOBAL
             uint32_t ch = 0;
             if (!parse_u32_tok(token(s), 255u, ch)) return ParseErr::bad_args;
-            bool ack = false, enc = false; const uint8_t* body = nullptr; uint8_t blen = 0;
-            if (!parse_send_tail(s, /*allow_a=*/false, /*allow_e=*/false, ack, enc, body, blen)) return ParseErr::bad_args;
+            bool ack = false, enc = false, team = false, global = false; const uint8_t* body = nullptr; uint8_t blen = 0;
+            if (!parse_send_tail(s, /*allow_a=*/false, /*allow_e=*/false, ack, enc, body, blen, &team, /*no_intro=*/nullptr, &global)) return ParseErr::bad_args;
             out = Command{};
             out.kind = CmdKind::send_channel;
             out.u.channel.channel_id = static_cast<uint8_t>(ch);
+            out.u.channel.team = team; out.u.channel.global = global;
             out.body = body; out.body_len = blen; out.crypt = CryptIntent::def;
             return ParseErr::ok;
         }

@@ -314,6 +314,10 @@ public:
         e.has_pubkey = true;
         _active->_mobile_reg_n++;
     }
+    // §S7 T-B white-box: mark THIS node as a registered mobile (mobile-side) without driving the full DISCOVER/CLAIM (s22 covers that).
+    void              test_set_my_mobile_reg(uint8_t home_id, uint8_t local_id) {
+        _my_mobile_reg = { /*active=*/true, home_id, local_id, /*home_key_hash32=*/0u, _cfg.leaf_id, /*epoch=*/1, _hal.now() };
+    }
 #endif
     // A heard 1-hop gateway's stored window schedule (nullptr if none known) + the ms to defer an RTS to its window.
     // For the `routes` console dump: surface a gateway route's unique state (period / per-leaf windows / heard-age).
@@ -324,6 +328,7 @@ public:
         _active->_link_bidi[next_hop] = static_cast<uint8_t>(LinkBidi::one_way);
         resort_routes_for_neighbor_penalty(next_hop, "test_one_way", /*local_only=*/true);
     }
+    void    test_learn_route(uint8_t dest, uint8_t via, uint8_t hops, int16_t snr_q4, bool team_plane) { learn_route_via(dest, via, hops, snr_q4, team_plane); }  // §S7 test seam: install a 1-hop route into _rt (team_plane=false) or _rt_team (true) without beacon setup
     void    note_link_confirmed(uint8_t next_hop);   // local bidi confirm (real CTS / complete-heard-set hit): set confirmed + stamp + fan out
     void    decay_link_bidi(uint8_t next_hop);   // confirmed + stale past bidi_confirm_ttl_ms -> unknown (MF6: NEVER -> one_way)
     void    set_link_bidi_for_test(uint8_t next_hop, LinkBidi v) { _active->_link_bidi[next_hop] = static_cast<uint8_t>(v); }  // test seam: seed a bidi state directly
@@ -777,6 +782,9 @@ private:
     void    channel_buffer_add(const ChannelEntry& e);             // insert; evict if full (dv:3511)
     void    cancel_channel_pull(uint32_t id, uint8_t overheard_from, bool peer_q = false); // pull cancel: peer_q=true -> a peer's Q pulled it (dv:11831); else we received it (dv:11006)
     uint16_t do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t body_len);  // send_channel origination (dv:12126)
+#if MR_FEAT_MOBILE
+    bool    do_send_channel_delegated(uint8_t channel_id, const uint8_t* body, uint8_t body_len);  // §S7 T-B: a registered mobile delegates a GLOBAL/leaf channel post to its home (MOBILE_SEND wrapper, enclosed DATA_TYPE_CHANNEL_POST). false = no home (off-grid) -> caller fails loud.
+#endif
     // Phase 2: digest emit/ingest + the jittered pull (THE draw). SELECT/COMMIT split (B, 2026-06-23): build is side-effect-free
     // (fills `picked`); the per-ad ad_count++/retire is COMMITTED by emit_beacon ONLY when the beacon actually aired (tx_flood sent).
     size_t  build_channel_digest_ext(uint8_t* out, size_t cap, uint32_t* picked, uint8_t& npicked);  // SELECT: dirty ids -> BCN ext-TLV; NO side effects (dv:1426)
@@ -797,8 +805,8 @@ private:
     int     flood_state_find(uint32_t id);                        // active slot for id, or -1
     int     flood_state_alloc(uint32_t id);                       // free slot, or -1 (all active -> DROP to repair; never evict, §6)
     void    flood_state_free(uint8_t slot);                       // clear active + cancel its rebroadcast timer
-    void    flood_set_my_coverage(uint8_t* bm) const;            // set my bit + my hops==1 neighbour bits (originate-seed AND rebroadcast cover; idempotent)
-    bool    flood_any_unmarked(const uint8_t* bm) const;         // true if any hops==1 neighbour is unmarked in bm
+    void    flood_set_my_coverage(uint8_t* bm, bool team = false) const;   // §S7 T-A plane-keyed: team=false -> my static id + _rt hops==1 + HOSTED MOBILES (§S7 T-B: a home covers its registered mobiles); team=true -> my team_local_id + _rt_team hops==1. Idempotent (originate-seed AND rebroadcast cover). The bitmap indexes ONE id-space per flood (§18: team ids never mix with static ids).
+    bool    flood_any_unmarked(const uint8_t* bm, bool team = false) const; // §S7 T-A: any coverage target unmarked? team-plane consults _rt_team (+ its own team id-space); static consults _rt + hosted mobiles
     void    enqueue_flood_m(uint8_t channel_id, uint8_t flavor, uint32_t id, const uint8_t* body, uint8_t body_len,
                             const uint8_t* bitmap32, uint8_t hop_left);   // build+enqueue a FLOOD m-broadcast (no target)
     bool    handle_flood_rts(const rts_out& r, const uint8_t* in_bitmap, int16_t snr_q4);  // §4.2 RX of a FLOOD RTS-M; true = fresh state -> retune to catch DATA-M
@@ -1164,7 +1172,7 @@ private:
     };
     MyMobileReg _my_mobile_reg{};
     struct OfferCand { uint8_t responder_id; uint32_t responder_hash; uint8_t proposed_local_id; float snr_db;
-                       uint8_t leaf_id; uint8_t data_sf_bitmap; };   // §mobile: the HOST's layer (leaf + sf_list, from the OFFER) — adopted on registration
+                       uint8_t leaf_id; uint8_t data_sf_bitmap; };   // §mobile: the HOST's leaf (from the OFFER) — adopted on registration. data_sf_bitmap is ADVISORY (F-SF-1): the mobile keeps its OWN configured sf_list; this byte only feeds the `mobile_sf_list_mismatch` diagnostic
     OfferCand _mobile_offers[protocol::cap_mobile_offers] = {};   // OFFERs collected during a DISCOVER window
     uint8_t   _mobile_offers_n = 0;
     uint32_t  _mobile_backoff_ms = 0;                             // exp-backoff when no host answers (0 = first try)

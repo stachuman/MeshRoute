@@ -308,6 +308,7 @@ struct DualLayerTestAccess {
     static uint8_t  my_mobile_home_leaf(Node& n)  { return n._my_mobile_reg.home_leaf_id; }   // §mobile 5a: the host's LAYER
     static uint8_t  cfg_leaf_id(Node& n)          { return n._cfg.leaf_id; }                  // §mobile 5a: the adopted operating leaf
     static uint16_t cfg_allowed_sf(Node& n)       { return n._cfg.allowed_sf_bitmap; }        // §mobile: the adopted sf_list
+    static uint8_t  sel_data_sf(Node& n, uint8_t rts_sf_index, int16_t rx_snr_q4) { return n.select_data_sf(rts_sf_index, rx_snr_q4); }  // F-SF-1: per-exchange DATA-SF pick from the adopted set
     static void     store_mobile_home_on_leaf(Node& n, uint8_t leaf, uint32_t hash, uint8_t home, uint8_t layer) {  // §5b: cache M->home on a SPECIFIC leaf (the bridge target)
         auto& L = n._layers[leaf]; L._mobile_home_cache[L._mobile_home_cache_n++] = { hash, n._hal.now(), home, 0, layer };
     }
@@ -3823,6 +3824,9 @@ TEST_CASE("§mobile 5a — scan cycles [own PHY] ∪ LEARNED directory; adopt th
     CHECK(mob.mobile_home_id() == 45);
     CHECK(DualLayerTestAccess::my_mobile_home_leaf(mob) == 5);   // ★ home_leaf_id == the LEARNED layer 5, NOT the start layer 3 (E1 fix)
     CHECK(DualLayerTestAccess::cfg_leaf_id(mob) == (5 & 0x0F));  // ★ adopted the host's operating layer (adopt_mobile_phy)
+    // F-SF-1: a CROSS-LAYER adopt KEEPS the mobile's OWN configured sf_list (SF8) — NOT the learned control SF (SF9,
+    // what scan_phy(idx>0) synthesizes) and NOT the offered byte (1<<1). Regression guard for the pin at the adopt site.
+    CHECK(DualLayerTestAccess::cfg_allowed_sf(mob) == static_cast<uint16_t>(1u<<8));
 }
 
 TEST_CASE("§mobile 5b — the mobile_home cache stores the home's LAYER (from MOBILE_H_ANSWER.target_layer)") {
@@ -3934,23 +3938,50 @@ TEST_CASE("§mobile console — mobile_autoregister gates the boot-arm; OFF -> o
     }
 }
 
-TEST_CASE("§mobile offer-adopt — a mobile adopts the HOST's leaf + sf_list from the OFFER (not its own)") {
+// F-SF-1 (2026-07-19): a mobile KEEPS its OWN configured sf_list across registration (sf_list is node config; the
+// per-exchange RTS carries only an INDEX into the agreed set). The old adopt OVERWROTE it with the OFFER's 1-byte
+// data_sf_bitmap, whose `& 0xFF` pack TRUNCATED any SF>=8 -> a mobile configured {SF7,SF9} was demoted to {SF7} and
+// its select_data_sf could never pick SF9 (the s28 mixed SF7/SF9 chain mismatch). Now: keep configured, OFFER byte
+// advisory. The mobile still adopts the host's LEAF (that is genuinely the host's, not the mobile's config).
+TEST_CASE("§mobile offer-adopt F-SF-1 — a mobile adopts the HOST's leaf but KEEPS its OWN configured sf_list {SF7,SF9}") {
     StubHal hal; Node mob(hal, 0, 0x7777u);
-    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true;  // SEED: leaf 0, sf_list SF7-only
-    cfg.layers[0].layer_id=0; cfg.layers[0].routing_sf=8; cfg.layers[0].allowed_sf_bitmap=static_cast<uint16_t>(1u<<7);
+    const uint16_t my_set = static_cast<uint16_t>((1u<<7)|(1u<<9));   // configured {SF7,SF9} — spans both bytes of the internal bitmap
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=my_set; cfg.leaf_id=0; cfg.is_mobile=true;
+    cfg.layers[0].layer_id=0; cfg.layers[0].routing_sf=8; cfg.layers[0].allowed_sf_bitmap=my_set;
     CHECK(mob.on_init(cfg));
     RxMeta meta{9.0f,-70.0f,0,static_cast<int8_t>(-1)};
     hal._now=1000; mob.on_timer(74);                          // DISCOVER (resets offers, arms the guard)
     j_offer_in off{}; off.leaf_id=4; off.is_mobile=true; off.responder_node_id=222; off.responder_key_hash32=0xDDDDu;
-    off.data_sf_bitmap=static_cast<uint8_t>((1u<<6)|(1u<<7)); off.proposed_mobile_id=17;   // host on leaf 4, sf_list {SF6|SF7}
+    off.data_sf_bitmap=static_cast<uint8_t>(my_set & 0xFF); off.proposed_mobile_id=17;   // host advertises the SAME set (low byte 0x80) -> no mismatch
     off.target_key_hash32 = mob.key_hash32(); uint8_t ob[13]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, meta);
     mob.on_timer(75);                                          // guard -> adopt
     CHECK(mob.mobile_home_id() == 222);
     CHECK(DualLayerTestAccess::cfg_leaf_id(mob) == 4);        // ★ adopted the HOST's leaf 4 (was 0)
     CHECK(DualLayerTestAccess::my_mobile_home_leaf(mob) == 4);// ★ home_leaf_id = the host's leaf
-    const uint16_t sf = DualLayerTestAccess::cfg_allowed_sf(mob);
-    CHECK((sf & (1u<<6)) != 0);                               // ★ SF6 adopted (from the host's list — else last-mile SF6 DATA is missed)
-    CHECK((sf & (1u<<7)) != 0);                               // ★ SF7 present
+    CHECK(DualLayerTestAccess::cfg_allowed_sf(mob) == my_set);// ★ KEPT the whole configured {SF7,SF9} — SF9 (high byte) not truncated (was {SF7} under the old overwrite)
+    CHECK_FALSE(hal.saw_emit("mobile_sf_list_mismatch"));    // configured low byte == offered -> no diagnostic
+    // per-exchange select enumerates the kept set low-SF-first (SF7=idx0, SF9=idx1) — SF9 is now reachable.
+    const int16_t strong = 320;                               // ~20 dB q4 -> any SF link-supported
+    CHECK(DualLayerTestAccess::sel_data_sf(mob, /*idx*/0, strong) == 7);   // idx0 pins SF7
+    CHECK(DualLayerTestAccess::sel_data_sf(mob, /*idx*/1, strong) == 9);   // ★ idx1 pins SF9 — impossible when the set was truncated to {SF7}
+}
+
+// F-SF-1: the OFFER byte is advisory — a configured != offered low-byte mismatch emits a misconfig diagnostic, but
+// the mobile still keeps its OWN list (never adopts the offered one).
+TEST_CASE("§mobile offer-adopt F-SF-1 — a configured != offered-low-byte mismatch emits telemetry but the mobile keeps its own list") {
+    StubHal hal; Node mob(hal, 0, 0x7788u);
+    const uint16_t my_set = static_cast<uint16_t>((1u<<7)|(1u<<9));   // configured {SF7,SF9} (low byte 0x80)
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=my_set; cfg.leaf_id=0; cfg.is_mobile=true;
+    cfg.layers[0].layer_id=0; cfg.layers[0].routing_sf=8; cfg.layers[0].allowed_sf_bitmap=my_set;
+    CHECK(mob.on_init(cfg));
+    RxMeta meta{9.0f,-70.0f,0,static_cast<int8_t>(-1)};
+    hal._now=1000; mob.on_timer(74);
+    j_offer_in off{}; off.leaf_id=4; off.is_mobile=true; off.responder_node_id=222; off.responder_key_hash32=0xDDDDu;
+    off.data_sf_bitmap=static_cast<uint8_t>(((1u<<6)|(1u<<7)) & 0xFF); off.proposed_mobile_id=17;   // host advertises {SF6,SF7} (low byte 0xC0) != our 0x80
+    off.target_key_hash32 = mob.key_hash32(); uint8_t ob[13]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, meta);
+    mob.on_timer(75);                                          // guard -> adopt
+    CHECK(hal.saw_emit("mobile_sf_list_mismatch"));          // ★ the operator-misconfig diagnostic fired
+    CHECK(DualLayerTestAccess::cfg_allowed_sf(mob) == my_set);// ★ still our OWN list — the offered {SF6,SF7} was NOT adopted
 }
 
 TEST_CASE("§mobile offer-adopt — single-PHY adopt sets the config but does NOT retune the radio (no blind window)") {
@@ -3961,7 +3992,7 @@ TEST_CASE("§mobile offer-adopt — single-PHY adopt sets the config but does NO
     RxMeta meta{9.0f,-70.0f,0,static_cast<int8_t>(-1)};
     hal._now=1000; mob.on_timer(74);
     j_offer_in off{}; off.leaf_id=4; off.is_mobile=true; off.responder_node_id=222; off.responder_key_hash32=0xDDDDu;
-    off.data_sf_bitmap=static_cast<uint8_t>((1u<<6)|(1u<<7)); off.proposed_mobile_id=17;
+    off.data_sf_bitmap=static_cast<uint8_t>((1u<<7) & 0xFF); off.proposed_mobile_id=17;   // host advertises SF7 (matches our config -> no mismatch noise)
     off.target_key_hash32 = mob.key_hash32(); uint8_t ob[13]; size_t on = pack_j_offer(off, ob); mob.on_recv(ob, on, meta);
     hal.last_set_rx_freq = 999.0;                             // sentinel — a retune would overwrite it
     mob.on_timer(75);                                          // adopt (single-PHY -> retune_radio=false)

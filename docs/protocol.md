@@ -70,6 +70,11 @@ own RF frequency (provisioning-only).
 Leaf-scoped broadcast groups: a message rides a managed **flood** (FLOOD RTS-M + coverage bitmap, 1-hop-suppressed
 re-flood) on the data SF; a BCN channel-digest + `Q:CHANNEL_PULL` are the repair backstop for misses. **Principle 11:**
 a dual-layer gateway is entirely out of the channel plane (never originates, pulls, or bridges channel traffic).
+**Plane-keyed coverage (§S7):** the SAME flood coverage/re-flood/backoff code serves both planes — a team-scoped
+flood's coverage consults the TEAM peer set, a static flood the static rt (+ the home's hosted mobiles, so
+registered mobiles RECEIVE leaf channels, receiver-only — they never re-flood; off-grid mobiles receive none).
+`send_channel`: `-t` = team · plain/`-g` = GLOBAL (a registered mobile delegates to its home, which mints) ·
+`-t -g` = both. ⚠ a team mobile's plain send flipped team→global (D17, DM symmetry).
 - **Source:** `node_channel.cpp` (`process_channel_digest`, `channel_origin_admit`, `flood_forward_decision`)
 - **Spec:** `docs/superpowers/specs/2026-06-08-channel-flood-redesign.md` · `2026-06-09-lean-channel-m-frame-design.md`
 

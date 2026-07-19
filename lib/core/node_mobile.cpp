@@ -95,7 +95,17 @@ void Node::mobile_claim_guard_fire() {
     const uint8_t old_home = _my_mobile_reg.home_id;             // §mobile 4b: capture BEFORE the overwrite (0 = first registration -> no old home)
     LayerConfig phy = scan_phy(_mobile_scan_idx);               // BY VALUE (mutated below) — freq/bw/routing_sf from the scanned PHY (already tuned here)
     phy.layer_id          = o.leaf_id;                          // §mobile: adopt the HOST's leaf (from the OFFER), NOT our own (scan_phy(0) = self)
-    phy.allowed_sf_bitmap = o.data_sf_bitmap;                   // §mobile: adopt the HOST's sf_list (so last-mile DATA-SF negotiation works)
+    // F-SF-1 (2026-07-19): the mobile KEEPS its OWN configured sf_list (like a static — sf_list is node/leaf config, and
+    // the per-exchange RTS carries only an INDEX into the agreed set). We no longer adopt the OFFER's data_sf_bitmap
+    // (its `& 0xFF` pack truncated SF>=8 -> a wrong allowed-set). We PIN _cfg.allowed_sf_bitmap explicitly rather than
+    // just trusting scan_phy: scan_phy(0) carries our configured set, but a CROSS-LAYER scan (idx>0) synthesizes a
+    // LayerConfig whose allowed_sf_bitmap is only the LEARNED control SF (a single SF) — leaving it would replace our
+    // configured set on a re-home. The OFFER byte is now advisory: a misconfig diagnostic if our configured low byte
+    // disagrees with the host's offered list (an operator packed mismatched sf_lists on the leaf vs the mobile).
+    phy.allowed_sf_bitmap = _cfg.allowed_sf_bitmap;             // keep our OWN configured sf_list (never adopt the host's)
+    if (static_cast<uint8_t>(_cfg.allowed_sf_bitmap & 0xFF) != o.data_sf_bitmap)
+        MR_EMIT("mobile_sf_list_mismatch", EF_I("configured", static_cast<int64_t>(_cfg.allowed_sf_bitmap & 0xFF)),
+                EF_I("offered", static_cast<int64_t>(o.data_sf_bitmap)));
     set_identity(o.proposed_local_id, _key_hash32);               // _node_id := the host-assigned local-id (like join_adopt)
     _joined = true;
     _my_mobile_reg = { true, o.responder_id, o.proposed_local_id, o.responder_hash,

@@ -452,6 +452,32 @@ zero-blackhole guard. When green: add to `BASELINE.md` (md5-anchored) + the gate
   `rreq_forward_jitter_*` constants. Deliberately NOT folded into F-XL-1 (one cohesive increment; the risky
   axis isolated).
 
+## S7 — team-channel completion (user-ratified 2026-07-19, from the s28 findings)
+
+**T-A — multi-hop team channel flood (8 s28 reds).** Root cause (code-verified): `flood_forward_decision`
+keys re-broadcast on the STATIC hops==1 coverage bitmap (`flood_any_unmarked` over `_rt`) — team members
+have empty static rt ⇒ silent after ingest ⇒ 1-hop-only team channels. **Fix rule (user): the SAME
+coverage/re-flood code, PLANE-KEYED — a team-scoped flood's coverage/bitmap/backoff consult the TEAM peers
+(`_rt_team`/team-key set), a static flood the static rt. NO table mixing, NO parallel implementation** (the
+§18 separation discipline applied to flood coverage; the SNR-x² backoff + suppression logic is shared).
+
+**T-B — channel plane membership + send-side selection (user-ratified):**
+1. **Receive:** a HOMED (registered) mobile MUST receive leaf/static channel messages — it is a leaf
+   citizen — but NEVER re-floods them (receiver-only; battery + the never-relay-on-static rule). An
+   OFF-GRID mobile does NOT receive leaf channels (not a member; s28's XO4 assert flips to not-receive).
+   Pin the actual blocking gate (upstream of ingest — likely the flood-catch path) at implementation.
+2. **Send — DM-symmetric plane selection on `send_channel` (D17):** **`-t` ⇒ TEAM** (today's auto-team
+   behavior becomes explicit; `send_channel` stops REJECTING `-t`) · **plain ⇒ GLOBAL/static** — a
+   registered mobile DELEGATES the post to its home (a new enclosed-channel wrapper semantic on
+   MOBILE_SEND; the home mints under its OWN origin/ctr — the plane-leak-safe path; anti-spam bills the
+   HOME, deliberate: hosting implies consenting to the mobile's channel share; an UNREGISTERED/off-grid
+   mobile's plain send fails loud `no_home`) · **`-t -g` (or one combined flag — coder picks, document)
+   ⇒ BOTH planes** (one team-scoped origination + one delegated global). ⚠ BREAKING: a team mobile's
+   plain `send_channel` flips team→global (DM symmetry; contract updated by QA).
+3. Gate: s28 flips toward 33/33 under the NEW asserts (T-A's 8 + homed-receive + off-grid-NOT-receive +
+   the send-side additions); s18 EXACT (all mobile/team-gated); s21–s27 at their anchors unless forensics
+   justify; the delegated-channel wrapper must keep plain-DM delegation byte-identical.
+
 ## 4. Airtime accounting (the aim, made checkable)
 
 | Event | Cost today | Cost after |

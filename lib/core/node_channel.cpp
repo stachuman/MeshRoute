@@ -347,14 +347,37 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
     // RE-OFFER (Part 2) + the repair-pull cover the asymmetric case the Lua handles via heavier flooding. Re-offer
     // confirmation is the dedicated "overheard a relay" flag (channel_reoffer_confirm) — INDEPENDENT of this seed.
     if (max_data_sf() != 0) {
+        const bool team = (e.flavor & protocol::channel_flavor_team) != 0;   // §S7 T-A: a team post seeds coverage on the TEAM peer set (team ids), not the static rt
         uint8_t bm[32] = {};
-        flood_set_my_coverage(bm);                           // {self + hops==1 neighbours} — the frugal seed (KEPT; the honest seed regressed)
+        flood_set_my_coverage(bm, team);                     // {self + hops==1 neighbours} on the flood's plane — the frugal seed (KEPT; the honest seed regressed)
         enqueue_flood_m(e.channel_id, e.flavor, e.id, e.payload, static_cast<uint8_t>(e.payload_len), bm, protocol::flood_hop_max);
         channel_reoffer_register(e.id);                      // Part 2: own this message's propagation until a RELAY of it is overheard
     }
     schedule_triggered_beacon();                              // §4.1.7: make the repair digest prompt, not 15-min
     return c;
 }
+
+#if MR_FEAT_MOBILE
+// §S7 T-B: a registered mobile delegates a GLOBAL/leaf channel post to its HOME. A mobile can't originate a leaf
+// flood on the static plane (empty _rt -> nothing to seed/cover), so it wraps [DATA_TYPE_CHANNEL_POST][channel_id][text]
+// under a PLAINTEXT MOBILE_SEND (SOURCE_HASH=mobile via stamp_origin so the home verifies ours; DST_HASH=our own hash =
+// a placeholder that satisfies the home's has_dst_hash unwrap gate, never used for the channel path;
+// DATA_FLAG_MS_ENCLOSED_TYPE). The home strips it + re-originates via do_send_channel under ITS OWN origin/ctr —
+// anti-spam bills the home (deliberate: hosting implies consenting to the mobile's channel share; the home's self-GATE
+// applies). Returns false when there is no home (off-grid) -> the caller fails loud (no silent drop).
+bool Node::do_send_channel_delegated(uint8_t channel_id, const uint8_t* body, uint8_t body_len) {
+    if (!(_cfg.is_mobile && _my_mobile_reg.active)) return false;   // off-grid: no home to delegate to
+    uint8_t wbody[protocol::max_payload_bytes_hard_cap];
+    wbody[0] = DATA_TYPE_CHANNEL_POST; wbody[1] = channel_id;
+    uint8_t n = (body_len > protocol::channel_msg_max_payload_bytes) ? protocol::channel_msg_max_payload_bytes : body_len;
+    if (static_cast<size_t>(2 + n) > sizeof wbody) n = static_cast<uint8_t>(sizeof wbody - 2);
+    for (uint8_t i = 0; i < n; ++i) wbody[2 + i] = body[i];
+    (void)do_send(_my_mobile_reg.home_id, wbody, static_cast<uint8_t>(2 + n),
+                  DATA_FLAG_MS_ENCLOSED_TYPE, CryptIntent::off,
+                  /*override_dst_hash=*/_key_hash32, /*type=*/DATA_TYPE_MOBILE_SEND);
+    return true;
+}
+#endif
 
 // Slice 6a: the pre-TX self-gate feedback push. do_send_channel (the channel self-GATE) and become_free (the DM
 // own-origin throttle) call this when THIS node's cap / min-interval blocks an origination, so the companion holds
@@ -678,8 +701,9 @@ void Node::channel_reoffer_fire(uint8_t slot) {
     // RE-FLOOD the cached body with the SAME frugal seed as origination (flood_set_my_coverage — NOT empty, which the
     // fail-loud zero-bitmap guard in tx_m_broadcast_rts would refuse). Receivers dedup by originator_retry_dedup_ms
     // (no double-inbox) but DO re-broadcast for coverage; LBT is applied by the TX path (enqueue_flood_m -> become_free).
+    const bool team = (e.flavor & protocol::channel_flavor_team) != 0;   // §S7 T-A: re-offer coverage keyed on the entry's plane
     uint8_t bm[32] = {};
-    flood_set_my_coverage(bm);
+    flood_set_my_coverage(bm, team);
     enqueue_flood_m(e.channel_id, e.flavor, e.id, e.payload, static_cast<uint8_t>(e.payload_len), bm, protocol::flood_hop_max);
     --rp.retries_left;
     MR_EMIT("channel_reoffer_tx", EF_I("id", static_cast<int64_t>(e.id)), EF_I("retries_left", rp.retries_left));
@@ -698,15 +722,44 @@ void Node::channel_reoffer_confirm(uint32_t id) {
     }
 }
 
-// set my bit + my hops==1 neighbour bits (idempotent: originate-seed on a zeroed bm, OR-in on rebroadcast).
-void Node::flood_set_my_coverage(uint8_t* bm) const {
+// §S7 T-A — set my bit + my hops==1 neighbour bits, PLANE-KEYED (idempotent: originate-seed on a zeroed bm,
+// OR-in on rebroadcast). team=false consults the STATIC plane (_node_id + _rt hops==1 + §S7 T-B the HOSTED
+// MOBILES — a home covers its registered leaf mobiles); team=true consults the TEAM plane (_team_local_id +
+// _rt_team hops==1). The bitmap indexes ONE id-space per flood instance (§18: a team local-id can numerically
+// collide a static id — never mix them). s18-inert: no team (team=false path only) + no hosted mobiles.
+void Node::flood_set_my_coverage(uint8_t* bm, bool team) const {
+#if MR_FEAT_TEAM
+    if (team) {
+        seen_set(bm, team_local_id());
+        for (uint8_t i = 0; i < _active->_rt_team_count; ++i)
+            if (_active->_rt_team[i].n > 0 && _active->_rt_team[i].candidates[0].hops == 1) seen_set(bm, _active->_rt_team[i].dest);
+        return;
+    }
+#else
+    (void)team;
+#endif
     seen_set(bm, _node_id);
     for (uint8_t i = 0; i < _active->_rt_count; ++i)
         if (_active->_rt[i].n > 0 && _active->_rt[i].candidates[0].hops == 1) seen_set(bm, _active->_rt[i].dest);
+#if MR_FEAT_MOBILE
+    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i) seen_set(bm, _active->_mobile_reg[i].mobile_local_id);   // §S7 T-B: a home covers its hosted mobiles so a leaf flood re-broadcasts to reach them
+#endif
 }
-bool Node::flood_any_unmarked(const uint8_t* bm) const {
+bool Node::flood_any_unmarked(const uint8_t* bm, bool team) const {
+#if MR_FEAT_TEAM
+    if (team) {
+        for (uint8_t i = 0; i < _active->_rt_team_count; ++i)
+            if (_active->_rt_team[i].n > 0 && _active->_rt_team[i].candidates[0].hops == 1 && !seen_test(bm, _active->_rt_team[i].dest)) return true;
+        return false;
+    }
+#else
+    (void)team;
+#endif
     for (uint8_t i = 0; i < _active->_rt_count; ++i)
         if (_active->_rt[i].n > 0 && _active->_rt[i].candidates[0].hops == 1 && !seen_test(bm, _active->_rt[i].dest)) return true;
+#if MR_FEAT_MOBILE
+    for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i) if (!seen_test(bm, _active->_mobile_reg[i].mobile_local_id)) return true;   // §S7 T-B: an un-covered hosted mobile -> the home re-floods to reach it
+#endif
     return false;
 }
 
@@ -741,8 +794,9 @@ bool Node::handle_flood_rts(const rts_out& r, const uint8_t* in_bm, int16_t snr_
     if (existing >= 0) {                                          // active state -> overheard duplicate: OR coverage
         FloodState& fs = _active->_flood[existing];
         for (uint8_t i = 0; i < 32; ++i) fs.bitmap[i] |= in_bm[i];
-        // §4.5 while-pending: a backoff-phase state now fully covered -> cancel the rebroadcast + free.
-        if (!fs.awaiting_data && !flood_any_unmarked(fs.bitmap)) flood_state_free(static_cast<uint8_t>(existing));
+        // §4.5 while-pending: a backoff-phase state now fully covered -> cancel the rebroadcast + free. §S7 T-A: the
+        // coverage test is plane-keyed (fs.team_flood = the RTS-M's mobile_src = a TEAM flood -> consult _rt_team).
+        if (!fs.awaiting_data && !flood_any_unmarked(fs.bitmap, fs.team_flood)) flood_state_free(static_cast<uint8_t>(existing));
         // FLOOD-DBG disabled 2026-06-23 (re-enable for bench diag): if (_hal.trace_on()) { char b[40]; snprintf(b, sizeof b, "flood %08lX dup-merge", (unsigned long)id); _hal.log(b); }   // D (DEBUG)
         return false;                                            // no new flood, no retune
     }
@@ -772,7 +826,13 @@ void Node::flood_forward_decision(uint8_t slot) {
     if (slot >= protocol::cap_flood_pending || !_active->_flood[slot].active) return;
     if (_cfg.is_gateway || _cfg.n_layers == 2) { flood_state_free(slot); return; }     // §7 provider half OFF / Principle 11: a (single- or dual-layer) gateway never rebroadcasts
     FloodState& fs = _active->_flood[slot];
-    if (!flood_any_unmarked(fs.bitmap)) {                                     // every neighbour covered -> stay silent
+    const bool team = (fs.flavor & protocol::channel_flavor_team) != 0;      // §S7 T-A: the DATA-M's flavor (set at ingest) is the authoritative team-scope
+#if MR_FEAT_MOBILE
+    // §S7 T-B: a registered mobile INGESTS a leaf/static flood (record+push, done at ingest) but NEVER re-floods it
+    // (receiver-only; the never-relay-on-static rule + battery). A team flood (team=true) still re-floods on the team plane.
+    if (_cfg.is_mobile && !team) { flood_state_free(slot); return; }
+#endif
+    if (!flood_any_unmarked(fs.bitmap, team)) {                              // every neighbour covered -> stay silent
         // FLOOD-DBG disabled 2026-06-23 (re-enable for bench diag): if (_hal.trace_on()) flood_log_coverage("SILENT", fs.id, fs.bitmap); // A (DEBUG): THE one — why this node went quiet + each hops==1 neighbour's covered state
         flood_state_free(slot); return;
     }
@@ -798,8 +858,9 @@ void Node::flood_forward_decision(uint8_t slot) {
 void Node::flood_rebroadcast_fire(uint8_t slot) {
     if (slot >= protocol::cap_flood_pending || !_active->_flood[slot].active) return;
     const FloodState fs = _active->_flood[slot];                          // copy: we free the slot before re-enqueue
+    const bool team = (fs.flavor & protocol::channel_flavor_team) != 0;   // §S7 T-A: re-flood coverage keyed on the flood's plane
     uint8_t bm[32]; for (uint8_t i = 0; i < 32; ++i) bm[i] = fs.bitmap[i];
-    flood_set_my_coverage(bm);                                   // §4.5 on-fire: {my unmarked neighbours + me}
+    flood_set_my_coverage(bm, team);                             // §4.5 on-fire: {my unmarked neighbours + me} on the flood's plane
     flood_state_free(slot);
     if (fs.hop_left <= 1) {                                      // TTL drop
         // FLOOD-DBG disabled 2026-06-23 (re-enable for bench diag): if (_hal.trace_on()) { char b[44]; snprintf(b, sizeof b, "flood %08lX hop-exhausted", (unsigned long)fs.id); _hal.log(b); }   // E (DEBUG)

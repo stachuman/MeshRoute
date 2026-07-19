@@ -353,7 +353,7 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         if (local == 0) return;                                       // pool full -> stay silent (the mobile picks another host)
         j_offer_in off{}; off.leaf_id = _cfg.leaf_id; off.gateway_capable = false; off.is_mobile = true;
         off.responder_node_id = _node_id; off.responder_key_hash32 = _key_hash32;
-        off.data_sf_bitmap = static_cast<uint8_t>(_cfg.allowed_sf_bitmap & 0xFF);   // low byte (Slice 2b defines how the mobile consumes it)
+        off.data_sf_bitmap = static_cast<uint8_t>(_cfg.allowed_sf_bitmap & 0xFF);   // F-SF-1 (2026-07-19): ADVISORY only — the mobile keeps its OWN configured sf_list, so this low byte is never consumed; it rides purely as a misconfig diagnostic (its SF>=8 truncation is therefore harmless)
         off.proposed_mobile_id = local;
         off.target_key_hash32  = j.key_hash32;                        // §S6: ADDRESS the OFFER at the discovering mobile (only its hash adopts it — a broadcast OFFER heard by another mobile is now ignored, killing the "wrong mobile adopts a foreign id" leg of the concurrent-register race)
         // §S6.4-D: if this DISCOVER carries a last_home (a re-home), stash it so a subsequent CLAIM (adopt) makes THIS

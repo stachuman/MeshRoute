@@ -82,8 +82,9 @@ static m_out mk_m(uint32_t id, uint8_t channel_id, uint8_t flavor, const uint8_t
     m.body = std::span<const uint8_t>(body, len); return m;
 }
 
-static CmdResult send_channel(Node& n, uint8_t ch, const char* text) {
+static CmdResult send_channel(Node& n, uint8_t ch, const char* text, bool team = false, bool global = false) {
     Command c{}; c.kind = CmdKind::send_channel; c.u.channel.channel_id = ch;
+    c.u.channel.team = team; c.u.channel.global = global;   // §S7 T-B: plane select (plain => GLOBAL/leaf; -t => TEAM; -t -g => BOTH)
     c.body = reinterpret_cast<const uint8_t*>(text); c.body_len = static_cast<uint8_t>(std::strlen(text));
     return n.on_command(c);
 }
@@ -269,7 +270,7 @@ TEST_CASE("§mobile 6.3 — ingest team gate: same-team ingests; static + other-
 TEST_CASE("§mobile 6.3 — a team member's channel post emits a mobile_src RTS-M + a team_id M-frame; a static post does neither") {
     // team member: the FLOOD RTS-M carries mobile_src, the M-frame carries team_id
     { TestHal hal; Node n(hal, 3, 0x1234ABCDu); NodeConfig c = basic_cfg(); c.is_mobile = true; c.team_id = 0xABCD1234u; n.on_init(c);
-      const CmdResult r = send_channel(n, 7, "team-hi"); CHECK(r.code == CmdCode::queued);
+      const CmdResult r = send_channel(n, 7, "team-hi", /*team=*/true); CHECK(r.code == CmdCode::queued);   // §S7 T-B: a TEAM post is explicit `-t`
       const std::vector<uint8_t>* rts = hal.last_tx_cmd(0x1);   // the FLOOD RTS-M
       CHECK(rts != nullptr);
       if (rts) { auto pr = parse_rts(std::span<const uint8_t>(rts->data(), rts->size())); CHECK(pr.has_value()); if (pr) CHECK(pr->mobile_src); }
@@ -315,7 +316,9 @@ TEST_CASE("§mobile 6.3 — the overhear-retune window sizes for the +4-B team M
     // (+4-B team_id tail on the M-frame); mobile_src=false is a plain leaf frame (7-B). Same body/SF -> the team
     // window MUST be larger (it accounts for the extra 4 header bytes), else the team M-frame drops at data SF>=10.
     auto arm_delay = [&](bool mobile_src) -> uint32_t {
-        TestHal hal; Node n(hal, 2, 0xBEEFu); NodeConfig c = basic_cfg(); c.is_mobile = true; c.team_id = 0xABCD1234u; n.on_init(c);
+        TestHal hal; Node n(hal, 2, 0xBEEFu); NodeConfig c = basic_cfg();
+        if (mobile_src) { c.is_mobile = true; c.team_id = 0xABCD1234u; }   // §S7 T-B: a TEAM flood -> a team member participates; a plain LEAF flood -> a STATIC participates (an off-grid mobile no longer catches leaf floods)
+        n.on_init(c);
         std::array<uint8_t,64> b{}; rts_in in{}; in.leaf_id=0; in.src=9; in.next=0xFF; in.ctr_lo=static_cast<uint8_t>(id & 0x0F);
         in.dst=3; in.sf_index=0; in.rts_flags=static_cast<uint8_t>(RTS_FLAG_M_BROADCAST | RTS_FLAG_FLOOD);
         in.payload_len=20; in.flood_channel_msg_id=id; in.flood_bitmap=std::span<const uint8_t>(bm,32); in.mobile_src=mobile_src;
@@ -1231,4 +1234,115 @@ TEST_CASE("Slice 6: emit_send_blocked + emit_channel_sent{relayed:false} reachab
     while (node.next_push(p))
         if (p.kind == PushKind::channel_sent && !p.relayed) saw_no_relay = true;
     CHECK(saw_no_relay);
+}
+
+// ============================ §S7 — plane-keyed flood (T-A) + channel plane membership (T-B) =================
+// T-A: a team-scoped flood consults the TEAM peer set (_rt_team) for coverage; a static flood consults _rt.
+// The SAME functions (flood_set_my_coverage / flood_any_unmarked), plane-keyed — no table mixing.
+static size_t mk_team_flood_rts(uint8_t src, uint32_t id, const uint8_t* bm32, uint8_t hop_left, std::array<uint8_t,64>& b) {
+    rts_in in{}; in.leaf_id = 0; in.src = src; in.next = 0xFF; in.ctr_lo = static_cast<uint8_t>(id & 0x0F);
+    in.dst = hop_left; in.sf_index = 0; in.rts_flags = static_cast<uint8_t>(RTS_FLAG_M_BROADCAST | RTS_FLAG_FLOOD);
+    in.payload_len = 8; in.flood_channel_msg_id = id; in.flood_bitmap = std::span<const uint8_t>(bm32, 32); in.mobile_src = true;   // §S7: mobile_src => TEAM flood
+    return pack_rts(in, std::span<uint8_t>(b.data(), b.size()));
+}
+
+TEST_CASE("§S7 T-A — a team member re-floods a TEAM flood to an UNMARKED team peer; SILENT when covered (coverage keyed on _rt_team)") {
+    const uint32_t T = 0xABCD1234u;
+    const uint32_t id = Node::channel_msg_id_mint(9, 0x1u, 1);
+    auto run = [&](bool cover_peer) -> int {
+        TestHal hal; Node n(hal, /*id=*/50, 0xBEEFu);
+        NodeConfig c = basic_cfg(); c.is_mobile = true; c.team_id = T; n.on_init(c);
+        n.set_team_local_id(50);
+        n.test_learn_route(60, 60, 1, protocol::db_to_q4(9.0f), /*team_plane=*/true);   // team peer 60, 1 hop
+        uint8_t bm[32] = {}; bm_set(bm, 50); if (cover_peer) bm_set(bm, 60);
+        std::array<uint8_t,64> b{}; size_t bn = mk_team_flood_rts(9, id, bm, 5, b);
+        n.on_recv(b.data(), bn, meta_at(1000));                 // team member participates -> flood-state (awaiting_data)
+        const uint8_t body[] = { 't','m' };
+        m_out m = mk_m(id, /*ch=*/5, static_cast<uint8_t>(protocol::channel_flavor_public | protocol::channel_flavor_team), body, 2);
+        m.team_id = T;
+        n.ingest_channel_m(m, /*from=*/9);                       // DATA-M -> flood_forward_decision (team plane)
+        return hal.count("flood_rebroadcast_scheduled");
+    };
+    CHECK(run(/*cover_peer=*/false) == 1);   // team peer 60 UNMARKED -> re-flood on the team plane
+    CHECK(run(/*cover_peer=*/true)  == 0);   // team peer 60 COVERED -> silent
+}
+
+TEST_CASE("§S7 T-A — a STATIC flood keys coverage on _rt (NOT _rt_team); the two bitmaps never mix") {
+    const uint32_t id = Node::channel_msg_id_mint(9, 0x1u, 1);
+    auto run = [&](bool cover_static_nbr) -> int {
+        TestHal hal; Node n(hal, /*id=*/50, 0xBEEFu);
+        NodeConfig c = basic_cfg(); n.on_init(c);               // STATIC node
+        n.test_learn_route(70, 70, 1, protocol::db_to_q4(9.0f), /*team_plane=*/false);   // static neighbour 70
+        uint8_t bm[32] = {}; bm_set(bm, 50); bm_set(bm, 9); if (cover_static_nbr) bm_set(bm, 70);   // cover me + the src (a static learns the flood src as a neighbour, line node_mac_rx.cpp:62)
+        std::array<uint8_t,64> b{}; size_t bn = mk_flood_rts(0, 9, id, bm, 5, 0, b);    // mobile_src=false (static/leaf)
+        n.on_recv(b.data(), bn, meta_at(1000));
+        const uint8_t body[] = { 'x' };
+        n.ingest_channel_m(mk_m(id, 5, /*flavor=*/0, body, 1), 9);
+        return hal.count("flood_rebroadcast_scheduled");
+    };
+    CHECK(run(/*cover_static_nbr=*/false) == 1);   // static neighbour 70 UNMARKED -> re-flood (static plane, unchanged)
+    CHECK(run(/*cover_static_nbr=*/true)  == 0);   // covered -> silent
+}
+
+TEST_CASE("§S7 T-B — an OFF-GRID mobile does NOT catch a leaf flood; a REGISTERED mobile catches + ingests but NEVER re-floods") {
+    const uint32_t id = Node::channel_msg_id_mint(9, 0x1u, 1);
+    uint8_t bm[32] = {}; bm_set(bm, 9);
+    // (a) OFF-GRID mobile + a LEAF flood (mobile_src=false) -> does NOT participate
+    { TestHal hal; Node n(hal, 2, 0xBEEFu); NodeConfig c = basic_cfg(); c.is_mobile = true; c.team_id = 0xAAu; n.on_init(c);
+      std::array<uint8_t,64> b{}; size_t bn = mk_flood_rts(0, 9, id, bm, 5, 0, b);
+      n.on_recv(b.data(), bn, meta_at(1000));
+      CHECK(hal.count("channel_overhear_armed") == 0); }        // off-grid: no catch/ingest of a leaf flood
+    // (b) REGISTERED mobile + a LEAF flood -> catches (arms overhear), ingests (record), but NEVER re-floods
+    { TestHal hal; Node n(hal, 2, 0xBEEFu); NodeConfig c = basic_cfg(); c.is_mobile = true; c.team_id = 0xAAu; n.on_init(c);
+      n.test_set_my_mobile_reg(/*home_id=*/17, /*local_id=*/2);
+      std::array<uint8_t,64> b{}; size_t bn = mk_flood_rts(0, 9, id, bm, 5, 0, b);
+      n.on_recv(b.data(), bn, meta_at(1000));
+      CHECK(hal.count("channel_overhear_armed") == 1);          // registered leaf citizen: catches
+      const uint8_t body[] = { 'h','i' };
+      n.ingest_channel_m(mk_m(id, 5, 0, body, 2), 9);
+      CHECK(n.channel_buffer_count() == 1);                     // ingested (record)
+      CHECK(hal.count("flood_rebroadcast_scheduled") == 0); }   // ...but NEVER re-floods a leaf flood
+}
+
+TEST_CASE("§S7 T-B — send_channel plane select: static -t refused, plain=leaf; registered mobile plain=GLOBAL delegate, -t=TEAM, both; off-grid plain fails loud") {
+    // STATIC node: -t refused (fail loud), plain = the leaf post (byte-identical to pre-S7)
+    { TestHal hal; Node n(hal, 20, 0xBEEFu); NodeConfig c = basic_cfg(); n.on_init(c);
+      CHECK(send_channel(n, 9, "x", /*team=*/true).code == CmdCode::err_no_binding);
+      CHECK(send_channel(n, 9, "x").code == CmdCode::queued); CHECK(n.channel_buffer_count() == 1); }
+    // OFF-GRID team mobile: plain (GLOBAL) fails loud (no home); -t (TEAM) buffers locally
+    { TestHal hal; Node n(hal, 2, 0xBEEFu); NodeConfig c = basic_cfg(); c.is_mobile = true; c.team_id = 0xAAu; n.on_init(c);
+      CHECK(send_channel(n, 9, "x").code == CmdCode::err_no_binding);   // plain=GLOBAL, no home -> fail loud
+      CHECK(n.channel_buffer_count() == 0);
+      CHECK(send_channel(n, 9, "tm", /*team=*/true).code == CmdCode::queued);   // -t=TEAM origin
+      CHECK(n.channel_buffer_count() == 1); }
+    // REGISTERED team mobile: plain (GLOBAL) DELEGATES to the home as MOBILE_SEND + enclosed DATA_TYPE_CHANNEL_POST
+    { TestHal hal; Node n(hal, 2, 0xBEEFu); NodeConfig c = basic_cfg(); c.is_mobile = true; c.team_id = 0xAAu; n.on_init(c);
+      n.test_set_my_mobile_reg(/*home_id=*/17, /*local_id=*/2);
+      n.test_suspend_tx_drain(true);                            // hold the flight in the queue (else become_free pulls it into _pending_tx)
+      const CmdResult r = send_channel(n, /*ch=*/9, "global-post");   // plain => GLOBAL => delegate
+      CHECK(r.code == CmdCode::queued);
+      CHECK(n.channel_buffer_count() == 0);                     // a GLOBAL post is NOT buffered locally (the home mints it)
+      CHECK(n.test_tx_queue_n() >= 1);
+      const uint8_t i = static_cast<uint8_t>(n.test_tx_queue_n() - 1);
+      CHECK(n.test_tx_type(i) == DATA_TYPE_MOBILE_SEND);
+      CHECK(n.test_tx_dst(i) == 17);                            // to the home
+      uint8_t ilen = 0; const uint8_t* inner = n.test_tx_inner(i, ilen);
+      auto ui = parse_unicast_inner(std::span<const uint8_t>(inner, ilen), n.test_tx_flags(i));
+      CHECK(ui.has_value());
+      if (ui && ui->body.size() >= 2) {
+          CHECK(ui->has_source_hash);                          // SOURCE_HASH = the mobile (home verifies "ours")
+          CHECK(ui->body[0] == DATA_TYPE_CHANNEL_POST);        // enclosed marker
+          CHECK(ui->body[1] == 9);                             // channel_id
+          CHECK(std::string(reinterpret_cast<const char*>(ui->body.data() + 2), ui->body.size() - 2) == "global-post");
+      } }
+    // REGISTERED team mobile: BOTH (-t -g) = one TEAM origination (buffered) + one delegated GLOBAL (MOBILE_SEND)
+    { TestHal hal; Node n(hal, 2, 0xBEEFu); NodeConfig c = basic_cfg(); c.is_mobile = true; c.team_id = 0xAAu; n.on_init(c);
+      n.test_set_my_mobile_reg(/*home_id=*/17, /*local_id=*/2);
+      n.test_suspend_tx_drain(true);                            // hold the flights in the queue
+      const CmdResult r = send_channel(n, 9, "both", /*team=*/true, /*global=*/true);
+      CHECK(r.code == CmdCode::queued);
+      CHECK(n.channel_buffer_count() == 1);                     // the TEAM half is buffered (self-originated flood)
+      bool saw_deleg = false;
+      for (uint8_t i = 0; i < n.test_tx_queue_n(); ++i) if (n.test_tx_type(i) == DATA_TYPE_MOBILE_SEND) saw_deleg = true;
+      CHECK(saw_deleg); }                                       // the GLOBAL half is delegated to the home
 }

@@ -125,7 +125,8 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             // -> NO cross-team delivery/re-flood; the only residual is a transient foreign CHANNEL_PULL (airtime). A full fix
             // needs team_id on the RTS-M (a wire change) — deferred; the delivery-level separation already holds.
             if (!(_cfg.is_gateway && _cfg.gateway_only) && _cfg.n_layers != 2 && _cfg.allowed_sf_bitmap != 0
-                && !(r.mobile_src && _cfg.team_id == 0)) {
+                && !(r.mobile_src && _cfg.team_id == 0)
+                && !(_cfg.is_mobile && !r.mobile_src && !mobile_registered())) {   // §S7 T-B: an OFF-GRID mobile does NOT catch/ingest a LEAF/static flood (mobile_src==0). A REGISTERED mobile (a leaf citizen) DOES (it ingests, never re-floods — flood_forward_decision). A team flood (mobile_src==1) is gated above.
                 auto fbm = rts_flood_bitmap(std::span<const uint8_t>(bytes, len), r);
                 if (fbm.size() == 32) {
                     const int16_t snr_q4 = protocol::db_to_q4(meta.snr_db);
@@ -157,7 +158,8 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             return;                                          // FLOOD RTS never CTSes
         }
         if (!(_cfg.is_gateway && _cfg.gateway_only) && _cfg.n_layers != 2 && !channel_have_id_lo16(r.m_payload_id_lo16)
-            && !(r.mobile_src && _cfg.team_id == 0)) {   // §mobile 6.3: a static / non-team node does not overhear a TEAM pull-response (mobile_src) — §7 consumer / Principle 11: a dual-layer gateway never overhears a channel pull-response
+            && !(r.mobile_src && _cfg.team_id == 0)
+            && !(_cfg.is_mobile && !r.mobile_src && !mobile_registered())) {   // §S7 T-B: an OFF-GRID mobile does not overhear a LEAF pull-response either (not a leaf member); §mobile 6.3: a static / non-team node does not overhear a TEAM pull-response (mobile_src) — §7 consumer / Principle 11: a dual-layer gateway never overhears a channel pull-response
 
             const uint8_t data_sf = select_data_sf(r.sf_index, protocol::db_to_q4(meta.snr_db));
             _hal.set_rx_sf(data_sf);
@@ -685,6 +687,15 @@ void Node::do_post_ack() {
             bool ours = false;
             for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
                 if (_active->_mobile_reg[i].key_hash32 == ui->source_hash) { ours = true; break; }
+            if (ours && (pa.flags & DATA_FLAG_MS_ENCLOSED_TYPE) && ui->body.size() >= 2 && ui->body[0] == DATA_TYPE_CHANNEL_POST) {
+                // §S7 T-B: a delegated GLOBAL/leaf channel post. Body = [DATA_TYPE_CHANNEL_POST][channel_id][text].
+                // Re-originate via do_send_channel under OUR OWN origin/ctr (the home mints; the wrapper's DST_HASH =
+                // the mobile's own hash is a placeholder — never used here). Anti-spam bills the HOME + our self-GATE
+                // applies (deliberate: hosting implies consenting to the mobile's channel share).
+                do_send_channel(ui->body[1], ui->body.data() + 2, static_cast<uint8_t>(ui->body.size() - 2));
+                become_free();
+                return;
+            }
             if (ours && ui->has_cross_layer) {
                 // §S1: a CROSS_LAYER delegation. The wrapper carries the DEST path (user hops) + an enclosed-type body
                 // prefix. Prepend OUR layer + re-validate fail-loud (== the node.cpp send_layer rules), then originate via

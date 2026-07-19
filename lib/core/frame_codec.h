@@ -353,6 +353,11 @@ struct j_discover_in { uint8_t leaf_id; bool gateway_capable; bool is_mobile; ui
                        uint8_t last_home_id = 0; uint8_t last_home_layer = 0; uint8_t last_reg_epoch = 0; uint32_t last_home_key_hash32 = 0; };  // §S6/B4: appended iff is_mobile (9-B) [+ hash iff last_home_id != 0 (13-B)]; at struct END for positional aggregate-inits
 // OFFER (8 B static / 13 B mobile): responder_node_id, responder_key_hash32(LE), data_sf_bitmap
 //              [+ proposed_mobile_id, target_key_hash32(LE) iff is_mobile].
+// data_sf_bitmap is ADVISORY since 2026-07-19 (F-SF-1): the mobile KEEPS its own configured sf_list across
+// registration (sf_list is node config; the per-exchange RTS carries only an INDEX into the agreed set), so the
+// adopt path no longer consumes this byte — it rides purely as an operator-misconfig diagnostic (a mobile whose
+// configured low byte != this offered byte emits `mobile_sf_list_mismatch`). Its low-byte SF>=8 truncation is
+// therefore harmless. Field kept on the wire for compat (no wire change).
 struct j_offer_in    { uint8_t leaf_id; bool gateway_capable; bool is_mobile;
                        uint8_t responder_node_id; uint32_t responder_key_hash32; uint8_t data_sf_bitmap;
                        uint8_t proposed_mobile_id = 0; uint32_t target_key_hash32 = 0; };   // §mobile 2a: proposed_mobile_id (host-assigned LOCAL id) + §S6 target_key_hash32 (the mobile this OFFER is FOR) — appended iff is_mobile (13-B frame); at struct END to preserve positional aggregate-inits
@@ -379,7 +384,7 @@ struct j_out {
     uint32_t key_hash32;                                                       // DISCOVER, CLAIM
     uint8_t  last_home_id = 0; uint8_t last_home_layer = 0; uint8_t last_reg_epoch = 0;  // DISCOVER §S6: valid iff is_mobile && >=9-B frame (0 = fresh)
     uint32_t last_home_key_hash32 = 0;                                         // DISCOVER §B4: the old home's hash (13-B re-home frame only; 0 = fresh / not carried) -> the new home addresses a CROSS-LAYER breadcrumb by hash
-    uint8_t  responder_node_id; uint32_t responder_key_hash32; uint8_t data_sf_bitmap;  // OFFER
+    uint8_t  responder_node_id; uint32_t responder_key_hash32; uint8_t data_sf_bitmap;  // OFFER (data_sf_bitmap advisory since F-SF-1; see the pack-struct comment)
     uint8_t  proposed_mobile_id = 0; uint32_t target_key_hash32 = 0;           // OFFER §mobile 2a/S6: valid iff opcode==OFFER && is_mobile (13-B): host-assigned id + the target mobile's hash
     uint8_t  proposed_node_id; uint16_t lease_age_seconds; uint8_t claim_epoch; uint8_t nonce;  // CLAIM
     uint8_t  chosen_host_id = 0;                                               // CLAIM §mobile: byte-10 read here too (a mobile CLAIM addresses its chosen host; static reads nonce)
@@ -463,6 +468,7 @@ enum DataType : uint8_t {
     DATA_TYPE_INTRO                  = 15,   // §S2 first-contact pubkey attach: a NORMAL plaintext app DM whose inner BODY is prefixed [ed_pub 32][name_len u8][name <=32] before the message text. Requires SOURCE_HASH; the ADDRESSED recipient verifies ed_pub[:4]==source_hash (peerkey self-consistency), peer_key_set(authoritative)+name (fires peer_key_cached), STRIPS the prefix, and delivers the remainder as a plain DM (inbox + msg_recv, enc absent, dedup (sender_hash,ctr) unchanged). Ride rule (D1): a plaintext hash-addressed send attaches INTRO iff we hold no peer_confirmed(dst) (no SEALED frame opened from dst yet) AND we have a crypto identity. s18-inert: no identity -> never attached, never received.
     DATA_TYPE_MOBILE_KEY_FORWARD     = 16,   // §S3 part2: a HOME forwards a WANT_PUBKEY requester's key to its hosted mobile (1-hop last-mile, addr_len=1, plaintext). Body = [requester_ed_pub 32][name_len u8][name <=32]. The mobile caches it (self-consistency-checked) -> closes the recipient-side decrypt gap for the reqpubkey path (the mobile can now open the requester's sealed DM). Mobile-only consume; a static never sees it.
     DATA_TYPE_SEALED_RELAY           = 17,   // §S4 encrypted cross-layer / delegated-sealed: a PLAINTEXT-framed DM (cleartext DST_HASH + SOURCE_HASH) whose BODY = [seal_ctr 2 LE][seed8 8][ciphertext‖tag]. The sender SEALED its text to DST_HASH under ITS OWN identity (source_hash) BEFORE the frame's MAC ctr existed (a mobile delegating to its home; or a static crossing a layer where the bridge re-issues the ctr), so the nonce ctr is CARRIED (seal_ctr) rather than the frame ctr — the frame ctr stays the originator/home's for MAC dedup. Routes/bridges/last-miles EXACTLY like any typed plaintext DM (no CRYPTED-frame changes; the crypto core stays SAME-LAYER-only). Recipient: directed open (source_hash in clear -> the sender's key, no trial), verify the SEALED source_hash == the clear source_hash (anti-spoof), IGNORE the sealed origin byte, deliver as a normal DM (enc=1). s18-inert (no identities -> no seals -> never emitted).
+    DATA_TYPE_CHANNEL_POST           = 18,   // §S7 T-B: an ENCLOSED-type marker (never a wire frame type) — a registered mobile delegates a GLOBAL/leaf channel post to its home. Rides a PLAINTEXT MOBILE_SEND wrapper (SOURCE_HASH=mobile, DST_HASH=mobile's own hash [placeholder, unused], DATA_FLAG_MS_ENCLOSED_TYPE) whose BODY = [DATA_TYPE_CHANNEL_POST][channel_id u8][text]. The home strips it + re-originates via do_send_channel under ITS OWN origin/ctr (anti-spam bills the home, deliberate). A mobile can't originate a leaf flood on the static plane (empty _rt), so the home posts. s18-inert (no mobiles -> never emitted).
 };
 
 // §mobile 5a: a neighbouring-layer record (the composite network identity — layer_id alone isn't unique across areas).

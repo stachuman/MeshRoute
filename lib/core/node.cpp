@@ -926,14 +926,40 @@ CmdResult Node::on_command(const Command& c) {
             const uint16_t ctr = do_send(c.u.send.dst_id, c.body, c.body_len, c.u.send.flags, c.crypt, /*override_dst_hash=*/0, /*type=*/0, /*override_source_hash=*/0, plane);   // §8b: per-message crypt + Wave 2 plane
             return CmdResult{ CmdCode::queued, ctr, _active->_tx_queue_n };   // id-addressed: dst_hash/layer_path = 0
         }
-        case CmdKind::send_channel: {                         // ROADMAP §3 channel gossip (single-layer)
+        case CmdKind::send_channel: {                         // ROADMAP §3 channel gossip (single-layer) + §S7 T-B plane select
             if (_node_id == 0)                                // unprovisioned: must join / cfg set node_id
                 return CmdResult{ CmdCode::err_unprovisioned, 0, _active->_tx_queue_n };
             if (_cfg.allowed_sf_bitmap == 0)                  // channel gossip rides a data SF: refuse if none configured
                 return CmdResult{ CmdCode::err_no_data_sf, 0, _active->_tx_queue_n };
             if (c.body_len > protocol::channel_msg_max_payload_bytes)
                 return CmdResult{ CmdCode::err_too_large, 0, _active->_tx_queue_n };
-            const uint16_t ctr = do_send_channel(c.u.channel.channel_id, c.body, c.body_len);
+            // §S7 T-B DM-symmetric plane select: plain => GLOBAL; `-t` => TEAM only; `-t -g` => BOTH.
+            const bool want_team   = c.u.channel.team;
+            const bool want_global = c.u.channel.global || !c.u.channel.team;
+#if MR_FEAT_TEAM
+            const bool team_member = _cfg.is_mobile && _cfg.team_id != 0;
+#else
+            const bool team_member = false;
+#endif
+            if (want_team && !team_member)                    // §S7: `-t` on a static / non-team node -> fail loud (unchanged: static plain=leaf, `-t` refused as today)
+                return CmdResult{ CmdCode::err_no_binding, 0, _active->_tx_queue_n };
+            uint16_t ctr = 0;
+            if (want_team) ctr = do_send_channel(c.u.channel.channel_id, c.body, c.body_len);   // TEAM: the mobile self-originates the team-scoped flood (do_send_channel team-scopes on is_mobile+team_id)
+            if (want_global) {
+#if MR_FEAT_MOBILE
+                if (_cfg.is_mobile) {                         // a mobile DELEGATES a GLOBAL post to its home (the home mints under its own origin). Off-grid (no home) -> fail loud.
+                    if (!do_send_channel_delegated(c.u.channel.channel_id, c.body, c.body_len)) {
+                        MR_EMIT("send_failed", EF_S("reason", "channel_no_home"));
+                        Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::mobile_no_home; pu.dst = 0; pu.ctr = 0; enqueue_push(pu);
+                        if (!want_team) return CmdResult{ CmdCode::err_no_binding, 0, _active->_tx_queue_n };
+                    }
+                } else
+#endif
+                {                                             // a STATIC node: GLOBAL == the leaf post (byte-identical to the pre-S7 send_channel)
+                    const uint16_t gctr = do_send_channel(c.u.channel.channel_id, c.body, c.body_len);
+                    if (!want_team) ctr = gctr;
+                }
+            }
             return CmdResult{ CmdCode::queued, ctr, _active->_tx_queue_n };   // buffered dirty -> advertised next BCN -> pulled
         }
         case CmdKind::join: {        // node_id DAD. Idempotent once joined. CLAIM-AFTER-LISTEN (L1): hear the

@@ -450,7 +450,7 @@ cfg set team_id <hex> # same as `team <hex>` (granular setter; preserved across 
 
 ### Team channel — group chat (6.3, IN PROGRESS)
 A team channel = a `team_id`-scoped channel: any member broadcasts, only same-team members receive; static nodes never see it. Rides the existing channel surface with a **team_id** tag:
-- **Send:** `send_channel <ch> "<text>"` on a team mobile broadcasts to the team (the firmware scopes it by `_cfg.team_id`).
+- **Send — ⚠ BREAKING (S7, 2026-07-19):** `send_channel` now plane-selects like `send`: **`-t` = TEAM** (the old auto-team must now be explicit — `-t` is ACCEPTED, no longer rejected) · **plain or `-g` = GLOBAL** (a registered mobile delegates via its home; an off-grid mobile's plain send fails loud) · **`-t -g` = BOTH planes**. `Command.swift` must add the flags; a team-chat send MUST pass `-t`. Also: a REGISTERED mobile now RECEIVES leaf/static channel messages (`channel_recv` without `team_id` — receiver-only).
 - **Receive — ✅ IMPLEMENTED 2026-07-16:** `channel_recv` / `inbox_channel` gain **`"team_id":"cccc0001"`** (a **hex string**, like `key` — the old decimal sketch is superseded) when the message is team-scoped; omitted ⇒ a normal leaf channel — byte-identical. The app threads a team channel into its team view; DM/channel identity keys are unchanged (`channel_msg_id` stays the dedup key). The durable tag carries the ACTUAL team id (not a flag), so history stays correctly labelled across a team switch. ⚠ The record-format growth bumped the inbox store version — first boot after reflash wipes the on-node inbox + bumps `inbox_epoch` (normal epoch re-pull; `next_seq` preserved, so seq never reuses).
 
 ### Reaching a mobile vs a teammate — the plane decides (⚠ the send verb DIFFERS)

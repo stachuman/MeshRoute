@@ -32,7 +32,7 @@ enum class CryptIntent : uint8_t { def = 0, on, off };
 // the header stays C++17-includable by the sim (hal.h discipline). flags = wire DATA_FLAG_* (E2E_ACK_REQ=0x10, DST_HASH=0x02, PRIORITY=0x01; 0x08 free).
 struct SendCmd        { uint8_t dst_id; uint32_t dst_hash; uint8_t flags; uint8_t plane; };   // Wave 2: plane 0=AUTO (companion/sim default -> today's cascade), 1=TEAM (`-t`), 2=GLOBAL (plain `send`). Host-side only, NOT on the wire.
 struct SendLayerCmd   { uint8_t hops[protocol::gw_env_max_hops]; uint8_t hop_count; uint32_t dst_hash; uint8_t flags; };   // flags honored on the cross-layer DM (E2E_ACK_REQ -> Y acks via the reversed path, Slice 4d/e2e)
-struct SendChannelCmd { uint8_t channel_id; };
+struct SendChannelCmd { uint8_t channel_id; bool team; bool global; };   // §S7 T-B DM-symmetric plane select: team=`-t` (TEAM), global=`-g` (explicit GLOBAL). Plain (neither) => GLOBAL. `-t -g` => BOTH. Static: plain=leaf, `-t` refused. Host-side only, NOT on the wire.
 struct JoinCmd        { enum Op : uint8_t { discover, claim, deny } op; uint8_t node_id; uint32_t claimant_hash; };
 // Diagnostic: locate the node owning key_hash32 (the hash-locate H flood); the answer rides
 // PushKind::hash_resolved. hard = skip caches, reach the owner (verify-on-use). NO body — notify-only,
