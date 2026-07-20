@@ -250,9 +250,14 @@ struct DualLayerTestAccess {
     static uint16_t do_send_override(Node& n, uint8_t dst, const uint8_t* body, uint8_t len, uint32_t oh) { return n.do_send(dst, body, len, 0, CryptIntent::def, oh); }  // §mobile 3c: DM with override_dst_hash
     static void     emit_rreq(Node& n, uint8_t dst) { n.emit_route_request(dst, 16); }  // §mobile: drive route-discovery (test the mobile-local-id RREQ guard)
     static uint16_t send_by_hash(Node& n, uint32_t h, const uint8_t* body, uint8_t len) { return n.send_by_hash(h, body, len, 0, CryptIntent::def); }  // §mobile 3c: send-by-hash trigger
+    static uint16_t send_by_hash_plane(Node& n, uint32_t h, const uint8_t* body, uint8_t len, Plane plane) { return n.send_by_hash(h, body, len, 0, CryptIntent::def, 0, 0, plane); }  // §F-TR-1: drive an EXPLICIT-plane send-by-hash (`-t` => Plane::TEAM)
     static void     send_e2e_ack(Node& n, uint8_t to_origin, uint16_t ctr, uint32_t sender_hash = 0) { n.send_e2e_ack(to_origin, ctr, sender_hash); }  // §mobile Fix 5: originate an E2E-ACK to an origin; sender_hash a hosted mobile -> last-mile
     static bool     has_pending_rx(Node& n) { return static_cast<bool>(n._active->_pending_rx); }  // §mobile 3b: a receiver flight opened => the RTS was ADDRESSED (accepted), not overheard
     static void     deactivate_mobile_reg(Node& n) { n._my_mobile_reg.active = false; }  // §mobile 4b: simulate the 2b home-lost reset (active=false, home_id kept) so the guard re-CLAIMs
+    static void     call_mobile_reset(Node& n, const char* reason) { n.mobile_reset_registration(reason); }  // §F-PS-1: drive the home-lost registration reset directly
+    static uint8_t  node_id(Node& n) { return n._node_id; }                                                  // §F-PS-1: the link-layer id after a reset (0 = unprovisioned; == team id = off-grid fallback)
+    static uint8_t  chan_last_origin(Node& n) { const auto& L = *n._active; return L._channel_buffer_n ? L._channel_buffer[L._channel_buffer_n - 1].origin : 0; }   // §F-PS-1: the most-recently minted channel post's origin
+    static uint32_t chan_last_id(Node& n)     { const auto& L = *n._active; return L._channel_buffer_n ? L._channel_buffer[L._channel_buffer_n - 1].id : 0; }        // §F-PS-1: …and its full 32-bit channel_msg_id (top byte = origin)
     static uint64_t mobile_last_heard_home(Node& n) { return n._my_mobile_reg.last_heard_home_ms; }  // §mobile: the home-lost liveness clock
     static void     mobile_discover_fire(Node& n) { n.mobile_discover_fire(); }  // §mobile: drive the reclaim/home-lost FSM tick
     static void     presence_probe_fire(Node& n) { n.presence_probe_fire(); }    // §S6: drive a mobile presence check/probe tick (k_miss -> HOME LOST)
@@ -2980,7 +2985,7 @@ TEST_CASE("§mobile hash-locate Fix 1/1b — a TEAM-scoped locate gets the mobil
     StubHal hal; Node mob(hal, 17, 0xB0B1u);
     NodeConfig mc; mc.routing_sf=8; mc.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); mc.leaf_id=4; mc.is_mobile=true; mc.team_id=0xABCD1234u; CHECK(mob.on_init(mc));
     DualLayerTestAccess::make_registered_mobile(mob, /*local*/17, /*home*/30, /*home_hash*/0x3030u);
-    DualLayerTestAccess::learn_neighbor(mob, 50);
+    DualLayerTestAccess::learn_team_neighbor(mob, /*id=*/50, /*key=*/0x5050u);   // §F-TR-2: the querying teammate is a TEAM neighbor — a team-scoped answer routes on _rt_team (was learn_neighbor/static, which only flew via the pre-fix AUTO->static fallback)
     // team-scoped locate for the mobile's own hash, MATCHING team_id -> the mobile IS the endpoint on the team plane -> answers AUTHORITATIVELY with its local id
     h_in tq{}; tq.leaf_id=4; tq.origin=50; tq.key_hash32=0xB0B1u; tq.ttl=3; tq.hard=true; tq.team_scoped=true; tq.team_id=0xABCD1234u;
     std::array<uint8_t,16> tb{}; size_t tn = pack_h(tq, std::span<uint8_t>(tb.data(), tb.size()));
@@ -3579,15 +3584,15 @@ TEST_CASE("§S6 rev2/D14 — proactive re-home ranks by the WORSE of the two dir
     DualLayerTestAccess::make_registered_mobile(mob, /*local*/17, /*home*/30, /*hash*/0x3030u);
     const uint8_t L = DualLayerTestAccess::active_layer(mob);
     hal._now = 1000000;                                                        // dwell elapsed (last_adopt=0)
-    // candidate A: strong cand->me (snr 55) but echo WEAK (me->A) -> bottleneck weak
-    DualLayerTestAccess::presence_setup_prescan(mob, /*my_tier=*/protocol::presence_q_weak, /*home_rx_q4=*/protocol::db_to_q4(14.0f));
-    DualLayerTestAccess::presence_add_cand(mob, /*home*/60, L, /*snr*/protocol::db_to_q4(55.0f), /*echo_tier*/protocol::presence_q_weak, /*first_seen*/0);
+    // candidate A: strong cand->me (snr +8) but echo WEAK (me->A) -> bottleneck weak (home weak both ways at −8 dB)
+    DualLayerTestAccess::presence_setup_prescan(mob, /*my_tier=*/protocol::presence_q_weak, /*home_rx_q4=*/protocol::db_to_q4(-8.0f));
+    DualLayerTestAccess::presence_add_cand(mob, /*home*/60, L, /*snr*/protocol::db_to_q4(8.0f), /*echo_tier*/protocol::presence_q_weak, /*first_seen*/0);
     hal.emits.clear();
     DualLayerTestAccess::presence_maybe_rehome(mob);
     CHECK_FALSE(hal.saw_emit("presence_rehome"));                               // ★ asymmetric candidate rejected on the bottleneck
     // candidate C: strong BOTH ways -> bottleneck strong -> re-home
-    DualLayerTestAccess::presence_setup_prescan(mob, protocol::presence_q_weak, protocol::db_to_q4(14.0f));
-    DualLayerTestAccess::presence_add_cand(mob, /*home*/70, L, protocol::db_to_q4(55.0f), /*echo_tier*/protocol::presence_q_strong, /*first_seen*/0);
+    DualLayerTestAccess::presence_setup_prescan(mob, protocol::presence_q_weak, protocol::db_to_q4(-8.0f));
+    DualLayerTestAccess::presence_add_cand(mob, /*home*/70, L, protocol::db_to_q4(8.0f), /*echo_tier*/protocol::presence_q_strong, /*first_seen*/0);
     hal.emits.clear();
     DualLayerTestAccess::presence_maybe_rehome(mob);
     CHECK(hal.saw_emit("presence_rehome"));                                     // ★ balanced-strong candidate wins
@@ -3652,8 +3657,8 @@ TEST_CASE("§D16/B1 — an INCOMPATIBLE candidate home (wrong-version roster) is
     const uint8_t L = DualLayerTestAccess::active_layer(mob);
     hal._now = 1000000;                                                        // dwell elapsed
     // candidate home 60 is STRONG both ways...
-    DualLayerTestAccess::presence_setup_prescan(mob, protocol::presence_q_weak, protocol::db_to_q4(14.0f));
-    DualLayerTestAccess::presence_add_cand(mob, /*home*/60, L, protocol::db_to_q4(55.0f), /*echo_tier*/protocol::presence_q_strong, /*first_seen*/0);
+    DualLayerTestAccess::presence_setup_prescan(mob, protocol::presence_q_weak, protocol::db_to_q4(-8.0f));
+    DualLayerTestAccess::presence_add_cand(mob, /*home*/60, L, protocol::db_to_q4(8.0f), /*echo_tier*/protocol::presence_q_strong, /*first_seen*/0);
     // ...but a wrong-version roster from 60 marks it INCOMPATIBLE (found + flagged, snr preserved)
     PRosterEntry none0[1] = {{ 0xDEADu, 18, 0, protocol::presence_q_ok, false, false }};
     p_roster_in bad{}; bad.home_id = 60; bad.home_layer = L; bad.wire_version = static_cast<uint8_t>(protocol::wire_version + 1); bad.entries = none0; bad.count = 1;
@@ -4114,4 +4119,171 @@ TEST_CASE("§S2 XL delegation — delegate_send_layer(enclosed_type=INTRO) carri
             if (ui->body.size() >= 1) CHECK(ui->body[0] == DATA_TYPE_INTRO);        // XL enclosed type (S1 threading)
         }
     }
+}
+
+// ============================================================================
+// §F-PS-1 — a home-lost TEAM member must NOT go mute on the team plane (§18: team membership is home-independent).
+// Fix shape: mobile_reset_registration degrades a CONFIRMED team member to a normal OFF-GRID member
+// (node_id := team_local_id) instead of unprovisioned(0), so every `_node_id == 0` send guard admits `-t` sends.
+// Origin audit: a team-scoped channel flood originates under team_local_id, never the host-assigned STATIC local id.
+// ============================================================================
+namespace {
+NodeConfig team_mobile_cfg(uint32_t team_id) {
+    NodeConfig c; c.routing_sf = 7; c.allowed_sf_bitmap = static_cast<uint16_t>(1u << 12); c.leaf_id = 0;
+    c.is_mobile = true; c.team_id = team_id; return c;
+}
+}  // namespace
+
+TEST_CASE("§F-PS-1: a home-lost TEAM member falls back to its team id and can still `-t` send (channel + DM)") {
+    using A = DualLayerTestAccess;
+    StubHal h; Node n(h, 0, 0xC0FFEEu);
+    CHECK(n.on_init(team_mobile_cfg(0xABCD1234u)));
+    A::make_registered_mobile(n, /*local_id=*/254, /*home=*/101, /*home_hash=*/0xAA55u);   // dual member: host-assigned static id 254 …
+    n.set_team_local_id(138);                                                              // … + a CONFIRMED team-DAD id 138
+    CHECK(A::node_id(n) == 254);
+    CHECK(n.team_local_id() == 138);
+
+    // HOME LOSS -> registration reset. A team member degrades to OFF-GRID (node_id := team_local_id), NOT id 0.
+    A::call_mobile_reset(n, "presence_home_lost");
+    CHECK(A::node_id(n) == 138);                                    // ★ the fix (pre-fix this was 0 -> every send refused err_unprovisioned)
+
+    // a `-t` channel post now SUCCEEDS and mints origin == team_local_id (was err_unprovisioned pre-fix).
+    const uint8_t txt[] = { 'a','f','t','e','r' };
+    Command cc{}; cc.kind = CmdKind::send_channel; cc.u.channel.channel_id = 5; cc.u.channel.team = true;
+    cc.body = txt; cc.body_len = sizeof txt;
+    const CmdResult rc = n.on_command(cc);
+    CHECK(rc.code == CmdCode::queued);
+    CHECK(rc.ctr != 0);                                            // a ctr was minted
+    CHECK(A::chan_last_origin(n) == 138);                          // team-plane origin == team id
+    CHECK((A::chan_last_id(n) >> 24) == 138u);                     // channel_msg_id top byte = origin = team id (not the static 254)
+
+    // a `-t` team DM to a KNOWN teammate is ACCEPTED (the unprovisioned guard is passed; team route resolves).
+    A::learn_team_neighbor(n, /*id=*/90, /*key=*/0xBEEF90u);
+    const uint8_t dm[] = { 'h','i' };
+    Command cd{}; cd.kind = CmdKind::send; cd.u.send.dst_id = 90; cd.u.send.plane = static_cast<uint8_t>(Plane::TEAM);
+    cd.body = dm; cd.body_len = sizeof dm;
+    const CmdResult rd = n.on_command(cd);
+    CHECK(rd.code != CmdCode::err_unprovisioned);                  // ★ the mute is lifted on the DM path too
+    CHECK(rd.code == CmdCode::queued);
+}
+
+TEST_CASE("§F-PS-1: the team-id fallback does not wedge the DISCOVER FSM — it keeps searching + a re-adopt restores the host id") {
+    using A = DualLayerTestAccess;
+    StubHal h; Node n(h, 0, 0xC0FFEEu);
+    CHECK(n.on_init(team_mobile_cfg(0xABCD1234u)));
+    A::make_registered_mobile(n, /*local_id=*/254, /*home=*/101, /*home_hash=*/0xAA55u);
+    n.set_team_local_id(138);
+
+    A::call_mobile_reset(n, "presence_home_lost");
+    CHECK(A::node_id(n) == 138);
+
+    // the DISCOVER FSM tolerates the nonzero (team) identity during the search: it still emits a DISCOVER.
+    A::mobile_discover_fire(n);
+    CHECK(h.saw_emit("mobile_discover_tx"));
+
+    // a subsequent adopt (mobile_claim_guard's set_identity, modeled here) restores the host-assigned id; team id intact.
+    A::make_registered_mobile(n, /*local_id=*/200, /*home=*/107, /*home_hash=*/0xBBu);
+    CHECK(A::node_id(n) == 200);
+    CHECK(n.team_local_id() == 138);
+}
+
+TEST_CASE("§F-PS-1 origin: a REGISTERED (homed) team member's `-t` flood mints origin == team_local_id, never the host static local id") {
+    using A = DualLayerTestAccess;
+    StubHal h; Node n(h, 0, 0xC0FFEEu);
+    CHECK(n.on_init(team_mobile_cfg(0xABCD1234u)));
+    A::make_registered_mobile(n, /*local_id=*/254, /*home=*/101, /*home_hash=*/0xAA55u);   // still HOMED (active)
+    n.set_team_local_id(138);
+    CHECK(A::node_id(n) == 254);
+
+    const uint8_t txt[] = { 't','e','a','m' };
+    Command cc{}; cc.kind = CmdKind::send_channel; cc.u.channel.channel_id = 3; cc.u.channel.team = true;
+    cc.body = txt; cc.body_len = sizeof txt;
+    const CmdResult rc = n.on_command(cc);
+    CHECK(rc.code == CmdCode::queued);
+    CHECK(A::chan_last_origin(n) == 138);                          // ★ team id, NOT the host-assigned static local id 254
+    CHECK((A::chan_last_id(n) >> 24) == 138u);                     // no cross-universe leak into the team channel_msg_id
+}
+
+// ============================================================================
+// §F-TR-2 / §F-TR-1 — team DM-by-hash across a MIXED (dual + off-grid) team. The H answer must live in the TEAM
+// universe (node == team_local_id, routed on _rt_team), and an EXPLICIT `-t` send-by-hash must team-flood, never
+// delegate to the home. (The s28 acceptance drives the same paths at scenario scope.)
+// ============================================================================
+
+TEST_CASE("§F-TR-2 (a): a DUAL (registered) team member answers a TEAM-scoped H for its own hash with node==team_local_id, routed on the TEAM plane") {
+    using A = DualLayerTestAccess;
+    StubHal h; Node n(h, 0, 0xC0FFEEu);                                    // key_hash32 = 0xC0FFEE
+    NodeConfig c = team_mobile_cfg(0xABCD1234u); c.leaf_id = 4; c.routing_sf = 8; c.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    CHECK(n.on_init(c));
+    A::make_registered_mobile(n, /*local_id=*/254, /*home=*/101, /*home_hash=*/0xAA55u);   // dual: host-assigned STATIC id 254 …
+    n.set_team_local_id(138);                                             // … + a CONFIRMED team id 138 (the two DIFFER — the leak-exposing case)
+    A::learn_team_neighbor(n, /*id=*/50, /*key=*/0x5050u);                // a team route back to the querier so the answer FLIES (not deferred)
+    CHECK(A::node_id(n) == 254);
+    CHECK(n.team_local_id() == 138);
+
+    h_in q{}; q.leaf_id = 4; q.origin = 50; q.key_hash32 = 0xC0FFEEu; q.ttl = 3; q.hard = false; q.team_scoped = true; q.team_id = 0xABCD1234u;
+    std::array<uint8_t,16> qb{}; size_t qn = pack_h(q, std::span<uint8_t>(qb.data(), qb.size()));
+    n.on_recv(qb.data(), qn, RxMeta{8.0f, -80.0f, 0, static_cast<int8_t>(-1)});
+
+    CHECK(h.saw_emit("h_resolved"));
+    const PendingTx* pt = A::pending(n);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->type == DATA_TYPE_AUTHORITATIVE_H_ANSWER);
+        CHECK(pt->plane == Plane::TEAM);                                   // ★ the answer routes in the TEAM universe (_rt_team), not AUTO/static
+        auto o = parse_hash_bind_inner(std::span<const uint8_t>(pt->inner, pt->inner_len));
+        CHECK(o.has_value());
+        if (o) CHECK(o->node_id == 138);                                  // ★★ team_local_id, NOT the host-assigned static id 254 (the §18 cross-universe leak, fixed)
+    }
+}
+
+TEST_CASE("§F-TR-2 (b): a TEAM-scoped H answer to an UNROUTED origin discovers the route on the TEAM plane (team RREQ), never the static plane") {
+    using A = DualLayerTestAccess;
+    StubHal h; Node n(h, 0, 0xC0FFEEu);
+    NodeConfig c = team_mobile_cfg(0xABCD1234u); c.leaf_id = 4; c.routing_sf = 8; c.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    CHECK(n.on_init(c));
+    A::make_registered_mobile(n, /*local_id=*/254, /*home=*/101, /*home_hash=*/0xAA55u);
+    n.set_team_local_id(138);
+    // NO team route to the querier (origin 90) -> the answer must DEFER and RREQ on the TEAM plane (the dual owner, whose
+    // static id != its team id, only self-answers a TEAM RREQ for team_local_id; a static RREQ would never resolve).
+    h_in q{}; q.leaf_id = 4; q.origin = 90; q.key_hash32 = 0xC0FFEEu; q.ttl = 3; q.hard = false; q.team_scoped = true; q.team_id = 0xABCD1234u;
+    std::array<uint8_t,16> qb{}; size_t qn = pack_h(q, std::span<uint8_t>(qb.data(), qb.size()));
+    n.on_recv(qb.data(), qn, RxMeta{8.0f, -80.0f, 0, static_cast<int8_t>(-1)});
+
+    CHECK(h.saw_emit("h_resolved"));            // we resolved (own hash on the team plane)
+    CHECK(h.saw_emit("send_deferred"));         // no team route to 90 yet -> the answer defers
+    CHECK(A::deferred_count(n) == 1);           // parked on the TEAM plane
+    CHECK(h.saw_emit("r_tx"));                   // a route request went out for the team origin
+    // ★ the crux: the deferred route discovery is TEAM-SCOPED (emit_route_request team_plane) — the last tx is a team RREQ,
+    // origin == our team_local_id (138). A STATIC RREQ (the pre-fix bug) would carry team_scoped=false + origin=254 and the
+    // dual owner would never self-answer it.
+    auto f = parse_f(std::span<const uint8_t>(h.last_tx, h.last_tx_len));
+    CHECK(f.has_value());
+    if (f) {
+        CHECK(f->team_scoped);                   // ★★ team-scoped RREQ, not static
+        CHECK(f->is_reply == false);
+        CHECK(f->origin == 138);                 // team_local_id, the routable team origin
+        CHECK(f->dst_id == 90);                  // discovering the querier's team id
+    }
+}
+
+TEST_CASE("§F-TR-1 (c): send_by_hash(plane=TEAM) from a REGISTERED dual member TEAM-FLOODS an unheard teammate, never delegates to the home") {
+    using A = DualLayerTestAccess;
+    StubHal h; Node n(h, 0, 0xC0FFEEu);
+    NodeConfig c = team_mobile_cfg(0xABCD1234u); c.leaf_id = 4; c.routing_sf = 8; c.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    CHECK(n.on_init(c));
+    A::make_registered_mobile(n, /*local_id=*/254, /*home=*/101, /*home_hash=*/0xAA55u);   // REGISTERED (would delegate under AUTO)
+    n.set_team_local_id(138);
+
+    const uint8_t body[] = { 'h','i' };
+    const uint16_t ctr = A::send_by_hash_plane(n, /*unheard teammate hash=*/0xDEAD04u, body, sizeof body, Plane::TEAM);
+
+    CHECK(ctr == 0);                                  // parked (not sent immediately)
+    CHECK(h.saw_emit("send_parked_for_hash"));        // ★ parked for the team-scoped flood
+    CHECK(h.saw_emit("h_tx"));                         // ★ a TEAM H flood originated (origin == team_local_id) …
+    CHECK_FALSE(h.saw_emit("team_send_unresolved"));  // … NOT the old beacon-only fail-loud
+    CHECK(A::parked_count(n) == 1);
+    // NO home delegation: the pending flight (if any) is the H flood, never a MOBILE_SEND wrapper to the home_id (101).
+    const PendingTx* pt = A::pending(n);
+    if (pt) CHECK(pt->type != DATA_TYPE_MOBILE_SEND);
 }

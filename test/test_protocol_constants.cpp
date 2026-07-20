@@ -161,3 +161,51 @@ TEST_CASE("antispam v2 — channel_cap_origin support constants (Slice 1)") {
     CHECK(P::cap_channel_origin_legacy == 20);   // MF2: duty-disabled fallback (was channel_origin_max_per_window's 20)
     CHECK(P::channel_flood_sample_len == 39);     // MF3: DATA-M sample = M_FRAME_HDR_LEN(7) + 32-B body
 }
+
+TEST_CASE("presence_quality_tier — recalibrated onto the canonical {-12,-4,+4} family (Slice B)") {
+    // The boundaries are the ONE canonical family (spec 2026-07-19 §2): {-12,-4} is EXACTLY the ACK
+    // 2-bit bucket's boundary pair (bucket_of_snr_2b, node_mac_rx.cpp), extended by +4 for the 4th tier.
+    CHECK(P::presence_q_weak_min_q4   == P::db_to_q4(-12.0f));
+    CHECK(P::presence_q_ok_min_q4     == P::db_to_q4(-4.0f));
+    CHECK(P::presence_q_strong_min_q4 == P::db_to_q4(4.0f));
+    CHECK(P::db_to_q4(-12.0f) == -192);   // == the ACK bucket "< -192" boundary
+    CHECK(P::db_to_q4(-4.0f)  ==  -64);   // == the ACK bucket "< -64"  boundary
+    // deep-in-tier samples
+    CHECK(P::presence_quality_tier(P::db_to_q4(-20.0f)) == P::presence_q_critical);
+    CHECK(P::presence_quality_tier(P::db_to_q4(-8.0f))  == P::presence_q_weak);
+    CHECK(P::presence_quality_tier(P::db_to_q4(0.0f))   == P::presence_q_ok);
+    CHECK(P::presence_quality_tier(P::db_to_q4(12.0f))  == P::presence_q_strong);
+    // boundary edges land in the UPPER tier (the >= comparisons), one q4 below drops to the lower tier
+    CHECK(P::presence_quality_tier(P::db_to_q4(-12.0f))     == P::presence_q_weak);      // -12 exact -> weak (not critical)
+    CHECK(P::presence_quality_tier(P::db_to_q4(-12.0f) - 1) == P::presence_q_critical);
+    CHECK(P::presence_quality_tier(P::db_to_q4(-4.0f))      == P::presence_q_ok);        // -4 exact -> ok (not weak)
+    CHECK(P::presence_quality_tier(P::db_to_q4(-4.0f) - 1)  == P::presence_q_weak);
+    CHECK(P::presence_quality_tier(P::db_to_q4(4.0f))       == P::presence_q_strong);    // +4 exact -> strong (not ok)
+    CHECK(P::presence_quality_tier(P::db_to_q4(4.0f) - 1)   == P::presence_q_ok);
+    // the old 0/20/40 dB thresholds are gone: a +12 dB link (SX126x report ceiling) is now STRONG, not weak.
+    CHECK(P::presence_quality_tier(P::db_to_q4(12.0f)) == P::presence_q_strong);
+}
+
+TEST_CASE("snr_ewma helpers == the historical inline arithmetic, bit-for-bit (Slice B refactor)") {
+    // The verbatim pre-refactor inline forms of the three ex-copy-paste sites:
+    auto old_seeded = [](int16_t ew, int16_t s) -> int16_t {                 // node_join:615 + node_mobile:326 (seed-if-zero)
+        return (ew == 0) ? s : static_cast<int16_t>(ew + (((s - ew) * P::snr_ewma_alpha_q4) >> 4));
+    };
+    auto old_step = [](int16_t ew, int16_t s) -> int16_t {                   // node_mobile:372 (pure step, seeds at insert)
+        return static_cast<int16_t>(ew + (((s - ew) * P::snr_ewma_alpha_q4) >> 4));
+    };
+    const int16_t pairs[][2] = {
+        {0, 80}, {0, -80}, {0, 0}, {80, 96}, {96, 80}, {-32, 64},
+        {64, -128}, {192, 192}, {-320, 12}, {5, 5}, {-1, 1}, {1, -1},
+    };
+    for (const auto& pr : pairs) {
+        const int16_t ew = pr[0], s = pr[1];
+        CHECK(P::snr_ewma_update(ew, s) == old_seeded(ew, s));
+        CHECK(P::snr_ewma_step(ew, s)   == old_step(ew, s));
+    }
+    CHECK(P::snr_ewma_alpha_q4 == 5);   // α = 5/16
+    // The two helpers DIFFER exactly at ew==0 (seed vs step) — proof they are NOT interchangeable.
+    CHECK(P::snr_ewma_update(0, 80) == 80);   // seed: adopt the sample outright
+    CHECK(P::snr_ewma_step(0, 80)   == 25);   // step: 0 + ((80-0)*5 >> 4) = 25
+    CHECK(P::snr_ewma_update(0, 80) != P::snr_ewma_step(0, 80));
+}

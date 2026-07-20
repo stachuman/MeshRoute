@@ -62,6 +62,36 @@ constexpr float q4_to_db(int16_t q4) {
     return static_cast<float>(q4) / q4_scale;
 }
 
+// ---- Link quality — the canonical scale ------------------------------------
+// ONE shared signal-strength scale for every link-quality consumer (spec
+// 2026-07-19-signal-strength-unification.md §2). SNR is carried in q4 dB exactly
+// as a real SX126x REPORTS it: the chip never reports much above ~+10..+13 dB, so
+// the meaningful reported window is −20…+12 dB (the sim now models this saturation —
+// spec §3 / Slice A; the per-SF demod table sf_demod_threshold_q4 is the physical
+// reference anchoring the low end). The STATIC wire is byte-frozen (beacon 4-bit
+// bucket, ACK 2-bit bucket, route score) — this scale is what the one OUTLIER, the
+// presence tiers, was recalibrated onto (Slice B), plus the shared EWMA helper so a
+// fifth consumer can't drift.
+inline constexpr int16_t snr_report_min_q4     = db_to_q4(-20.0f);  // demod-floor end of the reported window
+inline constexpr int16_t snr_report_ceiling_q4 = db_to_q4( 12.0f);  // SX126x reporting ceiling (the sim clamps reports to this — Slice A)
+// EWMA smoothing of a reported-SNR series. α = snr_ewma_alpha_q4/16 = 5/16 ≈ 0.3.
+inline constexpr int16_t snr_ewma_alpha_q4     = 5;
+// One α=5/16 EWMA step on a q4-dB accumulator (pure integer; bit-identical to the
+// historical inline form  ew + (((sample-ew)*α)>>4)). A caller holding an ALREADY-SEEDED
+// accumulator (e.g. the presence candidate table, which seeds at insertion) uses this.
+inline constexpr int16_t snr_ewma_step(int16_t ew, int16_t sample_q4) {
+    return static_cast<int16_t>(ew + (((sample_q4 - ew) * snr_ewma_alpha_q4) >> 4));
+}
+// Seed-if-zero variant: an unset (0) accumulator ADOPTS the first sample outright, then
+// steps thereafter (the home per-mobile EWMA in node_join + the mobile home-RX EWMA in
+// node_mobile). ⚠ NOT interchangeable with snr_ewma_step: they DIFFER when the stored
+// value is exactly 0 dB (0 q4) — step() smooths toward the sample, update() re-seeds.
+// The candidate table deliberately uses step() (it seeds at insert); keep each caller on
+// its correct helper (verified bit-identical to the pre-refactor inline sites).
+inline constexpr int16_t snr_ewma_update(int16_t ew, int16_t sample_q4) {
+    return (ew == 0) ? sample_q4 : snr_ewma_step(ew, sample_q4);
+}
+
 // ---- Radio / PHY -----------------------------------------------------------
 inline constexpr uint8_t  preamble_sym   = 16;
 // R6.1 leaf-config membership: max leaf_name length (NV + the config_hash input; a change re-fingerprints the leaf).
@@ -119,7 +149,8 @@ inline constexpr uint32_t rt_aging_ttl_neighbor_ms  = 2700000;   // 45 min (hops
 inline constexpr uint32_t rt_aging_ttl_remote_ms    = 10800000;  //  3 h  (hops>=2)   dv_dual_sf.lua:8784
 inline constexpr uint32_t next_hop_live_ttl_ms      = 1200000;
 inline constexpr int16_t  route_snr_conservatism_q4 = 0;
-inline constexpr int16_t  snr_ewma_alpha_q4         = 5;   // 0.3 ≈ 5/16
+// (snr_ewma_alpha_q4 lives in the canonical "Link quality" section above — it is a
+//  shared link-quality primitive, not a routing-only knob.)
 // Routing-table bounded caps (R1). The Lua rt is an unbounded table; the port
 // is fixed-size, no-heap. MAX_RT_CANDIDATES=3 (K), dv_hop_cap=16 (carried-route
 // combined-hops ceiling). cap_routes bounds the distinct-dest count held in rt[].
@@ -466,10 +497,15 @@ inline constexpr uint32_t presence_candidate_hold_ms   = 60000;    // §S6.4-C: 
 inline constexpr uint32_t presence_safety_pull_ms      = 21600000; // D6: 6-h layer-directory safety pull (else purely dir_epoch-driven)
 // §S6 / D11 link-quality tiers (2 bits on the wire): the home maps its per-mobile SNR EWMA to a tier; the mobile
 // maps its heard-SNR EWMA of candidate homes to the same tiers for the re-home compare. Bench-tunable (dB, Q4).
+// Boundaries {−12, −4, +4} dB ride the ONE canonical family (spec 2026-07-19 §2): {−12, −4} is EXACTLY the ACK
+// reverse-link 2-bit bucket's boundary pair (bucket_of_snr_2b, node_mac_rx.cpp:21), extended by +4 for the 4th
+// tier — one coarse family, the ACK wire bytes themselves UNTOUCHED. (The old 0/20/40 dB scale was unreachable on
+// real LoRa, where an SX126x never reports SNR above ~+12 → every link read weak/critical and the §S6.4-C
+// voluntary re-home could effectively never fire; see the canonical "Link quality" section above.)
 enum PresenceQuality : uint8_t { presence_q_critical = 0, presence_q_weak = 1, presence_q_ok = 2, presence_q_strong = 3 };
-inline constexpr int16_t  presence_q_weak_min_q4      = db_to_q4(0.0f);    //   0 dB — below = critical
-inline constexpr int16_t  presence_q_ok_min_q4        = db_to_q4(20.0f);   //  20 dB — weak..ok boundary
-inline constexpr int16_t  presence_q_strong_min_q4    = db_to_q4(40.0f);   //  40 dB — ok..strong boundary
+inline constexpr int16_t  presence_q_weak_min_q4      = db_to_q4(-12.0f);  // −12 dB — below = critical (== ACK bucket low boundary)
+inline constexpr int16_t  presence_q_ok_min_q4        = db_to_q4(-4.0f);   //  −4 dB — weak..ok boundary (== ACK bucket high boundary)
+inline constexpr int16_t  presence_q_strong_min_q4    = db_to_q4(4.0f);    //  +4 dB — ok..strong boundary (family extended by +4)
 inline constexpr uint8_t  presence_rehome_tier_delta  = 2;                 // §S6.4-C: candidate must be >= this many tiers better
 inline constexpr uint8_t  cap_presence_candidates     = 8;                 // §S6.4-C: overheard candidate-home table (RAM-bound)
 // Pure: SNR (Q4 dB) -> 2-bit presence tier. Shared by home (per-mobile EWMA) + mobile (heard candidate EWMA).

@@ -1,6 +1,6 @@
 {
  "_name": "s27_cross_layer_mobiles",
- "_desc": "FUTURE-PROTOCOL scenario (spec 2026-07-17-cross-layer-mobile-first-contact-design.md) — PARTIALLY RED until slices S1-S4 land; then joins BASELINE.md as mandatory. Two static layers, leaf 4 {S1..S4 = ids 101..104} + leaf 7 {T1..T4 = ids 111..114}, bridged by dual-layer gateway G1 (id 10, windows). Four REAL-CRYPTO mobiles (seed-derived key_hash32): M1@S1 0x2716EFCD, M2@S4 0x3A3E77A3, M3@T1 0xBCC13CC5, M4@T4 0x455FCF59. M1 knows only (layer,hash) addresses. ⚠ Static ids are HIGH (101+) DELIBERATELY: hosted-mobile local ids allocate from 17.. and a cold-boot allocation can alias a static id, poisoning rt_skip_mobile_transit at the home (defer-loop, no delivery) — a REAL pre-existing bug found by this scenario's first dry run (2026-07-17, see the spec's findings note); it needs its own fix+test, not this scenario. Spare late-start homes S5=105/T5=115/T6=116 (start_at_ms 560000) keep the INITIAL home picks deterministic (exactly one host in range per mobile at registration) and provide unambiguous re-home targets. PHASES: (A) register (homes 101/104/111/114); (B) PLAINTEXT-FIRST with INTRO auto-pubkey-attach (spec S2/D1): M1->M2 same-layer, M1->M3 + M1->M4 cross-layer via the DELEGATED send_layer (spec S1; the EXISTING layer-path format, frame_codec.h:519); replies attach keys back — NO WANT_PUBKEY flood anywhere; (C) ENCRYPTED both directions incl. CROSS-LAYER sealed (spec S4); (D) 3-of-4 RE-HOME: S4/T1/T4 die (dies_at_ms 600k/620k/640k) -> M2->S5(105), M3->T5(115), M4->T6(116); M1's home S1 SURVIVES = stable sender anchor; (E) ENCRYPTED again post-re-home (stale home caches re-resolve; re-pushed keys serve at the NEW homes — spec S3). ⚠ SIM-REPO PREREQ: the EXISTING wrapper verb `send_layer <l1,l2,..> <hash-decimal> <body>` (s09/s16) is reused for plaintext XL (S1 makes it legal FROM a mobile via delegation); ONE new wrapper verb `send_layerx <l1,l2,..> <hash-decimal> <body>` is needed for the sealed variant (mirrors send_hash/send_hashx). NOTE the wrapper's send_layer takes DECIMAL hashes (send_hash takes hex) - each verb keeps its own convention. Assertions use ONLY existing emit names (mobile_adopted / peer_key_cached / push). ⚠ TODAY-STATE (pre-slices, dry-runs 2026-07-17/18): ~12-13 of 30 asserts green = the today-protocol subset (4+1 initial adopts, hello-m2/re-m2 same-layer, 3 death-driven re-homes, M5's initial adopt + hello-m5-moved via the stale proxy); the cross-layer plaintext trio (hello-m3/re-m3/re-m4) is ACCIDENTALLY green-ish — today's mobile send_layer originates on the static plane with a local-id origin (the S1 plane-leak) and is TIMING-FRAGILE (adding M5 flipped re-m4 red with zero functional change). Do NOT chase flips within that trio; they become deterministic under S1's delegation. PHASE F (proactive re-home, spec FSM S6.4-C): M5 (fake hash 0x44070031, plaintext-only) registers to S3 over a DELIBERATELY WEAK link (snr 14 -> quality tier weak -> T=min + pre-scan); strong spare home SX (id 106, snr 55 to M5) starts at 800k with BOTH homes alive -> sustained-better + rehome-dwell -> VOLUNTARY re-home S3(103)->SX(106) -> the NEW home notifies the OLD (breadcrumb-9, D10) -> S1's send_hash to M5 at 1150k must deliver THROUGH the redirect chain (zero-blackhole handoff; this last assert is GREEN today via S3's static proxy and MUST STAY green across the F implementation).",
+ "_desc": "FUTURE-PROTOCOL scenario (spec 2026-07-17-cross-layer-mobile-first-contact-design.md) \u2014 PARTIALLY RED until slices S1-S4 land; then joins BASELINE.md as mandatory. Two static layers, leaf 4 {S1..S4 = ids 101..104} + leaf 7 {T1..T4 = ids 111..114}, bridged by dual-layer gateway G1 (id 10, windows). Four REAL-CRYPTO mobiles (seed-derived key_hash32): M1@S1 0x2716EFCD, M2@S4 0x3A3E77A3, M3@T1 0xBCC13CC5, M4@T4 0x455FCF59. M1 knows only (layer,hash) addresses. \u26a0 Static ids are HIGH (101+) DELIBERATELY: hosted-mobile local ids allocate from 17.. and a cold-boot allocation can alias a static id, poisoning rt_skip_mobile_transit at the home (defer-loop, no delivery) \u2014 a REAL pre-existing bug found by this scenario's first dry run (2026-07-17, see the spec's findings note); it needs its own fix+test, not this scenario. Spare late-start homes S5=105/T5=115/T6=116 (start_at_ms 560000) keep the INITIAL home picks deterministic (exactly one host in range per mobile at registration) and provide unambiguous re-home targets. PHASES: (A) register (homes 101/104/111/114); (B) PLAINTEXT-FIRST with INTRO auto-pubkey-attach (spec S2/D1): M1->M2 same-layer, M1->M3 + M1->M4 cross-layer via the DELEGATED send_layer (spec S1; the EXISTING layer-path format, frame_codec.h:519); replies attach keys back \u2014 NO WANT_PUBKEY flood anywhere; (C) ENCRYPTED both directions incl. CROSS-LAYER sealed (spec S4); (D) 3-of-4 RE-HOME: S4/T1/T4 die (dies_at_ms 600k/620k/640k) -> M2->S5(105), M3->T5(115), M4->T6(116); M1's home S1 SURVIVES = stable sender anchor; (E) ENCRYPTED again post-re-home (stale home caches re-resolve; re-pushed keys serve at the NEW homes \u2014 spec S3). \u26a0 SIM-REPO PREREQ: the EXISTING wrapper verb `send_layer <l1,l2,..> <hash-decimal> <body>` (s09/s16) is reused for plaintext XL (S1 makes it legal FROM a mobile via delegation); ONE new wrapper verb `send_layerx <l1,l2,..> <hash-decimal> <body>` is needed for the sealed variant (mirrors send_hash/send_hashx). NOTE the wrapper's send_layer takes DECIMAL hashes (send_hash takes hex) - each verb keeps its own convention. Assertions use ONLY existing emit names (mobile_adopted / peer_key_cached / push). \u26a0 TODAY-STATE (pre-slices, dry-runs 2026-07-17/18): ~12-13 of 30 asserts green = the today-protocol subset (4+1 initial adopts, hello-m2/re-m2 same-layer, 3 death-driven re-homes, M5's initial adopt + hello-m5-moved via the stale proxy); the cross-layer plaintext trio (hello-m3/re-m3/re-m4) is ACCIDENTALLY green-ish \u2014 today's mobile send_layer originates on the static plane with a local-id origin (the S1 plane-leak) and is TIMING-FRAGILE (adding M5 flipped re-m4 red with zero functional change). Do NOT chase flips within that trio; they become deterministic under S1's delegation. PHASE F (proactive re-home, spec FSM S6.4-C): M5 (fake hash 0x44070031, plaintext-only) registers to S3 over a DELIBERATELY WEAK link (snr 14 -> quality tier weak -> T=min + pre-scan); strong spare home SX (id 106, snr 55 to M5) starts at 800k with BOTH homes alive -> sustained-better + rehome-dwell -> VOLUNTARY re-home S3(103)->SX(106) -> the NEW home notifies the OLD (breadcrumb-9, D10) -> S1's send_hash to M5 at 1150k must deliver THROUGH the redirect chain (zero-blackhole handoff; this last assert is GREEN today via S3's static proxy and MUST STAY green across the F implementation).",
  "simulation": {
   "duration_ms": 1450000,
   "step_ms": 1,
@@ -18,7 +18,7 @@
  },
  "commands": [
   {
-   "_c": "PHASE B — plaintext-first, INTRO auto-attaches M1's pubkey (D1: no sealed frame from dst yet). Same-layer by hash.",
+   "_c": "PHASE B \u2014 plaintext-first, INTRO auto-attaches M1's pubkey (D1: no sealed frame from dst yet). Same-layer by hash.",
    "at_ms": 220000,
    "node": "M1",
    "command": "send_hash 3a3e77a3 hello-m2"
@@ -35,7 +35,7 @@
    "command": "send_layer 7 1163906905 hello-m4"
   },
   {
-   "_c": "replies — INTRO attaches each replier's key back to M1 (mutual keys, zero floods)",
+   "_c": "replies \u2014 INTRO attaches each replier's key back to M1 (mutual keys, zero floods)",
    "at_ms": 300000,
    "node": "M2",
    "command": "send_hash 2716efcd re-m2"
@@ -51,7 +51,7 @@
    "command": "send_layer 4 655814605 re-m4"
   },
   {
-   "_c": "PHASE C — encrypted (both sides hold both keys from phase B). Same-layer sealed.",
+   "_c": "PHASE C \u2014 encrypted (both sides hold both keys from phase B). Same-layer sealed.",
    "at_ms": 420000,
    "node": "M1",
    "command": "send_hashx 3a3e77a3 sealed-to-m2"
@@ -74,7 +74,7 @@
    "command": "send_layerx 4 655814605 sealed-re-m3"
   },
   {
-   "_c": "PHASE E — after the phase-D re-homes (S4 dies 600k, T1 620k, T4 640k; spares up at 560k): senders' cached homes are STALE-DEAD -> re-resolve; the NEW homes must hold the re-pushed keys (spec S3)",
+   "_c": "PHASE E \u2014 after the phase-D re-homes (S4 dies 600k, T1 620k, T4 640k; spares up at 560k): senders' cached homes are STALE-DEAD -> re-resolve; the NEW homes must hold the re-pushed keys (spec S3)",
    "at_ms": 950000,
    "node": "M1",
    "command": "send_hashx 3a3e77a3 post-m2"
@@ -96,7 +96,7 @@
    "command": "send_layerx 4 655814605 post-re-m4"
   },
   {
-   "_c": "PHASE F — after M5's voluntary re-home (~950k): a static sender reaches M5 by hash; must ride S3's redirect -> SX (green today via the stale proxy; must SURVIVE the handoff)",
+   "_c": "PHASE F \u2014 after M5's voluntary re-home (~950k): a static sender reaches M5 by hash; must ride S3's redirect -> SX (green today via the stale proxy; must SURVIVE the handoff)",
    "at_ms": 1150000,
    "node": "S1",
    "command": "send_hash 44070031 hello-m5-moved"
@@ -104,7 +104,7 @@
  ],
  "expect": [
   {
-   "_c": "PHASE A — deterministic initial homes (exactly one host in range each)",
+   "_c": "PHASE A \u2014 deterministic initial homes (exactly one host in range each)",
    "type": "script_emit_contains",
    "node": "M1",
    "emit_type": "mobile_adopted",
@@ -129,7 +129,7 @@
    "value": "\"home\":114"
   },
   {
-   "_c": "PHASE B — plaintext-first deliveries (same-layer + BOTH cross-layer)",
+   "_c": "PHASE B \u2014 plaintext-first deliveries (same-layer + BOTH cross-layer)",
    "type": "script_emit_contains",
    "node": "M2",
    "emit_type": "push",
@@ -204,7 +204,7 @@
    "value": "1163906905"
   },
   {
-   "_c": "PHASE C — encrypted deliveries (sealed bodies visible in the recipient push post-open)",
+   "_c": "PHASE C \u2014 encrypted deliveries (sealed bodies visible in the recipient push post-open)",
    "type": "script_emit_contains",
    "node": "M2",
    "emit_type": "push",
@@ -229,7 +229,7 @@
    "value": "sealed-re-m3"
   },
   {
-   "_c": "PHASE D — the three re-homes onto the late-start spares (ids unique to the re-home, no spurious match)",
+   "_c": "PHASE D \u2014 the three re-homes onto the late-start spares (ids unique to the re-home, no spurious match)",
    "type": "script_emit_contains",
    "node": "M2",
    "emit_type": "mobile_adopted",
@@ -248,7 +248,7 @@
    "value": "\"home\":116"
   },
   {
-   "_c": "PHASE E — encrypted deliveries AFTER re-home (stale-home re-resolution + key custody at the new homes)",
+   "_c": "PHASE E \u2014 encrypted deliveries AFTER re-home (stale-home re-resolution + key custody at the new homes)",
    "type": "script_emit_contains",
    "node": "M2",
    "emit_type": "push",
@@ -273,14 +273,14 @@
    "value": "post-re-m4"
   },
   {
-   "_c": "PHASE F — M5's initial (weak) home is S3",
+   "_c": "PHASE F \u2014 M5's initial (weak) home is S3",
    "type": "script_emit_contains",
    "node": "M5",
    "emit_type": "mobile_adopted",
    "value": "\"home\":103"
   },
   {
-   "_c": "★ the PROACTIVE re-home: a SECOND adopt onto SX(106) while S3 is still alive (FSM S6.4-C: weak tier -> pre-scan -> sustained-better + dwell)",
+   "_c": "\u2605 the PROACTIVE re-home: a SECOND adopt onto SX(106) while S3 is still alive (FSM S6.4-C: weak tier -> pre-scan -> sustained-better + dwell)",
    "type": "script_emit_contains",
    "node": "M5",
    "emit_type": "mobile_adopted",
@@ -292,6 +292,13 @@
    "node": "M5",
    "emit_type": "push",
    "value": "hello-m5-moved"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "M5",
+   "emit_type": "presence_rehome",
+   "value": "\"to\":106",
+   "_c": "\u2605 S6.4-C mechanism pin (2026-07-20): the phase-F re-home MUST fire via the VOLUNTARY sustained-better path (weak home -5dB tier-1 vs strong SX +11dB tier-3, delta>=2, hold+dwell) - NOT via home-lost/re-DISCOVER. Guards the voluntary plane's only suite coverage."
   }
  ],
  "nodes": [
@@ -720,7 +727,7 @@
     "_c": "layer-4 chain S1-S2-S3-S4",
     "from": "S1",
     "to": "S2",
-    "snr": 55.0,
+    "snr": 6.75,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -728,7 +735,7 @@
    {
     "from": "S2",
     "to": "S1",
-    "snr": 55.0,
+    "snr": 6.75,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -736,7 +743,7 @@
    {
     "from": "S2",
     "to": "S3",
-    "snr": 55.0,
+    "snr": 8.75,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -744,7 +751,7 @@
    {
     "from": "S3",
     "to": "S2",
-    "snr": 55.0,
+    "snr": 8.75,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -752,7 +759,7 @@
    {
     "from": "S3",
     "to": "S4",
-    "snr": 55.0,
+    "snr": 9.5,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -760,7 +767,7 @@
    {
     "from": "S4",
     "to": "S3",
-    "snr": 55.0,
+    "snr": 9.5,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -769,7 +776,7 @@
     "_c": "spare S5 near the S4 end, joined to the chain via S3",
     "from": "S5",
     "to": "S3",
-    "snr": 55.0,
+    "snr": 8.0,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -777,7 +784,7 @@
    {
     "from": "S3",
     "to": "S5",
-    "snr": 55.0,
+    "snr": 8.0,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -786,7 +793,7 @@
     "_c": "layer-7 chain T1-T2-T3-T4",
     "from": "T1",
     "to": "T2",
-    "snr": 55.0,
+    "snr": 9.0,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -794,7 +801,7 @@
    {
     "from": "T2",
     "to": "T1",
-    "snr": 55.0,
+    "snr": 9.0,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -802,7 +809,7 @@
    {
     "from": "T2",
     "to": "T3",
-    "snr": 55.0,
+    "snr": 7.0,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -810,7 +817,7 @@
    {
     "from": "T3",
     "to": "T2",
-    "snr": 55.0,
+    "snr": 7.0,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -818,7 +825,7 @@
    {
     "from": "T3",
     "to": "T4",
-    "snr": 55.0,
+    "snr": 10.25,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -826,7 +833,7 @@
    {
     "from": "T4",
     "to": "T3",
-    "snr": 55.0,
+    "snr": 10.25,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -835,7 +842,7 @@
     "_c": "spares T5 (near T1 end via T2) + T6 (near T4 end via T3)",
     "from": "T5",
     "to": "T2",
-    "snr": 55.0,
+    "snr": 8.75,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -843,7 +850,7 @@
    {
     "from": "T2",
     "to": "T5",
-    "snr": 55.0,
+    "snr": 8.75,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -851,7 +858,7 @@
    {
     "from": "T6",
     "to": "T3",
-    "snr": 55.0,
+    "snr": 7.25,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -859,7 +866,7 @@
    {
     "from": "T3",
     "to": "T6",
-    "snr": 55.0,
+    "snr": 7.25,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -868,7 +875,7 @@
     "_c": "the gateway bridges: G1 sits between the chains (S2/S3 side + T2/T3 side)",
     "from": "G1",
     "to": "S2",
-    "snr": 55.0,
+    "snr": 7.0,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -876,7 +883,7 @@
    {
     "from": "S2",
     "to": "G1",
-    "snr": 55.0,
+    "snr": 7.0,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -884,7 +891,7 @@
    {
     "from": "G1",
     "to": "S3",
-    "snr": 55.0,
+    "snr": 10.75,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -892,7 +899,7 @@
    {
     "from": "S3",
     "to": "G1",
-    "snr": 55.0,
+    "snr": 10.75,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -900,7 +907,7 @@
    {
     "from": "G1",
     "to": "T2",
-    "snr": 55.0,
+    "snr": 8.0,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -908,7 +915,7 @@
    {
     "from": "T2",
     "to": "G1",
-    "snr": 55.0,
+    "snr": 8.0,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -916,7 +923,7 @@
    {
     "from": "G1",
     "to": "T3",
-    "snr": 55.0,
+    "snr": 9.75,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -924,7 +931,7 @@
    {
     "from": "T3",
     "to": "G1",
-    "snr": 55.0,
+    "snr": 9.75,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -933,7 +940,7 @@
     "_c": "M1 at the S1 end (home survives all phases; the ONLY host M1 hears)",
     "from": "M1",
     "to": "S1",
-    "snr": 55.0,
+    "snr": 6.75,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -941,7 +948,7 @@
    {
     "from": "S1",
     "to": "M1",
-    "snr": 55.0,
+    "snr": 6.75,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -950,7 +957,7 @@
     "_c": "M2: initial home S4 (sole host until S5 starts @560k); re-home target S5",
     "from": "M2",
     "to": "S4",
-    "snr": 55.0,
+    "snr": 11.5,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -958,7 +965,7 @@
    {
     "from": "S4",
     "to": "M2",
-    "snr": 55.0,
+    "snr": 11.5,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -966,7 +973,7 @@
    {
     "from": "M2",
     "to": "S5",
-    "snr": 55.0,
+    "snr": 9.25,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -974,7 +981,7 @@
    {
     "from": "S5",
     "to": "M2",
-    "snr": 55.0,
+    "snr": 9.25,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -983,7 +990,7 @@
     "_c": "M3: initial home T1; re-home target T5",
     "from": "M3",
     "to": "T1",
-    "snr": 55.0,
+    "snr": 7.0,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -991,7 +998,7 @@
    {
     "from": "T1",
     "to": "M3",
-    "snr": 55.0,
+    "snr": 7.0,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -999,7 +1006,7 @@
    {
     "from": "M3",
     "to": "T5",
-    "snr": 55.0,
+    "snr": 9.5,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -1007,7 +1014,7 @@
    {
     "from": "T5",
     "to": "M3",
-    "snr": 55.0,
+    "snr": 9.5,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -1016,7 +1023,7 @@
     "_c": "M4: initial home T4; re-home target T6",
     "from": "M4",
     "to": "T4",
-    "snr": 55.0,
+    "snr": 10.25,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -1024,7 +1031,7 @@
    {
     "from": "T4",
     "to": "M4",
-    "snr": 55.0,
+    "snr": 10.25,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -1032,7 +1039,7 @@
    {
     "from": "M4",
     "to": "T6",
-    "snr": 55.0,
+    "snr": 6.5,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -1040,16 +1047,16 @@
    {
     "from": "T6",
     "to": "M4",
-    "snr": 55.0,
+    "snr": 6.5,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
    },
    {
-    "_c": "PHASE F — M5's WEAK sole home link (quality tier weak); SX = the late strong candidate; SX joins the mesh via S3",
+    "_c": "PHASE F \u2014 M5's WEAK sole home link (quality tier weak); SX = the late strong candidate; SX joins the mesh via S3",
     "from": "M5",
     "to": "S3",
-    "snr": 14.0,
+    "snr": -5.0,
     "rssi": -104.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -1057,7 +1064,7 @@
    {
     "from": "S3",
     "to": "M5",
-    "snr": 14.0,
+    "snr": -5.0,
     "rssi": -104.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -1065,7 +1072,7 @@
    {
     "from": "M5",
     "to": "SX",
-    "snr": 55.0,
+    "snr": 11.0,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -1073,7 +1080,7 @@
    {
     "from": "SX",
     "to": "M5",
-    "snr": 55.0,
+    "snr": 11.0,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -1081,7 +1088,7 @@
    {
     "from": "SX",
     "to": "S3",
-    "snr": 55.0,
+    "snr": 7.0,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -1089,7 +1096,7 @@
    {
     "from": "S3",
     "to": "SX",
-    "snr": 55.0,
+    "snr": 7.0,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false

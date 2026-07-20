@@ -612,7 +612,7 @@ void Node::presence_ingest_probe(const uint8_t* frame, size_t len, const RxMeta&
         // sel_me: normal refresh + custody + SNR EWMA, then answer (ONLY the selected home answers a check probe)
         _active->_mobile_reg[mine].last_heard_ms = _hal.now();      // liveness refresh (kills the 25-min black hole via the probe cadence)
         int16_t& ew = _active->_mobile_snr_q4[mine];
-        ew = (ew == 0) ? snr_q4 : static_cast<int16_t>(ew + (((snr_q4 - ew) * protocol::snr_ewma_alpha_q4) >> 4));
+        ew = protocol::snr_ewma_update(ew, snr_q4);                 // seed-if-zero EWMA (canonical link-quality helper)
         if (p->has_pubkey) {                                        // §S6 A.4: key custody rides the probe (RETIRES TYPE-12) — self-consistency check ed_pub[:4]==hash
             const uint32_t pk_hash = uint32_t(p->ed_pub[0]) | (uint32_t(p->ed_pub[1]) << 8)
                                    | (uint32_t(p->ed_pub[2]) << 16) | (uint32_t(p->ed_pub[3]) << 24);

@@ -284,13 +284,25 @@ void Node::ingest_channel_m(const m_out& m, uint8_t from) {
 //      self-origination budget. Returns the per-origin ctr used. -----------------------------------
 uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t body_len) {
     const uint64_t now = _hal.now();
+    // §F-PS-1/§18: a TEAM-scoped channel flood must originate under the TEAM id, never the host-assigned STATIC local
+    // id. do_send_channel is reached on the mobile ONLY for a `-t` team post (node.cpp:947); a static leaf/GLOBAL post
+    // and the home's delegated re-originate are is_mobile==false -> origin stays _node_id (byte-identical). For a
+    // DUAL (registered) member _node_id is its host-assigned static local id, which would otherwise leak into the
+    // TEAM-plane channel_msg_id (a cross-universe id: it can collide another member's team id + mislabels team
+    // history). Mirror node_beacon.cpp:273 — the team plane keys on _team_local_id. Off-grid: _node_id ==
+    // _team_local_id already, so `origin` is unchanged (no stream shift). Same guard predicate as the team-scope
+    // block below (:317). Used for the self-cap tally, next_ctr, the msg-id mint, and e.origin — all coherently.
+    uint8_t origin = _node_id;
+#if MR_FEAT_TEAM
+    if (_cfg.is_mobile && _cfg.team_id != 0 && _team_local_id != 0) origin = _team_local_id;
+#endif
     // Slice 2 self-GATE (MF4): apply the per-origin cap + the 10s burst floor to OUR OWN posts. This path does NOT
     // route through channel_origin_admit (which self-bypasses at :80), so the gate lives here. Blocked -> emit
     // send_blocked{channel} and mint nothing (no ctr consumed, nothing buffered/flooded).
     const uint16_t cap = channel_cap_origin();
     uint16_t used = 0;                                        // own distinct floods currently held (inline; no public helper)
     for (uint16_t i = 0; i < _active->_channel_buffer_n; ++i)
-        if (_active->_channel_buffer[i].origin == _node_id) ++used;
+        if (_active->_channel_buffer[i].origin == origin) ++used;
     const char* block_reason = nullptr; uint32_t next_ms = 0;
     if (_last_channel_origin_ms != 0 && now - _last_channel_origin_ms < _cfg.channel_min_interval_ms) {
         block_reason = "min_interval";
@@ -310,10 +322,10 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
         emit_send_blocked(/*channel=*/true, r, next_ms);
         return 0;                                             // not sent (no ctr minted)
     }
-    const uint16_t c = next_ctr(_node_id);
-    const uint32_t id = channel_msg_id_mint(_node_id, _key_hash32, static_cast<uint8_t>(c & 0xff));
+    const uint16_t c = next_ctr(origin);
+    const uint32_t id = channel_msg_id_mint(origin, _key_hash32, static_cast<uint8_t>(c & 0xff));
     ChannelEntry e{};
-    e.id = id; e.channel_id = channel_id; e.flavor = protocol::channel_flavor_public; e.origin = _node_id;
+    e.id = id; e.channel_id = channel_id; e.flavor = protocol::channel_flavor_public; e.origin = origin;
     if (_cfg.is_mobile && _cfg.team_id != 0) {                    // §mobile 6.3: a team member's channel post IS the team broadcast — scope it to the team + set the team flavor bit (the M-frame carries team_id; the RTS-M gets mobile_src). A static/lone node: team_id 0, flavor unchanged -> byte-identical.
         e.team_id = _cfg.team_id; e.flavor |= protocol::channel_flavor_team;
     }

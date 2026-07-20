@@ -673,10 +673,19 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 
     if (node_id >= 0) {                                    // RESOLVER path (dv:11644) — answer + SUPPRESS the forward
         mark_hash_query_seen(h.origin, h.key_hash32, h.hard, h.want_pubkey);   // mark BEFORE replying so a re-flood doesn't double-answer (dv:11647)
+        // §F-TR-2: the ANSWER binding for a TEAM-scoped own-hash resolve must name our TEAM identity (team_local_id), NOT the
+        // host-assigned static node_id. A DUAL (registered) member's _node_id is its static host id (e.g. 254); answering a
+        // team locate with that sends the querier to _rt_team looking for a static id that has no team route -> no_route/giveup.
+        // Owner-detection below still keys on node_id==_node_id (unchanged); only the emitted/answered id is substituted, and
+        // mirrors the team H-flood origin (:~1207) + team RTS src. OFF-GRID team & static: team_local_id()==_node_id (or not
+        // same_team / not registered) -> answer_node_id==node_id -> byte-identical (s18/s22-s26 unshifted; audited).
+        uint8_t answer_node_id = static_cast<uint8_t>(node_id);
+        if (node_id == _node_id && same_team && mobile_registered() && team_local_id() != 0)
+            answer_node_id = team_local_id();
         MR_TELEMETRY(
             EventField f[] = { { .key = "origin",        .type = EventField::T::i64,     .i = h.origin },
                                { .key = "key_hash32",    .type = EventField::T::i64,     .i = static_cast<int64_t>(h.key_hash32) },
-                               { .key = "node",          .type = EventField::T::i64,     .i = node_id },
+                               { .key = "node",          .type = EventField::T::i64,     .i = answer_node_id },
                                { .key = "target_layer",  .type = EventField::T::i64,     .i = _cfg.leaf_id },
                                { .key = "authoritative", .type = EventField::T::boolean, .b = authoritative } };
             _hal.emit("h_resolved", f, 5); );              // dv:11649
@@ -708,9 +717,9 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                 MR_EMIT("peer_key_cached", EF_I("hash", static_cast<int64_t>(requester_hash)), EF_I("node", h.origin));   // review#11: schema aligned with §7
                 push_peer_key_cached(requester_hash);   // review#10: app-notify on device too (§S6: + the cached name)
             }
-            send_hash_bind_pubkey_response(h.origin, _cfg.leaf_id, static_cast<uint8_t>(node_id), _ed_pub, h.mobile_req ? requester_hash : 0);   // §mobile: a MOBILE requester -> DST_HASH=the mobile so the answer routes to origin (=the mobile's home) + last-miles
+            send_hash_bind_pubkey_response(h.origin, _cfg.leaf_id, answer_node_id, _ed_pub, h.mobile_req ? requester_hash : 0, /*team_scoped=*/h.team_scoped);   // §mobile: a MOBILE requester -> DST_HASH=the mobile so the answer routes to origin (=the mobile's home) + last-miles; §F-TR-2: team-scoped own answer names team_local_id + routes on the team plane
         } else
-            send_hash_bind_response(h.origin, mobile_proxy ? mobile_layer : _cfg.leaf_id, static_cast<uint8_t>(node_id), h.key_hash32, authoritative, mobile_proxy, mobile_epoch);   // §5b: a mobile answer carries the HOME's full layer_id (not the proxy's leaf)
+            send_hash_bind_response(h.origin, mobile_proxy ? mobile_layer : _cfg.leaf_id, answer_node_id, h.key_hash32, authoritative, mobile_proxy, mobile_epoch, /*team_scoped=*/h.team_scoped);   // §5b: a mobile answer carries the HOME's full layer_id (not the proxy's leaf); §F-TR-2: team-scoped own answer names team_local_id (not the static host id) + routes on the team plane (_rt_team + team RREQ)
         return;                                            // SUPPRESS — the whole point: the flood stops here
     }
 
@@ -773,7 +782,7 @@ void Node::h_forward_fire(uint8_t slot) {
 // hop-by-hop on the existing rt[origin] (the H flood lays no reverse path). AUTHORITATIVE = the resolver
 // answered as the owner (matches_self), not from a cached binding. (Lua send_hash_bind_response dv:5877.)
 void Node::send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id,
-                                   uint32_t key_hash32, bool authoritative, bool mobile_proxy, uint8_t epoch) {
+                                   uint32_t key_hash32, bool authoritative, bool mobile_proxy, uint8_t epoch, bool team_scoped) {
     if (_active->_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (the querier can re-flood)
     hash_bind_inner hb{};
     hb.target_layer = target_layer; hb.node_id = node_id; hb.key_hash32 = key_hash32;   // authoritative rides the frame TYPE, not the inner
@@ -785,6 +794,12 @@ void Node::send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint
     item.origin = _node_id; item.dst = to_origin;
     item.ctr = next_ctr(to_origin); item.ctr_lo = static_cast<uint8_t>(item.ctr & 0x0F);
     item.flags = 0;                                              // byte-1 flags clear; the H_ANSWER TYPE byte (below) types it
+    // §F-TR-2: a TEAM-scoped H answer routes home on the TEAM plane. AUTO dispatches by is_team_peer(to_origin), which is
+    // FALSE when the origin (the querier's team_local_id) has not yet been learned as a team peer — AUTO then falls to the
+    // static _rt, RREQs the team id on the STATIC plane, and the dual-member owner (whose static id != team id) never
+    // self-answers that RREQ -> no_route/giveup. Forcing TEAM routes via _rt_team + a TEAM RREQ (owner self-answers on
+    // team_local_id). Byte-identical where a team route already exists (AUTO already picked _rt_team); s22-s26 audited.
+    item.plane = team_scoped ? Plane::TEAM : Plane::AUTO;
     item.type  = mobile_proxy ? DATA_TYPE_MOBILE_H_ANSWER
                : authoritative ? DATA_TYPE_AUTHORITATIVE_H_ANSWER : DATA_TYPE_H_ANSWER;
     for (size_t i = 0; i < n; ++i) item.inner[i] = inner[i];
@@ -804,7 +819,7 @@ void Node::send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint
 // Wave 2: built as a STANDARD DM (enqueue_data -> [dst_hash?][origin][body]) not a raw inner, so a MOBILE requester's
 // answer can carry dst_hash=the mobile -> route to origin (=the mobile's HOME) -> the home last-mile-forwards it
 // (do_post_ack). dst_hash==0 (a static requester) -> a plain [origin][body] DM to to_origin. The consumer reads ui->body.
-void Node::send_hash_bind_pubkey_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, const uint8_t ed_pub[32], uint32_t dst_hash) {
+void Node::send_hash_bind_pubkey_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, const uint8_t ed_pub[32], uint32_t dst_hash, bool team_scoped) {
     hash_bind_pubkey_inner hb{}; hb.target_layer = target_layer; hb.node_id = node_id;
     for (int i = 0; i < 32; ++i) hb.ed_pub[i] = ed_pub[i];
     uint8_t body[34 + 1 + 32];                                     // the pubkey answer BODY; enqueue_data wraps it in the standard inner
@@ -813,7 +828,8 @@ void Node::send_hash_bind_pubkey_response(uint8_t to_origin, uint8_t target_laye
     const uint8_t nlen = effective_name(reinterpret_cast<char*>(body + n + 1), 32);   // §1.3: ‖ [name_len][name] (OUR name; the owner answers its own key)
     body[n] = nlen; n += 1u + nlen;
     (void)enqueue_data(to_origin, body, static_cast<uint8_t>(n), /*flags=*/0, "hash_bind_pubkey_response_enqueued",
-                       /*app_dm=*/false, DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY, CryptIntent::off, /*override_dst_hash=*/dst_hash);
+                       /*app_dm=*/false, DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY, CryptIntent::off, /*override_dst_hash=*/dst_hash,
+                       /*override_source_hash=*/0, /*addr_len=*/0, /*plane=*/team_scoped ? Plane::TEAM : Plane::AUTO);   // §F-TR-2: team-scoped WANT_PUBKEY answer routes on _rt_team
 }
 
 // E2E §6: a DATA TYPE 5 (delivered to us OR relayed-through) -> cache the owner's ed_pub AUTHORITATIVE. The pubkey is
@@ -1043,6 +1059,17 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
         uint8_t tid = 0;
         if (_cfg.team_id != 0 && team_id_of_key(key_hash32, tid))
             return do_send(tid, sbody, sblen, flags, crypt, /*override_dst_hash=*/0, /*type=*/itype, /*override_source_hash=*/reply_to_hash, Plane::TEAM);
+        // §F-TR-1: an UNHEARD teammate (>1 hop away, not in the beacon-only team-key cache) is resolved by a TEAM-SCOPED H
+        // flood (emit_hash_query TEAM => team_scoped + origin=team_local_id; the answer routes home via _rt_team) — mirrors
+        // the off-grid AUTO team path (:~1146). EXPLICIT `-t` WINS over the home-delegation default: a REGISTERED dual member
+        // reaches HERE (the plane check precedes the delegate branch below) and floods the TEAM plane itself — no home. Gated
+        // on team_local_id()!=0 (a routable team origin); a team member with no adopted team id still fails loud below.
+        if (_cfg.team_id != 0 && team_local_id() != 0) {
+            park_send(key_hash32, sbody, sblen, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr, /*type=*/itype,
+                      /*reflood=*/true, /*reflood_hard=*/false, /*reflood_plane=*/Plane::TEAM);
+            emit_hash_query(key_hash32, /*hard=*/false, /*want_pubkey=*/false, Plane::TEAM);
+            return 0;
+        }
         MR_EMIT("team_send_unresolved", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
         Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::mobile_no_home; pu.dst = 0; pu.ctr = 0; enqueue_push(pu);
         return 0;

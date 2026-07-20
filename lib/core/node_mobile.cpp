@@ -176,6 +176,18 @@ void Node::mobile_reset_registration([[maybe_unused]] const char* reason) {
     const bool was_active = _my_mobile_reg.active;               // §S2: only push the deregistration on a REAL transition (no spurious repeat)
     _my_mobile_reg.active = false;
     _joined = false;
+#if MR_FEAT_TEAM
+    // §F-PS-1: team membership is home-INDEPENDENT (§18). A REGISTERED team member that loses its home must NOT go
+    // mute on the team plane — degrade it to a normal OFF-GRID team member (the s22 steady state: node_id ==
+    // _team_local_id) rather than fully unprovisioned (id 0). That keeps every `_node_id == 0` send guard correct
+    // as-is (on_command :913/:930/…): a `-t` team send / team DM now originates under the intact team id instead of
+    // being refused err_unprovisioned. The DISCOVER FSM keeps searching for a new home in parallel — adopt overwrites
+    // _node_id with the host-assigned id, restoring the dual identity (mobile_claim_guard_fire set_identity). Mirrors
+    // node_beacon.cpp:273 (team beacon src) + team_dad_fire's off-grid identity rule; a NON-team mobile / no team-DAD
+    // yet (_team_local_id==0) falls through to unprovisioned = byte-identical.
+    if (_cfg.team_id != 0 && _team_local_id != 0) set_identity(_team_local_id, _key_hash32);
+    else
+#endif
     set_identity(protocol::unjoined_node_id, _key_hash32);        // 0 = unprovisioned (transient; a re-CLAIM follows)
     MR_EMIT("mobile_reset", EF_S("reason", reason ? reason : ""));
     if (was_active) { Push pu{}; pu.kind = PushKind::mobile_reg; pu.relayed = false; enqueue_push(pu); }   // §S2: home lost / dereg -> home=0,local=0,registered:false
@@ -323,8 +335,7 @@ void Node::presence_ingest_roster(const uint8_t* frame, size_t len, const RxMeta
                 _presence_reg_confirmed = true;                                            // the home HAS us (our hash in its roster) -> a CLAIM landed
                 _presence_claim_retries = 0;
                 _presence_my_tier = e->quality;                                            // D14: me->home direction (the home's report of me)
-                _presence_home_rx_q4 = (_presence_home_rx_q4 == 0) ? snr_q4                 // D14: home->me direction (my RX EWMA of the home's roster)
-                                       : static_cast<int16_t>(_presence_home_rx_q4 + (((snr_q4 - _presence_home_rx_q4) * protocol::snr_ewma_alpha_q4) >> 4));
+                _presence_home_rx_q4 = protocol::snr_ewma_update(_presence_home_rx_q4, snr_q4);  // D14: home->me direction (seed-if-zero EWMA of my RX of the home's rosters)
                 if (e->has_key) _presence_key_confirmed = true;
                 if (e->deleg_fail) {   // §B2: the home dropped a delegated send for us (loud, one-shot) -> surface send_failed{no_route} to the app's back-off
                     MR_EMIT("presence_deleg_fail", EF_I("home", r->home_id));
@@ -369,7 +380,7 @@ void Node::presence_note_candidate(uint8_t home_id, uint8_t home_layer, int16_t 
     const uint64_t now = _hal.now();
     for (uint8_t i = 0; i < _presence_cand_n; ++i)
         if (_presence_cand[i].home_id == home_id && _presence_cand[i].home_layer == home_layer) {
-            _presence_cand[i].snr_q4 = static_cast<int16_t>(_presence_cand[i].snr_q4 + (((snr_q4 - _presence_cand[i].snr_q4) * protocol::snr_ewma_alpha_q4) >> 4));
+            _presence_cand[i].snr_q4 = protocol::snr_ewma_step(_presence_cand[i].snr_q4, snr_q4);   // step() NOT update(): the slot is seeded at insertion, so no seed-if-zero (bit-identical to the old inline form)
             _presence_cand[i].last_seen_ms = now; return;
         }
     uint8_t slot = _presence_cand_n < protocol::cap_presence_candidates ? _presence_cand_n++ : 0;   // full -> evict slot 0

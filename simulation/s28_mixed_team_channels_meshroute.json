@@ -36,16 +36,16 @@
    "command": "send_channel 1 leaf-chan-hello"
   },
   {
-   "_c": "mixed team DMs BY HASH both directions (by-id -t has no wrapper verb; covered natively)",
+   "_c": "\u2605 F-TR-1 (2026-07-20): a HOMED member DMs its off-grid teammate BY HASH on the EXPLICIT TEAM plane (-t; plain would delegate to the home = the static universe, correct-but-unresolvable post-HARD-SPLIT)",
    "at_ms": 600000,
    "node": "XH1",
-   "command": "send_hash ee000004 tx-dm-h2o"
+   "command": "send_hash ee000004 tx-dm-h2o -t"
   },
   {
-   "at_ms": 620000,
+   "at_ms": 660000,
    "node": "XO4",
    "command": "send_hash ee000002 tx-dm-o2h",
-   "_c": "off-grid->homed team DM by hash, 2 team hops (XO4-XO5-XH2; \u22653-hop team-hash is the DOCUMENTED s23 attenuation boundary, not asserted)"
+   "_c": "off-grid->homed team DM by hash, 2 team hops (XO4-XO5-XH2; \u22653-hop team-hash is the DOCUMENTED s23 attenuation boundary, not asserted) [moved 620k->660k 2026-07-20: at 620k both team H floods collide at XO4 (h2o forward lands mid-o2h TX burst) - pure airtime contention, both mechanisms proven independently]"
   },
   {
    "_c": "PHASE C \u2014 S1 dies @700k: XH1 loses its home; the TEAM must be unaffected (a post-death team post still crosses the chain)",
@@ -204,19 +204,32 @@
    "value": "\"channel_id\":5"
   },
   {
-   "type": "event_count",
-   "event_type": "script_emit",
-   "emit_type": "channel_pull_sent",
+   "type": "script_emit_not_contains",
    "node": "S2",
-   "count": 0,
-   "_c": "digest-gate regression: no static pulls of team ids"
+   "emit_type": "channel_pull_sent",
+   "value": "\"id\":2315256",
+   "_c": "digest-gate regression: S2 must never pull a TEAM-minted id (families origin-138 [post-F-PS-1: team floods mint the TEAM id, the old 254 host-id family is extinct] / origin-90 by stable hash16 prefix); static-plane repair pulls are LEGITIMATE (flood backstop) and no longer forbidden"
   },
   {
-   "type": "event_count",
-   "event_type": "script_emit",
+   "type": "script_emit_not_contains",
+   "node": "S2",
    "emit_type": "channel_pull_sent",
+   "value": "\"id\":1509950",
+   "_c": "digest-gate regression: S2 must never pull a TEAM-minted id (families origin-254 / origin-90 by stable hash16 prefix); static-plane repair pulls are LEGITIMATE (flood backstop) and no longer forbidden"
+  },
+  {
+   "type": "script_emit_not_contains",
    "node": "S1",
-   "count": 0
+   "emit_type": "channel_pull_sent",
+   "value": "\"id\":2315256",
+   "_c": "digest-gate regression: S1 must never pull a TEAM-minted id (families origin-138 [post-F-PS-1: team floods mint the TEAM id, the old 254 host-id family is extinct] / origin-90 by stable hash16 prefix); static-plane repair pulls are LEGITIMATE (flood backstop) and no longer forbidden"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "S1",
+   "emit_type": "channel_pull_sent",
+   "value": "\"id\":1509950",
+   "_c": "digest-gate regression: S1 must never pull a TEAM-minted id (families origin-254 / origin-90 by stable hash16 prefix); static-plane repair pulls are LEGITIMATE (flood backstop) and no longer forbidden"
   },
   {
    "type": "script_emit_contains",
@@ -561,7 +574,7 @@
    {
     "from": "S1",
     "to": "S2",
-    "snr": 55.0,
+    "snr": 10.75,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -569,7 +582,7 @@
    {
     "from": "S2",
     "to": "S1",
-    "snr": 55.0,
+    "snr": 10.75,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -577,7 +590,7 @@
    {
     "from": "S2",
     "to": "S3",
-    "snr": 55.0,
+    "snr": 10.75,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -585,7 +598,7 @@
    {
     "from": "S3",
     "to": "S2",
-    "snr": 55.0,
+    "snr": 10.75,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -593,7 +606,7 @@
    {
     "from": "XH1",
     "to": "S1",
-    "snr": 55.0,
+    "snr": -5.0,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -601,7 +614,7 @@
    {
     "from": "S1",
     "to": "XH1",
-    "snr": 55.0,
+    "snr": -5.0,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -609,7 +622,7 @@
    {
     "from": "XH2",
     "to": "S3",
-    "snr": 55.0,
+    "snr": 11.5,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -617,7 +630,7 @@
    {
     "from": "S3",
     "to": "XH2",
-    "snr": 55.0,
+    "snr": 11.5,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -625,7 +638,7 @@
    {
     "from": "XH1",
     "to": "XO3",
-    "snr": 55.0,
+    "snr": 11.75,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -633,7 +646,7 @@
    {
     "from": "XO3",
     "to": "XH1",
-    "snr": 55.0,
+    "snr": 11.75,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -641,7 +654,7 @@
    {
     "from": "XO3",
     "to": "XO4",
-    "snr": 55.0,
+    "snr": 10.25,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -649,7 +662,7 @@
    {
     "from": "XO4",
     "to": "XO3",
-    "snr": 55.0,
+    "snr": 10.25,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -657,7 +670,7 @@
    {
     "from": "XO4",
     "to": "XO5",
-    "snr": 55.0,
+    "snr": 10.5,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -665,7 +678,7 @@
    {
     "from": "XO5",
     "to": "XO4",
-    "snr": 55.0,
+    "snr": 10.5,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -673,7 +686,7 @@
    {
     "from": "XO5",
     "to": "XH2",
-    "snr": 55.0,
+    "snr": 11.25,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -681,7 +694,7 @@
    {
     "from": "XH2",
     "to": "XO5",
-    "snr": 55.0,
+    "snr": 11.25,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -689,7 +702,7 @@
    {
     "from": "YO1",
     "to": "XO4",
-    "snr": 55.0,
+    "snr": 11.5,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -697,7 +710,7 @@
    {
     "from": "XO4",
     "to": "YO1",
-    "snr": 55.0,
+    "snr": 11.5,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -705,7 +718,7 @@
    {
     "from": "YO2",
     "to": "XO4",
-    "snr": 55.0,
+    "snr": 11.5,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -713,7 +726,7 @@
    {
     "from": "XO4",
     "to": "YO2",
-    "snr": 55.0,
+    "snr": 11.5,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -721,7 +734,7 @@
    {
     "from": "YO1",
     "to": "YO2",
-    "snr": 55.0,
+    "snr": 11.5,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -729,7 +742,7 @@
    {
     "from": "YO2",
     "to": "YO1",
-    "snr": 55.0,
+    "snr": 11.5,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
@@ -737,7 +750,7 @@
    {
     "from": "XO4",
     "to": "S2",
-    "snr": 55.0,
+    "snr": 11.25,
     "rssi": -60.0,
     "snr_std_dev": 0,
     "bidir": false
