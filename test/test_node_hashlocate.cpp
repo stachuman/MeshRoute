@@ -764,7 +764,7 @@ TEST_CASE("D give-up — a parked DM whose hash never resolves is dropped on the
     send_by_hash_cmd(node, /*dst_hash=*/0x0000EEEE, body, sizeof(body));   // unknown -> parked
     hal.events.clear();
 
-    hal._now = protocol::send_defer_ttl_ms + 1;          // past the give-up window
+    hal._now = protocol::hash_locate_giveup_ms + 1;      // past the give-up window (P-BUDGET: parked path decoupled from send_defer_ttl_ms)
     node.on_timer(kAgingTimerId);                        // the periodic sweep
     CHECK(find_ev(hal.events, "send_hash_giveup") != nullptr);
 
@@ -879,7 +879,7 @@ TEST_CASE("resolve — a hash that never resolves pushes a timeout (node 0) afte
     Push p{};
     CHECK_FALSE(node.next_push(p));                  // parked, awaiting the flood answer
 
-    hal._now += protocol::send_defer_ttl_ms;         // let the parked resolve age out
+    hal._now += protocol::hash_locate_giveup_ms;     // let the parked resolve age out (P-BUDGET window)
     node.on_timer(kAgingTimerId);
     CHECK(node.next_push(p));
     CHECK(p.kind == PushKind::hash_resolved);
@@ -1814,19 +1814,26 @@ TEST_CASE("§F-SL-1 — a parked unresolved send re-floods (bounded + jittered) 
     CHECK(hal.countType("send_hash_reflood") == 1);
     CHECK(count_h_tx(hal.tx_frames) == 2);
 
-    // retry 2: the entry re-armed itself ~one interval later (+ the deterministic jitter, bounded by park_reflood_jitter_ms)
-    hal._now = 1000 + 2 * protocol::park_reflood_retry_ms + protocol::park_reflood_jitter_ms;
-    A.on_timer(kParkRefloodTimerId);
-    CHECK(hal.countType("send_hash_reflood") == 2);
-    CHECK(count_h_tx(hal.tx_frames) == 3);
+    // retries 2..park_reflood_max_retries: the entry re-arms itself ~one interval later each time (+ the deterministic
+    // jitter, bounded by park_reflood_jitter_ms). P-BUDGET: max_retries was raised so a fragile multi-hop flood gets
+    // several INDEPENDENT (>= a beacon period apart) attempts; drive them all and verify each fires.
+    for (uint8_t k = 2; k <= protocol::park_reflood_max_retries; ++k) {
+        hal._now = 1000 + static_cast<uint32_t>(k) * protocol::park_reflood_retry_ms
+                        + static_cast<uint32_t>(k) * protocol::park_reflood_jitter_ms;   // clear each re-arm's jitter margin
+        A.on_timer(kParkRefloodTimerId);
+        CHECK(hal.countType("send_hash_reflood") == k);
+        CHECK(count_h_tx(hal.tx_frames) == static_cast<int>(k) + 1);   // +1 = the park-time flood
+    }
 
-    // retry 3: BOUNDED — park_reflood_max_retries=2, so no third re-flood
-    hal._now = 1000 + 4 * protocol::park_reflood_retry_ms + protocol::park_reflood_jitter_ms;
+    // one more scan past the cap: BOUNDED — no further re-flood
+    hal._now = 1000 + static_cast<uint32_t>(protocol::park_reflood_max_retries + 2) * protocol::park_reflood_retry_ms
+                    + protocol::park_reflood_jitter_ms;
     A.on_timer(kParkRefloodTimerId);
-    CHECK(hal.countType("send_hash_reflood") == 2);             // unchanged
-    CHECK(count_h_tx(hal.tx_frames) == 3);                      // unchanged
+    CHECK(hal.countType("send_hash_reflood") == protocol::park_reflood_max_retries);       // unchanged
+    CHECK(count_h_tx(hal.tx_frames) == static_cast<int>(protocol::park_reflood_max_retries) + 1);   // unchanged
 
-    // the giveup still fires after the TTL (the re-flood never removed the bound); _now is already well past the TTL
+    // the giveup still fires after the decoupled hash_locate_giveup_ms window (the re-flood never removed the bound)
+    hal._now = 1000 + protocol::hash_locate_giveup_ms + 1;
     A.on_timer(kAgingTimerId);
     CHECK(hal.countType("send_hash_giveup") >= 1);
 }

@@ -12,6 +12,7 @@
 
 #include "frame_codec.h"
 #include "airtime.h"
+#include "identity.h"  // §P2-6: key_hash32_of (LE(ed_pub[:4]) derivation)
 
 #include <span>
 
@@ -33,7 +34,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // team_id. Do NOT drop it on leaf mismatch; the rest of the exchange (CTS/DATA/ACK) matches on pending state, not leaf.
     // A non-team frame, or a member whose team_local_id differs, hits the normal leaf gate -> s18/static byte-identical.
 #if MR_FEAT_TEAM
-    const bool team_rts_for_us = r.addr_len == 1 && _cfg.team_id != 0 && _team_local_id != 0 && r.next == _team_local_id;
+    const bool team_rts_for_us = team_addr_for_us(r.next, r.addr_len);   // §P2-3
     // §P2-1 (mixed-leaf team channel): a TEAM channel-flood RTS-M (m_broadcast + mobile_src) is leaf-EXEMPT for a team member,
     // so a teammate homed on another nibble still retunes to catch the DATA-M. The RTS-M carries no team_id (only the DATA-M
     // does) so we exempt ANY team flood — the DATA-M's team_id gate (ingest_channel_m) does the actual team filtering (the same
@@ -74,7 +75,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // keeps it off the static _rt (s18/mobile-DM sims have no such frame -> byte-identical). A NEW peer also triggers our
     // beacon (Fix a) so the peer learns us back.
 #if MR_FEAT_TEAM
-    else if (r.mobile_src && r.addr_len == 1 && _cfg.team_id != 0 && _team_local_id != 0 && r.next == _team_local_id
+    else if (r.mobile_src && team_addr_for_us(r.next, r.addr_len)   // §P2-3
              && r.src != 0 && r.src != 0xFF) {
         _active->_team_peer[r.src >> 3] |= static_cast<uint8_t>(1u << (r.src & 7));   // known same-team peer (is_team_peer reads this)
         if (learn_direct_neighbor(r.src, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/true)) schedule_triggered_beacon();
@@ -196,7 +197,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // -> this is byte-identical to the old `next != _node_id || (addr_len==1)!=is_mobile`.
     const bool for_static_rts = r.next == _node_id && ((r.addr_len == 1) == _cfg.is_mobile);
 #if MR_FEAT_TEAM
-    const bool for_team_rts   = _cfg.team_id != 0 && _team_local_id && r.next == _team_local_id && r.addr_len == 1;
+    const bool for_team_rts   = team_addr_for_us(r.next, r.addr_len);   // §P2-3
 #else
     const bool for_team_rts   = false;   // §featuresplit
 #endif
@@ -399,7 +400,7 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // THROTTLE-ONLY (a stale window entry), never a route/deliver decision -> no misroute/misdeliver; a full fix needs a
     // CTS wire bit (a flag-day, not worth it for a throttle). own_mobile_team_cts is false on s18 -> byte-identical.
     const bool own_mobile_team_cts = for_me_dst(c.rx_id) && _active->_pending_tx
-        && (_active->_pending_tx->addr_len == 1 || is_team_peer(_active->_pending_tx->next));
+        && (next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next));
     if (!own_mobile_team_cts)
         track_originator_observation(c.tx_id, /*kind=cts*/1, /*dedup_key=*/c.rx_id,
                                      static_cast<uint32_t>(airtime_routing_ms(4)));
@@ -424,9 +425,9 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // Learn the CTS sender (= our next-hop) as a 1-hop neighbour (Lua learn_rx_source / cts_frame).
     // §mobile: our next-hop on a mobile last-mile (addr_len=1) or a team DM (is_team_peer) is a LOCAL id, not a global
     // identity -> keep it OUT of the static _rt (mirror the ACK-learn guard below). Inert on s18/static (both false).
-    if (!(_active->_pending_tx->addr_len == 1 || is_team_peer(_active->_pending_tx->next))
+    if (!(next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next))
         && learn_direct_neighbor(c.tx_id, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
-    if (!(_active->_pending_tx->addr_len == 1 || is_team_peer(_active->_pending_tx->next)))   // §mobile: a mobile/team next is a LOCAL id -> keep it OUT of the static bidi/liveness + route-rerank planes (mirror the CTS-learn guard above)
+    if (!(next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next)))   // §mobile: a mobile/team next is a LOCAL id -> keep it OUT of the static bidi/liveness + route-rerank planes (mirror the CTS-learn guard above)
         note_link_confirmed(c.tx_id);                    // bidi plane: a real CTS proves our next-hop hears us -> confirmed (clears any one_way + emits link_recover)
     _hal.cancel(kRtsTimeoutTimerId);                     // else it fires same-tick and burns a retry
     _hal.cancel(kRetryBackoffTimerId);                   // drop a stale retry armed by a just-fired rts_timeout
@@ -481,7 +482,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // Non-team node: _team_local_id==0 -> for_team_data false -> byte-identical to the old `next != _node_id || (addr_len==1)!=is_mobile`.
     const bool for_static_data = d.next == _node_id && ((d.addr_len == 1) == _cfg.is_mobile);
 #if MR_FEAT_TEAM
-    const bool for_team_data   = _cfg.team_id != 0 && _team_local_id && d.next == _team_local_id && d.addr_len == 1;
+    const bool for_team_data   = team_addr_for_us(d.next, d.addr_len);   // §P2-3
 #else
     const bool for_team_data   = false;   // §featuresplit
 #endif
@@ -926,8 +927,7 @@ void Node::do_post_ack() {
                 MR_EMIT("intro_reject", EF_I("reason", 1), EF_I("ctr", pa.ctr)); become_free(); return;
             }
             const uint8_t* ed = ui->body.data();
-            const uint32_t ed_hash = static_cast<uint32_t>(ed[0]) | (static_cast<uint32_t>(ed[1]) << 8)
-                                   | (static_cast<uint32_t>(ed[2]) << 16) | (static_cast<uint32_t>(ed[3]) << 24);
+            const uint32_t ed_hash = key_hash32_of(ed);   // §P2-6: identity.h owns the LE(ed_pub[:4]) derivation
             if (ed_hash != ui->source_hash) {                                                    // self-consistency: the attached key MUST hash to the claimed sender
                 MR_EMIT("intro_reject", EF_I("reason", 2), EF_I("hash", static_cast<int64_t>(ui->source_hash))); become_free(); return;
             }
@@ -1246,14 +1246,14 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // §mobile 3b A1: a last-mile flight's next-hop is a mobile LOCAL id -> keep it OUT of the global rt (same principle as
     // the RTS-learn skip at :47; else rt_find(that id) resolves to the mobile). §6.4: a team DM's next is a team LOCAL id
     // too (addr_len=0 but is_team_peer) -> also skip. addr_len==0 + no team peers on every normal flight -> unchanged.
-    if (!(_active->_pending_tx->addr_len == 1 || is_team_peer(_active->_pending_tx->next))
+    if (!(next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next))
         && learn_direct_neighbor(_active->_pending_tx->next, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
     // R4.2: consume the ACK's piggybacked budget_hint -> learn the next-hop's tier in the FORWARD
     // direction (the NACK only covers the reverse). local_only=true: rerank routes but DON'T dirty /
     // schedule a beacon (so NO triggered-beacon draw on the forward path). Lua dv:10341-10344.
     [[maybe_unused]] int ack_budget_reranked = 0;
     if (k.budget_hint > static_cast<uint8_t>(BudgetTier::healthy)
-        && !(_active->_pending_tx->addr_len == 1 || is_team_peer(_active->_pending_tx->next))) {   // §mobile: never re-rank a static route from a mobile/team LOCAL next (mirror the ACK-learn guard)
+        && !(next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next))) {   // §mobile: never re-rank a static route from a mobile/team LOCAL next (mirror the ACK-learn guard)
         const uint8_t tier = (k.budget_hint > static_cast<uint8_t>(BudgetTier::critical))
                              ? static_cast<uint8_t>(BudgetTier::critical) : k.budget_hint;
         // the ACK is from our next-hop (matched above) — use that, not src_hint (sim-only / -1 on device).
@@ -1306,7 +1306,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     }
     // Learn the NACK sender (= our next-hop) as a 1-hop neighbour (Lua learn_rx_source / nack_frame).
     // §mobile: same mobile/team LOCAL-id guard as the ACK/CTS learns — never install a local id in the static _rt.
-    if (!(_active->_pending_tx->addr_len == 1 || is_team_peer(_active->_pending_tx->next))
+    if (!(next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next))
         && learn_direct_neighbor(_active->_pending_tx->next, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
     _hal.cancel(kRtsTimeoutTimerId);                                // faster than the timeout (dv:10390)
     _hal.cancel(kAckTimeoutTimerId);
@@ -1354,7 +1354,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         // §mobile (plane-separation re-audit): only blind a GLOBAL next-hop. A mobile/team LOCAL-id next (addr_len=1 /
         // is_team_peer) must not write the static _blind_until plane (a §18-colliding static route would be blinded).
         // Mirrors the OTHER blind guard (the HOP_BUDGET/BUDGET NACK path). Inert on s18 -> byte-identical.
-        if (busy_for > 0 && !(pt.addr_len == 1 || is_team_peer(pt.next))) {   // mark the peer blind, max-merge (dv:10627)
+        if (busy_for > 0 && !(next_is_local_id(pt.addr_len, pt.next))) {   // mark the peer blind, max-merge (dv:10627)
             const uint64_t until = now + busy_for;
             auto bit = _active->_blind_until.find(pt.next);
             _active->_blind_until[pt.next] = (bit != _active->_blind_until.end() && bit->second > until) ? bit->second : until;
@@ -1440,7 +1440,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         else if (tier <= static_cast<uint8_t>(BudgetTier::strained))  blind_ms = protocol::budget_blind_strained_ms;
         const uint64_t until = _hal.now() + blind_ms;                                      // max-merge (dv:10416-10422)
         auto bit = _active->_blind_until.find(pt.next);
-        if (!(pt.addr_len == 1 || is_team_peer(pt.next))                        // §mobile: never blind a static route on a mobile/team LOCAL next (mirror the NACK-learn guard)
+        if (!(next_is_local_id(pt.addr_len, pt.next))                        // §mobile: never blind a static route on a mobile/team LOCAL next (mirror the NACK-learn guard)
             && (bit == _active->_blind_until.end() || until > bit->second)) {
             _active->_blind_until[pt.next] = until;
             MR_TELEMETRY(
@@ -1450,7 +1450,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         // R4.2: record the persistent neighbor tier (routing-grade demotion beyond the blind window)
         // + rerank affected routes. local_only=false -> dirty + a triggered beacon if a primary moved.
         // Reads pt.next BEFORE try_cascade_requeue resets _active->_pending_tx.
-        [[maybe_unused]] const int reranked = (pt.addr_len == 1 || is_team_peer(pt.next))   // §mobile: never re-rank a static route from a mobile/team LOCAL next
+        [[maybe_unused]] const int reranked = (next_is_local_id(pt.addr_len, pt.next))   // §mobile: never re-rank a static route from a mobile/team LOCAL next
             ? 0 : mark_neighbor_budget_tier(pt.next, tier, "nack_budget", /*local_only=*/false);
         MR_TELEMETRY(
             EventField rf[] = { { .key = "from",     .type = EventField::T::i64, .i = pt.next },

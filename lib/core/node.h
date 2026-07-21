@@ -132,6 +132,11 @@ public:
     bool       team_key_of_id(uint8_t, uint32_t&) const { return false; }
     bool       team_id_of_key(uint32_t, uint8_t&) const { return false; }
 #endif
+    // §P2-3 (2026-07-21): is `next` a LOCAL id — a mobile last-mile (addr_len==1) OR a known same-team peer? The guard that
+    // keeps a mobile/team LOCAL next OUT of the static node_id-indexed planes (bidi/liveness/rt-rerank). It was hand-pasted at
+    // 11 write-sites (node_mac_rx ×9, node_cascade ×2 — two carry "audit-caught missed twin" comments) as
+    // `addr_len==1 || is_team_peer(next)`. On a static build is_team_peer stubs false, so the guard is exactly the old inline.
+    bool       next_is_local_id(uint8_t addr_len, uint8_t next) const { return addr_len == 1 || is_team_peer(next); }
     // §6.4: a unicast dst is FOR US — our static node_id OR our team-plane id. Off-grid node_id==_team_local_id so the
     // first term already covers it; this matters for a DUAL member (node_id=static id) delivering a DM sent to its team id.
     bool       for_me_dst(uint8_t dst) const {
@@ -160,6 +165,16 @@ public:
         const uint8_t  cr_a = phy.cr     ? phy.cr     : _cfg.radio_cr;
         const uint8_t  cr_b = mine.cr    ? mine.cr    : _cfg.radio_cr;
         return phy.freq_mhz == mine.freq_mhz && bw_a == bw_b && phy.routing_sf == mine.routing_sf && cr_a == cr_b;
+    }
+    // §P2-3 (2026-07-21): a team-scoped unicast (RTS/CTS/DATA/ACK) addressed to OUR team-plane id — the 4× hand-pasted
+    // team-acceptance edge (handle_rts team_rts_for_us + team reverse-learn; handle_rts_for_us for_team_rts; handle_data
+    // for_team_data). team_id==0 (every static, every lone mobile) -> false, so a static build is byte-identical.
+    bool       team_addr_for_us(uint8_t next, uint8_t addr_len) const {
+#if MR_FEAT_TEAM
+        return _cfg.team_id != 0 && _team_local_id != 0 && next == _team_local_id && addr_len == 1;
+#else
+        (void)next; (void)addr_len; return false;
+#endif
     }
     bool       route_uses_mobile_as_transit(uint8_t dest, uint8_t next_hop) const;
     uint8_t    get_neighbor_tier(uint8_t node_id) const;                 // R4.2 tier read (TTL-expiring lazy-prune); public for tests
@@ -577,6 +592,7 @@ private:
     // F route discovery (AODV RREQ/RREP) — node_route_discovery.cpp. §team-multihop (spec 2026-07-15 Plane 2): team_plane forks
     // the whole family onto the TEAM plane (team_scoped F, origin/dst = team_local_id, _rt_team, team-private _rreq state).
     void    handle_f(const uint8_t* bytes, size_t len, const RxMeta& meta);
+    void    handle_f_common(const struct f_out& f, const RxMeta& meta, bool team, uint8_t me);   // §P2-2: shared F RREQ/RREP body; static/team entry wrappers apply the plane-only gates then hand off
     void    emit_route_request(uint8_t dst, uint8_t ttl, bool team_plane = false);
     void    send_route_reply(uint8_t origin, uint8_t dst, uint8_t hops_to_dst, bool team_plane = false);
     bool    rreq_seen_recently(uint8_t origin, uint8_t dst, bool team_plane = false);
@@ -665,6 +681,7 @@ private:
     void    presence_ingest_roster(const uint8_t* frame, size_t len, const RxMeta& meta);   // mobile: a roster heard -> refresh/re-register/re-home eval
     void    presence_note_candidate(uint8_t home_id, uint8_t home_layer, int16_t snr_q4);   // §S6.4-C: overheard beacon/roster -> candidate home
     void    presence_mark_incompatible(uint8_t home_id, uint8_t home_layer);   // §D16: mark a candidate home INCOMPATIBLE (wrong wire_version roster) -> FSM B/C skips its DISCOVER
+    uint8_t presence_cand_alloc_slot();   // §P2-6: append while room, else evict the STALEST (min last_seen_ms) — never clobber the best candidate (was evict-slot-0)
     void    presence_maybe_rehome();                           // §S6.4-C: sustained-better candidate + dwell -> voluntary re-DISCOVER
     void    presence_on_adopt();                               // called from the mobile adopt path: seed clocks + arm the first check probe
 #endif
@@ -784,8 +801,8 @@ private:
     };
     struct ChannelPullPending  { bool active; uint32_t id; uint8_t target; uint64_t requested_at; uint64_t fire_at; };
     struct ChannelPullRecent   { uint32_t id; uint64_t t_ms; };    // re-pull dedup (Lua channel_pull_recent)
-    struct ChannelReofferPending { bool active; uint32_t id; uint8_t retries_left; };   // Part 2: per-origin re-offer (timer kChannelReofferTimerId+slot)
-    void    channel_reoffer_register(uint32_t id);                 // Part 2: arm a re-offer slot on flood origination (retries_left=channel_reoffer_max_retries)
+    struct ChannelReofferPending { bool active; uint32_t id; uint8_t retries_left; bool team; };   // Part 2: per-origin re-offer (timer kChannelReofferTimerId+slot). team = a TEAM flood: a single relay does NOT confirm coverage on a mixed multi-hop chain, so it re-offers all its retries (P-BUDGET s28 class).
+    void    channel_reoffer_register(uint32_t id, bool team);      // Part 2: arm a re-offer slot on flood origination (retries_left = team ? channel_reoffer_team_max_retries : channel_reoffer_max_retries)
     void    channel_reoffer_fire(uint8_t slot);                    // Part 2: timer fire — re-flood if not yet confirmed + retries remain, else free
     void    channel_reoffer_confirm(uint32_t id);                  // Part 2: a relay of OUR message was overheard -> cancel its pending re-offer (dedicated signal, NOT seen_by)
     int     channel_buffer_find(uint32_t id) const;                // index of the entry, or -1 (dv:3426)
@@ -881,6 +898,9 @@ private:
     // ---- Peer-liveness internals (routing-liveness port) -------------------
     struct PeerLiveness;                                              // fwd decl (full def below, near the LayerRuntime member structs)
     PeerLiveness* peer_liveness_slot(uint8_t node_id, bool create);   // find (or LRU-create) the per-node slot; nullptr if absent + !create
+    PeerLiveness* peer_liveness_slot(uint8_t node_id, bool create, PeerLiveness* tbl, uint8_t& n, uint8_t cap);   // §P2-4: shared table-ref core (static _peer_liveness / team _team_liveness)
+    uint8_t       apply_timeout_tier(PeerLiveness& s, uint16_t count, uint64_t now);   // §P2-4: shared rts-timeout tier cascade -> level 0-3 (mutates first_timeout_ms; sets NO until fields)
+    bool          clear_liveness_tiers(PeerLiveness& s);              // §P2-4: shared recovery clear-core -> true if anything was live (the emit-only-if-had gate)
 #if MR_FEAT_TEAM
     PeerLiveness* team_liveness_slot(uint8_t team_local_id, bool create);   // §2c: self-slotted mirror over _team_liveness (team_local_id-keyed, own LRU); NEVER _peer_liveness / _team_keys
 #endif

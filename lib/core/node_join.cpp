@@ -13,6 +13,7 @@
 // (the design's join is beacon-listen + Q config-pull + DAD); this slice is the CLAIM/heal core.
 #include "node.h"
 #include "frame_codec.h"
+#include "identity.h"  // §P2-6: key_hash32_of (LE(ed_pub[:4]) derivation)
 
 #include <span>
 
@@ -23,10 +24,10 @@ namespace MESHROUTE_NS {
 // they can never pick different losers (a third-party mediator has no epoch; key alone keeps them
 // consistent). key_hash32 is a unique total order per honest node ⇒ exactly one winner, convergent.
 // claim_epoch is now VESTIGIAL: still carried on the J wire + in NV (reserved), no longer consulted here.
-// ★ TWO DELIBERATE DIVERGENCES (code is truth — not "EVERY" heal calls this): (1) team-DAD does an INLINE key
-//   compare at node_beacon.cpp:731 rather than calling join_tiebreak_wins (P2-5: could be unified, zero behavior
-//   change); (2) hosted-mobile local-id allocation is ARRIVAL-ORDER-WINS (first key to register keeps the id;
-//   find_free_mobile_id is idempotent per key), NOT a key tiebreak — the mobile plane has no global DAD.
+// team-DAD (node_beacon.cpp same_team_beacon collision) NOW calls this too (§P2-5, 2026-07-21) — its keys are
+//   guaranteed unequal there, so !join_tiebreak_wins == the old inline `_key_hash32 > b.key_hash32`.
+// ★ ONE DELIBERATE DIVERGENCE (code is truth): hosted-mobile local-id allocation is ARRIVAL-ORDER-WINS (first key to
+//   register keeps the id; find_free_mobile_id is idempotent per key), NOT a key tiebreak — the mobile plane has no global DAD.
 bool Node::join_tiebreak_wins(uint8_t /*my_epoch*/, uint32_t my_key, uint8_t /*their_epoch*/, uint32_t their_key) {
     return my_key < their_key;
 }
@@ -620,8 +621,7 @@ void Node::presence_ingest_probe(const uint8_t* frame, size_t len, const RxMeta&
         int16_t& ew = _active->_mobile_snr_q4[mine];
         ew = protocol::snr_ewma_update(ew, snr_q4);                 // seed-if-zero EWMA (canonical link-quality helper)
         if (p->has_pubkey) {                                        // §S6 A.4: key custody rides the probe (RETIRES TYPE-12) — self-consistency check ed_pub[:4]==hash
-            const uint32_t pk_hash = uint32_t(p->ed_pub[0]) | (uint32_t(p->ed_pub[1]) << 8)
-                                   | (uint32_t(p->ed_pub[2]) << 16) | (uint32_t(p->ed_pub[3]) << 24);
+            const uint32_t pk_hash = key_hash32_of(p->ed_pub);   // §P2-6: identity.h owns the LE(ed_pub[:4]) derivation
             if (pk_hash == p->key_hash32) {
                 for (uint8_t k = 0; k < 32; ++k) _active->_mobile_reg[mine].ed_pub[k] = p->ed_pub[k];
                 _active->_mobile_reg[mine].has_pubkey = true;

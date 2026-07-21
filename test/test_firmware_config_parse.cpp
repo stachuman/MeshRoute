@@ -7,6 +7,8 @@
 // had none before. Behaviour-preserving extraction — these tests pin the exact grammar the device relies on.
 #include "doctest.h"
 #include "firmware_config_parse.h"
+#include "leaf_config.h"   // W2b: meshroute::duty_to_bp/bp_to_duty — pin the console-setter unit conventions
+#include <cstdint>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -68,6 +70,35 @@ TEST_CASE("kv_next — key=value grammar: bare, quoted (spans spaces), multiple 
         CHECK(lead[0] == std::make_pair(std::string("a"), std::string("1")));
         CHECK(lead[1] == std::make_pair(std::string("b"), std::string("2")));
     }
+}
+
+// W2b console unit unification (ruled 2026-07-21): `cfg set duty=` and `create duty=` now share ONE conversion —
+// PERCENT input (1 = 1%, fractional ok) -> internal 0..1 fraction, quantized to the 0.01% wire step. This pins the
+// exact expression both call sites in firmware_config.cpp run, so a divergence (the pre-W2b `set duty=` raw-fraction
+// bug) is caught. The NV/wire form is the internal fraction/bp — unchanged by the console-unit flip.
+TEST_CASE("W2b duty console unit: percent -> internal fraction (set duty= == create duty=)") {
+    // The canonical create/set path: bp_to_duty(duty_to_bp(pct / 100.0)).
+    auto duty_from_pct = [](double pct) { return meshroute::bp_to_duty(meshroute::duty_to_bp(pct / 100.0)); };
+    CHECK(duty_from_pct(1.0)   == doctest::Approx(0.01));    // `set duty=1`  == `create duty=1`  == 1%  -> 0.01
+    CHECK(duty_from_pct(10.0)  == doctest::Approx(0.10));    // 10%  -> 0.10
+    CHECK(duty_from_pct(0.1)   == doctest::Approx(0.001));   // fractional percent: 0.1% -> 0.001
+    CHECK(duty_from_pct(100.0) == doctest::Approx(1.0));     // 100% -> 1.0 (clamped ceiling)
+    CHECK(duty_from_pct(0.0)   == doctest::Approx(0.0));     // 0%   -> 0.0 (silent)
+    // The 0.01% wire quantization the config_hash relies on: 12.34% rounds to 1234 bp -> 0.1234.
+    CHECK(meshroute::duty_to_bp(12.34 / 100.0) == 1234u);
+}
+
+// W2b: every console bw setter is kHz ALWAYS (join/create/gateway already were; `cfg set bw` + `cfg set l1_bw`
+// were Hz and now converge). The kHz->Hz conversion is `(uint32_t)(kHz * 1000.0 + 0.5)` — ROUNDED so a fractional
+// LoRa bandwidth lands exactly (62.5 -> 62500, not 62000/62500-off-by-one).
+TEST_CASE("W2b bw console unit: fractional kHz -> Hz, rounded (62.5 -> 62500)") {
+    auto bw_hz = [](double khz) { return static_cast<uint32_t>(khz * 1000.0 + 0.5); };
+    CHECK(bw_hz(62.5)  == 62500u);    // the fractional-BW pin
+    CHECK(bw_hz(125.0) == 125000u);
+    CHECK(bw_hz(250.0) == 250000u);
+    CHECK(bw_hz(500.0) == 500000u);
+    CHECK(bw_hz(41.67) == 41670u);
+    CHECK(bw_hz(7.0)   == 7000u);
 }
 
 TEST_CASE("team_fnv1a32 — deterministic FNV-1a/32 over the 8 LE bytes of (a‖b); order-sensitive") {

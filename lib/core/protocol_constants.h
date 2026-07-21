@@ -296,15 +296,33 @@ inline constexpr uint16_t rreq_forward_jitter_min_ms    = 10;
 inline constexpr uint16_t rreq_forward_jitter_max_ms    = 80;
 inline constexpr uint8_t  cap_parked_sends              = 8;       // send-by-hash DMs parked awaiting a hash-bind
 // F-SL-1 (2026-07-19): bounded re-flood retry for a parked unresolved send. The park path fires ONE soft H at park
-// time; in a QUIET net that single flood can die (RX timing) and the parked send ages out to send_hash_giveup (~TTL)
+// time; in a QUIET net that single flood can die (RX timing) and the parked send ages out to send_hash_giveup
 // with NO retry — the failure hits any sender whose contact RE-HOMED (s27 post-m2). Re-emit the H every
 // park_reflood_retry_ms while parked, bounded to park_reflood_max_retries, with a DETERMINISTIC per-(hash,node,try)
 // jitter of ≤ park_reflood_jitter_ms (batch B: the re-fire must not land on a fixed beat that re-collides). The jitter
-// is deterministic (NOT a shared-mt19937 draw) — see park_reflood_fire for why. The send_defer_ttl_ms giveup still
-// fires (bounded, no runaway). No park-time draw either: the FIRST deadline is a fixed offset (park times differ).
-inline constexpr uint32_t park_reflood_retry_ms         = send_defer_ttl_ms / 3;   // 10s @ TTL 30s -> up to 2 retries inside the window
+// is deterministic (NOT a shared-mt19937 draw) — see park_reflood_fire for why. The hash_locate_giveup_ms age-out
+// still fires (bounded, no runaway). No park-time draw either: the FIRST deadline is a fixed offset (park times differ).
+//
+// ★ P-BUDGET (2026-07-21): RE-SCALED for the realistic SX1262 physics regime (reported-SNR ceiling, 27 ms turnarounds,
+// RX-window slop). ROOT CAUSE (s27 hello-m2): an H flood reaches a MULTI-HOP target only PROBABILISTICALLY — its fragile
+// last hop is missed whenever the target's RX-window/contention phase is unlucky, and that phase is CORRELATED over ~a
+// beacon period. The old idealized-sim values (10 s spacing / 2 retries) bunched all 3 flood attempts into a 21 s window
+// (two of them wasted to origin-side self-contention), so they all missed the same correlated bad phase; the send then
+// sat idle from 242 s to an ~80 s giveup while a plain retry ~3 min later resolved on its FIRST propagation. The answer
+// path itself is FAST (~5-6 s for the 3-hop round-trip once the flood lands) — the shortfall is entirely flood REACH.
+// Fix = space each reflood >= a beacon period (so attempts hit INDEPENDENT phases) across a budget admitting several
+// genuinely-independent flood windows. Derivation: a flood-out + routed-answer leg is ~1-1.5 s/hop; over an ~8-hop
+// design envelope one round-trip is ~15-25 s, so the reflood spacing == one such attempt, and the giveup == park + all
+// refloods (no dead zone). Bench-tunable; bounded well under mobile_home_cache_ttl_ms (300 s) so a stale-cache sender
+// still re-locates within the cache horizon.
+inline constexpr uint32_t park_reflood_retry_ms         = 25000;   // reflood spacing >= a beacon period -> each attempt hits an INDEPENDENT RX/contention phase (was send_defer_ttl_ms/3 = 10 s: bunched -> correlated -> all missed together)
 inline constexpr uint16_t park_reflood_jitter_ms        = 3000;    // deterministic spread ceiling (break the fixed re-fire beat)
-inline constexpr uint8_t  park_reflood_max_retries      = 2;       // bounded; TTL/3 spacing lands the retries before the giveup
+inline constexpr uint8_t  park_reflood_max_retries      = 6;       // ~6 independent flood windows before giveup (was 2 -> only one real propagation attempt)
+// Parked send-by-hash age-out. DECOUPLED from send_defer_ttl_ms (the ROUTE-BLOCKED deferred-queue TTL, node_cascade.cpp):
+// a parked send waits on a slow multi-hop flood ROUND-TRIP (retries needed), a deferred send waits on a LOCAL route
+// reappearing on the next beacon — different regimes, different patience. Keeping send_defer_ttl_ms at 30 s also keeps
+// s18 (which exercises the deferred-queue giveup but NEVER the parked path) byte-identical. = park + all refloods.
+inline constexpr uint32_t hash_locate_giveup_ms         = park_reflood_retry_ms * (park_reflood_max_retries + 1);   // 175 s
 
 // ---- Channel-message gossip plane (ROADMAP §3) -----------------------------
 // Single-layer only — gateways skip the whole plane (Principle 11). Phase 1 = the
@@ -369,6 +387,13 @@ inline constexpr int16_t  flood_snr_hi_q4   =  10 * 16; // SNR-norm range hi (dB
 // hear it (the 247→0/7 orphan). The well-connected case confirms within the first delay and re-offers ZERO times.
 inline constexpr uint8_t  cap_channel_reoffer_pending = 4;       // bounded per-origin re-offer table (timer ring [70..73]); a node rarely has >cap_flood_pending un-confirmed originations in flight
 inline constexpr uint8_t  channel_reoffer_max_retries = 1;       // cap — bounds the airtime cost of a fragile message
+// ★ P-BUDGET (2026-07-21, s28 class): a TEAM flood crosses a MIXED homed/off-grid MULTI-HOP chain where the origin's
+// "a relay was overheard -> it propagated" confirmation is a FALSE POSITIVE — one near relay (e.g. XO4->XO3) does NOT
+// mean the FAR chain members (XO5/XH1/XH2) received it, and under realistic physics the flood's fragile hops are missed
+// probabilistically. So a team flood IGNORES the relay-overheard confirm and re-offers ALL its retries (each re-inject
+// gives the far members another independent shot). NON-team (single-plane, delivery-suite) floods keep the 1-retry
+// relay-confirmed behaviour EXACTLY -> the delivery suite (s09/s10/s15/s16/s17, all team_id==0) is byte-inert.
+inline constexpr uint8_t  channel_reoffer_team_max_retries = 3;  // team floods: several independent re-injections for mixed-chain coverage
 inline constexpr uint32_t channel_reoffer_delay_ms    = 10000;   // base cadence (>= originator_retry_dedup_ms=10000 so re-floods dedup receiver-side, not double-inbox)
 inline constexpr uint32_t channel_reoffer_jitter_ms   = 2000;    // +rand(0,jitter) spread so multiple origins don't re-offer in lockstep
 // channel_msg_id flavor (encryption variant; crypto deferred — all plaintext v1, dv:2229-2231)

@@ -3805,16 +3805,17 @@ TEST_CASE("L2c — park_send into a recycled redirect slot is NOT mis-drained as
     node.on_timer(kPostAckTimerId);
     CHECK(hal.count("l2c_redirect_parked") == 1);
     // (2) Age it out (no resolution) -> slot 0 vacated by in-place compaction, leaving stale is_redirect=true.
-    hal._now = 1100 + 30000 + 1; node.on_timer(2 /*kAgingTimerId*/);
+    // (P-BUDGET: the parked age-out is now hash_locate_giveup_ms, decoupled from send_defer_ttl_ms.)
+    hal._now = 1100 + protocol::hash_locate_giveup_ms + 1; node.on_timer(2 /*kAgingTimerId*/);
     CHECK(hal.count("send_hash_giveup") == 1);                  // the redirect is gone; node is idle (no flight)
     // (3) A PLAIN send-by-hash for 0xBBBB (unknown) -> park_send REUSES slot 0; the reset must clear is_redirect.
-    hal._now = 35000; send_hash_cmd(node, /*dst_hash=*/0xBBBBu, "yo");
+    hal._now += 5000; send_hash_cmd(node, /*dst_hash=*/0xBBBBu, "yo");
     CHECK(hal.count("send_parked_for_hash") == 1);
     // (4) Resolve 0xBBBB -> id 8. It MUST drain via the plain (do_send) path, NOT the stale redirect branch.
     std::array<uint8_t, 16> rb3{}; size_t rn3 = mk_rts(4, 2, 2, 7, 7, rb3);
-    hal._now = 36000; node.on_recv(rb3.data(), rn3, m4);
+    hal._now += 1000; node.on_recv(rb3.data(), rn3, m4);
     std::array<uint8_t, 64> ab2{}; size_t an2 = mk_data_hashbind(2, 2, 0x0007, /*hb_node=*/8, /*hb_key=*/0xBBBBu, true, ab2);
-    hal._now = 36100; node.on_recv(ab2.data(), an2, m4);
+    hal._now += 100; node.on_recv(ab2.data(), an2, m4);
     node.on_timer(kPostAckTimerId);
     CHECK(hal.count("send_hash_resolved") == 1);                // plain send-by-hash path (correct, post-reset)
     CHECK(hal.count("l2c_redirect_forward") == 0);             // the recycled slot did NOT re-trigger a redirect
@@ -3880,7 +3881,7 @@ TEST_CASE("L2c — parked redirect ages out (send_hash_giveup) when its HARD-H n
     hal._now = 2000; node.on_recv(db.data(), dn, from1);
     node.on_timer(kPostAckTimerId);
     CHECK(hal.count("l2c_redirect_parked") == 1);
-    hal._now = 2000 + 30000 + 1;                                // past send_defer_ttl_ms (30s)
+    hal._now = 2000 + protocol::hash_locate_giveup_ms + 1;      // past the parked age-out (P-BUDGET: hash_locate_giveup_ms, not send_defer_ttl_ms)
     node.on_timer(2 /*kAgingTimerId*/);
     CHECK(hal.count("send_hash_giveup") == 1);                  // the unresolved redirect is given up (not stranded)
     CHECK(hal.count("l2c_redirect_forward") == 0);

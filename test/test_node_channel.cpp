@@ -1164,6 +1164,31 @@ TEST_CASE("RE-OFFER: a confirmed origin (it overhears a RELAY of its message) ne
     CHECK(hal.count("channel_reoffer_tx") == 0);                     // confirmed (relay overheard) -> ZERO re-offers
 }
 
+// ★ P-BUDGET (s28 class): a TEAM flood does NOT let one overheard relay confirm coverage (a mixed multi-hop team chain
+// has far members a single near relay never reached). So a team origin IGNORES the relay-overheard confirm and re-offers
+// ALL channel_reoffer_team_max_retries. (Contrast the non-team test above: relay overheard -> zero.)
+TEST_CASE("RE-OFFER: a TEAM flood re-offers all its retries DESPITE overhearing a relay (mixed-chain coverage)") {
+    static_assert(protocol::channel_reoffer_team_max_retries > protocol::channel_reoffer_max_retries,
+                  "team re-offer must be more persistent than the relay-confirmed non-team single shot");
+    TestHal hal; Node node(hal, /*id=*/3, 0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); cfg.is_mobile = true; cfg.team_id = 0xABCD1234u; node.on_init(cfg);
+    const CmdResult r = send_channel(node, /*ch=*/5, "team-hi", /*team=*/true);   // team origination -> team re-offer registered
+    CHECK(r.code == CmdCode::queued);
+    const uint32_t id = Node::channel_msg_id_mint(3, 0x1234ABCDu, static_cast<uint8_t>(r.ctr & 0xff));
+    drain_originate_flood(node);
+    // OVERHEAR a relay of OUR team message (would CONFIRM+stop a non-team re-offer) — the team path must ignore it.
+    uint8_t fbm[32] = {}; bm_set(fbm, 7); bm_set(fbm, node.team_local_id());
+    std::array<uint8_t,64> rb{}; node.on_recv(rb.data(), mk_flood_rts(0, /*src=*/7, id, fbm, 8, /*sf_index=*/3, rb), meta_at(20));
+    for (int k = 0; k < protocol::channel_reoffer_team_max_retries; ++k) {   // each fire re-floods despite the relay
+        node.on_timer(kChannelReofferTimerId);
+        drain_originate_flood(node);
+        CHECK(hal.count("channel_reoffer_tx") == k + 1);
+    }
+    // bounded: past the team cap, no further re-offer
+    node.on_timer(kChannelReofferTimerId); drain_originate_flood(node);
+    CHECK(hal.count("channel_reoffer_tx") == protocol::channel_reoffer_team_max_retries);
+}
+
 TEST_CASE("RE-OFFER: the re-offer timer delay is channel_reoffer_delay_ms + the deterministic jitter (mt19937 path)") {
     TestHal hal; hal._rand_ret = 0;                                  // pin jitter to 0 -> delay == base (deterministic, not Math.random)
     Node node(hal, /*id=*/3, 0x1234ABCDu); NodeConfig cfg = basic_cfg(); node.on_init(cfg);

@@ -362,7 +362,7 @@ void Node::rts_timeout_fire() {
         // §mobile (plane-separation re-audit): a mobile/team flight's next-hop is a LOCAL id -> keep it OUT of the static
         // _peer_liveness plane (else a §18-colliding static node gets suspected/DEAD-marked from a mobile flight's timeout,
         // penalising its real route via liveness_penalty_q4). Mirror the RX-side learn/blind guards.
-        if (!(_active->_pending_tx->addr_len == 1 || is_team_peer(_active->_pending_tx->next)))
+        if (!(next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next)))
             record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo);   // §P1: same-hop RTS giveup = liveness evidence
 #if MR_FEAT_TEAM
         else if (is_team_peer(_active->_pending_tx->next))
@@ -393,7 +393,7 @@ void Node::ack_timeout_fire() {
         ++_active->_pending_tx->retry_attempt;
     } else {
         // §mobile (plane-separation re-audit): a mobile/team LOCAL-id next-hop must not enter the static _peer_liveness plane.
-        if (!(_active->_pending_tx->addr_len == 1 || is_team_peer(_active->_pending_tx->next)))
+        if (!(next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next)))
             record_peer_rts_timeout(_active->_pending_tx->next, _active->_pending_tx->ctr_lo);   // §P1: same-hop ACK giveup = liveness evidence
 #if MR_FEAT_TEAM
         else if (is_team_peer(_active->_pending_tx->next))

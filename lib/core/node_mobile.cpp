@@ -398,8 +398,20 @@ void Node::presence_note_candidate(uint8_t home_id, uint8_t home_layer, int16_t 
             _presence_cand[i].snr_q4 = protocol::snr_ewma_step(_presence_cand[i].snr_q4, snr_q4);   // step() NOT update(): the slot is seeded at insertion, so no seed-if-zero (bit-identical to the old inline form)
             _presence_cand[i].last_seen_ms = now; return;
         }
-    uint8_t slot = _presence_cand_n < protocol::cap_presence_candidates ? _presence_cand_n++ : 0;   // full -> evict slot 0
+    uint8_t slot = presence_cand_alloc_slot();   // §P2-6: append or evict-stalest (never clobber the best candidate)
     _presence_cand[slot] = { home_id, home_layer, snr_q4, /*echo_tier=*/0xFF, now, now };
+}
+
+// §P2-6: pick the slot for a NEW presence candidate — append while there is room, else evict the STALEST entry (min
+// last_seen_ms). The old evict-slot-0 could clobber the freshest/best candidate; evict-stalest can only drop the entry
+// least-recently heard. Behavior change ONLY when the table is FULL (cap_presence_candidates) — no scenario reaches it
+// (proven by byte-identity across the suite: a differing eviction victim would perturb the stream).
+uint8_t Node::presence_cand_alloc_slot() {
+    if (_presence_cand_n < protocol::cap_presence_candidates) return _presence_cand_n++;
+    uint8_t o = 0;
+    for (uint8_t i = 1; i < _presence_cand_n; ++i)
+        if (_presence_cand[i].last_seen_ms < _presence_cand[o].last_seen_ms) o = i;
+    return o;
 }
 
 // §D16: a wrong-wire_version roster from this home -> mark the candidate INCOMPATIBLE (find-or-add). presence_maybe_rehome
@@ -409,7 +421,7 @@ void Node::presence_mark_incompatible(uint8_t home_id, uint8_t home_layer) {
     for (uint8_t i = 0; i < _presence_cand_n; ++i)
         if (_presence_cand[i].home_id == home_id && _presence_cand[i].home_layer == home_layer) { _presence_cand[i].incompatible = true; return; }
     const uint64_t now = _hal.now();
-    uint8_t slot = _presence_cand_n < protocol::cap_presence_candidates ? _presence_cand_n++ : 0;
+    uint8_t slot = presence_cand_alloc_slot();   // §P2-6: append or evict-stalest (never clobber the best candidate)
     _presence_cand[slot] = { home_id, home_layer, /*snr_q4=*/0, /*echo_tier=*/0xFF, now, now };
     _presence_cand[slot].incompatible = true;
 }

@@ -270,8 +270,7 @@ void Node::mobile_home_age_out() {
 // ---- E2E peer-pubkey cache (Phase 1 §6): key_hash32 -> ed_pub, hash-verified + authoritative-never-downgraded ----
 bool Node::peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyConf conf, const char* name, uint8_t name_len) {
     // Hash-verifiable: key_hash32 == LE(ed_pub[0..3]) (== identity.h key_hash32_of). A forged binding is REFUSED.
-    const uint32_t derived = static_cast<uint32_t>(ed_pub[0]) | (static_cast<uint32_t>(ed_pub[1]) << 8) |
-                             (static_cast<uint32_t>(ed_pub[2]) << 16) | (static_cast<uint32_t>(ed_pub[3]) << 24);
+    const uint32_t derived = key_hash32_of(ed_pub);   // §P2-6: identity.h owns the LE(ed_pub[:4]) derivation
     if (derived != key_hash32) return false;
     const uint64_t now = _hal.now();
     auto& L = *_active;
@@ -706,8 +705,7 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             // §2 MUTUAL: cache the requester's key + id_bind (from the H's appended ed_pub) BEFORE answering, so we can
             // both DECRYPT and ADDRESS its future sealed DMs -> the exchange provisions BOTH directions in one round.
             // requester_hash = requester_ed_pub[:4] LE (self-consistent: peer_key_set derives/checks the same hash).
-            const uint32_t requester_hash = uint32_t(h.requester_ed_pub[0]) | (uint32_t(h.requester_ed_pub[1]) << 8)
-                                          | (uint32_t(h.requester_ed_pub[2]) << 16) | (uint32_t(h.requester_ed_pub[3]) << 24);
+            const uint32_t requester_hash = key_hash32_of(h.requester_ed_pub);   // §P2-6: identity.h owns the LE(ed_pub[:4]) derivation
             bool req_zero = true; for (int i = 0; i < 32; ++i) if (h.requester_ed_pub[i]) { req_zero = false; break; }
             if (!req_zero && requester_hash != 0                       // review#15: never cache a zero/degenerate requester key
                 && peer_key_set(requester_hash, h.requester_ed_pub, PeerKeyConf::authoritative,
@@ -841,8 +839,7 @@ void Node::send_hash_bind_pubkey_response(uint8_t to_origin, uint8_t target_laye
 void Node::on_hash_bind_pubkey(const uint8_t* inner, uint8_t inner_len) {
     auto o = parse_hash_bind_pubkey_inner(std::span<const uint8_t>(inner, inner_len));
     if (!o) return;
-    const uint32_t kh = static_cast<uint32_t>(o->ed_pub[0]) | (static_cast<uint32_t>(o->ed_pub[1]) << 8)
-                      | (static_cast<uint32_t>(o->ed_pub[2]) << 16) | (static_cast<uint32_t>(o->ed_pub[3]) << 24);
+    const uint32_t kh = key_hash32_of(o->ed_pub);   // §P2-6: identity.h owns the LE(ed_pub[:4]) derivation
     const char* nm = nullptr; uint8_t nlen = 0;                            // §1.3: appended [name_len][name] after the 34-B base
     if (inner_len > 34) { nlen = inner[34]; if (nlen > 32) nlen = 32; if (35u + nlen <= inner_len) nm = reinterpret_cast<const char*>(inner + 35); else nlen = 0; }
     if (peer_key_set(kh, o->ed_pub, PeerKeyConf::authoritative, nm, nlen)) {
@@ -934,8 +931,7 @@ void Node::send_mobile_pubkey_answer(uint8_t to_origin, uint8_t target_layer, ui
 // surface). Returns the requester hash on a successful cache, 0 on reject. Only the NEW paths call this (the home proxy-answer
 // branch + the mobile TX-free overhear cache) — the owner branch keeps its inline logic byte-identical (s18-inert).
 uint32_t Node::cache_want_pubkey_requester(const h_out& h) {
-    const uint32_t requester_hash = uint32_t(h.requester_ed_pub[0]) | (uint32_t(h.requester_ed_pub[1]) << 8)
-                                  | (uint32_t(h.requester_ed_pub[2]) << 16) | (uint32_t(h.requester_ed_pub[3]) << 24);
+    const uint32_t requester_hash = key_hash32_of(h.requester_ed_pub);   // §P2-6: identity.h owns the LE(ed_pub[:4]) derivation
     bool req_zero = true; for (int i = 0; i < 32; ++i) if (h.requester_ed_pub[i]) { req_zero = false; break; }
     if (req_zero || requester_hash == 0) return 0;                 // never cache a zero/degenerate requester key
     if (!peer_key_set(requester_hash, h.requester_ed_pub, PeerKeyConf::authoritative,
@@ -954,8 +950,7 @@ uint32_t Node::cache_want_pubkey_requester(const h_out& h) {
 // requester to this mobile last (per-entry last_key_fwd_hash32) — the cheapest guard against a reqpubkey-retry re-forwarding.
 void Node::forward_requester_key_to_mobile(uint32_t mobile_hash, const uint8_t requester_ed_pub[32],
                                            const char* name, uint8_t name_len) {
-    const uint32_t rq = uint32_t(requester_ed_pub[0]) | (uint32_t(requester_ed_pub[1]) << 8)
-                      | (uint32_t(requester_ed_pub[2]) << 16) | (uint32_t(requester_ed_pub[3]) << 24);
+    const uint32_t rq = key_hash32_of(requester_ed_pub);   // §P2-6: identity.h owns the LE(ed_pub[:4]) derivation
     for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
         if (_active->_mobile_reg[i].key_hash32 == mobile_hash && _active->_mobile_reg[i].redirect_home_id == 0) {
             if (_active->_mobile_reg[i].last_key_fwd_hash32 == rq) return;   // already forwarded this requester -> dedup (no re-forward)
@@ -980,7 +975,7 @@ void Node::forward_requester_key_to_mobile(uint32_t mobile_hash, const uint8_t r
 void Node::on_mobile_key_forward(const uint8_t* body, uint8_t len) {
     if (len < 33) return;                                          // need ed_pub[32] + name_len
     const uint8_t* ed = body;
-    const uint32_t rq = uint32_t(ed[0]) | (uint32_t(ed[1]) << 8) | (uint32_t(ed[2]) << 16) | (uint32_t(ed[3]) << 24);
+    const uint32_t rq = key_hash32_of(ed);   // §P2-6: identity.h owns the LE(ed_pub[:4]) derivation
     bool zero = true; for (int i = 0; i < 32; ++i) if (ed[i]) { zero = false; break; }
     if (zero || rq == 0) return;                                   // degenerate key -> reject
     uint8_t nlen = body[32];
@@ -1000,7 +995,7 @@ void Node::on_mobile_hash_bind_pubkey_response(const uint8_t* inner, uint8_t inn
     auto hb = parse_hash_bind_inner(std::span<const uint8_t>(inner, 7));   // the mobile 7 B: home routing + epoch (ignores the ed_pub tail)
     if (!hb) return;
     const uint8_t* ed = inner + 7;
-    const uint32_t kh = uint32_t(ed[0]) | (uint32_t(ed[1]) << 8) | (uint32_t(ed[2]) << 16) | (uint32_t(ed[3]) << 24);
+    const uint32_t kh = key_hash32_of(ed);   // §P2-6: identity.h owns the LE(ed_pub[:4]) derivation
     const char* nm = nullptr; uint8_t nlen = 0;                            // §1.3: appended [name_len][name] after the 39-B base
     if (inner_len > 39) { nlen = inner[39]; if (nlen > 32) nlen = 32; if (40u + nlen <= inner_len) nm = reinterpret_cast<const char*>(inner + 40); else nlen = 0; }
     if (kh == hb->key_hash32 && peer_key_set(kh, ed, PeerKeyConf::authoritative, nm, nlen)) {   // the key MUST hash to M (self-consistent) — never id_bind the LOCAL id
@@ -1466,14 +1461,16 @@ void Node::drain_resolved_parked_sends() {
     _parked_sends_n = w;
 }
 
-// Give up on parked sends whose hash never resolved (periodic, on kAgingTimerId). send_defer_ttl_ms window.
+// Give up on parked sends whose hash never resolved (periodic, on kAgingTimerId). hash_locate_giveup_ms window
+// (P-BUDGET: DECOUPLED from the deferred-queue's send_defer_ttl_ms — a parked send waits on a slow multi-hop flood
+// round-trip that must be RE-FLOODED across several independent windows, not a local route reappearing on a beacon).
 void Node::age_out_parked_sends() {
     if (_parked_sends_n == 0) return;
     const uint64_t now = _hal.now();
     uint8_t w = 0;
     for (uint8_t r = 0; r < _parked_sends_n; ++r) {
         const ParkedSend p = _parked_sends[r];
-        if ((now - p.parked_at_ms) >= protocol::send_defer_ttl_ms) {
+        if ((now - p.parked_at_ms) >= protocol::hash_locate_giveup_ms) {
             if (p.is_resolve) {
                 push_hash_resolved(p.key_hash32, 0, false);     // a `resolve` that never resolved -> timeout answer
             } else {

@@ -749,7 +749,9 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         // keeps the id, the HIGHER re-picks. Both members hear each other's beacon (src=id) and apply the SAME rule, so it
         // converges symmetrically WITHOUT a DENY frame (the old addr_conflict_send_deny was DEAD CODE here — it carried the
         // TEAM id but the DENY receiver keys on its static _node_id, so the claimant never yielded; it also polluted id_bind).
-        if (_team_dad_pending || _key_hash32 > b.key_hash32) {
+        // §P2-5 (2026-07-21): the LOWER key keeps the id — the ONE static-plane tiebreak (join_tiebreak_wins, lower-key-wins).
+        // The keys are guaranteed UNEQUAL here (the :747 guard), so !join_tiebreak_wins == the old `_key_hash32 > b.key_hash32`.
+        if (_team_dad_pending || !join_tiebreak_wins(0, _key_hash32, 0, b.key_hash32)) {
             MR_EMIT("team_dad_repick", EF_I("was", _team_local_id)); team_dad_fire();   // we lose (tentative, or higher key) -> re-pick
         } else {
             MR_EMIT("team_dad_defense", EF_I("id", _team_local_id));   // we win (lower key) -> KEEP; the peer re-picks when it hears our beacon

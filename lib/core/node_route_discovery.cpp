@@ -21,43 +21,41 @@ namespace MESHROUTE_NS {
 bool Node::rreq_seen_recently(uint8_t origin, uint8_t dst, bool team_plane) {
     const uint64_t now    = _hal.now();
     const uint64_t cutoff = (now >= protocol::route_request_seen_ttl_ms) ? now - protocol::route_request_seen_ttl_ms : 0;
+    // §P2-2: table-ref parameterization (à la rt_merge) — pick the plane's PRIVATE ledger, then walk ONCE. The team
+    // ledger is right-sized (16); the static ledger is protocol::cap_route_request_seen. Byte-identical to the old fork.
 #if MR_FEAT_TEAM
-    if (team_plane) {
-        for (uint8_t i = 0; i < _active->_rreq_seen_team_n; ++i)
-            if (_active->_rreq_seen_team[i].origin == origin && _active->_rreq_seen_team[i].dst == dst && _active->_rreq_seen_team[i].t_ms >= cutoff) return true;
-        return false;
-    }
+    const RReqSeen* seen   = team_plane ? _active->_rreq_seen_team   : _active->_rreq_seen;
+    const uint8_t   seen_n = team_plane ? _active->_rreq_seen_team_n : _active->_rreq_seen_n;
 #else
     (void)team_plane;
+    const RReqSeen* seen   = _active->_rreq_seen;
+    const uint8_t   seen_n = _active->_rreq_seen_n;
 #endif
-    for (uint8_t i = 0; i < _active->_rreq_seen_n; ++i)
-        if (_active->_rreq_seen[i].origin == origin && _active->_rreq_seen[i].dst == dst && _active->_rreq_seen[i].t_ms >= cutoff) return true;
+    for (uint8_t i = 0; i < seen_n; ++i)
+        if (seen[i].origin == origin && seen[i].dst == dst && seen[i].t_ms >= cutoff) return true;
     return false;
 }
 void Node::mark_rreq_seen(uint8_t origin, uint8_t dst, bool team_plane) {
     const uint64_t now = _hal.now();
 #if MR_FEAT_TEAM
-    if (team_plane) {
-        for (uint8_t i = 0; i < _active->_rreq_seen_team_n; ++i)
-            if (_active->_rreq_seen_team[i].origin == origin && _active->_rreq_seen_team[i].dst == dst) { _active->_rreq_seen_team[i].t_ms = now; return; }
-        constexpr uint8_t cap_team_seen = static_cast<uint8_t>(sizeof(_active->_rreq_seen_team) / sizeof(_active->_rreq_seen_team[0]));
-        if (_active->_rreq_seen_team_n < cap_team_seen) { _active->_rreq_seen_team[_active->_rreq_seen_team_n++] = { origin, dst, now }; return; }
-        uint8_t o = 0;
-        for (uint8_t i = 1; i < _active->_rreq_seen_team_n; ++i) if (_active->_rreq_seen_team[i].t_ms < _active->_rreq_seen_team[o].t_ms) o = i;
-        _active->_rreq_seen_team[o] = { origin, dst, now };
-        return;
-    }
+    RReqSeen*     seen   = team_plane ? _active->_rreq_seen_team   : _active->_rreq_seen;
+    uint8_t&      seen_n = team_plane ? _active->_rreq_seen_team_n : _active->_rreq_seen_n;
+    const uint8_t cap    = team_plane ? static_cast<uint8_t>(sizeof(_active->_rreq_seen_team) / sizeof(_active->_rreq_seen_team[0]))
+                                      : static_cast<uint8_t>(protocol::cap_route_request_seen);
 #else
     (void)team_plane;
+    RReqSeen*     seen   = _active->_rreq_seen;
+    uint8_t&      seen_n = _active->_rreq_seen_n;
+    const uint8_t cap    = static_cast<uint8_t>(protocol::cap_route_request_seen);
 #endif
-    for (uint8_t i = 0; i < _active->_rreq_seen_n; ++i)
-        if (_active->_rreq_seen[i].origin == origin && _active->_rreq_seen[i].dst == dst) { _active->_rreq_seen[i].t_ms = now; return; }
-    if (_active->_rreq_seen_n < protocol::cap_route_request_seen) {
-        _active->_rreq_seen[_active->_rreq_seen_n++] = { origin, dst, now };
+    for (uint8_t i = 0; i < seen_n; ++i)
+        if (seen[i].origin == origin && seen[i].dst == dst) { seen[i].t_ms = now; return; }
+    if (seen_n < cap) {
+        seen[seen_n++] = { origin, dst, now };
     } else {                                              // ring full -> evict the oldest
         uint8_t o = 0;
-        for (uint8_t i = 1; i < _active->_rreq_seen_n; ++i) if (_active->_rreq_seen[i].t_ms < _active->_rreq_seen[o].t_ms) o = i;
-        _active->_rreq_seen[o] = { origin, dst, now };
+        for (uint8_t i = 1; i < seen_n; ++i) if (seen[i].t_ms < seen[o].t_ms) o = i;
+        seen[o] = { origin, dst, now };
     }
 }
 
@@ -65,61 +63,44 @@ void Node::mark_rreq_seen(uint8_t origin, uint8_t dst, bool team_plane) {
 // the window UNLESS the TTL escalates (the ttl=1 probe -> dv_hop_cap requery is always allowed).
 bool Node::rreq_rate_ok(uint8_t dst, uint8_t ttl, bool team_plane) {
     const uint64_t now = _hal.now();
+    // §P2-2: table-ref parameterization (à la rt_merge). The team ledger is right-sized (16, back-pressure not LRU);
+    // the static ledger's cap is the runtime _cfg.cap_route_request_last. The full-table refuse emits table_cap_hit —
+    // the team variant carries an extra plane="team" field (drift-fix'd 2026-07-20); team-plane only (MR_FEAT_TEAM), so
+    // s18 (static, 5-field emit) stays byte-identical.
 #if MR_FEAT_TEAM
-    if (team_plane) {                                     // §team-multihop: team-PRIVATE rate ledger (right-sized, back-pressure not LRU)
-        for (uint8_t i = 0; i < _active->_rreq_last_team_n; ++i) {
-            if (_active->_rreq_last_team[i].dst != dst) continue;
-            const bool window_open = (now - _active->_rreq_last_team[i].t_ms) >= protocol::route_request_seen_ttl_ms;
-            const bool escalate    = ttl > _active->_rreq_last_team[i].ttl;
-            if (!window_open && !escalate) return false;
-            _active->_rreq_last_team[i].t_ms = now; _active->_rreq_last_team[i].ttl = ttl; return true;
-        }
-        constexpr uint8_t cap_team_last = static_cast<uint8_t>(sizeof(_active->_rreq_last_team) / sizeof(_active->_rreq_last_team[0]));
-        // NEW dst on a FULL team ledger -> REFUSE (back-pressure, not evict), matching the static path below.
-        // §P2-2 drift fix (2026-07-20): the team side was SILENT where the static side emits table_cap_hit —
-        // emit the same-shaped event here, distinguished by an extra plane="team" field. Team-plane only (MR_FEAT_TEAM),
-        // so s18 (static) stays byte-identical.
-        if (_active->_rreq_last_team_n >= cap_team_last) {
-            MR_TELEMETRY(
-                char keybuf[12]; std::snprintf(keybuf, sizeof(keybuf), "dst:%u", static_cast<unsigned>(dst));
-                EventField f[] = { { .key = "table",  .type = EventField::T::str, .s = "route_request_last" },
-                                   { .key = "cap",    .type = EventField::T::i64, .i = cap_team_last },
-                                   { .key = "size",   .type = EventField::T::i64, .i = _active->_rreq_last_team_n },
-                                   { .key = "action", .type = EventField::T::str, .s = "refuse" },
-                                   { .key = "key",    .type = EventField::T::str, .s = keybuf },
-                                   { .key = "plane",  .type = EventField::T::str, .s = "team" } };
-                _hal.emit("table_cap_hit", f, 6);
-            );
-            return false;   // bounded in-flight discovery budget (refuse, don't evict)
-        }
-        _active->_rreq_last_team[_active->_rreq_last_team_n++] = { dst, ttl, now };
-        return true;
-    }
+    RReqLast*     last   = team_plane ? _active->_rreq_last_team   : _active->_rreq_last;
+    uint8_t&      last_n = team_plane ? _active->_rreq_last_team_n : _active->_rreq_last_n;
+    const uint8_t cap    = team_plane ? static_cast<uint8_t>(sizeof(_active->_rreq_last_team) / sizeof(_active->_rreq_last_team[0]))
+                                      : static_cast<uint8_t>(_cfg.cap_route_request_last);
 #else
     (void)team_plane;
+    RReqLast*     last   = _active->_rreq_last;
+    uint8_t&      last_n = _active->_rreq_last_n;
+    const uint8_t cap    = static_cast<uint8_t>(_cfg.cap_route_request_last);
 #endif
-    for (uint8_t i = 0; i < _active->_rreq_last_n; ++i) {
-        if (_active->_rreq_last[i].dst != dst) continue;
-        const bool window_open = (now - _active->_rreq_last[i].t_ms) >= protocol::route_request_seen_ttl_ms;
-        const bool escalate    = ttl > _active->_rreq_last[i].ttl;
+    for (uint8_t i = 0; i < last_n; ++i) {
+        if (last[i].dst != dst) continue;
+        const bool window_open = (now - last[i].t_ms) >= protocol::route_request_seen_ttl_ms;
+        const bool escalate    = ttl > last[i].ttl;
         if (!window_open && !escalate) return false;      // recent + same/lower ttl -> suppress
-        _active->_rreq_last[i].t_ms = now; _active->_rreq_last[i].ttl = ttl; return true;
+        last[i].t_ms = now; last[i].ttl = ttl; return true;
     }
     // NEW dst. Full table -> REFUSE the new dst (Lua route_request_last cap, table_cap_hit "refuse"),
     // NOT evict-oldest: a bounded in-flight-discovery budget is back-pressure, not LRU churn.
-    if (_active->_rreq_last_n >= _cfg.cap_route_request_last) {
+    if (last_n >= cap) {
         MR_TELEMETRY(
             char keybuf[12]; std::snprintf(keybuf, sizeof(keybuf), "dst:%u", static_cast<unsigned>(dst));
             EventField f[] = { { .key = "table",  .type = EventField::T::str, .s = "route_request_last" },
-                               { .key = "cap",    .type = EventField::T::i64, .i = _cfg.cap_route_request_last },
-                               { .key = "size",   .type = EventField::T::i64, .i = _active->_rreq_last_n },
+                               { .key = "cap",    .type = EventField::T::i64, .i = cap },
+                               { .key = "size",   .type = EventField::T::i64, .i = last_n },
                                { .key = "action", .type = EventField::T::str, .s = "refuse" },
-                               { .key = "key",    .type = EventField::T::str, .s = keybuf } };
-            _hal.emit("table_cap_hit", f, 5);
+                               { .key = "key",    .type = EventField::T::str, .s = keybuf },
+                               { .key = "plane",  .type = EventField::T::str, .s = "team" } };
+            _hal.emit("table_cap_hit", f, team_plane ? 6 : 5);
         );
         return false;
     }
-    _active->_rreq_last[_active->_rreq_last_n++] = { dst, ttl, now };
+    last[last_n++] = { dst, ttl, now };
     return true;
 }
 
@@ -261,12 +242,23 @@ void Node::handle_f(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                 EF_I("their_hash", static_cast<int64_t>(f.config_hash)), EF_I("my_hash", static_cast<int64_t>(cfg_config_hash())));
         return;
     }
-    const uint8_t prev = f.relay;
-    if (prev == 0xFF || prev == _node_id) return;
+    handle_f_common(f, meta, /*team=*/false, /*me=*/_node_id);
+}
+
+// §P2-2 (2026-07-21): the SHARED F RREQ/RREP body (the handle_h shape). The thin entry wrappers — static handle_f above
+// (leaf / config_hash / is_mobile gates) and team handle_f_team below (team-membership gate) — hand off here. `me` is our
+// identity ON THE PLANE (_node_id static / team_local_id team); `team` selects the plane for every route / dedup / reply op
+// AND toggles the trailing plane="team" telemetry field the team emits carry (the drop events carry none, per-plane, exactly
+// as the two hand-coded copies did). The forward frame is self-contained (leaf_id / team scope packed by pack_f), so ONE
+// rreq_forward_stash ring serves both planes.
+void Node::handle_f_common(const f_out& f, const RxMeta& meta, bool team, uint8_t me) {
+    const Plane   plane = team ? Plane::TEAM : Plane::AUTO;   // team -> _rt_team; static keeps the AUTO default -> byte-identical
+    const uint8_t prev  = f.relay;
+    if (prev == 0xFF || prev == me) return;
     const int16_t snr_q4 = protocol::db_to_q4(meta.snr_db);
 
     if (!f.is_reply) {                                     // ----------------- RREQ -----------------
-        if (f.origin == _node_id) return;                  // our own flood, heard back
+        if (f.origin == me) return;                        // our own flood, heard back
         // M4: f.hops is an UNAUTHENTICATED wire byte. learn_route_via below stores hops = f.hops+1, so a forged
         // f.hops==255 wraps (uint8) to a 0-hop entry that OUT-RANKS every real route (rt sort is hops-ascending)
         // AND re-seeds on each re-flood = network-wide poison from one crafted frame. Gate at the top (before
@@ -277,47 +269,44 @@ void Node::handle_f(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             return;
         }
         MR_TELEMETRY(
-            EventField f2[] = { { .key = "origin", .type = EventField::T::i64, .i = f.origin },
-                                { .key = "dst",    .type = EventField::T::i64, .i = f.dst_id },
-                                { .key = "ttl",    .type = EventField::T::i64, .i = f.ttl_or_next_hop },
-                                { .key = "hops",   .type = EventField::T::i64, .i = f.hops } };
-            _hal.emit("rreq_rx", f2, 4); );                                            // dv:11689
-        learn_route_via(f.origin, prev, static_cast<uint8_t>(f.hops + 1), snr_q4);     // reverse path
-        if (f.dst_id == _node_id) {                                                    // we are the target
+            EventField f2[] = { EF_I("origin", f.origin), EF_I("dst", f.dst_id), EF_I("ttl", f.ttl_or_next_hop),
+                                EF_I("hops", f.hops), EF_S("plane", "team") };
+            _hal.emit("rreq_rx", f2, team ? 5 : 4); );                                 // dv:11689
+        learn_route_via(f.origin, prev, static_cast<uint8_t>(f.hops + 1), snr_q4, team);   // reverse path
+        if (f.dst_id == me) {                                                          // we are the target
             MR_TELEMETRY(
-                EventField f2[] = { { .key = "origin", .type = EventField::T::i64, .i = f.origin } };
-                _hal.emit("rreq_resolved_self", f2, 1); );                             // dv:11705
-            send_route_reply(f.origin, _node_id, 0); return;
+                EventField f2[] = { EF_I("origin", f.origin), EF_S("plane", "team") };
+                _hal.emit("rreq_resolved_self", f2, team ? 2 : 1); );                  // dv:11705
+            send_route_reply(f.origin, me, 0, team); return;
         }
-        RtEntry* de = rt_find(f.dst_id);                                               // cached route -> answer
+        RtEntry* de = rt_find(f.dst_id, plane);                                        // cached route -> answer
         if (de != nullptr && de->n > 0) {
             MR_TELEMETRY(
-                EventField f2[] = { { .key = "origin", .type = EventField::T::i64, .i = f.origin },
-                                    { .key = "dst",    .type = EventField::T::i64, .i = f.dst_id },
-                                    { .key = "hops",   .type = EventField::T::i64, .i = de->candidates[0].hops } };
-                _hal.emit("rreq_resolved_cached", f2, 3); );                           // dv:11715
-            send_route_reply(f.origin, f.dst_id, de->candidates[0].hops); return;
+                EventField f2[] = { EF_I("origin", f.origin), EF_I("dst", f.dst_id),
+                                    EF_I("hops", de->candidates[0].hops), EF_S("plane", "team") };
+                _hal.emit("rreq_resolved_cached", f2, team ? 4 : 3); );                // dv:11715
+            send_route_reply(f.origin, f.dst_id, de->candidates[0].hops, team); return;
         }
-        if (rreq_seen_recently(f.origin, f.dst_id)) return;                            // flood dedup
-        mark_rreq_seen(f.origin, f.dst_id);
+        if (rreq_seen_recently(f.origin, f.dst_id, team)) return;                      // flood dedup
+        mark_rreq_seen(f.origin, f.dst_id, team);
         if (f.ttl_or_next_hop == 0) return;                                            // TTL exhausted
         MR_TELEMETRY(
-            EventField f2[] = { { .key = "origin", .type = EventField::T::i64, .i = f.origin },
-                                { .key = "dst",    .type = EventField::T::i64, .i = f.dst_id },
-                                { .key = "ttl",    .type = EventField::T::i64, .i = static_cast<int64_t>(f.ttl_or_next_hop - 1) },
-                                { .key = "hops",   .type = EventField::T::i64, .i = static_cast<int64_t>(f.hops + 1) } };
-            _hal.emit("rreq_forward", f2, 4); );                                       // dv:11728
+            EventField f2[] = { EF_I("origin", f.origin), EF_I("dst", f.dst_id),
+                                EF_I("ttl", static_cast<int64_t>(f.ttl_or_next_hop - 1)),
+                                EF_I("hops", static_cast<int64_t>(f.hops + 1)), EF_S("plane", "team") };
+            _hal.emit("rreq_forward", f2, team ? 5 : 4); );                            // dv:11728
         f_in fwd{};
         fwd.leaf_id = _cfg.leaf_id; fwd.origin = f.origin; fwd.is_reply = false;
         fwd.dst_id  = f.dst_id; fwd.ttl_or_next_hop = static_cast<uint8_t>(f.ttl_or_next_hop - 1);
-        fwd.hops    = static_cast<uint8_t>(f.hops + 1); fwd.relay = _node_id;
+        fwd.hops    = static_cast<uint8_t>(f.hops + 1); fwd.relay = me;
         fwd.config_hash = f.config_hash;                          // preserve the originator's fingerprint (gate-passed -> == ours)
+        if (team) { fwd.team_scoped = true; fwd.team_id = f.team_id; }   // preserve the TEAM scope across the forward
         uint8_t buf[16];
         const size_t n = pack_f(fwd, std::span<uint8_t>(buf, sizeof(buf)));
         if (n) { if (fwd.ttl_or_next_hop > 0) rreq_forward_stash(buf, n);       // §F-XL-2: de-storm a PROPAGATING forward (jitter so sibling relays don't collide same-ms; LBT defers the later)
                  else tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0); }  // a TERMINAL forward (ttl now 0) never re-propagates -> no downstream collision to de-storm -> send now
     } else {                                               // ----------------- RREP -----------------
-        if (f.ttl_or_next_hop != _node_id) return;         // unicast: only the addressed next-hop acts
+        if (f.ttl_or_next_hop != me) return;               // unicast: only the addressed next-hop acts
         // Loop/over-cap backstop: unlike the RREQ (TTL-bounded + rreq_seen-deduped), the unicast RREP relay had NO
         // bound. An inconsistent reverse path (A->origin via B, B->origin via A — e.g. after a link drop the routes
         // disagree) ping-pongs the reply forever, `hops` climbing unbounded (observed 90+ on metal -> an F storm).
@@ -330,15 +319,14 @@ void Node::handle_f(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             return;
         }
         MR_TELEMETRY(
-            EventField f2[] = { { .key = "origin", .type = EventField::T::i64, .i = f.origin },
-                                { .key = "dst",    .type = EventField::T::i64, .i = f.dst_id },
-                                { .key = "hops",   .type = EventField::T::i64, .i = f.hops } };
-            _hal.emit("rrep_rx", f2, 3); );                                            // dv:11743
-        learn_route_via(f.dst_id, prev, static_cast<uint8_t>(f.hops + 1), snr_q4);     // forward path
-        if (f.origin == _node_id) {                        // we asked -> the route to dst is now installed
+            EventField f2[] = { EF_I("origin", f.origin), EF_I("dst", f.dst_id), EF_I("hops", f.hops),
+                                EF_S("plane", "team") };
+            _hal.emit("rrep_rx", f2, team ? 4 : 3); );                                 // dv:11743
+        learn_route_via(f.dst_id, prev, static_cast<uint8_t>(f.hops + 1), snr_q4, team);   // forward path
+        if (f.origin == me) {                              // we asked -> the route to dst is now installed
             MR_TELEMETRY(
-                EventField ev[] = { { .key = "dst", .type = EventField::T::i64, .i = f.dst_id } };
-                _hal.emit("rrep_arrived", ev, 1); );       // the armed 1s deferred-send drain flies the send
+                EventField ev[] = { EF_I("dst", f.dst_id), EF_S("plane", "team") };
+                _hal.emit("rrep_arrived", ev, team ? 2 : 1); );   // the armed 1s deferred-send drain flies the send
             return;
         }
         // Loop-breaker (the real cure; the hop-cap above is the backstop for longer cycles): if our reverse route to
@@ -346,67 +334,27 @@ void Node::handle_f(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         // back = a 2-node ping-pong (the inconsistent-route loop after a link drop). A LEGITIMATE relay never has
         // next-hop == prev (that would mean the path to the origin runs back toward the dst), so this drops only loops
         // — no false positives, unlike a by-hops dedup which can't tell a long alt-path reply from a loop.
-        RtEntry* rev = rt_find(f.origin);
+        RtEntry* rev = rt_find(f.origin, plane);
         if (rev != nullptr && rev->n > 0 && rev->candidates[0].next_hop == prev) {
             MR_EMIT("rrep_drop_loopback", EF_I("origin", f.origin), EF_I("dst", f.dst_id), EF_I("via", prev));
             return;
         }
-        send_route_reply(f.origin, f.dst_id, static_cast<uint8_t>(f.hops + 1));        // relay onward
+        send_route_reply(f.origin, f.dst_id, static_cast<uint8_t>(f.hops + 1), team);   // relay onward
     }
 }
 
 #if MR_FEAT_TEAM
-// §team-multihop (spec 2026-07-15 Plane 2): the TEAM-plane F handler. FULL SEPARATION is enforced by the gate below —
+// §team-multihop (spec 2026-07-15 Plane 2): the TEAM-plane F entry wrapper. FULL SEPARATION is enforced by the gate below —
 // processed ONLY by a same-team, team-DAD'd member (is_mobile + our team_id == f.team_id + team_local_id != 0). A STATIC
 // node (team_id==0), a WRONG-team member (team_id != f.team_id), or a non-team mobile DROPS the frame here → a team RREQ/RREP
 // never touches the static _rt / _rreq_seen / _rreq_last / _id_bind, and never crosses into another team. The team plane is a
 // leaf-AGNOSTIC PHY overlay keyed by team_id (a mixed team spans leaves), so there is NO leaf_id / config_hash gate — team_id
-// IS the membership. Mirrors the static handle_f, but origin/dst/relay/next-hop are team_local_ids and every route/dedup op
-// runs on the TEAM plane (_rt_team + the team-private ledgers).
+// IS the membership. The shared handle_f_common does the RREQ/RREP work (origin/dst/relay/next-hop are team_local_ids, every
+// route/dedup op on the TEAM plane + team-private ledgers).
 void Node::handle_f_team(const f_out& f, const RxMeta& meta) {
     const uint8_t me = team_local_id();
     if (!(_cfg.is_mobile && same_team(f.team_id) && me != 0)) return;   // SEPARATION: same-team member only (static / wrong-team / non-team / un-DAD'd -> drop). §P2-1: ONE same_team() definition (leaf-agnostic — a team F already had no leaf gate)
-    const uint8_t prev = f.relay;
-    if (prev == 0xFF || prev == me) return;
-    const int16_t snr_q4 = protocol::db_to_q4(meta.snr_db);
-
-    if (!f.is_reply) {                                     // ----------------- team RREQ -----------------
-        if (f.origin == me) return;                                                    // our own flood, heard back
-        if (f.hops >= _cfg.dv_hop_cap) { MR_EMIT("rreq_drop_hop_cap", EF_I("origin", f.origin), EF_I("dst", f.dst_id), EF_I("hops", f.hops)); return; }
-        MR_EMIT("rreq_rx", EF_I("origin", f.origin), EF_I("dst", f.dst_id), EF_I("ttl", f.ttl_or_next_hop), EF_I("hops", f.hops), EF_S("plane", "team"));
-        learn_route_via(f.origin, prev, static_cast<uint8_t>(f.hops + 1), snr_q4, /*team_plane=*/true);   // reverse path -> _rt_team
-        if (f.dst_id == me) {                                                          // we are the target
-            MR_EMIT("rreq_resolved_self", EF_I("origin", f.origin), EF_S("plane", "team"));
-            send_route_reply(f.origin, me, 0, /*team_plane=*/true); return;
-        }
-        RtEntry* de = rt_find(f.dst_id, Plane::TEAM);                                   // cached team route -> answer
-        if (de != nullptr && de->n > 0) {
-            MR_EMIT("rreq_resolved_cached", EF_I("origin", f.origin), EF_I("dst", f.dst_id), EF_I("hops", de->candidates[0].hops), EF_S("plane", "team"));
-            send_route_reply(f.origin, f.dst_id, de->candidates[0].hops, /*team_plane=*/true); return;
-        }
-        if (rreq_seen_recently(f.origin, f.dst_id, /*team_plane=*/true)) return;        // team flood dedup
-        mark_rreq_seen(f.origin, f.dst_id, /*team_plane=*/true);
-        if (f.ttl_or_next_hop == 0) return;                                            // TTL exhausted
-        MR_EMIT("rreq_forward", EF_I("origin", f.origin), EF_I("dst", f.dst_id), EF_I("ttl", static_cast<int64_t>(f.ttl_or_next_hop - 1)), EF_I("hops", static_cast<int64_t>(f.hops + 1)), EF_S("plane", "team"));
-        f_in fwd{};
-        fwd.leaf_id = _cfg.leaf_id; fwd.origin = f.origin; fwd.is_reply = false;
-        fwd.dst_id  = f.dst_id; fwd.ttl_or_next_hop = static_cast<uint8_t>(f.ttl_or_next_hop - 1);
-        fwd.hops    = static_cast<uint8_t>(f.hops + 1); fwd.relay = me;
-        fwd.config_hash = f.config_hash; fwd.team_scoped = true; fwd.team_id = f.team_id;   // preserve the TEAM scope across the forward
-        uint8_t buf[16];
-        const size_t n = pack_f(fwd, std::span<uint8_t>(buf, sizeof(buf)));
-        if (n) { if (fwd.ttl_or_next_hop > 0) rreq_forward_stash(buf, n);       // §F-XL-2: same de-storm as the static path (propagating forward only; shared self-contained-frame ring)
-                 else tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0); }  // terminal team forward -> send now
-    } else {                                               // ----------------- team RREP -----------------
-        if (f.ttl_or_next_hop != me) return;                                           // unicast: only the addressed next-hop acts
-        if (f.hops > static_cast<uint8_t>(2 * _cfg.dv_hop_cap)) { MR_EMIT("rrep_drop_hop_cap", EF_I("origin", f.origin), EF_I("dst", f.dst_id), EF_I("hops", f.hops)); return; }
-        MR_EMIT("rrep_rx", EF_I("origin", f.origin), EF_I("dst", f.dst_id), EF_I("hops", f.hops), EF_S("plane", "team"));
-        learn_route_via(f.dst_id, prev, static_cast<uint8_t>(f.hops + 1), snr_q4, /*team_plane=*/true);   // forward path -> _rt_team
-        if (f.origin == me) { MR_EMIT("rrep_arrived", EF_I("dst", f.dst_id), EF_S("plane", "team")); return; }   // we asked -> the team route is installed (drains the parked send)
-        RtEntry* rev = rt_find(f.origin, Plane::TEAM);                                  // loop-breaker: reverse next-hop == prev -> a ping-pong
-        if (rev != nullptr && rev->n > 0 && rev->candidates[0].next_hop == prev) { MR_EMIT("rrep_drop_loopback", EF_I("origin", f.origin), EF_I("dst", f.dst_id), EF_I("via", prev)); return; }
-        send_route_reply(f.origin, f.dst_id, static_cast<uint8_t>(f.hops + 1), /*team_plane=*/true);   // relay onward
-    }
+    handle_f_common(f, meta, /*team=*/true, /*me=*/me);
 }
 #endif
 

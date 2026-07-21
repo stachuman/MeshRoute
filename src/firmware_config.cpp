@@ -108,9 +108,9 @@ void handle_cfg_set(const char* args, Print& out) {
     // has no such floor). => the usable control-SF floor on this hardware is 6; don't set routing_sf=5 on these
     // modules. Left configurable (no hard guard) for future SF5-capable hardware. Ref: SX1262 DS §6.1.1.1.
     else if (!strcmp(key, "routing_sf") || !strcmp(key, "control_sf")) { b.routing_sf = (uint8_t)atoi(val); reconfig = radio = true; }
-    else if (!strcmp(key, "bw"))                                       { const long bw = atol(val);         // `cfg set bw` is in Hz; join/create take kHz 7..500 -> mirror as 7000..500000 Hz (bw<=0 -> downstream div-by-zero)
-                                                                         if (bw < 7000 || bw > 500000) { out.println(F("> cfg err bad_value (bw 7000..500000 Hz)")); return; }
-                                                                         b.bw_hz = (uint32_t)bw;              reconfig = radio = true; }
+    else if (!strcmp(key, "bw"))                                       { const double bwk = atof(val);      // W2b unit unification: kHz ALWAYS (fractional ok, e.g. 62.5) — mirrors join/create/gateway; kHz->Hz ROUNDED. BREAKING: was Hz. (bw<=0 -> downstream div-by-zero)
+                                                                         if (bwk < 7.0 || bwk > 500.0) { out.println(F("> cfg err bad_value (bw 7..500 kHz, fractional ok e.g. 62.5)")); return; }
+                                                                         b.bw_hz = (uint32_t)(bwk * 1000.0 + 0.5); reconfig = radio = true; }
     else if (!strcmp(key, "cr"))                                       { const int cr = atoi(val);          // LoRa coding rate 4/5..4/8 -> 5..8 (SX1262 setCodingRate range)
                                                                          if (cr < 5 || cr > 8) { out.println(F("> cfg err bad_value (cr 5..8)")); return; }
                                                                          b.cr = (uint8_t)cr;                  reconfig = radio = true; }
@@ -126,7 +126,9 @@ void handle_cfg_set(const char* args, Print& out) {
     else if (!strcmp(key, "beacon_ms"))  { const long bms = atol(val);                          // floor at the discovery cadence: 0/too-small = airtime storm after reboot
                                            if (bms < (long)meshroute::protocol::discovery_beacon_period_ms) { out.println(F("> cfg err bad_value (beacon_ms >= 5000)")); return; }
                                            b.beacon_ms = (uint32_t)bms; lc.beacon_period_ms = b.beacon_ms; }
-    else if (!strcmp(key, "duty"))       { b.duty = meshroute::bp_to_duty(meshroute::duty_to_bp(atof(val))); live = false;   // §5: quantize to the 0.01% wire step so the config_hash matches across nodes
+    else if (!strcmp(key, "duty"))       { const double dpct = atof(val);   // W2b unit unification: PERCENT (1 = 1%, fractional ok e.g. 0.1 = 0.1%) — SAME unit + conversion as `create duty=`. BREAKING: was a raw 0..1 fraction.
+                                           if (dpct < 0.0 || dpct > 100.0) { out.println(F("> cfg err bad_value (duty percent 0..100; 1 = 1%, fractional ok e.g. 0.1)")); return; }
+                                           b.duty = meshroute::bp_to_duty(meshroute::duty_to_bp(dpct / 100.0)); live = false;   // §5: percent -> 0..1 fraction, quantized to the 0.01% wire step so the config_hash matches across nodes
                                            if (b.lineage_id) b.config_epoch = (uint16_t)(b.config_epoch >= 65534 ? 65534 : b.config_epoch + 1); }   // R6.3 §4.1: managed leaf-field write bumps epoch; saturate (u16 wrap -> permanent de-sync)
     // --- nav/hop tuning: LIVE-only (good defaults; reboot reverts) ---
     else if (!strcmp(key, "nav"))        { lc.nav_enabled    = atoi(val) != 0; persist = false; }
@@ -263,10 +265,10 @@ void handle_cfg_set(const char* args, Print& out) {
         if (f < 0.0) { out.println(F("> cfg err bad_value (l1_freq MHz; 0=inherit)")); return; }
         b.l1_freq_mhz = f; live = false;
     }
-    else if (!strcmp(key, "l1_bw")) {                            // v17 per-layer BW: layer-1 bandwidth Hz (0 = inherit the global bw)
-        const long v = atol(val);
-        if (v < 0) { out.println(F("> cfg err bad_value (l1_bw Hz; 0=inherit)")); return; }
-        b.l1_bw_hz = (uint32_t)v; live = false;
+    else if (!strcmp(key, "l1_bw")) {                            // v17 per-layer BW in kHz (W2b unit unification: kHz ALWAYS, fractional ok e.g. 62.5; 0 = inherit the global bw). Mirrors `gateway bw1=`. BREAKING: was Hz.
+        const double bwk = atof(val);
+        if (bwk < 0.0 || (bwk > 0.0 && (bwk < 7.0 || bwk > 500.0))) { out.println(F("> cfg err bad_value (l1_bw 7..500 kHz, fractional ok; 0=inherit)")); return; }
+        b.l1_bw_hz = (uint32_t)(bwk * 1000.0 + 0.5); live = false;
     }
     else if (!strcmp(key, "l1_cr")) {                            // v17 per-layer CR: layer-1 coding-rate 5..8 (0 = inherit)
         const int v = atoi(val);

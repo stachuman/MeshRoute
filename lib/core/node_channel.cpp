@@ -363,7 +363,7 @@ uint16_t Node::do_send_channel(uint8_t channel_id, const uint8_t* body, uint8_t 
         uint8_t bm[32] = {};
         flood_set_my_coverage(bm, team);                     // {self + hops==1 neighbours} on the flood's plane — the frugal seed (KEPT; the honest seed regressed)
         enqueue_flood_m(e.channel_id, e.flavor, e.id, e.payload, static_cast<uint8_t>(e.payload_len), bm, protocol::flood_hop_max);
-        channel_reoffer_register(e.id);                      // Part 2: own this message's propagation until a RELAY of it is overheard
+        channel_reoffer_register(e.id, team);                // Part 2: own this message's propagation until a RELAY of it is overheard (team: until all retries — mixed-chain coverage)
     }
     schedule_triggered_beacon();                              // §4.1.7: make the repair digest prompt, not 15-min
     return c;
@@ -690,11 +690,12 @@ void Node::flood_state_free(uint8_t slot) {
 // ---- Part 2: channel ORIGIN re-offer (spec 2026-06-25-channel-origin-reoffer.md) -------------------------------
 // The origin owns its message's propagation until seen_by proves it got out. channel_reoffer_register arms a slot at
 // flood origination; channel_reoffer_fire re-floods the cached body while seen_by stays empty, up to N retries.
-void Node::channel_reoffer_register(uint32_t id) {
+void Node::channel_reoffer_register(uint32_t id, bool team) {
     for (uint8_t s = 0; s < protocol::cap_channel_reoffer_pending; ++s) {
         ChannelReofferPending& rp = _active->_channel_reoffer_pending[s];
         if (rp.active) continue;
-        rp.active = true; rp.id = id; rp.retries_left = protocol::channel_reoffer_max_retries;
+        rp.active = true; rp.id = id; rp.team = team;
+        rp.retries_left = team ? protocol::channel_reoffer_team_max_retries : protocol::channel_reoffer_max_retries;
         const uint32_t jitter = static_cast<uint32_t>(_hal.rand_range(0, static_cast<int32_t>(protocol::channel_reoffer_jitter_ms) + 1));
         (void)_hal.after(protocol::channel_reoffer_delay_ms + jitter, kChannelReofferTimerId + s);
         return;
@@ -730,7 +731,13 @@ void Node::channel_reoffer_fire(uint8_t slot) {
 void Node::channel_reoffer_confirm(uint32_t id) {
     for (uint8_t s = 0; s < protocol::cap_channel_reoffer_pending; ++s) {
         ChannelReofferPending& rp = _active->_channel_reoffer_pending[s];
-        if (rp.active && rp.id == id) { emit_channel_sent(true, static_cast<uint16_t>(id & 0xff)); rp.active = false; _hal.cancel(kChannelReofferTimerId + s); return; }  // Slice 6c: a relay was overheard -> channel_sent{relayed:true}
+        if (rp.active && rp.id == id) {
+            // ★ P-BUDGET (s28 class): a TEAM flood does NOT treat one overheard relay as full coverage — a mixed
+            // multi-hop team chain has far members a single near relay never reached. Keep re-offering (all retries)
+            // so those far members get independent shots; the retry-exhaustion in channel_reoffer_fire ends it. A
+            // NON-team flood keeps the original relay-confirmed 1-shot semantics (delivery-suite byte-inert).
+            if (rp.team) return;
+            emit_channel_sent(true, static_cast<uint16_t>(id & 0xff)); rp.active = false; _hal.cancel(kChannelReofferTimerId + s); return; }  // Slice 6c: a relay was overheard -> channel_sent{relayed:true}
     }
 }
 

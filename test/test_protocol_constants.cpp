@@ -209,3 +209,20 @@ TEST_CASE("snr_ewma helpers == the historical inline arithmetic, bit-for-bit (Sl
     CHECK(P::snr_ewma_step(0, 80)   == 25);   // step: 0 + ((80-0)*5 >> 4) = 25
     CHECK(P::snr_ewma_update(0, 80) != P::snr_ewma_step(0, 80));
 }
+
+TEST_CASE("P-BUDGET — hash-locate patience budget derivation + invariants (2026-07-21)") {
+    // The parked send-by-hash giveup == park + ALL refloods (no idle dead-zone before giveup).
+    CHECK(P::hash_locate_giveup_ms == P::park_reflood_retry_ms * (P::park_reflood_max_retries + 1u));
+    // Every reflood fires strictly before the giveup (the last one still gets a full spacing to answer).
+    CHECK(static_cast<uint32_t>(P::park_reflood_retry_ms) * P::park_reflood_max_retries < P::hash_locate_giveup_ms);
+    // Reflood spacing >= a beacon period so each retry lands on an INDEPENDENT RX/contention phase
+    // (the root cause of the s27 hello-m2 giveup: 10 s-bunched retries were phase-correlated and all missed).
+    CHECK(P::park_reflood_retry_ms >= P::discovery_beacon_period_ms);
+    // DECOUPLED from the route-blocked deferred-queue TTL (that keeps s18 byte-identical) — a parked send
+    // waits on a slow multi-hop flood round-trip, not a local route reappearing on the next beacon.
+    CHECK(P::hash_locate_giveup_ms > P::send_defer_ttl_ms);
+    // Bounded under the sender-side mobile-home cache horizon: a stale-cache sender re-locates within it.
+    CHECK(P::hash_locate_giveup_ms < P::mobile_home_cache_ttl_ms);
+    // Refloods reuse the ONE parked entry (no per-retry slot) -> the bounded ring is not enlarged.
+    CHECK(P::cap_parked_sends >= 1);
+}

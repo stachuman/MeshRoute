@@ -15,6 +15,7 @@
 
 #include "airtime.h"   // airtime_ms — Slice 3a SF-weighted window derivation
 #include "frame_codec.h"  // DATA_HDR_LEN — §3e exchange_airtime_ms DATA-leg sizing
+#include "identity.h"  // §P2-6: key_hash32_of (LE(ed_pub[:4]) derivation)
 #include "wire.h"
 
 #include <cstdlib>     // atol — parse_gateway_cmd
@@ -999,8 +1000,7 @@ CmdResult Node::on_command(const Command& c) {
         }
         case CmdKind::peerkey: {     // §3: QR import — install the scanned full pubkey as a PINNED (verified) key.
             const uint8_t* ep = c.u.peerkey.ed_pub;             // key_hash32 = ed_pub[:4] (derived, never trusted from the wire)
-            const uint32_t kh = static_cast<uint32_t>(ep[0]) | (static_cast<uint32_t>(ep[1]) << 8)
-                              | (static_cast<uint32_t>(ep[2]) << 16) | (static_cast<uint32_t>(ep[3]) << 24);
+            const uint32_t kh = key_hash32_of(ep);   // §P2-6: identity.h owns the LE(ed_pub[:4]) derivation
             if (!peer_key_set(kh, ep, PeerKeyConf::pinned))    // false only when the cache is full of pinned keys (peer_key_full)
                 return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };
             return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };

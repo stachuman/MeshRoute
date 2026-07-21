@@ -554,55 +554,42 @@ void Node::rt_prune_cycle(uint8_t dest, uint8_t sender, RtEntry* rt, uint8_t& rt
 // NOT YET applied to scoring/selection/cascade (the resort + triggered-beacon
 // side-effects the Lua does here are DEFERRED to Phase 2/3 so P1 stays inert).
 // =============================================================================
-Node::PeerLiveness* Node::peer_liveness_slot(uint8_t node_id, bool create) {
-    auto& L = *_active;
-    for (uint8_t i = 0; i < L._peer_liveness_n; ++i)
-        if (L._peer_liveness[i].node_id == node_id) return &L._peer_liveness[i];
+// §P2-4: the shared slot core (table-ref parameterization à la rt_merge) — find (or LRU-create) a slot in `tbl`.
+// full -> evict the LEAST valuable. Prefer a HEALTHY slot (no live tier), stalest first — so an asymmetric DEAD
+// peer (reached by TX, never heard => dest_seen 0 but a live tier) is NOT the first to go and re-trusted (the
+// review's Gap A; matters once Phase 2 consults the tier). Fall back to the global stalest only if all are non-healthy.
+Node::PeerLiveness* Node::peer_liveness_slot(uint8_t node_id, bool create, PeerLiveness* tbl, uint8_t& n, uint8_t cap) {
+    for (uint8_t i = 0; i < n; ++i)
+        if (tbl[i].node_id == node_id) return &tbl[i];
     if (!create) return nullptr;
-    if (L._peer_liveness_n < protocol::cap_peer_liveness) {
-        PeerLiveness& s = L._peer_liveness[L._peer_liveness_n++]; s = PeerLiveness{}; s.node_id = node_id; return &s;
+    if (n < cap) {
+        PeerLiveness& s = tbl[n++]; s = PeerLiveness{}; s.node_id = node_id; return &s;
     }
-    // full -> evict the LEAST valuable. Prefer a HEALTHY slot (no live tier), stalest first — so an asymmetric DEAD
-    // peer (reached by TX, never heard => dest_seen 0 but a live tier) is NOT the first to go and re-trusted (the
-    // review's Gap A; matters once Phase 2 consults the tier). Fall back to the global stalest only if all are non-healthy.
     const uint64_t now = _hal.now();
     int      best = 0;
     bool     best_healthy = false;
     uint64_t best_seen = 0;
-    for (uint8_t i = 0; i < L._peer_liveness_n; ++i) {
-        const PeerLiveness& c = L._peer_liveness[i];
+    for (uint8_t i = 0; i < n; ++i) {
+        const PeerLiveness& c = tbl[i];
         const bool healthy = !(c.dead_until_ms > now || c.silent_until_ms > now || c.suspect_until_ms > now);
         const bool better = (i == 0)
                           || (healthy && !best_healthy)                                   // a healthy slot beats any non-healthy one
                           || (healthy == best_healthy && c.dest_seen_ms < best_seen);     // same class -> the stalest
         if (better) { best = i; best_healthy = healthy; best_seen = c.dest_seen_ms; }
     }
-    L._peer_liveness[best] = PeerLiveness{}; L._peer_liveness[best].node_id = node_id;
-    return &L._peer_liveness[best];
+    tbl[best] = PeerLiveness{}; tbl[best].node_id = node_id;
+    return &tbl[best];
+}
+Node::PeerLiveness* Node::peer_liveness_slot(uint8_t node_id, bool create) {
+    return peer_liveness_slot(node_id, create, _active->_peer_liveness, _active->_peer_liveness_n, protocol::cap_peer_liveness);
 }
 
 #if MR_FEAT_TEAM
-// §2c: the TEAM-plane liveness slot — a self-contained mirror of peer_liveness_slot over _team_liveness, keyed by
-// team_local_id with its OWN on-demand LRU. NEVER reads _peer_liveness / _team_keys (that ring evicts by crypto-key
-// recency = a different lifetime; sharing it would rebind suspect/dead state onto whoever next takes the slot).
+// §2c: the TEAM-plane liveness slot — the SAME core over _team_liveness, keyed by team_local_id with its OWN on-demand
+// LRU. NEVER reads _peer_liveness / _team_keys (that ring evicts by crypto-key recency = a different lifetime; sharing
+// it would rebind suspect/dead state onto whoever next takes the slot).
 Node::PeerLiveness* Node::team_liveness_slot(uint8_t team_local_id, bool create) {
-    auto& L = *_active;
-    for (uint8_t i = 0; i < L._team_liveness_n; ++i)
-        if (L._team_liveness[i].node_id == team_local_id) return &L._team_liveness[i];
-    if (!create) return nullptr;
-    if (L._team_liveness_n < protocol::cap_team_liveness) {
-        PeerLiveness& s = L._team_liveness[L._team_liveness_n++]; s = PeerLiveness{}; s.node_id = team_local_id; return &s;
-    }
-    const uint64_t now = _hal.now();                       // full -> evict the least valuable (healthy before a live tier; stalest first)
-    int best = 0; bool best_healthy = false; uint64_t best_seen = 0;
-    for (uint8_t i = 0; i < L._team_liveness_n; ++i) {
-        const PeerLiveness& c = L._team_liveness[i];
-        const bool healthy = !(c.dead_until_ms > now || c.silent_until_ms > now || c.suspect_until_ms > now);
-        const bool better = (i == 0) || (healthy && !best_healthy) || (healthy == best_healthy && c.dest_seen_ms < best_seen);
-        if (better) { best = i; best_healthy = healthy; best_seen = c.dest_seen_ms; }
-    }
-    L._team_liveness[best] = PeerLiveness{}; L._team_liveness[best].node_id = team_local_id;
-    return &L._team_liveness[best];
+    return peer_liveness_slot(team_local_id, create, _active->_team_liveness, _active->_team_liveness_n, protocol::cap_team_liveness);
 }
 #endif
 
@@ -651,28 +638,55 @@ void Node::mark_peer_suspect(uint8_t node_id, uint8_t level, const char* source,
             EF_S("source", source ? source : "unknown"), EF_I("rts_timeouts", s->rts_timeouts), EF_I("remote_src", remote_src));
 }
 
+// §P2-4: the SHARED rts-timeout tier cascade — maps a running timeout `count` to a liveness tier (suspect@2 /
+// silent@3 / dead@6-over-evidence-window), mutating first_timeout_ms exactly as both planes did inline. Returns the
+// tier level (0=none). The THRESHOLD constants (the flagged drift risk) now live ONCE here. The APPLICATION of the
+// tier stays per-plane at the call site: static -> mark_peer_suspect (advertise / resort / peer_suspect_mark emit);
+// team -> the inline _team_liveness until-set + team_resort (no static gossip/advertise). No until fields are set
+// here (static's mark_peer_suspect reads the PRIOR tier before setting them — moving the set here would corrupt it).
+uint8_t Node::apply_timeout_tier(PeerLiveness& s, uint16_t count, uint64_t now) {
+    if (count >= protocol::peer_silent_rts_timeouts) {                     // 3 -> at least SILENT; 6 over the evidence window -> DEAD
+        if (s.first_timeout_ms == 0) s.first_timeout_ms = now;
+        if (count >= protocol::peer_dead_rts_timeouts && (now - s.first_timeout_ms) >= protocol::peer_dead_evidence_window_ms)
+            return 3;
+        return 2;
+    }
+    if (count >= protocol::peer_suspect_rts_timeouts) return 1;            // 2 -> SUSPECT
+    return 0;
+}
+
+// §P2-4: the SHARED recovery-on-heard clear-core — zero every tier + gossip-advertise field, return whether anything
+// was live (the "emit only if `had`" gate). Both planes call it; the plane-only resort + emit stay at the call site.
+// A team slot NEVER carries advertise fields (team never gossips) -> including them in `had` / clearing them is a
+// no-op there = byte-identical to the old team clear that omitted them.
+bool Node::clear_liveness_tiers(PeerLiveness& s) {
+    const bool had = s.rts_timeouts != 0 || s.first_timeout_ms != 0 ||
+                     s.suspect_until_ms != 0 || s.silent_until_ms != 0 || s.dead_until_ms != 0 ||
+                     s.suspect_advertise_until_ms != 0 || s.dead_advertise_until_ms != 0;   // §P4 also stop gossiping it
+    if (!had) return false;
+    s.rts_timeouts = 0; s.first_timeout_ms = 0;
+    s.suspect_until_ms = 0; s.silent_until_ms = 0; s.dead_until_ms = 0;
+    s.suspect_advertise_until_ms = 0; s.dead_advertise_until_ms = 0;   // §P4: heard the peer -> stop advertising it as suspect (dv:4457-4463)
+    return true;
+}
+
 void Node::record_peer_rts_timeout(uint8_t node_id, uint8_t ctr_lo, bool team_plane) {
     if (node_id == 0 || node_id == _node_id) return;
 #if MR_FEAT_TEAM
     if (team_plane) {
-        // §2c: accrue TEAM liveness on _team_liveness (self-slotted). Set the tier untils INLINE — mirroring the static
-        // tier map — with NO static mark_peer_suspect/resort. The demotion takes effect at the next refresh_route_order(
-        // Plane::TEAM) in cascade_to_alt (effective_score reads the team penalty). Same tiers: silent@3 / dead@6-over-window / suspect@1.
+        // §2c: accrue TEAM liveness on _team_liveness (self-slotted). Apply the tier untils INLINE from the shared
+        // cascade — NO static mark_peer_suspect/resort. The demotion takes effect at the next refresh_route_order(
+        // Plane::TEAM) in cascade_to_alt (effective_score reads the team penalty).
         PeerLiveness* ts = team_liveness_slot(node_id, /*create=*/true);
         if (!ts) return;
         ts->rts_timeouts = static_cast<uint16_t>(ts->rts_timeouts + 1);
         const uint16_t tn = ts->rts_timeouts;
         const uint64_t tnow = _hal.now();
         MR_EMIT("peer_rts_timeout_count", EF_I("node", node_id), EF_I("ctr_lo", ctr_lo), EF_I("count", tn), EF_S("plane", "team"));
-        if (tn >= protocol::peer_silent_rts_timeouts) {
-            if (ts->first_timeout_ms == 0) ts->first_timeout_ms = tnow;
-            if (tn >= protocol::peer_dead_rts_timeouts && (tnow - ts->first_timeout_ms) >= protocol::peer_dead_evidence_window_ms)
-                ts->dead_until_ms   = tnow + protocol::peer_dead_ttl_ms;
-            else
-                ts->silent_until_ms = tnow + protocol::peer_silent_ttl_ms;
-        } else if (tn >= protocol::peer_suspect_rts_timeouts) {
-            ts->suspect_until_ms = tnow + protocol::peer_suspect_ttl_ms;
-        }
+        const uint8_t level = apply_timeout_tier(*ts, tn, tnow);
+        if      (level >= 3) ts->dead_until_ms    = tnow + protocol::peer_dead_ttl_ms;
+        else if (level >= 2) ts->silent_until_ms  = tnow + protocol::peer_silent_ttl_ms;
+        else if (level >= 1) ts->suspect_until_ms = tnow + protocol::peer_suspect_ttl_ms;
         team_resort_routes_through(node_id);   // §2c: proactively re-sort _rt_team so candidates[0] updates NOW (else the next flight re-picks the demoted primary)
         return;
     }
@@ -684,16 +698,8 @@ void Node::record_peer_rts_timeout(uint8_t node_id, uint8_t ctr_lo, bool team_pl
     s->rts_timeouts = static_cast<uint16_t>(s->rts_timeouts + 1);
     const uint16_t n = s->rts_timeouts;
     MR_EMIT("peer_rts_timeout_count", EF_I("node", node_id), EF_I("ctr_lo", ctr_lo), EF_I("count", n));
-    const uint64_t now = _hal.now();
-    if (n >= protocol::peer_silent_rts_timeouts) {                          // 3 -> at least SILENT; 6 over the evidence window -> DEAD
-        if (s->first_timeout_ms == 0) s->first_timeout_ms = now;
-        if (n >= protocol::peer_dead_rts_timeouts && (now - s->first_timeout_ms) >= protocol::peer_dead_evidence_window_ms)
-            mark_peer_suspect(node_id, 3, "rts_timeout");
-        else
-            mark_peer_suspect(node_id, 2, "rts_timeout");
-    } else if (n >= protocol::peer_suspect_rts_timeouts) {                  // 2 -> SUSPECT
-        mark_peer_suspect(node_id, 1, "rts_timeout");
-    }
+    const uint8_t level = apply_timeout_tier(*s, n, _hal.now());
+    if (level) mark_peer_suspect(node_id, level, "rts_timeout");   // static: the full tier machine (advertise/resort/peer_suspect_mark emit)
 }
 
 void Node::clear_peer_suspect(uint8_t node_id, const char* source, bool team_plane) {
@@ -701,12 +707,9 @@ void Node::clear_peer_suspect(uint8_t node_id, const char* source, bool team_pla
 #if MR_FEAT_TEAM
     if (team_plane) {
         // §2c: recovery-on-heard on the TEAM liveness (mandatory — else a transiently-missed team relay stays demoted
-        // forever). Clear the team slot's tiers inline; no static resort (the recovery lands at the next refresh_route_order(TEAM)).
+        // forever). Clear the team slot's tiers; no static resort (the recovery lands at the next refresh_route_order(TEAM)).
         PeerLiveness* ts = team_liveness_slot(node_id, /*create=*/false);
-        if (!ts) return;
-        const bool thad = ts->rts_timeouts || ts->first_timeout_ms || ts->suspect_until_ms || ts->silent_until_ms || ts->dead_until_ms;
-        if (!thad) return;
-        ts->rts_timeouts = 0; ts->first_timeout_ms = 0; ts->suspect_until_ms = 0; ts->silent_until_ms = 0; ts->dead_until_ms = 0;
+        if (!ts || !clear_liveness_tiers(*ts)) return;
         team_resort_routes_through(node_id);   // §2c: recovery -> re-sort _rt_team (the recovered relay may regain primacy)
         MR_EMIT("peer_suspect_clear", EF_I("node", node_id), EF_S("source", source ? source : "team_rx"), EF_S("plane", "team"));
         return;
@@ -715,14 +718,7 @@ void Node::clear_peer_suspect(uint8_t node_id, const char* source, bool team_pla
     (void)team_plane;
 #endif
     PeerLiveness* s = peer_liveness_slot(node_id, /*create=*/false);
-    if (!s) return;
-    const bool had = s->rts_timeouts != 0 || s->first_timeout_ms != 0 ||
-                     s->suspect_until_ms != 0 || s->silent_until_ms != 0 || s->dead_until_ms != 0 ||
-                     s->suspect_advertise_until_ms != 0 || s->dead_advertise_until_ms != 0;   // §P4 also stop gossiping it
-    if (!had) return;                                       // nothing to clear -> no event (Lua: emit only if `had`)
-    s->rts_timeouts = 0; s->first_timeout_ms = 0;
-    s->suspect_until_ms = 0; s->silent_until_ms = 0; s->dead_until_ms = 0;
-    s->suspect_advertise_until_ms = 0; s->dead_advertise_until_ms = 0;   // §P4: heard the peer -> stop advertising it as suspect (dv:4457-4463)
+    if (!s || !clear_liveness_tiers(*s)) return;             // nothing to clear -> no event (Lua: emit only if `had`)
     // §P2: the penalty is lifted -> re-rank routes via this recovered next-hop (a demoted route may regain primacy) +
     // re-advertise on a primary change. dest_seen_ms left intact (a separate freshness fact). (Lua clear_peer_suspect@4501.)
     resort_routes_for_neighbor_penalty(node_id, source ? source : "peer_suspect_clear", /*local_only=*/false);
@@ -770,14 +766,20 @@ void Node::team_key_set(uint8_t id, uint32_t key_hash32) {
 }
 bool Node::team_key_of_id(uint8_t id, uint32_t& out) const {   // §enc: team-scoped id->key (for a CRYPTED send by team_local_id)
     if (_cfg.team_id == 0 || !is_team_peer(id)) return false;   // only a known same-team peer (gate on team membership + the peer bitmap)
+    const uint64_t now = _hal.now();
     for (uint8_t i = 0; i < _active->_team_keys_n; ++i)
-        if (_active->_team_keys[i].id == id) { out = _active->_team_keys[i].key_hash32; return true; }
+        if (_active->_team_keys[i].id == id) {
+            if (now - _active->_team_keys[i].last_seen_ms > protocol::id_bind_ttl_ms) return false;   // §P2-6: stale (>48 h) -> absent — the TTL the sibling id_bind/peer_key stores already carry (id unique -> no fresher dup)
+            out = _active->_team_keys[i].key_hash32; return true;
+        }
     return false;
 }
 bool Node::team_id_of_key(uint32_t key_hash32, uint8_t& out_id) const {   // §mobile 6.4: reverse (hash->team_local_id) for a PLAINTEXT send-by-hash to a HEARD teammate
     if (_cfg.team_id == 0 || key_hash32 == 0) return false;
-    for (uint8_t i = 0; i < _active->_team_keys_n; ++i)                     // require BOTH the cached hash AND a live team-peer route (is_team_peer <-> _rt_team route) -> do_send routes via _rt_team
-        if (_active->_team_keys[i].key_hash32 == key_hash32 && is_team_peer(_active->_team_keys[i].id)) { out_id = _active->_team_keys[i].id; return true; }
+    const uint64_t now = _hal.now();
+    for (uint8_t i = 0; i < _active->_team_keys_n; ++i)                     // require the cached hash AND a live team-peer route (is_team_peer <-> _rt_team route) AND freshness (§P2-6 48 h TTL) -> do_send routes via _rt_team
+        if (_active->_team_keys[i].key_hash32 == key_hash32 && is_team_peer(_active->_team_keys[i].id)
+            && now - _active->_team_keys[i].last_seen_ms <= protocol::id_bind_ttl_ms) { out_id = _active->_team_keys[i].id; return true; }
     return false;
 }
 #endif   // MR_FEAT_TEAM

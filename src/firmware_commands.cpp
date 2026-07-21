@@ -170,10 +170,10 @@ static void dump_cfg(Print& out) {
     out.print(F("  radio : freq="));    out.print(show_freq, 4);
     out.print(F(" routing_sf="));       out.print(c.routing_sf);
     out.print(F(" sf_list="));          print_sf_list(c.allowed_sf_bitmap);
-    out.print(F(" bw="));               out.print(g_node.active_bw_hz());   // the ACTIVE leaf's BW (a gateway alternates per window; single-layer == the global)
+    out.print(F(" bw="));               out.print(g_node.active_bw_hz() / 1000.0, 2); out.print(F(" kHz"));   // W2b: kHz, matching `cfg set bw`. The ACTIVE leaf's BW (a gateway alternates per window; single-layer == the global)
     out.print(F(" cr="));               out.print((int)g_node.active_cr());
     out.print(F(" tx_power="));         out.println((int)g_tx_power);
-    out.print(F("  proto : duty="));    out.print(c.duty_cycle, 3);
+    out.print(F("  proto : duty="));    out.print(c.duty_cycle * 100.0, 2); out.print('%');   // W2b: percent, matching `cfg set duty`
     out.print(F(" beacon_ms="));        out.print(c.beacon_period_ms);
     out.print(F(" hop_cap="));          out.print(c.dv_hop_cap);
     out.print(F(" lbt="));              out.print(c.lbt_enabled ? 1 : 0);
@@ -230,7 +230,7 @@ static void dump_cfg(Print& out) {
             out.print(F(" layer_id="));    out.print(L.layer_id);
             out.print(F(" routing_sf="));  out.print(L.routing_sf);
             out.print(F(" sf_list="));     print_sf_list(L.allowed_sf_bitmap);
-            out.print(F(" bw="));          out.print(L.bw_hz > 0 ? L.bw_hz : c.radio_bw_hz);   // per-layer BW (0 = inherit -> the effective/global)
+            out.print(F(" bw="));          out.print((L.bw_hz > 0 ? L.bw_hz : c.radio_bw_hz) / 1000.0, 2); out.print(F(" kHz"));   // W2b: kHz, matching `cfg set l1_bw`. Per-layer BW (0 = inherit -> the effective/global)
             out.print(F(" cr="));          out.print((int)(L.cr > 0 ? L.cr : c.radio_cr));
             out.print(F(" beacon_ms="));   out.print(L.beacon_period_ms);
             out.print(F(" window_period_ms=")); out.print(L.window_period_ms);
