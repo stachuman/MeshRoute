@@ -19,10 +19,14 @@
 namespace MESHROUTE_NS {
 
 // §6 — the one tiebreak (KEY-ONLY, decided 2026-06-06): lower key_hash32 WINS/keeps; higher yields.
-// One rule for EVERY heal — direct (§7), mediated/shared-neighbour (L2a), delivery-driven (L2c) — so
+// One rule for every STATIC-plane heal — direct (§7), mediated/shared-neighbour (L2a), delivery-driven (L2c) — so
 // they can never pick different losers (a third-party mediator has no epoch; key alone keeps them
 // consistent). key_hash32 is a unique total order per honest node ⇒ exactly one winner, convergent.
 // claim_epoch is now VESTIGIAL: still carried on the J wire + in NV (reserved), no longer consulted here.
+// ★ TWO DELIBERATE DIVERGENCES (code is truth — not "EVERY" heal calls this): (1) team-DAD does an INLINE key
+//   compare at node_beacon.cpp:731 rather than calling join_tiebreak_wins (P2-5: could be unified, zero behavior
+//   change); (2) hosted-mobile local-id allocation is ARRIVAL-ORDER-WINS (first key to register keeps the id;
+//   find_free_mobile_id is idempotent per key), NOT a key tiebreak — the mobile plane has no global DAD.
 bool Node::join_tiebreak_wins(uint8_t /*my_epoch*/, uint32_t my_key, uint8_t /*their_epoch*/, uint32_t their_key) {
     return my_key < their_key;
 }
@@ -84,10 +88,12 @@ void Node::age_out_mediated() {
 // our own id. Returns 0 if the pool is full. Idempotent: a known key_hash returns its existing id (a re-DISCOVER re-offers
 // the same id). The id MAY overlap a neighbour's global id — the mobile mark disambiguates (§17 A3), no global DAD.
 //
-// §S0 CONVENTION (cold-boot alias fix): the two id-pickers share the 17..254 range but grow from OPPOSITE ends —
-// static DAD (join_choose_candidate_id) picks BOTTOM-UP from 17, hosted-mobile allocation picks TOP-DOWN from 254.
-// Keeping them disjoint in spirit makes a mobile/static collision improbable until the pool is nearly exhausted
-// (>238 combined). The metal bug was cold-boot allocation at t~8s handing a mobile local 18 (== static S2) BEFORE
+// §S0 CONVENTION (cold-boot alias fix): the two id-pickers share the 17..254 range. Hosted-mobile allocation picks
+// TOP-DOWN from 254 (:107). Static DAD (join_choose_candidate_id) picks UNIFORMLY AT RANDOM from the free ids in
+// 17..254 (:161) — NOT bottom-up (code is truth: the old comment claimed a bottom-up scan that the picker never did).
+// So the pools are not a guaranteed disjoint split; the real protection is that the mobile allocator EXCLUDES every id
+// it has evidence is a static (id_bind + _rt, same wide view as the static picker) AND biases high (top-down), making a
+// mobile/static collision improbable until the pool is nearly exhausted. The metal bug was cold-boot allocation at t~8s handing a mobile local 18 (== static S2) BEFORE
 // S2's beacon populated id_bind/_rt, so the picker "knew" nothing to exclude. Fix: exclude every id we have evidence
 // is a static (id_bind + the routing table, same wide view as the static picker), AND allocate top-down. Two further
 // backstops make this self-healing: (b) a LATER static binding for an id we already gave a mobile EVICTS the mobile

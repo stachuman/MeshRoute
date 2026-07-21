@@ -13,7 +13,7 @@
    "cr": 5,
    "max_packet_bytes": 255,
    "snr_coherence_ms": 0,
-   "duty_cycle": 0.1
+   "duty_cycle": 10
   }
  },
  "nodes": [
@@ -446,140 +446,160 @@
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "a01",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "a02",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "a03",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "a04",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "a05",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "a06",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "a07",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "a08",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "a09",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "b00",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "b01",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "b02",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "b03",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "b04",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "b05",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "b06",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "b07",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "b08",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "b09",
     "to": "gw0",
     "snr": 11.0,
     "rssi": -92.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    }
   ]
  },

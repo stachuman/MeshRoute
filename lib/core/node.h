@@ -1340,6 +1340,21 @@ private:
         //   discriminator — a team/mobile LOCAL-id write (e.g. _blind_until[team_local_id]; note_link_confirmed → _link_bidi[next_hop])
         //   aliases the SAME slot a colliding static node_id uses. Correct today (planes rarely co-active on one link); do NOT read
         //   these as plane-clean. See [[meshroute-plane-separation]].
+        // ★ §P2-7 AUDIT (2026-07-20) — five MORE plane-blind / dirty-blind ledgers, documented here (behavior fixes = Wave 2/3):
+        //   • _per_origin_channel (DEDUP section below): keyed by the BARE origin id, NO plane bit — a team origin and a static
+        //     origin that collide numerically share ONE windowed distinct-id cap slot (over-throttle risk). Safe today: the
+        //     planes rarely co-relay the same origin id.
+        //   • _seen_origins (DEDUP section below): the PLAINTEXT flight key (origin<<24|dst<<16|ctr) has NO plane bit, so a
+        //     team and a static PLAINTEXT DM alias iff origin+dst+ctr ALL collide. CRYPTED flights are immune (disjoint 2^63
+        //     nonce-seed space — see the key comment there).
+        //   • _hash_query_seen (~:1333 above): the H-flood dedup key has NO plane discriminator — safe ONLY by an UNWRITTEN
+        //     role-exclusion invariant: no node today processes BOTH the static and the team H-flood plane. If that ever holds
+        //     false, a team H and a static H sharing (origin,key_hash32) would falsely dedup one another.
+        //   • beacon_max_idle_force (node_beacon.cpp): its dirty-entry count scans the STATIC _rt only — a team member that
+        //     advertises _rt_team can have its max-idle B+C beacons suppressed while dirty TEAM entries are still pending.
+        //   • team_resort_routes_through (node_routing.cpp): reranks _rt_team WITHOUT a dirty-mark or triggered beacon, so the
+        //     rerank is NOT advertised on the member's cadence (steady beacons are dirty-only) until something else dirties it
+        //     (Wave-2 ruling 2.3). See that function's header for the corrected re-advertise semantics.
         // Peer-liveness + freshness plane (routing-liveness port): per-next-hop timeout tiers. Bounded LRU.
         PeerLiveness  _peer_liveness[protocol::cap_peer_liveness] = {};
         uint8_t       _peer_liveness_n = 0;

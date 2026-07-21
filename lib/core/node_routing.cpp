@@ -265,8 +265,11 @@ int Node::resort_routes_for_neighbor_penalty(uint8_t node_id, [[maybe_unused]] c
 #if MR_FEAT_TEAM
 // §2c: re-sort the TEAM routes (_rt_team) whose candidates include `team_local_id` after its liveness tier changed —
 // a self-contained mirror of resort_routes_for_neighbor_penalty over the team table (team_plane sort). Keeps
-// candidates[0] current so the NEXT team flight picks the fresh alt, not the just-demoted primary. Team-plane only;
-// no beacon re-advertise (a team route change re-advertises on the team member's own beacon cadence).
+// candidates[0] current so the NEXT team flight picks the fresh alt, not the just-demoted primary. Team-plane only.
+// ★ ACTUAL BEHAVIOR (code is truth — the old comment over-promised a cadence re-advertise): this reranks the local
+//   table but does NOT dirty-mark the entry or schedule_triggered_beacon. Steady team beacons advertise DIRTY entries
+//   only, so a liveness-driven rerank here is NOT re-advertised on the member's cadence until something else dirties
+//   the entry. Whether to dirty-mark on rerank is Wave-2 ruling 2.3 (deliberate-or-fix); do NOT change it here.
 void Node::team_resort_routes_through(uint8_t team_local_id) {
     for (uint8_t e = 0; e < _active->_rt_team_count; ++e) {
         RtEntry& entry = _active->_rt_team[e];

@@ -75,7 +75,23 @@ bool Node::rreq_rate_ok(uint8_t dst, uint8_t ttl, bool team_plane) {
             _active->_rreq_last_team[i].t_ms = now; _active->_rreq_last_team[i].ttl = ttl; return true;
         }
         constexpr uint8_t cap_team_last = static_cast<uint8_t>(sizeof(_active->_rreq_last_team) / sizeof(_active->_rreq_last_team[0]));
-        if (_active->_rreq_last_team_n >= cap_team_last) return false;   // bounded in-flight discovery budget (refuse, don't evict)
+        // NEW dst on a FULL team ledger -> REFUSE (back-pressure, not evict), matching the static path below.
+        // §P2-2 drift fix (2026-07-20): the team side was SILENT where the static side emits table_cap_hit —
+        // emit the same-shaped event here, distinguished by an extra plane="team" field. Team-plane only (MR_FEAT_TEAM),
+        // so s18 (static) stays byte-identical.
+        if (_active->_rreq_last_team_n >= cap_team_last) {
+            MR_TELEMETRY(
+                char keybuf[12]; std::snprintf(keybuf, sizeof(keybuf), "dst:%u", static_cast<unsigned>(dst));
+                EventField f[] = { { .key = "table",  .type = EventField::T::str, .s = "route_request_last" },
+                                   { .key = "cap",    .type = EventField::T::i64, .i = cap_team_last },
+                                   { .key = "size",   .type = EventField::T::i64, .i = _active->_rreq_last_team_n },
+                                   { .key = "action", .type = EventField::T::str, .s = "refuse" },
+                                   { .key = "key",    .type = EventField::T::str, .s = keybuf },
+                                   { .key = "plane",  .type = EventField::T::str, .s = "team" } };
+                _hal.emit("table_cap_hit", f, 6);
+            );
+            return false;   // bounded in-flight discovery budget (refuse, don't evict)
+        }
         _active->_rreq_last_team[_active->_rreq_last_team_n++] = { dst, ttl, now };
         return true;
     }

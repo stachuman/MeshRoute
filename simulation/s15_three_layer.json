@@ -13,7 +13,7 @@
    "cr": 5,
    "max_packet_bytes": 255,
    "snr_coherence_ms": 0,
-   "duty_cycle": 0.1
+   "duty_cycle": 10
   }
  },
  "config": {
@@ -770,709 +770,827 @@
     "from": "alice",
     "to": "bob",
     "snr": 18.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "bob",
     "to": "alice",
     "snr": 18.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "alice",
     "to": "carol",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "carol",
     "to": "alice",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "alice",
     "to": "dave",
     "snr": 13.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "dave",
     "to": "alice",
     "snr": 13.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "bob",
     "to": "dave",
     "snr": 17.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "dave",
     "to": "bob",
     "snr": 17.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "carol",
     "to": "dave",
     "snr": 15.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "dave",
     "to": "carol",
     "snr": 15.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "carol",
     "to": "frank",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "frank",
     "to": "carol",
     "snr": 6.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "dave",
     "to": "eve",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "eve",
     "to": "dave",
     "snr": 7.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "dave",
     "to": "grace",
     "snr": 18.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "grace",
     "to": "dave",
     "snr": 18.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "eve",
     "to": "heidi",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "heidi",
     "to": "eve",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "frank",
     "to": "grace",
     "snr": 15.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "grace",
     "to": "frank",
     "snr": 15.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "grace",
     "to": "heidi",
     "snr": 17.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "heidi",
     "to": "grace",
     "snr": 17.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "grace",
     "to": "ivan",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "ivan",
     "to": "grace",
     "snr": 8.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "grace",
     "to": "judy",
     "snr": 18.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "judy",
     "to": "grace",
     "snr": 18.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "heidi",
     "to": "judy",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "judy",
     "to": "heidi",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "ivan",
     "to": "judy",
     "snr": 15.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "judy",
     "to": "ivan",
     "snr": 15.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "kate",
     "to": "leo",
     "snr": 18.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "leo",
     "to": "kate",
     "snr": 18.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "kate",
     "to": "mia",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "mia",
     "to": "kate",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "kate",
     "to": "ned",
     "snr": 13.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "ned",
     "to": "kate",
     "snr": 13.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "leo",
     "to": "ned",
     "snr": 17.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "ned",
     "to": "leo",
     "snr": 17.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "mia",
     "to": "ned",
     "snr": 15.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "ned",
     "to": "mia",
     "snr": 15.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "mia",
     "to": "peter",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "peter",
     "to": "mia",
     "snr": 6.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "ned",
     "to": "olga",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "olga",
     "to": "ned",
     "snr": 7.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "ned",
     "to": "quinn",
     "snr": 18.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "quinn",
     "to": "ned",
     "snr": 18.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "olga",
     "to": "rosa",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "rosa",
     "to": "olga",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "peter",
     "to": "quinn",
     "snr": 15.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "quinn",
     "to": "peter",
     "snr": 15.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "quinn",
     "to": "rosa",
     "snr": 17.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "rosa",
     "to": "quinn",
     "snr": 17.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "quinn",
     "to": "sam",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "sam",
     "to": "quinn",
     "snr": 8.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "quinn",
     "to": "tina",
     "snr": 18.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "tina",
     "to": "quinn",
     "snr": 18.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "rosa",
     "to": "tina",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "tina",
     "to": "rosa",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "sam",
     "to": "tina",
     "snr": 15.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "tina",
     "to": "sam",
     "snr": 15.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "ursula",
     "to": "viktor",
     "snr": 18.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "viktor",
     "to": "ursula",
     "snr": 18.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "ursula",
     "to": "wendy",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "wendy",
     "to": "ursula",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "ursula",
     "to": "xena",
     "snr": 13.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "xena",
     "to": "ursula",
     "snr": 13.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "viktor",
     "to": "xena",
     "snr": 17.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "xena",
     "to": "viktor",
     "snr": 17.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "wendy",
     "to": "xena",
     "snr": 15.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "xena",
     "to": "wendy",
     "snr": 15.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "wendy",
     "to": "zoey",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "zoey",
     "to": "wendy",
     "snr": 6.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "xena",
     "to": "yves",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "yves",
     "to": "xena",
     "snr": 7.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "xena",
     "to": "abel",
     "snr": 18.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "abel",
     "to": "xena",
     "snr": 18.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "yves",
     "to": "bea",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "bea",
     "to": "yves",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "zoey",
     "to": "abel",
     "snr": 15.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "abel",
     "to": "zoey",
     "snr": 15.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "abel",
     "to": "bea",
     "snr": 17.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "bea",
     "to": "abel",
     "snr": 17.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "abel",
     "to": "clio",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "clio",
     "to": "abel",
     "snr": 8.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "abel",
     "to": "drew",
     "snr": 18.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "drew",
     "to": "abel",
     "snr": 18.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "bea",
     "to": "drew",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "drew",
     "to": "bea",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "clio",
     "to": "drew",
     "snr": 15.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "drew",
     "to": "clio",
     "snr": 15.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "bridge_12",
     "to": "grace",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "grace",
     "to": "bridge_12",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "bridge_12",
     "to": "ivan",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "ivan",
     "to": "bridge_12",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "bridge_12",
     "to": "quinn",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "quinn",
     "to": "bridge_12",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "bridge_12",
     "to": "sam",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "sam",
     "to": "bridge_12",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "bridge_13",
     "to": "dave",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "dave",
     "to": "bridge_13",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "bridge_13",
     "to": "heidi",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "heidi",
     "to": "bridge_13",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "bridge_13",
     "to": "abel",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "abel",
     "to": "bridge_13",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "bridge_13",
     "to": "bea",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "bea",
     "to": "bridge_13",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "bridge_23",
     "to": "ned",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "ned",
     "to": "bridge_23",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "bridge_23",
     "to": "olga",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "olga",
     "to": "bridge_23",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "bridge_23",
     "to": "xena",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "xena",
     "to": "bridge_23",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "bridge_23",
     "to": "yves",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "yves",
     "to": "bridge_23",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "newbie",
     "to": "dave",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "dave",
     "to": "newbie",
     "snr": 16.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "newbie",
     "to": "eve",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    },
    {
     "from": "eve",
     "to": "newbie",
     "snr": 14.0,
-    "bidir": false
+    "bidir": false,
+    "snr_std_dev": 0
    }
   ]
  },

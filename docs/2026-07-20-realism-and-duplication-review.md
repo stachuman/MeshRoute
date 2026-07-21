@@ -161,9 +161,19 @@ delegated-post billing at the home; separate team RREQ *stores* (the CODE is the
   JsonConfig; wrapper unknown-key refusal + map-or-reject unmapped fields; SF5/6 sim airtime; per-frame TX power
   plumb; team `table_cap_hit` telemetry; stale comments (§S0 bottom-up claim, §6 one-rule claim,
   team_resort re-advertise claim); document the P2-7 blind spots in node.h.
-- **Wave 2 — owner rulings:** mixed-leaf team scope (P2-1); flip turnaround/rx_window_slop defaults to metal
-  values (re-anchor event) vs require-per-scenario; duty-cycle unit unification (percent vs fraction);
-  team rerank advertise semantics; team-DAD mediation as a feature.
+- **Wave 2 — ★ ALL RULED by the user 2026-07-21:**
+  - **2.1 turnaround → REAL**: flip the baseline simulations to the metal values (27/27 ms + the metal
+    rx_window_slop formula as the DEFAULT; idealized becomes the opt-in). Standing rule ratified:
+    **"simulations need to be as realistic as possible."** Full re-anchor event (keystone retires again).
+  - **2.2 duty unit → PERCENT EVERYWHERE, unified**: 1 = 1%. Scenario JSON moves to percent (corpus migrated
+    ×100 preserving each scenario's effective duty), sim parse /100 internally, device console already percent;
+    ADD the unit to the firmware help text so it's explicit at every authoring surface.
+  - **2.3 team rerank advertise → FIX** using the existing mechanism (dirty-mark + triggered beacon, exactly
+    what the static resort does).
+  - **2.4 team-DAD mediation → ADD IT**, and simulate it (a hidden-terminal team-id-collision scenario where
+    only a middle member hears both holders — mirrors static L2a).
+  Sequencing: 2.1+2.2 = one sim-side slice (one re-anchor); 2.3 and 2.4 = firmware slices (s18-inert), 2.4
+  ships with its scenario. Wave 2 dispatches immediately after Wave 1 lands.
 - **Wave 3 — dedup refactors (s18-byte-gated, the `rt_merge` parameterization pattern):** P2-2 handle_f unify +
   ledger params; P2-3 predicates; P2-4 tier core; P2-5 tiebreak one-liner; P2-6 evict-slot-0 fix + `_team_keys`
   TTL + hash-derivation helper + HostMobileEntry through `peer_key_set`.

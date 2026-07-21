@@ -10,7 +10,8 @@
   "radio": {
    "sf": 7,
    "bw": 250,
-   "cr": 5
+   "cr": 5,
+   "duty_cycle": 1
   }
  },
  "nodes": [
@@ -181,7 +182,6 @@
    "script": "scenarios/dv_dual_sf.lua",
    "start_at_ms": 30000,
    "config": {
-    "join_required": true,
     "layer_id": 4,
     "routing_sf": 7,
     "beacon_period_ms": 12000,
@@ -203,7 +203,6 @@
    "script": "scenarios/dv_dual_sf.lua",
    "start_at_ms": 48000,
    "config": {
-    "join_required": true,
     "layer_id": 4,
     "routing_sf": 7,
     "beacon_period_ms": 12000,
@@ -225,7 +224,6 @@
    "script": "scenarios/dv_dual_sf.lua",
    "start_at_ms": 66000,
    "config": {
-    "join_required": true,
     "layer_id": 4,
     "routing_sf": 7,
     "beacon_period_ms": 12000,
@@ -247,7 +245,6 @@
    "script": "scenarios/dv_dual_sf.lua",
    "start_at_ms": 36000,
    "config": {
-    "join_required": true,
     "layer_id": 5,
     "routing_sf": 8,
     "beacon_period_ms": 12000,
@@ -269,7 +266,6 @@
    "script": "scenarios/dv_dual_sf.lua",
    "start_at_ms": 54000,
    "config": {
-    "join_required": true,
     "layer_id": 5,
     "routing_sf": 8,
     "beacon_period_ms": 12000,
@@ -291,7 +287,6 @@
    "script": "scenarios/dv_dual_sf.lua",
    "start_at_ms": 72000,
    "config": {
-    "join_required": true,
     "layer_id": 5,
     "routing_sf": 8,
     "beacon_period_ms": 12000,
@@ -314,119 +309,136 @@
     "to": "gw_4",
     "snr": 24.0,
     "rssi": -66.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "l4_j1",
     "to": "l4_seed",
     "snr": 22.0,
     "rssi": -68.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "l4_j2",
     "to": "l4_seed",
     "snr": 21.0,
     "rssi": -69.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "l4_j3",
     "to": "gw_4",
     "snr": 21.0,
     "rssi": -69.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "l4_j1",
     "to": "gw_4",
     "snr": 18.0,
     "rssi": -72.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "l4_j1",
     "to": "gw_5",
     "snr": 18.0,
     "rssi": -72.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "l4_j2",
     "to": "gw_5",
     "snr": 18.0,
     "rssi": -72.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "l4_seed",
     "to": "gw_5",
     "snr": 19.0,
     "rssi": -71.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "l5_seed",
     "to": "gw_5",
     "snr": 24.0,
     "rssi": -66.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "l5_j1",
     "to": "l5_seed",
     "snr": 22.0,
     "rssi": -68.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "l5_j2",
     "to": "l5_seed",
     "snr": 21.0,
     "rssi": -69.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "l5_j3",
     "to": "gw_5",
     "snr": 21.0,
     "rssi": -69.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "l5_j1",
     "to": "gw_5",
     "snr": 18.0,
     "rssi": -72.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "l5_j1",
     "to": "gw_4",
     "snr": 18.0,
     "rssi": -72.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "l5_j2",
     "to": "gw_4",
     "snr": 18.0,
     "rssi": -72.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "l5_seed",
     "to": "gw_4",
     "snr": 19.0,
     "rssi": -71.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    },
    {
     "from": "gw_4",
     "to": "gw_5",
     "snr": 20.0,
     "rssi": -70.0,
-    "bidir": true
+    "bidir": true,
+    "snr_std_dev": 0
    }
   ]
  },
