@@ -146,6 +146,14 @@ static plane and from other teams: team beacons/DV (`_rt_team`), team F discover
 tripwire + s22/s24/s25 assert both axes). Members self-assign `team_local_id`s by team-DAD (no host needed —
 an off-grid team routes among itself); a DUAL member (also home-registered) keeps the two id spaces distinct.
 Reaching a teammate REQUIRES the team plane (`send -t`); a plain send is global/home.
+**Leaf-agnostic (P2-1, 2026-07-20):** team membership is `team_id`, never `leaf_id` — a team's `create` defines
+the PHY all members share, and members homed onto DIFFERENT layers (mixed leaf nibbles) stay team-reachable:
+every team-scoped RX path (beacon, H, F, RTS/MAC, channel-M) accepts a same-team frame despite a foreign leaf
+(`Node::same_team()` is the ONE predicate; statics keep the plain leaf gate → byte-identical). Corollary
+(ruled option (a)): a TEAM member **refuses to home** onto a layer whose PHY (freq/bw/routing-sf/cr) differs
+from its team-provisioned `layers[0]` — `mobile_home_phy_mismatch`, stays off-grid-but-team-reachable;
+cross-LAYER same-PHY re-home is the supported case. (Residual: the explicit `mobile register freq=/bw=`
+console path bypasses the guard — operator's deliberate choice.)
 - **Source:** `node_beacon.cpp` (team beacon/DV) · `node_route_discovery.cpp` (team F) · `node_hashlocate.cpp` (team H) · `node_channel.cpp` (team M) · `node_mobile.cpp` (team-DAD)
 - **Spec:** `docs/superpowers/specs/2026-07-15-team-plane-routing-parity-design.md` · `2026-07-16-team-plane-liveness-2c-design.md` · `2026-07-10-protocol-plane-separation.md`
 

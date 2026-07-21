@@ -486,7 +486,11 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // §7c: cross-version gate FIRST, off the FIXED byte-3 low nibble — a foreign-version beacon may not even parse, so
     // read the version straight from the raw frame (after the byte-0 cmd + leaf-nibble filter), before parse_beacon.
     if (len < 4 || wire::cmd_of(bytes[0]) != wire::Cmd::B) return;
-    if (wire::flags_of(bytes[0]) != _cfg.leaf_id) return;               // foreign leaf nibble -> not ours
+    // §P2-1 (mixed-leaf team): a TEAM member (team_id!=0) DEFERS the pre-parse foreign-nibble drop — a mixed-leaf team spans
+    // nibbles, so a foreign-nibble beacon may be a same-team teammate's (accepted after parse, below). A NON-team node (every
+    // static, every lone mobile) keeps the pre-parse drop UNCHANGED -> s18 byte-identical (s18/s21-s28 teams are single-leaf).
+    // The wire_version gate (raw byte 3) MUST stay before parse, so it still runs for a deferred team beacon.
+    if (wire::flags_of(bytes[0]) != _cfg.leaf_id && _cfg.team_id == 0) return;   // foreign leaf nibble -> not ours (non-team)
     const uint8_t their_wire_ver = static_cast<uint8_t>(bytes[3] & 0x0F);
     if (their_wire_ver != protocol::wire_version) {                     // incompatible wire -> refuse + tell the operator (Push, not telemetry)
         const uint64_t now = _hal.now();
@@ -501,7 +505,18 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto parsed = parse_beacon(std::span<const uint8_t>(bytes, len));
     if (!parsed) return;
     const beacon_out& b = *parsed;
-    if (b.leaf_id != _cfg.leaf_id) return;                // single-layer nibble filter (R1) — coarse leaf match first
+    // §P2-1: leaf-EXEMPT team acceptance. leaf_match = the coarse single-layer nibble filter (R1). A same-team teammate's
+    // beacon (b.is_mobile + type-5 team TLV == our team_id) is accepted DESPITE a foreign nibble; anything else on a foreign
+    // nibble drops exactly as before. peer_team is parsed up-front (moved from the old ext block) — it feeds BOTH the same-team
+    // accept AND the digest gate below; same_team_beacon (moved up from its old :721 definition) is the ONE predicate the team
+    // sites reuse. DOWNSTREAM: a foreign-leaf team beacon feeds ONLY the team plane — every STATIC-plane branch below is gated
+    // on `leaf_match` (max-idle witness, discovery count, digest/gateway/suspect ingest, REQ_SYNC de-storm). The R6.1 config
+    // filter + DAD self-defense + id_bind are already `!_cfg.is_mobile`-gated and we (a team member) are mobile -> they skip.
+    const bool leaf_match = (b.leaf_id == _cfg.leaf_id);
+    uint32_t peer_team = 0;   // §mobile 6.2: the sender's team_id (type-5 TLV), 0 = none — feeds the same-team learn + the digest gate
+    if (b.has_ext) peer_team = parse_team_id_tlv(beacon_ext(std::span<const uint8_t>(bytes, len), b));   // §6.2 (draw-free pure parse; s18 has no TLV -> 0)
+    [[maybe_unused]] const bool same_team_beacon = b.is_mobile && same_team(peer_team);   // §P2-1: leaf-exempt iff a same-team teammate
+    if (!leaf_match && !same_team_beacon) return;         // foreign nibble AND not a same-team teammate -> drop as before
     // R6.1 leaf-config membership filter (§3.3): same nibble is NOT enough — refuse to peer across a config divergence
     // (the misconfig gate). Compares the advertised lineage/epoch/config_hash against ours.
     // §GW (metal 2026-07-05): a GATEWAY is exempt from the R6.1 leaf-config membership plane in BOTH directions —
@@ -588,7 +603,9 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // R4.3 max-idle witness — set AFTER the parse/leaf/self-echo guards (Lua dv:9559), NOT at the on_recv
     // dispatch top: a foreign-leaf or unparseable B-frame must NOT update it, or the max-idle B+C (and hence
     // the silence-jitter draw) desyncs from the Lua on multi-leaf channels (review #00).
-    _last_rx_bcn_ms = _hal.now();
+    // §P2-1: the max-idle witness is OUR-leaf static-plane state -> a foreign-leaf team beacon must NOT refresh it (leaf_match
+    // is true for every existing scenario -> s18/s21-s28 byte-identical).
+    if (leaf_match) _last_rx_bcn_ms = _hal.now();
     // Hash-locate A0 (Lua dv:9577): every BCN carries the sender's key_hash32 — learn the binding so we can
     // later answer an H query for this node WITHOUT the flood reaching the owner. (parse_beacon already
     // decodes b.key_hash32; this is the "stop discarding the received one" the review called for.)
@@ -608,11 +625,12 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // Reported for ALL nodes (even gateways); only the process_channel_digest reaction is gateway-gated.
     uint32_t dids[protocol::channel_dirty_max_per_bcn];
     uint8_t  dn = 0;
-    uint32_t peer_team = 0;   // §mobile 6.2: the sender's team_id (type-5 TLV), 0 = none — feeds the same-team learn below
-    if (b.has_ext) {
+    // §P2-1: the digest / gateway-layer / suspect-gossip ingest is OUR-leaf STATIC-plane state -> a foreign-leaf team beacon
+    // (leaf_match==false) feeds NONE of it. peer_team was already parsed above (it feeds the same-team accept + the digest
+    // gate below). leaf_match is true for every existing scenario -> this gate is s18/s21-s28 byte-identical.
+    if (b.has_ext && leaf_match) {
         const auto ext = beacon_ext(std::span<const uint8_t>(bytes, len), b);
         dn = parse_channel_digest_tlv(ext, dids, protocol::channel_dirty_max_per_bcn);
-        peer_team = parse_team_id_tlv(ext);   // §6.2
         // Multi-hop gateway discovery (type-4 TLV): ingest gw_id->dest_leaf. The leaf filter above means this beacon
         // is on OUR leaf, so gw_id is a node_id on our leaf. Skip our own id + a dest_leaf == our leaf (Lua dv:1540).
         GwLayerEntry gle[protocol::bridged_layers_max_per_tlv];
@@ -659,7 +677,7 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     }
     // beacon_rx — one per received beacon (the gate asserts src)
     MR_EMIT("beacon_rx",EF_I("src",b.src),EF_I("channel_digest_ids",dn));
-    if (in_discovery()) ++_active->_discovery_bcn_rx_count;   // §per-leaf: a leaf-1 beacon counts toward leaf 1's bootstrap, not leaf 0's (dv_dual_sf.lua:9560-9562)
+    if (leaf_match && in_discovery()) ++_active->_discovery_bcn_rx_count;   // §per-leaf: a leaf-1 beacon counts toward leaf 1's bootstrap, not leaf 0's (dv_dual_sf.lua:9560-9562). §P2-1: a foreign-leaf team beacon is not an OUR-leaf bootstrap witness
 
     const uint64_t now         = _hal.now();
     const int16_t  meta_snr_q4 = protocol::db_to_q4(meta.snr_db);
@@ -667,7 +685,9 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // Slice 3e.2: learn a GATEWAY's window schedule from its beacon (self_gateway + has_schedule) so we can later time
     // an RTS to its window (gateway_schedule_defer_ms). visit_start is anchored to `now` (this heard instant — the leaf
     // filter above means the gateway is currently on OUR leaf, so its OUR-leaf record reads ~open-now).
-    if (b.self_gateway && b.has_schedule && b.schedule_count > 0) {
+    // §P2-1: OUR-leaf static-plane state — skip for a foreign-leaf team beacon (a gateway is never a same-team teammate, so
+    // self_gateway is already false on the deferred path; the leaf_match gate makes the OUR-leaf assumption explicit).
+    if (leaf_match && b.self_gateway && b.has_schedule && b.schedule_count > 0) {
         GatewaySchedule gs{};
         gs.valid = true; gs.gw_node_id = b.src; gs.heard_ms = now;
         gs.spread_nibble = b.gateway_spread_nibble;             // §3e: keep the advertised herd-spread hint for the defer jitter
@@ -700,7 +720,7 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             useful = (bits > 1);
         }
     }
-    if (useful) {
+    if (leaf_match && useful) {   // §P2-1: the REQ_SYNC de-storm suppresses OUR-leaf sync responses -> not driven by a foreign-leaf team beacon
         for (uint8_t i = 0; i < protocol::cap_sync_response_pending; ++i) {
             SyncPending& p = _active->_sync_pending[i];
             if (p.active && !p.suppressed && now <= p.fire_at
@@ -718,7 +738,8 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // (peer_team from the type-5 TLV; requires WE are a team member.) Else keep the hash-locate Fix 3: a static beacon
     // learns into _rt (byte-identical for a non-team receiver, team_id==0 -> same_team_beacon always false); a mobile's
     // LOCAL id never enters the static rt (reached only as home_id+dst_hash; the home last-miles via a DIRECT addr_len=1 send).
-    [[maybe_unused]] const bool same_team_beacon = b.is_mobile && _cfg.team_id != 0 && peer_team == _cfg.team_id;   // §featuresplit: uses below are team-only
+    // §P2-1: same_team_beacon is defined once, up at the leaf-exempt accept (moved from here) — it drives BOTH the accept and
+    // the team-plane learn below off ONE predicate (same_team), so the mixed-leaf rule can't drift between the two.
 #if MR_FEAT_TEAM
     // §mobile 6.4 team-DAD: a same-team beacon whose src == OUR _team_local_id but a DIFFERENT key = a team-plane address
     // collision. TENTATIVE (guard window still open) -> yield + re-pick; CONFIRMED -> DEFEND (team-scoped DENY). Either

@@ -1,0 +1,285 @@
+{
+ "_name": "s29_mixed_leaf_team",
+ "_desc": "P2-1 mixed-leaf team reachability (user-ratified 2026-07-20). ONE team whose members are homed onto DIFFERENT static layers that SHARE the PHY (freq/bw/sf) but differ in leaf NIBBLE: layer 20 (nibble 4) statics H20a(101)/H20b(102), layer 23 (nibble 7) static H23(111). Team members (real cleartext identities): T1 (0xEE000001, cfg layer 20) homes H20a; T2 (0xEE000002, cfg layer 23) homes H23; T3 (0xEE000003, cfg layer 22 = a THIRD nibble 6) stays OFF-GRID (no static on nibble 6 in range) + team-DADs. All three mutually in range. Pre-2026-07-20 the beacon + team-scoped-H leaf gates dropped a foreign-nibble team frame BEFORE the team check, so a mixed-leaf team could never FORM (_rt_team) or RESOLVE (team H) across nibbles — the F/RTS carve-outs were dead scope. This scenario proves the fix: (1) cross-nibble _rt_team forms + a team DM by hash T1->T2 delivers (leaf-4 <-> leaf-7); (2) a team DM by hash T3->T1 delivers (off-grid nibble-6 -> homed nibble-4, cross-nibble team hash resolves); (3) a team CHANNEL post reaches ALL members across all three nibbles (RTS-M + DATA-M leaf-exempt for a team flood); (4) CONTAINMENT: the statics NEVER id_bind a team member's key (team beacons stay off the static hash-locate plane). The team-PHY home-refusal (Level 2) is proven by the native unit tests (the sim harness cannot drive the direct-adopt `mobile register` console path, and an off-grid member never pulls a layer directory so cannot learn a foreign-PHY layer in-sim). Cleartext (no seeds) — encrypted team DMs are s22-covered. Deterministic; run 3x. QA-review into simulation/ + anchor.",
+ "simulation": {
+  "duration_ms": 600000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "seed": 29,
+  "node_startup_jitter_ms": 0,
+  "radio": {
+   "sf": 8,
+   "bw": 62.5,
+   "cr": 5,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 0.1
+  }
+ },
+ "commands": [
+  {
+   "_c": "#1 cross-nibble team DM by hash: T1(leaf4,homed) -> T2(leaf7,homed) on the EXPLICIT team plane (-t)",
+   "at_ms": 400000,
+   "node": "T1",
+   "command": "send_hash ee000002 tx-dm-t1t2 -t"
+  },
+  {
+   "at_ms": 430000,
+   "node": "T1",
+   "command": "send_hash ee000002 tx-dm-t1t2 -t"
+  },
+  {
+   "_c": "#2 cross-nibble team DM by hash: T3(leaf6,off-grid) -> T1(leaf4,homed) (-t); the team hash resolves across nibbles",
+   "at_ms": 410000,
+   "node": "T3",
+   "command": "send_hash ee000001 tx-dm-t3t1 -t"
+  },
+  {
+   "at_ms": 440000,
+   "node": "T3",
+   "command": "send_hash ee000001 tx-dm-t3t1 -t"
+  },
+  {
+   "_c": "#3 team CHANNEL post from T1 -> must reach ALL members across all three nibbles (team-flood RTS-M + DATA-M leaf-exempt)",
+   "at_ms": 460000,
+   "node": "T1",
+   "command": "send_channel 3 tx-team-chan"
+  },
+  {
+   "at_ms": 490000,
+   "node": "T1",
+   "command": "send_channel 3 tx-team-chan"
+  }
+ ],
+ "expect": [
+  {
+   "type": "script_emit_contains",
+   "node": "T1",
+   "emit_type": "mobile_adopted",
+   "value": "\"home\":101",
+   "_c": "T1 homes onto a layer-20 (nibble 4) static H20a"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "T2",
+   "emit_type": "mobile_adopted",
+   "value": "\"home\":111",
+   "_c": "T2 homes onto the layer-23 (nibble 7) static H23"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "T1",
+   "emit_type": "team_dad_adopted",
+   "value": "id",
+   "_c": "a homed (dual) member still team-DADs"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "T2",
+   "emit_type": "team_dad_adopted",
+   "value": "id"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "T3",
+   "emit_type": "team_dad_adopted",
+   "value": "id",
+   "_c": "T3 stays off-grid (nibble 6, no static host) and team-DADs a team_local_id"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "T2",
+   "emit_type": "push",
+   "value": "tx-dm-t1t2",
+   "_c": "★ cross-nibble _rt_team: a leaf-4 homed member's team DM by hash reaches a leaf-7 homed member"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "T1",
+   "emit_type": "push",
+   "value": "tx-dm-t3t1",
+   "_c": "★ cross-nibble team hash resolves: an off-grid nibble-6 member's team DM reaches a nibble-4 homed member"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "T1",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":3",
+   "_c": "team channel: the originator self-receives"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "T2",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":3",
+   "_c": "★ team channel crosses nibble 4 -> 7"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "T3",
+   "emit_type": "channel_msg_received",
+   "value": "\"channel_id\":3",
+   "_c": "★ team channel crosses nibble 4 -> 6 (off-grid member)"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "H20a",
+   "emit_type": "id_bind_set",
+   "value": "3993895169",
+   "_c": "CONTAINMENT: H20a hears T1's (same-nibble) team beacon but NEVER id_binds its key (0xEE000001) — team stays off the static hash-locate plane"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "H20a",
+   "emit_type": "id_bind_set",
+   "value": "3993895170",
+   "_c": "CONTAINMENT: no team key (0xEE000002) in a static's id_bind"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "H23",
+   "emit_type": "id_bind_set",
+   "value": "3993895170",
+   "_c": "CONTAINMENT: H23 hears T2's team beacon but never id_binds its key (0xEE000002)"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "H23",
+   "emit_type": "id_bind_set",
+   "value": "3993895171",
+   "_c": "CONTAINMENT: no team key (0xEE000003) in a static's id_bind"
+  }
+ ],
+ "nodes": [
+  {
+   "name": "H20a",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.31,
+   "start_at_ms": 1000,
+   "node_id": 101,
+   "key_hash32": "0x51000001",
+   "config": {
+    "layer_id": 20,
+    "routing_sf": 8,
+    "allowed_data_sfs": [7, 9],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "H20b",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.3085,
+   "start_at_ms": 1000,
+   "node_id": 102,
+   "key_hash32": "0x51000002",
+   "config": {
+    "layer_id": 20,
+    "routing_sf": 8,
+    "allowed_data_sfs": [7, 9],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "H23",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.306,
+   "start_at_ms": 1000,
+   "node_id": 111,
+   "key_hash32": "0x51000011",
+   "config": {
+    "layer_id": 23,
+    "routing_sf": 8,
+    "allowed_data_sfs": [7, 9],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "T1",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.3105,
+   "start_at_ms": 1000,
+   "node_id": 0,
+   "key_hash32": "0xEE000001",
+   "config": {
+    "layer_id": 20,
+    "routing_sf": 8,
+    "allowed_data_sfs": [7, 9],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1,
+    "is_mobile": true,
+    "mobile_autoregister": true,
+    "team_beacon_period_ms": 30000,
+    "team_id": 858980353
+   }
+  },
+  {
+   "name": "T2",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.3065,
+   "start_at_ms": 1000,
+   "node_id": 0,
+   "key_hash32": "0xEE000002",
+   "config": {
+    "layer_id": 23,
+    "routing_sf": 8,
+    "allowed_data_sfs": [7, 9],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1,
+    "is_mobile": true,
+    "mobile_autoregister": true,
+    "team_beacon_period_ms": 30000,
+    "team_id": 858980353
+   }
+  },
+  {
+   "name": "T3",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.3085,
+   "start_at_ms": 1000,
+   "node_id": 0,
+   "key_hash32": "0xEE000003",
+   "config": {
+    "layer_id": 22,
+    "routing_sf": 8,
+    "allowed_data_sfs": [7, 9],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1,
+    "is_mobile": true,
+    "mobile_autoregister": true,
+    "team_beacon_period_ms": 30000,
+    "team_id": 858980353
+   }
+  }
+ ],
+ "topology": {
+  "links": [
+   { "from": "H20a", "to": "H20b", "snr": 10.75, "rssi": -60.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "H20b", "to": "H20a", "snr": 10.75, "rssi": -60.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "T1", "to": "H20a", "snr": 11.5, "rssi": -60.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "H20a", "to": "T1", "snr": 11.5, "rssi": -60.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "T2", "to": "H23", "snr": 11.5, "rssi": -60.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "H23", "to": "T2", "snr": 11.5, "rssi": -60.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "T1", "to": "T2", "snr": 10.5, "rssi": -60.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "T2", "to": "T1", "snr": 10.5, "rssi": -60.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "T1", "to": "T3", "snr": 10.5, "rssi": -60.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "T3", "to": "T1", "snr": 10.5, "rssi": -60.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "T2", "to": "T3", "snr": 10.5, "rssi": -60.0, "snr_std_dev": 0, "bidir": false },
+   { "from": "T3", "to": "T2", "snr": 10.5, "rssi": -60.0, "snr_std_dev": 0, "bidir": false }
+  ]
+ }
+}

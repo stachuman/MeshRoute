@@ -295,6 +295,7 @@ struct DualLayerTestAccess {
         n.do_post_ack();
     }
     static uint8_t  mobile_scan_idx(Node& n)      { return n._mobile_scan_idx; }              // §mobile 5a
+    static void     set_mobile_scan_idx(Node& n, uint8_t i) { n._mobile_scan_idx = i; }       // §P2-1 L2: point the FSM at a learned candidate
     static void     add_learned_layer(Node& n, uint8_t layer_id, uint8_t sf) {                // §mobile 5a: inject a learned-directory entry
         LayerRecord& r = n._learned_layers[n._learned_layers_n++]; r.layer_id=layer_id; r.sf=sf; r.freq_khz=868100; r.bw_hz=125000;
     }
@@ -4286,4 +4287,57 @@ TEST_CASE("§F-TR-1 (c): send_by_hash(plane=TEAM) from a REGISTERED dual member 
     // NO home delegation: the pending flight (if any) is the H flood, never a MOBILE_SEND wrapper to the home_id (101).
     const PendingTx* pt = A::pending(n);
     if (pt) CHECK(pt->type != DATA_TYPE_MOBILE_SEND);
+}
+
+// ============================================================================
+// §P2-1 Level 2 — team-PHY home-refusal (ruled option (a)): a team member must NOT register onto a home whose PHY
+// (freq/bw/routing_sf/cr) differs from its team-provisioned layers[0]; a cross-LAYER SAME-PHY re-home stays allowed.
+// ============================================================================
+TEST_CASE("§P2-1 L2 — team_phy_ok(): same-PHY (any layer_id) OK; a differing freq/bw/sf/cr REFUSED; a non-team mobile adopts anything") {
+    StubHal h; Node n(h, /*id=*/30, /*key=*/0x3030u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=6; cfg.is_mobile=true; cfg.team_id=0xABCD1234u;
+    cfg.layers[0].freq_mhz=868.1; cfg.layers[0].bw_hz=125000; cfg.layers[0].cr=5;   // the team-provisioned PHY
+    CHECK(n.on_init(cfg));
+    auto phy=[&](double f,uint32_t bw,uint8_t sf,uint8_t cr,uint8_t layer){ LayerConfig p{}; p.freq_mhz=f; p.bw_hz=bw; p.routing_sf=sf; p.cr=cr; p.layer_id=layer; return p; };
+    CHECK(n.team_phy_ok(phy(868.1,125000,7,5, /*layer*/6)));    // exact match
+    CHECK(n.team_phy_ok(phy(868.1,125000,7,5, /*layer*/9)));    // ★ SAME PHY, DIFFERENT layer_id -> the supported mixed-leaf re-home
+    CHECK_FALSE(n.team_phy_ok(phy(868.1, 62500,7,5, /*layer*/9)));  // different BW -> refused
+    CHECK_FALSE(n.team_phy_ok(phy(869.5,125000,7,5, /*layer*/9)));  // different freq -> refused
+    CHECK_FALSE(n.team_phy_ok(phy(868.1,125000,9,5, /*layer*/9)));  // different routing_sf -> refused
+    CHECK_FALSE(n.team_phy_ok(phy(868.1,125000,7,8, /*layer*/9)));  // different CR -> refused
+    // a NON-team mobile (team_id==0) adopts ANY PHY (today's behavior -> byte-identical): team_phy_ok always true.
+    StubHal h2; Node lone(h2, /*id=*/31, /*key=*/0x3131u);
+    NodeConfig lc; lc.routing_sf=7; lc.allowed_sf_bitmap=(1u<<7); lc.leaf_id=6; lc.is_mobile=true;   // team_id=0
+    lc.layers[0].freq_mhz=868.1; lc.layers[0].bw_hz=125000; CHECK(lone.on_init(lc));
+    CHECK(lone.team_phy_ok(phy(915.0,500000,12,8, /*layer*/3)));   // wildly different, still OK for a lone mobile
+}
+
+TEST_CASE("§P2-1 L2 — the mobile FSM SKIPS a learned foreign-PHY candidate (mobile_home_phy_mismatch, never DISCOVERs); adopts a same-PHY different-layer one") {
+    using A = DualLayerTestAccess;
+    // (a) MISMATCH: team layers[0] runs at the default bw (radio_bw_hz 250000); the learned directory record (add_learned_layer
+    //     hardcodes bw 125000) is a foreign PHY -> the scan MUST skip it (emit mobile_home_phy_mismatch) and NOT DISCOVER on it.
+    { StubHal h; Node n(h, /*id=*/30, /*key=*/0x3030u);
+      NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=6; cfg.is_mobile=true; cfg.team_id=0xABCD1234u; cfg.mobile_autoregister=true;
+      CHECK(n.on_init(cfg));                                    // layers[0].bw_hz==0 -> effective radio_bw_hz==250000 (!= learned 125000)
+      A::add_learned_layer(n, /*layer_id=*/8, /*sf=*/7);        // scan idx 1 = a foreign-BW layer
+      A::set_mobile_scan_idx(n, 1);
+      h.emits.clear(); h.last_tx_len = 0;
+      A::mobile_discover_fire(n);
+      CHECK(h.saw_emit("mobile_home_phy_mismatch"));            // ★ refused
+      CHECK_FALSE(h.saw_emit("mobile_discover_tx"));            // ★ never DISCOVERed on the foreign PHY
+      CHECK(A::mobile_scan_idx(n) == 0);                        // cycled on to the next candidate (wrapped 1 -> 0) }
+    }
+    // (b) MATCH: team layers[0] pinned to the learned record's PHY (freq 868.1 / bw 125000 / sf 7), DIFFERENT layer_id (8) ->
+    //     the supported cross-LAYER same-PHY re-home -> NO mismatch, the FSM DISCOVERs on it.
+    { StubHal h; Node n(h, /*id=*/31, /*key=*/0x3131u);
+      NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=6; cfg.is_mobile=true; cfg.team_id=0xABCD1234u; cfg.mobile_autoregister=true;
+      cfg.layers[0].freq_mhz=868.1; cfg.layers[0].bw_hz=125000;   // == the learned record's synthesized PHY
+      CHECK(n.on_init(cfg));
+      A::add_learned_layer(n, /*layer_id=*/8, /*sf=*/7);
+      A::set_mobile_scan_idx(n, 1);
+      h.emits.clear(); h.last_tx_len = 0;
+      A::mobile_discover_fire(n);
+      CHECK_FALSE(h.saw_emit("mobile_home_phy_mismatch"));      // ★ same PHY -> allowed
+      CHECK(h.saw_emit("mobile_discover_tx"));                  // ★ DISCOVERs on the (cross-layer) same-PHY candidate
+      CHECK(h.last_tx_len > 0); }
 }

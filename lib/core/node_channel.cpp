@@ -187,7 +187,7 @@ void Node::cancel_channel_pull(uint32_t id, [[maybe_unused]] uint8_t overheard_f
 //      handles the ACK / forward of the underlying DATA frame; this is the gossip side-effect. -----
 void Node::ingest_channel_m(const m_out& m, uint8_t from) {
     if (_cfg.n_layers == 2) return;                            // Principle 11: a dual-layer gateway never ingests channel gossip
-    if (m.leaf_id != _cfg.leaf_id) return;                     // defensive leaf gate (dispatch already gated; tests call directly)
+    if (m.leaf_id != _cfg.leaf_id && !same_team(m.team_id)) return;   // defensive leaf gate (dispatch already gated; tests call directly). §P2-1: a same-team M-frame is leaf-EXEMPT (mixed-leaf team channel); the m.team_id!=0 member gate below still contains it.
     if (m.team_id != 0) {                                      // §mobile 6.3: a TEAM-scoped M — only a member of THAT team ingests it. A static node / lone mobile / a DIFFERENT team drops it (never buffers, never re-floods -> team traffic stays off the static plane + out of other teams). A normal leaf M (team_id==0) falls through -> ingested by everyone incl. team members (planes = BOTH).
         if (!_cfg.is_mobile || _cfg.team_id != m.team_id) {
             const int fs = flood_state_find(m.channel_msg_id); // free any flood-state a DIFFERENT-team member alloc'd at the RTS, so it doesn't re-flood a foreign-team message

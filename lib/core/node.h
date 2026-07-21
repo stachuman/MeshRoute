@@ -141,6 +141,26 @@ public:
         return dst == _node_id;   // no team plane -> only our static id
 #endif
     }
+    // §P2-1 (mixed-leaf team): the ONE definition of "a team-scoped frame is FOR US" -> LEAF-EXEMPT. A team's `create`
+    // fixes the shared PHY; members homed onto DIFFERENT layers (nibbles) share team_id + PHY and MUST stay team-reachable.
+    // `their_team` = the frame-carried team id (beacon type-5 TLV / H.team_id / F.team_id / DATA-M team_id). team_id==0
+    // (every static, every lone mobile) -> false, so the pre-parse leaf gate stands UNCHANGED (s18/static byte-identical).
+    // Consumed at beacon + H + channel M; F/RTS carry the equivalent inline (handle_f_team / team_rts_for_us) — ONE rule,
+    // so a fifth RX path can't drift.
+    bool       same_team(uint32_t their_team) const { return _cfg.team_id != 0 && their_team == _cfg.team_id; }
+    // §P2-1 Level 2 (ruled option (a)): a TEAM member REFUSES a home whose PHY differs from its team-provisioned layers[0]
+    // (freq/bw/routing_sf/cr; NOT layer_id — cross-LAYER same-PHY re-home is exactly the supported mixed-leaf case; NOT
+    // sf_list — F-SF-1 keeps that across registration). bw/cr are compared EFFECTIVE (0 = inherit the global radio_bw_hz/cr,
+    // matching adopt_mobile_phy). team_id==0 -> true (a lone mobile adopts any PHY = today's behavior -> byte-identical).
+    bool       team_phy_ok(const LayerConfig& phy) const {
+        if (_cfg.team_id == 0) return true;
+        const LayerConfig& mine = _cfg.layers[0];
+        const uint32_t bw_a = phy.bw_hz  ? phy.bw_hz  : _cfg.radio_bw_hz;
+        const uint32_t bw_b = mine.bw_hz ? mine.bw_hz : _cfg.radio_bw_hz;
+        const uint8_t  cr_a = phy.cr     ? phy.cr     : _cfg.radio_cr;
+        const uint8_t  cr_b = mine.cr    ? mine.cr    : _cfg.radio_cr;
+        return phy.freq_mhz == mine.freq_mhz && bw_a == bw_b && phy.routing_sf == mine.routing_sf && cr_a == cr_b;
+    }
     bool       route_uses_mobile_as_transit(uint8_t dest, uint8_t next_hop) const;
     uint8_t    get_neighbor_tier(uint8_t node_id) const;                 // R4.2 tier read (TTL-expiring lazy-prune); public for tests
     void       schedule_triggered_beacon();                             // R4.3 trigger jitter + min-interval defer; public for tests

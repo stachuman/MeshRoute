@@ -605,7 +605,11 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto ph = parse_h(std::span<const uint8_t>(bytes, len));
     if (!ph) return;
     const h_out& h = *ph;
-    if (h.leaf_id != _cfg.leaf_id) return;                 // foreign-layer (dv:11635)
+    // §P2-1 (mixed-leaf team): a SAME-TEAM team-scoped H is leaf-EXEMPT — its membership is team_id, so a teammate homed on
+    // another nibble still resolves it (mirrors handle_f). Everything else on a foreign leaf drops HERE, before the h_rx emit:
+    // a STATIC H (team_scoped=false), a foreign-team H, and a static receiver (same_team()==false). Every existing team-scoped
+    // H is single-leaf (h.leaf_id==_cfg.leaf_id) -> the gate never fires -> s18/s21-s28 byte-identical.
+    if (h.leaf_id != _cfg.leaf_id && !(h.team_scoped && same_team(h.team_id))) return;   // foreign-layer (dv:11635)
     if (h.origin == _node_id) return;                      // our own query echoed back (dv:11637)
     MR_TELEMETRY(
         EventField f[] = { { .key = "origin",     .type = EventField::T::i64,     .i = h.origin },
@@ -631,7 +635,7 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // authoritative correction. A cached binding carries its own confidence (beacon = authoritative/first-hand;
     // snooped hash-bind = claimed/second-hand, Phase C).
     int node_id = -1; bool authoritative = false; bool mobile_proxy = false; uint8_t mobile_epoch = 0; uint8_t mobile_layer = 0;   // §mobile 4a proxy flag + epoch; §5b the home's layer
-    const bool same_team = h.team_scoped && _cfg.team_id != 0 && h.team_id == _cfg.team_id;   // §mobile-team: a teammate's locate (the mobile IS the endpoint on the team plane)
+    const bool same_team = h.team_scoped && this->same_team(h.team_id);   // §mobile-team / §P2-1: a teammate's locate (the mobile IS the endpoint on the team plane) — ONE same_team() definition, leaf-agnostic
     // §team-multihop (spec 2026-07-15 §2): a team-scoped H is a TEAM-plane flood — only same-team members answer/relay it.
     // A static node (team_id==0) or a wrong-team member DROPS it here, BEFORE any answer, forward, or mark_hash_query_seen,
     // so a team locate never rides the static plane (the s24 assertion-2 separation axis). UNCONDITIONAL (NOT #if MR_FEAT_TEAM):
@@ -1218,6 +1222,10 @@ void Node::emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey, Pla
         return;
     }
     h_in in{};
+    // §P2-1: for a TEAM-scoped H (team_q below) in.leaf_id is ADVISORY — the receiver's handle_h skips the leaf gate for a
+    // team-scoped frame (membership is team_id), so a mixed-leaf team resolves across nibbles. We still stamp our own leaf so
+    // a same-leaf teammate's frame is unremarkable and any static overhearer sees a well-formed nibble. A STATIC H's leaf_id
+    // remains load-bearing (the receiver leaf-gates it).
     in.leaf_id = _cfg.leaf_id; in.origin = _node_id; in.key_hash32 = key_hash32;
     in.ttl = protocol::hash_query_max_ttl; in.hard = hard; in.want_pubkey = want_pubkey;
     in.mobile_req = _cfg.is_mobile;                              // §mobile: OUR origin (in.origin=_node_id) is a mobile/team LOCAL id -> tell the owner NOT to id_bind it (the seal-back caches by hash + routes via home/_rt_team). Static -> 0 -> byte-identical H.

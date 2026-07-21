@@ -1662,6 +1662,67 @@ TEST_CASE("§mobile 6.2 — a same-team peer is a LEGAL transit (multi-hop A->B-
     CHECK(node.is_mobile_peer(20));                          // (B is still a mobile peer — the carve-out is is_team_peer, not is_mobile_peer)
 }
 
+TEST_CASE("§P2-1 — a cross-NIBBLE same-team beacon is ACCEPTED by a team member (leaf-exempt); DROPPED by a static + an other-team member") {
+    RxMeta meta{8.0f,-80.0f,0,-1};
+    const uint32_t TEAM = 0xABCD1234u;
+    // A teammate on leaf 4 — a DIFFERENT nibble from the leaf-6 receivers below (the mixed-leaf case the pre-2026-07-20 code
+    // partitioned: the pre-parse nibble gate dropped this beacon so no cross-leaf _rt_team ever formed).
+    uint8_t ext[8]; const size_t en = pack_team_id_tlv(TEAM, std::span<uint8_t>(ext, sizeof ext));
+    beacon_in tb{}; tb.leaf_id=4; tb.src=20; tb.key_hash32=0x9999u; tb.is_mobile=true; tb.ext=std::span<const uint8_t>(ext,en);
+    std::array<uint8_t,64> b{}; const size_t bn = pack_beacon(tb, std::span<uint8_t>(b.data(), b.size()));
+    auto in_team=[&](Node& n,uint8_t d){ for(uint8_t i=0;i<n.rt_team_count();++i) if(n.rt_team_at(i).dest==d) return true; return false; };
+    auto in_stat=[&](Node& n,uint8_t d){ for(uint8_t i=0;i<n.rt_count();++i)      if(n.rt_at(i).dest==d)      return true; return false; };
+    // (a) SAME-TEAM MEMBER on leaf 6 -> ACCEPTS the leaf-4 teammate beacon (leaf-exempt): team peer + _rt_team route, NOT _rt.
+    { TestHal hal; Node m(hal, /*id=*/30, /*key=*/0x3030u);
+      NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=6; cfg.is_mobile=true; cfg.team_id=TEAM;
+      CHECK(m.on_init(cfg));
+      m.on_recv(b.data(), bn, meta);
+      CHECK(m.is_team_peer(20));                              // ★ accepted despite the foreign nibble
+      CHECK(in_team(m,20)); CHECK_FALSE(in_stat(m,20)); }    // ...into the TEAM plane only
+    // (b) a STATIC on leaf 6 (team_id=0) -> DROPS the leaf-4 beacon pre-parse (UNCHANGED behavior — the containment axis).
+    { TestHal hal; Node s(hal, /*id=*/31, /*key=*/0x3131u);
+      NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=6;
+      CHECK(s.on_init(cfg));
+      s.on_recv(b.data(), bn, meta);
+      CHECK_FALSE(s.is_team_peer(20)); CHECK_FALSE(in_team(s,20)); CHECK_FALSE(in_stat(s,20)); }
+    // (c) an OTHER-team member on leaf 6 -> parses (it defers the nibble drop) but is NOT same-team -> no peer, no route.
+    { TestHal hal; Node o(hal, /*id=*/32, /*key=*/0x3232u);
+      NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=6; cfg.is_mobile=true; cfg.team_id=0x99999999u;
+      CHECK(o.on_init(cfg));
+      o.on_recv(b.data(), bn, meta);
+      CHECK_FALSE(o.is_team_peer(20)); CHECK_FALSE(in_team(o,20)); CHECK_FALSE(in_stat(o,20)); }
+}
+
+TEST_CASE("§P2-1 — a cross-NIBBLE team-scoped H is HANDLED leaf-agnostically by a same-team member; a static/foreign-leaf static-H is dropped at the leaf gate") {
+    RxMeta meta{8.0f,-80.0f,0,-1};
+    const uint32_t TEAM = 0xABCD1234u;
+    auto mk_h=[&](bool team_scoped, uint32_t key, std::array<uint8_t,64>& buf)->size_t{
+        h_in in{}; in.leaf_id=4; in.origin=20; in.key_hash32=key; in.ttl=3; in.team_scoped=team_scoped; in.team_id=team_scoped?TEAM:0;
+        return pack_h(in, std::span<uint8_t>(buf.data(), buf.size())); };
+    // (a) a same-team member on leaf 6 receives a leaf-4 TEAM-scoped H for ITS OWN hash -> handled + resolved (leaf-exempt).
+    { TestHal hal; Node m(hal, /*id=*/30, /*key=*/0x3030u);
+      NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=6; cfg.is_mobile=true; cfg.team_id=TEAM;
+      CHECK(m.on_init(cfg));
+      std::array<uint8_t,64> hb{}; const size_t hn = mk_h(/*team_scoped=*/true, /*key=*/0x3030u, hb);
+      m.on_recv(hb.data(), hn, meta);
+      CHECK(hal.count("h_rx") >= 1);                          // ★ NOT leaf-dropped — the team-scoped H was processed
+      CHECK(hal.count("h_resolved") >= 1); }                 // ...and resolved own-hash across the nibble
+    // (b) a STATIC on leaf 6 gets the SAME leaf-4 team-scoped H -> dropped at the leaf gate BEFORE h_rx (not same-team).
+    { TestHal hal; Node s(hal, /*id=*/31, /*key=*/0x3131u);
+      NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=6;
+      CHECK(s.on_init(cfg));
+      std::array<uint8_t,64> hb{}; const size_t hn = mk_h(/*team_scoped=*/true, /*key=*/0x3131u, hb);
+      s.on_recv(hb.data(), hn, meta);
+      CHECK(hal.count("h_rx") == 0); CHECK(hal.count("h_resolved") == 0); }
+    // (c) a same-team member gets a leaf-4 STATIC (non-team-scoped) H -> a static H stays LEAF-scoped -> dropped, no h_rx.
+    { TestHal hal; Node m(hal, /*id=*/33, /*key=*/0x3030u);
+      NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=6; cfg.is_mobile=true; cfg.team_id=TEAM;
+      CHECK(m.on_init(cfg));
+      std::array<uint8_t,64> hb{}; const size_t hn = mk_h(/*team_scoped=*/false, /*key=*/0x3030u, hb);
+      m.on_recv(hb.data(), hn, meta);
+      CHECK(hal.count("h_rx") == 0); }
+}
+
 TEST_CASE("§mobile 6.4 — a team mobile emits its team-id TLV ONLY after adopting a team_local_id (pre-DAD -> identity-only, keeps its static node_id OUT of peers' _rt_team)") {
     TestHal hal; Node node(hal, /*id=*/17, /*key=*/0x1717u);
     NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.quiet_threshold_ms=0;

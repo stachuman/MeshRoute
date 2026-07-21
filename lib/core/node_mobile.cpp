@@ -38,6 +38,21 @@ void Node::mobile_discover_fire() {
     // §mobile 5a: retune to the CURRENT scan-set PHY, then DISCOVER on ITS control SF. Only when >1 candidate — a
     // single-entry scan-set stays on the mobile's own PHY (phy == layers[0], phy.routing_sf == _cfg.routing_sf) = 2b.
     const LayerConfig& phy = scan_phy(_mobile_scan_idx);
+#if MR_FEAT_TEAM
+    // §P2-1 Level 2 (ruled option (a)): a TEAM member REFUSES to DISCOVER on a scan candidate whose PHY differs from its
+    // team-provisioned layers[0] (freq/bw/routing_sf/cr) — registering there would land the member on an ISOLATED island off
+    // the team's shared PHY, unreachable by teammates. scan_phy(0)==layers[0] (always PHY-matches), so this ONLY ever skips a
+    // LEARNED cross-PHY layer (idx>0); a cross-LAYER SAME-PHY re-home stays allowed (that is exactly the mixed-leaf case). The
+    // member stays off-grid-but-team-reachable (team-DAD already fired above). Rate-limited by the scan cadence (one emit per
+    // candidate per cycle). A non-team mobile (team_id==0) -> team_phy_ok()==true -> byte-identical (adopts any PHY).
+    if (!team_phy_ok(phy)) {
+        MR_EMIT("mobile_home_phy_mismatch", EF_I("scan_idx", _mobile_scan_idx), EF_I("layer", phy.layer_id),
+                EF_I("bw_hz", static_cast<int64_t>(phy.bw_hz ? phy.bw_hz : _cfg.radio_bw_hz)), EF_I("routing_sf", phy.routing_sf));
+        _mobile_scan_idx = static_cast<uint8_t>((_mobile_scan_idx + 1) % scan_set_count());   // skip to the next candidate
+        if (_cfg.mobile_autoregister) (void)_hal.after(protocol::mobile_offer_window_ms, kMobileDiscoverTimerId);
+        return;                                                    // never DISCOVER on a mismatched PHY
+    }
+#endif
     if (scan_set_count() > 1) {
         _hal.set_rx_sf(phy.routing_sf);
         if (phy.freq_mhz > 0.0) _hal.set_rx_freq(phy.freq_mhz);

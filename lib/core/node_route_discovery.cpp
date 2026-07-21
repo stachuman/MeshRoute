@@ -349,7 +349,7 @@ void Node::handle_f(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 // runs on the TEAM plane (_rt_team + the team-private ledgers).
 void Node::handle_f_team(const f_out& f, const RxMeta& meta) {
     const uint8_t me = team_local_id();
-    if (!(_cfg.is_mobile && _cfg.team_id != 0 && f.team_id == _cfg.team_id && me != 0)) return;   // SEPARATION: same-team member only (static / wrong-team / non-team / un-DAD'd -> drop)
+    if (!(_cfg.is_mobile && same_team(f.team_id) && me != 0)) return;   // SEPARATION: same-team member only (static / wrong-team / non-team / un-DAD'd -> drop). §P2-1: ONE same_team() definition (leaf-agnostic — a team F already had no leaf gate)
     const uint8_t prev = f.relay;
     if (prev == 0xFF || prev == me) return;
     const int16_t snr_q4 = protocol::db_to_q4(meta.snr_db);

@@ -34,10 +34,16 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // A non-team frame, or a member whose team_local_id differs, hits the normal leaf gate -> s18/static byte-identical.
 #if MR_FEAT_TEAM
     const bool team_rts_for_us = r.addr_len == 1 && _cfg.team_id != 0 && _team_local_id != 0 && r.next == _team_local_id;
+    // §P2-1 (mixed-leaf team channel): a TEAM channel-flood RTS-M (m_broadcast + mobile_src) is leaf-EXEMPT for a team member,
+    // so a teammate homed on another nibble still retunes to catch the DATA-M. The RTS-M carries no team_id (only the DATA-M
+    // does) so we exempt ANY team flood — the DATA-M's team_id gate (ingest_channel_m) does the actual team filtering (the same
+    // "accepted residual" already documented below for the same-nibble different-team case). A static (team_id==0) is unchanged.
+    const bool team_flood_rts  = r.m_broadcast && r.mobile_src && _cfg.team_id != 0;
 #else
     const bool team_rts_for_us = false;   // §featuresplit: no team plane -> the normal leaf gate applies
+    const bool team_flood_rts  = false;
 #endif
-    if (r.leaf_id != _cfg.leaf_id && !team_rts_for_us) return;
+    if (r.leaf_id != _cfg.leaf_id && !team_rts_for_us && !team_flood_rts) return;
     // §mobile: any RTS FROM our HOME (it relays our DMs onward + originates its own) proves the home is alive -> refresh
     // the home-lost clock (see handle_cts). is_mobile+active gated -> s18/static byte-identical (compiled out on a static build).
 #if MR_FEAT_MOBILE
@@ -442,7 +448,7 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 void Node::handle_channel_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto pm = parse_m(std::span<const uint8_t>(bytes, len));
     if (!pm) return;
-    if (pm->leaf_id != _cfg.leaf_id) return;                 // the leak gate — a foreign-leaf M frame dies here
+    if (pm->leaf_id != _cfg.leaf_id && !same_team(pm->team_id)) return;   // the leak gate — a foreign-leaf M frame dies here. §P2-1: EXEMPT a same-team M-frame (a mixed-leaf team channel crosses nibbles); ingest_channel_m still team_id-gates. Static/foreign-team -> unchanged.
     const uint8_t from = (meta.src_hint >= 0) ? static_cast<uint8_t>(meta.src_hint) : 0xFF;
     ingest_channel_m(*pm, from);
 }
