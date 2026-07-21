@@ -48,6 +48,14 @@ void Node::mobile_discover_fire() {
     if (!team_phy_ok(phy)) {
         MR_EMIT("mobile_home_phy_mismatch", EF_I("scan_idx", _mobile_scan_idx), EF_I("layer", phy.layer_id),
                 EF_I("bw_hz", static_cast<int64_t>(phy.bw_hz ? phy.bw_hz : _cfg.radio_bw_hz)), EF_I("routing_sf", phy.routing_sf));
+        // §3-A.1: reach the app on metal (MR_EMIT is stripped there) — the P2-1 fail-loud refusal is otherwise invisible.
+        // Rate-limited on the shared join_refused window (one push / join_refused_retry_ms) so a per-scan-cycle canvass can't spam.
+        const uint64_t now = _hal.now();
+        if (_last_join_refused_ms == 0 || now - _last_join_refused_ms >= protocol::join_refused_retry_ms) {
+            _last_join_refused_ms = now;
+            Push pu{}; pu.kind = PushKind::join_refused; pu.join_reason = JoinRefuseReason::phy_mismatch;
+            pu.layer_id = phy.layer_id; pu.dst = phy.routing_sf; enqueue_push(pu);
+        }
         _mobile_scan_idx = static_cast<uint8_t>((_mobile_scan_idx + 1) % scan_set_count());   // skip to the next candidate
         if (_cfg.mobile_autoregister) (void)_hal.after(protocol::mobile_offer_window_ms, kMobileDiscoverTimerId);
         return;                                                    // never DISCOVER on a mismatched PHY
@@ -118,9 +126,18 @@ void Node::mobile_claim_guard_fire() {
     // configured set on a re-home. The OFFER byte is now advisory: a misconfig diagnostic if our configured low byte
     // disagrees with the host's offered list (an operator packed mismatched sf_lists on the leaf vs the mobile).
     phy.allowed_sf_bitmap = _cfg.allowed_sf_bitmap;             // keep our OWN configured sf_list (never adopt the host's)
-    if (static_cast<uint8_t>(_cfg.allowed_sf_bitmap & 0xFF) != o.data_sf_bitmap)
+    if (static_cast<uint8_t>(_cfg.allowed_sf_bitmap & 0xFF) != o.data_sf_bitmap) {
         MR_EMIT("mobile_sf_list_mismatch", EF_I("configured", static_cast<int64_t>(_cfg.allowed_sf_bitmap & 0xFF)),
                 EF_I("offered", static_cast<int64_t>(o.data_sf_bitmap)));
+        // §3-A.1: ADVISORY app twin (the mobile still adopts) — an operator packed disagreeing sf_lists on the mobile vs the
+        // host leaf. Rate-limited on the shared join_refused window. origin=configured low byte, dst=host-offered byte.
+        const uint64_t now = _hal.now();
+        if (_last_join_refused_ms == 0 || now - _last_join_refused_ms >= protocol::join_refused_retry_ms) {
+            _last_join_refused_ms = now;
+            Push pu{}; pu.kind = PushKind::join_refused; pu.join_reason = JoinRefuseReason::sf_list_mismatch;
+            pu.origin = static_cast<uint8_t>(_cfg.allowed_sf_bitmap & 0xFF); pu.dst = o.data_sf_bitmap; enqueue_push(pu);
+        }
+    }
     set_identity(o.proposed_local_id, _key_hash32);               // _node_id := the host-assigned local-id (like join_adopt)
     _joined = true;
     _my_mobile_reg = { true, o.responder_id, o.proposed_local_id, o.responder_hash,
@@ -162,7 +179,16 @@ void Node::team_dad_fire() {
     if (!_cfg.is_mobile || _cfg.team_id == 0) return;
     const uint8_t old_tid = _team_local_id;
     const int cand = team_dad_choose_candidate_id();
-    if (cand < 0) { MR_EMIT("team_dad_no_free_id", EF_I("team_id", static_cast<int64_t>(_cfg.team_id))); return; }   // 17..254 all taken on the team plane (huge team)
+    if (cand < 0) {   // 17..254 all taken on the team plane (huge team)
+        MR_EMIT("team_dad_no_free_id", EF_I("team_id", static_cast<int64_t>(_cfg.team_id)));
+        // §3-A.1: mirror the static twin's join_refused{leaf_full} (node_join.cpp:179) so the app sees it on metal. Windowed.
+        const uint64_t now = _hal.now();
+        if (_last_join_refused_ms == 0 || now - _last_join_refused_ms >= protocol::join_refused_retry_ms) {
+            _last_join_refused_ms = now;
+            Push pu{}; pu.kind = PushKind::join_refused; pu.join_reason = JoinRefuseReason::leaf_full; enqueue_push(pu);
+        }
+        return;
+    }
     _team_local_id = static_cast<uint8_t>(cand);
     // §6.4: OFF-GRID, the team-DAD'd id IS the node's link-layer id (node_id). With node_id==_team_local_id the whole
     // existing mobile link-layer — RTS/CTS/DATA/ACK src+match, deliver, cascade-route — carries team unicast DMs with NO
@@ -247,13 +273,21 @@ void Node::learned_layers_ingest(const uint8_t* body, size_t len) {
         if (!rec || consumed == 0) break;
         off += consumed;
         if (rec->layer_id == active_layer_id()) continue;         // we're already on this one
+        const uint64_t now = _hal.now();
         bool found = false;
         for (uint8_t i = 0; i < _learned_layers_n; ++i)
             if (_learned_layers[i].layer_id == rec->layer_id && _learned_layers[i].freq_khz == rec->freq_khz
-                && _learned_layers[i].sf == rec->sf && _learned_layers[i].bw_hz == rec->bw_hz) { _learned_layers[i] = *rec; found = true; break; }
+                && _learned_layers[i].sf == rec->sf && _learned_layers[i].bw_hz == rec->bw_hz) {
+                _learned_layers[i] = *rec; _learned_layers_seen_ms[i] = now; found = true; break; }
         if (!found) {
-            if (_learned_layers_n < protocol::cap_learned_layers) _learned_layers[_learned_layers_n++] = *rec;
-            else _learned_layers[0] = *rec;                       // full -> evict slot 0
+            uint8_t slot;
+            if (_learned_layers_n < protocol::cap_learned_layers) slot = _learned_layers_n++;
+            else {                                                // §3-A.6/P2-6: full -> evict the STALEST (min last-seen), not slot 0
+                slot = 0;
+                for (uint8_t i = 1; i < _learned_layers_n; ++i)
+                    if (_learned_layers_seen_ms[i] < _learned_layers_seen_ms[slot]) slot = i;
+            }
+            _learned_layers[slot] = *rec; _learned_layers_seen_ms[slot] = now;
         }
     }
     _learned_layers_ms = _hal.now();
@@ -275,7 +309,6 @@ void Node::presence_on_adopt() {
     _presence_prescan = false;
     _presence_key_confirmed = false;
     _presence_reg_confirmed = false;
-    _presence_claim_retries = 0;
     _last_adopt_ms = _hal.now();
     _presence_cand_n = 0;                                          // a fresh home -> forget stale candidates
     presence_arm_check(_presence_T_ms);
@@ -348,7 +381,6 @@ void Node::presence_ingest_roster(const uint8_t* frame, size_t len, const RxMeta
                 _my_mobile_reg.last_heard_home_ms = _hal.now();
                 _presence_miss = 0;
                 _presence_reg_confirmed = true;                                            // the home HAS us (our hash in its roster) -> a CLAIM landed
-                _presence_claim_retries = 0;
                 _presence_my_tier = e->quality;                                            // D14: me->home direction (the home's report of me)
                 _presence_home_rx_q4 = protocol::snr_ewma_update(_presence_home_rx_q4, snr_q4);  // D14: home->me direction (seed-if-zero EWMA of my RX of the home's rosters)
                 if (e->has_key) _presence_key_confirmed = true;

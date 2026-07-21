@@ -1336,7 +1336,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                    { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
                 _hal.emit("path_cascade_exhausted", f, 2);
                 _hal.emit("rts_giveup", f, 2); );
-            { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
+            { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = giveup_fail_reason("rts_giveup"); pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }   // §3-A.5: no_cts (was reason=none)
             _active->_pending_tx.reset();
             become_free();
         }
@@ -1383,7 +1383,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                         { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
                     _hal.emit("path_cascade_exhausted", gf, 2);
                     _hal.emit("rts_giveup", gf, 2); );
-                { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
+                { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = giveup_fail_reason("rts_giveup"); pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }   // §3-A.5: no_cts (was reason=none)
             }
             _active->_pending_tx.reset();
             become_free();
@@ -1405,12 +1405,9 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             const uint8_t new_hops = static_cast<uint8_t>(want > 15 ? 15 : want);   // 4-bit DV field clamp
             if (new_hops != e->candidates[0].hops) {
                 e->candidates[0].hops = new_hops;
-                MR_TELEMETRY(
-                    EventField uf[] = { { .key = "dest", .type = EventField::T::i64, .i = pt.dst },
-                                        { .key = "next", .type = EventField::T::i64, .i = e->candidates[0].next_hop },
-                                        { .key = "hops", .type = EventField::T::i64, .i = new_hops },
-                                        { .key = "slot", .type = EventField::T::str, .s = "hop_budget_nack" } };
-                    _hal.emit("rt_update", uf, 4); );
+                // §3-A.5: route through the shared emit_rt_update (was a hand-rolled 4-field emit missing `score`); keep the
+                // slot string. Carries the route's current score so the rt_update schema matches the beacon-merge sites.
+                emit_rt_update(_hal, pt.dst, e->candidates[0].next_hop, e->candidates[0].score, new_hops, "hop_budget_nack");
             }
         }
         MR_TELEMETRY(
@@ -1423,7 +1420,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                 { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
             _hal.emit("path_cascade_exhausted", gf, 2);
             _hal.emit("rts_giveup", gf, 2); );
-        { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
+        { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = giveup_fail_reason("rts_giveup"); pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }   // §3-A.5: no_cts (was reason=none)
         _active->_pending_tx.reset();
         become_free();
         return;

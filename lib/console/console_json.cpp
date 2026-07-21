@@ -145,6 +145,8 @@ const char* sendfailreason_name(SendFailReason r) {
         case SendFailReason::min_interval: return "min_interval"; // Slice 6a: send_blocked — the burst floor
         case SendFailReason::no_cts:       return "no_cts";        // Slice 6b: DM giveup — CTS-timeout
         case SendFailReason::no_ack:       return "no_ack";        // Slice 6b: DM giveup — DATA-ACK-timeout
+        case SendFailReason::mobile_no_home:       return "mobile_no_home";        // §mobile: reply-expecting DM with no routable home (was MISSING here — rendered "none")
+        case SendFailReason::gateway_unreachable:  return "gateway_unreachable";   // §3-A.5: gateway-doorstep hold gave up
         case SendFailReason::none:        return "none";
     }
     return "none";
@@ -153,6 +155,8 @@ const char* joinrefusereason_name(JoinRefuseReason r) {   // R6.3 §7c
     switch (r) {
         case JoinRefuseReason::wire_version: return "wire_version";
         case JoinRefuseReason::leaf_full:    return "leaf_full";
+        case JoinRefuseReason::phy_mismatch:     return "phy_mismatch";       // §3-A.1/P2-1: team member refused a PHY-mismatched home (layer_id = the candidate's layer, dst = its routing_sf)
+        case JoinRefuseReason::sf_list_mismatch: return "sf_list_mismatch";   // §3-A.1 ADVISORY: adopted, but configured vs host-offered sf_list low bytes disagree (origin = ours, dst = offered)
     }
     return "none";
 }

@@ -37,8 +37,10 @@ static int16_t snr_of_bucket_4b(int bucket) {
 }
 
 // rt_update telemetry (dest is the field the gate asserts; the rest aid the S3
-// differential). Free function — keeps the two call sites identical.
-static void emit_rt_update(Hal& hal, uint8_t dest, uint8_t next,int16_t score_q4, uint8_t hops, const char* slot) {
+// differential). §3-A.5: promoted to a Node static member (was a file-static free function) so the hop_budget-NACK
+// bump in node_mac_rx routes through it too (was a hand-rolled 4-field emit missing the score). All call sites are
+// Node members, so the unqualified name still resolves.
+void Node::emit_rt_update(Hal& hal, uint8_t dest, uint8_t next,int16_t score_q4, uint8_t hops, const char* slot) {
     MR_EMIT_TO(hal,"rt_update",EF_I("dest",dest),EF_I("next",next),EF_F("score",protocol::q4_to_db(score_q4)),EF_I("hops",hops),EF_S("slot",slot));
     /*EventField f[] = {
         { .key = "dest",  .type = EventField::T::i64, .i = static_cast<int64_t>(dest) },
@@ -769,7 +771,10 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (b.is_mobile) {
         _active->_mobile_peer[b.src >> 3] |= static_cast<uint8_t>(1u << (b.src & 7));   // ① learn mobility (SET-only, dv:9603-9604) -> avoid as transit
         for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)   // §mobile hash-locate liveness refresh: a hosted mobile's periodic beacon (key_hash32=M) proves it's alive + present -> refresh the proxy-liveness clock. WITHOUT this a STATIONARY mobile black-holes ~mobile_liveness_ms after homing: it never re-CLAIMs while its home stays heard, so CLAIM is the only other last_heard_ms write (beacon_period_ms < mobile_liveness_ms keeps a live mobile fresh). Gated on _mobile_reg_n>0 -> a non-host is byte-identical.
-            if (_active->_mobile_reg[i].key_hash32 == b.key_hash32) { _active->_mobile_reg[i].last_heard_ms = now; break; }
+            // §3-D (ruled 2026-07-21): a hosted mobile's beacon ALSO feeds the per-mobile SNR EWMA — "the same way as in the
+            // static mesh" — via the shared mobile_reg_touch (last_heard + snr_ewma_update), exactly as the probe path does.
+            // Previously this refreshed last_heard_ms ONLY, so a stationary mobile's roster tier was frozen at its CLAIM seed.
+            if (_active->_mobile_reg[i].key_hash32 == b.key_hash32) { mobile_reg_touch(i, meta_snr_q4); break; }
     }
 
     // DV merge: each carried entry is a route via the sender (dv_dual_sf.lua:9620-9678).

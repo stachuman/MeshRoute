@@ -109,9 +109,12 @@ enum class PushKind : uint8_t {
 enum class SendFailReason : uint8_t { none = 0, no_pubkey, no_identity, too_large, bad_rng, no_route, joining,   // R6.2: joining = un-synced managed leaf
                                       cap, min_interval,   // Slice 6a: send_blocked reasons (per-origin cap / burst floor)
                                       no_cts, no_ack,      // Slice 6b: DM giveup reasons (CTS- / ACK-timeout)
-                                      mobile_no_home };    // §mobile: a reply-expecting DM from a mobile with no routable home -> unreachable for the reply (would storm)
+                                      mobile_no_home,      // §mobile: a reply-expecting DM from a mobile with no routable home -> unreachable for the reply (would storm)
+                                      gateway_unreachable }; // §3-A.5: the gateway-doorstep hold gave up (no gateway window within gateway_send_giveup_ms) — was telemetry-only ("gateway_unreachable_timeout")
 // R6.3 §7c: why a join was refused (join_refused push). wire_version -> origin=their_ver, dst=my_ver; leaf_full -> no extra.
-enum class JoinRefuseReason : uint8_t { wire_version = 0, leaf_full = 1 };
+// §3-A.1: phy_mismatch = a team member refused a home whose PHY differs from its team-provisioned freq/bw/routing_sf (P2-1 Level 2);
+//          sf_list_mismatch = ADVISORY — the mobile adopted the host but its configured sf_list low byte disagrees with the host's offered one.
+enum class JoinRefuseReason : uint8_t { wire_version = 0, leaf_full = 1, phy_mismatch = 2, sf_list_mismatch = 3 };
 struct Push {
     PushKind kind = PushKind::msg_recv;
     SendFailReason reason = SendFailReason::none;   // send_failed only (else none)

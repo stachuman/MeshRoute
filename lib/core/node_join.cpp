@@ -369,8 +369,15 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             int ni = -1;
             for (uint8_t i = 0; i < _active->_notify_pending_n; ++i)
                 if (_active->_notify_pending[i].mobile_hash == j.key_hash32) { ni = i; break; }
-            if (ni < 0) { ni = (_active->_notify_pending_n < protocol::cap_host_mobiles) ? _active->_notify_pending_n++ : 0; }
-            _active->_notify_pending[ni] = { j.key_hash32, j.last_home_id, j.last_home_layer, j.last_home_key_hash32 };   // §B4: + old-home hash for a cross-layer breadcrumb
+            if (ni < 0) {
+                if (_active->_notify_pending_n < protocol::cap_host_mobiles) ni = _active->_notify_pending_n++;
+                else {   // §3-A.6/P2-6: full -> evict the STALEST stash (min stash_ms), not slot 0
+                    ni = 0;
+                    for (uint8_t i = 1; i < _active->_notify_pending_n; ++i)
+                        if (_active->_notify_pending[i].stash_ms < _active->_notify_pending[ni].stash_ms) ni = i;
+                }
+            }
+            _active->_notify_pending[ni] = { j.key_hash32, j.last_home_id, j.last_home_layer, j.last_home_key_hash32, _hal.now() };   // §B4: + old-home hash for a cross-layer breadcrumb; §3-A.6: + stash_ms
         }
         uint8_t buf[13]; const size_t n = pack_j_offer(off, std::span<uint8_t>(buf, sizeof buf));
         if (n) {
@@ -592,6 +599,16 @@ uint8_t Node::presence_compute_dir_epoch() const {
     return e;
 }
 
+// §3-D: refresh a hosted mobile's proxy-liveness clock + step its per-mobile SNR EWMA (seed-if-zero). The ONE updater
+// shared by the probe path (presence_ingest_probe) and the beacon path (node_beacon.cpp) so the roster-tier feed can
+// never again be present on one and skipped on the other. The CLAIM path deliberately does NOT use this — it SEEDS a
+// fresh registry slot with a hard assign (a stale _mobile_snr_q4 tail slot must reset, not smooth). Caller checks bounds.
+void Node::mobile_reg_touch(uint8_t slot, int16_t snr_q4) {
+    _active->_mobile_reg[slot].last_heard_ms = _hal.now();
+    int16_t& ew = _active->_mobile_snr_q4[slot];
+    ew = protocol::snr_ewma_update(ew, snr_q4);   // seed-if-zero EWMA (canonical link-quality helper)
+}
+
 // A probe heard (LEAF-FREE): refresh the hosted mobile's liveness + SNR EWMA + key custody, then schedule ONE
 // coalesced roster. Answers ONLY for a mobile we CURRENTLY host (a `lost` probe from a hosted mobile = the
 // one-way-deaf recovery). A probe from a non-hosted mobile is ignored (registration is the J plane's job, D8).
@@ -617,9 +634,7 @@ void Node::presence_ingest_probe(const uint8_t* frame, size_t len, const RxMeta&
             return;                                                 // do NOT answer (only the selected home does)
         }
         // sel_me: normal refresh + custody + SNR EWMA, then answer (ONLY the selected home answers a check probe)
-        _active->_mobile_reg[mine].last_heard_ms = _hal.now();      // liveness refresh (kills the 25-min black hole via the probe cadence)
-        int16_t& ew = _active->_mobile_snr_q4[mine];
-        ew = protocol::snr_ewma_update(ew, snr_q4);                 // seed-if-zero EWMA (canonical link-quality helper)
+        mobile_reg_touch(static_cast<uint8_t>(mine), snr_q4);       // §3-D: last_heard_ms + seed-if-zero SNR EWMA (shared with the beacon path so the two can't drift)
         if (p->has_pubkey) {                                        // §S6 A.4: key custody rides the probe (RETIRES TYPE-12) — self-consistency check ed_pub[:4]==hash
             const uint32_t pk_hash = key_hash32_of(p->ed_pub);   // §P2-6: identity.h owns the LE(ed_pub[:4]) derivation
             if (pk_hash == p->key_hash32) {
@@ -627,7 +642,7 @@ void Node::presence_ingest_probe(const uint8_t* frame, size_t len, const RxMeta&
                 _active->_mobile_reg[mine].has_pubkey = true;
             }
         }
-        MR_EMIT("presence_probe_rx", EF_I("m", mine), EF_I("snr_q4", ew));
+        MR_EMIT("presence_probe_rx", EF_I("m", mine), EF_I("snr_q4", _active->_mobile_snr_q4[mine]));
         presence_schedule_roster();                                 // coalesced answer (rate-limit floored)
         return;
     }

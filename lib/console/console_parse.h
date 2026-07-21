@@ -20,10 +20,7 @@ enum class ParseErr : uint8_t { ok, empty, unknown_verb, bad_args };
 // control verbs (cfg/start/verbose/status) are dispatched by the caller.
 ParseErr parse_command(const char* line, size_t len, Command& out);
 
-enum class CfgErr : uint8_t { ok, unknown_key, bad_value };
-
-// Parses one `cfg <key> <val>` line, mutating the targets in place.
-CfgErr parse_cfg(const char* line, size_t len, NodeConfig& cfg,
-                 uint8_t& node_id, uint32_t& key_hash32);
+// parse_cfg DELETED (§3-A.7, 2026-07-21): it had ZERO production callers and a DIVERGENT key set/validation from the
+// live `cfg set` (src/firmware_config.cpp) — a lying twin. The device cfg path is the one truth.
 
 }  // namespace meshroute::console

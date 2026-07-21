@@ -1045,13 +1045,20 @@ static void mesh_service_once() {
                 mrcon.print(F("ACKED ctr="));    mrcon.println(pu.ctr); break;
             case meshroute::PushKind::send_failed:
                 mrcon.print(F("FAILED ctr="));   mrcon.print(pu.ctr);
-                switch (pu.reason) {   // §mobile: surface WHY so a fail-loud is actionable (was ctr-only)
-                    case meshroute::SendFailReason::mobile_no_home: mrcon.print(F(" (mobile not registered — no home to route the reply; register first)")); break;
-                    case meshroute::SendFailReason::no_pubkey:      mrcon.print(F(" (no recipient pubkey)")); break;
-                    case meshroute::SendFailReason::no_identity:    mrcon.print(F(" (no crypto identity)")); break;
-                    case meshroute::SendFailReason::too_large:      mrcon.print(F(" (payload too large)")); break;
-                    case meshroute::SendFailReason::joining:        mrcon.print(F(" (joining — config not synced)")); break;
-                    default: break;
+                switch (pu.reason) {   // §mobile/§3-A.5: surface WHY so a fail-loud is actionable — render EVERY reason (was a bare "FAILED" for 6 of them)
+                    case meshroute::SendFailReason::mobile_no_home:       mrcon.print(F(" (mobile not registered — no home to route the reply; register first)")); break;
+                    case meshroute::SendFailReason::no_pubkey:           mrcon.print(F(" (no recipient pubkey)")); break;
+                    case meshroute::SendFailReason::no_identity:         mrcon.print(F(" (no crypto identity)")); break;
+                    case meshroute::SendFailReason::too_large:           mrcon.print(F(" (payload too large)")); break;
+                    case meshroute::SendFailReason::joining:             mrcon.print(F(" (joining — config not synced)")); break;
+                    case meshroute::SendFailReason::bad_rng:             mrcon.print(F(" (RNG failure)")); break;
+                    case meshroute::SendFailReason::no_route:            mrcon.print(F(" (no route to destination)")); break;
+                    case meshroute::SendFailReason::cap:                 mrcon.print(F(" (send cap reached — try later)")); break;
+                    case meshroute::SendFailReason::min_interval:        mrcon.print(F(" (sending too fast — try later)")); break;
+                    case meshroute::SendFailReason::no_cts:              mrcon.print(F(" (no CTS — next hop silent)")); break;
+                    case meshroute::SendFailReason::no_ack:              mrcon.print(F(" (no ACK — delivery unconfirmed)")); break;
+                    case meshroute::SendFailReason::gateway_unreachable: mrcon.print(F(" (gateway unreachable — timed out)")); break;
+                    case meshroute::SendFailReason::none:                break;   // not a send_failed reason
                 }
                 mrcon.println(); break;
             case meshroute::PushKind::send_e2e_acked:   // the END-TO-END ack arrived (dest confirmed) — distinct from the hop ACK
@@ -1085,6 +1092,12 @@ static void mesh_service_once() {
                 if (pu.join_reason == meshroute::JoinRefuseReason::wire_version) {
                     mrcon.print(F("⚠ JOIN REFUSED: network wire v")); mrcon.print(pu.origin);
                     mrcon.print(F(", this node v")); mrcon.print(pu.dst); mrcon.println(F(" — update firmware"));
+                } else if (pu.join_reason == meshroute::JoinRefuseReason::phy_mismatch) {   // §3-A.1/P2-1: team PHY-mismatched home skipped
+                    mrcon.print(F("⚠ HOME REFUSED: PHY differs from the team's (layer ")); mrcon.print(pu.layer_id);
+                    mrcon.print(F(", sf ")); mrcon.print(pu.dst); mrcon.println(F(") — staying off-grid-but-team-reachable"));
+                } else if (pu.join_reason == meshroute::JoinRefuseReason::sf_list_mismatch) {   // §3-A.1 advisory (still adopted)
+                    mrcon.print(F("⚠ SF-LIST MISMATCH vs home: ours=0x")); mrcon.print(pu.origin, HEX);
+                    mrcon.print(F(" offered=0x")); mrcon.print(pu.dst, HEX); mrcon.println(F(" — check sf_list on both"));
                 } else {
                     mrcon.println(F("⚠ JOIN REFUSED: leaf full — no id available"));
                 }

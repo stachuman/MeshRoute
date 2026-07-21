@@ -8,17 +8,34 @@
 // Behaviour-preserving: verbatim logic, only relocated. NO Arduino / Print / globals here — keep it pure.
 #pragma once
 #include <cstdint>
+#include "protocol_constants.h"   // §3-A.2: flood_hop_max (the hop_cap domain ceiling) — pure constexpr, no Arduino
 
 namespace mrfw {
 
+// §3-A.2 `cfg set` domain predicates (pure -> native-tested; handle_cfg_set consumes them).
+// routing_sf/control_sf: the LoRa domain 5..12. The SF6 hardware FLOOR is deliberately NOT enforced (see the
+// BENCH NOTE at the call site) — only the domain is.
+inline bool valid_routing_sf(int v) { return v >= 5 && v <= 12; }
+// leaf_id: 0..15 — the wire carries leaf_id ONLY as the cmd-byte low nibble (wire::flags_of = b & 0x0F) on every
+// leaf-filtered frame, so >15 could never match ANY received frame (the node goes filter-deaf).
+inline bool valid_leaf_id(int v) { return v >= 0 && v <= 15; }
+// hop_cap (dv_hop_cap): 1..flood_hop_max(16) — it is the F RREQ TTL (codec: "config caps ttl <= 16") + the DV merge
+// cap, and flood_hop_max clamps every flood horizon; 0 would kill ALL route learning.
+inline bool valid_hop_cap(int v) { return v >= 1 && v <= static_cast<int>(MESHROUTE_NS::protocol::flood_hop_max); }
+
 // Parse a spreading-factor list ("7,9,12" / "7 9 12" / any non-digit separators) into an SF bitmap
-// (bit N = SF N). Only 5..12 are accepted; out-of-range numbers are silently ignored. `s` is read-only.
+// (bit N = SF N). §3-A.7 FAIL-LOUD (unified on the parse_data_sfs grammar): ANY out-of-range number (not 5..12)
+// rejects the WHOLE list -> 0 (was: silently ignored, so "7,13" silently became {7}). 0 = invalid; every caller
+// must refuse on 0 (an empty sf_list blocks DATA sends entirely — [[data-sf-removed]]). `s` is read-only.
 inline uint16_t parse_sf_list(const char* s) {
     uint16_t bm = 0; int v = 0; bool have = false;
     for (;; ++s) {
         const char ch = *s;
         if (ch >= '0' && ch <= '9') { v = v * 10 + (ch - '0'); have = true; }
-        else { if (have && v >= 5 && v <= 12) bm |= static_cast<uint16_t>(1u << v); v = 0; have = false; if (!ch) break; }
+        else {
+            if (have) { if (v < 5 || v > 12) return 0; bm |= static_cast<uint16_t>(1u << v); }
+            v = 0; have = false; if (!ch) break;
+        }
     }
     return bm;
 }

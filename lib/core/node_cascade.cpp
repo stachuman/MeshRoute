@@ -296,7 +296,7 @@ void Node::try_drain_deferred() {
                 EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = d.item.dst },
                                    { .key = "ctr", .type = EventField::T::i64, .i = d.item.ctr } };
                 _hal.emit("send_deferred_giveup", f, 2); );
-            { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = d.item.dst; pu.ctr = d.item.ctr; enqueue_push(pu); }
+            { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::no_route; pu.dst = d.item.dst; pu.ctr = d.item.ctr; enqueue_push(pu); }   // §3-A.5: match the sibling defer_send giveup (:250) — was reason=none
             continue;                                    // drop (don't keep)
         }
         RtEntry* e = rt_find(d.item.dst, d.item.plane);   // Wave 2: drain on the item's OWN plane — a GLOBAL item must NOT be drained by a team route (AUTO would match _rt_team for a colliding team id -> drain -> re-issue GLOBAL -> no route -> re-defer -> re-stamp -> never ages out = the RREQ storm)
@@ -418,7 +418,7 @@ bool Node::gateway_doorstep_hold() {
     if (age >= protocol::gateway_send_giveup_ms) {
         MR_EMIT("send_giveup", EF_I("origin", pt.origin), EF_I("dst", pt.dst), EF_I("ctr", pt.ctr),
                 EF_S("reason", "gateway_unreachable_timeout"), EF_I("age_ms", static_cast<int64_t>(age)));
-        Push pu{}; pu.kind = PushKind::send_failed; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu);
+        Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::gateway_unreachable; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu);   // §3-A.5: was reason=none (telemetry-only)
         _active->_pending_tx.reset();
         become_free();
         return true;

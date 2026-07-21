@@ -8,7 +8,7 @@
 #include <string>
 
 using namespace meshroute;            // Command, CmdKind, NodeConfig
-using namespace meshroute::console;   // parse_command, parse_cfg, ParseErr, CfgErr
+using namespace meshroute::console;   // parse_command, ParseErr (parse_cfg/CfgErr DELETED §3-A.7)
 
 TEST_CASE("parse_command — send <id> \"text\" [-a] (id target; quoted body; flags)") {
     Command c{};
@@ -295,26 +295,20 @@ TEST_CASE("parse_command — send 0x00000000 (all-zero hash) -> bad_args (mirror
 }
 
 // L2: parse_u32_tok(max=0xFFFFFFFF) must REJECT an over-u32 token (accumulator wrap), not parse it as 0.
-// Driven through `cfg beacon_period_ms` — the only call site that passes max == 0xFFFFFFFF.
-TEST_CASE("parse_cfg — beacon_period_ms over-u32 token rejected (no mod-2^32 wrap)") {
-    NodeConfig c{}; uint8_t id = 0; uint32_t key = 0;
-    auto P = [&](const char* l) { return parse_cfg(l, std::strlen(l), c, id, key); };
-    CHECK(P("cfg beacon_period_ms 4294967296") == CfgErr::bad_value);   // 2^32: would wrap to 0 without the overflow guard
-    CHECK(P("cfg beacon_period_ms 4294967295") == CfgErr::ok);          // UINT32_MAX: the largest valid value
-    CHECK(c.beacon_period_ms == 0xFFFFFFFFu);
-    CHECK(P("cfg beacon_period_ms 99999999999") == CfgErr::bad_value);  // way over -> reject (not a wrapped truncation)
-    CHECK(P("cfg beacon_period_ms 0") == CfgErr::ok);                   // 0 still parses here (the floor is enforced at the fw_main cfg-set layer)
-    CHECK(c.beacon_period_ms == 0u);
-}
-
-TEST_CASE("parse_cfg — keys map to NodeConfig/id/key") {
-    NodeConfig c{}; uint8_t id = 0; uint32_t key = 0;
-    auto P = [&](const char* l) { return parse_cfg(l, std::strlen(l), c, id, key); };
-    CHECK(P("cfg id 3") == CfgErr::ok);           CHECK(id == 3);
-    CHECK(P("cfg routing_sf 9") == CfgErr::ok);   CHECK(c.routing_sf == 9);
-    CHECK(P("cfg data_sf 12") == CfgErr::unknown_key);   // removed: sf_list is mandatory, no single data_sf fallback
-    CHECK(P("cfg gateway 1") == CfgErr::unknown_key);   // removed: is_gateway is DERIVED=(n_layers==2), not configurable
-    CHECK(P("cfg key a1b2c3d4") == CfgErr::ok);   CHECK(key == 0xa1b2c3d4u);
-    CHECK(P("cfg routing_sf 99") == CfgErr::bad_value);  // SF out of 5..12
-    CHECK(P("cfg nope 1") == CfgErr::unknown_key);
+// (parse_cfg — the lying dead twin of the live `cfg set` — was DELETED §3-A.7; this now drives the guard directly.)
+namespace meshroute::console { struct Tok { const char* s; size_t n; };
+                               bool parse_u32_tok(const Tok& t, uint32_t max, uint32_t& out); }
+TEST_CASE("parse_u32_tok — over-u32 token rejected (no mod-2^32 wrap)") {
+    auto P = [](const char* lit, uint32_t max, uint32_t& out) {
+        meshroute::console::Tok t{ lit, std::strlen(lit) };
+        return meshroute::console::parse_u32_tok(t, max, out);
+    };
+    uint32_t u = 0;
+    CHECK(!P("4294967296", 0xFFFFFFFFu, u));    // 2^32: would wrap to 0 without the overflow guard
+    CHECK(P("4294967295", 0xFFFFFFFFu, u));     // UINT32_MAX: the largest valid value
+    CHECK(u == 0xFFFFFFFFu);
+    CHECK(!P("99999999999", 0xFFFFFFFFu, u));   // way over -> reject (not a wrapped truncation)
+    CHECK(P("0", 0xFFFFFFFFu, u));
+    CHECK(u == 0u);
+    CHECK(!P("255", 254u, u));                  // the plain > max reject still works
 }

@@ -5,12 +5,21 @@
 #include <cstring>
 
 namespace meshroute::console {
+
+// Tok + parse_u32_tok have EXTERNAL linkage (hoisted out of the anonymous namespace, §3-A.7): the L2 overflow-guard
+// unit test drives parse_u32_tok directly now that parse_cfg (its only externally-reachable driver) is deleted.
+struct Tok { const char* s; size_t n; };
+// Parse a decimal token into [0,max]; false on empty/non-digit/overflow.
+// NB: check overflow BEFORE the multiply/add — the post-multiply `v > max` guard is inert when
+// max == 0xFFFFFFFF (a u32 accumulator can never exceed it), so `4294967296` would wrap to 0 and
+// silently "parse" instead of failing. Guarding on `v > (max - digit) / 10` catches the wrap.
+bool parse_u32_tok(const Tok& t, uint32_t max, uint32_t& out);
+
 namespace {
 
 struct Scan { const char* p; const char* end; };
 void skip_ws(Scan& s) { while (s.p < s.end && (*s.p == ' ' || *s.p == '\t')) ++s.p; }
 
-struct Tok { const char* s; size_t n; };
 // Reads a non-space token; returns {start,len}. len==0 at end-of-line.
 Tok token(Scan& s) {
     skip_ws(s);
@@ -21,10 +30,8 @@ Tok token(Scan& s) {
 bool tok_eq(const Tok& t, const char* lit) {
     return t.n == std::strlen(lit) && std::memcmp(t.s, lit, t.n) == 0;
 }
-// Parse a decimal token into [0,max]; false on empty/non-digit/overflow.
-// NB: check overflow BEFORE the multiply/add — the post-multiply `v > max` guard is inert when
-// max == 0xFFFFFFFF (a u32 accumulator can never exceed it), so `4294967296` would wrap to 0 and
-// silently "parse" instead of failing. Guarding on `v > (max - digit) / 10` catches the wrap.
+}  // namespace
+
 bool parse_u32_tok(const Tok& t, uint32_t max, uint32_t& out) {
     if (t.n == 0) return false;
     uint32_t v = 0;
@@ -38,6 +45,8 @@ bool parse_u32_tok(const Tok& t, uint32_t max, uint32_t& out) {
     out = v;
     return true;
 }
+
+namespace {   // the remaining parse helpers stay internal (TU-local)
 
 // Parse up to 8 hex digits into a u32; false on empty/non-hex/overflow (>8 digits).
 bool parse_hex32_tok(const Tok& t, uint32_t& out) {
@@ -255,40 +264,8 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
     }
 }
 
-CfgErr parse_cfg(const char* line, size_t len, NodeConfig& cfg,
-                 uint8_t& node_id, uint32_t& key_hash32) {
-    Scan s{ line, line + len };
-    Tok verb = token(s);
-    if (!tok_eq(verb, "cfg")) return CfgErr::unknown_key;  // only cfg lines reach here
-    Tok key = token(s);
-    Tok val = token(s);
-
-    uint32_t u = 0;
-    if (tok_eq(key, "id")) {
-        if (!parse_u32_tok(val, 254, u)) return CfgErr::bad_value;
-        node_id = static_cast<uint8_t>(u);
-    } else if (tok_eq(key, "key")) {
-        if (!parse_hex32_tok(val, key_hash32)) return CfgErr::bad_value;
-    } else if (tok_eq(key, "routing_sf")) {
-        if (!parse_u32_tok(val, 12, u) || u < 5) return CfgErr::bad_value;
-        cfg.routing_sf = static_cast<uint8_t>(u);
-    // `gateway` is NO LONGER a cfg key: is_gateway is DERIVED = (n_layers==2) in on_init (a gateway is a dedicated
-    // dual-layer firmware build). An operator cannot set it; it falls through to unknown_key below.
-    } else if (tok_eq(key, "gateway_only")) {                  // §7: legacy single-layer pure-bridge flag — now DEAD
-                                                               // (only read under is_gateway, which single-layer never is); kept read-only
-        if (tok_eq(val, "1") || tok_eq(val, "true")) cfg.gateway_only = true;
-        else if (tok_eq(val, "0") || tok_eq(val, "false")) cfg.gateway_only = false;
-        else return CfgErr::bad_value;
-    } else if (tok_eq(key, "beacon_period_ms")) {
-        if (!parse_u32_tok(val, 0xFFFFFFFFu, u)) return CfgErr::bad_value;
-        cfg.beacon_period_ms = u;
-    } else if (tok_eq(key, "leaf_id")) {
-        if (!parse_u32_tok(val, 254, u)) return CfgErr::bad_value;
-        cfg.leaf_id = static_cast<uint8_t>(u);
-    } else {
-        return CfgErr::unknown_key;
-    }
-    return CfgErr::ok;
-}
+// parse_cfg DELETED (§3-A.7, 2026-07-21): zero production callers, test-maintained, with a DIVERGENT key set and
+// validation from the live `cfg set` handler (src/firmware_config.cpp handle_cfg) — removing beats maintaining a
+// lying twin. The parse_u32_tok overflow guard it exercised is now unit-tested directly (test_console_parse.cpp).
 
 }  // namespace meshroute::console

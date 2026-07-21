@@ -107,7 +107,10 @@ void handle_cfg_set(const char* args, Print& out) {
     // limit, NOT a protocol rule, so it is deliberately NOT enforced in lib/core/on_init (the sim's idealized radio
     // has no such floor). => the usable control-SF floor on this hardware is 6; don't set routing_sf=5 on these
     // modules. Left configurable (no hard guard) for future SF5-capable hardware. Ref: SX1262 DS §6.1.1.1.
-    else if (!strcmp(key, "routing_sf") || !strcmp(key, "control_sf")) { b.routing_sf = (uint8_t)atoi(val); reconfig = radio = true; }
+    // §3-A.2: the LoRa DOMAIN 5..12 IS enforced (junk/atoi-0 would persist an RF-dead node) — only the SF6 FLOOR above is waived.
+    else if (!strcmp(key, "routing_sf") || !strcmp(key, "control_sf")) { const int v = atoi(val);
+                                                                         if (!valid_routing_sf(v)) { out.println(F("> cfg err bad_value (routing_sf 5..12)")); return; }
+                                                                         b.routing_sf = (uint8_t)v; reconfig = radio = true; }
     else if (!strcmp(key, "bw"))                                       { const double bwk = atof(val);      // W2b unit unification: kHz ALWAYS (fractional ok, e.g. 62.5) — mirrors join/create/gateway; kHz->Hz ROUNDED. BREAKING: was Hz. (bw<=0 -> downstream div-by-zero)
                                                                          if (bwk < 7.0 || bwk > 500.0) { out.println(F("> cfg err bad_value (bw 7..500 kHz, fractional ok e.g. 62.5)")); return; }
                                                                          b.bw_hz = (uint32_t)(bwk * 1000.0 + 0.5); reconfig = radio = true; }
@@ -120,7 +123,9 @@ void handle_cfg_set(const char* args, Print& out) {
         b.tx_power = (int8_t)v; radio = true;                         // live, but no radio re-tune
     }
     // --- node-config knobs: LIVE via mutable_config() (the MAC re-reads each field per use), + persisted ---
-    else if (!strcmp(key, "sf_list"))    { b.allowed_sf_bitmap = parse_sf_list(val); lc.allowed_sf_bitmap = b.allowed_sf_bitmap;
+    else if (!strcmp(key, "sf_list"))    { const uint16_t bm = parse_sf_list(val);   // §3-A.7: fail-loud grammar — ANY invalid entry rejects the whole list (an empty bitmap would block DATA entirely)
+                                           if (!bm) { out.println(F("> cfg err bad_value (sf_list: comma SFs 5..12, e.g. 7,9 — whole list rejected on any invalid entry)")); return; }
+                                           b.allowed_sf_bitmap = bm; lc.allowed_sf_bitmap = bm;
                                            if (b.lineage_id) b.config_epoch = (uint16_t)(b.config_epoch >= 65534 ? 65534 : b.config_epoch + 1); }   // R6.3 §4.1: a managed leaf-field write bumps epoch (propagates on reboot); saturate (u16 wrap -> permanent de-sync)
     else if (!strcmp(key, "lbt"))        { b.lbt = atoi(val) != 0;            lc.lbt_enabled = (b.lbt != 0); }
     else if (!strcmp(key, "beacon_ms"))  { const long bms = atol(val);                          // floor at the discovery cadence: 0/too-small = airtime storm after reboot
@@ -135,7 +140,9 @@ void handle_cfg_set(const char* args, Print& out) {
     else if (!strcmp(key, "intra_layer_relay")) { lc.intra_layer_relay = (atoi(val) != 0 || !strcmp(val, "on")); persist = false; }   // §gateway: LIVE-only (default OFF is the fix)
     else if (!strcmp(key, "host_mobiles"))     { lc.host_mobiles   = (atoi(val) != 0 || !strcmp(val, "on")); persist = false; }   // §mobile 2a: accept/host mobiles? LIVE-only (default ON; reverts on reboot — a mobile itself never hosts)
     else if (!strcmp(key, "nav_ignore")) { lc.nav_ignore_rts = atoi(val) != 0; persist = false; }
-    else if (!strcmp(key, "hop_cap"))    { lc.dv_hop_cap = (uint8_t)atoi(val); persist = false; }
+    else if (!strcmp(key, "hop_cap"))    { const int v = atoi(val);   // §3-A.2: protocol domain 1..16 — dv_hop_cap is the F RREQ TTL (codec: "config caps ttl <= 16") + the DV merge cap; flood_hop_max=16 clamps every flood horizon; 0 would kill ALL route learning
+                                           if (!valid_hop_cap(v)) { out.println(F("> cfg err bad_value (hop_cap 1..16)")); return; }
+                                           lc.dv_hop_cap = (uint8_t)v; persist = false; }
     // --- location piggyback: LIVE via mutable_config() + PERSISTED (NV v9). The lat/lon are set via `cfg set lat`/`lon` (-> /mrid). ---
     else if (!strcmp(key, "loc_in_dm"))  { b.loc_in_dm = (atoi(val) != 0 || !strcmp(val, "on") || !strcmp(val, "true")) ? 1 : 0; lc.loc_in_dm = (b.loc_in_dm != 0); }
     // --- E2E §4b: originate app DMs ENCRYPTED. LIVE via mutable_config() + PERSISTED (NV v10). A no-pubkey CRYPTED send
@@ -170,7 +177,9 @@ void handle_cfg_set(const char* args, Print& out) {
         lc.leaf_name_len = l; b.leaf_name_len = l; if (lc.lineage_id) g_node.leaf_config_write();
     }
     // --- role/topology: LIVE via mutable_config() + PERSISTED (NV v6 -> survives reboot) ---
-    else if (!strcmp(key, "leaf_id"))      { lc.leaf_id = (uint8_t)atoi(val);                            b.leaf_id      = lc.leaf_id; }
+    else if (!strcmp(key, "leaf_id"))      { const int v = atoi(val);   // §3-A.2: wire domain 0..15 — leaf_id rides ONLY the cmd-byte low nibble (wire::flags_of = b & 0x0F) on every leaf-filtered frame; >15 could never match ANY received frame (the node goes filter-deaf). join/create already store layer & 0x0F.
+                                             if (!valid_leaf_id(v)) { out.println(F("> cfg err bad_value (leaf_id 0..15 — the wire leaf nibble; set the full layer id via join/create layer=)")); return; }
+                                             lc.leaf_id = (uint8_t)v;                                    b.leaf_id      = lc.leaf_id; }
     // `gateway` is NOT a cfg key — is_gateway is DERIVED = (n_layers==2) in on_init (a gateway is the dedicated
     // gateway BUILD, MR_GATEWAY_BUILD; non-configurable so the companion's reported `gateway` is reliable).
     else if (!strcmp(key, "gateway_only")) { lc.gateway_only = (atoi(val) != 0 || !strcmp(val, "true")); b.gateway_only = lc.gateway_only ? 1 : 0; }
@@ -544,11 +553,22 @@ void handle_team(const char* args, Print& out) {
     // §mobile 6.4 Fix 6: set the team PHY so teammates hear each other (AND a member can later register with a compatible
     // static network). Mirror `mobile register freq=`. Omitted -> keep the current PHY. Requires is_mobile (a team is mobile).
 #if MR_FEAT_MOBILE
-    if (phy_args && strstr(phy_args, "freq=") && c.is_mobile) {
-        const char* fs = strstr(phy_args, "freq="); const char* ss = strstr(phy_args, "sf="); const char* bs = strstr(phy_args, "bw=");
-        double freq = strtod(fs + 5, nullptr);
-        int    sf   = ss ? atoi(ss + 3) : 0;
-        double bw   = bs ? strtod(bs + 3, nullptr) : 125.0;   // FRACTIONAL kHz (62.5 valid)
+    if (phy_args && *phy_args && c.is_mobile) {
+        // §3-A.7: tokenize via kv_next (EXACT key match) — the old strstr matching accepted `xfreq=` as "freq=" and
+        // silently ignored junk/typo'd keys. Unknown key -> fail loud. Empty tail (e.g. `team 0`) skips the block.
+        char pb[96]; size_t pn = 0; for (const char* q = phy_args; *q && pn < sizeof(pb) - 1; ++q) pb[pn++] = *q; pb[pn] = '\0';
+        char* pp = pb; char* k; char* v;
+        double freq = 0.0; int sf = 0; double bw = 125.0; bool hfreq = false;   // sf REQUIRED with freq (0 fails the 5..12 check); bw defaults 125 kHz — both as before
+        bool any = false;
+        while (kv_next(pp, k, v)) {
+            any = true;
+            if      (v && !strcmp(k, "freq")) { freq = atof(v); hfreq = true; }
+            else if (v && !strcmp(k, "sf"))   { sf = atoi(v); }
+            else if (v && !strcmp(k, "bw"))   { bw = atof(v); }   // FRACTIONAL kHz (62.5 valid)
+            else { out.print(F("> team err bad/unknown key: ")); out.println(k); return; }
+        }
+        if (any && !hfreq) { out.println(F("> team err: PHY args need freq= (freq=<MHz> sf=<5-12> [bw=<kHz>])")); return; }
+        if (hfreq) {
         if (freq < 100.0 || freq > 1000.0 || sf < 5 || sf > 12 || bw < 7.0 || bw > 500.0) {
             out.println(F("> team new err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")); return;
         }
@@ -558,6 +578,7 @@ void handle_team(const char* args, Print& out) {
         g_node.mobile_register_phy(phy);                       // retune the radio (+ kick the FSM -> team-DAD via the no-host path)
         b.freq_mhz = freq; b.routing_sf = (uint8_t)sf; b.bw_hz = phy.bw_hz; b.allowed_sf_bitmap = phy.allowed_sf_bitmap;   // PERSIST the team PHY
         out.print(F("> team PHY: freq=")); out.print(freq, 3); out.print(F(" sf=")); out.print(sf); out.print(F(" bw=")); out.print(bw, 2); out.println(F(" kHz"));
+        }
     }
 #endif
     // §6.4: a team is a SHARED-PHY overlay — members can only hear each other on a COMMON freq/routing_sf/sf_list/bw, and an
@@ -577,7 +598,7 @@ void handle_team(const char* args, Print& out) {
     if (c.is_mobile && t != 0 && team_switched) g_node.team_dad_fire();   // §6.4: bootstrap the team plane (self-assign a _team_local_id, no static host needed)
     b.node_id       = g_node.canonical_node_id();            // §6.4: team_dad_fire may have MOVED node_id (off-grid: node_id==team id) -> persist the live id, don't re-save the stale one loaded at entry
     b.team_local_id = g_node.team_local_id();                // §6.4: persist the fresh id (or 0 on leave) alongside team_id
-    mrnv::save(b);                                            // PERSISTED
+    if (!mrnv::save(b)) out.println(F("> team err nv_save_failed (team is LIVE but NOT persisted — will revert on reboot)"));   // §3-A.4: was the ONLY unchecked save of 9 (the LIVE team state above is already applied, so report — don't roll back)
     char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)t);
     out.print(F("> team -> team_id=0x")); out.println(tx);
     if (c.is_mobile && t != 0) { out.print(F("  team-DAD: local_id=")); out.println(g_node.team_local_id()); }
@@ -598,11 +619,19 @@ void handle_mobile(const char* args, Print& out) {
         if (!strncmp(p, "scan", 4)) {
             g_node.mobile_register_scan();
             out.print(F("> mobile register: scanning current + ")); out.print(g_node.learned_layers_count()); out.println(F(" known networks"));
-        } else if (strstr(p, "freq=")) {
-            const char* fs = strstr(p, "freq="); const char* ss = strstr(p, "sf="); const char* bs = strstr(p, "bw=");
-            double freq = fs ? strtod(fs + 5, nullptr) : 0.0;
-            int sf = ss ? atoi(ss + 3) : 0;
-            double bw = bs ? strtod(bs + 3, nullptr) : 125.0;   // FRACTIONAL kHz — 62.5 / 41.67 / 31.25 are valid LoRa BWs (atof like join/create, NOT atoi which truncates 62.5->62)
+        } else if (*p) {
+            // §3-A.7: tokenize via kv_next (EXACT key match) — the old strstr matching accepted `xfreq=` as "freq=", and
+            // any non-key junk silently fell through to register-current. Unknown key / missing freq -> fail loud.
+            char pb[96]; size_t pn = 0; for (const char* q = p; *q && pn < sizeof(pb) - 1; ++q) pb[pn++] = *q; pb[pn] = '\0';
+            char* pp = pb; char* k; char* v;
+            double freq = 0.0; int sf = 0; double bw = 125.0; bool hfreq = false;   // sf REQUIRED with freq (0 fails 5..12); bw defaults 125 kHz — as before. FRACTIONAL kHz — 62.5 / 41.67 / 31.25 are valid LoRa BWs (atof, NOT atoi which truncates 62.5->62)
+            while (kv_next(pp, k, v)) {
+                if      (v && !strcmp(k, "freq")) { freq = atof(v); hfreq = true; }
+                else if (v && !strcmp(k, "sf"))   { sf = atoi(v); }
+                else if (v && !strcmp(k, "bw"))   { bw = atof(v); }
+                else { out.print(F("> mobile register err bad/unknown key: ")); out.println(k); return; }
+            }
+            if (!hfreq) { out.println(F("> mobile register err: args need freq= (freq=<MHz> sf=<5-12> [bw=<kHz>] | scan | <none>)")); return; }
             if (freq < 100.0 || freq > 1000.0 || sf < 5 || sf > 12 || bw < 7.0 || bw > 500.0) { out.println(F("> mobile register err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")); return; }
             meshroute::LayerConfig phy{};
             phy.layer_id = c.leaf_id; phy.routing_sf = (uint8_t)sf; phy.freq_mhz = freq;

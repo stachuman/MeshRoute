@@ -17,15 +17,16 @@ using mrfw::parse_sf_list;
 using mrfw::kv_next;
 using mrfw::team_fnv1a32;
 
-TEST_CASE("parse_sf_list — digits 5..12 set their bit; separators are any non-digit; out-of-range ignored") {
+TEST_CASE("parse_sf_list — digits 5..12 set their bit; separators are any non-digit; FAIL-LOUD: any out-of-range entry rejects the whole list") {
     CHECK(parse_sf_list("7") == static_cast<uint16_t>(1u << 7));
     CHECK(parse_sf_list("7,9,12") == static_cast<uint16_t>((1u << 7) | (1u << 9) | (1u << 12)));
     CHECK(parse_sf_list("7 9 12") == static_cast<uint16_t>((1u << 7) | (1u << 9) | (1u << 12)));   // space-separated too
     CHECK(parse_sf_list("12") == static_cast<uint16_t>(1u << 12));
     CHECK(parse_sf_list("") == 0);
-    CHECK(parse_sf_list("4") == 0);                          // < 5 -> ignored
-    CHECK(parse_sf_list("13") == 0);                         // > 12 -> ignored
-    CHECK(parse_sf_list("4,5,13,12") == static_cast<uint16_t>((1u << 5) | (1u << 12)));   // only the in-range ones
+    CHECK(parse_sf_list("4") == 0);                          // < 5 -> invalid
+    CHECK(parse_sf_list("13") == 0);                         // > 12 -> invalid
+    CHECK(parse_sf_list("4,5,13,12") == 0);                  // §3-A.7: ANY invalid entry -> the WHOLE list rejects (was silently {5,12})
+    CHECK(parse_sf_list("7,13") == 0);                       // §3-A.7: the review's exact case — must error, not silently {7}
     CHECK(parse_sf_list("9") == static_cast<uint16_t>(1u << 9));
 }
 
@@ -99,6 +100,27 @@ TEST_CASE("W2b bw console unit: fractional kHz -> Hz, rounded (62.5 -> 62500)") 
     CHECK(bw_hz(500.0) == 500000u);
     CHECK(bw_hz(41.67) == 41670u);
     CHECK(bw_hz(7.0)   == 7000u);
+}
+
+// §3-A.2: the `cfg set` domain predicates — junk (atoi 0) / out-of-domain values must REJECT, not persist an
+// RF-dead / filter-deaf node. The SF6 hardware floor stays deliberately WAIVED (only the 5..12 domain holds).
+TEST_CASE("§3-A.2 cfg-set domain predicates: routing_sf 5..12, leaf_id 0..15 (wire nibble), hop_cap 1..16") {
+    CHECK_FALSE(mrfw::valid_routing_sf(0));    // atoi junk -> 0 -> reject (was: persisted an RF-dead SF 0)
+    CHECK_FALSE(mrfw::valid_routing_sf(4));
+    CHECK(mrfw::valid_routing_sf(5));          // SF5 stays legal (the SF6 FLOOR is deliberately not enforced)
+    CHECK(mrfw::valid_routing_sf(12));
+    CHECK_FALSE(mrfw::valid_routing_sf(13));
+
+    CHECK(mrfw::valid_leaf_id(0));
+    CHECK(mrfw::valid_leaf_id(15));            // the wire leaf nibble ceiling (cmd-byte low nibble)
+    CHECK_FALSE(mrfw::valid_leaf_id(16));      // >15 could never match ANY received frame (filter-deaf)
+    CHECK_FALSE(mrfw::valid_leaf_id(254));     // the dead parse_cfg's old cap — wrong, now rejected
+    CHECK_FALSE(mrfw::valid_leaf_id(-1));
+
+    CHECK_FALSE(mrfw::valid_hop_cap(0));       // 0 kills ALL route learning
+    CHECK(mrfw::valid_hop_cap(1));
+    CHECK(mrfw::valid_hop_cap(16));            // == protocol::flood_hop_max (the F RREQ TTL config cap)
+    CHECK_FALSE(mrfw::valid_hop_cap(17));
 }
 
 TEST_CASE("team_fnv1a32 — deterministic FNV-1a/32 over the 8 LE bytes of (a‖b); order-sensitive") {

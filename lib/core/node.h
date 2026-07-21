@@ -582,6 +582,7 @@ private:
     // An un-synced managed joiner must listen + CONFIG_PULL only (no F/DATA pollution before it's a member).
     bool     leaf_config_synced() const { return _cfg.lineage_id == 0 || _cfg.config_epoch > 0; }
     int16_t route_score_from_snr(int16_t snr_q4) const;            // dv_dual_sf.lua:3053
+    static void emit_rt_update(Hal& hal, uint8_t dest, uint8_t next, int16_t score_q4, uint8_t hops, const char* slot);   // rt_update telemetry (dest/next/score/hops/slot) — shared by the beacon merge sites + the hop_budget-NACK bump (node_mac_rx)
     // Direct (hops=1) neighbour learning from a received frame's immediate sender — the C++
     // learn_rx_source / learn_direct_from_frame. Returns true on a real change (new/promote/
     // refresh) so the caller can fire the triggered beacon. sender must be a real id (0..254);
@@ -687,6 +688,7 @@ private:
 #endif
     // §S6 presence plane (home side) — always compiled (a home is a static); host-gated (dormant on a non-host).
     void    presence_ingest_probe(const uint8_t* frame, size_t len, const RxMeta& meta);   // home: a probe heard -> refresh registry + SNR EWMA + custody; schedule a coalesced roster
+    void    mobile_reg_touch(uint8_t slot, int16_t snr_q4);    // §3-D: refresh a hosted mobile's last_heard_ms + step its per-mobile SNR EWMA. ONE path shared by the probe (node_join) + beacon (node_beacon) sites so the triple-site (CLAIM seeds; these two update) can't drift. NOT used by CLAIM (which SEEDS a fresh slot, not EWMA-updates).
     void    presence_roster_fire();                            // kPresenceRosterTimerId: emit ONE coalesced roster
     void    presence_schedule_roster();                        // arm the coalesce timer (rate-limit floored)
     void    presence_mark_deleg_fail(uint32_t mobile_hash);    // §B2: a delegated send for this hosted mobile failed loud -> set the roster deleg_fail bit + schedule a roster
@@ -1220,6 +1222,7 @@ private:
     LayerRecord _learned_layers[protocol::cap_learned_layers] = {};   // §mobile 5a: neighbouring layers pulled from a gateway (candidate cross-layer PHYs, dedup by composite id)
     uint8_t   _learned_layers_n = 0;
     uint64_t  _learned_layers_ms = 0;                           // §mobile 5a: last directory refresh (TTL)
+    uint64_t  _learned_layers_seen_ms[protocol::cap_learned_layers] = {};   // §3-A.6/P2-6: per-entry last-seen -> evict-STALEST when full (was evict-slot-0, which could clobber the freshest)
     // §S6 presence plane (mobile side): the probe/check FSM that REPLACES the periodic re-CLAIM + layer poll.
     uint8_t   _presence_miss     = 0;                           // consecutive unanswered probes (k_miss -> HOME LOST)
     uint32_t  _presence_T_ms     = protocol::presence_check_base_ms;   // current dynamic check period (quality-driven)
@@ -1229,7 +1232,6 @@ private:
     bool      _presence_prescan  = false;                       // weak/critical -> collect candidate homes from beacons/rosters
     bool      _presence_key_confirmed = false;                  // §S6 A.4: home confirmed our key (roster has_key=1) -> stop attaching ed_pub to probes
     bool      _presence_reg_confirmed = false;                  // §S6: home confirmed our REGISTRATION (our hash seen in ITS roster) — else a lost CLAIM is re-sent (replaces the retired reclaim keepalive's heal role)
-    uint8_t   _presence_claim_retries = 0;                      // bounded same-home re-CLAIMs before a full home-lost re-DISCOVER
     uint64_t  _last_adopt_ms     = 0;                           // §S6.4-C dwell anchor (last (re)adopt)
     uint64_t  _presence_last_pull_ms = 0;                       // D6 safety-pull clock
     int16_t   _presence_home_rx_q4 = 0;                         // §S6/D14: my RX EWMA (Q4) of my HOME's frames (home->me direction; paired with _presence_my_tier = me->home)
@@ -1456,7 +1458,7 @@ private:
         bool            _roster_coalesce_pending = false;   // a probe opened a coalesce window; the timer will emit ONE roster
         // §S6.4-D new-home->old-home notify: on OFFERing a discovering mobile whose last_home != 0 != self, stash the
         // last-home so the CLAIM (adopt) can originate the breadcrumb (D10). Small ring; evict-oldest.
-        struct PendingNotify { uint32_t mobile_hash; uint8_t last_home_id; uint8_t last_home_layer; uint32_t last_home_hash = 0; };  // §B4: last_home_hash addresses a CROSS-LAYER breadcrumb by hash (0 = same-layer / unknown)
+        struct PendingNotify { uint32_t mobile_hash; uint8_t last_home_id; uint8_t last_home_layer; uint32_t last_home_hash = 0; uint64_t stash_ms = 0; };  // §B4: last_home_hash addresses a CROSS-LAYER breadcrumb by hash (0 = same-layer / unknown). §3-A.6/P2-6: stash_ms -> evict-STALEST when full (was evict-slot-0)
         PendingNotify   _notify_pending[protocol::cap_host_mobiles] = {};
         uint8_t         _notify_pending_n = 0;
         uint8_t         _dir_epoch = 0;               // §S6/D6: gateway-derived layer-directory version this node advertises in the roster (XOR aggregate of known gw epochs; a gateway derives its own)
@@ -1538,7 +1540,7 @@ private:
 // pointer/enum/alignment). Purpose: the node.h legibility reorder (2026-07-15 by-concern member reorder) must not
 // change Node's layout. If this fires after a *deliberate* member add/remove/type change, update the baseline
 // consciously — it is a tripwire, not a frozen contract. The real nRF52 RAM check is the firmware.map .bss/.data diff.
-static_assert(sizeof(Node) == 219952, "node.h: Node native layout changed — if intentional, update the baseline");   // …218872 (§S6) -> 219000 (§GapA) -> 219312 (+312 §F-XL-1: HForwardStash[4] = 4×(77+1) de-storm ring; _h_forward_rr fits existing padding) -> 219568 (+256 §S3 part2: HostMobileEntry.last_key_fwd_hash32 = 4 B + 4 B align, ×16 ×2 layers) -> 219760 (+192 batch B: §B2 HostMobileEntry.deleg_fail packs into existing tail padding; §B4 PendingNotify.last_home_hash 4 B ×16 ×2 layers = +128; §D16 PresenceCand.incompatible +8 align ×cap = +64) -> 219952 (+192 batch A: §F-XL-2 RreqForwardStash[4] = 4×(16+1) de-storm ring + _rreq_forward_rr; §F-SL-1 ParkedSend += reflood state (bool/bool/Plane/u8 + u64 reflood_at_ms, 8-align) ×cap_parked_sends=8)
+static_assert(sizeof(Node) == 220384, "node.h: Node native layout changed — if intentional, update the baseline");   // …218872 (§S6) -> 219000 (§GapA) -> 219312 (+312 §F-XL-1: HForwardStash[4] = 4×(77+1) de-storm ring; _h_forward_rr fits existing padding) -> 219568 (+256 §S3 part2: HostMobileEntry.last_key_fwd_hash32 = 4 B + 4 B align, ×16 ×2 layers) -> 219760 (+192 batch B: §B2 HostMobileEntry.deleg_fail packs into existing tail padding; §B4 PendingNotify.last_home_hash 4 B ×16 ×2 layers = +128; §D16 PresenceCand.incompatible +8 align ×cap = +64) -> 219952 (+192 batch A: §F-XL-2 RreqForwardStash[4] = 4×(16+1) de-storm ring + _rreq_forward_rr; §F-SL-1 ParkedSend += reflood state (bool/bool/Plane/u8 + u64 reflood_at_ms, 8-align) ×cap_parked_sends=8) -> 220384 (+432 §3-A.6 evict-STALEST timestamps: _learned_layers_seen_ms u64×4 = +32; PendingNotify.stash_ms u64 -> 12->24 B ×16 ×2 layers = +384 (+16 align); MINUS the dead _presence_claim_retries u8 (absorbed by padding))
 #endif
 
 }  // namespace meshroute

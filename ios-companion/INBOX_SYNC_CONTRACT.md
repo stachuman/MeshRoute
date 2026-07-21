@@ -244,8 +244,16 @@ reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "
 {"ev":"send_failed","dst":2,"ctr":7,"reason":"no_pubkey"}     // a CRYPTED send was DROPPED — warn + offer Request-key / Scan-QR
 {"ev":"peer_key_cached","hash":3735928559,"pinned":false}    // a key arrived (request answer / cache-on-pass / QR / mutual) → enable resend
 ```
-- `send_failed.reason` ∈ `no_pubkey · no_identity · too_large · bad_rng · no_route · joining · no_cts · no_ack`. App maps `no_pubkey`
+- `send_failed.reason` ∈ `no_pubkey · no_identity · too_large · bad_rng · no_route · joining · no_cts · no_ack · cap · min_interval · mobile_no_home · gateway_unreachable`. App maps `no_pubkey`
   → "recipient's key unknown — Request key / Scan QR"; permanent reasons (`too_large`/`no_route`) → plain fail.
+  (2026-07-21 3-A: `gateway_unreachable` NEW — a cross-layer DM held for a gateway window that never became reachable;
+  `mobile_no_home` now actually renders — a pre-existing renderer hole made it read `"none"`; the previously-bare
+  `reason:"none"` giveups now carry real reasons: the deferred-TTL giveup → `no_route`, the NACK-path giveups → `no_cts`.)
+- `join_refused.reason` gains (2026-07-21 3-A, mobile flavors): `phy_mismatch` — a TEAM member refused a home whose
+  PHY differs from its team-provisioned config (`layer_id` = the candidate's layer, `dst` = its routing_sf; the
+  P2-1 fail-loud now reaches the app on metal) — and `sf_list_mismatch` — configured-vs-offered sf_list low-byte
+  divergence (`origin` = configured, `dst` = offered; ADVISORY, the mobile still adopts). `leaf_full` now also
+  fires from a full TEAM-DAD pool (same reason value, team source). All rate-limited on the shared 60 s window.
 - `peer_key_cached` lets the app prompt "secure send ready — resend" after a request resolves (or QR import).
 - **Mutual source (Slice 2):** you ALSO get `peer_key_cached` for the **requester's** hash when you ANSWER a
   contact's `reqpubkey` — you cached *their* key during the handshake, so you can now securely reply to them

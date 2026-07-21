@@ -155,6 +155,76 @@ funnel (no confidence/pinning/push); ~8 hand-rolled `ed_pub[:4]` LE derivations 
 team-DAD DENY-free convergence; presence plane vs peer-liveness (registration vs routing questions);
 delegated-post billing at the home; separate team RREQ *stores* (the CODE is the duplication to fix).
 
+## PART 3 — the second common-functionality hunt (2026-07-21, three lenses, QA-verified; findings-only pending owner go/no-go)
+
+User directive: find MORE repeated functionality; do NOT implement without confirmation. Wave-3 items excluded.
+
+### 3-A — LIVE BUGS found during the hunt (fixes, not refactors)
+1. **`mobile_home_phy_mismatch` is emit-only** (node_mobile.cpp:49, VERIFIED) — the freshly-ruled P2-1 fail-loud
+   refusal is SIM-ONLY loud: on metal (telemetry stripped) a team member silently refuses homes forever. Needs a
+   Push twin. Sibling: `team_dad_no_free_id` emit-only while its static twin pushes `join_refused{leaf_full}`;
+   `mobile_sf_list_mismatch` likewise device-invisible.
+2. **`cfg set routing_sf` persists unvalidated** (firmware_config.cpp:110, VERIFIED — the "no hard guard" comment
+   deliberately waives the SF6 FLOOR, not the 5..12 domain; junk→SF 0 persists an RF-dead node). Same class:
+   `leaf_id` (no ≤254), `hop_cap`.
+3. **Wrapper `send_layer` hex loop lacks the >8-digit overflow guard** its three siblings carry
+   (NodeRuntimeWrapper.cpp:539-548, VERIFIED) — silent wrap = the documented mis-address bug re-introduced by a
+   fourth copy. + stale `233` body-cap literals ×4 (not derived from the protocol constant).
+4. **`team`'s `mrnv::save(b)` return ignored** (firmware_config.cpp:580, VERIFIED — the ONLY unchecked save of 9;
+   this exact idiom already caused the historical magic-stamp config-wipe). A full FS → team silently not persisted.
+5. **Push reason drift** (app-visible): `send_deferred_giveup` fills reason=no_route on one path, reason=none on the
+   other; the 3 NACK-path `rts_giveup`s push reason=none with `giveup_fail_reason()` one call away; the doorstep-hold
+   giveup's reason is telemetry-only. + `rt_update` schema drift (node_mac_rx.cpp:1408 hand-rolls 4 fields, no score).
+   + fw_main renders only 5 of 11 SendFailReasons (bare "FAILED" for the rest).
+6. **Incomplete P2-6**: `learned_layers_ingest` (node_mobile.cpp:256, VERIFIED) + `_notify_pending` (node_join.cpp:372)
+   still evict-slot-0 (need a per-entry timestamp = small layout change). Dead state: `_presence_claim_retries`
+   (node.h:1232, VERIFIED never read/incremented).
+7. Dead parallel parser: `parse_cfg` (console_parse.cpp:258-292) — zero production callers, test-maintained, with
+   DIFFERENT key set/validation than the live `cfg set`. Delete or wire up. + `strstr` substring key matching in
+   `team`/`mobile register` accepts `xfreq=` (footgun). + two sf_list grammars (silently-filter vs reject-all).
+
+### 3-B — high-payoff extractions (refactors; s18-provable; ranked)
+1. **`RecentRing`** — 7 hand-rolled `recently/mark` window rings + 3 age-out sweeps (~130→~40 lines; the
+   highest-frequency missed-twin class; window-boundary arithmetic already drifts 3 ways). Header-template
+   precedent exists (inbox stores).
+2. **`push_send_failed()` + `giveup_flight()`** — 23 hand-rolled send_failed fills, 6 verbatim giveup rituals;
+   carries the 3-A.5 reason fixes with it.
+3. **PHY-triplet parser `parse_phy_args`** — 3 near-verbatim freq/sf/bw parse+validate blocks + 8 copies of the
+   kHz→Hz rounding (the sim `"bw":62.5` bug was the divergent 5th of this family) + a range-check table for
+   `cfg set` scalars (makes 3-A.2 structurally impossible).
+4. **NV `load_stamped`/`commit` helper** — 7 copies of the load-or-seed/stamp/save ritual (one historical brick,
+   one live unchecked save).
+5. **`JitteredTxStash`** — H-forward + RREQ-forward stash rings are byte-for-byte twins (+ the OFFER slot); ~50 lines.
+6. **Wrapper token parsers** (`parseHex32`/`parseDec` + caps from protocol constants) — fixes 3-A.3 as a side-effect.
+7. **Wrapper key-table** — generate the §1.2 whitelist AND the config-mapping walk from ONE {name, applier} list
+   (two hand-maintained lists that must stay in sync = the silent-ignore bug's comeback vector).
+8. **Shared test Hal fixture** — 7 parallel stub Hals (~310 lines) with a REAL semantic split (the force-rand seam
+   clamps in 1 TU, doesn't in 4, additive-bias in 1); native-only, zero device risk.
+9. **`MR_TELEMETRY`→`MR_EMIT` conversion** — 133 long-form blocks (~500 lines), mechanical, per-TU batches,
+   byte-identity-gated. `push_join_refused_wire()` (2 verbatim copies) rides along.
+
+### 3-C — WIRE-RISK class (own slices, byte-proven, never mixed)
+- frame_codec TLV-walk helper (4 hand-rolled identical loops) — parse-side only, s18-provable.
+- Routing the ~8 out-of-codec manual unicast-inner builders through wire::Writer/pack helpers — the layout truth
+  currently lives in ≥3 files (the pack-in-one/parse-in-two asymmetry the wire-bits rule warns about).
+- The H-frame optional-block triple-encoding: DOCUMENT the invariant now; refactor only when the next optional
+  block is actually added. Sim EventLog dropX builder: do opportunistically inside the future `drop_bw_mismatch`
+  slice (bytes are baseline-anchored).
+
+### 3-D — owner rulings
+- **★ RULED 2026-07-21: the hosted-mobile beacon path must NOT skip the SNR-EWMA step** — beacons feed the
+  per-mobile EWMA the same way probes/CLAIM do ("same way as in the static mesh"). Fixed in the 3-A slice.
+- Sim-wrapper grammar convergence with the firmware console (bare-hex vs 0x, `-t` suffix vs flags) — converge or
+  keep documented divergence?
+
+### 3-E — explicitly NOT worth unifying (verified honest negatives)
+The retry/backoff family (heterogeneity is load-bearing: Lua draw-order parity, deterministic-jitter RNG
+discipline, per-plane confirm semantics — extract the 3-line exp-step helper only when W2c adds a second user);
+pending-slot rings with bespoke cancel semantics; guard-window FSMs; coalesce flags; scalar last-ms floors;
+`store_gateway_schedule`/`ingest_bridged_layer` (2 stable copies); the white-box access-struct sprawl
+(does not exist — exactly one); the dual push rendering (two audiences by design); timer-wheel ring bookkeeping
+(add static_asserts only; note the wheel at 89/90 capacity).
+
 ## Proposed wave plan (for ratification)
 
 - **Wave 1 — fail-loud + cheap correctness (firmware-inert or tiny):** bw double-parse + required-key set in

@@ -31,6 +31,7 @@ constexpr uint32_t kBeaconTimerId         = 1;    // periodic beacon tick (drive
 
 struct Ev { std::string type; int64_t node = -1; int64_t proposed = -1; int64_t denied = -1;
             int64_t claim_epoch = -1; int64_t prior = -1; int64_t their_epoch = -1;
+            int64_t snr_q4 = INT64_MIN;   // §3-D: presence_probe_rx carries the post-update per-mobile EWMA
             bool i_win = false; bool has_iwin = false; std::string reason; };
 
 class TestHal : public Hal {
@@ -62,6 +63,7 @@ public:
                 else if (!std::strcmp(fl.key, "claim_epoch"))      e.claim_epoch = fl.i;
                 else if (!std::strcmp(fl.key, "prior_node_id"))    e.prior = fl.i;
                 else if (!std::strcmp(fl.key, "their_claim_epoch")) e.their_epoch = fl.i;
+                else if (!std::strcmp(fl.key, "snr_q4"))           e.snr_q4 = fl.i;
             } else if (fl.type == EventField::T::boolean) {
                 if (!std::strcmp(fl.key, "i_win")) { e.i_win = fl.b; e.has_iwin = true; }
             } else if (fl.type == EventField::T::str) {
@@ -712,4 +714,167 @@ TEST_CASE("§S0 defer_send — bounded re-drains give up with send_failed{no_rou
         if (p.kind == PushKind::send_failed && p.dst == 61 && p.ctr == 2 && p.reason == SendFailReason::no_route) giveup = true;
     CHECK(giveup);                                            // ★ send_failed{no_route}
     CHECK(hal.count("send_deferred_giveup") == 1);
+}
+
+// ============================================================================
+// §3-A (2026-07-21 fix slice) — push twins for device-invisible failures, evict-stalest, beacon-fed EWMA.
+// ============================================================================
+
+namespace {
+// A same-team MOBILE beacon: is_mobile=1 + the type-5 team_id TLV in ext (what teammates broadcast).
+size_t make_team_beacon(uint8_t src, uint32_t key_hash32, uint32_t team_id, std::array<uint8_t, 64>& buf,
+                        std::array<uint8_t, 8>& tlv) {
+    const size_t tn = pack_team_id_tlv(team_id, std::span<uint8_t>(tlv.data(), tlv.size()));
+    beacon_in in{}; in.leaf_id = 0; in.src = src; in.key_hash32 = key_hash32; in.is_mobile = true;
+    in.ext = std::span<const uint8_t>(tlv.data(), tn);
+    return pack_beacon(in, std::span<uint8_t>(buf.data(), buf.size()));
+}
+// A mobile DISCOVER carrying a last_home block (drives the host's _notify_pending stash).
+size_t make_j_discover_lasthome(uint32_t key_hash32, uint8_t last_home, uint8_t last_layer,
+                                std::array<uint8_t, 20>& buf) {
+    j_discover_in in{}; in.leaf_id = 0; in.gateway_capable = false; in.is_mobile = true; in.key_hash32 = key_hash32;
+    in.last_home_id = last_home; in.last_home_layer = last_layer; in.last_reg_epoch = 1; in.last_home_key_hash32 = 0;
+    return pack_j_discover(in, std::span<uint8_t>(buf.data(), buf.size()));
+}
+// A presence `check` probe from a hosted mobile (selected home = the host under test).
+size_t make_p_probe(uint32_t key_hash32, uint8_t home_id, uint8_t home_layer, uint8_t epoch,
+                    std::array<uint8_t, 48>& buf) {
+    p_probe_in in{}; in.selected_home_id = home_id; in.selected_home_layer = home_layer;
+    in.key_hash32 = key_hash32; in.reg_epoch = epoch;
+    return pack_p_probe(in, std::span<uint8_t>(buf.data(), buf.size()));
+}
+}  // namespace
+
+TEST_CASE("§3-A.1 team-DAD pool-full — join_refused{leaf_full} push twin, windowed (mirrors the static twin)") {
+    TestHal hal;
+    hal._now = 100000;                                        // a realistic nonzero clock (the window's ==0 seed check)
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000A1A1u);
+    NodeConfig mcfg = join_cfg(); mcfg.is_mobile = true; mcfg.team_id = 0x7EA30000u;
+    node.on_init(mcfg);
+    Push p{}; while (node.next_push(p)) {}
+    // exhaust the team id space: a same-team beacon from EVERY id 17..254 sets its _team_peer bit
+    for (int src = protocol::normal_node_id_min; src <= 254; ++src) {
+        std::array<uint8_t, 64> b{}; std::array<uint8_t, 8> tlv{};
+        const size_t bn = make_team_beacon(static_cast<uint8_t>(src), 0x00100000u + static_cast<uint32_t>(src), 0x7EA30000u, b, tlv);
+        RxMeta meta{8.0f, -80.0f, 0, -1};
+        node.on_recv(b.data(), bn, meta);
+    }
+    while (node.next_push(p)) {}                              // drain anything the beacons pushed
+    node.team_dad_fire();                                     // 17..254 all taken -> no candidate
+    CHECK(hal.count("team_dad_no_free_id") == 1);
+    int refused = 0;
+    while (node.next_push(p)) if (p.kind == PushKind::join_refused && p.join_reason == JoinRefuseReason::leaf_full) ++refused;
+    CHECK(refused == 1);                                      // ★ the push twin fired
+    node.team_dad_fire();                                     // inside the window -> emit again but NO second push
+    refused = 0;
+    while (node.next_push(p)) if (p.kind == PushKind::join_refused) ++refused;
+    CHECK(refused == 0);                                      // ★ rate-limited
+    hal._now += protocol::join_refused_retry_ms + 1;          // window elapsed
+    node.team_dad_fire();
+    refused = 0;
+    while (node.next_push(p)) if (p.kind == PushKind::join_refused && p.join_reason == JoinRefuseReason::leaf_full) ++refused;
+    CHECK(refused == 1);                                      // ★ windowed re-push
+}
+
+TEST_CASE("§3-A.1 sf_list mismatch on mobile adopt — join_refused{sf_list_mismatch} push twin (advisory)") {
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    // (a) configured low byte (1<<6) != the host's offered bitmap (1<<7) -> the push fires alongside the adopt
+    {
+        TestHal hal; hal._now = 100000;
+        Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000A2A2u);
+        NodeConfig mcfg = join_cfg(); mcfg.is_mobile = true; mcfg.allowed_sf_bitmap = (1u << 6);
+        node.on_init(mcfg);
+        node.on_timer(kMobileDiscoverTimerId);
+        std::array<uint8_t, 16> off{};
+        const size_t on = make_j_offer_mobile(/*responder=*/30, 0x0000C0C0u, /*local=*/201, /*target=*/0x0000A2A2u, off);
+        node.on_recv(off.data(), on, meta);                   // OFFER carries data_sf_bitmap = 1<<7
+        node.on_timer(kMobileClaimGuardTimerId);              // adopt
+        CHECK(node.mobile_registered());
+        CHECK(hal.count("mobile_sf_list_mismatch") == 1);
+        Push p{}; int mm = 0;
+        while (node.next_push(p))
+            if (p.kind == PushKind::join_refused && p.join_reason == JoinRefuseReason::sf_list_mismatch) {
+                ++mm; CHECK(p.origin == (1u << 6)); CHECK(p.dst == (1u << 7));   // configured vs offered low bytes
+            }
+        CHECK(mm == 1);                                       // ★ the advisory twin fired exactly once
+    }
+    // (b) matching lists -> NO push
+    {
+        TestHal hal; hal._now = 100000;
+        Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000A3A3u);
+        NodeConfig mcfg = join_cfg(); mcfg.is_mobile = true; mcfg.allowed_sf_bitmap = (1u << 7);
+        node.on_init(mcfg);
+        node.on_timer(kMobileDiscoverTimerId);
+        std::array<uint8_t, 16> off{};
+        const size_t on = make_j_offer_mobile(30, 0x0000C0C0u, 201, 0x0000A3A3u, off);
+        node.on_recv(off.data(), on, meta);
+        node.on_timer(kMobileClaimGuardTimerId);
+        CHECK(node.mobile_registered());
+        CHECK(hal.count("mobile_sf_list_mismatch") == 0);
+        Push p{}; int mm = 0;
+        while (node.next_push(p)) if (p.kind == PushKind::join_refused) ++mm;
+        CHECK(mm == 0);
+    }
+}
+
+TEST_CASE("§3-D beacon feeds the hosted-mobile SNR EWMA — CLAIM seeds, beacon steps, probe steps (one shared path)") {
+    TestHal hal; hal._now = 100000;
+    Node host(hal, /*node_id=*/42, /*key_hash32=*/0x00004242u);
+    host.on_init(join_cfg());
+    const uint32_t M = 0x0000D1D1u;
+    // CLAIM at +8 dB seeds the EWMA
+    std::array<uint8_t, 16> cl{};
+    const size_t cn = make_j_claim_mobile(/*host=*/42, /*local=*/254, M, cl);
+    { RxMeta meta{8.0f, -80.0f, 0, -1}; host.on_recv(cl.data(), cn, meta); }
+    // ★ the mobile's BEACON at -4 dB must STEP the EWMA (was last_heard-only before the 3-D ruling)
+    std::array<uint8_t, 64> b{};
+    { beacon_in in{}; in.leaf_id = 0; in.src = 254; in.key_hash32 = M; in.is_mobile = true;
+      const size_t bn = pack_beacon(in, std::span<uint8_t>(b.data(), b.size()));
+      RxMeta meta{-4.0f, -110.0f, 0, -1}; host.on_recv(b.data(), bn, meta); }
+    // a probe at +8 dB steps again; its presence_probe_rx emit carries the resulting EWMA
+    std::array<uint8_t, 48> pr{};
+    const size_t pn = make_p_probe(M, /*home=*/42, /*layer=*/0, /*epoch=*/1, pr);
+    { RxMeta meta{8.0f, -80.0f, 0, -1}; host.on_recv(pr.data(), pn, meta); }
+    const int16_t seed     = protocol::db_to_q4(8.0f);
+    const int16_t after_b  = protocol::snr_ewma_update(seed, protocol::db_to_q4(-4.0f));
+    const int16_t expected = protocol::snr_ewma_update(after_b, protocol::db_to_q4(8.0f));
+    const int16_t pre_fix  = protocol::snr_ewma_update(seed, protocol::db_to_q4(8.0f));   // what beacon-skipping produced
+    CHECK(expected != pre_fix);                               // the test discriminates (not vacuous)
+    const Ev* e = hal.find("presence_probe_rx");
+    CHECK(e != nullptr);
+    if (e) CHECK(e->snr_q4 == expected);                      // ★ the beacon sample is IN the accumulator
+}
+
+TEST_CASE("§3-A.6 _notify_pending evicts the STALEST stash when full (not slot 0)") {
+    TestHal hal; hal._now = 1000;
+    Node host(hal, /*node_id=*/42, /*key_hash32=*/0x00004242u);
+    host.on_init(join_cfg());
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    // fill all 16 stash slots: mobiles h0..h15, each DISCOVERing with last_home=7 (stash_ms ascending)
+    for (uint32_t i = 0; i < protocol::cap_host_mobiles; ++i) {
+        std::array<uint8_t, 20> d{};
+        const size_t dn = make_j_discover_lasthome(0x00001000u + i, /*last_home=*/7, /*last_layer=*/0, d);
+        host.on_recv(d.data(), dn, meta);
+        hal._now += 10;
+    }
+    // refresh h0 (slot 0 becomes the FRESHEST -> the old evict-slot-0 would now clobber the wrong entry)
+    hal._now = 2000;
+    { std::array<uint8_t, 20> d{};
+      const size_t dn = make_j_discover_lasthome(0x00001000u, 7, 0, d);
+      host.on_recv(d.data(), dn, meta); }
+    // overflow with h16 -> must evict the STALEST (h1), NOT slot 0 (h0)
+    hal._now = 2010;
+    { std::array<uint8_t, 20> d{};
+      const size_t dn = make_j_discover_lasthome(0x00002000u, 7, 0, d);
+      host.on_recv(d.data(), dn, meta); }
+    // h0 CLAIMs -> its stash must still be there -> the old-home breadcrumb originates
+    { std::array<uint8_t, 16> cl{};
+      const size_t cn = make_j_claim_mobile(42, /*local=*/254, 0x00001000u, cl);
+      host.on_recv(cl.data(), cn, meta); }
+    CHECK(hal.count("presence_notify_tx") == 1);              // ★ h0 survived (evict-slot-0 would have dropped it)
+    // h1 CLAIMs -> its stash was the eviction victim -> NO breadcrumb
+    { std::array<uint8_t, 16> cl{};
+      const size_t cn = make_j_claim_mobile(42, /*local=*/253, 0x00001001u, cl);
+      host.on_recv(cl.data(), cn, meta); }
+    CHECK(hal.count("presence_notify_tx") == 1);              // unchanged — h1's stash is gone
 }
