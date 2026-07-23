@@ -1662,6 +1662,45 @@ TEST_CASE("§mobile 6.2 — a same-team peer is a LEGAL transit (multi-hop A->B-
     CHECK(node.is_mobile_peer(20));                          // (B is still a mobile peer — the carve-out is is_team_peer, not is_mobile_peer)
 }
 
+// Wave-2 ruling 2.3: a TEAM liveness rerank must ADVERTISE. team_resort_routes_through now mirrors the static
+// resort_routes_for_neighbor_penalty — a primary change dirty-marks the moved _rt_team entry + arms ONE triggered
+// beacon (emit_beacon's dirty pass selects from _rt_team for a team member), so the rerank rides the member's cadence.
+TEST_CASE("§2.3 team liveness rerank — a demoted team relay loses primacy AND the moved _rt_team entry dirties + arms a triggered beacon") {
+    TestHal hal;
+    Node node(hal, /*id=*/30, /*key=*/0x3030u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=0xABCD1234u;
+    CHECK(node.on_init(cfg));
+    node.set_team_local_id(30);                              // adopt our team id -> emit_beacon runs the team plane (clears _rt_team dirty on flush)
+    RxMeta meta{8.0f,-80.0f,0,-1};
+    uint8_t ext[8]; const size_t en = pack_team_id_tlv(0xABCD1234u, std::span<uint8_t>(ext, sizeof ext));
+    // two teammates (20, 21) EACH carry a route to teammate C (25) -> two EQUAL candidates for 25; insertion order -> via 20 primary
+    for (uint8_t relay : {20, 21}) {
+        beacon_entry ce{}; ce.dest=25; ce.next=26; ce.score_bucket=14; ce.hops=1;
+        beacon_in tb{}; tb.leaf_id=0; tb.src=relay; tb.key_hash32=0x9000u+relay; tb.is_mobile=true;
+        tb.ext=std::span<const uint8_t>(ext, en); tb.entries=std::span<const beacon_entry>(&ce, 1);
+        std::array<uint8_t,64> b{}; const size_t bn = pack_beacon(tb, std::span<uint8_t>(b.data(), b.size()));
+        node.on_recv(b.data(), bn, meta);
+    }
+    auto idx25 = [&]() -> int { for (uint8_t i=0;i<node.rt_team_count();++i) if (node.rt_team_at(i).dest==25) return i; return -1; };
+    const int i25 = idx25();
+    CHECK(i25 >= 0);
+    CHECK(node.rt_team_at(i25).candidates[0].next_hop == 20);   // via 20 primary (insertion order, equal score)
+    node.on_timer(kTriggeredBeaconTimerId);                     // flush the setup's pending triggered beacon (team emit clears the setup dirty)
+    CHECK_FALSE(node.rt_team_at(i25).dirty);                    // setup dirty cleared by the flush
+    hal.armed.clear();
+    const int rb = hal.rand_calls;
+    // demote relay 20 on the TEAM plane (local RTS-timeout evidence) -> team_resort_routes_through(20)
+    node.record_peer_rts_timeout(20, 0, /*team_plane=*/true);
+    node.record_peer_rts_timeout(20, 0, /*team_plane=*/true);
+    node.record_peer_rts_timeout(20, 0, /*team_plane=*/true);   // 3 -> SILENT tier (penalty demotes via-20)
+    CHECK(node.rt_team_at(i25).candidates[0].next_hop == 21);   // §2.3: reranked -> via 21 now primary
+    CHECK(node.rt_team_at(i25).dirty);                          // §2.3 FIX: the moved entry is dirty-marked
+    CHECK(hal.count("rt_penalty_rerank") >= 1);                 // telemetry mirrors the static path
+    CHECK(hal.rand_calls - rb >= 1);                            // §2.3 FIX: a triggered beacon was armed (>=1 trigger-jitter draw)
+    bool armed_trigger = false; for (auto& a : hal.armed) if (a.second == kTriggeredBeaconTimerId) armed_trigger = true;
+    CHECK(armed_trigger);                                       // ...on kTriggeredBeaconTimerId
+}
+
 TEST_CASE("§P2-1 — a cross-NIBBLE same-team beacon is ACCEPTED by a team member (leaf-exempt); DROPPED by a static + an other-team member") {
     RxMeta meta{8.0f,-80.0f,0,-1};
     const uint32_t TEAM = 0xABCD1234u;

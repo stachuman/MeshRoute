@@ -762,7 +762,24 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     }
     if (same_team_beacon) {
         _active->_team_peer[b.src >> 3] |= static_cast<uint8_t>(1u << (b.src & 7));   // §6.2: a known same-team peer
-        team_key_set(b.src, b.key_hash32);   // §enc: cache the teammate's key_hash32 (the beacon carries it — dropped for is_mobile at :548) so an ENCRYPTED send BY team_local_id can derive DST_HASH
+        // §W2c team-DAD L2a mediation (mirror of node_hashlocate.cpp id_bind_set's static L2a): we (a shared neighbour)
+        // ALREADY cache a DIFFERENT key for this team id -> two teammates hidden from each other hold the same
+        // _team_local_id and can't run the direct beacon compare (:749). Deny the key-LOSER (§6 ONE tiebreak, lower key
+        // wins) with a TEAM-scoped DENY so it re-picks; the winner keeps beaconing -> its next beacon re-asserts. One DENY
+        // per (id,loser) per window (mediated_recently, exactly the static discipline) bounds the beacon-repeat storm.
+        // is_team_peer(b.src) is TRUE here (bit set just above) so team_key_of_id resolves the cached key.
+        uint32_t existing_key = 0;
+        if (b.src != _team_local_id && team_key_of_id(b.src, existing_key) && existing_key != b.key_hash32) {
+            const bool incoming_wins = join_tiebreak_wins(0, b.key_hash32, 0, existing_key);
+            const uint32_t winner = incoming_wins ? b.key_hash32 : existing_key;
+            const uint32_t loser  = incoming_wins ? existing_key : b.key_hash32;
+            if (!mediated_recently(b.src, loser)) {
+                MR_EMIT("team_dad_mediated", EF_I("id", b.src), EF_I("winner", static_cast<int64_t>(winner)), EF_I("loser", static_cast<int64_t>(loser)));
+                addr_conflict_send_deny(b.src, winner, loser, J_DENY_MEDIATED, /*team_scoped=*/true, _cfg.team_id);
+                mark_mediated(b.src, loser);
+            }
+        }
+        team_key_set(b.src, b.key_hash32);   // §enc: cache the teammate's key_hash32 (the beacon carries it — dropped for is_mobile at :548) so an ENCRYPTED send BY team_local_id can derive DST_HASH. Take the incoming (mirror static: the DENY converges, the flap is transient).
         if (learn_direct_neighbor(b.src, meta_snr_q4, false, /*team_plane=*/true)) rt_changed = true;
     } else if (!b.is_mobile && learn_direct_neighbor(b.src, meta_snr_q4, b.self_gateway)) rt_changed = true;
 #else   // §featuresplit: no team plane -> a static beacon learns into _rt (a mobile beacon is not route-learned here)
@@ -909,7 +926,17 @@ void Node::periodic_beacon_fire() {
     const uint64_t now = _hal.now();
     const uint64_t since_rx = (_last_rx_routing_sf_ms != 0) ? (now - _last_rx_routing_sf_ms) : UINT64_MAX;
     const bool force_idle = beacon_max_idle_force(now, /*emit_events=*/true);
-    if (since_rx < _cfg.quiet_threshold_ms && !force_idle) {  // channel busy -> skip, NO draw (dv:7785)
+    // §Wave-4 team antidote: a TEAM member RE-ADVERTISES its presence on its team cadence (this timer already fires at
+    // steady_beacon_period_ms == team_beacon_period_ms) REGARDLESS of foreign chatter. The quiet-throttle's premise —
+    // "a neighbour is refreshing the neighbourhood, I may stay silent" — is FALSE on the team plane: a static / other-
+    // team beacon carries NONE of this member's team presence (its team key + _rt_team). Under the throttle a team
+    // member in a chatty static neighbourhood goes silent, so a hidden teammate/mediator never hears it and team-DAD /
+    // team-DV convergence stalls (s30: the shared-neighbour mediator B never hears BOTH hidden holders A & C). This
+    // mirrors the STATIC antidote (a stable route/schedule missed in the window is re-propagated on cadence, not left
+    // to dirty-only silence) — same mechanism, team-scoped. Still de-stormed by the silence-jitter draw below and
+    // duty/LBT-gated inside emit_beacon. Team-gated (team_id==0 -> unchanged) => s18 byte-identical.
+    const bool team_readvert = _cfg.is_mobile && _cfg.team_id != 0;
+    if (since_rx < _cfg.quiet_threshold_ms && !force_idle && !team_readvert) {  // channel busy -> skip, NO draw (dv:7785)
         MR_TELEMETRY(
             EventField f[] = { { .key = "since_rx_ms",  .type = EventField::T::i64, .i = static_cast<int64_t>(since_rx) },
                                { .key = "threshold_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.quiet_threshold_ms) },
@@ -940,7 +967,8 @@ void Node::deferred_beacon_jitter_fire(uint8_t slot) {
     const uint64_t now = _hal.now();
     const uint64_t since = (_last_rx_routing_sf_ms != 0) ? (now - _last_rx_routing_sf_ms) : UINT64_MAX;
     const bool force_idle_post = beacon_max_idle_force(now, /*emit_events=*/false);   // recompute SILENTLY (dv:7814)
-    if (since < _cfg.quiet_threshold_ms && !force_idle_post) {
+    const bool team_readvert = _cfg.is_mobile && _cfg.team_id != 0;   // §Wave-4 team antidote (see periodic_beacon_fire): re-advertise on the team cadence past the foreign-chatter throttle
+    if (since < _cfg.quiet_threshold_ms && !force_idle_post && !team_readvert) {
         MR_TELEMETRY(
             EventField f[] = { { .key = "since_rx_ms",  .type = EventField::T::i64, .i = static_cast<int64_t>(since) },
                                { .key = "threshold_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.quiet_threshold_ms) },

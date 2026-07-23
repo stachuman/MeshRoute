@@ -280,9 +280,11 @@ public:
     uint8_t           bridged_layer_cap()      const { return protocol::cap_bridged_layers; }
     const BridgedLayer& bridged_layer(uint8_t i) const { return _bridged_layers[i]; }
 #if MR_FEAT_MOBILE
-    void              mobile_register_current() { (void)_hal.after(0, kMobileDiscoverTimerId); }             // DISCOVER on the current PHY now
-    void              mobile_register_phy(const LayerConfig& phy) { adopt_mobile_phy(phy); (void)_hal.after(0, kMobileDiscoverTimerId); }  // retune + DISCOVER
-    void              mobile_register_scan()    { _mobile_scan_idx = 0; (void)_hal.after(0, kMobileDiscoverTimerId); }  // cycle [current] ∪ learned
+    // §autoregister ruling (2026-07-21): with mobile_autoregister=false the FSM emits NO DISCOVERs on its own — the app
+    // ARMS one here. _mobile_arm_once is the one-shot the DISCOVER half consumes (registration_armed()); team-DAD is unaffected.
+    void              mobile_register_current() { _mobile_arm_once = true; (void)_hal.after(0, kMobileDiscoverTimerId); }             // DISCOVER on the current PHY now
+    void              mobile_register_phy(const LayerConfig& phy) { adopt_mobile_phy(phy); _mobile_arm_once = true; (void)_hal.after(0, kMobileDiscoverTimerId); }  // retune + DISCOVER
+    void              mobile_register_scan()    { _mobile_scan_idx = 0; _mobile_arm_once = true; (void)_hal.after(0, kMobileDiscoverTimerId); }  // cycle [current] ∪ learned
     void              mobile_send_layer_query(uint8_t gw) {                                                  // manual pull: MOBILE_LAYER_QUERY -> gw
         uint8_t q = 0; (void)enqueue_data(gw, &q, 0, DATA_FLAG_SOURCE_HASH, "mobile_layer_query", false, DATA_TYPE_MOBILE_LAYER_QUERY, CryptIntent::off);
     }
@@ -669,7 +671,8 @@ private:
     void    join_claim_guard_fire();                             // kJoinClaimGuardTimerId: adopt (no objection) or deny+retry
     void    join_adopt(uint8_t node_id);                         // set_identity + joined + self-bind + beacon
     void    handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta);   // J RX dispatch (CLAIM/DENY; DISCOVER/OFFER later)
-    void    addr_conflict_send_deny(uint8_t node_id, uint32_t owner_key, uint32_t claimant_key, uint8_t reason);  // owner defends its id
+    void    addr_conflict_send_deny(uint8_t node_id, uint32_t owner_key, uint32_t claimant_key, uint8_t reason,
+                                    bool team_scoped = false, uint32_t team_id = 0);  // owner defends its id; §W2c: team_scoped -> a 19-B team-mediated DENY (team_id-gated at the loser)
     void    forced_rejoin(const char* reason);                   // lost the heal tiebreak -> yield id + re-claim
     // §mobile 2b: the mobile-side registration FSM (node_mobile.cpp). Armed only for _cfg.is_mobile (static never enters).
     // §featuresplit: dropped (with the whole registration FSM) on a static/gateway build; the timer-dispatch cases are gated too.
@@ -711,6 +714,11 @@ public:
 #endif
 private:
 #if MR_FEAT_MOBILE
+    // §autoregister ruling (2026-07-21): the SINGLE gate on the DISCOVER/registration half of the FSM. autoregister ON =
+    // autonomous (today). OFF = the app drives every registration attempt via `mobile register` (a one-shot _mobile_arm_once);
+    // absent a manual arm the mobile NEVER DISCOVERs/registers — after a home-loss it stays off-grid-quiet (the team plane
+    // still works per F-PS-1, and team-DAD runs regardless as it rides the FSM tick BEFORE this gate).
+    bool    registration_armed() const { return _cfg.mobile_autoregister || _mobile_arm_once; }
     void    mobile_reset_registration(const char* reason);     // drop registration -> re-enter discovery
     // §mobile 5a: the scan-set = [the mobile's own/bootstrap PHY] ∪ [the LEARNED layer directory]. On boot (nothing learned)
     // that's just layers[0] -> single-PHY = 2b-identical; neighbours appear only after a successful directory pull.
@@ -803,9 +811,10 @@ private:
     };
     struct ChannelPullPending  { bool active; uint32_t id; uint8_t target; uint64_t requested_at; uint64_t fire_at; };
     struct ChannelPullRecent   { uint32_t id; uint64_t t_ms; };    // re-pull dedup (Lua channel_pull_recent)
-    struct ChannelReofferPending { bool active; uint32_t id; uint8_t retries_left; bool team; };   // Part 2: per-origin re-offer (timer kChannelReofferTimerId+slot). team = a TEAM flood: a single relay does NOT confirm coverage on a mixed multi-hop chain, so it re-offers all its retries (P-BUDGET s28 class).
+    struct ChannelReofferPending { bool active; uint32_t id; uint8_t retries_left; bool team; bool holder; };   // Part 2: per-origin re-offer (timer kChannelReofferTimerId+slot). team = a TEAM flood: a single relay does NOT confirm coverage on a mixed multi-hop chain, so it re-offers all its retries (P-BUDGET s28 class). holder (§F-CH-RELAY) = a RELAY (not the origin) re-offering to cover its own still-unmarked downstream team neighbours — coverage-driven (seen_by), deterministic jitter, team-only.
     void    channel_reoffer_register(uint32_t id, bool team);      // Part 2: arm a re-offer slot on flood origination (retries_left = team ? channel_reoffer_team_max_retries : channel_reoffer_max_retries)
-    void    channel_reoffer_fire(uint8_t slot);                    // Part 2: timer fire — re-flood if not yet confirmed + retries remain, else free
+    void    channel_holder_reoffer_register(uint32_t id);          // §F-CH-RELAY: a team-flood HOLDER arms a coverage-driven re-offer after it re-broadcasts, iff it still has unmarked hops-1 team neighbours (deterministic jitter, no RNG draw)
+    void    channel_reoffer_fire(uint8_t slot);                    // Part 2: timer fire — re-flood if not yet confirmed + retries remain, else free (holder slot: re-check seen_by coverage instead of the confirm flag)
     void    channel_reoffer_confirm(uint32_t id);                  // Part 2: a relay of OUR message was overheard -> cancel its pending re-offer (dedicated signal, NOT seen_by)
     int     channel_buffer_find(uint32_t id) const;                // index of the entry, or -1 (dv:3426)
     bool    channel_mark_seen_by(uint32_t id, uint8_t neighbour);  // set seen_by bit; true if newly set (dv:3434)
@@ -1232,6 +1241,7 @@ private:
     bool      _presence_prescan  = false;                       // weak/critical -> collect candidate homes from beacons/rosters
     bool      _presence_key_confirmed = false;                  // §S6 A.4: home confirmed our key (roster has_key=1) -> stop attaching ed_pub to probes
     bool      _presence_reg_confirmed = false;                  // §S6: home confirmed our REGISTRATION (our hash seen in ITS roster) — else a lost CLAIM is re-sent (replaces the retired reclaim keepalive's heal role)
+    bool      _mobile_arm_once = false;                         // §autoregister ruling (2026-07-21): one-shot manual `mobile register` arm — consumed by the DISCOVER half when mobile_autoregister is OFF (fits the existing bool-run padding; sizeof(Node) unchanged)
     uint64_t  _last_adopt_ms     = 0;                           // §S6.4-C dwell anchor (last (re)adopt)
     uint64_t  _presence_last_pull_ms = 0;                       // D6 safety-pull clock
     int16_t   _presence_home_rx_q4 = 0;                         // §S6/D14: my RX EWMA (Q4) of my HOME's frames (home->me direction; paired with _presence_my_tier = me->home)
@@ -1374,9 +1384,9 @@ private:
         //     false, a team H and a static H sharing (origin,key_hash32) would falsely dedup one another.
         //   • beacon_max_idle_force (node_beacon.cpp): its dirty-entry count scans the STATIC _rt only — a team member that
         //     advertises _rt_team can have its max-idle B+C beacons suppressed while dirty TEAM entries are still pending.
-        //   • team_resort_routes_through (node_routing.cpp): reranks _rt_team WITHOUT a dirty-mark or triggered beacon, so the
-        //     rerank is NOT advertised on the member's cadence (steady beacons are dirty-only) until something else dirties it
-        //     (Wave-2 ruling 2.3). See that function's header for the corrected re-advertise semantics.
+        //   • team_resort_routes_through (node_routing.cpp): a primary change reranks _rt_team AND dirty-marks the moved entry +
+        //     schedules ONE triggered beacon (Wave-2 ruling 2.3 FIX), so the rerank IS advertised on the member's own cadence —
+        //     emit_beacon's dirty pass selects from src_rt = _rt_team for a team member (team_emit). See that function's header.
         // Peer-liveness + freshness plane (routing-liveness port): per-next-hop timeout tiers. Bounded LRU.
         PeerLiveness  _peer_liveness[protocol::cap_peer_liveness] = {};
         uint8_t       _peer_liveness_n = 0;
@@ -1540,7 +1550,7 @@ private:
 // pointer/enum/alignment). Purpose: the node.h legibility reorder (2026-07-15 by-concern member reorder) must not
 // change Node's layout. If this fires after a *deliberate* member add/remove/type change, update the baseline
 // consciously — it is a tripwire, not a frozen contract. The real nRF52 RAM check is the firmware.map .bss/.data diff.
-static_assert(sizeof(Node) == 220384, "node.h: Node native layout changed — if intentional, update the baseline");   // …218872 (§S6) -> 219000 (§GapA) -> 219312 (+312 §F-XL-1: HForwardStash[4] = 4×(77+1) de-storm ring; _h_forward_rr fits existing padding) -> 219568 (+256 §S3 part2: HostMobileEntry.last_key_fwd_hash32 = 4 B + 4 B align, ×16 ×2 layers) -> 219760 (+192 batch B: §B2 HostMobileEntry.deleg_fail packs into existing tail padding; §B4 PendingNotify.last_home_hash 4 B ×16 ×2 layers = +128; §D16 PresenceCand.incompatible +8 align ×cap = +64) -> 219952 (+192 batch A: §F-XL-2 RreqForwardStash[4] = 4×(16+1) de-storm ring + _rreq_forward_rr; §F-SL-1 ParkedSend += reflood state (bool/bool/Plane/u8 + u64 reflood_at_ms, 8-align) ×cap_parked_sends=8) -> 220384 (+432 §3-A.6 evict-STALEST timestamps: _learned_layers_seen_ms u64×4 = +32; PendingNotify.stash_ms u64 -> 12->24 B ×16 ×2 layers = +384 (+16 align); MINUS the dead _presence_claim_retries u8 (absorbed by padding))
+static_assert(sizeof(Node) == 220392, "node.h: Node native layout changed — if intentional, update the baseline");   // 220384 -> 220392 (+8 Wave-4: NodeConfig.gw_schedule_readvert_ms u32 + alignment; the gateway schedule re-advertisement cadence). …218872 (§S6) -> 219000 (§GapA) -> 219312 (+312 §F-XL-1: HForwardStash[4] = 4×(77+1) de-storm ring; _h_forward_rr fits existing padding) -> 219568 (+256 §S3 part2: HostMobileEntry.last_key_fwd_hash32 = 4 B + 4 B align, ×16 ×2 layers) -> 219760 (+192 batch B: §B2 HostMobileEntry.deleg_fail packs into existing tail padding; §B4 PendingNotify.last_home_hash 4 B ×16 ×2 layers = +128; §D16 PresenceCand.incompatible +8 align ×cap = +64) -> 219952 (+192 batch A: §F-XL-2 RreqForwardStash[4] = 4×(16+1) de-storm ring + _rreq_forward_rr; §F-SL-1 ParkedSend += reflood state (bool/bool/Plane/u8 + u64 reflood_at_ms, 8-align) ×cap_parked_sends=8) -> 220384 (+432 §3-A.6 evict-STALEST timestamps: _learned_layers_seen_ms u64×4 = +32; PendingNotify.stash_ms u64 -> 12->24 B ×16 ×2 layers = +384 (+16 align); MINUS the dead _presence_claim_retries u8 (absorbed by padding))
 #endif
 
 }  // namespace meshroute

@@ -1035,18 +1035,32 @@ TEST_CASE("dual-layer beacon: a gateway beacons each leaf on its own cadence at 
 // announcing a STATIC schedule on a timer is pure airtime waste -> kills the gateway's duty budget. Steady state:
 // beacon ONLY on dirty state (real new info) or a REQ_SYNC pull; the sole unsolicited heartbeat is gated on duty
 // headroom + a 3 h floor. Discovery is exempt (a new gateway / fresh two-layer link-up must be discoverable).
-TEST_CASE("gateway noise: steady-state is REACTIVE-ONLY — a clean, recently-beaconed gateway does NOT re-announce") {
-    StubHal hal; Node node(hal, /*id*/ 1, 0x1);
+TEST_CASE("gateway noise: steady-state SCHEDULE re-advertisement fires at the readvert cadence, silent before it, OFF when disabled") {
+    // Wave-4 antidote: a clean gateway re-advertises its window SCHEDULE at gw_schedule_readvert_ms (duty-gated), so a
+    // neighbour whose cached anchor went stale/degenerate re-anchors (the s15 cross-layer livelock fix). Duty is OFF
+    // here (budget 0 => gateway_announce_has_headroom() == true), isolating the cadence gate.
     NodeConfig cfg; cfg.n_layers = 2;
     cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
     cfg.layers[1] = good_layer(2, 8); cfg.layers[1].node_id = 12;
-    CHECK(node.on_init(cfg));
-    // 1 000 000 ms ≈ 16.7 min: PAST discovery (60 s) AND past the old beacon_period_ms (15 min) — the old periodic
-    // clause WOULD fire here — but still << the 3 h announce floor, so reactive-only must stay silent.
-    hal._now = 1000000;
-    DualLayerTestAccess::set_last_beacon(node, 0, 0);               // route table clean
-    DualLayerTestAccess::call_gw_beacon(node);
-    CHECK(DualLayerTestAccess::last_beacon_ms(node, 0) == 0);       // NO re-announce
+    // (1) past the readvert cadence (default 5 min) + clean table -> re-advertise
+    { StubHal hal; Node node(hal, 1, 0x1); CHECK(node.on_init(cfg));
+      hal._now = 1000000;                                            // 16.7 min >> 5 min cadence
+      DualLayerTestAccess::set_last_beacon(node, 0, 0);              // route table clean, idle since boot
+      DualLayerTestAccess::call_gw_beacon(node);
+      CHECK(DualLayerTestAccess::last_beacon_ms(node, 0) == 1000000); }   // re-advertised
+    // (2) BEFORE the cadence since the last beacon -> silent (bounded: not every visit)
+    { StubHal hal; Node node(hal, 1, 0x1); CHECK(node.on_init(cfg));
+      hal._now = 1000000;
+      DualLayerTestAccess::set_last_beacon(node, 0, 1000000 - 60000);    // beaconed 60 s ago (< 5 min)
+      DualLayerTestAccess::call_gw_beacon(node);
+      CHECK(DualLayerTestAccess::last_beacon_ms(node, 0) == 1000000 - 60000); }  // too soon -> silent
+    // (3) re-advert DISABLED (0) -> the old REACTIVE-ONLY behaviour is preserved (silent past the cadence)
+    { NodeConfig off = cfg; off.gw_schedule_readvert_ms = 0;
+      StubHal hal; Node node(hal, 1, 0x1); CHECK(node.on_init(off));
+      hal._now = 1000000;
+      DualLayerTestAccess::set_last_beacon(node, 0, 0);
+      DualLayerTestAccess::call_gw_beacon(node);
+      CHECK(DualLayerTestAccess::last_beacon_ms(node, 0) == 0); }        // reactive-only -> NO re-announce
 }
 
 TEST_CASE("gateway noise: a DIRTY route still pushes IMMEDIATELY (reactive), even in steady state") {
@@ -2235,6 +2249,25 @@ TEST_CASE("gw route-pull: a gateway-relay no-route leg PULLS + DEFERS (not drop)
     DualLayerTestAccess::issue(node, fwd);
     CHECK(DualLayerTestAccess::last_req_sync_ms(node) == before);            // NO pull (unchanged)
     CHECK(DualLayerTestAccess::deferred_count(node) == 1);                   // still only the gw-relay one -> the forwarder dropped
+}
+
+TEST_CASE("originator route-pull (Wave-4): an ORIGINATOR no-route send PULLS + DEFERS (not silent defer-to-giveup)") {
+    // The s19 B->A starvation antidote: an originator (is_forward=false) with no route to dst used to defer silently
+    // until giveup; now it also fires a rate-limited force REQ_SYNC so a neighbour re-advertises the missing route.
+    StubHal hal; hal._now = 100000; Node node(hal, /*id*/ 5, 0x1);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1; cfg.req_sync_on_boot = false;
+    CHECK(node.on_init(cfg));
+    DualLayerTestAccess::force_exit_discovery(node);
+    // (a) originator, no route -> forced pull fired (witnessed via the rate-limit stamp) + parked (deferred), not dropped
+    TxItem it{}; it.dst = 77; it.is_forward = false; it.enqueue_time_ms = hal._now;
+    DualLayerTestAccess::issue(node, it);
+    CHECK(DualLayerTestAccess::last_req_sync_ms(node) == hal._now);          // the forced pull fired
+    CHECK(DualLayerTestAccess::deferred_count(node) == 1);                   // parked (originator holds; dv:7049-7052)
+    // (b) a SECOND no-route originate within the retry window -> NO new pull (rate-limited: no Q-storm), still parked
+    const uint64_t stamp = DualLayerTestAccess::last_req_sync_ms(node);
+    TxItem it2{}; it2.dst = 78; it2.is_forward = false; it2.enqueue_time_ms = hal._now;
+    DualLayerTestAccess::issue(node, it2);
+    CHECK(DualLayerTestAccess::last_req_sync_ms(node) == stamp);             // rate-limited: no second REQ_SYNC
 }
 
 // ---- SLICE 4: gateway anti-spam-exemption VERIFICATION (no production change) -------------------------------
@@ -3466,6 +3499,89 @@ TEST_CASE("§mobile 6.4 — team-DAD DEFENSE: a same-team claim of our CONFIRMED
       mob.on_recv(b.data(), bn, m);
       CHECK(hal.saw_emit("team_dad_repick"));
       CHECK(mob.team_local_id() != tid); }
+}
+
+// §W2c team-DAD L2a mediation (hidden-terminal): a shared-neighbour observer denies the key-loser of a same-id
+// collision the two holders can't see (they can't hear each other -> the direct beacon compare never fires). Mirror
+// of the static L2a in node_hashlocate.cpp id_bind_set, but TEAM-scoped (§18: never the static id_bind plane).
+TEST_CASE("§W2c team-DAD L2a — a shared neighbour mediates a hidden-terminal collision: TEAM-scoped DENY to the key-loser + suppress storm") {
+    auto mk_team_bcn = [](uint8_t src, uint32_t key, uint32_t team, std::array<uint8_t,64>& buf) -> size_t {
+        uint8_t ext[8]; size_t en = pack_team_id_tlv(team, std::span<uint8_t>(ext, sizeof ext));
+        beacon_in in{}; in.leaf_id=4; in.src=src; in.key_hash32=key; in.is_mobile=true; in.ext=std::span<const uint8_t>(ext, en);
+        return pack_beacon(in, std::span<uint8_t>(buf.data(), buf.size())); };
+    const RxMeta m{8.0f,-80.0f,0,static_cast<int8_t>(-1)};
+    StubHal hal; Node b(hal, 0, 0xB0B0u);                       // observer B (its own key, distinct id)
+    NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.team_id=0xABCD1234u; CHECK(b.on_init(cfg));
+    b.team_dad_fire(); b.on_timer(77);                          // B confirms its OWN team id (17 with StubHal rand=lo)
+    const uint8_t bid = b.team_local_id(); CHECK(bid != 100);
+    hal.emits.clear();
+    auto nmed = [&]{ int c=0; for (auto& e : hal.emits) if (e == "team_dad_mediated") ++c; return c; };
+    // A (key 0x1111 = winner) then C (key 0x2222 = loser) both beacon id 100 — they can't hear each other, only B hears both.
+    std::array<uint8_t,64> ba{}; size_t na = mk_team_bcn(100, 0x1111u, 0xABCD1234u, ba);
+    b.on_recv(ba.data(), na, m);
+    CHECK_FALSE(hal.saw_emit("team_dad_mediated"));            // first key learned -> no conflict yet
+    std::array<uint8_t,64> bc{}; size_t nc = mk_team_bcn(100, 0x2222u, 0xABCD1234u, bc);
+    b.on_recv(bc.data(), nc, m);                               // second key on id 100 -> collision B alone can see
+    CHECK(hal.saw_emit("team_dad_mediated"));
+    auto pd = parse_j(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len));   // the sent DENY is TEAM-scoped, at the loser
+    CHECK(pd.has_value());
+    if (pd) {
+        CHECK(pd->opcode == static_cast<uint8_t>(j_opcode::deny));
+        CHECK(pd->team_scoped);
+        CHECK(pd->team_id == 0xABCD1234u);
+        CHECK(pd->denied_node_id == 100);
+        CHECK(pd->owner_key_hash32 == 0x1111u);                // owner = winner (lower key keeps)
+        CHECK(pd->claimant_key_hash32 == 0x2222u);             // claimant = loser (higher key re-picks)
+        CHECK(pd->reason == J_DENY_MEDIATED);
+    }
+    // #1 suppress: repeat beacons within the window re-create the conflict but must NOT re-fire a DENY.
+    CHECK(nmed() == 1);
+    b.on_recv(ba.data(), na, m); b.on_recv(bc.data(), nc, m); b.on_recv(ba.data(), na, m);
+    CHECK(nmed() == 1);
+}
+
+TEST_CASE("§W2c team-DAD L2a — a team-scoped mediated DENY: the key-LOSER re-picks; winner/other-team/static IGNORE (§18)") {
+    auto mk_deny = [](uint8_t id, uint32_t owner, uint32_t claimant, uint32_t team, std::array<uint8_t,32>& buf) -> size_t {
+        j_deny_in in{}; in.leaf_id=4; in.is_mobile=true; in.denied_node_id=id; in.owner_key_hash32=owner;
+        in.claimant_key_hash32=claimant; in.reason=J_DENY_MEDIATED; in.team_scoped=true; in.team_id=team;
+        return pack_j_deny(in, std::span<uint8_t>(buf.data(), buf.size())); };
+    const RxMeta m{8.0f,-80.0f,0,static_cast<int8_t>(-1)};
+    // (a) LOSER: our team, our id, claimant==our key, owner!=our key -> re-pick a DIFFERENT id
+    { StubHal hal; Node loser(hal, 0, 0x2222u);
+      NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.team_id=0xABCD1234u; CHECK(loser.on_init(cfg));
+      loser.team_dad_fire(); loser.on_timer(77);
+      const uint8_t xid = loser.team_local_id(); hal.emits.clear();
+      std::array<uint8_t,32> d{}; size_t dn = mk_deny(xid, 0x1111u, 0x2222u, 0xABCD1234u, d);
+      loser.on_recv(d.data(), dn, m);
+      CHECK(hal.saw_emit("team_dad_mediated_deny_rx"));
+      CHECK(hal.saw_emit("team_dad_claim"));                   // re-picked (a fresh tentative claim)
+      CHECK(loser.team_local_id() != xid); }
+    // (b) WINNER (our id, but claimant != our key) -> IGNORE (no re-pick, no flap)
+    { StubHal hal; Node winner(hal, 0, 0x1111u);
+      NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.team_id=0xABCD1234u; CHECK(winner.on_init(cfg));
+      winner.team_dad_fire(); winner.on_timer(77);
+      const uint8_t xid = winner.team_local_id(); hal.emits.clear();
+      std::array<uint8_t,32> d{}; size_t dn = mk_deny(xid, 0x1111u, 0x2222u, 0xABCD1234u, d);
+      winner.on_recv(d.data(), dn, m);
+      CHECK_FALSE(hal.saw_emit("team_dad_mediated_deny_rx"));
+      CHECK(winner.team_local_id() == xid); }
+    // (c) OTHER-TEAM member holding the same id -> IGNORE (team_id mismatch)
+    { StubHal hal; Node other(hal, 0, 0x2222u);
+      NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.team_id=0x99999999u; CHECK(other.on_init(cfg));
+      other.team_dad_fire(); other.on_timer(77);
+      const uint8_t xid = other.team_local_id(); hal.emits.clear();
+      std::array<uint8_t,32> d{}; size_t dn = mk_deny(xid, 0x1111u, 0x2222u, 0xABCD1234u, d);   // team T != our team
+      other.on_recv(d.data(), dn, m);
+      CHECK_FALSE(hal.saw_emit("team_dad_mediated_deny_rx"));
+      CHECK(other.team_local_id() == xid); }
+    // (d) STATIC node -> IGNORE + no id_bind pollution (§18: a team DENY is NEVER processed on the static plane)
+    { StubHal hal; Node stat(hal, 40, 0x4040u);
+      NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; CHECK(stat.on_init(cfg));
+      hal.emits.clear();
+      std::array<uint8_t,32> d{}; size_t dn = mk_deny(55, 0x1111u, 0x2222u, 0xABCD1234u, d);
+      stat.on_recv(d.data(), dn, m);
+      CHECK_FALSE(hal.saw_emit("team_dad_mediated_deny_rx"));
+      CHECK_FALSE(hal.saw_emit("id_bind_set")); }
 }
 
 TEST_CASE("§mobile 6.4 — a static registration moves node_id but leaves _team_local_id / team_id intact (dual plane)") {

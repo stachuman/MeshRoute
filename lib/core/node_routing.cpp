@@ -266,18 +266,36 @@ int Node::resort_routes_for_neighbor_penalty(uint8_t node_id, [[maybe_unused]] c
 // §2c: re-sort the TEAM routes (_rt_team) whose candidates include `team_local_id` after its liveness tier changed —
 // a self-contained mirror of resort_routes_for_neighbor_penalty over the team table (team_plane sort). Keeps
 // candidates[0] current so the NEXT team flight picks the fresh alt, not the just-demoted primary. Team-plane only.
-// ★ ACTUAL BEHAVIOR (code is truth — the old comment over-promised a cadence re-advertise): this reranks the local
-//   table but does NOT dirty-mark the entry or schedule_triggered_beacon. Steady team beacons advertise DIRTY entries
-//   only, so a liveness-driven rerank here is NOT re-advertised on the member's cadence until something else dirties
-//   the entry. Whether to dirty-mark on rerank is Wave-2 ruling 2.3 (deliberate-or-fix); do NOT change it here.
+// Wave-2 ruling 2.3 (FIX): a primary change here now dirty-marks the moved _rt_team entry + schedules ONE triggered
+// beacon, using the SAME shared infrastructure as the static resort. This is plane-correct: `dirty` is a per-RtEntry
+// field and emit_beacon selects DIRTY entries from src_rt = _rt_team when a team member advertises (team_emit ->
+// node_beacon.cpp Phase-1 dirty pass), so a team liveness rerank is now advertised on the member's own cadence
+// instead of waiting for something else to dirty the entry. Team liveness is always LOCAL evidence (team never
+// gossips liveness), so — unlike the static path's local_only ACK-hint case — the mark + beacon are unconditional.
 void Node::team_resort_routes_through(uint8_t team_local_id) {
+    int changed = 0;
     for (uint8_t e = 0; e < _active->_rt_team_count; ++e) {
         RtEntry& entry = _active->_rt_team[e];
         if (entry.n < 2) continue;                       // single candidate can't rerank
         bool affected = false;
         for (uint8_t i = 0; i < entry.n; ++i) if (entry.candidates[i].next_hop == team_local_id) { affected = true; break; }
-        if (affected) sort_candidates(entry, /*team_plane=*/true);
+        if (!affected) continue;
+        const uint8_t old_primary = entry.candidates[0].next_hop;
+        sort_candidates(entry, /*team_plane=*/true);
+        const uint8_t new_primary = entry.candidates[0].next_hop;
+        if (new_primary != old_primary) {
+            entry.dirty = true;                          // §2.3: advertise the new team primary (emit_beacon dirty pass over _rt_team)
+            ++changed;
+            MR_TELEMETRY(
+                EventField f[] = { { .key = "dest",      .type = EventField::T::i64, .i = entry.dest },
+                                   { .key = "from_next",  .type = EventField::T::i64, .i = old_primary },
+                                   { .key = "to_next",    .type = EventField::T::i64, .i = new_primary },
+                                   { .key = "penalized",  .type = EventField::T::i64, .i = team_local_id },
+                                   { .key = "reason",     .type = EventField::T::str, .s = "team_liveness" } };
+                _hal.emit("rt_penalty_rerank", f, 5); );
+        }
     }
+    if (changed > 0) schedule_triggered_beacon();        // §2.3: re-advertise the new team primaries on our cadence
 }
 #endif
 

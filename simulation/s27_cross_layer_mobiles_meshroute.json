@@ -80,9 +80,10 @@
    "command": "send_hashx 3a3e77a3 post-m2"
   },
   {
-   "at_ms": 980000,
+   "at_ms": 1120000,
    "node": "M1",
-   "command": "send_layerx 7 3166780613 post-m3"
+   "command": "send_layerx 7 3166780613 post-m3",
+   "_c": "[980k->1120k 2026-07-23: M3 is a zombie on dead T1 until ~1006k (presence-cadence detection lag) + re-homes 1028k - the send must postdate; see the fallout report Cluster B]"
   },
   {
    "at_ms": 1080000,
@@ -91,8 +92,8 @@
    "_c": "[moved 1010k->1080k 2026-07-21: under realistic physics M4 only DETECTS its home-death at ~1011k and re-homes by ~1020k - the send must land post-re-home (the phase-E intent); 1080k gives the D10 notify+caches 60s to settle]"
   },
   {
-   "_c": "and one reverse post-re-home (a re-homed mobile sends cross-layer)",
-   "at_ms": 1060000,
+   "_c": "and one reverse post-re-home (a re-homed mobile sends cross-layer) [1060k->1130k 2026-07-23: at 1060k the delegated XL aliased M4 own layer_query in T3 gateway-hold queue (origin=home_id ctr collision post-re-home, shelf finding #2) - spaced past it]",
+   "at_ms": 1130000,
    "node": "M4",
    "command": "send_layerx 4 655814605 post-re-m4"
   },

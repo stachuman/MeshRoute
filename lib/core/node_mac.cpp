@@ -625,6 +625,14 @@ void Node::issue_send(const TxItem& item) {
             // flood the air.
             if (item.is_gw_relay) { send_req_sync_q("gw_relay_no_route", /*force=*/true); defer_send(item); }
         } else {
+            // Wave-4 antidote (reactive route-pull, ORIGINATOR site): a stable route we missed during the discovery
+            // window is NEVER re-advertised passively — steady-state beacons are dirty-only, so a peer's converged
+            // route to our dst never reaches us again. Mirror the gw_relay pull above: fire a force REQ_SYNC (bypasses
+            // the route-rich guard; rate-limited to one per req_sync_retry_ms by _last_req_sync_tx_ms) so a neighbour
+            // replies with a full-table "sync" beacon carrying the missing route, THEN defer so the parked send
+            // re-flies via try_drain_deferred once the route lands. Without this an originator that missed the window
+            // simply defers→giveup forever (the s19 B→A starvation class; investigation 2026-07-22 §s19).
+            send_req_sync_q("originator_no_route", /*force=*/true);
             defer_send(item);                         // originator: hold until a beacon installs a route (dv:7049-7052)
         }
         return;
@@ -638,6 +646,11 @@ void Node::issue_send(const TxItem& item) {
     // become_free, which just removed this item, so the queue always has room to re-add it.
     if (!item.is_channel_m) {
         if (const uint32_t defer = gateway_schedule_defer_ms(first); defer > 0) {
+            // NOTE (Wave-4): the s15 cross-layer window-livelock (a sender phase-locking into a never-opening window
+            // off a stale/degenerate schedule anchor) is fixed at the SOURCE — the gateway periodically re-advertises
+            // its schedule (node.cpp maybe_emit_gateway_beacon, gw_schedule_readvert_ms) so every listening neighbour
+            // re-anchors. A sender-side reactive REQ_SYNC pull here was measured redundant (the gateway can only hear
+            // the pull during the same window the stale phase can't find), so it is deliberately NOT added.
             TxItem held = item;
             const uint64_t until = _hal.now() + defer;
             if (held.next_attempt_ms < until) held.next_attempt_ms = until;   // compose: never clobber an earlier-armed backoff

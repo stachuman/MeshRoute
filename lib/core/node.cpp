@@ -302,7 +302,7 @@ bool Node::on_init(const NodeConfig& cfg) {
                                                                  : steady_beacon_period_ms());
         (void)_hal.after(static_cast<uint32_t>(_hal.rand_range(0, first_period)), kBeaconTimerId);
     }
-    if (_cfg.is_mobile && (_cfg.mobile_autoregister || _cfg.team_id != 0)) (void)_hal.after(0, kMobileDiscoverTimerId);   // §mobile 2b/console: kick the FSM (autoregister ON; OFF -> the app arms it via `mobile register`). §6.4: a TEAM member ALSO kicks it regardless of the toggle so team-DAD runs (the FSM's discover-start fires team_dad_fire; a persisted _team_local_id makes it a no-op).
+    if (_cfg.is_mobile && (_cfg.mobile_autoregister || _cfg.team_id != 0)) (void)_hal.after(0, kMobileDiscoverTimerId);   // §mobile 2b/console: kick the FSM. §6.4: a TEAM member ALSO kicks it regardless of the toggle so team-DAD runs. §autoregister ruling (2026-07-21): the kick still fires, but the FSM's DISCOVER/registration half is now gated on registration_armed() (autoregister ON, or a manual `mobile register` arm) — a team member with autoregister=false thus runs team-DAD but emits ZERO DISCOVERs; a persisted _team_local_id makes team-DAD a no-op.
     // Periodic route-aging sweep (dv_dual_sf.lua:9080-9086).
     (void)_hal.after(_cfg.rt_aging_check_period_ms, kAgingTimerId);
     // REQ_SYNC bootstrap (dv_dual_sf.lua:9166-9175): after a listen window, broadcast a REQ_SYNC Q
@@ -736,9 +736,19 @@ void Node::maybe_emit_gateway_beacon() {
     } else if (in_discovery()) {
         // (2) NEW-gateway announcement on the fast discovery cadence — a fresh two-layer link-up MUST be discoverable.
         if (now - _active->_last_beacon_ms >= protocol::discovery_beacon_period_ms) emit = true;
+    } else if (_cfg.gw_schedule_readvert_ms != 0 && now - _active->_last_beacon_ms >= _cfg.gw_schedule_readvert_ms
+               && gateway_announce_has_headroom()) {
+        // (3) Wave-4 antidote: periodic SCHEDULE re-advertisement every gw_schedule_readvert_ms (duty-gated). The
+        // "compute every future window from one hearing" premise (below) FAILS when that one hearing was a
+        // boundary-degenerate snapshot (a discovery/dirty beacon emitted mid-window advertises collapsed anti-phase
+        // offsets) OR simply went stale — the sender then phase-locks into a never-opening window and re-defers forever
+        // (the s15 cross-layer livelock). A gateway beacon fires at WINDOW-ACTIVATION, so set_window_anchors has just
+        // stamped ACCURATE offsets → the re-advert reliably re-anchors every listening neighbour (RX is always on,
+        // unlike the phase-gated TX). Bounded to gw_schedule_readvert_ms + duty headroom = a handful of beacons/run.
+        emit = true;
     } else if (now - _active->_last_beacon_ms >= _cfg.gw_announce_min_interval_ms
                && gateway_announce_has_headroom()) {
-        emit = true;                                                      // (3) slow safety-net heartbeat: gated on duty headroom
+        emit = true;                                                      // (4) slow safety-net heartbeat: gated on duty headroom
     }
     if (emit) {
         emit_beacon("gateway_window");                                    // also guarded (busy / critical-budget skip)
@@ -821,7 +831,10 @@ void Node::on_timer(uint32_t timer_id) {
         // resolve ALL of them — never strand an awaiting_data slot if that invariant is ever broken (2nd radio /
         // a retune-logic change), which would otherwise leak the slot until reboot. (Defense-in-depth.)
         for (uint8_t i = 0; i < protocol::cap_flood_pending; ++i)
-            if (_active->_flood[i].active && _active->_flood[i].awaiting_data && !_active->_flood[i].team_flood) flood_fast_self_pull(i);   // §mobile 6.3: never fast-pull a TEAM flood (team unknown until the DATA-M) -> no CHANNEL_PULL for a possibly-foreign team
+            if (_active->_flood[i].active && _active->_flood[i].awaiting_data) {
+                if (_active->_flood[i].team_flood) flood_state_free(i);   // §mobile 6.3: never fast-pull a TEAM flood (team unknown until the DATA-M) -> no CHANNEL_PULL for a possibly-foreign team. §F-CH-RELAY: but DON'T strand the slot either — free it so a HOLDER re-offer's fresh RTS-M (~10 s later) re-allocates a state + re-arms the overhear window to catch the re-injected DATA-M (a stranded awaiting_data slot would dup-merge the re-offer RTS-M and never retune, defeating the repair). Pre-F-CH-RELAY this slot leaked until reboot.
+                else flood_fast_self_pull(i);                            // non-team: the weak-link fast-self-pull (§4.4)
+            }
         break;
     case kJoinClaimGuardTimerId:  join_claim_guard_fire();         break;   // node_id DAD: guard elapsed -> adopt-or-deny
     case kJoinRetryTimerId:       join_start_claim("retry");       break;   // node_id DAD: re-claim after a lost claim/heal

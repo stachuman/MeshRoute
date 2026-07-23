@@ -817,6 +817,55 @@ TEST_CASE("§3-A.1 sf_list mismatch on mobile adopt — join_refused{sf_list_mis
     }
 }
 
+// §autoregister ruling (2026-07-21): mobile_autoregister=false MUST mean NO DISCOVERs ever — the DISCOVER/registration
+// half of the FSM is gated on registration_armed() (autoregister ON, or a one-shot manual `mobile register` arm). Team-DAD
+// rides the SAME FSM tick BEFORE the gate, so a team member self-bootstraps its team id regardless of the toggle.
+TEST_CASE("§autoregister — OFF: a lone mobile emits NO autonomous DISCOVER; a manual arm drives exactly ONE (one-shot)") {
+    TestHal hal; hal._now = 100000;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000B0B0u);
+    NodeConfig mcfg = join_cfg(); mcfg.is_mobile = true; mcfg.mobile_autoregister = false;
+    node.on_init(mcfg);
+    Push p{}; while (node.next_push(p)) {}
+    node.on_timer(kMobileDiscoverTimerId);                    // the autonomous FSM kick — GATED
+    CHECK(hal.count("mobile_discover_tx") == 0);              // ★ nothing on air (autoregister OFF, no arm)
+    node.mobile_register_current();                           // the app arms ONE registration
+    node.on_timer(kMobileDiscoverTimerId);
+    CHECK(hal.count("mobile_discover_tx") == 1);              // ★ exactly one DISCOVER
+    node.on_timer(kMobileDiscoverTimerId);                    // a later autonomous kick (e.g. a post-reset re-DISCOVER)
+    CHECK(hal.count("mobile_discover_tx") == 1);              // ★ still one — the arm is a ONE-SHOT, no auto re-DISCOVER
+}
+
+TEST_CASE("§autoregister — OFF team member: team-DAD runs (ungated), but ZERO DISCOVERs to any host") {
+    TestHal hal; hal._now = 100000;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000B1B1u);
+    NodeConfig mcfg = join_cfg(); mcfg.is_mobile = true; mcfg.team_id = 0x7EA30000u; mcfg.mobile_autoregister = false;
+    node.on_init(mcfg);
+    Push p{}; while (node.next_push(p)) {}
+    node.on_timer(kMobileDiscoverTimerId);                    // the team boot kick (fires regardless of the toggle)
+    CHECK(hal.count("team_dad_claim") == 1);                  // ★ team-DAD ran (it rides the FSM tick, before the gate)
+    CHECK(node.team_local_id() != 0);                         //   ...self-assigned a team-plane id (off-grid-reachable)
+    CHECK(hal.count("mobile_discover_tx") == 0);              // ★ but NOT a single host-registration DISCOVER
+}
+
+TEST_CASE("§autoregister — OFF team member: a failed manual arm does NOT auto-retry; team plane stays alive") {
+    TestHal hal; hal._now = 100000;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000B2B2u);
+    NodeConfig mcfg = join_cfg(); mcfg.is_mobile = true; mcfg.team_id = 0x7EA30000u; mcfg.mobile_autoregister = false;
+    node.on_init(mcfg);
+    Push p{}; while (node.next_push(p)) {}
+    node.mobile_register_current();                           // arm ONE attempt
+    node.on_timer(kMobileDiscoverTimerId);                    // team-DAD + one DISCOVER
+    const uint8_t tid = node.team_local_id();
+    CHECK(tid != 0);
+    CHECK(hal.count("mobile_discover_tx") == 1);
+    node.on_timer(kMobileClaimGuardTimerId);                  // window closes with NO offer -> no host
+    CHECK(hal.count("mobile_no_host") == 1);
+    node.on_timer(kMobileDiscoverTimerId);                    // the (now unarmed) backoff/autonomous re-DISCOVER
+    CHECK(hal.count("mobile_discover_tx") == 1);              // ★ off-grid-QUIET: no second DISCOVER without a fresh arm
+    CHECK_FALSE(node.mobile_registered());                    //   still unregistered on the host plane
+    CHECK(node.team_local_id() == tid);                       // ★ team plane intact (F-PS-1) — the team id survives
+}
+
 TEST_CASE("§3-D beacon feeds the hosted-mobile SNR EWMA — CLAIM seeds, beacon steps, probe steps (one shared path)") {
     TestHal hal; hal._now = 100000;
     Node host(hal, /*node_id=*/42, /*key_hash32=*/0x00004242u);

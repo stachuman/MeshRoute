@@ -34,6 +34,13 @@ void Node::mobile_discover_fire() {
     // cycle, presence_probe_fire). If we're still registered when this fires, presence owns liveness -> just return
     // (presence_probe_fire calls mobile_reset_registration BEFORE arming us, so a real re-register sees active==false).
     if (_my_mobile_reg.active) return;
+    // §autoregister ruling (2026-07-21): the DISCOVER/registration half is gated HERE (the one site every re-DISCOVER path
+    // funnels through: boot-kick, mobile_id_collision, presence home-lost/epoch-mismatch/roster-absent, voluntary re-home).
+    // autoregister=false + no manual `mobile register` arm => return NOW, no DISCOVER. The team-DAD above already ran, so a
+    // team member still self-bootstraps + defends its team id and stays team-reachable (F-PS-1) — it just goes off-grid-QUIET
+    // on the static/host plane. The manual arm is a ONE-SHOT: consume it so a later autonomous kick can't ride it.
+    if (!registration_armed()) return;
+    _mobile_arm_once = false;
     _mobile_offers_n = 0;
     // §mobile 5a: retune to the CURRENT scan-set PHY, then DISCOVER on ITS control SF. Only when >1 candidate — a
     // single-entry scan-set stays on the mobile's own PHY (phy == layers[0], phy.routing_sf == _cfg.routing_sf) = 2b.
@@ -169,6 +176,12 @@ int Node::team_dad_choose_candidate_id() {
         for (uint8_t i = 0; i < _active->_rt_team_count; ++i) if (_active->_rt_team[i].dest == id) return true;
         return id == _team_local_id;                                       // our current (so a re-pick on conflict avoids it)
     };
+    // §W2c white-box test hook: pin the FIRST team-DAD pick (deterministic hidden-terminal collision in s30). Only on
+    // the FIRST DAD (_team_local_id==0); a RE-PICK (_team_local_id!=0, driven by a mediated DENY or a direct collision)
+    // falls through to the random picker so the loser cannot re-pick the SAME pinned id -> convergence is preserved.
+    // team_dad_pin_id defaults 0 (OFF) everywhere but s30 -> every other scenario keeps the uniform random pick.
+    if (_cfg.team_dad_pin_id != 0 && _team_local_id == 0 && !id_taken(_cfg.team_dad_pin_id))
+        return _cfg.team_dad_pin_id;
     uint8_t free_list[254]; uint16_t nfree = 0;
     for (int id = protocol::normal_node_id_min; id <= 254; ++id)           // 17..254 (1..16 = gateways)
         if (!id_taken(static_cast<uint8_t>(id))) free_list[nfree++] = static_cast<uint8_t>(id);

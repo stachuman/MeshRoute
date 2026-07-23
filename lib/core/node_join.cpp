@@ -253,7 +253,9 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     const bool mobile_exempt =
         (j.is_mobile && j.opcode == static_cast<uint8_t>(j_opcode::discover)) ||
         (j.is_mobile && j.opcode == static_cast<uint8_t>(j_opcode::offer) && _cfg.is_mobile);
-    if (!mobile_exempt && j.leaf_id != _cfg.leaf_id) return;           // foreign layer
+    // §W2c: a TEAM-scoped mediated DENY is LEAF-EXEMPT (a mixed-leaf team spans nibbles, §P2-1) — it is team_id-gated
+    // downstream, never touches the static id_bind plane. Static DENYs (team_scoped=false) stay leaf-filtered -> s18/s21-s28 unchanged.
+    if (!mobile_exempt && !j.team_scoped && j.leaf_id != _cfg.leaf_id) return;   // foreign layer
     if (j.wire_version != protocol::wire_version) {                    // R6.2 §5.2: never join across a wire-version gap
         MR_EMIT("j_wire_incompatible", EF_I("src_op", j.opcode), EF_I("their_ver", j.wire_version), EF_I("my_ver", protocol::wire_version));
         return;
@@ -325,6 +327,24 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     }
 
     if (j.opcode == static_cast<uint8_t>(j_opcode::deny)) {
+        // §W2c team-DAD L2a mediation: a TEAM-scoped mediated DENY from a shared-neighbour observer (B) — it saw our
+        // _team_local_id ALSO claimed by a DIFFERENT-keyed teammate we can't hear (a hidden-terminal collision the
+        // direct beacon compare, node_beacon.cpp:749, can never catch). §18 HARD SPLIT: a team-scoped DENY is NEVER
+        // processed on the static id_bind plane — it returns here before the static handler, so a static node (team_id 0)
+        // / an other-team member (team_id mismatch) / the WINNER (claimant != its key) all just DROP it. Only the LOSER
+        // (our team, our id, claimant == our key, owner == the winner's key) re-picks via the existing tentative window.
+        if (j.team_scoped) {
+#if MR_FEAT_TEAM
+            if (_cfg.is_mobile && _cfg.team_id != 0 && j.team_id == _cfg.team_id
+                && _team_local_id != 0 && j.denied_node_id == _team_local_id
+                && j.claimant_key_hash32 == _key_hash32 && j.owner_key_hash32 != _key_hash32) {
+                MR_EMIT("team_dad_mediated_deny_rx", EF_I("id", _team_local_id),
+                        EF_I("winner", static_cast<int64_t>(j.owner_key_hash32)));
+                team_dad_fire();   // re-pick (a re-pick ignores the pin -> a fresh id) + re-arm the guard window
+            }
+#endif
+            return;   // a team-scoped DENY never falls into the static id_bind plane (§18)
+        }
 #if MR_FEAT_MOBILE
         // §S6: our HOST bounced our local id (concurrent-OFFER collision) — a DENY TARGETED at us (claimant == our hash) for
         // our adopted id. Re-register (mobile_reset_registration -> re-DISCOVER -> a fresh, collision-free id). Handled BEFORE
@@ -407,13 +427,15 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 
 // The id's owner defends it: send a J_DENY carrying our claim_epoch so the impostor runs the tiebreak (§6)
 // in its DENY handler and yields if it loses. Called from handle_j (a heard claim) + the beacon collision.
-void Node::addr_conflict_send_deny(uint8_t node_id, uint32_t owner_key, uint32_t claimant_key, uint8_t reason) {
+void Node::addr_conflict_send_deny(uint8_t node_id, uint32_t owner_key, uint32_t claimant_key, uint8_t reason,
+                                   bool team_scoped, uint32_t team_id) {
     j_deny_in in{};
     in.leaf_id = _cfg.leaf_id; in.gateway_capable = _cfg.is_gateway; in.is_mobile = _cfg.is_mobile;
     in.denied_node_id = node_id; in.owner_key_hash32 = owner_key; in.claimant_key_hash32 = claimant_key;
     in.owner_lease_age_seconds = 0;                                    // telemetry only (§6)
     in.owner_claim_epoch = _claim_epoch; in.reason = reason;
-    uint8_t buf[15];
+    in.team_scoped = team_scoped; in.team_id = team_id;                // §W2c: a team-mediated DENY (19-B) carries the mediator's team_id
+    uint8_t buf[19];
     const size_t n = pack_j_deny(in, std::span<uint8_t>(buf, sizeof buf));
     MR_TELEMETRY(
         EventField f[] = { { .key = "denied_node_id",      .type = EventField::T::i64, .i = node_id },

@@ -1,6 +1,6 @@
 {
  "_name": "s09_two_layer_gateway_meshroute",
- "_desc": "Two-layer / two-gateway cross-layer DM on the C++ MeshRoute FirmwareNode. The gateways carry the dual schema (n_layers:2/layers[] for C++ + is_gateway/gateway_layers for Lua). Joiners are STATICALLY provisioned (node_id + allowed_data_sfs) because the C++ join workstream is deferred (codec-only) \u2014 join would otherwise hand them their id + data SFs. Asserts the two cross-layer DMs reach the joiners (l4_seed->l5_j1, l5_seed->l4_j1) + the local seed->gateway DMs + the gateway bridges. The Lua-specific join/envelope emit assertions are intentionally dropped. [DUAL-SCHEMA: also carries C++ n_layers:2/layers[] on 2 gateways; run on both engines via `lus --engine lua|meshroute`.]",
+ "_desc": "IMPORTANT - 27ms was measured wrongly, the valid SEEMS to be 8ms. Two-layer / two-gateway cross-layer DM on the C++ MeshRoute FirmwareNode. The gateways carry the dual schema (n_layers:2/layers[] for C++ + is_gateway/gateway_layers for Lua). Joiners are STATICALLY provisioned (node_id + allowed_data_sfs) because the C++ join workstream is deferred (codec-only) \u2014 join would otherwise hand them their id + data SFs. Asserts the two cross-layer DMs reach the joiners (l4_seed->l5_j1, l5_seed->l4_j1) + the local seed->gateway DMs + the gateway bridges. The Lua-specific join/envelope emit assertions are intentionally dropped. [DUAL-SCHEMA: also carries C++ n_layers:2/layers[] on 2 gateways; run on both engines via `lus --engine lua|meshroute`.]",
  "simulation": {
   "duration_ms": 240000,
   "step_ms": 1,

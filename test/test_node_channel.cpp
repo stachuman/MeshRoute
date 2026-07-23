@@ -1292,6 +1292,73 @@ TEST_CASE("§S7 T-A — a team member re-floods a TEAM flood to an UNMARKED team
     CHECK(run(/*cover_peer=*/true)  == 0);   // team peer 60 COVERED -> silent
 }
 
+// ===================== §F-CH-RELAY — HOLDER re-offer on unconfirmed downstream team coverage =====================
+// A RELAY (not the origin) that re-broadcasts a TEAM flood and still has an UNMARKED hops-1 team neighbour (a downstream
+// member not yet confirmed to hold it) re-offers the cached body — the origin's re-offer only reaches ITS OWN neighbours,
+// so 3+-hop members are otherwise stranded. Coverage-driven (seen_by), bounded, deterministic jitter, TEAM-only.
+
+// Drive a team member to become a holder of `id` (RTS-M from `up`, DATA-M), with a downstream team peer `down` that is
+// left UNMARKED, then fire the scheduled rebroadcast. Returns the node so the caller can drive the re-offer timer.
+static void hold_team_flood(TestHal& hal, Node& n, uint32_t id, uint8_t up, uint8_t down) {
+    NodeConfig c = basic_cfg(); c.is_mobile = true; c.team_id = 0xABCD1234u; n.on_init(c);
+    n.set_team_local_id(50);
+    n.test_learn_route(down, down, 1, protocol::db_to_q4(9.0f), /*team_plane=*/true);   // downstream team peer, 1 hop
+    uint8_t bm[32] = {}; bm_set(bm, 50); bm_set(bm, up);                                // self + upstream covered; `down` UNMARKED
+    std::array<uint8_t,64> rb{}; size_t rn = mk_team_flood_rts(up, id, bm, 5, rb);
+    n.on_recv(rb.data(), rn, meta_at(1000));                                            // catch RTS-M -> flood-state
+    const uint8_t body[] = { 't','m' };
+    m_out m = mk_m(id, /*ch=*/5, static_cast<uint8_t>(protocol::channel_flavor_public | protocol::channel_flavor_team), body, 2);
+    m.team_id = 0xABCD1234u;
+    n.ingest_channel_m(m, /*from=*/up);                                                 // DATA-M -> buffered + flood_forward_decision (rebroadcast scheduled)
+    n.on_timer(kFloodRebcastTimerId);                                                   // the relay re-broadcasts (slot 0) -> arms the holder re-offer (down still unmarked)
+    drain_originate_flood(n);
+}
+
+TEST_CASE("§F-CH-RELAY — a team-flood HOLDER with an UNMARKED downstream peer arms a coverage-driven re-offer, bounded") {
+    TestHal hal; Node n(hal, /*id=*/50, 0xBEEFu);
+    const uint32_t id = Node::channel_msg_id_mint(9, 0x1u, 7);
+    hold_team_flood(hal, n, id, /*up=*/9, /*down=*/60);
+    CHECK(hal.armed(kChannelReofferTimerId));                          // a HOLDER re-offer slot was armed after the re-broadcast
+    CHECK(hal.count("channel_holder_reoffer_tx") == 0);               // ...but not yet fired
+    for (int k = 0; k < protocol::channel_holder_reoffer_max_retries; ++k) {   // downstream stays unmarked -> re-offer each fire
+        n.on_timer(kChannelReofferTimerId); drain_originate_flood(n);
+        CHECK(hal.count("channel_holder_reoffer_tx") == k + 1);
+    }
+    n.on_timer(kChannelReofferTimerId); drain_originate_flood(n);      // BOUNDED: past the holder cap -> free, no further re-offer
+    CHECK(hal.count("channel_holder_reoffer_tx") == protocol::channel_holder_reoffer_max_retries);
+}
+
+TEST_CASE("§F-CH-RELAY — overhearing a downstream peer re-broadcast (seen_by mark) STOPS the holder re-offer (coverage complete)") {
+    TestHal hal; Node n(hal, /*id=*/50, 0xBEEFu);
+    const uint32_t id = Node::channel_msg_id_mint(9, 0x1u, 8);
+    hold_team_flood(hal, n, id, /*up=*/9, /*down=*/60);
+    CHECK(hal.armed(kChannelReofferTimerId));
+    // Overhear the downstream peer (60) re-broadcasting our buffered id: a TEAM (mobile_src) RTS-M we already hold ->
+    // the already-buffered branch marks seen_by(60). Now every hops-1 team neighbour is covered.
+    uint8_t bm[32] = {}; bm_set(bm, 60); bm_set(bm, 50);
+    std::array<uint8_t,64> rb{}; size_t rn = mk_team_flood_rts(/*src=*/60, id, bm, 5, rb);
+    n.on_recv(rb.data(), rn, meta_at(2000));
+    for (int k = 0; k < protocol::channel_holder_reoffer_max_retries + 2; ++k) {   // fire well past the cap
+        n.on_timer(kChannelReofferTimerId); drain_originate_flood(n);
+    }
+    CHECK(hal.count("channel_holder_reoffer_tx") == 0);              // downstream now marked -> coverage complete -> ZERO re-offers
+}
+
+TEST_CASE("§F-CH-RELAY — a STATIC / leaf flood HOLDER never arms a holder re-offer (team-scoped; delivery-suite inert)") {
+    TestHal hal; Node n(hal, /*id=*/50, 0xBEEFu);
+    NodeConfig c = basic_cfg(); n.on_init(c);                          // STATIC node (no team)
+    n.test_learn_route(70, 70, 1, protocol::db_to_q4(9.0f), /*team_plane=*/false);   // static neighbour 70, UNMARKED below
+    const uint32_t id = Node::channel_msg_id_mint(9, 0x1u, 9);
+    uint8_t bm[32] = {}; bm_set(bm, 50); bm_set(bm, 9);               // 70 UNMARKED -> the relay WILL re-broadcast
+    std::array<uint8_t,64> rb{}; size_t rn = mk_flood_rts(0, 9, id, bm, 5, 0, rb);    // mobile_src=false -> LEAF flood
+    n.on_recv(rb.data(), rn, meta_at(1000));
+    const uint8_t body[] = { 'x' };
+    n.ingest_channel_m(mk_m(id, 5, /*flavor=*/0, body, 1), 9);
+    n.on_timer(kFloodRebcastTimerId); drain_originate_flood(n);       // re-broadcasts on the static plane
+    CHECK(hal.count("channel_holder_reoffer_tx") == 0);              // no team plane -> no holder re-offer (static/leaf byte-inert)
+    CHECK_FALSE(hal.armed(kChannelReofferTimerId));                  // no re-offer slot armed from the relay path
+}
+
 TEST_CASE("§S7 T-A — a STATIC flood keys coverage on _rt (NOT _rt_team); the two bitmaps never mix") {
     const uint32_t id = Node::channel_msg_id_mint(9, 0x1u, 1);
     auto run = [&](bool cover_static_nbr) -> int {

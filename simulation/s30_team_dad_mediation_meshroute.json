@@ -1,0 +1,305 @@
+{
+ "_name": "s30_team_dad_mediation",
+ "_desc": "W2c team-DAD L2a THIRD-PARTY MEDIATION (hidden-terminal). One off-grid team {A,B,C} + a co-located static S. TOPOLOGY: A<->B and C<->B, but NO A<->C link (A and C are HIDDEN from each other), so the direct beacon compare can never resolve their collision; only B hears both. FORCED COLLISION: A and C both team_dad_pin_id=100 (white-box test hook — pins only the FIRST DAD pick; a re-pick ignores it). Keys are seed-derived LE(ed_pub[:4]): A a1*32=0x2215F68F(571864719) < C c3*32=0x38E8B9F4(954776052) so A WINS the key tiebreak, C LOSES + re-picks. B b2*32=0x8B94BBD1(2341780433) pins 200 and starts LATE (60s) so A/C adopt 100 UNCONTESTED first, then B observes the same-id/different-key collision and mediates a TEAM-scoped DENY at the loser C. Afterwards B->A and B->C (team send_hash -t) BOTH deliver = the routing ambiguity is gone. Static S hears all of it but (§18) never mediates, never id_binds a team key, never processes the team DENY, never delivers the team DM. Pairs with the s18 byte-identity tripwire (team-inert). AUTOREGISTER RULING (2026-07-21): S host_mobiles=true (an OFFERing host in range) yet the members' mobile_autoregister=false means each of A/B/C emits ZERO mobile_discover_tx and ZERO mobile_adopted — team-DAD still runs, but the DISCOVER/host-registration half is gated off (asserts below).",
+ "simulation": {
+  "duration_ms": 400000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "beacon_period_ms": 20000,
+  "seed": 30,
+  "node_startup_jitter_ms": 0,
+  "radio": {
+   "sf": 8,
+   "bw": 62.5,
+   "cr": 5,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 1
+  }
+ },
+ "commands": [
+  {
+   "_c": "B -> A by team hash (A won the tiebreak, keeps id 100). Delivers = the ambiguity healed.",
+   "at_ms": 300000,
+   "node": "B",
+   "command": "send_hash 2215f68f tx_to_a -t"
+  },
+  {
+   "at_ms": 322000,
+   "node": "B",
+   "command": "send_hash 2215f68f tx_to_a -t"
+  },
+  {
+   "_c": "B -> C by team hash (C lost, re-picked a NEW id). Delivers to the re-picked C, not to A.",
+   "at_ms": 310000,
+   "node": "B",
+   "command": "send_hash 38e8b9f4 tx_to_c -t"
+  },
+  {
+   "at_ms": 332000,
+   "node": "B",
+   "command": "send_hash 38e8b9f4 tx_to_c -t"
+  }
+ ],
+ "expect": [
+  {
+   "_c": "COLLISION EXISTS: A adopts id 100 ...",
+   "type": "script_emit_contains",
+   "node": "A",
+   "emit_type": "team_dad_adopted",
+   "value": "\"id\":100"
+  },
+  {
+   "_c": "... and C ALSO adopts id 100 (both hold 100 before mediation)",
+   "type": "script_emit_contains",
+   "node": "C",
+   "emit_type": "team_dad_adopted",
+   "value": "\"id\":100"
+  },
+  {
+   "_c": "MEDIATION: the shared neighbour B denies the collision on id 100",
+   "type": "script_emit_contains",
+   "node": "B",
+   "emit_type": "team_dad_mediated",
+   "value": "\"id\":100"
+  },
+  {
+   "_c": "the LOSER C receives the team-scoped mediated DENY for id 100 ...",
+   "type": "script_emit_contains",
+   "node": "C",
+   "emit_type": "team_dad_mediated_deny_rx",
+   "value": "\"id\":100"
+  },
+  {
+   "_c": "... and RE-PICKS: C emits team_dad_adopted TWICE (100 then a fresh id)",
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "team_dad_adopted",
+   "node": "C",
+   "count": 2
+  },
+  {
+   "_c": "WINNER A does NOT flap: exactly ONE team_dad_adopted (never re-picks)",
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "team_dad_adopted",
+   "node": "A",
+   "count": 1
+  },
+  {
+   "_c": "WINNER A never receives a mediation targeting it (claimant != its key)",
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "team_dad_mediated_deny_rx",
+   "node": "A",
+   "count": 0
+  },
+  {
+   "_c": "AMBIGUITY GONE: B -> A team DM delivers",
+   "type": "script_emit_contains",
+   "node": "A",
+   "emit_type": "push",
+   "value": "tx_to_a"
+  },
+  {
+   "_c": "AMBIGUITY GONE: B -> C team DM delivers to the RE-PICKED C",
+   "type": "script_emit_contains",
+   "node": "C",
+   "emit_type": "push",
+   "value": "tx_to_c"
+  },
+  {
+   "_c": "CONTAINMENT: the static S never mediates a team collision",
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "team_dad_mediated",
+   "node": "S",
+   "count": 0
+  },
+  {
+   "_c": "CONTAINMENT: the static S drops the team-scoped DENY (never processes it, §18)",
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "team_dad_mediated_deny_rx",
+   "node": "S",
+   "count": 0
+  },
+  {
+   "_c": "CONTAINMENT: S never id_binds a team member's seed-derived key (A/B/C)",
+   "type": "script_emit_not_contains",
+   "node": "S",
+   "emit_type": "id_bind_set",
+   "value": "571864719"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "S",
+   "emit_type": "id_bind_set",
+   "value": "2341780433"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "S",
+   "emit_type": "id_bind_set",
+   "value": "954776052"
+  },
+  {
+   "_c": "CONTAINMENT: S never delivers the team DM",
+   "type": "script_emit_not_contains",
+   "node": "S",
+   "emit_type": "push",
+   "value": "tx_to_a"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "S",
+   "emit_type": "push",
+   "value": "tx_to_c"
+  },
+  {
+   "_c": "AUTOREGISTER RULING (2026-07-21): with mobile_autoregister=false + S host_mobiles=true (an OFFERing host in range), team member A emits ZERO DISCOVERs (the registration half of the FSM is gated; team-DAD above still runs)",
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "mobile_discover_tx",
+   "node": "A",
+   "count": 0
+  },
+  {
+   "_c": "... and A never adopts a host (no CLAIM/adopt, so no mobile_adopted)",
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "mobile_adopted",
+   "node": "A",
+   "count": 0
+  },
+  {
+   "_c": "team member B: ZERO DISCOVERs (autoregister=false)",
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "mobile_discover_tx",
+   "node": "B",
+   "count": 0
+  },
+  {
+   "_c": "... and B never adopts a host",
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "mobile_adopted",
+   "node": "B",
+   "count": 0
+  },
+  {
+   "_c": "team member C: ZERO DISCOVERs (autoregister=false) — even across its re-pick, DAD never triggers a host DISCOVER",
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "mobile_discover_tx",
+   "node": "C",
+   "count": 0
+  },
+  {
+   "_c": "... and C never adopts a host",
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "mobile_adopted",
+   "node": "C",
+   "count": 0
+  }
+ ],
+ "nodes": [
+  {
+   "name": "A",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.3002,
+   "start_at_ms": 1000,
+   "node_id": 50,
+   "key_hash32": "0x2215F68F",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [7, 9, 10],
+    "beacon_period_ms": 20000,
+    "team_beacon_period_ms": 20000,
+    "is_mobile": true,
+    "team_id": 305419896,
+    "mobile_autoregister": false,
+    "team_dad_pin_id": 100,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1,
+    "seed": "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+   }
+  },
+  {
+   "name": "B",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.3001,
+   "start_at_ms": 60000,
+   "node_id": 51,
+   "key_hash32": "0x8B94BBD1",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [7, 9, 10],
+    "beacon_period_ms": 20000,
+    "team_beacon_period_ms": 20000,
+    "is_mobile": true,
+    "team_id": 305419896,
+    "mobile_autoregister": false,
+    "team_dad_pin_id": 200,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1,
+    "seed": "b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2"
+   }
+  },
+  {
+   "name": "C",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.5999,
+   "lon": -122.3001,
+   "start_at_ms": 1000,
+   "node_id": 52,
+   "key_hash32": "0x38E8B9F4",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [7, 9, 10],
+    "beacon_period_ms": 20000,
+    "team_beacon_period_ms": 20000,
+    "is_mobile": true,
+    "team_id": 305419896,
+    "mobile_autoregister": false,
+    "team_dad_pin_id": 100,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1,
+    "seed": "c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3"
+   }
+  },
+  {
+   "name": "S",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.30005,
+   "start_at_ms": 1000,
+   "node_id": 30,
+   "key_hash32": "0x11110030",
+   "config": {
+    "routing_sf": 8,
+    "allowed_data_sfs": [7, 9, 10],
+    "beacon_period_ms": 20000,
+    "host_mobiles": true
+   }
+  }
+ ],
+ "topology": {
+  "links": [
+   {"_c": "A<->B", "from": "A", "to": "B", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false},
+   {"from": "B", "to": "A", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false},
+   {"_c": "C<->B (NO A<->C: A and C are hidden terminals)", "from": "C", "to": "B", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false},
+   {"from": "B", "to": "C", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false},
+   {"_c": "static S hears (and is heard by) all three, to prove containment", "from": "A", "to": "S", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false},
+   {"from": "S", "to": "A", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false},
+   {"from": "B", "to": "S", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false},
+   {"from": "S", "to": "B", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false},
+   {"from": "C", "to": "S", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false},
+   {"from": "S", "to": "C", "snr": 38.0, "rssi": -82.0, "snr_std_dev": 0, "bidir": false}
+  ]
+ }
+}

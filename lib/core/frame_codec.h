@@ -365,15 +365,20 @@ struct j_offer_in    { uint8_t leaf_id; bool gateway_capable; bool is_mobile;
 struct j_claim_in    { uint8_t leaf_id; bool gateway_capable; bool is_mobile; uint32_t key_hash32;
                        uint8_t proposed_node_id; uint16_t lease_age_seconds; uint8_t claim_epoch; uint8_t nonce;
                        uint8_t chosen_host_id = 0; };   // §mobile: reuses the byte-10 NONCE slot iff is_mobile (nonce is dead on the mobile path); at struct END to preserve positional aggregate-inits
-// DENY (15 B): denied_node_id, owner_key_hash32(LE), claimant_key_hash32(LE),
-//              owner_lease_age_seconds(u16 LE), owner_claim_epoch, reason.
+// DENY (15 B static · 19 B team-scoped): denied_node_id, owner_key_hash32(LE), claimant_key_hash32(LE),
+//              owner_lease_age_seconds(u16 LE), owner_claim_epoch, reason [+ §W2c team_id(LE) iff team_scoped].
+// §W2c team-DAD L2a mediation: a team-plane mediated DENY (reason J_DENY_MEDIATED sent by a shared-neighbour
+// observer) appends the 4-B team_id at bytes 15..18 -> 19-B frame. team_scoped is signalled purely by length
+// (19 vs 15), exactly the J-family conditional-append idiom (DISCOVER 6/9/13, OFFER 8/13). A STATIC DENY stays
+// 15 B -> byte-identical; the team_id lets a receiver require its own team (§18: a static/other-team drops it).
 struct j_deny_in     { uint8_t leaf_id; bool gateway_capable; bool is_mobile; uint8_t denied_node_id;
                        uint32_t owner_key_hash32; uint32_t claimant_key_hash32;
-                       uint16_t owner_lease_age_seconds; uint8_t owner_claim_epoch; uint8_t reason; };
+                       uint16_t owner_lease_age_seconds; uint8_t owner_claim_epoch; uint8_t reason;
+                       bool team_scoped = false; uint32_t team_id = 0; };   // §W2c: team-mediated DENY carries team_id (19-B); static DENY leaves these default (15-B, unchanged)
 size_t pack_j_discover(const j_discover_in& in, std::span<uint8_t> out);   // 6 static/legacy; 9 if is_mobile (§S6 last-home block); 13 on a re-home (§B4 + old-home hash)
 size_t pack_j_offer   (const j_offer_in&    in, std::span<uint8_t> out);   // 8 / 13 if is_mobile (§mobile 2a + §S6 target hash)
 size_t pack_j_claim   (const j_claim_in&    in, std::span<uint8_t> out);   // 11
-size_t pack_j_deny    (const j_deny_in&     in, std::span<uint8_t> out);   // 15
+size_t pack_j_deny    (const j_deny_in&     in, std::span<uint8_t> out);   // 15; +4 team_id when team_scoped (19, §W2c)
 
 // One parse returns opcode + the superset of fields (only the opcode's are
 // meaningful — mirrors the Lua parse_j single-table). nullopt on wrong cmd or
@@ -390,6 +395,7 @@ struct j_out {
     uint8_t  chosen_host_id = 0;                                               // CLAIM §mobile: byte-10 read here too (a mobile CLAIM addresses its chosen host; static reads nonce)
     uint8_t  denied_node_id; uint32_t owner_key_hash32; uint32_t claimant_key_hash32;
     uint16_t owner_lease_age_seconds; uint8_t owner_claim_epoch; uint8_t reason;            // DENY
+    bool     team_scoped = false; uint32_t team_id = 0;                                     // DENY §W2c: set iff a 19-B team-mediated DENY (team_id at bytes 15..18)
 };
 std::optional<j_out> parse_j(std::span<const uint8_t> frame);
 

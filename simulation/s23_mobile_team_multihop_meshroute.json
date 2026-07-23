@@ -104,7 +104,8 @@
     "team_id": 305419896,
     "mobile_autoregister": false,
     "discovery_min_routes": 1,
-    "req_sync_min_routes": 1
+    "req_sync_min_routes": 1,
+    "team_dad_pin_id": 115
    }
   },
   {
@@ -214,7 +215,8 @@
     "team_id": 305419896,
     "mobile_autoregister": false,
     "discovery_min_routes": 1,
-    "req_sync_min_routes": 1
+    "req_sync_min_routes": 1,
+    "team_dad_pin_id": 254
    }
   }
  ],

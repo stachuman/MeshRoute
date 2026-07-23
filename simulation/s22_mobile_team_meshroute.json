@@ -249,7 +249,8 @@
      9,
      10
     ],
-    "beacon_period_ms": 20000
+    "beacon_period_ms": 20000,
+    "host_mobiles": false
    }
   },
   {

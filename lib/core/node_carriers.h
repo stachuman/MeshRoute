@@ -83,6 +83,7 @@ struct NodeConfig {
     bool     is_mobile           = false;
     uint32_t team_id             = 0;           // §mobile 6.1: an is_mobile+team_id overlay; 0 = no team (lone mobile / any static node) = today's behaviour. team_id = hash(creator_key‖nonce). Read by 6.2 (routing) / 6.3 (channel).
     bool     mobile_autoregister = true;        // §mobile console: gate ALL autonomous mobile behaviour (boot-arm + home-lost re-scan + re-CLAIM + auto layer-pull). ON = today. OFF = the app drives every step via `mobile register`/`query`.
+    uint8_t  team_dad_pin_id     = 0;           // §W2c WHITE-BOX TEST/SIM HOOK (0 = OFF = normal random team-DAD pick): pin the FIRST team-DAD candidate id so a hidden-terminal COLLISION is deterministic in-sim (two members pin the same id). A RE-PICK (mediated DENY / direct collision) IGNORES the pin -> falls to the random picker, so convergence is unaffected. NOT a protocol knob — only s30 sets it; every real deployment / other scenario leaves it 0 (team-DAD stays uniformly random) -> byte-identical.
     bool     host_mobiles        = true;        // §mobile 2a: this static node accepts/hosts mobiles (activates the J DISCOVER->OFFER->CLAIM host side). Opt-out = false; a mobile itself never hosts.
     bool     join_required       = false;
     bool     req_sync_on_boot    = true;
@@ -151,6 +152,11 @@ struct NodeConfig {
     //   (a NEW gateway / two-layer link-up must be discoverable). Both configurable; 5% / 3 h defaults.
     uint8_t  gw_announce_duty_pct       = 5;          // % OF the duty budget (e.g. 5% of a 10% duty = 0.5% airtime)
     uint32_t gw_announce_min_interval_ms = 10800000;  // 3 h floor between unsolicited steady-state announcements
+    // Wave-4 antidote (schedule re-advertisement): a gateway re-emits its window SCHEDULE this often (duty-gated), so a
+    // neighbour whose cached anchor went stale / boundary-degenerate re-anchors and stops phase-locking into a
+    // never-opening window (the s15 cross-layer livelock). Emitted at window-activation => accurate offsets. 0 = OFF
+    // (pre-Wave-4 reactive-only behaviour). Gateway-only; single-layer nodes never consult it (s18 inert).
+    uint32_t gw_schedule_readvert_ms    = 300000;     // 5 min default
     // §3e herd-spread slack: the herd-jitter spread (and its window-tail headroom) is sized as exchange_airtime_ms() ×
     // this factor. The bare exchange airtime is collision-UNSAFE for uniform-random placement (N senders back-to-back
     // still birthday-collide); the slack supplies the headroom (the Lua's fixed 600ms was airtime ≈358ms × ~1.7 of

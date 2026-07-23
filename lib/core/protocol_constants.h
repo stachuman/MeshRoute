@@ -394,6 +394,12 @@ inline constexpr uint8_t  channel_reoffer_max_retries = 1;       // cap — boun
 // gives the far members another independent shot). NON-team (single-plane, delivery-suite) floods keep the 1-retry
 // relay-confirmed behaviour EXACTLY -> the delivery suite (s09/s10/s15/s16/s17, all team_id==0) is byte-inert.
 inline constexpr uint8_t  channel_reoffer_team_max_retries = 3;  // team floods: several independent re-injections for mixed-chain coverage
+// §F-CH-RELAY: a HOLDER (relay) re-offer budget — how many coverage-driven re-injections a relay makes to cover its own
+// still-unmarked downstream team neighbours. Kept SMALL: the holder chain is self-reinforcing (each hop's holder re-offers
+// independently, so the far members get shots from progressively-closer holders) and a holder re-offer is pure repair
+// airtime on an already-flooded message — a large budget bloats contention (it perturbs unrelated timing-fragile deliveries)
+// with diminishing coverage return. Coverage-stop (seen_by) ends it early when the downstream is confirmed.
+inline constexpr uint8_t  channel_holder_reoffer_max_retries = 2;
 inline constexpr uint32_t channel_reoffer_delay_ms    = 10000;   // base cadence (>= originator_retry_dedup_ms=10000 so re-floods dedup receiver-side, not double-inbox)
 inline constexpr uint32_t channel_reoffer_jitter_ms   = 2000;    // +rand(0,jitter) spread so multiple origins don't re-offer in lockstep
 // channel_msg_id flavor (encryption variant; crypto deferred — all plaintext v1, dv:2229-2231)

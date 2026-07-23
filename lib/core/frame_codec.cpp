@@ -713,7 +713,7 @@ size_t pack_j_claim(const j_claim_in& in, std::span<uint8_t> out) {
 }
 
 size_t pack_j_deny(const j_deny_in& in, std::span<uint8_t> out) {
-    if (out.size() < 15) return 0;
+    if (out.size() < (in.team_scoped ? 19u : 15u)) return 0;   // §W2c: team-mediated DENY appends team_id (19 B)
     wire::Writer w(out);
     w.u8(j_b0(in.leaf_id));
     w.u8(j_b1(in.gateway_capable, in.is_mobile, j_opcode::deny));
@@ -723,6 +723,7 @@ size_t pack_j_deny(const j_deny_in& in, std::span<uint8_t> out) {
     w.u16_le(in.owner_lease_age_seconds);
     w.u8(in.owner_claim_epoch);
     w.u8(in.reason);
+    if (in.team_scoped) w.u32_le(in.team_id);   // §W2c: bytes 15..18 — the mediator's team_id (a receiver requires its own team). Static DENY (team_scoped=false) is byte-identical.
     return w.ok() ? w.size() : 0;
 }
 
@@ -763,13 +764,14 @@ std::optional<j_out> parse_j(std::span<const uint8_t> frame) {
             { const uint8_t b = r.u8(); o.nonce = b; o.chosen_host_id = b; }   // §mobile: same byte-10 -> static reads nonce, a mobile CLAIM reads chosen_host_id (the handler picks by is_mobile)
             break;
         case j_opcode::deny:
-            if (frame.size() != 15) return std::nullopt;
+            if (frame.size() != 15 && frame.size() != 19) return std::nullopt;   // §W2c: 15 B static · 19 B team-scoped (team_id appended)
             o.denied_node_id          = r.u8();
             o.owner_key_hash32        = r.u32_le();
             o.claimant_key_hash32     = r.u32_le();
             o.owner_lease_age_seconds = r.u16_le();
             o.owner_claim_epoch       = r.u8();
             o.reason                  = r.u8();
+            if (frame.size() == 19) { o.team_scoped = true; o.team_id = r.u32_le(); }   // §W2c: team-mediated DENY
             break;
     }
     if (!r.ok()) return std::nullopt;

@@ -694,13 +694,33 @@ void Node::channel_reoffer_register(uint32_t id, bool team) {
     for (uint8_t s = 0; s < protocol::cap_channel_reoffer_pending; ++s) {
         ChannelReofferPending& rp = _active->_channel_reoffer_pending[s];
         if (rp.active) continue;
-        rp.active = true; rp.id = id; rp.team = team;
+        rp.active = true; rp.id = id; rp.team = team; rp.holder = false;   // §F-CH-RELAY: this is the ORIGIN path — clear any stale holder flag from a reused slot (else channel_reoffer_fire would wrongly take the holder branch)
         rp.retries_left = team ? protocol::channel_reoffer_team_max_retries : protocol::channel_reoffer_max_retries;
         const uint32_t jitter = static_cast<uint32_t>(_hal.rand_range(0, static_cast<int32_t>(protocol::channel_reoffer_jitter_ms) + 1));
         (void)_hal.after(protocol::channel_reoffer_delay_ms + jitter, kChannelReofferTimerId + s);
         return;
     }
     MR_EMIT("channel_reoffer_table_full", EF_I("id", static_cast<int64_t>(id)));   // >cap un-confirmed originations -> repair digest covers this one (rare)
+}
+
+// §F-CH-RELAY: arm a HOLDER re-offer (a relay covering its own still-unmarked downstream). Reuses the re-offer table +
+// timer ring but is holder-flagged (coverage-driven fire, not confirm-flagged) and uses DETERMINISTIC jitter — never a
+// _hal.rand_range draw (mirrors park_reflood_fire; BASELINE 2026-07-19d: an added shared-mt19937 draw reorders the whole
+// downstream sequence and phantom-flips timing-fragile deliveries, so the coverage repair must be RNG-draw-free). No-op
+// if a slot for this id is already active (armed on the FIRST re-broadcast; a relay re-broadcasts a given flood once).
+void Node::channel_holder_reoffer_register(uint32_t id) {
+    for (uint8_t s = 0; s < protocol::cap_channel_reoffer_pending; ++s)
+        if (_active->_channel_reoffer_pending[s].active && _active->_channel_reoffer_pending[s].id == id) return;   // already owning this id (origin or holder slot)
+    for (uint8_t s = 0; s < protocol::cap_channel_reoffer_pending; ++s) {
+        ChannelReofferPending& rp = _active->_channel_reoffer_pending[s];
+        if (rp.active) continue;
+        rp.active = true; rp.id = id; rp.team = true; rp.holder = true;
+        rp.retries_left = protocol::channel_holder_reoffer_max_retries;
+        const uint32_t djit = (id * 2654435761u + static_cast<uint32_t>(_node_id) * 40503u) % (protocol::channel_reoffer_jitter_ms + 1);
+        (void)_hal.after(protocol::channel_reoffer_delay_ms + djit, kChannelReofferTimerId + s);
+        return;
+    }
+    MR_EMIT("channel_reoffer_table_full", EF_I("id", static_cast<int64_t>(id)));   // >cap in flight -> the digest/pull covers this one (rare)
 }
 
 void Node::channel_reoffer_fire(uint8_t slot) {
@@ -710,6 +730,21 @@ void Node::channel_reoffer_fire(uint8_t slot) {
     const int i = channel_buffer_find(rp.id);
     if (i < 0) { rp.active = false; return; }                                      // entry evicted -> nothing to re-offer
     const ChannelEntry& e = _active->_channel_buffer[i];
+    // §F-CH-RELAY holder branch: re-offer ONLY while a hops-1 team neighbour is still UNMARKED in seen_by (coverage-
+    // driven — a sibling/downstream re-broadcast that marks it stops this without a dedicated confirm signal). Bounded
+    // by retries_left; deterministic re-arm jitter (no RNG draw). A NON-holder (origin) slot falls through to Part 2.
+    if (rp.holder) {
+        if (rp.retries_left == 0 || max_data_sf() == 0 || !flood_any_unmarked(e.seen_by, /*team=*/true)) { rp.active = false; return; }
+        uint8_t hbm[32] = {};
+        flood_set_my_coverage(hbm, /*team=*/true);
+        enqueue_flood_m(e.channel_id, e.flavor, e.id, e.payload, static_cast<uint8_t>(e.payload_len), hbm, protocol::flood_hop_max);
+        --rp.retries_left;
+        MR_EMIT("channel_holder_reoffer_tx", EF_I("id", static_cast<int64_t>(e.id)), EF_I("retries_left", rp.retries_left));
+        const uint32_t djit = (e.id * 2654435761u + static_cast<uint32_t>(_node_id) * 40503u
+                               + static_cast<uint32_t>(rp.retries_left) * 2246822519u) % (protocol::channel_reoffer_jitter_ms + 1);
+        (void)_hal.after(protocol::channel_reoffer_delay_ms + djit, kChannelReofferTimerId + slot);
+        return;
+    }
     if (rp.retries_left == 0 || max_data_sf() == 0) { emit_channel_sent(false, static_cast<uint16_t>(e.id & 0xff)); rp.active = false; return; } // Slice 6c: exhausted (or data-incapable) -> give up (channel_sent{relayed:false}); repair digest is the last resort
     // RE-FLOOD the cached body with the SAME frugal seed as origination (flood_set_my_coverage — NOT empty, which the
     // fail-loud zero-bitmap guard in tx_m_broadcast_rts would refuse). Receivers dedup by originator_retry_dedup_ms
@@ -821,6 +856,11 @@ bool Node::handle_flood_rts(const rts_out& r, const uint8_t* in_bm, int16_t snr_
     }
     if (channel_buffer_find(id) >= 0) {                          // already in the buffer, no state -> already forwarded, drop
         // FLOOD-DBG disabled 2026-06-23 (re-enable for bench diag): if (_hal.trace_on()) { char b[48]; snprintf(b, sizeof b, "flood %08lX already-buffered", (unsigned long)id); _hal.log(b); }   // D (DEBUG)
+        // §F-CH-RELAY: a TEAM flood RTS-M we overhear means `src` is (re)transmitting this message -> src HOLDS it. Mark
+        // it in seen_by so a HOLDER re-offer's coverage check (flood_any_unmarked on seen_by) sees the sibling covered and
+        // stops early (bounds the re-offer + implements "an overheard relay marks progress"). team-gated (r.mobile_src) ->
+        // a static/leaf flood's already-buffered path is untouched -> the delivery suite + s18 stay byte-identical.
+        if (r.mobile_src) channel_mark_seen_by(id, r.src);
         channel_reoffer_confirm(id);                            // Part 2: a relay of OUR message (its FLOOD RTS-M) was overheard -> stop re-offering
         return false;
     }
@@ -888,6 +928,23 @@ void Node::flood_rebroadcast_fire(uint8_t slot) {
     if (max_data_sf() == 0) return;                             // non-operational (no data SF) -> no fallback
     // FLOOD-DBG disabled 2026-06-23 (re-enable for bench diag): if (_hal.trace_on()) { char b[44]; snprintf(b, sizeof b, "flood %08lX RELAY hop=%u", (unsigned long)fs.id, (unsigned)(fs.hop_left - 1)); _hal.log(b); }   // E (DEBUG)
     enqueue_flood_m(fs.channel_id, fs.flavor, fs.id, fs.body, fs.body_len, bm, static_cast<uint8_t>(fs.hop_left - 1));
+    // §F-CH-RELAY (2026-07-21, s28 XO5/XH2 carve): a multi-hop TEAM flood's FAR members can be permanently missed. The
+    // ORIGIN's re-offer (channel_reoffer_*) re-floods only ITS OWN coverage -> it reaches only the origin's DIRECT
+    // neighbours; an intermediate HOLDER that already has the message DEDUPS the re-offer (handle_flood_rts's
+    // already-buffered branch) and stays SILENT — relays re-broadcast on FIRST receipt only. So a fragile flood that dies
+    // at hop N has NO repair path for the members beyond N (the pull backstop is off for team floods — see node.cpp's
+    // kOverhearRetuneTimerId — and a relay's fresh dirty entry isn't beacon-triggered, so the digest is starved too).
+    // FIX: extend the origin's coverage-repair discipline to HOLDERS. After THIS relay re-broadcast, if it still has an
+    // UNMARKED hops-1 team neighbour in the buffer entry's seen_by (a downstream member not yet confirmed to hold it),
+    // arm a coverage-driven holder re-offer so that member gets independent re-injections. Anti-storm: coverage-GATED
+    // (only when downstream is unconfirmed, not timer-spam), bounded retries, deterministic per-(id,node,try) jitter (NO
+    // shared-RNG draw — BASELINE 2026-07-19d), and an overheard sibling re-broadcast marks seen_by -> next fire stops.
+    // TEAM-ONLY (the carve lives on the team plane): a static/leaf flood never enters this branch -> s18 byte-identical.
+    if (team) {
+        const int bi = channel_buffer_find(fs.id);
+        if (bi >= 0 && flood_any_unmarked(_active->_channel_buffer[static_cast<uint16_t>(bi)].seen_by, /*team=*/true))
+            channel_holder_reoffer_register(fs.id);
+    }
 }
 
 // §4.4 — caught the FLOOD RTS-M but missed the DATA-M (overhear window closed, still awaiting_data): pull
