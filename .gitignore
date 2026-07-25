@@ -26,6 +26,12 @@ compile_commands.json
 # NDJSON dumps from sim runs
 *_events.ndjson
 
+# Raw firmware console captures fed to tools/fading_from_logs.py. Multi-hour logs
+# from several nodes get large, so they stay out of git by default. ⚠ If you want
+# a specific capture kept as reference measurement data, un-ignore it explicitly
+# (e.g. `!dumps/2026-07-25-fading-reference/`) rather than dropping this rule.
+dumps/
+
 # Local config overrides
 platformio.local.ini
 ._*
