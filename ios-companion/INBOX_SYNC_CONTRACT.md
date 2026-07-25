@@ -246,6 +246,11 @@ reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "
 ```
 - `send_failed.reason` ∈ `no_pubkey · no_identity · too_large · bad_rng · no_route · joining · no_cts · no_ack · cap · min_interval · mobile_no_home · gateway_unreachable`. App maps `no_pubkey`
   → "recipient's key unknown — Request key / Scan QR"; permanent reasons (`too_large`/`no_route`) → plain fail.
+  ★ `e2e_ack_timeout` (NEW 2026-07-24, enum 13): a `-a` send's requested E2E ack never arrived within the firmware
+  deadline (same-layer 60 s / cross-layer+delegated 300 s, patience-derived). **Semantic: delivery was never
+  CONFIRMED — NOT that it failed**: the DM may have arrived and the ack died returning; a LATE ack still fires
+  `send_e2e_acked` and the app resolves (timeout-then-ack = delivered, slow confirm). Also NEW: `err_ack_ring_full`
+  (CmdCode 9) — a new `-a` send is synchronously REFUSED while 8 sends already await acks (never silently dropped).
   (2026-07-21 3-A: `gateway_unreachable` NEW — a cross-layer DM held for a gateway window that never became reachable;
   `mobile_no_home` now actually renders — a pre-existing renderer hole made it read `"none"`; the previously-bare
   `reason:"none"` giveups now carry real reasons: the deferred-TTL giveup → `no_route`, the NACK-path giveups → `no_cts`.)

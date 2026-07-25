@@ -809,6 +809,7 @@ void Node::on_timer(uint32_t timer_id) {
     case kRetryBackoffTimerId:    tx_rts_retry();          break;
     case kDeferredDrainTimerId:   try_drain_deferred();    break;   // periodic no-route drain / TTL giveup
     case kParkRefloodTimerId:     park_reflood_fire();     break;   // §F-SL-1: bounded jittered H re-flood for still-parked sends
+    case kE2eAckDeadlineTimerId:  e2e_ack_deadline_fire(); break;   // shelf item (i): -a sends whose DATA_TYPE_E2E_ACK never returned -> send_failed{e2e_ack_timeout}
     case kReqSyncTimerId:         req_sync_loop_fire();    break;   // REQ_SYNC boot loop: send + re-arm while starved
 #if MR_FEAT_MOBILE
     case kMobileDiscoverTimerId:  mobile_discover_fire();  break;   // §mobile 2b: registration FSM (armed only for a mobile)
@@ -931,6 +932,8 @@ CmdResult Node::on_command(const Command& c) {
             if (c.body_len > protocol::dm_max_body_bytes)         // body + the 2-B inner prefix must fit inner[] (no OOB)
                 return CmdResult{ CmdCode::err_too_large, 0, _active->_tx_queue_n };
             const Plane plane = static_cast<Plane>(c.u.send.plane);   // Wave 2 HARD SPLIT: 0=AUTO (companion/sim) / 1=TEAM (`-t`) / 2=GLOBAL (plain `send`)
+            if ((c.u.send.flags & DATA_FLAG_E2E_ACK_REQ) && e2e_ack_ring_full())   // ★ shelf item (i): REFUSE a new -a send LOUD when the pending-ack ring is saturated (never evict-oldest -> the silent class)
+                return CmdResult{ CmdCode::err_ack_ring_full, 0, _active->_tx_queue_n };
             if (c.u.send.dst_hash != 0) {                         // address-by-hash (hash-locate): resolve, then send
                 const uint16_t ctr = send_by_hash(c.u.send.dst_hash, c.body, c.body_len, c.u.send.flags, c.crypt, /*reply_to_hash=*/0, /*mobile_ctr=*/0, plane, /*type=*/0, /*suppress_intro=*/c.no_intro);   // §D1 `-K`
                 return CmdResult{ CmdCode::queued, ctr, _active->_tx_queue_n, c.u.send.dst_hash, /*layer_path*/ 0 };
@@ -1025,6 +1028,8 @@ CmdResult Node::on_command(const Command& c) {
             // Every send_layer return echoes the dst_hash (and, once known, the layer_path) so the app holds the
             // full "send handle" (CmdResult.dst_hash + layer_path); async pushes then correlate by CmdResult.ctr.
             if (c.u.layer.dst_hash == 0)                     return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };  // a layer send needs a stable dst key
+            if ((c.u.layer.flags & DATA_FLAG_E2E_ACK_REQ) && e2e_ack_ring_full())   // ★ shelf item (i): refuse a new -a cross-layer send LOUD when the pending-ack ring is full
+                return CmdResult{ CmdCode::err_ack_ring_full, 0, _active->_tx_queue_n, c.u.layer.dst_hash, 0 };
             // §S4: a CRYPTED cross-layer send (e2e_dm ON, or per-message `-e`) SEALS the body to the target HERE and rides
             // a DATA_TYPE_SEALED_RELAY plaintext frame [seal_ctr][seed8][ct‖tag] — there is NO CRYPTED-flagged XL frame
             // (the crypto core stays same-layer; XL confidentiality layers on top via the relay type). This LIFTS the old

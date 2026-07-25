@@ -62,7 +62,8 @@ struct Command {
 enum class CmdCode : uint8_t { queued, err_unknown_dst, err_too_large,
                                err_no_gateway, err_priority_capped, err_no_binding, err_unsupported,
                                err_unprovisioned,    // node_id==0: must join or `cfg set node_id` first
-                               err_no_data_sf };     // allowed_sf_bitmap==0: configure sf_list before sending data
+                               err_no_data_sf,       // allowed_sf_bitmap==0: configure sf_list before sending data
+                               err_ack_ring_full };  // E2E-ack deadline (2026-07-24): the pending-ack ring (cap_pending_e2e_acks) is full -> REFUSE a new -a send loudly rather than evict-oldest (which would re-create the silent-forever class). The app retries once an in-flight -a send is acked or times out.
 // The synchronous "send handle" — the app records it and correlates async send_acked/send_failed pushes by `ctr`.
 // dst_hash / layer_path echo WHAT was sent so the app keeps no command->identity map of its own (and so a small
 // hash like 0x10 is NEVER confused with an 8-bit id — it lives in its own 32-bit field):
@@ -110,7 +111,8 @@ enum class SendFailReason : uint8_t { none = 0, no_pubkey, no_identity, too_larg
                                       cap, min_interval,   // Slice 6a: send_blocked reasons (per-origin cap / burst floor)
                                       no_cts, no_ack,      // Slice 6b: DM giveup reasons (CTS- / ACK-timeout)
                                       mobile_no_home,      // §mobile: a reply-expecting DM from a mobile with no routable home -> unreachable for the reply (would storm)
-                                      gateway_unreachable }; // §3-A.5: the gateway-doorstep hold gave up (no gateway window within gateway_send_giveup_ms) — was telemetry-only ("gateway_unreachable_timeout")
+                                      gateway_unreachable, // §3-A.5: the gateway-doorstep hold gave up (no gateway window within gateway_send_giveup_ms) — was telemetry-only ("gateway_unreachable_timeout")
+                                      e2e_ack_timeout };   // E2E-ack DEADLINE (2026-07-24, shelf item (i)): a -a DM's DATA_TYPE_E2E_ACK never returned within the patience budget (protocol::e2e_ack_deadline_ms / _xl_ms). SEMANTIC: delivery was never CONFIRMED, NOT that it failed — the DM may have arrived and the ack died returning; a LATE ack still fires send_e2e_acked. JSON reason string: "e2e_ack_timeout".
 // R6.3 §7c: why a join was refused (join_refused push). wire_version -> origin=their_ver, dst=my_ver; leaf_full -> no extra.
 // §3-A.1: phy_mismatch = a team member refused a home whose PHY differs from its team-provisioned freq/bw/routing_sf (P2-1 Level 2);
 //          sf_list_mismatch = ADVISORY — the mobile adopted the host but its configured sf_list low byte disagrees with the host's offered one.

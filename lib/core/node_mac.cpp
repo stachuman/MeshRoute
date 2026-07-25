@@ -178,8 +178,80 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     if (_active->_tx_queue_n < kTxQueueCap) _active->_tx_queue[_active->_tx_queue_n++] = item;
     MR_EMIT(tx_event, EF_I("origin", item.origin), EF_I("dst", item.dst),
             EF_I("ctr", item.ctr), EF_I("depth", _active->_tx_queue_n));
+    // ★ E2E-ack DEADLINE (shelf item (i)): a same-layer -a ORIGINATION arms an emit-free deadline (byte-neutral when the
+    // ack arrives). SKIP the home re-originating for a mobile (override_source_hash!=0 — the MOBILE awaits the ack, not us)
+    // and the ack itself (type==E2E_ACK). A DELEGATED wrapper (MOBILE_SEND) or a hosted-mobile last-mile (addr_len==1) can
+    // have its reverse-ack return same-layer OR cross-layer after a home/gateway hop -> wildcard key=0 + the larger tier.
+    if (app_dm && (flags & DATA_FLAG_E2E_ACK_REQ) && override_source_hash == 0 && type != DATA_TYPE_E2E_ACK) {
+        const bool delegated = (type == DATA_TYPE_MOBILE_SEND) || (addr_len == 1);
+        e2e_ack_arm(/*key=*/delegated ? 0u : dst, /*is_xl=*/false, /*dst=*/delegated ? uint8_t{0} : dst, ctr,
+                    delegated ? protocol::e2e_ack_deadline_xl_ms : protocol::e2e_ack_deadline_ms);
+    }
     become_free();
     return ctr;
+}
+
+// ---- E2E-ack DEADLINE (shelf item (i), 2026-07-24) -------------------------------------------------------------------
+// The positive-only e2e receipt gains a firmware patience budget: ARM (emit-free) when a -a send mints its ctr, CLEAR
+// (emit-free) on the matching send_e2e_acked, EXPIRE -> send_failed{e2e_ack_timeout}. Timer = ONE earliest-deadline
+// one-shot re-armed on change (the park_reflood_arm idiom). Derivation + the contract semantic: protocol_constants.h.
+bool Node::e2e_ack_ring_full() const {
+    for (uint8_t i = 0; i < cap_pending_e2e_acks; ++i) if (!_pending_e2e_acks[i].used) return false;
+    return true;
+}
+
+void Node::e2e_ack_arm(uint32_t key, bool is_xl, uint8_t dst, uint16_t ctr, uint32_t budget_ms) {
+    for (uint8_t i = 0; i < cap_pending_e2e_acks; ++i) {
+        PendingE2eAck& e = _pending_e2e_acks[i];
+        if (e.used) continue;
+        e.key = key; e.is_xl = is_xl; e.dst = dst; e.ctr = ctr; e.used = true;
+        e.deadline_ms = _hal.now() + budget_ms;
+        e2e_ack_deadline_arm_timer();
+        return;
+    }
+    // Full at ARM time: the command path already pre-refuses an app -a send (err_ack_ring_full); only a parked-send drain
+    // can reach here saturated. Skip tracking (the send still flew — reverts to today's silence) LOUD, NEVER evict-oldest.
+    MR_EMIT("e2e_ack_untracked_ring_full", EF_I("dst", dst), EF_I("ctr", ctr));
+}
+
+void Node::e2e_ack_clear(uint8_t acker_origin, uint16_t acked_ctr, uint32_t sender_hash) {
+    // Mirror EXACTLY what send_e2e_acked carries {dst=acker origin, ctr=acked, sender_hash} (node_mac_rx.cpp): an XL ack
+    // has sender_hash set -> match key==sender_hash; a same-layer ack has sender_hash==0 -> match dst==acker origin; a
+    // wildcard entry (key==0, delegated) matches on ctr alone (its reverse-ack can arrive same-layer OR XL). A LATE ack
+    // (after expiry) finds no entry -> harmless no-op (no double-free / stale slot).
+    for (uint8_t i = 0; i < cap_pending_e2e_acks; ++i) {
+        PendingE2eAck& e = _pending_e2e_acks[i];
+        if (!e.used || e.ctr != acked_ctr) continue;
+        bool hit;
+        if      (e.key == 0) hit = true;                                    // wildcard (delegated) — ctr alone
+        else if (e.is_xl)    hit = (sender_hash != 0 && e.key == sender_hash);
+        else                 hit = (sender_hash == 0 && e.key == acker_origin);
+        if (hit) { e.used = false; e2e_ack_deadline_arm_timer(); return; }
+    }
+}
+
+void Node::e2e_ack_deadline_arm_timer() {
+    uint64_t earliest = ~0ull;
+    for (uint8_t i = 0; i < cap_pending_e2e_acks; ++i)
+        if (_pending_e2e_acks[i].used && _pending_e2e_acks[i].deadline_ms < earliest) earliest = _pending_e2e_acks[i].deadline_ms;
+    if (earliest == ~0ull) { _hal.cancel(kE2eAckDeadlineTimerId); return; }
+    const uint64_t now = _hal.now();
+    (void)_hal.after(earliest > now ? static_cast<uint32_t>(earliest - now) : 0, kE2eAckDeadlineTimerId);
+}
+
+void Node::e2e_ack_deadline_fire() {
+    const uint64_t now = _hal.now();
+    for (uint8_t i = 0; i < cap_pending_e2e_acks; ++i) {
+        PendingE2eAck& e = _pending_e2e_acks[i];
+        if (!e.used || e.deadline_ms > now) continue;
+        // The -a send's DATA_TYPE_E2E_ACK never returned within the budget. SEMANTIC: delivery was never CONFIRMED (not
+        // that it failed) — the DM may have arrived + the ack died returning; a LATE ack still fires send_e2e_acked (this
+        // entry is already gone -> that clear is a harmless no-op). Mirror the existing send_failed emit+push shape.
+        MR_EMIT("send_failed", EF_I("dst", e.dst), EF_I("ctr", e.ctr), EF_S("reason", "e2e_ack_timeout"));
+        Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::e2e_ack_timeout; pu.dst = e.dst; pu.ctr = e.ctr; enqueue_push(pu);
+        e.used = false;
+    }
+    e2e_ack_deadline_arm_timer();
 }
 
 // E2E/PRIORITY ride the wire via `flags`; the E2E ACK behaviour lives in do_post_ack + send_e2e_ack.
@@ -261,6 +333,11 @@ bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t
     if (_active->_tx_queue_n >= kTxQueueCap) return false;
     _active->_tx_queue[_active->_tx_queue_n++] = item;
     if (out_ctr) *out_ctr = ctr;                     // the app's correlation token (returned in CmdResult.ctr)
+    // ★ E2E-ack DEADLINE (cross-layer tier): arm the TRUE originator only. The home re-originating for its mobile passes
+    // override_source_hash!=0 (the MOBILE awaits the ack) and send_xl_ack passes type==E2E_ACK (it IS an ack) — both skip.
+    // The reversed XL ack is CROSS_LAYER carrying source_hash == dst_hash (the far target's key) -> match by key==sender_hash.
+    if ((flags & DATA_FLAG_E2E_ACK_REQ) && override_source_hash == 0 && type != DATA_TYPE_E2E_ACK)
+        e2e_ack_arm(/*key=*/dst_hash, /*is_xl=*/true, /*dst=*/0, ctr, protocol::e2e_ack_deadline_xl_ms);
     MR_EMIT("tx_enqueue_xl", EF_I("origin", item.origin), EF_I("dst", gw_node), EF_I("ctr", ctr),
             EF_I("target_layer", layer_ids[cur]), EF_I("depth", _active->_tx_queue_n));   // the next layer to enter (cur < n_layers, caller-guaranteed)
     become_free();                                   // 4a defers the RTS to the gateway's window on our leaf
@@ -433,6 +510,12 @@ uint16_t Node::delegate_send_layer(uint32_t dst_hash, const uint8_t* hops, uint8
     _active->_tx_queue[_active->_tx_queue_n++] = item;
     MR_EMIT("mobile_delegate_xl", EF_I("home", home), EF_I("ctr", ctr), EF_I("enclosed_type", enclosed_type),
             EF_I("dst_hash", static_cast<int64_t>(dst_hash)));
+    // ★ E2E-ack DEADLINE (cross-layer/delegated tier): the MOBILE is the true originator awaiting the far target's ack.
+    // The wrapper always carries an explicit path -> the home re-originates cross-layer + the far target's send_xl_ack
+    // returns CROSS_LAYER carrying source_hash == dst_hash -> match by key==sender_hash. SKIP when THIS delegation IS an
+    // ack (enclosed_type==E2E_ACK, e.g. a mobile recipient delegating its own reverse-ack — no E2E_ACK_REQ flag anyway).
+    if ((flags & DATA_FLAG_E2E_ACK_REQ) && enclosed_type != DATA_TYPE_E2E_ACK)
+        e2e_ack_arm(/*key=*/dst_hash, /*is_xl=*/true, /*dst=*/0, ctr, protocol::e2e_ack_deadline_xl_ms);
     become_free();
     return ctr;
 }

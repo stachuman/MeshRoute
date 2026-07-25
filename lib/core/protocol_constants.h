@@ -323,6 +323,8 @@ inline constexpr uint8_t  park_reflood_max_retries      = 6;       // ~6 indepen
 // reappearing on the next beacon — different regimes, different patience. Keeping send_defer_ttl_ms at 30 s also keeps
 // s18 (which exercises the deferred-queue giveup but NEVER the parked path) byte-identical. = park + all refloods.
 inline constexpr uint32_t hash_locate_giveup_ms         = park_reflood_retry_ms * (park_reflood_max_retries + 1);   // 175 s
+// NOTE: the E2E-ack DEADLINE constants (e2e_ack_deadline_ms / _xl_ms / cap_pending_e2e_acks) live in the Gateway-scheduling
+// section below — they derive from gateway_send_giveup_ms, which is declared there (a constexpr must see its base first).
 
 // ---- Channel-message gossip plane (ROADMAP §3) -----------------------------
 // Single-layer only — gateways skip the whole plane (Principle 11). Phase 1 = the
@@ -445,6 +447,27 @@ inline constexpr uint32_t gateway_layer_busy_retry_ms = 1000;
 // when the gateway's window re-opens. (Lua gateway_send_giveup_ms / gateway_doorstep_retry_jitter_ms.)
 inline constexpr uint32_t gateway_send_giveup_ms           = 150000;
 inline constexpr uint32_t gateway_doorstep_retry_jitter_ms = 2000;
+
+// ★ P-BUDGET (2026-07-24, shelf item (i) — the E2E-ack DEADLINE). An app DM with DATA_FLAG_E2E_ACK_REQ is a POSITIVE-ONLY
+// receipt today: the send_e2e_acked push fires when the DATA_TYPE_E2E_ACK returns, and NOTHING fires when it never does
+// (no awaiting-ack state existed). A fixed no-heap pending-ack ring (cap_pending_e2e_acks) ARMS silently when such a send
+// mints its ctr and CLEARS silently on the matching send_e2e_acked — so any stream where every -a send is acked stays
+// byte-identical. If the budget elapses first the firmware pushes send_failed{e2e_ack_timeout}. DERIVATION — the round trip
+// is 2x the send's worst-case ONE-WAY delivery budget (no magic numbers; both from a named bench-tunable base):
+//   • same-layer: one-way worst case = send_defer_ttl_ms (a routed DM ages out of the deferred queue in this window), so the
+//     round trip DM-out + ack-back is 2x. The ctr mints only AFTER a parked/hash send RESOLVES, so the flood-reach patience
+//     (hash_locate_giveup_ms) is already spent by arm time — this budget only covers the post-resolution round trip.
+//   • cross-layer / delegated: the DM and the reversed ack each cross a gateway WINDOW — the doorstep hold is
+//     gateway_send_giveup_ms, so the round-trip patience is 2x that latency class. Mobile delegate paths inherit it (the
+//     mobile awaits an ack traversing its home + the far gateway both ways). A same-layer delegated wrapper also uses this
+//     larger tier (the home may route the re-origination cross-layer).
+// CONTRACT SEMANTIC (also in command.h): a timeout means delivery was never CONFIRMED, NOT that it failed — the DM may have
+// arrived and the ack died returning; a LATE ack (after expiry) still fires send_e2e_acked and the app resolves (the ring
+// entry is already gone, so the clear is a harmless no-op — no double-free/stale-slot hazard). Bench-tunable; both bounded
+// at/under mobile_home_cache_ttl_ms (300 s) so a re-home invalidates a stale wait first.
+inline constexpr uint32_t e2e_ack_deadline_ms    = 2 * send_defer_ttl_ms;       // 60 s  — same-layer round trip
+inline constexpr uint32_t e2e_ack_deadline_xl_ms = 2 * gateway_send_giveup_ms;  // 300 s — cross-layer / delegated (gateway-window latency class)
+inline constexpr uint8_t  cap_pending_e2e_acks   = 8;                           // fixed no-heap ring; a full ring REFUSES a new -a send LOUD (CmdCode::err_ack_ring_full) — NEVER evict-oldest (that would re-create the silent class)
 // Slice 3e.2: a node remembers the window schedule of nearby gateways (learned from their beacons) so it can time
 // an RTS to hit the gateway's window on the SENDER's leaf. Small ring (a node hears few gateways); evict-oldest.
 inline constexpr uint8_t  cap_gateway_neighbor_schedules = 4;

@@ -903,6 +903,7 @@ void Node::do_post_ack() {
             const uint32_t acker_hash = ((pa.flags & DATA_FLAG_CROSS_LAYER) && ui && ui->has_source_hash) ? ui->source_hash : 0;
             _inbox.record_ack(pa.origin, acked, active_layer_id(), _hal.now(), acker_hash);   // durable receipt (DM store); inert if no backend (sim)
             Push pu{}; pu.kind = PushKind::send_e2e_acked; pu.dst = pa.origin; pu.ctr = acked; pu.sender_hash = acker_hash; enqueue_push(pu);   // live fast-path (E2E-ACKED ctr=X from=D); sender_hash = the acker's stable key (XL) so the app matches (sender_hash,ctr)
+            e2e_ack_clear(pa.origin, acked, acker_hash);   // ★ shelf item (i): CLEAR the pending-ack deadline (emit-free) — mirrors the {dst,ctr,sender_hash} just pushed. A LATE ack (past the deadline) finds nothing -> no-op.
             MR_TELEMETRY(                                                                       // KEEP for the sim analyzer (free on metal)
                 EventField ef[] = { { .key = "from", .type = EventField::T::i64, .i = pa.origin },
                                     { .key = "ctr",  .type = EventField::T::i64, .i = acked } };

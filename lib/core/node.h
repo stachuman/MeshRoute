@@ -569,7 +569,8 @@ private:
     static constexpr uint32_t kHForwardTimerId         = 81;  // §F-XL-1: jittered h_forward de-storm — BASE of a kHForwardSlots ring [81..84] (slot = id - base)
     static constexpr uint32_t kRreqForwardTimerId      = 85;  // §F-XL-2: jittered rreq_forward de-storm — BASE of a kRreqForwardSlots ring [85..88] (slot = id - base)
     static constexpr uint32_t kParkRefloodTimerId      = 89;  // §F-SL-1: parked-send H re-flood scan (single one-shot, re-armed to the earliest pending re-flood)
-    // [78..80] = the presence plane + OFFER de-storm; [81..84] = the h_forward de-storm ring; [85..88] = the rreq_forward de-storm ring; [89] = the parked-send re-flood scan; the timer wheel cap is 90 (kCap in timer_wheel.h).
+    static constexpr uint32_t kE2eAckDeadlineTimerId   = 90;  // shelf item (i): E2E-ack deadline scan (single one-shot, re-armed to the earliest pending -a send's deadline — park_reflood idiom)
+    // [78..80] = the presence plane + OFFER de-storm; [81..84] = the h_forward de-storm ring; [85..88] = the rreq_forward de-storm ring; [89] = the parked-send re-flood scan; [90] = the E2E-ack deadline scan; the timer wheel cap is 91 (kCap in timer_wheel.h).
 
     // ---- beacon emit / ingest ----------------------------------------------
     void emit_beacon(const char* kind);                            // "periodic" | "triggered"
@@ -936,6 +937,12 @@ private:
     // matches what the mobile is waiting on. A DIRECT send (home only forwarded) has NO entry -> out stays acked_ctr.
     void     deleg_ack_put(uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m);                 // §GapB p2: keyed by the MOBILE's hash (XL acker ids alias across leaves — id-keying is WRONG). Record {mobile_hash,ctr_H}->ctr_M (evict oldest/expired)
     bool     deleg_ack_translate(uint32_t mobile_hash, uint16_t acked_ctr, uint16_t& out_mobile_ctr);   // true = translated (delegated); false = pass-through (direct/miss)
+    // ★ E2E-ack DEADLINE (shelf item (i), 2026-07-24) — node_mac.cpp. Arm/clear are emit-free (byte-neutral when acks arrive).
+    void     e2e_ack_arm(uint32_t key, bool is_xl, uint8_t dst, uint16_t ctr, uint32_t budget_ms);   // silent: a -a send minted its ctr -> track until send_e2e_acked or the deadline. Full ring -> skip + telemetry (the command path pre-refuses).
+    void     e2e_ack_clear(uint8_t acker_origin, uint16_t acked_ctr, uint32_t sender_hash);          // silent: a send_e2e_acked arrived -> drop the matching pending entry (a late/unknown ack is a harmless no-op)
+    bool     e2e_ack_ring_full() const;                                    // ring-full pre-check for on_command (refuse a new -a send loudly)
+    void     e2e_ack_deadline_arm_timer();                                 // re-arm the ONE one-shot to the earliest pending deadline (park_reflood_arm idiom)
+    void     e2e_ack_deadline_fire();                                      // timer body: expire elapsed entries -> send_failed{e2e_ack_timeout}, then re-arm
     void     enqueue_push(const Push& p);                                  // append to the bounded ring
     void     push_peer_key_cached(uint32_t key_hash32);                    // §S6: peer_key_cached push carrying the cached name (copied at cache time; body empty when unknown)
     void     become_free();                                       // dv_dual_sf.lua:7433 (FIFO single-drain)
@@ -1191,6 +1198,22 @@ private:
     struct DelegAck { uint32_t mobile_hash = 0; uint16_t ctr_h = 0; uint16_t ctr_m = 0; uint64_t ts_ms = 0; bool valid = false; };
     static constexpr uint8_t kDelegAckCap = 8;
     DelegAck _deleg_acks[kDelegAckCap] = {};
+    // ★ E2E-ack DEADLINE ring (shelf item (i), 2026-07-24): sends awaiting their DATA_TYPE_E2E_ACK. ARMED (emit-free) when an
+    // app DM with DATA_FLAG_E2E_ACK_REQ mints its ctr; CLEARED (emit-free) on the matching send_e2e_acked; EXPIRED ->
+    // send_failed{e2e_ack_timeout}. NOT mobile/team-gated (a static -a send arms too). The MATCH mirrors what send_e2e_acked
+    // carries {dst=acker origin, ctr=acked, sender_hash}: an XL send's ack is CROSS_LAYER (sender_hash set) -> key==sender_hash;
+    // a same-layer id send's ack is same-layer (sender_hash==0) -> dst==acker origin; a delegated/wildcard entry (key==0)
+    // matches on ctr alone (the delegated reverse-ack can arrive either same-layer or XL — see node_mac.cpp e2e_ack_arm).
+    struct PendingE2eAck {
+        uint32_t key    = 0;      // XL: the far-target key_hash32 (== send_e2e_acked.sender_hash). Same-layer id send: the dst id. 0 = wildcard (delegated) -> match by ctr only.
+        uint16_t ctr    = 0;      // the minted ctr the app correlates on (== the acked ctr in the returning DATA_TYPE_E2E_ACK)
+        uint8_t  dst    = 0;      // same-layer id send: the dst id, echoed on the send_failed{e2e_ack_timeout} push (0 for hash/XL/delegated)
+        bool     is_xl  = false;  // the ack returns CROSS_LAYER (sender_hash carried) -> match by key==sender_hash; else same-layer (sender_hash==0)
+        bool     used   = false;
+        uint64_t deadline_ms = 0;
+    };
+    static constexpr uint8_t cap_pending_e2e_acks = protocol::cap_pending_e2e_acks;
+    PendingE2eAck _pending_e2e_acks[cap_pending_e2e_acks] = {};
     uint8_t    _parked_sends_n = 0;
     // L2c redirect-suppression ring: a misdelivered DM we've already redirected for this hash recently,
     // so a still-poisoned binding (collision unhealed) can't re-trigger an endless redirect→deliver→redirect.
@@ -1499,6 +1522,7 @@ private:
     // test/test_dual_layer.cpp points _active at each leaf + reads the per-LayerRuntime dedup maps to ASSERT the
     // Slice-2b non-aliasing property (§8). The gateway's real leaf-swap (activate_layer) lands in Slice 3.
     friend struct DualLayerTestAccess;
+    friend struct E2eAckTestAccess;   // shelf item (i): white-box access to the pending-e2e-ack ring + arm/clear/fire (test_node_e2e_ack.cpp)
 #endif
     // ======== GATEWAY / CROSS-LAYER scheduler (Node-global — spans leaves; survives a window swap) ========
     LayerRuntime  _layers[MR_N_LAYERS];
@@ -1550,7 +1574,7 @@ private:
 // pointer/enum/alignment). Purpose: the node.h legibility reorder (2026-07-15 by-concern member reorder) must not
 // change Node's layout. If this fires after a *deliberate* member add/remove/type change, update the baseline
 // consciously — it is a tripwire, not a frozen contract. The real nRF52 RAM check is the firmware.map .bss/.data diff.
-static_assert(sizeof(Node) == 220392, "node.h: Node native layout changed — if intentional, update the baseline");   // 220384 -> 220392 (+8 Wave-4: NodeConfig.gw_schedule_readvert_ms u32 + alignment; the gateway schedule re-advertisement cadence). …218872 (§S6) -> 219000 (§GapA) -> 219312 (+312 §F-XL-1: HForwardStash[4] = 4×(77+1) de-storm ring; _h_forward_rr fits existing padding) -> 219568 (+256 §S3 part2: HostMobileEntry.last_key_fwd_hash32 = 4 B + 4 B align, ×16 ×2 layers) -> 219760 (+192 batch B: §B2 HostMobileEntry.deleg_fail packs into existing tail padding; §B4 PendingNotify.last_home_hash 4 B ×16 ×2 layers = +128; §D16 PresenceCand.incompatible +8 align ×cap = +64) -> 219952 (+192 batch A: §F-XL-2 RreqForwardStash[4] = 4×(16+1) de-storm ring + _rreq_forward_rr; §F-SL-1 ParkedSend += reflood state (bool/bool/Plane/u8 + u64 reflood_at_ms, 8-align) ×cap_parked_sends=8) -> 220384 (+432 §3-A.6 evict-STALEST timestamps: _learned_layers_seen_ms u64×4 = +32; PendingNotify.stash_ms u64 -> 12->24 B ×16 ×2 layers = +384 (+16 align); MINUS the dead _presence_claim_retries u8 (absorbed by padding))
+static_assert(sizeof(Node) == 220584, "node.h: Node native layout changed — if intentional, update the baseline");   // 220392 -> 220584 (+192 shelf-item-(i): PendingE2eAck[cap_pending_e2e_acks=8], 24 B each = the E2E-ack deadline ring, Node-global). 220384 -> 220392 (+8 Wave-4: NodeConfig.gw_schedule_readvert_ms u32 + alignment; the gateway schedule re-advertisement cadence). …218872 (§S6) -> 219000 (§GapA) -> 219312 (+312 §F-XL-1: HForwardStash[4] = 4×(77+1) de-storm ring; _h_forward_rr fits existing padding) -> 219568 (+256 §S3 part2: HostMobileEntry.last_key_fwd_hash32 = 4 B + 4 B align, ×16 ×2 layers) -> 219760 (+192 batch B: §B2 HostMobileEntry.deleg_fail packs into existing tail padding; §B4 PendingNotify.last_home_hash 4 B ×16 ×2 layers = +128; §D16 PresenceCand.incompatible +8 align ×cap = +64) -> 219952 (+192 batch A: §F-XL-2 RreqForwardStash[4] = 4×(16+1) de-storm ring + _rreq_forward_rr; §F-SL-1 ParkedSend += reflood state (bool/bool/Plane/u8 + u64 reflood_at_ms, 8-align) ×cap_parked_sends=8) -> 220384 (+432 §3-A.6 evict-STALEST timestamps: _learned_layers_seen_ms u64×4 = +32; PendingNotify.stash_ms u64 -> 12->24 B ×16 ×2 layers = +384 (+16 align); MINUS the dead _presence_claim_retries u8 (absorbed by padding))
 #endif
 
 }  // namespace meshroute
