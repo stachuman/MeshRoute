@@ -18,45 +18,28 @@ namespace MESHROUTE_NS {
 
 // Relay-side flood dedup (Lua route_request_seen; key origin|dst; route_request_seen_ttl_ms window).
 // §team-multihop: team_plane -> the team-PRIVATE ledger (_rreq_seen_team) so a team RREQ can't alias a static one (§18).
+// §P2-2: the plane picks its PRIVATE ledger (the team one is right-sized 16, the static one is
+// protocol::cap_route_request_seen); recent_ring.h owns the walk/refresh/evict discipline and reads
+// each ledger's cap from its own array extent, so the two capacities can never be crossed.
 bool Node::rreq_seen_recently(uint8_t origin, uint8_t dst, bool team_plane) {
-    const uint64_t now    = _hal.now();
-    const uint64_t cutoff = (now >= protocol::route_request_seen_ttl_ms) ? now - protocol::route_request_seen_ttl_ms : 0;
-    // §P2-2: table-ref parameterization (à la rt_merge) — pick the plane's PRIVATE ledger, then walk ONCE. The team
-    // ledger is right-sized (16); the static ledger is protocol::cap_route_request_seen. Byte-identical to the old fork.
-#if MR_FEAT_TEAM
-    const RReqSeen* seen   = team_plane ? _active->_rreq_seen_team   : _active->_rreq_seen;
-    const uint8_t   seen_n = team_plane ? _active->_rreq_seen_team_n : _active->_rreq_seen_n;
-#else
-    (void)team_plane;
-    const RReqSeen* seen   = _active->_rreq_seen;
-    const uint8_t   seen_n = _active->_rreq_seen_n;
-#endif
-    for (uint8_t i = 0; i < seen_n; ++i)
-        if (seen[i].origin == origin && seen[i].dst == dst && seen[i].t_ms >= cutoff) return true;
-    return false;
-}
-void Node::mark_rreq_seen(uint8_t origin, uint8_t dst, bool team_plane) {
+    const RReqSeen probe{ origin, dst, 0 };
     const uint64_t now = _hal.now();
 #if MR_FEAT_TEAM
-    RReqSeen*     seen   = team_plane ? _active->_rreq_seen_team   : _active->_rreq_seen;
-    uint8_t&      seen_n = team_plane ? _active->_rreq_seen_team_n : _active->_rreq_seen_n;
-    const uint8_t cap    = team_plane ? static_cast<uint8_t>(sizeof(_active->_rreq_seen_team) / sizeof(_active->_rreq_seen_team[0]))
-                                      : static_cast<uint8_t>(protocol::cap_route_request_seen);
+    if (team_plane)
+        return recent_ring_hit(_active->_rreq_seen_team, _active->_rreq_seen_team_n, probe, now, protocol::route_request_seen_ttl_ms);
 #else
     (void)team_plane;
-    RReqSeen*     seen   = _active->_rreq_seen;
-    uint8_t&      seen_n = _active->_rreq_seen_n;
-    const uint8_t cap    = static_cast<uint8_t>(protocol::cap_route_request_seen);
 #endif
-    for (uint8_t i = 0; i < seen_n; ++i)
-        if (seen[i].origin == origin && seen[i].dst == dst) { seen[i].t_ms = now; return; }
-    if (seen_n < cap) {
-        seen[seen_n++] = { origin, dst, now };
-    } else {                                              // ring full -> evict the oldest
-        uint8_t o = 0;
-        for (uint8_t i = 1; i < seen_n; ++i) if (seen[i].t_ms < seen[o].t_ms) o = i;
-        seen[o] = { origin, dst, now };
-    }
+    return recent_ring_hit(_active->_rreq_seen, _active->_rreq_seen_n, probe, now, protocol::route_request_seen_ttl_ms);
+}
+void Node::mark_rreq_seen(uint8_t origin, uint8_t dst, bool team_plane) {
+    const RReqSeen fresh{ origin, dst, _hal.now() };
+#if MR_FEAT_TEAM
+    if (team_plane) { recent_ring_mark(_active->_rreq_seen_team, _active->_rreq_seen_team_n, fresh); return; }
+#else
+    (void)team_plane;
+#endif
+    recent_ring_mark(_active->_rreq_seen, _active->_rreq_seen_n, fresh);
 }
 
 // Originator-side rate limit (Lua route_request_last): suppress a re-flood of the same dst within

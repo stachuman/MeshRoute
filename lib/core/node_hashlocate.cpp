@@ -572,27 +572,13 @@ bool Node::e2e_open_relay(const uint8_t* relay_body, size_t len, uint32_t source
 // `hard` is load-bearing: a HARD query (verify-on-use) must NOT be suppressed by a prior SOFT's seen-entry, or
 // the escalation that reaches the owner is silently swallowed. Mirrors rreq_seen.
 bool Node::hash_query_seen_recently(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey) {
-    const uint64_t now    = _hal.now();
-    const uint64_t cutoff = (now >= protocol::hash_query_seen_ttl_ms) ? now - protocol::hash_query_seen_ttl_ms : 0;
-    for (uint8_t i = 0; i < _active->_hash_query_seen_n; ++i)
-        if (_active->_hash_query_seen[i].origin == origin && _active->_hash_query_seen[i].key_hash32 == key_hash32
-            && _active->_hash_query_seen[i].hard == hard && _active->_hash_query_seen[i].want_pubkey == want_pubkey
-            && _active->_hash_query_seen[i].t_ms >= cutoff) return true;
-    return false;
+    return recent_ring_hit(_active->_hash_query_seen, _active->_hash_query_seen_n,
+                           HashQuerySeen{ origin, key_hash32, 0, hard, want_pubkey },
+                           _hal.now(), protocol::hash_query_seen_ttl_ms);
 }
 void Node::mark_hash_query_seen(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey) {
-    const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _active->_hash_query_seen_n; ++i)
-        if (_active->_hash_query_seen[i].origin == origin && _active->_hash_query_seen[i].key_hash32 == key_hash32
-            && _active->_hash_query_seen[i].hard == hard && _active->_hash_query_seen[i].want_pubkey == want_pubkey)
-            { _active->_hash_query_seen[i].t_ms = now; return; }
-    if (_active->_hash_query_seen_n < protocol::cap_hash_query_seen) {
-        _active->_hash_query_seen[_active->_hash_query_seen_n++] = { origin, key_hash32, now, hard, want_pubkey };
-    } else {                                              // ring full -> evict the oldest
-        uint8_t o = 0;
-        for (uint8_t i = 1; i < _active->_hash_query_seen_n; ++i) if (_active->_hash_query_seen[i].t_ms < _active->_hash_query_seen[o].t_ms) o = i;
-        _active->_hash_query_seen[o] = { origin, key_hash32, now, hard, want_pubkey };
-    }
+    recent_ring_mark(_active->_hash_query_seen, _active->_hash_query_seen_n,
+                     HashQuerySeen{ origin, key_hash32, _hal.now(), hard, want_pubkey });
 }
 
 // H query flood handler (Lua dv:11628-11671). RESOLVE from own-hash (HARD) or a cached binding (its stored

@@ -483,23 +483,12 @@ void Node::commit_channel_digest_advertised(const uint32_t* ids, uint8_t n) {
 
 // re-pull dedup ring (Lua channel_pull_recent map). recently = a pull for `id` fired within the window.
 bool Node::channel_pull_recently(uint32_t id) const {
-    const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _active->_channel_pull_recent_n; ++i)
-        if (_active->_channel_pull_recent[i].id == id)
-            return (now - _active->_channel_pull_recent[i].t_ms) < protocol::channel_pull_window_ms;
-    return false;
+    return recent_ring_hit(_active->_channel_pull_recent, _active->_channel_pull_recent_n,
+                           ChannelPullRecent{ id, 0 }, _hal.now(), protocol::channel_pull_window_ms);
 }
 void Node::channel_pull_mark(uint32_t id) {
-    const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _active->_channel_pull_recent_n; ++i)
-        if (_active->_channel_pull_recent[i].id == id) { _active->_channel_pull_recent[i].t_ms = now; return; }
-    if (_active->_channel_pull_recent_n < protocol::cap_channel_pull_recent) {
-        _active->_channel_pull_recent[_active->_channel_pull_recent_n++] = { id, now };
-    } else {                                                       // ring full -> evict the oldest
-        uint8_t o = 0;
-        for (uint8_t i = 1; i < _active->_channel_pull_recent_n; ++i) if (_active->_channel_pull_recent[i].t_ms < _active->_channel_pull_recent[o].t_ms) o = i;
-        _active->_channel_pull_recent[o] = { id, now };
-    }
+    recent_ring_mark(_active->_channel_pull_recent, _active->_channel_pull_recent_n,
+                     ChannelPullRecent{ id, _hal.now() });
 }
 
 // process_channel_digest (dv:3546): for each advertised id — if we HAVE it, mark the advertiser as a

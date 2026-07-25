@@ -29,6 +29,7 @@
 #include <vector>
 #include <optional>
 #include "node_carriers.h"   // value-carrier structs (LayerConfig/NodeConfig/RtEntry/TxItem/... — node-legibility Slice 2, 2026-07-15)
+#include "recent_ring.h"     // recent_ring_hit/_mark/_age_out — the ONE bounded seen-recently ring discipline (§3-B.1)
 
 namespace MESHROUTE_NS {
 
@@ -811,7 +812,8 @@ private:
         uint8_t  body_len = 0, channel_id = 0, flavor = 0, hop_left = 0;
     };
     struct ChannelPullPending  { bool active; uint32_t id; uint8_t target; uint64_t requested_at; uint64_t fire_at; };
-    struct ChannelPullRecent   { uint32_t id; uint64_t t_ms; };    // re-pull dedup (Lua channel_pull_recent)
+    struct ChannelPullRecent   { uint32_t id; uint64_t t_ms;       // re-pull dedup (Lua channel_pull_recent)
+                                 bool same_key(const ChannelPullRecent& o) const { return id == o.id; } };
     struct ChannelReofferPending { bool active; uint32_t id; uint8_t retries_left; bool team; bool holder; };   // Part 2: per-origin re-offer (timer kChannelReofferTimerId+slot). team = a TEAM flood: a single relay does NOT confirm coverage on a mixed multi-hop chain, so it re-offers all its retries (P-BUDGET s28 class). holder (§F-CH-RELAY) = a RELAY (not the origin) re-offering to cover its own still-unmarked downstream team neighbours — coverage-driven (seen_by), deterministic jitter, team-only.
     void    channel_reoffer_register(uint32_t id, bool team);      // Part 2: arm a re-offer slot on flood origination (retries_left = team ? channel_reoffer_team_max_retries : channel_reoffer_max_retries)
     void    channel_holder_reoffer_register(uint32_t id);          // §F-CH-RELAY: a team-flood HOLDER arms a coverage-driven re-offer after it re-broadcasts, iff it still has unmarked hops-1 team neighbours (deterministic jitter, no RNG draw)
@@ -1148,7 +1150,9 @@ private:
     // ======== LayerRuntime member TYPE defs — defined here for def-before-use; the INSTANCES live in LayerRuntime, ========
     //          NOT in Node (0 Node-layout impact). Struct-extraction to a private header is a later, separate slice.
     // F route-discovery dedup state (Lua route_request_seen / route_request_last). Members in LayerRuntime.
-    struct RReqSeen { uint8_t origin; uint8_t dst; uint64_t t_ms; };   // relay flood-dedup
+    // recent_ring.h contract: `t_ms` + `same_key` (the dedup key, defined ONCE for both the query and the mark).
+    struct RReqSeen { uint8_t origin; uint8_t dst; uint64_t t_ms;       // relay flood-dedup
+                      bool same_key(const RReqSeen& o) const { return origin == o.origin && dst == o.dst; } };
     struct RReqLast { uint8_t dst; uint8_t ttl; uint64_t t_ms; };      // per-dst origination rate-limit
     // Hash-locate id_bind table (Lua dv:4677): key_hash32 -> node_id, beacon-populated. Bounded array
     // (array sized at the protocol max; _cfg.cap_id_bind gates additions). One timestamp: id_bind_set
@@ -1160,7 +1164,11 @@ private:
     // so a TYPE-5 owner answer is cached AUTHORITATIVE even relayed/cached-on-pass (can't decay). Member in LayerRuntime.
     struct PeerKey { uint32_t key_hash32; uint64_t last_seen_ms; uint8_t ed_pub[32]; uint8_t confidence; char name[32]; uint8_t name_len; bool peer_confirmed; };   // §1.3: name rides with the key — IMMUTABLE key, MUTABLE name (refreshed on every pubkey message). §S2: peer_confirmed = we've OPENED a SEALED frame from this peer (they hold our key) -> stop attaching INTRO to plaintext sends toward them. Set on e2e_open_trial success ONLY (never on a plaintext receipt).
     // H hash-locate flood dedup (Lua hash_query_seen): per-(origin,key_hash32), hash_query_seen_ttl_ms window. Member in LayerRuntime.
-    struct HashQuerySeen { uint8_t origin; uint32_t key_hash32; uint64_t t_ms; bool hard; bool want_pubkey; };   // §2: WANT_PUBKEY is its own variant
+    struct HashQuerySeen { uint8_t origin; uint32_t key_hash32; uint64_t t_ms; bool hard; bool want_pubkey;   // §2: WANT_PUBKEY is its own variant
+                           // §2: `hard` and `want_pubkey` are part of the KEY — a HARD (verify-on-use) or a
+                           // WANT_PUBKEY query must NOT be suppressed by a prior plain/SOFT one's seen-entry.
+                           bool same_key(const HashQuerySeen& o) const {
+                               return origin == o.origin && key_hash32 == o.key_hash32 && hard == o.hard && want_pubkey == o.want_pubkey; } };
     // Peer-liveness + freshness plane (routing-liveness port, Lua dv:3986-4545): per-next-hop RTS/ACK-timeout
     // accounting -> suspect/silent/dead tiers (each with an expiry), + dest_seen for next-hop freshness. Bounded
     // LRU table per LayerRuntime (the direct-neighbour set). node_id 0 = empty slot.
@@ -1217,7 +1225,8 @@ private:
     uint8_t    _parked_sends_n = 0;
     // L2c redirect-suppression ring: a misdelivered DM we've already redirected for this hash recently,
     // so a still-poisoned binding (collision unhealed) can't re-trigger an endless redirect→deliver→redirect.
-    struct L2cRedirect { uint32_t key_hash32; uint64_t t_ms; };
+    struct L2cRedirect { uint32_t key_hash32; uint64_t t_ms;
+                         bool same_key(const L2cRedirect& o) const { return key_hash32 == o.key_hash32; } };
     L2cRedirect _l2c_redirect[protocol::cap_l2c_redirect] = {};
     uint8_t     _l2c_redirect_n = 0;
 
@@ -1273,10 +1282,12 @@ private:
     PresenceCand _presence_cand[protocol::cap_presence_candidates] = {};   // §S6.4-C overheard candidate homes (strongest-sustained wins)
     uint8_t   _presence_cand_n   = 0;
 #endif
-    struct DeniedId { uint8_t id; uint64_t denied_at_ms; };      // a slot that lost a claim/heal (§13: 1-day TTL)
+    struct DeniedId { uint8_t id; uint64_t t_ms;                 // a slot that lost a claim/heal (§13: 1-day TTL)
+                      bool same_key(const DeniedId& o) const { return id == o.id; } };
     DeniedId _join_denied[protocol::cap_join_denied] = {};
     uint8_t  _join_denied_n = 0;
-    struct MediatedRecent { uint8_t node_id; uint32_t loser_hash; uint64_t t_ms; };   // L2a: suppress per-(id,loser) re-DENY
+    struct MediatedRecent { uint8_t node_id; uint32_t loser_hash; uint64_t t_ms;      // L2a: suppress per-(id,loser) re-DENY
+                            bool same_key(const MediatedRecent& o) const { return node_id == o.node_id && loser_hash == o.loser_hash; } };
     MediatedRecent _mediated_recent[protocol::cap_mediated_recent] = {};
     uint8_t        _mediated_recent_n = 0;
     // Q REQ_SYNC plane state (node_query.cpp). _last_req_sync_tx_ms rate-limits the originator (dv:8035);
@@ -1290,7 +1301,8 @@ private:
     uint64_t _last_config_pull_tx_ms = 0;   // R6.2: rate-limit our CONFIG_PULL tx
     uint16_t _max_seen_epoch = 0;           // R6.3 §4.1: highest config_epoch seen for OUR lineage (a write = max_seen+1)
     uint64_t _last_join_refused_ms = 0;     // R6.3 §7c: rate-limit the join_refused{wire_version} push
-    struct QResponded { uint8_t opcode; uint8_t src; uint8_t dest; uint64_t t_ms; };
+    struct QResponded { uint8_t opcode; uint8_t src; uint8_t dest; uint64_t t_ms;
+                        bool same_key(const QResponded& o) const { return opcode == o.opcode && src == o.src && dest == o.dest; } };
     struct SyncPending { bool active; bool suppressed; uint8_t requester; bool requester_mobile;
                          uint64_t requested_at; uint64_t fire_at; };
     // Channel-message gossip plane state + dedup maps + the originator ring — MOVED into LayerRuntime (Slice 2a;

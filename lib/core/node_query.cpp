@@ -28,27 +28,14 @@ namespace MESHROUTE_NS {
 // REQ_SYNC carries no key_hash32 (that was the removed HASH_QUERY field), so the Lua key's
 // key_hash32 term is always 0 here — we key on (opcode, src, dest) only.
 bool Node::q_responded_recently(uint8_t opcode, uint8_t src, uint8_t dest) {
-    const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _active->_q_responded_n; ++i) {
-        const QResponded& e = _active->_q_responded[i];
-        if (e.opcode == opcode && e.src == src && e.dest == dest)
-            return (now - e.t_ms) < protocol::q_respond_ttl_ms;
-    }
-    return false;
+    return recent_ring_hit(_active->_q_responded, _active->_q_responded_n,
+                           QResponded{ opcode, src, dest, 0 }, _hal.now(), protocol::q_respond_ttl_ms);
 }
+// NB the shared ring evicts the oldest when full where the Lua REFUSES — equivalent below cap, and
+// more robust for a long-running device (the F-dedup idiom).
 void Node::mark_q_responded(uint8_t opcode, uint8_t src, uint8_t dest) {
-    const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _active->_q_responded_n; ++i) {
-        QResponded& e = _active->_q_responded[i];
-        if (e.opcode == opcode && e.src == src && e.dest == dest) { e.t_ms = now; return; }   // refresh
-    }
-    if (_active->_q_responded_n < protocol::cap_q_responded_to) {
-        _active->_q_responded[_active->_q_responded_n++] = { opcode, src, dest, now };
-    } else {                                              // ring full -> evict the oldest (Lua refuses; equal below cap)
-        uint8_t o = 0;
-        for (uint8_t i = 1; i < _active->_q_responded_n; ++i) if (_active->_q_responded[i].t_ms < _active->_q_responded[o].t_ms) o = i;
-        _active->_q_responded[o] = { opcode, src, dest, now };
-    }
+    recent_ring_mark(_active->_q_responded, _active->_q_responded_n,
+                     QResponded{ opcode, src, dest, _hal.now() });
 }
 
 // ---- originator (Lua send_req_sync_q dv:8032; NO rand draw) -------------------------------------

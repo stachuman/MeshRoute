@@ -34,55 +34,25 @@ bool Node::join_tiebreak_wins(uint8_t /*my_epoch*/, uint32_t my_key, uint8_t /*t
 
 // ---- denied-id list (§13: a slot that lost a claim/heal stays denied for dad_denied_id_ttl_ms = 1 day) --
 bool Node::join_id_denied(uint8_t id) const {
-    const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _join_denied_n; ++i)
-        if (_join_denied[i].id == id && (now - _join_denied[i].denied_at_ms) < protocol::dad_denied_id_ttl_ms)
-            return true;
-    return false;
+    return recent_ring_hit(_join_denied, _join_denied_n, DeniedId{ id, 0 }, _hal.now(), protocol::dad_denied_id_ttl_ms);
 }
 void Node::join_deny_id(uint8_t id) {
-    const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _join_denied_n; ++i)
-        if (_join_denied[i].id == id) { _join_denied[i].denied_at_ms = now; return; }   // refresh
-    if (_join_denied_n < protocol::cap_join_denied) { _join_denied[_join_denied_n++] = { id, now }; return; }
-    uint8_t o = 0;                                                                       // full -> evict the oldest
-    for (uint8_t i = 1; i < _join_denied_n; ++i) if (_join_denied[i].denied_at_ms < _join_denied[o].denied_at_ms) o = i;
-    _join_denied[o] = { id, now };
+    recent_ring_mark(_join_denied, _join_denied_n, DeniedId{ id, _hal.now() });
 }
 void Node::age_out_denied_ids() {
-    const uint64_t now = _hal.now();
-    uint8_t w = 0;
-    for (uint8_t r = 0; r < _join_denied_n; ++r)
-        if ((now - _join_denied[r].denied_at_ms) < protocol::dad_denied_id_ttl_ms) _join_denied[w++] = _join_denied[r];
-    _join_denied_n = w;
+    recent_ring_age_out(_join_denied, _join_denied_n, _hal.now(), protocol::dad_denied_id_ttl_ms);
 }
 
 // ---- L2a mediation suppression: one DENY per (id, loser-hash) per window (#1 — kill the per-beacon storm) --
 bool Node::mediated_recently(uint8_t node_id, uint32_t loser_hash) const {
-    const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _mediated_recent_n; ++i)
-        if (_mediated_recent[i].node_id == node_id && _mediated_recent[i].loser_hash == loser_hash
-            && (now - _mediated_recent[i].t_ms) < protocol::mediated_deny_suppress_ms)
-            return true;
-    return false;
+    return recent_ring_hit(_mediated_recent, _mediated_recent_n, MediatedRecent{ node_id, loser_hash, 0 },
+                           _hal.now(), protocol::mediated_deny_suppress_ms);
 }
 void Node::mark_mediated(uint8_t node_id, uint32_t loser_hash) {
-    const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _mediated_recent_n; ++i)
-        if (_mediated_recent[i].node_id == node_id && _mediated_recent[i].loser_hash == loser_hash) {
-            _mediated_recent[i].t_ms = now; return;                                       // refresh the window
-        }
-    if (_mediated_recent_n < protocol::cap_mediated_recent) { _mediated_recent[_mediated_recent_n++] = { node_id, loser_hash, now }; return; }
-    uint8_t o = 0;                                                                        // full -> evict the oldest
-    for (uint8_t i = 1; i < _mediated_recent_n; ++i) if (_mediated_recent[i].t_ms < _mediated_recent[o].t_ms) o = i;
-    _mediated_recent[o] = { node_id, loser_hash, now };
+    recent_ring_mark(_mediated_recent, _mediated_recent_n, MediatedRecent{ node_id, loser_hash, _hal.now() });
 }
 void Node::age_out_mediated() {
-    const uint64_t now = _hal.now();
-    uint8_t w = 0;
-    for (uint8_t r = 0; r < _mediated_recent_n; ++r)
-        if ((now - _mediated_recent[r].t_ms) < protocol::mediated_deny_suppress_ms) _mediated_recent[w++] = _mediated_recent[r];
-    _mediated_recent_n = w;
+    recent_ring_age_out(_mediated_recent, _mediated_recent_n, _hal.now(), protocol::mediated_deny_suppress_ms);
 }
 
 // §mobile 2a: host-assign a free LOCAL id (17..254) for a mobile — distinct across THIS host's registered mobiles + not
@@ -484,20 +454,11 @@ void Node::forced_rejoin(const char* reason) {
 // id must heal (the higher-key holder yields). The suppression ring bounds a redirect loop while the
 // collision is still unhealed (a poisoned binding could otherwise resolve straight back to our own id).
 bool Node::l2c_redirected_recently(uint32_t want_hash) {
-    const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _l2c_redirect_n; ++i)
-        if (_l2c_redirect[i].key_hash32 == want_hash
-            && (now - _l2c_redirect[i].t_ms) < protocol::l2c_redirect_suppress_ms) return true;
-    return false;
+    return recent_ring_hit(_l2c_redirect, _l2c_redirect_n, L2cRedirect{ want_hash, 0 },
+                           _hal.now(), protocol::l2c_redirect_suppress_ms);
 }
 void Node::l2c_mark_redirected(uint32_t want_hash) {
-    const uint64_t now = _hal.now();
-    for (uint8_t i = 0; i < _l2c_redirect_n; ++i)
-        if (_l2c_redirect[i].key_hash32 == want_hash) { _l2c_redirect[i].t_ms = now; return; }
-    if (_l2c_redirect_n < protocol::cap_l2c_redirect) { _l2c_redirect[_l2c_redirect_n++] = { want_hash, now }; return; }
-    uint8_t o = 0;                                                     // full -> evict the oldest
-    for (uint8_t i = 1; i < _l2c_redirect_n; ++i) if (_l2c_redirect[i].t_ms < _l2c_redirect[o].t_ms) o = i;
-    _l2c_redirect[o] = { want_hash, now };
+    recent_ring_mark(_l2c_redirect, _l2c_redirect_n, L2cRedirect{ want_hash, _hal.now() });
 }
 void Node::l2c_handle_misdelivery(const PostAck& pa, uint32_t want_hash) {
     MR_TELEMETRY(
