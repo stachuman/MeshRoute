@@ -303,8 +303,10 @@ inline constexpr uint8_t  cap_parked_sends              = 8;       // send-by-ha
 // is deterministic (NOT a shared-mt19937 draw) — see park_reflood_fire for why. The hash_locate_giveup_ms age-out
 // still fires (bounded, no runaway). No park-time draw either: the FIRST deadline is a fixed offset (park times differ).
 //
-// ★ P-BUDGET (2026-07-21): RE-SCALED for the realistic SX1262 physics regime (reported-SNR ceiling, 27 ms turnarounds,
-// RX-window slop). ROOT CAUSE (s27 hello-m2): an H flood reaches a MULTI-HOP target only PROBABILISTICALLY — its fragile
+// ★ P-BUDGET (2026-07-21): RE-SCALED for the realistic SX1262 physics regime (reported-SNR ceiling, 8 ms turnarounds,
+// RX-window slop). [2026-07-25: this line read "27 ms turnarounds" — the stale overestimate; bench measures ~5-8 ms and 8
+// is the ratified value. The constants below are UNCHANGED and need no re-derivation: the derivation prices a hop in
+// SECONDS (~1-1.5 s of airtime + contention), so a ~19 ms per-hop turnaround delta is far below its resolution.] ROOT CAUSE (s27 hello-m2): an H flood reaches a MULTI-HOP target only PROBABILISTICALLY — its fragile
 // last hop is missed whenever the target's RX-window/contention phase is unlucky, and that phase is CORRELATED over ~a
 // beacon period. The old idealized-sim values (10 s spacing / 2 retries) bunched all 3 flood attempts into a 21 s window
 // (two of them wasted to origin-side self-contention), so they all missed the same correlated bad phase; the send then

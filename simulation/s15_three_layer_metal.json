@@ -1,6 +1,6 @@
 {
  "_name": "s15_three_layer_metal_meshroute",
- "_desc": "\u00a7metal-fidelity (2026-07-07) variant of s15: layer_id 100/102/104 (nibble 4/6/8 != full) exposes the cross-layer NIBBLE-MATCH bug; rx_window_slop:metal + radio.hardware turnaround (s15 is bw=62.5) exposes the CTS-wait metal-turnaround bug. The first cross-layer DM is send_layer_e2e; assert its originator gets e2e_ack_rx (the reversed 4e ack bridging home). Do NOT edit s15 (this is additive).",
+ "_desc": "\u00a7metal-fidelity (2026-07-07) variant of s15: layer_id 100/102/104 (nibble 4/6/8 != full) exposes the cross-layer NIBBLE-MATCH bug; rx_window_slop:metal exposes the CTS-wait metal-turnaround bug (s15 is bw=62.5, so the slop is large). NOTE: this variant sets NO radio.hardware block — it runs the JsonConfig turnaround default (8/8 ms, the bench-measured value); rx_window_slop is the metal-fidelity knob here, not the turnaround. The first cross-layer DM is send_layer_e2e; assert its originator gets e2e_ack_rx (the reversed 4e ack bridging home). Do NOT edit s15 (this is additive).",
  "simulation": {
   "duration_ms": 2700000,
   "step_ms": 1,

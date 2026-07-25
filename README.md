@@ -1,12 +1,12 @@
   ## What Is MeshRoute?
 
-  MeshRoute is a proposal for an advanced communication protocol and tool built on LoRa technology.
+  MeshRoute is a working communication protocol and firmware built on LoRa technology, approaching its first public release.
 
   The core idea is to create a fully decentralized and scalable network that treats radio resources as scarce, valuable, and worth protecting. MeshRoute aims to minimize unnecessary transmissions while keeping communication practical in real-world, dense deployments.
 
   > 📖 **New here? [How MeshRoute works →](docs/how-it-works.md)** — a short, diagram-led walkthrough of how a message actually travels.
 
-  > 📖 **Do you want to start from details? [Frame details →](docs/frames.md)** — comprehensive walk-through frames used in protocol (protocol rules will come soon).
+  > 📖 **Do you want to start from details? [Frame details →](docs/frames.md)** — the on-wire byte layout of every frame; the behaviour behind them lives in **[Protocol →](docs/protocol.md)**.
 
   > 🛠️ **Working on the code? [Architecture →](ARCHITECTURE.md)** — the source-module map: where everything lives and how the pieces fit.
 
@@ -22,9 +22,9 @@
   This is a trade-off: the protocol aims to use spectrum more carefully, improve message delivery efficiency, reduce unnecessary network load, and avoid collisions,
   sometimes at the cost of higher latency. For dense and realistic deployments, this trade-off is intentional.
 
-  MeshRoute is an early but complete proposal for a protocol and tool built around this idea. I believe it is a promising direction for creating an efficient,
-  reliable, and practical communication medium for enthusiasts, amateur radio operators, experimenters, early adopters, and people looking for resilient emergency
-  communication.
+  MeshRoute is a young but working protocol and tool built around this idea — implemented, simulated against physics-realistic radio models, and tested on real
+  hardware. I believe it is a promising direction for creating an efficient, reliable, and practical communication medium for enthusiasts, amateur radio operators,
+  experimenters, early adopters, and people looking for resilient emergency communication.
 
   ## MeshRoute Principles
 
@@ -41,6 +41,14 @@
   Layers can be connected through gateways. A gateway participate in two layers and forward traffic between them according to an explicitly defined layer path. This makes it possible to scale beyond a single local mesh without turning the entire network into one large flood domain.
 
   Inside a single layer, communication can use a node’s short local ID, short public-key hash, or full public identity depending on context. Across layers, messages are addressed using the destination public identity together with a defined path through gateway-connected layers.
+
+  ## Teams and Roaming Nodes
+
+  MeshRoute treats small groups as first-class citizens of the network. A **team** is an encrypted overlay with its own identity space: members discover each other, self-assign team identities with distributed conflict resolution (including mediation for members that cannot hear each other directly), and exchange end-to-end encrypted direct messages and team channels — with no infrastructure at all. Four radios in the field are a complete, working network.
+
+  Team members can also be **mobile nodes**: a roaming device keeps a stable cryptographic identity while the network tracks which fixed node currently "homes" it. Walk out of one anchor's range and into another's, and your registration follows you — messages addressed to you are delivered through whichever home currently hears you, and the switch happens automatically based on measured link quality. A team can mix both worlds: some members homed onto a fixed network, others fully off-grid, all still reachable within the team.
+
+  This combination — encrypted teams plus roaming identity — is designed for the small-crew situations where LoRa mesh shines: hiking groups, search-and-rescue teams, event operations, and anywhere a handful of people need dependable comms with zero infrastructure.
 
   ## Can I Use It Now?
 

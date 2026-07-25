@@ -57,6 +57,15 @@ Corpus: 26 scenario JSONs / 4511 links / 333 meshroute nodes. Top hazards (QA-ve
    `rx_window_slop:"idealized"` in 24/26). 25/26 scenarios simulate a radio 5-27× faster at turnaround — where
    the CTS-wait metal bug hid. Decision needed: flip the DEFAULTS to the metal values (re-anchor event) or
    require them per scenario.
+   > **CLOSED — ⚠ the "27/27 ms" datapoint above was WRONG.** Ruled 2026-07-23, re-ratified by the user
+   > 2026-07-25: the bench measures **~5-8 ms**, and **8/8 ms is the value of record** (whether the delay is
+   > purely radio-module or partly firmware is still open — 8 stands until re-measured). Defaults were flipped
+   > (`JsonConfig.h:104-105` = 8.0f) and every stale 27 was cleaned 2026-07-25: `s09_metal`'s explicit override
+   > 27/27 → 8/8 (it now PINS the measured value on purpose), `test_wave2_config.cpp`'s header comment + printf
+   > (they contradicted their own 8.0f asserts), the `P-BUDGET` context line in `protocol_constants.h` (the
+   > patience constants are UNCHANGED — that derivation prices a hop in seconds, so ~19 ms is below its
+   > resolution), and `s15_three_layer_metal`'s `_desc`, which claimed a `radio.hardware` turnaround block it
+   > has never had. Read §2.1 below with the same correction applied.
 3. **Duty-cycle three-way disagreement + a 100× unit trap**: sim default 0.01, corpus split 0.1/0.01, device NV
    percent (`duty=0.1` on device = 0.001) vs scenario fraction (0.1 = 10%). Unify the unit + require the key.
 4. **Unknown node.config keys silently ignored** — PROVEN live: s09/s09_metal/s10 set `"join_required": true`
@@ -235,6 +244,9 @@ pending-slot rings with bespoke cancel semantics; guard-window FSMs; coalesce fl
   - **2.1 turnaround → REAL**: flip the baseline simulations to the metal values (27/27 ms + the metal
     rx_window_slop formula as the DEFAULT; idealized becomes the opt-in). Standing rule ratified:
     **"simulations need to be as realistic as possible."** Full re-anchor event (keystone retires again).
+    ⚠ **The 27/27 in this ruling was superseded — the value of record is 8/8 ms** (2026-07-23 re-measure,
+    re-ratified 2026-07-25; see the correction box on item 2 of Part 1). The ruling's *direction* stands
+    unchanged; only the number moved.
   - **2.2 duty unit → PERCENT EVERYWHERE, unified**: 1 = 1%. Scenario JSON moves to percent (corpus migrated
     ×100 preserving each scenario's effective duty), sim parse /100 internally, device console already percent;
     ADD the unit to the firmware help text so it's explicit at every authoring surface.

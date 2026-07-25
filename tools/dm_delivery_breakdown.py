@@ -220,10 +220,20 @@ TIMELINE_FIELDS = (
 NODE_ID_FIELDS = ("next", "from", "to", "via_gateway")
 
 
+ALIASED_IDS = {}   # short id -> [names] for ids shared by several nodes (see load_cfg)
+
+
 def fmt_node(fid, id_to_name):
-    """Consistent name(id) rendering. Falls back to #id if no mapping."""
+    """Consistent name(id) rendering. Falls back to #id if no mapping.
+
+    An id shared by several nodes renders every candidate (`a|b(1)`) rather than
+    silently picking whichever one landed in id_to_name last — see ALIASED_IDS.
+    """
     if fid is None:
         return "?"
+    names = ALIASED_IDS.get(fid)
+    if names:
+        return f"{'|'.join(names)}({fid})"
     name = id_to_name.get(fid)
     if name is None:
         return f"#{fid}"
@@ -253,6 +263,35 @@ def load_config(path):
     # reserved "unprovisioned" sentinel. (Mutates the in-memory dicts only; file untouched.)
     for i, n in enumerate(nodes):
         n.setdefault("node_id", i + 1)
+    # ★ 2026-07-25: a short id is unique only WITHIN a layer, so two nodes on different layers
+    # legitimately share one (s10's `l4_seed` and `l5_seed` are both node_id 1). This dict used
+    # to let the last one win, which silently RELABELLED the other node's rows — s10's layer-4
+    # row rendered as `l5_seed(1)`. Report the collision instead of hiding it; fmt_node() shows
+    # every candidate so no reader mistakes an aliased row for a specific node.
+    _by_id = defaultdict(list)
+    for n in nodes:
+        _by_id[n["node_id"]].append(n["name"])
+    global ALIASED_IDS
+    # id 0 is excluded deliberately: it is the reserved "unprovisioned" sentinel (see the
+    # normalisation note above), so the mobiles that share it in s27/s28/s29 are not aliased —
+    # each leases a real id at registration and never appears as origin 0 in the stream.
+    ALIASED_IDS = {i: names for i, names in _by_id.items()
+                   if len(names) > 1 and i != 0}
+    if ALIASED_IDS:
+        # ★ STDERR, not stdout. This diagnostic first shipped on stdout and CORRUPTED `--json`:
+        # it printed ahead of the payload, so `json.load()` on the tool's output died with
+        # "Expecting value: line 1 column 1" for any aliased config (s10). Diagnostics belong on
+        # stderr so the JSON stream stays machine-parseable and a human still sees the warning.
+        # Programmatic consumers should read the ALIASED_IDS dict rather than scrape this text.
+        w = sys.stderr
+        print("!! AMBIGUOUS NODE IDS — these short ids are shared by several nodes, so rows keyed",
+              file=w)
+        print("   on them may merge or mislabel. Short ids are unique only within a layer:", file=w)
+        for i, names in sorted(ALIASED_IDS.items()):
+            layers = [str((n.get("config") or {}).get("layer_id")) for n in nodes
+                      if n["node_id"] == i]
+            print(f"     id {i}: {', '.join(names)}   (layers {', '.join(layers)})", file=w)
+        print(file=w)
     id_to_name = {n["node_id"]: n["name"] for n in nodes}
     name_to_id = {n["name"]: n["node_id"] for n in nodes}
     slot_to_id = {i: n["node_id"] for i, n in enumerate(nodes)}
@@ -327,14 +366,29 @@ def configured_channel_posts(cfg, name_to_id):
 
 
 def configured_pairs(cfg, name_to_id, hash_layer_to_name):
-    """Return set of (origin_id, dst_id) the scenario *intends* to deliver.
+    """Return Counter of (origin_id, dst_id) -> how many sends the scenario *intends*.
 
     Recognises both same-layer `send <name>` and cross-layer
     `send_layer <target_layer> <dst_key_hash32_decimal>`. For
     `send_layer`, the dst is resolved via (target_layer_id, hash) ->
     node_name, then to that node's short id.
+
+    ★ Returns (pairs, same_layer_pairs), both Counters (2026-07-25). Membership
+    still works everywhere `pairs` is used as a pair filter, but the COUNTS are what
+    let summarise() notice that an intended send produced no message at all;
+    before that, such a send was absent from the table and silently vanished from
+    the denominator — see the fail-loud note in summarise().
+
+    ⚠ `same_layer_pairs` holds ONLY the `send <name>` intents, and it is the one to
+    feed summarise(). A `send_layer` record's effective_dst is the GATEWAY's id (the
+    wire dst), never the final destination, so a cross-layer intent legitimately has
+    no row under its own (origin, final_dst) key — injecting it would report a
+    DELIVERED cross-layer DM as unsent (verified on s10's `cross-l4-to-l5-joiner`).
+    Cross-layer already has its own honest denominator: the "cross-layer DMs: X/Y"
+    line, built from tx_enqueue_xl + the no-gateway drops.
     """
-    pairs = set()
+    pairs = Counter()
+    same_layer = Counter()
     for c in cfg.get("commands", []):
         node = c.get("node")
         cmd = c.get("command", "")
@@ -349,15 +403,16 @@ def configured_pairs(cfg, name_to_id, hash_layer_to_name):
                 continue
             dst_name = hash_layer_to_name.get((target_layer, target_hash))
             if node in name_to_id and dst_name in name_to_id:
-                pairs.add((name_to_id[node], name_to_id[dst_name]))
+                pairs[(name_to_id[node], name_to_id[dst_name])] += 1
             continue
         m = SEND_RE.match(cmd)
         if not m:
             continue
         dst = m.group(1)
         if node in name_to_id and dst in name_to_id:
-            pairs.add((name_to_id[node], name_to_id[dst]))
-    return pairs
+            pairs[(name_to_id[node], name_to_id[dst])] += 1
+            same_layer[(name_to_id[node], name_to_id[dst])] += 1
+    return pairs, same_layer
 
 
 def parse_pair_filter(arg, name_to_id):
@@ -446,7 +501,7 @@ def walk_phy_events(events_path, name_to_id):
             yield e.get("time_ms", 0), t, e
 
 
-def analyse(events_path, slot_to_id, hash_layer_to_name=None):
+def analyse(events_path, slot_to_id, hash_layer_to_name=None, id_to_layer=None):
     hash_layer_to_name = hash_layer_to_name or {}
     name_to_id_local = None
     msgs = {}
@@ -499,8 +554,16 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None):
     # §xl (2026-06-17 fix): reconstruct cross-layer DMs from the CURRENT firmware vocabulary. `tx_enqueue_xl`
     # marks a cross-layer origination; the target's `delivered` PRESERVES the original (origin,ctr) (the gateway
     # no longer rewrites them) + carries the resolved target dst -> arrival is a clean (origin,ctr) match.
-    xl_orig = {}        # (origin, ctr) -> (gw_wire_dst, target_layer, t_enqueue_ms)
-    delivered_oc = {}   # (origin, ctr) -> (target_dst, t_delivered_ms)   (first delivered per key)
+    # ★ 2026-07-25 keying fix. Both maps used to key on (origin, ctr) ALONE, which SILENTLY
+    # DROPPED cross-layer sends: a short id is unique only WITHIN a layer, so two different
+    # nodes can share one (s10's `l4_seed` and `l5_seed` are BOTH node_id 1), and once their
+    # ctr sequences align, two genuine cross-layer originations collapse onto one key. s10
+    # then reported "cross-layer DMs: 1/1" while the stream carried 2 tx_enqueue_xl and 2
+    # matching `delivered` — an under-count that looked like a clean 100%.
+    # Origination is now keyed by target_layer and arrival by the resolved target dst, both
+    # of which the events already carry; nothing new has to be inferred.
+    xl_orig = {}        # (origin, ctr, target_layer) -> (gw_wire_dst, target_layer, t_enqueue_ms)
+    delivered_oc = {}   # (origin, ctr, target_dst) -> (target_dst, t_delivered_ms)  (first per destination)
     xl_no_gw = 0        # cross-layer sends dropped at origination: no gateway route (xl_send_no_gateway)
     for t_ms, fid, et, d in walk_events(events_path, slot_to_id):
         if et == "gateway_schedule_change":
@@ -526,8 +589,8 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None):
             if o is not None and dst is not None and c is not None:
                 delivered_fwd.add((o, dst, c))
             # §xl: the target's `delivered` preserves the ORIGINAL (origin,ctr) -> key cross-layer arrival on it.
-            if o is not None and c is not None and (o, c) not in delivered_oc:
-                delivered_oc[(o, c)] = (dst, t_ms)
+            if o is not None and c is not None and (o, c, dst) not in delivered_oc:
+                delivered_oc[(o, c, dst)] = (dst, t_ms)
         elif et == "gateway_envelope_dropped":
             drops.append({"origin": d.get("origin", fid),
                           "target_layer_id": d.get("target_layer_id"),
@@ -560,8 +623,9 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None):
             if to_ is not None and hk is not None:
                 transit_started.add((to_, hk))
         elif et == "tx_enqueue_xl":                       # §xl: a cross-layer origination (dst = the gateway wire-dst)
-            if o is not None and c is not None and (o, c) not in xl_orig:
-                xl_orig[(o, c)] = (dst, d.get("target_layer"), t_ms)
+            tl = d.get("target_layer")
+            if o is not None and c is not None and (o, c, tl) not in xl_orig:
+                xl_orig[(o, c, tl)] = (dst, tl, t_ms)
         elif et == "xl_send_no_gateway":                  # §xl: cross-layer send dropped at origination (no gateway route)
             xl_no_gw += 1
 
@@ -733,15 +797,31 @@ def analyse(events_path, slot_to_id, hash_layer_to_name=None):
     # §xl post-pass (2026-06-17): reconstruct one record per cross-layer origination + resolve arrival from
     # delivered_oc. Done here (after the same-layer main pass) so it isn't clobbered. The target's `delivered`
     # preserves (origin,ctr) and carries the resolved target dst, so no hash/payload resolution is needed.
+    # Pair each origination with the delivery that is actually ITS OWN. Deliveries are keyed
+    # (origin, ctr, target_dst); an origination knows its target_layer, so the correct delivery
+    # is the one whose resolved dst sits in that layer. `consumed` stops two originations that
+    # share (origin, ctr) from both claiming one delivery and double-counting it.
     xl_arrived = 0
-    for (o, c), (gw, tlayer, te) in xl_orig.items():
+    consumed = set()
+    for (o, c, _tl), (gw, tlayer, te) in sorted(xl_orig.items(), key=lambda kv: kv[1][2]):
         r = rec_create((o, gw, c))
         r["via_gateway"] = True
         r["target_layer_id"] = tlayer
         if r["enqueued_ms"] is None:
             r["enqueued_ms"] = te
-        dd = delivered_oc.get((o, c))
-        if dd is not None:
+        cands = [k for k in delivered_oc
+                 if k[0] == o and k[1] == c and k not in consumed]
+        # Prefer a delivery whose target actually lives in this origination's target layer;
+        # fall back to the earliest unclaimed one when the layer of the dst is unknown (a
+        # config without layer_id, or an older stream), which reproduces the old behaviour.
+        pick = next((k for k in cands
+                     if tlayer is not None
+                     and (id_to_layer or {}).get(k[2]) == tlayer), None)
+        if pick is None:
+            pick = min(cands, key=lambda k: delivered_oc[k][1], default=None)
+        if pick is not None:
+            consumed.add(pick)
+            dd = delivered_oc[pick]
             r["arrival_at_target_ms"] = dd[1]
             r["target_id"] = dd[0]
             xl_arrived += 1
@@ -804,24 +884,52 @@ def _arrived(rec):
     return rec["arrived_ms"] is not None
 
 
-def summarise(msgs, pair_filter, id_to_name, no_gw_by_pair=None):
+def summarise(msgs, pair_filter, id_to_name, no_gw_by_pair=None,
+              intended_by_pair=None):
+    """Summarise per-pair delivery.
+
+    `intended_by_pair` (Counter from configured_pairs) makes the denominator
+    FAIL LOUD. ★ 2026-07-25: without it, a scenario's `send` whose message ended
+    up addressed to a DIFFERENT dst than the command intended was filtered out by
+    pair_filter and then vanished ENTIRELY -- not counted as failed, just absent.
+    The pair reported e.g. 3/3 = 100% while 4 sends were intended and one never
+    arrived. Real instances: s09/s09_metal/s10 (a `send <name>` to a dual-layer
+    gateway resolves to whichever id the gateway wears in its CURRENT window, so
+    the frame goes to the other layer's id and is unroutable), plus s15 and s16.
+    An intended send that produced no matching message is now injected as
+    sent-with-0-arrived, exactly as drop-only `no_gw` pairs already were.
+    """
     no_gw_by_pair = no_gw_by_pair or {}
+    intended_by_pair = intended_by_pair or {}
     by_pair = defaultdict(list)
+    misaddressed = defaultdict(Counter)   # origin -> Counter{observed dst: n}, for the diagnostic
     for k, r in msgs.items():
         eff_dst = effective_dst(r)
         if pair_filter is not None and (r["origin"], eff_dst) not in pair_filter:
+            # Not intended for this pair. If the ORIGIN was supposed to send
+            # somewhere, remember where its traffic actually went -- that is the
+            # evidence explaining an unsent intended pair below.
+            if any(o == r["origin"] for (o, _d) in intended_by_pair):
+                misaddressed[r["origin"]][eff_dst] += 1
             continue
         by_pair[(r["origin"], eff_dst)].append(r)
     # Drop-only pairs (every send dropped before enqueue) have no records, so
-    # they're absent from by_pair -- inject them so the loss is counted.
-    all_pairs = set(by_pair) | set(no_gw_by_pair)
+    # they're absent from by_pair -- inject them so the loss is counted. Same for
+    # intended-but-never-observed pairs (see the docstring).
+    all_pairs = set(by_pair) | set(no_gw_by_pair) | set(intended_by_pair)
     rows = []
     for (origin, dst) in sorted(all_pairs):
         if pair_filter is not None and (origin, dst) not in pair_filter:
             continue
         recs = by_pair.get((origin, dst), [])
         no_gw = no_gw_by_pair.get((origin, dst), 0)
-        n = len(recs) + no_gw          # honest denominator: enqueued + dropped
+        # honest denominator: enqueued + dropped, floored at what the scenario
+        # INTENDED for this pair. `unsent` = intended sends that produced no
+        # message at all (mis-addressed or never issued) -- they count as sent
+        # and un-arrived, and are reported loudly under the table.
+        observed = len(recs) + no_gw
+        unsent = max(0, intended_by_pair.get((origin, dst), 0) - observed)
+        n = observed + unsent
         arrived = sum(1 for r in recs if _arrived(r))
         acked = sum(1 for r in recs if r["ack_ms"] is not None)
         giveup = sum(1 for r in recs if outcome(r) == "giveup")
@@ -848,6 +956,10 @@ def summarise(msgs, pair_filter, id_to_name, no_gw_by_pair=None):
             "mean_hops":  mean_hops,
             "giveup_reasons": giveup_reasons,
             "cross_layer": any_cross,
+            "pair_key":   (origin, dst),   # raw ids, so callers can share the unsent map
+            "unsent":     unsent,
+            # Where this origin's traffic went instead, when it owes an unsent send.
+            "misaddressed": (dict(misaddressed.get(origin, {})) if unsent else {}),
         })
     return rows
 
@@ -897,6 +1009,24 @@ def render_table(rows):
         print("giveup reasons:")
         for k, v in sorted(reasons.items(), key=lambda kv: -kv[1]):
             print(f"  {k:<40} {v}")
+    # ★ FAIL LOUD: intended sends that produced no message at all. These used to
+    # be dropped from the table AND the denominator, so the pair read 100% while
+    # a send had silently failed. They are now in `sent` above; name them here
+    # with the evidence, because a bare number does not tell you WHY.
+    unsent_rows = [r for r in rows if r.get("unsent")]
+    if unsent_rows:
+        print()
+        print("!! UNSENT — configured sends with NO matching message "
+              "(counted as sent/0-arrived above):")
+        for r in unsent_rows:
+            print(f"  {r['origin']} -> {r['dst']}   intended-but-missing: {r['unsent']}")
+            for dst, n in sorted(r["misaddressed"].items(), key=lambda kv: -kv[1]):
+                print(f"      this origin instead addressed {fmt_node(dst, {})}"
+                      f" x{n}  <- likely the mis-resolved destination")
+        print("  (a `send <name>` resolves to the target's id at command time; a"
+              " dual-layer gateway's id")
+        print("   alternates with its active window, so the frame can be"
+              " addressed to the other layer.)")
 
 
 def _ev_has(rec, etype, **fields):
@@ -1068,7 +1198,16 @@ def failure_category(rec, gw_giveup, gw_layers=None, id_to_layer=None):
 
 
 def render_dm_failures(msgs, no_gw_by_pair, gw_giveup, pair_filter, id_to_name,
-                       gw_layers=None, id_to_layer=None):
+                       gw_layers=None, id_to_layer=None, unsent_by_pair=None):
+    """`unsent_by_pair` = configured same-layer sends that produced NO message.
+
+    ★ 2026-07-25: this view is the one BASELINE.md's gate recipe actually runs
+    (`--failures`), and it shared the per-pair table's blind spot — a send whose
+    message was addressed elsewhere matched no pair, so it was neither counted as
+    delivered nor as failed and the view read 100%. Injected as its own mechanism,
+    mirroring how no_gw_by_pair is already injected below.
+    """
+    unsent_by_pair = unsent_by_pair or {}
     cat = Counter()
     sl_loc = Counter()        # HOME/VISIT split of the second-leg failures
     ok = 0
@@ -1085,6 +1224,11 @@ def render_dm_failures(msgs, no_gw_by_pair, gw_giveup, pair_filter, id_to_name,
         if pair_filter is not None and (origin, dst) not in pair_filter:
             continue
         cat["XL: no gateway known (never enveloped)"] += n
+    for (origin, dst), n in unsent_by_pair.items():
+        if pair_filter is not None and (origin, dst) not in pair_filter:
+            continue
+        cat["SL: configured send produced NO message "
+            "(mis-addressed dst / never issued)"] += n
     fail = sum(cat.values())
     tot = ok + fail
     if tot == 0:
@@ -2389,7 +2533,7 @@ def main():
         return
 
     msgs, arrival_by_payload, drops, gw_giveup, gw_layers, second_leg, xl_stats = analyse(
-        args.events, slot_to_id, hash_layer_to_name)
+        args.events, slot_to_id, hash_layer_to_name, id_to_layer)
     gw_home, gw_visit = gateway_layers(cfg)
 
     # Post-pass: resolve cross-layer target_id + arrival_at_target_ms.
@@ -2431,14 +2575,19 @@ def main():
     # Pair filter: explicit --pair wins; else configured commands;
     # else (with --all) no filter at all.
     explicit = parse_pair_filter(args.pair, name_to_id)
+    # `intended` is only meaningful for the default (configured-commands) view:
+    # an explicit --pair is the user narrowing the question, and --all removes the
+    # filter entirely, so in neither case is a "missing intended send" well-defined.
+    intended = None
     if explicit is not None:
         pair_filter = explicit
     elif args.all:
         pair_filter = None
     else:
-        pair_filter = configured_pairs(cfg, name_to_id, hash_layer_to_name)
+        pair_filter, intended = configured_pairs(cfg, name_to_id,
+                                                 hash_layer_to_name)
 
-    rows = summarise(msgs, pair_filter, id_to_name, no_gw_by_pair)
+    rows = summarise(msgs, pair_filter, id_to_name, no_gw_by_pair, intended)
 
     channel_rows = None
     posts_meta = None
@@ -2498,7 +2647,9 @@ def main():
             print()
             print("=== DM failures (by mechanism) ===")
             render_dm_failures(msgs, no_gw_by_pair, gw_giveup,
-                               pair_filter, id_to_name, gw_layers, id_to_layer)
+                               pair_filter, id_to_name, gw_layers, id_to_layer,
+                               {r["pair_key"]: r["unsent"]
+                                for r in rows if r.get("unsent")})
         if args.detail:
             print()
             render_detail_text(msgs, pair_filter, id_to_name)

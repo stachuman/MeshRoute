@@ -1,6 +1,6 @@
 {
  "_name": "s09_two_layer_gateway_metal_meshroute",
- "_desc": "\u00a7metal-fidelity (2026-07-07) variant of s09: layer_id 100/102 (nibble 4/6 != full) exposes the cross-layer NIBBLE-MATCH bug, and rx_window_slop:metal exposes the CTS-wait metal-turnaround bug. The l4_seed->l5 DM is send_layer_e2e and we assert l4_seed receives e2e_ack_rx (the reversed 4e ack bridging home over the gateway = the reverse hop the nibble bug refused). Do NOT edit s09 (this is additive).",
+ "_desc": "\u00a7metal-fidelity (2026-07-07) variant of s09: layer_id 100/102 (nibble 4/6 != full) exposes the cross-layer NIBBLE-MATCH bug, and rx_window_slop:metal exposes the CTS-wait metal-turnaround bug. The l4_seed->l5 DM is send_layer_e2e and we assert l4_seed receives e2e_ack_rx (the reversed 4e ack bridging home over the gateway = the reverse hop the nibble bug refused). Do NOT edit s09 (this is additive). radio.hardware PINS the bench-measured turnaround 8/8 ms EXPLICITLY (2026-07-25 ruling: measured ~5-8 ms, 8 kept; the earlier 27/27 here was the stale overestimate) \u2014 same value as the JsonConfig default, pinned on purpose so this metal-fidelity variant keeps the measured number if the default ever moves.",
  "simulation": {
   "duration_ms": 240000,
   "step_ms": 1,
@@ -12,8 +12,8 @@
    "bw": 250,
    "cr": 5,
    "hardware": {
-    "rx_to_tx_delay_ms": 27,
-    "tx_to_rx_delay_ms": 27
+    "rx_to_tx_delay_ms": 8,
+    "tx_to_rx_delay_ms": 8
    },
    "duty_cycle": 1
   },
