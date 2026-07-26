@@ -20,6 +20,16 @@ SendFailReason Node::giveup_fail_reason(const char* ge) {
     return SendFailReason::none;
 }
 
+// §3-B.2: the terminal giveup ritual, previously written out verbatim at 6 sites (4 here, 2 in node_mac_rx.cpp).
+// ORDER IS LOAD-BEARING and matches every former site: tell the app FIRST (while the flight's dst/ctr are still the
+// caller's), then drop the flight, then become_free() to re-service the queue. dst/ctr come in BY VALUE, so a caller
+// holding `PendingTx& pt = *_active->_pending_tx` may pass pt.dst/pt.ctr safely — they are copied before reset().
+void Node::giveup_flight(SendFailReason reason, uint8_t dst, uint16_t ctr) {
+    push_send_failed(reason, dst, ctr);
+    _active->_pending_tx.reset();
+    become_free();
+}
+
 bool Node::alt_tried(const PendingTx& pt, uint8_t hop) const {
     for (uint8_t i = 0; i < pt.alts_tried_n; ++i) if (pt.alts_tried[i] == hop) return true;
     return false;
@@ -167,9 +177,7 @@ void Node::cascade_to_alt(const char* giveup_event) {
                                         { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
                     _hal.emit("path_cascade_exhausted", gf, 2);
                     _hal.emit(giveup_event, gf, 2); );
-                { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = giveup_fail_reason(giveup_event); pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
-                _active->_pending_tx.reset();
-                become_free();
+                giveup_flight(giveup_fail_reason(giveup_event), pt.dst, pt.ctr);
             }
             return;
         }
@@ -198,9 +206,7 @@ void Node::try_cascade_requeue(const PendingTx& pt, const char* giveup_event) {
                                { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
             _hal.emit("path_cascade_exhausted", f, 2);
             _hal.emit(giveup_event, f, 2); );
-        { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = giveup_fail_reason(giveup_event); pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
-        _active->_pending_tx.reset();
-        become_free();
+        giveup_flight(giveup_fail_reason(giveup_event), pt.dst, pt.ctr);
         return;
     }
     // ④ load-adaptive shed: under a backed-up queue the budget shrinks below cascade_requeue_max, so a congested node
@@ -216,9 +222,7 @@ void Node::try_cascade_requeue(const PendingTx& pt, const char* giveup_event) {
             _hal.emit("cascade_load_skip", f, 4);
             _hal.emit("path_cascade_exhausted", f, 2);
             _hal.emit(giveup_event, f, 2); );
-        { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = giveup_fail_reason(giveup_event); pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }
-        _active->_pending_tx.reset();
-        become_free();
+        giveup_flight(giveup_fail_reason(giveup_event), pt.dst, pt.ctr);
         return;
     }
     TxItem it = txitem_from_pending(pt);   // S1: full identity+crypto core (incl. type + nonce_seed — the H4 drop)
@@ -247,7 +251,7 @@ void Node::defer_send(const TxItem& item) {
     // re-parking. s18-inert: s18 never drains a deferred send (redrain_count stays 0). See send_defer_max_redrains.
     if (item.redrain_count >= protocol::send_defer_max_redrains) {
         MR_EMIT("send_deferred_giveup", EF_I("dst", item.dst), EF_I("ctr", item.ctr));
-        { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::no_route; pu.dst = item.dst; pu.ctr = item.ctr; enqueue_push(pu); }
+        push_send_failed(SendFailReason::no_route, item.dst, item.ctr);
         return;
     }
     if (_active->_deferred_n >= protocol::cap_deferred_sends) {   // full -> REFUSE the NEW send (Lua table_cap_hit
@@ -256,7 +260,7 @@ void Node::defer_send(const TxItem& item) {
                 { .key = "dst", .type = EventField::T::i64, .i = item.dst },   // app future so it never hangs.
                 { .key = "ctr", .type = EventField::T::i64, .i = item.ctr } };
             _hal.emit("send_deferred_refused", cf, 2); );
-        { Push pu{}; pu.kind = PushKind::send_failed; pu.dst = item.dst; pu.ctr = item.ctr; enqueue_push(pu); }
+        push_send_failed(SendFailReason::queue_full, item.dst, item.ctr);   // was reason=none -> a reason-LESS send_failed (the emit above is device-stripped, so this Push is the app's only signal)
         return;
     }
     DeferredSend d{}; d.item = item; d.deferred_at_ms = _hal.now();
@@ -296,7 +300,7 @@ void Node::try_drain_deferred() {
                 EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = d.item.dst },
                                    { .key = "ctr", .type = EventField::T::i64, .i = d.item.ctr } };
                 _hal.emit("send_deferred_giveup", f, 2); );
-            { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::no_route; pu.dst = d.item.dst; pu.ctr = d.item.ctr; enqueue_push(pu); }   // §3-A.5: match the sibling defer_send giveup (:250) — was reason=none
+            push_send_failed(SendFailReason::no_route, d.item.dst, d.item.ctr);   // §3-A.5: match the sibling defer_send giveup in defer_send() — was reason=none
             continue;                                    // drop (don't keep)
         }
         RtEntry* e = rt_find(d.item.dst, d.item.plane);   // Wave 2: drain on the item's OWN plane — a GLOBAL item must NOT be drained by a team route (AUTO would match _rt_team for a colliding team id -> drain -> re-issue GLOBAL -> no route -> re-defer -> re-stamp -> never ages out = the RREQ storm)
@@ -418,9 +422,7 @@ bool Node::gateway_doorstep_hold() {
     if (age >= protocol::gateway_send_giveup_ms) {
         MR_EMIT("send_giveup", EF_I("origin", pt.origin), EF_I("dst", pt.dst), EF_I("ctr", pt.ctr),
                 EF_S("reason", "gateway_unreachable_timeout"), EF_I("age_ms", static_cast<int64_t>(age)));
-        Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::gateway_unreachable; pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu);   // §3-A.5: was reason=none (telemetry-only)
-        _active->_pending_tx.reset();
-        become_free();
+        giveup_flight(SendFailReason::gateway_unreachable, pt.dst, pt.ctr);   // §3-A.5: was reason=none (telemetry-only)
         return true;
     }
     const uint32_t wait    = gateway_schedule_defer_ms(pt.dst);

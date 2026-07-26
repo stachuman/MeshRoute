@@ -107,6 +107,22 @@ inline constexpr uint32_t join_refused_retry_ms = 60000;  // 60 s
 inline constexpr uint8_t  wire_version = 1;
 inline constexpr int16_t  sf_margin_q4   = 80;   //  5.0 dB
 
+// ---- PHY unit conversions — the ONE rounding path --------------------------
+// Operators type FRACTIONAL kHz/MHz (62.5 / 41.67 / 31.25 are real LoRa bandwidths) but NV, the wire and the
+// companion JSON carry INTEGER Hz / kHz. Both conversions ROUND (`+ 0.5`) rather than truncate, so 62.5 kHz lands
+// on 62500 Hz and not 62499 — the fractional-BW bug this project has already paid for once.
+//
+// ★ The parameter is `double` ON PURPOSE. Every call site's operand is already a `double` (`atof`, or
+// `LayerConfig::freq_mhz`); a `float` parameter would re-round it at ~7 significant digits and shift values that
+// are not exactly representable. Do NOT "improve" these to `llround`/`lround` either: `(uint32_t)(x * 1000.0 + 0.5)`
+// IS the shipped behaviour, and the whole point of the helper is being bit-identical to the 13 sites it replaced.
+//
+// They are kept as TWO functions although the arithmetic coincides: the unit is the contract, and reading
+// `mhz_to_khz(freq_mhz)` at a call site is what makes a kHz/MHz mix-up visible to a reviewer (the compiler cannot
+// catch it — both take a bare double). Keep them independently editable; never fold one into the other.
+inline constexpr uint32_t khz_to_hz(double khz)  { return static_cast<uint32_t>(khz * 1000.0 + 0.5); }
+inline constexpr uint32_t mhz_to_khz(double mhz) { return static_cast<uint32_t>(mhz * 1000.0 + 0.5); }
+
 // ---- MAC / channel access --------------------------------------------------
 inline constexpr uint16_t cts_to_data_gap_ms = 5;
 inline constexpr uint16_t rts_busy_retry_ms  = 30;

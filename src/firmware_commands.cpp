@@ -42,7 +42,10 @@ size_t handle_peerkey(char* out, size_t cap, const meshroute::Command& cmd) {
     const uint32_t kh = (uint32_t)ep[0] | ((uint32_t)ep[1] << 8) | ((uint32_t)ep[2] << 16) | ((uint32_t)ep[3] << 24);
     if (g_node.on_command(cmd).code != meshroute::CmdCode::queued)        // false only when the cache is full of pinned keys
         return (size_t)snprintf(out, cap, "{\"ev\":\"peerkey_err\",\"reason\":\"full\"}\n");
-    persist_pinned_peer(kh, ep);                                          // best-effort NV (bench); the RAM key works regardless
+    // §nv-unchecked [5/5]: persist_pinned_peer CHECKS its own save and returns the verdict — this CALLER discards it.
+    // Preserved deliberately (see fw_main §nv-unchecked [1/5]): best-effort NV (bench); the RAM key works regardless,
+    // but the `peerkey_set` ack below claims `"pinned":true` even when the /mrpeers write failed. Owner ruling owed.
+    (void)persist_pinned_peer(kh, ep);
     return (size_t)snprintf(out, cap, "{\"ev\":\"peerkey_set\",\"hash\":%lu,\"pinned\":true}\n", (unsigned long)kh);
 }
 

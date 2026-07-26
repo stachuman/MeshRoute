@@ -38,6 +38,21 @@ static void apply_radio_live(const mrnv::Blob& b, bool reconfig) {
 
 static void seed_blob_from_live(mrnv::Blob& b);   // fwd decl — defined below (with the provisioning block); handle_cfg_set's seed path calls it
 
+// §nv-ritual (dedup 3-B item 4): the load-or-seed/stamp prologue every /mrcfg write path opened with, spelled out
+// once. ★ Why the STAMP is the load-bearing half: `handle_team` once omitted it, so a `team` command on a fresh (or
+// version-rejected) chip persisted magic=0/version=0 — which the next boot's load() REJECTS, reverting the WHOLE
+// config to defaults (the `cfg set mobile 1` -> reboot -> mobile=0 bug). seed_blob_from_live stamps too, but only
+// on the load-FAILED path; stamping here covers the load-SUCCEEDED path as well, which is what upgrades a loaded
+// older-version blob to kVersion so a reflash MIGRATES instead of resetting.
+// ⚠ The SAVE half is deliberately NOT wrapped: the seven call sites differ in failure handling (return / report and
+// carry on because the live state is already applied / commit a persistence tracker only on success / skip the save
+// entirely) and each prints a different user-visible string. Folding that into parameters would hide the very
+// differences that matter. Sites that ignore the save result at all are tagged `§nv-unchecked` where they live.
+void nv_load_stamped(mrnv::Blob& b) {
+    if (!mrnv::load(b)) seed_blob_from_live(b);            // nothing persisted (or a rejected version) -> the live config
+    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;    // (re)stamp on BOTH paths — also upgrades an older loaded blob
+}
+
 // `cfg set <key> <value>` — ACCUMULATES onto the pending NV blob (so several sets + ONE reboot works), then
 // applies LIVE to the running node where possible. RADIO knobs (freq/routing_sf|control_sf/bw/cr/tx_power) +
 // MAC knobs (sf_list/lbt/beacon_ms) take effect NOW; node_id + duty need a reboot (identity / on_init budget).
@@ -76,13 +91,8 @@ void handle_cfg_set(const char* args, Print& out) {
     }
 
     // Base = the PENDING NV blob so consecutive sets ACCUMULATE (else each snapshot reverts the others).
-    // §cleanup 2026-07-15: the load-failed seed is unified with seed_blob_from_live (its field set is byte-identical
-    // to the former inline block — verified — matching the 5 other save sites). The unconditional (re)stamp BELOW is
-    // KEPT: it runs on the load-SUCCESS path too, upgrading a loaded older-version blob to kVersion (seed_blob_from_live
-    // never runs when load() succeeds, so it can't do that).
-    mrnv::Blob b{};
-    if (!mrnv::load(b)) seed_blob_from_live(b);            // nothing persisted yet -> seed from the live config
-    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;    // (re)stamp -> also upgrades a loaded v2 blob to v3
+    // §nv-ritual: load-or-seed + stamp (the unconditional (re)stamp also upgrades a loaded older-version blob).
+    mrnv::Blob b{}; nv_load_stamped(b);
 
     // live = takes effect on the RUNNING node now (else reboot); radio = needs apply_radio_live; persist = write NV.
     // node-config knobs apply via mutable_config() (the MAC re-reads those each use). duty stays reboot (its
@@ -99,7 +109,7 @@ void handle_cfg_set(const char* args, Print& out) {
         b.node_id = (uint8_t)v; b.joined = 0; live = false;        // operator-pinned id -> NOT DAD-adopted (won't auto-yield)
     }
     else if (!strcmp(key, "freq"))                                     { const double f = atof(val);        // mirror join/create: 100..1000 MHz — out-of-band persists an RF-dead node
-                                                                         if (f < 100.0 || f > 1000.0) { out.println(F("> cfg err bad_value (freq 100..1000 MHz)")); return; }
+                                                                         if (!valid_freq_mhz(f)) { out.println(F("> cfg err bad_value (freq 100..1000 MHz)")); return; }
                                                                          b.freq_mhz = f;                      reconfig = radio = true; }
     // BENCH NOTE (2026-06-19): SF5 does NOT lock over-the-air on the tested SX1262 modules (XIAO Wio-SX1262 +
     // Heltec V3) — the receiver completes ZERO reception (`status` isr==tx, rx=0) at BW125 AND BW500, and bumping
@@ -112,8 +122,8 @@ void handle_cfg_set(const char* args, Print& out) {
                                                                          if (!valid_routing_sf(v)) { out.println(F("> cfg err bad_value (routing_sf 5..12)")); return; }
                                                                          b.routing_sf = (uint8_t)v; reconfig = radio = true; }
     else if (!strcmp(key, "bw"))                                       { const double bwk = atof(val);      // W2b unit unification: kHz ALWAYS (fractional ok, e.g. 62.5) — mirrors join/create/gateway; kHz->Hz ROUNDED. BREAKING: was Hz. (bw<=0 -> downstream div-by-zero)
-                                                                         if (bwk < 7.0 || bwk > 500.0) { out.println(F("> cfg err bad_value (bw 7..500 kHz, fractional ok e.g. 62.5)")); return; }
-                                                                         b.bw_hz = (uint32_t)(bwk * 1000.0 + 0.5); reconfig = radio = true; }
+                                                                         if (!valid_bw_khz(bwk)) { out.println(F("> cfg err bad_value (bw 7..500 kHz, fractional ok e.g. 62.5)")); return; }
+                                                                         b.bw_hz = meshroute::protocol::khz_to_hz(bwk); reconfig = radio = true; }
     else if (!strcmp(key, "cr"))                                       { const int cr = atoi(val);          // LoRa coding rate 4/5..4/8 -> 5..8 (SX1262 setCodingRate range)
                                                                          if (cr < 5 || cr > 8) { out.println(F("> cfg err bad_value (cr 5..8)")); return; }
                                                                          b.cr = (uint8_t)cr;                  reconfig = radio = true; }
@@ -276,8 +286,8 @@ void handle_cfg_set(const char* args, Print& out) {
     }
     else if (!strcmp(key, "l1_bw")) {                            // v17 per-layer BW in kHz (W2b unit unification: kHz ALWAYS, fractional ok e.g. 62.5; 0 = inherit the global bw). Mirrors `gateway bw1=`. BREAKING: was Hz.
         const double bwk = atof(val);
-        if (bwk < 0.0 || (bwk > 0.0 && (bwk < 7.0 || bwk > 500.0))) { out.println(F("> cfg err bad_value (l1_bw 7..500 kHz, fractional ok; 0=inherit)")); return; }
-        b.l1_bw_hz = (uint32_t)(bwk * 1000.0 + 0.5); live = false;
+        if (bwk < 0.0 || (bwk > 0.0 && !valid_bw_khz(bwk))) { out.println(F("> cfg err bad_value (l1_bw 7..500 kHz, fractional ok; 0=inherit)")); return; }   // 0 = inherit is the ONE exemption from the shared domain
+        b.l1_bw_hz = meshroute::protocol::khz_to_hz(bwk); live = false;
     }
     else if (!strcmp(key, "l1_cr")) {                            // v17 per-layer CR: layer-1 coding-rate 5..8 (0 = inherit)
         const int v = atoi(val);
@@ -354,6 +364,8 @@ void handle_gateway(const char* args, Print& out) {
     // change the PERSISTED bytes (verified): is_mobile flips 0->1 with NO boot-side !=0 guard (inert only because a
     // gateway build compiles mobile out) + gw_announce_*/gw_herd_slack persist non-zero. Behaviourally harmless on a
     // gateway, but NOT byte-identical, so it stays a subset (a hygiene unify would be a real state change).
+    // Same verdict against the §nv-ritual prologue (dedup 3-B item 4): nv_load_stamped() IS load-or-seed_blob_from_live,
+    // so adopting it here would make exactly the persisted-byte change this comment refuses. The stamp stays inline below.
     mrnv::Blob b{};
     if (!mrnv::load(b)) {
         const NodeConfig& nc = g_node.config();
@@ -443,28 +455,24 @@ static void provision_apply_live(const mrnv::Blob& b, bool do_dad) {
 #if MR_N_LAYERS < 2   // §config-integrity: create/join are normal-node-only — compiled out on the gateway build (refused at dispatch)
 void handle_join(const char* args, Print& out) {
     char buf[128]; size_t bn = 0; for (; args[bn] && bn < sizeof(buf) - 1; ++bn) buf[bn] = args[bn]; buf[bn] = '\0';
-    double freq = 0, bwk = 0; long sf = 0, layer = 0; bool hf = false, hb = false, hs = false, hlv = false;   // bwk is kHz (FRACTIONAL — 62.5 / 41.67 / 31.25 are valid LoRa BWs)
+    PhyArgs pa{};   // freq MHz / bw kHz (FRACTIONAL — 62.5 / 41.67 / 31.25 are valid LoRa BWs) / sf / layer — all four REQUIRED here
     char* p = buf; char* k; char* v;
     while (kv_next(p, k, v)) {
-        if      (v && !strcmp(k, "freq"))  { freq  = atof(v); hf = true; }
-        else if (v && !strcmp(k, "bw"))    { bwk   = atof(v); hb = true; }
-        else if (v && !strcmp(k, "sf"))    { sf    = atol(v); hs = true; }
-        else if (v && !strcmp(k, "layer")) { layer = atol(v); hlv = true; }   // the full 1..255 layer id (wire leaf nibble = layer & 0x0F)
-        else { out.print(F("> join err bad/unknown key: ")); out.println(k); goto usage; }
+        if (phy_arg_take(pa, k, v, /*allow_layer=*/true)) continue;
+        out.print(F("> join err bad/unknown key: ")); out.println(k); goto usage;
     }
-    if (!(hf && hb && hs && hlv) || freq < 100.0 || freq > 1000.0 || bwk < 7 || bwk > 500 || sf < 5 || sf > 12 || layer < 1 || layer > 255) goto usage;
+    if (!(pa.has_freq && pa.has_bw && pa.has_sf && pa.has_layer) || !phy_args_in_range(pa, /*with_layer=*/true)) goto usage;
     {
-        mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
-        b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
-        b.freq_mhz = freq; b.bw_hz = (uint32_t)(bwk * 1000.0 + 0.5); b.routing_sf = (uint8_t)sf;   // kHz->Hz, ROUNDED (62.5->62500, not 62000)
-        b.leaf_id = (uint8_t)(layer & 0x0F); b.layer0_id = (uint8_t)layer;       // full layer id stored; leaf = layer & 0x0F (byte-0 wire filter)
+        mrnv::Blob b{}; nv_load_stamped(b);   // §nv-ritual
+        b.freq_mhz = pa.freq_mhz; b.bw_hz = meshroute::protocol::khz_to_hz(pa.bw_khz); b.routing_sf = (uint8_t)pa.sf;
+        b.leaf_id = (uint8_t)(pa.layer & 0x0F); b.layer0_id = (uint8_t)pa.layer;   // full layer id stored; leaf = layer & 0x0F (byte-0 wire filter)
         b.node_id = 0; b.joined = 0; b.lineage_id = 0; b.config_epoch = 0;       // unprovisioned -> DAD + adopt the leaf's lineage via pull
         b.leaf_name_len = 0;                                                     // §clean-join: don't carry the OLD leaf's name into the new network — present as freshly-joined (config-not-yet-pulled). A managed leaf repopulates via the config pull; an unmanaged one shows blank until `cfg set leaf_name`. (Bytes need not be zeroed — len-gated.)
         if (!mrnv::save(b)) { out.println(F("> join err nv_save_failed")); return; }
         provision_apply_live(b, /*do_dad=*/true);
         meshroute::console::JoinStartedFields js{};   // JSON verb ack (replaces the human line): the app's start-of-DAD event
-        js.layer = (uint8_t)layer; js.leaf = (uint8_t)(layer & 0x0F);
-        js.freq_khz = (uint32_t)(freq * 1000.0 + 0.5); js.sf = (uint8_t)sf; js.bw_hz = b.bw_hz;
+        js.layer = (uint8_t)pa.layer; js.leaf = (uint8_t)(pa.layer & 0x0F);
+        js.freq_khz = meshroute::protocol::mhz_to_khz(pa.freq_mhz); js.sf = (uint8_t)pa.sf; js.bw_hz = b.bw_hz;
         const size_t m = meshroute::console::write_join_started(s_inbox_jb, sizeof s_inbox_jb, js);
         if (m) out.write(s_inbox_jb, m);
         return;
@@ -478,17 +486,14 @@ usage:
 // The anti-spam keys are OPTIONAL: omitted => the protocol DEFAULTS (never inherited from the node's current settings).
 void handle_create(const char* args, Print& out) {
     char buf[192]; size_t bn = 0; for (; args[bn] && bn < sizeof(buf) - 1; ++bn) buf[bn] = args[bn]; buf[bn] = '\0';
-    double freq = 0, dutypct = -1, bwk = 0; long sf = 0, layer = 0; uint16_t sfbm = 0;   // bwk is kHz (FRACTIONAL — 62.5 / 41.67 / 31.25 are valid LoRa BWs)
+    PhyArgs pa{}; double dutypct = -1; uint16_t sfbm = 0;   // pa = the shared freq/bw/sf/layer floor (bw kHz, FRACTIONAL)
     char nm[meshroute::protocol::leaf_name_max]; uint8_t nlen = 0;
     float af = 0.125f; long chi = meshroute::protocol::channel_min_interval_ms, dmi = meshroute::protocol::dm_min_interval_ms;   // anti-spam DEFAULTS (overridden only if the key is given)
-    bool hf = false, hb = false, hs = false, hlv = false, hlist = false, hduty = false, hname = false;
+    bool hlist = false, hduty = false, hname = false;
     char* p = buf; char* k; char* v;
     while (kv_next(p, k, v)) {
-        if      (v && !strcmp(k, "freq"))            { freq = atof(v); hf = true; }
-        else if (v && !strcmp(k, "bw"))              { bwk = atof(v); hb = true; }
-        else if (v && !strcmp(k, "sf"))              { sf = atol(v); hs = true; }
-        else if (v && !strcmp(k, "layer"))           { layer = atol(v); hlv = true; }   // the full 1..255 layer id (wire leaf nibble = layer & 0x0F)
-        else if (v && !strcmp(k, "sf_list"))         { sfbm = parse_sf_list(v); hlist = true; }
+        if (phy_arg_take(pa, k, v, /*allow_layer=*/true)) continue;   // create takes MORE keys than the shared floor — only freq/bw/sf/layer are shared
+        if      (v && !strcmp(k, "sf_list"))         { sfbm = parse_sf_list(v); hlist = true; }
         else if (v && !strcmp(k, "duty"))            { dutypct = atof(v); hduty = true; }
         else if (v && !strcmp(k, "name"))            { for (const char* c = v; *c && nlen < sizeof(nm); ++c) nm[nlen++] = *c; hname = true; }
         else if (v && !strcmp(k, "active_fraction")) { af = (float)atof(v); }
@@ -496,15 +501,14 @@ void handle_create(const char* args, Print& out) {
         else if (v && !strcmp(k, "dm_min_ms"))       { dmi = atol(v); }
         else { out.print(F("> create err bad/unknown key: ")); out.println(k); goto usage; }
     }
-    if (!(hf && hb && hs && hlv && hlist && hduty && hname)) goto usage;
-    if (freq < 100.0 || freq > 1000.0 || bwk < 7 || bwk > 500 || sf < 5 || sf > 12 || layer < 1 || layer > 255 || sfbm == 0 || dutypct < 0.0 || dutypct > 100.0) goto usage;
+    if (!(pa.has_freq && pa.has_bw && pa.has_sf && pa.has_layer && hlist && hduty && hname)) goto usage;
+    if (!phy_args_in_range(pa, /*with_layer=*/true) || sfbm == 0 || dutypct < 0.0 || dutypct > 100.0) goto usage;
     if (af <= 0.0f) af = 0.125f; if (af > 1.0f) af = 1.0f;                    // clamp; 0/absent -> the default
     if (chi < 1) chi = meshroute::protocol::channel_min_interval_ms; if (dmi < 1) dmi = meshroute::protocol::dm_min_interval_ms;
     {
-        mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
-        b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
-        b.freq_mhz = freq; b.bw_hz = (uint32_t)(bwk * 1000.0 + 0.5); b.routing_sf = (uint8_t)sf;   // kHz->Hz, ROUNDED (62.5->62500, not 62000)
-        b.leaf_id = (uint8_t)(layer & 0x0F); b.layer0_id = (uint8_t)layer;    // full layer id; leaf = layer & 0x0F
+        mrnv::Blob b{}; nv_load_stamped(b);   // §nv-ritual
+        b.freq_mhz = pa.freq_mhz; b.bw_hz = meshroute::protocol::khz_to_hz(pa.bw_khz); b.routing_sf = (uint8_t)pa.sf;
+        b.leaf_id = (uint8_t)(pa.layer & 0x0F); b.layer0_id = (uint8_t)pa.layer;    // full layer id; leaf = layer & 0x0F
         b.allowed_sf_bitmap = sfbm;
         b.duty = meshroute::bp_to_duty(meshroute::duty_to_bp(dutypct / 100.0));   // §5: percent -> 0..1, quantized to the 0.01% wire step
         for (uint8_t i = 0; i < nlen; ++i) b.leaf_name[i] = (uint8_t)nm[i]; b.leaf_name_len = nlen;
@@ -517,9 +521,9 @@ void handle_create(const char* args, Print& out) {
         provision_apply_live(b, /*do_dad=*/true);
         meshroute::console::JoinStartedFields js{};   // JSON verb ack (replaces the human line): create adds create/lineage/leaf_name
         js.create = true;
-        js.layer = (uint8_t)layer; js.leaf = (uint8_t)(layer & 0x0F);
+        js.layer = (uint8_t)pa.layer; js.leaf = (uint8_t)(pa.layer & 0x0F);
         js.lineage = lin; js.leaf_name = nm; js.leaf_name_len = nlen;
-        js.freq_khz = (uint32_t)(freq * 1000.0 + 0.5); js.sf = (uint8_t)sf; js.bw_hz = b.bw_hz;
+        js.freq_khz = meshroute::protocol::mhz_to_khz(pa.freq_mhz); js.sf = (uint8_t)pa.sf; js.bw_hz = b.bw_hz;
         const size_t m = meshroute::console::write_join_started(s_inbox_jb, sizeof s_inbox_jb, js);
         if (m) out.write(s_inbox_jb, m);
         return;
@@ -527,6 +531,45 @@ void handle_create(const char* args, Print& out) {
 usage:
     out.println(F("> create err usage: create layer=<1..255> freq=<MHz> bw=<kHz 7..500, fractional ok e.g. 62.5> sf=<5..12> sf_list=<e.g.7,9> duty=<percent, 1 = 1%, fractional ok e.g. 0.1 = 0.1%> name=\"<text>\" [active_fraction=<0..1>] [ch_min_ms=<ms>] [dm_min_ms=<ms>]   (leaf = layer & 0x0F)"));
 }
+
+#if MR_FEAT_MOBILE
+// §mobile 6.4 / §3-A.7: THE `[freq=<MHz> sf=<5-12> bw=<kHz>]` PHY tail, shared by `team new|<id>` and
+// `mobile register`. Both verbs set the CURRENT layer's PHY from an operator-typed triplet, and both used to spell
+// the whole ritual out — tokenize, reject unknown keys, require freq=, domain-check, build a LayerConfig.
+// `layer=` is deliberately NOT accepted (neither verb ever did — see phy_arg_take's allow_layer).
+//
+// Returns `none` when the tail holds no tokens at all: `team 0` / `team <id>` with no PHY must skip the block
+// silently, which is NOT the same as the "you gave args but no freq=" error. The per-verb strings are parameters
+// because the console text is user-visible and differs verb by verb — including `team`'s own inconsistency
+// (`> team err bad/unknown key:` vs `> team new err:`), which is preserved rather than tidied (C1).
+// `bw_khz` comes back raw for the caller's echo line: re-deriving it from phy.bw_hz would round a second time.
+enum class PhyTail : uint8_t { none, ok, error };
+struct PhyTailMsgs {
+    const __FlashStringHelper* bad_key;    // printed, then the offending key
+    const __FlashStringHelper* need_freq;  // tokens present but no freq=
+    const __FlashStringHelper* range;      // freq/sf/bw outside the shared domain
+};
+static PhyTail parse_phy_tail(const char* tail, uint8_t layer_id, const PhyTailMsgs& msg, Print& out,
+                              meshroute::LayerConfig& phy, double& bw_khz) {
+    char pb[96]; size_t pn = 0; for (const char* q = tail; *q && pn < sizeof(pb) - 1; ++q) pb[pn++] = *q; pb[pn] = '\0';
+    char* pp = pb; char* k; char* v;
+    PhyArgs pa{}; pa.bw_khz = 125.0;   // sf is REQUIRED with freq (0 fails the 5..12 check); bw is OPTIONAL, default 125 kHz — both as before
+    bool any = false;
+    while (kv_next(pp, k, v)) {
+        any = true;
+        if (phy_arg_take(pa, k, v, /*allow_layer=*/false)) continue;
+        out.print(msg.bad_key); out.println(k); return PhyTail::error;
+    }
+    if (!any) return PhyTail::none;
+    if (!pa.has_freq) { out.println(msg.need_freq); return PhyTail::error; }
+    if (!phy_args_in_range(pa, /*with_layer=*/false)) { out.println(msg.range); return PhyTail::error; }
+    phy = meshroute::LayerConfig{};
+    phy.layer_id = layer_id; phy.routing_sf = (uint8_t)pa.sf; phy.freq_mhz = pa.freq_mhz;
+    phy.bw_hz = meshroute::protocol::khz_to_hz(pa.bw_khz); phy.allowed_sf_bitmap = (uint16_t)(1u << pa.sf);
+    bw_khz = pa.bw_khz;
+    return PhyTail::ok;
+}
+#endif   // MR_FEAT_MOBILE (parse_phy_tail)
 
 // §mobile 6.1: FNV-1a over (key_hash32 ‖ nonce) = the 32-bit team_id (team_fnv1a32, firmware_config_parse.h).
 // `team new` = MINT a fresh team_id = hash(our key ‖ HW-RNG nonce). `team <id>` = JOIN an existing team. `team 0` = leave.
@@ -547,37 +590,22 @@ void handle_team(const char* args, Print& out) {
         out.println(F("> team err usage: `team new [freq= sf= bw=]` (mint) | `team <id> [freq= sf= bw=]` (join) | `team 0` (leave)"));
         return;
     }
-    mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
-    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;   // ★ was MISSING (the only save path without a stamp) -> a `team` command on a fresh/rejected blob persisted magic=0 => next boot's load() rejected it => the whole config reset (mobile=0). seed_blob_from_live now also stamps; this is belt-and-suspenders + matches the other 6 save paths.
+    mrnv::Blob b{}; nv_load_stamped(b);   // §nv-ritual — the stamp this path once MISSED (see nv_load_stamped) is now structural
     b.team_id = t;
     // §mobile 6.4 Fix 6: set the team PHY so teammates hear each other (AND a member can later register with a compatible
     // static network). Mirror `mobile register freq=`. Omitted -> keep the current PHY. Requires is_mobile (a team is mobile).
 #if MR_FEAT_MOBILE
     if (phy_args && *phy_args && c.is_mobile) {
-        // §3-A.7: tokenize via kv_next (EXACT key match) — the old strstr matching accepted `xfreq=` as "freq=" and
-        // silently ignored junk/typo'd keys. Unknown key -> fail loud. Empty tail (e.g. `team 0`) skips the block.
-        char pb[96]; size_t pn = 0; for (const char* q = phy_args; *q && pn < sizeof(pb) - 1; ++q) pb[pn++] = *q; pb[pn] = '\0';
-        char* pp = pb; char* k; char* v;
-        double freq = 0.0; int sf = 0; double bw = 125.0; bool hfreq = false;   // sf REQUIRED with freq (0 fails the 5..12 check); bw defaults 125 kHz — both as before
-        bool any = false;
-        while (kv_next(pp, k, v)) {
-            any = true;
-            if      (v && !strcmp(k, "freq")) { freq = atof(v); hfreq = true; }
-            else if (v && !strcmp(k, "sf"))   { sf = atoi(v); }
-            else if (v && !strcmp(k, "bw"))   { bw = atof(v); }   // FRACTIONAL kHz (62.5 valid)
-            else { out.print(F("> team err bad/unknown key: ")); out.println(k); return; }
-        }
-        if (any && !hfreq) { out.println(F("> team err: PHY args need freq= (freq=<MHz> sf=<5-12> [bw=<kHz>])")); return; }
-        if (hfreq) {
-        if (freq < 100.0 || freq > 1000.0 || sf < 5 || sf > 12 || bw < 7.0 || bw > 500.0) {
-            out.println(F("> team new err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")); return;
-        }
-        meshroute::LayerConfig phy{};
-        phy.layer_id = c.leaf_id; phy.routing_sf = (uint8_t)sf; phy.freq_mhz = freq;
-        phy.bw_hz = (uint32_t)(bw * 1000.0 + 0.5); phy.allowed_sf_bitmap = (uint16_t)(1u << sf);
-        g_node.mobile_register_phy(phy);                       // retune the radio (+ kick the FSM -> team-DAD via the no-host path)
-        b.freq_mhz = freq; b.routing_sf = (uint8_t)sf; b.bw_hz = phy.bw_hz; b.allowed_sf_bitmap = phy.allowed_sf_bitmap;   // PERSIST the team PHY
-        out.print(F("> team PHY: freq=")); out.print(freq, 3); out.print(F(" sf=")); out.print(sf); out.print(F(" bw=")); out.print(bw, 2); out.println(F(" kHz"));
+        const PhyTailMsgs msg{ F("> team err bad/unknown key: "),
+                               F("> team err: PHY args need freq= (freq=<MHz> sf=<5-12> [bw=<kHz>])"),
+                               F("> team new err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz") };
+        meshroute::LayerConfig phy{}; double bw = 0.0;
+        const PhyTail r = parse_phy_tail(phy_args, c.leaf_id, msg, out, phy, bw);
+        if (r == PhyTail::error) return;
+        if (r == PhyTail::ok) {                                    // `none` (empty tail, e.g. `team 0`) = keep the current PHY
+            g_node.mobile_register_phy(phy);                       // retune the radio (+ kick the FSM -> team-DAD via the no-host path)
+            b.freq_mhz = phy.freq_mhz; b.routing_sf = phy.routing_sf; b.bw_hz = phy.bw_hz; b.allowed_sf_bitmap = phy.allowed_sf_bitmap;   // PERSIST the team PHY
+            out.print(F("> team PHY: freq=")); out.print(phy.freq_mhz, 3); out.print(F(" sf=")); out.print(phy.routing_sf); out.print(F(" bw=")); out.print(bw, 2); out.println(F(" kHz"));
         }
     }
 #endif
@@ -620,24 +648,15 @@ void handle_mobile(const char* args, Print& out) {
             g_node.mobile_register_scan();
             out.print(F("> mobile register: scanning current + ")); out.print(g_node.learned_layers_count()); out.println(F(" known networks"));
         } else if (*p) {
-            // §3-A.7: tokenize via kv_next (EXACT key match) — the old strstr matching accepted `xfreq=` as "freq=", and
-            // any non-key junk silently fell through to register-current. Unknown key / missing freq -> fail loud.
-            char pb[96]; size_t pn = 0; for (const char* q = p; *q && pn < sizeof(pb) - 1; ++q) pb[pn++] = *q; pb[pn] = '\0';
-            char* pp = pb; char* k; char* v;
-            double freq = 0.0; int sf = 0; double bw = 125.0; bool hfreq = false;   // sf REQUIRED with freq (0 fails 5..12); bw defaults 125 kHz — as before. FRACTIONAL kHz — 62.5 / 41.67 / 31.25 are valid LoRa BWs (atof, NOT atoi which truncates 62.5->62)
-            while (kv_next(pp, k, v)) {
-                if      (v && !strcmp(k, "freq")) { freq = atof(v); hfreq = true; }
-                else if (v && !strcmp(k, "sf"))   { sf = atoi(v); }
-                else if (v && !strcmp(k, "bw"))   { bw = atof(v); }
-                else { out.print(F("> mobile register err bad/unknown key: ")); out.println(k); return; }
-            }
-            if (!hfreq) { out.println(F("> mobile register err: args need freq= (freq=<MHz> sf=<5-12> [bw=<kHz>] | scan | <none>)")); return; }
-            if (freq < 100.0 || freq > 1000.0 || sf < 5 || sf > 12 || bw < 7.0 || bw > 500.0) { out.println(F("> mobile register err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz")); return; }
-            meshroute::LayerConfig phy{};
-            phy.layer_id = c.leaf_id; phy.routing_sf = (uint8_t)sf; phy.freq_mhz = freq;
-            phy.bw_hz = (uint32_t)(bw * 1000.0 + 0.5); phy.allowed_sf_bitmap = (uint16_t)(1u << sf);   // kHz->Hz ROUNDED (62.5->62500, not 62000)
+            const PhyTailMsgs msg{ F("> mobile register err bad/unknown key: "),
+                                   F("> mobile register err: args need freq= (freq=<MHz> sf=<5-12> [bw=<kHz>] | scan | <none>)"),
+                                   F("> mobile register err: freq 100..1000 MHz, sf 5..12, bw 7..500 kHz") };
+            meshroute::LayerConfig phy{}; double bw = 0.0;
+            const PhyTail r = parse_phy_tail(p, c.leaf_id, msg, out, phy, bw);
+            if (r == PhyTail::error) return;
+            if (r == PhyTail::none) { out.println(msg.need_freq); return; }   // unreachable (*p is non-space here, so kv_next yields >=1 token) — mirrors the old bare `if (!hfreq)`
             g_node.mobile_register_phy(phy);
-            out.print(F("> mobile register: on freq=")); out.print(freq, 3); out.print(F(" sf=")); out.print(sf); out.print(F(" bw=")); out.print(bw, 2); out.println(F(" kHz"));
+            out.print(F("> mobile register: on freq=")); out.print(phy.freq_mhz, 3); out.print(F(" sf=")); out.print(phy.routing_sf); out.print(F(" bw=")); out.print(bw, 2); out.println(F(" kHz"));
         } else {
             g_node.mobile_register_current();
             out.println(F("> mobile register: DISCOVER on the current PHY"));
@@ -680,7 +699,7 @@ void handle_mobile(const char* args, Print& out) {
         m.autoregister = c.mobile_autoregister;
         m.layer   = c.layers[0].layer_id;
         const double pf = c.layers[0].freq_mhz > 0.0 ? c.layers[0].freq_mhz : g_freq_mhz;   // §mobile: live layer freq (fallback to boot/global if not yet adopted)
-        m.freq_khz = static_cast<uint32_t>(pf * 1000.0 + 0.5);   // MHz double -> integer kHz (rounded; no float on the wire)
+        m.freq_khz = meshroute::protocol::mhz_to_khz(pf);   // MHz double -> integer kHz (rounded; no float on the wire)
         m.sf      = c.routing_sf;
         m.bw_hz   = g_node.active_bw_hz();
         m.nets    = g_node.learned_layers_count();
@@ -695,7 +714,7 @@ void handle_mobile(const char* args, Print& out) {
 
 // `leave` — wipe to default, keep ONLY freq; go unprovisioned + idle (the clean managed->managed re-join primitive).
 void handle_leave(Print& out) {
-    mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
+    mrnv::Blob b{}; nv_load_stamped(b);   // §nv-ritual (only freq is kept below, but the read is the same one)
     const double keep_freq = b.freq_mhz;
     b = mrnv::Blob{};                                                        // zero everything...
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
@@ -721,8 +740,7 @@ void handle_password(const char* args, Print& out) {
     out.println(F("> deriving admin key (a few seconds)..."));   // the KDF blocks; tell the operator it's not hung
     meshroute::admin_key_from_password(args, n, admin, []{ fw_wdt_feed(); });   // feed the WDT during the multi-second stretch
     g_node.admin_set_pubkey(admin.ed_pub);
-    mrnv::Blob b{}; if (!mrnv::load(b)) seed_blob_from_live(b);
-    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
+    mrnv::Blob b{}; nv_load_stamped(b);   // §nv-ritual
     for (int i = 0; i < 32; ++i) b.admin_pubkey[i] = admin.ed_pub[i];
     b.admin_provisioned = 1; b.admin_counter_floor = 0;      // fresh credential -> reset the replay floor
     const bool saved = mrnv::save(b);

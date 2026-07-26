@@ -835,7 +835,7 @@ void Node::do_post_ack() {
             for (uint8_t i = 0; i < _cfg.n_layers; ++i) {
                 LayerRecord r{};
                 r.layer_id = _cfg.layers[i].layer_id; r.sf = _cfg.layers[i].routing_sf;
-                r.freq_khz = static_cast<uint32_t>(_cfg.layers[i].freq_mhz * 1000.0 + 0.5);
+                r.freq_khz = protocol::mhz_to_khz(_cfg.layers[i].freq_mhz);
                 r.bw_hz = _cfg.layers[i].bw_hz ? _cfg.layers[i].bw_hz : _cfg.radio_bw_hz;
                 r.name_len = _cfg.leaf_name_len;
                 for (uint8_t k = 0; k < r.name_len && k < protocol::leaf_name_max; ++k) r.name[k] = _cfg.leaf_name[k];
@@ -1337,9 +1337,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                    { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
                 _hal.emit("path_cascade_exhausted", f, 2);
                 _hal.emit("rts_giveup", f, 2); );
-            { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = giveup_fail_reason("rts_giveup"); pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }   // §3-A.5: no_cts (was reason=none)
-            _active->_pending_tx.reset();
-            become_free();
+            giveup_flight(giveup_fail_reason("rts_giveup"), pt.dst, pt.ctr);   // §3-A.5: no_cts (was reason=none)
         }
         return;
     }
@@ -1384,7 +1382,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                         { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
                     _hal.emit("path_cascade_exhausted", gf, 2);
                     _hal.emit("rts_giveup", gf, 2); );
-                { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = giveup_fail_reason("rts_giveup"); pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }   // §3-A.5: no_cts (was reason=none)
+                push_send_failed(giveup_fail_reason("rts_giveup"), pt.dst, pt.ctr);   // §3-A.5: no_cts (was reason=none). NOT giveup_flight: the reset+become_free below are shared with the requeue arm above.
             }
             _active->_pending_tx.reset();
             become_free();
@@ -1421,9 +1419,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                 { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
             _hal.emit("path_cascade_exhausted", gf, 2);
             _hal.emit("rts_giveup", gf, 2); );
-        { Push pu{}; pu.kind = PushKind::send_failed; pu.reason = giveup_fail_reason("rts_giveup"); pu.dst = pt.dst; pu.ctr = pt.ctr; enqueue_push(pu); }   // §3-A.5: no_cts (was reason=none)
-        _active->_pending_tx.reset();
-        become_free();
+        giveup_flight(giveup_fail_reason("rts_giveup"), pt.dst, pt.ctr);   // §3-A.5: no_cts (was reason=none)
         return;
     }
 

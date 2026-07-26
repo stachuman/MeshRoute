@@ -92,8 +92,10 @@ TEST_CASE("W2b duty console unit: percent -> internal fraction (set duty= == cre
 // W2b: every console bw setter is kHz ALWAYS (join/create/gateway already were; `cfg set bw` + `cfg set l1_bw`
 // were Hz and now converge). The kHz->Hz conversion is `(uint32_t)(kHz * 1000.0 + 0.5)` — ROUNDED so a fractional
 // LoRa bandwidth lands exactly (62.5 -> 62500, not 62000/62500-off-by-one).
+// §3-B.3: this now drives the PRODUCTION helper instead of a local copy of the formula — the console verbs it
+// guards are device-only, so this is the ONLY executable check on that conversion.
 TEST_CASE("W2b bw console unit: fractional kHz -> Hz, rounded (62.5 -> 62500)") {
-    auto bw_hz = [](double khz) { return static_cast<uint32_t>(khz * 1000.0 + 0.5); };
+    auto bw_hz = [](double khz) { return meshroute::protocol::khz_to_hz(khz); };
     CHECK(bw_hz(62.5)  == 62500u);    // the fractional-BW pin
     CHECK(bw_hz(125.0) == 125000u);
     CHECK(bw_hz(250.0) == 250000u);

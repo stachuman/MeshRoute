@@ -110,6 +110,7 @@ const char* cmdcode_name(CmdCode c) {
         case CmdCode::err_unsupported:     return "err_unsupported";
         case CmdCode::err_unprovisioned:   return "err_unprovisioned";   // node_id==0 (very common on a fresh device)
         case CmdCode::err_no_data_sf:      return "err_no_data_sf";      // allowed_sf_bitmap==0 (sf_list unset)
+        case CmdCode::err_ack_ring_full:   return "err_ack_ring_full";   // pending-ack ring saturated: a new -a send is REFUSED loudly (protocol_constants.h: NEVER evict-oldest)
     }
     return "err_unknown";
 }
@@ -147,6 +148,8 @@ const char* sendfailreason_name(SendFailReason r) {
         case SendFailReason::no_ack:       return "no_ack";        // Slice 6b: DM giveup — DATA-ACK-timeout
         case SendFailReason::mobile_no_home:       return "mobile_no_home";        // §mobile: reply-expecting DM with no routable home (was MISSING here — rendered "none")
         case SendFailReason::gateway_unreachable:  return "gateway_unreachable";   // §3-A.5: gateway-doorstep hold gave up
+        case SendFailReason::e2e_ack_timeout:      return "e2e_ack_timeout";     // §ack-deadline: a -a DM's e2e ack never returned inside the patience budget (delivery UNCONFIRMED, not failed)
+        case SendFailReason::queue_full:           return "queue_full";          // §defer: the no-route defer queue was full -> the NEW send was refused (node_cascade.cpp defer_send)
         case SendFailReason::none:        return "none";
     }
     return "none";

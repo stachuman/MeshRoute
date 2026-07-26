@@ -84,7 +84,12 @@ void remote_exec(uint8_t from, const uint8_t* query, uint8_t qlen) {
         }
         if (verdict != meshroute::AdminVerdict::ok) return;             // bad_tag / wrong_node -> silent drop (no oracle)
         if (g_node.admin_counter_check_advance(ac.counter)) {           // advance + persist the replay floor
-            mrnv::Blob b{}; if (mrnv::load(b)) { b.admin_counter_floor = g_node.admin_counter_floor(); mrnv::save(b); }
+            // load-IF-PRESENT, NOT the §nv-ritual load-or-seed: with no blob there is no admin record to update, and
+            // no stamp is needed because load() already accepted this record's magic/version.
+            // §nv-unchecked [3/5]: KNOWN UNCHECKED SAVE, preserved deliberately (see fw_main §nv-unchecked [1/5]).
+            // ⚠ The most consequential of the five: a failed write leaves the REPLAY FLOOR behind the live counter,
+            // so a reboot re-accepts already-used admin counters. Silent today. Owner ruling owed.
+            mrnv::Blob b{}; if (mrnv::load(b)) { b.admin_counter_floor = g_node.admin_counter_floor(); (void)mrnv::save(b); }
         }
         vn = ac.cmd_len < sizeof v - 1 ? ac.cmd_len : (uint8_t)(sizeof v - 1);
         memcpy(v, ac.cmd, vn); v[vn] = '\0'; authed = true;
@@ -106,7 +111,11 @@ void remote_exec(uint8_t from, const uint8_t* query, uint8_t qlen) {
             uint8_t sr[64]; size_t sl = remote_seal_resp(sr, sizeof sr, (const uint8_t*)ok, (uint8_t)strlen(ok));
             if (sl) g_node.send_remote_response(from, sr, (uint8_t)sl);
             g_node.admin_set_pubkey(newpk);                            // THEN pin the new key + reset the replay floor + persist
-            mrnv::Blob b{}; if (mrnv::load(b)) { for (int i = 0; i < 32; ++i) b.admin_pubkey[i] = newpk[i]; b.admin_provisioned = 1; b.admin_counter_floor = 0; mrnv::save(b); }
+            // load-IF-PRESENT, NOT the §nv-ritual load-or-seed (same reasoning as the counter-floor write above).
+            // §nv-unchecked [4/5]: KNOWN UNCHECKED SAVE, preserved deliberately (see fw_main §nv-unchecked [1/5]).
+            // A failed write means the new admin key is live but volatile — the node reverts to the OLD admin on
+            // reboot while the operator has already been told "ok rotate". Silent today. Owner ruling owed.
+            mrnv::Blob b{}; if (mrnv::load(b)) { for (int i = 0; i < 32; ++i) b.admin_pubkey[i] = newpk[i]; b.admin_provisioned = 1; b.admin_counter_floor = 0; (void)mrnv::save(b); }
         }
         return;
     }

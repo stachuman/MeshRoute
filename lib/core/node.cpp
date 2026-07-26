@@ -177,8 +177,8 @@ GwParseErr parse_gateway_cmd(const char* args, GatewayProvision& out) {
         else if (!strncmp(tok, "beacon=", 7)) { const long v = atol(tok + 7); if (v < 1) return GwParseErr::bad_beacon; out.beacon_ms = static_cast<uint32_t>(v); }
         else if (!strncmp(tok, "freq0=", 6)) { const double f = atof(tok + 6); if (f <= 0.0) return GwParseErr::bad_freq; out.l0.freq_mhz = f; }
         else if (!strncmp(tok, "freq1=", 6)) { const double f = atof(tok + 6); if (f <= 0.0) return GwParseErr::bad_freq; out.l1.freq_mhz = f; }
-        else if (!strncmp(tok, "bw0=", 4)) { out.l0.bw_hz = static_cast<uint32_t>(atof(tok + 4) * 1000.0 + 0.5); }   // v17 per-layer BW in kHz (fractional ok, e.g. 62.5) -> Hz, matching create/join; 0=inherit; validate gates it
-        else if (!strncmp(tok, "bw1=", 4)) { out.l1.bw_hz = static_cast<uint32_t>(atof(tok + 4) * 1000.0 + 0.5); }
+        else if (!strncmp(tok, "bw0=", 4)) { out.l0.bw_hz = protocol::khz_to_hz(atof(tok + 4)); }   // v17 per-layer BW in kHz (fractional ok, e.g. 62.5) -> Hz, matching create/join; 0=inherit; validate gates it
+        else if (!strncmp(tok, "bw1=", 4)) { out.l1.bw_hz = protocol::khz_to_hz(atof(tok + 4)); }
         else if (!strncmp(tok, "cr0=", 4)) { out.l0.cr    = static_cast<uint8_t>(atoi(tok + 4)); }    // v17 per-layer CR (0 = inherit)
         else if (!strncmp(tok, "cr1=", 4)) { out.l1.cr    = static_cast<uint8_t>(atoi(tok + 4)); }
         else if (!strncmp(tok, "win0=", 5) || !strncmp(tok, "win1=", 5)) {
@@ -967,7 +967,7 @@ CmdResult Node::on_command(const Command& c) {
                 if (_cfg.is_mobile) {                         // a mobile DELEGATES a GLOBAL post to its home (the home mints under its own origin). Off-grid (no home) -> fail loud.
                     if (!do_send_channel_delegated(c.u.channel.channel_id, c.body, c.body_len)) {
                         MR_EMIT("send_failed", EF_S("reason", "channel_no_home"));
-                        Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::mobile_no_home; pu.dst = 0; pu.ctr = 0; enqueue_push(pu);
+                        push_send_failed(SendFailReason::mobile_no_home, /*dst=*/0, /*ctr=*/0);
                         if (!want_team) return CmdResult{ CmdCode::err_no_binding, 0, _active->_tx_queue_n };
                     }
                 } else
@@ -1047,10 +1047,10 @@ CmdResult Node::on_command(const Command& c) {
                 const uint8_t rn = build_sealed_relay_body(c.u.layer.dst_hash, c.body, c.body_len, rbuf, sizeof rbuf, oc);
                 if (rn == 0) {                               // fail loud (no_pubkey/no_identity/too_large) — NEVER cleartext
                     MR_EMIT("e2e_xl_seal_failed", EF_I("dst_hash", static_cast<int64_t>(c.u.layer.dst_hash)), EF_I("oc", static_cast<int>(oc)));
-                    Push pu{}; pu.kind = PushKind::send_failed;
-                    pu.reason = (oc == SealOutcome::no_pubkey) ? SendFailReason::no_pubkey
-                              : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity : SendFailReason::too_large;
-                    pu.dst = 0; pu.ctr = 0; enqueue_push(pu);
+                    push_send_failed((oc == SealOutcome::no_pubkey)   ? SendFailReason::no_pubkey
+                                   : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity
+                                                                      : SendFailReason::too_large,
+                                     /*dst=*/0, /*ctr=*/0);
                     return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n, c.u.layer.dst_hash, 0 };
                 }
                 dbody = rbuf; dblen = rn; etype = DATA_TYPE_SEALED_RELAY;
@@ -1123,6 +1123,17 @@ void Node::enqueue_push(const Push& p) {
     const uint8_t tail = static_cast<uint8_t>((_push_head + _push_count) % protocol::cap_push_ring);
     _push_ring[tail] = p;
     ++_push_count;
+}
+
+// §3-B.2: the one send-failure fill (see node.h). Every other Push field stays at its `Push{}` default — notably
+// `body`/`body_len` empty and `origin` 0, which is what all 24 former hand-rolled sites did.
+void Node::push_send_failed(SendFailReason reason, uint8_t dst, uint16_t ctr) {
+    Push pu{};
+    pu.kind   = PushKind::send_failed;
+    pu.reason = reason;
+    pu.dst    = dst;
+    pu.ctr    = ctr;
+    enqueue_push(pu);
 }
 
 bool Node::next_push(Push& out) {

@@ -1,9 +1,16 @@
 // MeshRoute — lib/console/console_json.h
 // Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
-// Bounded, heap-free NDJSON line writers shared by the device console and the
-// sim's FirmwareNode (one serializer, two backends — schema cannot drift).
+// Bounded, heap-free NDJSON line writers for the device console + the BLE companion transport.
 // hal.h discipline: no std::string/json/heap, C++17-includable, -fno-exceptions.
+// ⚠ V1 CORRECTION 2026-07-25: this header used to claim the writers are "shared by the device console and
+// the sim's FirmwareNode (one serializer, two backends — schema cannot drift)". They are NOT. The simulator
+// compiles lib/core ONLY — its build references nothing in lib/console and it hand-builds its own
+// `script_emit`/`push` telemetry JSON — so src/fw_main.cpp and test/ are the ONLY consumers of this file.
+// ★ That is load-bearing for the gate: the s18 / scenario-corpus oracle CANNOT see this file, so a hole in
+// one of the enum→string mappers below is invisible to every scenario (it is also why three of them shipped
+// broken). The guards that DO cover it are the native tests (test/test_console_json.cpp walks every
+// enumerator of every mapped enum) and -Wswitch, which is gate-blocking.
 // See docs/specs/2026-05-30-device-console-design.md.
 #pragma once
 #include "command.h"   // CmdResult, Push, CmdCode, PushKind  (lib/core)
@@ -178,5 +185,7 @@ size_t write_inbox_marked (char* buf, size_t cap, const char* kind, uint32_t seq
 
 const char* cmdcode_name(CmdCode c);
 const char* pushkind_name(PushKind k);
+const char* sendfailreason_name(SendFailReason r);      // send_failed / send_blocked `reason` (out-of-range -> "none")
+const char* joinrefusereason_name(JoinRefuseReason r);  // join_refused `reason` (out-of-range -> "none")
 
 }  // namespace meshroute::console

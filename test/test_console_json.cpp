@@ -472,3 +472,133 @@ TEST_CASE("write_push — channel_sent carries relayed bool + no_relay reason (S
     n = write_push(b, sizeof b, f);
     CHECK(std::string(b, n) == "{\"ev\":\"channel_sent\",\"ctr\":6,\"relayed\":false,\"reason\":\"no_relay\"}\n");
 }
+
+// ── ★ THE ENUM→STRING COVERAGE GUARD (2026-07-25) ────────────────────────────────────────────────────────
+// console_json.cpp hand-maintains one switch per contract-visible enum, and a missing `case` is SILENT: the
+// switch falls through to the trailing `return "none"` / `return "unknown"`, so the companion receives a value
+// its documented mapping (ios-companion/INBOX_SYNC_CONTRACT.md) cannot handle. That has now happened three
+// times (`mobile_no_home`, `e2e_ack_timeout`, `err_ack_ring_full`) — two hand-maintained lists that must agree
+// is the root cause. This block makes the whole class fail LOUDLY, at both build and test time:
+//
+//   (1) COMPILE TIME — each `ord()` overload below is a switch with NO `default:` and `-Wswitch` promoted to a
+//       hard ERROR, so appending an enumerator breaks THIS FILE's build until the value is listed here. That is
+//       what keeps "walks EVERY enumerator" honest: a runtime loop cannot see an enumerator nobody wrote down.
+//   (2) RUN TIME — the loop then asserts the REAL mapper returns neither the fallback nor an empty string for
+//       every listed enumerator, and that the enumerators occupy exactly 0..N-1 (the app may PERSIST the
+//       number, so a renumbering or a hole is a contract break, not a style choice).
+//
+// So both ways to get it wrong now fail:  enum grown + mapper case forgotten -> (2) fails;
+//                                        enum grown + this list forgotten    -> (1) fails to build.
+// The trailing fallbacks in console_json.cpp are deliberately KEPT and re-asserted below — they are the right
+// guard for an OUT-OF-RANGE cast (a corrupt wire byte). The bug was never the fallback; it was the silent
+// fall-through of a LIVE enumerator into it.
+static constexpr unsigned kUnlisted = 0xFFFFu;   // sentinel: not an enumerator this test knows about
+
+#pragma GCC diagnostic push
+#pragma GCC diagnostic error "-Wswitch"          // ★ a new enumerator must BREAK THIS BUILD, not merely warn
+static unsigned ord(CmdCode c) {
+    switch (c) {
+        case CmdCode::queued:            case CmdCode::err_unknown_dst:  case CmdCode::err_too_large:
+        case CmdCode::err_no_gateway:    case CmdCode::err_priority_capped: case CmdCode::err_no_binding:
+        case CmdCode::err_unsupported:   case CmdCode::err_unprovisioned: case CmdCode::err_no_data_sf:
+        case CmdCode::err_ack_ring_full:
+            return static_cast<unsigned>(c);
+    }
+    return kUnlisted;
+}
+static unsigned ord(PushKind k) {
+    switch (k) {
+        case PushKind::msg_recv:       case PushKind::channel_recv:   case PushKind::send_acked:
+        case PushKind::send_failed:    case PushKind::send_e2e_acked: case PushKind::hash_resolved:
+        case PushKind::peer_key_cached:case PushKind::config_adopted: case PushKind::join_refused:
+        case PushKind::send_blocked:   case PushKind::channel_sent:   case PushKind::mobile_reg:
+        case PushKind::team_reg:       case PushKind::join_adopted:
+            return static_cast<unsigned>(k);
+    }
+    return kUnlisted;
+}
+static unsigned ord(SendFailReason r) {
+    switch (r) {
+        case SendFailReason::none:           case SendFailReason::no_pubkey:      case SendFailReason::no_identity:
+        case SendFailReason::too_large:      case SendFailReason::bad_rng:        case SendFailReason::no_route:
+        case SendFailReason::joining:        case SendFailReason::cap:            case SendFailReason::min_interval:
+        case SendFailReason::no_cts:         case SendFailReason::no_ack:         case SendFailReason::mobile_no_home:
+        case SendFailReason::gateway_unreachable: case SendFailReason::e2e_ack_timeout:
+        case SendFailReason::queue_full:
+            return static_cast<unsigned>(r);
+    }
+    return kUnlisted;
+}
+static unsigned ord(JoinRefuseReason r) {
+    switch (r) {
+        case JoinRefuseReason::wire_version: case JoinRefuseReason::leaf_full:
+        case JoinRefuseReason::phy_mismatch: case JoinRefuseReason::sf_list_mismatch:
+            return static_cast<unsigned>(r);
+    }
+    return kUnlisted;
+}
+#pragma GCC diagnostic pop
+
+// Walk every enumerator of E and assert its mapper never yields the SILENT fallback (nor an empty string).
+// exempt_ord = the one enumerator for which the fallback string IS the correct answer (SendFailReason::none
+// legitimately renders "none" = "this push carries no reason"); -1 = no exemption.
+template <class E>
+static void check_mapper_covers_every_enumerator(const char* enum_name, const char* (*name)(E),
+                                                 const char* fallback, unsigned expect_count,
+                                                 int exempt_ord = -1) {
+    unsigned listed = 0, first_gap = 256u;
+    for (unsigned v = 0; v < 256u; ++v) {
+        const E e = static_cast<E>(v);                       // fixed uint8_t underlying type -> 0..255 well-defined
+        if (ord(e) == kUnlisted) { if (first_gap == 256u) first_gap = v; continue; }
+        ++listed;
+        const char* s = name(e);
+        CHECK(s != nullptr);                                 // NB (-fno-exceptions): doctest REQUIRE is unavailable
+        if (!s) continue;                                    //     in this build, so guard by hand (see test_node_query.cpp:335)
+        // NB doctest renders a bare `const char*` as a POINTER — wrap the variables in std::string so a failure
+        // names the enum and the fallback in words (the string LITERALS below print correctly as-is).
+        CHECK_MESSAGE(s[0] != '\0', std::string(enum_name), " enumerator ", v, " maps to an EMPTY string");
+        if (static_cast<int>(v) != exempt_ord)
+            CHECK_MESSAGE(std::strcmp(s, fallback) != 0,
+                          std::string(enum_name), " enumerator ", v, " falls through to the SILENT fallback \"",
+                          std::string(fallback), "\" — add its case to the mapper in lib/console/console_json.cpp");
+    }
+    CHECK(listed == expect_count);       // this test's list agrees with the enum's cardinality
+    CHECK(first_gap == expect_count);    // ...and the enumerators are contiguous 0..N-1 (no renumbering/holes)
+}
+
+TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallback at the app boundary") {
+    check_mapper_covers_every_enumerator<CmdCode>("CmdCode", cmdcode_name, "err_unknown", 10);
+    check_mapper_covers_every_enumerator<PushKind>("PushKind", pushkind_name, "unknown", 14);
+    check_mapper_covers_every_enumerator<SendFailReason>("SendFailReason", sendfailreason_name, "none", 15,
+                                                         /*exempt_ord=*/0);   // SendFailReason::none == "none"
+    check_mapper_covers_every_enumerator<JoinRefuseReason>("JoinRefuseReason", joinrefusereason_name, "none", 4);
+    // The one exemption is EXACT, not a licence for a hole: `none` must render precisely "none".
+    CHECK(std::strcmp(sendfailreason_name(SendFailReason::none), "none") == 0);
+    // The fallbacks STAY: an out-of-range cast (a corrupt byte, never a live enumerator) must still land there.
+    CHECK(std::strcmp(cmdcode_name(static_cast<CmdCode>(200)), "err_unknown") == 0);
+    CHECK(std::strcmp(pushkind_name(static_cast<PushKind>(200)), "unknown") == 0);
+    CHECK(std::strcmp(sendfailreason_name(static_cast<SendFailReason>(200)), "none") == 0);
+    CHECK(std::strcmp(joinrefusereason_name(static_cast<JoinRefuseReason>(200)), "none") == 0);
+    // The three strings this slice restored/added — pinned verbatim, because the app matches on them.
+    CHECK(std::strcmp(sendfailreason_name(SendFailReason::e2e_ack_timeout), "e2e_ack_timeout") == 0);  // command.h documented it all along
+    CHECK(std::strcmp(sendfailreason_name(SendFailReason::queue_full), "queue_full") == 0);            // NEW (defer queue full)
+    CHECK(std::strcmp(cmdcode_name(CmdCode::err_ack_ring_full), "err_ack_ring_full") == 0);            // enumerator-name convention
+}
+
+// The same three defects at the LINE the app actually reads — a rendered NDJSON push/ack, not just the mapper.
+TEST_CASE("write_push / write_ack — the restored reason strings render (all three used to read \"none\"/\"err_unknown\")") {
+    char b[128];
+    Push t{}; t.kind = PushKind::send_failed; t.dst = 2; t.ctr = 7; t.reason = SendFailReason::e2e_ack_timeout;
+    size_t n = write_push(b, sizeof b, t);
+    CHECK(std::string(b, n) == "{\"ev\":\"send_failed\",\"dst\":2,\"ctr\":7,\"reason\":\"e2e_ack_timeout\"}\n");
+    Push q{}; q.kind = PushKind::send_failed; q.dst = 4; q.ctr = 9; q.reason = SendFailReason::queue_full;
+    n = write_push(b, sizeof b, q);
+    CHECK(std::string(b, n) == "{\"ev\":\"send_failed\",\"dst\":4,\"ctr\":9,\"reason\":\"queue_full\"}\n");
+    n = write_ack(b, sizeof b, CmdResult{CmdCode::err_ack_ring_full, 0, 3});
+    CHECK(std::string(b, n) == "{\"ack\":\"err_ack_ring_full\",\"ctr\":0,\"qd\":3,\"dh\":0,\"lp\":0}\n");
+    // A reason-LESS send_failed still omits the key entirely (the pre-slice node_cascade.cpp:259 shape) — kept
+    // so the legacy/non-e2e giveup wire is unchanged, and so the queue_full push above is provably additive.
+    Push bare{}; bare.kind = PushKind::send_failed; bare.dst = 5; bare.ctr = 1;   // reason defaults to none
+    n = write_push(b, sizeof b, bare);
+    CHECK(std::string(b, n) == "{\"ev\":\"send_failed\",\"dst\":5,\"ctr\":1}\n");
+}

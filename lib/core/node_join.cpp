@@ -576,7 +576,7 @@ uint8_t Node::presence_compute_dir_epoch() const {
     uint8_t e = 0;
     for (uint8_t i = 0; i < _n_layers; ++i) {
         e ^= _cfg.layers[i].layer_id;
-        e ^= static_cast<uint8_t>(static_cast<uint32_t>(_cfg.layers[i].freq_mhz * 1000.0 + 0.5));
+        e ^= static_cast<uint8_t>(protocol::mhz_to_khz(_cfg.layers[i].freq_mhz));
         e ^= static_cast<uint8_t>(_cfg.layers[i].routing_sf);
     }
     return e;

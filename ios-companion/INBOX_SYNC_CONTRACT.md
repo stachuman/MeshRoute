@@ -244,7 +244,7 @@ reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "
 {"ev":"send_failed","dst":2,"ctr":7,"reason":"no_pubkey"}     // a CRYPTED send was DROPPED — warn + offer Request-key / Scan-QR
 {"ev":"peer_key_cached","hash":3735928559,"pinned":false}    // a key arrived (request answer / cache-on-pass / QR / mutual) → enable resend
 ```
-- `send_failed.reason` ∈ `no_pubkey · no_identity · too_large · bad_rng · no_route · joining · no_cts · no_ack · cap · min_interval · mobile_no_home · gateway_unreachable`. App maps `no_pubkey`
+- `send_failed.reason` ∈ `no_pubkey · no_identity · too_large · bad_rng · no_route · joining · no_cts · no_ack · cap · min_interval · mobile_no_home · gateway_unreachable · e2e_ack_timeout · queue_full`. App maps `no_pubkey`
   → "recipient's key unknown — Request key / Scan QR"; permanent reasons (`too_large`/`no_route`) → plain fail.
   ★ `e2e_ack_timeout` (NEW 2026-07-24, enum 13): a `-a` send's requested E2E ack never arrived within the firmware
   deadline (same-layer 60 s / cross-layer+delegated 300 s, patience-derived). **Semantic: delivery was never
@@ -254,6 +254,28 @@ reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "
   (2026-07-21 3-A: `gateway_unreachable` NEW — a cross-layer DM held for a gateway window that never became reachable;
   `mobile_no_home` now actually renders — a pre-existing renderer hole made it read `"none"`; the previously-bare
   `reason:"none"` giveups now carry real reasons: the deferred-TTL giveup → `no_route`, the NACK-path giveups → `no_cts`.)
+- ⚠⚠ **CORRECTION 2026-07-25 — TWO documented strings were NEVER RENDERED, and the "class closed" claim above was
+  premature.** `sendfailreason_name`/`cmdcode_name` (`lib/console/console_json.cpp`) are hand-maintained tables that
+  had drifted from their enums:
+  - **`e2e_ack_timeout` (enum 13)** was documented 2026-07-24 but had no renderer case, so **from `8228b11` until
+    2026-07-25 every e2e-ack timeout reached the app as `reason:"none"`.** Any app logic keyed on the documented
+    string was dead code. Now renders as documented.
+  - **`err_ack_ring_full` (CmdCode 9)** was likewise unrendered — `{"ack":…}` carried **`"err_unknown"`** over the
+    same window, i.e. the deliberately-loud ring-full refusal was mute at the app boundary. Now renders correctly.
+  - The 2026-07-21 3-A sweep was **incomplete**: the defer-queue-full refusal (`node_cascade.cpp` `defer_send`,
+    nine lines below the giveup 3-A did fix) still pushed with **no `reason` key at all** — note `write_push` omits
+    the key when `reason == none`, so the app saw an *absent field*, not the string `"none"`. It now carries
+    `queue_full`.
+  - Why this survived a green gate: the simulator **does not compile `lib/console`**, and its `push` event carries
+    only `{ctr,dst,kind}` with no `reason` field — so the oracle showed correct strings while the app got the
+    fallback. The class is now closed by a native test that walks every enumerator of every mapped enum (failing
+    the BUILD on a new enumerator, and the TEST on a missing case) plus gate-blocking `-Wswitch`.
+- ★ **NEW reason `queue_full` (2026-07-25, enum 14, appended — nothing renumbered):** the node's no-route **defer
+  queue** (`cap_deferred_sends` = 32; 16 on a gateway build) was full, so the NEW send was **refused synchronously**
+  rather than evicting an older held send. Typically fires when sends are originated faster than routes converge —
+  e.g. just after boot. **Semantic: TRANSIENT — back off and resend.** Distinct from `no_route`, which means a
+  specific send aged out without ever finding a route. ⚠ App note: previously indistinguishable from a legacy bare
+  giveup, because the `reason` key was absent entirely.
 - `join_refused.reason` gains (2026-07-21 3-A, mobile flavors): `phy_mismatch` — a TEAM member refused a home whose
   PHY differs from its team-provisioned config (`layer_id` = the candidate's layer, `dst` = its routing_sf; the
   P2-1 fail-loud now reaches the app on metal) — and `sf_list_mismatch` — configured-vs-offered sf_list low-byte

@@ -763,6 +763,32 @@ TEST_CASE("defer — TTL-first giveup: a held send with no route ages out on the
     CHECK(hal.count("rts_tx") == 0);
 }
 
+// ★ The defer queue FULL path (node_cascade.cpp defer_send, `send_deferred_refused`). It is exercised by NO
+// simulation scenario in the corpus, and on a board the MR_TELEMETRY emit beside it is STRIPPED
+// (-DMESHROUTE_NO_TELEMETRY), so the send_failed Push is the ONLY signal the companion ever sees — which is why
+// it shipping without a reason (rendering as a `send_failed` with the "reason" key absent) was invisible.
+TEST_CASE("defer — a FULL defer queue REFUSES the new send and reports reason queue_full (not a bare send_failed)") {
+    TestHal hal; Node node(hal, 1, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
+    node.on_init(cfg);
+    hal._now = 1000;
+    // Fill the queue with cap_deferred_sends unrouted originator sends. Nothing ever transmits (no route), so
+    // _last_dm_origin_ms is never stamped and the DM burst floor never arms -> every send reaches defer_send.
+    for (unsigned i = 0; i < protocol::cap_deferred_sends; ++i)
+        send_cmd(node, static_cast<uint8_t>(20 + i), "held");
+    CHECK(hal.count("send_deferred") == static_cast<int>(protocol::cap_deferred_sends));
+    CHECK(hal.count("send_deferred_refused") == 0);                 // not yet: the queue is exactly full
+    { Push drain{}; while (node.next_push(drain)) {} }               // clear the ring so the next push is ours
+    send_cmd(node, /*dst=*/200, "one too many");                     // full -> REFUSE the NEW send (never drop-oldest)
+    CHECK(hal.count("send_deferred_refused") == 1);
+    CHECK(hal.count("send_deferred") == static_cast<int>(protocol::cap_deferred_sends));   // the refused one is NOT held
+    Push p{}; bool failed = false; SendFailReason reason = SendFailReason::none;
+    while (node.next_push(p)) if (p.kind == PushKind::send_failed) { failed = true; reason = p.reason; break; }
+    CHECK(failed);
+    CHECK(reason == SendFailReason::queue_full);                     // was SendFailReason::none -> a reason-less push
+    CHECK(p.dst == 200);
+}
+
 TEST_CASE("defer — TTL-FIRST beats route-exists: past-TTL held send gives up even when a route arrives") {
     TestHal hal; Node node(hal, 1, 0xABCD);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;

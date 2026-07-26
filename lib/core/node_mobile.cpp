@@ -399,7 +399,7 @@ void Node::presence_ingest_roster(const uint8_t* frame, size_t len, const RxMeta
                 if (e->has_key) _presence_key_confirmed = true;
                 if (e->deleg_fail) {   // §B2: the home dropped a delegated send for us (loud, one-shot) -> surface send_failed{no_route} to the app's back-off
                     MR_EMIT("presence_deleg_fail", EF_I("home", r->home_id));
-                    Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::no_route; enqueue_push(pu);
+                    push_send_failed(SendFailReason::no_route, /*dst=*/0, /*ctr=*/0);   // dst/ctr were never set here -> the Push{} zero defaults; now EXPLICIT, value-identical
                 }
                 _presence_prescan = (e->quality <= protocol::presence_q_weak);
                 // dynamic T (§S6.3): strong -> min(4·base,max) · ok -> base · weak/critical -> min

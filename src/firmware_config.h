@@ -22,6 +22,14 @@ namespace mrfw {
 // all their callers live in that TU. (Increment A briefly exposed apply_radio_live to bridge to fw_main's then-
 // resident provision_apply_live; Increment B moved provision_apply_live too, so it reverts to static.)
 
+// §nv-ritual (dedup 3-B item 4) — THE load-or-seed/stamp prologue for the /mrcfg config blob. Every write path
+// that can run on a node with no (or a version-rejected) blob opens with it, so the version stamp can no longer
+// be forgotten at a new site. Exported because fw_main's node_id/ctr lease writer needs it too (the one write
+// path outside this TU). ⚠ Pass a VALUE-INITIALIZED blob (`mrnv::Blob b{}; nv_load_stamped(b);`) — a failed
+// load() may still have overwritten `b` with the rejected record's bytes, and the fields seed_blob_from_live
+// does not set keep whatever is there; the `{}` is what makes that residue deterministic.
+void nv_load_stamped(mrnv::Blob& b);
+
 // `cfg set <key> <value>` — accumulate onto the pending NV blob + apply live where possible (dispatch verb).
 void handle_cfg_set(const char* args, Print& out);
 

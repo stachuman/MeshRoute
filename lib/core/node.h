@@ -946,6 +946,12 @@ private:
     void     e2e_ack_deadline_arm_timer();                                 // re-arm the ONE one-shot to the earliest pending deadline (park_reflood_arm idiom)
     void     e2e_ack_deadline_fire();                                      // timer body: expire elapsed entries -> send_failed{e2e_ack_timeout}, then re-arm
     void     enqueue_push(const Push& p);                                  // append to the bounded ring
+    // §3-B.2: THE one send-failure push. Every `send_failed` the companion app sees goes through here, so the
+    // {kind,reason,dst,ctr} field set can never be filled short at a new site (the S1/L9 field-drop class). dst/ctr
+    // are REQUIRED, not defaulted: several callers legitimately mean 0 ("no addressable dst yet") and that must read
+    // as a decision, not an omission. The reason is the CONTRACT string the app keys on (console_json.cpp
+    // sendfailreason_name) — pass the site's own; this helper never invents one.
+    void     push_send_failed(SendFailReason reason, uint8_t dst, uint16_t ctr);
     void     push_peer_key_cached(uint32_t key_hash32);                    // §S6: peer_key_cached push carrying the cached name (copied at cache time; body empty when unknown)
     void     become_free();                                       // dv_dual_sf.lua:7433 (FIFO single-drain)
     void     issue_send(const TxItem& item);                      // :7018 pending_tx + RTS
@@ -1033,6 +1039,10 @@ private:
     void     cascade_to_alt(const char* trigger);                 // on giveup: switch hop or requeue :6456
     void     try_cascade_requeue(const PendingTx& pt, const char* giveup_event);  // exhaustion -> requeue/giveup :6190
     static SendFailReason giveup_fail_reason(const char* giveup_event);   // Slice 6b: "rts_*"->no_cts, "data_ack_*"->no_ack, else none
+    // §3-B.2: the TERMINAL giveup of the live flight — tell the app, drop the flight, re-service the queue. Deliberately
+    // does NOT absorb the caller's `return`: the 6 sites return differently (bare `return`, `return true`, or fall out of
+    // an if/else to a shared `return`), and hiding control flow inside a helper is worse than the duplication it saves.
+    void     giveup_flight(SendFailReason reason, uint8_t dst, uint16_t ctr);   // push_send_failed + _pending_tx.reset() + become_free(), in that order
 public:
     // ④ load-adaptive cascade budget (Lua cascade_load_skip dv:6275): the effective requeue budget at a given TX-queue
     // depth = cascade_requeue_max − max(0, depth − threshold), clamped ≥0. Pure (depth + constants); static for tests.

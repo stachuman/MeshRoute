@@ -60,6 +60,7 @@ using mrfw::remote_exec;             // keep call sites unchanged (mesh_service_
 using mrfw::handle_rcmd;
 using mrfw::handle_cfg_set;          // dispatch verbs (moved to firmware_config); call sites unchanged
 using mrfw::handle_gateway;
+using mrfw::nv_load_stamped;         // §nv-ritual: the shared /mrcfg load-or-seed/stamp prologue (persist_cfg_if_needed)
 #if MR_N_LAYERS < 2
 using mrfw::handle_join;
 using mrfw::handle_create;
@@ -530,7 +531,10 @@ void setup() {
     if (!mrnv::load_faults(g_fault_log)) mrfault::fault_log_init(g_fault_log);
     g_last_reset = mrfault::fault_compose_record(resetreas, g_fault_log.boot_seq + 1);
     mrfault::fault_log_push(g_fault_log, g_last_reset);
-    mrnv::save_faults(g_fault_log);
+    // §nv-unchecked [1/5]: KNOWN UNCHECKED SAVE, preserved deliberately (dedup 3-B item 4 is a refactor — adding
+    // error handling where there is none would be a behaviour change, and no test or scenario can see NV at all).
+    // A failed /mrfault write here loses ONE boot record; the ring is best-effort diagnostics. Owner ruling owed.
+    (void)mrnv::save_faults(g_fault_log);
     g_last_reset_valid = true;
     mrfault::fault_scratch_reset_after_capture();
     mrfault::fault_wdt_start();
@@ -813,31 +817,12 @@ static void persist_cfg_if_needed() {
     const bool team_changed = g_node.team_local_id() != g_persist_team_local_id;   // §mobile 6.4: the team-DAD id (re-)assigned / re-picked / cleared -> persist promptly (a power-cycle keeps it)
     const bool lease_due    = (int16_t)(uint16_t)(cc - g_ctr_lease) > 0;   // Part 3: the live ctr PASSED the persisted lease -> re-lease (every ~margin sends). wraparound-safe signed diff
     if (!join_changed && !team_changed && !lease_due) return;
-    mrnv::Blob b{};
-    if (!mrnv::load(b)) {                                            // no blob yet -> seed from live config
-        const meshroute::NodeConfig& nc = g_node.config();
-        b.freq_mhz = g_freq_mhz;        b.bw_hz = nc.radio_bw_hz;   b.beacon_ms = nc.beacon_period_ms;
-        b.duty = nc.duty_cycle;         b.allowed_sf_bitmap = nc.allowed_sf_bitmap;
-        b.routing_sf = nc.routing_sf;   b.cr = nc.radio_cr;
-        b.lbt = nc.lbt_enabled ? 1 : 0; b.tx_power = g_tx_power;
-        b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;   // v6 role/topology
-        b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;  b.team_id = nc.team_id; b.mobile_autoregister = nc.mobile_autoregister ? 1 : 0; b.team_local_id = g_node.team_local_id();   // §mobile: preserve team + autoreg + team-DAD id across create/join
-        b.intro_attach = nc.intro_attach ? 1 : 0;   // v21 §S2: preserve the first-contact INTRO toggle across create/join
-        b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;        // v7 BLE policy (live globals)
-        b.ble_pin    = g_ble_pin;
-        b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;                  // v9 location toggle (seed from the live config)
-        b.e2e_dm     = nc.e2e_dm ? 1 : 0;                     // v10 e2e encrypt toggle (seed from the live config)
-        b.gw_announce_duty_pct        = nc.gw_announce_duty_pct;        // v11 gateway noise control (seed from the live config)
-        b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
-        b.l1_freq_mhz                 = nc.layers[1].freq_mhz;          // v12 per-layer freq (0 = inherit layer 0)
-        b.l1_bw_hz                    = nc.layers[1].bw_hz;             // v17 per-layer BW (0 = inherit the global)
-        b.l1_cr                       = nc.layers[1].cr;               // v17 per-layer CR (0 = inherit)
-        b.gw_herd_slack               = nc.gw_herd_slack;              // v13 §3e herd-spread slack
-        b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch; b.leaf_name_len = nc.leaf_name_len;     // v14 R6.1 leaf-config
-        for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
-        b.channel_active_fraction = nc.channel_active_fraction; b.channel_min_interval_ms = nc.channel_min_interval_ms; b.dm_min_interval_ms = nc.dm_min_interval_ms;   // v16 anti-spam per-leaf tunables
-    }
-    b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
+    // §nv-ritual: load-or-seed + stamp via THE shared prologue. This used to hand-roll the Blob seed field-by-field
+    // — a second, silently-diverging copy of seed_blob_from_live that had ALREADY dropped `node_id`: exactly the
+    // field-drop class the "one conversion path for the data carriers" rule exists to stop. Byte-identical swap:
+    // node_id is the ONE extra field the canonical seed writes, and `b.node_id = id` below writes the same
+    // g_node.canonical_node_id() over it; the magic/version stamp is the same one this site did inline.
+    mrnv::Blob b{}; nv_load_stamped(b);
     const uint16_t leased = (uint16_t)(cc + kChannelCtrLeaseMargin);   // persist the ctr AHEAD: a reboot in the un-flushed window resumes here (> any id used) -> no reuse
     b.node_id = id; b.claim_epoch = ep; b.joined = jn; b.channel_ctr = leased;
     b.team_local_id = g_node.team_local_id();   // §mobile 6.4: persist the team-DAD id
@@ -1058,6 +1043,8 @@ static void mesh_service_once() {
                     case meshroute::SendFailReason::no_cts:              mrcon.print(F(" (no CTS — next hop silent)")); break;
                     case meshroute::SendFailReason::no_ack:              mrcon.print(F(" (no ACK — delivery unconfirmed)")); break;
                     case meshroute::SendFailReason::gateway_unreachable: mrcon.print(F(" (gateway unreachable — timed out)")); break;
+                    case meshroute::SendFailReason::e2e_ack_timeout:     mrcon.print(F(" (no end-to-end ack in time — delivery UNCONFIRMED, a late ack still resolves)")); break;
+                    case meshroute::SendFailReason::queue_full:          mrcon.print(F(" (defer queue full — retry shortly)")); break;
                     case meshroute::SendFailReason::none:                break;   // not a send_failed reason
                 }
                 mrcon.println(); break;
@@ -1074,6 +1061,9 @@ static void mesh_service_once() {
             }
             case meshroute::PushKind::config_adopted: {   // R6.2: a pulled leaf config was adopted -> persist to NV
                 const meshroute::NodeConfig& nc = g_node.config();
+                // NB deliberately NOT the §nv-ritual prologue: this is load-IF-PRESENT, not load-or-seed. With no
+                // persisted blob it must write NOTHING (the adopted config is already live; minting a record here
+                // would persist a leaf config onto a node that was never provisioned).
                 mrnv::Blob b{};
                 if (mrnv::load(b)) {
                     b.lineage_id = nc.lineage_id; b.config_epoch = nc.config_epoch;
@@ -1082,7 +1072,10 @@ static void mesh_service_once() {
                     b.leaf_name_len = nc.leaf_name_len;
                     for (uint8_t i = 0; i < nc.leaf_name_len && i < sizeof(b.leaf_name); ++i) b.leaf_name[i] = (uint8_t)nc.leaf_name[i];
                     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
-                    mrnv::save(b);
+                    // §nv-unchecked [2/5]: KNOWN UNCHECKED SAVE, preserved deliberately (see [1/5]). The adopted
+                    // config is LIVE either way; a failed write means the next reboot silently re-pulls the old
+                    // epoch, and the "LEAF-CONFIG adopted" line below still prints. Owner ruling owed.
+                    (void)mrnv::save(b);
                 }
                 mrcon.print(F("LEAF-CONFIG adopted lineage=")); mrcon.print(nc.lineage_id);
                 mrcon.print(F(" epoch=")); mrcon.println(nc.config_epoch);

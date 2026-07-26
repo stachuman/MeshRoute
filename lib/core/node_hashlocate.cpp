@@ -1056,7 +1056,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
             return 0;
         }
         MR_EMIT("team_send_unresolved", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
-        Push pu{}; pu.kind = PushKind::send_failed; pu.reason = SendFailReason::mobile_no_home; pu.dst = 0; pu.ctr = 0; enqueue_push(pu);
+        push_send_failed(SendFailReason::mobile_no_home, /*dst=*/0, /*ctr=*/0);
         return 0;
     }
 #endif
@@ -1094,10 +1094,10 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
             const uint8_t rn = build_sealed_relay_body(key_hash32, body, body_len, rbody, sizeof rbody, oc);
             if (rn == 0) {                                                   // fail loud (no pubkey / identity / too large) — NEVER cleartext
                 MR_EMIT("e2e_no_pubkey", EF_I("hash", static_cast<int64_t>(key_hash32)), EF_I("oc", static_cast<int>(oc)));
-                Push pu{}; pu.kind = PushKind::send_failed;
-                pu.reason = (oc == SealOutcome::no_pubkey) ? SendFailReason::no_pubkey
-                          : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity : SendFailReason::too_large;
-                pu.dst = 0; pu.ctr = 0; enqueue_push(pu);
+                push_send_failed((oc == SealOutcome::no_pubkey)   ? SendFailReason::no_pubkey
+                               : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity
+                                                                  : SendFailReason::too_large,
+                                 /*dst=*/0, /*ctr=*/0);
                 return 0;
             }
             uint8_t wbody[protocol::max_payload_bytes_hard_cap];

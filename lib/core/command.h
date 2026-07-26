@@ -112,7 +112,11 @@ enum class SendFailReason : uint8_t { none = 0, no_pubkey, no_identity, too_larg
                                       no_cts, no_ack,      // Slice 6b: DM giveup reasons (CTS- / ACK-timeout)
                                       mobile_no_home,      // §mobile: a reply-expecting DM from a mobile with no routable home -> unreachable for the reply (would storm)
                                       gateway_unreachable, // §3-A.5: the gateway-doorstep hold gave up (no gateway window within gateway_send_giveup_ms) — was telemetry-only ("gateway_unreachable_timeout")
-                                      e2e_ack_timeout };   // E2E-ack DEADLINE (2026-07-24, shelf item (i)): a -a DM's DATA_TYPE_E2E_ACK never returned within the patience budget (protocol::e2e_ack_deadline_ms / _xl_ms). SEMANTIC: delivery was never CONFIRMED, NOT that it failed — the DM may have arrived and the ack died returning; a LATE ack still fires send_e2e_acked. JSON reason string: "e2e_ack_timeout".
+                                      e2e_ack_timeout,     // E2E-ack DEADLINE (2026-07-24, shelf item (i)): a -a DM's DATA_TYPE_E2E_ACK never returned within the patience budget (protocol::e2e_ack_deadline_ms / _xl_ms). SEMANTIC: delivery was never CONFIRMED, NOT that it failed — the DM may have arrived and the ack died returning; a LATE ack still fires send_e2e_acked. JSON reason string: "e2e_ack_timeout".
+                                      queue_full };        // §defer (2026-07-25): the no-route DEFER queue (cap_deferred_sends) was FULL, so the NEW send was REFUSED
+                                                           //   (node_cascade.cpp defer_send — Lua table_cap_hit, NEVER drop-oldest) and the app's future is completed instead of hung.
+                                                           //   TRANSIENT: retry. ★ APPENDED AT THE END deliberately — the numeric value is contract-visible and the app may
+                                                           //   PERSIST it, so no existing enumerator is ever renumbered. JSON reason string: "queue_full".
 // R6.3 §7c: why a join was refused (join_refused push). wire_version -> origin=their_ver, dst=my_ver; leaf_full -> no extra.
 // §3-A.1: phy_mismatch = a team member refused a home whose PHY differs from its team-provisioned freq/bw/routing_sf (P2-1 Level 2);
 //          sf_list_mismatch = ADVISORY — the mobile adopted the host but its configured sf_list low byte disagrees with the host's offered one.
