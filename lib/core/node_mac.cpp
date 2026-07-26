@@ -144,7 +144,19 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
                     MR_EMIT("e2e_bad_rng", EF_I("dst", dst), EF_I("ctr", ctr));
                     push_send_failed(SendFailReason::bad_rng, dst, ctr);
                     break;
-                default:                                                  // cross_layer / unexpected -> fail loud, no flood
+                // §w4-switchenum (2026-07-26): cross_layer/ok are now EXPLICIT (was `default:`) so -Wswitch guards this
+                // mapping. Verified at source, and the two are NOT unreachable for the same reason:
+                //   • cross_layer IS a genuine n==0 outcome of e2e_seal_inner (node_hashlocate.cpp:381-382 sets it
+                //     FIRST, then returns 0 on DATA_FLAG_CROSS_LAYER). It cannot arrive HERE only because no
+                //     enqueue_data caller passes CROSS_LAYER — the cross-layer paths build their TxItem directly
+                //     (node_mac.cpp:322 enqueue_cross_layer / :498 the mobile-XL wrapper) and never seal. A future
+                //     caller threading CROSS_LAYER into enqueue_data would land here, hence: keep failing loud.
+                //   • ok is unreachable by ARITHMETIC: e2e_seal_inner sets it only beside `return total`, and
+                //     total = 4 (aad) + pt_len>=1 + 16 (tag) > 0, so oc==ok implies n!=0 and this block is skipped.
+                // Same emit as the old default -> byte-identical. oc is a local written only by e2e_seal_inner (no
+                // cast from an external integer), so dropping `default:` removes no reachable path.
+                case SealOutcome::cross_layer:
+                case SealOutcome::ok:
                     MR_EMIT("e2e_seal_failed", EF_I("dst", dst), EF_I("ctr", ctr));
                     break;
             }
@@ -971,10 +983,15 @@ bool Node::tx_flood(const uint8_t* bytes, size_t len, int16_t sf) {
 }
 
 // R4.5b: FrameTag -> the human label for telemetry/TxParams.
+// §w4-switchenum: `beacon` is an EXPLICIT case (it used to be served by `default: return "BCN"`, so a 7th FrameTag
+// would have silently printed "BCN"). No `default:` -> -Wswitch now fails the build on a new tag. The trailing
+// return keeps the pre-existing out-of-range behaviour verbatim: on_radio_busy casts a HAL-supplied uint16
+// (node.cpp:1177) into FrameTag, so a value outside 0..5 is representable and must still label as "BCN".
 const char* Node::label_of_frame(FrameTag t) {
     switch (t) { case FrameTag::rts: return "RTS"; case FrameTag::cts: return "CTS";
                  case FrameTag::data: return "DATA"; case FrameTag::ack: return "ACK";
-                 case FrameTag::nack: return "NACK"; default: return "BCN"; }
+                 case FrameTag::nack: return "NACK"; case FrameTag::beacon: return "BCN"; }
+    return "BCN";
 }
 int Node::retry_slot_of(FrameTag tag) {
     // PORT DIVERGENCE (deliberate, non-goal): Lua keys its stash by string label and has SEPARATE retry-eligible
@@ -983,9 +1000,13 @@ int Node::retry_slot_of(FrameTag tag) {
     // Benign: these CTS variants target the same flight + a lost CTS retry is recovered by the peer's rts_timeout
     // re-RTS; and it is gate-inert (on_radio_busy never fires at lbt_enabled=false). A byte-faithful CTS-dup/K-dup/Q
     // split is a documented R-future non-goal ([[r4.5b spec §7]]).
+    // §w4-switchenum: the rts/beacon exclusion is now IN THE CODE, not only in the comment (was `default: return -1`),
+    // so -Wswitch fails the build on a new FrameTag instead of silently making it non-retry-eligible. The trailing
+    // return keeps the out-of-range behaviour verbatim (see label_of_frame: the tag is a cast HAL uint16).
     switch (tag) { case FrameTag::cts: return 0; case FrameTag::data: return 1;
                    case FrameTag::ack: return 2; case FrameTag::nack: return 3;
-                   default: return -1; }                            // rts/beacon NOT retry-eligible
+                   case FrameTag::rts: case FrameTag::beacon: return -1; }   // rts/beacon NOT retry-eligible
+    return -1;
 }
 
 // Duty-cycle consumption readout (console `duty` + companion). Pure: surfaces the SAME budget/used/recovery

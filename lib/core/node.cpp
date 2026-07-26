@@ -916,7 +916,15 @@ void Node::on_recv(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             }
             break;
         }
-        default: break;                                              // rest ignored
+        // §w4-switchenum: EXT (0xF) is an EXPLICIT no-op, not a silently-dropped frame type — VERIFIED: nothing in
+        // the tree ever builds one (zero cmd_byte(Cmd::EXT, …) call sites) and it is absent from docs/frames.md's
+        // command-nibble map (0x0..0xC). It is a RESERVED extension nibble, so an EXT frame on the air today is
+        // foreign/corrupt and dropping it is correct. Listing it keeps -Wswitch-enum clean here.
+        case wire::Cmd::EXT: break;
+        // ★ The `default:` STAYS, deliberately: this switch's subject is `cmd_of(bytes[0])` = an arbitrary wire
+        // nibble, and 0xD/0xE are representable values of Cmd with NO enumerator. Removing it would be a
+        // no-op-by-fallthrough today, but the label documents that the domain is the wire, not the enum.
+        default: break;                                              // 0xD/0xE (unassigned nibbles) — ignored
     }
 }
 

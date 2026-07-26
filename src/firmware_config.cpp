@@ -309,9 +309,14 @@ void handle_cfg_set(const char* args, Print& out) {
 // a config on_init would refuse), then map into the v10 NV blob and prompt a reboot. Touches ONLY gateway fields
 // (radio/freq/tx_power/duty/etc. in the loaded blob are preserved); beacon cadence is preserved unless `beacon=` given.
 #if MR_N_LAYERS >= 2
+// §w4-switchenum (2026-07-26): NO `default:` — `-Wswitch` only guards a default-LESS switch, and the missing
+// `bad_freq` case used to fall into `default: return "ok"`, so a REFUSED `gateway freq0=0` printed
+// "> gateway err ok" (a false success reported to the operator). Every GwParseErr is cased; the trailing return
+// is unreachable and deliberately NOT "ok", so a future enumerator can never re-render a refusal as success.
 static const char* gw_parse_err_str(meshroute::GwParseErr e) {
     using E = meshroute::GwParseErr;
     switch (e) {
+        case E::ok:          return "ok";               // never printed: the caller only maps NON-ok (handle_gateway below)
         case E::missing_l0:  return "missing l0=";
         case E::missing_l1:  return "missing l1=";
         case E::bad_l0:      return "bad l0 format (want level:node:ctrl_sf:data_sfs)";
@@ -323,13 +328,18 @@ static const char* gw_parse_err_str(meshroute::GwParseErr e) {
         case E::bad_period:  return "period must be > 0";
         case E::bad_window:  return "win0=/win1= want ms:offset";
         case E::bad_beacon:  return "beacon must be > 0";
+        case E::bad_freq:    return "freq0=/freq1= must be > 0 (MHz)";
         case E::unknown_opt: return "unknown option";
-        default:             return "ok";
     }
+    return "unknown parse error";                       // unreachable (all GwParseErr cased) — fail LOUD, never "ok"
 }
+// §w4-switchenum: same treatment as gw_parse_err_str above. This one's table was COMPLETE (13 of 13 non-ok
+// values mapped) — but it was correct only by luck: the `default: return "ok"` meant a 14th enumerator would
+// have rendered the next refusal as success, exactly the way gw_parse_err_str's bad_freq did.
 static const char* gw_val_err_str(meshroute::GwValErr e) {
     using E = meshroute::GwValErr;
     switch (e) {
+        case E::ok:                   return "ok";      // never printed: the caller only maps NON-ok
         case E::bad_leaf:             return "level 0 not allowed";
         case E::bad_ctrl_sf:          return "ctrl_sf out of range (5..12)";
         case E::no_data_sf:           return "a layer has no data SF";
@@ -343,8 +353,8 @@ static const char* gw_val_err_str(meshroute::GwValErr e) {
         case E::window_too_long:      return "windows sum exceeds the period";
         case E::bad_bw:               return "per-layer bw not a valid SX1262 bandwidth (0=inherit)";
         case E::bad_cr:               return "per-layer cr out of range (5..8; 0=inherit)";
-        default:                      return "ok";
     }
+    return "unknown validation error";                  // unreachable (all GwValErr cased) — fail LOUD, never "ok"
 }
 #endif
 void handle_gateway(const char* args, Print& out) {
