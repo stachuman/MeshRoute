@@ -28,6 +28,8 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 | 0xA | M    | 7+n B | channel message (lean; leaf-scoped gossip) |
 | 0xB | C    | 15+n B | leaf-config answer (the CONFIG_PULL reply) |
 | 0xC | P    | probe 8 / 10 / 42 B · roster **6** + 6·N (+ bitmaps; deleg bitmap iff HAS_DELEG) (+5 echo) B | presence plane (probe dir=0 / roster dir=1); **LEAF-FREE**; roster byte 4 = `wire_version` (D16), byte-0 b0 = `HAS_DELEG` |
+| 0xD·0xE | — | — | **UNASSIGNED** — no `Cmd` enumerator; `cmd_of()` yields a value outside the enum, and `on_recv` ignores it |
+| 0xF | EXT  | — | **RESERVED** for a future command-space extension. `wire::Cmd::EXT` exists but **nothing ever builds one** (zero `cmd_byte(Cmd::EXT, …)` call sites) — `on_recv` cases it as an explicit no-op |
 
 ---
 

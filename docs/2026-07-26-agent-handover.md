@@ -8,11 +8,23 @@
 
 ---
 
-## 0. ⚠ THERE IS AN AGENT IN FLIGHT RIGHT NOW
+## 0. ✅ RESOLVED — the in-flight agent reported and was GATED (2026-07-26)
 
-A coder is running **Wave-4 #2+#3: the `bad_freq` false-success fix + closing the `-Wswitch-enum` blind spot.**
-Its brief is preserved at **`docs/2026-07-26-inflight-brief-switchenum.md`** (it was in a session scratchpad that
-is now gone). When it reports:
+★ **DONE. Do not re-gate it.** Wave-4 #2+#3 landed and passed an independent QA gate — full result recorded in
+**`simulation/BASELINE.md` note 2026-07-26s** (read that, not this section, for the numbers). Summary: native
+**854/26482/0** exact · **27/27 byte-identical** at the 25j anchors, s18 `c9167d30`/271244 · ΔRAM +0. Uncommitted:
+`lib/core/node.cpp`, `lib/core/node_mac.cpp`, `src/firmware_config.cpp`.
+
+**Two things carried forward out of it — both need an owner decision, neither is a defect in what shipped:**
+1. ★ **`lib/core/node.cpp:927` still carries a `default:`** on the frame-dispatch switch. Proven with the
+   compiler: `-Wswitch` is blind behind any `default:`, so a future `Cmd` enumerator would be **silently
+   unhandled there** — guarded only if `-Wswitch-enum` is adopted. Removing the label is behaviour-identical.
+   **1 line + a re-gate.**
+2. ★ **The `-Wswitch-enum` gate ruling** — a build-wide zero is unreachable (vendor code: 85/env nRF52,
+   ~307/env ESP32). Adoptable form + the recommended `#pragma` alternative are in the 26s note.
+
+*(Historical — the dispatch expectations this section was written against; the brief itself is preserved at
+`docs/2026-07-26-inflight-brief-switchenum.md`.)* When it reports:
 
 1. **Re-run its gate yourself** — never accept its numbers (rule V1). The gate is in the method doc §D.
 2. Expect these specific things in its report, and check each:
