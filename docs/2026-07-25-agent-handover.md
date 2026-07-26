@@ -198,6 +198,29 @@ Full details + file:line citations: `docs/2026-07-20-realism-and-duplication-rev
    audit the 4 unclamped-TU users.
 9. `MR_TELEMETRY`→`MR_EMIT` conversion — 133 long-form sites, per-TU batches, byte-identity per batch.
 
+### 6.3b ★ NEW FEATURE ARC (ratified 2026-07-26): TEAM ENCRYPTED CHANNEL
+Spec: `docs/superpowers/specs/2026-07-26-team-encrypted-channel-design.md` — **RATIFIED, dispatch-ready**
+(all five §4 questions ruled by the owner; rulings folded in). Five slices T-K1…T-K5 (keypair NV/provisioning
+→ encrypted flavor [nonce design = the #1 review point] → TYPE-19 sealed key-grant → companion QR → location
+inner-type). v1-relevant (the QR is an onboarding flow for the iOS companion). Priority vs the 6.1/6.3
+queues = the owner's call — ask before slotting.
+
+### 6.3d Companion v1 roadmap (index, ratified 2026-07-26)
+`docs/superpowers/specs/2026-07-26-companion-v1-feature-roadmap.md` — the companion HALVES of 6.3b + 6.3c
+(iOS companion is a v1 feature, owner-ruled). `INBOX_SYNC_CONTRACT.md` "Planned for v1" section reserves the
+surface. Companion slices consume the firmware surfaces → they follow the firmware slices; exact JSON shapes
+land WITH each firmware slice (not pre-frozen). Not firmware work — plan/contract only.
+
+### 6.3c ★ NEW FEATURE ARC (ratified 2026-07-26): REMOTE-ADMIN CHALLENGE–RESPONSE (v1)
+Spec: `docs/superpowers/specs/2026-07-26-remote-admin-challenge-response-design.md` — direction RATIFIED
+(challenge-response replaces the known-broken monotonic counter; the `§admin-replay-REDESIGN-OWED` note in
+firmware_remote.cpp:72 is the origin). 4 slices RA-1…RA-4 (codec plaintext change → node challenge lifecycle
++ exactly-once ring → sender/console/companion → NV drop of admin_counter_floor). ⚠ 4 owner questions in §6
+OUTSTANDING (ring depth, open-read challenge policy ×2, companion scope) — resolve before RA-2/RA-3. The
+codec change is surgical: only the sealed PLAINTEXT inside admin_cmd_seal (DATA_TYPE 6/7 unchanged). s18
+byte-identical (admin provisioned-only). ⚠ do NOT fold in the SEPARATE unchecked-save [4/5] admin-key-rotate
+issue (C1). Priority vs 6.1/6.3/6.3b = owner's call.
+
 ### 6.4 Shelf (real findings; dedicated slices; rising priority marked ★)
 - ★ **Flood-repair hardening** (deferred twice — the durable cure for the s23/s27 seed-fragility that
   re-pinning papers over): (a) re-enable team `flood_fast_self_pull` (`node.cpp` ~:824 gates it off on a

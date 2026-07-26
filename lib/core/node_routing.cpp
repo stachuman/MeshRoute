@@ -249,13 +249,8 @@ int Node::resort_routes_for_neighbor_penalty(uint8_t node_id, [[maybe_unused]] c
         if (new_primary != old_primary) {
             if (!local_only) entry.dirty = true;
             ++changed;
-            MR_TELEMETRY(
-                EventField f[] = { { .key = "dest",      .type = EventField::T::i64, .i = entry.dest },
-                                   { .key = "from_next",  .type = EventField::T::i64, .i = old_primary },
-                                   { .key = "to_next",    .type = EventField::T::i64, .i = new_primary },
-                                   { .key = "penalized",  .type = EventField::T::i64, .i = node_id },
-                                   { .key = "reason",     .type = EventField::T::str, .s = source ? source : "neighbor_penalty" } };
-                _hal.emit("rt_penalty_rerank", f, 5); );
+            MR_EMIT("rt_penalty_rerank", EF_I("dest", entry.dest), EF_I("from_next", old_primary), EF_I("to_next", new_primary),
+                    EF_I("penalized", node_id), EF_S("reason", source ? source : "neighbor_penalty"));
         }
     }
     if (changed > 0 && !local_only) schedule_triggered_beacon();   // re-advertise the new primaries
@@ -286,13 +281,8 @@ void Node::team_resort_routes_through(uint8_t team_local_id) {
         if (new_primary != old_primary) {
             entry.dirty = true;                          // §2.3: advertise the new team primary (emit_beacon dirty pass over _rt_team)
             ++changed;
-            MR_TELEMETRY(
-                EventField f[] = { { .key = "dest",      .type = EventField::T::i64, .i = entry.dest },
-                                   { .key = "from_next",  .type = EventField::T::i64, .i = old_primary },
-                                   { .key = "to_next",    .type = EventField::T::i64, .i = new_primary },
-                                   { .key = "penalized",  .type = EventField::T::i64, .i = team_local_id },
-                                   { .key = "reason",     .type = EventField::T::str, .s = "team_liveness" } };
-                _hal.emit("rt_penalty_rerank", f, 5); );
+            MR_EMIT("rt_penalty_rerank", EF_I("dest", entry.dest), EF_I("from_next", old_primary), EF_I("to_next", new_primary),
+                    EF_I("penalized", team_local_id), EF_S("reason", "team_liveness"));
         }
     }
     if (changed > 0) schedule_triggered_beacon();        // §2.3: re-advertise the new team primaries on our cadence
@@ -313,12 +303,8 @@ RtEntry* Node::refresh_route_order(uint8_t dst, [[maybe_unused]] const char* rea
     const uint8_t new_primary = e->candidates[0].next_hop;
     if (new_primary != old_primary) {
         e->dirty = true;
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "dest",      .type = EventField::T::i64, .i = e->dest },
-                               { .key = "from_next",  .type = EventField::T::i64, .i = old_primary },
-                               { .key = "to_next",    .type = EventField::T::i64, .i = new_primary },
-                               { .key = "reason",     .type = EventField::T::str, .s = reason ? reason : "refresh_route_order" } };
-            _hal.emit("rt_penalty_rerank", f, 4); );
+        MR_EMIT("rt_penalty_rerank", EF_I("dest", e->dest), EF_I("from_next", old_primary), EF_I("to_next", new_primary),
+                EF_S("reason", reason ? reason : "refresh_route_order"));
         schedule_triggered_beacon();                     // re-advertise + the conditional rand draw (matches the Lua)
     }
     return e;
@@ -334,12 +320,8 @@ int Node::mark_neighbor_budget_tier(uint8_t node_id, uint8_t tier, const char* s
     _active->_neighbor_budget_tier[node_id]        = tier;
     _active->_neighbor_budget_tier_set_at[node_id] = _hal.now();
     const int reranked = resort_routes_for_neighbor_penalty(node_id, source, local_only);
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "node",     .type = EventField::T::i64, .i = node_id },
-                           { .key = "tier",     .type = EventField::T::i64, .i = tier },
-                           { .key = "source",   .type = EventField::T::str, .s = source ? source : "unknown" },
-                           { .key = "reranked", .type = EventField::T::i64, .i = reranked } };
-        _hal.emit("neighbor_budget_mark", f, 4); );
+    MR_EMIT("neighbor_budget_mark", EF_I("node", node_id), EF_I("tier", tier), EF_S("source", source ? source : "unknown"),
+            EF_I("reranked", reranked));
     return reranked;
 }
 
@@ -387,10 +369,7 @@ Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand, RtEntry*
     // (the next_hop==dest carve-out inside the predicate). Hard skip, NOT a score penalty (Lua dv:4583).
     // §6.2: SKIP on the team plane — a same-team peer IS a legal transit in its own table (the whole point).
     if (!team_plane && route_uses_mobile_as_transit(dest, cand.next_hop)) {
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "dest", .type = EventField::T::i64, .i = dest },
-                               { .key = "next", .type = EventField::T::i64, .i = cand.next_hop } };
-            _hal.emit("rt_skip_mobile_transit", f, 2); );
+        MR_EMIT("rt_skip_mobile_transit", EF_I("dest", dest), EF_I("next", cand.next_hop));
         return MergeAction::none;
     }
     RtEntry* entry = rt_find(dest, rt, rt_count);
@@ -446,9 +425,7 @@ Node::MergeAction Node::rt_merge(uint8_t dest, const RtCandidate& cand, RtEntry*
 void Node::maybe_emit_rt_full() {
     if (_rt_full_emitted || _cfg.peer_count == 0) return;   // peer_count 0 = sim telemetry off
     if (_active->_rt_count >= _cfg.peer_count) {
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "peers", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.peer_count) } };
-            _hal.emit("rt_full", f, 1); );
+        MR_EMIT("rt_full", EF_I("peers", static_cast<int64_t>(_cfg.peer_count)));
         _rt_full_emitted = true;
     }
 }
@@ -499,14 +476,8 @@ void Node::age_out_stale_routes(RtEntry* rt, uint8_t& rt_count, bool team_plane)
             if (expired) {
                 any_evicted = true;
                 if (r == 0) primary_evicted = true;
-                MR_TELEMETRY(
-                    EventField f[] = {
-                        { .key = "dest", .type = EventField::T::i64, .i = static_cast<int64_t>(e.dest) },
-                        { .key = "slot", .type = EventField::T::str, .s = (r == 0 ? "primary" : "alt") },
-                        { .key = "next", .type = EventField::T::i64, .i = static_cast<int64_t>(c.next_hop) },
-                        { .key = "hops", .type = EventField::T::i64, .i = static_cast<int64_t>(c.hops) },
-                    };
-                    _hal.emit("rt_aged", f, 4); );
+                MR_EMIT("rt_aged", EF_I("dest", static_cast<int64_t>(e.dest)), EF_S("slot", (r == 0 ? "primary" : "alt")),
+                        EF_I("next", static_cast<int64_t>(c.next_hop)), EF_I("hops", static_cast<int64_t>(c.hops)));
             } else {
                 if (w != r) e.candidates[w] = e.candidates[r];
                 ++w;
@@ -542,13 +513,8 @@ void Node::rt_prune_cycle(uint8_t dest, uint8_t sender, RtEntry* rt, uint8_t& rt
         if (c.hops > 1 && c.n2_hop == sender) {
             mutated = true;
             if (r == 0) primary_pruned = true;
-            MR_TELEMETRY(
-                EventField f[] = {
-                    { .key = "dest",   .type = EventField::T::i64, .i = static_cast<int64_t>(dest) },
-                    { .key = "via",    .type = EventField::T::i64, .i = static_cast<int64_t>(c.next_hop) },
-                    { .key = "sender", .type = EventField::T::i64, .i = static_cast<int64_t>(sender) },
-                };
-                _hal.emit("rt_prune", f, 3); );
+            MR_EMIT("rt_prune", EF_I("dest", static_cast<int64_t>(dest)), EF_I("via", static_cast<int64_t>(c.next_hop)),
+                    EF_I("sender", static_cast<int64_t>(sender)));
         } else {
             if (w != r) e->candidates[w] = e->candidates[r];
             ++w;

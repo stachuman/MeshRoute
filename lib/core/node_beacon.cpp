@@ -495,13 +495,7 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (wire::flags_of(bytes[0]) != _cfg.leaf_id && _cfg.team_id == 0) return;   // foreign leaf nibble -> not ours (non-team)
     const uint8_t their_wire_ver = static_cast<uint8_t>(bytes[3] & 0x0F);
     if (their_wire_ver != protocol::wire_version) {                     // incompatible wire -> refuse + tell the operator (Push, not telemetry)
-        const uint64_t now = _hal.now();
-        if (_last_join_refused_ms == 0 || now - _last_join_refused_ms >= protocol::join_refused_retry_ms) {
-            _last_join_refused_ms = now;
-            Push pu{}; pu.kind = PushKind::join_refused; pu.join_reason = JoinRefuseReason::wire_version;
-            pu.origin = their_wire_ver; pu.dst = protocol::wire_version; enqueue_push(pu);
-            MR_EMIT("join_refused", EF_S("reason", "wire_version"), EF_I("their_ver", their_wire_ver), EF_I("my_ver", protocol::wire_version));
-        }
+        push_join_refused_wire(their_wire_ver);
         return;                                                        // don't peer, don't parse a foreign-version format
     }
     auto parsed = parse_beacon(std::span<const uint8_t>(bytes, len));
@@ -937,11 +931,8 @@ void Node::periodic_beacon_fire() {
     // duty/LBT-gated inside emit_beacon. Team-gated (team_id==0 -> unchanged) => s18 byte-identical.
     const bool team_readvert = _cfg.is_mobile && _cfg.team_id != 0;
     if (since_rx < _cfg.quiet_threshold_ms && !force_idle && !team_readvert) {  // channel busy -> skip, NO draw (dv:7785)
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "since_rx_ms",  .type = EventField::T::i64, .i = static_cast<int64_t>(since_rx) },
-                               { .key = "threshold_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.quiet_threshold_ms) },
-                               { .key = "stage",        .type = EventField::T::str, .s = "pre_jitter" } };
-            _hal.emit("beacon_skipped_busy", f, 3); );
+        MR_EMIT("beacon_skipped_busy", EF_I("since_rx_ms", static_cast<int64_t>(since_rx)),
+                EF_I("threshold_ms", static_cast<int64_t>(_cfg.quiet_threshold_ms)), EF_S("stage", "pre_jitter"));
         return;
     }
     // gate passed -> draw the silence-jitter (dv:7795). jitter==0 -> send now; else defer + re-check.
@@ -969,11 +960,8 @@ void Node::deferred_beacon_jitter_fire(uint8_t slot) {
     const bool force_idle_post = beacon_max_idle_force(now, /*emit_events=*/false);   // recompute SILENTLY (dv:7814)
     const bool team_readvert = _cfg.is_mobile && _cfg.team_id != 0;   // §Wave-4 team antidote (see periodic_beacon_fire): re-advertise on the team cadence past the foreign-chatter throttle
     if (since < _cfg.quiet_threshold_ms && !force_idle_post && !team_readvert) {
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "since_rx_ms",  .type = EventField::T::i64, .i = static_cast<int64_t>(since) },
-                               { .key = "threshold_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.quiet_threshold_ms) },
-                               { .key = "stage",        .type = EventField::T::str, .s = "post_jitter" } };
-            _hal.emit("beacon_skipped_busy", f, 3); );
+        MR_EMIT("beacon_skipped_busy", EF_I("since_rx_ms", static_cast<int64_t>(since)),
+                EF_I("threshold_ms", static_cast<int64_t>(_cfg.quiet_threshold_ms)), EF_S("stage", "post_jitter"));
         return;
     }
     emit_beacon("periodic");
@@ -998,12 +986,9 @@ void Node::schedule_triggered_beacon() {
         if (now + delay < earliest) {
             [[maybe_unused]] const uint32_t old_delay = delay;
             delay = static_cast<uint32_t>((earliest - now) + _hal.rand_range(lo, hi + 1));   // 2nd draw
-            MR_TELEMETRY(
-                EventField f[] = { { .key = "min_interval_ms",   .type = EventField::T::i64, .i = protocol::beacon_trigger_min_interval_ms },
-                                   { .key = "old_delay_ms",      .type = EventField::T::i64, .i = old_delay },
-                                   { .key = "delay_ms",          .type = EventField::T::i64, .i = delay },
-                                   { .key = "since_last_bcn_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(now - _last_beacon_tx_ms) } };
-                _hal.emit("beacon_trigger_deferred", f, 4); );
+            MR_EMIT("beacon_trigger_deferred", EF_I("min_interval_ms", protocol::beacon_trigger_min_interval_ms),
+                    EF_I("old_delay_ms", old_delay), EF_I("delay_ms", delay),
+                    EF_I("since_last_bcn_ms", static_cast<int64_t>(now - _last_beacon_tx_ms)));
         }
     }
     (void)_hal.after(delay, kTriggeredBeaconTimerId);
@@ -1016,14 +1001,9 @@ void Node::maybe_exit_discovery([[maybe_unused]] const char* reason) {
     if (_active->_discovery_bcn_rx_count >= protocol::discovery_min_bcn_rx ||
         _active->_rt_count >= protocol::discovery_min_routes || timed_out) {
         _active->_discovery_mode = false;
-        MR_TELEMETRY(
-            EventField f[] = {
-                { .key = "reason",     .type = EventField::T::str, .s = reason },
-                { .key = "heard_bcn",  .type = EventField::T::i64, .i = static_cast<int64_t>(_active->_discovery_bcn_rx_count) },
-                { .key = "rt_total",   .type = EventField::T::i64, .i = static_cast<int64_t>(_active->_rt_count) },
-                { .key = "elapsed_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(now - _active->_discovery_started_ms) },
-            };
-            _hal.emit("bcn_discovery_exit", f, 4); );
+        MR_EMIT("bcn_discovery_exit", EF_S("reason", reason), EF_I("heard_bcn", static_cast<int64_t>(_active->_discovery_bcn_rx_count)),
+                EF_I("rt_total", static_cast<int64_t>(_active->_rt_count)),
+                EF_I("elapsed_ms", static_cast<int64_t>(now - _active->_discovery_started_ms)));
     }
 }
 

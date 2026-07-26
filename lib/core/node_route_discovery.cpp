@@ -123,11 +123,7 @@ void Node::emit_route_request(uint8_t dst, uint8_t ttl, bool team_plane) {
         uint8_t tbuf[16];
         const size_t tn = pack_f(tin, std::span<uint8_t>(tbuf, sizeof(tbuf)));
         if (tn == 0) return;
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "dst",    .type = EventField::T::i64, .i = dst },
-                               { .key = "ttl",    .type = EventField::T::i64, .i = ttl },
-                               { .key = "reason", .type = EventField::T::str, .s = "team_no_route" } };
-            _hal.emit("r_tx", f, 3); );
+        MR_EMIT("r_tx", EF_I("dst", dst), EF_I("ttl", ttl), EF_S("reason", "team_no_route"));
         tx_initiating(tbuf, tn, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
         return;
     }
@@ -150,12 +146,8 @@ void Node::emit_route_request(uint8_t dst, uint8_t ttl, bool team_plane) {
     uint8_t buf[16];
     const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
     if (n == 0) return;
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "dst",    .type = EventField::T::i64, .i = dst },
-                           { .key = "ttl",    .type = EventField::T::i64, .i = ttl },
-                           { .key = "reason", .type = EventField::T::str, .s = "no_route" } };   // both call sites are no-route triggers (Lua dv:5689/6920 pass "no_route")
-        _hal.emit("r_tx", f, 3);
-    );
+    // both call sites are no-route triggers (Lua dv:5689/6920 pass "no_route")
+    MR_EMIT("r_tx", EF_I("dst", dst), EF_I("ttl", ttl), EF_S("reason", "no_route"));
     tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
 }
 
@@ -163,10 +155,7 @@ void Node::emit_route_request(uint8_t dst, uint8_t ttl, bool team_plane) {
 void Node::send_route_reply(uint8_t origin, uint8_t dst, uint8_t hops_to_dst, bool team_plane) {
     RtEntry* e = rt_find(origin, team_plane ? Plane::TEAM : Plane::AUTO);   // §team-multihop: reverse path on the TEAM plane (_rt_team); static keeps the AUTO default -> byte-identical
     if (e == nullptr || e->n == 0) {
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "origin", .type = EventField::T::i64, .i = origin } };
-            _hal.emit("rrep_drop_no_reverse", f, 1);
-        );
+        MR_EMIT("rrep_drop_no_reverse", EF_I("origin", origin));
         return;
     }
     const uint8_t next_hop = e->candidates[0].next_hop;
@@ -182,12 +171,7 @@ void Node::send_route_reply(uint8_t origin, uint8_t dst, uint8_t hops_to_dst, bo
     uint8_t buf[16];
     const size_t n = pack_f(in, std::span<uint8_t>(buf, sizeof(buf)));
     if (n == 0) return;
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "origin", .type = EventField::T::i64, .i = origin },
-                           { .key = "dst",    .type = EventField::T::i64, .i = dst },
-                           { .key = "next",   .type = EventField::T::i64, .i = next_hop } };
-        _hal.emit("rrep", f, 3);
-    );
+    MR_EMIT("rrep", EF_I("origin", origin), EF_I("dst", dst), EF_I("next", next_hop));
     tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
 }
 

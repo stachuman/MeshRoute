@@ -371,13 +371,7 @@ void Node::presence_ingest_roster(const uint8_t* frame, size_t len, const RxMeta
     if (!r) return;
     if (r->wire_version != protocol::wire_version) {   // §D16: a foreign-wire roster -> DROP before interpreting any field (the P-plane's own version wall)
         presence_mark_incompatible(r->home_id, r->home_layer);   // FSM B/C never DISCOVERs at this home (no wasted J rounds)
-        const uint64_t now = _hal.now();               // surface the mobile-flavored join_refused (rate-limited like the beacon path)
-        if (_last_join_refused_ms == 0 || now - _last_join_refused_ms >= protocol::join_refused_retry_ms) {
-            _last_join_refused_ms = now;
-            Push pu{}; pu.kind = PushKind::join_refused; pu.join_reason = JoinRefuseReason::wire_version;
-            pu.origin = r->wire_version; pu.dst = protocol::wire_version; enqueue_push(pu);
-            MR_EMIT("join_refused", EF_S("reason", "wire_version"), EF_I("their_ver", r->wire_version), EF_I("my_ver", protocol::wire_version));
-        }
+        push_join_refused_wire(r->wire_version);       // surface the mobile-flavored join_refused (rate-limited like the beacon path)
         return;
     }
     const int16_t snr_q4 = protocol::db_to_q4(meta.snr_db);

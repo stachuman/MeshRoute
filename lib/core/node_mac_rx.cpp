@@ -95,12 +95,8 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         _hal.cancel(kRtsTimeoutTimerId);
         _hal.cancel(kAckTimeoutTimerId);
         _hal.cancel(kRetryBackoffTimerId);                 // parity with handle_ack: drop a stale retry armed by a just-fired timeout
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "from",         .type = EventField::T::i64, .i = r.src },
-                               { .key = "dst",          .type = EventField::T::i64, .i = _active->_pending_tx->dst },
-                               { .key = "ctr_lo",       .type = EventField::T::i64, .i = r.ctr_lo },
-                               { .key = "forward_next", .type = EventField::T::i64, .i = r.next } };
-            _hal.emit("implicit_ack_from_forward", f, 4); );
+        MR_EMIT("implicit_ack_from_forward", EF_I("from", r.src), EF_I("dst", _active->_pending_tx->dst), EF_I("ctr_lo", r.ctr_lo),
+                EF_I("forward_next", r.next));
         _active->_pending_tx.reset();
         become_free();
         return;
@@ -180,14 +176,10 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                 + airtime_ms(data_sf, active_bw_hz(), active_cr(), protocol::preamble_sym,
                              static_cast<uint16_t>(r.payload_len + m_hdr)) + 30 + _hal.rx_window_slop_ms(data_sf);
             (void)_hal.after(back, kOverhearRetuneTimerId);
-            MR_TELEMETRY(
-                EventField f[] = { { .key = "id_lo16",        .type = EventField::T::i64,     .i = r.m_payload_id_lo16 },
-                                   { .key = "sender",         .type = EventField::T::i64,     .i = r.src },
-                                   { .key = "target",         .type = EventField::T::i64,     .i = r.next },
-                                   { .key = "chosen_data_sf", .type = EventField::T::i64,     .i = data_sf },          // advertised SF we retuned to (t69)
-                                   { .key = "guard_ms",       .type = EventField::T::i64,     .i = static_cast<int64_t>(back) },
-                                   { .key = "addressed",      .type = EventField::T::boolean, .b = (r.next == _node_id && ((r.addr_len == 1) == _cfg.is_mobile)) } };   // §mobile 3b: mark-aware addressed
-                _hal.emit("channel_overhear_armed", f, 6); );
+            MR_EMIT("channel_overhear_armed", EF_I("id_lo16", r.m_payload_id_lo16), EF_I("sender", r.src), EF_I("target", r.next),
+                    EF_I("chosen_data_sf", data_sf),        // chosen_data_sf = the advertised SF we retuned to (t69)
+                    EF_I("guard_ms", static_cast<int64_t>(back)),
+                    EF_B("addressed", (r.next == _node_id && ((r.addr_len == 1) == _cfg.is_mobile))));   // §mobile 3b: mark-aware addressed
         }
         return;                                          // M_BROADCAST RTS never CTSes
     }
@@ -223,10 +215,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // the requester is a hidden node that didn't hear the reservation and will time out + retry. Tunable
     // (nav_ignore_rts): dropping it protects the reservation but causes the requester to cascade/give up.
     if (_cfg.nav_enabled && _cfg.nav_ignore_rts && _hal.now() < _nav_until_ms) return;
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = r.src },
-                           { .key = "dst",  .type = EventField::T::i64, .i = r.dst } };
-        _hal.emit("rts_rx", f, 2); );
+    MR_EMIT("rts_rx", EF_I("from", r.src), EF_I("dst", r.dst));
 
     // last_acked dedup: a retried RTS after we already delivered -> CTS already_received, no re-deliver.
     const uint32_t lakey = (uint32_t(r.src) << 24) | (uint32_t(r.dst) << 16) |
@@ -240,10 +229,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0;   // NAV: size the overhearer's DATA reservation
         uint8_t cbuf[4]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, sizeof cbuf));
         tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
-                               { .key = "dup", .type = EventField::T::boolean, .b = true } };
-            _hal.emit("cts_tx", f, 2); );
+        MR_EMIT("cts_tx", EF_I("to", r.src), EF_B("dup", true));
         return;
     }
     // A retried RTS for the SAME flight while we still await its DATA -> re-CTS + restart
@@ -255,10 +241,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0;   // NAV: size the overhearer's DATA reservation
         uint8_t cbuf[4]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, sizeof cbuf));
         tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
-                               { .key = "dup", .type = EventField::T::boolean, .b = true } };
-            _hal.emit("cts_tx", f, 2); );
+        MR_EMIT("cts_tx", EF_I("to", r.src), EF_B("dup", true));
         start_pending_rx_expiry(_active->_pending_rx->payload_len);
         return;
     }
@@ -275,18 +258,13 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         nack_in nin{}; nin.reason = protocol::nack_reason_busy_rx; nin.ctr_lo = r.ctr_lo;
         nin.payload = static_cast<uint8_t>(q > 255 ? 255 : q); nin.to = r.src; nin.mobile_to = r.mobile_src;   // §mobile: a mobile/team RTS's src is a LOCAL id -> mark the NACK
         uint8_t nbuf[4]; const size_t nl = pack_nack(nin, std::span<uint8_t>(nbuf, 4));
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "to",      .type = EventField::T::i64, .i = r.src },
-                               { .key = "reason",  .type = EventField::T::i64, .i = protocol::nack_reason_busy_rx },
-                               { .key = "busy_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(busy_for) } };
-            _hal.emit("nack_tx", f, 3); );
+        MR_EMIT("nack_tx", EF_I("to", r.src), EF_I("reason", protocol::nack_reason_busy_rx),
+                EF_I("busy_ms", static_cast<int64_t>(busy_for)));
         tx_initiating(nbuf, nl, static_cast<int16_t>(_cfg.routing_sf), LbtKind::nack, 0);   // R4.5 LBT (handle_rts NACK, dv:9953)
         return;
     }
     if (_active->_pending_tx) {                                   // sending our own -> silent (no NACK)
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = r.src } };
-            _hal.emit("rts_drop_pending_tx", f, 1); );
+        MR_EMIT("rts_drop_pending_tx", EF_I("from", r.src));
         return;
     }
 
@@ -316,27 +294,15 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         const uint32_t airtime_warn = static_cast<uint32_t>(
             static_cast<double>(protocol::originator_airtime_warn_fraction) * airtime_cap);
         if (_duty_cycle_budget_ms > 0 && !over_airtime && total_air > airtime_warn) {
-            MR_TELEMETRY(
-                EventField wf[] = { { .key = "from",      .type = EventField::T::i64, .i = r.src },
-                                    { .key = "ctr_lo",    .type = EventField::T::i64, .i = r.ctr_lo },
-                                    { .key = "airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(total_air) },
-                                    { .key = "warn_airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(airtime_warn) },
-                                    { .key = "threshold_airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(airtime_cap) },
-                                    { .key = "window_ms", .type = EventField::T::i64, .i = protocol::originator_window_ms } };
-                _hal.emit("rts_originator_airtime_warn", wf, 6); );
+            MR_EMIT("rts_originator_airtime_warn", EF_I("from", r.src), EF_I("ctr_lo", r.ctr_lo),
+                    EF_I("airtime_ms", static_cast<int64_t>(total_air)), EF_I("warn_airtime_ms", static_cast<int64_t>(airtime_warn)),
+                    EF_I("threshold_airtime_ms", static_cast<int64_t>(airtime_cap)), EF_I("window_ms", protocol::originator_window_ms));
         }
         if (over_airtime) {
-            MR_TELEMETRY(
-                EventField f[] = { { .key = "from",      .type = EventField::T::i64, .i = r.src },
-                                   { .key = "ctr_lo",    .type = EventField::T::i64, .i = r.ctr_lo },
-                                   { .key = "apparent_origination", .type = EventField::T::i64, .i = app_orig },
-                                   { .key = "airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(total_air) },
-                                   { .key = "rts_count", .type = EventField::T::i64, .i = rts_n },
-                                   { .key = "cts_count", .type = EventField::T::i64, .i = cts_n },
-                                   { .key = "threshold_count",      .type = EventField::T::i64, .i = _cfg.originator_max_per_window },
-                                   { .key = "threshold_airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(airtime_cap) },
-                                   { .key = "window_ms",            .type = EventField::T::i64, .i = protocol::originator_window_ms } };
-                _hal.emit("rts_drop_originator_throttle", f, 9); );
+            MR_EMIT("rts_drop_originator_throttle", EF_I("from", r.src), EF_I("ctr_lo", r.ctr_lo), EF_I("apparent_origination", app_orig),
+                    EF_I("airtime_ms", static_cast<int64_t>(total_air)), EF_I("rts_count", rts_n), EF_I("cts_count", cts_n),
+                    EF_I("threshold_count", _cfg.originator_max_per_window),
+                    EF_I("threshold_airtime_ms", static_cast<int64_t>(airtime_cap)), EF_I("window_ms", protocol::originator_window_ms));
             return;                                       // silent drop (no CTS, no NACK)
         }
     }
@@ -351,11 +317,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         nin.payload = static_cast<uint8_t>((static_cast<uint8_t>(my_tier) & 0x0f) << 4);   // tier HIGH nibble
         nin.to = r.src; nin.mobile_to = r.mobile_src;   // §mobile: a mobile/team RTS's src is a LOCAL id -> mark the NACK
         uint8_t nbuf[4]; const size_t nl = pack_nack(nin, std::span<uint8_t>(nbuf, 4));
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = r.src },
-                               { .key = "reason", .type = EventField::T::i64, .i = protocol::nack_reason_budget },
-                               { .key = "tier",   .type = EventField::T::i64, .i = static_cast<uint8_t>(my_tier) } };
-            _hal.emit("nack_tx", f, 3); );
+        MR_EMIT("nack_tx", EF_I("to", r.src), EF_I("reason", protocol::nack_reason_budget), EF_I("tier", static_cast<uint8_t>(my_tier)));
         tx_initiating(nbuf, nl, static_cast<int16_t>(_cfg.routing_sf), LbtKind::nack, 0);   // R4.5 LBT (handle_rts NACK, dv:10043)
         return;                                          // NO CTS, NO pending_rx
     }
@@ -371,10 +333,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0;   // NAV: size the overhearer's DATA reservation
     uint8_t cbuf[4]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, sizeof cbuf));
     tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b: stash + tag the CTS
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "to", .type = EventField::T::i64, .i = r.src },
-                           { .key = "sf", .type = EventField::T::i64, .i = sf } };
-        _hal.emit("cts_tx", f, 2); );
+    MR_EMIT("cts_tx", EF_I("to", r.src), EF_I("sf", sf));
     _hal.set_rx_sf(sf);                                  // NOW retune RX to hear the DATA on the data SF
 }
 
@@ -433,10 +392,7 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     _hal.cancel(kRetryBackoffTimerId);                   // drop a stale retry armed by a just-fired rts_timeout
     _active->_pending_tx->awaiting_cts = false;
     _active->_pending_tx->chosen_data_sf = c.chosen_data_sf;
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = _active->_pending_tx->next },   // CTS is from our next-hop (src_hint=-1 on metal)
-                           { .key = "sf",   .type = EventField::T::i64, .i = c.chosen_data_sf } };
-        _hal.emit("cts_rx", f, 2); );
+    MR_EMIT("cts_rx", EF_I("from", _active->_pending_tx->next), EF_I("sf", c.chosen_data_sf));  // CTS is from our next-hop (src_hint=-1 on metal)
     if (c.already_received) { _active->_pending_tx.reset(); become_free(); return; }   // already delivered upstream
     (void)_hal.after(protocol::cts_to_data_gap_ms, kCtsToDataGapTimerId);     // fixed 5ms gap (NOT rand)
 }
@@ -522,14 +478,8 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto inner = data_inner(std::span<const uint8_t>(bytes, len), d);
     auto ui = parse_unicast_inner(inner, d.flags);
     const uint8_t origin = ui ? ui->origin : from;
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "origin", .type = EventField::T::i64, .i = origin },
-                           { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr },
-                           { .key = "ctr_lo", .type = EventField::T::i64, .i = d.ctr_lo4 },
-                           { .key = "from",   .type = EventField::T::i64, .i = from },
-                           { .key = "dst",    .type = EventField::T::i64, .i = d.dst },
-                           { .key = "orig_airtime_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(orig_air) } };
-        _hal.emit("data_rx", f, 6); );
+    MR_EMIT("data_rx", EF_I("origin", origin), EF_I("ctr", d.ctr), EF_I("ctr_lo", d.ctr_lo4), EF_I("from", from), EF_I("dst", d.dst),
+            EF_I("orig_airtime_ms", static_cast<int64_t>(orig_air)));
     // Learn the DATA prev-hop as a 1-hop neighbour (Lua learn_rx_source / data_frame).
     // §mobile: a mobile_src DATA's prev-hop `from` is a home-assigned LOCAL id -> keep it OUT of the static _rt
     // (mirror the RTS/Q guards). mobile_from==false for every static frame -> unchanged (s18 byte-identical).
@@ -579,11 +529,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     const uint8_t hb_new_committed = (d.committed_hops >= 7) ? 7
                                      : static_cast<uint8_t>(d.committed_hops + 1);
     if (!for_me_dst(d.dst) && hb_new_remaining < 0) {   // §6.4: the destination (static OR team-plane id) is exempt from the hop-budget NACK
-        MR_TELEMETRY(
-            EventField ef[] = { { .key = "origin", .type = EventField::T::i64, .i = origin },
-                                { .key = "dst",    .type = EventField::T::i64, .i = d.dst },
-                                { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr } };
-            _hal.emit("hop_budget_exceeded", ef, 3); );
+        MR_EMIT("hop_budget_exceeded", EF_I("origin", origin), EF_I("dst", d.dst), EF_I("ctr", d.ctr));
         // Record (origin,dst,ctr) so a LATER non-exhausted arrival of the SAME flight via
         // a DIFFERENT prev-hop is caught as LOOP_DUP (not accepted+forwarded) — dv:10933-10940.
         record_seen_origin(sokey, from, nowm);   // prune + roll-evict-oldest-if-full + insert (see the def)
@@ -592,11 +538,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         nin.to = from; nin.mobile_to = _active->_pending_rx->mobile_from;   // §mobile: a mobile/team DATA's origin is a LOCAL id -> mark the NACK
         uint8_t nbuf[4]; const size_t nl = pack_nack(nin, std::span<uint8_t>(nbuf, 4));
         tx_with_retry(nbuf, nl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::nack);   // R4.5b (HOP_BUDGET NACK)
-        MR_TELEMETRY(
-            EventField nf[] = { { .key = "to",     .type = EventField::T::i64, .i = from },
-                                { .key = "reason", .type = EventField::T::i64, .i = protocol::nack_reason_hop_budget },
-                                { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr } };
-            _hal.emit("nack_tx", nf, 3); );
+        MR_EMIT("nack_tx", EF_I("to", from), EF_I("reason", protocol::nack_reason_hop_budget), EF_I("ctr", d.ctr));
         become_free();
         return;
     }
@@ -614,16 +556,8 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             nin.payload = sof->second; nin.to = from;
             uint8_t nbuf[4]; const size_t nl = pack_nack(nin, std::span<uint8_t>(nbuf, 4));
             tx_with_retry(nbuf, nl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::nack);   // R4.5b (LOOP_DUP NACK)
-            MR_TELEMETRY(
-                EventField nf[] = { { .key = "to",     .type = EventField::T::i64, .i = from },
-                                    { .key = "reason", .type = EventField::T::i64, .i = protocol::nack_reason_loop_dup },
-                                    { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr } };
-                _hal.emit("nack_tx", nf, 3); );
-            MR_TELEMETRY(
-                EventField df[] = { { .key = "origin", .type = EventField::T::i64, .i = origin },
-                                    { .key = "dst",    .type = EventField::T::i64, .i = d.dst },
-                                    { .key = "ctr",    .type = EventField::T::i64, .i = d.ctr } };
-                _hal.emit("dup_drop", df, 3); );
+            MR_EMIT("nack_tx", EF_I("to", from), EF_I("reason", protocol::nack_reason_loop_dup), EF_I("ctr", d.ctr));
+            MR_EMIT("dup_drop", EF_I("origin", origin), EF_I("dst", d.dst), EF_I("ctr", d.ctr));
             become_free();
             return;
         }
@@ -652,11 +586,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                    static_cast<double>(protocol::originator_airtime_warn_fraction) * airtime_cap_a));
     uint8_t abuf[3]; const size_t al = pack_ack(ain, std::span<uint8_t>(abuf, 3));
     tx_with_retry(abuf, al, static_cast<int16_t>(_cfg.routing_sf), FrameTag::ack);   // R4.5b: stash + tag the ACK
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "to",  .type = EventField::T::i64, .i = from },
-                           { .key = "ctr", .type = EventField::T::i64, .i = d.ctr },
-                           { .key = "airtime_warn", .type = EventField::T::i64, .i = ain.warn ? 1 : 0 } };
-        _hal.emit("ack_tx", f, 3); );
+    MR_EMIT("ack_tx", EF_I("to", from), EF_I("ctr", d.ctr), EF_I("airtime_warn", ain.warn ? 1 : 0));
     if (live_dup) { become_free(); return; }                                        // same prev-hop dup -> ACK only
     record_seen_origin(sokey, from, nowm);                                          // record + roll-evict-oldest if full
     // defer deliver/forward by the ACK airtime so it doesn't share a sim step with the ACK.
@@ -904,10 +834,7 @@ void Node::do_post_ack() {
             _inbox.record_ack(pa.origin, acked, active_layer_id(), _hal.now(), acker_hash);   // durable receipt (DM store); inert if no backend (sim)
             Push pu{}; pu.kind = PushKind::send_e2e_acked; pu.dst = pa.origin; pu.ctr = acked; pu.sender_hash = acker_hash; enqueue_push(pu);   // live fast-path (E2E-ACKED ctr=X from=D); sender_hash = the acker's stable key (XL) so the app matches (sender_hash,ctr)
             e2e_ack_clear(pa.origin, acked, acker_hash);   // ★ shelf item (i): CLEAR the pending-ack deadline (emit-free) — mirrors the {dst,ctr,sender_hash} just pushed. A LATE ack (past the deadline) finds nothing -> no-op.
-            MR_TELEMETRY(                                                                       // KEEP for the sim analyzer (free on metal)
-                EventField ef[] = { { .key = "from", .type = EventField::T::i64, .i = pa.origin },
-                                    { .key = "ctr",  .type = EventField::T::i64, .i = acked } };
-                _hal.emit("e2e_ack_rx", ef, 2); );
+            MR_EMIT("e2e_ack_rx", EF_I("from", pa.origin), EF_I("ctr", acked));  // KEEP for the sim analyzer (free on metal)
             become_free();
             return;
         }
@@ -989,14 +916,7 @@ void Node::do_post_ack() {
         else            { blen = (pa.inner_len > 1) ? static_cast<uint8_t>(pa.inner_len - 1) : 0;
                           for (uint8_t i = 0; i < blen; ++i) body[i] = static_cast<char>(pa.inner[1 + i]); }
         body[blen] = '\0';
-        MR_TELEMETRY(
-            EventField f[] = {
-                { .key = "origin",  .type = EventField::T::i64, .i = dec_origin },
-                { .key = "dst",     .type = EventField::T::i64, .i = pa.dst },
-                { .key = "ctr",     .type = EventField::T::i64, .i = pa.ctr },
-                { .key = "payload", .type = EventField::T::str, .s = body },     // dm_delivery keys (dst, payload)
-            };
-            _hal.emit("delivered", f, 4); );
+        MR_EMIT("delivered", EF_I("origin", dec_origin), EF_I("dst", pa.dst), EF_I("ctr", pa.ctr), EF_S("payload", body));  // dm_delivery keys (dst, payload)
         // sender_hash = the origin's stable key_hash32 (when SOURCE_HASH was set) — the app's DM dedup identity.
         const uint32_t sender_hash = crypted_ok ? dec_source_hash : ((ui && ui->has_source_hash) ? ui->source_hash : 0);
         // Record-on-delivery FIRST (the FINAL-destination deliver path, once per delivered DM): it returns the
@@ -1020,14 +940,8 @@ void Node::do_post_ack() {
         const int32_t loc_lon     = crypted_ok ? dec_lon : (ui ? ui->lon_e7 : 0);
         if (loc_present) {
             pu.has_location = true; pu.lat_e7 = loc_lat; pu.lon_e7 = loc_lon;
-            MR_TELEMETRY(
-                EventField pf[] = {
-                    { .key = "origin", .type = EventField::T::i64, .i = dec_origin },
-                    { .key = "hash",   .type = EventField::T::i64, .i = static_cast<int64_t>(sender_hash) },
-                    { .key = "lat_e7", .type = EventField::T::i64, .i = loc_lat },
-                    { .key = "lon_e7", .type = EventField::T::i64, .i = loc_lon },
-                };
-                _hal.emit("peer_location", pf, 4); );
+            MR_EMIT("peer_location", EF_I("origin", dec_origin), EF_I("hash", static_cast<int64_t>(sender_hash)), EF_I("lat_e7", loc_lat),
+                    EF_I("lon_e7", loc_lon));
         }
         enqueue_push(pu);                                // app channel: the inbound message (live notify, seq-stamped)
         // E2E ACK requested -> reply with the acked ctr. §GapB: CROSS_LAYER -> a NORMAL send on the reversed path
@@ -1266,21 +1180,12 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // window self-clears: as our airtime ages out of the neighbour's window it stops setting the bit.
     if (k.warn) {
         _ack_warn_until = _hal.now() + protocol::originator_ack_warn_backoff_ms;
-        MR_TELEMETRY(
-            EventField wf[] = { { .key = "from",   .type = EventField::T::i64, .i = _active->_pending_tx->next },
-                                { .key = "ctr_lo", .type = EventField::T::i64, .i = k.ctr_lo },
-                                { .key = "backoff_until_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(_ack_warn_until) } };
-            _hal.emit("originator_warned_by_ack", wf, 3); );
+        MR_EMIT("originator_warned_by_ack", EF_I("from", _active->_pending_tx->next), EF_I("ctr_lo", k.ctr_lo),
+                EF_I("backoff_until_ms", static_cast<int64_t>(_ack_warn_until)));
     }
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "from",     .type = EventField::T::i64, .i = _active->_pending_tx->next },   // ACK is from our next-hop (src_hint=-1 on metal)
-                           { .key = "origin",   .type = EventField::T::i64, .i = _active->_pending_tx->origin },
-                           { .key = "dst",      .type = EventField::T::i64, .i = _active->_pending_tx->dst },
-                           { .key = "ctr",      .type = EventField::T::i64, .i = _active->_pending_tx->ctr },
-                           { .key = "budget_hint",     .type = EventField::T::i64, .i = k.budget_hint },
-                           { .key = "budget_reranked", .type = EventField::T::i64, .i = ack_budget_reranked },
-                           { .key = "airtime_warn",    .type = EventField::T::i64, .i = k.warn ? 1 : 0 } };
-        _hal.emit("ack_rx", f, 7); );
+    MR_EMIT("ack_rx", EF_I("from", _active->_pending_tx->next), EF_I("origin", _active->_pending_tx->origin),
+            EF_I("dst", _active->_pending_tx->dst), EF_I("ctr", _active->_pending_tx->ctr), EF_I("budget_hint", k.budget_hint),
+            EF_I("budget_reranked", ack_budget_reranked), EF_I("airtime_warn", k.warn ? 1 : 0));  // ACK is from our next-hop (src_hint=-1 on metal)
     { Push pu{}; pu.kind = PushKind::send_acked; pu.dst = _active->_pending_tx->dst; pu.ctr = _active->_pending_tx->ctr; enqueue_push(pu); }
     _active->_pending_tx.reset();
     become_free();
@@ -1300,9 +1205,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (!_active->_pending_tx) return;                                       // no flight to react on
     if (_active->_pending_tx->ctr_lo != n.ctr_lo) return;                    // stale (different flight). L9 NOTE: WIRE-bounded — a NACK carries only the 4-bit ctr_lo, not flight_gen, so a NACK for a since-replaced flight with an ALIASED ctr_lo (1/16) can still match here. Fully fixing needs more wire ctr bits (a frame change, out of scope); the LOCAL re-arm paths (retry-stash, nack-wait) are now flight_gen-exact.
     if (meta.src_hint >= 0 && static_cast<uint8_t>(meta.src_hint) != _active->_pending_tx->next) {
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "from", .type = EventField::T::i64, .i = static_cast<uint8_t>(meta.src_hint) } };
-            _hal.emit("nack_drop_unexpected_src", f, 1); );
+        MR_EMIT("nack_drop_unexpected_src", EF_I("from", static_cast<uint8_t>(meta.src_hint)));
         return;
     }
     // Learn the NACK sender (= our next-hop) as a 1-hop neighbour (Lua learn_rx_source / nack_frame).
@@ -1345,11 +1248,8 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (n.reason == protocol::nack_reason_busy_rx) {
         const uint64_t now = _hal.now();
         const uint64_t busy_for = static_cast<uint64_t>(n.payload) * protocol::nack_busy_quantum_ms;
-        MR_TELEMETRY(
-            EventField rf[] = { { .key = "from",   .type = EventField::T::i64, .i = pt.next },
-                                { .key = "reason", .type = EventField::T::i64, .i = protocol::nack_reason_busy_rx },
-                                { .key = "busy_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(busy_for) } };
-            _hal.emit("nack_rx", rf, 3); );
+        MR_EMIT("nack_rx", EF_I("from", pt.next), EF_I("reason", protocol::nack_reason_busy_rx),
+                EF_I("busy_ms", static_cast<int64_t>(busy_for)));
         // §mobile (plane-separation re-audit): only blind a GLOBAL next-hop. A mobile/team LOCAL-id next (addr_len=1 /
         // is_team_peer) must not write the static _blind_until plane (a §18-colliding static route would be blinded).
         // Mirrors the OTHER blind guard (the HOP_BUDGET/BUDGET NACK path). Inert on s18 -> byte-identical.
@@ -1357,9 +1257,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             const uint64_t until = now + busy_for;
             auto bit = _active->_blind_until.find(pt.next);
             _active->_blind_until[pt.next] = (bit != _active->_blind_until.end() && bit->second > until) ? bit->second : until;
-            MR_TELEMETRY(
-                EventField bf[] = { { .key = "next", .type = EventField::T::i64, .i = pt.next } };
-                _hal.emit("blind_observed", bf, 1); );
+            MR_EMIT("blind_observed", EF_I("next", pt.next));
         }
         if (busy_for <= protocol::nack_wait_threshold_ms) {        // short busy -> wait SAME hop
             const int jit = _hal.rand_range(0, static_cast<int>(retry_jitter_ms()) + 1);   // N1 (the only new draw)
@@ -1370,10 +1268,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             TxItem it = txitem_from_pending(pt);   // S1: full identity+crypto core (incl. nonce_seed — the uncited long-busy drop)
             it.requeue_count = pt.requeue_count; it.enqueue_time_ms = pt.enqueue_time_ms;   // VERBATIM (no ++/backoff)
             it.next_attempt_ms = 0;
-            MR_TELEMETRY(
-                EventField tf[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
-                                    { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
-                _hal.emit("tx_requeued", tf, 2); );
+            MR_EMIT("tx_requeued", EF_I("dst", pt.dst), EF_I("ctr", pt.ctr));
             if (_active->_tx_queue_n < kTxQueueCap) {
                 _active->_tx_queue[_active->_tx_queue_n++] = it;
             } else {                                              // queue full -> can't requeue; give up loudly
@@ -1409,11 +1304,7 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                 emit_rt_update(_hal, pt.dst, e->candidates[0].next_hop, e->candidates[0].score, new_hops, "hop_budget_nack");
             }
         }
-        MR_TELEMETRY(
-            EventField rf[] = { { .key = "from",      .type = EventField::T::i64, .i = pt.next },
-                                { .key = "reason",    .type = EventField::T::i64, .i = protocol::nack_reason_hop_budget },
-                                { .key = "committed", .type = EventField::T::i64, .i = committed } };
-            _hal.emit("nack_rx", rf, 3); );
+        MR_EMIT("nack_rx", EF_I("from", pt.next), EF_I("reason", protocol::nack_reason_hop_budget), EF_I("committed", committed));
         MR_TELEMETRY(
             EventField gf[] = { { .key = "dst", .type = EventField::T::i64, .i = pt.dst },
                                 { .key = "ctr", .type = EventField::T::i64, .i = pt.ctr } };
@@ -1437,21 +1328,15 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         if (!(next_is_local_id(pt.addr_len, pt.next))                        // §mobile: never blind a static route on a mobile/team LOCAL next (mirror the NACK-learn guard)
             && (bit == _active->_blind_until.end() || until > bit->second)) {
             _active->_blind_until[pt.next] = until;
-            MR_TELEMETRY(
-                EventField bf[] = { { .key = "next", .type = EventField::T::i64, .i = pt.next } };
-                _hal.emit("blind_observed", bf, 1); );
+            MR_EMIT("blind_observed", EF_I("next", pt.next));
         }
         // R4.2: record the persistent neighbor tier (routing-grade demotion beyond the blind window)
         // + rerank affected routes. local_only=false -> dirty + a triggered beacon if a primary moved.
         // Reads pt.next BEFORE try_cascade_requeue resets _active->_pending_tx.
         [[maybe_unused]] const int reranked = (next_is_local_id(pt.addr_len, pt.next))   // §mobile: never re-rank a static route from a mobile/team LOCAL next
             ? 0 : mark_neighbor_budget_tier(pt.next, tier, "nack_budget", /*local_only=*/false);
-        MR_TELEMETRY(
-            EventField rf[] = { { .key = "from",     .type = EventField::T::i64, .i = pt.next },
-                                { .key = "reason",   .type = EventField::T::i64, .i = protocol::nack_reason_budget },
-                                { .key = "tier",     .type = EventField::T::i64, .i = tier },
-                                { .key = "reranked", .type = EventField::T::i64, .i = reranked } };
-            _hal.emit("nack_rx", rf, 4); );
+        MR_EMIT("nack_rx", EF_I("from", pt.next), EF_I("reason", protocol::nack_reason_budget), EF_I("tier", tier),
+                EF_I("reranked", reranked));
         // requeue-or-giveup: the helper does both legs (caps -> exhausted+giveup+drop, else
         // requeue@backoff) + _active->_pending_tx.reset() + become_free()/timer (dv:10449-10467). The caps
         // giveup event is "rts_giveup" (Lua dv:10462; "budget_low" is the trigger, not the name).

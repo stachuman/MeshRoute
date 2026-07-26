@@ -339,7 +339,9 @@ byte-for-byte unchanged.)
 - Source: a delivered DM had `DATA_FLAG_CRYPTED` set AND opened (a CRYPTED frame that fails to open never
   delivers ⇒ `enc:true` ⇔ delivered-sealed). A plaintext DM omits `enc`.
 - **Channels (later):** `channel_recv`/`inbox_channel` likewise OMIT `enc` (cleartext today ⇒ false); the
-  field is reserved for a future channel-crypto phase.
+  field is reserved for a future channel-crypto phase — **now DESIGNED + RATIFIED (2026-07-26): the team
+  encrypted channel** (`docs/superpowers/specs/2026-07-26-team-encrypted-channel-design.md`). See "Planned
+  for v1" below; `enc:true` will start being emitted on encrypted team-channel deliveries.
 
 ### Receiving a sealed DM you can't open — silent DROP (sealed-sender redesign, 2026-06-16)
 > **Supersedes the earlier "locked + auto-recover" model** (now dead). The originator is **sealed inside the
@@ -557,9 +559,38 @@ via homes won't see each other's positions (fine for hike mode; note in the desi
 
 These firmware→app events ride the same BLE TXD line, so the app's parser will see them; documented so it handles (or cleanly ignores) them. Not part of the inbox sync model.
 
-- **Remote management: `rcmd <dst> <verb>` (BLE) — now AUTHENTICATED (2026-07 remote-admin, `src/firmware_remote.cpp`).** Two tiers: **open reads** (`status`, `routes`) ride **cleartext** and any node answers; **every other verb (reboot / prep-restart / config / `password rotate …`) is SEALED** to the target's pinned admin key and requires the operator to **`unlock <passphrase>`** first (derives the admin key into RAM; `lock` wipes it). A sealed `rcmd` to a node with no admin key pinned is silently dropped; a stale replay is rejected with a counter-hint. Responses come back as **binary-TLV** sealed blobs (`REMOTE_FLAG_SEALED`), not the old console text. Gated out entirely on the mobile profile (`MR_FEAT_REMOTE_MGMT=0`). Ack shape/line refs above are pre-cleanup — the app should treat `rcmd` as fire-and-observe and not depend on the old `[rcmd <from>]` console echo. (Design: `docs/superpowers/specs/archive/2026-07-13-remote-management-auth-design.md`.)
+- **Remote management: `rcmd <dst> <verb>` (BLE) — now AUTHENTICATED (2026-07 remote-admin, `src/firmware_remote.cpp`).** Two tiers: **open reads** (`status`, `routes`) ride **cleartext** and any node answers; **every other verb (reboot / prep-restart / config / `password rotate …`) is SEALED** to the target's pinned admin key and requires the operator to **`unlock <passphrase>`** first (derives the admin key into RAM; `lock` wipes it). A sealed `rcmd` to a node with no admin key pinned is silently dropped; a stale replay is rejected with a counter-hint. Responses come back as **binary-TLV** sealed blobs (`REMOTE_FLAG_SEALED`), not the old console text. Gated out entirely on the mobile profile (`MR_FEAT_REMOTE_MGMT=0`). Ack shape/line refs above are pre-cleanup — the app should treat `rcmd` as fire-and-observe and not depend on the old `[rcmd <from>]` console echo. (Design: `docs/superpowers/specs/archive/2026-07-13-remote-management-auth-design.md`.) ⚠ **The monotonic-counter replay scheme described here is being REPLACED (ratified 2026-07-26): challenge–response** — `docs/superpowers/specs/2026-07-26-remote-admin-challenge-response-design.md`. The companion becomes the primary remote-admin driver at v1; see "Planned for v1" below.
 - **`{"ev":"version",…}`** (`fw`/`built`/`git`/`board`/`reset`) — the BLE `version` query (`fw_main.cpp:1457`).
 - **`{"ev":"prep_restart","halted":true}`** — the BLE `prep-restart` ack (`fw_main.cpp:1463`).
 - **`{"ev":"hash_resolved","node":…,"auth":…,"hash":…}`** — the `resolve <hash>` diagnostic answer (`write_push`, `console_json.cpp:148`). Distinct from `peer_key_cached` (the pubkey-cache event).
 - **`{"ev":"e2e_acked","origin":<dst>,"ctr":<n>,"sender_hash":<h>}`** — the **live twin** of the durable `inbox_dm type:"e2e_ack"` receipt (`PushKind::send_e2e_acked` → `pushkind_name`/`write_push`, `console_json.cpp`; landed 2026-06-29, replaces the former `{"ev":"unknown"}` hazard). The app marks its OUTBOX message **DELIVERED immediately** (not only on the next pull): match `(origin, ctr)` — or `(sender_hash, ctr)` when `sender_hash != 0` (cross-layer ack) — to the OUTBOX, **identical to the durable `type:"e2e_ack"` rule**. **NOT** an inbound DM — do not render it. `origin` = the dest that confirmed delivery; `sender_hash` = 0 on a same-layer ack. **★ 2026-07-18 (S1 ack unification, gated uncommitted):** `sender_hash` is now **actually populated** on a cross-layer ack (it was declared but latently always 0 — the XL `(sender_hash, ctr)` match works for the first time); and on a same-layer ack to a **hosted mobile**, `origin` is now the TRUE confirming node (previously the home's id — which contradicted this very line). No app change needed; the documented matching rules simply hold now. Also NEW on `msg_recv`: **`"origin_layer":N`** (omit-when-0) on a CROSS-LAYER delivery — the sender's layer, i.e. the first half of the `(layer_path, hash)` REPLY address — **now ALSO durable (2026-07-19 batch B): `inbox_dm` records carry `"origin_layer":N` omit-when-0** (record header 31→32 B, BOTH store versions bumped ⇒ the first boot after reflash wipes the on-node inbox + bumps `inbox_epoch` again — the normal epoch re-pull). Also new: a home that cannot route a mobile's delegated send signals it via the next roster ⇒ the mobile emits `send_failed{no_route}` (the app's existing back-off surface — no new event).
 - `cfg` / `status` / `route`+`routes_end` writers also stream over BLE (the Node/Network screens) — orthogonal to inbox sync; see the device-console design spec.
+
+## Planned for v1 (ratified 2026-07-26 — designed, not yet built; companion index: `docs/superpowers/specs/2026-07-26-companion-v1-feature-roadmap.md`)
+
+Two firmware feature arcs ship with v1 and have companion halves. These are PLANNED contract additions —
+the exact JSON verbs/pushes land WITH each firmware slice (the coder + QA add the precise shapes then);
+this section reserves the surface so the app team can plan.
+
+### Team encrypted channel + team QR — `docs/superpowers/specs/2026-07-26-team-encrypted-channel-design.md`
+- **Team QR** (a SECOND QR type alongside the verified-peer pubkey QR): render behind a "Share team" screen
+  that warns it carries a PRIVATE key; payload = team PHY params + `team_ch_pub`/`team_ch_priv` + CRC32.
+  Scanning provisions the node via an extended `team …` verb (`tkpub=/tkpriv=` hex64).
+- **Key grant** (in-app, vetted): a keyholder grants a newjoiner the team content key via a sealed
+  `TEAM_KEY_GRANT` DM (DATA_TYPE 19, body `[team_id][name][pub][priv]`); joiner surfaces `team_key_received`.
+- **Encrypted posts**: `channel_recv`/`inbox_channel` will emit `enc:true` on an opened encrypted team post
+  (the reserved field, above, goes live). An un-keyed overlay member relays but cannot read → the
+  `team_channel_no_key` push prompts "ask a teammate for the key".
+- **Lock-state per team** indicator; **member location on a map** (encrypted location inner-type, app-driven
+  cadence).
+
+### Remote admin — challenge–response — `docs/superpowers/specs/2026-07-26-remote-admin-challenge-response-design.md`
+- The companion becomes the PRIMARY remote-admin driver (v1). The monotonic counter/`floor=N` hint is
+  REPLACED by a node-issued challenge.
+- **Invisible challenge lifecycle**: the app caches the per-node challenge from sealed responses,
+  auto-bootstraps on first contact (a `challenge==0` command), and auto-retries once on a resync response —
+  the operator never sees a challenge. Sealed-response body gains a leading `[challenge 8]`.
+- **Open reads** (`status`, `routes`) stay cleartext, need no unlock, carry NO challenge; **sealed verbs**
+  (reboot/config/`password rotate`) require `unlock <pw>` + carry the challenge.
+- New telemetry: `admin_challenge_resync` (rate-limited) — the app resyncs silently on it.
+- (The open-read challenge piggyback — spec Q3 — is DEFERRED; the app relies on the bootstrap path.)

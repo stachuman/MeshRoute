@@ -121,13 +121,8 @@ void Node::cascade_to_alt(const char* giveup_event) {
     mark_tried(pt, pt.next);
     const uint8_t alt = pick_next_cascade_hop(pt);
     if (alt != 0) {
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "origin",   .type = EventField::T::i64, .i = pt.origin },
-                               { .key = "dst",      .type = EventField::T::i64, .i = pt.dst },
-                               { .key = "ctr",      .type = EventField::T::i64, .i = pt.ctr },
-                               { .key = "from_next", .type = EventField::T::i64, .i = from_next },
-                               { .key = "next",     .type = EventField::T::i64, .i = alt } };
-            _hal.emit("path_cascade", f, 5); );
+        MR_EMIT("path_cascade", EF_I("origin", pt.origin), EF_I("dst", pt.dst), EF_I("ctr", pt.ctr), EF_I("from_next", from_next),
+                EF_I("next", alt));
         pt.next = alt;
         pt.retries_left = effective_rts_max_retries(pt.requeue_count);   // requeue-aware budget on the alt
         pt.retry_attempt = 0;                            // the alt is a NEW contention context -> reset the backoff growth
@@ -232,11 +227,7 @@ void Node::try_cascade_requeue(const PendingTx& pt, const char* giveup_event) {
     // (become_free scans for the first ready item), so a concurrent become_free
     // can't skip the hold. The timer is just the wakeup at the ready time.
     it.next_attempt_ms = now + requeue_backoff_ms(it.requeue_count);
-    MR_TELEMETRY(
-        EventField rf[] = { { .key = "dst",           .type = EventField::T::i64, .i = it.dst },
-                            { .key = "ctr",           .type = EventField::T::i64, .i = it.ctr },
-                            { .key = "requeue_count", .type = EventField::T::i64, .i = it.requeue_count } };
-        _hal.emit("cascade_requeue", rf, 3); );
+    MR_EMIT("cascade_requeue", EF_I("dst", it.dst), EF_I("ctr", it.ctr), EF_I("requeue_count", it.requeue_count));
     _active->_tx_queue[_active->_tx_queue_n++] = it;                       // tail; held by next_attempt_ms until the backoff
     _active->_pending_tx.reset();
     (void)_hal.after(requeue_backoff_ms(it.requeue_count), kCascadeRequeueTimerId);
@@ -255,20 +246,14 @@ void Node::defer_send(const TxItem& item) {
         return;
     }
     if (_active->_deferred_n >= protocol::cap_deferred_sends) {   // full -> REFUSE the NEW send (Lua table_cap_hit
-        MR_TELEMETRY(
-            EventField cf[] = {                          // dv:5549-5553), NOT drop-oldest. Complete the
-                { .key = "dst", .type = EventField::T::i64, .i = item.dst },   // app future so it never hangs.
-                { .key = "ctr", .type = EventField::T::i64, .i = item.ctr } };
-            _hal.emit("send_deferred_refused", cf, 2); );
+        // dv:5549-5553), NOT drop-oldest. Complete the app future so it never hangs.
+        MR_EMIT("send_deferred_refused", EF_I("dst", item.dst), EF_I("ctr", item.ctr));
         push_send_failed(SendFailReason::queue_full, item.dst, item.ctr);   // was reason=none -> a reason-LESS send_failed (the emit above is device-stripped, so this Push is the app's only signal)
         return;
     }
     DeferredSend d{}; d.item = item; d.deferred_at_ms = _hal.now();
     _active->_deferred[_active->_deferred_n++] = d;
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = item.dst },
-                           { .key = "ctr", .type = EventField::T::i64, .i = item.ctr } };
-        _hal.emit("send_deferred", f, 2); );
+    MR_EMIT("send_deferred", EF_I("dst", item.dst), EF_I("ctr", item.ctr));
     // §F-TR-2: discover the route on the SEND's OWN plane. A TEAM (or AUTO-resolved team-peer) dst must RREQ team-scoped —
     // a static RREQ for a team id is never self-answered by a DUAL owner (whose static node_id != its team_local_id), so the
     // route never installs and the send ages out. AUTO/static keeps team=false (is_team_peer is false for a static dst) -> byte-identical.
@@ -296,21 +281,14 @@ void Node::try_drain_deferred() {
         // held send BEFORE checking route-exists, else a flapping route never lets
         // it expire (the s12 477-defer infinite loop).
         if ((now - d.deferred_at_ms) >= protocol::send_defer_ttl_ms) {
-            MR_TELEMETRY(
-                EventField f[] = { { .key = "dst", .type = EventField::T::i64, .i = d.item.dst },
-                                   { .key = "ctr", .type = EventField::T::i64, .i = d.item.ctr } };
-                _hal.emit("send_deferred_giveup", f, 2); );
+            MR_EMIT("send_deferred_giveup", EF_I("dst", d.item.dst), EF_I("ctr", d.item.ctr));
             push_send_failed(SendFailReason::no_route, d.item.dst, d.item.ctr);   // §3-A.5: match the sibling defer_send giveup in defer_send() — was reason=none
             continue;                                    // drop (don't keep)
         }
         RtEntry* e = rt_find(d.item.dst, d.item.plane);   // Wave 2: drain on the item's OWN plane — a GLOBAL item must NOT be drained by a team route (AUTO would match _rt_team for a colliding team id -> drain -> re-issue GLOBAL -> no route -> re-defer -> re-stamp -> never ages out = the RREQ storm)
         if (e != nullptr && e->n > 0) {
-            MR_TELEMETRY(
-                EventField sf[] = { { .key = "origin",    .type = EventField::T::i64, .i = d.item.origin },
-                                    { .key = "dst",       .type = EventField::T::i64, .i = d.item.dst },
-                                    { .key = "ctr",       .type = EventField::T::i64, .i = d.item.ctr },
-                                    { .key = "waited_ms", .type = EventField::T::i64, .i = static_cast<int64_t>(now - d.deferred_at_ms) } };
-                _hal.emit("send_drained", sf, 4); );      // route appeared (dv:6953) — the held send flies
+            MR_EMIT("send_drained", EF_I("origin", d.item.origin), EF_I("dst", d.item.dst), EF_I("ctr", d.item.ctr),
+                    EF_I("waited_ms", static_cast<int64_t>(now - d.deferred_at_ms)));  // route appeared (dv:6953) — the held send flies
             d.item.redrain_count++;                      // §S0: count this drain — if the route proves unusable at select and the item bounces back to defer_send, the giveup bound breaks the 1s restamp loop
             drained[drained_n++] = d.item;               // route appeared -> drain to the queue HEAD below
             continue;

@@ -953,6 +953,12 @@ private:
     // as a decision, not an omission. The reason is the CONTRACT string the app keys on (console_json.cpp
     // sendfailreason_name) — pass the site's own; this helper never invents one.
     void     push_send_failed(SendFailReason reason, uint8_t dst, uint16_t ctr);
+    // §3-B.9: THE one wire_version join-refusal — the windowed Push+emit ritual shared by the BEACON pre-parse
+    // version wall (node_beacon.cpp handle_beacon) and the P-plane roster wall (node_mobile.cpp §D16). Takes the
+    // peer's advertised version; fills OUR version as `dst` itself so a caller can't report the mismatch one-sided.
+    // NOT extended to the other three join_refused flavours (phy_mismatch / sf_list_mismatch / leaf_full): they carry
+    // different payload fields and emit no telemetry, so one helper would need a parameter per difference.
+    void     push_join_refused_wire(uint8_t their_ver);
     void     push_peer_key_cached(uint32_t key_hash32);                    // §S6: peer_key_cached push carrying the cached name (copied at cache time; body empty when unknown)
     void     become_free();                                       // dv_dual_sf.lua:7433 (FIFO single-drain)
     void     issue_send(const TxItem& item);                      // :7018 pending_tx + RTS

@@ -113,10 +113,7 @@ int Node::join_choose_candidate_id() {
     const int prev = id_bind_find_by_hash(_key_hash32);                 // the network/NV may remember our old id
     // R6.3/G1: a legacy/NV prev id in the gateway range 1..16 is NOT re-preferred -> re-pick a normal id (17..254).
     if (prev >= protocol::normal_node_id_min && prev <= 254 && !join_id_denied(static_cast<uint8_t>(prev))) {
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "node",       .type = EventField::T::i64, .i = prev },
-                               { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(_key_hash32) } };
-            _hal.emit("join_prefer_previous_id", f, 2); );
+        MR_EMIT("join_prefer_previous_id", EF_I("node", prev), EF_I("key_hash32", static_cast<int64_t>(_key_hash32)));
         return prev;
     }
     // "taken" = every id this node KNOWS is in use (L1, design §3): id_bind (direct neighbours + heard
@@ -143,9 +140,7 @@ bool Node::join_start_claim([[maybe_unused]] const char* reason) {   // reason: 
     if (_joined || _join_claim.active) return false;
     const int cand = join_choose_candidate_id();
     if (cand < 0) {                                       // 17..254 all taken -> leaf full
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "reason", .type = EventField::T::str, .s = reason ? reason : "no_free_id" } };
-            _hal.emit("join_no_candidate", f, 1); );
+        MR_EMIT("join_no_candidate", EF_S("reason", reason ? reason : "no_free_id"));
         Push pu{}; pu.kind = PushKind::join_refused; pu.join_reason = JoinRefuseReason::leaf_full; enqueue_push(pu);   // §7c: visible on metal
         return false;
     }
@@ -160,12 +155,8 @@ bool Node::join_start_claim([[maybe_unused]] const char* reason) {   // reason: 
     in.claim_epoch = _claim_epoch; in.nonce = nonce;
     uint8_t buf[11];
     const size_t n = pack_j_claim(in, std::span<uint8_t>(buf, sizeof buf));
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "proposed_node_id", .type = EventField::T::i64, .i = cand },
-                           { .key = "key_hash32",       .type = EventField::T::i64, .i = static_cast<int64_t>(_key_hash32) },
-                           { .key = "claim_epoch",      .type = EventField::T::i64, .i = _claim_epoch },
-                           { .key = "reason",           .type = EventField::T::str, .s = reason ? reason : "auto" } };
-        _hal.emit("join_claim_sent", f, 4); );
+    MR_EMIT("join_claim_sent", EF_I("proposed_node_id", cand), EF_I("key_hash32", static_cast<int64_t>(_key_hash32)),
+            EF_I("claim_epoch", _claim_epoch), EF_S("reason", reason ? reason : "auto"));
     if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
     (void)_hal.after(protocol::dad_claim_guard_ms, kJoinClaimGuardTimerId);
     return true;
@@ -182,10 +173,7 @@ void Node::join_claim_guard_fire() {
         if (_active->_id_bind[i].node_id == proposed && _active->_id_bind[i].key_hash32 != _key_hash32) { conflict = true; break; }
     if (conflict) {
         join_deny_id(proposed);
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "denied_node_id", .type = EventField::T::i64, .i = proposed },
-                               { .key = "reason",         .type = EventField::T::str, .s = "claim_guard_conflict" } };
-            _hal.emit("join_claim_denied", f, 2); );
+        MR_EMIT("join_claim_denied", EF_I("denied_node_id", proposed), EF_S("reason", "claim_guard_conflict"));
         (void)_hal.after(protocol::join_retry_backoff_ms, kJoinRetryTimerId);
         return;
     }
@@ -196,11 +184,7 @@ void Node::join_adopt(uint8_t node_id) {
     set_identity(node_id, _key_hash32);                                // _node_id + Hal id + authoritative self-bind
     _joined = true;
     _join_claim.active = false;
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "node",        .type = EventField::T::i64, .i = node_id },
-                           { .key = "key_hash32",  .type = EventField::T::i64, .i = static_cast<int64_t>(_key_hash32) },
-                           { .key = "claim_epoch", .type = EventField::T::i64, .i = _claim_epoch } };
-        _hal.emit("join_adopted", f, 3); );
+    MR_EMIT("join_adopted", EF_I("node", node_id), EF_I("key_hash32", static_cast<int64_t>(_key_hash32)), EF_I("claim_epoch", _claim_epoch));
     // Companion feedback: fires on EVERY adopt path — verb join/create, the boot DAD, and the heal re-adopt (id-change
     // staleness fix). The MOBILE adopt (node_mobile.cpp set_identity) does NOT route through here -> no mobile_reg double-push.
     Push pu{}; pu.kind = PushKind::join_adopted; pu.dst = node_id; pu.layer_id = _cfg.leaf_id; pu.ctr = _claim_epoch;
@@ -283,10 +267,7 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             } else {                                                                    // I lose -> drop my claim, retry
                 _join_claim.active = false; _hal.cancel(kJoinClaimGuardTimerId);
                 join_deny_id(proposed);
-                MR_TELEMETRY(
-                    EventField f[] = { { .key = "denied_node_id", .type = EventField::T::i64, .i = proposed },
-                                       { .key = "reason",         .type = EventField::T::str, .s = "simultaneous_claim_lost" } };
-                    _hal.emit("join_claim_denied", f, 2); );
+                MR_EMIT("join_claim_denied", EF_I("denied_node_id", proposed), EF_S("reason", "simultaneous_claim_lost"));
                 (void)_hal.after(protocol::join_retry_backoff_ms, kJoinRetryTimerId);
                 return;
             }
@@ -331,13 +312,8 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         if (_joined && j.denied_node_id == _node_id
             && j.claimant_key_hash32 == _key_hash32 && j.owner_key_hash32 != _key_hash32) {
             const bool i_win = join_tiebreak_wins(_claim_epoch, _key_hash32, j.owner_claim_epoch, j.owner_key_hash32);
-            MR_TELEMETRY(
-                EventField f[] = { { .key = "node",            .type = EventField::T::i64,     .i = _node_id },
-                                   { .key = "i_win",           .type = EventField::T::boolean, .b = i_win },
-                                   { .key = "my_claim_epoch",  .type = EventField::T::i64,     .i = _claim_epoch },
-                                   { .key = "their_claim_epoch", .type = EventField::T::i64,   .i = j.owner_claim_epoch },
-                                   { .key = "their_key_hash32", .type = EventField::T::i64,    .i = static_cast<int64_t>(j.owner_key_hash32) } };
-                _hal.emit("addr_conflict_tie_break", f, 5); );
+            MR_EMIT("addr_conflict_tie_break", EF_I("node", _node_id), EF_B("i_win", i_win), EF_I("my_claim_epoch", _claim_epoch),
+                    EF_I("their_claim_epoch", j.owner_claim_epoch), EF_I("their_key_hash32", static_cast<int64_t>(j.owner_key_hash32)));
             if (!i_win) forced_rejoin("addr_conflict_lost");
         }
         return;
@@ -409,11 +385,8 @@ void Node::addr_conflict_send_deny(uint8_t node_id, uint32_t owner_key, uint32_t
     in.team_scoped = team_scoped; in.team_id = team_id;                // §W2c: a team-mediated DENY (19-B) carries the mediator's team_id
     uint8_t buf[19];
     const size_t n = pack_j_deny(in, std::span<uint8_t>(buf, sizeof buf));
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "denied_node_id",      .type = EventField::T::i64, .i = node_id },
-                           { .key = "claimant_key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(claimant_key) },
-                           { .key = "reason",              .type = EventField::T::i64, .i = reason } };
-        _hal.emit("join_deny_sent", f, 3); );
+    MR_EMIT("join_deny_sent", EF_I("denied_node_id", node_id), EF_I("claimant_key_hash32", static_cast<int64_t>(claimant_key)),
+            EF_I("reason", reason));
     if (n) tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
 }
 
@@ -442,10 +415,7 @@ void Node::forced_rejoin(const char* reason) {
     if (!_joined) return;
     const uint8_t prior = _node_id;                                   // capture BEFORE the reset zeroes _node_id (telemetry)
     reset_join_for_reprovision();
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "prior_node_id", .type = EventField::T::i64, .i = prior },
-                           { .key = "reason",        .type = EventField::T::str, .s = reason ? reason : "addr_conflict_lost" } };
-        _hal.emit("addr_conflict_forced_rejoin", f, 2); );
+    MR_EMIT("addr_conflict_forced_rejoin", EF_I("prior_node_id", prior), EF_S("reason", reason ? reason : "addr_conflict_lost"));
     join_start_claim(reason);
 }
 
@@ -463,12 +433,8 @@ void Node::l2c_mark_redirected(uint32_t want_hash) {
     recent_ring_mark(_l2c_redirect, _l2c_redirect_n, L2cRedirect{ want_hash, _hal.now() });
 }
 void Node::l2c_handle_misdelivery(const PostAck& pa, uint32_t want_hash) {
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "node",       .type = EventField::T::i64, .i = _node_id },
-                           { .key = "origin",     .type = EventField::T::i64, .i = pa.origin },
-                           { .key = "ctr",        .type = EventField::T::i64, .i = pa.ctr },
-                           { .key = "want_hash",  .type = EventField::T::i64, .i = static_cast<int64_t>(want_hash) } };
-        _hal.emit("l2c_misdelivery", f, 4); );
+    MR_EMIT("l2c_misdelivery", EF_I("node", _node_id), EF_I("origin", pa.origin), EF_I("ctr", pa.ctr),
+            EF_I("want_hash", static_cast<int64_t>(want_hash)));
     // REDIRECT — FORWARD the DM toward want_hash's real owner WITHOUT re-originating: the full inner (incl.
     // DST_HASH) + origin/ctr/flags ride through unchanged, so sender attribution, the E2E-ack target, and the
     // (origin,ctr) dedup all stay intact (a re-`send` would corrupt all three — the review's #1 bug). The leg
@@ -484,27 +450,20 @@ void Node::l2c_handle_misdelivery(const PostAck& pa, uint32_t want_hash) {
     const int rid = id_bind_find_by_hash(want_hash, &conf);
     if (rid >= 0 && conf == IdBindConf::authoritative && static_cast<uint8_t>(rid) != _node_id) {
         if (l2c_enqueue_forward(static_cast<uint8_t>(rid), pa.origin, pa.ctr, pa.ctr_lo, pa.flags, pa.type, pa.inner, pa.inner_len, pa.nonce_seed)) {
-            MR_TELEMETRY(
-                EventField f[] = { { .key = "origin", .type = EventField::T::i64, .i = pa.origin },
-                                   { .key = "ctr",    .type = EventField::T::i64, .i = pa.ctr },
-                                   { .key = "to",     .type = EventField::T::i64, .i = rid } };
-                _hal.emit("l2c_redirect_forward", f, 3); );              // success only (queue-full already emitted the drop)
+            // success only (queue-full already emitted the drop)
+            MR_EMIT("l2c_redirect_forward", EF_I("origin", pa.origin), EF_I("ctr", pa.ctr), EF_I("to", rid));
         }
         return;                                                           // l2c_enqueue_forward always kicks the queue (success or drop)
     }
     if (l2c_redirected_recently(want_hash)) {                            // suppress only the PARK+flood path (anti-flood)
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "want_hash", .type = EventField::T::i64, .i = static_cast<int64_t>(want_hash) } };
-            _hal.emit("l2c_redirect_suppressed", f, 1); );
+        MR_EMIT("l2c_redirect_suppressed", EF_I("want_hash", static_cast<int64_t>(want_hash)));
         become_free();
         return;
     }
     l2c_mark_redirected(want_hash);
     l2c_park_redirect(want_hash, pa);                                     // hold the DM for forward/heal-on-resolution
     emit_hash_query(want_hash, /*hard=*/true);                           // owner-authoritative resolution = the discriminator
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "want_hash", .type = EventField::T::i64, .i = static_cast<int64_t>(want_hash) } };
-        _hal.emit("l2c_redirect_query", f, 1); );
+    MR_EMIT("l2c_redirect_query", EF_I("want_hash", static_cast<int64_t>(want_hash)));
     become_free();
 }
 
@@ -519,11 +478,7 @@ void Node::l2c_handle_misdelivery(const PostAck& pa, uint32_t want_hash) {
 bool Node::l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint8_t ctr_lo, uint8_t flags,
                                uint8_t type, const uint8_t* inner, uint8_t inner_len, const uint8_t nonce_seed[8]) {
     if (_active->_tx_queue_n >= kTxQueueCap) {
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = to_id },
-                               { .key = "origin", .type = EventField::T::i64, .i = origin },
-                               { .key = "ctr",    .type = EventField::T::i64, .i = ctr } };
-            _hal.emit("l2c_redirect_dropped_queue_full", f, 3); );
+        MR_EMIT("l2c_redirect_dropped_queue_full", EF_I("to", to_id), EF_I("origin", origin), EF_I("ctr", ctr));
         become_free();                                                    // keep the queue serviced even on drop (codebase contract)
         return false;
     }
@@ -554,13 +509,8 @@ bool Node::l2c_enqueue_forward(uint8_t to_id, uint8_t origin, uint16_t ctr, uint
 // the sender's retry once the heal converges (consistent with the in-window-drop residual, design §7.1).
 void Node::l2c_confirmed_collision(uint32_t want_hash) {
     const bool i_win = join_tiebreak_wins(0, _key_hash32, 0, want_hash);
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "node",      .type = EventField::T::i64,     .i = _node_id },
-                           { .key = "want_hash", .type = EventField::T::i64,     .i = static_cast<int64_t>(want_hash) },
-                           { .key = "my_key",    .type = EventField::T::i64,     .i = static_cast<int64_t>(_key_hash32) },
-                           { .key = "i_win",     .type = EventField::T::boolean, .b = i_win },
-                           { .key = "healed",    .type = EventField::T::boolean, .b = i_win || _joined } };
-        _hal.emit("l2c_collision_confirmed", f, 5); );
+    MR_EMIT("l2c_collision_confirmed", EF_I("node", _node_id), EF_I("want_hash", static_cast<int64_t>(want_hash)),
+            EF_I("my_key", static_cast<int64_t>(_key_hash32)), EF_B("i_win", i_win), EF_B("healed", i_win || _joined));
     if (i_win) addr_conflict_send_deny(_node_id, _key_hash32, want_hash, J_DENY_MEDIATED);  // squatter must yield
     else       forced_rejoin("l2c_collision_confirmed");                                    // we are the squatter -> yield
 }

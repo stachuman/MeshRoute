@@ -63,20 +63,14 @@ bool Node::id_bind_set(uint8_t node_id, uint32_t key_hash32, IdBindSource source
                 // overwrite our id->our-key mapping. A foreign key on our id is a collision to DEFEND, not
                 // to absorb (the beacon/join defense + L2c handle that); absorbing it would corrupt every
                 // hash-locate answer we give for ourselves.
-                MR_TELEMETRY(
-                    EventField f[] = { { .key = "node",                .type = EventField::T::i64, .i = node_id },
-                                       { .key = "observed_key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) },
-                                       { .key = "source",              .type = EventField::T::str, .s = id_bind_source_str(source) } };
-                    _hal.emit("addr_conflict_self_defended", f, 3); );
+                MR_EMIT("addr_conflict_self_defended", EF_I("node", node_id),
+                        EF_I("observed_key_hash32", static_cast<int64_t>(key_hash32)), EF_S("source", id_bind_source_str(source)));
                 return false;
             }
             if (!authoritative) {                               // claimed -> refuse, keep the known binding
-                MR_TELEMETRY(
-                    EventField f[] = { { .key = "node",                .type = EventField::T::i64, .i = node_id },
-                                       { .key = "known_key_hash32",    .type = EventField::T::i64, .i = static_cast<int64_t>(_active->_id_bind[i].key_hash32) },
-                                       { .key = "observed_key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) },
-                                       { .key = "source",              .type = EventField::T::str, .s = id_bind_source_str(source) } };
-                    _hal.emit("addr_conflict_observed", f, 4); );
+                MR_EMIT("addr_conflict_observed", EF_I("node", node_id),
+                        EF_I("known_key_hash32", static_cast<int64_t>(_active->_id_bind[i].key_hash32)),
+                        EF_I("observed_key_hash32", static_cast<int64_t>(key_hash32)), EF_S("source", id_bind_source_str(source)));
                 return false;
             }
             // L2a shared-neighbour heal: a FIRST-HAND beacon (source==bcn, §5.5 confidence gate) for an id we
@@ -94,11 +88,8 @@ bool Node::id_bind_set(uint8_t node_id, uint32_t key_hash32, IdBindSource source
                 const uint32_t winner = incoming_wins ? key_hash32 : existing_key;
                 const uint32_t loser  = incoming_wins ? existing_key : key_hash32;
                 if (!mediated_recently(node_id, loser)) {       // #1: one DENY per (id,loser) per window, not per beacon
-                    MR_TELEMETRY(
-                        EventField f[] = { { .key = "node",   .type = EventField::T::i64, .i = node_id },
-                                           { .key = "winner", .type = EventField::T::i64, .i = static_cast<int64_t>(winner) },
-                                           { .key = "loser",  .type = EventField::T::i64, .i = static_cast<int64_t>(loser) } };
-                        _hal.emit("addr_conflict_mediated", f, 3); );
+                    MR_EMIT("addr_conflict_mediated", EF_I("node", node_id), EF_I("winner", static_cast<int64_t>(winner)),
+                            EF_I("loser", static_cast<int64_t>(loser)));
                     addr_conflict_send_deny(node_id, winner, loser, J_DENY_MEDIATED);
                     mark_mediated(node_id, loser);
                 }
@@ -118,22 +109,13 @@ bool Node::id_bind_set(uint8_t node_id, uint32_t key_hash32, IdBindSource source
     // NEW node_id: heal any stale holder of this hash FIRST (a pure rehome frees its slot), then cap-check.
     id_bind_evict_other_hash_holders(key_hash32, node_id);
     if (_active->_id_bind_n >= _cfg.cap_id_bind) {                        // table full -> refuse (Lua dv:4707)
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "table",  .type = EventField::T::str, .s = "id_bind" },
-                               { .key = "cap",    .type = EventField::T::i64, .i = _cfg.cap_id_bind },
-                               { .key = "size",   .type = EventField::T::i64, .i = _active->_id_bind_n },
-                               { .key = "action", .type = EventField::T::str, .s = "refuse" },
-                               { .key = "node",   .type = EventField::T::i64, .i = node_id } };
-            _hal.emit("table_cap_hit", f, 5); );
+        MR_EMIT("table_cap_hit", EF_S("table", "id_bind"), EF_I("cap", _cfg.cap_id_bind), EF_I("size", _active->_id_bind_n),
+                EF_S("action", "refuse"), EF_I("node", node_id));
         return false;
     }
     _active->_id_bind[_active->_id_bind_n++] = { key_hash32, now, node_id, static_cast<uint8_t>(source), static_cast<uint8_t>(confidence) };
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "node",       .type = EventField::T::i64, .i = node_id },
-                           { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) },
-                           { .key = "source",     .type = EventField::T::str, .s = id_bind_source_str(source) },
-                           { .key = "confidence", .type = EventField::T::str, .s = id_bind_conf_str(confidence) } };
-        _hal.emit("id_bind_set", f, 4); );
+    MR_EMIT("id_bind_set", EF_I("node", node_id), EF_I("key_hash32", static_cast<int64_t>(key_hash32)),
+            EF_S("source", id_bind_source_str(source)), EF_S("confidence", id_bind_conf_str(confidence)));
     if (authoritative) evict_aliased_hosted_mobile(node_id, key_hash32);   // §S0(b): a confirmed static reclaims an id we gave a mobile
     return true;
 }
@@ -184,12 +166,8 @@ void Node::id_bind_age_out() {
         const IdBind e = _active->_id_bind[r];
         const bool self_keep = (e.node_id == _node_id && e.key_hash32 == _key_hash32);
         if (!self_keep && (now - e.last_seen_ms) >= _cfg.id_bind_ttl_ms) {
-            MR_TELEMETRY(
-                EventField f[] = { { .key = "node",       .type = EventField::T::i64, .i = e.node_id },
-                                   { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(e.key_hash32) },
-                                   { .key = "age_ms",     .type = EventField::T::i64, .i = static_cast<int64_t>(now - e.last_seen_ms) },
-                                   { .key = "ttl_ms",     .type = EventField::T::i64, .i = static_cast<int64_t>(_cfg.id_bind_ttl_ms) } };
-                _hal.emit("id_bind_aged", f, 4); );
+            MR_EMIT("id_bind_aged", EF_I("node", e.node_id), EF_I("key_hash32", static_cast<int64_t>(e.key_hash32)),
+                    EF_I("age_ms", static_cast<int64_t>(now - e.last_seen_ms)), EF_I("ttl_ms", static_cast<int64_t>(_cfg.id_bind_ttl_ms)));
             continue;                                            // drop (don't keep)
         }
         _active->_id_bind[w++] = e;
@@ -596,12 +574,8 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // H is single-leaf (h.leaf_id==_cfg.leaf_id) -> the gate never fires -> s18/s21-s28 byte-identical.
     if (h.leaf_id != _cfg.leaf_id && !(h.team_scoped && same_team(h.team_id))) return;   // foreign-layer (dv:11635)
     if (h.origin == _node_id) return;                      // our own query echoed back (dv:11637)
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "origin",     .type = EventField::T::i64,     .i = h.origin },
-                           { .key = "key_hash32", .type = EventField::T::i64,     .i = static_cast<int64_t>(h.key_hash32) },
-                           { .key = "ttl",        .type = EventField::T::i64,     .i = h.ttl },
-                           { .key = "hard",       .type = EventField::T::boolean, .b = h.hard } };
-        _hal.emit("h_rx", f, 4); );                        // dv:11638
+    MR_EMIT("h_rx", EF_I("origin", h.origin), EF_I("key_hash32", static_cast<int64_t>(h.key_hash32)), EF_I("ttl", h.ttl),
+            EF_B("hard", h.hard));  // dv:11638
 
     // §mobile (2026-07-11): a MOBILE is a LEAF on the static plane — it does NOT participate in a STATIC hash-locate flood:
     // it never ANSWERS (its local id is invisible + home-proxied) and it never RELAYS (re-flooding puts a leaf on the static
@@ -671,13 +645,8 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         uint8_t answer_node_id = static_cast<uint8_t>(node_id);
         if (node_id == _node_id && same_team && mobile_registered() && team_local_id() != 0)
             answer_node_id = team_local_id();
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "origin",        .type = EventField::T::i64,     .i = h.origin },
-                               { .key = "key_hash32",    .type = EventField::T::i64,     .i = static_cast<int64_t>(h.key_hash32) },
-                               { .key = "node",          .type = EventField::T::i64,     .i = answer_node_id },
-                               { .key = "target_layer",  .type = EventField::T::i64,     .i = _cfg.leaf_id },
-                               { .key = "authoritative", .type = EventField::T::boolean, .b = authoritative } };
-            _hal.emit("h_resolved", f, 5); );              // dv:11649
+        MR_EMIT("h_resolved", EF_I("origin", h.origin), EF_I("key_hash32", static_cast<int64_t>(h.key_hash32)),
+                EF_I("node", answer_node_id), EF_I("target_layer", _cfg.leaf_id), EF_B("authoritative", authoritative));  // dv:11649
         if (h.want_pubkey && mobile_proxy) {                        // §Part 2 Fix 7: the HOME answers WANT_PUBKEY on behalf of its LIVE mobile (Option 1 — the home carries the key). MUST precede the owner branch: a live proxy has node_id==_node_id, so the owner branch would otherwise leak the HOME's own key under the mobile's hash.
             const uint8_t* mk = host_mobile_ed_pub(h.key_hash32);  // the mobile's cached ed_pub (Fix 6 push), iff a LIVE direct proxy has_pubkey (a redirect carries no local key)
             if (mk) send_mobile_pubkey_answer(h.origin, mobile_layer, static_cast<uint8_t>(node_id), h.key_hash32, mobile_epoch, mk);
@@ -719,12 +688,8 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // L7: h.ttl is an unauthenticated wire byte — a forged ttl=255 would re-flood with a 255-hop horizon. Clamp to
     // flood_hop_max so the re-flooded ttl can't exceed the mesh diameter (dedup already bounds re-broadcasts per node).
     const uint8_t fwd_ttl = (h.ttl > protocol::flood_hop_max ? protocol::flood_hop_max : h.ttl) - 1;
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "origin",     .type = EventField::T::i64,     .i = h.origin },
-                           { .key = "key_hash32", .type = EventField::T::i64,     .i = static_cast<int64_t>(h.key_hash32) },
-                           { .key = "ttl",        .type = EventField::T::i64,     .i = static_cast<int64_t>(fwd_ttl) },
-                           { .key = "hard",       .type = EventField::T::boolean, .b = h.hard } };
-        _hal.emit("h_forward", f, 4); );                   // dv:11661
+    MR_EMIT("h_forward", EF_I("origin", h.origin), EF_I("key_hash32", static_cast<int64_t>(h.key_hash32)),
+            EF_I("ttl", static_cast<int64_t>(fwd_ttl)), EF_B("hard", h.hard));  // dv:11661
     h_in fwd{};
     fwd.leaf_id = _cfg.leaf_id; fwd.origin = h.origin; fwd.key_hash32 = h.key_hash32;
     fwd.ttl = fwd_ttl; fwd.hard = h.hard;                          // preserve the variant across forwards
@@ -783,12 +748,8 @@ void Node::send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint
     item.inner_len = static_cast<uint8_t>(n);
     item.enqueue_time_ms = _hal.now();
     _active->_tx_queue[_active->_tx_queue_n++] = item;
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "to",            .type = EventField::T::i64,     .i = to_origin },
-                           { .key = "node",          .type = EventField::T::i64,     .i = node_id },
-                           { .key = "key_hash32",    .type = EventField::T::i64,     .i = static_cast<int64_t>(key_hash32) },
-                           { .key = "authoritative", .type = EventField::T::boolean, .b = authoritative } };
-        _hal.emit("hash_bind_response_enqueued", f, 4); );        // dv:5897
+    MR_EMIT("hash_bind_response_enqueued", EF_I("to", to_origin), EF_I("node", node_id),
+            EF_I("key_hash32", static_cast<int64_t>(key_hash32)), EF_B("authoritative", authoritative));  // dv:5897
     become_free();                                               // kick the queue to route the answer home
 }
 
@@ -837,12 +798,8 @@ void Node::on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool a
                 authoritative ? IdBindConf::authoritative : IdBindConf::claimed);
     // §mobile 4a: the 3c key_hash_of_id heuristic is GONE — a mobile proxy now carries the distinct DATA_TYPE_MOBILE_H_ANSWER
     // (handled in on_mobile_hash_bind_response), so a plain H_ANSWER for a hash we don't own is NEVER treated as a mobile proxy.
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "node",          .type = EventField::T::i64,     .i = hb->node_id },
-                           { .key = "key_hash32",    .type = EventField::T::i64,     .i = static_cast<int64_t>(hb->key_hash32) },
-                           { .key = "target_layer",  .type = EventField::T::i64,     .i = hb->target_layer },
-                           { .key = "authoritative", .type = EventField::T::boolean, .b = authoritative } };
-        _hal.emit("hash_bind_rx", f, 4); );
+    MR_EMIT("hash_bind_rx", EF_I("node", hb->node_id), EF_I("key_hash32", static_cast<int64_t>(hb->key_hash32)),
+            EF_I("target_layer", hb->target_layer), EF_B("authoritative", authoritative));
     drain_parked_sends(hb->key_hash32, hb->node_id, hb->target_layer);   // D: a parked send-by-hash can now fly; target_layer drives the cross-layer fork (4d)
     // Slice 4f: the binding for a DEFERRED cross-layer handoff just arrived on THIS leaf -> re-resolve + drain it now
     // (else it waits a full visit period). _active is the leaf the answer arrived on; the caller become_free()s next.
@@ -992,11 +949,8 @@ void Node::on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool auth
     if (!hb) return;
     id_bind_set(hb->node_id, hb->key_hash32, IdBindSource::h_relay,
                 authoritative ? IdBindConf::authoritative : IdBindConf::claimed);
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "node",          .type = EventField::T::i64,     .i = hb->node_id },
-                           { .key = "key_hash32",    .type = EventField::T::i64,     .i = static_cast<int64_t>(hb->key_hash32) },
-                           { .key = "authoritative", .type = EventField::T::boolean, .b = authoritative } };
-        _hal.emit("hash_bind_snooped", f, 3); );
+    MR_EMIT("hash_bind_snooped", EF_I("node", hb->node_id), EF_I("key_hash32", static_cast<int64_t>(hb->key_hash32)),
+            EF_B("authoritative", authoritative));
 }
 
 // =============================================================================
@@ -1226,11 +1180,8 @@ void Node::emit_hash_query(uint32_t key_hash32, bool hard, bool want_pubkey, Pla
     uint8_t buf[8 + 32 + 4 + 1 + 32];                            // §2: WANT_PUBKEY H = 40 B; §mobile 6.2: +4 B team_id; §name: +1+name_len (max 33) -> a named team_scoped WANT_PUBKEY is up to 77 B
     const size_t n = pack_h(in, std::span<uint8_t>(buf, sizeof(buf)));
     if (n == 0) return;
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64,     .i = static_cast<int64_t>(key_hash32) },
-                           { .key = "ttl",        .type = EventField::T::i64,     .i = protocol::hash_query_max_ttl },
-                           { .key = "hard",       .type = EventField::T::boolean, .b = hard } };
-        _hal.emit("h_tx", f, 3); );                              // the originate (dv:5625)
+    // the originate (dv:5625)
+    MR_EMIT("h_tx", EF_I("key_hash32", static_cast<int64_t>(key_hash32)), EF_I("ttl", protocol::hash_query_max_ttl), EF_B("hard", hard));
     tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
 }
 
@@ -1259,9 +1210,7 @@ void Node::park_send(uint32_t key_hash32, const uint8_t* body, uint8_t body_len,
     // (err_too_large) — this is defense-in-depth so a parked body can never exceed the deliverable size.
     p.body_len = (body_len > protocol::dm_max_body_bytes) ? protocol::dm_max_body_bytes : body_len;
     for (uint8_t i = 0; i < p.body_len; ++i) p.body[i] = body[i];
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) } };
-        _hal.emit("send_parked_for_hash", f, 1); );
+    MR_EMIT("send_parked_for_hash", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
     if (reflood) park_reflood_arm();
 }
 
@@ -1315,9 +1264,7 @@ void Node::park_send_layer(uint32_t key_hash32, const uint8_t* body, uint8_t bod
     p.key_hash32 = key_hash32; p.flags = flags; p.parked_at_ms = _hal.now(); p.cross_layer = true;   // 4d/e2e: keep the app's flags (E2E_ACK_REQ) -> the drain threads them onto the cross-layer DM
     p.body_len = (body_len > protocol::dm_max_body_bytes) ? protocol::dm_max_body_bytes : body_len;
     for (uint8_t i = 0; i < p.body_len; ++i) p.body[i] = body[i];
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) } };
-        _hal.emit("send_layer_parked", f, 1); );
+    MR_EMIT("send_layer_parked", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
 }
 
 // L2c: hold a misdelivered DM awaiting the HARD-H resolution. Unlike park_send (a fresh origination), this
@@ -1331,11 +1278,7 @@ void Node::l2c_park_redirect(uint32_t want_hash, const PostAck& pa) {
     p.body_len = (pa.inner_len > protocol::max_payload_bytes_hard_cap) ? protocol::max_payload_bytes_hard_cap : pa.inner_len;
     for (uint8_t i = 0; i < p.body_len; ++i) p.body[i] = pa.inner[i];   // body[] holds the full inner for a redirect
     for (int i = 0; i < 8; ++i) p.nonce_seed[i] = pa.nonce_seed[i];     // §1c: keep the originator's seed so a CRYPTED redirect stays openable after the heal
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(want_hash) },
-                           { .key = "origin",     .type = EventField::T::i64, .i = pa.origin },
-                           { .key = "ctr",        .type = EventField::T::i64, .i = pa.ctr } };
-        _hal.emit("l2c_redirect_parked", f, 3); );
+    MR_EMIT("l2c_redirect_parked", EF_I("key_hash32", static_cast<int64_t>(want_hash)), EF_I("origin", pa.origin), EF_I("ctr", pa.ctr));
 }
 
 // A binding for key_hash32 just resolved -> fly every parked DM for it to resolved_id (the verify-on-use redirect:
@@ -1360,28 +1303,20 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t 
                     // (forwarding-to-self loops); the sender's retry recovers it once the heal converges.
                     heal = true;
                 } else if (l2c_enqueue_forward(resolved_id, p.origin, p.ctr, p.ctr_lo, p.flags, p.type, p.body, p.body_len, p.nonce_seed)) {
-                    MR_TELEMETRY(
-                        EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = resolved_id },
-                                           { .key = "origin", .type = EventField::T::i64, .i = p.origin },
-                                           { .key = "ctr",    .type = EventField::T::i64, .i = p.ctr } };
-                        _hal.emit("l2c_redirect_forward", f, 3); );      // recipient moved (stale binding) -> forward, no heal
+                    // recipient moved (stale binding) -> forward, no heal
+                    MR_EMIT("l2c_redirect_forward", EF_I("to", resolved_id), EF_I("origin", p.origin), EF_I("ctr", p.ctr));
                 } else {
                     _parked_sends[w++] = p;                          // queue full -> KEEP parked, retry next drain/age-out
                 }
             } else if (resolved_id == _node_id) {
                 // A plain send-by-hash that resolves to OUR OWN id: the app addressed its own key, or a same-id
                 // collision aliased it to us. Do NOT do_send-to-self (a self-addressed DM); give it up.
-                MR_TELEMETRY(
-                    EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) } };
-                    _hal.emit("send_hash_giveup", f, 1); );
+                MR_EMIT("send_hash_giveup", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
             } else if (p.cross_layer && target_layer != 0xFF && target_layer != _cfg.leaf_id) {
                 // Slice 4d (§5): the dst lives on ANOTHER layer -> originate a CROSS_LAYER DM via a bridging gateway.
                 send_cross_layer(resolved_id, key_hash32, target_layer, p.body, p.body_len, p.flags, p.type);
             } else {
-                MR_TELEMETRY(
-                    EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(key_hash32) },
-                                       { .key = "node",       .type = EventField::T::i64, .i = resolved_id } };
-                    _hal.emit("send_hash_resolved", f, 2); );
+                MR_EMIT("send_hash_resolved", EF_I("key_hash32", static_cast<int64_t>(key_hash32)), EF_I("node", resolved_id));
                 // same-layer (incl. a cross_layer park whose dst turned out to be on OUR leaf, §5.1): a plain DM.
                 const uint16_t ch = do_send(resolved_id, p.body, p.body_len, p.flags, p.crypt, /*override_dst_hash=*/p.key_hash32, /*type=*/p.type, /*override_source_hash=*/p.reply_to_hash);   // §S2: p.type re-originates a parked INTRO with its TYPE (0 = plain, byte-identical); load-bearing (OUTSIDE the wrap): fly the held DM; M3: thread crypt; §mobile 3c: carry the queried hash so even the FIRST flood-resolved send to a mobile stamps DST_HASH=M (home forwards, not consumes); §mobile delegate: reply_to_hash -> SOURCE_HASH so the target's reply routes back to the mobile. For a normal send p.key_hash32 == key_hash_of_id(resolved_id) + reply_to_hash==0 -> byte-identical.
                 if (p.reply_to_hash != 0) deleg_ack_put(p.reply_to_hash, ch, p.mobile_ctr);   // §mobile reverse-ack: a parked delegated re-origination resolved -> map ctr_H->ctr_M keyed by the MOBILE's hash (no-op if mobile_ctr==0)
@@ -1412,20 +1347,13 @@ void Node::drain_resolved_parked_sends() {
                 push_hash_resolved(p.key_hash32, static_cast<uint8_t>(id), true);   // a beacon resolved it -> answer
             } else if (p.is_redirect) {
                 if (l2c_enqueue_forward(static_cast<uint8_t>(id), p.origin, p.ctr, p.ctr_lo, p.flags, p.type, p.body, p.body_len, p.nonce_seed)) {
-                    MR_TELEMETRY(
-                        EventField f[] = { { .key = "to",     .type = EventField::T::i64, .i = id },
-                                           { .key = "origin", .type = EventField::T::i64, .i = p.origin },
-                                           { .key = "ctr",    .type = EventField::T::i64, .i = p.ctr } };
-                        _hal.emit("l2c_redirect_forward", f, 3); );
+                    MR_EMIT("l2c_redirect_forward", EF_I("to", id), EF_I("origin", p.origin), EF_I("ctr", p.ctr));
                 } else {
                     _parked_sends[w++] = p;                          // queue full -> KEEP parked for the next beacon/age-out
                     continue;
                 }
             } else {
-                MR_TELEMETRY(
-                    EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(p.key_hash32) },
-                                       { .key = "node",       .type = EventField::T::i64, .i = id } };
-                    _hal.emit("send_hash_resolved", f, 2); );
+                MR_EMIT("send_hash_resolved", EF_I("key_hash32", static_cast<int64_t>(p.key_hash32)), EF_I("node", id));
                 const uint16_t ch = do_send(static_cast<uint8_t>(id), p.body, p.body_len, p.flags, p.crypt, /*override_dst_hash=*/0, /*type=*/p.type, /*override_source_hash=*/p.reply_to_hash);   // §S2: p.type re-originates a parked INTRO with its TYPE (0 = plain, byte-identical); load-bearing (OUTSIDE the wrap); M3: thread the stamped crypt intent (a beacon-resolved parked sendhashx still flies CRYPTED); §mobile delegate: reply_to_hash -> SOURCE_HASH
                 if (p.reply_to_hash != 0) deleg_ack_put(p.reply_to_hash, ch, p.mobile_ctr);   // §mobile reverse-ack: a beacon-resolved parked delegated re-origination -> map ctr_H->ctr_M keyed by the MOBILE's hash
             }
@@ -1449,9 +1377,7 @@ void Node::age_out_parked_sends() {
             if (p.is_resolve) {
                 push_hash_resolved(p.key_hash32, 0, false);     // a `resolve` that never resolved -> timeout answer
             } else {
-                MR_TELEMETRY(
-                    EventField f[] = { { .key = "key_hash32", .type = EventField::T::i64, .i = static_cast<int64_t>(p.key_hash32) } };
-                    _hal.emit("send_hash_giveup", f, 1); );
+                MR_EMIT("send_hash_giveup", EF_I("key_hash32", static_cast<int64_t>(p.key_hash32)));
             }
             continue;                                            // drop (handled: reported / gave up)
         }

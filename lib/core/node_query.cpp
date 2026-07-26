@@ -61,11 +61,8 @@ void Node::send_req_sync_q(const char* reason, bool force) {
     uint8_t buf[8];
     const size_t n = pack_q(in, std::span<uint8_t>(buf, sizeof(buf)));
     if (n == 0) return;
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "opcode",           .type = EventField::T::i64, .i = static_cast<uint8_t>(q_opcode::req_sync) },
-                           { .key = "rt_total",         .type = EventField::T::i64, .i = _active->_rt_count },
-                           { .key = "requester_mobile", .type = EventField::T::i64, .i = _cfg.is_mobile ? 1 : 0 } };
-        _hal.emit("q_tx", f, 3); );
+    MR_EMIT("q_tx", EF_I("opcode", static_cast<uint8_t>(q_opcode::req_sync)), EF_I("rt_total", _active->_rt_count),
+            EF_I("requester_mobile", _cfg.is_mobile ? 1 : 0));
     tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
 }
 
@@ -92,12 +89,7 @@ void Node::handle_q(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (q.src == _node_id) return;                               // loop guard — never answer ourselves
     if (q_responded_recently(q.opcode, q.src, q.dest)) return;   // recently answered this query -> skip
     mark_q_responded(q.opcode, q.src, q.dest);
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "from",             .type = EventField::T::i64, .i = q.src },
-                           { .key = "dest",             .type = EventField::T::i64, .i = q.dest },
-                           { .key = "opcode",           .type = EventField::T::i64, .i = q.opcode },
-                           { .key = "requester_mobile", .type = EventField::T::i64, .i = q.mobile ? 1 : 0 } };
-        _hal.emit("q_rx", f, 4); );
+    MR_EMIT("q_rx", EF_I("from", q.src), EF_I("dest", q.dest), EF_I("opcode", q.opcode), EF_I("requester_mobile", q.mobile ? 1 : 0));
     if (q.opcode == static_cast<uint8_t>(q_opcode::req_sync)) {
         schedule_sync_response(q.src, q.mobile);
         return;
@@ -226,11 +218,7 @@ void Node::schedule_sync_response(uint8_t requester, bool requester_mobile) {
     if (!_cfg.sync_response_enabled) return;
     const uint8_t route_n = _active->_rt_count;
     if (route_n < _cfg.sync_response_min_routes) {              // route-starved responder skip (inert at default min=0)
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "joiner",   .type = EventField::T::i64, .i = requester },
-                               { .key = "reason",   .type = EventField::T::str, .s = "rt_small" },
-                               { .key = "rt_total", .type = EventField::T::i64, .i = route_n } };
-            _hal.emit("sync_response_skip", f, 3); );
+        MR_EMIT("sync_response_skip", EF_I("joiner", requester), EF_S("reason", "rt_small"), EF_I("rt_total", route_n));
         return;
     }
     // One pending response per requester (Lua sync_response_pending[key]) — BEFORE the draw.
@@ -247,20 +235,14 @@ void Node::schedule_sync_response(uint8_t requester, bool requester_mobile) {
     for (uint8_t i = 0; i < protocol::cap_sync_response_pending; ++i)
         if (!_active->_sync_pending[i].active) { slot = static_cast<int>(i); break; }
     if (slot < 0) {                                            // ring full (device cap; Lua unbounded) — drop AFTER the draw
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "joiner", .type = EventField::T::i64, .i = requester } };
-            _hal.emit("sync_response_drop_full", f, 1); );
+        MR_EMIT("sync_response_drop_full", EF_I("joiner", requester));
         return;
     }
     const uint64_t now = _hal.now();
     _active->_sync_pending[slot] = { .active = true, .suppressed = false, .requester = requester,
                             .requester_mobile = requester_mobile, .requested_at = now, .fire_at = now + delay };
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "joiner",            .type = EventField::T::i64, .i = requester },
-                           { .key = "delay_ms",         .type = EventField::T::i64, .i = static_cast<int64_t>(delay) },
-                           { .key = "rt_total",         .type = EventField::T::i64, .i = route_n },
-                           { .key = "requester_mobile", .type = EventField::T::i64, .i = requester_mobile ? 1 : 0 } };
-        _hal.emit("sync_response_scheduled", f, 4); );
+    MR_EMIT("sync_response_scheduled", EF_I("joiner", requester), EF_I("delay_ms", static_cast<int64_t>(delay)), EF_I("rt_total", route_n),
+            EF_I("requester_mobile", requester_mobile ? 1 : 0));
     (void)_hal.after(delay, kSyncResponseTimerId + static_cast<uint32_t>(slot));
 }
 
@@ -271,16 +253,10 @@ void Node::sync_response_fire(uint8_t slot) {
     if (!p.active) return;                                     // already fired / never armed
     p.active = false;
     if (p.suppressed) {                                        // a useful beacon was overheard in-window -> stand down
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "joiner", .type = EventField::T::i64, .i = p.requester },
-                               { .key = "reason", .type = EventField::T::str, .s = "heard_useful_bcn" } };
-            _hal.emit("sync_response_suppressed", f, 2); );
+        MR_EMIT("sync_response_suppressed", EF_I("joiner", p.requester), EF_S("reason", "heard_useful_bcn"));
         return;
     }
-    MR_TELEMETRY(
-        EventField f[] = { { .key = "joiner",   .type = EventField::T::i64, .i = p.requester },
-                           { .key = "rt_total", .type = EventField::T::i64, .i = _active->_rt_count } };
-        _hal.emit("sync_response_tx", f, 2); );
+    MR_EMIT("sync_response_tx", EF_I("joiner", p.requester), EF_I("rt_total", _active->_rt_count));
     emit_beacon("sync");                                       // full-table page (dirty_only=false for kind=="sync")
 }
 

@@ -517,10 +517,7 @@ void Node::window_switch_fire() {
         // boundary, so the phase drift is bounded to <= one window (the slipped leaf simply loses that much of its
         // window). STARVATION (a leaf reliably busy at switch time) is still observable here; a max-hold is an open item.
         const uint8_t next = (_active == &_layers[0]) ? 1 : 0;
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "held_leaf", .type = EventField::T::i64, .i = (next == 0) ? 1 : 0 },
-                               { .key = "next_leaf", .type = EventField::T::i64, .i = next } };
-            _hal.emit("gateway_layer_window_deferred", f, 2); );
+        MR_EMIT("gateway_layer_window_deferred", EF_I("held_leaf", (next == 0) ? 1 : 0), EF_I("next_leaf", next));
         (void)_hal.after(protocol::gateway_layer_busy_retry_ms, kLayerWindowTimerId);
         return;
     }
@@ -1147,6 +1144,20 @@ void Node::push_send_failed(SendFailReason reason, uint8_t dst, uint16_t ctr) {
     enqueue_push(pu);
 }
 
+// §3-B.9: the wire_version refusal ritual, verbatim-duplicated at the two version walls (see node.h). Both are
+// rate-limited on the SHARED `_last_join_refused_ms` window — one refusal push per join_refused_retry_ms across every
+// flavour — so a foreign-version neighbour's every beacon/roster can't spam the app. The MR_EMIT stays INSIDE the
+// window with the Push: it is device-stripped, which is precisely why the Push exists (R6.3 §7c).
+void Node::push_join_refused_wire(uint8_t their_ver) {
+    const uint64_t now = _hal.now();
+    if (_last_join_refused_ms == 0 || now - _last_join_refused_ms >= protocol::join_refused_retry_ms) {
+        _last_join_refused_ms = now;
+        Push pu{}; pu.kind = PushKind::join_refused; pu.join_reason = JoinRefuseReason::wire_version;
+        pu.origin = their_ver; pu.dst = protocol::wire_version; enqueue_push(pu);
+        MR_EMIT("join_refused", EF_S("reason", "wire_version"), EF_I("their_ver", their_ver), EF_I("my_ver", protocol::wire_version));
+    }
+}
+
 bool Node::next_push(Push& out) {
     if (_push_count == 0) return false;
     out = _push_ring[_push_head];
@@ -1186,9 +1197,7 @@ void Node::on_radio_busy(const BusyInfo& info) {
     TxStashSlot& s = _tx_stash[slot];
     if (!s.valid) return;                                          // stash cleared by a newer same-tag TX
     if (s.retries_left == 0) {                                     // exhausted -> give up (dv:12190)
-        MR_TELEMETRY(
-            EventField f[] = { { .key = "tag", .type = EventField::T::i64, .i = info.tag } };
-            _hal.emit("tx_giveup", f, 1); );
+        MR_EMIT("tx_giveup", EF_I("tag", info.tag));
         s.valid = false;
         // SHARED-BUG FIX (#1, both engines): a DATA giveup STRANDS the flight — the DATA branch above cleared
         // awaiting_ack + cancelled the ack-timeout (and rts_timeout is moot), so _active->_pending_tx would sit forever with

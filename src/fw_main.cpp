@@ -1016,6 +1016,10 @@ static void mesh_service_once() {
     meshroute::Push pu{};
     while (g_node.next_push(pu)) {
         mr_ui_on_push(pu);   // §featuresplit slice 4: surface the delivery/ACK on the board display (no-op unless MR_FEAT_OLED)
+        // ★ ALL 14 PushKinds are rendered, and this switch is DELIBERATELY `default`-less so -Wswitch fails the build
+        // when a 15th is added (owner ruling 2026-07-26; 6 kinds used to fall through and print NOTHING here, which is
+        // BASELINE 25m's enum→string defect class — this file is invisible to the native gate, so the compiler is the
+        // only tripwire). Case order tracks the enum declaration order in command.h.
         switch (pu.kind) {
             case meshroute::PushKind::msg_recv:
                 mrcon.print(F("RECV from="));   mrcon.print(pu.origin); mrcon.print(F(": "));
@@ -1059,6 +1063,10 @@ static void mesh_service_once() {
                        mrcon.println(pu.dst ? F(" (auth)") : F(" (cached)")); }
                 break;
             }
+            case meshroute::PushKind::peer_key_cached:   // E2E §7: a recipient's pubkey was learned on-air -> an `-e` send to that hash can now be sealed
+                mrcon.print(F("KEY CACHED hash=0x")); mrcon.print(pu.sender_hash, HEX);
+                if (pu.body_len) { mrcon.print(F(" name=")); mrcon.write(pu.body, pu.body_len); }   // §S6: the name cached alongside the key (omitted when unknown)
+                mrcon.println(F(" (on-air, unpinned)")); break;
             case meshroute::PushKind::config_adopted: {   // R6.2: a pulled leaf config was adopted -> persist to NV
                 const meshroute::NodeConfig& nc = g_node.config();
                 // NB deliberately NOT the §nv-ritual prologue: this is load-IF-PRESENT, not load-or-seed. With no
@@ -1095,6 +1103,32 @@ static void mesh_service_once() {
                     mrcon.println(F("⚠ JOIN REFUSED: leaf full — no id available"));
                 }
                 break;
+            case meshroute::PushKind::send_blocked:   // Slice 6a: our OWN cap / min-interval gate refused an origination pre-TX
+                mrcon.print(F("BLOCKED ")); mrcon.print(pu.blocked_channel ? F("channel") : F("dm"));
+                // U1: the ONE reason mapper (-Wswitch-guarded + pinned by the all-enumerators test) — never a second hand-rolled table here
+                mrcon.print(F(" reason=")); mrcon.print(meshroute::console::sendfailreason_name(pu.reason));
+                mrcon.print(F(" — retry in ")); mrcon.print(pu.next_ms); mrcon.println(F(" ms")); break;
+            case meshroute::PushKind::channel_sent:   // Slice 6c: outcome of an OWN channel post's origin re-offer
+                mrcon.print(F("CH SENT ctr=")); mrcon.print(pu.ctr);
+                mrcon.println(pu.relayed ? F(" (relayed)") : F(" (no relay)")); break;
+            case meshroute::PushKind::mobile_reg:   // §S2: registration changed. relayed=true -> registered/roamed (home_layer+epoch valid);
+                                                    //   false -> home lost or deregistered (node_mobile.cpp:247 / node.cpp:350 — home/local are 0 there)
+                if (pu.relayed) {
+                    mrcon.print(F("MOBILE REGISTERED home=")); mrcon.print(pu.origin);
+                    mrcon.print(F(" local=")); mrcon.print(pu.dst);
+                    mrcon.print(F(" layer=")); mrcon.print(pu.layer_id);
+                    mrcon.print(F(" epoch=")); mrcon.println(pu.ctr);
+                } else {
+                    mrcon.println(F("⚠ MOBILE UNREGISTERED — home lost / deregistered"));
+                }
+                break;
+            case meshroute::PushKind::team_reg:   // §S2: team-DAD local id adopted / re-picked after a conflict
+                mrcon.print(F("TEAM id=0x")); mrcon.print(pu.team_id, HEX);
+                mrcon.print(F(" local=")); mrcon.println(pu.dst); break;
+            case meshroute::PushKind::join_adopted:   // a static/DAD adopt landed -> this node's OWN id may have changed
+                mrcon.print(F("ADOPTED id=")); mrcon.print(pu.dst);
+                mrcon.print(F(" layer=")); mrcon.print(pu.layer_id);
+                mrcon.print(F(" epoch=")); mrcon.println(pu.ctr); break;
         }
         // BLE companion: the structured NDJSON twin of the plain-text line above (design doc §4). The ring is
         // drained ONCE here and fanned to both sinks — formatting + TX happen only when a phone is connected,
