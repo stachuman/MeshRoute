@@ -374,11 +374,13 @@ void Node::handle_j(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             // §S6/QA-3b: DE-STORM the OFFER — stash it + fire after a random backoff so two co-located hosts don't answer
             // this DISCOVER at the SAME ms (the same-ms PHY collision that made a mobile adopt the WEAKER home). Reuses the
             // join OFFER-backoff window. Single-slot (last DISCOVER wins). The EMIT stays here (the OFFER is committed).
+            // §3-B.5: the single-slot member of the jittered_tx_stash.h family (the two §F-XL rings are the ring-shaped
+            // ones). Inherits the fit guard the hand-rolled version lacked — unreachable here (pack_j_offer returns 0 or
+            // exactly 13 into a 13-B span, and n==0 is already excluded above), so it is defence, not a behaviour change.
             MR_EMIT("mobile_offer_tx", EF_I("to_key", static_cast<int64_t>(j.key_hash32)), EF_I("local_id", local));
-            _active->_pending_offer_len = static_cast<uint8_t>(n);
-            for (size_t b = 0; b < n; ++b) _active->_pending_offer[b] = buf[b];
-            const uint32_t jit = static_cast<uint32_t>(_hal.rand_range(protocol::join_offer_backoff_min_ms, protocol::join_offer_backoff_max_ms + 1));
-            (void)_hal.after(jit, kMobileOfferBackoffTimerId);
+            jtx_stash_arm(_hal, _active->_pending_offer, sizeof _active->_pending_offer, _active->_pending_offer_len,
+                          buf, n, protocol::join_offer_backoff_min_ms, protocol::join_offer_backoff_max_ms,
+                          kMobileOfferBackoffTimerId);
         }
         return;
     }

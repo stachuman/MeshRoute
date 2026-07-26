@@ -739,26 +739,15 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // identical ms (deterministic collision, no capture, at any common/downstream receiver). Stash the built frame
     // + fire after a small random delay (kHForwardTimerId+slot); the existing LBT then defers the later sibling.
     // A small round-robin RING so a concurrent flood for a DIFFERENT hash doesn't clobber this pending one.
-    if (n && n <= sizeof(_h_forward_stash[0].buf)) {
-        const uint8_t slot = _h_forward_rr;
-        _h_forward_rr = static_cast<uint8_t>((_h_forward_rr + 1) % kHForwardSlots);
-        HForwardStash& st = _h_forward_stash[slot];
-        for (size_t i = 0; i < n; ++i) st.buf[i] = buf[i];
-        st.len = static_cast<uint8_t>(n);
-        const uint32_t jit = static_cast<uint32_t>(_hal.rand_range(protocol::h_forward_jitter_min_ms,
-                                                                   protocol::h_forward_jitter_max_ms + 1));
-        (void)_hal.after(jit, kHForwardTimerId + slot);
-    }
+    // §3-B.5: the stash ritual (fit guard / cursor / copy / jitter draw / timer arm) lives in jittered_tx_stash.h.
+    jtx_ring_arm(_hal, _h_forward_stash, _h_forward_rr, buf, n,
+                 protocol::h_forward_jitter_min_ms, protocol::h_forward_jitter_max_ms, kHForwardTimerId);
 }
 
 // §F-XL-1: fire a de-stormed (jittered) h_forward from its ring slot. The frame is self-contained (leaf_id packed
 // in), so it tx's regardless of the currently-active layer. A slot with len==0 has already fired / never armed.
 void Node::h_forward_fire(uint8_t slot) {
-    if (slot >= kHForwardSlots) return;
-    HForwardStash& st = _h_forward_stash[slot];
-    if (st.len == 0) return;
-    tx_initiating(st.buf, st.len, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
-    st.len = 0;
+    if (HForwardStash* st = jtx_ring_armed(_h_forward_stash, slot)) jtx_fire(st->buf, st->len);
 }
 
 // =============================================================================

@@ -765,6 +765,17 @@ bool Node::gateway_announce_has_headroom() const {
     return used < cap;
 }
 
+// §3-B.5 — the Node-side half of jittered_tx_stash.h, shared by all three de-storm stashes (§F-XL-1
+// H-forward ring, §F-XL-2 RREQ-forward ring, §S6/QA-3b mobile-OFFER slot). Every stashed frame is
+// self-contained (its leaf_id / team scope is packed in), so it tx's at routing_sf as a flood regardless
+// of the currently-active layer. `len` is the slot's "armed" flag — cleared AFTER the tx, as every hand-
+// rolled copy did, so a re-entrant fire on the same slot is a no-op rather than a duplicate transmission.
+void Node::jtx_fire(uint8_t* buf, uint8_t& len) {
+    if (len == 0) return;
+    tx_initiating(buf, len, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
+    len = 0;
+}
+
 // ---- dispatch (timer ids -> subsystem handlers; RX cmd-nibble -> handlers) --
 
 void Node::on_timer(uint32_t timer_id) {
@@ -819,7 +830,7 @@ void Node::on_timer(uint32_t timer_id) {
 #endif
     case kPresenceRosterTimerId:  presence_roster_fire(); break;   // §S6: home coalesced-roster emit (always compiled — a home is a static)
     case kMobileOfferBackoffTimerId:                              // §S6/QA-3b: fire the de-stormed (jittered) mobile OFFER
-        if (_active->_pending_offer_len) { tx_initiating(_active->_pending_offer, _active->_pending_offer_len, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0); _active->_pending_offer_len = 0; }
+        jtx_fire(_active->_pending_offer, _active->_pending_offer_len);
         break;
     case kTeamDadGuardTimerId:     team_dad_guard_fire();     break;   // §mobile 6.4: team-DAD guard window close -> confirm _team_local_id
     case kMBcastClearTimerId:                                       // M-broadcast fire-and-forget: clear the flight (no ACK)

@@ -30,6 +30,7 @@
 #include <optional>
 #include "node_carriers.h"   // value-carrier structs (LayerConfig/NodeConfig/RtEntry/TxItem/... — node-legibility Slice 2, 2026-07-15)
 #include "recent_ring.h"     // recent_ring_hit/_mark/_age_out — the ONE bounded seen-recently ring discipline (§3-B.1)
+#include "jittered_tx_stash.h"   // jtx_stash_arm/_ring_arm/_ring_armed — the ONE de-storm stash discipline (§3-B.5)
 
 namespace MESHROUTE_NS {
 
@@ -1012,6 +1013,11 @@ private:
     // R4.5b frame-type tag (echoed by the sim in on_radio_busy; identifies a blocked TX heap-free).
     enum class FrameTag : uint16_t { rts = 0, cts = 1, data = 2, ack = 3, nack = 4, beacon = 5 };
     void     tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen);
+    // §3-B.5 de-storm fire, shared by ALL THREE jittered_tx_stash.h members (§F-XL-1 H-forward ring,
+    // §F-XL-2 RREQ-forward ring, §S6/QA-3b mobile-OFFER slot): tx the stashed frame at routing_sf as a
+    // flood, then clear the slot so a re-entry can't double-send. The tx itself cannot live in the header
+    // (it needs tx_initiating + _cfg), so this is the one Node-side half of the discipline.
+    void     jtx_fire(uint8_t* buf, uint8_t& len);
     void     rts_duty_defer_fire();                                // cleanup #A redo: re-check duty + hand the deferred RTS (or re-defer / drop-if-stale)
     bool     tx_flood(const uint8_t* bytes, size_t len, int16_t sf);   // false = dropped/skipped (no TX)
     void     lbt_complete(const uint8_t* bytes, size_t len, int16_t sf, LbtKind kind, uint32_t rts_flight_gen);
@@ -1525,6 +1531,9 @@ private:
         // §S6/QA-3b OFFER de-storm: a jittered mobile OFFER (stashed, fired by kMobileOfferBackoffTimerId) so co-located
         // hosts don't answer one DISCOVER at the SAME ms (the collision that let a mobile adopt the WEAK home). Single-slot
         // (last DISCOVER wins) — a v1 limitation; concurrent multi-mobile DISCOVERs at one host are rare.
+        // The single-slot member of the jittered_tx_stash.h family (jtx_stash_arm + jtx_fire); the two
+        // §F-XL rings are the ring-shaped members. Bare array + len rather than a struct, which is why
+        // the single-slot entry point takes the buffer, its capacity and the length separately.
         uint8_t         _pending_offer[13] = {};
         uint8_t         _pending_offer_len = 0;
         // §per-layer discovery (2026-07-05): a GATEWAY bootstraps each leaf INDEPENDENTLY — the boot leaf must not trip
@@ -1572,6 +1581,8 @@ private:
     // fire after a small random delay (kHForwardTimerId+slot); the existing LBT then defers the later sibling. A
     // small RING (not single-slot): a dense mesh has concurrent floods for DIFFERENT hashes, which single-slot would
     // clobber. Node-global (the H frame is self-contained incl. its leaf_id; a gateway's two leaves share the radio).
+    // jittered_tx_stash.h contract: `buf[N]` + `len` (0 = nothing armed / already fired); jtx_ring_arm
+    // owns the fit guard, the cursor and the timer-id pairing, jtx_ring_armed + jtx_fire own the firing.
     static constexpr uint8_t kHForwardSlots = 4;
     struct HForwardStash { uint8_t buf[8 + 32 + 4 + 1 + 32]; uint8_t len = 0; };   // <=77 B H frame (matches pack_h)
     HForwardStash _h_forward_stash[kHForwardSlots];
@@ -1581,6 +1592,7 @@ private:
     // identical ms -> deterministic collision. Stash + jittered fire (kRreqForwardTimerId+slot). The packed F frame is
     // self-contained (leaf_id / team scope baked in by pack_f), so ONE Node-global ring serves both planes; the RING
     // (not single-slot) covers concurrent discoveries for DIFFERENT dsts. The 16-B buf matches pack_f's bound.
+    // Same jittered_tx_stash.h contract as the F-XL-1 ring above.
     static constexpr uint8_t kRreqForwardSlots = 4;
     struct RreqForwardStash { uint8_t buf[16]; uint8_t len = 0; };   // <=16 B F frame (matches pack_f's buf[16])
     RreqForwardStash _rreq_forward_stash[kRreqForwardSlots];

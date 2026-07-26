@@ -97,26 +97,17 @@ bool Node::rreq_rate_ok(uint8_t dst, uint8_t ttl, bool team_plane) {
 // nothing and only shifts the event schedule of a timing-fragile scenario. The caller passes the forwarded ttl and
 // sends a terminal forward immediately (see the two call sites). The jitter is a rand_range draw, mirroring F-XL-1;
 // because a terminal forward is NOT stashed, the draw is only consumed on a propagating forward.
+// §3-B.5: the stash ritual (fit guard / cursor / copy / jitter draw / timer arm) lives in jittered_tx_stash.h —
+// this ring and the §F-XL-1 H-forward ring differ only in slot capacity, jitter window and timer base.
 void Node::rreq_forward_stash(const uint8_t* buf, size_t n) {
-    if (n == 0 || n > sizeof(_rreq_forward_stash[0].buf)) return;
-    const uint8_t slot = _rreq_forward_rr;
-    _rreq_forward_rr = static_cast<uint8_t>((_rreq_forward_rr + 1) % kRreqForwardSlots);
-    RreqForwardStash& st = _rreq_forward_stash[slot];
-    for (size_t i = 0; i < n; ++i) st.buf[i] = buf[i];
-    st.len = static_cast<uint8_t>(n);
-    const uint32_t jit = static_cast<uint32_t>(_hal.rand_range(protocol::rreq_forward_jitter_min_ms,
-                                                               protocol::rreq_forward_jitter_max_ms + 1));
-    (void)_hal.after(jit, kRreqForwardTimerId + slot);
+    jtx_ring_arm(_hal, _rreq_forward_stash, _rreq_forward_rr, buf, n,
+                 protocol::rreq_forward_jitter_min_ms, protocol::rreq_forward_jitter_max_ms, kRreqForwardTimerId);
 }
 
 // §F-XL-2: fire a de-stormed (jittered) rreq_forward from its ring slot. The frame is self-contained (leaf_id / team
 // scope packed in), so it tx's regardless of the currently-active layer. A slot with len==0 has already fired / never armed.
 void Node::rreq_forward_fire(uint8_t slot) {
-    if (slot >= kRreqForwardSlots) return;
-    RreqForwardStash& st = _rreq_forward_stash[slot];
-    if (st.len == 0) return;
-    tx_initiating(st.buf, st.len, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
-    st.len = 0;
+    if (RreqForwardStash* st = jtx_ring_armed(_rreq_forward_stash, slot)) jtx_fire(st->buf, st->len);
 }
 
 // Originate an RREQ for `dst` (Lua emit_route_request). relay=self (we are the first forwarder).
