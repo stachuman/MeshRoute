@@ -13,6 +13,7 @@
 
 #include "node.h"
 #include "frame_codec.h"
+#include "support/test_hal.h"
 
 #include <array>
 #include <cstring>
@@ -26,24 +27,12 @@ namespace {
 
 struct Captured { std::string type; bool has_dest = false; int dest = 0; };
 
-// Minimal in-memory Hal: deterministic clock + rng, captures emits. Enough to
-// drive Node::on_init / on_recv for a behaviour unit test (foundation for R3+).
-class TestHal : public Hal {
+// The shared in-memory Hal (deterministic clock + rng) + this file's one spied seam: the emit capture.
+// Enough to drive Node::on_init / on_recv for a behaviour unit test (foundation for R3+).
+class TestHal : public mrtest::TestHalBase {
 public:
-    uint64_t _now = 0;
     std::vector<Captured> events;
 
-    TxResult tx(const uint8_t*, size_t, const TxParams&) override { return TxResult::ok; }
-    void     set_rx_sf(int) override {}
-    uint64_t channel_busy_until() override { return 0; }
-    uint64_t airtime_used_ms(uint64_t) override { return 0; }
-    uint64_t oldest_tx_end_ms() override { return 0; }
-    uint64_t now() override { return _now; }
-    bool     after(uint32_t, uint32_t) override { return true; }
-    void     cancel(uint32_t) override {}
-    void     set_protocol_id(int) override {}
-    int      rand_range(int lo, int) override { return lo; }   // deterministic
-    void     rand_bytes(uint8_t* o, size_t n) override { for (size_t i = 0; i < n; ++i) o[i] = static_cast<uint8_t>(rand_range(0, 256)); }
     void     emit(const char* type, const EventField* f, size_t n) override {
         Captured c; c.type = type;
         for (size_t i = 0; i < n; ++i) {
@@ -53,7 +42,6 @@ public:
         }
         events.push_back(c);
     }
-    void     log(const char*) override {}
 
     bool sawDest(const char* type, int dest) const {
         for (const auto& e : events)

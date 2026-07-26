@@ -14,6 +14,7 @@
 #include "frame_codec.h"
 #include "leaf_config.h"   // R6.1: real config_hash for the peering-filter test
 #include "ram_inbox_store.h"
+#include "support/test_hal.h"
 
 #include <array>
 #include <cstring>
@@ -32,36 +33,30 @@ struct Ev { std::string type; int to = -1; int dst = -1; bool dup = false;
 
 struct TxFrame { std::string label; std::vector<uint8_t> bytes; };
 
-class TestHal : public Hal {
+class TestHal : public mrtest::TestHalBase {
 public:
-    uint64_t _now = 0;
     std::vector<Ev> events;
     std::vector<TxFrame> tx_frames;   // captured TX bytes (to parse DATA hop-budget fields)
-    int rand_calls = 0;          // guards the cascade #1 determinism risk: no EXTRA draws
+    // NB `rand_calls` (the base's) guards the cascade #1 determinism risk: no EXTRA draws. rand_bytes is
+    // overridden below and does NOT route through rand_range, so it does not perturb those deltas.
 
     TxResult tx(const uint8_t* b, size_t n, const TxParams& p) override {
         TxFrame f; f.label = p.label ? p.label : "";
         f.bytes.assign(b, b + n); tx_frames.push_back(std::move(f));
         return TxResult::ok;
     }
-    void     set_rx_sf(int) override {}
     uint64_t _channel_busy_until = 0;   // R4.5: scriptable LBT busy horizon
     uint64_t channel_busy_until() override { return _channel_busy_until; }
     uint64_t _airtime_used = 0;   // R4.0: scriptable rolling-window airtime for compute_budget_tier
     uint64_t airtime_used_ms(uint64_t) override { return _airtime_used; }
     uint64_t _oldest_tx_end = 0;  // scriptable oldest in-window TX-end (duty_status recovery calc)
     uint64_t oldest_tx_end_ms() override { return _oldest_tx_end; }
-    uint64_t now() override { return _now; }
     uint32_t _slop = 0;                                                   // §CTS-wait: settable metal turnaround slop (rx_window_slop_ms)
     uint32_t rx_window_slop_ms(int) const override { return _slop; }
     uint32_t last_after_delay[16] = {};                                   // §CTS-wait: last after() delay per timer id (id<16)
     std::vector<std::pair<uint32_t, uint32_t>> armed;                     // §F-XL-2: (delay_ms, timer_id) captured from after() (any id)
     bool     after(uint32_t d, uint32_t id) override { if (id < 16) last_after_delay[id] = d; armed.emplace_back(d, id); return true; }
-    void     cancel(uint32_t) override {}
-    void     set_protocol_id(int) override {}
-    int      _rand_ret = -1;   // opt-in scriptable rand (>=0 overrides the default `return lo`; -1 = default)
-    int      rand_range(int lo, int) override { ++rand_calls; return _rand_ret >= 0 ? _rand_ret : lo; }
-    // Crypto RNG (DISTINCT from the weak rand_range above, whose default returns `lo`=0). A real HW RNG never
+    // Crypto RNG (DISTINCT from the base fixture's weak rand_range, whose default returns `lo`=0). A real HW RNG never
     // returns an all-zero seed; emulate a non-degenerate deterministic stream so the e2e nonce-seed is realistic.
     // zero_rng=true forces all-zero (to exercise the R7 bad-RNG fail-loud guard in e2e_seal_inner).
     bool     zero_rng = false;
@@ -87,7 +82,6 @@ public:
         }
         events.push_back(e);
     }
-    void     log(const char*) override {}
 
     int count(const char* t) const { int n = 0; for (const auto& e : events) if (e.type == t) ++n; return n; }
     const Ev* last(const char* t) const { const Ev* r = nullptr; for (const auto& e : events) if (e.type == t) r = &e; return r; }

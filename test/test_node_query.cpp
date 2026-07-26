@@ -14,6 +14,7 @@
 
 #include "node.h"
 #include "frame_codec.h"
+#include "support/test_hal.h"
 
 #include <array>
 #include <cstring>
@@ -35,11 +36,8 @@ struct Ev { std::string type; int from = -1; int dst = -1; int joiner = -1; int 
 struct Timer { uint32_t id; uint32_t delay; };
 struct TxFrame { std::vector<uint8_t> bytes; };
 
-class TestHal : public Hal {
+class TestHal : public mrtest::TestHalBase {
 public:
-    uint64_t _now = 0;
-    int      _rand_ret = -1;          // >=0 overrides (returns lo otherwise)
-    int      rand_calls = 0;
     std::vector<Ev>      events;
     std::vector<Timer>   timers;      // every after() (re-arms accumulate)
     std::vector<TxFrame> tx_frames;
@@ -47,16 +45,7 @@ public:
     TxResult tx(const uint8_t* b, size_t n, const TxParams&) override {
         TxFrame f; f.bytes.assign(b, b + n); tx_frames.push_back(std::move(f)); return TxResult::ok;
     }
-    void     set_rx_sf(int) override {}
-    uint64_t channel_busy_until() override { return 0; }
-    uint64_t airtime_used_ms(uint64_t) override { return 0; }
-    uint64_t oldest_tx_end_ms() override { return 0; }
-    uint64_t now() override { return _now; }
     bool     after(uint32_t delay, uint32_t id) override { timers.push_back({ id, delay }); return true; }
-    void     cancel(uint32_t) override {}
-    void     set_protocol_id(int) override {}
-    int      rand_range(int lo, int) override { ++rand_calls; return _rand_ret >= 0 ? _rand_ret : lo; }
-    void     rand_bytes(uint8_t* o, size_t n) override { for (size_t i = 0; i < n; ++i) o[i] = static_cast<uint8_t>(rand_range(0, 256)); }
     void     emit(const char* type, const EventField* f, size_t n) override {
         Ev e; e.type = type;
         for (size_t i = 0; i < n; ++i) {
@@ -70,7 +59,6 @@ public:
         }
         events.push_back(std::move(e));
     }
-    void     log(const char*) override {}
 
     int count(const char* t) const { int n = 0; for (const auto& e : events) if (e.type == t) ++n; return n; }
     const Ev* last(const char* t) const { const Ev* r = nullptr; for (const auto& e : events) if (e.type == t) r = &e; return r; }
@@ -273,15 +261,23 @@ TEST_CASE("Q REQ_SYNC backoff — both mobile penalties add to the drawn delay")
 }
 
 TEST_CASE("Q REQ_SYNC suppression — window boundary: at now==fire_at suppresses; past fire_at does not") {
+    // ★ The forced draw must lie INSIDE the real backoff window. The shared fixture honours rand_range's
+    // [lo,hi) contract (test/support/test_hal.h), so an out-of-window force is CLAMPED and fire_at would
+    // NOT be where this case computes it. This used to force 400 — below the 500 ms minimum the production
+    // draw can ever return — which silently moved the very boundary the case exists to pin. The
+    // static_assert keeps a future window retune from re-breaking it silently.
+    constexpr int kDraw = 1500;
+    static_assert(kDraw >= protocol::sync_response_backoff_min_ms &&
+                  kDraw <= protocol::sync_response_backoff_max_ms, "forced draw outside the real backoff window");
     std::array<uint8_t,16> qb{}; std::array<uint8_t,64> bb{};
     {   // now == fire_at -> within (now <= fire_at) -> SUPPRESSED
         TestHal hal; Node node(hal, 2, 0xBEEF);
         NodeConfig cfg; cfg.routing_sf=7; cfg.leaf_id=0; cfg.sync_response_min_routes=0;
         node.on_init(cfg);
-        hal._now=100; hal._rand_ret=400;                     // fire_at = 100 + 400 = 500
+        hal._now=100; hal._rand_ret=kDraw;                   // fire_at = 100 + 1500 = 1600
         size_t n=mk_q(0,7,255,q_opcode::req_sync,false,qb); node.on_recv(qb.data(),n,meta_at(100));
-        hal._now=500;                                        // == fire_at
-        size_t bn=mk_beacon_route(9,3,3,2,bb); node.on_recv(bb.data(),bn,meta_at(500));
+        hal._now=1600;                                       // == fire_at
+        size_t bn=mk_beacon_route(9,3,3,2,bb); node.on_recv(bb.data(),bn,meta_at(1600));
         node.on_timer(kSyncResponseTimerId);
         CHECK(hal.count("sync_response_suppressed")==1);
         CHECK(hal.count("sync_response_tx")==0);
@@ -290,10 +286,10 @@ TEST_CASE("Q REQ_SYNC suppression — window boundary: at now==fire_at suppresse
         TestHal hal; Node node(hal, 2, 0xBEEF);
         NodeConfig cfg; cfg.routing_sf=7; cfg.leaf_id=0; cfg.sync_response_min_routes=0;
         node.on_init(cfg);
-        hal._now=100; hal._rand_ret=400;                     // fire_at = 500
+        hal._now=100; hal._rand_ret=kDraw;                   // fire_at = 1600
         size_t n=mk_q(0,7,255,q_opcode::req_sync,false,qb); node.on_recv(qb.data(),n,meta_at(100));
-        hal._now=501;                                        // past fire_at
-        size_t bn=mk_beacon_route(9,3,3,2,bb); node.on_recv(bb.data(),bn,meta_at(501));
+        hal._now=1601;                                       // past fire_at
+        size_t bn=mk_beacon_route(9,3,3,2,bb); node.on_recv(bb.data(),bn,meta_at(1601));
         node.on_timer(kSyncResponseTimerId);
         CHECK(hal.count("sync_response_suppressed")==0);
         CHECK(hal.count("sync_response_tx")==1);

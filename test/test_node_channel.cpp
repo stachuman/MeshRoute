@@ -14,6 +14,7 @@
 
 #include "node.h"
 #include "frame_codec.h"
+#include "support/test_hal.h"
 
 #include <array>
 #include <cstring>
@@ -28,11 +29,8 @@ namespace {
 struct Ev { std::string type; int64_t id = -1; int origin = -1; int count = -1; int channel_id = -1;
             std::string source; std::string mode; std::string kind; std::string reason; };
 
-class TestHal : public Hal {
+class TestHal : public mrtest::TestHalBase {
 public:
-    uint64_t _now = 0;
-    int      _rand_ret = -1;          // >=0 overrides rand_range (else returns lo)
-    int      rand_calls = 0;
     std::vector<Ev> events;
     std::vector<std::vector<uint8_t>> tx_frames;          // captured TX bytes
     std::vector<std::pair<uint32_t,uint32_t>> timers;     // (timer_id, delay)
@@ -41,14 +39,7 @@ public:
     void     set_rx_sf(int sf) override { last_rx_sf = sf; }
     uint64_t _busy_until = 0;          // LBT knob: a far-future value (with cfg.lbt_enabled) makes tx_flood DROP (sent=false)
     uint64_t channel_busy_until() override { return _busy_until; }
-    uint64_t airtime_used_ms(uint64_t) override { return 0; }
-    uint64_t oldest_tx_end_ms() override { return 0; }
-    uint64_t now() override { return _now; }
     bool     after(uint32_t delay, uint32_t id) override { timers.push_back({ id, delay }); return true; }
-    void     cancel(uint32_t) override {}
-    void     set_protocol_id(int) override {}
-    int      rand_range(int lo, int) override { ++rand_calls; return _rand_ret >= 0 ? _rand_ret : lo; }
-    void     rand_bytes(uint8_t* o, size_t n) override { for (size_t i = 0; i < n; ++i) o[i] = static_cast<uint8_t>(rand_range(0, 256)); }
     void     emit(const char* type, const EventField* f, size_t n) override {
         Ev e; e.type = type;
         for (size_t i = 0; i < n; ++i) {
@@ -63,7 +54,6 @@ public:
         }
         events.push_back(std::move(e));
     }
-    void     log(const char*) override {}
     int count(const char* t) const { int n = 0; for (const auto& e : events) if (e.type == t) ++n; return n; }
     const Ev* last(const char* t) const { const Ev* r = nullptr; for (const auto& e : events) if (e.type == t) r = &e; return r; }
     bool armed(uint32_t id) const { for (const auto& t : timers) if (t.first == id) return true; return false; }

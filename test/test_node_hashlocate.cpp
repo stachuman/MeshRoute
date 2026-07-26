@@ -15,6 +15,7 @@
 #include "identity.h"
 #include "dm_crypto.h"     // L10: forge a frame that WOULD open under the degenerate (all-zero) shared key
 #include "monocypher.h"    // L10: crypto_eddsa_to_x25519 / crypto_x25519 to derive the all-zero shared secret
+#include "support/test_hal.h"
 
 #include <array>
 #include <cstring>
@@ -32,24 +33,14 @@ struct Ev { std::string type; int64_t node = -1; int64_t key_hash32 = -1; int64_
             bool hard = false; bool has_hard = false;
             std::string source, table, action; };
 
-class TestHal : public Hal {
+class TestHal : public mrtest::TestHalBase {
 public:
-    uint64_t _now = 0;
     std::vector<Ev> events;
     std::vector<std::vector<uint8_t>> tx_frames;          // captured TX bytes (the H forward)
 
     std::vector<std::pair<uint32_t, uint32_t>> armed;     // §F-XL-1: (delay_ms, timer_id) captured from after()
-    int      _rand_ret = -1;                              // §F-XL-1: >=0 overrides rand_range (else returns lo)
     TxResult tx(const uint8_t* b, size_t n, const TxParams&) override { tx_frames.emplace_back(b, b + n); return TxResult::ok; }
-    void     set_rx_sf(int) override {}
-    uint64_t channel_busy_until() override { return 0; }
-    uint64_t airtime_used_ms(uint64_t) override { return 0; }
-    uint64_t oldest_tx_end_ms() override { return 0; }
-    uint64_t now() override { return _now; }
     bool     after(uint32_t delay, uint32_t id) override { armed.emplace_back(delay, id); return true; }
-    void     cancel(uint32_t) override {}
-    void     set_protocol_id(int) override {}
-    int      rand_range(int lo, int) override { return _rand_ret >= 0 ? _rand_ret : lo; }
     // Crypto RNG: a real HW RNG never returns all-zeros (which e2e_seal_inner now refuses, R7). Emulate a
     // non-degenerate deterministic stream so the e2e seal/open round-trip uses a realistic nonce-seed.
     uint8_t  _rb = 0x11;
@@ -77,7 +68,6 @@ public:
         }
         events.push_back(e);
     }
-    void     log(const char*) override {}
 
     int countType(const char* t) const {
         int c = 0; for (const auto& e : events) if (e.type == t) ++c; return c;

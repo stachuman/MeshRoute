@@ -69,6 +69,25 @@ static size_t remote_seal_resp(uint8_t* out, size_t cap, const uint8_t* body, ui
     return sn ? sn + 1 : 0;
 }
 
+// ★★★ §admin-replay-REDESIGN-OWED (owner ruling 2026-07-26) — THE MONOTONIC-COUNTER SCHEME BELOW IS
+// KNOWN-BROKEN BY DESIGN AND IS TO BE REPLACED. Do not invest in patching it; do not "fix" the counter-floor
+// persistence in isolation (see §nv-unchecked [3/5] below) and think the problem is solved.
+//
+// The owner's reasoning, verbatim in substance: a monotonic replay counter over a LOSSY link cannot keep the
+// operator informed. Concretely — a DM carrying an admin command is lost in flight, so the node never advances
+// its floor, but the OPERATOR's local counter has already moved on. The next command the operator sends is
+// therefore rejected as `replay`, and there is no way for them to have known that in advance. The reject-hint
+// (`floor=N`, just below) is a mitigation, not a fix: it costs a round trip, it only helps if the response
+// itself survives, and it teaches the operator nothing until after they have already failed.
+//
+// Compounding it, the floor's durability is only as good as an UNCHECKED NV write (§nv-unchecked [3/5]): a
+// failed save silently leaves the persisted floor behind the live counter, so a reboot re-accepts
+// already-consumed counters — i.e. the anti-replay property is not actually guaranteed across power cycles.
+//
+// ⇒ The replacement should make freshness self-evident to both ends WITHOUT requiring the two to stay in
+// lock-step across losses — e.g. a challenge/nonce the node itself issues, or a time-window scheme — so that a
+// lost command costs one retry rather than desynchronising the pair. Until then, treat every counter behaviour
+// here as provisional. **Simplify, do not extend.**
 void remote_exec(uint8_t from, const uint8_t* query, uint8_t qlen) {
     char v[64]; uint8_t vn = 0; bool authed = false; uint8_t pt[64];
     if (qlen >= 1 && query[0] == REMOTE_FLAG_SEALED) {                  // ---- sealed admin command ----
@@ -88,7 +107,9 @@ void remote_exec(uint8_t from, const uint8_t* query, uint8_t qlen) {
             // no stamp is needed because load() already accepted this record's magic/version.
             // §nv-unchecked [3/5]: KNOWN UNCHECKED SAVE, preserved deliberately (see fw_main §nv-unchecked [1/5]).
             // ⚠ The most consequential of the five: a failed write leaves the REPLAY FLOOR behind the live counter,
-            // so a reboot re-accepts already-used admin counters. Silent today. Owner ruling owed.
+            // so a reboot re-accepts already-used admin counters. Silent today. ★ RULED 2026-07-26: do NOT patch
+            // this in isolation — the whole counter scheme is to be redesigned (see §admin-replay-REDESIGN-OWED
+            // at the top of remote_exec). Checking this one save would harden a mechanism that is being removed.
             mrnv::Blob b{}; if (mrnv::load(b)) { b.admin_counter_floor = g_node.admin_counter_floor(); (void)mrnv::save(b); }
         }
         vn = ac.cmd_len < sizeof v - 1 ? ac.cmd_len : (uint8_t)(sizeof v - 1);

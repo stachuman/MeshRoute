@@ -14,15 +14,15 @@
 #include "frame_codec.h"   // Slice 3e: parse_beacon / parse_beacon_schedule to verify the gateway's advertised schedule
 #include "airtime.h"       // §3e: re-derive exchange_airtime_ms from the airtime_ms primitive
 #include "identity.h"      // §S2: Identity / identity_from_seed — self-consistent ed_pub for the INTRO receive/attach tests
+#include "support/test_hal.h"
 
 using namespace meshroute;
 
 namespace {
-// Minimal Hal — on_init only needs the timer/now/sf seams. Slice 3c CAPTURES the radio retunes + cancels so the
-// activation tests can assert what activate_layer did (last SF/short-id; which timer ids were cancelled).
-class StubHal : public Hal {
+// The shared in-memory Hal — on_init only needs the timer/now/sf seams. Slice 3c CAPTURES the radio retunes +
+// cancels so the activation tests can assert what activate_layer did (last SF/short-id; which ids were cancelled).
+class StubHal : public mrtest::TestHalBase {
 public:
-    uint64_t _now = 0;
     int      last_set_rx_sf      = -1;
     int      last_set_protocol_id = -1;
     bool     cancelled[80]       = {};   // cancelled[id] = a cancel(id) was seen (kCap=80)
@@ -42,21 +42,14 @@ public:
     int      last_set_rx_cr = -1;                         // per-layer CR retune spy (-1 = never called)
     void     set_rx_bw(uint32_t bw) override { last_set_rx_bw = bw; }
     void     set_rx_cr(uint8_t cr) override  { last_set_rx_cr = cr; }
-    uint64_t channel_busy_until() override { return 0; }
     uint64_t _airtime_used_ms = 0;                       // settable: drives the gateway-announce duty-headroom gate
     uint64_t airtime_used_ms(uint64_t) override { return _airtime_used_ms; }
-    uint64_t oldest_tx_end_ms() override { return 0; }
-    uint64_t now() override { return _now; }
     bool     after(uint32_t delay, uint32_t id) override { if (id < 80) { armed[id] = true; last_delay[id] = delay; } return true; }
     void     cancel(uint32_t id) override { if (id < 80) cancelled[id] = true; }
     void     set_protocol_id(int id) override { last_set_protocol_id = id; }
-    int      _rand_ret = -1;                              // >=0 => force this rand value (clamped); -1 => default (lo)
-    int      rand_range(int lo, int hi) override { if (_rand_ret < 0) return lo; int v = _rand_ret; if (v < lo) v = lo; if (hi > lo && v >= hi) v = hi - 1; return v; }
-    void     rand_bytes(uint8_t* o, size_t n) override { for (size_t i = 0; i < n; ++i) o[i] = static_cast<uint8_t>(rand_range(0, 256)); }
     std::vector<std::string> emits;                                                   // §intra-relay: record emit kinds so the drop is assertable
     void     emit(const char* kind, const EventField*, size_t) override { emits.push_back(kind); }
     bool     saw_emit(const char* k) const { for (auto& e : emits) if (e == k) return true; return false; }
-    void     log(const char*) override {}
 };
 
 // A valid gateway layer (every REQUIRED field set): allowed_sf_bitmap covers the routing SF.

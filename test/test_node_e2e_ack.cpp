@@ -12,6 +12,7 @@
 #include "node.h"
 #include "frame_codec.h"        // DATA_FLAG_E2E_ACK_REQ
 #include "protocol_constants.h"
+#include "support/test_hal.h"
 
 #include <vector>
 #include <string>
@@ -33,30 +34,16 @@ struct E2eAckTestAccess {
 
 namespace {
 
-class E2eHal : public Hal {
+class E2eHal : public mrtest::TestHalBase {
 public:
-    uint64_t _now = 0;
     std::vector<std::string> emits;
     std::vector<std::pair<uint32_t, uint32_t>> armed;   // (delay, id)
     std::vector<uint32_t> cancelled;
 
-    TxResult tx(const uint8_t*, size_t, const TxParams&) override { return TxResult::ok; }
-    void     set_rx_sf(int) override {}
-    void     set_rx_freq(double) override {}
-    void     set_rx_bw(uint32_t) override {}
-    void     set_rx_cr(uint8_t) override {}
-    uint64_t channel_busy_until() override { return 0; }
-    uint64_t airtime_used_ms(uint64_t) override { return 0; }
-    uint64_t oldest_tx_end_ms() override { return 0; }
-    uint64_t now() override { return _now; }
     bool     after(uint32_t d, uint32_t id) override { armed.emplace_back(d, id); return true; }
     void     cancel(uint32_t id) override { cancelled.push_back(id); }
-    void     set_protocol_id(int) override {}
-    int      rand_range(int lo, int) override { return lo; }
-    void     rand_bytes(uint8_t* o, size_t n) override { for (size_t i = 0; i < n; ++i) o[i] = 0; }
     void     emit(const char* k, const EventField*, size_t) override { emits.push_back(k); }
     bool     saw(const char* k) const { for (auto& e : emits) if (e == k) return true; return false; }
-    void     log(const char*) override {}
 };
 
 // A provisioned single-layer static node that can originate DMs (node_id set, data SF configured).

@@ -12,6 +12,7 @@
 
 #include "node.h"
 #include "frame_codec.h"
+#include "support/test_hal.h"
 
 #include <array>
 #include <cstring>
@@ -34,24 +35,12 @@ struct Ev { std::string type; int64_t node = -1; int64_t proposed = -1; int64_t 
             int64_t snr_q4 = INT64_MIN;   // §3-D: presence_probe_rx carries the post-update per-mobile EWMA
             bool i_win = false; bool has_iwin = false; std::string reason; };
 
-class TestHal : public Hal {
+class TestHal : public mrtest::TestHalBase {
 public:
-    uint64_t _now = 0;
-    int      _rand_lo_bias = 0;                       // rand_range returns lo + bias (0 => lowest free id)
     std::vector<Ev> events;
     std::vector<std::vector<uint8_t>> tx_frames;
 
     TxResult tx(const uint8_t* b, size_t n, const TxParams&) override { tx_frames.emplace_back(b, b + n); return TxResult::ok; }
-    void     set_rx_sf(int) override {}
-    uint64_t channel_busy_until() override { return 0; }
-    uint64_t airtime_used_ms(uint64_t) override { return 0; }
-    uint64_t oldest_tx_end_ms() override { return 0; }
-    uint64_t now() override { return _now; }
-    bool     after(uint32_t, uint32_t) override { return true; }
-    void     cancel(uint32_t) override {}
-    void     set_protocol_id(int) override {}
-    int      rand_range(int lo, int) override { return lo + _rand_lo_bias; }
-    void     rand_bytes(uint8_t* o, size_t n) override { for (size_t i = 0; i < n; ++i) o[i] = static_cast<uint8_t>(rand_range(0, 256)); }
     void     emit(const char* type, const EventField* f, size_t n) override {
         Ev e; e.type = type;
         for (size_t i = 0; i < n; ++i) {
@@ -72,7 +61,6 @@ public:
         }
         events.push_back(e);
     }
-    void log(const char*) override {}
     const Ev* find(const char* t) const { for (const auto& e : events) if (e.type == t) return &e; return nullptr; }
     int count(const char* t) const { int c = 0; for (const auto& e : events) if (e.type == t) ++c; return c; }
 };
