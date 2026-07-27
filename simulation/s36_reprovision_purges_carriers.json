@@ -1,0 +1,325 @@
+{
+  "_name": "s36_reprovision_purges_carriers",
+  "_desc": "REPROVISION purges every staged/in-flight TX carrier (2026-07-27, \u00a7clean-join-carriers). Derived from s19. Node A stages ALL FIVE carriers, then `leave` runs the console-provisioning reprovision (reset_join_for_reprovision -> clear_routing_state -> purge_tx_carriers(PurgeAxis::reprovision)). \u2605 WHY THIS SCENARIO EXISTS: that whole path was provably unreachable from the sim -- an unconditional tracer measured 0 entries in 1.86 M corpus events, for clear_routing_state() ENTIRELY, not just the carrier sweep. Native tests were its only detector until the sim gained a `leave` verb. \u2605 THE LEAK IT PINS, observed in a poisoned build: without the purge the surviving m_broadcast flight RE-AIRS the channel payload AFTER the reprovision (TX DATA ...6368616e2d636f6e74656e74 = 'chan-content'), now stamped with the NEW leaf_id and src=0, and the three surviving queue items churn no_route -> send_deferred_giveup. \u26a0 ASSERT ORDERING IS LOAD-BEARING: cmd_reply_contains matches `command` as a PREFIX and takes the most-recent match, so \"leave\" also matches \"leave 3\" -- the malformed C2 probe MUST fire before the real leave or assert 1 silently reads the ERROR reply. \u26a0 Asserts 1-2 pin the transport only and pass in a poisoned build; 3-4 are the durable mechanism pins and 5-7 are behavioural (measured poisoned: 658 ms/6 frames aired, data_tx 2, send_deferred_giveup 3).",
+  "simulation": {
+    "duration_ms": 1200000,
+    "step_ms": 1,
+    "warmup_ms": 0,
+    "beacon_period_ms": 60000,
+    "seed": 42,
+    "node_startup_jitter_ms": 5000,
+    "radio": {
+      "sf": 8,
+      "bw": 125,
+      "cr": 5,
+      "max_packet_bytes": 255,
+      "snr_coherence_ms": 0,
+      "duty_cycle": 10
+    }
+  },
+  "config": {
+    "debug_start_ms": 0,
+    "debug_end_ms": 1200000
+  },
+  "commands": [
+    {
+      "_c": "warm _rt/_id_bind so clear_routing_state has real state to drop",
+      "at_ms": 300000,
+      "node": "A",
+      "command": "send B p1 warm"
+    },
+    {
+      "_c": "C2 pin \u2014 MUST precede the real `leave` (cmd_reply_contains is prefix+most-recent)",
+      "at_ms": 500000,
+      "node": "A",
+      "command": "leave 3"
+    },
+    {
+      "_c": "stages _channel_buffer row + _channel_reoffer_pending slot + an m_broadcast _pending_tx flight",
+      "at_ms": 600000,
+      "node": "A",
+      "command": "send_channel 7 chan-content"
+    },
+    {
+      "_c": "three _tx_queue items queued behind the flight",
+      "at_ms": 600000,
+      "node": "A",
+      "command": "send B p1 stage1"
+    },
+    {
+      "at_ms": 600000,
+      "node": "A",
+      "command": "send B p1 stage2"
+    },
+    {
+      "at_ms": 600000,
+      "node": "A",
+      "command": "send B p1 stage3"
+    },
+    {
+      "_c": "\u2605 THE VERB: reprovision -> purge_tx_carriers(PurgeAxis::reprovision)",
+      "at_ms": 600002,
+      "node": "A",
+      "command": "leave"
+    }
+  ],
+  "nodes": [
+    {
+      "name": "A",
+      "config": {
+        "routing_sf": 8,
+        "allowed_data_sfs": [
+          7,
+          9
+        ]
+      },
+      "lat": 47.6,
+      "lon": -122.33,
+      "node_id": 1,
+      "engine": "meshroute"
+    },
+    {
+      "name": "L",
+      "config": {
+        "routing_sf": 8,
+        "allowed_data_sfs": [
+          7,
+          9
+        ]
+      },
+      "lat": 47.61,
+      "lon": -122.32,
+      "node_id": 2,
+      "engine": "meshroute"
+    },
+    {
+      "name": "L2",
+      "config": {
+        "routing_sf": 8,
+        "allowed_data_sfs": [
+          7,
+          9
+        ]
+      },
+      "lat": 47.61,
+      "lon": -122.34,
+      "node_id": 3,
+      "engine": "meshroute"
+    },
+    {
+      "name": "R",
+      "config": {
+        "routing_sf": 8,
+        "allowed_data_sfs": [
+          7,
+          9
+        ]
+      },
+      "lat": 47.620000000000005,
+      "lon": -122.32,
+      "node_id": 4,
+      "engine": "meshroute"
+    },
+    {
+      "name": "R2",
+      "config": {
+        "routing_sf": 8,
+        "allowed_data_sfs": [
+          7,
+          9
+        ]
+      },
+      "lat": 47.620000000000005,
+      "lon": -122.34,
+      "node_id": 5,
+      "engine": "meshroute"
+    },
+    {
+      "name": "B",
+      "config": {
+        "routing_sf": 8,
+        "allowed_data_sfs": [
+          7,
+          9
+        ]
+      },
+      "lat": 47.63,
+      "lon": -122.33,
+      "node_id": 6,
+      "engine": "meshroute"
+    }
+  ],
+  "topology": {
+    "links": [
+      {
+        "from": "A",
+        "to": "L",
+        "snr": 60.0,
+        "rssi": -50.0,
+        "snr_std_dev": 0,
+        "bidir": false
+      },
+      {
+        "from": "L",
+        "to": "A",
+        "snr": 60.0,
+        "rssi": -50.0,
+        "snr_std_dev": 0,
+        "bidir": false
+      },
+      {
+        "from": "A",
+        "to": "L2",
+        "snr": 60.0,
+        "rssi": -50.0,
+        "snr_std_dev": 0,
+        "bidir": false
+      },
+      {
+        "from": "L2",
+        "to": "A",
+        "snr": 60.0,
+        "rssi": -50.0,
+        "snr_std_dev": 0,
+        "bidir": false
+      },
+      {
+        "from": "L",
+        "to": "R",
+        "snr": 60.0,
+        "rssi": -50.0,
+        "snr_std_dev": 0,
+        "bidir": false
+      },
+      {
+        "from": "R",
+        "to": "L",
+        "snr": 60.0,
+        "rssi": -50.0,
+        "snr_std_dev": 0,
+        "bidir": false
+      },
+      {
+        "from": "L",
+        "to": "R2",
+        "snr": 60.0,
+        "rssi": -50.0,
+        "snr_std_dev": 0,
+        "bidir": false
+      },
+      {
+        "from": "R2",
+        "to": "L",
+        "snr": 60.0,
+        "rssi": -50.0,
+        "snr_std_dev": 0,
+        "bidir": false
+      },
+      {
+        "from": "L2",
+        "to": "R",
+        "snr": 60.0,
+        "rssi": -50.0,
+        "snr_std_dev": 0,
+        "bidir": false
+      },
+      {
+        "from": "R",
+        "to": "L2",
+        "snr": 60.0,
+        "rssi": -50.0,
+        "snr_std_dev": 0,
+        "bidir": false
+      },
+      {
+        "from": "L2",
+        "to": "R2",
+        "snr": 60.0,
+        "rssi": -50.0,
+        "snr_std_dev": 0,
+        "bidir": false
+      },
+      {
+        "from": "R2",
+        "to": "L2",
+        "snr": 60.0,
+        "rssi": -50.0,
+        "snr_std_dev": 0,
+        "bidir": false
+      },
+      {
+        "from": "R",
+        "to": "B",
+        "snr": 60.0,
+        "rssi": -50.0,
+        "snr_std_dev": 0,
+        "bidir": false
+      },
+      {
+        "from": "B",
+        "to": "R",
+        "snr": 60.0,
+        "rssi": -50.0,
+        "snr_std_dev": 0,
+        "bidir": false
+      },
+      {
+        "from": "R2",
+        "to": "B",
+        "snr": 60.0,
+        "rssi": -50.0,
+        "snr_std_dev": 0,
+        "bidir": false
+      },
+      {
+        "from": "B",
+        "to": "R2",
+        "snr": 60.0,
+        "rssi": -50.0,
+        "snr_std_dev": 0,
+        "bidir": false
+      }
+    ]
+  },
+  "expect": [
+    {
+      "type": "cmd_reply_contains",
+      "node": "A",
+      "command": "leave 3",
+      "value": "ERROR: usage: leave"
+    },
+    {
+      "type": "cmd_reply_contains",
+      "node": "A",
+      "command": "leave",
+      "value": "OK leave unprovisioned node_id=0 joined=0"
+    },
+    {
+      "type": "event_count_min",
+      "event_type": "script_emit",
+      "node": "A",
+      "emit_type": "reprovision_tx_purged",
+      "min": 1
+    },
+    {
+      "type": "script_emit_contains",
+      "node": "A",
+      "emit_type": "reprovision_tx_purged",
+      "value": "\"queued\":3"
+    },
+    {
+      "type": "event_count",
+      "event_type": "script_emit",
+      "node": "A",
+      "emit_type": "data_tx",
+      "count": 1
+    },
+    {
+      "type": "event_count",
+      "event_type": "script_emit",
+      "node": "A",
+      "emit_type": "send_deferred_giveup",
+      "count": 0
+    }
+  ]
+}

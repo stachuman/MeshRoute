@@ -115,7 +115,12 @@ Give the team plane the same RX-event coverage the static plane has. Each site c
 | `node_mac_rx.cpp:1300` | NACK from our next-hop | excluded by `next_is_local_id` | + team learn |
 | `node_query.cpp:88` | Q sender | excluded by `!q.mobile` | + team learn (pairs with T4) |
 
-Plus the case the bench exposed directly: **learn the DATA *origin*, not only the prev-hop.** A team DM delivered over N hops proves the origin is reachable at that cost; today nothing records it. Install it as a team route with `hops` taken from the DM's own hop accounting, at a score derived from the *last* hop's SNR only — see the open question in §9.
+**Deliberately excluded: learning from the DATA *origin*.** The bench smoking gun (213 received a DM from 174 and learned nothing about it) invites a rule like "install a route to the origin of any received team DM". Rejected, for two verified reasons:
+
+- **The DATA frame carries no hop count** — `d_in`/`d_out` (`frame_codec.h`) have no `hops` field. The receiver knows the origin exists but has no basis for a `hops` value, and `hops` is the primary sort key in `route_strictly_better`. Any value invented here is a fabricated route metric.
+- **Marking `_team_peer` without a route breaks a load-bearing invariant.** `node_beacon.cpp:73` documents "an `_rt_team` route ⟹ the `_team_peer` dispatch bit is set", and `node_routing.cpp:489` maintains it by clearing the bit on age-out. Setting the bit from a DM would decouple the two.
+
+T1 makes this unnecessary: once an unknown teammate id is a valid send target, discovery finds the real path with a real metric in ~1 s. The correct fix for the symptom is T1, not origin-learning.
 
 **Isolation constraint (R2), non-negotiable:** every one of these writes must land in `_rt_team` / `_team_peer` / `_team_liveness` and must never touch `_rt`, `_id_bind`, `_link_bidi`, `_dest_seen_ms` or `_peer_liveness`. The existing `next_is_local_id` guards exist precisely to enforce that; T2 must add a team destination for the excluded traffic, **not** relax the guard that keeps it out of static state. A reviewer should read every T2 hunk with that single question.
 
@@ -138,7 +143,7 @@ Bounded by the existing `max_entries` (`:379`) and `heard_set_census_min_headroo
 
 ### T5 — team bidi plane
 
-The static bidi plane is `_link_bidi[256]` + `_link_bidi_confirmed_ms[256]` = **2304 B** (`node.h:1517-1518`). A mirror at that size is not acceptable on the nRF52840. Add a right-sized, self-slotted table in the style of `_team_liveness[cap_team_liveness=16]` (`protocol_constants.h:204`): 16 entries of `{uint8_t team_local_id; uint8_t state; uint64_t confirmed_ms;}` ≈ **160 B**.
+The static bidi plane is `_link_bidi[256]` + `_link_bidi_confirmed_ms[256]` = **2304 B** (`node.h:1517-1518`). A mirror at that size is not acceptable on the nRF52840. Add a right-sized, self-slotted table in the style of `_team_liveness[cap_team_liveness=16]` (`protocol_constants.h:204`): 16 entries of `{uint8_t team_local_id; uint8_t state; uint64_t confirmed_ms;}`. With natural alignment that struct is 16 B, so **256 B** total. If that is judged too much, storing the timestamp as `uint32_t` seconds halves it to **128 B** at the cost of second-granularity decay — `bidi_confirm_ttl_ms` is 1200000 ms (`protocol_constants.h:198`), so seconds are ample. **Recommend the u32 form (128 B).**
 
 - Fed by team CTS/ACK confirmations (T2) and by the heard-set scan currently skipped for team beacons at `node_beacon.cpp:868`.
 - Enable the penalties currently zeroed for team: `bidi_penalty_q4` (`node_routing.cpp:161`), the freshness-viability bypass (`:192-193`), and `candidate_degraded`'s wire-only shortcut (`:361`).
@@ -200,7 +205,7 @@ A6/A7 are the point of the scenario: they turn "isolated" from a code-reading cl
 | `wire_version` | **no bump** |
 | Q frame | new `team_sync` opcode + 4-byte `team_id` tail (additive shape on an already opcode-variable frame) |
 | F / beacon / DATA | unchanged |
-| RAM | +~160 B (T5 team bidi table); `sizeof(Node)` assert at `node.h:1676` updated; per-board RAM diff required |
+| RAM | +128 B (T5 team bidi table, u32-seconds form; 256 B if u64 ms); `sizeof(Node)` assert at `node.h:1676` updated with the arithmetic spelled out; per-board RAM diff required |
 | `NodeConfig` | +1 byte `team_hop_cap` — place it to fill existing padding, not to open a new hole (see the `radio_freq_mhz` precedent in the `node.h:1676` comment) |
 
 ---
@@ -228,9 +233,72 @@ T1 alone fixes the reported bench failure. T4 is the highest value-per-byte of t
 
 ## 9. Open questions for the reviewer
 
-1. **§3/T2 — DATA-origin route scoring.** Installing a route to the *origin* of a received multi-hop DM is the direct fix for the bench smoking gun, but the score is not well defined: we observe only the final hop's SNR, not the path's worst link. Options: (a) install at `hops = N` with the last hop's SNR, accepting an optimistic score that DV/RREP will correct; (b) install at a deliberately pessimistic floor score so it is used only when nothing better exists; (c) mark `_team_peer` but install no route, letting T1's discovery find the real path. My inclination is (c) — it fixes reachability without inventing a quality number — but it is the weakest of the three for convergence speed. **Needs a decision before T2.**
+1. **§3/T2 — DATA-origin learning was considered and dropped** (see the exclusion note in T2). Raised here so the reviewer can overrule: the counter-argument is convergence speed, since a received DM is free evidence of reachability that T1 then re-derives with a flood. If the reviewer wants it, it needs a companion decision on how `hops` is obtained — most likely by adding a hop counter to the DATA frame, which **would** be a wire change and therefore its own slice.
 2. **§3/T1 — storm bound.** ~3 floods per unknown id per 30 s is the static profile. With 10 members each addressing a departed teammate, the worst case is ~30 floods/30 s at SF6. Is a team-specific `rreq_rate_ok` window warranted, or is the existing 16-slot team ledger (`node.h:1439`) sufficient back-pressure?
 3. **§3/T3 — `_team_peer` age-out.** `node_routing.cpp:489` clears the dispatch bit when the last team route expires. With T1 landed this is no longer fatal (discovery can re-find the peer), but should the bit instead persist for a grace window so `is_team_peer`-driven AUTO dispatch stays stable across a brief route gap?
 4. **§4/I2 — is the invariant list complete?** It was assembled by grepping the plane-divergent guards. A second pair of eyes on whether any static array is still reachable from a team code path would be valuable; this is exactly the class the 2026-07-10 plane-separation audit was created to catch, and its re-audit-by-plane item is still open per `MEMORY.md`.
 5. **§5 — `s35` control runs.** A6/A7 require running the scenario twice with different node sets. Confirm the harness supports that as one scenario file, or whether `s35` must ship as a pair (`s35a`/`s35b`) with the comparison done in the assertion layer.
 6. **§2.1 — approach.** Recorded for completeness: I recommended sibling branches over full parameterization on blast-radius grounds and was overruled. If the reviewer shares that concern, T0 is the natural place to revisit it, since T0 is exactly the slice that commits to the choice.
+
+---
+
+## 10. Reviewer response (QA, 2026-07-27)
+
+**Verdict: technically sound and buildable. T1 is cleared to proceed. Two substantive corrections (§10.1, §10.2), one gap in §4 (§10.3), and one concern with §2.1 that today's evidence sharpens (§10.6).** Every line reference in §0–§9 was re-verified against the tree; they are accurate, including the `sizeof(Node)` assert at `node.h:1676` (it shifted twice on 2026-07-27 and the spec is current). That is unusual and worth saying.
+
+**T1's single assumption — which §3/T1 explicitly asks a reviewer to confirm independently — HOLDS, and is stronger than stated.** `node_route_discovery.cpp:183` drops a `team_scoped` F with the `return` placed **outside** the `#if MR_FEAT_TEAM`, so even a `MR_FEAT_TEAM 0` gateway build drops it rather than falling through into the static F body; `handle_f_team` (`:314`) then requires `_cfg.is_mobile && same_team(f.team_id) && me != 0`. Static, wrong-team and not-yet-DAD'd nodes all bail before touching any state. A team RREQ cannot reach the static plane. **T1 is safe to build.** The core diagnosis is likewise exact: `node.cpp:1082` returns `err_no_binding` with ctr 0, matching the bench's `err ctr=0 depth=0`.
+
+### 10.1 ★ Q1 OVERRULED — the DATA frame DOES carry a usable hop count
+
+§3/T2's exclusion note rests on *"The DATA frame carries no hop count — `d_in`/`d_out` (`frame_codec.h`) have no `hops` field."* **Both halves are wrong.** The structs are named **`data_in`/`data_out`**, and `frame_codec.h:595` reads:
+
+```cpp
+uint8_t  next, dst, hops_remaining, committed_hops, prev_fwd_rt_hops;
+```
+
+`committed_hops` is a **from-origin hop count**: `node_mac_rx.cpp:615-616` computes `hb_new_committed = (d.committed_hops >= 7) ? 7 : d.committed_hops + 1`, i.e. it is incremented at every hop. It is on the wire today, in every DATA frame, already parsed.
+
+⇒ **the second rejection reason also falls.** With a real metric in hand a receiver can install a **real** route — `_rt_team[origin] = { next: <prev-hop>, hops: committed_hops + 1 }` — which sets the `_team_peer` bit *alongside* an `_rt_team` entry and therefore **preserves** the `node_beacon.cpp:73` invariant rather than decoupling it. The decoupling objection applied only to bit-without-route, which a real metric makes unnecessary.
+
+**Recommendation: reinstate DATA-origin learning as a candidate, most naturally inside T2** (it is a learn site like the other seven). No wire change is required at all — and per the owner's standing ruling, **`wire_version` is not to be bumped and MeshRoute is not yet deployed**, so even a hypothetical wire change would not have been the barrier the note implies.
+
+**Two honest caveats, neither disqualifying.** (a) `committed_hops` **saturates at 7** while R4 sets the team ceiling at **8** — so the deepest legal path yields a metric of 7, understating by one. Bounded and knowable; either accept it or treat 7 as "≥7" and let `route_strictly_better` prefer a discovered route. (b) It is an unauthenticated wire field, so a buggy or hostile node can understate its distance and attract traffic — but that is equally true of the beacon `hops` the static DV already trusts, so it is not a new exposure.
+
+**T1 remains the primary fix** and this does not change the build order: T1 gives a *verified* path in ~1 s, origin-learning gives a *free* one with no flood. They compose.
+
+### 10.2 Q3 — no grace window; the spec already contains the argument against it
+
+§9/Q3 asks whether the `_team_peer` bit should persist past route age-out. **No** — and §3/T2 supplies the reason: it rejects DATA-origin learning precisely *because* setting the bit without a route decouples the `node_beacon.cpp:73` invariant. A grace window introduces exactly that decoupling from the other direction. Keep them coupled. With T1 landed, re-discovery is ~1 s, so the window buys very little; and with §10.1 landed a received DM re-installs the route for free.
+
+### 10.3 ★ Q4 — §4's invariant list is INCOMPLETE: the plane-blind ledgers
+
+I2 covers routing/liveness arrays only. It omits a class the code documents against itself at **`node.h:1495`**: *"`_seen_origins` … the PLAINTEXT flight key (`origin<<24|dst<<16|ctr`) has **NO plane bit**"* — so a **team local id and a static node id alias in that key**. The 2026-07-27 channel-purge audit (BASELINE 27zc) independently enumerated four such plane-blind ledgers: **`_seen_origins`, `_per_origin_channel`, `_hash_query_seen`, `_mediated_recent`**.
+
+**Why this matters for THIS spec specifically.** The failure direction is *suppress*, not leak, so **R2 survives** — no static node spends state on team traffic. But **T2/T3/T4 multiply team-plane traffic** (2 → 7 learn sites, a census in every steady beacon, on-demand full-table pulls), which multiplies the aliasing rate. ⇒ **A6 — the spec's own strongest proof of R2 — can fail for a reason that is not an isolation bug.**
+
+**Required:** add these four to §4 as a documented **non-leak cross-plane interference**, and give A6 either a stated tolerance or a diagnostic that distinguishes *dedup aliasing* from *state leakage*. A6 is the right assertion; it just needs to be able to tell the two apart, or a red A6 will be misread as a broken isolation model.
+
+### 10.4 Q2 — do not add a team-specific rate window in T1; measure it in `s35`
+
+The 16-slot team ledger is **dedup, not back-pressure**, so it is not sufficient back-pressure on its own — the honest answer to the question as posed. But the bound is self-limiting: 3 floods per unknown id over 30 s, then a loud `send_failed{no_route}`. Rather than adding speculative complexity to T1, **add an `rreq_tx` ceiling assertion to `s35` at the R4 worst case (10 members, SF6)** and let the measurement decide. If it breaches, the window becomes its own small slice with evidence behind it.
+
+### 10.5 Q5 — `s35` must ship as a PAIR
+
+The `expect` DSL has **no cross-run comparison**: the available types are `cmd_reply_contains`, `cmd_reply_not_contains`, `event_count`, `event_count_min`, `script_emit_contains`, `script_emit_not_contains`, `tx_airtime_between` (`orchestrator/test_runner/ExpectRunner.cpp`). None compares two runs. A6/A7 therefore cannot live in the assertion layer of one file. Ship `s35a`/`s35b`, or hand the comparison to QA as a scripted diff — that is exactly how the s31/s32/s33/s34 control comparisons were done on 2026-07-26/27.
+
+### 10.6 ★ Q6 — I share the author's original concern, and 2026-07-27 gave it evidence
+
+§2.1 records that the author recommended sibling branches and was overruled; §7's compensating discipline is *"demonstrate byte-identity per slice."*
+
+**That discipline demonstrably failed twice on 2026-07-27, in this exact shape.** In the `§clean-team-channel` slice, `purge_team_channel_state()` was a `{}` stub under `#if MR_FEAT_TEAM`; a proposed change would have routed the **gateway** build's channel wipe through that stub, silently disabling it — while `leave` *is* dispatched on the gateway build. **Byte-identity held perfectly**, because the corpus cannot reach `src/`-only callers. The same slice's reprovision axis then measured **0/31** corpus coverage with a maximally-destructive probe.
+
+⇒ **byte-identity is structurally blind to per-build-profile divergence**, which is precisely the risk full parameterization of hot static paths introduces. §7 should say so explicitly and add: *for each rewritten guard, state the reduction for `team_id == 0` **and** name the build profiles the expression compiles differently under* (`MR_FEAT_TEAM 0` on the three `gateway_*` envs; `MR_N_LAYERS >= 2` gating). A per-slice `-Werror=switch`-style structural check is worth more here than another byte-identity run.
+
+The owner has ruled on §2.1 and this does not reopen it — but T0 is the commit point, and if it produces guards whose static reduction cannot be stated in one line per expression, that is the signal to revisit.
+
+### 10.7 Smaller notes
+
+- **§6 / `NodeConfig` +1 byte `team_hop_cap`:** the `radio_freq_mhz` precedent is exactly right — that member was placed between `dv_hop_cap` and the existing `double duty_cycle` to land in existing alignment padding, costing **+8** where a naive placement cost +16. Measure `sizeof(NodeConfig)` before and after, not just `sizeof(Node)`.
+- **§3/T5 — take the u32-seconds form (128 B).** `bidi_confirm_ttl_ms` is 1 200 000 ms; second granularity is ample and the halving is real on the nRF52840.
+- **§5 — add the mixed-leaf case as an assertion, not just topology.** The spec already notes at least one teammate on a different leaf nibble mirrors what shipped to metal; make that explicit in the assertion table so a future edit cannot quietly normalise it away.
+- **§7/3 — the mandatory scenario set is now `s21`–`s34`** (s31–s34 landed 2026-07-26/27), and the corpus is **31** scenarios. Read the count and the anchors from `BASELINE.md` at gate time, as §7 already says.

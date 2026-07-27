@@ -1,6 +1,6 @@
 {
   "_name": "s34_team_switch_clears_plane",
-  "_desc": "TEAM SWITCH clears the team plane (2026-07-27, \u00a7clean-team / \u00a7clean-team-channel). Derived from s25_two_team_separation. X1 (team 0x11111111) posts a team channel message, resolves a HEARD 1-hop teammate X2 by hash on the TEAM plane, then SWITCHES to an UNRELATED third team 0x33333333 (NOT Team-Y 0x22222222 -- joining Y would make X1 a legitimate Y member, so Y would rightly forward its floods and s25 inherited separation asserts would break; a third team keeps containment intact), then repeats the same send. \u2605 THE DISCRIMINATOR IS THE `-t` SUFFIX AND THE 1-HOP TARGET, and both are load-bearing: a PLAIN send_hash resolves via id_bind_find_by_hash() FIRST (node_hashlocate.cpp:1007) and _id_bind is DELIBERATELY not cleared by a team switch (the static plane is untouched by design), so a plain send would resolve identically before and after the switch and assert NOTHING. `-t` forces Plane::TEAM, whose branch at :986 returns BEFORE the id_bind lookup -- it resolves from team_id_of_key() (_team_keys) alone and on a miss parks + emits a team-scoped H flood. And the target must be a DIRECTLY-HEARD teammate: team_key_set() has exactly ONE caller (node_beacon.cpp:776, a same-team peer's beacon), so only 1-hop peers are ever in _team_keys -- the 2-hop X3 would never be there to clear. Post-switch the cleared cache therefore forces h_tx where the control run has none. Also pins team_dad_fire() re-running (a fresh team_local_id) and the channel-buffer purge.",
+  "_desc": "TEAM SWITCH clears the team plane (2026-07-27, \u00a7clean-team / \u00a7clean-team-channel). Derived from s25_two_team_separation. X1 (team 0x11111111) posts a team channel message, resolves a HEARD 1-hop teammate X2 by hash on the TEAM plane, then SWITCHES to an UNRELATED third team 0x33333333 (NOT Team-Y 0x22222222 -- joining Y would make X1 a legitimate Y member, so Y would rightly forward its floods and s25 inherited separation asserts would break; a third team keeps containment intact), then repeats the same send. \u2605 THE DISCRIMINATOR IS THE `-t` SUFFIX AND THE 1-HOP TARGET, and both are load-bearing: a PLAIN send_hash resolves via id_bind_find_by_hash() FIRST (node_hashlocate.cpp:1007) and _id_bind is DELIBERATELY not cleared by a team switch (the static plane is untouched by design), so a plain send would resolve identically before and after the switch and assert NOTHING. `-t` forces Plane::TEAM, whose branch at :986 returns BEFORE the id_bind lookup -- it resolves from team_id_of_key() (_team_keys) alone and on a miss parks + emits a team-scoped H flood. And the target must be a DIRECTLY-HEARD teammate: team_key_set() has exactly ONE caller (node_beacon.cpp:776, a same-team peer's beacon), so only 1-hop peers are ever in _team_keys -- the 2-hop X3 would never be there to clear. Post-switch the cleared cache therefore forces h_tx where the control run has none. Also pins team_dad_fire() re-running (a fresh team_local_id) and the channel-buffer purge. \u2605 CARRIER COVERAGE (2026-07-27, measured): the switch is timed to exercise THREE of the five purge sweeps \u2014 `rows:3` (buffer), `flight:true` (the in-flight m_broadcast, the most consequential carrier: one hop from the air) and `reoffers:1`. \u26a0 `floods` and `queued` remain NATIVE-TEST-ONLY on the team axis, and the reason is measured, not assumed: `floods` needs the switch AFTER a teammate's post is ingested (~359600) while `flight` needs it BEFORE X1's own post airs (~348300) \u2014 mutually exclusive windows; a two-switch rejoin variant was tried and the rejoin shifts _team_local_id so the second window closes. `queued` needs a team channel M behind another, which channel_min_interval_ms=10000 prevents. s36 covers all five on the REPROVISION axis.",
   "simulation": {
     "duration_ms": 600000,
     "step_ms": 1,
@@ -37,16 +37,28 @@
       "command": "send_hash aaaa0002 hop_x -t"
     },
     {
+      "_c": "a TEAMMATE's post, so X1 holds an ingested team row it did not originate",
+      "at_ms": 346500,
+      "node": "X2",
+      "command": "send_channel 7 from-x2"
+    },
+    {
+      "_c": "X1's OWN post \u2014 still staged/in-flight at the switch (see the switch note)",
+      "at_ms": 348000,
+      "node": "X1",
+      "command": "send_channel 7 pre-switch-own"
+    },
+    {
+      "_c": "\u2605 THE SWITCH, timed at 348300 ON PURPOSE: inside the window where X1's own 348000 team channel post is still IN FLIGHT (it does not air until ~358099), so the purge catches the _pending_tx carrier as well as the buffer rows and the re-offer slot.",
+      "at_ms": 348300,
+      "node": "X1",
+      "command": "team 0x33333333"
+    },
+    {
       "_c": "Team-X: X1 -> X3 by hash (2-hop, X3 unheard) -> forces a TEAM-X-scoped H flood heard by co-located Team-Y",
       "at_ms": 360000,
       "node": "X1",
       "command": "send_hash aaaa0003 hop_x"
-    },
-    {
-      "_c": "\u2605 THE SWITCH: clears _rt_team/_team_peer/_team_liveness/_team_keys/RREQ rings + the channel plane",
-      "at_ms": 360000,
-      "node": "X1",
-      "command": "team 0x33333333"
     },
     {
       "_c": "Team-X: X1 -> X3 by hash (2-hop, X3 unheard) -> forces a TEAM-X-scoped H flood heard by co-located Team-Y",
@@ -170,6 +182,12 @@
       "node": "X1",
       "emit_type": "team_channel_purged",
       "min": 1
+    },
+    {
+      "type": "script_emit_contains",
+      "node": "X1",
+      "emit_type": "team_channel_purged",
+      "value": "\"flight\":true"
     }
   ],
   "nodes": [
