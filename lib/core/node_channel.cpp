@@ -878,12 +878,37 @@ void Node::channel_reoffer_confirm(uint32_t id) {
 //       leaf stamp) and then finds no route on the wiped table -> defers -> TTL-drops. Both are cleared by
 //       clear_learned_state (prep-restart), never by clear_routing_state — pre-existing, unchanged here.
 //   • _pending_e2e_acks[8]  DELIBERATELY KEPT: a self-expiring deadline ring, not a frame. A -a DM killed by the
-//       reprovision times out into send_failed{e2e_ack_timeout} — "delivery was never CONFIRMED" — which is the
-//       CORRECT app signal, and the only one the app gets (see the next note).
-// ⚠ MISSING BY RULING-PENDING, stated here because docs rot: the reprovision axis pushes NO per-frame send_failed for
-//   the DMs it drops, so a companion app's futures for those sends hang until their own timeout. That matches the
-//   pre-existing behaviour of the `_deferred_n = 0` line beside it (also a silent staged-send drop), and adding pushes
-//   would change the push stream — so it is deliberately NOT done here. Flagged to the owner as an open ruling.
+//       reprovision ALSO times out into send_failed{e2e_ack_timeout} later — "delivery was never CONFIRMED". Since the
+//       drop now pushes send_failed{reprovisioned} immediately, a -a DM yields TWO pushes on the same (dst, ctr): the
+//       truthful immediate one, then the deadline one up to e2e_ack_deadline_ms later. Left as-is DELIBERATELY —
+//       scrubbing the ring here would be a second mechanism doing the first one's job, the ring is the ONLY thing that
+//       bounds a -a future, and a duplicate completion is idempotent at the app (it matches futures by (dst, ctr) and
+//       the first completion wins). ⚠ Flagged so nobody reads the second push as a bug.
+//
+// ★★ THE APP FUTURES — which dropped carriers owe a send_failed Push, and which owe NOTHING. (2026-07-27 owner ruling
+// closing the "MISSING BY RULING-PENDING" note that used to sit here: a reprovision that strands a DM must TELL the
+// app, or a companion's future hangs until its own timeout.) REPROVISION AXIS ONLY — see the axis note below.
+//   (1) _channel_buffer row        NO push. A stored channel message: either ingested from a peer (never ours) or our
+//                                  own POST, whose app future is channel_sent, owned by (5) — not by the row.
+//   (2) _flood[] state             NO push. Pure relay/propagation state; it is a copy of a body, not a send.
+//   (3) _tx_queue TxItem           PUSH iff carrier_owes_send_failed(is_channel_m, is_forward) — i.e. a DM WE
+//                                  originated. A staged channel M and a transit/relay/last-mile/gateway-reinject leg
+//                                  have no local future (node_carriers.h states the full rule).
+//   (4) _pending_tx flight         PUSH under the same predicate, on (m_broadcast, has_previous_hop).
+//   (5) _channel_reoffer_pending   NO push — and this one IS a real app future (channel_sent{relayed}), so the reason
+//                                  matters: it is stranded PRE-EXISTING-IDENTICALLY by plain buffer eviction.
+//                                  channel_reoffer_fire bails at `channel_buffer_find(rp.id) < 0` with a bare
+//                                  `rp.active = false` and NO emit_channel_sent (node_channel.cpp:676), so a row that
+//                                  falls out of the buffer for ANY reason already loses its future. Completing it only
+//                                  here would make the purge path diverge from the eviction path for one shared bug.
+//                                  ⚠ MISSING, NOT DONE, AND WHY: fixing it belongs at :676 (all callers at once), which
+//                                  is a different mechanism and a different axis -> C1 keeps it out. Reported open.
+//   ALSO PUSHED, one line away in clear_routing_state(): the `_deferred_n = 0` wipe. Same disease, same act, same
+//   ruling — see the note at that line (node.cpp).
+//   ⚠ HONEST BOUND: _push_ring is cap_push_ring(=32) with DROP-OLDEST (node.cpp enqueue_push). A worst-case gateway
+//   reprovision can generate up to 2 leaves x (kTxQueueCap 8 + 1 flight) + 2 x cap_deferred_sends pushes, which can
+//   evict EARLIER pushes from the ring. That is the ring's pre-existing policy and it is still strictly better than
+//   silence: a dropped push loses one completion, whereas no push at all lost every one of them.
 // =============================================================================
 void Node::purge_tx_carriers(PurgeAxis axis) {
     // `all` IS the second predicate: each of the five tests below reads `all ||  <team test>`, so the reprovision axis
@@ -926,7 +951,16 @@ void Node::purge_tx_carriers(PurgeAxis axis) {
         uint8_t qw = 0;
         for (uint8_t r = 0; r < L._tx_queue_n; ++r) {
             const TxItem& it = L._tx_queue[r];
-            if (all || (it.is_channel_m && it.inner_len >= 6 && (it.inner[5] & protocol::channel_flavor_team))) { ++queued; continue; }
+            if (all || (it.is_channel_m && it.inner_len >= 6 && (it.inner[5] & protocol::channel_flavor_team))) {
+                ++queued;
+                // ★ TELL THE APP (reprovision axis only — see the header's "THE APP FUTURES" block). `all &&` is
+                // structural, not an optimisation: on the team axis the dropped item is ALWAYS a team channel M, so
+                // carrier_owes_send_failed would be false anyway — but keeping the axis test first is what makes the
+                // team caller provably push-free without reasoning about the predicate.
+                if (all && carrier_owes_send_failed(it.is_channel_m, it.is_forward))
+                    push_send_failed(SendFailReason::reprovisioned, it.dst, it.ctr);
+                continue;
+            }
             L._tx_queue[qw++] = L._tx_queue[r];
         }
         L._tx_queue_n = qw;
@@ -936,7 +970,12 @@ void Node::purge_tx_carriers(PurgeAxis axis) {
         // DATA-M. On the reprovision axis a DM flight goes the same way giveup_flight would drop it, minus the push.
         if (L._pending_tx && (all || (L._pending_tx->m_broadcast && L._pending_tx->inner_len >= 6
                                       && (L._pending_tx->inner[5] & protocol::channel_flavor_team)))) {
-            flight = true; L._pending_tx.reset();
+            flight = true;
+            // ORDER matches giveup_flight (node_cascade.cpp:27): tell the app FIRST, while dst/ctr are still live —
+            // push_send_failed takes them BY VALUE, so they are safely copied before the reset below.
+            if (all && carrier_owes_send_failed(L._pending_tx->m_broadcast, L._pending_tx->has_previous_hop))
+                push_send_failed(SendFailReason::reprovisioned, L._pending_tx->dst, L._pending_tx->ctr);
+            L._pending_tx.reset();
         }
         // (5) RE-OFFER slots orphaned by (1) — after the compaction, so the find reflects the purge. `all` short-circuits
         // the find deliberately: channel_buffer_find reads _active, which on a NON-active leaf would consult the wrong

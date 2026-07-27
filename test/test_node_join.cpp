@@ -334,6 +334,75 @@ TEST_CASE("join — R6.3 live re-provision: a provisioned node drops its id + re
     if (sent) CHECK(sent->proposed >= protocol::normal_node_id_min); // re-DADs a normal id (17..254)
 }
 
+// ============================================================================================================
+// ★ set_identity(0) MUST NOT WRITE AN AUTHORITATIVE SELF-BINDING FOR THE RESERVED id 0 (owner ruling 2026-07-27).
+// set_identity was the ONLY one of the three id_bind_set(self, authoritative) sites without an `!= 0` guard —
+// on_init (node.cpp:341, "node_id 0 is unprovisioned (no identity yet)") and activate_layer (:616) both had one.
+// ★★ BYTE-IDENTITY CANNOT SEE ANY OF THIS on the two paths that matter, so these tests are the whole detector:
+// the corpus never issues join/create/leave (their verbs live in src/, which the sim does not compile) and
+// `addr_conflict_forced_rejoin` appears ZERO times in all 32 scenarios. Measured, not assumed.
+// ============================================================================================================
+TEST_CASE("★ set_identity(0) writes NO id_bind row — the reserved unprovisioned id is not an identity") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000B0B0);
+    node.on_init(join_cfg());
+    CHECK(node.id_bind_count() == 0);                            // on_init's OWN guard already declined (node_id 0)
+
+    node.set_identity(0, 0x0000B0B0);                            // the unprovision that used to bind {0, ourhash}
+    CHECK(node.id_bind_count() == 0);                            // ★ still nothing — this is the fix
+
+    node.set_identity(50, 0x0000B0B0);                           // non-vacuity: a REAL id still self-binds...
+    CHECK(node.id_bind_count() == 1);
+    CHECK(node.node_id() == 50);
+    node.set_identity(0, 0x0000B0B0);                            // ...and dropping back to unprovisioned adds none
+    CHECK(node.id_bind_count() == 1);                            //    (the id-50 row remains; it ages out on TTL)
+    CHECK(node.node_id() == 0);                                  // ★ the identity ITSELF still went to 0 (not skipped)
+}
+
+TEST_CASE("★ set_identity(0) — reset_join_for_reprovision leaves the binding table EMPTY (no id-0 residue)") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000C1C1);
+    node.on_init(join_cfg());
+    Command c{}; c.kind = CmdKind::join;
+    CHECK(node.on_command(c).code == CmdCode::queued);
+    node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);   // adopt -> self-bound under a real id
+    CHECK(node.joined());
+    CHECK(node.id_bind_count() == 1);
+
+    node.reset_join_for_reprovision();                           // drops our own (prior, ourhash) row, then set_identity(0)
+
+    CHECK(node.node_id() == 0);
+    CHECK(node.id_bind_count() == 0);                            // ★ was 1 — an authoritative {node_id:0, ourhash} row
+}
+
+TEST_CASE("★ set_identity(0) — forced_rejoin (the HEAL) leaves no id-0 row, and it KEEPS its routes as designed") {
+    // THE site that mattered most: node.h:272 says the heal deliberately does NOT clear_routing_state, so nothing
+    // wipes _id_bind on the next line here — the id-0 row would have SURVIVED (unlike the verb path). Driven through
+    // the REAL wire path (a losing J_DENY tiebreak), not a seam.
+    TestHal hal;
+    Node node(hal, /*node_id=*/0, /*key_hash32=*/0x0000F0F0);    // a HIGH key -> loses the tie
+    node.on_init(join_cfg());
+    Command c{}; c.kind = CmdKind::join; node.on_command(c); node.on_timer(kJoinListenTimerId); node.on_timer(kJoinClaimGuardTimerId);
+    CHECK(node.joined());
+    // A peer binding, so "0 rows" below cannot pass just because the table is trivially empty.
+    node.test_id_bind_set(/*id=*/60, /*key=*/0x00006060u, /*authoritative=*/true);
+    CHECK(node.id_bind_count() == 2);                            // our self-binding + the peer
+    hal.events.clear();
+
+    std::array<uint8_t, 16> d{};
+    const size_t dn = make_j_deny(/*denied=*/protocol::normal_node_id_min, /*owner_key=*/0x00001111, /*claimant_key=*/0x0000F0F0,
+                                  /*owner_epoch=*/5, J_DENY_OWN_ID_DEFENSE, d);
+    RxMeta meta{8.0f, -80.0f, 0, -1};
+    node.on_recv(d.data(), dn, meta);                            // -> forced_rejoin
+
+    CHECK(hal.find("addr_conflict_forced_rejoin") != nullptr);   // non-vacuous: the heal really ran
+    CHECK(node.id_bind_count() == 1);                            // ★ ONLY the peer — no {0, ourhash} row was minted
+    // ...and the heal's own contract is intact: the peer binding (the "keeps its routes" half) is untouched.
+    uint32_t peer_key = 0;
+    CHECK(node.key_hash_of_id(60, peer_key));
+    CHECK(peer_key == 0x00006060u);
+}
+
 // Reprovision re-DAD fix: a JOINED node re-DADs on join/create (the verbs). The bug was set_identity(0) leaving
 // _joined set -> CmdKind::join idempotent-no-op -> node_id stuck. reset_join_for_reprovision() clears _joined +
 // denies the prior id, so the re-DAD runs and picks a FRESH id (!= prior). A fresh node still DADs (existing test).

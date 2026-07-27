@@ -1067,6 +1067,7 @@ static void mesh_service_once() {
                     case meshroute::SendFailReason::gateway_unreachable: mrcon.print(F(" (gateway unreachable — timed out)")); break;
                     case meshroute::SendFailReason::e2e_ack_timeout:     mrcon.print(F(" (no end-to-end ack in time — delivery UNCONFIRMED, a late ack still resolves)")); break;
                     case meshroute::SendFailReason::queue_full:          mrcon.print(F(" (defer queue full — retry shortly)")); break;
+                    case meshroute::SendFailReason::reprovisioned:       mrcon.print(F(" (node reprovisioned — send discarded; the old network's ids are void, re-address before resending)")); break;
                     case meshroute::SendFailReason::none:                break;   // not a send_failed reason
                 }
                 mrcon.println(); break;

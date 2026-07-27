@@ -176,6 +176,15 @@ sentinel (the reservation is a Join-time convention, enforced there — not at c
 - **Source:** `node_join.cpp` (`join_start_claim`, `handle_j`)
 - **Spec:** `docs/specs/2026-06-05-node-id-auto-assignment-design.md` · `docs/superpowers/specs/2026-06-19-normal-node-id-reservation-design.md` · `2026-06-15-join-e2e-phase0.md`
 
+**Id 0 is never bound (`§id0-never-bound`).** `set_identity()` sets `_node_id` / `key_hash32` / the Hal short-id
+unconditionally but writes the authoritative **self-binding only for a non-zero id**, matching `on_init` and
+`activate_layer`. Previously every `set_identity(unjoined_node_id, …)` minted an authoritative
+`{node_id:0, our key_hash32}` row — persisting after `forced_rejoin` (the heal deliberately keeps its routes) and
+`mobile_reset_registration`, and **at boot on an unprovisioned device**: `fw_main.cpp:659` runs 46 lines *before*
+`on_init` (`:705`), so `on_init`'s `if (_node_id != 0)` guard — written for exactly that case — was defeated by
+ordering. ⚠ Separate and still open: `handle_h_query` and `request_resolve` read `_node_id` directly, so an
+unprovisioned node still answers an own-hash locate with **0**.
+
 ## 10. Hash-locate
 
 H-frame flood resolves an identity `key_hash32` → `node_id` (soft = any cache answers; hard = owner-only) and, with
@@ -244,6 +253,14 @@ therefore calls the **same** sweep as the team switch, `purge_tx_carriers()`, wi
 mechanism, two predicates** — the team axis drops team-scoped rows and **keeps** the leaf plane, the reprovision axis
 keeps **nothing** and sweeps **every** leaf (a gateway stages bridged DMs on both, and `leave` is dispatched on the
 gateway build). The sweep is no longer team-feature-gated, since the reprovision axis has nothing to do with teams.
+**And it tells the app (`§reprovision-push`).** A dropped carrier that is a DM **this node originated** now pushes
+`send_failed{reason:"reprovisioned"}` — the staged `_tx_queue` item, the `_pending_tx` flight, and the parked
+`_deferred` send — so a companion's future completes instead of hanging until its own timeout. A staged **channel M**
+and a **transit leg** push nothing: neither has a local app future (a channel post's future is `channel_sent`, owned
+by the re-offer slot). The reason is distinct from `no_route` on purpose: a reprovision changes the *network*, so the
+old `dst` id is void and the app must **re-address** rather than retry. The **team axis pushes nothing** — it drops
+only `m_broadcast` channel Ms. ⚠ Still open: a re-offer slot dropped by the purge strands its `channel_sent`, exactly
+as plain buffer eviction already does (`node_channel.cpp:676`).
 ⚠ Already-**packed** stashes (`_deferred_lbt`, `_rts_duty_defer`, `_tx_stash`, and the jittered H/F/OFFER stashes)
 are deliberately **not** purged: their byte-0 leaf nibble froze at pack time, so a late fire is rejected by the new
 leaf's gate — wasted airtime on the leaf just left, never mis-delivery into the one just joined.

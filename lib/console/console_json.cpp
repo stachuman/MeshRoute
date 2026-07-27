@@ -150,6 +150,7 @@ const char* sendfailreason_name(SendFailReason r) {
         case SendFailReason::gateway_unreachable:  return "gateway_unreachable";   // §3-A.5: gateway-doorstep hold gave up
         case SendFailReason::e2e_ack_timeout:      return "e2e_ack_timeout";     // §ack-deadline: a -a DM's e2e ack never returned inside the patience budget (delivery UNCONFIRMED, not failed)
         case SendFailReason::queue_full:           return "queue_full";          // §defer: the no-route defer queue was full -> the NEW send was refused (node_cascade.cpp defer_send)
+        case SendFailReason::reprovisioned:        return "reprovisioned";       // §clean-join-carriers: a join/create/leave (or prep-restart) discarded this staged/in-flight DM — RE-ADDRESS before resending (the dst id belongs to the OLD network)
         case SendFailReason::none:        return "none";
     }
     return "none";

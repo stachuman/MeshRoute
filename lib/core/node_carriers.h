@@ -356,6 +356,21 @@ static inline TxItem txitem_from_pending(const PendingTx& pt) {
     it.addr_len = pt.addr_len; it.mobile_src = pt.mobile_src;            // §mobile 3a: a requeued last-mile forward keeps the mobile marks
     return it;
 }
+// §clean-join-carriers (2026-07-27, owner ruling) — THE ONE definition of "dropping this carrier strands an app
+// future, so the drop owes a send_failed Push". Lives here, beside TxItem / PendingTx / DeferredSend, because it is a
+// fact ABOUT them; all three call sites (purge_tx_carriers' queue + flight sweeps, clear_routing_state's _deferred
+// wipe) read it, so the rule can never drift apart between them.
+//   channel_m  — a channel M-broadcast (TxItem::is_channel_m / PendingTx::m_broadcast). It is fire-and-forget: the
+//                app's future for a channel POST is the channel_sent Push, owned by the _channel_reoffer_pending slot,
+//                NOT by any individual frame. Pushing send_failed per M would invent a future that never existed.
+//   forwarded  — a TRANSIT frame (TxItem::is_forward / PendingTx::has_previous_hop): a relay leg, a home's last-mile
+//                forward, or a gateway's cross-layer re-inject. Someone ELSE originated it; this node's app has no
+//                future keyed on its (dst, ctr), and pushing would hand the companion a completion for a send it
+//                never made — which can only collide with a real local (dst, ctr).
+// Everything else staged or in flight IS an origination this node made on its own ctr — including a home
+// re-originating for its hosted mobile, which is exactly how the existing giveup_flight path already treats it.
+static inline bool carrier_owes_send_failed(bool channel_m, bool forwarded) { return !channel_m && !forwarded; }
+
 struct DeferredSend {                // a send with no route yet — held until one appears (or TTL)
     TxItem   item;
     uint64_t deferred_at_ms = 0;     // for the send_defer_ttl giveup (TTL checked FIRST on drain)

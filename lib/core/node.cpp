@@ -57,8 +57,22 @@ void Node::set_identity(uint8_t node_id, uint32_t key_hash32) {
     if (node_id == 0xFF) return;
     _node_id    = node_id;
     _key_hash32 = key_hash32;
-    _hal.set_protocol_id(node_id);   // keep the Hal short-id in sync (addressing / join)
-    id_bind_set(_node_id, _key_hash32, IdBindSource::self, IdBindConf::authoritative);   // re-seed our own binding (authoritative) under the new identity
+    _hal.set_protocol_id(node_id);   // keep the Hal short-id in sync (addressing / join) — ALWAYS, incl. 0 (going unprovisioned must un-address us)
+    // ★ id 0 = UNPROVISIONED -> NO self-binding (owner ruling 2026-07-27). This is the SAME id_bind_set(self,
+    // authoritative) call as on_init (:341) and activate_layer (:616) and BOTH of those already guard it on
+    // `!= 0` ("node_id 0 is unprovisioned (no identity yet)"). This site was the only unguarded one of the three,
+    // so every set_identity(protocol::unjoined_node_id, …) wrote an AUTHORITATIVE {node_id:0, our key_hash32} row.
+    // Where that actually persisted (no following wipe): forced_rejoin() -> reset_join_for_reprovision()
+    // (node_join.cpp:410; node.h:272 says the heal DELIBERATELY keeps its routes), mobile_reset_registration()
+    // (node_mobile.cpp:250), and the DEVICE BOOT of an unprovisioned node (src/fw_main.cpp:659 runs BEFORE on_init,
+    // so :341's guard was defeated on the very path it was written for). The reprovision verb path was harmless only
+    // by ORDER — clear_routing_state() zeroes _id_bind_n on the next line.
+    // Consumers were swept: nothing depends on the row. Every reader either scans ids >= normal_node_id_min
+    // (join_choose_candidate_id / find_free_mobile_id), rejects the hit with `!= _node_id` (which IS 0 here:
+    // node_join.cpp:454, node_hashlocate.cpp:1346) or `> 0` (node_mac_rx.cpp:1184), or short-circuits our own hash
+    // on _node_id BEFORE consulting the table (handle_h_query :607, request_resolve :1398 — both of which therefore
+    // still answer 0 while unprovisioned; that is the SEPARATE, still-open responder-id-0 family, NOT fixed here).
+    if (node_id != 0) id_bind_set(_node_id, _key_hash32, IdBindSource::self, IdBindConf::authoritative);   // re-seed our own binding (authoritative) under the new identity
 }
 
 void Node::set_crypto_identity(const uint8_t x_secret[32], const uint8_t ed_pub[32]) {
@@ -424,6 +438,18 @@ void Node::clear_routing_state() {
     for (uint8_t i = 0; i < _n_layers; ++i) {
         _layers[i]._rt_count   = 0;          // routes
         _layers[i]._id_bind_n  = 0;          // id -> key bindings (old neighbours)
+        // ★ THE SAME APP-FUTURE RULING as purge_tx_carriers' queue/flight sweeps, applied to the THIRD staged-DM
+        // carrier (owner ruling 2026-07-27). A deferred send is an ORIGINATION waiting for a route; every other exit
+        // from _deferred already completes the app's future — defer_send's redrain giveup and its cap refusal push
+        // (node_cascade.cpp:245/251), and the TTL giveup in the drain (:285). Wiping the queue here was the ONE exit
+        // that stayed silent, so a `join`/`leave` with parked sends hung exactly the futures this ruling is about.
+        // Same reason code, same predicate (carrier_owes_send_failed, node_carriers.h) — a forwarder never defers
+        // (node_join.cpp:490 drops a no-route transit DM outright), so the guard is defence-in-depth, not dead code.
+        for (uint8_t d = 0; d < _layers[i]._deferred_n; ++d) {
+            const TxItem& it = _layers[i]._deferred[d].item;
+            if (carrier_owes_send_failed(it.is_channel_m, it.is_forward))
+                push_send_failed(SendFailReason::reprovisioned, it.dst, it.ctr);
+        }
         _layers[i]._deferred_n = 0;          // parked no-route sends
         _layers[i]._drain_armed = false;
         _layers[i]._mobile_reg_n = 0;        // §clean-join: the hosted-mobile registry is old-network state — the mobiles registered to us on the PREVIOUS network are void. UNGUARDED: _mobile_reg is compiled into every build (node.h:1285). Count-reset only (stale bytes never read past _mobile_reg_n), matching the codebase's count-based clear idiom.

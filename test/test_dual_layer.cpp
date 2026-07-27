@@ -479,17 +479,30 @@ struct DualLayerTestAccess {
     static void           data_tx(Node& n)                       { n.do_data_tx(); }                            // drive the M-frame TX path (the team_id re-stamp + its C2 guard)
     // §clean-join-carriers seams (2026-07-27): the LEAF axis needs the two carriers the team axis never touches — a
     // PLAIN DM (not a channel M) staged on an ARBITRARY leaf, and a DM already in flight awaiting its CTS.
-    static void           seed_dm_tx(Node& n, uint8_t leaf, uint8_t dst) {   // a staged unicast DM: is_channel_m = false, so the TEAM predicate must skip it
+    // `forward` (2026-07-27 send_failed ruling): stage the item as a TRANSIT leg instead of our own origination —
+    // the one bit carrier_owes_send_failed keys the push decision on. Defaulted, so every existing call is unchanged.
+    static void           seed_dm_tx(Node& n, uint8_t leaf, uint8_t dst, bool forward = false) {   // a staged unicast DM: is_channel_m = false, so the TEAM predicate must skip it
         auto& L = n._layers[leaf];
         TxItem& it = L._tx_queue[L._tx_queue_n++];
         it = TxItem{}; it.dst = dst; it.origin = n.node_id(); it.ctr = dst; it.inner_len = 4;
+        it.is_forward = forward; it.previous_hop = forward ? 99 : 0;
         for (uint8_t i = 0; i < 4; ++i) it.inner[i] = dst;
     }
-    static void           seed_dm_flight(Node& n, uint8_t leaf, uint8_t dst, uint8_t next) {   // a DM RTS in flight (tx_rts_retry re-stamps leaf_id at TX time)
+    static void           seed_dm_flight(Node& n, uint8_t leaf, uint8_t dst, uint8_t next, bool forward = false) {   // a DM RTS in flight (tx_rts_retry re-stamps leaf_id at TX time)
         auto& pt = n._layers[leaf]._pending_tx.emplace();
         pt.m_broadcast = false; pt.dst = dst; pt.next = next; pt.awaiting_cts = true; pt.inner_len = 4;
+        pt.ctr = dst; pt.has_previous_hop = forward; pt.previous_hop = forward ? 99 : 0;
         pt.flight_gen = 0xBEEF; pt.retries_left = 2;
     }
+    // §clean-join-carriers push ruling: the THIRD staged-DM carrier — a no-route send parked in _deferred, wiped by
+    // clear_routing_state's own loop (not by purge_tx_carriers).
+    static void           seed_deferred_dm(Node& n, uint8_t leaf, uint8_t dst) {
+        auto& L = n._layers[leaf];
+        DeferredSend& d = L._deferred[L._deferred_n++];
+        d = DeferredSend{}; d.item.dst = dst; d.item.ctr = dst; d.item.origin = n.node_id(); d.item.inner_len = 4;
+        d.deferred_at_ms = n._hal.now();
+    }
+    static uint8_t        leaf_deferred_n(Node& n, uint8_t leaf) { return n._layers[leaf]._deferred_n; }
     static bool           leaf_has_flight(Node& n, uint8_t leaf) { return n._layers[leaf]._pending_tx.has_value(); }
     static bool           flight_awaiting_cts(Node& n, uint8_t leaf) { return n._layers[leaf]._pending_tx && n._layers[leaf]._pending_tx->awaiting_cts; }
     static bool           flight_awaiting_ack(Node& n, uint8_t leaf) { return n._layers[leaf]._pending_tx && n._layers[leaf]._pending_tx->awaiting_ack; }
@@ -501,6 +514,7 @@ struct DualLayerTestAccess {
         fs = Node::FloodState{}; fs.active = true; fs.id = id; fs.hop_left = 3;
     }
     static void           reoffer_register(Node& n, uint32_t id, bool team) { n.channel_reoffer_register(id, team); }
+    static void           mobile_reset_reg(Node& n, const char* why) { n.mobile_reset_registration(why); }   // §set_identity(0) ruling: the third site, and one with NO following _id_bind wipe
     static uint32_t       flood_timer_id(uint8_t s)   { return Node::kFloodRebcastTimerId + s; }        // the ring bases + m_inner_id are private -> reach them through the friend (the sync_timer_id idiom above), never a re-declared literal
     static uint32_t       reoffer_timer_id(uint8_t s) { return Node::kChannelReofferTimerId + s; }
     static uint32_t       tx_item_msg_id(const TxItem& it) { return Node::m_inner_id(it.inner); }
@@ -4641,6 +4655,126 @@ TEST_CASE("§clean-join-carriers — clear_learned_state (prep-restart) still re
     CHECK(DualLayerTestAccess::leaf_tx_n(n, 0) == 0);
     CHECK_FALSE(n.has_pending_tx());
     CHECK_FALSE(DualLayerTestAccess::nack_wait(n));
+}
+
+// ============================================================================================================
+// ★ §clean-join-carriers, THE APP-FUTURE HALF (owner ruling 2026-07-27) — a reprovision that discards a staged or
+// in-flight DM now PUSHES send_failed{reprovisioned}, so a companion's future completes instead of hanging until its
+// own timeout. Three carriers owe the push (staged _tx_queue DM, the _pending_tx flight, a parked _deferred send);
+// a channel M and a TRANSIT leg owe nothing (node_carriers.h carrier_owes_send_failed states the rule once).
+// ★★ COVERAGE: the reprovision axis is 0/32 in the corpus — its verbs live in src/, which the sim does not compile —
+// EXCEPT via the sim's `leave` verb in s36_reprovision_purges_carriers, which reaches the sweep but only proves the
+// push COUNT, never the reason string (the sim's push emit carries kind/dst/ctr and drops `reason` entirely).
+// So: s36 sees the pushes exist; ONLY the cases below prove WHICH carriers push and with WHAT reason.
+// ============================================================================================================
+static uint8_t drain_send_failed(Node& n, SendFailReason want, uint8_t* dsts = nullptr, uint8_t* other_kinds = nullptr) {
+    uint8_t hits = 0, others = 0; Push p{};
+    while (n.next_push(p)) {
+        if (p.kind == PushKind::send_failed && p.reason == want) { if (dsts) dsts[hits] = p.dst; ++hits; }
+        else ++others;
+    }
+    if (other_kinds) *other_kinds = others;
+    return hits;
+}
+
+TEST_CASE("★ §clean-join-carriers — a reprovision PUSHES send_failed{reprovisioned} for every own DM it drops (queued, in flight, deferred)") {
+    StubHal hal; Node n(hal, 45, 0x7777u); init_leaf_reprovision_node(n, hal);
+    DualLayerTestAccess::seed_dm_tx(n, /*leaf=*/0, /*dst=*/51);                       // (3) our own staged DM
+    DualLayerTestAccess::seed_dm_tx(n, /*leaf=*/0, /*dst=*/52);                       // (3) a second one
+    DualLayerTestAccess::seed_channel_m_tx(n, kL2, /*team=*/false);                   // (3) a channel M -> NO push (its future is channel_sent)
+    DualLayerTestAccess::seed_dm_tx(n, /*leaf=*/0, /*dst=*/53, /*forward=*/true);     // (3) a TRANSIT leg -> NO push (not our send)
+    DualLayerTestAccess::seed_dm_flight(n, /*leaf=*/0, /*dst=*/54, /*next=*/54);      // (4) our own DM one frame from the air
+    DualLayerTestAccess::seed_deferred_dm(n, /*leaf=*/0, /*dst=*/56);                 // the _deferred twin (clear_routing_state's own wipe)
+    CHECK(DualLayerTestAccess::leaf_tx_n(n, 0) == 4);
+    CHECK(DualLayerTestAccess::leaf_deferred_n(n, 0) == 1);
+    while ([&]{ Push p{}; return n.next_push(p); }()) {}                              // start from an empty ring
+
+    n.clear_routing_state();                                                          // ★ `join` / `create` / `leave`
+
+    uint8_t dsts[16] = {}; uint8_t others = 0;
+    const uint8_t hits = drain_send_failed(n, SendFailReason::reprovisioned, dsts, &others);
+    CHECK(hits == 4);                                                                 // ★ 51, 52 (queued) + 54 (flight) + 56 (deferred)
+    CHECK(others == 0);                                                               // ★ and NOTHING for the channel M or the transit leg
+    uint16_t seen = 0; for (uint8_t i = 0; i < hits && i < 16; ++i) seen = static_cast<uint16_t>(seen | (1u << (dsts[i] - 51)));
+    CHECK(seen == 0b101011u);                                                         // dsts {51,52,54,56}; 53 (transit) absent
+    CHECK(DualLayerTestAccess::leaf_tx_n(n, 0) == 0);                                 // the drops themselves still happened
+    CHECK(DualLayerTestAccess::leaf_deferred_n(n, 0) == 0);
+    CHECK_FALSE(n.has_pending_tx());
+}
+
+TEST_CASE("★ §clean-join-carriers — the TEAM axis pushes NOTHING (the byte-identity guard: s34 must not move)") {
+    // The team axis drops only m_broadcast channel Ms, which have no app future. `all &&` makes that structural —
+    // this is the test that fails if the push ever leaks onto the team caller.
+    StubHal hal; Node mob(hal, 0, 0x7878u); init_team_channel_node(mob, hal);
+    ingest_channel_row(mob, kT1, 0xAAAA1111u, kTeamBody, 4);
+    DualLayerTestAccess::seed_channel_m_tx(mob, kT2, /*team=*/true);                  // a staged TEAM M -> dropped by the switch
+    DualLayerTestAccess::seed_dm_tx(mob, /*leaf=*/0, /*dst=*/55);                     // our own leaf DM -> SURVIVES the switch
+    while ([&]{ Push p{}; return mob.next_push(p); }()) {}                            // empty the ring first
+
+    CHECK(mob.set_team_id(0xBBBB2222u));                                              // ★ a team switch, NOT a reprovision
+
+    uint8_t others = 0;
+    CHECK(drain_send_failed(mob, SendFailReason::reprovisioned, nullptr, &others) == 0);   // ★ zero send_failed{reprovisioned}
+    CHECK(others == 0);                                                               // ★ and no other push either — the stream is untouched
+    CHECK(DualLayerTestAccess::leaf_tx_n(mob, 0) == 1);                               // non-vacuous: the leaf DM is still staged (so a push WOULD have been possible on the other axis)
+}
+
+TEST_CASE("★ §clean-join-carriers — a reprovision that drops ONLY transit/channel carriers pushes nothing (the other direction)") {
+    StubHal hal; Node n(hal, 46, 0x7979u); init_leaf_reprovision_node(n, hal);
+    DualLayerTestAccess::seed_channel_m_tx(n, kL2, /*team=*/false);
+    DualLayerTestAccess::seed_dm_tx(n, /*leaf=*/0, /*dst=*/53, /*forward=*/true);
+    DualLayerTestAccess::seed_dm_flight(n, /*leaf=*/0, /*dst=*/57, /*next=*/57, /*forward=*/true);   // a relayed flight
+    while ([&]{ Push p{}; return n.next_push(p); }()) {}
+
+    n.clear_routing_state();
+
+    uint8_t others = 0;
+    CHECK(drain_send_failed(n, SendFailReason::reprovisioned, nullptr, &others) == 0);
+    CHECK(others == 0);
+    CHECK(DualLayerTestAccess::leaf_tx_n(n, 0) == 0);                                 // ...they were all still DROPPED
+    CHECK_FALSE(n.has_pending_tx());
+    CHECK(hal.saw_emit("reprovision_tx_purged"));                                     // the sweep ran — the silence is a POLICY, not a miss
+}
+
+TEST_CASE("★ §clean-join-carriers — a gateway reprovision pushes for the NON-active leaf's DMs too") {
+    StubHal hal; Node gw(hal, 0, 0x7A7Au);
+    NodeConfig cfg; cfg.n_layers = 2; cfg.is_gateway = true;
+    cfg.layers[0].layer_id = 4; cfg.layers[0].node_id = 4; cfg.layers[0].routing_sf = 7; cfg.layers[0].allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    cfg.layers[1].layer_id = 5; cfg.layers[1].node_id = 4; cfg.layers[1].routing_sf = 8; cfg.layers[1].allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7); cfg.leaf_id = 4;
+    CHECK(gw.on_init(cfg));
+    DualLayerTestAccess::seed_dm_tx(gw, /*leaf=*/0, /*dst=*/61);
+    DualLayerTestAccess::seed_dm_tx(gw, /*leaf=*/1, /*dst=*/62);                      // ★ the leaf we are NOT on
+    DualLayerTestAccess::seed_dm_flight(gw, /*leaf=*/1, /*dst=*/63, /*next=*/63);     // ★ and its flight
+    while ([&]{ Push p{}; return gw.next_push(p); }()) {}
+
+    gw.clear_routing_state();                                                         // ★ `leave` on a gateway build
+
+    uint8_t dsts[16] = {}; uint8_t others = 0;
+    const uint8_t hits = drain_send_failed(gw, SendFailReason::reprovisioned, dsts, &others);
+    CHECK(hits == 3);
+    CHECK(others == 0);
+    uint16_t seen = 0; for (uint8_t i = 0; i < hits && i < 16; ++i) seen = static_cast<uint16_t>(seen | (1u << (dsts[i] - 61)));
+    CHECK(seen == 0b111u);                                                            // ★ 61 (active leaf) + 62 and 63 (the other leaf)
+}
+
+TEST_CASE("★ set_identity(0) — mobile_reset_registration leaves no authoritative id-0 binding (the third unwiped site)") {
+    // Like forced_rejoin, nothing clears _id_bind after this one — so the {0, ourhash} row used to survive until the
+    // next adopt. (A TEAM member with a live _team_local_id takes the other branch and keeps a REAL id: covered too.)
+    StubHal hal; Node mob(hal, 0, 0x7B7Bu);
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 4; cfg.is_mobile = true;
+    CHECK(mob.on_init(cfg));
+    DualLayerTestAccess::make_registered_mobile(mob, /*local*/20, /*home*/30, /*hash*/0x3030u);
+    CHECK(mob.node_id() == 20);
+    const uint16_t before = mob.id_bind_count();
+    CHECK(before >= 1);                                                               // non-vacuous: the adopt DID self-bind under id 20
+
+    DualLayerTestAccess::mobile_reset_reg(mob, "test_home_lost");
+
+    CHECK(mob.node_id() == 0);                                                        // unprovisioned (no team id to fall back to)
+    CHECK(mob.id_bind_count() == before);                                             // ★ NO new row — the id-20 row simply stays until TTL
+    uint32_t k = 0;
+    CHECK_FALSE(mob.key_hash_of_id(0, k));                                            // ★ and id 0 resolves to NOTHING
 }
 
 TEST_CASE("§S6/D10 — the mobile-sent breadcrumb is RETIRED; a re-home carries last_home in the j_discover (the NEW home notifies)") {

@@ -524,7 +524,7 @@ static unsigned ord(SendFailReason r) {
         case SendFailReason::joining:        case SendFailReason::cap:            case SendFailReason::min_interval:
         case SendFailReason::no_cts:         case SendFailReason::no_ack:         case SendFailReason::mobile_no_home:
         case SendFailReason::gateway_unreachable: case SendFailReason::e2e_ack_timeout:
-        case SendFailReason::queue_full:
+        case SendFailReason::queue_full:     case SendFailReason::reprovisioned:
             return static_cast<unsigned>(r);
     }
     return kUnlisted;
@@ -569,8 +569,8 @@ static void check_mapper_covers_every_enumerator(const char* enum_name, const ch
 TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallback at the app boundary") {
     check_mapper_covers_every_enumerator<CmdCode>("CmdCode", cmdcode_name, "err_unknown", 10);
     check_mapper_covers_every_enumerator<PushKind>("PushKind", pushkind_name, "unknown", 14);
-    check_mapper_covers_every_enumerator<SendFailReason>("SendFailReason", sendfailreason_name, "none", 15,
-                                                         /*exempt_ord=*/0);   // SendFailReason::none == "none"
+    check_mapper_covers_every_enumerator<SendFailReason>("SendFailReason", sendfailreason_name, "none", 16,
+                                                         /*exempt_ord=*/0);   // SendFailReason::none == "none"  (15 -> 16: §clean-join-carriers `reprovisioned`)
     check_mapper_covers_every_enumerator<JoinRefuseReason>("JoinRefuseReason", joinrefusereason_name, "none", 4);
     // The one exemption is EXACT, not a licence for a hole: `none` must render precisely "none".
     CHECK(std::strcmp(sendfailreason_name(SendFailReason::none), "none") == 0);
@@ -582,6 +582,7 @@ TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallbac
     // The three strings this slice restored/added — pinned verbatim, because the app matches on them.
     CHECK(std::strcmp(sendfailreason_name(SendFailReason::e2e_ack_timeout), "e2e_ack_timeout") == 0);  // command.h documented it all along
     CHECK(std::strcmp(sendfailreason_name(SendFailReason::queue_full), "queue_full") == 0);            // NEW (defer queue full)
+    CHECK(std::strcmp(sendfailreason_name(SendFailReason::reprovisioned), "reprovisioned") == 0);      // §clean-join-carriers: a join/create/leave discarded a staged/in-flight DM
     CHECK(std::strcmp(cmdcode_name(CmdCode::err_ack_ring_full), "err_ack_ring_full") == 0);            // enumerator-name convention
 }
 
@@ -594,6 +595,10 @@ TEST_CASE("write_push / write_ack — the restored reason strings render (all th
     Push q{}; q.kind = PushKind::send_failed; q.dst = 4; q.ctr = 9; q.reason = SendFailReason::queue_full;
     n = write_push(b, sizeof b, q);
     CHECK(std::string(b, n) == "{\"ev\":\"send_failed\",\"dst\":4,\"ctr\":9,\"reason\":\"queue_full\"}\n");
+    // §clean-join-carriers: the reprovision drop, rendered at the line the companion reads.
+    Push rp{}; rp.kind = PushKind::send_failed; rp.dst = 55; rp.ctr = 12; rp.reason = SendFailReason::reprovisioned;
+    n = write_push(b, sizeof b, rp);
+    CHECK(std::string(b, n) == "{\"ev\":\"send_failed\",\"dst\":55,\"ctr\":12,\"reason\":\"reprovisioned\"}\n");
     n = write_ack(b, sizeof b, CmdResult{CmdCode::err_ack_ring_full, 0, 3});
     CHECK(std::string(b, n) == "{\"ack\":\"err_ack_ring_full\",\"ctr\":0,\"qd\":3,\"dh\":0,\"lp\":0}\n");
     // A reason-LESS send_failed still omits the key entirely (the pre-slice node_cascade.cpp:259 shape) — kept
