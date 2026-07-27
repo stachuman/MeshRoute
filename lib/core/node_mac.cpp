@@ -1219,7 +1219,25 @@ void Node::do_data_tx() {
         m_in min{};
         min.leaf_id = _cfg.leaf_id; min.channel_id = pt.inner[4]; min.flavor = pt.inner[5];
         min.channel_msg_id = id;
-        if (min.flavor & protocol::channel_flavor_team) min.team_id = _cfg.team_id;   // §mobile 6.3: a team frame carries team_id (pack_m appends it). We only EMIT our own team's messages (originated, or relayed after the ingest team-match), so _cfg.team_id is always the right one.
+        if (min.flavor & protocol::channel_flavor_team) {
+            // §mobile 6.3: a team frame carries team_id (pack_m appends it) — stamped from _cfg.team_id because the
+            // frame itself carries no scope (TxItem/PendingTx have no team_id field, by design: adding one would grow
+            // every carrier for a value that is derivable).
+            // ★ THE REAL INVARIANT (§clean-team-channel, 2026-07-27): every team-scoped M payload reaching this line was
+            // minted or admitted under the team that is live RIGHT NOW — guaranteed by purge_team_channel_state()
+            // (node_channel.cpp), which drops the OLD team's buffer rows, flood states, queued TxItems AND the in-flight
+            // flight at the moment _cfg.team_id changes (Node::set_team_id is the only live writer). The previous claim
+            // here — "we only EMIT our own team's messages (originated, or relayed after the ingest team-match), so
+            // _cfg.team_id is always the right one" — was FALSE for exactly one case, a TEAM SWITCH: the ingest match
+            // held when the payload arrived, not when it was re-emitted, so an old team's message was re-stamped into
+            // the new team. That case is now purged at the source rather than papered over here.
+            // C2 backstop for the one shape that must NEVER reach the air: team-flavored with NO team. pack_m would
+            // write team_id 0, and a 0 team_id parses as a PLAIN LEAF message (same_team(0) is false everywhere), so it
+            // would be ingested by every static node on the leaf — a containment breach, not just a mis-stamp. The purge
+            // makes this unreachable; if it ever fires, the purge has a hole. Same refuse shape as the inner_len guard.
+            if (_cfg.team_id == 0) { _hal.log("team M-frame with no team_id — refusing tx"); _active->_pending_tx.reset(); become_free(); return; }
+            min.team_id = _cfg.team_id;
+        }
         min.body = std::span<const uint8_t>(pt.inner + 6, static_cast<size_t>(pt.inner_len - 6));
         uint8_t mbuf[protocol::lora_max_frame_bytes];
         const size_t mlen = pack_m(min, std::span<uint8_t>(mbuf, sizeof(mbuf)));

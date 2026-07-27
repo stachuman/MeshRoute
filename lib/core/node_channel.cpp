@@ -713,6 +713,135 @@ void Node::channel_reoffer_confirm(uint32_t id) {
     }
 }
 
+#if MR_FEAT_TEAM
+// =============================================================================
+// §clean-team-channel (2026-07-27) — THE TEAM-SWITCH CHANNEL PURGE. One caller: Node::set_team_id() (node.cpp), the
+// single entry point for every LIVE team change (`team new` / `team <id>` / `team 0` / `cfg set team_id`).
+//
+// THE LEAK IT CLOSES. do_data_tx (node_mac.cpp) stamps EVERY emitted team-flavored M frame with the CURRENT
+// _cfg.team_id. So any team-scoped channel payload that SURVIVES a switch is re-broadcast INTO THE NEW TEAM — a
+// message from a team we have left. The previous slice fixed the DV/keys/liveness half and documented this as the
+// residual, naming one route (a buffered row served on a re-offer / CHANNEL_PULL). ★ There are FOUR routes, not one,
+// because the payload is COPIED forward at each stage and each stage can emit on its own:
+//   (1) _channel_buffer row     -> CHANNEL_PULL response (enqueue_channel_m) / re-offer re-flood (channel_reoffer_fire)
+//   (2) _flood[] state          -> flood_rebroadcast_fire re-floods from fs.body — it does NOT read the buffer, so
+//                                  dropping the row does NOT stop it (an armed backoff fires up to flood_backoff_ms later)
+//   (3) _tx_queue[] TxItem      -> already staged; do_data_tx stamps it at TX time, after the switch
+//   (4) _pending_tx flight      -> same, one frame from the air
+// (1)+(2)+(3)+(4) are therefore ALL must-scrub. A count reset is NOT an option for (1) or (3): both hold still-valid
+// NON-team leaf rows/items (a registered team mobile is a full leaf-plane participant), so this is a SELECTIVE
+// compaction (the read/write-cursor idiom of peer_key_age_out / id_bind_evict_other_hash_holders).
+//
+// ★ THE PREDICATE: drop every TEAM-scoped row, with NO comparison against the old team id — none is needed, and none
+// is kept anywhere. Both writers of a team row stamp the team that is live AT THAT MOMENT: origination
+// (do_send_channel :302, gated on _cfg.team_id != 0) and ingest (ingest_channel_m :192, which admits a team-scoped M
+// ONLY when _cfg.team_id == m.team_id and otherwise drops it AND frees its flood state). Since set_team_id is the only
+// live writer of _cfg.team_id (node.cpp:403; the boot/NV path writes it pre-on_init, when every table is empty), every
+// team row present at a switch was minted or admitted under the team we are LEAVING. Two signals mark such a row and
+// EITHER is sufficient: `team_id != 0` (the semantic scope) and `flavor & channel_flavor_team` (the bit do_data_tx
+// keys the re-stamp on). They are set together by both writers; the OR is deliberate belt-and-braces so a row can
+// never be team-flavored on the wire yet survive as "leaf" here. A genuine leaf row has neither -> it SURVIVES.
+// `team 0` (leave) purges too: a left team's message must not be servable, and with team_id==0 the emit could not even
+// be scoped — pack_m would put team_id 0 on a team-flavored frame, which parses as a PLAIN LEAF message, leaking the
+// team's content to every static node on the leaf (do_data_tx now refuses that outright, C2).
+//
+// ★ DEPENDENT STATE — the full sweep of everything keyed by channel_msg_id. Verdict + WHY, so the next reader does not
+// have to re-derive it (and does not "complete" what is deliberately left):
+//   • _channel_reoffer_pending  SCRUBBED (the orphan half). channel_reoffer_fire already bails on
+//       channel_buffer_find < 0, so a slot for a dropped row can never re-emit — but it stays ACTIVE, holding 1 of
+//       cap_channel_reoffer_pending(=4) slots until its timer fires (channel_reoffer_delay_ms 10 s + jitter). Type
+//       `team new` then post, and the FIRST post in the NEW team can hit channel_reoffer_table_full and lose its
+//       coverage repair. Freed by ORPHAN test (id no longer buffered), which is also exactly right for a slot orphaned
+//       earlier by buffer eviction. Behaviour-equivalent to letting it fire (that path emits no channel_sent either).
+//   • _channel_pull_pending     NOT scrubbed, harmless BY CONSTRUCTION: a pending pull exists only for an id we do
+//       NOT hold (process_channel_digest schedules it on channel_buffer_find < 0; cancel_channel_pull clears it the
+//       moment the msg lands), so its ids are DISJOINT from the rows dropped here — there is nothing to scrub. It
+//       carries no plane tag, so it could not be scrubbed selectively anyway. Fails in the DROP direction: the pull
+//       fires (<= channel_pull_jitter_ms), the old team serves the M, and our own ingest team gate rejects it.
+//   • _channel_pull_recent      NOT scrubbed, and deliberately KEPT: it is a pure SUPPRESSION ring, so a purged id
+//       still in it prevents an immediate re-pull of the message we just dropped. Clearing it would make the leak's
+//       aftermath NOISIER, never safer.
+//   • _per_origin_channel       NOT cleared — the previous slice's ruling still holds and applies verbatim: keyed by
+//       a BARE origin id with no plane discriminator (a team local id and a static node_id collide in it, node.h
+//       §P2-7), so clearing it would reach into the STATIC plane this switch must not touch. TTL-windowed and
+//       suppress-direction only. ⚠ ONE knock-on worth knowing: do_send_channel's self-cap counts our own rows IN THE
+//       BUFFER, so dropping them RELAXES the cap right after a switch. That is intended (the old team's posts must not
+//       budget the new team's), and _last_channel_origin_ms — untouched here — keeps the channel_min_interval_ms
+//       burst floor as the backstop.
+//   • seen_by[32] on survivors  NOT AFFECTED: per-row and independent; dropping row A invalidates nothing in row B.
+//       It also means no id-space mixes — a team row's seen_by indexes TEAM ids, a leaf row's STATIC ids (§18) — and
+//       whole-row drops keep it that way.
+//   • BCN digest (dirty / bcn_ad_count)  NOT AFFECTED: both live ON the row and go with it. The SELECT/COMMIT pair is
+//       stack-local to one emit_beacon call (ch_picked, node_beacon.cpp:353) — no cross-call promise — and
+//       commit_channel_digest_advertised re-finds by id and skips a vanished one. An advertisement that ALREADY aired
+//       leaves a promise we can no longer honour, which fails CLOSED: handle_channel_pull serves only ids it finds, so
+//       the puller gets nothing and its own channel_pull_recent stops it re-asking for the window.
+//   • _per_sender_originator    NOT AFFECTED: keyed by (sender, kind, ctr_lo) — an airtime observation about a
+//       NEIGHBOUR, not about our content.
+//   • inbox records (record_channel, which stores team_id)  DELIBERATELY KEPT: durable app-facing history, never a
+//       re-emit source (pull_inbox only). The operator's team-A messages must survive leaving team A.
+// ⚠ PRE-EXISTING, NOT FIXED HERE (found by this audit; a DIFFERENT bug on the LEAF axis, so C1 keeps it out of this
+//   slice): clear_routing_state's §clean-join R4 wipes the channel buffer on `join`/`create`/`leave` but leaves
+//   _tx_queue / _pending_tx / _channel_reoffer_pending alone — so a staged channel M survives a network reprovision
+//   and do_data_tx re-stamps it with the NEW _cfg.leaf_id. _channel_reoffer_pending is in fact cleared by NOTHING
+//   today (not clear_routing_state, not clear_learned_state).
+// =============================================================================
+void Node::purge_team_channel_state() {
+    // _active, not a _layers[] loop (unlike clear_team_routing_state): the ENTIRE channel plane is _active-scoped —
+    // every function in this file reads _active — and a node that can hold a team channel row is single-layer BY
+    // CONSTRUCTION (Principle 11: _cfg.n_layers == 2 returns early from ingest / admit / pull / digest, so a
+    // dual-layer gateway holds no channel state at all, and MR_N_LAYERS>1 only exists for a gateway). Going through
+    // _active is what lets this reuse channel_buffer_find() / flood_state_free() instead of re-implementing them (U1).
+    LayerRuntime& L = *_active;
+    // (1) THE BUFFER — selective compaction (peer_key_age_out's read/write-cursor idiom, node_hashlocate.cpp:372).
+    uint16_t rows = 0, w = 0;
+    for (uint16_t r = 0; r < L._channel_buffer_n; ++r) {
+        const ChannelEntry& e = L._channel_buffer[r];
+        if (e.team_id != 0 || (e.flavor & protocol::channel_flavor_team)) { ++rows; continue; }   // team-scoped -> drop
+        L._channel_buffer[w++] = L._channel_buffer[r];                                           // leaf row -> KEEP (order preserved)
+    }
+    L._channel_buffer_n = w;
+    // (2) FLOOD states — a mid-backoff team flood re-broadcasts from fs.body, independent of the buffer.
+    // fs.flavor carries the team bit once the DATA-M has been ingested (the authoritative scope, and the exact
+    // predicate flood_rebroadcast_fire itself uses); fs.team_flood is the RTS-M-time signal for a state still
+    // awaiting_data, which after the switch can never be admitted anyway (the ingest gate would drop that DATA-M) —
+    // free it too rather than leave a dead slot holding 1 of cap_flood_pending(=3). flood_state_free cancels the timer.
+    uint8_t floods = 0;
+    for (uint8_t s = 0; s < protocol::cap_flood_pending; ++s) {
+        const FloodState& fs = L._flood[s];
+        if (!fs.active) continue;
+        if ((fs.flavor & protocol::channel_flavor_team) || fs.team_flood) { ++floods; flood_state_free(s); }
+    }
+    // (3) THE TX QUEUE — a staged channel M is stamped at TX time, so it must go BEFORE any become_free() below can
+    // pick it. inner[5] is the flavor byte (enqueue_channel_m / enqueue_flood_m); a non-channel item is untouched.
+    uint8_t queued = 0, qw = 0;
+    for (uint8_t r = 0; r < L._tx_queue_n; ++r) {
+        const TxItem& it = L._tx_queue[r];
+        if (it.is_channel_m && it.inner_len >= 6 && (it.inner[5] & protocol::channel_flavor_team)) { ++queued; continue; }
+        L._tx_queue[qw++] = L._tx_queue[r];
+    }
+    L._tx_queue_n = qw;
+    // (4) THE IN-FLIGHT M — one frame from the air. Dropping an m_broadcast flight is the SAME operation the flight's
+    // own completion does (kMBcastClearTimerId: reset + become_free) and the M fail-loud path in do_data_tx; the armed
+    // RTS->DATA gap timer finds no _pending_tx and goes inert. An overhearer that retuned simply misses the DATA-M.
+    bool flight = false;
+    if (L._pending_tx && L._pending_tx->m_broadcast && L._pending_tx->inner_len >= 6
+        && (L._pending_tx->inner[5] & protocol::channel_flavor_team)) {
+        flight = true; L._pending_tx.reset();
+    }
+    // (5) RE-OFFER slots orphaned by (1) — after the compaction, so the find reflects the purge.
+    uint8_t reoffers = 0;
+    for (uint8_t s = 0; s < protocol::cap_channel_reoffer_pending; ++s) {
+        ChannelReofferPending& rp = L._channel_reoffer_pending[s];
+        if (rp.active && channel_buffer_find(rp.id) < 0) { ++reoffers; rp.active = false; _hal.cancel(kChannelReofferTimerId + s); }
+    }
+    if (rows || floods || queued || flight || reoffers)
+        MR_EMIT("team_channel_purged", EF_I("rows", rows), EF_I("floods", floods), EF_I("queued", queued),
+                EF_B("flight", flight), EF_I("reoffers", reoffers), EF_I("kept", L._channel_buffer_n));
+    if (flight) become_free();   // LAST: the queue is already team-free, so this can only start a leaf/DM frame
+}
+#endif   // MR_FEAT_TEAM (purge_team_channel_state)
+
 // §S7 T-A — set my bit + my hops==1 neighbour bits, PLANE-KEYED (idempotent: originate-seed on a zeroed bm,
 // OR-in on rebroadcast). team=false consults the STATIC plane (_node_id + _rt hops==1 + §S7 T-B the HOSTED
 // MOBILES — a home covers its registered leaf mobiles); team=true consults the TEAM plane (_team_local_id +

@@ -50,6 +50,7 @@ public:
     std::vector<std::string> emits;                                                   // §intra-relay: record emit kinds so the drop is assertable
     void     emit(const char* kind, const EventField*, size_t) override { emits.push_back(kind); }
     bool     saw_emit(const char* k) const { for (auto& e : emits) if (e == k) return true; return false; }
+    int      count(const char* k) const { int c = 0; for (auto& e : emits) if (e == k) ++c; return c; }   // §clean-team-channel: "served exactly once / not at all" needs a COUNT, not just presence
 };
 
 // A valid gateway layer (every REQUIRED field set): allowed_sf_bitmap covers the routing SF.
@@ -443,11 +444,45 @@ struct DualLayerTestAccess {
         n._my_mobile_reg.active = true; n._my_mobile_reg.home_id = home_id;
         n._my_mobile_reg.home_key_hash32 = home_key; n._my_mobile_reg.my_local_id = n.node_id();
     }
-    static void           seed_channel_row(Node& n, uint32_t id) {   // one buffered channel message (the static/leaf gossip plane)
+    static void           seed_channel_row(Node& n, uint32_t id, uint32_t team_id = 0) {   // one buffered channel message; team_id != 0 -> a TEAM-scoped row (BOTH signals, exactly as do_send_channel :302 / ingest_channel_m stamp them)
         auto& L = *n._active;
         Node::ChannelEntry& e = L._channel_buffer[L._channel_buffer_n++];
         e = Node::ChannelEntry{}; e.id = id; e.channel_id = 1; e.payload_len = 0; e.received_at = n._hal.now();
+        e.team_id = team_id;
+        if (team_id) e.flavor = static_cast<uint8_t>(e.flavor | protocol::channel_flavor_team);
     }
+    // §clean-team-channel seams — the four carriers of a team-scoped M payload + the re-offer table it orphans.
+    static int            channel_row_at(Node& n, uint32_t id)   { return n.channel_buffer_find(id); }          // buffer INDEX (order-preservation check), -1 = gone
+    static uint32_t       channel_row_team(Node& n, uint32_t id)  { const int i = n.channel_buffer_find(id); return i < 0 ? 0xFFFFFFFFu : n._active->_channel_buffer[i].team_id; }
+    static void           seed_flood_state(Node& n, uint32_t id, bool team, bool awaiting = false) {   // a flood mid-backoff (or still awaiting its DATA-M) — flood_rebroadcast_fire re-floods from fs.body, NOT from the buffer
+        const int s = n.flood_state_alloc(id);
+        if (s < 0) return;
+        auto& fs = n._active->_flood[static_cast<uint8_t>(s)];
+        fs.flavor = team ? protocol::channel_flavor_team : 0;   // set at DATA-M ingest = the authoritative scope
+        fs.team_flood = team;                                   // set at RTS-M time (the only signal while awaiting_data)
+        fs.awaiting_data = awaiting; fs.hop_left = 3; fs.body_len = 0;
+    }
+    static int            flood_slot(Node& n, uint32_t id)  { return n.flood_state_find(id); }
+    static uint8_t        flood_active_n(Node& n)           { uint8_t c = 0; for (uint8_t i = 0; i < protocol::cap_flood_pending; ++i) if (n._active->_flood[i].active) ++c; return c; }
+    static void           seed_channel_m_tx(Node& n, uint32_t id, bool team) {   // a STAGED pull-response M, via the real enqueue path
+        Node::ChannelEntry e{}; e.id = id; e.channel_id = 1; e.payload_len = 0;
+        e.flavor = team ? protocol::channel_flavor_team : 0; e.team_id = team ? 0xAAAA1111u : 0;
+        n.enqueue_channel_m(/*target=*/7, e);
+    }
+    static void           seed_m_flight(Node& n, uint32_t id, bool team) {   // an M-broadcast already IN FLIGHT (do_data_tx stamps it at TX time)
+        auto& pt = n._active->_pending_tx.emplace();
+        pt.m_broadcast = true; pt.chosen_data_sf = 7; pt.inner_len = 6;
+        pt.inner[0] = static_cast<uint8_t>(id >> 24); pt.inner[1] = static_cast<uint8_t>(id >> 16);
+        pt.inner[2] = static_cast<uint8_t>(id >> 8);  pt.inner[3] = static_cast<uint8_t>(id);
+        pt.inner[4] = 1; pt.inner[5] = team ? protocol::channel_flavor_team : 0;
+    }
+    static void           data_tx(Node& n)                       { n.do_data_tx(); }                            // drive the M-frame TX path (the team_id re-stamp + its C2 guard)
+    static void           reoffer_register(Node& n, uint32_t id, bool team) { n.channel_reoffer_register(id, team); }
+    static uint32_t       flood_timer_id(uint8_t s)   { return Node::kFloodRebcastTimerId + s; }        // the ring bases + m_inner_id are private -> reach them through the friend (the sync_timer_id idiom above), never a re-declared literal
+    static uint32_t       reoffer_timer_id(uint8_t s) { return Node::kChannelReofferTimerId + s; }
+    static uint32_t       tx_item_msg_id(const TxItem& it) { return Node::m_inner_id(it.inner); }
+    static int            reoffer_slot(Node& n, uint32_t id)     { for (uint8_t s = 0; s < protocol::cap_channel_reoffer_pending; ++s) if (n._active->_channel_reoffer_pending[s].active && n._active->_channel_reoffer_pending[s].id == id) return s; return -1; }
+    static void           serve_pull(Node& n, uint8_t src, uint8_t dest, uint32_t id) { n.handle_channel_pull(src, dest, &id, 1); }
     static void           team_route2(Node& n, uint8_t dest, uint8_t next1, uint8_t next2) {   // an _rt_team entry: two 2-hop candidates (next1 primary, next2 alt), equal score
         auto& L = *n._active;
         RtEntry& e = L._rt_team[L._rt_team_count++]; e = RtEntry{}; e.dest = dest; e.n = 2;
@@ -4198,6 +4233,161 @@ TEST_CASE("§clean-team — clear_routing_state (the static reprovision verbs) s
     // clear_team_routing_state on its own is idempotent and safe with no team plane at all
     mob.clear_team_routing_state(); mob.clear_team_routing_state();
     CHECK(mob.rt_team_count() == 0);
+}
+
+// ============================================================================================================
+// §clean-team-channel (2026-07-27) — the residual the clear above deliberately left, now CLOSED.
+// do_data_tx (node_mac.cpp) stamps EVERY emitted team-flavored M frame with the CURRENT _cfg.team_id, so any
+// team-scoped channel payload that survives a switch is re-broadcast INTO THE TEAM WE JUST JOINED. The payload is
+// COPIED forward through FOUR carriers and each one can emit on its own — buffer row, flood state (re-floods from
+// fs.body, NOT from the buffer), staged TxItem, in-flight PendingTx — so purge_team_channel_state() drops all four
+// plus the re-offer slots they orphan. The predicate is the ROW's own scope (team_id != 0 || flavor team bit), with no
+// old-team comparison: both writers stamp the then-live team (origination :302, ingest's team match :192), and
+// set_team_id is the only live writer of _cfg.team_id.
+// ⚠ NO corpus scenario issues a `team` command — these native tests are the ONLY regression detector, and the half
+// that matters most is the NEGATIVE one: the LEAF rows/carriers of the same node must SURVIVE (a registered team
+// mobile is a full leaf-plane participant; a count reset would have stranded it).
+// ============================================================================================================
+
+// Ingest a channel M through the REAL path, so these tests also pin the premise the predicate rests on: a
+// team-scoped M is admitted ONLY while _cfg.team_id == m.team_id (ingest_channel_m), hence every team row present at
+// a switch belongs to the team being left. Distinct `origin` per id (the id's high byte) keeps the per-origin
+// channel_min_interval_ms burst floor out of the way.
+static void ingest_channel_row(Node& n, uint32_t id, uint32_t team_id, const uint8_t* body, uint8_t len, uint8_t from = 9) {
+    m_out m{};
+    m.leaf_id = 4; m.channel_id = 1; m.channel_msg_id = id; m.team_id = team_id;
+    m.flavor = team_id ? protocol::channel_flavor_team : 0;
+    m.body = std::span<const uint8_t>(body, len);
+    n.ingest_channel_m(m, from);
+}
+// A team member on team A, leaf 4, with a channel plane that can hold rows.
+static void init_team_channel_node(Node& n, StubHal& hal) {
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7); cfg.leaf_id = 4;
+    cfg.is_mobile = true; cfg.team_id = 0xAAAA1111u;
+    CHECK(n.on_init(cfg));
+    hal._now = 1000;
+}
+static const uint8_t kTeamBody[4] = { 'T', 'E', 'A', 'M' };
+static const uint8_t kLeafBody[4] = { 'L', 'E', 'A', 'F' };
+static const uint32_t kT1 = (uint32_t(101) << 24) | 0x111111u, kT2 = (uint32_t(102) << 24) | 0x222222u;
+static const uint32_t kL1 = (uint32_t(103) << 24) | 0x333333u, kL2 = (uint32_t(104) << 24) | 0x444444u;
+
+TEST_CASE("★ §clean-team-channel — a team SWITCH drops the OLD team's channel rows; the LEAF rows SURVIVE, in order, byte-intact") {
+    StubHal hal; Node mob(hal, 0, 0x6161u); init_team_channel_node(mob, hal);
+    ingest_channel_row(mob, kT1, 0xAAAA1111u, kTeamBody, 4);      // team-A rows, admitted through the real ingest gate
+    ingest_channel_row(mob, kT2, 0xAAAA1111u, kTeamBody, 4);
+    ingest_channel_row(mob, kL1, 0, kLeafBody, 4);                // leaf rows (team_id 0) — the same node holds both planes
+    ingest_channel_row(mob, kL2, 0, kLeafBody, 4);
+    CHECK(mob.channel_buffer_count() == 4);                       // non-vacuous: all four really landed
+    CHECK(DualLayerTestAccess::channel_row_team(mob, kT1) == 0xAAAA1111u);
+    CHECK(DualLayerTestAccess::channel_row_team(mob, kL1) == 0);
+
+    CHECK(mob.set_team_id(0xBBBB2222u));                          // ★ the switch
+    CHECK(mob.channel_buffer_count() == 2);                       // ★ both team rows dropped
+    CHECK(DualLayerTestAccess::channel_row_at(mob, kT1) < 0);
+    CHECK(DualLayerTestAccess::channel_row_at(mob, kT2) < 0);
+    CHECK(DualLayerTestAccess::channel_row_at(mob, kL1) == 0);    // ★ leaf rows KEPT and compacted in insertion order
+    CHECK(DualLayerTestAccess::channel_row_at(mob, kL2) == 1);
+    CHECK(mob.channel_payload_eq(kL1, kLeafBody, 4));             // ★ whole-row copy: payload survives the compaction
+    CHECK(mob.channel_payload_eq(kL2, kLeafBody, 4));
+    CHECK(mob.channel_entry_dirty(kL1));                          // ...and so does its digest state (dirty rides the row)
+    CHECK(hal.saw_emit("team_channel_purged"));
+    // The premise, exercised: on team B the OLD team's M can no longer even be re-ingested (so the purge cannot undo itself)
+    ingest_channel_row(mob, kT1, 0xAAAA1111u, kTeamBody, 4);
+    CHECK(DualLayerTestAccess::channel_row_at(mob, kT1) < 0);
+}
+
+TEST_CASE("★ §clean-team-channel — the switch drops the OTHER carriers too: a mid-backoff team FLOOD state + a STAGED team M; the leaf ones survive") {
+    StubHal hal; Node mob(hal, 0, 0x6262u); init_team_channel_node(mob, hal);
+    // (a) flood states: a team flood mid-backoff re-floods from fs.body — dropping the buffer row would NOT stop it.
+    DualLayerTestAccess::seed_flood_state(mob, kT1, /*team=*/true);
+    DualLayerTestAccess::seed_flood_state(mob, kT2, /*team=*/true, /*awaiting=*/true);   // pre-DATA-M: only fs.team_flood marks it
+    DualLayerTestAccess::seed_flood_state(mob, kL1, /*team=*/false);
+    CHECK(DualLayerTestAccess::flood_active_n(mob) == 3);
+    // (b) staged M frames in the tx queue (a pull response), plus a leaf one to prove the compaction is selective.
+    DualLayerTestAccess::seed_channel_m_tx(mob, kT1, /*team=*/true);
+    DualLayerTestAccess::seed_channel_m_tx(mob, kL2, /*team=*/false);
+    CHECK(DualLayerTestAccess::leaf_tx_n(mob, 0) == 2);
+
+    CHECK(mob.set_team_id(0xBBBB2222u));                          // ★ the switch
+    CHECK(DualLayerTestAccess::flood_slot(mob, kT1) < 0);         // ★ team flood state freed...
+    CHECK(DualLayerTestAccess::flood_slot(mob, kT2) < 0);         // ★ ...including the awaiting_data one
+    CHECK(hal.cancelled[DualLayerTestAccess::flood_timer_id(0)]); // ★ and its rebroadcast timer cancelled
+    CHECK(DualLayerTestAccess::flood_active_n(mob) == 1);         // ★ the LEAF flood survives
+    CHECK(DualLayerTestAccess::flood_slot(mob, kL1) >= 0);
+    CHECK(DualLayerTestAccess::leaf_tx_n(mob, 0) == 1);           // ★ the team M left the queue...
+    CHECK(DualLayerTestAccess::tx_item_msg_id(DualLayerTestAccess::leaf_tx_at(mob, 0, 0)) == kL2);   // ★ ...and the LEAF M is the one still there
+}
+
+TEST_CASE("★ §clean-team-channel — an IN-FLIGHT team M is dropped at the switch; an in-flight LEAF M is not") {
+    { StubHal hal; Node mob(hal, 0, 0x6363u); init_team_channel_node(mob, hal);
+      DualLayerTestAccess::seed_m_flight(mob, kT1, /*team=*/true);
+      CHECK(mob.has_pending_tx());
+      CHECK(mob.set_team_id(0xBBBB2222u));
+      CHECK_FALSE(mob.has_pending_tx());                          // ★ one frame from the air, dropped
+      CHECK(hal.saw_emit("team_channel_purged")); }
+    { StubHal hal; Node mob(hal, 0, 0x6464u); init_team_channel_node(mob, hal);
+      DualLayerTestAccess::seed_m_flight(mob, kL1, /*team=*/false);
+      CHECK(mob.set_team_id(0xBBBB2222u));
+      CHECK(mob.has_pending_tx());                                // ★ a leaf channel post in flight is NOT our business
+      CHECK_FALSE(hal.saw_emit("team_channel_purged")); }         // nothing team-scoped existed -> no purge event at all
+}
+
+TEST_CASE("§clean-team-channel — re-offer slots orphaned by the purge are freed (+ timer cancelled); a leaf row's slot survives") {
+    // channel_reoffer_fire already bails when the row is gone, so this is not a leak — it is SLOT EXHAUSTION: 4 slots,
+    // freed only when their 10 s+jitter timer fires, so `team new` followed by a prompt post could lose its coverage repair.
+    StubHal hal; Node mob(hal, 0, 0x6565u); init_team_channel_node(mob, hal);
+    ingest_channel_row(mob, kT1, 0xAAAA1111u, kTeamBody, 4);
+    ingest_channel_row(mob, kL1, 0, kLeafBody, 4);
+    DualLayerTestAccess::reoffer_register(mob, kT1, /*team=*/true);
+    DualLayerTestAccess::reoffer_register(mob, kL1, /*team=*/false);
+    const int st = DualLayerTestAccess::reoffer_slot(mob, kT1), sl = DualLayerTestAccess::reoffer_slot(mob, kL1);
+    CHECK(st >= 0); CHECK(sl >= 0);
+
+    CHECK(mob.set_team_id(0xBBBB2222u));
+    CHECK(DualLayerTestAccess::reoffer_slot(mob, kT1) < 0);                          // ★ the orphaned slot is free again
+    CHECK(hal.cancelled[DualLayerTestAccess::reoffer_timer_id(static_cast<uint8_t>(st))]);  // ★ its timer too
+    CHECK(DualLayerTestAccess::reoffer_slot(mob, kL1) == sl);                        // ★ the leaf row still owns its slot
+    CHECK_FALSE(hal.cancelled[DualLayerTestAccess::reoffer_timer_id(static_cast<uint8_t>(sl))]);
+}
+
+TEST_CASE("§clean-team-channel — a same-team no-op purges NOTHING; `team 0` (leave) purges, and the left team's message is no longer SERVABLE") {
+    StubHal hal; Node mob(hal, 0, 0x6666u); init_team_channel_node(mob, hal);
+    mob.set_identity(42, 0x6666u);                                // a pull is only served by the addressed target
+    ingest_channel_row(mob, kT1, 0xAAAA1111u, kTeamBody, 4);
+    ingest_channel_row(mob, kL1, 0, kLeafBody, 4);
+    CHECK(mob.channel_buffer_count() == 2);
+
+    CHECK_FALSE(mob.set_team_id(0xAAAA1111u));                    // ★ same team -> nothing is stale
+    CHECK(mob.channel_buffer_count() == 2);                       // ★ ...so nothing is purged
+    CHECK(DualLayerTestAccess::channel_row_at(mob, kT1) >= 0);
+    CHECK_FALSE(hal.saw_emit("team_channel_purged"));
+
+    CHECK(mob.set_team_id(0));                                    // ★ LEAVE: a left team's message must not be servable
+    CHECK(mob.channel_buffer_count() == 1);
+    CHECK(DualLayerTestAccess::channel_row_at(mob, kT1) < 0);
+    // ...and prove "not servable" end-to-end: a CHANNEL_PULL for the purged id yields no M frame, while the surviving
+    // leaf id still does (non-vacuous — the responder itself is alive).
+    DualLayerTestAccess::serve_pull(mob, /*src=*/7, /*dest=*/42, kT1);
+    CHECK(hal.count("channel_broadcast_tx") == 0);
+    DualLayerTestAccess::serve_pull(mob, /*src=*/7, /*dest=*/42, kL1);
+    CHECK(hal.count("channel_broadcast_tx") == 1);
+}
+
+TEST_CASE("§clean-team-channel C2 — do_data_tx REFUSES a team-flavored M when we are in no team (it would air as a plain LEAF message)") {
+    // The backstop that makes the corrected invariant at node_mac.cpp's team_id stamp enforceable rather than merely
+    // documented: with _cfg.team_id == 0, pack_m would write team_id 0, and same_team(0) is false everywhere -> the
+    // frame parses as a normal leaf channel message and every static node on the leaf ingests the team's content.
+    { StubHal hal; Node mob(hal, 0, 0x6767u); init_team_channel_node(mob, hal);
+      CHECK(mob.set_team_id(0));                                  // left the team
+      DualLayerTestAccess::seed_m_flight(mob, kT1, /*team=*/true); // a straggler the purge did not see (belt-and-braces)
+      DualLayerTestAccess::data_tx(mob);
+      CHECK(hal.last_tx_len == 0);                                // ★ nothing aired
+      CHECK_FALSE(mob.has_pending_tx()); }                        // ★ and the flight was cleared, not left wedged
+    { StubHal hal; Node mob(hal, 0, 0x6868u); init_team_channel_node(mob, hal);   // the non-vacuous half: still in a team -> it DOES air
+      DualLayerTestAccess::seed_m_flight(mob, kT1, /*team=*/true);
+      DualLayerTestAccess::data_tx(mob);
+      CHECK(hal.last_tx_len > 0); }
 }
 
 TEST_CASE("§S6/D10 — the mobile-sent breadcrumb is RETIRED; a re-home carries last_home in the j_discover (the NEW home notifies)") {

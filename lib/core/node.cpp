@@ -356,13 +356,12 @@ bool Node::on_init(const NodeConfig& cfg) {
 //   (_team_local_id / _team_dad_pending are Node-global identity, not a table — set_team_id drops them via
 //   set_team_local_id(0), which also clears the pending DAD-guard flag so an in-flight guard timer fires inert.)
 // ★ NOT cleared here, deliberately, each with the reason (do not "complete" these without reading the reason):
-//   • the CHANNEL buffer's team-flavored rows (`flavor & channel_flavor_team`, ChannelEntry::team_id). ⚠ THESE ARE
-//     GENUINELY STALE AND THE ONE REMAINING LEAK: node_mac.cpp:1222 re-stamps every emitted team M-frame with the
-//     CURRENT _cfg.team_id, so an OLD team's buffered row served on a re-offer / CHANNEL_PULL is re-broadcast INTO THE
-//     NEW TEAM. Not fixed here because a team-only purge needs a SELECTIVE compaction of _channel_buffer (a count reset
-//     would also discard the node's still-valid non-team leaf channel rows) — a different mechanism from this clear,
-//     in a different plane. OPEN for the owner; the static reprovision path is already covered by clear_routing_state's
-//     §clean-join R4 full channel wipe below.
+//   • the CHANNEL plane's team-scoped state (buffer rows, flood states, staged/in-flight M frames, re-offer slots).
+//     ✔ CLOSED 2026-07-27 by §clean-team-channel — but in its OWN function, purge_team_channel_state()
+//     (node_channel.cpp), which set_team_id() calls right after this one, NOT here: it is a SELECTIVE compaction (the
+//     buffer + tx queue also hold still-valid NON-team leaf rows, so a count reset would be over-broad), and this
+//     function's other caller — clear_routing_state below — already wipes the whole channel plane via §clean-join R4.
+//     The full dependent-state audit (what is scrubbed, what is harmless, and why) lives at that definition.
 //   • parked (_parked_sends) / deferred (_deferred) sends whose TxItem carries Plane::TEAM: bounded by
 //     send_defer_ttl_ms and they simply fail to find a route on the fresh plane. Also PRE-EXISTING-symmetric — the
 //     static reprovision does not clear _parked_sends either.
@@ -399,6 +398,7 @@ void Node::clear_team_routing_state() {
 bool Node::set_team_id(uint32_t team_id) {
     if (_cfg.team_id == team_id) return false;   // no-op: same team -> nothing is stale (C2: no silent side-effects)
     clear_team_routing_state();                  // the OLD team's routes / peer set / liveness / key cache / RREQ ledgers
+    purge_team_channel_state();                  // §clean-team-channel: the OLD team's channel CONTENT + every carrier that would re-emit it (buffer rows / flood states / staged + in-flight M frames / re-offer slots). Team-scoped rows only — the leaf channel rows survive. Inert stub on a !MR_FEAT_TEAM build.
     set_team_local_id(0);                        // §6.4: drop the stale team-DAD id (0 = left; a re-DAD picks a fresh one for the new team) + clear _team_dad_pending
     _cfg.team_id = team_id;                      // LIVE (team_dad_fire / same_team / team_addr_for_us all read _cfg.team_id)
     return true;

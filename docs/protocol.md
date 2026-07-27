@@ -217,8 +217,22 @@ merely misroute — it **shadows the static plane**. And a stale `_team_keys` en
 maps a reused team-local id to the *previous* team member's `key_hash32`, i.e. **mis-addressing** (wrong DST_HASH
 at `node_mac.cpp:94`; hash → wrong teammate at `node_hashlocate.cpp:988/1019`). `is_team_peer` does not guard it —
 the bit is set from a multi-hop DV entry that carries no key.
-**Residual, not yet fixed:** team-flavored channel-buffer rows are not purged, and the M emit re-stamps them with
-the *current* `team_id`, so an old team's buffered message can still be re-broadcast into the new team.
+**The channel plane too (`§clean-team-channel`).** `do_data_tx` stamps every emitted team-flavored M frame with the
+*current* `team_id`, so a team-scoped channel payload that survives a switch is re-broadcast **into the team you
+just joined**. `set_team_id()` therefore also calls **`purge_team_channel_state()`**, which drops that payload from
+all **four** carriers it is copied into — the buffer row, an in-progress `_flood[]` state (★ it re-floods from its
+own cached `fs.body` and never reads the buffer, so dropping the row alone would **not** stop it), a staged
+`_tx_queue` item, and the in-flight `_pending_tx` — plus any `_channel_reoffer_pending` slot they orphan. It is a
+**selective** compaction keyed on the row's own scope (`team_id != 0 || flavor & channel_flavor_team`) with no
+old-id comparison, because both writers stamp the team live at that moment: **the node's non-team leaf channel rows
+survive**, since a registered team mobile is a full leaf-plane participant. `team 0` (leave) purges as well — a left
+team's messages must not be servable — and `do_data_tx` now **refuses** to air a team-flavored M while
+`team_id == 0`: it would carry `team_id` 0, which parses as a **plain leaf message** and would leak the team's
+content to every static node on the leaf.
+⚠ **Not fixed, and a different bug (leaf axis):** `clear_routing_state()` (`join`/`create`/`leave`) wipes the
+channel *buffer* but not `_tx_queue` / `_pending_tx` / `_channel_reoffer_pending`, so a staged channel M outlives a
+**network** reprovision and is re-stamped with the new `leaf_id`; `_channel_reoffer_pending` is cleared by nothing
+at all today.
 
 A `team_id`-scoped overlay of mobiles (member-to-member routing + group chat), fully **separated** from the
 static plane and from other teams: team beacons/DV (`_rt_team`), team F discovery, a team-scoped H-flood, and a

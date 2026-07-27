@@ -273,8 +273,18 @@ public:
     // NOT-cleared list are documented at the definition (node.cpp).
 #if MR_FEAT_TEAM
     void clear_team_routing_state();
+    // §clean-team-channel (2026-07-27): the CHANNEL plane's team half of a team switch — the leak the clear above
+    // deliberately left open. It is a SEPARATE function, not a third line inside clear_team_routing_state(), for two
+    // reasons: (a) the mechanism differs — a SELECTIVE compaction (the same buffer/queue hold still-valid NON-team leaf
+    // rows, so a count reset would be over-broad), not a count reset; (b) its other caller would be
+    // clear_routing_state(), which already wipes the whole channel plane one line later — folding it in would only add
+    // dead work on that path and put a tx-queue mutation on the static reprovision path that has never had one.
+    // Full audit (every structure keyed by channel_msg_id: must-scrub / harmless-and-why) at the definition
+    // (node_channel.cpp) — READ IT before "completing" anything it deliberately leaves alone.
+    void purge_team_channel_state();
 #else
     void clear_team_routing_state() {}   // §featuresplit: no team plane compiled in -> nothing to clear
+    void purge_team_channel_state() {}   // §featuresplit: no team plane -> a team-flavored channel row can never exist
 #endif
     // §clean-team (2026-07-27, owner bench report "when creating a new team / joining a team, existing team routes need
     // to be cleared"): THE team-switch entry point — every LIVE writer of _cfg.team_id goes through here (`team new`,
