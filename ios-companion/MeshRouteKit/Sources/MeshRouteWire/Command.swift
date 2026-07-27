@@ -75,6 +75,12 @@ public enum Command: Hashable, Sendable {
     case mobileRegister                           // "mobile register" — (re-)register on the current PHY
     case mobileRegisterScan                       // "mobile register scan" — cycle the learned networks
     case mobileRegisterTarget(freqKHz: Int, sf: Int, bwHz: Int)   // target a `mobile_net` row (integer wire units → MHz/kHz tokens)
+    /// Provision a team from a scanned team QR (team-encrypted-channel T-K4): the overlay/PHY params AND
+    /// the team channel keypair in one verb. ⚠ The exact token names are the firmware's to confirm when
+    /// the slice lands (spec §1 `team new key=… freq= sf= bw= sf_list=…` + §2.4 `tkpub=`/`tkpriv=`).
+    case teamProvision(teamIDHex: String, freqMHz: Double, bwKHz: Double, ctrlSF: Int,
+                       sfList: String, cr: Int, tkPubHex: String, tkPrivHex: String)
+    case teamGrantKey(KeyHash)                    // "team grantkey 0x<hash>" — sealed TEAM_KEY_GRANT to a vetted joiner (T-K3)
     // Leaf provisioning (R6 / D26) — key=value wire (2026-07-03, mirrors gateway; order-free). live, no reboot. freq = MHz (float); bw = kHz (FRACTIONAL — 62.5/41.67/31.25); dutyPercent = % (FRACTIONAL — 0.1 = the tight EU sub-band); layer=1..255 network id (wire leaf nibble = layer & 0x0F).
     case join(freqMHz: Double, bwKHz: Double, ctrlSF: Int, layer: Int)
     case createLeaf(freqMHz: Double, bwKHz: Double, ctrlSF: Int, layer: Int, sfList: String, dutyPercent: Double, name: String)
@@ -123,6 +129,11 @@ public enum Command: Hashable, Sendable {
         case .mobileRegisterTarget(let khz, let sf, let bwHz):
             // wire args: freq in MHz (float token), bw in kHz (may be fractional — 62500 Hz → "62.5")
             return "mobile register freq=\(Self.freqToken(Double(khz) / 1000)) sf=\(sf) bw=\(Self.freqToken(Double(bwHz) / 1000))"
+        case .teamProvision(let id, let f, let bw, let sf, let sfList, let cr, let pub, let priv):
+            let sfs = sfList.replacingOccurrences(of: " ", with: "")
+            return "team key=\(id) freq=\(Self.freqToken(f)) bw=\(Self.freqToken(bw)) sf=\(sf)"
+                 + " sf_list=\(sfs) cr=\(cr) tkpub=\(pub) tkpriv=\(priv)"
+        case .teamGrantKey(let h):          return "team grantkey 0x\(h.hex8)"
         case .join(let f, let bw, let sf, let lyr):
             return "join layer=\(lyr) freq=\(Self.freqToken(f)) bw=\(Self.freqToken(bw)) sf=\(sf)"      // key=value; bw compact (62.5 / 125), wire leaf nibble = layer & 0x0F
         case .createLeaf(let f, let bw, let sf, let lyr, let sfList, let duty, let name):

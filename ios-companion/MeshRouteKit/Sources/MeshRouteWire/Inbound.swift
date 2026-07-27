@@ -196,12 +196,18 @@ public struct NodeConfigInfo: Hashable, Sendable, Codable {
     public let e2eDm: Bool?      // the node's default DM-encrypt toggle (`cfg set e2e_dm`); nil until firmware emits it
     public let mobileAutoregister: Bool?   // D30/S1: 1 = node self-registers/roams; 0 = the APP drives it (nil = pre-mobile fw)
     public let teamID: String?             // D30/S1: team_id hex string — ALWAYS present in cfg ("00000000" = unset)
+    // Team CONTENT keypair (team-encrypted-channel T-K1, PLANNED). ⚠ PROVISIONAL field names — mirrored from
+    // the provisioning params (`tkpub=`/`tkpriv=`); confirm when the slice lands. Absent ⇒ nil ⇒ the app
+    // simply can't render/share a team QR yet (it never invents key material).
+    public let teamChPub: String?
+    public let teamChPriv: String?
     enum CodingKeys: String, CodingKey {
         case nodeID = "node_id", freqHz = "freq_hz", routingSF = "routing_sf", sfList = "sf_list",
              bwHz = "bw_hz", cr, txPower = "tx_power", dutyX1000 = "duty_x1000", lbt, beaconMs = "beacon_ms",
              hopCap = "hop_cap", leafID = "leaf_id", gateway, mobile, bleMode = "ble_mode",
              blePeriod = "ble_period", blePin = "ble_pin", latE7 = "lat_e7", lonE7 = "lon_e7", e2eDm = "e2e_dm",
-             mobileAutoregister = "mobile_autoregister", teamID = "team_id"
+             mobileAutoregister = "mobile_autoregister", teamID = "team_id",
+             teamChPub = "tkpub", teamChPriv = "tkpriv"
     }
     public var freqMHz: Double { Double(freqHz) / 1_000_000 }
     public var dutyPercent: Double { Double(dutyX1000) / 10 }   // 100 → 10.0 %
@@ -244,6 +250,9 @@ public enum Inbound: Hashable, Sendable {
     case mobileNet(layer: Int, name: String?, freqKHz: Int, sf: Int, bwHz: Int)   // a learned network row (roam-UI target)
     case mobileGatewaysEnd(gws: Int, nets: Int)                               // gateways-stream terminator
     case mobileError(reason: String)                                          // e.g. "not_mobile" — a `mobile` verb on a static node
+    // ---- team encrypted channel (T-K2/T-K3; PLANNED — names ratified 2026-07-26, exact fields land with the slice) ----
+    case teamKeyReceived(team: String?, name: String?)                        // a keyholder granted us the team content key
+    case teamChannelNoKey(team: String?)                                      // an encrypted team post we can't read → "ask a teammate for the key"
     case inboxEntry(InboxEntry)                                       // one record from a pull_inbox stream
     case inboxEnd(dmSeq: UInt32, chanSeq: UInt32, epoch: UInt32?, count: Int, nowMs: UInt64?)  // pull done: newest seqs, served epoch, #streamed, uptime anchor
     case event(type: String, fields: [String: JSONValue])             // generic / future events
@@ -377,6 +386,12 @@ public enum PushDecoder {
             if let m = try? decoder.decode(MobileGwEnd.self, from: data) { return .mobileGatewaysEnd(gws: m.gws, nets: m.nets) }
         case "mobile_err":
             if let m = try? decoder.decode(ReasonEvent.self, from: data) { return .mobileError(reason: m.reason) }
+        case "team_key_received":                                      // T-K3 (planned): tolerant — both fields optional
+            let m = try? decoder.decode(TeamKeyEvent.self, from: data)
+            return .teamKeyReceived(team: m?.team, name: m?.name)
+        case "team_channel_no_key":                                    // T-K2 (planned): rate-limited un-keyed drop
+            let m = try? decoder.decode(TeamKeyEvent.self, from: data)
+            return .teamChannelNoKey(team: m?.team)
         case "inbox_dm":
             if let m = try? decoder.decode(InboxDM.self, from: data) {
                 let receipt = (m.type == "e2e_ack")     // a delivery RECEIPT rides the DM seq-cursor — NOT a message (D25)
@@ -424,6 +439,7 @@ public enum PushDecoder {
     private struct MobileGw: Decodable { let gw: Int; let leaf: Int }
     private struct MobileNet: Decodable { let layer: Int; let name: String?; let freq_khz: Int; let sf: Int; let bw_hz: Int }
     private struct MobileGwEnd: Decodable { let gws: Int; let nets: Int }
+    private struct TeamKeyEvent: Decodable { let team: String?; let name: String? }   // planned team pushes (T-K2/T-K3)
     private struct ReasonEvent: Decodable { let reason: String }                              // peerkey_err
     private struct InboxDM: Decodable { let seq: UInt32; let origin: Int; let ctr: Int; let sender_hash: UInt32?; let layer_id: Int?; let enc: Bool?; let type: String?; let rx_ms: UInt64; let body: String }   // enc = CRYPTED indicator; type "e2e_ack" = a delivery receipt (D25)
     private struct E2eAck: Decodable { let origin: Int; let ctr: Int; let sender_hash: UInt32? }   // live e2e_acked: origin = the dst that CONFIRMED delivery

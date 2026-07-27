@@ -124,8 +124,11 @@ struct NodeView: View {
                     }
                 }
 
-                // ---- details & advanced (de-cluttered into a subscreen) ----
+                // ---- settings + details/advanced (de-cluttered into subscreens) ----
                 Section {
+                    NavigationLink { SettingsView() } label: {
+                        Label("Settings", systemImage: "gearshape")
+                    }
                     NavigationLink { AdvancedNodeView() } label: {
                         Label("Diagnostics & details", systemImage: "wrench.and.screwdriver")
                     }

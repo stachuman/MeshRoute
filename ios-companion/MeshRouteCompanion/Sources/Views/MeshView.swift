@@ -13,6 +13,8 @@ struct MeshView: View {
     @State private var filter: MeshFilter = .all
     @State private var search = ""
     @State private var showAddTeammate = false
+    @State private var showShareTeam = false        // T-K4 team QR
+    @State private var showScanTeam = false
     @State private var appliedTeamDefault = false   // D31 adaptive: default to the Team filter once per session
 
     enum MeshFilter: String, CaseIterable, Identifiable {
@@ -61,13 +63,21 @@ struct MeshView: View {
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) { ConnectionPill() }
-                if model.teamID != nil {          // D30: teammate bootstrap (bare-id team-scoped reqpubkey)
-                    ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    if model.teamID != nil {      // D30: teammate bootstrap (bare-id team-scoped reqpubkey)
                         Button { showAddTeammate = true } label: { Image(systemName: "person.3.sequence") }
+                        Menu {                    // T-K4: the team QR — share (creator) / scan (joiner)
+                            Button { showShareTeam = true } label: { Label("Share team QR…", systemImage: "qrcode") }
+                            Button { showScanTeam = true } label: { Label("Scan team QR…", systemImage: "qrcode.viewfinder") }
+                        } label: { Image(systemName: "square.and.arrow.up") }
+                    } else {
+                        Button { showScanTeam = true } label: { Image(systemName: "qrcode.viewfinder") }
                     }
                 }
             }
             .sheet(isPresented: $showAddTeammate) { AddTeammateSheet() }
+            .sheet(isPresented: $showShareTeam) { ShareTeamView() }
+            .sheet(isPresented: $showScanTeam) { ScanTeamView() }
         }
     }
 
@@ -118,6 +128,15 @@ private struct TeamStatusCard: View {
                 Spacer()
                 Text("\(memberCount) member\(memberCount == 1 ? "" : "s")")
                     .font(.caption).foregroundStyle(.secondary)
+            }
+            if let prompt = model.teamKeyPrompt {   // T-K2: an encrypted post we can't read
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "key.slash").foregroundStyle(.orange)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(prompt).font(.caption)
+                        Button("Dismiss") { model.dismissTeamKeyPrompt() }.font(.caption2).buttonStyle(.plain)
+                    }
+                }
             }
             HStack(spacing: 10) {
                 if let chat = model.teamChatThread() {
@@ -210,6 +229,12 @@ struct NodeDetailView: View {
                     if model.teamID != nil {   // D30: the team-scoped handshake (provisions E2E + names, both ways)
                         Button { model.requestPubkey(node.keyHash, team: true) } label: {
                             Label("Request key (team)", systemImage: "person.3.sequence")
+                        }
+                    }
+                    // T-K3: grant the team CONTENT key to a vetted teammate (sealed DM; any keyholder may grant)
+                    if node.teamID != nil, node.teamID == model.teamID, model.teamHasKey != false {
+                        Button { model.grantTeamKey(to: node.keyHash) } label: {
+                            Label("Grant team key", systemImage: "key.fill")
                         }
                     }
                 }

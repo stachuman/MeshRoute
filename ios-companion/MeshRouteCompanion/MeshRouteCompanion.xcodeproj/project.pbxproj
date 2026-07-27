@@ -8,9 +8,11 @@
 
 /* Begin PBXBuildFile section */
 		03AD8931137D46286A121223 /* QRViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3053E61FBD049383E94E111C /* QRViews.swift */; };
+		1C0493F695EFA73405F40C04 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4AFF52A15686E7F7CDADB8A1 /* SettingsView.swift */; };
 		1C5030936052E598B3A58373 /* BLENodeLink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 76FE05DE01E564E0101E2F60 /* BLENodeLink.swift */; };
 		25A382FFF6D2DA2A61332C14 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69E57ACBFD76D391F3B1D0A0 /* RootView.swift */; };
 		3CEFB972BFC98D2E6F587B66 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = CE9556D47DD04EC1DB189B90 /* Assets.xcassets */; };
+		3FB80A979C3E3583E147DD85 /* TeamQRViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4482AE7A455AD42292F8954C /* TeamQRViews.swift */; };
 		4213601359384378EBE25DCE /* MeshView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D3173A4991A1218AC36FFB7 /* MeshView.swift */; };
 		45442516FE409FF6E12263F9 /* MeshRouteCompanionApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 33249ED1CF44D17B65F03D14 /* MeshRouteCompanionApp.swift */; };
 		48C496667DD1226C3A10B762 /* AddContactView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E324A919DFB410717DD80F85 /* AddContactView.swift */; };
@@ -34,7 +36,9 @@
 		2D3173A4991A1218AC36FFB7 /* MeshView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshView.swift; sourceTree = "<group>"; };
 		3053E61FBD049383E94E111C /* QRViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QRViews.swift; sourceTree = "<group>"; };
 		33249ED1CF44D17B65F03D14 /* MeshRouteCompanionApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeshRouteCompanionApp.swift; sourceTree = "<group>"; };
+		4482AE7A455AD42292F8954C /* TeamQRViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TeamQRViews.swift; sourceTree = "<group>"; };
 		4AD285ABA097FFD10C738217 /* NodeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeView.swift; sourceTree = "<group>"; };
+		4AFF52A15686E7F7CDADB8A1 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		6267E72E0E2DA66D814C2872 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
 		67E8C842CD555400A322FFFA /* NodeInfoViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NodeInfoViews.swift; sourceTree = "<group>"; };
 		69E57ACBFD76D391F3B1D0A0 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
@@ -77,6 +81,8 @@
 				4AD285ABA097FFD10C738217 /* NodeView.swift */,
 				3053E61FBD049383E94E111C /* QRViews.swift */,
 				69E57ACBFD76D391F3B1D0A0 /* RootView.swift */,
+				4AFF52A15686E7F7CDADB8A1 /* SettingsView.swift */,
+				4482AE7A455AD42292F8954C /* TeamQRViews.swift */,
 				B5C578558F1BC38A4B6A34A4 /* ThreadsListView.swift */,
 				EEF796C1DC75D1460CA1B31B /* ThreadView.swift */,
 			);
@@ -237,6 +243,8 @@
 				9C6FEBD4AE1DD462A347C81E /* NodeView.swift in Sources */,
 				03AD8931137D46286A121223 /* QRViews.swift in Sources */,
 				25A382FFF6D2DA2A61332C14 /* RootView.swift in Sources */,
+				1C0493F695EFA73405F40C04 /* SettingsView.swift in Sources */,
+				3FB80A979C3E3583E147DD85 /* TeamQRViews.swift in Sources */,
 				EFE948C5B3A0387F44E5A6B1 /* ThreadView.swift in Sources */,
 				F9A43713879E2AB382DB2B13 /* ThreadsListView.swift in Sources */,
 			);

@@ -37,6 +37,11 @@ final class AppModel {
     private(set) var mobileState: MobileState?        // nil = the connected node is not a mobile
     private(set) var teamID: String?                  // team_id hex string; nil = no team
     private(set) var teamLocal: Int?                  // our own id on the team overlay
+    /// Team CONTENT-key state (team-encrypted-channel spec): membership ≠ readability. nil = unknown
+    /// (pre-slice firmware), true = we hold the key (can read encrypted posts), false = un-keyed overlay
+    /// member (we relay but can't read → prompt "ask a teammate for the key").
+    private(set) var teamHasKey: Bool?
+    private(set) var teamKeyPrompt: String?           // set by team_channel_no_key; cleared on a grant
     private(set) var latestMobileStatus: MobileStatusInfo?
     // Roam screen data (D30/S3): the `mobile gateways` stream, swapped in at mobile_gw_end (the routes pattern).
     private(set) var mobileGateways: [MobileGatewayRow] = []
@@ -216,6 +221,11 @@ final class AppModel {
             mobileGwAccum = []; mobileNetAccum = []
         case .mobileError:
             break   // e.g. not_mobile — visible in the console
+        case .teamKeyReceived:                       // a keyholder granted us the content key → we can read now
+            teamHasKey = true; teamKeyPrompt = nil
+        case .teamChannelNoKey:                      // an encrypted post we can't open
+            teamHasKey = false
+            teamKeyPrompt = "Encrypted team post — ask a teammate to grant you the team key."
         case .peerKeySet, .peerKeyError, .reqPubkeySent:
             break   // provisioning results — visible in the console for now
         case .hashResolved(let node, _, let hash) where node != 0:
@@ -545,6 +555,36 @@ final class AppModel {
         if let m = (try? context.fetch(d))?.first { return m.threadKey }
         return .teamChannel(team: team, channel: 1)
     }
+
+    /// Provision this node from a scanned TEAM QR (T-K4): PHY params + the team content keypair in one verb.
+    /// The app never inspects the keys — opaque hex, straight through (D6).
+    func provisionTeam(from card: TeamCard) {
+        sendCommand(.teamProvision(teamIDHex: card.teamIDHex, freqMHz: card.freqMHz, bwKHz: card.bwKHz,
+                                   ctrlSF: Int(card.routingSF), sfList: card.sfList.map(String.init).joined(separator: ","),
+                                   cr: Int(card.cr), tkPubHex: card.teamChPubHex, tkPrivHex: card.teamChPrivHex))
+        sendCommand(.whoami)                          // refresh membership/team state after provisioning
+        teamHasKey = true; teamKeyPrompt = nil
+    }
+    /// Build the shareable TEAM QR from the connected node's team + PHY + content keypair. nil until the
+    /// node actually holds/exposes a key (the app NEVER invents key material) — the share screen then shows
+    /// its empty state. Depends on the T-K1 cfg fields (provisional names, see NodeConfigInfo).
+    func teamShareCard() -> TeamCard? {
+        guard let team = teamID, let idValue = UInt32(team, radix: 16), idValue != 0,
+              let cfg = latestConfig,
+              let pub = cfg.teamChPub, pub.count == 64,
+              let priv = cfg.teamChPriv, priv.count == 64 else { return nil }
+        let sfBitmap = cfg.sfList.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
+            .reduce(UInt16(0)) { $0 | (1 << UInt16($1)) }
+        return TeamCard(teamName: membership?.leaf ?? nodeIdentity?.name ?? "",
+                        teamID: idValue,
+                        freqKHz: UInt32(cfg.freqHz / 1000), bwHz: cfg.bwHz,
+                        routingSF: UInt8(clamping: cfg.routingSF), sfListBitmap: sfBitmap,
+                        cr: UInt8(clamping: cfg.cr), teamChPubHex: pub, teamChPrivHex: priv)
+    }
+
+    /// Grant the team content key to a vetted newjoiner (T-K3, sealed DM). Any keyholder may grant.
+    func grantTeamKey(to hash: KeyHash) { sendCommand(.teamGrantKey(hash)) }
+    func dismissTeamKeyPrompt() { teamKeyPrompt = nil }
 
     /// A teammate row by their team-local id (a DISTINCT id space — never matched against static ids).
     private func teamMember(localID: Int, team: String) -> NodeEntity? {
@@ -974,6 +1014,8 @@ func describe(_ inbound: Inbound) -> String {
     case .mobileNet(let ly, let n, let f, let sf, _): return "mobile_net L\(ly) \(n ?? "?") \(f)kHz SF\(sf)"
     case .mobileGatewaysEnd(let g, let n):         return "mobile_gw_end gws=\(g) nets=\(n)"
     case .mobileError(let r):                      return "mobile_err \(r)"
+    case .teamKeyReceived(let t, let n):           return "team_key_received\(t.map { " team=\($0)" } ?? "")\(n.map { " \"\($0)\"" } ?? "")"
+    case .teamChannelNoKey(let t):                 return "team_channel_no_key\(t.map { " team=\($0)" } ?? "") — ask a teammate for the key"
     case .hashResolved(let n, let a, let h):       return "hash_resolved \(h.hex8) → node \(n)\(a ? " (auth)" : "")"
     case .ready(let r):                            return "ready id=\(r.id) key=\(r.key.hex8) sf=\(r.routingSF)"
     case .status(let s):                           return "status id=\(s.id) \(s.state) up=\(s.uptimeMs.map(String.init) ?? "—") routes=\(s.routes.map(String.init) ?? "—")"

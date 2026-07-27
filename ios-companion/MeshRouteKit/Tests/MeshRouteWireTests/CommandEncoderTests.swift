@@ -85,6 +85,16 @@ final class CommandEncoderTests: XCTestCase {
                        "mobile register freq=869 sf=7 bw=62.5")
     }
 
+    func testTeamKeyVerbs() {     // team-encrypted-channel T-K3/T-K4 (⚠ token names pending firmware confirmation)
+        XCTAssertEqual(Command.teamProvision(teamIDHex: "cccc0001", freqMHz: 869.525, bwKHz: 125, ctrlSF: 9,
+                                             sfList: "7, 9", cr: 5,
+                                             tkPubHex: String(repeating: "ab", count: 32),
+                                             tkPrivHex: String(repeating: "cd", count: 32)).line,
+                       "team key=cccc0001 freq=869.525 bw=125 sf=9 sf_list=7,9 cr=5 tkpub="
+                       + String(repeating: "ab", count: 32) + " tkpriv=" + String(repeating: "cd", count: 32))
+        XCTAssertEqual(Command.teamGrantKey(KeyHash(0x8a3f_1c02)).line, "team grantkey 0x8a3f1c02")
+    }
+
     func testResolve() {
         XCTAssertEqual(Command.resolve(.init(hash: KeyHash(0x01))).line, "resolve 0x00000001")
         XCTAssertEqual(Command.resolve(.init(hash: KeyHash(0x01), hard: true)).line, "resolve 0x00000001 hard")
