@@ -204,7 +204,13 @@ void handle_cfg_set(const char* args, Print& out) {
     // gateway BUILD, MR_GATEWAY_BUILD; non-configurable so the companion's reported `gateway` is reliable).
     else if (!strcmp(key, "gateway_only")) { lc.gateway_only = (atoi(val) != 0 || !strcmp(val, "true")); b.gateway_only = lc.gateway_only ? 1 : 0; }
     else if (!strcmp(key, "mobile"))       { lc.is_mobile    = (atoi(val) != 0 || !strcmp(val, "true")); b.is_mobile    = lc.is_mobile    ? 1 : 0; }
-    else if (!strcmp(key, "team_id"))      { lc.team_id      = (uint32_t)strtoul(val, nullptr, 0); b.team_id = lc.team_id; }   // §mobile 6.1: JOIN a team (LIVE + persist; reboot-to-apply like `mobile`)
+    // §mobile 6.1: JOIN a team (LIVE + persist; reboot-to-apply like `mobile`). §clean-team (2026-07-27): routed through
+    // the SAME core switch as `team new`/`team <id>` — this raw key was the SECOND live team-switch path and cleared
+    // nothing at all, not even the stale team-DAD id. b.team_local_id must be re-read after the switch or a reboot would
+    // resurrect the OLD team's id as CONFIRMED on the new team. (No team_dad_fire here — as before, this key is
+    // reboot-to-apply; a mobile's FSM tick re-DADs on _team_local_id==0, node_mobile.cpp:30.)
+    else if (!strcmp(key, "team_id"))      { (void)g_node.set_team_id((uint32_t)strtoul(val, nullptr, 0));
+                                             b.team_id = lc.team_id; b.team_local_id = g_node.team_local_id(); }
     else if (!strcmp(key, "mobile_autoregister")) { lc.mobile_autoregister = (atoi(val)!=0 || !strcmp(val,"true")); b.mobile_autoregister = lc.mobile_autoregister?1:0; }   // §mobile console: autonomy toggle (LIVE + persist)
     // --- BLE companion policy: PERSISTED, reboot-to-apply (the stack inits at boot from these). Invalid input
     //     is REJECTED (fail loud), never silently defaulted. ---
@@ -646,9 +652,10 @@ void handle_team(const char* args, Print& out) {
             return;   // NOT joined/minted: team_id, _team_local_id, NV all unchanged
         }
     }
-    const bool team_switched = (c.team_id != t);              // §6.4: capture BEFORE the mutable set (c is a live ref)
-    if (team_switched) g_node.set_team_local_id(0);           // §6.4: leaving OR switching teams -> drop the stale team-DAD id (0 = left; a re-DAD picks a fresh one for the new team)
-    g_node.mutable_config().team_id = t;                     // LIVE (team_dad_fire reads _cfg.team_id)
+    // §clean-team (2026-07-27): ONE core call does the whole switch — drop the OLD team's learned plane (_rt_team /
+    // _team_peer / team liveness / the team KEY CACHE / team RREQ ledgers) and the stale team-DAD id, then adopt the new
+    // team_id LIVE. Returns false on a same-team no-op (`team <current_id>`), which clears nothing and skips the re-DAD.
+    const bool team_switched = g_node.set_team_id(t);
     if (c.is_mobile && t != 0 && team_switched) g_node.team_dad_fire();   // §6.4: bootstrap the team plane (self-assign a _team_local_id, no static host needed)
     b.node_id       = g_node.canonical_node_id();            // §6.4: team_dad_fire may have MOVED node_id (off-grid: node_id==team id) -> persist the live id, don't re-save the stale one loaded at entry
     b.team_local_id = g_node.team_local_id();                // §6.4: persist the fresh id (or 0 on leave) alongside team_id

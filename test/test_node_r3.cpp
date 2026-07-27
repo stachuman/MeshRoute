@@ -3222,12 +3222,18 @@ TEST_CASE("M6 — nav_duration_rts clamps payload_len (255 == max_payload_bytes_
     NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);   // max SF12
     node.on_init(cfg);
     const uint8_t sf = 12;
-    const uint32_t d_cap = node.test_nav_duration_rts(sf, protocol::max_payload_bytes_hard_cap);
-    const uint32_t d_255 = node.test_nav_duration_rts(sf, 255);
+    const uint8_t cr = node.active_cr();   // §rts-cr-overhear: the peer CR is a parameter now; this test is about the clamp, so hold it fixed
+    const uint32_t d_cap = node.test_nav_duration_rts(sf, protocol::max_payload_bytes_hard_cap, cr);
+    const uint32_t d_255 = node.test_nav_duration_rts(sf, 255, cr);
     CHECK(d_255 == d_cap);                                  // the forged 255 is clamped to the hard cap
     // A below-cap value is still honoured (the clamp only caps, never floors) -> smaller than the capped duration.
-    const uint32_t d_small = node.test_nav_duration_rts(sf, 32);
+    const uint32_t d_small = node.test_nav_duration_rts(sf, 32, cr);
     CHECK(d_small < d_cap);
+    // ★ §rts-cr-overhear: the clamp must bind at EVERY advertised CR — the forged-255 attack must not reopen
+    // just because the attacker also advertises cr8 (the clamp runs before the airtime call, so it does not).
+    for (uint8_t peer_cr = 5; peer_cr <= 8; ++peer_cr)
+        CHECK(node.test_nav_duration_rts(sf, 255, peer_cr) == node.test_nav_duration_rts(sf, protocol::max_payload_bytes_hard_cap, peer_cr));
+    CHECK(node.test_nav_duration_cts(sf, 255, 5) == node.test_nav_duration_cts(sf, protocol::max_payload_bytes_hard_cap, 5));   // twin clamp on the CTS helper
 }
 
 // R6.1 §6.4: the membership gate must cover F (route-discovery is the bypass around the beacon gate). A divergent-config

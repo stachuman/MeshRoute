@@ -59,9 +59,17 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // is not a DM originator; counting it would DM-throttle honest gossipers (Lua dv:9709 `elseif
     // r.m_broadcast`). The become_free self-cap already exempts M_BROADCAST (Inc 4); this is the
     // RTS-observation half. Draw-free + inert until M_BROADCAST RTS flows (Phase 2 channel responder).
+    // ✔ §rts-cr-overhear (2026-07-27) — CONVERTED, and this site was MISSED by the audit that scoped the
+    // slice: it bills at the sender's CR via airtime_routing_ms(), which calls active_cr() INSIDE (node_mac.cpp),
+    // so a grep for "active_cr()" does not list it. It is the RTS half of the SAME anti-spam ledger whose DATA
+    // half is converted at handle_data below — one ledger, one quantity ("airtime this sender imposed on us"),
+    // so billing the two halves at different coding rates would be incoherent. Expanded inline rather than
+    // through airtime_routing_ms because only the CR differs (SF/BW are ours: we received it on our routing SF).
     if (!(r.rts_flags & RTS_FLAG_RELAY) && !r.m_broadcast && !r.mobile_src)   // §mobile 3b A1: a mobile_src RTS's src is a LOCAL id, not a global identity -> skip the src-keyed track (accountability rides origin=home_id)
         track_originator_observation(r.src, /*kind=rts*/0, r.ctr_lo,
-                                     static_cast<uint32_t>(airtime_routing_ms(static_cast<int>(len))));
+                                     static_cast<uint32_t>(airtime_ms(_cfg.routing_sf, active_bw_hz(),
+                                         rts_cr_decode(r.cr_adv), protocol::preamble_sym,
+                                         static_cast<uint16_t>(len))));
     // Learn the RTS sender as a 1-hop neighbour — any RTS, overheard or addressed (Lua learn_rx_source).
     // §mobile 3b A1 (the load-bearing collision fix): NEVER learn a mobile's LOCAL id as a global neighbour — it can
     // collide a global id, and then rt_find(that id) would resolve to the mobile so a mobile's E2E-ACK to the colliding
@@ -144,14 +152,21 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                         // is +4 B (the team_id tail, M_FRAME_TEAM_HDR_LEN=11) -> size the window for it or the frame is
                         // dropped at data SF>=10 (the +4 B airtime exceeds the 30 ms margin).
                         const uint16_t m_hdr = r.mobile_src ? M_FRAME_TEAM_HDR_LEN : M_FRAME_HDR_LEN;
-                        // ⚠ §rts-cr — SAME BUG CLASS AS start_pending_rx_expiry, DELIBERATELY NOT CONVERTED HERE.
-                        // This is an OVERHEARER's retune window for the sender's M frame, so active_cr() is the
-                        // wrong CR for exactly the same reason. The datum is already in hand (rts_cr_decode(r.cr_adv)
-                        // — a one-token change), but NO corpus scenario overhears a channel flood from a
-                        // different-CR sender, so the conversion would be unvalidatable by the gate. Left for the
-                        // slice that can prove it. Twin site at the M_BROADCAST retune below.
+                        // ✔ §rts-cr-overhear (2026-07-27) — CONVERTED. This is an OVERHEARER's retune window for
+                        // the SENDER's M frame, so the CR that sizes it is the sender's, not ours: rts_cr_decode
+                        // (r.cr_adv), the same datum start_pending_rx_expiry consumes off PendingRx. With
+                        // active_cr() an overhearer at cr5 retuned back BEFORE a cr8 sender's M frame finished
+                        // (up to 1.6x on the payload term) and lost it to drop_sf_mismatch — the same defect that
+                        // cost s32 26 data_rx_timeouts, just on the channel plane instead of the DM plane.
+                        // ★ MEASURED in s33_mixed_cr_channel_overhear (cr8 gateway leaves 119/120 flood to cr5
+                        // leaves): channel_msg_received 26 -> 35, channel_msg_overheard 17 -> 26, and because
+                        // the overhearers now CATCH those 9 frames, channel_pull_sent 10 -> 1 — nine repair
+                        // pulls that no longer have to happen, plus the contention they cost (tx_lbt_defer
+                        // 17 -> 7, collision 8 -> 4). Reverting THIS ONE LINE to active_cr() puts every one of
+                        // those counters back, so the win is attributable here and nowhere else. Before s33
+                        // existed the site was unvalidatable, which is why §rts-cr deferred it. Twin below.
                         const uint32_t back = protocol::cts_to_data_gap_ms
-                            + airtime_ms(data_sf, active_bw_hz(), active_cr(), protocol::preamble_sym,
+                            + airtime_ms(data_sf, active_bw_hz(), rts_cr_decode(r.cr_adv), protocol::preamble_sym,
                                          static_cast<uint16_t>(r.payload_len + m_hdr)) + 30 + _hal.rx_window_slop_ms(data_sf);
                         (void)_hal.after(back, kOverhearRetuneTimerId);
                         MR_EMIT("channel_overhear_armed", EF_I("sender", r.src), EF_I("chosen_data_sf", data_sf), EF_B("flood", true));
@@ -159,8 +174,19 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                         // next-hop likely retuned for it too, so the CTS won't arrive until the flood clears. Push our
                         // CTS-timeout past it (no retry burned) -> catch the channel msg AND keep the DM retry, instead
                         // of today's "miss the CTS on the wrong SF -> timeout -> burn a retry" with the flood caught anyway.
+                        // §rts-cr-overhear: nav_duration_cts is used here only as a DATA+ACK duration estimator
+                        // and the frame being estimated is THIS FLOOD's M frame, whose sender advertised its CR
+                        // in the RTS we are holding. So — unlike the two genuine overheard-CTS callers — this
+                        // one CAN state the peer's CR, and does. (This caller is why the CR is a parameter of
+                        // nav_duration_cts rather than a hardcoded active_cr() inside it.)
+                        // ⚠ CURRENTLY UNREACHABLE, and that is the honest coverage statement: the guard's first
+                        // term is the compile-time constant protocol::flood_yield_grab_enable == 0 (Part B was
+                        // shipped OFF — "UNTESTED, twin has no floods"). A poison probe here moves 0/30 and the
+                        // corpus emits ZERO reserve_yield events. So this conversion is correct-by-inspection
+                        // and inert today; it becomes live the day Part B is enabled. Nothing tests it.
                         if (protocol::flood_yield_grab_enable && _active->_pending_tx && _active->_pending_tx->awaiting_cts)
-                            reserve_yield(nav_duration_cts(data_sf, static_cast<uint8_t>(protocol::reserve_est_payload_bytes)));
+                            reserve_yield(nav_duration_cts(data_sf, static_cast<uint8_t>(protocol::reserve_est_payload_bytes),
+                                                           rts_cr_decode(r.cr_adv)));
                     }
                 }
             }
@@ -178,11 +204,17 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             // (drop_sf_mismatch). The +30 is the sim's ideal margin; rx_window_slop_ms adds the REAL metal
             // RX_DONE/SPI turnaround (ZERO on the sim; the same slop start_pending_rx_expiry carries).
             const uint16_t m_hdr = r.mobile_src ? M_FRAME_TEAM_HDR_LEN : M_FRAME_HDR_LEN;   // §mobile 6.3: a team M-frame is +4 B (team_id tail) — size for it or it drops at data SF>=10
-            // ⚠ §rts-cr — the twin of the FLOOD retune above: same wrong-CR bug, same available fix
-            // (rts_cr_decode(r.cr_adv)), same reason it is NOT done here — no corpus scenario overhears an
-            // M_BROADCAST from a different-CR sender, so the gate cannot see the change.
+            // ✔ §rts-cr-overhear — the twin of the FLOOD retune above, converted with it: the M frame is the
+            // SENDER's, so it is sized at the sender's advertised CR. ⚠ COVERAGE IS WEAKER HERE THAN AT THE
+            // TWIN, and measured 2026-07-27 rather than assumed. This line EXECUTES ~676x corpus-wide (s15,
+            // s15_metal, s17, sim_9node_base) — a poison probe here moves 5/30 scenarios — but EVERY one of
+            // those senders is cr5, so the conversion is value-inert: reverting this site alone to active_cr()
+            // moves NOTHING. Even s33, the mixed-CR channel scenario, reaches the FLOOD twin 28x and this site
+            // exactly ONCE, from a cr5 sender. ⇒ the ONLY regression detector for the mixed-CR behaviour is
+            // the native test "§rts-cr-overhear: the M_BROADCAST retune window is sized for the SENDER's CR".
+            // OWED: a scenario in which a cr8 node answers a CHANNEL_PULL (an M_BROADCAST RTS-M, not a flood).
             const uint32_t back = protocol::cts_to_data_gap_ms
-                + airtime_ms(data_sf, active_bw_hz(), active_cr(), protocol::preamble_sym,
+                + airtime_ms(data_sf, active_bw_hz(), rts_cr_decode(r.cr_adv), protocol::preamble_sym,
                              static_cast<uint16_t>(r.payload_len + m_hdr)) + 30 + _hal.rx_window_slop_ms(data_sf);
             (void)_hal.after(back, kOverhearRetuneTimerId);
             MR_EMIT("channel_overhear_armed", EF_I("id_lo16", r.m_payload_id_lo16), EF_I("sender", r.src), EF_I("target", r.next),
@@ -210,14 +242,23 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             const uint8_t nav_sf = (r.sf_index <= 2)
                 ? select_data_sf(r.sf_index, protocol::db_to_q4(meta.snr_db))   // pinned singleton -> the exact data SF
                 : max_data_sf();                                                // ANY(3) -> conservative (the receiver picks)
-            nav_arm(nav_duration_rts(nav_sf, r.payload_len));
+            // §rts-cr-overhear: the reserved DATA is the RTS SENDER's, so size it at the CR it advertised.
+            // Coverage: HEAVILY executed (a poison probe here moves 14/30 scenarios) but VALUE-inert on the
+            // corpus — every unicast RTS a scenario overhears comes from a cr5 sender, so reverting this to
+            // active_cr() moves nothing. The mixed-CR behaviour rests on the native test
+            // "§rts-cr-overhear: the NAV reservation from an overheard RTS uses the SENDER's CR".
+            nav_arm(nav_duration_rts(nav_sf, r.payload_len, rts_cr_decode(r.cr_adv)));
         }
         // Part A YIELD (spec 2026-06-28): the overheard RTS TARGETS our next-hop -> it's about to be occupied -> our
         // CTS/ACK can't come. Push our pending timeout past the reserve (max-SF est, LBT-backstopped), no retry burned.
         if (protocol::reserve_yield_enable && _active->_pending_tx
             && (_active->_pending_tx->awaiting_cts || _active->_pending_tx->awaiting_ack)
             && r.next == _active->_pending_tx->next)
-            reserve_yield(nav_duration_rts(max_data_sf(), static_cast<uint8_t>(protocol::reserve_est_payload_bytes)));
+            // §rts-cr-overhear: same exchange, same sender -> the same advertised CR sizes the estimate.
+            // ⚠ UNREACHABLE TODAY, same as the flood-yield twin: reserve_yield_enable is the compile-time
+            // constant 0 (Part A shipped off). Poison probe moves 0/30; zero reserve_yield events corpus-wide.
+            reserve_yield(nav_duration_rts(max_data_sf(), static_cast<uint8_t>(protocol::reserve_est_payload_bytes),
+                                           rts_cr_decode(r.cr_adv)));
         return;
     }
     // NAV: virtually busy under someone else's reservation -> (optionally) ignore this (new) addressed RTS;
@@ -368,6 +409,13 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // a local id here — the CTS carries no mark (flags nibble full, frames.md CTS-by-context) so an overhearer can't tell.
     // THROTTLE-ONLY (a stale window entry), never a route/deliver decision -> no misroute/misdeliver; a full fix needs a
     // CTS wire bit (a flag-day, not worth it for a throttle). own_mobile_team_cts is false on s18 -> byte-identical.
+    // ⚠ §rts-cr-overhear MISSING HERE, PERMANENTLY — the ledger's THIRD term, and the only one still billed at
+    // OUR CR. Same cause as the NAV site below: we hold a cts_out, and the CTS carries no CR (zero free bits;
+    // see node_mac.cpp above nav_duration_cts). The RTS and DATA halves of this ledger ARE billed at the
+    // sender's advertised CR, so on a mixed-CR mesh the three terms are no longer homogeneous — deliberate,
+    // because two-thirds right beats three-thirds wrong. Bounded: this is a fixed 4-B frame on the routing SF
+    // (single-digit ms) against a DATA term of hundreds, and the error direction is the same under-billing of
+    // heavier peers. Closing it needs the same CTS wire growth that was declined for NAV.
     const bool own_mobile_team_cts = for_me_dst(c.rx_id) && _active->_pending_tx
         && (next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next));
     if (!own_mobile_team_cts)
@@ -376,14 +424,20 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (!for_me_dst(c.rx_id)) {                           // overheard CTS (not clearing EITHER of our plane ids: node_id or team_local_id)
         // NAV: reserve the medium for the DATA+ACK this CTS just authorized (covers the hidden node near the
         // receiver that didn't hear the RTS). chosen_data_sf is exact; size assumed max (conservative).
-        if (_cfg.nav_enabled) nav_arm(nav_duration_cts(c.chosen_data_sf, c.payload_len));
+        // ⚠ §rts-cr-overhear MISSING HERE, PERMANENTLY: the DATA is the CLEARED node's (c.rx_id), at ITS CR,
+        // and we hold only a CTS — which has zero free bits to carry one (full analysis + direction of error
+        // + the two rejected wire fixes: node_mac.cpp, above nav_duration_cts). active_cr() is therefore a
+        // KNOWN-WRONG stand-in on a mixed-CR mesh, stated rather than hidden. Exact on a uniform-CR mesh.
+        if (_cfg.nav_enabled) nav_arm(nav_duration_cts(c.chosen_data_sf, c.payload_len, active_cr()));
         // Part A YIELD (spec 2026-06-28): the CTS sender is OUR next-hop -> it just cleared someone else and is about
         // to receive their DATA -> busy, our CTS/ACK can't come. Push our pending timeout past the reserve (½-max est,
         // LBT-backstopped) instead of timing out blind + burning a retry during it.
         if (protocol::reserve_yield_enable && _active->_pending_tx
             && (_active->_pending_tx->awaiting_cts || _active->_pending_tx->awaiting_ack)
             && c.tx_id == _active->_pending_tx->next)
-            reserve_yield(nav_duration_cts(c.chosen_data_sf, static_cast<uint8_t>(protocol::reserve_est_payload_bytes)));
+            // ⚠ §rts-cr-overhear MISSING, same permanent reason as the nav_arm above (the CTS carries no CR).
+            reserve_yield(nav_duration_cts(c.chosen_data_sf, static_cast<uint8_t>(protocol::reserve_est_payload_bytes),
+                                           active_cr()));
         return;
     }
     if (!_active->_pending_tx || !_active->_pending_tx->awaiting_cts) return;   // ctr_lo flight-match dropped: rx_id==me + tx_id==next (below) pin the flight
@@ -468,9 +522,16 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // airtime a sender imposes on us (RTS-only never approached the cap). Keyed on _active->_pending_rx->from
     // (== this hop's RTS src, so RTS+DATA accumulate in one entry; frame-derived, metal-correct) and
     // costed at the chosen data SF over the whole frame.
+    // ✔ §rts-cr-overhear (2026-07-27) — CONVERTED, and this one is an ACCOUNTABILITY fix, not a timing fix.
+    // The quantity is "airtime THIS SENDER imposed on us", so it must be costed at the CR the sender actually
+    // transmitted at (PendingRx.sender_cr, stashed from the RTS by handle_rts) — not active_cr(), OUR CR.
+    // Billing a peer's frame at our own rate mis-meters the duty/abuse cap: a cr8 sender was under-billed by
+    // up to 8/5 of its payload term against originator_airtime_share, so it could impose ~1.6x the airtime we
+    // charged it before the throttle bit. The error is signed and self-serving in the wrong direction — the
+    // heavier (costlier) the peer's CR, the more we under-charge it.
     if (!_active->_pending_rx->mobile_from)   // §mobile: a mobile/team DATA's src is a LOCAL id -> keep it OUT of the anti-spam ledger (mirror the RTS-anti-spam guard :40); accountability rides origin=home_id
         track_originator_observation(_active->_pending_rx->from, /*kind=data*/2, d.ctr_lo4,
-            airtime_ms(_active->_pending_rx->chosen_data_sf, active_bw_hz(), active_cr(),
+            airtime_ms(_active->_pending_rx->chosen_data_sf, active_bw_hz(), _active->_pending_rx->sender_cr,
                        protocol::preamble_sym, static_cast<uint16_t>(len)));
     int oa_app_; uint32_t orig_air; uint8_t oa_rts_, oa_cts_;   // sender's windowed airtime AFTER this DATA (calibration)
     compute_originator_metric(_active->_pending_rx->from, oa_app_, orig_air, oa_rts_, oa_cts_);

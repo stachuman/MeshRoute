@@ -829,24 +829,57 @@ void Node::tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind k
 // NAV (virtual carrier sense) duration helpers — pure, native-testable. Conservative: an overheard RTS
 // reserves CTS+DATA+ACK (DATA size known from payload_len, SF taken as our max = longest), a CTS reserves
 // DATA+ACK (SF exact from chosen_data_sf, size assumed max). Per-leg turnaround gaps included.
-uint32_t Node::nav_duration_rts(uint8_t data_sf, uint8_t payload_len) const {
+// §rts-cr-overhear (2026-07-27): `data_cr` is a PARAMETER, not active_cr(). The DATA being reserved for is
+// the peer's transmission, so the peer's coding rate sizes it. An RTS carries that datum (cr_adv), so the
+// two nav_duration_rts callers and the flood-yield caller pass rts_cr_decode(r.cr_adv); the two genuine
+// overheard-CTS callers cannot (see the block on nav_duration_cts) and pass active_cr() with that stated.
+uint32_t Node::nav_duration_rts(uint8_t data_sf, uint8_t payload_len, uint8_t data_cr) const {
     // M6: payload_len is an UNAUTHENTICATED wire byte (0..255). At max SF a forged 255 arms NAV for seconds; NAV
     // is on by default -> a cheap overheard RTS with payload_len=255 could indefinitely silence a victim's TX.
     // Clamp to the real hard cap (a DATA body can never exceed max_payload_bytes_hard_cap) BEFORE the airtime calc.
     // Centralised here so every caller (the NAV arm AND the reserve-yield estimate) is covered by one guard.
     if (payload_len > protocol::max_payload_bytes_hard_cap) payload_len = protocol::max_payload_bytes_hard_cap;
+    // The CTS/ACK terms stay on airtime_routing_ms (our own CR): they are the *receiver's* frames and no
+    // wire field carries that node's CR either — but they are 3 B on the routing SF, i.e. tens of ms against
+    // a DATA term measured in hundreds, so the residual is noise. Only the DATA term is worth threading.
     const uint32_t cts_air  = static_cast<uint32_t>(airtime_routing_ms(3));   // CTS = 3 B on the routing SF
-    const uint32_t data_air = static_cast<uint32_t>(airtime_ms(data_sf, active_bw_hz(), active_cr(),
+    const uint32_t data_air = static_cast<uint32_t>(airtime_ms(data_sf, active_bw_hz(), data_cr,
                                   protocol::preamble_sym, static_cast<uint16_t>(payload_len + 13)));   // +13 = DATA header (handle_rts:57)
     const uint32_t ack_air  = static_cast<uint32_t>(airtime_routing_ms(3));   // ACK = 3 B
     return cts_air + data_air + ack_air + 3u * static_cast<uint32_t>(protocol::cts_to_data_gap_ms);   // 3 turnarounds
 }
-uint32_t Node::nav_duration_cts(uint8_t data_sf, uint8_t payload_len) const {
+// ⚠⚠ §rts-cr-overhear — THE ONE SITE OF THIS CLASS THAT CANNOT BE FIXED, and here is the whole analysis so
+// nobody has to redo it. Two of the three callers overhear a *CTS* and must size the DATA that CTS is
+// clearing — a third party's frame at that third party's CR. **The CTS cannot carry CR: it has ZERO free
+// bits.** Verified against frame_codec.cpp:341-370, not against a comment: byte 0's low nibble is fully
+// spent on (chosen_data_sf-5)<<1 | already_received (sf 5..12 needs all 3 bits, and already_received is
+// read by handle_cts's dup path), tx_id / rx_id / the optional payload_len are whole bytes, and parse_cts
+// accepts a frame of EXACTLY 3 or 4 bytes.
+//   DIRECTION OF THE ERROR — it is the DANGEROUS direction, not the safe one:
+//     peer CR > ours  -> the real DATA outlasts our reservation, we UNDER-reserve and release NAV early.
+//                        We may then transmit ON TOP of the DATA we were protecting. This is precisely the
+//                        hidden-terminal collision NAV exists to prevent, so the mechanism fails in the one
+//                        case it is there for. Worst case cr8-vs-cr5 = 1.6x the payload symbol term.
+//     peer CR < ours  -> we OVER-reserve: silent longer than needed. Wasted airtime only, fail-safe.
+//   MEASURED (cr5 overhearer, cr8 peer, BW250k, routing SF8) — computed vs truly needed:
+//     SF10 pl=38  389 -> 525 ms  (-136)   SF11 pl=38  690 ->  935 ms (-245)   SF12 pl=38 1412 -> 1953 (-541)
+//     SF11 pl=120 1304 -> 1918 ms (-614)  SF12 pl=120 2723 -> 4050 ms (-1327)
+//   ⇒ at the s32/s33 shape the hole is ~245 ms, the same order as the 246 ms DATA-wait shortfall that §rts-cr
+//   existed to close — so this is not a rounding-level residual, it is the same bug at the same magnitude.
+//   Two things bound it, neither a fix: (a) the payload_len==0 branch already reserves for a 255 B frame, a
+//   pad that swallows the shortfall for small frames — but the NAV-enabled path DOES carry payload_len (the
+//   CTSer sets it whenever nav_enabled), so the common case is exact and fully exposed; (b) LBT still
+//   backstops physically. Net: mixed-CR meshes get degraded hidden-terminal protection; uniform-CR meshes
+//   (every deployment today, and all 30 corpus scenarios) are exact.
+//   COST TO CLOSE IT, both wire changes we declined: a 5th conditional CTS byte — parse_cts's size check
+//   makes that a flag day, and it taxes EVERY CTS in every mesh to serve mixed-CR ones; or reclaim
+//   already_received, which is load-bearing (the last_acked dup path in handle_rts packs it). NOT DONE.
+uint32_t Node::nav_duration_cts(uint8_t data_sf, uint8_t payload_len, uint8_t data_cr) const {
     // M6: payload_len is the unauthenticated CTS wire byte on the overheard-CTS NAV path — clamp like nav_duration_rts.
     if (payload_len > protocol::max_payload_bytes_hard_cap) payload_len = protocol::max_payload_bytes_hard_cap;
     // Exact when the CTS carried payload_len (DATA frame = inner+MAC + 13 header); else max-frame fallback.
     const uint16_t data_bytes = payload_len ? static_cast<uint16_t>(payload_len + 13) : 255;
-    const uint32_t data_air = static_cast<uint32_t>(airtime_ms(data_sf, active_bw_hz(), active_cr(),
+    const uint32_t data_air = static_cast<uint32_t>(airtime_ms(data_sf, active_bw_hz(), data_cr,
                                   protocol::preamble_sym, data_bytes));
     const uint32_t ack_air  = static_cast<uint32_t>(airtime_routing_ms(3));
     return data_air + ack_air + 2u * static_cast<uint32_t>(protocol::cts_to_data_gap_ms);

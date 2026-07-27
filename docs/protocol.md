@@ -28,6 +28,70 @@ gap when the table has no route. Candidates are scored from link SNR + hop count
 Single-slot stop-and-wait: **RTS→CTS→DATA→ACK** (NACK to refuse), each hop re-running the handshake. Listen-before-
 talk (LBT) + NAV virtual carrier sense gate the TX; a rolling duty-cycle budget tier throttles under load; failed
 next-hops cascade to alternates / hop-budget reroute.
+
+**Sender-CR advertisement — sizing the receiver's DATA wait (2026-07-27).** After CTSing an RTS the receiver arms
+a DATA-wait window (`start_pending_rx_expiry`) and abandons the flight when it expires. That window is
+`CTS airtime + cts_to_data_gap + DATA airtime + margin`, and the DATA airtime depends on the **sender's** coding
+rate — CR multiplies the payload-symbol count directly. It used to be computed from `active_cr()`, the
+**receiver's own** CR, which is correct only while every node shares one CR.
+
+A gateway does not: each layer may carry its own CR, so a gateway transmitting on a CR4/8 layer talks to leaves at
+CR4/5. **CR is auto-detected at the LoRa PHY** — the explicit header carries it, so such a frame demodulates
+perfectly — but the firmware's *clock* was wrong: the receiver armed for its own lighter CR, timed out, and
+dropped a frame still on the air. Measured in `s32_dual_cr_gateway` (SF11 / BW 250 kHz, `payload_len` 38): the
+receiver armed **607 ms** for a DATA needing **853 ms** — a **246 ms shortfall** — abandoning it 130 ms before it
+landed. Both gateways were affected **symmetrically**, giving 26 `data_rx_timeout`s, an exhausted path cascade and
+zero cross-layer joiner delivery.
+
+⇒ **mixed-CR links were interoperable at the PHY but not in this firmware's RX-window sizing.** The fix: the RTS
+states the sender's CR in two previously-reserved bits (`cr_adv`, no length change and no `wire_version` bump —
+layout in `frames.md`), the receiver stashes it on its `PendingRx`, and the DATA term is computed from *that*.
+s32's 26 timeouts go to 0, both cross-layer joiner DMs deliver, and the retry churn disappears (3015 → 2266
+events).
+
+**Sender-CR sizing completed for the overhearer (2026-07-27, `§rts-cr-overhear`).** The advert is now consumed
+everywhere the datum exists, not only by the addressed receiver:
+- the two **channel-overhear retune** windows (`FLOOD` and `M_BROADCAST` RTS-M) — an overhearer at CR4/5 used to
+  retune off the data SF before a CR4/8 sender's M-frame finished, and lose it to `drop_sf_mismatch`;
+- the **NAV reservation taken from an overheard RTS**, which reserves for that sender's own DATA;
+- the **anti-spam airtime ledger**'s RTS and DATA terms. This one is an *accountability* fix, not a timing one:
+  the ledger answers *"how much airtime did this sender impose on us"*, so costing a peer's frame at our own rate
+  **under-billed** every heavier-coded sender against `originator_airtime_share`. ⚠ Its RTS term reached
+  `active_cr()` **indirectly, through `airtime_routing_ms()`** — invisible to a grep for `active_cr()`.
+
+Measured in `s33_mixed_cr_channel_overhear` (cr8 gateway layers flooding to cr5 leaves): `channel_msg_received`
+**26 → 35** and `channel_msg_overheard` **17 → 26**, so the nine frames the overhearers now catch remove nine
+repair pulls (`channel_pull_sent` **10 → 1**) and the contention they cost (`tx_lbt_defer` 17 → 7, `collision`
+8 → 4). Net cost **+1.0 % on-air for +35 % delivery** — 911 → 683 ms per delivered message. In
+`s32_dual_cr_gateway` the ledger fix shows as the two cr8 senders' `orig_airtime_ms` **rising** (600 → 821,
+320 → 443) while the cr5 senders' are untouched. ⚠ Only the FLOOD retune and the ledger are corpus-*validated*;
+the `M_BROADCAST` retune and the NAV-from-RTS site execute constantly but only ever with cr5 senders, so native
+tests are their sole regression detectors.
+
+**Deliberately deferred — the honest remainder:**
+- The **ACK wait** (`start_ack_timeout`) still uses `active_cr()`. Its dominant term is our *own* DATA, where that
+  is correct; only the small `airtime_routing_ms(3)` ACK term is the peer's. In the gateway-high-CR shape a
+  light-CR node awaiting a heavy-CR gateway's ACK **over**-waits, which fails safe.
+- ★ The **NAV reservation taken from an overheard CTS** (`nav_duration_cts`'s two `handle_cts` callers) is the one
+  site of this class that **cannot** be closed. It must size the DATA that CTS is clearing — a third party's frame
+  at that party's CR — and the CTS has **no bit to carry one**: its flags nibble is fully spent on `(sf−5)` +
+  `already_received`, `tx_id`/`rx_id`/`payload_len` are whole bytes, and `parse_cts` accepts exactly 3 or 4 B.
+  ⚠ Unlike the ACK wait, this error runs in the **dangerous** direction: against a heavier-CR peer the overhearer
+  **under**-reserves and releases NAV while the DATA is still on the air — the hidden-terminal collision NAV
+  exists to prevent, failing in the one case it is for. Measured (cr5 overhearer, cr8 peer, BW 250 kHz):
+  SF11 / `payload_len` 38 reserves **690 ms for a 935 ms frame — a 245 ms hole**, the same order as the 246 ms
+  DATA-wait shortfall above; SF12 / 120 B reaches **−1327 ms**. The reverse case merely over-reserves. Bounded but
+  unfixed: LBT still backstops physically, and the `payload_len == 0` branch reserves for a 255 B frame — but a
+  NAV-enabled CTS *does* carry `payload_len`, so the common case is exact and fully exposed. Closing it costs a
+  5th conditional CTS byte (a flag day, taxing every CTS in every mesh) or reclaiming the load-bearing
+  `already_received`.
+- The **CTS term of the anti-spam ledger** is billed at our own CR for the same reason — a fixed 4 B on the
+  routing SF, single-digit ms against a DATA term of hundreds, same under-billing direction.
+
+**Fleet assumption.** The 2-bit code is total over CR 5..8, so all-zero bits mean **CR4/5**, not "unknown". Every
+board env compiles `-DLORA_CR=5` and `radio_cr` defaults to 5, so an un-reflashed node genuinely *is* at CR4/5 and
+a new receiver decodes it correctly. The hazard is reachable only if the fleet's **global** CR is moved off 5
+while un-reflashed nodes remain — do that only behind a `wire_version` bump.
 - **Source:** `node_mac.cpp` (`do_data_tx`, `duty_over_budget`, budget tiers) · `node_mac_rx.cpp` (RX handlers) · `node_cascade.cpp` (alt-walk)
 - **Spec:** `docs/specs/2026-05-30-r3-data-plane-design.md` · `2026-05-31-r4.5-lbt-design.md` · `2026-06-07-nav-virtual-carrier-sense-design.md` · `2026-05-31-r4-budget-nack-design.md`
 - **Mobile marks (codec — §mobile Slice 1).** A mobile uses a home-assigned LOCAL id that can collide with a global id, so **RTS/DATA carry `addr_len=1`** (`next` is a mobile local-id), **RTS a `MOBILE` bit** (byte-5 b1 — the `src`/originator is a mobile), and **ACK a `MOBILE` bit** (byte-1 b1 — the `to` is a mobile local-id); **CTS relies on the marked-RTS context**. These keep the mobile plane's local-ids distinct from global ids. The codec round-trips them (marks default `0` → backward-compatible); wire layout = `frames.md`. The mobile plane itself (registration, last-mile, presence) is **§12–14** below.
@@ -139,6 +203,22 @@ registry + suspends OFFERs and rosters while `_node_id == 0`.
 - **Spec:** `docs/superpowers/specs/2026-07-07-mobile-node-handling-assumptions.md` · `2026-07-17-cross-layer-mobile-first-contact-design.md`
 
 ## 13. Team plane
+
+**Switching teams (`§clean-team`, 2026-07-27).** Every live `team_id` change — `team new`, `team <id>`, `team 0`
+and `cfg set team_id` — goes through **`Node::set_team_id()`**, which drops the whole team plane before the new id
+takes effect: `_rt_team`/`_team_peer`, the team liveness mirror, the **team key cache `_team_keys`**, the team RREQ
+dedup/rate rings, and `_team_local_id`. It returns *switched*, so a same-team no-op clears nothing and skips the
+re-DAD. ⚠ **The static plane is deliberately untouched** — a homed mobile changing team keeps its routes,
+id-bindings, gateway schedules, hosted mobiles and home registration; only `join`/`create`/`leave` wipe both
+(`clear_routing_state()`, which calls the same helper). **Boot assigns `team_id` directly and must not clear** —
+nothing is stale at boot, and the persisted DAD id is loaded immediately after.
+Why it matters: `rt_find` dispatches on `is_team_peer` with **no `_rt` fallback**, so a stale team peer does not
+merely misroute — it **shadows the static plane**. And a stale `_team_keys` entry is worse than a stale route: it
+maps a reused team-local id to the *previous* team member's `key_hash32`, i.e. **mis-addressing** (wrong DST_HASH
+at `node_mac.cpp:94`; hash → wrong teammate at `node_hashlocate.cpp:988/1019`). `is_team_peer` does not guard it —
+the bit is set from a multi-hop DV entry that carries no key.
+**Residual, not yet fixed:** team-flavored channel-buffer rows are not purged, and the M emit re-stamps them with
+the *current* `team_id`, so an old team's buffered message can still be re-broadcast into the new team.
 
 A `team_id`-scoped overlay of mobiles (member-to-member routing + group chat), fully **separated** from the
 static plane and from other teams: team beacons/DV (`_rt_team`), team F discovery, a team-scoped H-flood, and a

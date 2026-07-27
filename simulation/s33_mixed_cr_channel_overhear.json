@@ -1,6 +1,6 @@
 {
-  "_name": "s32_dual_cr_gateway",
-  "_desc": "Dual-CODING-RATE two-layer gateway (2026-07-26, Wave-4 #4). Copy of s09_two_layer_gateway, SINGLE carrier, with each gateway's two layers on different coding rates: layer[0] cr=5 (CR4/5), layer[1] cr=8 (CR4/8). Proves the CR RUNTIME RETUNE: before Wave-4 #4 the sim never overrode IRadio::set_rx_cr (empty no-op default), so getCR() never changed and BOTH layers flew at the scenario's single cr -- the gateway's per-layer CR was silently ignored while metal genuinely retuned. The proof is IN THE STREAM: gateway `tx` events carry `cr`, and equal-length frames show a LONGER airtime_ms during the cr=8 window. Pre-#4 every gateway tx read cr=5. cr convention is RadioLib/MeshCore 5..8 (5=CR4/5). \u2605 RESOLVED 2026-07-27 (\u00a7rts-cr): the two cross-layer JOINER assertions are RESTORED and a data_rx_timeout==0 assertion added. They had been removed because the deliveries failed -- root cause was NOT the window split but start_pending_rx_expiry sizing the RECEIVER's DATA wait with active_cr(), the RECEIVER's own coding rate. gw_4 transmits on its layer at cr8 while the peer leaves receive at the global cr5, so a leaf armed 607 ms for a DATA needing 853 ms (SF11/BW250k, payload_len 38) and abandoned it 130 ms before it landed. The starvation was SYMMETRIC -- gw_5's cr8 layer starved the layer-4 leaves identically (26 timeouts total). Fixed by the RTS advertising the sender's CR in its last two reserved bits (frames.md; no length change, no wire_version bump). Result here: data_rx_timeout 26 -> 0, both joiner DMs deliver, and the retry churn disappears (3015 -> 2266 events). This scenario now pins BOTH the per-layer CR retune AND the mixed-CR RX-window sizing.",
+  "_name": "s33_mixed_cr_channel_overhear",
+  "_desc": "Mixed-CR CHANNEL OVERHEAR (2026-07-27). s32's dual-CR gateway topology plus channel posts originated BY the gateways, so an M_BROADCAST/FLOOD is transmitted on a cr8 layer while the overhearing leaves sit at the global cr5. Exists to make the two OVERHEAR-RETUNE sites validatable: node_mac_rx.cpp:154 (FLOOD) and :185 (M_BROADCAST) size the overhearer's retune window with active_cr() -- the OVERHEARER's own CR -- not the sender's, the same defect class as start_pending_rx_expiry fixed by \u00a7rts-cr. The RTS-M already carries the sender's CR (cr_adv), so the fix is one token per site; before this scenario existed there was no way to prove it.",
   "simulation": {
     "duration_ms": 240000,
     "step_ms": 1,
@@ -463,24 +463,92 @@
       "command": "send_layer 5 1426063473 cross-l4-to-l5-joiner"
     },
     {
+      "at_ms": 150000,
+      "node": "gw_4",
+      "command": "send_channel 4 gw4-ch-post-0"
+    },
+    {
+      "at_ms": 153000,
+      "node": "gw_5",
+      "command": "send_channel 4 gw5-ch-post-0"
+    },
+    {
+      "at_ms": 157000,
+      "node": "gw_4",
+      "command": "send_channel 4 gw4-ch-post-1"
+    },
+    {
+      "at_ms": 160000,
+      "node": "gw_5",
+      "command": "send_channel 4 gw5-ch-post-1"
+    },
+    {
+      "at_ms": 164000,
+      "node": "gw_4",
+      "command": "send_channel 4 gw4-ch-post-2"
+    },
+    {
+      "at_ms": 167000,
+      "node": "gw_5",
+      "command": "send_channel 4 gw5-ch-post-2"
+    },
+    {
+      "at_ms": 171000,
+      "node": "gw_4",
+      "command": "send_channel 4 gw4-ch-post-3"
+    },
+    {
+      "at_ms": 174000,
+      "node": "gw_5",
+      "command": "send_channel 4 gw5-ch-post-3"
+    },
+    {
+      "at_ms": 178000,
+      "node": "gw_4",
+      "command": "send_channel 4 gw4-ch-post-4"
+    },
+    {
+      "at_ms": 181000,
+      "node": "gw_5",
+      "command": "send_channel 4 gw5-ch-post-4"
+    },
+    {
+      "at_ms": 185000,
+      "node": "gw_4",
+      "command": "send_channel 4 gw4-ch-post-5"
+    },
+    {
+      "at_ms": 188000,
+      "node": "gw_5",
+      "command": "send_channel 4 gw5-ch-post-5"
+    },
+    {
+      "at_ms": 192000,
+      "node": "gw_4",
+      "command": "send_channel 4 gw4-ch-post-6"
+    },
+    {
+      "at_ms": 195000,
+      "node": "gw_5",
+      "command": "send_channel 4 gw5-ch-post-6"
+    },
+    {
       "at_ms": 196000,
       "node": "l5_seed",
       "command": "send_layer 4 1140850705 cross-l5-to-l4-joiner"
+    },
+    {
+      "at_ms": 199000,
+      "node": "gw_4",
+      "command": "send_channel 4 gw4-ch-post-7"
+    },
+    {
+      "at_ms": 202000,
+      "node": "gw_5",
+      "command": "send_channel 4 gw5-ch-post-7"
     }
   ],
   "expect": [
-    {
-      "type": "script_emit_contains",
-      "node": "l5_j1",
-      "emit_type": "push",
-      "value": "cross-l4-to-l5-joiner"
-    },
-    {
-      "type": "script_emit_contains",
-      "node": "l4_j1",
-      "emit_type": "push",
-      "value": "cross-l5-to-l4-joiner"
-    },
     {
       "type": "script_emit_contains",
       "node": "gw_5",

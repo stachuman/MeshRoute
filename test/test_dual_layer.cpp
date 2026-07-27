@@ -420,6 +420,34 @@ struct DualLayerTestAccess {
     static int16_t        team_penalty(Node& n, uint8_t id)     { return n.liveness_penalty_q4(id, /*team_plane=*/true); }
     static int16_t        static_penalty(Node& n, uint8_t id)   { return n.liveness_penalty_q4(id, /*static*/false); }
     static bool           static_liveness_absent(Node& n, uint8_t id) { return n.peer_liveness_slot(id, /*create=*/false) == nullptr; }
+    // §clean-team seams (2026-07-27): the two team tables that no clear used to reach — the team KEY cache's reverse
+    // lookup and the team-plane RREQ dedup ring. Both must be empty after a team switch.
+    static bool           team_id_of_key(Node& n, uint32_t key, uint8_t& out) { return n.team_id_of_key(key, out); }
+    static void           team_rreq_mark(Node& n, uint8_t o, uint8_t d)  { n.mark_rreq_seen(o, d, /*team_plane=*/true); }
+    static bool           team_rreq_seen(Node& n, uint8_t o, uint8_t d)  { return n.rreq_seen_recently(o, d, /*team_plane=*/true); }
+    static bool           team_rreq_rate_ok(Node& n, uint8_t d, uint8_t ttl) { return n.rreq_rate_ok(d, ttl, /*team_plane=*/true); }
+    static uint8_t        team_keys_n(Node& n)               { return n._active->_team_keys_n; }
+    static uint8_t        team_rreq_seen_n(Node& n)          { return n._active->_rreq_seen_team_n; }
+    static uint8_t        team_rreq_last_n(Node& n)          { return n._active->_rreq_last_team_n; }
+    // §clean-team STATIC-plane seams — the half that catches an OVER-BROAD fix: a team switch must leave all of these
+    // untouched (they belong to the static network, which did not change).
+    static void           static_rreq_mark(Node& n, uint8_t o, uint8_t d) { n.mark_rreq_seen(o, d, /*team_plane=*/false); }
+    static bool           static_rreq_seen(Node& n, uint8_t o, uint8_t d) { return n.rreq_seen_recently(o, d, /*team_plane=*/false); }
+    static int            gw_schedule_count(Node& n) { int c = 0; for (auto& g : n._gw_schedules) if (g.valid) ++c; return c; }
+    static int            bridged_layer_count(Node& n) { int c = 0; for (auto& b : n._bridged_layers) if (b.valid) ++c; return c; }
+    static void           seed_hosted_mobile(Node& n, uint8_t local_id, uint32_t key) {   // as a mobile CLAIM would (node_join.cpp) — without the J-frame machinery
+        auto& L = *n._active;
+        L._mobile_reg[L._mobile_reg_n++] = { key, local_id, /*epoch=*/1, n._hal.now() };
+    }
+    static void           seed_my_registration(Node& n, uint8_t home_id, uint32_t home_key) {   // WE are a HOMED mobile (registered to `home_id`)
+        n._my_mobile_reg.active = true; n._my_mobile_reg.home_id = home_id;
+        n._my_mobile_reg.home_key_hash32 = home_key; n._my_mobile_reg.my_local_id = n.node_id();
+    }
+    static void           seed_channel_row(Node& n, uint32_t id) {   // one buffered channel message (the static/leaf gossip plane)
+        auto& L = *n._active;
+        Node::ChannelEntry& e = L._channel_buffer[L._channel_buffer_n++];
+        e = Node::ChannelEntry{}; e.id = id; e.channel_id = 1; e.payload_len = 0; e.received_at = n._hal.now();
+    }
     static void           team_route2(Node& n, uint8_t dest, uint8_t next1, uint8_t next2) {   // an _rt_team entry: two 2-hop candidates (next1 primary, next2 alt), equal score
         auto& L = *n._active;
         RtEntry& e = L._rt_team[L._rt_team_count++]; e = RtEntry{}; e.dest = dest; e.n = 2;
@@ -594,6 +622,203 @@ TEST_CASE("§rts-cr: a node's outbound RTS advertises its OWN active_cr(), per a
     };
     CHECK(advertised_on(0) == 5);   // inherit leaf -> the global cr
     CHECK(advertised_on(1) == 8);   // ★ the cr8 leaf advertises cr8, so its peers size for a cr8 DATA
+}
+
+// ---- §rts-cr-overhear (2026-07-27): the rest of the class — every window that sizes a PEER's frame -------
+// §rts-cr converted exactly one consumer (start_pending_rx_expiry, the addressed receiver's DATA wait) and
+// left the OVERHEARER's windows on active_cr() because no scenario could prove them. This block covers the
+// four sites that finish it: the FLOOD retune, the M_BROADCAST retune, the anti-spam airtime ledger, and the
+// NAV reservation from an overheard RTS. The fifth (NAV from an overheard CTS) is UNFIXABLE — the CTS has no
+// free bits — and is documented in-source at node_mac.cpp's nav_duration_cts instead of tested here.
+namespace {
+// A leaf that overhears channel traffic: single layer, one data SF, nothing else moving.
+struct OverhearFixture {
+    StubHal hal; Node node;
+    static constexpr uint8_t  kRoutingSf = 7, kDataSf = 10, kLeaf = 4;
+    static constexpr uint32_t kBw = 250000;
+    explicit OverhearFixture(uint8_t our_cr) : node(hal, /*id=*/30, /*key=*/0x3030u) {
+        NodeConfig cfg; cfg.routing_sf = kRoutingSf; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << kDataSf);
+        cfg.leaf_id = kLeaf; cfg.radio_bw_hz = kBw; cfg.radio_cr = our_cr;
+        CHECK(node.on_init(cfg));
+        CHECK(node.active_cr() == our_cr);
+    }
+    // The expected retune-back window, straight from node_mac_rx.cpp's formula (the test HAL's slop is 0).
+    static uint32_t expect_retune(uint8_t sender_cr, uint16_t body_len) {
+        return protocol::cts_to_data_gap_ms
+             + airtime_ms(kDataSf, kBw, sender_cr, protocol::preamble_sym,
+                          static_cast<uint16_t>(body_len + M_FRAME_HDR_LEN)) + 30;
+    }
+};
+constexpr uint32_t kOverhearRetuneTimer = 57;   // node.h kOverhearRetuneTimerId
+}  // namespace
+
+TEST_CASE("§rts-cr-overhear: the FLOOD retune window is sized for the SENDER's CR, not the overhearer's") {
+    constexpr uint8_t kBody = 40;
+    // Drive a real 43-B FLOOD RTS-M in and read the retune-back timer the overhearer armed.
+    auto armed = [](uint8_t our_cr, uint8_t sender_cr, uint32_t msg_id) -> uint32_t {
+        OverhearFixture f(our_cr);
+        uint8_t bm[32] = {};                                       // all-zero coverage -> we are unmarked -> fresh state
+        rts_in r{}; r.leaf_id = OverhearFixture::kLeaf; r.src = 90; r.next = 0xFF; r.ctr_lo = 2;
+        r.dst = 3 /*hop_left*/; r.sf_index = 3 /*ANY*/; r.payload_len = kBody;
+        r.rts_flags = static_cast<uint8_t>(RTS_FLAG_M_BROADCAST | RTS_FLAG_FLOOD);
+        r.flood_channel_msg_id = msg_id; r.flood_bitmap = std::span<const uint8_t>(bm, 32);
+        r.cr_adv = rts_cr_encode(sender_cr);
+        uint8_t b[43]; const size_t n = pack_rts(r, b);
+        CHECK(n == 43u);
+        RxMeta meta{ 20.0f, -60.0f, 0, static_cast<int8_t>(-1) };
+        f.node.on_recv(b, n, meta);
+        CHECK(f.hal.saw_emit("channel_overhear_armed"));           // the retune really happened
+        return f.hal.last_delay[kOverhearRetuneTimer];
+    };
+    // 1. uniform cr5 = every corpus scenario before s33 -> identical to the pre-slice window.
+    CHECK(armed(5, 5, 0xAA01u) == OverhearFixture::expect_retune(5, kBody));
+    // 2. ★ THE FIX: a cr8 sender into a cr5 overhearer. Pre-slice this armed the cr5 window and retuned back
+    //    BEFORE the M frame finished -> the frame was lost to drop_sf_mismatch. This is the s33 shape.
+    CHECK(armed(5, 8, 0xAA02u) == OverhearFixture::expect_retune(8, kBody));
+    CHECK(armed(5, 8, 0xAA03u) >  armed(5, 5, 0xAA04u));
+    // 3. ...and symmetrically it stops OVER-holding the radio for a lighter sender.
+    CHECK(armed(8, 5, 0xAA05u) == OverhearFixture::expect_retune(5, kBody));
+    CHECK(armed(8, 5, 0xAA06u) <  armed(8, 8, 0xAA07u));
+    // 4. exhaustive over the whole 2-bit space in both roles: the window must depend ONLY on the sender's CR.
+    uint32_t id = 0xAB00u;
+    for (uint8_t their = 5; their <= 8; ++their)
+        for (uint8_t ours = 5; ours <= 8; ++ours)
+            CHECK(armed(ours, their, id++) == OverhearFixture::expect_retune(their, kBody));
+}
+
+TEST_CASE("§rts-cr-overhear: the M_BROADCAST retune window is sized for the SENDER's CR") {
+    // ★ THIS TEST IS THE ONLY REGRESSION DETECTOR FOR THIS SITE. Measured, not assumed: the site executes
+    // 676x across the corpus (s15, s15_metal, s17, sim_9node_base) but every one of those senders is cr5, and
+    // even s33 — the mixed-CR channel scenario — arms only the FLOOD twin (all 36 of its arms are flood:true).
+    constexpr uint8_t kBody = 40;
+    auto armed = [](uint8_t our_cr, uint8_t sender_cr, uint16_t id_lo16) -> uint32_t {
+        OverhearFixture f(our_cr);
+        rts_in r{}; r.leaf_id = OverhearFixture::kLeaf; r.src = 91; r.next = 92 /*not us -> pure overhear*/;
+        r.ctr_lo = 3; r.dst = 92; r.sf_index = 3 /*ANY*/; r.payload_len = kBody;
+        r.rts_flags = RTS_FLAG_M_BROADCAST;                        // NO flood flag -> the 9-B pull-response RTS-M
+        r.m_payload_id_lo16 = id_lo16; r.cr_adv = rts_cr_encode(sender_cr);
+        uint8_t b[9]; const size_t n = pack_rts(r, b);
+        CHECK(n == 9u);
+        RxMeta meta{ 20.0f, -60.0f, 0, static_cast<int8_t>(-1) };
+        f.node.on_recv(b, n, meta);
+        CHECK(f.hal.saw_emit("channel_overhear_armed"));
+        return f.hal.last_delay[kOverhearRetuneTimer];
+    };
+    CHECK(armed(5, 5, 0x1001) == OverhearFixture::expect_retune(5, kBody));
+    CHECK(armed(5, 8, 0x1002) == OverhearFixture::expect_retune(8, kBody));   // ★ the fix
+    CHECK(armed(5, 8, 0x1003) >  armed(5, 5, 0x1004));
+    CHECK(armed(8, 5, 0x1005) <  armed(8, 8, 0x1006));                        // no over-hold either
+    uint16_t id = 0x2000;
+    for (uint8_t their = 5; their <= 8; ++their)
+        for (uint8_t ours = 5; ours <= 8; ++ours)
+            CHECK(armed(ours, their, id++) == OverhearFixture::expect_retune(their, kBody));
+}
+
+TEST_CASE("§rts-cr-overhear: the anti-spam ledger BILLS an inbound DATA at the SENDER's CR") {
+    // Not a timing fix — an ACCOUNTABILITY one. The ledger answers "how much airtime did this sender impose
+    // on us"; costing a peer's frame at OUR CR under-bills every heavier-coded sender against the duty cap.
+    constexpr uint8_t kDataSf = 10, kRoutingSf = 7, kLeaf = 4, kPeer = 90;
+    constexpr uint32_t kBw = 250000;
+    auto billed_for_data = [](uint8_t our_cr, uint8_t sender_cr) -> uint32_t {
+        StubHal hal; Node node(hal, /*id=*/30, /*key=*/0x3030u);
+        NodeConfig cfg; cfg.routing_sf = kRoutingSf; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << kDataSf);
+        cfg.leaf_id = kLeaf; cfg.radio_bw_hz = kBw; cfg.radio_cr = our_cr;
+        CHECK(node.on_init(cfg));
+        RxMeta meta{ 20.0f, -60.0f, 0, static_cast<int8_t>(-1) };
+        // 1. the RTS: addressed to us, advertising the peer's CR -> we CTS + stash sender_cr on the PendingRx.
+        const uint8_t inner[24] = {};
+        const uint8_t payload_len = static_cast<uint8_t>(sizeof inner + 4 /*plain 4-B MAC trailer*/);
+        rts_in r{}; r.leaf_id = kLeaf; r.src = kPeer; r.next = 30; r.ctr_lo = 5; r.dst = 30;
+        r.sf_index = 3 /*ANY*/; r.payload_len = payload_len; r.cr_adv = rts_cr_encode(sender_cr);
+        uint8_t rb[9]; const size_t rn = pack_rts(r, rb);
+        node.on_recv(rb, rn, meta);
+        CHECK(DualLayerTestAccess::has_pending_rx(node));
+        int app; uint32_t air_after_rts, air_after_data; uint8_t nr, nc;
+        node.compute_originator_metric(kPeer, app, air_after_rts, nr, nc);
+        // ★ the RTS half of the SAME ledger — the site the slice's audit missed, because it billed through
+        // airtime_routing_ms() (which hides active_cr() inside) instead of naming active_cr().
+        CHECK(air_after_rts == static_cast<uint32_t>(airtime_ms(kRoutingSf, kBw, sender_cr,
+                                                                protocol::preamble_sym, static_cast<uint16_t>(rn))));
+        // 2. the DATA it cleared. The ledger delta over step 1 is exactly this frame's billed airtime.
+        data_in di{}; di.addr_len = 0; di.flags = 0; di.next = 30; di.dst = 30; di.ctr = 5;
+        di.inner = std::span<const uint8_t>(inner, sizeof inner);
+        uint8_t db[64]; const size_t dn = pack_data(di, std::span<uint8_t>(db, sizeof db));
+        CHECK(dn > 0u);
+        node.on_recv(db, dn, meta);
+        node.compute_originator_metric(kPeer, app, air_after_data, nr, nc);
+        CHECK(air_after_data > air_after_rts);                     // the DATA observation landed
+        return air_after_data - air_after_rts;
+    };
+    // The billed value must be the frame's airtime at the SENDER's CR — independent of ours. Derive the wire
+    // length from pack_data rather than hardcoding it, so a DATA-header change retunes the test, not breaks it.
+    const uint16_t wire_len = [] {
+        const uint8_t inner[24] = {};
+        data_in di{}; di.addr_len = 0; di.flags = 0; di.next = 30; di.dst = 30; di.ctr = 5;
+        di.inner = std::span<const uint8_t>(inner, sizeof inner);
+        uint8_t db[64]; return static_cast<uint16_t>(pack_data(di, std::span<uint8_t>(db, sizeof db)));
+    }();
+    CHECK(wire_len > 0);
+    auto expect = [wire_len](uint8_t sender_cr) -> uint32_t {
+        return static_cast<uint32_t>(airtime_ms(kDataSf, kBw, sender_cr, protocol::preamble_sym, wire_len));
+    };
+    CHECK(billed_for_data(5, 5) == expect(5));
+    // ★ THE FIX: a cr8 sender is billed for its cr8 frame. Pre-slice a cr5 receiver billed it at cr5 —
+    //   under-charging the heaviest senders against originator_airtime_share.
+    CHECK(billed_for_data(5, 8) == expect(8));
+    CHECK(billed_for_data(5, 8) > billed_for_data(5, 5));          // ★ DIRECTION: billing goes UP for a cr8 sender
+    CHECK(billed_for_data(8, 5) == expect(5));                     // and a cr5 sender is not over-billed by a cr8 meter
+    for (uint8_t their = 5; their <= 8; ++their)
+        for (uint8_t ours = 5; ours <= 8; ++ours)
+            CHECK(billed_for_data(ours, their) == expect(their));
+}
+
+TEST_CASE("§rts-cr-overhear: the NAV reservation from an overheard RTS uses the SENDER's CR") {
+    constexpr uint8_t kDataSf = 10, kRoutingSf = 7, kLeaf = 4, kPayload = 60;
+    constexpr uint32_t kBw = 250000;
+    // A. the pure helper, white-boxed: the DATA term moves with the peer CR, monotonically.
+    {
+        StubHal hal; Node node(hal, /*id=*/30, /*key=*/0x3030u);
+        NodeConfig cfg; cfg.routing_sf = kRoutingSf; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << kDataSf);
+        cfg.leaf_id = kLeaf; cfg.radio_bw_hz = kBw; cfg.radio_cr = 5;
+        CHECK(node.on_init(cfg));
+        // CTS + ACK ride the routing SF at OUR cr (they are the receiver's frames and no wire field carries
+        // its CR either — but they are 3 B, i.e. noise against the DATA term; see nav_duration_cts's block).
+        const uint32_t fixed = 2u * static_cast<uint32_t>(airtime_ms(kRoutingSf, kBw, 5, protocol::preamble_sym, 3))
+                             + 3u * static_cast<uint32_t>(protocol::cts_to_data_gap_ms);
+        for (uint8_t cr = 5; cr <= 8; ++cr)
+            CHECK(node.test_nav_duration_rts(kDataSf, kPayload, cr)
+                  == fixed + static_cast<uint32_t>(airtime_ms(kDataSf, kBw, cr, protocol::preamble_sym, kPayload + 13)));
+        CHECK(node.test_nav_duration_rts(kDataSf, kPayload, 8) > node.test_nav_duration_rts(kDataSf, kPayload, 5));
+        // The unfixable twin still takes a CR — the two overheard-CTS callers pass active_cr() KNOWINGLY
+        // (node_mac_rx.cpp), so the helper must not bake our own CR in and hide that.
+        CHECK(node.test_nav_duration_cts(kDataSf, kPayload, 8) > node.test_nav_duration_cts(kDataSf, kPayload, 5));
+    }
+    // B. end to end: overhear a unicast RTS aimed elsewhere and read the armed NAV deadline.
+    auto nav_span = [](uint8_t our_cr, uint8_t sender_cr) -> uint64_t {
+        StubHal hal; Node node(hal, /*id=*/30, /*key=*/0x3030u);
+        NodeConfig cfg; cfg.routing_sf = kRoutingSf; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << kDataSf);
+        cfg.leaf_id = kLeaf; cfg.radio_bw_hz = kBw; cfg.radio_cr = our_cr; cfg.nav_enabled = true;
+        CHECK(node.on_init(cfg));
+        RxMeta meta{ 20.0f, -60.0f, 0, static_cast<int8_t>(-1) };
+        rts_in r{}; r.leaf_id = kLeaf; r.src = 90; r.next = 91 /*NOT us -> overheard*/; r.ctr_lo = 6;
+        r.dst = 91; r.sf_index = 3 /*ANY -> the conservative max_data_sf() branch*/; r.payload_len = kPayload;
+        r.cr_adv = rts_cr_encode(sender_cr);
+        uint8_t b[9]; const size_t n = pack_rts(r, b);
+        node.on_recv(b, n, meta);
+        const uint64_t now = hal.now();
+        CHECK(node.nav_until_ms() > now);                          // NAV really armed
+        return node.nav_until_ms() - now;
+    };
+    CHECK(nav_span(5, 8) > nav_span(5, 5));       // ★ a cr8 sender's exchange reserves LONGER (it really is longer)
+    CHECK(nav_span(8, 5) < nav_span(8, 8));       // ...and a cr5 sender's no longer over-reserves on a cr8 node
+    // ⚠ nav_span is NOT purely a function of the sender's CR, and that is correct + documented: the 3-B
+    // CTS/ACK terms still ride OUR routing-SF airtime (no wire field carries the CTSer's CR either). So pin
+    // the part the fix owns — the DATA TERM — by differencing out those fixed terms on one node.
+    const uint8_t peer = 8, base = 5;
+    const uint32_t data_delta = static_cast<uint32_t>(airtime_ms(kDataSf, kBw, peer, protocol::preamble_sym, kPayload + 13))
+                              - static_cast<uint32_t>(airtime_ms(kDataSf, kBw, base, protocol::preamble_sym, kPayload + 13));
+    CHECK(nav_span(5, peer) - nav_span(5, base) == data_delta);   // the whole delta is the peer-CR DATA term
+    CHECK(nav_span(8, peer) - nav_span(8, base) == data_delta);   // ...and it is the same whatever OUR cr is
 }
 
 TEST_CASE("per-layer-bw: the window switch ALWAYS syncs BW/CR to the active leaf's effective PHY (no stale _def_bw)") {
@@ -3784,8 +4009,7 @@ TEST_CASE("§mobile 6.4 — an OFF-GRID team SWITCH / leave-then-rejoin re-provi
       mob.team_dad_fire();
       const uint8_t tid_a = mob.team_local_id();
       CHECK(mob.node_id() == tid_a);                         // off-grid: node_id == team id (Option X)
-      mob.set_team_local_id(0);                              // handle_team pre-zeroes the stale team-DAD id...
-      mob.mutable_config().team_id = 0xBBBB2222u;            // ...then joins team-B...
+      CHECK(mob.set_team_id(0xBBBB2222u));                   // §clean-team: ONE call = drop the old team's plane + zero the team-DAD id + adopt team-B (was: set_team_local_id(0) + mutable_config().team_id, hand-pasted — U1)
       mob.team_dad_fire();                                   // ...and re-DADs. old_tid is now 0, but !_my_mobile_reg.active still moves node_id.
       const uint8_t tid_b = mob.team_local_id();
       CHECK(tid_b >= 17);
@@ -3795,12 +4019,185 @@ TEST_CASE("§mobile 6.4 — an OFF-GRID team SWITCH / leave-then-rejoin re-provi
     { StubHal hal; Node mob(hal, 0, 0xCCCCu);
       NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; cfg.is_mobile=true; cfg.team_id=0xAAAA1111u; CHECK(mob.on_init(cfg));
       mob.team_dad_fire();
-      mob.set_team_local_id(0);                              // `team 0` (leave)
-      mob.mutable_config().team_id = 0xBBBB2222u;            // `team <B>` (rejoin)
+      CHECK(mob.set_team_id(0));                             // `team 0` (leave)
+      CHECK(mob.set_team_id(0xBBBB2222u));                   // `team <B>` (rejoin)
       mob.team_dad_fire();
       CHECK(mob.team_local_id() >= 17);
       CHECK(mob.node_id() == mob.team_local_id());           // ★ Option X invariant restored after leave-then-rejoin
     }
+}
+
+// ============================================================================================================
+// §clean-team (2026-07-27, owner bench report: "when creating a new team: `team new` OR when joining a team:
+// `team <team_id>` — existing team routes need to be cleared"). The console verbs switched _cfg.team_id but left the
+// whole TEAM plane behind, so the OLD team's routes/peers/keys shadowed the new one. set_team_id() is now the single
+// core entry point for every LIVE team switch; clear_team_routing_state() is the plane wipe it shares with the static
+// reprovision path (clear_routing_state).
+// ⚠ NO corpus scenario issues a `team` command mid-run, so these native tests are the ONLY regression detector.
+// ============================================================================================================
+
+// Seed a team member with EVERY team-plane table populated, so a clear has something to miss.
+static void seed_full_team_plane(Node& n, uint8_t peer_a, uint32_t key_a, uint8_t peer_b, uint32_t key_b) {
+    DualLayerTestAccess::learn_team_neighbor(n, peer_a, key_a);   // _rt_team route + _team_peer bit + _team_keys row
+    DualLayerTestAccess::learn_team_neighbor(n, peer_b, key_b);
+    DualLayerTestAccess::team_rts_timeout(n, peer_a);             // _team_liveness: a suspect tier
+    DualLayerTestAccess::team_rreq_mark(n, peer_a, peer_b);       // _rreq_seen_team
+    (void)DualLayerTestAccess::team_rreq_rate_ok(n, peer_b, 4);   // _rreq_last_team (the rate-limit ring records the ask)
+}
+
+TEST_CASE("§clean-team — a team SWITCH (`team new` / `team <id>`) clears the ENTIRE team plane, including the two tables no clear used to reach") {
+    StubHal hal; Node mob(hal, 0, 0x5151u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=4;
+    cfg.is_mobile=true; cfg.team_id=0xAAAA1111u; CHECK(mob.on_init(cfg));
+    mob.team_dad_fire(); mob.on_timer(77);                        // a CONFIRMED team-DAD id on team A
+    const uint8_t tid_a = mob.team_local_id();
+    CHECK(tid_a >= 17);
+    seed_full_team_plane(mob, /*peer_a=*/25, /*key_a=*/0x9E47BBDEu, /*peer_b=*/26, /*key_b=*/0x1234ABCDu);
+    // everything is populated BEFORE the switch (else the CHECKs after it would be vacuous)
+    CHECK(mob.rt_team_count() == 2);
+    CHECK(DualLayerTestAccess::is_team_peer(mob, 25));
+    CHECK(DualLayerTestAccess::team_keys_n(mob) == 2);
+    CHECK(DualLayerTestAccess::team_penalty(mob, 25) > 0);
+    CHECK(DualLayerTestAccess::team_rreq_seen(mob, 25, 26));
+    CHECK(DualLayerTestAccess::team_rreq_seen_n(mob) > 0);
+    CHECK(DualLayerTestAccess::team_rreq_last_n(mob) > 0);
+    uint32_t k = 0; CHECK(DualLayerTestAccess::team_key_of_id(mob, 25, k));
+
+    CHECK(mob.set_team_id(0xBBBB2222u));                          // ★ `team <B>` — the switch
+    CHECK(mob.config().team_id == 0xBBBB2222u);                   // the new team is LIVE
+    CHECK(mob.team_local_id() == 0);                              // the stale team-DAD id is dropped (a re-DAD picks a fresh one)
+    CHECK(mob.rt_team_count() == 0);                              // ★ routes
+    CHECK_FALSE(DualLayerTestAccess::is_team_peer(mob, 25));      // ★ the peer bitset
+    CHECK_FALSE(DualLayerTestAccess::is_team_peer(mob, 26));
+    CHECK(DualLayerTestAccess::team_penalty(mob, 25) == 0);       // ★ team liveness
+    CHECK(DualLayerTestAccess::team_keys_n(mob) == 0);            // ★ THE KEY CACHE — was cleared by NOTHING before this slice
+    CHECK(DualLayerTestAccess::team_rreq_seen_n(mob) == 0);       // ★ team RREQ dedup — likewise
+    CHECK(DualLayerTestAccess::team_rreq_last_n(mob) == 0);       // ★ team RREQ rate-limit — likewise
+    CHECK_FALSE(DualLayerTestAccess::team_rreq_seen(mob, 25, 26));
+}
+
+TEST_CASE("§clean-team — a stale team key can no longer MIS-ADDRESS a send after a switch (the hazard worse than a stale route)") {
+    // _team_keys is the team-SCOPED id<->key_hash32 cache. Its two readers gate on the _team_peer bit, which the clear
+    // also scrubs — but the bit comes BACK the moment the NEW team's beacons arrive, and the new team recycles the same
+    // 17..254 local-id space. Without the key-cache clear, the OLD team's key rides the NEW team's id.
+    StubHal hal; Node mob(hal, 0, 0x5252u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=4;
+    cfg.is_mobile=true; cfg.team_id=0xAAAA1111u; CHECK(mob.on_init(cfg));
+    mob.team_dad_fire();
+    DualLayerTestAccess::learn_team_neighbor(mob, /*OLD teammate*/25, /*its key*/0x0DDBEEF0u);
+    uint8_t who = 0;
+    CHECK(DualLayerTestAccess::team_id_of_key(mob, 0x0DDBEEF0u, who));   // reverse map live on team A
+    CHECK(who == 25);
+
+    CHECK(mob.set_team_id(0xBBBB2222u));                          // ★ join team B
+    mob.team_dad_fire();
+    // team B hands local id 25 to a DIFFERENT person. Its route/bit come back from its beacon; its key must NOT be the
+    // old teammate's. (learn_direct_neighbor + the bit, WITHOUT a key — exactly node_beacon.cpp:848's multi-hop DV path,
+    // which sets the _team_peer bit from a routing entry and has no key to cache.)
+    DualLayerTestAccess::learn_team_neighbor(mob, 25, /*new key*/0x77778888u);
+    uint32_t k = 0;
+    CHECK(DualLayerTestAccess::team_key_of_id(mob, 25, k));
+    CHECK(k == 0x77778888u);                                      // ★ the NEW teammate's key, not 0x0DDBEEF0
+    uint8_t stale = 0;
+    CHECK_FALSE(DualLayerTestAccess::team_id_of_key(mob, 0x0DDBEEF0u, stale));   // ★ the OLD teammate's hash resolves to NOBODY
+}
+
+TEST_CASE("★ §clean-team — the STATIC plane SURVIVES a team switch (a HOMED mobile keeps its network); only a reprovision wipes it") {
+    // The over-broad-fix detector. clear_routing_state() would have been the lazy fix and would have stranded a homed
+    // team mobile: the static network did not change when the operator typed `team new`.
+    StubHal hal; Node mob(hal, 0, 0x5353u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=4;
+    cfg.is_mobile=true; cfg.team_id=0xAAAA1111u; CHECK(mob.on_init(cfg));
+    mob.set_identity(42, 0x5353u);                                // a HOMED mobile: a host-assigned static node_id...
+    DualLayerTestAccess::seed_my_registration(mob, /*home=*/71, /*home_key=*/0x00D0D0D0u);   // ...registered to it (BEFORE team-DAD: a DUAL member keeps its static id, node_mobile.cpp:217)
+    mob.team_dad_fire();
+    CHECK(mob.node_id() == 42);                                   // dual plane: static id 42 + its own team_local_id
+    seed_full_team_plane(mob, 25, 0x9E47BBDEu, 26, 0x1234ABCDu);
+    // ... and a fully-populated STATIC plane
+    DualLayerTestAccess::learn_neighbor(mob, 60);                                     // static route
+    DualLayerTestAccess::hear_on_leaf(mob, 60, 0x00ABCDEFu);                          // _id_bind
+    DualLayerTestAccess::static_rreq_mark(mob, 60, 61);                               // static RREQ dedup
+    mob.record_peer_rts_timeout(/*id=*/60, /*ctr_lo=*/1);                             // static peer liveness
+    DualLayerTestAccess::store_gw_schedule(mob, /*gw=*/70, /*leaf=*/5);               // gateway schedule
+    DualLayerTestAccess::ingest_bl(mob, /*gw=*/70, /*dest_leaf=*/5);                  // bridged-layer map
+    DualLayerTestAccess::seed_hosted_mobile(mob, /*local=*/200, /*key=*/0x00C0FFEEu); // hosted-mobile registry
+    DualLayerTestAccess::seed_channel_row(mob, /*msg id=*/0x11223344u);               // buffered channel message (OUR home registration was seeded above, pre-DAD)
+    const uint8_t rt_before = mob.rt_count();
+    CHECK(rt_before >= 1);
+    CHECK(mob.id_bind_count() >= 1);
+
+    CHECK(mob.set_team_id(0xBBBB2222u));                          // ★ the switch
+    CHECK(mob.rt_team_count() == 0);                              // team plane gone (the fix fired)...
+    CHECK(DualLayerTestAccess::team_keys_n(mob) == 0);
+    // ... and NOTHING static moved:
+    CHECK(mob.rt_count() == rt_before);                           // ★ static routes
+    CHECK(mob.id_bind_count() >= 1);                              // ★ id-bindings
+    uint32_t kh = 0; CHECK(mob.key_hash_of_id(60, kh)); CHECK(kh == 0x00ABCDEFu);
+    CHECK(DualLayerTestAccess::static_rreq_seen(mob, 60, 61));    // ★ static RREQ dedup (the team ring cleared, this one did not)
+    CHECK(DualLayerTestAccess::static_penalty(mob, 60) > 0);      // ★ static peer liveness
+    CHECK(DualLayerTestAccess::gw_schedule_count(mob) == 1);      // ★ gateway schedules
+    CHECK(DualLayerTestAccess::bridged_layer_count(mob) == 1);    // ★ bridged-layer map
+    CHECK(mob.mobile_reg_count() == 1);                           // ★ hosted-mobile registry
+    CHECK(mob.mobile_registered());                               // ★ OUR home registration — a homed mobile stays homed
+    CHECK(mob.channel_buffer_count() == 1);                       // ★ buffered channel messages
+    CHECK(mob.node_id() == 42);                                   // ★ the static id is untouched
+    // and the CONTRAST: a real reprovision (join/create/leave) DOES wipe all of it, team plane included.
+    mob.clear_routing_state();
+    CHECK(mob.rt_count() == 0); CHECK(mob.id_bind_count() == 0);
+    CHECK(DualLayerTestAccess::gw_schedule_count(mob) == 0); CHECK(DualLayerTestAccess::bridged_layer_count(mob) == 0);
+    CHECK(mob.mobile_reg_count() == 0); CHECK_FALSE(mob.mobile_registered());
+    CHECK(mob.channel_buffer_count() == 0);
+}
+
+TEST_CASE("§clean-team — `team 0` (leave) clears the plane; a same-team no-op (`team <current_id>`) clears NOTHING") {
+    StubHal hal; Node mob(hal, 0, 0x5454u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=4;
+    cfg.is_mobile=true; cfg.team_id=0xAAAA1111u; CHECK(mob.on_init(cfg));
+    mob.team_dad_fire(); mob.on_timer(77);
+    const uint8_t tid = mob.team_local_id();
+    seed_full_team_plane(mob, 25, 0x9E47BBDEu, 26, 0x1234ABCDu);
+
+    // (a) SAME team -> false, and every table is exactly as it was (the caller must also skip its re-DAD)
+    CHECK_FALSE(mob.set_team_id(0xAAAA1111u));                    // ★ no-op
+    CHECK(mob.team_local_id() == tid);                            // ★ the confirmed team-DAD id SURVIVES
+    CHECK(mob.rt_team_count() == 2);
+    CHECK(DualLayerTestAccess::team_keys_n(mob) == 2);
+    CHECK(DualLayerTestAccess::is_team_peer(mob, 25));
+    CHECK(DualLayerTestAccess::team_penalty(mob, 25) > 0);
+    CHECK(DualLayerTestAccess::team_rreq_seen_n(mob) > 0);
+
+    // (b) LEAVE -> true, the plane is gone, team_id is 0
+    CHECK(mob.set_team_id(0));
+    CHECK(mob.config().team_id == 0);
+    CHECK(mob.team_local_id() == 0);
+    CHECK(mob.rt_team_count() == 0);
+    CHECK(DualLayerTestAccess::team_keys_n(mob) == 0);
+    CHECK(DualLayerTestAccess::team_rreq_seen_n(mob) == 0);
+    CHECK_FALSE(DualLayerTestAccess::is_team_peer(mob, 25));
+    // (c) leaving again is a no-op (already 0)
+    CHECK_FALSE(mob.set_team_id(0));
+}
+
+TEST_CASE("§clean-team — clear_routing_state (the static reprovision verbs) still wipes the team plane, now completely") {
+    // The SECOND caller of clear_team_routing_state. Its team half used to cover 3 of the 5 tables; the reprovision
+    // verbs left the team key cache and the team RREQ ledgers behind too. One implementation -> both callers fixed.
+    StubHal hal; Node mob(hal, 0, 0x5555u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=4;
+    cfg.is_mobile=true; cfg.team_id=0xAAAA1111u; CHECK(mob.on_init(cfg));
+    mob.team_dad_fire();
+    seed_full_team_plane(mob, 25, 0x9E47BBDEu, 26, 0x1234ABCDu);
+    CHECK(mob.rt_team_count() == 2); CHECK(DualLayerTestAccess::team_keys_n(mob) == 2);
+
+    mob.clear_routing_state();                                    // `join` / `create` / `leave`
+    CHECK(mob.rt_team_count() == 0);
+    CHECK_FALSE(DualLayerTestAccess::is_team_peer(mob, 25));
+    CHECK(DualLayerTestAccess::team_penalty(mob, 25) == 0);
+    CHECK(DualLayerTestAccess::team_keys_n(mob) == 0);            // ★ newly covered
+    CHECK(DualLayerTestAccess::team_rreq_seen_n(mob) == 0);       // ★ newly covered
+    CHECK(DualLayerTestAccess::team_rreq_last_n(mob) == 0);       // ★ newly covered
+    // clear_team_routing_state on its own is idempotent and safe with no team plane at all
+    mob.clear_team_routing_state(); mob.clear_team_routing_state();
+    CHECK(mob.rt_team_count() == 0);
 }
 
 TEST_CASE("§S6/D10 — the mobile-sent breadcrumb is RETIRED; a re-home carries last_home in the j_discover (the NEW home notifies)") {

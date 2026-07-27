@@ -266,6 +266,23 @@ public:
     // routes / id-bindings / gateway schedules so the node starts the new network with a clean table. (The heal keeps
     // its routes — same network, only the id changed — so this is NOT in reset_join_for_reprovision.)
     void clear_routing_state();
+    // §clean-team (2026-07-27): the TEAM plane's half of that clear, extracted so it has exactly ONE implementation and
+    // TWO callers (U1) — clear_routing_state() above (the static reprovision verbs, which ALSO wipe the static plane)
+    // and set_team_id() below (a team switch, which must NOT: the static network did not change, so a HOMED team mobile
+    // keeps its static routes, its id-bindings and its home registration). Full inventory + the deliberate
+    // NOT-cleared list are documented at the definition (node.cpp).
+#if MR_FEAT_TEAM
+    void clear_team_routing_state();
+#else
+    void clear_team_routing_state() {}   // §featuresplit: no team plane compiled in -> nothing to clear
+#endif
+    // §clean-team (2026-07-27, owner bench report "when creating a new team / joining a team, existing team routes need
+    // to be cleared"): THE team-switch entry point — every LIVE writer of _cfg.team_id goes through here (`team new`,
+    // `team <id>`, `team 0`, `cfg set team_id`), so the switch is coherent in ONE place instead of per-verb. Returns
+    // true iff the team ACTUALLY changed (a same-team no-op clears nothing — nothing is stale — and the caller skips
+    // its re-DAD). ⚠ NOT for the boot/NV path, which writes _cfg.team_id directly: at boot nothing is stale AND the
+    // persisted team-DAD id must survive (see node.cpp for the full rationale).
+    bool set_team_id(uint32_t team_id);
     // `prep-restart` middle-tier reset: drop EVERY volatile/learned table (routes + channel buffer + liveness + pending
     // TX/RX + flood + digest/pull + dedup maps + parked/l2c/mediated) to a fresh-but-PROVISIONED state. KEEPS _cfg
     // (node_id/layer/sf_list/lineage), the crypto identity, and the DAD join — no re-join needed. (node.cpp)
@@ -397,7 +414,8 @@ public:
     bool              has_pending_tx() const { return _active->_pending_tx.has_value(); }
     bool              tx_queue_full()  const { return _active->_tx_queue_n >= kTxQueueCap; }   // enqueue_data SILENTLY drops when full -> callers (firmware scheduled-send) gate on this before originating
     uint64_t          nav_until_ms()   const { return _nav_until_ms; }  // NAV reservation deadline (0 = clear); test/status accessor
-    uint32_t          test_nav_duration_rts(uint8_t sf, uint8_t payload_len) const { return nav_duration_rts(sf, payload_len); }  // M6: white-box the payload_len clamp
+    uint32_t          test_nav_duration_rts(uint8_t sf, uint8_t payload_len, uint8_t data_cr) const { return nav_duration_rts(sf, payload_len, data_cr); }  // M6: white-box the payload_len clamp · §rts-cr-overhear: white-box the peer-CR term
+    uint32_t          test_nav_duration_cts(uint8_t sf, uint8_t payload_len, uint8_t data_cr) const { return nav_duration_cts(sf, payload_len, data_cr); }  // §rts-cr-overhear: white-box the peer-CR term + the payload_len=0 max-frame fallback
     // ---- channel-plane inspection (public, like rt_count) + the two seams tests drive directly ----
     uint16_t          channel_buffer_count() const { return _active->_channel_buffer_n; }
     bool              channel_has(uint32_t id) const { return channel_buffer_find(id) >= 0; }
@@ -1050,8 +1068,11 @@ private:
     // NAV (virtual carrier sense, nav_enabled): an overheard unicast RTS/CTS reserves the medium for the rest
     // of that exchange; the node defers its own unsolicited TX (tx_initiating/tx_flood) until it clears. The
     // duration helpers are PURE (native-testable); nav_arm extends _nav_until_ms (max). Conservative SF/size.
-    uint32_t nav_duration_rts(uint8_t data_sf, uint8_t payload_len) const;  // overheard RTS -> CTS+DATA+ACK+gaps
-    uint32_t nav_duration_cts(uint8_t data_sf, uint8_t payload_len) const;  // overheard CTS -> DATA(exact, or max if payload_len=0)+ACK+gaps
+    // §rts-cr-overhear: `data_cr` is the CR of the PEER that will send the reserved DATA — the whole frame we
+    // are reserving for is somebody else's, so it is NOT active_cr(). No default: every caller must state
+    // where its CR came from (C2 fail loud), because the two overheard-CTS callers CANNOT know it (see below).
+    uint32_t nav_duration_rts(uint8_t data_sf, uint8_t payload_len, uint8_t data_cr) const;  // overheard RTS -> CTS+DATA+ACK+gaps
+    uint32_t nav_duration_cts(uint8_t data_sf, uint8_t payload_len, uint8_t data_cr) const;  // overheard CTS -> DATA(exact, or max if payload_len=0)+ACK+gaps
     void     nav_arm(uint32_t duration_ms);                                 // _nav_until_ms = max(_nav_until_ms, now+dur)
     bool     reserve_yield(uint32_t reserve_ms);                            // spec 2026-06-28: push the pending CTS/ACK timeout past an overheard reserve involving our next-hop, NO retry burned; lifetime-bounded (no starvation). Returns true if yielded.
     // R4.5b: the central TX helper (Lua tx_with_retry dv:3599) — stash the retry-eligible frame + set the

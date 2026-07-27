@@ -342,17 +342,75 @@ bool Node::on_init(const NodeConfig& cfg) {
     return true;
 }
 
+#if MR_FEAT_TEAM
+// §clean-team (2026-07-27): THE team plane's "old network's learned state is stale" clear — ONE implementation, TWO
+// callers (U1): clear_routing_state() below (the static join/create/leave reprovision) and set_team_id() (a `team new` /
+// `team <id>` / `team 0` / `cfg set team_id` switch). A team switch calls ONLY this, deliberately: the static plane
+// (_rt / _id_bind / gateway schedules / bridged layers / hosted-mobile registry / channel buffer / our own home
+// registration) belongs to a network that did NOT change, so wiping it would strand a HOMED team mobile that merely
+// changed teams. Count-reset only where the table is count-bounded (stale bytes are never read past _n) — the codebase's
+// clear idiom; the bitset is the one that must be scrubbed byte-wise because it is set-only, never counted.
+//
+// ★ DONE — every #if MR_FEAT_TEAM-gated learned table in node.h is covered here; that is the whole team plane:
+//   _rt_team/_rt_team_count · _team_peer · _team_liveness(_n) · _team_keys(_n) · _rreq_seen_team(_n)/_rreq_last_team(_n).
+//   (_team_local_id / _team_dad_pending are Node-global identity, not a table — set_team_id drops them via
+//   set_team_local_id(0), which also clears the pending DAD-guard flag so an in-flight guard timer fires inert.)
+// ★ NOT cleared here, deliberately, each with the reason (do not "complete" these without reading the reason):
+//   • the CHANNEL buffer's team-flavored rows (`flavor & channel_flavor_team`, ChannelEntry::team_id). ⚠ THESE ARE
+//     GENUINELY STALE AND THE ONE REMAINING LEAK: node_mac.cpp:1222 re-stamps every emitted team M-frame with the
+//     CURRENT _cfg.team_id, so an OLD team's buffered row served on a re-offer / CHANNEL_PULL is re-broadcast INTO THE
+//     NEW TEAM. Not fixed here because a team-only purge needs a SELECTIVE compaction of _channel_buffer (a count reset
+//     would also discard the node's still-valid non-team leaf channel rows) — a different mechanism from this clear,
+//     in a different plane. OPEN for the owner; the static reprovision path is already covered by clear_routing_state's
+//     §clean-join R4 full channel wipe below.
+//   • parked (_parked_sends) / deferred (_deferred) sends whose TxItem carries Plane::TEAM: bounded by
+//     send_defer_ttl_ms and they simply fail to find a route on the fresh plane. Also PRE-EXISTING-symmetric — the
+//     static reprovision does not clear _parked_sends either.
+//   • the plane-blind shared ledgers (_seen_origins / _per_origin_channel / _hash_query_seen / _mediated_recent /
+//     _blind_until): keyed by a BARE id with no plane discriminator (see node.h's §P2-7 audit), all TTL-windowed, and
+//     all fail in the SUPPRESS direction (a dropped duplicate / a withheld DENY), never a mis-address. Clearing them
+//     from here would reach into the static plane, which is exactly what this function must not do.
+void Node::clear_team_routing_state() {
+    for (uint8_t i = 0; i < _n_layers; ++i) {
+        LayerRuntime& L = _layers[i];
+        L._rt_team_count = 0;                // §mobile 6.2: the TEAM DV plane — a stale _rt_team + _team_peer bit would SHADOW the fresh plane (rt_find dispatches on is_team_peer with no _rt fallback).
+        for (auto& v : L._team_peer) v = 0;  // §6.2: scrub the set-only team-peer bitset (mirror the _mobile_peer clear in clear_learned_state)
+        L._team_liveness_n = 0;              // §clean-join R3: the team-plane liveness mirror (2c) is old-team state too — a stale dead/silent tier would misrank the fresh team's _rt_team. Same disease as the mobile registry.
+        // ★ ADDED 2026-07-27 (§clean-team audit): the two team tables that were cleared by NOTHING — not by this
+        // reprovision path, not by clear_learned_state. So the pre-existing gap was WIDER than the team switch:
+        // `join`/`create`/`leave` left them stale too. Both are now fixed by extension, in this one place.
+        L._team_keys_n = 0;                  // ★ THE MIS-ADDRESSING ONE, worse than a stale route: _team_keys is the team-SCOPED id<->key_hash32 cache (NOT _id_bind). Stale entries make team_key_of_id hand a send the WRONG DST_HASH (node_mac.cpp:94) and team_id_of_key reverse-resolve a hash to the WRONG teammate (node_hashlocate.cpp:988/1019). The _team_peer bit is NOT sufficient cover: node_beacon.cpp:848 sets the bit from a multi-hop DV entry with no key at all, and at :758 the bit is set BEFORE the :766 L2a mediation reads the cache — so a new teammate reusing an old team id would draw a SPURIOUS mediated DENY on its very first beacon.
+        L._rreq_seen_team_n = 0; L._rreq_last_team_n = 0;   // team-plane F RREQ dedup + rate-limit, keyed by (origin,dst) TEAM ids that the new team recycles -> a stale hit suppresses/throttles a legitimate fresh team route discovery for the TTL window. The static siblings (_rreq_seen_n/_rreq_last_n) are cleared by clear_learned_state; these had no clear at all.
+    }
+}
+#endif   // MR_FEAT_TEAM (clear_team_routing_state)
+
+// §clean-team (2026-07-27, owner bench report): THE team-switch entry point. Every LIVE writer of _cfg.team_id goes
+// through here (`team new` mint / `team <id>` join / `team 0` leave / `cfg set team_id`) so a switch is coherent in ONE
+// place: drop the OLD team's learned plane and the OLD team-DAD id BEFORE _cfg.team_id names the new team. Without the
+// clear, a stale _rt_team + _team_peer bit SHADOWS the fresh plane and a stale _team_keys row MIS-ADDRESSES a send.
+// Returns true iff the team ACTUALLY changed -> the caller runs its re-DAD (team_dad_fire) only then; a same-team no-op
+// (`team <current_id>`) clears NOTHING, because nothing is stale.
+// ⚠ DELIBERATELY NOT USED BY THE BOOT/NV PATH (src/fw_main.cpp assigns cfg.team_id directly, pre-on_init): at boot every
+// team table is already empty so there is nothing to clear, and set_team_local_id(0) would destroy the PERSISTED
+// team-DAD id that fw_main loads immediately afterwards (a needless re-DAD + a lost defended id).
+// NOT #if-forked: both callees inline-stub to no-ops on a !MR_FEAT_TEAM build (node.h), so ONE implementation serves
+// both profiles and the gateway build keeps identical behaviour (bare _cfg.team_id assignment) by construction.
+bool Node::set_team_id(uint32_t team_id) {
+    if (_cfg.team_id == team_id) return false;   // no-op: same team -> nothing is stale (C2: no silent side-effects)
+    clear_team_routing_state();                  // the OLD team's routes / peer set / liveness / key cache / RREQ ledgers
+    set_team_local_id(0);                        // §6.4: drop the stale team-DAD id (0 = left; a re-DAD picks a fresh one for the new team) + clear _team_dad_pending
+    _cfg.team_id = team_id;                      // LIVE (team_dad_fire / same_team / team_addr_for_us all read _cfg.team_id)
+    return true;
+}
+
 // Reprovision (join/create/leave verbs): the old network's learned state is stale -> wipe routes / id-bindings /
 // deferred sends (per layer) + the node-global gateway schedules + multi-hop bridge map. The DAD listen window then
 // re-learns the NEW network's neighbours; restart_discovery() (at id-adopt) drives the rebuild. NOT for the heal.
 void Node::clear_routing_state() {
+    clear_team_routing_state();              // §clean-team: the TEAM plane's half (inert stub on a !MR_FEAT_TEAM build)
     for (uint8_t i = 0; i < _n_layers; ++i) {
         _layers[i]._rt_count   = 0;          // routes
-#if MR_FEAT_TEAM
-        _layers[i]._rt_team_count = 0;       // §mobile 6.2: the TEAM plane too — a reprovision may change team_id; a stale _rt_team + _team_peer bit would SHADOW the fresh static plane (rt_find dispatches on is_team_peer with no _rt fallback).
-        for (auto& v : _layers[i]._team_peer) v = 0;   // §6.2: scrub the set-only team-peer bitset (mirror the _mobile_peer clear in clear_learned_state)
-        _layers[i]._team_liveness_n = 0;     // §clean-join R3: the team-plane liveness mirror (2c) is old-network state too — a stale dead/silent tier would misrank the fresh team's _rt_team. Same disease as the mobile registry; count-reset only (self-slotted LRU, stale bytes never read past _n).
-#endif
         _layers[i]._id_bind_n  = 0;          // id -> key bindings (old neighbours)
         _layers[i]._deferred_n = 0;          // parked no-route sends
         _layers[i]._drain_armed = false;
