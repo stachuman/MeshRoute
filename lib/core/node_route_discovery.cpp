@@ -214,6 +214,14 @@ void Node::handle_f_common(const f_out& f, const RxMeta& meta, bool team, uint8_
     const uint8_t prev  = f.relay;
     if (prev == 0xFF || prev == me) return;
     const int16_t snr_q4 = protocol::db_to_q4(meta.snr_db);
+    // §team-parity T0: the hop ceiling for BOTH backstops below, read through the plane accessor.
+    // ★ DELIBERATELY `false`, NOT `team` — this body IS reached with team==true today (measured: 1 team RREQ + 1 team
+    // RREP in s28 over the 32-scenario corpus), so `hop_cap_for(team)` would drop the team RREQ bound 16 -> 8 and the
+    // team RREP backstop 32 -> 16. That is a behaviour change, which T0 (a pure refactor, C1) must not make.
+    // MISSING → T1 flips this to `hop_cap_for(team)` and gates the resulting team-plane delta.
+    // Static reduction: team_plane==false ⇒ hop_cap == _cfg.dv_hop_cap, identically on every build profile
+    // (hop_cap_for is not MR_FEAT_TEAM-gated), so both guards below are the pre-T0 expressions verbatim.
+    const uint8_t hop_cap = hop_cap_for(/*team_plane=*/false);
 
     if (!f.is_reply) {                                     // ----------------- RREQ -----------------
         if (f.origin == me) return;                        // our own flood, heard back
@@ -222,7 +230,7 @@ void Node::handle_f_common(const f_out& f, const RxMeta& meta, bool team, uint8_
         // AND re-seeds on each re-flood = network-wide poison from one crafted frame. Gate at the top (before
         // learn_route_via AND the re-flood) exactly like the RREP dv_hop_cap backstop below. A legitimate RREQ's
         // hops can't reach dv_hop_cap (it's the TTL bound) — beyond that it's forged/looped -> drop, don't learn.
-        if (f.hops >= _cfg.dv_hop_cap) {
+        if (f.hops >= hop_cap) {   // §team-parity T0: was `_cfg.dv_hop_cap`; hop_cap is hop_cap_for(false) = the same value
             MR_EMIT("rreq_drop_hop_cap", EF_I("origin", f.origin), EF_I("dst", f.dst_id), EF_I("hops", f.hops));
             return;
         }
@@ -272,7 +280,7 @@ void Node::handle_f_common(const f_out& f, const RxMeta& meta, bool team, uint8_
         // to origin (<= dv_hop_cap, the RREQ TTL), so a VALID reply can legitimately reach ~2x dv_hop_cap (far-cacher
         // long-alt routes — seen in s18). Only beyond that is it necessarily a loop -> drop. (A tighter, hop-independent
         // bound needs an RREP dedup; this is just the unbounded-loop safety net — the user's metal loop hit 90+.)
-        if (f.hops > static_cast<uint8_t>(2 * _cfg.dv_hop_cap)) {
+        if (f.hops > static_cast<uint8_t>(2 * hop_cap)) {   // §team-parity T0: was `_cfg.dv_hop_cap`; hop_cap is hop_cap_for(false) = the same value
             MR_EMIT("rrep_drop_hop_cap", EF_I("origin", f.origin), EF_I("dst", f.dst_id), EF_I("hops", f.hops));
             return;
         }

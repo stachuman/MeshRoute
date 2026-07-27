@@ -39,7 +39,12 @@ void Node::mark_q_responded(uint8_t opcode, uint8_t src, uint8_t dest) {
 }
 
 // ---- originator (Lua send_req_sync_q dv:8032; NO rand draw) -------------------------------------
-void Node::send_req_sync_q(const char* reason, bool force) {
+// §team-parity T0: `team_plane` threads the plane INTO the originator so T4 can lift the mobile refusal for a
+// team-scoped pull without forking a second function (U1). ★ INERT AT T0 — the parameter defaults to false and no
+// caller (node_query.cpp:82 discovery, node_mac.cpp:722/731 the gateway + originator reactive pulls, the native
+// test helper) passes anything else, so every guard below reduces to its pre-T0 form. MISSING → T4 supplies `true`
+// from the originator antidote and adds the `team_sync` opcode + team_id tail; nothing here is wired for that yet.
+void Node::send_req_sync_q(const char* reason, bool force, bool team_plane) {
     (void)reason;                                              // sim-debug log string only (the Lua logs it)
     // §P0 (mirrors emit_beacon's id-0 guard): an UNPROVISIONED node (id 0) must NEVER REQ_SYNC — its src would be
     // the reserved sentinel 0, so receivers learn a route to "0" (which then propagates) + schedule a sync-response
@@ -49,7 +54,12 @@ void Node::send_req_sync_q(const char* reason, bool force) {
     // §mobile Option A: a MOBILE never route-bootstraps on the static plane — its src is a home-assigned LOCAL id (a REQ_SYNC
     // broadcast would leak it into every static _rt, the dest=17 bench bug). A mobile reaches the mesh via its home (route
     // learned from registration + beacons); it needs no full-table pull. The force path is gateway-only (never mobile).
-    if (_cfg.is_mobile) return;
+    // §team-parity T0: the refusal is now PLANE-SCOPED — it forbids a mobile from pulling on the STATIC plane, which
+    // is exactly what the comment above argues for. Static reduction: team_plane==false at every call site today
+    // ⇒ `!false && _cfg.is_mobile` ≡ `_cfg.is_mobile`, the pre-T0 expression, on every build profile.
+    // MISSING → T4 (§3/T4): a team member with an adopted team_local_id may pull team-scoped; that needs the wire
+    // opcode + the same_team responder gate, so T0 supplies only the hole in the guard, never a caller for it.
+    if (!team_plane && _cfg.is_mobile) return;
     if (!force && !_cfg.req_sync_on_boot) return;
     const uint64_t now = _hal.now();
     if (_last_req_sync_tx_ms != 0 && (now - _last_req_sync_tx_ms) < protocol::req_sync_retry_ms) return;
@@ -85,7 +95,10 @@ void Node::handle_q(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // §mobile: a mobile-marked Q's src is a home-assigned LOCAL id, NOT a global static identity -> NEVER learn it into
     // the static _rt (a mobile is reached via home_id+hash; a local id §18-collides a static id + goes stale as it roams).
     // Mirrors the RTS guard node_mac_rx.cpp:47 (`!r.mobile_src`). q.mobile==false for a static Q -> unchanged (s18 byte-identical).
-    if (!q.mobile && learn_direct_neighbor(q.src, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
+    // §team-parity T0: plane made explicit (was learn_direct_neighbor's default). Static reduction: `false` IS the old
+    // default ⇒ identical call. MISSING → T2 (§3/T2 row 7): + team learn for the `q.mobile` traffic this guard
+    // excludes; it pairs with T4 (team REQ_SYNC), which is what makes a team Q exist to learn from in the first place.
+    if (!q.mobile && learn_direct_neighbor(q.src, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/false)) schedule_triggered_beacon();
     if (q.src == _node_id) return;                               // loop guard — never answer ourselves
     if (q_responded_recently(q.opcode, q.src, q.dest)) return;   // recently answered this query -> skip
     mark_q_responded(q.opcode, q.src, q.dest);

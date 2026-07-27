@@ -136,7 +136,13 @@ void Node::cascade_to_alt(const char* giveup_event) {
             // team_local_id and those index the STATIC _peer_liveness / _link_bidi arrays (§18 aliasing). Full team<->static
             // separation on the reroute path; team liveness is 2c (for 2b, cascade-exhaustion is the trigger, rate-limited
             // by the team _rreq ledger).
-            emit_route_request(pt.dst, _cfg.dv_hop_cap, /*team_plane=*/true);
+            // §team-parity T0: the TTL now reads through the plane accessor. ★ The cap argument is DELIBERATELY
+            // `false` while the RREQ's own plane argument stays `true` — this site already emits a TEAM-scoped RREQ,
+            // but at the STATIC radius of 16, and changing that radius to 8 is a behaviour change (C1: not in a
+            // refactor). Measured corpus reach: 0/32 scenarios (this branch is dark today — see the report), so the
+            // gate is BLIND here and algebra is the only proof: hop_cap_for(false) == _cfg.dv_hop_cap.
+            // MISSING → T1 flips the cap argument to `true` (spec §3/T1: "Team RREQ TTL escalation uses team_hop_cap").
+            emit_route_request(pt.dst, hop_cap_for(/*team_plane=*/false), /*team_plane=*/true);
             try_cascade_requeue(pt, giveup_event);
             return;
         }
@@ -146,7 +152,16 @@ void Node::cascade_to_alt(const char* giveup_event) {
         // path NOW rather than stalling on the requeue / 3h aging — closes the no-alt dead-relay case (the user's bug:
         // a dest reachable only via a departed relay). Rate-limited (rreq_rate_ok); a normal congested giveup does NOT.
         if (liveness_penalty_q4(from_next) >= protocol::peer_silent_penalty_q4)
-            emit_route_request(pt.dst, _cfg.dv_hop_cap);  // full-radius requery (network-wide configured TTL, like the deferred-drain requery)
+            // §team-parity T0: full-radius requery (network-wide configured TTL, like the deferred-drain requery),
+            // now read through the plane accessor. ★ This site is STATIC-ONLY BY CONSTRUCTION and stays that way:
+            // the `pt.plane == Plane::TEAM` branch above returns before reaching here, and the RREQ it emits is
+            // static-scoped (emit_route_request's team_plane defaults to false). It is NOT the twin of the :139 team
+            // site — that one is cascade-exhaustion-on-the-team-plane; this one is the §P3 dead-primary rediscovery,
+            // whose trigger (liveness_penalty_q4 / _peer_liveness) is a static-plane-indexed array the team branch
+            // above deliberately skips. ⇒ nothing here flips in T1; it is routed through hop_cap_for purely so a
+            // grep for `_cfg.dv_hop_cap` finds no surviving direct reads. Measured corpus reach: 94 executions,
+            // 100% static. Static reduction: hop_cap_for(false) == _cfg.dv_hop_cap.
+            emit_route_request(pt.dst, hop_cap_for(/*team_plane=*/false));
         // Slow-reprobe interception (asymmetric-link slice 6, MF4): a one-way next-hop stays liveness-HEALTHY
         // (clear_peer_suspect fires on its every beacon) so §P3 above never triggers on it -> the giveup would
         // fall straight to the 9–80-RTS try_cascade_requeue burst. Instead: throttle to ONE RTS per
@@ -294,7 +309,12 @@ void Node::try_drain_deferred() {
             continue;
         }
         const bool team_rreq = (d.item.plane == Plane::TEAM) || (d.item.plane == Plane::AUTO && is_team_peer(d.item.dst));   // §F-TR-2: requery on the item's OWN plane (team dst -> team-scoped RREQ)
-        emit_route_request(d.item.dst, _cfg.dv_hop_cap, team_rreq); // still no route -> requery at full radius (rate-limited)
+        // §team-parity T0: requery TTL through the plane accessor. ★ DELIBERATELY `false`, not `team_rreq` — this
+        // site already requeries on the item's OWN plane, so passing team_rreq would move a team requery's radius
+        // 16 -> 8 = behaviour change (C1). Measured corpus reach: 783 executions, ALL with team_rreq==false, so the
+        // team half is corpus-dark and algebra is its only proof: hop_cap_for(false) == _cfg.dv_hop_cap.
+        // MISSING → T1 flips the cap argument to `team_rreq`.
+        emit_route_request(d.item.dst, hop_cap_for(/*team_plane=*/false), team_rreq); // still no route -> requery at full radius (rate-limited)
         _active->_deferred[w++] = d;                              // still no route + not expired -> keep
     }
     _active->_deferred_n = w;

@@ -74,7 +74,13 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // §mobile 3b A1 (the load-bearing collision fix): NEVER learn a mobile's LOCAL id as a global neighbour — it can
     // collide a global id, and then rt_find(that id) would resolve to the mobile so a mobile's E2E-ACK to the colliding
     // GLOBAL id would loop back. The mobile reaches the mesh via its home_node; its src never enters the global rt.
-    if (!r.mobile_src && learn_direct_neighbor(r.src, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
+    // §team-parity T0: the learn PLANE is now written out at the call site instead of riding learn_direct_neighbor's
+    // default argument, so T2's diff is a one-token flip that a reviewer can see. Static reduction: the explicit
+    // `false` IS the previous default ⇒ identical call, on every build profile (the parameter is not MR_FEAT_TEAM-gated).
+    // MISSING → T2 (spec §3/T2 row 1): "+ team learn when the src is a same-team local id", i.e. the excluded
+    // `r.mobile_src` traffic gains a TEAM destination — it must NOT relax this guard, which is what keeps a mobile/team
+    // local id out of the static _rt (invariant I2).
+    if (!r.mobile_src && learn_direct_neighbor(r.src, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/false)) schedule_triggered_beacon();
     // §6.4 team reverse-learn: a team RTS ADDRESSED to OUR team-local id (mobile_src + addr_len=1 + next==our team id) ->
     // its src is a reachable same-team peer. Mark it a team peer (the _team_peer bitmap that is_team_peer/route-selection
     // read) AND learn a 1-hop TEAM route (_rt_team) so we can REPLY — mirrors the beacon path (node_beacon.cpp:685-686).
@@ -463,8 +469,11 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // Learn the CTS sender (= our next-hop) as a 1-hop neighbour (Lua learn_rx_source / cts_frame).
     // §mobile: our next-hop on a mobile last-mile (addr_len=1) or a team DM (is_team_peer) is a LOCAL id, not a global
     // identity -> keep it OUT of the static _rt (mirror the ACK-learn guard below). Inert on s18/static (both false).
+    // §team-parity T0: plane made explicit (was learn_direct_neighbor's default). Static reduction: `false` IS the
+    // old default ⇒ identical call. MISSING → T2 (§3/T2 row 3): + team learn + team note_link_confirmed for the
+    // next_is_local_id traffic this guard excludes; the guard itself stays (invariant I2).
     if (!(next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next))
-        && learn_direct_neighbor(c.tx_id, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
+        && learn_direct_neighbor(c.tx_id, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/false)) schedule_triggered_beacon();
     if (!(next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next)))   // §mobile: a mobile/team next is a LOCAL id -> keep it OUT of the static bidi/liveness + route-rerank planes (mirror the CTS-learn guard above)
         note_link_confirmed(c.tx_id);                    // bidi plane: a real CTS proves our next-hop hears us -> confirmed (clears any one_way + emits link_recover)
     _hal.cancel(kRtsTimeoutTimerId);                     // else it fires same-tick and burns a retry
@@ -569,7 +578,9 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // Learn the DATA prev-hop as a 1-hop neighbour (Lua learn_rx_source / data_frame).
     // §mobile: a mobile_src DATA's prev-hop `from` is a home-assigned LOCAL id -> keep it OUT of the static _rt
     // (mirror the RTS/Q guards). mobile_from==false for every static frame -> unchanged (s18 byte-identical).
-    if (!_active->_pending_rx->mobile_from && learn_direct_neighbor(from, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
+    // §team-parity T0: plane made explicit (was the default). Static reduction: `false` IS the old default.
+    // MISSING → T2 (§3/T2 row 4): + team learn for the mobile_from traffic this guard excludes.
+    if (!_active->_pending_rx->mobile_from && learn_direct_neighbor(from, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/false)) schedule_triggered_beacon();
     const uint8_t rx_sf = _active->_pending_rx->chosen_data_sf;
     const uint8_t pl    = _active->_pending_rx->payload_len;
     _hal.cancel(kPendingRxExpiryTimerId);
@@ -1247,8 +1258,10 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // §mobile 3b A1: a last-mile flight's next-hop is a mobile LOCAL id -> keep it OUT of the global rt (same principle as
     // the RTS-learn skip at :47; else rt_find(that id) resolves to the mobile). §6.4: a team DM's next is a team LOCAL id
     // too (addr_len=0 but is_team_peer) -> also skip. addr_len==0 + no team peers on every normal flight -> unchanged.
+    // §team-parity T0: plane made explicit (was the default). Static reduction: `false` IS the old default.
+    // MISSING → T2 (§3/T2 row 5): + team learn + team confirm for the next_is_local_id traffic this guard excludes.
     if (!(next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next))
-        && learn_direct_neighbor(_active->_pending_tx->next, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
+        && learn_direct_neighbor(_active->_pending_tx->next, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/false)) schedule_triggered_beacon();
     // R4.2: consume the ACK's piggybacked budget_hint -> learn the next-hop's tier in the FORWARD
     // direction (the NACK only covers the reverse). local_only=true: rerank routes but DON'T dirty /
     // schedule a beacon (so NO triggered-beacon draw on the forward path). Lua dv:10341-10344.
@@ -1296,8 +1309,10 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     }
     // Learn the NACK sender (= our next-hop) as a 1-hop neighbour (Lua learn_rx_source / nack_frame).
     // §mobile: same mobile/team LOCAL-id guard as the ACK/CTS learns — never install a local id in the static _rt.
+    // §team-parity T0: plane made explicit (was the default). Static reduction: `false` IS the old default.
+    // MISSING → T2 (§3/T2 row 6): + team learn for the next_is_local_id traffic this guard excludes.
     if (!(next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next))
-        && learn_direct_neighbor(_active->_pending_tx->next, protocol::db_to_q4(meta.snr_db), false)) schedule_triggered_beacon();
+        && learn_direct_neighbor(_active->_pending_tx->next, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/false)) schedule_triggered_beacon();
     _hal.cancel(kRtsTimeoutTimerId);                                // faster than the timeout (dv:10390)
     _hal.cancel(kAckTimeoutTimerId);
     _active->_pending_tx->awaiting_cts = false; _active->_pending_tx->awaiting_ack = false;

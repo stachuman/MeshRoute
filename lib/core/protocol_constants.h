@@ -172,6 +172,11 @@ inline constexpr int16_t  route_snr_conservatism_q4 = 0;
 // combined-hops ceiling). cap_routes bounds the distinct-dest count held in rt[].
 inline constexpr uint8_t  max_rt_candidates = 3;
 inline constexpr uint8_t  dv_hop_cap        = 16;
+// §team-parity T0 (spec 2026-07-27 §3/T0, requirement R4): the TEAM plane's own hop ceiling. A team is a
+// 3-10-member group, 1-3 hops typical and stragglers to 8 — half the static radius, so a team flood costs
+// half the worst-case airtime. ★ SEEDED BUT NOT YET ADOPTED: at T0 every hop-cap consumer still resolves to
+// dv_hop_cap (see Node::hop_cap_for in node.h). T1 is the slice that starts passing team_plane=true.
+inline constexpr uint8_t  team_hop_cap      = 8;
 inline constexpr uint16_t cap_routes        = 254;   // max leaf size: 255 valid 8-bit ids (0xFF rsv) - self
 
 // ---- F route-discovery (AODV-style RREQ/RREP, §3.7b) -----------------------

@@ -137,6 +137,20 @@ struct NodeConfig {
     uint8_t  radio_cr    = 5;
     uint8_t  dv_hop_cap  = protocol::dv_hop_cap;  // DV route hop cap + F RREQ TTL. Network-wide: set via the J join
                                                   // frame (Slice 3); static config is the bootstrap/fallback. Default 16.
+    // §team-parity T0: the TEAM plane's twin of dv_hop_cap (default 8, spec §3/T0 + R4). Read ONLY through
+    // Node::hop_cap_for(team_plane) — never index a cap by hand. NOT MR_FEAT_TEAM-gated, deliberately: the
+    // accessor must compile identically on the three gateway_* envs (MR_FEAT_TEAM 0), so a later slice cannot
+    // route a live path through a team-gated stub the corpus is blind to (the 2026-07-27ze near-miss).
+    // ★ INERT AT T0 — nothing reads it yet; hop_cap_for(true) is not called from anywhere until T1.
+    // ★ MISSING ON PURPOSE at T0, and none of it is needed while the member is inert: no console surface
+    // (`cfg set hop_cap` at firmware_config.cpp:163 still writes dv_hop_cap only), no `cfg`/`status` readout
+    // (firmware_commands.cpp:181, console_json.cpp:525, console_binary.cpp:122 all print dv_hop_cap alone), and no
+    // NV/J-frame provisioning. dv_hop_cap's own console knob is already `persist = false` (live-only, reboot reverts),
+    // so there is no NV blob to extend either. Whichever slice first passes team_plane=true owns that decision.
+    // Placed here (immediately after dv_hop_cap, ahead of the 8-byte-aligned `double radio_freq_mhz` below) so it
+    // lands in the SAME existing alignment padding the radio_freq_mhz note describes: measured native offsets are
+    // dv_hop_cap@93 / radio_freq_mhz@96, i.e. bytes 94-95 are pure pad. Cost measured: sizeof(NodeConfig) 264 -> 264.
+    uint8_t  team_hop_cap = protocol::team_hop_cap;
     // §layer-freq (2026-07-27): the node's GLOBAL RF carrier, MHz — the freq twin of radio_bw_hz/radio_cr.
     // Sources: the firmware's LORA_FREQ / persisted nv.freq_mhz (fw_main) and the sim node's freq_khz
     // (injected as _sim_freq_khz). It exists for ONE reason: active_freq_mhz() must be able to RESET the HAL

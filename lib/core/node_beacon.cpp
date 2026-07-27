@@ -420,10 +420,17 @@ void Node::emit_beacon(const char* kind) {
     // the FULL hops==1 set fit (drives heard_set_complete, Task 4). M1: set true ONLY inside this gate, so a NON-census
     // beacon (discovery/sync = !dirty_only, gateway, or mobile) leaves it false -> heard_set_complete=false (absence is
     // authoritative ONLY on a beacon that ran the census). Bounded by the LIVE max_entries so it never overflows beacon_max_bytes.
+    // §team-parity T0: the census now packs from the SELECTED plane (src_rt/src_cnt, chosen at :389 above) instead of
+    // hardcoding _active->_rt — so T3 only has to relax the gate, not also re-point the loop.
+    // ★ PROVABLY INERT, one line: the gate below still requires !_cfg.is_mobile, and team_emit ⇒ _cfg.is_mobile
+    // (team_active at :367 is `_cfg.is_mobile && team_id != 0 && team_local_id() != 0`), so inside this block
+    // team_emit is necessarily false ⇒ src_rt == _active->_rt and src_cnt == _active->_rt_count, by construction.
+    // Under MR_FEAT_TEAM 0 (the three gateway_* envs) src_rt/src_cnt are literally _active->_rt/_rt_count at compile
+    // time (:392-394), so the substitution is textual there. MISSING → T3 adds `|| team_emit` to the gate.
     if (dirty_only && _cfg.n_layers != 2 && !_cfg.is_mobile) {
         bidi_census_full = true;
-        for (uint8_t i = 0; i < _active->_rt_count; ++i) {
-            if (_active->_rt[i].n == 0 || _active->_rt[i].candidates[0].hops != 1) continue;
+        for (uint8_t i = 0; i < src_cnt; ++i) {
+            if (src_rt[i].n == 0 || src_rt[i].candidates[0].hops != 1) continue;
             bool already = false;
             for (uint8_t k = 0; k < n; ++k) if (pack_idx[k] == i) { already = true; break; }
             if (already) continue;
@@ -829,7 +836,14 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         const int16_t rx_score_q4    = route_score_from_snr(meta_snr_q4);
         const int16_t combined_score = (rx_score_q4 < entry_score_q4) ? rx_score_q4 : entry_score_q4;
         const int     combined_hops  = static_cast<int>(e.hops) + 1;
-        if (combined_hops > _cfg.dv_hop_cap) continue;
+        // §team-parity T0: the DV combined-hops ceiling, read through the plane accessor.
+        // ★ DELIBERATELY `false`, NOT `same_team_beacon` — this is the single MOST team-live hop-cap consumer in the
+        // tree (poison-probe over the 32-scenario corpus: 157 executions with same_team_beacon==true, across s22 s23
+        // s24 s25 s26 s28 s29 s30 s34), so hop_cap_for(same_team_beacon) would immediately halve the team DV radius.
+        // Behaviour change ⇒ not T0 (C1). MISSING → the team slice that adopts team_hop_cap flips this to
+        // hop_cap_for(same_team_beacon); `same_team_beacon` is already in scope right here.
+        // Static reduction: team_plane==false ⇒ hop_cap_for(false) == _cfg.dv_hop_cap on every build profile.
+        if (combined_hops > hop_cap_for(/*team_plane=*/false)) continue;
 
         RtCandidate cand{};
         cand.next_hop         = b.src;
