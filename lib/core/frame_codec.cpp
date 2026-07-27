@@ -348,7 +348,11 @@ size_t pack_cts(const cts_in& in, std::span<uint8_t> out) {
     w.u8(wire::cmd_byte(wire::Cmd::C, static_cast<uint8_t>((sf3 << 1) | (in.already_received ? 0x01 : 0x00))));
     w.u8(in.tx_id);
     w.u8(in.rx_id);
-    if (with_pl) w.u8(in.payload_len);                 // cleared DATA's inner+MAC length (for the overhearer's NAV)
+    // §cts-len6-cr2: byte 3 = [len6(7..2)][cr2(1..0)] — the cleared DATA's inner+MAC length quantized UP to
+    // 4-B units, plus the CR that DATA will be sent at. with_pl => payload_len >= 1 => len6 >= 1 (the clamp
+    // stops ceil(255/4)=64 shifting out) => byte 3 >= 4, so it can never alias the "no hint" 0. See the
+    // §cts-len6-cr2 block in frame_codec.h for the invariant and the airtime-neutrality argument.
+    if (with_pl) w.u8(static_cast<uint8_t>((cts_len6_encode(in.payload_len) << 2) | (in.cr_adv & 0x03)));
     return w.ok() ? w.size() : 0;
 }
 
@@ -359,7 +363,7 @@ std::optional<cts_out> parse_cts(std::span<const uint8_t> frame) {
     if (wire::cmd_of(b0) != wire::Cmd::C) return std::nullopt;
     const uint8_t tx_id = r.u8();
     const uint8_t rx_id = r.u8();
-    const uint8_t payload_len = (frame.size() == 4) ? r.u8() : 0;   // NAV: optional 4th byte (0 => absent)
+    const uint8_t b3 = (frame.size() == 4) ? r.u8() : 0;   // §cts-len6-cr2 NAV hint: optional 4th byte (0 => absent)
     if (!r.ok()) return std::nullopt;
     const uint8_t flags = wire::flags_of(b0);          // (sf-5)(3) | already_received(1)
     cts_out o{};
@@ -367,7 +371,11 @@ std::optional<cts_out> parse_cts(std::span<const uint8_t> frame) {
     o.already_received = (flags & 0x01) != 0;
     o.tx_id            = tx_id;
     o.rx_id            = rx_id;
-    o.payload_len      = payload_len;
+    // §cts-len6-cr2: len6 back to a QUANTIZED-UP inner+MAC byte count (<= 63*4 = 252, fits u8); cr2 stays the
+    // raw 2-bit code (decode with rts_cr_decode at the use site). b3 == 0 => both 0 => "no hint": one
+    // predicate (payload_len != 0) governs both fields, so cr_adv needs no separate unknown sentinel.
+    o.payload_len      = static_cast<uint8_t>((b3 >> 2) * CTS_LEN_QUANTUM);
+    o.cr_adv           = static_cast<uint8_t>(b3 & 0x03);
     return o;
 }
 

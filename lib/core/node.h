@@ -205,6 +205,11 @@ public:
     // The FULL 8-bit layer_id of the ACTIVE leaf (a gateway alternates leaves on the window schedule). Public so the
     // device console (`debug on`) can announce which layer the gateway is currently LISTENING on. Single-layer: layers[0].layer_id.
     uint8_t           active_layer_id() const { return _cfg.layers[static_cast<size_t>(_active - &_layers[0])].layer_id; }
+    // The ACTIVE leaf's INDEX into _layers[] / _cfg.layers[] (0..n_layers-1) — NOT its wire layer_id (that is
+    // active_layer_id() above). Added 2026-07-27 for the layer-explicit paths (flood_state_free / purge_tx_carriers),
+    // which must name a leaf that is not necessarily the active one. The four inline `_active - &_layers[0]` uses in
+    // this block predate it and are deliberately left alone (C1: converting them is a refactor, not this fix).
+    uint8_t           active_layer_index() const { return static_cast<uint8_t>(_active - &_layers[0]); }
     // Per-layer BW/CR (2026-07-04): the ACTIVE leaf's bandwidth/coding-rate for the airtime model — the same
     // runtime->config index idiom as active_layer_id(). 0 in the LayerConfig = inherit the global radio_bw_hz/radio_cr
     // (a single-layer node's sole layer inherits, so these read identically to the scalars = byte-identical behavior).
@@ -273,19 +278,23 @@ public:
     // NOT-cleared list are documented at the definition (node.cpp).
 #if MR_FEAT_TEAM
     void clear_team_routing_state();
-    // §clean-team-channel (2026-07-27): the CHANNEL plane's team half of a team switch — the leak the clear above
-    // deliberately left open. It is a SEPARATE function, not a third line inside clear_team_routing_state(), for two
-    // reasons: (a) the mechanism differs — a SELECTIVE compaction (the same buffer/queue hold still-valid NON-team leaf
-    // rows, so a count reset would be over-broad), not a count reset; (b) its other caller would be
-    // clear_routing_state(), which already wipes the whole channel plane one line later — folding it in would only add
-    // dead work on that path and put a tx-queue mutation on the static reprovision path that has never had one.
-    // Full audit (every structure keyed by channel_msg_id: must-scrub / harmless-and-why) at the definition
-    // (node_channel.cpp) — READ IT before "completing" anything it deliberately leaves alone.
-    void purge_team_channel_state();
 #else
     void clear_team_routing_state() {}   // §featuresplit: no team plane compiled in -> nothing to clear
-    void purge_team_channel_state() {}   // §featuresplit: no team plane -> a team-flavored channel row can never exist
 #endif
+    // §clean-team-channel + §clean-join-carriers (2026-07-27): drop every carrier that could still put a frame ON THE AIR
+    // built from scope/state we are about to invalidate. ONE mechanism, TWO axes (U1) — the axis selects the per-carrier
+    // predicate AND the leaf scope; see the definition (node_channel.cpp) for the full carrier table, the dependent-state
+    // audit (must-scrub / harmless-and-why / not-affected) and the named residuals. READ IT before "completing" anything
+    // it deliberately leaves alone.
+    // ★ NOT #if MR_FEAT_TEAM-gated (it used to be, as purge_team_channel_state): the reprovision axis has NOTHING to do
+    // with the team plane and `leave` IS dispatched on the gateway build (firmware_commands.cpp — only join/create are
+    // MR_N_LAYERS<2), so a team-gated stub would silently stop wiping the channel plane on exactly that profile. Every
+    // field the predicates read (ChannelEntry::team_id, FloodState::team_flood, channel_flavor_team) is ungated.
+    enum class PurgeAxis : uint8_t {
+        team_switch,   // set_team_id(): the OLD TEAM's rows/carriers only — the node's LEAF plane is still valid and SURVIVES. ACTIVE leaf only.
+        reprovision,   // clear_routing_state(): the whole NETWORK changed -> EVERY staged/in-flight frame goes, on EVERY leaf.
+    };
+    void purge_tx_carriers(PurgeAxis axis);
     // §clean-team (2026-07-27, owner bench report "when creating a new team / joining a team, existing team routes need
     // to be cleared"): THE team-switch entry point — every LIVE writer of _cfg.team_id goes through here (`team new`,
     // `team <id>`, `team 0`, `cfg set team_id`), so the switch is coherent in ONE place instead of per-verb. Returns
@@ -902,7 +911,8 @@ private:
     // ---- channel FLOOD plane (2026-06-08 redesign; node_channel.cpp) -------------------------------
     int     flood_state_find(uint32_t id);                        // active slot for id, or -1
     int     flood_state_alloc(uint32_t id);                       // free slot, or -1 (all active -> DROP to repair; never evict, §6)
-    void    flood_state_free(uint8_t slot);                       // clear active + cancel its rebroadcast timer
+    void    flood_state_free(uint8_t slot);                       // clear active + cancel its rebroadcast timer (the ACTIVE leaf)
+    void    flood_state_free(uint8_t layer, uint8_t slot);        // ...on an EXPLICIT leaf; the 1-arg form delegates here (purge_tx_carriers's reprovision axis sweeps every leaf)
     void    flood_set_my_coverage(uint8_t* bm, bool team = false) const;   // §S7 T-A plane-keyed: team=false -> my static id + _rt hops==1 + HOSTED MOBILES (§S7 T-B: a home covers its registered mobiles); team=true -> my team_local_id + _rt_team hops==1. Idempotent (originate-seed AND rebroadcast cover). The bitmap indexes ONE id-space per flood (§18: team ids never mix with static ids).
     bool    flood_any_unmarked(const uint8_t* bm, bool team = false) const; // §S7 T-A: any coverage target unmarked? team-plane consults _rt_team (+ its own team id-space); static consults _rt + hosted mobiles
     void    enqueue_flood_m(uint8_t channel_id, uint8_t flavor, uint32_t id, const uint8_t* body, uint8_t body_len,

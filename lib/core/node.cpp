@@ -357,11 +357,12 @@ bool Node::on_init(const NodeConfig& cfg) {
 //   set_team_local_id(0), which also clears the pending DAD-guard flag so an in-flight guard timer fires inert.)
 // ★ NOT cleared here, deliberately, each with the reason (do not "complete" these without reading the reason):
 //   • the CHANNEL plane's team-scoped state (buffer rows, flood states, staged/in-flight M frames, re-offer slots).
-//     ✔ CLOSED 2026-07-27 by §clean-team-channel — but in its OWN function, purge_team_channel_state()
-//     (node_channel.cpp), which set_team_id() calls right after this one, NOT here: it is a SELECTIVE compaction (the
-//     buffer + tx queue also hold still-valid NON-team leaf rows, so a count reset would be over-broad), and this
-//     function's other caller — clear_routing_state below — already wipes the whole channel plane via §clean-join R4.
-//     The full dependent-state audit (what is scrubbed, what is harmless, and why) lives at that definition.
+//     ✔ CLOSED 2026-07-27 by §clean-team-channel — but in its OWN function, purge_tx_carriers() (node_channel.cpp),
+//     which set_team_id() calls right after this one, NOT here: it is a SELECTIVE compaction (the buffer + tx queue also
+//     hold still-valid NON-team leaf rows, so a count reset would be over-broad). ★ 2026-07-27 §clean-join-carriers:
+//     that function is now axis-parameterised and clear_routing_state below calls it too (PurgeAxis::reprovision) — so
+//     the two axes share ONE sweep instead of the reprovision path re-clearing the plane its own way. The full
+//     dependent-state audit (what is scrubbed, what is harmless, and why) lives at that definition.
 //   • parked (_parked_sends) / deferred (_deferred) sends whose TxItem carries Plane::TEAM: bounded by
 //     send_defer_ttl_ms and they simply fail to find a route on the fresh plane. Also PRE-EXISTING-symmetric — the
 //     static reprovision does not clear _parked_sends either.
@@ -398,7 +399,7 @@ void Node::clear_team_routing_state() {
 bool Node::set_team_id(uint32_t team_id) {
     if (_cfg.team_id == team_id) return false;   // no-op: same team -> nothing is stale (C2: no silent side-effects)
     clear_team_routing_state();                  // the OLD team's routes / peer set / liveness / key cache / RREQ ledgers
-    purge_team_channel_state();                  // §clean-team-channel: the OLD team's channel CONTENT + every carrier that would re-emit it (buffer rows / flood states / staged + in-flight M frames / re-offer slots). Team-scoped rows only — the leaf channel rows survive. Inert stub on a !MR_FEAT_TEAM build.
+    purge_tx_carriers(PurgeAxis::team_switch);    // §clean-team-channel: the OLD team's channel CONTENT + every carrier that would re-emit it (buffer rows / flood states / staged + in-flight M frames / re-offer slots). Team-scoped rows only — the leaf channel rows survive. Compiled on EVERY profile now (it also serves the reprovision axis), but the team_switch predicate can never match on a !MR_FEAT_TEAM build: no writer sets ChannelEntry::team_id / FloodState::team_flood / the channel_flavor_team bit there.
     set_team_local_id(0);                        // §6.4: drop the stale team-DAD id (0 = left; a re-DAD picks a fresh one for the new team) + clear _team_dad_pending
     _cfg.team_id = team_id;                      // LIVE (team_dad_fire / same_team / team_addr_for_us all read _cfg.team_id)
     return true;
@@ -409,6 +410,17 @@ bool Node::set_team_id(uint32_t team_id) {
 // re-learns the NEW network's neighbours; restart_discovery() (at id-adopt) drives the rebuild. NOT for the heal.
 void Node::clear_routing_state() {
     clear_team_routing_state();              // §clean-team: the TEAM plane's half (inert stub on a !MR_FEAT_TEAM build)
+    // §clean-join-carriers (2026-07-27): drop every carrier that could still EMIT — the channel buffer + flood states
+    // this used to clear inline, AND the three it did not: _tx_queue / _pending_tx / _channel_reoffer_pending. That gap
+    // was the LEAF-axis twin of the team leak: do_data_tx and both RTS builders stamp leaf_id from the LIVE _cfg at TX
+    // time (node_mac.cpp:1239 / :621 / :781), so a staged channel M was re-broadcast onto the NEW leaf — and worse, a
+    // staged/in-flight DM was re-stamped and sent to a `next` chosen from the _rt/_id_bind wiped just below, i.e.
+    // MIS-DELIVERY. _channel_reoffer_pending was cleared by NOTHING at all (not here, not clear_learned_state).
+    // Placed BEFORE the loop so the queue is already empty when the sweep's trailing become_free() runs — that is what
+    // makes it a provable no-op here (it early-returns on an empty queue) instead of something that could re-enter the
+    // pipeline halfway through the wipe. Order is otherwise immaterial: the reprovision axis keeps nothing either way.
+    // Sweeps EVERY leaf (a gateway stages bridged DMs on both, and `leave` IS dispatched on the gateway build).
+    purge_tx_carriers(PurgeAxis::reprovision);
     for (uint8_t i = 0; i < _n_layers; ++i) {
         _layers[i]._rt_count   = 0;          // routes
         _layers[i]._id_bind_n  = 0;          // id -> key bindings (old neighbours)
@@ -419,10 +431,13 @@ void Node::clear_routing_state() {
         // network (a beacon digest advertises their ids + a pull re-broadcasts them, both stamped with the CURRENT leaf; a
         // shared-key network then ingests old content), and the per-origin anti-spam ledgers would mis-account recycled ids.
         // MOVED here from clear_learned_state (which calls us) so the reprovision verbs wipe it too; prep-restart unchanged.
-        _layers[i]._channel_buffer_n = 0; _layers[i]._per_origin_channel.clear();          // channel buffer (+ its seen_by) + per-origin anti-spam ledgers
+        // ★ The two EMIT carriers this block used to clear inline — `_channel_buffer_n = 0` and the `_flood` loop — moved
+        // into purge_tx_carriers(reprovision) above, so ONE place now defines what dropping a channel row means (and the
+        // flood free finally cancels its rebroadcast timer). What stays here is the RECEIVE/SUPPRESS half: these three
+        // never emit our content, so they are not carriers.
+        _layers[i]._per_origin_channel.clear();                                             // per-origin anti-spam ledgers
         for (auto& p : _layers[i]._channel_pull_pending) p = ChannelPullPending{};          // digest/pull pending
         _layers[i]._channel_pull_recent_n = 0;
-        for (auto& f : _layers[i]._flood) f = FloodState{};                                 // channel-flood in-progress
     }
     for (uint8_t i = 0; i < protocol::cap_gateway_neighbor_schedules; ++i) _gw_schedules[i].valid = false;
     for (uint8_t i = 0; i < protocol::cap_bridged_layers; ++i)             _bridged_layers[i].valid = false;

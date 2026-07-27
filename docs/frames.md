@@ -114,9 +114,11 @@ To be implemented - for mobile teams - BCN should include lat/lon
 | 0 | cmd \| flags | bits 7..4 = `0x2`; b3..1 = `(chosen_data_sf − 5)`; b0 = `already_received` |
 | 1 | tx_id | CTS sender (the forwarder clearing the requester) |
 | 2 | rx_id | intended requester id (the RTS sender being cleared) |
-| 3 | payload_len | **optional** — present iff the sender attaches a NAV hint (the cleared DATA's inner+MAC length), so a CTS-overhearer can size an exact virtual-carrier-sense reservation |
+| 3 | len6 \| cr2 | **optional NAV hint** — present iff the CTS sender attaches one. b7..2 = `len6` = `ceil((inner+MAC)/4)` (4-B units, **rounded UP**, clamped 63); b1..0 = `cr2` = the cleared sender's CR as `(cr − 5)`. An overhearer decodes `bytes = min(255, len6·4 + 9)` (9 = the widest cleartext DATA header) **and the peer's real CR** |
 
 `chosen_data_sf` in 5..12. `already_received` short-circuits a resend whose ACK was lost. No `ctr_lo`: `tx_id + rx_id` pin the flight under single-slot stop-and-wait, and `tx_id` disambiguates cascade alternates. The 4th byte is omitted (3-B CTS) when NAV is off or no length is attached; `parse_cts` accepts 3 **or** 4 bytes.
+
+**★ The CTS has NO spare bits ANYWHERE (as of `§cts-len6-cr2`, 2026-07-27):** byte 0's low nibble is `(sf−5)` + `already_received`, and **byte 3 is now `len6`+`cr2`**. A further CTS field means widening the frame — accepted deliberately. Rounding `len6` UP is load-bearing (it keeps every residual length error in the over-reserve direction), and the 63-clamp is what stops a forged `payload_len` aliasing the `byte3 == 0` "no hint" sentinel. Cost of the change: **nothing** — `payload_len` counts inner+MAC only, so the pre-2026-07-27 consumer's flat `+13` already over-reserved by 4–5 B; quantization spends exactly that slack. Behaviour in `protocol.md` §2.
 
 **Mobile last-mile — no mark, by design.** The CTS flags nibble is **full** (`(sf−5)` + `already_received`), so a CTS whose `rx_id` is a mobile's LOCAL id carries **no** mobile mark. It doesn't need one: the only node that could mis-fire on it is a home_node neighbour with a live flight, which almost always heard the **marked RTS** (`addr_len=1`) that opened the exchange and so knows local-id X is a mobile; the residual (a *hidden* colliding node with a coincident pending TX) costs at most a collision + retry, **never a mis-delivery**. See Conventions.
 

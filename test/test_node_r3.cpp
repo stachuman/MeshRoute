@@ -3233,7 +3233,16 @@ TEST_CASE("M6 — nav_duration_rts clamps payload_len (255 == max_payload_bytes_
     // just because the attacker also advertises cr8 (the clamp runs before the airtime call, so it does not).
     for (uint8_t peer_cr = 5; peer_cr <= 8; ++peer_cr)
         CHECK(node.test_nav_duration_rts(sf, 255, peer_cr) == node.test_nav_duration_rts(sf, protocol::max_payload_bytes_hard_cap, peer_cr));
-    CHECK(node.test_nav_duration_cts(sf, 255, 5) == node.test_nav_duration_cts(sf, protocol::max_payload_bytes_hard_cap, 5));   // twin clamp on the CTS helper
+    // ★ §cts-len6-cr2: the CTS twin's bound MOVED — deliberately, and to a stronger one. It used to clamp
+    // payload_len to max_payload_bytes_hard_cap (241), which was BOTH unnecessary (byte 3's 6-bit len6 cannot
+    // express more than 63*4 = 252 anyway) and UNSAFE at the top (payload_len is inner+MAC, so it legally
+    // reaches 249 under CRYPTED — clamping to 241 under-reserved a real 255-B frame, the one direction NAV
+    // must never fail in). It now clamps the BYTE COUNT to lora_max_frame_bytes, so the worst case a forged
+    // hint can buy is exactly what an ABSENT hint already buys — the M6 DoS ceiling is unchanged, provably.
+    for (uint8_t peer_cr = 5; peer_cr <= 8; ++peer_cr) {
+        CHECK(node.test_nav_duration_cts(sf, 255, peer_cr) == node.test_nav_duration_cts(sf, 0, peer_cr));
+        CHECK(node.test_nav_duration_cts(sf, 32, peer_cr)   <  node.test_nav_duration_cts(sf, 0, peer_cr));
+    }
 }
 
 // R6.1 §6.4: the membership gate must cover F (route-discovery is the bypass around the beacon gate). A divergent-config

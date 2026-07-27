@@ -72,21 +72,26 @@ tests are their sole regression detectors.
 - The **ACK wait** (`start_ack_timeout`) still uses `active_cr()`. Its dominant term is our *own* DATA, where that
   is correct; only the small `airtime_routing_ms(3)` ACK term is the peer's. In the gateway-high-CR shape a
   light-CR node awaiting a heavy-CR gateway's ACK **over**-waits, which fails safe.
-- ★ The **NAV reservation taken from an overheard CTS** (`nav_duration_cts`'s two `handle_cts` callers) is the one
-  site of this class that **cannot** be closed. It must size the DATA that CTS is clearing — a third party's frame
-  at that party's CR — and the CTS has **no bit to carry one**: its flags nibble is fully spent on `(sf−5)` +
-  `already_received`, `tx_id`/`rx_id`/`payload_len` are whole bytes, and `parse_cts` accepts exactly 3 or 4 B.
-  ⚠ Unlike the ACK wait, this error runs in the **dangerous** direction: against a heavier-CR peer the overhearer
-  **under**-reserves and releases NAV while the DATA is still on the air — the hidden-terminal collision NAV
-  exists to prevent, failing in the one case it is for. Measured (cr5 overhearer, cr8 peer, BW 250 kHz):
-  SF11 / `payload_len` 38 reserves **690 ms for a 935 ms frame — a 245 ms hole**, the same order as the 246 ms
-  DATA-wait shortfall above; SF12 / 120 B reaches **−1327 ms**. The reverse case merely over-reserves. Bounded but
-  unfixed: LBT still backstops physically, and the `payload_len == 0` branch reserves for a 255 B frame — but a
-  NAV-enabled CTS *does* carry `payload_len`, so the common case is exact and fully exposed. Closing it costs a
-  5th conditional CTS byte (a flag day, taxing every CTS in every mesh) or reclaiming the load-bearing
-  `already_received`.
-- The **CTS term of the anti-spam ledger** is billed at our own CR for the same reason — a fixed 4 B on the
-  routing SF, single-digit ms against a DATA term of hundreds, same under-billing direction.
+- ✔ **The NAV reservation taken from an overheard CTS — CLOSED (2026-07-27, `§cts-len6-cr2`).** This was the one
+  site of the class that failed in the **dangerous** direction: it sizes the DATA a CTS is clearing — a third
+  party's frame at that party's CR — and against a heavier-CR peer the overhearer **under**-reserved and released
+  NAV while the DATA was still on the air, the hidden-terminal collision NAV exists to prevent, failing in the one
+  case it is for. The premise that blocked it (*"the CTS has no free bits"*) was **retired rather than worked
+  around: byte 3 did not have to stay an exact 8-bit length.** Quantizing it to 4-B units (`len6`, rounded **UP**)
+  frees two bits for the CR, and because `payload_len` counts inner+MAC only, the old flat `+13` was already
+  over-reserving by 4–5 B against a true header of `DATA_HDR_MAX_LEN = 9` — so the quantization is paid for out of
+  existing slack. **No byte added, no `wire_version` bump, and the CR becomes exact.** Measured (cr5 overhearer,
+  cr8 peer, BW 250 kHz): SF11/38 reserved **690 ms for an 870 ms frame → now 870, hole 0**; SF11/120 **−549 → 0**;
+  SF12/120 **−1196 → 0**. A uniform-CR mesh moves **1–4 B less** reservation (the old `+13` over-reserved by more
+  than quantization adds back), never below the true frame length.
+  ⚠ **Corpus-invisible:** no scenario has a third node overhearing a CTS that clears a heavier-CR sender *with*
+  observable contention (a poison probe on the CR moves 0/31), so the exhaustive codec sweep and the
+  `test_dual_layer` end-to-end test are its **only** regression detectors — **a scenario is owed**.
+  *(Earlier −245 / −614 / −1327 ms figures overstated the hole by 25–30%: they computed "needed" with the `+13`
+  header, double-counting the fudge this change retires.)*
+- The **CTS term of the anti-spam ledger** stays at our own CR — and ★ **byte 3 does NOT help it**: that term bills
+  the CTS *frame*, whose sender is `tx_id`, while byte 3's CR belongs to `rx_id` (the node being cleared). Wrong
+  node — using it would swap one error for another. A fixed 4 B on the routing SF, single-digit ms.
 
 **Fleet assumption.** The 2-bit code is total over CR 5..8, so all-zero bits mean **CR4/5**, not "unknown". Every
 board env compiles `-DLORA_CR=5` and `radio_cr` defaults to 5, so an un-reflashed node genuinely *is* at CR4/5 and
@@ -229,10 +234,19 @@ survive**, since a registered team mobile is a full leaf-plane participant. `tea
 team's messages must not be servable — and `do_data_tx` now **refuses** to air a team-flavored M while
 `team_id == 0`: it would carry `team_id` 0, which parses as a **plain leaf message** and would leak the team's
 content to every static node on the leaf.
-⚠ **Not fixed, and a different bug (leaf axis):** `clear_routing_state()` (`join`/`create`/`leave`) wipes the
-channel *buffer* but not `_tx_queue` / `_pending_tx` / `_channel_reoffer_pending`, so a staged channel M outlives a
-**network** reprovision and is re-stamped with the new `leaf_id`; `_channel_reoffer_pending` is cleared by nothing
-at all today.
+**The leaf axis too (`§clean-join-carriers`).** The same disease sits on the network-scope axis: `do_data_tx` and
+both RTS builders stamp `leaf_id` (and `src` from `_node_id`, and the PHY) from the **live** config at TX time, so a
+staged/in-flight frame outliving a `join`/`create`/`leave` is re-stamped onto the **new** leaf. For a DM this is
+**mis-delivery**, not merely a scope leak: `clear_routing_state()` has just wiped `_rt` and `_id_bind` — the state
+the flight's `next` hop was chosen from — and `reset_join_for_reprovision()` has already set `_node_id` to 0, so the
+frame airs claiming **`src = 0`** while its payload still carries the old network's `origin`. `clear_routing_state()`
+therefore calls the **same** sweep as the team switch, `purge_tx_carriers()`, with `PurgeAxis::reprovision`: **one
+mechanism, two predicates** — the team axis drops team-scoped rows and **keeps** the leaf plane, the reprovision axis
+keeps **nothing** and sweeps **every** leaf (a gateway stages bridged DMs on both, and `leave` is dispatched on the
+gateway build). The sweep is no longer team-feature-gated, since the reprovision axis has nothing to do with teams.
+⚠ Already-**packed** stashes (`_deferred_lbt`, `_rts_duty_defer`, `_tx_stash`, and the jittered H/F/OFFER stashes)
+are deliberately **not** purged: their byte-0 leaf nibble froze at pack time, so a late fire is rejected by the new
+leaf's gate — wasted airtime on the leaf just left, never mis-delivery into the one just joined.
 
 A `team_id`-scoped overlay of mobiles (member-to-member routing + group chat), fully **separated** from the
 static plane and from other teams: team beacons/DV (`_rt_team`), team F discovery, a team-scoped H-flood, and a

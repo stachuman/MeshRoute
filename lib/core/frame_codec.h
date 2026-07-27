@@ -156,19 +156,57 @@ uint8_t parse_suspect_tlv(std::span<const uint8_t> ext, SuspectEntry* out, uint8
 //   byte 0 : cmd=0x2(4 hi) | (sf-5)(3) | already_received(1)   [flags in the low nibble]
 //   byte 1 : tx_id(8) — CTS sender (the forwarder clearing the requester)
 //   byte 2 : rx_id(8) — intended requester id (the RTS sender being cleared)
-//   byte 3 : payload_len(8) — OPTIONAL: the cleared DATA's inner+MAC length, for NAV. Present iff non-zero
-//            (the sender adds it only when nav_enabled). A CTS-overhearer reads it to size an exact NAV
-//            reservation for the upcoming DATA; absent (3-B CTS) => fall back to a max-size estimate.
+//   byte 3 : len6(7..2) | cr2(1..0) — OPTIONAL NAV hint. Present iff non-zero (the CTS sender adds it only
+//            when nav_enabled). len6 = ceil(inner+MAC / CTS_LEN_QUANTUM), CLAMPED to CTS_LEN6_MAX; cr2 =
+//            rts_cr_encode(the cleared DATA sender's CR). A CTS-overhearer reads BOTH to size the NAV
+//            reservation for the upcoming DATA; absent (3-B CTS) => fall back to a max-size estimate at
+//            OUR CR. See §cts-len6-cr2 below and docs/superpowers/specs/2026-07-27-cts-len6-cr2-design.md.
 // ctr_lo DROPPED vs the legacy CTS: tx_id+rx_id pin the flight under single-slot
 // stop-and-wait, and tx_id (not ctr_lo) disambiguates cascade alts; tx_id also makes
 // the CTS addressable/attributable on metal (no PHY-sender god-view). The Lua mirror is
 // 4 B (literal 'C' tag); the cmd-nibble packs cmd+flags into byte 0. sf in 5..12;
 // already_received short-circuits a resend whose ACK was lost.
-struct cts_in  { uint8_t chosen_data_sf; bool already_received; uint8_t tx_id; uint8_t rx_id; uint8_t payload_len = 0; };
-struct cts_out { uint8_t chosen_data_sf; bool already_received; uint8_t tx_id; uint8_t rx_id; uint8_t payload_len = 0; };
+//
+// ★ §cts-len6-cr2 (2026-07-27) — byte 3 was a flat 8-bit payload_len; it now splits into a 6-bit QUANTIZED
+// length + the 2-bit CR of the DATA being cleared. Motive: the overhearer's NAV must size a THIRD PARTY's
+// DATA, and CR multiplies the payload-symbol count directly — a cr5 overhearer reserving for a cr8 peer
+// UNDER-reserved by up to 1327 ms and released NAV mid-DATA, i.e. the exact hidden-terminal collision NAV
+// exists to prevent. This is the ONLY wrong-CR site of its class that failed in the dangerous direction.
+// ★ THE INVARIANT THE SCHEME RESTS ON: DECODE >= TRUE FRAME LENGTH, ALWAYS. Rounding UP is therefore
+// load-bearing — it keeps every residual length error in the over-reserve (safe) direction. Swept
+// exhaustively over cr 5..8 x payload_len 0..255 x APP on/off x CRYPTED on/off against a REAL pack_data
+// frame in test_frame_codec.cpp ("§cts-len6-cr2 — THE INVARIANT").
+// ★ AIRTIME-NEUTRAL, not a cost: `payload_len` counts inner+MAC only (node_mac.cpp, rts_in.payload_len), so
+// the consumer must add just the cleartext header = DATA_HDR_LEN(8), +1 iff APP => DATA_HDR_MAX_LEN(9). The
+// pre-slice consumer added a flat +13 and thus already over-reserved by 4-5 B; quantization spends exactly
+// that existing fudge (new worst case 0-3 quantization + 0-1 header = 0-4 B over). Same margin, exact CR.
+// ⚠ This spends the CTS's LAST byte of flexibility (byte 0's low nibble is full: 3 bits of sf + the
+// load-bearing already_received). A further CTS field now means widening the frame. Accepted deliberately.
+// ⚠ byte3 == 0 MUST keep meaning "no NAV hint". It cannot collide: pack emits byte 3 only when
+// payload_len != 0, so len6 >= 1 after the clamp => byte3 >= 4. The CTS_LEN6_MAX clamp is LOAD-BEARING for
+// that proof, NOT belt-and-braces — payload_len is an unauthenticated RTS wire byte, and an unclamped
+// ceil(255/4) = 64 would shift out of the 6-bit field to byte3 == cr2, colliding with the sentinel at cr5.
+inline constexpr uint8_t CTS_LEN_QUANTUM = 4;    // byte-3 len6 counts 4-B units of inner+MAC, ROUNDED UP
+inline constexpr uint8_t CTS_LEN6_MAX    = 63;   // the 6-bit field ceiling (ceil(255/4)=64 would overflow it)
+// The ONE conversion path for byte 3's length half (U2) — used by pack_cts and by the invariant sweep.
+constexpr uint8_t cts_len6_encode(uint8_t payload_len) {
+    const unsigned q = (static_cast<unsigned>(payload_len) + CTS_LEN_QUANTUM - 1u) / CTS_LEN_QUANTUM;   // ceil
+    return static_cast<uint8_t>(q > CTS_LEN6_MAX ? CTS_LEN6_MAX : q);
+}
+// cr_adv on BOTH structs is the same 2-bit code the RTS carries — encode/decode with rts_cr_encode /
+// rts_cr_decode (below; named for the RTS that introduced them, now shared by both wires). 0 == cr5, NOT
+// "unknown": the ONE validity predicate for the whole byte-3 hint is `payload_len != 0`.
+struct cts_in  { uint8_t chosen_data_sf; bool already_received; uint8_t tx_id; uint8_t rx_id;
+                 uint8_t payload_len = 0;   // EXACT inner+MAC (0 = emit a 3-B CTS, no hint); pack_cts quantizes it
+                 uint8_t cr_adv = 0; };     // §cts-len6-cr2: rts_cr_encode(the cleared DATA sender's CR)
+struct cts_out { uint8_t chosen_data_sf; bool already_received; uint8_t tx_id; uint8_t rx_id;
+                 uint8_t payload_len = 0;   // ⚠ QUANTIZED-UP inner+MAC (multiple of CTS_LEN_QUANTUM), NOT the
+                                            // exact value packed in — 0 = no hint. Never use it where an exact
+                                            // byte count is required; it exists to size a NAV reservation.
+                 uint8_t cr_adv = 0; };     // §cts-len6-cr2: 2-bit CR code; MEANINGLESS unless payload_len != 0
 // Returns 3 (or 4 if in.payload_len != 0) on success; 0 on bad input (sf outside 5..12) or out span too small.
 size_t pack_cts(const cts_in& in, std::span<uint8_t> out);
-// nullopt on wrong cmd nibble or len not in {3,4}. payload_len = byte 3 (0 if a 3-B CTS).
+// nullopt on wrong cmd nibble or len not in {3,4}. payload_len/cr_adv = byte 3 decoded (both 0 if a 3-B CTS).
 std::optional<cts_out> parse_cts(std::span<const uint8_t> frame);
 
 // -----------------------------------------------------------------------------
@@ -460,6 +498,11 @@ std::optional<j_out> parse_j(std::span<const uint8_t> frame);
 // hops_remaining TTL, never a visited list) — a deliberate wire divergence from the frozen Lua
 // (which keeps visited -> DATA_HDR_LEN 14). So the C++ header is 8 B; see docs/frames.md.
 inline constexpr size_t DATA_HDR_LEN     = 8;
+// ★ §cts-len6-cr2: the WIDEST cleartext DATA header ahead of the inner+MAC that `payload_len` counts —
+// the 8-B fixed header plus the TYPE byte emitted iff DATA_FLAG_APP (pack_data, frame_codec.cpp). So an
+// on-air DATA is EXACTLY payload_len + DATA_HDR_LEN, or + DATA_HDR_MAX_LEN when APP is set. Anything sizing
+// a reservation for a frame whose flags it cannot see must use the MAX — over-reserve, never under.
+inline constexpr size_t DATA_HDR_MAX_LEN = DATA_HDR_LEN + 1;   // 9
 inline constexpr size_t DATA_MAC_LEN     = 4;
 // byte-1 FLAGS (full byte): combinable modifiers. APP gates a TYPE byte at offset 8. CROSS_LAYER (inner
 // layer-path), CRYPTED (sealed inner), E2E_ACK_REQ, LOCATION, SOURCE_HASH, DST_HASH are all LIVE;

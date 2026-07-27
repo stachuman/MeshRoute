@@ -827,12 +827,14 @@ void Node::tx_initiating(const uint8_t* bytes, size_t len, int16_t sf, LbtKind k
 }
 
 // NAV (virtual carrier sense) duration helpers — pure, native-testable. Conservative: an overheard RTS
-// reserves CTS+DATA+ACK (DATA size known from payload_len, SF taken as our max = longest), a CTS reserves
-// DATA+ACK (SF exact from chosen_data_sf, size assumed max). Per-leg turnaround gaps included.
+// reserves CTS+DATA+ACK (DATA size known exactly from payload_len, SF taken as our max = longest), a CTS
+// reserves DATA+ACK (SF exact from chosen_data_sf, size from byte 3's 4-B-quantized hint, or max if absent).
+// Per-leg turnaround gaps included.
 // §rts-cr-overhear (2026-07-27): `data_cr` is a PARAMETER, not active_cr(). The DATA being reserved for is
 // the peer's transmission, so the peer's coding rate sizes it. An RTS carries that datum (cr_adv), so the
-// two nav_duration_rts callers and the flood-yield caller pass rts_cr_decode(r.cr_adv); the two genuine
-// overheard-CTS callers cannot (see the block on nav_duration_cts) and pass active_cr() with that stated.
+// two nav_duration_rts callers and the flood-yield caller pass rts_cr_decode(r.cr_adv); §cts-len6-cr2 put it
+// on the CTS too, so the two overheard-CTS callers now pass the peer's CR as well (byte 3's cr2 half) and
+// fall back to active_cr() ONLY when the CTS carried no byte 3 at all. No caller guesses any more.
 uint32_t Node::nav_duration_rts(uint8_t data_sf, uint8_t payload_len, uint8_t data_cr) const {
     // M6: payload_len is an UNAUTHENTICATED wire byte (0..255). At max SF a forged 255 arms NAV for seconds; NAV
     // is on by default -> a cheap overheard RTS with payload_len=255 could indefinitely silence a victim's TX.
@@ -848,37 +850,54 @@ uint32_t Node::nav_duration_rts(uint8_t data_sf, uint8_t payload_len, uint8_t da
     const uint32_t ack_air  = static_cast<uint32_t>(airtime_routing_ms(3));   // ACK = 3 B
     return cts_air + data_air + ack_air + 3u * static_cast<uint32_t>(protocol::cts_to_data_gap_ms);   // 3 turnarounds
 }
-// ⚠⚠ §rts-cr-overhear — THE ONE SITE OF THIS CLASS THAT CANNOT BE FIXED, and here is the whole analysis so
-// nobody has to redo it. Two of the three callers overhear a *CTS* and must size the DATA that CTS is
-// clearing — a third party's frame at that third party's CR. **The CTS cannot carry CR: it has ZERO free
-// bits.** Verified against frame_codec.cpp:341-370, not against a comment: byte 0's low nibble is fully
-// spent on (chosen_data_sf-5)<<1 | already_received (sf 5..12 needs all 3 bits, and already_received is
-// read by handle_cts's dup path), tx_id / rx_id / the optional payload_len are whole bytes, and parse_cts
-// accepts a frame of EXACTLY 3 or 4 bytes.
-//   DIRECTION OF THE ERROR — it is the DANGEROUS direction, not the safe one:
+// ✔✔ §cts-len6-cr2 (2026-07-27) — THE SITE THE §rts-cr-overhear BLOCK CALLED UNFIXABLE IS NOW CLOSED. Kept
+// as the full record so nobody redoes the analysis, and so the retired premise is visible rather than deleted.
+//   WHAT WAS WRONG: two of the three callers overhear a *CTS* and must size the DATA that CTS is clearing — a
+//   third party's frame at that third party's CR — and passed active_cr(), OUR CR, as the stand-in.
+//   DIRECTION OF THE ERROR — the DANGEROUS one, not the safe one:
 //     peer CR > ours  -> the real DATA outlasts our reservation, we UNDER-reserve and release NAV early.
 //                        We may then transmit ON TOP of the DATA we were protecting. This is precisely the
-//                        hidden-terminal collision NAV exists to prevent, so the mechanism fails in the one
+//                        hidden-terminal collision NAV exists to prevent, so the mechanism failed in the one
 //                        case it is there for. Worst case cr8-vs-cr5 = 1.6x the payload symbol term.
 //     peer CR < ours  -> we OVER-reserve: silent longer than needed. Wasted airtime only, fail-safe.
-//   MEASURED (cr5 overhearer, cr8 peer, BW250k, routing SF8) — computed vs truly needed:
+//   MEASURED (cr5 overhearer, cr8 peer, BW250k, routing SF8) — computed vs truly needed, PRE-slice:
 //     SF10 pl=38  389 -> 525 ms  (-136)   SF11 pl=38  690 ->  935 ms (-245)   SF12 pl=38 1412 -> 1953 (-541)
 //     SF11 pl=120 1304 -> 1918 ms (-614)  SF12 pl=120 2723 -> 4050 ms (-1327)
-//   ⇒ at the s32/s33 shape the hole is ~245 ms, the same order as the 246 ms DATA-wait shortfall that §rts-cr
-//   existed to close — so this is not a rounding-level residual, it is the same bug at the same magnitude.
-//   Two things bound it, neither a fix: (a) the payload_len==0 branch already reserves for a 255 B frame, a
-//   pad that swallows the shortfall for small frames — but the NAV-enabled path DOES carry payload_len (the
-//   CTSer sets it whenever nav_enabled), so the common case is exact and fully exposed; (b) LBT still
-//   backstops physically. Net: mixed-CR meshes get degraded hidden-terminal protection; uniform-CR meshes
-//   (every deployment today, and all 30 corpus scenarios) are exact.
-//   COST TO CLOSE IT, both wire changes we declined: a 5th conditional CTS byte — parse_cts's size check
-//   makes that a flag day, and it taxes EVERY CTS in every mesh to serve mixed-CR ones; or reclaim
-//   already_received, which is load-bearing (the last_acked dup path in handle_rts packs it). NOT DONE.
+//   ⇒ at the s32/s33 shape the hole was ~245 ms, the same order as the 246 ms DATA-wait shortfall §rts-cr
+//   existed to close — not a rounding residual, the same bug at the same magnitude.
+//   ⚠ THE RETIRED PREMISE, recorded because it was wrong in an instructive way: "the CTS cannot carry CR, it
+//   has ZERO free bits", and the only ways costed were a 5th conditional byte (a flag day + a tax on every CTS
+//   in every mesh) or reclaiming the load-bearing already_received. Both were rejected — correctly. The move
+//   that was missed: byte 3 did not need to stay an exact 8-bit length. Quantizing it to 4-B units frees two
+//   bits for the CR, and `payload_len` counts inner+MAC ONLY, so the consumer's flat +13 was already
+//   over-reserving by 4-5 B (the true header is DATA_HDR_MAX_LEN = 9). Quantization spends exactly that
+//   existing fudge: worst case 0-3 B (quantization, rounded UP) + 0-1 B (header) = 0-4 B over, vs 4-5 B before.
+//   SAME MARGIN, ZERO BYTES ADDED, and the CR becomes exact. Encoding + the sweep invariant: frame_codec.h
+//   §cts-len6-cr2. Spec: docs/superpowers/specs/2026-07-27-cts-len6-cr2-design.md.
+//   ⚠ STILL MISSING, DELIBERATELY (noise-level, and each would need a WIDER CTS — byte 3 is now full):
+//     (a) the CTS and ACK terms of BOTH helpers stay on airtime_routing_ms (our own CR) — they are the
+//         RECEIVER's 3-B frames on the routing SF, tens of ms against a DATA term of hundreds;
+//     (b) the anti-spam ledger's CTS term (node_mac_rx.cpp handle_cts) — byte 3's cr2 is the WRONG NODE's CR
+//         there (c.rx_id's, not the CTS sender c.tx_id's), so this hint cannot help it;
+//     (c) nav_duration_rts below still adds a flat +13, i.e. it over-reserves by 4-5 B. SAFE direction, an
+//         exact 8-bit RTS payload_len needs no quantization, and narrowing it would move every NAV-bearing
+//         stream — a separate slice, not folded in here (rule C1).
 uint32_t Node::nav_duration_cts(uint8_t data_sf, uint8_t payload_len, uint8_t data_cr) const {
-    // M6: payload_len is the unauthenticated CTS wire byte on the overheard-CTS NAV path — clamp like nav_duration_rts.
-    if (payload_len > protocol::max_payload_bytes_hard_cap) payload_len = protocol::max_payload_bytes_hard_cap;
-    // Exact when the CTS carried payload_len (DATA frame = inner+MAC + 13 header); else max-frame fallback.
-    const uint16_t data_bytes = payload_len ? static_cast<uint16_t>(payload_len + 13) : 255;
+    // The frame length. payload_len = the inner+MAC count: from a CTS it is byte 3's hint, already quantized UP
+    // to a multiple of CTS_LEN_QUANTUM by parse_cts (so this is an over- never under-estimate); from the two
+    // flood/yield callers it is the ½-max reserve_est_payload_bytes guess. + DATA_HDR_MAX_LEN = the widest
+    // cleartext header (we cannot see the frame's APP bit, so assume the TYPE byte is there). 0 => no hint at
+    // all => the max-frame fallback.
+    //   M6 (unauthenticated wire byte) IS STILL BOUNDED, by a better bound than the old 241-B clamp: the 6-bit
+    //   len6 field cannot express more than 63*4 + 9 = 261 B, and the min() pins that to lora_max_frame_bytes —
+    //   EXACTLY the no-hint fallback's reservation. So the worst case a forged hint can buy is identical to the
+    //   worst case an absent hint already buys: no new DoS surface, provably. The old clamp-to-241 was also
+    //   UNSAFE at the top end (payload_len is inner+MAC, so it legally reaches 241+8 = 249 under CRYPTED, and
+    //   clamping to 241 then under-reserved a real 255-B frame) — the min() on the BYTE COUNT fixes that too.
+    const unsigned hinted = static_cast<unsigned>(payload_len) + DATA_HDR_MAX_LEN;
+    const uint16_t data_bytes = (payload_len == 0 || hinted > protocol::lora_max_frame_bytes)
+        ? protocol::lora_max_frame_bytes
+        : static_cast<uint16_t>(hinted);
     const uint32_t data_air = static_cast<uint32_t>(airtime_ms(data_sf, active_bw_hz(), data_cr,
                                   protocol::preamble_sym, data_bytes));
     const uint32_t ack_air  = static_cast<uint32_t>(airtime_routing_ms(3));

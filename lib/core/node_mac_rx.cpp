@@ -277,6 +277,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         cts_in cin{}; cin.chosen_data_sf = la->second.chosen_data_sf;
         cin.already_received = true; cin.tx_id = for_team_rts ? team_local_id() : _node_id; cin.rx_id = r.src;
         cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0;   // NAV: size the overhearer's DATA reservation
+        cin.cr_adv      = r.cr_adv;   // §cts-len6-cr2: forward the RTS sender's advertised CR into byte 3's cr2 half
         uint8_t cbuf[4]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, sizeof cbuf));
         tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b
         MR_EMIT("cts_tx", EF_I("to", r.src), EF_B("dup", true));
@@ -289,6 +290,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         cts_in cin{}; cin.chosen_data_sf = _active->_pending_rx->chosen_data_sf;
         cin.already_received = false; cin.tx_id = for_team_rts ? team_local_id() : _node_id; cin.rx_id = r.src;
         cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0;   // NAV: size the overhearer's DATA reservation
+        cin.cr_adv      = r.cr_adv;   // §cts-len6-cr2: forward the RTS sender's advertised CR into byte 3's cr2 half
         uint8_t cbuf[4]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, sizeof cbuf));
         tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b
         MR_EMIT("cts_tx", EF_I("to", r.src), EF_B("dup", true));
@@ -382,6 +384,11 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     start_pending_rx_expiry(r.payload_len);
     cts_in cin{}; cin.chosen_data_sf = sf; cin.already_received = false; cin.tx_id = for_team_rts ? team_local_id() : _node_id; cin.rx_id = r.src;
     cin.payload_len = _cfg.nav_enabled ? r.payload_len : 0;   // NAV: size the overhearer's DATA reservation
+    // ✔ §cts-len6-cr2 — PURE FORWARDING of a datum already in hand: §rts-cr put the sender's CR in the RTS and
+    // we are holding that parsed RTS, so the CTS can hand it to overhearers who never heard the RTS at all.
+    // r.payload_len here is the DM quantity (inner+MAC, node_mac.cpp tx_rts) — the M_BROADCAST/FLOOD quantity
+    // (inner_len-6) can NEVER reach a CTS: every path through `if (r.m_broadcast)` above returns.
+    cin.cr_adv      = r.cr_adv;
     uint8_t cbuf[4]; const size_t cl = pack_cts(cin, std::span<uint8_t>(cbuf, sizeof cbuf));
     tx_with_retry(cbuf, cl, static_cast<int16_t>(_cfg.routing_sf), FrameTag::cts);   // R4.5b: stash + tag the CTS
     MR_EMIT("cts_tx", EF_I("to", r.src), EF_I("sf", sf));
@@ -409,13 +416,13 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // a local id here — the CTS carries no mark (flags nibble full, frames.md CTS-by-context) so an overhearer can't tell.
     // THROTTLE-ONLY (a stale window entry), never a route/deliver decision -> no misroute/misdeliver; a full fix needs a
     // CTS wire bit (a flag-day, not worth it for a throttle). own_mobile_team_cts is false on s18 -> byte-identical.
-    // ⚠ §rts-cr-overhear MISSING HERE, PERMANENTLY — the ledger's THIRD term, and the only one still billed at
-    // OUR CR. Same cause as the NAV site below: we hold a cts_out, and the CTS carries no CR (zero free bits;
-    // see node_mac.cpp above nav_duration_cts). The RTS and DATA halves of this ledger ARE billed at the
-    // sender's advertised CR, so on a mixed-CR mesh the three terms are no longer homogeneous — deliberate,
-    // because two-thirds right beats three-thirds wrong. Bounded: this is a fixed 4-B frame on the routing SF
-    // (single-digit ms) against a DATA term of hundreds, and the error direction is the same under-billing of
-    // heavier peers. Closing it needs the same CTS wire growth that was declined for NAV.
+    // ⚠ §rts-cr-overhear STILL MISSING HERE, and §cts-len6-cr2 does NOT close it — the reason CHANGED, so read
+    // this and don't "finish the job" by grabbing c.cr_adv. The ledger's third term bills the CTS FRAME ITSELF,
+    // whose sender is c.tx_id. Byte 3's cr2 is the CR of c.rx_id (the cleared node's upcoming DATA) — the WRONG
+    // NODE. Using it would swap one wrong CR for another. The CTS sender's own CR is on no wire, and byte 3 is
+    // now full, so closing this needs a WIDER CTS. Bounded and unchanged: a fixed 4-B frame on the routing SF
+    // (single-digit ms) against a DATA term of hundreds, erring the same way (under-billing heavier peers).
+    // The RTS and DATA halves of this ledger ARE billed at the sender's advertised CR.
     const bool own_mobile_team_cts = for_me_dst(c.rx_id) && _active->_pending_tx
         && (next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next));
     if (!own_mobile_team_cts)
@@ -423,21 +430,29 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                                      static_cast<uint32_t>(airtime_routing_ms(4)));
     if (!for_me_dst(c.rx_id)) {                           // overheard CTS (not clearing EITHER of our plane ids: node_id or team_local_id)
         // NAV: reserve the medium for the DATA+ACK this CTS just authorized (covers the hidden node near the
-        // receiver that didn't hear the RTS). chosen_data_sf is exact; size assumed max (conservative).
-        // ⚠ §rts-cr-overhear MISSING HERE, PERMANENTLY: the DATA is the CLEARED node's (c.rx_id), at ITS CR,
-        // and we hold only a CTS — which has zero free bits to carry one (full analysis + direction of error
-        // + the two rejected wire fixes: node_mac.cpp, above nav_duration_cts). active_cr() is therefore a
-        // KNOWN-WRONG stand-in on a mixed-CR mesh, stated rather than hidden. Exact on a uniform-CR mesh.
-        if (_cfg.nav_enabled) nav_arm(nav_duration_cts(c.chosen_data_sf, c.payload_len, active_cr()));
+        // receiver that didn't hear the RTS). chosen_data_sf is exact; the length is byte 3's 4-B-quantized hint.
+        // ✔ §cts-len6-cr2 (2026-07-27) — CLOSED. This was the ONE wrong-CR site that failed in the DANGEROUS
+        // direction: the DATA is the CLEARED node's (c.rx_id) at ITS CR, and a cr5 overhearer sizing a cr8
+        // peer's DATA released NAV mid-frame (-245 ms at the s32 shape, -1327 ms at SF12/120 B) and could then
+        // transmit straight into the frame NAV existed to protect. Byte 3 now carries that CR (+ the length in
+        // 4-B units), so both terms are the peer's. NO HINT (a 3-B CTS = the CTSer has NAV off) keeps the
+        // unchanged fallback: a full 255-B frame at OUR CR — the only guess available, and over-reserving.
+        const uint8_t peer_cr = c.payload_len ? rts_cr_decode(c.cr_adv) : active_cr();
+        if (_cfg.nav_enabled) nav_arm(nav_duration_cts(c.chosen_data_sf, c.payload_len, peer_cr));
         // Part A YIELD (spec 2026-06-28): the CTS sender is OUR next-hop -> it just cleared someone else and is about
         // to receive their DATA -> busy, our CTS/ACK can't come. Push our pending timeout past the reserve (½-max est,
         // LBT-backstopped) instead of timing out blind + burning a retry during it.
         if (protocol::reserve_yield_enable && _active->_pending_tx
             && (_active->_pending_tx->awaiting_cts || _active->_pending_tx->awaiting_ack)
             && c.tx_id == _active->_pending_tx->next)
-            // ⚠ §rts-cr-overhear MISSING, same permanent reason as the nav_arm above (the CTS carries no CR).
+            // ✔ §cts-len6-cr2 — converted with the nav_arm above (same peer_cr). The LENGTH stays the ½-max
+            // estimate, not byte 3's hint: this yield is about the CTSer being busy with SOMEONE ELSE's flight
+            // whose size we deliberately guess (reserve_est_payload_bytes), LBT-backstopped.
+            // ⚠ UNREACHABLE TODAY: reserve_yield_enable is the compile-time constant 0 (Part A shipped off), so
+            // a poison probe here moves 0/30 and the corpus emits zero reserve_yield events. Correct by
+            // inspection + inert; it goes live the day Part A is enabled.
             reserve_yield(nav_duration_cts(c.chosen_data_sf, static_cast<uint8_t>(protocol::reserve_est_payload_bytes),
-                                           active_cr()));
+                                           peer_cr));
         return;
     }
     if (!_active->_pending_tx || !_active->_pending_tx->awaiting_cts) return;   // ctr_lo flight-match dropped: rx_id==me + tx_id==next (below) pin the flight

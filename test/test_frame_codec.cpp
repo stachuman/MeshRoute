@@ -126,21 +126,122 @@ TEST_CASE("CTS/ACK — robustness: reject wrong cmd / wrong length / bad input")
     CHECK_FALSE(parse_cts(shortbuf).has_value());        // len < 3
     std::array<uint8_t, 5> longbuf{0x27, 0x11, 0x2A, 0x10, 0x00};
     CHECK_FALSE(parse_cts(longbuf).has_value());         // len not in {3,4}
-    // 4-byte CTS is valid: byte 3 = payload_len (NAV). Roundtrip pack(4)/parse.
+    // 4-byte CTS is valid: byte 3 = §cts-len6-cr2 [len6(7..2)|cr2(1..0)]. Roundtrip pack(4)/parse.
     std::array<uint8_t, 4> p4{};
-    CHECK(pack_cts({7, false, 1, 2, /*payload_len=*/30}, p4) == 4);
+    CHECK(pack_cts({7, false, 1, 2, /*payload_len=*/30, /*cr_adv=*/rts_cr_encode(7)}, p4) == 4);
+    CHECK(p4[3] == static_cast<uint8_t>((8u << 2) | 2u));   // ceil(30/4)=8, cr7 -> code 2
     auto rp = parse_cts(p4);
     CHECK(rp.has_value());
-    if (rp) { CHECK(rp->payload_len == 30); CHECK(rp->chosen_data_sf == 7); CHECK(rp->tx_id == 1); CHECK(rp->rx_id == 2); }
-    auto r3 = parse_cts(cts);                            // a 3-byte CTS still parses, payload_len defaults 0
+    if (rp) { CHECK(rp->payload_len == 32);                 // ⚠ QUANTIZED UP from 30 — never down (the invariant)
+              CHECK(rts_cr_decode(rp->cr_adv) == 7);
+              CHECK(rp->chosen_data_sf == 7); CHECK(rp->tx_id == 1); CHECK(rp->rx_id == 2); }
+    auto r3 = parse_cts(cts);                            // a 3-byte CTS still parses, payload_len/cr_adv default 0
     CHECK(r3.has_value());
-    if (r3) CHECK(r3->payload_len == 0);
+    if (r3) { CHECK(r3->payload_len == 0); CHECK(r3->cr_adv == 0); }
 
     std::array<uint8_t, 2> tiny{};
     CHECK(pack_cts({7, false, 1, 2}, tiny) == 0);        // out span too small
     std::array<uint8_t, 3> b{};
     CHECK(pack_cts({13, false, 1, 2}, b) == 0);          // sf > 12
     CHECK(pack_cts({4,  false, 1, 2}, b) == 0);          // sf < 5
+}
+
+// ★★ §cts-len6-cr2 — THE INVARIANT THE WHOLE SCHEME RESTS ON: **DECODE >= TRUE FRAME LENGTH, ALWAYS.**
+// Byte 3 stopped being an exact 8-bit length and became [len6(4-B units, ROUNDED UP)][cr2]. Quantization is
+// only acceptable because it can never point DOWN: an under-estimate here releases NAV while a peer's DATA is
+// still on the air — the exact hidden-terminal collision NAV exists to prevent. So sweep the whole domain and
+// pin both ends of the error: never short, and never more than one quantum long.
+// GROUND TRUTH IS A REAL FRAME, not a formula: every case packs an actual DATA with pack_data and measures
+// the bytes it emits, so if the header layout ever changes underneath this scheme, THIS test fails.
+TEST_CASE("§cts-len6-cr2 — THE INVARIANT: decoded NAV length >= the real DATA frame, over the full domain") {
+    std::array<uint8_t, 320> dbuf{};
+    std::array<uint8_t, 8>   mac8{};
+    std::array<uint8_t, 260> innerbuf{};
+    std::array<uint8_t, 4>   cbuf{};
+    unsigned cases = 0, exact_ceiling_cases = 0;
+
+    for (uint8_t cr = 5; cr <= 8; ++cr)
+      for (bool app : {false, true})
+        for (bool crypted : {false, true}) {
+            const size_t mac_len = crypted ? 8u : 4u;
+            // payload_len is inner+MAC, so it starts at mac_len. Sweep every value a u8 can carry — NOT just
+            // 0..241: `max_payload_bytes_hard_cap` caps the INNER buffer, so inner+MAC legally reaches 249
+            // under CRYPTED, and the field itself is an unauthenticated wire byte that can be anything.
+            for (unsigned pl = 0; pl <= 255; ++pl) {
+                // ---- the wire round-trip -------------------------------------------------------------
+                cts_in cin{}; cin.chosen_data_sf = 9; cin.tx_id = 3; cin.rx_id = 4;
+                cin.payload_len = static_cast<uint8_t>(pl); cin.cr_adv = rts_cr_encode(cr);
+                const size_t n = pack_cts(cin, cbuf);
+                CHECK(n == (pl == 0 ? 3u : 4u));
+                auto out = parse_cts(std::span<const uint8_t>(cbuf.data(), n));
+                CHECK(out.has_value());
+                if (!out) continue;
+                if (pl == 0) { CHECK(out->payload_len == 0); CHECK(out->cr_adv == 0); continue; }   // "no hint"
+
+                // ★ the sentinel can never be aliased by a real hint (this is what the CTS_LEN6_MAX clamp buys)
+                CHECK(cbuf[3] != 0);
+                // ★ the CR survives exactly — that is the whole point of the slice
+                CHECK(rts_cr_decode(out->cr_adv) == cr);
+                CHECK(out->payload_len % CTS_LEN_QUANTUM == 0);
+                // ★ the length never points DOWN — up to where the 6-bit field saturates.
+                if (pl <= unsigned{CTS_LEN6_MAX} * CTS_LEN_QUANTUM) {
+                    CHECK(out->payload_len >= pl);
+                    CHECK(out->payload_len - pl < CTS_LEN_QUANTUM);    // and never more than one quantum up
+                } else {
+                    // ⚠ FOUND BY THIS SWEEP, and it is safe — recorded so nobody "fixes" it into a bug.
+                    // For payload_len 253..255 the CTS_LEN6_MAX clamp DOES point down (to 252). That cannot
+                    // under-reserve, because it is not a reachable frame: payload_len counts inner+MAC, so the
+                    // implied DATA would be >= 253 + DATA_HDR_LEN = 261 B — beyond lora_max_frame_bytes, i.e.
+                    // unsendable. Only a forged or corrupt RTS byte gets here (a legal max is 241 inner + 8 MAC
+                    // = 249), and the byte-count min() in nav_duration_cts already pins it to a full-frame
+                    // reservation — the most any hint can ever buy. The frame-length invariant below is what
+                    // matters, and it is asserted unconditionally.
+                    CHECK(out->payload_len == unsigned{CTS_LEN6_MAX} * CTS_LEN_QUANTUM);
+                }
+
+                // ---- ground truth: what does a REAL frame of this shape weigh on air? -----------------
+                if (pl < mac_len) continue;                            // inner+MAC can't be below the MAC
+                const size_t inner_len = pl - mac_len;
+                data_in din{}; din.addr_len = 0; din.next = 1; din.dst = 2; din.ctr = 7;
+                din.flags = static_cast<uint8_t>(crypted ? (DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH) : 0);
+                din.type  = app ? static_cast<uint8_t>(DATA_TYPE_H_ANSWER) : uint8_t{0};   // APP is DERIVED from type
+                din.inner = std::span<const uint8_t>(innerbuf.data(), inner_len);
+                din.mac   = std::span<const uint8_t>(mac8.data(), mac_len);
+                const size_t true_bytes = pack_data(din, dbuf);
+                CHECK(true_bytes == pl + DATA_HDR_LEN + (app ? 1u : 0u));   // pins the +9 the consumer adds
+
+                // ---- what the NAV consumer will size for (nav_duration_cts's byte-count expression) ---
+                const unsigned hinted = out->payload_len + DATA_HDR_MAX_LEN;
+                const unsigned decoded = hinted > protocol::lora_max_frame_bytes
+                                       ? protocol::lora_max_frame_bytes : hinted;
+                if (true_bytes <= protocol::lora_max_frame_bytes) {
+                    CHECK(decoded >= true_bytes);                      // ★★ THE INVARIANT
+                    CHECK(decoded - true_bytes <= 4u);                 // 0-3 quantization + 0-1 header
+                    if (decoded == protocol::lora_max_frame_bytes) ++exact_ceiling_cases;
+                }
+                ++cases;
+            }
+        }
+    CHECK(cases > 3000);                 // the sweep actually ran (4 cr x 2 app x 2 crypted x ~250 lengths)
+    CHECK(exact_ceiling_cases > 0);      // and it reached the 255-B ceiling, where the min() clamp is the guard
+}
+
+// §cts-len6-cr2: a same-CR mesh must not pay for the new encoding — the reservation moves by <= 4 bytes vs
+// the pre-slice `payload_len + 13`, in EITHER direction. This is the airtime-neutrality claim, pinned.
+TEST_CASE("§cts-len6-cr2 — airtime-neutral: a uniform-CR mesh's reservation moves <= 4 bytes") {
+    std::array<uint8_t, 4> cbuf{};
+    for (unsigned pl = 1; pl <= protocol::max_payload_bytes_hard_cap; ++pl) {
+        cts_in cin{}; cin.chosen_data_sf = 9; cin.tx_id = 3; cin.rx_id = 4;
+        cin.payload_len = static_cast<uint8_t>(pl); cin.cr_adv = rts_cr_encode(5);
+        CHECK(pack_cts(cin, cbuf) == 4);
+        auto out = parse_cts(cbuf);
+        CHECK(out.has_value());
+        if (!out) continue;
+        const unsigned before = pl + 13;                               // the pre-slice consumer
+        const unsigned after  = out->payload_len + DATA_HDR_MAX_LEN;   // this slice's consumer
+        CHECK(after <= before + 4);
+        CHECK(before <= after + 4);
+    }
 }
 
 TEST_CASE("CTS — field isolation: already_received toggles only byte0 bit 0") {

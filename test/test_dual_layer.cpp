@@ -477,6 +477,29 @@ struct DualLayerTestAccess {
         pt.inner[4] = 1; pt.inner[5] = team ? protocol::channel_flavor_team : 0;
     }
     static void           data_tx(Node& n)                       { n.do_data_tx(); }                            // drive the M-frame TX path (the team_id re-stamp + its C2 guard)
+    // §clean-join-carriers seams (2026-07-27): the LEAF axis needs the two carriers the team axis never touches — a
+    // PLAIN DM (not a channel M) staged on an ARBITRARY leaf, and a DM already in flight awaiting its CTS.
+    static void           seed_dm_tx(Node& n, uint8_t leaf, uint8_t dst) {   // a staged unicast DM: is_channel_m = false, so the TEAM predicate must skip it
+        auto& L = n._layers[leaf];
+        TxItem& it = L._tx_queue[L._tx_queue_n++];
+        it = TxItem{}; it.dst = dst; it.origin = n.node_id(); it.ctr = dst; it.inner_len = 4;
+        for (uint8_t i = 0; i < 4; ++i) it.inner[i] = dst;
+    }
+    static void           seed_dm_flight(Node& n, uint8_t leaf, uint8_t dst, uint8_t next) {   // a DM RTS in flight (tx_rts_retry re-stamps leaf_id at TX time)
+        auto& pt = n._layers[leaf]._pending_tx.emplace();
+        pt.m_broadcast = false; pt.dst = dst; pt.next = next; pt.awaiting_cts = true; pt.inner_len = 4;
+        pt.flight_gen = 0xBEEF; pt.retries_left = 2;
+    }
+    static bool           leaf_has_flight(Node& n, uint8_t leaf) { return n._layers[leaf]._pending_tx.has_value(); }
+    static bool           flight_awaiting_cts(Node& n, uint8_t leaf) { return n._layers[leaf]._pending_tx && n._layers[leaf]._pending_tx->awaiting_cts; }
+    static bool           flight_awaiting_ack(Node& n, uint8_t leaf) { return n._layers[leaf]._pending_tx && n._layers[leaf]._pending_tx->awaiting_ack; }
+    static bool           nack_wait(Node& n)            { return n._nack_wait_pending; }        // the ONE flight flag not _pending_tx-guarded at its layer_swap_blocked() reader
+    static uint16_t       leaf_channel_rows(Node& n, uint8_t leaf) { return n._layers[leaf]._channel_buffer_n; }
+    static uint8_t        leaf_flood_active_n(Node& n, uint8_t leaf) { uint8_t c = 0; for (uint8_t i = 0; i < protocol::cap_flood_pending; ++i) if (n._layers[leaf]._flood[i].active) ++c; return c; }
+    static void           seed_flood_on_leaf(Node& n, uint8_t leaf, uint32_t id) {   // a flood state on an ARBITRARY leaf (flood_state_alloc is _active-only)
+        auto& fs = n._layers[leaf]._flood[0];
+        fs = Node::FloodState{}; fs.active = true; fs.id = id; fs.hop_left = 3;
+    }
     static void           reoffer_register(Node& n, uint32_t id, bool team) { n.channel_reoffer_register(id, team); }
     static uint32_t       flood_timer_id(uint8_t s)   { return Node::kFloodRebcastTimerId + s; }        // the ring bases + m_inner_id are private -> reach them through the friend (the sync_timer_id idiom above), never a re-declared literal
     static uint32_t       reoffer_timer_id(uint8_t s) { return Node::kChannelReofferTimerId + s; }
@@ -663,8 +686,10 @@ TEST_CASE("§rts-cr: a node's outbound RTS advertises its OWN active_cr(), per a
 // §rts-cr converted exactly one consumer (start_pending_rx_expiry, the addressed receiver's DATA wait) and
 // left the OVERHEARER's windows on active_cr() because no scenario could prove them. This block covers the
 // four sites that finish it: the FLOOD retune, the M_BROADCAST retune, the anti-spam airtime ledger, and the
-// NAV reservation from an overheard RTS. The fifth (NAV from an overheard CTS) is UNFIXABLE — the CTS has no
-// free bits — and is documented in-source at node_mac.cpp's nav_duration_cts instead of tested here.
+// NAV reservation from an overheard RTS. The fifth — NAV from an overheard CTS — was declared UNFIXABLE ("the
+// CTS has no free bits"); §cts-len6-cr2 (2026-07-27) RETIRED that premise by quantizing byte 3's length to
+// 4-B units to free two bits for the CR, and it is now covered by the CTS test at the end of this block.
+// The only one still open is the anti-spam ledger's CTS term, where byte 3's CR belongs to the wrong node.
 namespace {
 // A leaf that overhears channel traffic: single layer, one data SF, nothing else moving.
 struct OverhearFixture {
@@ -824,8 +849,7 @@ TEST_CASE("§rts-cr-overhear: the NAV reservation from an overheard RTS uses the
             CHECK(node.test_nav_duration_rts(kDataSf, kPayload, cr)
                   == fixed + static_cast<uint32_t>(airtime_ms(kDataSf, kBw, cr, protocol::preamble_sym, kPayload + 13)));
         CHECK(node.test_nav_duration_rts(kDataSf, kPayload, 8) > node.test_nav_duration_rts(kDataSf, kPayload, 5));
-        // The unfixable twin still takes a CR — the two overheard-CTS callers pass active_cr() KNOWINGLY
-        // (node_mac_rx.cpp), so the helper must not bake our own CR in and hide that.
+        // The CTS twin also takes a CR (§cts-len6-cr2 now feeds it the peer's, off byte 3's cr2 half).
         CHECK(node.test_nav_duration_cts(kDataSf, kPayload, 8) > node.test_nav_duration_cts(kDataSf, kPayload, 5));
     }
     // B. end to end: overhear a unicast RTS aimed elsewhere and read the armed NAV deadline.
@@ -854,6 +878,77 @@ TEST_CASE("§rts-cr-overhear: the NAV reservation from an overheard RTS uses the
                               - static_cast<uint32_t>(airtime_ms(kDataSf, kBw, base, protocol::preamble_sym, kPayload + 13));
     CHECK(nav_span(5, peer) - nav_span(5, base) == data_delta);   // the whole delta is the peer-CR DATA term
     CHECK(nav_span(8, peer) - nav_span(8, base) == data_delta);   // ...and it is the same whatever OUR cr is
+}
+
+// ★★ §cts-len6-cr2 (2026-07-27) — THE SITE §rts-cr-overhear CALLED UNFIXABLE. An overheard CTS reserves for a
+// DATA that belongs to a THIRD party (the cleared node), so it must be sized at THAT node's CR. Pre-slice the
+// overhearer passed active_cr() and a cr5 node under-reserved a cr8 peer's DATA by up to 1327 ms — releasing
+// NAV mid-frame, i.e. the exact hidden-terminal collision NAV exists to prevent. Byte 3 now carries the CR.
+// ★ THIS TEST IS THE SOLE REGRESSION DETECTOR for the mixed-CR behaviour: no corpus scenario has a third node
+// overhearing a CTS that clears a heavier-CR sender (s32/s33 are the only mixed-CR scenarios and neither has
+// that shape), so byte-identity cannot see it. A scenario is OWED. Until then, this is it.
+TEST_CASE("§cts-len6-cr2: the NAV reservation from an overheard CTS uses the CLEARED SENDER's CR (was unfixable)") {
+    constexpr uint8_t kDataSf = 11, kRoutingSf = 8, kLeaf = 4, kPayload = 38;
+    constexpr uint32_t kBw = 250000;
+    // A. the helper, white-boxed: the DATA term tracks the peer CR, and the header term is DATA_HDR_MAX_LEN
+    //    (9), NOT the pre-slice +13 — that retired fudge is what pays for the 4-B quantization.
+    {
+        StubHal hal; Node node(hal, /*id=*/30, /*key=*/0x3030u);
+        NodeConfig cfg; cfg.routing_sf = kRoutingSf; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << kDataSf);
+        cfg.leaf_id = kLeaf; cfg.radio_bw_hz = kBw; cfg.radio_cr = 5;
+        CHECK(node.on_init(cfg));
+        const uint32_t fixed = static_cast<uint32_t>(airtime_ms(kRoutingSf, kBw, 5, protocol::preamble_sym, 3))
+                             + 2u * static_cast<uint32_t>(protocol::cts_to_data_gap_ms);   // ACK + 2 turnarounds
+        for (uint8_t cr = 5; cr <= 8; ++cr)
+            CHECK(node.test_nav_duration_cts(kDataSf, kPayload, cr)
+                  == fixed + static_cast<uint32_t>(airtime_ms(kDataSf, kBw, cr, protocol::preamble_sym,
+                                                              kPayload + DATA_HDR_MAX_LEN)));
+        // The M6 DoS bound survives the clamp rewrite: a FORGED max-length hint buys no more reservation than
+        // an ABSENT hint already does (both = a full lora_max_frame_bytes frame).
+        for (uint8_t cr = 5; cr <= 8; ++cr)
+            CHECK(node.test_nav_duration_cts(kDataSf, 255, cr) == node.test_nav_duration_cts(kDataSf, 0, cr));
+    }
+    // B. end to end: overhear a CTS aimed elsewhere and read the armed NAV deadline off the wire byte.
+    auto nav_span = [](uint8_t our_cr, uint8_t peer_cr, bool with_hint) -> uint64_t {
+        StubHal hal; Node node(hal, /*id=*/30, /*key=*/0x3030u);
+        NodeConfig cfg; cfg.routing_sf = kRoutingSf; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << kDataSf);
+        cfg.leaf_id = kLeaf; cfg.radio_bw_hz = kBw; cfg.radio_cr = our_cr; cfg.nav_enabled = true;
+        CHECK(node.on_init(cfg));
+        RxMeta meta{ 20.0f, -60.0f, 0, static_cast<int8_t>(-1) };
+        cts_in c{}; c.chosen_data_sf = kDataSf; c.tx_id = 91; c.rx_id = 90 /*NOT us -> overheard*/;
+        c.payload_len = with_hint ? kPayload : 0; c.cr_adv = rts_cr_encode(peer_cr);
+        uint8_t b[4]; const size_t n = pack_cts(c, b);
+        CHECK(n == (with_hint ? 4u : 3u));
+        node.on_recv(b, n, meta);
+        const uint64_t now = hal.now();
+        CHECK(node.nav_until_ms() > now);                          // NAV really armed
+        return node.nav_until_ms() - now;
+    };
+    // ★ THE FIX: a cr5 overhearer reserves LONGER for a cr8 peer — pre-slice both of these were EQUAL, which
+    //   is exactly the under-reservation (the reserved span ended while the cr8 DATA was still transmitting).
+    CHECK(nav_span(5, 8, true) > nav_span(5, 5, true));
+    CHECK(nav_span(8, 5, true) < nav_span(8, 8, true));            // ...and a cr5 peer is no longer over-reserved
+    // ★ INDEPENDENT OF OUR OWN CR now: only the CTS/ACK terms (3 B, routing SF) still ride active_cr(), so
+    //   difference them out and the whole remaining delta is the peer-CR DATA term, both ways.
+    const uint32_t data_delta =
+          static_cast<uint32_t>(airtime_ms(kDataSf, kBw, 8, protocol::preamble_sym, kPayload + DATA_HDR_MAX_LEN))
+        - static_cast<uint32_t>(airtime_ms(kDataSf, kBw, 5, protocol::preamble_sym, kPayload + DATA_HDR_MAX_LEN));
+    CHECK(nav_span(5, 8, true) - nav_span(5, 5, true) == data_delta);
+    CHECK(nav_span(8, 8, true) - nav_span(8, 5, true) == data_delta);
+    // ★ THE MEASURED SHORTFALL REACHES ZERO. Pre-slice a cr5 overhearer armed airtime(kPayload+13) at cr5;
+    //   the DATA truly on the air was airtime(kPayload+9..13) at cr8. Pin that the armed span now COVERS the
+    //   real frame — with the widest possible header — which is the whole point of the slice.
+    {
+        const uint32_t truly_needed =
+              static_cast<uint32_t>(airtime_ms(kDataSf, kBw, 8, protocol::preamble_sym, kPayload + DATA_HDR_MAX_LEN))
+            + static_cast<uint32_t>(airtime_ms(kRoutingSf, kBw, 5, protocol::preamble_sym, 3))
+            + 2u * static_cast<uint32_t>(protocol::cts_to_data_gap_ms);
+        CHECK(nav_span(5, 8, true) >= truly_needed);               // ★★ no shortfall
+    }
+    // NO HINT (3-B CTS = the CTSer has NAV off): the unchanged fallback — a full-frame reservation at OUR CR,
+    // which is strictly LONGER than any hinted one, so it cannot under-reserve either.
+    CHECK(nav_span(5, 8, false) > nav_span(5, 8, true));
+    CHECK(nav_span(5, 8, false) == nav_span(5, 5, false));         // cr_adv is ignored without byte 3
 }
 
 TEST_CASE("per-layer-bw: the window switch ALWAYS syncs BW/CR to the active leaf's effective PHY (no stale _def_bw)") {
@@ -4388,6 +4483,164 @@ TEST_CASE("§clean-team-channel C2 — do_data_tx REFUSES a team-flavored M when
       DualLayerTestAccess::seed_m_flight(mob, kT1, /*team=*/true);
       DualLayerTestAccess::data_tx(mob);
       CHECK(hal.last_tx_len > 0); }
+}
+
+// ============================================================================================================
+// §clean-join-carriers (2026-07-27) — THE LEAF-AXIS TWIN, and the regression guard for the generalization.
+// purge_tx_carriers(PurgeAxis::reprovision) is now clear_routing_state's ONE definition of "drop the emit carriers".
+// The bug it closes: do_data_tx / both RTS builders stamp leaf_id from the LIVE _cfg at TX time (node_mac.cpp:1239 /
+// :621 / :781), so a staged channel M outlived a `join`/`create`/`leave` and was re-broadcast onto the NEW leaf — and a
+// staged/in-flight DM was re-stamped and sent to a `next` chosen from the _rt/_id_bind the same call had just wiped
+// (MIS-DELIVERY, not merely a scope leak). _channel_reoffer_pending was cleared by NOTHING at all.
+// ★★ THESE TESTS ARE THE ENTIRE DETECTOR, and that is now MEASURED, not assumed. Poison probes over all 31 scenarios:
+//   • killing purge_tx_carriers outright moves exactly ONE scenario (s34_team_switch_clears_plane) -> 1/31;
+//   • the REPROVISION axis is 0/31 — an unconditional MR_EMIT on entry produced ZERO events in 1.8 M corpus events,
+//     i.e. no scenario issues join/create/leave at all (their verbs live in src/, which the sim does not compile);
+//   • per-sweep on the team axis, ONLY the buffer sweep (1) is corpus-visible. Floods (2), tx_queue (3), pending_tx (4),
+//     re-offer (5) and the layer-explicit flood_state_free overload are ALL 0/31.
+// So byte-identity sees 1 of 5 sweeps on 1 of 2 axes. Everything below is the only thing standing between this
+// mechanism and a silent regression.
+// ============================================================================================================
+
+// A single-leaf node, provisioned on leaf 4, whose channel plane can hold rows (mirrors init_team_channel_node, but
+// with NO team — this axis is about the network changing, not the team).
+static void init_leaf_reprovision_node(Node& n, StubHal& hal, uint8_t leaf = 4) {
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7); cfg.leaf_id = leaf;
+    CHECK(n.on_init(cfg));
+    hal._now = 1000;
+}
+
+TEST_CASE("★ §clean-join-carriers — a reprovision drops EVERY emit carrier: channel rows, floods, staged M *and* DM, the flight, re-offer slots") {
+    StubHal hal; Node n(hal, 41, 0x7171u); init_leaf_reprovision_node(n, hal);
+    // Every one of the five carriers populated, so no CHECK below can pass vacuously.
+    ingest_channel_row(n, kL1, 0, kLeafBody, 4);                       // (1) buffer rows, through the real ingest path
+    ingest_channel_row(n, kL2, 0, kLeafBody, 4);
+    DualLayerTestAccess::seed_flood_state(n, kL1, /*team=*/false);     // (2) a leaf flood mid-backoff
+    DualLayerTestAccess::seed_channel_m_tx(n, kL2, /*team=*/false);    // (3a) a staged channel M
+    DualLayerTestAccess::seed_dm_tx(n, /*leaf=*/0, /*dst=*/55);        // (3b) ★ a staged plain DM — the team axis would KEEP this
+    DualLayerTestAccess::reoffer_register(n, kL1, /*team=*/false);     // (5) a re-offer slot
+    DualLayerTestAccess::bind_authoritative(n, /*node_id=*/55, /*key=*/0xAABBCCDDu);   // the state the DM's `next` came from
+    DualLayerTestAccess::learn_neighbor(n, 55);
+    const int rs = DualLayerTestAccess::reoffer_slot(n, kL1);
+    CHECK(n.channel_buffer_count() == 2);
+    CHECK(DualLayerTestAccess::flood_active_n(n) == 1);
+    CHECK(DualLayerTestAccess::leaf_tx_n(n, 0) == 2);                  // the staged M *and* the staged DM
+    CHECK(rs >= 0);
+    CHECK(n.id_bind_count() == 2); CHECK(n.rt_count() == 1);   // 2 = on_init's own self-binding (node.cpp:341, node_id 41 != 0) + peer 55
+
+    n.clear_routing_state();                                          // ★ `join` / `create` / `leave`
+
+    CHECK(n.channel_buffer_count() == 0);                             // ★ (1) every row, not just team rows
+    CHECK(DualLayerTestAccess::flood_active_n(n) == 0);                // ★ (2)
+    CHECK(hal.cancelled[DualLayerTestAccess::flood_timer_id(0)]);      // ★ ...and its rebroadcast timer is CANCELLED (the old `f = FloodState{}` line left it armed)
+    CHECK(DualLayerTestAccess::leaf_tx_n(n, 0) == 0);                  // ★ (3) BOTH staged frames — this is the widened predicate
+    CHECK_FALSE(n.has_pending_tx());                                   // ★ (4)
+    CHECK(DualLayerTestAccess::reoffer_slot(n, kL1) < 0);              // ★ (5) freed...
+    CHECK(hal.cancelled[DualLayerTestAccess::reoffer_timer_id(static_cast<uint8_t>(rs))]);   // ★ ...timer too
+    CHECK(hal.saw_emit("reprovision_tx_purged"));                      // axis-named event (NOT team_channel_purged)
+    CHECK_FALSE(hal.saw_emit("team_channel_purged"));                  // ★ the team stream is not borrowed for this axis
+    // The premise, exercised: the state the dropped DM's next-hop was chosen from is gone, which is WHY it had to go.
+    CHECK(n.id_bind_count() == 0); CHECK(n.rt_count() == 0);
+}
+
+TEST_CASE("★ §clean-join-carriers — an in-flight DM is dropped and its flight state left COHERENT (no half-armed awaiting_cts / awaiting_ack / nack-wait)") {
+    StubHal hal; Node n(hal, 42, 0x7272u); init_leaf_reprovision_node(n, hal);
+    DualLayerTestAccess::seed_dm_flight(n, /*leaf=*/0, /*dst=*/55, /*next=*/55);
+    DualLayerTestAccess::set_nack_wait(n, true);                       // a BUSY_RX same-hop re-RTS wait armed for that flight
+    CHECK(DualLayerTestAccess::flight_awaiting_cts(n, 0));
+    CHECK(DualLayerTestAccess::nack_wait(n));
+    CHECK(DualLayerTestAccess::swap_blocked(n));                       // non-vacuous: the guard really is engaged
+
+    n.clear_routing_state();
+
+    CHECK_FALSE(n.has_pending_tx());                                   // ★ the flight is gone...
+    CHECK_FALSE(DualLayerTestAccess::flight_awaiting_cts(n, 0));       // ★ ...and awaiting_cts / awaiting_ack went WITH it
+    CHECK_FALSE(DualLayerTestAccess::flight_awaiting_ack(n, 0));       //    (they live inside PendingTx — no mirror flag to desync)
+    CHECK_FALSE(DualLayerTestAccess::nack_wait(n));                    // ★ THE ONE FLAG NOT _pending_tx-GUARDED at its
+    CHECK(hal.cancelled[13]);                                          //    layer_swap_blocked() reader: cleared + kNackWaitTimerId cancelled
+    CHECK_FALSE(DualLayerTestAccess::swap_blocked(n));                 // ★ so a gateway's leaf swap is NOT deadlocked behind a dead flight
+}
+
+TEST_CASE("★ §clean-join-carriers — the REGRESSION GUARD for the generalization: a TEAM switch still leaves the LEAF carriers alone") {
+    // The over-broad-fix detector. One function now serves both axes, so the team axis must NOT inherit the reprovision
+    // axis's "drop everything": a registered team mobile is a full leaf-plane participant and its leaf rows, its staged
+    // leaf M, its staged DM and its leaf flight all belong to a network that did NOT change.
+    StubHal hal; Node mob(hal, 0, 0x7373u); init_team_channel_node(mob, hal);
+    ingest_channel_row(mob, kT1, 0xAAAA1111u, kTeamBody, 4);           // team row -> must GO
+    ingest_channel_row(mob, kL1, 0, kLeafBody, 4);                     // leaf row -> must SURVIVE
+    DualLayerTestAccess::seed_flood_state(mob, kL1, /*team=*/false);    // leaf flood -> must SURVIVE
+    DualLayerTestAccess::seed_channel_m_tx(mob, kL2, /*team=*/false);   // staged leaf M -> must SURVIVE
+    DualLayerTestAccess::seed_dm_tx(mob, /*leaf=*/0, /*dst=*/55);       // ★ staged DM -> must SURVIVE (the reprovision axis kills it)
+    DualLayerTestAccess::bind_authoritative(mob, 55, 0xAABBCCDDu);
+    CHECK(mob.channel_buffer_count() == 2);
+    CHECK(DualLayerTestAccess::leaf_tx_n(mob, 0) == 2);
+
+    CHECK(mob.set_team_id(0xBBBB2222u));                               // ★ a team switch, NOT a reprovision
+
+    CHECK(mob.channel_buffer_count() == 1);                            // ★ only the team row went
+    CHECK(DualLayerTestAccess::channel_row_at(mob, kL1) == 0);
+    CHECK(DualLayerTestAccess::flood_active_n(mob) == 1);              // ★ leaf flood untouched
+    CHECK(DualLayerTestAccess::leaf_tx_n(mob, 0) == 2);                // ★ BOTH staged frames untouched (the widened predicate did NOT leak onto this axis)
+    CHECK(mob.id_bind_count() == 1);                                   // ★ the static plane is not this axis's business
+    CHECK(hal.saw_emit("team_channel_purged"));                        // ★ the ORIGINAL event name, unchanged
+    CHECK_FALSE(hal.saw_emit("reprovision_tx_purged"));
+    CHECK_FALSE(DualLayerTestAccess::nack_wait(mob));                  // clear_nack_wait is reprovision-only; nothing armed it here
+}
+
+TEST_CASE("★ §clean-join-carriers — a reprovision sweeps EVERY leaf, not just the active one (a gateway stages bridged DMs on both, and `leave` IS a gateway verb)") {
+    // The _active-only sweep would have left _layers[1]'s queue staged against a wiped _id_bind. This is the test that
+    // fails if the leaf span is ever narrowed back to *_active.
+    StubHal hal; Node gw(hal, 0, 0x7474u);
+    NodeConfig cfg; cfg.n_layers = 2; cfg.is_gateway = true;
+    cfg.layers[0].layer_id = 4; cfg.layers[0].node_id = 4; cfg.layers[0].routing_sf = 7; cfg.layers[0].allowed_sf_bitmap = static_cast<uint16_t>(1u << 7);
+    cfg.layers[1].layer_id = 5; cfg.layers[1].node_id = 4; cfg.layers[1].routing_sf = 8; cfg.layers[1].allowed_sf_bitmap = static_cast<uint16_t>(1u << 8);
+    cfg.routing_sf = 7; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 7); cfg.leaf_id = 4;
+    CHECK(gw.on_init(cfg));
+    DualLayerTestAccess::seed_dm_tx(gw, /*leaf=*/0, /*dst=*/55);        // staged on the ACTIVE leaf
+    DualLayerTestAccess::seed_dm_tx(gw, /*leaf=*/1, /*dst=*/66);        // ★ staged on the OTHER leaf
+    DualLayerTestAccess::seed_dm_flight(gw, /*leaf=*/1, /*dst=*/66, /*next=*/66);   // ★ in flight on the OTHER leaf
+    DualLayerTestAccess::seed_flood_on_leaf(gw, /*leaf=*/1, kL1);       // ★ a flood state on the OTHER leaf
+    CHECK(DualLayerTestAccess::active_ptr(gw) == DualLayerTestAccess::layer_ptr(gw, 0));   // leaf 0 is active
+    CHECK(DualLayerTestAccess::leaf_tx_n(gw, 0) == 1);
+    CHECK(DualLayerTestAccess::leaf_tx_n(gw, 1) == 1);
+    CHECK(DualLayerTestAccess::leaf_has_flight(gw, 1));
+    CHECK(DualLayerTestAccess::leaf_flood_active_n(gw, 1) == 1);
+
+    gw.clear_routing_state();                                          // ★ `leave` on a gateway build
+
+    CHECK(DualLayerTestAccess::leaf_tx_n(gw, 0) == 0);
+    CHECK(DualLayerTestAccess::leaf_tx_n(gw, 1) == 0);                  // ★ the NON-active leaf's queue too
+    CHECK_FALSE(DualLayerTestAccess::leaf_has_flight(gw, 1));           // ★ and its flight
+    CHECK(DualLayerTestAccess::leaf_flood_active_n(gw, 1) == 0);        // ★ and its flood state (needs the layer-explicit flood_state_free)
+    CHECK(hal.saw_emit("reprovision_tx_purged"));
+}
+
+TEST_CASE("§clean-join-carriers — a purge with nothing to purge is a silent no-op (no event, no spurious cancel)") {
+    StubHal hal; Node n(hal, 43, 0x7575u); init_leaf_reprovision_node(n, hal);
+    CHECK(n.channel_buffer_count() == 0);
+    n.clear_routing_state();
+    CHECK_FALSE(hal.saw_emit("reprovision_tx_purged"));                 // ★ the emit is state-gated, so a no-op reprovision stays quiet
+    CHECK_FALSE(hal.saw_emit("team_channel_purged"));
+    n.clear_routing_state(); n.clear_routing_state();                   // idempotent
+    CHECK(n.channel_buffer_count() == 0);
+    CHECK_FALSE(n.has_pending_tx());
+}
+
+TEST_CASE("§clean-join-carriers — clear_learned_state (prep-restart) still reaches every carrier through the shared sweep") {
+    // clear_learned_state calls clear_routing_state FIRST and then re-clears _tx_queue/_pending_tx itself. The purge must
+    // leave that path working (and its become_free() must stay inert with an emptied queue), not just the verb path.
+    StubHal hal; Node n(hal, 44, 0x7676u); init_leaf_reprovision_node(n, hal);
+    ingest_channel_row(n, kL1, 0, kLeafBody, 4);
+    DualLayerTestAccess::seed_dm_tx(n, /*leaf=*/0, /*dst=*/55);
+    DualLayerTestAccess::seed_dm_flight(n, /*leaf=*/0, /*dst=*/55, /*next=*/55);
+    CHECK(n.channel_buffer_count() == 1); CHECK(DualLayerTestAccess::leaf_tx_n(n, 0) == 1); CHECK(n.has_pending_tx());
+
+    n.clear_learned_state();
+
+    CHECK(n.channel_buffer_count() == 0);
+    CHECK(DualLayerTestAccess::leaf_tx_n(n, 0) == 0);
+    CHECK_FALSE(n.has_pending_tx());
+    CHECK_FALSE(DualLayerTestAccess::nack_wait(n));
 }
 
 TEST_CASE("§S6/D10 — the mobile-sent breadcrumb is RETIRED; a re-home carries last_home in the j_discover (the NEW home notifies)") {

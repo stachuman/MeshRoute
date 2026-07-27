@@ -1,7 +1,9 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
 # DESIGN SPEC — CTS byte 3 becomes `[len6][cr2]`: closing the NAV-from-CTS under-reservation
 
-**Status:** proposed, owner-requested 2026-07-27. **Not implemented.** Review before code (rule P2).
+**Status:** ★ **IMPLEMENTED AND QA-GATED 2026-07-27** — see BASELINE note **27zd** for the result and the 31-row re-anchor.
+⚠ **CORRECTED 2026-07-27 (V1, mine):** the shortfall table below originally read −245 / −614 / −1327 ms. Those were **25–30% too large** — they computed "needed" as `payload_len + 13` at the peer CR, **double-counting the very header fudge this design retires**. The measured values are below. Direction and conclusion unchanged.
+⚠ **Also corrected:** §6 said the legal `payload_len` range is 0..241. Wrong — 241 caps the *inner buffer*, but `payload_len` is inner+**MAC**, so it reaches **249** under CRYPTED; the shipped sweep runs 0..255. And §3's claim that the clamp is "belt-and-braces" is **wrong: it is LOAD-BEARING** — unclamped `ceil(255/4)=64` shifts out of the 6-bit field leaving `byte3 == cr2`, which is **0 at cr5** and would collide with the "no hint" sentinel.
 **Owner ruling this rests on:** *"we do not bump wire version, meshroute is not yet deployed"* (2026-07-27) — see
 [[meshroute-not-yet-deployed]]. A CTS wire change is therefore cheap **now** and expensive later.
 
@@ -22,11 +24,11 @@ collision NAV exists to prevent, failing in the one case it is for. Measured (cr
 
 | SF / `payload_len` | reserved | needed | shortfall |
 |---|---|---|---|
-| SF11 / 38 B | 690 ms | 935 ms | **−245 ms** |
-| SF11 / 120 B | 1304 ms | 1918 ms | −614 ms |
-| SF12 / 120 B | 2723 ms | 4050 ms | **−1327 ms** |
+| SF11 / 38 B | 690 ms | 870 ms | **−180 ms** |
+| SF11 / 120 B | 1304 ms | 1853 ms | −549 ms |
+| SF12 / 120 B | 2723 ms | 3919 ms | **−1196 ms** |
 
-The −245 ms is the same order as the DATA-wait hole that was killing cross-layer delivery before `§rts-cr`.
+The −180 ms is the same order as the DATA-wait hole that was killing cross-layer delivery before `§rts-cr`.
 
 **Exposure is the DEFAULT configuration, not a corner.** `nav_enabled = true` (`node_carriers.h:200`), runtime-only
 (`cfg set nav`, `persist = false`) so it reverts to ON every boot. Two independent nav gates matter: the **CTSer's**
@@ -77,12 +79,11 @@ gives a constant ≤3-byte error everywhere. **Rounding UP is the load-bearing c
 in the *safe* (over-reserve) direction, which is the only reason quantization is acceptable at all.
 
 **The 6-bit field never saturates for a legal frame:** `max_payload_bytes_hard_cap = 241`
-(`protocol_constants.h:614`), and `ceil(241/4) = 61 < 63`. The clamp is belt-and-braces.
+(`protocol_constants.h:614`) caps the INNER buffer, but `payload_len` is inner+MAC so it reaches **249** under CRYPTED. ★ **The clamp is LOAD-BEARING, not belt-and-braces** (see the correction at the top): `r.payload_len` is an unauthenticated wire byte, and unclamped `ceil(255/4)=64` shifts out of the 6-bit field leaving `byte3 == cr2`, **0 at cr5** — colliding with the sentinel.
 
 ⚠ **`byte3 == 0` must keep meaning "no NAV hint".** With `len6 = 0, cr2 = 0` a real frame could encode to 0 only
 if `payload_len == 0` and cr == 5 — and a DATA frame always has a non-empty inner, so `payload_len ≥ 1 + MAC ≥ 5`
-⇒ `len6 ≥ 2`. **Verify this at implementation time**; if any path can produce `payload_len == 0` with NAV on, the
-sentinel must move.
+⇒ `len6 ≥ 2`. ⚠ **That reasoning is not the real guard** (verified at implementation): `pack_cts` emits byte 3 **only** when `payload_len != 0`, so `len6 ≥ 1` after the clamp ⇒ `byte3 ≥ 4`, never 0 — by construction, independent of the inner-length argument.
 
 ## 4. Airtime-neutrality — the reason this costs nothing
 
