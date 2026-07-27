@@ -205,6 +205,94 @@ TEST_CASE("RTS — rejects addr_len > 1 and wrong cmd / short frame") {
     CHECK_FALSE(parse_rts(nack).has_value());              // len < 7 (and wrong cmd)
 }
 
+// ---- §rts-cr (2026-07-27): the sender's coding rate rides the RTS's last two reserved bits --------------
+// cr 5..8 is exactly four values, so the 2-bit code is a TOTAL bijection — there is no "not advertised"
+// state and no fallback branch anywhere (owner ruling; see frame_codec.h §rts-cr for the fleet assumption).
+
+TEST_CASE("§rts-cr — rts_cr_encode/rts_cr_decode are an exact bijection over cr 5..8") {
+    for (uint8_t cr = 5; cr <= 8; ++cr) {
+        CHECK(rts_cr_encode(cr) == static_cast<uint8_t>(cr - 5));   // 5->0, 6->1, 7->2, 8->3
+        CHECK(rts_cr_decode(rts_cr_encode(cr)) == cr);              // round-trip exact
+    }
+    for (uint8_t code = 0; code <= 3; ++code) {
+        CHECK(rts_cr_decode(code) == static_cast<uint8_t>(code + 5));
+        CHECK(rts_cr_encode(rts_cr_decode(code)) == code);          // and the other way
+    }
+    CHECK(rts_cr_decode(0) == 5);   // ★ all-zero bits mean cr5, NOT "unknown" — pinned so the fallback design cannot creep back
+}
+
+TEST_CASE("§rts-cr — cr_adv round-trips through pack/parse at every RTS length, with NO length change") {
+    std::array<uint8_t, 43> buf{};
+    std::array<uint8_t, 32> bm{}; bm[0] = 0x01;                     // a legal (non-zero) flood bitmap
+    for (uint8_t cr = 5; cr <= 8; ++cr) {
+        const uint8_t code = rts_cr_encode(cr);
+        // 7 B (plain DM RTS)
+        { rts_in in{}; in.leaf_id=2; in.src=0x0A; in.next=0x0B; in.ctr_lo=5; in.dst=0x0C;
+          in.sf_index=3; in.payload_len=20; in.cr_adv=code;
+          CHECK(pack_rts(in, buf) == 7u);
+          auto o = parse_rts(std::span<const uint8_t>(buf.data(), 7));
+          CHECK(o.has_value());
+          if (o) { CHECK(o->cr_adv == code); CHECK(rts_cr_decode(o->cr_adv) == cr); } }
+        // 9 B (M_BROADCAST)
+        { rts_in in{}; in.leaf_id=1; in.src=7; in.next=9; in.ctr_lo=0xF; in.dst=0xFF; in.sf_index=2;
+          in.rts_flags=RTS_FLAG_M_BROADCAST; in.payload_len=0xC8; in.m_payload_id_lo16=0x5678; in.cr_adv=code;
+          CHECK(pack_rts(in, buf) == 9u);
+          auto o = parse_rts(std::span<const uint8_t>(buf.data(), 9));
+          CHECK(o.has_value());
+          if (o) { CHECK(o->cr_adv == code); CHECK(o->m_payload_id_lo16 == 0x5678); } }
+        // 43 B (FLOOD)
+        { rts_in in{}; in.leaf_id=3; in.src=8; in.next=0xFF; in.ctr_lo=2; in.dst=4; in.sf_index=1;
+          in.rts_flags=uint8_t(RTS_FLAG_M_BROADCAST | RTS_FLAG_FLOOD); in.payload_len=30;
+          in.flood_channel_msg_id=0xDEADBEEFu; in.flood_bitmap=std::span<const uint8_t>(bm.data(), bm.size());
+          in.cr_adv=code;
+          CHECK(pack_rts(in, buf) == 43u);
+          auto o = parse_rts(std::span<const uint8_t>(buf.data(), 43));
+          CHECK(o.has_value());
+          if (o) { CHECK(o->cr_adv == code); CHECK(o->flood_channel_msg_id == 0xDEADBEEFu); } }
+    }
+}
+
+TEST_CASE("§rts-cr — the code lands on EXACTLY byte-3 b0 (high) + byte-5 b0 (low), disturbing nothing else") {
+    std::array<uint8_t, 9> buf{};
+    // Baseline = the existing golden frame (cr5 => code 0 => both bits clear => byte-identical to pre-slice).
+    rts_in base{2, 0x0A, 0x0B, 5, 0x0C, 3, 0, 20, 0};
+    CHECK(pack_rts(base, buf) == 7);
+    const uint8_t gold[] = {0x12, 0x0A, 0x0B, 0x50, 0x0C, 0xC0, 0x14};
+    for (int i = 0; i < 7; ++i) CHECK(buf[i] == gold[i]);
+
+    struct { uint8_t cr, b3_or, b5_or; } cases[] = { {5,0x00,0x00}, {6,0x00,0x01}, {7,0x01,0x00}, {8,0x01,0x01} };
+    for (auto& c : cases) {
+        rts_in in = base; in.cr_adv = rts_cr_encode(c.cr);
+        CHECK(pack_rts(in, buf) == 7);
+        for (int i = 0; i < 7; ++i) {
+            const uint8_t want = (i == 3) ? uint8_t(gold[3] | c.b3_or)
+                               : (i == 5) ? uint8_t(gold[5] | c.b5_or) : gold[i];
+            CHECK(buf[i] == want);                       // only bytes 3 and 5 move, and only their bit 0
+        }
+    }
+    // Orthogonality the other way: a maxed-out neighbour field set must not bleed into cr_adv, nor cr_adv into
+    // it. All four rts_flags bits set => M_BROADCAST|FLOOD => the 43-B tail, so use a wide buffer + a bitmap.
+    std::array<uint8_t, 43> wide{};
+    std::array<uint8_t, 32> bm{}; bm[0] = 0x01;
+    rts_in busy{}; busy.leaf_id=15; busy.src=0xAA; busy.next=0xBB; busy.ctr_lo=0x0F; busy.dst=0xCC;
+    busy.sf_index=3; busy.rts_flags=0x0F; busy.payload_len=0xFF; busy.addr_len=1; busy.mobile_src=true;
+    busy.flood_channel_msg_id=0x01020304u; busy.flood_bitmap=std::span<const uint8_t>(bm.data(), bm.size());
+    busy.cr_adv = rts_cr_encode(8);
+    CHECK(pack_rts(busy, wide) == 43);
+    auto o = parse_rts(std::span<const uint8_t>(wide.data(), 43));
+    CHECK(o.has_value());
+    if (o) {
+        CHECK(o->ctr_lo == 0x0F); CHECK(o->addr_len == 1); CHECK(o->sf_index == 3);
+        CHECK(o->rts_flags == 0x0F); CHECK(o->mobile_src == true); CHECK(o->payload_len == 0xFF);
+        CHECK(o->cr_adv == 3);
+    }
+    // A legacy-shaped frame (both reserved bits clear on the wire) decodes as cr5 — the corpus-wide case.
+    std::array<uint8_t, 7> legacy{0x12, 0x0A, 0x0B, 0x50, 0x0C, 0xC0, 0x14};
+    auto lo = parse_rts(legacy);
+    CHECK(lo.has_value());
+    if (lo) { CHECK(lo->cr_adv == 0); CHECK(rts_cr_decode(lo->cr_adv) == 5); }
+}
+
 TEST_CASE("NACK — round-trip + golden + reject") {
     for (uint8_t reason : {0, 1, 2, 3})
         for (uint8_t ctr : {0, 5, 15})

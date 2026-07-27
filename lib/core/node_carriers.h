@@ -362,6 +362,13 @@ struct DeferredSend {                // a send with no route yet — held until 
 };
 struct PendingRx {                   // the receiver state awaiting DATA (one per node)
     uint8_t  from = 0, dst = 0, ctr_lo = 0, chosen_data_sf = 0, payload_len = 0;
+    // §rts-cr (2026-07-27): the SENDER's coding rate, decoded from the RTS cr_adv bits (frame_codec.h). Sits
+    // with chosen_data_sf/payload_len because those three are exactly the triple start_pending_rx_expiry needs
+    // to size the DATA wait. Sizing it with OUR active_cr() under-waited whenever the sender's CR was heavier
+    // (a gateway leaf at cr8 talking to leaves at cr5) and dropped a frame still in the air. Default 5 mirrors
+    // NodeConfig::radio_cr's default; handle_rts always overwrites it from the frame. FITS EXISTING PADDING —
+    // PendingRx stays 32 B, so sizeof(Node) does not move.
+    uint8_t  sender_cr = 5;
     uint64_t set_at_ms = 0;
     uint64_t expiry_ms = 0;          // absolute DATA-wait expiry (for the BUSY_RX NACK busy_for calc)
     bool     claimed_e2e_ack = false;// the RTS carried RTS_FLAG_E2E_ACK (backstop DROP exempted). Verified at DATA-time:

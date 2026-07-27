@@ -419,11 +419,13 @@ size_t pack_rts(const rts_in& in, std::span<uint8_t> out) {
     w.u8(wire::cmd_byte(wire::Cmd::R, static_cast<uint8_t>(in.leaf_id & 0x0F)));
     w.u8(in.src);
     w.u8(in.next);
-    w.u8(static_cast<uint8_t>(((in.ctr_lo & 0x0F) << 4) | ((in.addr_len & 0x07) << 1)));  // ctr_lo hi | addr_len b3..1 (1=mobile-next) | rsv b0
+    w.u8(static_cast<uint8_t>(((in.ctr_lo & 0x0F) << 4) | ((in.addr_len & 0x07) << 1)
+                              | ((in.cr_adv >> 1) & 0x01)));       // ctr_lo hi | addr_len b3..1 (1=mobile-next) | §rts-cr cr_adv HIGH b0
     w.u8(in.dst);                                                  // FLOOD: hop_left rides this slot
     w.u8(static_cast<uint8_t>(((in.sf_index & 0x03) << 6) |        // reading A: sf_index 7..6,
                               ((in.rts_flags & 0x0F) << 2) |       //            rts_flags 5..2,
-                              (in.mobile_src ? 0x02 : 0)));        // §mobile: MOBILE b1 (src is a mobile local-id), rsv b0
+                              (in.mobile_src ? 0x02 : 0) |         // §mobile: MOBILE b1 (src is a mobile local-id),
+                              (in.cr_adv & 0x01)));                // §rts-cr: cr_adv LOW b0
     w.u8(in.payload_len);                                          // mod-256 enforced by uint8_t
     if (flood) { w.u32_be(in.flood_channel_msg_id); for (uint8_t b : in.flood_bitmap) w.u8(b); }  // 4 B id + 32 B bitmap
     else if (m_bcast) w.u16_be(in.m_payload_id_lo16);
@@ -450,6 +452,7 @@ std::optional<rts_out> parse_rts(std::span<const uint8_t> frame) {
     o.sf_index  = static_cast<uint8_t>((b5 >> 6) & 0x03);
     o.rts_flags = static_cast<uint8_t>((b5 >> 2) & 0x0F);          // reading A
     o.mobile_src = (b5 & 0x02) != 0;                               // §mobile: MOBILE mark (byte-5 b1) — src is a mobile local-id
+    o.cr_adv    = static_cast<uint8_t>(((b3 & 0x01) << 1) | (b5 & 0x01));   // §rts-cr: sender CR, HIGH bit in byte 3, LOW in byte 5
     o.m_broadcast = (o.rts_flags & RTS_FLAG_M_BROADCAST) != 0;
     o.flood       = (o.rts_flags & RTS_FLAG_FLOOD) != 0;
     o.m_payload_id_lo16 = 0;

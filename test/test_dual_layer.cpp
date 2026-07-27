@@ -474,6 +474,7 @@ struct DualLayerTestAccess {
     static bool           parked_cross_layer(Node& n, uint8_t i) { return n._parked_sends[i].cross_layer; }
     static void           set_pending_rx(Node& n, uint8_t from, uint8_t ctr_lo, uint8_t sf, uint8_t payload_len) {  // simulate a prior RTS/CTS so handle_data accepts the DATA
         PendingRx pr{}; pr.from = from; pr.ctr_lo = ctr_lo; pr.chosen_data_sf = sf; pr.payload_len = payload_len;
+        pr.sender_cr = n.active_cr();   // §rts-cr: no RTS was parsed here, so pin the pre-slice sizing (our own CR) explicitly
         pr.set_at_ms = n._hal.now(); pr.expiry_ms = n._hal.now() + 100000;
         n._active->_pending_rx = pr;
     }
@@ -514,6 +515,85 @@ TEST_CASE("per-layer-bw: single-layer node — active_bw_hz()==global radio_bw_h
     CHECK(node.on_init(cfg));
     CHECK(node.active_bw_hz() == 250000u);   // the sole layer inherits -> identical to _cfg.radio_bw_hz
     CHECK(node.active_cr() == 5);
+}
+
+// ---- §rts-cr (2026-07-27): the receiver sizes its DATA wait from the SENDER's advertised CR ------------
+// THE BUG: start_pending_rx_expiry used active_cr() — the RECEIVER's own coding rate. A gateway leaf running
+// cr8 next to leaves at cr5 made those leaves arm ~746 ms for a ~975 ms SF11/BW250k frame and abandon it
+// (data_rx_timeout, s32_dual_cr_gateway). The PHY auto-detects CR from the explicit header, so the frame
+// demodulates fine — only the firmware's clock was wrong. Fix: the RTS carries the sender's CR (2 reserved
+// bits, no length change, no wire_version bump — frame_codec.h §rts-cr) and PendingRx.sender_cr feeds the sizing.
+// ★ COVERAGE: s32 is the ONLY corpus scenario with a per-layer CR and it asserts no delivery, so THIS TEST is
+// the regression detector for the mixed-CR sizing rule. The byte-identity gate cannot see it (all 29 scenarios
+// run a uniform global cr5, where the advertised CR equals the receiver's own).
+TEST_CASE("§rts-cr: the DATA-wait is armed for the SENDER's advertised CR, not the receiver's own") {
+    constexpr uint8_t  kRoutingSf = 8, kDataSf = 11, kPayload = 200;
+    constexpr uint32_t kBw = 250000;
+    constexpr uint32_t kPendingRxExpiryTimerId = 6;      // node.h: receiver DATA-wait
+
+    // Drive a real RTS in and read back the armed expiry. sf_index=3 (ANY) + a single-SF bitmap makes
+    // select_data_sf deterministic, so the only variable is the coding rate.
+    auto armed_delay = [](uint8_t our_cr, uint8_t sender_cr) -> uint32_t {
+        StubHal hal; Node node(hal, /*id=*/20, /*key=*/0x2020u);
+        NodeConfig cfg; cfg.routing_sf = kRoutingSf; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << kDataSf);
+        cfg.leaf_id = 4; cfg.radio_bw_hz = kBw; cfg.radio_cr = our_cr;
+        CHECK(node.on_init(cfg));
+        CHECK(node.active_cr() == our_cr);
+        RxMeta meta{ 20.0f, -60.0f, 0, static_cast<int8_t>(-1) };
+        rts_in r{}; r.leaf_id = 4; r.src = 50; r.next = 20; r.ctr_lo = 1; r.dst = 20;
+        r.sf_index = 3 /*ANY*/; r.rts_flags = 0; r.payload_len = kPayload;
+        r.cr_adv = rts_cr_encode(sender_cr);
+        uint8_t b[9]; const size_t n = pack_rts(r, b);
+        CHECK(n == 7u);                                              // ★ the advert costs NO wire bytes
+        node.on_recv(b, n, meta);
+        CHECK(DualLayerTestAccess::has_pending_rx(node));            // the RTS was accepted, so the delay is meaningful
+        return hal.last_delay[kPendingRxExpiryTimerId];
+    };
+    // The formula start_pending_rx_expiry must produce: OUR CTS at OUR cr + the gap + THEIR DATA at THEIR cr
+    // + the 2 ms ideal margin (the test HAL's rx_window_slop_ms is 0, as on the sim).
+    auto expect = [](uint8_t our_cr, uint8_t their_cr) -> uint32_t {
+        return airtime_ms(kRoutingSf, kBw, our_cr, protocol::preamble_sym, 4 /*CTS_LEN*/)
+             + protocol::cts_to_data_gap_ms
+             + airtime_ms(kDataSf, kBw, their_cr, protocol::preamble_sym, 14 + kPayload)
+             + 2;
+    };
+
+    // 1. cr5 sender into a cr5 receiver = every corpus scenario -> identical to the pre-slice sizing.
+    CHECK(armed_delay(5, 5) == expect(5, 5));
+    // 2. ★ THE FIX: a cr8 sender into a cr5 receiver. Pre-slice this armed expect(5,5) and UNDER-waited.
+    CHECK(armed_delay(5, 8) == expect(5, 8));
+    CHECK(armed_delay(5, 8) > armed_delay(5, 5));
+    // 3. ...and it is not simply "always wait longer": a cr5 sender into a cr8 receiver now arms SHORTER than
+    //    that receiver's own CR would have — the symmetric OVER-wait the old code paid, also gone.
+    CHECK(armed_delay(8, 5) == expect(8, 5));
+    CHECK(armed_delay(8, 5) < armed_delay(8, 8));
+    // 4. exhaustive over the whole 2-bit space, in both roles.
+    for (uint8_t their = 5; their <= 8; ++their)
+        for (uint8_t ours = 5; ours <= 8; ++ours)
+            CHECK(armed_delay(ours, their) == expect(ours, their));
+}
+
+TEST_CASE("§rts-cr: a node's outbound RTS advertises its OWN active_cr(), per active layer") {
+    StubHal hal; Node node(hal, /*id=*/10, /*key=*/0xA0A0u);
+    NodeConfig cfg; cfg.n_layers = 2; cfg.radio_bw_hz = 250000; cfg.radio_cr = 5;
+    cfg.layers[0] = good_layer(4, 7);                                  // cr left 0 -> inherits the global cr5
+    cfg.layers[1] = good_layer(5, 8); cfg.layers[1].cr = 8;            // the s32 shape: one leaf on cr8
+    CHECK(node.on_init(cfg));
+
+    auto advertised_on = [&](uint8_t leaf) -> uint8_t {
+        DualLayerTestAccess::set_active(node, leaf);
+        DualLayerTestAccess::learn_neighbor(node, /*node_id=*/77);       // a 1-hop route on THIS leaf
+        const uint8_t body[] = { 0x01, 0x02, 0x03 };
+        hal.last_tx_len = 0;
+        DualLayerTestAccess::do_send(node, /*dst=*/77, body, sizeof body);
+        DualLayerTestAccess::pump(node);                                  // become_free -> issue_send -> tx_rts
+        CHECK(hal.last_tx_len > 0);
+        auto r = parse_rts(std::span<const uint8_t>(hal.last_tx, hal.last_tx_len));
+        CHECK(r.has_value());
+        return r ? rts_cr_decode(r->cr_adv) : 0;
+    };
+    CHECK(advertised_on(0) == 5);   // inherit leaf -> the global cr
+    CHECK(advertised_on(1) == 8);   // ★ the cr8 leaf advertises cr8, so its peers size for a cr8 DATA
 }
 
 TEST_CASE("per-layer-bw: the window switch ALWAYS syncs BW/CR to the active leaf's effective PHY (no stale _def_bw)") {

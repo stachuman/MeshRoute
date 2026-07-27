@@ -620,6 +620,7 @@ void Node::tx_m_broadcast_rts() {
     rts_in rin{};
     rin.leaf_id = _cfg.leaf_id; rin.src = _node_id; rin.ctr_lo = pt.ctr_lo;
     rin.sf_index = max_data_sf_index();
+    rin.cr_adv = rts_cr_encode(active_cr());   // §rts-cr: the CR we will transmit the M frame at (the RTS is packed on the ACTIVE leaf, so this is the leaf's effective CR)
     rin.mobile_src = pt.mobile_src;   // §mobile 6.3: carry the TEAM-channel mark onto the M_BROADCAST/FLOOD RTS-M so a static overhearer skips it (0 on a normal channel -> byte-identical)
     // payload_len announces the BODY length of the lean M frame to follow (pt.inner = [id 4][ch 1][fl 1][body]).
     // The overhearer sizes its retune window as airtime(payload_len + M_FRAME_HDR_LEN) = the full 7+body M frame.
@@ -781,6 +782,7 @@ void Node::tx_rts_retry() {
     // DM RTS; the M-broadcast RTS is tx_m_broadcast_rts. Slice 4c.2: a gateway's cross-layer re-inject sets RTS_FLAG_RELAY
     // so the receiver exempts it from the originator anti-spam (node_mac_rx :40/:199) — G is relaying, not a 1st-hop origination.
     rin.dst = pt.dst; rin.sf_index = 3 /*ANY*/; rin.rts_flags = pt.is_gw_relay ? RTS_FLAG_RELAY : 0;
+    rin.cr_adv = rts_cr_encode(active_cr());   // §rts-cr: the CR the DATA will fly at -> the receiver sizes its DATA wait for OUR cr, not its own
     // §mobile 3a: addr_len=1 on a host's last-mile forward to a mobile; §6.4: also when the NEXT hop is a team peer, so the
     // receiver's mark-accept treats `next` as a team-plane local-id (its team_local_id==node_id off-grid). All 0 on a normal
     // TxItem -> identical wire.
@@ -1284,6 +1286,13 @@ void Node::start_ack_timeout() {
     // ack-timeout landed ~70 ms BEFORE the ACK on metal -> it cleared awaiting_ack, so the real ACK was then
     // ignored (handle_ack needs awaiting_ack) and a redundant re-RTS fired on a DELIVERED flight. Mirrors
     // start_pending_rx_expiry, which already carries the slop for the symmetric DATA wait. (Bench: SF9 DATA.)
+    // ⚠ §rts-cr — DELIBERATELY NOT CONVERTED, and here is the analysis so nobody has to redo it. The DATA term
+    // below is OUR OWN transmission, so active_cr() is exactly right. Only the airtime_routing_ms(3) ACK term is
+    // the PEER's transmission and therefore uses the wrong CR — worth tens of ms against the 229 ms DATA
+    // shortfall that motivated the RX-window fix, and in the gateway-high-CR shape (a cr5 node awaiting a cr8
+    // gateway's ACK) it OVER-waits, which fails safe. Fixing it needs a peer-CR channel the CTS does not have:
+    // pack_cts is FULL (frame_codec.cpp:341-353 — the low nibble is (sf-5)<<1 | already_received, and
+    // tx_id/rx_id/payload_len are whole bytes), so it would cost a wire growth or a wire_version bump. NOT DONE.
     const uint32_t base = airtime_ms(sf, active_bw_hz(), active_cr(), protocol::preamble_sym, len)
                         + airtime_routing_ms(3)
                         + _hal.rx_window_slop_ms(sf) + _hal.rx_window_slop_ms(_cfg.routing_sf);
@@ -1295,6 +1304,12 @@ void Node::start_pending_rx_expiry(uint8_t payload_len) {
     // so a forged 255 can't inflate the pending-RX expiry (and its BUSY_RX NACK busy_for) at max SF.
     if (payload_len > protocol::max_payload_bytes_hard_cap) payload_len = protocol::max_payload_bytes_hard_cap;
     const uint8_t  sf  = _active->_pending_rx ? _active->_pending_rx->chosen_data_sf : max_data_sf();  // pending always set here
+    // §rts-cr (2026-07-27): size for the SENDER's coding rate, carried in the RTS (frame_codec.h cr_adv) and
+    // stashed on the PendingRx by handle_rts — NOT our own active_cr(). With our own, a leaf at cr5 armed
+    // ~746 ms for a cr8 gateway's ~975 ms SF11/BW250k DATA and abandoned a frame still on air (s32 gw_4 -> the
+    // layer-5 leaves, and symmetrically gw_5 -> the layer-4 leaves). CR is auto-detected by the PHY from the
+    // explicit header, so the frame demodulates fine — only OUR clock was wrong.
+    const uint8_t  cr  = _active->_pending_rx ? _active->_pending_rx->sender_cr : active_cr();          // pending always set here
     const uint16_t len = static_cast<uint16_t>(14 + payload_len);
     // +2: the original ideal-timing margin — this is ALL the sim uses, so s18 contention is unchanged.
     // On top, _hal.rx_window_slop_ms(sf) is the REAL hardware slop airtime_ms can't see, bench-measured
@@ -1304,7 +1319,7 @@ void Node::start_pending_rx_expiry(uint8_t payload_len) {
     // over-held pending_rx on lost DATA -> 96%->69% s18 collapse) and metal-real on the device (else the
     // receiver hops back to routing before the slow DATA's RX_DONE and aborts it).
     const uint32_t t = airtime_routing_ms(4) /*CTS_LEN=4*/ + protocol::cts_to_data_gap_ms +
-                       airtime_ms(sf, active_bw_hz(), active_cr(), protocol::preamble_sym, len)
+                       airtime_ms(sf, active_bw_hz(), cr, protocol::preamble_sym, len)
                        + 2 + _hal.rx_window_slop_ms(sf);
     if (_active->_pending_rx) _active->_pending_rx->expiry_ms = _hal.now() + t;   // for the BUSY_RX NACK busy_for calc
     (void)_hal.after(t, kPendingRxExpiryTimerId);

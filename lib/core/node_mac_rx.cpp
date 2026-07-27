@@ -144,6 +144,12 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
                         // is +4 B (the team_id tail, M_FRAME_TEAM_HDR_LEN=11) -> size the window for it or the frame is
                         // dropped at data SF>=10 (the +4 B airtime exceeds the 30 ms margin).
                         const uint16_t m_hdr = r.mobile_src ? M_FRAME_TEAM_HDR_LEN : M_FRAME_HDR_LEN;
+                        // ⚠ §rts-cr — SAME BUG CLASS AS start_pending_rx_expiry, DELIBERATELY NOT CONVERTED HERE.
+                        // This is an OVERHEARER's retune window for the sender's M frame, so active_cr() is the
+                        // wrong CR for exactly the same reason. The datum is already in hand (rts_cr_decode(r.cr_adv)
+                        // — a one-token change), but NO corpus scenario overhears a channel flood from a
+                        // different-CR sender, so the conversion would be unvalidatable by the gate. Left for the
+                        // slice that can prove it. Twin site at the M_BROADCAST retune below.
                         const uint32_t back = protocol::cts_to_data_gap_ms
                             + airtime_ms(data_sf, active_bw_hz(), active_cr(), protocol::preamble_sym,
                                          static_cast<uint16_t>(r.payload_len + m_hdr)) + 30 + _hal.rx_window_slop_ms(data_sf);
@@ -172,6 +178,9 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             // (drop_sf_mismatch). The +30 is the sim's ideal margin; rx_window_slop_ms adds the REAL metal
             // RX_DONE/SPI turnaround (ZERO on the sim; the same slop start_pending_rx_expiry carries).
             const uint16_t m_hdr = r.mobile_src ? M_FRAME_TEAM_HDR_LEN : M_FRAME_HDR_LEN;   // §mobile 6.3: a team M-frame is +4 B (team_id tail) — size for it or it drops at data SF>=10
+            // ⚠ §rts-cr — the twin of the FLOOD retune above: same wrong-CR bug, same available fix
+            // (rts_cr_decode(r.cr_adv)), same reason it is NOT done here — no corpus scenario overhears an
+            // M_BROADCAST from a different-CR sender, so the gate cannot see the change.
             const uint32_t back = protocol::cts_to_data_gap_ms
                 + airtime_ms(data_sf, active_bw_hz(), active_cr(), protocol::preamble_sym,
                              static_cast<uint16_t>(r.payload_len + m_hdr)) + 30 + _hal.rx_window_slop_ms(data_sf);
@@ -327,6 +336,7 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     prx.chosen_data_sf = sf; prx.payload_len = r.payload_len; prx.set_at_ms = _hal.now();
     prx.claimed_e2e_ack = (r.rts_flags & RTS_FLAG_E2E_ACK) != 0;   // carried to DATA-time for the anti-spoof verify
     prx.mobile_from = r.mobile_src;                               // §mobile: carry the mobile-src mark -> DATA-time learn skips a mobile local id (mirror the RTS learn guard :47)
+    prx.sender_cr = rts_cr_decode(r.cr_adv);                      // §rts-cr: the SENDER's CR -> start_pending_rx_expiry sizes the DATA wait for the frame actually coming, not for our own CR
     _active->_pending_rx = prx;
     start_pending_rx_expiry(r.payload_len);
     cts_in cin{}; cin.chosen_data_sf = sf; cin.already_received = false; cin.tx_id = for_team_rts ? team_local_id() : _node_id; cin.rx_id = r.src;

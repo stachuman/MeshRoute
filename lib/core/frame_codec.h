@@ -192,15 +192,17 @@ std::optional<ack_out> parse_ack(std::span<const uint8_t> frame);
 //   byte 0 : cmd=0x1(7..4) | leaf_id(3..0)
 //   byte 1 : src
 //   byte 2 : next
-//   byte 3 : ctr_lo(7..4) | addr_len(3..1) | rsv(0)        [addr_len 0=normal, 1=mobile-next; 2..7 hierarchy-deferred]
+//   byte 3 : ctr_lo(7..4) | addr_len(3..1) | cr_adv HIGH bit(0)  [addr_len 0=normal, 1=mobile-next; 2..7 hierarchy-deferred]
 //   byte 4 : dst
-//   byte 5 : sf_index(7..6) | rts_flags(5..2) | MOBILE(1) | rsv(0)   [MOBILE b1: src is a mobile local-id §mobile Slice 1]
+//   byte 5 : sf_index(7..6) | rts_flags(5..2) | MOBILE(1) | cr_adv LOW bit(0)  [MOBILE b1: src is a mobile local-id §mobile Slice 1]
 //            READING A (§10.3 wording is ambiguous; we pin flags to bits 5..2):
 //            within byte 5, M_BROADCAST -> bit 2 (0x04), RELAY -> bit 3 (0x08).
 //            rts_flags nibble values: 0x01=M_BROADCAST, 0x02=RELAY, 0x04=FLOOD, 0x08=E2E_ACK.
 //   byte 6 : payload_len                                   [wraps mod-256 via uint8_t]
 //   bytes 7-8 : id_lo16 (BE)  — present iff (rts_flags & RTS_FLAG_M_BROADCAST) without FLOOD
 // sf_index: 0..2 = singleton into allowed_data_sfs; 3 = ANY (receiver picks by SNR).
+// cr_adv: the SENDER's coding rate, 2 bits split across the last two reserved bits (byte 3 b0 = HIGH,
+// byte 5 b0 = LOW — MSB-first in wire order, matching the u16_be/u32_be idiom). See §rts-cr below.
 // Contract: all fields MASK/wrap (no clamp); payload_len wraps; parse rejects
 // addr_len > 1 (0=normal, 1=mobile-next §mobile Slice 1; 2..7 hierarchy-deferred).
 //
@@ -214,6 +216,38 @@ constexpr uint8_t RTS_FLAG_M_BROADCAST = 0x01;
 constexpr uint8_t RTS_FLAG_RELAY       = 0x02;
 constexpr uint8_t RTS_FLAG_FLOOD       = 0x04;   // channel flood: extended 43-B RTS-M tail (id + bitmap)
 constexpr uint8_t RTS_FLAG_E2E_ACK     = 0x08;   // originator hint: the pending DATA is a DATA_TYPE_E2E_ACK -> the 1st-hop backstop DROP is exempted (still OBSERVED). Anti-spoof: verified at DATA-time; a liar is flagged + the exemption revoked. 4th free bit of the rts_flags nibble; old nodes ignore it (no flag-day).
+
+// §rts-cr (2026-07-27) — the SENDER advertises ITS OWN coding rate so the receiver can size the DATA-wait
+// window for the frame that is actually coming. THE BUG THIS FIXES: start_pending_rx_expiry sized the wait
+// with the RECEIVER's active_cr(); a gateway leaf running cr8 next to leaves at cr5 made those leaves arm
+// ~746 ms for a ~975 ms frame (SF11/BW250k) and abandon it -> data_rx_timeout. "Different CR settings are
+// compatible" is TRUE at the LoRa PHY (the explicit header carries CR and the radio auto-detects it) but was
+// FALSE in this firmware's RX-window sizing.
+// ENCODING: cr is 5..8 = exactly 4 values = exactly 2 bits, so the mapping is total and the round-trip exact.
+// ★ THERE IS NO "NOT ADVERTISED" STATE, DELIBERATELY (owner ruling 2026-07-27). All-zero bits decode to cr5,
+//   not to "unknown".
+// ⚠ WHAT THAT ASSUMES, STATED SO THE NEXT READER DOES NOT HAVE TO REDERIVE IT: a UNIFORMLY-REFLASHED fleet.
+//   An un-reflashed sender leaves both bits 0; on a fleet whose global cr is NOT 5 a new receiver would read
+//   that as cr5 and UNDER-wait — the exact failure this slice removes, reintroduced by mixed firmware. The
+//   enforcement lever exists and works: protocol::wire_version is checked at node_join.cpp:213 and a mismatch
+//   refuses the join outright, so a bump WOULD make this airtight. It is DELIBERATELY NOT DONE HERE (C4): a
+//   bump rewrites the BCN version nibble and every J frame, re-anchoring all 29 scenario streams and swamping
+//   this slice's own s32-only delta. Deferred to a standalone slice; the project reflashes together meanwhile.
+//   ✔ MEASURED MITIGATION, so the residual risk is smaller than the paragraph above alone implies: every board
+//   env compiles `-DLORA_CR=5` (platformio.ini) and `radio_cr` defaults to 5, so an un-reflashed node is at cr5,
+//   sends both bits 0, and a new receiver decodes cr5 — CORRECT. The hazard is reachable only after the fleet's
+//   GLOBAL cr is moved off 5 (nv.cr / `cfg set`) while un-reflashed nodes remain. Do that only after the bump.
+// Out-of-range cr (not 5..8) WRAPS per this codec's stated mask/wrap contract. Where that range IS enforced,
+// measured 2026-07-27 by following every writer of the global `NodeConfig::radio_cr`:
+//   ENFORCED, fail-loud — `cfg set cr` (firmware_config.cpp: refuses outside 5..8) · `gateway cr0=/cr1=`
+//     (validate_gateway_layers -> GwValErr::bad_cr, checked BEFORE the NV write) · the build default -DLORA_CR=5.
+//   ⚠ NOT enforced — the NV LOAD (fw_main.cpp: `cfg.radio_cr = nv.cr` verbatim, so a blob from older/other
+//     firmware or a partial corruption installs any byte) · the simulator's map_cr · the public
+//     Node::set_radio_cfg(). PRE-EXISTING and NOT worsened here: airtime_ms multiplies payload symbols by `cr`
+//     directly, so an out-of-range global already corrupts every timeout on that node long before the wire —
+//     this codec merely mask/wraps it into 2 bits. Out of scope for this slice; recorded, not fixed.
+constexpr uint8_t rts_cr_encode(uint8_t cr)   { return static_cast<uint8_t>((cr - 5) & 0x03); }   // 5..8 -> 0..3
+constexpr uint8_t rts_cr_decode(uint8_t code) { return static_cast<uint8_t>((code & 0x03) + 5); } // 0..3 -> 5..8
 struct rts_in {
     uint8_t  leaf_id; uint8_t src; uint8_t next; uint8_t ctr_lo;
     uint8_t  dst; uint8_t sf_index; uint8_t rts_flags; uint8_t payload_len;
@@ -223,6 +257,7 @@ struct rts_in {
     // §mobile Slice 1 fields at struct END so existing positional aggregate-inits (rts_in{…,m_payload_id}) are unaffected:
     uint8_t  addr_len = 0;                 // 0=normal, 1=mobile-next (`next` is a local id); 2..7 reserved (hierarchy)
     bool     mobile_src = false;           // MOBILE mark — src is a mobile local-id / mobile-originated (byte-5 b1)
+    uint8_t  cr_adv = 0;                   // §rts-cr: rts_cr_encode(sender's active_cr()); 0 == cr5 (NOT "unknown")
 };
 struct rts_out {
     uint8_t  leaf_id; uint8_t src; uint8_t next; uint8_t ctr_lo; uint8_t addr_len;
@@ -232,6 +267,7 @@ struct rts_out {
     bool     flood = false;                // rts_flags & RTS_FLAG_FLOOD (43-B tail present)
     uint32_t flood_channel_msg_id = 0;     // bytes 7-10 (BE) when flood
     size_t   flood_bitmap_off = 0;         // offset of the 32-B bitmap when flood (use rts_flood_bitmap)
+    uint8_t  cr_adv = 0;                   // §rts-cr: the sender's CR as a 2-bit code — decode with rts_cr_decode
 };
 size_t pack_rts(const rts_in& in, std::span<uint8_t> out);          // 7 / 9 / 43; 0 on short buf or FLOOD bitmap != 32 B
 std::optional<rts_out> parse_rts(std::span<const uint8_t> frame);   // nullopt: len<7 (or <43 if FLOOD) / cmd / addr_len!=0
