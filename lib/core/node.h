@@ -216,6 +216,15 @@ public:
         const uint8_t c = _cfg.layers[static_cast<size_t>(_active - &_layers[0])].cr;
         return c > 0 ? c : _cfg.radio_cr;
     }
+    // §layer-freq (2026-07-27): the ACTIVE leaf's RF carrier in MHz — the third member of the same family
+    // (same runtime->config index idiom; 0 in the LayerConfig = inherit the global radio_freq_mhz). Exists so
+    // activate_layer can push the EFFECTIVE carrier unconditionally and therefore RESET an inherit-leaf back
+    // off the previous leaf's override. Returns 0.0 only when NOTHING configured a carrier (no per-layer
+    // override anywhere and no global) — a documented HAL no-op, and the legacy single-carrier behaviour.
+    double            active_freq_mhz() const {
+        const double f = _cfg.layers[static_cast<size_t>(_active - &_layers[0])].freq_mhz;
+        return f > 0.0 ? f : _cfg.radio_freq_mhz;
+    }
     uint32_t          key_hash32()     const { return _key_hash32; }
     void              set_name(const char* name, uint8_t len) { _name_len = len > sizeof _name ? (uint8_t)sizeof _name : len; for (uint8_t i = 0; i < _name_len; ++i) _name[i] = name[i]; }   // §1.3: load the /mrid name into the core (for the pubkey exchange + display)
     uint8_t           name_len()       const { return _name_len; }
@@ -225,11 +234,20 @@ public:
     NodeConfig&       mutable_config()       { return _cfg; }   // LIVE tweak of dynamically-read cfg (device `cfg set`):
                                                                 // touch ONLY fields the MAC re-reads each use (sf_list/lbt/
                                                                 // beacon/nav/hop_cap/leaf_id/gateway), NOT on_init-cached (duty).
-    // Live `cfg set` of the radio knobs (control SF / BW / CR) — updates the config the MAC + airtime read,
-    // WITHOUT re-initing the Node (routes / in-flight flight survive). LBT-derived delays are cached at
+    // Live `cfg set` of the radio knobs (control SF / BW / CR / carrier) — updates the config the MAC + airtime
+    // read, WITHOUT re-initing the Node (routes / in-flight flight survive). LBT-derived delays are cached at
     // on_init and go stale on a live change, but LBT is off by default and needs a reboot to enable.
-    void set_radio_cfg(uint8_t routing_sf, uint32_t bw_hz, uint8_t cr) {
-        _cfg.routing_sf = routing_sf; _cfg.radio_bw_hz = bw_hz; _cfg.radio_cr = cr;
+    // §layer-freq (2026-07-27): freq_mhz joined the set because a gateway's next window switch pushes
+    // active_freq_mhz() — a live `cfg set freq` that left _cfg.radio_freq_mhz stale would retune the radio now
+    // and then snap it BACK to the old global on the next INHERIT-leaf activation.
+    // ⚠ MISSING (pre-existing, NOT fixed here): this only repairs the INHERIT fallback. On a real board
+    // fw_main pre-resolves the inherit into layers[0]/[1].freq_mhz at NV-load, so both leaves hold an
+    // EXPLICIT boot carrier that still wins over the updated global — i.e. a live `cfg set freq` on a gateway
+    // still snaps back at the next window switch, exactly as before this slice. The cure is to update the
+    // per-layer values too (or to stop pre-resolving in fw_main); both change metal behaviour and need a
+    // bench-gated slice of their own, so they are deliberately out of scope.
+    void set_radio_cfg(uint8_t routing_sf, uint32_t bw_hz, uint8_t cr, double freq_mhz) {
+        _cfg.routing_sf = routing_sf; _cfg.radio_bw_hz = bw_hz; _cfg.radio_cr = cr; _cfg.radio_freq_mhz = freq_mhz;
     }
     // R6.3 §2 (provisioning verbs / decision b): re-derive the duty-cycle budget after a LIVE duty change
     // (the join/create verbs, adopt_c_config, cfg-set duty) so enforcement applies without a reboot. Mirrors
@@ -1614,7 +1632,7 @@ private:
 // pointer/enum/alignment). Purpose: the node.h legibility reorder (2026-07-15 by-concern member reorder) must not
 // change Node's layout. If this fires after a *deliberate* member add/remove/type change, update the baseline
 // consciously — it is a tripwire, not a frozen contract. The real nRF52 RAM check is the firmware.map .bss/.data diff.
-static_assert(sizeof(Node) == 220584, "node.h: Node native layout changed — if intentional, update the baseline");   // 220392 -> 220584 (+192 shelf-item-(i): PendingE2eAck[cap_pending_e2e_acks=8], 24 B each = the E2E-ack deadline ring, Node-global). 220384 -> 220392 (+8 Wave-4: NodeConfig.gw_schedule_readvert_ms u32 + alignment; the gateway schedule re-advertisement cadence). …218872 (§S6) -> 219000 (§GapA) -> 219312 (+312 §F-XL-1: HForwardStash[4] = 4×(77+1) de-storm ring; _h_forward_rr fits existing padding) -> 219568 (+256 §S3 part2: HostMobileEntry.last_key_fwd_hash32 = 4 B + 4 B align, ×16 ×2 layers) -> 219760 (+192 batch B: §B2 HostMobileEntry.deleg_fail packs into existing tail padding; §B4 PendingNotify.last_home_hash 4 B ×16 ×2 layers = +128; §D16 PresenceCand.incompatible +8 align ×cap = +64) -> 219952 (+192 batch A: §F-XL-2 RreqForwardStash[4] = 4×(16+1) de-storm ring + _rreq_forward_rr; §F-SL-1 ParkedSend += reflood state (bool/bool/Plane/u8 + u64 reflood_at_ms, 8-align) ×cap_parked_sends=8) -> 220384 (+432 §3-A.6 evict-STALEST timestamps: _learned_layers_seen_ms u64×4 = +32; PendingNotify.stash_ms u64 -> 12->24 B ×16 ×2 layers = +384 (+16 align); MINUS the dead _presence_claim_retries u8 (absorbed by padding))
+static_assert(sizeof(Node) == 220592, "node.h: Node native layout changed — if intentional, update the baseline");   // 220584 -> 220592 (+8 §layer-freq: NodeConfig.radio_freq_mhz, a `double` placed between dv_hop_cap and the existing `double duty_cycle` so it fills the 8-byte-alignment padding slot already there — measured sizeof(NodeConfig) 256 -> 264, i.e. the member costs its own 8 B and opens NO new hole; the same slot after `radio_cr` would have cost 16). 220392 -> 220584 (+192 shelf-item-(i): PendingE2eAck[cap_pending_e2e_acks=8], 24 B each = the E2E-ack deadline ring, Node-global). 220384 -> 220392 (+8 Wave-4: NodeConfig.gw_schedule_readvert_ms u32 + alignment; the gateway schedule re-advertisement cadence). …218872 (§S6) -> 219000 (§GapA) -> 219312 (+312 §F-XL-1: HForwardStash[4] = 4×(77+1) de-storm ring; _h_forward_rr fits existing padding) -> 219568 (+256 §S3 part2: HostMobileEntry.last_key_fwd_hash32 = 4 B + 4 B align, ×16 ×2 layers) -> 219760 (+192 batch B: §B2 HostMobileEntry.deleg_fail packs into existing tail padding; §B4 PendingNotify.last_home_hash 4 B ×16 ×2 layers = +128; §D16 PresenceCand.incompatible +8 align ×cap = +64) -> 219952 (+192 batch A: §F-XL-2 RreqForwardStash[4] = 4×(16+1) de-storm ring + _rreq_forward_rr; §F-SL-1 ParkedSend += reflood state (bool/bool/Plane/u8 + u64 reflood_at_ms, 8-align) ×cap_parked_sends=8) -> 220384 (+432 §3-A.6 evict-STALEST timestamps: _learned_layers_seen_ms u64×4 = +32; PendingNotify.stash_ms u64 -> 12->24 B ×16 ×2 layers = +384 (+16 align); MINUS the dead _presence_claim_retries u8 (absorbed by padding))
 #endif
 
 }  // namespace meshroute

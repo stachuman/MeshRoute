@@ -212,7 +212,7 @@
    "type": "script_emit_contains",
    "node": "M1",
    "emit_type": "push",
-   "value": "send_e2e_acked"
+   "value": "e2e_acked"
   }
  ],
  "nodes": [

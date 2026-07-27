@@ -413,7 +413,10 @@ void Node::reset_join_for_reprovision() {
 // Lost the heal tiebreak: yield the id, deny it, drop our stale self-binding, go unprovisioned, and re-run DAD.
 void Node::forced_rejoin(const char* reason) {
     if (!_joined) return;
-    const uint8_t prior = _node_id;                                   // capture BEFORE the reset zeroes _node_id (telemetry)
+    // telemetry-only (stripped on device) — the MR_EMIT below is its ONLY consumer. ⚠ NOT the same as the
+    // same-named local in reset_join_for_reprovision() above: THAT one is live code (join_deny_id + the _id_bind
+    // scan compare against it), so it must NOT get this attribute.
+    [[maybe_unused]] const uint8_t prior = _node_id;                  // capture BEFORE the reset zeroes _node_id
     reset_join_for_reprovision();
     MR_EMIT("addr_conflict_forced_rejoin", EF_I("prior_node_id", prior), EF_S("reason", reason ? reason : "addr_conflict_lost"));
     join_start_claim(reason);

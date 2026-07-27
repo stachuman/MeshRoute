@@ -247,11 +247,11 @@ void Node::emit_beacon(const char* kind) {
     if (_active->_pending_tx || _active->_pending_rx) { _hal.log("beacon_tx skipped (busy in data exchange)"); return; }
     // R4.3 budget-aware skip (dv:7595): at tier >= CRITICAL a BCN is a luxury — preserve the remaining duty
     // budget for forwards already queued. Neighbours keep us via passive last_seen from any frame we send.
-    // (compute_budget_tier is draw-free; HEALTHY in every gate, so this is gate-inert.)
+    // (compute_budget_tier is draw-free. ⚠ V1 comment fix 2026-07-26: the old claim "HEALTHY in every gate, so this
+    // is gate-inert" is FALSE — measured by poison probe, this skip FIRES 288× in the corpus (s06 119 / s07 169;
+    // tier critical ×250, exhausted ×38). It is live behaviour the byte-identity gate DOES see.)
     if (compute_budget_tier() >= BudgetTier::critical) {
         MR_EMIT("beacon_skipped_budget", EF_I("tier",static_cast<uint8_t>(compute_budget_tier())),EF_S("kind",kind));
-        /*MR_TELEMETRY(EventField f[] = { { .key = "tier", .type = EventField::T::i64, .i = static_cast<uint8_t>(compute_budget_tier()) },{ .key = "kind", .type = EventField::T::str, .s = kind } };_hal.emit("beacon_skipped_budget", f, 2); );
-        */
         return;
     }
     maybe_exit_discovery("before_bcn");

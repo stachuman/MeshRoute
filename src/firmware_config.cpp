@@ -19,6 +19,16 @@
 
 namespace mrfw {
 
+// §bw-round-invariant (TU-wide, covers BOTH compile-time LORA_BW conversions in this file — the gateway-validate
+// fallback in handle_gateway and the NV reset in handle_leave). Both now go through protocol::khz_to_hz (U1: one
+// conversion path) instead of open-coding `(uint32_t)(LORA_BW * 1000.0)`. The helper ROUNDS where those sites
+// TRUNCATED, so the switch is a no-op ONLY while the two agree for the configured LORA_BW — asserted here per env
+// rather than claimed in a doc. A future board BW where they disagree FAILS THE BUILD, deliberately loud: it would
+// otherwise silently shift a persisted NV value. Twin assert at the third site, src/fw_main.cpp (grep the tag).
+static_assert(static_cast<uint32_t>(LORA_BW * 1000.0) == meshroute::protocol::khz_to_hz(LORA_BW),
+              "§bw-round-invariant: truncating and rounding kHz->Hz disagree for this board's LORA_BW — "
+              "routing it through khz_to_hz CHANGES the shipped value; re-gate that deliberately");
+
 // Increment B internalized apply_radio_live: its only callers (handle_cfg_set + provision_apply_live) now both
 // live in this TU, so it reverts to file-static (was header-exposed only to bridge to fw_main's provision_apply_live).
 static void apply_radio_live(const mrnv::Blob& b, bool reconfig) {
@@ -33,7 +43,7 @@ static void apply_radio_live(const mrnv::Blob& b, bool reconfig) {
     }
     g_hal.configure(/*sf=*/(int16_t)b.routing_sf, /*bw_hz=*/(int32_t)b.bw_hz, /*cr=*/(int8_t)b.cr,
                     /*preamble=*/(int16_t)meshroute::protocol::preamble_sym, /*power=*/(int8_t)b.tx_power, /*busy_hold=*/100);
-    g_node.set_radio_cfg((uint8_t)b.routing_sf, (uint32_t)b.bw_hz, (uint8_t)b.cr);
+    g_node.set_radio_cfg((uint8_t)b.routing_sf, (uint32_t)b.bw_hz, (uint8_t)b.cr, b.freq_mhz);   // §layer-freq: carrier too — a stale _cfg.radio_freq_mhz would be re-pushed by the next gateway window switch
 }
 
 static void seed_blob_from_live(mrnv::Blob& b);   // fwd decl — defined below (with the provisioning block); handle_cfg_set's seed path calls it
@@ -353,6 +363,7 @@ static const char* gw_val_err_str(meshroute::GwValErr e) {
         case E::window_too_long:      return "windows sum exceeds the period";
         case E::bad_bw:               return "per-layer bw not a valid SX1262 bandwidth (0=inherit)";
         case E::bad_cr:               return "per-layer cr out of range (5..8; 0=inherit)";
+        case E::freq_inherit_no_global: return "one layer sets freqN= and the other inherits, but no node carrier is set (`cfg set freq`)";
     }
     return "unknown validation error";                  // unreachable (all GwValErr cased) — fail LOUD, never "ok"
 }
@@ -384,9 +395,14 @@ void handle_gateway(const char* args, Print& out) {
         b.ble_mode = g_ble_mode; b.ble_period_min = g_ble_period_min; b.ble_pin = g_ble_pin;
         b.channel_active_fraction = nc.channel_active_fraction; b.channel_min_interval_ms = nc.channel_min_interval_ms; b.dm_min_interval_ms = nc.dm_min_interval_ms;   // v16 anti-spam per-leaf tunables
     }
-    const uint32_t bw = b.bw_hz ? b.bw_hz : static_cast<uint32_t>(LORA_BW * 1000.0);
+    const uint32_t bw = b.bw_hz ? b.bw_hz : meshroute::protocol::khz_to_hz(LORA_BW);   // §bw-round-invariant
     const uint8_t  cr = b.cr    ? b.cr    : 5;
-    const GwValErr ve = validate_gateway_layers(g.l0, g.l1, bw, cr);   // SAME gate on_init runs (derives windows)
+    // §layer-freq: the global carrier THIS provisioning will boot with — `freq0=` becomes b.freq_mhz below
+    // (that is how the console spells "the node/layer-0 carrier"), else the blob's existing freq, else the
+    // build default. Passing the same value on_init will see keeps the two gates identical (anti-drift).
+    const double   fq = (g.l0.freq_mhz > 0.0) ? g.l0.freq_mhz
+                                              : (b.freq_mhz > 0.0 ? b.freq_mhz : (double)LORA_FREQ);
+    const GwValErr ve = validate_gateway_layers(g.l0, g.l1, bw, cr, fq);   // SAME gate on_init runs (derives windows)
     if (ve != GwValErr::ok) { out.print(F("> gateway err ")); out.println(gw_val_err_str(ve)); return; }
 
     b.n_layers = 2;
@@ -729,7 +745,7 @@ void handle_leave(Print& out) {
     b = mrnv::Blob{};                                                        // zero everything...
     b.magic = mrnv::kMagic; b.version = mrnv::kVersion;
     b.freq_mhz = keep_freq;                                                  // ...keep only freq
-    b.bw_hz = (uint32_t)(LORA_BW * 1000.0); b.routing_sf = LORA_SF; b.cr = LORA_CR; b.tx_power = LORA_TX_POWER;
+    b.bw_hz = meshroute::protocol::khz_to_hz(LORA_BW); b.routing_sf = LORA_SF; b.cr = LORA_CR; b.tx_power = LORA_TX_POWER;   // §bw-round-invariant
     b.beacon_ms = 900000; b.duty = (double)LORA_DUTY_CYCLE_PCT / 100.0;       // NodeConfig defaults (15 min, 10%)
     b.channel_active_fraction = 0.125f; b.channel_min_interval_ms = meshroute::protocol::channel_min_interval_ms; b.dm_min_interval_ms = meshroute::protocol::dm_min_interval_ms;   // v16 anti-spam per-leaf defaults
     if (!mrnv::save(b)) { out.println(F("> leave err nv_save_failed")); return; }

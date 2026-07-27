@@ -60,7 +60,7 @@ cd /home/staszek/lora-universal-simulator
 cd /home/staszek/MeshRoute && PLATFORMIO_BUILD_DIR=<scratch>/piobuild-after pio run -e <env>
 ```
 
-1. **All 27 corpus scenarios BYTE-IDENTICAL** to the current BASELINE anchors — the 19 anchored plus the 8
+1. **All 29 corpus scenarios BYTE-IDENTICAL** to the current BASELINE anchors — the 19 anchored plus the 8
    non-anchored (s06, s07, s20, the three `*_leaf_config`, `sim_9node_base`, `twin_9node_dm`). **`cmp` the full
    NDJSON**, not md5 prefixes. **0 assertion failures each.** 3-run stability on a few of the largest.
 2. **Native count EXACT and UNCHANGED** (**854 / 26482 / 0 as of 2026-07-26** — it moved twice during this
@@ -80,7 +80,13 @@ cd /home/staszek/MeshRoute && PLATFORMIO_BUILD_DIR=<scratch>/piobuild-after pio 
      session collided in the shared `.pio` tree on 2026-07-25 and destroyed a baseline; isolation is standing
      practice now.
    - ★ Derive the BEFORE tree from a **pristine `git archive` export**, never by reverting the working tree
-     (that would flip sources under any concurrent build, and risks losing your own work).
+     (that would flip sources under any concurrent build, and risks losing your own work). ⚠ **If the working tree
+     is DIRTY with another slice, `rsync` the tree instead** — `git archive HEAD` would attribute that slice's
+     delta to you. (2026-07-26: this saved a slice whose HEAD moved mid-run when the owner committed.)
+   - ★★ **Make the two snapshot trees' absolute paths EQUAL LENGTH** (or reuse one path sequentially, wiping the
+     build dir between passes). A **one-character** path-length difference changes PlatformIO's `libXXX`
+     path-hash directories and the baked path strings, which produced a **phantom ±16 B flash delta** on two envs
+     in 26t. It reads exactly like a real codegen change and will waste an hour.
    - **RAM must not move.** Flash may shift either direction if you explain it — item 1 saw every nRF52/ARM env
      shrink 3.4–4.1 KB while every ESP32/Xtensa env grew 0.25–0.5 KB, purely from inlining differences.
    - Note the three `gateway_*` envs compile `MR_FEAT_TEAM 0`, so `#else` arms of team-gated code ARE covered.
@@ -115,11 +121,11 @@ the protocol engine the simulator runs. The item-3 coder measured it instead and
 **Method** (cheap, and it is the only honest answer to "does the gate see this?"):
 1. Temporarily make the extracted helper — or an individual converted site — return a **wrong but valid** value
    (e.g. `+7`, a flipped boundary, a different enum). It must be a change that *would* alter output if executed.
-2. Rebuild `lus` and run all 27 scenarios.
+2. Rebuild `lus` and run all 29 scenarios.
 3. Record which scenarios move. **Probe per helper, and where feasible per site**, so coverage is attributable
    rather than lumped — item 3 isolated `node_join.cpp:579` (not executed) from `node_mac_rx.cpp:838` (executed)
    exactly this way.
-4. **Revert every probe, confirm the tree is `diff`-identical to what you gated, and re-run all 27** to prove the
+4. **Revert every probe, confirm the tree is `diff`-identical to what you gated, and re-run all 29** to prove the
    restoration. Item 3 did this; say that you did.
 
 **Report a coverage matrix**: per site → corpus-covered (proven by probe) / native-test-covered (name the test) /
@@ -135,7 +141,7 @@ observable — distinguish those two before concluding, and say which.
 INVENTORY CONFIRMED — your item's true counts at file:line; correct the brief where it is wrong
 DESIGN              — the shape chosen + why; how layout/idiom constraints are met
 COVERAGE            — ★ the POISON-PROBE matrix (§E): per site → corpus-covered (probe result) / native-test
-                      (name it) / algebra-only. Plus confirmation that every probe was reverted and all 27
+                      (name it) / algebra-only. Plus confirmation that every probe was reverted and all 29
                       re-run clean afterwards.
 GATE                — native (EXACT count) · 27 scenarios byte-identical · sizeof(Node) proven POSITIVELY ·
                       -Wswitch 0 + pio warning delta · boards 10/10 BEFORE/AFTER (isolated dirs) · line delta

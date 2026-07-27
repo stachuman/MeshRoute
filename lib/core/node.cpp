@@ -67,7 +67,8 @@ void Node::set_crypto_identity(const uint8_t x_secret[32], const uint8_t ed_pub[
 }
 
 // The shared §3.2 dual-layer gate (see node.h). Extracted verbatim from on_init's former inline block so on_init
-// and the `gateway` console command validate IDENTICALLY. Mutates l0/l1 window fields (the SF-weighted derive).
+// and the `gateway` console command validate IDENTICALLY. Mutates l0/l1 window fields (the SF/BW-weighted derive —
+// CR is deliberately excluded from the weighting; the rule and its rationale are at the derive itself, below).
 // v17 per-layer PHY: the legal SX1262 LoRa bandwidths (Hz). A per-layer bw_hz must be one of these (0 = inherit).
 static bool is_valid_bw_hz(uint32_t bw) {
     switch (bw) {
@@ -77,7 +78,8 @@ static bool is_valid_bw_hz(uint32_t bw) {
     }
 }
 
-GwValErr validate_gateway_layers(LayerConfig& a, LayerConfig& b, uint32_t radio_bw_hz, uint8_t radio_cr) {
+GwValErr validate_gateway_layers(LayerConfig& a, LayerConfig& b, uint32_t radio_bw_hz, uint8_t radio_cr,
+                                 double radio_freq_mhz) {
     for (LayerConfig* L : {&a, &b}) {                                            // per-layer required fields (loop order matches the original)
         if (L->layer_id == 0)                       return GwValErr::bad_leaf;     // REQUIRED: full 8-bit id (1..255)
         if (L->routing_sf < 5 || L->routing_sf > 12) return GwValErr::bad_ctrl_sf; // REQUIRED: a valid routing SF
@@ -88,22 +90,45 @@ GwValErr validate_gateway_layers(LayerConfig& a, LayerConfig& b, uint32_t radio_
     // §0.8: the two layers MUST differ in their leaf nibble (layer_id & 0x0F) — the coarse byte-0 wire filter;
     // same-nibble co-channel layers would ALIAS (frames cross).
     if ((a.layer_id & 0x0F) == (b.layer_id & 0x0F)) return GwValErr::leaf_nibble_clash;
+    // §layer-freq (2026-07-27) C2 fail-loud. A layer with freq_mhz==0 INHERITS radio_freq_mhz, and
+    // activate_layer pushes that EFFECTIVE carrier on every window switch precisely so an inherit-leaf is
+    // reset off the other leaf's override. With no global there is nothing to reset TO — the Hal drops
+    // mhz<=0 — so the inherit-leaf would run the override-leaf's carrier, silently, RX and TX. That is the
+    // metal bug this slice fixes; refuse the config instead of half-fixing it. NB the two legal shapes are
+    // untouched: BOTH inherit + no global = the legacy single-carrier world (the radio never moves), and
+    // BOTH override needs no global at all.
+    if (((a.freq_mhz > 0.0) != (b.freq_mhz > 0.0)) && !(radio_freq_mhz > 0.0)) return GwValErr::freq_inherit_no_global;
     if (a.window_period_ms != b.window_period_ms)   return GwValErr::period_mismatch;  // the ONE shared cycle must agree
     if (a.window_period_ms == 0)                    return GwValErr::period_zero;       // validate-not-clamp: refuse a 0 cycle
     if (a.window_ms && b.window_ms && a.window_ms + b.window_ms > a.window_period_ms) return GwValErr::window_overlap;
-    // SF-weighted anti-phase window derive (window_i = period * per_byte_air(sf_i) / sum; offset[1] = window[0]).
+    // SF/BW-weighted anti-phase window derive (window_i = period * per_byte_air(L_i) / sum; offset[1] = window[0]).
     const uint32_t period = a.window_period_ms;
-    // v17: weight each layer's window by ITS OWN effective BW/CR (a narrow-BW layer = more airtime/byte = a longer
-    // window). eff = the per-layer override, else the global fallback (mirrors active_bw_hz()/active_cr()).
+    // v17 + §cr-out-of-split (owner ruling 2026-07-27): weight each layer's window by ITS OWN effective SF and BW —
+    // a slower SF / narrower BW = more airtime/byte = a longer window. eff_bw = the per-layer override, else the
+    // global fallback (mirrors active_bw_hz()).
+    // ★ CR IS DELIBERATELY EXCLUDED FROM THE WEIGHTING — a rule, not an oversight. Do NOT "fix" it back.
+    //   WHY: SF and BW are properties every member of a layer MUST share to demodulate each other at all, so they
+    //   are genuine properties OF THE LAYER. CR rides in the LoRa EXPLICIT PHY header and is auto-detected per
+    //   frame, so nodes running different CRs still interoperate — CR is a property of a TRANSMISSION, not of the
+    //   channel. And this derive REDISTRIBUTES ONE FIXED period, so weighting by CR would let a layer's private CR
+    //   choice take window time away from its PEER layer. Hence both layers weigh at the node's global radio_cr.
+    //   ⚠ DELIBERATELY NOT DONE — ignoring CR does not make a heavy CR free. A CR4/8 layer genuinely occupies more
+    //   airtime and can still overrun a window that no longer grows for it; nothing here compensates for that. The
+    //   trade is that it overruns ITS OWN window instead of stealing its peer's. Scoped to the SPLIT only: real TX
+    //   airtime still uses the per-layer effective CR everywhere else (active_cr(), activate_layer's set_rx_cr).
+    //   ⚠ NOT cr-invariant in the ABSOLUTE sense (measured 2026-07-27): airtime_ms floors twice, so per_byte_air is
+    //   only ~linear in cr (±1 ms) and the ratio still shifts by up to ~93 ms of a 15 s period as the GLOBAL cr
+    //   varies 5..8. That residual is PRE-EXISTING and unchanged by this rule (an inherit-both config already fed
+    //   radio_cr to both sides), and it is symmetric, so it can never favour one layer. What the rule removes is
+    //   the PER-LAYER CR differential, which was neither symmetric nor small (s32: 3188/8812 -> 4395/7605 ms).
     auto eff_bw = [&](const LayerConfig& L) -> uint32_t { return L.bw_hz > 0 ? L.bw_hz : radio_bw_hz; };
-    auto eff_cr = [&](const LayerConfig& L) -> uint8_t  { return L.cr    > 0 ? L.cr    : radio_cr; };
     auto per_byte_air = [&](const LayerConfig& L) -> uint32_t {     // marginal payload airtime for 120 B (preamble cancels)
-        return airtime_ms(L.routing_sf, eff_bw(L), eff_cr(L), protocol::preamble_sym, 240)
-             - airtime_ms(L.routing_sf, eff_bw(L), eff_cr(L), protocol::preamble_sym, 120);
+        return airtime_ms(L.routing_sf, eff_bw(L), radio_cr, protocol::preamble_sym, 240)
+             - airtime_ms(L.routing_sf, eff_bw(L), radio_cr, protocol::preamble_sym, 120);
     };
     const uint32_t w0 = per_byte_air(a), w1 = per_byte_air(b);
     if (w0 + w1 == 0) return GwValErr::window_degenerate;                          // guard; SFs are 5..12
-    if (a.window_ms == 0 && b.window_ms == 0) {                                    // both DERIVE: SF-weighted, fill the period
+    if (a.window_ms == 0 && b.window_ms == 0) {                                    // both DERIVE: SF/BW-weighted, fill the period
         a.window_ms = static_cast<uint32_t>(static_cast<uint64_t>(period) * w0 / (w0 + w1));
         b.window_ms = period - a.window_ms;
     } else if (a.window_ms == 0) {                                                 // one explicit -> the other fills the rest
@@ -237,7 +262,8 @@ bool Node::on_init(const NodeConfig& cfg) {
     } else {
         // §3.2 dual-layer gate (shared with parse_gateway_cmd): required fields + leaf-nibble + the SF-weighted
         // anti-phase window derive/validate (mutates _cfg.layers' window fields in place). Fail LOUD — node stays down.
-        if (validate_gateway_layers(_cfg.layers[0], _cfg.layers[1], _cfg.radio_bw_hz, _cfg.radio_cr) != GwValErr::ok)
+        if (validate_gateway_layers(_cfg.layers[0], _cfg.layers[1], _cfg.radio_bw_hz, _cfg.radio_cr,
+                                    _cfg.radio_freq_mhz) != GwValErr::ok)
             return false;
     }
     _n_layers = _cfg.n_layers;   // Slice 3c: mirror the (normalized) layer count to the runtime member activate_layer guards on
@@ -449,6 +475,13 @@ void Node::adopt_mobile_phy(const LayerConfig& phy, bool retune_radio) {
     _routing_snr_floor_q4  = routing_snr_floor_for(phy.routing_sf);
     if (retune_radio) {                                          // §mobile: single-PHY is already tuned; retuning would arm a spurious blind window
         _hal.set_rx_sf(phy.routing_sf);
+        // §layer-freq (2026-07-27) — NOT DONE HERE, deliberately. This is the SAME conditional-freq shape that
+        // was a real bug in activate_layer (fixed below): BW/CR fall back to the global, freq does not, so an
+        // adopt of a host PHY carrying freq_mhz==0 cannot reset the carrier a PREVIOUS adopt moved. It is not
+        // the metal bug that was fixed — a mobile is single-leaf and never calls activate_layer, so there is no
+        // window-swap that flips carriers underneath it — and converting it here would change mobile-plane
+        // behaviour (s21/s22/s27 …), which is a different slice with a different gate. Left as-is on purpose;
+        // the fix, when it comes, is `_hal.set_rx_freq(phy.freq_mhz > 0.0 ? phy.freq_mhz : _cfg.radio_freq_mhz)`.
         if (phy.freq_mhz > 0.0) _hal.set_rx_freq(phy.freq_mhz);
         _hal.set_rx_bw(phy.bw_hz ? phy.bw_hz : _cfg.radio_bw_hz);
         _hal.set_rx_cr(phy.cr ? phy.cr : _cfg.radio_cr);
@@ -485,11 +518,27 @@ void Node::activate_layer(uint8_t i) {
     _flood_lbt_max_defer_ms = (_cfg.flood_lbt_max_defer_ms > 0) ? _cfg.flood_lbt_max_defer_ms
                               : airtime_routing_ms(protocol::beacon_max_bytes);
     _hal.set_rx_sf(L.routing_sf);                               // retune RX (SF latches in standby)
-    if (L.freq_mhz > 0.0) _hal.set_rx_freq(L.freq_mhz);        // per-layer channel: retune the RF carrier (0 = inherit boot freq)
-    _hal.set_rx_bw(active_bw_hz());                            // ALWAYS sync to the active leaf's EFFECTIVE BW (its override OR the
-    _hal.set_rx_cr(active_cr());                               // global) — NOT `if (L.bw_hz>0)`: an inherit-leaf entered AFTER an
-                                                               // override-leaf must RESET the HAL _def_bw/_def_cr back to the global,
-                                                               // else TX keeps flying on the prior leaf's stale BW (charge != transmit).
+    // ★ ONE RULE for all three remaining PHY knobs: ALWAYS push the ACTIVE leaf's EFFECTIVE value (its
+    // override OR the global) — NEVER `if (L.<knob> > 0)`. An inherit-leaf entered AFTER an override-leaf must
+    // RESET the HAL back to the global, else RX *and* TX keep flying on the prior leaf's stale value
+    // (charge != transmit).
+    // §layer-freq (2026-07-27) — DONE: freq used to be the odd one out (`if (L.freq_mhz > 0.0)`), i.e. it had
+    // exactly the defect shape the BW/CR lines' comment warns against. It could not be fixed before because
+    // there was no NodeConfig::radio_freq_mhz to fall back to; there is now, and active_freq_mhz() mirrors
+    // active_bw_hz()/active_cr() exactly. A 0.0 here means no carrier is configured ANYWHERE (no per-layer
+    // override, no global) and is a documented Hal no-op — validate_gateway_layers refuses the only mixed
+    // shape where a 0.0 could hide a stale carrier.
+    // ⚠ HOW REACHABLE, measured (do NOT repeat the stronger claim in BASELINE 26u): a board provisioned via
+    // `gateway`/`cfg set` never gets here with L.freq_mhz == 0, because fw_main's NV restore already
+    // pre-resolves the inherit into BOTH layers. The inherit-with-a-global path is live in the SIMULATOR
+    // (map_layers defaults freq_mhz to 0), in native tests, and for any future config path that leaves it 0.
+    // MISSING (deliberate, out of this slice): the SAME conditional still stands in adopt_mobile_phy above
+    // (`if (phy.freq_mhz > 0.0)`) and in node_mobile.cpp's scan retune — a mobile is single-leaf and never
+    // calls activate_layer, so it cannot hit the leaf-swap bug, but an adopt of a host PHY that carries no
+    // freq likewise cannot reset a previous adopt's carrier. Left for a mobile-plane slice, see the note there.
+    _hal.set_rx_freq(active_freq_mhz());
+    _hal.set_rx_bw(active_bw_hz());
+    _hal.set_rx_cr(active_cr());
     _hal.set_protocol_id(L.node_id);                           // Hal short-id = the active leaf's node_id
     if (L.node_id != 0)                                          // seed leaf i's OWN id_bind binding (per-leaf table)
         id_bind_set(L.node_id, _key_hash32, IdBindSource::self, IdBindConf::authoritative);
@@ -516,7 +565,7 @@ void Node::window_switch_fire() {
         // below, a slip does NOT ratchet the schedule: the next successful fire snaps to the grid's current leaf +
         // boundary, so the phase drift is bounded to <= one window (the slipped leaf simply loses that much of its
         // window). STARVATION (a leaf reliably busy at switch time) is still observable here; a max-hold is an open item.
-        const uint8_t next = (_active == &_layers[0]) ? 1 : 0;
+        [[maybe_unused]] const uint8_t next = (_active == &_layers[0]) ? 1 : 0;   // telemetry-only (stripped on device) — the MR_EMIT below is its ONLY consumer
         MR_EMIT("gateway_layer_window_deferred", EF_I("held_leaf", (next == 0) ? 1 : 0), EF_I("next_leaf", next));
         (void)_hal.after(protocol::gateway_layer_busy_retry_ms, kLayerWindowTimerId);
         return;
@@ -921,10 +970,15 @@ void Node::on_recv(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         // command-nibble map (0x0..0xC). It is a RESERVED extension nibble, so an EXT frame on the air today is
         // foreign/corrupt and dropping it is correct. Listing it keeps -Wswitch-enum clean here.
         case wire::Cmd::EXT: break;
-        // ★ The `default:` STAYS, deliberately: this switch's subject is `cmd_of(bytes[0])` = an arbitrary wire
-        // nibble, and 0xD/0xE are representable values of Cmd with NO enumerator. Removing it would be a
-        // no-op-by-fallthrough today, but the label documents that the domain is the wire, not the enum.
-        default: break;                                              // 0xD/0xE (unassigned nibbles) — ignored
+        // ★ NO `default:` — DELIBERATE, and the reason is the tripwire, not the dispatch. The subject is
+        // `cmd_of(bytes[0])` = a raw wire nibble, so 0xD/0xE ARE representable `Cmd` values with no enumerator
+        // (`enum class Cmd : uint8_t`); with every enumerator cased they fall out of the switch and are ignored,
+        // which is behaviour-IDENTICAL to the `default: break;   // 0xD/0xE unassigned` that stood here.
+        // What the label COST: `-Wswitch` is blind behind any `default:`, so a future `Cmd` enumerator added
+        // without a case here would dispatch NOWHERE and warn NOTHING. Without it the build reports
+        // "enumeration value ... not handled in switch" — and this is the frame-dispatch switch, the one place a
+        // whole frame type going unhandled is worst. Same idiom as node_mac.cpp's label_of_frame / retry_slot_of
+        // (§w4-switchenum). Never re-add the label; add the case.
     }
 }
 

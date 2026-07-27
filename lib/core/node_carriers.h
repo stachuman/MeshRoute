@@ -20,7 +20,7 @@ namespace MESHROUTE_NS {
 // A normal node has n_layers=1 (uses layers[0]); a GATEWAY has 2 EQUAL layers (no home/guest, §0.1). One
 // identity (key_hash32) spans both; node_id is per-leaf (independent DAD, §0.2). `layer_id` is the FULL 8-bit
 // id (1..255); `leaf_id = layer_id & 0x0F` is the derived coarse wire filter (§0.8). window_ms/offset 0 =
-// DERIVE the SF-weighted anti-phase split at the scheduler (§4, Slice 3). REQUIRED on a gateway: layer_id /
+// DERIVE the SF/BW-weighted anti-phase split at the scheduler (§4, Slice 3). REQUIRED on a gateway: layer_id /
 // routing_sf / allowed_sf_bitmap — on_init fails LOUD if unset (§3.2, no silent inherit).
 struct LayerConfig {
     uint8_t  layer_id          = 0;       // FULL 8-bit id (1..255); 0 = unset. leaf_id = layer_id & 0x0F.
@@ -34,9 +34,12 @@ struct LayerConfig {
     uint32_t bw_hz             = 0;       // per-layer bandwidth (Hz); 0 = inherit the node's global radio_bw_hz.
     uint8_t  cr                = 0;       // per-layer coding-rate (5..8); 0 = inherit radio_cr. A layer is a full
                                           // (freq, SF, BW, CR) channel — BW/CR retune with SF/freq on a window switch.
+                                          // ⚠ Deliberately NOT an input to the window-split weighting (unlike SF/BW):
+                                          // CR is auto-detected from the explicit PHY header, so it is a property of a
+                                          // transmission, not of the layer. Rule + rationale at the derive in node.cpp.
     uint32_t beacon_period_ms  = 900000;
     uint32_t window_period_ms  = 15000;   // the full layer0->layer1 cycle (§3.2 default; cfg-overridable)
-    uint32_t window_ms         = 0;       // this layer's presence in the cycle; 0 = DERIVE SF-weighted (§4)
+    uint32_t window_ms         = 0;       // this layer's presence in the cycle; 0 = DERIVE SF/BW-weighted, NOT CR-weighted (§4)
     uint32_t window_offset_ms  = 0;       // phase; 0 = DERIVE anti-phase from the other layer (§4)
 };
 
@@ -45,13 +48,19 @@ struct LayerConfig {
 enum class GwValErr : uint8_t {
     ok = 0, bad_leaf, bad_ctrl_sf, no_data_sf, leaf_nibble_clash,
     period_mismatch, period_zero, window_degenerate, window_zero, window_exceeds_period, window_overlap, window_too_long,
-    bad_bw, bad_cr   // v17 per-layer PHY: bw_hz not a legal SX1262 bandwidth / cr not in 5..8 (0 = inherit is always ok)
+    bad_bw, bad_cr,  // v17 per-layer PHY: bw_hz not a legal SX1262 bandwidth / cr not in 5..8 (0 = inherit is always ok)
+    freq_inherit_no_global   // §layer-freq: one layer sets freq_mhz, the other inherits, and radio_freq_mhz is 0 —
+                             // the inherit-leaf could never be retuned back, so it would silently run the other
+                             // leaf's carrier. Refuse. (Both inherit + no global = the legacy single-carrier world,
+                             // still fine: the radio never moves. Both override = no global needed.)
 };
 // The ONE dual-layer gate, shared by on_init AND parse_gateway_cmd (so the console command can never accept a
 // config on_init would refuse — anti-drift). Validates both layers' required fields + the leaf-nibble rule + the
-// shared window period, DERIVES the SF-weighted anti-phase window split for any window_ms/offset left 0, and
+// shared window period, DERIVES the SF/BW-weighted anti-phase window split for any window_ms/offset left 0 (CR is
+// DELIBERATELY not part of that weighting — see the rule at the derive in node.cpp), and
 // validates the concrete schedule. MUTATES L0/L1 window fields in place. Pure (no Serial/NV).
-GwValErr validate_gateway_layers(LayerConfig& l0, LayerConfig& l1, uint32_t radio_bw_hz, uint8_t radio_cr);
+GwValErr validate_gateway_layers(LayerConfig& l0, LayerConfig& l1, uint32_t radio_bw_hz, uint8_t radio_cr,
+                                 double radio_freq_mhz);
 
 // `gateway` console command parse result. Parse-stage errors (format / per-field ranges); the cross-layer +
 // window checks are validate_gateway_layers' job (the caller runs it after a clean parse).
@@ -128,6 +137,25 @@ struct NodeConfig {
     uint8_t  radio_cr    = 5;
     uint8_t  dv_hop_cap  = protocol::dv_hop_cap;  // DV route hop cap + F RREQ TTL. Network-wide: set via the J join
                                                   // frame (Slice 3); static config is the bootstrap/fallback. Default 16.
+    // §layer-freq (2026-07-27): the node's GLOBAL RF carrier, MHz — the freq twin of radio_bw_hz/radio_cr.
+    // Sources: the firmware's LORA_FREQ / persisted nv.freq_mhz (fw_main) and the sim node's freq_khz
+    // (injected as _sim_freq_khz). It exists for ONE reason: active_freq_mhz() must be able to RESET the HAL
+    // back to the global when an INHERIT layer (freq_mhz==0) is entered after an OVERRIDE layer — see
+    // activate_layer, where freq used to be the only PHY knob that skipped the reset.
+    // ⚠ SCOPE, measured 2026-07-27 — the reachability claim in BASELINE note 26u is NOT confirmed. On the
+    // FIRMWARE the inherit is already pre-resolved at NV-load (`fw_main.cpp` writes nv.freq_mhz into BOTH
+    // layers, and nv.freq_mhz is never 0), so a board provisioned via `gateway`/`cfg set` never actually
+    // reaches a 2-layer node with layers[i].freq_mhz == 0. The reachable users of the inherit are the
+    // SIMULATOR (map_layers defaults freq_mhz to 0), native tests, and any future/foreign config path
+    // (`mutable_config()`, a remote-config verb) that leaves it 0 — which is exactly why the rule now lives
+    // in ONE place instead of being duplicated by that fw_main pre-resolution.
+    // ★ DEFAULT 0.0 = "no global carrier configured", which preserves the pre-fix behaviour EXACTLY: nothing
+    // to reset to, so the radio stays where it was (DeviceHal::set_rx_freq / the sim HalAdapter both drop
+    // mhz<=0). The one configuration where that would still HIDE a stale carrier — one layer overriding while
+    // the other inherits nothing — is refused by validate_gateway_layers (GwValErr::freq_inherit_no_global).
+    // Placed here (after dv_hop_cap, ahead of the `double duty_cycle` below) so it lands in the existing
+    // 8-byte-alignment padding slot instead of opening a new one: +8 B to NodeConfig, not +16.
+    double   radio_freq_mhz = 0.0;
     // R4.0 duty-cycle budget. Default OFF (0.0) so every prior gate stays HEALTHY/inert; a
     // budget scenario sets duty_cycle explicitly. budget_ms = floor(duty_cycle*window) at on_init.
     // (Lua default is 0.01; we default OFF — see spec §2. Lua dv:8495-8497.)

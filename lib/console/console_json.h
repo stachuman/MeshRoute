@@ -3,14 +3,23 @@
 //
 // Bounded, heap-free NDJSON line writers for the device console + the BLE companion transport.
 // hal.h discipline: no std::string/json/heap, C++17-includable, -fno-exceptions.
-// ⚠ V1 CORRECTION 2026-07-25: this header used to claim the writers are "shared by the device console and
-// the sim's FirmwareNode (one serializer, two backends — schema cannot drift)". They are NOT. The simulator
-// compiles lib/core ONLY — its build references nothing in lib/console and it hand-builds its own
-// `script_emit`/`push` telemetry JSON — so src/fw_main.cpp and test/ are the ONLY consumers of this file.
-// ★ That is load-bearing for the gate: the s18 / scenario-corpus oracle CANNOT see this file, so a hole in
-// one of the enum→string mappers below is invisible to every scenario (it is also why three of them shipped
-// broken). The guards that DO cover it are the native tests (test/test_console_json.cpp walks every
-// enumerator of every mapped enum) and -Wswitch, which is gate-blocking.
+// ⚠ V1 HISTORY 2026-07-25: this header used to claim the writers are "shared by the device console and
+// the sim's FirmwareNode (one serializer, two backends — schema cannot drift)". That was FALSE at the time:
+// the simulator compiled lib/core only, referenced nothing here, and hand-built its own `script_emit`/`push`
+// telemetry JSON — so a hole in one of the enum→string mappers below was invisible to every scenario (which
+// is why three of them shipped broken).
+// ★ V1 UPDATE 2026-07-26 (Wave-4 #6) — PARTLY TRUE NOW, and the boundary is EXACT, so do not over-read it:
+//   • the sim DOES compile this TU (CMake target `meshroute_console`), once, in the default namespace;
+//   • exactly ONE function is CALLED from it — `pushkind_name`, which now renders the scenario oracle's push
+//     `kind` field (orchestrator/runtime/ConsoleNames.cpp → NodeRuntimeWrapper.cpp drainPushes). For that one
+//     mapper the console contract and the corpus oracle are the same table and can no longer drift, and the
+//     29-scenario corpus does exercise it;
+//   • EVERYTHING ELSE HERE IS STILL SIM-INVISIBLE — compiled by the sim, executed only by the firmware. The
+//     write_* line serializers, cmdcode_name, sendfailreason_name and joinrefusereason_name are covered ONLY
+//     by test/test_console_json.cpp (which walks every enumerator of every mapped enum) and by -Wswitch,
+//     which is gate-blocking. Do not treat scenario byte-identity as evidence about them.
+//   • ⚠ the sim reaches this file across a namespace boundary on the enum's UNDERLYING TYPE, so anything
+//     here taking a Node/NodeConfig/Push must never be bridged that way — see ConsoleNames.h's HARD LIMIT.
 // See docs/specs/2026-05-30-device-console-design.md.
 #pragma once
 #include "command.h"   // CmdResult, Push, CmdCode, PushKind  (lib/core)

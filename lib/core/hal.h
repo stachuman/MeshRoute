@@ -84,13 +84,21 @@ public:
     virtual void     set_rx_sf(int sf) = 0;            // clamp+ignore out-of-range; arms blind window
     // Per-layer frequency (dual-layer gateway): retune the RX frequency on a window switch. NON-pure with a no-op
     // default ON PURPOSE — a layer is a (freq, SF, leaf) channel, but only Hals that model RF carriers act on it.
-    // The device Hal overrides it (standby+setFrequency+re-arm); the SIM Hal does NOT model RF frequency (it keys
-    // reachability on leaf/SF), so it correctly inherits the no-op. mhz <= 0 => caller skips the call (inherit boot freq).
+    // The device Hal overrides it (standby+setFrequency+re-arm). mhz <= 0 => caller skips the call (inherit boot freq).
+    // ⚠ THE SIM NOW OVERRIDES THIS TOO (reversed 2026-07-26): the simulator's PHY became FREQUENCY-SELECTIVE, so a
+    // TX on one carrier is NOT received by a node tuned to another — hard split on exact-kHz mismatch, gating decode,
+    // preamble/energy detect, LBT busy and collisions alike. It canonicalizes the MHz here to integer kHz through
+    // protocol::mhz_to_khz (the same helper node_mac_rx.cpp uses for LayerRecord::freq_khz), so the two sides cannot
+    // drift. The earlier text here — "the SIM Hal does NOT model RF frequency (it keys reachability on leaf/SF), so
+    // it correctly inherits the no-op" — is RETIRED; do not read the sim's override as a bug.
     virtual void     set_rx_freq(double /*mhz*/) {}
     // Per-layer bandwidth + coding-rate (dual-layer gateway): retune BW/CR on a window switch. NON-pure no-op default
     // like set_rx_freq — only Hals that model the RF PHY act on them. The device Hal overrides (standby+set+re-arm AND
-    // updates its _def_bw/_def_cr so the NEXT TX flies on the active layer's BW/CR — the charge==transmit invariant);
-    // the SIM Hal keeps the no-op (it keys airtime on SF, not BW). 0 => caller skips (inherit the global).
+    // updates its _def_bw/_def_cr so the NEXT TX flies on the active layer's BW/CR — the charge==transmit invariant).
+    // ⚠ THE SIM OVERRIDES BOTH OF THESE TOO: set_rx_bw since the §bw-gating slice (2026-07-25 — it moves the node's
+    // live RX bandwidth, the RX-window slop and the radio's default TX bandwidth), and set_rx_cr since 2026-07-26
+    // (it retunes the sim radio's CR so the airtime debit follows the ACTIVE layer, matching the device's _def_cr).
+    // 0 => caller skips (inherit the global).
     virtual void     set_rx_bw(uint32_t /*bw_hz*/) {}
     virtual void     set_rx_cr(uint8_t /*cr*/) {}
     virtual uint64_t channel_busy_until() = 0;         // LBT busy_until ms, or 0

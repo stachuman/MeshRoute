@@ -559,8 +559,25 @@ void setup() {
     // knobs AND the node identity. node_id 0 = unprovisioned (sends refused; provision via NV or join).
     meshroute::NodeConfig cfg;
     cfg.routing_sf            = LORA_SF;                         // RX + control plane on the radio's SF
-    cfg.radio_bw_hz           = (uint32_t)(LORA_BW * 1000.0);    // keep the Node's airtime math == the radio's BW
+    // §bw-round-invariant: ONE conversion path for kHz->Hz (protocol::khz_to_hz, U1). That helper ROUNDS where this
+    // site TRUNCATED, so the switch is only a no-op while the two agree for the configured LORA_BW — which the
+    // static_assert proves at compile time, per env, instead of a doc asserting it. A future board BW where they
+    // disagree FAILS THE BUILD (deliberately loud: it would silently shift the value the fleet ships with).
+    static_assert(static_cast<uint32_t>(LORA_BW * 1000.0) == meshroute::protocol::khz_to_hz(LORA_BW),
+                  "§bw-round-invariant: truncating and rounding kHz->Hz disagree for this board's LORA_BW — "
+                  "routing it through khz_to_hz CHANGES the shipped value; re-gate that deliberately");
+    cfg.radio_bw_hz           = meshroute::protocol::khz_to_hz(LORA_BW);   // keep the Node's airtime math == the radio's BW
     cfg.radio_cr              = LORA_CR;
+    // §layer-freq (2026-07-27): the Node's view of the GLOBAL carrier, same source as g_freq_mhz above
+    // (LORA_FREQ, then nv.freq_mhz below). It is what Node::active_freq_mhz() falls back to when a layer
+    // leaves freq_mhz at 0, so activate_layer can RESET the carrier instead of leaving a stale one. Without
+    // it that fallback would be 0.0 = a Hal no-op and the reset could not happen at all.
+    // ⚠ On THIS device it is belt-and-braces today, not the live fix: the NV restore below already
+    // pre-resolves the inherit by writing nv.freq_mhz into both cfg.layers[] entries, so a provisioned board
+    // never presents a 0 per-layer carrier. Keep BOTH — the pre-resolution is the metal-behaviour-preserving
+    // path (removing it is a separate, bench-gated change), this is the single rule everything else uses.
+    // LORA_FREQ is already MHz (units note in platformio.ini) — no conversion, so no §bw-round-invariant twin.
+    cfg.radio_freq_mhz        = LORA_FREQ;
     cfg.leaf_id               = 0;
     cfg.duty_cycle            = (double)LORA_DUTY_CYCLE_PCT / 100.0;
     cfg.duty_cycle_window_ms  = 3600000;                        // 1 h (ETSI)
@@ -574,6 +591,7 @@ void setup() {
     if (mrnv::load(nv)) {                                        // a prior `cfg set` persisted -> apply it
         node_id               = nv.node_id;
         g_freq_mhz            = nv.freq_mhz;
+        cfg.radio_freq_mhz    = nv.freq_mhz;     // §layer-freq: keep the Node's global carrier == g_freq_mhz (activate_layer's inherit fallback)
         cfg.routing_sf        = nv.routing_sf;
         cfg.allowed_sf_bitmap = nv.allowed_sf_bitmap;
         cfg.radio_bw_hz       = nv.bw_hz;        cfg.radio_cr     = nv.cr;

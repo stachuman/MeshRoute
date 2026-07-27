@@ -543,13 +543,13 @@ TEST_CASE("per-layer-bw: parse_gateway_cmd bw0/bw1 are kHz (fractional) -> Hz; v
     CHECK(g.l0.bw_hz == 250000u); CHECK(g.l1.bw_hz == 62500u);   // kHz->Hz, fractional rounded
     CHECK(g.l0.cr == 5);          CHECK(g.l1.cr == 8);
     // validate ACCEPTS legal per-layer PHY (each layer's window derives off ITS OWN bw)
-    { GatewayProvision v = g; CHECK(validate_gateway_layers(v.l0, v.l1, 250000, 5) == GwValErr::ok); }
+    { GatewayProvision v = g; CHECK(validate_gateway_layers(v.l0, v.l1, 250000, 5, /*radio_freq_mhz=*/0.0) == GwValErr::ok); }   // §layer-freq: 0.0 global + neither layer overriding freq = the legacy single-carrier shape (the new gate is silent)
     // REJECTS an illegal per-layer BW (100000 Hz is not an SX1262 bandwidth)
-    { GatewayProvision v = g; v.l1.bw_hz = 100000; CHECK(validate_gateway_layers(v.l0, v.l1, 250000, 5) == GwValErr::bad_bw); }
+    { GatewayProvision v = g; v.l1.bw_hz = 100000; CHECK(validate_gateway_layers(v.l0, v.l1, 250000, 5, 0.0) == GwValErr::bad_bw); }
     // REJECTS an illegal per-layer CR
-    { GatewayProvision v = g; v.l1.cr = 99;        CHECK(validate_gateway_layers(v.l0, v.l1, 250000, 5) == GwValErr::bad_cr); }
+    { GatewayProvision v = g; v.l1.cr = 99;        CHECK(validate_gateway_layers(v.l0, v.l1, 250000, 5, 0.0) == GwValErr::bad_cr); }
     // 0 = inherit is always OK (the accessor resolves it)
-    { GatewayProvision v = g; v.l0.bw_hz = 0; v.l1.cr = 0; CHECK(validate_gateway_layers(v.l0, v.l1, 250000, 5) == GwValErr::ok); }
+    { GatewayProvision v = g; v.l0.bw_hz = 0; v.l1.cr = 0; CHECK(validate_gateway_layers(v.l0, v.l1, 250000, 5, 0.0) == GwValErr::ok); }
 }
 
 TEST_CASE("per-layer-bw: gateway parse keeps each leaf's OWN node/data_sf (no l0<->l1 bleed)") {
@@ -834,6 +834,62 @@ TEST_CASE("dual-layer scheduler: SF-weighted split gives the higher-SF leaf the 
     CHECK(c.layers[0].window_ms < c.layers[1].window_ms);             // SF9 (slower/more airtime/byte) -> longer window
     CHECK(c.layers[0].window_ms + c.layers[1].window_ms == period);   // back-to-back, fills the period exactly
     CHECK(c.layers[1].window_offset_ms == c.layers[0].window_ms);     // anti-phase
+}
+
+// §cr-out-of-split (owner ruling 2026-07-27): the weighting takes SF and BW, but NOT CR. The pair below pins BOTH
+// halves of that rule — the first that BW still counts, the second that CR does not. See node.cpp's derive for why.
+TEST_CASE("dual-layer scheduler: a per-layer BW override DOES move the split (narrower BW -> longer window)") {
+    StubHal hal; Node node(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[1] = good_layer(2, 8);   // SAME SF -> only BW can tilt it
+    cfg.layers[1].bw_hz = 125000;                                         // half the global 250 kHz = 2x airtime/byte
+    CHECK(node.on_init(cfg));
+    const NodeConfig& c = node.config();
+    const uint32_t period = c.layers[0].window_period_ms;
+    CHECK(c.layers[0].window_ms == 5010);                                 // 15000 * 154/(154+307)
+    CHECK(c.layers[1].window_ms == 9990);                                 // the narrow-BW leaf gets the LONGER window
+    CHECK(c.layers[0].window_ms < c.layers[1].window_ms);
+    CHECK(c.layers[0].window_ms + c.layers[1].window_ms == period);       // still fills the period exactly
+    CHECK(c.layers[1].window_offset_ms == c.layers[0].window_ms);         // anti-phase
+}
+
+TEST_CASE("dual-layer scheduler: a per-layer CR override does NOT move the split (§cr-out-of-split)") {
+    StubHal hal; Node node(hal, 1, 0x1);
+    // (a) equal SF/BW: every CR override must reproduce the CR-neutral 50/50 split EXACTLY.
+    for (uint8_t cr : {uint8_t(6), uint8_t(7), uint8_t(8)}) {
+        NodeConfig cfg; cfg.n_layers = 2;
+        cfg.layers[0] = good_layer(1, 8); cfg.layers[1] = good_layer(2, 8);
+        cfg.layers[1].cr = cr;                                            // heavier FEC on layer 1 only
+        Node n2(hal, 1, 0x1);
+        CHECK(n2.on_init(cfg));
+        const NodeConfig& c = n2.config();
+        CHECK(c.layers[0].window_ms == 7500);                             // IDENTICAL to the no-override split
+        CHECK(c.layers[1].window_ms == 7500);                             // CR bought layer 1 NOTHING
+        CHECK(c.layers[1].window_offset_ms == 7500);
+    }
+    // (b) unequal SF, so the assertion cannot pass merely by symmetry: the SF-derived split must be untouched
+    //     by CR overrides on either or both layers (cf. the SF8-vs-SF9 reference above -> 5372/9628).
+    for (uint8_t cr0 : {uint8_t(0), uint8_t(8)})
+        for (uint8_t cr1 : {uint8_t(0), uint8_t(5), uint8_t(8)}) {
+            NodeConfig cfg; cfg.n_layers = 2;
+            cfg.layers[0] = good_layer(1, 8); cfg.layers[1] = good_layer(2, 9);
+            cfg.layers[0].cr = cr0; cfg.layers[1].cr = cr1;
+            Node n3(hal, 1, 0x1);
+            CHECK(n3.on_init(cfg));
+            const NodeConfig& c = n3.config();
+            CHECK(c.layers[0].window_ms == 5372);                         // 15000 * 154/(154+276), SF-only weighting
+            CHECK(c.layers[1].window_ms == 9628);
+        }
+    // (c) CR and BW are independent knobs: a CR override must not disturb a BW-tilted split either.
+    {
+        NodeConfig cfg; cfg.n_layers = 2;
+        cfg.layers[0] = good_layer(1, 8); cfg.layers[1] = good_layer(2, 8);
+        cfg.layers[1].bw_hz = 125000; cfg.layers[1].cr = 8;               // BW counts, CR does not
+        Node n4(hal, 1, 0x1);
+        CHECK(n4.on_init(cfg));
+        CHECK(n4.config().layers[0].window_ms == 5010);                   // == the BW-only case above
+        CHECK(n4.config().layers[1].window_ms == 9990);
+    }
 }
 
 TEST_CASE("dual-layer scheduler: an explicit window_ms fills the remainder + derives the anti-phase offset (Slice 3a)") {
@@ -1132,15 +1188,67 @@ TEST_CASE("dual-layer freq: a gateway retunes the RX frequency on each window sw
     CHECK(hal.last_set_rx_freq == doctest::Approx(868.1));
 }
 
-TEST_CASE("dual-layer freq: a layer with freq_mhz==0 does NOT retune (inherits the boot/global freq)") {
+// ---- §layer-freq (2026-07-27): the per-layer-frequency RESET. ★ THE REGRESSION PIN ----
+// activate_layer used to call set_rx_freq ONLY `if (L.freq_mhz > 0.0)`, while its BW/CR neighbours always push the
+// EFFECTIVE value. So an inherit-leaf entered after an override-leaf was never retuned back and kept running the
+// previous leaf's carrier, RX and TX. The fix is NodeConfig::radio_freq_mhz + active_freq_mhz() + an
+// UNCONDITIONAL push. ⚠ Reachability, measured: a board provisioned via `gateway`/`cfg set` cannot hit it (fw_main
+// pre-resolves the inherit into both layers at NV-load), so this is NOT the on-metal catastrophe BASELINE 26u
+// described — it bites the simulator, native tests, and any future path that leaves a per-layer carrier at 0.
+// ⚠ THE CORPUS CANNOT SEE THIS: no scenario mixes an override carrier with an inherit carrier on one node
+// (BASELINE 26w/26v), so byte-identity proves inertness only — these tests are the whole coverage.
+TEST_CASE("§layer-freq: active_freq_mhz returns the ACTIVE layer's carrier, global fallback on 0") {
     StubHal hal; Node node(hal, 1, 0x1);
-    NodeConfig cfg; cfg.n_layers = 2;
+    NodeConfig cfg; cfg.n_layers = 2; cfg.radio_freq_mhz = 869.4625;       // the node's global carrier (LORA_FREQ on metal)
+    cfg.layers[0] = good_layer(1, 8);                                      // freq_mhz left 0 -> inherit the global
+    cfg.layers[1] = good_layer(2, 9); cfg.layers[1].freq_mhz = 868.1;      // override
+    CHECK(node.on_init(cfg));
+    CHECK(node.active_freq_mhz() == doctest::Approx(869.4625));            // layer 0 active -> inherit
+    DualLayerTestAccess::set_active(node, 1);
+    CHECK(node.active_freq_mhz() == doctest::Approx(868.1));               // layer 1 -> its override
+    DualLayerTestAccess::set_active(node, 0);
+    CHECK(node.active_freq_mhz() == doctest::Approx(869.4625));            // back to inherit
+}
+
+TEST_CASE("§layer-freq: the window switch RESETS an inherit-leaf to the global carrier (no stale carrier)") {
+    StubHal hal; Node node(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2; cfg.radio_freq_mhz = 869.4625;                  // the node/global carrier
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;  cfg.layers[0].freq_mhz = 868.1;   // OVERRIDE
+    cfg.layers[1] = good_layer(2, 9); cfg.layers[1].node_id = 12; cfg.layers[1].freq_mhz = 0.0;     // INHERIT
+    CHECK(node.on_init(cfg));                                                          // boots on leaf 0
+    CHECK(hal.last_set_rx_freq == doctest::Approx(868.1));                             // leaf 0's override
+    // ★ THE BUG: with the old `if (L.freq_mhz > 0.0)` guard this stayed 868.1 and layer 1 ran the whole window
+    // on layer 0's carrier. It must now RESET to the global.
+    DualLayerTestAccess::activate(node, 1);
+    CHECK(hal.last_set_rx_freq == doctest::Approx(869.4625));                          // reset to the global, NOT stale at 868.1
+    DualLayerTestAccess::activate(node, 0);
+    CHECK(hal.last_set_rx_freq == doctest::Approx(868.1));                             // and back to the override
+}
+
+TEST_CASE("§layer-freq: one layer overriding + one inheriting with NO global carrier is REFUSED (C2)") {
+    // The one shape the reset cannot rescue: radio_freq_mhz == 0 means there is nothing to reset TO (the Hal
+    // drops mhz<=0), so leaf 1 would still silently run leaf 0's carrier. Refuse instead of half-fixing.
+    GatewayProvision g{};
+    CHECK(parse_gateway_cmd("l0=4:10:8:7,9 l1=5:11:9:7,9 freq0=868.1", g) == GwParseErr::ok);
+    CHECK(validate_gateway_layers(g.l0, g.l1, 250000, 5, /*radio_freq_mhz=*/0.0) == GwValErr::freq_inherit_no_global);
+    CHECK(validate_gateway_layers(g.l0, g.l1, 250000, 5, /*radio_freq_mhz=*/869.4625) == GwValErr::ok);   // a global exists -> resettable -> fine
+    // …and on_init runs the SAME gate, so the node refuses to come up rather than mis-tuning.
+    StubHal hal; Node node(hal, 1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;                                       // radio_freq_mhz left 0.0
     cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;  cfg.layers[0].freq_mhz = 868.1;
-    cfg.layers[1] = good_layer(2, 9); cfg.layers[1].node_id = 12; cfg.layers[1].freq_mhz = 0.0;   // inherit
-    CHECK(node.on_init(cfg));                                              // leaf 0 -> 868.1
-    CHECK(hal.last_set_rx_freq == doctest::Approx(868.1));
-    DualLayerTestAccess::activate(node, 1);                                // leaf 1 freq 0 -> NO retune
-    CHECK(hal.last_set_rx_freq == doctest::Approx(868.1));                 // unchanged
+    cfg.layers[1] = good_layer(2, 9); cfg.layers[1].node_id = 12; cfg.layers[1].freq_mhz = 0.0;
+    CHECK_FALSE(node.on_init(cfg));
+    // The two LEGAL shapes stay legal: BOTH inherit with no global (the legacy single-carrier world — the radio
+    // simply never moves), and BOTH override (no global needed).
+    { StubHal h2; Node n2(h2, 1, 0x1); NodeConfig c2; c2.n_layers = 2;
+      c2.layers[0] = good_layer(1, 8); c2.layers[0].node_id = 5;
+      c2.layers[1] = good_layer(2, 9); c2.layers[1].node_id = 12;
+      CHECK(n2.on_init(c2));
+      CHECK(h2.last_set_rx_freq == doctest::Approx(0.0)); }                 // nothing configured anywhere -> a documented Hal no-op
+    { StubHal h3; Node n3(h3, 1, 0x1); NodeConfig c3; c3.n_layers = 2;
+      c3.layers[0] = good_layer(1, 8); c3.layers[0].node_id = 5;  c3.layers[0].freq_mhz = 868.1;
+      c3.layers[1] = good_layer(2, 9); c3.layers[1].node_id = 12; c3.layers[1].freq_mhz = 869.5;
+      CHECK(n3.on_init(c3)); }
 }
 
 TEST_CASE("dual-layer beacon: a gateway ADVERTISES its window schedule — one record/leaf, receiver-anchored countdown (Slice 3e)") {
@@ -2099,7 +2207,7 @@ TEST_CASE("§gateway parse_gateway_cmd — a valid line fills both leaves; valid
     CHECK(g.l1.layer_id == 5); CHECK(g.l1.node_id == 11); CHECK(g.l1.routing_sf == 9);
     CHECK(g.l1.allowed_sf_bitmap == ((1u << 7) | (1u << 9)));
     // window derive happens in the shared predicate (the SAME one on_init runs)
-    CHECK(validate_gateway_layers(g.l0, g.l1, 125000, 5) == GwValErr::ok);
+    CHECK(validate_gateway_layers(g.l0, g.l1, 125000, 5, 0.0) == GwValErr::ok);
     CHECK(g.l0.window_ms > 0);
     CHECK(g.l1.window_ms == g.l0.window_period_ms - g.l0.window_ms);     // both-derive fills the period
     CHECK(g.l1.window_offset_ms == g.l0.window_ms);                      // anti-phase
@@ -2141,7 +2249,7 @@ TEST_CASE("§gateway parse_gateway_cmd — error matrix; the 1..16 reservation i
 TEST_CASE("§gateway — leaf-nibble clash is caught by validate (parity with on_init), not parse") {
     GatewayProvision g{};
     CHECK(parse_gateway_cmd("l0=4:10:8:7,9 l1=20:11:9:7,9", g) == GwParseErr::ok);    // leaf 20 is a valid value
-    CHECK(validate_gateway_layers(g.l0, g.l1, 125000, 5) == GwValErr::leaf_nibble_clash);  // 4 == (20 & 0x0F)
+    CHECK(validate_gateway_layers(g.l0, g.l1, 125000, 5, 0.0) == GwValErr::leaf_nibble_clash);  // 4 == (20 & 0x0F)
 }
 
 // ---- gateway-window broadcast sync (2026-06-20 side-task): bias the PERIODIC beacon to a gw-neighbour window-open ----

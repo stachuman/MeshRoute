@@ -64,10 +64,21 @@ before trusting any state list, including this one.
 fairly often — when HEAD moves under a coder, diff against the true pre-slice parent, not `HEAD`. This very
 handover is an example of why: the table above was stale within minutes of being written.
 
-**Current anchors: the `2026-07-25j` era.** s18 keystone **`c9167d30`/271244**, delivery **{104, 99, 100}** for
-seeds {1,42,100}. Native **854 / 26482 / 0**. `sizeof(Node)` **220584**. Full anchor list + all forensics in
-`BASELINE.md`'s dated notes (25j is the era; 25k…26r are today's slices). ⚠ The header paragraph of BASELINE
-item 3 still contains **superseded** historical values — the current list is in the **25j note**, further down.
+⚠⚠ **§1 ABOVE IS STALE AS OF THE 2026-07-26/27 OVERNIGHT RUN — re-read `git status` and BASELINE 26w.** What
+changed: the owner committed through **`3057c41`** (so everything gated up to Wave-4 #2+#3 is committed), and four
+further slices then landed **uncommitted**: batch A1–A4 (26t), Wave-4 #4+#5 (26u), the two new scenarios (26v),
+and Wave-4 #6+#7 (26w). Firmware uncommitted: `lib/core/{hal.h,node.cpp,node_beacon.cpp,node_join.cpp}`,
+`lib/console/console_json.h`, `src/{fw_main.cpp,firmware_config.cpp}`, `simulation/BASELINE.md`,
+`simulation/s22_mobile_team_meshroute.json`, the two new `simulation/s3*.json`, and `docs/*`. Sim uncommitted:
+`CMakeLists.txt`, `orchestrator/CMakeLists.txt`, `orchestrator/runtime/{ConsoleNames.h,ConsoleNames.cpp,
+ISimHal.h,INode.h,FirmwareNode.*,ScriptedNode.*,LuaHost.cpp,NodeRuntimeWrapper.cpp,SimController.*}`,
+`core/events/EventLog.*`, `core/topology/JsonConfig.*`, `test/native/*`.
+
+★★ **CURRENT ANCHORS = BASELINE note `2026-07-26w`, and the corpus is 29 scenarios.** s18 keystone
+**`797b03bc`/271244** (was `c9167d30` — the re-anchor is 100% the push-kind relabelling of Wave-4 #6; **delivery
+is unchanged at 99/113 = 88%, leaks 0**). Native **854 / 26482 / 0**. `sizeof(Node)` **220584**. Sim native suite
+**27 binaries**. ⚠ The header paragraph of BASELINE item 3 now points at 26w; everything in 25j/26s is superseded
+for any scenario listed in 26w's table.
 
 ---
 
@@ -77,13 +88,17 @@ item 3 still contains **superseded** historical values — the current list is i
 
 | # | item | who | gate class |
 |---|---|---|---|
+★★ **OVERNIGHT 2026-07-26/27: items 2–7 ARE ALL DONE AND QA-GATED. Only #8 (fading) remains.** Read BASELINE
+notes **26s → 26w** for the detail; **26w carries the NEW 29-row anchor table** (s18 = `797b03bc`/271244) which
+supersedes 25j/26s. The corpus grew 27 → **29** (`s31_dual_carrier_gateway`, `s32_dual_cr_gateway`).
+
 | ~~1~~ | ~~PushKind holes~~ | — | ✅ GO (`-Wswitch` 60→0) |
-| **2+3** | **`bad_freq` + `-Wswitch-enum`** | **IN FLIGHT** | byte-inert for `src/`; the 4 `lib/` sites are compiled by `lus` |
-| 4 | CR axis unplumbed end-to-end (no `simSetRxCr` exists at all) | coder | likely byte-inert (corpus is all `cr:5`) |
-| 5 | Per-node frequency (sim has only a global `frequency_mhz`) | coder | schema addition, inert until used |
-| 6 | Oracle catch-all — `NodeRuntimeWrapper.cpp:609`, **11 of 14 push kinds render `"send_failed"`**, inflating that field ~47× | coder | ★ **MOVES STREAMS** → re-anchor |
-| 7 | `PreambleDetected` BW gate (SF-only today; sharpened by F-BW-TX) | coder | ★ **MOVES STREAMS** → re-anchor |
-| 8 | **Fading activation** | ★ **QA (you)** | ★ **MOVES EVERYTHING** → re-anchor + likely retunes |
+| ~~2+3~~ | ~~`bad_freq` + `-Wswitch-enum`~~ | — | ✅ **GO** (BASELINE 26s) — committed by owner as `a0cb902` |
+| ~~4~~ | ~~CR axis~~ | — | ✅ **GO** (26u). Was smaller than described: CR was already per-node/per-TX; only the **runtime retune** was missing. Proven by `s32` |
+| ~~5~~ | ~~Per-node frequency~~ | — | ✅ **GO** (26u) — delivered as a full **frequency-selective PHY**, hard split. Proven by `s31`. Reverses `hal.h:87` |
+| ~~6~~ | ~~Oracle catch-all~~ | — | ✅ **GO** (26w). **2095 corpus events were mislabelled**; fixed by REUSING `pushkind_name()`. ★ This is the whole of the 26w re-anchor |
+| ~~7~~ | ~~`PreambleDetected` BW gate~~ | — | ✅ **GO** (26w) — but ★ **CORPUS-INERT**: no scenario has mixed BW (0 per-node, 0 per-layer overrides). Moved nothing. **OWED: a mixed-BW scenario** |
+| **8** | **Fading activation — THE ONLY ITEM LEFT** | ★ **QA** | ★ **MOVES EVERYTHING** → re-anchor + retunes. Deliberately left for the owner: the scenario retunes need adjudication. ⚠ Its σ sweep must now cover **29** files, and the 26w anchors are the base |
 
 ★★ **FADING ACTIVATION — read this before planning it.** It needs **zero code changes**: `snr_coherence_ms`
 already defaults to 0 (the measured answer), and `snr_std_dev` is **REQUIRED per link** (a NaN sentinel makes the
@@ -102,6 +117,21 @@ BASELINE **25k**; tool is `tools/fading_from_logs.py`): **σ = 0.35 dB globally,
 samples, σ mean 0.355 / median 0.368, stdev 0.083. Receiver 105 (`M2`) excluded as a **faulty unit** — the owner
 confirmed it was static, so its 2.3× σ is not motion. ⚠ **No motion measurement exists yet**; mobile-regime σ is
 owed from a future hardware session.
+
+### ★ NEW, found 2026-07-26 by the s32 scenario — the window scheduler ignores per-layer PHY cost
+⚠ **CORRECTED 2026-07-27 — see BASELINE's correction block in 26v.** The split is **NOT** "SF weighting only":
+`node.cpp:96-104` already weights by each layer's own effective **SF, BW and CR**. The real mechanism is
+**redistribution of a FIXED period** — a heavier PHY on one layer steals window time from the other rather than
+lengthening the cycle. Owner ruling 2026-07-27: **drop CR from the weighting, keep SF and BW** (different CR
+settings are interoperable, so CR must not steal a peer layer's window). That is slice 26x — a *removal*.
+The stale text below is kept only so the correction has something to point at:
+The dual-layer gateway's window split is derived from **SF weighting only**. Measured: **any** per-layer CR
+increase (6, 7 and 8 all tried) inflates every gateway TX on that layer enough that the **cross-layer joiner
+deliveries miss their window**, while `xl_bridge` and same-layer delivery still pass — s09's fixed
+**5000 ms window / 12000 ms period** has no slack. Per-layer **BW** will have the same effect (same airtime
+lever, and per-layer BW is already a shipped firmware feature). ⇒ Either the split must account for the active
+layer's real airtime cost, or scenarios using per-layer PHY must widen the window deliberately. **Needs its own
+scenario + a design call.** Detail in BASELINE 26v.
 
 ### Owed — tests & coverage
 - ★ **Jitter-window assertions** — 2 per de-storm window (h_forward, rreq_forward, mobile-OFFER). Recipe proven
@@ -131,6 +161,12 @@ owed from a future hardware session.
   existed)
 
 ### Rulings open for the owner
+- ★★ **`-Werror=switch` for `lib/` + `src/`** — **the sharpest form of the enum→string question, and it
+  supersedes the `-Wswitch-enum` count debate.** Measured fact from 26t: `-Wswitch` is a **warning**, so the build
+  SUCCEEDS and enforcement is only *"a human reads the census"*. Four defects of this class shipped this month
+  (`> gateway err ok`; six unhandled `PushKind`s; the oracle folding 10 of 14 kinds into `send_failed`; three
+  25m enum→string holes). A number in a doc erodes; a build failure cannot. **Recommend adopting.** The related
+  `-Wswitch-enum` options (path-scoped count vs a `#pragma` on the one vendor site) are in BASELINE 26s.
 - **`is_gateway` config key is inert** — 8 scenarios set it; `on_init` re-derives `is_gateway ≡ n_layers==2`.
   Keep or drop?
 - **4 remaining unchecked NV saves** — parked behind the remote-admin redesign (below)

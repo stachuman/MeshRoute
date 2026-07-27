@@ -70,6 +70,11 @@ void Node::mobile_discover_fire() {
 #endif
     if (scan_set_count() > 1) {
         _hal.set_rx_sf(phy.routing_sf);
+        // §layer-freq (2026-07-27) — NOT converted here, deliberately (twin of the note in
+        // Node::adopt_mobile_phy). BW/CR fall back to the global, freq does not: a scan candidate with
+        // freq_mhz==0 leaves the radio on the PREVIOUS candidate's carrier instead of resetting to
+        // _cfg.radio_freq_mhz. Same shape as the activate_layer bug that WAS fixed; scoped out because it is
+        // the mobile plane (own scenarios, own gate), not the gateway window switch.
         if (phy.freq_mhz > 0.0) _hal.set_rx_freq(phy.freq_mhz);
         _hal.set_rx_bw(phy.bw_hz ? phy.bw_hz : _cfg.radio_bw_hz);
         _hal.set_rx_cr(phy.cr ? phy.cr : _cfg.radio_cr);
