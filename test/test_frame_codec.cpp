@@ -464,6 +464,84 @@ TEST_CASE("Q — REQ_SYNC + CHANNEL_PULL round-trip + golden + reject") {
     CHECK_FALSE(parse_q(trunc).has_value());               // len < 5 + 4
 }
 
+// ===== §team-parity T4 (spec 2026-07-27 §3/T4) — the TEAM_SYNC Q shape ========================================
+// A team-scoped full-table pull: opcode 0 + a 4-B LE team_id tail (8 B total). ★ These tests exist chiefly to pin the
+// ENUMERATOR VALUE, which is not free to choose — see the case below.
+TEST_CASE("§team-parity T4 — Q TEAM_SYNC: round-trip + golden + the 4-B LE team_id tail") {
+    for (uint8_t leaf : {0, 4, 15})
+        for (uint32_t team : {0x00000001u, 0x33330001u, 0xFFFFFFFFu}) {
+            std::array<uint8_t, 8> buf{};
+            q_in in{}; in.leaf_id = leaf; in.src = 0x21; in.dest = 0xFF;
+            in.opcode = q_opcode::team_sync; in.mobile = true; in.team_id = team;
+            CHECK(pack_q(in, buf) == 8);                       // 4-B header + the team_id tail
+            auto o = parse_q(buf);
+            CHECK(o.has_value());
+            if (o) {
+                CHECK(o->leaf_id == leaf);   CHECK(o->src == 0x21);
+                CHECK(o->dest == 0xFF);      CHECK(o->opcode == 0);
+                CHECK(o->mobile);            CHECK(o->team_id == team);
+                CHECK(o->channel_id_count == 0);               // the pull body is NOT parsed on this shape
+            }
+        }
+    // Golden — the exact 8 bytes s28 puts on the air at t=660475 (XH2, team_local_id 33, team 0x33330001, leaf 4).
+    std::array<uint8_t, 8> g{};
+    q_in gi{}; gi.leaf_id = 4; gi.src = 33; gi.dest = 0xFF;
+    gi.opcode = q_opcode::team_sync; gi.mobile = true; gi.team_id = 0x33330001u;
+    CHECK(pack_q(gi, g) == 8);
+    const uint8_t exg[] = {0x64, 0x21, 0xFF, 0x20, 0x01, 0x00, 0x33, 0x33};   // byte3: opcode 00b<<6 | mobile bit5
+    for (int i = 0; i < 8; ++i) CHECK(g[i] == exg[i]);
+}
+
+TEST_CASE("§team-parity T4 — ★ the Q opcode field is 2 BITS: team_sync MUST be 0, and nothing may renumber it") {
+    // ★★ THE PIN THAT MATTERS. pack_q writes `(opcode & 0x03) << 6` and parse_q reads `(b3 >> 6) & 0x03`, so the
+    // opcode space is EXACTLY four codepoints and all four are now taken. The design spec called for "add a q_opcode
+    // value", which invites `team_sync = 4`: that packs as `4 & 3 == 0`, parses back as 0, and then never equals
+    // `static_cast<uint8_t>(q_opcode::team_sync) == 4` at ANY dispatch site — a silently DEAD feature that compiles
+    // clean and warns nothing. This case fails the instant someone renumbers.
+    CHECK(static_cast<uint8_t>(q_opcode::team_sync)   == 0);
+    CHECK(static_cast<uint8_t>(q_opcode::req_sync)    == 1);
+    CHECK(static_cast<uint8_t>(q_opcode::config_pull) == 2);
+    CHECK(static_cast<uint8_t>(q_opcode::channel_pull)== 3);
+    // Every enumerator must survive the 2-bit round trip: pack -> parse must return the value it was given.
+    for (auto op : {q_opcode::team_sync, q_opcode::req_sync, q_opcode::config_pull, q_opcode::channel_pull}) {
+        std::array<uint8_t, 16> b{};
+        q_in in{}; in.leaf_id = 1; in.src = 9; in.dest = 0xFF; in.opcode = op;
+        in.team_id = 0xDEADBEEFu;                              // only read on team_sync; harmless elsewhere
+        const size_t n = pack_q(in, b);
+        CHECK(n > 0);
+        auto o = parse_q(std::span<const uint8_t>(b.data(), n));
+        CHECK(o.has_value());
+        if (o) CHECK(o->opcode == static_cast<uint8_t>(op));   // ★ no truncation collision
+    }
+}
+
+TEST_CASE("§team-parity T4 — C2: a scope-less TEAM_SYNC is refused on pack AND rejected on parse") {
+    // team_sync is the ZERO enumerator, so a value-initialised `q_in{}` whose opcode was never set IS a team_sync
+    // with team_id 0. pack_q must refuse it rather than air a frame every receiver would have to reject.
+    std::array<uint8_t, 8> b{};
+    q_in forgot{};                                             // opcode defaults to team_sync(0), team_id 0
+    forgot.leaf_id = 1; forgot.src = 9; forgot.dest = 0xFF;
+    CHECK(pack_q(forgot, b) == 0);                             // ★ REFUSED (this is what makes taking codepoint 0 safe)
+    forgot.team_id = 0x1234u;
+    CHECK(pack_q(forgot, b) == 8);                             // ...and accepted once scoped
+
+    // Parse side: a bare 4-B opcode-0 frame (no packer has EVER emitted one, so it is foreign/corrupt) is rejected
+    // outright — it must not reach the handler as a team_id-0 team_sync.
+    std::array<uint8_t, 4> bare{0x61, 0x14, 0xFF, 0x00};       // cmd Q, leaf 1, opcode 00b, no tail
+    CHECK_FALSE(parse_q(bare).has_value());
+    std::array<uint8_t, 7> short_tail{0x61, 0x14, 0xFF, 0x00, 0x01, 0x00, 0x00};   // 3-byte tail
+    CHECK_FALSE(parse_q(short_tail).has_value());
+    std::array<uint8_t, 8> zero_team{0x61, 0x14, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00};
+    CHECK_FALSE(parse_q(zero_team).has_value());               // ★ scope 0 is not a scope
+    std::array<uint8_t, 8> ok_team{0x61, 0x14, 0xFF, 0x00, 0x01, 0x00, 0x00, 0x00};
+    CHECK(parse_q(ok_team).has_value());                       // the same frame, scoped -> accepted
+
+    // ...and the OTHER shapes are untouched by the new branch (the pre-T4 sizes still hold).
+    std::array<uint8_t, 4> rs{};
+    CHECK(pack_q({1, 0x14, 0xFF, q_opcode::req_sync, true, {}}, rs) == 4);
+    CHECK(rs[3] == 0x60);                                      // opcode 01b<<6 | mobile — unchanged by T4
+}
+
 // ===== C3: H (hash-locate) / F (RREQ-RREP) floods (§10 cmd-nibble) ===========
 
 TEST_CASE("H — round-trip (key_hash32 LE) + golden + reject") {

@@ -325,28 +325,38 @@ size_t pack_nack(const nack_in& in, std::span<uint8_t> out);
 std::optional<nack_out> parse_nack(std::span<const uint8_t> frame);
 
 // -----------------------------------------------------------------------------
-// Q — query (cmd-nibble 0x6, 4 B header + CHANNEL_PULL body) — ROADMAP §10.3
+// Q — query (cmd-nibble 0x6, 4 B header + a per-opcode body) — ROADMAP §10.3
 // -----------------------------------------------------------------------------
 //   byte 0 : cmd=0x6(7..4) | leaf_id(3..0)
-//   byte 1 : src
-//   byte 2 : dest        (0xFF = REQ_SYNC broadcast convention)
+//   byte 1 : src         (§team-parity T4: on a TEAM_SYNC this is the sender's team_local_id, NOT its node_id)
+//   byte 2 : dest        (0xFF = REQ_SYNC / TEAM_SYNC broadcast convention)
 //   byte 3 : opcode(7..6) | mobile(bit 5) | rsv(4..0)
 //   [CHANNEL_PULL only] byte 4: count ; then count × channel_msg_id (4 B BIG-ENDIAN)
+//   [TEAM_SYNC only]    bytes 4..7: team_id (4 B LITTLE-ENDIAN — the same convention as the beacon type-5 TLV / H / F)
 // channel_msg_id is BE (distinct from the LE key_hash32 elsewhere) — keep it BE.
-enum class q_opcode : uint8_t { req_sync = 1, config_pull = 2, channel_pull = 3 };   // R6.2: config_pull (2-bit opcode; 2 was free)
+// ★★ THE OPCODE FIELD IS **2 BITS** WIDE — packed `(op & 0x03) << 6`, parsed `(b3 >> 6) & 0x03` — so it holds EXACTLY
+// four codepoints, and `team_sync = 0` takes the LAST free one (0 was the "unknown opcode -> silent" catch-all and was
+// never emitted by any packer). ⚠ A FIFTH Q kind therefore needs a WIRE change (e.g. promoting a rsv bit 4..0 into an
+// opcode extension), NOT another enumerator: `team_sync = 4` would pack as `4 & 0x03 == 0`, parse back as 0, and then
+// never equal its own enumerator at any dispatch site — a silently DEAD feature that no build error would catch.
+enum class q_opcode : uint8_t { team_sync = 0, req_sync = 1, config_pull = 2, channel_pull = 3 };   // R6.2: config_pull (2-bit opcode; 2 was free). §team-parity T4: team_sync = 0, the last free codepoint — the field is now FULL
 struct q_in {
     uint8_t leaf_id; uint8_t src; uint8_t dest; q_opcode opcode; bool mobile;
     std::span<const uint32_t> channel_ids;   // only for channel_pull; else empty
     uint16_t pull_lineage = 0;               // R6.2 config_pull: the lineage the puller wants
     uint16_t pull_epoch   = 0;               // R6.2 config_pull: the epoch the puller has (0 = fresh joiner)
+    uint32_t team_id      = 0;               // §team-parity T4 team_sync: the team scope. APPENDED LAST on purpose — the
+                                             // existing aggregate initialisers (`q_in{leaf, src, dest, op, mob, {}}`)
+                                             // must keep compiling unchanged. 0 on a team_sync => pack_q REFUSES (C2).
 };
 struct q_out {
     uint8_t leaf_id; uint8_t src; uint8_t dest; uint8_t opcode; bool mobile;
     uint8_t channel_id_count;                // 0 unless channel_pull
     uint16_t pull_lineage;                    // R6.2: valid iff opcode==config_pull
     uint16_t pull_epoch;
+    uint32_t team_id;                         // §team-parity T4: valid (and guaranteed non-zero) iff opcode==team_sync
 };
-size_t pack_q(const q_in& in, std::span<uint8_t> out);   // 4, or 5+4N for pull; 0 on short buf / N>255
+size_t pack_q(const q_in& in, std::span<uint8_t> out);   // 4, or 5+4N for pull, or 8 for team_sync; 0 on short buf / N>255 / a team_sync with team_id==0
 std::optional<q_out> parse_q(std::span<const uint8_t> frame);
 // i-th channel_msg_id (BE) of a CHANNEL_PULL frame; nullopt if index >= count.
 std::optional<uint32_t> parse_q_channel_id(std::span<const uint8_t> frame,

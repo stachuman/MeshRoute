@@ -39,39 +39,71 @@ void Node::mark_q_responded(uint8_t opcode, uint8_t src, uint8_t dest) {
 }
 
 // ---- originator (Lua send_req_sync_q dv:8032; NO rand draw) -------------------------------------
-// §team-parity T0: `team_plane` threads the plane INTO the originator so T4 can lift the mobile refusal for a
-// team-scoped pull without forking a second function (U1). ★ INERT AT T0 — the parameter defaults to false and no
-// caller (node_query.cpp:82 discovery, node_mac.cpp:722/731 the gateway + originator reactive pulls, the native
-// test helper) passes anything else, so every guard below reduces to its pre-T0 form. MISSING → T4 supplies `true`
-// from the originator antidote and adds the `team_sync` opcode + team_id tail; nothing here is wired for that yet.
+// §team-parity T0/T4: `team_plane` threads the plane INTO the originator so the team-scoped pull reuses this ONE
+// function instead of forking a second (U1). ✔ T4 WIRED IT: node_mac.cpp's originator antidote now passes the flight's
+// own plane, and a team-scoped pull airs `q_opcode::team_sync` + the 4-B team_id tail. The other three call sites
+// (node_query.cpp boot discovery, node_mac.cpp's gw-relay pull, the native test helper) still pass false.
 void Node::send_req_sync_q(const char* reason, bool force, bool team_plane) {
     (void)reason;                                              // sim-debug log string only (the Lua logs it)
     // §P0 (mirrors emit_beacon's id-0 guard): an UNPROVISIONED node (id 0) must NEVER REQ_SYNC — its src would be
     // the reserved sentinel 0, so receivers learn a route to "0" (which then propagates) + schedule a sync-response
     // addressed to 0. A node REQ_SYNCs only once it has claimed a short id (boot discovery LISTENs + DADs first).
     // The force path (gw-relay no-route reactive pull) is gateway-only -> always id != 0, so it is unaffected.
-    if (_node_id == 0) return;
+    // ✔ §team-parity T4: an OFF-GRID team member has _node_id == 0 (it never registered with a static host — s29's T3,
+    // s23's whole chain) but a team-DAD'd _team_local_id, and on the team plane THAT is the id the pull travels under,
+    // so the reserved-sentinel argument above does not reach it. The carve-out is copied in shape from emit_beacon's
+    // own (node_beacon.cpp:251), which exists for exactly this node (U1).
+    // Static reduction: team_plane==false at the three static call sites ⇒ `_node_id == 0`, the pre-T4 expression.
+    // Build profiles: under MR_FEAT_TEAM 0 (the three gateway_* envs) team_local_id() is the node.h:197 stub returning
+    // 0, so the added conjunct folds to a compile-time false and the guard is TEXTUALLY the pre-T4 one there.
+    if (_node_id == 0 && !(team_plane && _cfg.is_mobile && _cfg.team_id != 0 && team_local_id() != 0)) return;
     // §mobile Option A: a MOBILE never route-bootstraps on the static plane — its src is a home-assigned LOCAL id (a REQ_SYNC
     // broadcast would leak it into every static _rt, the dest=17 bench bug). A mobile reaches the mesh via its home (route
     // learned from registration + beacons); it needs no full-table pull. The force path is gateway-only (never mobile).
     // §team-parity T0: the refusal is now PLANE-SCOPED — it forbids a mobile from pulling on the STATIC plane, which
-    // is exactly what the comment above argues for. Static reduction: team_plane==false at every call site today
-    // ⇒ `!false && _cfg.is_mobile` ≡ `_cfg.is_mobile`, the pre-T0 expression, on every build profile.
-    // MISSING → T4 (§3/T4): a team member with an adopted team_local_id may pull team-scoped; that needs the wire
-    // opcode + the same_team responder gate, so T0 supplies only the hole in the guard, never a caller for it.
-    if (!team_plane && _cfg.is_mobile) return;
+    // is exactly what the comment above argues for.
+    // ✔ §team-parity T4 (§3/T4) FILLS THE HOLE T0 OPENED. The static refusal stands unchanged; a TEAM-scoped pull is a
+    // different frame on a different plane — src is the team_local_id, the scope is the team_id on the wire, and
+    // handle_q's I7 gate means only same-team members ever answer — so nothing about it can reach a static `_rt`.
+    // The membership predicate is the SAME one `send -t` (node.cpp:1138) and the team beacon (node_beacon.cpp:378)
+    // use — U1, ONE definition of "this node is on the team plane".
+    // ★ C2: a team-scoped pull REFUSES when this node is not team-ready. It must never silently DOWNGRADE to a static
+    // REQ_SYNC — that would air our node_id into every static _rt, exactly the bug the paragraph above prevents.
+    // Static reduction: team_plane==false ⇒ only the `else if` survives ⇒ `_cfg.is_mobile`, the pre-T0 expression, on
+    // every build profile. Under MR_FEAT_TEAM 0 the `if` body's predicate is compile-time false ⇒ a bare return.
+    if (team_plane) { if (!(_cfg.is_mobile && _cfg.team_id != 0 && team_local_id() != 0)) return; }
+    else if (_cfg.is_mobile) return;
     if (!force && !_cfg.req_sync_on_boot) return;
     const uint64_t now = _hal.now();
+    // ⚠ §team-parity T4 — `_last_req_sync_tx_ms` is deliberately NOT plane-split, and the reason is that the two
+    // populations are DISJOINT by construction: a mobile can never originate a static pull and a non-mobile can never
+    // originate a team pull (the guard directly above), and the gw-relay force path is gateway-only. No node ever
+    // originates on both planes ⇒ no cross-plane aliasing on this timestamp. If a future slice gives a static node a
+    // team pull — or makes a gateway team-capable — this MUST become a per-plane pair.
     if (_last_req_sync_tx_ms != 0 && (now - _last_req_sync_tx_ms) < protocol::req_sync_retry_ms) return;
+    // ⚠ §team-parity T4 — MISSING, deliberately: this route-rich skip reads the STATIC `_rt_count` on both planes. It
+    // is UNREACHABLE on the team plane today (the one team caller, node_mac.cpp's originator antidote, always passes
+    // force=true), so plane-splitting it now would be dead code. It becomes WRONG the moment a non-force team caller
+    // exists: an off-grid member's `_rt_count` is 0 forever and says nothing about its `_rt_team`. Whoever adds that
+    // caller must split this read. (`_cfg.req_sync_min_routes` defaults to 0, the other reason nothing observes it.)
     if (!force && _active->_rt_count >= _cfg.req_sync_min_routes) return;  // route-rich -> no need (force: missing THIS route, ask anyway)
     _last_req_sync_tx_ms = now;
     q_in in{};
-    in.leaf_id = _cfg.leaf_id; in.src = _node_id; in.dest = 0xFF;   // broadcast
-    in.opcode = q_opcode::req_sync; in.mobile = _cfg.is_mobile;
-    uint8_t buf[8];
+    in.leaf_id = _cfg.leaf_id; in.dest = 0xFF;   // broadcast
+    // ✔ §team-parity T4: a team-scoped pull travels under our TEAM id — the id every teammate's `_team_peer` /
+    // `_rt_team` keys on and the id the team beacon's own src carries (node_beacon.cpp:286). Airing `_node_id` here
+    // would be the mixed-id leak: a HOMED member's node_id is a home-assigned STATIC-plane local id that §18-collides
+    // a teammate's team id. Static reduction: team_plane==false ⇒ `_node_id`, the pre-T4 expression.
+    in.src = team_plane ? team_local_id() : _node_id;
+    in.opcode = team_plane ? q_opcode::team_sync : q_opcode::req_sync; in.mobile = _cfg.is_mobile;
+    if (team_plane) in.team_id = _cfg.team_id;                      // the scope; pack_q REFUSES a team_sync with team_id==0 (C2)
+    uint8_t buf[8];                                                 // req_sync = 4 B; team_sync = 8 B (4 + the team_id tail)
     const size_t n = pack_q(in, std::span<uint8_t>(buf, sizeof(buf)));
     if (n == 0) return;
-    MR_EMIT("q_tx", EF_I("opcode", static_cast<uint8_t>(q_opcode::req_sync)), EF_I("rt_total", _active->_rt_count),
+    // ⚠ `rt_total` stays the STATIC count on BOTH planes on purpose: adding a field to this emit — or changing its
+    // meaning — would rewrite every static scenario's q_tx line. The `opcode` field already discriminates the planes
+    // (1 = static REQ_SYNC, 0 = TEAM_SYNC), which is all the forensics need.
+    MR_EMIT("q_tx", EF_I("opcode", static_cast<uint8_t>(in.opcode)), EF_I("rt_total", _active->_rt_count),
             EF_I("requester_mobile", _cfg.is_mobile ? 1 : 0));
     tx_initiating(buf, n, static_cast<int16_t>(_cfg.routing_sf), LbtKind::flood, 0);
 }
@@ -89,7 +121,25 @@ void Node::handle_q(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     auto pq = parse_q(std::span<const uint8_t>(bytes, len));
     if (!pq) return;
     const q_out& q = *pq;
-    if (q.leaf_id != _cfg.leaf_id) return;                       // cross-network filter — drop foreign Q first
+    // ★★ §team-parity T4 — INVARIANT I7, and THE ONE definition of "this TEAM_SYNC Q is ours". The leaf-exemption,
+    // the loop guard and the admission drop below all read THIS single bool, so they can never drift apart (U1).
+    // Deliberately NOT wrapped in `#if MR_FEAT_TEAM`: `same_team` is ungated (node.h:157) and `team_local_id()` is the
+    // node.h:197 stub returning 0 under MR_FEAT_TEAM 0, so on the three gateway_* envs the conjunction folds to a
+    // COMPILE-TIME false — such a build exempts nothing and drops every team_sync at the admission gate. Same shape as
+    // handle_f's team_scoped drop (node_route_discovery.cpp:213), where the `return` is likewise outside the #if.
+    // Static reduction: `same_team()` is `_cfg.team_id != 0 && …`, false for every static node and every lone mobile
+    // ⇒ team_sync_for_us == false ⇒ all three uses below reduce to their pre-T4 expressions, verbatim.
+    const bool team_sync_for_us = q.opcode == static_cast<uint8_t>(q_opcode::team_sync)
+                                  && _cfg.is_mobile && same_team(q.team_id) && team_local_id() != 0;
+    // §P2-1 (mixed-leaf team), extended to the Q plane by T4: a same-team TEAM_SYNC is leaf-EXEMPT exactly as a
+    // same-team beacon is (ingest_beacon, node_beacon.cpp:495 — U1). A mixed-leaf team spans nibbles by design
+    // (node_beacon.cpp:491-515), s29 runs one, and the bench config that shipped to metal was leaf 4 vs leaf 7 — without
+    // this the pull is answered ONLY by teammates that happen to share our nibble, i.e. the mechanism half-works on
+    // precisely the deployed configuration. Every other Q kind keeps the unconditional drop.
+    // ⚠ REPORTED, NOT FIXED (pre-existing, C1): `channel_pull` — the OTHER team Q, node_channel.cpp:524/1181 — is
+    // still dropped here on a foreign nibble, and it also airs `src = _node_id` rather than the team id. Same gap,
+    // different frame; it belongs to whoever owns the team-channel plane, not to T4.
+    if (q.leaf_id != _cfg.leaf_id && !team_sync_for_us) return;   // cross-network filter — drop foreign Q first
     // Learn the Q sender as a 1-hop neighbour (Lua learn_rx_source -> learn_direct_from_frame, which
     // fires the triggered beacon internally on a real learn; self / invalid id are no-ops inside).
     // §mobile: a mobile-marked Q's src is a home-assigned LOCAL id, NOT a global static identity -> NEVER learn it into
@@ -101,23 +151,52 @@ void Node::handle_q(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     if (!q.mobile && learn_direct_neighbor(q.src, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/false)) schedule_triggered_beacon();
 #if MR_FEAT_TEAM
     // ✔ §team-parity T2 (§3/T2 row 7): a mobile-marked Q's src is a LOCAL id; when it is a KNOWN teammate's, the Q proves
-    // a 1-hop team neighbour. Restricted to is_team_peer(q.src) for the same reason as the RTS row: the Q frame carries
-    // no team id (that tail is T4's), so an unknown mobile-marked src could be a foreign team's or a plain mobile's and
-    // must not be admitted to _team_peer. team_id==0 ⇒ _team_peer all-zero ⇒ inert (static byte-identical).
+    // a 1-hop team neighbour. Restricted to is_team_peer(q.src) for the same reason as the RTS row: an unknown
+    // mobile-marked src could be a foreign team's or a plain mobile's and must not be admitted to _team_peer.
+    // team_id==0 ⇒ _team_peer all-zero ⇒ inert (static byte-identical).
     // ★ THE SPEC IS WRONG THAT THIS "PAIRS WITH T4": it says T4 "is what makes a team Q exist to learn from in the first
-    // place". A team Q exists TODAY — node_channel.cpp:524/1181 send a `channel_pull` Q with `mobile = _cfg.is_mobile`,
-    // and s28 carries 17 such receptions (opcode 3) whose src is a team local id. T4 adds a SECOND kind (team REQ_SYNC);
-    // it is not a precondition for this row.
-    // ⚠ RESIDUAL, pre-existing and NOT fixed here: the `q.leaf_id != _cfg.leaf_id` drop above has no same_team exemption
-    // (unlike the beacon/H/M paths, node.h:190), so a MIXED-LEAF teammate's Q never reaches this line. That is a Q-frame
-    // gap, not a T2 one — flagged for whoever owns T4.
+    // place". A team Q existed BEFORE T4 — node_channel.cpp:524/1181 send a `channel_pull` Q with `mobile = _cfg.is_mobile`,
+    // and s28 carries 17 such receptions (opcode 3) whose src is a team local id. T4 added a SECOND kind (team_sync);
+    // it was never a precondition for this row.
+    // ✔ V1 UPDATE (T4): T2 wrote here that "the Q frame carries no team id (that tail is T4's)" and that the leaf drop
+    // has no same_team exemption. BOTH are now only HALF true, and the halves matter:
+    //   • a TEAM_SYNC does carry a team_id and IS leaf-exempt (see team_sync_for_us above), so a mixed-leaf teammate's
+    //     team_sync reaches this line and can refresh the team plane;
+    //   • a CHANNEL_PULL still carries NO team id, so it is still dropped on a foreign nibble and still cannot be
+    //     admitted on src alone. ⚠ THAT gap is unchanged and remains OPEN — it needs a team_id on the pull frame
+    //     (a wire change to a second Q shape), which is the team-channel plane's slice, not T4's.
     else if (q.mobile && is_team_peer(q.src)
              && learn_direct_neighbor(q.src, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/true)) schedule_triggered_beacon();
 #endif
-    if (q.src == _node_id) return;                               // loop guard — never answer ourselves
+    // ✔ §team-parity T4: on the team plane OUR id is `team_local_id()`, not `_node_id` — a HOMED member's `_node_id` is
+    // a home-assigned STATIC-plane local id that §18-collides a teammate's team id, so comparing against it would make
+    // us silently ignore that teammate's pull (a suppress-direction plane collision, C3).
+    // Static reduction: team_sync_for_us==false ⇒ `q.src == _node_id`, the pre-T4 expression.
+    if (q.src == (team_sync_for_us ? team_local_id() : _node_id)) return;   // loop guard — never answer ourselves
+    // ★★ §team-parity T4 — INVARIANT I7, half two: a TEAM_SYNC that is not ours is DROPPED HERE, BEFORE the responder
+    // dedup ring and BEFORE the q_rx emit, so a static node / a foreign team's member / a not-yet-DAD'd member spends
+    // NO state on it whatsoever ("a static node ignores the opcode"). The `return` is outside every `#if`, so a
+    // MR_FEAT_TEAM 0 gateway build — where team_sync_for_us is compile-time false — drops EVERY team_sync here rather
+    // than falling through into the static REQ_SYNC body below. Static reduction: a static node never sees opcode 0
+    // (no packer emitted it before T4), so this line is unreachable on the static plane and s18-inert by construction.
+    if (q.opcode == static_cast<uint8_t>(q_opcode::team_sync) && !team_sync_for_us) return;
     if (q_responded_recently(q.opcode, q.src, q.dest)) return;   // recently answered this query -> skip
     mark_q_responded(q.opcode, q.src, q.dest);
     MR_EMIT("q_rx", EF_I("from", q.src), EF_I("dest", q.dest), EF_I("opcode", q.opcode), EF_I("requester_mobile", q.mobile ? 1 : 0));
+    // ✔ §team-parity T4 (§3/T4): the TEAM-scoped full-table pull. Admission already happened at the I7 gate above, so
+    // reaching here means this IS a same-team pull and we ARE a DAD'd member. The response needs NO plane argument:
+    // emit_beacon self-selects (team_active ⇒ src = _team_local_id and src_rt = _rt_team, node_beacon.cpp:286/389) and
+    // kind=="sync" is the one kind that bypasses dirty_only (:272), so the reply carries our WHOLE `_rt_team` via the
+    // Phase-2 rotation — one round trip for a teammate's entire table, which is the point of the slice.
+    // ⚠ MISSING, stated plainly: schedule_sync_response's route-starved skip reads the STATIC `_rt_count`
+    // (node_query.cpp, the `route_n` line) and its `rt_total` telemetry does too, so on a team pull both describe the
+    // wrong plane. Inert today — `_cfg.sync_response_min_routes` defaults to 0 and nothing in the tree sets it — but a
+    // deployment that raises it would silently mute off-grid members (their `_rt_count` is 0 forever). Left unsplit
+    // rather than adding a plane parameter that only one of two callers would ever vary.
+    if (q.opcode == static_cast<uint8_t>(q_opcode::team_sync)) {
+        schedule_sync_response(q.src, q.mobile);
+        return;
+    }
     if (q.opcode == static_cast<uint8_t>(q_opcode::req_sync)) {
         schedule_sync_response(q.src, q.mobile);
         return;

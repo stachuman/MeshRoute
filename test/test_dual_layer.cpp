@@ -571,7 +571,9 @@ struct DualLayerTestAccess {
     static void           run_exit_discovery(Node& n)              { n.maybe_exit_discovery("test"); }                   // §per-layer discovery: exit-check on the ACTIVE leaf
     // gateway reactive route-pull on a cross-layer bridge miss (spec 2026-06-21)
     static void           issue(Node& n, const TxItem& it)         { n.issue_send(it); }
-    static void           req_sync(Node& n, bool force)            { n.send_req_sync_q("test", force); }
+    // §team-parity T4: the accessor gained the plane rather than forking a second one (U1). Defaulted, so every
+    // pre-T4 call site is unchanged.
+    static void           req_sync(Node& n, bool force, bool team_plane = false) { n.send_req_sync_q("test", force, team_plane); }
     static void           set_active_rt_count(Node& n, uint8_t c)  { n._active->_rt_count = c; }
     static uint64_t       last_req_sync_ms(Node& n)                { return n._last_req_sync_tx_ms; }   // set just before the REQ_SYNC tx
     static void           drain_parked(Node& n, uint32_t key, uint8_t resolved, uint8_t layer) { n.drain_parked_sends(key, resolved, layer); }   // simulate the H-answer
@@ -2784,6 +2786,77 @@ TEST_CASE("gw route-pull: send_req_sync_q(force) bypasses boot-flag + route-rich
     hal.last_tx_len = 0;
     DualLayerTestAccess::req_sync(node, /*force=*/true);                     // (iv) past the window -> sends again
     CHECK(hal.last_tx_len > 0);
+}
+
+// ---- §team-parity T4 (spec 2026-07-27 §3/T4) — the ORIGINATOR guard matrix -----------------------------------
+// These live HERE, beside the gw route-pull case, because `send_req_sync_q` is private and `DualLayerTestAccess` is
+// the one friend that already reaches it (U1 — extending that accessor beat declaring a second friend). The team
+// HANDLER / I7 / mixed-leaf / end-to-end-trigger tests live with the rest of the team suite in test_node_r3.cpp.
+TEST_CASE("§team-parity T4 — the originator guard matrix: who may fire a TEAM-scoped pull, and what it airs") {
+    const uint32_t TEAM = 0x33330001u;
+    auto q_of = [](StubHal& h) { return parse_q(std::span<const uint8_t>(h.last_tx, h.last_tx_len)); };
+
+    // (a) ★ THE OFF-GRID MEMBER — node_id == 0 (never registered with a static host: s29's T3, s23's whole chain),
+    //     team-DAD'd. Pre-T4 the §P0 id-0 refusal killed this before anything else could. It must now fire, and the
+    //     frame must travel under the TEAM id, not the (zero) node_id.
+    { StubHal hal; hal._now = 100000; Node n(hal, /*id=*/0, 0xA0u);
+      NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 4;
+      cfg.is_mobile = true; cfg.team_id = TEAM;
+      CHECK(n.on_init(cfg));
+      n.set_team_local_id(33);
+      hal.last_tx_len = 0;
+      DualLayerTestAccess::req_sync(n, /*force=*/true, /*team_plane=*/true);
+      CHECK(hal.last_tx_len == 8);                                          // ★ 4-B header + team_id tail
+      auto q = q_of(hal);
+      CHECK(q.has_value());
+      if (q) { CHECK(q->opcode == static_cast<uint8_t>(q_opcode::team_sync));
+               CHECK(q->src    == 33);                                      // ★★ the TEAM id, NOT _node_id (0)
+               CHECK(q->team_id == TEAM);                                   // ★ the scope is on the wire
+               CHECK(q->dest   == 0xFF); CHECK(q->mobile); } }
+
+    // (b) the SAME node on the STATIC plane still refuses — the §mobile Option A rule is untouched by T4.
+    { StubHal hal; hal._now = 100000; Node n(hal, /*id=*/17, 0xA1u);
+      NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 4;
+      cfg.is_mobile = true; cfg.team_id = TEAM;
+      CHECK(n.on_init(cfg));
+      n.set_team_local_id(33);
+      hal.last_tx_len = 0;
+      DualLayerTestAccess::req_sync(n, /*force=*/true, /*team_plane=*/false);
+      CHECK(hal.last_tx_len == 0); }                                        // ★ a mobile NEVER pulls on the static plane
+
+    // (c) ★ C2, NO SILENT DOWNGRADE. A node that is not team-ready must REFUSE a team-plane pull outright — never
+    //     fall back to a static REQ_SYNC, which would air its node_id into every static _rt (the dest=17 bench bug).
+    //     Three ways to be un-ready, each checked to air NOTHING AT ALL (not "something else").
+    {   struct Case { const char* what; bool mobile; uint32_t team; uint8_t tlid; };
+        const Case cases[] = {
+            { "static node (not mobile) — `team <id>` sets team_id without is_mobile", false, TEAM, 33 },
+            { "lone mobile, no team at all",                                            true,  0u,  0  },
+            { "team member mid-DAD (no team_local_id yet)",                             true,  TEAM, 0  },
+        };
+        for (const Case& c : cases) {
+            StubHal hal; hal._now = 100000; Node n(hal, /*id=*/17, 0xA2u);
+            NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 4;
+            cfg.is_mobile = c.mobile; cfg.team_id = c.team;
+            CHECK(n.on_init(cfg));
+            n.set_team_local_id(c.tlid);
+            hal.last_tx_len = 0;
+            DualLayerTestAccess::req_sync(n, /*force=*/true, /*team_plane=*/true);
+            INFO(c.what);
+            CHECK(hal.last_tx_len == 0);                                    // ★ refused, and NOT downgraded
+        }
+    }
+
+    // (d) the STATIC control, same call shape: a plain static node's pull is byte-for-byte the pre-T4 REQ_SYNC.
+    { StubHal hal; hal._now = 100000; Node n(hal, /*id=*/5, 0xA3u);
+      NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+      CHECK(n.on_init(cfg));
+      hal.last_tx_len = 0;
+      DualLayerTestAccess::req_sync(n, /*force=*/true, /*team_plane=*/false);
+      CHECK(hal.last_tx_len == 4);                                          // ★ 4 B — no tail, no shape change
+      auto q = q_of(hal);
+      CHECK(q.has_value());
+      if (q) { CHECK(q->opcode == static_cast<uint8_t>(q_opcode::req_sync));
+               CHECK(q->src == 5); CHECK(q->team_id == 0); } }
 }
 
 TEST_CASE("gw route-pull: a gateway-relay no-route leg PULLS + DEFERS (not drop); a normal forwarder still drops") {

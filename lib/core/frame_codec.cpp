@@ -514,9 +514,15 @@ std::optional<nack_out> parse_nack(std::span<const uint8_t> frame) {
 size_t pack_q(const q_in& in, std::span<uint8_t> out) {
     const bool pull   = (in.opcode == q_opcode::channel_pull);
     const bool cfg    = (in.opcode == q_opcode::config_pull);   // R6.2: bytes 4..7 = lineage u16 + epoch u16
+    const bool tsync  = (in.opcode == q_opcode::team_sync);     // §team-parity T4: bytes 4..7 = team_id u32 LE
+    // ★ C2 fail loud. A TEAM_SYNC without a scope is unanswerable (every receiver's same_team(0) is false), AND
+    // team_sync is the ZERO enumerator — so a caller that value-initialises `q_in in{}` and forgets to set `opcode`
+    // arrives here as a team_sync with team_id 0. REFUSE rather than air a scope-less team frame. This is the guard
+    // that makes taking codepoint 0 safe; do not relax it.
+    if (tsync && in.team_id == 0) return 0;
     const size_t n = pull ? in.channel_ids.size() : 0;
     if (n > 255) return 0;
-    const size_t need = 4 + (pull ? (1 + 4 * n) : 0) + (cfg ? 4 : 0);
+    const size_t need = 4 + (pull ? (1 + 4 * n) : 0) + (cfg ? 4 : 0) + (tsync ? 4 : 0);
     if (out.size() < need) return 0;
     wire::Writer w(out);
     w.u8(wire::cmd_byte(wire::Cmd::Q, static_cast<uint8_t>(in.leaf_id & 0x0F)));
@@ -530,6 +536,8 @@ size_t pack_q(const q_in& in, std::span<uint8_t> out) {
     } else if (cfg) {
         w.u16_le(in.pull_lineage);
         w.u16_le(in.pull_epoch);
+    } else if (tsync) {
+        w.u32_le(in.team_id);                                   // §team-parity T4: LE, matching the beacon type-5 TLV / H / F / DENY team_id
     }
     return w.ok() ? w.size() : 0;
 }
@@ -547,8 +555,17 @@ std::optional<q_out> parse_q(std::span<const uint8_t> frame) {
     if (!r.ok()) return std::nullopt;
     o.opcode = static_cast<uint8_t>((b3 >> 6) & 0x03);
     o.mobile = ((b3 >> 5) & 0x01) != 0;
-    o.channel_id_count = 0; o.pull_lineage = 0; o.pull_epoch = 0;
-    if (o.opcode == static_cast<uint8_t>(q_opcode::channel_pull)) {
+    o.channel_id_count = 0; o.pull_lineage = 0; o.pull_epoch = 0; o.team_id = 0;
+    if (o.opcode == static_cast<uint8_t>(q_opcode::team_sync)) {                    // §team-parity T4: 4-B team_id tail
+        // C2: no tail => no scope. REJECT the whole frame rather than surface a team_id-0 team_sync that every handler
+        // would then have to re-check. This also keeps a bare 4-B opcode-0 frame — which no packer has EVER emitted, so
+        // one on the air is foreign/corrupt — off the new branch entirely, exactly where the pre-T4 "unknown opcode ->
+        // silent" default left it.
+        if (frame.size() < 8) return std::nullopt;
+        o.team_id = static_cast<uint32_t>(frame[4]) | (static_cast<uint32_t>(frame[5]) << 8)
+                  | (static_cast<uint32_t>(frame[6]) << 16) | (static_cast<uint32_t>(frame[7]) << 24);
+        if (o.team_id == 0) return std::nullopt;
+    } else if (o.opcode == static_cast<uint8_t>(q_opcode::channel_pull)) {
         if (frame.size() < 5) return std::nullopt;
         const uint8_t count = frame[4];
         if (frame.size() < static_cast<size_t>(5) + static_cast<size_t>(count) * 4)

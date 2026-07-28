@@ -2551,6 +2551,178 @@ TEST_CASE("§team-parity T2 — THE RATCHET FIX: live team traffic refreshes _rt
       CHECK_FALSE(t1_in_static_rt(X, 60)); }                 // ★ I2
 }
 
+// ============================ §team-parity T4 (spec 2026-07-27 §3/T4) =========================================
+// On-demand full-table pull for the team plane: a new `team_sync` Q opcode (0) + a 4-B team_id tail, the mobile
+// refusal at the originator lifted for a team-scoped pull, and the originator antidote made plane-aware.
+// ★ COVERAGE NOTE, measured not assumed: of the whole slice only ONE arm is corpus-visible — s28 fires exactly one
+// team_sync (XH2 -> XO5 at t=660475) and that single frame is the sole source of all 18 of s28's delta events. The
+// I7 refusal halves for a FOREIGN team and a not-yet-DAD'd member, the mixed-leaf exemption, and the loop-guard plane
+// correction are corpus-DARK — these tests are their only detectors. (The static-node refusal half IS corpus-visible:
+// s28's S3 receives the same frame at 660660 and emits nothing.)
+namespace {
+// A same-team TEAM_SYNC Q frame, as send_req_sync_q would air it.
+size_t t4_team_sync_q(uint8_t leaf, uint8_t src, uint32_t team, std::array<uint8_t,16>& b) {
+    q_in qi{}; qi.leaf_id = leaf; qi.src = src; qi.dest = 0xFF;
+    qi.opcode = q_opcode::team_sync; qi.mobile = true; qi.team_id = team;
+    return pack_q(qi, std::span<uint8_t>(b.data(), b.size()));
+}
+// A team member on an arbitrary leaf nibble (t1_offgrid pins leaf 0; the mixed-leaf cases need a choice).
+void t4_member(Node& n, uint8_t leaf, uint8_t tlid, uint32_t team) {
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=leaf;
+    cfg.is_mobile=true; cfg.team_id=team; cfg.sync_response_min_routes=0;
+    CHECK(n.on_init(cfg));
+    n.set_team_local_id(tlid);
+}
+}  // namespace
+
+TEST_CASE("§team-parity T4 — ★ INVARIANT I7: a TEAM_SYNC is answered ONLY by a same-team member; everyone else spends NO state on it") {
+    const uint32_t TEAM  = 0x33330001u;
+    const uint32_t OTHER = 0x77770002u;
+    std::array<uint8_t,16> qb{};
+    const size_t qn = t4_team_sync_q(/*leaf=*/0, /*src=*/33, TEAM, qb);
+    CHECK(qn == 8);
+    const RxMeta from33{12.0f,-70.0f,0,static_cast<int8_t>(33)};
+
+    // (a) ★ HALF ONE — a same-team, DAD'd member ANSWERS. The reply is emit_beacon("sync"), which self-selects the
+    //     team plane, so no plane argument travels with the request.
+    { TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); t4_member(X, /*leaf=*/0, /*tlid=*/50, TEAM);
+      X.on_recv(qb.data(), qn, from33);
+      CHECK(hal.count("q_rx") == 1);
+      CHECK(hal.count("sync_response_scheduled") == 1);
+      CHECK(hal.count("sync_response_tx") == 0);             // scheduled, not fired — the jittered backoff still applies
+      CHECK_FALSE(t1_in_static_rt(X, 33)); }                 // ★ I2: nothing on the static plane, ever
+
+    // (b) ★★ HALF TWO — a STATIC node hears the identical frame and does NOTHING. No q_rx (so the responder dedup
+    //     ring is never even consulted, let alone written), no response, no route on either plane. This is the half
+    //     s28 measures live: its static S3 receives this very frame at t=660660 and emits nothing.
+    { TestHal hal; Node S(hal, /*id=*/50, /*key=*/0xA050u);
+      NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.sync_response_min_routes=0;
+      CHECK(S.on_init(cfg));
+      S.on_recv(qb.data(), qn, from33);
+      CHECK(hal.count("q_rx") == 0);                         // ★★ dropped BEFORE the dedup ring and the emit
+      CHECK(hal.count("sync_response_scheduled") == 0);
+      CHECK(S.rt_team_count() == 0);
+      CHECK_FALSE(t1_in_static_rt(S, 33)); }
+
+    // (c) ★ a member of a DIFFERENT team ignores it — corpus-DARK (s28's Y team is out of range of the X team's
+    //     one team_sync), so this is the only detector for the same_team half of the predicate.
+    { TestHal hal; Node Y(hal, /*id=*/50, /*key=*/0xA050u); t4_member(Y, /*leaf=*/0, /*tlid=*/50, OTHER);
+      Y.on_recv(qb.data(), qn, from33);
+      CHECK(hal.count("q_rx") == 0);
+      CHECK(hal.count("sync_response_scheduled") == 0);
+      CHECK(Y.rt_team_count() == 0); }
+
+    // (d) ★ a same-team member that has not finished team-DAD ignores it. Its own beacon would carry no team id, so
+    //     answering would air an identity-only page that teaches the puller nothing.
+    { TestHal hal; Node M(hal, /*id=*/50, /*key=*/0xA050u); t4_member(M, /*leaf=*/0, /*tlid=*/0, TEAM);
+      M.on_recv(qb.data(), qn, from33);
+      CHECK(hal.count("q_rx") == 0);
+      CHECK(hal.count("sync_response_scheduled") == 0); }
+
+    // (e) ★ a NON-MOBILE node carrying our team_id ignores it. `team <id>` on the console sets team_id without
+    //     is_mobile; such a node's emit_beacon would air its STATIC table under a team-tagged src.
+    { TestHal hal; Node N(hal, /*id=*/50, /*key=*/0xA050u);
+      NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.team_id=TEAM; cfg.sync_response_min_routes=0;
+      CHECK(N.on_init(cfg));
+      N.set_team_local_id(50);
+      N.on_recv(qb.data(), qn, from33);
+      CHECK(hal.count("q_rx") == 0);
+      CHECK(hal.count("sync_response_scheduled") == 0); }
+}
+
+TEST_CASE("§team-parity T4 — the MIXED-LEAF exemption: a same-team TEAM_SYNC crosses nibbles; every other Q kind still drops") {
+    // Mixed-leaf teams are supported by design (node_beacon.cpp:491-515), s29 runs one, and the bench config that
+    // shipped to metal was leaf 4 vs leaf 7. Without the exemption a mixed-leaf member's pull is dropped at handle_q's
+    // cross-network filter BEFORE the handler, so it is answered only by teammates sharing its nibble.
+    // ★ CORPUS-DARK: every corpus team_sync is same-leaf, so this case is its only detector.
+    const uint32_t TEAM = 0x33330001u;
+    std::array<uint8_t,16> qb{};
+    const size_t qn = t4_team_sync_q(/*leaf=*/4, /*src=*/33, TEAM, qb);      // sender on nibble 4
+    const RxMeta from33{12.0f,-70.0f,0,static_cast<int8_t>(33)};
+
+    // (a) ★ a same-team member on nibble 7 ANSWERS a nibble-4 pull.
+    { TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); t4_member(X, /*leaf=*/7, /*tlid=*/50, TEAM);
+      X.on_recv(qb.data(), qn, from33);
+      CHECK(hal.count("sync_response_scheduled") == 1); }
+
+    // (b) ★ THE CONTROL that keeps the exemption honest — the SAME node, the SAME foreign nibble, a REQ_SYNC instead
+    //     of a TEAM_SYNC: still dropped. The exemption is opcode-scoped, not a general leaf relaxation.
+    { TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); t4_member(X, /*leaf=*/7, /*tlid=*/50, TEAM);
+      q_in ri{}; ri.leaf_id = 4; ri.src = 33; ri.dest = 0xFF; ri.opcode = q_opcode::req_sync; ri.mobile = true;
+      uint8_t rb[8]; const size_t rn = pack_q(ri, std::span<uint8_t>(rb, sizeof rb));
+      X.on_recv(rb, rn, from33);
+      CHECK(hal.count("q_rx") == 0);
+      CHECK(hal.count("sync_response_scheduled") == 0); }
+
+    // (c) ★ THE SECOND CONTROL — a STATIC node on nibble 7 drops the nibble-4 TEAM_SYNC. The exemption never widens
+    //     the cross-network filter for anyone who is not on the team.
+    { TestHal hal; Node S(hal, /*id=*/50, /*key=*/0xA050u);
+      NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=7; cfg.sync_response_min_routes=0;
+      CHECK(S.on_init(cfg));
+      S.on_recv(qb.data(), qn, from33);
+      CHECK(hal.count("q_rx") == 0);
+      CHECK(hal.count("sync_response_scheduled") == 0); }
+}
+
+TEST_CASE("§team-parity T4 — the loop guard is plane-correct: a HOMED member whose node_id collides the requester's TEAM id still answers") {
+    // §18: a homed member's _node_id is a home-assigned STATIC-plane local id and can be numerically equal to a
+    // teammate's team_local_id. Comparing `q.src == _node_id` on a team_sync would make exactly that responder go
+    // silent — a suppress-direction plane collision. ★ CORPUS-DARK (no corpus team_sync collides), only detector.
+    const uint32_t TEAM = 0x33330001u;
+    std::array<uint8_t,16> qb{};
+    const size_t qn = t4_team_sync_q(/*leaf=*/0, /*src=*/33, TEAM, qb);      // requester's TEAM id is 33
+    const RxMeta from33{12.0f,-70.0f,0,static_cast<int8_t>(33)};
+
+    // (a) ★ node_id 33 (its static-plane local id) but team_local_id 50 — a DIFFERENT node from the requester.
+    { TestHal hal; Node X(hal, /*id=*/33, /*key=*/0xA033u); t4_member(X, /*leaf=*/0, /*tlid=*/50, TEAM);
+      X.on_recv(qb.data(), qn, from33);
+      CHECK(hal.count("sync_response_scheduled") == 1); }                    // ★ answers, despite the id collision
+
+    // (b) the guard still WORKS on the plane it belongs to: our own team id echoed back is ignored.
+    { TestHal hal; Node X(hal, /*id=*/17, /*key=*/0xA017u); t4_member(X, /*leaf=*/0, /*tlid=*/33, TEAM);
+      X.on_recv(qb.data(), qn, from33);
+      CHECK(hal.count("q_rx") == 0);
+      CHECK(hal.count("sync_response_scheduled") == 0); }
+}
+
+TEST_CASE("§team-parity T4 — the originator antidote is PLANE-AWARE: a team send with no route fires a TEAM_SYNC alongside the RREQ; a static send fires a static REQ_SYNC") {
+    // node_mac.cpp's Wave-4 antidote reuses the flight's own `team_route` decision, so the pull and the route lookup
+    // can never disagree about which plane is missing a route. This is the end-to-end shape s28 exhibits at t=660475
+    // (q_tx opcode 0 and r_tx reason team_no_route in the same instant).
+    const uint32_t TEAM = 0x33330001u;
+    auto last_q = [](const TestHal& h) {
+        std::optional<q_out> r;
+        for (const auto& f : h.tx_frames)
+            if (auto p = parse_q(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()))) r = *p;
+        return r;
+    };
+    auto send = [](Node& n, uint8_t dst, uint8_t plane) {
+        Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = dst; c.u.send.plane = plane;
+        c.body = reinterpret_cast<const uint8_t*>("hi"); c.body_len = 2;
+        return n.on_command(c);
+    };
+    // (a) ★ TEAM plane, no route -> a TEAM_SYNC under our team id, scoped, plus the team RREQ (T1's F).
+    { TestHal hal; Node X(hal, /*id=*/213, /*key=*/0xA213u); t1_offgrid(X, 213, TEAM);
+      CHECK(send(X, /*dst=*/174, /*plane=*/1).code == CmdCode::queued);
+      auto q = last_q(hal);
+      CHECK(q.has_value());
+      if (q) { CHECK(q->opcode == static_cast<uint8_t>(q_opcode::team_sync));   // ★★ the plane-aware antidote
+               CHECK(q->src == 213);                                            // our team_local_id
+               CHECK(q->team_id == TEAM); }
+      CHECK(t1_last_f(hal).has_value()); }                                      // ★ the RREQ still flies (they compose)
+
+    // (b) ★ THE STATIC CONTROL — the identical no-route shape on a static node still fires a plain REQ_SYNC (opcode 1,
+    //     4 bytes, no tail). This is what s18's byte-identity rests on, pinned locally so a mistake cannot hide.
+    { TestHal hal; Node S(hal, /*id=*/5, /*key=*/0xA005u);
+      NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.req_sync_on_boot=false;
+      CHECK(S.on_init(cfg));
+      CHECK(send(S, /*dst=*/99, /*plane=*/2).code == CmdCode::queued);
+      auto q = last_q(hal);
+      CHECK(q.has_value());
+      if (q) { CHECK(q->opcode == static_cast<uint8_t>(q_opcode::req_sync));    // ★ NOT team_sync
+               CHECK(q->src == 5); CHECK(q->team_id == 0); } }
+}
+
 // ✖ NO "the _rt_team-route ⇒ _team_peer-bit invariant holds" TEST HERE, deliberately. One was written and DELETED as
 // vacuous: it could not be falsified by any of the three T2 mutants (pre-T2, over-broad, and "learn_route_via drops the
 // bit"), because every T2 site is gated on is_team_peer already being true, so the bit is never newly set on this path.

@@ -739,7 +739,18 @@ void Node::issue_send(const TxItem& item) {
             // replies with a full-table "sync" beacon carrying the missing route, THEN defer so the parked send
             // re-flies via try_drain_deferred once the route lands. Without this an originator that missed the window
             // simply defers→giveup forever (the s19 B→A starvation class; investigation 2026-07-22 §s19).
-            send_req_sync_q("originator_no_route", /*force=*/true);
+            // ✔ §team-parity T4 (§3/T4): the antidote is now PLANE-AWARE. A TEAM originator with no `_rt_team` route
+            // fires a TEAM-scoped pull (opcode team_sync, scoped by the team_id on the wire, answered only by same-team
+            // members per I7) alongside the team RREQ that defer_send / try_drain_deferred raise — the two convergence
+            // mechanisms compose exactly as they do on the static plane. Reusing the flight's OWN `team_route` decision
+            // (computed above) means the pull and the route lookup can never disagree about which plane is missing a
+            // route (U1); a fresh predicate here would be the field-drop rot.
+            // Static reduction: team_route==false for every static, every GLOBAL and every AUTO flight to a non-team
+            // peer ⇒ `send_req_sync_q("originator_no_route", true)`, the pre-T4 call.
+            // Build profiles: under MR_FEAT_TEAM 0 (the three gateway_* envs) is_team_peer() stubs false (node.h:132)
+            // and a Plane::TEAM send is refused at node.cpp:1138, so team_route is false there for every flight — and
+            // send_req_sync_q's own team arm is compile-time-false regardless, so the pull stays static twice over.
+            send_req_sync_q("originator_no_route", /*force=*/true, /*team_plane=*/team_route);
             defer_send(item);                         // originator: hold until a beacon installs a route (dv:7049-7052)
         }
         return;

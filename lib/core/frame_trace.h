@@ -113,11 +113,20 @@ inline void mr_trace_frame(bool is_rx, const uint8_t* b, size_t n, int sf,
                       Serial.print(F(" src=")); Serial.print(q->src);
                       Serial.print(F(" dest=")); Serial.print(q->dest);
                       Serial.print(F(" op="));
+                      // ⚠ NOT a `-Werror=switch` subject: q_out::opcode is a raw uint8_t (a 2-bit wire field), not the
+                      // q_opcode enum, so an unnamed value falls to `default` and warns nothing. That is exactly why
+                      // §team-parity T4 names its opcode HERE by hand — the enum→string gap the 2026-07-27 ruling was
+                      // made for is structurally invisible on this switch.
                       switch (q->opcode) {
+                          case 0: Serial.print(F("TEAM_SYNC"));   // §team-parity T4: team-scoped full-table pull
+                                  Serial.print(F(" team=")); Serial.print(q->team_id, HEX);
+                                  break;
                           case 1: Serial.print(F("REQ_SYNC")); break;
                           case 3: Serial.print(F("CHANNEL_PULL"));
                                   if (q->channel_id_count > 0) { Serial.print(F(" ch_ids=")); Serial.print(q->channel_id_count); }
                                   break;
+                          // ⚠ PRE-EXISTING, deliberately NOT fixed here (C1): opcode 2 = CONFIG_PULL has no case and
+                          // prints as a bare "2". Same gap, not T4's — flagged rather than folded into a feature slice.
                           default: Serial.print(q->opcode); break;
                       }
                       if (q->mobile) Serial.print(F(" mobile"));
