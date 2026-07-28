@@ -2453,11 +2453,23 @@ TEST_CASE("§team-parity T7 — and the reverse send then routes on the TEAM pla
 }
 
 TEST_CASE("§team-parity T7 — the T6 FALLBACK ARM cannot install a static origin: a not-yet-DAD'd sender airs src=0, and learn_route_via refuses via==0") {
-    // The one reachable path that still stamps a STATIC id on a team-plane flight: stamp_origin takes the team branch
-    // only when team_local_id() != 0 (node.h:862). `send -t` is refused before DAD (node.cpp:1141) but an AUTO send to a
-    // team peer is not, and _team_peer bits are set before our own DAD completes (node_beacon.cpp:776). Such a sender's
-    // RTS airs src = team_local_id() = 0 (node_mac.cpp:855) => _pending_rx->from == 0 => learn_route_via returns on the
-    // via==0 sentinel (node_beacon.cpp:65). This is the control for T7's removed fence: origin 101 STILL does not install.
+    // stamp_origin takes the team branch only when team_local_id() != 0 (node.h:865). `send -t` is refused before DAD
+    // (node.cpp:1141) but an AUTO send to a team peer is not, and _team_peer bits are set before our own DAD completes
+    // (node_beacon.cpp:776). Such a sender's RTS airs src = team_local_id() = 0 (node_mac.cpp:874) => _pending_rx->from
+    // == 0 => learn_route_via returns on the via==0 sentinel (node_beacon.cpp:65).
+    // ⚠ THE ORIGINAL CLAIM HERE ("the ONE reachable path", "provably cannot install") WAS OVER-BROAD, and the actual
+    // bound is narrower — corrected 2026-07-28 (§team-parity T8) after measuring rather than reasoning:
+    //   (a) `via == 0` is a bound on THIS producer at ONE hop only. The receive-side learn has NO namespace check on
+    //       `origin` whatsoever: hand it the same frame with any valid non-zero `from` and it installs a STATIC id into
+    //       `_rt_team` — pinned by the T8 case below, which is the honest statement of the residual.
+    //   (b) it was NOT the only producer. `team_next` (node_mac.cpp:867) decided the WIRE plane from the NEXT HOP while
+    //       stamp_origin decided the origin namespace from the PLANE, so a flight routed on the STATIC plane through a
+    //       team-peer next hop aired as a team-plane frame with a static origin AND a valid non-zero src — no
+    //       DAD-pending needed. T8 closes that at the sender; the two T8 cases below pin both halves.
+    //   (c) whether a relay FORWARDS a src=0 frame (which would give this producer a valid `from` at hop 2) is still
+    //       UNMEASURED: the flight is accepted and CTS'd (measured), but neither the src=0 arm nor a valid-src control
+    //       relayed inside this single-node harness, so the control was vacuous and no conclusion is claimed.
+    // This case remains the control for T7's removed fence: origin 101 with via==0 STILL does not install.
     const uint32_t TEAM = 0x06EF37AEu;
     TestHal hal; Node X(hal, /*id=*/213, /*key=*/0xA213u); t1_offgrid(X, 213, TEAM);
     std::array<uint8_t, 64> bb{};
@@ -2468,6 +2480,127 @@ TEST_CASE("§team-parity T7 — the T6 FALLBACK ARM cannot install a static orig
     CHECK_FALSE(X.is_team_peer(101));                        // ★★ and no dispatch bit, so rt_find(101) still reads _rt
     CHECK_FALSE(t1_in_static_rt(X, 101));
     CHECK_FALSE(X.is_team_peer(0));                          // the src=0 sentinel never enters the peer set either
+}
+
+// ===================== §team-parity T8 (2026-07-28) — the wire plane must be the routed plane =====================
+// T6 made stamp_origin agree with rt_find ("the identity a flight CLAIMS cannot drift from the table it is ROUTED on").
+// T8 is that same statement one level down, on the AIR: `team_next` (node_mac.cpp:867) decided whether the RTS/DATA go
+// out as a TEAM-plane frame (addr_len=1, src=team_local_id(), mobile_src=1) from `is_team_peer(pt.next)` ALONE — the
+// next hop — while stamp_origin decided the origin namespace from `flight_is_team_plane(plane, dst)` — the plane. The
+// two diverge for any flight routed on the STATIC plane whose next hop happens to be a team peer, and the receiver's
+// DATA-origin learn (T7, node_mac_rx.cpp:694) then installs `_rt_team[<static id>]`.
+// ★ THE FIX IS AT THE SENDER BECAUSE IT CANNOT BE AT THE RECEIVER: team-DAD draws a local id from 17..254
+// (node_mobile.cpp:191) and static node_ids are 1..254 — one numeric space, no discriminator, and neither RTS nor plain
+// DATA carries a team_id (invariant I9). "Is this origin a team-namespace id?" is UNDECIDABLE at the receiver.
+TEST_CASE("§team-parity T8 — THE RESIDUAL, stated honestly: the RECEIVE-side learn has NO namespace check on `origin`") {
+    // Hand the unfenced learn a team-plane DATA whose origin is a STATIC node id and whose `from` is a VALID non-zero
+    // teammate id, at ONE hop, and it installs. This is not a fix, it is the bound: T7's guard note claimed the T6
+    // fallback arm "provably cannot install (via == 0)", which covers only via==0 — NOT a valid via with a static
+    // origin. Every real producer of this frame is closed at the sender (the two cases below); this pins WHY that has
+    // to be where it is closed, and it must fail loudly if anyone ever weakens the sender-side agreement again.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node R(hal, /*id=*/234, /*key=*/0xA234u); t1_offgrid(R, 234, TEAM);
+    std::array<uint8_t, 64> bb{};
+    { const size_t n = t1_team_beacon(/*src=*/174, TEAM, bb); R.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,174}); }
+    CHECK(R.is_team_peer(174));
+    // origin 17 = a STATIC node id; prev 93 = a valid non-zero team local id; committed 0 = one hop.
+    t2_inbound_team_flight(R, /*me_team=*/234, /*prev=*/93, /*dst=*/174, /*origin=*/17, /*committed=*/0, /*ctr=*/0x0061);
+    CHECK(t2_team_rt(R, 17) != nullptr);                     // ★★ IT INSTALLS — measured, not argued
+    CHECK(R.is_team_peer(17));                               // ★★ and the dispatch bit too (learn_route_via :73)
+    // Control: the SAME frame with via == 0 (T7's documented bound) is refused, so this case is not simply "any origin".
+    { TestHal h2; Node R2(h2, /*id=*/234, /*key=*/0xA234u); t1_offgrid(R2, 234, TEAM);
+      std::array<uint8_t, 64> b2{}; const size_t n = t1_team_beacon(174, TEAM, b2);
+      R2.on_recv(b2.data(), n, RxMeta{12.0f,-70.0f,0,174});
+      t2_inbound_team_flight(R2, 234, /*prev=*/0, 174, /*origin=*/17, /*committed=*/0, 0x0062);
+      CHECK(t2_team_rt(R2, 17) == nullptr);
+      CHECK_FALSE(R2.is_team_peer(17)); }
+}
+
+TEST_CASE("§team-parity T8 — THE FIX: a STATIC-plane flight through a team-peer next hop is aired STATIC, not as a team frame") {
+    // ★★ THE MEASURED, SEAM-FREE REACHABILITY (no test_learn_route): two real beacons put `_rt[55].next = 238` in the
+    // STATIC table and `_team_peer[238]` in the team plane for the same numeric id — the §18/I9 numeric collision (two
+    // physical nodes sharing id 238: a static advertiser and an off-grid teammate whose node_id IS its team_local_id),
+    // or one node whose is_mobile/team_id config changed between beacons (set_team_id never touches is_mobile,
+    // node.cpp:413). Then a GLOBAL `send 55` — which is what `console_parse.cpp:259` emits for EVERY plain `send`, so
+    // this is the default metal verb, not an exotic plane.
+    // PRE-FIX (measured): RTS src=93 next=238 dst=55 addr_len=1 mobile_src=1, inner origin 17 => a team-plane frame
+    // carrying a STATIC origin with a valid non-zero src => the receiver installs _rt_team[17]. POST-FIX: src=17,
+    // addr_len=0 — a static frame, matching the table the flight was routed on and the origin stamp_origin chose.
+    const uint32_t TEAM = 0x06EF37AEu;
+    const uint8_t  MATE = 238;                               // the id that is BOTH a static next hop and a team peer
+    TestHal hal; Node A(hal, /*id=*/17, /*key=*/0x1717u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=TEAM;
+    CHECK(A.on_init(cfg));
+    A.set_team_local_id(93);                                 // DUAL: node_id 17, team id 93 — so the two ids are tellable apart
+    // (1) a plain NON-mobile beacon from 238 advertising a route to the static dest 55 -> the STATIC table
+    { const beacon_entry ents[1] = { { /*dest=*/55, /*next=*/MATE, /*score_bucket=*/12, /*is_gateway=*/false, /*hops=*/1, /*degraded=*/false } };
+      beacon_in tb{}; tb.leaf_id=0; tb.src=MATE; tb.key_hash32=0x7000u+MATE; tb.is_mobile=false;
+      tb.entries = std::span<const beacon_entry>(ents, 1);
+      std::array<uint8_t, 96> b{}; const size_t bn = pack_beacon(tb, std::span<uint8_t>(b.data(), b.size()));
+      CHECK(bn > 0);
+      A.on_recv(b.data(), bn, RxMeta{12.0f,-70.0f,0,-1}); }
+    CHECK(t1_in_static_rt(A, 55));                           // non-vacuity: the static route really exists...
+    CHECK_FALSE(A.is_team_peer(MATE));                       // ...and 238 is not yet a team peer
+    // (2) NOW the same numeric id turns up as a teammate -> the _team_peer dispatch bit
+    { std::array<uint8_t, 64> bb{}; const size_t n = t1_team_beacon(MATE, TEAM, bb);
+      A.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,-1}); }
+    CHECK(A.is_team_peer(MATE));                             // ★ the divergence precondition holds
+    CHECK(t1_in_static_rt(A, 55));                           // ★ and the static route survived it
+    hal.tx_frames.clear();
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 55; c.u.send.plane = 2 /*GLOBAL*/;
+    c.body = reinterpret_cast<const uint8_t*>("hi"); c.body_len = 2;
+    CHECK(A.on_command(c).code == CmdCode::queued);
+    const uint8_t stamped = A.test_tx_origin(0);
+    CHECK(stamped == 17);                                    // ★ a STATIC id (no mobile reg -> _node_id), never the team id 93
+    A.on_timer(0); A.on_timer(0);
+    bool saw = false;
+    for (auto& f : hal.tx_frames) {
+        auto pr = parse_rts(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+        if (!pr || pr->next != MATE) continue;
+        saw = true;
+        CHECK(pr->addr_len == 0);                            // ★★ NOT a team-plane frame (pre-fix: 1)
+        CHECK(pr->src == 17);                                // ★★ our STATIC node_id (pre-fix: the team id 93)
+        CHECK_FALSE(pr->mobile_src);                         // ★★ not marked as a local-id src (pre-fix: true)
+    }
+    CHECK(saw);                                              // non-vacuity: the flight really went out via 238
+}
+
+TEST_CASE("§team-parity T8 — CONTROL: a genuine TEAM-plane flight to the same next hop is UNCHANGED (the narrowing is one cell)") {
+    // Without this the fix could not be told from a blanket "never air a team frame". Same node, same next hop, same
+    // teammate — only the flight's PLANE differs, which is exactly the cell T8 narrows.
+    const uint32_t TEAM = 0x06EF37AEu;
+    const uint8_t  MATE = 238;
+    TestHal hal; Node A(hal, /*id=*/17, /*key=*/0x1717u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=TEAM;
+    CHECK(A.on_init(cfg));
+    A.set_team_local_id(93);
+    std::array<uint8_t, 64> bb{};
+    { const size_t n = t1_team_beacon(MATE, TEAM, bb); A.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,-1}); }
+    CHECK(A.is_team_peer(MATE));
+    // one FRESH node per plane: a flight left awaiting its CTS blocks the next drain, which would make `saw` vacuous.
+    for (uint8_t plane : { uint8_t(1) /*TEAM*/, uint8_t(0) /*AUTO -> is_team_peer(dst) true*/ }) {
+        TestHal hal2; Node N(hal2, /*id=*/17, /*key=*/0x1717u);
+        CHECK(N.on_init(cfg));
+        N.set_team_local_id(93);
+        { const size_t n = t1_team_beacon(MATE, TEAM, bb); N.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,-1}); }
+        CHECK(N.is_team_peer(MATE));
+        hal2.tx_frames.clear();
+        Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = MATE; c.u.send.plane = plane;
+        c.body = reinterpret_cast<const uint8_t*>("hi"); c.body_len = 2;
+        CHECK(N.on_command(c).code == CmdCode::queued);
+        CHECK(N.test_tx_origin(0) == 93);                    // T6: a team-plane flight stamps our TEAM id
+        N.on_timer(0); N.on_timer(0);
+        bool saw = false;
+        for (auto& f : hal2.tx_frames) {
+            auto pr = parse_rts(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+            if (!pr || pr->next != MATE) continue;
+            saw = true;
+            CHECK(pr->addr_len == 1);                        // ★ still a team-plane frame
+            CHECK(pr->src == 93);                            // ★ still our team local id
+            CHECK(pr->mobile_src);
+        }
+        CHECK(saw);
+    }
 }
 
 TEST_CASE("§team-parity T7 — a TYPED (APP) DATA still teaches nothing, and this now matters MORE: its ui->origin is a payload byte") {

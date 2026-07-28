@@ -864,7 +864,27 @@ void Node::tx_rts_retry() {
     // §mobile 3a: addr_len=1 on a host's last-mile forward to a mobile; §6.4: also when the NEXT hop is a team peer, so the
     // receiver's mark-accept treats `next` as a team-plane local-id (its team_local_id==node_id off-grid). All 0 on a normal
     // TxItem -> identical wire.
-    const bool team_next = (pt.addr_len == 0 && is_team_peer(pt.next));   // §6.4: routing/forwarding to a team peer -> OUR src is a team LOCAL id
+    // ★ §team-parity T8 (2026-07-28): `&& flight_is_team_plane(pt.plane, pt.dst)` — the WIRE plane must be the plane the
+    // flight was ROUTED on. It is the SAME expression `issue_send` already used to pick the table (`team_route`,
+    // node_mac.cpp:767) and the SAME one stamp_origin uses to pick the origin namespace (node.h:865), so all three now
+    // agree by construction. Without it this predicate was decided by the NEXT HOP alone while stamp_origin was decided
+    // by the PLANE, and the two diverge for any flight routed on the STATIC plane whose next hop happens to be a team
+    // peer (GLOBAL, or AUTO to a non-team-peer dst, resolved through `_rt`): the frame went out addr_len=1 /
+    // src=team_local_id() — i.e. AS a team-plane frame — carrying the STATIC origin stamp_origin correctly chose for a
+    // static flight. The receiver then reads for_team_data=true with a valid non-zero `from`, and the DATA-origin learn
+    // (node_mac_rx.cpp:694) installs `_rt_team[<static id>]` + the `_team_peer` bit — invariant A2/I2 breached.
+    // ⚠ WHY THIS IS THE SENDER'S JOB AND CANNOT BE THE RECEIVER'S: team local ids come from team-DAD's 17..254 draw
+    // (node_mobile.cpp:191) and static node_ids are 1..254 — ONE numeric space with NO discriminator, and neither RTS nor
+    // plain DATA carries a team_id (invariant I9). So "is this origin a team-namespace id?" is UNDECIDABLE at the
+    // receiver; only the originator knows which plane it meant. Closing origination closes the class: a RELAY never
+    // calls stamp_origin (it copies `pa.origin`, node_mac_rx.cpp:1198), so it can only propagate a mis-stamp, not create
+    // one. Relay reduction: a forward's TxItem leaves `plane` at AUTO, and `is_team_peer(pt.dst)` is exactly what
+    // `team_route` required for the forward to resolve on `_rt_team` at all -> the predicate is unchanged for every
+    // legitimate team relay. MEASURED reachable, seam-free, before the fix: `_rt[55].next = 238` (a plain non-mobile
+    // beacon) + `_team_peer[238]` (a later team beacon from the same id — the §18/I9 collision, or a live is_mobile /
+    // team_id config change) => a GLOBAL `send 55` aired `RTS src=93 next=238 dst=55 addr_len=1` with inner origin 17.
+    const bool team_next = (pt.addr_len == 0 && is_team_peer(pt.next)
+                            && flight_is_team_plane(pt.plane, pt.dst));   // §6.4: routing/forwarding to a team peer -> OUR src is a team LOCAL id
     rin.addr_len   = team_next ? 1 : pt.addr_len;
     // §6.4: mark the src a LOCAL id when it is one — a registered mobile (pt.mobile_src) OR a team-plane send (team_next; an
     // off-grid team member's node_id IS its team local id). Team DMs previously carried mobile_src=0 (only addr_len=1), so the
@@ -1372,7 +1392,11 @@ void Node::do_data_tx() {
     data_in din{};
     // §mobile 3b: the last-mile DATA carries the mobile mark (addr_len=1) so the mobile accepts it + a colliding static rejects
     // it; §6.4: also when `next` is a team peer (team-plane local-id). 0 on every normal flight -> identical wire.
-    din.addr_len = (pt.addr_len == 0 && is_team_peer(pt.next)) ? 1 : pt.addr_len; din.flags = pt.flags; din.type = pt.type; din.next = pt.next; din.dst = pt.dst;
+    // ★ §team-parity T8: the DATA's addr_len MUST use the SAME predicate as the RTS's `team_next` (build_rts, :867) —
+    // they are one addressing decision on two frames of one flight, and a disagreement makes the receiver's mark-accept
+    // reject the DATA it already CTS'd. Narrowed together, with the reasoning at that site.
+    din.addr_len = (pt.addr_len == 0 && is_team_peer(pt.next)
+                    && flight_is_team_plane(pt.plane, pt.dst)) ? 1 : pt.addr_len; din.flags = pt.flags; din.type = pt.type; din.next = pt.next; din.dst = pt.dst;
     din.hops_remaining = hb_remaining; din.committed_hops = hb_committed;
     din.prev_fwd_rt_hops = hb_prev_fwd; din.ctr = pt.ctr;
     din.inner = std::span<const uint8_t>(pt.inner, pt.inner_len);
