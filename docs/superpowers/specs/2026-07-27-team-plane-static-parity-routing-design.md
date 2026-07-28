@@ -8,7 +8,15 @@
 >
 > ## ★★★ THE §0 BENCH FAILURE IS CLOSED (T7, 2026-07-28)
 >
-> **`T0 ✅ → T1 ✅ → (T2 ✅ ∥ T4 ✅) → T6 ✅ → T7 ✅ → T3 ❌ → T5 ❌`** — see the position note in §8.
+> ## ★★★ ALL SLICES LANDED 2026-07-28 — THE SPEC IS COMPLETE
+>
+> **`T0 ✅ → T1 ✅ → (T2 ✅ ∥ T4 ✅) → T6 ✅ → T7 ✅ → T3 ✅ → T5 ✅`**, plus **T8** (the origination
+> mis-stamp) and the sim **AUTO→GLOBAL** correction, neither of which this spec anticipated. R1–R7 are met;
+> §0's bench failure closed at T7. **`s18` keystone never moved through the entire arc.**
+> ⚠ **Two slices were deliberately NOT completed as written, both with measurements recorded in `BASELINE.md`:**
+> **T3's Part C** (the DV-cap flip — inert on 34/36, and radius-clipping turns out to be dead as a test method
+> under static parity, so it is deferred with a trigger condition) and **T5's dedicated `_team_bidi` table**
+> (replaced by a 0-byte placement in `PeerLiveness`'s padding — `sizeof(Node)` never moved).
 > R1's functional claim now holds end to end: a member can address **any** teammate by id, heard or not, and the
 > reverse ack routes on the team plane. **T6 is new**
 > (§3/T6), from the owner ruling in §11, and was **pulled ahead of T3 by the owner on 2026-07-28** once the
@@ -258,6 +266,8 @@ This is what would have let 213 and 174 recognise that their direct link is one-
 > §0 evidence: `s35a` **lost 69 events** because node 174 now learns 213 from the DM it receives and needs no
 > discovery at all, and the reverse DM flies **2 s sooner**. ★ Its before-arm also exposed an **I2 breach no
 > learn-site audit could have found** — see §10.3's amendment.
+
+> ✅ **LANDED `9c7b40a`.**
 
 ★ **Ordering: FIRST of the remainder — owner ruling 2026-07-28, pulled ahead of T3.** *"yes, do T6 first."*
 Rationale: the §11 measurement showed this is a **live delivery defect in a configuration already run on metal**
