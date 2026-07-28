@@ -81,8 +81,25 @@ cd /home/staszek/MeshRoute && PLATFORMIO_BUILD_DIR=<scratch>/piobuild-after pio 
      things: **`gateway`** is a `MR_FEAT_TEAM 0` / feature-stripped build (the `#else`-arm and inertness
      proof), **`xiao_sx1262`** is nRF52840/ARM (the RAM-constrained target), **`xiao_esp32s3`** is
      ESP32-S3/Xtensa (the other toolchain, which moves flash in the opposite direction — see the RAM/Flash
-     note below). ⚠ Build all ten only when a slice changes `sizeof(Node)`, a board-conditional `#if`, or a
-     linker/partition setting — i.e. when per-board padding is the thing under test (D2).
+     note below).
+   - ⚠ **ESCALATION — and it is FOUR envs, not ten.** When a slice changes `sizeof(Node)`, a board-conditional
+     `#if`, or a linker/partition setting, add **`gateway_esp32s3`** to the three above. Those four are the
+     complete **ABI × feature grid**, which is the whole of what D2 is protecting against:
+     `platformio.ini` defines only **three base boards** — `xiao_sx1262` (nordicnrf52/ARM), and `heltec_v3` +
+     `xiao_esp32s3` (the **same** espressif32 platform, differing only in pins and `MR_FEAT_OLED`). The other
+     seven envs are `extends` of those three. So padding can differ along exactly two axes: **ABI** (ARM vs
+     Xtensa) and **which members compile** (`MR_FEAT_TEAM` 1 vs 0, the `gateway_*` strip). 2 × 2 = 4.
+     ⚠ Add a `*_mobile` or `production` env **only** if `Node`'s layout has an `#if` gated on a flag that only
+     those set — check, don't assume.
+   - ★★ **Get `sizeof(Node)` per target from a COMPILE-ONLY probe, not a BEFORE/AFTER full link on every env.**
+     The padding question is answered by a `static_assert` compiled with that target's flags, near-instantly.
+     Reserve the full build+link for the env where you actually report the RAM figure. **QA over-escalated a
+     slice to ten envs on 2026-07-28 and the owner flagged the wasted wall-clock — this is the correction.**
+   - ★ **Do not chase flash deltas.** ΔFlash has a **reproducible ±32 B noise floor**: `src/fw_main.cpp:420`
+     and `src/firmware_commands.cpp:261` bake `__DATE__ " " __TIME__`, and when the two TUs compile in different
+     *seconds* the literals stop merging — an unchanged tree produced three different values on `xiao_sx1262`
+     (468900 → 468916 → 468932) with `nm` showing no symbol size change. **RAM is the trustworthy number;
+     report flash only if it moves >64 B, then investigate.**
    - ★ Build **each** pass into an **isolated `PLATFORMIO_BUILD_DIR`** under your scratchpad. A concurrent
      session collided in the shared `.pio` tree on 2026-07-25 and destroyed a baseline; isolation is standing
      practice now.
