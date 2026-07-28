@@ -75,7 +75,14 @@ cd /home/staszek/MeshRoute && PLATFORMIO_BUILD_DIR=<scratch>/piobuild-after pio 
    ★ **Layout lesson from item 1:** wrapping an existing array+count pair in a *member class* gives it its own
    tail padding and MOVES `sizeof(Node)`. **Non-owning free-function templates over the existing members**
    (`Entry (&ring)[Cap]`, `uint8_t& n`) keep layout identical *by construction*. Prefer that shape.
-4. **Boards 10/10 with a BEFORE/AFTER RAM+Flash table.**
+4. **Boards: THREE ENVS, with a BEFORE/AFTER RAM+Flash table.**
+   - ★★ **OWNER RULING 2026-07-28 — build only `gateway`, `xiao_sx1262`, `xiao_esp32s3`, not all ten.**
+     Explicitly *"that will speed up our work"*. The three were chosen to keep the axes that actually catch
+     things: **`gateway`** is a `MR_FEAT_TEAM 0` / feature-stripped build (the `#else`-arm and inertness
+     proof), **`xiao_sx1262`** is nRF52840/ARM (the RAM-constrained target), **`xiao_esp32s3`** is
+     ESP32-S3/Xtensa (the other toolchain, which moves flash in the opposite direction — see the RAM/Flash
+     note below). ⚠ Build all ten only when a slice changes `sizeof(Node)`, a board-conditional `#if`, or a
+     linker/partition setting — i.e. when per-board padding is the thing under test (D2).
    - ★ Build **each** pass into an **isolated `PLATFORMIO_BUILD_DIR`** under your scratchpad. A concurrent
      session collided in the shared `.pio` tree on 2026-07-25 and destroyed a baseline; isolation is standing
      practice now.
@@ -144,7 +151,7 @@ COVERAGE            — ★ the POISON-PROBE matrix (§E): per site → corpus-c
                       (name it) / algebra-only. Plus confirmation that every probe was reverted and all 29
                       re-run clean afterwards.
 GATE                — native (EXACT count) · 27 scenarios byte-identical · sizeof(Node) proven POSITIVELY ·
-                      -Wswitch 0 + pio warning delta · boards 10/10 BEFORE/AFTER (isolated dirs) · line delta
+                      -Wswitch 0 + pio warning delta · boards 3/3 gateway+xiao_sx1262+xiao_esp32s3 BEFORE/AFTER (isolated dirs; all ten only if sizeof(Node)/board-#if/linker moves) · line delta
 DEVIATIONS          — ★ anything done differently, LOUDLY, with rationale
 MINE-VS-THEIRS      — your hunks vs whatever else is uncommitted
 FILES TOUCHED       — full list, both repos

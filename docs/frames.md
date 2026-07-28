@@ -21,7 +21,7 @@ On-wire layout of every MeshRoute frame — structure and field meaning only.
 | 0x3 | DATA | 12+ B (MAC 4 B, or 8 B if CRYPTED; +1 TYPE byte if APP) | data plane |
 | 0x4 | ACK  | 3 B | acknowledgement |
 | 0x5 | NACK | 4 B | negative acknowledgement |
-| 0x6 | Q    | 4 B (+ pull/config body) | query (REQ_SYNC / CONFIG_PULL / CHANNEL_PULL) |
+| 0x6 | Q    | 4 B (+ team/pull/config body) | query (TEAM_SYNC / REQ_SYNC / CONFIG_PULL / CHANNEL_PULL) |
 | 0x7 | H    | 8 B · +32 B if WANT_PUBKEY | hash-locate flood (soft/hard) |
 | 0x8 | F    | 9 B | route-find RREQ/RREP flood |
 | 0x9 | J    | 6 / 8·13 / 11 / 15 B | join family (OFFER 13 B iff `is_mobile`) |
@@ -262,23 +262,33 @@ Path size = `2 + n_layers` B. *(The ids are full 8-bit bytes — **not** nibble-
 
 ---
 
-## Q — query · cmd 0x6 · 4 B (+ CONFIG_PULL / CHANNEL_PULL body)
+## Q — query · cmd 0x6 · 4 B (+ TEAM_SYNC / CONFIG_PULL / CHANNEL_PULL body)
 
-**Use** — a 1-hop query. `REQ_SYNC` (dest `0xFF`): a (re)joining **static** node asks neighbours to beacon now. `CONFIG_PULL`: pull a leaf's full config for a `{lineage, epoch}`. `CHANNEL_PULL`: request the channel msgs whose ids a BCN digest showed missing. **Reply** — `REQ_SYNC` → a **BCN**; `CONFIG_PULL` → a **C** frame (cmd 0xB, control-plane); `CHANNEL_PULL` → the holder re-broadcasts each msg as **M (M_BROADCAST)**.
+**Use** — a 1-hop query. `TEAM_SYNC` (dest `0xFF`): a **team member** asks same-team neighbours for their full team table. `REQ_SYNC` (dest `0xFF`): a (re)joining **static** node asks neighbours to beacon now. `CONFIG_PULL`: pull a leaf's full config for a `{lineage, epoch}`. `CHANNEL_PULL`: request the channel msgs whose ids a BCN digest showed missing. **Reply** — `TEAM_SYNC` and `REQ_SYNC` → a **BCN** (the team-tagged `"sync"` beacon for TEAM_SYNC); `CONFIG_PULL` → a **C** frame (cmd 0xB, control-plane); `CHANNEL_PULL` → the holder re-broadcasts each msg as **M (M_BROADCAST)**.
 
-**§mobile Option A — a mobile does NOT emit Q on the static plane.** A mobile is not a leaf-config-plane member: it never sends `REQ_SYNC` (it reaches the mesh via its home, not a full-table pull) nor `CONFIG_PULL` (it adopts only the host PHY, runs its own/default config). So the byte-3 `mobile` bit, though defined, is effectively **inert** — kept as a defensive marker (any learn site still skips a `mobile`-marked Q so a mobile's LOCAL id can never enter a static `_rt`). See `node_beacon.cpp` membership exemption + `send_req_sync_q` guard.
+**§mobile Option A — a mobile does NOT emit Q on the STATIC plane.** A mobile is not a leaf-config-plane member: it never sends `REQ_SYNC` (it reaches the mesh via its home, not a full-table pull) nor `CONFIG_PULL` (it adopts only the host PHY, runs its own/default config). A learn site skips a `mobile`-marked Q so a mobile's LOCAL id can never enter a static `_rt`. See `node_beacon.cpp` membership exemption + `send_req_sync_q` guard.
+
+⚠ **Corrected 2026-07-28 (V1) — the byte-3 `mobile` bit is NOT "effectively inert", and never was.** This
+paragraph claimed it was. `CHANNEL_PULL` has always set it (`node_channel.cpp:524/1181` — s28 carries 17 such
+receptions), and since `§team-parity T4` every `TEAM_SYNC` sets it too. The bit is live on two of the four
+opcodes; only `REQ_SYNC`/`CONFIG_PULL` never set it.
 
 | Byte | Field | Description |
 |------|-------|-------------|
 | 0 | cmd \| leaf_id | bits 7..4 = `0x6`; bits 3..0 = leaf_id |
 | 1 | src | sender node_id |
-| 2 | dest | target node_id (`0xFF` = REQ_SYNC broadcast) |
+| 2 | dest | target node_id (`0xFF` = TEAM_SYNC / REQ_SYNC broadcast) |
 | 3 | opcode \| mobile | b7..6 = opcode · b5 = mobile · b4..0 rsv |
+| 4..7 | team_id | **TEAM_SYNC only** — u32 **LE** (matches the beacon TLV / H / F / DENY). Never 0 |
 | 4..7 | lineage \| epoch | **CONFIG_PULL only** — `pull_lineage` (u16 LE) · `pull_epoch` (u16 LE) |
 | 4 | count | **CHANNEL_PULL only** — number of channel ids |
 | 5.. | channel_msg_id[count] | **CHANNEL_PULL only** — 4 bytes each, **BE** |
 
-**opcode:** `1 = REQ_SYNC`, `2 = CONFIG_PULL`, `3 = CHANNEL_PULL`.
+**opcode:** `0 = TEAM_SYNC`, `1 = REQ_SYNC`, `2 = CONFIG_PULL`, `3 = CHANNEL_PULL`.
+★ **The opcode field is 2 bits and is now FULL** (`(b3 >> 6) & 0x03`, `frame_codec.cpp:531/556`). A fifth Q
+kind cannot be added without a wire change. `TEAM_SYNC` deliberately took the **zero** codepoint, the last one
+free; `pack_q` refuses a `TEAM_SYNC` with `team_id == 0` so a value-initialised `q_in{}` cannot air a
+scope-less team frame, and `parse_q` rejects both a bare 4-byte opcode-0 frame and a zero-scope tail.
 
 ---
 
@@ -431,4 +441,4 @@ Decided in the design specs, **not yet on the wire** — listed so the reference
 - **DATA — `PRIORITY` (b0):** decoded but no scheduling behaviour wired yet.
 - **DATA — cross-layer `CRYPTED`:** v1 cross-layer DMs are cleartext-only; sealing the cross-layer path is a future slice.
 
-*(Recently shipped — now documented in their frame sections above, not here: the 6-B BCN leaf-config header; the BCN `heard_set_complete` + route-entry `degraded` bidirectionality bits; `wire_version` on BCN + J; the BCN suspect/liveness ext-TLVs (types 1/2); the CTS NAV byte; the F `config_hash`; the Q `CONFIG_PULL` opcode; DATA `CRYPTED`/sealed-sender, `LOCATION`, `DST_HASH`/`SOURCE_HASH`, `CROSS_LAYER` layer-path, and the `REMOTE_CMD`/`REMOTE_RESP` TYPE codes; the H mutual `WANT_PUBKEY` pubkey exchange.)*
+*(Recently shipped — now documented in their frame sections above, not here: the 6-B BCN leaf-config header; the BCN `heard_set_complete` + route-entry `degraded` bidirectionality bits; `wire_version` on BCN + J; the BCN suspect/liveness ext-TLVs (types 1/2); the CTS NAV byte (now `[len6][cr2]`); the F `config_hash`; the Q `CONFIG_PULL` and `TEAM_SYNC` opcodes (the opcode field is now full); DATA `CRYPTED`/sealed-sender, `LOCATION`, `DST_HASH`/`SOURCE_HASH`, `CROSS_LAYER` layer-path, and the `REMOTE_CMD`/`REMOTE_RESP` TYPE codes; the H mutual `WANT_PUBKEY` pubkey exchange.)*

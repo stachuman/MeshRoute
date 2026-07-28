@@ -106,7 +106,18 @@ while un-reflashed nodes remain — do that only behind a `wire_version` bump.
 In **discovery** (first ~60 s, or route-starved) a node beacons fast + full-page and broadcasts `Q:REQ_SYNC` to pull
 neighbours' tables; in **steady state** it sends dirty-only differential beacons under an adaptive channel-busy
 throttle. (Gateways override this — see §6.)
-- **Source:** `node_beacon.cpp` (`emit_beacon`, `periodic_beacon_fire`) · `node_query.cpp` (REQ_SYNC)
+
+**Team plane (§team-parity T4, 2026-07-28).** The same pull exists for team members as `Q:TEAM_SYNC`, carrying the
+`team_id` as a 4-byte scope so it is decidable from the frame alone. A **team member with an adopted
+`team_local_id`** may emit it — including an **off-grid** member (`node_id == 0`), which the static-plane guards
+had also been refusing. It is answered **only by same-team members**, with the team-tagged `"sync"` beacon
+carrying the full `_rt_team` table; a static node drops it at the `handle_q` dispatch site *before* the dedup
+ring, so it spends no state. The **mixed-leaf exemption applies** — a teammate on a foreign leaf nibble still
+answers, because a mixed-leaf team is supported by design and is what shipped to metal. `Q:CHANNEL_PULL` does
+**not** get that exemption: it carries no `team_id`, so there is nothing to scope the exemption on.
+Static-plane `REQ_SYNC` remains forbidden to mobiles; the team pull **refuses rather than downgrading** to one,
+which would air the sender's node_id into every static `_rt`.
+- **Source:** `node_beacon.cpp` (`emit_beacon`, `periodic_beacon_fire`) · `node_query.cpp` (REQ_SYNC, TEAM_SYNC)
 - **Spec:** `docs/specs/2026-05-29-r1-beacon-emit-design.md` · `2026-05-29-c5-bcn-design.md` · `2026-05-31-r4.3-beacon-throttle-design.md`
 
 ## 4. Routing-liveness

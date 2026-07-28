@@ -2,7 +2,31 @@
 
 *2026-07-27. Follow-on to `2026-07-15-team-plane-routing-parity-design.md` (which delivered team hash-resolution + team F discovery + team liveness, and shipped s24/s25). That spec built the team routing **machinery**. This one fixes the fact that almost nothing **feeds** it.*
 
-*Status: DRAFT for dedicated review. Not implemented. All line references verified against the working tree at the time of writing (branch `main`, tip `aac7e61` + uncommitted CR work).*
+*Original status line (2026-07-27): "DRAFT for dedicated review. Not implemented. All line references verified against the working tree at the time of writing (branch `main`, tip `aac7e61` + uncommitted CR work)."*
+
+> ## ★ STATUS 2026-07-28 — REVIEWED (§10) AND PARTLY IMPLEMENTED
+>
+> **`T0 ✅ → T1 ✅ → (T2 ✅ ∥ T4 ✅) → T3 ❌ → T5 ❌`** — see the position note in §8. `s35` (§5) was authored,
+> lost with an agent scratchpad, and is being re-authored.
+>
+> **Read this document as a design record, not a work order.** The body below is the 2026-07-27 draft; every
+> place implementation contradicted it now carries an inline correction marked ⚠ or ★. **Four of those
+> corrections matter beyond this spec** and are the real yield of the build:
+>
+> 1. **§3/T4 + §6 — `q_opcode` is a 2-BIT field**, not an open enum. `team_sync` took the last codepoint; the
+>    space is now full. An out-of-range enumerator truncates on the wire while comparing at full width — a
+>    dead feature *and* an isolation leak, with no build error.
+> 2. **§7/4 — `-Werror=switch` did not and could not cover it.** There are no switches over `q_opcode`; the one
+>    switch that touches it takes a `uint8_t`. The gate protects an enum only where it reaches a `switch` **as
+>    the enum type**.
+> 3. **§3/T2 — the DATA frame *does* carry a hop count** (`committed_hops`). The exclusion argued from its
+>    absence; §10.1 overruled it and T2 shipped origin-learning with an exact metric and no wire change.
+> 4. **§3/T0 — three of the four hop-cap consumers, not four**, leaving team RREQ at cap 8 while team DV
+>    accepts 16. **T3 owns resolving that.**
+>
+> ⚠ **§11 (new) carries an open owner ruling that blocks a clean T5**, and §9 now tracks which of the six
+> reviewer questions are closed. Line references in the body are as-of 2026-07-27 and have drifted — re-verify
+> before relying on one (V1/V2).
 
 ---
 
@@ -81,6 +105,16 @@ Each slice is independently gateable. **T0 is a pure refactor and must land and 
 
 At the end of T0 nothing behaves differently on either plane. **Gate: s18 md5 EXACT + native + every board env.** If T0 does not reproduce the keystone, stop — the parameterization is wrong, and no feature slice may proceed.
 
+> ✅ **LANDED `2d0366d` (2026-07-28), 32/32 byte-identical** — the keystone reproduced exactly, so the parameterization is sound.
+> ⚠ **CORRECTION — three of the four consumers, not four.** The **DV combined-hops cap (`node_beacon.cpp:846`)
+> deliberately still reads `dv_hop_cap`**. Routing it through `hop_cap_for(same_team_beacon)` immediately halves
+> the team DV radius and breaks s24/s25/s26/s28/s29/s30/s34. Recorded in-source at `node_beacon.cpp:853-856`
+> and in the `node_carriers.h:146` DONE/MISSING note.
+> ★ **This leaves a live asymmetry in the team plane's radius: team RREQ floods at `team_hop_cap` 8, but team
+> DV accepts combined hops up to `dv_hop_cap` 16.** That is not what R4 intends and it is unresolved. **T3 owns
+> it** — T3 is the DV slice, so it is the only honest place to either raise `team_hop_cap`, lower the DV cap
+> with the scenario retunes that implies, or state in-source why the two radii legitimately differ.
+
 ### T1 — on-demand team discovery
 
 - **`node.cpp:1082-1083`** — remove the `!is_team_peer(dst)` precondition for `Plane::TEAM`. Replace with a genuine configuration check only: refuse when `_cfg.team_id == 0` (not in a team) or `team_local_id() == 0` (team-DAD not yet complete). An unknown *teammate id* is no longer an error; it is the normal input to discovery.
@@ -101,6 +135,21 @@ So an unknown id costs about three team-scoped floods over 30 s and then fails l
 
 **Note for the reviewer:** this deliberately removes the storm protection that the `:1082` comment cites ("don't storm the static plane"). That rationale does not survive scrutiny — a team RREQ is fully scoped (team-private rate ledger and dedup ring, `node_route_discovery.cpp:118/248-249`; `team_scoped=true` at `:122`; unconditional static drop at `:183-188`; same-team-only admission at `:314`) and therefore cannot reach the static plane at all. Please confirm this reading independently; it is the single assumption T1 rests on.
 
+> ✅ **LANDED `36b19f3` (2026-07-28), with T1b folded in. The isolation assumption was confirmed independently
+> and 32/32 came back byte-identical** — the change is reachable only from a team-plane send.
+> ✅ The §5 "Also required" native bench-case test **was delivered** (`test/test_node_r3.cpp:2016+`).
+> ⚠ **T1b was needed on top:** T1 opened a rate-limit wedge, closed by `age_out_rreq_last()`
+> (`node_route_discovery.cpp`), which sweeps `_rreq_last` **and** `_rreq_last_team` on
+> `route_request_seen_ttl_ms`. Note the TTL — my brief said `send_defer_ttl_ms` and the coder was right to
+> reject it.
+> ★★ **A FALSE INVARIANT WAS INTRODUCED HERE AND IS STILL IN THE SOURCE.** `node_mac.cpp:70` justifies the
+> plane-aware E2E-ACK gate with *"the origin it stamps is the team_local_id, which every teammate CAN route."*
+> **That is not true of a homed teammate:** `stamp_origin` (`node.h:819-822`) has no team-plane exception, so
+> `_cfg.is_mobile && _my_mobile_reg.active` ⇒ `origin = _my_mobile_reg.home_id`, a **static** id. An off-grid
+> member stamps its team id only because `node_id == team_local_id` there. ⇒ the TEAM plane currently carries
+> **two different origin namespaces depending on whether the sender is homed**, and the argument that permits
+> `-a` on the team plane rests on the half that is false. **This is the open owner ruling in §11.**
+
 ### T2 — neighbour-learning parity
 
 Give the team plane the same RX-event coverage the static plane has. Each site currently excludes team traffic via `next_is_local_id()` (`node.h:141`) or `mobile_from`/`q.mobile`:
@@ -115,9 +164,20 @@ Give the team plane the same RX-event coverage the static plane has. Each site c
 | `node_mac_rx.cpp:1300` | NACK from our next-hop | excluded by `next_is_local_id` | + team learn |
 | `node_query.cpp:88` | Q sender | excluded by `!q.mobile` | + team learn (pairs with T4) |
 
-**Deliberately excluded: learning from the DATA *origin*.** The bench smoking gun (213 received a DM from 174 and learned nothing about it) invites a rule like "install a route to the origin of any received team DM". Rejected, for two verified reasons:
+> ✅ **LANDED `0041ed2` (2026-07-28)** — all seven sites, **plus DATA-origin learning**, which the exclusion
+> note immediately below argued against and which **§10.1 overruled**. The note is retained for the record but
+> ⚠ **its first bullet is factually wrong** (see the strikethrough) and its conclusion no longer describes the
+> code. Implemented at `node_mac_rx.cpp:666`: `learn_route_via(origin, from, committed_hops + 1, …)`.
+> Re-anchored s23/s24/s25/s26/s34; s18 keystone unmoved; no static scenario moved.
 
-- **The DATA frame carries no hop count** — `d_in`/`d_out` (`frame_codec.h`) have no `hops` field. The receiver knows the origin exists but has no basis for a `hops` value, and `hops` is the primary sort key in `route_strictly_better`. Any value invented here is a fabricated route metric.
+**~~Deliberately excluded~~ (OVERRULED by §10.1 — now implemented): learning from the DATA *origin*.** The bench smoking gun (213 received a DM from 174 and learned nothing about it) invites a rule like "install a route to the origin of any received team DM". Rejected, for two verified reasons:
+
+- ~~**The DATA frame carries no hop count** — `d_in`/`d_out` (`frame_codec.h`) have no `hops` field. The receiver knows the origin exists but has no basis for a `hops` value, and `hops` is the primary sort key in `route_strictly_better`. Any value invented here is a fabricated route metric.~~
+  ★ **FALSE — verified at `frame_codec.h:591`.** The DATA frame **does** carry `committed_hops`, a from-origin
+  count at byte 4 (bits 2..0), incremented at every forward. `hops = committed_hops + 1` is an **exact** metric
+  for every legal team path, not a fabricated one, so this bullet's conclusion inverts. It is also a 3-bit field,
+  so `+1` can neither wrap nor exceed 8. **No wire change was needed** — which retires the companion decision
+  §9/Q1 asks for.
 - **Marking `_team_peer` without a route breaks a load-bearing invariant.** `node_beacon.cpp:73` documents "an `_rt_team` route ⟹ the `_team_peer` dispatch bit is set", and `node_routing.cpp:489` maintains it by clearing the bit on age-out. Setting the bit from a DM would decouple the two.
 
 T1 makes this unnecessary: once an unknown teammate id is a valid send target, discovery finds the real path with a real metric in ~1 s. The correct fix for the symptom is T1, not origin-learning.
@@ -135,11 +195,34 @@ Bounded by the existing `max_entries` (`:379`) and `heard_set_census_min_headroo
 ### T4 — team REQ_SYNC (on-demand full-table pull)
 
 - **`node_query.cpp:52`** — `if (_cfg.is_mobile) return;` currently blocks all mobiles. The comment's reasoning is sound *for the static plane* (a mobile's local id must not leak into every static `_rt`) but does not apply to a team-scoped pull. Replace with: static-plane REQ_SYNC stays forbidden for mobiles; team-scoped REQ_SYNC is allowed for a team member with an adopted `team_local_id`.
+  ⚠ **CORRECTION — two guards blocked this path, not one.** The adjacent **`_node_id == 0`** guard also
+  refuses every **off-grid** member (s29's T3, s23's chain), which is precisely the bench configuration. Both
+  needed the carve-out; naming only `is_mobile` would have left the feature dead for the users it was for.
 - **Wire:** add a `q_opcode` value (`team_sync`) carrying a 4-byte `team_id` tail. `pack_q` is already variable-length by opcode ("4, or 5+4N for pull", `frame_codec.h:349`), so this adds a shape rather than changing one. A node that does not know the opcode ignores the frame. `q_in`/`q_out` (`:337-348`) gain `uint32_t team_id`.
+  ★ **CORRECTION — "add a value" was not free. `q_opcode` is a 2-BIT field** (`(b3 >> 6) & 0x03`,
+  `frame_codec.cpp:531/556`), and 1/2/3 were already taken. `team_sync` had to take **0, the last free
+  codepoint, and the opcode space is now FULL** — a fifth Q kind requires a wire change. The tail is additive;
+  the opcode was not. ⚠ **The out-of-range value this section implies (`= 4`) was probed rather than assumed,
+  and it fails silently in the worst way:** it truncates to 0 on the wire while comparing at full width, so the
+  feature never dispatches **and** the I7 gate stops firing (a static node gains a `q_rx`). Dead feature plus
+  isolation leak, no build error, and telemetry that reads plausibly. Taking the zero enumerator is made safe
+  by `pack_q` refusing a `team_sync` with `team_id == 0`, so a value-initialised `q_in{}` cannot air a
+  scope-less team frame.
 - **Response:** `schedule_sync_response` (`node_query.cpp:217`) answers a `team_sync` only if `same_team(q.team_id)`, and the resulting beacon is the existing team-tagged `"sync"` beacon — full `_rt_team` table via the Phase-2 rotation.
 - **Trigger:** `node_mac.cpp:731`'s originator antidote becomes plane-aware, so a team originator with no route fires a team REQ_SYNC alongside the RREQ.
 
 **No `wire_version` bump** (C4). The static Q wire is untouched; the new opcode is additive on a frame that is already opcode-variable.
+
+> ✅ **LANDED `fe1c2fd` (2026-07-28).** All four bullets, with the two corrections above. **s28 is the only
+> scenario of 32 that moved** (`e85ae061`/3534 → `27f486fa`/3552), attributed to one causal team_sync chain
+> with `dm_delivery_breakdown` diff-identical; s18 keystone unmoved; no static scenario moved.
+> ★ **I7 was measured BOTH WAYS on a single wire frame** — teammate answers, static node receiving the same
+> frame emits nothing, and with the gate removed that static node airs its **static** table in reply. The gate
+> sits at the `handle_q` dispatch site so the `return` is outside every `#if` and lands before the dedup ring.
+> ⚠ **Left open, reported not fixed:** `schedule_sync_response`'s route-starved skip and its `rt_total` both
+> read the **static** `_rt_count` on either plane — inert only because `sync_response_min_routes` defaults 0,
+> and marked in-source as MISSING with its trigger condition. Also `channel_pull` carries no `team_id` (so it
+> cannot get the leaf exemption `team_sync` gets) and airs `src = _node_id`.
 
 ### T5 — team bidi plane
 
@@ -202,8 +285,8 @@ A6/A7 are the point of the scenario: they turn "isolated" from a code-reading cl
 
 | | change |
 |---|---|
-| `wire_version` | **no bump** |
-| Q frame | new `team_sync` opcode + 4-byte `team_id` tail (additive shape on an already opcode-variable frame) |
+| `wire_version` | **no bump** — held, T4 shipped without one |
+| Q frame | new `team_sync` opcode + 4-byte `team_id` tail. ⚠ **The TAIL is additive; the OPCODE was not.** The field is **2 bits**, `team_sync` took the last free codepoint (`0`), and **the opcode space is now exhausted** — see the correction in §3/T4 |
 | F / beacon / DATA | unchanged |
 | RAM | +128 B (T5 team bidi table, u32-seconds form; 256 B if u64 ms); `sizeof(Node)` assert at `node.h:1676` updated with the arithmetic spelled out; per-board RAM diff required |
 | `NodeConfig` | +1 byte `team_hop_cap` — place it to fill existing padding, not to open a new hole (see the `radio_freq_mhz` precedent in the `node.h:1676` comment) |
@@ -219,7 +302,17 @@ Because §2.1 chose full parameterization, add the following per-slice disciplin
 1. **T0 gates alone, on byte-identity, before any feature slice.** A refactor that cannot reproduce the keystone is a failed refactor, not a tolerable diff.
 2. **Each rewritten guard carries a written equivalence argument** in the commit-ready diff: for the static plane, the new expression must reduce to the old one when `team_id == 0`. State it per expression, not per file.
 3. **The mandatory mobile/team scenario set is not optional** — `s21`–`s30` (and now `s34`, `s35`) at 0 assertion failures, per `BASELINE.md` §2.
-4. **Warnings are gate-blocking** — `-Wswitch` zero and no new warnings vs the pio baseline. The new `q_opcode` value makes this concrete: every `switch` over `q_opcode` must handle it or the build fails, which is the desired outcome.
+4. **Warnings are gate-blocking** — `-Wswitch` zero and no new warnings vs the pio baseline. ~~The new `q_opcode` value makes this concrete: every `switch` over `q_opcode` must handle it or the build fails, which is the desired outcome.~~
+   ★★ **THAT SECOND SENTENCE IS FALSE, and it was this section's safety argument. Verified during T4:
+   there are ZERO switches over `q_opcode` anywhere in the tree** — every dispatch is an `if`-chain, and the
+   only switch that touches a Q opcode (`frame_trace.h:120`) takes a **`uint8_t`**, so `-Wswitch` is
+   *structurally* blind to it. The gate would have caught nothing; the manual audit found it, and the
+   `TEAM_SYNC` trace name had to be added by hand.
+   ⇒ **The durable lesson, which generalises well beyond this spec: `-Werror=switch` protects an enum only
+   where that enum reaches a `switch` AS THE ENUM TYPE.** An enum that is dispatched by `if`-chains, or that
+   crosses an interface as an integer, is outside the gate's reach entirely. When a slice adds an enumerator,
+   *grep for the switches first* and state whether the gate actually covers it — do not assume it does. This is
+   the same sweep-scope failure the arc hit seven other ways (see the handover §5).
 
 ---
 
@@ -229,9 +322,32 @@ T0 → T1 → (T2 ∥ T4) → T3 → T5, with `s35` authored alongside T1 (it mu
 
 T1 alone fixes the reported bench failure. T4 is the highest value-per-byte of the remainder. T3 is comfort and operator visibility. T5 is the roaming-quality slice and the only one that touches `sizeof(Node)`.
 
+> **★ POSITION AS OF 2026-07-28:** `T0 ✅ → T1 ✅ → (T2 ✅ ∥ T4 ✅) → T3 ❌ → T5 ❌`. We are exactly at the T3
+> boundary. `sizeof(Node)` is **220592** and unmoved so far; T5 will change it (§3/T5's D2 obligation).
+>
+> ⚠ **`s35` did NOT ship alongside T1 as this section requires.** It was authored and proven to discriminate,
+> then **lost** with an agent scratchpad before it was committed — the durable lesson being that agent scratch
+> does not survive and repo files do. It is being re-authored now.
+> ★ **Its discrimination proof must change shape.** "Must fail before T1 lands" is no longer executable, since
+> T1 has landed. Faking a BEFORE tree would prove nothing. The replacement is a **poison probe**: author s35
+> green on HEAD, then revert each slice's guard in turn and show s35 goes red with the matching signature.
+> That is strictly stronger than the original recipe — it proves coverage of T1, T2 **and** T4 rather than T1
+> alone.
+
 ---
 
 ## 9. Open questions for the reviewer
+
+> **★ STATUS 2026-07-28 — four closed, two still open.**
+>
+> | Q | Subject | Status |
+> |---|---|---|
+> | Q1 | DATA-origin learning | ✅ **OVERRULED by §10.1** — the "no hop count" premise was false (`committed_hops`); T2 implemented it, no wire change, so the companion decision this question asks for is moot |
+> | Q2 | team RREQ storm bound | ⚠ **OPEN — blocked on `s35`.** §10.4 ruled: add no team rate window, *measure* it first. That measurement was in the lost scenario |
+> | Q3 | `_team_peer` age-out grace | ✅ **CLOSED by §10.2** — no grace window; the spec already contained the argument against it |
+> | Q4 | is the I2 invariant list complete? | ⚠ **OPEN — §10.3 answered "no"**: `_seen_origins`, `_per_origin_channel`, `_hash_query_seen`, `_mediated_recent` are plane-blind. T1b closed the one wedge T1 opened; **the rest of that sweep is unaudited**, and it is a prerequisite for §11 |
+> | Q5 | `s35` control runs | ✅ **CLOSED by §10.5** — ships as a pair |
+> | Q6 | parameterization vs sibling branches | ✅ **CLOSED by §10.6**, and T0/T1/T2/T4 all landing byte-identical-or-attributable is the evidence the chosen approach held |
 
 1. **§3/T2 — DATA-origin learning was considered and dropped** (see the exclusion note in T2). Raised here so the reviewer can overrule: the counter-argument is convergence speed, since a received DM is free evidence of reachability that T1 then re-derives with a flood. If the reviewer wants it, it needs a companion decision on how `hops` is obtained — most likely by adding a hop counter to the DATA frame, which **would** be a wire change and therefore its own slice.
 2. **§3/T1 — storm bound.** ~3 floods per unknown id per 30 s is the static profile. With 10 members each addressing a departed teammate, the worst case is ~30 floods/30 s at SF6. Is a team-specific `rreq_rate_ok` window warranted, or is the existing 16-slot team ledger (`node.h:1439`) sufficient back-pressure?
@@ -302,3 +418,41 @@ The owner has ruled on §2.1 and this does not reopen it — but T0 is the commi
 - **§3/T5 — take the u32-seconds form (128 B).** `bidi_confirm_ttl_ms` is 1 200 000 ms; second granularity is ample and the halving is real on the nRF52840.
 - **§5 — add the mixed-leaf case as an assertion, not just topology.** The spec already notes at least one teammate on a different leaf nibble mirrors what shipped to metal; make that explicit in the assertion table so a future edit cannot quietly normalise it away.
 - **§7/3 — the mandatory scenario set is now `s21`–`s34`** (s31–s34 landed 2026-07-26/27), and the corpus is **31** scenarios. Read the count and the anchors from `BASELINE.md` at gate time, as §7 already says.
+
+---
+
+## 11. ★ OPEN OWNER RULING — what `origin` does a TEAM-plane send stamp?
+
+**Raised 2026-07-28 by QA, after T1. This blocks a clean T5 and it is not mine to decide.**
+
+### The exact code state
+
+`node.h:819-822` — there is **no team-plane exception**:
+
+```cpp
+void stamp_origin(TxItem& item) const {
+    const bool mob = _cfg.is_mobile && _my_mobile_reg.active;
+    item.origin = mob ? _my_mobile_reg.home_id : _node_id;
+    item.mobile_src = mob;
+```
+
+⇒ on the **team plane** the origin namespace depends on how the sender happens to be attached:
+
+| sender | `origin` it stamps | routable by a teammate on `_rt_team`? |
+|---|---|---|
+| **off-grid** member (`_my_mobile_reg.active == false`) | `_node_id`, which **is** its `team_local_id` | yes |
+| **homed** member (registered to a static host) | `_my_mobile_reg.home_id` — a **static** id | **no** |
+
+The original rationale is sound and predates the team plane: a registered mobile *bills its home* because a home id is an accountable **global** id, and self-marking keeps the mobile's local id out of the global `_rt`.
+
+### Why it needs a ruling now
+
+1. **A load-bearing comment asserts the opposite.** `node_mac.cpp:70` permits `-a` on the team plane *because* "the origin it stamps is the team_local_id, which every teammate CAN route." For a homed member that is false, so the justification for the T1 gate rests on the half that does not hold. **This comment must be fixed either way** (V1) — the ruling decides in which direction.
+2. **It is a policy question, not a code question.** Stamping `team_local_id` on the team plane moves **anti-spam accountability** from an accountable global id to a team-scoped one, and changes a `_seen_origins` dedup key.
+3. **It has a hard prerequisite.** `_seen_origins` is one of the four **plane-blind ledgers** in §10.3 / §9-Q4. Team local ids and static node ids share the `1..254` space, so making team origins be team ids **creates an aliasing surface in a ledger that cannot currently tell the planes apart.** Changing `stamp_origin` before plane-keying those ledgers would trade a routing bug for a silent-suppression bug.
+
+### QA recommendation
+
+**Stamp `team_local_id()` on `Plane::TEAM`, but only as one slice together with plane-keying the shared ledgers** — not as the one-line change it looks like. Rationale: the team plane should have exactly one origin namespace, and the homed/off-grid split above is an accident of attachment, not a design. ⚠ **Do not treat this recommendation as measured.** Whether a homed member's team `-a` ack actually fails to return has been *reasoned* from the routing tables, not observed. The honest next step is to **measure it in `s35`** (which already needs a homed and an off-grid teammate for §5) and rule on evidence.
+
+**Alternative, if accountability outweighs it:** keep `home_id`, correct `node_mac.cpp:70` to state the real limitation, and document that a homed member's team-plane `-a` may not receive its ack.
