@@ -158,9 +158,15 @@ re-anchor — gate it and write the BASELINE note; do not treat the diff as a re
   was also asked to measure the homed-vs-off-grid `origin` question behind §11. Needs gating + a BASELINE note.
 - **T3 — team DV census** (spec §3) — not started. ★ **It also owns the hop-cap asymmetry T0 left open**:
   team RREQ floods at `team_hop_cap` 8 while team DV accepts combined hops to `dv_hop_cap` 16.
-- **T6 — team origin namespace + plane-keyed ledgers** (spec §3/T6) — not started; **new, from the §11 ruling**.
+- **T6 — team origin namespace + plane-keyed ledgers** (spec §3/T6) — ⚠ **IN FLIGHT, taken FIRST.** Part A
+  `stamp_origin` gains a plane (5 callers, incl. two channel-M paths); Part B plane-keys the four ledgers
+  (**moves `sizeof(Node)` ⇒ all TEN board envs, the exception to the 3-env rule**); Part C owes a homed-member
+  scenario, because s35a/s35b are off-grid only. ★ **Acceptance now includes R3 compliance** — zero static-plane
+  `r_tx`/`rreq_forward` attributable to a team-plane send.
 - **T5 — team bidi plane** (spec §3) — not started.
-- Order is now `T3 → T6 → T5`; spec **§8** carries it. T4 was taken before T3 deliberately.
+- ★ **Order is `T6 → T3 → T5`** — the owner pulled **T6 first** on 2026-07-28 (*"yes, do T6 first"*) once the
+  measurement showed it fixes a live delivery defect in a configuration already run on metal, not latent
+  hardening. Spec §8 + §3/T6 carry it. **T6 is IN FLIGHT.**
 
 ---
 

@@ -6,8 +6,9 @@
 
 > ## ★ STATUS 2026-07-28 — REVIEWED (§10) AND PARTLY IMPLEMENTED
 >
-> **`T0 ✅ → T1 ✅ → (T2 ✅ ∥ T4 ✅) → T3 ❌ → T6 ❌ → T5 ❌`** — see the position note in §8. **T6 is new**
-> (§3/T6), from the owner ruling in §11.
+> **`T0 ✅ → T1 ✅ → (T2 ✅ ∥ T4 ✅) → T6 ⏳ → T3 ❌ → T5 ❌`** — see the position note in §8. **T6 is new**
+> (§3/T6), from the owner ruling in §11, and was **pulled ahead of T3 by the owner on 2026-07-28** once the
+> measurement showed it fixes a live defect in a configuration already run on metal, not latent hardening.
 > ✅ **`s35` (§5) shipped 2026-07-28 as a pair — `s35a` (74 asserts) + `s35b` control (5)** — after the original
 > was lost with an agent scratchpad. Discrimination is proven by poison probe, and its **declared gaps** (it does
 > NOT cover T2; A2/A4 are algebra-only; A8 as spec'd is vacuous) are recorded in-file rather than left silent.
@@ -241,7 +242,11 @@ This is what would have let 213 and 174 recognise that their direct link is one-
 
 ### T6 — one origin namespace per plane + plane-keyed ledgers *(added 2026-07-28 by owner ruling — see §11)*
 
-**Ordering: after T3, BEFORE T5.** T5 keys link state by id, so it must not be built on top of an ambiguous id space.
+★ **Ordering: FIRST of the remainder — owner ruling 2026-07-28, pulled ahead of T3.** *"yes, do T6 first."*
+Rationale: the §11 measurement showed this is a **live delivery defect in a configuration already run on metal**
+(a homed teammate's team `-a`), whereas T3 is operator visibility plus the hop-cap asymmetry — neither a delivery
+bug. It also had to precede T5 in any case, since T5 keys link state by id and must not be built on an ambiguous
+id space. **Revised order: `T6 → T3 → T5`.**
 
 **Part A — `stamp_origin` gains a plane.** `node.h:818`:
 
@@ -380,7 +385,7 @@ Because §2.1 chose full parameterization, add the following per-slice disciplin
 
 ## 8. Build order
 
-T0 → T1 → (T2 ∥ T4) → T3 → T5, with `s35` authored alongside T1 (it must fail before T1 lands, proving it measures the right thing).
+T0 → T1 → (T2 ∥ T4) → T3 → T5, with `s35` authored alongside T1 (it must fail before T1 lands, proving it measures the right thing). ⚠ **Superseded — the shipped order is `T0 → T1 → (T2 ∥ T4) → T6 → T3 → T5`; see the position note below.**
 
 T1 alone fixes the reported bench failure. T4 is the highest value-per-byte of the remainder. T3 is comfort and operator visibility. T5 is the roaming-quality slice and the only one that touches `sizeof(Node)`.
 
@@ -392,7 +397,8 @@ T1 alone fixes the reported bench failure. T4 is the highest value-per-byte of t
 > and T5 will change it**, so each owes the D2 treatment (assert arithmetic spelled out + per-board RAM diff +
 > the full ten-env build, since per-board padding is the thing under test there).
 >
-> T3 keeps its place at the head of the remainder because it also owns the hop-cap asymmetry T0 left open.
+> ⚠ **Order revised 2026-07-28: `T6 → T3 → T5`** (owner pulled T6 first — see §3/T6). T3 still owns the hop-cap
+> asymmetry T0 left open; it is simply no longer the head of the queue.
 >
 > ⚠ **`s35` did NOT ship alongside T1 as this section requires.** It was authored and proven to discriminate,
 > then **lost** with an agent scratchpad before it was committed — the durable lesson being that agent scratch
