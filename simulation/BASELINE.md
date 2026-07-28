@@ -84,11 +84,15 @@ through `hop_cap_for` breaks s24/s25/s26/s28/s29/s30/s34 — **budget for a mult
    `flight_is_team_plane(plane, dst)` + a scenario for the collision control. **The smallest open item in the
    arc**; T6 named it and T7 refused it under C1. Do it before T3.
 2. **T3** — with the disarm hazard above as a hard acceptance item.
-3. ★ **OWNER RULING OWED BEFORE T5** — the §18 containment residual (see the T7 note). Close it (needs a wire
-   discriminator ⇒ own slice ⇒ `wire_version`, since the DATA flags byte is full) **or** accept it in §4's
-   invariant table and qualify `s35`'s A2/A6 so they stop reading as unconditional isolation proof. Either is
-   defensible; **carrying it silently is not.** It gates T5 because T5 keys link state by team local id and
-   therefore inherits the ambiguity — the same argument that pulled T6 ahead.
+3. ✅ **RULED 2026-07-28 — the §18 containment residual: ACCEPT + DOCUMENT** (owner). It is now **invariant I9**
+   in spec §4, stated as a **bound rather than a guarantee**: team-plane admission is by **team-LOCAL-ID match,
+   not team identity**, because neither RTS nor plain DATA carries a `team_id` — so a foreign team colliding
+   numerically on the same PHY is admitted, relayed and delivered. Pre-existing (the shipped `node_mac_rx.cpp:91`
+   arm admits on the identical predicate and relays at `:568`), **not** introduced by T6/T7. Closing it would need
+   a wire discriminator ⇒ a `wire_version` bump ⇒ its own slice, since the DATA flags byte is full. ★ **`s35`'s
+   A2/A6 and `s35a`'s `_desc` are now qualified to say TEAM-vs-STATIC**, which is what they measure — they had
+   been readable as unconditional isolation proof. `s35a` anchor **UNMOVED at `4508ec38`/2267** (a `_desc`/comment
+   edit does not touch the stream — verified). **T5 no longer waits on a ruling.**
 4. **T5.**
 5. **Cheap, sometime:** the `rt_update.slot` mislabel (`node_beacon.cpp:876/879`). It has now cost **two
    consecutive scenarios** (s37, s38) an explicit in-file workaround. ⚠ **Not free** — `slot` is in the stream, so

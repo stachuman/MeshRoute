@@ -335,12 +335,15 @@ These hold today and must still hold after every slice. They are the acceptance 
 | I6 | Team liveness/suspect state is plane-private | `node_routing.cpp:94/660/692` |
 | I7 | **(new, T4)** A `team_sync` Q is answered only by same-team members; a static node ignores the opcode | T4 |
 | I8 | **(new, T5)** Team bidi state is plane-private and never indexes `_link_bidi` | T5 |
+| **I9** | ★ **(new, ACCEPTED 2026-07-28 — a BOUND, not a guarantee)** Team-plane admission is bounded by **team-LOCAL-ID match, NOT by team identity.** Neither RTS nor plain DATA carries a `team_id` (`frame_codec.h:289`/`:591`), so `for_team_data` (= `team_addr_for_us`) proves only *"this frame was addressed to our team-plane id"*. ⇒ on a **§18 numeric collision** — a foreign team whose local id equals ours, on the same PHY — we **CTS, ACK and deliver-or-relay** their frame. **Pre-existing**, not introduced by T6/T7: the shipped addressed-RTS arm (`node_mac_rx.cpp:91`) already admits ids on the identical predicate, and it relays (`:568`) on the same test. **Owner ruled ACCEPT + DOCUMENT** rather than close; closing requires a **wire discriminator**, and since the DATA flags byte is full (`0xFF`) that means a `wire_version` bump and its own slice | accepted bound |
 
 **★ s18 inertness is runtime-gated, not compiled out.** `MR_FEAT_TEAM` compiles out only on the gateway build; native runs s18 with it ON. Every team branch must be runtime-inert when `team_id == 0`. This is the standing rule from the 2026-07-15 spec §4 and it applies unchanged.
 
 ---
 
 ## 5. Test — `s35_cochannel_isolation_meshroute.json` (R7)
+
+⚠ **READ I9 (§4) FIRST.** Every assertion below measures isolation **between the team plane and the STATIC plane**. That is a real and measured property — but it is **not** "the team plane is isolated", full stop: admission is by team-local-id match, so a foreign team colliding numerically is admitted. Owner-accepted 2026-07-28; do not let A2/A6 be quoted as more than they are.
 
 s24 already places statics and team members on one PHY (`routing_sf: 8`, `allowed_data_sfs: [7,9,10]`, one global `radio` block) and asserts separation. `s35` makes co-channel isolation the *subject* rather than the setting, and adds the measurement s24 lacks: a **control run**.
 
@@ -351,11 +354,11 @@ s24 already places statics and team members on one PHY (`routing_sf: 8`, `allowe
 | A# | Assertion |
 |---|---|
 | A1 | Every static node's `_rt` contains **zero** team local ids for the whole run |
-| A2 | Every team member's `_rt_team` contains **zero** static node ids |
+| A2 | Every team member's `_rt_team` contains **zero** static node ids. ⚠ **Scope, per I9:** this measures isolation from the **STATIC** plane, which is what it asserts and all it asserts. Isolation from a **foreign team** is *not* measured here and is bounded by I9, not proven |
 | A3 | No static node ever emits `rreq_forward` / `q_rx`-response / `h` forward for a team-scoped frame |
 | A4 | Every hop of every delivered team DM has a team member as relay (walk the RTS `src` chain) |
 | A5 | T1→T4 (never-heard, ≥3 hops) delivers, having started from `_team_peer` empty — the exact bench failure |
-| A6 | Static delivery in `s35` is **identical** to a control run with all team nodes removed — isolation costs the static plane nothing beyond airtime |
+| A6 | Static delivery in `s35` is **identical** to a control run with all team nodes removed — isolation costs the static plane nothing beyond airtime. ⚠ **Scope, per I9:** "isolation" here means *from static ids*; A6 says nothing about a foreign team sharing our local-id space |
 | A7 | Team delivery is unaffected by static traffic volume (second control: statics idle vs statics loaded) |
 | A8 | `leaks == 0` |
 
