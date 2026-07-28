@@ -3,6 +3,10 @@
 
 Replaces byte-identical s18 md5 as the gate for **behaviour-changing** work (routing-liveness, gateway/cross-layer, etc.). Gate on the **delivery breakdown**, not the byte stream.
 
+> ★ **Resuming mid-arc? Read `docs/2026-07-28-agent-handover.md` first** — current position in the
+> team-routing arc (T0–T2 landed, T4 in flight, T3/T5 queued), the two open scenario defects
+> (s23's four `-t` lines; the **lost** s35), and the open `stamp_origin` owner ruling.
+
 ## ★ THE MANDATORY GATE — run for EVERY change (all three; a pass on one does NOT substitute for another)
 1. **Delivery baseline suite** (the table below): no regression vs the reference numbers + `leaks == 0`. This is the gate for behaviour-changing routing/gateway/cross-layer work (it supersedes the raw s18 md5 *there* — s18's delivery legitimately shifts).
 2. **Mobile / team self-checking scenarios** — `s21_mobile_dm_milestone`, `s22_mobile_team`, `s23_mobile_team_multihop`, **`s24_static_and_team_multihop`** (static↔team + dual-relay separation), **`s25_two_team_separation`** (team↔team separation), `s26_team_reroute`, **`s27_cross_layer_mobiles`** (30+1 asserts incl. the voluntary S6.4-C re-home pin), **`s28_mixed_team_channels`** (41 asserts — mixed homed/off-grid team, channels all planes, home-death survival, team DM-by-hash both directions; PROMOTED 2026-07-20c at full green), **`s29_mixed_leaf_team`** (14 asserts — MIXED-LEAF team: members homed onto layers 20/23 + off-grid third nibble, shared PHY; cross-nibble team DV/DM/hash/channel + containment; PROMOTED 2026-07-20d), **`s30_team_dad_mediation`** (15 asserts — hidden-terminal same-team-id collision, third-party mediated DENY, loser re-pick, winner no-flap, static containment; PROMOTED 2026-07-21d): **0 assertion failures**, each. **NOT optional** — mandatory for ANY change, and especially any change touching the mobile / team / E2E-crypto planes. These are as required as the delivery suite. (s24/s25 are GREEN as of the team-plane routing-parity work — spec `docs/superpowers/specs/2026-07-15-team-plane-routing-parity-design.md`.)
