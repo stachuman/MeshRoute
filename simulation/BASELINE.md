@@ -155,6 +155,7 @@ through `hop_cap_for` breaks s24/s25/s26/s28/s29/s30/s34 — **budget for a mult
    A2/A6 and `s35a`'s `_desc` are now qualified to say TEAM-vs-STATIC**, which is what they measure — they had
    been readable as unconditional isolation proof. `s35a` anchor **UNMOVED at `4508ec38`/2267** (a `_desc`/comment
    edit does not touch the stream — verified). **T5 no longer waits on a ruling.**
+★ **OWNER RATIONALE ADDED 2026-07-28:** *"we can't protect two teams using same PHY from leaking to each other — this is the same as if we'd have two static networks with same PHY, so we accept the risk."* Correct, and I9 now records the **exact** bound rather than a hand-wave: the protocol carries **no network identity on the MAC/data leg for anyone**, so two static meshes sharing a PHY + `leaf_id` collide on `node_id` identically — this is a **wire property, not a team-plane weakness**. ★★ And teams are **strictly better** off than two static networks: the **control/discovery plane IS team-authenticated** (beacon type-5 TLV · H `H_FLAG_TEAM` · F byte-2 b6 · J_DENY 19-B · Q:TEAM_SYNC · M team flavour — all drop a foreign team), while only **RTS/DATA/CTS/ACK** lack an id. ⇒ **I9's residual is exactly the frames with no id to check, which is exactly where a static network is unprotected too.**
 4. **T5.**
 5. **Cheap, sometime:** the `rt_update.slot` mislabel (`node_beacon.cpp:876/879`). It has now cost **two
    consecutive scenarios** (s37, s38) an explicit in-file workaround. ⚠ **Not free** — `slot` is in the stream, so
