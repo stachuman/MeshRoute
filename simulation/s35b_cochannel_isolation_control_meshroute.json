@@ -1,0 +1,214 @@
+{
+ "_name": "s35b_cochannel_isolation_control",
+ "_desc": "★ THE A6 CONTROL RUN for s35a (spec §5 A6 + §10.5). Byte-for-byte the same four STATIC nodes as s35a — same ids/keys/layer/PHY/links/seed/beacon period — same four S1->S4 DMs at the same at_ms, with the FOUR TEAM NODES REMOVED. The statics are listed FIRST in both files so their node indices (0-3) are identical and the two streams are directly comparable. A6 = \"static delivery in s35a is identical to this run\": isolation costs the static plane nothing but airtime. ⚠ The comparison is DELIVERY (arrivals + the dm_delivery_breakdown table), NOT byte-identity: eight co-channel transmitters legitimately shift timing, and §10.3 records four plane-BLIND dedup ledgers (_seen_origins, _per_origin_channel, _hash_query_seen, _mediated_recent) whose keys a team local id and a static id can alias in — those SUPPRESS rather than leak, so a delivery difference here is an airtime/dedup finding to characterise, not automatically an isolation breach.",
+ "simulation": {
+  "duration_ms": 900000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "beacon_period_ms": 20000,
+  "seed": 35,
+  "node_startup_jitter_ms": 0,
+  "radio": {
+   "sf": 6,
+   "bw": 62.5,
+   "cr": 5,
+   "freq_khz": 870000,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 10
+  }
+ },
+ "commands": [
+  {
+   "_c": "IDENTICAL to s35a's static workload — same ms, same body, same seed, same `send <name>` form",
+   "at_ms": 400000,
+   "node": "S1",
+   "command": "send S4 s35-st-1"
+  },
+  {
+   "_c": "IDENTICAL to s35a's static workload — same ms, same body, same seed, same `send <name>` form",
+   "at_ms": 430000,
+   "node": "S1",
+   "command": "send S4 s35-st-2"
+  },
+  {
+   "_c": "IDENTICAL to s35a's static workload — same ms, same body, same seed, same `send <name>` form",
+   "at_ms": 460000,
+   "node": "S1",
+   "command": "send S4 s35-st-3"
+  },
+  {
+   "_c": "IDENTICAL to s35a's static workload — same ms, same body, same seed, same `send <name>` form",
+   "at_ms": 490000,
+   "node": "S1",
+   "command": "send S4 s35-st-4"
+  }
+ ],
+ "expect": [
+  {
+   "_c": "1 [A6 control] static 3-hop delivery S1->S4 (s35-st-1) with the team plane ABSENT",
+   "type": "script_emit_contains",
+   "node": "S4",
+   "emit_type": "push",
+   "value": "s35-st-1"
+  },
+  {
+   "_c": "2 [A6 control] static 3-hop delivery S1->S4 (s35-st-2) with the team plane ABSENT",
+   "type": "script_emit_contains",
+   "node": "S4",
+   "emit_type": "push",
+   "value": "s35-st-2"
+  },
+  {
+   "_c": "3 [A6 control] static 3-hop delivery S1->S4 (s35-st-3) with the team plane ABSENT",
+   "type": "script_emit_contains",
+   "node": "S4",
+   "emit_type": "push",
+   "value": "s35-st-3"
+  },
+  {
+   "_c": "4 [A6 control] static 3-hop delivery S1->S4 (s35-st-4) with the team plane ABSENT",
+   "type": "script_emit_contains",
+   "node": "S4",
+   "emit_type": "push",
+   "value": "s35-st-4"
+  },
+  {
+   "_c": "5 [A6 control] the static chain converged (S1 holds a route to S4)",
+   "type": "script_emit_contains",
+   "node": "S1",
+   "emit_type": "rt_update",
+   "value": "\"dest\":34,"
+  }
+ ],
+ "nodes": [
+  {
+   "name": "S1",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.4,
+   "start_at_ms": 1000,
+   "node_id": 31,
+   "key_hash32": "0x51000031",
+   "config": {
+    "layer_id": 23,
+    "routing_sf": 6,
+    "allowed_data_sfs": [
+     6
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "S2",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.4,
+   "start_at_ms": 1000,
+   "node_id": 32,
+   "key_hash32": "0x51000032",
+   "config": {
+    "layer_id": 23,
+    "routing_sf": 6,
+    "allowed_data_sfs": [
+     6
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "S3",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.4,
+   "start_at_ms": 1000,
+   "node_id": 33,
+   "key_hash32": "0x51000033",
+   "config": {
+    "layer_id": 23,
+    "routing_sf": 6,
+    "allowed_data_sfs": [
+     6
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "S4",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.4,
+   "start_at_ms": 1000,
+   "node_id": 34,
+   "key_hash32": "0x51000034",
+   "config": {
+    "layer_id": 23,
+    "routing_sf": 6,
+    "allowed_data_sfs": [
+     6
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  }
+ ],
+ "topology": {
+  "links": [
+   {
+    "from": "S1",
+    "to": "S2",
+    "snr": 38.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S2",
+    "to": "S1",
+    "snr": 38.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S2",
+    "to": "S3",
+    "snr": 38.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S3",
+    "to": "S2",
+    "snr": 38.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S3",
+    "to": "S4",
+    "snr": 38.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   },
+   {
+    "from": "S4",
+    "to": "S3",
+    "snr": 38.0,
+    "rssi": -50.0,
+    "snr_std_dev": 0,
+    "bidir": false
+   }
+  ]
+ }
+}

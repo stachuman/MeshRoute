@@ -60,9 +60,27 @@ Landed in **T1b, commit `36b19f3`**. Verified at this writing:
 ⚠ Note the TTL: `route_request_seen_ttl_ms`, **not** `send_defer_ttl_ms`. I got that wrong when briefing
 T1b and the coder was right to push back.
 
-### Item 2 — s35 corrected to use `-t` → ⚠ **THE SCENARIO FILE IS LOST; RE-AUTHOR IT**
+### Item 2 — s35 corrected to use `-t` → ✅ **DONE** (re-authored as `s35a` + `s35b`)
 
-The sim-side half **survived and is committed** — `NodeRuntimeWrapper.cpp:801` has the trailing-`-t` parse:
+> ## ★★ CORRECTION 2026-07-28 — THE CLAIM BELOW IS WRONG, AND ACTING ON IT WOULD HAVE MADE s23 WORSE
+>
+> I wrote that T1's sim-side patch "survived and is committed" at `NodeRuntimeWrapper.cpp:801`. **It did not.**
+> That line sits inside the **`send_hash`** branch (`:788`–`:813`) and predates T1 by a week (sim `a54baf7`,
+> 2026-07-21, tagged `§F-TR-1`). The **id-addressed `send` verb at `:896` had no `-t` handling at all** —
+> `c.u.send.plane` was assigned at exactly one site in the whole file. I mistook a pre-existing parse for the
+> lost one, and the `.patch` I found preserved in a scratchpad was a red herring.
+> ⇒ **T1's sim patch was lost WITH s35.** Converting s23 to the suffix form on that tree would have aired
+> `hop_test -t` as the body, still on plane AUTO. The coder caught it and wrote the missing 10 lines; QA
+> verified the enclosing branch and the date independently.
+>
+> ✅ **Both halves now landed** — sim patch committed, and s35 re-authored as
+> `s35a_cochannel_isolation_meshroute.json` (74 asserts, `f95bf6ce`/2336) +
+> `s35b_..._control_meshroute.json` (5 asserts, `4f49e969`/1063), **both mandatory**. Corpus is now **34**.
+> Discrimination proven by poison probe, not by the unexecutable "must fail before T1": P-T1 → 20 failures
+> including the literal bench string. **s35b held 0 failures under every probe**, which is what makes it a
+> control. ⚠ **s35 does NOT cover T2** — declared, not silent. Full record in the `BASELINE.md` SCEN note.
+
+The original claim, kept as the record of the error — `NodeRuntimeWrapper.cpp:801` has the trailing-`-t` parse:
 
 ```cpp
 // §team-parity T1: an optional TRAILING " -t" selects the TEAM plane, EXACTLY as send_hash above does
@@ -96,7 +114,13 @@ now doubly earned — durable output goes in the repo.
 Spec **§5** is the authoring contract, and **§10.5** requires it to ship as a **pair**. Because it is a new
 scenario it gets a fresh anchor and a BASELINE note — it does not disturb existing anchors.
 
-### Item 3 — verify/correct the four live scenario lines → ⚠ **OPEN, all four confirmed wrong**
+### Item 3 — verify/correct the four live scenario lines → ✅ **DONE**, all four were wrong
+
+> ✅ **Corrected to the suffix form. `s23` re-anchors `d019abfc` → `96f6ffe3` with the event count UNCHANGED at
+> 795 — a VALUE-ONLY re-anchor.** ⚠ I predicted the count would move; it does not. The delta is the DATA hex
+> losing `2d7420` (`-t `), airtime 150 → 139 ms, and every downstream timestamp shifting.
+> ✅ **`s28` audit: no defect.** Corpus sweep found **11 other ` -t` uses, all `send_hash`, all correct since
+> 2026-07-21 — s23's four lines were the only defect in the corpus.**
 
 `simulation/s23_mobile_team_multihop_meshroute.json`:
 
