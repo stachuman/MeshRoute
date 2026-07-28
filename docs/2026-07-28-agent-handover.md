@@ -158,7 +158,15 @@ re-anchor — gate it and write the BASELINE note; do not treat the diff as a re
   was also asked to measure the homed-vs-off-grid `origin` question behind §11. Needs gating + a BASELINE note.
 - **T3 — team DV census** (spec §3) — not started. ★ **It also owns the hop-cap asymmetry T0 left open**:
   team RREQ floods at `team_hop_cap` 8 while team DV accepts combined hops to `dv_hop_cap` 16.
-- **T6 — team origin namespace + plane-keyed ledgers** (spec §3/T6) — ⚠ **IN FLIGHT, taken FIRST.** Part A
+- **T6 — team origin namespace + plane-keyed ledgers** — ✅ **GATED AND COMMITTED `9c7b40a`.** s28/s29 value-only
+  re-anchors, `s37_team_homed_origin` new, corpus **35**, native **930/69355/0**, `sizeof(Node)` **unmoved at
+  220592** (my escalation premise was false). Record in the `BASELINE.md` **T6** note.
+- ★ **T7 — relax T2's `is_team_peer(origin)` learn fence** — **NOT STARTED, and it is the LAST UNCLOSED PIECE OF
+  THE BENCH CASE.** T6 made the origin decidable, so the fence is now over-restrictive; until it is relaxed an
+  ack to a **never-heard, never-DV'd** teammate still falls back to AUTO→static. Take it before T5. Adjacent:
+  the E2E-ACK gate's `is_team_peer(dst)` arm is not plane-qualified. ⚠ s35a/s35b do **not** cover T2, so this
+  slice owes its own discriminator — likely an `s37` extension, which already has the homed/off-grid pair.
+- *(historical, T6's original brief)* Part A
   `stamp_origin` gains a plane (5 callers, incl. two channel-M paths); Part B plane-keys the four ledgers
   (**moves `sizeof(Node)` ⇒ all TEN board envs, the exception to the 3-env rule**); Part C owes a homed-member
   scenario, because s35a/s35b are off-grid only. ★ **Acceptance now includes R3 compliance** — zero static-plane

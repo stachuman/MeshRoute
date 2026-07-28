@@ -6,7 +6,7 @@
 
 > ## ★ STATUS 2026-07-28 — REVIEWED (§10) AND PARTLY IMPLEMENTED
 >
-> **`T0 ✅ → T1 ✅ → (T2 ✅ ∥ T4 ✅) → T6 ⏳ → T3 ❌ → T5 ❌`** — see the position note in §8. **T6 is new**
+> **`T0 ✅ → T1 ✅ → (T2 ✅ ∥ T4 ✅) → T6 ✅ → T7 ❌ → T3 ❌ → T5 ❌`** — see the position note in §8. **T6 is new**
 > (§3/T6), from the owner ruling in §11, and was **pulled ahead of T3 by the owner on 2026-07-28** once the
 > measurement showed it fixes a live defect in a configuration already run on metal, not latent hardening.
 > ✅ **`s35` (§5) shipped 2026-07-28 as a pair — `s35a` (74 asserts) + `s35b` control (5)** — after the original
@@ -242,6 +242,18 @@ This is what would have let 213 and 174 recognise that their direct link is one-
 
 ### T6 — one origin namespace per plane + plane-keyed ledgers *(added 2026-07-28 by owner ruling — see §11)*
 
+> ✅ **LANDED `9c7b40a` (2026-07-28).** Part A shipped with a **WIDER predicate than this section specifies, and
+> correctly so** — `flight_is_team_plane()` is `rt_find`'s dispatch expression verbatim, so identity-claimed and
+> route-taken cannot diverge; the literal `plane == Plane::TEAM` would have missed every **AUTO** team DM, which
+> is what the corpus and the companion default actually use. **`_mediated_recent` was REFUSED with a
+> disjointness proof** (its key is a global key-hash; the two writers' loser sets are disjoint on `b.is_mobile`),
+> saving 256 B and keeping `sizeof(Node)` at **220592** — ⇒ ★ **this section's D2 warning was wrong: the layout
+> does not move.** `s37_team_homed_origin` captures the R3 breach as an assertion. Full record in the
+> `BASELINE.md` **T6** note.
+> ⚠ **T6 did NOT close the bench case.** T2's `is_team_peer(origin)` learn fence is now over-restrictive, and
+> until it is relaxed an ack to a **never-heard, never-DV'd** teammate still falls back to AUTO→static. That is
+> **T7** and it should precede T5.
+
 ★ **Ordering: FIRST of the remainder — owner ruling 2026-07-28, pulled ahead of T3.** *"yes, do T6 first."*
 Rationale: the §11 measurement showed this is a **live delivery defect in a configuration already run on metal**
 (a homed teammate's team `-a`), whereas T3 is operator visibility plus the hop-cap asymmetry — neither a delivery
@@ -397,7 +409,9 @@ T1 alone fixes the reported bench failure. T4 is the highest value-per-byte of t
 > and T5 will change it**, so each owes the D2 treatment (assert arithmetic spelled out + per-board RAM diff +
 > the full ten-env build, since per-board padding is the thing under test there).
 >
-> ⚠ **Order revised 2026-07-28: `T6 → T3 → T5`** (owner pulled T6 first — see §3/T6). T3 still owns the hop-cap
+> ⚠ **Order revised 2026-07-28: `T6 ✅ → T7 → T3 → T5`.** **T7 is new** — relax T2's `is_team_peer(origin)` learn
+> fence, which T6 made decidable and which is **the last unclosed piece of the §0 bench failure**. Recommended
+> next by the same logic that pulled T6 ahead of T3: a live defect outranks operator visibility. T3 still owns the hop-cap
 > asymmetry T0 left open; it is simply no longer the head of the queue.
 >
 > ⚠ **`s35` did NOT ship alongside T1 as this section requires.** It was authored and proven to discriminate,
