@@ -62,6 +62,39 @@ python3 tools/dm_delivery_breakdown.py simulation/<s>.json /tmp/<s>.ndjson --fai
 **GATE:** 36/36 scenarios 0 assertion failures, from-scratch `lus`. `sizeof(Node)` **220592** proven positively. Boards 3/3, **ΔRAM +0**. ΔFlash gateway **+16**, xiao_sx1262 **−64**, xiao_esp32s3 **−8** — ★ investigated per the >64 B rule and it pays off: on `gateway` (`MR_FEAT_TEAM 0`) **both changed TUs emit byte-identical `.o` files**, so its +16 is provably `__DATE__`/`__TIME__` noise **and that is the inertness proof at object-code level**; the −64/−8 are real (`node_mac_rx.o` 34352 → 34324 on ARM), one bit-test removed from the hot DATA path. Warnings 0 in `lib/`+`src/`, `-Wswitch` 0, identical in both arms with symmetric forced recompiles; sim from-scratch 3 warnings = BASELINE's 3.
 ⚠ **Excluded with a C1 argument (accepted):** the E2E-ACK gate's `is_team_peer(dst)` (`node_mac.cpp:89`) does **not** share this slice's predicate — it is a **send-side** plane qualification whose fix is T6's `flight_is_team_plane(plane,dst)`, against a **receive-side** learn; folding it in would also have made the s35a attribution ambiguous, and its control case (a GLOBAL send to a colliding id) exists in **no** scenario, so it needs its own file. Still owed. Also still open: the team-only `_per_origin_channel` clear, `schedule_sync_response`'s static `_rt_count`, `channel_pull`'s missing `team_id`, and the `rt_update` `slot` mislabel.
 
+★★★ **HAZARD HANDED FORWARD TO T3 — IT CAN SILENTLY DISARM BOTH DISCRIMINATION SCENARIOS.** `s35a` **and**
+`s38` both rely on **`dv_hop_cap: 1`** to stop team DV from pre-teaching the far teammate — that knob is the whole
+reason either scenario measures anything (see the SCEN note: raising `team_beacon_period_ms` does NOT stop team DV,
+because a member's ordinary beacon IS a same-team beacon). **T3 turns on the census force-inject
+(`node_beacon.cpp:445`).** By algebra it survives — census entries are `hops == 1`, so a combined 2 > 1 is still
+refused — ⚠ **but that is ALGEBRA, NOT MEASURED**, and if it slips, `s38`'s asserts 3 and 4 stop discriminating
+**without going red**. That is the decoration failure mode, and it would leave the arc's headline fix unguarded.
+⇒ **MANDATORY T3 ACCEPTANCE ITEM (cheap):** after T3, re-run the **P-T7** probe (re-add `is_team_peer(origin) &&`
+at `node_mac_rx.cpp:694`) against `s38` and confirm it still yields **8 of 16** failures. If it does not, T3 has
+disarmed the detector and must restore discrimination before it lands.
+⚠ **Also for T3's planning:** its delivery value has shrunk twice — T2's ratchet fix and T7's free exact install
+now cover "keep a busy teammate's route alive from live traffic", so T3's remaining substance is **operator
+visibility for SILENT teammates** plus the **hop-cap asymmetry** T0 left open (team RREQ at `team_hop_cap` 8,
+`node_route_discovery.cpp:264/273`, vs team DV still accepting combined hops against `dv_hop_cap` 16,
+`node_beacon.cpp:860`). And its blast radius is **much larger than T7's**: T0 recorded that routing the DV cap
+through `hop_cap_for` breaks s24/s25/s26/s28/s29/s30/s34 — **budget for a multi-scenario re-anchor.**
+
+★★ **THE ARC'S REMAINING QUEUE, as it stands after T7:**
+1. **`node_mac.cpp:89` — the E2E-ACK gate's unqualified `is_team_peer(dst)`.** One line to T6's
+   `flight_is_team_plane(plane, dst)` + a scenario for the collision control. **The smallest open item in the
+   arc**; T6 named it and T7 refused it under C1. Do it before T3.
+2. **T3** — with the disarm hazard above as a hard acceptance item.
+3. ★ **OWNER RULING OWED BEFORE T5** — the §18 containment residual (see the T7 note). Close it (needs a wire
+   discriminator ⇒ own slice ⇒ `wire_version`, since the DATA flags byte is full) **or** accept it in §4's
+   invariant table and qualify `s35`'s A2/A6 so they stop reading as unconditional isolation proof. Either is
+   defensible; **carrying it silently is not.** It gates T5 because T5 keys link state by team local id and
+   therefore inherits the ambiguity — the same argument that pulled T6 ahead.
+4. **T5.**
+5. **Cheap, sometime:** the `rt_update.slot` mislabel (`node_beacon.cpp:876/879`). It has now cost **two
+   consecutive scenarios** (s37, s38) an explicit in-file workaround. ⚠ **Not free** — `slot` is in the stream, so
+   fixing it is a **value-only re-anchor of every team scenario**.
+6. **Candidate:** the read-path plane audit (spec §12).
+
 **★★★★★★★ 2026-07-28 T6 (`§team-parity T6` — one origin namespace per plane + plane-keyed ledgers; corpus 34 → **35** — QA GO; committed):** the owner ruling of §11. **Part A** — `stamp_origin` gains `(Plane, dst)` and a team flight stamps `team_local_id()`. **Part B** — plane-key the ledgers: `_per_origin_channel` and `_hash_query_seen` keyed, `_seen_origins` corrected, **`_mediated_recent` REFUSED with a proof**. **RE-ANCHORS: s28 `27f486fa` → `4ca592d3` · s29 `7c6d4aa1` → `71947232` — both VALUE-ONLY** (counts unchanged at 3552/1622; delta is one inner byte, `origin 101 → 233/196`, plus pkt hashes; `dm_delivery_breakdown` **diff-identical**). **NEW: `s37_team_homed_origin` `7b3bd8d6`/654, 24 asserts.** ★ **s18 keystone `1cd21235`/271629 UNMOVED; no static scenario moved.** Native **921/69286/0 → 930/69355/0** (+9 cases, +69 assertions). All QA-reproduced independently.
 
 ★ **ACCEPTED DEVIATION — the coder WIDENED my predicate, and was right.** My brief said `plane == Plane::TEAM`. It shipped `flight_is_team_plane(plane, dst)` = `plane == TEAM || (plane == AUTO && is_team_peer(dst))`, which is **`rt_find`'s dispatch expression VERBATIM** (`node_routing.cpp:22`) — QA diffed the two. ⇒ **"what identity a flight claims" and "where it routes" cannot diverge, and that divergence IS the defect §11 ruled on.** The literal form would have left every **AUTO** team DM still stamping the home id — and the corpus's team DMs *are* AUTO (s24/s25/s26 use `send_hash` without `-t`, which is also the companion default), so my version would have fixed almost nothing while appearing to pass. `GLOBAL` is deliberately excluded (§18: a global send to an id colliding a teammate's team id routes on `_rt` and must keep the accountable home id). `rt_find` was deliberately **not** refactored onto the new helper — C1, a cleanup slice owns it.
