@@ -91,6 +91,7 @@ TEST_CASE("bin cfg — round-trip, fits 241 for a single-layer node") {
     meshroute::NodeConfig c{}; c.routing_sf = 8; c.allowed_sf_bitmap = (1<<7)|(1<<9);
     c.leaf_id = 1; c.is_gateway = false; c.is_mobile = false; c.team_id = 0xABCD; c.config_epoch = 4;
     c.radio_bw_hz = 125000; c.radio_cr = 5;
+    c.dv_hop_cap = 16; c.team_hop_cap = 3;   // §team-parity T3: DISTINCT values so the round-trip proves the two tags are not aliased
     meshroute::console::CfgExtras x; x.node_id = 17; x.freq_hz = 869525000; x.tx_power = 14; x.lat_e7 = 522297000;
     uint8_t b[241]; size_t n = enc_cfg(b, sizeof b, c, x);
     CHECK(n > 2); CHECK(n <= 241);
@@ -98,6 +99,7 @@ TEST_CASE("bin cfg — round-trip, fits 241 for a single-layer node") {
     CHECK(o.node_id == 17u); CHECK(o.freq_hz == 869525000u); CHECK(o.routing_sf == 8u);
     CHECK(o.sf_list == ((1<<7)|(1<<9))); CHECK(o.team_id == 0xABCDu); CHECK(o.lat_e7 == 522297000);
     CHECK(o.tx_power == 14); CHECK(o.bw == 125000u);
+    CHECK(o.hop_cap == 16u); CHECK(o.team_hop_cap == 3u);   // §team-parity T3: TAG_CFG_TEAM_HOP_CAP (0x1C) round-trips independently of TAG_CFG_HOP_CAP (0x0A)
 }
 
 TEST_CASE("bin routes — pack N, round-trip, truncated flag") {

@@ -163,6 +163,15 @@ void handle_cfg_set(const char* args, Print& out) {
     else if (!strcmp(key, "hop_cap"))    { const int v = atoi(val);   // §3-A.2: protocol domain 1..16 — dv_hop_cap is the F RREQ TTL (codec: "config caps ttl <= 16") + the DV merge cap; flood_hop_max=16 clamps every flood horizon; 0 would kill ALL route learning
                                            if (!valid_hop_cap(v)) { out.println(F("> cfg err bad_value (hop_cap 1..16)")); return; }
                                            lc.dv_hop_cap = (uint8_t)v; persist = false; }
+    // §team-parity T3: the TEAM plane's twin of `hop_cap`. Mirrors dv_hop_cap's surface EXACTLY and no further — same
+    // valid_hop_cap domain (U1: the F RREQ TTL, the RREP 2x backstop and the DV merge cap are the same wire bounds on
+    // either plane) and the same `persist = false` (LIVE-only, reboot reverts to protocol::team_hop_cap = 8), so there
+    // is no NV blob and no J-frame field to extend (C4: no wire change). Refuses loud on a bad value (C2) — never clamps.
+    // Not MR_FEAT_TEAM-gated, matching NodeConfig::team_hop_cap itself (node_carriers.h:141): the field exists on every
+    // profile, so the key stays settable on a gateway build where it is simply inert.
+    else if (!strcmp(key, "team_hop_cap")) { const int v = atoi(val);
+                                           if (!valid_hop_cap(v)) { out.println(F("> cfg err bad_value (team_hop_cap 1..16)")); return; }
+                                           lc.team_hop_cap = (uint8_t)v; persist = false; }
     // --- location piggyback: LIVE via mutable_config() + PERSISTED (NV v9). The lat/lon are set via `cfg set lat`/`lon` (-> /mrid). ---
     else if (!strcmp(key, "loc_in_dm"))  { b.loc_in_dm = (atoi(val) != 0 || !strcmp(val, "on") || !strcmp(val, "true")) ? 1 : 0; lc.loc_in_dm = (b.loc_in_dm != 0); }
     // --- E2E §4b: originate app DMs ENCRYPTED. LIVE via mutable_config() + PERSISTED (NV v10). A no-pubkey CRYPTED send

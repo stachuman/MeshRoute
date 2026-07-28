@@ -523,6 +523,7 @@ size_t write_cfg(char* buf, size_t cap, const NodeConfig& c, const CfgExtras& x)
     j.lit(",\"lbt\":");        j.lit(c.lbt_enabled ? "true" : "false");
     j.lit(",\"beacon_ms\":");  j.u32(c.beacon_period_ms);
     j.lit(",\"hop_cap\":");    j.u32(c.dv_hop_cap);
+    j.lit(",\"team_hop_cap\":"); j.u32(c.team_hop_cap);   // §team-parity T3: the team plane's RREQ/cascade radius, beside its static twin (round-trips `cfg set team_hop_cap`). ⚠ it is NOT yet the team DV cap — see node_beacon.cpp:884
     j.lit(",\"leaf_id\":");    j.u32(c.leaf_id);
     j.lit(",\"gateway\":");    j.lit(c.is_gateway ? "true" : "false");
     j.lit(",\"mobile\":");     j.lit(c.is_mobile ? "true" : "false");

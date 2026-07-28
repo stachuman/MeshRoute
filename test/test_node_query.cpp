@@ -458,7 +458,8 @@ TEST_CASE("census complete-flag — set when the full direct-neighbour set fit w
 }
 
 TEST_CASE("census — a GATEWAY (n_layers==2) skips the census: a steady-state beacon injects no hops==1 entries") {
-    // OI3 leaf-only: the census gate is `dirty_only && _cfg.n_layers != 2 && !_cfg.is_mobile`. A REAL gateway requires a
+    // OI3 leaf-only: the census gate is `dirty_only && _cfg.n_layers != 2 && (!_cfg.is_mobile || team_emit)`
+    // (§team-parity T3 relaxed the mobile term; the n_layers term this case pins is untouched). A REAL gateway requires a
     // valid dual-layer cfg (per-layer layer_id 1..255 / routing_sf / allowed_sf_bitmap, distinct leaf nibbles, equal
     // non-zero window_period_ms) or on_init refuses it (§3.2). layer_id 0x10 -> active leaf nibble 0; is_gateway is DERIVED.
     // node_id MUST be set per-layer (1..16 = gateway band): activate_layer(0) mirrors layers[0].node_id into _node_id, and
@@ -485,6 +486,126 @@ TEST_CASE("census — a GATEWAY (n_layers==2) skips the census: a steady-state b
         }
     }
 }
+
+#if MR_FEAT_TEAM
+// §team-parity T3 (spec §3/T3): the census gate's `!_cfg.is_mobile` term is relaxed to `!_cfg.is_mobile || team_emit`,
+// so a TEAM member's steady-state beacon re-advertises its DIRECT teammates (_rt_team hops==1) every period instead of
+// announcing each once and clearing the dirty bit. It also makes heard_set_complete authoritative on a team beacon,
+// which T5's team bidi plane needs (the M1 rule: absence is only meaningful on a beacon that ran the census).
+// ⚠ Corpus-covered too (12 team scenarios re-anchor, link_census_complete 0 -> 3..7 per scenario), but the CONTROL
+// below — a LONE mobile still skipping — is native-only: no corpus scenario runs a lone mobile with hops==1 routes.
+TEST_CASE("§team-parity T3 census — a TEAM member's steady-state beacon force-injects its _rt_team hops==1 set + asserts complete; a LONE mobile still skips") {
+    // Shared setup: `member` builds a team node that hears `n_peers` same-team teammate beacons (each carrying one
+    // route entry so the DV merge also runs), flushes the resulting dirty page, then emits ONE steady-state beacon.
+    // team_id == 0 in the control arm => team_active/team_emit false => the pre-T3 expression verbatim.
+    auto steady_beacon = [](TestHal& hal, Node& node, uint32_t team_id, uint8_t my_team_id,
+                            std::initializer_list<uint8_t> peers) {
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
+        cfg.quiet_threshold_ms = 0; cfg.is_mobile = true; cfg.team_id = team_id;
+        CHECK(node.on_init(cfg));
+        if (my_team_id) node.set_team_local_id(my_team_id);         // team-DAD'd => team_active => the team plane emits
+        uint8_t ext[8]; const size_t en = team_id ? pack_team_id_tlv(team_id, std::span<uint8_t>(ext, sizeof ext)) : 0;
+        for (uint8_t peer : peers) {                               // each teammate beacon => _rt_team[peer] at hops==1
+            beacon_entry ce{}; ce.dest = 90; ce.next = 91; ce.score_bucket = 14; ce.hops = 2;   // a REMOTE carried entry (never census-injected)
+            beacon_in tb{}; tb.leaf_id = 0; tb.src = peer; tb.key_hash32 = 0x9000u + peer; tb.is_mobile = true;
+            if (en) tb.ext = std::span<const uint8_t>(ext, en);
+            tb.entries = std::span<const beacon_entry>(&ce, 1);
+            std::array<uint8_t, 64> b{}; const size_t bn = pack_beacon(tb, std::span<uint8_t>(b.data(), b.size()));
+            node.on_recv(b.data(), bn, meta_at(10));
+        }
+        hal._now = protocol::discovery_ms + 1;      // past discovery => a periodic beacon is dirty_only (the census arm)
+        node.test_emit_beacon("periodic");          // flush: the first-learn dirty page airs and the dirty bits clear
+        hal.tx_frames.clear();
+        node.test_emit_beacon("periodic");          // STEADY state: nothing dirty => ONLY the census can inject
+    };
+    // (A) TEAM member: both direct teammates ride the steady-state page, and the page is authoritative-complete.
+    {
+        TestHal hal; Node node(hal, /*id=*/0, /*key=*/0x7EA1u);    // off-grid member (node_id 0) — the bench shape
+        steady_beacon(hal, node, /*team_id=*/0xABCD1234u, /*my_team_id=*/210, {213, 234});
+        CHECK(!hal.tx_frames.empty());
+        if (!hal.tx_frames.empty()) {
+            const auto& f = hal.tx_frames.back();
+            auto o = parse_beacon(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+            CHECK(o.has_value());
+            if (o) {
+                CHECK(o->src == 210);                              // §6.4: a team beacon airs on the team id
+                bool h213 = false, h234 = false, h90 = false;
+                for (uint8_t i = 0; i < o->n_entries; ++i) {
+                    auto e = parse_beacon_entry(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()), *o, i);
+                    CHECK(e.has_value());
+                    if (e) {
+                        if (e->dest == 213) { h213 = true; CHECK(e->hops == 1); }
+                        if (e->dest == 234) { h234 = true; CHECK(e->hops == 1); }
+                        if (e->dest ==  90) h90 = true;
+                    }
+                }
+                CHECK(h213); CHECK(h234);          // ★ THE PAYOFF: pre-T3 the steady-state team page was EMPTY
+                CHECK_FALSE(h90);                  // the census is hops==1 only — the 3-hop remote is not force-injected
+                CHECK(o->heard_set_complete);      // ★ T5's prerequisite: authoritative on a beacon that ran the census
+            }
+        }
+    }
+    // (B) CONTROL, same seam: a LONE mobile (team_id == 0 => team_emit false) keeps the pre-T3 behaviour exactly —
+    //     no census, no authority. This is what proves the relaxation is scoped to the team plane, not to all mobiles.
+    {
+        TestHal hal; Node node(hal, /*id=*/44, /*key=*/0x7EA2u);
+        steady_beacon(hal, node, /*team_id=*/0, /*my_team_id=*/0, {45, 46});
+        CHECK(!hal.tx_frames.empty());
+        if (!hal.tx_frames.empty()) {
+            const auto& f = hal.tx_frames.back();
+            auto o = parse_beacon(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()));
+            CHECK(o.has_value());
+            if (o) {
+                CHECK(o->n_entries == 0);            // a lone mobile advertises an identity-only page (§6.2)
+                CHECK_FALSE(o->heard_set_complete);  // ...and never claims census authority
+            }
+        }
+    }
+}
+// §team-parity T3 / invariant I2 — the containment the census made necessary. The bidi census writes the STATIC
+// `_link_bidi[advertiser]`, so `advertiser` must be a static node id. Before T3 the pre-existing guard was
+// `!same_team_beacon`, which is FALSE for a FOREIGN team's member and for any plain mobile — both `is_mobile`, both
+// airing `b.src` = a LOCAL id. It was latent only because a mobile beacon never set heard_set_complete, so absence
+// was never authoritative; the T3 census makes it authoritative. Guard tightened to `!b.is_mobile` (strictly
+// stronger: same_team_beacon ⇒ b.is_mobile). Corpus-covered too (s24/s25/s30/s34/s37 leaked `link_one_way` on team
+// local ids in the unfixed T3 arm), but pinned here so it cannot silently regress.
+TEST_CASE("§team-parity T3 / I2 — a FOREIGN-team member's complete-census beacon never writes the static _link_bidi; a static advertiser's does") {
+    // One helper, two advertisers, everything else identical — so the only variable is `is_mobile`/the team TLV.
+    auto hear = [](TestHal& hal, Node& node, uint8_t adv, bool adv_mobile, uint32_t adv_team) {
+        NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
+        cfg.quiet_threshold_ms = 0;                        // a plain STATIC receiver: team_id 0, is_mobile false
+        CHECK(node.on_init(cfg));
+        uint8_t ext[8]; const size_t en = adv_team ? pack_team_id_tlv(adv_team, std::span<uint8_t>(ext, sizeof ext)) : 0;
+        beacon_entry ce{}; ce.dest = 77; ce.next = 77; ce.score_bucket = 14; ce.hops = 1;   // a hops==1 page that does NOT list us
+        beacon_in tb{}; tb.leaf_id = 0; tb.src = adv; tb.key_hash32 = 0x4000u + adv; tb.is_mobile = adv_mobile;
+        tb.heard_set_complete = true;                      // ★ the T3 census bit — this is what makes absence authoritative
+        if (en) tb.ext = std::span<const uint8_t>(ext, en);
+        tb.entries = std::span<const beacon_entry>(&ce, 1);
+        std::array<uint8_t, 64> b{}; const size_t bn = pack_beacon(tb, std::span<uint8_t>(b.data(), b.size()));
+        node.on_recv(b.data(), bn, meta_at(10));
+    };
+    const uint8_t unknown = static_cast<uint8_t>(LinkBidi::unknown), one_way = static_cast<uint8_t>(LinkBidi::one_way);
+    {   // (A) a FOREIGN-team member (is_mobile + a team_id we are not in) advertising id 213 = a TEAM LOCAL id.
+        TestHal hal; Node node(hal, /*id=*/60, /*key=*/0xB1D1u);
+        hear(hal, node, /*adv=*/213, /*adv_mobile=*/true, /*adv_team=*/0xFEED0001u);
+        CHECK(node.link_bidi_at(213) == unknown);      // ★ I2: no team local id in the static bidi array
+        CHECK(hal.count("link_one_way") == 0);
+    }
+    {   // (B) a plain (team-less) MOBILE advertising its own mobile LOCAL id — same §18 write-alias class.
+        TestHal hal; Node node(hal, /*id=*/61, /*key=*/0xB1D2u);
+        hear(hal, node, /*adv=*/214, /*adv_mobile=*/true, /*adv_team=*/0);
+        CHECK(node.link_bidi_at(214) == unknown);
+        CHECK(hal.count("link_one_way") == 0);
+    }
+    {   // (C) SAME-SITE CONTROL: an identical beacon from a STATIC advertiser DOES mark one_way — proving the two
+        //     arms above are contained rather than merely unreachable, and that the static plane is untouched.
+        TestHal hal; Node node(hal, /*id=*/62, /*key=*/0xB1D3u);
+        hear(hal, node, /*adv=*/63, /*adv_mobile=*/false, /*adv_team=*/0);
+        CHECK(node.link_bidi_at(63) == one_way);
+        CHECK(hal.count("link_one_way") == 1);
+    }
+}
+#endif   // MR_FEAT_TEAM
 
 // L6: config_epoch (u16) must SATURATE at 65534 on a managed-leaf write. A raw base+1 wraps 65535->0,
 // and leaf_config_synced() (lineage!=0 && config_epoch>0) then reads false forever -> permanent de-sync.

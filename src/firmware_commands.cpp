@@ -179,6 +179,7 @@ static void dump_cfg(Print& out) {
     out.print(F("  proto : duty="));    out.print(c.duty_cycle * 100.0, 2); out.print('%');   // W2b: percent, matching `cfg set duty`
     out.print(F(" beacon_ms="));        out.print(c.beacon_period_ms);
     out.print(F(" hop_cap="));          out.print(c.dv_hop_cap);
+    out.print(F(" team_hop_cap="));     out.print(c.team_hop_cap);   // §team-parity T3: printed beside its static twin (unconditionally, like hop_cap) so the two radii are readable as a PAIR — they still DIFFER on the DV leg (node_beacon.cpp:884), which is exactly why an operator needs to see both
     out.print(F(" lbt="));              out.print(c.lbt_enabled ? 1 : 0);
     out.print(F(" nav="));              out.print(c.nav_enabled ? 1 : 0);
     out.print(F(" intra_relay="));      out.print(c.intra_layer_relay ? 1 : 0);   // §gateway: relay same-leaf DMs? (default OFF)
@@ -545,7 +546,7 @@ static void dump_help(Print& out) {
     hl(F("    dual-layer -> NV, reboot to apply.  e.g. gateway l0=1:1:8:7,9 l1=2:1:9:9,10"));
     hl(F(""));
     hl(F("CFG KEYS  (`cfg set <key> <val>`; bool keys take on|off / 1|0)"));
-    hl(F("  node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap leaf_id"));
+    hl(F("  node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap team_hop_cap leaf_id"));
     hl(F("  mobile team_id mobile_autoregister host_mobiles intra_layer_relay gateway_only"));
     hl(F("  lat lon loc_in_dm e2e_dm intro_attach ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack"));
     hl(F("  active_fraction ch_min_ms dm_min_ms leaf_name"));

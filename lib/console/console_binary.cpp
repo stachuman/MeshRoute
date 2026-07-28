@@ -120,6 +120,7 @@ size_t enc_cfg(uint8_t* buf, size_t cap, const NodeConfig& c, const CfgExtras& x
     if (!put_u32(buf,cap,off,TAG_CFG_DUTY_X1000, x.duty_x1000))          return 0;
     if (!put_u32(buf,cap,off,TAG_CFG_BEACON_MS,  c.beacon_period_ms))    return 0;
     if (!put_u8 (buf,cap,off,TAG_CFG_HOP_CAP,    c.dv_hop_cap))          return 0;
+    if (!put_u8 (buf,cap,off,TAG_CFG_TEAM_HOP_CAP,c.team_hop_cap))       return 0;   // §team-parity T3: the team plane's twin
     if (!put_u8 (buf,cap,off,TAG_CFG_LBT,        c.lbt_enabled?1:0))     return 0;
     if (!put_u8 (buf,cap,off,TAG_CFG_NAV,        c.nav_enabled?1:0))     return 0;
     if (!put_u8 (buf,cap,off,TAG_CFG_INTRA_RELAY,c.intra_layer_relay?1:0))return 0;
@@ -148,6 +149,7 @@ bool dec_cfg(const uint8_t* buf, size_t len, CfgOut& o) {
         case TAG_CFG_BW: o.bw=get_u32(v,n); break;               case TAG_CFG_CR: o.cr=get_u8(v,n); break;
         case TAG_CFG_TX_POWER: o.tx_power=int8_t(get_i16(v,n)); break; case TAG_CFG_DUTY_X1000: o.duty_x1000=get_u32(v,n); break;
         case TAG_CFG_BEACON_MS: o.beacon_ms=get_u32(v,n); break; case TAG_CFG_HOP_CAP: o.hop_cap=get_u8(v,n); break;
+        case TAG_CFG_TEAM_HOP_CAP: o.team_hop_cap=get_u8(v,n); break;
         case TAG_CFG_LBT: o.lbt=get_u8(v,n); break;              case TAG_CFG_NAV: o.nav=get_u8(v,n); break;
         case TAG_CFG_INTRA_RELAY: o.intra_relay=get_u8(v,n); break; case TAG_CFG_HOST_MOB: o.host_mobiles=get_u8(v,n); break;
         case TAG_CFG_LEAF_ID: o.leaf_id=get_u8(v,n); break;      case TAG_CFG_GATEWAY: o.is_gateway=get_u8(v,n); break;

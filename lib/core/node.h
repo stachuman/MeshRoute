@@ -471,9 +471,12 @@ public:
     // feeds BOTH the RREQ `f.hops >= cap` guard and the RREP `f.hops > 2*cap` backstop. The cap and the TTL therefore
     // stay in the relationship the static plane has always had.
     // MISSING — two consumers still hardcode `false`, each for its own reason, neither an oversight:
-    //   · node_beacon.cpp:846 (DV combined-hops cap) — team-LIVE (157 corpus executions across s22/23/24/25/26/28/
-    //     29/30/34), so flipping it halves the team DV radius. That is T3's slice (the team DV census), not T1's:
-    //     it belongs with the change that decides how far team DV should propagate at all.
+    //   · node_beacon.cpp:884 (DV combined-hops cap) — ★ T3 ATTEMPTED THE FLIP, MEASURED IT AND BACKED IT OUT
+    //     (2026-07-28). It is NOT the "halves the team DV radius across 9 scenarios" change T0/T1 predicted: measured,
+    //     **0 of those 9 move** (their team paths are <= 3 hops, so 8 and 16 decide identically). Its one real effect
+    //     is to disarm s35a/s38, and NO value of team_hop_cap restores them, for a structural reason recorded in full
+    //     at that site. Re-attempting it needs s35a re-authored FIRST. The config prerequisite is landed (T3 gave
+    //     team_hop_cap a `cfg set` + readouts + a sim dispatch row), so the flip itself is one token.
     //   · node_cascade.cpp:164 (§P3 dead-primary rediscovery) — STATIC-ONLY BY CONSTRUCTION and nothing flips it
     //     later; the team branch above it returns early to avoid the static _peer_liveness array it reads.
     uint8_t           hop_cap_for(bool team_plane) const { return team_plane ? _cfg.team_hop_cap : _cfg.dv_hop_cap; }

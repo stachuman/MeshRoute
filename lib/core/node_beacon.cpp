@@ -433,16 +433,21 @@ void Node::emit_beacon(const char* kind) {
     // !dirty_only-gated => dormant here). Does NOT set dirty (the post-pack clear is untouched; no re-dirty-every-period).
     // Gateways skip by construction (OI3 leaf-only — they already skip the bitmap/digest). bidi_census_full tracks whether
     // the FULL hops==1 set fit (drives heard_set_complete, Task 4). M1: set true ONLY inside this gate, so a NON-census
-    // beacon (discovery/sync = !dirty_only, gateway, or mobile) leaves it false -> heard_set_complete=false (absence is
-    // authoritative ONLY on a beacon that ran the census). Bounded by the LIVE max_entries so it never overflows beacon_max_bytes.
-    // §team-parity T0: the census now packs from the SELECTED plane (src_rt/src_cnt, chosen at :389 above) instead of
+    // beacon (discovery/sync = !dirty_only, gateway, or a mobile NOT emitting the team plane) leaves it false ->
+    // heard_set_complete=false (absence is authoritative ONLY on a beacon that ran the census). Bounded by the LIVE
+    // max_entries so it never overflows beacon_max_bytes.
+    // §team-parity T0: the census now packs from the SELECTED plane (src_rt/src_cnt, chosen at :404 above) instead of
     // hardcoding _active->_rt — so T3 only has to relax the gate, not also re-point the loop.
-    // ★ PROVABLY INERT, one line: the gate below still requires !_cfg.is_mobile, and team_emit ⇒ _cfg.is_mobile
-    // (team_active at :367 is `_cfg.is_mobile && team_id != 0 && team_local_id() != 0`), so inside this block
-    // team_emit is necessarily false ⇒ src_rt == _active->_rt and src_cnt == _active->_rt_count, by construction.
-    // Under MR_FEAT_TEAM 0 (the three gateway_* envs) src_rt/src_cnt are literally _active->_rt/_rt_count at compile
-    // time (:392-394), so the substitution is textual there. MISSING → T3 adds `|| team_emit` to the gate.
-    if (dirty_only && _cfg.n_layers != 2 && !_cfg.is_mobile) {
+    // ★ §team-parity T3 — DONE (was MISSING here): `|| team_emit` relaxes the !_cfg.is_mobile term, so a team member's
+    // steady-state beacon re-advertises its DIRECT teammates every period instead of announcing each once and clearing
+    // the dirty bit at :489. That is the operator-visibility half of T3: a SILENT teammate's route stays advertised
+    // (T2's origin learn and T7's exact install only refresh routes that carry live traffic). heard_set_complete is now
+    // set on team beacons too — T5's team bidi plane needs it, and the M1 rule above makes it authoritative only here.
+    // Static reduction: team_id == 0 ⇒ team_active == false ⇒ team_emit == false ⇒ the gate is `dirty_only &&
+    // n_layers != 2 && !_cfg.is_mobile`, the pre-T3 expression verbatim. Under MR_FEAT_TEAM 0 (the three gateway_*
+    // envs) team_emit is a compile-time `false` (:407) and src_rt/src_cnt are literally _active->_rt/_rt_count
+    // (:408-409), so the whole relaxation folds away textually there.
+    if (dirty_only && _cfg.n_layers != 2 && (!_cfg.is_mobile || team_emit)) {
         bidi_census_full = true;
         for (uint8_t i = 0; i < src_cnt; ++i) {
             if (src_rt[i].n == 0 || src_rt[i].candidates[0].hops != 1) continue;
@@ -852,11 +857,41 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         const int16_t combined_score = (rx_score_q4 < entry_score_q4) ? rx_score_q4 : entry_score_q4;
         const int     combined_hops  = static_cast<int>(e.hops) + 1;
         // §team-parity T0: the DV combined-hops ceiling, read through the plane accessor.
-        // ★ DELIBERATELY `false`, NOT `same_team_beacon` — this is the single MOST team-live hop-cap consumer in the
-        // tree (poison-probe over the 32-scenario corpus: 157 executions with same_team_beacon==true, across s22 s23
-        // s24 s25 s26 s28 s29 s30 s34), so hop_cap_for(same_team_beacon) would immediately halve the team DV radius.
-        // Behaviour change ⇒ not T0 (C1). MISSING → the team slice that adopts team_hop_cap flips this to
-        // hop_cap_for(same_team_beacon); `same_team_beacon` is already in scope right here.
+        // ★★ STILL `false`, NOT `same_team_beacon` — and T3 (2026-07-28) ATTEMPTED THE FLIP, MEASURED IT, AND BACKED
+        // IT OUT. This is the last hop-cap consumer in the tree that does not read its own plane's radius, so the
+        // team plane stays ASYMMETRIC: team RREQ floods cap at team_hop_cap (8) via node_route_discovery.cpp:264 and
+        // node_cascade.cpp:145/:317, while team DV here still accepts carried routes up to dv_hop_cap (16). A team
+        // route DV-taught at 9..16 hops therefore cannot be repaired by discovery. ✖ MISSING, deliberately deferred.
+        //
+        // WHAT T3 MEASURED (do not re-derive it — the numbers are first-hand, whole corpus, both arms):
+        //  1. The flip is BEHAVIOURALLY INERT where T0 predicted the blast radius. T0 recorded 157 executions with
+        //     same_team_beacon==true across s22 s23 s24 s25 s26 s28 s29 s30 s34 and expected a 9-scenario re-anchor.
+        //     Measured: **0 of those 9 move.** Those team topologies are <= 3 hops, so a cap of 8 and a cap of 16
+        //     decide identically. (T0's count was SITE EXECUTIONS, not executions where combined_hops lands in 9..16.)
+        //  2. Its ONLY corpus effect is to DISARM s35a and s38, which clip team DV with a hop cap of 1 so a 3-hop
+        //     teammate is genuinely never-heard. They fail LOUDLY, not silently (s35a 9 / s38 1 assertion failures) —
+        //     their discovery-chain asserts are PRESENCE assertions, so the mechanism vanishing IS a failure. That
+        //     corrects the "green while testing nothing" hazard as it was written into the brief.
+        //  3. ★ NO VALUE OF team_hop_cap RESTORES s35a. Swept on the real file: 1 -> 5 failures (discovery can no
+        //     longer reach 3 hops, three DMs stop delivering) · 2 -> 3 failures and rreq_forward drops to 0 (the
+        //     2-hop relay answers from its OWN cache at 1 hop) · 3 / 4 / 8 -> 9 failures (DV pre-teaches the target,
+        //     no discovery at all). There is no setting in between.
+        //  4. WHY, structurally — this is the finding, not a tuning problem. After the flip, one node's DV reach and
+        //     its RREQ reach are the SAME number. For a relay to FORWARD an RREQ it must be within cap of the origin
+        //     (dX < cap) and NOT already know the target (dXT > cap); with a single cap and dX + dXT = the true
+        //     distance, that pair is unsatisfiable. ⇒ a team destination becomes either already-DV-known or
+        //     discovery-unreachable, and RADIUS-CLIPPING dies as a test method for on-demand team discovery.
+        //     ⚠ Note this is ALSO true of the static plane today (dv_hop_cap is BOTH the DV cap and the F RREQ TTL,
+        //     node_carriers.h:138) — which means the flip is CORRECT static parity, and s35a's radius clip was
+        //     exploiting the very asymmetry T3 was sent to close. Real discovery fills TABLE/PAGE holes (rotating
+        //     dirty-only pages, capped entry counts), not radius holes — and a page hole is also what the §0 bench
+        //     actually showed.
+        // ⇒ WHAT THE FLIP NEEDS FIRST (in this order): s35a re-authored so 174 is unknown to 213 for a KNOWLEDGE
+        //   reason rather than a radius reason (a late join, or an engineered dirty-rotation hole), keeping its
+        //   team-plane rreq_forward coverage. That is a scenario-authoring decision, so it is QA's call, not this
+        //   line's. The flip itself is then ONE token, and its config prerequisite is already landed: team_hop_cap
+        //   became settable in T3 (`cfg set team_hop_cap` + the sim's dispatch row), so the retune has a knob the day
+        //   the authoring question is answered. See node_carriers.h:158.
         // Static reduction: team_plane==false ⇒ hop_cap_for(false) == _cfg.dv_hop_cap on every build profile.
         if (combined_hops > hop_cap_for(/*team_plane=*/false)) continue;
 
@@ -894,7 +929,25 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
             auto pe = parse_beacon_entry(std::span<const uint8_t>(bytes, len), b, i);
             if (pe) heard[hn++] = *pe;
         }
-        if (!same_team_beacon)   // §2c LEAK FIX: a team beacon's b.src is a team_local_id — update_link_bidi_from_beacon would write the static _link_bidi[team_id] (§18 write-alias). The team plane keeps no bidi array (deferred). A static beacon (same_team_beacon==false, always so for team_id==0) is unchanged -> s18-inert.
+        // §2c LEAK FIX, TIGHTENED BY §team-parity T3 (`!same_team_beacon` -> `!b.is_mobile`) — and T3 MEASURED the
+        // residual the old form left open rather than inferring it. update_link_bidi_from_beacon writes the STATIC
+        // `_link_bidi[advertiser]` (and note_link_confirmed's fan-out), so `advertiser` MUST be a static node id;
+        // §18/I2 forbids a team or mobile LOCAL id there. The old guard excluded only a SAME-team beacon, and its
+        // comment then equated "not same-team" with "static" — which is false for a FOREIGN-team member's beacon and
+        // for any plain mobile's: both are `is_mobile` and both air `b.src` = a LOCAL id.
+        // ★ WHY IT WAS LATENT AND WHY T3 HAD TO CLOSE IT: the write needs either our id present at hops==1 in the
+        // page (a foreign team never advertises us) or `complete == true` (:239) — and a team/mobile beacon never
+        // SET heard_set_complete, because the census that sets it was mobile-gated. T3 turns the census on for team
+        // beacons, so absence becomes authoritative and the one_way write fires. Measured on the T3-without-this-fix
+        // arm: **s30 static `S` wrote _link_bidi[100]/[200]/[98]** (three team local ids) · **s37 statics H1/S2 wrote
+        // _link_bidi[210]/[220]** · s24 statics wrote [34]/[44]/[91] · s25/s34 members wrote each other's FOREIGN
+        // team ids. That is invariant I2 breached verbatim, by a READ-path/consumption gate rather than a learn site
+        // (spec §12's class), and it is exactly the shape s37's assert 28 and s38's assert 12 exist to catch.
+        // Strictly stronger, provably: same_team_beacon == `b.is_mobile && same_team(peer_team)` (:541), so
+        // `!b.is_mobile` ⇒ `!same_team_beacon` — the old predicate is subsumed, nothing newly admitted.
+        // Static reduction: a static advertiser has b.is_mobile == false, so every pre-T3 static-to-static call still
+        // happens; s18 (no mobiles at all) is byte-identical, and the team plane still keeps no bidi array (T5 owns it).
+        if (!b.is_mobile)
             update_link_bidi_from_beacon(b.src, heard, hn, b.heard_set_complete);
     }
 

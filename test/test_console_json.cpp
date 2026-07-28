@@ -269,7 +269,7 @@ TEST_CASE("write_route / write_routes_end / write_cfg — Node+Network screens")
     n = write_cfg(b, sizeof b, cc, x);
     CHECK(std::string(b, n) ==
       "{\"ev\":\"cfg\",\"node_id\":5,\"freq_hz\":869462500,\"routing_sf\":7,\"sf_list\":\"7,12\",\"bw_hz\":125000,\"cr\":5,"
-      "\"tx_power\":22,\"duty_x1000\":100,\"lbt\":true,\"beacon_ms\":900000,\"hop_cap\":16,\"leaf_id\":0,"
+      "\"tx_power\":22,\"duty_x1000\":100,\"lbt\":true,\"beacon_ms\":900000,\"hop_cap\":16,\"team_hop_cap\":8,\"leaf_id\":0,"   // §team-parity T3: team_hop_cap defaults to protocol::team_hop_cap = 8, distinct from dv_hop_cap's 16 -> the golden pins WHICH field each key reads
       "\"gateway\":false,\"mobile\":false,\"mobile_autoregister\":true,\"team_id\":\"00000000\",\"ble_mode\":\"on\",\"ble_period\":15,\"ble_pin\":123456,"
       "\"lat_e7\":522297000,\"lon_e7\":-41000000}\n");
     // §S1: cfg team_id round-trips as a hex string; mobile_autoregister always present.

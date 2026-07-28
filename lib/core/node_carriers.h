@@ -142,16 +142,23 @@ struct NodeConfig {
     // accessor must compile identically on the three gateway_* envs (MR_FEAT_TEAM 0), so a later slice cannot
     // route a live path through a team-gated stub the corpus is blind to (the 2026-07-27ze near-miss).
     // ★ LIVE SINCE T1 — the team discovery plane reads it: the cascade-exhaustion + deferred-drain RREQ TTLs
-    // (node_cascade.cpp:145/:317) and the RREQ/RREP hop-cap backstops (node_route_discovery.cpp:224). The team DV
-    // combined-hops cap (node_beacon.cpp:846) still runs on dv_hop_cap — see the DONE/MISSING note on hop_cap_for.
-    // ★ STILL MISSING, deliberately, and T1 did not need it: no console surface (`cfg set hop_cap` at
-    // firmware_config.cpp:163 still writes dv_hop_cap only), no `cfg`/`status` readout (firmware_commands.cpp:181,
-    // console_json.cpp:525, console_binary.cpp:122 all print dv_hop_cap alone), and no NV/J-frame provisioning — so
-    // the value is compile-time-fixed at 8 on metal. dv_hop_cap's own console knob is already `persist = false`
-    // (live-only, reboot reverts), so there is no NV blob to extend either. WHY NOT NOW: R4 fixes the team ceiling at
-    // 8 by design (3-10 members, stragglers to 8), unlike dv_hop_cap which is a per-network provisioning choice
-    // carried on the J frame. A knob would invite per-node divergence on a plane that has no provisioning authority
-    // to reconcile it — every member self-DADs. Revisit only if a real deployment needs a different team radius.
+    // (node_cascade.cpp:145/:317) and the RREQ/RREP hop-cap backstops (node_route_discovery.cpp:273).
+    // ✖ STILL NOT the team DV combined-hops cap (node_beacon.cpp:884) — that site deliberately still reads
+    // dv_hop_cap, so the team radius remains RREQ-8 / DV-16. T3 attempted the flip, measured it and BACKED IT OUT:
+    // it is inert on the 9 scenarios T0 predicted (0 of 9 move) and its only effect is to disarm s35a/s38, which no
+    // value of this knob can restore. The full measurement and the structural reason live at node_beacon.cpp:859-891
+    // — read it there before re-attempting the flip.
+    // ★ CONSOLE SURFACE — DONE in T3 (was MISSING), mirroring dv_hop_cap's EXACTLY and no further: `cfg set
+    // team_hop_cap` (firmware_config.cpp, same valid_hop_cap 1..16 domain, refuses loud, `persist = false` =
+    // LIVE-only so reboot reverts to protocol::team_hop_cap) + the three readouts beside dv_hop_cap's
+    // (firmware_commands.cpp dump_cfg, console_json.cpp write_cfg, console_binary.cpp enc_cfg via the APPENDED
+    // TAG_CFG_TEAM_HOP_CAP=0x1C) + the simulator's NodeRuntimeWrapper.cpp dispatch row.
+    // ★ STILL MISSING, deliberately: no NV blob and no J-frame field (C4 — no wire change, nothing to reflash for).
+    // dv_hop_cap's own console knob is likewise `persist = false`, so there is no NV blob to extend either. WHY NOT:
+    // R4 fixes the team ceiling at 8 by design (3-10 members, stragglers to 8), unlike dv_hop_cap which is a
+    // per-network provisioning choice carried on the J frame. A PERSISTED team knob would invite per-node divergence
+    // on a plane that has no provisioning authority to reconcile it — every member self-DADs. The live-only knob is
+    // the right shape: a bench/scenario can clip the radius for a run, and a reboot restores the design value.
     // Placed here (immediately after dv_hop_cap, ahead of the 8-byte-aligned `double radio_freq_mhz` below) so it
     // lands in the SAME existing alignment padding the radio_freq_mhz note describes: measured native offsets are
     // dv_hop_cap@93 / radio_freq_mhz@96, i.e. bytes 94-95 are pure pad. Cost measured: sizeof(NodeConfig) 264 -> 264.
