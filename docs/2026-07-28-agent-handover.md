@@ -26,23 +26,19 @@ for everything after `916de64`; that document is still correct for the carrier/C
 
 | | |
 |---|---|
-| MeshRoute HEAD | `0041ed2` — *T2: team-plane neighbour-learning parity* |
+| MeshRoute HEAD | `fe1c2fd` — *T4: team REQ_SYNC (on-demand full-table pull)*; tree **clean** |
 | Simulator HEAD | `4e381b0` — *sim: add the `leave` verb*; tree **clean** |
-| MeshRoute tree | ⚠ **DIRTY — this is T4's in-flight work, do not commit it as yours** |
 | Anchors / native counts | in `BASELINE.md` (authority) |
 
 **Commits landed this arc:** `916de64` (QA records + s36 + spec §10) · sim `4e381b0` · `b342df8`
-(reprovision push + id-0) · `2d0366d` (T0) · `36b19f3` (T1 + T1b) · `0041ed2` (T2).
+(reprovision push + id-0) · `2d0366d` (T0) · `36b19f3` (T1 + T1b) · `0041ed2` (T2) · `a7282a0` (this
+handover) · `fe1c2fd` (T4).
 
-Dirty files, all owned by the running T4 agent:
-`lib/core/frame_codec.{cpp,h}` · `lib/core/node_mac.cpp` · `lib/core/node_query.cpp` ·
-`test/test_dual_layer.cpp` · `test/test_frame_codec.cpp` · `test/test_node_r3.cpp`.
+### ★ Sequencing rule — currently satisfied, but re-read it before the next slice
 
-### ★ Sequencing rule this state forces
-
-**Do not measure any scenario anchor while that tree is dirty.** An anchor taken against T4's half-landed
-REQ_SYNC is a plausible-but-false number — the same failure class as the `cp -a` mtime hazard below.
-Order: **finish and gate T4 → commit → only then touch scenarios.**
+**Never measure a scenario anchor against a dirty tree.** An anchor taken against half-landed work is a
+plausible-but-false number — the same failure class as the stale-artifact hazard in §5. This blocked the
+s23/s35 scenario work for as long as T4 held the tree; both repos are clean now, so it is released.
 
 ---
 
@@ -81,6 +77,14 @@ Without it, `Command.u.send.plane` could never be TEAM from an id-addressed scen
 `ledger_probe.json`. T1's coder wrote them into its scratchpad; the scratchpad died with the session.
 `simulation/` today holds s31–s34 and s36 — **no s35**.
 
+⚠ **Cause not fully established — a second candidate, self-disclosed.** The T4 agent reclaimed 42 GB from
+the shared scratchpad (the disk had hit 100%, 170 MB free — nothing could run). Its preservation filter kept
+`.txt/.md/.log/.diff/.patch` but **not `.json`**. It searched afterwards: no `s35*` exists anywhere on disk,
+no root-level file was touched, no preserved report mentions it — consistent with session death. But that
+deletion happened **before** this document was written, so T4 cannot exclude itself and flagged it rather
+than letting it be discovered. Either way the remedy is the same: **re-author.** The lesson is unchanged and
+now doubly earned — durable output goes in the repo.
+
 **The evidence s35 must reproduce when re-authored** (recorded from T1's gate report):
 
 > BEFORE: **860 events, 10 failures** — including `actual_reply="OK error ctr=0 depth=0"`, which is the
@@ -117,11 +121,11 @@ re-anchor — gate it and write the BASELINE note; do not treat the diff as a re
 
 ## 3. WORK IN FLIGHT AND QUEUED
 
-- **T4 — team REQ_SYNC (on-demand full-table pull)** — ⚠ **RUNNING** as I write (agent
-  `a4be33806982d2d27`, last progress: *"probing leaf-exemption and loop-guard in handle_q"*). It owns the
-  dirty tree. **Gate it, then commit it.** If the agent is gone, its preserved evidence is under the
-  session scratchpad `T4/preserved/` — which **will not survive**, so re-run the gate rather than trusting
-  a stale log.
+- **T4 — team REQ_SYNC (on-demand full-table pull)** — ✅ **GATED AND COMMITTED `fe1c2fd`.** Tree is clean;
+  the sequencing rule above is released. Full record in the `BASELINE.md` T4 note, including the three
+  premises of mine it disproved (`q_opcode` is 2 bits ⇒ `team_sync` had to take 0, the last free codepoint;
+  `-Werror=switch` was structurally blind to it; the `_node_id == 0` guard also blocked off-grid members).
+  ⚠ **Docs still owed by QA:** the `frames.md` Q rows and `protocol.md:106` — listed in the BASELINE note.
 - **T3 — team DV census** (spec §3) — not started.
 - **T5 — team bidi plane** (spec §3) — not started.
 - Spec **§8** gives the intended build order; T4 was taken before T3 deliberately.
@@ -168,9 +172,17 @@ otherwise "0" means *unreachable*, not *inert*. This is what proved the `send -t
 
 **"Executed ≠ observable."** Counting site executions does not establish observability. Measure *values*.
 
-**★ The `cp -a` mtime hazard.** Preserving mtimes leaves stale build objects, so a probe returns a
-confident, plausible, **false** result. It bit three consecutive slices' harnesses. Restore harness trees by
-**content write + `touch`**, and rebuild shared trees from scratch.
+**★ The stale-artifact hazard — now FOUR consecutive slices.** A probe returns a confident, plausible,
+**false** result because the binary it ran was not the binary it thought it built. Two variants seen:
+*(a)* `cp -a` preserves mtimes, leaving stale objects — restore harness trees by **content write + `touch`**
+and rebuild shared trees from scratch; *(b)* **a failed build leaves the previous binary in place**, so the
+runner measures the old code. T4 hit (b) and self-caught it: its first mutant run reported 921/921 green for
+code that **does not compile**. ⇒ **`rm` the binary before every build, and refuse to report a result
+without a regenerated one.** I applied this to my own verification of T4.
+
+**A brief's premises are hypotheses, not facts.** T4 disproved three of mine and was right each time; T1b
+corrected my TTL; T2 corrected my saturation claim. Write briefs so a coder can *measure* the premise, and
+say plainly that disproving one is a valid result.
 
 **The sweep-scope meta-bug — 7+ instances this arc.** An audit is only as wide as its scope. Ways I got it
 wrong: directory scope · flag scope (`-Wswitch` blind behind a `default:`) · path form (absolute vs the
@@ -196,7 +208,9 @@ delivery-parity + re-anchor (behaviour change) · assertion-count exactness (sce
 
 ## 6. SUGGESTED NEXT ACTIONS
 
-1. Gate T4 → commit. (Nothing else can be measured until the tree is clean.)
+1. ~~Gate T4 → commit.~~ ✅ DONE (`fe1c2fd`). Tree clean — scenario work is unblocked.
+1b. Land the `frames.md` / `protocol.md` updates T4 left owed (listed in the BASELINE T4 note), incl. the
+    **pre-existing** `frames.md:269` drift calling the byte-3 `mobile` bit "effectively inert".
 2. Fix the four s23 lines + audit s28 → gate → **re-anchor s23** with a BASELINE note.
 3. Re-author `s35_cochannel_isolation_meshroute.json` per spec §5 + §10.5; it must reproduce
    860/10 → 952/0, including the `OK error ctr=0 depth=0` bench string.
