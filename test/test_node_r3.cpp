@@ -2326,21 +2326,104 @@ TEST_CASE("§team-parity T2 row 4b — DATA-ORIGIN learning installs a REAL mult
     CHECK_FALSE(t1_in_static_rt(X, 60));
 }
 
-TEST_CASE("§team-parity T2 row 4b — the SOUNDNESS GATE: an origin that is NOT a known teammate is REFUSED (a homed member stamps its HOME's static id)") {
-    // ★★ THE ISOLATION CASE, and it is not hypothetical: stamp_origin (node.h:818) returns _my_mobile_reg.home_id
-    // for a REGISTERED mobile with no team exception, so a HOMED teammate's team DM carries a STATIC node id as its
-    // origin. Measured live in s28 (team_local_id 233, home 101 -> origin=101) and s29 (plane=TEAM, origin=101).
-    // Installing _rt_team[101] would be s35's A2 breach AND would shadow that node's own static route to its home.
+// ===================== §team-parity T7 (2026-07-28) — the is_team_peer(origin) fence removed ===================
+// T2 fenced the DATA-origin learn on is_team_peer(origin) because a HOMED member stamped its HOME's STATIC node id
+// (measured: s28/s29 origin=101), so a never-heard origin could not be told from a static id. T6 made a team-plane
+// flight stamp team_local_id() — the same two scenarios re-anchored on exactly that byte (origin 101 -> 233/196) —
+// which retires the premise. The case below REPLACES the T2 test that pinned the fence: the behaviour it asserted is
+// what T7 deliberately changes, so keeping it would pin the bug.
+TEST_CASE("§team-parity T7 — THE BENCH CASE: a NEVER-HEARD teammate's id is learned from a relayed team DM (spec §0's smoking gun)") {
+    // Spec §0: "213 *received* a message from 174 and the immediately following `routes` still showed n=1."
+    // Post-T7 the receiver installs a REAL multi-hop team route to an origin it has never heard and has no DV route to.
     const uint32_t TEAM = 0x06EF37AEu;
-    TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); t1_offgrid(X, 50, TEAM);
+    TestHal hal; Node X(hal, /*id=*/213, /*key=*/0xA213u); t1_offgrid(X, 213, TEAM);
     std::array<uint8_t, 64> bb{};
-    { const size_t n = t1_team_beacon(/*src=*/60, TEAM, bb); X.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,60}); }
-    CHECK_FALSE(X.is_team_peer(101));                        // 101 = a HOME's static node id, never a teammate
+    { const size_t n = t1_team_beacon(/*src=*/234, TEAM, bb); X.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,234}); }
+    CHECK(X.is_team_peer(234));                              // the relay: heard, 1 hop
+    CHECK_FALSE(X.is_team_peer(174));                         // ★ the originator: NEVER heard, no beacon, no F, no route
+    CHECK(t2_team_rt(X, 174) == nullptr);
 
-    t2_inbound_team_flight(X, /*me_team=*/50, /*prev=*/60, /*dst=*/50, /*origin=*/101, /*committed=*/1, /*ctr=*/0x0031);
-    CHECK(t2_team_rt(X, 101) == nullptr);                    // ★★ REFUSED — no static id in the team plane (A2)
+    // 174 originates, 234 relays (committed_hops=1 => 174 is 2 hops out), addressed to our team id 213.
+    t2_inbound_team_flight(X, /*me_team=*/213, /*prev=*/234, /*dst=*/213, /*origin=*/174, /*committed=*/1, /*ctr=*/0x0051);
+
+    const RtEntry* e = t2_team_rt(X, 174);
+    CHECK(e != nullptr);                                     // ★★ THE PAYOFF — pre-T7 this is nullptr
+    if (e) {
+        bool via234 = false;
+        for (uint8_t i = 0; i < e->n; ++i) if (e->candidates[i].next_hop == 234 && e->candidates[i].hops == 2) via234 = true;
+        CHECK(via234);                                       // hops = committed_hops + 1, next = the prev-hop
+    }
+    CHECK(X.is_team_peer(174));                              // ★★ the dispatch bit too, so rt_find(174, AUTO) reads _rt_team
+    // ★ ISOLATION (I2): the team plane learned it; the static plane learned nothing about either id.
+    CHECK_FALSE(t1_in_static_rt(X, 174));
+    CHECK_FALSE(t1_in_static_rt(X, 234));
+}
+
+TEST_CASE("§team-parity T7 — and the reverse send then routes on the TEAM plane: rt_find(never-heard origin) resolves to _rt_team") {
+    // The bench's other half: 213 could not `send 174 "..." -t` at all. The route installed above is what the reply uses;
+    // this pins that it is the TEAM table that answers, since rt_find(dst, TEAM) hard-forces _rt_team with no fallback.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/213, /*key=*/0xA213u); t1_offgrid(X, 213, TEAM);
+    std::array<uint8_t, 64> bb{};
+    { const size_t n = t1_team_beacon(/*src=*/234, TEAM, bb); X.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,234}); }
+    t2_inbound_team_flight(X, /*me_team=*/213, /*prev=*/234, /*dst=*/213, /*origin=*/174, /*committed=*/1, /*ctr=*/0x0052);
+    CHECK(t2_team_rt(X, 174) != nullptr);
+
+    hal.events.clear(); hal.tx_frames.clear();
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 174; c.u.send.plane = 1 /*TEAM*/;
+    c.body = reinterpret_cast<const uint8_t*>("reply"); c.body_len = 5;
+    const CmdResult r = X.on_command(c);
+    CHECK(r.code == CmdCode::queued);                        // ★ not err_no_binding, and not deferred-with-no-route
+    CHECK(r.ctr != 0);
+    X.on_timer(0); X.on_timer(0);
+    // ★★ THE R3 HALF: the flight goes out addressed to the TEAM next-hop, and NO static RREQ is raised for 174.
+    CHECK(hal.count("r_tx") == 0);                           // no route-request flood at all
+    const Ev* rts = hal.last("rts_tx");
+    CHECK(rts != nullptr);
+    if (rts) { CHECK(rts->dst == 174); CHECK(rts->next == 234); }
+}
+
+TEST_CASE("§team-parity T7 — the T6 FALLBACK ARM cannot install a static origin: a not-yet-DAD'd sender airs src=0, and learn_route_via refuses via==0") {
+    // The one reachable path that still stamps a STATIC id on a team-plane flight: stamp_origin takes the team branch
+    // only when team_local_id() != 0 (node.h:862). `send -t` is refused before DAD (node.cpp:1141) but an AUTO send to a
+    // team peer is not, and _team_peer bits are set before our own DAD completes (node_beacon.cpp:776). Such a sender's
+    // RTS airs src = team_local_id() = 0 (node_mac.cpp:855) => _pending_rx->from == 0 => learn_route_via returns on the
+    // via==0 sentinel (node_beacon.cpp:65). This is the control for T7's removed fence: origin 101 STILL does not install.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/213, /*key=*/0xA213u); t1_offgrid(X, 213, TEAM);
+    std::array<uint8_t, 64> bb{};
+    { const size_t n = t1_team_beacon(/*src=*/234, TEAM, bb); X.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,234}); }
+
+    t2_inbound_team_flight(X, /*me_team=*/213, /*prev=*/0, /*dst=*/213, /*origin=*/101, /*committed=*/1, /*ctr=*/0x0053);
+    CHECK(t2_team_rt(X, 101) == nullptr);                    // ★★ no static id in the team plane (s35's A2)
     CHECK_FALSE(X.is_team_peer(101));                        // ★★ and no dispatch bit, so rt_find(101) still reads _rt
     CHECK_FALSE(t1_in_static_rt(X, 101));
+    CHECK_FALSE(X.is_team_peer(0));                          // the src=0 sentinel never enters the peer set either
+}
+
+TEST_CASE("§team-parity T7 — a TYPED (APP) DATA still teaches nothing, and this now matters MORE: its ui->origin is a payload byte") {
+    // !d.app was load-bearing under T2 and is more so under T7: with the origin fence gone it is the only thing between a
+    // payload byte and _rt_team. Measured over the 35-scenario corpus: 14 gate entries carry app=1, and s28's four read
+    // origin=4 — an id that would now install if !d.app were dropped.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/213, /*key=*/0xA213u); t1_offgrid(X, 213, TEAM);
+    std::array<uint8_t, 64> bb{};
+    { const size_t n = t1_team_beacon(/*src=*/234, TEAM, bb); X.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,234}); }
+    t2_inbound_team_flight(X, /*me_team=*/213, /*prev=*/234, /*dst=*/213, /*origin=*/174, /*committed=*/1, /*ctr=*/0x0054,
+                           /*type=*/DATA_TYPE_REMOTE_CMD);
+    CHECK(t2_team_rt(X, 174) == nullptr);                    // ★ a never-heard id from a TYPED frame is still refused
+    CHECK_FALSE(X.is_team_peer(174));
+}
+
+TEST_CASE("§team-parity T7 — a node with NO team plane (team_id == 0) is still inert at the unfenced site") {
+    // Static reduction: for_team_data is false whenever team_id == 0 or _team_local_id == 0 (team_addr_for_us,
+    // node.h:174), so dropping the origin fence cannot change one byte of static-plane behaviour.
+    TestHal hal; Node S(hal, /*id=*/50, /*key=*/0xA050u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
+    CHECK(S.on_init(cfg));
+    // The same frames, at a node whose team_id is 0: the addr_len=1 DATA is not "for us" on either plane.
+    t2_inbound_team_flight(S, /*me_team=*/50, /*prev=*/234, /*dst=*/50, /*origin=*/174, /*committed=*/1, /*ctr=*/0x0055);
+    CHECK_FALSE(t1_in_static_rt(S, 174));                    // ★ no static install from a team-shaped frame either
 }
 
 TEST_CASE("§team-parity T2 row 4b — a TYPED DATA (APP) teaches nothing: its inner is NOT the unicast layout, so ui->origin is a payload byte") {

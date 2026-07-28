@@ -120,10 +120,14 @@ bool Node::learn_direct_neighbor(uint8_t sender, int16_t snr_q4, bool is_gw, boo
     // REFUSED, on two grounds: (a) C1 — it is a behaviour-neutral refactor and T2 is a feature slice; (b) it would be
     // INERT ANYWAY, because every T2 learn site is gated on is_team_peer(sender) already being true (the soundness
     // gate that keeps a non-teammate out of the team plane), so this function can never be the FIRST setter today.
-    // ⇒ SAFE ONLY WHILE THAT HOLDS. A future caller that admits an UNKNOWN id to the team plane (T4's team-scoped Q,
-    // or the origin-stamp fix that would let node_mac_rx's DATA-origin learn accept a never-heard teammate) MUST
-    // either set the bit or hoist it here — otherwise it installs an _rt_team route with no dispatch bit and
-    // rt_find(dest, AUTO) silently reads the STATIC table instead.
+    // ⇒ SAFE ONLY WHILE THAT HOLDS. A future caller that admits an UNKNOWN id to the team plane MUST either set the
+    // bit or hoist it here — otherwise it installs an _rt_team route with no dispatch bit and rt_find(dest, AUTO)
+    // silently reads the STATIC table instead.
+    // ✔ 2026-07-28: that caller has now LANDED — §team-parity T7 dropped the is_team_peer(origin) fence on the
+    // DATA-origin learn (node_mac_rx.cpp:664), which DOES admit a never-heard teammate. It is safe WITHOUT the hoist
+    // because it goes through the sibling learn_route_via, which sets the bit itself at :73. Every caller of THIS
+    // function is still is_team_peer(sender)-gated, so (b) still holds here — but it now holds by one caller's choice
+    // of installer rather than by there being no admitting caller at all. Re-check this note before adding another.
 #else
     (void)team_plane;   // §featuresplit: no team plane -> always the static table
     const MergeAction a = rt_merge(sender, cand);

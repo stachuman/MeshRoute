@@ -840,9 +840,12 @@ private:
     //     the STATIC plane — 1.77 s and correct WHEN static infrastructure was reachable (a plane crossing that violates
     //     R3, "team-internal routing only"), and FOUR static-plane RREQ floods for the home's id then
     //     send_failed{e2e_ack_timeout} when it was not — the bench's own leaf-4-vs-leaf-7 shape;
-    //   • T2's DATA-origin learn had to be fenced by is_team_peer(origin) (node_mac_rx.cpp:664) because "is this origin a
-    //     team id?" was undecidable. T6 makes it decidable; relaxing that fence is NOT folded in here (C1) — see the
-    //     ✖ MISSING note at that site.
+    //   • T2's DATA-origin learn had to be fenced by is_team_peer(origin) (node_mac_rx.cpp:694) because "is this origin a
+    //     team id?" was undecidable. T6 makes it decidable; relaxing that fence was NOT folded in here (C1).
+    //     ✔ 2026-07-28: §team-parity T7 has since REMOVED that fence, re-measuring this function's effect first — over
+    //     all 36 scenarios every plain-DM team-plane origin is now inside the team id space, so the ✖ MISSING half of
+    //     that site's note (the §0 bench case) is closed. This block is T7's premise; do not weaken it without re-reading
+    //     the soundness note at that site.
     // Anti-spam accountability on the team plane moves from the home to the member, DELIBERATELY (the §11 ruling).
     // ⚠ `team_local_id() != 0` is a hard precondition, not caution: a member whose team-DAD is still pending has
     // _team_peer bits set (node_beacon.cpp:776 does not require our own id) while team_local_id() is still 0, and

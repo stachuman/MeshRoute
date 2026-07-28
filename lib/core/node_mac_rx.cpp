@@ -617,14 +617,14 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // ✔ §team-parity T2 (§3/T2 row 4) — DONE by the else-arm below; this guard is UNCHANGED (I2).
     if (!_active->_pending_rx->mobile_from && learn_direct_neighbor(from, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/false)) schedule_triggered_beacon();
 #if MR_FEAT_TEAM
-    // ✔ §team-parity T2 (§3/T2 row 4): a TEAM DATA's prev-hop is a 1-hop teammate. for_team_data (:529) proves the LINK
+    // ✔ §team-parity T2 (§3/T2 row 4): a TEAM DATA's prev-hop is a 1-hop teammate. for_team_data (:564) proves the LINK
     // is team-plane (d.next == our _team_local_id && addr_len==1) — the same acceptance edge the shipped RTS reverse-learn
     // uses — and is_team_peer pins the prev-hop as an already-known teammate, so no new id is admitted (see the row-1 note
     // on why an unknown one is not decidable from these frames).
     // ★ USE _pending_rx->from, NOT `from`. `from` prefers meta.src_hint, which is the SIM ORACLE carrying the sender's
     // STATIC protocol node_id (SimController.cpp: protocolId()); for a HOMED teammate that is NOT its team_local_id, so
     // learning `from` would install a static id in _rt_team. _pending_rx->from is the RTS's own `src`, which
-    // node_mac.cpp:801 sets to the sender's team_local_id() on a team flight — frame-derived and metal-correct.
+    // node_mac.cpp:855 sets to the sender's team_local_id() on a team flight — frame-derived and metal-correct.
     // Static reduction: for_team_data is `false` whenever team_id==0 (team_addr_for_us, node.h:174) ⇒ inert.
     else if (for_team_data && is_team_peer(_active->_pending_rx->from)
              && learn_direct_neighbor(_active->_pending_rx->from, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/true)) schedule_triggered_beacon();
@@ -642,26 +642,56 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // either: committed_hops is a 3-bit wire field (frame_codec.h:483) so +1 can neither wrap nor exceed 8 — unlike the
     // F path, whose 8-bit f.hops needed the M4 guard at node_route_discovery.cpp:272.
     //
-    // ★★★ THE SOUNDNESS GATE — is_team_peer(origin) — AND WHY IT IS NOT OPTIONAL. MEASURED, not argued: a HOMED team
-    // member stamps origin = its HOME's STATIC node id, because stamp_origin (node.h:818) returns _my_mobile_reg.home_id
-    // whenever the registration is active, with no team-plane exception. Observed live in s28 (node 3: team_local_id 233,
-    // home 101, `send`s to team id 204 with origin=101) and s29 (node 3: team_local_id 196, home 101, plane=TEAM,
-    // origin=101). Installing _rt_team[101] would put a STATIC node id in the team plane — the mirror of I2 and exactly
-    // s35's A2 — and worse, it would make rt_find(101, AUTO) shadow that node's OWN static route to its home. So the
-    // learn is restricted to an origin ALREADY known to be a teammate: it REFRESHES/SHORTENS a multi-hop team route from
-    // live traffic (which today only a beacon or an F can do) and re-arms the _team_peer bit that node_routing.cpp:489
-    // clears on age-out — the "one-way ratchet toward permanently-unsendable" the spec's §0 calls out.
-    // ✖ MISSING, and this is the honest half: the BENCH case (learn a NEVER-HEARD teammate from a relayed DM) stays
-    // unfixed, because "is this origin a team-plane id?" is undecidable while a homed member stamps a static one. The
-    // unblocker is a separate slice — make a Plane::TEAM origination stamp origin = team_local_id(), which node_mac.cpp:70
-    // already CLAIMS it does ("the origin it stamps is the team_local_id") and which the reverse E2E-ack on the team plane
-    // already needs. Not folded in here: it changes what a live DM carries (C1, and it moves the wire).
+    // ★★★ ✔ §team-parity T7 (2026-07-28) — THE `is_team_peer(origin)` FENCE IS GONE, AND THIS IS THE ✖ MISSING HALF OF
+    // T2's NOTE CLOSED. T2 fenced this learn because a HOMED member stamped origin = its HOME's STATIC node id
+    // (stamp_origin had no team-plane exception), so "is this origin a team-plane id?" was undecidable and _rt_team[101]
+    // would have put a static id in the team plane (I2's mirror, s35's A2) AND shadowed that node's own static route home.
+    // ★ T6 (`9c7b40a`) REMOVED THE PREMISE, and the proof is the same two scenarios T2 cited: T2 measured origin=101 on
+    // s28 node 3 (team_local_id 233) and s29 node 3 (team_local_id 196); T6's re-anchor moved exactly that inner byte,
+    // origin 101 → 233/196. stamp_origin (node.h:858) now stamps team_local_id() for every flight_is_team_plane() flight.
+    // RE-MEASURED HERE, not inherited: instrumenting every gate entry over all 35 scenarios yields 51 team DATA
+    // receptions and **not one** plain-DM origin outside the team id space. The one surviving refusal was s35a's
+    // origin=213 / prev=235 / committed_hops=2 — a member 174 dropping a route to a teammate it had never heard, i.e.
+    // spec §0's bench failure itself. That is what this slice installs: `_rt_team[213] = {next 235, hops 3}`.
+    //
+    // ★★ WHAT NOW CARRIES THE SOUNDNESS, STATED EXACTLY — because this admits a NEW id into _rt_team/_team_peer from a
+    // received DATA, which none of T2's six refresh arms do. The basis is `for_team_data` = team_addr_for_us(d.next,
+    // d.addr_len) (node.h:174) = "team_id != 0 && _team_local_id != 0 && d.next == _team_local_id && addr_len == 1", i.e.
+    // BOTH the RTS we CTS'd and the DATA were addressed to OUR team-plane id on the team-plane link marking. It does NOT
+    // prove the SENDER is a teammate: neither RTS nor plain DATA carries a team_id (frame_codec.h:289 / :591), so a §18
+    // numeric collision — a FOREIGN team's member, or a home last-miling to a hosted mobile whose local id equals our
+    // _team_local_id — satisfies it too. ⇒ THE RESIDUAL IS NOT NEW: it is the identical predicate the already-shipped
+    // addressed-RTS arm at :91 admits `r.src` on (its own note at :107 names the same two cases), so T7 extends an
+    // accepted 1-hop admission to the multi-hop origin rather than opening a new trust basis. And in that collision the
+    // frame is already CTS'd, ACKed and relayed by us (:568 accepts it on the same test) — a strictly larger containment
+    // exposure than one route row, pre-existing and reported, not created here.
+    // ✖ TWO NARROWER GATES WERE BUILT AND REFUSED AS DECORATION, measured not judged: `is_team_peer(_pending_rx->from)`
+    // and `_pending_rx->mobile_from` are BOTH true in 51/51 corpus gate entries — the :91 arm sets the _team_peer bit for
+    // exactly the src that gets us here, so the first cannot fire; and every hole either would close is already closed by
+    // learn_route_via's own `via == 0 / 0xFF` sentinel guard (node_beacon.cpp:65). A guard that reads as safety and is
+    // provably inert is worse than none.
+    // ★ T6's FALLBACK ARM, checked independently as the one reachable static-origin path: stamp_origin takes the team
+    // branch only when team_local_id() != 0, so a member whose team-DAD is still pending stamps a static/home id. `send
+    // -t` is refused there (node.cpp:1141) but an AUTO send to a team peer is NOT, and _team_peer bits DO get set before
+    // our own DAD completes (node_beacon.cpp:776 does not require our id) ⇒ the state IS reachable. It cannot install
+    // here: that sender's RTS airs src = team_local_id() = 0 (node_mac.cpp:855), so _pending_rx->from == 0 and
+    // learn_route_via returns on `via == 0` before any merge. Pinned by a native test, not by inspection.
     // ⚠ !d.app is LOAD-BEARING, not caution: parse_unicast_inner's layout applies only to a plain DM. A typed DATA builds
-    // its own inner, so ui->origin is a payload byte — measured in s24/s25/s26/s34 as AUTHORITATIVE_H_ANSWER (type 2)
-    // frames yielding origin=0. !d.app ⟺ type==0 (pack_data emits the TYPE byte iff type != 0). !d.crypted: §1c seals the
-    // origin, so parse_unicast_inner leaves it 0 for a relay by design (frame_codec.cpp:925) — an encrypted team DM
-    // teaches nothing here, deliberately.
-    if (for_team_data && !d.app && !d.crypted && ui && is_team_peer(origin)
+    // its own inner, so ui->origin is a payload byte — measured over all 35 scenarios as 14 gate entries with app=1, of
+    // which s28's four read origin=4 (a hash-bind payload byte that WOULD now install, since nothing else refuses it) and
+    // ten read origin=0. !d.app ⟺ type==0 (pack_data emits the TYPE byte iff type != 0). !d.crypted: §1c seals the origin,
+    // so parse_unicast_inner leaves it 0 for a relay by design (frame_codec.cpp:925) — an encrypted team DM teaches
+    // nothing here, deliberately (2 such entries in s22).
+    // ⚠ `origin != from` is NOT load-bearing, and the brief that asked me to confirm it was overstated — MEASURED: dropping
+    // it moves 0 of 36 scenarios. It keeps the 1-hop case with the else-arm above (which owns the SNR re-score and the
+    // triggered beacon); without it a 1-hop team DATA re-merges an IDENTICAL candidate (same dest==via, same hops 1, same
+    // score from the same meta.snr_db) microseconds after that arm installed it, so rt_merge returns MergeAction::none and
+    // learn_route_via emits nothing. ⇒ it eliminates a redundant merge, it does not prevent a wrong route. Kept for that
+    // reason and for clarity of intent, not as a safety gate. `!d.crypted` is likewise corpus-invisible (0 of 36) but for a
+    // different reason worth distinguishing: its 2 entries carry origin 0, which learn_route_via's dest==0 sentinel already
+    // refuses — so relying on that would be accidental, whereas this conjunct states the intent. Only `!d.app` is a real
+    // barrier (1 of 36: dropping it installs _rt_team[4] on four s28 nodes from a hash-bind payload byte).
+    if (for_team_data && !d.app && !d.crypted && ui
         && origin != _active->_pending_rx->from)          // 1 hop is the else-arm above's job (it also fires the triggered beacon)
         learn_route_via(origin, _active->_pending_rx->from, static_cast<uint8_t>(d.committed_hops + 1),
                         protocol::db_to_q4(meta.snr_db), /*team_plane=*/true);

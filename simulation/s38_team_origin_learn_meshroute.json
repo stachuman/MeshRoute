@@ -1,0 +1,255 @@
+{
+ "_name": "s38_team_origin_learn",
+ "_desc": "★ THE DISCRIMINATOR FOR §3/T7 (spec 2026-07-27-team-plane-static-parity-routing-design): the LAST unclosed piece of the §0 bench failure — 'Receiving a multi-hop team DM teaches the receiver nothing about its originator.' T2 shipped DATA-origin learning behind an is_team_peer(origin) fence because a HOMED member stamped its HOME's STATIC id; T6 made a team-plane flight stamp team_local_id(), so the fence's premise is gone and T7 removes it. ★ WHY A NEW FILE RATHER THAN s35a: s35a EXECUTES this site (measured — one refused learn, origin=213 prev=235 committed_hops=2) but ASSERTS nothing about it; its own declared gap says it 'does NOT cover T2', because there discovery installs the reverse route before any DATA flows. s37 is the homed/off-grid R3 pair and has no multi-hop leg at all. This file is the bench topology reduced to its mechanism. ★★ THE LOAD-BEARING TOPOLOGY: TA(174) - TR(234) - TB(213) with NO TA<->TB LINK, plus a static witness SW(102) that hears only TB. Every knob is deliberate: (1) `dv_hop_cap: 1` on all three members is the same knob s35a proved load-bearing — it stops team DV from pre-teaching TB about TA (a member's ordinary beacon IS a same-team beacon, so raising team_beacon_period_ms does NOT work; combined hops 2 > 1 is refused at node_beacon.cpp:846, which deliberately still reads dv_hop_cap per T0's correction). (2) TR ANSWERS TA's team RREQ from its own cache (node_route_discovery.cpp:288-294 returns after send_route_reply) instead of forwarding it, so the RREQ NEVER REACHES TB — asserted directly as rreq_rx == 0 on TB. ⇒ after those two, the relayed DM is the ONLY channel through which TB can learn 174, which is what makes this file a discriminator rather than a second delivery test. (3) SW exists so a static-plane fallback is VISIBLE: pre-T7 TB's ack takes rt_find(174, AUTO) -> _team_peer bit unset -> the STATIC _rt -> no route -> a static RREQ that SW re-floods. ★ MEASURED BOTH ARMS 2026-07-28 on this exact file (probe P-T7 = re-add `is_team_peer(origin) &&` at node_mac_rx.cpp:694): BEFORE 447 events, 8 of 16 assertions FAIL - 4 (no install: TB's last rt_update is dest 234), 5 (r_tx count 6, not 0), 6 (SW LEAKS rreq_forward{dst:174,origin:213,ttl:0}), 7 (the ack never RTSes to the relay), 9 (push kind is send_failed), 10 (send_failed{reason:e2e_ack_timeout}), 11 (e2e_ack_rx count 0, not 2), 12 (SW LEAKS rt_update{dest:213,hops:1,next:213}); AFTER 519 events, 0 failures. ⚠ ASSERTION 8 HOLDS IN BOTH ARMS and is NOT a discriminator - recorded honestly: the ack IS addressed to the team id 174 pre-T7 too, it simply cannot be ROUTED there, which is precisely why 7/9/11 are the assertions that carry the payoff. Do not cite 8 as evidence that T7 works. ★ THE TWO ISOLATION FINDINGS THE BEFORE ARM PRODUCES ARE THE REAL YIELD, and neither is decoration: pre-T7 TB emits r_tx{dst:174} on the STATIC plane and SW emits rreq_forward{dst:174,origin:213} — i.e. a TEAM message's ack floods static infrastructure (R3) — AND SW then installs rt_update{dest:213} , a TEAM LOCAL ID IN A STATIC NODE'S _rt, which is invariant I2 breached by the plane fallback rather than by any learn site. Assertion 12 pins that; it is the strongest isolation statement in the corpus that a static node's table stays clean of team ids under a team ack. ⚠ NO ASSERTION READS rt_update.slot: node_beacon.cpp:876/879 label a beacon-DV merge primary/alt regardless of which TABLE was merged (BASELINE SCEN finding, sim-only telemetry defect). Assertion 4 keys on dest+hops+next instead — hops=2 is committed_hops+1 and next=the relay, a metric shape only the DATA-origin learn produces here — and assertion 7 keys on the ack's first hop, which is behavioural proof the write landed in _rt_team, since rt_find(dst, AUTO) reads _rt_team only when the _team_peer dispatch bit is set (node_routing.cpp:22). ⚠ Assertion 10 keys on the send_failed EMIT, not the push: push emits carry only ctr/dst/kind and DROP the reason string (slice-gate-method §E). ⚠ `-t` is a TRAILING suffix on both send verbs. ASSERT LABELS: 1-3 setup, 4-8 ★ the T7 payoff (learn + team-plane ack + zero static frames), 9-11 the ack actually returns, 12-13 ★ isolation, 14-16 controls that HOLD in both arms.",
+ "simulation": {
+  "duration_ms": 480000,
+  "step_ms": 1,
+  "warmup_ms": 0,
+  "beacon_period_ms": 20000,
+  "seed": 38,
+  "node_startup_jitter_ms": 0,
+  "radio": {
+   "sf": 6,
+   "bw": 62.5,
+   "cr": 5,
+   "freq_khz": 870000,
+   "max_packet_bytes": 255,
+   "snr_coherence_ms": 0,
+   "duty_cycle": 10
+  }
+ },
+ "commands": [
+  {
+   "_c": "★ THE BENCH SEND: 174 -a-DMs 213, which it has never heard and has no route to. Discovery (T1) finds the path via TR; the ACK is what T7 fixes.",
+   "at_ms": 200000,
+   "node": "TA",
+   "command": "send_e2e 213 t7-relayed-a -t"
+  },
+  {
+   "_c": "repeat after convergence: the learned route must be usable a second time, not first-flight luck",
+   "at_ms": 340000,
+   "node": "TA",
+   "command": "send_e2e 213 t7-relayed-a2 -t"
+  }
+ ],
+ "expect": [
+  {
+   "type": "script_emit_contains",
+   "node": "TA",
+   "emit_type": "team_dad_claim",
+   "value": "\"id\":174",
+   "_c": "1 [setup] the originator's team id is the pinned 174 (spec §0's own id), so every assertion below can name it"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "TB",
+   "emit_type": "team_dad_claim",
+   "value": "\"id\":213",
+   "_c": "2 [setup] the receiver's team id is the pinned 213 (spec §0's own id)"
+  },
+  {
+   "type": "event_count",
+   "node": "TB",
+   "event_type": "script_emit",
+   "emit_type": "rreq_rx",
+   "count": 0,
+   "_c": "3 [setup] ★★ THE PRECONDITION THAT MAKES THIS A DISCRIMINATOR: no route request of either plane ever reaches TB, because TR answers TA's team RREQ from its own cache (rreq_resolved_cached) instead of forwarding it. Combined with dv_hop_cap:1 blocking the 2-hop team DV, the relayed DM is the ONLY channel by which TB can learn 174. This assertion holds in BOTH arms - it is the experiment's control on its own setup, not evidence for T7."
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "TB",
+   "emit_type": "rt_update",
+   "value": "\"dest\":174,\"hops\":2,\"next\":234",
+   "_c": "4 [T7 payoff] ★★ THE SLICE: the receiver installs a route to the NEVER-HEARD originator, from the relayed DM alone. hops=2 is committed_hops+1 (an exact metric, not a fabricated one) and next=234 is the relay. Deliberately NOT keyed on slot - node_beacon.cpp:876/879 mislabel a beacon-DV team merge as slot=primary, so slot cannot prove which table a write landed in."
+  },
+  {
+   "type": "event_count",
+   "node": "TB",
+   "event_type": "script_emit",
+   "emit_type": "r_tx",
+   "count": 0,
+   "_c": "5 [T7 payoff] ★★ THE R3 CRITERION: the acking teammate generates ZERO route requests of ANY plane across the whole run - it already holds the team route, so no discovery is needed. Pre-T7 (measured): r_tx{dst:174,reason:no_route} on the STATIC plane, because rt_find(174,AUTO) finds no _team_peer bit and falls back to _rt."
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "SW",
+   "emit_type": "rreq_forward",
+   "value": "\"dst\":174",
+   "_c": "6 [T7 payoff] ★★ and no STATIC node re-floods a route request for a team id - the flood is absent, not merely unanswered. Pre-T7 (measured): rreq_forward{dst:174,origin:213} on SW, i.e. static infrastructure carrying a TEAM message's ack, which is the R3 violation in one event."
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "TB",
+   "emit_type": "rts_tx",
+   "value": "\"next\":234",
+   "_c": "7 [T7 payoff] ★ the ack's FIRST HOP is the team relay 234 - behavioural proof that the write landed in _rt_team, since rt_find(dst,AUTO) hard-forces _rt_team only when the _team_peer dispatch bit is set (node_routing.cpp:22), and learn_route_via sets route and bit together (node_beacon.cpp:73)."
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "TB",
+   "emit_type": "e2e_ack_tx",
+   "value": "\"dst\":174",
+   "_c": "8 [T7 payoff] the ack is addressed to the originator's TEAM id (e2e_ack_tx carries dst, not to)"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "TA",
+   "emit_type": "push",
+   "value": "\"kind\":\"e2e_acked\"",
+   "_c": "9 [ack returns] ★ the end-to-end ack REACHES the originator. Pre-T7 in this topology it never did."
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "TA",
+   "emit_type": "send_failed",
+   "value": "e2e_ack_timeout",
+   "_c": "10 [ack returns] ★ and no ack times out. ⚠ ASSERTED ON THE send_failed EMIT, NOT THE PUSH: push emits carry only ctr/dst/kind and drop the reason string (slice-gate-method §E), so a push-keyed form would be unmovable decoration."
+  },
+  {
+   "type": "event_count",
+   "node": "TA",
+   "event_type": "script_emit",
+   "emit_type": "e2e_ack_rx",
+   "count": 2,
+   "_c": "11 [ack returns] BOTH -a sends are acked, so the learned route is stable rather than a first-flight coincidence"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "SW",
+   "emit_type": "rt_update",
+   "value": "\"dest\":213,",
+   "_c": "12 [isolation I2] ★★ THE STRONGEST STATEMENT HERE: a TEAM LOCAL ID NEVER ENTERS THE STATIC WITNESS'S _rt. Pre-T7 (measured) it does - TB's static-plane RREQ for the ack carries origin=213, and SW's reverse-path learn installs rt_update{dest:213}. That breach comes from the plane FALLBACK, not from any learn site, which is why no learn-site audit would have found it."
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "SW",
+   "emit_type": "rt_update",
+   "value": "\"dest\":174,",
+   "_c": "13 [isolation I2] and the originator's team id never enters it either (holds in both arms; the paired control for 12, so a green 12 cannot be read as 'SW learns nothing at all')"
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "TA",
+   "emit_type": "tx_enqueue",
+   "value": "\"origin\":174",
+   "_c": "14 [control] T6's stamp: the team-plane DM's origin IS the team id. HOLDS IN BOTH ARMS - T7 depends on it but does not change it."
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "TB",
+   "emit_type": "delivered",
+   "value": "t7-relayed-a2",
+   "_c": "15 [control] the SECOND multi-hop DM is delivered. HOLDS IN BOTH ARMS - delivery was never the defect; §0's smoking gun is that delivery taught the receiver nothing."
+  },
+  {
+   "type": "script_emit_contains",
+   "node": "TR",
+   "emit_type": "rreq_resolved_cached",
+   "value": "\"plane\":\"team\"",
+   "_c": "16 [control] the relay answers the team RREQ from cache rather than forwarding it - the mechanism behind assertion 3. HOLDS IN BOTH ARMS."
+  }
+ ],
+ "nodes": [
+  {
+   "name": "SW",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.37,
+   "start_at_ms": 1000,
+   "node_id": 102,
+   "key_hash32": "0x11110066",
+   "config": {
+    "layer_id": 23,
+    "routing_sf": 6,
+    "allowed_data_sfs": [
+     6
+    ],
+    "beacon_period_ms": 20000,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "TA",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.4,
+   "start_at_ms": 1000,
+   "node_id": 51,
+   "key_hash32": "0xEE0000AE",
+   "config": {
+    "layer_id": 23,
+    "routing_sf": 6,
+    "allowed_data_sfs": [
+     6
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "mobile_autoregister": false,
+    "team_id": 116129950,
+    "team_dad_pin_id": 174,
+    "dv_hop_cap": 1,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "TR",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.39,
+   "start_at_ms": 1000,
+   "node_id": 52,
+   "key_hash32": "0xEE0000EA",
+   "config": {
+    "layer_id": 23,
+    "routing_sf": 6,
+    "allowed_data_sfs": [
+     6
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "mobile_autoregister": false,
+    "team_id": 116129950,
+    "team_dad_pin_id": 234,
+    "dv_hop_cap": 1,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  },
+  {
+   "name": "TB",
+   "script": "scenarios/dv_dual_sf.lua",
+   "lat": 47.6,
+   "lon": -122.38,
+   "start_at_ms": 1000,
+   "node_id": 53,
+   "key_hash32": "0xEE0000D5",
+   "config": {
+    "layer_id": 23,
+    "routing_sf": 6,
+    "allowed_data_sfs": [
+     6
+    ],
+    "beacon_period_ms": 20000,
+    "is_mobile": true,
+    "mobile_autoregister": false,
+    "team_id": 116129950,
+    "team_dad_pin_id": 213,
+    "dv_hop_cap": 1,
+    "discovery_min_routes": 1,
+    "req_sync_min_routes": 1
+   }
+  }
+ ],
+ "topology": {
+  "links": [
+   {"from": "TA", "to": "TR", "snr": 10.5, "rssi": -60.0, "snr_std_dev": 0, "bidir": false},
+   {"from": "TR", "to": "TA", "snr": 10.5, "rssi": -60.0, "snr_std_dev": 0, "bidir": false},
+   {"from": "TR", "to": "TB", "snr": 10.5, "rssi": -60.0, "snr_std_dev": 0, "bidir": false},
+   {"from": "TB", "to": "TR", "snr": 10.5, "rssi": -60.0, "snr_std_dev": 0, "bidir": false},
+   {"from": "TB", "to": "SW", "snr": 10.5, "rssi": -60.0, "snr_std_dev": 0, "bidir": false},
+   {"from": "SW", "to": "TB", "snr": 10.5, "rssi": -60.0, "snr_std_dev": 0, "bidir": false}
+  ]
+ }
+}

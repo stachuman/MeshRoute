@@ -6,7 +6,11 @@
 
 > ## ★ STATUS 2026-07-28 — REVIEWED (§10) AND PARTLY IMPLEMENTED
 >
-> **`T0 ✅ → T1 ✅ → (T2 ✅ ∥ T4 ✅) → T6 ✅ → T7 ❌ → T3 ❌ → T5 ❌`** — see the position note in §8. **T6 is new**
+> ## ★★★ THE §0 BENCH FAILURE IS CLOSED (T7, 2026-07-28)
+>
+> **`T0 ✅ → T1 ✅ → (T2 ✅ ∥ T4 ✅) → T6 ✅ → T7 ✅ → T3 ❌ → T5 ❌`** — see the position note in §8.
+> R1's functional claim now holds end to end: a member can address **any** teammate by id, heard or not, and the
+> reverse ack routes on the team plane. **T6 is new**
 > (§3/T6), from the owner ruling in §11, and was **pulled ahead of T3 by the owner on 2026-07-28** once the
 > measurement showed it fixes a live defect in a configuration already run on metal, not latent hardening.
 > ✅ **`s35` (§5) shipped 2026-07-28 as a pair — `s35a` (74 asserts) + `s35b` control (5)** — after the original
@@ -250,9 +254,10 @@ This is what would have let 213 and 174 recognise that their direct link is one-
 > saving 256 B and keeping `sizeof(Node)` at **220592** — ⇒ ★ **this section's D2 warning was wrong: the layout
 > does not move.** `s37_team_homed_origin` captures the R3 breach as an assertion. Full record in the
 > `BASELINE.md` **T6** note.
-> ⚠ **T6 did NOT close the bench case.** T2's `is_team_peer(origin)` learn fence is now over-restrictive, and
-> until it is relaxed an ack to a **never-heard, never-DV'd** teammate still falls back to AUTO→static. That is
-> **T7** and it should precede T5.
+> ✅ **T7 (`§team-parity T7`) closed the remainder** — one line, the removal of `&& is_team_peer(origin)`. Its
+> §0 evidence: `s35a` **lost 69 events** because node 174 now learns 213 from the DM it receives and needs no
+> discovery at all, and the reverse DM flies **2 s sooner**. ★ Its before-arm also exposed an **I2 breach no
+> learn-site audit could have found** — see §10.3's amendment.
 
 ★ **Ordering: FIRST of the remainder — owner ruling 2026-07-28, pulled ahead of T3.** *"yes, do T6 first."*
 Rationale: the §11 measurement showed this is a **live delivery defect in a configuration already run on metal**
@@ -409,7 +414,7 @@ T1 alone fixes the reported bench failure. T4 is the highest value-per-byte of t
 > and T5 will change it**, so each owes the D2 treatment (assert arithmetic spelled out + per-board RAM diff +
 > the full ten-env build, since per-board padding is the thing under test there).
 >
-> ⚠ **Order revised 2026-07-28: `T6 ✅ → T7 → T3 → T5`.** **T7 is new** — relax T2's `is_team_peer(origin)` learn
+> ⚠ **Order 2026-07-28: `T6 ✅ → T7 ✅ → T3 → T5`.** **T7 CLOSED the §0 bench failure** — it relaxed T2's `is_team_peer(origin)` learn
 > fence, which T6 made decidable and which is **the last unclosed piece of the §0 bench failure**. Recommended
 > next by the same logic that pulled T6 ahead of T3: a live defect outranks operator visibility. T3 still owns the hop-cap
 > asymmetry T0 left open; it is simply no longer the head of the queue.
@@ -575,3 +580,31 @@ The original rationale is sound and predates the team plane: a registered mobile
 **Stamp `team_local_id()` on `Plane::TEAM`, but only as one slice together with plane-keying the shared ledgers** — not as the one-line change it looks like. Rationale: the team plane should have exactly one origin namespace, and the homed/off-grid split above is an accident of attachment, not a design. ⚠ **Do not treat this recommendation as measured.** Whether a homed member's team `-a` ack actually fails to return has been *reasoned* from the routing tables, not observed. The honest next step is to **measure it in `s35`** (which already needs a homed and an off-grid teammate for §5) and rule on evidence.
 
 **Alternative, if accountability outweighs it:** keep `home_id`, correct `node_mac.cpp:70` to state the real limitation, and document that a homed member's team-plane `-a` may not receive its ack.
+
+---
+
+## 12. ★★ AMENDMENT TO §10.3 — the plane-blind audit was a *learn-site* audit, and that is a blind spot
+
+**Found 2026-07-28 by T7's before-arm, not by any audit.** §10.3 listed four plane-blind ledgers, assembled by
+grepping the **learn sites** and the plane-divergent guards. T6 acted on that list. It was the right list for the
+question asked — and the question was too narrow.
+
+`s38`'s before-arm shows a **static witness node installing `rt_update{dest:213, hops:1, next:213}`** — a team
+local id in a static node's `_rt`, which is **invariant I2 breached**. No learn site is at fault; every one of them
+behaves correctly. The leak enters through the **plane fallback in routing**:
+
+1. `rt_find(174, AUTO)` finds no `_team_peer` bit for the never-heard teammate, so it falls through to `_rt`;
+2. the resulting RREQ is therefore a **static-plane** flood carrying `origin = 213` (a team local id);
+3. a static witness **reverse-path-learns** it as an entirely legitimate static route.
+
+⇒ **The generalisable lesson: an audit scoped to "where do we write?" cannot see a leak whose cause is "which
+table did we read?".** A plane can be violated by a *fallback* as easily as by a write, and the fallback looks
+correct at every individual site. This is the eighth instance of the sweep-scope meta-bug in this arc and the
+first where the scope error was in the **question**, not the grep.
+
+**Consequences:**
+- `s38` assert 12 pins it. T7 removes the cause by making the `_team_peer` bit present, so the fallback is not
+  taken — but the fallback itself is unchanged and remains a live mechanism.
+- **Owed: a plane audit of the READ paths**, not just the writes — every `rt_find(..., AUTO)` and every place a
+  plane-typed lookup can silently degrade to the static table. That is a candidate slice, and it is the natural
+  companion to the `[[meshroute-plane-separation]]` re-audit item that §9-Q4 closed only for writes.
