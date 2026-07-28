@@ -109,8 +109,22 @@ int16_t Node::liveness_penalty_q4(uint8_t next_hop, bool team_plane) const {
 // (OI2 — the ONLY demotion is positively-confirmed one_way; a nudge on `unknown` would punish every not-yet-probed
 // link on a cold mesh). PURE/non-mutating read. NOTE: defined + tested in Slice 3 but NOT yet folded into
 // effective_score — Slice 4 composes it (Slice 3 stays delivery-neutral).
-int16_t Node::bidi_penalty_q4(uint8_t next_hop) const {
+// ✔ §team-parity T5: `team_plane` selects the TEAM bidi state (the _team_liveness slot's team_bidi_state, keyed by
+// team_local_id) instead of the static node_id-indexed _link_bidi. The guard shape is copied VERBATIM from
+// liveness_penalty_q4 above (:87-89) — U3, and the `next_hop == team_local_id()` skip matters for the same reason
+// there: on a dual member team_local_id != _node_id, so the generic `next_hop == _node_id` self-test does not cover it.
+// Static reduction: team_plane==false takes the _link_bidi read unchanged, so every static caller is byte-identical.
+int16_t Node::bidi_penalty_q4(uint8_t next_hop, [[maybe_unused]] bool team_plane) const {
     if (next_hop == 0 || next_hop == _node_id) return 0;
+#if MR_FEAT_TEAM
+    if (team_plane) {
+        if (next_hop == team_local_id()) return 0;   // never penalize our OWN team id (mirrors :89)
+        const PeerLiveness* s = team_liveness_find(next_hop);
+        return (s && s->team_bidi_state == static_cast<uint8_t>(LinkBidi::one_way))
+                   ? protocol::bidi_penalty_one_way_q4
+                   : 0;
+    }
+#endif
     return _active->_link_bidi[next_hop] == static_cast<uint8_t>(LinkBidi::one_way)
                ? protocol::bidi_penalty_one_way_q4
                : 0;
@@ -154,11 +168,20 @@ int16_t Node::effective_score(const RtCandidate& c, const RtCandidate* cands, ui
     // §bidi: ALSO subtract the bidirectionality penalty (one_way next-hop). Rides the SORT only (composes here +
     // through route_strictly_better) — NOT a next_hop_selectable hard gate, so a SOLE one_way route stays pickable.
     // §2c: on the TEAM plane use the TEAM liveness tier + subtract NEITHER budget_penalty_q4 (_neighbor_budget_tier[id])
-    // NOR bidi_penalty_q4 (_link_bidi[id]) — both are static-node_id-indexed arrays the team plane does not track;
-    // reading them for a team candidate is the §18 read-alias. So a team candidate reads ONLY _team_liveness.
+    // NOR bidi_penalty_q4 (_link_bidi[id]) — both were static-node_id-indexed arrays the team plane did not track;
+    // reading them for a team candidate was the §18 read-alias. So a team candidate read ONLY _team_liveness.
+    // ★★ ✔ §team-parity T5: THE BIDI HALF OF THAT IS NOW A REAL TEAM READ. bidi_penalty_q4 takes the plane and resolves a
+    // team candidate against the TEAM bidi state (the _team_liveness slot), so a teammate we have positively established
+    // does NOT hear us is demoted by bidi_penalty_one_way_q4 exactly as a static one-way next-hop is. This is spec §3/T5's
+    // whole point: "what would have let 213 and 174 recognise that their direct link is one-way and commit to the 234 path
+    // deliberately rather than by accident." SORT-only, like the static plane — never a next_hop_selectable hard gate, so a
+    // SOLE one-way team route stays pickable and delivery cannot regress to zero on it.
+    // ⚠ budget_penalty_q4 STAYS ZEROED and that is NOT T5's to fix: it reads _neighbor_budget_tier, the R4.2 tier map, a
+    // node_id-keyed static ledger with no team mirror at all. T5 built a team BIDI plane, not a team BUDGET plane. Left
+    // as-is, deliberately, and named here so the remaining asymmetry is visible rather than looking like an oversight.
     return static_cast<int16_t>(c.score - (team_plane ? 0 : budget_penalty_q4(c, cands, n))
                                         - liveness_penalty_q4(c.next_hop, team_plane)
-                                        - (team_plane ? 0 : bidi_penalty_q4(c.next_hop)));
+                                        - bidi_penalty_q4(c.next_hop, team_plane));
 }
 
 // §cross-layer: is `dest` a gateway we'd use as a cross-layer egress? — a heard 1-hop schedule (_gw_schedules)
@@ -267,7 +290,13 @@ int Node::resort_routes_for_neighbor_penalty(uint8_t node_id, [[maybe_unused]] c
 // node_beacon.cpp Phase-1 dirty pass), so a team liveness rerank is now advertised on the member's own cadence
 // instead of waiting for something else to dirty the entry. Team liveness is always LOCAL evidence (team never
 // gossips liveness), so — unlike the static path's local_only ACK-hint case — the mark + beacon are unconditional.
-void Node::team_resort_routes_through(uint8_t team_local_id) {
+// [[maybe_unused]]: `reason` is telemetry-only and MR_EMIT is stripped on the device — the identical annotation the
+// three sibling reason/source params already carry (resort_routes_for_neighbor_penalty :260, refresh_route_order :324,
+// enqueue_data's tx_event). Without it the BOARD builds emit `unused parameter 'reason'`, which the gate caught.
+// §team-parity T5: `reason` is a parameter rather than the hardcoded "team_liveness" literal, so a bidi confirm/recover
+// rerank is distinguishable in the stream from a liveness-tier rerank. Both pre-T5 call sites take the default, which IS
+// the old literal ⇒ byte-identical there.
+void Node::team_resort_routes_through(uint8_t team_local_id, [[maybe_unused]] const char* reason) {
     int changed = 0;
     for (uint8_t e = 0; e < _active->_rt_team_count; ++e) {
         RtEntry& entry = _active->_rt_team[e];
@@ -282,7 +311,7 @@ void Node::team_resort_routes_through(uint8_t team_local_id) {
             entry.dirty = true;                          // §2.3: advertise the new team primary (emit_beacon dirty pass over _rt_team)
             ++changed;
             MR_EMIT("rt_penalty_rerank", EF_I("dest", entry.dest), EF_I("from_next", old_primary), EF_I("to_next", new_primary),
-                    EF_I("penalized", team_local_id), EF_S("reason", "team_liveness"));
+                    EF_I("penalized", team_local_id), EF_S("reason", reason));
         }
     }
     if (changed > 0) schedule_triggered_beacon();        // §2.3: re-advertise the new team primaries on our cadence
@@ -329,8 +358,31 @@ int Node::mark_neighbor_budget_tier(uint8_t node_id, uint8_t tier, const char* s
 // complete-heard-set present hit). Set confirmed + stamp the dedicated decay source, then fan out via the
 // resort_routes_for_neighbor_penalty pattern so a recovery re-sorts + re-dirties + re-advertises. Emits link_recover
 // when the link was previously one_way (the §7 recovery signal). No penalty rides effective_score yet (Slice 4).
-void Node::note_link_confirmed(uint8_t next_hop) {
+// ✔ §team-parity T5 (spec §3/T5) — the TEAM arm. This is the site T2 marked ✖ twice ("there is nothing to write it
+// to", node_mac_rx.cpp:507/:1397): a team confirm may NOT call the static body, because _link_bidi/_link_bidi_confirmed_ms
+// are node_id-indexed and `next_hop` here is a team_local_id — invariant I2/I8's write-alias. The team arm writes the
+// team_bidi_* fields of the _team_liveness slot and fans out through team_resort_routes_through, the exact structural
+// mirror record_peer_rts_timeout's team arm (:660-675) already uses. Static reduction: team_plane==false is the pre-T5
+// body verbatim, so s18 and every static scenario are byte-identical by construction.
+void Node::note_link_confirmed(uint8_t next_hop, [[maybe_unused]] bool team_plane) {
     if (next_hop == 0 || next_hop == 0xFF) return;
+#if MR_FEAT_TEAM
+    if (team_plane) {
+        // create=true: a CTS or a heard-set hit from a teammate is proof enough to spend a slot on it (the static plane's
+        // array is always present, so "create" is the team plane's equivalent of "the slot exists"). cap 16 vs R4's 1-10
+        // members ⇒ the LRU evict is unreachable in a real team; if it ever fires it re-uses the STALEST slot, which is
+        // the same policy _peer_liveness has always had.
+        PeerLiveness* ts = team_liveness_slot(next_hop, /*create=*/true);
+        if (!ts) return;
+        const bool was_one_way = ts->team_bidi_state == static_cast<uint8_t>(LinkBidi::one_way);
+        ts->team_bidi_state       = static_cast<uint8_t>(LinkBidi::confirmed);
+        ts->team_bidi_confirmed_s = static_cast<uint32_t>(_hal.now() / 1000u);   // seconds — see the PeerLiveness note
+        team_resort_routes_through(next_hop, "team_link_bidi_confirm");
+        MR_EMIT("link_bidi_confirm", EF_I("next_hop", next_hop), EF_S("plane", "team"));
+        if (was_one_way) MR_EMIT("link_recover", EF_I("next_hop", next_hop), EF_S("plane", "team"));
+        return;
+    }
+#endif
     const bool was_one_way = _active->_link_bidi[next_hop] == static_cast<uint8_t>(LinkBidi::one_way);
     _active->_link_bidi[next_hop]              = static_cast<uint8_t>(LinkBidi::confirmed);
     _active->_link_bidi_confirmed_ms[next_hop] = _hal.now();
@@ -345,7 +397,23 @@ void Node::note_link_confirmed(uint8_t next_hop) {
 // unknown/one_way slots are left as-is. DEFERRED: decay_link_bidi has NO wired caller in this initiative — it is a
 // no-op for routing (confirmed and unknown are selection-equivalent, both 0 penalty), so a stale confirmed costs nothing.
 // Kept for MF6-correctness; wire a lazy caller (e.g. inside candidate_degraded) ONLY if a future feature treats confirmed != unknown.
-void Node::decay_link_bidi(uint8_t next_hop) {
+// ✖ §team-parity T5 — the TEAM arm exists and is likewise NOT WIRED, for the IDENTICAL reason, stated so the omission is
+// not read as an oversight: nothing treats confirmed differently from unknown (bidi_penalty_q4 penalizes ONLY one_way and
+// candidate_degraded tests ONLY one_way), so a stale team `confirmed` costs exactly nothing, and MF6 forbids decaying to
+// one_way. It is threaded so that (a) a grep for the bidi TTL finds both planes and (b) wiring it later is one call, on
+// both planes at once. The team arm is therefore corpus-dark AND native-dark by construction — see the T5 coverage note.
+void Node::decay_link_bidi(uint8_t next_hop, [[maybe_unused]] bool team_plane) {
+#if MR_FEAT_TEAM
+    if (team_plane) {
+        PeerLiveness* ts = team_liveness_slot(next_hop, /*create=*/false);
+        if (!ts || ts->team_bidi_state != static_cast<uint8_t>(LinkBidi::confirmed)) return;
+        // seconds on the team plane, so compare in seconds (bidi_confirm_ttl_ms is a whole number of seconds: 1200000).
+        const uint32_t now_s = static_cast<uint32_t>(_hal.now() / 1000u);
+        if (now_s - ts->team_bidi_confirmed_s >= protocol::bidi_confirm_ttl_ms / 1000u)
+            ts->team_bidi_state = static_cast<uint8_t>(LinkBidi::unknown);
+        return;
+    }
+#endif
     if (_active->_link_bidi[next_hop] != static_cast<uint8_t>(LinkBidi::confirmed)) return;
     const uint64_t now = _hal.now();
     const uint64_t conf = _active->_link_bidi_confirmed_ms[next_hop];
@@ -357,8 +425,23 @@ void Node::decay_link_bidi(uint8_t next_hop) {
 // (a fact about what the advertiser said, stored on the candidate) OR-ed with the local one_way verdict (recomputed
 // from _link_bidi every call). NEVER a sticky cached bool: a stuck-degraded cache would never clear on recovery and
 // defeat §7. Read by select (Slice 4) + advertise (Slice 5); no caller consumes it in this state-only slice.
-bool Node::candidate_degraded(const RtCandidate& c, bool team_plane) const {
-    if (team_plane) return c.degraded_from_wire;   // §2c: the team plane keeps no _link_bidi -> wire-only (closes the static _link_bidi[team_local_id] read-alias)
+// ★★ ✔ §team-parity T5: the team arm was `return c.degraded_from_wire` — wire-only, because "the team plane keeps no
+// _link_bidi" and reading the static array for a team_local_id was the §18 read-alias. It now ORs in the LOCAL team
+// verdict, so a member's beacon advertises `degraded` for a team route whose next-hop IT has established is one-way,
+// giving the team plane the §5 TRANSITIVE half the static plane has had since Slice 3.
+// ⚠ SCOPE, MEASURED AND STATED PLAINLY: candidate_degraded has exactly ONE consumer in the engine —
+// node_beacon.cpp:471, the advertised route-page bit — and `degraded` / `degraded_from_wire` are read by NOTHING that
+// makes a routing decision (not effective_score, not route_strictly_better, not next_hop_selectable; grep them). So this
+// arm is a GOSSIP/observability change, not a path-selection change. The path selection is bidi_penalty_q4's arm in
+// effective_score. Both are wired here so the two planes are structurally identical, and this note exists so nobody reads
+// a `degraded` bit as a routing input on either plane.
+// Static reduction: team_plane==false is the pre-T5 expression verbatim.
+bool Node::candidate_degraded(const RtCandidate& c, [[maybe_unused]] bool team_plane) const {
+#if MR_FEAT_TEAM
+    if (team_plane)
+        return c.degraded_from_wire
+            || (team_link_bidi_state(c.next_hop) == LinkBidi::one_way);
+#endif
     return c.degraded_from_wire
         || _active->_link_bidi[c.next_hop] == static_cast<uint8_t>(LinkBidi::one_way);
 }
@@ -574,6 +657,14 @@ Node::PeerLiveness* Node::peer_liveness_slot(uint8_t node_id, bool create) {
 // it would rebind suspect/dead state onto whoever next takes the slot).
 Node::PeerLiveness* Node::team_liveness_slot(uint8_t team_local_id, bool create) {
     return peer_liveness_slot(team_local_id, create, _active->_team_liveness, _active->_team_liveness_n, protocol::cap_team_liveness);
+}
+// §team-parity T5: the const twin (the team bidi reads are const). See the header note for the C1 duplication with
+// liveness_penalty_q4's inline scan.
+const Node::PeerLiveness* Node::team_liveness_find(uint8_t team_local_id) const {
+    const auto& L = *_active;
+    for (uint8_t i = 0; i < L._team_liveness_n; ++i)
+        if (L._team_liveness[i].node_id == team_local_id) return &L._team_liveness[i];
+    return nullptr;
 }
 #endif
 

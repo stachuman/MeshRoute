@@ -390,9 +390,21 @@ public:
     int16_t peer_penalty_q4(uint8_t node_id) const { return liveness_penalty_q4(node_id); }   // liveness (suspect/silent/dead) penalty on a next-hop; routes dump shows effective = score - pen
     LinkBidi          link_bidi_state(uint8_t node_id) const { return static_cast<LinkBidi>(_active->_link_bidi[node_id]); }  // bidi plane read (test/status); unknown for any unprobed link
     uint64_t          link_bidi_confirmed_ms(uint8_t node_id) const { return _active->_link_bidi_confirmed_ms[node_id]; }    // last-confirmation ms (test/status); 0 = never confirmed
+#if MR_FEAT_TEAM
+    // §team-parity T5: the TEAM-plane twins (test/status). Keyed by team_local_id, read out of the _team_liveness slot —
+    // NEVER _link_bidi (invariant I8). No slot for that id => the link was never probed => unknown / 0.
+    LinkBidi          team_link_bidi_state(uint8_t team_local_id) const {
+        const PeerLiveness* s = team_liveness_find(team_local_id);
+        return s ? static_cast<LinkBidi>(s->team_bidi_state) : LinkBidi::unknown;
+    }
+    uint32_t          team_link_bidi_confirmed_s(uint8_t team_local_id) const {
+        const PeerLiveness* s = team_liveness_find(team_local_id);
+        return s ? s->team_bidi_confirmed_s : 0u;
+    }
+#endif
 #ifdef MESHROUTE_NATIVE
     uint8_t           link_bidi_at(uint8_t node_id) const { return _active->_link_bidi[node_id]; }   // raw LinkBidi (test/white-box)
-    void              test_update_link_bidi_from_beacon(uint8_t advertiser, const beacon_entry* e, uint8_t n, bool complete) { update_link_bidi_from_beacon(advertiser, e, n, complete); }  // white-box: drive the Slice-3 detection scan directly
+    void              test_update_link_bidi_from_beacon(uint8_t advertiser, const beacon_entry* e, uint8_t n, bool complete, bool team_plane = false) { update_link_bidi_from_beacon(advertiser, e, n, complete, team_plane); }  // white-box: drive the Slice-3 detection scan directly (§T5: on either plane)
     void              test_ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) { ingest_beacon(bytes, len, meta); }  // white-box: drive ingest_beacon directly (Slice 3 end-to-end)
     int16_t           test_team_penalty_q4(uint8_t next_hop) const { return liveness_penalty_q4(next_hop, /*team_plane=*/true); }   // white-box: the team-plane liveness penalty (§clean-join R3 reset check)
     // §S0 (cold-boot mobile-id alias) white-box seams.
@@ -438,11 +450,18 @@ public:
         resort_routes_for_neighbor_penalty(next_hop, "test_one_way", /*local_only=*/true);
     }
     void    test_learn_route(uint8_t dest, uint8_t via, uint8_t hops, int16_t snr_q4, bool team_plane) { learn_route_via(dest, via, hops, snr_q4, team_plane); }  // §S7 test seam: install a 1-hop route into _rt (team_plane=false) or _rt_team (true) without beacon setup
-    void    note_link_confirmed(uint8_t next_hop);   // local bidi confirm (real CTS / complete-heard-set hit): set confirmed + stamp + fan out
-    void    decay_link_bidi(uint8_t next_hop);   // confirmed + stale past bidi_confirm_ttl_ms -> unknown (MF6: NEVER -> one_way)
+    void    note_link_confirmed(uint8_t next_hop, bool team_plane = false);   // local bidi confirm (real CTS / complete-heard-set hit): set confirmed + stamp + fan out. §T5: team_plane -> _team_liveness[].team_bidi_* + team_resort (NEVER _link_bidi)
+    void    decay_link_bidi(uint8_t next_hop, bool team_plane = false);   // confirmed + stale past bidi_confirm_ttl_ms -> unknown (MF6: NEVER -> one_way). §T5: team_plane -> the team slot
     void    set_link_bidi_for_test(uint8_t next_hop, LinkBidi v) { _active->_link_bidi[next_hop] = static_cast<uint8_t>(v); }  // test seam: seed a bidi state directly
-    bool    candidate_degraded(const RtCandidate& c, bool team_plane = false) const;   // LIVE: c.degraded_from_wire || _link_bidi[c.next_hop]==one_way (never a sticky cache, MF5/OI1). §2c: team_plane -> wire-only (no static _link_bidi read)
-    int16_t bidi_penalty_q4(uint8_t next_hop) const;          // §bidi: one_way next-hop -> bidi_penalty_one_way_q4, unknown/confirmed -> 0 (PURE; composed into effective_score at node_routing.cpp:100, SORT-only — never a next_hop_selectable gate)
+#if MR_FEAT_TEAM
+    // §team-parity T5 test seam: seed a TEAM bidi state directly (creates the slot, like the real one_way/confirm path).
+    void    set_team_link_bidi_for_test(uint8_t team_local_id, LinkBidi v) {
+        PeerLiveness* s = team_liveness_slot(team_local_id, /*create=*/true);
+        if (s) s->team_bidi_state = static_cast<uint8_t>(v);
+    }
+#endif
+    bool    candidate_degraded(const RtCandidate& c, bool team_plane = false) const;   // LIVE: c.degraded_from_wire || bidi(c.next_hop)==one_way on the GIVEN plane (never a sticky cache, MF5/OI1). §T5: team_plane reads the team bidi slot (was wire-only)
+    int16_t bidi_penalty_q4(uint8_t next_hop, bool team_plane = false) const;          // §bidi: one_way next-hop -> bidi_penalty_one_way_q4, unknown/confirmed -> 0 (PURE; composed into effective_score at node_routing.cpp:100, SORT-only — never a next_hop_selectable gate). §T5: team_plane -> the team bidi slot
     size_t            test_build_suspect_ext(uint8_t* out, size_t cap) { return build_suspect_ext(out, cap); }                 // §P4 test: drive the gossip encoder
     void              test_apply_suspect_gossip(const SuspectEntry* e, uint8_t n, uint8_t src) { apply_suspect_gossip(e, n, src); }   // §P4 test: drive the gossip apply
     void              test_emit_beacon(const char* kind) { emit_beacon(kind); }   // §5 census/advertise tests: drive a deterministic beacon (bypasses the throttle)
@@ -1026,10 +1045,10 @@ private:
     // Slice 3: the bidirectionality DETECTION scan. For advertiser P's beacon heard-set (its hops==1 entries),
     // a [dest==self] entry proves P hears us -> confirmed (note_link_confirmed); an ABSENT self in a COMPLETE
     // page proves P does NOT hear us -> one_way; an absent self in a TRUNCATED page is unconfirmed (no change).
-    void        update_link_bidi_from_beacon(uint8_t advertiser, const beacon_entry* entries, uint8_t n, bool complete);
+    void        update_link_bidi_from_beacon(uint8_t advertiser, const beacon_entry* entries, uint8_t n, bool complete, bool team_plane = false);   // §T5: team_plane -> "self" is team_local_id() and the verdict lands in the team bidi slot
     int         resort_routes_for_neighbor_penalty(uint8_t node_id, const char* source, bool local_only);      // :4255
 #if MR_FEAT_TEAM
-    void        team_resort_routes_through(uint8_t team_local_id);   // §2c: re-sort _rt_team routes through a demoted/recovered team next-hop (proactive candidates[0] update)
+    void        team_resort_routes_through(uint8_t team_local_id, const char* reason = "team_liveness");   // §2c: re-sort _rt_team routes through a demoted/recovered team next-hop (proactive candidates[0] update). §T5: `reason` so the bidi confirm/recover is distinguishable from the liveness tier in rt_penalty_rerank (default = the pre-T5 literal ⇒ both existing call sites byte-identical)
 #endif
     RtEntry*    refresh_route_order(uint8_t dst, const char* reason, Plane plane = Plane::AUTO);   // re-sort ONE dest's candidates (catch a tier change since the last sort), dv:4455
     void        maybe_emit_rt_full();
@@ -1048,6 +1067,13 @@ private:
     bool          clear_liveness_tiers(PeerLiveness& s);              // §P2-4: shared recovery clear-core -> true if anything was live (the emit-only-if-had gate)
 #if MR_FEAT_TEAM
     PeerLiveness* team_liveness_slot(uint8_t team_local_id, bool create);   // §2c: self-slotted mirror over _team_liveness (team_local_id-keyed, own LRU); NEVER _peer_liveness / _team_keys
+    // §team-parity T5: the CONST twin of team_liveness_slot(id, create=false) — the team bidi READS (bidi_penalty_q4,
+    // candidate_degraded) are const and cannot take the non-const slot accessor. nullptr = no slot = LinkBidi::unknown.
+    // ⚠ MISSING (deliberate, C1): liveness_penalty_q4 (node_routing.cpp:94) still carries this identical linear scan
+    // INLINE. It is provably the same loop, but folding it onto this helper is a pure refactor and T5 is a feature
+    // slice — the same C1 split T6 made for `rt_find` vs flight_is_team_plane and T2 made for its learn_direct_neighbor
+    // hoist. A cleanup slice owns both. There is exactly ONE scan to fold, not a family.
+    const PeerLiveness* team_liveness_find(uint8_t team_local_id) const;
 #endif
     bool          e2e_ack_spoofer_flagged(uint8_t src);               // anti-spoof: has `src` been caught faking RTS_FLAG_E2E_ACK within the penalty window? (its exemption is then revoked). Non-const: peer_liveness_slot is non-const.
     void          mark_peer_suspect(uint8_t node_id, uint8_t level, const char* source, uint8_t remote_src = 0);   // set the tier expiry + resort (§P4: remote_src!=0 => gossip-learned: local_only resort + NO advertise-table write; remote_src is also echoed in the event)
@@ -1347,10 +1373,47 @@ private:
     // §P4 gossip: suspect_advertise_until_ms / dead_advertise_until_ms hold the GOSSIP window (what to put in our BCN
     // suspect-TLV), set ONLY by LOCAL rts_timeout evidence (mark_peer_suspect remote_src==0). REMOTE-learned tiers write
     // the *_until_ms routing fields but NOT these -> a node never re-gossips a suspicion it heard (anti-storm, dv:1388).
-    struct PeerLiveness { uint8_t node_id; uint16_t rts_timeouts; uint64_t first_timeout_ms;
+    // ★★★ §team-parity T5 (spec §3/T5) — team_bidi_state / team_bidi_confirmed_s ARE the TEAM-plane bidirectionality
+    // plane: the team mirror of the STATIC _link_bidi[256] + _link_bidi_confirmed_ms[256] (below, 2304 B), which a
+    // 256-entry team copy could never be on an nRF52840. They are MEANINGFUL ONLY in _team_liveness (keyed by
+    // team_local_id); in _peer_liveness they are dead space — exactly as suspect_advertise_until_ms /
+    // dead_advertise_until_ms are dead in _team_liveness ("A team slot NEVER carries advertise fields",
+    // node_routing.cpp:644). Same precedent, in this same struct. The `team_` prefix is deliberate and load-bearing as
+    // documentation: a reader who finds `_peer_liveness[i].team_bidi_state` has found a bug, because the static plane's
+    // answer is _link_bidi[node_id]. ⇒ invariant I8 ("team bidi state is plane-private and never indexes _link_bidi")
+    // is enforced STRUCTURALLY here — the team state is not an index into anything node_id-shaped.
+    // ★★ PLACEMENT IS THE WHOLE COST OF T5's STATE, AND IT IS ZERO — measured, not argued. node_id occupies byte 0 and
+    // rts_timeouts needs 2-alignment, so byte 1 was pure padding; first_timeout_ms needs 8-alignment, so bytes 4..7 were
+    // pure padding. The two new members take exactly those five holes ⇒ sizeof(PeerLiveness) is 72 BEFORE and 72 AFTER,
+    // so neither _peer_liveness[cap_peer_liveness=64] nor _team_liveness[cap_team_liveness=16] grows a byte on any
+    // layer and sizeof(Node) does NOT move. Fourth application of the radio_freq_mhz / team_hop_cap /
+    // HashQuerySeen.team_scoped placement rule.
+    // ⚠ THE SPEC'S §3/T5 SHAPE WAS MEASURED AND DECLINED, with its arithmetic CONFIRMED: a dedicated
+    // `_team_bidi[16]` of {uint8_t id; uint8_t state; uint32_t confirmed_s} is 8 B/entry × 16 = 128 B per layer (the
+    // u64-ms form is 16 B × 16 = 256 B — alignment does NOT collapse the two, so the spec's "u32 halves it" is right).
+    // Declined because (a) 128 B × MR_N_LAYERS of nRF52840 RAM buys nothing this fit does not, and (b) it would be a
+    // SECOND 16-entry team_local_id-keyed table sitting beside _team_liveness with the identical cap, identical
+    // self-slotted LRU and identical lifetime — the U1 field-drop fork (add a teammate to one, forget the other).
+    // SECONDS, not ms: bidi_confirm_ttl_ms is 1200000 (protocol_constants.h:207) so second granularity is ample, and
+    // u32 seconds is what the 4-byte hole holds. 0 = never confirmed (same sentinel as _link_bidi_confirmed_ms).
+    // ⚠ NOT cleared by clear_liveness_tiers, DELIBERATELY: hearing a frame from a teammate proves it is ALIVE, which is
+    // liveness; it does not prove it hears US, which is bidi. MF6 also forbids one_way decaying on mere staleness. The
+    // ONLY reset is a fresh slot (peer_liveness_slot's `tbl[best] = PeerLiveness{}` on create/LRU-evict), which is
+    // correct — a re-used slot is a different peer.
+    struct PeerLiveness { uint8_t node_id; uint8_t team_bidi_state; uint16_t rts_timeouts; uint32_t team_bidi_confirmed_s;
+                          uint64_t first_timeout_ms;
                           uint64_t suspect_until_ms; uint64_t silent_until_ms; uint64_t dead_until_ms; uint64_t dest_seen_ms;
                           uint64_t suspect_advertise_until_ms; uint64_t dead_advertise_until_ms;
                           uint64_t e2e_ack_spoof_until_ms = 0; };   // anti-spoof: while now < this, the peer's RTS_FLAG_E2E_ACK is IGNORED (backstop re-applies)
+    // ★★ §team-parity T5 PLACEMENT TRIPWIRE — deliberately NOT `#ifdef MESHROUTE_NATIVE`. The 0-byte claim is an
+    // ALIGNMENT claim, so it has to be proven on every ABI that compiles this header (ARM/AAPCS and Xtensa both align
+    // uint64_t to 8, which is what makes the two holes exist there too), not just on the host. If a future member add or
+    // reorder spills out of the holes this fails the BOARD build loudly instead of silently costing
+    // 8 B × (cap_peer_liveness 64 + cap_team_liveness 16) × MR_N_LAYERS of RAM. If a reorder is intentional, re-measure
+    // and update these three numbers together with the sizeof(Node) baseline below.
+    static_assert(sizeof(PeerLiveness) == 72, "PeerLiveness grew: the T5 team-bidi fields no longer fit its padding holes — re-measure the RAM cost before updating this");
+    static_assert(offsetof(PeerLiveness, team_bidi_state)       == 1, "T5: team_bidi_state left byte 1 (the hole after node_id)");
+    static_assert(offsetof(PeerLiveness, team_bidi_confirmed_s) == 4, "T5: team_bidi_confirmed_s left bytes 4..7 (the hole before the 8-aligned first_timeout_ms)");
 
     // ======== PARKED-SEND / hash-resolve + L2c redirect + deleg-ack (Node-global) ========
     // send-by-hash DMs parked awaiting a hash-bind resolution (D); drained by on_hash_bind_response, aged on the timer.

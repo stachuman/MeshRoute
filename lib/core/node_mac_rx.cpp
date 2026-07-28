@@ -504,13 +504,20 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 #endif
     if (!(next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next)))   // §mobile: a mobile/team next is a LOCAL id -> keep it OUT of the static bidi/liveness + route-rerank planes (mirror the CTS-learn guard above)
         note_link_confirmed(c.tx_id);                    // bidi plane: a real CTS proves our next-hop hears us -> confirmed (clears any one_way + emits link_recover)
-    // ✖ §team-parity T2 (§3/T2 row 3, the SECOND half) — the team `note_link_confirmed` is DELIBERATELY NOT DONE HERE:
-    // there is nothing to write it to. note_link_confirmed writes _link_bidi/_link_bidi_confirmed_ms, which are
-    // node_id-indexed STATIC arrays (node.h:1517-1518) — calling it for a team local id IS the §18 write-alias this
-    // guard exists to prevent, and the isolation invariant T2 must not break. The team bidi table is T5's deliverable
-    // (spec §3/T5: a 16-entry self-slotted mirror, 128 B); the confirm lands the day that table exists. What T2 DOES
-    // give the team plane here is the LIVENESS half: learn_direct_neighbor's team branch calls
-    // clear_peer_suspect(sender, "team_rx", team_plane=true) (node_beacon.cpp:99), which writes _team_liveness.
+#if MR_FEAT_TEAM
+    // ★★★ ✔ §team-parity T5 (spec §3/T2 row 3 SECOND HALF — the ✖ T2 left here, now CLOSED). T2's reason for deferring
+    // was exact and is now spent: "there is nothing to write it to". T5 adds team_bidi_state/team_bidi_confirmed_s to the
+    // _team_liveness slot (node.h's PeerLiveness note), so a team confirm writes TEAM state and never touches the
+    // node_id-indexed _link_bidi. The GUARD ABOVE IS UNTOUCHED — this is a team destination for the traffic it excludes.
+    // ⚠ ELSE-ARM ALGEBRA (identical to the T2 learn arms 3 lines up, restated because it is what makes the static path
+    // provably immovable): next_is_local_id == (addr_len==1 || is_team_peer(next)), so `!next_is_local_id` FALSE is the
+    // ONLY way in — the arm fires exactly on the traffic the static guard rejects and is unreachable whenever the guard
+    // admitted the frame. team_id==0 ⇒ _team_peer all-zero ⇒ inert (s18 / every static scenario byte-identical).
+    // `c.tx_id` (not `->next`) mirrors the static arm verbatim; the two are pinned equal by the `c.tx_id != next` return
+    // earlier in this function, which is the same pinning T2's learn arm documents at :496.
+    else if (is_team_peer(_active->_pending_tx->next))
+        note_link_confirmed(c.tx_id, /*team_plane=*/true);
+#endif
     _hal.cancel(kRtsTimeoutTimerId);                     // else it fires same-tick and burns a retry
     _hal.cancel(kRetryBackoffTimerId);                   // drop a stale retry armed by a just-fired rts_timeout
     _active->_pending_tx->awaiting_cts = false;
@@ -1394,8 +1401,17 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // ✔ §team-parity T2 (§3/T2 row 5): an ACK from OUR next-hop on a TEAM flight is the strongest 1-hop proof there is —
     // it carried our DATA. Same else-arm algebra as the CTS site: !next_is_local_id false is the only path in, so the arm
     // fires exactly on the traffic the guard excludes; is_team_peer is our own state (no id admitted); team_id==0 ⇒ inert.
-    // ✖ The "team confirm" half of row 5 is NOT done, for the same reason as the CTS site — note_link_confirmed writes the
-    // static _link_bidi; the team bidi table is T5's. The team LIVENESS confirm does happen, inside learn_direct_neighbor.
+    // ⚠ §team-parity T5 — ROW 5's "team confirm" IS REFUSED, AND THE SPEC/T2 NOTE THAT ASKED FOR IT WAS WRONG. T5 built the
+    // team bidi plane, so "there is nothing to write it to" no longer applies; the reason is now stronger. MEASURED AT
+    // SOURCE: note_link_confirmed has exactly TWO callers in the whole engine — the CTS site (:506/:519) and the beacon
+    // heard-set scan (node_beacon.cpp) — so THE STATIC PLANE PERFORMS NO BIDI CONFIRM ON AN ACK EITHER. Adding one here
+    // for the team plane would not be parity, it would be a team-ONLY mechanism the static plane lacks (the exact inverse
+    // of this arc's mandate), and it would be pure decoration: an ACK is structurally unreachable without a CTS for the
+    // same flight (`awaiting_ack` is set only inside do_data_tx / its stash-retry and re-issue twins, all of which run
+    // after handle_cts's kCtsToDataGapTimerId), so the team confirm has ALREADY fired microseconds earlier on this very
+    // flight and would only restamp an identical second. ⇒ REFUSED as a forced fit, per the gate method's §C. The team
+    // LIVENESS confirm does happen here, inside learn_direct_neighbor's team branch. If a future slice ever gives the
+    // static plane an ACK-time confirm, add BOTH arms together.
     else if (is_team_peer(_active->_pending_tx->next)
              && learn_direct_neighbor(_active->_pending_tx->next, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/true)) schedule_triggered_beacon();
 #endif

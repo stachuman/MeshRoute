@@ -230,13 +230,41 @@ void Node::apply_suspect_gossip(const SuspectEntry* e, uint8_t n, uint8_t bcn_sr
 // COMPLETE page => P does NOT hear us => us->P ONE_WAY. ABSENT in a TRUNCATED page (complete=false) => no change.
 // Keys ONLY on dest==self/presence — NEVER reads entries[i].degraded (endpoint override: our live decode of P's
 // beacon is proof P->us works, overriding any stale third-party degraded view).
-void Node::update_link_bidi_from_beacon(uint8_t advertiser, const beacon_entry* entries, uint8_t n, bool complete) {
-    if (advertiser == 0 || advertiser == 0xFF || advertiser == _node_id) return;   // §P0 sentinel / self
+// ✔ §team-parity T5 (spec §3/T5) — the TEAM arm, and it needs the plane for TWO reasons, not one: the verdict must land
+// in the team bidi slot (never _link_bidi — I2/I8), AND "self" on the team plane is our team_local_id(), because a
+// teammate's route page advertises TEAM local ids. Scanning a team page for _node_id would silently never match (or,
+// worse, match a §18 numeric collision), so a plane-blind reuse of this function was never an option. The self-id
+// selection is the same one-liner learn_route_via already uses at :64 (U1, one idiom for "our id on this plane").
+// Static reduction: team_plane==false is the pre-T5 body verbatim.
+void Node::update_link_bidi_from_beacon(uint8_t advertiser, const beacon_entry* entries, uint8_t n, bool complete,
+                                        [[maybe_unused]] bool team_plane) {
+#if MR_FEAT_TEAM
+    const uint8_t self_id = team_plane ? team_local_id() : _node_id;
+    // C2: not yet team-DAD'd (team_local_id()==0) ⇒ our team id is the reserved sentinel, so "absent from the page"
+    // proves nothing and "present" could only be a bogus dest==0 row. Refuse rather than record a guess.
+    if (team_plane && self_id == 0) return;
+#else
+    const uint8_t self_id = _node_id;
+#endif
+    if (advertiser == 0 || advertiser == 0xFF || advertiser == self_id) return;   // §P0 sentinel / self
     bool present = false;
     for (uint8_t i = 0; i < n; ++i)
-        if (entries[i].hops == 1 && entries[i].dest == _node_id) { present = true; break; }
-    if (present) { note_link_confirmed(advertiser); return; }   // CONFIRMED (Slice 2 hook: fan-out + MR_EMIT)
+        if (entries[i].hops == 1 && entries[i].dest == self_id) { present = true; break; }
+    if (present) { note_link_confirmed(advertiser, team_plane); return; }   // CONFIRMED (Slice 2 hook: fan-out + MR_EMIT)
     if (!complete) return;                                      // truncated page -> absence is not authoritative
+#if MR_FEAT_TEAM
+    if (team_plane) {
+        // NO resort here, deliberately — the STATIC one_way write below does not resort either (only the confirm path
+        // fans out). The demotion is applied at the next refresh_route_order(Plane::TEAM), i.e. at pick time. Keeping the
+        // two planes structurally identical is worth more than fixing that asymmetry inside a parity slice (C1).
+        PeerLiveness* ts = team_liveness_slot(advertiser, /*create=*/true);
+        if (ts && ts->team_bidi_state != static_cast<uint8_t>(LinkBidi::one_way)) {
+            ts->team_bidi_state = static_cast<uint8_t>(LinkBidi::one_way);
+            MR_EMIT("link_one_way", EF_I("next_hop", advertiser), EF_S("plane", "team"));
+        }
+        return;
+    }
+#endif
     if (_active->_link_bidi[advertiser] != static_cast<uint8_t>(LinkBidi::one_way)) {
         _active->_link_bidi[advertiser] = static_cast<uint8_t>(LinkBidi::one_way);
         MR_EMIT("link_one_way", EF_I("next_hop", advertiser));
@@ -947,8 +975,22 @@ void Node::ingest_beacon(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         // `!b.is_mobile` ⇒ `!same_team_beacon` — the old predicate is subsumed, nothing newly admitted.
         // Static reduction: a static advertiser has b.is_mobile == false, so every pre-T3 static-to-static call still
         // happens; s18 (no mobiles at all) is byte-identical, and the team plane still keeps no bidi array (T5 owns it).
+        // ★★★ ✔ §team-parity T5 (spec §3/T5) — THE TEAM DESTINATION IS ADDED; THE `!b.is_mobile` GUARD IS UNTOUCHED.
+        // This is the discipline T2 was held to and T3 re-earned: "add a team destination for the excluded traffic, NOT
+        // relax the guard that keeps it out of static state." The static call still requires `!b.is_mobile`, so no team,
+        // foreign-team or plain-mobile local id can reach _link_bidi / _link_bidi_confirmed_ms by ANY path through this
+        // block — read the two branches and that is decidable from one wire bit. The `else if` is exhaustive-by-exclusion,
+        // not a widening: a plain mobile and a FOREIGN-team member satisfy neither branch and are still dropped, exactly
+        // as T3 left them (their page advertises ids in a namespace we cannot interpret at all).
+        // T3 made `heard_set_complete` ride team beacons and recorded its consumer as "0/36 BY CONSTRUCTION — declared
+        // honest gap, T5 owns consumption". ⇒ THIS is that consumer: it is what makes an ABSENT self-entry in a
+        // teammate's COMPLETE page authoritative evidence that the teammate does not hear us.
         if (!b.is_mobile)
             update_link_bidi_from_beacon(b.src, heard, hn, b.heard_set_complete);
+#if MR_FEAT_TEAM
+        else if (same_team_beacon)
+            update_link_bidi_from_beacon(b.src, heard, hn, b.heard_set_complete, /*team_plane=*/true);
+#endif
     }
 
     // dv_dual_sf.lua:9680-9684 order: discovery re-check, triggered re-beacon on

@@ -243,6 +243,60 @@
    "emit_type": "e2e_ack_tx",
    "value": "\"dst\":220",
    "_c": "24 [control] and the homed member's ack for it goes to the off-grid TEAM id 220, never to a static id"
+  },
+  {
+   "_c": "★★ 29 §team-parity T5 — WHY THE HEARD-SET SCAN'S SELF-ID MUST BE PLANE-SELECTED, and this scenario is the ONLY place in the corpus that can say it. TH is the HOMED member, so its static node_id (host-assigned 254) and its team_local_id (210) are DIFFERENT values — the dual split s35a/s35b cannot express because every member there is off-grid. A teammate's route page advertises TEAM ids, so the scan must look for 210. Presence half: TH correctly finds itself in TO's page and records CONFIRMED.",
+   "type": "script_emit_contains",
+   "node": "TH",
+   "emit_type": "link_bidi_confirm",
+   "value": "\"next_hop\":220,\"plane\":\"team\""
+  },
+  {
+   "_c": "★★ 30 — the ABSENCE half, PAIRED with 29 per the T8 rule: TH must NEVER conclude its link to TO is one-way. A plane-blind scan (looking for _node_id 254 instead of team_local_id 210) never finds itself, so a HEALTHY team link is falsely demoted on EVERY homed member — measured: this exact edit turns 22 confirms into a one_way plus 7 degraded_advertise beacons. 29 forbids that being masked by the scan simply not running.",
+   "type": "script_emit_not_contains",
+   "node": "TH",
+   "emit_type": "link_one_way",
+   "value": "\"plane\":\"team\""
+  },
+  {
+   "_c": "31 — the downstream consequence of 30: a false one-way verdict would be GOSSIPED as a degraded route page entry. Zero degraded advertisements is the observable that the homed member's own view is healthy.",
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "degraded_advertise",
+   "node": "TH",
+   "count": 0
+  },
+  {
+   "_c": "32 — invariant I8 on the R3 scenario: the two STATIC nodes never take the team bidi arm at all. H1 deliberately cannot even reach TO (see the _desc), which is what makes this the strongest isolation ground in the corpus.",
+   "type": "script_emit_not_contains",
+   "node": "H1",
+   "emit_type": "link_bidi_confirm",
+   "value": "\"plane\":\"team\""
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "S2",
+   "emit_type": "link_bidi_confirm",
+   "value": "\"plane\":\"team\""
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "S2",
+   "emit_type": "link_one_way",
+   "value": "\"plane\":\"team\""
+  },
+  {
+   "_c": "33 — and the id form: a team local id (210 = TH, 220 = TO) must never appear in a STATIC node's bidi verdict, which is a write into the node_id-indexed _link_bidi[256] (invariant I2).",
+   "type": "script_emit_not_contains",
+   "node": "S2",
+   "emit_type": "link_bidi_confirm",
+   "value": "\"next_hop\":210"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "S2",
+   "emit_type": "link_one_way",
+   "value": "\"next_hop\":220"
   }
  ],
  "nodes": [

@@ -213,6 +213,120 @@
    "node": "M1",
    "emit_type": "push",
    "value": "e2e_acked"
+  },
+  {
+   "_c": "§team-parity T5 #1 — THE TEAM BIDI PLANE EXISTS: a team CTS / heard-set hit records a CONFIRMED verdict against a team_local_id (241 = TeamA). Pre-T5 this event could not exist on the team plane at all — note_link_confirmed had no team arm, and T2 marked the site ✖ twice ('there is nothing to write it to').",
+   "type": "script_emit_contains",
+   "node": "TeamB",
+   "emit_type": "link_bidi_confirm",
+   "value": "\"next_hop\":241,\"plane\":\"team\""
+  },
+  {
+   "_c": "T5 #2 — TeamB positively establishes that its DIRECT link to TeamA (241) is ONE-WAY, from TeamA's COMPLETE heard-set page. This is T3's heard_set_complete-on-team-beacons finally having a consumer (T3 recorded it as '0/36 BY CONSTRUCTION, T5 owns consumption').",
+   "type": "script_emit_contains",
+   "node": "TeamB",
+   "emit_type": "link_one_way",
+   "value": "\"next_hop\":241,\"plane\":\"team\""
+  },
+  {
+   "_c": "★★ T5 #3 — MUTUAL RECOGNITION, which is spec §3/T5's literal purpose ('what would have let 213 and 174 recognise that their direct link is one-way'). The OTHER endpoint independently reaches the same verdict about TeamB (143). Pairs with #2 so neither can pass by the mechanism simply not running.",
+   "type": "script_emit_contains",
+   "node": "TeamA",
+   "emit_type": "link_one_way",
+   "value": "\"next_hop\":143,\"plane\":\"team\""
+  },
+  {
+   "_c": "★★ T5 #4 — THE ROUTING CONSEQUENCE, and the ONLY path-selection change T5 makes anywhere in the corpus: with the direct hop demoted by bidi_penalty_one_way_q4, TeamB commits to the 2-HOP path to 241 via TeamC (224) as PRIMARY. Pre-T5 the identical candidate installed as 'alt' and the one-way direct hop stayed primary. If this line reads slot:alt again, effective_score has stopped consuming the team bidi state.",
+   "type": "script_emit_contains",
+   "node": "TeamB",
+   "emit_type": "rt_update",
+   "value": "\"dest\":241,\"hops\":2,\"next\":224,\"score\":11.0,\"slot\":\"primary\""
+  },
+  {
+   "_c": "T5 #5 — the TRANSITIVE half (candidate_degraded's team arm): TeamB now advertises the one-way team route as `degraded` in its beacon route page, which the team plane could not do before (it was wire-only). NB `degraded` is a gossip bit — no routing decision reads it on either plane.",
+   "type": "script_emit_contains",
+   "node": "TeamB",
+   "emit_type": "degraded_advertise",
+   "value": "\"dest\":241,\"next\":241"
+  },
+  {
+   "_c": "T5 #6 — RECOVERY is reachable, not a one-way ratchet (MF6/§7): a later confirm clears the one_way verdict...",
+   "type": "script_emit_contains",
+   "node": "TeamB",
+   "emit_type": "link_recover",
+   "value": "\"next_hop\":241,\"plane\":\"team\""
+  },
+  {
+   "_c": "... and it fans out through team_resort_routes_through with T5's own reason string, so a bidi rerank is distinguishable from a liveness-tier rerank in the stream.",
+   "type": "script_emit_contains",
+   "node": "TeamB",
+   "emit_type": "rt_penalty_rerank",
+   "value": "\"reason\":\"team_link_bidi_confirm\""
+  },
+  {
+   "_c": "★★★ T5 #7 — INVARIANT I8 / I2, THE ACCEPTANCE CRITERION: a STATIC node never takes the team bidi arm. Absence assertions, and per the T8 rule they are PAIRED with the presences above (#1/#2/#3 require the team-plane verdicts to exist), so 'zero on the statics' cannot be satisfied by the mechanism not running.",
+   "type": "script_emit_not_contains",
+   "node": "S1",
+   "emit_type": "link_bidi_confirm",
+   "value": "\"plane\":\"team\""
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "S1",
+   "emit_type": "link_one_way",
+   "value": "\"plane\":\"team\""
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "S2",
+   "emit_type": "link_bidi_confirm",
+   "value": "\"plane\":\"team\""
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "S2",
+   "emit_type": "link_one_way",
+   "value": "\"plane\":\"team\""
+  },
+  {
+   "_c": "T5 #8 — the same invariant stated on the ID rather than the plane tag, which is the form that catches a team local id reaching the node_id-indexed _link_bidi[256] by ANY route (the exact leak T3 measured on the pre-fix arm: statics writing _link_bidi[100]/[200]/[98]). 143/241/224 are this scenario's three team local ids.",
+   "type": "script_emit_not_contains",
+   "node": "S1",
+   "emit_type": "link_bidi_confirm",
+   "value": "\"next_hop\":241"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "S1",
+   "emit_type": "link_one_way",
+   "value": "\"next_hop\":143"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "S2",
+   "emit_type": "link_bidi_confirm",
+   "value": "\"next_hop\":224"
+  },
+  {
+   "type": "script_emit_not_contains",
+   "node": "S2",
+   "emit_type": "link_one_way",
+   "value": "\"next_hop\":241"
+  },
+  {
+   "_c": "T5 #9 — STATIC-PLANE INVARIANCE, pinned as an exact count: T5 adds ZERO static bidi events. These two numbers are pre-T5 values and have nothing to do with T5 — that is the point; they are the tightest available statement that the slice did not touch the static plane. If a future slice legitimately changes static beacon timing, s22 re-anchors anyway and these move with it.",
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "link_bidi_confirm",
+   "node": "S1",
+   "count": 5
+  },
+  {
+   "type": "event_count",
+   "event_type": "script_emit",
+   "emit_type": "link_bidi_confirm",
+   "node": "S2",
+   "count": 6
   }
  ],
  "nodes": [

@@ -6656,3 +6656,193 @@ TEST_CASE("§team-parity T6/B — the H-flood dedup ring is PLANE-KEYED: a team 
     feed_h(/*team_scoped=*/true);  CHECK(hal.count("h_forward") == 2);
     feed_h(/*team_scoped=*/false); CHECK(hal.count("h_forward") == 2);
 }
+
+// ---- §team-parity T5 (spec 2026-07-27 §3/T5) — the TEAM BIDI PLANE -----------------------------------------------
+// The team mirror of the static _link_bidi/_link_bidi_confirmed_ms, living in the _team_liveness slot's
+// team_bidi_state / team_bidi_confirmed_s (node.h's PeerLiveness note). These cases are the ONLY detector for the
+// per-plane RESOLUTION (which table a given id resolves against) — the corpus proves the feeds FIRE and that the
+// static plane does not move, but no scenario puts the same numeric id on both planes at once, which is the §18
+// collision the plane split exists for.
+
+TEST_CASE("§team-parity T5 — a TEAM confirm writes TEAM state and NEVER the static _link_bidi (I2/I8), with the static arm as the same-site control") {
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/17, /*key=*/0x1717u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=TEAM;
+    CHECK(X.on_init(cfg));
+    X.set_team_local_id(93);                                  // DUAL member: node_id 17, team id 93
+    hal._now = 500000;
+    // (a) the TEAM arm — this is the write T2 marked ✖ twice ("there is nothing to write it to").
+    CHECK(X.team_link_bidi_state(210) == LinkBidi::unknown);
+    X.note_link_confirmed(210, /*team_plane=*/true);
+    CHECK(X.team_link_bidi_state(210) == LinkBidi::confirmed);
+    CHECK(X.team_link_bidi_confirmed_s(210) == 500u);          // SECONDS, not ms
+    // ★★ THE ISOLATION ASSERTION: the static node_id-indexed array is untouched at that index.
+    CHECK(X.link_bidi_state(210) == LinkBidi::unknown);
+    CHECK(X.bidi_penalty_q4(210, /*team_plane=*/false) == 0);
+    // (b) SAME-SITE CONTROL: the static arm still writes _link_bidi and leaves the team slot alone. Without this the
+    // test above would also pass if note_link_confirmed had simply stopped writing anything.
+    X.note_link_confirmed(211, /*team_plane=*/false);
+    CHECK(X.link_bidi_state(211) == LinkBidi::confirmed);
+    CHECK(X.link_bidi_confirmed_ms(211) == 500000u);
+    CHECK(X.team_link_bidi_state(211) == LinkBidi::unknown);
+    // (c) a re-confirm refreshes the second stamp (mirrors the static case's ms refresh).
+    hal._now = 700000;
+    X.note_link_confirmed(210, /*team_plane=*/true);
+    CHECK(X.team_link_bidi_confirmed_s(210) == 700u);
+}
+
+TEST_CASE("§team-parity T5 — bidi_penalty_q4 resolves PER PLANE: one id, two verdicts (the §18 collision)") {
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/17, /*key=*/0x1717u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=TEAM;
+    CHECK(X.on_init(cfg)); X.set_team_local_id(93);
+    // id 60 is one_way as a TEAMMATE and confirmed as a STATIC neighbour — the two planes must disagree.
+    X.set_team_link_bidi_for_test(60, LinkBidi::one_way);
+    X.set_link_bidi_for_test(60, LinkBidi::confirmed);
+    CHECK(X.bidi_penalty_q4(60, /*team_plane=*/true)  == protocol::bidi_penalty_one_way_q4);
+    CHECK(X.bidi_penalty_q4(60, /*team_plane=*/false) == 0);
+    // ...and the mirror image on another id, so neither answer is a constant.
+    X.set_team_link_bidi_for_test(61, LinkBidi::confirmed);
+    X.set_link_bidi_for_test(61, LinkBidi::one_way);
+    CHECK(X.bidi_penalty_q4(61, /*team_plane=*/true)  == 0);
+    CHECK(X.bidi_penalty_q4(61, /*team_plane=*/false) == protocol::bidi_penalty_one_way_q4);
+    // An id with NO team slot is `unknown`, not penalized (OI2: only positively-confirmed one_way demotes).
+    CHECK(X.team_link_bidi_state(62) == LinkBidi::unknown);
+    CHECK(X.bidi_penalty_q4(62, /*team_plane=*/true) == 0);
+    // Our OWN team id is never penalized even if a slot says one_way (mirrors liveness_penalty_q4's :89 carve-out,
+    // which matters on a dual member where team_local_id != _node_id so the generic self-test misses it).
+    X.set_team_link_bidi_for_test(93, LinkBidi::one_way);
+    CHECK(X.bidi_penalty_q4(93, /*team_plane=*/true) == 0);
+}
+
+TEST_CASE("§team-parity T5 — candidate_degraded ORs the LOCAL team verdict in, per plane") {
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/17, /*key=*/0x1717u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=TEAM;
+    CHECK(X.on_init(cfg)); X.set_team_local_id(93);
+    RtCandidate c{}; c.next_hop = 60; c.hops = 1; c.degraded_from_wire = false;
+    CHECK_FALSE(X.candidate_degraded(c, /*team_plane=*/true));    // clean wire + unknown team bidi
+    X.set_team_link_bidi_for_test(60, LinkBidi::one_way);
+    CHECK(X.candidate_degraded(c, /*team_plane=*/true));          // ★ pre-T5 this returned false (wire-only)
+    CHECK_FALSE(X.candidate_degraded(c, /*team_plane=*/false));   // same-site control: the STATIC verdict is separate
+    // The wire component still stands alone on either plane (MF5/OI1: it is an OR, never replaced).
+    RtCandidate w{}; w.next_hop = 70; w.hops = 2; w.degraded_from_wire = true;
+    CHECK(X.candidate_degraded(w, /*team_plane=*/true));
+    CHECK(X.candidate_degraded(w, /*team_plane=*/false));
+}
+
+TEST_CASE("§team-parity T5 — the heard-set scan keys on the TEAM self-id, and our STATIC node_id does NOT confirm a team link") {
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/17, /*key=*/0x1717u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=TEAM;
+    CHECK(X.on_init(cfg)); X.set_team_local_id(93);               // node_id 17, team id 93 — deliberately DIFFERENT
+    // (a) PRESENT at hops==1 as our TEAM id -> the teammate hears us -> confirmed.
+    beacon_entry present[1] = {}; present[0].dest = 93; present[0].next = 93; present[0].hops = 1;
+    X.test_update_link_bidi_from_beacon(/*advertiser=*/210, present, 1, /*complete=*/true, /*team_plane=*/true);
+    CHECK(X.team_link_bidi_state(210) == LinkBidi::confirmed);
+    CHECK(X.link_bidi_state(210) == LinkBidi::unknown);           // I8 again: nothing in the static array
+    // (b) ★★ THE SELF-ID SELECTION IS LOAD-BEARING: a page that lists our STATIC node_id (17) at hops==1 must NOT
+    // confirm on the team plane — a teammate's page advertises TEAM ids, so a 17 there is somebody else entirely.
+    // With a COMPLETE page the correct verdict is one_way, not confirmed.
+    beacon_entry wrong_ns[1] = {}; wrong_ns[0].dest = 17; wrong_ns[0].next = 17; wrong_ns[0].hops = 1;
+    X.test_update_link_bidi_from_beacon(/*advertiser=*/211, wrong_ns, 1, /*complete=*/true, /*team_plane=*/true);
+    CHECK(X.team_link_bidi_state(211) == LinkBidi::one_way);
+    // (c) ABSENT + INCOMPLETE page -> no change (absence is not authoritative). This is what T3's heard_set_complete
+    // on team beacons made meaningful, and T5 is its consumer.
+    X.test_update_link_bidi_from_beacon(/*advertiser=*/212, wrong_ns, 1, /*complete=*/false, /*team_plane=*/true);
+    CHECK(X.team_link_bidi_state(212) == LinkBidi::unknown);
+    // (d) hops must be 1: a 2-hop self-entry is not proof of a DIRECT link (same rule as the static scan).
+    beacon_entry two_hop[1] = {}; two_hop[0].dest = 93; two_hop[0].next = 210; two_hop[0].hops = 2;
+    X.test_update_link_bidi_from_beacon(/*advertiser=*/213, two_hop, 1, /*complete=*/true, /*team_plane=*/true);
+    CHECK(X.team_link_bidi_state(213) == LinkBidi::one_way);
+    // (e) one_way -> a later PRESENT entry recovers it to confirmed (the §7 recovery signal, team side).
+    X.test_update_link_bidi_from_beacon(/*advertiser=*/211, present, 1, /*complete=*/true, /*team_plane=*/true);
+    CHECK(X.team_link_bidi_state(211) == LinkBidi::confirmed);
+    CHECK(hal.count("link_recover") >= 1);
+}
+
+TEST_CASE("§team-parity T5 — a member with NO team-DAD'd id records NOTHING from a team heard-set (C2: refuse, don't guess)") {
+    // team_local_id()==0 is the reserved sentinel, so neither "present" nor "absent" carries information: a dest==0 row
+    // would false-confirm, and absence of an id we do not have cannot mean the teammate ignores us.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/17, /*key=*/0x1717u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=TEAM;
+    CHECK(X.on_init(cfg));
+    CHECK(X.team_local_id() == 0);                               // DAD not yet complete
+    beacon_entry zero_row[1] = {}; zero_row[0].dest = 0; zero_row[0].next = 0; zero_row[0].hops = 1;
+    X.test_update_link_bidi_from_beacon(/*advertiser=*/210, zero_row, 1, /*complete=*/true, /*team_plane=*/true);
+    CHECK(X.team_link_bidi_state(210) == LinkBidi::unknown);      // no confirm, and no one_way either
+    CHECK(X.link_bidi_state(210) == LinkBidi::unknown);
+    // Same-site control: once DAD completes, the identical call DOES record (so the refusal is the id, not the wiring).
+    X.set_team_local_id(93);
+    X.test_update_link_bidi_from_beacon(/*advertiser=*/210, zero_row, 1, /*complete=*/true, /*team_plane=*/true);
+    CHECK(X.team_link_bidi_state(210) == LinkBidi::one_way);
+}
+
+TEST_CASE("§team-parity T5 — a liveness recovery does NOT clear the team bidi verdict (alive != hears-us)") {
+    // clear_liveness_tiers deliberately omits the bidi fields: hearing a frame FROM a teammate proves it is alive, not
+    // that it hears US. If a future edit adds them to that clear, this fires.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/17, /*key=*/0x1717u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=TEAM;
+    CHECK(X.on_init(cfg)); X.set_team_local_id(93);
+    X.set_team_link_bidi_for_test(210, LinkBidi::one_way);
+    X.record_peer_rts_timeout(210, /*ctr_lo=*/1, /*team_plane=*/true);
+    X.record_peer_rts_timeout(210, /*ctr_lo=*/2, /*team_plane=*/true);
+    CHECK(X.test_team_penalty_q4(210) > 0);                       // a liveness tier is live
+    X.clear_peer_suspect(210, "team_rx", /*team_plane=*/true);     // recovery-on-heard
+    CHECK(X.test_team_penalty_q4(210) == 0);                      // ...clears the liveness tier
+    CHECK(X.team_link_bidi_state(210) == LinkBidi::one_way);       // ★ but NOT the bidi verdict
+    CHECK(X.bidi_penalty_q4(210, /*team_plane=*/true) == protocol::bidi_penalty_one_way_q4);
+}
+
+TEST_CASE("§team-parity T5 — decay_link_bidi's TEAM arm: confirmed -> unknown past TTL, NEVER -> one_way (MF6)") {
+    // ✖ This arm has NO wired caller, exactly like the static one (nothing treats confirmed differently from unknown),
+    // so this case is its ONLY detector — corpus-dark BY CONSTRUCTION, stated rather than left to look like coverage.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/17, /*key=*/0x1717u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=TEAM;
+    CHECK(X.on_init(cfg)); X.set_team_local_id(93);
+    hal._now = 1000;
+    X.note_link_confirmed(210, /*team_plane=*/true);
+    CHECK(X.team_link_bidi_state(210) == LinkBidi::confirmed);
+    hal._now = 1000 + protocol::bidi_confirm_ttl_ms - 1000;        // one second short of the TTL
+    X.decay_link_bidi(210, /*team_plane=*/true);
+    CHECK(X.team_link_bidi_state(210) == LinkBidi::confirmed);
+    hal._now = 1000 + protocol::bidi_confirm_ttl_ms;
+    X.decay_link_bidi(210, /*team_plane=*/true);
+    CHECK(X.team_link_bidi_state(210) == LinkBidi::unknown);        // decayed
+    // MF6: a one_way verdict is NEVER touched by decay (it took positive evidence to set; only evidence clears it).
+    X.set_team_link_bidi_for_test(211, LinkBidi::one_way);
+    hal._now += protocol::bidi_confirm_ttl_ms * 4;
+    X.decay_link_bidi(211, /*team_plane=*/true);
+    CHECK(X.team_link_bidi_state(211) == LinkBidi::one_way);
+    // An id with no slot at all is a safe no-op (the static array always exists; the team table may not have the row).
+    X.decay_link_bidi(212, /*team_plane=*/true);
+    CHECK(X.team_link_bidi_state(212) == LinkBidi::unknown);
+}
+
+TEST_CASE("§team-parity T5 — a CTS on a TEAM flight confirms the team link; the static _link_bidi stays clean") {
+    // The end-to-end feed (spec §3/T2 row 3's SECOND half, the ✖ T2 left for T5). Drives the real handle_cts arm.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node A(hal, /*id=*/213, /*key=*/0xA213u); t1_offgrid(A, 213, TEAM);
+    std::array<uint8_t,64> bb{};
+    const size_t bn = t1_team_beacon(/*src=*/234, TEAM, bb);
+    A.on_recv(bb.data(), bn, RxMeta{12.0f, -70.0f, 0, static_cast<int8_t>(234)});
+    CHECK(A.is_team_peer(234));
+    CHECK(A.team_link_bidi_state(234) == LinkBidi::unknown);        // a beacon alone is not bidi proof
+    CHECK(t6_send(A, /*dst=*/234, Plane::TEAM).code == CmdCode::queued);
+    // The RTS must have flown and named 234 as the next hop (else the CTS below could not match this flight).
+    uint8_t rts_next = 0;
+    for (const auto& f : hal.tx_frames)
+        if (auto pr = parse_rts(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()))) rts_next = pr->next;
+    CHECK(rts_next == 234);
+    // Answer it with a CTS from 234 addressed to us, so handle_cts's team arm runs. handle_cts pins the flight on
+    // rx_id==us + tx_id==next (it deliberately does NOT match ctr_lo — see its note).
+    std::array<uint8_t,8> cb{};
+    const size_t cn = mk_cts(/*rx_id=*/213, /*tx_id=*/234, /*data_sf=*/7, cb);
+    CHECK(cn > 0);
+    A.on_recv(cb.data(), cn, RxMeta{12.0f, -70.0f, 0, static_cast<int8_t>(234)});
+    CHECK(A.team_link_bidi_state(234) == LinkBidi::confirmed);      // ★ the T5 confirm fired
+    CHECK(A.link_bidi_state(234) == LinkBidi::unknown);             // ★★ and NOT into the static array (I2/I8)
+}
