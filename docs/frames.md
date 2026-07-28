@@ -154,7 +154,7 @@ Bytes 2..7 are the **fixed routing header** (`DATA_HDR_LEN = 8`) — relays read
 | b3 `0x08` | `LOCATION`    | **live** — opt-in 6-B sender location in the sealed inner (after `source_hash`); set ONLY on origination (`loc_in_dm` + a non-zero fix)                                                                       |
 | b2 `0x04` | `SOURCE_HASH` | **live** — the inner carries the origin's `key_hash32` after `origin` (the stable sender identity; **default-on for app DMs**); **sealed under `CRYPTED`**                                                    |
 | b1 `0x02` | `DST_HASH`    | **live** — the inner carries the recipient's `key_hash32` (verify-on-delivery)                                                                                                                                |
-| b0 `0x01` | `PRIORITY`    | decoded-only (no behaviour wired yet)                                                                                                                                                                         |
+| b0 `0x01` | `PRIORITY` / `MS_ENCLOSED_TYPE` | ★ **TWO MEANINGS ON ONE BIT — NOT a free bit.** As `PRIORITY` it is decoded-only (`o.priority`; nothing reads it). But the **same bit** is `DATA_FLAG_MS_ENCLOSED_TYPE` (an alias, `frame_codec.h:536`) and is **LIVE**: on a same-layer MOBILE_SEND wrapper it marks an enclosed TYPE byte at `body[0]`. Set `node_hashlocate.cpp:1054/1065`, `node_channel.cpp:397`; read `node_mac_rx.cpp:822/872`. Disambiguated by frame context (wrapper vs ordinary DM), not by another bit. ⚠ **Do not repurpose it** — see the flags-byte-full note below |
 
 **TYPE (byte 8, enum, present iff `APP`):** mutually-exclusive message kinds. `AUTHORITATIVE` is folded into the H-answer code (1 vs 2); the old `E2E_IS_ACK` flag became the `E2E_ACK` type.
 
@@ -438,7 +438,15 @@ Sizes: 3 mobiles = 25 B (+5 echo) · 16 = 107 B. Behaviour/rationale in `docs/pr
 Decided in the design specs, **not yet on the wire** — listed so the reference stays complete:
 
 - **M — `LOCATION` (opt-in, broadcast-public): DEFERRED proposal.** `flavor` bit `0x08`, a 6-B location after `channel_msg_id`; toggle `loc_in_m`. Needs threading the originator's location through the channel-flood plane with re-flood **preservation** (whole-leaf coverage, never the re-flooder's own location) + the RTS-M `payload_len +6`; `pack_m`/`parse_m` do **not** handle `0x08` yet.
-- **DATA — `PRIORITY` (b0):** decoded but no scheduling behaviour wired yet.
+- **DATA — `PRIORITY` (b0):** decoded but no scheduling behaviour wired yet. ★★ **THE DATA FLAGS BYTE IS FULLY
+  ASSIGNED** — `0x80│0x40│0x20│0x10│0x08│0x04│0x02│0x01` = `0xFF`, no spare bit — **and `0x01` is NOT the
+  free one it looks like:** it is aliased as `DATA_FLAG_MS_ENCLOSED_TYPE` and live on the homed-mobile
+  delegation path (6 sites; see the flags table). ⚠ **Treat "there is a spare codepoint here" as a claim to
+  verify, not a fact.** Checked and recorded 2026-07-28 after the same belief about the **Q opcode** proved
+  costly: that field is 2 bits, the "spare" value was the *last* one, and taking an out-of-range value
+  truncated on the wire while comparing at full width — a dead feature plus an isolation leak with no build
+  error. A new DATA flag now means either riding the existing TYPE byte (under `APP`) or a `wire_version` bump,
+  which is cheap while undeployed but re-anchors every scenario stream and must therefore be its own slice.
 - **DATA — cross-layer `CRYPTED`:** v1 cross-layer DMs are cleartext-only; sealing the cross-layer path is a future slice.
 
 *(Recently shipped — now documented in their frame sections above, not here: the 6-B BCN leaf-config header; the BCN `heard_set_complete` + route-entry `degraded` bidirectionality bits; `wire_version` on BCN + J; the BCN suspect/liveness ext-TLVs (types 1/2); the CTS NAV byte (now `[len6][cr2]`); the F `config_hash`; the Q `CONFIG_PULL` and `TEAM_SYNC` opcodes (the opcode field is now full); DATA `CRYPTED`/sealed-sender, `LOCATION`, `DST_HASH`/`SOURCE_HASH`, `CROSS_LAYER` layer-path, and the `REMOTE_CMD`/`REMOTE_RESP` TYPE codes; the H mutual `WANT_PUBKEY` pubkey exchange.)*
