@@ -101,6 +101,7 @@ constexpr uint32_t kCascadeRequeueTimerId = 12;
 constexpr uint32_t kNackWaitTimerId      = 13;
 constexpr uint32_t kTriggeredBeaconTimerId = 3;   // R4.2: rerank re-advertises via a triggered beacon
 constexpr uint32_t kBeaconTimerId        = 1;     // R4.3 periodic beacon fire
+constexpr uint32_t kAgingTimerId         = 2;     // periodic route/ledger age-out sweep (§team-parity T2 ratchet test)
 constexpr uint32_t kBeaconJitterTimerId  = 27;    // R4.3 silence-jitter deferred beacon (#D ring base [27..30])
 constexpr uint32_t kLbtDeferTimerId      = 15;    // R4.5 LBT busy-channel deferred TX
 constexpr uint32_t kRadioBusyRetryTimerId = 19;   // R4.5b on_radio_busy stash-retry (slot base)
@@ -2255,6 +2256,306 @@ TEST_CASE("§team-parity T1 — an off-grid member may `send -t <unknown id> -a`
       CHECK(hal.count("send_failed") == 1);
       const Ev* e = hal.last("send_failed"); CHECK(e != nullptr); if (e) CHECK(e->dst == 174); }
 }
+
+// ============================ §team-parity T2 (spec 2026-07-27 §3/T2) =========================================
+// Neighbour-learning parity: the team plane gains the RX-event coverage the static plane has (2 learn sites -> 7),
+// plus DATA-origin learning (owner-ruled IN, reversing the spec's own exclusion note — QA review §10.1).
+// ★ EVERY case below asserts BOTH halves: the team route IS installed AND the static _rt/_id_bind are untouched
+// (invariant I2), and the converse A2 (no STATIC id enters _rt_team) is the subject of the origin-gate cases.
+// Corpus coverage of these sites is partial and the NACK row is corpus-DARK (0 executions in all 32 scenarios), so
+// these tests are the only detector there — see the coverage matrix in the slice report.
+
+namespace {
+// A team RTS: mobile_src + addr_len=1, src = the sender's team_local_id, next = the addressed team id.
+size_t t2_team_rts(uint8_t src, uint8_t next, uint8_t dst, uint8_t ctr_lo, uint8_t plen, std::array<uint8_t, 16>& b) {
+    rts_in in{}; in.leaf_id = 0; in.src = src; in.next = next; in.ctr_lo = ctr_lo; in.dst = dst;
+    in.sf_index = 3; in.rts_flags = 0; in.payload_len = plen; in.addr_len = 1; in.mobile_src = true;
+    return pack_rts(in, std::span<uint8_t>(b.data(), b.size()));
+}
+// A team DATA: addr_len=1 so team_addr_for_us(next) holds; committed_hops is the from-origin hop count.
+size_t t2_team_data(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origin, uint8_t committed,
+                    const char* body, std::array<uint8_t, 64>& b, uint8_t type = 0) {
+    std::array<uint8_t, 32> inner{}; inner[0] = origin;
+    uint8_t bl = 0; while (body[bl]) { inner[1 + bl] = static_cast<uint8_t>(body[bl]); ++bl; }
+    const uint8_t mac[4] = { 0, 0, 0, 0 };
+    data_in in{}; in.addr_len = 1; in.flags = 0; in.type = type; in.next = next; in.dst = dst;
+    in.hops_remaining = 31; in.committed_hops = committed; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
+    in.inner = std::span<const uint8_t>(inner.data(), 1 + bl);
+    in.mac   = std::span<const uint8_t>(mac, 4);
+    return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
+}
+// The _rt_team entry for `dest` (nullptr if absent), so a test can pin next-hop AND hops.
+const RtEntry* t2_team_rt(Node& n, uint8_t dest) {
+    for (uint8_t i = 0; i < n.rt_team_count(); ++i) if (n.rt_team_at(i).dest == dest) return &n.rt_team_at(i);
+    return nullptr;
+}
+// Drive an inbound team flight up to the DATA: RTS addressed to our team id (we CTS -> _pending_rx), then the DATA.
+void t2_inbound_team_flight(Node& n, uint8_t me_team, uint8_t prev, uint8_t dst, uint8_t origin,
+                            uint8_t committed, uint16_t ctr, uint8_t type = 0) {
+    const RxMeta m{12.0f, -70.0f, 0, static_cast<int16_t>(prev)};   // int16_t, NOT int8_t: an id > 127 would go negative and silently disable src_hint
+    std::array<uint8_t, 16> rb{}; std::array<uint8_t, 64> db{};
+    const size_t rn = t2_team_rts(prev, me_team, dst, static_cast<uint8_t>(ctr & 0x0F), /*plen=*/8, rb);
+    n.on_recv(rb.data(), rn, m);
+    const size_t dn = t2_team_data(me_team, dst, ctr, origin, committed, "hi", db, type);
+    n.on_recv(db.data(), dn, m);
+}
+}  // namespace
+
+TEST_CASE("§team-parity T2 row 4b — DATA-ORIGIN learning installs a REAL multi-hop team route: hops = committed_hops + 1") {
+    // The owner's ruling (QA §10.1) reversing the spec's exclusion note. Re-verified at source: frame_codec.h:595
+    // carries committed_hops, incremented at every forward (node_mac_rx.cpp hb_new_committed).
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); t1_offgrid(X, 50, TEAM);
+    std::array<uint8_t, 64> bb{};
+    { const size_t n = t1_team_beacon(/*src=*/60, TEAM, bb); X.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,60}); }
+    { const size_t n = t1_team_beacon(/*src=*/70, TEAM, bb); X.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,70}); }
+    CHECK(X.is_team_peer(70));
+    { const RtEntry* e = t2_team_rt(X, 70); CHECK(e != nullptr); if (e) CHECK(e->candidates[0].hops == 1); }
+
+    // A DM originated by 70, relayed by 60 (committed_hops=1 ⇒ 70 is 2 hops away), delivered to us (50).
+    t2_inbound_team_flight(X, /*me_team=*/50, /*prev=*/60, /*dst=*/50, /*origin=*/70, /*committed=*/1, /*ctr=*/0x0021);
+    const RtEntry* e = t2_team_rt(X, 70);
+    CHECK(e != nullptr);
+    if (e) {
+        bool via60 = false;
+        for (uint8_t i = 0; i < e->n; ++i) if (e->candidates[i].next_hop == 60 && e->candidates[i].hops == 2) via60 = true;
+        CHECK(via60);                                       // ★★ hops == committed_hops + 1, next == the PREV-HOP
+    }
+    // ★ ISOLATION (I2): nothing about 70 or 60 entered the static plane.
+    CHECK_FALSE(t1_in_static_rt(X, 70));
+    CHECK_FALSE(t1_in_static_rt(X, 60));
+}
+
+TEST_CASE("§team-parity T2 row 4b — the SOUNDNESS GATE: an origin that is NOT a known teammate is REFUSED (a homed member stamps its HOME's static id)") {
+    // ★★ THE ISOLATION CASE, and it is not hypothetical: stamp_origin (node.h:818) returns _my_mobile_reg.home_id
+    // for a REGISTERED mobile with no team exception, so a HOMED teammate's team DM carries a STATIC node id as its
+    // origin. Measured live in s28 (team_local_id 233, home 101 -> origin=101) and s29 (plane=TEAM, origin=101).
+    // Installing _rt_team[101] would be s35's A2 breach AND would shadow that node's own static route to its home.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); t1_offgrid(X, 50, TEAM);
+    std::array<uint8_t, 64> bb{};
+    { const size_t n = t1_team_beacon(/*src=*/60, TEAM, bb); X.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,60}); }
+    CHECK_FALSE(X.is_team_peer(101));                        // 101 = a HOME's static node id, never a teammate
+
+    t2_inbound_team_flight(X, /*me_team=*/50, /*prev=*/60, /*dst=*/50, /*origin=*/101, /*committed=*/1, /*ctr=*/0x0031);
+    CHECK(t2_team_rt(X, 101) == nullptr);                    // ★★ REFUSED — no static id in the team plane (A2)
+    CHECK_FALSE(X.is_team_peer(101));                        // ★★ and no dispatch bit, so rt_find(101) still reads _rt
+    CHECK_FALSE(t1_in_static_rt(X, 101));
+}
+
+TEST_CASE("§team-parity T2 row 4b — a TYPED DATA (APP) teaches nothing: its inner is NOT the unicast layout, so ui->origin is a payload byte") {
+    // !d.app is load-bearing, not caution. Measured in the corpus: 19 of 64 team DATA receptions are
+    // AUTHORITATIVE_H_ANSWER (type 2) frames whose parse_unicast_inner "origin" reads 0 — a hash-bind payload byte.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); t1_offgrid(X, 50, TEAM);
+    std::array<uint8_t, 64> bb{};
+    { const size_t n = t1_team_beacon(/*src=*/60, TEAM, bb); X.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,60}); }
+    { const size_t n = t1_team_beacon(/*src=*/70, TEAM, bb); X.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,70}); }
+    const RtEntry* before = t2_team_rt(X, 70); CHECK(before != nullptr);
+    const uint8_t n_before = before ? before->n : 0;
+
+    // Same shape as the passing case, but APP/type=REMOTE_CMD: byte 8 becomes TYPE and the "origin" byte moves.
+    t2_inbound_team_flight(X, /*me_team=*/50, /*prev=*/60, /*dst=*/50, /*origin=*/70, /*committed=*/1, /*ctr=*/0x0041,
+                           /*type=*/DATA_TYPE_REMOTE_CMD);
+    const RtEntry* after = t2_team_rt(X, 70);
+    CHECK(after != nullptr);
+    if (after) {
+        CHECK(after->n == n_before);                         // ★ no 2-hop candidate added
+        for (uint8_t i = 0; i < after->n; ++i) CHECK(after->candidates[i].hops == 1);
+    }
+}
+
+TEST_CASE("§team-parity T2 row 4 — a team DATA's PREV-HOP re-scores the TEAM route from the DATA-time SNR (the RTS arm already learned it: row 4 adds the SECOND sample)") {
+    // ★ HONEST SCOPE, found by the non-vacuity run: row 4 is LARGELY SUBSUMED by the shipped RTS-addressed-to-us arm
+    // (node_mac_rx.cpp:92). To hold a _pending_rx for a team DATA at all you must first have CTS'd its team RTS, and
+    // that RTS is addressed to your team id — so the prev-hop is ALREADY learned by the time the DATA lands. What row 4
+    // genuinely adds is a second, DATA-time sample: the DATA flies at the chosen data SF at a different SNR, and its
+    // score/last_seen refresh the candidate. That is what this test pins; the pre-T2 build keeps the RTS-time score.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); t1_offgrid(X, 50, TEAM);
+    std::array<uint8_t, 64> bb{}; std::array<uint8_t, 16> rb{}; std::array<uint8_t, 64> db{};
+    { const size_t n = t1_team_beacon(/*src=*/60, TEAM, bb); X.on_recv(bb.data(), n, RxMeta{2.0f,-110.0f,0,60}); }
+    CHECK(X.is_team_peer(60));
+    const RtEntry* e0 = t2_team_rt(X, 60); CHECK(e0 != nullptr);
+    // RTS at the SAME poor SNR as the beacon (so the shipped arm cannot improve the score), DATA at a much better one.
+    { const size_t n = t2_team_rts(/*src=*/60, /*next=*/50, /*dst=*/50, /*ctr_lo=*/1, /*plen=*/8, rb);
+      X.on_recv(rb.data(), n, RxMeta{2.0f,-110.0f,0,60}); }
+    const int16_t after_rts = t2_team_rt(X, 60) ? t2_team_rt(X, 60)->candidates[0].score : 0;
+    { const size_t n = t2_team_data(/*next=*/50, /*dst=*/50, /*ctr=*/0x0001, /*origin=*/60, /*committed=*/0, "hi", db);
+      X.on_recv(db.data(), n, RxMeta{20.0f,-60.0f,0,60}); }
+    const RtEntry* e1 = t2_team_rt(X, 60);
+    CHECK(e1 != nullptr);
+    if (e1) CHECK(e1->candidates[0].score > after_rts);      // ★★ the DATA-time sample landed (pre-T2: unchanged)
+    CHECK_FALSE(t1_in_static_rt(X, 60));                     // ★ I2
+}
+
+TEST_CASE("§team-parity T2 row 1 — an OVERHEARD team RTS from a KNOWN teammate refreshes the team plane; an UNKNOWN mobile src is admitted to NEITHER plane") {
+    const uint32_t TEAM = 0x06EF37AEu;
+    std::array<uint8_t, 64> bb{}; std::array<uint8_t, 16> rb{};
+    // (a) known teammate 60, reachable only 2 hops via 70 -> an overheard RTS (addressed to 70, NOT to us) shortens it.
+    { TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); t1_offgrid(X, 50, TEAM);
+      { const size_t n = t1_team_beacon(/*src=*/70, TEAM, bb); X.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,70}); }
+      { uint8_t ext[8]; const size_t en = pack_team_id_tlv(TEAM, std::span<uint8_t>(ext, sizeof ext));
+        beacon_entry e{}; e.dest = 60; e.next = 70; e.score_bucket = 12; e.hops = 1;
+        beacon_in tb{}; tb.leaf_id=0; tb.src=70; tb.key_hash32=0x7046u; tb.is_mobile=true;
+        tb.entries = std::span<const beacon_entry>(&e, 1); tb.ext = std::span<const uint8_t>(ext, en);
+        const size_t n = pack_beacon(tb, std::span<uint8_t>(bb.data(), bb.size()));
+        X.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,70}); }
+      { const RtEntry* e = t2_team_rt(X, 60); CHECK(e != nullptr); if (e) CHECK(e->candidates[0].hops == 2); }
+      const size_t rn = t2_team_rts(/*src=*/60, /*next=*/70, /*dst=*/70, /*ctr_lo=*/3, /*plen=*/8, rb);
+      X.on_recv(rb.data(), rn, RxMeta{12.0f,-70.0f,0,60});   // overheard: next is 70, not our 50
+      { const RtEntry* e = t2_team_rt(X, 60); CHECK(e != nullptr); if (e) CHECK(e->candidates[0].hops == 1); }  // ★
+      CHECK_FALSE(t1_in_static_rt(X, 60)); }                 // ★ I2
+    // (b) an UNKNOWN mobile src (could be a foreign team, or a plain mobile's home last-mile) — the RTS carries no
+    //     team id (frame_codec.h:289), so it must enter NEITHER plane. This is the narrowing the row-1 comment states.
+    { TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); t1_offgrid(X, 50, TEAM);
+      const size_t rn = t2_team_rts(/*src=*/99, /*next=*/70, /*dst=*/70, /*ctr_lo=*/4, /*plen=*/8, rb);
+      X.on_recv(rb.data(), rn, RxMeta{12.0f,-70.0f,0,99});
+      CHECK(t2_team_rt(X, 99) == nullptr);                   // ★★ A2: no unknown id admitted to _rt_team
+      CHECK_FALSE(X.is_team_peer(99));
+      CHECK_FALSE(t1_in_static_rt(X, 99)); }                 // ★★ I2: nor to the static plane (unchanged pre-T2 guard)
+}
+
+TEST_CASE("§team-parity T2 rows 3/5/6 — CTS, ACK and NACK from our team next-hop each RE-SCORE the team route (and only it); ★ the NACK row is corpus-DARK, so this is its only detector") {
+    // A team member holding a POOR-SNR direct route to teammate 60, with a live team flight whose next-hop is 60.
+    // Each control frame arrives at a much better SNR: post-T2 the team candidate's score improves, pre-T2 it does not.
+    // Corpus reach (measured over all 32 scenarios): CTS 69 executions, ACK 61, ★ NACK **0** — no team NACK ever
+    // happens in the corpus, so byte-identity cannot see row 6 at all.
+    const uint32_t TEAM = 0x06EF37AEu;
+    auto build = [&](Node& X, int16_t& score_before) {
+        t1_offgrid(X, 50, TEAM);
+        std::array<uint8_t, 64> bb{};
+        { const size_t n = t1_team_beacon(/*src=*/60, TEAM, bb); X.on_recv(bb.data(), n, RxMeta{2.0f,-110.0f,0,60}); }
+        CHECK(X.is_team_peer(60));
+        Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 60; c.u.send.plane = 1 /*TEAM*/;
+        c.body = reinterpret_cast<const uint8_t*>("hi"); c.body_len = 2;
+        CHECK(X.on_command(c).code == CmdCode::queued);
+        const RtEntry* e = t2_team_rt(X, 60); CHECK(e != nullptr);
+        score_before = e ? e->candidates[0].score : 0;
+    };
+    auto score_now = [](Node& X) { const RtEntry* e = t2_team_rt(X, 60); return e ? e->candidates[0].score : 0; };
+    std::array<uint8_t, 8> fb{};
+    const RxMeta good{20.0f, -60.0f, 0, 60};
+    // (a) row 3 — CTS from the team next-hop.
+    { TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); int16_t s0 = 0; build(X, s0);
+      const size_t n = mk_cts(/*rx_id=*/50, /*tx_id=*/60, /*data_sf=*/7, fb);
+      hal.events.clear();
+      X.on_recv(fb.data(), n, good);
+      CHECK(hal.count("cts_rx") == 1);                       // the CTS was accepted (the arm's precondition)
+      CHECK(score_now(X) > s0);                              // ★★ row 3 fired (pre-T2: unchanged)
+      CHECK_FALSE(t1_in_static_rt(X, 60)); }                 // ★ I2: the team next-hop stays out of _rt
+    // (b) row 5 — ACK from the team next-hop, after the flight reaches awaiting_ack.
+    { TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); int16_t s0 = 0; build(X, s0);
+      { const size_t n = mk_cts(50, 60, 7, fb); X.on_recv(fb.data(), n, RxMeta{2.0f,-110.0f,0,60}); }
+      X.on_timer(kCtsToDataGapTimerId);                      // fire the DATA -> the flight awaits an ACK
+      const int16_t s1 = score_now(X);
+      ack_in ai{}; ai.ctr_lo = 1; ai.budget_hint = 0; ai.snr_bucket = 0; ai.to = 50; ai.mobile_to = 1;
+      const size_t n = pack_ack(ai, std::span<uint8_t>(fb.data(), fb.size()));
+      hal.events.clear();
+      X.on_recv(fb.data(), n, good);
+      CHECK(hal.count("ack_rx") == 1);                       // the ACK was accepted (the arm's precondition)
+      CHECK(score_now(X) > s1);                              // ★★ row 5 fired (pre-T2: unchanged)
+      CHECK_FALSE(t1_in_static_rt(X, 60)); }                 // ★ I2
+    // (c) row 6 — NACK from the team next-hop. ★★ 0 corpus executions: THE ONLY DETECTOR.
+    { TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); int16_t s0 = 0; build(X, s0);
+      nack_in ni{}; ni.reason = protocol::nack_reason_busy_rx; ni.ctr_lo = 1; ni.payload = 1; ni.to = 50; ni.mobile_to = 1;
+      const size_t n = pack_nack(ni, std::span<uint8_t>(fb.data(), fb.size()));
+      X.on_recv(fb.data(), n, good);
+      CHECK(score_now(X) > s0);                              // ★★ row 6 fired (pre-T2: unchanged)
+      CHECK(t2_team_rt(X, 60) != nullptr);
+      CHECK_FALSE(t1_in_static_rt(X, 60)); }                 // ★★ I2 — the NACK arm never writes the static plane
+}
+
+TEST_CASE("§team-parity T2 row 7 — a mobile-marked Q from a KNOWN teammate refreshes the TEAM plane; from an UNKNOWN local id, neither plane") {
+    // ★ The spec says this row "pairs with T4". It does not: node_channel.cpp:524/1181 already send a channel_pull Q
+    // with mobile = is_mobile, and s28 carries 17 such receptions today.
+    const uint32_t TEAM = 0x06EF37AEu;
+    auto send_q = [](Node& n, uint8_t src, bool mobile){
+        q_in qi{}; qi.leaf_id=0; qi.src=src; qi.dest=0xFF; qi.opcode=q_opcode::req_sync; qi.mobile=mobile;
+        uint8_t qb[8]; const size_t qn = pack_q(qi, std::span<uint8_t>(qb, sizeof qb));
+        n.on_recv(qb, qn, RxMeta{8.0f,-80.0f,0,static_cast<int8_t>(src)});
+    };
+    std::array<uint8_t, 64> bb{};
+    // (a) a known teammate reachable 2 hops via 70 -> the Q shortens it to a direct team route.
+    { TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); t1_offgrid(X, 50, TEAM);
+      { const size_t n = t1_team_beacon(/*src=*/70, TEAM, bb); X.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,70}); }
+      { uint8_t ext[8]; const size_t en = pack_team_id_tlv(TEAM, std::span<uint8_t>(ext, sizeof ext));
+        beacon_entry e{}; e.dest = 60; e.next = 70; e.score_bucket = 12; e.hops = 1;
+        beacon_in tb{}; tb.leaf_id=0; tb.src=70; tb.key_hash32=0x7046u; tb.is_mobile=true;
+        tb.entries = std::span<const beacon_entry>(&e, 1); tb.ext = std::span<const uint8_t>(ext, en);
+        const size_t n = pack_beacon(tb, std::span<uint8_t>(bb.data(), bb.size()));
+        X.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,70}); }
+      { const RtEntry* e = t2_team_rt(X, 60); CHECK(e != nullptr); if (e) CHECK(e->candidates[0].hops == 2); }
+      send_q(X, /*src=*/60, /*mobile=*/true);
+      { const RtEntry* e = t2_team_rt(X, 60); CHECK(e != nullptr); if (e) CHECK(e->candidates[0].hops == 1); }  // ★
+      CHECK_FALSE(t1_in_static_rt(X, 60)); }                 // ★ I2 (the pre-T2 guard, unchanged)
+    // (b) an UNKNOWN mobile-marked src enters neither plane.
+    { TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); t1_offgrid(X, 50, TEAM);
+      send_q(X, /*src=*/99, /*mobile=*/true);
+      CHECK(t2_team_rt(X, 99) == nullptr);                   // ★★ A2
+      CHECK_FALSE(t1_in_static_rt(X, 99)); }                 // ★★ I2
+}
+
+TEST_CASE("§team-parity T2 — a node with NO team plane (team_id == 0) is INERT at every activated site: static behaviour byte-for-byte") {
+    // The runtime-inertness rule (spec §4): MR_FEAT_TEAM is compiled IN on native, so every new arm must be
+    // is_team_peer/for_team_data-false when team_id == 0. This is the algebraic complement of the s18 tripwire.
+    TestHal hal; Node S(hal, /*id=*/50, /*key=*/0xA050u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 7); cfg.leaf_id = 0;
+    CHECK(S.on_init(cfg));
+    CHECK(S.team_local_id() == 0);
+    std::array<uint8_t, 16> rb{};
+    const size_t rn = t2_team_rts(/*src=*/60, /*next=*/70, /*dst=*/70, /*ctr_lo=*/3, /*plen=*/8, rb);
+    S.on_recv(rb.data(), rn, RxMeta{12.0f,-70.0f,0,60});
+    CHECK(S.rt_team_count() == 0);                           // ★ nothing on the team plane
+    CHECK_FALSE(t1_in_static_rt(S, 60));                     // ★ and the pre-T2 mobile_src guard still holds
+    q_in qi{}; qi.leaf_id=0; qi.src=60; qi.dest=0xFF; qi.opcode=q_opcode::req_sync; qi.mobile=true;
+    uint8_t qb[8]; const size_t qn = pack_q(qi, std::span<uint8_t>(qb, sizeof qb));
+    S.on_recv(qb, qn, RxMeta{8.0f,-80.0f,0,60});
+    CHECK(S.rt_team_count() == 0);
+    CHECK_FALSE(t1_in_static_rt(S, 60));
+}
+
+TEST_CASE("§team-parity T2 — THE RATCHET FIX: live team traffic refreshes _rt_team last_seen, so a busy teammate no longer ages out and loses its dispatch bit") {
+    // Spec §0's "Aggravating" bullet: node_routing.cpp:489 clears the _team_peer bit when the last team route ages out,
+    // "so every team route is a one-way ratchet toward permanently-unsendable". Pre-T2 only a same-team BEACON (15-min
+    // periodic, dirty-only) could refresh a team route — DM traffic taught the plane nothing. T2's five learn rows all
+    // run rt_merge, whose metadata-only path (node_routing.cpp:398) refreshes last_seen_ms even when the candidate is not
+    // strictly better — which is exactly what age_out_stale_routes reads. ★ INVISIBLE TO THE CORPUS: no scenario runs
+    // past rt_aging_ttl_neighbor_ms (45 min) with team traffic in flight, so this test is the only detector.
+    const uint32_t TEAM = 0x06EF37AEu;
+    const uint64_t TTL  = protocol::rt_aging_ttl_neighbor_ms;
+    auto seed = [&](Node& X) {
+        t1_offgrid(X, 50, TEAM);
+        std::array<uint8_t, 64> bb{};
+        const size_t n = t1_team_beacon(/*src=*/60, TEAM, bb);
+        X.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,60});
+        CHECK(X.is_team_peer(60));
+    };
+    // (a) SILENCE — the route ages out and the dispatch bit goes with it (the ratchet, unchanged by T2).
+    { TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); seed(X);
+      hal._now += TTL + 1000;
+      X.on_timer(kAgingTimerId);
+      CHECK(t2_team_rt(X, 60) == nullptr);
+      CHECK_FALSE(X.is_team_peer(60)); }                     // permanently-unsendable, pre- and post-T2
+    // (b) TRAFFIC — an overheard team RTS at the TTL midpoint keeps it alive past the deadline. Pre-T2 this frame
+    //     taught the team plane nothing and the route died exactly as in (a).
+    { TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); seed(X);
+      std::array<uint8_t, 16> rb{};
+      hal._now += TTL / 2;
+      const size_t rn = t2_team_rts(/*src=*/60, /*next=*/70, /*dst=*/70, /*ctr_lo=*/3, /*plen=*/8, rb);
+      X.on_recv(rb.data(), rn, RxMeta{12.0f,-70.0f,0,60});   // overheard, NOT addressed to us (row 1)
+      hal._now += TTL / 2 + 1000;                            // now past the ORIGINAL deadline
+      X.on_timer(kAgingTimerId);
+      CHECK(t2_team_rt(X, 60) != nullptr);                   // ★★ the ratchet is broken
+      CHECK(X.is_team_peer(60));                             // ★★ and the dispatch bit survives
+      CHECK_FALSE(t1_in_static_rt(X, 60)); }                 // ★ I2
+}
+
+// ✖ NO "the _rt_team-route ⇒ _team_peer-bit invariant holds" TEST HERE, deliberately. One was written and DELETED as
+// vacuous: it could not be falsified by any of the three T2 mutants (pre-T2, over-broad, and "learn_route_via drops the
+// bit"), because every T2 site is gated on is_team_peer already being true, so the bit is never newly set on this path.
+// The invariant IS pinned — mutant 3 fails two PRE-EXISTING cases ("§team-multihop Plane 2" and the T1 bench case) —
+// and the asymmetry that makes a future caller vulnerable is recorded in-source at node_beacon.cpp's learn_direct_neighbor.
 
 TEST_CASE("§mobile — a MOBILE-marked Q's src (a home-assigned LOCAL id) is NEVER learned into the static _rt; a static Q IS (the dest=17 bench leak)") {
     auto learned = [](Node& n, uint8_t d){ for (uint8_t i=0;i<n.rt_count();++i) if (n.rt_at(i).dest==d) return true; return false; };

@@ -96,9 +96,24 @@ void Node::handle_q(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // the static _rt (a mobile is reached via home_id+hash; a local id §18-collides a static id + goes stale as it roams).
     // Mirrors the RTS guard node_mac_rx.cpp:47 (`!r.mobile_src`). q.mobile==false for a static Q -> unchanged (s18 byte-identical).
     // §team-parity T0: plane made explicit (was learn_direct_neighbor's default). Static reduction: `false` IS the old
-    // default ⇒ identical call. MISSING → T2 (§3/T2 row 7): + team learn for the `q.mobile` traffic this guard
-    // excludes; it pairs with T4 (team REQ_SYNC), which is what makes a team Q exist to learn from in the first place.
+    // default ⇒ identical call.
+    // ✔ §team-parity T2 (§3/T2 row 7) — DONE by the else-arm below; this guard is UNCHANGED (I2).
     if (!q.mobile && learn_direct_neighbor(q.src, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/false)) schedule_triggered_beacon();
+#if MR_FEAT_TEAM
+    // ✔ §team-parity T2 (§3/T2 row 7): a mobile-marked Q's src is a LOCAL id; when it is a KNOWN teammate's, the Q proves
+    // a 1-hop team neighbour. Restricted to is_team_peer(q.src) for the same reason as the RTS row: the Q frame carries
+    // no team id (that tail is T4's), so an unknown mobile-marked src could be a foreign team's or a plain mobile's and
+    // must not be admitted to _team_peer. team_id==0 ⇒ _team_peer all-zero ⇒ inert (static byte-identical).
+    // ★ THE SPEC IS WRONG THAT THIS "PAIRS WITH T4": it says T4 "is what makes a team Q exist to learn from in the first
+    // place". A team Q exists TODAY — node_channel.cpp:524/1181 send a `channel_pull` Q with `mobile = _cfg.is_mobile`,
+    // and s28 carries 17 such receptions (opcode 3) whose src is a team local id. T4 adds a SECOND kind (team REQ_SYNC);
+    // it is not a precondition for this row.
+    // ⚠ RESIDUAL, pre-existing and NOT fixed here: the `q.leaf_id != _cfg.leaf_id` drop above has no same_team exemption
+    // (unlike the beacon/H/M paths, node.h:190), so a MIXED-LEAF teammate's Q never reaches this line. That is a Q-frame
+    // gap, not a T2 one — flagged for whoever owns T4.
+    else if (q.mobile && is_team_peer(q.src)
+             && learn_direct_neighbor(q.src, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/true)) schedule_triggered_beacon();
+#endif
     if (q.src == _node_id) return;                               // loop guard — never answer ourselves
     if (q_responded_recently(q.opcode, q.src, q.dest)) return;   // recently answered this query -> skip
     mark_q_responded(q.opcode, q.src, q.dest);

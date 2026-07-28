@@ -113,6 +113,17 @@ bool Node::learn_direct_neighbor(uint8_t sender, int16_t snr_q4, bool is_gw, boo
 #if MR_FEAT_TEAM
     const MergeAction a = team_plane ? rt_merge(sender, cand, _active->_rt_team, _active->_rt_team_count, /*team_plane=*/true)
                                      : rt_merge(sender, cand);
+    // ⚠ ASYMMETRY, KNOWN AND DELIBERATELY LEFT — read this before adding a team caller. The sibling installer
+    // learn_route_via upholds the ":73" invariant ("an _rt_team route ⇒ the _team_peer dispatch bit is set") ITSELF;
+    // this one does NOT — both pre-T2 callers hand-paste the bit before calling (node_mac_rx.cpp:94 and :765 below).
+    // §team-parity T2 considered hoisting it in here (U1, so its five new team callers could not field-drop it) and
+    // REFUSED, on two grounds: (a) C1 — it is a behaviour-neutral refactor and T2 is a feature slice; (b) it would be
+    // INERT ANYWAY, because every T2 learn site is gated on is_team_peer(sender) already being true (the soundness
+    // gate that keeps a non-teammate out of the team plane), so this function can never be the FIRST setter today.
+    // ⇒ SAFE ONLY WHILE THAT HOLDS. A future caller that admits an UNKNOWN id to the team plane (T4's team-scoped Q,
+    // or the origin-stamp fix that would let node_mac_rx's DATA-origin learn accept a never-heard teammate) MUST
+    // either set the bit or hoist it here — otherwise it installs an _rt_team route with no dispatch bit and
+    // rt_find(dest, AUTO) silently reads the STATIC table instead.
 #else
     (void)team_plane;   // §featuresplit: no team plane -> always the static table
     const MergeAction a = rt_merge(sender, cand);

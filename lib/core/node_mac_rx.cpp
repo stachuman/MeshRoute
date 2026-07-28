@@ -77,9 +77,8 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // §team-parity T0: the learn PLANE is now written out at the call site instead of riding learn_direct_neighbor's
     // default argument, so T2's diff is a one-token flip that a reviewer can see. Static reduction: the explicit
     // `false` IS the previous default ⇒ identical call, on every build profile (the parameter is not MR_FEAT_TEAM-gated).
-    // MISSING → T2 (spec §3/T2 row 1): "+ team learn when the src is a same-team local id", i.e. the excluded
-    // `r.mobile_src` traffic gains a TEAM destination — it must NOT relax this guard, which is what keeps a mobile/team
-    // local id out of the static _rt (invariant I2).
+    // ✔ §team-parity T2 (spec §3/T2 row 1) — DONE below as a THIRD arm. This guard is UNCHANGED (invariant I2: a
+    // mobile/team local id never enters the static _rt); T2 only gives the excluded traffic a TEAM destination.
     if (!r.mobile_src && learn_direct_neighbor(r.src, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/false)) schedule_triggered_beacon();
     // §6.4 team reverse-learn: a team RTS ADDRESSED to OUR team-local id (mobile_src + addr_len=1 + next==our team id) ->
     // its src is a reachable same-team peer. Mark it a team peer (the _team_peer bitmap that is_team_peer/route-selection
@@ -94,6 +93,24 @@ void Node::handle_rts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         _active->_team_peer[r.src >> 3] |= static_cast<uint8_t>(1u << (r.src & 7));   // known same-team peer (is_team_peer reads this)
         if (learn_direct_neighbor(r.src, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/true)) schedule_triggered_beacon();
     }
+    // ✔ §team-parity T2 (spec §3/T2 row 1) — an OVERHEARD team RTS (mobile_src, NOT addressed to our team id) proves its
+    // src is a 1-hop neighbour RIGHT NOW. Today the team plane learns a direct neighbour from exactly two events (a
+    // same-team beacon, 15-min periodic; the arm above), while the static plane learns from seven — this is one of the
+    // five T2 closes.
+    // ★★ NARROWED vs the spec, DELIBERATELY, and this is the one T2 judgement a reviewer must check. The spec says
+    // "+ team learn when the src is a same-team local id". THE RTS CARRIES NO TEAM ID — verified at frame_codec.h:289
+    // (rts_in has leaf_id/src/next/ctr_lo/dst/sf_index/rts_flags/payload_len/addr_len/mobile_src/cr_adv and nothing
+    // else), and the sibling `team_flood_rts` at :42 says so in as many words ("we exempt ANY team flood — the DATA-M's
+    // team_id gate does the actual team filtering"). So "is this src a teammate?" is NOT DECIDABLE from an overheard
+    // RTS: it could equally be a FOREIGN team's member or a plain mobile's home last-mile. Admitting such a src would
+    // set _team_peer for a non-teammate, which makes rt_find(x, AUTO) shadow the static _rt for that id — the mirror of
+    // the I2 leak, and s35's A2 ("_rt_team contains zero static node ids"). ⇒ the arm is restricted to a src ALREADY
+    // known to be a teammate, so it REFRESHES/SHORTENS a route and NEVER ADMITS a new id. _team_peer is set only from a
+    // same-team BEACON (node_beacon.cpp:765, team_id-verified) or the addressed-RTS arm above — the same trust basis.
+    // MISSING (needs a wire bit or T4's team-scoped Q, NOT reachable here): admitting an UNKNOWN teammate from an
+    // overheard RTS. There is no sound way to do it with today's RTS.
+    else if (r.mobile_src && is_team_peer(r.src)                                       // §T2 row 1 — refresh a KNOWN teammate
+             && learn_direct_neighbor(r.src, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/true)) schedule_triggered_beacon();
 #endif
     // ② implicit-ACK from an overheard forward-RTS (Lua dv:9863-9893): if we have a flight in progress and overhear
     // OUR next-hop forwarding the SAME DATA onward (its relay RTS), the hop decoded -> cancel our pending timeout
@@ -470,12 +487,30 @@ void Node::handle_cts(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // §mobile: our next-hop on a mobile last-mile (addr_len=1) or a team DM (is_team_peer) is a LOCAL id, not a global
     // identity -> keep it OUT of the static _rt (mirror the ACK-learn guard below). Inert on s18/static (both false).
     // §team-parity T0: plane made explicit (was learn_direct_neighbor's default). Static reduction: `false` IS the
-    // old default ⇒ identical call. MISSING → T2 (§3/T2 row 3): + team learn + team note_link_confirmed for the
-    // next_is_local_id traffic this guard excludes; the guard itself stays (invariant I2).
+    // old default ⇒ identical call.
+    // ✔ §team-parity T2 (§3/T2 row 3) — the LEARN half is DONE by the else-arm below; the guard is UNCHANGED (I2).
     if (!(next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next))
         && learn_direct_neighbor(c.tx_id, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/false)) schedule_triggered_beacon();
+#if MR_FEAT_TEAM
+    // ✔ §team-parity T2 (§3/T2 row 3): a CTS from OUR next-hop on a TEAM flight proves that teammate hears us and is
+    // 1 hop away. c.tx_id == _pending_tx->next (pinned at the `c.tx_id != next` return just above), so this learns the
+    // next-hop itself. Safe by construction: is_team_peer(next) is our OWN state, so no new id is admitted.
+    // ⚠ ELSE-ARM ALGEBRA (the reason the static path cannot move): next_is_local_id == (addr_len==1 || is_team_peer(next)),
+    // so `!next_is_local_id` FALSE is the ONLY way to reach this arm with is_team_peer(next) true — i.e. the arm fires
+    // exactly on the traffic the guard above excludes, and is unreachable whenever the guard admitted the frame.
+    // team_id==0 ⇒ _team_peer is all-zero ⇒ is_team_peer false ⇒ inert (s18/static byte-identical).
+    else if (is_team_peer(_active->_pending_tx->next)
+             && learn_direct_neighbor(c.tx_id, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/true)) schedule_triggered_beacon();
+#endif
     if (!(next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next)))   // §mobile: a mobile/team next is a LOCAL id -> keep it OUT of the static bidi/liveness + route-rerank planes (mirror the CTS-learn guard above)
         note_link_confirmed(c.tx_id);                    // bidi plane: a real CTS proves our next-hop hears us -> confirmed (clears any one_way + emits link_recover)
+    // ✖ §team-parity T2 (§3/T2 row 3, the SECOND half) — the team `note_link_confirmed` is DELIBERATELY NOT DONE HERE:
+    // there is nothing to write it to. note_link_confirmed writes _link_bidi/_link_bidi_confirmed_ms, which are
+    // node_id-indexed STATIC arrays (node.h:1517-1518) — calling it for a team local id IS the §18 write-alias this
+    // guard exists to prevent, and the isolation invariant T2 must not break. The team bidi table is T5's deliverable
+    // (spec §3/T5: a 16-entry self-slotted mirror, 128 B); the confirm lands the day that table exists. What T2 DOES
+    // give the team plane here is the LIVENESS half: learn_direct_neighbor's team branch calls
+    // clear_peer_suspect(sender, "team_rx", team_plane=true) (node_beacon.cpp:99), which writes _team_liveness.
     _hal.cancel(kRtsTimeoutTimerId);                     // else it fires same-tick and burns a retry
     _hal.cancel(kRetryBackoffTimerId);                   // drop a stale retry armed by a just-fired rts_timeout
     _active->_pending_tx->awaiting_cts = false;
@@ -579,8 +614,58 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // §mobile: a mobile_src DATA's prev-hop `from` is a home-assigned LOCAL id -> keep it OUT of the static _rt
     // (mirror the RTS/Q guards). mobile_from==false for every static frame -> unchanged (s18 byte-identical).
     // §team-parity T0: plane made explicit (was the default). Static reduction: `false` IS the old default.
-    // MISSING → T2 (§3/T2 row 4): + team learn for the mobile_from traffic this guard excludes.
+    // ✔ §team-parity T2 (§3/T2 row 4) — DONE by the else-arm below; this guard is UNCHANGED (I2).
     if (!_active->_pending_rx->mobile_from && learn_direct_neighbor(from, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/false)) schedule_triggered_beacon();
+#if MR_FEAT_TEAM
+    // ✔ §team-parity T2 (§3/T2 row 4): a TEAM DATA's prev-hop is a 1-hop teammate. for_team_data (:529) proves the LINK
+    // is team-plane (d.next == our _team_local_id && addr_len==1) — the same acceptance edge the shipped RTS reverse-learn
+    // uses — and is_team_peer pins the prev-hop as an already-known teammate, so no new id is admitted (see the row-1 note
+    // on why an unknown one is not decidable from these frames).
+    // ★ USE _pending_rx->from, NOT `from`. `from` prefers meta.src_hint, which is the SIM ORACLE carrying the sender's
+    // STATIC protocol node_id (SimController.cpp: protocolId()); for a HOMED teammate that is NOT its team_local_id, so
+    // learning `from` would install a static id in _rt_team. _pending_rx->from is the RTS's own `src`, which
+    // node_mac.cpp:801 sets to the sender's team_local_id() on a team flight — frame-derived and metal-correct.
+    // Static reduction: for_team_data is `false` whenever team_id==0 (team_addr_for_us, node.h:174) ⇒ inert.
+    else if (for_team_data && is_team_peer(_active->_pending_rx->from)
+             && learn_direct_neighbor(_active->_pending_rx->from, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/true)) schedule_triggered_beacon();
+    // ✔ §team-parity T2 — DATA-ORIGIN LEARNING. The spec's §3/T2 REJECTED this on two grounds and the QA review (§10.1)
+    // overruled BOTH; the owner ruled it IN. Re-verified at source here: the structs are data_in/data_out (not d_in/d_out)
+    // and frame_codec.h:595 does carry `committed_hops`, a FROM-ORIGIN hop count incremented at every forward (:626 below).
+    // So a real metric IS available and a REAL route installs — which sets the _team_peer bit ALONGSIDE an _rt_team entry
+    // and therefore PRESERVES the node_beacon.cpp:73 invariant rather than decoupling it. U1: reuse learn_route_via, the
+    // same installer the F/RREP reverse-path uses (node_route_discovery.cpp:281) — do not fork a second multi-hop install.
+    //
+    // METRIC. hops = committed_hops + 1, EXACT for every legal team path: an originator airs committed_hops=0 and the
+    // receiver is 1 hop away, each forward adds 1. ★ THE BRIEF'S SATURATION CAVEAT DOES NOT BITE: :626 saturates the
+    // value a FORWARDER airs at 7, so a receiver 8 hops out (R4's team ceiling) still reads exactly 7 → hops 8. The
+    // understatement starts at 9 hops, which team_hop_cap=8 makes unreachable by discovery or DV. No cap guard is needed
+    // either: committed_hops is a 3-bit wire field (frame_codec.h:483) so +1 can neither wrap nor exceed 8 — unlike the
+    // F path, whose 8-bit f.hops needed the M4 guard at node_route_discovery.cpp:272.
+    //
+    // ★★★ THE SOUNDNESS GATE — is_team_peer(origin) — AND WHY IT IS NOT OPTIONAL. MEASURED, not argued: a HOMED team
+    // member stamps origin = its HOME's STATIC node id, because stamp_origin (node.h:818) returns _my_mobile_reg.home_id
+    // whenever the registration is active, with no team-plane exception. Observed live in s28 (node 3: team_local_id 233,
+    // home 101, `send`s to team id 204 with origin=101) and s29 (node 3: team_local_id 196, home 101, plane=TEAM,
+    // origin=101). Installing _rt_team[101] would put a STATIC node id in the team plane — the mirror of I2 and exactly
+    // s35's A2 — and worse, it would make rt_find(101, AUTO) shadow that node's OWN static route to its home. So the
+    // learn is restricted to an origin ALREADY known to be a teammate: it REFRESHES/SHORTENS a multi-hop team route from
+    // live traffic (which today only a beacon or an F can do) and re-arms the _team_peer bit that node_routing.cpp:489
+    // clears on age-out — the "one-way ratchet toward permanently-unsendable" the spec's §0 calls out.
+    // ✖ MISSING, and this is the honest half: the BENCH case (learn a NEVER-HEARD teammate from a relayed DM) stays
+    // unfixed, because "is this origin a team-plane id?" is undecidable while a homed member stamps a static one. The
+    // unblocker is a separate slice — make a Plane::TEAM origination stamp origin = team_local_id(), which node_mac.cpp:70
+    // already CLAIMS it does ("the origin it stamps is the team_local_id") and which the reverse E2E-ack on the team plane
+    // already needs. Not folded in here: it changes what a live DM carries (C1, and it moves the wire).
+    // ⚠ !d.app is LOAD-BEARING, not caution: parse_unicast_inner's layout applies only to a plain DM. A typed DATA builds
+    // its own inner, so ui->origin is a payload byte — measured in s24/s25/s26/s34 as AUTHORITATIVE_H_ANSWER (type 2)
+    // frames yielding origin=0. !d.app ⟺ type==0 (pack_data emits the TYPE byte iff type != 0). !d.crypted: §1c seals the
+    // origin, so parse_unicast_inner leaves it 0 for a relay by design (frame_codec.cpp:925) — an encrypted team DM
+    // teaches nothing here, deliberately.
+    if (for_team_data && !d.app && !d.crypted && ui && is_team_peer(origin)
+        && origin != _active->_pending_rx->from)          // 1 hop is the else-arm above's job (it also fires the triggered beacon)
+        learn_route_via(origin, _active->_pending_rx->from, static_cast<uint8_t>(d.committed_hops + 1),
+                        protocol::db_to_q4(meta.snr_db), /*team_plane=*/true);
+#endif
     const uint8_t rx_sf = _active->_pending_rx->chosen_data_sf;
     const uint8_t pl    = _active->_pending_rx->payload_len;
     _hal.cancel(kPendingRxExpiryTimerId);
@@ -1259,9 +1344,18 @@ void Node::handle_ack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // the RTS-learn skip at :47; else rt_find(that id) resolves to the mobile). §6.4: a team DM's next is a team LOCAL id
     // too (addr_len=0 but is_team_peer) -> also skip. addr_len==0 + no team peers on every normal flight -> unchanged.
     // §team-parity T0: plane made explicit (was the default). Static reduction: `false` IS the old default.
-    // MISSING → T2 (§3/T2 row 5): + team learn + team confirm for the next_is_local_id traffic this guard excludes.
+    // ✔ §team-parity T2 (§3/T2 row 5) — the LEARN half is DONE by the else-arm below; this guard is UNCHANGED (I2).
     if (!(next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next))
         && learn_direct_neighbor(_active->_pending_tx->next, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/false)) schedule_triggered_beacon();
+#if MR_FEAT_TEAM
+    // ✔ §team-parity T2 (§3/T2 row 5): an ACK from OUR next-hop on a TEAM flight is the strongest 1-hop proof there is —
+    // it carried our DATA. Same else-arm algebra as the CTS site: !next_is_local_id false is the only path in, so the arm
+    // fires exactly on the traffic the guard excludes; is_team_peer is our own state (no id admitted); team_id==0 ⇒ inert.
+    // ✖ The "team confirm" half of row 5 is NOT done, for the same reason as the CTS site — note_link_confirmed writes the
+    // static _link_bidi; the team bidi table is T5's. The team LIVENESS confirm does happen, inside learn_direct_neighbor.
+    else if (is_team_peer(_active->_pending_tx->next)
+             && learn_direct_neighbor(_active->_pending_tx->next, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/true)) schedule_triggered_beacon();
+#endif
     // R4.2: consume the ACK's piggybacked budget_hint -> learn the next-hop's tier in the FORWARD
     // direction (the NACK only covers the reverse). local_only=true: rerank routes but DON'T dirty /
     // schedule a beacon (so NO triggered-beacon draw on the forward path). Lua dv:10341-10344.
@@ -1310,9 +1404,16 @@ void Node::handle_nack(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // Learn the NACK sender (= our next-hop) as a 1-hop neighbour (Lua learn_rx_source / nack_frame).
     // §mobile: same mobile/team LOCAL-id guard as the ACK/CTS learns — never install a local id in the static _rt.
     // §team-parity T0: plane made explicit (was the default). Static reduction: `false` IS the old default.
-    // MISSING → T2 (§3/T2 row 6): + team learn for the next_is_local_id traffic this guard excludes.
+    // ✔ §team-parity T2 (§3/T2 row 6) — DONE by the else-arm below; this guard is UNCHANGED (I2).
     if (!(next_is_local_id(_active->_pending_tx->addr_len, _active->_pending_tx->next))
         && learn_direct_neighbor(_active->_pending_tx->next, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/false)) schedule_triggered_beacon();
+#if MR_FEAT_TEAM
+    // ✔ §team-parity T2 (§3/T2 row 6): a NACK from OUR next-hop on a TEAM flight still proves it heard us and is 1 hop
+    // away — the flight failed, the LINK did not. Same else-arm algebra and the same inertness at team_id==0 as rows 3/5.
+    // (No bidi/confirm half in this row; the static twin has none either — a NACK confirms reachability, not quality.)
+    else if (is_team_peer(_active->_pending_tx->next)
+             && learn_direct_neighbor(_active->_pending_tx->next, protocol::db_to_q4(meta.snr_db), false, /*team_plane=*/true)) schedule_triggered_beacon();
+#endif
     _hal.cancel(kRtsTimeoutTimerId);                                // faster than the timeout (dv:10390)
     _hal.cancel(kAckTimeoutTimerId);
     _active->_pending_tx->awaiting_cts = false; _active->_pending_tx->awaiting_ack = false;
