@@ -380,10 +380,13 @@ bool Node::on_init(const NodeConfig& cfg) {
 //   • parked (_parked_sends) / deferred (_deferred) sends whose TxItem carries Plane::TEAM: bounded by
 //     send_defer_ttl_ms and they simply fail to find a route on the fresh plane. Also PRE-EXISTING-symmetric — the
 //     static reprovision does not clear _parked_sends either.
-//   • the plane-blind shared ledgers (_seen_origins / _per_origin_channel / _hash_query_seen / _mediated_recent /
-//     _blind_until): keyed by a BARE id with no plane discriminator (see node.h's §P2-7 audit), all TTL-windowed, and
-//     all fail in the SUPPRESS direction (a dropped duplicate / a withheld DENY), never a mis-address. Clearing them
-//     from here would reach into the static plane, which is exactly what this function must not do.
+//   • the shared ledgers (_seen_origins / _per_origin_channel / _hash_query_seen / _mediated_recent / _blind_until): all
+//     TTL-windowed, and all fail in the SUPPRESS direction (a dropped duplicate / a withheld DENY), never a mis-address.
+//     ⚠ 2026-07-28 §team-parity T6/B: the FIRST THREE ARE NO LONGER PLANE-BLIND (see node.h's §P2-7 audit, now updated),
+//     and `_mediated_recent` was audited and found unable to alias at all. So "clearing them from here would reach into
+//     the static plane" is now only true of `_blind_until`. The other four still stay UNCLEARED — ✖ MISSING,
+//     deliberately: a selective team-only clear is a behaviour change on the team-switch axis and T6/B was the
+//     plane-keying slice (C1). The suppress-only + TTL argument above is what makes leaving them safe meanwhile.
 void Node::clear_team_routing_state() {
     for (uint8_t i = 0; i < _n_layers; ++i) {
         LayerRuntime& L = _layers[i];

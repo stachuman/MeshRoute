@@ -1428,3 +1428,54 @@ TEST_CASE("§S7 T-B — send_channel plane select: static -t refused, plain=leaf
       for (uint8_t i = 0; i < n.test_tx_queue_n(); ++i) if (n.test_tx_type(i) == DATA_TYPE_MOBILE_SEND) saw_deleg = true;
       CHECK(saw_deleg); }                                       // the GLOBAL half is delegated to the home
 }
+
+// ===================== §team-parity T6/B — the per-(PLANE,origin) channel anti-spam ledger =====================
+// The corpus CANNOT see this fix: byte-identity across all 34 scenarios is unchanged by it (0/34), because no scenario
+// happens to have a team origin and a static origin that COLLIDE numerically. These two cases are therefore the ONLY
+// detector for the aliasing half of T6/B, and the second one is deliberately written as the pre-fix counter-example.
+TEST_CASE("§T6/B — channel_origin_admit keys the ledger by (PLANE, origin): a TEAM origin N and a STATIC origin N do not share a burst floor") {
+    TestHal hal; Node node(hal, /*id=*/2, 0xBEEFu);
+    NodeConfig cfg = basic_cfg(); node.on_init(cfg);            // duty disabled -> roomy count cap; the interval is the gate
+    // A LEAF/static M from origin 9 lands first and stamps the STATIC ledger row's last_flood_ms.
+    hal._now = 1000;
+    CHECK(node.channel_origin_admit(9, (uint32_t(9) << 24) | 0u, /*team_plane=*/false) == true);
+    CHECK(hal.count("channel_min_interval_drop") == 0);
+    // 5 s later (well inside channel_min_interval_ms) a TEAM-scoped M arrives from a TEAMMATE whose team_local_id is
+    // ALSO 9 (§18: the two id spaces collide). PRE-T6 this shared ONE ledger row, so the teammate's post was dropped by
+    // the static neighbour's burst floor. It must be ADMITTED: it is a different plane, hence a different origin.
+    hal._now = 6000;
+    CHECK(node.channel_origin_admit(9, (uint32_t(9) << 24) | 1u, /*team_plane=*/true) == true);
+    CHECK(hal.count("channel_min_interval_drop") == 0);         // ★ the pre-T6 value here was 1
+    // Symmetry: the TEAM row now has its OWN floor, so a second team post too soon IS dropped (the fix separates the
+    // planes, it does not disable the throttle).
+    hal._now = 8000;
+    CHECK(node.channel_origin_admit(9, (uint32_t(9) << 24) | 2u, /*team_plane=*/true) == false);
+    CHECK(hal.count("channel_min_interval_drop") == 1);
+    // ...and the STATIC row's own floor is likewise still enforced, untouched by the team traffic in between.
+    hal._now = 9000;
+    CHECK(node.channel_origin_admit(9, (uint32_t(9) << 24) | 3u, /*team_plane=*/false) == false);
+    CHECK(hal.count("channel_min_interval_drop") == 2);
+}
+
+TEST_CASE("§T6/B — the two planes' distinct-id COUNT caps are independent (a team origin cannot exhaust a static origin's window)") {
+    TestHal hal; Node node(hal, /*id=*/2, 0xBEEFu);
+    NodeConfig cfg = basic_cfg();
+    cfg.duty_cycle = 0.01;                                      // duty ON -> a small computed cap, so exhaustion is cheap
+    node.on_init(cfg);
+    const uint16_t cap = node.channel_cap_origin();
+    CHECK(cap >= 1);
+    // Fill the STATIC row for origin 9 to its cap, stepping >=10 s so only the count cap can bite.
+    for (int k = 0; k < cap; ++k) {
+        hal._now = static_cast<uint64_t>(k + 1) * protocol::channel_min_interval_ms;
+        CHECK(node.channel_origin_admit(9, (uint32_t(9) << 24) | static_cast<uint32_t>(k), /*team_plane=*/false) == true);
+    }
+    // One more STATIC id is now correctly throttled...
+    hal._now = static_cast<uint64_t>(cap + 1) * protocol::channel_min_interval_ms;
+    CHECK(node.channel_origin_admit(9, (uint32_t(9) << 24) | 0x40u, /*team_plane=*/false) == false);
+    CHECK(hal.count("channel_drop_originator_throttle") == 1);
+    // ...but the TEAM row for the SAME numeric origin 9 is a fresh window and admits. PRE-T6 this returned false: the
+    // static neighbour's traffic had consumed the teammate's entire distinct-id budget.
+    hal._now = static_cast<uint64_t>(cap + 2) * protocol::channel_min_interval_ms;
+    CHECK(node.channel_origin_admit(9, (uint32_t(9) << 24) | 0x50u, /*team_plane=*/true) == true);
+    CHECK(hal.count("channel_drop_originator_throttle") == 1);   // ★ the pre-T6 value here was 2
+}

@@ -82,15 +82,29 @@ cd /home/staszek/MeshRoute && PLATFORMIO_BUILD_DIR=<scratch>/piobuild-after pio 
      proof), **`xiao_sx1262`** is nRF52840/ARM (the RAM-constrained target), **`xiao_esp32s3`** is
      ESP32-S3/Xtensa (the other toolchain, which moves flash in the opposite direction — see the RAM/Flash
      note below).
-   - ⚠ **ESCALATION — and it is FOUR envs, not ten.** When a slice changes `sizeof(Node)`, a board-conditional
-     `#if`, or a linker/partition setting, add **`gateway_esp32s3`** to the three above. Those four are the
-     complete **ABI × feature grid**, which is the whole of what D2 is protecting against:
-     `platformio.ini` defines only **three base boards** — `xiao_sx1262` (nordicnrf52/ARM), and `heltec_v3` +
-     `xiao_esp32s3` (the **same** espressif32 platform, differing only in pins and `MR_FEAT_OLED`). The other
-     seven envs are `extends` of those three. So padding can differ along exactly two axes: **ABI** (ARM vs
-     Xtensa) and **which members compile** (`MR_FEAT_TEAM` 1 vs 0, the `gateway_*` strip). 2 × 2 = 4.
-     ⚠ Add a `*_mobile` or `production` env **only** if `Node`'s layout has an `#if` gated on a flag that only
-     those set — check, don't assume.
+   - ⚠ **ESCALATION — SIX envs, never ten.** When a slice changes `sizeof(Node)`, a board-conditional `#if`, or
+     a linker/partition setting, build the **complete ABI × member-set grid** — that is what D2 protects against
+     (native alignment hides board padding):
+
+     | | ARM (nordicnrf52) | Xtensa (espressif32) |
+     |---|---|---|
+     | **full** | `xiao_sx1262` | `xiao_esp32s3` |
+     | **`MR_FEAT_TEAM` 0** | `gateway` | `gateway_esp32s3` |
+     | **`MR_FEAT_REMOTE_MGMT` 0** | `xiao_mobile` | `xiao_esp32s3_mobile` |
+
+     Why exactly these: `platformio.ini` defines only **three base boards** — `xiao_sx1262` (ARM), plus
+     `heltec_v3` and `xiao_esp32s3` (the **same** espressif32 platform, differing only in pins and
+     `MR_FEAT_OLED`, which does not touch `Node`). The other seven envs `extends` those. So padding can differ
+     along **ABI** and **which members compile**, and the member-set axis has **THREE** values: `MR_FEAT_TEAM` 0
+     strips team state (`gateway_*`), and **`MR_FEAT_REMOTE_MGMT` 0 strips three `Node` members** —
+     `_admin_pubkey[32]`, `_admin_counter_floor`, `_admin_provisioned` (`node.h:1229-1233`) — set only by the
+     three `*_mobile` envs via `-DMR_PROFILE_MOBILE`. `production` and the gateways deliberately KEEP
+     remote-mgmt, so `production`, `heltec_v3`, `gateway_heltec` and `heltec_mobile` add no padding axis.
+     ⚠⚠ **This rule has been WRONG TWICE.** QA first escalated to all ten (2026-07-28 — the owner flagged the
+     wasted wall-clock), then "corrected" it to four by missing the `MR_FEAT_REMOTE_MGMT` axis, caught by the T6
+     coder. **If you find a fourth member-set axis, add it here and say so.** ★ And note what T6 then measured:
+     `sizeof(Node)` did **not** move at all — the escalation's own premise was false, because the new field fit
+     existing tail padding. **Measure the layout FIRST (next bullet), then decide whether you need the grid.**
    - ★★ **Get `sizeof(Node)` per target from a COMPILE-ONLY probe, not a BEFORE/AFTER full link on every env.**
      The padding question is answered by a `static_assert` compiled with that target's flags, near-instantly.
      Reserve the full build+link for the env where you actually report the RAM figure. **QA over-escalated a

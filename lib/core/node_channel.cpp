@@ -24,6 +24,29 @@
 
 namespace MESHROUTE_NS {
 
+// ★ §team-parity T6 (spec §3/T6): the plane an M-broadcast TxItem is stamped on — DECIDED DELIBERATELY, not swept along
+// with the DM path, because a team CHANNEL post is not obviously the same case as a team DM (the brief said so and it is
+// right: the channel plane already carries its OWN plane-aware origin at do_send_channel:271-273, `e.origin`, which is
+// what the channel_msg_id and every buffer/dedup/anti-spam decision key on — TxItem::origin is a SECOND, parallel
+// identity on the same frame).
+// THE PREDICATE IS THE FLAVOR BIT, deliberately reusing the EXACT expression the very next line of both call sites
+// already uses for `item.mobile_src` (U1 — one definition of "this M is team traffic"; a second, drifting definition of
+// team-ness on the same two frames is precisely the S1/L9 field-drop rot). It is NOT the DM's plane predicate: an
+// M-broadcast has no meaningful `dst` (0xFF for a flood, the PULLER for a pull-response), so is_team_peer(dst) would be
+// nonsense here — the flavor is the frame's own, authoritative scope.
+// ⚠ MEASURED, and the reason this is safe rather than merely plausible: TxItem/PendingTx::origin is CORPUS-INERT on both
+// M paths. All five downstream readers exclude an M by construction — node_mac.cpp:576 and :792 both test
+// `!is_channel_m`, and the node_cascade.cpp:124/178/307/427/440 + node_mac_rx.cpp:1379/1428 readers all sit behind
+// awaiting_cts / awaiting_ack, which issue_m_broadcast clears (node_mac.cpp:621) for a fire-and-forget M. The M frame's
+// own wire bytes are hand-built ([id4|channel_id|flavor|body]) and never include TxItem::origin, and its RTS carries
+// `rin.src = _node_id` (node_mac.cpp:632), not the origin. Probe result in the T6 BASELINE note.
+// Static reduction: flavor without channel_flavor_team ⇒ Plane::GLOBAL ⇒ flight_is_team_plane() false ⇒ the pre-T6
+// `mob ? home_id : _node_id` verbatim. Build profiles: channel_flavor_team is an ungated protocol constant, so the
+// helper compiles identically on the three gateway_* envs (MR_FEAT_TEAM 0), where stamp_origin's team arm is absent.
+static inline Plane m_flavor_plane(uint8_t flavor) {
+    return ((flavor & protocol::channel_flavor_team) != 0) ? Plane::TEAM : Plane::GLOBAL;
+}
+
 // ---- channel_msg_id mint (dv:2239): origin<<24 | (key_hash32 LOW 16)<<8 | ctr low 8, big-endian on wire.
 uint32_t Node::channel_msg_id_mint(uint8_t origin, uint32_t key_hash32, uint8_t ctr) {
     return (static_cast<uint32_t>(origin) << 24)
@@ -75,12 +98,23 @@ bool Node::channel_have_id_lo16(uint16_t lo) const {
 // ---- per-origin anti-spam admission (dv:3456). Distinct-id count over a sliding window; a repeat
 //      id REFRESHES (not re-counts) so a heavily re-gossiped legit msg can't false-throttle its
 //      origin. origin==self bypasses (own posts use the origination self-cap). Returns admit. ----
-bool Node::channel_origin_admit(uint8_t origin, uint32_t msg_id) {
+bool Node::channel_origin_admit(uint8_t origin, uint32_t msg_id, bool team_plane) {
     if (_cfg.n_layers == 2) return false;                       // Principle 11: a dual-layer gateway is OUT of the channel plane (justifies cap_channel_buffer=8)
     if (origin == _node_id) return true;                        // self bypasses
     const uint64_t now    = _hal.now();
     const uint64_t cutoff = (now >= _cfg.channel_origin_window_ms) ? now - _cfg.channel_origin_window_ms : 0;
-    ChannelOriginLedger& L = _active->_per_origin_channel[origin];       // map insert-on-miss (default-constructed n=0)
+    // ★★ §team-parity T6/B (spec §3/T6 Part B): the ledger key is (PLANE, origin), not the bare 8-bit origin. A team
+    // member ingests BOTH a plain leaf M (origin = a STATIC node id) and a team-scoped M (origin = a TEAMMATE's
+    // team_local_id) — ingest_channel_m says so at its own team gate ("a normal leaf M (team_id==0) falls through ->
+    // ingested by everyone incl. team members (planes = BOTH)"), so the "the planes rarely co-relay the same origin id"
+    // safety reason recorded in node.h was already false, not merely fragile. Two numerically-colliding origins (§18)
+    // shared ONE windowed distinct-id ledger AND one last_flood_ms burst floor, so a teammate's post could consume a
+    // static neighbour's budget and get the other's next post dropped by channel_min_interval_drop /
+    // channel_drop_originator_throttle — a SUPPRESS failure, invisible except as a missing message.
+    // Static reduction: team_plane=false ⇒ key == origin, the pre-T6 uint8_t value, so every static/leaf ledger row is
+    // byte-identical. Build profiles: the composer is plain arithmetic on an ungated bool — no MR_FEAT_* dependence.
+    const uint16_t ledger_key = static_cast<uint16_t>((team_plane ? 0x100u : 0u) | origin);
+    ChannelOriginLedger& L = _active->_per_origin_channel[ledger_key];   // map insert-on-miss (default-constructed n=0)
     // Prune in place (keep in-window), refreshing the matching id; events are unique-id (dups refresh),
     // so the kept count IS the distinct count (matching the Lua's `seen` set).
     uint8_t k = 0; bool dup = false;
@@ -180,7 +214,10 @@ void Node::ingest_channel_m(const m_out& m, uint8_t from) {
     }
     const uint32_t id     = m.channel_msg_id;
     const uint8_t  origin = static_cast<uint8_t>((id >> 24) & 0xff);    // the minter (dv:2912)
-    if (!channel_origin_admit(origin, id)) {                   // over per-origin budget -> drop (not buffered/forwarded)
+    // §team-parity T6/B: `m.team_id != 0` IS the plane of this M — the same field the member gate above uses (U1), and the
+    // authoritative scope of the frame (a team M's origin is a team_local_id, a leaf M's is a static node id). Static
+    // reduction: a leaf/global M has team_id==0 ⇒ team_plane=false ⇒ the pre-T6 bare-origin ledger key verbatim.
+    if (!channel_origin_admit(origin, id, /*team_plane=*/m.team_id != 0)) {   // over per-(plane,origin) budget -> drop (not buffered/forwarded)
         const int fs = flood_state_find(id);                  // C1 (§4.3 step 1): free any flood-state so §4.4 does
         if (fs >= 0) flood_state_free(static_cast<uint8_t>(fs)); // NOT fast-self-pull a deliberately-throttled message
         return;
@@ -559,7 +596,7 @@ bool Node::channel_m_in_flight(uint32_t id) const {
 void Node::enqueue_channel_m(uint8_t target, const ChannelEntry& e) {
     if (_active->_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (the puller can re-pull)
     TxItem item{};
-    stamp_origin(item); item.dst = target; item.is_channel_m = true;
+    stamp_origin(item, m_flavor_plane(e.flavor), target); item.dst = target; item.is_channel_m = true;
     item.mobile_src = (e.flavor & protocol::channel_flavor_team) != 0;   // §mobile 6.3: a TEAM pull-response is team traffic -> mobile_src (static overhearers skip)
     item.ctr    = static_cast<uint16_t>(e.id & 0xff); item.ctr_lo = static_cast<uint8_t>(e.id & 0x0F);  // id-derived (M frame has no ctr)
     item.inner[0] = static_cast<uint8_t>(e.id >> 24); item.inner[1] = static_cast<uint8_t>(e.id >> 16);
@@ -813,10 +850,15 @@ void Node::channel_reoffer_confirm(uint32_t id) {
 //   • _channel_pull_recent      NOT scrubbed, and deliberately KEPT: it is a pure SUPPRESSION ring, so a purged id
 //       still in it prevents an immediate re-pull of the message we just dropped. Clearing it would make the leak's
 //       aftermath NOISIER, never safer.
-//   • _per_origin_channel       NOT cleared — the previous slice's ruling still holds and applies verbatim: keyed by
-//       a BARE origin id with no plane discriminator (a team local id and a static node_id collide in it, node.h
-//       §P2-7), so clearing it would reach into the STATIC plane this switch must not touch. TTL-windowed and
-//       suppress-direction only. ⚠ ONE knock-on worth knowing: do_send_channel's self-cap counts our own rows IN THE
+//   • _per_origin_channel       NOT cleared — but ⚠ THE REASON CHANGED under §team-parity T6/B (2026-07-28) and the old
+//       one no longer applies, so do not cite it. It USED to be "keyed by a BARE origin id with no plane discriminator
+//       (a team local id and a static node_id collide in it), so clearing it would reach into the STATIC plane this
+//       switch must not touch." T6/B plane-keyed it — `(plane<<8)|origin` — so a team-only selective clear (erase every
+//       key with bit 8 set) is now BOTH possible and safe. ✖ MISSING, deliberately: adding it is a behaviour change on
+//       the team-switch axis and this was the plane-keying slice (C1). It stays NOT cleared for the same standing
+//       reasons that always also applied — the ledger is TTL-windowed and suppress-direction only, so a stale row can
+//       only throttle, never leak, and a `team new` right after a switch is bounded by channel_origin_window_ms.
+//       ⚠ ONE knock-on worth knowing: do_send_channel's self-cap counts our own rows IN THE
 //       BUFFER, so dropping them RELAXES the cap right after a switch. That is intended (the old team's posts must not
 //       budget the new team's), and _last_channel_origin_ms — untouched here — keeps the channel_min_interval_ms
 //       burst floor as the backstop.
@@ -1044,7 +1086,7 @@ void Node::enqueue_flood_m(uint8_t channel_id, uint8_t flavor, uint32_t id, cons
                            const uint8_t* bitmap32, uint8_t hop_left) {
     if (_active->_tx_queue_n >= kTxQueueCap) return;                       // queue full -> drop (repair covers it)
     TxItem item{};
-    stamp_origin(item); item.dst = 0xFF;                      // broadcast; the RTS dst slot carries hop_left
+    stamp_origin(item, m_flavor_plane(flavor), 0xFF); item.dst = 0xFF;   // broadcast; the RTS dst slot carries hop_left
     item.ctr = static_cast<uint16_t>(id & 0xff); item.ctr_lo = static_cast<uint8_t>(id & 0x0F);
     item.is_channel_m = true;
     item.mobile_src = (flavor & protocol::channel_flavor_team) != 0;   // §mobile 6.3: mark a TEAM channel flood -> a static overhearer skips it (no re-flood, keeps team traffic off the static plane). Non-team flood -> 0, byte-identical.

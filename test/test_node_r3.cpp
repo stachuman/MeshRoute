@@ -6212,3 +6212,162 @@ TEST_CASE("§mobile 3b A1 — a mobile_src RTS's local-id stays OUT of the globa
     hal._now=2000; feed_rts(/*src*/ 51, /*mobile_src*/ true);
     CHECK(node.rt_count() == rc1);            // ★ NOT learned -> a mobile's local-id can't collide the global rt
 }
+
+// ==================== §team-parity T6 (spec §3/T6, OWNER-RULED §11 2026-07-28) ==================================
+// ONE ORIGIN NAMESPACE PER PLANE. Part A's corpus coverage is real but NARROW — only s28/s29 move (they are the only
+// two scenarios with a HOMED team member), and s37 covers the R3/ack consequence. These cases pin the four per-plane
+// DECISIONS themselves, including the two that no scenario exercises: the GLOBAL §18 carve-out and the not-team-DAD'd
+// fallback. Part B's channel-ledger half is pinned in test_node_channel.cpp; its H-flood half is at the end of this block.
+
+namespace {
+// A HOMED (dual) team member — the configuration the whole slice exists for: a host-assigned static _node_id, a
+// SEPARATE team_local_id, and an ACTIVE registration, so stamp_origin's pre-T6 expression yields the HOME's static id.
+void t6_homed(Node& n, uint8_t static_id, uint8_t team_id_local, uint8_t home, uint32_t team) {
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=team;
+    CHECK(n.on_init(cfg));
+    n.set_team_local_id(team_id_local);
+    n.test_set_my_mobile_reg(home, static_id);   // §S7 T-B seam: ACTIVE registration -> stamp_origin's `mob` is true
+    CHECK(n.mobile_registered());
+    CHECK(n.node_id() != team_id_local);         // the DUAL split is real: a host-assigned static id != the team id
+}
+CmdResult t6_send(Node& n, uint8_t dst, Plane plane) {
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = dst;
+    c.u.send.plane = static_cast<uint8_t>(plane);
+    c.body = reinterpret_cast<const uint8_t*>("hi"); c.body_len = 2;
+    return n.on_command(c);
+}
+}  // namespace
+
+TEST_CASE("§team-parity T6/A — a HOMED member's TEAM-plane send stamps its team_local_id, NOT its home's static id") {
+    // ★★ THE MEASURED DEFECT (BASELINE SCEN note / spec §11): pre-T6 this stamped origin = 101, the HOME's STATIC node
+    // id, so the acking teammate addressed 101 on the STATIC plane — four static RREQ floods then e2e_ack_timeout in the
+    // bench's own topology. s37 measures that end-to-end; this pins the stamp itself.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/254, /*key=*/0xA0D2u);
+    t6_homed(X, /*static_id=*/254, /*team_id_local=*/210, /*home=*/101, TEAM);
+    X.test_suspend_tx_drain(true);                                  // keep the DM in the queue so the stamp is readable
+    X.test_learn_route(/*dest=*/220, /*via=*/220, /*hops=*/1, /*snr_q4=*/160, /*team_plane=*/true);
+    CHECK(X.is_team_peer(220));
+    CHECK(t6_send(X, /*dst=*/220, Plane::TEAM).code == CmdCode::queued);
+    CHECK(X.test_tx_queue_n() == 1);
+    CHECK(X.test_tx_origin(0) == 210);                              // ★★ the TEAM id — pre-T6 this read 101
+}
+
+TEST_CASE("§team-parity T6/A — the STATIC REDUCTION: the same member's GLOBAL send still bills its home (unchanged)") {
+    // The other half of the ruling, and the reason the change is not `origin = team_local_id` unconditionally: a
+    // registered mobile bills its home on the static plane because a home id is an accountable GLOBAL id, and the
+    // reverse leg is last-miled by the home. That must survive T6 verbatim.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/254, /*key=*/0xA0D2u);
+    t6_homed(X, /*static_id=*/254, /*team_id_local=*/210, /*home=*/101, TEAM);
+    X.test_suspend_tx_drain(true);
+    X.test_learn_route(/*dest=*/40, /*via=*/40, /*hops=*/1, /*snr_q4=*/160, /*team_plane=*/false);
+    CHECK(t6_send(X, /*dst=*/40, Plane::GLOBAL).code == CmdCode::queued);
+    CHECK(X.test_tx_queue_n() == 1);
+    CHECK(X.test_tx_origin(0) == 101);                              // the HOME's id — the pre-T6 expression, verbatim
+}
+
+TEST_CASE("§team-parity T6/A — ★ THE §18 CARVE-OUT: a GLOBAL send to an id that COLLIDES a teammate's team id bills the home") {
+    // ★ This is why the predicate is rt_find's exact dispatch and NOT `plane != GLOBAL`. Team local ids and static node
+    // ids share 1..254, so a GLOBAL send can legitimately target a numeric id that is ALSO a known teammate's team id.
+    // rt_find(dst, GLOBAL) forces _rt, so the flight is STATIC and its origin must be the accountable global id — a team
+    // stamp here would put a team-plane identity on a static-plane frame, which is the mirror of the bug T6 fixes.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/254, /*key=*/0xA0D2u);
+    t6_homed(X, /*static_id=*/254, /*team_id_local=*/210, /*home=*/101, TEAM);
+    X.test_suspend_tx_drain(true);
+    X.test_learn_route(/*dest=*/60, /*via=*/60, /*hops=*/1, /*snr_q4=*/160, /*team_plane=*/true);   // 60 is a TEAMMATE
+    X.test_learn_route(/*dest=*/60, /*via=*/60, /*hops=*/1, /*snr_q4=*/160, /*team_plane=*/false);  // ...and a static id
+    CHECK(X.is_team_peer(60));
+    CHECK(t6_send(X, /*dst=*/60, Plane::GLOBAL).code == CmdCode::queued);
+    CHECK(X.test_tx_queue_n() == 1);
+    CHECK(X.test_tx_origin(0) == 101);                              // ★★ GLOBAL wins: the home id, not the team id
+    // ...while the SAME dst on AUTO resolves to the teammate and therefore takes the team stamp.
+    CHECK(t6_send(X, /*dst=*/60, Plane::AUTO).code == CmdCode::queued);
+    CHECK(X.test_tx_queue_n() == 2);
+    CHECK(X.test_tx_origin(1) == 210);                              // ★★ AUTO dispatches to _rt_team ⇒ the team id
+}
+
+TEST_CASE("§team-parity T6/A — an AUTO send to a KNOWN teammate takes the team stamp (the brief's literal form would have missed it)") {
+    // ★ REPORTED DEVIATION, pinned here so the decision is visible in code, not only in a report. §3/T6's code sketch
+    // keys on `plane == Plane::TEAM` alone. That would leave every AUTO-dispatched team DM — which is what
+    // `send_hash <teammate>` without `-t` produces, i.e. s24/s25/s26's team traffic and the companion's default —
+    // stamping the home id while rt_find(dst, AUTO) routes it on _rt_team. The origin would then name a node on the
+    // OTHER plane from the one carrying the frame, which is exactly the defect §11 ruled against, and node_mac.cpp:70's
+    // E2E-ACK gate admits precisely this case via its own `is_team_peer(dst)` arm.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/254, /*key=*/0xA0D2u);
+    t6_homed(X, /*static_id=*/254, /*team_id_local=*/210, /*home=*/101, TEAM);
+    X.test_suspend_tx_drain(true);
+    X.test_learn_route(/*dest=*/220, /*via=*/220, /*hops=*/1, /*snr_q4=*/160, /*team_plane=*/true);
+    CHECK(t6_send(X, /*dst=*/220, Plane::AUTO).code == CmdCode::queued);
+    CHECK(X.test_tx_queue_n() == 1);
+    CHECK(X.test_tx_origin(0) == 210);
+    // Control: an AUTO send to an id that is NOT a teammate keeps the home stamp (AUTO is not "always team").
+    X.test_learn_route(/*dest=*/41, /*via=*/41, /*hops=*/1, /*snr_q4=*/160, /*team_plane=*/false);
+    CHECK_FALSE(X.is_team_peer(41));
+    CHECK(t6_send(X, /*dst=*/41, Plane::AUTO).code == CmdCode::queued);
+    CHECK(X.test_tx_queue_n() == 2);
+    CHECK(X.test_tx_origin(1) == 101);
+}
+
+TEST_CASE("§team-parity T6/A — a member whose team-DAD has NOT completed falls back to the pre-T6 stamp (never origin 0)") {
+    // ⚠ The hard precondition in stamp_origin. A member can hold _team_peer bits with team_local_id() still 0:
+    // node_beacon.cpp's same-team learn does not require our OWN id to be adopted. Stamping 0 there would air the
+    // reserved sentinel id. `send -t` is already refused loud in that window (node.cpp:1138); an AUTO send is not, and
+    // this pins what it does instead. (Marked MISSING in-source: refusing it too is a separate, louder change.)
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/254, /*key=*/0xA0D2u);
+    t6_homed(X, /*static_id=*/254, /*team_id_local=*/210, /*home=*/101, TEAM);
+    X.test_learn_route(/*dest=*/220, /*via=*/220, /*hops=*/1, /*snr_q4=*/160, /*team_plane=*/true);
+    X.set_team_local_id(0);                                         // DAD dropped (a team switch / not yet adopted)
+    CHECK(X.is_team_peer(220));                                     // the peer bit SURVIVES — that is the trap
+    X.test_suspend_tx_drain(true);
+    CHECK(t6_send(X, /*dst=*/220, Plane::AUTO).code == CmdCode::queued);
+    CHECK(X.test_tx_queue_n() == 1);
+    CHECK(X.test_tx_origin(0) == 101);                              // the pre-T6 expression, NOT 0
+    CHECK(X.test_tx_origin(0) != 0);
+}
+
+TEST_CASE("§team-parity T6/A — an OFF-GRID member is unchanged by the slice (node_id == team_local_id already)") {
+    // Why s35a/s35b did not move: off-grid, team_dad_fire calls set_identity(team_local_id) (node_mobile.cpp:217), so
+    // the two ids are the same value and both arms of the ternary agree. This is the algebra behind "0 of 34 off-grid
+    // scenarios moved", pinned so a future edit cannot break it silently.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node X(hal, /*id=*/213, /*key=*/0xA213u); t1_offgrid(X, 213, TEAM);
+    X.test_suspend_tx_drain(true);
+    X.test_learn_route(/*dest=*/234, /*via=*/234, /*hops=*/1, /*snr_q4=*/160, /*team_plane=*/true);
+    CHECK(t6_send(X, /*dst=*/234, Plane::TEAM).code == CmdCode::queued);
+    CHECK(X.test_tx_queue_n() == 1);
+    CHECK(X.test_tx_origin(0) == 213);                              // == node_id == team_local_id: identical either way
+}
+
+TEST_CASE("§team-parity T6/B — the H-flood dedup ring is PLANE-KEYED: a team H and a static H sharing (origin, key_hash32) no longer suppress each other") {
+    // ★★ THE ONLY DETECTOR for this half of Part B: all 35 corpus streams are byte-identical through it (measured
+    // 0/34 on the pre-s37 corpus), because no scenario puts a node on both H planes at once.
+    // ★ THE CONFIGURATION IS REACHABLE BY LIVE CONFIG, which is what makes the fix warranted rather than speculative:
+    // handle_h returns before any mark for a static H iff _cfg.is_mobile (node_hashlocate.cpp:584) and for a team H iff
+    // !same_team (:603), so a node with team_id != 0 && !is_mobile processes BOTH — and set_team_id (node.cpp:413)
+    // never touches is_mobile, so `cfg set team_id <x>` / `team <id>` on the console produces exactly that node.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node N(hal, /*id=*/30, /*key=*/0x3030u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.team_id=TEAM;   // NOT is_mobile
+    CHECK(N.on_init(cfg));
+    N.set_team_local_id(93);
+    const uint32_t UNKNOWN_KEY = 0xDEADBEEFu;    // resolves nowhere -> handle_h takes the FORWARD (dedup) path
+    auto feed_h = [&](bool team_scoped) {
+        h_in in{}; in.leaf_id = 0; in.origin = 77; in.key_hash32 = UNKNOWN_KEY; in.ttl = 3;
+        in.team_scoped = team_scoped; in.team_id = team_scoped ? TEAM : 0u;
+        uint8_t buf[8 + 32 + 4 + 1 + 32];
+        const size_t n = pack_h(in, std::span<uint8_t>(buf, sizeof buf));
+        CHECK(n > 0);
+        N.on_recv(buf, n, RxMeta{12.0f, -70.0f, 0, /*src_hint=*/-1});
+    };
+    feed_h(/*team_scoped=*/false);                       // a STATIC locate for key K from origin 77
+    CHECK(hal.count("h_forward") == 1);
+    feed_h(/*team_scoped=*/true);                        // a TEAM locate, SAME (origin, key_hash32) — a §18 collision
+    CHECK(hal.count("h_forward") == 2);                  // ★★ forwarded: a different plane is a different flood
+    // Symmetry + non-vacuity: the dedup itself still works WITHIN each plane (this is a plane split, not a disable).
+    feed_h(/*team_scoped=*/true);  CHECK(hal.count("h_forward") == 2);
+    feed_h(/*team_scoped=*/false); CHECK(hal.count("h_forward") == 2);
+}

@@ -549,14 +549,18 @@ bool Node::e2e_open_relay(const uint8_t* relay_body, size_t len, uint32_t source
 // per-(origin, key_hash32, VARIANT) flood dedup (Lua hash_query_seen; hash_query_seen_ttl_ms window). Keying on
 // `hard` is load-bearing: a HARD query (verify-on-use) must NOT be suppressed by a prior SOFT's seen-entry, or
 // the escalation that reaches the owner is silently swallowed. Mirrors rreq_seen.
-bool Node::hash_query_seen_recently(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey) {
+// ★ §team-parity T6/B: `team_scoped` (the H frame's own plane bit) joins the key — see the HashQuerySeen struct comment
+// for the measured reason (the role-exclusion invariant it used to rely on is defeatable by `cfg set team_id` on a
+// non-mobile node). Static reduction: every static H carries team_scoped=false and every existing team H carries true,
+// so no static entry's key value changes and a static-only mesh is byte-identical by construction.
+bool Node::hash_query_seen_recently(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey, bool team_scoped) {
     return recent_ring_hit(_active->_hash_query_seen, _active->_hash_query_seen_n,
-                           HashQuerySeen{ origin, key_hash32, 0, hard, want_pubkey },
+                           HashQuerySeen{ origin, key_hash32, 0, hard, want_pubkey, team_scoped },
                            _hal.now(), protocol::hash_query_seen_ttl_ms);
 }
-void Node::mark_hash_query_seen(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey) {
+void Node::mark_hash_query_seen(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey, bool team_scoped) {
     recent_ring_mark(_active->_hash_query_seen, _active->_hash_query_seen_n,
-                     HashQuerySeen{ origin, key_hash32, _hal.now(), hard, want_pubkey });
+                     HashQuerySeen{ origin, key_hash32, _hal.now(), hard, want_pubkey, team_scoped });
 }
 
 // H query flood handler (Lua dv:11628-11671). RESOLVE from own-hash (HARD) or a cached binding (its stored
@@ -635,7 +639,7 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     }
 
     if (node_id >= 0) {                                    // RESOLVER path (dv:11644) — answer + SUPPRESS the forward
-        mark_hash_query_seen(h.origin, h.key_hash32, h.hard, h.want_pubkey);   // mark BEFORE replying so a re-flood doesn't double-answer (dv:11647)
+        mark_hash_query_seen(h.origin, h.key_hash32, h.hard, h.want_pubkey, h.team_scoped);   // §T6/B: keyed by the H's own plane. mark BEFORE replying so a re-flood doesn't double-answer (dv:11647)
         // §F-TR-2: the ANSWER binding for a TEAM-scoped own-hash resolve must name our TEAM identity (team_local_id), NOT the
         // host-assigned static node_id. A DUAL (registered) member's _node_id is its static host id (e.g. 254); answering a
         // team locate with that sends the querier to _rt_team looking for a static id that has no team route -> no_route/giveup.
@@ -682,8 +686,8 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
 
     // FORWARD path (dv:11655): we don't know it (or it's a HARD query and we're not the owner) -> re-broadcast
     // once, deduped per variant, until TTL runs out.
-    if (hash_query_seen_recently(h.origin, h.key_hash32, h.hard, h.want_pubkey)) return;   // flood dedup (dv:11656) — §2: WANT_PUBKEY is its own variant
-    mark_hash_query_seen(h.origin, h.key_hash32, h.hard, h.want_pubkey);                   // (dv:11657)
+    if (hash_query_seen_recently(h.origin, h.key_hash32, h.hard, h.want_pubkey, h.team_scoped)) return;   // flood dedup (dv:11656) — §2: WANT_PUBKEY is its own variant
+    mark_hash_query_seen(h.origin, h.key_hash32, h.hard, h.want_pubkey, h.team_scoped);    // (dv:11657)
     if (h.ttl == 0) return;                                         // TTL exhausted (dv:11658)
     // L7: h.ttl is an unauthenticated wire byte — a forged ttl=255 would re-flood with a 255-hop horizon. Clamp to
     // flood_hop_max so the re-flooded ttl can't exceed the mesh diameter (dedup already bounds re-broadcasts per node).

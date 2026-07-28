@@ -68,8 +68,18 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     // is_team_peer-only form was the same chicken-and-egg as node.cpp's send guard: an off-grid member sending
     // `-t <unheard-id> -a` was refused mobile_no_home here even though the reply leg it worries about is the TEAM
     // plane, which needs no home at all — the reverse ack routes by _rt_team (the RREQ lays the reverse path at every
-    // relay), and the origin it stamps is the team_local_id, which every teammate CAN route. `plane` is already a
-    // parameter of enqueue_data, so no signature change (U1).
+    // relay). `plane` is already a parameter of enqueue_data, so no signature change (U1).
+    // ★★ §team-parity T6 CORRECTION (2026-07-28). T1 wrote here that "the origin it stamps is the team_local_id, which
+    // every teammate CAN route" as though it were a standing property. IT WAS NOT TRUE WHEN T1 WROTE IT: stamp_origin
+    // had no team-plane exception, so a HOMED member stamped its HOME's STATIC node id (measured live in s28/s29 as
+    // origin=101) and its reverse ack was addressed on the STATIC plane — the R3 violation §11 was ruled on. ⇒ T6
+    // ESTABLISHES the property this guard rests on; it does not restate one. stamp_origin (node.h) now stamps
+    // team_local_id() for exactly the flights this guard admits, because both use flight_is_team_plane(plane, dst) —
+    // the same predicate, so the gate cannot admit a send whose ack has no routable return address.
+    // ⚠ ONE arm remains only PARTLY covered and it is this guard's, not T6's: `is_team_peer(dst)` here is not
+    // plane-qualified, so a GLOBAL send to an id that numerically collides a teammate's team id (§18) is admitted as
+    // "team" while rt_find(dst, GLOBAL) routes it on the STATIC plane and stamp_origin correctly stamps the home id.
+    // That is the pre-T6 shape and this slice does not change it (C1) — noted so the next reader does not re-derive it.
     // Static reduction: on a static node the whole guard is dead (`_cfg.is_mobile` is false), and for a mobile
     // sending on AUTO/GLOBAL `plane != Plane::TEAM` leaves the expression as the pre-T1 `!is_team_peer(dst)` verbatim.
     // Build profiles: the whole block is MR_FEAT_MOBILE-gated (absent on the three gateway_* envs, which also set
@@ -85,7 +95,10 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
 #endif
     const uint16_t ctr = next_ctr(dst);
     TxItem item{};
-    stamp_origin(item); item.dst = dst; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
+    // §team-parity T6: the ONE site where the plane is genuinely variable — thread the caller's `plane` + `dst` so a
+    // TEAM-plane DM stamps team_local_id(). Static reduction: AUTO-to-a-non-teammate / GLOBAL / any static node ⇒
+    // flight_is_team_plane() false ⇒ the pre-T6 `mob ? home_id : _node_id` verbatim.
+    stamp_origin(item, plane, dst); item.dst = dst; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
     item.flags = flags; item.type = type;
     item.addr_len = addr_len;   // §mobile: 1 => `dst` is a hosted mobile's LOCAL id -> route as a direct 1-hop last-mile (node_mac.cpp:529). 0 for every normal origination (byte-identical).
     item.plane = plane;         // Wave 2: the addressing plane forced by the caller (AUTO for every existing caller -> byte-identical)
@@ -340,7 +353,22 @@ bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t
     // clear; sealing acks is out of scope — and the sealed-relay frame itself (confidential content). Both are correct.
     TxItem item{};
     const uint16_t ctr = next_ctr(gw_node);          // MAC ctr vs the next-hop gateway (= the e2e (source_hash, ctr) identity)
-    stamp_origin(item); item.dst = gw_node; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
+    // §team-parity T6: EXPLICITLY GLOBAL — decided per-caller, not swept. A cross-layer DM is a STATIC-infrastructure
+    // flight by construction: it is MAC-addressed to a bridging GATEWAY (`gw_node`, a global id resolved from
+    // _rt/_gw_schedules) and carries an inner layer PATH. There is no team plane above a gateway.
+    // ★ PROVEN, not assumed (the reachability audit T6 was asked for): `Plane::TEAM` CANNOT reach this function.
+    //   (a) send_by_hash's `if (plane == Plane::TEAM)` block (node_hashlocate.cpp:990) RETURNS in all three arms;
+    //   (b) on_command's send_layer verb forks at node.cpp:1261 (`if (_cfg.is_mobile)`) and RETURNS in every arm via
+    //       delegate_send_layer — so a mobile, hence EVERY team member (mr_features.h:47 makes MR_FEAT_TEAM imply
+    //       MR_FEAT_MOBILE, and a team member is is_mobile), never reaches originate_layer_path;
+    //   (c) send_xl_ack forks the same way for a registered mobile (:503).
+    //   ⇒ the reachable callers are a STATIC node, a HOME re-originating for its mobile (reply_to_hash != 0), and an
+    //   OFF-GRID mobile — and for the last one `mob` is false, so pre-T6 already stamped `_node_id`, which off-grid IS
+    //   the team_local_id. So GLOBAL here is VALUE-identical to pre-T6 on every reachable path, not merely inert.
+    // Forcing GLOBAL rather than passing AUTO also closes a latent §18 hazard: `gw_node` is an 8-bit id that could
+    // numerically collide a teammate's team_local_id, and AUTO would then have stamped our team id on a gateway frame.
+    // Static reduction: Plane::GLOBAL ⇒ flight_is_team_plane() false ⇒ the pre-T6 expression verbatim, on every build.
+    stamp_origin(item, Plane::GLOBAL, gw_node); item.dst = gw_node; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
     item.type = type;   // §GapB: a re-originated E2E-ack stamps DATA_TYPE_E2E_ACK (0 = a normal cross-layer DM, byte-identical)
     item.flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH
                                       | (flags & DATA_FLAG_E2E_ACK_REQ));   // 4d/e2e: honor the app's E2E-ack request -> Y acks over the reversed path (4e)
@@ -515,7 +543,16 @@ uint16_t Node::delegate_send_layer(uint32_t dst_hash, const uint8_t* hops, uint8
     const uint8_t home = _my_mobile_reg.home_id;
     TxItem item{};
     const uint16_t ctr = next_ctr(home);
-    stamp_origin(item);   // registered mobile -> origin = home_id, mobile_src = true (the same identity the same-layer wrapper uses)
+    // ★ §team-parity T6: EXPLICITLY GLOBAL — and here the home-billing is DELIBERATE, not incidental. This is the
+    // MOBILE_SEND wrapper: it is addressed TO OUR HOME (`item.dst = home`, DATA_FLAG_MS_ENCLOSED_TYPE), the home STRIPS
+    // it and RE-ORIGINATES under its OWN origin/ctr, and *anti-spam bills the home* by design (hosting implies consenting
+    // to the mobile's share — same ruling as the channel-post wrapper, node_channel.cpp:~370). The wrapper's leg is
+    // MOBILE→HOME; it is NOT the team-plane leg whose reverse ack the §11 measurement found broken, so stamping
+    // team_local_id() here would MISBILL anti-spam and hand the home an origin in a namespace its re-origination does not
+    // use. The far target's ack routes back by the mobile's SOURCE_HASH, never by this origin.
+    // Static reduction: Plane::GLOBAL ⇒ flight_is_team_plane() false ⇒ the pre-T6 expression verbatim (this whole
+    // function is MR_FEAT_MOBILE-gated, so it is absent on the three gateway_* envs).
+    stamp_origin(item, Plane::GLOBAL, home);   // registered mobile -> origin = home_id, mobile_src = true (the same identity the same-layer wrapper uses)
     item.dst = home; item.ctr = ctr; item.ctr_lo = static_cast<uint8_t>(ctr & 0x0F);
     item.type = DATA_TYPE_MOBILE_SEND;
     item.flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH

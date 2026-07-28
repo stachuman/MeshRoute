@@ -178,6 +178,21 @@ public:
         (void)next; (void)addr_len; return false;
 #endif
     }
+    // §team-parity T6 (spec §3/T6 + the §11 owner ruling, 2026-07-28): "will this OUTBOUND flight be routed on the TEAM
+    // plane?" — the SAME predicate rt_find (node_routing.cpp:22) already uses to pick the table, kept as one expression so
+    // the identity a flight CLAIMS (stamp_origin) cannot drift from the table it is ROUTED on. TEAM forces the team plane;
+    // AUTO dispatches by is_team_peer(dst); GLOBAL forces the static plane even when `dst` numerically collides a
+    // teammate's team id (§18) — that carve-out is why this is not simply `plane != GLOBAL`.
+    // ⚠ MISSING (deliberate, C1): node_routing.cpp:22 still carries the expression INLINE rather than calling this. It is
+    // provably the same expression, but routing rt_find through it is a pure refactor and this is a feature slice — the
+    // same C1 split T2 made when it built and then reverted its learn_direct_neighbor hoist. A cleanup slice owns it.
+    bool       flight_is_team_plane(Plane plane, uint8_t dst) const {
+#if MR_FEAT_TEAM
+        return plane == Plane::TEAM || (plane == Plane::AUTO && is_team_peer(dst));
+#else
+        (void)plane; (void)dst; return false;   // §featuresplit: no team plane -> every flight is static
+#endif
+    }
     bool       route_uses_mobile_as_transit(uint8_t dest, uint8_t next_hop) const;
     uint8_t    get_neighbor_tier(uint8_t node_id) const;                 // R4.2 tier read (TTL-expiring lazy-prune); public for tests
     void       schedule_triggered_beacon();                             // R4.3 trigger jitter + min-interval defer; public for tests
@@ -396,6 +411,7 @@ public:
     uint8_t           test_tx_type(uint8_t i)     const { return _active->_tx_queue[i].type; }
     uint8_t           test_tx_flags(uint8_t i)    const { return _active->_tx_queue[i].flags; }
     uint8_t           test_tx_dst(uint8_t i)      const { return _active->_tx_queue[i].dst; }
+    uint8_t           test_tx_origin(uint8_t i)   const { return _active->_tx_queue[i].origin; }   // §team-parity T6 white-box: the id stamp_origin chose for this flight (the whole subject of Part A)
     uint8_t           test_tx_addr_len(uint8_t i) const { return _active->_tx_queue[i].addr_len; }
     const uint8_t*    test_tx_inner(uint8_t i, uint8_t& len) const { len = _active->_tx_queue[i].inner_len; return _active->_tx_queue[i].inner; }
     // §S3 part2 white-box: seed a live hosted-mobile entry (has_pubkey) without driving the full CLAIM+probe path (that's covered by s22).
@@ -690,8 +706,8 @@ private:
     void    h_forward_fire(uint8_t slot);                                     // §F-XL-1: fire the jittered (de-stormed) h_forward stashed in ring slot
     void    rreq_forward_stash(const uint8_t* buf, size_t n);                 // §F-XL-2: stash a built RREQ-forward frame + arm a jittered fire (shared by static + team relays)
     void    rreq_forward_fire(uint8_t slot);                                  // §F-XL-2: fire the jittered (de-stormed) rreq_forward stashed in ring slot
-    bool    hash_query_seen_recently(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey);   // per-(origin,hash,VARIANT) dedup; VARIANT = hard + want_pubkey (§2: a WANT_PUBKEY isn't suppressed by a prior plain HARD)
-    void    mark_hash_query_seen(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey);
+    bool    hash_query_seen_recently(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey, bool team_scoped);   // per-(PLANE,origin,hash,VARIANT) dedup; VARIANT = hard + want_pubkey (§2: a WANT_PUBKEY isn't suppressed by a prior plain HARD); §T6/B: team_scoped = the plane
+    void    mark_hash_query_seen(uint8_t origin, uint32_t key_hash32, bool hard, bool want_pubkey, bool team_scoped);
     void    send_hash_bind_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, uint32_t key_hash32, bool authoritative, bool mobile_proxy = false, uint8_t epoch = 0, bool team_scoped = false); // B: routed DATA(H_ANSWER inner) home; §mobile 4a: mobile_proxy -> MOBILE_H_ANSWER TYPE + epoch; §F-TR-2: team_scoped -> route the answer on the TEAM plane (_rt_team + team RREQ), not AUTO (which falls to the static plane when the origin isn't yet a known team peer)
     void    send_hash_bind_pubkey_response(uint8_t to_origin, uint8_t target_layer, uint8_t node_id, const uint8_t ed_pub[32], uint32_t dst_hash = 0, bool team_scoped = false);  // E2E §6: routed DATA TYPE 5 (the owner's ed_pub). Wave 2: dst_hash!=0 (mobile requester) -> DST_HASH so the home last-miles it; §F-TR-2: team_scoped -> TEAM plane
     const uint8_t* host_mobile_ed_pub(uint32_t key_hash32) const;  // §mobile Part 2 Fix 7: the cached ed_pub for a hosted mobile (live direct proxy + has_pubkey), else nullptr
@@ -815,12 +831,46 @@ private:
     // §mobile 3b/4: stamp a fresh outbound TxItem's origin + self-mark. A REGISTERED MOBILE bills its home_node (an
     // accountable GLOBAL id; the mobile's E2E identity still rides sender_hash) and self-marks (mobile_src -> the host
     // keeps our local-id out of the global rt, Fix 2). A static/host node = _node_id, unmarked (byte-identical).
-    void    stamp_origin(TxItem& item) const {
+    // ★★ §team-parity T6 (spec §3/T6, OWNER-RULED §11 2026-07-28): ONE ORIGIN NAMESPACE PER PLANE. A TEAM-plane flight
+    // stamps our team_local_id(); a static/global flight keeps the pre-T6 home_id-or-node_id rule verbatim. Before T6 the
+    // namespace depended on how the SENDER happened to be attached — an OFF-GRID member stamped its team id only because
+    // node_id == team_local_id there, while a HOMED member stamped its HOME's STATIC id (measured live: s28 node 3 and s29
+    // node 3 both aired origin=101 on a `-t` DM). Consequences that were MEASURED on 2026-07-28, not reasoned:
+    //   • the acking teammate takes `origin` as its ack destination, so a homed member's team `-a` addressed the HOME on
+    //     the STATIC plane — 1.77 s and correct WHEN static infrastructure was reachable (a plane crossing that violates
+    //     R3, "team-internal routing only"), and FOUR static-plane RREQ floods for the home's id then
+    //     send_failed{e2e_ack_timeout} when it was not — the bench's own leaf-4-vs-leaf-7 shape;
+    //   • T2's DATA-origin learn had to be fenced by is_team_peer(origin) (node_mac_rx.cpp:664) because "is this origin a
+    //     team id?" was undecidable. T6 makes it decidable; relaxing that fence is NOT folded in here (C1) — see the
+    //     ✖ MISSING note at that site.
+    // Anti-spam accountability on the team plane moves from the home to the member, DELIBERATELY (the §11 ruling).
+    // ⚠ `team_local_id() != 0` is a hard precondition, not caution: a member whose team-DAD is still pending has
+    // _team_peer bits set (node_beacon.cpp:776 does not require our own id) while team_local_id() is still 0, and
+    // stamping origin 0 would air the reserved sentinel. It falls back to the pre-T6 expression there. `send -t` is
+    // already refused loud in that window (node.cpp:1138); an AUTO send to a team peer is not — MISSING, deferred,
+    // because refusing it is a new loud failure on a path that works today (C1/C2 both point away from folding it in).
+    // Static reduction: flight_is_team_plane() is false for every static node (is_team_peer stubs/reads false when
+    // team_id==0) and for every GLOBAL send, so the expression reduces to the pre-T6
+    // `mob ? _my_mobile_reg.home_id : _node_id` VERBATIM. Build profiles: the team arm is MR_FEAT_TEAM-gated and
+    // flight_is_team_plane() itself returns a compile-time false on the three gateway_* envs (MR_FEAT_TEAM 0).
+    // `dst` is passed rather than read from item.dst because every caller assigns item.dst AFTER this call — passing it
+    // keeps that order untouched (no reorder risk across the five call sites) and makes the plane decision explicit.
+    void    stamp_origin(TxItem& item, Plane plane, uint8_t dst) const {
 #if MR_FEAT_MOBILE
         const bool mob = _cfg.is_mobile && _my_mobile_reg.active;
+#if MR_FEAT_TEAM
+        if (flight_is_team_plane(plane, dst) && team_local_id() != 0) {
+            item.origin     = team_local_id();   // the id EVERY teammate can route (node_mac.cpp:70's invariant, now true)
+            item.mobile_src = mob;               // unchanged: the wire mark is `pt.mobile_src || team_next` (node_mac.cpp:817)
+            return;
+        }
+#else
+        (void)plane; (void)dst;
+#endif
         item.origin = mob ? _my_mobile_reg.home_id : _node_id;
         item.mobile_src = mob;
 #else
+        (void)plane; (void)dst;
         item.origin = _node_id;   // §featuresplit: a static/gateway node never bills a home — always self-origin, unmarked
         item.mobile_src = false;
 #endif
@@ -896,7 +946,7 @@ private:
     int     channel_buffer_find(uint32_t id) const;                // index of the entry, or -1 (dv:3426)
     bool    channel_mark_seen_by(uint32_t id, uint8_t neighbour);  // set seen_by bit; true if newly set (dv:3434)
 public:
-    bool    channel_origin_admit(uint8_t origin, uint32_t msg_id); // per-origin distinct-count anti-spam (dv:3456). Public: the receiver-HOOK test seam (drives the cap + 10s burst floor directly).
+    bool    channel_origin_admit(uint8_t origin, uint32_t msg_id, bool team_plane = false); // per-(PLANE,origin) distinct-count anti-spam (dv:3456). Public: the receiver-HOOK test seam (drives the cap + 10s burst floor directly). §T6/B: team_plane keys the ledger; the default keeps every existing static/leaf caller (incl. the native hook tests) on the STATIC key verbatim.
     // Slice 6: the send-outcome feedback pushes. Public so native tests can drive them (the reoffer-exhaustion path
     // enqueues channel_sent{relayed:false}); called internally from do_send_channel / become_free / channel_reoffer_*.
     void    emit_send_blocked(bool channel, SendFailReason reason, uint32_t next_ms);   // Slice 6a: the send_blocked push (self-gate)
@@ -1264,10 +1314,27 @@ private:
     struct PeerKey { uint32_t key_hash32; uint64_t last_seen_ms; uint8_t ed_pub[32]; uint8_t confidence; char name[32]; uint8_t name_len; bool peer_confirmed; };   // §1.3: name rides with the key — IMMUTABLE key, MUTABLE name (refreshed on every pubkey message). §S2: peer_confirmed = we've OPENED a SEALED frame from this peer (they hold our key) -> stop attaching INTRO to plaintext sends toward them. Set on e2e_open_trial success ONLY (never on a plaintext receipt).
     // H hash-locate flood dedup (Lua hash_query_seen): per-(origin,key_hash32), hash_query_seen_ttl_ms window. Member in LayerRuntime.
     struct HashQuerySeen { uint8_t origin; uint32_t key_hash32; uint64_t t_ms; bool hard; bool want_pubkey;   // §2: WANT_PUBKEY is its own variant
+                           bool team_scoped;   // ★ §team-parity T6/B: the PLANE discriminator (see below)
                            // §2: `hard` and `want_pubkey` are part of the KEY — a HARD (verify-on-use) or a
                            // WANT_PUBKEY query must NOT be suppressed by a prior plain/SOFT one's seen-entry.
+                           // ★★ §team-parity T6/B (spec §3/T6 Part B, closing §10.3/§9-Q4): `team_scoped` is part of the
+                           // KEY. Before T6 this ring was documented (LayerRuntime, "§P2-7 AUDIT") as safe *only by an
+                           // UNWRITTEN role-exclusion invariant* — "no node today processes BOTH the static and the team
+                           // H-flood plane". VERIFIED AT SOURCE, and the invariant is DEFEATABLE BY LIVE CONFIG, not
+                           // merely fragile: handle_h returns before any mark for a static H iff `_cfg.is_mobile`
+                           // (node_hashlocate.cpp:584) and for a team H iff `!same_team` (:603) — so a node with
+                           // `team_id != 0 && !is_mobile` marks BOTH. `set_team_id` (node.cpp:413) never touches
+                           // is_mobile, so `cfg set team_id <x>` / `team <id>` on the console produces exactly that node.
+                           // The alias is not hypothetical either: `key_hash32` is a node's key, IDENTICAL on both planes
+                           // (a dual member has one key, a static id and a team_local_id), so a team H and a static H for
+                           // the SAME target collide as soon as the two queriers' 8-bit origins collide (§18) — and the
+                           // failure direction is SUPPRESS: hash_query_seen_recently returns true and the H is never
+                           // forwarded, so a locate dies silently instead of reaching the owner.
+                           // Cost: ZERO bytes — `hard`/`want_pubkey`/`team_scoped` share the same 8-byte tail slot
+                           // (1+3pad+4+8 then 3 bools + 5 pad = 24 B, unchanged), so sizeof(Node) does not move.
                            bool same_key(const HashQuerySeen& o) const {
-                               return origin == o.origin && key_hash32 == o.key_hash32 && hard == o.hard && want_pubkey == o.want_pubkey; } };
+                               return origin == o.origin && key_hash32 == o.key_hash32 && hard == o.hard
+                                   && want_pubkey == o.want_pubkey && team_scoped == o.team_scoped; } };
     // Peer-liveness + freshness plane (routing-liveness port, Lua dv:3986-4545): per-next-hop RTS/ACK-timeout
     // accounting -> suspect/silent/dead tiers (each with an expiry), + dest_seen for next-hop freshness. Bounded
     // LRU table per LayerRuntime (the direct-neighbour set). node_id 0 = empty slot.
@@ -1506,16 +1573,39 @@ private:
         //   discriminator — a team/mobile LOCAL-id write (e.g. _blind_until[team_local_id]; note_link_confirmed → _link_bidi[next_hop])
         //   aliases the SAME slot a colliding static node_id uses. Correct today (planes rarely co-active on one link); do NOT read
         //   these as plane-clean. See [[meshroute-plane-separation]].
-        // ★ §P2-7 AUDIT (2026-07-20) — five MORE plane-blind / dirty-blind ledgers, documented here (behavior fixes = Wave 2/3):
-        //   • _per_origin_channel (DEDUP section below): keyed by the BARE origin id, NO plane bit — a team origin and a static
-        //     origin that collide numerically share ONE windowed distinct-id cap slot (over-throttle risk). Safe today: the
-        //     planes rarely co-relay the same origin id.
-        //   • _seen_origins (DEDUP section below): the PLAINTEXT flight key (origin<<24|dst<<16|ctr) has NO plane bit, so a
-        //     team and a static PLAINTEXT DM alias iff origin+dst+ctr ALL collide. CRYPTED flights are immune (disjoint 2^63
-        //     nonce-seed space — see the key comment there).
-        //   • _hash_query_seen (~:1333 above): the H-flood dedup key has NO plane discriminator — safe ONLY by an UNWRITTEN
-        //     role-exclusion invariant: no node today processes BOTH the static and the team H-flood plane. If that ever holds
-        //     false, a team H and a static H sharing (origin,key_hash32) would falsely dedup one another.
+        // ★ §P2-7 AUDIT (2026-07-20) — five MORE plane-blind / dirty-blind ledgers, documented here (behavior fixes = Wave 2/3).
+        // ★★ THE FIRST THREE ARE NOW PLANE-KEYED — §team-parity T6/B (2026-07-28, spec §3/T6 Part B), which closes §10.3 /
+        //    §9-Q4 and the [[meshroute-plane-separation]] re-audit-by-plane item. The pre-T6 text of each is kept below as
+        //    the record of what was fixed, because every "safe today" reason it gives is an assertion that the TEAM PLANE IS
+        //    QUIET — and R1 (full team/static routing parity) is this arc deliberately ending that.
+        //   • _per_origin_channel (DEDUP section below): ✅ FIXED — keyed `(plane<<8)|origin` (node_channel.cpp
+        //     channel_origin_admit). Pre-T6: "keyed by the BARE origin id, NO plane bit — a team origin and a static origin
+        //     that collide numerically share ONE windowed distinct-id cap slot (over-throttle risk). Safe today: the planes
+        //     rarely co-relay the same origin id." ⚠ That reason was ALREADY FALSE: ingest_channel_m admits a plain leaf M
+        //     (static origin) AND a team-scoped M (team origin) on the SAME node — "planes = BOTH" is written at its own
+        //     :174 gate — so a team member co-relays both today.
+        //   • _seen_origins (DEDUP section below): ✅ FIXED — bit 61 = the TEAM plane, on top of the pre-existing bit 62.
+        //     ⚠ The pre-T6 text ("the PLAINTEXT flight key (origin<<24|dst<<16|ctr) has NO plane bit, so a team and a static
+        //     PLAINTEXT DM alias iff origin+dst+ctr ALL collide") was DRIFTED, and this note is where it drifted: bit 62
+        //     (`mobile_from`) had already separated team-or-mobile from static. What it did NOT separate was TEAM from
+        //     MOBILE-STATIC, since a registered mobile's ordinary static DM sets mobile_from too. Bit 61 closes that.
+        //     CRYPTED flights were always immune (disjoint 2^63 nonce-seed space — see the key comment there).
+        //   • _hash_query_seen (above): ✅ FIXED — `team_scoped` is part of HashQuerySeen::same_key, at zero RAM cost.
+        //     Pre-T6: "the H-flood dedup key has NO plane discriminator — safe ONLY by an UNWRITTEN role-exclusion
+        //     invariant: no node today processes BOTH the static and the team H-flood plane." ⚠ That invariant is
+        //     DEFEATABLE BY LIVE CONFIG: `cfg set team_id`/`team <id>` never sets is_mobile (node.cpp:413), and a
+        //     `team_id!=0 && !is_mobile` node passes BOTH of handle_h's plane gates (node_hashlocate.cpp:584/:603).
+        //   • _mediated_recent (below, Node-global): ★ DELIBERATELY **NOT** PLANE-KEYED — T6/B AUDITED IT AND REFUSED THE
+        //     FIT, because it does not alias across planes at all. Its key is `(node_id, loser_hash)` and `loser_hash` is a
+        //     32-bit KEY hash — a global node identity, not a per-plane id — so an alias would need ONE physical node to be
+        //     the key-loser for the SAME numeric id on BOTH planes. That is impossible: the two writers' loser sets are
+        //     disjoint on the single wire field `b.is_mobile`. The TEAM writer (node_beacon.cpp:788) requires
+        //     `same_team_beacon`, which is `b.is_mobile && same_team(peer_team)` (:532). The STATIC writer
+        //     (node_hashlocate.cpp:90, inside id_bind_set) requires `source == bcn && authoritative`, and the ONLY site
+        //     that passes that pair is node_beacon.cpp:627 — guarded by `!b.is_mobile` (:626). (node_join.cpp:276/311 also
+        //     pass `bcn` but with `claimed`, which the mediation gate rejects.) is_mobile is a static per-node config that
+        //     never flips at runtime, so no key can be in both sets. Adding a plane byte would cost +256 B of nRF52840 RAM
+        //     (MediatedRecent 16 B -> 24 B x cap_mediated_recent 32) and move sizeof(Node) for a provably empty set.
         //   • beacon_max_idle_force (node_beacon.cpp): its dirty-entry count scans the STATIC _rt only — a team member that
         //     advertises _rt_team can have its max-idle B+C beacons suppressed while dirty TEAM entries are still pending.
         //   • team_resort_routes_through (node_routing.cpp): a primary change reranks _rt_team AND dirty-marks the moved entry +
@@ -1549,7 +1639,11 @@ private:
         // Channel-message gossip plane state (node_channel.cpp).
         ChannelEntry _channel_buffer[protocol::cap_channel_buffer];
         uint16_t     _channel_buffer_n = 0;
-        std::map<uint8_t, ChannelOriginLedger> _per_origin_channel;   // origin -> windowed distinct-id ledger
+        // ★ §team-parity T6/B: keyed `(plane<<8)|origin`, NOT the bare origin — see channel_origin_admit for the composer
+        // and the LIVENESS-section note above for why the bare key was already aliasing (a team member ingests both a
+        // plain leaf M and a team-scoped M, so it co-relays both planes today). std::map's own size does not depend on
+        // the key type, so widening uint8_t -> uint16_t costs 0 bytes and does not move sizeof(Node).
+        std::map<uint16_t, ChannelOriginLedger> _per_origin_channel;   // (plane<<8)|origin -> windowed distinct-id ledger
         ChannelPullPending _channel_pull_pending[protocol::cap_channel_pull_pending] = {};
         ChannelPullRecent  _channel_pull_recent[protocol::cap_channel_pull_recent] = {};
         uint8_t            _channel_pull_recent_n = 0;
@@ -1691,7 +1785,7 @@ private:
 // pointer/enum/alignment). Purpose: the node.h legibility reorder (2026-07-15 by-concern member reorder) must not
 // change Node's layout. If this fires after a *deliberate* member add/remove/type change, update the baseline
 // consciously — it is a tripwire, not a frozen contract. The real nRF52 RAM check is the firmware.map .bss/.data diff.
-static_assert(sizeof(Node) == 220592, "node.h: Node native layout changed — if intentional, update the baseline");   // 220592 -> 220592 (+0 §team-parity T0: NodeConfig.team_hop_cap, a uint8_t placed immediately after dv_hop_cap. Arithmetic: dv_hop_cap sits at native offset 93 and the next member (the 8-byte-aligned `double radio_freq_mhz`) at 96, so bytes 94-95 were pure alignment pad; the new member takes byte 94 and the hole shrinks to one byte. sizeof(NodeConfig) 264 -> 264 and sizeof(Node) 264-worth-of-config unchanged => the member costs literally nothing. This is the radio_freq_mhz placement rule below applied a second time, and it is why the value on this line did NOT move). 220584 -> 220592 (+8 §layer-freq: NodeConfig.radio_freq_mhz, a `double` placed between dv_hop_cap and the existing `double duty_cycle` so it fills the 8-byte-alignment padding slot already there — measured sizeof(NodeConfig) 256 -> 264, i.e. the member costs its own 8 B and opens NO new hole; the same slot after `radio_cr` would have cost 16). 220392 -> 220584 (+192 shelf-item-(i): PendingE2eAck[cap_pending_e2e_acks=8], 24 B each = the E2E-ack deadline ring, Node-global). 220384 -> 220392 (+8 Wave-4: NodeConfig.gw_schedule_readvert_ms u32 + alignment; the gateway schedule re-advertisement cadence). …218872 (§S6) -> 219000 (§GapA) -> 219312 (+312 §F-XL-1: HForwardStash[4] = 4×(77+1) de-storm ring; _h_forward_rr fits existing padding) -> 219568 (+256 §S3 part2: HostMobileEntry.last_key_fwd_hash32 = 4 B + 4 B align, ×16 ×2 layers) -> 219760 (+192 batch B: §B2 HostMobileEntry.deleg_fail packs into existing tail padding; §B4 PendingNotify.last_home_hash 4 B ×16 ×2 layers = +128; §D16 PresenceCand.incompatible +8 align ×cap = +64) -> 219952 (+192 batch A: §F-XL-2 RreqForwardStash[4] = 4×(16+1) de-storm ring + _rreq_forward_rr; §F-SL-1 ParkedSend += reflood state (bool/bool/Plane/u8 + u64 reflood_at_ms, 8-align) ×cap_parked_sends=8) -> 220384 (+432 §3-A.6 evict-STALEST timestamps: _learned_layers_seen_ms u64×4 = +32; PendingNotify.stash_ms u64 -> 12->24 B ×16 ×2 layers = +384 (+16 align); MINUS the dead _presence_claim_retries u8 (absorbed by padding))
+static_assert(sizeof(Node) == 220592, "node.h: Node native layout changed — if intentional, update the baseline");   // 220592 -> 220592 (+0 §team-parity T6/B, and the SLICE BRIEF EXPECTED THIS TO MOVE — it does not, measured by template-reveal not by the assert alone. Arithmetic, per ledger: (1) HashQuerySeen gains `bool team_scoped` and stays 24 B — origin(1)+pad(3)+key_hash32(4)+t_ms(8) then hard+want_pubkey+team_scoped(3)+pad(5); the third bool lands in the 6 bytes of tail padding the previous two already shared, so the ×cap_hash_query_seen(64) ×MR_N_LAYERS array is unchanged. (2) _per_origin_channel's key widens uint8_t -> uint16_t, and sizeof(std::map) does not depend on its key type (the key lives in heap-allocated nodes), so 0 B. (3) _seen_origins takes a bit in an EXISTING uint64_t key — no member added. (4) _mediated_recent was AUDITED AND DELIBERATELY LEFT ALONE: its two writers' key sets are provably disjoint on b.is_mobile (see the §P2-7 note), and MediatedRecent measures 16 B, so a plane byte would have made it 24 B ×cap_mediated_recent(32) = +256 B of nRF52840 RAM for an empty set. THAT is the +256 this line does not carry). 220592 -> 220592 (+0 §team-parity T0: NodeConfig.team_hop_cap, a uint8_t placed immediately after dv_hop_cap. Arithmetic: dv_hop_cap sits at native offset 93 and the next member (the 8-byte-aligned `double radio_freq_mhz`) at 96, so bytes 94-95 were pure alignment pad; the new member takes byte 94 and the hole shrinks to one byte. sizeof(NodeConfig) 264 -> 264 and sizeof(Node) 264-worth-of-config unchanged => the member costs literally nothing. This is the radio_freq_mhz placement rule below applied a second time, and it is why the value on this line did NOT move). 220584 -> 220592 (+8 §layer-freq: NodeConfig.radio_freq_mhz, a `double` placed between dv_hop_cap and the existing `double duty_cycle` so it fills the 8-byte-alignment padding slot already there — measured sizeof(NodeConfig) 256 -> 264, i.e. the member costs its own 8 B and opens NO new hole; the same slot after `radio_cr` would have cost 16). 220392 -> 220584 (+192 shelf-item-(i): PendingE2eAck[cap_pending_e2e_acks=8], 24 B each = the E2E-ack deadline ring, Node-global). 220384 -> 220392 (+8 Wave-4: NodeConfig.gw_schedule_readvert_ms u32 + alignment; the gateway schedule re-advertisement cadence). …218872 (§S6) -> 219000 (§GapA) -> 219312 (+312 §F-XL-1: HForwardStash[4] = 4×(77+1) de-storm ring; _h_forward_rr fits existing padding) -> 219568 (+256 §S3 part2: HostMobileEntry.last_key_fwd_hash32 = 4 B + 4 B align, ×16 ×2 layers) -> 219760 (+192 batch B: §B2 HostMobileEntry.deleg_fail packs into existing tail padding; §B4 PendingNotify.last_home_hash 4 B ×16 ×2 layers = +128; §D16 PresenceCand.incompatible +8 align ×cap = +64) -> 219952 (+192 batch A: §F-XL-2 RreqForwardStash[4] = 4×(16+1) de-storm ring + _rreq_forward_rr; §F-SL-1 ParkedSend += reflood state (bool/bool/Plane/u8 + u64 reflood_at_ms, 8-align) ×cap_parked_sends=8) -> 220384 (+432 §3-A.6 evict-STALEST timestamps: _learned_layers_seen_ms u64×4 = +32; PendingNotify.stash_ms u64 -> 12->24 B ×16 ×2 layers = +384 (+16 align); MINUS the dead _presence_claim_retries u8 (absorbed by padding))
 #endif
 
 }  // namespace meshroute

@@ -697,9 +697,22 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
         // PLAINTEXT namespace: < 2^32 for a STATIC (global-id) origin. §mobile: a mobile/team DATA (mobile_from) has a
         // LOCAL-id origin that can §18-collide a static global id -> OR in bit 62 to move it to a DISJOINT plaintext range
         // [2^62, 2^62+2^32) so a team/mobile origin X can never alias a static origin X (a false LOOP_DUP would DROP a real
-        // message). Three disjoint ranges: static <2^32, mobile/team [2^62..], CRYPTED >=2^63. mobile_from=0 on s18 -> identical.
+        // message). mobile_from=0 on s18 -> identical.
+        // ★★ §team-parity T6/B (spec §3/T6 Part B): + bit 61 for a TEAM-plane flight, and the reason is a CORRECTION to
+        // this slice's own brief AND to the LayerRuntime "§P2-7 AUDIT" note, both of which say this key "has NO plane bit".
+        // IT ALREADY HAD ONE — bit 62 above — but bit 62 is `mobile_from`, which is NOT the plane: it is set for a
+        // REGISTERED MOBILE's ordinary STATIC-plane DM (whose origin is its home's GLOBAL id) *and* for a team-plane DM
+        // (node_mac.cpp:817 ORs it with team_next). So the residual alias was team-vs-mobile-static INSIDE the 2^62 range,
+        // not team-vs-static. `for_team_data` (computed at the top of this function, :564 — "this DATA is addressed to OUR
+        // team-plane id") is the exact plane discriminator and is stable across every hop of a team flight, since each
+        // team hop is addressed addr_len=1 to the next hop's team id. FOUR disjoint ranges now: static <2^32 ·
+        // mobile-static [2^62, 2^62+2^32) · TEAM [2^62+2^61, …) · CRYPTED >=2^63.
+        // Static reduction: for_team_data is false for every static node and every non-team frame (team_addr_for_us
+        // requires team_id!=0 && _team_local_id!=0, and stubs to false on the three MR_FEAT_TEAM 0 gateway_* envs), so
+        // no static or mobile-static key VALUE changes — only team-plane flights move, and they move together.
         : (((uint64_t(origin) << 24) | (uint64_t(d.dst) << 16) | d.ctr)
-           | (_active->_pending_rx->mobile_from ? (uint64_t(1) << 62) : uint64_t(0)));
+           | (_active->_pending_rx->mobile_from ? (uint64_t(1) << 62) : uint64_t(0))
+           | (for_team_data                     ? (uint64_t(1) << 61) : uint64_t(0)));
     // HOP_BUDGET enforcement FIRST (dv:10918-10964), BEFORE the dedup AND the ACK so the
     // NACK fires IN LIEU OF the ACK. A FORWARDER (d.dst != self) decrements the TTL; if the
     // decremented value went negative (the frame arrived with hops_remaining==0 at a
