@@ -76,17 +76,36 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     // ESTABLISHES the property this guard rests on; it does not restate one. stamp_origin (node.h) now stamps
     // team_local_id() for exactly the flights this guard admits, because both use flight_is_team_plane(plane, dst) —
     // the same predicate, so the gate cannot admit a send whose ack has no routable return address.
-    // ⚠ ONE arm remains only PARTLY covered and it is this guard's, not T6's: `is_team_peer(dst)` here is not
-    // plane-qualified, so a GLOBAL send to an id that numerically collides a teammate's team id (§18) is admitted as
-    // "team" while rt_find(dst, GLOBAL) routes it on the STATIC plane and stamp_origin correctly stamps the home id.
-    // That is the pre-T6 shape and this slice does not change it (C1) — noted so the next reader does not re-derive it.
-    // Static reduction: on a static node the whole guard is dead (`_cfg.is_mobile` is false), and for a mobile
-    // sending on AUTO/GLOBAL `plane != Plane::TEAM` leaves the expression as the pre-T1 `!is_team_peer(dst)` verbatim.
+    // ★★ FIXED 2026-07-28 (§ack-gate-plane; T6 named this, T7 refused it under C1, it is closed here). The arm was
+    // `plane == Plane::TEAM || is_team_peer(dst)` — an UNQUALIFIED is_team_peer. Since `Plane::AUTO` is unreachable
+    // from real firmware (lib/console/console_parse.cpp:259 emits only TEAM or GLOBAL, and the companion/BLE
+    // transports share that parser), that second arm could fire ONLY for a GLOBAL flight ⇒ a plain
+    // `send <id-that-collides-a-teammate's-team-id> -a` from a mobile with NO routable home was admitted as "team"
+    // when §6.4 says it must fail loud. It was a DEFAULT-PATH bug on metal, not a corner case.
+    // ⇒ now `flight_is_team_plane(plane, dst)` — rt_find's dispatch predicate VERBATIM (node.h:189/node_routing.cpp:22),
+    // so the ack gate and the routing decision cannot disagree, which is the property T6 established for stamp_origin
+    // three lines below (:101). The three now share ONE predicate.
+    // ★ IT IS A STRICT NARROWING — exactly one input cell changes, GLOBAL + is_team_peer(dst):
+    //     plane=TEAM               -> admitted before and after
+    //     plane=AUTO,  peer true   -> admitted before and after
+    //     plane=AUTO,  peer false  -> gated before and after
+    //     plane=GLOBAL, peer false -> gated before and after
+    //     plane=GLOBAL, peer TRUE  -> ADMITTED before / GATED now      <-- the whole delta
+    // and gating it is CORRECT, not merely stricter: for that cell stamp_origin's flight_is_team_plane() is false, so
+    // the flight stamps `mob ? home_id : _node_id`, and the second conjunct below has already established there is NO
+    // routable home — so the stamped origin is 0 or our own mobile LOCAL id, i.e. an address no static node can route.
+    // rt_find(dst, GLOBAL) meanwhile routes on the STATIC _rt. The E2E ack therefore CANNOT return: refusing loud is
+    // the whole reason this guard exists. No internal caller is affected — the ONLY producers of Plane::GLOBAL on a DM
+    // flight are console_parse.cpp:259 and the sim wrapper; every lib/core enqueue_data/do_send call passes AUTO or
+    // TEAM (node_mac.cpp:371/:555 and node_channel.cpp:47 hand GLOBAL to stamp_origin directly, not through here).
+    // Static reduction: on a static node the whole guard is dead (`_cfg.is_mobile` is false); with MR_FEAT_TEAM 0
+    // flight_is_team_plane() returns false unconditionally (node.h:193), leaving the pre-T1 `!false` shape, and a
+    // mobile on AUTO reads exactly the pre-T1 `!is_team_peer(dst)`.
     // Build profiles: the whole block is MR_FEAT_MOBILE-gated (absent on the three gateway_* envs, which also set
-    // MR_FEAT_TEAM 0); Plane is an ungated enum in node_carriers.h, so the added term compiles identically wherever
+    // MR_FEAT_TEAM 0); Plane is an ungated enum in node_carriers.h, so the term compiles identically wherever
     // this block compiles at all.
 #if MR_FEAT_MOBILE
-    if (app_dm && (flags & DATA_FLAG_E2E_ACK_REQ) && _cfg.is_mobile && !(plane == Plane::TEAM || is_team_peer(dst))
+    if (app_dm && (flags & DATA_FLAG_E2E_ACK_REQ) && _cfg.is_mobile && !flight_is_team_plane(plane, dst)
         && !(_my_mobile_reg.active && _my_mobile_reg.home_id != 0 && _my_mobile_reg.home_id != _node_id)) {
         MR_EMIT("send_failed", EF_I("dst", dst), EF_S("reason", "mobile_no_home"));
         push_send_failed(SendFailReason::mobile_no_home, dst, /*ctr=*/0);

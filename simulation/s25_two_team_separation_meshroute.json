@@ -19,22 +19,22 @@
  },
  "commands": [
   {
-   "_c": "Team-X: X1 -> X3 by hash (2-hop, X3 unheard) -> forces a TEAM-X-scoped H flood heard by co-located Team-Y",
+   "_c": "Team-X: X1 -> X3 by hash (2-hop, X3 unheard) -> forces a TEAM-X-scoped H flood heard by co-located Team-Y. \u2605 PLANE 2026-07-28 (\u00a7sim-plane-parity): the trailing `-t` is now REQUIRED for a team-plane DM. The sim's plain DM verbs used to leave Command.u.send.plane at 0 (AUTO); they now emit GLOBAL, mirroring lib/console/console_parse.cpp:259 (`team ? TEAM : GLOBAL`), the ONLY plane assignment on real firmware. Without `-t` this send is GLOBAL, and \u00a76.4/\u00a718 then force the STATIC _rt (node_routing.cpp:22) and skip the team hash-locate cascade (node_hashlocate.cpp:1021) \u2014 exactly what metal does.",
    "at_ms": 300000,
    "node": "X1",
-   "command": "send_hash aaaa0003 hop_x"
+   "command": "send_hash aaaa0003 hop_x -t"
   },
   {
-   "_c": "Team-X: X1 -> X3 by hash (2-hop, X3 unheard) -> forces a TEAM-X-scoped H flood heard by co-located Team-Y",
+   "_c": "Team-X: X1 -> X3 by hash (2-hop, X3 unheard) -> forces a TEAM-X-scoped H flood heard by co-located Team-Y. \u2605 PLANE 2026-07-28 (\u00a7sim-plane-parity): the trailing `-t` is now REQUIRED for a team-plane DM. The sim's plain DM verbs used to leave Command.u.send.plane at 0 (AUTO); they now emit GLOBAL, mirroring lib/console/console_parse.cpp:259 (`team ? TEAM : GLOBAL`), the ONLY plane assignment on real firmware. Without `-t` this send is GLOBAL, and \u00a76.4/\u00a718 then force the STATIC _rt (node_routing.cpp:22) and skip the team hash-locate cascade (node_hashlocate.cpp:1021) \u2014 exactly what metal does.",
    "at_ms": 360000,
    "node": "X1",
-   "command": "send_hash aaaa0003 hop_x"
+   "command": "send_hash aaaa0003 hop_x -t"
   },
   {
-   "_c": "Team-X: X1 -> X3 by hash (2-hop, X3 unheard) -> forces a TEAM-X-scoped H flood heard by co-located Team-Y",
+   "_c": "Team-X: X1 -> X3 by hash (2-hop, X3 unheard) -> forces a TEAM-X-scoped H flood heard by co-located Team-Y. \u2605 PLANE 2026-07-28 (\u00a7sim-plane-parity): the trailing `-t` is now REQUIRED for a team-plane DM. The sim's plain DM verbs used to leave Command.u.send.plane at 0 (AUTO); they now emit GLOBAL, mirroring lib/console/console_parse.cpp:259 (`team ? TEAM : GLOBAL`), the ONLY plane assignment on real firmware. Without `-t` this send is GLOBAL, and \u00a76.4/\u00a718 then force the STATIC _rt (node_routing.cpp:22) and skip the team hash-locate cascade (node_hashlocate.cpp:1021) \u2014 exactly what metal does.",
    "at_ms": 420000,
    "node": "X1",
-   "command": "send_hash aaaa0003 hop_x"
+   "command": "send_hash aaaa0003 hop_x -t"
   }
  ],
  "expect": [

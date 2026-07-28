@@ -11,10 +11,10 @@
   "radio": { "sf": 8, "bw": 62.5, "cr": 5, "max_packet_bytes": 255, "snr_coherence_ms": 0, "duty_cycle": 10 }
  },
  "commands": [
-  { "_c": "PRE-kill: A -> B by hash (delivers via the SOLE relay R; caches B's key)", "at_ms": 350000, "node": "A", "command": "send_hash dddd0004 rr_pre" },
-  { "_c": "POST-kill (R dead @400k, R2 arrived @410k): A -> B MUST reroute onto the newly-arrived R2", "at_ms": 500000, "node": "A", "command": "send_hash dddd0004 rr_post" },
-  { "at_ms": 560000, "node": "A", "command": "send_hash dddd0004 rr_post" },
-  { "at_ms": 620000, "node": "A", "command": "send_hash dddd0004 rr_post" }
+  { "_c": "PRE-kill: A -> B by hash (delivers via the SOLE relay R; caches B's key). \u2605 PLANE 2026-07-28 (\u00a7sim-plane-parity): the trailing `-t` is now REQUIRED for a team-plane DM. The sim's plain DM verbs used to leave Command.u.send.plane at 0 (AUTO); they now emit GLOBAL, mirroring lib/console/console_parse.cpp:259 (`team ? TEAM : GLOBAL`), the ONLY plane assignment on real firmware. Without `-t` this send is GLOBAL, and \u00a76.4/\u00a718 then force the STATIC _rt (node_routing.cpp:22) and skip the team hash-locate cascade (node_hashlocate.cpp:1021) \u2014 exactly what metal does.", "at_ms": 350000, "node": "A", "command": "send_hash dddd0004 rr_pre -t" },
+  { "_c": "POST-kill (R dead @400k, R2 arrived @410k): A -> B MUST reroute onto the newly-arrived R2", "at_ms": 500000, "node": "A", "command": "send_hash dddd0004 rr_post -t" },
+  { "at_ms": 560000, "node": "A", "command": "send_hash dddd0004 rr_post -t" },
+  { "at_ms": 620000, "node": "A", "command": "send_hash dddd0004 rr_post -t" }
  ],
  "expect": [
   { "_c": "team-DAD on the always-on members", "type": "script_emit_contains", "node": "A", "emit_type": "team_dad_adopted", "value": "id" },

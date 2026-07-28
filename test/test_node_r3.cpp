@@ -2257,6 +2257,75 @@ TEST_CASE("§team-parity T1 — an off-grid member may `send -t <unknown id> -a`
       const Ev* e = hal.last("send_failed"); CHECK(e != nullptr); if (e) CHECK(e->dst == 174); }
 }
 
+TEST_CASE("§ack-gate-plane — a GLOBAL `-a` DM to an id that COLLIDES a teammate's team id is refused loud, not admitted as team") {
+    // node_mac.cpp:89. THE ONE INPUT CELL the T1 case above cannot reach: its GLOBAL control uses dst=174, which is
+    // NOT a _team_peer, so `is_team_peer(dst)` was false and both the old and the new expression gate it. The gap was
+    // GLOBAL + is_team_peer(dst) TRUE — the §18 numeric collision. The pre-fix arm `plane == Plane::TEAM ||
+    // is_team_peer(dst)` was plane-BLIND, so it admitted that flight as "team" and the mobile then stamped an
+    // unroutable origin (stamp_origin's flight_is_team_plane() is false for GLOBAL -> `mob ? home_id : _node_id`, and
+    // this branch is only reached when there is NO routable home) while rt_find(dst, GLOBAL) routed it on the STATIC
+    // _rt. The ack could never come back: the send looked accepted and then silently timed out.
+    // ★ WHY THIS IS THE DEFAULT PATH ON METAL, not an exotic case: lib/console/console_parse.cpp:259 is the ONLY site
+    // in lib/ or src/ that assigns a DM's plane, and it emits `team ? TEAM : GLOBAL` — never AUTO. The companion/BLE
+    // transports share that dispatch() and parser. So EVERY plain `send <id> -a` from a phone is GLOBAL, and the
+    // colliding-id case needs nothing more than a teammate whose team-DAD id happens to equal the static id typed.
+    // ⚠ CORPUS-DARK BY CONSTRUCTION: no scenario contains a static id that collides a live teammate's team id while
+    // the sender is a homeless mobile, so this test is the only detector. (The sim could not even express the GLOBAL
+    // half until §sim-plane-parity made the plain DM verbs emit GLOBAL.)
+    const uint32_t TEAM = 0x06EF37AEu;
+    const uint8_t  MATE = 234;                                 // the teammate's team_local_id == the id we address
+    auto ack_send = [](Node& n, uint8_t dst, uint8_t plane) {
+        Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = dst; c.u.send.plane = plane;
+        c.u.send.flags = DATA_FLAG_E2E_ACK_REQ;
+        c.body = reinterpret_cast<const uint8_t*>("hi"); c.body_len = 2;
+        return n.on_command(c);
+    };
+    auto with_teammate = [&](Node& n, TestHal& hal, uint8_t id) {
+        t1_offgrid(n, id, TEAM);                               // off-grid: is_mobile, NO home at all
+        std::array<uint8_t,64> bb{};
+        const size_t bn = t1_team_beacon(MATE, TEAM, bb);      // sets the _team_peer bit + the hops=1 _rt_team route
+        n.on_recv(bb.data(), bn, RxMeta{12.0f,-70.0f,0,static_cast<int8_t>(MATE)});
+        CHECK(n.is_team_peer(MATE));                           // ★ non-vacuity: the collision precondition really holds
+        hal.events.clear();
+    };
+    // ★★ THE FIX: GLOBAL + a colliding teammate id + no routable home -> REFUSED LOUD.
+    { TestHal hal; Node A(hal, /*id=*/213, /*key=*/0xA213u); with_teammate(A, hal, 213);
+      const CmdResult r = ack_send(A, MATE, /*plane=*/2 /*GLOBAL*/);
+      CHECK(r.ctr == 0);                                       // ★★ pre-fix this minted a ctr and "succeeded"
+      CHECK(hal.count("send_failed") == 1);
+      const Ev* e = hal.last("send_failed"); CHECK(e != nullptr); if (e) CHECK(e->dst == MATE); }
+    // Control 1 (same site, same node, same dst): `-t` on the TEAM plane is STILL admitted — the narrowing touched
+    // exactly one cell, and this is the cell T1 opened. Without this the test could not distinguish the fix from a
+    // blanket re-tightening back to pre-T1.
+    { TestHal hal; Node A(hal, /*id=*/213, /*key=*/0xA213u); with_teammate(A, hal, 213);
+      const CmdResult r = ack_send(A, MATE, /*plane=*/1 /*TEAM*/);
+      CHECK(r.code == CmdCode::queued);
+      CHECK(r.ctr != 0);
+      CHECK(hal.count("send_failed") == 0); }
+    // Control 2 (same site, same dst): AUTO + is_team_peer is UNCHANGED by the fix — it is still admitted. This is the
+    // arm that proves the new predicate is flight_is_team_plane() and not the blunter `plane != Plane::GLOBAL`.
+    { TestHal hal; Node A(hal, /*id=*/213, /*key=*/0xA213u); with_teammate(A, hal, 213);
+      const CmdResult r = ack_send(A, MATE, /*plane=*/0 /*AUTO*/);
+      CHECK(r.code == CmdCode::queued);
+      CHECK(r.ctr != 0);
+      CHECK(hal.count("send_failed") == 0); }
+    // Control 3: GLOBAL to a NON-colliding id is refused before and after — proves the refusal above is not simply
+    // "GLOBAL is always refused for this node" but is the guard's ordinary no-home behaviour.
+    { TestHal hal; Node A(hal, /*id=*/213, /*key=*/0xA213u); with_teammate(A, hal, 213);
+      CHECK_FALSE(A.is_team_peer(/*dst=*/174));
+      const CmdResult r = ack_send(A, /*dst=*/174, /*plane=*/2 /*GLOBAL*/);
+      CHECK(r.ctr == 0);
+      CHECK(hal.count("send_failed") == 1); }
+    // Control 4: the guard's SECOND conjunct still saves a REGISTERED mobile — a routable home makes the GLOBAL
+    // colliding-id send legitimate again, so the narrowing costs nothing to a homed member.
+    { TestHal hal; Node A(hal, /*id=*/213, /*key=*/0xA213u); with_teammate(A, hal, 213);
+      A.test_set_my_mobile_reg(/*home_id=*/101, /*local_id=*/213);
+      const CmdResult r = ack_send(A, MATE, /*plane=*/2 /*GLOBAL*/);
+      CHECK(r.code == CmdCode::queued);
+      CHECK(r.ctr != 0);
+      CHECK(hal.count("send_failed") == 0); }
+}
+
 // ============================ §team-parity T2 (spec 2026-07-27 §3/T2) =========================================
 // Neighbour-learning parity: the team plane gains the RX-event coverage the static plane has (2 learn sites -> 7),
 // plus DATA-origin learning (owner-ruled IN, reversing the spec's own exclusion note — QA review §10.1).
