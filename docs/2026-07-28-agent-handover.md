@@ -161,11 +161,16 @@ re-anchor — gate it and write the BASELINE note; do not treat the diff as a re
 - **T6 — team origin namespace + plane-keyed ledgers** — ✅ **GATED AND COMMITTED `9c7b40a`.** s28/s29 value-only
   re-anchors, `s37_team_homed_origin` new, corpus **35**, native **930/69355/0**, `sizeof(Node)` **unmoved at
   220592** (my escalation premise was false). Record in the `BASELINE.md` **T6** note.
-- ★ **T7 — relax T2's `is_team_peer(origin)` learn fence** — **NOT STARTED, and it is the LAST UNCLOSED PIECE OF
-  THE BENCH CASE.** T6 made the origin decidable, so the fence is now over-restrictive; until it is relaxed an
-  ack to a **never-heard, never-DV'd** teammate still falls back to AUTO→static. Take it before T5. Adjacent:
-  the E2E-ACK gate's `is_team_peer(dst)` arm is not plane-qualified. ⚠ s35a/s35b do **not** cover T2, so this
-  slice owes its own discriminator — likely an `s37` extension, which already has the homed/off-grid pair.
+- ★★★ **T7 — ✅ GATED AND COMMITTED `a3886ee`. THE §0 BENCH FAILURE IS CLOSED.** One line: `&& is_team_peer(origin)`
+  removed. `s35a` **lost 69 events** because the receiver now learns the originator from the DM and needs no
+  discovery for its reply; new `s38_team_origin_learn` `d0fbb4cc`/519; corpus **36**; native **934/69377/0**.
+  ★ Its before-arm found an **I2 breach no learn-site audit could have found** — see the new spec **§12**.
+- ⚠ **STILL OWED, excluded from T7 with an accepted C1 argument:** the E2E-ACK gate's `is_team_peer(dst)`
+  (`node_mac.cpp:89`) is not plane-qualified — a **send-side** fix (`flight_is_team_plane`) against T7's
+  receive-side learn, and its control case exists in no scenario, so it needs its own file.
+- ★ **NEW CANDIDATE SLICE — a plane audit of the READ paths** (spec §12). §10.3/§9-Q4 audited *writes*; the s38
+  breach entered through `rt_find(..., AUTO)` falling through to `_rt`. Every plane-typed lookup that can silently
+  degrade to the static table needs the same treatment the write sites got.
 - *(historical, T6's original brief)* Part A
   `stamp_origin` gains a plane (5 callers, incl. two channel-M paths); Part B plane-keys the four ledgers
   (**moves `sizeof(Node)` ⇒ all TEN board envs, the exception to the 3-env rule**); Part C owes a homed-member
