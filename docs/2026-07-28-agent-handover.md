@@ -17,7 +17,9 @@ for everything after `916de64`; that document is still correct for the carrier/C
    The keystone + every per-scenario anchor lives there and re-anchors legitimately. Notes for this arc
    run `26s…26w`, `27x…27zh`, then `T0`, `T1`/`T1b`, `T2`.
 2. `docs/superpowers/specs/2026-07-27-team-plane-static-parity-routing-design.md` — the spec being built.
-   **§10 is mine** (reviewer response). §10.1 overrules the author's Q1; §10.3 records a gap in their §4.
+   **§10 and §11 are mine** (reviewer response + the ruling write-up). §10.1 overrules the author's Q1;
+   §10.3 records a gap in their §4; **§3/T6 and §11 are new** — the owner's 2026-07-28 ruling. The body of
+   the spec now carries inline ⚠/★ corrections wherever implementation contradicted the design.
 3. `CLAUDE.md` working rules, and `docs/2026-07-26-slice-gate-method.md` for the gate recipe.
 
 ---
@@ -125,14 +127,38 @@ re-anchor — gate it and write the BASELINE note; do not treat the diff as a re
   the sequencing rule above is released. Full record in the `BASELINE.md` T4 note, including the three
   premises of mine it disproved (`q_opcode` is 2 bits ⇒ `team_sync` had to take 0, the last free codepoint;
   `-Werror=switch` was structurally blind to it; the `_node_id == 0` guard also blocked off-grid members).
-  ⚠ **Docs still owed by QA:** the `frames.md` Q rows and `protocol.md:106` — listed in the BASELINE note.
-- **T3 — team DV census** (spec §3) — not started.
+  ✅ **The docs T4 left owed are LANDED** (`a6c73f9`): `frames.md`'s Q rows + the `TEAM_SYNC` tail row + the
+  "opcode field is now FULL" note, `protocol.md` §3's team-pull paragraph, and the pre-existing `frames.md`
+  drift that called the byte-3 `mobile` bit "effectively inert".
+- **s23 `-t` fix + `s35` re-author** — ⚠ **IN FLIGHT** with one agent, two separately-measured sub-slices. It
+  was also asked to measure the homed-vs-off-grid `origin` question behind §11. Needs gating + a BASELINE note.
+- **T3 — team DV census** (spec §3) — not started. ★ **It also owns the hop-cap asymmetry T0 left open**:
+  team RREQ floods at `team_hop_cap` 8 while team DV accepts combined hops to `dv_hop_cap` 16.
+- **T6 — team origin namespace + plane-keyed ledgers** (spec §3/T6) — not started; **new, from the §11 ruling**.
 - **T5 — team bidi plane** (spec §3) — not started.
-- Spec **§8** gives the intended build order; T4 was taken before T3 deliberately.
+- Order is now `T3 → T6 → T5`; spec **§8** carries it. T4 was taken before T3 deliberately.
 
 ---
 
-## 4. ★ THE OPEN OWNER RULING (blocks a clean T5)
+## 4. ✅ THE OWNER RULING — MADE 2026-07-28, and it created a new slice
+
+> **RULED: a `Plane::TEAM` send stamps `team_local_id()` — "team id, bundled with the ledger fix."**
+> The owner accepted QA's recommendation *with its condition*: it ships as ONE slice together with plane-keying
+> `_seen_origins`, `_per_origin_channel`, `_hash_query_seen`, `_mediated_recent`. **That is now `T6`, ordered
+> after T3 and before T5** (T5 keys link state by id and must not sit on an ambiguous id space).
+> Full definition in spec **§3/T6**; the ruling itself in **§11**.
+>
+> ★ **The argument that makes T6 non-optional:** `node.h:1503-1523` documents each of those four ledgers as
+> *"safe today"*, and every stated reason is an assertion that the team plane is quiet — *"the planes rarely
+> co-relay the same origin id"*, *"no node today processes BOTH the static and the team H-flood plane"*. This
+> arc's whole purpose (R1) is to end that. **And `s35` falsifies them by construction**, since §5 puts a static
+> node physically between two teammates on one PHY. T6 is required by the test we are already committed to.
+>
+> ⚠ Being measured, and it changes urgency not design: whether a homed member's team `-a` ack actually fails
+> was **reasoned, not observed**. The s35 agent was asked to measure it.
+> ⇒ `node_mac.cpp:70`'s comment **becomes true** under this ruling instead of needing correction.
+
+The question as originally put, kept as the record of what was ruled on:
 
 **Should a `Plane::TEAM` origination stamp `origin = team_local_id()` instead of the home id?**
 
@@ -214,6 +240,8 @@ delivery-parity + re-anchor (behaviour change) · assertion-count exactness (sce
 2. Fix the four s23 lines + audit s28 → gate → **re-anchor s23** with a BASELINE note.
 3. Re-author `s35_cochannel_isolation_meshroute.json` per spec §5 + §10.5; it must reproduce
    860/10 → 952/0, including the `OK error ctr=0 depth=0` bench string.
-4. Put the §4 `stamp_origin` ruling to the owner **before** T5; fix the false comment at
-   `node_mac.cpp:70` either way.
-5. Then T3, then T5.
+4. ~~Put the stamp_origin ruling to the owner.~~ ✅ RULED 2026-07-28 → **T6** (spec §3/T6, §11): stamp
+   `team_local_id()` on the TEAM plane, bundled with plane-keying the four ledgers. Ordered after T3,
+   before T5. `node_mac.cpp:70`'s comment becomes true rather than being corrected.
+
+5. **T3** (also owns the hop-cap asymmetry T0 left open) → **T6** → **T5**.

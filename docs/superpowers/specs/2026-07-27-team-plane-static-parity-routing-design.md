@@ -235,6 +235,56 @@ This is what would have let 213 and 174 recognise that their direct link is one-
 
 **D2 obligation:** `node.h:1676` carries `static_assert(sizeof(Node) == 220592, …)`. T5 changes it. The assert must be updated **with the arithmetic spelled out in the comment** (matching the existing style), plus a per-board RAM diff — native alignment hides board padding.
 
+### T6 — one origin namespace per plane + plane-keyed ledgers *(added 2026-07-28 by owner ruling — see §11)*
+
+**Ordering: after T3, BEFORE T5.** T5 keys link state by id, so it must not be built on top of an ambiguous id space.
+
+**Part A — `stamp_origin` gains a plane.** `node.h:818`:
+
+```cpp
+item.origin = (plane == Plane::TEAM) ? team_local_id()
+                                     : (mob ? _my_mobile_reg.home_id : _node_id);
+```
+
+⚠ **`stamp_origin(TxItem&)` does not currently receive `plane` — five callers must be checked, not one:**
+`node_mac.cpp:88` (`enqueue_data`), `:343` (gateway envelope), `:518` (delegated/XL), and **`node_channel.cpp:562`
+and `:1047`** — the channel-M paths, which have their own `-t` plane select (§S7 T-B) and must therefore be
+decided deliberately rather than swept along. Prefer threading the existing `Plane` value over adding a bool
+(U1/U2 — one conversion path for the carriers).
+
+**Part B — the prerequisite, and it is not optional.** Plane-key the four ledgers of §10.3 / §9-Q4:
+`_seen_origins` (`node.h:1564`), `_per_origin_channel` (`:1552`), `_hash_query_seen` (`:1499`),
+`_mediated_recent` (`:1390`).
+
+★★ **Why B cannot be deferred, and the strongest argument in this section: the arc is actively destroying the
+safety arguments these ledgers rest on.** `node.h:1503-1523` documents each one as *"safe today"* — and each
+reason is a statement about the team plane being quiet:
+
+| ledger | its stated safety reason | what this arc does to that reason |
+|---|---|---|
+| `_per_origin_channel` | *"the planes rarely co-relay the same origin id"* | R1 makes the team plane a full peer of the static one |
+| `_seen_origins` | aliases only if origin+dst+ctr **all** collide | Part A changes which ids collide, and T1 multiplies team flights |
+| `_hash_query_seen` | *"safe ONLY by an UNWRITTEN role-exclusion invariant: no node today processes BOTH the static and the team H-flood plane"* | T2/T4 give one node live processing on both planes |
+
+★ **And `s35` is precisely the configuration that falsifies them by construction** — §5 puts statics and team
+members on one PHY with *a static node physically between two teammates*. "Planes rarely co-active on one link"
+is not merely weakened there; it is the scenario's subject. ⇒ **T6/B is not speculative hardening. It is
+required by the test this spec already commits to adding.**
+
+**Shape.** Key by `(plane, id)`, not `id`. For the two `std::map` ledgers a plane bit folded into the existing
+key is enough (`_seen_origins`' key is already a composed `uint64_t`). For the two fixed arrays, add a plane
+field to the entry struct — ⚠ **that moves `sizeof(Node)`**, so D2 applies (assert updated with the arithmetic
+spelled out, per-board RAM diff, and the full ten-env build since padding is the thing under test).
+
+**Gate note.** Part A is a **behaviour change on the team plane only** and should re-anchor team scenarios while
+leaving s18 and every static scenario byte-identical. Part B should be **fully inert** — it changes keys that do
+not collide in any current scenario, so expect byte-identity and prove reachability by poison probe rather than
+by a moved stream. ⚠ **A 0/N corpus result for Part B means "no scenario collides", NOT "the code is dead"** —
+demand a same-site control that does move.
+
+**Closes:** §9-Q4, and the `[[meshroute-plane-separation]]` re-audit-by-plane item that has been open since
+2026-07-10.
+
 ---
 
 ## 4. Isolation invariants (the contract T2–T5 must not break)
@@ -322,8 +372,15 @@ T0 → T1 → (T2 ∥ T4) → T3 → T5, with `s35` authored alongside T1 (it mu
 
 T1 alone fixes the reported bench failure. T4 is the highest value-per-byte of the remainder. T3 is comfort and operator visibility. T5 is the roaming-quality slice and the only one that touches `sizeof(Node)`.
 
-> **★ POSITION AS OF 2026-07-28:** `T0 ✅ → T1 ✅ → (T2 ✅ ∥ T4 ✅) → T3 ❌ → T5 ❌`. We are exactly at the T3
-> boundary. `sizeof(Node)` is **220592** and unmoved so far; T5 will change it (§3/T5's D2 obligation).
+> **★ POSITION AND REVISED ORDER AS OF 2026-07-28:**
+> `T0 ✅ → T1 ✅ → (T2 ✅ ∥ T4 ✅) → T3 ❌ → T6 ❌ → T5 ❌`
+>
+> **T6 is new** (§3, owner ruling §11) and is inserted **before T5 deliberately**: T5 keys link state by id, so
+> it must not be built on an ambiguous id space. `sizeof(Node)` is **220592** and unmoved so far; **both T6/B
+> and T5 will change it**, so each owes the D2 treatment (assert arithmetic spelled out + per-board RAM diff +
+> the full ten-env build, since per-board padding is the thing under test there).
+>
+> T3 keeps its place at the head of the remainder because it also owns the hop-cap asymmetry T0 left open.
 >
 > ⚠ **`s35` did NOT ship alongside T1 as this section requires.** It was authored and proven to discriminate,
 > then **lost** with an agent scratchpad before it was committed — the durable lesson being that agent scratch
@@ -421,7 +478,24 @@ The owner has ruled on §2.1 and this does not reopen it — but T0 is the commi
 
 ---
 
-## 11. ★ OPEN OWNER RULING — what `origin` does a TEAM-plane send stamp?
+## 11. ✅ OWNER RULING (2026-07-28) — a TEAM-plane send stamps `team_local_id()`
+
+> ## ★ RULED: **"Team id, bundled with the ledger fix."**
+>
+> The owner took QA's recommendation in full, **including its condition** — the change ships as ONE slice
+> together with plane-keying `_seen_origins`, `_per_origin_channel`, `_hash_query_seen` and `_mediated_recent`,
+> not as the one-line edit it resembles. **This is now `T6` (§3), ordered after T3 and before T5.**
+>
+> Consequences to carry out there: `node_mac.cpp:70`'s comment **becomes true** rather than being corrected;
+> anti-spam accountability on the team plane moves to the team id, deliberately; and §9-Q4 closes.
+>
+> ⚠ **Still being measured, and it does not change the ruling — only its urgency.** Whether a homed member's
+> team-plane `-a` ack actually fails to return was *reasoned* from the routing tables, not observed. It is
+> being measured in `s35` (which needs a homed and an off-grid teammate anyway). If the ack **does** return,
+> the defect is latent rather than live and T6 is hardening; if it does not, T6 fixes a real delivery bug. The
+> design is the same either way.
+
+The original write-up of the question follows, as the record of what was ruled on.
 
 **Raised 2026-07-28 by QA, after T1. This blocks a clean T5 and it is not mine to decide.**
 
