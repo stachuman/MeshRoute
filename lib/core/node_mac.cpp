@@ -62,10 +62,21 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     // §mobile: a mobile is reachable for a REPLY only via a valid HOME (it stamps origin=home_id, and the home last-miles
     // the reverse leg). Originating a reply-expecting DM (E2E_ACK_REQ) to a NON-team target while we have no routable home
     // would stamp origin=_node_id — a mobile LOCAL id no static node can route to -> the target floods RREQ for it (storm)
-    // and the ack never returns. FAIL LOUD instead. A team dst (is_team_peer) is routable on the team plane; a registered
+    // and the ack never returns. FAIL LOUD instead. A team dst is routable on the team plane; a registered
     // mobile (home_id set, not self) makes the reverse-ack work. Gated on is_mobile -> a static node is byte-identical.
+    // §team-parity T1 (spec §3/T1): "a team dst" is now decided by the send's PLANE, not by is_team_peer alone. The
+    // is_team_peer-only form was the same chicken-and-egg as node.cpp's send guard: an off-grid member sending
+    // `-t <unheard-id> -a` was refused mobile_no_home here even though the reply leg it worries about is the TEAM
+    // plane, which needs no home at all — the reverse ack routes by _rt_team (the RREQ lays the reverse path at every
+    // relay), and the origin it stamps is the team_local_id, which every teammate CAN route. `plane` is already a
+    // parameter of enqueue_data, so no signature change (U1).
+    // Static reduction: on a static node the whole guard is dead (`_cfg.is_mobile` is false), and for a mobile
+    // sending on AUTO/GLOBAL `plane != Plane::TEAM` leaves the expression as the pre-T1 `!is_team_peer(dst)` verbatim.
+    // Build profiles: the whole block is MR_FEAT_MOBILE-gated (absent on the three gateway_* envs, which also set
+    // MR_FEAT_TEAM 0); Plane is an ungated enum in node_carriers.h, so the added term compiles identically wherever
+    // this block compiles at all.
 #if MR_FEAT_MOBILE
-    if (app_dm && (flags & DATA_FLAG_E2E_ACK_REQ) && _cfg.is_mobile && !is_team_peer(dst)
+    if (app_dm && (flags & DATA_FLAG_E2E_ACK_REQ) && _cfg.is_mobile && !(plane == Plane::TEAM || is_team_peer(dst))
         && !(_my_mobile_reg.active && _my_mobile_reg.home_id != 0 && _my_mobile_reg.home_id != _node_id)) {
         MR_EMIT("send_failed", EF_I("dst", dst), EF_S("reason", "mobile_no_home"));
         push_send_failed(SendFailReason::mobile_no_home, dst, /*ctr=*/0);

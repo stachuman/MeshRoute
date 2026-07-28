@@ -174,8 +174,12 @@ inline constexpr uint8_t  max_rt_candidates = 3;
 inline constexpr uint8_t  dv_hop_cap        = 16;
 // §team-parity T0 (spec 2026-07-27 §3/T0, requirement R4): the TEAM plane's own hop ceiling. A team is a
 // 3-10-member group, 1-3 hops typical and stragglers to 8 — half the static radius, so a team flood costs
-// half the worst-case airtime. ★ SEEDED BUT NOT YET ADOPTED: at T0 every hop-cap consumer still resolves to
-// dv_hop_cap (see Node::hop_cap_for in node.h). T1 is the slice that starts passing team_plane=true.
+// half the worst-case airtime. ★ ADOPTED AT T1 on the team DISCOVERY plane (RREQ TTL + the RREQ/RREP hop-cap
+// backstops); the team DV combined-hops cap still runs on dv_hop_cap until T3. See Node::hop_cap_for in node.h
+// for the live DONE/MISSING consumer list. Arithmetic, verified not assumed: a flood at ttl=N reaches a node k hops
+// out carrying `hops == k-1`, so the `hops >= cap` guard first bites at k == cap+1 — the deepest teammate a single
+// team flood resolves is exactly 8 hops (R4's ceiling), and the reciprocal RREP bound `hops > 2*cap` admits the
+// legal worst case (a cacher 8 hops out holding an 8-hop route = 16) while still cutting a ping-pong loop.
 inline constexpr uint8_t  team_hop_cap      = 8;
 inline constexpr uint16_t cap_routes        = 254;   // max leaf size: 255 valid 8-bit ids (0xFF rsv) - self
 

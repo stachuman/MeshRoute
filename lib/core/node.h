@@ -449,13 +449,17 @@ public:
     // deliberately NOT MR_FEAT_TEAM-gated so it compiles identically on the three gateway_* envs (MR_FEAT_TEAM 0):
     // a `{}`/stub form would be invisible to the byte-identity corpus, which is exactly how the 2026-07-27ze gateway
     // channel-wipe near-miss happened.
-    // ★★ DONE vs MISSING at T0. DONE: the accessor, the constant and the config member exist, and every one of the
-    // six hop-cap consumers now reads its cap THROUGH this function. MISSING: nobody passes `true` yet — all six
-    // call sites hardcode `hop_cap_for(/*team_plane=*/false)`, so the team plane still runs on the STATIC cap of 16
-    // exactly as it did before T0. WHY DEFERRED: three of the six consumers are measurably reached with a team frame
-    // TODAY (poison-probe, 32-scenario corpus: node_beacon.cpp DV cap 157 team hits across 9 scenarios;
-    // node_route_discovery.cpp RREQ + RREP guards 1 team hit each in s28), so flipping any of them here would change
-    // live team behaviour — and T0 is a pure refactor (C1). T1 adopts the team cap, with its own gate.
+    // ★★ DONE vs MISSING after T1 (spec §3/T1). DONE — four of the six consumers now pass the real plane, so the
+    // TEAM discovery plane runs on team_hop_cap (8) end to end: node_cascade.cpp:145 (team cascade-exhaustion RREQ
+    // TTL) · node_cascade.cpp:317 (deferred-drain requery TTL, `team_rreq`) · node_route_discovery.cpp:224, which
+    // feeds BOTH the RREQ `f.hops >= cap` guard and the RREP `f.hops > 2*cap` backstop. The cap and the TTL therefore
+    // stay in the relationship the static plane has always had.
+    // MISSING — two consumers still hardcode `false`, each for its own reason, neither an oversight:
+    //   · node_beacon.cpp:846 (DV combined-hops cap) — team-LIVE (157 corpus executions across s22/23/24/25/26/28/
+    //     29/30/34), so flipping it halves the team DV radius. That is T3's slice (the team DV census), not T1's:
+    //     it belongs with the change that decides how far team DV should propagate at all.
+    //   · node_cascade.cpp:164 (§P3 dead-primary rediscovery) — STATIC-ONLY BY CONSTRUCTION and nothing flips it
+    //     later; the team branch above it returns early to avoid the static _peer_liveness array it reads.
     uint8_t           hop_cap_for(bool team_plane) const { return team_plane ? _cfg.team_hop_cap : _cfg.dv_hop_cap; }
     // Duty-cycle consumption readout (console `duty` + companion). 0..100% of the rolling-window budget (100 = the node
     // must stay silent); avail_ms = ms until SOME airtime ages back in (0 when there's headroom); enabled=false = no
@@ -672,6 +676,7 @@ private:
     bool    rreq_seen_recently(uint8_t origin, uint8_t dst, bool team_plane = false);
     void    mark_rreq_seen(uint8_t origin, uint8_t dst, bool team_plane = false);
     bool    rreq_rate_ok(uint8_t dst, uint8_t ttl, bool team_plane = false);
+    void    age_out_rreq_last();                                  // periodic (kAgingTimerId): drop spent rate-limit entries — BOTH planes
 #if MR_FEAT_TEAM
     void    handle_f_team(const struct f_out& f, const RxMeta& meta);   // §team-multihop: same-team-only F handler (gated on team_id, on _rt_team) — full static/other-team separation
 #endif

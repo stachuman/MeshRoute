@@ -1950,7 +1950,7 @@ TEST_CASE("§mobile 6.4 / §18 — end-to-end: two team mobiles sharing node_id=
     CHECK(hal.count("rts_tx") == rts_before);                // ★ S1: the team ACK (to=team_local_id) was accepted -> flight complete -> NO re-RTS storm
 }
 
-TEST_CASE("§mobile 6.4 / Wave 2 — the plane hard split: GLOBAL routes via _rt even for an id colliding a team peer; TEAM via _rt_team; TEAM to a non-teammate fails loud") {
+TEST_CASE("§mobile 6.4 / Wave 2 — the plane hard split: GLOBAL routes via _rt even for an id colliding a team peer; TEAM via _rt_team; TEAM on a node with no team plane fails loud") {
     // §18 collision: id 50 lives on BOTH planes — a STATIC route via 60 (_rt) AND a team peer via 50 (_rt_team). A fresh node
     // per send (a pending flight blocks a second origination) so the two plane routings are observed independently.
     auto setup = [](Node& n) {
@@ -1975,11 +1975,285 @@ TEST_CASE("§mobile 6.4 / Wave 2 — the plane hard split: GLOBAL routes via _rt
     };
     CHECK(rts_next(2 /*GLOBAL*/) == 60);                 // ★ GLOBAL -> the STATIC route (via 60), never the colliding team peer
     CHECK(rts_next(1 /*TEAM*/)   == 50);                 // ★ TEAM -> the team plane (_rt_team, direct to 50)
-    // TEAM to a non-teammate (id 77) -> fail loud (err_no_binding), no storm.
-    TestHal hal; Node n(hal, /*id=*/30, /*key=*/0x3030u); setup(n);
-    Command c2{}; c2.kind = CmdKind::send; c2.u.send.dst_id = 77; c2.u.send.plane = 1;
-    c2.body = reinterpret_cast<const uint8_t*>("hi"); c2.body_len = 2;
-    CHECK(n.on_command(c2).code == CmdCode::err_no_binding);
+    // §team-parity T1 CHANGED THIS ASSERTION, deliberately. It used to read "TEAM to a non-teammate (id 77) -> fail
+    // loud (err_no_binding), no storm" — that guard WAS the reported bench bug (spec §0: 213 could not `send 174 -t`),
+    // because every team-RREQ entry point sits downstream of do_send. An unknown teammate id is now QUEUED and
+    // discovered; see the T1 bench-case test below. What still fails loud is the CONFIGURATION case: no team plane.
+    auto team_send = [](Node& n, uint8_t dst) {
+        Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = dst; c.u.send.plane = 1;
+        c.body = reinterpret_cast<const uint8_t*>("hi"); c.body_len = 2;
+        return n.on_command(c);
+    };
+    { TestHal hal; Node n(hal, /*id=*/30, /*key=*/0x3030u); setup(n);
+      const CmdResult r = team_send(n, /*dst=*/77);                       // unknown teammate id
+      CHECK(r.code == CmdCode::queued);                                   // ★ T1: no longer refused — discovery is the answer
+      CHECK(r.ctr != 0); }                                                // ★ a counter IS minted (the bench saw ctr=0)
+    // (a) team_id == 0 -> refuse: the node is not on a team at all.
+    { TestHal hal; Node n(hal, /*id=*/30, /*key=*/0x3030u);
+      NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true;
+      CHECK(n.on_init(cfg));
+      CHECK(team_send(n, /*dst=*/77).code == CmdCode::err_no_binding); }
+    // (b) team_id set but team-DAD not complete (team_local_id == 0) -> refuse. Without a DAD'd id
+    //     emit_route_request's team arm returns silently, so the send would otherwise fail only 30 s later by TTL.
+    { TestHal hal; Node n(hal, /*id=*/30, /*key=*/0x3030u);
+      NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=0xABCD1234u;
+      CHECK(n.on_init(cfg));
+      n.set_team_local_id(0);
+      CHECK(team_send(n, /*dst=*/77).code == CmdCode::err_no_binding); }
+    // (c) a NON-mobile node carrying a team_id -> refuse. `team <id>` on the console sets team_id without is_mobile
+    //     (firmware_config.cpp:659 gates team_dad_fire on is_mobile), and handle_f_team requires is_mobile on the
+    //     RECEIVER — so such a node could flood team RREQs that teammates answer and then drop its OWN replies.
+    //     Same membership predicate the sibling `send_channel -t` verb uses (node.cpp:1130).
+    { TestHal hal; Node n(hal, /*id=*/30, /*key=*/0x3030u);
+      NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.team_id=0xABCD1234u;
+      CHECK(n.on_init(cfg));
+      n.set_team_local_id(93);
+      CHECK(team_send(n, /*dst=*/77).code == CmdCode::err_no_binding); }
+}
+
+// ============================ §team-parity T1 (spec 2026-07-27 §3/T1) ==========================================
+// The reported bench failure and the team hop-cap adoption. ★ THESE TESTS ARE THE PRIMARY GATE FOR T1: all 32 corpus
+// scenarios are byte-identical through this slice (measured), and two of the four adopted sites are corpus-DARK, so
+// byte-identity cannot see a mistake in any of it. See the coverage matrix in the slice report.
+
+namespace {
+// An OFF-GRID team member — the bench configuration: is_mobile, no static host, node_id == team_local_id.
+void t1_offgrid(Node& n, uint8_t id, uint32_t team) {
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; cfg.is_mobile=true; cfg.team_id=team;
+    CHECK(n.on_init(cfg));
+    n.set_team_local_id(id);
+}
+// A teammate's beacon (src = its team_local_id) — installs the _rt_team hops=1 route + the _team_peer dispatch bit.
+size_t t1_team_beacon(uint8_t src, uint32_t team, std::array<uint8_t,64>& b) {
+    uint8_t ext[8]; const size_t en = pack_team_id_tlv(team, std::span<uint8_t>(ext, sizeof ext));
+    beacon_in tb{}; tb.leaf_id=0; tb.src=src; tb.key_hash32=0x7000u+src; tb.is_mobile=true;
+    tb.ext=std::span<const uint8_t>(ext, en);
+    return pack_beacon(tb, std::span<uint8_t>(b.data(), b.size()));
+}
+// The last F frame this node put on the air, parsed (parse_f itself rejects any non-F cmd nibble).
+std::optional<f_out> t1_last_f(const TestHal& hal) {
+    std::optional<f_out> r;
+    for (const auto& f : hal.tx_frames)
+        if (auto p = parse_f(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()))) r = *p;
+    return r;
+}
+// The FIRST F frame's raw bytes (empty if none) — for feeding one node's flood into another's on_recv.
+std::vector<uint8_t> t1_first_f_bytes(const TestHal& hal) {
+    for (const auto& f : hal.tx_frames)
+        if (parse_f(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()))) return f.bytes;
+    return {};
+}
+bool t1_in_team_rt(Node& n, uint8_t d) { for (uint8_t i=0;i<n.rt_team_count();++i) if (n.rt_team_at(i).dest==d) return true; return false; }
+bool t1_in_static_rt(Node& n, uint8_t d) { for (uint8_t i=0;i<n.rt_count();++i) if (n.rt_at(i).dest==d) return true; return false; }
+}  // namespace
+
+TEST_CASE("§team-parity T1 — THE BENCH CASE: `send -t` to a NEVER-HEARD teammate discovers it through the middle relay (was `err ctr=0 depth=0`)") {
+    // Spec §0/§5: three off-grid members on one PHY, the middle one the only mutual neighbour.
+    //   A(213) <-> R(234) <-> B(174);  A has NEVER heard B and holds no route to it.
+    // Pre-T1 this died in on_command with err_no_binding before a counter was minted. Post-T1 it must queue, flood a
+    // TEAM-scoped RREQ, accept the relay's RREP, and fly the DM to the relay.
+    const uint32_t TEAM = 0x06EF37AEu;                       // the bench's real team_id
+    TestHal ha, hr;
+    Node A(ha, /*id=*/213, /*key=*/0xA213u);  t1_offgrid(A, 213, TEAM);
+    Node R(hr, /*id=*/234, /*key=*/0xA234u);  t1_offgrid(R, 234, TEAM);
+    RxMeta from_r{12.0f,-70.0f,0,static_cast<int8_t>(234)};
+    RxMeta from_a{12.0f,-70.0f,0,static_cast<int8_t>(213)};
+    RxMeta from_b{12.0f,-70.0f,0,static_cast<int8_t>(174)};
+    std::array<uint8_t,64> bb{};
+    { const size_t n = t1_team_beacon(/*src=*/234, TEAM, bb); A.on_recv(bb.data(), n, from_r); }   // A hears the relay
+    { const size_t n = t1_team_beacon(/*src=*/213, TEAM, bb); R.on_recv(bb.data(), n, from_a); }   // R hears A
+    { const size_t n = t1_team_beacon(/*src=*/174, TEAM, bb); R.on_recv(bb.data(), n, from_b); }   // R hears B
+    CHECK(A.is_team_peer(234));
+    CHECK_FALSE(A.is_team_peer(174));                        // ★ the precondition: 174 has NEVER been heard by A
+    CHECK_FALSE(t1_in_team_rt(A, 174));
+
+    ha.events.clear(); ha.tx_frames.clear();
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 174; c.u.send.plane = 1 /*TEAM*/;
+    c.body = reinterpret_cast<const uint8_t*>("Test next"); c.body_len = 9;
+    const CmdResult res = A.on_command(c);
+    CHECK(res.code == CmdCode::queued);                      // ★★ THE FIX — pre-T1: err_no_binding
+    CHECK(res.ctr != 0);                                     // ★★ a counter is minted — the bench printed ctr=0
+    CHECK(ha.count("send_deferred") == 1);                   // no route -> parked, not dropped
+
+    // The discovery it fired must be TEAM-scoped (never a static F): the isolation assumption T1 rests on.
+    auto rq = t1_last_f(ha);
+    CHECK(rq.has_value());
+    if (rq) {
+        CHECK(rq->team_scoped);                              // ★ team-private plane
+        CHECK(rq->team_id  == TEAM);
+        CHECK(rq->origin   == 213);                          // our TEAM id, not a static node_id
+        CHECK(rq->dst_id   == 174);
+        CHECK_FALSE(rq->is_reply);
+        CHECK(rq->ttl_or_next_hop == 1);                     // the cheap expanding-ring probe (spec §3/T1 t=0)
+    }
+
+    // The relay answers from its cached _rt_team route to 174.
+    const std::vector<uint8_t> rqb = t1_first_f_bytes(ha);
+    CHECK(!rqb.empty());
+    hr.tx_frames.clear();
+    if (!rqb.empty()) R.on_recv(rqb.data(), rqb.size(), from_a);
+    CHECK(hr.count("rreq_resolved_cached") == 1);
+    auto rp = t1_last_f(hr);
+    CHECK(rp.has_value());
+    if (rp) {
+        CHECK(rp->is_reply);
+        CHECK(rp->team_scoped);
+        CHECK(rp->ttl_or_next_hop == 213);                   // unicast back to the asker
+    }
+
+    // A ingests the RREP -> the route to the never-heard teammate installs on the TEAM plane only.
+    const std::vector<uint8_t> rpb = t1_first_f_bytes(hr);
+    CHECK(!rpb.empty());
+    if (!rpb.empty()) A.on_recv(rpb.data(), rpb.size(), from_r);
+    CHECK(t1_in_team_rt(A, 174));                            // ★ discovered
+    CHECK_FALSE(t1_in_static_rt(A, 174));                    // ★ R2 isolation: nothing entered the static plane
+    CHECK(A.is_team_peer(174));
+
+    // ...and the parked DM now flies, to the relay.
+    ha.tx_frames.clear();
+    A.on_timer(kDeferredDrainTimerId);
+    CHECK(ha.count("send_drained") == 1);
+    int rts_next = -1;
+    for (const auto& f : ha.tx_frames) if (auto pr = parse_rts(std::span<const uint8_t>(f.bytes.data(), f.bytes.size()))) rts_next = pr->next;
+    CHECK(rts_next == 234);                                  // ★★ the DM takes the discovered 2-hop path via the relay
+}
+
+TEST_CASE("§team-parity T1 — the deferred-drain requery escalates to team_hop_cap on a team item, dv_hop_cap on a static one") {
+    // node_cascade.cpp:317. Corpus reach at T0: 783 executions, team_rreq==false in ALL of them -> the team half is
+    // corpus-dark and this test is its only detector.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node A(hal, /*id=*/213, /*key=*/0xA213u); t1_offgrid(A, 213, TEAM);
+    std::array<uint8_t,64> bb{};
+    { const size_t n = t1_team_beacon(/*src=*/234, TEAM, bb); A.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,static_cast<int8_t>(234)}); }
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 174; c.u.send.plane = 1 /*TEAM*/;
+    c.body = reinterpret_cast<const uint8_t*>("hi"); c.body_len = 2;
+    CHECK(A.on_command(c).code == CmdCode::queued);
+    { auto probe = t1_last_f(hal); CHECK(probe.has_value()); if (probe) CHECK(probe->ttl_or_next_hop == 1); }   // t=0: the ttl=1 probe
+    hal.tx_frames.clear();
+    hal._now += 1000;                                        // +1 s (send_defer_drain_period_ms)
+    A.on_timer(kDeferredDrainTimerId);                       // still no route -> requery at full PLANE radius
+    auto esc = t1_last_f(hal);
+    CHECK(esc.has_value());
+    if (esc) {
+        CHECK(esc->team_scoped);
+        CHECK(esc->ttl_or_next_hop == protocol::team_hop_cap);   // ★★ 8, not 16 — pre-T1 this was dv_hop_cap
+    }
+    CHECK(protocol::team_hop_cap != protocol::dv_hop_cap);   // the assertion above is non-vacuous by construction
+
+    // Control, same site: a STATIC deferred item still escalates to dv_hop_cap.
+    TestHal hs; Node S(hs, /*id=*/30, /*key=*/0x3030u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; CHECK(S.on_init(cfg));
+    std::array<uint8_t,64> sb{}; { const size_t n = mk_beacon(/*src=*/20, sb); S.on_recv(sb.data(), n, RxMeta{8.0f,-80.0f,0,20}); }
+    send_cmd(S, /*dst=*/99, "hi");                           // unknown static dst -> defer + ttl=1 probe
+    hs.tx_frames.clear();
+    hs._now += 1000;
+    S.on_timer(kDeferredDrainTimerId);
+    auto sesc = t1_last_f(hs);
+    CHECK(sesc.has_value());
+    if (sesc) {
+        CHECK_FALSE(sesc->team_scoped);
+        CHECK(sesc->ttl_or_next_hop == protocol::dv_hop_cap);    // ★ static plane unchanged at 16
+    }
+}
+
+TEST_CASE("§team-parity T1 — team cascade exhaustion re-floods at team_hop_cap, not dv_hop_cap") {
+    // node_cascade.cpp:145 — ★★ THE GATE-BLIND SITE. 0/32 corpus executions at T0 AND at T1, with a same-site control
+    // (cascade_to_alt is entered 1148 times, pt.plane == AUTO every time) proving it is genuinely dark. This test is
+    // its ONLY detector.
+    const uint32_t TEAM = 0x06EF37AEu;
+    TestHal hal; Node A(hal, /*id=*/213, /*key=*/0xA213u); t1_offgrid(A, 213, TEAM);
+    std::array<uint8_t,64> bb{};
+    { const size_t n = t1_team_beacon(/*src=*/234, TEAM, bb); A.on_recv(bb.data(), n, RxMeta{12.0f,-70.0f,0,static_cast<int8_t>(234)}); }
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 234; c.u.send.plane = 1 /*TEAM*/;
+    c.body = reinterpret_cast<const uint8_t*>("hi"); c.body_len = 2;
+    CHECK(A.on_command(c).code == CmdCode::queued);          // a KNOWN teammate -> RTS flies immediately
+    hal.tx_frames.clear();
+    exhaust_rts_same_hop(A);                                 // the sole team candidate goes silent -> cascade_to_alt, no alt
+    CHECK(hal.count("path_cascade") == 0);                   // there IS no alternate -> the team-exhaustion branch ran
+    auto f = t1_last_f(hal);
+    CHECK(f.has_value());
+    if (f) {
+        CHECK(f->team_scoped);                               // still team-scoped (isolation preserved)
+        CHECK_FALSE(f->is_reply);
+        CHECK(f->dst_id == 234);
+        CHECK(f->ttl_or_next_hop == protocol::team_hop_cap); // ★★ 8 — pre-T1 this site flooded at the static 16
+    }
+}
+
+TEST_CASE("§team-parity T1 — the team RREQ hop-cap and the team RREP backstop ride team_hop_cap (2x for the reply)") {
+    // node_route_discovery.cpp:224 feeding :233 and :283. Measured with a direct counter: 3 team-plane executions in
+    // the whole 32-scenario corpus, all in s28, at hops 0 (RREQ) and 1 (RREP ×2) — far below BOTH the old bound
+    // (16 / 32) and the new one (8 / 16), so the corpus cannot observe the cap VALUE even where it executes the line.
+    // Bounds under test: RREQ drops at hops >= 8 (was 16); RREP drops at hops > 16 (was 32).
+    const uint32_t TEAM = 0x06EF37AEu;
+    auto mk_team_f = [&](bool reply, uint8_t hops, uint8_t ttl_or_next, std::array<uint8_t,16>& buf) -> size_t {
+        f_in in{}; in.leaf_id=0; in.origin=213; in.is_reply=reply; in.dst_id=174;
+        in.ttl_or_next_hop=ttl_or_next; in.hops=hops; in.relay=200; in.config_hash=0;
+        in.team_scoped=true; in.team_id=TEAM;
+        return pack_f(in, std::span<uint8_t>(buf.data(), buf.size()));
+    };
+    RxMeta m{12.0f,-70.0f,0,static_cast<int8_t>(200)};
+    // ---- RREQ guard: `f.hops >= hop_cap_for(team)`.
+    auto rreq_dropped = [&](uint8_t hops) {
+        TestHal hal; Node N(hal, /*id=*/234, /*key=*/0xA234u); t1_offgrid(N, 234, TEAM);
+        std::array<uint8_t,16> fb{}; const size_t n = mk_team_f(/*reply=*/false, hops, /*ttl=*/4, fb);
+        N.on_recv(fb.data(), n, m);
+        return hal.count("rreq_drop_hop_cap") == 1;
+    };
+    CHECK_FALSE(rreq_dropped(protocol::team_hop_cap - 1));   // 7 hops: the deepest legal team RREQ, accepted
+    CHECK(rreq_dropped(protocol::team_hop_cap));             // ★★ 8: dropped — pre-T1 the bound was 16, so this PASSED
+    CHECK(rreq_dropped(protocol::dv_hop_cap));               // 16 still dropped (the static bound is a superset)
+    // ---- RREP backstop: `f.hops > 2 * hop_cap_for(team)`. Addressed to us so the unicast gate lets it through.
+    auto rrep_dropped = [&](uint8_t hops) {
+        TestHal hal; Node N(hal, /*id=*/234, /*key=*/0xA234u); t1_offgrid(N, 234, TEAM);
+        std::array<uint8_t,16> fb{}; const size_t n = mk_team_f(/*reply=*/true, hops, /*next_hop=*/234, fb);
+        N.on_recv(fb.data(), n, m);
+        return hal.count("rrep_drop_hop_cap") == 1;
+    };
+    CHECK_FALSE(rrep_dropped(2 * protocol::team_hop_cap));   // 16 = the legal worst case (8-hop cacher + 8-hop reverse)
+    CHECK(rrep_dropped(2 * protocol::team_hop_cap + 1));     // ★★ 17: dropped — pre-T1 the bound was 32, so this PASSED
+    // ---- Control, SAME code path with team==false: the static bounds are untouched.
+    auto static_f = [&](bool reply, uint8_t hops, uint8_t ttl_or_next, std::array<uint8_t,16>& buf) -> size_t {
+        f_in in{}; in.leaf_id=0; in.origin=99; in.is_reply=reply; in.dst_id=98;
+        in.ttl_or_next_hop=ttl_or_next; in.hops=hops; in.relay=200; in.config_hash=0;
+        return pack_f(in, std::span<uint8_t>(buf.data(), buf.size()));
+    };
+    auto static_node = [&](bool reply, uint8_t hops, uint8_t tn, const char* ev) {
+        TestHal hal; Node N(hal, /*id=*/234, /*key=*/0xA234u);
+        NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0; CHECK(N.on_init(cfg));
+        std::array<uint8_t,16> fb{}; const size_t n = static_f(reply, hops, tn, fb);
+        N.on_recv(fb.data(), n, m);
+        return hal.count(ev) == 1;
+    };
+    CHECK_FALSE(static_node(false, protocol::team_hop_cap,        4,   "rreq_drop_hop_cap"));   // ★ 8 hops still fine on the static plane
+    CHECK      (static_node(false, protocol::dv_hop_cap,          4,   "rreq_drop_hop_cap"));   // 16 = the static bound
+    CHECK_FALSE(static_node(true,  2 * protocol::team_hop_cap + 1, 234, "rrep_drop_hop_cap"));  // ★ 17 still fine on the static plane
+    CHECK      (static_node(true,  2 * protocol::dv_hop_cap + 1,   234, "rrep_drop_hop_cap"));  // 33 = the static bound
+}
+
+TEST_CASE("§team-parity T1 — an off-grid member may `send -t <unknown id> -a`: the E2E-ACK gate is plane-aware, not is_team_peer-only") {
+    // node_mac.cpp:68. The mobile_no_home refusal exists because a NON-team reply leg needs a routable home to stamp
+    // as origin. A TEAM send has no such need — it stamps the team_local_id and the reverse ack rides _rt_team (the
+    // RREQ laid the reverse path at every relay). Pre-T1 the gate keyed on is_team_peer alone, so `-t -a` to an
+    // unheard teammate was refused mobile_no_home — the same chicken-and-egg as the send guard, one layer down.
+    const uint32_t TEAM = 0x06EF37AEu;
+    auto ack_send = [&](Node& n, uint8_t dst, uint8_t plane) {
+        Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = dst; c.u.send.plane = plane;
+        c.u.send.flags = DATA_FLAG_E2E_ACK_REQ;
+        c.body = reinterpret_cast<const uint8_t*>("hi"); c.body_len = 2;
+        return n.on_command(c);
+    };
+    { TestHal hal; Node A(hal, /*id=*/213, /*key=*/0xA213u); t1_offgrid(A, 213, TEAM);   // off-grid: NO home at all
+      const CmdResult r = ack_send(A, /*dst=*/174, /*plane=*/1 /*TEAM*/);
+      CHECK(r.code == CmdCode::queued);
+      CHECK(r.ctr != 0);                                     // ★★ enqueue_data minted a ctr (0 = it refused)
+      CHECK(hal.count("send_failed") == 0); }                // ★★ no mobile_no_home
+    // Control: the SAME homeless mobile sending -a on the GLOBAL plane is still refused — the guard is intact.
+    { TestHal hal; Node A(hal, /*id=*/213, /*key=*/0xA213u); t1_offgrid(A, 213, TEAM);
+      const CmdResult r = ack_send(A, /*dst=*/174, /*plane=*/2 /*GLOBAL*/);
+      CHECK(r.ctr == 0);                                     // ★ still refused
+      CHECK(hal.count("send_failed") == 1);
+      const Ev* e = hal.last("send_failed"); CHECK(e != nullptr); if (e) CHECK(e->dst == 174); }
 }
 
 TEST_CASE("§mobile — a MOBILE-marked Q's src (a home-assigned LOCAL id) is NEVER learned into the static _rt; a static Q IS (the dest=17 bench leak)") {

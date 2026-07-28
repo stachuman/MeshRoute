@@ -136,13 +136,15 @@ void Node::cascade_to_alt(const char* giveup_event) {
             // team_local_id and those index the STATIC _peer_liveness / _link_bidi arrays (§18 aliasing). Full team<->static
             // separation on the reroute path; team liveness is 2c (for 2b, cascade-exhaustion is the trigger, rate-limited
             // by the team _rreq ledger).
-            // §team-parity T0: the TTL now reads through the plane accessor. ★ The cap argument is DELIBERATELY
-            // `false` while the RREQ's own plane argument stays `true` — this site already emits a TEAM-scoped RREQ,
-            // but at the STATIC radius of 16, and changing that radius to 8 is a behaviour change (C1: not in a
-            // refactor). Measured corpus reach: 0/32 scenarios (this branch is dark today — see the report), so the
-            // gate is BLIND here and algebra is the only proof: hop_cap_for(false) == _cfg.dv_hop_cap.
-            // MISSING → T1 flips the cap argument to `true` (spec §3/T1: "Team RREQ TTL escalation uses team_hop_cap").
-            emit_route_request(pt.dst, hop_cap_for(/*team_plane=*/false), /*team_plane=*/true);
+            // §team-parity T1 (spec §3/T1 "Team RREQ TTL escalation uses team_hop_cap"): ★ DONE — the cap argument
+            // now matches the RREQ's own plane argument, so a team cascade-exhaustion rediscovery floods at
+            // team_hop_cap (8, R4's team ceiling) instead of the static radius of 16. This is a behaviour change and
+            // is why T1 is not a byte-identity slice.
+            // ★★ GATE-BLIND, measured 0/32 at T0 and re-measured 0/32 at T1 with a same-site control proving the
+            // branch is genuinely dark (cascade_to_alt is entered 1148 times, `pt.plane == AUTO` every time), NOT
+            // weakly probed. Byte-identity CANNOT see a mistake here. Native coverage:
+            // test_node_r3.cpp "§team-parity T1 — team cascade exhaustion re-floods at team_hop_cap, not dv_hop_cap".
+            emit_route_request(pt.dst, hop_cap_for(/*team_plane=*/true), /*team_plane=*/true);
             try_cascade_requeue(pt, giveup_event);
             return;
         }
@@ -309,12 +311,16 @@ void Node::try_drain_deferred() {
             continue;
         }
         const bool team_rreq = (d.item.plane == Plane::TEAM) || (d.item.plane == Plane::AUTO && is_team_peer(d.item.dst));   // §F-TR-2: requery on the item's OWN plane (team dst -> team-scoped RREQ)
-        // §team-parity T0: requery TTL through the plane accessor. ★ DELIBERATELY `false`, not `team_rreq` — this
-        // site already requeries on the item's OWN plane, so passing team_rreq would move a team requery's radius
-        // 16 -> 8 = behaviour change (C1). Measured corpus reach: 783 executions, ALL with team_rreq==false, so the
-        // team half is corpus-dark and algebra is its only proof: hop_cap_for(false) == _cfg.dv_hop_cap.
-        // MISSING → T1 flips the cap argument to `team_rreq`.
-        emit_route_request(d.item.dst, hop_cap_for(/*team_plane=*/false), team_rreq); // still no route -> requery at full radius (rate-limited)
+        // §team-parity T1: ★ DONE — the requery TTL is now the item's OWN plane's radius (team_hop_cap 8 / dv_hop_cap
+        // 16), matching the plane the requery already flooded on. This is the TTL escalation the spec's §3/T1 table
+        // calls out at +1 s: the ttl=1 probe fired by defer_send, then this at full plane radius. The escalation
+        // bypasses the rreq_rate_ok window precisely because the ttl grows (node_route_discovery.cpp:66-70), so the
+        // team radius must be the one the team ledger records — with the static 16 here a subsequent legitimate
+        // team requery at 8 would read as a DE-escalation and be suppressed.
+        // Static reduction: team_rreq==false ⇒ hop_cap_for(false) == _cfg.dv_hop_cap, the pre-T0 expression verbatim.
+        // Coverage: 783 corpus executions, ALL static (team half dark) → native
+        // test_node_r3.cpp "§team-parity T1 — the deferred-drain requery escalates to team_hop_cap on a team item".
+        emit_route_request(d.item.dst, hop_cap_for(/*team_plane=*/team_rreq), team_rreq); // still no route -> requery at full plane radius (rate-limited)
         _active->_deferred[w++] = d;                              // still no route + not expired -> keep
     }
     _active->_deferred_n = w;

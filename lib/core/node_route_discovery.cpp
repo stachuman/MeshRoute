@@ -87,6 +87,36 @@ bool Node::rreq_rate_ok(uint8_t dst, uint8_t ttl, bool team_plane) {
     return true;
 }
 
+// Periodic sweep (kAgingTimerId, alongside age_out_stale_routes) for BOTH rate-limit ledgers. Without it the tables are
+// append-only: `rreq_rate_ok` refuses every NEW dst once full (back-pressure, deliberately NOT LRU), and nothing ever
+// frees a slot — so after `cap` distinct destinations route discovery is DEAD on this node until a reprovision
+// (clear_learned_state, static) / a team switch (set_team_id, team) or a reboot, and the app sees only
+// send_failed{no_route}. The team half became reachable when the `!is_team_peer(dst)` precondition was dropped from the
+// on-demand team-discovery trigger; the static half needs `cap_route_request_last` (128) distinct dsts over an uptime.
+//
+// ★ TTL = route_request_seen_ttl_ms — the SAME window rreq_rate_ok itself reads with (`window_open` above), NOT a
+// longer "is it a corpse" guess. Past that window `window_open` is unconditionally true, so the entry can no longer
+// suppress anything and its stored `ttl` is never consulted (the `escalate` term only ever ORs into an already-true
+// condition): it is spent, and holding it merely burns the bounded discovery budget. Matching the predicate's window
+// also keeps the recent_ring.h family invariant — a sweep can never drop an entry the read path still honours — which
+// makes this age-out outcome-IDENTICAL to no age-out except at cap saturation, i.e. exactly the state being fixed.
+// (Deliberately NOT send_defer_ttl_ms: that is the no-route deferred-send queue's patience, a different regime — see
+// the same decoupling argument at protocol_constants.h's hash_locate_giveup_ms.)
+//
+// ★ SCOPE — done vs deliberately not done. Swept here: `_rreq_last` AND `_rreq_last_team`, because they are the two
+// arms of the SAME ternary in rreq_rate_ok and carry the identical refuse-when-full failure mode (the team arm just
+// saturates 8x sooner, at 16). NOT swept, and they do not need it: the `_rreq_seen`/`_rreq_seen_team` dedup rings go
+// through recent_ring_mark, which EVICTS THE OLDEST when full instead of refusing — a full seen-ring degrades the dedup
+// window, it can never wedge — and every read (recent_ring_hit) already applies the same TTL, so a spent entry there is
+// inert rather than blocking. Their compaction would be cosmetic; this one is a liveness fix.
+void Node::age_out_rreq_last() {
+    const uint64_t now = _hal.now();
+    recent_ring_age_out(_active->_rreq_last, _active->_rreq_last_n, now, protocol::route_request_seen_ttl_ms);
+#if MR_FEAT_TEAM
+    recent_ring_age_out(_active->_rreq_last_team, _active->_rreq_last_team_n, now, protocol::route_request_seen_ttl_ms);
+#endif
+}
+
 // §F-XL-2: stash a built RREQ-forward frame into the round-robin ring + arm a de-stormed fire (kRreqForwardTimerId+slot).
 // Called by BOTH the static and team relay-forward paths — the packed F frame is self-contained (pack_f baked in the
 // leaf_id + team scope), so ONE ring serves both planes. Only the RELAY forward is de-stormed; an ORIGINATED RREQ
@@ -214,14 +244,24 @@ void Node::handle_f_common(const f_out& f, const RxMeta& meta, bool team, uint8_
     const uint8_t prev  = f.relay;
     if (prev == 0xFF || prev == me) return;
     const int16_t snr_q4 = protocol::db_to_q4(meta.snr_db);
-    // §team-parity T0: the hop ceiling for BOTH backstops below, read through the plane accessor.
-    // ★ DELIBERATELY `false`, NOT `team` — this body IS reached with team==true today (measured: 1 team RREQ + 1 team
-    // RREP in s28 over the 32-scenario corpus), so `hop_cap_for(team)` would drop the team RREQ bound 16 -> 8 and the
-    // team RREP backstop 32 -> 16. That is a behaviour change, which T0 (a pure refactor, C1) must not make.
-    // MISSING → T1 flips this to `hop_cap_for(team)` and gates the resulting team-plane delta.
-    // Static reduction: team_plane==false ⇒ hop_cap == _cfg.dv_hop_cap, identically on every build profile
-    // (hop_cap_for is not MR_FEAT_TEAM-gated), so both guards below are the pre-T0 expressions verbatim.
-    const uint8_t hop_cap = hop_cap_for(/*team_plane=*/false);
+    // §team-parity T1 (was T0's placeholder `false`): the hop ceiling for BOTH backstops below, on THIS frame's plane.
+    // ★ DONE at T1. The two guards must track the TTL the originator actually used, and T1 moves the team RREQ TTL to
+    // team_hop_cap (8) at node_cascade.cpp:145/:317. Leaving them on the static 16/32 while the TTL is 8 would leave
+    // the team plane with backstops that can never fire — incoherent, not conservative.
+    //   · RREQ guard (`f.hops >= hop_cap`): the cap IS the TTL, so a legitimate RREQ's hops never reach it — the
+    //     relationship is preserved exactly, at 8 for team and 16 for static.
+    //   · RREP backstop (`f.hops > 2*hop_cap`): a valid reply accumulates ≤ cap (cached distance) + ≤ cap (reverse
+    //     RREQ TTL), so 2*cap is the same bound re-derived on the team radius: 16 for team, 32 for static.
+    // Static reduction: team==false ⇒ hop_cap == hop_cap_for(false) == _cfg.dv_hop_cap, identically on every build
+    // profile (hop_cap_for is not MR_FEAT_TEAM-gated), so both guards below stay the pre-T0 expressions verbatim.
+    // ★ VALUE-BLIND TO THE CORPUS, measured at T1 with a direct execution counter (not inferred): this line runs
+    // 4361 times across the 32 scenarios, of which exactly THREE are team-plane — all in s28, one RREQ at
+    // `hops == 0` and two RREPs at `hops == 1`. Both bounds, old (16 / 32) and new (8 / 16), are orders of magnitude
+    // above those values, so the guards decide identically either way and ALL 32 SCENARIOS STAY BYTE-IDENTICAL
+    // through this change. Executed ≠ observable. (T0 recorded 1 RREQ + 1 RREP; the RREP count is 2.)
+    // Native coverage: test_node_r3.cpp "§team-parity T1 — the team RREQ hop-cap and the team RREP backstop ride
+    // team_hop_cap (2x for the reply)", which drives both bounds from below and above with a static control.
+    const uint8_t hop_cap = hop_cap_for(/*team_plane=*/team);
 
     if (!f.is_reply) {                                     // ----------------- RREQ -----------------
         if (f.origin == me) return;                        // our own flood, heard back
@@ -230,7 +270,7 @@ void Node::handle_f_common(const f_out& f, const RxMeta& meta, bool team, uint8_
         // AND re-seeds on each re-flood = network-wide poison from one crafted frame. Gate at the top (before
         // learn_route_via AND the re-flood) exactly like the RREP dv_hop_cap backstop below. A legitimate RREQ's
         // hops can't reach dv_hop_cap (it's the TTL bound) — beyond that it's forged/looped -> drop, don't learn.
-        if (f.hops >= hop_cap) {   // §team-parity T0: was `_cfg.dv_hop_cap`; hop_cap is hop_cap_for(false) = the same value
+        if (f.hops >= hop_cap) {   // §team-parity T1: hop_cap is hop_cap_for(team) — dv_hop_cap 16 static / team_hop_cap 8 team
             MR_EMIT("rreq_drop_hop_cap", EF_I("origin", f.origin), EF_I("dst", f.dst_id), EF_I("hops", f.hops));
             return;
         }
@@ -276,11 +316,11 @@ void Node::handle_f_common(const f_out& f, const RxMeta& meta, bool team, uint8_
         // Loop/over-cap backstop: unlike the RREQ (TTL-bounded + rreq_seen-deduped), the unicast RREP relay had NO
         // bound. An inconsistent reverse path (A->origin via B, B->origin via A — e.g. after a link drop the routes
         // disagree) ping-pongs the reply forever, `hops` climbing unbounded (observed 90+ on metal -> an F storm).
-        // f.hops accumulates the answerer's distance-to-dst (<= dv_hop_cap, a cached route) PLUS the reverse hops back
-        // to origin (<= dv_hop_cap, the RREQ TTL), so a VALID reply can legitimately reach ~2x dv_hop_cap (far-cacher
+        // f.hops accumulates the answerer's distance-to-dst (<= hop_cap, a cached route) PLUS the reverse hops back
+        // to origin (<= hop_cap, the RREQ TTL), so a VALID reply can legitimately reach ~2x hop_cap (far-cacher
         // long-alt routes — seen in s18). Only beyond that is it necessarily a loop -> drop. (A tighter, hop-independent
         // bound needs an RREP dedup; this is just the unbounded-loop safety net — the user's metal loop hit 90+.)
-        if (f.hops > static_cast<uint8_t>(2 * hop_cap)) {   // §team-parity T0: was `_cfg.dv_hop_cap`; hop_cap is hop_cap_for(false) = the same value
+        if (f.hops > static_cast<uint8_t>(2 * hop_cap)) {   // §team-parity T1: hop_cap is hop_cap_for(team) — bound 32 static / 16 team
             MR_EMIT("rrep_drop_hop_cap", EF_I("origin", f.origin), EF_I("dst", f.dst_id), EF_I("hops", f.hops));
             return;
         }

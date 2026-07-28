@@ -434,6 +434,12 @@ struct DualLayerTestAccess {
     // untouched (they belong to the static network, which did not change).
     static void           static_rreq_mark(Node& n, uint8_t o, uint8_t d) { n.mark_rreq_seen(o, d, /*team_plane=*/false); }
     static bool           static_rreq_seen(Node& n, uint8_t o, uint8_t d) { return n.rreq_seen_recently(o, d, /*team_plane=*/false); }
+    // §rreq-last-ageout seams: the static twin of team_rreq_rate_ok/team_rreq_last_n, plus the periodic sweep itself
+    // (kAgingTimerId is private, so the literal timer id never leaks into a test).
+    static bool           static_rreq_rate_ok(Node& n, uint8_t d, uint8_t ttl) { return n.rreq_rate_ok(d, ttl, /*team_plane=*/false); }
+    static uint8_t        static_rreq_last_n(Node& n)        { return n._active->_rreq_last_n; }
+    static void           aging_sweep(Node& n)               { n.on_timer(Node::kAgingTimerId); }
+    static void           emit_rreq(Node& n, uint8_t dst, uint8_t ttl, bool team) { n.emit_route_request(dst, ttl, team); }
     static int            gw_schedule_count(Node& n) { int c = 0; for (auto& g : n._gw_schedules) if (g.valid) ++c; return c; }
     static int            bridged_layer_count(Node& n) { int c = 0; for (auto& b : n._bridged_layers) if (b.valid) ++c; return c; }
     static void           seed_hosted_mobile(Node& n, uint8_t local_id, uint32_t key) {   // as a mobile CLAIM would (node_join.cpp) — without the J-frame machinery
@@ -4342,6 +4348,118 @@ TEST_CASE("§clean-team — clear_routing_state (the static reprovision verbs) s
     // clear_team_routing_state on its own is idempotent and safe with no team plane at all
     mob.clear_team_routing_state(); mob.clear_team_routing_state();
     CHECK(mob.rt_team_count() == 0);
+}
+
+// ============================================================================================================
+// §rreq-last-ageout (2026-07-28) — the per-dst RREQ rate-limit ledgers get a periodic sweep, so a node cannot
+// permanently lose route discovery. rreq_rate_ok REFUSES a new dst when its table is full (bounded in-flight-discovery
+// budget, deliberately not LRU) and NOTHING ever freed a slot: after `cap` distinct destinations the node emits zero
+// RREQs for good — until a reprovision (static) / team switch (team) / reboot — and the app sees only
+// send_failed{no_route}, indistinguishable from a genuine miss. The team arm (cap 16) became reachable when on-demand
+// team discovery stopped requiring is_team_peer(dst); the static arm (cap 128) needs a long uptime.
+// ⚠ Corpus-DARK by construction: across all 32 scenarios rreq_rate_ok is called 1115x on the static plane (max
+// occupancy 5 of 128) and exactly ONCE on the team plane (at n=0), and `table_cap_hit` never appears at all — so these
+// native tests are the ENTIRE detector for both the saturation and the recovery.
+// ============================================================================================================
+
+// Fill a plane's rate-limit ledger with `count` distinct ghost dsts, all stamped at the CURRENT clock.
+static void fill_rreq_last(Node& n, bool team, uint8_t first, uint8_t count) {
+    for (uint8_t i = 0; i < count; ++i) {
+        const uint8_t dst = static_cast<uint8_t>(first + i);
+        const bool ok = team ? DualLayerTestAccess::team_rreq_rate_ok(n, dst, 1)
+                             : DualLayerTestAccess::static_rreq_rate_ok(n, dst, 1);
+        CHECK(ok);                                   // every fresh dst is admitted while there is room
+    }
+}
+
+TEST_CASE("★ §rreq-last-ageout — TEAM plane: 16 distinct dsts wedge discovery; the sweep RECOVERS it, and a 17th dst then discovers") {
+    StubHal hal; Node mob(hal, 0, 0x7A31u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=4;
+    cfg.is_mobile=true; cfg.team_id=0xAAAA1111u; CHECK(mob.on_init(cfg));
+    mob.team_dad_fire(); mob.on_timer(77);                        // a CONFIRMED team-DAD local id -> emit_route_request will originate
+    CHECK(mob.team_local_id() >= 17);
+
+    hal._now = 100000;
+    fill_rreq_last(mob, /*team=*/true, /*first=*/1, /*count=*/16);          // the team ledger is exactly 16 slots
+    CHECK(DualLayerTestAccess::team_rreq_last_n(mob) == 16);                // FULL
+
+    // (a) THE DISEASE, proven before the cure: a 17th distinct dst is refused, and the refusal reaches the WIRE path.
+    CHECK_FALSE(DualLayerTestAccess::team_rreq_rate_ok(mob, 200, 1));
+    hal.emits.clear();
+    DualLayerTestAccess::emit_rreq(mob, 201, 1, /*team=*/true);                    // a genuinely new team dst
+    CHECK(hal.count("r_tx") == 0);                                          // ★ zero floods — discovery is DEAD
+    CHECK(hal.saw_emit("table_cap_hit"));                                   // and it fails SILENTLY to the app
+
+    // (b) let the entries go spent, then run the periodic sweep.
+    hal._now = 100000 + protocol::route_request_seen_ttl_ms + 1;
+    DualLayerTestAccess::aging_sweep(mob);
+    CHECK(DualLayerTestAccess::team_rreq_last_n(mob) == 0);                 // every corpse reclaimed
+
+    // (c) ★ THE RECOVERY — the 17th destination now discovers, all the way to an actual RREQ on the wire.
+    hal.emits.clear();
+    CHECK(DualLayerTestAccess::team_rreq_rate_ok(mob, 200, 1));             // admitted again
+    DualLayerTestAccess::emit_rreq(mob, 201, 1, /*team=*/true);
+    CHECK(hal.count("r_tx") == 1);                                         // ★ the flood the wedged node could not emit
+    CHECK_FALSE(hal.saw_emit("table_cap_hit"));
+}
+
+TEST_CASE("★ §rreq-last-ageout — the sweep is SELECTIVE: a still-live entry SURVIVES and keeps suppressing while the spent ones go") {
+    // The sharp case. A sweep that simply emptied the table would pass a "does recovery happen" test while destroying
+    // the rate limit itself, so this pins BOTH directions: spent entries dropped, a fresh one kept AND still suppressing.
+    StubHal hal; Node mob(hal, 0, 0x7A32u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=4;
+    cfg.is_mobile=true; cfg.team_id=0xAAAA1111u; CHECK(mob.on_init(cfg));
+    mob.team_dad_fire(); mob.on_timer(77);
+
+    hal._now = 100000;
+    fill_rreq_last(mob, /*team=*/true, /*first=*/1, /*count=*/16);
+    hal._now = 100000 + protocol::route_request_seen_ttl_ms + 1;            // all 16 are now spent
+    CHECK(DualLayerTestAccess::team_rreq_rate_ok(mob, 3, 1));               // ...and dst 3 is re-asked NOW -> restamped live
+    CHECK(DualLayerTestAccess::team_rreq_last_n(mob) == 16);                // still 16 rows (a refresh, not an append)
+
+    DualLayerTestAccess::aging_sweep(mob);
+    CHECK(DualLayerTestAccess::team_rreq_last_n(mob) == 1);                 // ★ 15 spent dropped, the live one KEPT
+    CHECK_FALSE(DualLayerTestAccess::team_rreq_rate_ok(mob, 3, 1));         // ★ and it is the RIGHT one: dst 3 still suppressed
+    CHECK(DualLayerTestAccess::team_rreq_rate_ok(mob, 7, 1));               // a swept dst is free to discover again
+}
+
+TEST_CASE("★ §rreq-last-ageout — STATIC plane: the same wedge at cap_route_request_last, the same recovery") {
+    StubHal hal; Node mob(hal, 42, 0x7A33u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=4;
+    CHECK(mob.on_init(cfg));                                                // a plain STATIC node — no mobile, no team
+    const uint8_t cap = cfg.cap_route_request_last;
+    CHECK(cap == protocol::cap_route_request_last);
+
+    hal._now = 100000;
+    fill_rreq_last(mob, /*team=*/false, /*first=*/100, cap);                // 100,101,... wraps the uint8 dst space, all distinct
+    CHECK(DualLayerTestAccess::static_rreq_last_n(mob) == cap);
+    CHECK_FALSE(DualLayerTestAccess::static_rreq_rate_ok(mob, 99, 1));      // the wedge (dst 99 is outside the filled run)
+
+    hal._now = 100000 + protocol::route_request_seen_ttl_ms + 1;
+    DualLayerTestAccess::aging_sweep(mob);
+    CHECK(DualLayerTestAccess::static_rreq_last_n(mob) == 0);
+    CHECK(DualLayerTestAccess::static_rreq_rate_ok(mob, 99, 1));            // ★ recovered
+}
+
+TEST_CASE("§rreq-last-ageout — a sweep with nothing spent changes nothing (the no-op direction), and both planes sweep independently") {
+    StubHal hal; Node mob(hal, 0, 0x7A34u);
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<7); cfg.leaf_id=4;
+    cfg.is_mobile=true; cfg.team_id=0xAAAA1111u; CHECK(mob.on_init(cfg));
+    mob.team_dad_fire(); mob.on_timer(77);
+
+    hal._now = 100000;
+    fill_rreq_last(mob, /*team=*/true,  /*first=*/1,  /*count=*/4);
+    fill_rreq_last(mob, /*team=*/false, /*first=*/50, /*count=*/6);
+    DualLayerTestAccess::aging_sweep(mob);                                  // same instant -> nothing is spent
+    CHECK(DualLayerTestAccess::team_rreq_last_n(mob) == 4);
+    CHECK(DualLayerTestAccess::static_rreq_last_n(mob) == 6);
+    CHECK_FALSE(DualLayerTestAccess::team_rreq_rate_ok(mob, 2, 1));         // the rate limit is fully intact
+    CHECK_FALSE(DualLayerTestAccess::static_rreq_rate_ok(mob, 51, 1));
+
+    hal._now = 100000 + protocol::route_request_seen_ttl_ms + 1;
+    DualLayerTestAccess::aging_sweep(mob);
+    CHECK(DualLayerTestAccess::team_rreq_last_n(mob) == 0);                 // both planes reclaimed by the ONE sweep
+    CHECK(DualLayerTestAccess::static_rreq_last_n(mob) == 0);
 }
 
 // ============================================================================================================

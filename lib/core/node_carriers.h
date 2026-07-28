@@ -141,12 +141,17 @@ struct NodeConfig {
     // Node::hop_cap_for(team_plane) — never index a cap by hand. NOT MR_FEAT_TEAM-gated, deliberately: the
     // accessor must compile identically on the three gateway_* envs (MR_FEAT_TEAM 0), so a later slice cannot
     // route a live path through a team-gated stub the corpus is blind to (the 2026-07-27ze near-miss).
-    // ★ INERT AT T0 — nothing reads it yet; hop_cap_for(true) is not called from anywhere until T1.
-    // ★ MISSING ON PURPOSE at T0, and none of it is needed while the member is inert: no console surface
-    // (`cfg set hop_cap` at firmware_config.cpp:163 still writes dv_hop_cap only), no `cfg`/`status` readout
-    // (firmware_commands.cpp:181, console_json.cpp:525, console_binary.cpp:122 all print dv_hop_cap alone), and no
-    // NV/J-frame provisioning. dv_hop_cap's own console knob is already `persist = false` (live-only, reboot reverts),
-    // so there is no NV blob to extend either. Whichever slice first passes team_plane=true owns that decision.
+    // ★ LIVE SINCE T1 — the team discovery plane reads it: the cascade-exhaustion + deferred-drain RREQ TTLs
+    // (node_cascade.cpp:145/:317) and the RREQ/RREP hop-cap backstops (node_route_discovery.cpp:224). The team DV
+    // combined-hops cap (node_beacon.cpp:846) still runs on dv_hop_cap — see the DONE/MISSING note on hop_cap_for.
+    // ★ STILL MISSING, deliberately, and T1 did not need it: no console surface (`cfg set hop_cap` at
+    // firmware_config.cpp:163 still writes dv_hop_cap only), no `cfg`/`status` readout (firmware_commands.cpp:181,
+    // console_json.cpp:525, console_binary.cpp:122 all print dv_hop_cap alone), and no NV/J-frame provisioning — so
+    // the value is compile-time-fixed at 8 on metal. dv_hop_cap's own console knob is already `persist = false`
+    // (live-only, reboot reverts), so there is no NV blob to extend either. WHY NOT NOW: R4 fixes the team ceiling at
+    // 8 by design (3-10 members, stragglers to 8), unlike dv_hop_cap which is a per-network provisioning choice
+    // carried on the J frame. A knob would invite per-node divergence on a plane that has no provisioning authority
+    // to reconcile it — every member self-DADs. Revisit only if a real deployment needs a different team radius.
     // Placed here (immediately after dv_hop_cap, ahead of the 8-byte-aligned `double radio_freq_mhz` below) so it
     // lands in the SAME existing alignment padding the radio_freq_mhz note describes: measured native offsets are
     // dv_hop_cap@93 / radio_freq_mhz@96, i.e. bytes 94-95 are pure pad. Cost measured: sizeof(NodeConfig) 264 -> 264.

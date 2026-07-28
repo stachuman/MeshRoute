@@ -949,6 +949,7 @@ void Node::on_timer(uint32_t timer_id) {
         age_out_parked_sends();       // hash-locate D: give up on DMs whose hash never resolved
         age_out_denied_ids();         // node_id DAD: a denied slot becomes reusable after dad_denied_id_ttl_ms
         age_out_mediated();           // L2a: drop mediation-suppression records past the window
+        age_out_rreq_last();          // F route-discovery: free spent per-dst RREQ rate-limit slots (BOTH planes) — the table is refuse-when-full, so with no age-out `cap` distinct dsts kill discovery for good
         (void)_hal.after(_cfg.rt_aging_check_period_ms, kAgingTimerId);
         break;
     case kTriggeredBeaconTimerId:
@@ -1107,7 +1108,34 @@ CmdResult Node::on_command(const Command& c) {
                 const uint16_t ctr = send_by_hash(c.u.send.dst_hash, c.body, c.body_len, c.u.send.flags, c.crypt, /*reply_to_hash=*/0, /*mobile_ctr=*/0, plane, /*type=*/0, /*suppress_intro=*/c.no_intro);   // §D1 `-K`
                 return CmdResult{ CmdCode::queued, ctr, _active->_tx_queue_n, c.u.send.dst_hash, /*layer_path*/ 0 };
             }
-            if (plane == Plane::TEAM && !is_team_peer(c.u.send.dst_id))   // §6.4: `send -t <id>` to a non-teammate (no _rt_team route) -> fail loud, don't storm the static plane
+            // §team-parity T1 (spec 2026-07-27 §3/T1): `send -t <id>` is refused on CONFIGURATION ONLY — never on
+            // "we have not heard that teammate yet". The pre-T1 guard was `!is_team_peer(dst)`, a chicken-and-egg
+            // deadlock: EVERY team-RREQ entry point (defer_send / try_drain_deferred / cascade_to_alt) sits
+            // DOWNSTREAM of do_send, so the guard foreclosed the very discovery that would have satisfied it — a team
+            // id could only be discovered once it had already been discovered. The 2026-07-27 bench failure (member
+            // 213 could not `send 174 "…" -t` over the relay 234) returned here as `err ctr=0 depth=0`, i.e. refused
+            // before a counter was minted. An unknown teammate id is now the NORMAL input to discovery.
+            // ★ WHY THE OLD COMMENT'S "don't storm the static plane" RATIONALE DOES NOT SURVIVE (verified, not
+            // assumed — this is the single assumption T1 rests on): a team RREQ cannot reach the static plane at all.
+            // emit_route_request's team arm (node_route_discovery.cpp:116) needs team_local_id()!=0, uses the
+            // team-PRIVATE rate/dedup ledgers and stamps team_scoped=true; handle_f (:183) drops a team_scoped F with
+            // the `return` placed OUTSIDE the `#if MR_FEAT_TEAM`, so even a MR_FEAT_TEAM 0 gateway build drops it
+            // rather than falling into the static F body; handle_f_team (:314) then requires is_mobile + same_team +
+            // a DAD'd id. Static, wrong-team and not-yet-DAD'd nodes all bail before touching state.
+            // Cost of an id that does not exist: ~3 team-scoped floods over send_defer_ttl_ms (ttl=1 probe at
+            // defer_send, then requeries at team_hop_cap gated by route_request_seen_ttl_ms), then a loud
+            // send_failed{no_route}. Bounded and self-limiting — strictly better than an instant refusal that is
+            // loud but WRONG for a teammate that genuinely exists.
+            // Membership test: the SAME predicate the sibling `send_channel -t` verb uses below (:1130,
+            // `_cfg.is_mobile && _cfg.team_id != 0`) — U1, one definition of "this node is on the team plane" — PLUS
+            // team_local_id()!=0, because without a DAD'd id emit_route_request's team arm returns silently and the
+            // send would only fail 30 s later by TTL. Refuse loud now instead (C2).
+            // Static reduction: `plane != Plane::TEAM` on every static / AUTO / GLOBAL send, so this guard is
+            // unreachable there — exactly as the pre-T1 expression was. Build profiles: on the three gateway_* envs
+            // (MR_FEAT_TEAM 0) team_local_id() stubs to 0 (node.h:197) and is_team_peer() to false, so a TEAM send is
+            // refused unconditionally on both the pre- and post-T1 form — the feature is absent and refusing is its
+            // correct inert shape.
+            if (plane == Plane::TEAM && !(_cfg.is_mobile && _cfg.team_id != 0 && team_local_id() != 0))
                 return CmdResult{ CmdCode::err_no_binding, 0, _active->_tx_queue_n };
             const uint16_t ctr = do_send(c.u.send.dst_id, c.body, c.body_len, c.u.send.flags, c.crypt, /*override_dst_hash=*/0, /*type=*/0, /*override_source_hash=*/0, plane);   // §8b: per-message crypt + Wave 2 plane
             return CmdResult{ CmdCode::queued, ctr, _active->_tx_queue_n };   // id-addressed: dst_hash/layer_path = 0
