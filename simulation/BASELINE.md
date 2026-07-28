@@ -62,6 +62,49 @@ python3 tools/dm_delivery_breakdown.py simulation/<s>.json /tmp/<s>.ndjson --fai
 **GATE:** 36/36 scenarios 0 assertion failures, from-scratch `lus`. `sizeof(Node)` **220592** proven positively. Boards 3/3, **ΔRAM +0**. ΔFlash gateway **+16**, xiao_sx1262 **−64**, xiao_esp32s3 **−8** — ★ investigated per the >64 B rule and it pays off: on `gateway` (`MR_FEAT_TEAM 0`) **both changed TUs emit byte-identical `.o` files**, so its +16 is provably `__DATE__`/`__TIME__` noise **and that is the inertness proof at object-code level**; the −64/−8 are real (`node_mac_rx.o` 34352 → 34324 on ARM), one bit-test removed from the hot DATA path. Warnings 0 in `lib/`+`src/`, `-Wswitch` 0, identical in both arms with symmetric forced recompiles; sim from-scratch 3 warnings = BASELINE's 3.
 ⚠ **Excluded with a C1 argument (accepted):** the E2E-ACK gate's `is_team_peer(dst)` (`node_mac.cpp:89`) does **not** share this slice's predicate — it is a **send-side** plane qualification whose fix is T6's `flight_is_team_plane(plane,dst)`, against a **receive-side** learn; folding it in would also have made the s35a attribution ambiguous, and its control case (a GLOBAL send to a colliding id) exists in **no** scenario, so it needs its own file. Still owed. Also still open: the team-only `_per_origin_channel` clear, `schedule_sync_response`'s static `_rt_count`, `channel_pull`'s missing `team_id`, and the `rt_update` `slot` mislabel.
 
+★★★★ **2026-07-28 FINDING — `Plane::AUTO` IS UNREACHABLE ON REAL FIRMWARE, AND THREE MANDATORY TEAM SCENARIOS
+DEPEND ON IT.** Found by QA while scoping the `node_mac.cpp:89` slice; **verified, not inferred.**
+
+**`lib/console/console_parse.cpp:259` is the ONLY site in `lib/` or `src/` that assigns a DM's plane:**
+`out.u.send.plane = team ? 1 /*TEAM*/ : 2 /*GLOBAL*/;   // §6.4 HARD SPLIT: -t => team-only; plain send =>
+global/home (fails loud if no home)`. It **never emits 0 (AUTO)**. The companion/BLE transports share the same
+`dispatch()` and therefore the same parser, so GLOBAL is their default too. ⇒ **on metal a user-originated DM is
+always TEAM or GLOBAL; `Plane::AUTO` is simulator-only.**
+
+**The sim never emits GLOBAL for a DM.** `NodeRuntimeWrapper.cpp` assigns `u.send.plane` at exactly two sites
+(`:802` `send_hash`, `:913` the id-addressed verb), both **TEAM on a trailing ` -t`**, otherwise the field stays
+**0 = AUTO**. Nothing documents that as a deliberate choice — it reads as a **stale wrapper**: the firmware gained
+the §6.4 hard split (2026-07-13/14 team-plane bench fixes) and the sim was never updated to match.
+
+★ **CONSEQUENCE 1 — s24, s25 and s26 validate a path metal cannot take.** All three reach teammates with a
+**plain** `send_hash` and no `-t` (`send_hash cccc0003` / `aaaa0003` / `dddd0004`). In sim: AUTO ⇒ `rt_find` takes
+`is_team_peer` ⇒ routes `_rt_team` ⇒ delivers. On metal: GLOBAL ⇒ §18 forces `_rt`, **and**
+`node_hashlocate.cpp:1021` (`plane != Plane::GLOBAL && …`) **skips the team hash-locate branch entirely** ⇒ not a
+team DM at all, and for an off-grid member with an empty `_rt` it fails. **The sim is MORE PERMISSIVE than metal
+here** — the inverse of the usual concern, and it means these three scenarios' team delivery is not evidence about
+firmware behaviour.
+
+★ **CONSEQUENCE 2 — T6's AUTO arm is dead on metal, and my BASELINE record of it was wrong.** The T6 note above
+records the coder's justification for widening the predicate: *"the corpus's team DMs are AUTO — s24/s25/s26 use
+`send_hash` without `-t`; that is also the companion default."* The first half is true **of the sim**; the second
+half is **false** — the companion shares the console parser and so sends GLOBAL. ⚠ **T6's EXCLUSION of GLOBAL
+remains CORRECT** (§6.4's hard split is deliberate: a plain send is global/home and must fail loud without a home),
+and `flight_is_team_plane` still matches `rt_find` verbatim, which is the property that matters. What is wrong is
+only the *justification*: **the AUTO arm is simulator-only scaffolding, not a reflection of real usage.** Corrected
+here rather than silently.
+
+★ **CONSEQUENCE 3 — the `node_mac.cpp:89` gate is a DEFAULT-PATH bug on metal, not a corner case.** The gate reads
+`!(plane == Plane::TEAM || is_team_peer(dst))`. Since metal's `plane` is only ever TEAM or GLOBAL, the separate
+`is_team_peer(dst)` arm can fire **only for a GLOBAL flight** ⇒ a plain `send <teammate> -a` from a mobile with no
+routable home is **admitted as "team"** when §6.4 says it must fail loud. Raises that slice's priority. ⚠ **And its
+scenario control cannot be written until the sim can emit GLOBAL** — so either the divergence is fixed first, or
+that slice is native-only and must say so.
+
+⚠ **OWNER DECISION PENDING.** Fixing the sim to match firmware would make s24/s25/s26's plain team sends **fail**
+(correctly), so those scenarios need rewriting to `-t` — a multi-scenario re-anchor of the mandatory team set. That
+is the honest fix and it is not small. Do not let this note rot: it is the only record that three green mandatory
+scenarios are green for a reason metal does not share.
+
 ★★★ **HAZARD HANDED FORWARD TO T3 — IT CAN SILENTLY DISARM BOTH DISCRIMINATION SCENARIOS.** `s35a` **and**
 `s38` both rely on **`dv_hop_cap: 1`** to stop team DV from pre-teaching the far teammate — that knob is the whole
 reason either scenario measures anything (see the SCEN note: raising `team_beacon_period_ms` does NOT stop team DV,
