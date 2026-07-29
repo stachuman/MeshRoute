@@ -48,4 +48,25 @@ void ecdh_shared(uint8_t shared_out[32], const Identity& self, const uint8_t pee
     crypto_x25519(shared_out, self.x_secret, peer_x_pub);        // monocypher clamps internally
 }
 
+// Constant-time-ish all-zero test (OR-accumulate, no early return — the e2e_seal_inner L10/R7 idiom).
+static bool all_zero32(const uint8_t p[32]) {
+    uint8_t acc = 0;
+    for (int i = 0; i < 32; ++i) acc |= p[i];
+    return acc == 0;
+}
+
+// §team-ch-key (T-K1). See identity.h for the clamping contract this function exists to pin down.
+// Writes pub/priv ONLY on success, so a refused mint cannot leave half a keypair behind (C2).
+bool team_channel_key_derive(uint8_t pub[32], uint8_t priv[32], const uint8_t scalar_in[32]) {
+    if (all_zero32(scalar_in)) return false;              // dead RNG / all-zero supplied key -> refuse loud
+    uint8_t sk[32];
+    crypto_eddsa_trim_scalar(sk, scalar_in);              // CANONICALISE AT STORE (identity.h): out[0]&=248, out[31]&=127|=64
+    uint8_t pk[32];
+    crypto_x25519_public_key(pk, sk);                     // == crypto_x25519(pk, sk, base_point{9}); clamps sk again (idempotent)
+    if (all_zero32(pk)) { crypto_wipe(sk, sizeof sk); return false; }   // degenerate point -> refuse (cannot happen for a trimmed scalar; defence in depth)
+    for (int i = 0; i < 32; ++i) { priv[i] = sk[i]; pub[i] = pk[i]; }
+    crypto_wipe(sk, sizeof sk);
+    return true;
+}
+
 }  // namespace meshroute

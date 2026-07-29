@@ -15,7 +15,8 @@
 
 #include "airtime.h"   // airtime_ms — Slice 3a SF-weighted window derivation
 #include "frame_codec.h"  // DATA_HDR_LEN — §3e exchange_airtime_ms DATA-leg sizing
-#include "identity.h"  // §P2-6: key_hash32_of (LE(ed_pub[:4]) derivation)
+#include "identity.h"  // §P2-6: key_hash32_of (LE(ed_pub[:4]) derivation); §team-ch-key: team_channel_key_derive
+#include "monocypher.h"   // §team-ch-key: crypto_wipe — scrub the scalar/priv scratch on the mint/adopt paths
 #include "wire.h"
 
 #include <cstdlib>     // atol — parse_gateway_cmd
@@ -79,6 +80,53 @@ void Node::set_crypto_identity(const uint8_t x_secret[32], const uint8_t ed_pub[
     for (int i = 0; i < 32; ++i) { _x_secret[i] = x_secret[i]; _ed_pub[i] = ed_pub[i]; }
     _crypto_ready = true;        // DP1: seal/open are now permitted (until set, they FAIL LOUD — never cleartext)
 }
+
+#if MR_FEAT_TEAM
+// §team-ch-key (T-K1, spec 2026-07-26 §2.1) — the TEAM CHANNEL content keypair. Three entry points, ONE
+// derivation path (team_channel_key_derive, identity.cpp), so a minted key and an adopted one are
+// byte-identically canonical. NOTE the asymmetry with the node identity: that one is DERIVED from a persisted
+// master seed, so it can always be recomputed; this one is a standalone secret whose ONLY copies are NV and
+// whatever the operator distributed (T-K3 grant / T-K4 QR). Losing it = re-key the team (spec §0/Q5).
+//
+// MINT (`team new`, unconditional per the owner ruling 2026-07-29). Entropy comes from the HAL CSPRNG — the
+// device HW-RNG, or the simulator's per-node deterministic rand_bytes stream. C2: a dead RNG (all-zero draw)
+// REFUSES; we do not fall back to a weaker source and we do not leave a keyless-but-flagged team behind.
+bool Node::team_channel_key_mint() {
+    uint8_t scalar[32];
+    _hal.rand_bytes(scalar, sizeof scalar);
+    uint8_t pub[32], priv[32];
+    const bool ok = team_channel_key_derive(pub, priv, scalar);
+    crypto_wipe(scalar, sizeof scalar);
+    if (!ok) return false;                                  // nothing written -> the caller reports and mints no team key
+    team_channel_key_load(pub, priv, /*present=*/true);
+    crypto_wipe(priv, sizeof priv);
+    return true;
+}
+
+// ADOPT an externally-supplied pair (`team new tkpub=…/tkpriv=…`; the same path T-K3's grant and T-K4's QR
+// will take). Beyond the derive-level refusals this ALSO cross-checks the supplied public half against the
+// one the private half actually derives, and refuses on mismatch: a keypair whose two halves disagree can
+// only come from corruption (a mis-scanned QR, a truncated grant) or from a foreign scalar convention, and
+// silently keeping either half would produce posts nobody can read. Fail loud instead (C2).
+bool Node::team_channel_key_adopt(const uint8_t pub[32], const uint8_t priv[32]) {
+    uint8_t derived_pub[32], canon_priv[32];
+    if (!team_channel_key_derive(derived_pub, canon_priv, priv)) return false;   // all-zero / degenerate -> refuse
+    uint8_t diff = 0;
+    for (int i = 0; i < 32; ++i) diff |= static_cast<uint8_t>(derived_pub[i] ^ pub[i]);
+    if (diff != 0) { crypto_wipe(canon_priv, sizeof canon_priv); return false; }  // pub does not belong to priv -> refuse
+    team_channel_key_load(derived_pub, canon_priv, /*present=*/true);
+    crypto_wipe(canon_priv, sizeof canon_priv);
+    return true;
+}
+
+// Boot restore from the NV Blob (v22) — VERBATIM, no re-derivation, mirroring admin_load. `present=false`
+// (a fresh chip, or a version-rejected blob, which fw_main passes as a ZERO-INITIALISED Blob) leaves the
+// node keyless with the buffers zeroed: a stale/absent blob can never fabricate a key.
+void Node::team_channel_key_load(const uint8_t pub[32], const uint8_t priv[32], bool present) {
+    for (int i = 0; i < 32; ++i) { _team_ch_pub[i] = pub[i]; _team_ch_priv[i] = priv[i]; }
+    _team_ch_key_present = present;
+}
+#endif   // MR_FEAT_TEAM (§team-ch-key)
 
 // The shared §3.2 dual-layer gate (see node.h). Extracted verbatim from on_init's former inline block so on_init
 // and the `gateway` console command validate IDENTICALLY. Mutates l0/l1 window fields (the SF/BW-weighted derive —

@@ -90,9 +90,18 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     uint32_t admin_counter_floor;        // v20: highest accepted admin-command counter (replay floor; write-coalesced like channel_ctr)
     uint8_t  admin_provisioned;          // v20: 1 once `password` pinned the pubkey (distinguishes "all-zero pubkey" from "unset")
     uint8_t  intro_attach;               // v21: §S2 first-contact INTRO auto-attach toggle (1 = ON default; seeded from the live cfg on reprovision)
+    // v22: §team-ch-key (T-K1, spec 2026-07-26 §2.1) the TEAM CHANNEL keypair — a team's CONTENT key, minted
+    // unconditionally by `team new` or adopted from `tkpub=`/`tkpriv=`. UNLIKE the node identity there is NO seed
+    // to re-derive this from: these 64 bytes ARE the secret, so /mrcfg is now key material (as /mrid already was).
+    // team_ch_priv is stored CANONICAL (RFC-7748-clamped) — see team_channel_key_derive in lib/core/identity.h.
+    // present=0 + all-zero = no key. Growing the Blob makes every pre-v22 record fail load()'s `n == sizeof(out)`
+    // size check below, so an old chip re-provisions from defaults and CANNOT surface a fabricated key.
+    uint8_t  team_ch_pub[32];
+    uint8_t  team_ch_priv[32];
+    uint8_t  team_ch_key_present;        // v22: 1 once a pair was minted/adopted (distinguishes a real key from all-zero, exactly as admin_provisioned does)
 };
 constexpr uint32_t kMagic   = 0x4D524331u;   // 'MRC1'
-constexpr uint16_t kVersion = 21;            // v21: §S2 intro_attach toggle (first-contact pubkey attach). v20: remote-mgmt admin auth (admin_pubkey + admin_counter_floor + admin_provisioned). v19: team_local_id (§mobile 6.4 — persist the team-DAD id across reboot). v18: team_id (§mobile 6.1). v17: per-layer BW+CR (l1_bw_hz + l1_cr). v16: anti-spam per-leaf tunables (channel_active_fraction + the two burst floors). v15: channel_ctr persist (reboot id-reuse fix). v14: R6.1 leaf-config (lineage_id + config_epoch + leaf_name). v13: gw_herd_slack. v12: per-layer frequency (l1_freq_mhz). v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
+constexpr uint16_t kVersion = 22;            // v22: §team-ch-key team channel keypair (team_ch_pub + team_ch_priv + team_ch_key_present) — REPROVISION-ON-REFLASH, see the fields. v21: §S2 intro_attach toggle (first-contact pubkey attach). v20: remote-mgmt admin auth (admin_pubkey + admin_counter_floor + admin_provisioned). v19: team_local_id (§mobile 6.4 — persist the team-DAD id across reboot). v18: team_id (§mobile 6.1). v17: per-layer BW+CR (l1_bw_hz + l1_cr). v16: anti-spam per-leaf tunables (channel_active_fraction + the two burst floors). v15: channel_ctr persist (reboot id-reuse fix). v14: R6.1 leaf-config (lineage_id + config_epoch + leaf_name). v13: gw_herd_slack. v12: per-layer frequency (l1_freq_mhz). v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
                                              // block). v7: BLE companion policy. v6: role/topology (is_gateway/...). The Blob
                                              // grew, so every pre-v8 blob fails the `n == sizeof(out)` size check in load()
                                              // and is rejected -> the node re-provisions from defaults (BOTH boards — the

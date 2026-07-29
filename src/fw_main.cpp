@@ -663,6 +663,10 @@ void setup() {
     cfg.lat_e7 = g_lat_e7; cfg.lon_e7 = g_lon_e7;             // feed the node's location to the DM piggyback (loc_in_dm)
     // §remote-mgmt (v20): restore the pinned admin pubkey + replay counter floor (no-op stub when MR_FEAT_REMOTE_MGMT=0).
     g_node.admin_load(nv.admin_pubkey, nv.admin_counter_floor, nv.admin_provisioned);
+    // §team-ch-key (v22): restore the TEAM CHANNEL keypair (no-op stub when MR_FEAT_TEAM=0). `nv` is
+    // ZERO-INITIALISED above, so a fresh chip or a version-rejected blob restores present=0 + zeroed buffers —
+    // never a fabricated key. Verbatim, no re-derivation: these bytes ARE the secret (there is no seed).
+    g_node.team_channel_key_load(nv.team_ch_pub, nv.team_ch_priv, nv.team_ch_key_present != 0);
     // node_id DAD: restore the persisted lease state so a reboot KEEPS its id + tiebreak seniority (NV blob v4).
     g_node.restore_join_state(nv.claim_epoch, (node_id != 0) && (nv.joined != 0));
     g_persist_id = node_id; g_persist_epoch = nv.claim_epoch;        // prime the persist tracker -> no spurious boot write

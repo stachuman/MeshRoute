@@ -14,6 +14,7 @@
 
 #include "node.h"
 #include "frame_codec.h"
+#include "monocypher.h"          // §team-ch-key: crypto_x25519_public_key — cross-check the minted pair independently
 #include "support/test_hal.h"
 
 #include <array>
@@ -1478,4 +1479,175 @@ TEST_CASE("§T6/B — the two planes' distinct-id COUNT caps are independent (a 
     hal._now = static_cast<uint64_t>(cap + 2) * protocol::channel_min_interval_ms;
     CHECK(node.channel_origin_admit(9, (uint32_t(9) << 24) | 0x50u, /*team_plane=*/true) == true);
     CHECK(hal.count("channel_drop_originator_throttle") == 1);   // ★ the pre-T6 value here was 2
+}
+
+// ================= §team-ch-key (T-K1, spec 2026-07-26 §2.1) — the TEAM CHANNEL keypair =====================
+// ★ THIS SUITE IS THE ENTIRE DETECTOR for the Node half of T-K1. The scenario corpus cannot reach it at all:
+// the simulator's `team` verb REFUSES `team new` by design (NodeRuntimeWrapper.cpp §sim-team-verb — a random
+// nonce would break byte-reproducibility), and src/firmware_config.cpp is not compiled into the sim, so no
+// scenario can mint, adopt or persist a team channel key. Byte-identity of the corpus proves only that this
+// slice stays INERT there; correctness lives here.
+namespace {
+// A Hal whose crypto RNG yields a scripted byte stream. TestHalBase::rand_bytes defaults to ALL-ZERO (it draws
+// through the forced-rand seam), which is precisely the dead-RNG case the mint must refuse — so the refusal
+// test needs no override at all and the success tests need this one.
+class TkHal : public TestHal {
+public:
+    uint8_t _fill = 0;                 // 0 => keep the all-zero base behaviour (mint must refuse)
+    int     rand_bytes_calls = 0;
+    size_t  rand_bytes_total = 0;
+    void rand_bytes(uint8_t* o, size_t n) override {
+        ++rand_bytes_calls; rand_bytes_total += n;
+        if (!_fill) { TestHal::rand_bytes(o, n); return; }
+        for (size_t i = 0; i < n; ++i) o[i] = static_cast<uint8_t>(_fill + i);   // deterministic, non-degenerate
+    }
+};
+static NodeConfig team_cfg(uint32_t team = 0xAAAAAAAAu) {
+    NodeConfig c = basic_cfg(); c.is_mobile = true; c.team_id = team; return c;
+}
+}  // namespace
+
+TEST_CASE("§team-ch-key — a fresh node holds NO team channel key (accessors are nullptr, not a zero buffer)") {
+    TkHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = team_cfg(); node.on_init(cfg);
+    CHECK(node.team_channel_key_present() == false);
+    CHECK(node.team_channel_pub()  == nullptr);       // nullptr, so no caller can mistake zeros for a key
+    CHECK(node.team_channel_priv() == nullptr);
+    CHECK(hal.rand_bytes_calls == 0);                 // on_init draws NO crypto bytes (the corpus-inertness property)
+}
+
+TEST_CASE("§team-ch-key — mint: 32 CSPRNG bytes -> a canonical pair; the flag flips; pub == X25519(priv, 9)") {
+    TkHal hal; hal._fill = 0x31; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = team_cfg(); node.on_init(cfg);
+    CHECK(node.team_channel_key_mint());
+    CHECK(node.team_channel_key_present());
+    CHECK(node.team_channel_pub()  != nullptr);
+    CHECK(node.team_channel_priv() != nullptr);
+    CHECK(hal.rand_bytes_calls  == 1);                 // exactly ONE draw
+    CHECK(hal.rand_bytes_total  == 32);                //   of exactly 32 bytes
+    const uint8_t* priv = node.team_channel_priv();
+    CHECK((priv[0] & 7) == 0);                         // stored CANONICAL (RFC 7748 clamp)
+    CHECK((priv[31] & 0x80) == 0);
+    CHECK((priv[31] & 0x40) != 0);
+    uint8_t want[32]; crypto_x25519_public_key(want, priv);
+    CHECK(std::memcmp(node.team_channel_pub(), want, 32) == 0);
+}
+
+TEST_CASE("§team-ch-key — C2: a dead crypto RNG (all-zero draw) REFUSES the mint and leaves the node keyless") {
+    TkHal hal; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = team_cfg(); node.on_init(cfg);   // _fill 0 => all-zero rand_bytes
+    CHECK(node.team_channel_key_mint() == false);
+    CHECK(node.team_channel_key_present() == false);   // no flag, no half-keypair
+    CHECK(node.team_channel_pub() == nullptr);
+    CHECK(hal.rand_bytes_calls == 1);                  // it DID try — the refusal is the RNG check, not a skip
+}
+
+TEST_CASE("§team-ch-key — two nodes mint DIFFERENT keys; a re-mint on one node REPLACES its key") {
+    TkHal ha; ha._fill = 0x31; Node a(ha, 2, 0xBEEFu); NodeConfig ca = team_cfg(); a.on_init(ca);
+    TkHal hb; hb._fill = 0x77; Node b(hb, 3, 0xCAFEu); NodeConfig cb = team_cfg(); b.on_init(cb);
+    CHECK(a.team_channel_key_mint());
+    CHECK(b.team_channel_key_mint());
+    CHECK(std::memcmp(a.team_channel_pub(), b.team_channel_pub(), 32) != 0);
+
+    uint8_t first[32]; std::memcpy(first, a.team_channel_pub(), 32);
+    ha._fill = 0x02;                                   // re-key (spec §0/Q5: the v1 revocation story)
+    CHECK(a.team_channel_key_mint());
+    CHECK(std::memcmp(a.team_channel_pub(), first, 32) != 0);
+    CHECK(a.team_channel_key_present());
+}
+
+TEST_CASE("§team-ch-key — adopt: a matching pair is accepted VERBATIM (the QR / grant path)") {
+    TkHal src; src._fill = 0x31; Node creator(src, 2, 0xBEEFu); NodeConfig cc = team_cfg(); creator.on_init(cc);
+    CHECK(creator.team_channel_key_mint());
+    uint8_t pub[32], priv[32];
+    std::memcpy(pub,  creator.team_channel_pub(),  32);
+    std::memcpy(priv, creator.team_channel_priv(), 32);
+
+    // The JOINER adopts. Its own RNG is the dead all-zero one, proving adopt draws NOTHING.
+    TkHal hal; Node joiner(hal, 3, 0xCAFEu); NodeConfig cj = team_cfg(); joiner.on_init(cj);
+    CHECK(joiner.team_channel_key_adopt(pub, priv));
+    CHECK(joiner.team_channel_key_present());
+    CHECK(std::memcmp(joiner.team_channel_pub(),  pub,  32) == 0);
+    CHECK(std::memcmp(joiner.team_channel_priv(), priv, 32) == 0);
+    CHECK(hal.rand_bytes_calls == 0);                  // ★ adopt is DRAW-FREE — the T-K4 QR path costs no entropy
+}
+
+TEST_CASE("§team-ch-key — C2 adopt refusals: mismatched pub, all-zero priv, all-zero pub; state untouched") {
+    TkHal src; src._fill = 0x31; Node creator(src, 2, 0xBEEFu); NodeConfig cc = team_cfg(); creator.on_init(cc);
+    CHECK(creator.team_channel_key_mint());
+    uint8_t pub[32], priv[32];
+    std::memcpy(pub,  creator.team_channel_pub(),  32);
+    std::memcpy(priv, creator.team_channel_priv(), 32);
+
+    TkHal hal; Node n(hal, 3, 0xCAFEu); NodeConfig cn = team_cfg(); n.on_init(cn);
+
+    uint8_t bad_pub[32]; std::memcpy(bad_pub, pub, 32); bad_pub[7] ^= 0x01;   // ONE flipped bit — a mis-scanned QR
+    CHECK(n.team_channel_key_adopt(bad_pub, priv) == false);
+    CHECK(n.team_channel_key_present() == false);
+
+    uint8_t zero[32] = {};
+    CHECK(n.team_channel_key_adopt(pub, zero) == false);      // all-zero private half
+    CHECK(n.team_channel_key_adopt(zero, priv) == false);     // all-zero public half (cannot match a real priv)
+    CHECK(n.team_channel_key_present() == false);
+    CHECK(n.team_channel_pub() == nullptr);
+
+    // A refused adopt must not have disturbed an ALREADY-HELD key either.
+    CHECK(n.team_channel_key_adopt(pub, priv));
+    CHECK(n.team_channel_key_adopt(bad_pub, priv) == false);
+    CHECK(std::memcmp(n.team_channel_pub(), pub, 32) == 0);
+    CHECK(n.team_channel_key_present());
+}
+
+TEST_CASE("§team-ch-key — adopt CANONICALISES an unclamped scalar and derives the pub the RFC names") {
+    // The T-K3/T-K4 wire may carry a scalar produced by a store-unclamped implementation. Adopt must normalise
+    // it and keep the pair valid, which is only true because clamping is idempotent (see identity.h).
+    TkHal hal; Node n(hal, 3, 0xCAFEu); NodeConfig cn = team_cfg(); n.on_init(cn);
+    uint8_t raw[32], rfc_pub[32];
+    auto hx = [](const char* h, uint8_t* o) { for (int i = 0; i < 32; ++i) {
+        auto nib = [](char c) -> uint8_t { return static_cast<uint8_t>(c <= '9' ? c - '0' : (c | 32) - 'a' + 10); };
+        o[i] = static_cast<uint8_t>((nib(h[2*i]) << 4) | nib(h[2*i+1])); } };
+    hx("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a", raw);        // RFC 7748 §6.1, UNCLAMPED
+    hx("8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a", rfc_pub);
+    CHECK(n.team_channel_key_adopt(rfc_pub, raw));            // pub matches DESPITE priv arriving unclamped
+    CHECK(std::memcmp(n.team_channel_pub(), rfc_pub, 32) == 0);
+    CHECK(std::memcmp(n.team_channel_priv(), raw, 32) != 0);     // stored form is the CLAMPED scalar, not the input
+    CHECK((n.team_channel_priv()[0] & 7) == 0);
+}
+
+TEST_CASE("§team-ch-key — NV round-trip: load(present) restores verbatim; load(!present) cannot fabricate a key") {
+    TkHal hal; hal._fill = 0x31; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = team_cfg(); node.on_init(cfg);
+    CHECK(node.team_channel_key_mint());
+    uint8_t pub[32], priv[32];
+    std::memcpy(pub,  node.team_channel_pub(),  32);
+    std::memcpy(priv, node.team_channel_priv(), 32);
+
+    // Reboot: a fresh Node, then the fw_main restore.
+    TkHal h2; Node rebooted(h2, 2, 0xBEEFu); NodeConfig c2 = team_cfg(); rebooted.on_init(c2);
+    rebooted.team_channel_key_load(pub, priv, true);
+    CHECK(rebooted.team_channel_key_present());
+    CHECK(std::memcmp(rebooted.team_channel_pub(),  pub,  32) == 0);
+    CHECK(std::memcmp(rebooted.team_channel_priv(), priv, 32) == 0);
+    CHECK(h2.rand_bytes_calls == 0);                   // a boot restore NEVER draws (no re-derivation)
+
+    // The stale/absent-blob path fw_main takes: a ZERO-INITIALISED mrnv::Blob -> present=0 + zero buffers.
+    uint8_t zpub[32] = {}, zpriv[32] = {};
+    TkHal h3; Node fresh(h3, 2, 0xBEEFu); NodeConfig c3 = team_cfg(); fresh.on_init(c3);
+    fresh.team_channel_key_load(zpub, zpriv, false);
+    CHECK(fresh.team_channel_key_present() == false);
+    CHECK(fresh.team_channel_pub()  == nullptr);
+    CHECK(fresh.team_channel_priv() == nullptr);
+}
+
+TEST_CASE("§team-ch-key — a NON-team node can hold a key; the pair is orthogonal to team_id and to set_team_id") {
+    // T-K1 stores the key WITHOUT binding it to a team_id, and set_team_id() deliberately does not clear it
+    // (see the ⚠ note at _team_ch_pub in node.h). This test PINS that documented state so the T-K2 slice, which
+    // must rule on the switch policy, cannot change it silently: if a later slice clears on switch, this
+    // test SHOULD fail and be updated deliberately.
+    TkHal hal; hal._fill = 0x31; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = team_cfg(0xAAAAAAAAu); node.on_init(cfg);
+    CHECK(node.team_channel_key_mint());
+    uint8_t pub[32]; std::memcpy(pub, node.team_channel_pub(), 32);
+
+    CHECK(node.set_team_id(0xBBBBBBBBu));                       // switch teams
+    CHECK(node.team_channel_key_present());                     // key SURVIVES (documented T-K1 behaviour)
+    CHECK(std::memcmp(node.team_channel_pub(), pub, 32) == 0);
+    CHECK(node.set_team_id(0));                                 // leave the team entirely
+    CHECK(node.team_channel_key_present());                     // still survives
+    CHECK(hal.rand_bytes_calls == 1);                           // ★ neither switch nor leave draws entropy
 }

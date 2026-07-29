@@ -103,6 +103,89 @@ inline bool phy_args_in_range(const PhyArgs& a, bool with_layer) {
         && (!with_layer || valid_layer0_id(a.layer));
 }
 
+// §team-ch-key (T-K1): parse EXACTLY 64 hex digits into 32 bytes — the `tkpub=`/`tkpriv=` provisioning params
+// (and, later, the T-K4 QR fields). FAIL-LOUD (C2): false on a wrong length (63, 65, empty) or ANY non-hex
+// character, and `out` is left untouched so a rejected token cannot half-write a key. Both cases are silent
+// data-loss risks otherwise: a truncated hex string parsed leniently would install a DIFFERENT key than the
+// operator pasted, and the node would then encrypt for a team that cannot read it.
+// Case-insensitive (operators paste from either convention). Deliberately NOT accepting a `0x` prefix: these
+// are fixed-width key blobs, not numbers, and `0x` + 64 digits is a length error worth reporting.
+// The all-zero rejection lives one level down, in team_channel_key_derive — that is a crypto-domain rule
+// (a dead RNG / a degenerate scalar), not a syntax one, and it must also cover the non-console callers.
+inline bool parse_hex32(const char* s, uint8_t out[32]) {
+    if (!s) return false;
+    uint8_t buf[32];
+    for (int i = 0; i < 32; ++i) {
+        uint8_t byte = 0;
+        for (int half = 0; half < 2; ++half) {
+            const char c = s[2 * i + half];
+            uint8_t nib;
+            if      (c >= '0' && c <= '9') nib = static_cast<uint8_t>(c - '0');
+            else if (c >= 'a' && c <= 'f') nib = static_cast<uint8_t>(c - 'a' + 10);
+            else if (c >= 'A' && c <= 'F') nib = static_cast<uint8_t>(c - 'A' + 10);
+            else return false;                                  // non-hex OR a NUL from a SHORT string
+            byte = static_cast<uint8_t>((byte << 4) | nib);
+        }
+        buf[i] = byte;
+    }
+    if (s[64] != '\0') return false;                            // trailing junk / too long
+    for (int i = 0; i < 32; ++i) out[i] = buf[i];               // commit only after the whole token validated
+    return true;
+}
+
+// §team-ch-key (T-K1): split the optional `tkpub=<hex64> tkpriv=<hex64>` pair OUT of a `team` tail, leaving every
+// other token in `rest` for parse_phy_tail. The two families MUST be separated before that helper runs, because it
+// refuses unknown keys — and teaching it about team keys is the wrong fix: it is ALSO `mobile register`'s parser
+// (U1/U3), where `mobile register tkpub=…` must stay an error, exactly as `layer=` is.
+//
+// Lives HERE (pure, no Print/Arduino) rather than beside handle_team so the native suite can reach it: no scenario
+// runs a console verb, so a helper left in firmware_config.cpp would have NO automated coverage at all.
+// `scratch` is the caller's MUTABLE working copy (kv_next NUL-terminates in place); `rest` receives the surviving
+// tokens re-emitted verbatim as `key=value` (or a bare key, so parse_phy_tail's unknown-key error still names it
+// exactly as before). On any error `rest` is left unusable and `bad_key` names the offending key where meaningful.
+// Duplicate keys are LAST-WINS, matching the rest of this grammar (`freq=1 freq=2` behaves the same way).
+enum class TeamKeyTail : uint8_t {
+    none,       // neither key present — the overwhelmingly common `team new` / `team <id>`
+    ok,         // BOTH keys present and syntactically valid (crypto validation happens later, in Node::adopt)
+    bad_hex,    // a tkpub=/tkpriv= value that is not EXACTLY 64 hex digits (bad_key names which)
+    half_pair,  // only ONE of the two given — half a keypair is worse than none
+    too_long    // the tail (or the filtered remainder) does not fit the caller's buffers
+};
+inline TeamKeyTail split_team_key_tail(const char* tail, char* scratch, size_t scratch_cap,
+                                       char* rest, size_t rest_cap,
+                                       uint8_t pub[32], uint8_t priv[32], const char*& bad_key) {
+    bad_key = nullptr;
+    size_t n = 0;
+    for (const char* q = tail; *q; ++q) {
+        if (n + 1 >= scratch_cap) return TeamKeyTail::too_long;
+        scratch[n++] = *q;
+    }
+    scratch[n] = '\0';
+    char* p = scratch; char* k; char* v;
+    size_t rn = 0;
+    bool have_pub = false, have_priv = false;
+    if (!rest_cap) return TeamKeyTail::too_long;
+    rest[0] = '\0';
+    while (kv_next(p, k, v)) {
+        const bool is_pub  = !strcmp(k, "tkpub");
+        const bool is_priv = !strcmp(k, "tkpriv");
+        if (is_pub || is_priv) {
+            if (!v || !parse_hex32(v, is_pub ? pub : priv)) { bad_key = k; return TeamKeyTail::bad_hex; }
+            if (is_pub) have_pub = true; else have_priv = true;
+            continue;
+        }
+        const size_t need = strlen(k) + (v ? strlen(v) + 1 : 0) + (rn ? 1 : 0);   // [sep +] key [+ '=' + value]
+        if (rn + need + 1 > rest_cap) return TeamKeyTail::too_long;               // +1 = the NUL
+        if (rn) rest[rn++] = ' ';
+        for (const char* q = k; *q; ++q) rest[rn++] = *q;
+        if (v) { rest[rn++] = '='; for (const char* q = v; *q; ++q) rest[rn++] = *q; }
+        rest[rn] = '\0';
+    }
+    if (!have_pub && !have_priv) return TeamKeyTail::none;
+    if (have_pub != have_priv)   return TeamKeyTail::half_pair;
+    return TeamKeyTail::ok;
+}
+
 // FNV-1a/32 over the 8 little-endian bytes of (a ‖ b). Used to MINT a fresh team_id = hash(our key ‖ HW-RNG nonce).
 inline uint32_t team_fnv1a32(uint32_t a, uint32_t b) {
     uint32_t h = 2166136261u;

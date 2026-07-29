@@ -55,4 +55,32 @@ void ed_pub_to_x25519(uint8_t x_pub_out[32], const uint8_t peer_ed_pub[32]);
 // using it as a key — the AEAD framing is the DM-E2E slice, not this module.
 void ecdh_shared(uint8_t shared_out[32], const Identity& self, const uint8_t peer_x_pub[32]);
 
+// ---- TEAM CHANNEL keypair (spec 2026-07-26 §2.1, slice T-K1) --------------------------------------
+// A team's CONTENT key: a dedicated X25519 pair gating who may READ the team's channel posts. It is
+// deliberately INDEPENDENT of everything above — NOT derived from the identity master seed, and NOT an
+// input to the team_id (which stays FNV(key_hash32 ‖ nonce): a membership handle, never a secret).
+// Membership is open-by-knowledge; readership is not. ONE derivation path serves both uses:
+//   * MINT  (`team new`)               — `scalar_in` = 32 fresh bytes from IHal::rand_bytes;
+//   * ADOPT (`tkpriv=`, T-K3 grant, T-K4 QR) — `scalar_in` = the supplied private key.
+//
+// ★ THE CLAMPING CONTRACT — code-verified against the vendored monocypher, not assumed:
+//   `crypto_x25519(out, sk, pk)` (monocypher.c:1546) trims a LOCAL COPY of `sk` via
+//   `crypto_eddsa_trim_scalar` (:1469 — `out[0] &= 248; out[31] &= 127; out[31] |= 64`) and never
+//   writes back to the caller's scalar; `crypto_x25519_public_key(pk, sk)` (:1557) is literally
+//   `crypto_x25519(pk, sk, {9})`, so it clamps too.
+//   ⇒ monocypher clamps at USE, never at STORE. An UNCLAMPED stored scalar therefore still round-trips
+//   correctly *within* monocypher — which is exactly the trap: those same bytes handed to a
+//   store-clamping implementation, or shipped over the T-K3 grant / T-K4 QR to one, would derive a
+//   DIFFERENT public key, and the pair would look fine here while being non-interoperable there. So we
+//   store the CLAMPED scalar and only ever that: the persisted/distributed bytes are then the canonical
+//   RFC-7748 scalar and `pub == X25519(priv, 9)` holds under BOTH conventions. Clamping is idempotent
+//   (bit 6 of byte 31 survives `& 127`), so re-deriving from an already-canonical scalar — the adopt
+//   path — reproduces the identical pair byte-for-byte. Pinned by the RFC 7748 §6.1 KAT in
+//   test/test_identity.cpp; a round-trip test alone would pass even with both halves wrong together.
+//
+// C2 (fail loud, no half-keypair): returns false and writes NOTHING to pub/priv when `scalar_in` is
+// all-zero (a dead RNG — the twin of e2e_seal_inner's R7 seed guard) or when the derived public key is
+// degenerate (all-zero — the L10 low-order-point idiom). A caller that gets false must mint nothing.
+bool team_channel_key_derive(uint8_t pub[32], uint8_t priv[32], const uint8_t scalar_in[32]);
+
 }  // namespace meshroute

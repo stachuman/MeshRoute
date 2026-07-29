@@ -131,3 +131,141 @@ TEST_CASE("team_fnv1a32 — deterministic FNV-1a/32 over the 8 LE bytes of (a‖
     CHECK(team_fnv1a32(0xAABBCCDDu, 0x11223344u) != h);        // (a,b) order matters
     CHECK(team_fnv1a32(0, 0) == 0x9be17165u);                   // golden: FNV-1a/32 of 8 zero bytes
 }
+
+// §team-ch-key (T-K1): the `tkpub=`/`tkpriv=` hex64 parser. No scenario runs a console verb, so this suite is
+// the ONLY detector for the grammar — and a lenient parse here would silently install a key the operator never
+// typed (which then encrypts for a team that cannot read it). Every reject path is pinned, including the
+// commit-only-after-validation contract.
+TEST_CASE("parse_hex32 — EXACTLY 64 hex digits -> 32 bytes; case-insensitive; anything else REFUSES") {
+    uint8_t out[32];
+
+    // The RFC 7748 §6.1 Alice private key — the same string the team-key KAT feeds in.
+    CHECK(mrfw::parse_hex32("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a", out));
+    CHECK(out[0] == 0x77); CHECK(out[1] == 0x07); CHECK(out[30] == 0x2c); CHECK(out[31] == 0x2a);
+
+    // UPPER and mixed case parse identically (operators paste from either convention).
+    uint8_t up[32], mix[32];
+    CHECK(mrfw::parse_hex32("77076D0A7318A57D3C16C17251B26645DF4C2F87EBC0992AB177FBA51DB92C2A", up));
+    CHECK(mrfw::parse_hex32("77076d0A7318a57D3c16C17251b26645Df4c2F87eBc0992Ab177fBa51dB92c2A", mix));
+    CHECK(std::memcmp(out, up, 32) == 0);
+    CHECK(std::memcmp(out, mix, 32) == 0);
+
+    // All-zero is SYNTACTICALLY fine here — the crypto-domain refusal lives in team_channel_key_derive.
+    uint8_t z[32];
+    CHECK(mrfw::parse_hex32("0000000000000000000000000000000000000000000000000000000000000000", z));
+
+    // ---- refusals
+    CHECK_FALSE(mrfw::parse_hex32(nullptr, out));
+    CHECK_FALSE(mrfw::parse_hex32("", out));
+    CHECK_FALSE(mrfw::parse_hex32("77076d0a", out));                                                       // far too short
+    CHECK_FALSE(mrfw::parse_hex32("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2", out)); // 63 — one short
+    CHECK_FALSE(mrfw::parse_hex32("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2aa", out));// 65 — one long
+    CHECK_FALSE(mrfw::parse_hex32("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2g", out)); // non-hex last digit
+    CHECK_FALSE(mrfw::parse_hex32("g7076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a", out)); // non-hex first digit
+    CHECK_FALSE(mrfw::parse_hex32("0x076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a", out)); // a `0x` prefix is a LENGTH error, not a number
+    CHECK_FALSE(mrfw::parse_hex32("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a ", out));// trailing space
+}
+
+TEST_CASE("parse_hex32 — a REFUSED token leaves the caller's buffer untouched (no half-written key)") {
+    uint8_t out[32];
+    for (int i = 0; i < 32; ++i) out[i] = 0xEE;
+    CHECK_FALSE(mrfw::parse_hex32("aabbccddeeff00112233445566778899aabbccddeeff00112233445566778", out));  // 61 digits
+    for (int i = 0; i < 32; ++i) CHECK(out[i] == 0xEE);      // the first 30 bytes DID validate — none may land
+}
+
+// §team-ch-key (T-K1): splitting `tkpub=`/`tkpriv=` out of a `team` tail. The firmware wrapper around this
+// (firmware_config.cpp:parse_team_key_tail) only maps the returned enum to console strings, so THIS is where the
+// grammar is actually gated — and the corpus cannot reach it (no scenario runs a console verb).
+TEST_CASE("split_team_key_tail — extracts the pair and hands the PHY triplet through untouched") {
+    char scratch[224], rest[96];
+    uint8_t pub[32], priv[32];
+    const char* bad = nullptr;
+    const char* A = "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a";
+    const char* B = "5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb";
+
+    // No team keys at all -> `none`, and the tail is passed through so parse_phy_tail sees exactly what it did.
+    CHECK(mrfw::split_team_key_tail("freq=869.0 sf=7 bw=125", scratch, sizeof scratch, rest, sizeof rest,
+                                    pub, priv, bad) == mrfw::TeamKeyTail::none);
+    CHECK(std::string(rest) == "freq=869.0 sf=7 bw=125");
+
+    // Both keys + a PHY triplet, keys FIRST.
+    std::string in = std::string("tkpub=") + A + " tkpriv=" + B + " freq=869.0 sf=7 bw=125";
+    CHECK(mrfw::split_team_key_tail(in.c_str(), scratch, sizeof scratch, rest, sizeof rest,
+                                   pub, priv, bad) == mrfw::TeamKeyTail::ok);
+    CHECK(std::string(rest) == "freq=869.0 sf=7 bw=125");
+    CHECK(pub[0]  == 0x77); CHECK(pub[31]  == 0x2a);
+    CHECK(priv[0] == 0x5d); CHECK(priv[31] == 0xeb);
+
+    // Interleaved, and keys LAST — order must not matter, and `rest` must not gain/lose a separator.
+    in = std::string("freq=869.0 tkpriv=") + B + " sf=7 tkpub=" + A + " bw=125";
+    CHECK(mrfw::split_team_key_tail(in.c_str(), scratch, sizeof scratch, rest, sizeof rest,
+                                   pub, priv, bad) == mrfw::TeamKeyTail::ok);
+    CHECK(std::string(rest) == "freq=869.0 sf=7 bw=125");
+
+    // Keys ONLY (the QR-onboarding shape: `team new tkpub=… tkpriv=…`) -> `rest` is EMPTY, which parse_phy_tail
+    // must then read as "no PHY given", not as an error.
+    in = std::string("tkpub=") + A + " tkpriv=" + B;
+    CHECK(mrfw::split_team_key_tail(in.c_str(), scratch, sizeof scratch, rest, sizeof rest,
+                                   pub, priv, bad) == mrfw::TeamKeyTail::ok);
+    CHECK(std::string(rest).empty());
+
+    // An unknown key survives into `rest` VERBATIM so parse_phy_tail's own error still names it (behaviour-preserving).
+    CHECK(mrfw::split_team_key_tail("freq=869.0 wibble=3", scratch, sizeof scratch, rest, sizeof rest,
+                                    pub, priv, bad) == mrfw::TeamKeyTail::none);
+    CHECK(std::string(rest) == "freq=869.0 wibble=3");
+    // ...including a VALUELESS token (kv_next yields val=nullptr), which must not be silently swallowed.
+    CHECK(mrfw::split_team_key_tail("freq=869.0 wibble", scratch, sizeof scratch, rest, sizeof rest,
+                                    pub, priv, bad) == mrfw::TeamKeyTail::none);
+    CHECK(std::string(rest) == "freq=869.0 wibble");
+
+    // Last-wins on a duplicate, matching the rest of this grammar (`freq=1 freq=2`).
+    in = std::string("tkpub=") + A + " tkpub=" + B + " tkpriv=" + B;
+    CHECK(mrfw::split_team_key_tail(in.c_str(), scratch, sizeof scratch, rest, sizeof rest,
+                                   pub, priv, bad) == mrfw::TeamKeyTail::ok);
+    CHECK(pub[0] == 0x5d);
+}
+
+TEST_CASE("split_team_key_tail — C2 refusals: half a pair, bad hex, an over-long tail") {
+    char scratch[224], rest[96];
+    uint8_t pub[32], priv[32];
+    const char* bad = nullptr;
+    const char* A = "77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a";
+
+    // Only ONE half -> half_pair (either way round). A lone public key cannot decrypt; a lone private key with a
+    // wrong/absent public half would seal to nothing readable.
+    std::string in = std::string("tkpub=") + A;
+    CHECK(mrfw::split_team_key_tail(in.c_str(), scratch, sizeof scratch, rest, sizeof rest,
+                                   pub, priv, bad) == mrfw::TeamKeyTail::half_pair);
+    in = std::string("tkpriv=") + A;
+    CHECK(mrfw::split_team_key_tail(in.c_str(), scratch, sizeof scratch, rest, sizeof rest,
+                                   pub, priv, bad) == mrfw::TeamKeyTail::half_pair);
+
+    // Malformed hex -> bad_hex, and `bad_key` names WHICH key so the console can say so.
+    CHECK(mrfw::split_team_key_tail("tkpub=deadbeef tkpriv=00", scratch, sizeof scratch, rest, sizeof rest,
+                                    pub, priv, bad) == mrfw::TeamKeyTail::bad_hex);
+    CHECK(bad != nullptr);
+    CHECK(std::string(bad) == "tkpub");
+    in = std::string("tkpub=") + A + " tkpriv=nothex";
+    CHECK(mrfw::split_team_key_tail(in.c_str(), scratch, sizeof scratch, rest, sizeof rest,
+                                   pub, priv, bad) == mrfw::TeamKeyTail::bad_hex);
+    CHECK(std::string(bad) == "tkpriv");
+    // A valueless `tkpub` (no '=') is bad_hex too — NOT silently treated as absent.
+    CHECK(mrfw::split_team_key_tail("tkpub", scratch, sizeof scratch, rest, sizeof rest,
+                                    pub, priv, bad) == mrfw::TeamKeyTail::bad_hex);
+
+    // Over-long input REFUSES rather than truncating (a truncated hex blob is the dangerous case).
+    char tiny[16], tiny_rest[8];
+    in = std::string("tkpub=") + A;
+    CHECK(mrfw::split_team_key_tail(in.c_str(), tiny, sizeof tiny, rest, sizeof rest,
+                                   pub, priv, bad) == mrfw::TeamKeyTail::too_long);
+    CHECK(mrfw::split_team_key_tail("freq=869.4625 sf=7 bw=125", scratch, sizeof scratch, tiny_rest, sizeof tiny_rest,
+                                    pub, priv, bad) == mrfw::TeamKeyTail::too_long);
+    CHECK(mrfw::split_team_key_tail("freq=869.0", scratch, sizeof scratch, rest, 0,
+                                    pub, priv, bad) == mrfw::TeamKeyTail::too_long);
+
+    // The realistic worst-case tail (both keys + the full PHY triplet) MUST fit the 224-byte firmware scratch.
+    in = std::string("tkpub=") + A + " tkpriv=" + A + " freq=869.4625 sf=12 bw=125.00";
+    CHECK(in.size() < 224);
+    CHECK(mrfw::split_team_key_tail(in.c_str(), scratch, sizeof scratch, rest, sizeof rest,
+                                   pub, priv, bad) == mrfw::TeamKeyTail::ok);
+}

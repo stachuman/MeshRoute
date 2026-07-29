@@ -204,6 +204,11 @@ static void dump_cfg(Print& out) {
         if (tid == 0)                       out.print(F(" (team-DAD pending)"));
         else if (g_node.node_id() == tid)   out.print(F(" (off-grid: node_id==team id)"));
         else                                out.print(F(" (dual: static node_id + team id)"));
+        // §team-ch-key (T-K1): the CONTENT-key lock state (spec §2.5 "surface the lock state per team"). Boolean
+        // ONLY — the pair itself is a SECRET and is deliberately NOT printable here. It is also the ONLY on-metal
+        // observable that `team new` actually minted, since the corpus cannot reach the console (see the COVERAGE
+        // note in the slice report). An EXPORT for the T-K4 QR is a separate, deliberately-unbuilt decision.
+        out.print(F(" team_ch_key=")); out.print(g_node.team_channel_key_present() ? 1 : 0);
         out.println();
     }
     if (c.is_mobile) {                                                        // §mobile: registration state (bench diagnostic) — did we register, and with whom?
@@ -511,8 +516,9 @@ static void dump_help(Print& out) {
     hl(F("  mobile gateways            list learned gateways + networks"));
     hl(F("  mobile query <gw>          pull a gateway's network directory"));
     hl(F("  mobile status              registration + current PHY + autoregister"));
-    hl(F("  team new                   mint a team (become its creator)"));
-    hl(F("  team <id> | team 0         join an existing team / leave"));
+    hl(F("  team new                   mint a team (become its creator) — ALWAYS also mints its X25519 channel key"));
+    hl(F("  team <id> | team 0         join an existing team / leave (a join mints NO key — receive it by grant or QR)"));
+    hl(F("    [tkpub=<64 hex> tkpriv=<64 hex>]   adopt an EXISTING team channel keypair instead of minting (QR onboarding)"));
 #endif
     hl(F(""));
     hl(F("INBOX"));

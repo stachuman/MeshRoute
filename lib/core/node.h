@@ -128,11 +128,28 @@ public:
     void       team_key_set(uint8_t id, uint32_t key_hash32);        // §enc: cache a same-team peer's key_hash32 (from its beacon); team-scoped, NOT _id_bind
     bool       team_key_of_id(uint8_t id, uint32_t& out) const;      // §enc: team-scoped id->key_hash32 (for a CRYPTED send BY team_local_id); false = unknown
     bool       team_id_of_key(uint32_t key_hash32, uint8_t& out_id) const;   // §mobile 6.4: reverse team-scoped hash->team_local_id (a PLAINTEXT send-by-hash to a HEARD teammate); false = unknown
+    // §team-ch-key (T-K1, spec 2026-07-26 §2.1): the TEAM CHANNEL keypair — the CONTENT key, distinct from
+    // membership. RAM state; src/fw_main.cpp loads it from / src/firmware_config.cpp persists it to the NV Blob
+    // (team_ch_pub / team_ch_priv / team_ch_key_present, v22) — the same shape as the admin_* trio above.
+    bool           team_channel_key_present() const { return _team_ch_key_present; }
+    const uint8_t* team_channel_pub()  const { return _team_ch_key_present ? _team_ch_pub  : nullptr; }   // nullptr = no key (never a zero buffer a caller could mistake for one)
+    const uint8_t* team_channel_priv() const { return _team_ch_key_present ? _team_ch_priv : nullptr; }
+    bool team_channel_key_mint();                                                   // `team new`: draw 32 B from the HAL CSPRNG -> canonical pair. false = REFUSED (dead RNG); state untouched
+    bool team_channel_key_adopt(const uint8_t pub[32], const uint8_t priv[32]);     // `team new tkpub=/tkpriv=` · T-K3 grant · T-K4 QR. false = REFUSED (all-zero, or pub doesn't match priv); state untouched
+    void team_channel_key_load(const uint8_t pub[32], const uint8_t priv[32], bool present);   // boot restore from NV — VERBATIM, no re-derivation (mirrors admin_load)
 #else
     bool       is_team_peer(uint8_t) const { return false; }
     void       team_key_set(uint8_t, uint32_t) {}
     bool       team_key_of_id(uint8_t, uint32_t&) const { return false; }
     bool       team_id_of_key(uint32_t, uint8_t&) const { return false; }
+    // §team-ch-key: inert on a static build (gateway_*, MR_FEAT_TEAM 0) — a node with no team plane can hold no
+    // team content key, so the mint/adopt verbs REFUSE (false) rather than silently pretending to succeed (C2).
+    bool           team_channel_key_present() const { return false; }
+    const uint8_t* team_channel_pub()  const { return nullptr; }
+    const uint8_t* team_channel_priv() const { return nullptr; }
+    bool team_channel_key_mint() { return false; }
+    bool team_channel_key_adopt(const uint8_t*, const uint8_t*) { return false; }
+    void team_channel_key_load(const uint8_t*, const uint8_t*, bool) {}
 #endif
     // §P2-3 (2026-07-21): is `next` a LOCAL id — a mobile last-mile (addr_len==1) OR a known same-team peer? The guard that
     // keeps a mobile/team LOCAL next OUT of the static node_id-indexed planes (bidi/liveness/rt-rerank). It was hand-pasted at
@@ -1244,8 +1261,14 @@ private:
     // per-board .bss diff — native's 8B alignment hides it). Layout-invariance wins over grouping; do NOT move this pair.
     // (The rest of the team/mobile-member plane groups in a later increment; this stays put.)
 #if MR_FEAT_TEAM
-    uint8_t  _team_local_id = 0;  // §mobile 6.4: the member's id on the TEAM plane (self-assigned by team-DAD, no host; persistent). 0 = not team-DAD'd (a non-team node, or a team member mid-DAD). The 6.2 team plane (_team_peer/_rt_team, team beacon src, team frames) keys on THIS; the static plane keeps _node_id. §18: _rt_team keeps the two id-spaces from colliding.
+    uint8_t  _team_local_id = 0;  // §mobile 6.4: the member's id on the TEAM plane (self-assigned by team-DAD, no host; persistent). 0 = not team-DAD'd (a non-team node, or a team member mid-DAD). The 6.2 team plane (_team_peer/_rt_team, team beacon src, team frames) keys on THIS; the static plane keys on _node_id. §18: _rt_team keeps the two id-spaces from colliding.
     bool     _team_dad_pending = false;  // §mobile 6.4: true during the team-DAD guard window (tentative _team_local_id) -> a same-team src collision RE-PICKS; after (confirmed) -> DEFEND (DENY).
+    // §team-ch-key (T-K1): 1 = _team_ch_pub/_team_ch_priv (E2E CRYPTO section below) hold a real keypair.
+    // ★ DELIBERATELY SPLIT from the keys it describes, for the SAME measured reason the pair above sits here:
+    // byte 19 is pure alignment padding ahead of the 4-aligned _key_hash32, so this flag costs ZERO bytes at
+    // this offset and EIGHT beside the keys (the 65 B of new state would round the +64 up to +72 — measured,
+    // see the sizeof(Node) ledger at the end of this header). Layout-invariance over grouping, as above.
+    bool     _team_ch_key_present = false;
 #endif
     uint32_t _key_hash32;         // ctor init-list [3]; stable long identity
     char     _name[32] = {};      // §1.3: human label (the /mrid IdBlob.name, <=32 B); empty -> effective_name() defaults to "MeshRoute node: 0x<hash>"
@@ -1254,6 +1277,24 @@ private:
     // ---- E2E CRYPTO (Node-global) ----
     uint8_t  _x_secret[32] = {};  // DP1: X25519 ECDH secret (Phase-1 E2E DM crypto)
     uint8_t  _ed_pub[32]   = {};  // DP1: our Ed25519 pubkey (advertised so peers can ECDH to us)
+#if MR_FEAT_TEAM
+    // §team-ch-key (T-K1, spec 2026-07-26 §2.1): the TEAM CHANNEL content keypair. X25519, dedicated — NOT
+    // derived from the identity seed above, NOT a team_id input. Stored in CANONICAL (clamped) form; see
+    // team_channel_key_derive in identity.h for why that matters. The has-key flag lives in the IDENTITY
+    // block above (it is free there and costs 8 B here — see the note at it).
+    // ⚠ MARK OF WHAT IS *NOT* DONE (T-K1 is the storage+provisioning slice only):
+    //   · NOTHING READS THESE YET. The encrypted channel flavour + seal/open (T-K2), the un-keyed-receiver
+    //     drop push (T-K2) and the TYPE-19 key grant (T-K3) are later slices.
+    //   · set_team_id() deliberately does NOT clear them. A `team <other-id>` switch therefore leaves the
+    //     PREVIOUS team's key in place. That is inert today (no writer, no reader) but T-K2 MUST rule on it
+    //     BEFORE it starts sealing — otherwise a member who switched teams would seal posts for the NEW team
+    //     under the OLD team's key and no-one could read them. Two candidate fixes, both T-K2's call: clear
+    //     on switch, or store the owning team_id beside the pair and treat a mismatch as "no key".
+    //     Deferred here on purpose: set_team_id() is corpus-reached (s34), and touching it would put a
+    //     behaviour change into a byte-identity slice (C1) for a mechanism that has no consumer yet.
+    uint8_t  _team_ch_pub[32]  = {};
+    uint8_t  _team_ch_priv[32] = {};
+#endif
     bool     _crypto_ready = false;
     uint16_t _relay_seal_ctr = 0; // §S4 SEALED_RELAY: a dedicated per-node nonce ctr, CARRIED in the relay body (NOT the MAC frame ctr — that stays the delegating home's for dedup). Uniqueness rides the random seed8; this ctr is defense-in-depth (matches the same-layer seal's ctr role). Pre-incremented per relay seal.
 
@@ -1854,7 +1895,7 @@ private:
 // pointer/enum/alignment). Purpose: the node.h legibility reorder (2026-07-15 by-concern member reorder) must not
 // change Node's layout. If this fires after a *deliberate* member add/remove/type change, update the baseline
 // consciously — it is a tripwire, not a frozen contract. The real nRF52 RAM check is the firmware.map .bss/.data diff.
-static_assert(sizeof(Node) == 220592, "node.h: Node native layout changed — if intentional, update the baseline");   // 220592 -> 220592 (+0 §team-parity T6/B, and the SLICE BRIEF EXPECTED THIS TO MOVE — it does not, measured by template-reveal not by the assert alone. Arithmetic, per ledger: (1) HashQuerySeen gains `bool team_scoped` and stays 24 B — origin(1)+pad(3)+key_hash32(4)+t_ms(8) then hard+want_pubkey+team_scoped(3)+pad(5); the third bool lands in the 6 bytes of tail padding the previous two already shared, so the ×cap_hash_query_seen(64) ×MR_N_LAYERS array is unchanged. (2) _per_origin_channel's key widens uint8_t -> uint16_t, and sizeof(std::map) does not depend on its key type (the key lives in heap-allocated nodes), so 0 B. (3) _seen_origins takes a bit in an EXISTING uint64_t key — no member added. (4) _mediated_recent was AUDITED AND DELIBERATELY LEFT ALONE: its two writers' key sets are provably disjoint on b.is_mobile (see the §P2-7 note), and MediatedRecent measures 16 B, so a plane byte would have made it 24 B ×cap_mediated_recent(32) = +256 B of nRF52840 RAM for an empty set. THAT is the +256 this line does not carry). 220592 -> 220592 (+0 §team-parity T0: NodeConfig.team_hop_cap, a uint8_t placed immediately after dv_hop_cap. Arithmetic: dv_hop_cap sits at native offset 93 and the next member (the 8-byte-aligned `double radio_freq_mhz`) at 96, so bytes 94-95 were pure alignment pad; the new member takes byte 94 and the hole shrinks to one byte. sizeof(NodeConfig) 264 -> 264 and sizeof(Node) 264-worth-of-config unchanged => the member costs literally nothing. This is the radio_freq_mhz placement rule below applied a second time, and it is why the value on this line did NOT move). 220584 -> 220592 (+8 §layer-freq: NodeConfig.radio_freq_mhz, a `double` placed between dv_hop_cap and the existing `double duty_cycle` so it fills the 8-byte-alignment padding slot already there — measured sizeof(NodeConfig) 256 -> 264, i.e. the member costs its own 8 B and opens NO new hole; the same slot after `radio_cr` would have cost 16). 220392 -> 220584 (+192 shelf-item-(i): PendingE2eAck[cap_pending_e2e_acks=8], 24 B each = the E2E-ack deadline ring, Node-global). 220384 -> 220392 (+8 Wave-4: NodeConfig.gw_schedule_readvert_ms u32 + alignment; the gateway schedule re-advertisement cadence). …218872 (§S6) -> 219000 (§GapA) -> 219312 (+312 §F-XL-1: HForwardStash[4] = 4×(77+1) de-storm ring; _h_forward_rr fits existing padding) -> 219568 (+256 §S3 part2: HostMobileEntry.last_key_fwd_hash32 = 4 B + 4 B align, ×16 ×2 layers) -> 219760 (+192 batch B: §B2 HostMobileEntry.deleg_fail packs into existing tail padding; §B4 PendingNotify.last_home_hash 4 B ×16 ×2 layers = +128; §D16 PresenceCand.incompatible +8 align ×cap = +64) -> 219952 (+192 batch A: §F-XL-2 RreqForwardStash[4] = 4×(16+1) de-storm ring + _rreq_forward_rr; §F-SL-1 ParkedSend += reflood state (bool/bool/Plane/u8 + u64 reflood_at_ms, 8-align) ×cap_parked_sends=8) -> 220384 (+432 §3-A.6 evict-STALEST timestamps: _learned_layers_seen_ms u64×4 = +32; PendingNotify.stash_ms u64 -> 12->24 B ×16 ×2 layers = +384 (+16 align); MINUS the dead _presence_claim_retries u8 (absorbed by padding))
+static_assert(sizeof(Node) == 220656, "node.h: Node native layout changed — if intentional, update the baseline");   // 220592 -> 220656 (+64, NOT +65 and NOT +72 — §team-ch-key T-K1 adds 65 B of state and pays for 64. Arithmetic, measured by template-reveal on all six board flag-sets, not inferred: (a) _team_ch_pub[32] + _team_ch_priv[32] are inserted immediately after _ed_pub, i.e. between _ed_pub and _crypto_ready. 64 is a multiple of 8, so EVERY downstream member keeps its alignment and NO new hole opens anywhere: native _crypto_ready 121->185 (still odd, so the 2-aligned _relay_seal_ctr still needs no pad), _admin_pubkey 124->188, the 4-aligned _admin_counter_floor 156->220 (still 4-aligned), _remote_inbound 161->225 ending 406->470, and the 8-aligned _cfg 408->472 with its pre-existing 2-byte pad UNCHANGED. The arrays therefore cost exactly their own 64 B. (b) the has-key flag `_team_ch_key_present` costs ZERO: it is placed at native offset 19, in the alignment pad that already sat between _team_dad_pending (18) and the 4-aligned _key_hash32 (20) — the SAME hole node.h:1242's note keeps _team_local_id/_team_dad_pending here to exploit. Placing it beside the keys instead would have made the insert 65 B, flipping _crypto_ready to an EVEN offset (186) so _relay_seal_ctr needs a pad byte, and pushing _admin_counter_floor off its 4-alignment for two more — measured +72, i.e. the flag would have cost 8. FIFTH application of the radio_freq_mhz / team_hop_cap / HashQuerySeen.team_scoped / T5-PeerLiveness padding-placement rule. ⚠ this line is native-ONLY and unverifiable on a board ABI, so the per-target proof is the compile-only sizeof probe recorded in the T-K1 slice report: +64 on ARM-full, Xtensa-full and both *_mobile (MR_FEAT_REMOTE_MGMT 0), and +0 on both gateway_* (MR_FEAT_TEAM 0 strips all three members)). 220592 -> 220592 (+0 §team-parity T6/B, and the SLICE BRIEF EXPECTED THIS TO MOVE — it does not, measured by template-reveal not by the assert alone. Arithmetic, per ledger: (1) HashQuerySeen gains `bool team_scoped` and stays 24 B — origin(1)+pad(3)+key_hash32(4)+t_ms(8) then hard+want_pubkey+team_scoped(3)+pad(5); the third bool lands in the 6 bytes of tail padding the previous two already shared, so the ×cap_hash_query_seen(64) ×MR_N_LAYERS array is unchanged. (2) _per_origin_channel's key widens uint8_t -> uint16_t, and sizeof(std::map) does not depend on its key type (the key lives in heap-allocated nodes), so 0 B. (3) _seen_origins takes a bit in an EXISTING uint64_t key — no member added. (4) _mediated_recent was AUDITED AND DELIBERATELY LEFT ALONE: its two writers' key sets are provably disjoint on b.is_mobile (see the §P2-7 note), and MediatedRecent measures 16 B, so a plane byte would have made it 24 B ×cap_mediated_recent(32) = +256 B of nRF52840 RAM for an empty set. THAT is the +256 this line does not carry). 220592 -> 220592 (+0 §team-parity T0: NodeConfig.team_hop_cap, a uint8_t placed immediately after dv_hop_cap. Arithmetic: dv_hop_cap sits at native offset 93 and the next member (the 8-byte-aligned `double radio_freq_mhz`) at 96, so bytes 94-95 were pure alignment pad; the new member takes byte 94 and the hole shrinks to one byte. sizeof(NodeConfig) 264 -> 264 and sizeof(Node) 264-worth-of-config unchanged => the member costs literally nothing. This is the radio_freq_mhz placement rule below applied a second time, and it is why the value on this line did NOT move). 220584 -> 220592 (+8 §layer-freq: NodeConfig.radio_freq_mhz, a `double` placed between dv_hop_cap and the existing `double duty_cycle` so it fills the 8-byte-alignment padding slot already there — measured sizeof(NodeConfig) 256 -> 264, i.e. the member costs its own 8 B and opens NO new hole; the same slot after `radio_cr` would have cost 16). 220392 -> 220584 (+192 shelf-item-(i): PendingE2eAck[cap_pending_e2e_acks=8], 24 B each = the E2E-ack deadline ring, Node-global). 220384 -> 220392 (+8 Wave-4: NodeConfig.gw_schedule_readvert_ms u32 + alignment; the gateway schedule re-advertisement cadence). …218872 (§S6) -> 219000 (§GapA) -> 219312 (+312 §F-XL-1: HForwardStash[4] = 4×(77+1) de-storm ring; _h_forward_rr fits existing padding) -> 219568 (+256 §S3 part2: HostMobileEntry.last_key_fwd_hash32 = 4 B + 4 B align, ×16 ×2 layers) -> 219760 (+192 batch B: §B2 HostMobileEntry.deleg_fail packs into existing tail padding; §B4 PendingNotify.last_home_hash 4 B ×16 ×2 layers = +128; §D16 PresenceCand.incompatible +8 align ×cap = +64) -> 219952 (+192 batch A: §F-XL-2 RreqForwardStash[4] = 4×(16+1) de-storm ring + _rreq_forward_rr; §F-SL-1 ParkedSend += reflood state (bool/bool/Plane/u8 + u64 reflood_at_ms, 8-align) ×cap_parked_sends=8) -> 220384 (+432 §3-A.6 evict-STALEST timestamps: _learned_layers_seen_ms u64×4 = +32; PendingNotify.stash_ms u64 -> 12->24 B ×16 ×2 layers = +384 (+16 align); MINUS the dead _presence_claim_retries u8 (absorbed by padding))
 #endif
 
 }  // namespace meshroute

@@ -450,6 +450,22 @@ void handle_gateway(const char* args, Print& out) {
 #endif
 }
 
+// §team-ch-key (T-K1): THE one node->Blob conversion for the team channel keypair (U2 — never rebuild a carrier
+// field-by-field per site). Two callers: seed_blob_from_live (the load-FAILED path, so a create/join reprovision
+// on a fresh chip does not silently drop the key) and handle_team (which must persist a pair it just
+// minted/adopted). A keyless node writes present=0 + all-zero, which is exactly what load restores as "no key".
+// NB it reads through the ACCESSORS, which return nullptr while keyless — so there is no path where an
+// unflagged buffer leaks into NV as if it were a key.
+static void blob_take_team_channel_key(mrnv::Blob& b) {
+    const uint8_t* pub  = g_node.team_channel_pub();
+    const uint8_t* priv = g_node.team_channel_priv();
+    b.team_ch_key_present = (pub && priv) ? 1 : 0;
+    for (uint8_t i = 0; i < 32; ++i) {
+        b.team_ch_pub[i]  = pub  ? pub[i]  : 0;
+        b.team_ch_priv[i] = priv ? priv[i] : 0;
+    }
+}
+
 // Seed a fresh blob from the live config (so a save on a never-persisted node doesn't zero the non-provisioning fields).
 static void seed_blob_from_live(mrnv::Blob& b) {
     const meshroute::NodeConfig& nc = g_node.config();
@@ -460,6 +476,7 @@ static void seed_blob_from_live(mrnv::Blob& b) {
     b.is_gateway = nc.is_gateway ? 1 : 0; b.gateway_only = nc.gateway_only ? 1 : 0;
     b.is_mobile  = nc.is_mobile ? 1 : 0;  b.leaf_id      = nc.leaf_id;  b.team_id = nc.team_id; b.mobile_autoregister = nc.mobile_autoregister ? 1 : 0; b.team_local_id = g_node.team_local_id();   // §mobile: preserve team + autoreg + team-DAD id across create/join
     b.intro_attach = nc.intro_attach ? 1 : 0;   // v21 §S2: preserve the first-contact INTRO toggle across create/join
+    blob_take_team_channel_key(b);              // v22 §team-ch-key: preserve the team channel keypair across create/join (it is UNRECOVERABLE if dropped — no seed derives it)
     b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;  b.ble_pin = g_ble_pin;
     b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;  b.e2e_dm     = nc.e2e_dm ? 1 : 0;
     b.gw_announce_duty_pct = nc.gw_announce_duty_pct; b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
@@ -612,6 +629,40 @@ static PhyTail parse_phy_tail(const char* tail, uint8_t layer_id, const PhyTailM
 }
 #endif   // MR_FEAT_MOBILE (parse_phy_tail)
 
+#if MR_FEAT_TEAM
+// §team-ch-key (T-K1): the REPORTING half of mrfw::split_team_key_tail (firmware_config_parse.h). The parsing
+// itself lives in that pure header so the native suite can reach it — no scenario runs a console verb, so logic
+// left here would have zero automated coverage. This wrapper owns only the two scratch buffers and the strings.
+// C2: every failure mode REFUSES loudly; half a keypair, or a truncated hex blob silently accepted, would install
+// a key the operator never typed and then encrypt for a team that cannot read it.
+static mrfw::TeamKeyTail parse_team_key_tail(const char* tail, char* rest, size_t rest_cap,
+                                             uint8_t pub[32], uint8_t priv[32], Print& out) {
+    // STATIC, not stack: handle_team's frame already carries a ~272 B mrnv::Blob, and a tail holding two 64-digit
+    // hex blobs needs ~180 B more (the do_post_ack stack-overflow lesson). Console dispatch is single-threaded,
+    // one command at a time, so there is no reentrancy concern.
+    static char scratch[224];
+    const char* bad_key = nullptr;
+    const mrfw::TeamKeyTail r = mrfw::split_team_key_tail(tail, scratch, sizeof scratch, rest, rest_cap,
+                                                          pub, priv, bad_key);
+    switch (r) {
+        case mrfw::TeamKeyTail::none:
+        case mrfw::TeamKeyTail::ok:
+            break;
+        case mrfw::TeamKeyTail::bad_hex:
+            out.print(F("> team err: ")); out.print(bad_key ? bad_key : "tkpub/tkpriv");
+            out.println(F(" needs EXACTLY 64 hex digits (32 bytes)"));
+            break;
+        case mrfw::TeamKeyTail::half_pair:
+            out.println(F("> team err: tkpub= and tkpriv= must be given TOGETHER (a keypair, not a half)"));
+            break;
+        case mrfw::TeamKeyTail::too_long:
+            out.println(F("> team err: args too long"));
+            break;
+    }
+    return r;
+}
+#endif   // MR_FEAT_TEAM (parse_team_key_tail)
+
 // §mobile 6.1: FNV-1a over (key_hash32 ‖ nonce) = the 32-bit team_id (team_fnv1a32, firmware_config_parse.h).
 // `team new` = MINT a fresh team_id = hash(our key ‖ HW-RNG nonce). `team <id>` = JOIN an existing team. `team 0` = leave.
 void handle_team(const char* args, Print& out) {
@@ -619,7 +670,8 @@ void handle_team(const char* args, Print& out) {
     const meshroute::NodeConfig& c = g_node.config();
     uint32_t t;
     const char* phy_args = nullptr;
-    if (!strncmp(args, "new", 3)) {
+    const bool mint_form = !strncmp(args, "new", 3);
+    if (mint_form) {
         uint32_t nonce = 0; g_hal.rand_bytes(reinterpret_cast<uint8_t*>(&nonce), 4);
         t = team_fnv1a32(g_node.key_hash32(), nonce);
         phy_args = args + 3;   // §mobile 6.4: `team new [freq=<MHz> sf=<5-12> bw=<kHz>]` — optional team PHY
@@ -629,8 +681,26 @@ void handle_team(const char* args, Print& out) {
         phy_args = endp;   // §6.4: `team <id> [freq= sf= bw=]` — a JOIN can set the shared team PHY too (mirrors `team new`)
     } else {
         out.println(F("> team err usage: `team new [freq= sf= bw=]` (mint) | `team <id> [freq= sf= bw=]` (join) | `team 0` (leave)"));
+        out.println(F(">   both forms also take `[tkpub=<64 hex> tkpriv=<64 hex>]` to ADOPT an existing team channel key (else `team new` mints one)"));
         return;
     }
+    // §team-ch-key (T-K1): peel `tkpub=`/`tkpriv=` off the tail FIRST — parse_phy_tail below refuses unknown keys.
+    // Nothing is applied here; we only VALIDATE + stage, so a malformed key refuses before any state moves.
+#if MR_FEAT_TEAM
+    uint8_t tk_pub[32] = {}, tk_priv[32] = {};
+    bool tk_supplied = false;
+    if (phy_args && *phy_args) {
+        static char tk_rest[96];                        // STATIC (see parse_team_key_tail): keeps the console frame small AND outlives this block for the PHY parse below
+        const mrfw::TeamKeyTail r = parse_team_key_tail(phy_args, tk_rest, sizeof tk_rest, tk_pub, tk_priv, out);
+        if (r != mrfw::TeamKeyTail::none && r != mrfw::TeamKeyTail::ok) return;   // reported; team_id, the key, and NV are ALL unchanged
+        tk_supplied = (r == mrfw::TeamKeyTail::ok);
+        if (tk_supplied && t == 0) {                    // `team 0 tkpub=…` is meaningless — leaving a team takes no key
+            out.println(F("> team err: tkpub=/tkpriv= make no sense on `team 0` (leave)"));
+            return;
+        }
+        phy_args = tk_rest;                             // the tail parse_phy_tail sees has the team-key tokens REMOVED (it may now be empty)
+    }
+#endif
     mrnv::Blob b{}; nv_load_stamped(b);   // §nv-ritual — the stamp this path once MISSED (see nv_load_stamped) is now structural
     b.team_id = t;
     // §mobile 6.4 Fix 6: set the team PHY so teammates hear each other (AND a member can later register with a compatible
@@ -661,6 +731,33 @@ void handle_team(const char* args, Print& out) {
             return;   // NOT joined/minted: team_id, _team_local_id, NV all unchanged
         }
     }
+    // §team-ch-key (T-K1, spec §2.1 + ★ OWNER RULING 2026-07-29 "when team is created — a dedicated pair of key has
+    // to be created"): the CREATOR always ends up holding a team channel keypair. Two ways in, and NO opt-out:
+    //   · `tkpub=`/`tkpriv=` supplied  -> ADOPT them verbatim (canonicalised + cross-checked). This is the T-K4 QR
+    //     onboarding path, which a JOINER uses too — hence both `team new` and `team <id>` accept the pair (spec
+    //     §2.4: "the app provisions its node over the existing companion channel (`team …` + the new key fields)").
+    //   · `team new` with no pair      -> MINT from the HAL CSPRNG.
+    //   · `team <id>` with no pair     -> generate NOTHING. A joiner is meant to RECEIVE the key (T-K3 grant / T-K4
+    //     QR); minting an unrelated second key here would silently split the team's readership in two. It is also
+    //     what keeps the simulator corpus draw-free — see the §sim-team-verb note in NodeRuntimeWrapper.cpp.
+    // ★ Placed BEFORE set_team_id so a refusal leaves the team UNJOINED rather than keyless (C2 — the owner ruling
+    // removed the opt-out precisely because a keyless creator is a footgun). The only state already applied at this
+    // point is the optional PHY retune above, which is the pre-existing shape of the incomplete-PHY refusal too.
+#if MR_FEAT_TEAM
+    if (tk_supplied) {
+        if (!g_node.team_channel_key_adopt(tk_pub, tk_priv)) {
+            out.println(F("> team err: tkpub=/tkpriv= REFUSED — not a valid X25519 keypair (all-zero, or tkpub is not tkpriv's public key). Team NOT joined."));
+            return;
+        }
+        out.println(F("> team channel key: ADOPTED (from tkpub=/tkpriv=)"));
+    } else if (mint_form) {
+        if (!g_node.team_channel_key_mint()) {
+            out.println(F("> team err: team channel keygen FAILED (crypto RNG returned no entropy). Team NOT minted."));
+            return;   // C2: refuse the whole verb — never leave a creator holding no content key
+        }
+        out.println(F("> team channel key: MINTED (X25519)"));
+    }
+#endif
     // §clean-team (2026-07-27): ONE core call does the whole switch — drop the OLD team's learned plane (_rt_team /
     // _team_peer / team liveness / the team KEY CACHE / team RREQ ledgers) and the stale team-DAD id, then adopt the new
     // team_id LIVE. Returns false on a same-team no-op (`team <current_id>`), which clears nothing and skips the re-DAD.
@@ -668,6 +765,7 @@ void handle_team(const char* args, Print& out) {
     if (c.is_mobile && t != 0 && team_switched) g_node.team_dad_fire();   // §6.4: bootstrap the team plane (self-assign a _team_local_id, no static host needed)
     b.node_id       = g_node.canonical_node_id();            // §6.4: team_dad_fire may have MOVED node_id (off-grid: node_id==team id) -> persist the live id, don't re-save the stale one loaded at entry
     b.team_local_id = g_node.team_local_id();                // §6.4: persist the fresh id (or 0 on leave) alongside team_id
+    blob_take_team_channel_key(b);                            // §team-ch-key (v22): persist the pair we just minted/adopted (or carry the existing one through a leave)
     if (!mrnv::save(b)) out.println(F("> team err nv_save_failed (team is LIVE but NOT persisted — will revert on reboot)"));   // §3-A.4: was the ONLY unchecked save of 9 (the LIVE team state above is already applied, so report — don't roll back)
     char tx[9]; snprintf(tx, sizeof tx, "%08lX", (unsigned long)t);
     out.print(F("> team -> team_id=0x")); out.println(tx);
