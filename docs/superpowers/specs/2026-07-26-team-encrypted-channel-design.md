@@ -40,8 +40,23 @@ members; old posts stay readable to the old key — forward secrecy is explicitl
 ## 2. Design
 
 ### 2.1 The team channel keypair
+
+> ## ★ OWNER RULING 2026-07-29 — GENERATION IS UNCONDITIONAL; `genkey` IS REMOVED
+> *"when team is created — a dedicated pair of key has to be created."*
+> **`team new` ALWAYS mints the keypair.** The `genkey` opt-in below is **superseded**; ignore it wherever it
+> appears in this document (§2.1, §3/T-K1).
+> **Rationale:** an opt-in flag is a footgun — create a team, forget the flag, and you discover only later that
+> you can neither encrypt nor grant. It also makes **§2.5 coherent**: `team_channel_crypt` defaults **ON**, which
+> is incoherent if the creator might hold no key at all.
+> **Unchanged by this ruling:** `team <id>` (**join**) still generates **NOTHING** — a joiner receives the key by
+> grant (§2.3/T-K3) or QR (§2.4/T-K4). ★ That is not merely a design preference: **s34 is the only scenario that
+> invokes the verb and it uses the join form**, so keygen-on-join would consume shared-RNG draws and could
+> re-anchor the whole corpus. `team new tkpub=…/tkpriv=…` **adopts** an existing key instead of minting one
+> (idempotent with QR onboarding).
+
 - X25519 keypair (`team_ch_pub[32]`, `team_ch_priv[32]`), generated ON the creator's node at
-  `team new … genkey` (device crypto RNG; the sim wrapper's seeded RNG path for determinism in tests).
+  ~~`team new … genkey`~~ **`team new` (unconditionally — see the ruling above)** (device crypto RNG; the sim
+  wrapper's seeded RNG path for determinism in tests).
 - Stored in NV (two new 32-B fields + a has-key flag; **kVersion bump** — standard reprovision-on-reflash).
 - Distinct from every existing key: NOT the node identity, NOT the team_id derivation input. team_id and
   overlay membership are unchanged — this key gates CONTENT only.
@@ -102,7 +117,7 @@ plaintext flavor is always openable). Recommend the companion surface the lock s
 
 ## 3. Slices (gateable, sequential)
 
-- **T-K1**: keypair NV storage + `team new genkey` + `tkpub=/tkpriv=` provisioning params + companion
+- **T-K1**: keypair NV storage + ~~`team new genkey`~~ **unconditional keygen at `team new`** (owner ruling 2026-07-29, §2.1) + `tkpub=/tkpriv=` provisioning params + companion
   contract fields. (No wire change; s18 byte-identical; native tests for NV round-trip.)
 - **T-K2**: the encrypted channel flavor — seal/open path, nonce design (THE review point), un-keyed-drop
   push, inbox enc=1, `team_channel_crypt` default. Gate: s18 EXACT (team-gated), s22/s28/s29 forensics
