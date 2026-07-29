@@ -233,7 +233,8 @@ struct DualLayerTestAccess {
         pa.inner_len = o;
         n.do_post_ack();
     }
-    static uint16_t send_by_hash_intent(Node& n, uint32_t h, const uint8_t* body, uint8_t len, CryptIntent ci) { return n.send_by_hash(h, body, len, 0, ci); }   // §S2: drive a plaintext/crypted hash send (attach decision)
+    // §xl-crypt-intent: gained an optional `type` rather than forking a second accessor (U1, the req_sync/send_xl idiom).
+    static uint16_t send_by_hash_intent(Node& n, uint32_t h, const uint8_t* body, uint8_t len, CryptIntent ci, uint8_t type = 0) { return n.send_by_hash(h, body, len, 0, ci, 0, 0, Plane::AUTO, type); }   // §S2: drive a plaintext/crypted hash send (attach decision)
     static const PendingTx* pending(Node& n) { return n._active->_pending_tx ? &*n._active->_pending_tx : nullptr; }  // §mobile 3a: the in-flight item (after become_free issues the forward)
     static void     make_registered_mobile(Node& n, uint8_t local_id, uint8_t home_id, uint32_t home_hash) {   // §mobile 3b: a mobile that has adopted a local-id + homed
         n._cfg.is_mobile = true; n.set_identity(local_id, n._key_hash32); n._joined = true;
@@ -538,7 +539,10 @@ struct DualLayerTestAccess {
         for (uint8_t i = 0; i < n._active->_rt_team_count; ++i) if (n._active->_rt_team[i].dest == dest) return n._active->_rt_team[i].candidates[0].next_hop;
         return 0;
     }
-    static void           send_xl(Node& n, uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t len, uint8_t flags = 0) { n.send_cross_layer(dst_node, dst_hash, target_layer, body, len, flags); }
+    // §xl-crypt-intent: the accessor gained the crypt intent rather than forking a second one (U1, the req_sync idiom
+    // below). Defaulted to `off` so every pre-fix call site keeps its exact plaintext meaning; the new sealed-XL tests
+    // pass `on`/`def` explicitly. (The PRODUCTION signature deliberately has NO default — see node.h.)
+    static void           send_xl(Node& n, uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t len, uint8_t flags = 0, CryptIntent crypt = CryptIntent::off, uint8_t type = 0) { n.send_cross_layer(dst_node, dst_hash, target_layer, body, len, flags, crypt, type); }
     static CmdCode        originate(Node& n, uint32_t dst_hash, const uint8_t* hops, uint8_t hc, const uint8_t* body, uint8_t len, uint8_t flags = 0) { uint16_t ctr = 0; return n.originate_layer_path(dst_hash, hops, hc, body, len, flags, ctr); }
     // Multi-hop gateway discovery (type-4 TLV) accessors.
     static void     ingest_bl(Node& n, uint8_t gw, uint8_t dest_leaf) { n.ingest_bridged_layer(gw, dest_leaf); }
@@ -1944,6 +1948,160 @@ TEST_CASE("§S4 send_layer seals under e2e_dm: DATA_TYPE_SEALED_RELAY (the v1 re
               CHECK_FALSE(leaked); }
 }
 
+
+// ---- ★★ §xl-crypt-intent (2026-07-29): the CONFIDENTIALITY fix -------------------------------------------------
+// THE BUG: send_cross_layer had NO CryptIntent parameter, so send_by_hash's mobile_home_find arm STRUCTURALLY
+// DISCARDED the intent and `send 0x<M> "text" -e` — where M is a mobile whose HOME sits on another layer — aired the
+// text IN THE CLEAR with no refusal. These tests are deliberately NEGATIVE: they assert the PLAINTEXT IS ABSENT from
+// the frame, not merely that "a frame went out" (which was true of the buggy code too, and is exactly why nothing
+// caught it). Shared setup: X (leaf 1) knows gateway G (serves leaves 1+2) and caches "mobile M -> home 20 on layer 2".
+namespace {
+struct XlCryptFixture {
+    StubHal ghal; StubHal hal;
+    Identity idX{}, idM{};
+    XlCryptFixture() {
+        uint8_t sX[32], sM[32]; for (int i = 0; i < 32; ++i) { sX[i] = uint8_t(i + 11); sM[i] = uint8_t(200 - i); }
+        identity_from_seed(idX, sX); identity_from_seed(idM, sM);
+    }
+};
+// Build X so that a send-by-hash to M lands on the mobile_home_find CROSS-LAYER arm:
+//   no id_bind for M (miss) · X is not a mobile (no delegation) · X hosts nobody · mobile_home[M] = (20, layer 2 != 1).
+void arm_xl_crypt(XlCryptFixture& f, Node& gw, Node& x, bool e2e_dm, bool cache_m_pubkey) {
+    f.ghal._now = 10000;
+    NodeConfig gcfg; gcfg.n_layers = 2;
+    gcfg.layers[0] = good_layer(1, 8); gcfg.layers[0].node_id = 5;
+    gcfg.layers[1] = good_layer(2, 8); gcfg.layers[1].node_id = 12;
+    CHECK(gw.on_init(gcfg)); CHECK(f.ghal.last_tx_len > 0);
+    f.hal._now = 50000; f.hal._rand_ret = 7;                 // non-zero seed bytes -> the R7 bad_rng refusal doesn't fire
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+    cfg.e2e_dm = e2e_dm; cfg.intro_attach = false;            // intro_attach off so the PLAINTEXT control carries no key prefix either
+    CHECK(x.on_init(cfg)); x.set_crypto_identity(f.idX.x_secret, f.idX.ed_pub);
+    RxMeta meta{}; meta.snr_db = 9.0f; meta.rssi_dbm = -70.0f; meta.recv_ms = f.hal._now; meta.src_hint = -1;
+    x.on_recv(f.ghal.last_tx, f.ghal.last_tx_len, meta);      // learn G's schedule + a route to it
+    CHECK(x.rt_count() >= 1);
+    if (cache_m_pubkey) CHECK(x.peer_key_set(f.idM.key_hash32, f.idM.ed_pub, Node::PeerKeyConf::authoritative));
+    x.mobile_home_set(f.idM.key_hash32, /*home_id=*/20, /*epoch=*/0, /*home_layer=*/2);   // M homed on the OTHER layer
+    f.hal._now = 58000;                                      // G on its foreign leaf -> the DM defers (held, inspectable)
+    f.hal.emits.clear();
+}
+// "SECRET" must not appear anywhere in the frame body.
+bool body_leaks(const std::span<const uint8_t>& b, const char* needle, size_t n) {
+    for (size_t i = 0; i + n <= b.size(); ++i) {
+        size_t k = 0; while (k < n && b[i + k] == static_cast<uint8_t>(needle[k])) ++k;
+        if (k == n) return true;
+    }
+    return false;
+}
+}  // namespace
+
+TEST_CASE("★ §xl-crypt-intent — `-e` to a mobile homed on ANOTHER layer is SEALED, and the cleartext is NOT on the air") {
+    XlCryptFixture f;
+    Node gw(f.ghal, /*id*/ 1, 0xABCDu);
+    Node x(f.hal, /*id*/ 7, f.idX.key_hash32);
+    arm_xl_crypt(f, gw, x, /*e2e_dm=*/false, /*cache_m_pubkey=*/true);   // e2e_dm OFF -> ONLY the per-message `-e` can seal
+    const char* secret = "SECRET";
+    CHECK(DualLayerTestAccess::send_by_hash_intent(x, f.idM.key_hash32, reinterpret_cast<const uint8_t*>(secret), 6,
+                                                  CryptIntent::on) == 0);   // XL originations return 0 (async push carries the outcome)
+    CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 1);
+    if (DualLayerTestAccess::leaf_tx_n(x, 0) != 1) return;
+    const TxItem& it = DualLayerTestAccess::leaf_tx_at(x, 0, 0);
+    CHECK(it.dst == 5);                                        // MAC dst = the bridging gateway G
+    CHECK(it.type == DATA_TYPE_SEALED_RELAY);                  // ★ the sealed-relay carrier, NOT a plain typed DM
+    CHECK((it.flags & DATA_FLAG_CROSS_LAYER) != 0);
+    CHECK((it.flags & DATA_FLAG_CRYPTED) == 0);                // plaintext-FRAMED by construction (the crypto core is same-layer only)
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(it.inner, it.inner_len), it.flags);
+    CHECK(ui.has_value());
+    if (!ui) return;
+    CHECK(ui->has_cross_layer); CHECK(ui->n_layers == 2); CHECK(ui->cur == 1);
+    CHECK(ui->layer_ids[0] == 1); CHECK(ui->layer_ids[1] == 2);
+    CHECK(ui->dst_key_hash32 == f.idM.key_hash32);             // DST_HASH = M, so the bridge resolves M's home + the home last-miles
+    CHECK(ui->has_source_hash);
+    CHECK(ui->source_hash == f.idX.key_hash32);                // == what build_sealed_relay_body sealed under: the directed open works
+    // [seal_ctr 2][seed8 8][ct‖tag], where the sealed plaintext is [origin 1][source_hash 4][body 6] (§1c) -> 37 B.
+    CHECK(ui->body.size() == static_cast<size_t>(2 + 8 + (1 + 4 + 6) + 16));
+    // ★★ THE ASSERTION THE OLD CODE FAILED: no cleartext body bytes anywhere in the frame.
+    CHECK_FALSE(body_leaks(ui->body, secret, 6));
+    CHECK_FALSE(body_leaks(std::span<const uint8_t>(it.inner, it.inner_len), secret, 6));
+    // ...and M actually opens it (the transport is real, not just opaque): rebuild M and do the directed open.
+    Node m(f.ghal, /*id*/ 30, f.idM.key_hash32);
+    NodeConfig mcfg; mcfg.routing_sf = 8; mcfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); mcfg.leaf_id = 2;
+    CHECK(m.on_init(mcfg)); m.set_crypto_identity(f.idM.x_secret, f.idM.ed_pub);
+    CHECK(m.peer_key_set(f.idX.key_hash32, f.idX.ed_pub, Node::PeerKeyConf::authoritative));
+    uint8_t out[protocol::max_payload_bytes_hard_cap]; uint8_t out_len = 0;
+    CHECK(m.e2e_open_relay(ui->body.data(), ui->body.size(), ui->source_hash, out, out_len));
+    CHECK(out_len == 6);
+    CHECK(std::string(reinterpret_cast<const char*>(out), out_len) == "SECRET");
+}
+
+TEST_CASE("§xl-crypt-intent — e2e_dm ON + CryptIntent::def also seals the XL arm (the node's POLICY, not just `-e`)") {
+    XlCryptFixture f;
+    Node gw(f.ghal, /*id*/ 1, 0xABCDu);
+    Node x(f.hal, /*id*/ 7, f.idX.key_hash32);
+    arm_xl_crypt(f, gw, x, /*e2e_dm=*/true, /*cache_m_pubkey=*/true);
+    const char* secret = "SECRET";
+    (void)DualLayerTestAccess::send_by_hash_intent(x, f.idM.key_hash32, reinterpret_cast<const uint8_t*>(secret), 6,
+                                                  CryptIntent::def);
+    CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 1);
+    if (DualLayerTestAccess::leaf_tx_n(x, 0) != 1) return;
+    const TxItem& it = DualLayerTestAccess::leaf_tx_at(x, 0, 0);
+    CHECK(it.type == DATA_TYPE_SEALED_RELAY);
+    CHECK_FALSE(body_leaks(std::span<const uint8_t>(it.inner, it.inner_len), secret, 6));
+}
+
+TEST_CASE("§xl-crypt-intent — CONTROL: the SAME send with CryptIntent::off still flies plaintext (discriminates, not blanket-refuses)") {
+    XlCryptFixture f;
+    Node gw(f.ghal, /*id*/ 1, 0xABCDu);
+    Node x(f.hal, /*id*/ 7, f.idX.key_hash32);
+    arm_xl_crypt(f, gw, x, /*e2e_dm=*/false, /*cache_m_pubkey=*/true);
+    const char* secret = "SECRET";
+    (void)DualLayerTestAccess::send_by_hash_intent(x, f.idM.key_hash32, reinterpret_cast<const uint8_t*>(secret), 6,
+                                                  CryptIntent::off);
+    CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 1);
+    if (DualLayerTestAccess::leaf_tx_n(x, 0) != 1) return;
+    const TxItem& it = DualLayerTestAccess::leaf_tx_at(x, 0, 0);
+    CHECK(it.type == 0);                                       // a plain XL DM, no relay carrier
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(it.inner, it.inner_len), it.flags);
+    CHECK(ui.has_value());
+    if (!ui) return;
+    CHECK(ui->body.size() == 6);
+    CHECK(body_leaks(ui->body, secret, 6));                    // plaintext IS present — which is CORRECT for an explicit -e-less send
+}
+
+TEST_CASE("★ §xl-crypt-intent — a `-e` XL send with NO recipient pubkey REFUSES LOUD (send_failed{no_pubkey}), never cleartext") {
+    XlCryptFixture f;
+    Node gw(f.ghal, /*id*/ 1, 0xABCDu);
+    Node x(f.hal, /*id*/ 7, f.idX.key_hash32);
+    arm_xl_crypt(f, gw, x, /*e2e_dm=*/false, /*cache_m_pubkey=*/false);   // ★ M's key is NOT cached -> the seal cannot be built
+    const char* secret = "SECRET";
+    (void)DualLayerTestAccess::send_by_hash_intent(x, f.idM.key_hash32, reinterpret_cast<const uint8_t*>(secret), 6,
+                                                  CryptIntent::on);
+    CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 0);           // ★ NOTHING was enqueued
+    CHECK(f.hal.count("e2e_xl_seal_failed") == 1);
+    CHECK(f.hal.count("tx_enqueue_xl") == 0);
+    Push p{}; bool got = false;
+    while (x.next_push(p)) if (p.kind == PushKind::send_failed) { got = true; CHECK(p.reason == SendFailReason::no_pubkey); }
+    CHECK(got);
+}
+
+TEST_CASE("★ §xl-crypt-intent — a TYPED `-e` XL send REFUSES LOUD (unsealable): SEALED_RELAY spends the one TYPE byte") {
+    XlCryptFixture f;
+    Node gw(f.ghal, /*id*/ 1, 0xABCDu);
+    Node x(f.hal, /*id*/ 7, f.idX.key_hash32);
+    arm_xl_crypt(f, gw, x, /*e2e_dm=*/false, /*cache_m_pubkey=*/true);   // the key IS cached: the refusal is the TYPE, not the seal
+    uint8_t body[40] = { 1, 2, 3, 4, 0 };
+    (void)DualLayerTestAccess::send_by_hash_intent(x, f.idM.key_hash32, body, sizeof body, CryptIntent::on,
+                                                  /*type=*/DATA_TYPE_TEAM_KEY_GRANT);
+    CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 0);           // ★ NOT enqueued cleartext, NOT type-stripped
+    CHECK(f.hal.count("xl_send_unsealable") == 1);
+    CHECK(f.hal.count("tx_enqueue_xl") == 0);
+    Push p{}; bool got = false;
+    while (x.next_push(p)) if (p.kind == PushKind::send_failed) { got = true; CHECK(p.reason == SendFailReason::unsealable); }
+    CHECK(got);
+    // Control: the identical UNTYPED send IS built (sealed), so the refusal is type-specific, not a broken path.
+    (void)DualLayerTestAccess::send_by_hash_intent(x, f.idM.key_hash32, body, sizeof body, CryptIntent::on, /*type=*/0);
+    CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 1);
+    CHECK(DualLayerTestAccess::leaf_tx_at(x, 0, 0).type == DATA_TYPE_SEALED_RELAY);
+}
 
 TEST_CASE("dual-layer origination: send_cross_layer builds [my,target] cur=1 + SOURCE_HASH to a schedule-verified gateway (Slice 4d)") {
     // a gateway G beacons -> X learns G's schedule (serves leaves 1+2) AND a 1-hop route to G.

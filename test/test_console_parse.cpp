@@ -145,7 +145,7 @@ TEST_CASE("parse_command — send_channel <ch> \"text\" (no ack/enc)") {
     CHECK(parse_command(aflag, std::strlen(aflag), c) == ParseErr::bad_args);
 }
 
-TEST_CASE("parse_command — send_layer <hash> <l1,l2,…> \"text\" [-a]") {
+TEST_CASE("parse_command — send_layer <hash> <l1,l2,…> \"text\" [-a] [-e]") {
     Command c{};
     const char* line = "send_layer 0xa1b2c3d4 2,3 \"hi there\" -a";
     CHECK(parse_command(line, std::strlen(line), c) == ParseErr::ok);
@@ -154,13 +154,38 @@ TEST_CASE("parse_command — send_layer <hash> <l1,l2,…> \"text\" [-a]") {
     CHECK(c.u.layer.hop_count == 2);
     CHECK(c.u.layer.hops[0] == 2); CHECK(c.u.layer.hops[1] == 3);
     CHECK(c.u.layer.flags == DATA_FLAG_E2E_ACK_REQ);
+    CHECK(c.crypt == CryptIntent::def);                    // no -e => the node's e2e_dm default
     CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "hi there");
     const char* one = "send_layer 0x0a0b0c0d 5 \"yo\"";
     CHECK(parse_command(one, std::strlen(one), c) == ParseErr::ok);
     CHECK(c.u.layer.hop_count == 1); CHECK(c.u.layer.hops[0] == 5);
     CHECK(c.u.layer.flags == 0x00);
-    const char* e = "send_layer 0xa1b2c3d4 2 \"hi\" -e";   // -e invalid on a layer target
-    CHECK(parse_command(e, std::strlen(e), c) == ParseErr::bad_args);
+    CHECK(c.crypt == CryptIntent::def);
+}
+
+// ★ §xl-crypt-intent (2026-07-29): `-e` on send_layer. This test REPLACES one that asserted `-e` was `bad_args` —
+// deliberately deleted, because it pinned the very gap this slice closes (the sim could ask for a sealed cross-layer DM
+// via `send_layerx`, the console could not). -e MUST reach the core as CryptIntent::on: on_command's send_layer then
+// seals into a DATA_TYPE_SEALED_RELAY or fails loud. A silent no-op here would recreate the cleartext bug at a new door.
+TEST_CASE("parse_command — send_layer -e => CryptIntent::on (never a silent no-op)") {
+    Command c{};
+    const char* e = "send_layer 0xa1b2c3d4 2 \"hi\" -e";
+    CHECK(parse_command(e, std::strlen(e), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::send_layer);
+    CHECK(c.crypt == CryptIntent::on);                     // ★ the intent SURVIVES the parse
+    CHECK(c.u.layer.dst_hash == 0xa1b2c3d4u);
+    CHECK(c.u.layer.hop_count == 1); CHECK(c.u.layer.hops[0] == 2);
+    CHECK(c.u.layer.flags == 0x00);                        // -e is not -a
+    CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "hi");
+    // flags in ANY order, and -a/-e/-K compose (the parse_send_tail contract)
+    const char* both = "send_layer 0xa1b2c3d4 2,3 -e -a -K \"x\"";
+    CHECK(parse_command(both, std::strlen(both), c) == ParseErr::ok);
+    CHECK(c.crypt == CryptIntent::on);
+    CHECK(c.u.layer.flags == DATA_FLAG_E2E_ACK_REQ);
+    CHECK(c.no_intro);
+    // -t is still REFUSED on send_layer (the plane split is unchanged by this slice)
+    const char* t = "send_layer 0xa1b2c3d4 2 \"x\" -t";
+    CHECK(parse_command(t, std::strlen(t), c) == ParseErr::bad_args);
 }
 
 TEST_CASE("parse_command — send_layer malformed paths -> bad_args (fail loud)") {

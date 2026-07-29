@@ -186,7 +186,7 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
     //   the old send_ack/sendhash/sendhash_ack/sendhashx/sendhashx_ack/send_layer_ack verbs are GONE (-> unknown_verb).
     //   send <id|0xhash> "<text>" [-a] [-e] [-t]   — id (<=254 dec) vs hash (0x-prefixed); -e=crypt (hash only); §6.4 -t=TEAM plane, plain=GLOBAL/home (fail if no home)
     //   send_channel <ch> "<text>"                 — channel gossip (no ack/enc)
-    //   send_layer <0xhash> <l1,l2,…> "<text>" [-a] — explicit cross-layer path
+    //   send_layer <0xhash> <l1,l2,…> "<text>" [-a] [-e] — explicit cross-layer path; -e = sealed (DATA_TYPE_SEALED_RELAY)
     {
         const bool is_send    = tok_eq(verb, "send");
         const bool is_channel = tok_eq(verb, "send_channel");
@@ -206,7 +206,7 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
             return ParseErr::ok;
         }
 
-        if (is_layer) {                                        // send_layer <0xhash> <l1,l2,…> "<text>" [-a]
+        if (is_layer) {                                        // send_layer <0xhash> <l1,l2,…> "<text>" [-a] [-e] [-K]
             uint32_t h = 0;
             if (!parse_hex32_0x(token(s), h) || h == 0) return ParseErr::bad_args;   // <0xhash>: key_hash32, nonzero, 0x-prefixed
             Tok ptok = token(s);
@@ -235,10 +235,17 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
             if (out.u.layer.hop_count >= protocol::gw_env_max_hops - 1) return ParseErr::bad_args;
             out.u.layer.hops[out.u.layer.hop_count++] = static_cast<uint8_t>(v);
             bool ack = false, enc = false, no_intro = false; const uint8_t* body = nullptr; uint8_t blen = 0;
-            if (!parse_send_tail(s, /*allow_a=*/true, /*allow_e=*/false, ack, enc, body, blen, /*team=*/nullptr, /*no_intro=*/&no_intro)) return ParseErr::bad_args;
+            // ★ §xl-crypt-intent (2026-07-29): `-e` IS ACCEPTED HERE. It was `allow_e=false`, so the console could not
+            // ask for a sealed cross-layer DM at all while the SIM could (`send_layerx`) — a metal-vs-sim divergence on a
+            // CONFIDENTIALITY feature. It is NOT a no-op: on_command's send_layer already seals a want_crypt send into a
+            // DATA_TYPE_SEALED_RELAY (node.cpp §S4), and fails LOUD (err_unsupported / send_failed{no_pubkey|…}) when it
+            // cannot — so `-e` here is sealed-or-refused, never a cleartext downgrade. Target ALWAYS a 0x-hash, so there
+            // is no id-target carve-out to make (unlike `send`, where allow_e is by_hash).
+            if (!parse_send_tail(s, /*allow_a=*/true, /*allow_e=*/true, ack, enc, body, blen, /*team=*/nullptr, /*no_intro=*/&no_intro)) return ParseErr::bad_args;
             out.u.layer.flags = static_cast<uint8_t>(ack ? DATA_FLAG_E2E_ACK_REQ : 0);
             out.no_intro = no_intro;   // §D1 `-K`
             out.body = body; out.body_len = blen;
+            out.crypt = enc ? CryptIntent::on : CryptIntent::def;   // §8b, same rule as `send`: -e => CRYPTED; absent => the node's e2e_dm default
             return ParseErr::ok;
         }
 

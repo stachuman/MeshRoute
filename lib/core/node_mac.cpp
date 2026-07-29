@@ -446,7 +446,53 @@ bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t
 // reactive ROUTE_QUERY): enqueue anyway; issue_send's no-route path defers the origination (park in _deferred + an
 // expanding-ring RREQ for G via emit_route_request) and try_drain_deferred re-flies it when a route to G appears
 // (the Lua Pass-2; an EXPLICIT recovery, not a silent fallback — it ages out to send_failed on the deferred TTL).
-void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags, uint8_t type) {
+void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint8_t type) {
+    // ★★ §xl-crypt-intent (2026-07-29) — THE CONFIDENTIALITY FIX. Both callers used to pass no intent at all, so
+    // `send 0x<hash> -e` to a mobile whose home sits on another layer aired the text IN THE CLEAR with no refusal.
+    // The seal decision lives HERE, at the one choke point every mobile_home_find / parked-XL origination passes,
+    // rather than in each caller (the enqueue_data / enqueue_cross_layer / send_by_hash idiom T-K3 established).
+    // WHY SEALED_RELAY and not a CRYPTED frame: e2e_seal_inner refuses DATA_FLAG_CROSS_LAYER outright
+    // (node_hashlocate.cpp:382 — the crypto core is same-layer-only) and enqueue_cross_layer hard-sets that flag, so a
+    // CRYPTED cross-layer frame CANNOT exist. DATA_TYPE_SEALED_RELAY is the existing substitute: a plaintext-FRAMED DM
+    // whose BODY is sealed to dst_hash under our own identity, routed/bridged/last-miled exactly like any typed
+    // plaintext DM. build_sealed_relay_body seals with flags DST_HASH|SOURCE_HASH (NOT cross-layer), so the refusal
+    // above does not apply to it, and enqueue_cross_layer stamps SOURCE_HASH = _key_hash32 — the same hash the seal
+    // carries inside — which is what the recipient's directed e2e_open_relay needs. This is byte-for-byte the transport
+    // `send_layer -e` already uses (node.cpp CmdKind::send_layer) and s27 exercises end-to-end to a HOSTED mobile.
+    const bool want_crypt = (crypt == CryptIntent::on)  ? true
+                          : (crypt == CryptIntent::off) ? false
+                                                        : _cfg.e2e_dm;
+    // sbody/sblen/stype = what actually flies (send_by_hash's own idiom, U3). `rbody` is STACK, not `static`: the seal
+    // arm is unreachable from the cramped do_post_ack frame (ADDENDUM 4) — its only caller there is the home's delegated
+    // re-origination, which passes CryptIntent::off — so the deep frame only occurs on the on_command path, where
+    // node.cpp's send_layer already seals into a same-sized stack buffer. A `static` would cost 255 B of RAM per build.
+    const uint8_t* sbody = body; uint8_t sblen = body_len; uint8_t stype = type;
+    uint8_t rbody[protocol::max_payload_bytes_hard_cap];
+    if (want_crypt) {
+        // A TYPED send cannot also be a SEALED_RELAY: the frame has ONE type byte and the relay spends it (the same
+        // arithmetic T-K3 recorded for the team key grant). REFUSE — never downgrade to cleartext, never strip the type.
+        // The one type reachable here today is DATA_TYPE_TEAM_KEY_GRANT (team_key_grant_send forces CryptIntent::on);
+        // it was already refused one level down by enqueue_cross_layer's type-19 guard, which stays as the backstop for
+        // originate_layer_path. This guard generalises it to EVERY type, so a future typed+crypted XL send cannot leak.
+        if (type != 0) {
+            MR_EMIT("xl_send_unsealable", EF_I("type", type), EF_I("target_layer", target_layer),
+                    EF_I("dst_hash", static_cast<int64_t>(dst_hash)));
+            push_send_failed(SendFailReason::unsealable, dst_node, /*ctr=*/0);
+            return;
+        }
+        SealOutcome oc = SealOutcome::ok;
+        const uint8_t rn = build_sealed_relay_body(dst_hash, body, body_len, rbody, sizeof rbody, oc);
+        if (rn == 0) {                               // no pubkey / no identity / too large / bad rng -> FAIL LOUD, NEVER cleartext
+            MR_EMIT("e2e_xl_seal_failed", EF_I("dst_hash", static_cast<int64_t>(dst_hash)), EF_I("oc", static_cast<int>(oc)));
+            push_send_failed((oc == SealOutcome::no_pubkey)   ? SendFailReason::no_pubkey
+                           : (oc == SealOutcome::no_identity) ? SendFailReason::no_identity
+                           : (oc == SealOutcome::bad_rng)     ? SendFailReason::bad_rng
+                                                              : SendFailReason::too_large,
+                             dst_node, /*ctr=*/0);
+            return;
+        }
+        sbody = rbody; sblen = rn; stype = DATA_TYPE_SEALED_RELAY;   // fall into the SINGLE gateway-select/enqueue tail
+    }
     const uint8_t target_leaf = static_cast<uint8_t>(target_layer & 0x0F);
     const uint8_t gw = select_gateway_for_leaf(target_leaf);
     if (gw == 0) {                                   // no gateway serves the target leaf at all -> fail loud
@@ -457,7 +503,7 @@ void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_
     // gw != 0: enqueue regardless of route. A live route -> issue_send fires (4a defers to G's window). No route ->
     // issue_send -> defer_send parks it + RREQs G (4d.2 park+reactive), re-flown by try_drain_deferred on the route.
     const uint8_t ids[2] = { active_layer_id(), target_layer };   // the 2-element path [our_layer, target_layer], cur=1
-    if (!enqueue_cross_layer(gw, dst_hash, ids, /*n_layers*/ 2, /*cur*/ 1, body, body_len, flags, /*out_ctr=*/nullptr, /*type=*/type)) {
+    if (!enqueue_cross_layer(gw, dst_hash, ids, /*n_layers*/ 2, /*cur*/ 1, sbody, sblen, flags, /*out_ctr=*/nullptr, /*type=*/stype)) {
         MR_EMIT("xl_send_too_large", EF_I("target_layer", target_layer), EF_I("gw", gw));
         push_send_failed(SendFailReason::too_large, dst_node, /*ctr=*/0);
     }

@@ -1117,7 +1117,22 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     const int home = mobile_home_find(key_hash32, &home_layer);  // §mobile 3c/5b: a cached mobile -> its home_node (+layer)?
     if (home >= 0) {
         if (home_layer != 0 && home_layer != active_layer_id()) {   // §5b: the home is on ANOTHER layer -> reach it via a gateway (the bridge resolves M on the target leaf, Fix 3)
-            send_cross_layer(static_cast<uint8_t>(home), key_hash32, home_layer, sbody, sblen, flags, itype);
+            // ★ §xl-crypt-intent (2026-07-29): `crypt` is THREADED — this call used to drop it, so a `-e` DM to a mobile
+            // whose home sits on another layer aired IN THE CLEAR. send_cross_layer now seals it into a SEALED_RELAY or
+            // refuses loud. sbody/sblen are safe to pass instead of body/body_len: intro_attach_prefix returns 0 for a
+            // want_crypt send, so under crypt they are identical to body/body_len and itype is 0.
+            // ⚠⚠ MARK OF WHAT IS *NOT* DONE HERE (found while fixing the crypt leak; DELIBERATELY not fixed — C1, its own
+            // slice). Compare the SAME-LAYER sibling three lines below: it passes `override_source_hash=reply_to_hash` AND
+            // calls deleg_ack_put. This arm does NEITHER, because send_cross_layer/enqueue_cross_layer expose no
+            // override_source_hash on this path — so when a HOME re-originates for its hosted MOBILE (reply_to_hash != 0)
+            // and the target's own home is on a third layer, the frame airs SOURCE_HASH = the HOME's key. Two consequences,
+            // both pre-existing: (1) the far recipient's reversed 4e E2E-ack addresses the HOME, and with no
+            // ctr_H->ctr_M map entry the mobile never sees its ack; (2) worse for a DELEGATED SEALED send — the mobile
+            // sealed under ITS OWN hash, so e2e_open_relay's anti-spoof check (sealed source_hash == clear source_hash)
+            // fails at the recipient and the DM is SILENTLY DROPPED. Fixing it means giving this path an
+            // override_source_hash (enqueue_cross_layer already takes one — originate_layer_path threads it) plus a
+            // deleg_ack_put; that is a delivery/ack change, not a confidentiality one, so it is not folded in here.
+            send_cross_layer(static_cast<uint8_t>(home), key_hash32, home_layer, sbody, sblen, flags, crypt, itype);
             return 0;
         }
         // same layer (4a path): send to the home carrying the MOBILE's hash (so home forwards, not consumes). NO hard-verify.
@@ -1355,7 +1370,14 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t 
                 MR_EMIT("send_hash_giveup", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
             } else if (p.cross_layer && target_layer != 0xFF && target_layer != _cfg.leaf_id) {
                 // Slice 4d (§5): the dst lives on ANOTHER layer -> originate a CROSS_LAYER DM via a bridging gateway.
-                send_cross_layer(resolved_id, key_hash32, target_layer, p.body, p.body_len, p.flags, p.type);
+                // §xl-crypt-intent: p.crypt is THREADED (it used to be dropped, like the sibling site above). ⚠ MEASURED,
+                // not assumed: a `cross_layer` park can ONLY come from park_send_layer, which node.cpp reaches only when
+                // want_crypt was FALSE (a sealed XL send with hop_count==0 returns err_unsupported first) and which stores
+                // no crypt at all — so p.crypt is the `def` default here TODAY and this is byte-identical. It is threaded
+                // anyway because "unreachable today" is not a confidentiality guarantee: if e2e_dm is turned ON between
+                // the park and this drain, sealing is the CORRECT outcome, and a future park_send_layer that does carry
+                // an intent gets it honoured instead of silently downgraded.
+                send_cross_layer(resolved_id, key_hash32, target_layer, p.body, p.body_len, p.flags, p.crypt, p.type);
             } else {
                 MR_EMIT("send_hash_resolved", EF_I("key_hash32", static_cast<int64_t>(key_hash32)), EF_I("node", resolved_id));
                 // same-layer (incl. a cross_layer park whose dst turned out to be on OUR leaf, §5.1): a plain DM.

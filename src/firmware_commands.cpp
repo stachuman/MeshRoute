@@ -503,7 +503,7 @@ static void dump_help(Print& out) {
     hl(F("MESSAGING"));
     hl(F("  send <id|0xhash> \"<text>\" [-a] [-e] [-t] -a=ack  -e=encrypt(hash only)  -t=team plane; plain send=global/home (fails if no home)"));
     hl(F("  send_channel <ch> \"<text>\""));
-    hl(F("  send_layer <0xhash> <l1,l2,…> \"<text>\" [-a]   explicit cross-layer destination path"));
+    hl(F("  send_layer <0xhash> <l1,l2,…> \"<text>\" [-a] [-e]   explicit cross-layer destination path; -e=encrypt (sealed relay)"));
     hl(F(""));
     hl(F("IDENTITY / KEYS"));
     hl(F("  whoami | lookup 0x<hash> | hashof <id> | nameof 0x<hash> | resolve 0x<hash> [hard]   (hashes are 0x-prefixed; hashof prints 0x…)"));

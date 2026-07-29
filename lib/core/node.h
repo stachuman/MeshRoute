@@ -811,7 +811,12 @@ private:
     void    drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t target_layer = 0xFF);   // a binding arrived -> fly the parked DMs to it (target_layer from the H-answer, 0xFF = beacon re-drain / unknown)
     // Slice 4d: cross-layer origination — select a bridging gateway (schedule-verified) + build the CROSS_LAYER DM.
     uint8_t select_gateway_for_leaf(uint8_t target_leaf);        // a gateway (1-hop schedule OR multi-hop _bridged_layers) bridging to target_leaf; 0 = none. Two-pass: routed-preferred, then unrouted fallback (non-const: prunes aged rows)
-    void    send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags, uint8_t type = 0);  // pick G + enqueue, else err_no_gateway (4d.2: park+ROUTE_QUERY); flags honored on the DM. §S2: type (e.g. INTRO) threads to the cross-layer DM's TYPE
+    // ★ §xl-crypt-intent (2026-07-29): `crypt` is MANDATORY (no default) BY DESIGN — this signature used to end at
+    // `type`, so both call sites structurally DISCARDED the per-message crypt intent and a `-e` DM to a mobile whose
+    // home sits on another layer went out IN THE CLEAR with no refusal (C2's exact failure class). Making the parameter
+    // required means a future caller cannot re-open the hole by omission: it must state on/off/def and the seal-or-refuse
+    // decision below is then unavoidable. Param ORDER mirrors do_send (…, flags, crypt, …, type) per U3.
+    void    send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint8_t type = 0);  // pick G + enqueue, else err_no_gateway (4d.2: park+ROUTE_QUERY); flags honored on the DM. §S2: type (e.g. INTRO) threads to the cross-layer DM's TYPE. want_crypt => the body is SEALED into a DATA_TYPE_SEALED_RELAY (never a cleartext downgrade); a seal failure or an already-TYPED send fails LOUD
     // Explicit-path origination (console/companion send_layer, §5): route a cross-layer DM along the user-supplied
     // layer path [our_layer, hops...] cur=1, NO H-query. Returns SYNCHRONOUSLY (no orphan push): CmdCode::queued (+
     // out_ctr = the MAC ctr the app correlates async pushes by), err_no_gateway (no gateway serves hops[0]'s leaf),
