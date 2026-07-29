@@ -576,6 +576,39 @@ this section reserves the surface so the app team can plan.
 - **Team QR** (a SECOND QR type alongside the verified-peer pubkey QR): render behind a "Share team" screen
   that warns it carries a PRIVATE key; payload = team PHY params + `team_ch_pub`/`team_ch_priv` + CRC32.
   Scanning provisions the node via an extended `team …` verb (`tkpub=/tkpriv=` hex64).
+
+#### node → app: export the team channel keypair — ★ DEFINED (owner ruling 2026-07-29)
+
+The import half shipped in **T-K1** (`c8c749d`): `team new` **always** mints an X25519 pair, and both
+`team new` and `team <id>` accept `tkpub=<64 hex> tkpriv=<64 hex>` to **adopt** one instead (both or neither;
+exactly 64 hex digits, case-insensitive, no `0x`). The **export** half is this:
+
+```
+team exportkey
+  → {"ev":"team_key_export","team_id":858993459,"tkpub":"<64 hex>","tkpriv":"<64 hex>"}
+  → keyless node: {"ev":"team_key_export","team_id":858993459,"tkpub":null,"tkpriv":null}  (or a loud refusal)
+```
+
+- **Available on every transport** (USB, BLE, companion) — owner ruling, see the risk note below.
+- The pair is the **canonical RFC 7748 clamped** form as stored (T-K1), so what the QR carries is exactly what
+  another node will adopt — no re-derivation, no normalisation step in the app.
+- ⚠ **`ready` does NOT and MUST NOT carry it.** `ready` is unsolicited and fires on every connect; the private
+  key is disclosed only in answer to this explicit verb. The `pubkey`-in-`ready` precedent above is for a
+  **public** key and is deliberately not the model here.
+- **Lock state** (which teams this node can read) stays the separate boolean `team_ch_key`; the app should use
+  that for indicators and never call `exportkey` just to test for presence.
+
+> ### ⚠ ACCEPTED RISK — recorded, owner-ruled 2026-07-29
+> Any peer that can reach the console can read the team's content key and thereafter decrypt every team post,
+> **silently and with no on-node trace.** The alternative options (disclose-once at mint; USB-only) were put to
+> the owner with this stated and **"any transport" was chosen deliberately.**
+> ★ **CONSEQUENCE: the standing watch-item "the BLE fallback exposes the full console" (command-sink
+> consolidation, gated 2026-07-13) is no longer a watch-item — it is now the ONLY control protecting the team
+> content key.** It should be treated as a dependency of this feature, not as unrelated cleanup. Closing it
+> (pairing / an auth gate / a console allow-list on BLE) makes "any transport" safe; leaving it open means the
+> team channel's confidentiality rests on nobody being in BLE range.
+> **App-side obligations that follow:** store the pair in the **Keychain**, never in plists/logs/analytics; keep
+> the "Share team" screen's PRIVATE-key warning; and do not cache the pair beyond what the share flow needs.
 - **Key grant** (in-app, vetted): a keyholder grants a newjoiner the team content key via a sealed
   `TEAM_KEY_GRANT` DM (DATA_TYPE 19, body `[team_id][name][pub][priv]`); joiner surfaces `team_key_received`.
 - **Encrypted posts**: `channel_recv`/`inbox_channel` will emit `enc:true` on an opened encrypted team post

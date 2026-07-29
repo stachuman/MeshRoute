@@ -108,6 +108,15 @@ _Companion-side surface indexed in `docs/superpowers/specs/2026-07-26-companion-
   channel (`team …` + the new key fields, one new/extended JSON verb). Firmware side: extend `team` with
   optional `tkpub=`/`tkpriv=` hex64 params (idempotent with grant-by-DM).
 - The QR path needs NO new radio protocol — it is provisioning.
+- ★ **EXPORT — DEFINED BY OWNER RULING 2026-07-29 (the spec previously left this gap, and T-K1 flagged it as a
+  T-K4 blocker).** The app obtains the pair from the creator's node via a new console verb **`team exportkey`**,
+  answering `{"ev":"team_key_export","team_id":…,"tkpub":"<64 hex>","tkpriv":"<64 hex>"}`. **Available on EVERY
+  transport** — the owner was offered disclose-once-at-mint and USB-only, with the exfiltration risk stated, and
+  chose any-transport deliberately. ⚠ It must **NOT** ride `ready` (unsolicited, fires every connect); explicit
+  verb only. ⚠ **ACCEPTED RISK + its consequence:** anything that reaches the console can read the content key
+  silently, so the standing *"BLE fallback exposes the full console"* watch-item is **promoted to a dependency of
+  this feature** — it is now the only control over the team key. Full wording in
+  `ios-companion/INBOX_SYNC_CONTRACT.md` §"node → app: export the team channel keypair".
 
 ### 2.5 Send-side defaults
 Mirror the DM pattern (`e2e_dm`): new config `team_channel_crypt` default ON — when the node HOLDS a team
