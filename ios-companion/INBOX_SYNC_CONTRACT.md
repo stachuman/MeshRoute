@@ -26,7 +26,7 @@ Framing matches the rest of the link: **app→node = line-ASCII commands, node�
 > ```
 > send <id|0xhash> "<text>" [-a] [-e] [-t]    # id (<=254 bare decimal) vs a 0x-PREFIXED hash; -a=ack, -e=encrypt (hash only); -t=TEAM plane (see ★ below)
 > send_channel <ch> "<text>"                 # no ack/enc — on a TEAM mobile it auto-broadcasts to the team (team_id-scoped; `send_channel`/`send_layer` REJECT -t)
-> send_layer <0xhash> <l1,l2,…> "<text>" [-a] # explicit cross-layer path
+> send_layer <0xhash> <l1,l2,…> "<text>" [-a] [-e] [-K]   # explicit cross-layer path; -e => SEALED (2026-07-29)
 > ```
 > ### ★ HARD PLANE SPLIT (2026-07-16) — `send` addresses ONE of three planes; a teammate REQUIRES `-t`
 > The `send` verb now routes on an explicit plane (`console_parse.cpp:245`, `plane = -t ? TEAM : GLOBAL`). **This is a real command change the app must adopt** — the old "reaching a mobile is a plain send-by-hash, no app change" is **WRONG for a teammate**.
@@ -37,7 +37,7 @@ Framing matches the rest of the link: **app→node = line-ASCII commands, node�
 >
 > **Three-plane addressing the app must model** (all `send`/`reqpubkey`): **static** = plain id / `0xhash` (direct or routed) · **mobile** = plain `0xhash` (the firmware resolves it to the mobile's home + last-miles — no `-t`) · **team** = `-t` with a `team_local_id`, or `-t` with a `0xhash` (team H-flood). `-t` is the ONLY way onto the team overlay; a `team_local_id` is meaningless off it.
 > **Swift:** `Command.send` needs a `teamPlane: Bool` → append `-t`; the team-local-id is a *distinct id space* from static node ids (don't mix them in one contact model — a team contact carries `{team_id, team_local_id}` and/or a hash).
-> **★ 2026-07-19 (S2/S4, gated uncommitted):** (1) first-contact PLAINTEXT hash-sends auto-attach the sender's pubkey (INTRO — invisible to the app beyond a `peer_key_cached` arriving with the first message; `cfg set intro_attach 0` opts out; **new per-send flag `-K`** suppresses the attach for that one send, harmless with `-e`). (2) **`send_layer` under `e2e_dm`-ON now SEALS instead of refusing** (the old `err_unsupported` ack is gone — cross-layer encrypted DMs are live; the recipient's `msg_recv` carries `enc:true` + `origin_layer`). (3) A cross-layer/delegated sealed DM is sealed-CONTENT but attributable-envelope (the sender's hash rides in clear for routing/acks) — same-layer direct sealed DMs keep full sealed-sender privacy.
+> **★ 2026-07-19 (S2/S4, gated uncommitted):** (1) first-contact PLAINTEXT hash-sends auto-attach the sender's pubkey (INTRO — invisible to the app beyond a `peer_key_cached` arriving with the first message; `cfg set intro_attach 0` opts out; **new per-send flag `-K`** suppresses the attach for that one send, harmless with `-e`). (2) **`send_layer` under `e2e_dm`-ON now SEALS instead of refusing** — ★ **and since 2026-07-29 `send_layer` takes an explicit `-e`, and the HASH-RESOLVED cross-layer path seals too** (it previously discarded the crypt intent and sent **cleartext** — see the `§xl-crypt` BASELINE note). ⚠⚠ **A cross-layer sealed DM carries `DATA_FLAG_CRYPTED = 0` BY DESIGN** — it is a `DATA_TYPE_SEALED_RELAY` frame, because `e2e_seal_inner` refuses `CROSS_LAYER` and `enqueue_cross_layer` hard-sets it. ⇒ **the app must decide is-this-encrypted from the TYPE, never from the CRYPTED flag** (the old `err_unsupported` ack is gone — cross-layer encrypted DMs are live; the recipient's `msg_recv` carries `enc:true` + `origin_layer`). (3) A cross-layer/delegated sealed DM is sealed-CONTENT but attributable-envelope (the sender's hash rides in clear for routing/acks) — same-layer direct sealed DMs keep full sealed-sender privacy.
 > ⚠ **HASH FORMAT CHANGE (2026-07-13): a key_hash32 argument MUST be `0x`-prefixed** (e.g. `0x8a3f1c02`) — on `send`, `send_layer`, `resolve`, `reqpubkey`, and `lookup`. This KILLS the id-vs-hash ambiguity: a **bare decimal is always a node id** (or a team-id for `reqpubkey`), a **`0x…` token is always a hash**. The old "exactly-8-hex auto-detected" form is GONE (a bare 8-hex now parses as an out-of-range decimal → `bad_args`). **`Command.swift` must prefix every hash argument with `0x`** (`hashof` on the node prints the `0x…` form for copy-paste).
 > Crypt: `-e` ⇒ CRYPTED; **absent ⇒ the node's `e2e_dm` default** (the old `sendhash` force-PLAIN semantic is dropped — `cfg set e2e_dm off` + no `-e` = plain). Ack: `-a` ⇒ E2E-ack-req (valid on `send`/`send_layer`). The emitted intents (ack/crypt/hash) are unchanged — only the wire syntax. The §"Per-message crypt" block below (which named `sendhashx`/`sendhashx_ack`) is superseded by `-e`.
 
@@ -244,7 +244,14 @@ reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "
 {"ev":"send_failed","dst":2,"ctr":7,"reason":"no_pubkey"}     // a CRYPTED send was DROPPED — warn + offer Request-key / Scan-QR
 {"ev":"peer_key_cached","hash":3735928559,"pinned":false}    // a key arrived (request answer / cache-on-pass / QR / mutual) → enable resend
 ```
-- `send_failed.reason` ∈ `no_pubkey · no_identity · too_large · bad_rng · no_route · joining · no_cts · no_ack · cap · min_interval · mobile_no_home · gateway_unreachable · e2e_ack_timeout · queue_full`. App maps `no_pubkey`
+- `send_failed.reason` ∈ `no_pubkey · no_identity · too_large · bad_rng · no_route · joining · no_cts · no_ack · cap · min_interval · mobile_no_home · gateway_unreachable · e2e_ack_timeout · queue_full · reprovisioned · unsealable`.
+  ⚠ **CORRECTED 2026-07-29 — this list had drifted and omitted TWO shipped reasons:** `reprovisioned` and
+  `unsealable` (enum 16). The reason list near the foot of this document is **staler still** — treat *this* one
+  as authoritative. ★ **`unsealable` is PERMANENT for that route, not transient.** It fires when a `-e` send
+  cannot be sealed on the path it must take: a **typed** payload cross-layer (SEALED_RELAY has exactly one TYPE
+  byte and spends it on itself), or a delegated team-key grant. **App action: send from a node on the target own
+  layer** — or, for a team key, grant over the team plane (`-t`). Retrying the same route always fails.
+  App maps `no_pubkey`
   → "recipient's key unknown — Request key / Scan QR"; permanent reasons (`too_large`/`no_route`) → plain fail.
   ★ `e2e_ack_timeout` (NEW 2026-07-24, enum 13): a `-a` send's requested E2E ack never arrived within the firmware
   deadline (same-layer 60 s / cross-layer+delegated 300 s, patience-derived). **Semantic: delivery was never
