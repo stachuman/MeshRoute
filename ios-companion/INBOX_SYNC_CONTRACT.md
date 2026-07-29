@@ -293,9 +293,25 @@ reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "
 > already states that on-air `WANT_PUBKEY` resolution is *not* MITM-secure while a physical scan **is** the
 > trust ceremony; resolving automatically would make that trade on the user's behalf, invisibly.
 > ⇒ **The app surfaces the choice; it must not issue `reqpubkey` silently on a `no_pubkey` push.** Offer
-> **Request key** (on-air, TOFU — label it as such) *and* **Scan QR** (out-of-band, stronger), and let the user
-> pick. ★ `reqpubkey` is **mutual** — the requester's own pubkey rides across every forward — so one call keys
-> both ends; there is no need to ask the peer to run it too.
+> **Request key** (on-air, TOFU — label it as such) *and* **Scan QR**, and let the user pick. ★ `reqpubkey` is
+> **mutual** — the requester's own pubkey rides across every forward — so one call keys both ends; there is no
+> need to ask the peer to run it too.
+> ⚠⚠ **"Scan QR" here means the VERIFIED-PEER contact card (`p` = `ed_pub`), NOT the team QR — there are two QR
+> types and they solve different problems.** Do not wire the team QR to a `no_pubkey` push; it carries no peer
+> identity key and cannot resolve one.
+>
+> | | verified-peer QR | team QR |
+> |---|---|---|
+> | carries | the peer's **identity** `ed_pub` | the **team content** keypair + PHY params |
+> | fixes | `no_pubkey` on a sealed **DM** | `team_channel_no_key` / un-keyed team member |
+> | needs `reqpubkey`? | it **replaces** it | **no** — irrelevant to it |
+>
+> ★ **And note what the team QR does NOT need: nothing.** It is pure companion-link provisioning — the app writes
+> `team <id> tkpub=… tkpriv=…` over USB/BLE, nothing is sealed and nothing goes on air, so it works on a node
+> that has never met a teammate. One scan is full onboarding (overlay **and** content key).
+> ⇒ **`team grantkey` (T-K3) exists for the REMOTE teammate** — already in the overlay, not standing next to you
+> to scan. It ships the content key **over the radio**, which is precisely why it needs the recipient's identity
+> key sealed first, and therefore why it is the one path `reqpubkey` gates.
 > ⚠ This applies with most force to **`team grantkey`**, whose payload is a **private key**: it is the worst
 > possible place to downgrade to TOFU without the operator knowing. Its refusal names `reqpubkey <hash>` as the
 > remedy rather than performing it.
