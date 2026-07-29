@@ -186,6 +186,100 @@ inline TeamKeyTail split_team_key_tail(const char* tail, char* scratch, size_t s
     return TeamKeyTail::ok;
 }
 
+// §team-ch-key (T-K3): parse `team grantkey`'s argument list. Grammar (kv/flag conventions per the 2026-07-03 console
+// cleanup, target spelling per `reqpubkey`, lib/console/console_parse.cpp:166):
+//
+//     team grantkey <0xhash | team-id> [name="<text>"] [-t]
+//
+//   · `0x…`  1..8 hex digits -> the target's key_hash32. The 0x prefix is REQUIRED, which is what kills the
+//     id-vs-hash ambiguity (the same rule and the same reason as parse_hex32_0x).
+//   · a bare decimal 1..254  -> a teammate's team_local_id, as seen in the roster/beacons; the CALLER resolves it to a
+//     hash via Node::team_key_of_id and reports `bad_target` if that teammate has not been heard. Implicitly TEAM plane.
+//   · `name="…"`             -> the optional team label that rides the grant body (quoted, so it may contain spaces —
+//     kv_next handles the quoting). Longer than 32 -> too_long (C2: refuse, never silently truncate an operator label).
+//   · `-t`                   -> force the TEAM plane, exactly as on `send` / `reqpubkey`.
+//
+// ⚠ U1 NOTE, reported not hidden: the 0x-hex token grammar below is the SAME grammar as
+// lib/console/console_parse.cpp:69 `parse_hex32_0x`, which is NOT reused because its parameter type (`Tok`) is private
+// to that TU and exporting it is a pure refactor of a shipped header (C1). Two ~10-line token scanners now state the
+// same rule; folding them together belongs in a cleanup slice, and this note is here so it can be found.
+// Lives in this pure header (no Print/Arduino) for the same reason split_team_key_tail does: no scenario runs a console
+// verb, so parsing left in firmware_config.cpp would have zero automated coverage.
+enum class GrantArgs : uint8_t {
+    ok,           // target_hash OR target_id set (exactly one), name/team_plane filled
+    missing,      // no target token at all
+    bad_target,   // the target token is neither `0x`+1..8 hex nor a decimal 1..254
+    bad_key,      // an unknown key/flag in the tail (bad_key names it)
+    too_long,     // the tail does not fit the scratch buffer, or name= exceeds 32 chars
+};
+struct GrantArgsOut {
+    uint32_t target_hash = 0;    // set iff the token was 0x-hex
+    uint8_t  target_id   = 0;    // set iff the token was a bare decimal 1..254 (a team_local_id)
+    char     name[33]    = {};   // NUL-terminated; empty = no name given
+    uint8_t  name_len    = 0;
+    bool     team_plane  = false;   // `-t`, or implied by a bare team-id target
+};
+inline GrantArgs parse_grant_args(const char* tail, char* scratch, size_t scratch_cap,
+                                  GrantArgsOut& out, const char*& bad_key) {
+    bad_key = nullptr;
+    out = GrantArgsOut{};
+    while (*tail == ' ') ++tail;
+    if (!*tail) return GrantArgs::missing;
+    // ---- the target token (up to the first space) ----
+    const char* t = tail;
+    size_t tn = 0;
+    while (t[tn] && t[tn] != ' ') ++tn;
+    if (tn >= 3 && t[0] == '0' && (t[1] == 'x' || t[1] == 'X')) {
+        const size_t digits = tn - 2;
+        if (digits < 1 || digits > 8) return GrantArgs::bad_target;
+        uint32_t v = 0;
+        for (size_t i = 2; i < tn; ++i) {
+            const char c = t[i];
+            uint8_t d;
+            if      (c >= '0' && c <= '9') d = static_cast<uint8_t>(c - '0');
+            else if (c >= 'a' && c <= 'f') d = static_cast<uint8_t>(10 + c - 'a');
+            else if (c >= 'A' && c <= 'F') d = static_cast<uint8_t>(10 + c - 'A');
+            else return GrantArgs::bad_target;
+            v = (v << 4) | d;
+        }
+        if (v == 0) return GrantArgs::bad_target;               // hash 0 = "unset" everywhere in this codebase
+        out.target_hash = v;
+    } else {
+        uint32_t v = 0;
+        for (size_t i = 0; i < tn; ++i) {
+            if (t[i] < '0' || t[i] > '9') return GrantArgs::bad_target;
+            v = v * 10 + static_cast<uint32_t>(t[i] - '0');
+            if (v > 254) return GrantArgs::bad_target;          // 255/0xFF is reserved; 0 is unset
+        }
+        if (v == 0) return GrantArgs::bad_target;
+        out.target_id  = static_cast<uint8_t>(v);
+        out.team_plane = true;                                  // a bare team id is implicitly a TEAM-plane target
+    }
+    // ---- the kv/flag tail ----
+    const char* rest = t + tn;
+    size_t n = 0;
+    for (const char* q = rest; *q; ++q) {
+        if (n + 1 >= scratch_cap) return GrantArgs::too_long;
+        scratch[n++] = *q;
+    }
+    scratch[n] = '\0';
+    char* p = scratch; char* k; char* v;
+    while (kv_next(p, k, v)) {
+        if (!strcmp(k, "-t") && !v) { out.team_plane = true; continue; }
+        if (!strcmp(k, "name")) {
+            if (!v) { bad_key = k; return GrantArgs::bad_key; }
+            size_t ln = strlen(v);
+            if (ln > 32) return GrantArgs::too_long;
+            for (size_t i = 0; i < ln; ++i) out.name[i] = v[i];
+            out.name[ln] = '\0'; out.name_len = static_cast<uint8_t>(ln);
+            continue;
+        }
+        bad_key = k;
+        return GrantArgs::bad_key;
+    }
+    return GrantArgs::ok;
+}
+
 // FNV-1a/32 over the 8 little-endian bytes of (a ‖ b). Used to MINT a fresh team_id = hash(our key ‖ HW-RNG nonce).
 inline uint32_t team_fnv1a32(uint32_t a, uint32_t b) {
     uint32_t h = 2166136261u;

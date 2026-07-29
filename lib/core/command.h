@@ -104,6 +104,14 @@ enum class PushKind : uint8_t {
     team_reg,      // §S2: team-DAD id adopted/re-picked. team_id = _cfg.team_id (hex string), dst=team_local_id.
     join_adopted,  // a static/DAD adopt landed (verb join/create, boot DAD, OR the heal re-adopt): dst=adopted node_id,
                    //   layer_id=leaf_id, ctr=claim_epoch. The app refreshes ready.id (an id change mid-session was silent).
+    team_key_received,  // §team-ch-key T-K3: a teammate GRANTED us the team CONTENT keypair over a sealed TYPE-19 DM
+                        //   (the node has already ADOPTED it — this is a notification, not a request). team_id = the
+                        //   granted team, sender_hash = the granter's key_hash32, origin = the granter's node id,
+                        //   body = the optional team NAME the granter typed (empty -> the JSON omits it; NOT persisted).
+                        //   ★ APPENDED AT THE END: the numeric value is contract-visible, and the SIM bridges PushKind
+                        //   on its underlying uint8_t with a static_assert pinning join_adopted == 13
+                        //   (lora-universal-simulator ConsoleNames.cpp + NodeRuntimeWrapper.cpp). Inserting anywhere
+                        //   above would silently RENAME an existing push kind for every scenario and the companion.
 };
 // E2E §5: why a send_failed Push fired, so the app reacts (no_pubkey -> offer Request-key/Scan-QR; the permanent
 // reasons -> plain fail). Mirrors the contract `send_failed.reason`. `none` = a non-send_failed push.
@@ -117,13 +125,23 @@ enum class SendFailReason : uint8_t { none = 0, no_pubkey, no_identity, too_larg
                                                            //   (node_cascade.cpp defer_send — Lua table_cap_hit, NEVER drop-oldest) and the app's future is completed instead of hung.
                                                            //   TRANSIENT: retry. ★ APPENDED AT THE END deliberately — the numeric value is contract-visible and the app may
                                                            //   PERSIST it, so no existing enumerator is ever renumbered. JSON reason string: "queue_full".
-                                      reprovisioned };     // §clean-join-carriers (2026-07-27, owner ruling): the operator REPROVISIONED this node (`join` / `create` / `leave`,
+                                      reprovisioned,       // §clean-join-carriers (2026-07-27, owner ruling): the operator REPROVISIONED this node (`join` / `create` / `leave`,
                                                            //   or prep-restart) and clear_routing_state -> purge_tx_carriers(reprovision) discarded this DM before it aired.
                                                            //   ★ WHY NOT no_route: `no_route` is TRANSIENT and invites a retry TO THE SAME dst — but a reprovision changes the
                                                            //   NETWORK, so the 8-bit dst now names a DIFFERENT node (or nobody). Retrying it is a mis-address, not a retry.
                                                            //   It is also not TRUE: a route may well have existed; the send was discarded ADMINISTRATIVELY. This is the only
                                                            //   reason whose correct app action is "re-address, then resend" rather than "retry" or "give up".
                                                            //   ★ APPENDED AT THE END, same contract rule as queue_full. JSON reason string: "reprovisioned".
+                                      unsealable };        // §team-ch-key T-K3: this message TYPE may travel ONLY sealed, and the transport this send would have taken
+                                                           //   cannot carry it sealed-AND-typed — so it was REFUSED rather than downgraded. Today that means a
+                                                           //   DATA_TYPE_TEAM_KEY_GRANT, whose body holds the team's PRIVATE content key: a CROSS-LAYER flight (the crypto
+                                                           //   core is same-layer-only, so XL could only be cleartext) or a registered mobile's DELEGATED flight (the
+                                                           //   MOBILE_SEND wrapper's one enclosed-type slot is already spent on SEALED_RELAY, so the app TYPE would be
+                                                           //   silently LOST and raw key bytes would land in the peer's inbox as text). ★ PERMANENT for this route, not
+                                                           //   transient: retrying changes nothing. The app's action is to grant from a node on the target's OWN layer, or
+                                                           //   over the team plane (`-t`). ★ APPENDED AT THE END, same contract rule as queue_full/reprovisioned — and here
+                                                           //   it is doubly load-bearing: `reprovisioned` shipped in a contract the app may already persist.
+                                                           //   JSON reason string: "unsealable".
 // R6.3 §7c: why a join was refused (join_refused push). wire_version -> origin=their_ver, dst=my_ver; leaf_full -> no extra.
 // §3-A.1: phy_mismatch = a team member refused a home whose PHY differs from its team-provisioned freq/bw/routing_sf (P2-1 Level 2);
 //          sf_list_mismatch = ADVISORY — the mobile adopted the host but its configured sf_list low byte disagrees with the host's offered one.

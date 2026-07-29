@@ -135,7 +135,8 @@ public:
     const uint8_t* team_channel_pub()  const { return _team_ch_key_present ? _team_ch_pub  : nullptr; }   // nullptr = no key (never a zero buffer a caller could mistake for one)
     const uint8_t* team_channel_priv() const { return _team_ch_key_present ? _team_ch_priv : nullptr; }
     bool team_channel_key_mint();                                                   // `team new`: draw 32 B from the HAL CSPRNG -> canonical pair. false = REFUSED (dead RNG); state untouched
-    bool team_channel_key_adopt(const uint8_t pub[32], const uint8_t priv[32]);     // `team new tkpub=/tkpriv=` · T-K3 grant · T-K4 QR. false = REFUSED (all-zero, or pub doesn't match priv); state untouched
+    bool team_channel_key_adopt(const uint8_t pub[32], const uint8_t priv[32]);     // `team new tkpub=/tkpriv=` · T-K4 QR. false = REFUSED (all-zero, or pub doesn't match priv); state untouched
+    bool team_channel_key_adopt_priv(const uint8_t priv[32]);                       // §T-K3: adopt from the PRIVATE HALF ALONE (the sealed grant carries only tkpriv) — same derivation path, pub re-derived. false = REFUSED (all-zero/degenerate); state untouched
     void team_channel_key_load(const uint8_t pub[32], const uint8_t priv[32], bool present);   // boot restore from NV — VERBATIM, no re-derivation (mirrors admin_load)
 #else
     bool       is_team_peer(uint8_t) const { return false; }
@@ -149,8 +150,39 @@ public:
     const uint8_t* team_channel_priv() const { return nullptr; }
     bool team_channel_key_mint() { return false; }
     bool team_channel_key_adopt(const uint8_t*, const uint8_t*) { return false; }
+    bool team_channel_key_adopt_priv(const uint8_t*) { return false; }
     void team_channel_key_load(const uint8_t*, const uint8_t*, bool) {}
 #endif
+    // §team-ch-key T-K3 (spec §2.3) — the SEALED key-grant DM (DATA_TYPE_TEAM_KEY_GRANT). Both halves live here in
+    // lib/core rather than in src/: the RECEIPT is on the RX path anyway, and putting the ORIGINATION beside it means
+    // the native suite can drive the whole round trip (no scenario runs a console verb, so a send half left in
+    // firmware_config.cpp would have had zero automated coverage — the T-K1/T-K1b lesson).
+    // ★ DELIBERATELY NOT MR_FEAT_TEAM-gated, same reasoning as T-K1b's team_export_key: NodeConfig::team_id is ungated
+    // and the team_channel_* accessors have #else stubs, so on a MR_FEAT_TEAM 0 build these compile unchanged and
+    // answer no_key / no_team BY CONSTRUCTION — ONE app-facing code path, and a stray type-19 can never be delivered
+    // as a DM there either (C2: no silent success, no raw key bytes in an inbox).
+    enum class TeamKeyGrantTx : uint8_t {
+        queued = 0,     // handed to send_by_hash (ctr!=0 = airborne now; ctr==0 = parked behind an H resolve)
+        no_team,        // we are not in a team (team_id == 0) — there is nothing to grant
+        no_key,         // we hold no team channel keypair (`team new` mints one; a joiner receives one)
+        no_identity,    // no E2E crypto identity, so we cannot seal — and a grant is NEVER sent in the clear
+        no_pubkey,      // no AUTHORITATIVE/PINNED pubkey for the target ⇒ the remedy is `reqpubkey <hash>` or a QR import
+        self,           // the target hash is OUR OWN key — granting to yourself is a no-op mis-address, not a send
+        delegated,      // we are a REGISTERED MOBILE with no resolved binding ⇒ send_by_hash would delegate, and the
+                        //   MOBILE_SEND wrapper's enclosed-type slot is already SEALED_RELAY ⇒ the TYPE would be lost
+        too_large       // team_name too long for the body (cannot happen from the console — a defence-in-depth refusal)
+    };
+    enum class TeamKeyGrantRx : uint8_t {
+        adopted = 0,    // key installed (idempotent: a re-grant OVERWRITES — that is how re-keying lands)
+        not_sealed,     // the type-19 arrived UNSEALED -> drop loud (a plaintext grant is a bug or an attack)
+        bad_len,        // body shorter than the 37-B floor, or [4][1][name_len][32] does not account for it EXACTLY
+        long_name,      // name_len > 32 (the codebase-wide name cap) -> malformed body, refuse rather than truncate
+        no_team,        // we are not in a team, so no grant can match us
+        team_mismatch,  // the grant names a DIFFERENT team (spec §2.3 Q2 ruling: team_id is carried defensively)
+        bad_key         // tkpriv is all-zero / degenerate (team_channel_key_derive refused it)
+    };
+    TeamKeyGrantTx team_key_grant_send(uint32_t target_hash, const char* name, uint8_t name_len, Plane plane = Plane::AUTO, uint16_t* out_ctr = nullptr);
+    TeamKeyGrantRx team_key_grant_receive(const uint8_t* body, uint8_t body_len, uint32_t granter_hash, uint8_t granter_node);
     // §P2-3 (2026-07-21): is `next` a LOCAL id — a mobile last-mile (addr_len==1) OR a known same-team peer? The guard that
     // keeps a mobile/team LOCAL next OUT of the static node_id-indexed planes (bidi/liveness/rt-rerank). It was hand-pasted at
     // 11 write-sites (node_mac_rx ×9, node_cascade ×2 — two carry "audit-caught missed twin" comments) as
@@ -443,6 +475,20 @@ public:
     uint8_t           test_tx_origin(uint8_t i)   const { return _active->_tx_queue[i].origin; }   // §team-parity T6 white-box: the id stamp_origin chose for this flight (the whole subject of Part A)
     uint8_t           test_tx_addr_len(uint8_t i) const { return _active->_tx_queue[i].addr_len; }
     const uint8_t*    test_tx_inner(uint8_t i, uint8_t& len) const { len = _active->_tx_queue[i].inner_len; return _active->_tx_queue[i].inner; }
+    // §team-ch-key T-K3 white-box: the two STRUCTURAL sealed-only guards live on private origination seams whose only
+    // reachable caller (team_key_grant_send) forces CryptIntent::on — i.e. exactly the "future caller" the guards exist
+    // to stop. Without these seams the guards would be algebra-only, which is the coverage claim this arc refuses to
+    // make. They forward VERBATIM, add no logic, and each test also runs the type-0 control through the same seam so a
+    // pass cannot come from the path being broken.
+    uint16_t          test_do_send_typed(uint8_t dst, const uint8_t* body, uint8_t body_len, CryptIntent crypt,
+                                         uint32_t override_dst_hash, uint8_t type) {
+        return do_send(dst, body, body_len, /*flags=*/0, crypt, override_dst_hash, type);
+    }
+    bool              test_enqueue_cross_layer_typed(uint8_t gw_node, uint32_t dst_hash, const uint8_t* layer_ids,
+                                                     uint8_t n_layers, const uint8_t* body, uint8_t body_len,
+                                                     uint16_t* out_ctr, uint8_t type) {
+        return enqueue_cross_layer(gw_node, dst_hash, layer_ids, n_layers, /*cur=*/0, body, body_len, /*flags=*/0, out_ctr, type);
+    }
     // §S3 part2 white-box: seed a live hosted-mobile entry (has_pubkey) without driving the full CLAIM+probe path (that's covered by s22).
     void              test_add_host_mobile(uint32_t key_hash32, uint8_t local_id, const uint8_t ed_pub[32]) {
         if (_active->_mobile_reg_n >= protocol::cap_host_mobiles) return;

@@ -159,6 +159,19 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     const bool want_crypt = (crypt == CryptIntent::on)  ? true
                           : (crypt == CryptIntent::off) ? false
                                                         : _cfg.e2e_dm;
+    // §team-ch-key T-K3 (C2): a TEAM KEY GRANT carries a PRIVATE key in its body, so it may leave this node ONLY
+    // sealed. Enforced HERE, at the one choke point every same-layer origination passes, rather than trusting each
+    // caller: team_key_grant_send already forces CryptIntent::on, but a future caller passing `def` on a node with
+    // e2e_dm OFF would otherwise air the team's content key in the clear. Refuse the whole send — there is no
+    // cleartext fallback for this type, ever. (The sibling refusals: enqueue_cross_layer, and send_by_hash's
+    // delegate branch. Together they make "a type-19 frame is always sealed" structural instead of conventional.)
+    if (type == DATA_TYPE_TEAM_KEY_GRANT && !want_crypt) {
+        MR_EMIT("team_key_grant_refused", EF_I("dst", dst), EF_S("reason", "plaintext"));
+        push_send_failed(SendFailReason::unsealable, dst, /*ctr=*/0);
+        return 0;   // ⚠ 0, unlike the sibling CRYPTED refusals below which `return ctr` so the app can correlate: this
+                    // one is UNREACHABLE from the only caller (team_key_grant_send forces CryptIntent::on), so there is
+                    // no in-flight handle to correlate — a non-zero ctr here would read to that caller as "airborne".
+    }
     if (app_dm && want_crypt) {
         if (!(item.flags & DATA_FLAG_DST_HASH)) {                          // no dst hash -> can't derive the nonce/key
             MR_EMIT("e2e_no_pubkey", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("reason_no_dst_hash", 1));
@@ -370,6 +383,20 @@ bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t
     // relay, never a cleartext app DM). The only genuinely-cleartext frames reaching here under e2e_dm are the reverse
     // E2E ACK (send_xl_ack) — cleartext BY PARITY with same-layer acks, which already carry (dst_hash, acked_ctr) in
     // clear; sealing acks is out of scope — and the sealed-relay frame itself (confidential content). Both are correct.
+    // §team-ch-key T-K3 (C2): a TEAM KEY GRANT may NEVER ride a cross-layer frame in v1. This is not caution — it is
+    // arithmetic on the existing crypto core: e2e_seal_inner REFUSES DATA_FLAG_CROSS_LAYER outright
+    // (node_hashlocate.cpp:382, "v1: same-layer CRYPTED only"), and this function hard-sets CROSS_LAYER on every frame
+    // it builds, so a type-19 arriving here could only ever be CLEARTEXT — i.e. the team's private content key on the
+    // air in plain sight. The XL confidentiality substitute, DATA_TYPE_SEALED_RELAY, cannot help: it OCCUPIES the very
+    // TYPE byte the grant needs (node.cpp:1304 sets etype = SEALED_RELAY), so a sealed XL grant has nowhere left to say
+    // it is a grant. ⇒ REFUSE. ★ The reachable caller is send_by_hash's mobile_home_find cross-layer arm
+    // (node_hashlocate.cpp:1083), which drops the CryptIntent entirely — a pre-existing cleartext downgrade for ANY
+    // `-e` DM to a mobile whose home sits on another layer, reported to QA and deliberately NOT fixed here (C1).
+    if (type == DATA_TYPE_TEAM_KEY_GRANT) {
+        MR_EMIT("team_key_grant_refused", EF_I("dst", gw_node), EF_S("reason", "cross_layer"));
+        push_send_failed(SendFailReason::unsealable, gw_node, /*ctr=*/0);
+        return false;                                // fail loud, before next_ctr burns a counter
+    }
     TxItem item{};
     const uint16_t ctr = next_ctr(gw_node);          // MAC ctr vs the next-hop gateway (= the e2e (source_hash, ctr) identity)
     // §team-parity T6: EXPLICITLY GLOBAL — decided per-caller, not swept. A cross-layer DM is a STATIC-infrastructure

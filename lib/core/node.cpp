@@ -119,6 +119,19 @@ bool Node::team_channel_key_adopt(const uint8_t pub[32], const uint8_t priv[32])
     return true;
 }
 
+// ADOPT from the PRIVATE HALF ALONE — §T-K3's sealed grant, whose body deliberately carries only tkpriv (see the
+// DATA_TYPE_TEAM_KEY_GRANT note in frame_codec.h for why). The FOURTH entry point over the SAME single derivation
+// path, not a fork (U2): team_channel_key_derive canonicalises the scalar and derives the public half, exactly as
+// mint and adopt do. There is no pub to cross-check here and that is the POINT — a derived public half cannot
+// disagree with the private one, so the mismatch adopt() must detect cannot arise on this path at all.
+bool Node::team_channel_key_adopt_priv(const uint8_t priv[32]) {
+    uint8_t derived_pub[32], canon_priv[32];
+    if (!team_channel_key_derive(derived_pub, canon_priv, priv)) return false;   // all-zero / degenerate -> refuse
+    team_channel_key_load(derived_pub, canon_priv, /*present=*/true);
+    crypto_wipe(canon_priv, sizeof canon_priv);
+    return true;
+}
+
 // Boot restore from the NV Blob (v22) — VERBATIM, no re-derivation, mirroring admin_load. `present=false`
 // (a fresh chip, or a version-rejected blob, which fw_main passes as a ZERO-INITIALISED Blob) leaves the
 // node keyless with the buffers zeroed: a stale/absent blob can never fabricate a key.
@@ -127,6 +140,113 @@ void Node::team_channel_key_load(const uint8_t pub[32], const uint8_t priv[32], 
     _team_ch_key_present = present;
 }
 #endif   // MR_FEAT_TEAM (§team-ch-key)
+
+// ===================== §team-ch-key T-K3 — the SEALED team key-grant DM (TYPE 19) =====================
+// Spec 2026-07-26 §2.3 + the owner's five requirements (2026-07-29): sealed-only · carries team_id · its own console
+// verb that FAILS if there is no pubkey or no receiver · format free to choose · an optional name parameter.
+//
+// Body layout (ONE definition, shared by both halves below — the wire note lives at DATA_TYPE_TEAM_KEY_GRANT):
+//     [team_id u32 LE][name_len u8][team_name name_len][tkpriv 32]        37 .. 69 bytes
+// tkpub is NOT carried. See frame_codec.h for the full argument; the short version is that re-deriving it makes a
+// half-mismatch structurally impossible rather than something the receiver must detect, and it costs 32 fewer bytes.
+namespace {
+constexpr uint8_t kGrantTeamIdLen = 4;
+constexpr uint8_t kGrantPrivLen   = 32;
+constexpr uint8_t kGrantNameMax   = 32;                                                   // the codebase-wide name cap (PeerKey::name, INTRO, H)
+constexpr uint8_t kGrantMinLen    = kGrantTeamIdLen + 1 + kGrantPrivLen;                   // 37 = no name
+}  // namespace
+
+// ORIGINATION. Pre-flights the refusals an operator/app can act on, then hands the sealed send to the ORDINARY
+// send-by-hash machinery (U1 — no parallel send path). CryptIntent::on is forced, never `def`: a node with e2e_dm
+// OFF must still not be able to air this in the clear, and enqueue_data's type-19 guard makes that structural.
+Node::TeamKeyGrantTx Node::team_key_grant_send(uint32_t target_hash, const char* name, uint8_t name_len, Plane plane, uint16_t* out_ctr) {
+    if (out_ctr) *out_ctr = 0;
+    if (_cfg.team_id == 0)              return TeamKeyGrantTx::no_team;
+    const uint8_t* priv = team_channel_priv();                                            // nullptr while keyless (node.h) — never a zero buffer
+    if (!priv)                          return TeamKeyGrantTx::no_key;
+    if (!_crypto_ready)                 return TeamKeyGrantTx::no_identity;               // e2e_seal_inner would refuse too; this names it for the operator
+    if (target_hash == 0 || target_hash == _key_hash32) return TeamKeyGrantTx::self;
+    // ★ THE BAR IS e2e_seal_inner's OWN BAR, deliberately not lower (node_hashlocate.cpp:387 — authoritative OR
+    // pinned). Shipping a PRIVATE key to an `overheard` key would be shipping it to whoever last spoofed a beacon.
+    // ⚠ AND WE DO **NOT** AUTO-ISSUE A WANT_PUBKEY LOCATE HERE — §no-auto-reqpubkey, OWNER-RATIFIED 2026-07-29; the
+    // full rule and its reasoning live ONCE, at Node::send_by_hash's header (node_hashlocate.cpp, tagged
+    // `§no-auto-reqpubkey`), and all four locate sites cite it. Restated here only because THIS verb is the worst
+    // possible place to break it: auto-escalating would silently prefer the on-air TOFU path over the MITM-resistant
+    // QR ceremony for the one operation that ships a PRIVATE key. Fail loud and let the operator type
+    // `reqpubkey <hash>` (or scan the QR — one call keys both sides, it is mutual); the console spells that remedy out
+    // verbatim. A future slice that "fixes" this by auto-resolving is reversing a ruling.
+    { uint8_t ed[32]; PeerKeyConf conf = PeerKeyConf::overheard;
+      if (!peer_key_find(target_hash, ed, &conf) || static_cast<uint8_t>(conf) < static_cast<uint8_t>(PeerKeyConf::authoritative))
+          return TeamKeyGrantTx::no_pubkey; }
+    uint8_t nlen = name_len;
+    if (name == nullptr) nlen = 0;
+    if (nlen > kGrantNameMax)           return TeamKeyGrantTx::too_large;                  // C2: refuse, never silently truncate the label
+#if MR_FEAT_MOBILE
+    // PREDICT send_by_hash's delegate branch (node_hashlocate.cpp:1032) rather than discover it after the fact: a
+    // REGISTERED mobile with neither an authoritative id_bind nor a team-cache hit would wrap the sealed body under a
+    // MOBILE_SEND whose enclosed-type slot is ALREADY DATA_TYPE_SEALED_RELAY — the 19 would be dropped and the peer
+    // would receive 37 raw key bytes as inbox text. The structural refusal in send_by_hash catches it regardless
+    // (belt-and-suspenders, the node_mac_rx.cpp:1196 idiom); this pre-check exists so the OPERATOR gets told which of
+    // the two things to do (grant from the home's layer, or `-t` over the team plane) instead of a bare send_failed.
+    if (_cfg.is_mobile && mobile_registered() && plane != Plane::TEAM) {
+        IdBindConf conf = IdBindConf::claimed;
+        const int    id      = id_bind_find_by_hash(target_hash, &conf);
+        uint8_t      tid     = 0;
+        const bool   team_ok = team_id_of_key(target_hash, tid);                            // stubs false on MR_FEAT_TEAM 0
+        bool hosted = false;                                                               // a mobile WE host is a direct last-mile, which DOES keep the type
+        for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
+            if (_active->_mobile_reg[i].key_hash32 == target_hash && _active->_mobile_reg[i].redirect_home_id == 0) hosted = true;
+        if (!(id >= 0 && conf == IdBindConf::authoritative) && !team_ok && !hosted)
+            return TeamKeyGrantTx::delegated;
+    }
+#endif
+    uint8_t body[kGrantTeamIdLen + 1 + kGrantNameMax + kGrantPrivLen];
+    uint8_t n = 0;
+    body[n++] = static_cast<uint8_t>(_cfg.team_id);          body[n++] = static_cast<uint8_t>(_cfg.team_id >> 8);
+    body[n++] = static_cast<uint8_t>(_cfg.team_id >> 16);    body[n++] = static_cast<uint8_t>(_cfg.team_id >> 24);
+    body[n++] = nlen;
+    for (uint8_t i = 0; i < nlen; ++i) body[n++] = static_cast<uint8_t>(name[i]);
+    for (uint8_t i = 0; i < kGrantPrivLen; ++i) body[n++] = priv[i];
+    const uint16_t ctr = send_by_hash(target_hash, body, n, /*flags=*/0, CryptIntent::on, /*reply_to_hash=*/0,
+                                      /*mobile_ctr=*/0, plane, DATA_TYPE_TEAM_KEY_GRANT);
+    crypto_wipe(body, sizeof body);                          // the private half was in this frame — scrub it
+    if (out_ctr) *out_ctr = ctr;
+    MR_EMIT("team_key_grant_tx", EF_I("hash", static_cast<int64_t>(target_hash)),
+            EF_I("team", static_cast<int64_t>(_cfg.team_id)), EF_I("ctr", ctr), EF_I("nlen", nlen));
+    return TeamKeyGrantTx::queued;
+}
+
+// RECEIPT. Called ONLY from the delivery path, ONLY after a successful open (node_mac_rx.cpp) — `body` is already the
+// decrypted plaintext. Consumes the DM: a grant is control traffic like MOBILE_KEY_FORWARD, never inbox'd and never
+// surfaced as a message, so the key bytes cannot reach the app as text on ANY outcome, including every refusal.
+Node::TeamKeyGrantRx Node::team_key_grant_receive(const uint8_t* body, uint8_t body_len, uint32_t granter_hash, uint8_t granter_node) {
+    auto reject = [&](TeamKeyGrantRx r) {
+        MR_EMIT("team_key_grant_reject", EF_I("reason", static_cast<int>(r)), EF_I("from", granter_node),
+                EF_I("hash", static_cast<int64_t>(granter_hash)), EF_I("len", body_len));
+        return r;
+    };
+    if (!body || body_len < kGrantMinLen)                    return reject(TeamKeyGrantRx::bad_len);
+    const uint32_t their_team = static_cast<uint32_t>(body[0]) | (static_cast<uint32_t>(body[1]) << 8)
+                              | (static_cast<uint32_t>(body[2]) << 16) | (static_cast<uint32_t>(body[3]) << 24);
+    const uint8_t  nlen = body[4];
+    if (nlen > kGrantNameMax)                                return reject(TeamKeyGrantRx::long_name);
+    // EXACT length, not "at least": the body is fully self-describing, so a trailing byte means a malformed or
+    // re-framed grant and the 32 bytes we would slice as tkpriv might not be the 32 the granter meant (C2).
+    if (body_len != static_cast<uint8_t>(kGrantTeamIdLen + 1 + nlen + kGrantPrivLen)) return reject(TeamKeyGrantRx::bad_len);
+    if (_cfg.team_id == 0)                                   return reject(TeamKeyGrantRx::no_team);
+    if (their_team != _cfg.team_id)                          return reject(TeamKeyGrantRx::team_mismatch);   // spec §2.3 Q2: carried defensively, refused loud
+    if (!team_channel_key_adopt_priv(body + kGrantTeamIdLen + 1 + nlen)) return reject(TeamKeyGrantRx::bad_key);
+    MR_EMIT("team_key_grant_rx", EF_I("from", granter_node), EF_I("hash", static_cast<int64_t>(granter_hash)),
+            EF_I("team", static_cast<int64_t>(their_team)), EF_I("nlen", nlen));
+    // The app's surface. ★ The NAME IS NOT PERSISTED — it rides the push and stops there. Storing it would need a new
+    // NV field and an NV kVersion bump (a fleet reprovision) for a human label the companion already holds against the
+    // team it just onboarded; if the owner wants it durable it is its own slice.
+    Push pu{}; pu.kind = PushKind::team_key_received;
+    pu.team_id = their_team; pu.sender_hash = granter_hash; pu.origin = granter_node;
+    pu.body_len = nlen; for (uint8_t i = 0; i < nlen; ++i) pu.body[i] = body[kGrantTeamIdLen + 1 + i];
+    enqueue_push(pu);
+    return TeamKeyGrantRx::adopted;
+}
 
 // The shared §3.2 dual-layer gate (see node.h). Extracted verbatim from on_init's former inline block so on_init
 // and the `gateway` console command validate IDENTICALLY. Mutates l0/l1 window fields (the SF/BW-weighted derive —

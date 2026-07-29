@@ -1138,6 +1138,24 @@ void Node::do_post_ack() {
             }
             crypted_ok = true; (void)trial_sender;   // dec_source_hash (sealed, anti-spoof-verified) == trial_sender = the sender
         }
+        // §team-ch-key T-K3 (type 19): a teammate GRANTED us the team CONTENT keypair. Placed HERE — after BOTH open
+        // paths, before the shared deliver — because the body is SEALED, so nothing above this point can read it.
+        // ★ SEALED-ONLY IS ENFORCED ON RECEIPT TOO, not just at origination: a plaintext grant is either a bug in a
+        // peer or an attacker feeding us a key we would then encrypt the team's traffic under, so refuse it loudly and
+        // NEVER fall through (the body would otherwise be delivered as inbox text = 37 raw key bytes in the app).
+        // CONSUMED unconditionally — every outcome, adopt or refusal, returns here: no inbox record, no msg_recv push,
+        // no E2E ack (v1 carries no ack request on a grant; the receiver's team_key_received push is the app-level
+        // confirmation and a re-grant is idempotent). Ungated by MR_FEAT_TEAM on purpose: on a MR_FEAT_TEAM 0 build
+        // team_key_grant_receive answers no_team by construction, which is still a loud consume rather than a delivery.
+        if (pa.type == DATA_TYPE_TEAM_KEY_GRANT) {
+            if (!crypted_ok) {
+                MR_EMIT("team_key_grant_reject", EF_I("reason", static_cast<int>(TeamKeyGrantRx::not_sealed)),
+                        EF_I("from", pa.origin), EF_I("ctr", pa.ctr), EF_I("len", pa.inner_len));
+                become_free(); return;
+            }
+            (void)team_key_grant_receive(dec_body, dec_body_len, dec_source_hash, pa.origin);   // emits/pushes its own outcome
+            become_free(); return;
+        }
         // deliver: body from the parsed inner (raw inner[1..] fallback — origin at inner[0] — if it didn't parse).
         static char body[protocol::max_payload_bytes_hard_cap + 1];   // ADDENDUM 4: static (non-reentrant) — paired with dec_body, off the do_post_ack stack frame
         uint8_t blen;

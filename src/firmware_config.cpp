@@ -712,6 +712,90 @@ static void team_export_key(Print& out) {
     if (m) out.write(s_inbox_jb, m);
 }
 
+// §team-ch-key (T-K3): `team grantkey <0xhash|team-id> [name="…"] [-t]` — GRANT the team CONTENT keypair to a vetted
+// teammate over a SEALED DATA_TYPE_TEAM_KEY_GRANT DM. The grammar lives in mrfw::parse_grant_args; the send lives in
+// Node::team_key_grant_send; this function is the REPORTING half only (one place that turns an outcome into an event).
+//
+// ★ EVERY refusal is a DISTINCT `team_key_err` reason, reusing T-K1b's error event (U1) rather than inventing a second
+// error shape for the same verb family — the app must be able to tell "ask a teammate for the key" from "scan the QR"
+// from "you typed a stranger's hash". Success is its own event (write_team_key_grant), never a happy-path `err`.
+//
+// ★★ `no_pubkey` NAMES ITS REMEDY IN THE TEXT, and that is a live-bench requirement rather than politeness: EVERY
+// send-by-hash locate in the codebase passes want_pubkey=false (node_hashlocate.cpp:1002/1101/1107), so an operator who
+// has merely *resolved* a teammate still holds no pubkey for it and a sealed send fails with nothing to act on. This
+// verb will hit that constantly. We deliberately do NOT auto-issue a WANT_PUBKEY locate to paper over it — that would
+// silently prefer the on-air TOFU path over the MITM-resistant QR ceremony for the one operation that ships a PRIVATE
+// key (the reasoning is repeated at the refusal itself in Node::team_key_grant_send).
+static void team_grant_key(const char* tail, Print& out) {
+    static char scratch[128];                          // STATIC, same reasoning as parse_team_key_tail's (this frame already carries a Blob-sized console stack)
+    mrfw::GrantArgsOut ga; const char* bad = nullptr;
+    const mrfw::GrantArgs r = mrfw::parse_grant_args(tail, scratch, sizeof scratch, ga, bad);
+    switch (r) {
+        case mrfw::GrantArgs::missing:
+            out.println(F("> team err usage: `team grantkey <0xhash|team-id> [name=\"<text>\"] [-t]`"));
+            out.println(F(">   0x… = the teammate's key_hash32 · a bare 1..254 = its team_local_id (implies -t)"));
+            return;
+        case mrfw::GrantArgs::bad_target:
+            out.println(F("> team err: grantkey target must be `0x` + 1..8 hex digits (a key_hash32) or a decimal 1..254 (a team_local_id)"));
+            return;
+        case mrfw::GrantArgs::bad_key:
+            out.print(F("> team err bad/unknown key: ")); out.println(bad ? bad : "?");
+            return;
+        case mrfw::GrantArgs::too_long:
+            out.println(F("> team err: args too long (name= is capped at 32 characters)"));
+            return;
+        case mrfw::GrantArgs::ok:
+            break;
+    }
+    uint32_t hash = ga.target_hash;
+    if (hash == 0) {                                   // a bare team_local_id -> resolve via the beacon-only team key cache
+        if (!g_node.team_key_of_id(ga.target_id, hash) || hash == 0) {
+            const size_t m = meshroute::console::write_team_key_err(s_inbox_jb, sizeof s_inbox_jb, "bad_target");
+            if (m) out.write(s_inbox_jb, m);
+            out.print(F("> team err: team_local_id ")); out.print(ga.target_id);
+            out.println(F(" has not been heard (no beacon) — its key_hash32 is unknown. Address it by 0x<hash>, or wait for a beacon."));
+            return;
+        }
+    }
+    uint16_t ctr = 0;
+    const auto res = g_node.team_key_grant_send(hash, ga.name_len ? ga.name : nullptr, ga.name_len,
+                                                ga.team_plane ? meshroute::Plane::TEAM : meshroute::Plane::AUTO, &ctr);
+    const char* reason = nullptr;
+    const __FlashStringHelper* detail = nullptr;
+    switch (res) {
+        case meshroute::Node::TeamKeyGrantTx::queued: {
+            const size_t m = meshroute::console::write_team_key_grant(s_inbox_jb, sizeof s_inbox_jb, hash, ctr);
+            if (m) out.write(s_inbox_jb, m);
+            out.print(F("> team grantkey: SEALED grant to 0x"));
+            { char hx[9]; snprintf(hx, sizeof hx, "%08lX", (unsigned long)hash); out.print(hx); }
+            if (ctr) { out.print(F(" queued ctr=")); out.println(ctr); }
+            else     out.println(F(" PARKED (resolving the target's node id — it flies when the binding arrives)"));
+            return;
+        }
+        case meshroute::Node::TeamKeyGrantTx::no_team:
+            reason = "no_team";  detail = F("> team err: not in a team — there is no team key to grant (`team new` or `team <id>` first)"); break;
+        case meshroute::Node::TeamKeyGrantTx::no_key:
+            reason = "no_key";   detail = F("> team err: this node holds NO team channel key — ask a teammate to grant you one, or scan the team QR"); break;
+        case meshroute::Node::TeamKeyGrantTx::no_identity:
+            reason = "no_identity"; detail = F("> team err: no E2E crypto identity, so the grant cannot be SEALED — and a grant is never sent in the clear"); break;
+        case meshroute::Node::TeamKeyGrantTx::no_pubkey:
+            reason = "no_pubkey";
+            detail = F("> team err: no VERIFIED pubkey for that target, so the grant cannot be sealed to it. Run `reqpubkey <0xhash>` (or import its QR), then retry.");
+            break;
+        case meshroute::Node::TeamKeyGrantTx::self:
+            reason = "self";     detail = F("> team err: that hash is THIS node — a grant to yourself is a mis-address, not a send"); break;
+        case meshroute::Node::TeamKeyGrantTx::delegated:
+            reason = "delegated";
+            detail = F("> team err: a grant cannot be DELEGATED through your home (the sealed-relay wrapper cannot carry its type). Grant over the team plane (`-t`), or from a node on the target's own layer.");
+            break;
+        case meshroute::Node::TeamKeyGrantTx::too_large:
+            reason = "too_large"; detail = F("> team err: name= too long for the grant body (max 32 characters)"); break;
+    }
+    const size_t m = meshroute::console::write_team_key_err(s_inbox_jb, sizeof s_inbox_jb, reason);
+    if (m) out.write(s_inbox_jb, m);
+    if (detail) out.println(detail);
+}
+
 // §mobile 6.1: FNV-1a over (key_hash32 ‖ nonce) = the 32-bit team_id (team_fnv1a32, firmware_config_parse.h).
 // `team new` = MINT a fresh team_id = hash(our key ‖ HW-RNG nonce). `team <id>` = JOIN an existing team. `team 0` = leave.
 void handle_team(const char* args, Print& out) {
@@ -735,6 +819,10 @@ void handle_team(const char* args, Print& out) {
         team_export_key(out);
         return;
     }
+    // §team-ch-key (T-K3): the FOURTH subcommand. Matched BEFORE the numeric parse for the same safety reason as
+    // `exportkey` (strtoul would read `grantkey …` as `team 0` = LEAVE). ⚠ `grantkey` must be tested before any prefix
+    // of it could match something else — it shares no prefix with `new`/`exportkey`, so order among the three is free.
+    if (!strncmp(args, "grantkey", 8)) { team_grant_key(args + 8, out); return; }
     const bool mint_form = !strncmp(args, "new", 3);
     if (mint_form) {
         uint32_t nonce = 0; g_hal.rand_bytes(reinterpret_cast<uint8_t*>(&nonce), 4);
@@ -745,9 +833,10 @@ void handle_team(const char* args, Print& out) {
         t = (uint32_t)strtoul(args, &endp, 0);
         phy_args = endp;   // §6.4: `team <id> [freq= sf= bw=]` — a JOIN can set the shared team PHY too (mirrors `team new`)
     } else {
-        out.println(F("> team err usage: `team new [freq= sf= bw=]` (mint) | `team <id> [freq= sf= bw=]` (join) | `team 0` (leave) | `team exportkey`"));
+        out.println(F("> team err usage: `team new [freq= sf= bw=]` (mint) | `team <id> [freq= sf= bw=]` (join) | `team 0` (leave) | `team exportkey` | `team grantkey <0xhash|team-id> [name=\"…\"] [-t]`"));
         out.println(F(">   both forms also take `[tkpub=<64 hex> tkpriv=<64 hex>]` to ADOPT an existing team channel key (else `team new` mints one)"));
         out.println(F(">   `team exportkey` prints this team's channel keypair as JSON (for the app's team QR) — it discloses a PRIVATE key"));
+        out.println(F(">   `team grantkey <target>` sends this team's channel key to a teammate in a SEALED DM (needs a verified pubkey for it)"));
         return;
     }
     // §team-ch-key (T-K1): peel `tkpub=`/`tkpriv=` off the tail FIRST — parse_phy_tail below refuses unknown keys.

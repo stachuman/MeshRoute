@@ -520,6 +520,8 @@ static void dump_help(Print& out) {
     hl(F("  team <id> | team 0         join an existing team / leave (a join mints NO key — receive it by grant or QR)"));
     hl(F("    [tkpub=<64 hex> tkpriv=<64 hex>]   adopt an EXISTING team channel keypair instead of minting (QR onboarding)"));
     hl(F("  team exportkey             print this team's channel keypair as JSON (the app's team QR) — \xe2\x9a\xa0 discloses a PRIVATE key"));
+    hl(F("  team grantkey <0xhash|team-id> [name=\"<text>\"] [-t]   send this team's channel key to a teammate in a SEALED DM"));
+    hl(F("                             needs a VERIFIED pubkey for the target (`reqpubkey <0xhash>` or a QR import) — never sent in the clear"));
 #endif
     hl(F(""));
     hl(F("INBOX"));

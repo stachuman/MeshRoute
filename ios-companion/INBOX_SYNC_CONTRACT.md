@@ -684,6 +684,50 @@ team exportkey
 - **Lock-state per team** indicator; **member location on a map** (encrypted location inner-type, app-driven
   cadence).
 
+#### The team key grant — `team grantkey` — ★ LIVE (T-K3, 2026-07-29)
+
+Ships the team **content key** to a teammate over a **sealed DM**. Use this for the **remote** teammate — already
+in the overlay, not present to scan the team QR. (Present? Use the QR: it needs no pubkey and no radio.)
+
+```
+team grantkey <0xhash | team-id> [name="<text>"] [-t]
+```
+`0x` + **1..8** hex digits (case-insensitive, non-zero) = the target's `key_hash32`. A bare decimal **1..254** = a
+teammate's `team_local_id`, resolved via the beacon-only team-key cache — **implies `-t`**. `name=` is optional,
+quotable, **max 32 chars** (33 refuses). `-t` forces the team plane. Keys are last-wins; any other key is `bad_key`.
+
+**Success — a distinct event, never `team_key_err` with a happy reason:**
+```json
+{"ev":"team_key_grant","hash":3735928559,"ctr":1234,"parked":false}
+{"ev":"team_key_grant","hash":1,"ctr":0,"parked":true}
+```
+`hash` decimal u32 (as `team_key_export`); `ctr` = the DM ctr, **0 = parked** behind a hash resolve; `parked` is
+**explicit** so the app never infers state from a sentinel. Carries no key material and no name echo.
+
+**Refusals reuse `team_key_err`** (U1) — `{"ev":"team_key_err","reason":"<r>"}`, `<r>` ∈ `no_team` · `no_key` ·
+`no_identity` · `no_pubkey` · `self` · `delegated` · `too_large` · `bad_target`. No JSON `null` on this surface.
+★ **`no_pubkey` is the one the app will see most**, and it is **not** auto-resolved — see the ruling above. Surface
+`reqpubkey <0xhash>` (TOFU) *and* the **verified-peer** QR, and let the user choose.
+★ **`delegated` is permanent, not transient:** a grant cannot ride the sealed-relay wrapper (it has one enclosed-type
+byte, already spent), so a delegated grant would arrive sealed but **type-stripped** — the private key would land as
+inbox *text*. Offer "grant over the team plane (`-t`)" or "from a node on the target's own layer". The same shape
+arrives asynchronously as `{"ev":"send_failed",…,"reason":"unsealable"}` — **permanent for that route.**
+
+**Receiver push — the key is ALREADY ADOPTED when this fires; it is a notification, not a request:**
+```json
+{"ev":"team_key_received","team":"cccc0001","hash":2712847316,"origin":213,"name":"Alpha Team"}
+{"ev":"team_key_received","team":"00000011","hash":7,"origin":1}
+```
+`team` = hex8 (as `team_reg`); `hash` = the **granter's** `key_hash32` (the sealed-sender identity — same field name
+as `peer_key_cached`); `origin` = the granter's node id on the receiving plane (diagnostic); `name` =
+**omit-when-absent** and **not persisted on the node**, so the app must keep it if it wants the label.
+⚠ It never carries the pair. `team exportkey` stays the single disclosure verb and `team_ch_key` the indicator.
+
+**Wire:** `DATA_TYPE_TEAM_KEY_GRANT = 19`, body `[team_id u32 LE][name_len u8][team_name ≤32][tkpriv 32]` = 37..69 B,
+**always CRYPTED** — the TYPE byte is cleartext, the body sealed. **No `tkpub` on the wire** (the receiver derives it,
+so a mismatch is impossible). A grant that arrives **unsealed** is dropped loud, and a grant is **consumed on every
+outcome** — it is never inbox'd and never surfaces as `msg_recv`.
+
 ### Remote admin — challenge–response — `docs/superpowers/specs/2026-07-26-remote-admin-challenge-response-design.md`
 - The companion becomes the PRIMARY remote-admin driver (v1). The monotonic counter/`floor=N` hint is
   REPLACED by a node-issued challenge.

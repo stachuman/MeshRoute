@@ -14,6 +14,7 @@
 
 #include "node.h"
 #include "frame_codec.h"
+#include "identity.h"            // §team-ch-key T-K3: Identity / identity_from_seed — the two ends of the sealed grant
 #include "monocypher.h"          // §team-ch-key: crypto_x25519_public_key — cross-check the minted pair independently
 #include "support/test_hal.h"
 
@@ -1650,4 +1651,429 @@ TEST_CASE("§team-ch-key — a NON-team node can hold a key; the pair is orthogo
     CHECK(node.set_team_id(0));                                 // leave the team entirely
     CHECK(node.team_channel_key_present());                     // still survives
     CHECK(hal.rand_bytes_calls == 1);                           // ★ neither switch nor leave draws entropy
+}
+
+// ================= §team-ch-key (T-K3, spec 2026-07-26 §2.3) — the SEALED key-grant DM (TYPE 19) ===============
+// ★ THIS SUITE IS THE ENTIRE DETECTOR, same structural reason as T-K1's above: no scenario reaches a console verb,
+// and the simulator's `team` verb refuses `team new`, so no corpus stream can ever carry a TYPE-19 frame. Corpus
+// byte-identity proves only that this slice stays INERT there. Correctness lives here.
+//
+// The suite deliberately splits into three layers, so a failure localises:
+//   (1) team_key_grant_receive() called DIRECTLY on a hand-built body — the parse/validate/adopt logic, exhaustively;
+//   (2) team_key_grant_send()'s pre-flight refusals — one case per operator-visible reason;
+//   (3) the FULL WIRE ROUND TRIP — A seals a real type-19 DATA frame, drives it into B over RTS+DATA, and B ends up
+//       holding A's key. Plus the two things only the wire can show: a PLAINTEXT type-19 is dropped, and a grant is
+//       never delivered as a DM (no msg_recv, no inbox).
+namespace {
+constexpr uint32_t kPostAckTimerId = 9;   // Node::kPostAckTimerId (private) — the receiver's deliver-after-ACK fire
+// A unicast RTS reserving `plen` bytes for the following DATA (mirrors test_node_r3.cpp's mk_rts).
+static size_t mk_unicast_rts(uint8_t src, uint8_t next, uint8_t dst, uint8_t ctr_lo, uint8_t plen,
+                             std::array<uint8_t, 16>& b, uint8_t addr_len = 0, bool mobile_src = false) {
+    rts_in in{}; in.leaf_id = 0; in.src = src; in.next = next; in.ctr_lo = ctr_lo; in.dst = dst;
+    in.sf_index = 3; in.rts_flags = 0; in.payload_len = plen; in.m_payload_id_lo16 = 0;
+    in.addr_len = addr_len; in.mobile_src = mobile_src;
+    return pack_rts(in, std::span<uint8_t>(b.data(), b.size()));
+}
+// The RTS reserves the END-TO-END inner+MAC length (node_mac.cpp tx_rts), i.e. frame_len - DATA_HDR_LEN - 1 for an
+// APP frame (the TYPE byte at offset 8 is header, not payload). Getting this wrong only mis-sizes the RX window, but
+// stating it correctly is what makes these tests a faithful wire exercise.
+static uint8_t rts_plen(size_t frame_len) { return static_cast<uint8_t>(frame_len - DATA_HDR_LEN - 1); }
+// Build the T-K3 grant BODY exactly as Node::team_key_grant_send does: [team_id 4 LE][name_len][name][priv 32].
+static uint8_t mk_grant_body(uint32_t team_id, const char* name, const uint8_t priv[32], uint8_t* out) {
+    uint8_t n = 0;
+    out[n++] = uint8_t(team_id); out[n++] = uint8_t(team_id >> 8);
+    out[n++] = uint8_t(team_id >> 16); out[n++] = uint8_t(team_id >> 24);
+    const uint8_t nl = name ? static_cast<uint8_t>(std::strlen(name)) : 0;
+    out[n++] = nl;
+    for (uint8_t i = 0; i < nl; ++i) out[n++] = static_cast<uint8_t>(name[i]);
+    for (uint8_t i = 0; i < 32; ++i) out[n++] = priv[i];
+    return n;
+}
+// A team keypair minted off a scripted RNG, without needing a Node to own it.
+struct TkPair { uint8_t pub[32]; uint8_t priv[32]; };
+static TkPair mk_pair(uint8_t fill) {
+    TkHal h; h._fill = fill; Node tmp(h, 2, 0xBEEFu); NodeConfig c = team_cfg(); tmp.on_init(c);
+    CHECK(tmp.team_channel_key_mint());
+    TkPair p{}; std::memcpy(p.pub, tmp.team_channel_pub(), 32); std::memcpy(p.priv, tmp.team_channel_priv(), 32);
+    return p;
+}
+static Node::TeamKeyGrantRx feed_grant(Node& n, uint32_t team_id, const char* name, const uint8_t priv[32]) {
+    uint8_t body[80];
+    const uint8_t bn = mk_grant_body(team_id, name, priv, body);
+    return n.team_key_grant_receive(body, bn, /*granter_hash=*/0xDEADBEEFu, /*granter_node=*/9);
+}
+// Drain the WHOLE ring once, then query it — a "find one kind" helper that drains would consume the OTHER kinds a
+// test also wants to assert about (this bit once: the msg_recv-absent check swallowed the team_key_received push).
+static std::vector<Push> drain_all(Node& n) {
+    std::vector<Push> v; Push p{};
+    while (n.next_push(p)) v.push_back(p);
+    return v;
+}
+static bool find_push(const std::vector<Push>& v, PushKind want, Push& out) {
+    for (const auto& p : v) if (p.kind == want) { out = p; return true; }
+    return false;
+}
+}  // namespace
+
+// ---- (1) receive: the happy path + the app surface -----------------------------------------------------------
+TEST_CASE("§T-K3 receive — a valid grant ADOPTS the key and pushes team_key_received{team,hash,origin,name}") {
+    const TkPair src = mk_pair(0x31);
+    TkHal hal; Node n(hal, 3, 0xCAFEu); NodeConfig cfg = team_cfg(0xAAAAAAAAu); n.on_init(cfg);
+    CHECK_FALSE(n.team_channel_key_present());                       // a joiner starts keyless (T-K1: `team <id>` mints nothing)
+
+    CHECK(feed_grant(n, 0xAAAAAAAAu, "Alpha Team", src.priv) == Node::TeamKeyGrantRx::adopted);
+    CHECK(n.team_channel_key_present());
+    CHECK(std::memcmp(n.team_channel_priv(), src.priv, 32) == 0);     // the private half, verbatim
+    CHECK(std::memcmp(n.team_channel_pub(),  src.pub,  32) == 0);     // ★ the public half RE-DERIVED — it is not on the wire
+    CHECK(hal.rand_bytes_calls == 0);                                 // adopt-from-grant is DRAW-FREE (corpus-inertness property)
+    CHECK(hal.count("team_key_grant_rx") == 1);
+    CHECK(hal.count("team_key_grant_reject") == 0);
+
+    Push pu{};
+    CHECK(find_push(drain_all(n), PushKind::team_key_received, pu));
+    CHECK(pu.team_id == 0xAAAAAAAAu);
+    CHECK(pu.sender_hash == 0xDEADBEEFu);
+    CHECK(pu.origin == 9);
+    CHECK(pu.body_len == 10);
+    CHECK(std::string(reinterpret_cast<const char*>(pu.body), pu.body_len) == "Alpha Team");
+}
+
+TEST_CASE("§T-K3 receive — the grant is IDEMPOTENT and a re-grant OVERWRITES (the v1 re-key story, spec §0/Q5)") {
+    const TkPair one = mk_pair(0x31), two = mk_pair(0x77);
+    TkHal hal; Node n(hal, 3, 0xCAFEu); NodeConfig cfg = team_cfg(0xAAAAAAAAu); n.on_init(cfg);
+    CHECK(feed_grant(n, 0xAAAAAAAAu, nullptr, one.priv) == Node::TeamKeyGrantRx::adopted);
+    CHECK(feed_grant(n, 0xAAAAAAAAu, nullptr, one.priv) == Node::TeamKeyGrantRx::adopted);   // the SAME grant again
+    CHECK(std::memcmp(n.team_channel_priv(), one.priv, 32) == 0);
+    CHECK(feed_grant(n, 0xAAAAAAAAu, nullptr, two.priv) == Node::TeamKeyGrantRx::adopted);   // a RE-KEY
+    CHECK(std::memcmp(n.team_channel_priv(), two.priv, 32) == 0);
+    CHECK(std::memcmp(n.team_channel_pub(),  two.pub,  32) == 0);
+    CHECK(hal.count("team_key_grant_rx") == 3);
+}
+
+TEST_CASE("§T-K3 receive — name absent / at the 32-B cap / OVER the cap") {
+    const TkPair src = mk_pair(0x31);
+    { TkHal hal; Node n(hal, 3, 0xCAFEu); NodeConfig c = team_cfg(0xAAAAAAAAu); n.on_init(c);
+      CHECK(feed_grant(n, 0xAAAAAAAAu, nullptr, src.priv) == Node::TeamKeyGrantRx::adopted);   // 37-B body, no name
+      Push pu{}; CHECK(find_push(drain_all(n), PushKind::team_key_received, pu));
+      CHECK(pu.body_len == 0); }                                     // -> the JSON omits "name" entirely
+    { TkHal hal; Node n(hal, 3, 0xCAFEu); NodeConfig c = team_cfg(0xAAAAAAAAu); n.on_init(c);
+      const char* n32 = "12345678901234567890123456789012";          // exactly 32
+      CHECK(std::strlen(n32) == 32);
+      CHECK(feed_grant(n, 0xAAAAAAAAu, n32, src.priv) == Node::TeamKeyGrantRx::adopted);       // 69-B body = the max
+      Push pu{}; CHECK(find_push(drain_all(n), PushKind::team_key_received, pu));
+      CHECK(pu.body_len == 32); }
+    { // name_len 33 -> refused, NOT truncated, and the key is not installed
+      TkHal hal; Node n(hal, 3, 0xCAFEu); NodeConfig c = team_cfg(0xAAAAAAAAu); n.on_init(c);
+      uint8_t body[80]; uint8_t bn = mk_grant_body(0xAAAAAAAAu, "1234567890123456789012345678901234", src.priv, body);
+      CHECK(bn == 4 + 1 + 34 + 32);
+      CHECK(n.team_key_grant_receive(body, bn, 0x1u, 9) == Node::TeamKeyGrantRx::long_name);
+      CHECK_FALSE(n.team_channel_key_present());
+      CHECK(hal.count("team_key_grant_reject") == 1); }
+}
+
+TEST_CASE("§T-K3 receive — C2 refusals: short body, INEXACT length, wrong team, no team, degenerate key") {
+    const TkPair src = mk_pair(0x31);
+    uint8_t body[80];
+    const uint8_t bn = mk_grant_body(0xAAAAAAAAu, "T", src.priv, body);
+    CHECK(bn == 4 + 1 + 1 + 32);
+
+    { TkHal hal; Node n(hal, 3, 0xCAFEu); NodeConfig c = team_cfg(0xAAAAAAAAu); n.on_init(c);
+      CHECK(n.team_key_grant_receive(body, 36, 0x1u, 9) == Node::TeamKeyGrantRx::bad_len);      // below the 37-B floor
+      CHECK(n.team_key_grant_receive(nullptr, bn, 0x1u, 9) == Node::TeamKeyGrantRx::bad_len);   // null body
+      CHECK_FALSE(n.team_channel_key_present()); }
+    { // ★ EXACT length, not "at least": one extra byte means the 32 we would slice as tkpriv may not be the 32 sent.
+      TkHal hal; Node n(hal, 3, 0xCAFEu); NodeConfig c = team_cfg(0xAAAAAAAAu); n.on_init(c);
+      body[bn] = 0x99;
+      CHECK(n.team_key_grant_receive(body, static_cast<uint8_t>(bn + 1), 0x1u, 9) == Node::TeamKeyGrantRx::bad_len);
+      CHECK(n.team_key_grant_receive(body, static_cast<uint8_t>(bn - 1), 0x1u, 9) == Node::TeamKeyGrantRx::bad_len);
+      CHECK_FALSE(n.team_channel_key_present()); }
+    { // spec §2.3 Q2: team_id is carried DEFENSIVELY and a mismatch is refused loud
+      TkHal hal; Node n(hal, 3, 0xCAFEu); NodeConfig c = team_cfg(0xBBBBBBBBu); n.on_init(c);
+      CHECK(n.team_key_grant_receive(body, bn, 0x1u, 9) == Node::TeamKeyGrantRx::team_mismatch);
+      CHECK_FALSE(n.team_channel_key_present());
+      CHECK(hal.count("team_key_grant_reject") == 1); }
+    { TkHal hal; Node n(hal, 3, 0xCAFEu); NodeConfig c = team_cfg(0u); n.on_init(c);            // not in a team at all
+      CHECK(n.team_key_grant_receive(body, bn, 0x1u, 9) == Node::TeamKeyGrantRx::no_team);
+      CHECK_FALSE(n.team_channel_key_present()); }
+    { TkHal hal; Node n(hal, 3, 0xCAFEu); NodeConfig c = team_cfg(0xAAAAAAAAu); n.on_init(c);
+      uint8_t zero[32] = {};
+      uint8_t zb[80]; const uint8_t zn = mk_grant_body(0xAAAAAAAAu, "T", zero, zb);
+      CHECK(n.team_key_grant_receive(zb, zn, 0x1u, 9) == Node::TeamKeyGrantRx::bad_key);        // all-zero scalar -> derive refuses
+      CHECK_FALSE(n.team_channel_key_present()); }
+    { // a REFUSED grant must not disturb a key we ALREADY hold
+      TkHal hal; Node n(hal, 3, 0xCAFEu); NodeConfig c = team_cfg(0xAAAAAAAAu); n.on_init(c);
+      CHECK(feed_grant(n, 0xAAAAAAAAu, "ok", src.priv) == Node::TeamKeyGrantRx::adopted);
+      uint8_t bad[80]; const uint8_t badn = mk_grant_body(0x12345678u, "x", src.priv, bad);     // wrong team
+      CHECK(n.team_key_grant_receive(bad, badn, 0x1u, 9) == Node::TeamKeyGrantRx::team_mismatch);
+      CHECK(n.team_channel_key_present());
+      CHECK(std::memcmp(n.team_channel_priv(), src.priv, 32) == 0); }
+}
+
+TEST_CASE("§T-K3 receive — an UNCLAMPED private half on the wire is canonicalised, and its pub still matches") {
+    // The grant may originate from a store-unclamped implementation (T-K1's identity.h clamping contract). Adopting
+    // from the private half alone must normalise it AND yield the pub that scalar really owns.
+    TkHal hal; Node n(hal, 3, 0xCAFEu); NodeConfig cfg = team_cfg(0xAAAAAAAAu); n.on_init(cfg);
+    uint8_t raw[32]; for (int i = 0; i < 32; ++i) raw[i] = static_cast<uint8_t>(0xA0 + i);
+    raw[0] |= 0x07; raw[31] |= 0x80; raw[31] &= 0xBF;                 // deliberately violate all three clamp bits
+    CHECK(feed_grant(n, 0xAAAAAAAAu, nullptr, raw) == Node::TeamKeyGrantRx::adopted);
+    const uint8_t* p = n.team_channel_priv();
+    CHECK((p[0] & 7) == 0); CHECK((p[31] & 0x80) == 0); CHECK((p[31] & 0x40) != 0);
+    uint8_t want[32]; crypto_x25519_public_key(want, p);
+    CHECK(std::memcmp(n.team_channel_pub(), want, 32) == 0);
+}
+
+// ---- (2) send: one case per operator-visible refusal ---------------------------------------------------------
+namespace {
+// A node ready to grant: in a team, holds a team key, has a crypto identity, and knows `peer`'s pubkey.
+static void arm_granter(Node& n, TkHal& hal, const Identity& self, const Identity& peer, uint32_t team = 0xAAAAAAAAu) {
+    NodeConfig cfg = team_cfg(team); n.on_init(cfg);
+    n.set_crypto_identity(self.x_secret, self.ed_pub);
+    hal._fill = 0x31; CHECK(n.team_channel_key_mint());
+    n.peer_key_set(peer.key_hash32, peer.ed_pub, Node::PeerKeyConf::authoritative);
+}
+}  // namespace
+
+TEST_CASE("§T-K3 send — every pre-flight refusal is DISTINCT, and none of them airs a frame") {
+    uint8_t sa[32], sb[32]; for (int i = 0; i < 32; ++i) { sa[i] = uint8_t(i + 5); sb[i] = uint8_t(80 - i); }
+    Identity A{}, B{}; identity_from_seed(A, sa); identity_from_seed(B, sb);
+
+    { // no_team — team_id 0
+      TkHal hal; Node n(hal, 2, A.key_hash32); NodeConfig c = team_cfg(0u); n.on_init(c);
+      n.set_crypto_identity(A.x_secret, A.ed_pub); hal._fill = 0x31; CHECK(n.team_channel_key_mint());
+      CHECK(n.team_key_grant_send(B.key_hash32, nullptr, 0) == Node::TeamKeyGrantTx::no_team); }
+    { // no_key — in a team but keyless (exactly a joiner's state)
+      TkHal hal; Node n(hal, 2, A.key_hash32); NodeConfig c = team_cfg(); n.on_init(c);
+      n.set_crypto_identity(A.x_secret, A.ed_pub);
+      n.peer_key_set(B.key_hash32, B.ed_pub, Node::PeerKeyConf::authoritative);
+      CHECK(n.team_key_grant_send(B.key_hash32, nullptr, 0) == Node::TeamKeyGrantTx::no_key); }
+    { // no_identity — a key to grant, but nothing to seal WITH
+      TkHal hal; Node n(hal, 2, A.key_hash32); NodeConfig c = team_cfg(); n.on_init(c);
+      hal._fill = 0x31; CHECK(n.team_channel_key_mint());
+      CHECK(n.team_key_grant_send(B.key_hash32, nullptr, 0) == Node::TeamKeyGrantTx::no_identity); }
+    { // no_pubkey — nothing cached, and an OVERHEARD (sub-authoritative) key is NOT good enough for a private key
+      TkHal hal; Node n(hal, 2, A.key_hash32); NodeConfig c = team_cfg(); n.on_init(c);
+      n.set_crypto_identity(A.x_secret, A.ed_pub); hal._fill = 0x31; CHECK(n.team_channel_key_mint());
+      CHECK(n.team_key_grant_send(B.key_hash32, nullptr, 0) == Node::TeamKeyGrantTx::no_pubkey);
+      n.peer_key_set(B.key_hash32, B.ed_pub, Node::PeerKeyConf::overheard);
+      CHECK(n.team_key_grant_send(B.key_hash32, nullptr, 0) == Node::TeamKeyGrantTx::no_pubkey);
+      n.peer_key_set(B.key_hash32, B.ed_pub, Node::PeerKeyConf::pinned);                 // pinned (QR) IS the bar
+      CHECK(n.team_key_grant_send(B.key_hash32, nullptr, 0) != Node::TeamKeyGrantTx::no_pubkey); }
+    { // self / hash 0
+      TkHal hal; Node n(hal, 2, A.key_hash32); arm_granter(n, hal, A, B);
+      CHECK(n.team_key_grant_send(A.key_hash32, nullptr, 0) == Node::TeamKeyGrantTx::self);
+      CHECK(n.team_key_grant_send(0, nullptr, 0) == Node::TeamKeyGrantTx::self); }
+    { // too_large — a 33-char name (the console caps at 32, so this is defence in depth)
+      TkHal hal; Node n(hal, 2, A.key_hash32); arm_granter(n, hal, A, B);
+      CHECK(n.team_key_grant_send(B.key_hash32, "123456789012345678901234567890123", 33) == Node::TeamKeyGrantTx::too_large); }
+    { // ★ NOT A REFUSAL: a null name with a non-zero length is normalised to "no name", not a crash or a read of null
+      TkHal hal; Node n(hal, 2, A.key_hash32); arm_granter(n, hal, A, B);
+      CHECK(n.team_key_grant_send(B.key_hash32, nullptr, 200) == Node::TeamKeyGrantTx::queued); }
+}
+
+TEST_CASE("§T-K3 send — the sealed grant is ACTUALLY sealed: CRYPTED + TYPE 19, and tkpriv is nowhere in the frame") {
+    uint8_t sa[32], sb[32]; for (int i = 0; i < 32; ++i) { sa[i] = uint8_t(i + 5); sb[i] = uint8_t(80 - i); }
+    Identity A{}, B{}; identity_from_seed(A, sa); identity_from_seed(B, sb);
+    TkHal hal; Node n(hal, 2, A.key_hash32); arm_granter(n, hal, A, B);
+    CHECK(n.test_id_bind_set(7, B.key_hash32, /*authoritative=*/true));   // resolved -> flies now
+    n.test_suspend_tx_drain(true);                                   // keep the frame IN the queue for the wire-golden read
+
+    uint16_t ctr = 0;
+    CHECK(n.team_key_grant_send(B.key_hash32, "Bravo", 5, Plane::AUTO, &ctr) == Node::TeamKeyGrantTx::queued);
+    CHECK(ctr != 0);                                                 // airborne, not parked
+    CHECK(hal.count("team_key_grant_tx") == 1);
+    CHECK(hal.count("team_key_grant_refused") == 0);
+    CHECK(n.test_tx_queue_n() == 1);
+    uint8_t ilen = 0; const uint8_t* inner = n.test_tx_inner(0, ilen);
+    CHECK((n.test_tx_flags(0) & DATA_FLAG_CRYPTED) != 0);             // ★ requirement 1: sealed
+    CHECK((n.test_tx_flags(0) & DATA_FLAG_DST_HASH) != 0);            // CRYPTED mandates it (the nonce/aad source)
+    CHECK(n.test_tx_type(0) == DATA_TYPE_TEAM_KEY_GRANT);             // ★ and the TYPE survived
+    bool leaked = false;                                              // the private half must not be readable anywhere
+    for (int i = 0; i + 32 <= ilen; ++i) if (std::memcmp(inner + i, n.team_channel_priv(), 32) == 0) leaked = true;
+    CHECK_FALSE(leaked);
+}
+
+// ---- (3) the FULL WIRE ROUND TRIP + the two wire-only properties ---------------------------------------------
+namespace {
+// Seal `body` as a TYPE-19 DM A->B (origin 1, ctr 5) and pack the DATA frame. Mirrors test_node_r3's e2e_seal_AtoB.
+static size_t seal_grant_frame(Node& A, const Identity& idA, const Identity& idB, uint8_t next, uint8_t dst,
+                               uint8_t addr_len, const uint8_t* body, uint8_t blen,
+                               uint8_t* frame, size_t cap, uint8_t* inner, size_t inner_cap, uint8_t seed[8]) {
+    const uint8_t flags = DATA_FLAG_CRYPTED | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH;
+    Node::SealOutcome oc = Node::SealOutcome::ok;
+    const size_t il = A.e2e_seal_inner(inner, inner_cap, seed, flags, idB.key_hash32, /*origin=*/1, /*ctr=*/0x0005,
+                                       /*source_hash=*/idA.key_hash32, 0, 0, body, blen, oc);
+    if (il == 0) return 0;
+    data_in din{}; din.addr_len = addr_len; din.flags = flags; din.type = DATA_TYPE_TEAM_KEY_GRANT;
+    din.next = next; din.dst = dst; din.hops_remaining = 31; din.ctr = 0x0005;
+    din.inner = std::span<const uint8_t>(inner, il); din.mac = std::span<const uint8_t>(seed, 8);
+    return pack_data(din, std::span<uint8_t>(frame, cap));
+}
+}  // namespace
+
+TEST_CASE("§T-K3 WIRE — the acceptance story: A seals a TYPE-19 grant, B receives it and can now read the team") {
+    // Two STATIC team members on one leaf — the plainest of the three v1 transports (same-layer CRYPTED). The team
+    // plane variant is the next test; together they cover both `for_*_rts`/`for_me_dst` acceptance shapes.
+    uint8_t sa[32], sb[32]; for (int i = 0; i < 32; ++i) { sa[i] = uint8_t(i + 5); sb[i] = uint8_t(80 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, sa); identity_from_seed(idB, sb);
+    TkHal halA; Node A(halA, 1, idA.key_hash32); arm_granter(A, halA, idA, idB);
+    uint8_t body[80];
+    const uint8_t bn = mk_grant_body(0xAAAAAAAAu, "Alpha", A.team_channel_priv(), body);
+    uint8_t frame[160], inner[128], seed[8];
+    const size_t fl = seal_grant_frame(A, idA, idB, /*next=*/2, /*dst=*/2, /*addr_len=*/0, body, bn,
+                                       frame, sizeof frame, inner, sizeof inner, seed);
+    CHECK(fl > 0);
+
+    // B: same team, STATIC, KEYLESS (the newjoiner state), holds A's key so it can open the seal.
+    TkHal halB; Node B(halB, 2, idB.key_hash32);
+    NodeConfig cb = basic_cfg(); cb.team_id = 0xAAAAAAAAu; B.on_init(cb);
+    B.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    B.peer_key_set(idA.key_hash32, idA.ed_pub, Node::PeerKeyConf::authoritative);
+    CHECK_FALSE(B.team_channel_key_present());                        // ★ BEFORE: cannot read the team's content
+
+    RxMeta from1{ 12.0f, -70.0f, 0, static_cast<int8_t>(1) };
+    std::array<uint8_t, 16> rb{};
+    halB._now = 1000; B.on_recv(rb.data(), mk_unicast_rts(1, /*next=*/2, /*dst=*/2, 5, rts_plen(fl), rb, 0, false), from1);
+    CHECK(halB.count("cts_tx") == 1);                                 // the exchange really happened (not a silent overhear)
+    halB._now = 2000; B.on_recv(frame, fl, from1);
+    B.on_timer(kPostAckTimerId);
+
+    CHECK(B.team_channel_key_present());                              // ★ AFTER: adopted off the wire
+    if (B.team_channel_key_present()) {
+        CHECK(std::memcmp(B.team_channel_priv(), A.team_channel_priv(), 32) == 0);
+        CHECK(std::memcmp(B.team_channel_pub(),  A.team_channel_pub(),  32) == 0);
+    }
+    CHECK(halB.count("team_key_grant_rx") == 1);
+    // ★ CONSUMED, not delivered: no msg_recv push, and the grant body never becomes inbox text.
+    const std::vector<Push> pushes = drain_all(B);
+    Push pu{}; CHECK_FALSE(find_push(pushes, PushKind::msg_recv, pu));
+    CHECK(halB.count("delivered") == 0);
+    Push kp{}; CHECK(find_push(pushes, PushKind::team_key_received, kp));
+    CHECK(kp.sender_hash == idA.key_hash32);                          // the SEALED-sender identity, not a cleartext claim
+    CHECK(std::string(reinterpret_cast<const char*>(kp.body), kp.body_len) == "Alpha");
+}
+
+TEST_CASE("§T-K3 WIRE — the TEAM-PLANE grant: addressed to the joiner's team_local_id, leaf-agnostic") {
+    // The transport the spec's acceptance story actually needs: an OFF-GRID team member grants to another off-grid
+    // member over the team plane (addr_len=1, next/dst = the team_local_id). It is NOT a CROSS_LAYER frame even when
+    // the two sit on different leaf nibbles (team frames are leaf-exempt), which is exactly why e2e_seal_inner's
+    // same-layer-only rule does not bite and why this transport works while the delegated/XL ones are refused.
+    uint8_t sa[32], sb[32]; for (int i = 0; i < 32; ++i) { sa[i] = uint8_t(i + 11); sb[i] = uint8_t(60 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, sa); identity_from_seed(idB, sb);
+    TkHal halA; Node A(halA, 40, idA.key_hash32); arm_granter(A, halA, idA, idB);
+    A.set_team_local_id(40);
+    uint8_t body[80];
+    const uint8_t bn = mk_grant_body(0xAAAAAAAAu, nullptr, A.team_channel_priv(), body);
+    uint8_t frame[160], inner[128], seed[8];
+    const size_t fl = seal_grant_frame(A, idA, idB, /*next=*/50, /*dst=*/50, /*addr_len=*/1, body, bn,
+                                       frame, sizeof frame, inner, sizeof inner, seed);
+    CHECK(fl > 0);
+
+    TkHal halB; Node B(halB, 50, idB.key_hash32);
+    NodeConfig cb = team_cfg(0xAAAAAAAAu); cb.leaf_id = 0; B.on_init(cb);   // is_mobile -> the team/mobile plane
+    B.set_team_local_id(50);
+    B.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    B.peer_key_set(idA.key_hash32, idA.ed_pub, Node::PeerKeyConf::authoritative);
+    CHECK_FALSE(B.team_channel_key_present());
+
+    RxMeta from40{ 12.0f, -70.0f, 0, static_cast<int8_t>(40) };
+    std::array<uint8_t, 16> rb{};
+    halB._now = 1000;
+    B.on_recv(rb.data(), mk_unicast_rts(40, /*next=*/50, /*dst=*/50, 5, rts_plen(fl), rb, /*addr_len=*/1, /*mobile_src=*/true), from40);
+    CHECK(halB.count("cts_tx") == 1);
+    halB._now = 2000; B.on_recv(frame, fl, from40);
+    B.on_timer(kPostAckTimerId);
+
+    CHECK(B.team_channel_key_present());                              // ★ the team-plane grant lands
+    if (B.team_channel_key_present())
+        CHECK(std::memcmp(B.team_channel_priv(), A.team_channel_priv(), 32) == 0);
+    Push kp{}; CHECK(find_push(drain_all(B), PushKind::team_key_received, kp));
+    CHECK(kp.body_len == 0);                                          // no name given -> the JSON omits it
+    CHECK(halB.count("delivered") == 0);
+}
+
+TEST_CASE("§T-K3 WIRE — a PLAINTEXT TYPE-19 is DROPPED, never adopted and never delivered as a DM") {
+    // Requirement 1's receive half: a grant that arrived unsealed is a bug or an attack. It must not install a key
+    // (an attacker would then own the team's content plane) and must not fall through to the inbox (37 raw key bytes).
+    uint8_t sa[32], sb[32]; for (int i = 0; i < 32; ++i) { sa[i] = uint8_t(i + 5); sb[i] = uint8_t(80 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, sa); identity_from_seed(idB, sb);
+    const TkPair evil = mk_pair(0x55);
+    uint8_t body[80]; const uint8_t bn = mk_grant_body(0xAAAAAAAAu, "Evil", evil.priv, body);
+
+    uint8_t inner[128];
+    const uint8_t flags = static_cast<uint8_t>(DATA_FLAG_SOURCE_HASH);
+    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner, sizeof inner), flags, /*dst_hash*/ 0,
+                                         nullptr, 0, 0, /*origin*/ 1, /*source_hash*/ idA.key_hash32,
+                                         body, bn, 0, 0);
+    CHECK(il > 0);
+    const uint8_t mac4[4] = { 0, 0, 0, 0 };
+    uint8_t frame[160];
+    data_in din{}; din.addr_len = 0; din.flags = flags; din.type = DATA_TYPE_TEAM_KEY_GRANT;
+    din.next = 2; din.dst = 2; din.hops_remaining = 31; din.ctr = 0x0005;
+    din.inner = std::span<const uint8_t>(inner, il); din.mac = std::span<const uint8_t>(mac4, 4);
+    const size_t fl = pack_data(din, std::span<uint8_t>(frame, sizeof frame));
+    CHECK(fl > 0);
+
+    TkHal halB; Node B(halB, 2, idB.key_hash32);
+    NodeConfig cb = basic_cfg(); cb.team_id = 0xAAAAAAAAu; B.on_init(cb);
+    B.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    B.peer_key_set(idA.key_hash32, idA.ed_pub, Node::PeerKeyConf::authoritative);
+    RxMeta from1{ 12.0f, -70.0f, 0, static_cast<int8_t>(1) };
+    std::array<uint8_t, 16> rb{};
+    halB._now = 1000; B.on_recv(rb.data(), mk_unicast_rts(1, 2, 2, 5, rts_plen(fl), rb, 0, false), from1);
+    CHECK(halB.count("cts_tx") == 1);                                 // the frame WAS accepted for us — the drop is the type rule, not addressing
+    halB._now = 2000; B.on_recv(frame, fl, from1);
+    B.on_timer(kPostAckTimerId);
+
+    CHECK_FALSE(B.team_channel_key_present());                        // ★ NOT adopted
+    CHECK(halB.count("team_key_grant_reject") == 1);                  // dropped LOUD
+    CHECK(halB.count("team_key_grant_rx") == 0);
+    CHECK(halB.count("delivered") == 0);                              // ★ and NOT delivered as a DM
+    const std::vector<Push> pushes = drain_all(B);
+    Push pu{}; CHECK_FALSE(find_push(pushes, PushKind::msg_recv, pu));
+    Push kp{}; CHECK_FALSE(find_push(pushes, PushKind::team_key_received, kp));
+}
+
+// ---- the three STRUCTURAL send-side guards -------------------------------------------------------------------
+TEST_CASE("§T-K3 guard — enqueue_data REFUSES a non-CRYPTED TYPE-19 (no cleartext fallback, ever)") {
+    uint8_t sa[32], sb[32]; for (int i = 0; i < 32; ++i) { sa[i] = uint8_t(i + 5); sb[i] = uint8_t(80 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, sa); identity_from_seed(idB, sb);
+    TkHal hal; Node n(hal, 2, idA.key_hash32); arm_granter(n, hal, idA, idB);
+    n.test_suspend_tx_drain(true);
+    uint8_t body[40] = { 1, 2, 3, 4, 0 };
+    // The guard is not reachable through team_key_grant_send (it forces CryptIntent::on), so drive do_send directly —
+    // which is exactly the future caller the guard exists for.
+    CHECK(n.test_do_send_typed(/*dst=*/7, body, sizeof body, CryptIntent::off, /*override_dst_hash=*/0,
+                               /*type=*/DATA_TYPE_TEAM_KEY_GRANT) == 0);
+    CHECK(n.test_tx_queue_n() == 0);                                  // nothing was enqueued
+    const Ev* e = hal.last("team_key_grant_refused");
+    CHECK(e != nullptr); if (e) CHECK(e->reason == "plaintext");
+    Push pu{}; CHECK(find_push(drain_all(n), PushKind::send_failed, pu));
+    CHECK(pu.reason == SendFailReason::unsealable);
+    // ...and the SAME send with CryptIntent::on is admitted, so the guard discriminates rather than blanket-refusing.
+    CHECK(n.test_id_bind_set(7, idB.key_hash32, /*authoritative=*/true));
+    CHECK(n.test_do_send_typed(7, body, sizeof body, CryptIntent::on, /*override_dst_hash=*/idB.key_hash32,
+                               DATA_TYPE_TEAM_KEY_GRANT) != 0);
+    CHECK(n.test_tx_queue_n() == 1);
+}
+
+TEST_CASE("§T-K3 guard — enqueue_cross_layer REFUSES a TYPE-19 outright (an XL grant could only be CLEARTEXT)") {
+    // e2e_seal_inner refuses DATA_FLAG_CROSS_LAYER (v1 same-layer only) and this path hard-sets it, so a type-19
+    // arriving there could only ride in the clear. The sealed XL substitute (SEALED_RELAY) occupies the TYPE byte.
+    uint8_t sa[32], sb[32]; for (int i = 0; i < 32; ++i) { sa[i] = uint8_t(i + 5); sb[i] = uint8_t(80 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, sa); identity_from_seed(idB, sb);
+    TkHal hal; Node n(hal, 2, idA.key_hash32); arm_granter(n, hal, idA, idB);
+    n.test_suspend_tx_drain(true);
+    uint8_t body[40] = { 1, 2, 3, 4, 0 };
+    const uint8_t hops[2] = { 5, 6 };
+    uint16_t ctr = 0;
+    CHECK_FALSE(n.test_enqueue_cross_layer_typed(/*gw_node=*/3, idB.key_hash32, hops, 2, body, sizeof body,
+                                                 &ctr, DATA_TYPE_TEAM_KEY_GRANT));
+    CHECK(n.test_tx_queue_n() == 0);
+    const Ev* e = hal.last("team_key_grant_refused");
+    CHECK(e != nullptr); if (e) CHECK(e->reason == "cross_layer");
+    Push pu{}; CHECK(find_push(drain_all(n), PushKind::send_failed, pu));
+    CHECK(pu.reason == SendFailReason::unsealable);
+    // Control: the identical XL send with type 0 IS built, so the refusal is type-specific, not a broken path.
+    CHECK(n.test_enqueue_cross_layer_typed(3, idB.key_hash32, hops, 2, body, sizeof body, &ctr, /*type=*/0));
+    CHECK(n.test_tx_queue_n() == 1);
 }

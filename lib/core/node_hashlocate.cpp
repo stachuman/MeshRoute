@@ -966,6 +966,31 @@ void Node::on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool auth
 
 // on_command(send) routes here when dst_hash != 0 (the deferred "address by key_hash32"). Returns the DM ctr
 // if sent immediately, else 0 (parked/resolving — the ctr is assigned when the binding arrives).
+//
+// ★★★ §no-auto-reqpubkey — THE ONE PLACE THIS IS WRITTEN DOWN. OWNER-RATIFIED 2026-07-29:
+// *"reqpubkey should NOT be issued automatically."* Referenced from every locate site below rather than repeated
+// (U1); the sites are tagged `§no-auto-reqpubkey`.
+//
+// WHAT IT MEANS. Every hash-locate this function fires passes **want_pubkey = false** — FOUR sites, not the three the
+// dispatch brief listed: :1026 (team-plane park), :1137 (off-grid team park), :1143 (the global park), and :1282
+// (park_reflood_fire — the bounded retry of any of them, which would re-open the hole if it escalated on its own; it
+// was missing from the brief's list). So a CRYPTED send to an UNRESOLVED hash fails loud with `no_pubkey` and does **not**
+// escalate into a WANT_PUBKEY locate. That is DELIBERATE, not an oversight or an unfinished TODO.
+//
+// WHY. Auto-escalating would silently prefer the **on-air TOFU** path over the **MITM-resistant QR ceremony**, for a
+// send the user explicitly marked `-e`. On-air WANT_PUBKEY resolution is NOT MITM-secure (whoever answers first is
+// believed, and the cached key is `authoritative`, indistinguishable downstream from a scanned one); a physical scan
+// IS the trust ceremony. Failing loud keeps that choice with the OPERATOR instead of making it for them invisibly.
+//
+// THE REMEDY IS `reqpubkey <hash>` (or a QR import), and it is MUTUAL: the requester's own pubkey rides across every
+// forward of the query, so ONE call keys both sides. The consoles say so — the `no_pubkey` refusals name the verb.
+//
+// ⚠ WHERE IT BITES HARDEST: §team-ch-key T-K3's `team grantkey` ships a **PRIVATE key**, so it is the single worst
+// place to quietly downgrade to TOFU. Its refusal path (Node::team_key_grant_send, node.cpp) repeats the rule at the
+// site and points the operator at `reqpubkey`.
+//
+// ★ A future slice that "fixes" this annoyance by auto-resolving is REVERSING A RULING, not improving ergonomics.
+// And do not add a config knob to enable auto-resolution — that was ruled out with it.
 uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint32_t reply_to_hash, uint16_t mobile_ctr, Plane plane, uint8_t type, bool suppress_intro) {
     // §S2 INTRO first-contact attach (D1): at ORIGINATION (type==0 = not a pre-built INTRO; reply_to_hash==0 = not a
     // HOME re-originating for its mobile), a PLAINTEXT hash-addressed send rides as DATA_TYPE_INTRO carrying our
@@ -999,7 +1024,7 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
         if (_cfg.team_id != 0 && team_local_id() != 0) {
             park_send(key_hash32, sbody, sblen, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr, /*type=*/itype,
                       /*reflood=*/true, /*reflood_hard=*/false, /*reflood_plane=*/Plane::TEAM);
-            emit_hash_query(key_hash32, /*hard=*/false, /*want_pubkey=*/false, Plane::TEAM);
+            emit_hash_query(key_hash32, /*hard=*/false, /*want_pubkey=*/false, Plane::TEAM);   // §no-auto-reqpubkey (see the header note): want_pubkey stays FALSE, owner-ratified 2026-07-29
             return 0;
         }
         MR_EMIT("team_send_unresolved", EF_I("key_hash32", static_cast<int64_t>(key_hash32)));
@@ -1030,6 +1055,18 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     // (=our hash, stamped by stamp_origin). The HOME re-originating (reply_to_hash!=0) falls through to the resolve+flood below.
 #if MR_FEAT_MOBILE
     if (reply_to_hash == 0 && _cfg.is_mobile && _my_mobile_reg.active) {
+        // §team-ch-key T-K3 (C2): a TEAM KEY GRANT cannot be DELEGATED in v1. Both arms below spend the MOBILE_SEND
+        // wrapper's SINGLE enclosed-type byte — the sealed arm on DATA_TYPE_SEALED_RELAY, the plaintext arm on `itype`
+        // — so a type-19 either loses its TYPE (the home re-originates a plain sealed DM and the recipient files 37
+        // raw private-key bytes as inbox TEXT) or, on the plaintext arm, airs the key in the clear. Neither is
+        // acceptable, and there is no third slot: giving SEALED_RELAY an inner type byte changes an already-landed
+        // frame's body format, which is its own slice. REFUSE loud. team_key_grant_send pre-checks this same shape so
+        // the operator gets a directed message; this is the structural backstop for every other caller.
+        if (itype == DATA_TYPE_TEAM_KEY_GRANT) {
+            MR_EMIT("team_key_grant_refused", EF_I("hash", static_cast<int64_t>(key_hash32)), EF_S("reason", "delegated"));
+            push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);
+            return 0;
+        }
         // §S4 delegated SEALED (fixes the §1b-3 TODAY-broken path): seal the body to the target HERE — only the mobile
         // holds the ECDH pair — and wrap the sealed blob under a PLAINTEXT MOBILE_SEND (enclosed_type=SEALED_RELAY). The
         // home re-originates the type-17 relay WITHOUT re-sealing. CRITICAL: the wrapper is PLAINTEXT (CryptIntent::off);
@@ -1098,13 +1135,13 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     if (reply_to_hash == 0 && _cfg.is_mobile && _cfg.team_id != 0 && !mobile_registered()) {
         park_send(key_hash32, sbody, sblen, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr, /*type=*/itype,
                   /*reflood=*/true, /*reflood_hard=*/false, /*reflood_plane=*/Plane::TEAM);   // §F-SL-1: a quiet-net team flood miss re-tries before giveup
-        emit_hash_query(key_hash32, /*hard=*/false, /*want_pubkey=*/false, Plane::TEAM);
+        emit_hash_query(key_hash32, /*hard=*/false, /*want_pubkey=*/false, Plane::TEAM);   // §no-auto-reqpubkey (see the header note)
         return 0;
     }
 #endif
     park_send(key_hash32, sbody, sblen, flags, crypt, /*reply_to_hash=*/reply_to_hash, /*mobile_ctr=*/mobile_ctr, /*type=*/itype,
               /*reflood=*/true, /*reflood_hard=*/(id >= 0), /*reflood_plane=*/plane);   // §F-SL-1: bounded jittered retry so a re-homed contact re-resolves in a quiet net
-    emit_hash_query(key_hash32, /*hard=*/(id >= 0), /*want_pubkey=*/false, plane);   // Wave 2: GLOBAL flood is NOT team-scoped; AUTO keeps today's behavior
+    emit_hash_query(key_hash32, /*hard=*/(id >= 0), /*want_pubkey=*/false, plane);   // Wave 2: GLOBAL flood is NOT team-scoped; AUTO keeps today's behavior. §no-auto-reqpubkey (see the header note): a CRYPTED send to an unresolved hash fails loud with no_pubkey — it does NOT escalate to WANT_PUBKEY
     return 0;
 }
 
@@ -1243,7 +1280,7 @@ void Node::park_reflood_fire() {
     for (uint8_t i = 0; i < _parked_sends_n; ++i) {
         ParkedSend& p = _parked_sends[i];
         if (!p.reflood || p.reflood_count >= protocol::park_reflood_max_retries || p.reflood_at_ms > now) continue;
-        emit_hash_query(p.key_hash32, p.reflood_hard, /*want_pubkey=*/false, p.reflood_plane);
+        emit_hash_query(p.key_hash32, p.reflood_hard, /*want_pubkey=*/false, p.reflood_plane);   // §no-auto-reqpubkey (send_by_hash's header note): the FOURTH site — a retry must not escalate what the original send deliberately did not
         MR_EMIT("send_hash_reflood", EF_I("key_hash32", static_cast<int64_t>(p.key_hash32)), EF_I("try", p.reflood_count + 1));
         p.reflood_count++;
         // §F-SL-1: DETERMINISTIC per-(hash,node,try) jitter — NOT a rand_range() draw. The re-flood targets a QUIET net,

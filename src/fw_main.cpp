@@ -1039,10 +1039,13 @@ static void mesh_service_once() {
     meshroute::Push pu{};
     while (g_node.next_push(pu)) {
         mr_ui_on_push(pu);   // §featuresplit slice 4: surface the delivery/ACK on the board display (no-op unless MR_FEAT_OLED)
-        // ★ ALL 14 PushKinds are rendered, and this switch is DELIBERATELY `default`-less so -Wswitch fails the build
-        // when a 15th is added (owner ruling 2026-07-26; 6 kinds used to fall through and print NOTHING here, which is
+        // ★ ALL 15 PushKinds are rendered, and this switch is DELIBERATELY `default`-less so -Wswitch fails the build
+        // when a 16th is added (owner ruling 2026-07-26; 6 kinds used to fall through and print NOTHING here, which is
         // BASELINE 25m's enum→string defect class — this file is invisible to the native gate, so the compiler is the
         // only tripwire). Case order tracks the enum declaration order in command.h.
+        // ✔ IT WORKED, again: §team-ch-key T-K3 added the 15th kind (team_key_received) plus the 17th
+        // SendFailReason (unsealable), and BOTH switches here failed the ESP32 build while `pio test -e native` was
+        // green — fw_main.cpp is outside the native build, so these two `default`-less switches are the ONLY detector.
         switch (pu.kind) {
             case meshroute::PushKind::msg_recv:
                 mrcon.print(F("RECV from="));   mrcon.print(pu.origin); mrcon.print(F(": "));
@@ -1073,6 +1076,7 @@ static void mesh_service_once() {
                     case meshroute::SendFailReason::e2e_ack_timeout:     mrcon.print(F(" (no end-to-end ack in time — delivery UNCONFIRMED, a late ack still resolves)")); break;
                     case meshroute::SendFailReason::queue_full:          mrcon.print(F(" (defer queue full — retry shortly)")); break;
                     case meshroute::SendFailReason::reprovisioned:       mrcon.print(F(" (node reprovisioned — send discarded; the old network's ids are void, re-address before resending)")); break;
+                    case meshroute::SendFailReason::unsealable:          mrcon.print(F(" (this type may travel ONLY sealed, and this route cannot carry it sealed-and-typed — grant over the team plane `-t`, or from a node on the target's own layer)")); break;   // §team-ch-key T-K3
                     case meshroute::SendFailReason::none:                break;   // not a send_failed reason
                 }
                 mrcon.println(); break;
@@ -1153,6 +1157,11 @@ static void mesh_service_once() {
                 mrcon.print(F("ADOPTED id=")); mrcon.print(pu.dst);
                 mrcon.print(F(" layer=")); mrcon.print(pu.layer_id);
                 mrcon.print(F(" epoch=")); mrcon.println(pu.ctr); break;
+            case meshroute::PushKind::team_key_received:   // §team-ch-key T-K3: a teammate GRANTED us the team CONTENT key (already adopted)
+                mrcon.print(F("TEAM KEY RECEIVED team=0x")); mrcon.print(pu.team_id, HEX);
+                mrcon.print(F(" from=0x")); mrcon.print(pu.sender_hash, HEX);
+                if (pu.body_len) { mrcon.print(F(" name=")); mrcon.write(pu.body, pu.body_len); }   // the granter's optional label (NOT persisted)
+                mrcon.println(F(" — this node can now read the team channel")); break;   // ⚠ the KEY itself is never printed; `team exportkey` is its one disclosure
         }
         // BLE companion: the structured NDJSON twin of the plain-text line above (design doc §4). The ring is
         // drained ONCE here and fanned to both sinks — formatting + TX happen only when a phone is connected,

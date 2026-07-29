@@ -171,7 +171,18 @@ size_t write_team_key_export(char* buf, size_t cap, uint32_t team_id, const uint
 // (src/firmware_config.cpp), in one line: this file emits ZERO JSON `null` literals — every optional field is
 // omit-when-absent — and a success envelope whose key fields are null is a success event reporting a failure (C2).
 // reason: "no_team" (team_id == 0) | "no_key" (no keypair held, incl. every MR_FEAT_TEAM 0 build).
+// §team-ch-key (T-K3) REUSES this ONE error event for every `team grantkey` refusal (U1 — no second err shape for the
+// same verb family). Its reasons: "no_team" · "no_key" · "no_identity" · "no_pubkey" · "self" · "delegated" ·
+// "too_large" · "bad_target". Two of them overlap `exportkey`'s by design: both verbs answer the same two questions.
 size_t write_team_key_err   (char* buf, size_t cap, const char* reason);
+// §team-ch-key (T-K3): `team grantkey <0xhash> [name="…"]` ACCEPTED — the sealed TYPE-19 grant is on its way. A
+// DISTINCT success event (never `team_key_err` with a happy reason), carrying the correlation handle the app needs:
+//   `hash` = the target's key_hash32 (decimal u32, matching team_key_export's convention and peer_name's `hash`)
+//   `ctr`  = the DM ctr, or 0 when the send PARKED behind a hash resolve — the ordinary send-by-hash semantics
+//   `parked` = true iff ctr == 0, stated explicitly so the app never has to infer intent from a magic 0
+// ⚠ It carries NO key material and no team_name echo: the grant's confidentiality is the whole point of the feature,
+// and `team exportkey` remains the ONE verb that discloses the pair.
+size_t write_team_key_grant (char* buf, size_t cap, uint32_t target_hash, uint16_t ctr);
 
 // §S3: `mobile status` + `mobile gateways` JSON (PODs in; src/ calls these from handle_mobile — no node.h dep here).
 struct MobileStatusFields {

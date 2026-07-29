@@ -347,6 +347,48 @@ TEST_CASE("write_team_key_export / write_team_key_err — §team-ch-key T-K1b") 
     CHECK(std::string(b, n).find("null") == std::string::npos);
 }
 
+// ================= §team-ch-key (T-K3) — the `team grantkey` answers + the granted-key push =====================
+TEST_CASE("write_team_key_grant / write_team_key_err — §team-ch-key T-K3 (the console's grant answers)") {
+    char b[256];
+    // ACCEPTED, airborne: ctr != 0 -> parked:false.
+    size_t n = write_team_key_grant(b, sizeof b, 0xdeadbeefu, /*ctr=*/1234);
+    CHECK(std::string(b, n) == "{\"ev\":\"team_key_grant\",\"hash\":3735928559,\"ctr\":1234,\"parked\":false}\n");
+    // ACCEPTED but PARKED behind a hash resolve: ctr == 0, and `parked` says so EXPLICITLY rather than leaving the
+    // app to read intent out of a sentinel 0.
+    n = write_team_key_grant(b, sizeof b, 0x1u, /*ctr=*/0);
+    CHECK(std::string(b, n) == "{\"ev\":\"team_key_grant\",\"hash\":1,\"ctr\":0,\"parked\":true}\n");
+    // ★ The success event carries NO key material and no name echo — the grant's confidentiality is the feature.
+    CHECK(std::string(b, n).find("tkpriv") == std::string::npos);
+    CHECK(std::string(b, n).find("tkpub")  == std::string::npos);
+    // Every T-K3 refusal reuses T-K1b's ONE error event (U1) with a DISTINCT reason the app matches on.
+    for (const char* r : { "no_team", "no_key", "no_identity", "no_pubkey", "self", "delegated", "too_large", "bad_target" }) {
+        n = write_team_key_err(b, sizeof b, r);
+        CHECK(std::string(b, n) == std::string("{\"ev\":\"team_key_err\",\"reason\":\"") + r + "\"}\n");
+        CHECK(std::string(b, n).find("null") == std::string::npos);
+    }
+}
+
+TEST_CASE("write_push team_key_received — §team-ch-key T-K3 (the granted-key notification the app renders)") {
+    char b[256];
+    Push p{}; p.kind = PushKind::team_key_received;
+    p.team_id = 0xcccc0001u; p.sender_hash = 0xa1b2c3d4u; p.origin = 213;
+    const char* nm = "Alpha Team";
+    p.body_len = 10; std::memcpy(p.body, nm, 10);
+    size_t n = write_push(b, sizeof b, p);
+    std::string s(b, n);
+    // `team` is the hex8 spelling team_reg already uses; `hash` matches peer_key_cached; `name` is omit-when-absent.
+    CHECK(s == "{\"ev\":\"team_key_received\",\"team\":\"cccc0001\",\"hash\":2712847316,\"origin\":213,\"name\":\"Alpha Team\"}\n");
+    // No name given -> the key is OMITTED entirely (this surface emits no JSON nulls).
+    Push q{}; q.kind = PushKind::team_key_received; q.team_id = 0x11u; q.sender_hash = 7; q.origin = 1;
+    n = write_push(b, sizeof b, q);
+    CHECK(std::string(b, n) == "{\"ev\":\"team_key_received\",\"team\":\"00000011\",\"hash\":7,\"origin\":1}\n");
+    CHECK(std::string(b, n).find("null") == std::string::npos);
+    // ★★ THE DISCLOSURE FENCE, the same one `ready` carries: this push is UNSOLICITED, so it must never carry the
+    // pair it is announcing. `team exportkey` stays the ONE disclosure verb.
+    CHECK(std::string(b, n).find("tkpriv") == std::string::npos);
+    CHECK(std::string(b, n).find("tkpub")  == std::string::npos);
+}
+
 // ★★ §team-ch-key (T-K1b) THE HARD CONSTRAINT: `ready` carries the LOCK-STATE BOOLEAN and NOTHING ELSE. ready is
 // unsolicited and fires on every connect; the private key is disclosed ONLY by the explicit `team exportkey` verb.
 TEST_CASE("write_ready — §team-ch-key T-K1b: team_ch_key boolean, and NEVER the key itself") {
@@ -600,7 +642,7 @@ static unsigned ord(PushKind k) {
         case PushKind::send_failed:    case PushKind::send_e2e_acked: case PushKind::hash_resolved:
         case PushKind::peer_key_cached:case PushKind::config_adopted: case PushKind::join_refused:
         case PushKind::send_blocked:   case PushKind::channel_sent:   case PushKind::mobile_reg:
-        case PushKind::team_reg:       case PushKind::join_adopted:
+        case PushKind::team_reg:       case PushKind::join_adopted:   case PushKind::team_key_received:
             return static_cast<unsigned>(k);
     }
     return kUnlisted;
@@ -612,7 +654,7 @@ static unsigned ord(SendFailReason r) {
         case SendFailReason::joining:        case SendFailReason::cap:            case SendFailReason::min_interval:
         case SendFailReason::no_cts:         case SendFailReason::no_ack:         case SendFailReason::mobile_no_home:
         case SendFailReason::gateway_unreachable: case SendFailReason::e2e_ack_timeout:
-        case SendFailReason::queue_full:     case SendFailReason::reprovisioned:
+        case SendFailReason::queue_full:     case SendFailReason::reprovisioned:  case SendFailReason::unsealable:
             return static_cast<unsigned>(r);
     }
     return kUnlisted;
@@ -656,9 +698,9 @@ static void check_mapper_covers_every_enumerator(const char* enum_name, const ch
 
 TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallback at the app boundary") {
     check_mapper_covers_every_enumerator<CmdCode>("CmdCode", cmdcode_name, "err_unknown", 10);
-    check_mapper_covers_every_enumerator<PushKind>("PushKind", pushkind_name, "unknown", 14);
-    check_mapper_covers_every_enumerator<SendFailReason>("SendFailReason", sendfailreason_name, "none", 16,
-                                                         /*exempt_ord=*/0);   // SendFailReason::none == "none"  (15 -> 16: §clean-join-carriers `reprovisioned`)
+    check_mapper_covers_every_enumerator<PushKind>("PushKind", pushkind_name, "unknown", 15);   // 14 -> 15: §team-ch-key T-K3 `team_key_received`
+    check_mapper_covers_every_enumerator<SendFailReason>("SendFailReason", sendfailreason_name, "none", 17,
+                                                         /*exempt_ord=*/0);   // SendFailReason::none == "none"  (15 -> 16: §clean-join-carriers `reprovisioned`; 16 -> 17: §team-ch-key T-K3 `unsealable`)
     check_mapper_covers_every_enumerator<JoinRefuseReason>("JoinRefuseReason", joinrefusereason_name, "none", 4);
     // The one exemption is EXACT, not a licence for a hole: `none` must render precisely "none".
     CHECK(std::strcmp(sendfailreason_name(SendFailReason::none), "none") == 0);
@@ -671,6 +713,8 @@ TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallbac
     CHECK(std::strcmp(sendfailreason_name(SendFailReason::e2e_ack_timeout), "e2e_ack_timeout") == 0);  // command.h documented it all along
     CHECK(std::strcmp(sendfailreason_name(SendFailReason::queue_full), "queue_full") == 0);            // NEW (defer queue full)
     CHECK(std::strcmp(sendfailreason_name(SendFailReason::reprovisioned), "reprovisioned") == 0);      // §clean-join-carriers: a join/create/leave discarded a staged/in-flight DM
+    CHECK(std::strcmp(sendfailreason_name(SendFailReason::unsealable), "unsealable") == 0);            // §team-ch-key T-K3: a sealed-only TYPE on a transport that cannot carry it sealed-AND-typed
+    CHECK(std::strcmp(pushkind_name(PushKind::team_key_received), "team_key_received") == 0);          // §team-ch-key T-K3: the granted-key notification
     CHECK(std::strcmp(cmdcode_name(CmdCode::err_ack_ring_full), "err_ack_ring_full") == 0);            // enumerator-name convention
 }
 

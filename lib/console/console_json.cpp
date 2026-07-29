@@ -130,6 +130,7 @@ const char* pushkind_name(PushKind k) {
         case PushKind::mobile_reg:    return "mobile_reg";         // §S2: mobile registration change (registered/home-lost)
         case PushKind::team_reg:      return "team_reg";           // §S2: team-DAD id adopted/re-picked
         case PushKind::join_adopted:  return "join_adopted";       // a DAD/join adopt landed (id may have changed)
+        case PushKind::team_key_received: return "team_key_received";   // §team-ch-key T-K3: a teammate granted us the team CONTENT key over a sealed TYPE-19 DM (already adopted)
     }
     return "unknown";
 }
@@ -151,6 +152,7 @@ const char* sendfailreason_name(SendFailReason r) {
         case SendFailReason::e2e_ack_timeout:      return "e2e_ack_timeout";     // §ack-deadline: a -a DM's e2e ack never returned inside the patience budget (delivery UNCONFIRMED, not failed)
         case SendFailReason::queue_full:           return "queue_full";          // §defer: the no-route defer queue was full -> the NEW send was refused (node_cascade.cpp defer_send)
         case SendFailReason::reprovisioned:        return "reprovisioned";       // §clean-join-carriers: a join/create/leave (or prep-restart) discarded this staged/in-flight DM — RE-ADDRESS before resending (the dst id belongs to the OLD network)
+        case SendFailReason::unsealable:           return "unsealable";          // §team-ch-key T-K3: a sealed-only TYPE (the team key grant) on a transport that cannot carry it sealed-AND-typed (cross-layer / delegated) — PERMANENT for this route, grant from the target's own layer or over the team plane
         case SendFailReason::none:        return "none";
     }
     return "none";
@@ -283,6 +285,13 @@ size_t write_push(char* buf, size_t cap, const Push& p, const NodeConfig* cfg) {
     } else if (p.kind == PushKind::team_reg) {     // §S2: team-DAD id adopted/re-picked
         j.lit(",\"team\":");  key_hex32(j, p.team_id);
         j.lit(",\"local\":"); j.u32(p.dst);
+    } else if (p.kind == PushKind::team_key_received) {   // §team-ch-key T-K3: the team CONTENT key arrived by sealed grant (ALREADY adopted — the app just relabels its lock state)
+        j.lit(",\"team\":");   key_hex32(j, p.team_id);   // the granted team id, hex8 — SAME spelling as team_reg above (U3)
+        j.lit(",\"hash\":");   j.u32(p.sender_hash);      // the GRANTER's stable key_hash32 (the sealed-sender identity), same field name as peer_key_cached
+        j.lit(",\"origin\":"); j.u32(p.origin);           // the granter's node id on the receiving plane (diagnostic; `hash` is the durable identity)
+        if (body_n) { j.lit(",\"name\":"); j.str(reinterpret_cast<const char*>(p.body), body_n); }   // the granter's optional team label — OMIT-when-absent (this surface emits no JSON nulls) and NOT persisted on the node
+        // ⚠ THE KEY ITSELF IS NOT HERE AND MUST NEVER BE. This push is unsolicited; `team exportkey` is the ONE
+        // disclosure verb (T-K1b), and `team_ch_key` on ready/cfg is the boolean the app's indicator reads.
     } else if (p.kind == PushKind::join_adopted) {  // a DAD/join adopt landed -> the app refreshes ready.id (staleness fix)
         j.lit(",\"id\":");    j.u32(p.dst);         // the adopted node_id
         j.lit(",\"layer\":"); j.u32(p.layer_id);    // _cfg.leaf_id (the wire leaf nibble)
@@ -617,6 +626,16 @@ size_t write_team_key_export(char* buf, size_t cap, uint32_t team_id, const uint
 size_t write_team_key_err(char* buf, size_t cap, const char* reason) {
     JsonBuf j(buf, cap);
     j.lit("{\"ev\":\"team_key_err\",\"reason\":\""); j.lit(reason); j.ch('"'); j.ch('}');
+    return j.finish();
+}
+// §team-ch-key (T-K3): the `team grantkey` ACCEPTED answer. See console_json.h for the field contract; `parked` is
+// stated rather than left implicit in `ctr == 0` so the app never has to infer a state from a sentinel.
+size_t write_team_key_grant(char* buf, size_t cap, uint32_t target_hash, uint16_t ctr) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"team_key_grant\",\"hash\":"); j.u32(target_hash);
+    j.lit(",\"ctr\":");    j.u32(ctr);
+    j.lit(",\"parked\":"); j.lit(ctr ? "false" : "true");
+    j.ch('}');
     return j.finish();
 }
 // §S6: `nameof` answer — decimal-u32 hash + the cached name (omitted when unknown, same rule as peer_key_cached).

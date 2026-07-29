@@ -269,3 +269,94 @@ TEST_CASE("split_team_key_tail — C2 refusals: half a pair, bad hex, an over-lo
     CHECK(mrfw::split_team_key_tail(in.c_str(), scratch, sizeof scratch, rest, sizeof rest,
                                    pub, priv, bad) == mrfw::TeamKeyTail::ok);
 }
+
+// ================= §team-ch-key (T-K3) — `team grantkey` argument grammar =====================================
+// The console verb has NO other detector: no scenario runs a console verb and src/firmware_config.cpp is outside the
+// sim build, so this suite is the whole coverage of the target/name/flag grammar (the T-K1/T-K1b lesson).
+TEST_CASE("§T-K3 parse_grant_args — the 0x-hex target, the bare team-id target, and the implied TEAM plane") {
+    char scratch[128];
+    mrfw::GrantArgsOut o; const char* bad = nullptr;
+
+    CHECK(mrfw::parse_grant_args(" 0xdeadbeef", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::ok);
+    CHECK(o.target_hash == 0xdeadbeefu);
+    CHECK(o.target_id == 0);
+    CHECK(o.name_len == 0);
+    CHECK_FALSE(o.team_plane);                                   // a hash target defaults to AUTO, like `send`
+
+    CHECK(mrfw::parse_grant_args("0XDEADBEEF", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::ok);
+    CHECK(o.target_hash == 0xdeadbeefu);                         // case-insensitive, `0X` accepted
+    CHECK(mrfw::parse_grant_args("0x1", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::ok);
+    CHECK(o.target_hash == 1u);                                  // 1..8 digits, not exactly 8
+
+    // A bare decimal 1..254 = a teammate's team_local_id, and it IMPLIES the team plane (reqpubkey's convention).
+    CHECK(mrfw::parse_grant_args("213", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::ok);
+    CHECK(o.target_id == 213);
+    CHECK(o.target_hash == 0);
+    CHECK(o.team_plane);
+    CHECK(mrfw::parse_grant_args("254", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::ok);
+    CHECK(o.target_id == 254);
+}
+
+TEST_CASE("§T-K3 parse_grant_args — name= (quoted, spaces, 32-cap) and the -t flag in either position") {
+    char scratch[128];
+    mrfw::GrantArgsOut o; const char* bad = nullptr;
+
+    CHECK(mrfw::parse_grant_args("0xabcd name=Alpha", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::ok);
+    CHECK(std::string(o.name) == "Alpha");
+    CHECK(o.name_len == 5);
+
+    CHECK(mrfw::parse_grant_args("0xabcd name=\"Alpha Team 7\"", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::ok);
+    CHECK(std::string(o.name) == "Alpha Team 7");                // kv_next's quoting -> spaces survive
+    CHECK(o.name_len == 12);
+
+    CHECK(mrfw::parse_grant_args("0xabcd -t", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::ok);
+    CHECK(o.team_plane);
+    CHECK(mrfw::parse_grant_args("0xabcd -t name=X", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::ok);
+    CHECK(o.team_plane); CHECK(std::string(o.name) == "X");      // order-free
+    CHECK(mrfw::parse_grant_args("0xabcd name=X -t", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::ok);
+    CHECK(o.team_plane); CHECK(std::string(o.name) == "X");
+
+    // Exactly 32 is accepted; 33 REFUSES (C2 — an operator label must never be silently truncated).
+    const std::string n32(32, 'z');
+    CHECK(mrfw::parse_grant_args(("0xabcd name=" + n32).c_str(), scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::ok);
+    CHECK(o.name_len == 32);
+    const std::string n33(33, 'z');
+    CHECK(mrfw::parse_grant_args(("0xabcd name=" + n33).c_str(), scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::too_long);
+    // Duplicate name= is LAST-WINS, matching split_team_key_tail and the rest of this grammar.
+    CHECK(mrfw::parse_grant_args("0xabcd name=one name=two", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::ok);
+    CHECK(std::string(o.name) == "two");
+}
+
+TEST_CASE("§T-K3 parse_grant_args — C2 refusals: missing, bad target, unknown key, over-long tail") {
+    char scratch[128];
+    mrfw::GrantArgsOut o; const char* bad = nullptr;
+
+    CHECK(mrfw::parse_grant_args("", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::missing);
+    CHECK(mrfw::parse_grant_args("   ", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::missing);
+
+    CHECK(mrfw::parse_grant_args("deadbeef", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::bad_target);   // hash needs 0x
+    CHECK(mrfw::parse_grant_args("0x", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::bad_target);         // no digits
+    CHECK(mrfw::parse_grant_args("0xdeadbeef1", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::bad_target); // 9 digits
+    CHECK(mrfw::parse_grant_args("0xzz", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::bad_target);
+    CHECK(mrfw::parse_grant_args("0x00000000", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::bad_target);  // hash 0 = unset
+    CHECK(mrfw::parse_grant_args("0", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::bad_target);           // team id 0 = unset
+    CHECK(mrfw::parse_grant_args("255", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::bad_target);         // 0xFF reserved
+    CHECK(mrfw::parse_grant_args("300", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::bad_target);
+    CHECK(mrfw::parse_grant_args("12a", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::bad_target);
+
+    CHECK(mrfw::parse_grant_args("0xabcd freq=869.0", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::bad_key);
+    CHECK(bad != nullptr); if (bad) CHECK(std::string(bad) == "freq");
+    CHECK(mrfw::parse_grant_args("0xabcd name", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::bad_key);   // valueless name=
+    CHECK(mrfw::parse_grant_args("0xabcd -q", scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::bad_key);
+    CHECK(bad != nullptr); if (bad) CHECK(std::string(bad) == "-q");
+
+    char tiny[8];
+    CHECK(mrfw::parse_grant_args("0xabcd name=abcdefghijklmnop", tiny, sizeof tiny, o, bad) == mrfw::GrantArgs::too_long);
+
+    // The realistic worst case (hash + a 32-char quoted name + -t) MUST fit the 128-byte firmware scratch.
+    const std::string worst = std::string("0xdeadbeef name=\"") + std::string(32, 'x') + "\" -t";
+    CHECK(worst.size() < 128);
+    CHECK(mrfw::parse_grant_args(worst.c_str(), scratch, sizeof scratch, o, bad) == mrfw::GrantArgs::ok);
+    CHECK(o.name_len == 32);
+    CHECK(o.team_plane);
+}
