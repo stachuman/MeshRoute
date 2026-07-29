@@ -76,6 +76,16 @@ cd /home/staszek/MeshRoute && PLATFORMIO_BUILD_DIR=<scratch>/piobuild-after pio 
    tail padding and MOVES `sizeof(Node)`. **Non-owning free-function templates over the existing members**
    (`Entry (&ring)[Cap]`, `uint8_t& n`) keep layout identical *by construction*. Prefer that shape.
 4. **Boards: THREE ENVS, with a BEFORE/AFTER RAM+Flash table.**
+   - ★★★ **THREE IS THE DEFAULT AND THE FLOOR. Re-confirmed by the owner 2026-07-29: *"make sure agent limits
+     build check to 3 boards."* If you are building more than three, you must be able to point at a MEASUREMENT
+     that forced it — not at a sentence in your brief.**
+     ⚠ **A BRIEF CANNOT PRE-AUTHORISE THE ESCALATION, and QA must not write one that does.** On T5 the brief
+     said *"`sizeof(Node)` WILL MOVE. This is the D2 slice"* and told the coder to build six — **`sizeof` did
+     not move** (the fields fit in existing padding), so six envs were built for nothing. **The escalation is
+     the CODER's decision, taken after the compile-only measurement below, never a grant made in advance.**
+     ⇒ **The sequence is fixed:** (1) build the three; (2) measure `sizeof` per target with a **compile-only**
+     probe; (3) **only if it actually moved**, add the other three. If a brief tells you to start at six,
+     **push back and measure first** — that is a correct refusal, and it has been the right call twice.
    - ★★ **OWNER RULING 2026-07-28 — build only `gateway`, `xiao_sx1262`, `xiao_esp32s3`, not all ten.**
      Explicitly *"that will speed up our work"*. The three were chosen to keep the axes that actually catch
      things: **`gateway`** is a `MR_FEAT_TEAM 0` / feature-stripped build (the `#else`-arm and inertness
