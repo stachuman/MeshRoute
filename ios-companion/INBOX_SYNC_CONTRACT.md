@@ -282,6 +282,23 @@ reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "
   divergence (`origin` = configured, `dst` = offered; ADVISORY, the mobile still adopts). `leaf_full` now also
   fires from a full TEAM-DAD pool (same reason value, team source). All rate-limited on the shared 60 s window.
 - `peer_key_cached` lets the app prompt "secure send ready — resend" after a request resolves (or QR import).
+
+> ### ★ RULING 2026-07-29 — `no_pubkey` is NEVER resolved automatically, and that is deliberate
+> A CRYPTED send to a hash whose key we do not hold **fails loud** and does **not** escalate to an on-air
+> `WANT_PUBKEY` locate. Verified in firmware: **every** send-by-hash locate passes `want_pubkey = false`
+> (`node_hashlocate.cpp` — three sites), so the `AUTHORITATIVE_H_ANSWER` carries only the hash→id binding and
+> the seal then refuses at `e2e_seal_inner`.
+> **Why, and why the app must not paper over it:** auto-escalating would silently prefer the **on-air TOFU**
+> path over the **MITM-resistant QR ceremony** — for a message the user explicitly marked `-e`. This document
+> already states that on-air `WANT_PUBKEY` resolution is *not* MITM-secure while a physical scan **is** the
+> trust ceremony; resolving automatically would make that trade on the user's behalf, invisibly.
+> ⇒ **The app surfaces the choice; it must not issue `reqpubkey` silently on a `no_pubkey` push.** Offer
+> **Request key** (on-air, TOFU — label it as such) *and* **Scan QR** (out-of-band, stronger), and let the user
+> pick. ★ `reqpubkey` is **mutual** — the requester's own pubkey rides across every forward — so one call keys
+> both ends; there is no need to ask the peer to run it too.
+> ⚠ This applies with most force to **`team grantkey`**, whose payload is a **private key**: it is the worst
+> possible place to downgrade to TOFU without the operator knowing. Its refusal names `reqpubkey <hash>` as the
+> remedy rather than performing it.
 - **Mutual source (Slice 2):** you ALSO get `peer_key_cached` for the **requester's** hash when you ANSWER a
   contact's `reqpubkey` — you cached *their* key during the handshake, so you can now securely reply to them
   (no separate request needed). Same event/shape; the `hash` is the contact who just reached out.
