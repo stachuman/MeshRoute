@@ -311,6 +311,13 @@ size_t write_err(char* buf, size_t cap, const char* code, const char* msg) {
 static void key_hex32(JsonBuf& j, uint32_t key) {
     char t[16]; std::snprintf(t, sizeof t, "\"%08x\"", key); j.lit(t);
 }
+// 32 raw key bytes -> 64 LOWER-CASE hex digits, UNQUOTED (the caller owns the quotes). ONE definition for every
+// 32-byte key blob on this surface (U1): ready's `pubkey` and team_key_export's `tkpub`/`tkpriv`. Lower-case + no
+// `0x` is load-bearing, not cosmetic — it is exactly what mrfw::parse_hex32 accepts back (§team-ch-key T-K1b).
+static void hex32_digits(JsonBuf& j, const uint8_t* p) {
+    static const char H[] = "0123456789abcdef";
+    for (int i = 0; i < 32; ++i) { j.ch(H[p[i] >> 4]); j.ch(H[p[i] & 0xF]); }
+}
 // Dual-layer gateway: ADDITIVE per-leaf array (companion cfg/ready/status). Emitted ONLY when n_layers==2, so a
 // single-layer node's JSON is byte-identical to before. One object per leaf (node_id/layer_id/routing_sf + the
 // possibly-derived window_ms/offset of the ACTIVE config — on_init has already filled the derived split).
@@ -339,9 +346,7 @@ size_t write_ready(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeCo
     j.lit("{\"ev\":\"ready\",\"id\":"); j.u32(id);
     j.lit(",\"key\":"); key_hex32(j, key);
     if (ed_pub) {                                                          // §4: the full pubkey (64 hex) for the QR `p` — key_hash32 alone can't seal
-        j.lit(",\"pubkey\":\"");
-        for (int i = 0; i < 32; ++i) { const char* H = "0123456789abcdef"; j.ch(H[ed_pub[i] >> 4]); j.ch(H[ed_pub[i] & 0xF]); }
-        j.ch('"');
+        j.lit(",\"pubkey\":\""); hex32_digits(j, ed_pub); j.ch('"');        // T-K1b: the inline loop became the shared hex32_digits (U1) — byte-identical, pinned by this file's existing `pubkey` test
     }
     if (name && name_len) { j.lit(",\"name\":"); j.str(name, name_len); }   // §1.3 app-level identity label
     j.lit(",\"leaf_id\":"); j.u32(c.leaf_id);
@@ -369,6 +374,15 @@ size_t write_ready(char* buf, size_t cap, uint8_t id, uint32_t key, const NodeCo
     if (mob.hosting)    { j.lit(",\"hosting\":"); j.u32(mob.hosting); }        // static host: mobiles registered to us
     if (mob.team_id)    { j.lit(",\"team\":"); key_hex32(j, mob.team_id); }    // key_hex32 style (hex string, like key)
     if (mob.team_local) { j.lit(",\"team_local\":"); j.u32(mob.team_local); }  // our OWN id on the team overlay
+    // §team-ch-key (T-K1b): the CONTENT-key LOCK STATE — the field the app's per-team indicator reads, so it never
+    // calls `team exportkey` merely to test for presence. Gated on team_id (the same condition as `team` above), so a
+    // static/teamless node's ready stays byte-identical; EXPLICIT true/false inside the block, so "absent" is never
+    // ambiguous with "false" for a node that IS in a team.
+    // ★★ THE KEY ITSELF MUST NEVER APPEAR HERE. `ready` is UNSOLICITED and fires on every connect; team_ch_priv is
+    // disclosed ONLY in answer to the explicit `team exportkey` verb. The `pubkey` field above is the precedent for a
+    // PUBLIC key and is deliberately NOT the model. Pinned by a test that asserts ready carries no tkpub/tkpriv/key
+    // bytes — a boolean is the entire budget of this line.
+    if (mob.team_id) { j.lit(",\"team_ch_key\":"); j.lit(mob.team_ch_key ? "true" : "false"); }
     write_layers_array(j, c);                         // dual-layer gateway: additive "layers":[...] (omitted when n_layers==1)
     j.ch('}');
     return j.finish();
@@ -529,6 +543,7 @@ size_t write_cfg(char* buf, size_t cap, const NodeConfig& c, const CfgExtras& x)
     j.lit(",\"mobile\":");     j.lit(c.is_mobile ? "true" : "false");
     j.lit(",\"mobile_autoregister\":"); j.lit(c.mobile_autoregister ? "true" : "false");   // §S1: always present (cfg is the explicit dump) — round-trips `cfg set mobile_autoregister`
     j.lit(",\"team_id\":");    key_hex32(j, c.team_id);   // §S1: hex string; "00000000" when unset (explicit, unlike ready's omit)
+    j.lit(",\"team_ch_key\":"); j.lit(x.team_ch_key ? "true" : "false");   // §team-ch-key (T-K1b): the CONTENT-key lock state — the JSON twin of dump_cfg's `team_ch_key=0|1`. ALWAYS present (cfg is the explicit dump, like team_id above). BOOLEAN ONLY — the pair is a secret; `team exportkey` is its one disclosure.
     j.lit(",\"ble_mode\":");   j.str(x.ble_mode, std::strlen(x.ble_mode));
     j.lit(",\"ble_period\":"); j.u32(x.ble_period);
     j.lit(",\"ble_pin\":");    j.u32(x.ble_pin);
@@ -584,6 +599,24 @@ size_t write_mobile_gw_end(char* buf, size_t cap, uint8_t gws, uint8_t nets) {
     j.lit("{\"ev\":\"mobile_gw_end\",\"gws\":"); j.u32(gws);
     j.lit(",\"nets\":"); j.u32(nets);
     j.ch('}');
+    return j.finish();
+}
+// §team-ch-key (T-K1b): `team exportkey` — the ONE disclosure of the team CONTENT keypair (contract "node → app:
+// export the team channel keypair"). See console_json.h for the clamped-verbatim + lower-case-hex contract; the
+// keyless answer is write_team_key_err below, never this event with null fields.
+size_t write_team_key_export(char* buf, size_t cap, uint32_t team_id, const uint8_t pub[32], const uint8_t priv[32]) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"team_key_export\",\"team_id\":"); j.u32(team_id);   // DECIMAL u32 (the contract's own example) — NOT key_hex32
+    j.lit(",\"tkpub\":\"");  hex32_digits(j, pub);  j.ch('"');
+    j.lit(",\"tkpriv\":\""); hex32_digits(j, priv); j.ch('"');
+    j.ch('}');
+    return j.finish();
+}
+// The refused answer (mobile_err's shape verbatim — U3): "no_team" | "no_key". A DISTINCT `ev` so a null-blind
+// consumer can never mistake a refusal for a payload and write `null`/32 zero bytes into a team QR.
+size_t write_team_key_err(char* buf, size_t cap, const char* reason) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"team_key_err\",\"reason\":\""); j.lit(reason); j.ch('"'); j.ch('}');
     return j.finish();
 }
 // §S6: `nameof` answer — decimal-u32 hash + the cached name (omitted when unknown, same rule as peer_key_cached).

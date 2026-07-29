@@ -519,6 +519,7 @@ static void dump_help(Print& out) {
     hl(F("  team new                   mint a team (become its creator) — ALWAYS also mints its X25519 channel key"));
     hl(F("  team <id> | team 0         join an existing team / leave (a join mints NO key — receive it by grant or QR)"));
     hl(F("    [tkpub=<64 hex> tkpriv=<64 hex>]   adopt an EXISTING team channel keypair instead of minting (QR onboarding)"));
+    hl(F("  team exportkey             print this team's channel keypair as JSON (the app's team QR) — \xe2\x9a\xa0 discloses a PRIVATE key"));
 #endif
     hl(F(""));
     hl(F("INBOX"));
@@ -771,6 +772,7 @@ meshroute::console::CfgExtras make_cfg_extras() {
     x.ble_pin    = g_ble_pin;
     x.lat_e7     = g_lat_e7;
     x.lon_e7     = g_lon_e7;
+    x.team_ch_key = g_node.team_channel_key_present();   // §team-ch-key (T-K1b): the JSON twin of dump_cfg's `team_ch_key=` line — BOOLEAN lock state only, never the pair
     return x;
 }
 

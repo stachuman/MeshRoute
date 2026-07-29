@@ -408,6 +408,7 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
         mob.hosting    = g_node.mobile_reg_count();
         mob.team_id    = rc.team_id;
         mob.team_local = g_node.team_local_id();
+        mob.team_ch_key = g_node.team_channel_key_present();   // §team-ch-key (T-K1b): the LOCK-STATE BOOLEAN so the app's indicator never calls `team exportkey` just to test for presence. ★ The KEY ITSELF must NEVER ride `ready` — it is unsolicited and fires on every connect.
         const size_t m = write_ready(s_inbox_jb, sizeof s_inbox_jb, g_node.node_id(), g_node.key_hash32(), g_node.config(),
                                      "existing", g_node.inbox().storage_epoch(), g_hal.now(), idb.name, nl,
                                      g_identity.ed_pub, ds.pct, ds.avail_ms, mob);   // §4: export pubkey for the QR `p`; §S1: mobile/team state

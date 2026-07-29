@@ -586,8 +586,42 @@ exactly 64 hex digits, case-insensitive, no `0x`). The **export** half is this:
 ```
 team exportkey
   → {"ev":"team_key_export","team_id":858993459,"tkpub":"<64 hex>","tkpriv":"<64 hex>"}
-  → keyless node: {"ev":"team_key_export","team_id":858993459,"tkpub":null,"tkpriv":null}  (or a loud refusal)
+  → holds no keypair:  {"ev":"team_key_err","reason":"no_key"}
+  → not in a team:     {"ev":"team_key_err","reason":"no_team"}
 ```
+
+- ★ **A refusal is a DISTINCT EVENT, never a success object with null fields.** This surface emits **zero** JSON
+  `null` literals (measured) — every optional field is omit-when-absent — and the consumer here is a **QR
+  encoder**: a null-blind encoder would write the literal `null`, or 32 zero bytes, into a team QR, and an
+  all-zero scalar is exactly what the firmware **refuses** as a non-key. A distinct `ev` cannot be mistaken
+  for a payload. Same idiom as the existing `mobile_err{reason}` / `peerkey_err{reason}`.
+- **`no_team` is a real case, not defensive padding:** a node can hold a key while being teamless (`team new`
+  then `team 0` — the team switch deliberately does not clear the key). Exporting then would yield
+  `team_id: 0`, and a QR carrying `team 0` **provisions "leave"**. The firmware refuses to export it and does
+  **not** clear the key.
+- **Round trip is textually exact:** the hex this emits (lower-case, 64 digits, no `0x`) is byte-for-byte what
+  `tkpub=`/`tkpriv=` accept, so an export on one node and an import on another need no normalisation step in
+  the app. Pinned by a test.
+
+**Lock state — the field to use for indicators:**
+- `ready` gains `"team_ch_key":true|false`, **omitted when the node is not in a team** (following §S1's
+  omit-when-inactive rule for the team block).
+- the JSON `cfg` dump carries it **always** (matching how `cfg` treats `team_id` — an explicit dump, so the app
+  gets a non-optional Bool).
+- ⚠ **Never call `exportkey` merely to test for presence** — that is what this boolean is for. `ready` is
+  fenced by test: it carries neither `tkpub`, `tkpriv` nor `team_key_export`, even on a keyed node.
+
+**The `team` verb's refusal strings for bad `tkpub`/`tkpriv` — the app must match these verbatim.** ⚠ These are
+**plain console text on `Print&`, not JSON**, so over BLE the app sees them as raw lines:
+
+| trigger | exact device output |
+|---|---|
+| value is not exactly 64 hex digits | ⚠ **composed from three prints — match as prefix + suffix, not a fixed string:** `> team err: ` + `tkpub` \| `tkpriv` \| `tkpub/tkpriv` + ` needs EXACTLY 64 hex digits (32 bytes)` |
+| only one of the pair given | `> team err: tkpub= and tkpriv= must be given TOGETHER (a keypair, not a half)` |
+| tail exceeds the buffers | `> team err: args too long` |
+| `team 0 tkpub=…` | ``> team err: tkpub=/tkpriv= make no sense on `team 0` (leave)`` |
+| crypto validation fails | `> team err: tkpub=/tkpriv= REFUSED — not a valid X25519 keypair (all-zero, or tkpub is not tkpriv's public key). Team NOT joined.` |
+| *(not input-driven)* RNG failure at mint | `> team err: team channel keygen FAILED (crypto RNG returned no entropy). Team NOT minted.` |
 
 - **Available on every transport** (USB, BLE, companion) — owner ruling, see the risk note below.
 - The pair is the **canonical RFC 7748 clamped** form as stored (T-K1), so what the QR carries is exactly what

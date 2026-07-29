@@ -3,6 +3,7 @@
 // NB: no DOCTEST_CONFIG_IMPLEMENT_WITH_MAIN — test_airtime.cpp provides main().
 #include "doctest.h"
 #include "console_json.h"
+#include "firmware_config_parse.h"   // §team-ch-key T-K1b: mrfw::parse_hex32 — the IMPORT half, so the export->import round trip is pinned against the real parser, not a re-implementation
 #include <cstring>
 #include <string>
 
@@ -270,7 +271,8 @@ TEST_CASE("write_route / write_routes_end / write_cfg — Node+Network screens")
     CHECK(std::string(b, n) ==
       "{\"ev\":\"cfg\",\"node_id\":5,\"freq_hz\":869462500,\"routing_sf\":7,\"sf_list\":\"7,12\",\"bw_hz\":125000,\"cr\":5,"
       "\"tx_power\":22,\"duty_x1000\":100,\"lbt\":true,\"beacon_ms\":900000,\"hop_cap\":16,\"team_hop_cap\":8,\"leaf_id\":0,"   // §team-parity T3: team_hop_cap defaults to protocol::team_hop_cap = 8, distinct from dv_hop_cap's 16 -> the golden pins WHICH field each key reads
-      "\"gateway\":false,\"mobile\":false,\"mobile_autoregister\":true,\"team_id\":\"00000000\",\"ble_mode\":\"on\",\"ble_period\":15,\"ble_pin\":123456,"
+      "\"gateway\":false,\"mobile\":false,\"mobile_autoregister\":true,\"team_id\":\"00000000\",\"team_ch_key\":false,"   // §team-ch-key T-K1b: the CONTENT-key lock state, ALWAYS present (cfg is the explicit dump) — default extras = no key
+      "\"ble_mode\":\"on\",\"ble_period\":15,\"ble_pin\":123456,"
       "\"lat_e7\":522297000,\"lon_e7\":-41000000}\n");
     // §S1: cfg team_id round-trips as a hex string; mobile_autoregister always present.
     cc.is_mobile = true; cc.mobile_autoregister = true; cc.team_id = 0xcccc0001u;
@@ -307,6 +309,92 @@ TEST_CASE("write_ready — §S1 mobile/team fields (omit-when-inactive; static b
     s.assign(b, n);
     CHECK(s.find("\"hosting\":2") != std::string::npos);
     CHECK(s.find("\"mobile\":") == std::string::npos);   // hosting is independent of is_mobile
+}
+
+// §team-ch-key (T-K1b) — `team exportkey`: the export event, its refusals, and the export->import round trip.
+TEST_CASE("write_team_key_export / write_team_key_err — §team-ch-key T-K1b") {
+    char b[256];
+    // A pub/priv pair with EVERY nibble value present and the two halves distinguishable, so a swapped or
+    // truncated field cannot pass: pub = 0x00,0x11,…,0xFF repeating; priv = its bitwise complement.
+    uint8_t pub[32], priv[32];
+    for (int i = 0; i < 32; ++i) { pub[i] = static_cast<uint8_t>((i % 16) * 0x11); priv[i] = static_cast<uint8_t>(~pub[i]); }
+    size_t n = write_team_key_export(b, sizeof b, 858993459u, pub, priv);   // the contract's own example team_id (= 0x33333333)
+    std::string s(b, n);
+    // team_id is DECIMAL (contract), NOT the "33333333" hex-string form ready/cfg use for the same value.
+    CHECK(s == "{\"ev\":\"team_key_export\",\"team_id\":858993459,"
+               "\"tkpub\":\"00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff\","
+               "\"tkpriv\":\"ffeeddccbbaa99887766554433221100ffeeddccbbaa99887766554433221100\"}\n");
+    CHECK(s.find("\"33333333\"") == std::string::npos);   // guards against a key_hex32 regression on team_id
+    // ★ THE ROUND TRIP IS TEXTUALLY EXACT: what we print, mrfw::parse_hex32 (the `tkpub=`/`tkpriv=` import half)
+    // parses back to the identical bytes. This is what makes the T-K4 QR export->adopt path byte-exact.
+    const size_t p0 = s.find("\"tkpub\":\"") + 9, p1 = s.find("\"tkpriv\":\"") + 10;
+    const std::string hpub = s.substr(p0, 64), hpriv = s.substr(p1, 64);
+    CHECK(hpub.size() == 64);
+    CHECK(hpriv.size() == 64);
+    CHECK(hpub.find_first_not_of("0123456789abcdef") == std::string::npos);   // LOWER-case, no 0x — parse_hex32's accepted form
+    CHECK(hpriv.find_first_not_of("0123456789abcdef") == std::string::npos);
+    uint8_t rpub[32] = {}, rpriv[32] = {};
+    CHECK(mrfw::parse_hex32(hpub.c_str(),  rpub));
+    CHECK(mrfw::parse_hex32(hpriv.c_str(), rpriv));
+    CHECK(std::memcmp(rpub,  pub,  32) == 0);
+    CHECK(std::memcmp(rpriv, priv, 32) == 0);
+    // The refusals — a DISTINCT ev, never a team_key_export with null fields (see console_json.h's note).
+    n = write_team_key_err(b, sizeof b, "no_key");
+    CHECK(std::string(b, n) == "{\"ev\":\"team_key_err\",\"reason\":\"no_key\"}\n");
+    n = write_team_key_err(b, sizeof b, "no_team");
+    CHECK(std::string(b, n) == "{\"ev\":\"team_key_err\",\"reason\":\"no_team\"}\n");
+    // ⚠ No JSON `null` anywhere on this surface — the whole reason the keyless answer is a refusal.
+    CHECK(std::string(b, n).find("null") == std::string::npos);
+}
+
+// ★★ §team-ch-key (T-K1b) THE HARD CONSTRAINT: `ready` carries the LOCK-STATE BOOLEAN and NOTHING ELSE. ready is
+// unsolicited and fires on every connect; the private key is disclosed ONLY by the explicit `team exportkey` verb.
+TEST_CASE("write_ready — §team-ch-key T-K1b: team_ch_key boolean, and NEVER the key itself") {
+    char b[768];
+    NodeConfig c{}; c.routing_sf = 7;
+    meshroute::console::MobileReadyFields mob{};
+    mob.is_mobile = true; mob.registered = true; mob.home = 222; mob.local = 17; mob.home_layer = 4;
+    mob.team_id = 0xcccc0001u; mob.team_local = 9; mob.team_ch_key = true;
+    // A distinctive ed_pub so we can also prove the pubkey field still works after the hex32_digits extraction (U1).
+    uint8_t ep[32]; for (int i = 0; i < 32; ++i) ep[i] = static_cast<uint8_t>(0xA0 + i);
+    size_t n = write_ready(b, sizeof b, 17, 0xa1b2c3d4u, c, "existing", 0, 0ull, nullptr, 0, ep, 0, 0, mob);
+    std::string s(b, n);
+    CHECK(s.find("\"team\":\"cccc0001\",\"team_local\":9,\"team_ch_key\":true") != std::string::npos);
+    // ★ the disclosure fence: no key field names, and no 64-hex private blob.
+    CHECK(s.find("tkpriv") == std::string::npos);
+    CHECK(s.find("tkpub")  == std::string::npos);
+    CHECK(s.find("team_key_export") == std::string::npos);
+    // hex32_digits still emits the PUBLIC pubkey exactly as before the U1 extraction.
+    CHECK(s.find("\"pubkey\":\"a0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebf\"") != std::string::npos);
+    // key present == false is EXPLICIT (never inferred from absence) for a node that IS in a team.
+    mob.team_ch_key = false;
+    n = write_ready(b, sizeof b, 17, 0xa1b2c3d4u, c, "existing", 0, 0ull, nullptr, 0, nullptr, 0, 0, mob);
+    s.assign(b, n);
+    CHECK(s.find("\"team_ch_key\":false") != std::string::npos);
+    // ...and OMITTED entirely for a teamless node, so a static node's ready stays byte-identical (§S1's rule).
+    meshroute::console::MobileReadyFields teamless{}; teamless.is_mobile = true; teamless.team_ch_key = true;   // flag set but no team -> still omitted
+    n = write_ready(b, sizeof b, 3, 0xa1b2c3d4u, c, "existing", 0, 0ull, nullptr, 0, nullptr, 0, 0, teamless);
+    s.assign(b, n);
+    CHECK(s.find("team_ch_key") == std::string::npos);
+    CHECK(s.find("\"team\"") == std::string::npos);
+}
+
+// §team-ch-key (T-K1b) — cfg carries the lock state ALWAYS (explicit dump), like team_id.
+TEST_CASE("write_cfg — §team-ch-key T-K1b: team_ch_key always present") {
+    char b[768];
+    NodeConfig c{}; c.routing_sf = 7; c.team_id = 0xcccc0001u;
+    meshroute::console::CfgExtras x; x.node_id = 3;
+    size_t n = write_cfg(b, sizeof b, c, x);                     // default extras -> no key
+    CHECK(std::string(b, n).find("\"team_id\":\"cccc0001\",\"team_ch_key\":false") != std::string::npos);
+    x.team_ch_key = true;
+    n = write_cfg(b, sizeof b, c, x);
+    CHECK(std::string(b, n).find("\"team_id\":\"cccc0001\",\"team_ch_key\":true") != std::string::npos);
+    // present even with NO team (team_id "00000000") — cfg is the explicit dump, unlike ready's omit.
+    NodeConfig c0{}; c0.routing_sf = 7;
+    n = write_cfg(b, sizeof b, c0, x);
+    CHECK(std::string(b, n).find("\"team_id\":\"00000000\",\"team_ch_key\":true") != std::string::npos);
+    // the pair itself is NEVER on the cfg surface either.
+    CHECK(std::string(b, n).find("tkpriv") == std::string::npos);
 }
 
 // §S2 — mobile_reg / team_reg pushes; §S4 — channel_recv team_id; §S6 — peer_key_cached name.

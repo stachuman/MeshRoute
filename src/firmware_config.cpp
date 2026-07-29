@@ -663,6 +663,55 @@ static mrfw::TeamKeyTail parse_team_key_tail(const char* tail, char* rest, size_
 }
 #endif   // MR_FEAT_TEAM (parse_team_key_tail)
 
+// §team-ch-key (T-K1b): `team exportkey` -> the contract's team_key_export event, or a LOUD refusal.
+// ★ OWNER RULING 2026-07-29: available on EVERY transport (USB / BLE / companion). That is why there is NO transport
+// check here — the exfiltration risk was put to the owner explicitly and "any transport" was chosen; it is recorded in
+// ios-companion/INBOX_SYNC_CONTRACT.md's ACCEPTED-RISK block, whose stated consequence is that the open "BLE fallback
+// exposes the full console" item is now the ONLY control protecting this key. Do not add a gate here without a ruling.
+//
+// ★★ THE KEYLESS ANSWER IS A REFUSAL, NOT A NULL-BEARING SUCCESS OBJECT. The contract left it ambiguous ("tkpub/tkpriv
+// null — or a loud refusal"); this slice picks the refusal. Three reasons, in order of weight:
+//   1. C2. A `team_key_export` envelope whose two key fields are null is a SUCCESS event reporting a FAILURE.
+//   2. The consumer of this event is the "Share team" QR encoder. A null-blind encoder writes the literal `null` — or,
+//      worse, 32 zero bytes — into a QR, and an all-zero scalar is precisely what team_channel_key_derive REFUSES
+//      (identity.h) because it is a silent, fatal non-key. A distinct `ev` cannot be mistaken for a payload; a null
+//      field inside a success object can.
+//   3. It is this surface's established idiom: `mobile_err{reason}` / `peerkey_err{reason}` answer "this verb does not
+//      apply to this node", and console_json.cpp emits ZERO JSON `null` literals — every optional field there is
+//      OMIT-when-absent. A null here would invent a new encoding convention for exactly one event.
+// The app never needs the null form: `team_ch_key` on `ready`/`cfg` is the presence indicator, so reaching this refusal
+// means a bug or a race, and being told so is more useful than an empty success.
+//
+// No `#if MR_FEAT_TEAM` needed, and that is deliberate rather than an omission: NodeConfig::team_id is ungated
+// (node_carriers.h:93) and the three team_channel_* accessors have `#else` stubs returning false/nullptr (node.h), so on
+// a MR_FEAT_TEAM 0 build this function compiles unchanged and answers `no_key` BY CONSTRUCTION — one app-facing code
+// path, no silent success. (In practice unreachable there: handle_team is `#if MR_N_LAYERS < 2` and MR_FEAT_TEAM 0
+// arrives only with MR_PROFILE_GATEWAY, which sets MR_N_LAYERS=2.)
+static void team_export_key(Print& out) {
+    const meshroute::NodeConfig& c = g_node.config();
+    if (c.team_id == 0) {
+        // No team ⇒ the event's own team_id field would be 0, i.e. a QR that provisions `team 0` = LEAVE. Refuse rather
+        // than emit an incoherent export. ⚠ This is NOT a ruling on T-K1's deferred question (set_team_id does not clear
+        // the key, so `team new` then `team 0` leaves a key behind with team_id==0): the key is untouched here — this
+        // path only declines to EXPORT one that has no team to belong to. T-K2 still owns the clear-on-switch decision.
+        const size_t m = meshroute::console::write_team_key_err(s_inbox_jb, sizeof s_inbox_jb, "no_team");
+        if (m) out.write(s_inbox_jb, m);
+        return;
+    }
+    const uint8_t* pub  = g_node.team_channel_pub();
+    const uint8_t* priv = g_node.team_channel_priv();
+    if (!pub || !priv) {   // the accessors return nullptr while keyless (node.h) — never a zero buffer to mistake for a key
+        const size_t m = meshroute::console::write_team_key_err(s_inbox_jb, sizeof s_inbox_jb, "no_key");
+        if (m) out.write(s_inbox_jb, m);
+        return;
+    }
+    // VERBATIM, no re-derivation. T-K1 stores the canonical RFC-7748 CLAMPED scalar (identity.h's clamping contract)
+    // exactly so that no consumer re-derives or normalises: re-deriving tkpub from tkpriv here would be redundant AND a
+    // second place for the two halves to disagree. Emit both as stored.
+    const size_t m = meshroute::console::write_team_key_export(s_inbox_jb, sizeof s_inbox_jb, c.team_id, pub, priv);
+    if (m) out.write(s_inbox_jb, m);
+}
+
 // §mobile 6.1: FNV-1a over (key_hash32 ‖ nonce) = the 32-bit team_id (team_fnv1a32, firmware_config_parse.h).
 // `team new` = MINT a fresh team_id = hash(our key ‖ HW-RNG nonce). `team <id>` = JOIN an existing team. `team 0` = leave.
 void handle_team(const char* args, Print& out) {
@@ -670,6 +719,22 @@ void handle_team(const char* args, Print& out) {
     const meshroute::NodeConfig& c = g_node.config();
     uint32_t t;
     const char* phy_args = nullptr;
+    // §team-ch-key (T-K1b): the THIRD subcommand, beside `new` and `<id>` (T-K3's `grantkey` will be the fourth).
+    // ★ ANSWERED FIRST, BEFORE the numeric parse below — that is a safety requirement, not ordering taste. `strtoul`
+    // consumes ZERO digits from a non-numeric tail and returns 0 (verified, not assumed), so ANY subcommand that fell
+    // through to it would be read as `team 0` = LEAVE THE TEAM instead of running.
+    // ⚠ MISSING / PRE-EXISTING, owner ruling owed — deliberately NOT fixed here (C1: this is a feature slice, and the
+    // fix is a behaviour change to the JOIN path): that same fallthrough means a MISTYPED subcommand — `team exportky` —
+    // still reads as `team 0`. It is caught on a mobile node (parse_phy_tail below refuses the unknown key first) but
+    // NOT on a node with is_mobile==0 and a non-zero team_id, which is reachable via the console; there it silently
+    // leaves the team. The fix is one "the tail must begin with a digit, else usage" check on the `else if (args[0])`
+    // arm, and it belongs in its own slice.
+    if (!strncmp(args, "exportkey", 9)) {
+        const char* tail = args + 9; while (*tail == ' ') ++tail;
+        if (*tail) { out.println(F("> team err: `team exportkey` takes no arguments")); return; }   // C2: never silently ignore a tail — and never let one reach the leave path above
+        team_export_key(out);
+        return;
+    }
     const bool mint_form = !strncmp(args, "new", 3);
     if (mint_form) {
         uint32_t nonce = 0; g_hal.rand_bytes(reinterpret_cast<uint8_t*>(&nonce), 4);
@@ -680,8 +745,9 @@ void handle_team(const char* args, Print& out) {
         t = (uint32_t)strtoul(args, &endp, 0);
         phy_args = endp;   // §6.4: `team <id> [freq= sf= bw=]` — a JOIN can set the shared team PHY too (mirrors `team new`)
     } else {
-        out.println(F("> team err usage: `team new [freq= sf= bw=]` (mint) | `team <id> [freq= sf= bw=]` (join) | `team 0` (leave)"));
+        out.println(F("> team err usage: `team new [freq= sf= bw=]` (mint) | `team <id> [freq= sf= bw=]` (join) | `team 0` (leave) | `team exportkey`"));
         out.println(F(">   both forms also take `[tkpub=<64 hex> tkpriv=<64 hex>]` to ADOPT an existing team channel key (else `team new` mints one)"));
+        out.println(F(">   `team exportkey` prints this team's channel keypair as JSON (for the app's team QR) — it discloses a PRIVATE key"));
         return;
     }
     // §team-ch-key (T-K1): peel `tkpub=`/`tkpriv=` off the tail FIRST — parse_phy_tail below refuses unknown keys.

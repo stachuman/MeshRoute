@@ -82,6 +82,7 @@ struct MobileReadyFields {
     uint8_t  hosting     = 0;       // mobile_reg_count() — static host: mobiles registered to us (omit when 0)
     uint32_t team_id     = 0;       // c.team_id (omit when 0; hex string)
     uint8_t  team_local  = 0;       // team_local_id() — our own id on the team overlay (omit when 0)
+    bool     team_ch_key = false;   // §team-ch-key (T-K1b): team_channel_key_present() — the CONTENT-key LOCK STATE, the app's indicator. Emitted (explicitly true/false) only INSIDE the team block, i.e. iff team_id != 0 — same omit-when-inactive rule as `team` itself, so a static/teamless node's ready stays byte-identical. ⚠ the KEY ITSELF NEVER RIDES ready (unsolicited, fires on every connect) — only `team exportkey` discloses it.
 };
 size_t write_ready (char* buf, size_t cap, uint8_t id, uint32_t key, const NodeConfig& c, const char* mode,
                     uint32_t inbox_epoch, uint64_t now_ms,
@@ -151,8 +152,26 @@ struct CfgExtras {
     uint32_t ble_pin   = 0;
     int32_t  lat_e7    = 0;     // node location, degrees × 1e7 (0 = unset)
     int32_t  lon_e7    = 0;
+    bool     team_ch_key = false;  // §team-ch-key (T-K1b): team_channel_key_present() — the JSON twin of dump_cfg's `team_ch_key=0|1`. ALWAYS emitted (cfg is the explicit dump — same rule as team_id, which prints "00000000" rather than omitting).
 };
 size_t write_cfg(char* buf, size_t cap, const NodeConfig& c, const CfgExtras& x);
+
+// §team-ch-key (T-K1b) — `team exportkey`: the ONLY disclosure of the team CONTENT key
+// (ios-companion/INBOX_SYNC_CONTRACT.md "node → app: export the team channel keypair"; owner ruling 2026-07-29:
+// available on EVERY transport, exfiltration risk accepted and recorded there).
+// Both halves are 64 LOWER-CASE hex digits, no `0x` — byte-for-byte the form `team … tkpub=/tkpriv=` accepts, so an
+// export → import round trip is TEXTUALLY EXACT (pinned in test_console_json.cpp against mrfw::parse_hex32).
+// The bytes are emitted VERBATIM as stored: T-K1 persists the canonical RFC-7748 CLAMPED scalar (identity.h's
+// clamping contract) precisely so that no consumer re-derives or normalises — tkpub is NOT re-derived from tkpriv.
+// ⚠ team_id is DECIMAL u32 here (the contract's own example, 858993459 = 0x33333333), unlike ready's `team` /
+// cfg's `team_id` hex strings. Same convention as sender_hash / channel_msg_id / peer_name's hash.
+size_t write_team_key_export(char* buf, size_t cap, uint32_t team_id, const uint8_t pub[32], const uint8_t priv[32]);
+// The keyless/teamless answer — a LOUD REFUSAL, not a null-bearing `team_key_export`. The contract left this open
+// ("tkpub/tkpriv null — or a loud refusal"); T-K1b picks refusal. Rationale at team_export_key()
+// (src/firmware_config.cpp), in one line: this file emits ZERO JSON `null` literals — every optional field is
+// omit-when-absent — and a success envelope whose key fields are null is a success event reporting a failure (C2).
+// reason: "no_team" (team_id == 0) | "no_key" (no keypair held, incl. every MR_FEAT_TEAM 0 build).
+size_t write_team_key_err   (char* buf, size_t cap, const char* reason);
 
 // §S3: `mobile status` + `mobile gateways` JSON (PODs in; src/ calls these from handle_mobile — no node.h dep here).
 struct MobileStatusFields {
