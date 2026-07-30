@@ -149,6 +149,54 @@ struct PeerRec { uint32_t key_hash32; uint8_t ed_pub[32];
 - ⚠ Cap stays **16**. If `authoritative` keys now compete with `pinned` for those slots, **pinned must win** —
   an eviction policy question to settle in the slice, not silently.
 
+### 2.5 ★★ The lookup verbs read DIFFERENT id namespaces — bench-proven 2026-07-30
+
+Added after the owner hit it on metal. This is §1.2's identity model failing in miniature, and it is the clearest
+possible argument for the row shape in §2.1.
+
+**The transcript, on team node 114 (off-grid, `team_local_id = 114`), asking about 228:**
+
+```
+hashof 228                     -> id=228 -> unknown
+reqpubkey 228                  -> »tx H … hash=6C297145 … HARD WANT_PUBKEY     (it KNEW the hash)
+                               -> KEY CACHED hash=0x6C297145 name=… (on-air, unpinned)
+hashof 228                     -> id=228 -> unknown          ← STILL
+```
+
+**Cause — the two verbs interpret the same number in two different namespaces:**
+
+| verb | a bare decimal means | table read |
+|---|---|---|
+| `reqpubkey <id>` | a **`team_local_id`** — *"resolve the hash from the team key cache"* (`console_parse.cpp:166`) | **`_team_keys`** |
+| `hashof <id>` | a **static `node_id`** | `key_hash_for_id()` → **`_id_bind` only** (`node.h:624-628`) |
+
+So `reqpubkey 228` found `6C297145` in the team cache and worked; `hashof 228` looked in `_id_bind`, found 0, and
+said unknown. **Both are correct for the table they read.** Neither is correct as an answer to *"what is the hash
+of 228?"*, which the node can answer perfectly well.
+
+**The three owner questions, answered:**
+1. **`reqpubkey` uses the TEAM id** (bare decimal ⇒ `team_local_id`, from the team key cache). It also carries a
+   plane (`console_parse.cpp:181` assigns `team ? 1 : 2`).
+2. **`hashof` uses the STATIC id**, and only `_id_bind`. ⇒ the owner-proposed `hashof <id> -t` is the right
+   *shape*, and matches `send -t` / `send_hash -t` / `reqpubkey -t`. ★ **But the better answer is to make `hashof`
+   a VIEW query** (§2.1): search **both** namespaces and **report which one matched**, because guessing is the
+   defect. ⚠ **If the same number matches in BOTH** — the §18 collision, entirely possible — it must report
+   **both rows**, never silently pick one. Keep `-t` (and a static counterpart) purely to *disambiguate* when the
+   caller already knows which plane it means.
+3. **"If we requested the pubkey, `hashof` should be known"** — agreed, and this is the sharpest of the three.
+   After the exchange the node holds `_team_keys[228] = 6C297145` **and** `_peer_keys[6C297145] = {ed_pub, name,
+   authoritative}`. Everything needed is present; only the *lookup* was aimed at the wrong table.
+
+★★★ **AND THE OBVIOUS FIX IS FORBIDDEN — write it down so nobody takes it.** The tempting repair is to have the
+pubkey answer write `228 → 6C297145` into `_id_bind`. **Do not.** That is the **plane-blind `_id_bind` ingest**
+already on the bug queue: a *team-scoped* answer writing the *static* map is an **I2 breach**, the same class the
+PLANE-A/B slice found and the same class as spec §12's read-path leak. ⇒ **Q3 is fixed by the VIEW, never by a
+write.** A team id belongs in `_team_keys`; the view is what joins it to the hash for display.
+
+**Consequences for §2.1's row:** this is why `static_id?` and `team_id?` are **separate optional fields** rather
+than one `id`, and why the view — not any single table — is the only correct answer to an id-shaped question.
+`hashof`, `nameof` and the `peers` dump should all read the **same** view, so they can never disagree again.
+
 ## 3. Slices
 
 - **AB1** — NV: `PeerRec` gains `confidence` + name, `kPeersVersion` 1→2, boot restore honours both, eviction
@@ -156,8 +204,11 @@ struct PeerRec { uint32_t key_hash32; uint8_t ed_pub[32];
   round-trip incl. a v1-blob rejection test.
 - **AB2** — `peername` (+ optional `peerkey name=`), and `peer_key_cached` gains `conf`. Gate: byte-identical;
   native for every refusal; a JSON golden for `conf`.
-- **AB3** — the generated view: a `peers` console dump + its JSON surface. Gate: byte-identical; native for the
-  merge/dedup incl. the ambiguous-reverse-lookup case and all four id-only/hash-only shapes.
+- **AB3** — the generated view: a `peers` console dump + its JSON surface, **and rewire `hashof`/`nameof` onto it**
+  (§2.5 — they must not keep reading one table each). Gate: byte-identical; native for the merge/dedup incl. the
+  ambiguous-reverse-lookup case, all four id-only/hash-only shapes, and ★ **the §2.5 regression directly: after a
+  successful `reqpubkey <team-id>`, `hashof <that id>` must resolve** — with a test asserting `_id_bind` was **NOT**
+  written (the forbidden fix).
 
 ★ **AB2 and AB3 both touch `console_parse.cpp`/`console_json.cpp`** — do not run them concurrently with each
 other or with the cross-layer cleartext fix.
