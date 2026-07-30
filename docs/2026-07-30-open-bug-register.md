@@ -13,6 +13,80 @@ slice that declined to fix it (C1). Where an entry is *unmeasured*, it says so e
 
 ---
 
+## 0. ★★ BEFORE YOU TOUCH ANYTHING — the dispatch contract
+
+⚠ **This section exists because the register FAILED its own test on 2026-07-30.** Grepped for the ten things a
+dispatched coder needs, it scored **zero on all ten**. It was an index for a coordinator who already knew the
+gate; an agent handed only the file above would have reproduced every failure this arc spent itself finding.
+**If you are picking up an entry, this section is not optional reading.**
+
+**Read first, in this order:**
+1. **`docs/2026-07-26-slice-gate-method.md`** — this **IS** the gate. §E (the poison probe) and §D4 (boards) are
+   the two hardest-earned parts.
+2. **`CLAUDE.md`** — **C1** (one concern per slice: fixing an adjacent bug is a *separate* slice), **C2** (fail
+   loud, no unagreed fallback), **C3** (respect the planes), U1/U2/U3, **V1** (verify against code, never a
+   comment — see the note below), D1–D4.
+3. **The `BASELINE.md` note named in your entry.** The evidence, the probe matrix and the reason the previous
+   slice declined all live there. Do not re-derive them.
+
+**Hard rules, each earned:**
+- **QA-owned — do NOT touch:** `simulation/BASELINE.md`, `docs/*.md`, `ios-companion/*`, `tools/*`, and
+  `simulation/*.json` **unless your task explicitly grants it**. Report what they need; QA writes them.
+- **Never `git commit` / `add` / `stash` / `checkout --` / `checkout-index`, or offer to** (D4). To undo your own
+  edit, restore from a snapshot **you** took, or `git show HEAD:path > path`. ★ Two coders have broken this; both
+  recovered only because they had their own snapshot. **Snapshot before probing.**
+- ★ **`rm` the native binary before every build**, and run it directly — `pio test -e native` **misreports "0 test
+  cases"**, and a failed build leaves the previous binary in place. **Eight slices in this arc were bitten by a
+  stale artifact.** Cross-check the event count of anything you re-run.
+- **Boards: THREE envs** — `gateway`, `xiao_sx1262`, `xiao_esp32s3`. ★ The six-env escalation is **your decision
+  after a compile-only `sizeof(Node)` measurement**, never a grant made in advance; **push back on any brief that
+  starts at six.** ⚠ **Do not chase flash deltas** — there is a reproducible **±32 B noise floor** from
+  `__DATE__`/`__TIME__` baked at `src/fw_main.cpp:420` + `src/firmware_commands.cpp:261`. **RAM is the trustworthy
+  number.** Use **cold, equal-length build dirs** — a warm one produced 18628-vs-10617 and read exactly like a
+  real delta.
+- ★★ **`s18` keystone `1cd21235` / 271629 must NOT move.** If it does, stop and report — do not re-anchor it.
+- ★★ **RE-RUN THE FOUR DETECTOR PROBES AND REPORT THE NUMBERS. Hard item — a slice that omits them is NOT gated**
+  (this rule exists because a slice omitted them and QA accepted the report):
+
+  | probe | how | expect |
+  |---|---|---|
+  | **P-T7** | re-add `is_team_peer(origin) &&` at the team DATA-origin learn (`node_mac_rx.cpp`) | `s38` **474 ev, 8 of 16** |
+  | **P-T1** | revert the `send -t` precondition at **`node.cpp:1309`** to `!is_team_peer(dst)` — ⚠ **NOT** `node_mac.cpp`'s ack-gate fix, which is a no-op on s35a and has cost a coder a run | `s35a` **1892 ev, 20 FAIL**, incl. `actual_reply="OK error ctr=0 depth=0"` |
+  | **P-T6A** | revert T6's team arm in `stamp_origin` (`node.h`) | `s37` **851 ev, 12 of 36** |
+  | **P-T6A + P-T7** | both | `s37` **917 ev, 16 of 36** |
+
+- **Poison-probe every site you change, with a SAME-SITE control.** ★ **A 0/N result means "the corpus cannot
+  reach it", NEVER "it is inert"** — prove reachability by tracing the line *immediately above* your site.
+  ⚠ And for a **comparison-only** score (anything consumed relatively), a **uniform-offset** poison is an invalid
+  control — it cancels. Use a **differential** one.
+- ★★ **The premises in your task are HYPOTHESES.** Every brief in this arc contained at least one wrong premise;
+  one contained four. **Disproving one is the most valuable thing you can return** — including "this bug is
+  narrower/louder than described" and "the reference implementation I was told to copy is itself broken", both of
+  which have happened. ⚠ **V1 applies to comments too: verifying that a comment exists is not verifying that it
+  is true.** A drifted note cost a whole extra defective site on 2026-07-30.
+- **Report as:** INVENTORY CONFIRMED / DESIGN / COVERAGE / GATE / DEVIATIONS / MINE-VS-THEIRS. Report failures
+  with their output; if you skipped a step, say so.
+
+### 0.1 Expected corpus outcome per entry — so a moved stream is interpretable
+
+★ **If a scenario moves when this table says byte-identical, that is a FINDING, not a re-anchor:** it means a
+scenario was relying on the broken behaviour. Attribute it and report before proceeding.
+
+| entry | expect | why |
+|---|---|---|
+| **B1** | **byte-identical** | `handle_team` is in `src/`, outside both the sim and native builds |
+| **B2** | **re-anchor likely** | the ingest fires in team scenarios; attribute per scenario |
+| **B3** | **re-anchor, and `s22` should go GREEN** | it is currently **RED** — that is the point of the fix |
+| **B4** | **byte-identical** | inert while `sync_response_min_routes` defaults 0 |
+| **B5** | **re-anchor likely** | changes a live frame's contents |
+| **B6, B7** | **byte-identical or small** | both are currently-zeroed bypasses |
+| **B8** | **measurement only** — no fix expected until it is answered |
+| **B9** | ★ **value-only re-anchor of EVERY team scenario** | `slot` is in the stream |
+| **B10** | **re-anchor of `s37`** | removing the dead command is a stream edit |
+| **B11–B15** | **byte-identical** | telemetry/comments/`src/`-only |
+| **B16** | **`s27` only, if anything** | it is the sole user |
+| **D1** | ★ **inert on 34/36 — but it DISARMS `s35a`/`s38`.** Read the entry before starting |
+
 ## Tier 1 — silent or destructive
 
 Nothing outstanding. Both Tier-1 bugs found in this arc are **FIXED**: the cross-layer cleartext downgrade
