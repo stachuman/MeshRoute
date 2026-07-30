@@ -1,5 +1,43 @@
 # Inbox sync — BLE wire contract (PROPOSED)
 
+> ## ⚠⚠ PENDING CONTRACT CHANGES — SPEC'D, **NOT YET IMPLEMENTED** (as of 2026-07-30)
+>
+> Everything **below** this box describes shipped firmware. This box lists changes that are **designed and
+> owner-ruled but not built**, so the app team can plan — and so nobody implements against a surface that is about
+> to move. **QA writes each section into this document as its slice lands; a coder never edits this file.**
+>
+> ### ★★ ACT ON THIS ONE NOW — `loc_dm` is being REMOVED
+> `loc_in_dm` / `CfgOut.loc_dm` **and its `TAG_CFG_*` TLV** are being deleted, not deprecated. Location becomes a
+> **per-send `-l` flag** instead (owner ruling 2026-07-30). ⇒ **if the app reads or writes `loc_dm` today, stop
+> now** rather than after the slice lands. ★ The retired TLV number will be **RETIRED, never reused** — do not
+> assume that tag can mean something else later.
+> ⚠ It also carries **`kVersion` 22 → 23**, so **expect an unprovisioned node on first contact after that flash**
+> (the second such bump; T-K1 was the first). `/mrid` identity and `/mrpeers` are unaffected.
+>
+> ### From `2026-07-30-channel-crypt-and-location-privacy-design.md`
+> - **`send_channel … -e`** — encrypted team channel posts, plus a four-case flag matrix in which **two
+>   combinations REFUSE**: `-e` without `-t` (there is no key for a global channel), and **`-t -g -e`** (BOTH would
+>   air an identical copy in clear and defeat the encryption).
+> - **`-l` on `send` / `send_layer`** with three loud refusals: not-sealed, no-fix, does-not-fit. ⚠ **`-l` is
+>   deliberately NOT on `send_channel`** — a channel location is T-K2's `inner_type = 1`, an *alternative* payload,
+>   and belongs to T-K5.
+> - `enc:true` on `channel_recv` / `inbox_channel`; the **`team_channel_no_key`** push; `team_channel_crypt` config.
+> - ⚠ **A drift fix owed here:** line ~28 below claims *"`send_channel`/`send_layer` REJECT `-t`"*. **False for
+>   `send_channel`** — only `send_layer` rejects it.
+>
+> ### From `2026-07-29-peer-address-book-design.md`
+> - ★ **`peer_key_cached` gains `"conf"`** (`overheard`|`authoritative`|`pinned`), keeping `pinned` as a derived
+>   duplicate. **The app must gate "send encrypted" on `conf >= authoritative`, not on key presence** — today's
+>   hardcoded `"pinned":false` is why an encrypted send can be offered and then fail `no_pubkey`.
+> - **`peername 0x<hash> "<text>"`** — a **synchronous ack**, not a push (owner-ruled), so **no new `PushKind`**.
+> - **A `peers` view**: JSON **capped at the 16 `_peer_keys` rows**; the full up-to-256 known-nodes list is
+>   **text-console only** behind `peers all` (owner-ruled). `hashof` becomes a view query.
+> - NV gains **names + `authoritative` keys** — but ★ **the node remains a 16-slot ageing cache. The APP owns the
+>   durable address book**; the node's view is a reconcile source, not the record.
+>
+> ⇒ **Tracking: `docs/2026-07-30-open-bug-register.md`** (entry **B0** is the live location leak).
+
+
 The companion catch-up seam between the firmware persistent inbox
 (`docs/superpowers/specs/2026-06-10-persistent-inbox-spec.md`) and the iOS app. **STATUS (2026-07-04): the
 firmware side is IMPLEMENTED + verified against code** — the send / pull / inbox / `ready` / duty / e2e /

@@ -13,6 +13,12 @@ slice that declined to fix it (C1). Where an entry is *unmeasured*, it says so e
 
 ---
 
+> ⚠ **The companion contract has PENDING updates too.** `ios-companion/INBOX_SYNC_CONTRACT.md` now opens with a
+> **PENDING CONTRACT CHANGES** box listing everything spec'd-but-unbuilt, so the app team does not implement against
+> a surface about to move. ★ **One item needs app action ahead of the slice: `loc_dm` is being REMOVED** (field,
+> cfg key **and** binary TLV) — if the app reads it, it must stop. **QA writes that file; a coder never edits it —
+> report what is owed instead.**
+
 ## 0. ★★ BEFORE YOU TOUCH ANYTHING — the dispatch contract
 
 ⚠ **This section exists because the register FAILED its own test on 2026-07-30.** Grepped for the ten things a
