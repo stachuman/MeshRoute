@@ -4,8 +4,10 @@
 *2026-07-29. Owner-requested. All line references code-verified today against HEAD `3b7bf58`; re-verify before
 relying on one (V1/V2) — this tree moves several times a day.*
 
-**Status: SPEC'D, NOT DISPATCHED.** Queued behind the cross-layer cleartext fix, which is in flight and holds
-`lib/console/console_parse.cpp` + `console_json.cpp` — the same files §2.3/§2.2 need.
+**Status: SPEC'D AND COMPLETE, NOT DISPATCHED — ready to start.** ✅ The cross-layer cleartext fix that was
+holding `lib/console/console_parse.cpp` + `console_json.cpp` **has landed** (`§xl-crypt`), as have the two bug
+fixes after it, so **AB1 is unblocked and AB2/AB3 are free of file contention.** ⚠ **Two decisions are marked
+OPEN in §2.6 — settle them before dispatching AB3**, not during it.
 
 ---
 
@@ -197,6 +199,29 @@ write.** A team id belongs in `_team_keys`; the view is what joins it to the has
 than one `id`, and why the view — not any single table — is the only correct answer to an id-shaped question.
 `hashof`, `nameof` and the `peers` dump should all read the **same** view, so they can never disagree again.
 
+### 2.6 ⚠ TWO OPEN DECISIONS — settle these BEFORE dispatching AB3
+
+**(a) How large may the dump be, and over which transport?** ★ **This is not cosmetic.** §1.1 measured that
+cardinality is driven by `_id_bind` (**256**), not `_peer_keys` (16), so a naive full dump is a few hundred rows —
+and a node **WEDGE from self-inflicted console flooding** is a defect this project has already fixed once (the
+`mrcon` drop-never-block sink). Emitting that over BLE walks straight back into it.
+
+★ **QA's proposed cut, for owner confirmation:**
+- **The JSON address book = rows backed by `_peer_keys` (≤ 16)**, enriched with `static_id`/`team_id` from the
+  other two tables. That is bounded, and it is what an address book *is* — an entry you can name and talk to.
+- **The full "known nodes" list (up to 256 id-only rows) stays TEXT-console only**, behind an explicit `peers all`.
+  It is a diagnostic, not a contact list.
+- Rationale: it matches §6 (the app owns the durable book and reconciles from `peer_key_cached` pushes), and it
+  keeps the JSON surface bounded by construction rather than by a paging protocol nobody has to implement.
+
+**(b) Is `peer_name_set` a PUSH or a synchronous command ack?** §2.3 shows the shape but not the mechanism, and it
+decides real work: **a push needs a new `PushKind` enumerator — which §5 requires be APPENDED**, because the sim
+bridges `PushKind` on its raw `uint8_t` with a `static_assert` twinned in two sim files (T-K3 caught itself
+inserting one). A synchronous ack needs no enum and no sim coordination.
+★ **QA recommends the synchronous ack:** `peername` is operator-initiated and its result is immediate, so there is
+nothing asynchronous to notify — and it avoids touching an enum whose ordering has already cost this arc two
+near-misses. The `peerkey_set` ack is the precedent to mirror (U3).
+
 ## 3. Slices
 
 - **AB1** — NV: `PeerRec` gains `confidence` + name, `kPeersVersion` 1→2, boot restore honours both, eviction
@@ -204,7 +229,7 @@ than one `id`, and why the view — not any single table — is the only correct
   round-trip incl. a v1-blob rejection test.
 - **AB2** — `peername` (+ optional `peerkey name=`), and `peer_key_cached` gains `conf`. Gate: byte-identical;
   native for every refusal; a JSON golden for `conf`.
-- **AB3** — the generated view: a `peers` console dump + its JSON surface, **and rewire `hashof`/`nameof` onto it**
+- **AB3** — the generated view: a `peers` console dump + its JSON surface **bounded per §2.6(a)**, **and rewire `hashof`/`nameof` onto it**
   (§2.5 — they must not keep reading one table each). Gate: byte-identical; native for the merge/dedup incl. the
   ambiguous-reverse-lookup case, all four id-only/hash-only shapes, and ★ **the §2.5 regression directly: after a
   successful `reqpubkey <team-id>`, `hashof <that id>` must resolve** — with a test asserting `_id_bind` was **NOT**
@@ -228,7 +253,7 @@ Standard gate (`docs/2026-07-26-slice-gate-method.md`). Specifics:
 - `sizeof(Node)` **must not move** — no new `Node` members; the view is computed and NV is not `Node` state. If
   it moves, escalate to §D4's six-env grid.
 - ★ **The four detector probes are a hard item** on every slice: P-T7/s38 **8 of 16** · P-T1/s35a **20** (site
-  = `node.cpp:1308`, *not* the ack-gate fix) · P-T6A/s37 **12 of 36** · P-T6A+P-T7/s37 **16 of 36**.
+  = `node.cpp:1309`, *not* the ack-gate fix — the earlier pin said `:1308`, one line off, and it cost a coder a run) · P-T6A/s37 **12 of 36** · P-T6A+P-T7/s37 **16 of 36**.
 - ★ **If an enum is extended, APPEND** — the sim bridges `PushKind`/`SendFailReason` on their raw `uint8_t` with
   a `static_assert` twinned in two sim files; an insert silently renames a value for every scenario. And note
   `-Wswitch` fires for these only on the **board** build (`fw_main.cpp` is outside native) — T-K3's evidence.
