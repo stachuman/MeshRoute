@@ -735,6 +735,36 @@ as `peer_key_cached`); `origin` = the granter's node id on the receiving plane (
 so a mismatch is impossible). A grant that arrives **unsealed** is dropped loud, and a grant is **consumed on every
 outcome** — it is never inbox'd and never surfaces as `msg_recv`.
 
+#### Delegated cross-layer DMs now deliver — ★ BEHAVIOUR CHANGE (2026-07-30, `§deleg-ack-xl`)
+
+A **home re-originating for a hosted mobile** toward a target on another layer used to stamp `SOURCE_HASH = mobile`
+without recording the `ctr_H → ctr_M` translation. Three sites were affected. **What the app now sees differently
+— all only for delegated sends:**
+
+1. ★ **A delegated SEALED cross-layer DM now ARRIVES.** It was previously dropped at the recipient with **no push,
+   no ack, and no trace on metal** (the receiver-side emit is telemetry, which is device-stripped).
+2. **`send_e2e_acked` now carries the MOBILE's own ctr** for delegated sends — a push that previously never
+   matched the app's outstanding message now matches.
+3. **The spurious `send_failed{reason:"e2e_ack_timeout"}` on the MOBILE no longer fires** after the 300 s
+   cross-layer budget for those sends.
+4. **The HOME no longer arms or fires its own `e2e_ack_timeout`** for a DM it is merely relaying.
+
+⇒ **If the app has a workaround for unmatched delegated acks or phantom timeouts, retire it.**
+
+**New refusal:** a delegated cross-layer send that also requests sealing under our own identity is refused with the
+existing `send_failed{reason:"unsealable"}` (no new reason value) — it would produce a frame that can never open.
+
+#### `team <target>` now requires an unambiguous id — ★ GRAMMAR CHANGE (2026-07-30)
+
+`team <garbage>` used to **silently leave the team**: `strtoul` consumes zero digits from a non-numeric tail and
+returns 0, and `team 0` means leave. So `team exportky`, `team nwe` — and `team 0x`, `team 08`, `team 0abc`, which
+*do* begin with a digit — all left. `team -1` silently **joined** team `0xFFFFFFFF`.
+
+Now: the target must **begin with a digit**, and **a zero value requires an unambiguous zero spelling** (`0`, `00`,
+`0x0` accepted; `0x`, `08`, `0abc` refused). **`team 0` = leave is unchanged.** The refusal states explicitly that
+nothing changed — team id, team channel key and NV are all as they were — which the app should surface verbatim,
+because the whole point is reassuring the operator that a typo did not destroy their membership.
+
 ### Remote admin — challenge–response — `docs/superpowers/specs/2026-07-26-remote-admin-challenge-response-design.md`
 - The companion becomes the PRIMARY remote-admin driver (v1). The monotonic counter/`floor=N` hint is
   REPLACED by a node-issued challenge.

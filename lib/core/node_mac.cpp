@@ -446,7 +446,7 @@ bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t
 // reactive ROUTE_QUERY): enqueue anyway; issue_send's no-route path defers the origination (park in _deferred + an
 // expanding-ring RREQ for G via emit_route_request) and try_drain_deferred re-flies it when a route to G appears
 // (the Lua Pass-2; an EXPLICIT recovery, not a silent fallback — it ages out to send_failed on the deferred TTL).
-void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint8_t type) {
+uint16_t Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint8_t type, uint32_t override_source_hash) {
     // ★★ §xl-crypt-intent (2026-07-29) — THE CONFIDENTIALITY FIX. Both callers used to pass no intent at all, so
     // `send 0x<hash> -e` to a mobile whose home sits on another layer aired the text IN THE CLEAR with no refusal.
     // The seal decision lives HERE, at the one choke point every mobile_home_find / parked-XL origination passes,
@@ -459,9 +459,28 @@ void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_
     // above does not apply to it, and enqueue_cross_layer stamps SOURCE_HASH = _key_hash32 — the same hash the seal
     // carries inside — which is what the recipient's directed e2e_open_relay needs. This is byte-for-byte the transport
     // `send_layer -e` already uses (node.cpp CmdKind::send_layer) and s27 exercises end-to-end to a HOSTED mobile.
+    // ★★ §xl-deleg-ack (2026-07-30) — THE DELIVERY FIX, and it is the SAME structural failure one layer up: this
+    // function used to take no `override_source_hash` either, so the delegation identity was discarded here the way
+    // the crypt intent was. It is now MANDATORY and threaded to enqueue_cross_layer (which has always accepted it —
+    // originate_layer_path passes it), which also makes enqueue_cross_layer's `override_source_hash == 0` guard skip
+    // arming an E2E-ack deadline on the HOME: the MOBILE is the one awaiting that ack, not us. The caller-side half
+    // (the ctr_H->ctr_M map) rides the RETURN value; see node_hashlocate.cpp's mobile_home_find arm.
     const bool want_crypt = (crypt == CryptIntent::on)  ? true
                           : (crypt == CryptIntent::off) ? false
                                                         : _cfg.e2e_dm;
+    // ★ §xl-deleg-ack, C2 backstop for a combination THIS SLICE made expressible for the first time. Sealing here uses
+    // OUR identity (build_sealed_relay_body seals with `_key_hash32`) while override_source_hash puts the MOBILE's hash
+    // in the clear SOURCE_HASH — and the recipient's e2e_open_relay derives the ECDH from the CLEAR hash. So
+    // "seal as us, claim to be the mobile" produces a frame that can never open: a Poly1305 tag failure and a SILENT
+    // drop, i.e. the very outcome this slice exists to remove. UNREACHABLE TODAY, measured: the only caller passing a
+    // non-zero override_source_hash is node_mac_rx.cpp's delegated re-origination, which hard-codes CryptIntent::off
+    // (the MOBILE already sealed). Refuse loud rather than emit an unopenable frame if that line ever changes.
+    if (want_crypt && override_source_hash != 0) {
+        MR_EMIT("xl_send_deleg_seal_conflict", EF_I("target_layer", target_layer),
+                EF_I("src_hash", static_cast<int64_t>(override_source_hash)));
+        push_send_failed(SendFailReason::unsealable, dst_node, /*ctr=*/0);
+        return 0;
+    }
     // sbody/sblen/stype = what actually flies (send_by_hash's own idiom, U3). `rbody` is STACK, not `static`: the seal
     // arm is unreachable from the cramped do_post_ack frame (ADDENDUM 4) — its only caller there is the home's delegated
     // re-origination, which passes CryptIntent::off — so the deep frame only occurs on the on_command path, where
@@ -478,7 +497,7 @@ void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_
             MR_EMIT("xl_send_unsealable", EF_I("type", type), EF_I("target_layer", target_layer),
                     EF_I("dst_hash", static_cast<int64_t>(dst_hash)));
             push_send_failed(SendFailReason::unsealable, dst_node, /*ctr=*/0);
-            return;
+            return 0;
         }
         SealOutcome oc = SealOutcome::ok;
         const uint8_t rn = build_sealed_relay_body(dst_hash, body, body_len, rbody, sizeof rbody, oc);
@@ -489,7 +508,7 @@ void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_
                            : (oc == SealOutcome::bad_rng)     ? SendFailReason::bad_rng
                                                               : SendFailReason::too_large,
                              dst_node, /*ctr=*/0);
-            return;
+            return 0;
         }
         sbody = rbody; sblen = rn; stype = DATA_TYPE_SEALED_RELAY;   // fall into the SINGLE gateway-select/enqueue tail
     }
@@ -498,15 +517,20 @@ void Node::send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_
     if (gw == 0) {                                   // no gateway serves the target leaf at all -> fail loud
         MR_EMIT("xl_send_no_gateway", EF_I("target_layer", target_layer), EF_I("dst_hash", static_cast<int64_t>(dst_hash)));
         push_send_failed(SendFailReason::no_route, dst_node, /*ctr=*/0);
-        return;
+        return 0;
     }
     // gw != 0: enqueue regardless of route. A live route -> issue_send fires (4a defers to G's window). No route ->
     // issue_send -> defer_send parks it + RREQs G (4d.2 park+reactive), re-flown by try_drain_deferred on the route.
     const uint8_t ids[2] = { active_layer_id(), target_layer };   // the 2-element path [our_layer, target_layer], cur=1
-    if (!enqueue_cross_layer(gw, dst_hash, ids, /*n_layers*/ 2, /*cur*/ 1, sbody, sblen, flags, /*out_ctr=*/nullptr, /*type=*/stype)) {
+    // §xl-deleg-ack: out_ctr was `nullptr` — the ctr the DM actually flew with was DISCARDED, which is why the caller
+    // could not build the ctr_H->ctr_M map entry its same-layer sibling builds from do_send's return. Capture + return it.
+    uint16_t out_ctr = 0;
+    if (!enqueue_cross_layer(gw, dst_hash, ids, /*n_layers*/ 2, /*cur*/ 1, sbody, sblen, flags, &out_ctr, /*type=*/stype, override_source_hash)) {
         MR_EMIT("xl_send_too_large", EF_I("target_layer", target_layer), EF_I("gw", gw));
         push_send_failed(SendFailReason::too_large, dst_node, /*ctr=*/0);
+        return 0;                                    // enqueue_cross_layer leaves out_ctr untouched on failure; 0 = nothing flew
     }
+    return out_ctr;
 }
 
 // Explicit-path origination (console/companion send_layer, §5): the user supplied the DESTINATION layer path

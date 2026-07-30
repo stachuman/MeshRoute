@@ -360,3 +360,57 @@ TEST_CASE("§T-K3 parse_grant_args — C2 refusals: missing, bad target, unknown
     CHECK(o.name_len == 32);
     CHECK(o.team_plane);
 }
+
+// ---- ★★ §team-target (BUG FIX 2026-07-30): `team <garbage>` USED TO LEAVE THE TEAM ---------------------------------
+// handle_team read its first token with strtoul, which consumes ZERO characters from a non-numeric tail and returns 0 —
+// and `team 0` MEANS LEAVE. So every near-spelling of a subcommand (`team exportky`, `team grantky`, `team nwe`) silently
+// left the team. handle_team lives in src/, which is outside the native build, so the decision was extracted into
+// parse_team_target and pinned here. ★ The load-bearing assertion is the SURVIVING id, not the return value: out_id is
+// seeded with a LIVE team_id and must still hold it after every refusal, because that is what the caller persists.
+TEST_CASE("★★ §team-target — a NON-NUMERIC tail is REFUSED and the caller's team_id SURVIVES (it used to become 0 = LEAVE)") {
+    const uint32_t live = 0xDEADBEEFu;                       // the node's current team_id
+    const char* tail = nullptr;
+    // Every one of these used to parse as 0 -> `team 0` -> LEAVE. The exact spellings from the bench report.
+    for (const char* garbage : { "exportky", "exportkeyy", "grantky", "grantkeyx", "nwe", "ne", "leave", "x",
+                                 "Exportkey", "-1", "+5", " 7", "?",
+                                 // ★ clause (2): these BEGIN with a digit yet strtoul reads only the leading "0",
+                                 // so a leading-digit rule ALONE still left the team. Found by test, not by reading.
+                                 "0x", "0X", "0xZZ", "08", "09", "0abc", "0x " }) {
+        uint32_t id = live;                                  // seeded with the LIVE id, exactly as the caller holds it
+        tail = reinterpret_cast<const char*>(0x1);           // a poison value: a refusal must not write the tail either
+        CHECK_FALSE(mrfw::parse_team_target(garbage, id, tail));
+        CHECK(id == live);                                   // ★★ THE ASSERTION THAT PROTECTS THE OPERATOR: still in the team
+        CHECK(id != 0);                                      // ...and specifically NOT the leave value
+        CHECK(tail == reinterpret_cast<const char*>(0x1));   // fail-closed: no half-write
+    }
+    uint32_t id = live;
+    CHECK_FALSE(mrfw::parse_team_target(nullptr, id, tail));  // defensive: a null tail is a refusal, not a crash
+    CHECK(id == live);
+}
+
+TEST_CASE("★ §team-target — `team 0` (LEAVE) and every legitimate id still parse EXACTLY as before") {
+    uint32_t id = 0xFFFFFFFFu; const char* tail = nullptr;
+    // ⚠ LEAVING IS LEGITIMATE and must keep working — this is the direction a leading-digit rule could have broken.
+    CHECK(mrfw::parse_team_target("0", id, tail));
+    CHECK(id == 0u);
+    CHECK(tail != nullptr); if (tail) CHECK(std::string(tail).empty());
+    id = 0; CHECK(mrfw::parse_team_target("42", id, tail));            CHECK(id == 42u);
+    id = 0; CHECK(mrfw::parse_team_target("0x2a", id, tail));          CHECK(id == 42u);          // base 0 -> hex
+    id = 0; CHECK(mrfw::parse_team_target("0X2A", id, tail));          CHECK(id == 42u);
+    id = 0; CHECK(mrfw::parse_team_target("010", id, tail));           CHECK(id == 8u);           // base 0 -> octal (pre-existing)
+    id = 0; CHECK(mrfw::parse_team_target("4294967295", id, tail));    CHECK(id == 0xFFFFFFFFu);  // the full 32-bit id space
+    id = 0; CHECK(mrfw::parse_team_target("0xDEADBEEF", id, tail));     CHECK(id == 0xDEADBEEFu);
+    // The PHY/key tail is handed through verbatim (strtoul's endp), which is what parse_team_key_tail/parse_phy_tail read.
+    id = 0; CHECK(mrfw::parse_team_target("7 freq=869.0 sf=7 bw=125", id, tail));
+    CHECK(id == 7u);
+    CHECK(tail != nullptr); if (tail) CHECK(std::string(tail) == " freq=869.0 sf=7 bw=125");
+    id = 0; CHECK(mrfw::parse_team_target("0 ", id, tail));            CHECK(id == 0u);           // `team 0` with a trailing space still leaves
+    id = 9; CHECK(mrfw::parse_team_target("00", id, tail));            CHECK(id == 0u);           // an unambiguous zero spelling MAY leave
+    id = 9; CHECK(mrfw::parse_team_target("0x0", id, tail));           CHECK(id == 0u);
+    id = 9; CHECK(mrfw::parse_team_target("0 freq=869.0", id, tail));  CHECK(id == 0u);           // `team 0` + a tail: clause (2) measures the TOKEN, not the line
+    // A digit-led token with a junk suffix is ACCEPTED with the junk left in the tail — unchanged pre-existing
+    // behaviour (the tail parsers own it). Pinned so the leading-digit rule is not mistaken for a whole-token rule.
+    id = 0; CHECK(mrfw::parse_team_target("12abc", id, tail));
+    CHECK(id == 12u);
+    CHECK(tail != nullptr); if (tail) CHECK(std::string(tail) == "abc");
+}

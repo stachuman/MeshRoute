@@ -816,7 +816,17 @@ private:
     // home sits on another layer went out IN THE CLEAR with no refusal (C2's exact failure class). Making the parameter
     // required means a future caller cannot re-open the hole by omission: it must state on/off/def and the seal-or-refuse
     // decision below is then unavoidable. Param ORDER mirrors do_send (…, flags, crypt, …, type) per U3.
-    void    send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint8_t type = 0);  // pick G + enqueue, else err_no_gateway (4d.2: park+ROUTE_QUERY); flags honored on the DM. §S2: type (e.g. INTRO) threads to the cross-layer DM's TYPE. want_crypt => the body is SEALED into a DATA_TYPE_SEALED_RELAY (never a cleartext downgrade); a seal failure or an already-TYPED send fails LOUD
+    // ★★ §xl-deleg-ack (BUG FIX 2026-07-30): `override_source_hash` is likewise MANDATORY (no default) and the return
+    // type went `void` -> the DM ctr, for the SAME reason applied to a delivery guarantee instead of a confidentiality
+    // one. This signature used to end at `type`, so the mobile_home_find arm structurally dropped BOTH halves of the
+    // delegation contract its same-layer sibling honours — the mobile's SOURCE_HASH and the ctr_H->ctr_M map entry —
+    // and a home re-originating for its hosted mobile toward a target homed on a THIRD layer aired SOURCE_HASH = its
+    // OWN key. Consequence on a plaintext DM: the reversed 4e ack addresses the home, is consumed there, and the
+    // mobile never sees it. On a DELEGATED SEALED DM it is worse — the mobile sealed under its own hash, so the
+    // recipient's directed open runs the ECDH against the WRONG identity, the Poly1305 tag fails, and the DM is
+    // dropped with no trace on metal (MR telemetry is sim-only). 0 = nothing flew (next_ctr never mints 0), so a
+    // caller can guard its deleg_ack_put on the return exactly as the do_send sites do.
+    uint16_t send_cross_layer(uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t body_len, uint8_t flags, CryptIntent crypt, uint8_t type, uint32_t override_source_hash);  // pick G + enqueue, else err_no_gateway (4d.2: park+ROUTE_QUERY); flags honored on the DM. §S2: type (e.g. INTRO) threads to the cross-layer DM's TYPE. want_crypt => the body is SEALED into a DATA_TYPE_SEALED_RELAY (never a cleartext downgrade); a seal failure or an already-TYPED send fails LOUD. §GapB: override_source_hash (!=0) = the delegating MOBILE's hash -> the inner SOURCE_HASH. Returns the DM ctr, 0 = not sent
     // Explicit-path origination (console/companion send_layer, §5): route a cross-layer DM along the user-supplied
     // layer path [our_layer, hops...] cur=1, NO H-query. Returns SYNCHRONOUSLY (no orphan push): CmdCode::queued (+
     // out_ctr = the MAC ctr the app correlates async pushes by), err_no_gateway (no gateway serves hops[0]'s leaf),

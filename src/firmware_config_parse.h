@@ -280,6 +280,47 @@ inline GrantArgs parse_grant_args(const char* tail, char* scratch, size_t scratc
     return GrantArgs::ok;
 }
 
+// ★★ §team-target (BUG FIX 2026-07-30) — `team <garbage>` USED TO LEAVE THE TEAM.
+// `handle_team` read its first token with `strtoul(args, &endp, 0)`. strtoul consumes ZERO characters from a
+// non-numeric tail and returns 0 — MEASURED, not assumed: strtoul("exportky") == 0 with endp == the input,
+// likewise "grantky", "nwe", "new". And `team 0` MEANS LEAVE. So EVERY near-spelling of a subcommand —
+// `team exportky`, `team grantky`, `team nwe` — silently left the team, dropping the learned team plane and the
+// team_local_id. `exportkey`/`grantkey`/`new` are matched before the numeric parse, so only the near-misses bit,
+// and a MOBILE was masked (parse_phy_tail refuses the leftover unknown key first) — but a node with
+// `is_mobile == 0` and a non-zero `team_id` LEFT, and that is reachable from the console the owner types at.
+//
+// THE RULE — two clauses, and the second is NOT in the dispatch brief; it was found by testing the first.
+//   (1) the token must BEGIN WITH A DIGIT to be read as a team id; anything else is the caller's LOUD refusal
+//       (C2 — never a silent no-op, never a fall-through to leave). It also refuses two spellings that were
+//       silently WRONG rather than merely mistyped: `team -1` (strtoul yields 0xFFFFFFFF, i.e. joining a garbage
+//       team) and `team +5`, neither of which any usage line offers.
+//   (2) ★ if the value parses to 0 — the DESTRUCTIVE outcome — the digits strtoul consumed must span the WHOLE
+//       token. Clause (1) alone still let `team 0x`, `team 08` and `team 0abc` LEAVE THE TEAM: strtoul reads just
+//       the leading "0" from each and reports 0, so the commonest hex typo of all was still a silent leave.
+//       Because leaving is destructive, only an UNAMBIGUOUS zero spelling may mean it.
+// The scoping is deliberate and minimal: clause (2) is gated on `v == 0`, so it can only ever change the outcome
+// of a command that would have LEFT the team. A non-zero id with a junk suffix (`team 12abc`) is still ACCEPTED
+// with `abc` handed to the tail parsers, exactly as before — that spelling is a different (silent-ignore) issue,
+// it does not leave the team, and it is not this bug.
+// `team 0` (leave), `team 00`, `team 0x0`, `team 42`, `team 0x2a`, `team 010` and `team <id> freq=…` all keep
+// working VERBATIM: this gates entry only, strtoul with base 0 still does the conversion.
+//
+// FAIL-CLOSED: on false, `out_id` and `out_tail` are left UNTOUCHED, so a refused token cannot half-write the id
+// the caller is about to persist. That is the property the native test pins — it seeds out_id with a live
+// team_id and asserts the garbage case leaves it SURVIVING, which is the assertion that protects the operator
+// (an error string alone would not).
+inline bool parse_team_target(const char* s, uint32_t& out_id, const char*& out_tail) {
+    if (!s || s[0] < '0' || s[0] > '9') return false;   // (1) no leading digit => not a team id
+    char* endp = nullptr;
+    const uint32_t v = static_cast<uint32_t>(strtoul(s, &endp, 0));   // base 0: decimal, 0x-hex and leading-0 octal, exactly as before
+    if (v == 0) {                                       // (2) only an unambiguous zero may mean LEAVE
+        size_t tn = 0; while (s[tn] && s[tn] != ' ') ++tn;            // the target token = up to the first space
+        if (static_cast<size_t>(endp - s) != tn) return false;        // `0x` / `08` / `0abc`: strtoul read only the leading "0"
+    }
+    out_id = v; out_tail = endp;                        // committed only after the token was accepted
+    return true;
+}
+
 // FNV-1a/32 over the 8 little-endian bytes of (a ‖ b). Used to MINT a fresh team_id = hash(our key ‖ HW-RNG nonce).
 inline uint32_t team_fnv1a32(uint32_t a, uint32_t b) {
     uint32_t h = 2166136261u;

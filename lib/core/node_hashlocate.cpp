@@ -1109,9 +1109,15 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
     // H answer, node_hashlocate.cpp handle_h). Mirrors do_post_ack's forwarded last-mile. redirect_home_id==0 = a LIVE local
     // hosting (a migrated mobile falls through to the mobile_home_find redirect below). Gated on _mobile_reg_n -> non-host byte-identical.
     for (uint8_t i = 0; i < _active->_mobile_reg_n; ++i)
-        if (_active->_mobile_reg[i].key_hash32 == key_hash32 && _active->_mobile_reg[i].redirect_home_id == 0)
-            return enqueue_data(_active->_mobile_reg[i].mobile_local_id, sbody, sblen, flags, "tx_enqueue", /*app_dm=*/true,
-                                /*type=*/itype, crypt, /*override_dst_hash=*/0, /*override_source_hash=*/reply_to_hash, /*addr_len=*/1, plane);
+        if (_active->_mobile_reg[i].key_hash32 == key_hash32 && _active->_mobile_reg[i].redirect_home_id == 0) {
+            const uint16_t lch = enqueue_data(_active->_mobile_reg[i].mobile_local_id, sbody, sblen, flags, "tx_enqueue", /*app_dm=*/true,
+                                              /*type=*/itype, crypt, /*override_dst_hash=*/0, /*override_source_hash=*/reply_to_hash, /*addr_len=*/1, plane);
+            // ★ §xl-deleg-ack: the THIRD site that stamped the mobile's SOURCE_HASH without mapping ctr_H->ctr_M. Reached
+            // when a home hosts BOTH the delegating mobile and the target: the target acks to us with DST_HASH = M, and the
+            // hosted-mobile last-mile fork's deleg_ack_translate missed, so M received the HOME's ctr. Same one-line shape.
+            if (reply_to_hash != 0) deleg_ack_put(reply_to_hash, lch, mobile_ctr);
+            return lch;
+        }
 #endif
     uint8_t home_layer = 0;
     const int home = mobile_home_find(key_hash32, &home_layer);  // §mobile 3c/5b: a cached mobile -> its home_node (+layer)?
@@ -1121,22 +1127,39 @@ uint16_t Node::send_by_hash(uint32_t key_hash32, const uint8_t* body, uint8_t bo
             // whose home sits on another layer aired IN THE CLEAR. send_cross_layer now seals it into a SEALED_RELAY or
             // refuses loud. sbody/sblen are safe to pass instead of body/body_len: intro_attach_prefix returns 0 for a
             // want_crypt send, so under crypt they are identical to body/body_len and itype is 0.
-            // ⚠⚠ MARK OF WHAT IS *NOT* DONE HERE (found while fixing the crypt leak; DELIBERATELY not fixed — C1, its own
-            // slice). Compare the SAME-LAYER sibling three lines below: it passes `override_source_hash=reply_to_hash` AND
-            // calls deleg_ack_put. This arm does NEITHER, because send_cross_layer/enqueue_cross_layer expose no
-            // override_source_hash on this path — so when a HOME re-originates for its hosted MOBILE (reply_to_hash != 0)
-            // and the target's own home is on a third layer, the frame airs SOURCE_HASH = the HOME's key. Two consequences,
-            // both pre-existing: (1) the far recipient's reversed 4e E2E-ack addresses the HOME, and with no
-            // ctr_H->ctr_M map entry the mobile never sees its ack; (2) worse for a DELEGATED SEALED send — the mobile
-            // sealed under ITS OWN hash, so e2e_open_relay's anti-spoof check (sealed source_hash == clear source_hash)
-            // fails at the recipient and the DM is SILENTLY DROPPED. Fixing it means giving this path an
-            // override_source_hash (enqueue_cross_layer already takes one — originate_layer_path threads it) plus a
-            // deleg_ack_put; that is a delivery/ack change, not a confidentiality one, so it is not folded in here.
-            send_cross_layer(static_cast<uint8_t>(home), key_hash32, home_layer, sbody, sblen, flags, crypt, itype);
+            // ★★ §xl-deleg-ack (BUG FIX 2026-07-30) — WHAT USED TO BE MISSING HERE, now done. This arm dropped BOTH
+            // halves of the delegation contract: `override_source_hash` (which send_cross_layer/enqueue_cross_layer
+            // simply did not expose on this path) and the `deleg_ack_put` its same-layer sibling below now also makes.
+            // So when a HOME re-originated for its hosted MOBILE (reply_to_hash != 0) toward a target whose own home
+            // sits on a THIRD layer, the frame aired SOURCE_HASH = the HOME's key. Two failures, both user-visible:
+            //   (1) PLAINTEXT — the far recipient's reversed 4e E2E-ack is addressed to the HOME (send_xl_ack sends to
+            //       dm.source_hash), so the home CONSUMES it (dst_key_hash32 == our key => the hosted-mobile last-mile
+            //       fork does not fire) and the mobile never sees its ack; after the 300 s XL budget its wildcard
+            //       pending entry expires into a spurious send_failed{e2e_ack_timeout}.
+            //   (2) ★ DELEGATED SEALED — the mobile sealed under ITS OWN hash, so the recipient's directed open runs
+            //       peer_key_find/ECDH against the HOME's identity: either no key at all or a wrong shared secret, so
+            //       dm_open's Poly1305 tag fails (the sealed-vs-clear source_hash compare is the SECOND line of
+            //       defence, not the one that trips). Result: DROPPED, and node_mac_rx.cpp's e2e_open_no_key emit is
+            //       sim-only telemetry, so on metal it leaves NO TRACE AT ALL. That is why this ranked first.
+            // The fix is symmetric with the sibling: pass the mobile's hash, take the ctr the DM flew with from the
+            // return, and map ctr_H -> ctr_M so the returning ack reaches the mobile with the ctr IT is waiting on.
+            const uint16_t xch = send_cross_layer(static_cast<uint8_t>(home), key_hash32, home_layer, sbody, sblen, flags, crypt, itype, /*override_source_hash=*/reply_to_hash);
+            if (reply_to_hash != 0 && xch != 0) deleg_ack_put(reply_to_hash, xch, mobile_ctr);   // §mobile reverse-ack, XL arm: xch==0 means nothing flew (next_ctr never mints 0) -> never record a phantom ctr_H
+            // ⚠ DELIBERATELY still `return 0` (C1): send_by_hash's contract is "the ctr if sent immediately, else 0",
+            // and this arm has always answered 0. `xch` is now available, but returning it would change what the
+            // console/companion reports for a hash-addressed cross-layer send (and what on_command arms) — a separate
+            // behaviour change from the delivery bug, so it is not folded in.
             return 0;
         }
         // same layer (4a path): send to the home carrying the MOBILE's hash (so home forwards, not consumes). NO hard-verify.
-        return do_send(static_cast<uint8_t>(home), sbody, sblen, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/itype, /*override_source_hash=*/reply_to_hash);
+        // ★ §xl-deleg-ack: the deleg_ack_put here is NEW TOO — this sibling passed override_source_hash but never mapped
+        // ctr_H->ctr_M, so a delegated DM to a target whose home is on OUR layer had the same ack failure as (1) above
+        // (the target acks to the home with DST_HASH = M, the last-mile fork rewrites the ctr via
+        // deleg_ack_translate, and a MISS forwarded the HOME's ctr to a mobile awaiting its own). The XL-CRYPT note that
+        // sat here claimed this line already called deleg_ack_put; it did not — corrected per V1 while fixing it.
+        const uint16_t hch = do_send(static_cast<uint8_t>(home), sbody, sblen, flags, crypt, /*override_dst_hash=*/key_hash32, /*type=*/itype, /*override_source_hash=*/reply_to_hash);
+        if (reply_to_hash != 0) deleg_ack_put(reply_to_hash, hch, mobile_ctr);   // §mobile reverse-ack: same shape as the id_bind arm above (no-op if mobile_ctr==0)
+        return hch;
     }
     // SOFT cached binding -> HARD verify-on-use (reach the owner for a correction); UNKNOWN -> SOFT flood. (The HOME re-originating
     // for its mobile floods as ITSELF, origin=home_id -> the answer routes back; the parked send keeps the mobile's reply hash.)
@@ -1377,7 +1400,18 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t 
                 // anyway because "unreachable today" is not a confidentiality guarantee: if e2e_dm is turned ON between
                 // the park and this drain, sealing is the CORRECT outcome, and a future park_send_layer that does carry
                 // an intent gets it honoured instead of silently downgraded.
-                send_cross_layer(resolved_id, key_hash32, target_layer, p.body, p.body_len, p.flags, p.crypt, p.type);
+                // ★★ §xl-deleg-ack: `p.reply_to_hash` / `p.mobile_ctr` are THREADED here for the same reason and with
+                // the same measurement. My brief expected this to share the ack defect with the arm above, because its
+                // OWN same-layer sibling (the `else` branch below) does call deleg_ack_put. ⚠ IT DOES NOT, and the
+                // reason is structural, not the crypt one XL-CRYPT gave: a `cross_layer` park can ONLY come from
+                // park_send_layer, which starts from `ParkedSend{}` and sets exactly {key_hash32, flags, parked_at_ms,
+                // cross_layer, body} — it NEVER stores reply_to_hash or mobile_ctr, and its single caller
+                // (node.cpp CmdKind::send_layer) is a console origination, never a home re-originating for a mobile.
+                // So p.reply_to_hash is provably 0 here TODAY and both lines below are byte-identical no-ops. Threaded
+                // anyway on XL-CRYPT's principle — "unreachable today is not a guarantee" — so that a future
+                // park_send that does carry a delegation cannot silently lose it the way this arm's sibling did.
+                const uint16_t pch = send_cross_layer(resolved_id, key_hash32, target_layer, p.body, p.body_len, p.flags, p.crypt, p.type, /*override_source_hash=*/p.reply_to_hash);
+                if (p.reply_to_hash != 0 && pch != 0) deleg_ack_put(p.reply_to_hash, pch, p.mobile_ctr);
             } else {
                 MR_EMIT("send_hash_resolved", EF_I("key_hash32", static_cast<int64_t>(key_hash32)), EF_I("node", resolved_id));
                 // same-layer (incl. a cross_layer park whose dst turned out to be on OUR leaf, §5.1): a plain DM.

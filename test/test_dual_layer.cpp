@@ -235,6 +235,14 @@ struct DualLayerTestAccess {
     }
     // §xl-crypt-intent: gained an optional `type` rather than forking a second accessor (U1, the req_sync/send_xl idiom).
     static uint16_t send_by_hash_intent(Node& n, uint32_t h, const uint8_t* body, uint8_t len, CryptIntent ci, uint8_t type = 0) { return n.send_by_hash(h, body, len, 0, ci, 0, 0, Plane::AUTO, type); }   // §S2: drive a plaintext/crypted hash send (attach decision)
+    // §xl-deleg-ack: the HOME's DELEGATED re-origination — byte-for-byte node_mac_rx.cpp's `ours` same-layer fork
+    // (reply_to_hash = the mobile's stable hash, mobile_ctr = the wrapper's ctr, CryptIntent::off because the mobile
+    // already sealed, type = the MOBILE_SEND wrapper's enclosed type). A separate accessor rather than more defaults on
+    // send_by_hash_intent: this one exists to make the DELEGATION explicit at every call site that uses it.
+    static uint16_t send_by_hash_deleg(Node& n, uint32_t h, const uint8_t* body, uint8_t len, uint8_t flags,
+                                       uint32_t reply_to_hash, uint16_t mobile_ctr, uint8_t type) {
+        return n.send_by_hash(h, body, len, flags, CryptIntent::off, reply_to_hash, mobile_ctr, Plane::AUTO, type);
+    }
     static const PendingTx* pending(Node& n) { return n._active->_pending_tx ? &*n._active->_pending_tx : nullptr; }  // §mobile 3a: the in-flight item (after become_free issues the forward)
     static void     make_registered_mobile(Node& n, uint8_t local_id, uint8_t home_id, uint32_t home_hash) {   // §mobile 3b: a mobile that has adopted a local-id + homed
         n._cfg.is_mobile = true; n.set_identity(local_id, n._key_hash32); n._joined = true;
@@ -334,18 +342,36 @@ struct DualLayerTestAccess {
         n.do_post_ack();
     }
     static void     deleg_ack_put(Node& n, uint32_t mobile_hash, uint16_t ctr_h, uint16_t ctr_m) { n.deleg_ack_put(mobile_hash, ctr_h, ctr_m); }   // §GapB: seed the delegated ctr map (keyed by the mobile's hash)
-    static void     drive_post_ack_mobile_send(Node& n, uint32_t source_hash_M, uint32_t dst_hash_X, uint16_t ctr_M, uint8_t body0) {   // §mobile reverse-ack: a hosted mobile's MOBILE_SEND arriving at its home
+    // §xl-deleg-ack: READ the map back. The returning ack's ctr rewrite (node_mac_rx.cpp's hosted-mobile last-mile fork)
+    // IS this call, so asserting on it asserts the ctr the MOBILE will actually see.
+    static bool     deleg_ack_xlate(Node& n, uint32_t mobile_hash, uint16_t acked, uint16_t& out_m) { return n.deleg_ack_translate(mobile_hash, acked, out_m); }
+    // §xl-deleg-ack: how many E2E-ack DEADLINES this node armed. A HOME re-originating for its mobile must arm NONE (the
+    // MOBILE is the one awaiting the ack) — enqueue_cross_layer's `override_source_hash == 0` guard, which only becomes
+    // reachable on the XL arm once the delegation identity is actually threaded through.
+    static uint8_t  pending_e2e_ack_n(Node& n) { uint8_t c = 0; for (uint8_t i = 0; i < Node::cap_pending_e2e_acks; ++i) if (n._pending_e2e_acks[i].used) ++c; return c; }
+    // §xl-deleg-ack: the GENERAL form — a hosted mobile's SAME-LAYER MOBILE_SEND wrapper arriving at its home, with an
+    // optional DATA_FLAG_MS_ENCLOSED_TYPE body prefix so a DELEGATED SEALED_RELAY (or INTRO) can be driven, not just a
+    // plain 1-byte DM. Built with pack_unicast_inner exactly like the _xl variant (U1: extended rather than forked; the
+    // 1-byte overload below keeps every pre-existing call site byte-for-byte).
+    static void     drive_post_ack_mobile_send_typed(Node& n, uint32_t source_hash_M, uint32_t dst_hash_X, uint16_t ctr_M,
+                                                    uint8_t etype, const uint8_t* body, uint8_t len) {
         auto& pa = n._active->_post_ack; pa = PostAck{};
         pa.pending=true; pa.is_forward=false; pa.origin=n._node_id; pa.dst=n._node_id;   // a registered mobile stamps origin=home_id (== this home)
         pa.ctr=ctr_M; pa.ctr_lo=static_cast<uint8_t>(ctr_M & 0x0F);
-        pa.flags=DATA_FLAG_DST_HASH|DATA_FLAG_SOURCE_HASH|DATA_FLAG_E2E_ACK_REQ; pa.type=DATA_TYPE_MOBILE_SEND;
-        pa.inner[0]=static_cast<uint8_t>(dst_hash_X); pa.inner[1]=static_cast<uint8_t>(dst_hash_X>>8);   // [dst_hash 4B LE]...
-        pa.inner[2]=static_cast<uint8_t>(dst_hash_X>>16); pa.inner[3]=static_cast<uint8_t>(dst_hash_X>>24);
-        pa.inner[4]=n._node_id;   // [origin]
-        pa.inner[5]=static_cast<uint8_t>(source_hash_M); pa.inner[6]=static_cast<uint8_t>(source_hash_M>>8);   // [source_hash 4B LE]
-        pa.inner[7]=static_cast<uint8_t>(source_hash_M>>16); pa.inner[8]=static_cast<uint8_t>(source_hash_M>>24);
-        pa.inner[9]=body0; pa.inner_len=10;   // [body]
+        pa.flags=static_cast<uint8_t>(DATA_FLAG_DST_HASH|DATA_FLAG_SOURCE_HASH|DATA_FLAG_E2E_ACK_REQ
+                                      | (etype ? DATA_FLAG_MS_ENCLOSED_TYPE : 0));
+        pa.type=DATA_TYPE_MOBILE_SEND;
+        uint8_t wbody[protocol::max_payload_bytes_hard_cap]; uint8_t wl = 0;
+        if (etype) wbody[wl++] = etype;                       // the wrapper's SINGLE enclosed-type byte
+        for (uint8_t i=0;i<len;++i) wbody[wl++] = body[i];
+        const size_t nn = pack_unicast_inner(std::span<uint8_t>(pa.inner, sizeof pa.inner), pa.flags, dst_hash_X,
+                                             /*layer_ids*/nullptr, /*n_layers*/0, /*cur*/0, n._node_id, source_hash_M,
+                                             wbody, wl, 0, 0);
+        pa.inner_len=static_cast<uint8_t>(nn);
         n.do_post_ack();
+    }
+    static void     drive_post_ack_mobile_send(Node& n, uint32_t source_hash_M, uint32_t dst_hash_X, uint16_t ctr_M, uint8_t body0) {   // §mobile reverse-ack: a hosted mobile's MOBILE_SEND arriving at its home
+        drive_post_ack_mobile_send_typed(n, source_hash_M, dst_hash_X, ctr_M, /*etype=*/0, &body0, 1);
     }
     static uint16_t delegate_send_layer(Node& n, uint32_t dst_hash, const uint8_t* hops, uint8_t hc, uint8_t etype, const uint8_t* body, uint8_t len, uint8_t flags) { return n.delegate_send_layer(dst_hash, hops, hc, etype, body, len, flags); }   // §S1: mobile builds the XL wrapper to its home
     static void     drive_post_ack_mobile_send_xl(Node& n, uint32_t M, uint32_t X, uint16_t ctr, const uint8_t* hops, uint8_t hc, uint8_t etype, const uint8_t* body, uint8_t len, uint8_t wrapper_flags) {   // §S1: a MOBILE_SEND+CROSS_LAYER wrapper arriving at the home
@@ -542,7 +568,10 @@ struct DualLayerTestAccess {
     // §xl-crypt-intent: the accessor gained the crypt intent rather than forking a second one (U1, the req_sync idiom
     // below). Defaulted to `off` so every pre-fix call site keeps its exact plaintext meaning; the new sealed-XL tests
     // pass `on`/`def` explicitly. (The PRODUCTION signature deliberately has NO default — see node.h.)
-    static void           send_xl(Node& n, uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t len, uint8_t flags = 0, CryptIntent crypt = CryptIntent::off, uint8_t type = 0) { n.send_cross_layer(dst_node, dst_hash, target_layer, body, len, flags, crypt, type); }
+    // §xl-deleg-ack: `override_source_hash` likewise defaults to 0 HERE ONLY (the production signature has no default —
+    // see node.h) so every pre-fix call site keeps its exact meaning; the new delegated-XL tests pass it explicitly.
+    // Returns the DM ctr now (0 = nothing flew), which the reverse-ack tests need in order to assert the ctr_H->ctr_M map.
+    static uint16_t       send_xl(Node& n, uint8_t dst_node, uint32_t dst_hash, uint8_t target_layer, const uint8_t* body, uint8_t len, uint8_t flags = 0, CryptIntent crypt = CryptIntent::off, uint8_t type = 0, uint32_t override_source_hash = 0) { return n.send_cross_layer(dst_node, dst_hash, target_layer, body, len, flags, crypt, type, override_source_hash); }
     static CmdCode        originate(Node& n, uint32_t dst_hash, const uint8_t* hops, uint8_t hc, const uint8_t* body, uint8_t len, uint8_t flags = 0) { uint16_t ctr = 0; return n.originate_layer_path(dst_hash, hops, hc, body, len, flags, ctr); }
     // Multi-hop gateway discovery (type-4 TLV) accessors.
     static void     ingest_bl(Node& n, uint8_t gw, uint8_t dest_leaf) { n.ingest_bridged_layer(gw, dest_leaf); }
@@ -2101,6 +2130,228 @@ TEST_CASE("★ §xl-crypt-intent — a TYPED `-e` XL send REFUSES LOUD (unsealab
     (void)DualLayerTestAccess::send_by_hash_intent(x, f.idM.key_hash32, body, sizeof body, CryptIntent::on, /*type=*/0);
     CHECK(DualLayerTestAccess::leaf_tx_n(x, 0) == 1);
     CHECK(DualLayerTestAccess::leaf_tx_at(x, 0, 0).type == DATA_TYPE_SEALED_RELAY);
+}
+
+// ---- ★★ §xl-deleg-ack (2026-07-30): the DELEGATED-XL delivery/ack fix -------------------------------------------
+// THE BUG: send_by_hash's mobile_home_find CROSS-LAYER arm dropped `override_source_hash` and never recorded the
+// ctr_H->ctr_M map entry, so when a HOME re-originated for its HOSTED MOBILE toward a target whose own home sits on a
+// THIRD layer the frame aired SOURCE_HASH = the HOME's key. On a DELEGATED SEALED send that is fatal and INVISIBLE: the
+// mobile sealed under ITS OWN hash, the recipient opens directed off the CLEAR source_hash, the ECDH/tag therefore
+// fails, and node_mac_rx.cpp drops it — with an emit that exists only in the simulator, so metal shows nothing at all.
+// These tests are deliberately POSITIVE about DELIVERY: the sealed DM must ARRIVE AND OPEN, and the returning ack must
+// reach the mobile carrying the MOBILE's own ctr. "A frame went out" was true of the buggy code too.
+//
+// Shared setup, reusing arm_xl_crypt's fixture (U1): H = the home on leaf 1, knows gateway G (serves leaves 1+2). The
+// TARGET T is a mobile cached as homed on layer 2, so the send lands on the cross-layer arm. M is the mobile H HOSTS.
+namespace {
+struct XlDelegFixture {
+    StubHal ghal; StubHal hal;
+    Identity idH{}, idM{}, idT{};
+    XlDelegFixture() {
+        uint8_t sH[32], sM[32], sT[32];
+        for (int i = 0; i < 32; ++i) { sH[i] = uint8_t(i + 31); sM[i] = uint8_t(150 - i); sT[i] = uint8_t(i * 3 + 7); }
+        identity_from_seed(idH, sH); identity_from_seed(idM, sM); identity_from_seed(idT, sT);
+    }
+};
+// H hosts M (local id 17) and caches "T -> home 20 on layer 2". M's ctr is 6, H's own ctrs start from 1.
+void arm_xl_deleg(XlDelegFixture& f, Node& gw, Node& home, bool cache_t_pubkey) {
+    f.ghal._now = 10000;
+    NodeConfig gcfg; gcfg.n_layers = 2;
+    gcfg.layers[0] = good_layer(1, 8); gcfg.layers[0].node_id = 5;
+    gcfg.layers[1] = good_layer(2, 8); gcfg.layers[1].node_id = 12;
+    CHECK(gw.on_init(gcfg)); CHECK(f.ghal.last_tx_len > 0);
+    f.hal._now = 50000; f.hal._rand_ret = 7; f.ghal._rand_ret = 7;   // non-degenerate seed bytes on BOTH hals -> the R7 bad_rng refusal doesn't fire when the MOBILE seals
+    NodeConfig cfg; cfg.routing_sf = 8; cfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); cfg.leaf_id = 1;
+    cfg.e2e_dm = false; cfg.intro_attach = false;
+    CHECK(home.on_init(cfg)); home.set_crypto_identity(f.idH.x_secret, f.idH.ed_pub);
+    RxMeta meta{}; meta.snr_db = 9.0f; meta.rssi_dbm = -70.0f; meta.recv_ms = f.hal._now; meta.src_hint = -1;
+    home.on_recv(f.ghal.last_tx, f.ghal.last_tx_len, meta);      // learn G's schedule + a route to it
+    CHECK(home.rt_count() >= 1);
+    DualLayerTestAccess::store_mobile(home, f.idM.key_hash32, /*local*/17);          // H HOSTS M
+    if (cache_t_pubkey) CHECK(home.peer_key_set(f.idT.key_hash32, f.idT.ed_pub, Node::PeerKeyConf::authoritative));
+    home.mobile_home_set(f.idT.key_hash32, /*home_id=*/20, /*epoch=*/0, /*home_layer=*/2);   // T homed on the OTHER layer
+    f.hal._now = 58000;                                         // G on its foreign leaf -> the DM defers (held, inspectable)
+    f.hal.emits.clear();
+}
+// Build T's node so it can attempt the directed open of a SEALED_RELAY body. It caches BOTH M's and H's pubkeys on
+// purpose: in the BEFORE arm the frame names H, so a failure then is a genuine ECDH/tag failure, not a cache miss.
+void build_target(XlDelegFixture& f, Node& t) {
+    NodeConfig tcfg; tcfg.routing_sf = 8; tcfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); tcfg.leaf_id = 2;
+    CHECK(t.on_init(tcfg)); t.set_crypto_identity(f.idT.x_secret, f.idT.ed_pub);
+    CHECK(t.peer_key_set(f.idM.key_hash32, f.idM.ed_pub, Node::PeerKeyConf::authoritative));
+    CHECK(t.peer_key_set(f.idH.key_hash32, f.idH.ed_pub, Node::PeerKeyConf::authoritative));
+}
+}  // namespace
+
+TEST_CASE("★★ §xl-deleg-ack — a DELEGATED SEALED cross-layer DM ARRIVES AND OPENS at the target (it used to be SILENTLY DROPPED)") {
+    XlDelegFixture f;
+    Node gw(f.ghal, /*id*/ 1, 0xABCDu);
+    Node home(f.hal, /*id*/ 7, f.idH.key_hash32);
+    arm_xl_deleg(f, gw, home, /*cache_t_pubkey=*/false);   // the HOME needs no key for T: the MOBILE sealed, the home only relays
+    // The MOBILE seals "SECRET" to T under ITS OWN identity — exactly what a mobile's `-e` delegation ships.
+    Node mob(f.ghal, /*local*/17, f.idM.key_hash32);
+    NodeConfig mcfg; mcfg.routing_sf = 8; mcfg.allowed_sf_bitmap = static_cast<uint16_t>(1u << 8); mcfg.leaf_id = 1; mcfg.is_mobile = true;
+    CHECK(mob.on_init(mcfg)); mob.set_crypto_identity(f.idM.x_secret, f.idM.ed_pub);
+    CHECK(mob.peer_key_set(f.idT.key_hash32, f.idT.ed_pub, Node::PeerKeyConf::authoritative));
+    uint8_t sealed[protocol::max_payload_bytes_hard_cap]; Node::SealOutcome oc = Node::SealOutcome::ok;
+    const char* secret = "SECRET";
+    const uint8_t sn = mob.build_sealed_relay_body(f.idT.key_hash32, reinterpret_cast<const uint8_t*>(secret), 6,
+                                                  sealed, sizeof sealed, oc);
+    CHECK(sn > 0); CHECK(oc == Node::SealOutcome::ok);
+    // The wrapper arrives at the home over the REAL RX path (node_mac_rx's `ours` same-layer delegated fork).
+    DualLayerTestAccess::drive_post_ack_mobile_send_typed(home, f.idM.key_hash32, f.idT.key_hash32, /*ctr_M=*/0x0006,
+                                                          /*etype=*/DATA_TYPE_SEALED_RELAY, sealed, sn);
+    CHECK(DualLayerTestAccess::leaf_tx_n(home, 0) == 1);
+    if (DualLayerTestAccess::leaf_tx_n(home, 0) != 1) return;
+    const TxItem& it = DualLayerTestAccess::leaf_tx_at(home, 0, 0);
+    CHECK(it.dst == 5);                                        // MAC dst = the bridging gateway G
+    CHECK(it.type == DATA_TYPE_SEALED_RELAY);                  // the mobile's sealed carrier survived the re-origination
+    CHECK((it.flags & DATA_FLAG_CROSS_LAYER) != 0);
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(it.inner, it.inner_len), it.flags);
+    CHECK(ui.has_value());
+    if (!ui) return;
+    CHECK(ui->dst_key_hash32 == f.idT.key_hash32);
+    CHECK(ui->has_source_hash);
+    CHECK(ui->source_hash == f.idM.key_hash32);                 // ★ the MOBILE's hash — was the HOME's, which is the bug
+    CHECK(ui->source_hash != f.idH.key_hash32);
+    // ★★ THE ASSERTION THE OLD CODE FAILED — the target OPENS it. Directed open off the CLEAR source_hash, i.e. the
+    // exact call node_mac_rx.cpp:1125 makes before its "Fail/short/spoof -> SILENT DROP".
+    Node t(f.ghal, /*id*/ 30, f.idT.key_hash32);
+    build_target(f, t);
+    uint8_t out[protocol::max_payload_bytes_hard_cap]; uint8_t out_len = 0;
+    CHECK(t.e2e_open_relay(ui->body.data(), ui->body.size(), ui->source_hash, out, out_len));
+    CHECK(out_len == 6);
+    CHECK(std::string(reinterpret_cast<const char*>(out), out_len) == "SECRET");
+    // ...and the reverse-ack half: ctr_H -> ctr_M was recorded, so the far ack reaches M with the ctr M is waiting on.
+    CHECK(f.hal.saw_emit("deleg_ack_put"));
+    uint16_t m_ctr = 0;
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, f.idM.key_hash32, it.ctr, m_ctr));
+    CHECK(m_ctr == 0x0006);
+    // The HOME must arm NO ack deadline of its own — the MOBILE owns that wait (else a spurious e2e_ack_timeout here).
+    CHECK(DualLayerTestAccess::pending_e2e_ack_n(home) == 0);
+}
+
+TEST_CASE("★ §xl-deleg-ack — the returning far ack reaches the MOBILE with the MOBILE's ctr (the full delegated round trip)") {
+    XlDelegFixture f;
+    Node gw(f.ghal, /*id*/ 1, 0xABCDu);
+    Node home(f.hal, /*id*/ 7, f.idH.key_hash32);
+    arm_xl_deleg(f, gw, home, /*cache_t_pubkey=*/false);
+    const uint8_t body[4] = { 'p', 'l', 'a', 'i' };             // a PLAINTEXT delegation: consequence (1) of the bug
+    DualLayerTestAccess::drive_post_ack_mobile_send_typed(home, f.idM.key_hash32, f.idT.key_hash32, /*ctr_M=*/0x0006,
+                                                          /*etype=*/0, body, 4);
+    CHECK(DualLayerTestAccess::leaf_tx_n(home, 0) == 1);
+    if (DualLayerTestAccess::leaf_tx_n(home, 0) != 1) return;
+    const uint16_t ctr_h = DualLayerTestAccess::leaf_tx_at(home, 0, 0).ctr;
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(DualLayerTestAccess::leaf_tx_at(home, 0, 0).inner,
+                                                           DualLayerTestAccess::leaf_tx_at(home, 0, 0).inner_len),
+                                  DualLayerTestAccess::leaf_tx_at(home, 0, 0).flags);
+    CHECK(ui.has_value());
+    if (ui) CHECK(ui->source_hash == f.idM.key_hash32);         // send_xl_ack addresses dm.source_hash => the ack comes back FOR M
+    DualLayerTestAccess::clear_tx_queue(home, 0);
+    // T acks ctr_H, addressed DST_HASH = M (send_e2e_ack's "to the home, FOR the mobile"). The home's hosted-mobile
+    // last-mile fork must REWRITE the 2-B body to ctr_M before forwarding — which needs the map entry this fix records.
+    DualLayerTestAccess::drive_post_ack_e2e_ack(home, /*acker*/20, /*mobile_hash=*/f.idM.key_hash32, /*acked=*/ctr_h);
+    CHECK(f.hal.saw_emit("mobile_reverse_ack"));                // ★ translated, not passed through verbatim
+    const PendingTx* pt = DualLayerTestAccess::pending(home);
+    CHECK(pt != nullptr);
+    if (pt) {
+        CHECK(pt->dst == 17); CHECK(pt->addr_len == 1); CHECK(pt->type == DATA_TYPE_E2E_ACK);
+        CHECK(pt->inner[5] == 0x06);                           // ★ ctr_M = 6 reaches the mobile, NOT the home's ctr_H
+        CHECK(pt->inner[6] == 0x00);
+    }
+}
+
+TEST_CASE("§xl-deleg-ack — CONTROL: a NON-delegated cross-layer send is unchanged (own SOURCE_HASH, no ctr map, deadline armed)") {
+    XlDelegFixture f;
+    Node gw(f.ghal, /*id*/ 1, 0xABCDu);
+    Node home(f.hal, /*id*/ 7, f.idH.key_hash32);
+    arm_xl_deleg(f, gw, home, /*cache_t_pubkey=*/true);
+    const uint8_t body[4] = { 'm', 'i', 'n', 'e' };
+    // reply_to_hash == 0 => this node's OWN origination, the overwhelmingly common case. Nothing about it may move.
+    CHECK(DualLayerTestAccess::send_xl(home, /*dst_node=*/20, f.idT.key_hash32, /*target_layer=*/2, body, 4,
+                                       DATA_FLAG_E2E_ACK_REQ, CryptIntent::off, /*type=*/0,
+                                       /*override_source_hash=*/0) != 0);   // returns the ctr it flew with now
+    CHECK(DualLayerTestAccess::leaf_tx_n(home, 0) == 1);
+    if (DualLayerTestAccess::leaf_tx_n(home, 0) != 1) return;
+    const TxItem& it = DualLayerTestAccess::leaf_tx_at(home, 0, 0);
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(it.inner, it.inner_len), it.flags);
+    CHECK(ui.has_value());
+    if (ui) CHECK(ui->source_hash == f.idH.key_hash32);         // OUR own key, exactly as before
+    CHECK_FALSE(f.hal.saw_emit("deleg_ack_put"));               // no delegation => no ctr map entry
+    uint16_t m_ctr = 0;
+    CHECK_FALSE(DualLayerTestAccess::deleg_ack_xlate(home, f.idM.key_hash32, it.ctr, m_ctr));
+    CHECK(DualLayerTestAccess::pending_e2e_ack_n(home) == 1);   // WE are the originator => we DO wait for the ack
+}
+
+TEST_CASE("★ §xl-deleg-ack — a crypt-wanting DELEGATED XL send REFUSES LOUD (seal-vs-claimed-sender conflict), never an unopenable frame") {
+    XlDelegFixture f;
+    Node gw(f.ghal, /*id*/ 1, 0xABCDu);
+    Node home(f.hal, /*id*/ 7, f.idH.key_hash32);
+    arm_xl_deleg(f, gw, home, /*cache_t_pubkey=*/true);         // T's key IS cached: the refusal is the CONFLICT, not the seal
+    const uint8_t body[4] = { 'x', 'y', 'z', '!' };
+    // Sealing here would use the HOME's identity while the clear SOURCE_HASH claims the MOBILE — a frame that can
+    // never open. Unreachable via today's callers (the delegated re-origination hard-codes CryptIntent::off); pinned so
+    // a future caller cannot re-create the very silent drop this slice removes.
+    CHECK(DualLayerTestAccess::send_xl(home, /*dst_node=*/20, f.idT.key_hash32, /*target_layer=*/2, body, 4,
+                                       /*flags=*/0, CryptIntent::on, /*type=*/0,
+                                       /*override_source_hash=*/f.idM.key_hash32) == 0);
+    CHECK(DualLayerTestAccess::leaf_tx_n(home, 0) == 0);        // ★ NOTHING enqueued
+    CHECK(f.hal.count("xl_send_deleg_seal_conflict") == 1);
+    CHECK(f.hal.count("tx_enqueue_xl") == 0);
+    Push p{}; bool got = false;
+    while (home.next_push(p)) if (p.kind == PushKind::send_failed) { got = true; CHECK(p.reason == SendFailReason::unsealable); }
+    CHECK(got);
+    // Control: the SAME delegated send with CryptIntent::off flies (so the refusal is the conflict, not a broken path).
+    CHECK(DualLayerTestAccess::send_xl(home, /*dst_node=*/20, f.idT.key_hash32, /*target_layer=*/2, body, 4,
+                                       /*flags=*/0, CryptIntent::off, /*type=*/0,
+                                       /*override_source_hash=*/f.idM.key_hash32) != 0);
+    CHECK(DualLayerTestAccess::leaf_tx_n(home, 0) == 1);
+}
+
+TEST_CASE("★ §xl-deleg-ack — the SAME-LAYER mobile_home_find sibling maps ctr_H->ctr_M too (the site XL-CRYPT's note wrongly said already did)") {
+    // A delegated DM whose target is homed on OUR OWN layer takes the do_send sibling of the cross-layer arm. It passed
+    // override_source_hash but never recorded the ctr map, so the returning ack reached the mobile with the HOME's ctr.
+    XlDelegFixture f;
+    Node gw(f.ghal, /*id*/ 1, 0xABCDu);
+    Node home(f.hal, /*id*/ 7, f.idH.key_hash32);
+    arm_xl_deleg(f, gw, home, /*cache_t_pubkey=*/false);
+    home.mobile_home_set(f.idT.key_hash32, /*home_id=*/20, /*epoch=*/1, /*home_layer=*/1);   // ★ T's home is on OUR leaf now
+    DualLayerTestAccess::learn_neighbor(home, 20);                                            // a route to T's home
+    const uint8_t body[4] = { 's', 'a', 'm', 'e' };
+    DualLayerTestAccess::drive_post_ack_mobile_send_typed(home, f.idM.key_hash32, f.idT.key_hash32, /*ctr_M=*/0x0006,
+                                                          /*etype=*/0, body, 4);
+    CHECK(f.hal.saw_emit("deleg_ack_put"));
+    CHECK(DualLayerTestAccess::leaf_tx_n(home, 0) == 1);
+    if (DualLayerTestAccess::leaf_tx_n(home, 0) != 1) return;
+    const TxItem& it = DualLayerTestAccess::leaf_tx_at(home, 0, 0);
+    CHECK(it.dst == 20);                                       // to T's HOME, carrying DST_HASH = T
+    auto ui = parse_unicast_inner(std::span<const uint8_t>(it.inner, it.inner_len), it.flags);
+    CHECK(ui.has_value());
+    if (ui) { CHECK(ui->dst_key_hash32 == f.idT.key_hash32); CHECK(ui->source_hash == f.idM.key_hash32); }
+    uint16_t m_ctr = 0;
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, f.idM.key_hash32, it.ctr, m_ctr));
+    CHECK(m_ctr == 0x0006);                                    // ★ the ack will be rewritten to the MOBILE's ctr
+}
+
+TEST_CASE("★ §xl-deleg-ack — the OWN-HOSTED-TARGET last-mile arm maps ctr_H->ctr_M too (home hosts BOTH mobiles)") {
+    // The third sibling: the home hosts the delegating mobile AND the target, so the DM never leaves the node's
+    // last-mile. It also stamped SOURCE_HASH = M without a ctr map entry.
+    XlDelegFixture f;
+    Node gw(f.ghal, /*id*/ 1, 0xABCDu);
+    Node home(f.hal, /*id*/ 7, f.idH.key_hash32);
+    arm_xl_deleg(f, gw, home, /*cache_t_pubkey=*/false);
+    DualLayerTestAccess::store_mobile(home, f.idT.key_hash32, /*local*/18);   // ★ H hosts T as well
+    const uint8_t body[4] = { 'b', 'o', 't', 'h' };
+    DualLayerTestAccess::drive_post_ack_mobile_send_typed(home, f.idM.key_hash32, f.idT.key_hash32, /*ctr_M=*/0x0006,
+                                                          /*etype=*/0, body, 4);
+    CHECK(f.hal.saw_emit("deleg_ack_put"));
+    CHECK(DualLayerTestAccess::leaf_tx_n(home, 0) == 1);
+    if (DualLayerTestAccess::leaf_tx_n(home, 0) != 1) return;
+    const TxItem& it = DualLayerTestAccess::leaf_tx_at(home, 0, 0);
+    CHECK(it.dst == 18); CHECK(it.addr_len == 1);              // the direct last-mile to the hosted target
+    uint16_t m_ctr = 0;
+    CHECK(DualLayerTestAccess::deleg_ack_xlate(home, f.idM.key_hash32, it.ctr, m_ctr));
+    CHECK(m_ctr == 0x0006);
 }
 
 TEST_CASE("dual-layer origination: send_cross_layer builds [my,target] cur=1 + SOURCE_HASH to a schedule-verified gateway (Slice 4d)") {

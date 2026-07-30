@@ -803,16 +803,15 @@ void handle_team(const char* args, Print& out) {
     const meshroute::NodeConfig& c = g_node.config();
     uint32_t t;
     const char* phy_args = nullptr;
-    // §team-ch-key (T-K1b): the THIRD subcommand, beside `new` and `<id>` (T-K3's `grantkey` will be the fourth).
+    // §team-ch-key (T-K1b): the THIRD subcommand, beside `new` and `<id>` (T-K3's `grantkey` is the fourth).
     // ★ ANSWERED FIRST, BEFORE the numeric parse below — that is a safety requirement, not ordering taste. `strtoul`
     // consumes ZERO digits from a non-numeric tail and returns 0 (verified, not assumed), so ANY subcommand that fell
     // through to it would be read as `team 0` = LEAVE THE TEAM instead of running.
-    // ⚠ MISSING / PRE-EXISTING, owner ruling owed — deliberately NOT fixed here (C1: this is a feature slice, and the
-    // fix is a behaviour change to the JOIN path): that same fallthrough means a MISTYPED subcommand — `team exportky` —
-    // still reads as `team 0`. It is caught on a mobile node (parse_phy_tail below refuses the unknown key first) but
-    // NOT on a node with is_mobile==0 and a non-zero team_id, which is reachable via the console; there it silently
-    // leaves the team. The fix is one "the tail must begin with a digit, else usage" check on the `else if (args[0])`
-    // arm, and it belongs in its own slice.
+    // ★★ §team-target (BUG FIX 2026-07-30): the residual hole that ordering could NOT close — a NEAR-spelling
+    // (`team exportky`, `team grantky`, `team nwe`) matches none of these strncmps and used to reach the numeric parse,
+    // i.e. LEAVE THE TEAM. It is now refused by parse_team_target below (firmware_config_parse.h: a target must lead
+    // with a digit, and a value of 0 must additionally be an unambiguous zero spelling — `team 0x` and `team 08` were
+    // silent leaves too). This ordering is now defence-in-depth rather than the only guard; both remain deliberate.
     if (!strncmp(args, "exportkey", 9)) {
         const char* tail = args + 9; while (*tail == ' ') ++tail;
         if (*tail) { out.println(F("> team err: `team exportkey` takes no arguments")); return; }   // C2: never silently ignore a tail — and never let one reach the leave path above
@@ -828,10 +827,20 @@ void handle_team(const char* args, Print& out) {
         uint32_t nonce = 0; g_hal.rand_bytes(reinterpret_cast<uint8_t*>(&nonce), 4);
         t = team_fnv1a32(g_node.key_hash32(), nonce);
         phy_args = args + 3;   // §mobile 6.4: `team new [freq=<MHz> sf=<5-12> bw=<kHz>]` — optional team PHY
+    } else if (parse_team_target(args, t, phy_args)) {
+        // §6.4: `team <id> [freq= sf= bw=]` — a JOIN can set the shared team PHY too (mirrors `team new`). phy_args =
+        // strtoul's endp, i.e. whatever follows the digits. ★ §team-target: entry now REQUIRES a leading digit, so a
+        // mistyped subcommand can no longer arrive here as `team 0` (= leave) — see parse_team_target for the measurement.
     } else if (args[0]) {
-        char* endp = nullptr;
-        t = (uint32_t)strtoul(args, &endp, 0);
-        phy_args = endp;   // §6.4: `team <id> [freq= sf= bw=]` — a JOIN can set the shared team PHY too (mirrors `team new`)
+        // ★★ §team-target (BUG FIX 2026-07-30) — C2: a non-numeric, non-subcommand tail is REFUSED LOUD. It must never
+        // reach the numeric parse (strtoul -> 0 -> LEAVE) and must never be a silent no-op either. Nothing has been
+        // touched at this point: no NV load/save, no set_team_id, no key mint/adopt, no PHY retune.
+        out.print(F("> team err: unknown subcommand `")); out.print(args); out.println(F("` — a team id must BEGIN WITH A DIGIT."));
+        out.println(F(">   NOTHING changed — team_id, the team channel key and NV are all as they were. (Before this check a"));
+        out.println(F(">   mistyped subcommand parsed as `team 0` and LEFT THE TEAM.)"));
+        out.println(F(">   valid: `team new` | `team <id>` | `team 0` (leave) | `team exportkey` | `team grantkey <target>`"));
+        out.println(F(">   run `team` with no argument for the full usage."));
+        return;
     } else {
         out.println(F("> team err usage: `team new [freq= sf= bw=]` (mint) | `team <id> [freq= sf= bw=]` (join) | `team 0` (leave) | `team exportkey` | `team grantkey <0xhash|team-id> [name=\"…\"] [-t]`"));
         out.println(F(">   both forms also take `[tkpub=<64 hex> tkpriv=<64 hex>]` to ADOPT an existing team channel key (else `team new` mints one)"));
