@@ -11,6 +11,10 @@ for everything after `916de64`; that document is still correct for the carrier/C
 
 ---
 
+> ★★ **OPEN BUGS: `docs/2026-07-30-open-bug-register.md`** — the single index of everything known-broken and
+> deliberately-deferred, with the four owner decisions still pending. Written 2026-07-30 because findings were
+> only living inside `BASELINE.md` notes and agent reports.
+
 ## 0. READ THESE FIRST, IN THIS ORDER
 
 1. `simulation/BASELINE.md` — ★ the anchor authority. **Never hardcode an md5 here or anywhere** (rule D1).
