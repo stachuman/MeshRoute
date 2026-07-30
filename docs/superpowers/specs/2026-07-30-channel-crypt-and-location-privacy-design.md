@@ -216,7 +216,7 @@ flash noise floor). Specifics here:
 ## 6. Contract additions owed (QA writes them)
 
 The `send_channel` grammar with `-e` and the four-case matrix; the corrected `-t` claim at line 28; the location
-refusal reason and **the `cfg set loc_dm 0` escape in the user-facing text**; `enc:true` on `channel_recv` /
+refusal reasons; ★ **the `-l` flag on `send`/`send_layer`**, and **the REMOVAL of `loc_dm` from the cfg surface AND the app-facing binary TLV** (an app reading it must stop) — with `kVersion` 22 → 23 meaning **another unprovisioned node on first contact after this flash**; `enc:true` on `channel_recv` /
 `inbox_channel` (T-K2 already reserves it); and the `team_channel_no_key` push.
 ★ **And the app-facing consequence of §2.3, stated plainly**: a `-l` DM to a peer whose key is not
 held **will refuse** — so the app must surface `reqpubkey`/QR rather than retrying.

@@ -99,11 +99,12 @@ crypt check**, and the seal decision happens *after*. So on a node with `loc_in_
 off, no `-e`, or simply no peer key) flies with a 6-byte position **in clear** (`frame_codec.cpp:953`, the unsealed
 pack path). ⚠ **`node_carriers.h:233` claims the opposite** — *"DATA_FLAG_LOCATION, sealed inner"* — which is true
 only of a CRYPTED DM, and is why the leak reads as intended behaviour (V1 drift).
-**Owner ruling 2026-07-30: REFUSE the send** — do not silently omit the location (the app would believe it shared a
+**Owner ruling 2026-07-30 (TWICE): location becomes a PER-SEND `-l` flag, `cfg set loc_dm` is REMOVED entirely, and a `-l` send REFUSES if it will not be sealed.** — do not silently omit the location (the app would believe it shared a
 position it did not) and do not send in clear. **Spec: `2026-07-30-channel-crypt-and-location-privacy-design.md`
-§2.3, slice CL3** — independent of the other two slices, and the only one closing a live leak. ⚠ **Read §4/O1
-first:** the rule makes `loc_in_dm = 1` mean *"encrypted DMs only"*, which is a large blast radius the owner should
-confirm.
+§2.3, slice CL3** — independent of the other two slices, and the only one closing a live leak. ★ **The second ruling dissolved the blast-radius worry (old O1, struck):** with a per-send flag an ordinary DM is
+untouched and a refusal is attributable to the one send that asked for a position. ⚠ **But CL3 is bigger than it
+looks** — removing `loc_dm` touches **eleven surfaces including an app-facing binary TLV field**, and needs
+**`kVersion` 22 → 23**. ★ The retired TLV number **must never be reused** — the Q-opcode lesson.
 
 ⚠ **One near-miss also remains in this class — see B1.**
 
