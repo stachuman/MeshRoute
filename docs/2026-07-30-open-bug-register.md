@@ -74,6 +74,7 @@ scenario was relying on the broken behaviour. Attribute it and report before pro
 
 | entry | expect | why |
 |---|---|---|
+| **B0** | **byte-identical expected** | `loc_in_dm` is **off** by default in the whole corpus — ⚠ if any scenario moves, a scenario has `loc_dm` on and is airing position in clear, which is a finding |
 | **B1** | **byte-identical** | `handle_team` is in `src/`, outside both the sim and native builds |
 | **B2** | **re-anchor likely** | the ingest fires in team scenarios; attribute per scenario |
 | **B3** | **re-anchor, and `s22` should go GREEN** | it is currently **RED** — that is the point of the fix |
@@ -89,10 +90,22 @@ scenario was relying on the broken behaviour. Attribute it and report before pro
 
 ## Tier 1 — silent or destructive
 
-Nothing outstanding. Both Tier-1 bugs found in this arc are **FIXED**: the cross-layer cleartext downgrade
+Both Tier-1 bugs found *inside* this arc are **FIXED**, but ★ **one pre-existing Tier-1 leak is open — B0**: the cross-layer cleartext downgrade
 (`§xl-crypt`, `65833f2`) and the silently-dropped delegated sealed DM (`§deleg-ack-xl`, `442809b`).
 
-⚠ **One near-miss remains in this class — see B1.**
+### B0 — ★★ `loc_in_dm` airs your COORDINATES IN THE CLEAR · **LIVE** · owner-ruled fix
+`node_mac.cpp:149-152` gates `DATA_FLAG_LOCATION` on `app_dm && loc_in_dm && has-a-fix && it-fits` — **there is no
+crypt check**, and the seal decision happens *after*. So on a node with `loc_in_dm = 1`, a **plaintext** DM (`e2e_dm`
+off, no `-e`, or simply no peer key) flies with a 6-byte position **in clear** (`frame_codec.cpp:953`, the unsealed
+pack path). ⚠ **`node_carriers.h:233` claims the opposite** — *"DATA_FLAG_LOCATION, sealed inner"* — which is true
+only of a CRYPTED DM, and is why the leak reads as intended behaviour (V1 drift).
+**Owner ruling 2026-07-30: REFUSE the send** — do not silently omit the location (the app would believe it shared a
+position it did not) and do not send in clear. **Spec: `2026-07-30-channel-crypt-and-location-privacy-design.md`
+§2.3, slice CL3** — independent of the other two slices, and the only one closing a live leak. ⚠ **Read §4/O1
+first:** the rule makes `loc_in_dm = 1` mean *"encrypted DMs only"*, which is a large blast radius the owner should
+confirm.
+
+⚠ **One near-miss also remains in this class — see B1.**
 
 ---
 
