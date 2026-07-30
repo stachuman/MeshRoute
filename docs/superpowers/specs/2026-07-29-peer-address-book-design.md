@@ -6,8 +6,8 @@ relying on one (V1/V2) — this tree moves several times a day.*
 
 **Status: SPEC'D AND COMPLETE, NOT DISPATCHED — ready to start.** ✅ The cross-layer cleartext fix that was
 holding `lib/console/console_parse.cpp` + `console_json.cpp` **has landed** (`§xl-crypt`), as have the two bug
-fixes after it, so **AB1 is unblocked and AB2/AB3 are free of file contention.** ⚠ **Two decisions are marked
-OPEN in §2.6 — settle them before dispatching AB3**, not during it.
+fixes after it, so **AB1 is unblocked and AB2/AB3 are free of file contention.** ✅ **Both §2.6 decisions are RULED
+(2026-07-30) — nothing is outstanding. Dispatch AB1 first (NV-only, independent), then AB2, then AB3.**
 
 ---
 
@@ -199,14 +199,14 @@ write.** A team id belongs in `_team_keys`; the view is what joins it to the has
 than one `id`, and why the view — not any single table — is the only correct answer to an id-shaped question.
 `hashof`, `nameof` and the `peers` dump should all read the **same** view, so they can never disagree again.
 
-### 2.6 ⚠ TWO OPEN DECISIONS — settle these BEFORE dispatching AB3
+### 2.6 ✅ TWO DECISIONS — BOTH OWNER-RULED 2026-07-30
 
-**(a) How large may the dump be, and over which transport?** ★ **This is not cosmetic.** §1.1 measured that
+**(a) The JSON book is CAPPED AT THE 16 `_peer_keys` ROWS; the full list is CONSOLE-ONLY.** ★ **This is not cosmetic.** §1.1 measured that
 cardinality is driven by `_id_bind` (**256**), not `_peer_keys` (16), so a naive full dump is a few hundred rows —
 and a node **WEDGE from self-inflicted console flooding** is a defect this project has already fixed once (the
 `mrcon` drop-never-block sink). Emitting that over BLE walks straight back into it.
 
-★ **QA's proposed cut, for owner confirmation:**
+★ **RULED — QA's proposed cut, ACCEPTED VERBATIM** (*"16 makes sense - full by console"*):
 - **The JSON address book = rows backed by `_peer_keys` (≤ 16)**, enriched with `static_id`/`team_id` from the
   other two tables. That is bounded, and it is what an address book *is* — an entry you can name and talk to.
 - **The full "known nodes" list (up to 256 id-only rows) stays TEXT-console only**, behind an explicit `peers all`.
@@ -214,11 +214,11 @@ and a node **WEDGE from self-inflicted console flooding** is a defect this proje
 - Rationale: it matches §6 (the app owns the durable book and reconciles from `peer_key_cached` pushes), and it
   keeps the JSON surface bounded by construction rather than by a paging protocol nobody has to implement.
 
-**(b) Is `peer_name_set` a PUSH or a synchronous command ack?** §2.3 shows the shape but not the mechanism, and it
+**(b) `peer_name_set` is a SYNCHRONOUS COMMAND ACK, not a push.** §2.3 shows the shape but not the mechanism, and it
 decides real work: **a push needs a new `PushKind` enumerator — which §5 requires be APPENDED**, because the sim
 bridges `PushKind` on its raw `uint8_t` with a `static_assert` twinned in two sim files (T-K3 caught itself
 inserting one). A synchronous ack needs no enum and no sim coordination.
-★ **QA recommends the synchronous ack:** `peername` is operator-initiated and its result is immediate, so there is
+★ **RULED — the SYNCHRONOUS ACK** (*"agree - synchronous ack"*). ⇒ **no new `PushKind`, no enum touched, no sim coordination.** `peername` is operator-initiated and its result is immediate, so there is
 nothing asynchronous to notify — and it avoids touching an enum whose ordering has already cost this arc two
 near-misses. The `peerkey_set` ack is the precedent to mirror (U3).
 
