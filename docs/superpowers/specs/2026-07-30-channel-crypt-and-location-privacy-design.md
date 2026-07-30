@@ -80,7 +80,60 @@ holds a key, `-t` seals by default and a *plaintext* team post needs an explicit
 `cfg set team_channel_crypt 0`; **QA recommends the config toggle only** — a per-send "send this one in clear"
 flag is a footgun on a privacy feature.
 
-### 2.3 ★★ Location on a DM requires encryption — REFUSE, do not degrade
+### 2.3 ★★ Location becomes a PER-SEND flag `-l`, `cfg set loc_dm` is REMOVED, and location requires encryption
+
+> **Owner ruling 2026-07-30 (second pass):** *"we have to remove `cfg set loc_dm` and instead use one more switch:
+> `-l`."*
+
+★★ **This ruling STRIKES open decision O1.** The blast radius that worried me — *"`loc_in_dm = 1` means
+encrypted-DMs-only"* — existed **only because the toggle was global**: with it on, every plaintext DM refused. With
+`-l` the intent is **per message**, so a refusal is attributable to the one send that asked for a position, and an
+ordinary `send` is untouched. **Strictly better than the design it replaces; O1 is struck, not deferred.**
+
+★ `-l` is **free** — existing letters are `a` `e` `t` `g` `K` (`console_parse.cpp:119-123`).
+
+| invocation | behaviour |
+|---|---|
+| `send <dst> "…"` | no location — **unchanged**, plaintext fine |
+| `send <dst> "…" -l -e` | ✅ location attached, sealed |
+| `send <dst> "…" -l` with `e2e_dm` on | ✅ sealed by the node default |
+| `send <dst> "…" -l` that would go **plaintext** | ❌ **REFUSE loud** — the rule |
+| `send <dst> "…" -l` with **no fix** (`lat_e7 == 0 && lon_e7 == 0`) | ❌ **REFUSE loud** — you asked for a position and there is none (C2: never silently send without it) |
+| `send <dst> "…" -l` where **+6 B does not fit** | ❌ **REFUSE loud.** ⚠ Today a **silent drop** (`node_mac.cpp:152`, *"drop the best-effort piggyback"*). With `-l` explicit, best-effort becomes fail-loud — **that is the point of the flag** |
+
+★ **Verbs: `send` (id and hash) and `send_layer`. ⚠ NOT `send_channel` — do not overload it.** T-K2's channel
+location is `inner_type = 1`, an **alternative** payload (`[inner_type][payload]`, 0 = text **or** 1 = location),
+not something *added* to a body — so `-l` would mean a different thing there. **That belongs to T-K5**; §2.4's
+crypt rule applies when it lands. Overloading one letter with two meanings is exactly the ambiguity this arc keeps
+paying for.
+
+**Refusal shape:** reuse `SendFailReason::unsealable` for the not-sealed case (U1 — no new enumerator, see §5).
+The no-fix and does-not-fit cases are distinct user errors and want their own text. ★ **The refusal names `-e` or
+`e2e_dm` as the fix — and since `cfg set loc_dm` no longer exists there is no "turn it off" escape to advertise,
+because there is nothing to turn off.** That is the cleanliness the ruling buys.
+
+### 2.3.1 Removing `cfg set loc_dm` — wider than a console key
+
+**Eleven surfaces, and one is an app-facing binary contract:**
+
+| surface | note |
+|---|---|
+| `lib/core/node_carriers.h:233` | the field. ★ Its *"sealed inner"* comment is **true only of a CRYPTED DM** — the V1 drift that made this leak read as intended |
+| `lib/core/node_mac.cpp:149` | the attach gate → becomes per-send |
+| `src/firmware_config.cpp` | the `cfg set` setter **and** the blob seed |
+| `src/firmware_commands.cpp` | the `cfg` dump line **and** the `cfg set` key list |
+| `src/fw_main.cpp` | boot restore |
+| `src/device_nv.h` | the NV field ⇒ ★ **`kVersion` 22 → 23** |
+| ★★ `lib/console/console_binary.h` + `.cpp` | **`CfgOut.loc_dm` and its `TAG_CFG_*` TLV**, in `enc_cfg` **and** `dec_cfg` — an **app-facing** field |
+
+⚠ **`kVersion` 22 → 23 is another reprovision-on-reflash.** Cheap per the standing undeployed ruling — T-K1 already
+did one — but the companion must expect an unprovisioned node again, and it should be a stated consequence.
+
+★★ **THE TLV HAZARD — the Q-opcode lesson again: a RETIRED tag number must NEVER be reused.** Dropping
+`TAG_CFG_LOC_DM` leaves a hole; if a later slice recycles that number, an **older app still sending the old tag
+silently sets whatever replaced it** — a codepoint whose meaning changed under a peer, the class that already cost
+this arc a slice. ⇒ **mark the number RETIRED in-source beside the enum; do not merely delete the line.** `dec_cfg`
+already ignores unknown tags (`default: break;`).
 
 **Rule (owner-ruled 2026-07-30):** if location would be attached to a DM and the DM will **not** be sealed, the
 send is **REFUSED**, loudly, with its own reason.
@@ -99,11 +152,9 @@ hope the seal happens.
 loud today, so a location-bearing send inherits that correctly — **verify it, do not assume it**, and make sure the
 reported reason is the *seal* failure rather than the location rule, or the operator will chase the wrong thing.
 
-★★ **STATE THE CONSEQUENCE PLAINLY, because it is large: this makes `loc_in_dm = 1` mean "encrypted DMs only".**
-Every plaintext DM from a node with a position fix will refuse. That is defensible — it is a privacy toggle, and
-refusing is the honest reading of the owner's rule — but it must be **documented as such**, and the operator escape
-(`cfg set loc_dm 0`) must appear **in the refusal text itself**. ⇒ **§4/O1: confirm this is intended, or scope the
-rule to sends where location was requested per-send rather than globally.**
+★ **Kept as the record:** with the *global* toggle this rule made `loc_in_dm = 1` mean "encrypted DMs only" —
+every plaintext DM from a node with a fix would refuse. That was **O1**. The `-l` ruling removes the toggle and with
+it the problem.
 
 ★ **Bonus: the fix makes an existing comment true.** `node_carriers.h:233`'s *"sealed inner"* claim becomes
 unconditionally correct. Update it from a claim to a guarantee (V1).
@@ -129,7 +180,9 @@ Once §2.3 lands, `frame_codec.cpp:953` — the **unsealed** LOCATION pack path 
 - **CL2** — the T-K2 crypto: `channel_flavor_crypted`, seal/open, **the nonce design (§2.1 — the review point)**,
   the un-keyed-receiver drop + `team_channel_no_key`, `record_channel(enc=1)`, `team_channel_crypt` default-ON.
   ⚠ **Expect a re-anchor of every team-channel scenario** (s28/s29 hold keys); QA owns the scenario edits.
-- **CL3** — §2.3 the DM location rule (+ §2.4's channel case if CL2 has landed).
+- **CL3** — §2.3: **add `-l` to `send`/`send_layer`, REMOVE `cfg set loc_dm` and all eleven surfaces (§2.3.1),
+  `kVersion` 22 → 23, retire the TLV number**, and enforce the three refusals. ⚠ **Bigger than it looks** — a
+  config-surface removal plus an NV bump, not just a flag. (+ §2.4's channel case once T-K2 has landed.)
 
 ★ **CL3 is independent of CL1/CL2 and is the only one closing a LIVE leak** — take it first if the owner wants the
 privacy hole shut before the feature. CL1 alone is inert scaffolding; CL2 is the substantial slice.
@@ -138,7 +191,8 @@ privacy hole shut before the feature. CL1 alone is inert scaffolding; CL2 is the
 
 | | decision |
 |---|---|
-| **O1** | ★ **Does `loc_in_dm = 1` becoming "encrypted-only DMs" match the intent** (§2.3), or should the rule apply only to a per-send location request? The owner's wording says refuse; this asks whether the *blast radius* is accepted |
+| ~~**O1**~~ | ✅ **STRUCK 2026-07-30** by the `-l` ruling (§2.3) — location is per-send, so there is no global toggle and no blast radius to accept |
+| **O4** | `TAG_CFG_LOC_DM`'s retired number: mark RETIRED in-source (QA's recommendation) or also formally reserve it in the contract? |
 | **O2** | The plaintext-team-post opt-out: **`cfg set team_channel_crypt 0` only** (QA's recommendation) or also a per-send flag? |
 | **O3** | Should `send_channel -a` exist too? The contract's *"no ack/enc"* covers both, and a channel post has no single recipient to ack — **QA recommends NO**, recorded so it is not re-asked |
 
@@ -164,5 +218,5 @@ flash noise floor). Specifics here:
 The `send_channel` grammar with `-e` and the four-case matrix; the corrected `-t` claim at line 28; the location
 refusal reason and **the `cfg set loc_dm 0` escape in the user-facing text**; `enc:true` on `channel_recv` /
 `inbox_channel` (T-K2 already reserves it); and the `team_channel_no_key` push.
-★ **And the app-facing consequence of §2.3, stated plainly**: with `loc_in_dm` on, a DM to a peer whose key is not
+★ **And the app-facing consequence of §2.3, stated plainly**: a `-l` DM to a peer whose key is not
 held **will refuse** — so the app must surface `reqpubkey`/QR rather than retrying.
