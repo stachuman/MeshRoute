@@ -234,11 +234,47 @@ pushes it to the app (`pu.has_location/lat_e7/lon_e7`) and already emits
 `peer_location{origin, hash, lat_e7, …}` — with **`sender_hash` in scope**, which is exactly the key the book needs.
 ⇒ **only RETENTION is missing.** Do not rebuild the extraction (U1).
 
-**Storage: extend `PeerKey`** (`node.h:1451`), keyed by `key_hash32` — the stable identity per §1.2 — with
-`{int32_t lat_e7; int32_t lon_e7; uint32_t loc_seen_s;}`. The generated view (§2.1) then picks it up for free.
-★ **Expect ≈ +128 B, not +192**: `PeerKey` carries ~5 bytes of tail padding today, so 12 bytes of fields should cost
-about 8 per entry × 16. **Measure it; do not assume.** ⚠ It is a `Node` member ⇒ **`sizeof(Node)` moves** ⇒ D2 in
-full, and the six-env grid **if the measurement says so**.
+### 2.7.1 ★ Storage — a DEDICATED `_peer_loc` ring, keyed by `key_hash32` (owner-ruled 2026-07-31)
+
+The O5 ruling makes `PeerKey` the **wrong** home: a channel-sourced location must be stored even when we hold no
+`ed_pub` for that hash, and there is then no `PeerKey` row to put it in (`peer_key_set` *verifies*
+`ed_pub[:4] == hash`, so a keyless row fights an existing invariant).
+
+★★ **And `_team_keys` is ALSO wrong — for the three reasons the `§id-bind-plane` slice just established:** it has
+**no confidence dimension**, it **feeds team-DAD mediation** (seeding it from non-beacon traffic manufactures
+spurious DENYs), and it is a **beacon-fed evict-oldest LRU whose `last_seen_ms` means "heard now"**. Putting
+location there would repeat the mistake that slice refused. **Do not.**
+
+⇒ **A dedicated ring:** `{ uint32_t key_hash32; int32_t lat_e7; int32_t lon_e7; uint32_t t_s; }` = **16 B exactly**
+(all 4-byte aligned, no padding), **× 16 = 256 B**. ★ 16 matches every other team-scale table in the tree
+(`cap_peer_keys`, `cap_team_liveness`, `_team_keys`) and comfortably covers R4's 3–10 members. **Measure the real
+`sizeof`; do not assume.** ⚠ It is a `Node` member ⇒ **`sizeof(Node)` moves** ⇒ **D2 in full**, and the six-env grid
+**only if the measurement says so**.
+
+★ **Keyed by `key_hash32`, not by an id** — §1.2: ids are addresses, the hash is the identity, and a channel
+sender is identified by a hash in the sealed interior. The §2.1 view then joins it like any other hash-keyed table.
+
+### 2.7.2 ⚠⚠ THE TRUST BOUND THIS RULING IMPLIES — record it, do not solve it
+
+The owner's model is explicit and reasonable: *a hiking group holding one content key trusts itself.* But the
+consequence must be written down, because someone will later ask and the answer is **yes, by design**:
+
+★★ **The team content key is SHARED, so sealing a channel post proves MEMBERSHIP, not IDENTITY.** Every member
+holds the same `team_ch_priv`. ⇒ **any keyholder can forge another member's `source_hash`** and therefore
+**publish a false position attributed to a teammate.** T-K2's *"anti-spoof within the team"* means an **outsider**
+cannot spoof a member — it does **not** and cannot mean a member cannot spoof a member.
+
+⇒ **The two sources have DIFFERENT trust anchors, and the view should say which one applied:**
+
+| source | anchor | strength |
+|---|---|---|
+| **DM** with `DATA_FLAG_LOCATION` | **pairwise** — sealed to *us*, opened with *our* key, sender holds our `ed_pub` | *"this specific peer"* |
+| **team channel post**, `inner_type = 1` | **group** — sealed to `team_ch_pub` | *"some holder of the team key"* |
+
+★ **⇒ the row carries the anchor (`loc_src` ∈ `peer` \| `team`), and the app renders the distinction.** A position
+that a whole group could have written is not the same claim as one only that peer could have written, and a map
+that shows both identically overstates the weaker one. **This is a bound accepted deliberately — the I9 pattern —
+not a defect to fix.**
 
 ★★ **RAM ONLY — deliberately volatile, and the reason belongs in the source so no later slice "completes" it:**
 1. **a stale position is worse than none** — an app rendering a three-hour-old fix as current is actively
@@ -302,8 +338,8 @@ Naming an **id-only** peer (there is no hash to attach a name to — and no stab
 Persisting `_id_bind`/`_team_keys`. Any `overheard` → `authoritative` promotion. Auto-`reqpubkey` — **forbidden
 by the 2026-07-29 ruling**, see `ios-companion/INBOX_SYNC_CONTRACT.md`.
 
-| **O5** | ★ §2.7 — the **channel** location case: refuse to store when we hold no `PeerKey` row **(a, recommended)**, add a separate `_peer_loc` ring **(b)**, or allow a keyless row **(c)**? |
-| **O6** | §2.7 — an unauthenticated (plaintext) location: **drop silently** or emit `peer_location_unauth` (QA recommends the emit)? |
+| ~~**O5**~~ | ✅ **RULED 2026-07-31 — option (b), a dedicated ring. QA's recommendation (a) was REJECTED.** Owner: *"the whole idea of storing and keeping location is to get it from team channel encrypted message — group is hiking, if message is sent using team encrypted message we treat it as trusted."* ⇒ **the TEAM CONTENT KEY is the trust anchor**, so a channel-sourced location is stored **whether or not we hold that peer's `ed_pub`**. See §2.7.1 |
+| ~~**O6**~~ | ✅ **RULED 2026-07-31 — emit `peer_location_unauth`** (agreed). Visibility with no behaviour change, and a spoof attempt becomes observable |
 
 ## 5. Gate expectations
 
