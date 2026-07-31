@@ -131,6 +131,49 @@ TEST_CASE("parse_command — send errors: -e on non-hash, unquoted body, no body
     CHECK(parse_command(badflag, std::strlen(badflag), c) == ParseErr::bad_args);
 }
 
+// ★★ §loc-per-send (2026-07-31, open-bug-register B0): `-l` = attach this node's position to THIS message. It replaces
+// the removed `cfg set loc_dm` global toggle, which attached the position to every originated DM on a size check ALONE
+// (no crypt gate) so a plaintext DM aired coordinates in the clear. The parser's whole job is to put
+// DATA_FLAG_LOCATION into the EXISTING flags word — the refusals live in Node::enqueue_data / on_command.
+TEST_CASE("parse_command — §loc-per-send `-l` sets DATA_FLAG_LOCATION on send (id AND hash), in any order") {
+    Command c{};
+    const char* id = "send 5 \"hi\" -l";
+    CHECK(parse_command(id, std::strlen(id), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::send);
+    CHECK(c.u.send.dst_id == 5);
+    CHECK(c.u.send.flags == DATA_FLAG_LOCATION);            // the ONLY bit set — `-l` does not imply -a
+    CHECK(c.crypt == CryptIntent::def);                     // and it does not imply -e either (e2e_dm decides)
+    // ★ `-l` is accepted on an ID target even though `-e` is NOT: a node with e2e_dm on seals by default, so this is the
+    //   normal sealed case there; with e2e_dm off enqueue_data refuses it loudly, which IS the rule.
+    const char* hash = "send 0xa1b2c3d4 -l -e -a \"x\"";    // hash target: -l alongside -e/-a, flags before the body
+    CHECK(parse_command(hash, std::strlen(hash), c) == ParseErr::ok);
+    CHECK(c.u.send.dst_hash == 0xa1b2c3d4u);
+    CHECK(c.u.send.flags == (DATA_FLAG_E2E_ACK_REQ | DATA_FLAG_LOCATION));
+    CHECK(c.crypt == CryptIntent::on);
+    const char* after = "send 5 \"hi\" -a -l";              // order-free, same as every other flag
+    CHECK(parse_command(after, std::strlen(after), c) == ParseErr::ok);
+    CHECK(c.u.send.flags == (DATA_FLAG_E2E_ACK_REQ | DATA_FLAG_LOCATION));
+    const char* none = "send 5 \"hi\"";                     // CONTROL: no -l => the bit stays clear (an ordinary DM is untouched)
+    CHECK(parse_command(none, std::strlen(none), c) == ParseErr::ok);
+    CHECK((c.u.send.flags & DATA_FLAG_LOCATION) == 0);
+}
+
+TEST_CASE("parse_command — §loc-per-send `-l` parses on send_layer (refused later) and is REJECTED on send_channel") {
+    Command c{};
+    // send_layer ACCEPTS the letter so on_command can refuse it with an explanation (a cross-layer frame carries no
+    // position) instead of the operator getting a bare bad_args. One letter, one meaning, across the verbs.
+    const char* lay = "send_layer 0xa1b2c3d4 2,3 \"hi\" -l";
+    CHECK(parse_command(lay, std::strlen(lay), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::send_layer);
+    CHECK(c.u.layer.flags == DATA_FLAG_LOCATION);
+    // send_channel has NO -l: there a location is an ALTERNATIVE inner TYPE, not a field added to a body, so the letter
+    // would mean a different thing (spec §2.3 — that belongs to T-K5). Rejected like -a/-e already are.
+    const char* ch = "send_channel 7 \"x\" -l";
+    CHECK(parse_command(ch, std::strlen(ch), c) == ParseErr::bad_args);
+    const char* cht = "send_channel 7 \"x\" -t -l";
+    CHECK(parse_command(cht, std::strlen(cht), c) == ParseErr::bad_args);
+}
+
 TEST_CASE("parse_command — send_channel <ch> \"text\" (no ack/enc)") {
     Command c{};
     const char* p = "send_channel 7 \"broadcast msg\"";

@@ -59,8 +59,14 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     uint32_t l1_beacon_period_ms; // layer 1 beacon cadence
     uint32_t l1_window_ms;        // layer 1 presence; 0 = derive
     uint32_t l1_window_offset_ms; // layer 1 phase; 0 = derive anti-phase
-    uint8_t  loc_in_dm;           // v9: 1 = piggyback the node's location (DATA_FLAG_LOCATION) on originated DMs.
-                                  //     The lat/lon themselves live in /mrid (IdBlob); this is just the opt-in toggle.
+    // ★★ `loc_in_dm` (v9) REMOVED at v23 — §loc-per-send, open-bug-register B0. It persisted an opt-in that attached the
+    //    node's coordinates to every originated app DM on a size check ALONE (no crypt gate), so a plaintext DM aired the
+    //    position in the clear. Location is now a PER-SEND request (`send … -l`) that is REFUSED unless the DM is sealed,
+    //    so there is nothing left to persist — and deliberately no successor field: giving a per-send intent persistent
+    //    storage is how the toggle would grow back. The lat/lon themselves still live in /mrid (IdBlob) and are what `-l`
+    //    attaches. ⚠ The byte is DROPPED rather than kept as a reserved pad: the struct is versioned as a whole and a
+    //    kVersion mismatch REJECTS the blob outright (load() -> defaults), so there is no partial-parse path that a
+    //    placeholder would protect. Removing it changes the layout, which is exactly what the version bump announces.
     uint8_t  e2e_dm;              // v10: 1 = originate app DMs ENCRYPTED (E2E §4b). Default off -> plaintext (s18-identical).
     // v11: gateway noise control (duty-cycle protection). A gateway is reactive-only in steady state; these gate its
     // sole unsolicited heartbeat. 0 => use the NodeConfig default (5% / 3 h) at boot (an old/zeroed blob stays sane).
@@ -101,7 +107,7 @@ struct Blob {                  // packed-ish POD; written/read verbatim. Bump kV
     uint8_t  team_ch_key_present;        // v22: 1 once a pair was minted/adopted (distinguishes a real key from all-zero, exactly as admin_provisioned does)
 };
 constexpr uint32_t kMagic   = 0x4D524331u;   // 'MRC1'
-constexpr uint16_t kVersion = 22;            // v22: §team-ch-key team channel keypair (team_ch_pub + team_ch_priv + team_ch_key_present) — REPROVISION-ON-REFLASH, see the fields. v21: §S2 intro_attach toggle (first-contact pubkey attach). v20: remote-mgmt admin auth (admin_pubkey + admin_counter_floor + admin_provisioned). v19: team_local_id (§mobile 6.4 — persist the team-DAD id across reboot). v18: team_id (§mobile 6.1). v17: per-layer BW+CR (l1_bw_hz + l1_cr). v16: anti-spam per-leaf tunables (channel_active_fraction + the two burst floors). v15: channel_ctr persist (reboot id-reuse fix). v14: R6.1 leaf-config (lineage_id + config_epoch + leaf_name). v13: gw_herd_slack. v12: per-layer frequency (l1_freq_mhz). v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
+constexpr uint16_t kVersion = 23;            // v23: §loc-per-send — the `loc_in_dm` byte is GONE (location became the per-send `send -l` flag; the toggle aired coordinates in the clear, open-bug-register B0). ⚠ REPROVISION-ON-REFLASH: the struct layout changed, so load() rejects a v22 blob and the node comes up UNPROVISIONED on first contact after this flash — the companion must expect that. v22: §team-ch-key team channel keypair (team_ch_pub + team_ch_priv + team_ch_key_present) — REPROVISION-ON-REFLASH, see the fields. v21: §S2 intro_attach toggle (first-contact pubkey attach). v20: remote-mgmt admin auth (admin_pubkey + admin_counter_floor + admin_provisioned). v19: team_local_id (§mobile 6.4 — persist the team-DAD id across reboot). v18: team_id (§mobile 6.1). v17: per-layer BW+CR (l1_bw_hz + l1_cr). v16: anti-spam per-leaf tunables (channel_active_fraction + the two burst floors). v15: channel_ctr persist (reboot id-reuse fix). v14: R6.1 leaf-config (lineage_id + config_epoch + leaf_name). v13: gw_herd_slack. v12: per-layer frequency (l1_freq_mhz). v11: gateway-announce duty knobs. v10: e2e_dm toggle. v9: loc_in_dm toggle. v8: DUAL-LAYER GATEWAY (n_layers + layer0_id + window schedule + the l1_*
                                              // block). v7: BLE companion policy. v6: role/topology (is_gateway/...). The Blob
                                              // grew, so every pre-v8 blob fails the `n == sizeof(out)` size check in load()
                                              // and is rejected -> the node re-provisions from defaults (BOTH boards — the

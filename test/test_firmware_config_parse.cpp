@@ -10,6 +10,9 @@
 #include "leaf_config.h"   // W2b: meshroute::duty_to_bp/bp_to_duty — pin the console-setter unit conventions
 #include <cstdint>
 #include <cstring>
+#include <cstdlib>   // strtoul — §team-target-range pins WHICH of the two range clauses catches WHICH token shape
+#include <cerrno>    // errno/ERANGE — same (explicit, not leaned on via firmware_config_parse.h)
+#include <climits>   // ULONG_MAX  — same: the ABI-split assertion compares it against UINT32_MAX
 #include <string>
 #include <vector>
 
@@ -447,12 +450,101 @@ TEST_CASE("★★ §team-target-whole — the legitimate PHY / team-key TAIL sti
     id = 0; CHECK(mrfw::parse_team_target("42 tkpub=aa tkpriv=bb", id, tail));
     CHECK(id == 42u);
     CHECK(tail != nullptr); if (tail) CHECK(std::string(tail) == " tkpub=aa tkpriv=bb");
-    // ⚠ ✖ MISSING (C1, measured 2026-07-31): a FULLY-consumed but out-of-range token is still accepted, and it
-    // diverges by target width. On the 64-bit native build `4294967296` truncates to 0 = LEAVE; on the 32-bit boards
-    // strtoul saturates to ULONG_MAX (ERANGE) so the same command joins garbage 0xFFFFFFFF. Pinned as-is so the
-    // divergence is visible and a range slice has a before-arm, NOT because the behaviour is wanted.
-    id = 9; tail = nullptr;
-    CHECK(mrfw::parse_team_target("4294967296", id, tail));               // accepted: the TOKEN is fully consumed
-    if (sizeof(unsigned long) >= 8) CHECK(id == 0u);                      // 64-bit host: truncates to 0 == LEAVE
-    else                            CHECK(id == 0xFFFFFFFFu);             // 32-bit target: strtoul saturates (ERANGE)
+    // ✅ §team-target-range (B17) CLOSED below — the ✖ MISSING note that used to sit here (pinning the out-of-range
+    // token as ACCEPTED, so the range slice had a before-arm) is now the TEST_CASE that follows.
+}
+
+// ---- ★★ §team-target-range (BUG FIX 2026-07-31, register B17): an OUT-OF-RANGE `team <id>` was DESTRUCTIVE ------------
+// The 07-30 and 07-31 clauses are both SYNTAX rules, so a perfectly-spelled token that does not FIT IN 32 BITS passed
+// both and landed as whatever this ABI's `unsigned long` produced — and ★ THE TWO ABIs FAIL DIFFERENTLY, which is why
+// the fix needs TWO clauses:
+//   • `unsigned long` = 8 B (this native build): `strtoul("4294967296")` succeeds with NO errno, and the narrowing cast
+//     truncates to 0 — and `team 0` MEANS LEAVE. Caught by clause (3b), the UINT32_MAX width check.
+//   • `unsigned long` = 4 B (EVERY board target — `static_assert(sizeof(unsigned long)==4)` holds on both
+//     arm-none-eabi and xtensa-esp32s3): strtoul SATURATES to ULONG_MAX and sets ERANGE, so the same command JOINED
+//     GARBAGE TEAM 0xFFFFFFFF. Caught by clause (3a). ⚠ This suite cannot REPRODUCE that path (see the test below for
+//     what it can), but it does cover the guard that stops it.
+// ★ AND THE HOST WAS NOT SAFE EITHER, which the deferral note used to imply: a token overflowing even 64 bits raises
+// ERANGE here too and truncates ULONG_MAX to 0xFFFFFFFF ⇒ the garbage JOIN, on native. ⚠ But see the ABI-split note
+// mid-test: that shape is refused by the WIDTH arm on a 64-bit host, so this suite exercises clause (3a) without being
+// able to prove it NECESSARY. Do not read a green run as licence to delete it — it is the boards' only guard.
+TEST_CASE("★★ §team-target-range — an OUT-OF-RANGE target is REFUSED and the live team_id SURVIVES (both ABIs' failures)") {
+    const uint32_t live = 0xDEADBEEFu;
+    // ★ THE ERANGE ARM (clause 3a) ON THE PLATFORM THAT RUNS THIS SUITE. These overflow a 64-bit `unsigned long`, so the
+    // host's own strtoul saturates + sets ERANGE — the identical mechanism the 32-bit boards hit at 2^32. Pre-fix these
+    // JOINED GARBAGE TEAM 0xFFFFFFFF *on native*, which is the boards' destructive outcome, reachable here.
+    for (const char* over : { "99999999999999999999999", "18446744073709551616", "0x1FFFFFFFFFFFFFFFFF",
+                              "99999999999999999999999 freq=868" }) {
+        uint32_t id = live;
+        const char* tail = reinterpret_cast<const char*>(0x1);
+        CHECK_FALSE(mrfw::parse_team_target(over, id, tail));
+        CHECK(id == live);                                   // ★★ still in the team it was in
+        CHECK(id != 0xFFFFFFFFu);                            // ...and specifically NOT the saturated garbage team
+        CHECK(tail == reinterpret_cast<const char*>(0x1));   // fail-closed: no half-write
+    }
+    // ★ THE WIDTH ARM (clause 3b): fully consumed, no ERANGE on a 64-bit host, but > UINT32_MAX. Pre-fix `4294967296`
+    // truncated to 0 = SILENT LEAVE here, and saturated to 0xFFFFFFFF = SILENT JOIN on the boards. One command, two
+    // different wrong outcomes, neither of them what was typed.
+    for (const char* wide : { "4294967296", "4294967297", "0x100000000", "8589934592",
+                              "4294967296 freq=869.0 sf=7" }) {
+        uint32_t id = live;
+        const char* tail = reinterpret_cast<const char*>(0x1);
+        CHECK_FALSE(mrfw::parse_team_target(wide, id, tail));
+        CHECK(id == live);                                   // ★★ NOT 0 (the 64-bit LEAVE) and NOT 0xFFFFFFFF (the 32-bit JOIN)
+        CHECK(id != 0u);
+        CHECK(id != 0xFFFFFFFFu);
+        CHECK(tail == reinterpret_cast<const char*>(0x1));
+    }
+    // ★★ WHY BOTH CLAUSES EXIST, stated as the ABI algebra it actually is — ⚠ AND CORRECTING A CLAIM THIS TEST FIRST
+    // MADE. I wrote "neither arm is redundant, and these assertions prove it"; the MUTANT DISPROVED IT. Deleting the
+    // ERANGE arm leaves this whole suite GREEN, because on a 64-bit host ERANGE implies `ul == ULONG_MAX`, which is
+    // itself > UINT32_MAX ⇒ the width arm SUBSUMES the ERANGE arm here. The truth is sharper and less comfortable:
+    //   • 64-bit (this build): the WIDTH arm does all the work. Removing it => 19 assertions red (measured).
+    //   • 32-bit (every board): `UINT32_MAX == ULONG_MAX`, so the width arm is a compile-time false and the ERANGE
+    //     arm is THE ONLY GUARD — over the DESTRUCTIVE outcome (the garbage join), which is why it must stay.
+    // ⇒ **no test on THIS ABI can prove the ERANGE arm necessary.** What it can prove is that the arm FUNCTIONS
+    // (mutant B: width arm gone, the >2^64 cases above stay green because ERANGE refuses them) and that the two
+    // token shapes really are distinguished by the two mechanisms. That is what the asserts below pin.
+    {
+        errno = 0; char* endp = nullptr;
+        const unsigned long ul32 = strtoul("4294967296", &endp, 0);
+        CHECK(errno != ERANGE);                                          // no ERANGE at 2^32 on a 64-bit host => (3a) alone would MISS it
+        CHECK(*endp == '\0');                                            // ...and it is FULLY consumed, so clause (2) misses it too
+        if (sizeof(unsigned long) >= 8) CHECK(ul32 > static_cast<unsigned long>(UINT32_MAX));   // only the width check sees it
+        errno = 0; endp = nullptr;
+        const unsigned long ulbig = strtoul("99999999999999999999999", &endp, 0);
+        CHECK(errno == ERANGE);                                          // the >2^64 shape DOES raise ERANGE on the host
+        CHECK(ulbig == ULONG_MAX);                                       // saturation, exactly as the boards do at 2^32
+        CHECK(static_cast<uint32_t>(ulbig) == 0xFFFFFFFFu);              // ★ narrowed = the GARBAGE TEAM the boards used to join
+        CHECK(*endp == '\0');                                            // fully consumed => clause (2) cannot catch it either
+        // ★ THE ABI SPLIT, asserted so a future "simplification" trips over it instead of over the fleet: exactly one
+        // of the two arms is live per ABI, and on a 32-bit target it is the ERANGE one.
+        CHECK((static_cast<unsigned long>(UINT32_MAX) < ULONG_MAX) == (sizeof(unsigned long) > 4));
+    }
+    // ★★★ THE NEGATIVE CONTROLS — the range rule must refuse a RANGE ERROR, not a value. These are the directions an
+    // over-eager guard would have broken, and every one of them is a documented, legitimate form.
+    uint32_t id = 9; const char* tail = nullptr;
+    CHECK(mrfw::parse_team_target("0", id, tail));                       // ⚠ `team 0` = LEAVE THE TEAM, still works
+    CHECK(id == 0u);
+    id = 0; CHECK(mrfw::parse_team_target("4294967295", id, tail));      // the largest in-range id, EXACTLY at the boundary
+    CHECK(id == 0xFFFFFFFFu);
+    id = 0; CHECK(mrfw::parse_team_target("0xFFFFFFFF", id, tail));      // ★ the SAME value spelled explicitly stays ACCEPTED —
+    CHECK(id == 0xFFFFFFFFu);                                            //   the bug was a range error MAPPING onto it, not the value
+    id = 0; CHECK(mrfw::parse_team_target("0xffffffff", id, tail));      // lower-case hex, same value
+    CHECK(id == 0xFFFFFFFFu);
+    id = 0; CHECK(mrfw::parse_team_target("037777777777", id, tail));    // and base 0 still means OCTAL on a leading 0 (= 0xFFFFFFFF)
+    CHECK(id == 0xFFFFFFFFu);
+    // B1's regression control, re-pinned here: a boundary/hex id followed by the legitimate PHY tail still parses.
+    id = 0; tail = nullptr;
+    CHECK(mrfw::parse_team_target("0x88A672BA freq=868 sf=7", id, tail));
+    CHECK(id == 0x88A672BAu);
+    CHECK(tail != nullptr); if (tail) CHECK(std::string(tail) == " freq=868 sf=7");
+    id = 0; CHECK(mrfw::parse_team_target("4294967295 freq=869.0 sf=7 bw=125", id, tail));
+    CHECK(id == 0xFFFFFFFFu);
+    CHECK(tail != nullptr); if (tail) CHECK(std::string(tail) == " freq=869.0 sf=7 bw=125");
+    // ★ errno HYGIENE: a pre-set ERANGE from unrelated earlier code must not make a GOOD id refuse. The fix clears
+    // errno before the call precisely so the flag means "this parse overflowed" and nothing else.
+    errno = ERANGE;
+    id = 0; CHECK(mrfw::parse_team_target("42", id, tail));
+    CHECK(id == 42u);
 }

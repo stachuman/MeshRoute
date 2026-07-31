@@ -320,7 +320,15 @@ already is for the team content key under the `team exportkey` ruling). Register
   round-trip incl. a v1-blob rejection test.
 - **AB2** — `peername` (+ optional `peerkey name=`), and `peer_key_cached` gains `conf`. Gate: byte-identical;
   native for every refusal; a JSON golden for `conf`.
-- ★ **AB4** — §2.7 retained peer location: extend `PeerKey`, one authenticated setter fed by both sources, the view
+- ★★ **AB4 — BLOCKED ON CL2, ruled 2026-07-31. Do NOT start it before team channel encryption exists.**
+  QA-verified 2026-07-31: `channel_flavor_crypted` / `team_channel_crypt` / `team_channel_no_key` have **ZERO hits in the
+  tree**. T-K1/T-K1b/T-K3 built the team **keypair** (derive, export, grant); **nothing seals a channel message with it.**
+  ⇒ §2.7.1's trust anchor — *the* reason a channel-sourced location is trusted at all (owner ruling O5: *"if message is
+  sent using team encrypted message we treat it as trusted"*) — **does not yet exist.** Building AB4 first yields either a
+  setter with **no live source**, or a location trusted from a **PLAINTEXT** post, which O5 explicitly rejects.
+  **Order: B22 → CL2 → AB4** (`2026-07-30-channel-crypt-and-location-privacy-design.md`; B22 first so CL2 is not gated
+  against a corpus whose team-channel asserts validate behaviour metal does not have).
+- ★ **AB4 (as designed)** — §2.7 retained peer location: extend `PeerKey`, one authenticated setter fed by both sources, the view
   row's `lat`/`lon`/`loc_age_s`, and **NV deliberately untouched**. **After AB3** (it needs the view). ⚠ **This is
   the one AB slice that moves `sizeof(Node)`** — D2 in full, and the six-env grid only if the measurement says so.
 - **AB3** — the generated view: a `peers` console dump + its JSON surface **bounded per §2.6(a)**, **and rewire `hashof`/`nameof` onto it**

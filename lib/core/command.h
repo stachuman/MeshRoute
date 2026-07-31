@@ -29,7 +29,12 @@ enum class CryptIntent : uint8_t { def = 0, on, off };
 // dv_dual_sf.lua:2187-2189). Addressed by short id (now) / key_hash32 (later) —
 // never a name (the device has no name map; that is forever a backend concern).
 // Plain PODs (no in-class initializers) so the union has a trivial default ctor and
-// the header stays C++17-includable by the sim (hal.h discipline). flags = wire DATA_FLAG_* (E2E_ACK_REQ=0x10, DST_HASH=0x02, PRIORITY=0x01; 0x08 free).
+// the header stays C++17-includable by the sim (hal.h discipline). flags = wire DATA_FLAG_* (E2E_ACK_REQ=0x10, LOCATION=0x08,
+// DST_HASH=0x02, PRIORITY=0x01). ★ §loc-per-send (2026-07-31): 0x08 is NO LONGER FREE — DATA_FLAG_LOCATION is how the app
+// asks "attach my position to THIS message" (console `-l`), replacing the removed `loc_dm` config toggle whose missing crypt
+// gate aired coordinates in the clear (register B0). Set it on `send` only; on `send_layer` it is refused (no cross-layer
+// builder can carry a position), and `send_channel` has no `-l` at all (a channel location is an alternative inner TYPE, not
+// an added field). Node::enqueue_data validates it and REFUSES the send if the DM would not be sealed.
 struct SendCmd        { uint8_t dst_id; uint32_t dst_hash; uint8_t flags; uint8_t plane; };   // Wave 2: plane 0=AUTO (companion/sim default -> today's cascade), 1=TEAM (`-t`), 2=GLOBAL (plain `send`). Host-side only, NOT on the wire.
 struct SendLayerCmd   { uint8_t hops[protocol::gw_env_max_hops]; uint8_t hop_count; uint32_t dst_hash; uint8_t flags; };   // flags honored on the cross-layer DM (E2E_ACK_REQ -> Y acks via the reversed path, Slice 4d/e2e)
 struct SendChannelCmd { uint8_t channel_id; bool team; bool global; };   // §S7 T-B DM-symmetric plane select: team=`-t` (TEAM), global=`-g` (explicit GLOBAL). Plain (neither) => GLOBAL. `-t -g` => BOTH. Static: plain=leaf, `-t` refused. Host-side only, NOT on the wire.
@@ -132,7 +137,7 @@ enum class SendFailReason : uint8_t { none = 0, no_pubkey, no_identity, too_larg
                                                            //   It is also not TRUE: a route may well have existed; the send was discarded ADMINISTRATIVELY. This is the only
                                                            //   reason whose correct app action is "re-address, then resend" rather than "retry" or "give up".
                                                            //   ★ APPENDED AT THE END, same contract rule as queue_full. JSON reason string: "reprovisioned".
-                                      unsealable };        // §team-ch-key T-K3: this message TYPE may travel ONLY sealed, and the transport this send would have taken
+                                      unsealable,          // §team-ch-key T-K3: this message TYPE may travel ONLY sealed, and the transport this send would have taken
                                                            //   cannot carry it sealed-AND-typed — so it was REFUSED rather than downgraded. Today that means a
                                                            //   DATA_TYPE_TEAM_KEY_GRANT, whose body holds the team's PRIVATE content key: a CROSS-LAYER flight (the crypto
                                                            //   core is same-layer-only, so XL could only be cleartext) or a registered mobile's DELEGATED flight (the
@@ -142,6 +147,19 @@ enum class SendFailReason : uint8_t { none = 0, no_pubkey, no_identity, too_larg
                                                            //   over the team plane (`-t`). ★ APPENDED AT THE END, same contract rule as queue_full/reprovisioned — and here
                                                            //   it is doubly load-bearing: `reprovisioned` shipped in a contract the app may already persist.
                                                            //   JSON reason string: "unsealable".
+                                                           //   ★ §loc-per-send REUSES this reason for a `-l` send that would NOT be sealed, and for
+                                                           //   `send_layer -l` / a `-l` DM whose route turns cross-layer: same semantic exactly — "this
+                                                           //   content may travel ONLY sealed and this transport cannot carry it sealed, so it was
+                                                           //   REFUSED rather than downgraded." The app's action is `-e` / `e2e_dm` / acquire the key.
+                                      no_location };       // ★ §loc-per-send (2026-07-31): a `-l` send asked to attach this node's position and there IS
+                                                           //   none — lat_e7/lon_e7 are both 0 (no fix, never provisioned). DISTINCT from `unsealable` on
+                                                           //   purpose: conflating them would tell the operator to enable encryption when what they need
+                                                           //   is a GPS fix (or `cfg set lat`/`lon`), and chasing the wrong remedy is exactly the failure
+                                                           //   this refusal exists to prevent. PERMANENT until the node has a fix; the message was NOT
+                                                           //   sent (the position was requested explicitly, so silently omitting it is not an option).
+                                                           //   ★ APPENDED AT THE END, same contract rule as queue_full/reprovisioned/unsealable — the
+                                                           //   numeric value is contract-visible and the app may persist it, so nothing is renumbered.
+                                                           //   JSON reason string: "no_location".
 // R6.3 §7c: why a join was refused (join_refused push). wire_version -> origin=their_ver, dst=my_ver; leaf_full -> no extra.
 // §3-A.1: phy_mismatch = a team member refused a home whose PHY differs from its team-provisioned freq/bw/routing_sf (P2-1 Level 2);
 //          sf_list_mismatch = ADVISORY — the mobile adopted the host but its configured sf_list low byte disagrees with the host's offered one.

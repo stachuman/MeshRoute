@@ -101,7 +101,15 @@ ordinary `send` is untouched. **Strictly better than the design it replaces; O1 
 | `send <dst> "…" -l` with **no fix** (`lat_e7 == 0 && lon_e7 == 0`) | ❌ **REFUSE loud** — you asked for a position and there is none (C2: never silently send without it) |
 | `send <dst> "…" -l` where **+6 B does not fit** | ❌ **REFUSE loud.** ⚠ Today a **silent drop** (`node_mac.cpp:152`, *"drop the best-effort piggyback"*). With `-l` explicit, best-effort becomes fail-loud — **that is the point of the flag** |
 
-★ **Verbs: `send` (id and hash) and `send_layer`. ⚠ NOT `send_channel` — do not overload it.** T-K2's channel
+★★ **CORRECTED 2026-07-31 AS BUILT — `send_layer -l` REFUSES.** The verbs are **`send` (id and hash) only**. The dispatch
+brief asserted the sealed cross-layer path already carried location (`node_hashlocate.cpp:414`); it does **not** — that line is
+inside `e2e_seal_inner`, which returns 0 for `CROSS_LAYER` (`:382`). The real sealed-XL path `build_sealed_relay_body` (`:500`)
+hard-codes `lat=0, lon=0`, and the SEALED_RELAY body `[seal_ctr 2][seed8 8][ct‖tag]` **carries no flags word**, so a LOCATION bit
+set on the seal side alone would make the peer parse 6 position bytes **as message text**. ⇒ carrying a position cross-layer needs
+a **body-format change** = a wire change, its own slice (C1/C4). ⚠ There is also a **THIRD** XL builder the spec never named:
+`delegate_send_layer` (`node_mac.cpp:742`), alongside `enqueue_cross_layer` (`:483`).
+
+★ **Verbs (as designed): `send` (id and hash) and `send_layer`. ⚠ NOT `send_channel` — do not overload it.** T-K2's channel
 location is `inner_type = 1`, an **alternative** payload (`[inner_type][payload]`, 0 = text **or** 1 = location),
 not something *added* to a body — so `-l` would mean a different thing there. **That belongs to T-K5**; §2.4's
 crypt rule applies when it lands. Overloading one letter with two meanings is exactly the ambiguity this arc keeps
@@ -114,7 +122,11 @@ because there is nothing to turn off.** That is the cleanliness the ruling buys.
 
 ### 2.3.1 Removing `cfg set loc_dm` — wider than a console key
 
-**Eleven surfaces, and one is an app-facing binary contract:**
+**TWELVE surfaces (corrected 2026-07-31 — the count stopped at MeshRoute’s boundary), and one is an app-facing binary contract:**
+
+★ **The twelfth is in the SIMULATOR:** `orchestrator/runtime/NodeRuntimeWrapper.cpp:412` maps the scenario config key
+`loc_in_dm`, so deleting `NodeConfig::loc_in_dm` **breaks the sim build**. No scenario JSON sets it — which is exactly why the
+corpus prediction was byte-identical.
 
 | surface | note |
 |---|---|
@@ -168,7 +180,9 @@ retrofit once the app starts sending positions.
 
 ### 2.5 Follow-on the slice should NOT take (C1)
 
-Once §2.3 lands, `frame_codec.cpp:953` — the **unsealed** LOCATION pack path — becomes unreachable for DMs.
+★ **CORRECTED 2026-07-31: `frame_codec.cpp:953` is the *PARSE* path** (`parse_unicast_inner`, 915–964) and must stay live —
+the receive side still decodes a peer’s location. **The unsealed *pack* site is `:1018`** (`pack_unicast_inner`, 990+).
+Once §2.3 lands, **`:1018`** — the **unsealed** LOCATION pack path — becomes unreachable for DMs.
 **Leave it.** Deleting dead-but-reachable-looking codec code is its own slice, and `pack_data` is shared. **Mark it
 `✖ MISSING` in-source with the reason** so the next reader knows it is deliberate, per the mark-done-vs-missing rule.
 
@@ -180,7 +194,11 @@ Once §2.3 lands, `frame_codec.cpp:953` — the **unsealed** LOCATION pack path 
 - **CL2** — the T-K2 crypto: `channel_flavor_crypted`, seal/open, **the nonce design (§2.1 — the review point)**,
   the un-keyed-receiver drop + `team_channel_no_key`, `record_channel(enc=1)`, `team_channel_crypt` default-ON.
   ⚠ **Expect a re-anchor of every team-channel scenario** (s28/s29 hold keys); QA owns the scenario edits.
-- **CL3** — §2.3: **add `-l` to `send`/`send_layer`, REMOVE `cfg set loc_dm` and all eleven surfaces (§2.3.1),
+- ✅ **CL3 — BUILT 2026-07-31 (`§loc-per-send`), QA GO, register B0 CLOSED.** 36/36 byte-identical, keystone unmoved, native
+  1006/70360 → 1012/70417, `sizeof(Node)` −8 ⇒ six-env grid taken. **As-built deltas:** `send_layer -l` refuses (above); the
+  third refusal is **structural, not a branch** (measured unreachable — the seal refuses at body 211, a gate there could only fire
+  above 226); `SendFailReason::no_location` **appended**. Evidence: `simulation/BASELINE.md` note `LOC-PER-SEND`.
+- **CL3 (as designed)** — §2.3: **add `-l` to `send`/`send_layer`, REMOVE `cfg set loc_dm` and all eleven surfaces (§2.3.1),
   `kVersion` 22 → 23, retire the TLV number**, and enforce the three refusals. ⚠ **Bigger than it looks** — a
   config-surface removal plus an NV bump, not just a flag. (+ §2.4's channel case once T-K2 has landed.)
 
@@ -192,7 +210,9 @@ privacy hole shut before the feature. CL1 alone is inert scaffolding; CL2 is the
 | | decision |
 |---|---|
 | ~~**O1**~~ | ✅ **STRUCK 2026-07-30** by the `-l` ruling (§2.3) — location is per-send, so there is no global toggle and no blast radius to accept |
-| **O4** | `TAG_CFG_LOC_DM`'s retired number: mark RETIRED in-source (QA's recommendation) or also formally reserve it in the contract? |
+| ~~**O4**~~ | ✅ **RESOLVED 2026-07-31 — BOTH.** `0x18` is marked **RETIRED — NEVER REUSE** in-source beside the tag enum *and*
+stated in `INBOX_SYNC_CONTRACT.md`; belt and braces cost nothing and the Q-opcode lesson says the number must never come back |
+| **O4 (as asked)** | `TAG_CFG_LOC_DM`'s retired number: mark RETIRED in-source (QA's recommendation) or also formally reserve it in the contract? |
 | **O2** | The plaintext-team-post opt-out: **`cfg set team_channel_crypt 0` only** (QA's recommendation) or also a per-send flag? |
 | **O3** | Should `send_channel -a` exist too? The contract's *"no ack/enc"* covers both, and a channel post has no single recipient to ack — **QA recommends NO**, recorded so it is not re-asked |
 

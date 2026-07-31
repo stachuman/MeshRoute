@@ -224,8 +224,9 @@ static void dump_cfg(Print& out) {
     out.print(F(" ble_period="));       out.print(g_ble_period_min);
     out.print(F(" ble_pin="));          out.println(g_ble_pin);
     // Arduino Print formats floats via its own dtostrf (NOT newlib printf), so 7-decimal degrees print fine.
-    out.print(F("  loc   : loc_dm="));  out.print(c.loc_in_dm ? 1 : 0);
-    out.print(F(" e2e_dm="));           out.print(c.e2e_dm ? 1 : 0);
+    // §loc-per-send (2026-07-31): `loc_dm=` is GONE from this dump — the toggle it reported no longer exists. Location is
+    // a PER-SEND `-l` flag on `send`, so there is no persistent state to show; lat/lon below are still the node's fix.
+    out.print(F("  loc   : e2e_dm="));  out.print(c.e2e_dm ? 1 : 0);
     out.print(F(" intro_attach="));     out.print(c.intro_attach ? 1 : 0);
     out.print(F(" lat="));              out.print(g_lat_e7 / 1e7, 7);
     out.print(F(" lon="));              out.println(g_lon_e7 / 1e7, 7);
@@ -501,9 +502,12 @@ static void dump_help(Print& out) {
     hl(F("===== MeshRoute console ====="));
     hl(F(""));
     hl(F("MESSAGING"));
-    hl(F("  send <id|0xhash> \"<text>\" [-a] [-e] [-t] -a=ack  -e=encrypt(hash only)  -t=team plane; plain send=global/home (fails if no home)"));
+    hl(F("  send <id|0xhash> \"<text>\" [-a] [-e] [-t] [-l] -a=ack  -e=encrypt(hash only)  -t=team plane; plain send=global/home (fails if no home)"));
+    hl(F("    -l = attach this node's position to THIS message. REFUSED unless the DM is SEALED (use -e, or `cfg set e2e_dm 1`),"));
+    hl(F("         refused if this node has no fix (set lat/lon), and refused as too_large if the +6 B no longer fits."));
+    hl(F("         Replaces the removed `cfg set loc_dm`, which aired coordinates in the clear."));
     hl(F("  send_channel <ch> \"<text>\""));
-    hl(F("  send_layer <0xhash> <l1,l2,…> \"<text>\" [-a] [-e]   explicit cross-layer destination path; -e=encrypt (sealed relay)"));
+    hl(F("  send_layer <0xhash> <l1,l2,…> \"<text>\" [-a] [-e]   explicit cross-layer destination path; -e=encrypt (sealed relay); -l is refused (cross-layer carries no position)"));
     hl(F(""));
     hl(F("IDENTITY / KEYS"));
     hl(F("  whoami | lookup 0x<hash> | hashof <id> | nameof 0x<hash> | resolve 0x<hash> [hard]   (hashes are 0x-prefixed; hashof prints 0x…)"));
@@ -557,7 +561,7 @@ static void dump_help(Print& out) {
     hl(F("CFG KEYS  (`cfg set <key> <val>`; bool keys take on|off / 1|0)"));
     hl(F("  node_id name freq routing_sf bw cr tx_power sf_list lbt beacon_ms duty nav nav_ignore hop_cap team_hop_cap leaf_id"));
     hl(F("  mobile team_id mobile_autoregister host_mobiles intra_layer_relay gateway_only"));
-    hl(F("  lat lon loc_in_dm e2e_dm intro_attach ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack"));
+    hl(F("  lat lon e2e_dm intro_attach ble_mode ble_period ble_pin gw_announce_pct gw_announce_interval gw_herd_slack"));   // §loc-per-send: `loc_in_dm` REMOVED — use `send … -l` per message
     hl(F("  active_fraction ch_min_ms dm_min_ms leaf_name"));
     hl(F("    `name`=node identity · `leaf_name`=managed leaf (bumps epoch) · team_id=0x-hex (`team new` mints) · identity via `regen`"));
     hl(F("  gateway-only keys: n_layers layer0_id window_period_ms l0_window_ms l0_window_offset_ms l1_layer_id l1_node_id l1_routing_sf l1_sf_list l1_beacon_ms l1_window_ms l1_window_offset_ms l1_freq"));

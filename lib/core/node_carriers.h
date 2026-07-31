@@ -230,7 +230,16 @@ struct NodeConfig {
                                                   // like nav_enabled (an opt-in; reverts to OFF on reboot — the default IS the fix).
     // ---- opt-in location propagation (2026-06-14 spec). Default OFF -> the flag/slot never appear -> s18 byte-identical.
     int32_t  lat_e7 = 0, lon_e7 = 0;             // this node's location (deg×1e7; (0,0) = unset -> NEVER transmitted)
-    bool     loc_in_dm = false;                  // piggyback location on originated DMs (DATA_FLAG_LOCATION, sealed inner)
+    // ★★ `loc_in_dm` DELETED 2026-07-31 (§loc-per-send, open-bug-register B0). It was a CONFIG TOGGLE that attached the
+    // 6-B position to every originated app DM on a size check ALONE — with NO crypt gate — so a plaintext DM from a node
+    // with `loc_in_dm = 1` aired the position IN THE CLEAR. The comment that used to sit on this line claimed
+    // "(DATA_FLAG_LOCATION, sealed inner)", which was true only of a CRYPTED DM and is precisely why the leak read as
+    // intended behaviour (V1 drift). ⇒ OWNER RULING (2026-07-30, twice): location is now a PER-SEND request — `send -l`
+    // — carried in the existing DATA_FLAG_LOCATION bit of the command `flags` word, and REFUSED LOUD (never silently
+    // omitted, never aired in clear) when the DM would not be sealed. The attach + the three refusals live at the one
+    // same-layer origination choke point, Node::enqueue_data. `cfg set loc_dm`, the NV field and the app-facing binary
+    // TLV are all gone with it. There is deliberately NO replacement field here: a per-send intent must not have a
+    // persistent home, or the toggle grows back.
     bool     loc_in_m  = false;                  // piggyback location on originated channel M frames (flavor 0x08, public)
     bool     e2e_dm    = false;                  // Phase 1: originate app DMs ENCRYPTED when the recipient's pubkey is known; default OFF -> s18 byte-identical
     bool     intro_attach = true;                // §S2 D1 escape hatch: attach our pubkey (DATA_TYPE_INTRO) to a PLAINTEXT hash-addressed first-contact DM (no peer_confirmed(dst) yet). Default ON. OFF = never attach (the app must reqpubkey/QR-import). Inert without a crypto identity (_crypto_ready) -> s18 byte-identical.

@@ -655,6 +655,7 @@ static unsigned ord(SendFailReason r) {
         case SendFailReason::no_cts:         case SendFailReason::no_ack:         case SendFailReason::mobile_no_home:
         case SendFailReason::gateway_unreachable: case SendFailReason::e2e_ack_timeout:
         case SendFailReason::queue_full:     case SendFailReason::reprovisioned:  case SendFailReason::unsealable:
+        case SendFailReason::no_location:    // §loc-per-send: `-l` asked for a position and the node has no fix
             return static_cast<unsigned>(r);
     }
     return kUnlisted;
@@ -699,8 +700,8 @@ static void check_mapper_covers_every_enumerator(const char* enum_name, const ch
 TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallback at the app boundary") {
     check_mapper_covers_every_enumerator<CmdCode>("CmdCode", cmdcode_name, "err_unknown", 10);
     check_mapper_covers_every_enumerator<PushKind>("PushKind", pushkind_name, "unknown", 15);   // 14 -> 15: §team-ch-key T-K3 `team_key_received`
-    check_mapper_covers_every_enumerator<SendFailReason>("SendFailReason", sendfailreason_name, "none", 17,
-                                                         /*exempt_ord=*/0);   // SendFailReason::none == "none"  (15 -> 16: §clean-join-carriers `reprovisioned`; 16 -> 17: §team-ch-key T-K3 `unsealable`)
+    check_mapper_covers_every_enumerator<SendFailReason>("SendFailReason", sendfailreason_name, "none", 18,
+                                                         /*exempt_ord=*/0);   // SendFailReason::none == "none"  (15 -> 16: §clean-join-carriers `reprovisioned`; 16 -> 17: §team-ch-key T-K3 `unsealable`; 17 -> 18: §loc-per-send `no_location`)
     check_mapper_covers_every_enumerator<JoinRefuseReason>("JoinRefuseReason", joinrefusereason_name, "none", 4);
     // The one exemption is EXACT, not a licence for a hole: `none` must render precisely "none".
     CHECK(std::strcmp(sendfailreason_name(SendFailReason::none), "none") == 0);

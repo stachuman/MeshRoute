@@ -95,8 +95,8 @@ bool parse_hex_bytes_tok(const Tok& t, uint8_t* out, size_t n) {
 // unterminated/duplicate quote, or no body at all (the body is required).
 bool parse_send_tail(Scan& s, bool allow_a, bool allow_e, bool& ack, bool& enc,
                      const uint8_t*& body, uint8_t& body_len, bool* team = nullptr, bool* no_intro = nullptr,
-                     bool* global = nullptr) {
-    ack = false; enc = false; if (team) *team = false; if (no_intro) *no_intro = false; if (global) *global = false; body = nullptr; body_len = 0; bool body_seen = false;
+                     bool* global = nullptr, bool* loc = nullptr) {
+    ack = false; enc = false; if (team) *team = false; if (no_intro) *no_intro = false; if (global) *global = false; if (loc) *loc = false; body = nullptr; body_len = 0; bool body_seen = false;
     for (;;) {
         skip_ws(s);
         if (s.p >= s.end) break;
@@ -121,6 +121,15 @@ bool parse_send_tail(Scan& s, bool allow_a, bool allow_e, bool& ack, bool& enc,
             else if (f == 't') { if (!team) return false; *team = true; }   // §6.4: -t = TEAM plane (send + §S7 send_channel; send_layer rejects it)
             else if (f == 'g') { if (!global) return false; *global = true; }   // §S7 T-B: -g = explicit GLOBAL plane (send_channel only; `-t -g` => BOTH)
             else if (f == 'K') { if (!no_intro) return false; *no_intro = true; }   // §D1: -K = suppress the INTRO first-contact attach for this send (send/send_layer only; a no-op on a sealed send)
+            // ★★ §loc-per-send (2026-07-31, register B0): -l = attach THIS node's position to THIS message
+            // (DATA_FLAG_LOCATION). Replaces `cfg set loc_dm`, a global toggle that attached the position to every DM on
+            // a size check alone — with no crypt gate — so a plaintext DM aired coordinates in the clear. Per-send means
+            // an ordinary `send` is untouched and a refusal is attributable to the one message that asked for a position.
+            // Accepted on `send` and `send_layer`; NOT on `send_channel` (there a location is an alternative inner TYPE,
+            // not an added field — T-K5's job — and overloading one letter with two meanings is the ambiguity to avoid).
+            // `send_layer -l` parses but on_command REFUSES it (no cross-layer builder can carry a position), so the
+            // operator gets an explanation instead of a bare bad_args.
+            else if (f == 'l') { if (!loc) return false; *loc = true; }
             else return false;                                   // unknown flag
         } else {
             return false;                                        // unquoted text -> error (body must be quoted)
@@ -184,9 +193,9 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
 
     //   §2 send cleanup — 3 orthogonal verbs, QUOTED body, -a (ack) / -e (encrypt) flags in ANY order. HARD SWITCH:
     //   the old send_ack/sendhash/sendhash_ack/sendhashx/sendhashx_ack/send_layer_ack verbs are GONE (-> unknown_verb).
-    //   send <id|0xhash> "<text>" [-a] [-e] [-t]   — id (<=254 dec) vs hash (0x-prefixed); -e=crypt (hash only); §6.4 -t=TEAM plane, plain=GLOBAL/home (fail if no home)
-    //   send_channel <ch> "<text>"                 — channel gossip (no ack/enc)
-    //   send_layer <0xhash> <l1,l2,…> "<text>" [-a] [-e] — explicit cross-layer path; -e = sealed (DATA_TYPE_SEALED_RELAY)
+    //   send <id|0xhash> "<text>" [-a] [-e] [-t] [-l]   — id (<=254 dec) vs hash (0x-prefixed); -e=crypt (hash only); §6.4 -t=TEAM plane, plain=GLOBAL/home (fail if no home); §loc-per-send -l=attach position (REFUSED unless the DM is sealed)
+    //   send_channel <ch> "<text>"                 — channel gossip (no ack/enc/loc)
+    //   send_layer <0xhash> <l1,l2,…> "<text>" [-a] [-e] — explicit cross-layer path; -e = sealed (DATA_TYPE_SEALED_RELAY); -l parses but is REFUSED (cross-layer carries no position)
     {
         const bool is_send    = tok_eq(verb, "send");
         const bool is_channel = tok_eq(verb, "send_channel");
@@ -234,15 +243,20 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
             if (!digit || v == 0 || v > 255) return ParseErr::bad_args;
             if (out.u.layer.hop_count >= protocol::gw_env_max_hops - 1) return ParseErr::bad_args;
             out.u.layer.hops[out.u.layer.hop_count++] = static_cast<uint8_t>(v);
-            bool ack = false, enc = false, no_intro = false; const uint8_t* body = nullptr; uint8_t blen = 0;
+            bool ack = false, enc = false, no_intro = false, loc = false; const uint8_t* body = nullptr; uint8_t blen = 0;
             // ★ §xl-crypt-intent (2026-07-29): `-e` IS ACCEPTED HERE. It was `allow_e=false`, so the console could not
             // ask for a sealed cross-layer DM at all while the SIM could (`send_layerx`) — a metal-vs-sim divergence on a
             // CONFIDENTIALITY feature. It is NOT a no-op: on_command's send_layer already seals a want_crypt send into a
             // DATA_TYPE_SEALED_RELAY (node.cpp §S4), and fails LOUD (err_unsupported / send_failed{no_pubkey|…}) when it
             // cannot — so `-e` here is sealed-or-refused, never a cleartext downgrade. Target ALWAYS a 0x-hash, so there
             // is no id-target carve-out to make (unlike `send`, where allow_e is by_hash).
-            if (!parse_send_tail(s, /*allow_a=*/true, /*allow_e=*/true, ack, enc, body, blen, /*team=*/nullptr, /*no_intro=*/&no_intro)) return ParseErr::bad_args;
-            out.u.layer.flags = static_cast<uint8_t>(ack ? DATA_FLAG_E2E_ACK_REQ : 0);
+            if (!parse_send_tail(s, /*allow_a=*/true, /*allow_e=*/true, ack, enc, body, blen, /*team=*/nullptr, /*no_intro=*/&no_intro,
+                                 /*global=*/nullptr, /*loc=*/&loc)) return ParseErr::bad_args;
+            // §loc-per-send: `-l` is ACCEPTED here and REFUSED by on_command (err_unsupported + send_failed{unsealable}),
+            // not rejected as a parse error — a cross-layer frame genuinely cannot carry a position and the operator
+            // deserves that explanation rather than "bad args". Threading it (instead of dropping it at the parser) is
+            // also what keeps ONE meaning for the letter across the verbs.
+            out.u.layer.flags = static_cast<uint8_t>((ack ? DATA_FLAG_E2E_ACK_REQ : 0) | (loc ? DATA_FLAG_LOCATION : 0));
             out.no_intro = no_intro;   // §D1 `-K`
             out.body = body; out.body_len = blen;
             out.crypt = enc ? CryptIntent::on : CryptIntent::def;   // §8b, same rule as `send`: -e => CRYPTED; absent => the node's e2e_dm default
@@ -256,13 +270,19 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
         else if (parse_u32_tok(arg, 254u, id)) by_hash = false;            // bare decimal <=254 -> id
         else return ParseErr::bad_args;
         if (by_hash && h == 0) return ParseErr::bad_args;   // `send 00000000`: an all-zero hash would fall through to a unicast to reserved id 0 (mirror send_layer's h==0 guard)
-        bool ack = false, enc = false, team = false, no_intro = false; const uint8_t* body = nullptr; uint8_t blen = 0;
-        if (!parse_send_tail(s, /*allow_a=*/true, /*allow_e=*/by_hash, ack, enc, body, blen, &team, &no_intro)) return ParseErr::bad_args;  // -e only on a hash target; -t = team plane; -K = suppress INTRO attach
+        bool ack = false, enc = false, team = false, no_intro = false, loc = false; const uint8_t* body = nullptr; uint8_t blen = 0;
+        if (!parse_send_tail(s, /*allow_a=*/true, /*allow_e=*/by_hash, ack, enc, body, blen, &team, &no_intro,
+                             /*global=*/nullptr, /*loc=*/&loc)) return ParseErr::bad_args;  // -e only on a hash target; -t = team plane; -K = suppress INTRO attach; -l = attach position
         out = Command{};
         out.kind = CmdKind::send;
         out.u.send.dst_id   = by_hash ? 0 : static_cast<uint8_t>(id);
         out.u.send.dst_hash = by_hash ? h : 0u;            // on_command routes dst_hash!=0 to send_by_hash
-        out.u.send.flags    = static_cast<uint8_t>(ack ? DATA_FLAG_E2E_ACK_REQ : 0);
+        // §loc-per-send `-l`: DATA_FLAG_LOCATION rides the EXISTING flags word all the way to enqueue_data (no signature
+        // change anywhere) — accepted on BOTH the id and hash forms. It is validated there, and the send is REFUSED if the
+        // DM would not be sealed / there is no fix / the +6 B does not fit. Note `-l` is allowed WITHOUT `-e` on an id
+        // target (where `-e` is not even accepted): a node with `e2e_dm` on seals by default, so `send 5 "…" -l` is the
+        // normal sealed case there, and on an e2e_dm-off node it refuses loudly — which is the rule, not a limitation.
+        out.u.send.flags    = static_cast<uint8_t>((ack ? DATA_FLAG_E2E_ACK_REQ : 0) | (loc ? DATA_FLAG_LOCATION : 0));
         out.u.send.plane    = team ? 1 /*TEAM*/ : 2 /*GLOBAL*/;   // §6.4 HARD SPLIT: -t => team-only; plain send => global/home (fails loud if no home)
         out.no_intro = no_intro;   // §D1 `-K`: suppress the INTRO attach for this send (accepted on a sealed send too -> harmless no-op)
         out.body = body; out.body_len = blen;

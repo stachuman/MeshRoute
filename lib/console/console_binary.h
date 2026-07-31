@@ -83,15 +83,24 @@ inline constexpr uint8_t TAG_CFG_NODE_ID=0x01, TAG_CFG_FREQ=0x02, TAG_CFG_ROUTIN
     TAG_CFG_BW=0x05, TAG_CFG_CR=0x06, TAG_CFG_TX_POWER=0x07, TAG_CFG_DUTY_X1000=0x08, TAG_CFG_BEACON_MS=0x09,
     TAG_CFG_HOP_CAP=0x0A, TAG_CFG_LBT=0x0B, TAG_CFG_NAV=0x0C, TAG_CFG_INTRA_RELAY=0x0D, TAG_CFG_HOST_MOB=0x0E,
     TAG_CFG_LEAF_ID=0x0F, TAG_CFG_GATEWAY=0x10, TAG_CFG_MOBILE=0x11, TAG_CFG_TEAM_ID=0x12, TAG_CFG_LINEAGE=0x13,
-    TAG_CFG_EPOCH=0x14, TAG_CFG_BLE_MODE=0x15, TAG_CFG_BLE_PERIOD=0x16, TAG_CFG_BLE_PIN=0x17, TAG_CFG_LOC_DM=0x18,
+    TAG_CFG_EPOCH=0x14, TAG_CFG_BLE_MODE=0x15, TAG_CFG_BLE_PERIOD=0x16, TAG_CFG_BLE_PIN=0x17,
+    // ★★ 0x18 IS RETIRED — NEVER REUSE IT. It was `TAG_CFG_LOC_DM`, the app-facing mirror of the `loc_dm` config
+    // toggle, deleted 2026-07-31 (§loc-per-send, open-bug-register B0) because the toggle attached this node's
+    // coordinates to every originated DM with NO crypt gate — a live plaintext-position leak. Location is now a
+    // PER-SEND `-l` flag on `send`, so there is nothing left to configure and nothing to report here.
+    // WHY THE NUMBER IS RETIRED RATHER THAN FREED (the Q-opcode lesson, which has already cost this arc a slice): an
+    // older companion still WRITING tag 0x18 would silently set whatever a later slice put in its place — a codepoint
+    // whose meaning changed under a peer. `dec_cfg` ignores unknown tags (`default: break;`), so leaving the hole is
+    // free; recycling it is not. New tags APPEND past the highest number in use.
     TAG_CFG_E2E_DM=0x19, TAG_CFG_LAT=0x1A, TAG_CFG_LON=0x1B,
     // §team-parity T3: the TEAM plane's hop radius, beside TAG_CFG_HOP_CAP's static twin. APPENDED at the end of the
     // tag space (never renumbering an existing tag) — a companion that does not know 0x1C skips it via dec_cfg's
     // `default: break;`, so this is purely additive on the BLE/companion framing and no version bump is needed.
     TAG_CFG_TEAM_HOP_CAP=0x1C;
 struct CfgOut {
+    // §loc-per-send: `loc_dm` REMOVED with its TLV (0x18, retired above) — location is per-send (`send -l`), not config.
     uint8_t node_id=0, routing_sf=0, cr=0, hop_cap=0, team_hop_cap=0, lbt=0, nav=0, intra_relay=0, host_mobiles=0, leaf_id=0,
-            is_gateway=0, is_mobile=0, ble_mode=0, loc_dm=0, e2e_dm=0; int8_t tx_power=0;
+            is_gateway=0, is_mobile=0, ble_mode=0, e2e_dm=0; int8_t tx_power=0;
     uint16_t sf_list=0, lineage_id=0, config_epoch=0, ble_period=0;
     uint32_t freq_hz=0, bw=0, duty_x1000=0, beacon_ms=0, team_id=0, ble_pin=0; int32_t lat_e7=0, lon_e7=0;
 };

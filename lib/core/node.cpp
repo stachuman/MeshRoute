@@ -1398,6 +1398,23 @@ CmdResult Node::on_command(const Command& c) {
             if (c.u.layer.dst_hash == 0)                     return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };  // a layer send needs a stable dst key
             if ((c.u.layer.flags & DATA_FLAG_E2E_ACK_REQ) && e2e_ack_ring_full())   // ★ shelf item (i): refuse a new -a cross-layer send LOUD when the pending-ack ring is full
                 return CmdResult{ CmdCode::err_ack_ring_full, 0, _active->_tx_queue_n, c.u.layer.dst_hash, 0 };
+            // ★★ §loc-per-send (2026-07-31, register B0): `send_layer -l` is REFUSED, synchronously, before a seal_ctr or
+            // a MAC ctr is burned. `send_layer` is ALWAYS a cross-layer flight (the console parser requires >=1 hop), and
+            // NEITHER cross-layer builder can carry a position: enqueue_cross_layer masks the flag off and packs
+            // lat/lon = 0, and the sealed substitute (DATA_TYPE_SEALED_RELAY via build_sealed_relay_body) has no flags
+            // word on the wire for the receiver to read one from. ⇒ the honest answer is a refusal, not a silent strip —
+            // the owner ruled out "the app believes it shared a position it did not" explicitly.
+            // ★ WHY HERE AND NOT ONLY AT THE CHOKE POINT: this verb forks below into the static path
+            // (originate_layer_path -> enqueue_cross_layer, which has the structural guard) AND the mobile path
+            // (delegate_send_layer, which builds its own TxItem and never reaches that guard). Refusing at the verb
+            // covers both forks in one place, before the seal, and gives the operator a synchronous err_unsupported
+            // instead of only an async push. `-l` is deliberately still ACCEPTED BY THE PARSER on this verb (rather than
+            // rejected as `-t` is) so the flag letter keeps ONE meaning everywhere and the refusal can explain itself.
+            if (c.u.layer.flags & DATA_FLAG_LOCATION) {
+                MR_EMIT("location_refused", EF_I("dst_hash", static_cast<int64_t>(c.u.layer.dst_hash)), EF_S("reason", "send_layer"));
+                push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);
+                return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n, c.u.layer.dst_hash, 0 };
+            }
             // §S4: a CRYPTED cross-layer send (e2e_dm ON, or per-message `-e`) SEALS the body to the target HERE and rides
             // a DATA_TYPE_SEALED_RELAY plaintext frame [seal_ctr][seed8][ct‖tag] — there is NO CRYPTED-flagged XL frame
             // (the crypto core stays same-layer; XL confidentiality layers on top via the relay type). This LIFTS the old

@@ -152,7 +152,8 @@ const char* sendfailreason_name(SendFailReason r) {
         case SendFailReason::e2e_ack_timeout:      return "e2e_ack_timeout";     // §ack-deadline: a -a DM's e2e ack never returned inside the patience budget (delivery UNCONFIRMED, not failed)
         case SendFailReason::queue_full:           return "queue_full";          // §defer: the no-route defer queue was full -> the NEW send was refused (node_cascade.cpp defer_send)
         case SendFailReason::reprovisioned:        return "reprovisioned";       // §clean-join-carriers: a join/create/leave (or prep-restart) discarded this staged/in-flight DM — RE-ADDRESS before resending (the dst id belongs to the OLD network)
-        case SendFailReason::unsealable:           return "unsealable";          // §team-ch-key T-K3: a sealed-only TYPE (the team key grant) on a transport that cannot carry it sealed-AND-typed (cross-layer / delegated) — PERMANENT for this route, grant from the target's own layer or over the team plane
+        case SendFailReason::unsealable:           return "unsealable";          // §team-ch-key T-K3: a sealed-only TYPE (the team key grant) on a transport that cannot carry it sealed-AND-typed (cross-layer / delegated) — PERMANENT for this route, grant from the target's own layer or over the team plane. §loc-per-send REUSES it for a `-l` send that would not be sealed (remedy: `-e` / `e2e_dm` / acquire the peer key)
+        case SendFailReason::no_location:          return "no_location";         // §loc-per-send: `-l` asked to attach a position and this node has NO fix (lat_e7==0 && lon_e7==0) — the DM was NOT sent; remedy is a GPS fix or `cfg set lat`/`lon`, NOT encryption
         case SendFailReason::none:        return "none";
     }
     return "none";

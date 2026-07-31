@@ -188,17 +188,23 @@ void Node::handle_q(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // emit_beacon self-selects (team_active ⇒ src = _team_local_id and src_rt = _rt_team, node_beacon.cpp:286/389) and
     // kind=="sync" is the one kind that bypasses dirty_only (:272), so the reply carries our WHOLE `_rt_team` via the
     // Phase-2 rotation — one round trip for a teammate's entire table, which is the point of the slice.
-    // ⚠ MISSING, stated plainly: schedule_sync_response's route-starved skip reads the STATIC `_rt_count`
-    // (node_query.cpp, the `route_n` line) and its `rt_total` telemetry does too, so on a team pull both describe the
-    // wrong plane. Inert today — `_cfg.sync_response_min_routes` defaults to 0 and nothing in the tree sets it — but a
-    // deployment that raises it would silently mute off-grid members (their `_rt_count` is 0 forever). Left unsplit
-    // rather than adding a plane parameter that only one of two callers would ever vary.
+    // ✔ §B4 — FIXED (register B4; was ⚠ MISSING here). schedule_sync_response's route-starved skip AND its `rt_total`
+    // read the STATIC `_rt_count`, so on a team pull both described the wrong plane; T4 declined the plane parameter as
+    // one "only one of two callers would ever vary". That reasoning is now retired: the parameter IS the fix, because
+    // the plane cannot be recovered inside the callee (a HOMED member is team-active while answering a static
+    // REQ_SYNC — see the C3 note at schedule_sync_response). The plane is passed EXPLICITLY at both call sites below,
+    // and rides the pending slot into sync_response_fire, which held a THIRD copy of the same defect.
+    // ⚠ V1 correction to the retired note: it said "a deployment that raises it". `sync_response_min_routes` has NO
+    // console / NV / remote-admin surface — only NodeConfig's default and the simulator's scenario mapper
+    // (NodeRuntimeWrapper.cpp:405) can raise it, so the trigger was a firmware rebuild or a sim scenario, not a field
+    // change. It stayed 0 everywhere ⇒ `sync_response_skip` fires in 0 of 36 corpus scenarios and the native cases in
+    // test_node_r3.cpp (§B4) are its ONLY detector.
     if (q.opcode == static_cast<uint8_t>(q_opcode::team_sync)) {
-        schedule_sync_response(q.src, q.mobile);
+        schedule_sync_response(q.src, q.mobile, /*team_plane=*/true);
         return;
     }
     if (q.opcode == static_cast<uint8_t>(q_opcode::req_sync)) {
-        schedule_sync_response(q.src, q.mobile);
+        schedule_sync_response(q.src, q.mobile, /*team_plane=*/false);
         return;
     }
     if (q.opcode == static_cast<uint8_t>(q_opcode::channel_pull)) {
@@ -321,9 +327,29 @@ bool Node::leaf_config_write() {
 }
 
 // ---- jittered full-table response (Lua schedule_sync_response dv:8064; the ONLY draw) ----------
-void Node::schedule_sync_response(uint8_t requester, bool requester_mobile) {
+void Node::schedule_sync_response(uint8_t requester, bool requester_mobile, bool team_plane) {
     if (!_cfg.sync_response_enabled) return;
-    const uint8_t route_n = _active->_rt_count;
+    // ✔ §B4 — the route count is PLANE-SCOPED. BOTH readers below (the route-starved skip AND the `rt_total`
+    // telemetry) described the STATIC table on a team pull, and the static count says NOTHING about the team plane.
+    // ⚠ MEASURED, and it is NOT only the "0 forever" case: an off-grid member that hears NO static beacon has
+    // `_rt_count` 0 while `_rt_team` is full (s38's TR: 0 vs 2 — a raised knob would MUTE exactly the population the
+    // team plane exists for), but one that DOES hear statics reports a nonzero-but-WRONG count (s35a's T2: 2 vs 3).
+    // Both are corpus-live, so a `rt_total:0` search under-counts this bug. Same shape + same #if guard as node_routing.cpp:20's
+    // rt_find(dest, Plane) and node_beacon.cpp:430's src_rt/src_cnt pair (U1) — under MR_FEAT_TEAM 0 there is no
+    // `_rt_team_count` member at all, so the ternary would not COMPILE on the three gateway_* envs.
+    // ★★ C3 — `team_plane` MUST come from the caller (handle_q's opcode dispatch: team_sync ⇒ true, req_sync ⇒
+    // false) and must NEVER be re-derived here from team_active()/is_mobile/_cfg.team_id: a HOMED team member is
+    // team-active WHILE answering a static REQ_SYNC. MEASURED, not argued — 12 corpus events in 5 scenarios (s22 3,
+    // s28 4, s29 2, s35a 2, s38 1) are static-plane sync responses from a node that holds team routes, 9 of them with
+    // a team count that DIFFERS; a derived plane would have mis-answered every one, turning one breach into two.
+    // Static reduction: team_plane==false at the req_sync caller ⇒ `_active->_rt_count`, the pre-B4 expression
+    // verbatim ⇒ every static scenario byte-identical (s18 keystone unmoved).
+#if MR_FEAT_TEAM
+    const uint8_t route_n = team_plane ? _active->_rt_team_count : _active->_rt_count;
+#else
+    (void)team_plane;                                          // §featuresplit: no team plane compiled in — and handle_q's
+    const uint8_t route_n = _active->_rt_count;                // I7 gate drops every team_sync, so the team arm is unreachable
+#endif
     if (route_n < _cfg.sync_response_min_routes) {              // route-starved responder skip (inert at default min=0)
         MR_EMIT("sync_response_skip", EF_I("joiner", requester), EF_S("reason", "rt_small"), EF_I("rt_total", route_n));
         return;
@@ -347,7 +373,7 @@ void Node::schedule_sync_response(uint8_t requester, bool requester_mobile) {
     }
     const uint64_t now = _hal.now();
     _active->_sync_pending[slot] = { .active = true, .suppressed = false, .requester = requester,
-                            .requester_mobile = requester_mobile, .requested_at = now, .fire_at = now + delay };
+                            .requester_mobile = requester_mobile, .team_plane = team_plane, .requested_at = now, .fire_at = now + delay };
     MR_EMIT("sync_response_scheduled", EF_I("joiner", requester), EF_I("delay_ms", static_cast<int64_t>(delay)), EF_I("rt_total", route_n),
             EF_I("requester_mobile", requester_mobile ? 1 : 0));
     (void)_hal.after(delay, kSyncResponseTimerId + static_cast<uint32_t>(slot));
@@ -363,7 +389,21 @@ void Node::sync_response_fire(uint8_t slot) {
         MR_EMIT("sync_response_suppressed", EF_I("joiner", p.requester), EF_S("reason", "heard_useful_bcn"));
         return;
     }
-    MR_EMIT("sync_response_tx", EF_I("joiner", p.requester), EF_I("rt_total", _active->_rt_count));
+    // ✔ §B4 — THE THIRD READER, found by this slice and NOT in the register entry (which named only
+    // schedule_sync_response's two). It is the SAME plane-blind read of the SAME quantity, ~11 s later on the SAME
+    // pull, so leaving it would make the mechanism half-plane-aware: `sync_response_scheduled{rt_total}` team-correct
+    // and this line team-wrong for one and the same team_sync (measured: s35a t=212759 and s38 t=211328). The plane
+    // rides in the slot (SyncPending.team_plane) rather than being re-derived — same C3 argument as the scheduler.
+    // The RESPONSE itself needs no plane: emit_beacon self-selects (node_beacon.cpp:410/430).
+    // [[maybe_unused]]: this local is TELEMETRY-ONLY (unlike the scheduler's, which a live comparison reads), and the
+    // device build defines MESHROUTE_NO_TELEMETRY ⇒ MR_EMIT expands to nothing ⇒ `-Wunused-variable` on every board.
+    // Same idiom + same reason as node_mac_rx.cpp:1440 and node_beacon.cpp:1111 (U1). Caught by the warning gate.
+#if MR_FEAT_TEAM
+    [[maybe_unused]] const uint8_t route_n = p.team_plane ? _active->_rt_team_count : _active->_rt_count;
+#else
+    [[maybe_unused]] const uint8_t route_n = _active->_rt_count;   // §featuresplit: no team plane compiled in
+#endif
+    MR_EMIT("sync_response_tx", EF_I("joiner", p.requester), EF_I("rt_total", route_n));
     emit_beacon("sync");                                       // full-table page (dirty_only=false for kind=="sync")
 }
 

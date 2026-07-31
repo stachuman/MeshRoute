@@ -1015,6 +1015,15 @@ size_t pack_unicast_inner(std::span<uint8_t> out, uint8_t flags, uint32_t dst_ke
         out[off++] = static_cast<uint8_t>(source_hash);       out[off++] = static_cast<uint8_t>(source_hash >> 8);
         out[off++] = static_cast<uint8_t>(source_hash >> 16); out[off++] = static_cast<uint8_t>(source_hash >> 24);
     }
+    // ✖ MISSING / NOW UNREACHABLE FOR A DM (§loc-per-send, 2026-07-31 — open-bug-register B0, and DELIBERATELY NOT
+    // DELETED, spec §2.5). This is the UNSEALED location pack: pack_unicast_inner builds the *cleartext* inner, so a DM
+    // reaching here with DATA_FLAG_LOCATION set would air the 6-B position IN THE CLEAR — which is exactly the leak B0
+    // closed. It is now unreachable from any DM origination, because Node::enqueue_data REFUSES a `-l` send that would
+    // not be sealed (a sealed DM's location is packed by e2e_seal_inner into the ENCRYPTED plaintext instead, and the
+    // cross-layer builders refuse it outright). ⇒ KEPT ON PURPOSE, three reasons: pack_unicast_inner is SHARED (this is
+    // not a DM-only function), it is the pack half of parse_unicast_inner's still-live LOCATION read (the RECEIVE path
+    // must keep decoding a location a peer sends), and the codec's own round-trip tests exercise it directly. Deleting
+    // dead-but-reachable-looking codec code is its own slice (C1).
     if (flags & DATA_FLAG_LOCATION) {                            // 6-B location, AFTER source_hash, BEFORE body (origin-onward sealed region)
         pack_loc6(lat_e7, lon_e7, out.subspan(off, 6)); off += 6;
     }

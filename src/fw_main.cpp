@@ -606,7 +606,7 @@ void setup() {
         cfg.intro_attach      = nv.intro_attach != 0;            // §S2: first-contact INTRO auto-attach (a valid v21 NV was seeded from the ON default)
         g_ble_mode            = nv.ble_mode;          g_ble_period_min = nv.ble_period_min;      // v7 BLE policy (only v7 blobs load)
         g_ble_pin             = nv.ble_pin;
-        cfg.loc_in_dm         = (nv.loc_in_dm != 0);                                                // v9 location piggyback toggle
+        // §loc-per-send (v23): the v9 `loc_in_dm` restore is GONE with the field — location is a per-send `-l` flag now.
         cfg.e2e_dm            = (nv.e2e_dm != 0);                                                   // v10 E2E encrypt toggle (§4b)
         if (nv.gw_announce_duty_pct != 0)        cfg.gw_announce_duty_pct        = nv.gw_announce_duty_pct;        // v11 gateway noise control;
         if (nv.gw_announce_min_interval_ms != 0) cfg.gw_announce_min_interval_ms = nv.gw_announce_min_interval_ms; //   0 => keep the default
@@ -661,7 +661,7 @@ void setup() {
     g_node.set_crypto_identity(g_identity.x_secret, g_identity.ed_pub);   // DP1: install the E2E crypto identity (X25519 + ed_pub)
     g_node.set_name(idb.name, static_cast<uint8_t>(idb.name_len));   // §1.3: load the human name into the core (pubkey exchange + display); empty -> effective_name defaults to MeshRoute node: 0x<hash>
     g_lat_e7 = idb.lat_e7; g_lon_e7 = idb.lon_e7;              // node location (persisted in /mrid; 0,0 on first boot)
-    cfg.lat_e7 = g_lat_e7; cfg.lon_e7 = g_lon_e7;             // feed the node's location to the DM piggyback (loc_in_dm)
+    cfg.lat_e7 = g_lat_e7; cfg.lon_e7 = g_lon_e7;             // the node's fix, from /mrid — what a per-send `send … -l` attaches (§loc-per-send; there is no `loc_in_dm` toggle any more)
     // §remote-mgmt (v20): restore the pinned admin pubkey + replay counter floor (no-op stub when MR_FEAT_REMOTE_MGMT=0).
     g_node.admin_load(nv.admin_pubkey, nv.admin_counter_floor, nv.admin_provisioned);
     // §team-ch-key (v22): restore the TEAM CHANNEL keypair (no-op stub when MR_FEAT_TEAM=0). `nv` is
@@ -1076,7 +1076,8 @@ static void mesh_service_once() {
                     case meshroute::SendFailReason::e2e_ack_timeout:     mrcon.print(F(" (no end-to-end ack in time — delivery UNCONFIRMED, a late ack still resolves)")); break;
                     case meshroute::SendFailReason::queue_full:          mrcon.print(F(" (defer queue full — retry shortly)")); break;
                     case meshroute::SendFailReason::reprovisioned:       mrcon.print(F(" (node reprovisioned — send discarded; the old network's ids are void, re-address before resending)")); break;
-                    case meshroute::SendFailReason::unsealable:          mrcon.print(F(" (this type may travel ONLY sealed, and this route cannot carry it sealed-and-typed — grant over the team plane `-t`, or from a node on the target's own layer)")); break;   // §team-ch-key T-K3
+                    case meshroute::SendFailReason::unsealable:          mrcon.print(F(" (this may travel ONLY sealed, and this route cannot carry it sealed — for `-l` use -e / `cfg set e2e_dm 1` (and NOT send_layer/cross-layer); for a team key grant, grant over `-t` or from the target's own layer)")); break;   // §team-ch-key T-K3 + §loc-per-send
+                    case meshroute::SendFailReason::no_location:         mrcon.print(F(" (-l asked to attach a position and this node has NO fix — set `cfg set lat`/`lon`, or wait for GPS; NOT an encryption problem)")); break;   // §loc-per-send
                     case meshroute::SendFailReason::none:                break;   // not a send_failed reason
                 }
                 mrcon.println(); break;

@@ -10,6 +10,10 @@
 #include <cstdint>
 #include <cstdlib>                // atof/atol — phy_arg_take
 #include <cstring>                // strcmp   — phy_arg_take (EXACT key match, §3-A.7)
+#include <cerrno>                 // errno/ERANGE — parse_team_target's range clause (3a). ★ MEASURED 2026-07-31: errno is
+                                  // NOT reachable through <cstdint>/<cstdlib>/<cstring> on ANY of the three toolchains
+                                  // (host g++, arm-none-eabi-g++, xtensa-esp32s3-elf-g++ all error "not declared"), so
+                                  // this include is required, not defensive.
 #include "protocol_constants.h"   // §3-A.2: flood_hop_max (the hop_cap domain ceiling) — pure constexpr, no Arduino
 
 namespace mrfw {
@@ -313,11 +317,42 @@ inline GrantArgs parse_grant_args(const char* tail, char* scratch, size_t scratc
 // `team 0` (leave), `team 00`, `team 0x0`, `team 42`, `team 0x2a`, `team 010`, `team 12345`, `team 0xDEADBEEF`
 // and `team <id> freq=…` all keep working VERBATIM: this gates entry only, strtoul with base 0 still converts.
 //
-// ✖ MISSING / NOT THIS SLICE (C1) — the OUT-OF-RANGE token, measured 2026-07-31 and left open on purpose. A
-// fully-consumed token outside 32 bits still lands: `team 4294967296` truncates to 0 = LEAVE on a 64-bit
-// `unsigned long` (native), while on the 32-bit boards strtoul saturates to ULONG_MAX+ERANGE so the SAME command
-// joins garbage team 0xFFFFFFFF — a real sim-vs-metal divergence. It needs an `errno`/width check, which is a
-// different clause (a range rule, not a syntax one) and would want its own before/after measurement.
+// ★★ §team-target-range (BUG FIX 2026-07-31, register B17) — AND AN OUT-OF-RANGE TOKEN WAS DESTRUCTIVE ON METAL.
+// The 07-30/07-31 clauses are both SYNTAX rules; a token that is spelled perfectly but does not FIT IN 32 BITS
+// passed both and then landed as whatever the ABI's `unsigned long` happened to produce. ★ MEASURED on all three
+// toolchains, and the two ABIs fail DIFFERENTLY — which is why one check could not have covered it:
+//   • `unsigned long` = 8 B (native/sim): `strtoul("4294967296")` succeeds, no ERANGE, and the cast to uint32_t
+//     TRUNCATES to 0 — i.e. `team 4294967296` = SILENT LEAVE. (`0x100000000` is the same shape.)
+//   • `unsigned long` = 4 B (ALL board targets — `static_assert(sizeof(unsigned long)==4)` holds on both
+//     arm-none-eabi and xtensa-esp32s3): strtoul SATURATES and sets ERANGE, so the SAME command JOINED GARBAGE
+//     TEAM 0xFFFFFFFF. Verified in the shipped newlib BINARY, not from the docs: arm `mov.w r5,#0xffffffff` then
+//     `movs r3,#34` / `str r3,[r7]`, and xtensa `movi.n a3,34` / `s32i.n a3,a2,0` — ERANGE is 34 on both.
+//   • ★ AND NATIVE IS NOT SAFE EITHER, which the deferral note used to imply: a token overflowing even 64 bits
+//     (`99999999999999999999999`) raises ERANGE on the HOST too and truncates ULONG_MAX to 0xFFFFFFFF ⇒ the
+//     garbage JOIN, not the leave. The destructive outcome is reachable on every ABI, only via a different token.
+// THE RULE — two clauses, ONE PER ABI:
+//   (3a) `errno == ERANGE` (cleared to 0 immediately before the call, or the flag means nothing) — catches the
+//        SATURATION, i.e. every board's destructive garbage-join.
+//   (3b) the returned `unsigned long` must not exceed `UINT32_MAX` — catches the 64-bit TRUNCATION, which sets no
+//        errno at all. On a 32-bit ABI this comparison is trivially false (correct, harmless, and warning-free:
+//        `-Wall -Wextra` on both cross-compilers is silent on it — measured, since `-Wtype-limits` was the risk).
+// ★★ DO NOT "SIMPLIFY" EITHER ARM AWAY, and here is the exact reason, because it is NOT the obvious one: on each
+// ABI, ONE arm does all the work and the other is inert — but it is a DIFFERENT arm on each, so both are needed
+// for the fleet and NEITHER can be shown necessary by testing on one ABI alone. MEASURED by mutant, not argued:
+//   • 64-bit host/sim: ERANGE implies `ul == ULONG_MAX`, which is itself > UINT32_MAX ⇒ (3b) SUBSUMES (3a).
+//     Deleting (3a) leaves the native suite 100% GREEN (measured: 1014/70504/0, zero failures). ⇒ a native-only
+//     reader will conclude (3a) is dead code. It is not — see the next line.
+//   • 32-bit boards (`sizeof(unsigned long) == 4` on BOTH arm-none-eabi and xtensa-esp32s3): `UINT32_MAX ==
+//     ULONG_MAX`, so (3b) is compiled to a constant false and (3a) is THE ONLY GUARD — and it guards the
+//     destructive outcome (the garbage JOIN), not the merely-wrong one.
+//   Deleting (3b) instead DOES go red natively (measured: 19 assertions, the `4294967296` family) — so the native
+//   suite proves (3b) necessary and can only prove (3a) FUNCTIONAL (mutant B keeps the >2^64 cases green because
+//   (3a) refuses them). (3a)'s NECESSITY is ABI algebra + the newlib binary evidence above, not a native red.
+// ⚠ NOT over-refused, deliberately: `team 0` still LEAVES (a range rule must not eat the documented leave form),
+// and `team 0xFFFFFFFF` / `team 4294967295` written EXPLICITLY are still ACCEPTED — the bug was a range error
+// silently MAPPING onto that value, never the value itself. Only clause (3a) can tell those two apart on a 32-bit
+// target (both return ULONG_MAX; only the overflow sets errno), which is the reason `errno` is used at all rather
+// than a home-grown width check — and U1 forbids forking a second integer parser to avoid it.
 //
 // FAIL-CLOSED: on false, `out_id` and `out_tail` are left UNTOUCHED, so a refused token cannot half-write the id
 // the caller is about to persist. That is the property the native test pins — it seeds out_id with a live
@@ -326,10 +361,13 @@ inline GrantArgs parse_grant_args(const char* tail, char* scratch, size_t scratc
 inline bool parse_team_target(const char* s, uint32_t& out_id, const char*& out_tail) {
     if (!s || s[0] < '0' || s[0] > '9') return false;   // (1) no leading digit => not a team id
     char* endp = nullptr;
-    const uint32_t v = static_cast<uint32_t>(strtoul(s, &endp, 0));   // base 0: decimal, 0x-hex and leading-0 octal, exactly as before
+    errno = 0;                                                        // (3a) ERANGE is only readable if we clear it FIRST
+    const unsigned long ul = strtoul(s, &endp, 0);                    // base 0: decimal, 0x-hex and leading-0 octal, exactly as before
     size_t tn = 0; while (s[tn] && s[tn] != ' ') ++tn;                // (2) the target token = up to the first space
     if (static_cast<size_t>(endp - s) != tn) return false;            // partially consumed: `0x`/`08` (would LEAVE), `88A672BA`/`12abc` (would MIS-JOIN)
-    out_id = v; out_tail = endp;                        // committed only after the whole token was accepted
+    if (errno == ERANGE) return false;                                // (3a) SATURATED — the boards' garbage-JOIN of 0xFFFFFFFF
+    if (ul > static_cast<unsigned long>(UINT32_MAX)) return false;     // (3b) does not FIT 32 bits — the host's TRUNCATION (0 = LEAVE)
+    out_id = static_cast<uint32_t>(ul); out_tail = endp;               // committed only after the whole token was accepted AND fits
     return true;
 }
 

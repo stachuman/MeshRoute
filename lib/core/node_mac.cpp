@@ -142,23 +142,73 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
     if (app_dm && static_cast<size_t>(after_origin + 4 + body_len) <= protocol::max_payload_bytes_hard_cap) {
         item.flags |= DATA_FLAG_SOURCE_HASH;
     }
-    // LOCATION (opt-in, 2026-06-14 spec §3): set ONLY on an app-DM ORIGINATION (app_dm), when the node opted in
-    // (loc_in_dm) AND it HAS a fix (not (0,0)) AND the +6 B still fits. Mirrors the DST_HASH/SOURCE_HASH fit-gate
-    // (drop the best-effort piggyback rather than overflow the inner). NEVER set for E2E acks (app_dm=false) or
-    // forwards/relays (those don't call enqueue_data — they re-tx the received inner).
-    if (app_dm && _cfg.loc_in_dm && (_cfg.lat_e7 != 0 || _cfg.lon_e7 != 0)) {
-        const size_t with_loc = static_cast<size_t>(after_origin)
-                              + (item.flags & DATA_FLAG_SOURCE_HASH ? 4 : 0) + 6 + body_len;
-        if (with_loc <= protocol::max_payload_bytes_hard_cap) item.flags |= DATA_FLAG_LOCATION;
-    }
     // E2E SEAL (Phase 1 §4): when this node originates an app DM with e2e_dm on, the inner is SEALED (CRYPTED).
     // CRYPTED requires the cleartext dst_key_hash32 (DST_HASH) AND the recipient's AUTHORITATIVE pubkey. If either
     // is missing -> FAIL LOUD (emit e2e_no_pubkey, do NOT enqueue — NEVER cleartext). [#38b: park + HARD WANT_PUBKEY.]
     // §8b: per-message crypt — `def` follows the node's e2e_dm; `on`/`off` force this single DM CRYPTED/plain.
     // (s18: a default send with e2e_dm off -> want_crypt=false -> plain, byte-identical to before.)
+    // ★ §loc-per-send (2026-07-31): HOISTED above the LOCATION gate below, which needs to know whether this DM will be
+    // sealed BEFORE it decides. One expression, read by both (U1) — it used to be computed *after* the location gate,
+    // which is the structural reason register-B0's leak existed at all: the gate could not have consulted it.
     const bool want_crypt = (crypt == CryptIntent::on)  ? true
                           : (crypt == CryptIntent::off) ? false
                                                         : _cfg.e2e_dm;
+    // The one and only condition under which this frame's inner is SEALED (the `if` that guards the seal block below).
+    // Named once so the LOCATION gate and the seal cannot disagree about what "sealed" means.
+    const bool will_seal = app_dm && want_crypt;
+    // ★★ LOCATION — a PER-SEND request (`send -l`), 2026-07-31 §loc-per-send / open-bug-register B0. Originally an
+    // opt-in CONFIG toggle (2026-06-14 spec §3) gated on `app_dm && _cfg.loc_in_dm && has-a-fix && it-fits` — with NO
+    // crypt check, and `want_crypt` computed BELOW it — so a PLAINTEXT DM from a node with the toggle on aired a 6-B
+    // position IN THE CLEAR (frame_codec.cpp's unsealed pack path). That was a LIVE privacy leak, and the toggle is
+    // gone: `NodeConfig::loc_in_dm`, `cfg set loc_dm`, the NV field and the app-facing binary TLV were all removed.
+    // The intent now rides the caller's DATA_FLAG_LOCATION bit (console `-l` -> Command.u.send.flags -> do_send ->
+    // here); `item.flags = flags` above has already copied it, so this gate's whole job is to VALIDATE OR REFUSE.
+    // TWO REFUSALS here, both loud (C2), because the operator EXPLICITLY asked to share a position and must never be
+    // left believing one was shared when it was not (owner ruling 2026-07-30: refuse the send — do not silently omit
+    // the location, and never send it in clear):
+    //   (1) the DM will NOT be sealed  -> `unsealable`   — THE fix. The remedy is `-e`, `cfg set e2e_dm 1`, or
+    //                                                      acquiring the peer's key (`reqpubkey`/QR). There is no
+    //                                                      "turn location off" escape to advertise any more, because
+    //                                                      there is no longer anything to turn off.
+    //   (2) no fix ((0,0))             -> `no_location`  — you asked for a position and this node has none.
+    // Ordering is deliberate: the CONFIDENTIALITY refusal is tested first, so a `-l` send that is both unsealed and
+    // fix-less reports the leak it would have caused rather than the missing fix.
+    // ★★ (3) — "the +6 B does not fit" — HAS NO BRANCH HERE, AND THAT IS THE MEASURED RESULT, NOT AN OMISSION.
+    // The old code dropped the location SILENTLY when it did not fit (best-effort). Making that loud is the point of
+    // the flag, and it now happens STRUCTURALLY one step below instead of in a gate of its own: a `-l` DM is sealed BY
+    // CONSTRUCTION (refusal (1)), the 6 bytes go INSIDE e2e_seal_inner's plaintext, and if they do not fit, the SEAL
+    // fails `SealOutcome::too_large` -> `push_send_failed(too_large)` and the WHOLE SEND is refused. Nothing is ever
+    // dropped quietly, which is exactly the guarantee that was wanted.
+    // ⇒ A DEDICATED gate here would be DEAD CODE. Measured by sweeping body_len 200..239 through this very function
+    // (sealed, DST_HASH+SOURCE_HASH set, cap = max_payload_bytes_hard_cap = 241):
+    //     a `-l` send airs up to body_len 208 and is refused `too_large` from 211 up — BY THE SEAL, whose bound is
+    //     4 (aad) + 1 (origin) + 4 (source_hash) + 6 (loc) + body + 16 (tag) <= 241  ⇒  body <= 210;
+    //     an unsealed-layout gate here would test after_origin + 4 + 6 + body <= 241 ⇒ body <= 226, i.e. it could only
+    //     ever fire ABOVE 226 — 16 bytes past where the seal has already refused. It can never be reached.
+    // And it must NOT be "fixed" by re-deriving the sealed bound here: that would fork a SECOND copy of the seal's size
+    // arithmetic (U1) purely to improve an error string, and the honest bound is not even 241 — see the two
+    // PRE-EXISTING silent bands the same sweep exposed, both reported to QA and deliberately NOT touched (C1):
+    //   (a) body_len 215-216 unsealed-flag / 209-210 with `-l`: e2e_seal_inner SUCCEEDS (inner <= 241) but the assembled
+    //       CRYPTED frame is 8 (hdr) + inner + 8 (nonce-seed trailer) > lora_max_frame_bytes, so pack_data refuses at TX
+    //       time and NO send_failed is pushed at all. Root cause: max_payload_bytes_hard_cap subtracts
+    //       data_inner_overhead = 6 (a 4-byte MAC), but a CRYPTED frame's trailer is 8 — so the cap is 2 B too generous
+    //       for a sealed DM.
+    //   (b) body_len >= 237: the DST_HASH fit-check above drops the flag, so the `!(item.flags & DATA_FLAG_DST_HASH)`
+    //       branch below emits `e2e_no_pubkey` and returns WITHOUT push_send_failed — also silent to the app.
+    // ⚠ A seal can also fail for non-size reasons (no_pubkey / no_identity / bad_rng). Those refuse loud on their own and
+    // report the SEAL cause — NOT this rule — which is what the operator needs to chase.
+    if (flags & DATA_FLAG_LOCATION) {
+        if (!will_seal) {                                        // (1) would air the position in CLEAR -> REFUSE
+            MR_EMIT("location_refused", EF_I("dst", dst), EF_I("ctr", ctr), EF_S("reason", "unsealed"));
+            push_send_failed(SendFailReason::unsealable, dst, ctr);
+            return ctr;                                          // not enqueued — matches the sibling CRYPTED refusals (return ctr so the app correlates)
+        }
+        if (_cfg.lat_e7 == 0 && _cfg.lon_e7 == 0) {              // (2) no fix -> REFUSE (never send the position-less DM silently)
+            MR_EMIT("location_refused", EF_I("dst", dst), EF_I("ctr", ctr), EF_S("reason", "no_fix"));
+            push_send_failed(SendFailReason::no_location, dst, ctr);
+            return ctr;
+        }
+    }
     // §team-ch-key T-K3 (C2): a TEAM KEY GRANT carries a PRIVATE key in its body, so it may leave this node ONLY
     // sealed. Enforced HERE, at the one choke point every same-layer origination passes, rather than trusting each
     // caller: team_key_grant_send already forces CryptIntent::on, but a future caller passing `def` on a node with
@@ -172,12 +222,12 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
                     // one is UNREACHABLE from the only caller (team_key_grant_send forces CryptIntent::on), so there is
                     // no in-flight handle to correlate — a non-zero ctr here would read to that caller as "airborne".
     }
-    if (app_dm && want_crypt) {
+    if (will_seal) {   // §loc-per-send: `app_dm && want_crypt`, named once above so the LOCATION gate tests the SAME condition (U1)
         if (!(item.flags & DATA_FLAG_DST_HASH)) {                          // no dst hash -> can't derive the nonce/key
             MR_EMIT("e2e_no_pubkey", EF_I("dst", dst), EF_I("ctr", ctr), EF_I("reason_no_dst_hash", 1));
             return ctr;                                                    // not enqueued (fail loud, no cleartext)
         }
-        item.flags |= DATA_FLAG_CRYPTED;                                   // SOURCE_HASH (+LOCATION if loc_in_dm) already decided above
+        item.flags |= DATA_FLAG_CRYPTED;                                   // SOURCE_HASH (+ the per-send LOCATION, validated above) already decided
         uint8_t seed[8];
         SealOutcome oc = SealOutcome::ok;
         const size_t n = e2e_seal_inner(item.inner, sizeof item.inner, seed, item.flags, dh, item.origin, ctr,
@@ -225,7 +275,12 @@ uint16_t Node::enqueue_data(uint8_t dst, const uint8_t* body, uint8_t body_len, 
             pack_unicast_inner(std::span<uint8_t>(item.inner, sizeof item.inner), item.flags, dh,
                                /*layer_ids*/ nullptr, /*n_layers*/ 0, /*cur*/ 0, item.origin,   // §mobile: item.origin (stamp_origin) = home_id for a registered mobile -> the INNER origin is the ROUTABLE home, so the target's E2E-ack routes to the home (which last-miles it), not to our static-invisible node_id. == _node_id for a static node -> s18 byte-identical.
                                override_source_hash ? override_source_hash : _key_hash32,   // §mobile delegate: the HOME re-originating for its mobile stamps SOURCE_HASH = the mobile's hash so the target's E2E-ack routes back to the mobile (0 = our own hash, byte-identical)
-                               body, body_len, _cfg.lat_e7, _cfg.lon_e7));   // written iff DATA_FLAG_LOCATION was set above (origination-only)
+                               body, body_len, _cfg.lat_e7, _cfg.lon_e7));   // ✖ MISSING / DEAD BY CONSTRUCTION (§loc-per-send): this is the UNSEALED arm, and the
+                                                                             // LOCATION gate above REFUSES any `-l` send that would land here, so pack_unicast_inner
+                                                                             // can no longer see DATA_FLAG_LOCATION on a DM and never writes these two. The lat/lon
+                                                                             // args are RETAINED deliberately: pack_unicast_inner is SHARED (frame_codec.cpp's
+                                                                             // unsealed LOCATION pack path is still live for its other callers/tests), so removing
+                                                                             // the parameter here is a codec cleanup slice of its own, not part of the leak fix (C1).
     }
     item.enqueue_time_ms = _hal.now();                   // first-enqueue time (cascade-requeue total-age cap)
     // Inc 3 back-off: a warn'd ACK (a downstream neighbour says we're near its airtime cap) parks new DM
@@ -397,6 +452,27 @@ bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t
         push_send_failed(SendFailReason::unsealable, gw_node, /*ctr=*/0);
         return false;                                // fail loud, before next_ctr burns a counter
     }
+    // ★★ §loc-per-send (2026-07-31, register B0): a CROSS-LAYER frame CANNOT carry a location, so a `-l` send that
+    // reaches here is REFUSED — never silently stripped. This is the SAME structural-choke-point idiom as the type-19
+    // guard above, and it exists because the alternative is failure mode (2) of the owner's ruling: "the app believes it
+    // shared a position it did not." Two independent reasons XL cannot carry it, both verified at source, not assumed:
+    //   (a) PLAINTEXT XL — the `item.flags` assignment below MASKS the caller's word down to
+    //       CROSS_LAYER|DST_HASH|SOURCE_HASH|E2E_ACK_REQ, and pack_unicast_inner is called with lat/lon = 0 ("v1 scope:
+    //       cross-layer DMs carry NO location"). So DATA_FLAG_LOCATION was ALREADY being dropped here, silently.
+    //   (b) SEALED XL — a confidential XL DM rides DATA_TYPE_SEALED_RELAY, whose body is
+    //       [seal_ctr 2][seed8 8][ct‖tag] with NO flags word on the wire: build_sealed_relay_body hard-codes the seal
+    //       flags to DST_HASH|SOURCE_HASH with lat/lon = 0, and the receiver's e2e_open_relay hard-codes the matching
+    //       SOURCE_HASH on the open side. Setting LOCATION on one side only would make the peer read the 6 position
+    //       bytes as message TEXT. Carrying it needs a SEALED_RELAY body-format change — its own slice (C1).
+    // ✖ MISSING, stated so it is not mistaken for done: `send_layer -l` and a `-l` DM to a peer whose home is on another
+    // layer therefore REFUSE rather than work. The command-level twin in node.cpp's send_layer verb refuses earlier (so
+    // the operator gets a synchronous error instead of only a push); this one is the backstop every OTHER cross-layer
+    // origination passes — notably send_by_hash's mobile_home_find arm, which has no command-level fork of its own.
+    if (flags & DATA_FLAG_LOCATION) {
+        MR_EMIT("location_refused", EF_I("dst", gw_node), EF_S("reason", "cross_layer"));
+        push_send_failed(SendFailReason::unsealable, gw_node, /*ctr=*/0);
+        return false;                                // fail loud, before next_ctr burns a counter
+    }
     TxItem item{};
     const uint16_t ctr = next_ctr(gw_node);          // MAC ctr vs the next-hop gateway (= the e2e (source_hash, ctr) identity)
     // §team-parity T6: EXPLICITLY GLOBAL — decided per-caller, not swept. A cross-layer DM is a STATIC-infrastructure
@@ -424,6 +500,10 @@ bool Node::enqueue_cross_layer(uint8_t gw_node, uint32_t dst_hash, const uint8_t
                                         body, body_len,
                                         /*lat_e7*/ 0, /*lon_e7*/ 0);   // v1 scope: cross-layer DMs carry NO location
                                                                        // (same-layer DM + M only; cross-layer = documented follow-up)
+                                                                       // ★ §loc-per-send: this used to be a SILENT drop of the
+                                                                       // caller's LOCATION bit; the guard at the top of this
+                                                                       // function now REFUSES that send instead, so these two
+                                                                       // zeros are reached only with LOCATION provably clear.
     if (n == 0) return false;                         // overflow (228-B body cap with the layer-path) -> fail loud
     item.inner_len = static_cast<uint8_t>(n);
     item.enqueue_time_ms = _hal.now();
@@ -673,6 +753,13 @@ uint16_t Node::delegate_send_layer(uint32_t dst_hash, const uint8_t* hops, uint8
     item.type = DATA_TYPE_MOBILE_SEND;
     item.flags = static_cast<uint8_t>(DATA_FLAG_CROSS_LAYER | DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH
                                       | (flags & (DATA_FLAG_E2E_ACK_REQ | DATA_FLAG_PRIORITY)));
+    // ✖ MISSING (§loc-per-send, 2026-07-31): this mask drops DATA_FLAG_LOCATION and the pack below passes lat/lon = 0, so
+    // a delegated cross-layer send carries NO location — the same v1 limitation as enqueue_cross_layer, for the same two
+    // reasons (the wrapper is PLAINTEXT, and a sealed XL body has no flags word). NO guard is added here, deliberately:
+    // both reachable callers are already refused upstream — on_command's send_layer verb rejects `-l` synchronously
+    // (node.cpp), and send_xl_ack passes flags = 0 — so a guard would be unreachable code standing in for a rule that is
+    // enforced where the operator can see it. If a future caller threads a user flags word in here, it needs the
+    // enqueue_cross_layer guard's twin.
     uint8_t wbody[protocol::max_payload_bytes_hard_cap];
     wbody[0] = enclosed_type;                                            // the enclosed TYPE (§1b-4 threading)
     for (uint8_t i = 0; i < body_len; ++i) wbody[1 + i] = body[i];

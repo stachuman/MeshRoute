@@ -506,6 +506,13 @@ uint8_t Node::build_sealed_relay_body(uint32_t target_hash, const uint8_t* body,
     // Seal IN PLACE (no scratch buffer): e2e_seal_inner writes [aad(dst_hash) 4][ct‖tag] at out+6, so ct‖tag lands at
     // out[10..]; we then overwrite out[0..9] with [seal_ctr 2][seed8 8] (the aad at out[6..9] is discardable — the
     // recipient re-derives the aad from its own key_hash32). Net relay body = [seal_ctr 2][seed8 8][ct‖tag].
+    // ✖ MISSING (§loc-per-send, 2026-07-31): the seal flags and lat/lon are HARD-CODED, so a SEALED_RELAY carries NO
+    // location. This is not an oversight to patch here — the relay body is [seal_ctr 2][seed8 8][ct‖tag] with NO flags
+    // word on the wire, and the receiver's e2e_open_relay hard-codes the matching `DATA_FLAG_SOURCE_HASH` on the open
+    // side. Adding LOCATION on this side alone would make the peer parse the 6 position bytes as message TEXT. Carrying
+    // it needs a SEALED_RELAY body-format change (a flags byte or a second inner variant) = its own slice (C1/C4).
+    // ⇒ until then a `-l` send that would take this transport is REFUSED, not silently stripped: the guard is at
+    // enqueue_cross_layer (the structural choke point) plus node.cpp's send_layer verb (the operator-facing one).
     const size_t n = e2e_seal_inner(out + 6, static_cast<size_t>(out_cap) - 6, seed,
                                     static_cast<uint8_t>(DATA_FLAG_DST_HASH | DATA_FLAG_SOURCE_HASH),
                                     target_hash, /*origin*/ 0, seal_ctr, _key_hash32,

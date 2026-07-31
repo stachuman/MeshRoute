@@ -522,7 +522,12 @@ enum DataFlag : uint8_t {
     DATA_FLAG_CROSS_LAYER = 0x40,    // LIVE: the inner carries a cross-layer layer-path (full-byte ids, between dst_hash and origin)
     DATA_FLAG_CRYPTED     = 0x20,    // LIVE: origin + everything after it sealed (XChaCha20-Poly1305); trailer grows to the 8-B nonce-seed
     DATA_FLAG_E2E_ACK_REQ = 0x10,    // request an end-to-end ack
-    DATA_FLAG_LOCATION    = 0x08,    // opt-in 6-B sender location in the sealed inner (after source_hash); set ONLY on origination
+    DATA_FLAG_LOCATION    = 0x08,    // 6-B sender location (after source_hash); set ONLY on origination. ★ §loc-per-send
+                                     // (2026-07-31): PER-SEND (console `-l`), never a config toggle, and GUARANTEED to sit
+                                     // in the SEALED inner — enqueue_data REFUSES the send outright if the DM would not be
+                                     // CRYPTED. The old wording said "in the sealed inner" as a description while the gate
+                                     // had no crypt check at all, so a plaintext DM aired the position in clear (register
+                                     // B0). It is now a guarantee the code enforces, not a claim about intent.
     DATA_FLAG_SOURCE_HASH = 0x04,    // LIVE: the inner carries the origin's key_hash32 (after origin) — the STABLE
                                      // sender identity (default-on for app DMs); the E2E-ack also reads it. Sealed
                                      // under CRYPTED.

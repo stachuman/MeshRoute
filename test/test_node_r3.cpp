@@ -29,6 +29,7 @@ namespace {
 struct Ev { std::string type; int to = -1; int dst = -1; bool dup = false;
             bool has_payload = false; std::string payload; int depth = -1; int ctr = -1;
             int next = -1; int requeue_count = -1; int reason = -1; int from = -1;
+            int rt_total = -1;                                    // §B4: the sync-response plane's route count
             bool healed = false; bool has_healed = false; };
 
 struct TxFrame { std::string label; std::vector<uint8_t> bytes; };
@@ -78,6 +79,7 @@ public:
             else if (std::strcmp(f[i].key, "from") == 0)  e.from  = static_cast<int>(f[i].i);
             else if (std::strcmp(f[i].key, "reason") == 0) e.reason = static_cast<int>(f[i].i);
             else if (std::strcmp(f[i].key, "requeue_count") == 0) e.requeue_count = static_cast<int>(f[i].i);
+            else if (std::strcmp(f[i].key, "rt_total") == 0) e.rt_total = static_cast<int>(f[i].i);   // §B4
             else if (std::strcmp(f[i].key, "payload") == 0 && f[i].s) { e.has_payload = true; e.payload = f[i].s; }
         }
         events.push_back(e);
@@ -109,6 +111,7 @@ constexpr uint32_t kDutyDeferTimerId      = 23;   // #2 tx_with_retry duty-defer
 constexpr uint32_t kRtsDutyDeferTimerId   = 31;   // #A redo: over-budget RTS duty-defer re-check/hand
 constexpr uint32_t kRreqForwardTimerBase  = 85;   // §F-XL-2: rreq_forward de-storm ring [85..88]
 constexpr uint32_t kRreqForwardSlots      = 4;
+constexpr uint32_t kSyncResponseTimerId   = 32;   // §B4: jittered sync-response ring base [32..47]
 
 // §F-XL-2: an RREQ relay no longer re-broadcasts immediately — it stashes the built frame + arms a jittered timer
 // (kRreqForwardTimerBase+slot). TestHal never auto-fires, so a test expecting the re-broadcast on-air must drive the
@@ -3008,6 +3011,81 @@ TEST_CASE("§team-parity T4 — the originator antidote is PLANE-AWARE: a team s
                CHECK(q->src == 5); CHECK(q->team_id == 0); } }
 }
 
+// ============================ §B4 (register B4) — the sync-response route count is PLANE-SCOPED ==================
+// `schedule_sync_response` read the STATIC `_rt_count` for BOTH its route-starved skip AND its `rt_total`, and
+// `sync_response_fire` held a THIRD copy of the same read. T4 marked it ⚠ MISSING and declined the plane parameter.
+// ★★ THE SKIP HALF IS CORPUS-DARK BY CONSTRUCTION, measured not assumed: `sync_response_min_routes` defaults to 0,
+// `route_n < 0` is never true for an unsigned, and NOTHING in either repo raises the knob (it has no console / NV /
+// remote-admin surface at all) ⇒ `sync_response_skip` fires in 0 of 36 corpus scenarios. **These cases are its only
+// detector.** The `rt_total` half IS corpus-visible — 2 movers (s35a, s38), 2 field values each.
+namespace {
+// An off-grid team member with the route-starved knob RAISED — the configuration the corpus never runs.
+void b4_member(Node& n, uint32_t team, uint8_t min_routes) {
+    NodeConfig cfg; cfg.routing_sf=7; cfg.allowed_sf_bitmap=(1u<<7); cfg.leaf_id=0;
+    cfg.is_mobile=true; cfg.team_id=team; cfg.sync_response_min_routes=min_routes;
+    CHECK(n.on_init(cfg));
+    n.set_team_local_id(50);
+}
+}  // namespace
+
+TEST_CASE("§B4 — the route-starved skip is PLANE-SCOPED: an OFF-GRID member holding team routes is no longer MUTED on a team pull") {
+    const uint32_t TEAM = 0x33330001u;
+    std::array<uint8_t,16> qb{};
+    const size_t qn = t4_team_sync_q(/*leaf=*/0, /*src=*/33, TEAM, qb);
+    const RxMeta from33{12.0f,-70.0f,0,static_cast<int8_t>(33)};
+    std::array<uint8_t,64> bb{};
+    auto hear_team = [&](Node& n, uint8_t src) {
+        const size_t bn = t1_team_beacon(src, TEAM, bb);
+        n.on_recv(bb.data(), bn, RxMeta{12.0f,-70.0f,0,static_cast<int8_t>(src)});
+    };
+
+    // (a) ★★ THE BUG. Two TEAM routes, ZERO static routes — an off-grid member never registers with a static host, so
+    //     its `_rt_count` is 0 FOREVER. Pre-fix the gate read 0 < 2 and emitted `sync_response_skip`: the member went
+    //     silent on the one plane it is a responder for, no matter how full its `_rt_team` was.
+    { TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); b4_member(X, TEAM, /*min_routes=*/2);
+      hear_team(X, 60); hear_team(X, 61);
+      CHECK(X.rt_team_count() == 2);
+      CHECK(X.rt_count() == 0);                              // ★ the whole point: the static plane is empty, forever
+      X.on_recv(qb.data(), qn, from33);
+      CHECK(hal.count("sync_response_skip") == 0);           // ★★ NOT muted
+      CHECK(hal.count("sync_response_scheduled") == 1);
+      const Ev* s = hal.last("sync_response_scheduled");
+      CHECK(s); if (s) CHECK(s->rt_total == 2);              // ★ the TEAM count, not the static 0
+      // ...and the THIRD reader agrees: the fire reports the same plane the scheduler gated on.
+      X.on_timer(kSyncResponseTimerId);
+      CHECK(hal.count("sync_response_tx") == 1);
+      const Ev* t = hal.last("sync_response_tx");
+      CHECK(t); if (t) CHECK(t->rt_total == 2); }            // ★ pre-fix: 0
+
+    // (b) ★ THE SAME-SITE CONTROL — one team route, still below the two the knob demands: the gate STILL BITES. Without
+    //     this, (a) would pass just as well if the fix had simply deleted the skip.
+    { TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); b4_member(X, TEAM, /*min_routes=*/2);
+      hear_team(X, 60);
+      CHECK(X.rt_team_count() == 1);
+      X.on_recv(qb.data(), qn, from33);
+      CHECK(hal.count("sync_response_skip") == 1);
+      CHECK(hal.count("sync_response_scheduled") == 0);
+      const Ev* s = hal.last("sync_response_skip");
+      CHECK(s); if (s) CHECK(s->rt_total == 1); }            // ★ it reports the TEAM count it actually gated on
+
+    // (c) ★★★ THE PLANE-DERIVATION TRAP, and the reason `team_plane` is a CALLER argument. A homed/team-active member
+    //     is team-active WHILE answering a STATIC REQ_SYNC, so deriving the plane inside the callee from
+    //     team_active()/is_mobile/_cfg.team_id would answer this static pull with the TEAM count — one plane breach
+    //     turned into two (C3). Not hypothetical: 12 corpus events in 5 scenarios (s22 3, s28 4, s29 2, s35a 2, s38 1)
+    //     are static-plane sync responses from a node that holds team routes, 9 of them with a differing team count.
+    { TestHal hal; Node X(hal, /*id=*/50, /*key=*/0xA050u); b4_member(X, TEAM, /*min_routes=*/3);
+      hear_team(X, 60); hear_team(X, 61); hear_team(X, 62);
+      CHECK(X.rt_team_count() == 3);                         // team plane is AT the threshold -> a derived plane passes
+      q_in ri{}; ri.leaf_id=0; ri.src=33; ri.dest=0xFF; ri.opcode=q_opcode::req_sync; ri.mobile=false;
+      uint8_t rb[8]; const size_t rn = pack_q(ri, std::span<uint8_t>(rb, sizeof rb));
+      X.on_recv(rb, rn, from33);
+      CHECK(hal.count("sync_response_skip") == 1);           // ★★ the STATIC count gated it, as it must
+      CHECK(hal.count("sync_response_scheduled") == 0);
+      const Ev* s = hal.last("sync_response_skip");
+      CHECK(s); if (s) { CHECK(s->rt_total == static_cast<int>(X.rt_count()));      // the STATIC table...
+                         CHECK(s->rt_total < static_cast<int>(X.rt_team_count())); } }   // ...and it is NOT the team one
+}
+
 // ✖ NO "the _rt_team-route ⇒ _team_peer-bit invariant holds" TEST HERE, deliberately. One was written and DELETED as
 // vacuous: it could not be falsified by any of the three T2 mutants (pre-T2, over-broad, and "learn_route_via drops the
 // bit"), because every T2 site is gated on is_team_peer already being true, so the bit is never newly set on this path.
@@ -5187,53 +5265,229 @@ TEST_CASE("NAV — a fresh own DM origination is jittered (nav_enabled), de-sync
 }
 
 // -----------------------------------------------------------------------------
-// Origination — LOCATION piggyback (spec 2026-06-14 §3). enqueue_data sets
-// DATA_FLAG_LOCATION iff app_dm && loc_in_dm && (lat||lon) — NEVER on relays/acks.
-// Drive a full origination to the DATA frame and read the inner back off the wire.
+// ★★ Origination — LOCATION is a PER-SEND request (`send -l`), 2026-07-31
+// §loc-per-send / open-bug-register B0. THESE TESTS REPLACE A PAIR THAT ASSERTED
+// THE LEAK: the old "loc_in_dm + nonzero location sets DATA_FLAG_LOCATION (coords
+// round-trip)" built a NodeConfig with e2e_dm default OFF and NO crypto identity
+// -> want_crypt == false -> a PLAINTEXT DM, and then read the 6 location bytes
+// straight off the UNSEALED wire via parse_unicast_inner and CHECKed they
+// round-tripped. That passing assertion WAS the bug: the node's coordinates on
+// the air in clear, readable by anyone in range. The before-arm was captured on
+// the pre-fix tree (frame `300c02052802010001cdab0000 a9a2839a3a00 6869 00000000`
+// — crypted=0, and the 6 packed bytes verbatim on the wire).
+// The rule now (owner ruling 2026-07-30, twice): `cfg set loc_dm` is GONE, `-l` is
+// per message, and a `-l` send that will not be SEALED is REFUSED — not silently
+// stripped (the app must never believe it shared a position it did not) and never
+// aired in clear. So the case above must now air NO FRAME AT ALL.
 // -----------------------------------------------------------------------------
 namespace {
-struct OrigLoc { bool flag = false; bool has_loc = false; int32_t lat = 0, lon = 0; };
-static OrigLoc originate_dm_loc(bool loc_in_dm, int32_t lat, int32_t lon) {
-    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+struct OrigLoc {
+    bool aired = false;          // ★ did ANY DATA frame reach the air? (the refusal tests assert false)
+    bool crypted = false;        // CRYPTED on the wire
+    bool flag = false;           // DATA_FLAG_LOCATION on the wire
+    bool loc_in_clear = false;   // the 6 PACKED location bytes appear VERBATIM in the aired frame (the leak's signature)
+    bool cleartext_loc = false;  // parse_unicast_inner (the UNSEALED reader) recovered a location
+    int32_t lat = 0, lon = 0;
+    bool failed = false; SendFailReason reason = SendFailReason::none;   // the send_failed push
+    std::vector<uint8_t> frame;  // the aired bytes (so a receiver can be driven with them)
+    uint8_t plen = 0;            // inner + MAC length, for the receiver's RTS
+    uint16_t ctr = 0;
+};
+// Drive a REAL app-DM origination (node 1 -> node 2) all the way to the DATA frame and read the outcome OFF THE WIRE.
+// `want_loc` sets DATA_FLAG_LOCATION in the command flags word exactly as console_parse's `-l` does — no signature
+// change anywhere. `sealed` installs a crypto identity + the recipient's authoritative pubkey + e2e_dm, which is the
+// ONLY configuration in which a location may travel.
+static OrigLoc originate_dm_loc(bool want_loc, int32_t lat, int32_t lon, bool sealed, uint8_t body_len = 2) {
+    uint8_t sA[32], sB[32]; for (int i = 0; i < 32; ++i) { sA[i] = uint8_t(i + 1); sB[i] = uint8_t(100 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, sA); identity_from_seed(idB, sB);
+    TestHal hal; Node node(hal, /*id=*/1, idA.key_hash32);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
-    cfg.loc_in_dm = loc_in_dm; cfg.lat_e7 = lat; cfg.lon_e7 = lon;
+    cfg.lat_e7 = lat; cfg.lon_e7 = lon; cfg.e2e_dm = sealed;
     node.on_init(cfg);
+    if (sealed) {                                             // mined from the "e2e wiring" harness below (U1)
+        node.set_crypto_identity(idA.x_secret, idA.ed_pub);
+        node.peer_key_set(idB.key_hash32, idB.ed_pub, Node::PeerKeyConf::authoritative);
+    }
+    // One beacon from node 2 carrying idB's key gives BOTH a direct route to 2 AND the authoritative id_bind
+    // (2 -> idB.key_hash32) that DST_HASH — and hence the seal — requires.
     std::array<uint8_t, 64> bb{};
+    beacon_entry be{}; be.dest = 2; be.next = 2; be.score_bucket = 14; be.hops = 1;
+    beacon_in bin{}; bin.leaf_id = 0; bin.src = 2; bin.key_hash32 = idB.key_hash32;
+    bin.entries = std::span<const beacon_entry>(&be, 1);
     RxMeta m{ 12.0f, -70.0f, 0, static_cast<int8_t>(2) };
-    node.on_recv(bb.data(), mk_beacon_route(/*src=*/2, /*dest=*/5, /*next=*/9, /*hops=*/1, /*score=*/14, bb), m);
-    send_cmd(node, /*dst=*/5, "hi");                          // app DM origination -> RTS to next-hop 2
+    node.on_recv(bb.data(), pack_beacon(bin, std::span<uint8_t>(bb.data(), bb.size())), m);
+
+    const std::string text(body_len, 'x');
+    Command c{}; c.kind = CmdKind::send; c.u.send.dst_id = 2;
+    c.u.send.flags = static_cast<uint8_t>(want_loc ? DATA_FLAG_LOCATION : 0);   // == what `send 2 "…" -l` emits
+    c.body = reinterpret_cast<const uint8_t*>(text.data()); c.body_len = body_len;
+    (void)node.on_command(c);
     std::array<uint8_t, 8> cb{};
     RxMeta bob{ 8.0f, -80.0f, 0, static_cast<int8_t>(2) };
     hal._now = 100; node.on_recv(cb.data(), mk_cts(/*rx_id=*/1, /*tx_id=*/2, /*data_sf=*/12, cb), bob);
     node.on_timer(kCtsToDataGapTimerId);                      // CTS->DATA gap -> DATA tx
+
     OrigLoc r{};
+    { Push pu{}; while (node.next_push(pu)) if (pu.kind == PushKind::send_failed) { r.failed = true; r.reason = pu.reason; break; } }
     const TxFrame* dataf = nullptr;
     for (const auto& f : hal.tx_frames) if (!f.bytes.empty() && (f.bytes[0] >> 4) == 0x3) dataf = &f;
-    if (dataf) {
-        auto d = parse_data(std::span<const uint8_t>(dataf->bytes.data(), dataf->bytes.size()));
-        if (d) {
-            r.flag = (d->flags & DATA_FLAG_LOCATION) != 0;
-            auto inner = data_inner(std::span<const uint8_t>(dataf->bytes.data(), dataf->bytes.size()), *d);
+    if (!dataf) return r;                                     // ★ NOTHING AIRED — what a refusal must produce
+    r.aired = true;
+    r.frame.assign(dataf->bytes.begin(), dataf->bytes.end());
+    // The leak's signature: are the 6 PACKED location bytes sitting verbatim in the aired frame?
+    if (lat != 0 || lon != 0) {
+        uint8_t loc6[6]; pack_loc6(lat, lon, std::span<uint8_t>(loc6, 6));
+        for (size_t i = 0; i + 6 <= r.frame.size(); ++i) {
+            bool same = true; for (int j = 0; j < 6; ++j) if (r.frame[i + j] != loc6[j]) same = false;
+            if (same) r.loc_in_clear = true;
+        }
+    }
+    auto d = parse_data(std::span<const uint8_t>(r.frame.data(), r.frame.size()));
+    if (d) {
+        r.crypted = d->crypted;
+        r.flag = (d->flags & DATA_FLAG_LOCATION) != 0;
+        r.ctr  = d->ctr;
+        auto inner = data_inner(std::span<const uint8_t>(r.frame.data(), r.frame.size()), *d);
+        auto mac   = data_mac(std::span<const uint8_t>(r.frame.data(), r.frame.size()), *d);
+        r.plen = static_cast<uint8_t>(inner.size() + mac.size());
+        if (!d->crypted) {                                    // only an UNSEALED inner is parseable in the clear
             auto ui = parse_unicast_inner(inner, d->flags);
-            if (ui && ui->has_location) { r.has_loc = true; r.lat = ui->lat_e7; r.lon = ui->lon_e7; }
+            if (ui && ui->has_location) { r.cleartext_loc = true; r.lat = ui->lat_e7; r.lon = ui->lon_e7; }
         }
     }
     return r;
 }
 }  // namespace
 
-TEST_CASE("origination — loc_in_dm + nonzero location sets DATA_FLAG_LOCATION (coords round-trip)") {
-    OrigLoc r = originate_dm_loc(/*loc_in_dm=*/true, 523000000, 134050000);
-    CHECK(r.flag);
-    CHECK(r.has_loc);
-    long dlat = static_cast<long>(r.lat) - 523000000; if (dlat < 0) dlat = -dlat;
-    long dlon = static_cast<long>(r.lon) - 134050000; if (dlon < 0) dlon = -dlon;
-    CHECK(dlat <= 512); CHECK(dlon <= 512);
+// ★★ THE CONVERTED LEAK TEST. Same inputs as the old passing assertion (a `-l` request on a node that will NOT seal);
+// the demand is inverted: air NOTHING, and say why. Asserting "no location on the wire" would NOT be enough — omitting
+// it silently is failure mode (2) of the ruling, so the frame itself must never exist.
+TEST_CASE("§loc-per-send — a `-l` DM that would go PLAINTEXT is REFUSED: NO frame aired at all") {
+    OrigLoc r = originate_dm_loc(/*want_loc=*/true, 523000000, 134050000, /*sealed=*/false);
+    CHECK_FALSE(r.aired);            // ★★ not "the location was omitted" — NOTHING WAS SENT
+    CHECK_FALSE(r.loc_in_clear);     // and therefore the 6 bytes are nowhere on the air (this is the closed leak)
+    CHECK(r.failed);                 // fail LOUD (C2), never a silent drop
+    CHECK(r.reason == SendFailReason::unsealable);   // the app is told the fix is -e / e2e_dm / acquire the key
+    // ★ SAME-SHAPE CONTROL — the identical send WITHOUT `-l` still flies. Without this the test would also pass if the
+    //   harness were simply broken, and the refusal would not be attributable to the flag.
+    OrigLoc ctl = originate_dm_loc(/*want_loc=*/false, 523000000, 134050000, /*sealed=*/false);
+    CHECK(ctl.aired);
+    CHECK_FALSE(ctl.flag);
+    CHECK_FALSE(ctl.failed);
+    CHECK_FALSE(ctl.loc_in_clear);   // an ordinary DM never carried a position and still does not
 }
 
-TEST_CASE("origination — LOCATION NOT set when toggle off, nor when location is (0,0)") {
-    CHECK_FALSE(originate_dm_loc(/*loc_in_dm=*/false, 523000000, 134050000).flag);   // opted out
-    CHECK_FALSE(originate_dm_loc(/*loc_in_dm=*/true,  0, 0).flag);                    // opted in but no fix
+TEST_CASE("§loc-per-send — `-l` with NO FIX (0,0) is REFUSED (no_location), even when the DM WOULD be sealed") {
+    OrigLoc r = originate_dm_loc(/*want_loc=*/true, 0, 0, /*sealed=*/true);
+    CHECK_FALSE(r.aired);            // you asked for a position and there is none -> nothing is sent
+    CHECK(r.failed);
+    // ★ DISTINCT from `unsealable` deliberately: the remedy is a GPS fix / `cfg set lat`+`lon`, NOT encryption. Reporting
+    //   the seal rule here would send the operator chasing the wrong thing.
+    CHECK(r.reason == SendFailReason::no_location);
+    OrigLoc ctl = originate_dm_loc(/*want_loc=*/false, 0, 0, /*sealed=*/true);   // control: no -l, no fix -> flies
+    CHECK(ctl.aired); CHECK_FALSE(ctl.failed);
+}
+
+// ★★ "+6 B does not fit" — the OLD behaviour was a SILENT best-effort drop (the gate just left the flag clear and the
+// DM flew without the position the user asked for). It is now fail-loud, and this test pins WHO makes it loud, honestly:
+// NOT a dedicated location gate (that would be dead code — see the arithmetic at the site) but the SEAL, because a `-l`
+// DM is sealed by construction and the 6 bytes are part of the sealed plaintext. Body 212 is inside the MEASURED band
+// where the location is exactly what tips it over: 208 is the largest `-l` body that flies, 214 the largest without.
+TEST_CASE("§loc-per-send — a `-l` whose +6 B does NOT fit is REFUSED LOUD, never silently dropped") {
+    const uint8_t tip = 212;
+    OrigLoc r = originate_dm_loc(/*want_loc=*/true, 523000000, 134050000, /*sealed=*/true, tip);
+    CHECK_FALSE(r.aired);                    // ★ the DM did NOT fly without its position (the old silent drop)
+    CHECK(r.failed);
+    CHECK(r.reason == SendFailReason::too_large);
+    // ★ SAME-SIZE CONTROL: the identical body WITHOUT `-l` is a legal DM and still flies ⇒ the refusal is attributable
+    //   to the 6 location bytes, not to the body size, which is what makes the assertion above mean something.
+    OrigLoc ctl = originate_dm_loc(/*want_loc=*/false, 523000000, 134050000, /*sealed=*/true, tip);
+    CHECK(ctl.aired); CHECK_FALSE(ctl.failed);
+}
+
+// ★★ THE POSITIVE ARM — and it needs a SEALED origination, which needs an identity plus the recipient's authoritative
+// pubkey. Proves the whole chain: enqueue_data admitted the request, e2e_seal_inner packed the 6 bytes INSIDE the
+// ciphertext, nothing leaked in clear, and the real receive path opened it back to coordinates on the app push.
+TEST_CASE("§loc-per-send — a SEALED `-l` DM carries the position INSIDE the ciphertext, and the peer opens it") {
+    const int32_t LAT = 523000000, LON = 134050000;
+    OrigLoc r = originate_dm_loc(/*want_loc=*/true, LAT, LON, /*sealed=*/true);
+    CHECK(r.aired);
+    CHECK_FALSE(r.failed);
+    CHECK(r.crypted);                // sealed — the only way a location may travel
+    CHECK(r.flag);                   // DATA_FLAG_LOCATION set (the receiver reads the sealed layout from it)
+    CHECK_FALSE(r.loc_in_clear);     // ★ the packed bytes are NOT verbatim on the wire — they are inside the AEAD
+    CHECK_FALSE(r.cleartext_loc);    // and the cleartext reader finds nothing
+
+    // Now B (node 2, idB) receives that very frame and opens it — the real handle_data -> do_post_ack path.
+    uint8_t sA[32], sB[32]; for (int i = 0; i < 32; ++i) { sA[i] = uint8_t(i + 1); sB[i] = uint8_t(100 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, sA); identity_from_seed(idB, sB);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    TestHal halB; Node B(halB, 2, idB.key_hash32); B.on_init(cfg);
+    B.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    B.peer_key_set(idA.key_hash32, idA.ed_pub, Node::PeerKeyConf::authoritative);
+    std::array<uint8_t, 64> bb{};
+    beacon_entry be{}; be.dest = 1; be.next = 1; be.score_bucket = 14; be.hops = 1;
+    beacon_in bin{}; bin.leaf_id = 0; bin.src = 1; bin.key_hash32 = idA.key_hash32;
+    bin.entries = std::span<const beacon_entry>(&be, 1);
+    RxMeta from1{ 12.0f, -70.0f, 0, static_cast<int8_t>(1) };
+    halB._now = 500; B.on_recv(bb.data(), pack_beacon(bin, std::span<uint8_t>(bb.data(), bb.size())), from1);
+    std::array<uint8_t, 16> rb{};
+    halB._now = 1000; B.on_recv(rb.data(), mk_rts(/*src=*/1, /*next=*/2, /*dst=*/2,
+                                                  /*ctr_lo=*/static_cast<uint8_t>(r.ctr & 0x0F), r.plen, rb), from1);
+    halB._now = 2000; B.on_recv(r.frame.data(), r.frame.size(), from1);
+    B.on_timer(kPostAckTimerId);
+    Push pu{}; bool got = false;
+    while (B.next_push(pu)) { if (pu.kind == PushKind::msg_recv) { got = true; break; } }
+    CHECK(got);
+    if (got) {
+        CHECK(pu.enc);                                        // delivered SEALED
+        CHECK(pu.has_location);                               // ★ the position survived the seal/open round trip
+        long dlat = static_cast<long>(pu.lat_e7) - LAT; if (dlat < 0) dlat = -dlat;
+        long dlon = static_cast<long>(pu.lon_e7) - LON; if (dlon < 0) dlon = -dlon;
+        CHECK(dlat <= 512); CHECK(dlon <= 512);               // pack_loc6 quantises to ~1024e-7 deg (~11 m)
+    }
+    CHECK(halB.count("peer_location") == 1);
+}
+
+TEST_CASE("§loc-per-send — an ORDINARY DM (no `-l`) never sets LOCATION, sealed or plain") {
+    CHECK_FALSE(originate_dm_loc(/*want_loc=*/false, 523000000, 134050000, /*sealed=*/false).flag);
+    CHECK_FALSE(originate_dm_loc(/*want_loc=*/false, 523000000, 134050000, /*sealed=*/true).flag);
+    // and both still fly — the per-send flag left the default path untouched, which is what the ruling bought
+    CHECK(originate_dm_loc(/*want_loc=*/false, 523000000, 134050000, /*sealed=*/false).aired);
+    CHECK(originate_dm_loc(/*want_loc=*/false, 523000000, 134050000, /*sealed=*/true).aired);
+}
+
+
+// ★ `send_layer -l` REFUSES. NEITHER cross-layer builder can carry a position: enqueue_cross_layer masks the flag off
+// and packs lat/lon = 0, and the sealed substitute (DATA_TYPE_SEALED_RELAY) has no flags word on the wire for the
+// receiver to read one from. Refusing at the verb covers both the static and the mobile-delegate fork, before any
+// seal_ctr or MAC ctr is burned.
+TEST_CASE("§loc-per-send — `send_layer -l` is REFUSED loud (cross-layer carries no position)") {
+    TestHal hal; Node node(hal, /*id=*/1, /*key=*/0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.allowed_sf_bitmap = (1u << 12); cfg.leaf_id = 0;
+    cfg.lat_e7 = 523000000; cfg.lon_e7 = 134050000;
+    node.on_init(cfg);
+    Command c{}; c.kind = CmdKind::send_layer;
+    c.u.layer.dst_hash = 0xA1B2C3D4u; c.u.layer.hops[0] = 2; c.u.layer.hop_count = 1;
+    c.u.layer.flags = DATA_FLAG_LOCATION;
+    const char* body = "hi"; c.body = reinterpret_cast<const uint8_t*>(body); c.body_len = 2;
+    const CmdResult r = node.on_command(c);
+    CHECK(r.code == CmdCode::err_unsupported);                // synchronous refusal, with the dst_hash echoed back
+    CHECK(r.ctr == 0);                                        // no counter burned
+    CHECK(r.dst_hash == 0xA1B2C3D4u);
+    CHECK(node.test_tx_queue_n() == 0);                       // ★ nothing staged, so nothing can ever air
+    { Push pu{}; bool sf = false; SendFailReason rsn = SendFailReason::none;
+      while (node.next_push(pu)) if (pu.kind == PushKind::send_failed) { sf = true; rsn = pu.reason; break; }
+      CHECK(sf); CHECK(rsn == SendFailReason::unsealable); }
+    // ★ SAME-SHAPE CONTROL: the identical send_layer WITHOUT `-l` is NOT refused for this reason — it proceeds into the
+    //   normal path (here: no bridging gateway is known, so err_no_gateway). Proves the refusal is the flag's, not the verb's.
+    TestHal hal2; Node n2(hal2, /*id=*/1, /*key=*/0xABCD); n2.on_init(cfg);
+    Command c2 = c; c2.u.layer.flags = 0;
+    const CmdResult r2 = n2.on_command(c2);
+    CHECK(r2.code != CmdCode::err_unsupported);
+    { Push pu{}; SendFailReason rsn = SendFailReason::none;
+      while (n2.next_push(pu)) if (pu.kind == PushKind::send_failed) { rsn = pu.reason; break; }
+      CHECK(rsn != SendFailReason::unsealable); }
 }
 
 // -----------------------------------------------------------------------------

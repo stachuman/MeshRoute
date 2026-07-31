@@ -1,4 +1,17 @@
 <!-- Author: Stanislaw Kozicki <cgpsmapper@gmail.com> -->
+
+> ## ★★★ LIVE PLAN — owner-ruled 2026-07-31 (read this before the body below)
+> **Tier 1 is EMPTY** (B0 closed). **No remaining register entry blocks functionality**, so the owner pivoted to the
+> **address book**. Order: ~~B4~~ ✅ → **B17** *(in flight)* → **B26/NV1** → **AB1 → AB2 → AB3** → **B22 → CL2 → AB4**.
+> ★ **B26/NV1 is owner-queued BEFORE AB1**: factoring the NV backend's 6-times-duplicated blob validation **above the
+> `#if defined(ARDUINO)`** is what makes AB1's mandated "v1-blob rejection test" runnable — nothing in `test/` includes
+> `device_nv.h` today. ⚠ **Load side only — `save(Blob&)`'s H3 change-detection must NOT be folded in** (losing it means
+> flash wear + a wider reset-during-write corruption window, in a tree that has been NV-bricked once).
+> ★★ **AB4 is GATED ON CL2 and CL2 IS NOT BUILT** — team channel encryption has zero hits in the tree, and it is the
+> **trust anchor** for a stored location (ruling O5). Everything else in the register is **PARKED with reasons** — see its
+> new §"CURRENT PRIORITY ORDER". ⚠ **O3 must be ruled BEFORE CL2**; **O4** (`team exportkey` prints the team PRIVATE key
+> on BLE, no auth gate) is a **live** exposure, not a watch-item.
+
 # HANDOVER — 2026-07-31
 
 *Written at end-of-context by the QA-gate coordinator, at the owner's request, focused on **open topics**.
@@ -42,9 +55,20 @@ exact as of `3453def`.
 five team re-anchors, s34's `no_route` **8 → 0**.
 
 **Next up, in order:**
+- ~~**B0**~~ ✅ **CLOSED 2026-07-31 (`§loc-per-send`) — Tier 1 is now EMPTY.** 36/36 byte-identical, keystone unmoved,
+  `sizeof(Node)` −8 ⇒ six-env grid taken. As-built deltas: **`send_layer -l` refuses**, the does-not-fit refusal is
+  structural, `SendFailReason::no_location` appended. **Two new entries fell out of it: B20/B21** (sends that fail with
+  **no `send_failed` at all**). ⇒ **the queue is now B3 → B4 → B5 → Tier 3.** *(original line below)*
 - **B0** — ★ **the only LIVE leak: `loc_in_dm` airs coordinates in the clear.** Its fix is **CL3** in the
   channel-crypt spec (§5 below), which is bigger than a guard: it adds `-l`, removes `loc_dm` across **eleven
   surfaces incl. an app-facing binary TLV**, and bumps `kVersion` 22 → 23.
+- ~~**B3**~~ ✅ **CLOSED 2026-07-31 (`§sim-plane-parity B3`).** s22 `d1855325`/1804 → `d02f1979`/1804 (event count
+  unchanged; the whole delta is one `cmd_reply` echo). 35 assertions in, 35 out, bodies identical — nothing masked.
+  ★ **It yielded two entries bigger than itself: B22** (plain `send_channel` **succeeds in the sim, is REFUSED on
+  metal** — 10 commands in 4 scenarios, and s22/s34's channel asserts depend on the sim's behaviour; needs an **owner
+  design ruling**, and may belong to spec CL1) **and B23** (`Plane::AUTO` **is** reachable on metal via the `resolve`
+  verb — my "simulator-only" claim was wrong; plus a dead `u.resolve.hard`).
+  ⇒ **queue is now B4 → B5 → B22 (after the ruling) → Tier 3.** *(original line below)*
 - **B3** — the `reqpubkey` plane divergence. ⚠ **s22 is GREEN today and the fix REDDENS it** until the scenario
   gains `-t`. That is expected, not a regression — the register row was wrong about this and is corrected.
 - **B4, B5** — `schedule_sync_response`'s static `_rt_count`; `channel_pull`'s missing `team_id`.
@@ -105,6 +129,8 @@ five team re-anchors, s34's `no_route` **8 → 0**.
 
 `docs/superpowers/specs/2026-07-30-channel-crypt-and-location-privacy-design.md`. Three slices:
 
+- ✅ **CL3 — BUILT 2026-07-31, QA GO (uncommitted).** ⇒ **the channel-crypt arc now starts at CL1**, and CL2 remains the
+  substantial slice. §2.4’s channel-location crypt rule still applies when T-K2/T-K5 land. *(original line below)*
 - **CL3** — ★ **take this first: it closes register B0, the only live leak.** Adds `-l` (per-send location) to
   `send`/`send_layer`, **removes `cfg set loc_dm`** across eleven surfaces including the app-facing binary TLV, and
   bumps `kVersion` 22 → 23. Three loud refusals: not-sealed · no-fix · does-not-fit (the last converts today's

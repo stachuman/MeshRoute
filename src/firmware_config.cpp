@@ -172,8 +172,13 @@ void handle_cfg_set(const char* args, Print& out) {
     else if (!strcmp(key, "team_hop_cap")) { const int v = atoi(val);
                                            if (!valid_hop_cap(v)) { out.println(F("> cfg err bad_value (team_hop_cap 1..16)")); return; }
                                            lc.team_hop_cap = (uint8_t)v; persist = false; }
-    // --- location piggyback: LIVE via mutable_config() + PERSISTED (NV v9). The lat/lon are set via `cfg set lat`/`lon` (-> /mrid). ---
-    else if (!strcmp(key, "loc_in_dm"))  { b.loc_in_dm = (atoi(val) != 0 || !strcmp(val, "on") || !strcmp(val, "true")) ? 1 : 0; lc.loc_in_dm = (b.loc_in_dm != 0); }
+    // --- ★★ `loc_in_dm` KEY REMOVED 2026-07-31 (§loc-per-send, open-bug-register B0). It set a persistent toggle that
+    //     attached this node's coordinates to EVERY originated app DM on a size check alone, with no crypt gate, so a
+    //     plaintext DM aired the position in the clear. Location is now requested PER MESSAGE with `send … -l` and the
+    //     send is REFUSED if it would not be sealed. There is deliberately no replacement key: a per-send intent must
+    //     not acquire a persistent home. `cfg set lat`/`lon` (-> /mrid) still hold the node's fix, which `-l` reads.
+    //     An unknown key falls through to this handler's trailing bad_key branch, so an old script saying
+    //     `cfg set loc_in_dm 1` now fails LOUD rather than silently doing nothing. ---
     // --- E2E §4b: originate app DMs ENCRYPTED. LIVE via mutable_config() + PERSISTED (NV v10). A no-pubkey CRYPTED send
     //     fails loud (send_failed{no_pubkey}); the user provisions keys via `peerkey`/`reqpubkey`. Default off = plaintext. ---
     else if (!strcmp(key, "e2e_dm"))     { b.e2e_dm = (atoi(val) != 0 || !strcmp(val, "on") || !strcmp(val, "true")) ? 1 : 0; lc.e2e_dm = (b.e2e_dm != 0); }
@@ -478,7 +483,7 @@ static void seed_blob_from_live(mrnv::Blob& b) {
     b.intro_attach = nc.intro_attach ? 1 : 0;   // v21 §S2: preserve the first-contact INTRO toggle across create/join
     blob_take_team_channel_key(b);              // v22 §team-ch-key: preserve the team channel keypair across create/join (it is UNRECOVERABLE if dropped — no seed derives it)
     b.ble_mode   = g_ble_mode;            b.ble_period_min = g_ble_period_min;  b.ble_pin = g_ble_pin;
-    b.loc_in_dm  = nc.loc_in_dm ? 1 : 0;  b.e2e_dm     = nc.e2e_dm ? 1 : 0;
+    b.e2e_dm     = nc.e2e_dm ? 1 : 0;   // §loc-per-send: `b.loc_in_dm` GONE with the NV field (kVersion 23) — location is per-send (`send -l`)
     b.gw_announce_duty_pct = nc.gw_announce_duty_pct; b.gw_announce_min_interval_ms = nc.gw_announce_min_interval_ms;
     b.l1_freq_mhz = nc.layers[1].freq_mhz; b.gw_herd_slack = nc.gw_herd_slack;
     b.l1_bw_hz = nc.layers[1].bw_hz; b.l1_cr = nc.layers[1].cr;   // v17 per-layer BW/CR (0 = inherit)
@@ -807,12 +812,13 @@ void handle_team(const char* args, Print& out) {
     // ★ ANSWERED FIRST, BEFORE the numeric parse below — that is a safety requirement, not ordering taste. `strtoul`
     // consumes ZERO digits from a non-numeric tail and returns 0 (verified, not assumed), so ANY subcommand that fell
     // through to it would be read as `team 0` = LEAVE THE TEAM instead of running.
-    // ★★ §team-target (BUG FIX 2026-07-30, widened by §team-target-whole 2026-07-31): the residual hole that ordering
-    // could NOT close — a NEAR-spelling (`team exportky`, `team grantky`, `team nwe`) matches none of these strncmps and
-    // used to reach the numeric parse, i.e. LEAVE THE TEAM. It is now refused by parse_team_target below
-    // (firmware_config_parse.h: a target must lead with a digit AND the whole token must parse — `team 0x`/`team 08`
-    // were silent leaves, `team 88A672BA` a silent join of team 88). Ordering is now defence-in-depth rather than the
-    // only guard; both remain deliberate.
+    // ★★ §team-target (BUG FIX 2026-07-30, widened by §team-target-whole and §team-target-range 2026-07-31): the residual
+    // hole that ordering could NOT close — a NEAR-spelling (`team exportky`, `team grantky`, `team nwe`) matches none of
+    // these strncmps and used to reach the numeric parse, i.e. LEAVE THE TEAM. It is now refused by parse_team_target below
+    // (firmware_config_parse.h: a target must lead with a digit, the whole token must parse, AND the value must fit 32 bits
+    // — `team 0x`/`team 08` were silent leaves, `team 88A672BA` a silent join of team 88, and `team 4294967296` joined
+    // garbage team 0xFFFFFFFF on the boards). Ordering is now defence-in-depth rather than the only guard; both remain
+    // deliberate.
     if (!strncmp(args, "exportkey", 9)) {
         const char* tail = args + 9; while (*tail == ' ') ++tail;
         if (*tail) { out.println(F("> team err: `team exportkey` takes no arguments")); return; }   // C2: never silently ignore a tail — and never let one reach the leave path above
@@ -830,18 +836,25 @@ void handle_team(const char* args, Print& out) {
         phy_args = args + 3;   // §mobile 6.4: `team new [freq=<MHz> sf=<5-12> bw=<kHz>]` — optional team PHY
     } else if (parse_team_target(args, t, phy_args)) {
         // §6.4: `team <id> [freq= sf= bw=]` — a JOIN can set the shared team PHY too (mirrors `team new`). phy_args =
-        // strtoul's endp, i.e. whatever follows the digits. ★ §team-target: entry now REQUIRES a leading digit AND a
-        // fully-consumed token, so a mistyped subcommand can no longer arrive here as `team 0` (= leave) and a 0x-less
-        // hex id can no longer arrive as its decimal prefix — see parse_team_target for the measurement.
+        // strtoul's endp, i.e. whatever follows the digits. ★ §team-target: entry now REQUIRES a leading digit, a
+        // fully-consumed token AND a value inside 32 bits, so a mistyped subcommand can no longer arrive here as `team 0`
+        // (= leave), a 0x-less hex id can no longer arrive as its decimal prefix, and an over-wide token can no longer
+        // arrive as whatever this ABI's `unsigned long` saturated or truncated to — see parse_team_target for the
+        // measurement (`t` is therefore always a value the operator actually typed).
     } else if (args[0]) {
         // ★★ §team-target (BUG FIX 2026-07-30) — C2: a non-numeric, non-subcommand tail is REFUSED LOUD. It must never
         // reach the numeric parse (strtoul -> 0 -> LEAVE) and must never be a silent no-op either. Nothing has been
         // touched at this point: no NV load/save, no set_team_id, no key mint/adopt, no PHY retune.
-        out.print(F("> team err: bad target `")); out.print(args); out.println(F("` — a team id must be a WHOLE numeric token."));
-        out.println(F(">   It must BEGIN WITH A DIGIT and the ENTIRE token must parse. ★ A HEX id needs its `0x`:"));
-        out.println(F(">   `team 88A672BA` is not team 88A672BA — write `team 0x88A672BA`."));
+        // ★ §team-target-range (B17): the message states the RULE SET, not a diagnosis of one clause — deliberately, because
+        // this branch cannot say WHICH clause refused (parse_team_target returns bool). The old wording named only the two
+        // SYNTAX clauses and was therefore FALSE for the range case (`team 4294967296` does begin with a digit and does parse
+        // wholly) — the same factually-wrong-message trap B1 had to rewrite. Every sentence below is true of all three clauses.
+        out.print(F("> team err: bad target `")); out.print(args); out.println(F("` — a team id must be a WHOLE numeric token that FITS IN 32 BITS."));
+        out.println(F(">   It must BEGIN WITH A DIGIT, the ENTIRE token must parse, and the value must be <= 4294967295 (0xFFFFFFFF)."));
+        out.println(F(">   ★ A HEX id needs its `0x`: `team 88A672BA` is not team 88A672BA — write `team 0x88A672BA`."));
         out.println(F(">   NOTHING changed — team_id, the team channel key and NV are all as they were. (Before these checks a"));
-        out.println(F(">   mistyped subcommand parsed as `team 0` and LEFT THE TEAM, and a 0x-less hex id JOINED THE WRONG TEAM.)"));
+        out.println(F(">   mistyped subcommand parsed as `team 0` and LEFT THE TEAM, a 0x-less hex id JOINED THE WRONG TEAM, and"));
+        out.println(F(">   an out-of-range id JOINED GARBAGE TEAM 0xFFFFFFFF on the 32-bit boards — or LEFT THE TEAM on a 64-bit host.)"));
         out.println(F(">   valid: `team new` | `team <id>` | `team 0` (leave) | `team exportkey` | `team grantkey <target>`"));
         out.println(F(">   run `team` with no argument for the full usage."));
         return;

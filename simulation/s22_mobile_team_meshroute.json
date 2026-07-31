@@ -32,10 +32,10 @@
  },
  "commands": [
   {
-   "_c": "#3 step1: TeamA fetches TeamC's E2E pubkey on-air (team-scoped WANT_PUBKEY)",
+   "_c": "#3 step1: TeamA fetches TeamC's E2E pubkey on-air (team-scoped WANT_PUBKEY). \u2605 PLANE 2026-07-31 (\u00a7sim-plane-parity B3): the trailing `-t` is now REQUIRED for a team-scoped WANT_PUBKEY. The sim used to leave Command.u.resolve.plane at 0 (AUTO) for reqpubkey while the console assigns `team ? TEAM : GLOBAL` (console_parse.cpp:190) \u2014 the fourth and last AUTO divergence on a Command field. \u26a0 WITHOUT `-t` this query is GLOBAL, and on this homeless off-grid member NO h_tx is emitted at all, so TeamA never caches TeamC's pubkey and the sealed DM below never decrypts \u2014 3 asserts fail, including #35's exact static count (a GLOBAL WANT_PUBKEY floods the STATIC plane and pulls S2 in, 6 -> 7). \u2605 And the `-t` alone was a NO-OP before the fix: scan_hex32 breaks on the space, so the flag was silently swallowed \u2014 which is why this survived four slices of plane work.",
    "at_ms": 350000,
    "node": "TeamA",
-   "command": "reqpubkey 38e8b9f4"
+   "command": "reqpubkey 38e8b9f4 -t"
   },
   {
    "_c": "team channel broadcast",
