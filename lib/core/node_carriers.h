@@ -420,6 +420,18 @@ struct PendingRx {                   // the receiver state awaiting DATA (one pe
 struct PostAck {                     // deferred deliver/forward after the ACK airtime
     bool     pending = false;
     bool     is_forward = false;     // false => deliver (dst==self); true => forward
+    // ★★ §hashbind-plane (2026-07-31): this DATA rode the TEAM plane — `for_team_data` (node_mac_rx.cpp, "addressed to
+    // OUR team-plane id", stable across every hop of a team flight) carried forward, because do_post_ack runs AFTER
+    // _pending_rx is reset and PostAck holds neither `next` nor `addr_len`, so the plane cannot be re-derived there.
+    // Exact sibling of PendingRx::mobile_from above, and for the same reason: the ids in a team-plane frame are TEAM
+    // LOCAL ids, so the deferred ingest MUST NOT install them in the static node_id-indexed planes (§18 / C3).
+    // Read by the hash-bind ingest (on_hash_bind_response / on_hash_bind_snoop). false on every static/non-team frame,
+    // so every static plane stays byte-inert. ★ LAYOUT, MEASURED not inferred (template-reveal on all six board
+    // flag-sets + native): PostAck has NO tail padding (`ctr` makes it 2-aligned and 262 is already even), so this bool
+    // costs it 262 -> 264 wherever it is placed — but `sizeof(Node)` does NOT move on ANY target (native 220656;
+    // 116736 xiao_sx1262/xiao_esp32s3; 147352 gateway/gateway_esp32s3; 116704 both *_mobile), because the +2 lands in
+    // padding LayerRuntime already had after `_post_ack`. Hence no D2 six-env escalation was owed for this slice.
+    bool     team_plane = false;
     uint8_t  origin = 0, dst = 0, ctr_lo = 0, previous_hop = 0;
     uint16_t ctr = 0;
     uint8_t  flags = 0;

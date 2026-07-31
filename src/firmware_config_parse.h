@@ -289,21 +289,35 @@ inline GrantArgs parse_grant_args(const char* tail, char* scratch, size_t scratc
 // and a MOBILE was masked (parse_phy_tail refuses the leftover unknown key first) — but a node with
 // `is_mobile == 0` and a non-zero `team_id` LEFT, and that is reachable from the console the owner types at.
 //
-// THE RULE — two clauses, and the second is NOT in the dispatch brief; it was found by testing the first.
+// ★★ §team-target-whole (BUG FIX 2026-07-31, register B1) — AND `team 88A672BA` JOINED TEAM 88.
+// The 07-30 rule's clause (2) was gated on `v == 0`, which is the destructive outcome but not the only WRONG one.
+// A hex team id typed WITHOUT the `0x` prefix — the way every operator writes a hash elsewhere — is read by
+// strtoul base 0 as DECIMAL: `88A672BA` yields 88, endp stops at the `A`, and 88 != 0 so the zero-gate never
+// looked. ⇒ you JOIN A DIFFERENT TEAM, with no error and no way to tell from the console. Same silent-wrong-state
+// family as the leave bug, arriving through the accept side instead of the refuse side.
+//
+// THE RULE — now ONE clause, applied unconditionally:
 //   (1) the token must BEGIN WITH A DIGIT to be read as a team id; anything else is the caller's LOUD refusal
 //       (C2 — never a silent no-op, never a fall-through to leave). It also refuses two spellings that were
 //       silently WRONG rather than merely mistyped: `team -1` (strtoul yields 0xFFFFFFFF, i.e. joining a garbage
 //       team) and `team +5`, neither of which any usage line offers.
-//   (2) ★ if the value parses to 0 — the DESTRUCTIVE outcome — the digits strtoul consumed must span the WHOLE
-//       token. Clause (1) alone still let `team 0x`, `team 08` and `team 0abc` LEAVE THE TEAM: strtoul reads just
-//       the leading "0" from each and reports 0, so the commonest hex typo of all was still a silent leave.
-//       Because leaving is destructive, only an UNAMBIGUOUS zero spelling may mean it.
-// The scoping is deliberate and minimal: clause (2) is gated on `v == 0`, so it can only ever change the outcome
-// of a command that would have LEFT the team. A non-zero id with a junk suffix (`team 12abc`) is still ACCEPTED
-// with `abc` handed to the tail parsers, exactly as before — that spelling is a different (silent-ignore) issue,
-// it does not leave the team, and it is not this bug.
-// `team 0` (leave), `team 00`, `team 0x0`, `team 42`, `team 0x2a`, `team 010` and `team <id> freq=…` all keep
-// working VERBATIM: this gates entry only, strtoul with base 0 still does the conversion.
+//   (2) ★ the digits strtoul consumed must span the WHOLE target token — a PARTIALLY-consumed token is refused
+//       whatever it evaluated to. Covers the destructive zero spellings (`0x`, `08`, `0abc` — strtoul reads only
+//       the leading "0", so a leading-digit rule ALONE still LEFT THE TEAM) *and* the mis-join ones
+//       (`88A672BA` -> 88, `12abc` -> 12, `1x` -> 1). ⚠ Widening this from `v == 0` to every value is the whole
+//       of fix B1; `team 12abc` used to be accepted as team 12 with `abc` handed to the tail parsers, and that
+//       leniency is now gone deliberately — a suffix the id parser did not consume is a TYPO, not a tail.
+// ★ THE LEGITIMATE PHY/KEY TAIL IS UNAFFECTED, and this is the property to keep true: the token is measured only
+// up to the FIRST SPACE, so `team 0x88A672BA freq=868 sf=7` and `team 7 freq=869.0` still parse — the token is
+// fully consumed and the tail starts at the space. Measured, and pinned by the native tests below.
+// `team 0` (leave), `team 00`, `team 0x0`, `team 42`, `team 0x2a`, `team 010`, `team 12345`, `team 0xDEADBEEF`
+// and `team <id> freq=…` all keep working VERBATIM: this gates entry only, strtoul with base 0 still converts.
+//
+// ✖ MISSING / NOT THIS SLICE (C1) — the OUT-OF-RANGE token, measured 2026-07-31 and left open on purpose. A
+// fully-consumed token outside 32 bits still lands: `team 4294967296` truncates to 0 = LEAVE on a 64-bit
+// `unsigned long` (native), while on the 32-bit boards strtoul saturates to ULONG_MAX+ERANGE so the SAME command
+// joins garbage team 0xFFFFFFFF — a real sim-vs-metal divergence. It needs an `errno`/width check, which is a
+// different clause (a range rule, not a syntax one) and would want its own before/after measurement.
 //
 // FAIL-CLOSED: on false, `out_id` and `out_tail` are left UNTOUCHED, so a refused token cannot half-write the id
 // the caller is about to persist. That is the property the native test pins — it seeds out_id with a live
@@ -313,11 +327,9 @@ inline bool parse_team_target(const char* s, uint32_t& out_id, const char*& out_
     if (!s || s[0] < '0' || s[0] > '9') return false;   // (1) no leading digit => not a team id
     char* endp = nullptr;
     const uint32_t v = static_cast<uint32_t>(strtoul(s, &endp, 0));   // base 0: decimal, 0x-hex and leading-0 octal, exactly as before
-    if (v == 0) {                                       // (2) only an unambiguous zero may mean LEAVE
-        size_t tn = 0; while (s[tn] && s[tn] != ' ') ++tn;            // the target token = up to the first space
-        if (static_cast<size_t>(endp - s) != tn) return false;        // `0x` / `08` / `0abc`: strtoul read only the leading "0"
-    }
-    out_id = v; out_tail = endp;                        // committed only after the token was accepted
+    size_t tn = 0; while (s[tn] && s[tn] != ' ') ++tn;                // (2) the target token = up to the first space
+    if (static_cast<size_t>(endp - s) != tn) return false;            // partially consumed: `0x`/`08` (would LEAVE), `88A672BA`/`12abc` (would MIS-JOIN)
+    out_id = v; out_tail = endp;                        // committed only after the whole token was accepted
     return true;
 }
 

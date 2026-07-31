@@ -824,6 +824,7 @@ void Node::handle_data(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // defer deliver/forward by the ACK airtime so it doesn't share a sim step with the ACK.
     _active->_post_ack = PostAck{};
     _active->_post_ack.pending = true; _active->_post_ack.is_forward = !for_me_dst(d.dst);   // §6.4: deliver a DM addressed to our team-plane id too (dual member)
+    _active->_post_ack.team_plane = for_team_data;   // ★ §hashbind-plane: carry the PLANE to the deferred ingest (do_post_ack cannot re-derive it — no `next`/`addr_len` there, and _pending_rx is reset above). Same discriminator T6/B already uses for the dedup key; false for every static/non-team frame.
     _active->_post_ack.origin = origin; _active->_post_ack.dst = d.dst; _active->_post_ack.ctr_lo = d.ctr_lo4;
     _active->_post_ack.ctr = d.ctr; _active->_post_ack.flags = d.flags; _active->_post_ack.type = d.type; _active->_post_ack.previous_hop = from;
     _active->_post_ack.inner_len = static_cast<uint8_t>(inner.size() <= protocol::max_payload_bytes_hard_cap
@@ -1023,7 +1024,7 @@ void Node::do_post_ack() {
         }
 #endif
         if (pa.type == DATA_TYPE_H_ANSWER || pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER) {   // a hash-bind answer for us -> consume (routing info, NOT a DM)
-            on_hash_bind_response(pa.inner, pa.inner_len, pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER);
+            on_hash_bind_response(pa.inner, pa.inner_len, pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER, pa.team_plane);   // ★ §hashbind-plane: a TEAM-plane answer must not write the static _id_bind
             become_free();
             return;
         }
@@ -1214,7 +1215,7 @@ void Node::do_post_ack() {
         }
         // C.2 cache-on-pass: a relayed hash-bind answer is cleartext -> snoop the binding before forwarding.
         if (pa.type == DATA_TYPE_H_ANSWER || pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER)
-            on_hash_bind_snoop(pa.inner, pa.inner_len, pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER);
+            on_hash_bind_snoop(pa.inner, pa.inner_len, pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER, pa.team_plane);   // ★ §hashbind-plane: cache-on-pass of a TEAM-plane answer must not write the static _id_bind
         else if (pa.type == DATA_TYPE_AUTHORITATIVE_H_ANSWER_PUBKEY) {   // E2E §6: cache-on-pass — no `ui` on the forward path, so skip [dst_hash?][origin] to reach the pubkey BODY (Wave 2 standard DM; no SOURCE_HASH on this app_dm=false type)
             const uint8_t off = static_cast<uint8_t>((pa.flags & DATA_FLAG_DST_HASH ? 4 : 0) + 1);
             if (pa.inner_len > off) on_hash_bind_pubkey(pa.inner + off, static_cast<uint8_t>(pa.inner_len - off));

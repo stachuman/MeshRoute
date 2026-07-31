@@ -610,6 +610,13 @@ void Node::handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta) {
     // node (is_mobile=false) is unchanged. This also suppresses its want_pubkey owner-answer -> the home answers it (Part 2).
     if (h.key_hash32 == _key_hash32 && (!mobile_registered() || same_team)) { node_id = _node_id; authoritative = true; }   // own-hash: resolves either variant (mobile_registered() is false on a static/gateway build -> always resolves)
     else if (!h.hard) {                                                              // HARD skips the cache -> flood to the owner
+        // ⚠ ✖ MISSING (register B2's READ-side twin, deliberately NOT fixed here — C1; it is spec §12 / register D2's
+        // read-path plane audit): this cache lookup has NO plane test, so a TEAM-scoped H can still be answered out of
+        // the STATIC `_id_bind` — handing a team querier a STATIC node_id. The WRITE half is closed (a team-plane H
+        // answer no longer enters `_id_bind`, see on_hash_bind_response/on_hash_bind_snoop), which removed the only
+        // corpus-reachable instance: s24/s25/s26 measurably stopped answering a repeat team locate from a relay's
+        // static cache and now let the OWNER answer (+78/+78/+56 events, delivery unchanged). What remains reachable is
+        // a genuinely-static binding (from a beacon) answering a team-scoped query — same class, other direction.
         IdBindConf conf = IdBindConf::claimed;
         const int found = id_bind_find_by_hash(h.key_hash32, &conf);
         if (found >= 0) { node_id = found; authoritative = (conf == IdBindConf::authoritative); }
@@ -792,16 +799,27 @@ void Node::on_hash_bind_pubkey(const uint8_t* inner, uint8_t inner_len) {
 // The querier received a DATA whose inner is a hash-bind answer (handle_data routed it here off the
 // H_ANSWER payload-flag). Phase B: parse + emit. Phase C will id_bind_set(h_query, conf) + drain the
 // parked send-by-hash. DELIBERATELY does NOT deliver as a DM (it is routing/identity info, not user content).
-void Node::on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool authoritative) {
+void Node::on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool authoritative, bool team_plane) {
     auto hb = parse_hash_bind_inner(std::span<const uint8_t>(inner, inner_len));
     if (!hb) return;
     // C.1 destination consume: WE asked -> source h_query; the answer's AUTHORITATIVE bit (now the frame TYPE,
     // passed in) carries the confidence (an owner answer is authoritative, a cache-relayed soft answer is
     // claimed -> verify-on-use).
-    id_bind_set(hb->node_id, hb->key_hash32, IdBindSource::h_query,
-                authoritative ? IdBindConf::authoritative : IdBindConf::claimed);
+    // ★★ §hashbind-plane (2026-07-31, register B2): NOT when the answer rode the TEAM plane. `hb->node_id` is then a
+    // TEAM LOCAL id (handle_h answers a team-scoped locate with team_local_id, node_hashlocate.cpp F-TR-2), and
+    // _id_bind is the STATIC node_id-indexed plane -> writing it is the I2 breach s24 asserts a static bystander never
+    // commits. Same rule and same shape as the two shipped gates in this file (the WANT_PUBKEY owner branch and
+    // cache_want_pubkey_requester, both `!h.team_scoped && !h.mobile_req`), which also just SKIP the write.
+    // ⚠ NOT redirected into team_key_set, and that is a deliberate refusal — see the on_hash_bind_snoop note below.
+    // Nothing else is lost: drain_parked_sends (right below) takes `hb->node_id` DIRECTLY, so the parked team send
+    // still flies on this answer; only the static-plane CACHE of a team id is withheld.
+    if (!team_plane)
+        id_bind_set(hb->node_id, hb->key_hash32, IdBindSource::h_query,
+                    authoritative ? IdBindConf::authoritative : IdBindConf::claimed);
     // §mobile 4a: the 3c key_hash_of_id heuristic is GONE — a mobile proxy now carries the distinct DATA_TYPE_MOBILE_H_ANSWER
     // (handled in on_mobile_hash_bind_response), so a plain H_ANSWER for a hash we don't own is NEVER treated as a mobile proxy.
+    // ★ §hashbind-plane: outside the gate deliberately — this records the ANSWER ARRIVING (and the drain below still
+    // runs off it); the STORE record is the `id_bind_set` emit above, whose absence is the plane refusal.
     MR_EMIT("hash_bind_rx", EF_I("node", hb->node_id), EF_I("key_hash32", static_cast<int64_t>(hb->key_hash32)),
             EF_I("target_layer", hb->target_layer), EF_B("authoritative", authoritative));
     drain_parked_sends(hb->key_hash32, hb->node_id, hb->target_layer);   // D: a parked send-by-hash can now fly; target_layer drives the cross-layer fork (4d)
@@ -948,11 +966,36 @@ void Node::on_mobile_hash_bind_pubkey_response(const uint8_t* inner, uint8_t inn
 // resolver and repeat H floods shrink (measured in the Phase D multi-node sim). source = h_relay (snooped,
 // distinct from the asked h_query); confidence rides the answer's AUTHORITATIVE flag. We do NOT consume —
 // do_post_ack still forwards the DATA. Deliberate, measurable divergence (gate: flood reach trends down).
-void Node::on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool authoritative) {
+// ★★ §hashbind-plane (2026-07-31, register B2) — WHY THE TEAM BINDING IS DROPPED RATHER THAN RE-HOMED INTO
+// `team_key_set`. The dispatch brief proposed routing it to the team map (whose own comment says team-scoped bindings
+// belong there), and that was measured and REFUSED, three reasons, all at source:
+//   (1) `_team_keys` has NO confidence dimension, and this path ingests CLAIMED bindings (a cache-relayed
+//       DATA_TYPE_H_ANSWER, and every snoop is second-hand by construction). `_id_bind` keeps claimed-vs-authoritative
+//       and send_by_hash refuses to use a claimed row (node_hashlocate.cpp `conf == authoritative`); team_key_of_id /
+//       team_id_of_key have no such test, so re-homing would UPGRADE an unverified observation to a trusted one — and
+//       one of its consumers is DST_HASH derivation for a SEALED team DM (node_mac.cpp).
+//   (2) It feeds the team-DAD L2a mediation: node_beacon.cpp compares team_key_of_id(b.src) against the beacon's own
+//       key and sends a mediated DENY on a mismatch. Seeding that comparator from unauthenticated transit traffic
+//       manufactures spurious DENYs against legitimate teammates — the exact hazard node.cpp already warns about for
+//       stale `_team_keys` rows.
+//   (3) `_team_keys` is a 16-slot evict-OLDEST LRU whose documented feed is the BEACON ("cache a same-team peer's
+//       key_hash32 (from its beacon)"), and its `last_seen_ms` means "heard now". Cache-on-pass would both fake that
+//       liveness and let transit traffic evict genuine beacon rows.
+// ⇒ the correct fix is the one the two shipped sibling gates already make: DON'T write the wrong plane. This does NOT
+// contradict the address-book design (2026-07-29 §2.5), which forbids the `_id_bind` write and fixes `hashof` with a
+// VIEW over both maps, "never by a write". ✖ MISSING, stated so it is not mistaken for done: a team member still has
+// no hash->team_local_id cache from an H answer, so a repeat `send -t 0x<hash>` to an unheard teammate re-floods the
+// locate instead of resolving from cache. That is a FEATURE (a team-plane bind store with its own confidence field),
+// not this fix, and it needs the trust question in (1) answered first.
+void Node::on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool authoritative, bool team_plane) {
     auto hb = parse_hash_bind_inner(std::span<const uint8_t>(inner, inner_len));
     if (!hb) return;
-    id_bind_set(hb->node_id, hb->key_hash32, IdBindSource::h_relay,
-                authoritative ? IdBindConf::authoritative : IdBindConf::claimed);
+    if (!team_plane)   // ★ §hashbind-plane: a TEAM-plane answer carries a TEAM LOCAL id -> never the static _id_bind (§18/C3)
+        id_bind_set(hb->node_id, hb->key_hash32, IdBindSource::h_relay,
+                    authoritative ? IdBindConf::authoritative : IdBindConf::claimed);
+    // ★ The emit stays OUTSIDE the gate on purpose: it records "a relayed answer passed through us" (the frame IS still
+    // forwarded), not "we stored it". The store record is the `id_bind_set` emit above, so its ABSENCE beside a
+    // `hash_bind_snooped` is exactly the plane refusal — which is how the s24/s25/s26/s28/s34 delta reads in the stream.
     MR_EMIT("hash_bind_snooped", EF_I("node", hb->node_id), EF_I("key_hash32", static_cast<int64_t>(hb->key_hash32)),
             EF_B("authoritative", authoritative));
 }
@@ -1371,6 +1414,15 @@ void Node::drain_parked_sends(uint32_t key_hash32, uint8_t resolved_id, uint8_t 
         const ParkedSend p = _parked_sends[r];
         if (p.key_hash32 == key_hash32) {
             if (p.is_resolve) {                                  // notify-only `resolve` diag: report, don't send
+                // ⚠ ✖ MISSING / APP-VISIBLE (register B2, 2026-07-31 — reported, deliberately not changed, C1): this reads
+                // the confidence back out of `_id_bind`, which the caller had "just set". On a TEAM member that is no
+                // longer true — `resolve <hash>` issues an AUTO team-scoped H (emit_hash_query's team_q), and a
+                // team-plane answer no longer writes `_id_bind` (§hashbind-plane), so `conf` stays CLAIMED and the
+                // hash_resolved push reports authoritative=FALSE. `resolved_id` is still correct; only the trust bit
+                // degrades. The clean fix is to thread the answer's own `authoritative` into this function instead of
+                // re-reading a table — a signature change on a 4-caller path, and the same surface the peer
+                // address-book design (2026-07-29 §2.5) is replacing with a VIEW. Corpus-invisible: no scenario runs
+                // `resolve` (measured — 0 occurrences across all 36).
                 IdBindConf conf = IdBindConf::claimed;
                 (void)id_bind_find_by_hash(key_hash32, &conf);   // confidence was just set by the caller
                 push_hash_resolved(key_hash32, resolved_id, conf == IdBindConf::authoritative);

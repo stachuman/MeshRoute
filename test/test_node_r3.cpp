@@ -4721,7 +4721,7 @@ TEST_CASE("M3 — a PARKED crypt=on send flies CRYPTED when the binding arrives 
     std::array<uint8_t, 7> hbin{};
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 5; hb.key_hash32 = idB.key_hash32; hb.authoritative = true;
     const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(hbin.data(), hbin.size()));
-    node->on_hash_bind_response(hbin.data(), static_cast<uint8_t>(in), hb.authoritative);
+    node->on_hash_bind_response(hbin.data(), static_cast<uint8_t>(in), hb.authoritative, /*team_plane=*/false);
     CHECK(hal.count("send_hash_resolved") == 1);                   // the parked DM drained + flew
 
     // Pump the flight: RTS went to next-hop 2; feed its CTS -> the CTS->DATA gap fires -> DATA on air.

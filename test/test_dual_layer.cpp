@@ -2889,7 +2889,7 @@ TEST_CASE("dual-layer bridge: the H-answer re-drain HOOK resolves a deferred han
     hash_bind_inner hb{}; hb.target_layer = 2; hb.node_id = 20; hb.key_hash32 = 0x9999u;
     uint8_t hbuf[16]; const size_t hn = pack_hash_bind_inner(hb, std::span<uint8_t>(hbuf, sizeof hbuf));
     CHECK(hn > 0);
-    gw.on_hash_bind_response(hbuf, static_cast<uint8_t>(hn), /*authoritative*/ true);   // -> id_bind_set + the 4f re-drain hook
+    gw.on_hash_bind_response(hbuf, static_cast<uint8_t>(hn), /*authoritative*/ true, /*team_plane=*/false);   // -> id_bind_set + the 4f re-drain hook
     CHECK(DualLayerTestAccess::handoff_count(gw) == 0);            // resolved + drained IMMEDIATELY (no wait for the next visit)
     CHECK(DualLayerTestAccess::leaf_tx_n(gw, 1) == 1);
     CHECK(DualLayerTestAccess::leaf_tx_at(gw, 1, 0).dst == 20);
@@ -3944,7 +3944,7 @@ TEST_CASE("§mobile 4a — MOBILE_H_ANSWER caches M->home+epoch with NO id_bind;
     // a plain H_ANSWER: M2=0xC0C0 -> 40 -> the id_bind path, NO cache (the 3c heuristic is gone)
     hash_bind_inner hb2{}; hb2.target_layer=0; hb2.node_id=40; hb2.key_hash32=0xC0C0u;
     uint8_t inner2[6]; size_t il2 = pack_hash_bind_inner(hb2, inner2, /*mobile=*/false);
-    n.on_hash_bind_response(inner2, static_cast<uint8_t>(il2), /*authoritative=*/false);
+    n.on_hash_bind_response(inner2, static_cast<uint8_t>(il2), /*authoritative=*/false, /*team_plane=*/false);
     CHECK(n.id_bind_count() == ib0 + 1);            // ★ the plain H_ANSWER DID id_bind (40->M2)
     CHECK(n.mobile_home_find(0xC0C0u) == -1);       // ★ and did NOT populate the mobile-home cache (heuristic retired)
 }
@@ -4456,6 +4456,59 @@ TEST_CASE("§enc — a team peer's key (from its beacon) is cached team-scoped -
     // a NON-team-peer id -> no team key -> no DST_HASH from this path (never the static plane)
     uint32_t k2 = 0;
     CHECK_FALSE(DualLayerTestAccess::team_key_of_id(m, /*not a peer*/99, k2));
+}
+
+// ---- ★★ §hashbind-plane (BUG FIX 2026-07-31, register B2) — THE WIRING HALF -----------------------------------------
+// node_hashlocate's two ingest gates are only as good as the bit that reaches them. `do_post_ack` runs AFTER `_pending_rx`
+// is reset and PostAck holds neither `next` nor `addr_len`, so the plane cannot be re-derived there — it is CARRIED as
+// PostAck::team_plane, set from `for_team_data` (the same discriminator T6/B threads into the dedup key). This case
+// drives a REAL team-plane H_ANSWER through on_recv -> handle_data -> the post-ack timer, so the carry is proven
+// end-to-end rather than assumed; the arms below are the same frame on the two planes.
+TEST_CASE("★★ §hashbind-plane — a TEAM-plane H_ANSWER delivered over the air does not enter the static _id_bind; a STATIC one does") {
+    // Build the DATA once: inner = a bare hash_bind_inner (send_hash_bind_response enqueues the packed inner directly,
+    // with no [origin] prefix), TYPE = AUTHORITATIVE_H_ANSWER so do_post_ack routes it to on_hash_bind_response.
+    uint8_t hbb[7];
+    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 34; hb.key_hash32 = 0xCCCC0003u; hb.authoritative = true;
+    const size_t il = pack_hash_bind_inner(hb, std::span<uint8_t>(hbb, sizeof hbb));
+    CHECK(il > 0);
+    const uint8_t mac4[4] = {0,0,0,0};
+    auto make_answer = [&](uint8_t next, uint8_t addr_len, uint8_t* frame, size_t cap) -> size_t {
+        data_in din{}; din.addr_len = addr_len; din.flags = 0; din.type = DATA_TYPE_AUTHORITATIVE_H_ANSWER;
+        din.next = next; din.dst = next; din.hops_remaining = 31; din.ctr = 42;   // ctr 42 -> ctr_lo4 = 0x0A
+        din.inner = std::span<const uint8_t>(hbb, il); din.mac = std::span<const uint8_t>(mac4, 4);
+        return pack_data(din, std::span<uint8_t>(frame, cap));
+    };
+
+    // ---- ARM 1: an OFF-GRID TEAM member receives the answer on the TEAM plane (addr_len=1 to its team_local_id) ----
+    {
+        StubHal hal; hal._now = 10000; Node b(hal, 0, 0xB0B0u);
+        NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4;
+        cfg.is_mobile=true; cfg.team_id=0xC036D02Bu; CHECK(b.on_init(cfg));
+        b.team_dad_fire();
+        const uint8_t tid = b.team_local_id();
+        CHECK(tid >= 17);
+        CHECK(b.id_bind_find_by_hash(0xCCCC0003u) == -1);
+        uint8_t frame[64]; const size_t fl = make_answer(tid, /*addr_len=*/1, frame, sizeof frame);
+        CHECK(fl > 0);
+        DualLayerTestAccess::set_pending_rx(b, /*from*/44, /*ctr_lo*/0x0A, /*sf*/8, /*payload_len*/static_cast<uint8_t>(il + 4));
+        RxMeta meta{9.0f,-70.0f,hal._now,static_cast<int8_t>(-1)};
+        b.on_recv(frame, fl, meta);
+        b.on_timer(9 /*kPostAckTimerId*/);
+        CHECK(b.id_bind_find_by_hash(0xCCCC0003u) == -1);   // ★★ the team local id 34 never enters the STATIC plane
+    }
+    // ---- ARM 2 (CONTROL): a STATIC node receives the SAME answer on the static plane (addr_len=0) -> still cached ----
+    {
+        StubHal hal; hal._now = 10000; Node s(hal, 9, 0x9999u);
+        NodeConfig cfg; cfg.routing_sf=8; cfg.allowed_sf_bitmap=static_cast<uint16_t>(1u<<8); cfg.leaf_id=4; CHECK(s.on_init(cfg));
+        CHECK(s.id_bind_find_by_hash(0xCCCC0003u) == -1);
+        uint8_t frame[64]; const size_t fl = make_answer(/*next=*/9, /*addr_len=*/0, frame, sizeof frame);
+        CHECK(fl > 0);
+        DualLayerTestAccess::set_pending_rx(s, /*from*/44, /*ctr_lo*/0x0A, /*sf*/8, /*payload_len*/static_cast<uint8_t>(il + 4));
+        RxMeta meta{9.0f,-70.0f,hal._now,static_cast<int8_t>(-1)};
+        s.on_recv(frame, fl, meta);
+        s.on_timer(9 /*kPostAckTimerId*/);
+        CHECK(s.id_bind_find_by_hash(0xCCCC0003u) == 34);   // ★ CONTROL: the static ingest is completely unchanged
+    }
 }
 
 TEST_CASE("§mobile 6.4 — a team RTS from a DIFFERENT leaf is accepted (a mixed-registration team spans leaves)") {

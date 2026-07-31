@@ -807,11 +807,12 @@ void handle_team(const char* args, Print& out) {
     // ★ ANSWERED FIRST, BEFORE the numeric parse below — that is a safety requirement, not ordering taste. `strtoul`
     // consumes ZERO digits from a non-numeric tail and returns 0 (verified, not assumed), so ANY subcommand that fell
     // through to it would be read as `team 0` = LEAVE THE TEAM instead of running.
-    // ★★ §team-target (BUG FIX 2026-07-30): the residual hole that ordering could NOT close — a NEAR-spelling
-    // (`team exportky`, `team grantky`, `team nwe`) matches none of these strncmps and used to reach the numeric parse,
-    // i.e. LEAVE THE TEAM. It is now refused by parse_team_target below (firmware_config_parse.h: a target must lead
-    // with a digit, and a value of 0 must additionally be an unambiguous zero spelling — `team 0x` and `team 08` were
-    // silent leaves too). This ordering is now defence-in-depth rather than the only guard; both remain deliberate.
+    // ★★ §team-target (BUG FIX 2026-07-30, widened by §team-target-whole 2026-07-31): the residual hole that ordering
+    // could NOT close — a NEAR-spelling (`team exportky`, `team grantky`, `team nwe`) matches none of these strncmps and
+    // used to reach the numeric parse, i.e. LEAVE THE TEAM. It is now refused by parse_team_target below
+    // (firmware_config_parse.h: a target must lead with a digit AND the whole token must parse — `team 0x`/`team 08`
+    // were silent leaves, `team 88A672BA` a silent join of team 88). Ordering is now defence-in-depth rather than the
+    // only guard; both remain deliberate.
     if (!strncmp(args, "exportkey", 9)) {
         const char* tail = args + 9; while (*tail == ' ') ++tail;
         if (*tail) { out.println(F("> team err: `team exportkey` takes no arguments")); return; }   // C2: never silently ignore a tail — and never let one reach the leave path above
@@ -829,15 +830,18 @@ void handle_team(const char* args, Print& out) {
         phy_args = args + 3;   // §mobile 6.4: `team new [freq=<MHz> sf=<5-12> bw=<kHz>]` — optional team PHY
     } else if (parse_team_target(args, t, phy_args)) {
         // §6.4: `team <id> [freq= sf= bw=]` — a JOIN can set the shared team PHY too (mirrors `team new`). phy_args =
-        // strtoul's endp, i.e. whatever follows the digits. ★ §team-target: entry now REQUIRES a leading digit, so a
-        // mistyped subcommand can no longer arrive here as `team 0` (= leave) — see parse_team_target for the measurement.
+        // strtoul's endp, i.e. whatever follows the digits. ★ §team-target: entry now REQUIRES a leading digit AND a
+        // fully-consumed token, so a mistyped subcommand can no longer arrive here as `team 0` (= leave) and a 0x-less
+        // hex id can no longer arrive as its decimal prefix — see parse_team_target for the measurement.
     } else if (args[0]) {
         // ★★ §team-target (BUG FIX 2026-07-30) — C2: a non-numeric, non-subcommand tail is REFUSED LOUD. It must never
         // reach the numeric parse (strtoul -> 0 -> LEAVE) and must never be a silent no-op either. Nothing has been
         // touched at this point: no NV load/save, no set_team_id, no key mint/adopt, no PHY retune.
-        out.print(F("> team err: unknown subcommand `")); out.print(args); out.println(F("` — a team id must BEGIN WITH A DIGIT."));
-        out.println(F(">   NOTHING changed — team_id, the team channel key and NV are all as they were. (Before this check a"));
-        out.println(F(">   mistyped subcommand parsed as `team 0` and LEFT THE TEAM.)"));
+        out.print(F("> team err: bad target `")); out.print(args); out.println(F("` — a team id must be a WHOLE numeric token."));
+        out.println(F(">   It must BEGIN WITH A DIGIT and the ENTIRE token must parse. ★ A HEX id needs its `0x`:"));
+        out.println(F(">   `team 88A672BA` is not team 88A672BA — write `team 0x88A672BA`."));
+        out.println(F(">   NOTHING changed — team_id, the team channel key and NV are all as they were. (Before these checks a"));
+        out.println(F(">   mistyped subcommand parsed as `team 0` and LEFT THE TEAM, and a 0x-less hex id JOINED THE WRONG TEAM.)"));
         out.println(F(">   valid: `team new` | `team <id>` | `team 0` (leave) | `team exportkey` | `team grantkey <target>`"));
         out.println(F(">   run `team` with no argument for the full usage."));
         return;

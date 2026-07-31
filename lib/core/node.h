@@ -660,8 +660,11 @@ public:
     // key / tag fail / short / spoof -> caller DROPS (never delivers ciphertext).
     bool   e2e_open_relay(const uint8_t* relay_body, size_t len, uint32_t source_hash,
                           uint8_t* body_out, uint8_t& body_len_out);
-    void              on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool authoritative);   // C.1: the origin consumed an H_ANSWER DATA -> cache (h_query) + drain. authoritative from the frame TYPE. public = the deliver seam + test driver
-    void              on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool authoritative);      // C.2: a forwarder snooped an H_ANSWER in transit -> cache-on-pass (h_relay). authoritative from the frame TYPE. public = the relay seam + test driver
+    // ★ §hashbind-plane: `team_plane` is REQUIRED, not defaulted (C2) — it is the §18 plane split, and a caller that
+    // forgets it must fail to compile rather than silently re-open the I2 breach. true => the answer rode the TEAM
+    // plane, so its node_id is a TEAM LOCAL id and the static _id_bind write is SKIPPED (PostAck::team_plane).
+    void              on_hash_bind_response(const uint8_t* inner, uint8_t inner_len, bool authoritative, bool team_plane);   // C.1: the origin consumed an H_ANSWER DATA -> cache (h_query) + drain. authoritative from the frame TYPE. public = the deliver seam + test driver
+    void              on_hash_bind_snoop(const uint8_t* inner, uint8_t inner_len, bool authoritative, bool team_plane);      // C.2: a forwarder snooped an H_ANSWER in transit -> cache-on-pass (h_relay). authoritative from the frame TYPE. public = the relay seam + test driver
     void              on_hash_bind_pubkey(const uint8_t* inner, uint8_t inner_len);   // E2E §6: a DATA TYPE 5 (delivered OR relayed-through) -> cache the ed_pub authoritative (verify ed_pub[:4]==hash)
     bool              channel_entry_dirty(uint32_t id) const { const int i = channel_buffer_find(id); return i >= 0 && _active->_channel_buffer[i].dirty; }
     bool              channel_payload_eq(uint32_t id, const uint8_t* p, uint16_t len) const {

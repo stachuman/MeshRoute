@@ -118,12 +118,26 @@ looks** — removing `loc_dm` touches **eleven surfaces including an app-facing 
 
 ## Tier 2 — wrong behaviour, currently masked or worked around
 
+### ~~B1~~ ✅ **CLOSED 2026-07-31** (`§team-target-whole`) — the whole token must now parse
+⚠ **Wider than the one line I briefed:** it also refuses `team 12abc`, whose leniency the 07-30 comment called
+deliberate; and the old refusal string (*"must BEGIN WITH A DIGIT"*) was **false** for `88A672BA` and was rewritten.
+★ **The sim was already right** — it required whole-token consumption all along, so this **shrank** a divergence.
+⚠ **NEW, open: an out-of-range target diverges BY TARGET WIDTH** — `team 4294967296` leaves on 64-bit native but
+**joins garbage `0xFFFFFFFF`** on the 32-bit boards. ⇒ **B17.** *(original entry below)*
+
 ### B1 — `team 88A672BA` (hex without `0x`) silently joins **team 88** · owner-flagged
 `strtoul` base 0 reads `88`, stops at `A`, value ≠ 0 so the new zero-guard does not apply ⇒ **you join the wrong
 team with no error.** Same family as the `team <garbage>` bug just fixed; the fix deliberately scoped it out (C1).
 **Fix: drop the `if (v == 0)` gate in `mrfw::parse_team_target`** (`src/firmware_config_parse.h`) so *any*
 partially-consumed target refuses. QA verified this does **not** break the legitimate PHY tail — the token is
 measured to the first space, so `team 0x88A672BA freq=868 sf=7` still parses. **One line.** Note: `BUGS-A/B`.
+
+### ~~B2~~ ✅ **CLOSED 2026-07-31** (`§id-bind-plane`) — and my site list was wrong
+★ **TWO sites, not four:** `:677`/`:878` were **already gated**; only `on_hash_bind_response` and
+`on_hash_bind_snoop` were open. All **eleven** `id_bind_set` sites were audited. ★★ **And `team_key_set` was the
+WRONG destination** — it has no confidence dimension, feeds team-DAD mediation, and is a beacon-fed LRU; the fix is
+to **not bind at all** on the team plane. **Payoff: s34 `no_route` 8 → 0.** ⚠ Two follow-ups: **B18** (the read-side
+twin) and the app-visible `send_hash_giveup` no-push. *(original entry below)*
 
 ### B2 — the hash-bind ingest is **plane-blind**: a team-scoped H answer writes the STATIC `_id_bind`
 Observed as `id_bind_set{key:0x…,node:34,source:"h_relay"|"h_query"}`. **s24 asserts a static *bystander* never
@@ -164,6 +178,19 @@ rather than answered. If it *does* forward, the T6/T7 coupling becomes live rath
 ---
 
 ## Tier 3 — telemetry, docs, cleanup
+
+### B17 — an out-of-range `team <id>` diverges **by target width** · NEW 2026-07-31
+A **fully consumed but out-of-range** token still lands: `team 4294967296` truncates to **0 = LEAVE** on 64-bit
+native, but on the **32-bit boards** `strtoul` saturates (ERANGE) so the same command **joins garbage team
+`0xFFFFFFFF`**. A **range** clause, not syntax ⇒ left out of B1 by C1, with a before-arm in place.
+★★ **The generalisable point: a native test can NEVER catch this class.** Only a board build or a width-aware test
+can. Note: `REG-B1/B2`.
+
+### B18 — the **read-side** twin of B2: a relay answers a team H from its static `_id_bind` · NEW 2026-07-31
+Fixing B2 removed the only corpus-reachable *use* of the read side, which is how it surfaced: a **relay** was
+answering a repeat team-scoped H out of its **static** `_id_bind` instead of forwarding. Delivery is preserved
+(the owner answers, ~1.5–2 s later — that is the s24/s25/s26 event delta), so this is **correctness, not loss**.
+Marked ✖ MISSING at `handle_h`. ⇒ **belongs to D2, the read-path plane audit.** Note: `REG-B1/B2`.
 
 ### B9 — `rt_update.slot` is **wrong on the team DV path**
 `node_beacon.cpp:876/879` label a beacon-DV merge `"primary"`/`"alt"` **regardless of which table was merged**.

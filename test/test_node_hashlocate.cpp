@@ -583,7 +583,7 @@ TEST_CASE("B receive — the origin consumes an H_ANSWER DATA and parses the bin
     std::array<uint8_t, 7> inner{};
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 2; hb.key_hash32 = 0x0000BBBB; hb.authoritative = true;
     const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
-    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), hb.authoritative);
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), hb.authoritative, /*team_plane=*/false);
 
     const Ev* rx = find_ev(hal.events, "hash_bind_rx");
     CHECK(rx != nullptr);
@@ -606,7 +606,7 @@ TEST_CASE("C.1 consume — the origin caches the resolved binding (h_query, conf
     std::array<uint8_t, 7> inner{};
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 2; hb.key_hash32 = 0x0000BBBB; hb.authoritative = true;
     const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
-    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), hb.authoritative);
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), hb.authoritative, /*team_plane=*/false);
 
     CHECK(node.id_bind_find_by_hash(0x0000BBBB) == 2);   // cached -> now resolvable from id_bind
     Node::IdBindConf conf = Node::IdBindConf::claimed;
@@ -624,10 +624,59 @@ TEST_CASE("C.2 cache-on-pass — a forwarder snoops a relayed answer (h_relay) a
     std::array<uint8_t, 7> inner{};
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 7; hb.key_hash32 = 0x0000CCCC; hb.authoritative = true;
     const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
-    node.on_hash_bind_snoop(inner.data(), static_cast<uint8_t>(in), hb.authoritative);
+    node.on_hash_bind_snoop(inner.data(), static_cast<uint8_t>(in), hb.authoritative, /*team_plane=*/false);
 
     CHECK(node.id_bind_find_by_hash(0x0000CCCC) == 7);   // snooped in transit -> a future resolver (floods shrink)
     CHECK(find_ev(hal.events, "hash_bind_snooped") != nullptr);
+}
+
+// ---- ★★ §hashbind-plane (BUG FIX 2026-07-31, register B2): the ingest was PLANE-BLIND -------------------------------
+// A TEAM-scoped H is answered with the owner's TEAM LOCAL id (handle_h §F-TR-2), and both ingest paths wrote that id into
+// `_id_bind` — the STATIC node_id-indexed plane. Measured corpus-wide as `id_bind_set{node:34,source:"h_relay"|"h_query"}`
+// on s24 (34 = T3's team_local_id, its static id is 52); s24 asserts a static BYSTANDER never does this, but teammates
+// did it to each other. An I2 breach: §18 lets a team local id numerically collide a real static node_id, and downstream
+// a plain send-by-hash then resolves the hash to that id and RREQ-floods it on the STATIC plane (measured on s34: 8 ×
+// `r_tx{dst:84,reason:no_route}` for a team local id, gone after this fix).
+// ⚠ Both cases assert on the SURVIVING TABLE, not on a return value or an event — the point of the fix is that the
+// static plane does not acquire the row. The `team_plane=false` arm inside each case is the discriminating control:
+// without it "nothing was written" would also pass on a build where the ingest is simply broken.
+TEST_CASE("★★ §hashbind-plane — a TEAM-plane H_ANSWER is NOT cached in the STATIC _id_bind (the consume path)") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/9, /*key_hash32=*/0x00009999);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+
+    std::array<uint8_t, 7> inner{};
+    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 34; hb.key_hash32 = 0xCCCC0003; hb.authoritative = true;
+    const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
+
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), hb.authoritative, /*team_plane=*/true);
+    CHECK(node.id_bind_find_by_hash(0xCCCC0003) == -1);  // ★★ THE ASSERTION: the static plane never learns a team local id
+    CHECK(find_ev(hal.events, "hash_bind_rx") != nullptr);   // ...and the answer WAS still ingested (drain/telemetry unaffected)
+
+    // CONTROL, same site, same bytes: a STATIC-plane answer still caches exactly as before.
+    hal.events.clear();
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), hb.authoritative, /*team_plane=*/false);
+    CHECK(node.id_bind_find_by_hash(0xCCCC0003) == 34);
+}
+
+TEST_CASE("★★ §hashbind-plane — a TEAM-plane H_ANSWER is NOT snooped into the STATIC _id_bind (the cache-on-pass path)") {
+    TestHal hal;
+    Node node(hal, /*node_id=*/5, /*key_hash32=*/0x0000BBBB);   // a relay — neither querier nor owner
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+
+    std::array<uint8_t, 7> inner{};
+    hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 34; hb.key_hash32 = 0xCCCC0003; hb.authoritative = true;
+    const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
+
+    node.on_hash_bind_snoop(inner.data(), static_cast<uint8_t>(in), hb.authoritative, /*team_plane=*/true);
+    CHECK(node.id_bind_find_by_hash(0xCCCC0003) == -1);  // ★★ a relay's cache-on-pass must not cross the plane either
+    CHECK(find_ev(hal.events, "hash_bind_snooped") != nullptr);   // the snoop telemetry still fires (the frame is still forwarded)
+
+    hal.events.clear();
+    node.on_hash_bind_snoop(inner.data(), static_cast<uint8_t>(in), hb.authoritative, /*team_plane=*/false);
+    CHECK(node.id_bind_find_by_hash(0xCCCC0003) == 34);  // CONTROL: the static cache-on-pass is untouched
 }
 
 TEST_CASE("C — a CLAIMED (soft) snoop does NOT override an authoritative binding (the deferred A0 refuse)") {
@@ -644,7 +693,7 @@ TEST_CASE("C — a CLAIMED (soft) snoop does NOT override an authoritative bindi
     std::array<uint8_t, 7> inner{};
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 3; hb.key_hash32 = 0x00002222; hb.authoritative = false;
     const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
-    node.on_hash_bind_snoop(inner.data(), static_cast<uint8_t>(in), hb.authoritative);
+    node.on_hash_bind_snoop(inner.data(), static_cast<uint8_t>(in), hb.authoritative, /*team_plane=*/false);
 
     CHECK(node.id_bind_find_by_hash(0x00001111) == 3);   // the authoritative binding is kept
     CHECK(node.id_bind_find_by_hash(0x00002222) == -1);  // the claimed conflict refused
@@ -704,7 +753,7 @@ TEST_CASE("D send-by-hash — a SOFT (claimed) binding parks + floods a HARD que
     std::array<uint8_t, 7> inner{};
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 4; hb.key_hash32 = 0x0000DDDD; hb.authoritative = false;
     const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
-    node.on_hash_bind_snoop(inner.data(), static_cast<uint8_t>(in), hb.authoritative);
+    node.on_hash_bind_snoop(inner.data(), static_cast<uint8_t>(in), hb.authoritative, /*team_plane=*/false);
     Node::IdBindConf conf = Node::IdBindConf::authoritative;
     CHECK(node.id_bind_find_by_hash(0x0000DDDD, &conf) == 4);
     CHECK(conf == Node::IdBindConf::claimed);            // soft -> claimed (not trusted to send blind)
@@ -733,7 +782,7 @@ TEST_CASE("D drain — a hash-bind answer resolves the parked DM and flies it (s
     std::array<uint8_t, 7> inner{};
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 6; hb.key_hash32 = 0x0000EEEE; hb.authoritative = true;
     const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
-    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), hb.authoritative);
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), hb.authoritative, /*team_plane=*/false);
 
     const Ev* res = find_ev(hal.events, "send_hash_resolved");
     CHECK(res != nullptr);
@@ -741,7 +790,7 @@ TEST_CASE("D drain — a hash-bind answer resolves the parked DM and flies it (s
 
     // The parked DM has drained — a second identical answer resolves NOTHING (no re-send).
     hal.events.clear();
-    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), hb.authoritative);
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), hb.authoritative, /*team_plane=*/false);
     CHECK(find_ev(hal.events, "send_hash_resolved") == nullptr);
 }
 
@@ -763,7 +812,7 @@ TEST_CASE("D give-up — a parked DM whose hash never resolves is dropped on the
     std::array<uint8_t, 7> inner{};
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 6; hb.key_hash32 = 0x0000EEEE; hb.authoritative = true;
     const size_t in = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
-    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), hb.authoritative);
+    node.on_hash_bind_response(inner.data(), static_cast<uint8_t>(in), hb.authoritative, /*team_plane=*/false);
     CHECK(find_ev(hal.events, "send_hash_resolved") == nullptr);
 }
 
@@ -850,7 +899,7 @@ TEST_CASE("resolve — unknown hash floods H, then the hash-bind answer pushes h
     hash_bind_inner hb{}; hb.target_layer = 0; hb.node_id = 9; hb.key_hash32 = 0x0000ABAB; hb.authoritative = true;
     std::array<uint8_t, 16> inner{};
     const size_t il = pack_hash_bind_inner(hb, std::span<uint8_t>(inner.data(), inner.size()));
-    node.on_hash_bind_response(inner.data(), (uint8_t)il, hb.authoritative);
+    node.on_hash_bind_response(inner.data(), (uint8_t)il, hb.authoritative, /*team_plane=*/false);
     CHECK(node.next_push(p));
     CHECK(p.kind == PushKind::hash_resolved);
     CHECK(p.origin == 9);

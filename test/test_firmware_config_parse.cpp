@@ -375,7 +375,11 @@ TEST_CASE("★★ §team-target — a NON-NUMERIC tail is REFUSED and the caller
                                  "Exportkey", "-1", "+5", " 7", "?",
                                  // ★ clause (2): these BEGIN with a digit yet strtoul reads only the leading "0",
                                  // so a leading-digit rule ALONE still left the team. Found by test, not by reading.
-                                 "0x", "0X", "0xZZ", "08", "09", "0abc", "0x " }) {
+                                 "0x", "0X", "0xZZ", "08", "09", "0abc", "0x ",
+                                 // ★★ §team-target-whole (B1): partially consumed with a NON-zero value — these did
+                                 // not leave, they JOINED THE WRONG TEAM (88 / 12 / 1 / 7). Clause (2) is no longer
+                                 // gated on `v == 0`, so they refuse too and the live team_id survives.
+                                 "88A672BA", "12abc", "1x", "7abc", "9deadbeef", "0x88A672BAZ" }) {
         uint32_t id = live;                                  // seeded with the LIVE id, exactly as the caller holds it
         tail = reinterpret_cast<const char*>(0x1);           // a poison value: a refusal must not write the tail either
         CHECK_FALSE(mrfw::parse_team_target(garbage, id, tail));
@@ -408,9 +412,47 @@ TEST_CASE("★ §team-target — `team 0` (LEAVE) and every legitimate id still 
     id = 9; CHECK(mrfw::parse_team_target("00", id, tail));            CHECK(id == 0u);           // an unambiguous zero spelling MAY leave
     id = 9; CHECK(mrfw::parse_team_target("0x0", id, tail));           CHECK(id == 0u);
     id = 9; CHECK(mrfw::parse_team_target("0 freq=869.0", id, tail));  CHECK(id == 0u);           // `team 0` + a tail: clause (2) measures the TOKEN, not the line
-    // A digit-led token with a junk suffix is ACCEPTED with the junk left in the tail — unchanged pre-existing
-    // behaviour (the tail parsers own it). Pinned so the leading-digit rule is not mistaken for a whole-token rule.
-    id = 0; CHECK(mrfw::parse_team_target("12abc", id, tail));
-    CHECK(id == 12u);
-    CHECK(tail != nullptr); if (tail) CHECK(std::string(tail) == "abc");
+    id = 0; CHECK(mrfw::parse_team_target("12345", id, tail));         CHECK(id == 12345u);
+}
+
+// ---- ★★ §team-target-whole (BUG FIX 2026-07-31, register B1): `team 88A672BA` JOINED TEAM 88 ------------------------
+// A hex team id typed WITHOUT `0x` is read by strtoul base 0 as DECIMAL: `88A672BA` -> 88, endp stops at the `A`, and 88
+// is non-zero so the 07-30 zero-gate never looked. ⇒ a SILENT JOIN OF THE WRONG TEAM. Clause (2) is now unconditional.
+// ★ The load-bearing assertion is again the SURVIVING team_id: the point of the fix is that a typo does not move state.
+TEST_CASE("★★ §team-target-whole — a 0x-LESS hex id is REFUSED and the live team_id SURVIVES (it used to JOIN team 88)") {
+    const uint32_t live = 0xDEADBEEFu;
+    uint32_t id = live; const char* tail = reinterpret_cast<const char*>(0x1);
+    CHECK_FALSE(mrfw::parse_team_target("88A672BA", id, tail));
+    CHECK(id == live);                                   // ★★ NOT 88 — the operator is still in the team it was in
+    CHECK(id != 88u);                                    // the exact wrong value the old rule installed
+    CHECK(tail == reinterpret_cast<const char*>(0x1));   // fail-closed: no half-write
+    // ...and the SAME id spelled correctly still joins, so the fix refuses the typo, not the feature.
+    id = 0; tail = nullptr;
+    CHECK(mrfw::parse_team_target("0x88A672BA", id, tail));
+    CHECK(id == 0x88A672BAu);
+}
+
+// ★★★ THE REGRESSION THIS FIX COULD HAVE CAUSED, AND THE REASON IT DOES NOT: the target token is measured only up to
+// the FIRST SPACE, so a fully-consumed id followed by the legitimate PHY/key tail is still accepted — the tail begins
+// at the space, past the token. Pinned for BOTH the decimal and the hex spelling; without this the whole-token rule
+// would have broken `team <id> freq=… sf=… bw=…`, which is the documented join form.
+TEST_CASE("★★ §team-target-whole — the legitimate PHY / team-key TAIL still parses (the token stops at the space)") {
+    uint32_t id = 0; const char* tail = nullptr;
+    CHECK(mrfw::parse_team_target("0x88A672BA freq=868 sf=7", id, tail));
+    CHECK(id == 0x88A672BAu);
+    CHECK(tail != nullptr); if (tail) CHECK(std::string(tail) == " freq=868 sf=7");
+    id = 0; CHECK(mrfw::parse_team_target("7 freq=869.0 sf=7 bw=125", id, tail));
+    CHECK(id == 7u);
+    CHECK(tail != nullptr); if (tail) CHECK(std::string(tail) == " freq=869.0 sf=7 bw=125");
+    id = 0; CHECK(mrfw::parse_team_target("42 tkpub=aa tkpriv=bb", id, tail));
+    CHECK(id == 42u);
+    CHECK(tail != nullptr); if (tail) CHECK(std::string(tail) == " tkpub=aa tkpriv=bb");
+    // ⚠ ✖ MISSING (C1, measured 2026-07-31): a FULLY-consumed but out-of-range token is still accepted, and it
+    // diverges by target width. On the 64-bit native build `4294967296` truncates to 0 = LEAVE; on the 32-bit boards
+    // strtoul saturates to ULONG_MAX (ERANGE) so the same command joins garbage 0xFFFFFFFF. Pinned as-is so the
+    // divergence is visible and a range slice has a before-arm, NOT because the behaviour is wanted.
+    id = 9; tail = nullptr;
+    CHECK(mrfw::parse_team_target("4294967296", id, tail));               // accepted: the TOKEN is fully consumed
+    if (sizeof(unsigned long) >= 8) CHECK(id == 0u);                      // 64-bit host: truncates to 0 == LEAVE
+    else                            CHECK(id == 0xFFFFFFFFu);             // 32-bit target: strtoul saturates (ERANGE)
 }

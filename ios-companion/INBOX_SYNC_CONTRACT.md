@@ -798,10 +798,12 @@ existing `send_failed{reason:"unsealable"}` (no new reason value) — it would p
 returns 0, and `team 0` means leave. So `team exportky`, `team nwe` — and `team 0x`, `team 08`, `team 0abc`, which
 *do* begin with a digit — all left. `team -1` silently **joined** team `0xFFFFFFFF`.
 
-Now: the target must **begin with a digit**, and **a zero value requires an unambiguous zero spelling** (`0`, `00`,
-`0x0` accepted; `0x`, `08`, `0abc` refused). **`team 0` = leave is unchanged.** The refusal states explicitly that
-nothing changed — team id, team channel key and NV are all as they were — which the app should surface verbatim,
-because the whole point is reassuring the operator that a typo did not destroy their membership.
+Now: **the ENTIRE target token must parse as one number** — one unconditional clause (tightened
+2026-07-31; the earlier two-clause rule is superseded). `0`, `0x88A672BA`, `12345` ✓ · `0x`, `08`, `0abc`,
+**`88A672BA`** (a hex id missing its `0x` — it used to join *team 88*) and `12abc` ✗. **`team 0` = leave is
+unchanged.** The refusal states that nothing changed and now also names the likely mistake: *"a HEX id needs
+its `0x`"*. ⚠ **Still open (register B17): an out-of-range target behaves differently on 32-bit boards than
+in the 64-bit simulator.**
 
 ### Remote admin — challenge–response — `docs/superpowers/specs/2026-07-26-remote-admin-challenge-response-design.md`
 - The companion becomes the PRIMARY remote-admin driver (v1). The monotonic counter/`floor=N` hint is
