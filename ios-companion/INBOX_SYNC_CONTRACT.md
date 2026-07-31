@@ -33,6 +33,30 @@
 > address book does not. **How to see it happen:** a new boot line `peers = N restored (P pinned, A authoritative)` —
 > `peers = 0 restored` is the loss.
 >
+> ### ✅ ★★ NEW 2026-07-31 (`§ab3`) — the `peers` ADDRESS BOOK surface
+> ```
+> peers        -> {"ev":"peer","hash":<dec u32>,"conf":"overheard"|"authoritative"|"pinned","confirmed":<bool>
+>                  [,"name":"…"][,"static_id":N][,"team_id":N][,"team_alias":N][,"aged":true]}   … then
+>                 {"ev":"peers_end","count":N}
+> peers all    -> {"ev":"peers_err","reason":"console_only"}      # TEXT CONSOLE ONLY, by design
+> ```
+> ★★ **Four obligations, each of which prevents a wrong UI:**
+> 1. **Gate "send encrypted" on `conf >= authoritative`, NEVER on key presence.** `overheard` means the key is cached
+>    but **cannot seal** — that is the offer-then-fail `no_pubkey` UX in one field.
+> 2. ★ **`"aged":true` means the key is UNUSABLE** even though a name and ids are present. The row is still worth
+>    showing (it is a real contact) but **encrypted send must be off for it** — the firmware already reports its `conf`
+>    downgraded to `overheard` for exactly this reason.
+> 3. ★ **`peers` is BOUNDED to ≤16 rows BY DESIGN, and `peers all` is console-only — neither is an oversight.**
+>    Cardinality comes from a 256-row table, and a node **WEDGE from self-inflicted console flooding** is a defect this
+>    firmware has already had once. **Do not build a pager expecting the full list over BLE; it is refused.**
+> 4. **Absence of `static_id`/`team_id` is NORMAL** — most known peers have one, some have both (§18 dual identity),
+>    and a row may have neither yet. ⓘ **`"team_alias":N` means N stale team-id rows carried this same hash and the
+>    freshest won** — surface it as staleness, not as an error.
+> ★ **Also: `peer_name` gains additive omit-when-0 `static_id` / `team_id`.** The first two fields and their order are
+> unchanged, so an existing decoder keeps working.
+> ⓘ **Console-side, `hashof <id> [-t|-s]` now searches BOTH planes** and says which matched — it previously answered
+> `unknown` for a team id whose hash the node held. A *claimed* (unvouched) static binding is labelled `(claimed)`.
+
 > ### ★★ NEW 2026-07-31 (`§role-model`) — `cfg set mobile` CAN NOW FAIL, and there is a new reply line
 > The node now enforces **team ⇒ mobile** (`team_id != 0` implies `is_mobile`). Three app-visible consequences:
 > - **`> cfg err role_refused <reason> …`** — a `cfg set mobile` that **always succeeded before** can now be REFUSED.
@@ -58,9 +82,23 @@
 >   `send_channel`** — only `send_layer` rejects it.
 >
 > ### From `2026-07-29-peer-address-book-design.md`
-> - ★ **`peer_key_cached` gains `"conf"`** (`overheard`|`authoritative`|`pinned`), keeping `pinned` as a derived
->   duplicate. **The app must gate "send encrypted" on `conf >= authoritative`, not on key presence** — today's
->   hardcoded `"pinned":false` is why an encrypted send can be offered and then fail `no_pubkey`.
+> - ✅ ★★ **LIVE 2026-07-31 (`§ab2`) — `peer_key_cached` NOW CARRIES `"conf"`, and the `peername` verb exists.**
+>   ```
+>   {"ev":"peer_key_cached","hash":<dec u32>,"conf":"overheard"|"authoritative"|"pinned","pinned":<bool>[,"name":"…"]}
+>   {"ev":"peer_name_set","hash":<dec u32>,"name":"<echoed>"}
+>   {"ev":"peer_name_err","reason":"unknown_hash"|"too_long"|"bad_args"}
+>   peername 0x<hash> "<name>"          # rename a CACHED peer; key + confidence untouched; WORKS on a pinned peer
+>   peerkey <ed_pub hex64> ["<name>"]   # optional one-shot label — ⚠ BARE QUOTED, *not* name="…"
+>   ```
+>   ★★ **THE OBLIGATION, now finally satisfiable: gate "send encrypted" on `conf >= authoritative`, NEVER on key presence.**
+>   `overheard` means the key is cached but **cannot seal** — offering encryption on it is what produced the
+>   offer-then-fail `no_pubkey` UX. ⚠⚠ **And `pinned` is no longer ALWAYS `false`** — it was a hardcoded literal until
+>   today, so **an app that read it as "was this a QR import" was silently wrong and is now correct.**
+>   ⓘ The `peername` ack is **SYNCHRONOUS** (no push, no new `PushKind`); `name` is **echoed** so the app can confirm what
+>   was stored; the cap is **32 with a REFUSAL, never truncation**; an **empty name is REFUSED**, not treated as "clear"
+>   (there is no clear operation). Remedies: `unknown_hash` → `reqpubkey` first; `too_long` → shorten.
+>   ★ **USB console line changed:** `KEY CACHED hash=0x… [name=…] conf=<level> nv=<put>` — it previously printed
+>   **`(on-air, unpinned)` unconditionally**, the same lie as the JSON literal, even for a QR-pinned peer.
 > - **`peername 0x<hash> "<text>"`** — a **synchronous ack**, not a push (owner-ruled), so **no new `PushKind`**.
 > - **A `peers` view**: JSON **capped at the 16 `_peer_keys` rows**; the full up-to-256 known-nodes list is
 >   **text-console only** behind `peers all` (owner-ruled). `hashof` becomes a view query.
@@ -271,7 +309,7 @@ gains it (`key` stays for display/routing):
 ### Node & peer human names (§1.3, 2026-07-14) — ✅ own name LIVE; peer name via the pubkey exchange
 A node has a human name (default `MeshRoute node: 0x<hash>` derived from the stable hash). Two paths:
 - **Own name → app:** ✅ **LIVE** — `ready` carries `"name":"<node name>"` (`console_json.cpp:299`, `write_ready`). Set it with **`cfg set name "<text>"`** (the **node** identity name — persisted to `/mrid`, distinct from **`cfg set leaf_name "<text>"`** which renames the *leaf* and bumps the config epoch). `MyCardView` uses `ready.name` for the QR `n`.
-- **Peer name → app:** a peer's name **rides the pubkey exchange** — it's appended to the WANT_PUBKEY H query and to all three pubkey-answer frames, and cached alongside the peer key (immutable key / mutable name, refreshed on each exchange). So after a `reqpubkey`/answer (or a QR import), the node holds the peer's name. **Query it with `nameof 0x<hash>`** → today **human text** (`[nameof] 0x<hash> = "<name>"`, `firmware_commands.cpp:401`), **not JSON**. **Firmware ask — ✅ IMPLEMENTED 2026-07-16 (gated, uncommitted):** the cached peer name now reaches the app as JSON (spec `2026-07-16-companion-mobile-team-json-surface.md` §7): **`peer_key_cached` gains `"name"` (omit-when-unknown; the name is captured at cache time)** — `{"ev":"peer_key_cached","hash":3735928559,"pinned":false,"name":"Alice's tracker"}` — and **`nameof 0x<hash>` answers `{"ev":"peer_name","hash":3735928559,"name":"…"}`** (`name` omitted when unknown; the old `[nameof]` human line is gone). `msg_recv` unchanged. So a contact auto-labels in the same event that enables encrypted send; the QR `n` stays the manual/override path.
+- **Peer name → app:** a peer's name **rides the pubkey exchange** — it's appended to the WANT_PUBKEY H query and to all three pubkey-answer frames, and cached alongside the peer key (immutable key / mutable name, refreshed on each exchange). So after a `reqpubkey`/answer (or a QR import), the node holds the peer's name. **Query it with `nameof 0x<hash>`** → today **human text** (`[nameof] 0x<hash> = "<name>"`, `firmware_commands.cpp:401`), **not JSON**. **Firmware ask — ✅ IMPLEMENTED 2026-07-16 (gated, uncommitted):** the cached peer name now reaches the app as JSON (spec `2026-07-16-companion-mobile-team-json-surface.md` §7): **`peer_key_cached` gains `"name"` (omit-when-unknown; the name is captured at cache time)** — `{"ev":"peer_key_cached","hash":3735928559,"conf":"authoritative","pinned":false,"name":"Alice's tracker"}` ⓘ **`conf` added 2026-07-31 (`§ab2`) — gate encrypted send on it, not on key presence** — and **`nameof 0x<hash>` answers `{"ev":"peer_name","hash":3735928559,"name":"…"}`** (`name` omitted when unknown; the old `[nameof]` human line is gone). `msg_recv` unchanged. So a contact auto-labels in the same event that enables encrypted send; the QR `n` stays the manual/override path.
 
 ### app → node: install a scanned peer's pubkey (PINNED / verified)
 ```
@@ -321,7 +359,7 @@ reqpubkey <key_hash32 hex8>     # fire ONE HARD WANT_PUBKEY for this hash (the "
 ### UX pushes (node → app)
 ```json
 {"ev":"send_failed","dst":2,"ctr":7,"reason":"no_pubkey"}     // a CRYPTED send was DROPPED — warn + offer Request-key / Scan-QR
-{"ev":"peer_key_cached","hash":3735928559,"pinned":false}    // a key arrived (request answer / cache-on-pass / QR / mutual) → enable resend
+{"ev":"peer_key_cached","hash":3735928559,"conf":"authoritative","pinned":false}  // a key arrived → enable resend ONLY when conf >= authoritative
 ```
 - `send_failed.reason` ∈ `no_pubkey · no_identity · too_large · bad_rng · no_route · joining · no_cts · no_ack · cap · min_interval · mobile_no_home · gateway_unreachable · e2e_ack_timeout · queue_full · reprovisioned · unsealable`.
   ⚠ **CORRECTED 2026-07-29 — this list had drifted and omitted TWO shipped reasons:** `reprovisioned` and

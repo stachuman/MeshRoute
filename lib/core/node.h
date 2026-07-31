@@ -115,6 +115,15 @@ public:
     // overheard < authoritative < pinned. pinned = a QR/manually-scanned key (E2E provisioning §1): the MITM-resistant
     // tier — NEVER overwritten by an on-air answer, NEVER LRU-evicted, NEVER aged out (NV-backed on device).
     enum class PeerKeyConf  : uint8_t { overheard = 0, authoritative = 1, pinned = 2 };
+    // ★ §AB2: THREE surfaces carry this level as a raw uint8_t, because neither can include this header — command.h's
+    // `Push::peer_conf` (node.h includes command.h, not the reverse) and src/device_nv.h's kPeerConf* (the device record
+    // layer stays free of the protocol engine). Pin the numeric encoding HERE, at the definition, so a reorder of the
+    // enumerators fails the build instead of silently relabelling a stored flash byte or an app-facing JSON string.
+    static_assert(static_cast<uint8_t>(PeerKeyConf::overheard)     == 0
+               && static_cast<uint8_t>(PeerKeyConf::authoritative) == 1
+               && static_cast<uint8_t>(PeerKeyConf::pinned)        == 2,
+                  "node.h: PeerKeyConf's numeric encoding is mirrored by command.h Push::peer_conf and device_nv.h "
+                  "kPeerConf* — renumbering it relabels a persisted flash byte and the peer_key_cached JSON");
     // Why e2e_seal_inner returned 0 (the seal failed). Lets enqueue_data fail LOUD distinctly per cause instead of
     // treating every 0 as "no pubkey" (which floods a WANT_PUBKEY + drops the DM). no_pubkey is the ONLY case that
     // floods; the rest are local refusals (no_identity=R3, too_large=R2, bad_rng=R7, cross_layer=v1 scope).
@@ -615,15 +624,49 @@ public:
     uint16_t          test_next_ctr(uint8_t dst) { return next_ctr(dst); }   // D7 test seam: drive the (floor-applied) per-peer counter
     // §6 DAD tiebreak (pure): higher claim_epoch wins; tie -> lower key_hash32 wins. Public for the convergence test.
     static bool       join_tiebreak_wins(uint8_t my_epoch, uint32_t my_key, uint8_t their_epoch, uint32_t their_key);
-    int               id_bind_find_by_hash(uint32_t key_hash32, IdBindConf* conf_out = nullptr);   // -> node_id, or -1 (skips expired); opt. out: the binding's confidence (soft/hard resolve)
+    // -> node_id, or -1 (skips expired); opt. out: the binding's confidence (soft/hard resolve).
+    // §AB3: made `const` (it only reads _id_bind + writes *conf_out) so the const address-book view can reuse it
+    // instead of forking a fourth _id_bind scan (U1). Pure widening — no call site changes, no behaviour changes.
+    int               id_bind_find_by_hash(uint32_t key_hash32, IdBindConf* conf_out = nullptr) const;
     // E2E peer-pubkey cache (Phase 1 §6). Public for the seal/open paths + tests. hash-verified (ed_pub[:4]==hash),
     // authoritative-never-downgraded, evict-oldest at cap_peer_keys, TTL-aged. Per the ACTIVE layer.
     bool              peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyConf conf, const char* name = nullptr, uint8_t name_len = 0);   // false: ed_pub[:4]!=hash. §1.3: name (if given) is REFRESHED on every call (mutable), the key never downgrades.
     uint8_t           peer_name_find(uint32_t key_hash32, char* out, uint8_t cap) const;   // §1.3: the cached name for a peer hash (0 = unknown/none); for `nameof`
+    // ★ §AB2 (spec 2026-07-29 §2.3) — the write twin of peer_name_find, and THE ONE name writer: peer_key_set now
+    // delegates its two name-copy sites here rather than keeping a third clamp-and-copy (U1).
+    // false = no row holds this hash ⇒ the `peername` verb refuses loud (C2); it NEVER creates a keyless placeholder row
+    // (spec §2.3), which would fight peer_key_set's ed_pub[:4]==hash invariant.
+    // ★★ DELIBERATELY NOT ROUTED THROUGH peer_key_set, and this is the one design call in AB2 worth reading:
+    //   (a) peer_key_set REQUIRES an ed_pub that hash-verifies, so a rename would have to read the key back out and
+    //       hand it straight in — via peer_key_find, which AGES, so renaming a peer whose TTL had lapsed would refuse
+    //       while `nameof` still answered with its name: two verbs disagreeing about one row (spec §2.5's defect class);
+    //   (b) it refreshes last_seen_ms — a rename is not a sighting, and silently extending a key's TTL lease is a
+    //       behaviour nobody asked for;
+    //   (c) its `existing_pinned && conf != pinned` early return would have to be defeated by passing `pinned` back in,
+    //       i.e. the console ASSERTING a confidence it never verified — exactly what AB1's "never silently promoted"
+    //       ruling exists to stop.
+    // ⇒ a user-initiated rename SUCCEEDS on a pinned peer (the key is IMMUTABLE, the name is MUTABLE — PeerKey's own
+    // contract) and touches neither ed_pub nor confidence nor last_seen_ms.
+    bool              peer_name_set(uint32_t key_hash32, const char* name, uint8_t name_len);
     bool              peer_key_find(uint32_t key_hash32, uint8_t ed_pub_out[32], PeerKeyConf* conf_out = nullptr);  // false: absent/aged
     bool              peer_confirmed(uint32_t key_hash32) const;   // §S2: have we OPENED a sealed frame from this peer? (no entry -> false -> INTRO attaches on first contact)
     // §remote-mgmt: node_id -> its learned key_hash32 (from the _id_bind beacon table), 0 if we've heard no beacon for it.
     // Lets the admin-issue path resolve a target id -> hash -> ed_pub (peer_key_find) to seal a command to it.
+    // ✖✖ BROKEN — FOUND 2026-07-31 BY §AB3, NOT FIXED HERE (C1: this slice is the address-book view; a device hang is
+    //    its own slice). TWO defects, both in the loop below, both verified in source and the first REPRODUCED as a
+    //    non-terminating native test:
+    //    (1) ★★ IT NEVER RETURNS ON A MISS. `i` is `uint8_t` and `protocol::cap_id_bind` is 256, so `i < 256` is
+    //        ALWAYS true — `i` wraps 255->0 and the scan spins forever. ⇒ on a device, resolving an id we hold no
+    //        binding for HANGS THE LOOP (watchdog reset). Reachable at BOTH call sites, both behind `unlock`:
+    //        src/firmware_remote.cpp (`rcmd <unknown-id> <gated-verb>`) and src/fw_main.cpp (a sealed rcmd RESPONSE
+    //        from a node whose beacon we never heard). ⓘ The proof it was never intended: firmware_remote.cpp's very
+    //        next line is `if (!th) { … "unknown id (no beacon heard from it yet)" … }` — DEAD CODE, unreachable.
+    //        FIX: `for (uint16_t i = 0; i < _active->_id_bind_n; ++i)`.
+    //    (2) it scans the whole 256-slot ARRAY instead of the live `_id_bind_n` prefix, and the compacting removers
+    //        (id_bind_age_out / id_bind_evict_other_hash_holders / node_join.cpp's prior-id drop) leave STALE COPIES
+    //        in the tail, so it can hand back the hash of an EVICTED/AGED binding. The `_id_bind_n` bound above fixes
+    //        this too. ⚠ Contrast key_hash_of_id (node_hashlocate.cpp), the sibling used by the send path and by the
+    //        §AB3 view: `uint16_t i < _id_bind_n`, authoritative-gated and TTL-gated. It is correct — this is not.
     uint32_t          key_hash_for_id(uint8_t id) const {
         if (!_active || id == 0) return 0;
         for (uint8_t i = 0; i < protocol::cap_id_bind; ++i)
@@ -632,6 +675,55 @@ public:
     }
     void              peer_key_age_out();                                                              // drop entries past peer_key_ttl_ms
     uint16_t          peer_key_count() const { return _active->_peer_keys_n; }
+
+    // ==================== ★★ §AB3 — THE GENERATED ADDRESS BOOK (spec 2026-07-29 §2.1) ====================
+    // A JOIN on key_hash32 over the THREE tables that already exist — _peer_keys (name/key/conf/confirmed),
+    // _id_bind (static node_id) and _team_keys/_team_peer (team_local_id). **GENERATED, never stored:** there is no
+    // fourth table, so the view costs ZERO RAM and cannot go stale. A stored copy would need syncing on every
+    // peer_key_set / id_bind_set / team_key_set and every eviction, which is precisely how the ledgers this arc spent
+    // itself un-drifting drifted.
+    // ★ WHY IT EXISTS AT ALL (spec §2.5, bench-proven 2026-07-30): `reqpubkey <id>` reads _team_keys and `hashof <id>`
+    // read _id_bind, so `reqpubkey 228` cached 0x6C297145 and `hashof 228` still answered `unknown`. Each verb was
+    // right about ITS table and neither answered the question. ⇒ every id/hash-shaped console query now reads THIS
+    // view, so they cannot disagree again.
+    // ⚠⚠ THE FORBIDDEN REPAIR, recorded so nobody re-takes it: do NOT make `hashof` work by writing the team hash into
+    // _id_bind. That is the plane-blind ingest closed on 2026-07-31 (§id-bind-plane) — a team-scoped answer writing the
+    // static map is an I2 breach. A team id belongs in _team_keys; the VIEW is what joins it to the hash for display.
+    struct PeerBookRow {
+        uint32_t    hash;               // 0 = an ID-ONLY row (we hold an id but no hash for it)
+        char        name[protocol::peer_name_max];
+        uint8_t     name_len;           // 0 = no name cached (normal — most rows have neither name nor key)
+        uint8_t     static_id;          // 0 = none — the STATIC node_id plane (_id_bind)
+        uint8_t     team_id;            // 0 = none — the TEAM local-id plane (_team_keys/_team_peer). §18: BOTH may be set.
+        PeerKeyConf conf;               // meaningful ONLY when has_key; see console::peerkeyconf_name (the ONE spelling)
+        // ★ has_key = we hold a USABLE pubkey (peer_key_find would succeed) ⇒ conf/peer_confirmed meaningful and a seal
+        // is possible at conf >= authoritative. An AGED non-pinned row still contributes its NAME and its ids but
+        // reports has_key=false + conf=overheard, so the app can never offer an encryption that would fail (§0.1).
+        bool        has_key;
+        bool        peer_confirmed;     // §S2: they hold OUR key (a sealed reply can come back)
+        bool        static_authoritative;   // the _id_bind binding is AUTHORITATIVE (what key_hash_of_id vouches for); false = claimed/second-hand
+        uint8_t     team_alias_dropped; // ⚠ >0: that many OTHER _team_keys rows carry this hash and LOST the freshest-wins
+                                        // race. The emit MUST say so (spec §2.1) — never silently pick a winner.
+    };
+    using PeerBookVisit = void (*)(const PeerBookRow& row, void* ctx);   // a plain fn-ptr: lib/core carries no std::function
+    // Walk the book, ONE row on the stack at a time (never an array — cardinality is driven by _id_bind's 256, and a
+    // 256-row buffer is ~12 KB on the loop-task stack: the do_post_ack overflow lesson).
+    // include_id_rows=false ⇒ ★ the §2.6(a) BOUND: only rows backed by _peer_keys (≤ cap_peer_keys = 16), enriched with
+    //   static_id/team_id. That is the JSON address book, bounded BY CONSTRUCTION rather than by a paging protocol.
+    // include_id_rows=true  ⇒ the full up-to-256 diagnostic list (`peers all`, TEXT console only). Emitting that over
+    //   BLE walks straight back into the self-inflicted-console-flood WEDGE this project already fixed once (mrcon).
+    // Returns the row count. fn may be nullptr (count only).
+    uint16_t          peer_book_walk(bool include_id_rows, PeerBookVisit fn, void* ctx) const;
+    // The hash-shaped query: the joined row for one hash. false = no table holds it. (`nameof` reads this.)
+    bool              peer_book_by_hash(uint32_t key_hash32, PeerBookRow& out) const;
+    // ★ The ID-shaped query — spec §2.5's actual fix. Searches BOTH namespaces and reports WHICH matched; when one
+    // number matches in both (the §18 dual-identity space) it fills BOTH rows so nothing is silently picked.
+    // Returns a bitmask: bit0 = `static_out` valid, bit1 = `team_out` valid; 0 = the id is unknown in both planes.
+    // ⚠ It resolves through key_hash_of_id and team_key_of_id — the SAME two functions the send path and
+    // `reqpubkey <team-id>` (node.cpp CmdKind::reqpubkey) already use, not a fourth hand-rolled scan (U1).
+    uint8_t           peer_book_by_id(uint8_t id, PeerBookRow& static_out, PeerBookRow& team_out) const;
+    static constexpr uint8_t kPeerBookStatic = 0x1, kPeerBookTeam = 0x2;
+
     // E2E seal/open (Phase 1 §4/§5). Public for the send/receive paths + tests. SAME-LAYER DMs only in v1
     // (cross-layer CRYPTED out of scope). Recipient/sender pubkey resolved from the peer-key cache; ECDH+KDF+nonce
     // via _x_secret. e2e_seal_inner builds [dst_hash 4][ciphertext][tag 16] + the 8-B nonce-seed (§1c: pt = origin‖…); returns
@@ -793,6 +885,22 @@ private:
     bool    id_bind_set(uint8_t node_id, uint32_t key_hash32, IdBindSource source, IdBindConf confidence); // insert/update; dedup-by-hash; authoritative overwrites a conflict, claimed refuses
     uint8_t id_bind_evict_other_hash_holders(uint32_t key_hash32, uint8_t keep_node_id);   // rejoin self-heal: one hash -> one node_id
     void    id_bind_age_out();                                    // drop expired (TTL); emit id_bind_aged
+    // ★ §AB3 view internals (node_hashlocate.cpp). peer_book_fill_from_peer_key does the reverse (hash -> id) JOINS.
+    int     peer_key_slot_of(uint32_t key_hash32) const;                         // _peer_keys index, or -1 (NOT age-gated)
+    void    peer_book_fill_from_peer_key(uint16_t slot, PeerBookRow& r) const;   // _peer_keys[slot] + both reverse id joins
+    void    peer_book_join_ids(PeerBookRow& r) const;                            // hash -> static_id (+conf) and hash -> team_id (+alias count)
+#if MR_FEAT_TEAM
+    // ⚠ THE AMBIGUOUS REVERSE LOOKUP, and it is real on THIS table only. _id_bind maintains one-hash-one-id
+    // (id_bind_set calls id_bind_evict_other_hash_holders on BOTH its accept paths) so hash -> static_id cannot alias.
+    // _team_keys has NO such dedup — team_key_set upserts BY ID only — so a teammate that re-ran team-DAD leaves its
+    // OLD (id, hash) row live until the 48 h TTL or the LRU reclaims it, and TWO team ids then carry one hash.
+    // ⇒ resolve by FRESHEST last_seen_ms and report how many rows lost, so the emit can say a loser was dropped.
+    // Gate is team_key_of_id's VERBATIM gate (team_id != 0 && is_team_peer(id) && within id_bind_ttl_ms) so the forward
+    // and reverse directions cannot disagree — the whole point of the view.
+    uint8_t team_id_of_key_freshest(uint32_t key_hash32, uint8_t& alias_dropped) const;
+#else
+    uint8_t team_id_of_key_freshest(uint32_t, uint8_t& alias_dropped) const { alias_dropped = 0; return 0; }
+#endif
     void    handle_h(const uint8_t* bytes, size_t len, const RxMeta& meta);   // H flood: resolve (own-hash OR id_bind) + suppress, else forward TTL-1
     void    h_forward_fire(uint8_t slot);                                     // §F-XL-1: fire the jittered (de-stormed) h_forward stashed in ring slot
     void    rreq_forward_stash(const uint8_t* buf, size_t n);                 // §F-XL-2: stash a built RREQ-forward frame + arm a jittered fire (shared by static + team relays)
@@ -1452,6 +1560,10 @@ private:
     // E2E peer-pubkey cache (Phase 1 §6): key_hash32 -> ed_pub. Immutable + hash-verifiable (ed_pub[:4]==key_hash32),
     // so a TYPE-5 owner answer is cached AUTHORITATIVE even relayed/cached-on-pass (can't decay). Member in LayerRuntime.
     struct PeerKey { uint32_t key_hash32; uint64_t last_seen_ms; uint8_t ed_pub[32]; uint8_t confidence; char name[32]; uint8_t name_len; bool peer_confirmed; };   // §1.3: name rides with the key — IMMUTABLE key, MUTABLE name (refreshed on every pubkey message). §S2: peer_confirmed = we've OPENED a SEALED frame from this peer (they hold our key) -> stop attaching INTRO to plaintext sends toward them. Set on e2e_open_trial success ONLY (never on a plaintext receipt).
+    // §AB2: peer_name_set / peer_key_set / push_peer_key_cached / on_command's peername refusal all size the name by
+    // protocol::peer_name_max instead of the bare literal `32` they used to repeat. Pin the two together so widening
+    // `name[]` without widening the constant (or vice versa) fails the build rather than truncating silently.
+    static_assert(sizeof(PeerKey::name) == protocol::peer_name_max, "node.h: PeerKey::name and protocol::peer_name_max disagree");
     // H hash-locate flood dedup (Lua hash_query_seen): per-(origin,key_hash32), hash_query_seen_ttl_ms window. Member in LayerRuntime.
     struct HashQuerySeen { uint8_t origin; uint32_t key_hash32; uint64_t t_ms; bool hard; bool want_pubkey;   // §2: WANT_PUBKEY is its own variant
                            bool team_scoped;   // ★ §team-parity T6/B: the PLANE discriminator (see below)

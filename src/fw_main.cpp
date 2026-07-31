@@ -48,12 +48,14 @@ using mrfw::handle_pull_inbox;       // dispatch + ble_dispatch_line verbs; call
 using mrfw::handle_mark_read;
 #include "firmware_commands.h"       // §cleanup 2026-07-15: console command cluster (dispatch + diagnostics) — moved in batches
 using mrfw::handle_peerkey;          // §3 export; call sites (service_console + ble_dispatch_line) unchanged
+using mrfw::handle_peername;         // §AB2 export; same two call sites, same shape as handle_peerkey
 using mrfw::dispatch;                 // §3 export: the console verb-router (service_console + ble_dispatch_line)
 using mrfw::print_banner;             // §3 export: setup() banner + `version`
 using mrfw::print_identity;           // §3 export: setup()
 using mrfw::print_sf_list;            // §3 export: setup() + mesh_service_once()
 using mrfw::board_name;               // §3 export: ble_dispatch_line `version`
 using mrfw::handle_routes;            // §3 export: ble_dispatch_line `routes`
+using mrfw::handle_peers;             // §3 export: ble_dispatch_line `peers` (§AB3, the bounded JSON address book)
 using mrfw::make_status_fields;       // §3 export: ble_dispatch_line `status`
 using mrfw::node_state_str;           // §3 export: ble_dispatch_line `status`
 using mrfw::make_cfg_extras;          // §3 export: ble_dispatch_line `cfg`
@@ -468,6 +470,13 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
         return 0;
     }
     if (len == 6 && !strncmp(line, "routes", 6)) { LineSink ls(ble_sink); handle_routes(ls); ls.flush(); return 0; }
+    // ★ §AB3: the address book over BLE. Plain `peers` streams the BOUNDED book (≤ cap_peer_keys rows). ⚠ `peers all`
+    // is REFUSED here, not silently narrowed: §2.6(a) keeps the up-to-256 id-only list console-only because a few
+    // hundred rows over this transport is the self-inflicted console-flood wedge already fixed once (mrcon). C2 — the
+    // refusal names the remedy (plain `peers`, or the USB console). Intercepted BEFORE the text fallback at the bottom,
+    // which would otherwise hand `peers all` straight to dispatch() and stream the whole thing.
+    if (len == 5 && !strncmp(line, "peers", 5)) { LineSink ls(ble_sink); handle_peers(ls); ls.flush(); return 0; }
+    if (len > 5 && !strncmp(line, "peers ", 6)) return write_peers_err(out, cap, "console_only");
     // Inbox sync (companion-only): stream the reply via mrble::tx_line and return 0 (no buffered single-line ack).
     if ((len == 10 || (len > 10 && line[10] == ' ')) && !strncmp(line, "pull_inbox", 10)) { LineSink ls(ble_sink); handle_pull_inbox(line + 10, ls); ls.flush(); return 0; }
     if ((len ==  9 || (len >  9 && line[9]  == ' ')) && !strncmp(line, "mark_read",   9)) { LineSink ls(ble_sink); handle_mark_read(line + 9,  ls); ls.flush(); return 0; }
@@ -475,6 +484,7 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
     const ParseErr e = parse_command(line, len, cmd);
     if (e == ParseErr::ok) {
         if (cmd.kind == meshroute::CmdKind::peerkey) return handle_peerkey(out, cap, cmd);   // §2/§3: install + persist + contract ack
+        if (cmd.kind == meshroute::CmdKind::peername) return handle_peername(out, cap, cmd); // §AB2: rename + persist + the synchronous ack
         const meshroute::CmdResult r = g_node.on_command(cmd);
         if (cmd.kind == meshroute::CmdKind::reqpubkey && r.code == meshroute::CmdCode::queued) {
             uint32_t rh = cmd.u.resolve.dst_hash;                                       // §enc: a by-team-id reqpubkey resolved the hash at execution -> echo the RESOLVED hash
@@ -484,8 +494,16 @@ static size_t ble_dispatch_line(const char* line, size_t len, char* out, size_t 
         return write_ack(out, cap, r);
     }
     if (e == ParseErr::empty) return 0;
-    if (len >= 8 && !strncmp(line, "peerkey ", 8))                                            // §3: a malformed peerkey -> the contract's peerkey_err
+    // §3: a malformed peerkey -> the contract's peerkey_err.
+    // ⚠ §AB2, KNOWN AND DELIBERATELY NOT WIDENED (C1): `bad_hex` is now a slight over-claim. Since `peerkey` accepts an
+    // OPTIONAL quoted name, a `peerkey <valid 64-hex> "` (unterminated) or `peerkey <valid 64-hex> ""` (empty) also lands
+    // here and is reported as `bad_hex` when the hex was fine. Distinguishing them needs a ParseErr the enum cannot
+    // express (or a second parse), and widening a shipped contract reason is its own slice. The hex is by far the likelier
+    // cause and the remedy (re-scan / re-type the card) is unchanged, so this stays until someone needs the split.
+    if (len >= 8 && !strncmp(line, "peerkey ", 8))
         return (size_t)snprintf(out, cap, "{\"ev\":\"peerkey_err\",\"reason\":\"bad_hex\"}\n");
+    if (len >= 9 && !strncmp(line, "peername ", 9))                                           // §AB2: a malformed peername -> peer_name_err, not a bare parse error
+        return meshroute::console::write_peer_name_err(out, cap, "bad_args");
     // §command-sink-consolidation: not a companion JSON verb and not a Node command -> offer the FULL console surface as
     // canonical text over BLE via the unified dispatch. ADDITIVE: every companion verb is handled above, so this only
     // catches lines that previously returned "unknown_cmd" (team/mobile/gateway/faults/help/lookup/…). The BLE link is
@@ -829,6 +847,13 @@ static void service_console() {
                     if (cmd.kind == meshroute::CmdKind::peerkey) {       // §2/§3: install + persist + the contract ack
                         char jb[80]; const size_t m = handle_peerkey(jb, sizeof jb, cmd);
                         mrcon.write(reinterpret_cast<const uint8_t*>(jb), m);
+                    } else if (cmd.kind == meshroute::CmdKind::peername) {   // §AB2: rename + persist + the synchronous ack
+                        // 256 = the BLE g_out size, and it is the WORST CASE not a guess: 29 B envelope + 10 digits of
+                        // hash + 8 B `,"name":` + 2 quotes + a 32-B name whose every byte escapes to `\u00xx` (6x) =
+                        // 240 + `}` + '\n' + NUL = 244. A tighter buffer would make JsonBuf::finish() return 0 and the
+                        // ack vanish SILENTLY (it is overflow-safe, not overflow-loud), which is the failure to avoid.
+                        char jb[256]; const size_t m = handle_peername(jb, sizeof jb, cmd);
+                        mrcon.write(reinterpret_cast<const uint8_t*>(jb), m);
                     } else {
                     const meshroute::CmdResult r = g_node.on_command(cmd);
                     mrcon.print(F("> "));
@@ -1122,15 +1147,24 @@ static void mesh_service_once() {
             }
             case meshroute::PushKind::peer_key_cached: {  // E2E §7: a recipient's pubkey was learned on-air -> an `-e` send to that hash can now be sealed
                 // §AB1: mirror it into /mrpeers so the ability to seal to this peer SURVIVES A REBOOT (v1 kept
-                // on-air keys RAM-only, so every reboot cost a manual `reqpubkey` per peer). Stored at
-                // `authoritative`, never promoted to pinned. peer_store_sync returns `unchanged` — and writes no
-                // flash — when the record is already byte-identical, which is what makes a cache-on-pass re-learn
-                // free. Its outcome is REPORTED, not swallowed: `refused_full` means the book is full of pinned
-                // keys and this key will NOT survive the reboot (C2).
+                // on-air keys RAM-only, so every reboot cost a manual `reqpubkey` per peer). An on-air learn is
+                // stored `authoritative` and is NEVER PROMOTED to pinned — but peer_store_sync reads the confidence
+                // back out of the LIVE table, so if this hash was ALREADY pinned (a QR import) the record keeps its
+                // `pinned` level rather than being demoted. (⚠ V1: this note used to read "stored at authoritative"
+                // flatly, which was true only of a never-pinned hash.) peer_store_sync returns `unchanged` — and
+                // writes no flash — when the record is already byte-identical, which is what makes a cache-on-pass
+                // re-learn free. Its outcome is REPORTED, not swallowed: `refused_full` means the book is full of
+                // pinned keys and this key will NOT survive the reboot (C2).
                 const mrnv::PeerPut kept = mrfw::peer_store_sync(pu.sender_hash);
                 mrcon.print(F("KEY CACHED hash=0x")); mrcon.print(pu.sender_hash, HEX);
                 if (pu.body_len) { mrcon.print(F(" name=")); mrcon.write(pu.body, pu.body_len); }   // §S6: the name cached alongside the key (omitted when unknown)
-                mrcon.print(F(" (on-air, unpinned) nv=")); mrcon.println(mrnv::peer_put_name(kept));
+                // ★ §AB2: the level, not a hardcoded label. This line said "(on-air, unpinned)" UNCONDITIONALLY — the
+                // SAME defect as the JSON push's hardcoded `"pinned":false`, on the sibling surface: a QR-PINNED peer
+                // whose key also arrives on air reaches here (peer_key_set no-ops but still returns true), and the
+                // console then told the operator its verified contact was unpinned. Now it prints the real confidence.
+                mrcon.print(F(" conf=")); mrcon.print(meshroute::console::peerkeyconf_name(
+                        static_cast<meshroute::Node::PeerKeyConf>(pu.peer_conf)));
+                mrcon.print(F(" nv=")); mrcon.println(mrnv::peer_put_name(kept));
                 break;
             }
             case meshroute::PushKind::config_adopted: {   // R6.2: a pulled leaf config was adopted -> persist to NV

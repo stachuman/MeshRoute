@@ -123,7 +123,7 @@ bool Node::id_bind_set(uint8_t node_id, uint32_t key_hash32, IdBindSource source
 // Find a NON-EXPIRED binding for key_hash32 -> its node_id (Lua id_bind_find_by_hash dv:4764). Skips (does
 // not remove) expired entries — removal is the periodic age_out sweep. The self-binding never expires.
 // This is the call that makes "any node that knows answers" work. Returns -1 on miss.
-int Node::id_bind_find_by_hash(uint32_t key_hash32, IdBindConf* conf_out) {
+int Node::id_bind_find_by_hash(uint32_t key_hash32, IdBindConf* conf_out) const {
     const uint64_t now = _hal.now();
     for (uint16_t i = 0; i < _active->_id_bind_n; ++i) {
         if (_active->_id_bind[i].key_hash32 != key_hash32) continue;
@@ -257,7 +257,7 @@ bool Node::peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyCo
             const bool existing_pinned = (L._peer_keys[i].confidence == static_cast<uint8_t>(PeerKeyConf::pinned));
             if (existing_pinned && conf != PeerKeyConf::pinned) return true;   // §1: PINNED is IMMUTABLE to an on-air set (no-op, no refresh)
             L._peer_keys[i].last_seen_ms = now;
-            if (name && name_len) { const uint8_t nl = name_len > 32 ? 32 : name_len; for (uint8_t b = 0; b < nl; ++b) L._peer_keys[i].name[b] = name[b]; L._peer_keys[i].name_len = nl; }   // §1.3: REFRESH the name (mutable) even when the key is unchanged
+            if (name && name_len) (void)peer_name_set(key_hash32, name, name_len);   // §1.3: REFRESH the name (mutable) even when the key is unchanged. §AB2: ONE name writer (cannot miss — we are inside its match)
             if (conf == PeerKeyConf::pinned || static_cast<uint8_t>(conf) > L._peer_keys[i].confidence) {  // upgrade, or a user re-pin
                 for (int b = 0; b < 32; ++b) L._peer_keys[i].ed_pub[b] = ed_pub[b];
                 L._peer_keys[i].confidence = static_cast<uint8_t>(conf);
@@ -288,8 +288,26 @@ bool Node::peer_key_set(uint32_t key_hash32, const uint8_t ed_pub[32], PeerKeyCo
     L._peer_keys[slot].last_seen_ms = now;
     L._peer_keys[slot].name_len = 0;
     L._peer_keys[slot].peer_confirmed = false;   // §S2: a fresh (or evicted-recycled) entry is UNCONFIRMED until we open a sealed frame from it (a plaintext/INTRO cache never confirms)
-    if (name && name_len) { const uint8_t nl = name_len > 32 ? 32 : name_len; for (uint8_t b = 0; b < nl; ++b) L._peer_keys[slot].name[b] = name[b]; L._peer_keys[slot].name_len = nl; }   // §1.3: cache the peer's name with the key
+    if (name && name_len) (void)peer_name_set(key_hash32, name, name_len);   // §1.3: cache the peer's name with the key. §AB2: ONE name writer — key_hash32 was written above and the early scan proved it unique, so this always matches
     return true;
+}
+
+// ★ §AB2 (spec 2026-07-29 §2.3): THE ONE name writer for _peer_keys — the write twin of peer_name_find below, and the
+// engine half of the `peername` verb. Clamps to protocol::peer_name_max and overwrites; touches NOTHING else (not
+// ed_pub, not confidence, not last_seen_ms, not peer_confirmed). See node.h for why this is NOT peer_key_set.
+// ⚠ It deliberately does NOT age-gate the lookup the way peer_key_find does: an aged-but-present row is still the row
+// `nameof`/the AB3 view will show, so refusing to rename it would make two verbs disagree about one entry.
+bool Node::peer_name_set(uint32_t key_hash32, const char* name, uint8_t name_len) {
+    if (!name) return false;
+    auto& L = *_active;
+    for (uint16_t i = 0; i < L._peer_keys_n; ++i) {
+        if (L._peer_keys[i].key_hash32 != key_hash32) continue;
+        const uint8_t nl = name_len > protocol::peer_name_max ? protocol::peer_name_max : name_len;
+        for (uint8_t b = 0; b < nl; ++b) L._peer_keys[i].name[b] = name[b];
+        L._peer_keys[i].name_len = nl;
+        return true;
+    }
+    return false;   // C2: no row for this hash -> the caller refuses loud; never invent a keyless placeholder
 }
 
 uint8_t Node::peer_name_find(uint32_t key_hash32, char* out, uint8_t cap) const {   // §1.3: the cached name for a peer hash (0 = unknown)
@@ -302,11 +320,182 @@ uint8_t Node::peer_name_find(uint32_t key_hash32, char* out, uint8_t cap) const 
     return 0;
 }
 
+// ================== ★★ §AB3 — THE GENERATED ADDRESS-BOOK VIEW (spec 2026-07-29 §2.1/§2.5) ==================
+// See node.h for the row shape, the zero-RAM rationale, the §2.6(a) bound and the FORBIDDEN _id_bind repair.
+// Every function here is a PURE READ: no table is written, no last_seen_ms refreshed, no telemetry emitted. That is
+// load-bearing twice over — it is what makes the corpus byte-identical BY CONSTRUCTION even though lib/core IS
+// compiled by the simulator, and it is what lets `nameof` show an aged-but-present row without extending its lease.
+
+// _peer_keys row index for a hash, or -1. NOT age-gated: "is there a row" and "is its key usable" are different
+// questions, and the view needs the first (a name survives its key's lease — see peer_book_fill_from_peer_key).
+// ⓘ peer_name_find / peer_name_set / peer_confirmed each still carry their own copy of this two-line scan; folding
+// them onto this helper is a dedup slice, not this one (C1). Noted so it can be found.
+int Node::peer_key_slot_of(uint32_t key_hash32) const {
+    if (key_hash32 == 0) return -1;
+    for (uint16_t i = 0; i < _active->_peer_keys_n; ++i)
+        if (_active->_peer_keys[i].key_hash32 == key_hash32) return static_cast<int>(i);
+    return -1;
+}
+
+#if MR_FEAT_TEAM
+// hash -> team_local_id, FRESHEST wins, and count the losers. See node.h for why this table (unlike _id_bind) really
+// can alias, and why the gate is team_key_of_id's verbatim gate rather than team_id_of_key's.
+// ⚠ DELIBERATELY NOT team_id_of_key (node_routing.cpp), and this is a FINDING rather than a preference: that function
+// returns the FIRST matching row, so on an aliased hash it silently picks by table order. It is on the live
+// PLAINTEXT send-by-hash path, so changing it is a behaviour fix in its own right (C1) — reported, not folded in here.
+uint8_t Node::team_id_of_key_freshest(uint32_t key_hash32, uint8_t& alias_dropped) const {
+    alias_dropped = 0;
+    if (key_hash32 == 0 || _cfg.team_id == 0) return 0;
+    const uint64_t now = _hal.now();
+    uint8_t  best = 0; uint64_t best_seen = 0; uint8_t hits = 0;
+    for (uint8_t i = 0; i < _active->_team_keys_n; ++i) {
+        const auto& e = _active->_team_keys[i];
+        if (e.key_hash32 != key_hash32 || !is_team_peer(e.id)) continue;
+        if (now - e.last_seen_ms > protocol::id_bind_ttl_ms) continue;      // §P2-6 48 h staleness — team_key_of_id's rule
+        ++hits;
+        if (best == 0 || e.last_seen_ms > best_seen) { best = e.id; best_seen = e.last_seen_ms; }
+    }
+    alias_dropped = hits ? static_cast<uint8_t>(hits - 1) : 0;
+    return best;
+}
+#endif
+
+// The reverse (hash -> id) joins for a row that already carries a hash. Fills static_id/static_authoritative and
+// team_id/team_alias_dropped, leaving them at 0/false when that plane holds nothing.
+void Node::peer_book_join_ids(PeerBookRow& r) const {
+    if (r.hash == 0) return;                                  // an id-only row has nothing to join BY
+    IdBindConf ic = IdBindConf::claimed;
+    const int sid = id_bind_find_by_hash(r.hash, &ic);        // U1: the existing _id_bind reverse scan (skips expired)
+    if (sid >= 0) { r.static_id = static_cast<uint8_t>(sid); r.static_authoritative = (ic == IdBindConf::authoritative); }
+    r.team_id = team_id_of_key_freshest(r.hash, r.team_alias_dropped);
+}
+
+// _peer_keys[slot] -> a row, plus both reverse id joins.
+// ★★ THE ONE JUDGEMENT CALL IN HERE, and it is the §0.1 failure mode in miniature: an AGED non-pinned row is still
+// PRESENT (peer_name_find and peer_name_set deliberately do not age-gate, so a rename and `nameof` agree about it), but
+// peer_key_find REFUSES it, so a seal to that peer would FAIL. Reporting its stored `authoritative` would make the app
+// offer "send encrypted" and the user get `FAILED (no recipient pubkey)` — exactly the defect AB2's `conf` field exists
+// to remove. ⇒ an unusable row keeps its NAME and its ids but reports has_key=false AND conf=overheard, the
+// least-capable level (peerkeyconf_name's own out-of-range policy: never claim a capability we cannot back).
+void Node::peer_book_fill_from_peer_key(uint16_t slot, PeerBookRow& r) const {
+    const PeerKey& p = _active->_peer_keys[slot];
+    r = PeerBookRow{};
+    r.hash = p.key_hash32;
+    r.name_len = p.name_len > protocol::peer_name_max ? protocol::peer_name_max : p.name_len;
+    for (uint8_t b = 0; b < r.name_len; ++b) r.name[b] = p.name[b];
+    const bool pinned = (p.confidence == static_cast<uint8_t>(PeerKeyConf::pinned));
+    const bool usable = pinned || protocol::peer_key_ttl_ms == 0
+                        || (_hal.now() - p.last_seen_ms) < protocol::peer_key_ttl_ms;   // peer_key_find's rule, verbatim
+    if (usable) { r.has_key = true; r.conf = static_cast<PeerKeyConf>(p.confidence); r.peer_confirmed = p.peer_confirmed; }
+    peer_book_join_ids(r);
+}
+
+// The single emission pass of spec §2.1. DEDUP IS ON `hash`, and it needs NO auxiliary "seen" array: every later pass
+// can ask the earlier pass's TABLE directly whether it already covers a hash, which is what keeps this zero-RAM.
+uint16_t Node::peer_book_walk(bool include_id_rows, PeerBookVisit fn, void* ctx) const {
+    uint16_t n = 0;
+    PeerBookRow r{};
+    // (1) _peer_keys FIRST — the only rows that carry a name, a key, a confidence and peer_confirmed. Their static_id
+    //     and team_id are MERGED here by the reverse joins, which is what makes passes (2)/(3) pure "not already
+    //     covered" filters instead of needing to reach back into an already-emitted row.
+    for (uint16_t i = 0; i < _active->_peer_keys_n; ++i) {
+        peer_book_fill_from_peer_key(i, r);
+        ++n; if (fn) fn(r, ctx);
+    }
+    if (!include_id_rows) return n;                          // ★ §2.6(a): the JSON book stops here, ≤ cap_peer_keys rows
+    // (2) _id_bind — a hash pass (1) already emitted was merged there, so only an UNKEYED hash yields a row.
+    //     ⓘ hash == 0 ⇒ the spec §1.3 "id-only" row. It is supported (cheap, and the shape is real) but see the
+    //     report: no live id_bind_set caller passes 0, and the hash-uniqueness eviction collapses all such rows to
+    //     ONE, so this arm is reachable from the test seam and effectively not from the network.
+    for (uint16_t i = 0; i < _active->_id_bind_n; ++i) {
+        const IdBind& e = _active->_id_bind[i];
+        if (e.key_hash32 && peer_key_slot_of(e.key_hash32) >= 0) continue;   // already emitted by (1)
+        r = PeerBookRow{};
+        r.hash = e.key_hash32;
+        r.static_id = e.node_id;
+        r.static_authoritative = (e.confidence == static_cast<uint8_t>(IdBindConf::authoritative));
+        if (r.hash) r.team_id = team_id_of_key_freshest(r.hash, r.team_alias_dropped);   // §18: the same hash may hold both
+        ++n; if (fn) fn(r, ctx);
+    }
+#if MR_FEAT_TEAM
+    // (3) _team_keys — a hash covered by (1) or (2) is already merged; anything else is a new hash+team_id row.
+    for (uint8_t i = 0; i < _active->_team_keys_n; ++i) {
+        const auto& e = _active->_team_keys[i];
+        uint8_t dropped = 0;
+        if (e.key_hash32 == 0 || team_id_of_key_freshest(e.key_hash32, dropped) != e.id) continue;   // stale alias / gated out -> (1)/(2)/the winner covers it
+        if (peer_key_slot_of(e.key_hash32) >= 0) continue;                    // covered by (1)
+        if (id_bind_find_by_hash(e.key_hash32) >= 0) continue;                 // covered by (2)
+        r = PeerBookRow{};
+        r.hash = e.key_hash32; r.team_id = e.id; r.team_alias_dropped = dropped;
+        ++n; if (fn) fn(r, ctx);
+    }
+    // (4) _team_peer bits nothing else covered ⇒ TEAM-ID-ONLY rows: a teammate we route to whose hash we never cached
+    //     (spec §1.3's second id-only flavour — this one IS network-reachable: node_beacon sets the bit from a
+    //     multi-hop DV entry that carries no key at all).
+    if (_cfg.team_id != 0) {
+        for (uint16_t id = 1; id <= 254; ++id) {
+            if (!is_team_peer(static_cast<uint8_t>(id))) continue;
+            uint32_t th = 0;
+            if (team_key_of_id(static_cast<uint8_t>(id), th) && th != 0) continue;   // has a _team_keys row -> (1)/(2)/(3)
+            r = PeerBookRow{};
+            r.team_id = static_cast<uint8_t>(id);
+            ++n; if (fn) fn(r, ctx);
+        }
+    }
+#endif
+    return n;
+}
+
+bool Node::peer_book_by_hash(uint32_t key_hash32, PeerBookRow& out) const {
+    out = PeerBookRow{};
+    if (key_hash32 == 0) return false;                       // 0 is the "no hash" sentinel, never a queryable identity
+    const int slot = peer_key_slot_of(key_hash32);
+    if (slot >= 0) { peer_book_fill_from_peer_key(static_cast<uint16_t>(slot), out); return true; }
+    out.hash = key_hash32;
+    peer_book_join_ids(out);
+    return out.static_id != 0 || out.team_id != 0;            // no key, no id anywhere -> we know nothing about it
+}
+
+// ★ Spec §2.5's fix. The two arms resolve through key_hash_of_id and team_key_of_id — the SAME functions the send path
+// (node_mac.cpp) and `reqpubkey <team-id>` (node.cpp CmdKind::reqpubkey) use — so `hashof`, `reqpubkey` and a send can
+// no longer answer an id differently. When one number resolves in BOTH planes it fills BOTH rows: the §18 dual-identity
+// space is real, and silently picking one is the defect this whole slice exists to remove.
+uint8_t Node::peer_book_by_id(uint8_t id, PeerBookRow& static_out, PeerBookRow& team_out) const {
+    static_out = PeerBookRow{}; team_out = PeerBookRow{};
+    uint8_t mask = 0;
+    if (id == 0 || id == 0xFF) return 0;                     // 0 = unprovisioned, 0xFF = reserved
+    uint32_t h = 0;
+    if (key_hash_of_id(id, h)) {                             // STATIC: authoritative + fresh, exactly what DST_HASH stamps
+        if (!peer_book_by_hash(h, static_out)) { static_out = PeerBookRow{}; static_out.hash = h; }
+        static_out.static_id = id;                           // the queried id IS the binding's id (one-hash-one-id)
+        static_out.static_authoritative = true;
+        mask |= kPeerBookStatic;
+    }
+    uint32_t th = 0;
+    if (team_key_of_id(id, th) && !(mask && th == h)) {       // TEAM: the team key cache — and skip an exact duplicate
+        if (!peer_book_by_hash(th, team_out)) { team_out = PeerBookRow{}; team_out.hash = th; }
+        // ⚠ team_id is left as the view RESOLVED it, NOT overwritten with `id`: when two team ids alias one hash the
+        // freshest is the honest answer and team_alias_dropped says a loser exists. The caller reports the queried id.
+        if (team_out.team_id == 0) team_out.team_id = id;
+        mask |= kPeerBookTeam;
+    }
+    return mask;
+}
+
 // §S6: enqueue a peer_key_cached push carrying the peer's cached NAME (copied NOW, at cache time — the cache may
 // age by drain time). body empty (body_len 0) when unknown -> write_push omits "name". One path for all 4 cache sites.
+// ★ §AB2: it now also carries the CONFIDENCE, read back out of the LIVE table through the existing peer_key_find (U1/U2
+// — the same "read every field from the live table" discipline as src/firmware_commands.cpp's peer_store_sync, so no
+// caller can announce a confidence that disagrees with RAM). peer_key_find is a pure read (no last_seen_ms refresh), so
+// this addition cannot move a scenario stream.
+// ⚠ Its `false` case (absent, or aged between the cache event and here) LEAVES peer_conf at 0 = `overheard` = "you
+// cannot seal to this peer". That is the SAFE direction on purpose: over-reporting the level is what produced the
+// §0.1 failure this field exists to fix.
 void Node::push_peer_key_cached(uint32_t key_hash32) {
     Push pu{}; pu.kind = PushKind::peer_key_cached; pu.sender_hash = key_hash32;
-    pu.body_len = peer_name_find(key_hash32, reinterpret_cast<char*>(pu.body), 32);
+    pu.body_len = peer_name_find(key_hash32, reinterpret_cast<char*>(pu.body), protocol::peer_name_max);
+    uint8_t ed[32]; PeerKeyConf conf = PeerKeyConf::overheard;
+    if (peer_key_find(key_hash32, ed, &conf)) pu.peer_conf = static_cast<uint8_t>(conf);
     enqueue_push(pu);
 }
 

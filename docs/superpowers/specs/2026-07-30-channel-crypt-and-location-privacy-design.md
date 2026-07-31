@@ -80,6 +80,94 @@ holds a key, `-t` seals by default and a *plaintext* team post needs an explicit
 `cfg set team_channel_crypt 0`; **QA recommends the config toggle only** — a per-send "send this one in clear"
 flag is a footgun on a privacy feature.
 
+### 2.2.1 ★★★ OWNER CORRECTION 2026-07-31 — `send_channel -t -l -e` IS THE TARGET, and it REVERSES §2.3
+
+> **Owner:** *"`send_channel -t -l -e` — this is what I want to achieve — sending together with channel encrypted message
+> my location. `send_channel -t -l` — that would be refused — location can be sent only encrypted."*
+
+★★ **This strikes §2.3's ruling that `-l` is NOT on `send_channel`.** My argument there was that T-K2 makes location an
+**alternative** payload so `-l` would mean a different thing — and the *reasoning was sound about T-K2 as written*, which
+is precisely why T-K2 has to change rather than the requirement.
+
+**★★ THE REAL PROBLEM, and it is a payload-format problem, not a flag-letter problem.** T-K2 §2.2 defines the sealed
+channel inner as `[inner_type u8][payload]` with **`0` = text, `1` = location** — an **XOR**. ⇒ *"location TOGETHER WITH
+the message"* is **not representable**. A flag letter cannot fix an encoding that has no room for the combination.
+
+★ **And the timing is fortunate: T-K2 IS NOT BUILT** — `channel_flavor_crypted` / `team_channel_crypt` /
+`team_channel_no_key` have **zero hits in the tree** (QA-verified 2026-07-31). **The `inner_type` encoding is still free.**
+Fixing it now, before it ships, is the whole difference between this and the two codepoint spaces that already exhausted.
+
+**Three ways to encode it, and the choice matters more than it looks:**
+
+| | encoding | verdict |
+|---|---|---|
+| (a) | a **third enumerator**, `inner_type = 2` = location+text | ❌ **This is exactly how `q_opcode` died.** An
+ENUMERATED space must spend a codepoint per **COMBINATION** — text, loc, text+loc, telemetry, telemetry+loc, waypoint,
+waypoint+loc… Both prior exhaustions in this project (**DATA flags byte = `0xFF`, FULL**; **`q_opcode` = 2 bits, FULL**)
+happened for this reason |
+| ★ (b) | **`inner_type` becomes a FLAGS byte** — `bit0` = text present, `bit1` = location present | ✅ **QA
+RECOMMENDATION.** Each *feature* costs one bit and every *combination* is free. Two bits used, six spare, and the
+combinatorial explosion never happens |
+| (c) | two separate posts (text, then location) | ❌ doubles airtime, and it is **not atomic** — a reader can get the
+text without the position, or the position attributed to the wrong message |
+
+**If (b): the layout must MIRROR THE DATA INNER, and that is a consistency argument, not a taste one.**
+`[flags u8][location 6 B if bit1][text if bit0]` — **fixed-size field first, variable last**, exactly as the DATA inner
+orders `[dst_hash?][origin][source_hash?][location?][body]`. One mental model then covers both planes.
+⚠ **`flags == 0` (neither text nor location) must be REFUSED** — an empty post is a bug, not a feature.
+
+★★ **A SECOND INCONSISTENCY THIS EXPOSED, and it would have shipped: T-K2 sketches the channel location as `lat_e7 i32,
+lon_e7 i32` = 8 BYTES, but the DM path carries `pack_loc6` = 6 BYTES** (~11 m quantisation, `frame_codec.cpp`).
+⇒ **two different location encodings on two planes**, which would force the companion to carry two decoders and would
+make one plane silently more precise than the other. **Use `pack_loc6` on both (U1).** T-K2 §2.2 must be corrected.
+
+**The `send_channel` matrix gains these rows:**
+
+| invocation | behaviour |
+|---|---|
+| ★ `send_channel <ch> "…" -t -l -e` | ✅ **THE TARGET** — sealed team post carrying text **and** the sender's position |
+| `send_channel <ch> "…" -l` (no `-t`) | ❌ **REFUSE** — no team ⇒ no content key ⇒ it cannot be sealed, so it cannot
+carry a position. Same reason `-e` without `-t` refuses |
+| `send_channel <ch> "…" -t -g -l -e` | ❌ **REFUSE** — already refused for `-t -g -e`; with a position the global copy
+would air **coordinates** in clear, so the reason is stronger, not different |
+| `send_channel <ch> "…" -t -l` with **no fix** (`lat_e7 == 0 && lon_e7 == 0`) | ❌ **REFUSE `no_location`** — identical
+to `send -l`, reusing the enumerator CL3 appended |
+| `send_channel <ch> "…" -t -l` that **will not be sealed** | ❌ **REFUSE** — see the OPEN DECISION below |
+
+★★ ~~**O6**~~ ✅ **RULED 2026-07-31 — (ii), refuse only if the post WILL NOT ACTUALLY BE SEALED.** ⇒ **one rule for both
+planes**, letter-for-letter with `send -l`:
+
+```
+-t -l    + key held, crypt on   ->  OK   (sealed by the node default)
+-t -l    + no team key          ->  REFUSE  unsealable
+-t -l    + team_channel_crypt 0 ->  REFUSE  unsealable
+-t -l -e                        ->  OK   (explicit)
+-l       (no -t)                ->  REFUSE  unsealable  (no team => no content key)
+-t -g -l -e                     ->  REFUSE  (the global copy would air COORDINATES in clear)
+-t -l    + no fix (0,0)         ->  REFUSE  no_location
+```
+
+★ **Why this is the right shape and not merely the lenient one:** the rule being enforced is *"a position never travels in
+clear"*, and that is a property of **what happens on the wire**, not of which letters the operator typed. Refusing a send
+that **would have been sealed** protects nothing and would make the channel plane behave differently from the DM plane
+for the **same flag** — the class of inconsistency this whole arc has been closing.
+⚠ **Implementation consequence:** the refusal must be decided **after** the effective-crypt decision is known (key held
+&& `team_channel_crypt`), exactly as CL3 had to hoist `want_crypt` **above** the location gate in `enqueue_data`. **That
+hoist is the precedent to copy (U1) — and getting the order wrong is exactly how B0 became a live leak.**
+
+*(the two readings weighed, kept as the record:)*
+- **(i) STRICT — `-l` always demands an explicit `-e`.** Simple to state. ⚠ But `team_channel_crypt` is **default-ON**
+  (T-K2 §2.5), so with a key held `-t` **already seals**; under (i) the common case `-t -l` is refused and the user must
+  always type `-e`. It also **contradicts CL3 as built**, where `send -l` succeeds under `e2e_dm` with no `-e`.
+- ★ **(ii) CONSISTENT — refuse only if the post WILL NOT actually be sealed** (no key, or crypt disabled). `-t -l`
+  then succeeds exactly when the content is genuinely encrypted, which is what the privacy rule requires, and it matches
+  `send -l` letter for letter. **QA RECOMMENDS (ii)**: it satisfies *"location only encrypted"* without making the
+  channel plane behave differently from the DM plane for the same flag.
+
+**Slice impact:** `-l` on `send_channel` **cannot land before CL2** (there is nothing to seal into until then), and the
+`inner_type` decision belongs to **T-K2/CL2**, not to a later T-K5. ⇒ **§2.3's "that belongs to T-K5" line is struck**;
+the encoding must be settled *when CL2 builds it*, because changing it afterwards is a wire change.
+
 ### 2.3 ★★ Location becomes a PER-SEND flag `-l`, `cfg set loc_dm` is REMOVED, and location requires encryption
 
 > **Owner ruling 2026-07-30 (second pass):** *"we have to remove `cfg set loc_dm` and instead use one more switch:
@@ -100,6 +188,10 @@ ordinary `send` is untouched. **Strictly better than the design it replaces; O1 
 | `send <dst> "…" -l` that would go **plaintext** | ❌ **REFUSE loud** — the rule |
 | `send <dst> "…" -l` with **no fix** (`lat_e7 == 0 && lon_e7 == 0`) | ❌ **REFUSE loud** — you asked for a position and there is none (C2: never silently send without it) |
 | `send <dst> "…" -l` where **+6 B does not fit** | ❌ **REFUSE loud.** ⚠ Today a **silent drop** (`node_mac.cpp:152`, *"drop the best-effort piggyback"*). With `-l` explicit, best-effort becomes fail-loud — **that is the point of the flag** |
+
+⚠⚠ **SUPERSEDED IN PART BY §2.2.1 (owner correction 2026-07-31): `-l` IS wanted on `send_channel` after all** — the
+"do not overload it" reasoning was sound about T-K2 *as written*, so **T-K2's payload changes instead.** The `send_layer`
+correction below still stands.
 
 ★★ **CORRECTED 2026-07-31 AS BUILT — `send_layer -l` REFUSES.** The verbs are **`send` (id and hash) only**. The dispatch
 brief asserted the sealed cross-layer path already carried location (`node_hashlocate.cpp:414`); it does **not** — that line is

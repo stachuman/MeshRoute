@@ -160,7 +160,14 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
         return ParseErr::ok;
     }
 
-    //   peerkey <ed_pub hex64> — §3: install a scanned peer's full pubkey as a PINNED (verified) key. hash = ed_pub[:4].
+    //   peerkey <ed_pub hex64> ["<name>"] — §3: install a scanned peer's full pubkey as a PINNED (verified) key.
+    //   hash = ed_pub[:4]. ★ §AB2 (spec §2.3): the trailing QUOTED name is the OPTIONAL one-shot for the QR-import flow
+    //   where the key and the label arrive together; it lands in the same peer_key_set name parameter `peername` uses.
+    //   ⚠ GRAMMAR DEVIATION, reported not hidden: the spec writes `name="<text>"`. A `key=value` scanner does exist —
+    //   kv_next — but it lives in src/firmware_config_parse.h, a DEVICE-layer header this library must not include, so
+    //   honouring that spelling here would mean forking kv_next into lib/console (the exact U1 rot that header's own
+    //   line-207 note already complains about in the other direction). A bare quoted tail reuses parse_send_tail
+    //   verbatim and matches `send` / `send_channel` / `peername` — one grammar per library.
     if (tok_eq(verb, "peerkey")) {
         Tok arg = token(s);
         uint8_t ed[32];
@@ -168,6 +175,37 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
         out = Command{};
         out.kind = CmdKind::peerkey;
         for (int i = 0; i < 32; ++i) out.u.peerkey.ed_pub[i] = ed[i];
+        skip_ws(s);
+        if (s.p < s.end) {                                   // the name is OPTIONAL -> only parsed when something follows
+            bool ack = false, enc = false;
+            if (!parse_send_tail(s, /*allow_a=*/false, /*allow_e=*/false, ack, enc, out.body, out.body_len))
+                return ParseErr::bad_args;                    // an unquoted token, a stray flag, or an unterminated quote
+            if (out.body_len == 0) return ParseErr::bad_args;  // `peerkey <hex64> ""` — same rule as peername below
+        }
+        return ParseErr::ok;                                 // over-cap names are refused by on_command (err_too_large -> "too_long"), not here
+    }
+
+    //   ★ §AB2 (spec 2026-07-29 §2.3): peername 0x<hash> "<text>" — set/overwrite a CACHED peer's name, without
+    //   touching its key or its confidence. Chosen over extending `peerkey` because rename-WITHOUT-rekey is the common
+    //   case (a peer advertises the default `MeshRoute node: 0x…` and the operator wants a real label), and with
+    //   `peerkey` alone that would mean re-sending the whole 64-hex pubkey to change a string.
+    //   C2 refusals: the hash MUST be 0x-prefixed and non-zero (parse_hex32_0x — the same rule that kills the
+    //   id-vs-hash ambiguity everywhere in this file); the name MUST be a non-empty quoted token. An unknown hash and an
+    //   over-cap name are on_command's to refuse, so the app gets `unknown_hash` / `too_long` instead of a flat
+    //   `bad_args` — a distinction the operator needs, since the two have different remedies (reqpubkey vs shorten).
+    //   ⚠ AN EMPTY NAME IS REFUSED, NOT TREATED AS "CLEAR". v1 has no clear-the-name operation and inventing one as a
+    //   side effect of `peername 0x… ""` would let a UI that passes an empty string by accident silently wipe a label.
+    //   If clearing is wanted it should be its own explicit, agreed spelling.
+    if (tok_eq(verb, "peername")) {
+        uint32_t hash = 0;
+        if (!parse_hex32_0x(token(s), hash) || hash == 0) return ParseErr::bad_args;
+        bool ack = false, enc = false; const uint8_t* body = nullptr; uint8_t blen = 0;
+        if (!parse_send_tail(s, /*allow_a=*/false, /*allow_e=*/false, ack, enc, body, blen)) return ParseErr::bad_args;
+        if (blen == 0) return ParseErr::bad_args;
+        out = Command{};
+        out.kind = CmdKind::peername;
+        out.u.peername.key_hash32 = hash;
+        out.body = body; out.body_len = blen;                // BORROWED into `line`, exactly like send's body
         return ParseErr::ok;
     }
 

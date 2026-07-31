@@ -460,19 +460,87 @@ TEST_CASE("write_push — §S2 mobile_reg/team_reg, §S4 channel_recv team_id, �
     const char* body = "hi"; ch.body_len = 2; ch.body[0] = 'h'; ch.body[1] = 'i'; (void)body;
     n = write_push(b, sizeof b, ch);
     CHECK(std::string(b, n).find("\"team_id\":\"cccc0001\",\"body\":\"hi\"") != std::string::npos);
-    // peer_key_cached with a cached name (body carries the name)
+    // peer_key_cached with a cached name (body carries the name). §AB2: `conf` now precedes `pinned`.
     Push pk{}; pk.kind = PushKind::peer_key_cached; pk.sender_hash = 3735928559u;
     const char* nm = "Alice"; pk.body_len = 5; for (int i = 0; i < 5; ++i) pk.body[i] = (uint8_t)nm[i];
     n = write_push(b, sizeof b, pk);
-    CHECK(std::string(b, n) == "{\"ev\":\"peer_key_cached\",\"hash\":3735928559,\"pinned\":false,\"name\":\"Alice\"}\n");
+    CHECK(std::string(b, n) == "{\"ev\":\"peer_key_cached\",\"hash\":3735928559,\"conf\":\"overheard\",\"pinned\":false,\"name\":\"Alice\"}\n");
     // peer_key_cached with NO name -> omitted (byte-identical to the pre-S6 shape)
     Push pk0{}; pk0.kind = PushKind::peer_key_cached; pk0.sender_hash = 3735928559u;
     n = write_push(b, sizeof b, pk0);
-    CHECK(std::string(b, n) == "{\"ev\":\"peer_key_cached\",\"hash\":3735928559,\"pinned\":false}\n");
+    CHECK(std::string(b, n) == "{\"ev\":\"peer_key_cached\",\"hash\":3735928559,\"conf\":\"overheard\",\"pinned\":false}\n");
     // join_adopted — a DAD/join adopt landed (dst=id, layer_id=leaf, ctr=epoch)
     Push ja{}; ja.kind = PushKind::join_adopted; ja.dst = 17; ja.layer_id = 4; ja.ctr = 3;
     n = write_push(b, sizeof b, ja);
     CHECK(std::string(b, n) == "{\"ev\":\"join_adopted\",\"id\":17,\"layer\":4,\"epoch\":3}\n");
+}
+
+// ★★ §AB2 (address-book spec 2026-07-29 §0.1/§2.2) — THE JSON GOLDEN FOR `conf`, and the whole point of the field.
+// Before AB2 `pinned` was a HARDCODED literal `false`, so all three rows below rendered IDENTICALLY: the app could not
+// tell `overheard` (key present, e2e_seal_inner REFUSES) from `authoritative` (can seal) from `pinned`. It therefore
+// offered "send encrypted", the user tried, and got FAILED (no recipient pubkey).
+// ⚠ THE CORPUS CANNOT SEE ANY OF THIS. The sim's push bridge emits only ctr/dst/kind (measured on this tree: 14
+// peer_key_cached push lines across s22/s27/s30, none carrying a field from write_push), so this golden is the ENTIRE
+// detector for the encoder — byte-identity is structurally blind to it, it is not evidence of correctness.
+TEST_CASE("§AB2 peer_key_cached — `conf` renders the real level and `pinned` is its DERIVED duplicate") {
+    char b[256];
+    auto emit = [&b](Node::PeerKeyConf c) {
+        Push p{}; p.kind = PushKind::peer_key_cached; p.sender_hash = 0x6C297145u;
+        p.peer_conf = static_cast<uint8_t>(c);
+        return std::string(b, write_push(b, sizeof b, p));
+    };
+    // 1. overheard — cached on-air/on-pass. The app must NOT offer encryption: seal requires >= authoritative.
+    CHECK(emit(Node::PeerKeyConf::overheard) ==
+          "{\"ev\":\"peer_key_cached\",\"hash\":1814655301,\"conf\":\"overheard\",\"pinned\":false}\n");
+    // 2. authoritative — the owner's own answer. THIS is the row that used to be indistinguishable from (1).
+    CHECK(emit(Node::PeerKeyConf::authoritative) ==
+          "{\"ev\":\"peer_key_cached\",\"hash\":1814655301,\"conf\":\"authoritative\",\"pinned\":false}\n");
+    // 3. pinned — and note `pinned` is now TRUE here. The old literal claimed `false` for a QR-verified key.
+    CHECK(emit(Node::PeerKeyConf::pinned) ==
+          "{\"ev\":\"peer_key_cached\",\"hash\":1814655301,\"conf\":\"pinned\",\"pinned\":true}\n");
+    // 4. `pinned` is EXACTLY `conf == "pinned"` (spec §2.2 keeps it as a derived duplicate, so the app's existing
+    //    boolean reader cannot start disagreeing with the new level).
+    for (unsigned v = 0; v < 3; ++v) {
+        const std::string s = emit(static_cast<Node::PeerKeyConf>(v));
+        const bool says_pinned_true  = s.find("\"pinned\":true")  != std::string::npos;
+        const bool conf_says_pinned  = s.find("\"conf\":\"pinned\"") != std::string::npos;
+        CHECK(says_pinned_true == conf_says_pinned);
+    }
+    // 5. An OUT-OF-RANGE byte (a future 4th level, or memory corruption) reads as the LEAST capable level — never
+    //    over-claim a sealing capability. Same discipline as sendfailreason_name's fallback.
+    Push bad{}; bad.kind = PushKind::peer_key_cached; bad.sender_hash = 1u; bad.peer_conf = 200;
+    const size_t nb = write_push(b, sizeof b, bad);
+    CHECK(std::string(b, nb) == "{\"ev\":\"peer_key_cached\",\"hash\":1,\"conf\":\"overheard\",\"pinned\":false}\n");
+    // 6. Push carries `conf` for FREE: byte 11 was alignment padding between `relayed` (10) and `ctr` (12), so
+    //    sizeof(Push) — and therefore Node::_push_ring[] and sizeof(Node) — must not have moved.
+    CHECK(sizeof(Push) == 292);
+    CHECK(offsetof(Push, peer_conf) == 11);
+    CHECK(offsetof(Push, ctr) == 12);
+}
+
+// ★ §AB2: the `peername` SYNCHRONOUS ack + its three refusal reasons (spec §2.3, mechanism ruled §2.6(b) — an ack, not
+// a push, so no PushKind was touched). Also console-only: no scenario runs a console verb.
+TEST_CASE("§AB2 write_peer_name_set / write_peer_name_err — the peername ack shapes") {
+    char b[256];
+    size_t n = write_peer_name_set(b, sizeof b, 0x6C297145u, "Ola", 3);
+    CHECK(std::string(b, n) == "{\"ev\":\"peer_name_set\",\"hash\":1814655301,\"name\":\"Ola\"}\n");
+    // The echoed name is ESCAPED like every other body on this surface (a UI may send quotes/newlines).
+    n = write_peer_name_set(b, sizeof b, 1u, "a\"b\nc", 5);
+    CHECK(std::string(b, n) == "{\"ev\":\"peer_name_set\",\"hash\":1,\"name\":\"a\\\"b\\nc\"}\n");
+    // A full-width 32-byte name (the cap) still fits and is echoed verbatim.
+    const std::string wide(32, 'X');
+    n = write_peer_name_set(b, sizeof b, 2u, wide.c_str(), wide.size());
+    CHECK(std::string(b, n) == "{\"ev\":\"peer_name_set\",\"hash\":2,\"name\":\"" + wide + "\"}\n");
+    // The three reasons have three different remedies, which is why they are not one `bad_args` (C2).
+    n = write_peer_name_err(b, sizeof b, "unknown_hash");
+    CHECK(std::string(b, n) == "{\"ev\":\"peer_name_err\",\"reason\":\"unknown_hash\"}\n");
+    n = write_peer_name_err(b, sizeof b, "too_long");
+    CHECK(std::string(b, n) == "{\"ev\":\"peer_name_err\",\"reason\":\"too_long\"}\n");
+    n = write_peer_name_err(b, sizeof b, "bad_args");
+    CHECK(std::string(b, n) == "{\"ev\":\"peer_name_err\",\"reason\":\"bad_args\"}\n");
+    // Overflow is LATCHED, not truncated: a cap too small yields 0 bytes rather than a half line.
+    char tiny[8];
+    CHECK(write_peer_name_set(tiny, sizeof tiny, 0x6C297145u, "Ola", 3) == 0);
 }
 
 TEST_CASE("write_join_started — join vs create verb-ack shape (integer freq/bw, create-only fields)") {
@@ -668,6 +736,15 @@ static unsigned ord(JoinRefuseReason r) {
     }
     return kUnlisted;
 }
+// §AB2: the 4th mapped enum at the app boundary — peer_key_cached's `conf`. A 4th confidence level added without a
+// mapper case must break THIS build, exactly as for the three above.
+static unsigned ord(Node::PeerKeyConf c) {
+    switch (c) {
+        case Node::PeerKeyConf::overheard: case Node::PeerKeyConf::authoritative: case Node::PeerKeyConf::pinned:
+            return static_cast<unsigned>(c);
+    }
+    return kUnlisted;
+}
 #pragma GCC diagnostic pop
 
 // Walk every enumerator of E and assert its mapper never yields the SILENT fallback (nor an empty string).
@@ -703,6 +780,10 @@ TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallbac
     check_mapper_covers_every_enumerator<SendFailReason>("SendFailReason", sendfailreason_name, "none", 18,
                                                          /*exempt_ord=*/0);   // SendFailReason::none == "none"  (15 -> 16: §clean-join-carriers `reprovisioned`; 16 -> 17: §team-ch-key T-K3 `unsealable`; 17 -> 18: §loc-per-send `no_location`)
     check_mapper_covers_every_enumerator<JoinRefuseReason>("JoinRefuseReason", joinrefusereason_name, "none", 4);
+    // §AB2: peer_key_cached's `conf`. exempt_ord = 0 because `overheard` IS the fallback string — deliberately, since an
+    // out-of-range byte must read as the least capable level rather than claim a sealing capability.
+    check_mapper_covers_every_enumerator<Node::PeerKeyConf>("PeerKeyConf", peerkeyconf_name, "overheard", 3,
+                                                            /*exempt_ord=*/0);
     // The one exemption is EXACT, not a licence for a hole: `none` must render precisely "none".
     CHECK(std::strcmp(sendfailreason_name(SendFailReason::none), "none") == 0);
     // The fallbacks STAY: an out-of-range cast (a corrupt byte, never a live enumerator) must still land there.
@@ -710,6 +791,11 @@ TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallbac
     CHECK(std::strcmp(pushkind_name(static_cast<PushKind>(200)), "unknown") == 0);
     CHECK(std::strcmp(sendfailreason_name(static_cast<SendFailReason>(200)), "none") == 0);
     CHECK(std::strcmp(joinrefusereason_name(static_cast<JoinRefuseReason>(200)), "none") == 0);
+    CHECK(std::strcmp(peerkeyconf_name(static_cast<Node::PeerKeyConf>(200)), "overheard") == 0);
+    // §AB2: the three level strings, pinned verbatim — the app gates "send encrypted" by comparing against them.
+    CHECK(std::strcmp(peerkeyconf_name(Node::PeerKeyConf::overheard), "overheard") == 0);
+    CHECK(std::strcmp(peerkeyconf_name(Node::PeerKeyConf::authoritative), "authoritative") == 0);
+    CHECK(std::strcmp(peerkeyconf_name(Node::PeerKeyConf::pinned), "pinned") == 0);
     // The three strings this slice restored/added — pinned verbatim, because the app matches on them.
     CHECK(std::strcmp(sendfailreason_name(SendFailReason::e2e_ack_timeout), "e2e_ack_timeout") == 0);  // command.h documented it all along
     CHECK(std::strcmp(sendfailreason_name(SendFailReason::queue_full), "queue_full") == 0);            // NEW (defer queue full)
@@ -739,4 +825,71 @@ TEST_CASE("write_push / write_ack — the restored reason strings render (all th
     Push bare{}; bare.kind = PushKind::send_failed; bare.dst = 5; bare.ctr = 1;   // reason defaults to none
     n = write_push(b, sizeof b, bare);
     CHECK(std::string(b, n) == "{\"ev\":\"send_failed\",\"dst\":5,\"ctr\":1}\n");
+}
+
+// ★★ §AB3: the address-book stream (spec 2026-07-29 §2.1/§2.6(a)) and `nameof`'s two new id fields. Console-only —
+// no scenario runs a console verb, and the sim's push bridge renders only ctr/dst/kind, so THIS TEST is the coverage.
+TEST_CASE("§AB3 write_peer_row / write_peers_end / write_peers_err — the address-book stream") {
+    char b[400];
+    // 1. The full row: every optional field present. `conf` is the LEVEL (§2.2), not a boolean.
+    Node::PeerBookRow r{};
+    r.hash = 0x6C297145u; std::memcpy(r.name, "Ola", 3); r.name_len = 3;
+    r.static_id = 34; r.team_id = 228; r.conf = Node::PeerKeyConf::authoritative;
+    r.has_key = true; r.peer_confirmed = true; r.static_authoritative = true;
+    size_t n = write_peer_row(b, sizeof b, r);
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"peer\",\"hash\":1814655301,\"conf\":\"authoritative\",\"confirmed\":true,"
+      "\"name\":\"Ola\",\"static_id\":34,\"team_id\":228}\n");
+    // 2. The lean row: no name, no ids, unconfirmed — every optional field OMITTED (absence is normal, not an error).
+    Node::PeerBookRow lean{};
+    lean.hash = 7u; lean.conf = Node::PeerKeyConf::overheard; lean.has_key = true;
+    n = write_peer_row(b, sizeof b, lean);
+    CHECK(std::string(b, n) == "{\"ev\":\"peer\",\"hash\":7,\"conf\":\"overheard\",\"confirmed\":false}\n");
+    // 3. ★ The AMBIGUITY REPORT: a dropped stale team-id alias is NAMED on the line (spec §2.1 forbids silence).
+    Node::PeerBookRow amb{};
+    amb.hash = 9u; amb.team_id = 231; amb.team_alias_dropped = 1;
+    amb.conf = Node::PeerKeyConf::pinned; amb.has_key = true;
+    n = write_peer_row(b, sizeof b, amb);
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"peer\",\"hash\":9,\"conf\":\"pinned\",\"confirmed\":false,\"team_id\":231,\"team_alias\":1}\n");
+    // 4. ★ An AGED key: has_key=false -> "aged":true AND conf already reads "overheard", so a consumer that ignores
+    //    `aged` still cannot offer an encryption that would fail (§0.1, the whole reason `conf` is a level).
+    Node::PeerBookRow aged{};
+    aged.hash = 11u; std::memcpy(aged.name, "Bo", 2); aged.name_len = 2; aged.static_id = 5;
+    n = write_peer_row(b, sizeof b, aged);
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"peer\",\"hash\":11,\"conf\":\"overheard\",\"confirmed\":false,\"name\":\"Bo\",\"static_id\":5,\"aged\":true}\n");
+    // 5. The name is ESCAPED + UTF-8-sanitised like every other body on this surface.
+    Node::PeerBookRow esc{};
+    esc.hash = 12u; std::memcpy(esc.name, "a\"b\nc", 5); esc.name_len = 5; esc.has_key = true;
+    n = write_peer_row(b, sizeof b, esc);
+    CHECK(std::string(b, n).find("\"name\":\"a\\\"b\\nc\"") != std::string::npos);
+    // 6. The stream terminator + the C2 refusal (the reason names the remedy: plain `peers` IS available over BLE).
+    n = write_peers_end(b, sizeof b, 3);
+    CHECK(std::string(b, n) == "{\"ev\":\"peers_end\",\"count\":3}\n");
+    n = write_peers_err(b, sizeof b, "console_only");
+    CHECK(std::string(b, n) == "{\"ev\":\"peers_err\",\"reason\":\"console_only\"}\n");
+    // 7. Overflow LATCHES rather than truncating — a half JSON line must never reach the app.
+    char tiny[8];
+    CHECK(write_peer_row(tiny, sizeof tiny, r) == 0);
+    CHECK(write_peers_end(tiny, sizeof tiny, 3) == 0);
+    // 8. ★ NOTHING in this slice touched Push: the view is generated, so no push field and no PushKind was needed
+    //    (§2.6(b) ruled the ack model synchronous). Push's alignment pad was already spent by AB2 — pinned here too.
+    CHECK(sizeof(Push) == 292);
+}
+
+// ★ §AB3: `nameof` now answers from the view, so its line can name the namespace(s) an id-less hash belongs to.
+// ADDITIVE — the first two fields and their order are byte-identical to the pre-AB3 shape.
+TEST_CASE("§AB3 write_peer_name — the two id fields are additive and omit-when-0") {
+    char b[256];
+    // the pre-AB3 shapes, unchanged (this is the compatibility assertion, not a new feature)
+    size_t n = write_peer_name(b, sizeof b, 0x6C297145u, "Ola", 3);
+    CHECK(std::string(b, n) == "{\"ev\":\"peer_name\",\"hash\":1814655301,\"name\":\"Ola\"}\n");
+    n = write_peer_name(b, sizeof b, 5u, nullptr, 0);
+    CHECK(std::string(b, n) == "{\"ev\":\"peer_name\",\"hash\":5}\n");
+    // §2.5's actual question — "which namespace is 0x6C297145?" — now answered on the line itself
+    n = write_peer_name(b, sizeof b, 0x6C297145u, "Ola", 3, /*static_id=*/0, /*team_id=*/228);
+    CHECK(std::string(b, n) == "{\"ev\":\"peer_name\",\"hash\":1814655301,\"name\":\"Ola\",\"team_id\":228}\n");
+    n = write_peer_name(b, sizeof b, 9u, nullptr, 0, /*static_id=*/34, /*team_id=*/228);
+    CHECK(std::string(b, n) == "{\"ev\":\"peer_name\",\"hash\":9,\"static_id\":34,\"team_id\":228}\n");
 }

@@ -73,9 +73,24 @@ members; old posts stay readable to the old key — forward secrecy is explicitl
   derive the nonce from material that is UNIQUE per post and AVAILABLE to every reader — the
   channel_msg_id + origin hash is the candidate; if it doesn't fit dm_nonce's shape, CARRY a seal_ctr in
   the body exactly as SEALED_RELAY does. This is the spec's #1 review-at-implementation point.
-- Inner plaintext = `[inner_type u8][payload]`: `0` = text, `1` = **location** (lat_e7 i32, lon_e7 i32,
-  optional alt/flags — reuse the existing location encoding; the companion renders members on a map).
-  Room for future inner types (telemetry, waypoints).
+- ⚠⚠ **CORRECTED 2026-07-31 BY OWNER RULING — THIS FIELD MUST BECOME A FLAGS BYTE, NOT AN ENUM.** The owner wants
+  **`send_channel -t -l -e`**: *"sending together with channel encrypted message my location."* The design below is an
+  **XOR** (`0` = text **or** `1` = location), so **text + location is NOT REPRESENTABLE** — the requirement cannot be met
+  by adding a console flag. **See `2026-07-30-channel-crypt-and-location-privacy-design.md` §2.2.1** for the full
+  reasoning and the three encodings weighed.
+  ★★ **Take the FLAGS form:** `[flags u8][location 6 B if bit1][text if bit0]` — `bit0` = text present, `bit1` = location
+  present. **Each FEATURE costs a bit; every COMBINATION is free.** An enum would need a codepoint per *combination*
+  (text, loc, text+loc, telemetry, telemetry+loc, …) — **which is exactly how `q_opcode` (2 bits) and the DATA flags byte
+  (`0xFF`) both reached exhaustion in this project.** Layout mirrors the DATA inner: **fixed-size field first, variable
+  last.** ⚠ **`flags == 0` must be REFUSED** (an empty post is a bug).
+  ★ **AND USE `pack_loc6` — 6 BYTES, NOT the 8 sketched below.** The DM path already carries a 6-byte location
+  (~11 m quantisation); two encodings on two planes would force the companion to carry two decoders and make one plane
+  silently more precise (U1).
+  ⚠ **This is a WIRE decision and it must be settled WHEN CL2/T-K2 BUILDS IT** — changing it afterwards is a wire change,
+  and the retired-codepoint rule then applies forever.
+  *(original text, kept as the record:)* Inner plaintext = `[inner_type u8][payload]`: `0` = text, `1` = **location**
+  (lat_e7 i32, lon_e7 i32, optional alt/flags — reuse the existing location encoding; the companion renders members on a
+  map). Room for future inner types (telemetry, waypoints).
 - **Un-keyed receiver**: relays normally (content-blind), but on DELIVERY-to-self with no team_ch_priv →
   drop with a loud emit + a rate-limited Push (`team_channel_no_key`) so the app can prompt "ask a
   teammate for the key". NOT stored-for-later in v1 (Open Question Q1).

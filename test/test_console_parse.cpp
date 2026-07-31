@@ -319,6 +319,97 @@ TEST_CASE("parse_command — peerkey <ed_pub hex64> (QR import)") {
     CHECK(parse_command(tooshort, std::strlen(tooshort), c) == ParseErr::bad_args);
     const char* nonhex = "peerkey zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz";   // 64 non-hex
     CHECK(parse_command(nonhex, std::strlen(nonhex), c) == ParseErr::bad_args);
+    // §AB2: the name is OPTIONAL and MUST stay so — a bare peerkey carries no body (this is the shipped shape).
+    CHECK(parse_command(line, std::strlen(line), c) == ParseErr::ok);
+    CHECK(c.body == nullptr);
+    CHECK(c.body_len == 0);
+}
+
+// ★ §AB2 (spec 2026-07-29 §2.3): the OPTIONAL one-shot name on `peerkey`, for the QR-import flow where the key and the
+// label arrive together. ⚠ GRAMMAR: a BARE QUOTED tail, not the spec's `name="…"` — a kv scanner (kv_next) exists only
+// in src/firmware_config_parse.h, a device-layer header lib/console must not include, so honouring that spelling here
+// would fork it. Bare-quoted matches send / send_channel / peername: one grammar per library.
+TEST_CASE("§AB2 parse_command — peerkey <hex64> \"<name>\" (the optional one-shot label)") {
+    Command c{};
+    const char* named = "peerkey 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20 \"Ola K\"";
+    CHECK(parse_command(named, std::strlen(named), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::peerkey);
+    CHECK(c.u.peerkey.ed_pub[0] == 0x01);
+    CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "Ola K");   // spaces survive the quotes
+    // An over-cap name PARSES (on_command refuses it with err_too_large -> the app's "too_long"), so the operator gets
+    // a reason with a remedy instead of a flat bad_args. 40 > protocol::peer_name_max.
+    const std::string over = std::string("peerkey 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20 \"")
+                           + std::string(40, 'X') + "\"";
+    CHECK(parse_command(over.c_str(), over.size(), c) == ParseErr::ok);
+    CHECK(c.body_len == 40);
+    // Refusals: an UNQUOTED label, an unterminated quote, an empty label, a stray flag.
+    const char* unq = "peerkey 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20 Ola";
+    CHECK(parse_command(unq, std::strlen(unq), c) == ParseErr::bad_args);
+    const char* unterm = "peerkey 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20 \"Ola";
+    CHECK(parse_command(unterm, std::strlen(unterm), c) == ParseErr::bad_args);
+    const char* empty = "peerkey 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20 \"\"";
+    CHECK(parse_command(empty, std::strlen(empty), c) == ParseErr::bad_args);
+    const char* flag = "peerkey 0102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f20 -e \"Ola\"";
+    CHECK(parse_command(flag, std::strlen(flag), c) == ParseErr::bad_args);
+}
+
+// ★★ §AB2 (spec 2026-07-29 §2.3): `peername 0x<hash> "<text>"` — EVERY PARSE REFUSAL, which the spec's gate mandates be
+// covered natively. No scenario runs a console verb, so this TEST_CASE is the whole detector for this grammar.
+TEST_CASE("§AB2 parse_command — peername 0x<hash> \"<name>\" and every parse refusal") {
+    Command c{};
+    const char* ok = "peername 0x6c297145 \"Ola K\"";
+    CHECK(parse_command(ok, std::strlen(ok), c) == ParseErr::ok);
+    CHECK(c.kind == CmdKind::peername);
+    CHECK(c.u.peername.key_hash32 == 0x6c297145u);
+    CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "Ola K");
+    // The hash accepts 0X and short forms, exactly like every other 0x target in this file (parse_hex32_0x).
+    const char* upper = "peername 0X1F \"x\"";
+    CHECK(parse_command(upper, std::strlen(upper), c) == ParseErr::ok);
+    CHECK(c.u.peername.key_hash32 == 0x1Fu);
+    // 1. A BARE DECIMAL is refused — there is no id form. Naming an id-only peer is out of scope (spec §4): an id is an
+    //    address, the hash is the identity, so there would be nothing stable to attach the name to.
+    const char* dec = "peername 228 \"Ola\"";
+    CHECK(parse_command(dec, std::strlen(dec), c) == ParseErr::bad_args);
+    // 2. A hash without the 0x prefix — the B1 family: `88A672BA` read as decimal 88 is how `team` silently joined the
+    //    wrong team. Requiring the prefix is what kills the ambiguity.
+    const char* noprefix = "peername 6c297145 \"Ola\"";
+    CHECK(parse_command(noprefix, std::strlen(noprefix), c) == ParseErr::bad_args);
+    // 3. hash 0 = "unset" everywhere in this codebase; never a target.
+    const char* zero = "peername 0x0 \"Ola\"";
+    CHECK(parse_command(zero, std::strlen(zero), c) == ParseErr::bad_args);
+    const char* zero8 = "peername 0x00000000 \"Ola\"";
+    CHECK(parse_command(zero8, std::strlen(zero8), c) == ParseErr::bad_args);
+    // 4. Non-hex digits.
+    const char* nonhex = "peername 0xzzzz \"Ola\"";
+    CHECK(parse_command(nonhex, std::strlen(nonhex), c) == ParseErr::bad_args);
+    // 5. No name at all.
+    const char* noname = "peername 0x6c297145";
+    CHECK(parse_command(noname, std::strlen(noname), c) == ParseErr::bad_args);
+    // 6. An UNQUOTED name (the body must be quoted, as on every send verb).
+    const char* unq = "peername 0x6c297145 Ola";
+    CHECK(parse_command(unq, std::strlen(unq), c) == ParseErr::bad_args);
+    // 7. An unterminated quote.
+    const char* unterm = "peername 0x6c297145 \"Ola";
+    CHECK(parse_command(unterm, std::strlen(unterm), c) == ParseErr::bad_args);
+    // 8. ★ An EMPTY name is REFUSED, not silently treated as "clear the name". v1 offers no clear operation, and a UI
+    //    that passes "" by accident must not wipe a label. If clearing is wanted it gets its own agreed spelling.
+    const char* empty = "peername 0x6c297145 \"\"";
+    CHECK(parse_command(empty, std::strlen(empty), c) == ParseErr::bad_args);
+    // 9. No flags on this verb — every send-tail letter is rejected, so none can grow a second meaning here.
+    for (const char* f : { "peername 0x6c297145 \"Ola\" -a", "peername 0x6c297145 \"Ola\" -e",
+                           "peername 0x6c297145 \"Ola\" -t", "peername 0x6c297145 \"Ola\" -l" })
+        CHECK(parse_command(f, std::strlen(f), c) == ParseErr::bad_args);
+    // 10. Two bodies.
+    const char* two = "peername 0x6c297145 \"Ola\" \"Bob\"";
+    CHECK(parse_command(two, std::strlen(two), c) == ParseErr::bad_args);
+    // 11. An over-cap name PARSES here and is refused by on_command with err_too_large ("too_long"), so the reason names
+    //     its remedy (shorten) rather than collapsing into bad_args (whose remedy is different).
+    const std::string over = std::string("peername 0x6c297145 \"") + std::string(33, 'X') + "\"";
+    CHECK(parse_command(over.c_str(), over.size(), c) == ParseErr::ok);
+    CHECK(c.body_len == 33);
+    // 12. `peername` must not be swallowed by the `peerkey` arm (tok_eq is length-exact) nor fall to unknown_verb.
+    const char* verbonly = "peername";
+    CHECK(parse_command(verbonly, std::strlen(verbonly), c) == ParseErr::bad_args);   // known verb, missing args
 }
 
 // §2 per-message crypt (HARD SWITCH): -e => CRYPTED; absent => the node's e2e_dm default. The old sendhash

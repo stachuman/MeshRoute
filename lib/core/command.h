@@ -20,7 +20,10 @@
 namespace MESHROUTE_NS {
 
 // ---- requests (one cmd-code + a bounded typed payload, like a MeshCore frame) ----
-enum class CmdKind : uint8_t { send, send_layer, send_channel, join, resolve, reqpubkey, peerkey };
+// ★ §AB2: `peername` is APPENDED AT THE END. The sim references these enumerators BY NAME (it includes this header,
+// unlike PushKind/SendFailReason which it bridges on the raw uint8_t), so an insert would not silently renumber a
+// scenario — but appending costs nothing and keeps ONE rule for every enum in this file.
+enum class CmdKind : uint8_t { send, send_layer, send_channel, join, resolve, reqpubkey, peerkey, peername };
 // E2E §8b: per-message crypt intent. `def` follows the node's `e2e_dm`; `on`/`off` force a single DM CRYPTED/plain
 // (the seal gate = want_crypt = (crypt==on)?true : (crypt==off)?false : _cfg.e2e_dm). Console: sendhashx=on, sendhash=off.
 enum class CryptIntent : uint8_t { def = 0, on, off };
@@ -46,6 +49,12 @@ struct ResolveCmd     { uint32_t dst_hash; uint8_t dst_id; bool hard; uint8_t pl
 // E2E §3 (QR import): install a scanned peer's full Ed25519 pubkey as a PINNED (verified) key. key_hash32 = ed_pub[:4]
 // is derived (never trusted from the wire), so only the 32-byte pubkey rides the command.
 struct PeerkeyCmd     { uint8_t ed_pub[32]; };
+// §AB2 (address-book spec 2026-07-29 §2.3): `peername 0x<hash> "<text>"` — set/overwrite the CACHED NAME of a peer
+// already in the key cache, touching neither the key nor the confidence. The name rides Command::body/body_len (the
+// same BORROWED-for-the-call convention `send` uses — U2, no second text carrier), so only the hash needs a field.
+// The hash is the identity (spec §1.2: ids are addresses), which is why there is no id form: naming an id-only peer
+// is explicitly out of scope (§4) — there is nothing stable to attach the name to.
+struct PeerNameCmd    { uint32_t key_hash32; };
 
 struct Command {
     CmdKind kind = CmdKind::send;
@@ -56,6 +65,7 @@ struct Command {
         JoinCmd        join;
         ResolveCmd     resolve;
         PeerkeyCmd     peerkey;
+        PeerNameCmd    peername;
     } u;
     const uint8_t* body     = nullptr;   // BORROWED for the call only (mirrors hal.h on_recv)
     uint8_t        body_len = 0;
@@ -176,6 +186,19 @@ struct Push {
     bool     enc = false;      // §8b: msg_recv -> the DM was delivered SEALED (CRYPTED + opened); channel_recv -> false (cleartext today)
     bool     blocked_channel = false;  // send_blocked: true => "channel", false => "dm"
     bool     relayed = false;          // channel_sent: a relay of our channel post was overheard (true) or the re-offer exhausted (false)
+    // ★★ §AB2 (address-book spec 2026-07-29 §0.1/§2.2): peer_key_cached ONLY — the confidence the cached entry actually
+    // holds, read back out of the live table by Node::push_peer_key_cached. Before this the JSON emitted a HARDCODED
+    // `"pinned":false`, so the app could not tell `overheard` (key present, CANNOT seal) from `authoritative` (can) —
+    // and e2e_seal_inner requires >= authoritative. The app offered "send encrypted", the user tried, and got
+    // `FAILED (no recipient pubkey)`. This field is what makes the contract's existing "gate on conf >= authoritative"
+    // rule usable at all.
+    // ⚠ RAW uint8_t, NOT the enum: node.h INCLUDES this header, so `Node::PeerKeyConf` is not visible here. The
+    // encoding (0 overheard / 1 authoritative / 2 pinned) is pinned by a static_assert next to the enum in node.h —
+    // the same discipline, and the same reason, as device_nv.h's kPeerConf* constants. Default 0 = the SAFE answer
+    // ("cannot seal") for every other push kind and for a hash whose row aged out between cache and drain.
+    // ★ PLACEMENT: byte 11, the alignment pad that already sat between `relayed` (10) and the 2-aligned `ctr` (12) —
+    // measured by offsetof, so sizeof(Push) stays 292 and Node::_push_ring[32] (and sizeof(Node)) do not move.
+    uint8_t  peer_conf = 0;
     uint16_t ctr = 0;
     uint32_t next_ms = 0;              // send_blocked: ms until the origination is allowed (0 = the floor already passed but cap/duty blocks)
     uint32_t sender_hash = 0;      // msg_recv: the DM sender's stable key_hash32 (0 = no SOURCE_HASH). The app's
@@ -189,5 +212,16 @@ struct Push {
     uint8_t  body[protocol::max_payload_bytes_hard_cap] = {};   // msg_recv / channel_recv text (empty otherwise)
     uint8_t  body_len = 0;
 };
+// ★★ §AB2 — PER-ABI, NOT native-only, and deliberately so (the same discipline, and the same wording, as
+// device_nv.h's `sizeof(PeerRec)` assert): this compiles on nRF52/ARM and ESP32/Xtensa too, so the claim that
+// `peer_conf` costs ZERO bytes is verified on every target by the ordinary board build rather than only on the host.
+// It matters because `Push` is a Node member ring (`_push_ring[cap_push_ring]`), so a byte added OUTSIDE the existing
+// alignment pad would multiply by 32 and move `sizeof(Node)` — the D2 trigger. Both halves are asserted: the OFFSETS are
+// the load-bearing claim (peer_conf sits in the pad `uint16_t ctr`'s 2-byte alignment already reserved, which is 2 on
+// every ABI this project targets), and the total is the layout tripwire.
+static_assert(offsetof(Push, relayed) == 10 && offsetof(Push, peer_conf) == 11 && offsetof(Push, ctr) == 12,
+              "command.h: Push::peer_conf left the alignment pad between `relayed` and `ctr` — it now costs real bytes "
+              "x cap_push_ring and sizeof(Node) has moved (see node.h's layout tripwire)");
+static_assert(sizeof(Push) == 292, "command.h: the Push layout moved — Node::_push_ring and sizeof(Node) shift with it");
 
 }  // namespace meshroute

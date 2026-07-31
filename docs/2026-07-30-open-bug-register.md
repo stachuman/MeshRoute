@@ -38,10 +38,18 @@ blocks functionality** — it is all quality, telemetry, plane-parity and dedup.
 4. ~~**B27**~~ ✅ **CLOSED** — removed; ΔFlash negative on all three boards. *(was: owner-ruled REMOVE, not guard)* — it
    deletes a forked surface. **Remove the write, KEEP every read** — see the entry; tag `0x12` is **not** retired.
 5. ~~**B28**~~ ✅ **CLOSED** — enforced at 3 points + 2 refusals; 36/36 byte-identical. *(was: owner-ruled auto-set `is_mobile`)* (two enforcement points, one-directional, reported not silent — see the entry)
-6. **AB1 → AB2 → AB3** — `docs/superpowers/specs/2026-07-29-peer-address-book-design.md`. **Fully unblocked** — nothing
+6. **AB1 → AB2 → AB3** **→ AB4 (DM source)** — ★★ **OWNER RULING 2026-07-31: finish the address book FULLY first; channel
+   crypt is SPEC-ONLY for now.** ⇒ **AB4 is RESCOPED, not blocked:** its **DM** location source is **live today** (CL3
+   shipped `send -l`; the receive path already parses, authenticates and emits the position — only *retention* is
+   missing), and it is the **better-authenticated** half (pairwise, not group). The **channel** source is the part that
+   needs CL2 and is marked `✖ MISSING` with CL2 as its trigger. ★ Build `loc_src` (`peer`|`team`) from the start so CL2
+   later adds a *source*, not a *schema change*. ⚠ **AB4 moves `sizeof(Node)`** (256 B ring) ⇒ D2 in full.
    in this register touches them. (⚠ **B18 is worth taking before AB3**, which rewires `hashof`/`nameof` onto the view:
    better than building the view over a known-wrong read path.)
-7. **B22 → CL2 → AB4** — ★★ **AB4 (retained location) is GATED ON CL2, and CL2 IS NOT BUILT:** `channel_flavor_crypted`
+7. **B22 → CL2 → AB4** ★★ **CL2 NOW CARRIES A WIRE DECISION (owner correction 2026-07-31):** `send_channel -t -l -e` is wanted, so
+   T-K2's `[inner_type u8]` — an XOR of text-or-location — **cannot express it** and must become a **FLAGS byte**
+   (`bit0` text, `bit1` location), with **`pack_loc6` (6 B)** not the 8 sketched. **Settle it when CL2 builds; afterwards it
+   is a wire change.** See the channel-crypt spec **§2.2.1** + **open decision O6** (what `-t -l` without `-e` refuses on). — ★★ **AB4 (retained location) is GATED ON CL2, and CL2 IS NOT BUILT:** `channel_flavor_crypted`
    / `team_channel_crypt` / `team_channel_no_key` have **zero hits in the tree** (QA-verified 2026-07-31). T-K1/T-K1b/T-K3
    built the team **keypair**; **nothing seals a channel message with it.** The O5 ruling makes the **team content key the
    trust anchor** for a stored location — so building AB4 first would either ship a setter with no live source, or trust a
@@ -148,6 +156,41 @@ scenario was relying on the broken behaviour. Attribute it and report before pro
 | **D1** | ★ **inert on 34/36 — but it DISARMS `s35a`/`s38`.** Read the entry before starting |
 
 ## Tier 1 — silent or destructive
+
+★★★★ **2026-07-31 (later the same day): TIER 1 IS NOT EMPTY ANY MORE — `§ab3` found a SHIPPED DEVICE HANG. See B29.**
+
+### B29 — ★★★★ `key_hash_for_id` **NEVER RETURNS ON A MISS** — an infinite loop on the device · **NEW 2026-07-31**
+`lib/core/node.h:672`:
+```cpp
+for (uint8_t i = 0; i < protocol::cap_id_bind; ++i)   // cap_id_bind = 256
+```
+★★ **`uint8_t i` spans 0…255, so `i < 256` is ALWAYS TRUE** — `++i` wraps 255→0 and the trailing `return 0` at `:674` is
+**unreachable**. ⇒ **on a miss the function never returns.** **QA-verified in source**, and the coder reproduced it: a test
+asserting the miss case spun the native suite for **16 minutes with no output**.
+⚠⚠ **It is worse than "it hangs": the function is `const` and side-effect-free, so an infinite loop here is
+UNDEFINED BEHAVIOUR** (C++11+). The compiler may hang, elide the loop, or return garbage, **and the outcome can differ
+per optimisation level and per target** — which makes it untestable rather than merely broken.
+**Two live call sites, both behind `unlock`:**
+- `src/firmware_remote.cpp:195` — `rcmd <unknown-id> <gated-verb>`
+- `src/fw_main.cpp:1264` — a sealed rcmd **response** from a node whose beacon we never heard
+★★ **The proof it was unintended is the NEXT LINE of the first site:** `if (!th) { … "unknown id (no beacon heard from it
+yet)" … }` — **dead code.** Someone wrote a miss-handler for a function that can never report a miss.
+⚠ **Secondary defect at the same line:** it scans the whole 256-row array rather than the live `_id_bind_n` prefix, and
+the compacting removers leave stale copies in the tail ⇒ **it can return the hash of an EVICTED binding.**
+**FIX — one line, closes both:** `for (uint16_t i = 0; i < _active->_id_bind_n; ++i)`.
+★ The correct sibling **`key_hash_of_id`** (used by the send path and by AB3's view) is properly bounded — so this is a
+one-off, not a pattern. Marked `✖✖` in-source with the fix and the reachability, plus a test pinning the terminating
+direction and a **"do not restore the miss-case assertion"** warning so nobody re-hangs the suite.
+⚠ **BENCH WARNING: do not run `rcmd <unknown-id> <gated-verb>` on metal until this is fixed — it will hang the node.**
+Note: `§ab3`.
+
+### B30 — `team_id_of_key` silently first-matches an ALIASED hash · NEW 2026-07-31
+`lib/core/node_routing.cpp:855` returns the **first** id whose team-key row carries the hash. ★ **`_team_keys` genuinely
+can alias:** `team_key_set` upserts **by id only** and never dedups by hash, so a teammate that re-runs team-DAD leaves
+its old `(id, hash)` row live for the full 48 h TTL. ⇒ on the **live plaintext send-by-hash path** the node may pick the
+**stale** id — exactly the silent-pick the address-book spec §2.1 forbids for the view.
+★ **The reference implementation already exists:** AB3's `team_id_of_key_freshest(hash, &alias_dropped)` picks max
+`last_seen_ms` and **reports the loser count**. Fix = route this site through it (U1). Not fixed (C1). Note: `§ab3`.
 
 ★★ **2026-07-31: TIER 1 IS NOW EMPTY — B0, the last live leak, is CLOSED.** Both Tier-1 bugs found *inside* this arc were fixed: the cross-layer cleartext downgrade
 (`§xl-crypt`, `65833f2`) and the silently-dropped delegated sealed DM (`§deleg-ack-xl`, `442809b`).

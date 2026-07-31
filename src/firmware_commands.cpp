@@ -113,6 +113,27 @@ size_t handle_peerkey(char* out, size_t cap, const meshroute::Command& cmd) {
     return (size_t)snprintf(out, cap, "{\"ev\":\"peerkey_set\",\"hash\":%lu,\"pinned\":true}\n", (unsigned long)kh);
 }
 
+// ★ §AB2 (spec 2026-07-29 §2.3): a `peername` command -> rename the RAM entry (Node::on_command -> peer_name_set) +
+// mirror it to /mrpeers + the SYNCHRONOUS ack. Deliberately the same three-step shape as handle_peerkey above (U3), and
+// the persistence is AB1's ONE-LINER: peer_store_sync takes only a hash and reads EVERY field back out of the live
+// table, so no caller can persist a name that disagrees with RAM (U2). The RAM write must therefore come FIRST.
+// ⚠ The NV outcome is DISCARDED here for the same reason it is in handle_peerkey (§nv-unchecked [5/5]): the ack claims
+// success on the strength of the RAM write, which is what the operator asked for and what every read path uses. An
+// owner ruling on surfacing NV failures is still owed and covers both verbs together.
+// ★ A rename of a PINNED peer SUCCEEDS — peer_name_set touches neither key nor confidence, so peer_key_set's
+// "pinned is immutable to an on-air set" rule is not in play (see node.h). peer_store_sync then re-mirrors the record at
+// its UNCHANGED confidence, so a pinned peer stays pinned in /mrpeers with the new name.
+size_t handle_peername(char* out, size_t cap, const meshroute::Command& cmd) {
+    const uint32_t kh = cmd.u.peername.key_hash32;
+    const meshroute::CmdResult r = g_node.on_command(cmd);
+    if (r.code != meshroute::CmdCode::queued)
+        return meshroute::console::write_peer_name_err(out, cap,
+                   r.code == meshroute::CmdCode::err_too_large ? "too_long" : "unknown_hash");
+    (void)peer_store_sync(kh);
+    return meshroute::console::write_peer_name_set(out, cap, kh,
+               reinterpret_cast<const char*>(cmd.body), cmd.body_len);
+}
+
 // ---- device-console diagnostics (host tool: tools/meshroute_client.py) ---------------------------
 // Print the live routing table in the meshroute_client `routes` wire format.
 // `route add <dest> <next_hop> <hops> [score_q4]` / `route del <dest>` — manually force / drop a route. A TESTING lever
@@ -473,26 +494,103 @@ static void handle_lookup(const char* arg, size_t n, Print& out) {
 }
 
 // §1.3 `nameof 0x<hash>` — the cached human name for a peer's key_hash32 (learned via the pubkey exchange, refreshed on each).
+// ★ §AB3: reads the GENERATED address-book view (spec §2.1), not peer_name_find alone, so it also reports which
+// namespace(s) that hash answers to. `nameof`, `hashof` and `peers` now share ONE read path by construction — the
+// §2.5 defect was three verbs each reading one table and disagreeing about one identity.
 static void handle_nameof(const char* arg, size_t n, Print& out) {
     while (n && *arg == ' ') { ++arg; --n; }
     if (n < 3 || arg[0] != '0' || (arg[1] != 'x' && arg[1] != 'X')) { out.println(F("> nameof err: hash must be 0x-prefixed (e.g. nameof 0x8a3f1c02)")); return; }
     const uint32_t hash = (uint32_t)strtoul(arg + 2, nullptr, 16);
-    char nm[32]; const uint8_t nl = g_node.peer_name_find(hash, nm, sizeof nm);
-    // §S6: JSON answer {"ev":"peer_name","hash":<dec u32>[,"name":"…"]} (name omitted when unknown) — app-facing query verb.
-    const size_t m = meshroute::console::write_peer_name(s_inbox_jb, sizeof s_inbox_jb, hash, nm, nl);
+    meshroute::Node::PeerBookRow row{};
+    (void)g_node.peer_book_by_hash(hash, row);   // false = nothing known -> the row is zeroed and every field omits
+    // §S6: JSON answer {"ev":"peer_name","hash":<dec u32>[,"name":"…"][,"static_id":N][,"team_id":N]} — app-facing query verb.
+    const size_t m = meshroute::console::write_peer_name(s_inbox_jb, sizeof s_inbox_jb, hash, row.name, row.name_len,
+                                                        row.static_id, row.team_id);
     if (m) out.write(s_inbox_jb, m);
 }
 
-// `hashof <id>` — reverse lookup: a node short-id -> its key_hash32 (AUTHORITATIVE bindings only — a node we
-// can vouch for). Decimal id 0..254.
+// One `[hashof]` answer line. `queried` is what the operator typed; `row.team_id` may DIFFER when two team ids alias one
+// hash — that is the ambiguity spec §2.1 forbids resolving silently, so the alias is named on the line.
+static void hashof_print_row(Print& out, uint8_t queried, bool team_plane, const meshroute::Node::PeerBookRow& row) {
+    out.print(F("[hashof] id=")); out.print(queried);
+    out.print(team_plane ? F(" team -> 0x") : F(" static -> 0x")); out.print(row.hash, HEX);
+    if (row.name_len) { out.print(F(" name=\"")); out.write(row.name, row.name_len); out.print('"'); }
+    if (team_plane && row.team_id && row.team_id != queried) {          // freshest-wins picked a DIFFERENT id for this hash
+        out.print(F(" (ALIASED: team id ")); out.print(row.team_id); out.print(F(" is FRESHER for this hash)"));
+    }
+    if (row.team_alias_dropped) { out.print(F(" +")); out.print(row.team_alias_dropped); out.print(F(" stale team-id alias dropped")); }
+    out.println();
+}
+
+// `hashof <id> [-t|-s]` — an id -> its key_hash32, answered from the VIEW (spec §2.5).
+// ★★ THE DEFECT THIS FIXES, bench-proven 2026-07-30: `reqpubkey <id>` reads the TEAM key cache and `hashof <id>` read
+// only the STATIC _id_bind, so `reqpubkey 228` cached 0x6C297145 and `hashof 228` still said `unknown`. Each verb was
+// correct about its own table; neither answered the question. Now BOTH namespaces are searched and the matching plane is
+// NAMED — and when one number matches in both (the §18 dual-identity space) BOTH lines print, never one silently chosen.
+// ⚠⚠ The tempting repair — writing the team hash into _id_bind — is FORBIDDEN (spec §2.5): that is the plane-blind
+// ingest closed on 2026-07-31 (§id-bind-plane), an I2 breach. The fix is a READ of the view; nothing is written here.
+// `-t` / `-s` narrow the search when the caller already knows the plane (the `send -t` / `reqpubkey -t` idiom, U3).
 static void handle_hashof(const char* arg, size_t n, Print& out) {
     while (n && *arg == ' ') { ++arg; --n; }
-    if (!n) { out.println(F("> hashof err bad_args (id 0..254)")); return; }
+    if (!n) { out.println(F("> hashof err bad_args (id 1..254 [-t|-s])")); return; }
+    bool only_team = false, only_static = false;
+    for (size_t i = 0; i + 1 < n; ++i)
+        if (arg[i] == '-') { if (arg[i + 1] == 't') only_team = true; else if (arg[i + 1] == 's') only_static = true; }
+    if (only_team && only_static) { out.println(F("> hashof err bad_args (-t and -s are exclusive)")); return; }
     const int id = atoi(arg);
-    uint32_t hash = 0;
-    out.print(F("[hashof] id=")); out.print(id);
-    if (id >= 0 && id <= 254 && g_node.key_hash_of_id((uint8_t)id, hash)) { out.print(F(" -> 0x")); out.println(hash, HEX); }
-    else                                                                  out.println(F(" -> unknown"));
+    if (id < 1 || id > 254) { out.print(F("[hashof] id=")); out.print(id); out.println(F(" -> unknown (id must be 1..254)")); return; }
+    meshroute::Node::PeerBookRow st{}, tm{};
+    const uint8_t mask = g_node.peer_book_by_id((uint8_t)id, st, tm);
+    const bool show_static = (mask & meshroute::Node::kPeerBookStatic) && !only_team;
+    const bool show_team   = (mask & meshroute::Node::kPeerBookTeam)   && !only_static;
+    if (show_static) hashof_print_row(out, (uint8_t)id, /*team_plane=*/false, st);
+    if (show_team)   hashof_print_row(out, (uint8_t)id, /*team_plane=*/true,  tm);
+    if (!show_static && !show_team) {
+        out.print(F("[hashof] id=")); out.print(id);
+        out.print(F(" -> unknown"));
+        if (only_team)        out.print(F(" (team plane; drop -t to search both)"));
+        else if (only_static) out.print(F(" (static plane; drop -s to search both)"));
+        else                  out.print(F(" (neither plane — no beacon heard; try `reqpubkey`)"));
+        out.println();
+    }
+}
+
+// ★★ §AB3 `peers` / `peers all` — the GENERATED address book as text (spec §2.1). The bounded form (rows backed by the
+// 16-slot peer-key cache) is the address book proper; `peers all` adds the up-to-256 id-only diagnostic rows and is
+// TEXT-CONSOLE ONLY per the §2.6(a) ruling — a few hundred rows over BLE is the self-inflicted console-flood wedge this
+// project has already fixed once (the mrcon drop-never-block sink). U3: line shape mirrors dump_routes' `[route] k=v`.
+static void peers_text_row(const meshroute::Node::PeerBookRow& r, void* ctx) {
+    Print& out = *static_cast<Print*>(ctx);
+    out.print(F("[peer]"));
+    if (r.hash) { out.print(F(" hash=0x")); out.print(r.hash, HEX); }
+    if (r.name_len) { out.print(F(" name=\"")); out.write(r.name, r.name_len); out.print('"'); }
+    if (r.static_id) { out.print(F(" static_id=")); out.print(r.static_id); out.print(r.static_authoritative ? F("(auth)") : F("(claimed)")); }
+    if (r.team_id)   { out.print(F(" team_id="));   out.print(r.team_id); }
+    if (r.has_key) { out.print(F(" conf=")); out.print(meshroute::console::peerkeyconf_name(r.conf));
+                     out.print(F(" confirmed=")); out.print(r.peer_confirmed ? 1 : 0); }
+    else if (r.hash && r.name_len) out.print(F(" key=AGED(unusable — reqpubkey to refresh)"));
+    if (r.team_alias_dropped) { out.print(F(" +")); out.print(r.team_alias_dropped); out.print(F(" stale team-id alias dropped")); }
+    out.println();
+}
+static void dump_peers(Print& out, bool all) {
+    const uint16_t n = g_node.peer_book_walk(all, peers_text_row, &out);
+    if (!n) out.println(F("empty"));
+    out.print(F("[peers] count=")); out.print(n);
+    out.print(all ? F(" (all: keyed + id-only)") : F(" (keyed only — `peers all` adds id-only rows)"));
+    out.println();
+}
+
+// `peers` over BLE/companion: the BOUNDED book only — one {"ev":"peer",…} per _peer_keys-backed row then
+// {"ev":"peers_end","count":N}. Mirrors handle_routes exactly (U3), including the shared s_inbox_jb scratch.
+static void peers_json_row(const meshroute::Node::PeerBookRow& r, void* ctx) {
+    Print& out = *static_cast<Print*>(ctx);
+    const size_t m = meshroute::console::write_peer_row(s_inbox_jb, sizeof s_inbox_jb, r);
+    if (m) out.write(s_inbox_jb, m);
+}
+void handle_peers(Print& out) {
+    const uint16_t n = g_node.peer_book_walk(/*include_id_rows=*/false, peers_json_row, &out);
+    const size_t m = meshroute::console::write_peers_end(s_inbox_jb, sizeof s_inbox_jb, n);
+    if (m) out.write(s_inbox_jb, m);
 }
 
 // `whoami` — this node's own identity + role. The hash printed here is what a peer types into `sendhash` to
@@ -574,8 +672,13 @@ static void dump_help(Print& out) {
     hl(F("  send_layer <0xhash> <l1,l2,…> \"<text>\" [-a] [-e]   explicit cross-layer destination path; -e=encrypt (sealed relay); -l is refused (cross-layer carries no position)"));
     hl(F(""));
     hl(F("IDENTITY / KEYS"));
-    hl(F("  whoami | lookup 0x<hash> | hashof <id> | nameof 0x<hash> | resolve 0x<hash> [hard]   (hashes are 0x-prefixed; hashof prints 0x…)"));
-    hl(F("  peerkey <ed_pub hex64>      pin a scanned/QR pubkey"));
+    hl(F("  whoami | lookup 0x<hash> | hashof <id> [-t|-s] | nameof 0x<hash> | resolve 0x<hash> [hard]   (hashes are 0x-prefixed; hashof prints 0x…)"));
+    hl(F("    hashof searches BOTH id planes (static node_id and team local id) and NAMES the one that matched;"));
+    hl(F("    -t/-s narrow it. One number can legitimately answer in both — then both lines print."));
+    hl(F("  peers | peers all    the address book: known peers (hash, name, static/team id, key confidence)."));
+    hl(F("    plain = the 16 rows we hold a key for (also the JSON book over BLE); `all` adds id-only rows (console only)."));
+    hl(F("  peerkey <ed_pub hex64> [\"<name>\"]   pin a scanned/QR pubkey (optional one-shot label, max 32)"));
+    hl(F("  peername 0x<hash> \"<name>\"  rename a CACHED peer (key + confidence untouched; works on a pinned peer)"));
     hl(F("  reqpubkey <0xhash|team-id>  request a peer's key on-air (0xhash, or a bare team-id via the team cache)"));
 #if MR_N_LAYERS < 2
     hl(F(""));
@@ -728,6 +831,15 @@ bool dispatch(const char* line, size_t len, Print& out) {   // §command-sink-co
         static char tb[512]; strncpy(tb, line + 6, sizeof tb - 1); tb[sizeof tb - 1] = '\0'; handle_testsched(tb, /*channel=*/true, out);  return true; }
     if ((len == 9 || (len > 9 && line[9] == ' ')) && !strncmp(line, "crashtest", 9)) { fw_crashtest(line + 9, out); return true; }
     if (len == 6 && !strncmp(line, "routes", 6))   { dump_routes(out); return true; }
+    // ★ §AB3: `peers` = the bounded address book; `peers all` = + the id-only diagnostic rows (text only, §2.6(a)).
+    // C2: any other tail refuses loud rather than being read as `all`.
+    if (len == 5 && !strncmp(line, "peers", 5))    { dump_peers(out, /*all=*/false); return true; }
+    if (len > 5 && !strncmp(line, "peers ", 6)) {
+        const char* a = line + 6; size_t an = len - 6;
+        while (an && *a == ' ') { ++a; --an; }
+        if (an == 3 && !strncmp(a, "all", 3)) { dump_peers(out, /*all=*/true); return true; }
+        out.println(F("> peers err bad_args (usage: peers | peers all)")); return true;
+    }
     if (len > 6 && !strncmp(line, "route ", 6))     { handle_route_cmd(line + 6, out); return true; }   // manual route inject/del (testing)
     if (len == 6 && !strncmp(line, "status", 6))   { dump_status(out); return true; }
     if (len == 4 && !strncmp(line, "duty", 4))     { dump_duty(out);   return true; }

@@ -320,7 +320,21 @@ already is for the team content key under the `team exportkey` ruling). Register
   round-trip incl. a v1-blob rejection test.
 - **AB2** — `peername` (+ optional `peerkey name=`), and `peer_key_cached` gains `conf`. Gate: byte-identical;
   native for every refusal; a JSON golden for `conf`.
-- ★★ **AB4 — BLOCKED ON CL2, ruled 2026-07-31. Do NOT start it before team channel encryption exists.**
+- ★★★ **AB4 — RESCOPED 2026-07-31 (owner: *"we finish address book fully before moving to channel message. For channel
+  messages encrypted — only update spec."*): BUILD THE DM SOURCE NOW, DEFER THE CHANNEL SOURCE.**
+  ★ **The two sources of §2.7.2 have different anchors AND different readiness, and only one needs CL2:**
+  **(1) DM with `DATA_FLAG_LOCATION` — LIVE TODAY.** CL3 shipped `send -l`, and `node_mac_rx.cpp:1189-1194` already
+  parses the location, **already distinguishes sealed from plaintext**, already pushes it, and already emits
+  `peer_location{origin, hash, lat_e7, …}` with **`sender_hash` in scope** — §2.7 is explicit that **only RETENTION is
+  missing.** This is also the **better-authenticated** half (pairwise, not group).
+  **(2) team channel post — needs CL2**, which is now **spec-only** by owner ruling.
+  ⇒ **AB4 = the `_peer_loc` ring (§2.7.1) + the setter fed from source (1) + the view row + `loc_src` — and the CHANNEL
+  arm marked `✖ MISSING` with CL2 named as its trigger.** ★★ **Build `loc_src` (∈ `peer` | `team`) FROM THE START even
+  though only `peer` can occur yet:** then CL2 later adds a **source**, not a **schema change** — the app ships one
+  renderer, and the weaker group-anchored claim can never be silently rendered as the stronger pairwise one.
+  ⚠ **This is the one AB slice that moves `sizeof(Node)`** (a 256 B `Node` member) ⇒ **D2 in full**, and the six-env grid
+  **only if the measurement says so**. **After AB3** (it needs the view).
+- ~~**AB4 — BLOCKED ON CL2**~~ *(superseded by the rescope above; the CL2 dependency applies to the CHANNEL source only)*
   QA-verified 2026-07-31: `channel_flavor_crypted` / `team_channel_crypt` / `team_channel_no_key` have **ZERO hits in the
   tree**. T-K1/T-K1b/T-K3 built the team **keypair** (derive, export, grant); **nothing seals a channel message with it.**
   ⇒ §2.7.1's trust anchor — *the* reason a channel-sourced location is trusted at all (owner ruling O5: *"if message is

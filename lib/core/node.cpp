@@ -1415,9 +1415,34 @@ CmdResult Node::on_command(const Command& c) {
         case CmdKind::peerkey: {     // §3: QR import — install the scanned full pubkey as a PINNED (verified) key.
             const uint8_t* ep = c.u.peerkey.ed_pub;             // key_hash32 = ed_pub[:4] (derived, never trusted from the wire)
             const uint32_t kh = key_hash32_of(ep);   // §P2-6: identity.h owns the LE(ed_pub[:4]) derivation
-            if (!peer_key_set(kh, ep, PeerKeyConf::pinned))    // false only when the cache is full of pinned keys (peer_key_full)
+            // §AB2 (spec §2.3): the OPTIONAL one-shot name — `peerkey <hex64> "<label>"`, for the QR-import flow where
+            // the key and the label arrive together. It rides Command::body and lands in the SAME peer_key_set name
+            // parameter `peername` uses, so there is one write path (U1/U2). REFUSED past the cap rather than clamped:
+            // the on-air callers may truncate a foreign advertisement, but an operator label the user typed must not be
+            // silently shortened (C2 — the same rule and the same `too_long` outcome as `team grantkey name=`).
+            if (c.body_len > protocol::peer_name_max)
+                return CmdResult{ CmdCode::err_too_large, 0, _active->_tx_queue_n };
+            if (!peer_key_set(kh, ep, PeerKeyConf::pinned, reinterpret_cast<const char*>(c.body), c.body_len))    // false only when the cache is full of pinned keys (peer_key_full)
                 return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };
             return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n };
+        }
+        // ★ §AB2 (spec 2026-07-29 §2.3): `peername 0x<hash> "<text>"` — rename a CACHED peer. Purely local table state:
+        // no frame, no airtime, no push, and the result is known NOW, which is why §2.6(b) ruled the ack SYNCHRONOUS
+        // (a push would have needed a new PushKind, and the sim bridges that enum on its raw uint8_t).
+        // Refusals reuse EXISTING CmdCodes, so no contract enum is extended (C4):
+        //   · name > cap      -> err_too_large   (the app sees "too_long");
+        //   · hash not cached -> err_unknown_dst (the app sees "unknown_hash"). ⚠ NOT unprovisioned- or route-gated:
+        //                        renaming a contact is a local edit and must work on a node that has joined nothing.
+        //   · body_len == 0   -> also err_too_large, as an API-level backstop only. The CONSOLE never gets here with an
+        //                        empty name (console_parse.cpp refuses `peername 0x… ""` as bad_args, because "too_long"
+        //                        would be an actively misleading reason for it) — this guard exists for a direct
+        //                        on_command caller (a test, or the sim) so peer_name_set is never handed a 0-length name.
+        case CmdKind::peername: {
+            if (c.body_len == 0 || c.body_len > protocol::peer_name_max)
+                return CmdResult{ CmdCode::err_too_large, 0, _active->_tx_queue_n };
+            if (!peer_name_set(c.u.peername.key_hash32, reinterpret_cast<const char*>(c.body), c.body_len))
+                return CmdResult{ CmdCode::err_unknown_dst, 0, _active->_tx_queue_n, c.u.peername.key_hash32, /*layer_path*/ 0 };
+            return CmdResult{ CmdCode::queued, 0, _active->_tx_queue_n, c.u.peername.key_hash32, /*layer_path*/ 0 };
         }
         case CmdKind::send_layer: {                          // Slice 4d: cross-layer DM origination (§5)
             if (_node_id == 0)                               return CmdResult{ CmdCode::err_unprovisioned, 0, _active->_tx_queue_n };

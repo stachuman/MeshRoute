@@ -140,6 +140,26 @@ struct RouteRow {
 size_t write_route    (char* buf, size_t cap, const RouteRow& r);
 size_t write_routes_end(char* buf, size_t cap, uint32_t count);
 
+// ★★ §AB3 — the ADDRESS BOOK stream (spec 2026-07-29 §2.1), route/routes_end's shape exactly (U3):
+//   {"ev":"peer","hash":<dec u32>,"conf":"…","confirmed":<bool>[,"name":"…"][,"static_id":N][,"team_id":N]
+//    [,"team_alias":N][,"aged":true]}   …then  {"ev":"peers_end","count":N}
+// ★ NO parallel row struct — it takes Node::PeerBookRow, the GENERATED view's own carrier, so there is exactly one
+// definition of a book row in the tree (U2; write_cfg already takes NodeConfig the same way).
+// ★★ BOUNDED BY CONSTRUCTION per the §2.6(a) ruling: the caller streams only rows backed by _peer_keys (≤ 16), so
+// `hash` is always present and non-zero HERE. The up-to-256 id-only diagnostic list is TEXT-console only (`peers all`) —
+// emitting it over BLE walks back into the self-inflicted console-flood wedge this project already fixed once.
+// FIELD CONTRACT:
+//   `conf`      — the level, NOT a boolean. ★ The app must gate "send encrypted" on conf >= authoritative; presence of
+//                 a key is not sealing capability (spec §2.2, and §0.1 is the bug that proves it).
+//   `aged`      — present only when the cached key is past its TTL and therefore UNUSABLE. `conf` is then already
+//                 reported as "overheard", so a consumer that ignores `aged` still cannot over-claim.
+//   `confirmed` — §S2 peer_confirmed: THEY hold OUR key, so a sealed reply can come back. Always present.
+//   `team_alias`— >0 ⇒ that many OTHER team ids also cache this hash and lost the freshest-wins race. Never silently
+//                 dropped (spec §2.1's explicit requirement that the emit says so).
+size_t write_peer_row (char* buf, size_t cap, const Node::PeerBookRow& r);
+size_t write_peers_end(char* buf, size_t cap, uint32_t count);
+size_t write_peers_err(char* buf, size_t cap, const char* reason);   // {"ev":"peers_err","reason":"console_only"}
+
 // The node config as one JSON object (read-only display v1). Device extras not in NodeConfig are
 // pre-converted to integers here (no float on the wire — newlib-nano printf can't do %f/%lld).
 struct CfgExtras {
@@ -204,8 +224,18 @@ size_t write_mobile_gw    (char* buf, size_t cap, uint8_t gw, uint8_t leaf);
 size_t write_mobile_net   (char* buf, size_t cap, uint8_t layer, const char* name, size_t name_len,
                            uint32_t freq_khz, uint8_t sf, uint32_t bw_hz);
 size_t write_mobile_gw_end(char* buf, size_t cap, uint8_t gws, uint8_t nets);
-// §S6: `nameof` answer — {"ev":"peer_name","hash":<dec u32>[,"name":"…"]} (name omitted when unknown).
-size_t write_peer_name    (char* buf, size_t cap, uint32_t hash, const char* name, size_t name_len);
+// §S6: `nameof` answer — {"ev":"peer_name","hash":<dec u32>[,"name":"…"][,"static_id":N][,"team_id":N]} (name omitted
+// when unknown). ★ §AB3: the two id fields are ADDITIVE (omit-when-0) and come from the generated view, so `nameof`
+// now answers the spec §2.5 question directly — *"0x6C297145 is team id 228"* — instead of leaving the caller to guess
+// which namespace an id lives in. Existing consumers are unaffected: the first two fields and their order are unchanged.
+size_t write_peer_name    (char* buf, size_t cap, uint32_t hash, const char* name, size_t name_len,
+                           uint8_t static_id = 0, uint8_t team_id = 0);
+// ★ §AB2: the `peername` verb's SYNCHRONOUS ack + refusal (spec 2026-07-29 §2.3, mechanism ruled in §2.6(b) — an ack,
+// deliberately NOT a push, so no PushKind is touched). Same hash convention as write_peer_name above (decimal u32).
+//   {"ev":"peer_name_set","hash":<dec u32>,"name":"…"}   — the name is ECHOED, so the app confirms what was stored
+//   {"ev":"peer_name_err","reason":"unknown_hash"|"too_long"|"bad_args"}
+size_t write_peer_name_set(char* buf, size_t cap, uint32_t hash, const char* name, size_t name_len);
+size_t write_peer_name_err(char* buf, size_t cap, const char* reason);
 
 // Phase-3 inbox sync (schema: ios-companion/INBOX_SYNC_CONTRACT.md). The pull stream = inbox_dm* then
 // inbox_channel* (oldest-first) then inbox_end; mark_read acks via write_inbox_marked. Fields individual to
@@ -226,5 +256,9 @@ const char* cmdcode_name(CmdCode c);
 const char* pushkind_name(PushKind k);
 const char* sendfailreason_name(SendFailReason r);      // send_failed / send_blocked `reason` (out-of-range -> "none")
 const char* joinrefusereason_name(JoinRefuseReason r);  // join_refused `reason` (out-of-range -> "none")
+// ★ §AB2: peer_key_cached `conf` (out-of-range -> "overheard", the LEAST capable level — never over-claim a sealing
+// capability). Takes Node::PeerKeyConf so -Wswitch guards completeness; Push carries it as a raw uint8_t because
+// command.h cannot see node.h (see the encoding static_assert beside the enum).
+const char* peerkeyconf_name(Node::PeerKeyConf c);
 
 }  // namespace meshroute::console

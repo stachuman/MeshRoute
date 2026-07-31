@@ -24,6 +24,10 @@ namespace mrfw {
 
 // E2E §3: a `peerkey` command -> install the RAM PINNED key + persist to /mrpeers + the contract ack.
 size_t handle_peerkey(char* out, size_t cap, const meshroute::Command& cmd);
+// ★ §AB2: a `peername` command -> rename the RAM entry + mirror to /mrpeers + the SYNCHRONOUS ack (spec 2026-07-29
+// §2.3/§2.6(b): an ack, NOT a push — nothing is asynchronous, and no PushKind is touched). Same call sites as
+// handle_peerkey: service_console (USB) and ble_dispatch_line.
+size_t handle_peername(char* out, size_t cap, const meshroute::Command& cmd);
 
 // §AB1 the /mrpeers address book (spec 2026-07-29 §2.4). The RECORD POLICY lives in mrnv:: (device_nv.h, pure +
 // host-tested); these two are the I/O half, and they share one static blob buffer inside firmware_commands.cpp.
@@ -40,6 +44,10 @@ void print_identity(const mrnv::IdBlob& idb);                       // setup()
 void print_sf_list(uint16_t bitmap);                                // setup() + mesh_service_once()
 const char* board_name();                                           // ble_dispatch_line `version`
 void handle_routes(Print& out);                                     // ble_dispatch_line `routes`
+// ★ §AB3: `peers` over BLE/companion — the BOUNDED (≤ cap_peer_keys) JSON address book, `peer`* then `peers_end`.
+// The full up-to-256 id-only list is deliberately NOT reachable here (§2.6(a)); ble_dispatch_line refuses `peers all`
+// with peers_err{console_only} rather than streaming a few hundred rows over a link that has wedged this node before.
+void handle_peers(Print& out);                                      // ble_dispatch_line `peers`
 meshroute::console::StatusFields make_status_fields();              // ble_dispatch_line `status`
 const char* node_state_str();                                       // ble_dispatch_line `status`
 meshroute::console::CfgExtras make_cfg_extras();                    // ble_dispatch_line `cfg`

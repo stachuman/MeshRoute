@@ -1553,6 +1553,221 @@ TEST_CASE("§3 peerkey — on_command installs a PINNED (verified) peer key") {
     CHECK(node.peer_key_find(id.key_hash32, out, &conf));            // resolved by the DERIVED key_hash32 (== ed_pub[:4])
     CHECK(conf == Node::PeerKeyConf::pinned);                        // a QR scan -> a verified PINNED key
     bool same = true; for (int i = 0; i < 32; ++i) if (out[i] != id.ed_pub[i]) same = false; CHECK(same);
+    CHECK(node.peer_name_find(id.key_hash32, nullptr, 0) == 0);      // §AB2: a nameless peerkey stores NO name (the shipped shape)
+}
+
+// ★★ §AB2 (address-book spec 2026-07-29 §2.3) — Node::peer_name_set, the engine half of the `peername` verb, and the
+// ONE name writer for _peer_keys (peer_key_set now delegates its two name-copy sites to it).
+// Nothing in the corpus can reach this: no scenario runs a console verb, and the sim's push bridge emits only
+// ctr/dst/kind. These cases are the entire detector.
+TEST_CASE("§AB2 peer_name_set — renames a cached peer, refuses an unknown hash, clamps at the cap") {
+    TestHal hal; Node node(hal, 5, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); node.on_init(cfg);
+    uint8_t seed[32]; for (int i = 0; i < 32; ++i) seed[i] = static_cast<uint8_t>(i + 3);
+    Identity id{}; identity_from_seed(id, seed);
+    char nm[64] = {};
+    // 1. C2: NO ROW -> refuse, and (the explicit spec §2.3 rule) do NOT create a keyless placeholder as a side effect.
+    CHECK_FALSE(node.peer_name_set(id.key_hash32, "Ola", 3));
+    CHECK(node.peer_key_count() == 0);
+    // 2. Cache the key with a name, then RENAME it.
+    hal._now = 5000;
+    CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::authoritative, "MeshRoute node: 0x6c29", 22));
+    CHECK(node.peer_name_find(id.key_hash32, nm, sizeof nm) == 22);
+    hal._now = 9000;                                                  // time MOVES between the cache and the rename
+    CHECK(node.peer_name_set(id.key_hash32, "Ola K", 5));
+    CHECK(node.peer_name_find(id.key_hash32, nm, sizeof nm) == 5);
+    CHECK(std::string(nm, 5) == "Ola K");
+    // 3. It touches NOTHING else — not the key, not the confidence, and not last_seen_ms (a rename is not a sighting,
+    //    so it must not silently extend the key's TTL lease; that is one of the three reasons it is not peer_key_set).
+    uint8_t out[32] = {}; Node::PeerKeyConf conf{};
+    CHECK(node.peer_key_find(id.key_hash32, out, &conf));
+    CHECK(conf == Node::PeerKeyConf::authoritative);
+    bool same = true; for (int i = 0; i < 32; ++i) if (out[i] != id.ed_pub[i]) same = false; CHECK(same);
+    hal._now = 5000 + protocol::peer_key_ttl_ms;                       // TTL measured from the CACHE at 5000, not the rename at 9000
+    CHECK_FALSE(node.peer_key_find(id.key_hash32, out));               // => aged. Had the rename refreshed last_seen, this would still resolve.
+    // 4. ...and the aged-but-present row is STILL renameable. Deliberate: `nameof` (peer_name_find) does not age-gate
+    //    either, so refusing here would make two verbs disagree about one row — spec §2.5's defect class.
+    CHECK(node.peer_name_set(id.key_hash32, "Zed", 3));
+    CHECK(node.peer_name_find(id.key_hash32, nm, sizeof nm) == 3);
+    // 5. Over-cap is CLAMPED at the engine (protocol::peer_name_max) — the console refuses first, so this is the
+    //    backstop that keeps PeerKey::name from ever overrunning.
+    const std::string over(2 * protocol::peer_name_max, 'X');
+    CHECK(node.peer_name_set(id.key_hash32, over.c_str(), 200));       // 200 > cap, truncated to uint8_t at the call
+    CHECK(node.peer_name_find(id.key_hash32, nm, sizeof nm) == protocol::peer_name_max);
+    // 6. A null name pointer is refused rather than dereferenced.
+    CHECK_FALSE(node.peer_name_set(id.key_hash32, nullptr, 3));
+}
+
+// ★★ §AB2 — THE EQUIVALENCE PROOF FOR THE DELEGATION, and it has to be native.
+// peer_key_set's two name-copy sites (fresh INSERT and same-hash REFRESH) now call peer_name_set instead of repeating a
+// third clamp-and-copy. ⚠ Byte-identity CANNOT verify that: `_peer_keys[].name` reaches no corpus-visible surface —
+// its only readers are push_peer_key_cached's body (the sim's push bridge emits ONLY ctr/dst/kind) and src/
+// (peer_store_sync / `nameof`), which the sim does not compile. Measured on this tree: 0 of 36 scenarios carry a peer
+// name in any form. ⇒ these four assertions are the whole detector for the refactor.
+TEST_CASE("§AB2 peer_key_set — both name paths (fresh insert + same-hash refresh) still behave exactly as before") {
+    TestHal hal; Node node(hal, 5, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); node.on_init(cfg);
+    uint8_t seed[32]; for (int i = 0; i < 32; ++i) seed[i] = static_cast<uint8_t>(i + 45);
+    Identity id{}; identity_from_seed(id, seed);
+    char nm[64] = {};
+    // (a) fresh INSERT with a name.
+    CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::overheard, "first", 5));
+    CHECK(node.peer_name_find(id.key_hash32, nm, sizeof nm) == 5);
+    CHECK(std::string(nm, 5) == "first");
+    // (b) same-hash REFRESH replaces it (§1.3: the name is MUTABLE and refreshed on every pubkey message).
+    CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::authoritative, "second", 6));
+    CHECK(node.peer_name_find(id.key_hash32, nm, sizeof nm) == 6);
+    CHECK(std::string(nm, 6) == "second");
+    // (c) a NAMELESS refresh must NOT clear the stored name (the `name && name_len` guard, unchanged).
+    CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::authoritative));
+    CHECK(node.peer_name_find(id.key_hash32, nm, sizeof nm) == 6);
+    // (d) an over-cap name on either path is CLAMPED to protocol::peer_name_max (the on-air callers may hand us a
+    //     foreign advertisement of any length; only the operator-typed console paths refuse instead).
+    const std::string over(2 * protocol::peer_name_max, 'Z');
+    CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::authoritative, over.c_str(), 200));
+    CHECK(node.peer_name_find(id.key_hash32, nm, sizeof nm) == protocol::peer_name_max);
+    // (e) a fresh INSERT into an evict-recycled slot starts from name_len = 0, then takes the new name — i.e. no name
+    //     from the evicted occupant survives (the `name_len = 0` reset before the copy).
+    uint8_t s2[32]; for (int i = 0; i < 32; ++i) s2[i] = static_cast<uint8_t>(200 - i);
+    Identity id2{}; identity_from_seed(id2, s2);
+    CHECK(node.peer_key_set(id2.key_hash32, id2.ed_pub, Node::PeerKeyConf::overheard));   // NO name given
+    CHECK(node.peer_name_find(id2.key_hash32, nm, sizeof nm) == 0);
+}
+
+// ★ The pinned case the brief singled out: peer_key_set returns EARLY with no name refresh when the stored entry is
+// pinned and the incoming confidence is not (its "pinned is IMMUTABLE to an on-air set" rule). A USER-initiated rename
+// is not an on-air set, so it must NOT silently no-op — and because peer_name_set never touches the confidence, that
+// rule is not even in play. This case pins BOTH halves of that: the on-air no-op AND the operator rename.
+TEST_CASE("§AB2 peer_name_set — a rename of a PINNED peer SUCCEEDS (while an on-air set is still a no-op)") {
+    TestHal hal; Node node(hal, 5, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); node.on_init(cfg);
+    uint8_t seed[32]; for (int i = 0; i < 32; ++i) seed[i] = static_cast<uint8_t>(i + 70);
+    Identity id{}; identity_from_seed(id, seed);
+    CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::pinned, "QR label", 8));
+    char nm[64] = {};
+    // (a) the CONTROL: an on-air (authoritative) set on a pinned row does NOT refresh the name — the early return.
+    CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::authoritative, "on-air name", 11));
+    CHECK(node.peer_name_find(id.key_hash32, nm, sizeof nm) == 8);
+    CHECK(std::string(nm, 8) == "QR label");
+    // (b) the OPERATOR rename goes through — the key is IMMUTABLE, the name is MUTABLE (PeerKey's own contract).
+    CHECK(node.peer_name_set(id.key_hash32, "Ola (verified)", 14));
+    CHECK(node.peer_name_find(id.key_hash32, nm, sizeof nm) == 14);
+    CHECK(std::string(nm, 14) == "Ola (verified)");
+    // (c) and it is STILL pinned with the SCANNED key — so /mrpeers re-mirrors it as pinned, never demoted.
+    uint8_t out[32] = {}; Node::PeerKeyConf conf{};
+    CHECK(node.peer_key_find(id.key_hash32, out, &conf));
+    CHECK(conf == Node::PeerKeyConf::pinned);
+    bool same = true; for (int i = 0; i < 32; ++i) if (out[i] != id.ed_pub[i]) same = false; CHECK(same);
+}
+
+// ★ §AB2: the on_command arm — EVERY refusal the verb can produce below the parser, which is what the spec's gate
+// mandates be native. `src/firmware_commands.cpp handle_peername` maps these codes onto the JSON reasons.
+TEST_CASE("§AB2 on_command peername — queued / err_unknown_dst / err_too_large, and the echoed hash") {
+    TestHal hal; Node node(hal, 5, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); node.on_init(cfg);
+    uint8_t seed[32]; for (int i = 0; i < 32; ++i) seed[i] = static_cast<uint8_t>(i + 5);
+    Identity id{}; identity_from_seed(id, seed);
+    const char* nmtxt = "Ola K";
+    Command c{}; c.kind = CmdKind::peername; c.u.peername.key_hash32 = id.key_hash32;
+    c.body = reinterpret_cast<const uint8_t*>(nmtxt); c.body_len = 5;
+    // 1. unknown hash -> err_unknown_dst ("unknown_hash"), and dst_hash is ECHOED so the app can correlate.
+    CmdResult r = node.on_command(c);
+    CHECK(r.code == CmdCode::err_unknown_dst);
+    CHECK(r.dst_hash == id.key_hash32);
+    // 2. cached -> queued, and the name lands.
+    CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::overheard));
+    r = node.on_command(c);
+    CHECK(r.code == CmdCode::queued);
+    CHECK(r.dst_hash == id.key_hash32);
+    char nm[64] = {};
+    CHECK(node.peer_name_find(id.key_hash32, nm, sizeof nm) == 5);
+    CHECK(std::string(nm, 5) == "Ola K");
+    // 3. over the cap -> err_too_large ("too_long"), and the stored name is UNCHANGED (refuse, never truncate — C2).
+    const std::string over(protocol::peer_name_max + 1, 'X');
+    Command o{}; o.kind = CmdKind::peername; o.u.peername.key_hash32 = id.key_hash32;
+    o.body = reinterpret_cast<const uint8_t*>(over.c_str()); o.body_len = protocol::peer_name_max + 1;
+    CHECK(node.on_command(o).code == CmdCode::err_too_large);
+    CHECK(node.peer_name_find(id.key_hash32, nm, sizeof nm) == 5);
+    // 4. EXACTLY at the cap is accepted (the boundary is <=, not <).
+    const std::string at(protocol::peer_name_max, 'Y');
+    o.body = reinterpret_cast<const uint8_t*>(at.c_str()); o.body_len = protocol::peer_name_max;
+    CHECK(node.on_command(o).code == CmdCode::queued);
+    CHECK(node.peer_name_find(id.key_hash32, nm, sizeof nm) == protocol::peer_name_max);
+    // 5. An EMPTY name never reaches peer_name_set (the console refuses it first; this is the API backstop).
+    Command e{}; e.kind = CmdKind::peername; e.u.peername.key_hash32 = id.key_hash32;
+    e.body = reinterpret_cast<const uint8_t*>(nmtxt); e.body_len = 0;
+    CHECK(node.on_command(e).code == CmdCode::err_too_large);
+    CHECK(node.peer_name_find(id.key_hash32, nm, sizeof nm) == protocol::peer_name_max);   // untouched
+}
+
+// ★ §AB2: the OPTIONAL one-shot name on `peerkey` (spec §2.3) — it must land in the SAME peer_key_set name parameter,
+// and an over-cap operator label must be REFUSED rather than clamped (the on-air callers may clamp; a typed label
+// must not be silently shortened).
+TEST_CASE("§AB2 on_command peerkey — the optional one-shot name lands; over-cap is refused, not clamped") {
+    TestHal hal; Node node(hal, 5, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); node.on_init(cfg);
+    uint8_t seed[32]; for (int i = 0; i < 32; ++i) seed[i] = static_cast<uint8_t>(i + 11);
+    Identity id{}; identity_from_seed(id, seed);
+    const char* nmtxt = "Scanned Ola";
+    Command c{}; c.kind = CmdKind::peerkey;
+    for (int i = 0; i < 32; ++i) c.u.peerkey.ed_pub[i] = id.ed_pub[i];
+    // over-cap FIRST, so the refusal is proven not to have installed the key either.
+    const std::string over(protocol::peer_name_max + 1, 'X');
+    c.body = reinterpret_cast<const uint8_t*>(over.c_str()); c.body_len = protocol::peer_name_max + 1;
+    CHECK(node.on_command(c).code == CmdCode::err_too_large);
+    CHECK(node.peer_key_count() == 0);
+    c.body = reinterpret_cast<const uint8_t*>(nmtxt); c.body_len = 11;
+    CHECK(node.on_command(c).code == CmdCode::queued);
+    char nm[64] = {};
+    CHECK(node.peer_name_find(id.key_hash32, nm, sizeof nm) == 11);
+    CHECK(std::string(nm, 11) == "Scanned Ola");
+    Node::PeerKeyConf conf{}; uint8_t out[32] = {};
+    CHECK(node.peer_key_find(id.key_hash32, out, &conf));
+    CHECK(conf == Node::PeerKeyConf::pinned);
+}
+
+// ★★ §AB2: the PRODUCER half of the §0.1 fix — push_peer_key_cached now carries the CONFIDENCE (Push::peer_conf), read
+// back out of the LIVE table. Driven through the real public receive path (on_hash_bind_pubkey), not the private
+// emitter, so this is the wire-to-app behaviour and not just an internal call. test_console_json.cpp holds the encoder
+// golden for all three levels + the out-of-range fallback.
+TEST_CASE("§AB2 peer_key_cached push — carries the STORED confidence (and a pinned peer no longer reports pinned:false)") {
+    TestHal hal; Node node(hal, 5, 0xABCD);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); node.on_init(cfg);
+    uint8_t seed[32]; for (int i = 0; i < 32; ++i) seed[i] = static_cast<uint8_t>(i + 17);
+    Identity id{}; identity_from_seed(id, seed);
+    hash_bind_pubkey_inner hb{}; hb.target_layer = 0; hb.node_id = 9;
+    for (int i = 0; i < 32; ++i) hb.ed_pub[i] = id.ed_pub[i];
+    uint8_t inner[34]; const size_t n = pack_hash_bind_pubkey_inner(hb, std::span<uint8_t>(inner, sizeof inner));
+    auto drain_conf = [&node](uint32_t hash, uint8_t& conf_out) {
+        Push p{}; bool seen = false;
+        while (node.next_push(p))
+            if (p.kind == PushKind::peer_key_cached && p.sender_hash == hash) { conf_out = p.peer_conf; seen = true; }
+        return seen;
+    };
+    uint8_t conf = 0xFF;
+    // 1. An owner's TYPE-5 answer caches AUTHORITATIVE -> the push must say so. This is the row the app may seal to,
+    //    and before AB2 it was indistinguishable from `overheard`. ★ It is also != the field's 0 default, which is what
+    //    makes this a real read of the table rather than a constant.
+    node.on_hash_bind_pubkey(inner, static_cast<uint8_t>(n));
+    CHECK(drain_conf(id.key_hash32, conf));
+    CHECK(conf == static_cast<uint8_t>(Node::PeerKeyConf::authoritative));
+    // 2. ★★ THE OLD LIE, DIRECTLY: pin the same hash (QR import), then let the SAME on-air answer arrive again.
+    //    peer_key_set no-ops (pinned is immutable to an on-air set) but still returns true, so the push fires — and it
+    //    now reports `pinned`. The retired hardcoded literal emitted `"pinned":false` for exactly this frame.
+    CHECK(node.peer_key_set(id.key_hash32, id.ed_pub, Node::PeerKeyConf::pinned));
+    conf = 0xFF;
+    node.on_hash_bind_pubkey(inner, static_cast<uint8_t>(n));
+    CHECK(drain_conf(id.key_hash32, conf));
+    CHECK(conf == static_cast<uint8_t>(Node::PeerKeyConf::pinned));
+    // 3. The confidence read is the STORED one, not the INCOMING one: the answer above asked for `authoritative` and the
+    //    push said `pinned`, so a caller cannot announce a level the table does not hold (U2, one read path).
+    Node::PeerKeyConf stored{}; uint8_t out[32] = {};
+    CHECK(node.peer_key_find(id.key_hash32, out, &stored));
+    CHECK(stored == Node::PeerKeyConf::pinned);
+    // ⓘ NOT COVERED HERE, and named rather than glossed: `overheard` and the absent-row safe default (peer_key_find
+    // false -> peer_conf stays 0). NO live path caches at `overheard` and none pushes for a hash it did not just cache,
+    // so both are unreachable through a public driver; the encoder golden in test_console_json.cpp asserts what they
+    // render (including an out-of-range byte), and the default is one field initialiser away in command.h.
 }
 
 
@@ -1924,4 +2139,355 @@ TEST_CASE("§F-SL-1 — a resolved send never parks -> no re-flood timer armed (
     bool armed_reflood = false;
     for (auto& [d, id] : hal.armed) { (void)d; if (id == kParkRefloodTimerId) armed_reflood = true; }
     CHECK_FALSE(armed_reflood);
+}
+
+// =============================================================================
+// ★★ §AB3 — THE GENERATED ADDRESS-BOOK VIEW (spec 2026-07-29 §2.1/§2.5/§2.6(a)).
+// The view is a pure-read JOIN on key_hash32 over _peer_keys / _id_bind / _team_keys+_team_peer. It is corpus-dark
+// twice over (`peers`/`hashof`/`nameof` live in src/ + lib/console, which the sim does not compile; and a pure read
+// cannot move a stream anyway), so THESE TESTS ARE THE ONLY THING THAT COVERS IT. Named per the gate-method §E rule.
+// =============================================================================
+namespace {
+
+struct BookRows {
+    std::vector<Node::PeerBookRow> rows;
+    static void collect(const Node::PeerBookRow& r, void* ctx) { static_cast<BookRows*>(ctx)->rows.push_back(r); }
+    const Node::PeerBookRow* by_hash(uint32_t h) const {
+        for (const auto& r : rows) if (r.hash == h) return &r;
+        return nullptr;
+    }
+    const Node::PeerBookRow* by_team(uint8_t t) const {
+        for (const auto& r : rows) if (r.team_id == t) return &r;
+        return nullptr;
+    }
+    const Node::PeerBookRow* by_static(uint8_t s) const {
+        for (const auto& r : rows) if (r.static_id == s) return &r;
+        return nullptr;
+    }
+};
+
+// A TEAM member, provisioned on both planes: a static node_id (so _id_bind self-seeds) plus is_mobile+team_id+
+// team_local_id, which is what team_key_of_id / the view's pass (4) gate on.
+Identity ab3_identity(uint8_t salt) {
+    uint8_t seed[32]; for (int i = 0; i < 32; ++i) seed[i] = static_cast<uint8_t>(i * 7 + salt);
+    Identity id{}; identity_from_seed(id, seed); return id;
+}
+
+}  // namespace
+
+TEST_CASE("§AB3 view — MERGE/DEDUP: one hash held by all three tables emits ONE row carrying all three fields") {
+    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x1114A11Au);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;
+    node.on_init(cfg); node.set_team_local_id(114);
+    hal._now = 100000;
+
+    const Identity ann = ab3_identity(3);
+    CHECK(node.peer_key_set(ann.key_hash32, ann.ed_pub, Node::PeerKeyConf::authoritative, "Ann", 3));
+    node.test_id_bind_set(/*id=*/34, ann.key_hash32, /*authoritative=*/true);        // the STATIC plane knows her as 34
+    node.test_learn_route(/*dest=*/228, /*via=*/228, 1, 40, /*team_plane=*/true);    // _team_peer bit for 228
+    node.team_key_set(/*id=*/228, ann.key_hash32);                                   // the TEAM plane knows her as 228
+
+    BookRows b;
+    const uint16_t n = node.peer_book_walk(/*include_id_rows=*/false, &BookRows::collect, &b);
+    CHECK(n == 1);                                                    // ★ ONE row, not three: dedup is on the hash
+    CHECK(b.rows.size() == 1);
+    const Node::PeerBookRow& r = b.rows[0];
+    CHECK(r.hash == ann.key_hash32);
+    CHECK(std::string(r.name, r.name_len) == "Ann");
+    CHECK(r.static_id == 34);                                         // merged from _id_bind
+    CHECK(r.static_authoritative);
+    CHECK(r.team_id == 228);                                          // merged from _team_keys — §18 dual identity
+    CHECK(r.has_key);
+    CHECK(r.conf == Node::PeerKeyConf::authoritative);
+    CHECK(r.team_alias_dropped == 0);
+
+    // the same row is reachable by BOTH id-shaped questions and by the hash — one identity, one answer
+    Node::PeerBookRow st{}, tm{};
+    CHECK(node.peer_book_by_id(34, st, tm) == Node::kPeerBookStatic);
+    CHECK(st.hash == ann.key_hash32);
+    CHECK(node.peer_book_by_id(228, st, tm) == Node::kPeerBookTeam);
+    CHECK(tm.hash == ann.key_hash32);
+    Node::PeerBookRow byh{};
+    CHECK(node.peer_book_by_hash(ann.key_hash32, byh));
+    CHECK(byh.static_id == 34); CHECK(byh.team_id == 228);
+}
+
+TEST_CASE("§AB3 view — the AMBIGUOUS reverse lookup: two team ids on one hash -> FRESHEST wins + the loser is REPORTED") {
+    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x2114A11Au);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;
+    node.on_init(cfg); node.set_team_local_id(114);
+
+    const Identity ann = ab3_identity(11);
+    // ⚠ THIS IS THE STATE THE SPEC WARNS ABOUT, and _team_keys is the table where it is REACHABLE: team_key_set upserts
+    // BY ID and never dedups by hash, so a teammate that re-ran team-DAD leaves its OLD (id,hash) row live.
+    hal._now = 100000; node.team_key_set(/*old id=*/228, ann.key_hash32);
+    hal._now = 200000; node.team_key_set(/*new id=*/231, ann.key_hash32);
+    node.test_learn_route(228, 228, 1, 40, /*team_plane=*/true);
+    node.test_learn_route(231, 231, 1, 40, /*team_plane=*/true);
+    CHECK(node.peer_key_set(ann.key_hash32, ann.ed_pub, Node::PeerKeyConf::authoritative));
+    hal._now = 300000;
+
+    BookRows b;
+    CHECK(node.peer_book_walk(false, &BookRows::collect, &b) == 1);
+    const Node::PeerBookRow& r = b.rows[0];
+    CHECK(r.team_id == 231);                    // ★ the FRESHER last_seen_ms wins — never table order
+    CHECK(r.team_alias_dropped == 1);           // ★ and the emit is TOLD a loser was dropped, per spec §2.1
+
+    // both ids still ANSWER (each is a live alias in _team_keys) — the view names the fresher one on either query,
+    // and the alias count is what makes the disagreement visible instead of silent.
+    Node::PeerBookRow st{}, tm{};
+    CHECK(node.peer_book_by_id(228, st, tm) == Node::kPeerBookTeam);
+    CHECK(tm.hash == ann.key_hash32); CHECK(tm.team_id == 231); CHECK(tm.team_alias_dropped == 1);
+    CHECK(node.peer_book_by_id(231, st, tm) == Node::kPeerBookTeam);
+    CHECK(tm.team_id == 231);
+
+    // ⚠ FINDING pinned as a test: the STATIC table cannot alias — id_bind_set calls
+    // id_bind_evict_other_hash_holders on both accept paths, so a second id claiming the hash EVICTS the first.
+    node.test_id_bind_set(40, ann.key_hash32, /*authoritative=*/true);
+    node.test_id_bind_set(41, ann.key_hash32, /*authoritative=*/true);
+    uint32_t h40 = 0;
+    CHECK_FALSE(node.key_hash_of_id(40, h40));                  // 40 was evicted by 41's claim on the same hash
+    Node::PeerBookRow r2{};
+    CHECK(node.peer_book_by_hash(ann.key_hash32, r2));
+    CHECK(r2.static_id == 41);                                  // exactly one static id can hold a hash
+}
+
+TEST_CASE("§AB3 view — ALL FOUR id-only / hash-only shapes are representable and distinguishable") {
+    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x3114A11Au);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;
+    node.on_init(cfg); node.set_team_local_id(114);
+    hal._now = 100000;
+
+    // (a) HASH-ONLY: a QR-pinned key with no id in either plane (spec §1.1: most rows have a hash and no name/key —
+    //     this is the inverse, a key with no address).
+    const Identity qr = ab3_identity(21);
+    CHECK(node.peer_key_set(qr.key_hash32, qr.ed_pub, Node::PeerKeyConf::pinned, "QR", 2));
+    // (b) HASH + STATIC_ID, no key/name: a heard beacon and nothing else.
+    node.test_id_bind_set(/*id=*/50, 0x50505050u, /*authoritative=*/true);
+    // (c) HASH + TEAM_ID, no key/name: a teammate's beacon cached its hash but we never fetched its pubkey.
+    node.test_learn_route(60, 60, 1, 40, /*team_plane=*/true);
+    node.team_key_set(/*id=*/60, 0x60606060u);
+    // (d) TEAM-ID-ONLY: a _team_peer bit with NO _team_keys row — a teammate we route to whose hash we never cached.
+    //     ★ This is the network-reachable id-only flavour (a multi-hop DV entry carries no key at all).
+    node.test_learn_route(70, 70, 2, 40, /*team_plane=*/true);
+    // (e) STATIC-ID-ONLY (hash 0). ⚠ REPORTED PREMISE CORRECTION: representable, but NOT a live table state — every
+    //     id_bind_set caller passes a beacon/join/self hash, and the hash-uniqueness eviction collapses every hash-0
+    //     row into ONE. Constructed here through the test seam only.
+    node.test_id_bind_set(/*id=*/80, /*key=*/0u, /*authoritative=*/true);
+
+    BookRows all;
+    node.peer_book_walk(/*include_id_rows=*/true, &BookRows::collect, &all);
+    const Node::PeerBookRow* a = all.by_hash(qr.key_hash32);   // (a) hash-only
+    CHECK(a != nullptr);
+    if (a) { CHECK(a->static_id == 0); CHECK(a->team_id == 0); CHECK(a->has_key); CHECK(a->conf == Node::PeerKeyConf::pinned); }
+    const Node::PeerBookRow* bb = all.by_hash(0x50505050u);    // (b) hash + static_id
+    CHECK(bb != nullptr);
+    if (bb) { CHECK(bb->static_id == 50); CHECK(bb->team_id == 0); CHECK_FALSE(bb->has_key); CHECK(bb->name_len == 0); }
+    const Node::PeerBookRow* c = all.by_hash(0x60606060u);     // (c) hash + team_id
+    CHECK(c != nullptr);
+    if (c) { CHECK(c->team_id == 60); CHECK(c->static_id == 0); CHECK_FALSE(c->has_key); }
+    const Node::PeerBookRow* d = all.by_team(70);              // (d) team-id ONLY
+    CHECK(d != nullptr);
+    if (d) { CHECK(d->hash == 0);                              // ★ the id-only shape: an address with no identity yet
+             CHECK(d->static_id == 0); CHECK_FALSE(d->has_key); }
+    const Node::PeerBookRow* e = all.by_static(80);            // (e) static-id ONLY
+    CHECK(e != nullptr);
+    if (e) CHECK(e->hash == 0);
+
+    // ⓘ hash 0 is the "no hash" sentinel, never a queryable identity — the by-hash query refuses it outright.
+    Node::PeerBookRow z{};
+    CHECK_FALSE(node.peer_book_by_hash(0, z));
+
+    // ★ §2.6(a) THE BOUND, and it is what keeps the JSON surface safe: the bounded walk emits ONLY the _peer_keys-backed
+    // rows, so the four addressless/keyless shapes above are invisible to it.
+    BookRows bounded;
+    CHECK(node.peer_book_walk(/*include_id_rows=*/false, &BookRows::collect, &bounded) == 1);
+    CHECK(bounded.rows[0].hash == qr.key_hash32);
+}
+
+TEST_CASE("§AB3 view — §2.6(a): the bounded book NEVER exceeds cap_peer_keys however full _id_bind gets") {
+    TestHal hal; Node node(hal, /*id=*/5, /*key=*/0x4114A11Au);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    hal._now = 100000;
+    for (uint16_t id = 20; id <= 200; ++id)                                       // 181 static bindings
+        node.test_id_bind_set(static_cast<uint8_t>(id), 0x01000000u + id, /*authoritative=*/true);
+    for (uint8_t k = 0; k < 20; ++k) {                                            // 20 keys into a 16-slot cache
+        const Identity p = ab3_identity(static_cast<uint8_t>(100 + k));
+        (void)node.peer_key_set(p.key_hash32, p.ed_pub, Node::PeerKeyConf::authoritative);
+    }
+    BookRows bounded, full;
+    const uint16_t nb = node.peer_book_walk(false, &BookRows::collect, &bounded);
+    const uint16_t nf = node.peer_book_walk(true,  &BookRows::collect, &full);
+    CHECK(nb == node.peer_key_count());
+    CHECK(nb <= protocol::cap_peer_keys);          // ★ the JSON book is bounded BY CONSTRUCTION, not by paging
+    CHECK(nf > nb);                                // the diagnostic list is the big one — console only
+    CHECK(nf >= 181);
+}
+
+TEST_CASE("§AB3 view — an AGED key keeps its name but reports has_key=false + conf=overheard (never over-claim)") {
+    TestHal hal; Node node(hal, /*id=*/5, /*key=*/0x5114A11Au);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    hal._now = 1000;
+    const Identity ann = ab3_identity(31);
+    CHECK(node.peer_key_set(ann.key_hash32, ann.ed_pub, Node::PeerKeyConf::authoritative, "Ann", 3));
+    const Identity pin = ab3_identity(32);
+    CHECK(node.peer_key_set(pin.key_hash32, pin.ed_pub, Node::PeerKeyConf::pinned, "Pin", 3));
+
+    Node::PeerBookRow r{};
+    CHECK(node.peer_book_by_hash(ann.key_hash32, r));
+    CHECK(r.has_key); CHECK(r.conf == Node::PeerKeyConf::authoritative);
+
+    hal._now = 1000 + protocol::peer_key_ttl_ms + 1;                 // the key's lease lapsed
+    CHECK(node.peer_book_by_hash(ann.key_hash32, r));                // still a ROW (the name outlives the lease)
+    CHECK(std::string(r.name, r.name_len) == "Ann");
+    CHECK_FALSE(r.has_key);                                          // ★ peer_key_find would refuse -> a seal WOULD fail
+    CHECK(r.conf == Node::PeerKeyConf::overheard);                   // ★ downgraded: never claim a capability we lack
+    uint8_t ed[32]; CHECK_FALSE(node.peer_key_find(ann.key_hash32, ed));   // the view agrees with the sealer
+    Node::PeerBookRow p{};
+    CHECK(node.peer_book_by_hash(pin.key_hash32, p));
+    CHECK(p.has_key); CHECK(p.conf == Node::PeerKeyConf::pinned);     // a PINNED key never ages
+}
+
+TEST_CASE("§AB3 view — §18: one number answering in BOTH planes reports BOTH rows, never one silently chosen") {
+    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x6114A11Au);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;
+    node.on_init(cfg); node.set_team_local_id(114);
+    hal._now = 100000;
+    const Identity stat = ab3_identity(41), team = ab3_identity(42);
+    node.test_id_bind_set(/*id=*/20, stat.key_hash32, /*authoritative=*/true);       // static 20
+    node.test_learn_route(20, 20, 1, 40, /*team_plane=*/true);
+    node.team_key_set(/*id=*/20, team.key_hash32);                                   // TEAM 20 — a DIFFERENT node
+    CHECK(node.peer_key_set(stat.key_hash32, stat.ed_pub, Node::PeerKeyConf::authoritative, "Static20", 8));
+    CHECK(node.peer_key_set(team.key_hash32, team.ed_pub, Node::PeerKeyConf::authoritative, "Team20", 6));
+
+    Node::PeerBookRow st{}, tm{};
+    const uint8_t mask = node.peer_book_by_id(20, st, tm);
+    CHECK(mask == (Node::kPeerBookStatic | Node::kPeerBookTeam));    // ★ BOTH, so the caller can print both
+    CHECK(st.hash == stat.key_hash32); CHECK(std::string(st.name, st.name_len) == "Static20");
+    CHECK(tm.hash == team.key_hash32); CHECK(std::string(tm.name, tm.name_len) == "Team20");
+    CHECK(st.hash != tm.hash);                                       // two identities behind one address
+    // id 0 (unprovisioned) and 0xFF (reserved) resolve to NOTHING in either plane
+    CHECK(node.peer_book_by_id(0, st, tm) == 0);
+    CHECK(node.peer_book_by_id(0xFF, st, tm) == 0);
+}
+
+// ★★★ THE §2.5 REGRESSION, VERBATIM FROM THE BENCH TRANSCRIPT (team node 114 asking about 228):
+//        hashof 228   -> unknown
+//        reqpubkey 228 -> KNEW the hash (0x6C297145, from the TEAM key cache) -> KEY CACHED
+//        hashof 228   -> STILL unknown          <- THE BUG
+// and the negative half is the point of the test: the fix must NOT have written _id_bind. Writing the team hash into
+// the static map is register B2 (closed 2026-07-31, §id-bind-plane), an I2 breach — spec §2.5 forbids it by name.
+// A test that only checked "hashof answers" would pass with the forbidden fix in place; these three CHECK_FALSEs are
+// what makes it a test of the RIGHT fix.
+TEST_CASE("§AB3 §2.5 regression — after reqpubkey <team-id>, the id RESOLVES via the view and _id_bind is NOT written") {
+    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x7114A11Au);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12); cfg.lbt_enabled = false;
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;
+    node.on_init(cfg); node.set_team_local_id(114);
+    hal._now = 100000;
+
+    const Identity peer = ab3_identity(51);           // the bench's 0x6C297145
+    node.test_learn_route(/*dest=*/228, /*via=*/228, 1, 40, /*team_plane=*/true);   // heard 228's team beacon
+    node.team_key_set(/*id=*/228, peer.key_hash32);                                 // ...which carried its hash
+
+    // ---- BEFORE: `hashof 228`'s OLD read path (key_hash_of_id -> _id_bind only) says unknown. That is the defect.
+    uint32_t old_answer = 0;
+    CHECK_FALSE(node.key_hash_of_id(228, old_answer));
+    CHECK(node.id_bind_find_by_hash(peer.key_hash32) == -1);
+    // ⚠⚠ DO NOT assert `key_hash_for_id(228) == 0` HERE OR ANYWHERE. This test DID, and it HUNG the whole native
+    //    suite: that accessor's loop counter is `uint8_t` against a 256 cap, so a MISS never terminates. Found by this
+    //    slice, marked ✖✖ in node.h with the one-line fix, deliberately NOT fixed here (C1). The safe direction — a
+    //    HIT — is pinned by its own test below.
+    // ---- `reqpubkey 228` resolves the hash through team_key_of_id and floods a HARD WANT_PUBKEY (the transcript).
+    Command rq{}; rq.kind = CmdKind::reqpubkey;
+    rq.u.resolve.dst_hash = 0; rq.u.resolve.dst_id = 228; rq.u.resolve.hard = true;
+    rq.u.resolve.plane = static_cast<uint8_t>(Plane::TEAM);
+    const CmdResult rr = node.on_command(rq);
+    CHECK(rr.code == CmdCode::queued);                // it KNEW the hash — err_no_binding would mean it did not
+    uint32_t resolved = 0;
+    CHECK(node.team_key_of_id(228, resolved));
+    CHECK(resolved == peer.key_hash32);               // ★ the SAME function the view's team arm reads
+
+    // ---- the answer arrives: the pubkey is cached (peer_key_set), exactly as the H answer path does. NOTHING else.
+    CHECK(node.peer_key_set(peer.key_hash32, peer.ed_pub, Node::PeerKeyConf::authoritative, "Bench", 5));
+
+    // ---- AFTER: `hashof 228` now RESOLVES, through the view.
+    Node::PeerBookRow st{}, tm{};
+    CHECK(node.peer_book_by_id(228, st, tm) == Node::kPeerBookTeam);
+    CHECK(tm.hash == peer.key_hash32);
+    CHECK(tm.team_id == 228);
+    CHECK(tm.has_key);                                 // and it can be sealed to
+    CHECK(tm.conf == Node::PeerKeyConf::authoritative);
+    CHECK(std::string(tm.name, tm.name_len) == "Bench");
+
+    // ---- ★★ THE NEGATIVE HALF — the forbidden fix was NOT taken. _id_bind holds nothing for 228 and nothing for
+    //      this hash, so no team-scoped answer has leaked into the static plane (I2).
+    CHECK_FALSE(node.key_hash_of_id(228, old_answer));
+    CHECK(node.id_bind_find_by_hash(peer.key_hash32) == -1);
+    CHECK(node.id_bind_find_by_hash(0x6C297145u) == -1);       // and nothing at all was bound for the bench's hash
+    CHECK(st.hash == 0);                               // the static arm of the answer is EMPTY, correctly
+    // and `nameof 0x<hash>` reaches the SAME row -> the two verbs can no longer disagree about one identity
+    Node::PeerBookRow byh{};
+    CHECK(node.peer_book_by_hash(peer.key_hash32, byh));
+    CHECK(byh.team_id == 228);
+    CHECK(std::string(byh.name, byh.name_len) == "Bench");
+    CHECK(byh.static_id == 0);
+}
+
+TEST_CASE("§AB3 view — it is a PURE READ: walking the book mutates no table and emits no telemetry") {
+    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x8114A11Au);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    cfg.is_mobile = true; cfg.team_id = 0xABCD1234u;
+    node.on_init(cfg); node.set_team_local_id(114);
+    hal._now = 100000;
+    const Identity p = ab3_identity(61);
+    CHECK(node.peer_key_set(p.key_hash32, p.ed_pub, Node::PeerKeyConf::authoritative, "P", 1));
+    node.test_id_bind_set(90, p.key_hash32, /*authoritative=*/true);
+    node.test_learn_route(91, 91, 1, 40, /*team_plane=*/true);
+    node.team_key_set(91, 0x91919191u);
+    const size_t ev_before = hal.events.size();
+    const uint16_t keys_before = node.peer_key_count();
+
+    hal._now = 100000 + protocol::peer_key_ttl_ms / 2;     // mid-lease: a refresh here WOULD extend it
+    BookRows b1, b2;
+    const uint16_t n1 = node.peer_book_walk(true, &BookRows::collect, &b1);
+    const uint16_t n2 = node.peer_book_walk(true, &BookRows::collect, &b2);
+    CHECK(n1 == n2);                                        // idempotent
+    CHECK(hal.events.size() == ev_before);                  // ★ NO telemetry -> it cannot move a scenario stream
+    CHECK(node.peer_key_count() == keys_before);            // ★ no eviction, no insert
+    hal._now = 100000 + protocol::peer_key_ttl_ms + 1;
+    Node::PeerBookRow r{};
+    CHECK(node.peer_book_by_hash(p.key_hash32, r));
+    CHECK_FALSE(r.has_key);                                 // the walk did NOT refresh last_seen_ms (the lease still lapsed)
+    // counting with a null visitor is legal and agrees with the collected count
+    CHECK(node.peer_book_walk(true, nullptr, nullptr) == n1);
+}
+
+// ✖✖ §AB3 FINDING, pinned in the one direction that TERMINATES: Node::key_hash_for_id (node.h) loops a `uint8_t`
+// counter against the 256-entry cap_id_bind, so **a MISS never returns** — an infinite loop on the device at both of
+// its call sites (src/firmware_remote.cpp's `rcmd` seal, src/fw_main.cpp's sealed-rcmd-response open), both reachable
+// after `unlock`. It also scans the whole array instead of the live `_id_bind_n` prefix, so it can return the hash of
+// an EVICTED row. See node.h for the ✖✖ marker and the one-line fix; NOT fixed in this slice (C1 — a device hang is
+// its own slice, and it needs a ✔ hit/miss test pair the moment it is).
+// ⚠⚠ ADDING `CHECK(node.key_hash_for_id(<unbound id>) == 0)` TO THIS FILE HANGS THE ENTIRE NATIVE SUITE. That is how
+// this was found: the run spun for 16 minutes with no output. Do not "restore" the missing miss-case assertion until
+// the loop bound is fixed.
+TEST_CASE("§AB3 finding — key_hash_for_id resolves a BOUND id (the miss case is a non-terminating loop; see node.h)") {
+    TestHal hal; Node node(hal, /*id=*/5, /*key=*/0x9114A11Au);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    hal._now = 1000;
+    node.test_id_bind_set(/*id=*/33, 0x33333333u, /*authoritative=*/true);
+    CHECK(node.key_hash_for_id(33) == 0x33333333u);            // a HIT returns, so this direction is safe to assert
+    CHECK(node.key_hash_for_id(0) == 0);                       // id 0 short-circuits BEFORE the loop -> also safe
+    // ★ and the sibling the §AB3 view actually uses is correctly bounded on BOTH directions:
+    uint32_t h = 0;
+    CHECK(node.key_hash_of_id(33, h)); CHECK(h == 0x33333333u);
+    CHECK_FALSE(node.key_hash_of_id(200, h));                  // a miss RETURNS here — `uint16_t i < _id_bind_n`
 }

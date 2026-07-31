@@ -158,6 +158,20 @@ const char* sendfailreason_name(SendFailReason r) {
     }
     return "none";
 }
+// ★★ §AB2 (address-book spec 2026-07-29 §2.2): the peer-key CONFIDENCE level as an app-facing string. This is the field
+// that makes the contract's existing rule — gate "send encrypted" on `conf >= authoritative`, NOT on key presence —
+// actually checkable: before it, peer_key_cached emitted a hardcoded `"pinned":false` and `overheard` (key present,
+// e2e_seal_inner will REFUSE) was indistinguishable from `authoritative` (can seal).
+// Takes the ENUM, not the raw byte, so -Wswitch (gate-blocking since the 2026-07-25 ruling that came out of three
+// enum→string defects) fails the build if a fourth level is ever added and not mapped here.
+const char* peerkeyconf_name(Node::PeerKeyConf c) {
+    switch (c) {
+        case Node::PeerKeyConf::overheard:     return "overheard";       // cached on-air/on-pass — CANNOT seal to this peer
+        case Node::PeerKeyConf::authoritative: return "authoritative";   // from the owner's own answer — CAN seal
+        case Node::PeerKeyConf::pinned:        return "pinned";          // QR/manually verified — MITM-resistant, never aged or evicted
+    }
+    return "overheard";   // an out-of-range byte reads as the LEAST capable level (never claim a sealing capability we cannot back)
+}
 const char* joinrefusereason_name(JoinRefuseReason r) {   // R6.3 §7c
     switch (r) {
         case JoinRefuseReason::wire_version: return "wire_version";
@@ -248,7 +262,14 @@ size_t write_push(char* buf, size_t cap, const Push& p, const NodeConfig* cfg) {
         j.lit(",\"hash\":"); j.u32(hash);
     } else if (p.kind == PushKind::peer_key_cached) {      // E2E §7: a recipient key arrived -> the app can resend encrypted
         j.lit(",\"hash\":");   j.u32(p.sender_hash);
-        j.lit(",\"pinned\":false");                        // on-air (TOFU); a QR import is the separate peerkey_set ack (pinned:true)
+        // ★★ §AB2: `conf` is the AUTHORITY (spec §2.2) — the app gates its "send encrypted" affordance on
+        // `conf >= authoritative`, never on the mere presence of a key. `pinned` is KEPT as the DERIVED duplicate
+        // (`conf == "pinned"`) rather than removed: it is a documented, possibly-persisted contract field and breaking
+        // it is not worth the tidiness. It is no longer a LITERAL — it used to read `false` unconditionally, so a QR-pinned
+        // peer's push claimed it was not pinned.
+        j.lit(",\"conf\":\""); j.lit(peerkeyconf_name(static_cast<Node::PeerKeyConf>(p.peer_conf))); j.ch('"');
+        j.lit(",\"pinned\":");
+        j.lit(p.peer_conf == static_cast<uint8_t>(Node::PeerKeyConf::pinned) ? "true" : "false");
         if (body_n) { j.lit(",\"name\":"); j.str(reinterpret_cast<const char*>(p.body), body_n); }   // §S6: the peer's cached name (copied at cache time; omit-when-unknown)
     } else if (p.kind == PushKind::config_adopted) {       // R6.3: leaf-config adopted/updated -> the app's membership chip
         if (cfg) {
@@ -526,6 +547,37 @@ size_t write_routes_end(char* buf, size_t cap, uint32_t count) {
     return j.finish();
 }
 
+// ★★ §AB3 — one address-book row. See console_json.h for the field contract; the row itself is Node::PeerBookRow, the
+// generated view's own carrier (U2: one row definition, no console-side copy to keep in step).
+size_t write_peer_row(char* buf, size_t cap, const Node::PeerBookRow& r) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"peer\",\"hash\":"); j.u32(r.hash);
+    j.lit(",\"conf\":\"");      j.lit(peerkeyconf_name(r.conf)); j.ch('"');   // the LEVEL (§2.2) — one spelling, -Wswitch-guarded
+    j.lit(",\"confirmed\":");   j.lit(r.peer_confirmed ? "true" : "false");
+    if (r.name_len)   { j.lit(",\"name\":");       j.str(r.name, r.name_len); }
+    if (r.static_id)  { j.lit(",\"static_id\":");  j.u32(r.static_id); }
+    if (r.team_id)    { j.lit(",\"team_id\":");    j.u32(r.team_id); }
+    if (r.team_alias_dropped) { j.lit(",\"team_alias\":"); j.u32(r.team_alias_dropped); }   // never silently drop a loser
+    if (!r.has_key)   j.lit(",\"aged\":true");     // the cached key is past its TTL -> UNUSABLE (conf already reads "overheard")
+    j.ch('}');
+    return j.finish();
+}
+size_t write_peers_end(char* buf, size_t cap, uint32_t count) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"peers_end\",\"count\":"); j.u32(count);
+    j.ch('}');
+    return j.finish();
+}
+// C2 refusal twin (write_peers_err's shape mirrors write_mobile_err / write_team_key_err — U3). One reason today:
+// "console_only", for `peers all` over a companion transport. Naming the remedy is the point: the ≤16-row book IS
+// available over BLE as plain `peers`; only the up-to-256 diagnostic list is console-bound (§2.6(a)).
+size_t write_peers_err(char* buf, size_t cap, const char* reason) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"peers_err\",\"reason\":\""); j.lit(reason); j.ch('"');
+    j.ch('}');
+    return j.finish();
+}
+
 // allowed_sf_bitmap → a quoted CSV "7,12" (bit position = SF); "" when unconfigured.
 static void sf_list_str(JsonBuf& j, uint16_t bitmap) {
     j.ch('"');
@@ -640,11 +692,39 @@ size_t write_team_key_grant(char* buf, size_t cap, uint32_t target_hash, uint16_
     return j.finish();
 }
 // §S6: `nameof` answer — decimal-u32 hash + the cached name (omitted when unknown, same rule as peer_key_cached).
-size_t write_peer_name(char* buf, size_t cap, uint32_t hash, const char* name, size_t name_len) {
+// ★ §AB3: + the view's static_id/team_id, omit-when-0. `nameof` now reads the GENERATED view rather than
+// peer_name_find alone, so it and `hashof` and `peers` cannot answer one identity three ways (spec §2.5).
+size_t write_peer_name(char* buf, size_t cap, uint32_t hash, const char* name, size_t name_len,
+                       uint8_t static_id, uint8_t team_id) {
     JsonBuf j(buf, cap);
     j.lit("{\"ev\":\"peer_name\",\"hash\":"); j.u32(hash);
     if (name && name_len) { j.lit(",\"name\":"); j.str(name, name_len); }
+    if (static_id) { j.lit(",\"static_id\":"); j.u32(static_id); }
+    if (team_id)   { j.lit(",\"team_id\":");   j.u32(team_id); }
     j.ch('}');
+    return j.finish();
+}
+// ★ §AB2 (spec §2.3 + the §2.6(b) ruling): the `peername` SYNCHRONOUS ACK. Not a push — the verb is operator-initiated,
+// purely local and its result is known immediately, so there is nothing asynchronous to notify; a push would also have
+// meant a new PushKind, which the sim bridges on its raw uint8_t with static_asserts twinned in two files.
+// `name` is ECHOED (j.str escapes + UTF-8-sanitises it) so the app can confirm what the node actually stored rather
+// than assume its own string round-tripped. Field ORDER mirrors the `peerkey_set` ack (hash first, decimal u32) — that
+// ack is still snprintf'd inline in src/firmware_commands.cpp rather than written here; folding it in is a cleanup
+// slice, not this one (C1), and it is noted so it can be found.
+size_t write_peer_name_set(char* buf, size_t cap, uint32_t hash, const char* name, size_t name_len) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"peer_name_set\",\"hash\":"); j.u32(hash);
+    j.lit(",\"name\":"); j.str(name, name_len);
+    j.ch('}');
+    return j.finish();
+}
+// The refusal twin, same shape as write_peerkey_err / write_team_key_err (U3). `reason` ∈ "unknown_hash" (no cached row
+// for that hash — remedy: `reqpubkey`) | "too_long" (> protocol::peer_name_max — remedy: shorten) | "bad_args" (a
+// malformed hash, an unquoted/empty/unterminated name). The three have DIFFERENT remedies, which is why they are three
+// reasons and not one `bad_args` (C2: a refusal must name the way out).
+size_t write_peer_name_err(char* buf, size_t cap, const char* reason) {
+    JsonBuf j(buf, cap);
+    j.lit("{\"ev\":\"peer_name_err\",\"reason\":\""); j.lit(reason); j.ch('"'); j.ch('}');
     return j.finish();
 }
 
