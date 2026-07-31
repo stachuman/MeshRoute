@@ -37,7 +37,7 @@ blocks functionality** — it is all quality, telemetry, plane-parity and dedup.
    **Load side + primitives ONLY; `save`'s change-detection stays untouched** (see the entry — that is the trap).
 4. ~~**B27**~~ ✅ **CLOSED** — removed; ΔFlash negative on all three boards. *(was: owner-ruled REMOVE, not guard)* — it
    deletes a forked surface. **Remove the write, KEEP every read** — see the entry; tag `0x12` is **not** retired.
-5. **B28** — ★ **owner-ruled: auto-set `is_mobile` when a team is in use** (two enforcement points, one-directional, reported not silent — see the entry)
+5. ~~**B28**~~ ✅ **CLOSED** — enforced at 3 points + 2 refusals; 36/36 byte-identical. *(was: owner-ruled auto-set `is_mobile`)* (two enforcement points, one-directional, reported not silent — see the entry)
 6. **AB1 → AB2 → AB3** — `docs/superpowers/specs/2026-07-29-peer-address-book-design.md`. **Fully unblocked** — nothing
    in this register touches them. (⚠ **B18 is worth taking before AB3**, which rewires `hashof`/`nameof` onto the view:
    better than building the view over a known-wrong read path.)
@@ -184,6 +184,27 @@ looks** — removing `loc_dm` touches **eleven surfaces including an app-facing 
 ---
 
 ## Tier 2 — wrong behaviour, currently masked or worked around
+
+### ~~B28~~ ✅ **CLOSED 2026-07-31** (`§role-model`) — the invariant is enforced, and **the prediction held exactly**
+★ **36/36 BYTE-IDENTICAL**, keystone unmoved, native 1023/70582 → **1026/70620**, `sizeof(Node)` 220648, **RAM flat on all
+three boards**. ΔFlash +672/+1472/+1636, attributed per-TU and **dominated by the five fail-loud refusal strings that name
+the way out** — the cost of C2, paid deliberately.
+★★ **The A/B probe pair is the model answer to a 0/N result:** poisoning the *already-consistent* arm moved **1/36**
+(`s34`) ⇒ **the inserted call IS executed**; poisoning the *R2-forcing* arm moved **0/36** ⇒ the forcing arm is never
+*reached* because no counterexample exists. ⇒ **"the call runs, the decision never fires" — measured, not assumed.**
+★★ **THE INVARIANT ALREADY EXISTED AS A BUILD DEPENDENCY:** `lib/core/mr_features.h:47-49` `#error`s on
+`MR_FEAT_TEAM && !MR_FEAT_MOBILE` with the words *"a team member is is_mobile"*. ⇒ **R2 is that same statement at
+RUNTIME** — the intent was compile-time-enforced on the *build* axis and unenforced on the *config* axis for months.
+★ Design: a new `lib/core/node_role.h` holds two **pure** functions (`role_enforce`, `role_set_refusal`) — the one place
+`lib/core` and `src/` can both include, which **converted two corpus-dark console decisions into natively testable
+logic.** Keyed on `MR_FEAT_MOBILE` (the axis that actually decides it), not `MR_FEAT_TEAM`.
+⚠ **Two edits beyond the five, both load-bearing:** `handle_team` now persists the promoted role (else every reboot leans
+on the boot backstop), and the O2/R4 refusals also guard the **team-implied** promotion — otherwise `team <id>` is a back
+door around `cfg set mobile 1`. ★ And the refusal there **must** be `t != 0`-guarded, or O1 fires on `team 0` and
+**refuses every leave** (pinned by a test).
+★ **Named residual, in-source:** `Node::on_init` is deliberately NOT a fourth enforcement point — which is *why* the
+corpus can still construct the outlawed config and byte-identity stayed a real prediction. A fix there should **refuse**,
+not silently normalise, and it can move team scenarios. Note: `§role-model`. *(original entry below)*
 
 ### B28 — ★★ **`is_mobile` must be set AUTOMATICALLY when a team is in use** · **OWNER-RULED 2026-07-31**
 **Owner: *"is_mobile should be automatically set when team is in use — unless it is impossible (firmware without teams

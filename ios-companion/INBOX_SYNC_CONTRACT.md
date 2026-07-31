@@ -27,6 +27,19 @@
 > ⚠ It also carried **`kVersion` 22 → 23**, so **expect an unprovisioned node on first contact after that flash**
 > (the second such bump; T-K1 was the first). `/mrid` identity and `/mrpeers` are unaffected.
 >
+> ### ★★ NEW 2026-07-31 (`§role-model`) — `cfg set mobile` CAN NOW FAIL, and there is a new reply line
+> The node now enforces **team ⇒ mobile** (`team_id != 0` implies `is_mobile`). Three app-visible consequences:
+> - **`> cfg err role_refused <reason> …`** — a `cfg set mobile` that **always succeeded before** can now be REFUSED.
+>   Reasons: `no_mobile_plane` (this firmware has no mobile plane) · `gateway_is_static` (a gateway cannot be mobile) ·
+>   `hosting_mobiles n=N` (demote/promote refused while N guests depend on this node as their home) · `in_a_team`
+>   (**`cfg set mobile 0` while in a team** — the app must send `team 0` or `leave` first). ⇒ **the app must handle a
+>   failing role write**, and surface the named remedy rather than retrying.
+> - **`> team err role_refused …`** — the same refusals also guard the team-implied promotion, so **`team <id>` can now
+>   fail** where it previously always applied.
+> - ⚠ **`> role -> MOBILE …` is printed BEFORE `> team -> team_id=0x…`** on a promoting `team` command. **If the app parses
+>   the team reply POSITIONALLY, this will break it** — match on the prefix, not the line index.
+> ★ **And treat "team ⇒ mobile" as an invariant, not a coincidence:** do not try to set the two apart.
+
 > ### From `2026-07-30-channel-crypt-and-location-privacy-design.md`
 > - **`send_channel … -e`** — encrypted team channel posts, plus a four-case flag matrix in which **two
 >   combinations REFUSE**: `-e` without `-t` (there is no key for a global channel), and **`-t -g -e`** (BOTH would

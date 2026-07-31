@@ -34,14 +34,16 @@ leaves the mesh believing the old role.
 
 | # | path | sets `is_mobile` | sets `team_id` | clears role state? | live or reboot? |
 |---|---|---|---|---|---|
-| 1 | **`cfg set mobile 0\|1`** (`firmware_config.cpp:220`) | **yes, raw flip** | no | **nothing** | ⚠ **reboot-to-apply** |
+| 1 | **`cfg set mobile 0\|1`** (`firmware_config.cpp:220`) | **yes, raw flip** | no | **nothing** | ★★ **LIVE — corrected 2026-07-31.** `lc` **IS** `g_node.mutable_config()`, `live` keeps its `true` default (unlike `duty`/`ble_*`/`n_layers`/`l1_*`, which clear it explicitly), and the reply is `ok (live + saved)` |
 | 2 | **`team <id>` / `team new`** (`handle_team`) | ⚠ **NO** | yes, via `set_team_id` | clears the **team** plane | **live** |
 | 3 | **`join` / `create`** (`:494`) | ⚠ **PRESERVES** | ⚠ **PRESERVES** (+ `team_local_id` + the team channel key, *unrecoverable if dropped*) | clears **learned** mobile state (`_my_mobile_reg` via `clear_routing_state`) | live |
-| 4 | **`leave`** (`:1049`) | **yes → 0** | **yes → 0** | **everything** (`b = mrnv::Blob{}`, keeps only freq/PHY defaults) | live, → unprovisioned + idle |
+| 4 | **`leave`** (`:1049`) | persisted **→ 0**, ⚠ **live UNCHANGED** | persisted **→ 0**, ⚠ **live UNCHANGED** | **everything persisted** (`b = mrnv::Blob{}`, keeps only freq/PHY defaults) | ★ **corrected: the ROLE half is NOT live** — `provision_apply_live` never writes `lc.is_mobile`/`lc.team_id` (only leaf_id/routing_sf/sf_list/duty/lineage/channel tunables/leaf_name), so the role reverts at reboot |
 | 5 | **NV boot** (`fw_main.cpp:603-604`) | restores | restores | n/a | boot |
 
-★ **Only path 4 is a coherent role transition.** It is also the only one that changes `is_mobile` and `team_id`
-**together**, which is why it can never produce the config B28 outlaws.
+⚠ **CORRECTED 2026-07-31 — no path was a coherent LIVE role transition.** `leave` still cannot produce the config B28
+outlaws, but **not** because it changes both fields: because it changes **neither live field**, only the persisted pair.
+★ **The reasoning that mattered survived the correction; the mechanism attributed to it did not** — a reminder to state
+the mechanism, not just the conclusion, so a wrong mechanism can be caught (V1).
 
 ⚠ **`join`/`create` are NOT role changes** — the comment is explicit (*"§mobile: preserve team + autoreg + team-DAD id
 across create/join"*). They re-provision the *network*, keeping the *role*. This surprised the owner and is worth
@@ -58,7 +60,7 @@ only promotion path today**, and it is the reboot-to-apply raw flip.
 | **I-a** | **team without mobile is reachable** — `team <id>` never sets `is_mobile`, and NV restores the two fields **independently** | the config that defeats the H-flood role-exclusion invariant (register **B28**) |
 | **I-b** | **`cfg set mobile 0` leaves mobile state behind** and is **reboot-to-apply** | between command and reboot, NV holds `is_mobile=0, team_id=X`; a B28 boot-normalisation would then **re-set the flag and silently undo the operator** |
 | **I-c** | **`is_gateway && is_mobile` is UNRULED** — the only combined read is incidental (`node_beacon.cpp:368`) | a gateway can be told it is roaming; nothing refuses it |
-| **I-d** | **promotion is live for one path, reboot for the other** — `team` applies live, `cfg set mobile` at reboot | the same logical change has two latencies, and only one re-announces |
+| ~~**I-d**~~ | ✅ **DISSOLVED 2026-07-31 — the premise was false.** `cfg set mobile` was **already live and self-announcing** (`is_mobile` is packed off `_cfg` at frame-build time), so there were never two latencies. ★ **What is genuinely missing is the STATE cleanup** (`_my_mobile_reg` on demotion, the FSM kick on promotion) — marked `✖ MISSING` in-source, its own slice | — |
 
 ## 2. The proposal
 
