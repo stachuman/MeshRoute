@@ -223,6 +223,18 @@ void handle_cfg_set(const char* args, Print& out) {
     // nothing at all, not even the stale team-DAD id. b.team_local_id must be re-read after the switch or a reboot would
     // resurrect the OLD team's id as CONFIRMED on the new team. (No team_dad_fire here — as before, this key is
     // reboot-to-apply; a mobile's FSM tick re-DADs on _team_local_id==0, node_mobile.cpp:30.)
+    // ✖ MISSING / NOT THIS SLICE (C1) — ★★ THIS PARSE HAS **NONE** OF THE THREE GUARDS `team <id>` NOW HAS, and it is
+    // the SAME destructive family, found 2026-07-31 while closing register B17. `strtoul(val, nullptr, 0)` DISCARDS the
+    // endptr, so unlike mrfw::parse_team_target (firmware_config_parse.h) it enforces no leading digit, no whole-token
+    // consumption and no 32-bit range. All three defects are live here, and this key is a LIVE team switch (see the note
+    // above), reachable from every transport (`cfg set ` dispatches at fw_main.cpp's USB reader AND at
+    // firmware_commands.cpp's shared sink):
+    //   • `cfg set team_id exportky`   -> strtoul yields 0 -> set_team_id(0) = LEAVE THE TEAM   (the 07-30 §team-target bug)
+    //   • `cfg set team_id 88A672BA`   -> joins team 88                                          (the 07-31 B1 bug)
+    //   • `cfg set team_id 4294967296` -> 0 = LEAVE on a 64-bit host, garbage team 0xFFFFFFFF on the 32-bit boards (B17)
+    // ⇒ B17/B1 are closed on the `team` verb ONLY. Deferred, not forgotten: the fix is to route this value through
+    // parse_team_target (U1 — do NOT fork a fourth spelling of the rule) and refuse LOUD via the `cfg err bad_value`
+    // convention the siblings above use, which is a behaviour change on a SECOND command and therefore its own slice.
     else if (!strcmp(key, "team_id"))      { (void)g_node.set_team_id((uint32_t)strtoul(val, nullptr, 0));
                                              b.team_id = lc.team_id; b.team_local_id = g_node.team_local_id(); }
     else if (!strcmp(key, "mobile_autoregister")) { lc.mobile_autoregister = (atoi(val)!=0 || !strcmp(val,"true")); b.mobile_autoregister = lc.mobile_autoregister?1:0; }   // §mobile console: autonomy toggle (LIVE + persist)

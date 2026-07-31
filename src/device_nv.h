@@ -1,13 +1,24 @@
 // MeshRoute — src/device_nv.h
 // Author: Stanislaw Kozicki <cgpsmapper@gmail.com>
 //
-// Persist the device's runtime state to on-chip flash so it survives reboot. TWO records:
-//   - `/mrcfg` (Blob)   = RADIO/PROTOCOL CONFIG + the short `node_id` (a `cfg set` over the console).
-//   - `/mrid`  (IdBlob) = the 32-byte identity master seed + name (HW-RNG on first boot; `regen`). The
-//                         keypair / key_hash32 are DERIVED from the seed at boot (lib/core/identity).
-// Backends:
-//   nRF52 (Adafruit core) -> Adafruit_LittleFS / InternalFS (files "/mrcfg", "/mrid")
-//   ESP32  (Heltec)        -> Preferences / NVS (namespace "mr", keys "cfg", "id")
+// Persist the device's runtime state to on-chip flash so it survives reboot. FOUR records:
+//   - `/mrcfg`   (Blob)     = RADIO/PROTOCOL CONFIG + the short `node_id` (a `cfg set` over the console).
+//   - `/mrid`    (IdBlob)   = the 32-byte identity master seed + name (HW-RNG on first boot; `regen`). The
+//                             keypair / key_hash32 are DERIVED from the seed at boot (lib/core/identity).
+//   - `/mrpeers` (PeerBlob) = the pinned peer-key store (see §2 below).
+//   - `/mrfault` (mrfault::FaultLog) = the HW fault history; lib/core/fault_log.h owns its validity rule.
+//
+// STRUCTURE — three layers, and the ORDER is deliberate (NV1, register B26):
+//   1. the record types + the `Slot` table + the `blob_valid_*` predicate, ABOVE the platform `#if`, so they
+//      are HOST-TESTABLE (test/test_device_nv.cpp). The predicate used to be hand-copied SIX times *inside*
+//      the platform arms, where no test could reach it.
+//   2. per-backend `read_slot`/`write_slot` — the only platform-specific code, TWO functions per arm:
+//        nRF52 (Adafruit core) -> Adafruit_LittleFS / InternalFS FILES, addressed by `Slot::path`
+//        ESP32 (Heltec)        -> Preferences / NVS KEY-VALUE, addressed by `Slot::ns` + `Slot::key`
+//      ⚠ Those are different storage MODELS, not different syntax — which is exactly why the typed wrappers
+//      are NOT collapsed into one `load_peers` with the `#if` moved inside it: same duplication, worse
+//      locality. The `#if` belongs at the primitive, and nowhere else.
+//   3. the eight typed `load*`/`save*` wrappers, ONE copy each, over whichever primitive pair compiled.
 //
 // REALITY SPLIT: this compiles under both board envs here; the actual flash read/write + the wear is
 // BENCH-VERIFIED BY THE USER (I cannot exercise on-chip flash from the host). A failed/empty load just
@@ -146,76 +157,76 @@ constexpr uint32_t kPeersMagic     = 0x4D525052u;  // 'MRPR'
 constexpr uint16_t kPeersVersion   = 1;
 constexpr uint8_t  kMaxPinnedPeers = 16;
 
+// ---- slot table --------------------------------------------------------------------------------------
+// The ONE place each record's storage names live. Both live backends address the same four records with
+// different models, so a slot carries both spellings and each arm reads the field it needs.
+// ⚠ `/mrfault` is in its OWN NVS namespace ON PURPOSE: `factory_erase()` clears "mr" in one shot (config +
+// identity + peers) and the HW fault history must SURVIVE that (the nRF52 arm achieves the same by saving
+// it back after the format). That asymmetry is DATA here rather than a forked code path.
+struct Slot { const char* path; const char* ns; const char* key; };
+inline constexpr Slot kSlotCfg   { "/mrcfg",   "mr",      "cfg"   };
+inline constexpr Slot kSlotId    { "/mrid",    "mr",      "id"    };
+inline constexpr Slot kSlotPeers { "/mrpeers", "mr",      "peers" };
+inline constexpr Slot kSlotFault { "/mrfault", "mrfault", "log"   };
+
+// ---- record validation — ONE definition, DELIBERATELY ABOVE the platform `#if` -----------------------
+// This predicate was hand-written SIX times (Blob/IdBlob/PeerBlob × the two backend arms) inside those
+// Arduino-only arms, so nothing in test/ could reach it and the version policy was unverifiable off-device.
+// Hoisted, it is a host unit (test/test_device_nv.cpp) — and a "reject an old-version record" test becomes
+// runnable at all, which is why NV1 came before the peer-address-book slice that needs one.
+//
+// ★ THE TWO VERSION POLICIES DIFFER, AND BOTH ARE PRESERVED EXACTLY — the six copies hid that they did:
+//   /mrcfg   (Blob)     accepts a RANGE, `version >= 2 && <= kVersion`: an older-but-parsable config loads
+//                       and is re-stamped in place by nv_load_stamped (src/firmware_config.cpp).
+//   /mrid    (IdBlob)   \ EQUALITY only — a mismatch rejects the record outright, so the node re-mints its
+//   /mrpeers (PeerBlob) / identity or comes up with no pinned peers (kVersion's REPROVISION-ON-REFLASH note).
+// The policy is now a NAMED call at the one wrapper instead of a hand-copied comparison, so changing one
+// record's policy is one line and cannot leak into another's. `blob_valid_exact` IS the degenerate range —
+// one comparison core, two names, no fork (U1).
+//
+// `n` is SIGNED and that is load-bearing: nRF52's `File::read()` returns a NEGATIVE on a corrupt LittleFS
+// CTZ block — the very signal `mount_or_repair()` keys its self-heal on — so it must never be laundered
+// through an unsigned type where it would compare as a huge length.
+inline bool slot_size_ok(int n, size_t want) {
+    return n >= 0 && static_cast<size_t>(n) == want;   // short, over-long, absent (0) and error (<0) all fail
+}
+template <typename BlobT>
+inline bool blob_valid_range(const BlobT& b, int n, uint32_t magic, uint16_t v_min, uint16_t v_max) {
+    return slot_size_ok(n, sizeof(BlobT)) && b.magic == magic && b.version >= v_min && b.version <= v_max;
+}
+template <typename BlobT>
+inline bool blob_valid_exact(const BlobT& b, int n, uint32_t magic, uint16_t version) {
+    return blob_valid_range(b, n, magic, version, version);
+}
+
 }  // namespace mrnv
 
-#if defined(ARDUINO)
-// ----- platform flash backends (header-inline; device_nv.h is included by the one device TU) ----------
-#if defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(NRF52840_XXAA) || defined(BOARD_XIAO_WIO_SX1262)
+// ----- platform slot primitives (header-inline; device_nv.h is included by the one device TU) ---------
+// ★ THE ONLY PLATFORM-SPECIFIC CODE IN THIS FILE. Two functions per arm, where there used to be eight
+// near-identical load/save wrappers differing only in the slot name and the read/write call.
+#if defined(ARDUINO) && (defined(NRF52_SERIES) || defined(ARDUINO_ARCH_NRF52) || defined(NRF52840_XXAA) || defined(BOARD_XIAO_WIO_SX1262))
   #include <Adafruit_LittleFS.h>
   #include <InternalFileSystem.h>
 namespace mrnv {
-inline bool load(Blob& out) {
+// nRF52: the slots are Adafruit LittleFS FILES, addressed by `Slot::path`.
+inline int read_slot(const Slot& s, void* dst, size_t len) {
     using namespace Adafruit_LittleFS_Namespace;
     InternalFS.begin();
     File f(InternalFS);
-    if (!f.open("/mrcfg", FILE_O_READ)) return false;
-    const int n = f.read(reinterpret_cast<uint8_t*>(&out), sizeof(out));
+    if (!f.open(s.path, FILE_O_READ)) return -1;               // absent slot (first boot) — not an error
+    const int n = f.read(dst, static_cast<uint16_t>(len));     // ⚠ < 0 on a corrupt CTZ block (mount_or_repair)
     f.close();
-    return n == static_cast<int>(sizeof(out)) && out.magic == kMagic && (out.version >= 2 && out.version <= kVersion);
+    return n;
 }
-inline bool save(const Blob& b) {                       // change-detects against load() (defined just above)
+inline bool write_slot(const Slot& s, const void* src, size_t len) {
     using namespace Adafruit_LittleFS_Namespace;
     InternalFS.begin();
-    // H3 change-detection: a `cfg set` (console OR companion/BLE) to the SAME value must NOT rewrite the whole
-    // blob — every remove()+open(WRITE)+write is flash wear AND widens the reset-during-write corruption window
-    // (a companion slider bound to `cfg set` hammers this). SKIP when the serialized blob is byte-identical to
-    // what's already stored. No existing/unreadable blob (cur load fails) => always write (first provision).
-    static Blob cur;                                   // STATIC not stack — keep the console-path frame small (the do_post_ack overflow lesson)
-    if (load(cur) && memcmp(&cur, &b, sizeof b) == 0) return true;   // identical -> no-op success
-    InternalFS.remove("/mrcfg");                       // overwrite (LittleFS append-only otherwise)
+    InternalFS.remove(s.path);                                 // overwrite (LittleFS append-only otherwise)
     File f(InternalFS);
-    if (!f.open("/mrcfg", FILE_O_WRITE)) return false;
-    const int n = f.write(reinterpret_cast<const uint8_t*>(&b), sizeof(b));
+    if (!f.open(s.path, FILE_O_WRITE)) return false;
+    const size_t n = f.write(reinterpret_cast<const uint8_t*>(src), len);
     f.close();
-    return n == static_cast<int>(sizeof(b));
-}
-inline bool load_id(IdBlob& out) {
-    using namespace Adafruit_LittleFS_Namespace;
-    InternalFS.begin();
-    File f(InternalFS);
-    if (!f.open("/mrid", FILE_O_READ)) return false;
-    const int n = f.read(reinterpret_cast<uint8_t*>(&out), sizeof(out));
-    f.close();
-    return n == static_cast<int>(sizeof(out)) && out.magic == kIdMagic && out.version == kIdVersion;
-}
-inline bool save_id(const IdBlob& b) {
-    using namespace Adafruit_LittleFS_Namespace;
-    InternalFS.begin();
-    InternalFS.remove("/mrid");
-    File f(InternalFS);
-    if (!f.open("/mrid", FILE_O_WRITE)) return false;
-    const int n = f.write(reinterpret_cast<const uint8_t*>(&b), sizeof(b));
-    f.close();
-    return n == static_cast<int>(sizeof(b));
-}
-inline bool load_peers(PeerBlob& out) {                // §2: the pinned-key store
-    using namespace Adafruit_LittleFS_Namespace;
-    InternalFS.begin();
-    File f(InternalFS);
-    if (!f.open("/mrpeers", FILE_O_READ)) return false;
-    const int n = f.read(reinterpret_cast<uint8_t*>(&out), sizeof(out));
-    f.close();
-    return n == static_cast<int>(sizeof(out)) && out.magic == kPeersMagic && out.version == kPeersVersion;
-}
-inline bool save_peers(const PeerBlob& b) {
-    using namespace Adafruit_LittleFS_Namespace;
-    InternalFS.begin();
-    InternalFS.remove("/mrpeers");
-    File f(InternalFS);
-    if (!f.open("/mrpeers", FILE_O_WRITE)) return false;
-    const int n = f.write(reinterpret_cast<const uint8_t*>(&b), sizeof(b));
-    f.close();
-    return n == static_cast<int>(sizeof(b));
+    return n == len;
 }
 // `factory_reset confirm`: erase EVERY persisted NV slot -> the node boots brand-new (default config, fresh
 // identity, no peers, empty inbox). FULL InternalFS.format() (spec 2026-06-28-factory-reset-format.md): the prior
@@ -226,8 +237,8 @@ inline bool save_peers(const PeerBlob& b) {
 // SEPARATE external QSPI chip (a different FS) -> wiped by the inbox stores' wipe() in the command (their domain).
 // VERIFIED SAFE: device_ota does not use InternalFS (the format won't touch OTA/DFU). format()==false => the flash
 // cannot be formatted => WORN flash (handle_factory_reset surfaces the WARN = the real dead-node signal).
-inline bool load_faults(mrfault::FaultLog& out);                // fwd-decls (defined below): factory_erase preserves /mrfault
-inline bool save_faults(const mrfault::FaultLog& b);
+inline bool load_faults(mrfault::FaultLog& out);                // fwd-decls (defined with the other typed wrappers,
+inline bool save_faults(const mrfault::FaultLog& b);            // after this arm): factory_erase preserves /mrfault
 inline bool factory_erase() {
     using namespace Adafruit_LittleFS_Namespace;
     InternalFS.begin();
@@ -237,26 +248,6 @@ inline bool factory_erase() {
     InternalFS.begin();                                    // re-mount the clean FS so the load*() at boot run normally
     if (had) save_faults(fl);                              // restore the fault history onto the clean FS (choice B: preserve /mrfault)
     return ok;
-}
-// Persistent fault log (`/mrfault`) — whole-blob R/W like Blob (a kFaultVersion bump rejects an old record -> init fresh).
-inline bool load_faults(mrfault::FaultLog& out) {
-    using namespace Adafruit_LittleFS_Namespace;
-    InternalFS.begin();
-    File f(InternalFS);
-    if (!f.open("/mrfault", FILE_O_READ)) return false;
-    const int n = f.read(reinterpret_cast<uint8_t*>(&out), sizeof(out));
-    f.close();
-    return n == static_cast<int>(sizeof(out)) && mrfault::fault_log_valid(out);
-}
-inline bool save_faults(const mrfault::FaultLog& b) {
-    using namespace Adafruit_LittleFS_Namespace;
-    InternalFS.begin();
-    InternalFS.remove("/mrfault");
-    File f(InternalFS);
-    if (!f.open("/mrfault", FILE_O_WRITE)) return false;
-    const int n = f.write(reinterpret_cast<const uint8_t*>(&b), sizeof(b));
-    f.close();
-    return n == static_cast<int>(sizeof(b));
 }
 // InternalFS self-heal (Part 2, 2026-06-24): mount + REPAIR-ON-CORRUPT. Returns true IFF it had to reformat (the
 // caller logs loudly + sets a flag so `faults`/`version`/`status` surface it this boot). With LFS_NO_ASSERT (Part
@@ -270,6 +261,9 @@ inline bool mount_or_repair() {
     using namespace Adafruit_LittleFS_Namespace;
     bool corrupt = !InternalFS.begin();                         // FS-metadata corruption -> begin() fails
     if (!corrupt) {
+        // ✖ NOT routed through the Slot table on purpose: this probe list is WIDER than the NV records —
+        // /mri_dm and /mri_ch are the inbox CURSOR meta, which have no Slot (and no NVS twin). A half-symbolic,
+        // half-literal list would read worse than this one, and the probe must cover every file the FS holds.
         static const char* const kFiles[] = { "/mrcfg", "/mrid", "/mrpeers", "/mri_dm", "/mri_ch", "/mrfault" };
         for (const char* path : kFiles) {
             File f(InternalFS);
@@ -287,57 +281,24 @@ inline bool mount_or_repair() {
     return corrupt;
 }
 }  // namespace mrnv
-#elif defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3)
+#elif defined(ARDUINO) && (defined(ARDUINO_ARCH_ESP32) || defined(ESP32) || defined(BOARD_HELTEC_V3))
   #include <Preferences.h>
 namespace mrnv {
-inline bool load(Blob& out) {
+// ESP32: the slots are Preferences/NVS KEY-VALUE pairs, addressed by `Slot::ns` + `Slot::key`.
+inline int read_slot(const Slot& s, void* dst, size_t len) {
     Preferences p;
-    if (!p.begin("mr", /*readOnly=*/true)) return false;
-    const size_t n = p.getBytes("cfg", &out, sizeof(out));
+    if (!p.begin(s.ns, /*readOnly=*/true)) return -1;
+    if (!p.isKey(s.key)) { p.end(); return -1; }         // no record yet (first boot) — silent, no NVS error log
+    const size_t n = p.getBytes(s.key, dst, len);
     p.end();
-    return n == sizeof(out) && out.magic == kMagic && (out.version >= 2 && out.version <= kVersion);
+    return static_cast<int>(n);
 }
-inline bool save(const Blob& b) {
-    // H3 change-detection (see the nRF52 backend): SKIP the NVS rewrite when the blob is byte-identical to what's
-    // stored — avoids flash wear + narrows the reset-during-write window on a same-value `cfg set`. No/unreadable
-    // existing blob => always write (first provision). NVS is already erase-before-write internally, so this is
-    // purely the same-value early-out.
-    static Blob cur;
-    if (load(cur) && memcmp(&cur, &b, sizeof b) == 0) return true;
+inline bool write_slot(const Slot& s, const void* src, size_t len) {
     Preferences p;
-    if (!p.begin("mr", /*readOnly=*/false)) return false;
-    const size_t n = p.putBytes("cfg", &b, sizeof(b));
+    if (!p.begin(s.ns, /*readOnly=*/false)) return false;
+    const size_t n = p.putBytes(s.key, src, len);
     p.end();
-    return n == sizeof(b);
-}
-inline bool load_id(IdBlob& out) {
-    Preferences p;
-    if (!p.begin("mr", /*readOnly=*/true)) return false;
-    const size_t n = p.getBytes("id", &out, sizeof(out));
-    p.end();
-    return n == sizeof(out) && out.magic == kIdMagic && out.version == kIdVersion;
-}
-inline bool save_id(const IdBlob& b) {
-    Preferences p;
-    if (!p.begin("mr", /*readOnly=*/false)) return false;
-    const size_t n = p.putBytes("id", &b, sizeof(b));
-    p.end();
-    return n == sizeof(b);
-}
-inline bool load_peers(PeerBlob& out) {                // §2: the pinned-key store
-    Preferences p;
-    if (!p.begin("mr", /*readOnly=*/true)) return false;
-    if (!p.isKey("peers")) { p.end(); return false; }   // no peers yet (first boot) — silent, no NVS error
-    const size_t n = p.getBytes("peers", &out, sizeof(out));
-    p.end();
-    return n == sizeof(out) && out.magic == kPeersMagic && out.version == kPeersVersion;
-}
-inline bool save_peers(const PeerBlob& b) {
-    Preferences p;
-    if (!p.begin("mr", /*readOnly=*/false)) return false;
-    const size_t n = p.putBytes("peers", &b, sizeof(b));
-    p.end();
-    return n == sizeof(b);
+    return n == len;
 }
 // `factory_reset confirm`: erase ALL persisted NV. Config + identity + peers all live as keys in the single
 // "mr" Preferences/NVS namespace -> clear() wipes them in one shot (NOT a full nvs_flash_erase, so other
@@ -350,37 +311,62 @@ inline bool factory_erase() {
     p.end();
     return ok;
 }
-// Persistent fault log on ESP32 — its OWN NVS namespace ("mrfault"), so factory_erase()'s clear of "mr" leaves the
-// HW fault history intact (consistent with nRF52 keeping /mrfault). A kFaultVersion bump rejects an old record.
-inline bool load_faults(mrfault::FaultLog& out) {
-    Preferences p;
-    if (!p.begin("mrfault", /*readOnly=*/true)) return false;
-    if (!p.isKey("log")) { p.end(); return false; }      // no record yet (first boot) — silent, not an NVS error
-    const size_t n = p.getBytes("log", &out, sizeof(out));
-    p.end();
-    return n == sizeof(out) && mrfault::fault_log_valid(out);
-}
-inline bool save_faults(const mrfault::FaultLog& b) {
-    Preferences p;
-    if (!p.begin("mrfault", /*readOnly=*/false)) return false;
-    const size_t n = p.putBytes("log", &b, sizeof(b));
-    p.end();
-    return n == sizeof(b);
-}
 inline bool mount_or_repair() { return false; }    // NVS has no LittleFS-CTZ corruption mode -> nothing to repair (begin() is per-call above)
 }  // namespace mrnv
 #else
-namespace mrnv {                                       // unknown platform -> no NV (always defaults)
-inline bool load(Blob&) { return false; }
-inline bool save(const Blob&) { return false; }
-inline bool load_id(IdBlob&) { return false; }
-inline bool save_id(const IdBlob&) { return false; }
-inline bool load_peers(PeerBlob&) { return false; }
-inline bool save_peers(const PeerBlob&) { return false; }
-inline bool factory_erase() { return true; }          // §2 native/unknown no-op stub (device-less build still compiles)
-inline bool load_faults(mrfault::FaultLog&) { return false; }
-inline bool save_faults(const mrfault::FaultLog&) { return false; }
-inline bool mount_or_repair() { return false; }       // native/unknown: no FS
+namespace mrnv {
+// NO NV BACKEND — either an unknown Arduino board or the HOST/native build. Every load fails, so the caller
+// comes up on compile-time defaults; every save reports failure rather than pretending. ⚠ Before NV1 the host
+// build had NO mrnv:: functions at all (the whole backend section sat inside `#if defined(ARDUINO)`); this arm
+// now covers it, which is what lets a native test link against the typed wrappers below.
+inline int  read_slot (const Slot&, void*, size_t)      { return -1; }     // "no such slot", never a length
+inline bool write_slot(const Slot&, const void*, size_t) { return false; }
+inline bool factory_erase() { return true; }          // §2 no-op stub: nothing to erase IS success (must still boot)
+inline bool mount_or_repair() { return false; }       // no FS -> never reports a repair
 }  // namespace mrnv
 #endif
-#endif  // ARDUINO
+
+// ----- the typed records: ONE copy of each wrapper, over whichever primitive pair compiled above -------
+// ★ NV1: these were 16 near-identical functions (load/save × 4 records × 2 arms) plus 8 stubs, differing ONLY
+// in the slot name and the read/write call — both of which are now behind read_slot/write_slot. The version
+// policy and the error handling therefore exist once per record instead of twice.
+namespace mrnv {
+inline bool load(Blob& out) {
+    const int n = read_slot(kSlotCfg, &out, sizeof out);
+    return blob_valid_range(out, n, kMagic, /*v_min=*/2, /*v_max=*/kVersion);   // RANGE — see the policy note above
+}
+inline bool save(const Blob& b) {
+    // ★★ H3 CHANGE-DETECTION, AND IT IS DELIBERATELY ASYMMETRIC: only /mrcfg coalesces. A `cfg set` (console
+    // OR companion/BLE) to the SAME value must NOT rewrite the whole record — every rewrite is flash wear AND
+    // widens the reset-during-write corruption window, and this tree has already been BRICKED by NV corruption
+    // once (specs/archive/2026-06-24-internalfs-self-heal.md). /mrcfg is the one record a companion slider
+    // bound to `cfg set` can hammer, and the one nv_persist_join_state re-writes on the leased channel-ctr
+    // roll (fw_main.cpp — `lease_due`, roughly every kChannelCtrLeaseMargin sends).
+    // ✖ NOT REPLICATED onto save_id / save_peers / save_faults, ON PURPOSE (NV1 scope ruling, C1): /mrid is
+    // written on `regen` or `cfg set name`, /mrpeers on a `peerkey` install, /mrfault once per boot — none is
+    // slider-driven, and adding a read-before-write to them would be a real behaviour change (an extra flash
+    // read per save) smuggled inside a refactor. This is a deliberate asymmetry, NOT missed dedup.
+    // No existing/unreadable record (the load fails) => always write (first provision).
+    static Blob cur;   // STATIC not stack — keep the console-path frame small (the do_post_ack overflow lesson)
+    if (load(cur) && memcmp(&cur, &b, sizeof b) == 0) return true;   // byte-identical -> no-op success
+    return write_slot(kSlotCfg, &b, sizeof b);
+}
+inline bool load_id(IdBlob& out) {
+    const int n = read_slot(kSlotId, &out, sizeof out);
+    return blob_valid_exact(out, n, kIdMagic, kIdVersion);           // EQUALITY — a mismatch re-mints the identity
+}
+inline bool save_id(const IdBlob& b) { return write_slot(kSlotId, &b, sizeof b); }
+inline bool load_peers(PeerBlob& out) {                              // §2: the pinned-key store
+    const int n = read_slot(kSlotPeers, &out, sizeof out);
+    return blob_valid_exact(out, n, kPeersMagic, kPeersVersion);     // EQUALITY — a mismatch drops the store
+}
+inline bool save_peers(const PeerBlob& b) { return write_slot(kSlotPeers, &b, sizeof b); }
+// Persistent fault log (`/mrfault`) — whole-blob R/W like Blob, but its magic+version rule belongs to
+// mrfault::fault_log_valid (lib/core/fault_log.h), so this REUSES that rather than forking a copy here (U1).
+// A kFaultVersion bump therefore rejects an old record -> the caller inits fresh.
+inline bool load_faults(mrfault::FaultLog& out) {
+    const int n = read_slot(kSlotFault, &out, sizeof out);
+    return slot_size_ok(n, sizeof out) && mrfault::fault_log_valid(out);
+}
+inline bool save_faults(const mrfault::FaultLog& b) { return write_slot(kSlotFault, &b, sizeof b); }
+}  // namespace mrnv

@@ -31,14 +31,17 @@ blocks functionality** — it is all quality, telemetry, plane-parity and dedup.
 **The order (owner-chosen, after a QA triage):**
 1. ~~**B4**~~ ✅ **CLOSED 2026-07-31** — and it yielded **B24/B25**; B25 is a candidate **I2 breach**, unmeasured
 2. **B17** — ★ the only remaining **device-destructive** entry: `team 4294967296` **joins garbage team `0xFFFFFFFF`**
-   on the 32-bit boards. One range check; **a native test can never catch it.**
+   on the 32-bit boards. One range check. ✅ **CLOSED** — ⚠ but see **B27**: the same family is still live on `cfg set team_id`.
 3. **B26 / NV1** — ★ **owner-queued 2026-07-31 BEFORE AB1**: factor the NV backend's 6-times-duplicated blob validation
    **above** the `#if`, so it is natively testable — which is what makes AB1's "v1-blob rejection test" runnable at all.
    **Load side + primitives ONLY; `save`'s change-detection stays untouched** (see the entry — that is the trap).
-4. **AB1 → AB2 → AB3** — `docs/superpowers/specs/2026-07-29-peer-address-book-design.md`. **Fully unblocked** — nothing
+4. **B27** — ★ **owner-ruled 2026-07-31: REMOVE `cfg set team_id`** (not guard it). Small, destructive-by-typo, and it
+   deletes a forked surface. **Remove the write, KEEP every read** — see the entry; tag `0x12` is **not** retired.
+5. **B28** — ★ **owner-ruled: auto-set `is_mobile` when a team is in use** (two enforcement points, one-directional, reported not silent — see the entry)
+6. **AB1 → AB2 → AB3** — `docs/superpowers/specs/2026-07-29-peer-address-book-design.md`. **Fully unblocked** — nothing
    in this register touches them. (⚠ **B18 is worth taking before AB3**, which rewires `hashof`/`nameof` onto the view:
    better than building the view over a known-wrong read path.)
-5. **B22 → CL2 → AB4** — ★★ **AB4 (retained location) is GATED ON CL2, and CL2 IS NOT BUILT:** `channel_flavor_crypted`
+7. **B22 → CL2 → AB4** — ★★ **AB4 (retained location) is GATED ON CL2, and CL2 IS NOT BUILT:** `channel_flavor_crypted`
    / `team_channel_crypt` / `team_channel_no_key` have **zero hits in the tree** (QA-verified 2026-07-31). T-K1/T-K1b/T-K3
    built the team **keypair**; **nothing seals a channel message with it.** The O5 ruling makes the **team content key the
    trust anchor** for a stored location — so building AB4 first would either ship a setter with no live source, or trust a
@@ -91,7 +94,9 @@ gate; an agent handed only the file above would have reproduced every failure th
   after a compile-only `sizeof(Node)` measurement**, never a grant made in advance; **push back on any brief that
   starts at six.** ⚠ **Do not chase flash deltas** — there is a reproducible **±32 B noise floor** from
   `__DATE__`/`__TIME__` baked at `src/fw_main.cpp:420` + `src/firmware_commands.cpp:261`. **RAM is the trustworthy
-  number.** Use **cold, equal-length build dirs** — a warm one produced 18628-vs-10617 and read exactly like a
+  number.** ★ **Sharper instrument, found 2026-07-31: `handle_team` is ABSENT from the `gateway` ELF** (`MR_FEAT_TEAM 0`
+  garbage-collects it) ⇒ for team-console work, **`gateway` ΔFlash 0 is a LINK-LEVEL inertness proof, not a noise reading.**
+  Use **cold, equal-length build dirs** — a warm one produced 18628-vs-10617 and read exactly like a
   real delta.
 - ★★ **`s18` keystone `1cd21235` / 271629 must NOT move.** If it does, stop and report — do not re-anchor it.
 - ★★ **RE-RUN THE FOUR DETECTOR PROBES AND REPORT THE NUMBERS. Hard item — a slice that omits them is NOT gated**
@@ -174,6 +179,94 @@ looks** — removing `loc_dm` touches **eleven surfaces including an app-facing 
 ---
 
 ## Tier 2 — wrong behaviour, currently masked or worked around
+
+### B28 — ★★ **`is_mobile` must be set AUTOMATICALLY when a team is in use** · **OWNER-RULED 2026-07-31**
+**Owner: *"is_mobile should be automatically set when team is in use — unless it is impossible (firmware without teams
+handling)."*** QA agrees, and the corpus is the argument: ★★ **all 12 team scenarios, 48 team-bearing nodes, are ALREADY
+`is_mobile` — ZERO counterexamples** (QA-measured). The code already says it in prose too (`firmware_config.cpp:900`:
+*"Requires is_mobile (a team is mobile)"*). ⇒ **this ENFORCES an invariant the corpus and the comments already assume**,
+which predicts a **corpus-inert** change — a strong, checkable prediction rather than a hope.
+★ **Why it matters beyond tidiness:** `team_id != 0 && !is_mobile` is the config that **defeats the H-flood
+role-exclusion invariant** (BASELINE ~line 433) and is the only way several team arms of `liveness_penalty_q4` /
+`rt_merge` are reached. Outlawing it turns "corpus-dark" into "unreachable".
+
+**FOUR CONSTRAINTS QA VERIFIED — get any of them wrong and the fix is worse than the bug:**
+1. ★★ **TWO enforcement points, not one.** The live switch (`Node::set_team_id`, the single core entry for `team new` /
+   `team <id>` / `team 0`) **and** the boot path — **NV persists `team_id` and `is_mobile` INDEPENDENTLY**
+   (`fw_main.cpp:603-604`), so a reboot reproduces the outlawed config with no console involved. Enforcing only the
+   live switch leaves the hole wide open — **the sweep-scope trap, ninth instance was yesterday.**
+2. ★★ **ONE-DIRECTIONAL. `team 0` (leave) must NOT clear `is_mobile`** — a mobile with no team is legitimate (a homed
+   mobile on a static network). team ⇒ mobile is an implication, **not** a toggle. **State it in-source**, or a future
+   "simplification" will make it symmetric and silently un-mobile every departing member.
+3. ⚠ **REPORT IT, do not flip it silently.** `is_mobile` changes beaconing, home registration, DAD and relay
+   behaviour — an operator typing `team <id>` on a static node must be **told** the role changed (C2 spirit).
+
+★ **The owner's "unless impossible" case is REAL and QA measured its shape:** on the gateway profile **both
+`MR_FEAT_TEAM 0` AND `MR_FEAT_MOBILE 0`** (`lib/core/mr_features.h:12-13`) — so there is no mobile plane to enter.
+⇒ on such a build the answer is **treat `team_id` as 0 / refuse loudly**, **NOT** set a flag whose plane is compiled
+out. ⓘ And after **B27** removes `cfg set team_id`, a no-team build has **no console path to a non-zero team_id at all**
+(`handle_team` is `#if MR_FEAT_TEAM`-gated and **absent from the gateway ELF** — the B17 link-level finding), so the
+exemption is nearly vacuous **by construction**; only a provisioned NV blob can still carry one.
+★★★ **THE DEMOTION QUESTION — asked by the owner, and it exposed a THIRD enforcement point QA had not named.**
+*"How do we move from mobile role to static role?"* QA traced all four candidates:
+- ✅ **`leave` IS the sanctioned demotion, and it is already clean** (`firmware_config.cpp:1049`): it does
+  `b = mrnv::Blob{}` — **zeroing the whole blob** except freq/PHY defaults, so `is_mobile`, `team_id` **and**
+  `team_local_id` all go to 0 **together**, then `provision_apply_live(b, do_dad=false)` applies it live (unprovisioned +
+  idle). ⇒ **`leave` cannot create the outlawed config, and B28 needs NO change there.**
+- ❌ **`join` / `create` do NOT demote** — the owner's first guess, and the code is explicit against it:
+  `firmware_config.cpp:494` **preserves** `is_mobile`, `team_id`, `mobile_autoregister`, `team_local_id` **and** the team
+  channel key across create/join (*"§mobile: preserve team + autoreg + team-DAD id across create/join"*; the key is
+  **unrecoverable if dropped**). They clear the mobile's *learned* state (`_my_mobile_reg`, via `clear_routing_state`)
+  but keep the **role**. ⇒ **provisioning is not a role change** — worth knowing independently of B28.
+- ⚠⚠ **`cfg set mobile 0` IS THE THIRD ENFORCEMENT POINT** (`firmware_config.cpp:220`) — a **raw flag flip** that clears
+  nothing and is **reboot-to-apply**. So it can leave NV holding `is_mobile=0, team_id=X`, and **B28's boot
+  normalisation would then RE-SET `is_mobile=1` and silently undo the operator's demotion.**
+  ⇒ **QA recommendation: REFUSE `cfg set mobile 0` while `team_id != 0`**, naming `team 0` or `leave` as the way out.
+  **Do NOT cascade** (silently clearing the team from a command that says nothing about teams would destroy the team key,
+  the team-DAD id and the team routes — and only `join`/`create`/`leave` are allowed to wipe planes, per `§clean-team`).
+★ **With those three points the invariant holds on every path with no silent destruction anywhere:** `leave` zeroes both
+fields atomically · `cfg set mobile 0` refuses while in a team · the boot normalisation is the backstop for a
+provisioned NV blob.
+
+**Order: after B27** (which removes one of the two write paths, shrinking what must be normalised). Note: owner ruling,
+this file.
+
+### B27 — ★★★ `cfg set team_id` has **NONE** of the three guards ⇒ **B1 and B17 are NOT closed on the device** · NEW 2026-07-31
+`src/firmware_config.cpp:238` does `set_team_id((uint32_t)strtoul(val, nullptr, 0))` with the **endptr DISCARDED**, so it
+enforces **no leading-digit rule, no whole-token consumption and no range clause** — all three defects `parse_team_target`
+now guards. It is a **LIVE team switch**, and `cfg set` is dispatched from **every transport** (the USB reader *and* the
+shared sink BLE/companion use). QA-verified in source. Spellings measured:
+- `cfg set team_id exportky` → `strtoul` yields 0 → **LEAVE THE TEAM** (the 07-30 `§team-target` bug)
+- `cfg set team_id 88A672BA` → **joins team 88** (B1)
+- `cfg set team_id 4294967296` → **LEAVE on host / garbage `0xFFFFFFFF` on the boards** (B17)
+★★ **This is the NINTH instance of the sweep-scope meta-bug, and the most pointed: two slices the owner personally
+flagged were both declared closed while a second, console-typed parse path kept every defect.** ⇒ **the question was
+scoped to a FUNCTION when the bug was a FAMILY.**
+★★★ **OWNER RULING 2026-07-31: `cfg set team_id` is to be REMOVED, not guarded.** That is the better call and it is
+the U1/dedup answer at the SURFACE level: `team <id>` already does everything this key did **plus** the three guards, the
+PHY tail, channel-key minting, `team_dad_fire` and the full NV persist — so the key was a **forked, unguarded duplicate of
+a destructive operation**, not a feature. Removing it deletes the parse bug instead of copying the fix into it.
+
+★★ **THE LINE THAT MAKES THIS SLICE PRECISE — REMOVE THE *WRITE*, KEEP THE *READ*.** QA-verified surface map:
+**REMOVE (3 sites):** the setter branch `src/firmware_config.cpp:238` · `team_id` from the **`cfg set` key list**
+`src/firmware_commands.cpp:563` · and rewrite the explanatory line `:566` (*"team_id=0x-hex (`team new` mints)"*) to point
+at the **`team` verb** instead of advertising a key that no longer exists.
+**KEEP — every READ surface, untouched:** the `cfg` text dump (`firmware_commands.cpp:126-128`) and `status`
+(`:197-198`) · the JSON (`console_json.h:220`) · **and the binary TLV `TAG_CFG_TEAM_ID = 0x12`** in `enc_cfg` **and**
+`dec_cfg`. ⚠⚠ **DO NOT retire tag `0x12` — this is NOT the `loc_dm` case.** QA verified `dec_cfg` is a **pure decoder**
+(declared `console_binary.h:108`, defined `console_binary.cpp:144`, **called from no `src/` file**) ⇒ the TLV is a
+**read-out**, not a write path, and the app **depends on it**: `ios-companion/…/Inbound.swift:200` documents `team_id` as
+*"ALWAYS present in cfg"*. Removing the read would break the companion. ⇒ **the Q-opcode retirement lesson does NOT
+apply here; over-applying it is the failure mode to avoid.**
+★ **Corpus-safe: NO scenario uses `cfg set team_id`** (QA-grepped `simulation/` and the sim's `scenarios/`). The sim's
+scenario-config key `team_id` is a different mechanism (node setup, not the console) and stays.
+⚠ **Live doc owed:** `docs/protocol.md` mentions `cfg set team_id` and is **QA-owned** — report it, I rewrite it.
+
+*(superseded fix direction, kept as the record)* **Fix (U1, small): route this key through `mrfw::parse_team_target`** — do not re-implement the guards. Marked
+`✖ MISSING` in-source with all three spellings. ⓘ **Blast radius checked: the companion app does NOT send this key today**
+(`grep` over `ios-companion/**/*.swift`) ⇒ operator-typed, not app-driven — a fact about today, not a guarantee, since it
+is a documented cfg key. **QA rates this above several parked Tier-3 items: it is destructive and reachable by typo.**
+Note: `§team-target-range`.
 
 ### B22 — ★★ plain `send_channel` **SUCCEEDS in the sim and is REFUSED on metal** · NEW 2026-07-31
 The sim's "NATURAL" arm (`NodeRuntimeWrapper.cpp:813`) sets `team = (is_mobile && team_id != 0)`, so a plain
@@ -300,6 +393,24 @@ rather than answered. If it *does* forward, the T6/T7 coupling becomes live rath
 
 ## Tier 3 — telemetry, docs, cleanup
 
+### ~~B26 / NV1~~ ✅ **CLOSED 2026-07-31** (`§nv1`) — and **my count was low four ways**
+★ native 1014/70507 → **1023/70582** (+9 cases, +75 assertions — the **first** native coverage of `device_nv.h`), 36/36
+byte-identical with the **0-recompile / bit-identical-`lus`** proof, keystone unmoved, boards 3/3 **ΔRAM 0** and
+**ΔFlash NEGATIVE** (−16/−96/−560, object-attributed to exactly the 4 TUs that include the header).
+**Corrections to this entry:** the **size** check was written **16** times (all 8 loads *and* all 8 saves), not 6 · each
+arm had **10** definitions and there were **three** arms ⇒ **30 → 23** · ΔFlash is negative, not ≈0 (the right signature
+for removing duplicated *inline* code) · ★★ **the `#else` stub arm was DEAD CODE** — `#if defined(ARDUINO)` wrapped the
+whole section, so the host build had **no `mrnv::` functions at all**; NV1 makes it the host arm, so **all three arms are
+now compiled by the gate** and a mutant proves the host arm is *executed*, not just compiled.
+★★ **MUTANT F IS THE FINDING THAT VINDICATES THE SCOPE LINE: deleting `save()`'s H3 change-detection leaves native
+1023/1023 GREEN.** Nothing automated can see it — native cannot observe a write and the corpus cannot compile `src/` —
+so **the owner's bench is its only detector.** That is precisely why its logic is byte-for-byte unchanged.
+★★ **Built as AB1's FORCING FUNCTION:** `test_device_nv.cpp`'s `/mrpeers` case asserts version±1 rejected **relative to**
+`kPeersVersion`, so AB1's bare bump to 2 **stays green and IS the mandated v1-rejection test**, while switching to
+`blob_valid_range` turns it **RED** — the range-vs-exact decision **cannot be made silently.** Three constant tripwires
+(`kPeersVersion == 1`, `sizeof(PeerRec) == 36`, `sizeof(PeerBlob)`) must be updated deliberately. Note: `§nv1`.
+*(original entry below)*
+
 ### B26 (slice tag **NV1**) — the NV backend duplicates its blob validation **6 times** · ★ **OWNER-QUEUED 2026-07-31, BEFORE AB1**
 **Owner: *"load_peers/save_peers should be then moved to one function — unless there is a good reason not to?"*** — QA read
 the code and the answer is **yes to factoring, no to one function**, for a reason worth recording:
@@ -372,6 +483,20 @@ bound at a call site would fork a second copy of the seal’s size arithmetic (U
 At `body_len ≥ 237` the DST_HASH fit-check drops the flag, so the `!(item.flags & DATA_FLAG_DST_HASH)` branch reports
 `e2e_no_pubkey` — **a misleading reason** (the key is fine; the body is too big) — and returns **without**
 `push_send_failed`, so the app is told nothing. Same sweep, same slice, deliberately untouched. Note: `LOC-PER-SEND`.
+
+### ~~B17~~ ✅ **CLOSED 2026-07-31** (`§team-target-range`) — ⚠ **on the `team` verb ONLY; the family is still LIVE ⇒ B27**
+★ 36/36 byte-identical, keystone unmoved, native 1013/70440 → **1014/70507**, `sizeof(Node)` unchanged, boards 3/3 ΔRAM 0.
+Two arms — `errno == ERANGE` (32-bit saturation) and `ul > UINT32_MAX` (64-bit truncation) — verified against the
+**disassembled shipped newlib**, not its docs (`ERANGE == 34` on ARM and Xtensa).
+★★ **MY CORRECTION TO THIS ENTRY WAS ITSELF HALF-WRONG:** I claimed the `>2^64` token gives the ERANGE arm *real
+coverage* on native. It gives **exercise, not necessity** — on 64-bit `ERANGE ⇒ ul == ULONG_MAX`, which is already
+`> UINT32_MAX`, so **the width arm subsumes it**, and deleting the ERANGE arm leaves native **fully green**. The honest
+framing is **one arm per ABI, each inert on the other**, asserted in-test so a "simplification" trips over it.
+★ **Generalisable: "a test exercises this line" ≠ "a test would FAIL without it." Only the second is coverage — a mutant
+separates them, a passing suite does not.**
+★★ **And my "boards only" framing understated it:** `team 99999999999999999999999` **joins garbage `0xFFFFFFFF` on the
+HOST too**. Only the *token* that triggers the damage is ABI-specific, not the damage. Note: `§team-target-range`.
+*(original entry below)*
 
 ### B17 — an out-of-range `team <id>` diverges **by target width** · NEW 2026-07-31
 A **fully consumed but out-of-range** token still lands: `team 4294967296` truncates to **0 = LEAVE** on 64-bit
