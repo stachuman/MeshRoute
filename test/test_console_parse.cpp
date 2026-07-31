@@ -51,8 +51,9 @@ TEST_CASE("parse_command — Wave 2 `-t` sets the TEAM plane; plain send = GLOBA
     const char* scb = "send_channel 3 \"hi\" -t -g";     // BOTH
     CHECK(parse_command(scb, std::strlen(scb), c) == ParseErr::ok);
     CHECK(c.u.channel.team); CHECK(c.u.channel.global);
-    const char* scx = "send_channel 3 \"hi\" -e";        // -e still rejected on a channel (no ack/enc)
-    CHECK(parse_command(scx, std::strlen(scx), c) == ParseErr::bad_args);
+    const char* scx = "send_channel 3 \"hi\" -e";        // §chan-crypt CL1: -e now PARSES (on_command refuses this form)
+    CHECK(parse_command(scx, std::strlen(scx), c) == ParseErr::ok);
+    CHECK(c.crypt == CryptIntent::on);
 }
 
 TEST_CASE("parse_command — reqpubkey -t = TEAM plane; plain = GLOBAL; a bare team-id is implicitly TEAM") {
@@ -166,26 +167,63 @@ TEST_CASE("parse_command — §loc-per-send `-l` parses on send_layer (refused l
     CHECK(parse_command(lay, std::strlen(lay), c) == ParseErr::ok);
     CHECK(c.kind == CmdKind::send_layer);
     CHECK(c.u.layer.flags == DATA_FLAG_LOCATION);
-    // send_channel has NO -l: there a location is an ALTERNATIVE inner TYPE, not a field added to a body, so the letter
-    // would mean a different thing (spec §2.3 — that belongs to T-K5). Rejected like -a/-e already are.
+    // send_channel has no -l YET — ✖ MISSING, TRIGGER: CL2. ⚠ V1: the reason recorded here was *"a location is an
+    // ALTERNATIVE inner TYPE … that belongs to T-K5"*, and the owner STRUCK it (spec §2.2.1): `-t -l -e` IS the target.
+    // The real blocker is T-K2's `[inner_type u8]` being an XOR of text-or-location; CL2 must make it a FLAGS byte
+    // first. Until then there is nothing to seal a position into, and an UNSEALED channel location is register-B0's
+    // leak on a wider blast radius, so the letter stays refused.
     const char* ch = "send_channel 7 \"x\" -l";
     CHECK(parse_command(ch, std::strlen(ch), c) == ParseErr::bad_args);
     const char* cht = "send_channel 7 \"x\" -t -l";
     CHECK(parse_command(cht, std::strlen(cht), c) == ParseErr::bad_args);
 }
 
-TEST_CASE("parse_command — send_channel <ch> \"text\" (no ack/enc)") {
+TEST_CASE("parse_command — send_channel <ch> \"text\" (no ack: O3)") {
     Command c{};
     const char* p = "send_channel 7 \"broadcast msg\"";
     CHECK(parse_command(p, std::strlen(p), c) == ParseErr::ok);
     CHECK(c.kind == CmdKind::send_channel);
     CHECK(c.u.channel.channel_id == 7);
     CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "broadcast msg");
+    CHECK(c.crypt == CryptIntent::def);               // ★ no -e => `def`, byte-identical to the pre-CL1 hardcoded value
     const char* hi = "send_channel 255 \"x\"";        // channel id 0..255 (wider than the 0..254 dst id)
     CHECK(parse_command(hi, std::strlen(hi), c) == ParseErr::ok);
     CHECK(c.u.channel.channel_id == 255);
-    const char* aflag = "send_channel 7 \"x\" -a";    // -a/-e on a channel -> error
+    const char* aflag = "send_channel 7 \"x\" -a";    // -a on a channel -> error (O3: no single recipient to ack)
     CHECK(parse_command(aflag, std::strlen(aflag), c) == ParseErr::bad_args);
+}
+
+// ★★ §chan-crypt CL1 (spec 2026-07-30 §2.2) — the PARSE half of the four-case matrix. All four forms must reach
+// on_command with the right (team, global, crypt) triple; on_command owns which of them are then REFUSED, and the
+// companion's binary transport builds the same triple without ever coming through here.
+TEST_CASE("parse_command — §chan-crypt send_channel -e: all four matrix cases parse to the right (team,global,crypt)") {
+    Command c{};
+    struct Case { const char* line; bool team; bool global; CryptIntent crypt; };
+    const Case cases[] = {
+        { "send_channel 4 \"hi\"",           false, false, CryptIntent::def },  // GLOBAL, plaintext  — unchanged
+        { "send_channel 4 \"hi\" -t",        true,  false, CryptIntent::def },  // TEAM,   plaintext  — unchanged
+        { "send_channel 4 \"hi\" -t -e",     true,  false, CryptIntent::on  },  // ★ the target capability (CL1 stubs it)
+        { "send_channel 4 \"hi\" -e",        false, false, CryptIntent::on  },  // ❌ on_command REFUSES (no team => no key)
+        { "send_channel 4 \"hi\" -t -g -e",  true,  true,  CryptIntent::on  },  // ❌ on_command REFUSES (clear global copy)
+        { "send_channel 4 \"hi\" -e -t",     true,  false, CryptIntent::on  },  // flag ORDER is free (parse_send_tail)
+    };
+    for (const Case& k : cases) {
+        CHECK(parse_command(k.line, std::strlen(k.line), c) == ParseErr::ok);
+        CHECK(c.kind == CmdKind::send_channel);
+        CHECK(c.u.channel.channel_id == 4);
+        CHECK(c.u.channel.team   == k.team);
+        CHECK(c.u.channel.global == k.global);
+        CHECK(c.crypt            == k.crypt);
+        CHECK(std::string(reinterpret_cast<const char*>(c.body), c.body_len) == "hi");
+    }
+    // `-e` is a LONE token like every other flag: a glued form is still an error, not a silent accept.
+    const char* glued = "send_channel 4 \"hi\" -et";
+    CHECK(parse_command(glued, std::strlen(glued), c) == ParseErr::bad_args);
+    // and it is still not a licence for -a (O3) or -l (CL2) on this verb
+    const char* ae = "send_channel 4 \"hi\" -e -a";
+    CHECK(parse_command(ae, std::strlen(ae), c) == ParseErr::bad_args);
+    const char* el = "send_channel 4 \"hi\" -e -l";
+    CHECK(parse_command(el, std::strlen(el), c) == ParseErr::bad_args);
 }
 
 TEST_CASE("parse_command — send_layer <hash> <l1,l2,…> \"text\" [-a] [-e]") {

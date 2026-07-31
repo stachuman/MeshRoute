@@ -125,8 +125,14 @@ bool parse_send_tail(Scan& s, bool allow_a, bool allow_e, bool& ack, bool& enc,
             // (DATA_FLAG_LOCATION). Replaces `cfg set loc_dm`, a global toggle that attached the position to every DM on
             // a size check alone — with no crypt gate — so a plaintext DM aired coordinates in the clear. Per-send means
             // an ordinary `send` is untouched and a refusal is attributable to the one message that asked for a position.
-            // Accepted on `send` and `send_layer`; NOT on `send_channel` (there a location is an alternative inner TYPE,
-            // not an added field — T-K5's job — and overloading one letter with two meanings is the ambiguity to avoid).
+            // Accepted on `send` and `send_layer`; ✖ MISSING on `send_channel` — TRIGGER: CL2. ⚠ V1: the reason given
+            // here until 2026-07-31 was *"there a location is an alternative inner TYPE … T-K5's job"*, and the OWNER
+            // STRUCK IT (spec §2.2.1): `send_channel -t -l -e` — text AND position in one sealed post — is the target.
+            // What actually blocks it is a PAYLOAD FORMAT, not a flag meaning: T-K2's sealed channel inner is
+            // `[inner_type u8][payload]` with 0=text XOR 1=location, which cannot express BOTH. CL2 must make that byte
+            // a FLAGS byte (bit0 text, bit1 location) carrying `pack_loc6` — after which `-l` lands here unchanged.
+            // Adding `-l` before CL2 would have nothing to seal into, and an unsealed channel location is the very leak
+            // this arc closed on the DM plane (register B0).
             // `send_layer -l` parses but on_command REFUSES it (no cross-layer builder can carry a position), so the
             // operator gets an explanation instead of a bare bad_args.
             else if (f == 'l') { if (!loc) return false; *loc = true; }
@@ -232,7 +238,7 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
     //   §2 send cleanup — 3 orthogonal verbs, QUOTED body, -a (ack) / -e (encrypt) flags in ANY order. HARD SWITCH:
     //   the old send_ack/sendhash/sendhash_ack/sendhashx/sendhashx_ack/send_layer_ack verbs are GONE (-> unknown_verb).
     //   send <id|0xhash> "<text>" [-a] [-e] [-t] [-l]   — id (<=254 dec) vs hash (0x-prefixed); -e=crypt (hash only); §6.4 -t=TEAM plane, plain=GLOBAL/home (fail if no home); §loc-per-send -l=attach position (REFUSED unless the DM is sealed)
-    //   send_channel <ch> "<text>"                 — channel gossip (no ack/enc/loc)
+    //   send_channel <ch> "<text>" [-t] [-g] [-e]  — channel gossip; §S7 -t=TEAM/-g=GLOBAL/`-t -g`=BOTH/plain=GLOBAL; §chan-crypt -e=seal to the team content key (`-t -e` only — the other two `-e` forms REFUSE in on_command). No -a (O3), no -l (CL2).
     //   send_layer <0xhash> <l1,l2,…> "<text>" [-a] [-e] — explicit cross-layer path; -e = sealed (DATA_TYPE_SEALED_RELAY); -l parses but is REFUSED (cross-layer carries no position)
     {
         const bool is_send    = tok_eq(verb, "send");
@@ -240,16 +246,28 @@ ParseErr parse_command(const char* line, size_t len, Command& out) {
         const bool is_layer   = tok_eq(verb, "send_layer");
         if (!is_send && !is_channel && !is_layer) return ParseErr::unknown_verb;
 
-        if (is_channel) {                                       // §S7 send_channel <ch> "<text>" [-t] [-g] — no ack/enc; -t=TEAM, -g=explicit GLOBAL, `-t -g`=BOTH, plain=GLOBAL
+        if (is_channel) {                                       // §S7 send_channel <ch> "<text>" [-t] [-g] [-e] — -t=TEAM, -g=explicit GLOBAL, `-t -g`=BOTH, plain=GLOBAL; §chan-crypt -e=seal to the team key
             uint32_t ch = 0;
             if (!parse_u32_tok(token(s), 255u, ch)) return ParseErr::bad_args;
             bool ack = false, enc = false, team = false, global = false; const uint8_t* body = nullptr; uint8_t blen = 0;
-            if (!parse_send_tail(s, /*allow_a=*/false, /*allow_e=*/false, ack, enc, body, blen, &team, /*no_intro=*/nullptr, &global)) return ParseErr::bad_args;
+            // ★★ §chan-crypt CL1 (spec 2026-07-30 §2.1/§2.2): `-e` IS NOW ACCEPTED. It was `allow_e=false`, so the team
+            // content key that §team-ch-key T-K1 shipped had NO way to be used on a channel post at all — every team
+            // channel message went in clear, on a shared PHY, to anyone in range.
+            // ⚠ ACCEPTED HERE ≠ HONOURED: the four-case matrix lives in on_command (node.cpp), because that is the seam
+            // ALL THREE producers of CmdKind::send_channel pass — this parser, `testch`'s hand-built Command
+            // (src/fw_main.cpp), and the simulator's NodeRuntimeWrapper. A refusal spelled as a ParseErr would protect
+            // typed console lines only. `-e` without `-t`, and `-t -g -e`, both REFUSE there (`err_unsupported` +
+            // send_failed{unsealable}); `-t -e` refuses too until CL2 builds the seal. So this is never a silent
+            // cleartext downgrade in any combination.
+            // `-a` stays REFUSED (allow_a=false): open decision O3 — a channel post has no single recipient to ack, and
+            // QA recorded NO so it is not re-asked. `-l` stays REFUSED (loc=nullptr) — see the `f == 'l'` arm above.
+            if (!parse_send_tail(s, /*allow_a=*/false, /*allow_e=*/true, ack, enc, body, blen, &team, /*no_intro=*/nullptr, &global)) return ParseErr::bad_args;
             out = Command{};
             out.kind = CmdKind::send_channel;
             out.u.channel.channel_id = static_cast<uint8_t>(ch);
             out.u.channel.team = team; out.u.channel.global = global;
-            out.body = body; out.body_len = blen; out.crypt = CryptIntent::def;
+            out.body = body; out.body_len = blen;
+            out.crypt = enc ? CryptIntent::on : CryptIntent::def;   // §chan-crypt, same rule as `send`/`send_layer`: -e => sealed-or-refused; absent => `def` (byte-identical to the pre-CL1 hardcoded `def`)
             return ParseErr::ok;
         }
 

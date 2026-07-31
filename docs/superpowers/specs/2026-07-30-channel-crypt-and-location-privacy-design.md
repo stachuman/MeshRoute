@@ -280,7 +280,11 @@ Once §2.3 lands, **`:1018`** — the **unsealed** LOCATION pack path — become
 
 ## 3. Slices, and the ordering that matters
 
-- **CL1** — `send_channel` gains `-e` **parse + the four-case refusal matrix (§2.2)**, with `-t -e` wired to a
+- ✅ **CL1 — BUILT 2026-07-31 (`§cl1`), QA GO, committed.** 36/36 byte-identical, native 1069/71239 → 1075/71334, boards
+  ΔRAM 0. `-e` rides the existing `Command::crypt`; the two permanent refusals are live; the `-t -e` arm is **one
+  brace-delimited stub block at `node.cpp:1412-1425` for CL2 to delete.** ★ `want_crypt` is already hoisted above the
+  plane logic, which is the hoist §2.2.1 needs. Evidence: `BASELINE.md` note `§cl1`.
+- **CL1 (as designed)** — `send_channel` gains `-e` **parse + the four-case refusal matrix (§2.2)**, with `-t -e` wired to a
   **stub** that refuses `unsealable` until CL2 lands. Contract drift on `-t` fixed. **Gate: corpus byte-identical**
   (`lib/console` + `src/` are outside the sim build), native for all four cases.
 - **CL2** — the T-K2 crypto: `channel_flavor_crypted`, seal/open, **the nonce design (§2.1 — the review point)**,

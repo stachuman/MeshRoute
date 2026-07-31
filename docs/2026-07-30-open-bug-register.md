@@ -457,7 +457,7 @@ The sim's "NATURAL" arm (`NodeRuntimeWrapper.cpp:813`) sets `team = (is_mobile &
 `send_channel` from a team member becomes a **TEAM flood**. The firmware sets `team=false, global=false` for a plain
 post (`console_parse.cpp:205-213`, *"plain = GLOBAL"*), and `node.cpp:1323`'s `want_global = global || !team` routes it
 to the **global/home** path — where an **off-grid** member has no home and it **fails loud**
-(`send_failed{channel_no_home}` + `err_no_binding`). **Both sides QA-verified in source.**
+(`send_failed{channel_no_home} ⚠ **NAMING CORRECTED 2026-07-31 (`§cl1`): `channel_no_home` is ONLY the `MR_EMIT` TELEMETRY string (`node.cpp:1434`); the PUSH carries `SendFailReason::mobile_no_home` (`:1435`). There is NO `channel_no_home` enumerator** — so a scenario sees `channel_no_home` while the app sees `mobile_no_home` for the same event. **Do not go looking for the enumerator.**` + `err_no_binding`). **Both sides QA-verified in source.**
 ★★ **This is worse than B3, which it was found by: not a different plane but SUCCESS-vs-REFUSAL.** **10 corpus commands in 4 scenarios take that arm** (s22 ×2, s28 ×3, s29 ×2, s34 ×3) — ★ **the ORIGINAL figure, restored: my
 2026-07-31 "correction" to 12 was itself WRONG and the coder caught it.** ⚠ **My script matched
 `command.startswith("send_channel")`, which silently includes the SUFFIXED VERBS `send_channel_g` and `send_channel_b`** —

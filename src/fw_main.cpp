@@ -1140,7 +1140,12 @@ static void mesh_service_once() {
                     case meshroute::SendFailReason::e2e_ack_timeout:     mrcon.print(F(" (no end-to-end ack in time — delivery UNCONFIRMED, a late ack still resolves)")); break;
                     case meshroute::SendFailReason::queue_full:          mrcon.print(F(" (defer queue full — retry shortly)")); break;
                     case meshroute::SendFailReason::reprovisioned:       mrcon.print(F(" (node reprovisioned — send discarded; the old network's ids are void, re-address before resending)")); break;
-                    case meshroute::SendFailReason::unsealable:          mrcon.print(F(" (this may travel ONLY sealed, and this route cannot carry it sealed — for `-l` use -e / `cfg set e2e_dm 1` (and NOT send_layer/cross-layer); for a team key grant, grant over `-t` or from the target's own layer)")); break;   // §team-ch-key T-K3 + §loc-per-send
+                    // ★ §chan-crypt CL1 appends the send_channel clause. This string is the ONLY operator-facing "why"
+                    // for a channel `-e` refusal (the sync line prints the bare `err_unsupported` token, and the push
+                    // reason is deliberately the SHARED `unsealable` enumerator — U1, no new enumerator), so the
+                    // `-t -g` case MUST state that the clear global copy is what defeats the seal. Without that an
+                    // operator reads it as an arbitrary limitation and works around it by dropping `-e` instead of `-g`.
+                    case meshroute::SendFailReason::unsealable:          mrcon.print(F(" (this may travel ONLY sealed, and this route cannot carry it sealed — for `-l` use -e / `cfg set e2e_dm 1` (and NOT send_layer/cross-layer); for a team key grant, grant over `-t` or from the target's own layer; for send_channel -e the ONLY sealable form is `-t -e` — a GLOBAL channel has no key, and `-t -g -e` is refused because the global copy would air the SAME text in the CLEAR, defeating the seal, so drop `-g`, not `-e`)")); break;   // §team-ch-key T-K3 + §loc-per-send + §chan-crypt
                     case meshroute::SendFailReason::no_location:         mrcon.print(F(" (-l asked to attach a position and this node has NO fix — set `cfg set lat`/`lon`, or wait for GPS; NOT an encryption problem)")); break;   // §loc-per-send
                     case meshroute::SendFailReason::none:                break;   // not a send_failed reason
                 }

@@ -684,7 +684,10 @@ static void dump_help(Print& out) {
     hl(F("    -l = attach this node's position to THIS message. REFUSED unless the DM is SEALED (use -e, or `cfg set e2e_dm 1`),"));
     hl(F("         refused if this node has no fix (set lat/lon), and refused as too_large if the +6 B no longer fits."));
     hl(F("         Replaces the removed `cfg set loc_dm`, which aired coordinates in the clear."));
-    hl(F("  send_channel <ch> \"<text>\""));
+    hl(F("  send_channel <ch> \"<text>\" [-t] [-g] [-e]   -t=team plane  -g=explicit global  `-t -g`=BOTH planes  plain=global"));
+    hl(F("    -e = seal the post to the TEAM content key. Valid ONLY as `-t -e`: a global channel has no key, and"));
+    hl(F("         `-t -g -e` is refused because the global copy would air the same text in the clear. (`-t -e` itself"));
+    hl(F("         is not built yet — it refuses `unsealable` until the channel-crypt slice lands.)  No -a, no -l."));
     hl(F("  send_layer <0xhash> <l1,l2,…> \"<text>\" [-a] [-e]   explicit cross-layer destination path; -e=encrypt (sealed relay); -l is refused (cross-layer carries no position)"));
     hl(F(""));
     hl(F("IDENTITY / KEYS"));
@@ -789,7 +792,11 @@ static void handle_testsched(char* args, bool is_channel, Print& out) {
             out.println(F("> testsched err: <run> must be alphanumeric (the host tag regex)")); return; }
     uint32_t target = 0, v = 0; uint8_t flags = 0;
     if (is_channel) {
-        if (ack || enc) { out.println(F("> testch err: -a/-e not valid on a channel")); return; }   // matches send_channel (rejects them)
+        // ⚠ V1 2026-07-31: this used to read *"matches send_channel (rejects them)"* and half of that is now FALSE —
+        // §chan-crypt CL1 made `send_channel` ACCEPT `-e`. The refusal here is kept DELIBERATELY (behaviour unchanged,
+        // C1): the scheduled-send workload has no `-t`, so any `-e` it forwarded would be the `no_team` refusal, and
+        // `mrsched` carries no plane bit to fix that with. ✖ MISSING: a sealed `testch` — TRIGGER: CL2 + a plane flag here.
+        if (ack || enc) { out.println(F("> testch err: -a/-e not valid on a channel")); return; }   // -a matches send_channel (O3: no ack); -e is a testch-only limit, see above
         if (!mrsched::parse_dec(dst_s, 255, v)) { out.println(F("> testch err: channel 0..255")); return; }
         target = v; flags |= mrsched::kChannel;
     } else {

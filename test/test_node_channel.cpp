@@ -74,10 +74,12 @@ static m_out mk_m(uint32_t id, uint8_t channel_id, uint8_t flavor, const uint8_t
     m.body = std::span<const uint8_t>(body, len); return m;
 }
 
-static CmdResult send_channel(Node& n, uint8_t ch, const char* text, bool team = false, bool global = false) {
+static CmdResult send_channel(Node& n, uint8_t ch, const char* text, bool team = false, bool global = false,
+                              CryptIntent crypt = CryptIntent::def) {
     Command c{}; c.kind = CmdKind::send_channel; c.u.channel.channel_id = ch;
     c.u.channel.team = team; c.u.channel.global = global;   // §S7 T-B: plane select (plain => GLOBAL/leaf; -t => TEAM; -t -g => BOTH)
     c.body = reinterpret_cast<const uint8_t*>(text); c.body_len = static_cast<uint8_t>(std::strlen(text));
+    c.crypt = crypt;   // §chan-crypt CL1: `-e` => CryptIntent::on (defaulted so every pre-CL1 call site is unchanged — U1)
     return n.on_command(c);
 }
 // A 0-entry (identity) beacon from `src` — installs src as a hops==1 direct neighbour on the receiver.
@@ -2076,4 +2078,116 @@ TEST_CASE("§T-K3 guard — enqueue_cross_layer REFUSES a TYPE-19 outright (an X
     // Control: the identical XL send with type 0 IS built, so the refusal is type-specific, not a broken path.
     CHECK(n.test_enqueue_cross_layer_typed(3, idB.key_hash32, hops, 2, body, sizeof body, &ctr, /*type=*/0));
     CHECK(n.test_tx_queue_n() == 1);
+}
+
+// ---- §chan-crypt CL1 — the `-e` REFUSAL MATRIX (spec 2026-07-30 §2.2) ----------------------------------------
+// Four cases, and the two REFUSALS are the point of the slice. The decisions live in on_command (node.cpp) rather than
+// the console parser because `CmdKind::send_channel` has THREE producers — console_parse, `testch`'s hand-built Command
+// in src/fw_main.cpp, and the simulator's NodeRuntimeWrapper — and on_command is the only seam all three pass. These
+// tests therefore drive the shared seam, which is also why they survive CL2 unchanged.
+//
+// ⚠ WHY EACH REFUSAL ALSO ASSERTS "NOTHING AIRED, NOTHING BUFFERED": a channel post is not a DM — do_send_channel
+// BUFFERS it dirty and floods immediately, so a half-honoured refusal would leave the body advertised in the next
+// beacon digest and pullable by every neighbour. `err_unsupported` alone would not prove the content stayed home.
+
+TEST_CASE("§chan-crypt — `-e` WITHOUT `-t` is REFUSED (a global channel has no content key); nothing airs") {
+    TestHal hal; Node node(hal, /*id=*/3, /*key=*/0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); node.on_init(cfg);
+    const CmdResult r = send_channel(node, /*ch=*/7, "secret", /*team=*/false, /*global=*/false, CryptIntent::on);
+    CHECK(r.code == CmdCode::err_unsupported);
+    CHECK(r.ctr == 0);
+    CHECK(node.channel_buffer_count() == 0);          // ★ not buffered => never advertised in a BCN digest
+    CHECK(hal.tx_frames.empty());                     // ★ no RTS-M, no DATA-M: nothing reached the air at all
+    const Ev* e = hal.last("channel_crypt_refused");
+    CHECK(e != nullptr); if (e) { CHECK(e->reason == "no_team"); CHECK(e->channel_id == 7); }
+    Push pu{}; CHECK(find_push(drain_all(node), PushKind::send_failed, pu));
+    CHECK(pu.reason == SendFailReason::unsealable);    // U1: the existing enumerator, no new one appended
+    // ★ SAME-SITE CONTROL: the IDENTICAL post without `-e` succeeds and airs. The gate discriminates on the crypt
+    // intent — it is not a broken/blanket-refusing path.
+    TestHal h2; Node n2(h2, 3, 0x1234ABCDu); NodeConfig c2 = basic_cfg(); n2.on_init(c2);
+    CHECK(send_channel(n2, 7, "secret").code == CmdCode::queued);
+    CHECK(n2.channel_buffer_count() == 1);
+    CHECK_FALSE(h2.tx_frames.empty());
+    CHECK(h2.count("channel_crypt_refused") == 0);
+    // `-g -e` (explicit GLOBAL + seal) takes the same arm: still no team, still no key.
+    TestHal h3; Node n3(h3, 3, 0x1234ABCDu); NodeConfig c3 = basic_cfg(); n3.on_init(c3);
+    CHECK(send_channel(n3, 7, "secret", /*team=*/false, /*global=*/true, CryptIntent::on).code == CmdCode::err_unsupported);
+    CHECK(n3.channel_buffer_count() == 0);
+    const Ev* e3 = h3.last("channel_crypt_refused");
+    CHECK(e3 != nullptr); if (e3) CHECK(e3->reason == "no_team");
+}
+
+TEST_CASE("§chan-crypt — `-t -g -e` is REFUSED because the GLOBAL copy would air the same text in the CLEAR") {
+    // The trap the spec calls out: `-t -g` is BOTH planes, so honouring `-e` would seal one copy and broadcast a
+    // byte-identical cleartext twin — an eavesdropper reads the twin and the seal buys nothing. Self-cancelling ⇒ refuse.
+    TestHal hal; Node node(hal, /*id=*/3, /*key=*/0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); cfg.is_mobile = true; cfg.team_id = 0xABCD1234u; node.on_init(cfg);
+    const CmdResult r = send_channel(node, /*ch=*/7, "both-planes", /*team=*/true, /*global=*/true, CryptIntent::on);
+    CHECK(r.code == CmdCode::err_unsupported);
+    CHECK(node.channel_buffer_count() == 0);          // ★ NEITHER copy was minted — not the team one either
+    CHECK(hal.tx_frames.empty());
+    const Ev* e = hal.last("channel_crypt_refused");
+    CHECK(e != nullptr); if (e) CHECK(e->reason == "global_clear_copy");
+    Push pu{}; CHECK(find_push(drain_all(node), PushKind::send_failed, pu));
+    CHECK(pu.reason == SendFailReason::unsealable);
+    // ★ SAME-SITE CONTROL: `-t -g` WITHOUT `-e` still posts on both planes (unchanged §S7 T-B behaviour). The refusal
+    // is caused by the crypt intent, not by the BOTH plane select.
+    TestHal h2; Node n2(h2, 3, 0x1234ABCDu);
+    NodeConfig c2 = basic_cfg(); c2.is_mobile = true; c2.team_id = 0xABCD1234u; n2.on_init(c2);
+    CHECK(send_channel(n2, 7, "both-planes", /*team=*/true, /*global=*/true).code == CmdCode::queued);
+    CHECK(n2.channel_buffer_count() >= 1);
+    CHECK(h2.count("channel_crypt_refused") == 0);
+}
+
+TEST_CASE("§chan-crypt — `-t -e` (THE target) is a CL1 STUB: refuses `unsealable`, not bad_args; `-t` alone unaffected") {
+    // ✖ MISSING, TRIGGER: CL2. The refusal deliberately uses the REAL unsealable path so the operator is told the
+    // truth and so this test keeps its meaning once CL2 lands — at which point ONLY the expected code changes
+    // (err_unsupported -> queued) while the two refusal cases above and the membership test stay exactly as they are.
+    TestHal hal; Node node(hal, /*id=*/3, /*key=*/0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); cfg.is_mobile = true; cfg.team_id = 0xABCD1234u; node.on_init(cfg);
+    const CmdResult r = send_channel(node, /*ch=*/7, "team-secret", /*team=*/true, /*global=*/false, CryptIntent::on);
+    CHECK(r.code == CmdCode::err_unsupported);
+    CHECK(node.channel_buffer_count() == 0);          // ★ NOT posted in clear as a fallback (C2: never downgrade)
+    CHECK(hal.tx_frames.empty());
+    const Ev* e = hal.last("channel_crypt_refused");
+    CHECK(e != nullptr); if (e) CHECK(e->reason == "not_implemented");
+    Push pu{}; CHECK(find_push(drain_all(node), PushKind::send_failed, pu));
+    CHECK(pu.reason == SendFailReason::unsealable);
+    // ★ SAME-SITE CONTROL: `-t` WITHOUT `-e` still floods the team plane in clear (unchanged). A keyless member must
+    // keep being able to post, and plaintext is always openable — that row of the matrix is deliberately untouched.
+    TestHal h2; Node n2(h2, 3, 0x1234ABCDu);
+    NodeConfig c2 = basic_cfg(); c2.is_mobile = true; c2.team_id = 0xABCD1234u; n2.on_init(c2);
+    CHECK(send_channel(n2, 7, "team-secret", /*team=*/true).code == CmdCode::queued);
+    CHECK(n2.channel_buffer_count() == 1);
+    CHECK_FALSE(h2.tx_frames.empty());
+    CHECK(h2.count("channel_crypt_refused") == 0);
+}
+
+TEST_CASE("§chan-crypt — ORDER: the team-MEMBERSHIP refusal still wins over the crypt matrix on a non-team node") {
+    // `-t …` on a static node has no team plane at all, so err_no_binding is the ROOT cause and must be reported
+    // ahead of any crypt reason — otherwise the operator chases sealing when what he lacks is a team. (This is also
+    // the MR_FEAT_TEAM 0 board shape, where team_member is a compile-time false.)
+    TestHal hal; Node node(hal, /*id=*/3, /*key=*/0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); node.on_init(cfg);                  // static: is_mobile=false, team_id=0
+    CHECK(send_channel(node, 7, "x", /*team=*/true, /*global=*/false, CryptIntent::on).code == CmdCode::err_no_binding);
+    CHECK(send_channel(node, 7, "x", /*team=*/true, /*global=*/true,  CryptIntent::on).code == CmdCode::err_no_binding);
+    CHECK(hal.count("channel_crypt_refused") == 0);                   // ★ the crypt matrix was never consulted
+    CHECK(node.channel_buffer_count() == 0);
+    CHECK(hal.tx_frames.empty());
+    // And the earlier guards still precede BOTH: an oversize `-e` post is err_too_large, not a crypt refusal.
+    TestHal h2; Node n2(h2, 3, 0x1234ABCDu); NodeConfig c2 = basic_cfg(); n2.on_init(c2);
+    std::string big(protocol::channel_msg_max_payload_bytes + 1, 'x');
+    CHECK(send_channel(n2, 7, big.c_str(), /*team=*/false, /*global=*/false, CryptIntent::on).code == CmdCode::err_too_large);
+    CHECK(h2.count("channel_crypt_refused") == 0);
+}
+
+TEST_CASE("§chan-crypt — CryptIntent::off behaves exactly like `def` (there is nothing to opt out of yet)") {
+    // `off` would mean "air this one in the clear", which is a channel post's only behaviour today. The opt-out
+    // arrives with CL2's team_channel_crypt (O2: a CONFIG toggle, not a per-send flag), so `off` must NOT be
+    // mistaken for a third case here — only `on` may trigger the matrix.
+    TestHal hal; Node node(hal, 3, 0x1234ABCDu);
+    NodeConfig cfg = basic_cfg(); cfg.is_mobile = true; cfg.team_id = 0xABCD1234u; node.on_init(cfg);
+    CHECK(send_channel(node, 7, "clear", /*team=*/true, /*global=*/false, CryptIntent::off).code == CmdCode::queued);
+    CHECK(node.channel_buffer_count() == 1);
+    CHECK(hal.count("channel_crypt_refused") == 0);
 }

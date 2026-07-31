@@ -1351,6 +1351,16 @@ CmdResult Node::on_command(const Command& c) {
             // §S7 T-B DM-symmetric plane select: plain => GLOBAL; `-t` => TEAM only; `-t -g` => BOTH.
             const bool want_team   = c.u.channel.team;
             const bool want_global = c.u.channel.global || !c.u.channel.team;
+            // ★★ §chan-crypt CL1 (spec 2026-07-30 §2.2): the console `-e` on a channel post. The intent rides
+            // Command::crypt — the SAME field `send` and `send_layer` carry their per-message crypt intent in (U1: one
+            // representation, and SendChannelCmd does not grow a parallel bool). `def` therefore means "no `-e`", and
+            // NEITHER of the two hand-built producers sets it — `testch` (src/fw_main.cpp, which only assigns `crypt` on
+            // its DM arm) nor the simulator's NodeRuntimeWrapper send_channel arm — so both stay on today's behaviour by
+            // construction. That is also why accepting `-e` moved 0 of 36 corpus streams.
+            // ⚠ Only `on` counts. `CryptIntent::off` would be an explicit "air this one in the clear", and for a channel
+            // post that is simply today's ONLY behaviour — there is nothing to opt out of yet. The opt-out arrives with
+            // T-K2/CL2's `team_channel_crypt` (default-ON), and O2 rules it a CONFIG toggle, not a per-send flag.
+            const bool want_crypt  = (c.crypt == CryptIntent::on);
 #if MR_FEAT_TEAM
             const bool team_member = _cfg.is_mobile && _cfg.team_id != 0;
 #else
@@ -1358,6 +1368,63 @@ CmdResult Node::on_command(const Command& c) {
 #endif
             if (want_team && !team_member)                    // §S7: `-t` on a static / non-team node -> fail loud (unchanged: static plain=leaf, `-t` refused as today)
                 return CmdResult{ CmdCode::err_no_binding, 0, _active->_tx_queue_n };
+            // ★★★ THE `-e` MATRIX (spec §2.2) — four cases, and TWO OF THEM MUST REFUSE:
+            //   plain         -> GLOBAL, plaintext   UNCHANGED (want_crypt false ⇒ this whole block is skipped)
+            //   `-t`          -> TEAM,   plaintext   UNCHANGED — and deliberately so: a KEYLESS member must still be
+            //                                        able to post, and plaintext is always openable by every reader.
+            //   `-t -e`       -> the target capability            ✖ MISSING — CL1 STUB, see the third arm
+            //   `-e` (no -t)  -> ❌ REFUSE. A GLOBAL channel has NO KEY. The only content key in the system is the TEAM
+            //                    key (`team_ch_pub`, §team-ch-key T-K1) and a global channel has no team to own one, so
+            //                    "sealed" is not a state this post can be reached in. Refusing beats both alternatives
+            //                    C2 forbids: silently downgrading to clear (the app believes it encrypted) or inventing
+            //                    a key. T-K2 §2.2 independently requires rejecting `crypted && !team` at origination.
+            //   `-t -g -e`    -> ❌ REFUSE, and THE REASON IS THE WHOLE POINT, not a flag-conflict technicality: `-t -g`
+            //                    means BOTH planes — one TEAM copy and one GLOBAL copy of the SAME body — and per the
+            //                    row above the global copy cannot be sealed. Sealing the team copy while airing
+            //                    byte-identical content in the clear defeats the encryption ENTIRELY: an eavesdropper
+            //                    just reads the global copy. The combination is SELF-CANCELLING, so it is refused
+            //                    rather than half-honoured. Remedy: drop `-g` (or drop `-e` and accept a clear post).
+            // ★ WHY THIS LIVES HERE AND NOT IN console_parse: `CmdKind::send_channel` has THREE producers, and only one
+            // of them is the text parser — `src/fw_main.cpp`'s `testch` scheduled-send workload builds the Command by
+            // hand, and so does the simulator's NodeRuntimeWrapper. `on_command` is the one seam all three pass. A
+            // refusal spelled as a `ParseErr` would exist for typed console lines only and be MISSING for the other two
+            // — the exact sim-vs-metal asymmetry §b22 had just finished closing in the other direction.
+            // ⚠ V1, corrected while writing this: it is NOT true that "the companion's binary transport builds a Command
+            // directly". `lib/console/console_binary.*` is status/config/limits TLV only and carries no send verb at all;
+            // the app sends by writing a console LINE over BLE-NUS into the same `dispatch()` the serial port uses
+            // (§command-sink-consolidation). So the app DOES pass the parser — the argument rests on `testch` and the
+            // sim, which is weaker than it first looked but still decisive.
+            // All three arms refuse with `SendFailReason::unsealable` (U1 — NO new enumerator: the enum already means
+            // "this content may travel ONLY sealed and this transport cannot carry it sealed, so it was REFUSED rather
+            // than downgraded", which is precisely each case) plus `CmdCode::err_unsupported` (the code the sibling
+            // `send_layer -l` refusal returns). The operator-facing WHY rides the push: src/fw_main.cpp's `unsealable`
+            // arm names the one sealable form and why the other two are not.
+            if (want_crypt) {
+                if (!want_team) {                             // `-e` with no `-t` — no team plane ⇒ no content key
+                    MR_EMIT("channel_crypt_refused", EF_I("channel_id", c.u.channel.channel_id), EF_S("reason", "no_team"));
+                    push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);
+                    return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };
+                }
+                if (want_global) {                            // `-t -g -e` — the self-cancelling combination
+                    MR_EMIT("channel_crypt_refused", EF_I("channel_id", c.u.channel.channel_id), EF_S("reason", "global_clear_copy"));
+                    push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);
+                    return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };
+                }
+                // ✖ MISSING — CL1 STUB (the ONE block CL2 deletes). `-t -e` is THE capability the spec exists for and
+                // CL1 deliberately does not build it: the crypto — `channel_flavor_crypted`, the seal to `team_ch_pub`,
+                // ★ the NONCE derivation (spec §2.1, the review point), the un-keyed-receiver drop + the
+                // `team_channel_no_key` push, `record_channel(enc=1)`, `team_channel_crypt` default-ON, and §2.2.1's
+                // `[flags u8]` inner so text AND `pack_loc6` can ride together — is CL2's whole slice. Shipping half a
+                // seal would be worse than refusing.
+                // ★ SHAPED FOR CL2 TO REPLACE CLEANLY: it refuses through the REAL `unsealable` path, NOT
+                // `ParseErr::bad_args`, so (a) the operator is told the truth ("this cannot be sealed here") instead of
+                // that he mistyped a flag, and (b) the native tests written against this case keep their meaning
+                // afterwards — CL2 deletes THIS BLOCK ONLY, the same command falls through to the origination below,
+                // and the two refusal arms above plus the membership test are untouched.
+                MR_EMIT("channel_crypt_refused", EF_I("channel_id", c.u.channel.channel_id), EF_S("reason", "not_implemented"));
+                push_send_failed(SendFailReason::unsealable, /*dst=*/0, /*ctr=*/0);
+                return CmdResult{ CmdCode::err_unsupported, 0, _active->_tx_queue_n };
+            }
             uint16_t ctr = 0;
             if (want_team) ctr = do_send_channel(c.u.channel.channel_id, c.body, c.body_len);   // TEAM: the mobile self-originates the team-scoped flood (do_send_channel team-scopes on is_mobile+team_id)
             if (want_global) {

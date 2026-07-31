@@ -36,11 +36,13 @@ enum class CryptIntent : uint8_t { def = 0, on, off };
 // DST_HASH=0x02, PRIORITY=0x01). ★ §loc-per-send (2026-07-31): 0x08 is NO LONGER FREE — DATA_FLAG_LOCATION is how the app
 // asks "attach my position to THIS message" (console `-l`), replacing the removed `loc_dm` config toggle whose missing crypt
 // gate aired coordinates in the clear (register B0). Set it on `send` only; on `send_layer` it is refused (no cross-layer
-// builder can carry a position), and `send_channel` has no `-l` at all (a channel location is an alternative inner TYPE, not
-// an added field). Node::enqueue_data validates it and REFUSES the send if the DM would not be sealed.
+// builder can carry a position), and `send_channel` has no `-l` yet — ✖ MISSING, TRIGGER: CL2. ⚠ V1 (2026-07-31): the
+// reason was *"a channel location is an alternative inner TYPE, not an added field"*; the owner STRUCK that (spec §2.2.1)
+// — `send_channel -t -l -e` IS wanted. The blocker is CL2's payload format (T-K2's `[inner_type]` XOR must become a FLAGS
+// byte before text+position can coexist). Node::enqueue_data validates it and REFUSES the send if the DM would not be sealed.
 struct SendCmd        { uint8_t dst_id; uint32_t dst_hash; uint8_t flags; uint8_t plane; };   // Wave 2: plane 0=AUTO (companion/sim default -> today's cascade), 1=TEAM (`-t`), 2=GLOBAL (plain `send`). Host-side only, NOT on the wire.
 struct SendLayerCmd   { uint8_t hops[protocol::gw_env_max_hops]; uint8_t hop_count; uint32_t dst_hash; uint8_t flags; };   // flags honored on the cross-layer DM (E2E_ACK_REQ -> Y acks via the reversed path, Slice 4d/e2e)
-struct SendChannelCmd { uint8_t channel_id; bool team; bool global; };   // §S7 T-B DM-symmetric plane select: team=`-t` (TEAM), global=`-g` (explicit GLOBAL). Plain (neither) => GLOBAL. `-t -g` => BOTH. Static: plain=leaf, `-t` refused. Host-side only, NOT on the wire.
+struct SendChannelCmd { uint8_t channel_id; bool team; bool global; };   // §S7 T-B DM-symmetric plane select: team=`-t` (TEAM), global=`-g` (explicit GLOBAL). Plain (neither) => GLOBAL. `-t -g` => BOTH. Static: plain=leaf, `-t` refused. Host-side only, NOT on the wire. ★ §chan-crypt CL1: the `-e` intent does NOT live here — it rides Command::crypt, the one field every verb's per-message crypt intent uses (U1). on_command refuses `-e` without `-t` (a global channel has no key) and `-t -g -e` (the clear global copy would defeat the seal).
 struct JoinCmd        { enum Op : uint8_t { discover, claim, deny } op; uint8_t node_id; uint32_t claimant_hash; };
 // Diagnostic: locate the node owning key_hash32 (the hash-locate H flood); the answer rides
 // PushKind::hash_resolved. hard = skip caches, reach the owner (verify-on-use). NO body — notify-only,
@@ -69,7 +71,7 @@ struct Command {
     } u;
     const uint8_t* body     = nullptr;   // BORROWED for the call only (mirrors hal.h on_recv)
     uint8_t        body_len = 0;
-    CryptIntent    crypt    = CryptIntent::def;   // §8b: per-message crypt override (send/sendhash = def/off, sendhashx = on)
+    CryptIntent    crypt    = CryptIntent::def;   // §8b: per-message crypt override (send/sendhash = def/off, sendhashx = on). ★ §chan-crypt CL1: send_channel uses it too — `-e` => on. `def` is what every non-`-e` caller (companion binary Command, simulator bridge) leaves it at, so accepting `-e` changed no existing path.
     bool           no_intro = false;     // §S4/D1 `-K`: suppress the INTRO first-contact pubkey attach for THIS send (send/send_layer). Message-level ceremony for the app; a no-op on a sealed send (sealed never attaches). Host-side only, NOT on the wire.
 };
 
