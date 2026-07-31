@@ -6363,3 +6363,33 @@ TEST_CASE("§P2-1 L2 — the mobile FSM SKIPS a learned foreign-PHY candidate (m
       CHECK(h.saw_emit("mobile_discover_tx"));                  // ★ DISCOVERs on the (cross-layer) same-PHY candidate
       CHECK(h.last_tx_len > 0); }
 }
+
+// ★★★ §AB4 — THE RETAINED-LOCATION RING IS NODE-GLOBAL, not per-LayerRuntime (address-book spec §2.7.1).
+// Its three hash-keyed neighbours (_peer_keys, _id_bind, _team_keys) all live in LayerRuntime, so this is a DELIBERATE
+// divergence and worth pinning: a key_hash32 is a LAYER-INDEPENDENT identity, so a position learned on one leaf is
+// exactly as true on the other. Per-leaf copies would cost 2x the RAM to hold two answers to a question with one, and a
+// gateway would then report a peer as positionless on whichever leaf did not happen to receive the DM.
+// This assertion needs activate_layer, which is private — hence DualLayerTestAccess and hence this file.
+TEST_CASE("§AB4 retained location is NODE-GLOBAL: both leaves see one position for one identity") {
+    StubHal hal; Node node(hal, /*id=*/1, 0x1);
+    NodeConfig cfg; cfg.n_layers = 2;
+    cfg.layers[0] = good_layer(1, 8); cfg.layers[0].node_id = 5;
+    cfg.layers[1] = good_layer(2, 9); cfg.layers[1].node_id = 12;
+    CHECK(node.on_init(cfg));
+    const uint32_t H = 0x6C297145u;
+    hal._now = 4000;                                       // learned while leaf 0 is active
+    CHECK(node.peer_loc_set(H, 523000000, 134050000, Node::PeerLocSrc::peer));
+    int32_t lat = 0, lon = 0; uint32_t age = 0; Node::PeerLocSrc src = Node::PeerLocSrc::team;
+    hal._now = 9000;
+    CHECK(node.peer_loc_find(H, lat, lon, age, src));
+    CHECK(lat == 523000000); CHECK(age == 5);
+    DualLayerTestAccess::activate(node, 1);                // ...and read back on the OTHER leaf
+    CHECK(DualLayerTestAccess::active_ptr(node) == DualLayerTestAccess::layer_ptr(node, 1));
+    lat = 0; lon = 0; age = 0; src = Node::PeerLocSrc::team;
+    CHECK(node.peer_loc_find(H, lat, lon, age, src));      // ★ the swap did NOT hide it
+    CHECK(lat == 523000000); CHECK(lon == 134050000); CHECK(age == 5); CHECK(src == Node::PeerLocSrc::peer);
+    CHECK(node.peer_loc_count() == 1);                     // one identity, one row — not one per leaf
+    // ★ THE CONTROL that makes the above mean something: _peer_keys IS per-leaf, so the same experiment on the key
+    //   cache gives the OPPOSITE answer. Without this the test would also pass if activate() were a no-op.
+    CHECK(node.peer_key_count() == 0);
+}

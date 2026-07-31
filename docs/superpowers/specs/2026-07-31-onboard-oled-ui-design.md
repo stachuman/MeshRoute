@@ -59,26 +59,54 @@ Four units:
 | slot | screen | gate |
 |---|---|---|
 | 1 | STATUS | `MR_FEAT_OLED` |
-| 2 | TEAM | `MR_FEAT_OLED && MR_FEAT_TEAM` |
+| 2 | TEAM (peer list) | `MR_FEAT_OLED && MR_FEAT_TEAM` |
 | 3 | INBOX (DM + CH merged) | `MR_FEAT_OLED` |
-| 4 | SEND "Got your message" | `MR_FEAT_OLED && MR_FEAT_TEAM` |
-| 5 | SEND "All good" | `MR_FEAT_OLED && MR_FEAT_TEAM` |
-
-Slots 4–5 give each canned message its own screen rather than a select-then-send submode. That keeps `double` meaning exactly one thing everywhere and removes a nested mode from a one-button device. It scales badly past ~3 messages, which is acceptable.
+| 4 | SEND (team channel) | `MR_FEAT_OLED && MR_FEAT_TEAM` |
 
 On a non-team build the cycle is STATUS → INBOX.
 
-**"I'm in danger" is deliberately absent from slots 4–5.** It is reachable only by long-press (§4). Two routes to the same dangerous action invite accidental alarms, and the navigational one would be the route nobody can use under stress.
+**Revised 2026-07-31 (owner).** An earlier draft gave every canned channel message its own slot to avoid a nested mode. Once the DM feature needed a compose step anyway, that reasoning inverted: **one compose sub-view, used by both send paths, is simpler than N slots** and keeps the cycle at four regardless of how many canned texts exist. Adding a fifth message now costs nothing instead of costing every user a press on every lap.
+
+**"I'm in danger" appears in no list.** It is reachable only by long-press (§4). Two routes to the same dangerous action invite accidental alarms, and the navigational one would be the route nobody can use under stress.
 
 ### 3.2 Gestures
 
 | gesture | meaning |
 |---|---|
-| short | next screen (wraps) |
-| double | context action — INBOX: next entry · TEAM: next teammate · SEND: **send this message** · STATUS: none |
-| long | arm emergency, from **any** screen |
+| short | **advance within the current list; at the end, move to the next screen** |
+| double | activate the highlighted item — TEAM: open the DM compose sub-view for that peer · SEND: open the channel compose sub-view · sub-view: send the highlighted text (or leave, on `back`) · STATUS/INBOX: none |
+| long | arm emergency, from **any** screen, sub-views included |
 
-The owner's draft had `short` as both screen-select and list-scroll; `double`-as-cursor resolves that. The draft's separate menu screen is dropped — short-press cycling *is* the menu.
+`short` is **list-aware**: on STATUS and SEND (single-item screens) it simply moves on, so the common case still reads as "next screen". On TEAM it walks the peer list and only leaves at the end. This is what frees `double` to mean "act on what is highlighted" everywhere, which is what makes peer selection possible with two gestures.
+
+### 3.2.1 Compose sub-view
+
+Entered by `double` from TEAM (a DM to the highlighted peer) or from SEND (a team channel post). It is the one modal in the design, and it is safe because it always contains an explicit exit:
+
+```
++---------------------------------------+
+| DM3 CH12  T4/5  BLE*  84%             |
++---------------------------------------+
+| to: Ann (id 174)                      |
+| > Are you OK?                         |
+|   I'm OK                              |
+|   back without sending                |
++---------------------------------------+
+```
+
+- `short` moves the highlight; `double` sends the highlighted text, or leaves on **`back without sending`**.
+- The cursor starts on the **first message**, not on `back` — the peer was chosen deliberately one gesture ago, and these texts are benign.
+- **Auto-exit after `MR_UI_BLANK_MS` of no input**, returning to the parent screen **without sending**. A modal that can outlive the user's attention is a modal that eventually sends the wrong thing.
+- `long` still arms the emergency from inside it.
+
+### 3.2.2 Canned text lists
+
+| sub-view | texts |
+|---|---|
+| DM (from TEAM) | `Are you OK?` · `I'm OK` · `back without sending` |
+| channel (from SEND) | `Got your message` · `All good` · `back without sending` |
+
+`Delayed` was considered and left out of v1: it is a status broadcast, which is what the channel path is for, and every extra line costs a press for everyone on every visit. Adding it later is a one-line change precisely because the sub-view replaced per-message slots.
 
 ### 3.3 Layout
 
@@ -96,6 +124,24 @@ A persistent 8 px status bar on every screen, so "is anything wrong" never requi
 STATUS becomes the detail view: ages spelled out ("DM 3, newest 1h05"), **our own team local id** (so the wearer can tell a teammate how to address them), team id, registration state, BLE mode, battery mV.
 
 TEAM shows one row per teammate: name (or `0x<hash>`, or the bare team id), last-heard age, signal quality, hops. **Phase B adds a distance column on V4**, rendered only when both our fix and the peer's location are known and fresh — omitted, never estimated (§10.3).
+
+### 3.4 Direct messages to a teammate
+
+Sent as `send <team_local_id> "<text>" -t -a`. Every part of that already exists — `console_parse.cpp:305-329`: a bare decimal ≤254 is an id, `-t` selects `Plane::TEAM`, and `-a` is accepted on the id form (`allow_a=true`). No new firmware surface.
+
+**`-a` buys something the channel path cannot offer.** A DM yields `PushKind::send_e2e_acked` — *the destination received it*, per peer, as distinct from the link ack. So "Are you OK?" can report **delivered to that person**, where a channel post can only ever report `PICKED UP`. The compose sub-view surfaces that outcome the same way the emergency screen does.
+
+**Cleartext, by owner ruling 2026-07-31 — with one caveat that must be stated rather than assumed.** These DMs carry no `-e`; the flag is gated `allow_e = by_hash` (`console_parse.cpp:313`) and is not even accepted on an id target. The command therefore leaves `crypt = CryptIntent::def`, which follows the node's `e2e_dm` setting:
+
+| node state | result |
+|---|---|
+| `e2e_dm = 0` (the shipped default, and what the bench nodes run) | plaintext — the intended behaviour |
+| `e2e_dm = 1` **and** the peer's full Ed25519 pubkey is held | sealed |
+| `e2e_dm = 1` **and** no pubkey | **fails loud** `no_pubkey` — nothing is sent |
+
+⚠ **The UI cannot force plaintext**, and should not try: `CryptIntent::off` was deliberately removed from the console ("force-plain dropped", `console_parse.cpp:328`). A node its owner configured for encryption must not be silently downgraded by a button press. So "cleartext" here means *"we do not ask for encryption"*, not *"we guarantee no encryption"* — the accurate framing, and it is the correct behaviour.
+
+The `no_pubkey` case is a genuine dead end on-device: the 2026-07-29 ruling forbids the node ever auto-issuing `reqpubkey`, so the user cannot resolve it from the panel — it needs a QR ceremony or a typed `reqpubkey`. The sub-view must therefore report that failure plainly (`NO KEY`) rather than showing a generic failure the user cannot act on.
 
 ## 4. Emergency state machine
 
@@ -311,7 +357,7 @@ Slices are named `UI-n` deliberately: bare `U1`/`U3` would collide with the CLAU
 | UI-2 | `firmware_ui_model.h` + native test (screens, cursors, no emergency) | native |
 | UI-3 | board port: display driver, page-chunked paint, blanking; renders STATUS + INBOX | on-target (V3) |
 | UI-4 | button GPIO 0 wiring into the classifier; the cycle becomes live | on-target (V3) |
-| UI-5 | TEAM screen + canned-message slots (`MR_FEAT_TEAM`) | on-target (V3) |
+| UI-5 | TEAM peer list + the compose sub-view (DM and channel), `MR_FEAT_TEAM` | on-target (V3) |
 | UI-6 | emergency machine end-to-end incl. `send_blocked`/retry | native + on-target |
 | UI-7 | V3 battery reader (auto-detected ADC_CTRL polarity, no delay) | on-target, multimeter-verified |
 

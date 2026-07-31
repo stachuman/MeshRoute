@@ -745,6 +745,15 @@ static unsigned ord(Node::PeerKeyConf c) {
     }
     return kUnlisted;
 }
+// §AB4: the 5th mapped enum — the retained position's TRUST ANCHOR. A third anchor added without a mapper case must
+// break THIS build, because an unmapped anchor renders as the fallback and would silently mis-attribute a position.
+static unsigned ord(Node::PeerLocSrc s) {
+    switch (s) {
+        case Node::PeerLocSrc::peer: case Node::PeerLocSrc::team:
+            return static_cast<unsigned>(s);
+    }
+    return kUnlisted;
+}
 #pragma GCC diagnostic pop
 
 // Walk every enumerator of E and assert its mapper never yields the SILENT fallback (nor an empty string).
@@ -784,6 +793,11 @@ TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallbac
     // out-of-range byte must read as the least capable level rather than claim a sealing capability.
     check_mapper_covers_every_enumerator<Node::PeerKeyConf>("PeerKeyConf", peerkeyconf_name, "overheard", 3,
                                                             /*exempt_ord=*/0);
+    // §AB4: the retained position's trust anchor. exempt_ord = 1 because `team` IS the fallback string — deliberately
+    // the mirror of PeerKeyConf's policy in this field's own honest direction: an out-of-range byte must read as the
+    // WEAKER (group) anchor, never claim the stronger pairwise attribution.
+    check_mapper_covers_every_enumerator<Node::PeerLocSrc>("PeerLocSrc", peerlocsrc_name, "team", 2,
+                                                            /*exempt_ord=*/1);
     // The one exemption is EXACT, not a licence for a hole: `none` must render precisely "none".
     CHECK(std::strcmp(sendfailreason_name(SendFailReason::none), "none") == 0);
     // The fallbacks STAY: an out-of-range cast (a corrupt byte, never a live enumerator) must still land there.
@@ -796,6 +810,11 @@ TEST_CASE("★ enum->string mappers cover EVERY enumerator — no silent fallbac
     CHECK(std::strcmp(peerkeyconf_name(Node::PeerKeyConf::overheard), "overheard") == 0);
     CHECK(std::strcmp(peerkeyconf_name(Node::PeerKeyConf::authoritative), "authoritative") == 0);
     CHECK(std::strcmp(peerkeyconf_name(Node::PeerKeyConf::pinned), "pinned") == 0);
+    // §AB4: the two anchor strings, pinned verbatim — the app decides how strongly to render a position by matching
+    // them, so a rename here silently promotes a group-anchored claim to a pairwise one on somebody's map.
+    CHECK(std::strcmp(peerlocsrc_name(Node::PeerLocSrc::peer), "peer") == 0);
+    CHECK(std::strcmp(peerlocsrc_name(Node::PeerLocSrc::team), "team") == 0);
+    CHECK(std::strcmp(peerlocsrc_name(static_cast<Node::PeerLocSrc>(200)), "team") == 0);   // out of range -> the WEAKER anchor
     // The three strings this slice restored/added — pinned verbatim, because the app matches on them.
     CHECK(std::strcmp(sendfailreason_name(SendFailReason::e2e_ack_timeout), "e2e_ack_timeout") == 0);  // command.h documented it all along
     CHECK(std::strcmp(sendfailreason_name(SendFailReason::queue_full), "queue_full") == 0);            // NEW (defer queue full)
@@ -876,6 +895,55 @@ TEST_CASE("§AB3 write_peer_row / write_peers_end / write_peers_err — the addr
     // 8. ★ NOTHING in this slice touched Push: the view is generated, so no push field and no PushKind was needed
     //    (§2.6(b) ruled the ack model synchronous). Push's alignment pad was already spent by AB2 — pinned here too.
     CHECK(sizeof(Push) == 292);
+    // 9. ★★ §AB4 — cases 1-8 above are ALSO the "absence renders cleanly" proof: not one of them sets has_location and
+    //    not one of their goldens gained a byte, so the four location fields are provably OMITTED by default. That is
+    //    the ordinary case (most peers never send a position) and it must never read as an error.
+}
+
+// ★★★ §AB4 — the RETAINED POSITION on the address-book row (spec 2026-07-29 §2.7/§2.7.2). Console-only and, on top of
+// that, CORPUS-DARK AT THE SOURCE: not one of the 36 scenarios airs a location at all (measured — zero `peer_location`
+// events corpus-wide), so nothing but native can see any of this.
+TEST_CASE("§AB4 write_peer_row — the retained position rides with its AGE and its TRUST ANCHOR, or not at all") {
+    char b[400];
+    // 1. A PAIRWISE (DM-sourced) position: all four fields, and `loc_src":"peer"` — the strong anchor.
+    Node::PeerBookRow r{};
+    r.hash = 0x6C297145u; r.conf = Node::PeerKeyConf::authoritative; r.has_key = true;
+    r.has_location = true; r.lat_e7 = 523000000; r.lon_e7 = 134050000; r.loc_age_s = 42;
+    r.loc_src = Node::PeerLocSrc::peer;
+    size_t n = write_peer_row(b, sizeof b, r);
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"peer\",\"hash\":1814655301,\"conf\":\"authoritative\",\"confirmed\":false,"
+      "\"lat\":523000000,\"lon\":134050000,\"loc_age_s\":42,\"loc_src\":\"peer\"}\n");
+    // 2. ★ NEGATIVE coordinates survive as SIGNED (a southern/western fix). j.i64, not j.u32 — a u32 render would put a
+    //    peer in the Pacific instead of Patagonia, and the field is int32_t precisely so it cannot.
+    Node::PeerBookRow south{};
+    south.hash = 5u; south.has_key = true; south.conf = Node::PeerKeyConf::overheard;
+    south.has_location = true; south.lat_e7 = -338680000; south.lon_e7 = -1514400000; south.loc_age_s = 0;
+    south.loc_src = Node::PeerLocSrc::peer;
+    n = write_peer_row(b, sizeof b, south);
+    CHECK(std::string(b, n).find("\"lat\":-338680000,\"lon\":-1514400000,\"loc_age_s\":0") != std::string::npos);
+    // 3. ★★ THE GROUP-ANCHORED ROW — `loc_src":"team"`. UNREACHABLE FROM THE NETWORK TODAY (CL2 is spec-only), and the
+    //    golden exists exactly so that when CL2 lands it adds a SOURCE and not a schema change: the app's renderer is
+    //    already obliged to distinguish "some holder of the team key said so" from "this specific peer said so".
+    Node::PeerBookRow grp{};
+    grp.hash = 9u; grp.team_id = 228;
+    grp.has_location = true; grp.lat_e7 = 1; grp.lon_e7 = 2; grp.loc_age_s = 7200;
+    grp.loc_src = Node::PeerLocSrc::team;
+    n = write_peer_row(b, sizeof b, grp);
+    CHECK(std::string(b, n) ==
+      "{\"ev\":\"peer\",\"hash\":9,\"conf\":\"overheard\",\"confirmed\":false,\"team_id\":228,"
+      "\"lat\":1,\"lon\":2,\"loc_age_s\":7200,\"loc_src\":\"team\",\"aged\":true}\n");
+    // 4. ★ ALL FOUR RIDE TOGETHER OR NONE DO: a row whose coordinates are set but has_location is false emits NOTHING
+    //    positional. This is what stops a zeroed/garbage row rendering as a fix at (0,0) — and `loc_age_s` can never be
+    //    separated from a position it belongs to, which is the whole stale-fix guarantee.
+    Node::PeerBookRow stale{};
+    stale.hash = 3u; stale.has_key = true; stale.conf = Node::PeerKeyConf::pinned;
+    stale.lat_e7 = 999; stale.lon_e7 = 888; stale.loc_age_s = 5; stale.loc_src = Node::PeerLocSrc::peer;
+    stale.has_location = false;
+    n = write_peer_row(b, sizeof b, stale);
+    CHECK(std::string(b, n) == "{\"ev\":\"peer\",\"hash\":3,\"conf\":\"pinned\",\"confirmed\":false}\n");
+    // 5. A maximal row still LATCHES rather than truncating — a half line must never reach the app.
+    CHECK(write_peer_row(b, 40, r) == 0);
 }
 
 // ★ §AB3: `nameof` now answers from the view, so its line can name the namespace(s) an id-less hash belongs to.

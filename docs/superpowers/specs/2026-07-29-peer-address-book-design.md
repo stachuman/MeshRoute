@@ -246,7 +246,11 @@ spurious DENYs), and it is a **beacon-fed evict-oldest LRU whose `last_seen_ms` 
 location there would repeat the mistake that slice refused. **Do not.**
 
 ⇒ **A dedicated ring:** `{ uint32_t key_hash32; int32_t lat_e7; int32_t lon_e7; uint32_t t_s; }` = **16 B exactly**
-(all 4-byte aligned, no padding), **× 16 = 256 B**. ★ 16 matches every other team-scale table in the tree
+(all 4-byte aligned, no padding), **× 16 = 256 B**. ⚠⚠ **SUPERSEDED AS BUILT — 20 B × 16 = 320 B.** The 4-field
+record really does measure 16 B, but the **2026-07-31 rescope added `loc_src`** (§3/AB4) and the two claims cannot both
+hold: `+ src` measures **20 B**, `offsetof(src) == 16`, and the 3 tail bytes are a **NAMED `reserved[3]`** because implicit
+padding is indeterminate after `PeerLoc{}`. **QA carried the pre-rescope figure into the brief and it was wrong** —
+`sizeof(Node)` **220648 → 220968 (+320)**, verified uniformly on **all six** flag-sets. ★ 16 matches every other team-scale table in the tree
 (`cap_peer_keys`, `cap_team_liveness`, `_team_keys`) and comfortably covers R4's 3–10 members. **Measure the real
 `sizeof`; do not assume.** ⚠ It is a `Node` member ⇒ **`sizeof(Node)` moves** ⇒ **D2 in full**, and the six-env grid
 **only if the measurement says so**.
@@ -293,6 +297,12 @@ pushed **exactly as today** but **NOT retained**. **Rationale: an unauthenticate
 in range can claim to be anywhere — and **a spoofed position in an address book is worse than an absent one**,
 because the UI presents it as fact. ⇒ **Decide:** drop silently, or emit a distinct `peer_location_unauth`?
 **QA recommends the emit** — visibility with no behaviour change, and it makes a spoof attempt observable.
+★★★ **RULED, AND BUILT THAT WAY 2026-07-31 — READ THIS BEFORE RE-BRIEFING IT: the choice O6 settled was "drop silently"
+vs "drop AND emit". It was NEVER "drop vs store".** O6's phrase *"no behaviour change"* qualifies **the emit**, not the
+retention. ⚠⚠ **QA's `§ab4` brief mis-stated this as *"store it, and emit so it is observable"* — which would have retained
+a SPOOFABLE position, the exact failure this section forbids.** The coder followed the spec over the brief and was right.
+⇒ **As built: a plaintext location is parsed and pushed exactly as before, NEVER retained, and `peer_location_unauth` is
+emitted.**
 
 **The view row gains `lat?`, `lon?`, `loc_age_s?`.** ★ **The age is MANDATORY, not optional.** A position without
 one gets rendered as current, which is the whole failure mode above. The contract must state that the app renders
@@ -332,7 +342,7 @@ already is for the team content key under the `team exportkey` ruling). Register
   arm marked `✖ MISSING` with CL2 named as its trigger.** ★★ **Build `loc_src` (∈ `peer` | `team`) FROM THE START even
   though only `peer` can occur yet:** then CL2 later adds a **source**, not a **schema change** — the app ships one
   renderer, and the weaker group-anchored claim can never be silently rendered as the stronger pairwise one.
-  ⚠ **This is the one AB slice that moves `sizeof(Node)`** (a 256 B `Node` member) ⇒ **D2 in full**, and the six-env grid
+  ⚠ **This is the one AB slice that moves `sizeof(Node)`** (a **320 B** `Node` member (⚠ not 256 — see §2.7.1: the rescope's own `loc_src` field makes the record 20 B)) ⇒ **D2 in full**, and the six-env grid
   **only if the measurement says so**. **After AB3** (it needs the view).
 - ~~**AB4 — BLOCKED ON CL2**~~ *(superseded by the rescope above; the CL2 dependency applies to the CHANNEL source only)*
   QA-verified 2026-07-31: `channel_flavor_crypted` / `team_channel_crypt` / `team_channel_no_key` have **ZERO hits in the

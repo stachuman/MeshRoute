@@ -1185,7 +1185,10 @@ void Node::do_post_ack() {
         pu.body_len = blen; for (uint8_t i = 0; i < blen; ++i) pu.body[i] = static_cast<uint8_t>(body[i]);
         // LOCATION (spec §5): the sender piggybacked its 6-B location -> surface it to the app on the Push (always
         // compiled — the companion renders it) + a peer_location telemetry for the sim/gate (device-stripped).
-        // A firmware-side peer-location cache is the optional §5 follow-up (the companion holds the map for v1).
+        // ★★ §AB4 (2026-07-31): the "firmware-side peer-location cache" this comment used to call an optional follow-up
+        // IS NOW BUILT — the _peer_loc retention below. Nothing about the extraction changed: this block already parsed
+        // the position and already distinguished sealed from plaintext, so the whole slice is the one peer_loc_set call
+        // (U1 — no second extraction, no second sealed/plaintext test, no second emit).
         const bool    loc_present = crypted_ok ? dec_has_loc : (ui && ui->has_location);
         const int32_t loc_lat     = crypted_ok ? dec_lat : (ui ? ui->lat_e7 : 0);
         const int32_t loc_lon     = crypted_ok ? dec_lon : (ui ? ui->lon_e7 : 0);
@@ -1193,6 +1196,26 @@ void Node::do_post_ack() {
             pu.has_location = true; pu.lat_e7 = loc_lat; pu.lon_e7 = loc_lon;
             MR_EMIT("peer_location", EF_I("origin", dec_origin), EF_I("hash", static_cast<int64_t>(sender_hash)), EF_I("lat_e7", loc_lat),
                     EF_I("lon_e7", loc_lon));
+            // ★★★ §AB4 RETENTION (address-book spec §2.7). `sender_hash` is already in scope right above and is exactly
+            // the key the book needs (§1.2: ids are addresses, the hash is the identity).
+            // ★★ AUTHENTICATED ONLY — the C2 gate, and the reason it is HERE rather than inside peer_loc_set: this is
+            // where the evidence lives. `crypted_ok` means the inner OPENED with OUR key, so the position is anchored
+            // PAIRWISE ⇒ PeerLocSrc::peer, "this specific peer said so". The send side makes that airtight in the other
+            // direction: node_mac.cpp REFUSES a `-l` DM that would not be sealed (`unsealable`), so our own firmware can
+            // never air a plaintext position at all.
+            // ⇒ a plaintext DATA_FLAG_LOCATION (an older or foreign node, or a spoof) is parsed and pushed EXACTLY as
+            // before but NEVER retained, because an unauthenticated position is spoofable by anyone in range and a
+            // spoofed position in an address book is worse than an absent one — the UI presents it as fact.
+            // `sender_hash == 0` is folded into the same refusal: with no identity there is nothing to key it by, so it
+            // is unattributable for the same reason even if the frame was sealed.
+            // ★ O6 (owner-ruled): the refusal EMITS rather than dropping silently — visibility with no behaviour change,
+            // and a spoof attempt becomes observable. `enc` distinguishes "not sealed" from "sealed but hashless".
+            if (crypted_ok && sender_hash) {
+                (void)peer_loc_set(sender_hash, loc_lat, loc_lon, PeerLocSrc::peer);   // false only for hash 0, excluded above
+            } else {
+                MR_EMIT("peer_location_unauth", EF_I("origin", dec_origin), EF_I("hash", static_cast<int64_t>(sender_hash)),
+                        EF_I("lat_e7", loc_lat), EF_I("lon_e7", loc_lon), EF_I("enc", crypted_ok ? 1 : 0));
+            }
         }
         enqueue_push(pu);                                // app channel: the inbound message (live notify, seq-stamped)
         // E2E ACK requested -> reply with the acked ctr. §GapB: CROSS_LAYER -> a NORMAL send on the reversed path

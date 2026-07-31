@@ -569,6 +569,15 @@ static void peers_text_row(const meshroute::Node::PeerBookRow& r, void* ctx) {
     if (r.has_key) { out.print(F(" conf=")); out.print(meshroute::console::peerkeyconf_name(r.conf));
                      out.print(F(" confirmed=")); out.print(r.peer_confirmed ? 1 : 0); }
     else if (r.hash && r.name_len) out.print(F(" key=AGED(unusable — reqpubkey to refresh)"));
+    // ★★ §AB4 the retained position (spec §2.7). The AGE and the SOURCE ride with it, never the pin alone: an age-less
+    // position reads as current, and a `team`-anchored one is only "some holder of the team key said so" (the shared
+    // content key proves membership, not identity) where a `peer`-anchored one was sealed to us. RAM-only — a reboot
+    // clears every one of these on purpose. Most rows carry no position at all, and that is normal, so nothing prints.
+    if (r.has_location) {
+        out.print(F(" loc=")); out.print(r.lat_e7); out.print(','); out.print(r.lon_e7);
+        out.print(F(" age=")); out.print(r.loc_age_s); out.print(F("s src="));
+        out.print(meshroute::console::peerlocsrc_name(r.loc_src));
+    }
     if (r.team_alias_dropped) { out.print(F(" +")); out.print(r.team_alias_dropped); out.print(F(" stale team-id alias dropped")); }
     out.println();
 }

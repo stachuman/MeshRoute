@@ -448,6 +448,12 @@ inline constexpr uint32_t id_bind_ttl_ms = 172800000;   // 48 h
 // E2E peer-pubkey cache (Phase 1 §6): key_hash32 -> ed_pub. Sparse (only sealed-DM partners); per LayerRuntime.
 inline constexpr uint16_t cap_peer_keys   = 16;
 inline constexpr uint32_t peer_key_ttl_ms = id_bind_ttl_ms;   // pubkeys are immutable; aging is cache hygiene, not correctness
+// ★★ §AB4 (address-book spec 2026-07-29 §2.7.1): the RETAINED PEER LOCATION ring — key_hash32 -> last known position.
+// Sized to match cap_peer_keys / cap_team_liveness / _team_keys (every other team-scale table in the tree) and
+// comfortably above R4's 3-10 members. ⚠ NOT a wire constant: nothing on air depends on it, it is purely this node's
+// RAM budget, so widening it costs 20 B/slot of board RAM and breaks no peer. NO ttl twin on purpose — the ring never
+// ages entries out, it REPORTS the age (`loc_age_s`) and lets the app decide; see node.h's PeerLoc for why.
+inline constexpr uint8_t  cap_peer_loc    = 16;
 
 // ---- Command interface (the app<->firmware seam) ---------------------------
 inline constexpr uint8_t gw_env_max_hops = 4;    // GW_ENV_MAX_HOPS (send_layer hop path)

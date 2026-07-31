@@ -156,6 +156,19 @@ size_t write_routes_end(char* buf, size_t cap, uint32_t count);
 //   `confirmed` — §S2 peer_confirmed: THEY hold OUR key, so a sealed reply can come back. Always present.
 //   `team_alias`— >0 ⇒ that many OTHER team ids also cache this hash and lost the freshest-wins race. Never silently
 //                 dropped (spec §2.1's explicit requirement that the emit says so).
+//   ★★ §AB4 — `lat`/`lon`/`loc_age_s`/`loc_src`: the RETAINED POSITION, all four present together or all four absent.
+//                 `lat`/`lon` are 1e-7 degrees (signed). **ABSENCE IS NORMAL, NOT AN ERROR** — most peers never send a
+//                 position, and it is RAM-only so a node reboot clears every one of them (deliberately: a stale fix is
+//                 worse than none, and a captured node must not yield the team's positions).
+//   `loc_age_s` — SECONDS since we received it. ★ The app MUST render it alongside the position: a position shown
+//                 without its age reads as CURRENT, which is the whole failure mode the RAM-only ruling prevents.
+//   `loc_src`   — ★★ THE TRUST ANCHOR, and the app must render the distinction, not just the pin.
+//                 `"peer"` = a DM sealed to US and opened with OUR key ⇒ PAIRWISE, "this specific peer said so".
+//                 `"team"` = a channel post sealed to the SHARED team content key ⇒ GROUP, "some holder of the team key
+//                 said so" — every member holds that key, so ANY member can publish a position attributed to another.
+//                 That bound is accepted by design, not a defect; this field is what keeps it honest. ⓘ Only `"peer"`
+//                 can occur today (CL2 lights up `"team"`), but the field is emitted from the start so the app ships
+//                 ONE renderer and the weaker claim can never be retro-fitted into the stronger one's slot.
 size_t write_peer_row (char* buf, size_t cap, const Node::PeerBookRow& r);
 size_t write_peers_end(char* buf, size_t cap, uint32_t count);
 size_t write_peers_err(char* buf, size_t cap, const char* reason);   // {"ev":"peers_err","reason":"console_only"}
@@ -260,5 +273,6 @@ const char* joinrefusereason_name(JoinRefuseReason r);  // join_refused `reason`
 // capability). Takes Node::PeerKeyConf so -Wswitch guards completeness; Push carries it as a raw uint8_t because
 // command.h cannot see node.h (see the encoding static_assert beside the enum).
 const char* peerkeyconf_name(Node::PeerKeyConf c);
+const char* peerlocsrc_name (Node::PeerLocSrc s);   // ★ §AB4: "peer" (pairwise) | "team" (group) — the retained position's TRUST ANCHOR
 
 }  // namespace meshroute::console

@@ -172,6 +172,20 @@ const char* peerkeyconf_name(Node::PeerKeyConf c) {
     }
     return "overheard";   // an out-of-range byte reads as the LEAST capable level (never claim a sealing capability we cannot back)
 }
+// ★★★ §AB4 (address-book spec 2026-07-29 §2.7.2): the TRUST ANCHOR of a retained position, as an app-facing string.
+// This is the field that stops a map overstating a claim: a `team`-anchored position could have been written by ANY
+// holder of the shared team content key (membership, not identity), while a `peer`-anchored one was sealed to us and
+// opened with our key, so only that peer could have written it. The app must render the distinction.
+// Takes the ENUM, so -Wswitch (gate-blocking since the 2026-07-25 ruling) fails the build if a third anchor is added
+// and not mapped. ★ Only `peer` is producible today — see Node::PeerLocSrc for CL2, the `team` arm's named trigger.
+const char* peerlocsrc_name(Node::PeerLocSrc s) {
+    switch (s) {
+        case Node::PeerLocSrc::peer: return "peer";   // PAIRWISE — sealed to us, opened with our key ⇒ "this specific peer"
+        case Node::PeerLocSrc::team: return "team";   // GROUP — sealed to the shared team key ⇒ "some holder of the team key"
+    }
+    return "team";   // an out-of-range byte reads as the WEAKER anchor (never claim an attribution we cannot back — the
+                     // mirror of peerkeyconf_name's least-capable policy, in this field's own honest direction)
+}
 const char* joinrefusereason_name(JoinRefuseReason r) {   // R6.3 §7c
     switch (r) {
         case JoinRefuseReason::wire_version: return "wire_version";
@@ -558,6 +572,15 @@ size_t write_peer_row(char* buf, size_t cap, const Node::PeerBookRow& r) {
     if (r.static_id)  { j.lit(",\"static_id\":");  j.u32(r.static_id); }
     if (r.team_id)    { j.lit(",\"team_id\":");    j.u32(r.team_id); }
     if (r.team_alias_dropped) { j.lit(",\"team_alias\":"); j.u32(r.team_alias_dropped); }   // never silently drop a loser
+    // ★★ §AB4: the retained position. ALL FOUR fields ride together or none do — `loc_age_s` is MANDATORY beside a
+    // position (a position without an age is rendered as current) and `loc_src` is MANDATORY beside it too (a
+    // group-anchored claim must never be presented as a pairwise one). Absence is the NORMAL case, not an error.
+    if (r.has_location) {
+        j.lit(",\"lat\":");       j.i64(r.lat_e7);
+        j.lit(",\"lon\":");       j.i64(r.lon_e7);
+        j.lit(",\"loc_age_s\":"); j.u32(r.loc_age_s);
+        j.lit(",\"loc_src\":\""); j.lit(peerlocsrc_name(r.loc_src)); j.ch('"');
+    }
     if (!r.has_key)   j.lit(",\"aged\":true");     // the cached key is past its TTL -> UNUSABLE (conf already reads "overheard")
     j.ch('}');
     return j.finish();

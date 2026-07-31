@@ -2533,3 +2533,189 @@ TEST_CASE("§idbind-loop — key_hash_for_id is bounded by _id_bind_n, so an EVI
     CHECK(node.id_bind_find_by_hash(kH2) == 33);
     CHECK(node.id_bind_find_by_hash(kH1) == -1);               // and kH1's row went with the overwrite
 }
+
+// =============================================================================
+// ★★★ §AB4 — THE RETAINED-PEER-LOCATION RING + ITS VIEW JOIN (spec 2026-07-29 §2.7/§2.7.1/§2.7.2).
+// ★★ WHY THESE TESTS ARE THE ONLY COVERAGE, stated per the gate-method §E rule and MEASURED not assumed: not one of
+// the 36 corpus scenarios airs a location at all — `peer_location` / `has_location` / `lat_e7` have ZERO hits across
+// every scenario's NDJSON — so the receive site's `if (loc_present)` block is NEVER ENTERED in the corpus and the
+// retention is corpus-dark BY CONSTRUCTION. A poison probe on this logic would therefore be VACUOUSLY 0/36 and would
+// prove nothing; native is the whole detector. The root cause is a coverage gap in the SIM, not in the firmware: the
+// sim's `send` verb has no `-l` flag (its only DM suffix rule is `-t`, dm_plane_from_tail), so no scenario CAN put a
+// position on the wire until that verb grows one.
+// =============================================================================
+
+TEST_CASE("§AB4 peer_loc_set/find — a position round-trips with its source, and an unknown hash reports absence") {
+    TestHal hal; Node node(hal, /*id=*/7, /*key=*/0x0777A777u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    const uint32_t H = 0x6C297145u;
+    CHECK(node.peer_loc_count() == 0);
+    hal._now = 10000;                                          // 10 s of uptime -> t_s = 10
+    CHECK(node.peer_loc_set(H, 523000000, 134050000, Node::PeerLocSrc::peer));
+    CHECK(node.peer_loc_count() == 1);
+    int32_t lat = 0, lon = 0; uint32_t age = 0xDEADu; Node::PeerLocSrc src = Node::PeerLocSrc::team;
+    hal._now = 52000;                                          // 42 s later
+    CHECK(node.peer_loc_find(H, lat, lon, age, src));
+    CHECK(lat == 523000000);
+    CHECK(lon == 134050000);
+    CHECK(age == 42);                                          // ★ ms -> s, and the age is DERIVED, never stored
+    CHECK(src == Node::PeerLocSrc::peer);                       // the anchor survives the round trip
+    // ★ ABSENCE: an unknown hash is `false` and the out-params are UNTOUCHED — not zeroed, so a caller cannot mistake
+    //   a miss for a fix at (0,0). This is the NORMAL case for most peers, not an error.
+    int32_t lat2 = 12345, lon2 = 54321; uint32_t age2 = 99; Node::PeerLocSrc src2 = Node::PeerLocSrc::team;
+    CHECK_FALSE(node.peer_loc_find(0x11111111u, lat2, lon2, age2, src2));
+    CHECK(lat2 == 12345); CHECK(lon2 == 54321); CHECK(age2 == 99);
+    // C2: hash 0 is the "no hash" sentinel on both sides — never storable, never queryable.
+    CHECK_FALSE(node.peer_loc_set(0, 1, 2, Node::PeerLocSrc::peer));
+    CHECK(node.peer_loc_count() == 1);                          // and it did NOT consume a slot
+    CHECK_FALSE(node.peer_loc_find(0, lat, lon, age, src));
+}
+
+TEST_CASE("§AB4 peer_loc_set — a FRESHER position REPLACES the older one for the same hash (no second slot)") {
+    TestHal hal; Node node(hal, /*id=*/7, /*key=*/0x0777A777u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    const uint32_t H = 0x6C297145u;
+    hal._now = 1000;  CHECK(node.peer_loc_set(H, 100, 200, Node::PeerLocSrc::peer));
+    hal._now = 61000; CHECK(node.peer_loc_set(H, 300, 400, Node::PeerLocSrc::peer));   // the peer moved, 60 s on
+    CHECK(node.peer_loc_count() == 1);                          // ★ REFRESH IN PLACE — a peer is one row, always
+    int32_t lat = 0, lon = 0; uint32_t age = 0; Node::PeerLocSrc src = Node::PeerLocSrc::team;
+    CHECK(node.peer_loc_find(H, lat, lon, age, src));
+    CHECK(lat == 300); CHECK(lon == 400);                       // the NEW position
+    CHECK(age == 0);                                            // ...and the age reset with it (this is the point)
+    // ★ A refresh also re-stamps the anchor, so a later weaker (group) claim does not inherit the earlier row's
+    //   `peer` strength. Directionality matters: the field describes THIS position, not the peer.
+    hal._now = 62000; CHECK(node.peer_loc_set(H, 500, 600, Node::PeerLocSrc::team));
+    CHECK(node.peer_loc_find(H, lat, lon, age, src));
+    CHECK(src == Node::PeerLocSrc::team);
+}
+
+TEST_CASE("§AB4 peer_loc_set — the ring FILLS to cap_peer_loc then evicts the STALEST, never the wrong one") {
+    TestHal hal; Node node(hal, /*id=*/7, /*key=*/0x0777A777u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    const uint8_t CAP = protocol::cap_peer_loc;                 // the ring's own member is private; the cap is not
+    CHECK(CAP == 16);                                           // pinned: the spec's team-scale sizing
+    // Fill it, OLDEST FIRST but with slot 0 deliberately NOT the oldest — hash 0x100 is stamped at t=5 s and the rest
+    // walk forward from 10 s, so an "evict slot 0" or "evict the newest" bug is distinguishable from evict-stalest.
+    hal._now = 20000; CHECK(node.peer_loc_set(0x100u, 1, 1, Node::PeerLocSrc::peer));
+    for (uint8_t i = 1; i < CAP; ++i) {
+        hal._now = 1000ull * (10 + i);
+        CHECK(node.peer_loc_set(0x100u + i, i, i, Node::PeerLocSrc::peer));
+    }
+    CHECK(node.peer_loc_count() == CAP);
+    hal._now = 5000; CHECK(node.peer_loc_set(0x101u, 42, 42, Node::PeerLocSrc::peer));   // re-stamp 0x101 as the STALEST
+    hal._now = 100000;
+    CHECK(node.peer_loc_set(0x200u, 9, 9, Node::PeerLocSrc::peer));                      // full -> one must go
+    CHECK(node.peer_loc_count() == CAP);                        // ★ bounded: it never grows past the cap
+    int32_t lat = 0, lon = 0; uint32_t age = 0; Node::PeerLocSrc src = Node::PeerLocSrc::team;
+    CHECK_FALSE(node.peer_loc_find(0x101u, lat, lon, age, src));  // ★ the STALEST was the victim
+    CHECK(node.peer_loc_find(0x200u, lat, lon, age, src));        // the newcomer landed
+    CHECK(lat == 9);
+    CHECK(node.peer_loc_find(0x100u, lat, lon, age, src));        // and slot 0 — NOT the stalest — survived
+    CHECK(lat == 1);
+    for (uint8_t i = 2; i < CAP; ++i) CHECK(node.peer_loc_find(0x100u + i, lat, lon, age, src));   // every other row intact
+}
+
+TEST_CASE("§AB4 peer_loc_find — a BACKWARDS clock reports MAXIMALLY STALE, never age 0") {
+    TestHal hal; Node node(hal, /*id=*/7, /*key=*/0x0777A777u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    const uint32_t H = 0x6C297145u;
+    hal._now = 500000; CHECK(node.peer_loc_set(H, 1, 2, Node::PeerLocSrc::peer));
+    int32_t lat = 0, lon = 0; uint32_t age = 0; Node::PeerLocSrc src = Node::PeerLocSrc::team;
+    hal._now = 1000;                                            // the clock moved BACKWARDS
+    CHECK(node.peer_loc_find(H, lat, lon, age, src));
+    // ★ The failure DIRECTION is the assertion: 0 would render an unknown-vintage position as CURRENT, which is exactly
+    //   the misleading-stale-fix mode the RAM-only ruling exists to prevent. Maximally stale makes the app discard it.
+    CHECK(age == 0xFFFFFFFFu);
+}
+
+TEST_CASE("§AB4 view — the address-book row CARRIES the position, and a peer without one renders cleanly") {
+    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x1114A11Au);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    Identity a = ab3_identity(3), b = ab3_identity(9);
+    CHECK(node.peer_key_set(a.key_hash32, a.ed_pub, Node::PeerKeyConf::authoritative));
+    CHECK(node.peer_key_set(b.key_hash32, b.ed_pub, Node::PeerKeyConf::authoritative));
+    hal._now = 4000; CHECK(node.peer_loc_set(a.key_hash32, 523000000, 134050000, Node::PeerLocSrc::peer));
+    hal._now = 34000;                                           // 30 s later
+    // (1) the BOUNDED book — the JSON surface, and the ONE that the app actually reads.
+    BookRows rows; CHECK(node.peer_book_walk(/*include_id_rows=*/false, BookRows::collect, &rows) == 2);
+    const auto* ra = rows.by_hash(a.key_hash32);
+    CHECK(ra != nullptr);
+    if (ra) {
+        CHECK(ra->has_location);
+        CHECK(ra->lat_e7 == 523000000);
+        CHECK(ra->lon_e7 == 134050000);
+        CHECK(ra->loc_age_s == 30);
+        CHECK(ra->loc_src == Node::PeerLocSrc::peer);
+    }
+    // ★ THE ABSENCE ARM, and it is not a formality: b is a fully-known peer (key, authoritative) that simply never
+    //   sent a position. It must render as a normal row with NOTHING positional — not a fix at (0,0).
+    const auto* rb = rows.by_hash(b.key_hash32);
+    CHECK(rb != nullptr);
+    if (rb) {
+        CHECK(rb->has_key);                                     // known in every other respect
+        CHECK_FALSE(rb->has_location);
+        CHECK(rb->lat_e7 == 0); CHECK(rb->lon_e7 == 0); CHECK(rb->loc_age_s == 0);
+    }
+    // (2) the SINGLE-hash query — `nameof`/`hashof` read this, so all three verbs see one position or none.
+    Node::PeerBookRow one{};
+    CHECK(node.peer_book_by_hash(a.key_hash32, one));
+    CHECK(one.has_location); CHECK(one.loc_age_s == 30); CHECK(one.loc_src == Node::PeerLocSrc::peer);
+    Node::PeerBookRow none{};
+    CHECK(node.peer_book_by_hash(b.key_hash32, none));
+    CHECK_FALSE(none.has_location);
+}
+
+TEST_CASE("§AB4 view — an UNKEYED hash still shows its position (the shape CL2's channel source will land on)") {
+    TestHal hal; Node node(hal, /*id=*/114, /*key=*/0x1114A11Au);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    // A hash we hold an id_bind for but NO ed_pub — i.e. no _peer_keys row, so the bounded book's pass (1) never sees
+    // it and only `peers all`'s pass (2) emits it. ★ Under owner ruling O5 this is precisely the shape a TEAM-channel
+    // position arrives on (authenticated as a teammate via _team_keys, with no pairwise key), so covering it now is
+    // what stops CL2 having to hunt for a missed join.
+    const uint32_t H = 0x6C297145u;
+    CHECK(node.test_id_bind_set(/*id=*/34, H, /*authoritative=*/true));
+    hal._now = 1000; CHECK(node.peer_loc_set(H, 111, 222, Node::PeerLocSrc::peer));
+    hal._now = 6000;
+    BookRows bounded; CHECK(node.peer_book_walk(/*include_id_rows=*/false, BookRows::collect, &bounded) == 0);  // no key -> not in the book
+    BookRows all; node.peer_book_walk(/*include_id_rows=*/true, BookRows::collect, &all);
+    const auto* r = all.by_hash(H);
+    CHECK(r != nullptr);
+    if (r) {
+        CHECK_FALSE(r->has_key);                                // keyless, exactly the O5 case
+        CHECK(r->static_id == 34);
+        CHECK(r->has_location);                                 // ★ and the position is STILL joined
+        CHECK(r->lat_e7 == 111); CHECK(r->lon_e7 == 222); CHECK(r->loc_age_s == 5);
+    }
+    // An ID-ONLY row (no hash at all) has no identity to key a position by and must stay positionless.
+    CHECK(node.test_id_bind_set(/*id=*/77, /*hash=*/0, /*authoritative=*/false));
+    BookRows all2; node.peer_book_walk(/*include_id_rows=*/true, BookRows::collect, &all2);
+    const auto* idonly = all2.by_static(77);
+    CHECK(idonly != nullptr);
+    if (idonly) { CHECK(idonly->hash == 0); CHECK_FALSE(idonly->has_location); }
+}
+
+TEST_CASE("§AB4 — the ring is RAM-ONLY and its cap is the team-scale 16 (so the RAM cost stays the ledger's 320 B)") {
+    // ★ THE ANTI-REGRESSION FOR THE RULING ITSELF. AB1 persists names and authoritative keys; location is the
+    //   deliberate exception, because a stale position is worse than none and a captured node must not yield the team's
+    //   positions. So there is NO NV record and no peer_loc call anywhere in src/ — a later slice "completing" it would
+    //   have to add both, and the reasons are written at the ring in node.h so it does not.
+    CHECK(protocol::cap_peer_loc == 16);         // the spec's team-scale sizing; x 20 B/record = 320 B, NOT the briefed 256
+    // ⓘ Two properties are pinned by static_assert in node.h instead of here, deliberately: PeerLoc's 20-byte layout
+    //   with `offsetof(src) == 16` (a compile-time assert fires on every BOARD toolchain, which a native test cannot),
+    //   and sizeof(Node). And the NODE-GLOBAL property — one row per identity, not one per leaf, because a key_hash32 is
+    //   layer-independent — is asserted in test_dual_layer.cpp, next to the DualLayerTestAccess that can swap leaves,
+    //   rather than by making this file a second friend of Node.
+    // A fresh node holds nothing: the zeroed ring reads as empty, so `key_hash32 == 0` really is the unused sentinel.
+    TestHal hal; Node node(hal, /*id=*/7, /*key=*/0x0777A777u);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    CHECK(node.peer_loc_count() == 0);
+    int32_t lat = 1, lon = 2; uint32_t age = 3; Node::PeerLocSrc src = Node::PeerLocSrc::team;
+    CHECK_FALSE(node.peer_loc_find(0x0777A777u, lat, lon, age, src));   // not even for ITS OWN hash
+}

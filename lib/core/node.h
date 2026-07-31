@@ -124,6 +124,24 @@ public:
                && static_cast<uint8_t>(PeerKeyConf::pinned)        == 2,
                   "node.h: PeerKeyConf's numeric encoding is mirrored by command.h Push::peer_conf and device_nv.h "
                   "kPeerConf* — renumbering it relabels a persisted flash byte and the peer_key_cached JSON");
+    // ★★★ §AB4 — WHERE A RETAINED POSITION CAME FROM, i.e. WHICH KEY VOUCHES FOR IT (spec §2.7.2). This is a TRUST
+    // ANCHOR, not a transport label, and the two anchors are NOT interchangeable:
+    //   peer — a DM carrying DATA_FLAG_LOCATION, sealed to US and opened with OUR key. PAIRWISE ⇒ "this specific peer
+    //          said so". node_mac.cpp's send gate makes a `-l` DM sealed BY CONSTRUCTION (an unsealed one is refused
+    //          `unsealable`), so opening it also proves we hold that peer's key. ★ THE ONLY VALUE REACHABLE TODAY.
+    //   team — a team CHANNEL post sealed to the shared team content key. GROUP ⇒ only "some holder of the team key
+    //          said so". ✖ MISSING: NOTHING PRODUCES THIS YET, and its trigger is named — CL2
+    //          (docs/superpowers/specs/2026-07-30-channel-crypt-and-location-privacy-design.md), which is spec-only by
+    //          the owner's 2026-07-31 ruling *"we finish address book fully before moving to channel message"*.
+    //          ⚠ IT IS BUILT ANYWAY, ON PURPOSE: CL2 then adds a SOURCE, not a schema change, so the app ships one
+    //          renderer and the weaker claim can never be retro-fitted into the stronger one's slot.
+    // ★★ THE BOUND THIS RECORDS, ACCEPTED DELIBERATELY (the I9 pattern) — DO NOT "FIX" IT: the team content key is
+    // SHARED, so sealing a channel post proves MEMBERSHIP, NOT IDENTITY. Every member holds the same team_ch_priv, so
+    // ANY KEYHOLDER CAN FORGE ANOTHER MEMBER'S source_hash and publish a false position attributed to a teammate.
+    // T-K2's "anti-spoof within the team" means an OUTSIDER cannot spoof a member; it does not and cannot mean a member
+    // cannot spoof a member. The owner's model — a hiking group holding one content key trusts itself — is reasonable;
+    // `loc_src` is what keeps it HONEST, by never letting a group-anchored position be rendered as a pairwise one.
+    enum class PeerLocSrc : uint8_t { peer = 0, team = 1 };
     // Why e2e_seal_inner returned 0 (the seal failed). Lets enqueue_data fail LOUD distinctly per cause instead of
     // treating every 0 as "no pubkey" (which floods a WANT_PUBKEY + drops the DM). no_pubkey is the ONLY case that
     // floods; the rest are local refusals (no_identity=R3, too_large=R2, bad_rng=R7, cross_layer=v1 scope).
@@ -682,6 +700,31 @@ public:
     void              peer_key_age_out();                                                              // drop entries past peer_key_ttl_ms
     uint16_t          peer_key_count() const { return _active->_peer_keys_n; }
 
+    // ==================== ★★★ §AB4 — RETAINED PEER LOCATION (spec 2026-07-29 §2.7) ====================
+    // See the _peer_loc ring's own note (down with the Node-global members) for RAM-only, for why neither PeerKey nor
+    // _team_keys is the home, and for the trust bound. These two are the whole public surface.
+    //
+    // ★ THE ONE SETTER, for BOTH sources (U1/U2 — one conversion path, as seed_blob_from_live is for the carriers).
+    // The live caller is node_mac_rx.cpp's DELIVER path, inside the `if (loc_present)` block that ALREADY parses the
+    // position, ALREADY distinguishes sealed from plaintext and ALREADY emits `peer_location` — only RETENTION was
+    // missing, so nothing is re-extracted here (U1). Refreshes an existing hash in place; appends while there is room;
+    // evicts the STALEST slot when full. Returns false only on key_hash32 == 0 (C2: 0 is the "no hash" sentinel that
+    // peer_book_by_hash also refuses, never a queryable identity).
+    // ⚠⚠ CALLER-ENFORCED, NOT ENFORCED HERE: only an AUTHENTICATED position may be stored. The receive site tests
+    // `crypted_ok && sender_hash` and emits `peer_location_unauth` instead of calling this when it fails (owner ruling
+    // O6). The check lives THERE because that is where the evidence is — `crypted_ok` is the seal result, and this
+    // function cannot re-derive it from four scalars. ★ A plaintext DATA_FLAG_LOCATION is still parsed and still pushed
+    // to the app exactly as before; it is only never RETAINED. Rationale: an unauthenticated position is spoofable by
+    // anyone in range, and a spoofed position in an address book is WORSE than an absent one, because the UI presents it
+    // as fact. (`✖ MISSING` — the second, `team`-anchored caller: CL2's sealed channel post. See PeerLocSrc.)
+    bool              peer_loc_set(uint32_t key_hash32, int32_t lat_e7, int32_t lon_e7, PeerLocSrc src);
+    // The read twin. `age_s` is derived from the stored second-stamp against `_hal.now()` — see PeerLoc::t_s for the
+    // rollover reasoning and for why a backwards clock reports MAXIMALLY STALE rather than 0. false = no position held
+    // for that hash (the NORMAL case, not an error), and the out-params are then untouched.
+    bool              peer_loc_find(uint32_t key_hash32, int32_t& lat_e7, int32_t& lon_e7,
+                                    uint32_t& age_s, PeerLocSrc& src) const;
+    uint8_t           peer_loc_count() const { return _peer_loc_n; }   // live slots (test/diagnostic; mirrors peer_key_count)
+
     // ==================== ★★ §AB3 — THE GENERATED ADDRESS BOOK (spec 2026-07-29 §2.1) ====================
     // A JOIN on key_hash32 over the THREE tables that already exist — _peer_keys (name/key/conf/confirmed),
     // _id_bind (static node_id) and _team_keys/_team_peer (team_local_id). **GENERATED, never stored:** there is no
@@ -710,6 +753,16 @@ public:
         bool        static_authoritative;   // the _id_bind binding is AUTHORITATIVE (what key_hash_of_id vouches for); false = claimed/second-hand
         uint8_t     team_alias_dropped; // ⚠ >0: that many OTHER _team_keys rows carry this hash and LOST the freshest-wins
                                         // race. The emit MUST say so (spec §2.1) — never silently pick a winner.
+        // ★★ §AB4 — the joined _peer_loc row (spec §2.7). ADDITIVE: every pre-AB4 caller compiles and reads unchanged.
+        // ⚠ ABSENCE IS NORMAL, NOT AN ERROR — most rows will never carry a position, so a renderer must handle
+        // has_location == false as the ordinary case (the contract says so too).
+        bool        has_location;       // false ⇒ lat_e7/lon_e7/loc_age_s/loc_src are ALL meaningless, do not render them
+        int32_t     lat_e7;
+        int32_t     lon_e7;
+        // ★★ MANDATORY ALONGSIDE THE POSITION, never optional: a position shown without its age gets read as CURRENT,
+        // which is exactly the misleading-stale-fix failure the RAM-only ruling exists to prevent.
+        uint32_t    loc_age_s;
+        PeerLocSrc  loc_src;            // the TRUST ANCHOR — pairwise (`peer`) vs group (`team`). See PeerLocSrc.
     };
     using PeerBookVisit = void (*)(const PeerBookRow& row, void* ctx);   // a plain fn-ptr: lib/core carries no std::function
     // Walk the book, ONE row on the stack at a time (never an array — cardinality is driven by _id_bind's 256, and a
@@ -894,7 +947,13 @@ private:
     // ★ §AB3 view internals (node_hashlocate.cpp). peer_book_fill_from_peer_key does the reverse (hash -> id) JOINS.
     int     peer_key_slot_of(uint32_t key_hash32) const;                         // _peer_keys index, or -1 (NOT age-gated)
     void    peer_book_fill_from_peer_key(uint16_t slot, PeerBookRow& r) const;   // _peer_keys[slot] + both reverse id joins
-    void    peer_book_join_ids(PeerBookRow& r) const;                            // hash -> static_id (+conf) and hash -> team_id (+alias count)
+    void    peer_book_join_ids(PeerBookRow& r) const;                            // hash -> static_id (+conf) and hash -> team_id (+alias count) + the §AB4 location
+    // ★ §AB4: hash -> _peer_loc. ONE implementation, called from peer_book_join_ids (which covers the ENTIRE app-facing
+    // surface — the bounded JSON book, `nameof` and `hashof` all reach the view through it) and additionally from
+    // peer_book_walk's unkeyed passes (2)/(3), which resolve their ids directly and so never call join_ids. Those two
+    // extra call sites are what makes `peers all` complete and what stops CL2 — whose channel-sourced positions land on
+    // hashes with NO _peer_keys row by design (O5) — having to hunt for a missed join.
+    void    peer_book_join_loc(PeerBookRow& r) const;
 #if MR_FEAT_TEAM
     // ⚠ THE AMBIGUOUS REVERSE LOOKUP, and it is real on THIS table only. _id_bind maintains one-hash-one-id
     // (id_bind_set calls id_bind_evict_other_hash_holders on BOTH its accept paths) so hash -> static_id cannot alias.
@@ -1689,6 +1748,70 @@ private:
     };
     static constexpr uint8_t cap_pending_e2e_acks = protocol::cap_pending_e2e_acks;
     PendingE2eAck _pending_e2e_acks[cap_pending_e2e_acks] = {};
+    // ★★★ §AB4 — RETAINED PEER LOCATION (address-book spec 2026-07-29 §2.7/§2.7.1, owner-ruled 2026-07-31).
+    // key_hash32 -> that peer's last known position, so `peers` / `nameof` can show it. Node-GLOBAL (not LayerRuntime,
+    // unlike its _peer_keys/_id_bind/_team_keys neighbours): a key_hash32 is a layer-INDEPENDENT identity, so a
+    // position learned on one leaf is equally true on the other — per-leaf copies would cost 2x the RAM to hold two
+    // answers to a question that has one. Nothing here is #if MR_FEAT_TEAM: the live source is a SEALED DM, which a
+    // static-only build (gateway) receives exactly as a team member does.
+    //
+    // ★★★ RAM ONLY — DELIBERATELY VOLATILE. NO NV RECORD, AND THE REASONS ARE HERE SO NO LATER SLICE "COMPLETES" IT:
+    //   (1) A STALE POSITION IS WORSE THAN NONE. An app that renders a three-hour-old fix as current is actively
+    //       misleading — and a reboot-restored position has no upper bound on its staleness at all.
+    //   (2) A CAPTURED OR STOLEN NODE MUST NOT YIELD EVERY TEAMMATE'S LAST KNOWN POSITION. Keys in flash are a
+    //       deliberate, bounded exposure; a movement history is not.
+    // AB1 persists names and `authoritative` keys precisely because those are stable facts. Location is THE deliberate
+    // exception, and §1.4's "one table, lossy backup" picture stays true. ⇒ src/device_nv.h's PeerRec gains NOTHING.
+    //
+    // ★★ AND IT IS NOT `PeerKey`, NOT `_team_keys` — both obvious homes are wrong, recorded so neither is re-taken:
+    //   • NOT PeerKey: under owner ruling O5 a CHANNEL-sourced position must be storable with NO ed_pub for that hash,
+    //     and peer_key_set *verifies* ed_pub[:4] == key_hash32, so a keyless row would fight a live invariant.
+    //   • NOT _team_keys: the §id-bind-plane slice established three reasons — it has no confidence dimension, it FEEDS
+    //     TEAM-DAD MEDIATION (seeding it from non-beacon traffic manufactures spurious DENYs), and it is a beacon-fed
+    //     evict-oldest LRU whose last_seen_ms means "heard NOW", not "positioned then".
+    // ⇒ a dedicated ring keyed by key_hash32 (§1.2: ids are addresses, the hash is the identity).
+    //
+    // ★ NOT recent_ring.h either, and this one is a REFUSED FORCED FIT rather than an oversight: that header's four
+    // steps (scan / refresh / append / evict-oldest) are exactly right, but its ENTRY CONTRACT mandates `uint64_t t_ms`
+    // and this record's whole size budget rests on a 4-byte stamp — measured, the u64 form is 32 B/slot vs 20 B, i.e.
+    // +192 B of nRF52840 RAM to share ~10 lines of template. The MEANING differs too: recent_ring is a "have I seen
+    // this recently" SUPPRESSION window with a TTL and an age-out sweep, whereas this is a retained VALUE whose stamp
+    // is a DISPLAYED age and which must never expire behind the app's back. There is also no duplicated key predicate
+    // to unify — that doubled `…_recently`/`mark_…` predicate is the entire reason that header exists.
+    struct PeerLoc {
+        uint32_t   key_hash32;   // the identity. 0 ⇒ unused slot (the _peer_loc_n prefix is the live region)
+        int32_t    lat_e7;       // 1e-7 degrees, the same scale the wire and NodeConfig::lat_e7 use
+        int32_t    lon_e7;
+        // ★ SECONDS, not milliseconds — `_hal.now()` is ms and this is `now()/1000`. Two reasons: the 4-byte stamp is
+        // what keeps the record at 20 B (a u64 ms stamp measures 32 B — see the recent_ring note above), and the only
+        // consumer is `loc_age_s`, a human-facing age where sub-second precision is meaningless.
+        // ★ ROLLOVER: uint32 seconds spans ~136 years of uptime, so on a monotonic since-boot clock the wrap is
+        // UNREACHABLE and no wrap handling is warranted. peer_loc_find still clamps a now < t_s reading (a test that
+        // rewinds TestHal, or a clock that ever moved backwards) to the MAXIMALLY STALE answer, never to 0 — 0 would
+        // render a garbage position as current, which is failure mode (1) above.
+        uint32_t   t_s;
+        // ★★ THE TRUST ANCHOR (spec §2.7.2). It is stored, not derived, and it exists FROM THE START even though only
+        // `peer` can occur today — so CL2 adds a SOURCE, never a schema change, and the weaker group-anchored claim can
+        // never be silently rendered as the stronger pairwise one.
+        PeerLocSrc src;
+        // ★ NAMED, not implicit. sizeof(PeerLoc) is 20 either way (measured: 16 without `src`, 20 with, offsetof(src)==16),
+        // but IMPLICIT tail padding is INDETERMINATE after `PeerLoc{}` — so any memcmp-style comparison over the record
+        // would be unsound. Naming it makes those 3 bytes zero-initialised like every other member. (AB1's lesson: it
+        // briefed a 70 B record and measured 72.) ⇒ 20 B x cap_peer_loc(16) = 320 B, NOT the 256 B §2.7.1 predicted —
+        // that figure pre-dates the rescope that added `loc_src`, and the two cannot both hold.
+        uint8_t    reserved[3];
+    };
+    // ★ PINNED AT THE DEFINITION, per-TARGET — the PeerLiveness == 72 precedent (node.h:1646), and better than a native
+    // test could be: this fires on every board toolchain, not just native. 20 B x cap_peer_loc = the exact 320 B the
+    // sizeof(Node) ledger accounts for, measured on all six flag-sets. `offsetof(src) == 16` is what proves `reserved`
+    // occupies the REAL tail hole rather than adding a fifth word: widen any field, or drop `reserved`, and this fails
+    // the build instead of silently costing (or indeterminately zeroing) 16 slots' worth of RAM.
+    static_assert(sizeof(PeerLoc) == 20 && alignof(PeerLoc) == 4 && offsetof(PeerLoc, src) == 16,
+                  "node.h: PeerLoc's layout moved — re-measure the ring's RAM cost (20 B x cap_peer_loc) and update "
+                  "the sizeof(Node) ledger; and keep the tail padding a NAMED member, never implicit");
+    static constexpr uint8_t cap_peer_loc = protocol::cap_peer_loc;
+    PeerLoc    _peer_loc[cap_peer_loc] = {};
+    uint8_t    _peer_loc_n = 0;
     uint8_t    _parked_sends_n = 0;
     // L2c redirect-suppression ring: a misdelivered DM we've already redirected for this hash recently,
     // so a still-poisoned binding (collision unhealed) can't re-trigger an endless redirect→deliver→redirect.
@@ -2091,7 +2214,7 @@ private:
 // pointer/enum/alignment). Purpose: the node.h legibility reorder (2026-07-15 by-concern member reorder) must not
 // change Node's layout. If this fires after a *deliberate* member add/remove/type change, update the baseline
 // consciously — it is a tripwire, not a frozen contract. The real nRF52 RAM check is the firmware.map .bss/.data diff.
-static_assert(sizeof(Node) == 220648, "node.h: Node native layout changed — if intentional, update the baseline");   // 220656 -> 220648 (−8 §loc-per-send, and this one is worth reading because it is the FIRST entry in this ledger that REMOVES a member — a single `bool`, and it paid back EIGHT bytes, not one. Arithmetic, MEASURED by offsetof + a template-reveal on all six board flag-sets, not inferred: NodeConfig's tail ran lat_e7 @164, lon_e7 @168, then the four bools loc_in_dm @172 / loc_in_m @173 / e2e_dm @174 / intro_attach @175, then n_layers @176, SEVEN bytes of pure alignment pad (177..183), and the 8-ALIGNED `LayerConfig layers[2]` (40 B each) @184, ending at 264 with no trailing pad. Deleting `loc_in_dm` slides the three surviving bools and n_layers down one, so n_layers lands at 175 — the LAST byte before the 8-byte boundary — and `layers` moves back to 176, ending at 256. ⇒ sizeof(NodeConfig) 264 -> 256. The byte was therefore NOT sitting in a hole (the padding-placement rule's usual case, five prior applications below): it sat exactly ON the boundary, so it was costing a FULL 8-byte quantum and its removal reclaims all of it, while the 7-byte hole after n_layers shrinks to 0. Node embeds one 8-aligned `_cfg` (native offset 472, unchanged because everything before it is untouched), so Node loses exactly what NodeConfig loses: -8, uniformly. ⚠ this line is native-ONLY, so the per-target proof is the compile-only reveal recorded in the §loc-per-send slice report: sizeof(Node) -8 on ALL SIX flag-sets (xiao_sx1262 116736->116728, gateway 147352->147344, xiao_esp32s3 116736->116728, xiao_mobile 116704->116696, gateway_esp32s3 147352->147344, xiao_esp32s3_mobile 116704->116696) with sizeof(NodeConfig) 264->256 on every one — i.e. it moved on every ABI × member-set cell, which is what FORCED the six-env D2 grid for this slice rather than the usual three.). 220592 -> 220656 (+64, NOT +65 and NOT +72 — §team-ch-key T-K1 adds 65 B of state and pays for 64. Arithmetic, measured by template-reveal on all six board flag-sets, not inferred: (a) _team_ch_pub[32] + _team_ch_priv[32] are inserted immediately after _ed_pub, i.e. between _ed_pub and _crypto_ready. 64 is a multiple of 8, so EVERY downstream member keeps its alignment and NO new hole opens anywhere: native _crypto_ready 121->185 (still odd, so the 2-aligned _relay_seal_ctr still needs no pad), _admin_pubkey 124->188, the 4-aligned _admin_counter_floor 156->220 (still 4-aligned), _remote_inbound 161->225 ending 406->470, and the 8-aligned _cfg 408->472 with its pre-existing 2-byte pad UNCHANGED. The arrays therefore cost exactly their own 64 B. (b) the has-key flag `_team_ch_key_present` costs ZERO: it is placed at native offset 19, in the alignment pad that already sat between _team_dad_pending (18) and the 4-aligned _key_hash32 (20) — the SAME hole node.h:1242's note keeps _team_local_id/_team_dad_pending here to exploit. Placing it beside the keys instead would have made the insert 65 B, flipping _crypto_ready to an EVEN offset (186) so _relay_seal_ctr needs a pad byte, and pushing _admin_counter_floor off its 4-alignment for two more — measured +72, i.e. the flag would have cost 8. FIFTH application of the radio_freq_mhz / team_hop_cap / HashQuerySeen.team_scoped / T5-PeerLiveness padding-placement rule. ⚠ this line is native-ONLY and unverifiable on a board ABI, so the per-target proof is the compile-only sizeof probe recorded in the T-K1 slice report: +64 on ARM-full, Xtensa-full and both *_mobile (MR_FEAT_REMOTE_MGMT 0), and +0 on both gateway_* (MR_FEAT_TEAM 0 strips all three members)). 220592 -> 220592 (+0 §team-parity T6/B, and the SLICE BRIEF EXPECTED THIS TO MOVE — it does not, measured by template-reveal not by the assert alone. Arithmetic, per ledger: (1) HashQuerySeen gains `bool team_scoped` and stays 24 B — origin(1)+pad(3)+key_hash32(4)+t_ms(8) then hard+want_pubkey+team_scoped(3)+pad(5); the third bool lands in the 6 bytes of tail padding the previous two already shared, so the ×cap_hash_query_seen(64) ×MR_N_LAYERS array is unchanged. (2) _per_origin_channel's key widens uint8_t -> uint16_t, and sizeof(std::map) does not depend on its key type (the key lives in heap-allocated nodes), so 0 B. (3) _seen_origins takes a bit in an EXISTING uint64_t key — no member added. (4) _mediated_recent was AUDITED AND DELIBERATELY LEFT ALONE: its two writers' key sets are provably disjoint on b.is_mobile (see the §P2-7 note), and MediatedRecent measures 16 B, so a plane byte would have made it 24 B ×cap_mediated_recent(32) = +256 B of nRF52840 RAM for an empty set. THAT is the +256 this line does not carry). 220592 -> 220592 (+0 §team-parity T0: NodeConfig.team_hop_cap, a uint8_t placed immediately after dv_hop_cap. Arithmetic: dv_hop_cap sits at native offset 93 and the next member (the 8-byte-aligned `double radio_freq_mhz`) at 96, so bytes 94-95 were pure alignment pad; the new member takes byte 94 and the hole shrinks to one byte. sizeof(NodeConfig) 264 -> 264 and sizeof(Node) 264-worth-of-config unchanged => the member costs literally nothing. This is the radio_freq_mhz placement rule below applied a second time, and it is why the value on this line did NOT move). 220584 -> 220592 (+8 §layer-freq: NodeConfig.radio_freq_mhz, a `double` placed between dv_hop_cap and the existing `double duty_cycle` so it fills the 8-byte-alignment padding slot already there — measured sizeof(NodeConfig) 256 -> 264, i.e. the member costs its own 8 B and opens NO new hole; the same slot after `radio_cr` would have cost 16). 220392 -> 220584 (+192 shelf-item-(i): PendingE2eAck[cap_pending_e2e_acks=8], 24 B each = the E2E-ack deadline ring, Node-global). 220384 -> 220392 (+8 Wave-4: NodeConfig.gw_schedule_readvert_ms u32 + alignment; the gateway schedule re-advertisement cadence). …218872 (§S6) -> 219000 (§GapA) -> 219312 (+312 §F-XL-1: HForwardStash[4] = 4×(77+1) de-storm ring; _h_forward_rr fits existing padding) -> 219568 (+256 §S3 part2: HostMobileEntry.last_key_fwd_hash32 = 4 B + 4 B align, ×16 ×2 layers) -> 219760 (+192 batch B: §B2 HostMobileEntry.deleg_fail packs into existing tail padding; §B4 PendingNotify.last_home_hash 4 B ×16 ×2 layers = +128; §D16 PresenceCand.incompatible +8 align ×cap = +64) -> 219952 (+192 batch A: §F-XL-2 RreqForwardStash[4] = 4×(16+1) de-storm ring + _rreq_forward_rr; §F-SL-1 ParkedSend += reflood state (bool/bool/Plane/u8 + u64 reflood_at_ms, 8-align) ×cap_parked_sends=8) -> 220384 (+432 §3-A.6 evict-STALEST timestamps: _learned_layers_seen_ms u64×4 = +32; PendingNotify.stash_ms u64 -> 12->24 B ×16 ×2 layers = +384 (+16 align); MINUS the dead _presence_claim_retries u8 (absorbed by padding))
+static_assert(sizeof(Node) == 220968, "node.h: Node native layout changed — if intentional, update the baseline");   // 220648 -> 220968 (+320 §AB4 — the retained-peer-location ring, and BOTH halves of the number are measured, not inferred. THE RECORD: sizeof(PeerLoc) = 20, alignof 4, offsetof(src) = 16 — i.e. §2.7.1's briefed `{u32 hash; i32 lat; i32 lon; u32 t_s}` really is 16 B with no padding (that premise HELD, measured), but the RESCOPE that added `loc_src` pushed it to 20 with a 3-byte tail hole, so the spec's "16 B exactly, x16 = 256 B" and its own loc_src requirement cannot both be true — 320 B is the honest figure. Those 3 bytes are declared as a NAMED `reserved[3]` member: identical size, but IMPLICIT tail padding is INDETERMINATE after `PeerLoc{}`, which would make any memcmp-style comparison over the record unsound (AB1's lesson, which briefed 70 B and measured 72). THE PLACEMENT, by offsetof native and cross-checked on ARM: `_peer_loc[16]` is inserted immediately after `_pending_e2e_acks` and before `_parked_sends_n`. `_pending_e2e_acks` is PendingE2eAck[8] x 24 B ending on an 8-ALIGNED boundary (native 5208+192 = 5400; ARM 5192+192 = 5384), and PeerLoc needs only 4, so the array opens NO hole and its 320 B (= 8x40, itself a multiple of the 8-alignment downstream) shifts every later member by exactly 320: native `_l2c_redirect` 5408 -> 5728, ARM 5392 -> 5712. ★ AND THE COUNT BYTE `_peer_loc_n` COSTS ZERO: `_parked_sends_n` (a uint8_t) was already followed by SEVEN bytes of pure alignment pad before the 8-aligned `_l2c_redirect` (native 5401..5407, ARM 5385..5391); `_peer_loc_n` takes one of them and the hole shrinks to SIX (native 5722..5727, ARM 5706..5711). SIXTH application of the radio_freq_mhz / team_hop_cap / HashQuerySeen.team_scoped / T5-PeerLiveness / T-K1-_team_ch_key_present padding-placement rule. ⚠ this line is native-ONLY, so the per-target proof is a compile-only sizeof reveal on the REAL toolchains with the REAL per-env flag sets, whose PRE column reproduces this ledger's §loc-per-send figures EXACTLY (that is what calibrates it): xiao_sx1262 116728->117048, gateway 147344->147664, xiao_mobile 116696->117016, xiao_esp32s3 116728->117048, gateway_esp32s3 147344->147664, xiao_esp32s3_mobile 116696->117016 — ★ +320 UNIFORMLY ON ALL SIX ABI x member-set cells, no cell disagreeing and no hole opening anywhere, INCLUDING the two MR_FEAT_TEAM 0 gateways: the ring is deliberately NOT team-gated, because its live source is a sealed DM and a static-only build receives one exactly as a team member does. ⇒ the six-env LINK grid was NOT run and did not need to be: the grid exists to find a per-target padding difference, and the six-cell probe measured that there is none — so the RAM/flash figures come from the standard three envs (T-K1's recorded precedent).). 220656 -> 220648 (−8 §loc-per-send, and this one is worth reading because it is the FIRST entry in this ledger that REMOVES a member — a single `bool`, and it paid back EIGHT bytes, not one. Arithmetic, MEASURED by offsetof + a template-reveal on all six board flag-sets, not inferred: NodeConfig's tail ran lat_e7 @164, lon_e7 @168, then the four bools loc_in_dm @172 / loc_in_m @173 / e2e_dm @174 / intro_attach @175, then n_layers @176, SEVEN bytes of pure alignment pad (177..183), and the 8-ALIGNED `LayerConfig layers[2]` (40 B each) @184, ending at 264 with no trailing pad. Deleting `loc_in_dm` slides the three surviving bools and n_layers down one, so n_layers lands at 175 — the LAST byte before the 8-byte boundary — and `layers` moves back to 176, ending at 256. ⇒ sizeof(NodeConfig) 264 -> 256. The byte was therefore NOT sitting in a hole (the padding-placement rule's usual case, five prior applications below): it sat exactly ON the boundary, so it was costing a FULL 8-byte quantum and its removal reclaims all of it, while the 7-byte hole after n_layers shrinks to 0. Node embeds one 8-aligned `_cfg` (native offset 472, unchanged because everything before it is untouched), so Node loses exactly what NodeConfig loses: -8, uniformly. ⚠ this line is native-ONLY, so the per-target proof is the compile-only reveal recorded in the §loc-per-send slice report: sizeof(Node) -8 on ALL SIX flag-sets (xiao_sx1262 116736->116728, gateway 147352->147344, xiao_esp32s3 116736->116728, xiao_mobile 116704->116696, gateway_esp32s3 147352->147344, xiao_esp32s3_mobile 116704->116696) with sizeof(NodeConfig) 264->256 on every one — i.e. it moved on every ABI × member-set cell, which is what FORCED the six-env D2 grid for this slice rather than the usual three.). 220592 -> 220656 (+64, NOT +65 and NOT +72 — §team-ch-key T-K1 adds 65 B of state and pays for 64. Arithmetic, measured by template-reveal on all six board flag-sets, not inferred: (a) _team_ch_pub[32] + _team_ch_priv[32] are inserted immediately after _ed_pub, i.e. between _ed_pub and _crypto_ready. 64 is a multiple of 8, so EVERY downstream member keeps its alignment and NO new hole opens anywhere: native _crypto_ready 121->185 (still odd, so the 2-aligned _relay_seal_ctr still needs no pad), _admin_pubkey 124->188, the 4-aligned _admin_counter_floor 156->220 (still 4-aligned), _remote_inbound 161->225 ending 406->470, and the 8-aligned _cfg 408->472 with its pre-existing 2-byte pad UNCHANGED. The arrays therefore cost exactly their own 64 B. (b) the has-key flag `_team_ch_key_present` costs ZERO: it is placed at native offset 19, in the alignment pad that already sat between _team_dad_pending (18) and the 4-aligned _key_hash32 (20) — the SAME hole node.h:1242's note keeps _team_local_id/_team_dad_pending here to exploit. Placing it beside the keys instead would have made the insert 65 B, flipping _crypto_ready to an EVEN offset (186) so _relay_seal_ctr needs a pad byte, and pushing _admin_counter_floor off its 4-alignment for two more — measured +72, i.e. the flag would have cost 8. FIFTH application of the radio_freq_mhz / team_hop_cap / HashQuerySeen.team_scoped / T5-PeerLiveness padding-placement rule. ⚠ this line is native-ONLY and unverifiable on a board ABI, so the per-target proof is the compile-only sizeof probe recorded in the T-K1 slice report: +64 on ARM-full, Xtensa-full and both *_mobile (MR_FEAT_REMOTE_MGMT 0), and +0 on both gateway_* (MR_FEAT_TEAM 0 strips all three members)). 220592 -> 220592 (+0 §team-parity T6/B, and the SLICE BRIEF EXPECTED THIS TO MOVE — it does not, measured by template-reveal not by the assert alone. Arithmetic, per ledger: (1) HashQuerySeen gains `bool team_scoped` and stays 24 B — origin(1)+pad(3)+key_hash32(4)+t_ms(8) then hard+want_pubkey+team_scoped(3)+pad(5); the third bool lands in the 6 bytes of tail padding the previous two already shared, so the ×cap_hash_query_seen(64) ×MR_N_LAYERS array is unchanged. (2) _per_origin_channel's key widens uint8_t -> uint16_t, and sizeof(std::map) does not depend on its key type (the key lives in heap-allocated nodes), so 0 B. (3) _seen_origins takes a bit in an EXISTING uint64_t key — no member added. (4) _mediated_recent was AUDITED AND DELIBERATELY LEFT ALONE: its two writers' key sets are provably disjoint on b.is_mobile (see the §P2-7 note), and MediatedRecent measures 16 B, so a plane byte would have made it 24 B ×cap_mediated_recent(32) = +256 B of nRF52840 RAM for an empty set. THAT is the +256 this line does not carry). 220592 -> 220592 (+0 §team-parity T0: NodeConfig.team_hop_cap, a uint8_t placed immediately after dv_hop_cap. Arithmetic: dv_hop_cap sits at native offset 93 and the next member (the 8-byte-aligned `double radio_freq_mhz`) at 96, so bytes 94-95 were pure alignment pad; the new member takes byte 94 and the hole shrinks to one byte. sizeof(NodeConfig) 264 -> 264 and sizeof(Node) 264-worth-of-config unchanged => the member costs literally nothing. This is the radio_freq_mhz placement rule below applied a second time, and it is why the value on this line did NOT move). 220584 -> 220592 (+8 §layer-freq: NodeConfig.radio_freq_mhz, a `double` placed between dv_hop_cap and the existing `double duty_cycle` so it fills the 8-byte-alignment padding slot already there — measured sizeof(NodeConfig) 256 -> 264, i.e. the member costs its own 8 B and opens NO new hole; the same slot after `radio_cr` would have cost 16). 220392 -> 220584 (+192 shelf-item-(i): PendingE2eAck[cap_pending_e2e_acks=8], 24 B each = the E2E-ack deadline ring, Node-global). 220384 -> 220392 (+8 Wave-4: NodeConfig.gw_schedule_readvert_ms u32 + alignment; the gateway schedule re-advertisement cadence). …218872 (§S6) -> 219000 (§GapA) -> 219312 (+312 §F-XL-1: HForwardStash[4] = 4×(77+1) de-storm ring; _h_forward_rr fits existing padding) -> 219568 (+256 §S3 part2: HostMobileEntry.last_key_fwd_hash32 = 4 B + 4 B align, ×16 ×2 layers) -> 219760 (+192 batch B: §B2 HostMobileEntry.deleg_fail packs into existing tail padding; §B4 PendingNotify.last_home_hash 4 B ×16 ×2 layers = +128; §D16 PresenceCand.incompatible +8 align ×cap = +64) -> 219952 (+192 batch A: §F-XL-2 RreqForwardStash[4] = 4×(16+1) de-storm ring + _rreq_forward_rr; §F-SL-1 ParkedSend += reflood state (bool/bool/Plane/u8 + u64 reflood_at_ms, 8-align) ×cap_parked_sends=8) -> 220384 (+432 §3-A.6 evict-STALEST timestamps: _learned_layers_seen_ms u64×4 = +32; PendingNotify.stash_ms u64 -> 12->24 B ×16 ×2 layers = +384 (+16 align); MINUS the dead _presence_claim_retries u8 (absorbed by padding))
 #endif
 
 }  // namespace meshroute

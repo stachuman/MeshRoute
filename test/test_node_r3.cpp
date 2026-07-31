@@ -7100,3 +7100,141 @@ TEST_CASE("§team-parity T5 — a CTS on a TEAM flight confirms the team link; t
     CHECK(A.team_link_bidi_state(234) == LinkBidi::confirmed);      // ★ the T5 confirm fired
     CHECK(A.link_bidi_state(234) == LinkBidi::unknown);             // ★★ and NOT into the static array (I2/I8)
 }
+
+// =============================================================================
+// ★★★ §AB4 — RETENTION of a received position (address-book spec 2026-07-29 §2.7/§2.7.2).
+// These sit here, beside the §loc-per-send suite, because THIS file already owns the only native harness that drives a
+// real DM through handle_data -> do_post_ack (U1/U3: originate_dm_loc + the receive replay below it). AB4 adds no
+// extraction and no second sealed/plaintext test — the retention is one call inside the `if (loc_present)` block that
+// already did all of that — so the honest coverage question is only "does the hook fire, and on which arm".
+// ★★ AND IT MUST BE NATIVE: measured, not assumed — ZERO of the 36 corpus scenarios airs a location (`peer_location` /
+// `has_location` / `lat_e7` have no hits in any scenario NDJSON), so the block is never entered in the corpus and a
+// poison probe on this logic would be VACUOUSLY 0/36. The cause is a SIM coverage gap, not a firmware one: the sim's
+// `send` verb has no `-l` (its only DM suffix rule is `-t`), so no scenario CAN put a position on the wire.
+// =============================================================================
+namespace {
+// A node-2 receiver wired to open node 1's sealed DMs, plus the beacon that gives it the route/id_bind. Mined verbatim
+// from the §loc-per-send positive test above rather than re-derived (U1).
+struct LocRx {
+    TestHal hal; Node B; Identity idA, idB;
+    LocRx() : B(hal, 2, 0) { }
+};
+// A PLAINTEXT DATA frame carrying DATA_FLAG_LOCATION + SOURCE_HASH — i.e. what an OLDER or FOREIGN node (or a spoofer)
+// airs. Our own firmware cannot produce one: node_mac.cpp REFUSES a `-l` send that would not be sealed, so this frame
+// has to be synthesised. ★ It is built with the CODEC's own pack_unicast_inner + pack_data, never a hand-rolled byte
+// layout, so the test cannot drift from the wire (the sibling mk_data above predates flags/location and is left alone —
+// changing its inner construction would be a refactor of a helper three other tests depend on).
+static size_t mk_data_plain_loc(uint8_t next, uint8_t dst, uint16_t ctr, uint8_t origin, uint32_t source_hash,
+                                int32_t lat, int32_t lon, const char* body, std::array<uint8_t, 96>& b) {
+    const uint8_t flags = DATA_FLAG_LOCATION | DATA_FLAG_SOURCE_HASH;
+    uint8_t bl = 0; while (body[bl]) ++bl;
+    std::array<uint8_t, 64> inner{};
+    const size_t il = pack_unicast_inner(std::span<uint8_t>(inner.data(), inner.size()), flags, /*dst_key_hash32=*/0,
+                                         /*layer_ids=*/nullptr, /*n_layers=*/0, /*cur=*/0, origin, source_hash,
+                                         reinterpret_cast<const uint8_t*>(body), bl, lat, lon);
+    if (!il) return 0;
+    const uint8_t mac[4] = { 0, 0, 0, 0 };
+    data_in in{}; in.addr_len = 0; in.flags = flags; in.next = next; in.dst = dst;
+    in.hops_remaining = 31; in.committed_hops = 0; in.prev_fwd_rt_hops = 0; in.ctr = ctr;
+    in.inner = std::span<const uint8_t>(inner.data(), il);
+    in.mac = std::span<const uint8_t>(mac, 4);
+    return pack_data(in, std::span<uint8_t>(b.data(), b.size()));
+}
+}  // namespace
+
+// ★★ THE SLICE'S CENTRAL ASSERTION: a SEALED `-l` DM, delivered through the real receive path, is RETAINED — and the
+// stored anchor is `peer`, the strong pairwise one, because opening the seal with OUR key is what proves who sent it.
+TEST_CASE("§AB4 — a SEALED `-l` DM is RETAINED against the sender's hash, anchored `peer`") {
+    const int32_t LAT = 523000000, LON = 134050000;
+    OrigLoc r = originate_dm_loc(/*want_loc=*/true, LAT, LON, /*sealed=*/true);
+    CHECK(r.aired); CHECK(r.crypted); CHECK(r.flag);
+    uint8_t sA[32], sB[32]; for (int i = 0; i < 32; ++i) { sA[i] = uint8_t(i + 1); sB[i] = uint8_t(100 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, sA); identity_from_seed(idB, sB);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    TestHal halB; Node B(halB, 2, idB.key_hash32); B.on_init(cfg);
+    B.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    B.peer_key_set(idA.key_hash32, idA.ed_pub, Node::PeerKeyConf::authoritative);
+    CHECK(B.peer_loc_count() == 0);                      // nothing retained before the DM
+    std::array<uint8_t, 64> bb{};
+    beacon_entry be{}; be.dest = 1; be.next = 1; be.score_bucket = 14; be.hops = 1;
+    beacon_in bin{}; bin.leaf_id = 0; bin.src = 1; bin.key_hash32 = idA.key_hash32;
+    bin.entries = std::span<const beacon_entry>(&be, 1);
+    RxMeta from1{ 12.0f, -70.0f, 0, static_cast<int8_t>(1) };
+    halB._now = 500; B.on_recv(bb.data(), pack_beacon(bin, std::span<uint8_t>(bb.data(), bb.size())), from1);
+    std::array<uint8_t, 16> rb{};
+    halB._now = 1000; B.on_recv(rb.data(), mk_rts(/*src=*/1, /*next=*/2, /*dst=*/2,
+                                                  static_cast<uint8_t>(r.ctr & 0x0F), r.plen, rb), from1);
+    halB._now = 2000; B.on_recv(r.frame.data(), r.frame.size(), from1);
+    B.on_timer(kPostAckTimerId);
+    // The push still behaves exactly as before — the retention is ADDITIVE, it does not consume the position.
+    Push pu{}; bool got = false;
+    while (B.next_push(pu)) { if (pu.kind == PushKind::msg_recv) { got = true; break; } }
+    CHECK(got);
+    if (got) { CHECK(pu.enc); CHECK(pu.has_location); CHECK(pu.sender_hash == idA.key_hash32); }
+    CHECK(halB.count("peer_location") == 1);
+    CHECK(halB.count("peer_location_unauth") == 0);       // ★ the sealed arm never takes the refusal branch
+    // ★★ AND NOW THE NEW BEHAVIOUR: it is in the ring, keyed by the SENDER'S HASH (not its node id — §1.2).
+    CHECK(B.peer_loc_count() == 1);
+    int32_t lat = 0, lon = 0; uint32_t age = 99; Node::PeerLocSrc src = Node::PeerLocSrc::team;
+    CHECK(B.peer_loc_find(idA.key_hash32, lat, lon, age, src));
+    CHECK(src == Node::PeerLocSrc::peer);                 // ★ the PAIRWISE anchor — sealed to us, opened with our key
+    CHECK(age == 0);                                      // received "now" (t_s == now_s at 2000 ms)
+    long dlat = static_cast<long>(lat) - LAT; if (dlat < 0) dlat = -dlat;
+    long dlon = static_cast<long>(lon) - LON; if (dlon < 0) dlon = -dlon;
+    CHECK(dlat <= 512); CHECK(dlon <= 512);               // pack_loc6 quantises to ~1024e-7 deg (~11 m)
+    // ★ THE END-TO-END POINT OF THE SLICE: the address book now SHOWS it. Same view the app's `peers` reads.
+    halB._now = 62000;                                    // 60 s later
+    Node::PeerBookRow row{};
+    CHECK(B.peer_book_by_hash(idA.key_hash32, row));
+    CHECK(row.has_location); CHECK(row.loc_age_s == 60); CHECK(row.loc_src == Node::PeerLocSrc::peer);
+}
+
+// ★★ THE REFUSAL ARM (owner ruling O6). An unauthenticated position is spoofable by anyone in range, and a spoofed
+// position in an address book is WORSE than an absent one because the UI presents it as fact — so it is pushed to the
+// app exactly as before but NEVER retained, and the refusal EMITS so a spoof attempt is observable rather than silent.
+TEST_CASE("§AB4 — a PLAINTEXT location is pushed but NOT retained, and emits peer_location_unauth") {
+    const int32_t LAT = 523000000, LON = 134050000;
+    uint8_t sA[32], sB[32]; for (int i = 0; i < 32; ++i) { sA[i] = uint8_t(i + 1); sB[i] = uint8_t(100 - i); }
+    Identity idA{}, idB{}; identity_from_seed(idA, sA); identity_from_seed(idB, sB);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    TestHal halB; Node B(halB, 2, idB.key_hash32); B.on_init(cfg);
+    B.set_crypto_identity(idB.x_secret, idB.ed_pub);
+    B.peer_key_set(idA.key_hash32, idA.ed_pub, Node::PeerKeyConf::authoritative);   // we DO hold the key — so a refusal
+                                                                                    // here is about the FRAME, not the key
+    std::array<uint8_t, 64> bb{};
+    beacon_entry be{}; be.dest = 1; be.next = 1; be.score_bucket = 14; be.hops = 1;
+    beacon_in bin{}; bin.leaf_id = 0; bin.src = 1; bin.key_hash32 = idA.key_hash32;
+    bin.entries = std::span<const beacon_entry>(&be, 1);
+    RxMeta from1{ 12.0f, -70.0f, 0, static_cast<int8_t>(1) };
+    halB._now = 500; B.on_recv(bb.data(), pack_beacon(bin, std::span<uint8_t>(bb.data(), bb.size())), from1);
+    std::array<uint8_t, 96> df{};
+    const size_t dn = mk_data_plain_loc(/*next=*/2, /*dst=*/2, /*ctr=*/0x21, /*origin=*/1,
+                                        /*source_hash=*/idA.key_hash32, LAT, LON, "hi", df);
+    CHECK(dn > 0);
+    std::array<uint8_t, 16> rb{};
+    halB._now = 1000; B.on_recv(rb.data(), mk_rts(/*src=*/1, /*next=*/2, /*dst=*/2, /*ctr_lo=*/0x1,
+                                                  static_cast<uint8_t>(dn - 8), rb), from1);
+    halB._now = 2000; B.on_recv(df.data(), dn, from1);
+    B.on_timer(kPostAckTimerId);
+    // ★ UNCHANGED BEHAVIOUR: the app still gets the position. AB4 removed nothing — the companion decides what to do
+    //   with an unauthenticated fix; the NODE just refuses to file it as a fact about that peer.
+    Push pu{}; bool got = false;
+    while (B.next_push(pu)) { if (pu.kind == PushKind::msg_recv) { got = true; break; } }
+    CHECK(got);
+    if (got) {
+        CHECK_FALSE(pu.enc);                              // delivered in the CLEAR
+        CHECK(pu.has_location);                           // ...and the position is STILL pushed, exactly as before
+        CHECK(pu.sender_hash == idA.key_hash32);          // and it even names a hash — which is precisely not enough
+    }
+    CHECK(halB.count("peer_location") == 1);              // the pre-existing emit is untouched
+    // ★★ THE TWO ASSERTIONS THAT ARE THIS SLICE: refused, and LOUDLY.
+    CHECK(halB.count("peer_location_unauth") == 1);
+    CHECK(B.peer_loc_count() == 0);                       // ★ NOT RETAINED
+    int32_t lat = 0, lon = 0; uint32_t age = 0; Node::PeerLocSrc src = Node::PeerLocSrc::team;
+    CHECK_FALSE(B.peer_loc_find(idA.key_hash32, lat, lon, age, src));
+    // ...and the address book therefore shows the peer WITHOUT a position, rather than with a spoofable one.
+    Node::PeerBookRow row{};
+    CHECK(B.peer_book_by_hash(idA.key_hash32, row));
+    CHECK(row.has_key);                                   // a fully-known peer in every other respect
+    CHECK_FALSE(row.has_location);
+}

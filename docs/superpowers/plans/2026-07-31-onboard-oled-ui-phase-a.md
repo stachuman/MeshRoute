@@ -258,30 +258,75 @@ static UiSnapshot snap(uint32_t now_ms = 1000) {
     return s;
 }
 
-TEST_CASE("short press cycles screens and wraps") {
-    UiModel m; const auto s = snap();
+TEST_CASE("short press is LIST-AWARE: it walks TEAM before leaving it") {
+    UiModel m; const auto s = snap();                      // team_n == 3
     CHECK(m.state().screen == Screen::status);
     m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::team);
-    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox);
-    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::send_got);
-    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::send_ok);
-    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::status);
+    CHECK(m.state().cursor == 0);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::team); CHECK(m.state().cursor == 1);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::team); CHECK(m.state().cursor == 2);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox);   // end of list -> next screen
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::send);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::status);  // four slots, wraps
 }
 
-TEST_CASE("double press advances the TEAM cursor and wraps on team_n") {
+TEST_CASE("an empty TEAM list is passed straight through, not a dead end") {
+    UiModel m; auto s = snap(); s.team_n = 0;
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::team);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox);
+}
+
+TEST_CASE("double press on TEAM opens the DM sub-view bound to the highlighted peer") {
     UiModel m; const auto s = snap();
-    m.on_gesture(Gesture::short_press, s);                 // -> team
-    CHECK(m.state().cursor == 0);
-    m.on_gesture(Gesture::double_press, s); CHECK(m.state().cursor == 1);
-    m.on_gesture(Gesture::double_press, s); CHECK(m.state().cursor == 2);
-    m.on_gesture(Gesture::double_press, s); CHECK(m.state().cursor == 0);
+    m.on_gesture(Gesture::short_press, s);                 // -> team, cursor 0
+    m.on_gesture(Gesture::short_press, s);                 // cursor 1
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().compose == Compose::dm);
+    CHECK(m.state().compose_peer == s.team[1].id);         // bound at ENTRY, not re-read later
+    CHECK(m.state().cursor == 0);                          // starts on the first message, not on `back`
+}
+
+TEST_CASE("sub-view: short walks the items, `back` leaves without sending") {
+    UiModel m; const auto s = snap(); SendReq req{};
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);                // DM sub-view: [Are you OK?][I'm OK][back]
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().cursor == 1);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().cursor == 2);   // `back`
+    m.on_gesture(Gesture::double_press, s);
+    CHECK(m.state().compose == Compose::none);
+    CHECK(m.state().screen == Screen::team);               // returned to the parent
+    CHECK(m.take_send_request(req) == false);              // and sent NOTHING
+}
+
+TEST_CASE("sub-view: double on a message emits a DM request for the bound peer") {
+    UiModel m; const auto s = snap(); SendReq req{};
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::double_press, s);
+    m.on_gesture(Gesture::double_press, s);                // send item 0
+    REQUIRE(m.take_send_request(req) == true);
+    CHECK(req.kind == SendKind::dm);
+    CHECK(req.peer_id == s.team[0].id);
+    CHECK(req.text_index == 0);
+    CHECK(m.state().compose == Compose::none);             // closes after sending
+}
+
+TEST_CASE("sub-view auto-exits on inactivity WITHOUT sending") {
+    UiModel m; SendReq req{};
+    m.on_gesture(Gesture::short_press, snap(1000));
+    m.on_gesture(Gesture::double_press, snap(1100));
+    CHECK(m.state().compose == Compose::dm);
+    m.on_tick(snap(1100 + kBlankMs + 1));
+    CHECK(m.state().compose == Compose::none);
+    CHECK(m.take_send_request(req) == false);
 }
 
 TEST_CASE("cursor resets when the screen changes") {
     UiModel m; const auto s = snap();
     m.on_gesture(Gesture::short_press, s);
-    m.on_gesture(Gesture::double_press, s); CHECK(m.state().cursor == 1);
-    m.on_gesture(Gesture::short_press, s);  CHECK(m.state().cursor == 0);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().cursor == 1);
+    m.on_gesture(Gesture::short_press, s);
+    m.on_gesture(Gesture::short_press, s); CHECK(m.state().screen == Screen::inbox);
+    CHECK(m.state().cursor == 0);
 }
 
 TEST_CASE("panel blanks after the idle timeout and the waking press is consumed") {
@@ -328,9 +373,27 @@ namespace mrui {
 inline constexpr uint32_t kBlankMs        = 15000;   // spec §5: panel blanks after this much input silence
 inline constexpr uint8_t  kMaxTeamRows    = 8;       // a hiking group is 3-10; the UI shows the first 8
 
-// Screen slots. team/send_* compile out of the CYCLE on a non-team build (see next_screen), but the enum keeps its
+// Screen slots. team/send compile out of the CYCLE on a non-team build (see next_screen), but the enum keeps its
 // values so a native test exercises both orderings without a second build.
-enum class Screen : uint8_t { status = 0, team, inbox, send_got, send_ok, count };
+enum class Screen : uint8_t { status = 0, team, inbox, send, count };
+
+// The single modal: a canned-text picker. Entered by `double` from TEAM (a DM to the highlighted peer) or from SEND
+// (a team channel post). Always contains a `back without sending` item and always auto-exits on inactivity, which is
+// what makes one modal acceptable on a one-button device (spec §3.2.1).
+enum class Compose : uint8_t { none = 0, dm, channel };
+
+// Item counts INCLUDE the trailing `back without sending`, so the last index is always the exit.
+inline constexpr uint8_t kDmTextCount      = 3;   // "Are you OK?", "I'm OK", back
+inline constexpr uint8_t kChannelTextCount = 3;   // "Got your message", "All good", back
+
+// The model NEVER sends — it ASKS. This is what keeps the header free of dispatch()/Arduino and therefore
+// native-testable; firmware_ui.cpp (Task 6/7) drains the request and performs the send.
+enum class SendKind : uint8_t { emergency = 0, dm, channel_canned };
+struct SendReq {
+    SendKind kind       = SendKind::emergency;
+    uint8_t  peer_id    = 0;   // dm only: the bound team_local_id
+    uint8_t  text_index = 0;   // index into the sub-view's text list (never the `back` index)
+};
 
 struct TeamRow {
     uint8_t  id           = 0;    // team_local_id
@@ -352,10 +415,13 @@ struct UiSnapshot {
 };
 
 struct UiState {
-    Screen   screen  = Screen::status;
-    uint8_t  cursor  = 0;
-    bool     blanked = false;
-    bool     dirty   = true;
+    Screen   screen       = Screen::status;
+    uint8_t  cursor       = 0;
+    Compose  compose      = Compose::none;
+    uint8_t  compose_peer = 0;    // team_local_id bound at sub-view ENTRY (never re-read from the snapshot: the roster
+                                  // can reorder underneath an open modal, which would retarget the message silently)
+    bool     blanked      = false;
+    bool     dirty        = true;
 };
 
 class UiModel {
@@ -364,35 +430,72 @@ public:
         if (g == Gesture::none) return;
         _last_input_ms = s.now_ms;
         if (_st.blanked) { _st.blanked = false; _st.dirty = true; return; }   // spec §5: the waking press is CONSUMED
+        if (_st.compose != Compose::none) { compose_gesture(g, s); return; }
         switch (g) {
-            case Gesture::short_press:  _st.screen = next_screen(_st.screen, s); _st.cursor = 0; _st.dirty = true; break;
-            case Gesture::double_press: advance_cursor(s); _st.dirty = true; break;
+            case Gesture::short_press:  advance_or_next(s);  _st.dirty = true; break;
+            case Gesture::double_press: activate(s);         _st.dirty = true; break;
             default: break;                                                    // long_* belongs to the emergency machine (Task 3)
         }
     }
 
     void on_tick(const UiSnapshot& s) {
+        // A modal must never outlive the user's attention — it exits WITHOUT sending (spec §3.2.1).
+        if (_st.compose != Compose::none && s.now_ms - _last_input_ms >= kBlankMs) {
+            _st.compose = Compose::none; _st.cursor = 0; _st.dirty = true;
+        }
         if (!_st.blanked && s.now_ms - _last_input_ms >= kBlankMs) { _st.blanked = true; _st.dirty = true; }
     }
 
     const UiState& state() const { return _st; }
     void clear_dirty() { _st.dirty = false; }
 
+    // Returns true once per queued request; the caller performs the send and (for the emergency) reports back.
+    bool take_send_request(SendReq& out) {
+        if (!_req_pending) return false;
+        _req_pending = false; out = _req; return true;
+    }
+
 protected:
     UiState  _st{};
     uint32_t _last_input_ms = 0;
+    SendReq  _req{};
+    bool     _req_pending = false;
 
 private:
+    // §3.2 list-aware short press: walk the current list first; leave only at the end.
+    void advance_or_next(const UiSnapshot& s) {
+        const uint8_t n = list_len(s);
+        if (n > 1 && _st.cursor + 1 < n) { ++_st.cursor; return; }
+        _st.screen = next_screen(_st.screen, s); _st.cursor = 0;
+    }
+    void activate(const UiSnapshot& s) {
+        if (_st.screen == Screen::team && s.team_n > 0) {
+            _st.compose = Compose::dm; _st.compose_peer = s.team[_st.cursor % s.team_n].id; _st.cursor = 0;
+        } else if (_st.screen == Screen::send) {
+            _st.compose = Compose::channel; _st.compose_peer = 0; _st.cursor = 0;
+        }
+    }
+    void compose_gesture(Gesture g, const UiSnapshot& s) {
+        const uint8_t n = (_st.compose == Compose::dm) ? kDmTextCount : kChannelTextCount;
+        if (g == Gesture::short_press) { _st.cursor = uint8_t((_st.cursor + 1) % n); _st.dirty = true; return; }
+        if (g != Gesture::double_press) return;
+        if (_st.cursor + 1 == n) {                       // the LAST item is always `back without sending`
+            _st.compose = Compose::none; _st.cursor = 0; _st.dirty = true; return;
+        }
+        _req.kind       = (_st.compose == Compose::dm) ? SendKind::dm : SendKind::channel_canned;
+        _req.peer_id    = _st.compose_peer;
+        _req.text_index = _st.cursor;
+        _req_pending    = true;
+        _st.compose = Compose::none; _st.cursor = 0; _st.dirty = true;
+        (void)s;
+    }
+    uint8_t list_len(const UiSnapshot& s) const { return (_st.screen == Screen::team) ? s.team_n : 1; }
     static Screen next_screen(Screen cur, const UiSnapshot& s) {
         for (uint8_t i = 1; i <= uint8_t(Screen::count); ++i) {
             const Screen cand = Screen((uint8_t(cur) + i) % uint8_t(Screen::count));
             if (s.team_build || cand == Screen::status || cand == Screen::inbox) return cand;
         }
         return Screen::status;
-    }
-    void advance_cursor(const UiSnapshot& s) {
-        const uint8_t n = (_st.screen == Screen::team) ? s.team_n : 0;
-        _st.cursor = (n > 0) ? uint8_t((_st.cursor + 1) % n) : 0;
     }
 };
 
@@ -517,22 +620,15 @@ inline constexpr uint32_t kEmgHoldMs   = 120000;  // spec §5: emergency holds t
 inline constexpr uint8_t  kEmgMaxTries = 3;       // spec §4: BOUNDED. Unbounded retry burns the team's duty budget.
 
 enum class Emergency : uint8_t { idle = 0, arming, firing, blocked, picked_up, not_heard, cancelled };
-enum class SendKind  : uint8_t { emergency = 0, got_message, all_ok };
-struct SendReq { SendKind kind = SendKind::emergency; };
 ```
+
+`SendKind` / `SendReq` / `take_send_request` / `_req` / `_req_pending` were defined in Task 2 — do **not** redeclare them here.
 
 Add to `UiModel`'s public section:
 
 ```cpp
     Emergency emergency()      const { return _emg; }
     uint32_t  emg_retry_at_ms() const { return _retry_at_ms; }
-
-    // The model NEVER sends — it asks. Returns true once per attempt; the host (firmware_ui.cpp) performs the send
-    // and reports back via on_send_outcome. Keeps this header free of dispatch()/Arduino and therefore native-testable.
-    bool take_send_request(SendReq& out) {
-        if (!_req_pending) return false;
-        _req_pending = false; out = _req; return true;
-    }
 
     void on_send_outcome(bool blocked, uint32_t next_ms, bool relayed) {
         if (_emg != Emergency::firing && _emg != Emergency::blocked) return;   // outcome for a canned send: ignore
@@ -552,16 +648,13 @@ Extend `on_gesture`'s switch, before `default`:
                 _emg = Emergency::firing; _tries = 0; request(SendKind::emergency); _st.dirty = true; break;
 ```
 
-and make `double_press` context-sensitive by replacing its case body with:
+and make `double_press` acknowledge a sticky emergency **before** the normal `activate(s)` path, by replacing its case body with:
 
 ```cpp
             case Gesture::double_press:
-                if (_emg == Emergency::not_heard || _emg == Emergency::picked_up) {
-                    if (_emg == Emergency::not_heard) { _emg = Emergency::firing; _tries = 0; request(SendKind::emergency); }
-                    else                              { _emg = Emergency::idle; }
-                } else if (_st.screen == Screen::send_got) { request(SendKind::got_message); }
-                else if (_st.screen == Screen::send_ok)    { request(SendKind::all_ok); }
-                else                                       { advance_cursor(s); }
+                if (_emg == Emergency::not_heard) { _emg = Emergency::firing; _tries = 0; request(SendKind::emergency); }
+                else if (_emg == Emergency::picked_up || _emg == Emergency::cancelled) { _emg = Emergency::idle; }
+                else { activate(s); }
                 _st.dirty = true; break;
 ```
 
@@ -593,12 +686,10 @@ Add to the private section:
 
 ```cpp
     void request(SendKind k) {
-        _req.kind = k; _req_pending = true;
+        _req.kind = k; _req.peer_id = 0; _req.text_index = 0; _req_pending = true;
         if (k == SendKind::emergency) { ++_tries; _last_try_ms = _last_input_ms; }
     }
     Emergency _emg = Emergency::idle;
-    SendReq   _req{};
-    bool      _req_pending = false;
     uint8_t   _tries = 0;
     uint32_t  _retry_at_ms = 0, _last_try_ms = 0;
 ```
@@ -686,13 +777,35 @@ static void draw_current_screen(const mrui::UiState& st, const mrui::UiSnapshot&
              s.batt_mv < 0 ? "--" : "OK");          // batt_mv<0 => "--", never a guessed percentage
     s_u8g2.drawStr(0, 8, bar);
     s_u8g2.drawHLine(0, 10, 128);
+    if (st.compose != mrui::Compose::none) { draw_compose(st); return; }   // the modal owns the body when open
     switch (st.screen) {
-        case mrui::Screen::status:   draw_status(s);            break;
-        case mrui::Screen::team:     draw_team(s, st.cursor);   break;
-        case mrui::Screen::inbox:    draw_inbox(s, st.cursor);  break;
-        case mrui::Screen::send_got: s_u8g2.drawStr(0, 30, "SEND:"); s_u8g2.drawStr(0, 44, "Got your message"); break;
-        case mrui::Screen::send_ok:  s_u8g2.drawStr(0, 30, "SEND:"); s_u8g2.drawStr(0, 44, "All good");         break;
+        case mrui::Screen::status: draw_status(s);           break;
+        case mrui::Screen::team:   draw_team(s, st.cursor);  break;
+        case mrui::Screen::inbox:  draw_inbox(s, st.cursor); break;
+        case mrui::Screen::send:   s_u8g2.drawStr(0, 30, "SEND to team");
+                                   s_u8g2.drawStr(0, 44, "double = pick text"); break;
         default: break;
+    }
+}
+```
+
+And the modal body — one highlighted line per item, `back without sending` always last:
+
+```cpp
+static const char* const kDmItems[]      = { "Are you OK?", "I'm OK", "back, don't send" };
+static const char* const kChannelItems[] = { "Got your message", "All good", "back, don't send" };
+
+static void draw_compose(const mrui::UiState& st) {
+    const bool dm = (st.compose == mrui::Compose::dm);
+    const char* const* items = dm ? kDmItems : kChannelItems;
+    const uint8_t n = dm ? mrui::kDmTextCount : mrui::kChannelTextCount;
+    char hdr[24];
+    if (dm) snprintf(hdr, sizeof hdr, "to: id %u", unsigned(st.compose_peer));
+    else    snprintf(hdr, sizeof hdr, "to: team");
+    s_u8g2.drawStr(0, 21, hdr);
+    for (uint8_t i = 0; i < n; ++i) {
+        s_u8g2.drawStr(0,  33 + i * 11, (i == st.cursor) ? ">" : " ");
+        s_u8g2.drawStr(8,  33 + i * 11, items[i]);
     }
 }
 
@@ -931,7 +1044,7 @@ Expected: short presses cycle STATUS → TEAM → INBOX → SEND → SEND → ST
 
 ---
 
-### Task 7: Canned messages through the existing command sink
+### Task 7: Canned messages and teammate DMs through the existing command sink
 
 **Files:**
 - Modify: `src/firmware_ui.cpp`
@@ -954,10 +1067,36 @@ In `[env:heltec_v3]` `build_flags`:
 - [ ] **Step 2: Implement the send**
 
 ```cpp
+// Index-matched to the sub-view lists in firmware_ui_model.h. The `back` item never reaches here (the model handles
+// it), so these arrays hold only the sendable texts — kDmTextCount-1 and kChannelTextCount-1 entries.
+static const char* const kDmTexts[]      = { "Are you OK?", "I'm OK" };
+static const char* const kChannelTexts[] = { "Got your message", "All good" };
+
 static void ui_perform_send(const mrui::SendReq& req) {
     const bool emergency = (req.kind == mrui::SendKind::emergency);
-    const char* body = emergency                                  ? "I'm in danger"    :
-                       (req.kind == mrui::SendKind::got_message)  ? "Got your message" : "All good";
+    char line[96];
+    int  n = 0;
+
+    if (req.kind == mrui::SendKind::dm) {
+        if (req.text_index >= sizeof kDmTexts / sizeof kDmTexts[0]) return;
+        // §3.4: cleartext DM to a teammate by team_local_id. `-t` = TEAM plane, `-a` = ask for the end-to-end ack
+        // (PushKind::send_e2e_acked = "that person received it" — the confirmation a channel post can never give).
+        // NO `-e`: the parser gates it allow_e=by_hash and rejects it on an id target. crypt stays CryptIntent::def,
+        // i.e. the node's e2e_dm setting decides. On the shipped default (e2e_dm=0) that is plaintext, which is the
+        // owner's intent; on an e2e_dm=1 node it seals, or fails loud `no_pubkey`. We do NOT try to force plaintext —
+        // CryptIntent::off was deliberately removed from the console, and silently downgrading a node its owner
+        // configured for encryption would be wrong.
+        n = snprintf(line, sizeof line, "send %u \"%s\" -t -a",
+                     unsigned(req.peer_id), kDmTexts[req.text_index]);
+        if (n <= 0 || size_t(n) >= sizeof line) return;
+        BufferSink sink; dispatch(line, size_t(n), sink);
+        return;
+    }
+
+    const char* body = emergency ? "I'm in danger"
+                                 : (req.text_index < sizeof kChannelTexts / sizeof kChannelTexts[0]
+                                        ? kChannelTexts[req.text_index] : nullptr);
+    if (body == nullptr) return;
 
     // §4.1 — the DISTRESS call carries a position when one exists; the canned messages never do.
     // ★★ `-l` MUST be conditional. The channel-crypt spec (2026-07-30 §2.2.1) REFUSES `-t -l` with `no_location`
@@ -966,12 +1105,11 @@ static void ui_perform_send(const mrui::SendReq& req) {
     const meshroute::NodeConfig& cfg = g_node.config();
     const bool have_fix = emergency && (cfg.lat_e7 != 0 || cfg.lon_e7 != 0);
 
-    char line[96];
     // -t = team plane, -e = encrypted, -l = attach position. `-e` and `-l` on send_channel are delivered by the
     // encrypted-channel + location slice, which lands BEFORE this work (owner, 2026-07-31). If either is absent the
     // parser rejects the line and the send fails LOUD — which is correct.
     // NEVER "fix" that by dropping -e: it would put "I'm in danger" on the air in clear.
-    const int n = have_fix
+    n = have_fix
         ? snprintf(line, sizeof line, "send_channel %u \"%s\" -t -l -e", unsigned(MR_UI_TEAM_CHANNEL_ID), body)
         : snprintf(line, sizeof line, "send_channel %u \"%s\" -t -e",    unsigned(MR_UI_TEAM_CHANNEL_ID), body);
     if (n <= 0 || size_t(n) >= sizeof line) return;
@@ -980,10 +1118,16 @@ static void ui_perform_send(const mrui::SendReq& req) {
 }
 ```
 
-- [ ] **Step 3: Build, flash, verify against a second node**
+- [ ] **Step 3: Build, flash, verify all three paths against a second node**
 
 Run: `pio run -e heltec_v3 -t upload`
-Expected: on SEND "Got your message", a double press posts the message; a second node in the same team receives it. Confirm on the sender's serial console that the line was accepted (no `parse error`).
+
+Expected, with a second node in the same team:
+
+1. **Channel** — on SEND, `double` opens the sub-view, `double` on "Got your message" posts it; the second node receives it.
+2. **`back without sending`** — open either sub-view, short-press to the last item, `double`: it closes and **nothing is transmitted**. Confirm on the serial console that no `send`/`send_channel` line was dispatched.
+3. **DM** — on TEAM, short-press to a teammate, `double`, `double` on "Are you OK?": the second node receives a DM, and the sender shows the end-to-end ack. Confirm the console shows `send <id> "Are you OK?" -t -a` accepted (no `parse error`).
+4. **`no_pubkey`** — only if the node runs `e2e_dm=1` without the peer's key: the DM must fail loud and the sub-view must show `NO KEY`, not a generic failure. On the shipped default (`e2e_dm=0`) this case does not arise.
 
 - [ ] **Step 4: Report ready — do NOT commit**
 

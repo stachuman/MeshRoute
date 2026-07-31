@@ -310,6 +310,57 @@ bool Node::peer_name_set(uint32_t key_hash32, const char* name, uint8_t name_len
     return false;   // C2: no row for this hash -> the caller refuses loud; never invent a keyless placeholder
 }
 
+// ==================== ★★★ §AB4 — RETAINED PEER LOCATION (spec 2026-07-29 §2.7) ====================
+// See node.h (PeerLocSrc, the _peer_loc ring, and the two declarations) for the design: RAM-only and why, why neither
+// PeerKey nor _team_keys is the home, why recent_ring.h is a refused forced fit, and the shared-key trust bound.
+
+// THE ONE SETTER, for both sources. Four steps, mirroring peer_key_set's shape (U3) over this ring's own stamp:
+// refresh-in-place / append-if-room / evict-the-STALEST. ⚠ No "never evict" tier here, unlike peer_key_set's pinned
+// exemption: every position is equally perishable, so the oldest is always the right victim — a pinned-key analogue
+// would pin a position, which is the stale-fix failure mode the whole RAM-only ruling exists to avoid.
+bool Node::peer_loc_set(uint32_t key_hash32, int32_t lat_e7, int32_t lon_e7, PeerLocSrc src) {
+    if (key_hash32 == 0) return false;   // C2: 0 is the "no hash" sentinel (peer_book_by_hash refuses it too), never an identity
+    // ms -> SECONDS, the ring's stamp unit. See PeerLoc::t_s: uint32 seconds spans ~136 years of uptime, so the wrap is
+    // unreachable on a monotonic since-boot clock and there is deliberately no wrap handling.
+    const uint32_t now_s = static_cast<uint32_t>(_hal.now() / 1000u);
+    uint8_t slot;
+    uint8_t i = 0;
+    for (; i < _peer_loc_n; ++i) if (_peer_loc[i].key_hash32 == key_hash32) break;
+    if (i < _peer_loc_n)                        slot = i;                    // a FRESHER position for a hash we already hold -> replace it
+    else if (_peer_loc_n < cap_peer_loc)        slot = _peer_loc_n++;        // room
+    else {                                                                  // full -> evict the STALEST slot
+        uint8_t victim = 0;
+        for (uint8_t k = 1; k < _peer_loc_n; ++k) if (_peer_loc[k].t_s < _peer_loc[victim].t_s) victim = k;
+        slot = victim;
+    }
+    _peer_loc[slot] = PeerLoc{};   // ★ whole-record reset FIRST, so `reserved` stays zero and no field of an evicted
+                                   // predecessor can survive into the new entry (that is what the NAMED pad buys)
+    _peer_loc[slot].key_hash32 = key_hash32;
+    _peer_loc[slot].lat_e7 = lat_e7;
+    _peer_loc[slot].lon_e7 = lon_e7;
+    _peer_loc[slot].t_s    = now_s;
+    _peer_loc[slot].src    = src;
+    return true;
+}
+
+bool Node::peer_loc_find(uint32_t key_hash32, int32_t& lat_e7, int32_t& lon_e7,
+                         uint32_t& age_s, PeerLocSrc& src) const {
+    if (key_hash32 == 0) return false;
+    for (uint8_t i = 0; i < _peer_loc_n; ++i) {
+        if (_peer_loc[i].key_hash32 != key_hash32) continue;
+        const uint32_t now_s = static_cast<uint32_t>(_hal.now() / 1000u);
+        // ★ A backwards clock (a test rewinding TestHal, or a clock that ever moved) reports MAXIMALLY STALE, never 0:
+        // 0 would render an unknown-vintage position as CURRENT, which is precisely the misleading-fix failure the
+        // RAM-only ruling exists to prevent. Fail in the direction the app discards (C2's spirit for a read).
+        age_s  = (now_s >= _peer_loc[i].t_s) ? (now_s - _peer_loc[i].t_s) : 0xFFFFFFFFu;
+        lat_e7 = _peer_loc[i].lat_e7;
+        lon_e7 = _peer_loc[i].lon_e7;
+        src    = _peer_loc[i].src;
+        return true;
+    }
+    return false;   // no position for this hash — the NORMAL case, not an error
+}
+
 uint8_t Node::peer_name_find(uint32_t key_hash32, char* out, uint8_t cap) const {   // §1.3: the cached name for a peer hash (0 = unknown)
     for (uint16_t i = 0; i < _active->_peer_keys_n; ++i)
         if (_active->_peer_keys[i].key_hash32 == key_hash32) {
@@ -368,6 +419,16 @@ void Node::peer_book_join_ids(PeerBookRow& r) const {
     const int sid = id_bind_find_by_hash(r.hash, &ic);        // U1: the existing _id_bind reverse scan (skips expired)
     if (sid >= 0) { r.static_id = static_cast<uint8_t>(sid); r.static_authoritative = (ic == IdBindConf::authoritative); }
     r.team_id = team_id_of_key_freshest(r.hash, r.team_alias_dropped);
+    peer_book_join_loc(r);
+}
+
+// ★ §AB4: hash -> the retained position. Leaves has_location false (and the four fields at their `PeerBookRow{}` zeros)
+// when nothing is held, which is the NORMAL outcome for most rows. Kept as its own function rather than inlined into
+// peer_book_join_ids because peer_book_walk's unkeyed passes resolve their ids directly and never call join_ids — see
+// node.h for why those two extra call sites matter to CL2.
+void Node::peer_book_join_loc(PeerBookRow& r) const {
+    if (r.hash == 0) return;   // an id-only row has no identity to key a position by (§1.2)
+    r.has_location = peer_loc_find(r.hash, r.lat_e7, r.lon_e7, r.loc_age_s, r.loc_src);
 }
 
 // _peer_keys[slot] -> a row, plus both reverse id joins.
@@ -415,6 +476,7 @@ uint16_t Node::peer_book_walk(bool include_id_rows, PeerBookVisit fn, void* ctx)
         r.static_id = e.node_id;
         r.static_authoritative = (e.confidence == static_cast<uint8_t>(IdBindConf::authoritative));
         if (r.hash) r.team_id = team_id_of_key_freshest(r.hash, r.team_alias_dropped);   // §18: the same hash may hold both
+        peer_book_join_loc(r);                                                          // §AB4 (no join_ids here: static_id came straight off the row)
         ++n; if (fn) fn(r, ctx);
     }
 #if MR_FEAT_TEAM
@@ -427,6 +489,7 @@ uint16_t Node::peer_book_walk(bool include_id_rows, PeerBookVisit fn, void* ctx)
         if (id_bind_find_by_hash(e.key_hash32) >= 0) continue;                 // covered by (2)
         r = PeerBookRow{};
         r.hash = e.key_hash32; r.team_id = e.id; r.team_alias_dropped = dropped;
+        peer_book_join_loc(r);                                                          // §AB4 (ditto — team_id came straight off the row)
         ++n; if (fn) fn(r, ctx);
     }
     // (4) _team_peer bits nothing else covered ⇒ TEAM-ID-ONLY rows: a teammate we route to whose hash we never cached
