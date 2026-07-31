@@ -157,7 +157,26 @@ scenario was relying on the broken behaviour. Attribute it and report before pro
 
 ## Tier 1 — silent or destructive
 
-★★★★ **2026-07-31 (later the same day): TIER 1 IS NOT EMPTY ANY MORE — `§ab3` found a SHIPPED DEVICE HANG. See B29.**
+★★★★ **2026-07-31: a shipped DEVICE HANG (B29) was found by `§ab3` and CLOSED the same day by `§idbind-loop`. ⇒ TIER 1 IS EMPTY AGAIN.**
+
+### ~~B29~~ ✅ **CLOSED 2026-07-31** (`§idbind-loop`) — one line, **and the flash delta proved the UB was real**
+★ Fixed to `for (uint16_t i = 0; i < _active->_id_bind_n; ++i)` — the verbatim idiom of the correct sibling `key_hash_of_id`.
+Native 1057/71046 → **1058/71061/0**, 36/36 byte-identical, keystone unmoved, **`lus` md5 UNCHANGED after 30 TUs recompiled**
+(object-code proof the function is never emitted in the sim), boards 3/3 **ΔRAM 0**.
+★★★ **ΔFlash came out +16/+32/+16 — the OPPOSITE of the predicted "≈0 or negative", and that IS the UB made visible:** the
+loop was `const` and side-effect-free, so GCC was **entitled to delete the termination test**, and the broken version
+therefore compiled **smaller**. ⇒ **"the fix should not add flash" is not a safe premise when the bug was undefined
+behaviour.** Proven real, not noise, by an object-level control: the TU **without** a date stamp grew, the TU **with**
+`__DATE__` did not move.
+★★ **A 3-arm probe proved neither half of the one line is redundant:** `uint8_t + cap` **hangs**; `uint16_t + cap` passes
+the miss test but **still returns an evicted `0xBBBB2222`**; only `uint16_t + _id_bind_n` passes both. **Two defects, one
+line, two tests.**
+★ **The forbidden assertion is now IN** (two places) and the suite does not hang; all five stale `✖✖`/`⚠⚠` markers were
+rewritten. The stale-tail test drives the **real rehome self-heal** path via public API only.
+★★ **Durable lesson: A DEAD ERROR BRANCH IS EVIDENCE ABOUT ITS CALLEE** — `firmware_remote.cpp:196`'s miss-handler was
+unreachable because the callee could not miss. **When a guard cannot fire, ask whether the callee can produce the
+condition** before concluding the guard is redundant. It is now live and linked in both ELFs. Note: `§idbind-loop`.
+*(original entry below)*
 
 ### B29 — ★★★★ `key_hash_for_id` **NEVER RETURNS ON A MISS** — an infinite loop on the device · **NEW 2026-07-31**
 `lib/core/node.h:672`:
@@ -183,6 +202,14 @@ one-off, not a pattern. Marked `✖✖` in-source with the fix and the reachabil
 direction and a **"do not restore the miss-case assertion"** warning so nobody re-hangs the suite.
 ⚠ **BENCH WARNING: do not run `rcmd <unknown-id> <gated-verb>` on metal until this is fixed — it will hang the node.**
 Note: `§ab3`.
+
+### B31 — `key_hash_for_id` is neither **authoritative**- nor **TTL**-gated · NEW 2026-07-31
+After `§idbind-loop` it shares its loop idiom with `key_hash_of_id`, but **not that sibling's gating** — so it can answer
+from a `claimed` (unvouched) or TTL-lapsed `_id_bind` row. ★ **Residual is narrow and that is why it was scoped out:** the
+hash it returns only feeds `peer_key_find`, which **ages independently**, and `id_bind_set` maintains the id↔hash
+bijection — so a stale answer degrades to a failed lookup, not to a wrong peer. Recorded **in-source at `node.h`** as a
+deliberate divergence rather than left silent. ⚠ **Decide the intent before "fixing":** if `rcmd` should refuse an
+unvouched target, that is a **policy** change on the remote-admin path (mid-redesign — see B15). Note: `§idbind-loop`.
 
 ### B30 — `team_id_of_key` silently first-matches an ALIASED hash · NEW 2026-07-31
 `lib/core/node_routing.cpp:855` returns the **first** id whose team-key row carries the hash. ★ **`_team_keys` genuinely

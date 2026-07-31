@@ -2400,10 +2400,9 @@ TEST_CASE("§AB3 §2.5 regression — after reqpubkey <team-id>, the id RESOLVES
     uint32_t old_answer = 0;
     CHECK_FALSE(node.key_hash_of_id(228, old_answer));
     CHECK(node.id_bind_find_by_hash(peer.key_hash32) == -1);
-    // ⚠⚠ DO NOT assert `key_hash_for_id(228) == 0` HERE OR ANYWHERE. This test DID, and it HUNG the whole native
-    //    suite: that accessor's loop counter is `uint8_t` against a 256 cap, so a MISS never terminates. Found by this
-    //    slice, marked ✖✖ in node.h with the one-line fix, deliberately NOT fixed here (C1). The safe direction — a
-    //    HIT — is pinned by its own test below.
+    // ★ and key_hash_for_id agrees it holds no STATIC binding for 228 — safe to assert since §idbind-loop bounded its
+    //   loop by `_id_bind_n` (until then this very line HUNG the whole native suite: `uint8_t i < 256` never ends).
+    CHECK(node.key_hash_for_id(228) == 0);
     // ---- `reqpubkey 228` resolves the hash through team_key_of_id and floods a HARD WANT_PUBKEY (the transcript).
     Command rq{}; rq.kind = CmdKind::reqpubkey;
     rq.u.resolve.dst_hash = 0; rq.u.resolve.dst_id = 228; rq.u.resolve.hard = true;
@@ -2469,25 +2468,68 @@ TEST_CASE("§AB3 view — it is a PURE READ: walking the book mutates no table a
     CHECK(node.peer_book_walk(true, nullptr, nullptr) == n1);
 }
 
-// ✖✖ §AB3 FINDING, pinned in the one direction that TERMINATES: Node::key_hash_for_id (node.h) loops a `uint8_t`
-// counter against the 256-entry cap_id_bind, so **a MISS never returns** — an infinite loop on the device at both of
+// ✔ §AB3's FINDING, FIXED by §idbind-loop (2026-07-31) and pinned in BOTH directions here. Node::key_hash_for_id
+// (node.h) used to loop a `uint8_t` counter against the 256-entry cap_id_bind, so `i < 256` was always true and **a
+// MISS never returned** — UB in a const, side-effect-free function, and on a device a hang (watchdog reset) at both of
 // its call sites (src/firmware_remote.cpp's `rcmd` seal, src/fw_main.cpp's sealed-rcmd-response open), both reachable
-// after `unlock`. It also scans the whole array instead of the live `_id_bind_n` prefix, so it can return the hash of
-// an EVICTED row. See node.h for the ✖✖ marker and the one-line fix; NOT fixed in this slice (C1 — a device hang is
-// its own slice, and it needs a ✔ hit/miss test pair the moment it is).
-// ⚠⚠ ADDING `CHECK(node.key_hash_for_id(<unbound id>) == 0)` TO THIS FILE HANGS THE ENTIRE NATIVE SUITE. That is how
-// this was found: the run spun for 16 minutes with no output. Do not "restore" the missing miss-case assertion until
-// the loop bound is fixed.
-TEST_CASE("§AB3 finding — key_hash_for_id resolves a BOUND id (the miss case is a non-terminating loop; see node.h)") {
+// after `unlock`. The fix — `uint16_t i < _active->_id_bind_n` — closed a SECOND defect in the same bound: the old scan
+// covered the whole array, so it could answer out of the stale tail the compacting removers leave behind.
+// ★ The miss assertion below is the one §AB3 was forbidden to write (it spun the suite 16 minutes with no output). It
+//   is now the direct test of the fix: IF THIS FILE EVER HANGS AGAIN, the loop bound regressed — do not delete it.
+TEST_CASE("§idbind-loop — key_hash_for_id terminates on a MISS (was UB: `uint8_t i < 256`) and resolves a HIT") {
     TestHal hal; Node node(hal, /*id=*/5, /*key=*/0x9114A11Au);
     NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
     node.on_init(cfg);
     hal._now = 1000;
     node.test_id_bind_set(/*id=*/33, 0x33333333u, /*authoritative=*/true);
-    CHECK(node.key_hash_for_id(33) == 0x33333333u);            // a HIT returns, so this direction is safe to assert
-    CHECK(node.key_hash_for_id(0) == 0);                       // id 0 short-circuits BEFORE the loop -> also safe
-    // ★ and the sibling the §AB3 view actually uses is correctly bounded on BOTH directions:
+    CHECK(node.key_hash_for_id(33) == 0x33333333u);            // a HIT returns
+    CHECK(node.key_hash_for_id(0) == 0);                       // id 0 short-circuits BEFORE the loop
+    // ★★ THE MISS — 200 was never bound. Pre-fix this line did not return AT ALL; it is the whole point of the slice.
+    CHECK(node.key_hash_for_id(200) == 0);
+    CHECK(node.key_hash_for_id(254) == 0);                     // and the top of the id range, where uint8_t wrapped
+    // ★ the sibling it now matches (key_hash_of_id) is bounded the same way, on both directions:
     uint32_t h = 0;
     CHECK(node.key_hash_of_id(33, h)); CHECK(h == 0x33333333u);
-    CHECK_FALSE(node.key_hash_of_id(200, h));                  // a miss RETURNS here — `uint16_t i < _id_bind_n`
+    CHECK_FALSE(node.key_hash_of_id(200, h));                  // a miss RETURNS here too — `uint16_t i < _id_bind_n`
+}
+
+// ★★ §idbind-loop, THE SECOND DEFECT — the one the `uint16_t` alone does NOT fix, and which no reading of the accessor
+// reveals: the old scan ran to cap_id_bind (256) rather than the live `_id_bind_n` prefix. The compacting removers
+// (id_bind_age_out / id_bind_evict_other_hash_holders / node_join.cpp's prior-id drop) only decrement `_id_bind_n` —
+// they never clear the vacated slot — so a row evicted from the TAIL stays byte-intact past the prefix, and the old
+// bound walked straight into it and answered with an EVICTED binding's hash.
+// Driven through the real REJOIN SELF-HEAL (id_bind_evict_other_hash_holders): one hash maps to exactly ONE node_id, so
+// when a node reappears under a new id with the same key, its old id->hash row must go. This is the one eviction path
+// that does NOT immediately refill the freed slot (the update branch `return true`s straight after evicting), which is
+// exactly why it leaves the tail readable.
+TEST_CASE("§idbind-loop — key_hash_for_id is bounded by _id_bind_n, so an EVICTED tail row cannot answer") {
+    TestHal hal; Node node(hal, /*id=*/5, /*key=*/0x9114A11Au);
+    NodeConfig cfg; cfg.routing_sf = 7; cfg.leaf_id = 0; cfg.allowed_sf_bitmap = (1u << 12);
+    node.on_init(cfg);
+    hal._now = 1000;
+    constexpr uint32_t kH1 = 0xAAAA1111u, kH2 = 0xBBBB2222u;
+    // slot 0 = our OWN self-binding (on_init seeds it, node.cpp:524 — id 5 != 0); slot 1 = id 33 (CLAIMED, which keeps
+    // the L2a mediation gate shut so this test stays about the bound, not the DENY); slot 2 = id 44 holding kH2 — the
+    // TAIL row that will be evicted.
+    CHECK(node.id_bind_count() == 1);                          // just the self-binding to start
+    CHECK(node.test_id_bind_set(/*id=*/33, kH1, /*authoritative=*/false));
+    CHECK(node.test_id_bind_set(/*id=*/44, kH2, /*authoritative=*/true));
+    CHECK(node.id_bind_count() == 3);
+    CHECK(node.key_hash_for_id(44) == kH2);                    // 44 resolves while it is genuinely bound
+
+    // 33 rehomes onto kH2 (authoritative, same key, new id) -> the self-heal evicts 44's row and compacts to n=2,
+    // leaving slot 2 physically intact past the prefix.
+    CHECK(node.test_id_bind_set(/*id=*/33, kH2, /*authoritative=*/true));
+    CHECK(node.id_bind_count() == 2);                          // the live prefix is self + 33 -> kH2
+    CHECK(node.key_hash_for_id(33) == kH2);                    // the SURVIVOR still resolves (the fix is a bound, not a break)
+
+    // ★★ THE ASSERTION THAT DISCRIMINATES: pre-fix this returned kH2 out of the stale slot-1 copy — a hash for an id
+    //    whose binding no longer exists. The `_id_bind_n` bound is the ONLY reason it is 0; `uint16_t` alone would
+    //    still have read the tail and answered.
+    CHECK(node.key_hash_for_id(44) == 0);
+    // the properly-bounded sibling and the by-hash resolver agree 44 is gone, and kH2 belongs to 33 alone
+    uint32_t h = 0;
+    CHECK_FALSE(node.key_hash_of_id(44, h));
+    CHECK(node.id_bind_find_by_hash(kH2) == 33);
+    CHECK(node.id_bind_find_by_hash(kH1) == -1);               // and kH1's row went with the overwrite
 }

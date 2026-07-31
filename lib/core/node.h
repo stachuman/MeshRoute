@@ -652,24 +652,30 @@ public:
     bool              peer_confirmed(uint32_t key_hash32) const;   // §S2: have we OPENED a sealed frame from this peer? (no entry -> false -> INTRO attaches on first contact)
     // §remote-mgmt: node_id -> its learned key_hash32 (from the _id_bind beacon table), 0 if we've heard no beacon for it.
     // Lets the admin-issue path resolve a target id -> hash -> ed_pub (peer_key_find) to seal a command to it.
-    // ✖✖ BROKEN — FOUND 2026-07-31 BY §AB3, NOT FIXED HERE (C1: this slice is the address-book view; a device hang is
-    //    its own slice). TWO defects, both in the loop below, both verified in source and the first REPRODUCED as a
-    //    non-terminating native test:
-    //    (1) ★★ IT NEVER RETURNS ON A MISS. `i` is `uint8_t` and `protocol::cap_id_bind` is 256, so `i < 256` is
-    //        ALWAYS true — `i` wraps 255->0 and the scan spins forever. ⇒ on a device, resolving an id we hold no
-    //        binding for HANGS THE LOOP (watchdog reset). Reachable at BOTH call sites, both behind `unlock`:
-    //        src/firmware_remote.cpp (`rcmd <unknown-id> <gated-verb>`) and src/fw_main.cpp (a sealed rcmd RESPONSE
-    //        from a node whose beacon we never heard). ⓘ The proof it was never intended: firmware_remote.cpp's very
-    //        next line is `if (!th) { … "unknown id (no beacon heard from it yet)" … }` — DEAD CODE, unreachable.
-    //        FIX: `for (uint16_t i = 0; i < _active->_id_bind_n; ++i)`.
-    //    (2) it scans the whole 256-slot ARRAY instead of the live `_id_bind_n` prefix, and the compacting removers
+    // ✔ FIXED 2026-07-31 (§idbind-loop) — the loop below was wrong in TWO ways, both closed by its ONE bound. Kept on
+    //    record because the shape is an easy one to reintroduce, and because the second defect is invisible by reading:
+    //    (1) ★★ IT NEVER RETURNED ON A MISS. The counter was `uint8_t` against `protocol::cap_id_bind` (256), so
+    //        `i < 256` was ALWAYS true — `i` wrapped 255->0 and `return 0` was unreachable. Being a `const`,
+    //        side-effect-free function, that was UB, not merely a hang: elide/garbage/hang all legal, per -O level and
+    //        target. ⇒ on a device, resolving an id we hold no binding for HUNG (watchdog reset) at BOTH call sites,
+    //        both behind `unlock`: src/firmware_remote.cpp (`rcmd <unknown-id> <gated-verb>`) and src/fw_main.cpp (a
+    //        sealed rcmd RESPONSE from a node whose beacon we never heard). ⓘ The proof it was never intended:
+    //        firmware_remote.cpp's very next line is `if (!th) { … "unknown id (no beacon heard from it yet)" … }` —
+    //        a miss-handler written for a function that could not report a miss. That branch is LIVE again.
+    //    (2) it scanned the whole 256-slot ARRAY instead of the live `_id_bind_n` prefix, and the compacting removers
     //        (id_bind_age_out / id_bind_evict_other_hash_holders / node_join.cpp's prior-id drop) leave STALE COPIES
-    //        in the tail, so it can hand back the hash of an EVICTED/AGED binding. The `_id_bind_n` bound above fixes
-    //        this too. ⚠ Contrast key_hash_of_id (node_hashlocate.cpp), the sibling used by the send path and by the
-    //        §AB3 view: `uint16_t i < _id_bind_n`, authoritative-gated and TTL-gated. It is correct — this is not.
+    //        in the tail, so it could hand back the hash of an EVICTED/AGED binding. `_id_bind_n` fixes this too.
+    //    Bound + index copied from the sibling key_hash_of_id (node_hashlocate.cpp) — `uint16_t i < _id_bind_n`, and
+    //    `_id_bind_n` is itself `uint16_t`, so the comparison is warning-clean (U1). Both directions are now pinned in
+    //    test/test_node_hashlocate.cpp: the miss returns 0 (defect 1) and an id evicted by the rehome self-heal no
+    //    longer resolves out of the tail (defect 2).
+    // ⚠ STILL DIVERGENT FROM key_hash_of_id, deliberately and out of this slice's scope (C1): that sibling is also
+    //   AUTHORITATIVE-gated and TTL-gated; this one is neither, so it can answer from a `claimed` or lapsed row. The
+    //   residual is narrow (the hash only feeds peer_key_find, which ages independently, and id_bind_set maintains the
+    //   id<->hash bijection) — but it is a real difference, not an oversight in the reading.
     uint32_t          key_hash_for_id(uint8_t id) const {
         if (!_active || id == 0) return 0;
-        for (uint8_t i = 0; i < protocol::cap_id_bind; ++i)
+        for (uint16_t i = 0; i < _active->_id_bind_n; ++i)
             if (_active->_id_bind[i].node_id == id && _active->_id_bind[i].key_hash32) return _active->_id_bind[i].key_hash32;
         return 0;
     }
