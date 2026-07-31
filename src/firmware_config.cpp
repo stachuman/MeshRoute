@@ -768,9 +768,10 @@ static void team_export_key(Print& out) {
     const meshroute::NodeConfig& c = g_node.config();
     if (c.team_id == 0) {
         // No team ⇒ the event's own team_id field would be 0, i.e. a QR that provisions `team 0` = LEAVE. Refuse rather
-        // than emit an incoherent export. ⚠ This is NOT a ruling on T-K1's deferred question (set_team_id does not clear
-        // the key, so `team new` then `team 0` leaves a key behind with team_id==0): the key is untouched here — this
-        // path only declines to EXPORT one that has no team to belong to. T-K2 still owns the clear-on-switch decision.
+        // than emit an incoherent export. ✅ T-K1's deferred question is now ANSWERED (§o3-key-lifetime, owner ruling
+        // 2026-07-31): `set_team_id` CLEARS the pair, so `team new` then `team 0` no longer leaves a key behind with
+        // team_id==0 — that state is unreachable and this branch is a pure defence-in-depth ordering guard. The
+        // REACHABLE keyless case is the one below (`no_key`): a bare `team <id>` join, which must be re-granted.
         const size_t m = meshroute::console::write_team_key_err(s_inbox_jb, sizeof s_inbox_jb, "no_team");
         if (m) out.write(s_inbox_jb, m);
         return;
@@ -1025,12 +1026,36 @@ void handle_team(const char* args, Print& out) {
         }
         out.println(F("> team channel key: MINTED (X25519)"));
     }
+    // ★★ §o3-key-lifetime (owner ruling 2026-07-31) — THE ONE EXCEPTION, and it is why this slice is not the
+    // three-liner it looks like. `set_team_id` below now DESTROYS the team channel key, because a content key must
+    // not outlive the team it was granted for. But the pair applied immediately above was established FOR THE TEAM
+    // WE ARE JOINING RIGHT NOW, not for the old one — and `set_team_id` cannot tell the two apart. Left unhandled,
+    // `team new` would mint a key and wipe it three lines later, then persist `present=0`: the owner's "the creator
+    // always ends up holding a keypair" ruling silently broken, and the T-K4 QR onboarding path (`team <id>
+    // tkpub=/tkpriv=`) broken with it.
+    // ★ Stash-and-re-apply rather than moving the mint/adopt below the switch: every refusal above returns with
+    // team_id, the key and NV ALL unchanged (the C2 property the block's placement exists for), whereas a refusal
+    // AFTER the switch would return from a node that is in the new team LIVE but with nothing persisted and no
+    // team-DAD fired. Ordering stays; 3 lines carry the key across.
+    // ⓘ Reuses `tk_priv` — same meaning (the pair's private half), just sourced from the node instead of the tail —
+    // so the console frame grows by one bool, not by 32 B of secret. The PRIVATE half alone is sufficient and the
+    // re-derivation is byte-exact: clamping is idempotent over an already-canonical scalar (identity.h's contract),
+    // which is the same guarantee T-K3's grant relies on. adopt_priv cannot fail here (a stored key is non-zero and
+    // canonical by construction), but C2 gets the report anyway rather than a silent keyless join.
+    const bool tk_carry = (tk_supplied || mint_form) && g_node.team_channel_key_present();
+    if (tk_carry) memcpy(tk_priv, g_node.team_channel_priv(), 32);
 #endif
     // §clean-team (2026-07-27): ONE core call does the whole switch — drop the OLD team's learned plane (_rt_team /
     // _team_peer / team liveness / the team KEY CACHE / team RREQ ledgers) and the stale team-DAD id, then adopt the new
     // team_id LIVE. Returns false on a same-team no-op (`team <current_id>`), which clears nothing and skips the re-DAD.
     const bool was_mobile    = c.is_mobile;                  // ★ §role-model: capture the role BEFORE the switch — set_team_id may PROMOTE us (B28/R2), and a role change must be reported, not inferred
     const bool team_switched = g_node.set_team_id(t);
+#if MR_FEAT_TEAM
+    // §o3-key-lifetime: re-apply the pair the switch just destroyed (see the stash note above). A BARE `team <id>` /
+    // `team 0` takes tk_carry==false and therefore keeps the clear — that IS the ruling.
+    if (tk_carry && !g_node.team_channel_key_adopt_priv(tk_priv))
+        out.println(F("> team err: the team channel key was LOST across the switch (re-adopt refused) — re-grant it with `team grantkey` from a teammate, or re-scan the team QR"));
+#endif
     // ★★ §role-model / B28 constraint 3 — REPORT the automatic promotion; never flip the role silently. `is_mobile`
     // changes beaconing (the node beacons on its team_local_id, not its node_id), home registration, DAD and relay
     // behaviour, and it is ON THE WIRE (beacon bit 0x20 / J bit 0x40) — peers make routing decisions from it.

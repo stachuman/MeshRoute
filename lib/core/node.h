@@ -165,6 +165,10 @@ public:
     bool team_channel_key_adopt(const uint8_t pub[32], const uint8_t priv[32]);     // `team new tkpub=/tkpriv=` · T-K4 QR. false = REFUSED (all-zero, or pub doesn't match priv); state untouched
     bool team_channel_key_adopt_priv(const uint8_t priv[32]);                       // §T-K3: adopt from the PRIVATE HALF ALONE (the sealed grant carries only tkpriv) — same derivation path, pub re-derived. false = REFUSED (all-zero/degenerate); state untouched
     void team_channel_key_load(const uint8_t pub[32], const uint8_t priv[32], bool present);   // boot restore from NV — VERBATIM, no re-derivation (mirrors admin_load)
+    // §o3-key-lifetime (owner ruling 2026-07-31): DESTROY the pair. The one un-doer beside the four establish paths,
+    // and `set_team_id` is its only caller — a content key belongs to the team it was granted for and must not
+    // outlive it. NOT reachable from the console: no verb drops a key on its own (the pair is UNRECOVERABLE).
+    void team_channel_key_clear();
 #else
     bool       is_team_peer(uint8_t) const { return false; }
     void       team_key_set(uint8_t, uint32_t) {}
@@ -179,6 +183,7 @@ public:
     bool team_channel_key_adopt(const uint8_t*, const uint8_t*) { return false; }
     bool team_channel_key_adopt_priv(const uint8_t*) { return false; }
     void team_channel_key_load(const uint8_t*, const uint8_t*, bool) {}
+    void team_channel_key_clear() {}   // §o3-key-lifetime: nothing to destroy — this build holds no team content key
 #endif
     // §team-ch-key T-K3 (spec §2.3) — the SEALED key-grant DM (DATA_TYPE_TEAM_KEY_GRANT). Both halves live here in
     // lib/core rather than in src/: the RECEIPT is on the RX path anyway, and putting the ORIGINATION beside it means
@@ -1522,16 +1527,18 @@ private:
     // derived from the identity seed above, NOT a team_id input. Stored in CANONICAL (clamped) form; see
     // team_channel_key_derive in identity.h for why that matters. The has-key flag lives in the IDENTITY
     // block above (it is free there and costs 8 B here — see the note at it).
-    // ⚠ MARK OF WHAT IS *NOT* DONE (T-K1 is the storage+provisioning slice only):
-    //   · NOTHING READS THESE YET. The encrypted channel flavour + seal/open (T-K2), the un-keyed-receiver
-    //     drop push (T-K2) and the TYPE-19 key grant (T-K3) are later slices.
-    //   · set_team_id() deliberately does NOT clear them. A `team <other-id>` switch therefore leaves the
-    //     PREVIOUS team's key in place. That is inert today (no writer, no reader) but T-K2 MUST rule on it
-    //     BEFORE it starts sealing — otherwise a member who switched teams would seal posts for the NEW team
-    //     under the OLD team's key and no-one could read them. Two candidate fixes, both T-K2's call: clear
-    //     on switch, or store the owning team_id beside the pair and treat a mismatch as "no key".
-    //     Deferred here on purpose: set_team_id() is corpus-reached (s34), and touching it would put a
-    //     behaviour change into a byte-identity slice (C1) for a mechanism that has no consumer yet.
+    // ⚠ MARK OF WHAT IS *NOT* DONE:
+    //   · DONE — T-K3 reads them: team_key_grant_send seals _team_ch_priv into a TYPE-19 grant, and
+    //     team_key_grant_receive adopts one. So the pair has a producer AND a consumer.
+    //   · ✅ RULED AND BUILT (§o3-key-lifetime, owner ruling 2026-07-31): set_team_id() DOES clear them now —
+    //     the first of the two candidate fixes this note used to leave open (clear on switch), chosen over
+    //     storing an owning team_id beside the pair. A `team <other-id>` switch and `team 0` both leave the
+    //     node KEYLESS; the recovery is a teammate's re-grant or a QR, never a local regeneration.
+    //     ⓘ The one exception lives at the console caller, not here: handle_team carries a pair minted/adopted
+    //     FOR THE TEAM BEING JOINED across the switch (see its §o3-key-lifetime note).
+    //   · STILL MISSING — the SEAL. The encrypted channel flavour + seal/open and the un-keyed-receiver drop
+    //     push (T-K2, now slice CL2a) are the reason the clear above had to land FIRST: until something seals,
+    //     the clear is inert, which is exactly what made it attributable as its own slice.
     uint8_t  _team_ch_pub[32]  = {};
     uint8_t  _team_ch_priv[32] = {};
 #endif

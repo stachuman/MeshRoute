@@ -140,6 +140,21 @@ void Node::team_channel_key_load(const uint8_t pub[32], const uint8_t priv[32], 
     for (int i = 0; i < 32; ++i) { _team_ch_pub[i] = pub[i]; _team_ch_priv[i] = priv[i]; }
     _team_ch_key_present = present;
 }
+
+// §o3-key-lifetime (owner ruling 2026-07-31) — the DESTROY half, called by set_team_id alone. A team CONTENT key is
+// scoped to the team it was granted for: carrying it across a switch would let a member seal a post for its NEW team
+// under the OLD team's key the moment CL2a makes posts seal (inert until then — that is why this landed as its own
+// slice). `team 0` clears too: with no team the key applies to nothing.
+// ★ crypto_wipe, NOT team_channel_key_load(zeros): this is the destruction of a SECRET, and a plain copy loop is
+// exactly what a compiler is entitled to elide on a buffer nothing reads afterwards. The four ESTABLISH paths still
+// share the one write path above (U2) — only the un-doer is separate, and deliberately so.
+// ⚠ The pair is UNRECOVERABLE (no seed derives it, node_role.h:89), so the recovery after a switch is a re-grant
+// (T-K3 `team grantkey`) or a T-K4 QR — never a local regeneration.
+void Node::team_channel_key_clear() {
+    crypto_wipe(_team_ch_pub,  sizeof _team_ch_pub);
+    crypto_wipe(_team_ch_priv, sizeof _team_ch_priv);
+    _team_ch_key_present = false;   // the accessors now return nullptr -> blob_take_team_channel_key persists present=0 + all-zero (the NV mirror, free by construction)
+}
 #endif   // MR_FEAT_TEAM (§team-ch-key)
 
 // ===================== §team-ch-key T-K3 — the SEALED team key-grant DM (TYPE 19) =====================
@@ -572,15 +587,19 @@ void Node::clear_team_routing_state() {
 #endif   // MR_FEAT_TEAM (clear_team_routing_state)
 
 // §clean-team (2026-07-27, owner bench report): THE team-switch entry point. Every LIVE writer of _cfg.team_id goes
-// through here (`team new` mint / `team <id>` join / `team 0` leave / `cfg set team_id`) so a switch is coherent in ONE
-// place: drop the OLD team's learned plane and the OLD team-DAD id BEFORE _cfg.team_id names the new team. Without the
+// through here (`team new` mint / `team <id>` join / `team 0` leave — ★ and `cfg set team_id` is no longer a fourth
+// spelling: it was REMOVED 2026-07-31 as a forked, unguarded duplicate, see firmware_config.cpp:279) so a switch is coherent in ONE
+// place: drop the OLD team's learned plane, the OLD team-DAD id and the OLD team's CHANNEL CONTENT KEY (§o3-key-lifetime)
+// BEFORE _cfg.team_id names the new team. Without the
 // clear, a stale _rt_team + _team_peer bit SHADOWS the fresh plane and a stale _team_keys row MIS-ADDRESSES a send.
 // Returns true iff the team ACTUALLY changed -> the caller runs its re-DAD (team_dad_fire) only then; a same-team no-op
-// (`team <current_id>`) clears NOTHING, because nothing is stale.
+// (`team <current_id>`) clears NOTHING, because nothing is stale — ★ INCLUDING the content key, which a same-team call
+// must never destroy (it is UNRECOVERABLE; only a teammate's re-grant brings it back).
 // ⚠ DELIBERATELY NOT USED BY THE BOOT/NV PATH (src/fw_main.cpp assigns cfg.team_id directly, pre-on_init): at boot every
 // team table is already empty so there is nothing to clear, and set_team_local_id(0) would destroy the PERSISTED
-// team-DAD id that fw_main loads immediately afterwards (a needless re-DAD + a lost defended id).
-// NOT #if-forked: both callees inline-stub to no-ops on a !MR_FEAT_TEAM build (node.h), so ONE implementation serves
+// team-DAD id that fw_main loads immediately afterwards (a needless re-DAD + a lost defended id) — ★ and, since
+// §o3-key-lifetime, the PERSISTED team channel key that fw_main.cpp:715 restores on the very next line.
+// NOT #if-forked: all three callees inline-stub to no-ops on a !MR_FEAT_TEAM build (node.h), so ONE implementation serves
 // both profiles and the gateway build keeps identical behaviour (bare _cfg.team_id assignment) by construction.
 bool Node::set_team_id(uint32_t team_id) {
     if (_cfg.team_id == team_id) return false;   // no-op: same team -> nothing is stale (C2: no silent side-effects)
@@ -599,6 +618,7 @@ bool Node::set_team_id(uint32_t team_id) {
         return false;
     }
     clear_team_routing_state();                  // the OLD team's routes / peer set / liveness / key cache / RREQ ledgers
+    team_channel_key_clear();                    // §o3-key-lifetime (owner ruling 2026-07-31): the OLD team's CONTENT key. Distinct from the _team_keys cache cleared just above — that one maps teammate ids to key HASHES, this is the shared secret a post is sealed UNDER. ⚠ NOT in clear_team_routing_state: its OTHER caller is clear_routing_state (create/join/leave), which MUST preserve the key (firmware_config.cpp's blob_take_team_channel_key exists precisely to carry it through a reprovision). ⓘ The one exception to "a switch takes no key with it" lives at the CALLER: handle_team re-applies a pair minted/adopted FOR THE TEAM BEING JOINED across this call — see its §o3-key-lifetime note.
     purge_tx_carriers(PurgeAxis::team_switch);    // §clean-team-channel: the OLD team's channel CONTENT + every carrier that would re-emit it (buffer rows / flood states / staged + in-flight M frames / re-offer slots). Team-scoped rows only — the leaf channel rows survive. Compiled on EVERY profile now (it also serves the reprovision axis), but the team_switch predicate can never match on a !MR_FEAT_TEAM build: no writer sets ChannelEntry::team_id / FloodState::team_flood / the channel_flavor_team bit there.
     set_team_local_id(0);                        // §6.4: drop the stale team-DAD id (0 = left; a re-DAD picks a fresh one for the new team) + clear _team_dad_pending
     _cfg.team_id = team_id;                      // LIVE (team_dad_fire / same_team / team_addr_for_us all read _cfg.team_id)

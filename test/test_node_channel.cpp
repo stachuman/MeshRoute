@@ -1638,22 +1638,67 @@ TEST_CASE("§team-ch-key — NV round-trip: load(present) restores verbatim; loa
     CHECK(fresh.team_channel_priv() == nullptr);
 }
 
-TEST_CASE("§team-ch-key — a NON-team node can hold a key; the pair is orthogonal to team_id and to set_team_id") {
-    // T-K1 stores the key WITHOUT binding it to a team_id, and set_team_id() deliberately does not clear it
-    // (see the ⚠ note at _team_ch_pub in node.h). This test PINS that documented state so the T-K2 slice, which
-    // must rule on the switch policy, cannot change it silently: if a later slice clears on switch, this
-    // test SHOULD fail and be updated deliberately.
+// ★★ §o3-key-lifetime (owner ruling 2026-07-31) — THE KEY LIVES EXACTLY AS LONG AS THE team_id IT WAS GRANTED FOR.
+// This case REPLACES T-K1's deliberate tripwire ("the pair is orthogonal to set_team_id … if a later slice clears on
+// switch, this test SHOULD fail and be updated deliberately"). It did, and this is that update.
+// ⚠ The clear is INERT until CL2a makes posts seal — nothing in this binary or the corpus seals under the pair yet —
+// so these asserts ARE the whole detector for the mechanism (the T-K1/T-K3 structural argument).
+TEST_CASE("§o3-key-lifetime — set_team_id CLEARS the team channel key on a switch AND on `team 0`") {
+    TkHal hal; hal._fill = 0x31; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = team_cfg(0xAAAAAAAAu); node.on_init(cfg);
+    CHECK(node.team_channel_key_mint());
+    CHECK(node.team_channel_key_present());
+
+    // (1) DIFFERENT NON-ZERO team -> the pair is GONE. The hazard this exists to stop: sealing a post for team B
+    //     under team A's key the moment CL2a lands.
+    CHECK(node.set_team_id(0xBBBBBBBBu));
+    CHECK_FALSE(node.team_channel_key_present());
+    CHECK(node.team_channel_pub()  == nullptr);      // ★ the ACCESSORS, not just the flag — a caller must never see a zero buffer
+    CHECK(node.team_channel_priv() == nullptr);
+    CHECK(node.config().team_id == 0xBBBBBBBBu);     // the switch itself still happened
+
+    // (2) NEGATIVE CONTROL — a key granted AFTER the switch survives, i.e. the clear is scoped to the switch and is
+    //     not some blanket "a team member cannot hold a key".
+    CHECK(node.team_channel_key_mint());
+    CHECK(node.team_channel_key_present());
+    uint8_t pub_b[32]; std::memcpy(pub_b, node.team_channel_pub(), 32);
+
+    // (3) SAME id -> a no-op, and it must clear NOTHING. The key is UNRECOVERABLE (no seed derives it), so a
+    //     spurious clear here would destroy data only a teammate's re-grant could restore.
+    CHECK_FALSE(node.set_team_id(0xBBBBBBBBu));
+    CHECK(node.team_channel_key_present());
+    CHECK(std::memcmp(node.team_channel_pub(), pub_b, 32) == 0);   // ★ byte-identical, not merely "present"
+
+    // (4) `team 0` (leave) -> CLEARED too. With no team the key applies to nothing.
+    CHECK(node.set_team_id(0));
+    CHECK(node.config().team_id == 0);
+    CHECK_FALSE(node.team_channel_key_present());
+    CHECK(node.team_channel_pub() == nullptr);
+    // (4b) leaving again is already a no-op (set_team_id returns false at its first line) — nothing to re-clear
+    CHECK_FALSE(node.set_team_id(0));
+    CHECK_FALSE(node.team_channel_key_present());
+
+    CHECK(hal.rand_bytes_calls == 2);   // ★ exactly the two MINTS — no switch, leave or no-op draws entropy
+}
+
+// ⓘ NOT COVERED, deliberately: that the clear WIPES the 64 B rather than only dropping the flag. Once
+// `_team_ch_key_present` is false the accessors return nullptr, so the buffers are unobservable through the public
+// API and any assert here would be tautological (load zeros, read zeros). crypto_wipe is used regardless — it is the
+// right thing for destroying a secret — but the gate for it is code review, not a test.
+TEST_CASE("§o3-key-lifetime — `create`/`join`/`leave` still PRESERVE the key (clear_routing_state does NOT clear it)") {
+    // ★ THE BOUNDARY THAT MUST NOT MOVE. clear_team_routing_state() is shared by set_team_id AND clear_routing_state
+    // (the reprovision verbs), so putting the clear THERE would have silently destroyed the key on every
+    // `create`/`join`/`leave` — the exact opposite of firmware_config.cpp's blob_take_team_channel_key, which exists
+    // to carry the pair across a reprovision precisely because it is UNRECOVERABLE.
     TkHal hal; hal._fill = 0x31; Node node(hal, 2, 0xBEEFu); NodeConfig cfg = team_cfg(0xAAAAAAAAu); node.on_init(cfg);
     CHECK(node.team_channel_key_mint());
     uint8_t pub[32]; std::memcpy(pub, node.team_channel_pub(), 32);
 
-    CHECK(node.set_team_id(0xBBBBBBBBu));                       // switch teams
-    CHECK(node.team_channel_key_present());                     // key SURVIVES (documented T-K1 behaviour)
+    node.clear_routing_state();                                  // `create` / `join` / `leave`
+    CHECK(node.team_channel_key_present());                      // ★ SURVIVES
     CHECK(std::memcmp(node.team_channel_pub(), pub, 32) == 0);
-    CHECK(node.set_team_id(0));                                 // leave the team entirely
-    CHECK(node.team_channel_key_present());                     // still survives
-    CHECK(hal.rand_bytes_calls == 1);                           // ★ neither switch nor leave draws entropy
+    CHECK(node.config().team_id == 0xAAAAAAAAu);                 // and the reprovision did not touch team_id either
 }
+
 
 // ================= §team-ch-key (T-K3, spec 2026-07-26 §2.3) — the SEALED key-grant DM (TYPE 19) ===============
 // ★ THIS SUITE IS THE ENTIRE DETECTOR, same structural reason as T-K1's above: no scenario reaches a console verb,
@@ -1870,6 +1915,20 @@ TEST_CASE("§T-K3 send — every pre-flight refusal is DISTINCT, and none of the
     { // ★ NOT A REFUSAL: a null name with a non-zero length is normalised to "no name", not a crash or a read of null
       TkHal hal; Node n(hal, 2, A.key_hash32); arm_granter(n, hal, A, B);
       CHECK(n.team_key_grant_send(B.key_hash32, nullptr, 200) == Node::TeamKeyGrantTx::queued); }
+}
+
+TEST_CASE("§o3-key-lifetime — after a switch, `exportkey`/`grantkey` take the existing NO-KEY paths") {
+    // The brief's third check: a switched member must not export zeros. `team exportkey`'s guard is `!pub || !priv`
+    // (firmware_config.cpp), which the nullptr accessors satisfy BY CONSTRUCTION. The send half IS core-reachable,
+    // so pin the real refusal enum here rather than arguing it.
+    uint8_t sa[32], sb[32]; for (int i = 0; i < 32; ++i) { sa[i] = uint8_t(i + 5); sb[i] = uint8_t(80 - i); }
+    Identity A{}, B{}; identity_from_seed(A, sa); identity_from_seed(B, sb);
+    TkHal hal; Node n(hal, 2, A.key_hash32); arm_granter(n, hal, A, B);          // in a team, keyed, identity, B pinned
+    CHECK(n.team_key_grant_send(B.key_hash32, nullptr, 0) != Node::TeamKeyGrantTx::no_key);   // control: it CAN grant
+
+    CHECK(n.set_team_id(0xCCCCCCCCu));                                            // ★ the switch
+    CHECK(n.team_key_grant_send(B.key_hash32, nullptr, 0) == Node::TeamKeyGrantTx::no_key);
+    CHECK(n.team_channel_pub() == nullptr);                                       // ⇒ exportkey's `!pub` refusal — no zero-key export
 }
 
 TEST_CASE("§T-K3 send — the sealed grant is ACTUALLY sealed: CRYPTED + TYPE 19, and tkpriv is nowhere in the frame") {
