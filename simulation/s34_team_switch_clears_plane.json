@@ -22,7 +22,7 @@
       "_c": "team-scoped channel post -> a team-flavored row in the channel buffer (purge target)",
       "at_ms": 200000,
       "node": "X1",
-      "command": "send_channel 7 team-content"
+      "command": "send_channel 7 team-content -t"
     },
     {
       "_c": "Team-X: X1 -> X3 by hash (2-hop, X3 unheard) -> forces a TEAM-X-scoped H flood heard by co-located Team-Y",
@@ -40,13 +40,13 @@
       "_c": "a TEAMMATE's post, so X1 holds an ingested team row it did not originate",
       "at_ms": 346500,
       "node": "X2",
-      "command": "send_channel 7 from-x2"
+      "command": "send_channel 7 from-x2 -t"
     },
     {
       "_c": "X1's OWN post \u2014 still staged/in-flight at the switch (see the switch note)",
       "at_ms": 348000,
       "node": "X1",
-      "command": "send_channel 7 pre-switch-own"
+      "command": "send_channel 7 pre-switch-own -t"
     },
     {
       "_c": "\u2605 THE SWITCH, timed at 348300 ON PURPOSE: inside the window where X1's own 348000 team channel post is still IN FLIGHT (it does not air until ~358099), so the purge catches the _pending_tx carrier as well as the buffer rows and the re-offer slot.",

@@ -443,17 +443,30 @@ scenario-config key `team_id` is a different mechanism (node setup, not the cons
 is a documented cfg key. **QA rates this above several parked Tier-3 items: it is destructive and reachable by typo.**
 Note: `§team-target-range`.
 
+### ~~B22~~ ✅ **CLOSED 2026-07-31** (`§b22`) — 4 re-anchors, and **the residual delta is only the command echo**
+★ s22 `c5d9b6c5`/1804 · s28 `f3d6afc6`/4018 · s29 `208f29c5`/1943 · s34 `03c9d998`/921 — **event counts back to baseline
+exactly**, native unchanged, s18 unmoved, 0 failures in all 36. **Assertion counts AND canonical bodies byte-identical**;
+★★ **Poison D (restore the heuristic under the edited scenarios) = 0/36 ⇒ EQUIVALENCE, so masking was structurally
+impossible.** ⚠ **The sim had no `-t` grammar at all** — the slice had to add it (via `dm_plane_from_tail`) or ` -t` would
+have aired as payload. ⚠ **STATE 1 exposed a genuine containment breach** (s28: XH1's plain post leaked to static S2),
+confirming the four scenarios were validating a plane the command never asked for. **CL2: those 10 `-t` flags are
+load-bearing.** Note: `§b22`. *(original entry below)*
+
 ### B22 — ★★ plain `send_channel` **SUCCEEDS in the sim and is REFUSED on metal** · NEW 2026-07-31
 The sim's "NATURAL" arm (`NodeRuntimeWrapper.cpp:813`) sets `team = (is_mobile && team_id != 0)`, so a plain
 `send_channel` from a team member becomes a **TEAM flood**. The firmware sets `team=false, global=false` for a plain
 post (`console_parse.cpp:205-213`, *"plain = GLOBAL"*), and `node.cpp:1323`'s `want_global = global || !team` routes it
 to the **global/home** path — where an **off-grid** member has no home and it **fails loud**
 (`send_failed{channel_no_home}` + `err_no_binding`). **Both sides QA-verified in source.**
-★★ **This is worse than B3, which it was found by: not a different plane but SUCCESS-vs-REFUSAL.** ⚠ **12** corpus commands in 4 scenarios take that arm — **QA re-derived 2026-07-31 by EVALUATING the predicate
-(`is_mobile && team_id != 0` per node, matched to each command's sender), not by grepping: s22 ×2 (TeamA), s28 ×5
-(XH1 ×4, XO4 ×1), s29 ×2 (T1), s34 ×3 (X1 ×2, X2 ×1). My earlier "10 (s28 ×3)" was LOW BY TWO** — the fourth count of
-mine in this arc to come in low, and all four came from pattern-matching a shared name instead of evaluating the
-condition. ★ **Derive a count by evaluating the predicate, never by matching the substring** ⇒ **s22's and s34's team-channel assertions validate a
+★★ **This is worse than B3, which it was found by: not a different plane but SUCCESS-vs-REFUSAL.** **10 corpus commands in 4 scenarios take that arm** (s22 ×2, s28 ×3, s29 ×2, s34 ×3) — ★ **the ORIGINAL figure, restored: my
+2026-07-31 "correction" to 12 was itself WRONG and the coder caught it.** ⚠ **My script matched
+`command.startswith("send_channel")`, which silently includes the SUFFIXED VERBS `send_channel_g` and `send_channel_b`** —
+and my `" -g" not in cmd` guard missed them because in those verbs the `g`/`b` is part of the **verb name, not a flag**.
+XH1 in s28 has exactly 2 plain posts plus one `_g` and one `_b`; counting all four gave the phantom 12. ★★ **THE RULE,
+now twice-earned: evaluate the PREDICATE *and* match the VERB EXACTLY. My first correction fixed the predicate half and
+left the verb half broken — a prefix match on a verb name silently swallows its suffixed siblings.**
+★ **Confirmed three independent ways** (the coder's derivation, the byte-diff showing exactly 10 changed `cmd_reply`
+echoes, and Poison A reddening exactly those 4 scenarios) ⇒ **s22's and s34's team-channel assertions validate a
 behaviour metal does not have.** ★★ **OWNER RULING 2026-07-31: "plain `send_channel` should refuse on an off-grid member, like metal."** ⇒ **METAL IS THE
 REFERENCE; the SIM is what changes.** Delete the `team_member` heuristic at `NodeRuntimeWrapper.cpp:813` so a plain post
 sets `team=false, global=false` exactly as `console_parse.cpp:205-213` does. ⚠ **Consequence to expect and NOT paper

@@ -21,13 +21,13 @@
    "_c": "PHASE B \u2014 team channel from a HOMED member: must cross the full MIXED chain (4 team hops) to the far homed end; zero at team Y / statics",
    "at_ms": 420000,
    "node": "XH1",
-   "command": "send_channel 3 tx-chan-from-homed"
+   "command": "send_channel 3 tx-chan-from-homed -t"
   },
   {
    "_c": "team channel from an OFF-GRID middle member: both homed ends + all off-grid must receive",
    "at_ms": 480000,
    "node": "XO4",
-   "command": "send_channel 4 tx-chan-from-offgrid"
+   "command": "send_channel 4 tx-chan-from-offgrid -t"
   },
   {
    "_c": "LEAF channel from a static: the on-leaf plane (dual members are on the leaf; asserts document CURRENT off-grid behavior)",
@@ -51,7 +51,7 @@
    "_c": "PHASE C \u2014 S1 dies @700k: XH1 loses its home; the TEAM must be unaffected (a post-death team post still crosses the chain)",
    "at_ms": 800000,
    "node": "XH1",
-   "command": "send_channel 5 tx-chan-after-homeloss"
+   "command": "send_channel 5 tx-chan-after-homeloss -t"
   },
   {
    "_c": "S7 send-side: plain = GLOBAL from a homed mobile (delegated); wrapper verb TBD by the coder (send_channel_g?)",

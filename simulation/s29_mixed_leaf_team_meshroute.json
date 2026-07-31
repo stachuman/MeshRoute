@@ -43,12 +43,12 @@
    "_c": "#3 team CHANNEL post from T1 -> must reach ALL members across all three nibbles (team-flood RTS-M + DATA-M leaf-exempt)",
    "at_ms": 460000,
    "node": "T1",
-   "command": "send_channel 3 tx-team-chan"
+   "command": "send_channel 3 tx-team-chan -t"
   },
   {
    "at_ms": 490000,
    "node": "T1",
-   "command": "send_channel 3 tx-team-chan"
+   "command": "send_channel 3 tx-team-chan -t"
   }
  ],
  "expect": [

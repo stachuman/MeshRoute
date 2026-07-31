@@ -41,12 +41,12 @@
    "_c": "team channel broadcast",
    "at_ms": 368000,
    "node": "TeamA",
-   "command": "send_channel 5 team_bcast_hello"
+   "command": "send_channel 5 team_bcast_hello -t"
   },
   {
    "at_ms": 388000,
    "node": "TeamA",
-   "command": "send_channel 5 team_bcast_hello"
+   "command": "send_channel 5 team_bcast_hello -t"
   },
   {
    "_c": "#2 plaintext team DM (by teammate hash). \u2605 PLANE 2026-07-28 (\u00a7sim-plane-parity): the trailing `-t` is now REQUIRED for a team-plane DM. The sim's plain DM verbs used to leave Command.u.send.plane at 0 (AUTO); they now emit GLOBAL, mirroring lib/console/console_parse.cpp:259 (`team ? TEAM : GLOBAL`), the ONLY plane assignment on real firmware. Without `-t` this send is GLOBAL, and \u00a76.4/\u00a718 then force the STATIC _rt (node_routing.cpp:22) and skip the team hash-locate cascade (node_hashlocate.cpp:1021) \u2014 exactly what metal does. \u2605 send_hashx (the SEALED team DM below) carries `-t` for the same reason: it is the THIRD DM-producing site in NodeRuntimeWrapper.cpp and had no `-t` at all before this slice, so a sealed team DM could only ever ride AUTO. The two static-facing lines (send_hash 11110060 static_to_mobile, send_e2e S2 mobile_to_static) stay PLAIN deliberately \u2014 their intent is the global/home plane and they are unaffected by the flip.",
