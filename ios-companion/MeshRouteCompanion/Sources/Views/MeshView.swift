@@ -198,6 +198,18 @@ struct MeshNodeRow: View {
     }
 }
 
+/// Format a 64-hex pubkey into readable groups so two people can compare it aloud. No hashing — this IS
+/// the identity (D6: the app never derives key material, it only displays what it was given).
+func groupedKey(_ hex: String) -> String {
+    let g = stride(from: 0, to: hex.count, by: 4).map { i -> String in
+        let s = hex.index(hex.startIndex, offsetBy: i)
+        let e = hex.index(s, offsetBy: 4, limitedBy: hex.endIndex) ?? hex.endIndex
+        return String(hex[s..<e])
+    }
+    return stride(from: 0, to: g.count, by: 4).map { g[$0..<min($0 + 4, g.count)].joined(separator: " ") }
+                                              .joined(separator: "\n")
+}
+
 /// One node's detail — the shared screen for Mesh + Contacts. Phase 1: info + message + name/resolve.
 /// (Phase 2 adds verify/safety-numbers · block/mute · show-on-map · remote-diag.)
 struct NodeDetailView: View {
@@ -206,6 +218,7 @@ struct NodeDetailView: View {
     @Query private var nodes: [NodeEntity]
     @State private var showRename = false
     @State private var nameText = ""
+    @State private var showScanToVerify = false
 
     init(hash32: UInt32) {
         self.hash32 = hash32
@@ -243,7 +256,56 @@ struct NodeDetailView: View {
                     LabeledContent("key_hash32", value: "0x" + node.keyHash.hex8)
                     if let id = node.lastKnownID { LabeledContent("Short id", value: "\(id)") }
                     LabeledContent("Role", value: node.role)
-                    LabeledContent("Key", value: node.verified ? "verified (scanned)" : "unverified (TOFU)")
+                }
+
+                // ---- verification: compare REAL key material in person (§7.4 safety numbers) ----
+                Section {
+                    HStack {
+                        Image(systemName: node.verified ? "checkmark.seal.fill" : "exclamationmark.shield")
+                            .foregroundStyle(node.verified ? Color.green : .orange)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(node.verified ? "Verified in person" : "Not verified")
+                                .font(.subheadline.weight(.medium))
+                            Text(node.verified
+                                 ? "You scanned this contact's card, so their key is pinned on your node."
+                                 : "This key arrived over the air (trust-on-first-use). A 32-bit hash is grindable — an impostor could match it.")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                    if let pub = node.pubkeyHex, pub.count == 64 {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("Safety number").font(.caption).foregroundStyle(.secondary)
+                            Text(groupedKey(pub)).font(.caption.monospaced())
+                            Text("Read this aloud together with the other person — every group must match. Their card shows the same digits.")
+                                .font(.caption2).foregroundStyle(.secondary)
+                        }
+                        Button { model.pinKeyOnNode(for: node.keyHash) } label: {
+                            Label("Re-pin this key on the node", systemImage: "pin")
+                        }
+                    } else {
+                        Button { showScanToVerify = true } label: {
+                            Label("Verify by scanning their card", systemImage: "qrcode.viewfinder")
+                        }
+                    }
+                } header: {
+                    Text("Verification")
+                } footer: {
+                    Text(node.pubkeyHex == nil
+                         ? "Scanning is the ceremony: it installs their full key as PINNED, which an on-air answer can never overwrite."
+                         : "")
+                }
+
+                // ---- block ----
+                Section {
+                    Button(role: node.blocked ? nil : .destructive) {
+                        model.setBlocked(!node.blocked, hash: node.keyHash)
+                    } label: {
+                        Label(node.blocked ? "Unblock" : "Block", systemImage: node.blocked ? "hand.raised.slash" : "hand.raised")
+                    }
+                } footer: {
+                    Text(node.blocked
+                         ? "Blocked: their messages are still received and archived, but hidden and silent."
+                         : "Blocking hides this contact's conversation and silences it. The radio can't be muted, so messages are still archived.")
                 }
                 if node.leafName != nil || node.layer != nil || node.teamID != nil {
                     Section("Membership") {
@@ -270,6 +332,7 @@ struct NodeDetailView: View {
         }
         .navigationTitle(nodes.first?.displayName() ?? "Node")
         .navigationBarTitleDisplayMode(.inline)
+        .sheet(isPresented: $showScanToVerify) { ScanContactView() }   // the ceremony: scan → PIN + verified
         .alert("Contact name", isPresented: $showRename) {
             TextField("Name", text: $nameText)
             Button("Save") {

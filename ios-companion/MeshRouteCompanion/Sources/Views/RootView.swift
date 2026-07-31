@@ -9,12 +9,15 @@ struct RootView: View {
     @Query(filter: #Predicate<MessageEntity> { $0.directionRaw == "incoming" && !$0.isRead })
     private var unread: [MessageEntity]
 
+    /// Unread that should actually nag: muted threads still show in-list but never badge (2026-07-31).
+    private var badgeCount: Int { unread.filter { model.countsTowardBadge($0.threadKey) }.count }
+
     var body: some View {
         @Bindable var model = model
         TabView(selection: $model.selectedTab) {
             ThreadsListView()
                 .tabItem { Label("Messages", systemImage: "bubble.left.and.bubble.right") }
-                .badge(unread.count)
+                .badge(badgeCount)
                 .tag(0)
             ContactsView()
                 .tabItem { Label("Contacts", systemImage: "person.2") }
@@ -30,9 +33,9 @@ struct RootView: View {
         .onAppear {
             model.startDemoIfRequested()
             model.requestNotificationAuthorization()           // first launch → the iOS permission prompt
-            model.setAppBadge(unread.count)
+            model.setAppBadge(badgeCount)
         }
-        .onChange(of: unread.count) { _, c in model.setAppBadge(c) }   // app-icon badge mirrors unread
+        .onChange(of: badgeCount) { _, c in model.setAppBadge(c) }   // app-icon badge mirrors UNMUTED unread
         .onChange(of: scenePhase) { _, phase in
             switch phase {
             case .active:            model.handleForeground()   // catch up anything missed while suspended

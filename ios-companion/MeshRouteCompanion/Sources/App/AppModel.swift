@@ -37,11 +37,16 @@ final class AppModel {
     private(set) var mobileState: MobileState?        // nil = the connected node is not a mobile
     private(set) var teamID: String?                  // team_id hex string; nil = no team
     private(set) var teamLocal: Int?                  // our own id on the team overlay
-    /// Team CONTENT-key state (team-encrypted-channel spec): membership ≠ readability. nil = unknown
-    /// (pre-slice firmware), true = we hold the key (can read encrypted posts), false = un-keyed overlay
-    /// member (we relay but can't read → prompt "ask a teammate for the key").
+    /// Team CONTENT-key state (T-K1b `team_ch_key` from `ready`/`cfg`): membership ≠ readability. nil =
+    /// unknown/teamless, true = we hold the key (can read encrypted posts), false = un-keyed overlay member.
     private(set) var teamHasKey: Bool?
     private(set) var teamKeyPrompt: String?           // set by team_channel_no_key; cleared on a grant
+    /// ⚠ The team channel keypair — held **in memory only, for the duration of the share flow**, and purged
+    /// on dismiss. The contract's accepted-risk note obliges us never to put it in a plist/log/analytics;
+    /// not persisting it AT ALL is strictly stronger than the Keychain floor it asks for. `team exportkey`
+    /// re-fetches it on demand, so there is nothing to gain by keeping it.
+    private(set) var exportedTeamKey: (teamID: UInt32, pub: String, priv: String)?
+    private(set) var teamKeyExportError: String?      // no_key · no_team → the share screen's empty state
     private(set) var latestMobileStatus: MobileStatusInfo?
     // Roam screen data (D30/S3): the `mobile gateways` stream, swapped in at mobile_gw_end (the routes pattern).
     private(set) var mobileGateways: [MobileGatewayRow] = []
@@ -173,6 +178,8 @@ final class AppModel {
                                           homeLayer: r.mobileHomeLayer, registered: r.mobileRegistered ?? false)
             } else { mobileState = nil }
             teamID = r.team; teamLocal = r.teamLocal
+            if r.team != nil { teamHasKey = r.teamChKey }   // T-K1b lock state (omitted when teamless)
+            else { teamHasKey = nil }
             if let n = r.nowMs { timeAnchor = NodeTimeAnchor(nodeNowMs: n) }   // anchor BEFORE the pull streams in
             let profile = upsertNodeProfile(r)
             startInboxSync(r, profile: profile)
@@ -221,9 +228,18 @@ final class AppModel {
             mobileGwAccum = []; mobileNetAccum = []
         case .mobileError:
             break   // e.g. not_mobile — visible in the console
-        case .teamKeyReceived:                       // a keyholder granted us the content key → we can read now
-            teamHasKey = true; teamKeyPrompt = nil
-        case .teamChannelNoKey:                      // an encrypted post we can't open
+        case .teamKeyExport(let id, let pub, let priv):
+            exportedTeamKey = (id, pub, priv); teamKeyExportError = nil   // ephemeral — the share sheet purges it
+        case .teamKeyError(let reason):
+            teamKeyExportError = reason; exportedTeamKey = nil
+        case .teamKeyGrant(let hash, _, let parked):
+            teamKeyPrompt = parked ? "Key grant queued for 0x\(hash.hex8) — waiting for a route."
+                                   : "Team key sent to 0x\(hash.hex8)."
+        case .teamKeyReceived(_, _, _, let name):    // a keyholder granted us the content key — ALREADY adopted
+            teamHasKey = true
+            teamKeyPrompt = name.map { "You can now read \($0)'s team messages." } ?? "Team key received — you can read team messages."
+            sendCommand(.whoami)                     // refresh team_ch_key from the node
+        case .teamChannelNoKey:                      // an encrypted post we can't open (CL2)
             teamHasKey = false
             teamKeyPrompt = "Encrypted team post — ask a teammate to grant you the team key."
         case .peerKeySet, .peerKeyError, .reqPubkeySent:
@@ -240,6 +256,7 @@ final class AppModel {
             routes = routesAccumulator.sorted { $0.dest < $1.dest }; routesAccumulator = []
         case .cfg(let c):
             latestConfig = c
+            if let k = c.teamChKey { teamHasKey = k }        // cfg always carries it (the explicit dump)
         case .configAdopted(let lineage, let epoch, let leaf, let layer):
             membership = .adopted(lineage: lineage, epoch: epoch, leaf: leaf, layer: layer)
             joinInFlight = false; joinRefusal = nil           // a successful adopt clears the pending/refusal UI
@@ -393,28 +410,47 @@ final class AppModel {
 
     // ---- outbound ----
 
-    func sendDM(to thread: ThreadKey, body: String, requestAck: Bool = false, encrypt: Bool = false) {
+    func sendDM(to thread: ThreadKey, body: String, requestAck: Bool = false, encrypt: Bool = false,
+                attachLocation: Bool = false) {
         guard case .dm = thread, let t = target(for: thread) else { return }
         // encrypt is HASH-only (sealing needs the recipient's pubkey); a plain id-thread can't be sealed.
         let canEncrypt: Bool = { if case .hash = t { return true }; return false }()
-        compose(thread: thread, body: body, requestAck: requestAck, encrypt: encrypt && canEncrypt)
+        compose(thread: thread, body: body, requestAck: requestAck, encrypt: encrypt && canEncrypt,
+                attachLocation: attachLocation)
     }
 
-    func sendChannel(_ channelID: UInt8, body: String) {
-        // On a TEAM mobile every channel post is team-scoped by the firmware (D30 — `send_channel`
-        // auto-broadcasts to the team), so the sent copy threads under the TEAM conversation.
-        let thread: ThreadKey = teamID.map { .teamChannel(team: $0, channel: channelID) } ?? .channel(channelID)
-        compose(thread: thread, body: body)
+    /// Post to a channel. `team` selects the TEAM plane (`-t`); a team post seals when the node holds the
+    /// team content key (CL2's `team_channel_crypt` is default-ON, so this mirrors the node) — and a
+    /// location may ride ONLY inside a sealed post (channel-crypt §2.4).
+    func sendChannel(_ channelID: UInt8, body: String, team: Bool? = nil) {
+        let onTeam = team ?? (teamID != nil)
+        let thread: ThreadKey = (onTeam && teamID != nil)
+            ? .teamChannel(team: teamID!, channel: channelID) : .channel(channelID)
+        compose(thread: thread, body: body,
+                encrypt: onTeam && teamChannelWillSeal,
+                attachLocation: onTeam && teamChannelWillSeal && shareLocationInTeamPosts)
+    }
+
+    /// Will a team post actually be sealed? Only when we hold the team content key. An un-keyed overlay
+    /// member still posts (plaintext is always openable by keyholders) — it just can't seal, and therefore
+    /// cannot attach a location.
+    var teamChannelWillSeal: Bool { teamID != nil && teamHasKey == true }
+    /// User preference (default ON, owner ruling 2026-07-31): include my position in team posts. Inert
+    /// whenever the post can't be sealed — location REQUIRES the crypted flavour.
+    var shareLocationInTeamPosts: Bool {
+        UserDefaults.standard.object(forKey: "shareLocationInTeamPosts") as? Bool ?? true
     }
 
     /// Insert the outgoing message and dispatch it — or park it in the OUTBOX when there's no link
     /// (drained FIFO by `drainOutbox` on the next connect). `requestAck`/`encrypt` ride on the message.
-    private func compose(thread: ThreadKey, body: String, requestAck: Bool = false, encrypt: Bool = false) {
+    private func compose(thread: ThreadKey, body: String, requestAck: Bool = false, encrypt: Bool = false,
+                         attachLocation: Bool = false) {
         let msg = MessageEntity(id: UUID(), thread: thread, direction: .outgoing, body: body,
                                 timestamp: .now, state: isConnected ? .sending : .outbox,
                                 origin: nil, ctr: nil)
         msg.ackRequested = requestAck
         msg.crypted = encrypt                       // we requested E2E sealing → the lock marker shows
+        msg.withLocation = attachLocation           // `-l`: attach our position to THIS message
         context.insert(msg); try? context.save()
         if isConnected { dispatch(msg) }
     }
@@ -428,13 +464,19 @@ final class AppModel {
             pendingOutgoing.append(msg.id)
             sendCommand(.sendDM(.init(target: target, body: msg.body,
                                       requestAck: msg.ackRequested, encrypt: msg.crypted,
-                                      teamPlane: isTeammate(h))))   // crypted → -e (D24); teammate → -t (D30 plane split)
+                                      teamPlane: isTeammate(h),
+                                      attachLocation: msg.withLocation)))   // -e (D24) · -t (D30) · -l (2026-07-31)
         case .channel(let c):
             pendingOutgoing.append(msg.id)
-            sendCommand(.sendChannel(.init(channelID: c, body: msg.body)))
-        case .teamChannel(_, let c):                // same verb — the firmware team-scopes it (D30)
+            sendCommand(.sendChannel(.init(channelID: c, body: msg.body)))   // GLOBAL plane, plaintext
+        case .teamChannel(_, let c):
             pendingOutgoing.append(msg.id)
-            sendCommand(.sendChannel(.init(channelID: c, body: msg.body)))
+            // `-t` (+ `-e` when we hold the key). ⚠ `attachLocation` stays FALSE until T-K5 defines the
+            // console form — `send_channel -l` is `bad_args` today. Flip it here when the verb lands;
+            // the intent is already carried on the message (msg.withLocation).
+            sendCommand(.sendChannel(.init(channelID: c, body: msg.body,
+                                           teamPlane: true, encrypt: msg.crypted,
+                                           attachLocation: false)))
         }
     }
 
@@ -459,6 +501,20 @@ final class AppModel {
     }
 
     /// Unread → read for every incoming message of a thread (read state is per-phone — D14).
+    // ---- per-thread mute (phone-local, like isRead — never sent to the node) ----
+
+    private static let mutedKey = "mutedThreads"
+    private(set) var mutedThreads: Set<String> = Set(UserDefaults.standard.stringArray(forKey: mutedKey) ?? [])
+
+    func isMuted(_ thread: ThreadKey) -> Bool { mutedThreads.contains(thread.storageKey) }
+    func toggleMute(_ thread: ThreadKey) {
+        let k = thread.storageKey
+        if mutedThreads.contains(k) { mutedThreads.remove(k) } else { mutedThreads.insert(k) }
+        UserDefaults.standard.set(Array(mutedThreads), forKey: Self.mutedKey)
+    }
+    /// Unread that should reach the user: muted threads still show a count in-list but never badge or notify.
+    func countsTowardBadge(_ thread: ThreadKey) -> Bool { !isMuted(thread) }
+
     func markThreadRead(_ thread: ThreadKey) {
         for m in threadMessages(thread) where m.direction == .incoming && !m.isRead { m.isRead = true }
         try? context.save()
@@ -499,6 +555,28 @@ final class AppModel {
         else { context.insert(NodeEntity(hash32: hash.value, name: name, favorite: true)) }
         try? context.save()
     }
+
+    // ---- verification (safety numbers) + block ----
+
+    /// Record a peer's FULL pubkey learned from a scanned card, and mark the contact VERIFIED: a physical
+    /// scan is the trust ceremony (D6 — the app only ferries opaque bytes; the node does the crypto).
+    func recordVerifiedKey(hash: KeyHash, pubkeyHex: String) {
+        let n = node(for: hash) ?? { let e = NodeEntity(hash32: hash.value); context.insert(e); return e }()
+        n.pubkeyHex = pubkeyHex.lowercased()
+        n.verified = true
+        try? context.save()
+    }
+    /// Re-PIN a known full key on the node (`peerkey`) — used when the app holds a verified key but the node
+    /// may only have a TOFU copy (e.g. after a node reflash/reprovision).
+    func pinKeyOnNode(for hash: KeyHash) {
+        guard let p = node(for: hash)?.pubkeyHex, p.count == 64 else { return }
+        provisionPeerKey(p)
+    }
+    func setBlocked(_ blocked: Bool, hash: KeyHash) {
+        node(for: hash)?.blocked = blocked
+        try? context.save()
+    }
+    func isBlocked(threadHash: UInt32) -> Bool { node(for: KeyHash(threadHash))?.blocked ?? false }
 
     func resolve(_ hash: KeyHash, hard: Bool = false) { sendCommand(.resolve(.init(hash: hash, hard: hard))) }
 
@@ -556,30 +634,39 @@ final class AppModel {
         return .teamChannel(team: team, channel: 1)
     }
 
-    /// Provision this node from a scanned TEAM QR (T-K4): PHY params + the team content keypair in one verb.
+    /// Provision this node from a scanned TEAM QR (T-K4). Two steps, because the `team` verb takes only
+    /// freq/sf/bw (and REJECTS unknown keys): `team 0x<id> …` carries the team + keypair + core PHY, then
+    /// `cfg set sf_list`/`cr` apply the data-plane params the QR also carries.
     /// The app never inspects the keys — opaque hex, straight through (D6).
     func provisionTeam(from card: TeamCard) {
-        sendCommand(.teamProvision(teamIDHex: card.teamIDHex, freqMHz: card.freqMHz, bwKHz: card.bwKHz,
-                                   ctrlSF: Int(card.routingSF), sfList: card.sfList.map(String.init).joined(separator: ","),
-                                   cr: Int(card.cr), tkPubHex: card.teamChPubHex, tkPrivHex: card.teamChPrivHex))
-        sendCommand(.whoami)                          // refresh membership/team state after provisioning
-        teamHasKey = true; teamKeyPrompt = nil
+        sendCommand(.teamJoin(teamIDHex: card.teamIDHex, freqMHz: card.freqMHz, ctrlSF: Int(card.routingSF),
+                              bwKHz: card.bwKHz, tkPubHex: card.teamChPubHex, tkPrivHex: card.teamChPrivHex))
+        if !card.sfList.isEmpty {
+            sendCommand(.configSet(key: "sf_list", value: card.sfList.map(String.init).joined(separator: ",")))
+        }
+        if card.cr >= 5, card.cr <= 8 { sendCommand(.configSet(key: "cr", value: String(card.cr))) }
+        sendCommand(.whoami)                          // refresh membership/team/team_ch_key after provisioning
     }
-    /// Build the shareable TEAM QR from the connected node's team + PHY + content keypair. nil until the
-    /// node actually holds/exposes a key (the app NEVER invents key material) — the share screen then shows
-    /// its empty state. Depends on the T-K1 cfg fields (provisional names, see NodeConfigInfo).
+    /// Ask the node to disclose the team channel keypair (`team exportkey`) — the ONLY disclosure verb.
+    /// ⚠ Call this only from the share flow, never to test for presence (`teamHasKey` is the indicator).
+    func requestTeamKeyExport() {
+        exportedTeamKey = nil; teamKeyExportError = nil
+        sendCommand(.teamExportKey)
+    }
+    /// Purge the disclosed pair from memory — called when the share sheet closes.
+    func purgeExportedTeamKey() { exportedTeamKey = nil; teamKeyExportError = nil }
+
+    /// Build the shareable TEAM QR from the EXPORTED keypair (held ephemerally) + the node's current PHY.
+    /// nil until `team exportkey` has answered — the app never invents key material.
     func teamShareCard() -> TeamCard? {
-        guard let team = teamID, let idValue = UInt32(team, radix: 16), idValue != 0,
-              let cfg = latestConfig,
-              let pub = cfg.teamChPub, pub.count == 64,
-              let priv = cfg.teamChPriv, priv.count == 64 else { return nil }
+        guard let key = exportedTeamKey, key.teamID != 0, let cfg = latestConfig else { return nil }
         let sfBitmap = cfg.sfList.split(separator: ",").compactMap { Int($0.trimmingCharacters(in: .whitespaces)) }
             .reduce(UInt16(0)) { $0 | (1 << UInt16($1)) }
-        return TeamCard(teamName: membership?.leaf ?? nodeIdentity?.name ?? "",
-                        teamID: idValue,
+        return TeamCard(teamName: nodeIdentity?.name ?? "",
+                        teamID: key.teamID,
                         freqKHz: UInt32(cfg.freqHz / 1000), bwHz: cfg.bwHz,
                         routingSF: UInt8(clamping: cfg.routingSF), sfListBitmap: sfBitmap,
-                        cr: UInt8(clamping: cfg.cr), teamChPubHex: pub, teamChPrivHex: priv)
+                        cr: UInt8(clamping: cfg.cr), teamChPubHex: key.pub, teamChPrivHex: key.priv)
     }
 
     /// Grant the team content key to a vetted newjoiner (T-K3, sealed DM). Any keyholder may grant.
@@ -659,6 +746,8 @@ final class AppModel {
 
     private func notifyInboundDM(threadHash: UInt32, origin: Int, body: String) {
         guard !isForeground else { return }              // on screen → the thread updates live, no banner
+        guard !isMuted(.dm(KeyHash(threadHash))) else { return }   // muted thread: archive it, don't interrupt
+        guard !isBlocked(threadHash: threadHash) else { return }   // blocked peer: archived, never surfaced
         let title = node(for: KeyHash(threadHash))?.name ?? "Node \(origin)"
         let content = UNMutableNotificationContent()
         content.title = title
@@ -1014,7 +1103,11 @@ func describe(_ inbound: Inbound) -> String {
     case .mobileNet(let ly, let n, let f, let sf, _): return "mobile_net L\(ly) \(n ?? "?") \(f)kHz SF\(sf)"
     case .mobileGatewaysEnd(let g, let n):         return "mobile_gw_end gws=\(g) nets=\(n)"
     case .mobileError(let r):                      return "mobile_err \(r)"
-    case .teamKeyReceived(let t, let n):           return "team_key_received\(t.map { " team=\($0)" } ?? "")\(n.map { " \"\($0)\"" } ?? "")"
+    case .teamKeyReceived(let t, let h, let o, let n):
+        return "team_key_received\(t.map { " team=\($0)" } ?? "")\(h.map { " from 0x\($0.hex8)" } ?? "")\(o.map { " (id \($0))" } ?? "")\(n.map { " \"\($0)\"" } ?? "")"
+    case .teamKeyExport(let id, _, _):             return "team_key_export team_id=\(id) (⚠ private key — not logged)"
+    case .teamKeyError(let r):                     return "team_key_err \(r)"
+    case .teamKeyGrant(let h, let c, let p):       return "team_key_grant 0x\(h.hex8) ctr=\(c)\(p ? " PARKED" : "")"
     case .teamChannelNoKey(let t):                 return "team_channel_no_key\(t.map { " team=\($0)" } ?? "") — ask a teammate for the key"
     case .hashResolved(let n, let a, let h):       return "hash_resolved \(h.hex8) → node \(n)\(a ? " (auth)" : "")"
     case .ready(let r):                            return "ready id=\(r.id) key=\(r.key.hex8) sf=\(r.routingSF)"

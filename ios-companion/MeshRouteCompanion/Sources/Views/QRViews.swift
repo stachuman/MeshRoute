@@ -79,7 +79,10 @@ struct ScanContactView: View {
                             Button("Add contact") {
                                 model.addContact(name: name.isEmpty ? "0x" + card.hash.hex8 : name,
                                                  hash: card.hash)
-                                if let p = card.pubkeyHex { model.provisionPeerKey(p) }   // E2E: PIN the verified key
+                                if let p = card.pubkeyHex {
+                                    model.provisionPeerKey(p)                              // PIN it on the node
+                                    model.recordVerifiedKey(hash: card.hash, pubkeyHex: p)  // …and record it as VERIFIED here
+                                }
                                 dismiss()
                             }
                         } footer: {

@@ -15,6 +15,7 @@ struct SettingsView: View {
     @AppStorage("badgeUnread") private var badgeUnread = true
     @AppStorage("useMiles") private var useMiles = false
     @AppStorage("showCounters") private var showCounters = true
+    @AppStorage("shareLocationInTeamPosts") private var shareLocationInTeamPosts = true   // ★ default YES (owner, 2026-07-31)
     @AppStorage("encryptDefault") private var encryptDefault = false   // mirrors the Device-tab toggle (node cfg)
 
     var body: some View {
@@ -39,6 +40,23 @@ struct SettingsView: View {
                 Text("Display")
             } footer: {
                 Text("Counters are the node's per-message ids — useful when comparing against the console.")
+            }
+
+            if model.teamID != nil {
+                Section {
+                    Toggle("Include my location in team posts", isOn: $shareLocationInTeamPosts)
+                    LabeledContent("Team posts") {
+                        model.teamChannelWillSeal
+                            ? Label("Encrypted", systemImage: "lock.fill").foregroundStyle(.green)
+                            : Label("Plaintext", systemImage: "lock.open").foregroundStyle(.orange)
+                    }
+                } header: {
+                    Text("Team")
+                } footer: {
+                    Text(model.teamChannelWillSeal
+                         ? "Your position rides inside the encrypted post — only teammates holding the team key can read it."
+                         : "Location needs encryption, so it is not attached: this node holds no team key, so posts go out in clear. Ask a teammate to grant you the key.")
+                }
             }
 
             Section {

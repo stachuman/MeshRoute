@@ -45,7 +45,13 @@ final class NodeEntity {
     var battMv: Int?                           // last-known battery (firmware-gated)
     var linkScoreQ4: Int?                      // route score (Q4 dB) when reachable
     var hops: Int?                             // route distance when reachable
-    var verified: Bool = false                 // key PINNED via a QR scan (safety-numbers) vs on-air TOFU
+    var verified: Bool = false                 // the human compared keys in person (QR scan) — vs on-air TOFU
+    var pubkeyHex: String?                     // the peer's FULL ed_pub (64 hex) when we've learned it from a
+                                               // scanned card. Opaque bytes (D6) — kept so the user can COMPARE
+                                               // it in person; `key_hash32` alone is grindable and proves nothing.
+    var blocked: Bool = false                  // app-side: hide this peer's threads, never notify. The radio
+                                               // still receives (we can't mute the air) — messages are archived,
+                                               // just not surfaced. Phone-local, never sent to the node.
     var peerName: String?                      // the peer's SELF-REPORTED name (rides the pubkey exchange, D30/S6).
                                                // Distinct from `name` (user-given) — auto-label ≠ auto-contact.
     var teamID: String?                        // D30 three-plane contacts: this node is a TEAMMATE on team_id (hex string).
@@ -94,6 +100,7 @@ final class MessageEntity {
     var ackRequested: Bool = false // outgoing: an E2E delivery ack was requested (the -a flag, D16)
     var failReason: String?        // outgoing fail reason (E2E): "no_pubkey" → offer Request-key/Scan; "key_ready"
                                    // → set when peer_key_cached arrives so the bubble offers a secure resend.
+    var withLocation: Bool = false // outgoing: this DM asked to carry our position (the `-l` flag, 2026-07-31)
     var teamID: String?            // channel messages only (D30): the team_id hex string when team-scoped;
                                    // nil = a leaf channel. Display scoping for team chat (identity keys unchanged).
 

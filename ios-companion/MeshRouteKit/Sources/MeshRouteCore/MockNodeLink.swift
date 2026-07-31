@@ -115,6 +115,14 @@ public actor MockNodeLink: NodeLink {
                 emit(#"{"ev":"reqpubkey_sent","hash":\#(h.value)}"#)
                 emit(#"{"ev":"peer_key_cached","hash":\#(h.value),"pinned":false,"name":"Peer \#(knownPeers[h] ?? 0)"}"#)   // mutual answer + the S6 name
             }
+        case "team":                                         // T-K1b/T-K3 demo: exportkey / grantkey / join
+            if tokens.first == "exportkey" {
+                emit(#"{"ev":"team_key_export","team_id":3435905025,"tkpub":"\#(String(repeating: "ab", count: 32))","tkpriv":"\#(String(repeating: "cd", count: 32))"}"#)
+            } else if tokens.first == "grantkey" {
+                emit(#"{"ev":"team_key_grant","hash":3735928559,"ctr":1234,"parked":false}"#)
+            } else {                                         // `team <0xid> …` (join/adopt) → membership refreshes on whoami
+                emit(#"{"log":"mock: team join \#(tokens.joined(separator: " "))"}"#)
+            }
         case "mobile":                                       // D30/S3: roam-screen demo data (a registered team mobile)
             switch tokens.first {
             case "status":

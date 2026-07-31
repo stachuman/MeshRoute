@@ -28,17 +28,36 @@ public struct SendDM: Hashable, Sendable {
     public var teamPlane: Bool      // the `-t` flag (D30 plane split): route on the TEAM overlay. With .id the id
                                     // is a team_local_id (a DISTINCT id space); with .hash it team-H-flood-resolves.
                                     // Without -t a teammate is NOT reachable (global/home plane → no_route).
+    public var attachLocation: Bool // the `-l` flag (2026-07-31, B0): attach THIS node's position to THIS message.
+                                    // ⚠ Location requires encryption — a `-l` DM that can't be sealed REFUSES
+                                    // (`unsealable`), and no fix REFUSES (`no_location`). It never sends without it.
     public init(target: DMTarget, body: String, requestAck: Bool = false, encrypt: Bool = false,
-                teamPlane: Bool = false) {
+                teamPlane: Bool = false, attachLocation: Bool = false) {
         self.target = target; self.body = body; self.requestAck = requestAck; self.encrypt = encrypt
-        self.teamPlane = teamPlane
+        self.teamPlane = teamPlane; self.attachLocation = attachLocation
     }
 }
 
 public struct SendChannelPost: Hashable, Sendable {
     public var channelID: UInt8     // 0…255
     public var body: String
-    public init(channelID: UInt8, body: String) { self.channelID = channelID; self.body = body }
+    /// `-t` — post on the TEAM plane (team_id-scoped). Plain = GLOBAL (channel-crypt spec §2.2 matrix).
+    public var teamPlane: Bool
+    /// `-e` — seal the post to the team channel key. ⚠ VALID ONLY WITH `-t`: there is no key for a global
+    /// channel, and `-e` without `-t` REFUSES. (`-t -g -e` also refuses — it would air an identical CLEAR
+    /// global copy and defeat the encryption. The app never offers `-g`, so that trap is unreachable here.)
+    public var encrypt: Bool
+    /// Attach this node's position as the post's `inner_type = 1`. ⚠ REQUIRES the crypted flavour — a
+    /// location in a plaintext channel post is the same leak, broadcast wider. ⚠ NOT YET ON THE WIRE: the
+    /// console form is undefined (today `send_channel -l` = `bad_args`), so callers must leave this false
+    /// until T-K5 lands; the encoder below is ready for it.
+    public var attachLocation: Bool
+
+    public init(channelID: UInt8, body: String, teamPlane: Bool = false, encrypt: Bool = false,
+                attachLocation: Bool = false) {
+        self.channelID = channelID; self.body = body
+        self.teamPlane = teamPlane; self.encrypt = encrypt; self.attachLocation = attachLocation
+    }
 }
 
 public struct ResolveRequest: Hashable, Sendable {
@@ -75,11 +94,13 @@ public enum Command: Hashable, Sendable {
     case mobileRegister                           // "mobile register" — (re-)register on the current PHY
     case mobileRegisterScan                       // "mobile register scan" — cycle the learned networks
     case mobileRegisterTarget(freqKHz: Int, sf: Int, bwHz: Int)   // target a `mobile_net` row (integer wire units → MHz/kHz tokens)
-    /// Provision a team from a scanned team QR (team-encrypted-channel T-K4): the overlay/PHY params AND
-    /// the team channel keypair in one verb. ⚠ The exact token names are the firmware's to confirm when
-    /// the slice lands (spec §1 `team new key=… freq= sf= bw= sf_list=…` + §2.4 `tkpub=`/`tkpriv=`).
-    case teamProvision(teamIDHex: String, freqMHz: Double, bwKHz: Double, ctrlSF: Int,
-                       sfList: String, cr: Int, tkPubHex: String, tkPrivHex: String)
+    /// Join a team from a scanned team QR (T-K1/T-K4), adopting its channel keypair:
+    ///   `team <0xid> [freq=<MHz> sf=<5-12> bw=<kHz>] tkpub=<64 hex> tkpriv=<64 hex>`
+    /// ⚠ The id MUST carry `0x` (2026-07-30 grammar: a bare `88A672BA` would join *team 88*), and the verb
+    /// REJECTS unknown keys — it takes freq/sf/bw only (no `sf_list=`/`cr=`).
+    case teamJoin(teamIDHex: String, freqMHz: Double?, ctrlSF: Int?, bwKHz: Double?,
+                  tkPubHex: String?, tkPrivHex: String?)
+    case teamExportKey                            // "team exportkey" → team_key_export | team_key_err (⚠ discloses the PRIVATE key)
     case teamGrantKey(KeyHash)                    // "team grantkey 0x<hash>" — sealed TEAM_KEY_GRANT to a vetted joiner (T-K3)
     // Leaf provisioning (R6 / D26) — key=value wire (2026-07-03, mirrors gateway; order-free). live, no reboot. freq = MHz (float); bw = kHz (FRACTIONAL — 62.5/41.67/31.25); dutyPercent = % (FRACTIONAL — 0.1 = the tight EU sub-band); layer=1..255 network id (wire leaf nibble = layer & 0x0F).
     case join(freqMHz: Double, bwKHz: Double, ctrlSF: Int, layer: Int)
@@ -103,9 +124,14 @@ public enum Command: Hashable, Sendable {
             if dm.requestAck      { s += " -a" }
             if dm.encrypt, isHash { s += " -e" }   // -e only on a hash target
             if dm.teamPlane       { s += " -t" }   // the ONLY way onto the team overlay
+            if dm.attachLocation  { s += " -l" }   // attach this node's position to THIS message
             return s
         case .sendChannel(let p):
-            return "send_channel \(p.channelID) \"\(Self.wireBody(p.body))\""
+            var s = "send_channel \(p.channelID) \"\(Self.wireBody(p.body))\""
+            if p.teamPlane { s += " -t" }
+            if p.encrypt, p.teamPlane { s += " -e" }          // -e is meaningless (and REFUSED) without -t
+            if p.attachLocation, p.teamPlane, p.encrypt { s += " -l" }   // location requires the crypted flavour
+            return s
         case .resolve(let r):
             return r.hard ? "resolve 0x\(r.hash.hex8) hard" : "resolve 0x\(r.hash.hex8)"   // 0x-prefixed (D30)
         case .whoami:                       return "whoami"
@@ -129,10 +155,14 @@ public enum Command: Hashable, Sendable {
         case .mobileRegisterTarget(let khz, let sf, let bwHz):
             // wire args: freq in MHz (float token), bw in kHz (may be fractional — 62500 Hz → "62.5")
             return "mobile register freq=\(Self.freqToken(Double(khz) / 1000)) sf=\(sf) bw=\(Self.freqToken(Double(bwHz) / 1000))"
-        case .teamProvision(let id, let f, let bw, let sf, let sfList, let cr, let pub, let priv):
-            let sfs = sfList.replacingOccurrences(of: " ", with: "")
-            return "team key=\(id) freq=\(Self.freqToken(f)) bw=\(Self.freqToken(bw)) sf=\(sf)"
-                 + " sf_list=\(sfs) cr=\(cr) tkpub=\(pub) tkpriv=\(priv)"
+        case .teamJoin(let id, let f, let sf, let bw, let pub, let priv):
+            var s = "team 0x\(id)"                                   // 0x REQUIRED (2026-07-30 grammar)
+            if let f  { s += " freq=\(Self.freqToken(f))" }          // MHz
+            if let sf { s += " sf=\(sf)" }                            // 5..12 (required alongside freq)
+            if let bw { s += " bw=\(Self.freqToken(bw))" }            // kHz, fractional ok
+            if let pub, let priv { s += " tkpub=\(pub) tkpriv=\(priv)" }   // both or neither
+            return s
+        case .teamExportKey:                return "team exportkey"
         case .teamGrantKey(let h):          return "team grantkey 0x\(h.hex8)"
         case .join(let f, let bw, let sf, let lyr):
             return "join layer=\(lyr) freq=\(Self.freqToken(f)) bw=\(Self.freqToken(bw)) sf=\(sf)"      // key=value; bw compact (62.5 / 125), wire leaf nibble = layer & 0x0F

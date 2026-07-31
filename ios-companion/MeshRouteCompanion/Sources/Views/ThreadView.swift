@@ -14,6 +14,7 @@ struct ThreadView: View {
     @State private var draft = ""
     @State private var requestAck = false       // per-message E2E delivery-ack toggle (DM only, D16)
     @State private var encrypt = false          // per-message E2E encrypt toggle (the -e flag, D24)
+    @State private var attachLocation = false   // per-message location (-l, 2026-07-31); DM-only, requires sealing
     @AppStorage("encryptDefault") private var encryptDefault = false   // the app's default lock state (e2e_dm)
     private var isDM: Bool { if case .dm = thread { return true }; return false }
     /// Encryption seals by hash → only a real key_hash32 thread (not an unresolved pseudo-id) can encrypt.
@@ -52,13 +53,28 @@ struct ThreadView: View {
                 }
             }
             Divider()
+            if case .teamChannel = thread {     // CL2: what will actually go out — sealed? with a position?
+                HStack(spacing: 5) {
+                    Image(systemName: model.teamChannelWillSeal ? "lock.fill" : "lock.open")
+                        .foregroundStyle(model.teamChannelWillSeal ? Color.green : .orange)
+                    Text(model.teamChannelWillSeal ? "Encrypted to your team" : "Plaintext — no team key")
+                    if model.teamChannelWillSeal && model.shareLocationInTeamPosts {
+                        Image(systemName: "location.fill").foregroundStyle(Color.accentColor)
+                        Text("+ location")
+                    }
+                    Spacer()
+                }
+                .font(.caption2).foregroundStyle(.secondary)
+                .padding(.horizontal, 12).padding(.top, 3)
+            }
             if let hint = pacingHint {
                 Text(hint).font(.caption2).foregroundStyle(.orange)
                     .frame(maxWidth: .infinity, alignment: .leading).padding(.horizontal, 12).padding(.top, 3)
             }
             ComposeBar(text: $draft, byteLimit: byteLimit,
                        requestAck: isDM ? $requestAck : nil,
-                       encrypt: canEncrypt ? $encrypt : nil, onSend: send)
+                       encrypt: canEncrypt ? $encrypt : nil,
+                       attachLocation: isDM ? $attachLocation : nil, onSend: send)
         }
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
@@ -92,7 +108,8 @@ struct ThreadView: View {
         let body = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !body.isEmpty else { return }
         switch thread {
-        case .dm:                     model.sendDM(to: thread, body: body, requestAck: requestAck, encrypt: encrypt)
+        case .dm:                     model.sendDM(to: thread, body: body, requestAck: requestAck,
+                                                   encrypt: encrypt, attachLocation: attachLocation)
         case .channel(let c):         model.sendChannel(c, body: body)
         case .teamChannel(_, let c):  model.sendChannel(c, body: body)   // same verb — the firmware team-scopes it (D30)
         }
@@ -125,6 +142,9 @@ struct MessageBubble: View {
                     Image(systemName: message.crypted ? "lock.fill" : "lock.open")
                         .font(.system(size: 9))
                         .foregroundStyle(message.crypted ? Color.green : Color.secondary)
+                    if outgoing && message.withLocation {   // this DM carried our position (-l)
+                        Image(systemName: "location.fill").font(.system(size: 9)).foregroundStyle(Color.accentColor)
+                    }
                     if outgoing && message.ackRequested && message.state != .deliveredE2E {   // "ack requested, pending"; once delivered the badge's filled seal shows it (D25)
                         Image(systemName: "checkmark.seal").font(.system(size: 9)).foregroundStyle(.tertiary)
                     }
@@ -168,6 +188,21 @@ struct MessageBubble: View {
                             Label("No home network — register on the Device tab, then retry", systemImage: "antenna.radiowaves.left.and.right.slash")
                                 .font(.caption2).foregroundStyle(.orange)
                         }.buttonStyle(.plain)
+                    case "no_location":          // -l asked for a position and the node has NO FIX.
+                        // ★ NOT an encryption problem — never prompt for keys here (contract, 2026-07-31).
+                        Text("No position yet — set the node's location or wait for a GPS fix, then retry.")
+                            .font(.caption2).foregroundStyle(.orange)
+                    case "unsealable":           // the DM could not be sealed; location REQUIRES encryption
+                        VStack(alignment: .trailing, spacing: 1) {
+                            Text("Can't send location unencrypted").font(.caption2).foregroundStyle(.orange)
+                            Text("Turn on the lock, or get this contact's key (Request key / scan their QR).")
+                                .font(.caption2).foregroundStyle(.secondary)
+                            if message.threadHash > 254 {   // offer the key request — never auto-issued
+                                Button { model.requestPubkey(KeyHash(message.threadHash)) } label: {
+                                    Label("Request key", systemImage: "key.radiowaves.forward").font(.caption2)
+                                }.buttonStyle(.plain)
+                            }
+                        }
                     case "no_cts", "no_ack":     // D29: a DM gave up after CTS/ACK-timeout retries
                         Button { model.retry(message) } label: {
                             Label("Not delivered (\(message.failReason == "no_cts" ? "no route/CTS" : "no ACK")) — tap to retry",
@@ -192,6 +227,7 @@ struct ComposeBar: View {
     var byteLimit: Int
     var requestAck: Binding<Bool>?    // nil = no toggle (channels); a binding = show the per-message ack toggle
     var encrypt: Binding<Bool>?       // nil = can't encrypt (id-thread/channel); a binding = show the lock toggle
+    var attachLocation: Binding<Bool>?  // nil = no `-l` here (channels); a binding = show the location toggle
     var onSend: () -> Void
 
     var body: some View {
@@ -208,6 +244,13 @@ struct ComposeBar: View {
                             .font(.title3).foregroundStyle(enc.wrappedValue ? Color.green : .secondary)
                     }
                     .accessibilityLabel("Encrypt this message")
+                }
+                if let loc = attachLocation {   // `-l`: attach this node's position to THIS message (never node-wide)
+                    Button { loc.wrappedValue.toggle() } label: {
+                        Image(systemName: loc.wrappedValue ? "location.fill" : "location")
+                            .font(.title3).foregroundStyle(loc.wrappedValue ? Color.accentColor : .secondary)
+                    }
+                    .accessibilityLabel("Attach my location to this message")
                 }
                 if let ack = requestAck {     // request E2E delivery confirmation for this message (off by default, D16)
                     Button { ack.wrappedValue.toggle() } label: {

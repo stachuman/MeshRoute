@@ -195,6 +195,50 @@ final class PushDecoderTests: XCTestCase {
         XCTAssertNil(s.mobile); XCTAssertNil(s.team); XCTAssertNil(s.teamLocal); XCTAssertNil(s.hosting)
     }
 
+    func testTeamKeyEvents() {     // T-K1b/T-K3 as-built 2026-07-29 — refusals are DISTINCT events, never null-bearing
+        let pub = String(repeating: "ab", count: 32), priv = String(repeating: "cd", count: 32)
+        guard case .teamKeyExport(let id, let p, let s)? = PushDecoder.decode(
+            line: #"{"ev":"team_key_export","team_id":858993459,"tkpub":"\#(pub)","tkpriv":"\#(priv)"}"#) else {
+            return XCTFail("not team_key_export")
+        }
+        XCTAssertEqual(id, 858993459); XCTAssertEqual(p, pub); XCTAssertEqual(s, priv)
+        guard case .teamKeyError(let r)? = PushDecoder.decode(line: #"{"ev":"team_key_err","reason":"no_key"}"#) else {
+            return XCTFail("not team_key_err")
+        }
+        XCTAssertEqual(r, "no_key")
+        // a grant we sent: ctr 0 + parked:true = held behind a hash resolve (explicit, never inferred)
+        guard case .teamKeyGrant(let h, let ctr, let parked)? = PushDecoder.decode(
+            line: #"{"ev":"team_key_grant","hash":3735928559,"ctr":1234,"parked":false}"#) else {
+            return XCTFail("not team_key_grant")
+        }
+        XCTAssertEqual(h, KeyHash(0xDEAD_BEEF)); XCTAssertEqual(ctr, 1234); XCTAssertFalse(parked)
+        guard case .teamKeyGrant(_, let ctr0, let parked0)? = PushDecoder.decode(
+            line: #"{"ev":"team_key_grant","hash":1,"ctr":0,"parked":true}"#) else { return XCTFail() }
+        XCTAssertEqual(ctr0, 0); XCTAssertTrue(parked0)
+        // an arriving grant — already adopted; `name` is omit-when-absent and NOT persisted on the node
+        guard case .teamKeyReceived(let team, let gh, let origin, let name)? = PushDecoder.decode(
+            line: #"{"ev":"team_key_received","team":"cccc0001","hash":2712847316,"origin":213,"name":"Alpha Team"}"#) else {
+            return XCTFail("not team_key_received")
+        }
+        XCTAssertEqual(team, "cccc0001"); XCTAssertEqual(gh, KeyHash(2712847316))
+        XCTAssertEqual(origin, 213); XCTAssertEqual(name, "Alpha Team")
+        guard case .teamKeyReceived(_, _, _, let noName)? = PushDecoder.decode(
+            line: #"{"ev":"team_key_received","team":"00000011","hash":7,"origin":1}"#) else { return XCTFail() }
+        XCTAssertNil(noName)
+    }
+
+    func testTeamLockStateInReadyAndCfg() {     // T-K1b `team_ch_key` — the indicator; the PAIR is never here
+        guard case .ready(let r)? = PushDecoder.decode(
+            line: #"{"ev":"ready","id":17,"key":"8a3f1c02","leaf_id":0,"mode":"mobile","gateway":false,"routing_sf":9,"team":"cccc0001","team_local":9,"team_ch_key":true}"#) else {
+            return XCTFail("not ready")
+        }
+        XCTAssertEqual(r.teamChKey, true)
+        // teamless ⇒ omitted entirely (S1's omit-when-inactive rule)
+        guard case .ready(let s)? = PushDecoder.decode(
+            line: #"{"ev":"ready","id":1,"key":"8a3f1c02","leaf_id":0,"mode":"node","gateway":false,"routing_sf":7}"#) else { return XCTFail() }
+        XCTAssertNil(s.teamChKey)
+    }
+
     func testPeerKeyProvisioningEvents() {     // E2E peer-key provisioning (2026-06-16)
         XCTAssertEqual(Command.peerKey(pubkeyHex: String(repeating: "ab", count: 32)).line,
                        "peerkey " + String(repeating: "ab", count: 32))

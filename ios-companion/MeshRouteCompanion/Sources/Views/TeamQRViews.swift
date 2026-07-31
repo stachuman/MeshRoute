@@ -15,14 +15,21 @@ struct ShareTeamView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var revealed = false
 
-    /// Built from the connected node's team + its current PHY. The keypair comes from the node — until the
-    /// firmware slice exposes it, the card can't be rendered (we never invent key material).
+    /// Built from the node's PHY + the keypair disclosed by `team exportkey` (held ephemerally, purged on
+    /// dismiss). nil until the export answers — the app never invents key material.
     private var card: TeamCard? { model.teamShareCard() }
 
     var body: some View {
         NavigationStack {
             Group {
-                if let card {
+                if let reason = model.teamKeyExportError {
+                    ContentUnavailableView(
+                        reason == "no_key" ? "This node holds no team key" : "This node is not in a team",
+                        systemImage: "key.slash",
+                        description: Text(reason == "no_key"
+                            ? "Create a team (which mints a key) or ask a teammate to grant you one."
+                            : "Join or create a team first — a key without a team can't be shared."))
+                } else if let card {
                     ScrollView {
                         VStack(spacing: 16) {
                             warning
@@ -54,13 +61,14 @@ struct ShareTeamView: View {
                         .padding()
                     }
                 } else {
-                    ContentUnavailableView("No team key to share", systemImage: "person.3.slash",
-                        description: Text("Connect to a node that is on a team and holds the team key. Create a team with a key, or ask a teammate to grant you one."))
+                    ProgressView("Reading the team key from the node…")
                 }
             }
             .navigationTitle("Share team")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            .onAppear { model.requestTeamKeyExport() }     // `team exportkey` — the single disclosure verb
+            .onDisappear { model.purgeExportedTeamKey() }  // ⚠ never outlive the share flow
         }
     }
 

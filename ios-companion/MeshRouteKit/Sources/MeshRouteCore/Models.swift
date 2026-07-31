@@ -28,6 +28,17 @@ public enum ThreadKey: Hashable, Sendable {
     case dm(KeyHash)
     case channel(UInt8)
     case teamChannel(team: String, channel: UInt8)   // team = the team_id hex string (as on the wire)
+
+    /// A stable string form for phone-local per-thread settings (mute). Not a wire format.
+    public var storageKey: String {
+        switch self {
+        case .dm(let h):                 return "dm:\(h.hex8)"
+        case .channel(let c):            return "ch:\(c)"
+        case .teamChannel(let t, let c): return "team:\(t):\(c)"
+        }
+    }
+    /// A DM is a person-to-person message — the app weights these above broadcast traffic.
+    public var isDirect: Bool { if case .dm = self { return true }; return false }
 }
 
 public enum MessageDirection: String, Hashable, Sendable, Codable {

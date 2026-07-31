@@ -6,21 +6,34 @@
 > owner-ruled but not built**, so the app team can plan — and so nobody implements against a surface that is about
 > to move. **QA writes each section into this document as its slice lands; a coder never edits this file.**
 >
-> ### ★★ ACT ON THIS ONE NOW — `loc_dm` is being REMOVED
-> `loc_in_dm` / `CfgOut.loc_dm` **and its `TAG_CFG_*` TLV** are being deleted, not deprecated. Location becomes a
-> **per-send `-l` flag** instead (owner ruling 2026-07-30). ⇒ **if the app reads or writes `loc_dm` today, stop
-> now** rather than after the slice lands. ★ The retired TLV number will be **RETIRED, never reused** — do not
-> assume that tag can mean something else later.
-> ⚠ It also carries **`kVersion` 22 → 23**, so **expect an unprovisioned node on first contact after that flash**
+> ### ✅ ★★ DONE 2026-07-31 (`§loc-per-send`) — `loc_dm` IS GONE, and `-l` IS LIVE
+> **This one has landed** (register **B0** closed — it was a live leak: a plaintext DM aired the node's coordinates in the
+> clear). ★ **`loc_in_dm` / `CfgOut.loc_dm` and TLV `0x18` are DELETED, not deprecated** — the `cfg` text dump no longer
+> prints `loc_dm=`, and **`0x18` is RETIRED and must NEVER be reused**: an app still writing it is silently ignored
+> (`dec_cfg`'s `default: break;`), which is precisely why the number can never mean anything else later.
+> ★★ **New grammar:** `send <id|0xhash> "<text>" [-a] [-e] [-t] [-l]` — **`-l`** attaches this node’s position to **that one
+> message**. There is no longer any node-level location setting to read or write.
+> ⚠ **`send_layer -l` is REFUSED** (`err_unsupported` + `send_failed{unsealable}`) — cross-layer cannot carry a position
+> (the SEALED_RELAY body has no flags word; extending it is a future wire change). **`send_channel` has no `-l`** →
+> `bad_args`; a channel location stays T-K2/T-K5’s `inner_type = 1`.
+> ★★ **A `-l` send REFUSES rather than sending without the position** — three cases, and the app must surface each:
+> • **`send_failed{reason:"unsealable"}`** — the DM would not be sealed. Remedy: `-e`, `cfg set e2e_dm 1`, or acquire the
+> peer's key. ⚠ **`unsealable` now has TWO meanings** (it already covered a team-key grant that could not travel sealed).
+> • **`send_failed{reason:"no_location"}`** — ★ **NEW enum value, appended:** `-l` asked for a position and the node has
+> **no fix**. Remedy: set `lat`/`lon` or wait for GPS. **This is NOT an encryption problem** — do not prompt for keys.
+> • an oversize body refuses as **`too_large`** from the seal (the location rides inside the sealed inner).
+> ★ **App-facing consequence worth designing for:** a `-l` DM to a peer whose key you do not hold **will refuse**. Surface
+> `reqpubkey`/QR to the user — **do not silently retry**, and do not auto-issue `reqpubkey` (standing owner ruling).
+> ⚠ It also carried **`kVersion` 22 → 23**, so **expect an unprovisioned node on first contact after that flash**
 > (the second such bump; T-K1 was the first). `/mrid` identity and `/mrpeers` are unaffected.
 >
 > ### From `2026-07-30-channel-crypt-and-location-privacy-design.md`
 > - **`send_channel … -e`** — encrypted team channel posts, plus a four-case flag matrix in which **two
 >   combinations REFUSE**: `-e` without `-t` (there is no key for a global channel), and **`-t -g -e`** (BOTH would
 >   air an identical copy in clear and defeat the encryption).
-> - **`-l` on `send` / `send_layer`** with three loud refusals: not-sealed, no-fix, does-not-fit. ⚠ **`-l` is
->   deliberately NOT on `send_channel`** — a channel location is T-K2's `inner_type = 1`, an *alternative* payload,
->   and belongs to T-K5.
+> - ~~**`-l` on `send` / `send_layer`**~~ ✅ **SHIPPED 2026-07-31 — see the DONE box above** for the as-built grammar. Two
+>   deltas from this line: **`send_layer -l` refuses**, and the does-not-fit case reports **`too_large`** from the seal
+>   rather than its own reason (a dedicated gate was measured unreachable). `-l` is still **NOT** on `send_channel`.
 > - `enc:true` on `channel_recv` / `inbox_channel`; the **`team_channel_no_key`** push; `team_channel_crypt` config.
 > - ⚠ **A drift fix owed here:** line ~28 below claims *"`send_channel`/`send_layer` REJECT `-t`"*. **False for
 >   `send_channel`** — only `send_layer` rejects it.
@@ -559,9 +572,16 @@ mobile status                         # this mobile's registration + current PHY
 team new              # MINT a fresh team_id = hash(key‖nonce) → this node is the team creator
 team <hex_id>         # JOIN an existing team by id
 team 0                # LEAVE
-cfg set team_id <hex> # same as `team <hex>` (granular setter; preserved across join/create like `mobile`)
+# ★★ REMOVED 2026-07-31 (§team-id-cfg-removal): `cfg set team_id` NO LONGER EXISTS -> `unknown_key`.
+# Use `team <hex>` / `team new` / `team 0`. Those three are now the WHOLE surface. The key was an unguarded
+# duplicate: it accepted `exportky` (-> LEAVE the team), `88A672BA` (-> team 88) and out-of-range values
+# (-> garbage team on the 32-bit boards). ⓘ team_id STAYS fully readable: `cfg`/`status` text, the JSON, and
+# binary TLV 0x12 in enc_cfg/dec_cfg are ALL unchanged -- tag 0x18 (loc_dm) was retired, 0x12 is NOT.
 ```
-- Persisted (NV v18). A team is `is_mobile`+`team_id` — a mobile joins a team on its layer. **State:** the `team` field in `ready` (above) + `status` shows `team=0x…`.
+- Persisted (NV v18). A team is `is_mobile`+`team_id` — a mobile joins a team on its layer. ★ **And that pairing is
+  becoming ENFORCED** (owner ruling 2026-07-31, spec `2026-07-31-node-role-model-design.md`): adopting a team will
+  **auto-set `is_mobile`**, `cfg set mobile 0` will **refuse while in a team**, and `is_gateway`+mobile will be refused.
+  ⇒ **the app should treat "team ⇒ mobile" as an invariant, not a coincidence**, and must not try to set them apart. **State:** the `team` field in `ready` (above) + `status` shows `team=0x…`.
 
 ### Team channel — group chat (6.3, IN PROGRESS)
 A team channel = a `team_id`-scoped channel: any member broadcasts, only same-team members receive; static nodes never see it. Rides the existing channel surface with a **team_id** tag:

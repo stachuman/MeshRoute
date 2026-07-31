@@ -85,14 +85,51 @@ final class CommandEncoderTests: XCTestCase {
                        "mobile register freq=869 sf=7 bw=62.5")
     }
 
-    func testTeamKeyVerbs() {     // team-encrypted-channel T-K3/T-K4 (⚠ token names pending firmware confirmation)
-        XCTAssertEqual(Command.teamProvision(teamIDHex: "cccc0001", freqMHz: 869.525, bwKHz: 125, ctrlSF: 9,
-                                             sfList: "7, 9", cr: 5,
-                                             tkPubHex: String(repeating: "ab", count: 32),
-                                             tkPrivHex: String(repeating: "cd", count: 32)).line,
-                       "team key=cccc0001 freq=869.525 bw=125 sf=9 sf_list=7,9 cr=5 tkpub="
-                       + String(repeating: "ab", count: 32) + " tkpriv=" + String(repeating: "cd", count: 32))
+    func testTeamKeyVerbs() {     // as-built 2026-07-29/30: `team <0xid> [freq= sf= bw=] [tkpub= tkpriv=]`
+        let pub = String(repeating: "ab", count: 32), priv = String(repeating: "cd", count: 32)
+        // ★ the id MUST carry 0x — a bare `cccc0001` would join *team 0* … or worse (2026-07-30 grammar)
+        XCTAssertEqual(Command.teamJoin(teamIDHex: "cccc0001", freqMHz: 869.525, ctrlSF: 9, bwKHz: 125,
+                                        tkPubHex: pub, tkPrivHex: priv).line,
+                       "team 0xcccc0001 freq=869.525 sf=9 bw=125 tkpub=\(pub) tkpriv=\(priv)")
+        // the verb REJECTS unknown keys — no sf_list=/cr= here (they go via `cfg set`)
+        XCTAssertFalse(Command.teamJoin(teamIDHex: "cccc0001", freqMHz: 869, ctrlSF: 9, bwKHz: 125,
+                                        tkPubHex: pub, tkPrivHex: priv).line.contains("sf_list="))
+        // a plain join with no PHY / no keys
+        XCTAssertEqual(Command.teamJoin(teamIDHex: "00000011", freqMHz: nil, ctrlSF: nil, bwKHz: nil,
+                                        tkPubHex: nil, tkPrivHex: nil).line, "team 0x00000011")
+        XCTAssertEqual(Command.teamExportKey.line, "team exportkey")
         XCTAssertEqual(Command.teamGrantKey(KeyHash(0x8a3f_1c02)).line, "team grantkey 0x8a3f1c02")
+    }
+
+    func testChannelPlaneAndCryptMatrix() {     // channel-crypt §2.2 — the app must never emit a REFUSING combination
+        XCTAssertEqual(Command.sendChannel(.init(channelID: 3, body: "gm")).line,
+                       #"send_channel 3 "gm""#)                                   // GLOBAL, plaintext
+        XCTAssertEqual(Command.sendChannel(.init(channelID: 3, body: "gm", teamPlane: true)).line,
+                       #"send_channel 3 "gm" -t"#)                                // TEAM, plaintext (un-keyed member)
+        XCTAssertEqual(Command.sendChannel(.init(channelID: 3, body: "gm", teamPlane: true, encrypt: true)).line,
+                       #"send_channel 3 "gm" -t -e"#)                             // ★ the new capability
+        // ❌ `-e` without `-t` REFUSES on the node (no key for a global channel) — the encoder must not emit it
+        XCTAssertEqual(Command.sendChannel(.init(channelID: 3, body: "gm", encrypt: true)).line,
+                       #"send_channel 3 "gm""#)
+        // location rides ONLY inside a sealed post (§2.4): never emitted plaintext, never off-team
+        XCTAssertEqual(Command.sendChannel(.init(channelID: 3, body: "gm", teamPlane: true, encrypt: true,
+                                                 attachLocation: true)).line,
+                       #"send_channel 3 "gm" -t -e -l"#)
+        XCTAssertEqual(Command.sendChannel(.init(channelID: 3, body: "gm", teamPlane: true,
+                                                 attachLocation: true)).line,
+                       #"send_channel 3 "gm" -t"#)                                // unsealed ⇒ no -l
+    }
+
+    func testLocationFlag() {     // `-l` per-send location (2026-07-31, B0 — `cfg set loc_dm` is GONE)
+        let h = KeyHash(0x8a3f1c02)
+        XCTAssertEqual(Command.sendDM(.init(target: .hash(h), body: "here", attachLocation: true)).line,
+                       #"send 0x8a3f1c02 "here" -l"#)
+        // flag order stays -a -e -t -l
+        XCTAssertEqual(Command.sendDM(.init(target: .hash(h), body: "here", requestAck: true, encrypt: true,
+                                            teamPlane: true, attachLocation: true)).line,
+                       #"send 0x8a3f1c02 "here" -a -e -t -l"#)
+        // off by default — an ordinary send is untouched
+        XCTAssertFalse(Command.sendDM(.init(target: .hash(h), body: "hi")).line.contains("-l"))
     }
 
     func testResolve() {
